@@ -131,11 +131,11 @@ Decl action_violates(Action, Predicate, Args) bound [/name, /string, /string].
 
 # checkpoint_needed() - True when checkpoint interval (600s) has elapsed
 # Computed by Go based on last_checkpoint_time vs current_time
-Decl checkpoint_needed().
+Decl checkpoint_needed() bound [].
 
 # ooda_timeout() - True when OODA loop has stalled (30s+ without action)
 # Computed by Go based on last_action_time vs current_time
-Decl ooda_timeout().
+Decl ooda_timeout() bound [].
 
 # atom_final_order(AtomID, Order) - Computed ordering for final_atom
 # Order = (CategoryOrder * 1000) + Score, computed by Go
@@ -147,7 +147,7 @@ Decl unhandled_case_count_computed(ShardName, Count) bound [/string, /number].
 
 # high_element_count_flag() - True when code_element count >= 5
 # Aggregation-based rules can't be validated statically; Go computes this
-Decl high_element_count_flag().
+Decl high_element_count_flag() bound [].
 
 # pending_subtask_count_computed(Count) - Count of pending subtasks
 # Aggregation computed by Go runtime

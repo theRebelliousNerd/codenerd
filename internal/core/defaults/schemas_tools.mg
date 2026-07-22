@@ -56,7 +56,7 @@ Decl tool_compiled(ToolName) bound [/string].
 Decl generation_state(ToolName, State) bound [/string, /name].
 
 # has_active_generation - helper for safe negation (true if any generation in progress)
-Decl has_active_generation().
+Decl has_active_generation() bound [].
 
 # is_tool_registered(ToolName) - helper for safe negation in tool registration check
 Decl is_tool_registered(ToolName) bound [/string].
@@ -291,7 +291,7 @@ Decl tool_compilation_failed(ToolName, ErrorMessage) bound [/string, /string].
 # -----------------------------------------------------------------------------
 
 # has_current_intent() - true if any current intent exists
-Decl has_current_intent().
+Decl has_current_intent() bound [].
 
 # has_tool_domain(ToolName) - true if tool has a domain specified
 Decl has_tool_domain(ToolName) bound [/string].

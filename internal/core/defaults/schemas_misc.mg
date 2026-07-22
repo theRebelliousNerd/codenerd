@@ -87,7 +87,7 @@ Decl northstar_constraint(ConstraintID, Description) bound [/string, /string].
 # -----------------------------------------------------------------------------
 
 # northstar_defined() - True if northstar has been set
-Decl northstar_defined().
+Decl northstar_defined() bound [].
 
 # critical_capability(CapID) - Derived: capability is critical priority
 Decl critical_capability(CapID) bound [/string].
@@ -190,21 +190,21 @@ Decl has_pending_subtask(TaskID, Description, ShardType) bound [/string, /string
 
 # should_auto_continue/0 - Derived: continuation should proceed automatically
 # True when has_pending_subtask exists and no blocking conditions
-Decl should_auto_continue().
+Decl should_auto_continue() bound [].
 
 # continuation_blocked(Reason) - Derived: continuation is blocked
 # Reason: /needs_clarification, /user_interrupted, /max_steps_reached
 Decl continuation_blocked(Reason) bound [/string].
 
 # has_continuation_block/0 - Helper: true if any continuation block exists
-Decl has_continuation_block().
+Decl has_continuation_block() bound [].
 
 # -----------------------------------------------------------------------------
 # 49.3 User Control
 # -----------------------------------------------------------------------------
 
 # interrupt_requested - User pressed Ctrl+X to stop execution
-Decl interrupt_requested().
+Decl interrupt_requested() bound [].
 
 # continuation_step(StepNumber, TotalSteps) - Current progress
 Decl continuation_step(StepNumber, TotalSteps) bound [/number, /number].

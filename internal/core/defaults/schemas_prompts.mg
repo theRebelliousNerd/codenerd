@@ -303,7 +303,7 @@ Decl final_atom(AtomID, Order) bound [/string, /number].
 
 # compilation_valid()
 # True if compilation passes all constraints
-Decl compilation_valid().
+Decl compilation_valid() bound [].
 
 # compilation_error(ErrorType, Details)
 # ErrorType: /missing_mandatory, /circular_dependency, /unsatisfied_dependency, /budget_overflow
@@ -311,15 +311,15 @@ Decl compilation_error(ErrorType, Details) bound [/name, /string].
 
 # has_compilation_error()
 # Helper: true if any compilation error exists
-Decl has_compilation_error().
+Decl has_compilation_error() bound [].
 
 # has_identity_atom()
 # Helper: true if at least one identity atom is selected
-Decl has_identity_atom().
+Decl has_identity_atom() bound [].
 
 # has_protocol_atom()
 # Helper: true if at least one protocol atom is selected
-Decl has_protocol_atom().
+Decl has_protocol_atom() bound [].
 
 # -----------------------------------------------------------------------------
 # 45.6 Category Ordering

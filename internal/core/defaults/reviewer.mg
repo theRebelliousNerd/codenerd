@@ -397,7 +397,7 @@ suppressed_finding(File, Line, RuleID, "learned_false_positive") :-
 # --- Self-Correction Signals ---
 
 # Signal to main agent: recent review may be inaccurate
-Decl recent_review_unreliable().
+Decl recent_review_unreliable() bound [].
 
 # =============================================================================
 # SECTION 13: WIRING GAP DETECTION

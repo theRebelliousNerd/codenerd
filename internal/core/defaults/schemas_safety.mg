@@ -99,7 +99,7 @@ Decl appeal_denial_count(Count) bound [/number].
 Decl appeal_grant_count(ActionType, Count) bound [/name, /number].
 
 # excessive_appeal_denials() - helper: true if too many denials (autopoiesis signal)
-Decl excessive_appeal_denials().
+Decl excessive_appeal_denials() bound [].
 
 # appeal_pattern_detected(ActionType) - pattern detected for learning
 Decl appeal_pattern_detected(ActionType) bound [/name].

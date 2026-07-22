@@ -28,7 +28,7 @@ Decl multi_step_signal(Signal) bound [/name].
 # is_multi_step() - derived: the current request should be decomposed into
 # multiple steps. Queried by Go, which falls back to the legacy Go boolean if the
 # kernel is unavailable or returns nothing.
-Decl is_multi_step().
+Decl is_multi_step() bound [].
 
 # intent_signal(Signal) - EDB asserted by Go per turn (retract-before-assert).
 # Carries perception's boolean understanding signals into policy so routing

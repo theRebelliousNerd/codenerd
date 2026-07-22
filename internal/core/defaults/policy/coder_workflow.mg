@@ -279,7 +279,7 @@ coder_progressing() :-
     has_state_change(_, _).
 
 # Helper: state has been unchanged too long
-Decl state_is_stuck().
+Decl state_is_stuck() bound [].
 state_is_stuck() :-
     state_unchanged_count(N),
     N >= 3.

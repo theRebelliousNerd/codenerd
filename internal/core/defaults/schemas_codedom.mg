@@ -114,7 +114,7 @@ Decl successful_edit(Ref, EditType) bound [/string, /name].
 Decl failed_edit(Ref, EditType) bound [/string, /name].
 
 # element_count_high() - helper: many elements in scope (triggers campaign for complex refactors)
-Decl element_count_high().
+Decl element_count_high() bound [].
 
 # -----------------------------------------------------------------------------
 # 34.5 Error Handling & Edge Cases
@@ -124,7 +124,7 @@ Decl element_count_high().
 Decl scope_open_failed(Path, Error) bound [/string, /string].
 
 # scope_closed() - current scope was closed
-Decl scope_closed().
+Decl scope_closed() bound [].
 
 # parse_error(File, Error, Timestamp) - Go AST parsing failed
 Decl parse_error(File, Error, Timestamp) bound [/string, /string, /number].
@@ -171,7 +171,7 @@ Decl undo_available(Path, OperationID) bound [/string, /string].
 Decl file_modified_externally(Path) bound [/string].
 
 # needs_scope_refresh() - derived: scope is stale and needs refresh
-Decl needs_scope_refresh().
+Decl needs_scope_refresh() bound [].
 
 # element_edit_blocked(Ref, Reason) - derived: edit is blocked
 Decl element_edit_blocked(Ref, Reason) bound [/string, /string].

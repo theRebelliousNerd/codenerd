@@ -127,7 +127,7 @@ activation(AtomID, 60) :-
 # Signal: atom was selected and shard execution succeeded
 # compile_shard+shard_executed is an existential check (ShardID unused in head)
 # Extract existence helper to avoid cross-product with atom_selected
-Decl has_successful_shard().
+Decl has_successful_shard() bound [].
 has_successful_shard() :-
     compile_shard(ShardID, _),
     shard_executed(ShardID, _, /success, _).

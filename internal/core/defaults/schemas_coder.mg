@@ -66,8 +66,8 @@ Decl edit_needs_docs(File) bound [/string].
 # Build & Diagnostics
 # block_commit(Reason) is ALREADY DECLARED in schemas_analysis.mg
 # Decl block_commit(Reason).
-Decl build_healthy().
-Decl has_errors().
+Decl build_healthy() bound [].
+Decl has_errors() bound [].
 Decl requires_immediate_fix(DiagID) bound [/string].
 Decl should_address_warning(DiagID) bound [/string].
 Decl can_defer_lint(DiagID) bound [/string].
@@ -86,13 +86,13 @@ Decl exclude_from_context(File) bound [/string].
 Decl final_context_include(File) bound [/string].
 
 # TDD Integration
-Decl tdd_active().
-Decl tdd_red_phase().
-Decl tdd_green_phase().
-Decl tdd_refactor_phase().
-Decl minimal_implementation_mode().
-Decl refactor_mode().
-Decl tdd_different_approach_needed().
+Decl tdd_active() bound [].
+Decl tdd_red_phase() bound [].
+Decl tdd_green_phase() bound [].
+Decl tdd_refactor_phase() bound [].
+Decl minimal_implementation_mode() bound [].
+Decl refactor_mode() bound [].
+Decl tdd_different_approach_needed() bound [].
 Decl edit_is_implementation(File) bound [/string].
 Decl edit_is_test(File) bound [/string].
 Decl tdd_violation(Violation) bound [/string].
@@ -132,10 +132,10 @@ Decl coder_success_pattern(Pattern) bound [/string].
 Decl has_rejection(Pattern) bound [/string].
 
 # Campaign Integration
-Decl in_campaign_context().
+Decl in_campaign_context() bound [].
 Decl campaign_coder_focus(Objective) bound [/string].
-Decl campaign_requires_tests().
-Decl campaign_requires_build().
+Decl campaign_requires_tests() bound [].
+Decl campaign_requires_build() bound [].
 Decl coder_quality_mode(Mode) bound [/name].
 Decl coder_task_completed(TaskID) bound [/string].
 Decl coder_task_failed(TaskID, Reason) bound [/string, /string].
@@ -145,8 +145,8 @@ Decl coder_status(State, Target, Strategy) bound [/name, /string, /name].
 Decl coder_blocked_reason(File, Reason) bound [/string, /string].
 Decl target_error_count(Count) bound [/number].
 Decl target_warning_count(Count) bound [/number].
-Decl coder_progressing().
-Decl coder_stuck().
+Decl coder_progressing() bound [].
+Decl coder_stuck() bound [].
 
 # Specialized Patterns
 Decl api_endpoint_pattern(File) bound [/string].

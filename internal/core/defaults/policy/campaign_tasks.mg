@@ -3,7 +3,7 @@
 # Stratification: Depends on campaign_phases.mg (for current_phase)
 
 # Local helper declaration for clock-availability gating in isolated policy tests.
-Decl has_current_time().
+Decl has_current_time() bound [].
 
 # =============================================================================
 # Task Selection & Execution

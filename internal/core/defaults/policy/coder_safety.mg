@@ -37,7 +37,7 @@ coder_block_action(/edit, "vendor_file") :-
     is_vendor_file(Path).
 
 # Helper: any pending edit is implementation
-Decl has_implementation_edit().
+Decl has_implementation_edit() bound [].
 has_implementation_edit() :-
     edit_is_implementation(_).
 

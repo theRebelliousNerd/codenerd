@@ -109,8 +109,8 @@ strategic_warning(/critical_unmitigated_risk, CapID, RiskID) :-
 # Warning: immediate work depends on unaddressed risk
 # Both CapID and RiskID are independent - true NxM cross-product.
 # Extract existence checks to avoid: only fire if BOTH conditions exist.
-Decl has_immediate_capability().
-Decl has_unaddressed_high_risk().
+Decl has_immediate_capability() bound [].
+Decl has_unaddressed_high_risk() bound [].
 
 has_immediate_capability() :- immediate_capability(_, _).
 has_unaddressed_high_risk() :- unaddressed_high_risk(_, _).
@@ -126,8 +126,8 @@ strategic_warning(/immediate_risk_gap, CapID, RiskID) :-
 # --- Context Injection for Northstar ---
 
 # Existence helpers for shard family checks (avoids cross-product with active_shard)
-Decl has_active_planner().
-Decl has_active_coder().
+Decl has_active_planner() bound [].
+Decl has_active_coder() bound [].
 
 has_active_planner() :- active_shard(ShardID, _), shard_family(ShardID, /planner).
 has_active_coder() :- active_shard(ShardID, _), shard_family(ShardID, /coder).

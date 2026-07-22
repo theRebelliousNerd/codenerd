@@ -46,7 +46,7 @@ Decl route_decision(Route, ShardType) bound [/name, /name].
 
 # wants_direct_answer() - derived: the user is asking for an answer (question or
 # conversation), so the turn must terminate in prose, not shard work.
-Decl wants_direct_answer().
+Decl wants_direct_answer() bound [].
 
 # conversational_verb(Verb) - vocabulary: verbs whose outcome is always prose.
 Decl conversational_verb(Verb) bound [/name].
@@ -249,10 +249,10 @@ Decl style_rule(RuleID, RuleName, Threshold) bound [/string, /string, /number].
 Decl permission_denied(Action, Reason) bound [/name, /string].
 
 # checks_passed() - derived: positive confirmation of checks (Bug 10)
-Decl checks_passed().
+Decl checks_passed() bound [].
 
 # safe_to_commit() - derived: all checks pass, safe to commit
-Decl safe_to_commit().
+Decl safe_to_commit() bound [].
 
 # file_truncated(Path, MaxSize) - file content truncated (Bug 6)
 Decl file_truncated(Path, MaxSize) bound [/string, /number].
@@ -263,19 +263,19 @@ Decl file_truncated(Path, MaxSize) bound [/string, /number].
 # These helpers support safe negation patterns in Mangle rules
 
 # has_block_commit() - helper: true if any block_commit exists
-Decl has_block_commit().
+Decl has_block_commit() bound [].
 
 # has_active_refinement() - helper: true if any refinement in progress
-Decl has_active_refinement().
+Decl has_active_refinement() bound [].
 
 # has_eligible_phase() - helper: true if any phase is eligible
-Decl has_eligible_phase().
+Decl has_eligible_phase() bound [].
 
 # has_next_campaign_task() - helper: true if there's a next task
-Decl has_next_campaign_task().
+Decl has_next_campaign_task() bound [].
 
 # has_in_progress_phase() - helper: true if any phase in progress
-Decl has_in_progress_phase().
+Decl has_in_progress_phase() bound [].
 
 # has_incomplete_phase(CampaignID) - helper: campaign has incomplete phases
 Decl has_incomplete_phase(CampaignID) bound [/string].
@@ -599,7 +599,7 @@ Decl has_incomplete_dependency(ItemID) bound [/string].
 Decl agenda_dependency(ItemID, DepID) bound [/string, /string].
 Decl next_agenda_item(ItemID) bound [/string].
 Decl has_higher_priority_item(ItemID) bound [/string].
-Decl checkpoint_due().
+Decl checkpoint_due() bound [].
 Decl last_checkpoint_time(Timestamp) bound [/number].
 Decl agenda_item_escalate(ItemID, Reason) bound [/string, /string].
 Decl item_retry_count(ItemID, Count) bound [/string, /number].
@@ -625,7 +625,7 @@ Decl rule_outcome(RuleID, Outcome, Details) bound [/string, /name, /string].
 
 # OODA loop derived predicates
 Decl ooda_phase(Phase) bound [/name].
-Decl has_next_action().
+Decl has_next_action() bound [].
 Decl current_ooda_phase(Phase) bound [/name].
 Decl ooda_stalled(Reason) bound [/string].
 Decl last_action_time(Timestamp) bound [/number].

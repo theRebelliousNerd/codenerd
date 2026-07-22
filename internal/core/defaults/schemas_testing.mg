@@ -186,7 +186,7 @@ Decl shard_struggling(ShardType) bound [/name].
 Decl shard_performing_well(ShardType) bound [/name].
 
 # has_strategic_advisor - derived: at least one strategic advisor exists
-Decl has_strategic_advisor().
+Decl has_strategic_advisor() bound [].
 
 # slow_reasoning_detected(ShardType) - derived: average duration > threshold
 Decl slow_reasoning_detected(ShardType) bound [/name].

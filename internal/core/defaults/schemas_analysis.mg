@@ -205,5 +205,5 @@ Decl last_shard_execution(ShardID, ShardType, Task) bound [/string, /name, /stri
 Decl has_recent_shard_output(ShardType) bound [/name].
 
 # shard_findings_available() - derived: there are findings to reference
-Decl shard_findings_available().
+Decl shard_findings_available() bound [].
 
