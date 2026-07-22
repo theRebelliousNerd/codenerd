@@ -167,3 +167,85 @@ func TestMCPIntegrationBridge_Close_WhenNoStore_ShouldSucceed(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// A special mock transport to return truly nil result but nil error
+type mockNilResultTransport struct {
+	mockTransport
+}
+
+func (m *mockNilResultTransport) CallTool(ctx context.Context, tool string, args map[string]any) (*MCPCallResult, error) {
+	return nil, nil
+}
+func (m *mockNilResultTransport) IsConnected() bool { return true }
+
+func TestMCPIntegrationBridge_ConnectAll(t *testing.T) {
+	mgr := NewMCPClientManager(nil, nil, nil)
+	bridge := &MCPIntegrationBridge{manager: mgr}
+
+	err := bridge.ConnectAll(context.Background())
+	if err != nil {
+		t.Errorf("Expected nil, got %v", err)
+	}
+}
+
+func TestMCPIntegrationBridge_CompileToolsForShard(t *testing.T) {
+	tempDir := t.TempDir()
+	store, err := NewMCPToolStore(tempDir+"/tools.db", nil)
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	bridge := &MCPIntegrationBridge{
+		compiler: NewJITToolCompiler(store, nil, nil),
+		renderer: NewToolRenderer(),
+	}
+
+	output, err := bridge.CompileToolsForShard(context.Background(), "tester", "test task", 1000)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if output == "" {
+		t.Errorf("Expected non-empty string, got empty string")
+	}
+}
+
+func TestMCPIntegrationBridge_DiscoverAndAnalyzeTools(t *testing.T) {
+	mgr := NewMCPClientManager(nil, nil, nil)
+	bridge := &MCPIntegrationBridge{manager: mgr}
+
+	err := bridge.DiscoverAndAnalyzeTools(context.Background(), "srv")
+	// Expected error because server 'srv' is not connected
+	if err == nil {
+		t.Error("Expected error because server is not connected")
+	}
+}
+
+func TestMCPIntegrationBridge_NewMCPIntegrationBridge_FailStore(t *testing.T) {
+	// Provide an invalid path that cannot be created
+	_, err := NewMCPIntegrationBridge("/root/cannot-access\x00/path", nil, nil, nil, nil)
+	if err == nil {
+		t.Error("Expected error from NewMCPIntegrationBridge due to invalid DB path")
+	}
+}
+
+func TestMCPIntegrationBridge_CompileToolsForShard_Error(t *testing.T) {
+	tempDir := t.TempDir()
+	store, err := NewMCPToolStore(tempDir+"/tools.db", nil)
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+
+	bridge := &MCPIntegrationBridge{
+		compiler: NewJITToolCompiler(store, nil, nil),
+		renderer: NewToolRenderer(),
+	}
+
+	// Close the store so the compiler fails internally
+	store.Close()
+
+	_, err = bridge.CompileToolsForShard(context.Background(), "tester", "test task", 1000)
+	if err == nil {
+		t.Error("Expected error from compiler because store is closed")
+	}
+}
