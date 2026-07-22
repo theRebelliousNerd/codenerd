@@ -710,19 +710,27 @@ func populateDatabase(db *sql.DB, predicates []PredicateEntry, errorPatterns []E
 	}
 
 	// Insert error patterns
-	errorStmt, err := tx.Prepare(`
-		INSERT INTO error_patterns (pattern_name, error_regex, cause_description, fix_template, severity)
-		VALUES (?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare error pattern statement: %w", err)
-	}
-	defer errorStmt.Close()
-
-	for _, ep := range errorPatterns {
-		_, err := errorStmt.Exec(ep.Name, ep.ErrorRegex, ep.CauseDescription, ep.FixTemplate, ep.Severity)
-		if err != nil {
-			return fmt.Errorf("failed to insert error pattern %s: %w", ep.Name, err)
+	if len(errorPatterns) > 0 {
+		batchSize := 100
+		for k := 0; k < len(errorPatterns); k += batchSize {
+			end := k + batchSize
+			if end > len(errorPatterns) {
+				end = len(errorPatterns)
+			}
+			batch := errorPatterns[k:end]
+			var query strings.Builder
+			query.WriteString("INSERT INTO error_patterns (pattern_name, error_regex, cause_description, fix_template, severity) VALUES ")
+			args := make([]interface{}, 0, len(batch)*5)
+			for j, ep := range batch {
+				if j > 0 {
+					query.WriteString(", ")
+				}
+				query.WriteString("(?, ?, ?, ?, ?)")
+				args = append(args, ep.Name, ep.ErrorRegex, ep.CauseDescription, ep.FixTemplate, ep.Severity)
+			}
+			if _, err := tx.Exec(query.String(), args...); err != nil {
+				return fmt.Errorf("failed to insert error patterns batch: %w", err)
+			}
 		}
 	}
 
