@@ -35,7 +35,6 @@ func TestPrioritizedCallerStruct(t *testing.T) {
 }
 
 // TODO: Add TestHolographicContext_MalformedGoFile - Test parser.ParseFile behavior on malformed Go files to ensure we don't abort parsing the whole package due to a syntax error in one sibling file.
-// TODO: Add TestHolographicContext_EmptyFile - Test context generation on entirely empty (0 bytes) or whitespace-only files to ensure nil vs empty slice consistency.
 // TODO: Add TestHolographicContext_ConcurrentReadWrite - Test concurrent reads/writes to verify sync.RWMutex behavior (especially on regexCache) and prevent data races under heavy parallel access.
 // TODO: Add TestHolographicContext_DeletedFileMidFlight - Simulate file deletion between os.ReadDir and parser.ParseFile to ensure we log a warning instead of failing out completely.
 // TODO: Add TestHolographicContext_BinaryFileFallback - Verify buildBasicContext fallback cleanly handles binary/non-text file extensions without massive memory allocation.
@@ -960,5 +959,33 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 	// Verify it successfully collected the siblings up to cap
 	if len(hc.PackageSiblings) < 100 {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
+	}
+}
+
+func TestHolographicContext_EmptyFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create an empty file
+	emptyFile := filepath.Join(dir, "empty.go")
+	os.WriteFile(emptyFile, []byte(""), 0644)
+
+	// Create a whitespace-only file
+	whitespaceFile := filepath.Join(dir, "whitespace.go")
+	os.WriteFile(whitespaceFile, []byte("   \n\t  "), 0644)
+
+	h := NewHolographicProvider(nil, dir)
+	ctx := &HolographicContext{PackageImports: make(map[string][]string)}
+	fset := token.NewFileSet()
+
+	// Test empty file
+	err := h.extractGoSignatures(ctx, fset, emptyFile)
+	if err != nil {
+		t.Errorf("Expected nil error for empty file, got: %v", err)
+	}
+
+	// Test whitespace file
+	err = h.extractGoSignatures(ctx, fset, whitespaceFile)
+	if err != nil {
+		t.Errorf("Expected nil error for whitespace file, got: %v", err)
 	}
 }
