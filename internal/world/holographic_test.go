@@ -962,3 +962,36 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
 	}
 }
+
+func TestBuildGoContext_InvalidGoFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Valid Go file
+	validPath := filepath.Join(dir, "valid.go")
+	if err := os.WriteFile(validPath, []byte("package main\n\nfunc ValidFunc() {}\n"), 0644); err != nil {
+		t.Fatalf("Failed to write valid go file: %v", err)
+	}
+
+	// Invalid Go file
+	invalidPath := filepath.Join(dir, "invalid.go")
+	if err := os.WriteFile(invalidPath, []byte("package main\n\nfunc InvalidFunc( {\n"), 0644); err != nil {
+		t.Fatalf("Failed to write invalid go file: %v", err)
+	}
+
+	h := NewHolographicProvider(nil, dir)
+	hc := &HolographicContext{
+		PackageImports: make(map[string][]string),
+	}
+
+	// Parsing the package context via buildGoContextWithContext
+	err := h.buildGoContextWithContext(context.Background(), hc, validPath)
+	if err != nil {
+		t.Fatalf("buildGoContextWithContext aborted on invalid Go file with error: %v", err)
+	}
+
+	// We expect the invalid file error was logged but didn't abort.
+	// The valid file should be represented in the context.
+	if len(hc.PackageSignatures) == 0 {
+		t.Errorf("Expected valid signatures to be extracted despite the invalid file, but found none")
+	}
+}

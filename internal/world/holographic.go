@@ -259,8 +259,6 @@ func (h *HolographicProvider) buildGoContextWithContext(ctx context.Context, hc 
 			continue
 		}
 
-		// TODO: Create a test package containing a syntactically invalid go file
-		// to verify this error does not abort generation for the whole package.
 		if err := h.extractGoSignatures(hc, fset, goFile); err != nil {
 			logging.WorldDebug("HolographicProvider: failed to parse %s: %v", goFile, err)
 			// Continue with other files
