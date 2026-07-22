@@ -48,11 +48,11 @@ func TestVectorStore_BruteForceMethods(t *testing.T) {
 func TestVectorStore_FilterUtils(t *testing.T) {
 	// buildPathFilteredQuery
 	query, args := buildPathFilteredQuery([]string{"path1", "path2"})
-	expected := "SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL AND (metadata LIKE ? OR metadata LIKE ?)"
+	expected := "SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL AND (json_valid(metadata) AND json_extract(metadata, '$.path') = ? OR json_valid(metadata) AND json_extract(metadata, '$.path') = ?)"
 	if query != expected {
 		t.Errorf("Unexpected query: %s", query)
 	}
-	if len(args) != 2 || args[0] != "%\"path\":\"path1\"%" || args[1] != "%\"path\":\"path2\"%" {
+	if len(args) != 2 || args[0] != "path1" || args[1] != "path2" {
 		t.Errorf("Unexpected args: %v", args)
 	}
 

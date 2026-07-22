@@ -523,8 +523,8 @@ func buildPathFilteredQuery(paths []string) (string, []any) {
 		if i > 0 {
 			sb.WriteString(" OR ")
 		}
-		sb.WriteString("metadata LIKE ?")
-		args = append(args, fmt.Sprintf("%%\"path\":\"%s\"%%", p))
+		sb.WriteString("json_valid(metadata) AND json_extract(metadata, '$.path') = ?")
+		args = append(args, p)
 	}
 	sb.WriteString(")")
 	return sb.String(), args
@@ -574,15 +574,15 @@ func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit
 	if len(allowedPaths) > 0 {
 		clause := make([]string, 0, len(allowedPaths))
 		for _, p := range allowedPaths {
-			clause = append(clause, "metadata LIKE ?")
-			args = append(args, fmt.Sprintf("%%\"path\":\"%s\"%%", p))
+			clause = append(clause, "json_valid(metadata) AND json_extract(metadata, '$.path') = ?")
+			args = append(args, p)
 		}
 		where = append(where, "("+strings.Join(clause, " OR ")+")")
 	}
 
 	if metaKey != "" && metaValue != nil {
-		where = append(where, "metadata LIKE ?")
-		args = append(args, fmt.Sprintf("%%\"%s\":\"%v\"%%", metaKey, metaValue))
+		where = append(where, "json_valid(metadata) AND json_extract(metadata, ?) = ?")
+		args = append(args, fmt.Sprintf("$.%s", metaKey), metaValue)
 	}
 
 	sqlStr := "SELECT rowid, content, metadata, vec_distance_cosine(embedding, ?) AS dist FROM vec_index"
@@ -804,9 +804,8 @@ func (s *LocalStore) CountVectorsByMetadata(metaKey string, metaValue any) (int,
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	pattern := fmt.Sprintf("%%\"%s\":\"%v\"%%", metaKey, metaValue)
 	var count int
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM vectors WHERE metadata LIKE ?", pattern).Scan(&count); err != nil {
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM vectors WHERE json_valid(metadata) AND json_extract(metadata, ?) = ?", fmt.Sprintf("$.%s", metaKey), metaValue).Scan(&count); err != nil {
 		return 0, err
 	}
 	return count, nil
@@ -821,8 +820,7 @@ func (s *LocalStore) VectorContentsByMetadata(metaKey string, metaValue any) (ma
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	pattern := fmt.Sprintf("%%\"%s\":\"%v\"%%", metaKey, metaValue)
-	rows, err := s.db.Query("SELECT content FROM vectors WHERE metadata LIKE ?", pattern)
+	rows, err := s.db.Query("SELECT content FROM vectors WHERE json_valid(metadata) AND json_extract(metadata, ?) = ?", fmt.Sprintf("$.%s", metaKey), metaValue)
 	if err != nil {
 		return nil, err
 	}
@@ -852,8 +850,7 @@ func (s *LocalStore) DeleteVectorsByMetadata(metaKey string, metaValue any) (int
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	pattern := fmt.Sprintf("%%\"%s\":\"%v\"%%", metaKey, metaValue)
-	result, err := s.db.Exec("DELETE FROM vectors WHERE metadata LIKE ?", pattern)
+	result, err := s.db.Exec("DELETE FROM vectors WHERE json_valid(metadata) AND json_extract(metadata, ?) = ?", fmt.Sprintf("$.%s", metaKey), metaValue)
 	if err != nil {
 		return 0, err
 	}
