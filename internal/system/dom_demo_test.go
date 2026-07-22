@@ -50,7 +50,7 @@ func TestCodeDOM_EndToEnd(t *testing.T) {
 	defer cancel()
 
 	demoFile := filepath.Join(ws, "demo.go")
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"test-open", "/open_file", demoFile}}); err != nil {
+	if _, err := routePermittedAction(t, ctx, vs, kernel, core.Fact{Predicate: "next_action", Args: []any{"test-open", "/open_file", demoFile}}); err != nil {
 		t.Fatalf("open_file: %v", err)
 	}
 
@@ -75,7 +75,7 @@ func TestCodeDOM_EndToEnd(t *testing.T) {
 
 	ref := "fn:domdemo.Add"
 	newAdd := "func Add(a, b int) int {\n\tsum := a + b\n\treturn sum\n}"
-	if _, err := vs.RouteAction(ctx, core.Fact{
+	if _, err := routePermittedAction(t, ctx, vs, kernel, core.Fact{
 		Predicate: "next_action",
 		Args: []any{
 			"test-edit",
@@ -87,7 +87,7 @@ func TestCodeDOM_EndToEnd(t *testing.T) {
 		t.Fatalf("edit_element: %v", err)
 	}
 
-	afterJSON, err := vs.RouteAction(ctx, core.Fact{
+	afterJSON, err := routePermittedAction(t, ctx, vs, kernel, core.Fact{
 		Predicate: "next_action",
 		Args: []any{
 			"test-get",
@@ -107,7 +107,7 @@ func TestCodeDOM_EndToEnd(t *testing.T) {
 		t.Fatalf("expected edited body to contain %q", "sum := a + b")
 	}
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"test-close", "/close_scope", ""}}); err != nil {
+	if _, err := routePermittedAction(t, ctx, vs, kernel, core.Fact{Predicate: "next_action", Args: []any{"test-close", "/close_scope", ""}}); err != nil {
 		t.Fatalf("close_scope: %v", err)
 	}
 	if got := countFacts(t, kernel, "code_element"); got != 0 {

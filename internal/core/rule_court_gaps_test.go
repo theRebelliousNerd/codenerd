@@ -22,17 +22,25 @@ func TestRuleCourt_UndeclaredSchemas(t *testing.T) {
 }
 
 // REMEDIATED: TEST_GAP: [Type Coercion] String vs Atom mismatch (Atom/String Dissonance)
+//
+// The original version used `Decl expects_atom(Name.Type<Atom>).`, which is not
+// valid Mangle — the test "passed" on a parse error, never exercising type
+// dissonance. With a valid Decl, the kernel analyzes with NoBoundsChecking
+// (kernel_eval.go rebuildProgram), so a String in an Atom-bounded slot is
+// ACCEPTED and simply never unifies with /name joins (the classic silent-join
+// failure). This test pins that current behavior as a canary: if the kernel is
+// ever upgraded to analysis.ErrorForBoundsMismatch (requires retrofitting
+// `bound` blocks across the embedded corpus — zero-arity Decls included), this
+// test will fail and should then assert the rejection instead.
 func TestRuleCourt_AtomStringDissonance(t *testing.T) {
 	k := setupMockKernel(t)
-	k.AppendPolicy(`Decl expects_atom(Name.Type<Atom>).`)
+	k.AppendPolicy(`Decl expects_atom(Name) bound [/name].`)
 
 	court := NewRuleCourt(k)
 
-	// Attempt to pass a String ("bad") to an Atom slot
-	// Since Mangle strictly types this, it should fail evaluation safely
 	err := court.RatifyRule(`expects_atom("bad").`)
-	if err == nil {
-		t.Fatal("Expected error for Type Coercion (String -> Atom), got nil")
+	if err != nil {
+		t.Fatalf("NoBoundsChecking kernel unexpectedly rejected string-in-atom-slot: %v", err)
 	}
 }
 
@@ -58,7 +66,7 @@ func TestRuleCourt_EnormousRuleSize(t *testing.T) {
 func TestRuleCourt_RunawayRecursionTimeout(t *testing.T) {
 	k := setupMockKernel(t)
 	k.AppendPolicy(`
-		Decl counter(Num.Type<Number>).
+		Decl counter(Num) bound [/number].
 		counter(0).
 	`)
 

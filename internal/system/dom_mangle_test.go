@@ -54,7 +54,7 @@ ancestor(X, Y) :-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"test-open", "/open_file", demoFile}}); err != nil {
+	if _, err := routePermittedAction(t, ctx, vs, kernel, core.Fact{Predicate: "next_action", Args: []any{"test-open", "/open_file", demoFile}}); err != nil {
 		t.Fatalf("open_file: %v", err)
 	}
 	if got := countFacts(t, kernel, "file_in_scope"); got < 1 {
@@ -66,7 +66,7 @@ ancestor(X, Y) :-
 
 	ref := "rule:ancestor/2#1"
 	newRule := "ancestor(X, Y) :-\n\tparent(X, Y).\n"
-	if _, err := vs.RouteAction(ctx, core.Fact{
+	if _, err := routePermittedAction(t, ctx, vs, kernel, core.Fact{
 		Predicate: "next_action",
 		Args: []any{
 			"test-edit",
@@ -78,7 +78,7 @@ ancestor(X, Y) :-
 		t.Fatalf("edit_element: %v", err)
 	}
 
-	afterJSON, err := vs.RouteAction(ctx, core.Fact{
+	afterJSON, err := routePermittedAction(t, ctx, vs, kernel, core.Fact{
 		Predicate: "next_action",
 		Args: []any{
 			"test-get",
@@ -98,7 +98,7 @@ ancestor(X, Y) :-
 		t.Fatalf("expected edited body to contain %q", "\tparent(X, Y).")
 	}
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"test-close", "/close_scope", ""}}); err != nil {
+	if _, err := routePermittedAction(t, ctx, vs, kernel, core.Fact{Predicate: "next_action", Args: []any{"test-close", "/close_scope", ""}}); err != nil {
 		t.Fatalf("close_scope: %v", err)
 	}
 	if got := countFacts(t, kernel, "code_element"); got != 0 {

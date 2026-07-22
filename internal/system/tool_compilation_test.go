@@ -40,8 +40,8 @@ func TestVirtualStore_CompilationDelegation(t *testing.T) {
 		},
 	}
 
-	// Execute
-	output, err := vs.RouteAction(context.Background(), req)
+	// Execute (files pending_action so the constitutional gate can derive permitted/3)
+	output, err := routePermittedAction(t, context.Background(), vs, kernel, req)
 	if err != nil {
 		t.Fatalf("RouteAction failed: %v", err)
 	}
