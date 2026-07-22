@@ -327,7 +327,7 @@ func (c *UserConfig) GetReflectionConfig() ReflectionConfig {
 		if cfg.TopK == 0 {
 			cfg.TopK = def.TopK
 		}
-		if cfg.MinScore == 0 {
+		if !cfg.minScoreSet {
 			cfg.MinScore = def.MinScore
 		}
 		if cfg.RecencyHalfLifeDays == 0 {
