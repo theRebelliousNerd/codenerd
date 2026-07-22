@@ -38,7 +38,6 @@ func TestPrioritizedCallerStruct(t *testing.T) {
 // TODO: Add TestHolographicContext_EmptyFile - Test context generation on entirely empty (0 bytes) or whitespace-only files to ensure nil vs empty slice consistency.
 // TODO: Add TestHolographicContext_ConcurrentReadWrite - Test concurrent reads/writes to verify sync.RWMutex behavior (especially on regexCache) and prevent data races under heavy parallel access.
 // TODO: Add TestHolographicContext_DeletedFileMidFlight - Simulate file deletion between os.ReadDir and parser.ParseFile to ensure we log a warning instead of failing out completely.
-// TODO: Add TestHolographicContext_BinaryFileFallback - Verify buildBasicContext fallback cleanly handles binary/non-text file extensions without massive memory allocation.
 // TODO: Add TestHolographicContext_EmptyTypeDefinitions - Test extraction for structs with no fields or interfaces with no methods to confirm `Fields` and `Methods` serialization handling.
 // TODO: Add TestHolographicContext_FormatWithEmptyCallers - Test `FormatWithPriorities` behavior when `PrioritizedCallers` is explicitly initialized as an empty slice (not nil).
 
@@ -960,5 +959,38 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 	// Verify it successfully collected the siblings up to cap
 	if len(hc.PackageSiblings) < 100 {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
+	}
+}
+func TestHolographicContext_BinaryFileFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	binFile := filepath.Join(tmpDir, "test.bin")
+	err := os.WriteFile(binFile, []byte{0, 1, 2, 3}, 0644)
+	if err != nil {
+		t.Fatalf("Failed to create binary file: %v", err)
+	}
+
+	siblingBinFile := filepath.Join(tmpDir, "sibling.bin")
+	err = os.WriteFile(siblingBinFile, []byte{4, 5, 6, 7}, 0644)
+	if err != nil {
+		t.Fatalf("Failed to create sibling binary file: %v", err)
+	}
+
+	// Just some other file to make sure it only picks up same extensions
+	txtFile := filepath.Join(tmpDir, "other.txt")
+	err = os.WriteFile(txtFile, []byte("text"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create txt file: %v", err)
+	}
+
+	h := &HolographicProvider{}
+	hc := &HolographicContext{}
+
+	h.buildBasicContextWithContext(context.Background(), hc, binFile)
+
+	if len(hc.PackageSiblings) != 1 {
+		t.Errorf("Expected 1 sibling, got %d", len(hc.PackageSiblings))
+	} else if hc.PackageSiblings[0] != siblingBinFile {
+		t.Errorf("Expected sibling %s, got %s", siblingBinFile, hc.PackageSiblings[0])
 	}
 }
