@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -68,8 +69,48 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 // TODO: [Type Coercion] Test getEligibleTasks when 'eligible_task' fact argument is coerced from non-string Atom/types.
 // TODO: [State Conflicts] Test getEligibleTasks with concurrent modifications to Phase.Tasks.
 // TODO: [User Request Extremes] Test getEligibleTasks with 10,000+ eligible task facts, testing the O(N*M) nested loop performance.
+func TestOrchestrator_GetEligibleTasks_ExtremeScaling(t *testing.T) {
+	numTasks := 10000
+	mockKernel := &MockKernel{}
+	c := &Campaign{
+		ID: "/campaign_scaling",
+		Phases: []Phase{
+			{
+				ID:    "/phase_1",
+				Tasks: make([]Task, numTasks),
+			},
+		},
+	}
+
+	for i := 0; i < numTasks; i++ {
+		taskID := fmt.Sprintf("/task_%d", i)
+		c.Phases[0].Tasks[i] = Task{ID: taskID}
+		_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{taskID}})
+	}
+
+	orch := &Orchestrator{
+		kernel:   mockKernel,
+		campaign: c,
+	}
+
+	phase := &c.Phases[0]
+
+	start := time.Now()
+
+	tasks := orch.getEligibleTasks(phase)
+
+	duration := time.Since(start)
+
+	if len(tasks) != numTasks {
+		t.Fatalf("Expected %d tasks, got %d", numTasks, len(tasks))
+	}
+
+	if duration > 2*time.Second {
+		t.Fatalf("getEligibleTasks took too long: %v", duration)
+	}
+}
+
 func TestOrchestrator_GetEligibleTasks(t *testing.T) {
-	// TODO: TestOrchestrator_GetEligibleTasks_ExtremeScaling
 	// TODO: TestOrchestrator_GetEligibleTasks_ExtremeBackoff
 	mockKernel := &MockKernel{}
 	c := &Campaign{

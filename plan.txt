@@ -1,0 +1,13 @@
+I need to add a new test `TestOrchestrator_GetEligibleTasks_ExtremeScaling` to `internal/campaign/orchestrator_phases_test.go`.
+
+The test should verify the performance and correctness of `getEligibleTasks` when dealing with 10,000+ eligible task facts.
+It addresses the TODO: `// TODO: [User Request Extremes] Test getEligibleTasks with 10,000+ eligible task facts, testing the O(N*M) nested loop performance.`
+and `// TODO: TestOrchestrator_GetEligibleTasks_ExtremeScaling`
+
+Steps:
+1. Create a function `TestOrchestrator_GetEligibleTasks_ExtremeScaling(t *testing.T)` in `internal/campaign/orchestrator_phases_test.go`.
+2. Generate a large number of tasks (e.g., 10,000).
+3. Generate a phase containing these 10,000 tasks.
+4. Generate 10,000 `eligible_task` facts in `MockKernel`.
+5. Measure the time taken by `orch.getEligibleTasks(phase)`.
+6. Assert that all 10,000 tasks are returned.
