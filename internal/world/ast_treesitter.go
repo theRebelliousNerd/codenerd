@@ -105,13 +105,17 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 
 				paramsNode := n.ChildByFieldName("parameters")
 				resultNode := n.ChildByFieldName("result")
-				signature := fmt.Sprintf("func %s", name)
+				var sigBuilder strings.Builder
+				sigBuilder.WriteString("func ")
+				sigBuilder.WriteString(name)
 				if paramsNode != nil {
-					signature = fmt.Sprintf("func %s%s", name, getText(paramsNode))
+					sigBuilder.WriteString(getText(paramsNode))
 				}
 				if resultNode != nil {
-					signature += " " + getText(resultNode)
+					sigBuilder.WriteString(" ")
+					sigBuilder.WriteString(getText(resultNode))
 				}
+				signature := sigBuilder.String()
 
 				visibility := "private"
 				if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' {
@@ -134,13 +138,19 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 
 				paramsNode := n.ChildByFieldName("parameters")
 				resultNode := n.ChildByFieldName("result")
-				signature := fmt.Sprintf("func %s %s", receiver, name)
+				var sigBuilder strings.Builder
+				sigBuilder.WriteString("func ")
+				sigBuilder.WriteString(receiver)
+				sigBuilder.WriteString(" ")
+				sigBuilder.WriteString(name)
 				if paramsNode != nil {
-					signature += getText(paramsNode)
+					sigBuilder.WriteString(getText(paramsNode))
 				}
 				if resultNode != nil {
-					signature += " " + getText(resultNode)
+					sigBuilder.WriteString(" ")
+					sigBuilder.WriteString(getText(resultNode))
 				}
+				signature := sigBuilder.String()
 
 				visibility := "private"
 				if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' {
