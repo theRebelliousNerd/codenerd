@@ -35,7 +35,6 @@ func TestPrioritizedCallerStruct(t *testing.T) {
 }
 
 // TODO: Add TestHolographicContext_MalformedGoFile - Test parser.ParseFile behavior on malformed Go files to ensure we don't abort parsing the whole package due to a syntax error in one sibling file.
-// TODO: Add TestHolographicContext_EmptyFile - Test context generation on entirely empty (0 bytes) or whitespace-only files to ensure nil vs empty slice consistency.
 // TODO: Add TestHolographicContext_ConcurrentReadWrite - Test concurrent reads/writes to verify sync.RWMutex behavior (especially on regexCache) and prevent data races under heavy parallel access.
 // TODO: Add TestHolographicContext_DeletedFileMidFlight - Simulate file deletion between os.ReadDir and parser.ParseFile to ensure we log a warning instead of failing out completely.
 // TODO: Add TestHolographicContext_BinaryFileFallback - Verify buildBasicContext fallback cleanly handles binary/non-text file extensions without massive memory allocation.
@@ -960,5 +959,39 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 	// Verify it successfully collected the siblings up to cap
 	if len(hc.PackageSiblings) < 100 {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
+	}
+}
+
+func TestExtractGoSignatures_EmptyFile(t *testing.T) {
+	dir := t.TempDir()
+
+	emptyFile := filepath.Join(dir, "empty.go")
+	if err := os.WriteFile(emptyFile, []byte(""), 0644); err != nil {
+		t.Fatalf("Failed to write empty file: %v", err)
+	}
+
+	whitespaceFile := filepath.Join(dir, "whitespace.go")
+	if err := os.WriteFile(whitespaceFile, []byte("   \n\t  \n"), 0644); err != nil {
+		t.Fatalf("Failed to write whitespace file: %v", err)
+	}
+
+	h := NewHolographicProvider(nil, dir)
+	hc := &HolographicContext{
+		PackageImports: make(map[string][]string),
+	}
+	fset := token.NewFileSet()
+
+	err := h.extractGoSignatures(hc, fset, emptyFile)
+	if err == nil {
+		t.Errorf("Expected error when parsing 0-byte file, got nil")
+	} else if !strings.Contains(err.Error(), "expected 'package', found 'EOF'") {
+		t.Errorf("Expected EOF error, got: %v", err)
+	}
+
+	err = h.extractGoSignatures(hc, fset, whitespaceFile)
+	if err == nil {
+		t.Errorf("Expected error when parsing whitespace-only file, got nil")
+	} else if !strings.Contains(err.Error(), "expected 'package', found 'EOF'") {
+		t.Errorf("Expected EOF error, got: %v", err)
 	}
 }
