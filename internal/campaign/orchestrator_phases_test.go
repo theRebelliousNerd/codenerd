@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// TODO: [Null/Undefined/Empty] Test getCurrentPhase when 'current_phase' fact has no arguments or nil arguments.
+
 // TODO: [Type Coercion] Test getCurrentPhase when Mangle fact arguments (phase ID) are returned as unexpected types (int, float, boolean) instead of string.
 // TODO: [User Request Extremes] Test getCurrentPhase with phase IDs that are extremely long strings (1MB+) to check for memory exhaustion in the linear search array.
 // TODO: [User Request Extremes] Test getCurrentPhase when the campaign has 10,000+ phases, testing the performance of the O(N) array search.
@@ -15,7 +15,6 @@ import (
 // TODO: [State Conflicts] Test completePhase deadlocks when holding o.mu.Lock() while calling external northstarObserver.OnPhaseComplete which may block.
 // TODO: [State Conflicts] Test completePhase 'ghost facts' when RetractFact("campaign_phase") fails but the function returns normally without rolling back status.
 func TestOrchestrator_GetCurrentPhase(t *testing.T) {
-	// TODO: TestOrchestrator_GetCurrentPhase_EmptyStringFact
 	mockKernel := &MockKernel{}
 	c := &Campaign{
 		ID: "/campaign_1",
@@ -71,6 +70,39 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 	phase = orch.getCurrentPhase()
 	if phase != nil {
 		t.Errorf("Expected nil when no fact exists, got %s", phase.ID)
+	}
+
+	// 4. Empty string argument
+	mockKernel.Facts = nil
+	_ = mockKernel.Assert(core.Fact{
+		Predicate: "current_phase",
+		Args:      []any{""},
+	})
+	phase = orch.getCurrentPhase()
+	if phase != nil {
+		t.Errorf("Expected nil when fact has empty string argument, got %s", phase.ID)
+	}
+
+	// 5. No arguments
+	mockKernel.Facts = nil
+	_ = mockKernel.Assert(core.Fact{
+		Predicate: "current_phase",
+		Args:      []any{},
+	})
+	phase = orch.getCurrentPhase()
+	if phase != nil {
+		t.Errorf("Expected nil when fact has no arguments, got %s", phase.ID)
+	}
+
+	// 6. Nil argument
+	mockKernel.Facts = nil
+	_ = mockKernel.Assert(core.Fact{
+		Predicate: "current_phase",
+		Args:      []any{nil},
+	})
+	phase = orch.getCurrentPhase()
+	if phase != nil {
+		t.Errorf("Expected nil when fact has nil argument, got %s", phase.ID)
 	}
 }
 
