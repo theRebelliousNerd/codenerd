@@ -6,6 +6,8 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -32,16 +34,52 @@ func (m *MockKernel) LoadFacts(facts []core.Fact) error {
 	return nil
 }
 
+// Query emulates the real kernel's parameterized-atom matching
+// (internal/core/kernel_query.go): a bare predicate name matches every fact
+// with that predicate, while a pattern like `has_capability("git_read")`
+// additionally filters by arguments (`_` is a wildcard). Without this the
+// orchestrator's parameterized polls (e.g. executeToolCreateTask) never match
+// seeded facts and spin until their internal timeout.
 func (m *MockKernel) Query(predicate string) ([]core.Fact, error) {
 	if m.QueryErr != nil {
 		return nil, m.QueryErr
 	}
+	name := predicate
+	var wantArgs []string
+	if open := strings.Index(predicate, "("); open != -1 && strings.HasSuffix(predicate, ")") {
+		name = predicate[:open]
+		inner := predicate[open+1 : len(predicate)-1]
+		if strings.TrimSpace(inner) != "" {
+			for _, a := range strings.Split(inner, ",") {
+				wantArgs = append(wantArgs, strings.Trim(strings.TrimSpace(a), `"`))
+			}
+		}
+	}
 	var results []core.Fact
 	m.mu.Lock()
 	for _, f := range m.Facts {
-		if f.Predicate == predicate {
-			results = append(results, f)
+		if f.Predicate != name {
+			continue
 		}
+		if wantArgs != nil {
+			if len(f.Args) != len(wantArgs) {
+				continue
+			}
+			match := true
+			for i, want := range wantArgs {
+				if want == "_" {
+					continue
+				}
+				if fmt.Sprintf("%v", f.Args[i]) != want {
+					match = false
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+		}
+		results = append(results, f)
 	}
 	m.mu.Unlock()
 	return results, nil
