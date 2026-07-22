@@ -351,10 +351,20 @@ func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content
 				name := getText(nameNode)
 				id := fmt.Sprintf("func:%s", name)
 				paramsNode := n.ChildByFieldName("parameters")
-				signature := fmt.Sprintf("def %s", name)
+
+				var paramsText string
 				if paramsNode != nil {
-					signature += getText(paramsNode)
+					paramsText = getText(paramsNode)
 				}
+
+				var sb strings.Builder
+				sb.Grow(4 + len(name) + len(paramsText))
+				sb.WriteString("def ")
+				sb.WriteString(name)
+				if paramsText != "" {
+					sb.WriteString(paramsText)
+				}
+				signature := sb.String()
 				visibility := "public"
 				if strings.HasPrefix(name, "_") {
 					visibility = "protected"
