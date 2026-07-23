@@ -43,6 +43,7 @@ Decl next_action(Action.Type<name>).
 		t.Error("Expected next_action to be declared")
 	}
 
+	// TODO: Missing Test: Nil/Missing learned text. Verify behavior when learnedText is empty but schemasText is populated.
 	// Check that undeclared predicate returns false
 	if sv.IsDeclared("nonexistent_predicate") {
 		t.Error("Expected nonexistent_predicate to not be declared")
@@ -72,6 +73,7 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 		{"next_action has 1 arg", "next_action", 1},
 		{"diagnostic has 5 args", "diagnostic", 5},
 		{"unknown predicate returns -1", "unknown_pred", -1},
+		// TODO: Missing Test: Type declaration comma vulnerability. E.g., `Decl generic_map(Map.Type<string, string>)`. `extractDeclsFromText` counts commas directly and will miscount generics.
 	}
 
 	for _, tt := range tests {
@@ -105,7 +107,10 @@ Decl file_topology(Path.Type<string>).
 		{"wrong arity fails", "user_intent", 3, true},
 		{"wrong arity fails (too many)", "user_intent", 7, true},
 		{"correct single arg passes", "file_topology", 1, false},
+		// TODO: Missing Test: 0-arity predicates. E.g., `trigger()`. The parser might miscount an empty arg list if formatted with spaces `( )`.
+		// {"zero arity passes", "trigger", 0, false},
 		{"unknown predicate passes", "unknown_pred", 10, false},
+		// TODO: Missing Test: String literal comma vulnerability. E.g., `diagnostic("/src/main.go", 10, 5, "Error: expected }, found EOF", /high)`. The parser ignores quote state and will miscount commas inside strings.
 	}
 
 	for _, tt := range tests {
@@ -120,6 +125,10 @@ Decl file_topology(Path.Type<string>).
 		})
 	}
 }
+
+// TODO: Missing Test: Catastrophic Regex Backtracking (ReDoS). Inject 1MB of whitespace into a rule definition to ensure `ValidateRule` completes within bounded time.
+
+// TODO: Missing Test: Extreme Arity and Recursive Nesting. Test a rule with 1,000 nested parenthesis levels and 10,000 arguments to verify O(N) performance bounds without stack overflows.
 
 // TestSetPredicateArity tests manual arity setting.
 func TestSetPredicateArity(t *testing.T) {
@@ -185,6 +194,8 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 			"result(X) :- count(X).",
 			false,
 		},
+		// TODO: Missing Test: Empty rule body / Dangling operator. E.g., `candidate_action(/test) :- .`
+		// The regex `([a-z_][a-z0-9_]*)\s*\(` will find no matches, passing validation incorrectly.
 	}
 
 	for _, tt := range tests {
@@ -231,11 +242,13 @@ Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.T
 			"safe_action(/rm) :- user_intent(_, _, _, _, _).",
 			true,
 		},
+		// TODO: Missing Test: Unbalanced parentheses coercion. E.g., `user_intent(A, B, C`. The `validateHeadArity` depth loop might break early and silently allow it to pass.
 		{
 			"comment is valid",
 			"# This is a comment",
 			false,
 		},
+		// TODO: Missing Test: Whitespace/multiline coercion bypass. E.g., `  permitted(/dangerous) :- user_intent(_, _, _, _, _).`. The regex `(?m)^([a-z_][a-z0-9_]*)\s*\(` requires line start and misses indented forbidden heads.
 		{
 			"empty line is valid",
 			"",
@@ -285,6 +298,10 @@ Decl next_action(Action.Type<name>).
 		t.Errorf("Missing predicates: %v", expected)
 	}
 }
+
+// TODO: Missing Test: Concurrent Map Reads and Writes. Go maps are not thread-safe. Test rapidly reading (ValidateRule) and writing (SetPredicateArity) simultaneously to expose race conditions.
+
+// TODO: Missing Test: Phantom State Across Evaluations. Test calling LoadDeclaredPredicates multiple times with different/contradictory schemas to verify if stale map state persists.
 
 // TestLearnedRulesExtractHeads tests that rule heads from learned.mg are extracted.
 func TestLearnedRulesExtractHeads(t *testing.T) {
