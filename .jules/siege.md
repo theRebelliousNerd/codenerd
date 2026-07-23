@@ -65,3 +65,10 @@
 ## 2024-07-06 - Campaign Phase Boundary Context Paging Overflow
 **Learning:** If a SubAgent spawned for a task generates a massive output (e.g., a huge log or data dump), and the Orchestrator passes that output forward as context to the next phase without bounded semantic compression or truncation, the resulting combined state will overflow the TokenBudgetManager for the next phase. This causes the downstream LLM context compilation to panic or fail unexpectedly.
 **Action:** When orchestrating multi-phase execution, the pipeline must strictly bound the phase output context state before transitioning and passing it forward as input, never assuming arbitrary text fits.
+## 2024-07-23 - Spawner Isolation Violation
+**Learning:** ConfigFactory returns pointers to shared `AgentConfig` slices. If `JITExecutor` mutates `AllowedTools`, it corrupts the config for all future subagents of that type.
+**Action:** Always enforce deep-copy mechanics in `session.generateConfig` before handing objects to the `JITExecutor`.
+
+## 2024-07-23 - Silent Fallback Vulnerability
+**Learning:** A Mangle stratification error during `generateConfig` causes Spawner to fallback to an empty config. If `JITExecutor` misinterprets `len(AllowedTools) == 0` as a pass-through instead of a deny-all, the fallback inadvertently creates an unconstrained "God Mode" agent.
+**Action:** Ensure `isToolAllowed` mathematically treats empty arrays as strict deny, not default-open.
