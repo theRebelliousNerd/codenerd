@@ -59,6 +59,14 @@ func TestOrchestratorJournal_Gaps(t *testing.T) {
 		}
 	})
 	// TODO: TEST_GAP: Missing/Nil Payload Hash Verification. Verify checksumJournalEvent deterministic hashing when ev.Payload is exactly nil vs []byte("").
+	// TODO: TEST_GAP: [Null/Undefined/Empty] Verify appendJournalEventLocked behavior when o.campaign is nil, ensuring no file is created or panic occurs.
+	// TODO: TEST_GAP: [Null/Undefined/Empty] Verify journalPath handles an empty CampaignID ("") gracefully without polluting the root campaigns directory.
+	// TODO: TEST_GAP: [Type Coercion] Verify appendJournalEventLocked handles unmarshalable payload types (e.g., cyclic structs, math.NaN()) and returns the specific marshal error safely.
+	// TODO: TEST_GAP: [Type Coercion] Verify checksumJournalEvent handles completely invalid or binary SnapshotChecksum data without breaking hex assumptions or string length assumptions downstream.
+	// TODO: TEST_GAP: [User Request Extremes] Verify recoverJournalSequence handles a 50GB journal file without causing OOM, ensuring it does not allocate memory proportional to the file size.
+	// TODO: TEST_GAP: [User Request Extremes] Verify appendJournalEventLocked handles a 100MB string payload without causing significant GC pauses or memory duplication during serialization.
+	// TODO: TEST_GAP: [State Conflicts] Verify writeCampaignSnapshotAtomic fallback mechanism (`writeJournalLinesAtomic` retry logic) works correctly if os.Rename fails due to concurrent access or file locking.
+	// TODO: TEST_GAP: [State Conflicts] Verify that two concurrent calls to appendJournalEventLocked from different goroutines (or processes) do not interleave bytes (requires file-level flock testing, not just mutex).
 	// REMEDIATED: TEST_GAP: Sequence Mismatch Truncation Test. Verify that if line N is corrupt, recovery correctly preserves 0..N-1 and safely overwrites the corrupt line.
 }
 
