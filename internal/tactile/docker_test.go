@@ -225,3 +225,23 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+
+
+
+
+// TODO: Null/Undefined/Empty: Test empty Image Name (should default to alpine or config default).
+// TODO: Null/Undefined/Empty: Test empty Arguments list (ensure no trailing spaces or malformed args).
+// TODO: Null/Undefined/Empty: Test empty Network Mode.
+// TODO: Null/Undefined/Empty: Test empty Environment Variables.
+// TODO: Type Coercion / Data Extremes: Test Extremely Long Strings for Binary and Arguments (ARG_MAX limits).
+// TODO: Type Coercion / Data Extremes: Test malformed image tags (injection attempts like "ubuntu:latest --privileged").
+// TODO: Type Coercion / Data Extremes: Test negative integer values in SandboxConfig limits.
+// TODO: User Request Extremes: Test excessive number of arguments (e.g. 100,000 args).
+// TODO: User Request Extremes: Test extreme resource constraints (e.g., memory limit 1 byte) and verify error parsing.
+// TODO: User Request Extremes: Test extreme output (Stdout/Stderr flooding) to verify limitedWriter discards excess without OOM.
+// TODO: User Request Extremes: Test extreme timeout (e.g., 1ms) ensuring clean context cancellation.
+// TODO: State Conflicts: Test concurrent SetAuditCallback vs emitAudit for race conditions.
+// TODO: State Conflicts: Test TOCTOU Docker Unavailability (Docker available at Validate, but daemon crashes before Execute).
+// TODO: State Conflicts: Test conflicting mount paths (same path in both AllowedPaths and ReadOnlyPaths).
+// TODO: State Conflicts: Test concurrent Execute calls to guarantee thread safety and no shared state leaks.
