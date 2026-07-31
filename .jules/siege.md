@@ -65,3 +65,7 @@
 ## 2024-07-06 - Campaign Phase Boundary Context Paging Overflow
 **Learning:** If a SubAgent spawned for a task generates a massive output (e.g., a huge log or data dump), and the Orchestrator passes that output forward as context to the next phase without bounded semantic compression or truncation, the resulting combined state will overflow the TokenBudgetManager for the next phase. This causes the downstream LLM context compilation to panic or fail unexpectedly.
 **Action:** When orchestrating multi-phase execution, the pipeline must strictly bound the phase output context state before transitioning and passing it forward as input, never assuming arbitrary text fits.
+
+## 2026-07-31 - [Spawner ↔ APIScheduler Integration Assumptions]
+**Learning:** The Spawner's `maxActiveSubagents` configuration does not map 1:1 to the APIScheduler's `MaxConcurrentAPICalls`. The Spawner assumes the APIScheduler's wait queues are unbounded and will properly honor context cancellation for queued agents. If the APIScheduler fails to evict timed-out waiters from its queues, it triggers a system-wide deadlock, as the Spawner's subagents count against its capacity even while waiting.
+**Action:** When stress-testing resource orchestration boundaries, always test queue eviction under heavy concurrency and timeout conditions, not just max capacity limits.
