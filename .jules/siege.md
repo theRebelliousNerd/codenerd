@@ -65,3 +65,10 @@
 ## 2024-07-06 - Campaign Phase Boundary Context Paging Overflow
 **Learning:** If a SubAgent spawned for a task generates a massive output (e.g., a huge log or data dump), and the Orchestrator passes that output forward as context to the next phase without bounded semantic compression or truncation, the resulting combined state will overflow the TokenBudgetManager for the next phase. This causes the downstream LLM context compilation to panic or fail unexpectedly.
 **Action:** When orchestrating multi-phase execution, the pipeline must strictly bound the phase output context state before transitioning and passing it forward as input, never assuming arbitrary text fits.
+
+## 2025-01-01 - [Session-Kernel-VStore Integration]
+**Learning:** The VirtualStore silently swallows errors from its dependencies (like the MCP client or external tools) when returning facts to the Session Executor if the error format isn't strictly recognized by the Kernel's fact assertion layer, leading the Session to believe a tool succeeded when it actually failed.
+**Action:** Always assert the presence of specific error facts (e.g., `diagnostic(/tool_error, ...)`) in the Kernel after a VirtualStore tool execution, rather than relying solely on the return error from `ExecuteToolCall`.
+## 2025-01-01 - [Session-Kernel-VStore Integration]
+**Learning:** The Session Executor relies on `e.transducer.ParseIntentWithContext` and expects the `VirtualStore` (via `ExecuteTool`) to execute the appropriate actions. However, if a tool's capability is missing from the `AllowedTools` in the `AgentConfig`, it will fail closed without panic.
+**Action:** Always assert that `AgentConfig` includes the necessary tool permissions, otherwise VirtualStore tool execution will be silently blocked by the executor.
