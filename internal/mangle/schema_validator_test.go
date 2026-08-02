@@ -16,6 +16,7 @@ func TestNewSchemaValidator(t *testing.T) {
 	if sv.predicateArities == nil {
 		t.Error("Expected predicateArities map to be initialized")
 	}
+	// TODO: TEST_GAP - Concurrent map access for declaredPredicates
 }
 
 // TestLoadDeclaredPredicates tests predicate extraction from schemas.
@@ -47,6 +48,8 @@ Decl next_action(Action.Type<name>).
 	if sv.IsDeclared("nonexistent_predicate") {
 		t.Error("Expected nonexistent_predicate to not be declared")
 	}
+
+	// TODO: TEST_GAP - Conflicting schema declarations (multiple arities)
 }
 
 // TestGetArity tests arity extraction from declarations.
@@ -74,6 +77,7 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 		{"unknown predicate returns -1", "unknown_pred", -1},
 	}
 
+	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			arity := sv.GetArity(tt.predicate)
@@ -106,8 +110,11 @@ Decl file_topology(Path.Type<string>).
 		{"wrong arity fails (too many)", "user_intent", 7, true},
 		{"correct single arg passes", "file_topology", 1, false},
 		{"unknown predicate passes", "unknown_pred", 10, false},
+		// TODO: TEST_GAP - Commas inside string literals breaking validateHeadArity
+		// TODO: TEST_GAP - Extreme Arity inputs (>1000 arguments)
 	}
 
+	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := sv.CheckArity(tt.predicate, tt.actualArity)
@@ -187,6 +194,7 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 		},
 	}
 
+	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := sv.ValidateRule(tt.rule)
@@ -241,8 +249,11 @@ Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.T
 			"",
 			false,
 		},
+		// TODO: TEST_GAP - Builtin redefinition attempts in learned rules
+		// TODO: TEST_GAP - Unicode/Case sensitivity in predicate names
 	}
 
+	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := sv.ValidateLearnedRule(tt.rule)
