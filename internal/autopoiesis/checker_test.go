@@ -16,6 +16,12 @@ func TestSafetyChecker(t *testing.T) {
 	}
 	checker := NewSafetyChecker(cfg)
 
+
+	// TODO: TEST_GAP: Null/Empty Inputs - Test checker.Check with an entirely empty string, null bytes, and whitespace-only strings.
+	// TODO: TEST_GAP: Type Coercion - Test describeViolation fallback when Mangle bindings return non-string types for 'V'.
+	// TODO: TEST_GAP: User Request Extremes - Test ExtractASTFacts with excessively deep ASTs to ensure ast.Walk does not trigger a stack overflow.
+	// TODO: TEST_GAP: User Request Extremes - Test engine fact accumulation when generated code exceeds the hardcoded cfg.FactLimit.
+	// TODO: TEST_GAP: State Conflicts - Test checker.Check behavior when goSafetyPolicy is empty, simulating load failure.
 	tests := []struct {
 		name        string
 		code        string
