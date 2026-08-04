@@ -72,3 +72,7 @@
 ## 2024-07-23 - Silent Fallback Vulnerability
 **Learning:** A Mangle stratification error during `generateConfig` causes Spawner to fallback to an empty config. If `JITExecutor` misinterprets `len(AllowedTools) == 0` as a pass-through instead of a deny-all, the fallback inadvertently creates an unconstrained "God Mode" agent.
 **Action:** Ensure `isToolAllowed` mathematically treats empty arrays as strict deny, not default-open.
+
+## 2026-07-31 - [Spawner ↔ APIScheduler Integration Assumptions]
+**Learning:** The Spawner's `maxActiveSubagents` configuration does not map 1:1 to the APIScheduler's `MaxConcurrentAPICalls`. The Spawner assumes the APIScheduler's wait queues are unbounded and will properly honor context cancellation for queued agents. If the APIScheduler fails to evict timed-out waiters from its queues, it triggers a system-wide deadlock, as the Spawner's subagents count against its capacity even while waiting.
+**Action:** When stress-testing resource orchestration boundaries, always test queue eviction under heavy concurrency and timeout conditions, not just max capacity limits.
