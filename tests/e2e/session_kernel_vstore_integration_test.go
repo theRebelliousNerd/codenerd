@@ -18,13 +18,13 @@ import (
 )
 
 // mock Virtual Store
-type mockVirtualStore struct {
+type skvMockVirtualStore struct {
 	execDelay time.Duration
 	execErr   error
 	panic     bool
 }
 
-func (m *mockVirtualStore) ExecuteTool(ctx context.Context, tool types.ToolCall) (string, error) {
+func (m *skvMockVirtualStore) ExecuteTool(ctx context.Context, tool types.ToolCall) (string, error) {
 	if m.panic {
 		panic("simulated virtual store panic")
 	}
@@ -41,10 +41,10 @@ func (m *mockVirtualStore) ExecuteTool(ctx context.Context, tool types.ToolCall)
 	return "success", nil
 }
 
-func (m *mockVirtualStore) ReadFile(path string) ([]string, error) { return nil, nil }
-func (m *mockVirtualStore) WriteFile(path string, content []string) error { return nil }
-func (m *mockVirtualStore) Exec(ctx context.Context, cmd string, env []string) (string, string, error) { return "", "", nil }
-func (m *mockVirtualStore) ReadRaw(path string) ([]byte, error) { return nil, nil }
+func (m *skvMockVirtualStore) ReadFile(path string) ([]string, error) { return nil, nil }
+func (m *skvMockVirtualStore) WriteFile(path string, content []string) error { return nil }
+func (m *skvMockVirtualStore) Exec(ctx context.Context, cmd string, env []string) (string, string, error) { return "", "", nil }
+func (m *skvMockVirtualStore) ReadRaw(path string) ([]byte, error) { return nil, nil }
 
 
 // Mock other components required by the executor
@@ -59,24 +59,24 @@ func (m *mockLLM) CompleteWithStreaming(ctx context.Context, systemPrompt, userP
 type mockJIT struct{}
 func (m *mockJIT) Compile(ctx context.Context, cCtx *prompt.CompilationContext) (*prompt.CompilationResult, error) { return nil, nil }
 
-type mockConfigFactory struct{}
-func (m *mockConfigFactory) Generate(ctx context.Context, res *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) { return nil, nil }
+type skvMockConfigFactory struct{}
+func (m *skvMockConfigFactory) Generate(ctx context.Context, res *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) { return nil, nil }
 
-type mockTransducer struct{}
-func (m *mockTransducer) ParseIntentWithContext(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) { return perception.Intent{}, nil }
-func (m *mockTransducer) ExtractIntent(ctx context.Context, input string) (perception.Intent, error) { return perception.Intent{}, nil }
-func (m *mockTransducer) ParseIntent(ctx context.Context, input string) (perception.Intent, error) { return perception.Intent{}, nil }
-func (m *mockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) { return perception.Intent{}, nil, nil }
-func (m *mockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) { return perception.FocusResolution{}, nil }
-func (m *mockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
-func (m *mockTransducer) SetStrategicContext(context string) {}
+type skvMockTransducer struct{}
+func (m *skvMockTransducer) ParseIntentWithContext(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) { return perception.Intent{}, nil }
+func (m *skvMockTransducer) ExtractIntent(ctx context.Context, input string) (perception.Intent, error) { return perception.Intent{}, nil }
+func (m *skvMockTransducer) ParseIntent(ctx context.Context, input string) (perception.Intent, error) { return perception.Intent{}, nil }
+func (m *skvMockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) { return perception.Intent{}, nil, nil }
+func (m *skvMockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) { return perception.FocusResolution{}, nil }
+func (m *skvMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
+func (m *skvMockTransducer) SetStrategicContext(context string) {}
 
 // Scenario 1: Nil Config Bypass
 func TestE2E_SessionKernelVStore_NilConfig_FailsClosed(t *testing.T) {
 	t.Log("Testing graceful failure with nil config")
 	kernel, _ := core.NewRealKernel()
 
-	executor := session.NewExecutor(kernel, &mockVirtualStore{}, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, &skvMockVirtualStore{}, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatal("executor should not be nil")
@@ -92,7 +92,7 @@ func TestE2E_SessionKernelVStore_TemporalFailure_ContextCancellation(t *testing.
 	t.Log("Injecting delays, timeouts, and context cancellations at the boundary")
 	kernel, _ := core.NewRealKernel()
 
-	executor := session.NewExecutor(kernel, &mockVirtualStore{execDelay: 10 * time.Second}, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, &skvMockVirtualStore{execDelay: 10 * time.Second}, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatal("executor should not be nil")
@@ -124,7 +124,7 @@ func TestE2E_SessionKernelVStore_CascadingFailure_PanicRecovery(t *testing.T) {
 	t.Log("Breaking subsystem B and verify A doesn't corrupt its own state")
 	kernel, _ := core.NewRealKernel()
 
-	executor := session.NewExecutor(kernel, &mockVirtualStore{panic: true}, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, &skvMockVirtualStore{panic: true}, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatal("executor should not be nil")
@@ -140,9 +140,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation16(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(16 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -159,9 +159,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation17(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(17 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -178,9 +178,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation18(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(18 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -197,9 +197,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation19(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(19 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -216,9 +216,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation20(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(20 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -235,9 +235,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation21(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(21 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -254,9 +254,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation22(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(22 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -273,9 +273,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation23(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(23 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -292,9 +292,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation24(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(24 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -311,9 +311,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation25(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(25 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -330,9 +330,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation26(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(26 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -349,9 +349,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation27(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(27 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -368,9 +368,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation28(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(28 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -387,9 +387,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation29(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(29 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -406,9 +406,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation30(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(30 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -425,9 +425,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation31(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(31 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -444,9 +444,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation32(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(32 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -463,9 +463,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation33(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(33 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -482,9 +482,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation34(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(34 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -501,9 +501,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation35(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(35 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -520,9 +520,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation36(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(36 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -539,9 +539,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation37(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(37 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -558,9 +558,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation38(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(38 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -577,9 +577,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation39(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(39 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -596,9 +596,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation40(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(40 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -615,9 +615,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation41(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(41 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -634,9 +634,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation42(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(42 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -653,9 +653,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation43(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(43 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -672,9 +672,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation44(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(44 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -691,9 +691,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation45(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(45 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -710,9 +710,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation46(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(46 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -729,9 +729,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation47(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(47 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -748,9 +748,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation48(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(48 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)
@@ -767,9 +767,9 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation49(t *testing.T) {
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
 	delay := time.Duration(49 * 10) * time.Millisecond
-	vstore := &mockVirtualStore{execDelay: delay}
+	vstore := &skvMockVirtualStore{execDelay: delay}
 
-	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &mockConfigFactory{}, &mockTransducer{})
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
 
 	if executor == nil {
 		t.Fatalf("Failed to initialize executor with vstore delay %v", delay)

@@ -25,12 +25,12 @@ func (m *mockCompiler) Compile(ctx context.Context, compCtx *prompt.CompilationC
 	return &prompt.CompilationResult{}, nil
 }
 
-type mockConfigFactory struct{}
-func (m *mockConfigFactory) Generate(ctx context.Context, res *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+type sasMockConfigFactory struct{}
+func (m *sasMockConfigFactory) Generate(ctx context.Context, res *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	return &config.EffectiveAgentRuntimeConfig{}, nil
 }
 
-type mockTransducer struct {
+type sasMockTransducer struct {
 	perception.Transducer
 }
 
@@ -47,7 +47,7 @@ func TestE2E_SpawnerAPIScheduler_Smoke_BasicAcquireRelease(t *testing.T) {
 	scheduler := core.GetAPIScheduler()
 
 	// Initialize Spawner
-	spawner := session.NewSpawner(nil, nil, nil, &mockCompiler{}, &mockConfigFactory{}, &mockTransducer{}, session.SpawnerConfig{
+	spawner := session.NewSpawner(nil, nil, nil, &mockCompiler{}, &sasMockConfigFactory{}, &sasMockTransducer{}, session.SpawnerConfig{
 		MaxActiveSubagents: 5,
 		TokenBudget:        1000,
 	})
@@ -164,7 +164,7 @@ func TestE2E_SpawnerAPIScheduler_ResourceExhaustion_MassSpawning(t *testing.T) {
 	})
 	scheduler := core.GetAPIScheduler()
 
-	spawner := session.NewSpawner(nil, nil, nil, &mockCompiler{}, &mockConfigFactory{}, &mockTransducer{}, session.SpawnerConfig{
+	spawner := session.NewSpawner(nil, nil, nil, &mockCompiler{}, &sasMockConfigFactory{}, &sasMockTransducer{}, session.SpawnerConfig{
 		MaxActiveSubagents: numSpawns + 10,
 		TokenBudget:        100000,
 	})
@@ -210,7 +210,7 @@ func TestE2E_SpawnerAPIScheduler_StateCorruption_ConcurrentCapacityCheck(t *test
 	t.Parallel()
 
 	maxSpawns := 10
-	spawner := session.NewSpawner(nil, nil, nil, &mockCompiler{}, &mockConfigFactory{}, &mockTransducer{}, session.SpawnerConfig{
+	spawner := session.NewSpawner(nil, nil, nil, &mockCompiler{}, &sasMockConfigFactory{}, &sasMockTransducer{}, session.SpawnerConfig{
 		MaxActiveSubagents: maxSpawns,
 		TokenBudget:        100000,
 	})
