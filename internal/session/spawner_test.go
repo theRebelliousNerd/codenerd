@@ -276,3 +276,8 @@ func TestSpawner_StateConflicts_ShutdownConcurrentSpawn(t *testing.T) {
 // TODO: TEST_GAP: State Conflicts - Rapid spawn and immediate context cancellation
 // TODO: TEST_GAP: State Conflicts - Concurrent Cleanup() and Stop()
 // TODO: TEST_GAP: State Conflicts - Zombie Agents (Leaked memory/goroutines after completion if Cleanup() is never called)
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Spawner handles a Nil Context gracefully in Spawn operations without context.WithCancel(nil) panic in SubAgent.Run().
+// TODO: TEST_GAP: [Type Coercion] Verify Spawner handles invalid YAML Types in Specialist Config (e.g. string for Timeout, arrays for objects).
+// TODO: TEST_GAP: [User Request Extremes] Verify Spawner handles 10,000+ concurrent spawn requests gracefully rejecting with capacity errors.
+// TODO: TEST_GAP: [State Conflicts] Verify that rapid spawn and immediate shutdown calls don't result in zombie goroutines due to race conditions.
