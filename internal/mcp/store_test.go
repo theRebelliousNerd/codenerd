@@ -133,6 +133,11 @@ func TestMCPToolStoreServerAndToolLifecycle(t *testing.T) {
 // Marathon 18: MCP Store Test Gaps
 // -----------------------------------------------------------------------------
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Store initialization does not guarantee the embedder is non-nil, risking panics during SemanticSearch.
+// TODO: TEST_GAP: [Null/Undefined/Empty] SaveServer does not validate if server is nil before dereferencing server.ID.
+// TODO: TEST_GAP: [Null/Undefined/Empty] GetServer does not reject empty string IDs, resulting in semantically meaningless database queries.
+// TODO: TEST_GAP: [Null/Undefined/Empty] SaveTool lacks nil pointer checks and does not enforce structural requirements on tool before insertion.
+// TODO: TEST_GAP: [Null/Undefined/Empty] GetTool processes empty string queries identically to valid lookups.
 func TestStore_NullEmptyInputs(t *testing.T) {
 	ctx := context.Background()
 	_, err := NewMCPToolStore("", nil)
@@ -185,6 +190,8 @@ func TestStore_NullEmptyInputs(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: [Type Coercion] GetServer JSON unmarshaling silently fails on corrupted strings, yielding empty properties instead of errors.
+// TODO: TEST_GAP: [Type Coercion] SaveTool blindly marshals float32 embeddings to bytes, which can lead to retrieval corruption if sizes are misaligned.
 func TestStore_TypeCoercion(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
@@ -232,6 +239,9 @@ func TestStore_TypeCoercion(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: [User Request Extremes] SaveServer allows arbitrary length strings for properties like Endpoint and Capabilities, risking memory exhaustion.
+// TODO: TEST_GAP: [User Request Extremes] SemanticSearch does not bound the topK parameter; extreme positive values cause OOMs, while zero/negative values are not rejected.
+// TODO: TEST_GAP: [User Request Extremes] RecordToolUsage can suffer from signed integer overflow if adversarial tools consistently report massive latency metrics.
 func TestStore_UserRequestExtremes(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
@@ -251,6 +261,8 @@ func TestStore_UserRequestExtremes(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: [State Conflicts] Concurrent schema initialization across multiple processes without file locking can lead to database corruption.
+// TODO: TEST_GAP: [State Conflicts] RecordToolUsage executes updates that silently fail if the tool was concurrently deleted by another transaction.
 func TestStore_StateConflicts(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
