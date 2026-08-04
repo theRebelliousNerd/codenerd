@@ -23,6 +23,9 @@ import "testing"
 // TODO: State Conflicts: Parallel Phase Execution: If multiple phases are forced active simultaneously via corrupted logic, does runPhase cause race conditions on shared orchestrator maps?
 // TODO: Execution Profiles: The Infinite Loop State. The Mangle program fails to stratify or enters an infinite loop. The orchestrator's kernel.Query calls must have explicit timeouts to prevent freezing.
 // TODO: Execution Profiles: The Silent Failure State. Mangle returns zero facts when it should return exactly one (no active phases, but campaign not complete). The orchestrator must gracefully fail or auto-heal.
+// TODO: User Request Extremes: Performance of Autosaving. During a 1,000,000 task campaign, o.saveCampaign() holds the orchestrator lock while serializing JSON to disk. This synchronous I/O blocks the Run loop and APIs, causing significant performance degradation and timeouts.
+// TODO: State Conflicts: Concurrency with runHeartbeatLoop. If context is cancelled, Run() saves campaign while holding lock. If runHeartbeatLoop also triggers autosave concurrently, we need to ensure the writes are atomic to prevent campaign file corruption.
+// TODO: State Conflicts: State Desynchronization in runHeartbeatLoop. If Mangle transaction commit fails due to SQLite lock, the heartbeat isn't recorded but the process continues.
 
 func TestOrchestratorExecution_Placeholder(t *testing.T) {
 	// Satisfy the build
