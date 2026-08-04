@@ -1,4 +1,33 @@
-//go:build integration
+//go:build ignore
+
+// QUARANTINED — this file has never compiled and does not run.
+//
+// It was written against a campaign orchestration API that does not exist in
+// this repository and never has (`git log -S` finds no trace of it). Building
+// the package with `-tags integration` fails on the first missing symbol,
+// which blocked all 617 tests across tests/e2e from running at all.
+//
+// Excluded from the build so the rest of the E2E suite can run. Rewriting it
+// against the real API means reworking every scenario, not renaming symbols:
+//
+//	needed by this file      actual API
+//	-----------------------  --------------------------------------------
+//	campaign.Plan            (no such type; use campaign.Campaign)
+//	Orchestrator.ExecutePlan (no such method; use SetCampaign then Run)
+//	campaign.TaskResult      session.TaskResult{TaskID,Result,Error,...}
+//	Task.Dependencies        Task.DependsOn (plus phase-level
+//	                         PhaseDependency, which is where the
+//	                         orchestrator actually models ordering)
+//	Phase.Tasks []*Task      Phase.Tasks []Task (value, not pointer)
+//	one-method ExecuteTask   session.TaskExecutor has five methods:
+//	                         Execute, ExecuteWithContext, ExecuteAsync,
+//	                         GetResult, WaitForResult
+//
+// The mock also assumes it receives a *campaign.Task and a contextData string.
+// The real orchestrator passes only session.TaskRequest{IntentVerb, Task},
+// where Task is a prompt string — so the ~20 assertions here that branch on
+// task.ID cannot be ported as written and need scenarios re-derived from what
+// the orchestrator actually guarantees.
 
 package e2e_test
 

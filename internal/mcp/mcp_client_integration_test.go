@@ -212,6 +212,7 @@ func (s *MCPClientIntegrationSuite) TestConnect_EmptyServerID() {
 }
 
 // TODO: TEST_GAP: [Type Coercion] Verify invalid argument types (like unmarshalable structs) properly fail JSON marshaling before transmission.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify CallTool gracefully initializes nil args
 func (s *MCPClientIntegrationSuite) TestCallTool_NilArgs() {
 	// CallTool with nil args
 	ctx := context.Background()
@@ -227,6 +228,7 @@ func (s *MCPClientIntegrationSuite) TestCallTool_NilArgs() {
 }
 
 // TODO: TEST_GAP: [User Request Extremes] Verify DiscoverTools behaves safely and aborts gracefully when given an extremely large list of tools or malformed empty responses.
+// TODO: TEST_GAP: [Type Coercion] Verify schemas with deep recursive loops fail cleanly
 func (s *MCPClientIntegrationSuite) TestDiscoverTools_EmptyList() {
 	// Let's create an empty mock server
 	emptyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -264,12 +266,14 @@ func (s *MCPClientIntegrationSuite) TestDiscoverTools_EmptyList() {
 	s.Len(s.client.GetAllTools(), 0)
 }
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify nil configuration objects and callbacks do not panic during ConnectAll
 func (s *MCPClientIntegrationSuite) TestConnectAll_NilConfig() {
 	client := mcp.NewMCPClientManager(s.store, nil, nil) // nil config
 	err := client.ConnectAll(context.Background())
 	s.Require().NoError(err) // Should silently succeed
 }
 
+// TODO: TEST_GAP: [Type Coercion] Verify null byte injection in string arguments is safely escaped
 func (s *MCPClientIntegrationSuite) TestCallTool_InvalidArgsTypes() {
 	ctx := context.Background()
 	s.Require().NoError(s.client.Connect(ctx, "test-server"))
@@ -312,6 +316,7 @@ func (s *MCPClientIntegrationSuite) TestConnect_LongTimeout() {
 	s.Require().NoError(err) // Should succeed parsing long timeout
 }
 
+// TODO: TEST_GAP: [State Conflicts] Verify subprocess zombie processes and OS pipe buffer deadlocks are mitigated during disconnect
 func (s *MCPClientIntegrationSuite) TestConcurrentConnectDisconnect() {
 	client := mcp.NewMCPClientManager(s.store, nil, map[string]mcp.MCPServerConfig{
 		"test": {ID: "test", Enabled: true, Protocol: "http", BaseURL: s.serverAddr},

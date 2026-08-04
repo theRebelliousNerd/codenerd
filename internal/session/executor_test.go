@@ -324,3 +324,8 @@ func TestExecutor_RetractFactFailure(t *testing.T) {
 		t.Error("Expected checkSafety to return true even if RetractFact fails in defer")
 	}
 }
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify processPiggybackControlPacket handles a completely empty string ("") without panic.
+// TODO: TEST_GAP: [Type Coercion] Verify parsing of String literal args vs Mangle Atom args when parsing malformed piggyback payload with invalid json types.
+// TODO: TEST_GAP: [User Request Extremes] Verify processPiggybackControlPacket behaves safely and aborts gracefully when given an extremely large payload (e.g. 100MB string) that might OOM the parser.
+// TODO: TEST_GAP: [State Conflicts] Verify that Concurrent processPiggybackControlPacket calls don't create race conditions on shared memory operations.

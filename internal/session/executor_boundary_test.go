@@ -13,6 +13,7 @@ import (
 // isToolAllowed fails closed. The pipeline should not panic.
 //
 // QA boundary item: "Add test for nil AgentConfig — graceful rejection"
+// TODO: TEST_GAP: [State Conflicts & Concurrency] Write a concurrency test executing `checkSafety` in a tight loop across multiple goroutines while concurrently updating state via `SetConfig` to expose unsynchronized read data races.
 func TestExecutor_CheckSafety_NilAgentConfigGracefulRejection(t *testing.T) {
 	executor := &Executor{
 		kernel: &MockKernel{},
@@ -46,6 +47,8 @@ func TestExecutor_CheckSafety_NilAgentConfigGracefulRejection(t *testing.T) {
 // kernel's fact store, preventing GC spikes / OOMs.
 //
 // QA boundary items 4+5: massive payload truncation/guard before Kernel.Assert.
+// TODO: TEST_GAP: [User Request Extremes] Add a negative test where the overall payload size is just under `maxPayloadBytes`, but the extracted `target` string alone is massive (e.g., 90KB), to verify Mangle engine resilience against massive atom names.
+// TODO: TEST_GAP: [User Request Extremes] Implement a stress test that fires 10,000 rapid concurrent `checkSafety` calls to validate garbage collection pressure and Mangle EDB growth limits (e.g., the '50 million line monorepo' edge case).
 func TestExecutor_CheckSafety_MassivePayloadRejected(t *testing.T) {
 	mockKernel := &MockKernel{}
 	executor := &Executor{
@@ -83,6 +86,8 @@ func TestExecutor_CheckSafety_MassivePayloadRejected(t *testing.T) {
 // TestExecutor_CheckSafety_PayloadAtBoundary verifies that payloads just under
 // the threshold are accepted (asserted) and only payloads over the threshold
 // are rejected. This guards against off-by-one errors in the size check.
+// TODO: TEST_GAP: [Type Coercion] Verify that `extractTarget` rejects or gracefully handles malformed complex types (e.g., slices, maps) passed to candidate keys instead of coercing them into invalid string atoms.
+// TODO: TEST_GAP: [Type Coercion] Add boundary tests verifying numeric target extraction, including float-to-string formatting differences (e.g., 1.0 vs 1) and excessively large integer values exceeding standard bounds.
 func TestExecutor_CheckSafety_PayloadAtBoundary(t *testing.T) {
 	mockKernel := &MockKernel{}
 	executor := &Executor{
@@ -155,6 +160,8 @@ func TestExecutor_CheckSafety_EmptyToolNameRejectsCategorically(t *testing.T) {
 // behavior than TestExecutor_NilArgsInToolCall: nil Args is normalized to
 // "{}" payload so that permitted facts written by policy (which use "{}" for
 // no-arg actions) match correctly.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Add boundary tests where the candidate key (e.g., 'path') is explicitly present but its value is `nil`, ensuring `extractTarget` falls back to 'unknown' rather than an empty string.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Add tests for ToolCalls containing deeply nested empty objects and uninitialized slices to verify JSON marshaling and Mangle evaluation robustness.
 func TestExecutor_CheckSafety_NilArgsAssertsEmptyObject(t *testing.T) {
 	mockKernel := &MockKernel{
 		// Pre-load a permitted fact for the readFile action with empty payload.

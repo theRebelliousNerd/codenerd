@@ -65,3 +65,21 @@
 ## 2024-07-06 - Campaign Phase Boundary Context Paging Overflow
 **Learning:** If a SubAgent spawned for a task generates a massive output (e.g., a huge log or data dump), and the Orchestrator passes that output forward as context to the next phase without bounded semantic compression or truncation, the resulting combined state will overflow the TokenBudgetManager for the next phase. This causes the downstream LLM context compilation to panic or fail unexpectedly.
 **Action:** When orchestrating multi-phase execution, the pipeline must strictly bound the phase output context state before transitioning and passing it forward as input, never assuming arbitrary text fits.
+## 2024-07-23 - Spawner Isolation Violation
+**Learning:** ConfigFactory returns pointers to shared `AgentConfig` slices. If `JITExecutor` mutates `AllowedTools`, it corrupts the config for all future subagents of that type.
+**Action:** Always enforce deep-copy mechanics in `session.generateConfig` before handing objects to the `JITExecutor`.
+
+## 2024-07-23 - Silent Fallback Vulnerability
+**Learning:** A Mangle stratification error during `generateConfig` causes Spawner to fallback to an empty config. If `JITExecutor` misinterprets `len(AllowedTools) == 0` as a pass-through instead of a deny-all, the fallback inadvertently creates an unconstrained "God Mode" agent.
+**Action:** Ensure `isToolAllowed` mathematically treats empty arrays as strict deny, not default-open.
+
+## 2026-07-31 - [Spawner ↔ APIScheduler Integration Assumptions]
+**Learning:** The Spawner's `maxActiveSubagents` configuration does not map 1:1 to the APIScheduler's `MaxConcurrentAPICalls`. The Spawner assumes the APIScheduler's wait queues are unbounded and will properly honor context cancellation for queued agents. If the APIScheduler fails to evict timed-out waiters from its queues, it triggers a system-wide deadlock, as the Spawner's subagents count against its capacity even while waiting.
+**Action:** When stress-testing resource orchestration boundaries, always test queue eviction under heavy concurrency and timeout conditions, not just max capacity limits.
+
+## 2025-01-01 - [Session-Kernel-VStore Integration]
+**Learning:** The VirtualStore silently swallows errors from its dependencies (like the MCP client or external tools) when returning facts to the Session Executor if the error format isn't strictly recognized by the Kernel's fact assertion layer, leading the Session to believe a tool succeeded when it actually failed.
+**Action:** Always assert the presence of specific error facts (e.g., `diagnostic(/tool_error, ...)`) in the Kernel after a VirtualStore tool execution, rather than relying solely on the return error from `ExecuteToolCall`.
+## 2025-01-01 - [Session-Kernel-VStore Integration]
+**Learning:** The Session Executor relies on `e.transducer.ParseIntentWithContext` and expects the `VirtualStore` (via `ExecuteTool`) to execute the appropriate actions. However, if a tool's capability is missing from the `AllowedTools` in the `AgentConfig`, it will fail closed without panic.
+**Action:** Always assert that `AgentConfig` includes the necessary tool permissions, otherwise VirtualStore tool execution will be silently blocked by the executor.
