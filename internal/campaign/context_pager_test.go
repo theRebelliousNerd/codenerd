@@ -13,6 +13,8 @@ import (
 )
 
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify NewContextPager behavior when kernel or llmClient is nil.
+// TODO: TEST_GAP: Area 1 - Boundary Values (Extremes) - NewContextPager/SetBudget with math.MaxInt values to check integer overflow limits for token reserves.
+// TODO: TEST_GAP: Area 1 - Boundary Values (Null/Undefined/Empty) - NewContextPager/SetBudget with budget=1 to ensure integer division truncation does not zero out all reserves.
 func TestNewContextPager(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{}
@@ -40,6 +42,7 @@ func TestNewContextPager(t *testing.T) {
 }
 
 // TODO: TEST_GAP: [State Conflicts] Verify SetBudget behavior under concurrent conditions when other methods are actively querying and updating tokens.
+// TODO: TEST_GAP: Area 2 - State Conflicts - SetBudget called concurrently when usedTokens already exceeds the newly set totalBudget limit.
 func TestSetBudget(t *testing.T) {
 	cp := NewContextPager(&MockKernel{}, &MockLLMClient{}, 100000)
 	cp.SetBudget(50000)
@@ -53,6 +56,9 @@ func TestSetBudget(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: Area 3 - Null/Undefined/Empty - ActivatePhase with phase pointer set to nil.
+// TODO: TEST_GAP: Area 3 - Null/Undefined/Empty - ActivatePhase with missing or invalid ContextProfile in kernel (no fallback handling).
+// TODO: TEST_GAP: Area 3 - State Conflicts - ActivatePhase missing lock bounds for partial failure desynchronizing usedTokens against real facts.
 func TestActivatePhase(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{}
@@ -294,6 +300,10 @@ func TestCompressPhase(t *testing.T) {
 }
 
 // TODO: TEST_GAP: [User Request Extremes] Verify performance and memory allocation of CompressPhase when phase contains millions of facts to compress.
+// TODO: TEST_GAP: Area 5 - User Request Extremes - CompressPhase with 500,000+ returned atoms testing kernel memory allocation spike.
+// TODO: TEST_GAP: Area 5 - State Conflicts - CompressPhase TOCTOU: LLM takes 30s, concurrent goroutine asserts phase facts, verify retract scope matches precisely.
+// TODO: TEST_GAP: Area 5 - User Request Extremes - CompressPhase LLM returns empty string ("") or 20MB garbage payload, verify fallback and truncation behavior.
+// TODO: TEST_GAP: Area 5 - State Conflicts - CompressPhase goroutine leaks if context is cancelled mid-flight but the LLM client hangs.
 func TestCompressPhase_MassiveAccomplishments(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{
@@ -364,6 +374,7 @@ func TestCompressPhase_MassiveAccomplishments(t *testing.T) {
 }
 
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify behavior of PrefetchNextTasks when tasks is an empty slice or limit is 0 or negative.
+// TODO: TEST_GAP: Area 6 - Boundary Values (Extremes) - PrefetchNextTasks pushing token count completely past absolute totalBudget limit with no bound checks.
 func TestPrefetchNextTasks(t *testing.T) {
 	kernel := &MockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
@@ -408,6 +419,9 @@ func TestPrefetchNextTasks(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: Area 8 - User Request Extremes - PruneIrrelevant memory spike testing QueryAll() when DB has 1,000,000 facts.
+// TODO: TEST_GAP: Area 9 - User Request Extremes - estimatePhaseTokens scaling linearly with no total bounds check logic blocking an overloaded phase activation.
+// TODO: TEST_GAP: Area 9 - Boundary Values - Zero tasks, Zero artifacts (empty phase) consuming exactly base token rate, scaled to 10,000 runs.
 func TestPruneIrrelevant(t *testing.T) {
 	kernel := &MockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
@@ -553,6 +567,9 @@ func TestContextPager_GetUsageConcurrent(t *testing.T) {
 }
 
 // TODO: TEST_GAP: [Type Coercion] Verify handling of malformed phase IDs containing special characters or non-string representations in getContextProfile.
+// TODO: TEST_GAP: Area 4 - Type Coercion / Null String Injection - getContextProfile handling schemas string containing unescaped null bytes \x00.
+// TODO: TEST_GAP: Area 4 - User Request Extremes - getContextProfile with 10MB non-delimited continuous string payload blowing up split logic.
+// TODO: TEST_GAP: Area 7 - Null/Undefined/Empty - normalizeLayerName outputting empty or invalid reduction on " / - " breaking scope check.
 func TestGetContextProfile_Malformed(t *testing.T) {
 	kernel := &MockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
