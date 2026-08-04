@@ -76,3 +76,10 @@
 ## 2026-07-31 - [Spawner ↔ APIScheduler Integration Assumptions]
 **Learning:** The Spawner's `maxActiveSubagents` configuration does not map 1:1 to the APIScheduler's `MaxConcurrentAPICalls`. The Spawner assumes the APIScheduler's wait queues are unbounded and will properly honor context cancellation for queued agents. If the APIScheduler fails to evict timed-out waiters from its queues, it triggers a system-wide deadlock, as the Spawner's subagents count against its capacity even while waiting.
 **Action:** When stress-testing resource orchestration boundaries, always test queue eviction under heavy concurrency and timeout conditions, not just max capacity limits.
+
+## 2025-01-01 - [Session-Kernel-VStore Integration]
+**Learning:** The VirtualStore silently swallows errors from its dependencies (like the MCP client or external tools) when returning facts to the Session Executor if the error format isn't strictly recognized by the Kernel's fact assertion layer, leading the Session to believe a tool succeeded when it actually failed.
+**Action:** Always assert the presence of specific error facts (e.g., `diagnostic(/tool_error, ...)`) in the Kernel after a VirtualStore tool execution, rather than relying solely on the return error from `ExecuteToolCall`.
+## 2025-01-01 - [Session-Kernel-VStore Integration]
+**Learning:** The Session Executor relies on `e.transducer.ParseIntentWithContext` and expects the `VirtualStore` (via `ExecuteTool`) to execute the appropriate actions. However, if a tool's capability is missing from the `AllowedTools` in the `AgentConfig`, it will fail closed without panic.
+**Action:** Always assert that `AgentConfig` includes the necessary tool permissions, otherwise VirtualStore tool execution will be silently blocked by the executor.
