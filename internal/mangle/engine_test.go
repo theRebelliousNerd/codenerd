@@ -309,6 +309,12 @@ func TestEngineToggleAutoEval(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestNilArguments(t *testing.T) {
+	// TODO: TEST_GAP - Add test for LoadSchemaString("") (Empty Schema Load)
+	// TODO: TEST_GAP - Add test for engine.Query(ctx, "") (Empty Queries)
+	// TODO: TEST_GAP - Add test for passing nil as context to Context-aware methods
+	// TODO: TEST_GAP - Add test for calling PushFact with zero arguments
+	// TODO: TEST_GAP - Add test for AddFacts([]Fact{}) (Empty Batch Inserts)
+
 	cfg := DefaultConfig()
 	cfg.AutoEval = false
 	engine, err := NewEngine(cfg, nil)
@@ -333,6 +339,12 @@ func TestNilArguments(t *testing.T) {
 }
 
 func TestFloatCoercionBoundaries(t *testing.T) {
+	// TODO: TEST_GAP - Add test for math.NaN() and math.Inf() coercion
+	// TODO: TEST_GAP - Add test for sub-normal floats
+	// TODO: TEST_GAP - Add test for deeply nested structs/maps (Type Coercion Limits)
+	// TODO: TEST_GAP - Add test for Type Dissonance in Queries (Querying Atom with String)
+	// TODO: TEST_GAP - Add test for Unbound Variables in Mixed Type Contexts
+
 	cfg := DefaultConfig()
 	cfg.AutoEval = false
 	engine, err := NewEngine(cfg, nil)
@@ -416,6 +428,12 @@ func TestStringAtomAmbiguity(t *testing.T) {
 }
 
 func TestFactLimitEnforcement(t *testing.T) {
+	// TODO: TEST_GAP - Add test for massive arity (e.g., 10000 args in one fact)
+	// TODO: TEST_GAP - Add test for extreme schema size (tens of thousands of decls)
+	// TODO: TEST_GAP - Add test for deep recursion / non-terminating rules (Logic Bombs)
+	// TODO: TEST_GAP - Add test for massive result sets (goroutine leak check on early exit)
+	// TODO: TEST_GAP - Add test for long predicate names (e.g., 65535 chars)
+
 	cfg := DefaultConfig()
 	cfg.FactLimit = 3
 	cfg.AutoEval = false
@@ -484,6 +502,12 @@ func TestDerivedFactsGasLimit(t *testing.T) {
 }
 
 func TestConcurrentAccess(t *testing.T) {
+	// TODO: TEST_GAP - Add test for Concurrent Clear and Query
+	// TODO: TEST_GAP - Add test for Concurrent Schema Reloading
+	// TODO: TEST_GAP - Add test for Post-Close Operations (calling methods after engine.Close())
+	// TODO: TEST_GAP - Add test for Context Cancellation during massive Fact Insertion (Atomicity rollback)
+	// TODO: TEST_GAP - Add test for Ghost Facts (ensure Clear() truly resets all state between tasks)
+
 	cfg := DefaultConfig()
 	cfg.AutoEval = false
 	engine, err := NewEngine(cfg, nil)
