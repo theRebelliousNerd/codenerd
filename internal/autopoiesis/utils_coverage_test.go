@@ -24,10 +24,17 @@ func TestNormalizePercent_AllBands(t *testing.T) {
 		{"negative", -1.0, 0},
 		{"fraction", 0.5, 50},
 		{"fraction_low", 0.1, 10},
-		{"one", 1.0, 1},     // >= 1, read as a percent, not a ratio
-		{"fifty", 50.0, 50}, // >= 1, <= 100
-		{"hundred", 100.0, 100},
-		{"over_hundred", 200.0, 100},
+		// Both inputs are 0..1 ratios (feedback.go keeps SuccessRate as a
+		// running hit rate and AverageQuality as a running mean of 0..1 scores;
+		// autopoiesis_feedback.go tests AverageQuality < 0.5). This case used to
+		// expect 1, because normalizePercent guessed that anything >= 1 was
+		// already a percent -- so a tool that had never failed was recorded as a
+		// 1% success rate and tool_quality_* (SuccessRate > 50) queued it for
+		// deprecation. Out-of-range inputs saturate rather than being
+		// reinterpreted.
+		{"perfect ratio saturates", 1.0, 100},
+		{"out of range saturates", 50.0, 100},
+		{"far out of range saturates", 200.0, 100},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

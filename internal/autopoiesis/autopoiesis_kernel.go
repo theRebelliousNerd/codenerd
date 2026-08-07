@@ -229,8 +229,15 @@ func (o *Orchestrator) SyncLearningsToKernel() {
 // ast.Float64, and this Mangle fork's <, <=, >, >= accept int64 only — so a
 // float here aborts the entire kernel fixpoint (not just the tool_quality_*
 // rules that read it) the moment any tool_learning fact exists.
+//
+// Both inputs are 0..1 ratios: feedback.go maintains SuccessRate as a running
+// hit rate and AverageQuality as a running mean of 0..1 scores, and
+// autopoiesis_feedback.go compares AverageQuality against 0.5. A perfect
+// SuccessRate of 1.0 used to land here as the integer 1, which tool_quality_*
+// reads against `SuccessRate > 50` — so a flawless tool was scored a 1%
+// failure. PercentFromRatio saturates at 100 instead of reinterpreting.
 func normalizePercent(v float64) int64 {
-	return types.PercentScale(v)
+	return types.PercentFromRatio(v)
 }
 
 func normalizeCapabilityName(raw string) string {

@@ -2,7 +2,7 @@ package types
 
 import "math"
 
-// PercentScale converts a ratio into the int64 percent scale that every
+// PercentFromRatio converts a 0..1 ratio into the int64 percent scale that every
 // numeric Mangle slot in this codebase expects.
 //
 // Why this exists rather than passing the float straight through:
@@ -21,24 +21,38 @@ import "math"
 // reaches a fact, and the policy thresholds are written on the same 0-100
 // scale (Confidence > 70, AvgQuality < 50).
 //
-// Inputs are accepted on either scale, because callers disagree: a 0..1
-// ratio is multiplied by 100, a value already >= 1 is treated as a percent.
-// That ambiguity means 1.0 is read as 1%, not 100% — deliberate, since a
-// 0..1 ratio is by far the common case and 1.0 is vanishingly rare in it.
-// The result is clamped to [0, 100]; NaN and -Inf floor to 0.
-func PercentScale(v float64) int64 {
-	if math.IsNaN(v) {
+// The input scale is part of the signature on purpose. The previous version
+// (PercentScale) accepted either scale and guessed with `if v < 1 { v *= 100 }`,
+// which put a cliff at exactly 1.0: 0.9999 scaled to 100 while 1.0 — and
+// 1.0000000000000002, which normalized float arithmetic produces routinely —
+// scaled to 1. A tool with a perfect SuccessRate of 1.0 was therefore written to
+// the kernel as 1, and tool_quality_* reads that against `SuccessRate > 50`, so
+// a flawless tool scored as a 1% failure. Every caller in this repo passes a
+// ratio; the dual-scale guess served no one and inverted the most important
+// value in the range. Found by codeNERD reviewing this file.
+//
+// Values at or above 1 saturate to 100 rather than being reinterpreted, NaN and
+// -Inf floor to 0, and the result is rounded half-away-from-zero.
+func PercentFromRatio(r float64) int64 {
+	if math.IsNaN(r) || r <= 0 {
 		return 0
 	}
-	if v < 1 {
-		v *= 100
-	}
-	switch {
-	case v <= 0:
-		return 0
-	case v >= 100:
+	if r >= 1 {
 		return 100
-	default:
-		return int64(math.Round(v))
 	}
+	return int64(math.Round(r * 100))
+}
+
+// PercentClamp normalizes a value that is ALREADY on the 0..100 percent scale.
+//
+// Use this only when the caller's value is a percent; if it is a 0..1 ratio use
+// PercentFromRatio. Mixing the two is the ambiguity this pair exists to remove.
+func PercentClamp(p float64) int64 {
+	if math.IsNaN(p) || p <= 0 {
+		return 0
+	}
+	if p >= 100 {
+		return 100
+	}
+	return int64(math.Round(p))
 }

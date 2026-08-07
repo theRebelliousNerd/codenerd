@@ -308,9 +308,17 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		}
 		tracer.TraceShard("completed in %v, result length: %d chars", shardDuration.Round(time.Millisecond), len(result))
 
-		// Defense in depth: write-oriented verbs must not exit 0 on empty prose.
-		if isWriteOrientedDirectVerb(verb) && strings.TrimSpace(result) == "" {
-			return fmt.Errorf("hollow success blocked: %s completed with empty result", verb)
+		// Defense in depth: an empty result is never a success, for ANY verb.
+		//
+		// This used to be scoped to isWriteOrientedDirectVerb, which let query
+		// verbs exit 0 with nothing to show. Live: `nerd review <file>` ran 16
+		// successful tool calls over 2m42s, hit the tool-iteration ceiling
+		// before the model wrote its conclusion, and printed "📋 Result:"
+		// followed by a blank line — exit code 0. The executor now forces a
+		// final tool-free answer in that case (see forceFinalAnswer), so this
+		// is the backstop for whatever produces the next empty string.
+		if strings.TrimSpace(result) == "" {
+			return fmt.Errorf("hollow success blocked: %s completed with an empty result", verb)
 		}
 
 		fmt.Println(strings.Repeat("─", 50))
@@ -322,17 +330,10 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 	}
 }
 
-// isWriteOrientedDirectVerb mirrors session.write-oriented intents for CLI
-// post-checks without importing internal/session package details.
-func isWriteOrientedDirectVerb(verb string) bool {
-	switch strings.TrimSpace(verb) {
-	case "/create", "/fix", "/refactor", "/write", "/delete", "/implement",
-		"/scaffold", "/optimize", "/format", "/migrate", "/document", "/commit":
-		return true
-	default:
-		return false
-	}
-}
+// isWriteOrientedDirectVerb used to live here, gating the hollow-success check
+// to write verbs only. The check above now applies to every verb, which is a
+// strictly broader condition, so the verb list had no remaining caller. Removed
+// rather than left dormant — this is superseded logic, not a wiring gap.
 
 // runPerceptionTest tests the perception transducer
 func runPerceptionTest(cmd *cobra.Command, args []string) error {

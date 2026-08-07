@@ -126,50 +126,10 @@ func (e *Executor) runToolLoop(
 		}
 
 		// Execute all tool calls from this turn and collect tool_result blocks.
-		toolResults := make([]types.ToolResult, 0, len(currentResponse.ToolCalls))
-		for _, call := range currentResponse.ToolCalls {
-			if result.ToolCallsExecuted >= e.config.MaxToolCalls {
-				logging.Get(logging.CategorySession).Warn("Max tool calls reached: %d", e.config.MaxToolCalls)
-				toolResults = append(toolResults, types.ToolResult{
-					ToolUseID: call.ID,
-					Content:   "tool call budget exceeded for this turn",
-					IsError:   true,
-				})
-				toolErrs = append(toolErrs, fmt.Sprintf("%s: budget exceeded", call.Name))
-				continue
-			}
-
-			toolCall := ToolCall{
-				ID:   call.ID,
-				Name: call.Name,
-				Args: call.Input,
-			}
-			out, execErr := e.executeToolCall(ctx, toolCall, cfg)
-			result.ToolCallsExecuted++
-
-			if execErr != nil {
-				logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, execErr)
-				if ctx.Err() != nil {
-					return currentResponse, toolErrs, ctx.Err()
-				}
-				toolErrs = append(toolErrs, fmt.Sprintf("%s: %v", call.Name, execErr))
-				toolResults = append(toolResults, types.ToolResult{
-					ToolUseID: call.ID,
-					Content:   execErr.Error(),
-					IsError:   true,
-				})
-				continue
-			}
-
-			if isWriteMutationTool(call.Name) {
-				result.SuccessfulWriteTools++
-			}
-			logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(out))
-			toolResults = append(toolResults, types.ToolResult{
-				ToolUseID: call.ID,
-				Content:   truncateToolResult(out),
-				IsError:   false,
-			})
+		toolResults, batchErrs := e.executeToolBatch(ctx, currentResponse.ToolCalls, cfg, result)
+		toolErrs = append(toolErrs, batchErrs...)
+		if ctx.Err() != nil {
+			return currentResponse, toolErrs, ctx.Err()
 		}
 
 		// If the client can't accept tool results back, we're done after the
@@ -205,8 +165,127 @@ func (e *Executor) runToolLoop(
 		}
 	}
 
-	logging.Get(logging.CategorySession).Warn("Max tool iterations reached: %d", maxIter)
-	return currentResponse, toolErrs, nil
+	// Iteration budget exhausted. currentResponse still holds UNEXECUTED tool
+	// calls and, on every provider observed, no assistant text at all — a model
+	// that is still calling tools has not written its answer yet.
+	//
+	// Returning it here is how `nerd review internal/types/mangle_scale.go`
+	// printed "📋 Result:" followed by nothing after 16 successful tool calls and
+	// 2m42s of work, and exited 0. The exploration was fine; the harness simply
+	// walked away before asking for the conclusion.
+	//
+	// So spend one more call to collect it: execute the pending batch (keeping
+	// the tool_use/tool_result pairing every provider requires), then re-invoke
+	// with NO tool definitions. With no tools available the model cannot request
+	// more exploration and must answer from what it has.
+	logging.Get(logging.CategorySession).Warn(
+		"Max tool iterations reached: %d; forcing a final tool-free answer from %d executed tool call(s)",
+		maxIter, result.ToolCallsExecuted)
+
+	final, finalErrs, finalErr := e.forceFinalAnswer(ctx, trp, systemPrompt, history, currentResponse, cfg, result)
+	toolErrs = append(toolErrs, finalErrs...)
+	if finalErr != nil {
+		logging.Get(logging.CategorySession).Error(
+			"Forced final answer failed after exhausting tool iterations: %v", finalErr)
+		return currentResponse, toolErrs, nil
+	}
+	return final, toolErrs, nil
+}
+
+// toolBudgetExhaustedNudge is appended as the final user turn when the loop runs
+// out of iterations. It is deliberately explicit that partial evidence is
+// acceptable — the alternative the model would otherwise pick is another tool
+// call, which is exactly what it can no longer make.
+const toolBudgetExhaustedNudge = "Your tool budget for this turn is exhausted; no further tools are available. " +
+	"Write your final answer now using only the evidence you have already gathered. " +
+	"State explicitly what you could not verify rather than requesting more tools."
+
+// forceFinalAnswer executes any still-pending tool calls and then re-invokes the
+// model with an empty tool set so it must produce prose.
+func (e *Executor) forceFinalAnswer(
+	ctx context.Context,
+	trp types.ToolResultsProvider,
+	systemPrompt string,
+	history []types.Message,
+	pending *types.LLMToolResponse,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) (*types.LLMToolResponse, []string, error) {
+	if trp == nil {
+		return pending, nil, errors.New("client does not support tool-result follow-up")
+	}
+
+	var toolErrs []string
+	if len(pending.ToolCalls) > 0 {
+		toolResults, errs := e.executeToolBatch(ctx, pending.ToolCalls, cfg, result)
+		toolErrs = append(toolErrs, errs...)
+		history = append(history, types.Message{Role: "user", ToolResults: toolResults})
+	}
+
+	history = append(history, types.Message{Role: "user", Text: toolBudgetExhaustedNudge})
+
+	// nil toolDefs is the whole point: the model has no tool to reach for.
+	final, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, nil)
+	if err != nil {
+		return pending, toolErrs, fmt.Errorf("final tool-free completion failed: %w", err)
+	}
+	if final == nil || strings.TrimSpace(final.Text) == "" {
+		return pending, toolErrs, errors.New("final tool-free completion returned no text")
+	}
+	return final, toolErrs, nil
+}
+
+// executeToolBatch runs one turn's worth of tool calls and returns the
+// tool_result blocks plus any error strings. Extracted from runToolLoop so the
+// forced-final-answer path produces byte-identical tool_result framing; a
+// hand-rolled second copy would drift on budget handling or ID pairing.
+func (e *Executor) executeToolBatch(
+	ctx context.Context,
+	calls []types.ToolCall,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) ([]types.ToolResult, []string) {
+	toolResults := make([]types.ToolResult, 0, len(calls))
+	var toolErrs []string
+
+	for _, call := range calls {
+		if result.ToolCallsExecuted >= e.config.MaxToolCalls {
+			logging.Get(logging.CategorySession).Warn("Max tool calls reached: %d", e.config.MaxToolCalls)
+			toolResults = append(toolResults, types.ToolResult{
+				ToolUseID: call.ID,
+				Content:   "tool call budget exceeded for this turn",
+				IsError:   true,
+			})
+			toolErrs = append(toolErrs, fmt.Sprintf("%s: budget exceeded", call.Name))
+			continue
+		}
+
+		out, execErr := e.executeToolCall(ctx, ToolCall{ID: call.ID, Name: call.Name, Args: call.Input}, cfg)
+		result.ToolCallsExecuted++
+
+		if execErr != nil {
+			logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, execErr)
+			toolErrs = append(toolErrs, fmt.Sprintf("%s: %v", call.Name, execErr))
+			toolResults = append(toolResults, types.ToolResult{
+				ToolUseID: call.ID,
+				Content:   execErr.Error(),
+				IsError:   true,
+			})
+			continue
+		}
+
+		if isWriteMutationTool(call.Name) {
+			result.SuccessfulWriteTools++
+		}
+		logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(out))
+		toolResults = append(toolResults, types.ToolResult{
+			ToolUseID: call.ID,
+			Content:   truncateToolResult(out),
+			IsError:   false,
+		})
+	}
+
+	return toolResults, toolErrs
 }
 
 // intentRequiresToolCall asks the Mangle kernel whether the supplied intent
