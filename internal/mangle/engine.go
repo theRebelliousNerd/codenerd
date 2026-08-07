@@ -424,8 +424,27 @@ func (e *Engine) AddFact(predicate string, args ...any) error {
 
 // AddFacts inserts multiple facts (batched).
 func (e *Engine) AddFacts(facts []Fact) error {
+	return e.AddFactsContext(context.Background(), facts)
+}
+
+// AddFactsContext is the context-aware version of AddFacts (EngineSink interface).
+//
+// Cancellation is checked before acquiring the lock and between inserts. It is
+// deliberately NOT checked around the rule-evaluation step: aborting a stratified
+// re-evaluation partway would leave derived facts inconsistent with the EDB, and
+// a partially-derived kernel is worse than a slow one.
+//
+// Facts inserted before cancellation are kept. Mangle facts are monotonic
+// assertions rather than a transaction, and the caller cannot know how far the
+// batch got, so rolling back would discard valid work; callers needing
+// all-or-nothing should use a KernelTransaction.
+func (e *Engine) AddFactsContext(ctx context.Context, facts []Fact) error {
 	if len(facts) == 0 {
 		return nil
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	logging.KernelDebug("Adding %d facts", len(facts))
@@ -437,7 +456,16 @@ func (e *Engine) AddFacts(facts []Fact) error {
 		return errNoSchemas
 	}
 
-	for _, fact := range facts {
+	for i, fact := range facts {
+		// Check periodically rather than per-fact: ctx.Err() on every iteration
+		// of a million-fact batch is measurable overhead for no added
+		// responsiveness.
+		if i%256 == 0 {
+			if err := ctx.Err(); err != nil {
+				logging.Get(logging.CategoryKernel).Warn("AddFactsContext cancelled after %d/%d facts: %v", i, len(facts), err)
+				return err
+			}
+		}
 		if err := e.insertFactLocked(fact); err != nil {
 			logging.Get(logging.CategoryKernel).Error("Failed to insert fact %s: %v", fact.Predicate, err)
 			return err
@@ -452,11 +480,6 @@ func (e *Engine) AddFacts(facts []Fact) error {
 		return err
 	}
 	return nil
-}
-
-// AddFactsContext is context-aware version of AddFacts for EngineSink interface.
-func (e *Engine) AddFactsContext(ctx context.Context, facts []Fact) error {
-	return e.AddFacts(facts)
 }
 
 // ReplaceFactsForFile removes previously stored facts for a file before inserting new ones.
@@ -854,7 +877,7 @@ func (e *Engine) GetStats() Stats {
 	}
 }
 
-// Clear removes all facts from the store.
+// Clear removes all facts from the store, keeping schemas and rules loaded.
 func (e *Engine) Clear() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -862,6 +885,27 @@ func (e *Engine) Clear() {
 	e.store = factstore.NewConcurrentFactStore(e.baseStore)
 	e.factCount = 0
 	e.fileFacts = make(map[string][]ast.Atom)
+
+	// The query evaluator holds its own copy of the store reference
+	// (rebuildProgramLocked sets QueryContext.Store, and Store is a value field
+	// on QueryContext). Swapping e.store above therefore leaves queryContext
+	// bound to the discarded store: Query would keep answering from pre-Clear
+	// facts while GetFacts/AddFacts/GetStats used the new one, and the two read
+	// paths would disagree permanently.
+	//
+	// Reset() avoids this by nilling queryContext, but Clear() deliberately
+	// keeps the schema loaded and Query returns errNoSchemas on a nil context
+	// (see Query), so nilling is not an option here. Rebind by publishing a NEW
+	// QueryContext rather than mutating the existing one: Query copies the
+	// pointer under RLock and then evaluates outside it, so an in-flight query
+	// must keep reading a consistent object.
+	if e.queryContext != nil {
+		e.queryContext = &mengine.QueryContext{
+			PredToRules: e.queryContext.PredToRules,
+			PredToDecl:  e.queryContext.PredToDecl,
+			Store:       e.store,
+		}
+	}
 }
 
 // Reset clears all facts AND schema definitions, restoring the engine to a blank slate.
