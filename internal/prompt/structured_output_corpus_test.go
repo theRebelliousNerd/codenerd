@@ -56,22 +56,39 @@ func TestEmbeddedCorpus_NoEnvelopeAtomsReachStructuredOutputShards(t *testing.T)
 		if imposesOutputContract(atom) {
 			continue
 		}
-		for _, shardType := range atom.ShardTypes {
-			if !IsStructuredOutputOnly(shardType) {
-				continue
-			}
-			checked++
-			for _, marker := range envelopeMarkers {
-				if strings.Contains(atom.Content, marker) {
-					t.Errorf("atom %q (category %q) is selectable by structured-output-only shard %q "+
-						"and survives filterAtomsForStructuredOutput, but its content contains %q. "+
-						"That shard's reply is parsed directly by Go; an envelope instruction makes it "+
-						"emit the wrong shape and the parse silently yields nothing. "+
-						"Remove the envelope from the atom, or give the atom CategoryProtocol so the "+
-						"filter drops it.",
-						atom.ID, atom.Category, shardType, marker)
+
+		// An empty ShardTypes is a wildcard, not "no shards" — matchSelector
+		// treats it as matching every shard, so an ungated mandatory atom lands
+		// in the planner prompt too. Checking only explicitly-listed shard types
+		// misses exactly that case, which is how capability/tool_thinking and
+		// capability/knowledge_discovery kept telling the planner to use
+		// control_packet.tool_requests after the campaign atoms were fixed.
+		reaches := "" // the structured-output shard this atom can reach
+		if len(atom.ShardTypes) == 0 {
+			reaches = "<ungated: every shard>"
+		} else {
+			for _, shardType := range atom.ShardTypes {
+				if IsStructuredOutputOnly(shardType) {
+					reaches = shardType
 					break
 				}
+			}
+		}
+		if reaches == "" {
+			continue
+		}
+
+		checked++
+		for _, marker := range envelopeMarkers {
+			if strings.Contains(atom.Content, marker) {
+				t.Errorf("atom %q (category %q) reaches structured-output-only shard %s "+
+					"and survives filterAtomsForStructuredOutput, but its content contains %q. "+
+					"That shard's reply is parsed directly by Go; an envelope instruction makes it "+
+					"emit the wrong shape and the parse silently yields nothing. "+
+					"Move the envelope mechanics into a CategoryProtocol atom (which the filter "+
+					"drops), or gate this atom to shards that actually speak the envelope.",
+					atom.ID, atom.Category, reaches, marker)
+				break
 			}
 		}
 	}

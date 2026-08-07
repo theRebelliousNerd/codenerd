@@ -20,18 +20,10 @@
     ### When You Don't Know Something
 
     DO NOT say "I don't have that information" or "I cannot access that."
-    Instead, request knowledge via your control_packet:
-
-    ```json
-    "knowledge_requests": [
-      {
-        "specialist": "goexpert",
-        "query": "What are Go error handling best practices?",
-        "purpose": "User needs robust error handling implementation",
-        "priority": "required"
-      }
-    ]
-    ```
+    Request it from a specialist instead. The wire format for doing so belongs to
+    your role's output protocol and is specified there -- deliberately not
+    repeated here, because this atom is ungated and is compiled into roles whose
+    replies are parsed directly as JSON and which must not emit an envelope.
 
     ### Request Types
 
@@ -42,14 +34,8 @@
 
     ### Multiple Requests
 
-    You can request from multiple specialists simultaneously:
-
-    ```json
-    "knowledge_requests": [
-      {"specialist": "goexpert", "query": "goroutine patterns", "priority": "required"},
-      {"specialist": "researcher", "query": "rod browser automation API", "priority": "required"}
-    ]
-    ```
+    You can request from several specialists at once; they are consulted in
+    parallel and all results arrive together on your next turn.
 
     ### Knowledge Handoff
 

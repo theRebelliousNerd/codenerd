@@ -16,43 +16,19 @@
 
     ### Available Tools
 
-    Tools are available to you via `tool_requests` in your control_packet:
-
-    ```json
-    "tool_requests": [
-      {
-        "id": "req_1",
-        "tool_name": "read_file",
-        "tool_args": {"path": "/path/to/file.go"},
-        "purpose": "Read source code to understand implementation"
-      }
-    ]
-    ```
+    The catalog lists every tool you can invoke. The wire format for invoking one
+    belongs to whichever output protocol your role uses, and is specified there --
+    it is deliberately not repeated here, because this atom is ungated and is
+    compiled into roles whose replies are parsed directly as JSON and which must
+    not emit an envelope at all.
 
     ### Recognizing Capability Gaps
 
     When you need a capability that isn't available in the tool catalog:
 
     1. **Identify the Gap** - What operation do you need to perform?
-    2. **Request Generation** - Add a Mangle fact to trigger Ouroboros
+    2. **Request Generation** - Record a `missing_tool_for` fact to trigger Ouroboros
     3. **Continue Working** - The tool will be available in subsequent turns
-
-    ### Requesting Tool Generation
-
-    Add this to your `mangle_updates` in the control_packet:
-
-    ```json
-    "mangle_updates": [
-      "missing_tool_for(\"/capability_name\", \"description of what the tool should do\")"
-    ]
-    ```
-
-    Example:
-    ```json
-    "mangle_updates": [
-      "missing_tool_for(\"/parse_yaml\", \"Parse YAML files and return structured data\")"
-    ]
-    ```
 
     ### What Happens Next
 
@@ -126,6 +102,21 @@
 
     Tool results are automatically injected into your context on the next turn.
     You can reference them by the request ID.
+
+    ### Requesting Tool Generation (Ouroboros)
+
+    When the catalog has no tool for what you need, ask for one by adding a fact:
+
+    ```json
+    "mangle_updates": [
+      "missing_tool_for(\"/parse_yaml\", \"Parse YAML files and return structured data\")"
+    ]
+    ```
+
+    The first argument is the capability atom, the second a description of what
+    the tool should do. This lives here rather than in capability/tool_thinking
+    because it is envelope syntax: tool_thinking is ungated and reaches roles that
+    must not emit an envelope.
 
 - id: "capability/ouroboros_awareness"
   category: "capability"

@@ -5,6 +5,11 @@
 - id: "exemplar/codedom_rename_field"
   category: "exemplar"
   subcategory: "semantic_editing"
+  # Gated: these are worked examples of a conversational turn, envelope and all.
+  # Left ungated, an empty shard_types is a wildcard and they can be selected for
+  # planner/librarian/extractor compiles, whose replies are parsed directly as
+  # JSON and must not contain an envelope.
+  shard_types: ["coder", "reviewer", "tester"]
   priority: 80
   is_mandatory: false
   depends_on: ["capability/codedom_impact"]
@@ -118,6 +123,11 @@
 - id: "exemplar/codedom_safety_block"
   category: "exemplar"
   subcategory: "semantic_editing"
+  # Gated: these are worked examples of a conversational turn, envelope and all.
+  # Left ungated, an empty shard_types is a wildcard and they can be selected for
+  # planner/librarian/extractor compiles, whose replies are parsed directly as
+  # JSON and must not contain an envelope.
+  shard_types: ["coder", "reviewer", "tester"]
   priority: 78
   is_mandatory: false
   depends_on: ["capability/codedom_safety"]
@@ -192,6 +202,11 @@
 - id: "exemplar/codedom_async_refactor"
   category: "exemplar"
   subcategory: "semantic_editing"
+  # Gated: these are worked examples of a conversational turn, envelope and all.
+  # Left ungated, an empty shard_types is a wildcard and they can be selected for
+  # planner/librarian/extractor compiles, whose replies are parsed directly as
+  # JSON and must not contain an envelope.
+  shard_types: ["coder", "reviewer", "tester"]
   priority: 76
   is_mandatory: false
   depends_on: ["capability/codedom_polyglot"]
@@ -272,6 +287,11 @@
 - id: "exemplar/codedom_test_impact"
   category: "exemplar"
   subcategory: "semantic_editing"
+  # Gated: these are worked examples of a conversational turn, envelope and all.
+  # Left ungated, an empty shard_types is a wildcard and they can be selected for
+  # planner/librarian/extractor compiles, whose replies are parsed directly as
+  # JSON and must not contain an envelope.
+  shard_types: ["coder", "reviewer", "tester"]
   priority: 74
   is_mandatory: false
   depends_on: ["capability/codedom_test_tools"]
