@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
 	"codenerd/internal/prompt"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
@@ -337,6 +339,106 @@ func isWriteMutationTool(name string) bool {
 	}
 }
 
+// SetProjectDoc attaches the workspace's parsed nerd.md.
+//
+// Only the prose rendering is held here. Write protection is enforced by
+// querying the kernel (see projectForbidsWrite), so a subagent that never
+// receives this pointer is still governed by the same rules — a safety gate
+// that depends on a field being wired at every construction site is a gate that
+// is off wherever someone forgot.
+func (e *Executor) SetProjectDoc(doc *projectdoc.Document) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.projectDoc = doc
+}
+
+// withProjectInstructions appends nerd.md's rendered instructions to a compiled
+// system prompt.
+//
+// The frontmatter is restated in prose even though it is already in the kernel:
+// the model cannot read the fact store, and learning that a path is protected
+// by being denied mid-edit costs a whole turn.
+func (e *Executor) withProjectInstructions(systemPrompt string) string {
+	e.mu.RLock()
+	doc := e.projectDoc
+	e.mu.RUnlock()
+
+	section := doc.PromptSection()
+	if section == "" {
+		return systemPrompt
+	}
+	logging.Session("Injected %s instructions into system prompt (%d chars)", doc.Path, len(section))
+	return systemPrompt + "\n\n" + section
+}
+
+// projectDocPathArgs are the argument names a write-mutation tool may use to
+// name its target. Tools disagree ("path", "file_path", "file", "filename"), so
+// the gate checks all of them rather than trusting one convention — a
+// write-protection rule that only fires for tools using the arg name we guessed
+// is a gate with holes in it.
+var projectDocPathArgs = []string{"path", "file_path", "filepath", "file", "filename", "target", "dest", "destination"}
+
+// projectDocTargetPath extracts the target path from a tool call's arguments.
+func projectDocTargetPath(args map[string]any) string {
+	for _, key := range projectDocPathArgs {
+		if raw, ok := args[key]; ok {
+			if s, ok := raw.(string); ok && strings.TrimSpace(s) != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// projectForbidsWrite asks the kernel whether nerd.md protects this call's
+// target path.
+//
+// The kernel is the authority, not a cached Go struct: nerd.md facts are
+// asserted at boot like any other EDB, so policy, /query, and this gate all see
+// exactly the same rules. A parallel in-memory copy would be one refactor away
+// from disagreeing with what the kernel actually holds.
+//
+// Only write-mutation tools are gated. Reading a protected file is fine and
+// often necessary — the point is to stop the agent editing it.
+func (e *Executor) projectForbidsWrite(call ToolCall) (string, bool) {
+	if !isWriteMutationTool(call.Name) {
+		return "", false
+	}
+	target := projectDocTargetPath(call.Args)
+	if target == "" {
+		return "", false
+	}
+	if e.kernel == nil {
+		return "", false
+	}
+
+	facts, err := e.kernel.Query(projectdoc.PredForbiddenPath)
+	if err != nil {
+		// Fail OPEN, loudly. A kernel query failure is not evidence that the
+		// path is protected, and turning every transient query error into a
+		// blocked write would make the agent unusable the moment the kernel
+		// hiccups. The warning is what makes the degraded state visible.
+		logging.Get(logging.CategorySession).Warn(
+			"nerd.md write protection could not be evaluated for %s (%v); allowing the write", target, err)
+		return "", false
+	}
+
+	normalized := strings.ToLower(filepath.ToSlash(target))
+	for _, fact := range facts {
+		if len(fact.Args) < 2 {
+			continue
+		}
+		match := strings.ToLower(filepath.ToSlash(types.ExtractString(fact.Args[0])))
+		if match == "" {
+			continue
+		}
+		if strings.Contains(normalized, match) {
+			return types.ExtractString(fact.Args[1]), true
+		}
+	}
+	return "", false
+}
+
 // hollowSuccessPrefix is the stable error marker for hollow-completion failures.
 const hollowSuccessPrefix = "hollow success blocked:"
 
@@ -493,6 +595,24 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 		if !e.checkSafety(call) {
 			return "", fmt.Errorf("tool call blocked by safety gate: %s", call.Name)
 		}
+	}
+
+	// Project write protection declared in nerd.md.
+	//
+	// This is the line that makes nerd.md's frontmatter different in kind from
+	// CLAUDE.md. A "never touch config.json" written in prose is a request the
+	// model complies with most of the time; a project_forbidden_path fact is
+	// checked here, before the tool runs, and no amount of model conviction
+	// gets past it.
+	//
+	// It sits after checkSafety and before the Dreamer preflight on purpose:
+	// constitutional rules outrank project rules, and there is no reason to
+	// simulate the consequences of an action that is already denied.
+	if reason, denied := e.projectForbidsWrite(call); denied {
+		logging.Get(logging.CategorySession).Warn(
+			"nerd.md BLOCKED %s on %s: %s", call.Name, projectDocTargetPath(call.Args), reason)
+		return "", fmt.Errorf("blocked by nerd.md: %s is write-protected (%s)",
+			projectDocTargetPath(call.Args), reason)
 	}
 
 	// PRE-execution executive gate: run the Dreamer destructive-action

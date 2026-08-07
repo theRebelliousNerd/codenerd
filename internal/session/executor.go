@@ -27,6 +27,7 @@ import (
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/projectdoc"
 	"codenerd/internal/prompt"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
@@ -130,6 +131,10 @@ type Executor struct {
 
 	// Precompiled EffectiveAgentRuntimeConfig (injected by SubAgent)
 	EffectiveAgentRuntimeConfig *config.EffectiveAgentRuntimeConfig
+
+	// projectDoc is the workspace's parsed nerd.md, or nil. Used only to render
+	// instructions into the prompt; enforcement reads the kernel.
+	projectDoc *projectdoc.Document
 }
 
 // ExecutorConfig holds configuration for the executor.
@@ -487,10 +492,18 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		logging.Session("Config compiled: %d tools allowed", len(EffectiveAgentRuntimeConfig.AllowedTools))
 	}
 
+	// 4b. Project instructions from nerd.md.
+	//
+	// Appended after JIT compilation rather than modelled as a prompt atom
+	// because it is per-workspace user content, not part of the shipped corpus:
+	// the atom selector has no way to score a document it has never seen, and
+	// budget-driven eviction could silently drop the project's own rules.
+	systemPrompt := e.withProjectInstructions(compileResult.Prompt)
+
 	// 5+6. LLM ↔ tools loop. The model may request tools, we execute them, then
 	// feed the results back as a new turn — repeated until the model returns a
 	// final answer with no tool calls, or we hit the iteration cap.
-	llmResponse, toolErrs, err := e.runToolLoop(ctx, compileResult.Prompt, input, EffectiveAgentRuntimeConfig, compilationCtx, result)
+	llmResponse, toolErrs, err := e.runToolLoop(ctx, systemPrompt, input, EffectiveAgentRuntimeConfig, compilationCtx, result)
 	if err != nil {
 		return nil, fmt.Errorf("LLM generation failed: %w", err)
 	}

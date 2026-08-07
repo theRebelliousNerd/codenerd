@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/mangle"
 	"codenerd/internal/mcp"
 	"codenerd/internal/perception"
+	"codenerd/internal/projectdoc"
 	"codenerd/internal/prompt"
 	prsync "codenerd/internal/prompt/sync"
 	"codenerd/internal/session"
@@ -594,6 +595,7 @@ type bootContext struct {
 	browserMgr                   *browser.SessionManager
 	scanner                      *world.Scanner
 	tracker                      *usage.Tracker
+	projectDoc                   *projectdoc.Document // nerd.md, nil when absent or invalid
 }
 
 func initCoreComponents(bctx *bootContext) error {
@@ -888,7 +890,50 @@ func initKernel(bctx *bootContext) error {
 			}
 		}
 	}
+
+	loadProjectDoc(bctx)
 	return nil
+}
+
+// loadProjectDoc reads nerd.md and asserts its frontmatter into the kernel.
+//
+// It runs after world facts so that a project rule is in place before the first
+// turn can act. nerd.md is optional; a missing file is silent.
+//
+// A malformed file is NOT silent and is NOT fatal. Refusing to boot would strand
+// the user with no way to run the agent that could fix the file, but degrading
+// quietly would leave them believing a write-protection rule is in force when it
+// is not — which is the more dangerous of the two. So: boot, and say loudly
+// which directives are not being enforced.
+func loadProjectDoc(bctx *bootContext) {
+	doc, err := projectdoc.Load(bctx.workspace)
+	if err != nil {
+		fmt.Fprintf(os.Stderr,
+			"Warning: %s is invalid and NONE of its rules are in force (including any write protection): %v\n",
+			projectdoc.FileName, err)
+		logging.Get(logging.CategoryBoot).Warn("%s rejected, no project rules active: %v", projectdoc.FileName, err)
+		return
+	}
+	if doc == nil {
+		return
+	}
+
+	facts := doc.Facts()
+	coreFacts := make([]core.Fact, 0, len(facts))
+	for _, f := range facts {
+		coreFacts = append(coreFacts, core.Fact{Predicate: f.Predicate, Args: f.Args})
+	}
+	if err := bctx.kernel.LoadFacts(coreFacts); err != nil {
+		fmt.Fprintf(os.Stderr,
+			"Warning: %s parsed but its rules could not be asserted; write protection is NOT active: %v\n",
+			doc.Path, err)
+		logging.Get(logging.CategoryBoot).Warn("%s facts rejected by kernel: %v", doc.Path, err)
+		return
+	}
+
+	bctx.projectDoc = doc
+	logging.Boot("Loaded %s: %d facts, %d write-protected path(s), %d command(s)",
+		doc.Path, len(coreFacts), len(doc.Spec.Forbid), doc.CommandCount())
 }
 
 func defaultKernelShardConfigs(workspace string) []core.KernelShardConfig {
@@ -1299,6 +1344,11 @@ func initFinalExecutors(bctx *bootContext) error {
 	if bctx.localDB != nil {
 		bctx.sessionExecutor.SetSessionPersister(bctx.localDB)
 	}
+	// nerd.md instructions reach the prompt here. Its write protection does not
+	// depend on this call — that is enforced from the kernel facts asserted in
+	// loadProjectDoc, so a construction site that forgets this line loses the
+	// prose, not the guarantee.
+	bctx.sessionExecutor.SetProjectDoc(bctx.projectDoc)
 
 	bctx.sessionSpawner = session.NewSpawner(
 		sessionKernel,

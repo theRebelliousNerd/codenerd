@@ -326,6 +326,7 @@ func (k *RealKernel) loadMangleFiles() error {
 		"schemas_reviewer.mg",         // Static Analysis & Data Flow
 		"schemas_shards.mg",           // Shard Delegation & Coordination
 		"schemas_coder.mg",            // Coder Shard Declarations
+		"schemas_projectdoc.mg",       // nerd.md project instructions (see internal/projectdoc)
 		// NERD-EVOLVE-START: context_compilation_schemas_c1_c4
 		"schemas_context.mg", // Context Compilation Pipeline (C1+C4)
 		// NERD-EVOLVE-END: context_compilation_schemas_c1_c4
