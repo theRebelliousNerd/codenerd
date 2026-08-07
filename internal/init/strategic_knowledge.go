@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -424,14 +425,72 @@ func (i *Initializer) filterDocumentsByRelevance(ctx context.Context, docs []Doc
 		return filtered
 	}
 
-	// Process in batches to handle large doc counts
+	// Process in batches to handle large doc counts.
+	//
+	// Batches run CONCURRENTLY. This loop used to be sequential, which made cold
+	// start impossible on a large repo: ~1960 docs is 196 batches, and at the
+	// ~16s per call an API model actually takes that is ~54 minutes against a
+	// 25-minute operation timeout. Every batch is independent — the LLM only
+	// labels its own ten documents — so there was never a reason to serialize.
+	// Real API concurrency is still bounded by the APIScheduler
+	// (core_limits.max_concurrent_api_calls); the pool below just avoids
+	// spawning a goroutine per batch.
 	const batchSize = 10
-	var relevant []DocumentInfo
+	const maxParallelBatches = 8
 
+	type batchRange struct{ start, end int }
+	var ranges []batchRange
 	for batchStart := 0; batchStart < len(docs); batchStart += batchSize {
-		batchEnd := min(batchStart+batchSize, len(docs))
-		batch := docs[batchStart:batchEnd]
+		ranges = append(ranges, batchRange{batchStart, min(batchStart+batchSize, len(docs))})
+	}
 
+	// Results are collected per batch and concatenated in batch order, so the
+	// relevance-ordered output does not depend on completion order.
+	perBatch := make([][]DocumentInfo, len(ranges))
+	sem := make(chan struct{}, maxParallelBatches)
+	var wg sync.WaitGroup
+
+	for bi, r := range ranges {
+		wg.Add(1)
+		go func(bi int, r batchRange) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			// Each goroutine owns a disjoint slice range of docs, so the
+			// IsRelevant/Reasoning writes below do not race.
+			perBatch[bi] = i.analyzeDocBatch(ctx, docs[r.start:r.end])
+		}(bi, r)
+	}
+	wg.Wait()
+
+	var relevant []DocumentInfo
+	for _, b := range perBatch {
+		relevant = append(relevant, b...)
+	}
+
+	logging.Get(logging.CategoryBoot).Debug("LLM filtered %d docs → %d relevant", len(docs), len(relevant))
+	return relevant
+}
+
+// analyzeDocBatch asks the LLM which of one batch's documents are strategically
+// relevant, and returns those. Any failure (LLM error, unparseable response)
+// degrades to the priority heuristic for that batch alone.
+func (i *Initializer) analyzeDocBatch(ctx context.Context, batch []DocumentInfo) []DocumentInfo {
+	var relevant []DocumentInfo
+	// priorityFallback keeps the batch's high-priority docs when the LLM cannot
+	// be consulted or its answer cannot be read.
+	priorityFallback := func(reason string) []DocumentInfo {
+		var out []DocumentInfo
+		for _, doc := range batch {
+			if doc.Priority <= 2 {
+				doc.IsRelevant = true
+				doc.Reasoning = reason
+				out = append(out, doc)
+			}
+		}
+		return out
+	}
+	{
 		// Build analysis prompt
 		var docList strings.Builder
 		for idx, doc := range batch {
@@ -497,15 +556,7 @@ Prefer fewer, high-quality documents over including everything.
 		}
 		if err != nil {
 			logging.Get(logging.CategoryBoot).Warn("LLM relevance filtering failed for batch: %v", err)
-			// On error, include priority docs
-			for _, doc := range batch {
-				if doc.Priority <= 2 {
-					doc.IsRelevant = true
-					doc.Reasoning = "Fallback: high priority (LLM error)"
-					relevant = append(relevant, doc)
-				}
-			}
-			continue
+			return priorityFallback("Fallback: high priority (LLM error)")
 		}
 
 		// Parse response
@@ -520,15 +571,7 @@ Prefer fewer, high-quality documents over including everything.
 		jsonStr := extractJSON(response)
 		if err := json.Unmarshal([]byte(jsonStr), &results); err != nil {
 			logging.Get(logging.CategoryBoot).Debug("Failed to parse relevance JSON: %v", err)
-			// Fallback to priority filtering
-			for _, doc := range batch {
-				if doc.Priority <= 2 {
-					doc.IsRelevant = true
-					doc.Reasoning = "Fallback: high priority (parse error)"
-					relevant = append(relevant, doc)
-				}
-			}
-			continue
+			return priorityFallback("Fallback: high priority (parse error)")
 		}
 
 		// Apply results
@@ -543,7 +586,6 @@ Prefer fewer, high-quality documents over including everything.
 		}
 	}
 
-	logging.Get(logging.CategoryBoot).Debug("LLM filtered %d docs → %d relevant", len(docs), len(relevant))
 	return relevant
 }
 

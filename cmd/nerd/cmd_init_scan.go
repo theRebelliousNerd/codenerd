@@ -119,19 +119,29 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// per-KB "quality" without checking whether the calls succeeded, a run
 	// where nearly every call 429'd still printed a clean bill of health.
 	//
-	// Init stays on the MAIN client rather than the worker: it runs once, its
-	// output is the knowledge corpus every later session reads, and a 200-call
-	// burst on the main provider avoids a cheap tier's tighter rate limit.
+	// Init prefers the WORKER client. Its LLM work is ~200 documentation-relevance
+	// classifications ("is this doc strategically relevant?") issued one at a
+	// time, which is bulk labelling, not reasoning. Measured on a cold start:
+	// ~25s per call on a high-reasoning model, so the serialized loop needs ~82
+	// minutes and cannot finish inside the 25-minute operation timeout. On the
+	// cheap tier the same loop is the work the tier exists for.
 	appCfg := loadCampaignConfig(filepath.Join(cwd, ".nerd"))
 	if apiKey != "" && appCfg != nil && appCfg.APIKey == "" {
 		// --api-key overrides the configured provider's key, not the provider.
 		appCfg.APIKey = apiKey
 	}
-	if llmClient, err := newConfiguredLLMClient(appCfg, "init"); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: no LLM client for init: %v\n", err)
-		fmt.Fprintln(os.Stderr, "         Knowledge-base and documentation phases will be skipped.")
-	} else {
-		config.LLMClient = llmClient
+	if worker, werr := perception.NewWorkerClientFromUserConfig(appCfg); werr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: worker LLM init failed: %v (init uses the main client)\n", werr)
+	} else if worker != nil {
+		config.LLMClient = core.NewScheduledLLMCall("init", worker)
+	}
+	if config.LLMClient == nil {
+		if llmClient, err := newConfiguredLLMClient(appCfg, "init"); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: no LLM client for init: %v\n", err)
+			fmt.Fprintln(os.Stderr, "         Knowledge-base and documentation phases will be skipped.")
+		} else {
+			config.LLMClient = llmClient
+		}
 	}
 
 	// Set Context7 API key from environment or config
