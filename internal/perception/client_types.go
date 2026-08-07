@@ -42,6 +42,13 @@ const (
 	ProviderXAI        Provider = "xai"
 	ProviderOpenRouter Provider = "openrouter"
 	ProviderOllama     Provider = "ollama" // local Ollama chat (OpenAI-compatible /v1)
+
+	// OpenAI-compatible direct vendors. These share one client implementation
+	// (OpenAICompatClient) and differ only by base URL plus a small set of
+	// vendor-specific request/response fields.
+	ProviderDashScope Provider = "dashscope" // Alibaba Model Studio (Qwen)
+	ProviderMeta      Provider = "meta"      // Meta Model API (Muse Spark)
+	ProviderMoonshot  Provider = "moonshot"  // Moonshot AI (Kimi)
 )
 
 // ZAIConfig holds configuration for ZAI client.
@@ -321,6 +328,10 @@ type OpenAIMessage struct {
 }
 
 // OpenAIRequest represents the OpenAI API request.
+//
+// The trailing fields are optional extensions used by specific OpenAI-compatible
+// vendors. All are `omitzero`, so they are absent from the wire payload unless a
+// client explicitly sets them — providers that don't understand them never see them.
 type OpenAIRequest struct {
 	Model          string               `json:"model"`
 	Messages       []OpenAIMessage      `json:"messages"`
@@ -331,6 +342,23 @@ type OpenAIRequest struct {
 	ResponseFormat *ZAIResponseFormat   `json:"response_format,omitzero"`
 	Tools          []OpenAITool         `json:"tools,omitzero"`
 	ToolChoice     any                  `json:"tool_choice,omitzero"`
+
+	TopP float64 `json:"top_p,omitzero"`
+
+	// MaxCompletionTokens is the modern replacement for MaxTokens. Meta's Model
+	// API accepts both but documents max_tokens as deprecated.
+	MaxCompletionTokens int `json:"max_completion_tokens,omitzero"`
+
+	// ReasoningEffort selects how much the model thinks before answering.
+	// Meta Muse Spark accepts minimal|low|medium|high|xhigh — "none" is rejected
+	// with HTTP 400, so never emit it.
+	ReasoningEffort string `json:"reasoning_effort,omitzero"`
+
+	// EnableThinking / ThinkingBudget are Alibaba DashScope's reasoning controls.
+	// A pointer so that an explicit false ("thinking off") is distinguishable
+	// from "unset", which matters because the two produce different behavior.
+	EnableThinking *bool `json:"enable_thinking,omitzero"`
+	ThinkingBudget int   `json:"thinking_budget,omitzero"`
 }
 
 // OpenAIResponse represents the API response.
@@ -345,11 +373,17 @@ type OpenAIResponse struct {
 			Role      string           `json:"role"`
 			Content   string           `json:"content"`
 			ToolCalls []OpenAIToolCall `json:"tool_calls,omitzero"`
+			// ReasoningContent carries the model's thinking trace on vendors that
+			// return it out-of-band (DashScope/Qwen). It must never be folded into
+			// Content: callers parse Content as JSON for structured output, and
+			// prepending prose reasoning breaks that parse.
+			ReasoningContent string `json:"reasoning_content,omitzero"`
 		} `json:"message"`
 		Delta *struct { // For streaming
-			Role      string           `json:"role,omitzero"`
-			Content   string           `json:"content,omitzero"`
-			ToolCalls []OpenAIToolCall `json:"tool_calls,omitzero"`
+			Role             string           `json:"role,omitzero"`
+			Content          string           `json:"content,omitzero"`
+			ToolCalls        []OpenAIToolCall `json:"tool_calls,omitzero"`
+			ReasoningContent string           `json:"reasoning_content,omitzero"`
 		} `json:"delta,omitzero"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`

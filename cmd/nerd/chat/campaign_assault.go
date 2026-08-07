@@ -94,10 +94,15 @@ func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 		}
 
 		orch, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
-			Workspace:            m.workspace,
-			Kernel:               m.kernel,
-			LLMClient:            m.client,
-			ShardManager:         m.shardMgr,
+			Workspace:    m.workspace,
+			Kernel:       m.kernel,
+			LLMClient:    m.client,
+			ShardManager: m.shardMgr,
+			// Required, or the Nemesis gauntlet and shard-validation checkpoints
+			// return "skipped => passed" (internal/campaign/checkpoint.go:206-209,
+			// :258-261). An assault campaign exists to be adversarially verified,
+			// so silently skipping that is the worst possible false green.
+			TaskExecutor:         m.taskExecutor,
 			Executor:             m.executor,
 			VirtualStore:         m.virtualStore,
 			ProgressChan:         progressChan,

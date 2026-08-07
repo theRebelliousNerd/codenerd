@@ -628,7 +628,17 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		// Use "cleanLoop" prefix to avoid conflicts with other adapters in this file
 		cleanLoopKernelAdapter := &sessionKernelAdapter{kernel: kernel}
 		cleanLoopVSAdapter := &sessionVirtualStoreAdapter{vs: virtualStore}
-		cleanLoopLLMAdapter := &sessionLLMAdapter{client: llmClient}
+		// Domain persona work runs on the worker client when one is configured,
+		// matching the live boot path (internal/system/factory.go:1207-1211) and
+		// the contract in Docs/architecture/session/08-WIRING-AND-INTEGRATION.md
+		// ("sessionLLM := sessionLLMAdapter{workerOrMainLLM}").
+		//
+		// NOTE: performSystemBootLegacy has no callers — the live TUI path is
+		// model_lifecycle.go -> performSystemBoot (session_shared_boot.go) ->
+		// BootCortexWithConfig -> internal/system/factory.go. This alignment is
+		// kept so the legacy path stays correct if it is ever revived, but
+		// changing it has no runtime effect today.
+		cleanLoopLLMAdapter := &sessionLLMAdapter{client: shardLLMClient}
 
 		// Create ConfigFactory with default config atoms
 		// This provides tool sets and policies for different intent verbs

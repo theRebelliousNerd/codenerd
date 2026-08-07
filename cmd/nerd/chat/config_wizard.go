@@ -144,6 +144,12 @@ var ProviderModels = map[string][]string{
 		"qwen/qwen-2.5-72b-instruct",
 		"qwen/qwen-2.5-coder-32b-instruct",
 	},
+	// OpenAI-compatible direct vendors. Without an entry here `/model <name>`
+	// rejects every model for the provider, because validation looks the
+	// provider up in this map and an absent key yields an empty candidate list.
+	"dashscope": {"qwen3.8-max", "qwen3.8-plus", "qwen3.7-max"},
+	"meta":      {"muse-spark-1.2", "muse-spark-1.2-contributor", "muse-spark-1.1"},
+	"moonshot":  {"kimi-k3", "kimi-latest"},
 }
 
 var claudeCLIWizardModels = []string{"sonnet", "opus", "haiku"}

@@ -39,6 +39,18 @@ type UserConfig struct {
 	XAIAPIKey        string `json:"xai_api_key,omitempty"`        // xAI/Grok
 	ZAIAPIKey        string `json:"zai_api_key,omitempty"`        // Z.AI
 	OpenRouterAPIKey string `json:"openrouter_api_key,omitempty"` // OpenRouter (multi-provider)
+
+	// OpenAI-compatible direct vendors. Each speaks the OpenAI Chat Completions
+	// wire format at its own base URL, so all three share one client
+	// implementation (client_openai_compat.go) with thin per-vendor request hooks.
+	DashScopeAPIKey string `json:"dashscope_api_key,omitempty"` // Alibaba Model Studio (Qwen)
+	MetaAPIKey      string `json:"meta_api_key,omitempty"`      // Meta Model API (Muse Spark)
+	MoonshotAPIKey  string `json:"moonshot_api_key,omitempty"`  // Moonshot AI (Kimi)
+
+	// BaseURL overrides the endpoint for OpenAI-compatible providers. Each known
+	// vendor ships a default, so this is only needed for a proxy, a regional
+	// endpoint, or an OpenAI-compatible vendor codeNERD has no name for yet.
+	BaseURL string `json:"base_url,omitempty"`
 	// Ollama needs no API key; presence of provider=ollama or worker.provider=ollama is enough.
 
 	// Optional model override (see supported models above)
@@ -634,6 +646,42 @@ func (c *UserConfig) GetWorkerLLMConfig() *WorkerLLMConfig {
 	return &w
 }
 
+// APIKeyForProvider returns the configured key for a named provider, without
+// consulting c.Provider. Use this when resolving a secondary slot (worker,
+// image, classification) whose provider may differ from the main one.
+//
+// Ollama is keyless and returns a non-empty sentinel so callers that gate on
+// "key present" behave uniformly across providers.
+func (c *UserConfig) APIKeyForProvider(provider string) string {
+	if c == nil {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "anthropic":
+		return c.AnthropicAPIKey
+	case "openai":
+		return c.OpenAIAPIKey
+	case "gemini":
+		return c.GeminiAPIKey
+	case "xai":
+		return c.XAIAPIKey
+	case "zai":
+		return c.ZAIAPIKey
+	case "openrouter":
+		return c.OpenRouterAPIKey
+	case "dashscope":
+		return c.DashScopeAPIKey
+	case "meta":
+		return c.MetaAPIKey
+	case "moonshot":
+		return c.MoonshotAPIKey
+	case "ollama":
+		return "ollama"
+	default:
+		return ""
+	}
+}
+
 // GetActiveProvider returns the provider and API key to use.
 //
 // Config is boss: if c.Provider is explicitly set, ONLY that provider's key is
@@ -661,6 +709,12 @@ func (c *UserConfig) GetActiveProvider() (provider string, apiKey string) {
 			return "zai", c.ZAIAPIKey
 		case "openrouter":
 			return "openrouter", c.OpenRouterAPIKey
+		case "dashscope":
+			return "dashscope", c.DashScopeAPIKey
+		case "meta":
+			return "meta", c.MetaAPIKey
+		case "moonshot":
+			return "moonshot", c.MoonshotAPIKey
 		case "ollama":
 			// Local Ollama: no cloud key; non-empty sentinel satisfies callers
 			// that check apiKey != "" before NewClientFromConfig.
@@ -690,6 +744,15 @@ func (c *UserConfig) GetActiveProvider() (provider string, apiKey string) {
 	if c.OpenRouterAPIKey != "" {
 		return "openrouter", c.OpenRouterAPIKey
 	}
+	if c.DashScopeAPIKey != "" {
+		return "dashscope", c.DashScopeAPIKey
+	}
+	if c.MetaAPIKey != "" {
+		return "meta", c.MetaAPIKey
+	}
+	if c.MoonshotAPIKey != "" {
+		return "moonshot", c.MoonshotAPIKey
+	}
 
 	// Legacy: single api_key field (assume zai for backward compatibility)
 	if c.APIKey != "" {
@@ -717,6 +780,7 @@ func (c *UserConfig) HasExplicitLLMSelection() bool {
 	return c.Engine != "" || c.Provider != "" || c.APIKey != "" ||
 		c.AnthropicAPIKey != "" || c.OpenAIAPIKey != "" || c.GeminiAPIKey != "" ||
 		c.XAIAPIKey != "" || c.ZAIAPIKey != "" || c.OpenRouterAPIKey != "" ||
+		c.DashScopeAPIKey != "" || c.MetaAPIKey != "" || c.MoonshotAPIKey != "" ||
 		c.ClaudeCLI != nil || c.CodexCLI != nil || c.XAIOAuth != nil || c.Ollama != nil
 }
 

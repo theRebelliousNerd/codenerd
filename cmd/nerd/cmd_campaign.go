@@ -30,6 +30,63 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// loadCampaignConfig reads the user config for a workspace, falling back to
+// defaults when it is absent or unreadable.
+func loadCampaignConfig(nerdDir string) *config.UserConfig {
+	appCfg, _ := config.LoadUserConfig(filepath.Join(nerdDir, "config.json"))
+	if appCfg == nil {
+		appCfg = config.DefaultUserConfig()
+	}
+	return appCfg
+}
+
+// newCampaignLLMClients builds the main and worker LLM clients for a campaign
+// run from the user's config.
+//
+// The campaign CLI previously called perception.NewClientFromEnv(), which reads
+// ONLY environment variables — and it ran before the config was even loaded. So
+// `nerd campaign start` silently ignored the configured provider, model and
+// worker, and picked whichever key happened to be exported. Resolving from
+// UserConfig first (env remains the fallback when the config expresses no
+// choice) makes the CLI agree with the chat path and with `config is boss`.
+//
+// The returned worker is nil when none is configured; callers should fall back
+// to the main client in that case.
+func newCampaignLLMClients(appCfg *config.UserConfig, label string) (perception.LLMClient, perception.LLMClient, error) {
+	var raw perception.LLMClient
+
+	if pc, err := perception.ProviderConfigFromUserConfig(appCfg); err == nil {
+		client, cerr := perception.NewClientFromConfig(pc)
+		if cerr != nil {
+			return nil, nil, fmt.Errorf("failed to initialize LLM client from .nerd/config.json: %w", cerr)
+		}
+		raw = client
+	} else if appCfg.HasExplicitLLMSelection() {
+		// Config expresses a choice but cannot be satisfied. Falling back to an
+		// ambient key here would run the campaign on a provider the user did not
+		// ask for, so fail loudly instead.
+		return nil, nil, fmt.Errorf("failed to initialize LLM client: %w", err)
+	} else {
+		envClient, eerr := perception.NewClientFromEnv()
+		if eerr != nil {
+			return nil, nil, fmt.Errorf("failed to initialize LLM client: %w", eerr)
+		}
+		raw = envClient
+	}
+
+	main := core.NewScheduledLLMCall(label, raw)
+
+	worker, werr := perception.NewWorkerClientFromUserConfig(appCfg)
+	if werr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: worker LLM init failed: %v (shards share main client)\n", werr)
+		return main, nil, nil
+	}
+	if worker == nil {
+		return main, nil, nil
+	}
+	return main, core.NewScheduledLLMCall(label+"-worker", worker), nil
+}
+
 // campaignCmd is the parent command for campaign operations
 var campaignCmd = &cobra.Command{
 	Use:   "campaign",
@@ -124,26 +181,21 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	docs, _ := cmd.Flags().GetStringArray("docs")
 	campaignType, _ := cmd.Flags().GetString("type")
 
-	// FIX: Respect authenticated engine configuration instead of hardcoding ZAI
-	rawLLMClient, clientErr := perception.NewClientFromEnv()
-	if clientErr != nil {
-		return fmt.Errorf("failed to initialize LLM client: %w", clientErr)
-	}
-	// Wrap with APIScheduler to enforce concurrency limits (max 5 for Z.AI)
-	llmClient := core.NewScheduledLLMCall("campaign-cli", rawLLMClient)
-
 	// Resolve .nerd directory for JIT prompt system
 	nerdDir := filepath.Join(cwd, ".nerd")
 
-	// Load user config up-front so the VirtualStore honors the user's
-	// allowed_binaries / allowed_env_vars whitelist. Previously the store
+	// Load user config BEFORE building the LLM client, so the client honors the
+	// configured provider/model/worker, and so the VirtualStore honors the
+	// user's allowed_binaries / allowed_env_vars whitelist. Previously the store
 	// was built from DefaultVirtualStoreConfig (which re-adds bash/sh/cmd
 	// regardless of the user's policy).
-	userCfgPath := filepath.Join(nerdDir, "config.json")
-	appCfg, _ := config.LoadUserConfig(userCfgPath)
-	if appCfg == nil {
-		appCfg = config.DefaultUserConfig()
+	appCfg := loadCampaignConfig(nerdDir)
+
+	llmClient, workerLLMClient, clientErr := newCampaignLLMClients(appCfg, "campaign-cli")
+	if clientErr != nil {
+		return clientErr
 	}
+
 	exec := appCfg.GetExecution()
 	vsCfg := core.DefaultVirtualStoreConfig()
 	if len(exec.AllowedBinaries) > 0 {
@@ -255,8 +307,17 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	shardMgr.SetJITRegistrar(prompt.CreateJITDBRegistrar(jitCompiler))
 	shardMgr.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(jitCompiler))
 
+	// Shard and task execution use the worker client when one is configured;
+	// campaign planning (Decomposer / Replanner, wired below) deliberately stays
+	// on the main client. That is the point of the two-slot split: reason about
+	// the plan with the strong model, execute the bulk work with the cheap one.
+	shardLLM := llmClient
+	if workerLLMClient != nil {
+		shardLLM = workerLLMClient
+	}
+
 	// Register shard factories
-	shardMgr.SetLLMClient(llmClient)
+	shardMgr.SetLLMClient(shardLLM)
 	// Image generation (Nano Banana 2) stays off the campaign worker/main client.
 	if imgClient, ierr := perception.NewImageClientFromUserConfig(appCfg); ierr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Image LLM (Nano Banana 2) unavailable: %v\n", ierr)
@@ -347,7 +408,9 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	configFactory := prompt.NewDefaultConfigFactory()
 	campaignKernelAdapter := &campaignKernelAdapter{kernel: kern}
 	campaignVSAdapter := &campaignVirtualStoreAdapter{vs: virtualStore}
-	campaignLLMAdapter := &campaignLLMAdapter{client: llmClient}
+	// Task execution rides the worker client (see shardLLM above); the campaign
+	// Orchestrator is still constructed with the main client for planning.
+	campaignLLMAdapter := &campaignLLMAdapter{client: shardLLM}
 
 	sessionExecutor := session.NewExecutor(
 		campaignKernelAdapter,
@@ -653,21 +716,14 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 
 	// (Legacy fallback key resolution removed)
 
-	// Initialize components
-	rawLLMClient, clientErr := perception.NewClientFromEnv()
-	if clientErr != nil {
-		return fmt.Errorf("failed to initialize LLM client: %w", clientErr)
-	}
-	// Wrap with APIScheduler to enforce concurrency limits (max 5 for Z.AI)
-	llmClient := core.NewScheduledLLMCall("campaign-resume", rawLLMClient)
+	// Load user config BEFORE building the LLM client, so the client honors the
+	// configured provider/model/worker and the VirtualStore honors the user's
+	// allowed_binaries / allowed_env_vars whitelist (see runCampaignStart).
+	appCfg := loadCampaignConfig(filepath.Dir(config.DefaultUserConfigPath()))
 
-	// Load user config first so the VirtualStore honors the user's
-	// allowed_binaries / allowed_env_vars whitelist (see runCampaignStart
-	// for why).
-	cfgPath := config.DefaultUserConfigPath()
-	appCfg, _ := config.LoadUserConfig(cfgPath)
-	if appCfg == nil {
-		appCfg = config.DefaultUserConfig()
+	llmClient, workerLLMClient, clientErr := newCampaignLLMClients(appCfg, "campaign-resume")
+	if clientErr != nil {
+		return clientErr
 	}
 	exec := appCfg.GetExecution()
 	vsCfg := core.DefaultVirtualStoreConfig()
@@ -744,8 +800,14 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to init JIT compiler: %w", err)
 	}
 
+	// Worker client for shard/task execution; planning stays on main.
+	shardLLM := llmClient
+	if workerLLMClient != nil {
+		shardLLM = workerLLMClient
+	}
+
 	// Register shard factories
-	shardMgr.SetLLMClient(llmClient)
+	shardMgr.SetLLMClient(shardLLM)
 	// Image generation (Nano Banana 2) stays off the campaign worker/main client.
 	if imgClient, ierr := perception.NewImageClientFromUserConfig(appCfg); ierr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Image LLM (Nano Banana 2) unavailable: %v\n", ierr)
@@ -769,7 +831,9 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	configFactory := prompt.NewDefaultConfigFactory()
 	resumeKernelAdapter := &campaignKernelAdapter{kernel: kern}
 	resumeVSAdapter := &campaignVirtualStoreAdapter{vs: virtualStore}
-	resumeLLMAdapter := &campaignLLMAdapter{client: llmClient}
+	// Task execution rides the worker client; the Orchestrator keeps the main
+	// client for planning.
+	resumeLLMAdapter := &campaignLLMAdapter{client: shardLLM}
 
 	sessionExecutor := session.NewExecutor(
 		resumeKernelAdapter,

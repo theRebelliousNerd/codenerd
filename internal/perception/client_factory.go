@@ -26,6 +26,12 @@ func providerKeyFieldName(provider string) string {
 		return "zai_api_key (or ZAI_API_KEY)"
 	case "openrouter":
 		return "openrouter_api_key (or OPENROUTER_API_KEY)"
+	case "dashscope":
+		return "dashscope_api_key (or DASHSCOPE_API_KEY)"
+	case "meta":
+		return "meta_api_key (or META_API_KEY / MODEL_API_KEY)"
+	case "moonshot":
+		return "moonshot_api_key (or MOONSHOT_API_KEY)"
 	case "ollama":
 		return "ollama (local — no API key; set ollama.model / ollama.endpoint)"
 	default:
@@ -50,6 +56,12 @@ type ProviderConfig struct {
 	ClaudeCLI *config.ClaudeCLIConfig // Claude CLI settings
 	CodexCLI  *config.CodexCLIConfig  // Codex CLI settings
 	XAIOAuth  *config.XAIOAuthConfig  // SuperGrok OAuth settings
+
+	// BaseURL overrides the endpoint for OpenAI-compatible providers
+	// (dashscope, meta, moonshot). Each has a sensible built-in default, so this
+	// is only needed for a proxy, a regional endpoint, or a vendor codeNERD does
+	// not yet know by name.
+	BaseURL string
 
 	// Provider-specific configurations
 	Gemini *config.GeminiProviderConfig // Gemini thinking mode and built-in tools
@@ -126,6 +138,7 @@ func ProviderConfigFromUserConfig(userCfg *config.UserConfig) (*ProviderConfig, 
 		Provider:            Provider(providerStr),
 		APIKey:              apiKey,
 		Model:               userCfg.Model,
+		BaseURL:             userCfg.BaseURL,
 		ClassificationModel: userCfg.ClassificationModel,
 		Context7APIKey:      context7Key,
 		Gemini:              userCfg.GetGeminiConfig(),
@@ -175,6 +188,12 @@ func DetectProvider() (*ProviderConfig, error) {
 		{"XAI_API_KEY", ProviderXAI},
 		{"ZAI_API_KEY", ProviderZAI},
 		{"OPENROUTER_API_KEY", ProviderOpenRouter},
+		{"DASHSCOPE_API_KEY", ProviderDashScope},
+		{"META_API_KEY", ProviderMeta},
+		// Meta's own docs export the key as MODEL_API_KEY; accept it as an alias
+		// so a shell already set up for their SDK works without extra steps.
+		{"MODEL_API_KEY", ProviderMeta},
+		{"MOONSHOT_API_KEY", ProviderMoonshot},
 	}
 
 	for _, p := range providers {
@@ -188,7 +207,7 @@ func DetectProvider() (*ProviderConfig, error) {
 	}
 
 	logging.PerceptionError("DetectProvider: no API key found in config or environment")
-	return nil, fmt.Errorf("no API key found; configure .nerd/config.json or set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, ZAI_API_KEY")
+	return nil, fmt.Errorf("no API key found; configure .nerd/config.json or set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, ZAI_API_KEY, OPENROUTER_API_KEY, DASHSCOPE_API_KEY, META_API_KEY, MOONSHOT_API_KEY")
 }
 
 // NewClientFromEnv creates an LLM client based on config file or environment variables.
@@ -287,6 +306,29 @@ func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 		client := NewOpenRouterClient(cfg.APIKey)
 		client.SetModel(model)
 		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=openrouter model=%s", model)
+		return client, nil
+
+	case ProviderDashScope, ProviderMeta, ProviderMoonshot:
+		// Classification runs on every interactive turn, so reasoning is turned
+		// off here regardless of the tier's normal setting — a thinking trace in
+		// front of every prompt is pure latency for a labelling task.
+		compatCfg := DefaultOpenAICompatConfig(cfg.Provider, cfg.APIKey)
+		compatCfg.EnableThinking = false
+		compatCfg.MaxOutputTokens = 2048
+		if model != "" {
+			compatCfg.Model = model
+		}
+		if cfg.BaseURL != "" {
+			compatCfg.BaseURL = cfg.BaseURL
+		}
+		client, err := NewOpenAICompatClient(compatCfg)
+		if err != nil {
+			// Classification is optional: fall back to the main client rather
+			// than failing boot.
+			logging.Get(logging.CategoryPerception).Warn("Classification client unavailable for %s: %v", cfg.Provider, err)
+			return nil, nil
+		}
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=%s model=%s (configured=%v)", cfg.Provider, compatCfg.Model, model != "")
 		return client, nil
 
 	default:
@@ -442,6 +484,16 @@ func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 		}
 		return client, nil
 
+	case ProviderDashScope, ProviderMeta, ProviderMoonshot:
+		compatCfg := DefaultOpenAICompatConfig(config.Provider, config.APIKey)
+		if config.Model != "" {
+			compatCfg.Model = config.Model
+		}
+		if config.BaseURL != "" {
+			compatCfg.BaseURL = config.BaseURL
+		}
+		return NewOpenAICompatClient(compatCfg)
+
 	case ProviderOllama:
 		ollamaCfg := DefaultOllamaLLMConfig()
 		if config.Ollama != nil {
@@ -473,51 +525,56 @@ func NewWorkerClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error
 	if w == nil {
 		return nil, nil
 	}
-	switch strings.ToLower(w.Provider) {
-	case "ollama":
+
+	provider := strings.ToLower(strings.TrimSpace(w.Provider))
+
+	// Ollama is local and keyless, and its config type is package-local, so it
+	// keeps its direct construction path.
+	if provider == "ollama" {
 		cfg := DefaultOllamaLLMConfig()
 		if w.Endpoint != "" {
 			cfg.Endpoint = w.Endpoint
-		} else {
-			ollama := userCfg.GetOllamaLLMConfig()
-			cfg.Endpoint = ollama.Endpoint
+		} else if main := userCfg.GetOllamaLLMConfig(); main.Endpoint != "" {
+			cfg.Endpoint = main.Endpoint
 		}
 		if w.Model != "" {
 			cfg.Model = w.Model
 		}
-		client := NewOllamaClientWithConfig(cfg)
 		logging.Perception("Worker LLM: ollama model=%s endpoint=%s", cfg.Model, cfg.Endpoint)
-		return client, nil
-	case "xai":
-		if userCfg.XAIAPIKey == "" {
-			return nil, fmt.Errorf("worker provider=xai but xai_api_key is empty")
-		}
-		client := NewXAIClient(userCfg.XAIAPIKey)
-		if w.Model != "" {
-			client.SetModel(w.Model)
-		}
-		return client, nil
-	case "openai":
-		if userCfg.OpenAIAPIKey == "" {
-			return nil, fmt.Errorf("worker provider=openai but openai_api_key is empty")
-		}
-		client := NewOpenAIClient(userCfg.OpenAIAPIKey)
-		if w.Model != "" {
-			client.SetModel(w.Model)
-		}
-		return client, nil
-	case "gemini":
-		if userCfg.GeminiAPIKey == "" {
-			return nil, fmt.Errorf("worker provider=gemini but gemini_api_key is empty")
-		}
-		gcfg := DefaultGeminiConfig(userCfg.GeminiAPIKey)
-		if w.Model != "" {
-			gcfg.Model = w.Model
-		}
-		return NewGeminiClientWithConfig(gcfg), nil
-	default:
-		return nil, fmt.Errorf("unsupported worker provider %q (use ollama, xai, openai, gemini)", w.Provider)
+		return NewOllamaClientWithConfig(cfg), nil
 	}
+
+	// Everything else delegates to the shared factory rather than
+	// re-implementing provider construction. Previously this function hand-rolled
+	// four providers and rejected the rest, which silently made anthropic, zai,
+	// openrouter and every OpenAI-compatible vendor unusable as the worker — the
+	// exact slot a cheap bulk model belongs in. Delegating means the worker
+	// supports whatever the main client supports, now and for future providers.
+	apiKey := userCfg.APIKeyForProvider(provider)
+	if apiKey == "" {
+		return nil, fmt.Errorf("worker provider=%s but %s is empty", provider, providerKeyFieldName(provider))
+	}
+
+	pc := &ProviderConfig{
+		Engine:   "api",
+		Provider: Provider(provider),
+		APIKey:   apiKey,
+		Model:    w.Model,
+		BaseURL:  userCfg.BaseURL,
+		Gemini:   userCfg.GetGeminiConfig(),
+	}
+	// For OpenAI-compatible vendors the worker's Endpoint doubles as a per-slot
+	// base-URL override, so main and worker can sit behind different gateways.
+	if w.Endpoint != "" {
+		pc.BaseURL = w.Endpoint
+	}
+
+	client, err := NewClientFromConfig(pc)
+	if err != nil {
+		return nil, fmt.Errorf("worker provider=%s: %w", provider, err)
+	}
+	logging.Perception("Worker LLM: provider=%s model=%s", provider, w.Model)
+	return client, nil
 }
 
 // NewImageClientFromUserConfig builds the dedicated image-generation client

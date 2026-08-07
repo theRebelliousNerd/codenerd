@@ -120,10 +120,17 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 
 		// Create orchestrator with channels for real-time progress/event streaming
 		orch, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
-			Workspace:            m.workspace,
-			Kernel:               m.kernel,
-			LLMClient:            m.client,
-			ShardManager:         m.shardMgr,
+			Workspace:    m.workspace,
+			Kernel:       m.kernel,
+			LLMClient:    m.client,
+			ShardManager: m.shardMgr,
+			// Without this the orchestrator's taskExecutor stays nil, and both
+			// verification checkpoints treat that as "skip and pass"
+			// (internal/campaign/checkpoint.go:206-209, :258-261). In-chat
+			// campaigns then reported every phase as verified while running no
+			// verification at all — a false green. Config validation did not
+			// catch it because a non-nil ShardManager satisfies the check.
+			TaskExecutor:         m.taskExecutor,
 			Executor:             m.executor,
 			VirtualStore:         m.virtualStore,
 			ProgressChan:         progressChan,
