@@ -178,10 +178,18 @@ func (e *Executor) runToolLoop(
 	//
 	// So spend one more call to collect it: execute the pending batch (keeping
 	// the tool_use/tool_result pairing every provider requires), then re-invoke
-	// with NO tool definitions. With no tools available the model cannot request
-	// more exploration and must answer from what it has.
+	// with the EXPLORATION tools removed. Unable to read anything more, the
+	// model must work with what it has.
+	//
+	// Write tools survive that cut for a write-oriented intent. Stripping every
+	// tool made `nerd create <doc>` structurally impossible to complete: it
+	// spent 35 calls researching, hit the ceiling, and the tool-free final call
+	// could only describe the file it had been asked to write — which the
+	// hollow-success guard then correctly failed. "You have explored enough,
+	// now do the thing" is the instruction that turn needed; "you have explored
+	// enough, now describe the thing" is not.
 	logging.Get(logging.CategorySession).Warn(
-		"Max tool iterations reached: %d; forcing a final tool-free answer from %d executed tool call(s)",
+		"Max tool iterations reached: %d; forcing a final answer from %d executed tool call(s)",
 		maxIter, result.ToolCallsExecuted)
 
 	final, finalErrs, finalErr := e.forceFinalAnswer(ctx, trp, systemPrompt, history, currentResponse, cfg, result)
@@ -194,16 +202,28 @@ func (e *Executor) runToolLoop(
 	return final, toolErrs, nil
 }
 
-// toolBudgetExhaustedNudge is appended as the final user turn when the loop runs
-// out of iterations. It is deliberately explicit that partial evidence is
-// acceptable — the alternative the model would otherwise pick is another tool
-// call, which is exactly what it can no longer make.
-const toolBudgetExhaustedNudge = "Your tool budget for this turn is exhausted; no further tools are available. " +
-	"Write your final answer now using only the evidence you have already gathered. " +
-	"State explicitly what you could not verify rather than requesting more tools."
+// Nudges appended as the final user turn when the loop runs out of iterations.
+// Both are explicit that partial evidence is acceptable — the alternative the
+// model would otherwise pick is another exploration call, which is exactly what
+// it can no longer make.
+const (
+	readOnlyBudgetExhaustedNudge = "Your tool budget for this turn is exhausted; no further tools are available. " +
+		"Write your final answer now using only the evidence you have already gathered. " +
+		"State explicitly what you could not verify rather than requesting more tools."
+
+	writeBudgetExhaustedNudge = "Your exploration budget for this turn is exhausted. Only write tools remain: " +
+		"you cannot read, search, or list anything further. Produce the deliverable NOW with the write tool, " +
+		"using only the evidence you have already gathered. Note any uncertainty inside the artifact itself " +
+		"rather than deferring the write — describing what you would have written does not count as doing it."
+)
 
 // forceFinalAnswer executes any still-pending tool calls and then re-invokes the
-// model with an empty tool set so it must produce prose.
+// model with exploration tools removed.
+//
+// For a read-oriented intent no tools survive, so the model must produce prose.
+// For a write-oriented intent the write tools survive, so it can still land the
+// artifact it was asked for; anything else makes a large task structurally
+// impossible to finish rather than merely truncated.
 func (e *Executor) forceFinalAnswer(
 	ctx context.Context,
 	trp types.ToolResultsProvider,
@@ -224,17 +244,57 @@ func (e *Executor) forceFinalAnswer(
 		history = append(history, types.Message{Role: "user", ToolResults: toolResults})
 	}
 
-	history = append(history, types.Message{Role: "user", Text: toolBudgetExhaustedNudge})
+	// The kernel decides which verbs need a real side effect
+	// (intent_requires_tool_call/1 in delegation.mg), not a Go switch.
+	needsWrite := e.intentRequiresToolCall(result.Intent.Verb) && result.SuccessfulWriteTools == 0
 
-	// nil toolDefs is the whole point: the model has no tool to reach for.
-	final, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, nil)
-	if err != nil {
-		return pending, toolErrs, fmt.Errorf("final tool-free completion failed: %w", err)
+	nudge := readOnlyBudgetExhaustedNudge
+	var finalTools []types.ToolDefinition
+	if needsWrite {
+		nudge = writeBudgetExhaustedNudge
+		finalTools = writeOnlyToolDefinitions(e.buildToolDefinitions(cfg))
+		logging.Get(logging.CategorySession).Warn(
+			"Retaining %d write tool(s) for the final call: %s requires a side effect and none has landed yet",
+			len(finalTools), result.Intent.Verb)
 	}
-	if final == nil || strings.TrimSpace(final.Text) == "" {
-		return pending, toolErrs, errors.New("final tool-free completion returned no text")
+
+	history = append(history, types.Message{Role: "user", Text: nudge})
+
+	final, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, finalTools)
+	if err != nil {
+		return pending, toolErrs, fmt.Errorf("final completion failed: %w", err)
+	}
+	if final == nil {
+		return pending, toolErrs, errors.New("final completion returned nothing")
+	}
+
+	// Execute whatever writes the model asked for. Handing back an unexecuted
+	// write tool_call would reproduce the original bug one layer down: the
+	// deliverable named but never produced.
+	if len(final.ToolCalls) > 0 {
+		_, errs := e.executeToolBatch(ctx, final.ToolCalls, cfg, result)
+		toolErrs = append(toolErrs, errs...)
+	}
+
+	if strings.TrimSpace(final.Text) == "" && len(final.ToolCalls) == 0 {
+		return pending, toolErrs, errors.New("final completion returned neither text nor a tool call")
 	}
 	return final, toolErrs, nil
+}
+
+// writeOnlyToolDefinitions keeps the write-mutation tools and drops the rest.
+//
+// The exploration tools have to go: a model given read_file back will use it,
+// and the budget was exhausted precisely because reading is the cheap, endless
+// option.
+func writeOnlyToolDefinitions(defs []types.ToolDefinition) []types.ToolDefinition {
+	writes := make([]types.ToolDefinition, 0, len(defs))
+	for _, def := range defs {
+		if isWriteMutationTool(def.Name) {
+			writes = append(writes, def)
+		}
+	}
+	return writes
 }
 
 // executeToolBatch runs one turn's worth of tool calls and returns the

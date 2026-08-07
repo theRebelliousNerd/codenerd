@@ -13,6 +13,21 @@ type CoreLimits struct {
 	MaxSessionDurationMin int `yaml:"max_session_duration_min" json:"max_session_duration_min"` // Auto-save interval
 	MaxFactsInKernel      int `yaml:"max_facts_in_kernel" json:"max_facts_in_kernel"`           // EDB size limit
 	MaxDerivedFactsLimit  int `yaml:"max_derived_facts_limit" json:"max_derived_facts_limit"`   // Mangle gas limit (Bug #17)
+
+	// MaxToolCalls caps tool executions in a single turn. 0 uses the code
+	// default (50).
+	MaxToolCalls int `yaml:"max_tool_calls" json:"max_tool_calls,omitempty"`
+
+	// MaxToolIterations caps LLM -> tools -> LLM round trips in a single turn.
+	// 0 uses the code default (8).
+	//
+	// This is the knob that decides how much investigation a turn may do before
+	// the executor forces a conclusion. Both limits were hardcoded in
+	// session.DefaultExecutorConfig with no way to raise them, and 8 is low for
+	// real work: a `nerd create <architecture doc>` turn spent its whole budget
+	// reading source and hit the ceiling before writing anything. Raise these
+	// for research-heavy or documentation work; lower them to cap spend.
+	MaxToolIterations int `yaml:"max_tool_iterations" json:"max_tool_iterations,omitempty"`
 }
 
 // APISchedulerPolicy is user-facing configuration for the cooperative LLM API
