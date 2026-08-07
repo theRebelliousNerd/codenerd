@@ -370,6 +370,7 @@ func (l *Logger) Warn(format string, args ...any) {
 	} else {
 		l.logger.Printf("[WARN] %s", msg)
 	}
+	mirrorToProblems(l.category, "WARN", msg)
 }
 
 // Error logs an error message (always logged if logger exists)
@@ -382,6 +383,64 @@ func (l *Logger) Error(format string, args ...any) {
 		l.logJSON("error", msg)
 	} else {
 		l.logger.Printf("[ERROR] %s", msg)
+	}
+	mirrorToProblems(l.category, "ERROR", msg)
+}
+
+// --- Aggregated problems log -------------------------------------------------
+//
+// Every WARN and ERROR is mirrored, in addition to its own category file, into
+// a single <date>_problems.log. Diagnosing a run otherwise means grepping ~25
+// category files and manually interleaving them by timestamp, which is how a
+// cold start managed to report success while 195 of 196 LLM calls were failing:
+// the evidence existed, just nowhere anyone would look.
+//
+// This is a mirror, never a move — category files keep their own WARN/ERROR
+// lines so nothing that reads them today changes.
+
+var (
+	problemsMu     sync.Mutex
+	problemsLogger *log.Logger
+	problemsFile   *os.File
+	problemsFailed bool
+)
+
+// mirrorToProblems appends one line to the aggregated problems log, tagged with
+// the category it came from. Failures are silent after the first: logging must
+// never take down the process it is observing.
+func mirrorToProblems(category Category, level, msg string) {
+	problemsMu.Lock()
+	defer problemsMu.Unlock()
+
+	if problemsFailed {
+		return
+	}
+	if problemsLogger == nil {
+		dir := logsDir
+		if dir == "" {
+			return // Initialize() has not run yet; category logger is a no-op too.
+		}
+		path := filepath.Join(dir, fmt.Sprintf("%s_problems.log", time.Now().Format("2006-01-02")))
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			problemsFailed = true
+			fmt.Fprintf(os.Stderr, "[logging] could not open problems log %s: %v\n", path, err)
+			return
+		}
+		problemsFile = f
+		problemsLogger = log.New(f, "", log.Ldate|log.Ltime|log.Lmicroseconds)
+	}
+	problemsLogger.Printf("[%s] [%s] %s", level, category, msg)
+}
+
+// closeProblemsLog releases the aggregated log file. Safe to call repeatedly.
+func closeProblemsLog() {
+	problemsMu.Lock()
+	defer problemsMu.Unlock()
+	if problemsFile != nil {
+		_ = problemsFile.Close()
+		problemsFile = nil
+		problemsLogger = nil
 	}
 }
 
@@ -448,6 +507,7 @@ func (c *ContextLogger) Warn(format string, args ...any) {
 	}
 	msg := fmt.Sprintf(format, args...)
 	c.logger.logger.Printf("[WARN] %s | ctx=%v", msg, c.context)
+	mirrorToProblems(c.logger.category, "WARN", fmt.Sprintf("%s | ctx=%v", msg, c.context))
 }
 
 func (c *ContextLogger) Error(format string, args ...any) {
@@ -456,6 +516,7 @@ func (c *ContextLogger) Error(format string, args ...any) {
 	}
 	msg := fmt.Sprintf(format, args...)
 	c.logger.logger.Printf("[ERROR] %s | ctx=%v", msg, c.context)
+	mirrorToProblems(c.logger.category, "ERROR", fmt.Sprintf("%s | ctx=%v", msg, c.context))
 }
 
 // CloseAll closes all open log files (call at shutdown)
@@ -469,6 +530,7 @@ func CloseAll() {
 		}
 	}
 	loggers = make(map[Category]*Logger)
+	closeProblemsLog()
 }
 
 // =============================================================================
