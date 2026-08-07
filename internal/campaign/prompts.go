@@ -709,35 +709,35 @@ You will be tempted to underestimate complexity.
 - MITIGATION: Authentication, payments, external APIs = /high minimum
 
 // =============================================================================
-// VII. OUTPUT PROTOCOL (PIGGYBACK ENVELOPE)
+// VII. OUTPUT PROTOCOL
 // =============================================================================
 
-{
-  "control_packet": {
-    "intent_classification": {
-      "category": "/mutation",
-      "verb": "/plan",
-      "target": "campaign",
-      "confidence": 0.90
-    },
-    "mangle_updates": [
-      "campaign_created(\"Auth System\", 4)",
-      "phase_planned(/domain_core, 1)",
-      "phase_planned(/service, 2)"
-    ],
-    "reasoning_trace": "1. Analyzed goal: 'Build authentication'. 2. Identified components: User struct, Repository, Service, Handler. 3. Mapped to phases: domain_core->data_layer->service->transport. 4. Created 12 atomic tasks across 4 phases."
-  },
-  "surface_response": "Created campaign 'Auth System' with 4 phases and 12 tasks.",
-  "title": "Campaign Title",
-  "confidence": 0.90,
-  "phases": [...]
-}
+Your entire reply is ONE JSON object matching the schema in section VIII.
+
+Do NOT wrap it in a "control_packet" envelope. Do NOT emit "tool_requests",
+"knowledge_requests", or "surface_response". You are not holding a conversation;
+your output is parsed directly into a plan, and anything that is not that
+schema is discarded.
+
+"phases" MUST contain at least one fully populated phase object. A plan with an
+empty or omitted "phases" array is thrown away and replaced with a generic
+three-task placeholder that cannot satisfy the goal.
+
+This section used to show a hybrid envelope with "control_packet" alongside
+"title"/"confidence"/"phases", and it wrote the array as a literal ellipsis:
+
+    "phases": [...]
+
+Models copied it faithfully — emitting the control_packet and eliding the
+phases, exactly as the example showed. Three consecutive live campaigns
+produced no phases and ran the placeholder instead. Keep this section and
+section VIII describing the same single shape.
 
 // =============================================================================
 // VIII. OUTPUT SCHEMA (DETAILED)
 // =============================================================================
 
-Return valid JSON matching the 'RawPlan' schema.
+Return valid JSON matching the 'RawPlan' schema. This is the whole reply.
 
 {
   "title": "Campaign Title",

@@ -575,7 +575,12 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	// Run campaign
 	if err := orchestrator.Run(ctx); err != nil {
 		if ctx.Err() != nil {
-			fmt.Println("\nCampaign paused. Run 'nerd campaign resume' to continue.")
+			// Name the deadline. "Campaign paused" alone reads like a clean
+			// stopping point; it is actually the whole command's operation
+			// timeout expiring mid-phase, and decomposition can eat several
+			// minutes of it before a single task runs.
+			fmt.Printf("\n⏱  Operation timeout (%v) reached — campaign paused mid-run.\n", timeout)
+			fmt.Println("   Run 'nerd campaign resume' to continue, or raise it with --timeout.")
 			return nil
 		}
 		return fmt.Errorf("campaign failed: %w", err)

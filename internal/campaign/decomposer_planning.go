@@ -7,6 +7,7 @@ import (
 	"codenerd/internal/types"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -32,24 +33,73 @@ func (d *Decomposer) completePlanWithSchemaOrFallback(ctx context.Context, syste
 	return d.llmClient.Complete(ctx, systemPrompt+"\n\n"+userPrompt)
 }
 
+// parseRawPlanResponse extracts a plan from the model's reply.
+//
+// The phases check is the important part. encoding/json ignores unknown fields,
+// so unmarshalling a Piggyback envelope into RawPlan SUCCEEDS: every field is
+// unknown, nothing is populated, err is nil, and the caller receives a
+// structurally valid plan with no phases in it. Three live campaigns died that
+// way — the parse reported success, the caller substituted a generic scaffold,
+// and the CLI printed a confidence figure for a plan the model never produced.
+//
+// A plan with no phases is not a plan, so it is now treated as a parse miss and
+// the recovery paths run.
 func parseRawPlanResponse(resp string) (*RawPlan, error) {
 	clean := cleanJSONResponse(resp)
 
 	var plan RawPlan
-	if err := json.Unmarshal([]byte(clean), &plan); err == nil {
+	firstErr := json.Unmarshal([]byte(clean), &plan)
+	if firstErr == nil && len(plan.Phases) > 0 {
 		return &plan, nil
-	} else {
-		// Compatibility fallback for providers that wrap payload under "plan".
-		var wrapped struct {
-			Plan RawPlan `json:"plan"`
-		}
-		if wrapErr := json.Unmarshal([]byte(clean), &wrapped); wrapErr == nil &&
-			(strings.TrimSpace(wrapped.Plan.Title) != "" || len(wrapped.Plan.Phases) > 0) {
-			return &wrapped.Plan, nil
-		}
-		return nil, err
 	}
+
+	// Providers that wrap the payload under "plan".
+	var wrapped struct {
+		Plan RawPlan `json:"plan"`
+	}
+	if err := json.Unmarshal([]byte(clean), &wrapped); err == nil && len(wrapped.Plan.Phases) > 0 {
+		return &wrapped.Plan, nil
+	}
+
+	// A model that has been told about the Piggyback envelope elsewhere in its
+	// context will sometimes wrap the plan in one. The plan is right there;
+	// refusing to read it costs an entire campaign. Recovery, not license — the
+	// prompt still asks for the bare schema.
+	var envelope struct {
+		ControlPacket struct {
+			Plan RawPlan `json:"plan"`
+		} `json:"control_packet"`
+		Plan RawPlan `json:"plan"`
+	}
+	if err := json.Unmarshal([]byte(clean), &envelope); err == nil {
+		if len(envelope.ControlPacket.Plan.Phases) > 0 {
+			return &envelope.ControlPacket.Plan, nil
+		}
+		if len(envelope.Plan.Phases) > 0 {
+			return &envelope.Plan, nil
+		}
+	}
+
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if strings.Contains(clean, "control_packet") {
+		return nil, fmt.Errorf("%w: the model returned a Piggyback control_packet instead of a plan. "+
+			"Check that the planner compile is structured-output-only (prompt.IsStructuredOutputOnly)",
+			errPlanHasNoPhases)
+	}
+	return nil, errPlanHasNoPhases
 }
+
+// errPlanHasNoPhases marks a response that was valid JSON but carried no phases.
+//
+// It is deliberately distinct from a JSON syntax error. Unparseable output means
+// the model is broken and the command should fail; a well-formed answer with an
+// empty phases array is the model saying "I have nothing", which degrades to the
+// scaffold so `nerd campaign start` still produces something the user can see
+// and reject. Collapsing the two turned an existing degrade path into a hard
+// failure.
+var errPlanHasNoPhases = errors.New("response parsed as JSON but contained no phases")
 
 // llmProposePlan asks LLM to propose a plan structure using retrieved context.
 func (d *Decomposer) buildPlanProposalContext(ctx context.Context, campaignID string, req DecomposeRequest, kbPath string, files []FileMetadata, requirements []Requirement) string {
@@ -172,10 +222,31 @@ func (d *Decomposer) executePlanProposalWithRetry(ctx context.Context, req Decom
 		if len(contextPreview) > 2000 {
 			contextPreview = contextPreview[:2000]
 		}
-		retryPrompt := fmt.Sprintf(`The previous response was not valid JSON. Output ONLY a JSON object.
+		// The example must show phases POPULATED. This retry prompt used to
+		// print `"phases": []` as the "required structure", so a model that had
+		// just failed to produce phases was handed an example with none in it
+		// and obligingly returned none again.
+		retryPrompt := fmt.Sprintf(`Your previous response could not be used as a plan. Output ONLY a JSON object.
+
+Do NOT wrap it in "control_packet". Do NOT include "tool_requests" or
+"surface_response". "phases" must contain at least one real phase.
 
 Required structure:
-{"title": "REPLACE_WITH_ACTUAL_CAMPAIGN_TITLE", "confidence": 0.9, "phases": []}
+{
+  "title": "REPLACE_WITH_ACTUAL_CAMPAIGN_TITLE",
+  "confidence": 0.9,
+  "phases": [
+    {
+      "name": "REPLACE_WITH_PHASE_NAME",
+      "order": 0,
+      "category": "/scaffold",
+      "description": "REPLACE_WITH_WHAT_THIS_PHASE_ACCOMPLISHES",
+      "tasks": [
+        {"description": "REPLACE_WITH_A_SPECIFIC_ACTIONABLE_TASK", "type": "/file_create", "order": 0}
+      ]
+    }
+  ]
+}
 
 Goal: %s
 Context: %s
@@ -194,6 +265,16 @@ Output ONLY the JSON:`, req.Goal, contextPreview)
 				retryPreview = retryPreview[:500]
 			}
 			logging.CampaignDebug("Retry raw response (first 500 chars): %s", retryPreview)
+
+			// A well-formed answer with no phases degrades to the scaffold,
+			// which is now loud (WARN + Degraded + CLI banner) so the user can
+			// see it and decide. Genuinely unparseable output is a broken model
+			// and fails the command.
+			if errors.Is(retryErr, errPlanHasNoPhases) {
+				logging.Get(logging.CategoryCampaign).Warn(
+					"Planner returned no phases twice (%v); falling through to the degraded scaffold", retryErr)
+				return d.normalizeRawPlanFromLLM(&RawPlan{}, req)
+			}
 			return nil, fmt.Errorf("failed to parse plan JSON after retry: %w", retryErr)
 		}
 		return d.normalizeRawPlanFromLLM(plan, req)
