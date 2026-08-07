@@ -1,6 +1,8 @@
 package campaign
 
 import (
+	"codenerd/internal/types"
+
 	"github.com/kballard/go-shellquote"
 
 	"bufio"
@@ -629,7 +631,8 @@ Output ONLY valid JSON:
 }
 `, summary, cfg.MaxRemediationTasks)
 
-	resp, err := o.llmClient.Complete(ctx, assaultPrompt+"\n\n"+userPrompt)
+	// Reply is unmarshalled directly; no Piggyback envelope schema.
+	resp, err := o.llmClient.Complete(types.WithStructuredOutputOnly(ctx), assaultPrompt+"\n\n"+userPrompt)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Assault triage LLM call failed: %v", err)
 		return nil

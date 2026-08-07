@@ -42,7 +42,8 @@ Content:
 %s
 `, ExtractorLogic, path, idx+1, len(chunks), chunk)
 
-			resp, err := d.llmClient.Complete(ctx, prompt)
+			// Reply is unmarshalled directly; no Piggyback envelope schema.
+			resp, err := d.llmClient.Complete(types.WithStructuredOutputOnly(ctx), prompt)
 			if err != nil {
 				continue
 			}

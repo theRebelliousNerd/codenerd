@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -226,7 +227,8 @@ CONTENT END
 Return JSON only: {"layer": "/string", "confidence": 0.0-1.0, "reasoning": "brief"}`,
 		basePrompt, filename, limitString(trimmed, 2000))
 
-	resp, err := d.llmClient.Complete(ctx, prompt)
+	// Reply is unmarshalled directly; no Piggyback envelope schema.
+	resp, err := d.llmClient.Complete(types.WithStructuredOutputOnly(ctx), prompt)
 	if err != nil {
 		return defaultClass, err
 	}

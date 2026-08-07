@@ -91,7 +91,8 @@ func (r *Replanner) completeWithGrounding(ctx context.Context, prompt string) (s
 	if r.llmClient == nil {
 		return "", fmt.Errorf("%w: replanner requires llm client", ErrNilDependency)
 	}
-	return r.llmClient.Complete(ctx, prompt)
+	// Reply is unmarshalled directly; no Piggyback envelope schema.
+	return r.llmClient.Complete(types.WithStructuredOutputOnly(ctx), prompt)
 }
 
 // ReplanReason represents why a replan was triggered.

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"time"
 )
 
@@ -155,3 +156,50 @@ const CtxKeyModelCapability = "model_capability"
 // CtxKeyModelName is the context key for passing a concrete per-shard model
 // override to shared LLM clients.
 const CtxKeyModelName = "model_name"
+
+// CtxKeyStructuredOutputOnly tells an LLM client that this call's reply is
+// parsed directly into a Go struct and must NOT be wrapped in the Piggyback
+// envelope, so no envelope response_format schema may be attached.
+//
+// It exists because clients otherwise decide by sniffing the prompt for the
+// substring "control_packet" (perception.isPiggybackPrompt). That heuristic
+// cannot distinguish a prompt that teaches the envelope from one that forbids
+// it: writing "Do NOT wrap your reply in a control_packet envelope" made the
+// client attach the envelope schema, and a strict schema is not advice — the
+// model then emitted a fully-formed envelope with every field empty
+// (overall_usefulness: 0, missing_context: "") because that is what the schema
+// required. Four live campaign decompositions returned no phases this way and
+// silently ran a generic placeholder plan.
+//
+// The contract belongs to the caller, which knows its own role, not to a
+// substring search over text written for a different audience. Set it with
+// WithStructuredOutputOnly wherever prompt.IsStructuredOutputOnly(shardType)
+// holds; leaving it unset preserves the sniffing behaviour for conversational
+// shards, which genuinely do speak the envelope.
+const CtxKeyStructuredOutputOnly = "structured_output_only"
+
+// WithStructuredOutputOnly marks ctx as carrying a call whose reply is parsed
+// directly as JSON, so no Piggyback envelope schema may be attached.
+func WithStructuredOutputOnly(ctx context.Context) context.Context {
+	return context.WithValue(ctx, ctxKey(CtxKeyStructuredOutputOnly), true)
+}
+
+// IsStructuredOutputOnlyCtx reports whether ctx was marked by
+// WithStructuredOutputOnly. It also accepts the bare string key, because
+// existing call sites in this repo set model_capability and model_name that way.
+func IsStructuredOutputOnlyCtx(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	if v, ok := ctx.Value(ctxKey(CtxKeyStructuredOutputOnly)).(bool); ok {
+		return v
+	}
+	if v, ok := ctx.Value(CtxKeyStructuredOutputOnly).(bool); ok { //nolint:staticcheck // back-compat with string-keyed call sites
+		return v
+	}
+	return false
+}
+
+// ctxKey is a private type so WithStructuredOutputOnly cannot collide with
+// another package's context value.
+type ctxKey string

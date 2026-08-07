@@ -17,6 +17,17 @@ func (d *Decomposer) completePlanWithSchemaOrFallback(ctx context.Context, syste
 	if d.llmClient == nil {
 		return "", fmt.Errorf("%w: decomposer requires llm client", ErrNilDependency)
 	}
+
+	// This reply is unmarshalled straight into RawPlan, so it must not be
+	// constrained to the Piggyback envelope. Clients otherwise decide by
+	// searching the prompt for "control_packet" — which the planner prompt
+	// contains precisely because it FORBIDS the envelope. The schema won that
+	// argument every time: the model returned a fully-formed envelope with empty
+	// fields, RawPlan unmarshalled it successfully with zero phases, and the
+	// campaign silently ran a generic placeholder. Declare the contract instead
+	// of letting a substring search infer it.
+	ctx = types.WithStructuredOutputOnly(ctx)
+
 	if schemaClient, ok := core.AsSchemaCapable(d.llmClient); ok {
 		resp, err := schemaClient.CompleteWithSchema(ctx, systemPrompt, userPrompt, planResponseSchema)
 		if err == nil {

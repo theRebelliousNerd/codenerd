@@ -83,10 +83,11 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		systemPrompt = defaultSystemPrompt
 	}
 
-	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
-		strings.Contains(systemPrompt, "surface_response") ||
-		strings.Contains(userPrompt, "PiggybackEnvelope") ||
-		strings.Contains(userPrompt, "control_packet")
+	isPiggyback := !types.IsStructuredOutputOnlyCtx(ctx) &&
+		(strings.Contains(systemPrompt, "control_packet") ||
+			strings.Contains(systemPrompt, "surface_response") ||
+			strings.Contains(userPrompt, "PiggybackEnvelope") ||
+			strings.Contains(userPrompt, "control_packet"))
 
 	// Rate limiting
 	c.mu.Lock()
@@ -218,10 +219,11 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 			systemPrompt = defaultSystemPrompt
 		}
 
-		isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
-			strings.Contains(systemPrompt, "surface_response") ||
-			strings.Contains(userPrompt, "PiggybackEnvelope") ||
-			strings.Contains(userPrompt, "control_packet")
+		isPiggyback := !types.IsStructuredOutputOnlyCtx(ctx) &&
+			(strings.Contains(systemPrompt, "control_packet") ||
+				strings.Contains(systemPrompt, "surface_response") ||
+				strings.Contains(userPrompt, "PiggybackEnvelope") ||
+				strings.Contains(userPrompt, "control_packet"))
 
 		// Rate limiting
 		c.mu.Lock()

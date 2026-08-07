@@ -293,9 +293,25 @@ func isSchemaRejection(body string) bool {
 	return false
 }
 
-// isPiggybackPrompt detects codeNERD's structured-envelope protocol, which wants
-// JSON-schema-constrained output when the vendor supports it.
-func isPiggybackPrompt(systemPrompt, userPrompt string) bool {
+// isPiggybackPrompt decides whether to constrain this call to codeNERD's
+// structured-envelope protocol with a JSON schema.
+//
+// An explicit caller declaration wins. The substring fallback below cannot tell
+// a prompt that TEACHES the envelope from one that FORBIDS it — both contain
+// "control_packet" — so writing "Do NOT wrap your reply in a control_packet
+// envelope" attached the envelope schema, and a strict schema is not advice.
+// The model then returned a fully-formed envelope with every field empty,
+// because that is what the schema required, and four live campaign
+// decompositions produced no phases and silently ran a placeholder plan.
+//
+// Callers whose reply is json.Unmarshal'd (campaign planner, taxonomy,
+// librarian, extractor, analyzer, replanner) mark the context with
+// types.WithStructuredOutputOnly. The heuristic remains for conversational
+// shards, which genuinely do speak the envelope and never set the flag.
+func isPiggybackPrompt(ctx context.Context, systemPrompt, userPrompt string) bool {
+	if types.IsStructuredOutputOnlyCtx(ctx) {
+		return false
+	}
 	return strings.Contains(systemPrompt, "control_packet") ||
 		strings.Contains(systemPrompt, "surface_response") ||
 		strings.Contains(userPrompt, "PiggybackEnvelope") ||
@@ -510,7 +526,7 @@ func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPromp
 		systemPrompt = defaultSystemPrompt
 	}
 
-	piggyback := isPiggybackPrompt(systemPrompt, userPrompt)
+	piggyback := isPiggybackPrompt(ctx, systemPrompt, userPrompt)
 
 	reqBody := c.buildRequest(ctx, []OpenAIMessage{
 		{Role: "system", Content: systemPrompt},
@@ -582,7 +598,7 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 			systemPrompt = defaultSystemPrompt
 		}
 
-		piggyback := isPiggybackPrompt(systemPrompt, userPrompt)
+		piggyback := isPiggybackPrompt(ctx, systemPrompt, userPrompt)
 
 		reqBody := c.buildRequest(ctx, []OpenAIMessage{
 			{Role: "system", Content: systemPrompt},

@@ -203,7 +203,8 @@ func (d *Decomposer) completeWithGrounding(ctx context.Context, prompt string) (
 	if d.llmClient == nil {
 		return "", fmt.Errorf("%w: decomposer requires llm client", ErrNilDependency)
 	}
-	return d.llmClient.Complete(ctx, prompt)
+	// Reply is unmarshalled directly; no Piggyback envelope schema.
+	return d.llmClient.Complete(types.WithStructuredOutputOnly(ctx), prompt)
 }
 
 // DecomposeRequest represents a request to create a campaign.
