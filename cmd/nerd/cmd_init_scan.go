@@ -108,14 +108,30 @@ func runInit(cmd *cobra.Command, args []string) error {
 	config := nerdinit.DefaultInitConfig(cwd)
 	config.Timeout = timeout
 
-	// Set up LLM client if available (wrapped with scheduler for concurrency control)
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
+	// Set up the LLM client from .nerd/config.json (wrapped with the scheduler
+	// for concurrency control).
+	//
+	// This used to be hardcoded to Z.AI: it read only --api-key or ZAI_API_KEY
+	// and called perception.NewZAIClient, ignoring the configured provider,
+	// model and keys entirely. With a stale ZAI_API_KEY in the ambient
+	// environment, a cold start ran all ~200 of its knowledge-base and doc
+	// analysis calls against an unconfigured provider — and since init reports
+	// per-KB "quality" without checking whether the calls succeeded, a run
+	// where nearly every call 429'd still printed a clean bill of health.
+	//
+	// Init stays on the MAIN client rather than the worker: it runs once, its
+	// output is the knowledge corpus every later session reads, and a 200-call
+	// burst on the main provider avoids a cheap tier's tighter rate limit.
+	appCfg := loadCampaignConfig(filepath.Join(cwd, ".nerd"))
+	if apiKey != "" && appCfg != nil && appCfg.APIKey == "" {
+		// --api-key overrides the configured provider's key, not the provider.
+		appCfg.APIKey = apiKey
 	}
-	if key != "" {
-		rawClient := perception.NewZAIClient(key)
-		config.LLMClient = core.NewScheduledLLMCall("init", rawClient)
+	if llmClient, err := newConfiguredLLMClient(appCfg, "init"); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: no LLM client for init: %v\n", err)
+		fmt.Fprintln(os.Stderr, "         Knowledge-base and documentation phases will be skipped.")
+	} else {
+		config.LLMClient = llmClient
 	}
 
 	// Set Context7 API key from environment or config

@@ -59,11 +59,23 @@ code_contains(Ancestor, Descendant) :-
 # overflowing the kernel fact limit). A Go _test.go only exercises source in its
 # own package, so we now join on file_dir (the file's directory), bounding the
 # derivation to the small per-directory product instead of the repo-wide one.
+# PREMISE ORDER IS LOAD-BEARING. Mangle evaluates premises strictly
+# left-to-right (engine/seminaivebottomup.go:oneStepEvalClause) and enforces the
+# fact limit against the INTERMEDIATE solution set, not the final one
+# (seminaivebottomup.go:645, `len(newsolutions) > createdFactLimit`). With the
+# two file_topology scans adjacent, the full tests x sources product (~500 x 940
+# = 470k here) materialises before either file_dir premise can filter it, and
+# the whole scan-fact load aborts with "fact size limit reached
+# mock_file(TestFile,SourceFile) 500423 > 500000" -- leaving the kernel with
+# ZERO world facts. Binding Dir from TestFile FIRST, then joining SourceFile
+# through the same Dir, keeps the peak intermediate set at per-directory scale
+# (~40k) instead of repo-wide. Final derivation is ~20k either way; only the
+# ordering keeps the engine from blowing up on the way there.
 mock_file(TestFile, SourceFile) :-
     file_topology(TestFile, _, /go, _, /true),    # TestFile must be a test file
-    file_topology(SourceFile, _, /go, _, /false), # SourceFile must NOT be a test file
-    file_dir(TestFile, Dir),                      # both in the...
-    file_dir(SourceFile, Dir),                    # ...same package directory
+    file_dir(TestFile, Dir),                      # bind Dir from the test file...
+    file_dir(SourceFile, Dir),                    # ...and restrict SourceFile to that directory
+    file_topology(SourceFile, _, /go, _, /false), # only then check SourceFile is NOT a test
     TestFile != SourceFile.
 
 # Suggest updating mocks when source function signature changes

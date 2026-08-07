@@ -62,30 +62,41 @@ type campaignLLMClients struct {
 	planner perception.LLMClient
 }
 
-func newCampaignLLMClients(appCfg *config.UserConfig, label string) (campaignLLMClients, error) {
-	var out campaignLLMClients
-	var raw perception.LLMClient
-
+// newConfiguredLLMClient builds the main CLI LLM client from .nerd/config.json,
+// falling back to ambient environment keys ONLY when the config expresses no
+// choice at all. Every CLI path that makes LLM calls must go through this:
+// reading an env var directly runs the user's work on a provider they did not
+// configure, at that provider's expense, and the failure is silent because the
+// wrong client works fine.
+func newConfiguredLLMClient(appCfg *config.UserConfig, label string) (perception.LLMClient, error) {
 	if pc, err := perception.ProviderConfigFromUserConfig(appCfg); err == nil {
 		client, cerr := perception.NewClientFromConfig(pc)
 		if cerr != nil {
-			return out, fmt.Errorf("failed to initialize LLM client from .nerd/config.json: %w", cerr)
+			return nil, fmt.Errorf("failed to initialize LLM client from .nerd/config.json: %w", cerr)
 		}
-		raw = client
+		return core.NewScheduledLLMCall(label, client), nil
 	} else if appCfg.HasExplicitLLMSelection() {
 		// Config expresses a choice but cannot be satisfied. Falling back to an
-		// ambient key here would run the campaign on a provider the user did not
-		// ask for, so fail loudly instead.
-		return out, fmt.Errorf("failed to initialize LLM client: %w", err)
-	} else {
-		envClient, eerr := perception.NewClientFromEnv()
-		if eerr != nil {
-			return out, fmt.Errorf("failed to initialize LLM client: %w", eerr)
-		}
-		raw = envClient
+		// ambient key here would run on a provider the user did not ask for, so
+		// fail loudly instead.
+		return nil, fmt.Errorf("failed to initialize LLM client: %w", err)
 	}
 
-	out.main = core.NewScheduledLLMCall(label, raw)
+	envClient, eerr := perception.NewClientFromEnv()
+	if eerr != nil {
+		return nil, fmt.Errorf("failed to initialize LLM client: %w", eerr)
+	}
+	return core.NewScheduledLLMCall(label, envClient), nil
+}
+
+func newCampaignLLMClients(appCfg *config.UserConfig, label string) (campaignLLMClients, error) {
+	var out campaignLLMClients
+
+	main, err := newConfiguredLLMClient(appCfg, label)
+	if err != nil {
+		return out, err
+	}
+	out.main = main
 
 	if worker, werr := perception.NewWorkerClientFromUserConfig(appCfg); werr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: worker LLM init failed: %v (shards share main client)\n", werr)
