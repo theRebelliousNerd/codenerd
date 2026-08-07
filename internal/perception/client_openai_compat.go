@@ -249,6 +249,30 @@ func (c *OpenAICompatClient) reasoningEffortForContext(ctx context.Context) stri
 	return ""
 }
 
+// isSchemaRejection reports whether a 400 body blames the structured-output
+// schema, so the caller can retry without response_format instead of failing
+// the turn.
+//
+// Vendors name the offending field inconsistently. OpenAI-style errors mention
+// "response_format" or "json_schema", but Meta reports `"param":"schema"` with
+// a message about a specific keyword — e.g. `'additionalProperties' is required
+// to be supplied and to be false.` — matching neither. That gap turned a
+// recoverable schema complaint into a hard turn failure.
+func isSchemaRejection(body string) bool {
+	for _, marker := range []string{
+		"response_format",
+		"json_schema",
+		`"param":"schema"`,
+		`"param": "schema"`,
+		"additionalProperties",
+	} {
+		if strings.Contains(body, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // isPiggybackPrompt detects codeNERD's structured-envelope protocol, which wants
 // JSON-schema-constrained output when the vendor supports it.
 func isPiggybackPrompt(systemPrompt, userPrompt string) bool {
@@ -404,7 +428,7 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 			bodyStr := string(body)
 			// Some models reject json_schema output; drop it and retry once.
 			if allowSchemaFallback && reqBody.ResponseFormat != nil && resp.StatusCode == http.StatusBadRequest &&
-				(strings.Contains(bodyStr, "response_format") || strings.Contains(bodyStr, "json_schema")) {
+				isSchemaRejection(bodyStr) {
 				logging.PerceptionWarn("[%s] structured output rejected, retrying without response_format", c.vendor)
 				reqBody.ResponseFormat = nil
 				lastErr = fmt.Errorf("structured output rejected: %s", bodyStr)
@@ -586,7 +610,7 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 				resp.Body.Close()
 				bodyStr := string(body)
 				if piggyback && reqBody.ResponseFormat != nil && resp.StatusCode == http.StatusBadRequest &&
-					(strings.Contains(bodyStr, "response_format") || strings.Contains(bodyStr, "json_schema")) {
+					isSchemaRejection(bodyStr) {
 					reqBody.ResponseFormat = nil
 					lastErr = fmt.Errorf("structured output rejected: %s", bodyStr)
 					continue
