@@ -518,7 +518,12 @@ func (ls *LearningStore) GenerateMangleFacts() []string {
 
 	facts := []string{}
 	for _, l := range ls.learnings {
-		facts = append(facts, fmt.Sprintf(`tool_learning(%q, %d, %.2f, %.2f).`,
+		// %d, not %.2f: schemas_tools.mg declares both metrics /number, and a
+		// float literal here becomes an ast.Float64 that this Mangle fork's
+		// comparison builtins reject — taking the entire fixpoint down, not
+		// just the tool_quality_* rules. These facts are persisted to
+		// learned.mg, so a float would poison every subsequent boot too.
+		facts = append(facts, fmt.Sprintf(`tool_learning(%q, %d, %d, %d).`,
 			l.ToolName, l.TotalExecutions, normalizePercent(l.SuccessRate), normalizePercent(l.AverageQuality)))
 
 		for _, issue := range l.KnownIssues {

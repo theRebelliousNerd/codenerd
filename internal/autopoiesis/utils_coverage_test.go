@@ -11,17 +11,20 @@ func compilePatternForTest(pattern string) *regexp.Regexp {
 
 // --- normalizePercent ---
 
+// want is int64, not float64: tool_learning's numeric slots are declared
+// /number, and this Mangle fork compares int64 only — a float here aborts the
+// whole kernel fixpoint rather than just failing the tool_quality_* rules.
 func TestNormalizePercent_AllBands(t *testing.T) {
 	tests := []struct {
 		name  string
 		input float64
-		want  float64
+		want  int64
 	}{
 		{"zero", 0.0, 0},
 		{"negative", -1.0, 0},
 		{"fraction", 0.5, 50},
 		{"fraction_low", 0.1, 10},
-		{"one", 1.0, 1.0},   // >= 1, but not > 100
+		{"one", 1.0, 1},     // >= 1, read as a percent, not a ratio
 		{"fifty", 50.0, 50}, // >= 1, <= 100
 		{"hundred", 100.0, 100},
 		{"over_hundred", 200.0, 100},

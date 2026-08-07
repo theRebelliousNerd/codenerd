@@ -125,6 +125,10 @@ func (k *RealKernel) rebuildProgram() error {
 
 	k.programInfo = programInfo
 	k.policyDirty = false
+	// New Decls may declare different bounds than the ones cachedAtoms were
+	// converted under, so force one reconversion. Also covers the boot case
+	// where facts were admitted before any programInfo existed.
+	k.atomCacheStale = true
 
 	// Cache stratification for EvalStratifiedProgramWithStats
 	strata, predToStratum, err := analysis.Stratify(analysis.Program{
@@ -228,20 +232,42 @@ func (k *RealKernel) evaluateFullLocked() error {
 	baseStore := factstore.NewSimpleInMemoryStore()
 
 	// Defensive sync check: ensure cache is valid
-	if k.cachedAtoms == nil || len(k.cachedAtoms) != len(k.facts) {
-		if len(k.cachedAtoms) > 0 {
+	if k.cachedAtoms == nil || len(k.cachedAtoms) != len(k.facts) || k.atomCacheStale {
+		switch {
+		case k.atomCacheStale:
+			logging.KernelDebug("evaluate: atom cache built without Decls or under an older policy, reconverting %d facts", len(k.facts))
+		case len(k.cachedAtoms) > 0:
 			logging.Get(logging.CategoryKernel).Warn("evaluate: cache desync (atoms=%d facts=%d), rebuilding cache", len(k.cachedAtoms), len(k.facts))
-		} else {
+		default:
 			logging.KernelDebug("evaluate: cache empty (facts=%d), populating cache", len(k.facts))
 		}
+		// Cleared first so factToAtomLocked's own staleness signal (programInfo
+		// still nil) is not immediately overwritten by this pass.
+		k.atomCacheStale = false
 		k.cachedAtoms = make([]ast.Atom, 0, len(k.facts))
+		kept := make([]Fact, 0, len(k.facts))
+		dropped := 0
 		for _, f := range k.facts {
-			atom, err := f.ToAtom()
+			atom, err := k.factToAtomLocked(f)
 			if err != nil {
-				logging.Get(logging.CategoryKernel).Error("evaluate: failed to convert fact %s: %v", f.Predicate, err)
-				return fmt.Errorf("failed to convert fact %v: %w", f, err)
+				// A single malformed fact must not stop the kernel from
+				// deriving everything else — that is precisely the outage this
+				// conversion exists to prevent. Evict it, name it, carry on.
+				// Reachable only for facts admitted before programInfo existed
+				// (boot facts); addFactIfNewLocked rejects the rest up front.
+				logging.Get(logging.CategoryKernel).Error("evaluate: evicting unconvertible fact %s: %v", f.Predicate, err)
+				dropped++
+				continue
 			}
+			kept = append(kept, f)
 			k.cachedAtoms = append(k.cachedAtoms, atom)
+		}
+		// Keep facts, atoms and the dedupe index in lockstep; leaving evicted
+		// facts in k.facts would make every later evaluate() see a length
+		// mismatch and redo this whole conversion.
+		if dropped > 0 {
+			k.facts = kept
+			k.rebuildFactIndexLocked()
 		}
 	}
 
@@ -493,13 +519,16 @@ func (k *RealKernel) diffEngineConfigLocked() manglepkg.Config {
 }
 
 // factsToAtomsLocked converts a fact slice to ast.Atoms using the kernel's
-// canonical encoding (types.Fact.ToAtom). Mirrors the conversion the full
-// eval path uses, so diff-evaluated atoms are bit-identical to atoms
-// inserted by evaluateFullLocked. Caller must hold k.mu.
+// canonical encoding. Mirrors the conversion the full eval path uses, so
+// diff-evaluated atoms are bit-identical to atoms inserted by
+// evaluateFullLocked — which means it must apply the same Decl-directed
+// numeric coercion. Skipping it here would both break that invariant and let
+// a float reach an int64-only comparison on the diff path, aborting the
+// fixpoint exactly as it did before. Caller must hold k.mu.
 func (k *RealKernel) factsToAtomsLocked(facts []Fact) ([]ast.Atom, error) {
 	out := make([]ast.Atom, 0, len(facts))
 	for _, f := range facts {
-		atom, err := f.ToAtom()
+		atom, err := k.factToAtomLocked(f)
 		if err != nil {
 			return nil, fmt.Errorf("ToAtom(%s): %w", f.Predicate, err)
 		}

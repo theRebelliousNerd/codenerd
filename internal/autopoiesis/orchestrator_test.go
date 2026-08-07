@@ -141,8 +141,10 @@ func TestRecordExecution_RefreshesLearningsContext(t *testing.T) {
 	for _, fact := range kernel.AssertedFacts {
 		if fact.Predicate == "tool_learning" {
 			foundLearningFact = true
-			if got, ok := fact.Args[3].(float64); !ok || got != 95 {
-				t.Fatalf("expected avg quality to be normalized to 95, got %#v", fact.Args[3])
+			// int64, not float64: a float in this /number slot reaches the
+			// store as ast.Float64 and aborts the entire kernel fixpoint.
+			if got, ok := fact.Args[3].(int64); !ok || got != 95 {
+				t.Fatalf("expected avg quality to be normalized to int64 95, got %#v", fact.Args[3])
 			}
 			break
 		}

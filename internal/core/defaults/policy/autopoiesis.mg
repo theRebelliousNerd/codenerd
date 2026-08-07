@@ -125,22 +125,25 @@ tool_lifecycle(ToolName, /ready) :-
 
 # SECTION 12C: TOOL LEARNING AND OPTIMIZATION
 
-# Tool quality tracking (quality on 0-100 scale)
+# Tool quality tracking (quality on 0-100 scale).
+# Thresholds must stay INTEGER: schemas_tools.mg declares AvgQuality /number,
+# and this fork's comparison builtins are int64-only — a float operand aborts
+# the whole kernel fixpoint, not just this rule.
 tool_quality_poor(ToolName) :-
     tool_learning(ToolName, Executions, _, AvgQuality),
     Executions >= 3,
-    AvgQuality < 50.0.
+    AvgQuality < 50.
 
 tool_quality_acceptable(ToolName) :-
     tool_learning(ToolName, Executions, _, AvgQuality),
     Executions >= 3,
-    AvgQuality >= 50.0,
-    AvgQuality < 80.0.
+    AvgQuality >= 50,
+    AvgQuality < 80.
 
 tool_quality_good(ToolName) :-
     tool_learning(ToolName, Executions, _, AvgQuality),
     Executions >= 3,
-    AvgQuality >= 80.0.
+    AvgQuality >= 80.
 
 # Trigger refinement for poor quality tools
 tool_needs_refinement(ToolName) :-

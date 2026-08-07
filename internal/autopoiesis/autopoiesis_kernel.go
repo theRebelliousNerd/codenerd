@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -221,18 +222,15 @@ func (o *Orchestrator) SyncLearningsToKernel() {
 	}
 }
 
-func normalizePercent(v float64) float64 {
-	switch {
-	case v <= 0:
-		return 0
-	case v >= 1:
-		if v > 100 {
-			return 100
-		}
-		return v
-	default:
-		return v * 100
-	}
+// normalizePercent scales a ratio onto the 0-100 integer scale that
+// schemas_tools.mg declares for tool_learning's SuccessRate/AvgQuality.
+//
+// It MUST return int64, not float64. Fact.ToAtom maps a Go float64 to
+// ast.Float64, and this Mangle fork's <, <=, >, >= accept int64 only — so a
+// float here aborts the entire kernel fixpoint (not just the tool_quality_*
+// rules that read it) the moment any tool_learning fact exists.
+func normalizePercent(v float64) int64 {
+	return types.PercentScale(v)
 }
 
 func normalizeCapabilityName(raw string) string {

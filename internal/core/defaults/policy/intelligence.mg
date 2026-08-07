@@ -28,11 +28,16 @@ intelligence_requires_modularization(Path) :-
     intelligence_file_topology(Path, _, _, Lines, _), Lines > 500,
     intelligence_churn_hotspot(Path, Churn, _), Churn > 5.
 
+# SCALE: every confidence/weight/coverage slot in schemas_intelligence.mg is
+# declared /number (int64) on a 0-100 scale. Do NOT write float thresholds here
+# (0.7, 0.5, ...): this Mangle fork's <,<=,>,>= accept int64 only, so a float
+# operand makes EvalStratifiedProgram return an error, which aborts the entire
+# kernel fixpoint — not just this rule. See TestCorpus_NoFloatLiteralInComparison.
 intelligence_requires_refactor(Path) :-
-    intelligence_file_action(Path, /refactor_first, _, Confidence), Confidence > 0.7.
+    intelligence_file_action(Path, /refactor_first, _, Confidence), Confidence > 70.
 
 intelligence_requires_refactor(Path) :-
-    intelligence_code_pattern(_, /antipattern, Path, Confidence), Confidence > 0.8.
+    intelligence_code_pattern(_, /antipattern, Path, Confidence), Confidence > 80.
 
 # -----------------------------------------------------------------------------
 # CHESTERTON'S FENCE (Understanding Before Modification)
@@ -70,10 +75,10 @@ intelligence_missing_tests(Path) :-
     !intelligence_has_coverage(Path).
 
 intelligence_missing_tests(Path) :-
-    intelligence_test_coverage(Path, Coverage), Coverage < 0.3.
+    intelligence_test_coverage(Path, Coverage), Coverage < 30.
 
 intelligence_well_tested(Path) :-
-    intelligence_test_coverage(Path, Coverage), Coverage > 0.7.
+    intelligence_test_coverage(Path, Coverage), Coverage > 70.
 
 # -----------------------------------------------------------------------------
 # CAMPAIGN SAFETY & BLOCKING
@@ -101,14 +106,14 @@ intelligence_advisory_approved(CampaignID) :-
     intelligence_shard_advice(CampaignID, /coder, /approve, Conf1, _),
     intelligence_shard_advice(CampaignID, /tester, Vote2, Conf2, _),
     Vote2 != /reject,
-    Conf1 > 0.5,
-    Conf2 > 0.5.
+    Conf1 > 50,
+    Conf2 > 50.
 
 intelligence_advisory_concerns(CampaignID, ShardName) :-
     intelligence_shard_advice(CampaignID, ShardName, /reject, _, _).
 
 intelligence_advisory_concerns(CampaignID, ShardName) :-
-    intelligence_shard_advice(CampaignID, ShardName, /conditional, Conf, _), Conf > 0.7.
+    intelligence_shard_advice(CampaignID, ShardName, /conditional, Conf, _), Conf > 70.
 
 
 # -----------------------------------------------------------------------------
@@ -117,7 +122,7 @@ intelligence_advisory_concerns(CampaignID, ShardName) :-
 
 intelligence_gap_resolved(CampaignID, Capability) :-
     intelligence_tool_gap(CampaignID, Capability, _, _, _),
-    intelligence_mcp_tool(_, _, Capability, Affinity), Affinity > 0.5.
+    intelligence_mcp_tool(_, _, Capability, Affinity), Affinity > 50.
 
 intelligence_gap_unresolved(CampaignID, Capability, Priority) :-
     intelligence_tool_gap(CampaignID, Capability, _, Priority, _),
@@ -266,14 +271,14 @@ intelligence_relevant_strategy(CampaignID, Concept, Content) :-
     active_campaign_id(CampaignID).
 
 intelligence_knowledge_path(Start, End, Relation) :-
-    intelligence_knowledge_link(Start, Relation, End, Weight), Weight > 0.5.
+    intelligence_knowledge_link(Start, Relation, End, Weight), Weight > 50.
 
 intelligence_knowledge_path(Start, End, /transitive) :-
     intelligence_knowledge_link(Start, _, Intermediate, W1),
     intelligence_knowledge_link(Intermediate, _, End, W2),
     Start != End,
-    W1 > 0.5,
-    W2 > 0.5.
+    W1 > 50,
+    W2 > 50.
 
 # =============================================================================
 # LEARNING PATTERN APPLICATION
@@ -281,11 +286,11 @@ intelligence_knowledge_path(Start, End, /transitive) :-
 
 intelligence_applicable_pattern(ShardType, Pattern) :-
     intelligence_learning_pattern(ShardType, Pattern, Confidence),
-    Confidence > 0.7.
+    Confidence > 70.
 
 intelligence_active_preference(Category, Signal) :-
     intelligence_preference(Category, Signal, Strength),
-    Strength > 0.6.
+    Strength > 60.
 
 # =============================================================================
 # REPORTING PREDICATES (Aggregation with correct syntax)

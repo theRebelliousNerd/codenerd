@@ -418,7 +418,7 @@ func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 	// Previously, failed facts were added to k.facts but skipped k.cachedAtoms,
 	// causing evaluate() to detect a length mismatch and attempt a full rebuild
 	// that could also fail, soft-bricking the kernel.
-	atom, err := f.ToAtom()
+	atom, err := k.factToAtomLocked(f)
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Error("addFactIfNewLocked: rejecting fact that fails ToAtom: %s - %v", f.Predicate, err)
 		return false
@@ -532,8 +532,12 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 		fact = internFact(fact)
 		k.facts[i] = fact
 		if k.cachedAtoms != nil && i < len(k.cachedAtoms) {
-			if atom, err := fact.ToAtom(); err == nil {
+			if atom, err := k.factToAtomLocked(fact); err == nil {
 				k.cachedAtoms[i] = atom
+			} else {
+				// Leaving the previous atom in place would desync it from
+				// k.facts[i]; make the next evaluate() reconvert and evict.
+				k.atomCacheStale = true
 			}
 		}
 		k.ensureFactIndexLocked()

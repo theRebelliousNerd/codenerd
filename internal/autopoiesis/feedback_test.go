@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -445,10 +446,19 @@ func TestLearningStore_GenerateMangleFacts(t *testing.T) {
 	foundLearning := false
 	foundScaledQuality := false
 	foundIssueAtom := false
+	// The numerics must be emitted as integer literals. schemas_tools.mg
+	// declares them /number, and a float literal in this generated source
+	// becomes an ast.Float64 that the fork's comparison builtins reject —
+	// aborting the whole kernel fixpoint. These facts persist to learned.mg,
+	// so a float would poison every later boot too.
+	floatLiteral := regexp.MustCompile(`\d+\.\d+`)
 	for _, fact := range facts {
 		if strings.Contains(fact, "tool_learning") {
 			foundLearning = true
-			if strings.Contains(fact, "80.00") {
+			if floatLiteral.MatchString(fact) {
+				t.Errorf("tool_learning emitted a float literal, which aborts the kernel fixpoint: %s", fact)
+			}
+			if strings.Contains(fact, ", 80,") || strings.HasSuffix(fact, ", 80).") {
 				foundScaledQuality = true
 			}
 		}

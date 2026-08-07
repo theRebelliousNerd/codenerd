@@ -554,7 +554,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	for _, lp := range intel.HistoricalPatterns {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_learning_pattern",
-			Args:      []any{lp.ShardType, lp.Predicate, lp.Confidence},
+			Args:      []any{lp.ShardType, lp.Predicate, types.PercentScale(lp.Confidence)},
 		})
 	}
 
@@ -578,7 +578,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	for _, tg := range intel.ToolGaps {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_tool_gap",
-			Args:      []any{campaignID, tg.Name, tg.Purpose, tg.Priority, tg.Confidence},
+			Args:      []any{campaignID, tg.Name, tg.Purpose, tg.Priority, types.PercentScale(tg.Confidence)},
 		})
 	}
 
@@ -586,7 +586,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	for _, mt := range intel.MCPToolsAvailable {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_mcp_tool",
-			Args:      []any{mt.ToolID, mt.ServerID, mt.Name, mt.Affinity},
+			Args:      []any{mt.ToolID, mt.ServerID, mt.Name, types.PercentScale(mt.Affinity)},
 		})
 	}
 
@@ -601,15 +601,19 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 		}
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_shard_advice",
-			Args:      []any{campaignID, sa.FromSpec, vote, sa.Confidence, sa.Advice},
+			Args:      []any{campaignID, sa.FromSpec, vote, types.PercentScale(sa.Confidence), sa.Advice},
 		})
 	}
 
-	// Test coverage data
+	// Test coverage data. Every numeric intelligence_* slot is declared /number
+	// (schemas_intelligence.mg) and the policy thresholds are integer percents
+	// (Coverage < 30). Passing the raw 0..1 float would reach the kernel as an
+	// ast.Float64, which this Mangle fork's comparison builtins reject — taking
+	// down the whole fixpoint, not just the rules that read this predicate.
 	for path, coverage := range intel.TestCoverage {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_test_coverage",
-			Args:      []any{path, coverage},
+			Args:      []any{path, types.PercentScale(coverage)},
 		})
 	}
 
@@ -624,7 +628,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 		}
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_code_pattern",
-			Args:      []any{cp.Name, cp.Type, files, cp.Confidence},
+			Args:      []any{cp.Name, cp.Type, files, types.PercentScale(cp.Confidence)},
 		})
 	}
 
@@ -636,7 +640,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	for _, ca := range intel.PreviousCampaigns {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_previous_campaign",
-			Args:      []any{ca.CampaignID, ca.Goal, ca.TaskCount, ca.SuccessRate},
+			Args:      []any{ca.CampaignID, ca.Goal, ca.TaskCount, types.PercentScale(ca.SuccessRate)},
 		})
 	}
 

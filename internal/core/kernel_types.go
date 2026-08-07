@@ -43,6 +43,7 @@ type RealKernel struct {
 	mu                sync.RWMutex
 	facts             []Fact
 	cachedAtoms       []ast.Atom          // OPTIMIZATION: Cached Mangle atoms to avoid O(N) ToAtom() conversions
+	atomCacheStale    bool                // cachedAtoms were built without Decls (pre-first-eval) or under an older policy; force one reconversion
 	factIndex         map[string]struct{} // Canonical fact set for deduplication
 	bootFacts         []Fact              // EDB facts extracted from hybrid .mg data sections
 	bootIntents       []HybridIntent      // Canonical intents extracted from hybrid .mg files
