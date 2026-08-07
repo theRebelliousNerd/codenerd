@@ -769,8 +769,65 @@ func initPerceptionLayer(bctx *bootContext) error {
 		}
 	}
 
-	bctx.transducer = perception.NewUnderstandingTransducer(bctx.llmClient)
+	// Intent classification runs on EVERY interactive turn before anything else
+	// can happen, so it must not sit on the main reasoning model. Measured on a
+	// two-tier stack (main=qwen3.8-max, worker=muse-spark-1.2): a single
+	// `nerd run` spent 91 seconds in classification alone.
+	//
+	// NewClassificationClientFromConfig has existed for this since the P2
+	// model-tiering work, and its own doc comment calls routing classification
+	// to the main model "a bug" — but it was only ever wired into shard
+	// registration, never into the transducer that does the classifying. This
+	// is that wiring.
+	bctx.transducer = perception.NewUnderstandingTransducer(classificationClientFor(bctx))
 	return nil
+}
+
+// classificationClientFor resolves the cheapest capable client for per-turn
+// intent classification, preferring, in order:
+//
+//  1. the worker slot's provider — the cheap tier by definition, with thinking
+//     disabled (a reasoning trace in front of a labelling task is pure latency);
+//  2. the main provider's fast tier (Haiku / Flash-Lite / gpt-4o-mini, or an
+//     explicit classification_model);
+//  3. the main client, when neither of the above can be built.
+func classificationClientFor(bctx *bootContext) perception.LLMClient {
+	if bctx.appCfg != nil {
+		if w := bctx.appCfg.GetWorkerLLMConfig(); w != nil {
+			if key := bctx.appCfg.APIKeyForProvider(w.Provider); key != "" {
+				workerCfg := &perception.ProviderConfig{
+					Engine:              "api",
+					Provider:            perception.Provider(strings.ToLower(strings.TrimSpace(w.Provider))),
+					APIKey:              key,
+					BaseURL:             w.Endpoint,
+					Model:               w.Model,
+					ClassificationModel: bctx.appCfg.ClassificationModel,
+					Gemini:              bctx.appCfg.GetGeminiConfig(),
+				}
+				if client, err := perception.NewClassificationClientFromConfig(workerCfg); err == nil && client != nil {
+					logging.Get(logging.CategoryPerception).Info(
+						"Classification on the worker tier: provider=%s", workerCfg.Provider)
+					// Reuse the classification client for shard registration too,
+					// so both paths agree on the cheap tier.
+					bctx.providerCfgForClassification = workerCfg
+					return core.NewScheduledLLMCall("classification", client)
+				}
+			}
+		}
+	}
+
+	if bctx.providerCfgForClassification != nil {
+		if client, err := perception.NewClassificationClientFromConfig(bctx.providerCfgForClassification); err == nil && client != nil {
+			logging.Get(logging.CategoryPerception).Info(
+				"Classification on the main provider's fast tier: provider=%s",
+				bctx.providerCfgForClassification.Provider)
+			return core.NewScheduledLLMCall("classification", client)
+		}
+	}
+
+	logging.Get(logging.CategoryPerception).Warn(
+		"No cheap classification tier available; intent classification runs on the main model (slow on every turn)")
+	return bctx.llmClient
 }
 
 func initStorageLayer(bctx *bootContext) error {
