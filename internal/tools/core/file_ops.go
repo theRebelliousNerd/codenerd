@@ -14,11 +14,15 @@ import (
 // ReadFileTool returns a tool for reading file contents.
 func ReadFileTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "read_file",
-		Description: "Read the contents of a file",
-		Category:    tools.CategoryCode,
-		Priority:    90,
-		Execute:     executeReadFile,
+		Name: "read_file",
+		Description: "Read the contents of a file. Each line is returned prefixed with its " +
+			"1-indexed line number and a tab, so you can cite file:line accurately. " +
+			"The prefix is NOT part of the file: strip it before passing any content to " +
+			"write_file, edit_file, edit_lines or any other tool that matches against the " +
+			"real text.",
+		Category: tools.CategoryCode,
+		Priority: 90,
+		Execute:  executeReadFile,
 		Schema: tools.ToolSchema{
 			Required: []string{"path"},
 			Properties: map[string]tools.Property{
@@ -95,10 +99,70 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 
 		// Convert to 0-indexed slice bounds
 		result = strings.Join(lines[startLine-1:endLine], "\n")
+	} else {
+		startLine = 1
 	}
+
+	result = numberLines(result, startLine)
 
 	logging.VirtualStore("read_file completed: %s (%d bytes)", path, len(result))
 	return result, nil
+}
+
+// numberLines prefixes each line with its 1-indexed number and a tab.
+//
+// Without this the model has to count lines by eye to cite anything, and it
+// counts badly. Measured on the architecture docs codeNERD wrote about its own
+// projectdoc package: the claims were correct but the citations drifted between
+// one and forty-two lines, and one pointed into an unrelated function. This repo
+// asks every architectural claim to carry a file:line, so an uncountable read
+// tool makes that convention unsatisfiable.
+//
+// startAt keeps ranged reads honest: slicing lines 200-240 and numbering them
+// from 1 would be worse than no numbers at all, because it looks authoritative.
+func numberLines(content string, startAt int) string {
+	if content == "" {
+		return content
+	}
+	if startAt < 1 {
+		startAt = 1
+	}
+
+	lines := strings.Split(content, "\n")
+	var b strings.Builder
+	// Rough preallocation: original text plus a short numeric prefix per line.
+	b.Grow(len(content) + len(lines)*8)
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "%d\t%s", startAt+i, line)
+	}
+	return b.String()
+}
+
+// stripLineNumberPrefixes removes the "N\t" prefix numberLines adds, but only
+// when every line has one. Returns ok=false otherwise, so a genuine edit to a
+// file of tab-separated numeric data is never silently rewritten.
+func stripLineNumberPrefixes(s string) (string, bool) {
+	if s == "" {
+		return s, false
+	}
+	lines := strings.Split(s, "\n")
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		tab := strings.IndexByte(line, '\t')
+		if tab <= 0 {
+			return s, false
+		}
+		for _, r := range line[:tab] {
+			if r < '0' || r > '9' {
+				return s, false
+			}
+		}
+		out[i] = line[tab+1:]
+	}
+	return strings.Join(out, "\n"), true
 }
 
 // coerceInt accepts an int or a JSON-decoded float64 and returns an int.
@@ -277,7 +341,19 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 	contentStr := string(content)
 
 	if !strings.Contains(contentStr, oldText) {
-		return "", fmt.Errorf("old_text not found in file")
+		// read_file now returns "N\tline" so the model can cite file:line. The
+		// tool description says to strip that prefix before editing, but a model
+		// that pastes what it read would otherwise get a bare "old_text not
+		// found" and burn the turn re-reading. Recover only when EVERY line
+		// carries the prefix, so this cannot mangle a genuine edit whose text
+		// happens to start with digits.
+		if stripped, ok := stripLineNumberPrefixes(oldText); ok && strings.Contains(contentStr, stripped) {
+			logging.VirtualStoreWarn("edit_file: old_text carried read_file line-number prefixes; "+
+				"stripped them and matched. path=%s", path)
+			oldText = stripped
+		} else {
+			return "", fmt.Errorf("old_text not found in file")
+		}
 	}
 
 	var newContent string
