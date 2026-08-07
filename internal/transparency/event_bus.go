@@ -87,6 +87,45 @@ func (b *GlassBoxEventBus) SetCategories(categories []GlassBoxCategory) {
 	b.mu.Unlock()
 }
 
+// Categories returns the current allow-list, sorted for stable display.
+// An empty result means no filter is set and every category is emitted.
+func (b *GlassBoxEventBus) Categories() []GlassBoxCategory {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if len(b.categories) == 0 {
+		return nil
+	}
+	// Iterate AllCategories rather than the map so the order is deterministic.
+	out := make([]GlassBoxCategory, 0, len(b.categories))
+	for _, c := range AllCategories() {
+		if b.categories[c] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// ToggleCategory flips one category in the allow-list and returns the resulting
+// list (nil meaning "no filter, everything emitted").
+//
+// Because an empty allow-list means "all allowed", toggling a category ON from
+// the unfiltered state restricts the stream to just that category, and toggling
+// the last one back OFF returns to the unfiltered stream. That is what a user
+// typing `/glassbox kernel` twice expects.
+func (b *GlassBoxEventBus) ToggleCategory(c GlassBoxCategory) []GlassBoxCategory {
+	b.mu.Lock()
+	if b.categories == nil {
+		b.categories = make(map[GlassBoxCategory]bool)
+	}
+	if b.categories[c] {
+		delete(b.categories, c)
+	} else {
+		b.categories[c] = true
+	}
+	b.mu.Unlock()
+	return b.Categories()
+}
+
 // Subscribe returns a channel that will receive events.
 // The channel is buffered large enough that full-stream debug mode can
 // keep up with concurrent shard/tool bursts without dropping events.

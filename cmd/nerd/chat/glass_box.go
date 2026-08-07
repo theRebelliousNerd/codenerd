@@ -221,9 +221,33 @@ func (m *Model) toggleGlassBoxCategory(category string) string {
 		return fmt.Sprintf("Invalid category: %s\n\nValid categories: %s", category, strings.Join(valid, ", "))
 	}
 
-	// For simplicity, we'll just report the toggle
-	// The actual filtering is done via SetCategories on the event bus
-	return fmt.Sprintf("Category '%s' filter toggled.\n\nUse `/glassbox status` to see current settings.", category)
+	// This used to validate the name and then return "Category '%s' filter
+	// toggled" without touching anything — the command reported a state change
+	// it had not made, which is worse than not having the command at all when
+	// you are using Glass Box to debug something.
+	if m.glassBoxEventBus == nil {
+		return "Glass Box event bus is not running, so category filters cannot be changed.\n\nEnable Glass Box first (`Alt+D` or `/glassbox`)."
+	}
+
+	active := m.glassBoxEventBus.ToggleCategory(transparency.GlassBoxCategory(category))
+	if len(active) == 0 {
+		return fmt.Sprintf("Category '%s' filter removed. No filter is active, so **all** categories stream.", category)
+	}
+
+	names := make([]string, 0, len(active))
+	on := false
+	for _, c := range active {
+		names = append(names, string(c))
+		if string(c) == category {
+			on = true
+		}
+	}
+	state := "OFF"
+	if on {
+		state = "ON"
+	}
+	return fmt.Sprintf("Category '%s' turned %s.\n\nStreaming only: %s\n\n(Toggle every category off to return to the full stream.)",
+		category, state, strings.Join(names, ", "))
 }
 
 // glassBoxStatus returns current Glass Box settings.
@@ -257,12 +281,28 @@ func (m *Model) glassBoxStatus() string {
 	sb.WriteString("- Scrollback mode: **FULL STREAM** (all events → chat)\n")
 
 	sb.WriteString("\n### Categories\n")
+	active := map[transparency.GlassBoxCategory]bool{}
+	if m.glassBoxEventBus != nil {
+		for _, c := range m.glassBoxEventBus.Categories() {
+			active[c] = true
+		}
+	}
+	filtered := len(active) > 0
 	for _, c := range transparency.AllCategories() {
-		sb.WriteString(fmt.Sprintf("- `%s`: %s\n", c, categoryDescription(c)))
+		mark := "streaming"
+		if filtered && !active[c] {
+			mark = "filtered out"
+		}
+		sb.WriteString(fmt.Sprintf("- `%s` (%s): %s\n", c, mark, categoryDescription(c)))
+	}
+	if !filtered {
+		sb.WriteString("\nNo category filter is active — every category streams.\n")
 	}
 
 	sb.WriteString("\n### Keybindings\n")
-	sb.WriteString("- `Alt+G`: Toggle Glass Box on/off\n")
+	// Alt+D is the toggle; Alt+G cycles pane modes (model_key_handler.go:358/429).
+	// This line said Alt+G for years and sent people to the wrong key.
+	sb.WriteString("- `Alt+D`: Toggle Glass Box on/off\n")
 	sb.WriteString("- `/glassbox verbose`: Toggle detailed output + immediate emit\n")
 	sb.WriteString("- `/glassbox <category>`: Toggle category filter\n")
 
