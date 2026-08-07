@@ -15,6 +15,7 @@ import (
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/projectdoc"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 
@@ -40,6 +41,13 @@ type Spawner struct {
 	// a reasoning-intensive verb resolves the same tier the session would.
 	// Nil keeps subagents entirely on llmClient.
 	plannerClient types.LLMClient
+
+	// projectDoc is the workspace's parsed nerd.md. Nil when absent or invalid,
+	// which preserves the pre-fix behaviour: subagents run without project
+	// instructions. When set, every spawned subagent receives it via
+	// Executor.SetProjectDoc so withProjectInstructions can append the rendered
+	// prose to the compiled system prompt.
+	projectDoc *projectdoc.Document
 
 	// Active subagents
 	subagents map[string]*SubAgent
@@ -114,6 +122,24 @@ func (s *Spawner) currentPlannerClient() types.LLMClient {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.plannerClient
+}
+
+// SetProjectDoc attaches the workspace's parsed nerd.md so every subagent
+// spawned from here on inherits the parent Executor's project instructions.
+// Mirrors Executor.SetProjectDoc. A nil doc means "no nerd.md" and is a no-op
+// for spawned agents, preserving the existing behaviour when the file is absent.
+// Already-spawned subagents keep the doc they were built with.
+func (s *Spawner) SetProjectDoc(doc *projectdoc.Document) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.projectDoc = doc
+}
+
+// currentProjectDoc reads the project doc slot under the read lock.
+func (s *Spawner) currentProjectDoc() *projectdoc.Document {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.projectDoc
 }
 
 // SpawnRequest describes the parameters for spawning a subagent.
@@ -196,6 +222,12 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 		s.transducer,
 	)
 	agent.SetPlannerClient(s.currentPlannerClient())
+	// Forward the parent's nerd.md project instructions. Executor.SetProjectDoc
+	// is nil-safe and withProjectInstructions is a no-op when doc is nil, so
+	// this preserves the existing behaviour when no nerd.md is present.
+	if doc := s.currentProjectDoc(); doc != nil {
+		agent.executor.SetProjectDoc(doc)
+	}
 
 	// Phase 5: Register subagent (lock held briefly)
 	s.mu.Lock()
@@ -272,6 +304,12 @@ func (s *Spawner) SpawnSpecialist(ctx context.Context, name string, task string)
 		s.transducer,
 	)
 	agent.SetPlannerClient(s.plannerClient)
+	// Forward nerd.md to specialists as well. s.mu is already held for writing,
+	// so read the slot directly rather than via currentProjectDoc() to avoid
+	// a redundant RLock (and to mirror the plannerClient pattern above).
+	if s.projectDoc != nil {
+		agent.executor.SetProjectDoc(s.projectDoc)
+	}
 
 	s.subagents[agent.GetID()] = agent
 	go agent.Run(ctx, task)

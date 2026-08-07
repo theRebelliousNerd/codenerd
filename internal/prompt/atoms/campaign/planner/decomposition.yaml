@@ -69,7 +69,7 @@
         {
           "name": "Phase Name",
           "order": 0,
-          "category": "/scaffold|/domain_core|/data_layer|/service|/transport|/integration",
+          "category": "/research|/scaffold|/domain_core|/data_layer|/service|/transport|/integration|/test|/ops",
           "description": "What this phase accomplishes",
           "objective_type": "/create|/modify|/test|/research|/validate|/integrate|/review",
           "verification_method": "/tests_pass|/builds|/manual_review|/shard_validation|/none",

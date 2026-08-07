@@ -3,9 +3,16 @@ package campaign
 import (
 	"path/filepath"
 	"strings"
+
+	"codenerd/internal/logging"
 )
 
 var (
+	// allowedPhaseCategories must stay in lockstep with build_phase_type/2 in
+	// internal/core/defaults/build_topology.mg. A category permitted here but absent
+	// there derives no phase_precedence, so has_phase_category/1 is false and the
+	// kernel reports "missing_category" against a perfectly valid plan.
+	// TestPhaseCategoryTablesMatchKernel pins the two together.
 	allowedPhaseCategories = map[string]struct{}{
 		"/scaffold":    {},
 		"/domain_core": {},
@@ -17,6 +24,43 @@ var (
 		"/test":        {},
 		"/ops":         {},
 	}
+
+	// phaseCategorySynonyms mirrors phase_synonym/2 in build_topology.mg. Those facts
+	// exist to make LLM classification resilient, but they can never fire on the
+	// campaign path: normalization runs in Go before any fact reaches the kernel, so an
+	// alias like "testing" was collapsed to the /service fallback -- a mid-layer -- and
+	// the phase silently sorted into the wrong build stratum. Resolving aliases here is
+	// what makes the kernel's table reachable.
+	phaseCategorySynonyms = map[string]string{
+		"planning":  "/research",
+		"discovery": "/research",
+		"analysis":  "/research",
+		// assault_campaign.go emits /analysis, /review and /remediation directly; without
+		// these three the assault plan's four phases collapse onto one layer.
+		"implementation": "/service",
+		"remediation":    "/service",
+		"review":         "/test",
+		"setup":          "/scaffold",
+		"config":         "/scaffold",
+		"bootstrap":      "/scaffold",
+		"types":          "/domain_core",
+		"interfaces":     "/domain_core",
+		"entities":       "/domain_core",
+		"database":       "/data_layer",
+		"storage":        "/data_layer",
+		"logic":          "/service",
+		"processor":      "/service",
+		"api":            "/transport",
+		"frontend":       "/transport",
+		"wiring":         "/integration",
+		"main":           "/integration",
+		"testing":        "/test",
+		"qa":             "/test",
+		"verification":   "/test",
+		"deploy":         "/ops",
+		"release":        "/ops",
+		"monitoring":     "/ops",
+	}
 	allowedComplexities = map[string]struct{}{
 		"/low":      {},
 		"/medium":   {},
@@ -26,7 +70,25 @@ var (
 )
 
 func normalizePhaseCategory(category string) string {
-	return normalizeEnum(category, allowedPhaseCategories, "/service")
+	normalized := strings.TrimSpace(strings.ToLower(category))
+	if normalized == "" {
+		return "/service"
+	}
+	if canonical, ok := phaseCategorySynonyms[strings.TrimPrefix(normalized, "/")]; ok {
+		return canonical
+	}
+	if !strings.HasPrefix(normalized, "/") {
+		normalized = "/" + normalized
+	}
+	if _, ok := allowedPhaseCategories[normalized]; ok {
+		return normalized
+	}
+	// Falling back is not free: /service is a mid-layer, so an unrecognized category
+	// silently sorts the phase between data_layer and transport. Say so rather than
+	// letting the plan's build topology be wrong in silence.
+	logging.CampaignWarn("phase category %q is neither a canonical build layer nor a known alias; "+
+		"falling back to /service, so build-topology ordering for this phase is a guess", category)
+	return "/service"
 }
 
 func normalizeComplexity(value string) string {

@@ -3,7 +3,9 @@
   subcategory: "extractor"
   priority: 85
   is_mandatory: true
-  shard_types: ["extractor", "researcher"]
+  # "researcher" removed: this atom asserts "You are an extractor, not an author",
+  # a competing identity for a shard that has its own.
+  shard_types: ["extractor"]
   campaign_phases: ["requirements", "northstar"]
   depends_on: ["campaign/extractor/methodology"]
   description: "Anti-patterns and hallucination prevention for requirements extraction"

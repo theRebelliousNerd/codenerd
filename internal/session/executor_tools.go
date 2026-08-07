@@ -389,10 +389,34 @@ func isWriteOrientedIntent(verb string) bool {
 }
 
 // isWriteMutationTool reports tools that land durable file/workspace changes.
+//
+// This list drives two things at once, so a missing entry fails in two ways:
+// checkHollowSuccess reports a successful edit as a failure, and
+// projectForbidsWrite lets a nerd.md-protected path be written by a tool it
+// does not recognize. The second is a hole in a safety gate, not a cosmetic bug.
+//
+// It must therefore cover every durable-write ActionType in
+// internal/core/virtual_store_types.go. It previously did not: edit_lines,
+// insert_lines and delete_lines (virtual_store_types.go:57-59, exposed as tools
+// at prompt/config_factory.go:195-197 and routed RequiresSafe at
+// shards/system/router.go:967-969) were all absent, while five names that are
+// not registered anywhere — apply_patch, str_replace, create_file,
+// replace_in_file, multi_edit — were present. The list had been written from
+// generic LLM tool vocabulary rather than from this codebase's registry.
+// Observed live: codeNERD landed a correct one-line insert via insert_lines and
+// the run failed with "write-oriented intent /fix completed without
+// write_file/edit_file (tool_calls=16)".
+//
+// TestIsWriteMutationTool_CoversEveryDurableWriteAction pins it to the registry.
 func isWriteMutationTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "write_file", "edit_file", "delete_file", "apply_patch", "str_replace",
-		"create_file", "replace_in_file", "multi_edit":
+	case // Registered VirtualStore write actions.
+		"write_file", "edit_file", "delete_file",
+		"edit_lines", "insert_lines", "delete_lines",
+		"edit_element", "fs_write",
+		// Defensive aliases: not registered here, but common names a model may
+		// emit. Harmless to accept; keeps the gate closed if one is ever added.
+		"apply_patch", "str_replace", "create_file", "replace_in_file", "multi_edit":
 		return true
 	default:
 		return false

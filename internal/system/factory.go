@@ -1377,6 +1377,7 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.transducer,
 		session.DefaultSpawnerConfig(),
 	)
+	bctx.sessionSpawner.SetProjectDoc(bctx.projectDoc)
 
 	// Reasoning-intensive intents (/review, /audit, /campaign, ...) escape the
 	// worker tier onto the planner client. The kernel decides which those are

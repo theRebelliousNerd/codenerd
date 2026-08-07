@@ -1,3 +1,18 @@
+# HISTORY -- deliberately a YAML comment, not part of `content`, so the model
+# never sees the shape it must not produce. Negative examples get copied.
+#
+# Section VII used to show a hybrid envelope: "control_packet" alongside
+# "title"/"confidence"/"phases", with the array written as a literal ellipsis
+# ("phases": [...]). Models reproduced it faithfully -- envelope emitted, phases
+# elided, exactly as shown -- and three consecutive live campaigns decomposed to
+# nothing and silently ran a generic three-task placeholder instead.
+#
+# It also contradicted the OUTPUT CONTRACT section of
+# campaign/planner/decomposition, which compiles into this same prompt: two
+# mandatory output shapes in one prompt, and the model obeyed the wrong one.
+# This atom declares category "campaign", so filterAtomsForStructuredOutput does
+# not drop it -- the content itself has to be correct.
+# Guarded by prompt.TestEmbeddedCorpus_NoEnvelopeAtomsReachStructuredOutputShards.
 - id: "campaign/planner/validation"
   category: "campaign"
   subcategory: "planner"
@@ -37,67 +52,48 @@
     - MITIGATION: Authentication, payments, external APIs = /high minimum
 
     // =============================================================================
-    // VII. OUTPUT PROTOCOL (PIGGYBACK ENVELOPE)
+    // VII. OUTPUT PROTOCOL
     // =============================================================================
 
-    {
-      "control_packet": {
-        "intent_classification": {
-          "category": "/mutation",
-          "verb": "/plan",
-          "target": "campaign",
-          "confidence": 0.90
-        },
-        "mangle_updates": [
-          "campaign_created(\"Auth System\", 4)",
-          "phase_planned(/domain_core, 1)",
-          "phase_planned(/service, 2)"
-        ],
-        "reasoning_trace": "1. Analyzed goal: 'Build authentication'. 2. Identified components: User struct, Repository, Service, Handler. 3. Mapped to phases: domain_core->data_layer->service->transport. 4. Created 12 atomic tasks across 4 phases."
-      },
-      "surface_response": "Created campaign 'Auth System' with 4 phases and 12 tasks.",
-      "title": "Campaign Title",
-      "confidence": 0.90,
-      "phases": [...]
-    }
+    Your entire reply is ONE JSON object matching the RawPlan schema in the
+    OUTPUT CONTRACT section.
+
+    Do NOT wrap it in a "control_packet" envelope. Do NOT emit "tool_requests",
+    "knowledge_requests", "surface_response", "reasoning_trace", or
+    "self_correction". You are not holding a conversation; your reply is parsed
+    directly into a plan, and any key outside the schema is discarded.
+
+    "phases" MUST contain at least one fully populated phase object. A plan with
+    an empty or omitted "phases" array is thrown away and replaced with a generic
+    three-task placeholder that cannot satisfy the goal.
+
+    Every phase needs a real name, an order, a category drawn from the build
+    layers, and at least one task. Write the array out in full.
 
     // =============================================================================
-    // IX. REASONING TRACE REQUIREMENTS
+    // IX. PLANNING RIGOR (INTERNAL -- DO NOT EMIT)
     // =============================================================================
 
-    ## MINIMUM LENGTH: 50 words
+    Before you write the JSON, satisfy yourself on all four points. These are
+    thinking requirements, not output fields -- none of them appear in the reply.
 
-    ## REQUIRED ELEMENTS
-    1. What components were identified from the goal?
-    2. What phase ordering was determined?
-    3. How were tasks atomized?
-    4. What complexity estimates were assigned?
-
-    ## CRITICAL: THOUGHT-FIRST ORDERING
-
-    The control_packet MUST be fully formed BEFORE you finalize the plan.
-    Complete your analysis in the reasoning_trace before committing to phase assignments.
+    1. What components does the goal actually name?
+    2. What phase ordering does the build topology require?
+    3. Is every task atomic enough to finish in one shard turn?
+    4. Is each complexity estimate conservative?
 
     // =============================================================================
-    // X. SELF-CORRECTION PROTOCOL
+    // X. SELF-CORRECTION (INTERNAL -- DO NOT EMIT)
     // =============================================================================
 
-    If you detect issues in your plan, you MUST self-correct:
+    If you detect any of these while drafting, revise the plan before replying.
+    Emit only the corrected plan; do not describe the correction.
 
     ## SELF-CORRECTION TRIGGERS
     - Tasks are too large -> Atomize further
     - Dependencies are circular -> Reorder phases
     - Focus patterns are too broad -> Narrow to relevant files
     - Complexity underestimated -> Reassess with conservative estimates
-
-    ## SELF-CORRECTION FORMAT
-    {
-      "self_correction": {
-        "original_plan": "Single phase with 20 tasks",
-        "final_plan": "4 phases with 5 tasks each",
-        "reason": "Original plan violated atomization principle; broke into layered phases"
-      }
-    }
 
     // =============================================================================
     // XI. EXECUTION CONTEXT

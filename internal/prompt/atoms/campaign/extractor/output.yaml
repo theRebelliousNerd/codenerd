@@ -3,32 +3,28 @@
   subcategory: "extractor"
   priority: 95
   is_mandatory: true
-  shard_types: ["extractor", "researcher"]
+  # "researcher" removed: it is a conversational shard that needs the Piggyback
+  # envelope to request tools, and this atom forbids the envelope. Handing both
+  # contracts to one shard produced 0-byte research results in live campaigns.
+  shard_types: ["extractor"]
   campaign_phases: ["requirements", "northstar"]
   depends_on: ["campaign/extractor/identity", "campaign/extractor/methodology"]
   description: "Piggyback Protocol output format, thought-first ordering, and reasoning trace requirements for requirements extraction"
   content: |
     // =============================================================================
-    // OUTPUT PROTOCOL (PIGGYBACK ENVELOPE)
+    // OUTPUT PROTOCOL
     // =============================================================================
 
-    You must ALWAYS output a JSON object with this exact structure. No exceptions.
+    Your entire reply is ONE JSON object with a single key, "requirements".
+
+    Do NOT wrap it in a "control_packet" envelope. Do NOT emit "surface_response",
+    "reasoning_trace", "mangle_updates", or "tool_requests". Your reply is parsed
+    directly by Go; any key outside this shape is discarded.
+
+    "requirements" MUST be a populated array. An empty array means the extraction
+    found nothing and the campaign proceeds with no requirements at all.
 
     {
-      "control_packet": {
-        "intent_classification": {
-          "category": "/query",
-          "verb": "/extract",
-          "target": "document_chunk",
-          "confidence": 0.90
-        },
-        "mangle_updates": [
-          "requirement_extracted(\"REQ-001\", /functional, /high)",
-          "requirement_extracted(\"REQ-002\", /constraint, /critical)"
-        ],
-        "reasoning_trace": "1. Scanned document for normative keywords. 2. Found 'MUST' statements at paragraphs 2, 5. 3. Atomized compound requirements. 4. Filtered noise (marketing text in paragraph 1). 5. Extracted 2 requirements with high confidence."
-      },
-      "surface_response": "Extracted 2 requirements from document chunk.",
       "requirements": [
         {
           "id": "REQ-001",
@@ -40,32 +36,24 @@
       ]
     }
 
-    ## CRITICAL: THOUGHT-FIRST ORDERING
+    ## CRITICAL: THINK BEFORE YOU ANSWER
 
-    The control_packet MUST be fully formed BEFORE you finalize the requirements list.
-    Complete your analysis in the reasoning_trace before committing to extractions.
+    Complete the scan-and-atomize analysis before writing the array. That thinking
+    does not appear in the reply -- there is no reasoning_trace field and no
+    envelope to carry one.
 
     // =============================================================================
-    // REASONING TRACE REQUIREMENTS
+    // EXTRACTION RIGOR (INTERNAL -- DO NOT EMIT)
     // =============================================================================
 
-    Your reasoning_trace must demonstrate systematic extraction:
+    Work through all five stages before writing the array. None of them appear in
+    the reply -- they are how you arrive at it, not part of it.
 
-    ## MINIMUM LENGTH: 50 words
-
-    ## REQUIRED ELEMENTS
-    1. What normative keywords were found?
-    2. What noise was filtered out?
-    3. What atomization was performed?
-    4. What deduplication was applied?
-
-    ## REASONING TRACE FORMAT
-    The reasoning_trace should follow this structure:
-    1. **Scan Phase**: "Scanned document for normative keywords (MUST, SHALL, SHOULD). Found [N] instances."
-    2. **Filter Phase**: "Filtered out [N] lines of noise: [description of noise]."
-    3. **Atomization Phase**: "Atomized [N] compound sentences into [M] atomic requirements."
-    4. **Deduplication Phase**: "Deduplicated [N] redundant requirements."
-    5. **Confidence Phase**: "Extracted [N] requirements with [high/medium/low] confidence."
+    1. **Scan**: find normative keywords (MUST, SHALL, SHOULD).
+    2. **Filter**: discard non-normative prose (marketing, narrative, examples).
+    3. **Atomize**: split compound sentences into single-obligation requirements.
+    4. **Deduplicate**: collapse restatements of the same obligation.
+    5. **Assess**: drop anything you cannot source to the document.
 
     // =============================================================================
     // EXECUTION CONTEXT

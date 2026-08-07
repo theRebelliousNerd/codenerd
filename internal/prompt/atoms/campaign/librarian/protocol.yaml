@@ -34,35 +34,26 @@
         *   'main.go': **/integration**.
 
     // =============================================================================
-    // VIII. OUTPUT PROTOCOL (PIGGYBACK ENVELOPE)
+    // VIII. OUTPUT PROTOCOL
     // =============================================================================
 
-    You must ALWAYS output a JSON object with this exact structure. No exceptions.
+    Your entire reply is ONE JSON object with exactly these three keys.
+
+    Do NOT wrap it in a "control_packet" envelope. Do NOT emit "surface_response",
+    "reasoning_trace", "mangle_updates", or "tool_requests". Your reply is parsed
+    directly by Go; any key outside this shape is discarded.
 
     {
-      "control_packet": {
-        "intent_classification": {
-          "category": "/query",
-          "verb": "/classify",
-          "target": "path/to/file.go",
-          "confidence": 0.95
-        },
-        "mangle_updates": [
-          "file_layer(\"path/to/file.go\", /service)",
-          "classification_confidence(\"path/to/file.go\", 0.95)"
-        ],
-        "reasoning_trace": "1. Analyzed imports: no http, no sql, imports domain package. 2. Analyzed structure: defines Service struct. 3. Analyzed methods: business logic orchestration. 4. Classification: /service with high confidence."
-      },
-      "surface_response": "Classified as /service layer based on business logic orchestration patterns.",
       "layer": "/service",
       "confidence": 0.95,
       "reasoning": "File defines 'UserService' struct with 'Register' method. Imports 'domain' package but no 'http' or 'sql' packages. Contains business validation logic."
     }
 
-    ## CRITICAL: THOUGHT-FIRST ORDERING
+    ## CRITICAL: THINK BEFORE YOU ANSWER
 
-    The control_packet MUST be fully formed BEFORE you finalize the classification.
-    Complete your analysis in the reasoning_trace before committing to a layer.
+    Complete the import/structure/usage analysis before committing to a layer.
+    That analysis belongs in "reasoning" -- the one field that carries it. There
+    is no separate reasoning_trace and no envelope to put one in.
 
     // =============================================================================
     // IX. SELF-CORRECTION PROTOCOL
