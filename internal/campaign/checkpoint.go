@@ -204,8 +204,12 @@ func (cr *CheckpointRunner) runManualReviewCheckpoint(ctx context.Context, phase
 // runShardValidationCheckpoint spawns a reviewer shard to validate the phase.
 func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
 	if cr.taskExecutor == nil {
-		logging.CampaignDebug("runShardValidationCheckpoint: no task executor, skipping")
-		return true, "Shard validation skipped (no task executor)", nil
+		// Warn, not Debug: this returns a PASS for a verification that never
+		// ran, and Debug is discarded at the default log level, so the false
+		// green was previously invisible. If this fires, the orchestrator was
+		// constructed without a TaskExecutor — see OrchestratorConfig.
+		logging.CampaignWarn("runShardValidationCheckpoint: no task executor for phase=%s; reporting PASS without verifying", phase.Name)
+		return true, "Shard validation SKIPPED — no task executor wired; this phase was not actually verified", nil
 	}
 
 	logging.Campaign("runShardValidationCheckpoint: spawning reviewer shard for phase=%s", phase.Name)
@@ -256,8 +260,12 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 // This is best-effort: if Nemesis isn't available, we skip rather than fail hard.
 func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
 	if cr.taskExecutor == nil {
-		logging.CampaignDebug("runNemesisGauntletCheckpoint: no task executor, skipping")
-		return true, "Nemesis task executor unavailable, skipping adversarial checkpoint", nil
+		// See runShardValidationCheckpoint: this passes a check that never ran,
+		// and Debug is dropped at the default log level. An assault campaign
+		// exists to be adversarially verified, so a silent skip here is the
+		// most misleading outcome the orchestrator can produce.
+		logging.CampaignWarn("runNemesisGauntletCheckpoint: no task executor; reporting PASS without running the adversarial gauntlet")
+		return true, "Nemesis gauntlet SKIPPED — no task executor wired; no adversarial verification was performed", nil
 	}
 
 	phaseName := ""
