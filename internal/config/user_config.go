@@ -165,6 +165,13 @@ type UserConfig struct {
 	// and adaptive concurrency on provider rate limits. See APISchedulerPolicy.
 	APIScheduler *APISchedulerPolicy `json:"api_scheduler,omitempty"`
 
+	// LLMTimeouts overrides the per-call, per-operation, and per-campaign
+	// timeouts. Absent means the "default" profile, whose values are documented
+	// as calibrated for Z.AI/GLM-4.7 — generous for that vendor and usually far
+	// too generous for anything else. Set `{"profile": "fast"}` or override
+	// individual durations. See LLMTimeoutsConfig.
+	LLMTimeouts *LLMTimeoutsConfig `json:"llm_timeouts,omitempty"`
+
 	// World model scanning/AST parsing configuration
 	World *WorldConfig `json:"world,omitempty"`
 
@@ -497,6 +504,24 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	// log-free to keep the leaf package dependency-free).
 	logging.Get(logging.CategoryBoot).Info("%s", features.Summary())
 
+	// Install the timeout profile into the process-wide singleton the ~25
+	// GetLLMTimeouts() call sites read. Same install-on-load pattern as
+	// features above, and for the same reason: those call sites live in
+	// packages that cannot import internal/config's UserConfig.
+	timeouts, terr := cfg.LLMTimeouts.Resolve()
+	if terr != nil {
+		// A malformed timeout is a config error the user can fix, and running
+		// on a silently-wrong 30-minute default is the failure this replaced.
+		return nil, fmt.Errorf("failed to parse user config: %w", terr)
+	}
+	SetLLMTimeouts(timeouts)
+	if cfg.LLMTimeouts != nil {
+		logging.Get(logging.CategoryBoot).Info(
+			"LLM timeouts: profile=%q ooda=%s shard=%s per_call=%s max_retries=%d",
+			cfg.LLMTimeouts.Profile, timeouts.OODALoopTimeout, timeouts.ShardExecutionTimeout,
+			timeouts.PerCallTimeout, timeouts.MaxRetries)
+	}
+
 	return cfg, nil
 }
 
@@ -538,6 +563,13 @@ type SecondaryLLMConfig struct {
 	// or localhost; for OpenAI-compatible vendors it overrides the base URL so
 	// two slots can sit behind different gateways.
 	Endpoint string `json:"endpoint,omitempty"`
+	// MaxOutputTokens caps the completion length for this slot. Zero means the
+	// client's own default (16384 for OpenAI-compatible vendors), which is well
+	// below what large models can emit — a planner asked for a long plan was
+	// simply truncated, with no way to raise the ceiling from config. Slots
+	// differ in what they need: a bulk worker wants a small budget for cost, a
+	// planner wants a large one, so this belongs per-slot rather than global.
+	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
 }
 
 // WorkerLLMConfig selects a secondary LLM for non-main work (shards, spawn,

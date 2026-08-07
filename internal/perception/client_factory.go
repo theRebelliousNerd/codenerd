@@ -40,6 +40,11 @@ func providerKeyFieldName(provider string) string {
 }
 
 // ProviderConfig holds the resolved provider and API key.
+// classificationMaxOutputTokens bounds the perception transducer's reply.
+// Classification returns a short intent label, so this is deliberately small;
+// it is raised to the vendor's reasoning floor where one exists.
+const classificationMaxOutputTokens = 2048
+
 type ProviderConfig struct {
 	Provider       Provider
 	APIKey         string
@@ -69,6 +74,11 @@ type ProviderConfig struct {
 
 	// Worker is optional secondary LLM (e.g. ollama gemma for shards).
 	Worker *config.WorkerLLMConfig
+
+	// MaxOutputTokens caps completion length for OpenAI-compatible vendors.
+	// Zero leaves the client default. Carried here so a per-slot budget from
+	// SecondaryLLMConfig survives the trip through the shared factory.
+	MaxOutputTokens int
 }
 
 // LoadConfigJSON loads provider configuration from a JSON config file.
@@ -314,7 +324,17 @@ func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 		// front of every prompt is pure latency for a labelling task.
 		compatCfg := DefaultOpenAICompatConfig(cfg.Provider, cfg.APIKey)
 		compatCfg.EnableThinking = false
-		compatCfg.MaxOutputTokens = 2048
+		// A classification reply is a short label, so a small ceiling is right —
+		// and a ceiling is a cap, not a spend, so keeping it tight costs nothing
+		// either way. It must still clear the vendor's reasoning floor: below
+		// that, a reasoning model burns the whole budget thinking and returns an
+		// EMPTY body with finish_reason "stop". A flat 2048 sat under Meta's
+		// 4096 floor, so every boot logged a clamp warning twice and the value
+		// never applied as written.
+		compatCfg.MaxOutputTokens = classificationMaxOutputTokens
+		if floor := minCompletionTokensFor(cfg.Provider); floor > compatCfg.MaxOutputTokens {
+			compatCfg.MaxOutputTokens = floor
+		}
 		if model != "" {
 			compatCfg.Model = model
 		}
@@ -492,6 +512,9 @@ func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 		if config.BaseURL != "" {
 			compatCfg.BaseURL = config.BaseURL
 		}
+		if config.MaxOutputTokens > 0 {
+			compatCfg.MaxOutputTokens = config.MaxOutputTokens
+		}
 		return NewOpenAICompatClient(compatCfg)
 
 	case ProviderOllama:
@@ -583,6 +606,10 @@ func newSecondarySlotClient(userCfg *config.UserConfig, slot string, w *config.S
 	if w.Endpoint != "" {
 		pc.BaseURL = w.Endpoint
 	}
+	// A per-slot completion ceiling: the planner usually wants a much larger
+	// budget than a bulk worker, and before this the whole tier was pinned to
+	// the client's hardcoded default.
+	pc.MaxOutputTokens = w.MaxOutputTokens
 
 	client, err := NewClientFromConfig(pc)
 	if err != nil {
