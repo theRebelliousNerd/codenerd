@@ -27,6 +27,15 @@ import "testing"
 // TODO: State Conflicts: Concurrency with runHeartbeatLoop. If context is cancelled, Run() saves campaign while holding lock. If runHeartbeatLoop also triggers autosave concurrently, we need to ensure the writes are atomic to prevent campaign file corruption.
 // TODO: State Conflicts: State Desynchronization in runHeartbeatLoop. If Mangle transaction commit fails due to SQLite lock, the heartbeat isn't recorded but the process continues.
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Orchestrator.Run and runHeartbeatLoop safely handle an initialized campaign with an empty ID ("") without polluting the root filesystem during autosave.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify runHeartbeatLoop safely handles o.config.HeartbeatEvery or AutosaveEvery being 0 or negative without panicking time.NewTicker.
+// TODO: TEST_GAP: [Type Coercion] Verify campaign_heartbeat assertions use correct Atom vs String types matching the Mangle schema to prevent silent join failures.
+// TODO: TEST_GAP: [Type Coercion] Verify time.Now().Unix() int64 values do not overflow or lose precision when asserted into Mangle's type system.
+// TODO: TEST_GAP: [User Request Extremes] Verify performance of o.saveCampaign() during autosave with 1,000,000 tasks to ensure it does not hold o.mu.Lock() long enough to block the run loop or API queries.
+// TODO: TEST_GAP: [User Request Extremes] Verify context pager and memory stability when rapidly cycling through 100,000 empty phases.
+// TODO: TEST_GAP: [State Conflicts] Verify that concurrent ctx.Done() and autosaveTicker firing do not corrupt the campaign.json file if saveCampaign lacks atomic rename guarantees.
+// TODO: TEST_GAP: [State Conflicts] Verify state desynchronization handling when tx.Commit() in runHeartbeatLoop fails (e.g. SQLite database is locked), as the error is currently ignored.
+
 func TestOrchestratorExecution_Placeholder(t *testing.T) {
 	// Satisfy the build
 }
