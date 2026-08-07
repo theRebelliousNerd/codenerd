@@ -119,3 +119,19 @@ func TestIsSchemaRejection(t *testing.T) {
 		}
 	}
 }
+
+// A transient 5xx is the vendor failing, not the request being wrong. Observed
+// live: one Meta 500 killed a turn that would have succeeded on retry.
+func TestIsRetryableServerStatus(t *testing.T) {
+	for _, code := range []int{500, 502, 503, 504, 529} {
+		if !isRetryableServerStatus(code) {
+			t.Errorf("status %d should be retried", code)
+		}
+	}
+	// Client errors are the caller's fault and 501 will never start working.
+	for _, code := range []int{200, 400, 401, 403, 404, 429, 501} {
+		if isRetryableServerStatus(code) {
+			t.Errorf("status %d must NOT be retried as a server error", code)
+		}
+	}
+}

@@ -249,6 +249,13 @@ func (c *OpenAICompatClient) reasoningEffortForContext(ctx context.Context) stri
 	return ""
 }
 
+// isRetryableServerStatus reports whether a status means "the vendor failed,
+// try again" rather than "your request is wrong". 501 Not Implemented is
+// excluded: retrying an unimplemented endpoint just burns the budget.
+func isRetryableServerStatus(code int) bool {
+	return code >= 500 && code != http.StatusNotImplemented
+}
+
 // isSchemaRejection reports whether a 400 body blames the structured-output
 // schema, so the caller can retry without response_format instead of failing
 // the turn.
@@ -432,6 +439,19 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 				logging.PerceptionWarn("[%s] structured output rejected, retrying without response_format", c.vendor)
 				reqBody.ResponseFormat = nil
 				lastErr = fmt.Errorf("structured output rejected: %s", bodyStr)
+				continue
+			}
+			// 5xx is the vendor failing, not the request being wrong. Observed
+			// live: a single `500 internal server error` from Meta killed the
+			// turn outright even though the identical request succeeded on the
+			// next attempt. Retry these on the same backoff as 429.
+			if isRetryableServerStatus(resp.StatusCode) {
+				wait := retryDelay(resp, attempt)
+				logging.PerceptionWarn("[%s] server error (%d), retrying in %v", c.vendor, resp.StatusCode, wait)
+				lastErr = fmt.Errorf("%s API request failed with status %d: %s", c.vendor, resp.StatusCode, bodyStr)
+				if sleepErr := sleepCtx(ctx, wait); sleepErr != nil {
+					return nil, sleepErr
+				}
 				continue
 			}
 			return nil, fmt.Errorf("%s API request failed with status %d: %s", c.vendor, resp.StatusCode, bodyStr)
