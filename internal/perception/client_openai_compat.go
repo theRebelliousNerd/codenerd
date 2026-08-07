@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codenerd/internal/logging"
@@ -104,6 +105,20 @@ func IsOpenAICompatProvider(p Provider) bool {
 	return ok
 }
 
+// minCompletionTokensFor returns the smallest completion budget a vendor needs
+// to produce visible output. Reasoning models bill thinking against the same
+// budget, so anything below this returns empty content rather than short
+// content. Zero means no floor.
+func minCompletionTokensFor(vendor Provider) int {
+	switch vendor {
+	case ProviderMeta:
+		// Empirically: 256 -> empty response, 4096 -> normal output.
+		return 4096
+	default:
+		return 0
+	}
+}
+
 // DefaultOpenAICompatConfig returns defaults for a vendor. An unknown vendor
 // yields an empty base URL, which NewOpenAICompatClient rejects — callers must
 // supply BaseURL explicitly for vendors codeNERD does not know by name.
@@ -152,6 +167,20 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 	}
 	if cfg.Model == "" {
 		cfg.Model = openAICompatVendorDefaults[cfg.Vendor].model
+	}
+
+	// Reasoning models spend the completion budget on thinking before emitting
+	// any visible content, so a small ceiling yields an EMPTY response rather
+	// than a truncated one. Verified against Muse Spark: max_completion_tokens
+	// 256 returns a single frame with an empty delta and — misleadingly —
+	// finish_reason "stop" rather than "length"; 4096 returns normally.
+	//
+	// Clamp instead of failing: a caller asking for a small budget wants a short
+	// answer, not no answer.
+	if minTokens := minCompletionTokensFor(cfg.Vendor); cfg.MaxOutputTokens < minTokens {
+		logging.PerceptionWarn("[%s] max_output_tokens %d is below the %d floor this reasoning model needs to emit visible content; clamping",
+			cfg.Vendor, cfg.MaxOutputTokens, minTokens)
+		cfg.MaxOutputTokens = minTokens
 	}
 
 	c := &OpenAICompatClient{
@@ -452,6 +481,20 @@ func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPromp
 	}
 
 	out := strings.TrimSpace(msg.Content)
+
+	// An empty completion must fail loudly. Returned as a successful "" it
+	// propagates through the whole agent loop as a hollow-but-successful result
+	// — the shard_result_empty / generation_degraded class this repo already
+	// tracks. The usual cause is a reasoning model exhausting its completion
+	// budget on thinking, which the vendor reports as finish_reason "stop"
+	// rather than "length", so the status alone does not reveal it.
+	if out == "" {
+		finish := resp.Choices[0].FinishReason
+		return "", fmt.Errorf("%s returned an empty completion (model=%s finish_reason=%q reasoning_chars=%d output_tokens=%d); "+
+			"if finish_reason is \"stop\" with 0 content the completion budget was likely consumed by reasoning",
+			c.vendor, reqBody.Model, finish, len(msg.ReasoningContent), resp.Usage.CompletionTokens)
+	}
+
 	logging.Perception("[%s] CompleteWithSystem: model=%s completed in %v response_len=%d",
 		c.vendor, reqBody.Model, time.Since(start), len(out))
 	return out, nil
@@ -572,6 +615,9 @@ func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Respo
 
 	scanDone := make(chan struct{})
 	scanErrChan := make(chan error, 1)
+	// Counted so a clean-but-empty stream can be reported as a failure rather
+	// than rendering blank in the chat surface.
+	var forwarded atomic.Int64
 
 	go func() {
 		defer close(scanDone)
@@ -602,6 +648,7 @@ func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Respo
 			if delta := chunk.Choices[0].Delta.Content; delta != "" {
 				select {
 				case contentChan <- delta:
+					forwarded.Add(1)
 				case <-ctx.Done():
 					return
 				}
@@ -619,6 +666,15 @@ func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Respo
 			logging.PerceptionError("[%s] CompleteWithStreaming: stream error after %v: %v", c.vendor, time.Since(start), err)
 			errorChan <- fmt.Errorf("stream error: %w", err)
 		default:
+			// A stream that closes cleanly having emitted nothing is the same
+			// hollow-success failure as an empty non-streaming completion; the
+			// chat surface would simply render blank. See CompleteWithSystem.
+			if forwarded.Load() == 0 {
+				logging.PerceptionError("[%s] CompleteWithStreaming: stream closed with no content after %v", c.vendor, time.Since(start))
+				errorChan <- fmt.Errorf("%s stream produced no content (model=%s); "+
+					"a reasoning model may have consumed the completion budget before emitting output", c.vendor, c.model)
+				return
+			}
 			logging.Perception("[%s] CompleteWithStreaming: completed in %v", c.vendor, time.Since(start))
 		}
 	case <-ctx.Done():
