@@ -154,6 +154,7 @@ func ProviderConfigFromUserConfig(userCfg *config.UserConfig) (*ProviderConfig, 
 		Gemini:              userCfg.GetGeminiConfig(),
 		Ollama:              &ollamaCfg,
 		Worker:              userCfg.GetWorkerLLMConfig(),
+		MaxOutputTokens:     userCfg.MaxOutputTokens,
 	}, nil
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/mangle"
@@ -9,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -104,22 +106,35 @@ func showStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Runtime: Go %s\n", "1.24")
 	fmt.Println()
 
-	// Check API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
-	if key != "" {
-		fmt.Println("✓ Z.AI API key configured")
-	} else {
-		fmt.Println("✗ Z.AI API key not configured")
-	}
-
-	// Check workspace
+	// Report the provider the run will actually use. This used to read
+	// ZAI_API_KEY unconditionally and print "Z.AI API key configured" whatever
+	// the config said, so a stale ambient key made `nerd status` claim a green
+	// check for a provider that was not in play — the same env-over-config
+	// confusion that let a whole cold start run on the wrong vendor.
 	cwd := workspace
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
+	if userCfg, cerr := config.LoadUserConfig(filepath.Join(cwd, ".nerd", "config.json")); cerr == nil {
+		providerName, key := userCfg.GetActiveProvider()
+		switch {
+		case apiKey != "":
+			fmt.Printf("✓ API key configured (--api-key flag, provider %s)\n", providerName)
+		case key != "":
+			fmt.Printf("✓ %s API key configured\n", providerName)
+		default:
+			fmt.Printf("✗ no API key for configured provider %q\n", providerName)
+		}
+		if w := userCfg.GetWorkerLLMConfig(); w != nil {
+			fmt.Printf("  worker:  %s / %s\n", w.Provider, w.Model)
+		}
+		if p := userCfg.GetPlannerLLMConfig(); p != nil {
+			fmt.Printf("  planner: %s / %s\n", p.Provider, p.Model)
+		}
+	} else {
+		fmt.Printf("✗ could not read .nerd/config.json: %v\n", cerr)
+	}
+
 	fmt.Printf("✓ Workspace: %s\n", cwd)
 
 	// Initialize kernel and show stats

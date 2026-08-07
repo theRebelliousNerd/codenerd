@@ -56,6 +56,15 @@ type UserConfig struct {
 	// Optional model override (see supported models above)
 	Model string `json:"model,omitempty"`
 
+	// MaxOutputTokens caps the completion length for the MAIN client. Zero means
+	// the client's own default, which for OpenAI-compatible vendors is 16384 —
+	// far below what a large model can emit, and previously unreachable from
+	// config, so a long answer was silently truncated with no knob to raise it.
+	// Per-slot equivalents live on worker/planner (SecondaryLLMConfig); Gemini
+	// keeps its own gemini.max_output_tokens because thinking and visible output
+	// share that budget.
+	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
+
 	// ClassificationModel is the fast/cheap model used for perception intent
 	// classification (the transducer's Understand call). Every interactive turn
 	// pays this call before anything else happens, so it should be the
