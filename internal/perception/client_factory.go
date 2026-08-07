@@ -521,7 +521,22 @@ func NewWorkerClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error
 	if userCfg == nil {
 		return nil, nil
 	}
-	w := userCfg.GetWorkerLLMConfig()
+	return newSecondarySlotClient(userCfg, "worker", userCfg.GetWorkerLLMConfig())
+}
+
+// NewPlannerClientFromUserConfig builds the high-reasoning planner client used
+// for planning and analysis intents. Returns (nil, nil) when no planner block
+// is configured so callers fall back to the worker, then the main client.
+func NewPlannerClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error) {
+	if userCfg == nil {
+		return nil, nil
+	}
+	return newSecondarySlotClient(userCfg, "planner", userCfg.GetPlannerLLMConfig())
+}
+
+// newSecondarySlotClient constructs the client for one non-main slot. slot is
+// the human-readable slot name used in log lines and error messages.
+func newSecondarySlotClient(userCfg *config.UserConfig, slot string, w *config.SecondaryLLMConfig) (LLMClient, error) {
 	if w == nil {
 		return nil, nil
 	}
@@ -540,7 +555,7 @@ func NewWorkerClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error
 		if w.Model != "" {
 			cfg.Model = w.Model
 		}
-		logging.Perception("Worker LLM: ollama model=%s endpoint=%s", cfg.Model, cfg.Endpoint)
+		logging.Perception("%s LLM: ollama model=%s endpoint=%s", slot, cfg.Model, cfg.Endpoint)
 		return NewOllamaClientWithConfig(cfg), nil
 	}
 
@@ -552,7 +567,7 @@ func NewWorkerClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error
 	// supports whatever the main client supports, now and for future providers.
 	apiKey := userCfg.APIKeyForProvider(provider)
 	if apiKey == "" {
-		return nil, fmt.Errorf("worker provider=%s but %s is empty", provider, providerKeyFieldName(provider))
+		return nil, fmt.Errorf("%s provider=%s but %s is empty", slot, provider, providerKeyFieldName(provider))
 	}
 
 	pc := &ProviderConfig{
@@ -563,17 +578,17 @@ func NewWorkerClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error
 		BaseURL:  userCfg.BaseURL,
 		Gemini:   userCfg.GetGeminiConfig(),
 	}
-	// For OpenAI-compatible vendors the worker's Endpoint doubles as a per-slot
-	// base-URL override, so main and worker can sit behind different gateways.
+	// For OpenAI-compatible vendors the slot's Endpoint doubles as a per-slot
+	// base-URL override, so slots can sit behind different gateways.
 	if w.Endpoint != "" {
 		pc.BaseURL = w.Endpoint
 	}
 
 	client, err := NewClientFromConfig(pc)
 	if err != nil {
-		return nil, fmt.Errorf("worker provider=%s: %w", provider, err)
+		return nil, fmt.Errorf("%s provider=%s: %w", slot, provider, err)
 	}
-	logging.Perception("Worker LLM: provider=%s model=%s", provider, w.Model)
+	logging.Perception("%s LLM: provider=%s model=%s", slot, provider, w.Model)
 	return client, nil
 }
 

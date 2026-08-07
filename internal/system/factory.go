@@ -568,6 +568,7 @@ type bootContext struct {
 	jitCfg                       config.JITConfig
 	llmClient                    perception.LLMClient
 	shardLLMClient               perception.LLMClient
+	plannerLLMClient             perception.LLMClient // high-reasoning tier for planning/analysis intents
 	imageLLMClient               perception.LLMClient // Gemini Nano Banana 2 for image_generator only
 	providerCfgForClassification *perception.ProviderConfig
 	perceptionInitialized        bool
@@ -724,6 +725,24 @@ func initPerceptionLayer(bctx *bootContext) error {
 		}
 	}
 	bctx.shardLLMClient = core.NewScheduledLLMCall("shards", shardRaw)
+
+	// Optional planner LLM for reasoning-intensive turns. Without this slot a
+	// cheap worker would also serve /review, /audit and campaign planning —
+	// exactly the turns whose quality is the product. Nil leaves everything on
+	// the worker, which is the pre-existing single-tier behaviour.
+	if bctx.appCfg != nil {
+		if planner, perr := perception.NewPlannerClientFromUserConfig(bctx.appCfg); perr != nil {
+			logging.Get(logging.CategoryPerception).Warn(
+				"Planner LLM init failed: %v (reasoning turns stay on the worker client)", perr)
+		} else if planner != nil {
+			plannerRaw := planner
+			if localDB != nil {
+				plannerRaw = perception.NewTracingLLMClient(planner, createTraceStoreAdapter(localDB))
+			}
+			bctx.plannerLLMClient = core.NewScheduledLLMCall("planner", plannerRaw)
+			logging.Get(logging.CategoryPerception).Info("Planner LLM enabled for reasoning-intensive intents")
+		}
+	}
 
 	// Image generation stays on Gemini Nano Banana 2 (gemini-3.1-flash-image) —
 	// never the Ollama worker. Attached to ShardManager in initShardManagement.
@@ -1233,6 +1252,15 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.transducer,
 		session.DefaultSpawnerConfig(),
 	)
+
+	// Reasoning-intensive intents (/review, /audit, /campaign, ...) escape the
+	// worker tier onto the planner client. The kernel decides which those are
+	// via intent_requires_reasoning_model/1; this only supplies the client.
+	if bctx.plannerLLMClient != nil {
+		plannerSessionLLM := &sessionLLMAdapter{client: bctx.plannerLLMClient}
+		bctx.sessionExecutor.SetPlannerClient(plannerSessionLLM)
+		bctx.sessionSpawner.SetPlannerClient(plannerSessionLLM)
+	}
 
 	bctx.taskExecutor = session.NewJITExecutor(bctx.sessionExecutor, bctx.sessionSpawner, bctx.transducer)
 	bctx.virtualStore.SetTaskExecutor(&taskDelegatorAdapter{executor: bctx.taskExecutor})

@@ -94,6 +94,17 @@ type Executor struct {
 	virtualStore types.VirtualStore
 	llmClient    types.LLMClient
 
+	// plannerClient serves turns the kernel derives as reasoning-intensive
+	// (intent_requires_reasoning_model/1). Nil means every turn stays on
+	// llmClient, which is the behaviour when no planner slot is configured.
+	plannerClient types.LLMClient
+
+	// reasoningVerbCache memoizes the kernel's reasoning-model verdict per
+	// intent verb. The verb set is tiny and the policy is static for the life
+	// of the process, so this turns a per-turn Mangle query into one query per
+	// distinct verb. map[string]bool.
+	reasoningVerbCache sync.Map
+
 	// JIT components
 	jitCompiler   JITCompiler
 	configFactory ConfigFactory
@@ -189,6 +200,74 @@ func NewExecutor(
 	}
 }
 
+// SetPlannerClient installs the high-reasoning client used for turns the
+// kernel derives as reasoning-intensive. Passing nil (or the same client as
+// llmClient) leaves every turn on the default client.
+func (e *Executor) SetPlannerClient(c types.LLMClient) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if c == e.llmClient {
+		c = nil
+	}
+	e.plannerClient = c
+}
+
+// llmForVerb resolves which client serves this turn. Callers must resolve ONCE
+// per turn and thread the result through the whole tool loop: the initial
+// generation and its tool-result follow-ups share a conversation history, so
+// splitting them across two models would feed one vendor's tool_use IDs to
+// another.
+func (e *Executor) llmForVerb(verb string) types.LLMClient {
+	e.mu.RLock()
+	base, planner := e.llmClient, e.plannerClient
+	e.mu.RUnlock()
+
+	if planner == nil || !e.intentRequiresReasoningModel(verb) {
+		return base
+	}
+	logging.SessionDebug("Routing %q to the planner LLM slot", verb)
+	return planner
+}
+
+// intentRequiresReasoningModel asks the kernel whether this verb's turn should
+// be served by the reasoning tier. The decision lives in the policy corpus
+// (delegation.mg → intent_requires_reasoning_model/1); this helper only asks.
+//
+// A missing kernel or a failed query answers false, which routes the turn to
+// the cheap client. That is the safe direction for cost but the wrong one for
+// quality, so a query failure is logged at Warn rather than swallowed —
+// otherwise a broken policy corpus would silently demote every planning turn.
+func (e *Executor) intentRequiresReasoningModel(verb string) bool {
+	verb = strings.TrimSpace(verb)
+	if verb == "" {
+		return false
+	}
+	if cached, ok := e.reasoningVerbCache.Load(verb); ok {
+		return cached.(bool)
+	}
+	if e.kernel == nil {
+		return false
+	}
+
+	// Intent verbs arrive as Mangle atoms already ("/review", "/campaign"), so
+	// they need no quoting — but a verb that is not an atom would be a syntax
+	// error in the query, so reject anything unexpected rather than build one.
+	if !strings.HasPrefix(verb, "/") {
+		logging.SessionDebug("intentRequiresReasoningModel: %q is not an atom, defaulting to false", verb)
+		return false
+	}
+
+	facts, err := e.kernel.Query(fmt.Sprintf("intent_requires_reasoning_model(%s)", verb))
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn(
+			"intentRequiresReasoningModel(%s) query failed: %v — turn stays on the default LLM slot", verb, err)
+		return false
+	}
+	requires := len(facts) > 0
+	e.reasoningVerbCache.Store(verb, requires)
+	return requires
+}
+
 // SetSessionContext sets the session context for dream mode and shared state.
 func (e *Executor) SetSessionContext(ctx *types.SessionContext) {
 	e.mu.Lock()
@@ -212,6 +291,7 @@ func (e *Executor) CloneForTask() *Executor {
 	clone := NewExecutor(e.kernel, e.virtualStore, e.llmClient, e.jitCompiler, e.configFactory, e.transducer)
 	clone.config = e.config
 	clone.ouroborosRegistry = e.ouroborosRegistry
+	clone.plannerClient = e.plannerClient
 	// Deliberately NOT copied: conversationHistory, sessionContext,
 	// sessionPersister/sessionID (task runs must not be recorded as session
 	// turns), EffectiveAgentRuntimeConfig (set per task by the caller).
@@ -560,10 +640,14 @@ func (e *Executor) compileConfig(ctx context.Context, result *prompt.Compilation
 
 // generateResponse calls the LLM with the compiled prompt and tools for tool calling.
 // Uses Piggyback Protocol for tools when the client supports it (e.g., Gemini with grounding).
-func (e *Executor) generateResponse(ctx context.Context, systemPrompt, userInput string, cfg *config.EffectiveAgentRuntimeConfig) (*types.LLMToolResponse, error) {
+//
+// client is the turn's resolved LLM (see llmForVerb) and is passed explicitly
+// rather than read from the struct so that every call in one tool loop provably
+// hits the same model.
+func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient, systemPrompt, userInput string, cfg *config.EffectiveAgentRuntimeConfig) (*types.LLMToolResponse, error) {
 	// Check if client should use Piggyback for tools (e.g., Gemini with grounding enabled)
-	if ptp, ok := e.llmClient.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
-		return e.generateResponseWithPiggybackTools(ctx, systemPrompt, userInput, cfg)
+	if ptp, ok := client.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
+		return e.generateResponseWithPiggybackTools(ctx, client, systemPrompt, userInput, cfg)
 	}
 
 	// Convert EffectiveAgentRuntimeConfig tool names to ToolDefinition structs
@@ -572,12 +656,12 @@ func (e *Executor) generateResponse(ctx context.Context, systemPrompt, userInput
 	// If we have tools, use native function calling; otherwise fall back to simple completion
 	if len(toolDefs) > 0 {
 		logging.Session("Calling LLM with %d tools via CompleteWithTools", len(toolDefs))
-		return e.llmClient.CompleteWithTools(ctx, systemPrompt, userInput, toolDefs)
+		return client.CompleteWithTools(ctx, systemPrompt, userInput, toolDefs)
 	}
 	logging.Session("No tools configured, using CompleteWithSystem")
 
 	// No tools configured - use simple completion
-	text, err := e.llmClient.CompleteWithSystem(ctx, systemPrompt, userInput)
+	text, err := client.CompleteWithSystem(ctx, systemPrompt, userInput)
 	if err != nil {
 		return nil, err
 	}
@@ -590,7 +674,7 @@ func (e *Executor) generateResponse(ctx context.Context, systemPrompt, userInput
 // generateResponseWithPiggybackTools uses structured output for tool invocation.
 // This enables tool use to coexist with Gemini's built-in grounding tools
 // (Google Search, URL Context) which cannot be combined with native function calling.
-func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, systemPrompt, userInput string, cfg *config.EffectiveAgentRuntimeConfig) (*types.LLMToolResponse, error) {
+func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, client types.LLMClient, systemPrompt, userInput string, cfg *config.EffectiveAgentRuntimeConfig) (*types.LLMToolResponse, error) {
 	// Build tool catalog for injection into system prompt
 	toolCatalog := e.buildToolCatalogForPiggyback(cfg)
 	if toolCatalog != "" {
@@ -602,7 +686,7 @@ func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, syste
 	// The Piggyback envelope will contain tool_requests
 	schemaLen := len(articulation.GetPiggybackSchema(false))
 	logging.Session("Using Piggyback++ for tool invocation (grounding-compatible mode, schema_len=%d)", schemaLen)
-	text, err := e.llmClient.CompleteWithSystem(ctx, systemPrompt, userInput)
+	text, err := client.CompleteWithSystem(ctx, systemPrompt, userInput)
 	if err != nil {
 		return nil, err
 	}

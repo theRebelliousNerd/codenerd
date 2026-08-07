@@ -36,6 +36,11 @@ type Spawner struct {
 	configFactory ConfigFactory
 	transducer    perception.Transducer
 
+	// plannerClient is handed to every spawned subagent so a subagent working
+	// a reasoning-intensive verb resolves the same tier the session would.
+	// Nil keeps subagents entirely on llmClient.
+	plannerClient types.LLMClient
+
 	// Active subagents
 	subagents map[string]*SubAgent
 
@@ -93,6 +98,22 @@ func NewSpawner(
 		maxActiveSubagents: cfg.MaxActiveSubagents,
 		tokenBudget:        budget,
 	}
+}
+
+// SetPlannerClient installs the high-reasoning client passed to subagents
+// spawned from here on. Already-spawned subagents keep the client they were
+// built with.
+func (s *Spawner) SetPlannerClient(c types.LLMClient) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.plannerClient = c
+}
+
+// plannerClientLocked reads the planner slot under the read lock.
+func (s *Spawner) currentPlannerClient() types.LLMClient {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.plannerClient
 }
 
 // SpawnRequest describes the parameters for spawning a subagent.
@@ -174,6 +195,7 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 		s.configFactory,
 		s.transducer,
 	)
+	agent.SetPlannerClient(s.currentPlannerClient())
 
 	// Phase 5: Register subagent (lock held briefly)
 	s.mu.Lock()
@@ -238,7 +260,8 @@ func (s *Spawner) SpawnSpecialist(ctx context.Context, name string, task string)
 		MaxTurns:                    100,
 	}
 
-	// Create and start
+	// Create and start. s.mu is already held for writing here, so read the
+	// planner slot directly rather than through currentPlannerClient().
 	agent := NewSubAgent(
 		subCfg,
 		s.kernel,
@@ -248,6 +271,7 @@ func (s *Spawner) SpawnSpecialist(ctx context.Context, name string, task string)
 		s.configFactory,
 		s.transducer,
 	)
+	agent.SetPlannerClient(s.plannerClient)
 
 	s.subagents[agent.GetID()] = agent
 	go agent.Run(ctx, task)

@@ -177,6 +177,15 @@ func NewSubAgent(
 	}
 }
 
+// SetPlannerClient forwards the high-reasoning client to this subagent's
+// executor so its turns route by verb like the session's do.
+func (s *SubAgent) SetPlannerClient(c types.LLMClient) {
+	if c == nil || s.executor == nil {
+		return
+	}
+	s.executor.SetPlannerClient(c)
+}
+
 // GetID returns the subagent's unique identifier.
 func (s *SubAgent) GetID() string {
 	return s.config.ID

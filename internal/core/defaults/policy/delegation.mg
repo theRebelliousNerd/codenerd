@@ -218,6 +218,50 @@ intent_requires_tool_call(Verb) :-
     action_mapping(Verb, Action),
     side_effecting_action(Action).
 
+# =============================================================================
+# Reasoning-intensive work: which turns deserve the expensive model.
+#
+# This is the model-routing decision, and it is policy, not plumbing — which is
+# why it lives here rather than as a Go switch. A two-tier stack (a strong
+# reasoning model plus a cheap high-volume model) is only worth having if the
+# split is principled: cost follows the work whose QUALITY compounds, not the
+# work that merely happens most often.
+#
+# Note this is orthogonal to side_effecting_action/1 above. /delegate_reviewer
+# is deliberately NOT side-effecting (a prose verdict is a valid terminal
+# answer) and IS reasoning-intensive (the verdict's quality is the product).
+# /delegate_coder is the mirror image on the first axis and stays cheap on this
+# one, because a coder turn's correctness is checked by tests and the tool loop,
+# not by the model's unaided judgement.
+#
+# /analyze_code (the /explain mapping) is left out on purpose: explanation is
+# the single highest-volume verb in an interactive session, so routing it to the
+# reasoning tier would spend most of the budget on the cheapest-to-get-right
+# task and defeat the split.
+reasoning_intensive_action(/delegate_reviewer).
+
+# Verbs with no action_mapping, or whose planning happens before any action is
+# derived. /campaign and /assault decompose goals into phase/task DAGs;
+# /dream and /shadow run speculative alternatives whose whole value is the
+# quality of the road not taken. /generate_tool authors compiled Go that then
+# executes with real permissions — the most expensive place to be wrong.
+reasoning_intensive_verb(/campaign).
+reasoning_intensive_verb(/assault).
+reasoning_intensive_verb(/dream).
+reasoning_intensive_verb(/shadow).
+reasoning_intensive_verb(/generate_tool).
+
+# Derive whether this turn should be served by the planner LLM slot.
+# Queried once per turn by internal/session/executor.go:llmForVerb; the whole
+# tool loop then runs on the resolved client so the initial generation and its
+# tool-result follow-ups can never land on different models.
+intent_requires_reasoning_model(Verb) :-
+    action_mapping(Verb, Action),
+    reasoning_intensive_action(Action).
+
+intent_requires_reasoning_model(Verb) :-
+    reasoning_intensive_verb(Verb).
+
 # Step 6: TOOL-LOOP TERMINATION stays in Go — deliberately NOT migrated.
 # runToolLoop's three control branch points are all mechanical loop counters,
 # not policy decisions:

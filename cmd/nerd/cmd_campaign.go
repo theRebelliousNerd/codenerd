@@ -52,39 +52,54 @@ func loadCampaignConfig(nerdDir string) *config.UserConfig {
 //
 // The returned worker is nil when none is configured; callers should fall back
 // to the main client in that case.
-func newCampaignLLMClients(appCfg *config.UserConfig, label string) (perception.LLMClient, perception.LLMClient, error) {
+// campaignLLMClients holds the model slots a campaign run needs. Main plans,
+// worker executes bulk tasks, planner (when configured) serves the delegated
+// turns the kernel derives as reasoning-intensive. A nil slot means "fall back
+// to the next one up".
+type campaignLLMClients struct {
+	main    perception.LLMClient
+	worker  perception.LLMClient
+	planner perception.LLMClient
+}
+
+func newCampaignLLMClients(appCfg *config.UserConfig, label string) (campaignLLMClients, error) {
+	var out campaignLLMClients
 	var raw perception.LLMClient
 
 	if pc, err := perception.ProviderConfigFromUserConfig(appCfg); err == nil {
 		client, cerr := perception.NewClientFromConfig(pc)
 		if cerr != nil {
-			return nil, nil, fmt.Errorf("failed to initialize LLM client from .nerd/config.json: %w", cerr)
+			return out, fmt.Errorf("failed to initialize LLM client from .nerd/config.json: %w", cerr)
 		}
 		raw = client
 	} else if appCfg.HasExplicitLLMSelection() {
 		// Config expresses a choice but cannot be satisfied. Falling back to an
 		// ambient key here would run the campaign on a provider the user did not
 		// ask for, so fail loudly instead.
-		return nil, nil, fmt.Errorf("failed to initialize LLM client: %w", err)
+		return out, fmt.Errorf("failed to initialize LLM client: %w", err)
 	} else {
 		envClient, eerr := perception.NewClientFromEnv()
 		if eerr != nil {
-			return nil, nil, fmt.Errorf("failed to initialize LLM client: %w", eerr)
+			return out, fmt.Errorf("failed to initialize LLM client: %w", eerr)
 		}
 		raw = envClient
 	}
 
-	main := core.NewScheduledLLMCall(label, raw)
+	out.main = core.NewScheduledLLMCall(label, raw)
 
-	worker, werr := perception.NewWorkerClientFromUserConfig(appCfg)
-	if werr != nil {
+	if worker, werr := perception.NewWorkerClientFromUserConfig(appCfg); werr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: worker LLM init failed: %v (shards share main client)\n", werr)
-		return main, nil, nil
+	} else if worker != nil {
+		out.worker = core.NewScheduledLLMCall(label+"-worker", worker)
 	}
-	if worker == nil {
-		return main, nil, nil
+
+	if planner, perr := perception.NewPlannerClientFromUserConfig(appCfg); perr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: planner LLM init failed: %v (reasoning tasks stay on the worker client)\n", perr)
+	} else if planner != nil {
+		out.planner = core.NewScheduledLLMCall(label+"-planner", planner)
 	}
-	return main, core.NewScheduledLLMCall(label+"-worker", worker), nil
+
+	return out, nil
 }
 
 // campaignCmd is the parent command for campaign operations
@@ -191,10 +206,11 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	// regardless of the user's policy).
 	appCfg := loadCampaignConfig(nerdDir)
 
-	llmClient, workerLLMClient, clientErr := newCampaignLLMClients(appCfg, "campaign-cli")
+	llmSlots, clientErr := newCampaignLLMClients(appCfg, "campaign-cli")
 	if clientErr != nil {
 		return clientErr
 	}
+	llmClient, workerLLMClient := llmSlots.main, llmSlots.worker
 
 	exec := appCfg.GetExecution()
 	vsCfg := core.DefaultVirtualStoreConfig()
@@ -430,6 +446,12 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		transducer,
 		session.DefaultSpawnerConfig(),
 	)
+
+	if llmSlots.planner != nil {
+		plannerAdapter := newCampaignLLMAdapter(llmSlots.planner)
+		sessionExecutor.SetPlannerClient(plannerAdapter)
+		sessionSpawner.SetPlannerClient(plannerAdapter)
+	}
 
 	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
 	virtualStore.SetTaskExecutor(&campaignTaskDelegatorAdapter{executor: taskExecutor})
@@ -721,10 +743,11 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	// allowed_binaries / allowed_env_vars whitelist (see runCampaignStart).
 	appCfg := loadCampaignConfig(filepath.Dir(config.DefaultUserConfigPath()))
 
-	llmClient, workerLLMClient, clientErr := newCampaignLLMClients(appCfg, "campaign-resume")
+	llmSlots, clientErr := newCampaignLLMClients(appCfg, "campaign-resume")
 	if clientErr != nil {
 		return clientErr
 	}
+	llmClient, workerLLMClient := llmSlots.main, llmSlots.worker
 	exec := appCfg.GetExecution()
 	vsCfg := core.DefaultVirtualStoreConfig()
 	if len(exec.AllowedBinaries) > 0 {
@@ -853,6 +876,12 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		transducer,
 		session.DefaultSpawnerConfig(),
 	)
+
+	if llmSlots.planner != nil {
+		plannerAdapter := newCampaignLLMAdapter(llmSlots.planner)
+		sessionExecutor.SetPlannerClient(plannerAdapter)
+		sessionSpawner.SetPlannerClient(plannerAdapter)
+	}
 
 	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
 	virtualStore.SetTaskExecutor(&campaignTaskDelegatorAdapter{executor: taskExecutor})
@@ -1187,6 +1216,13 @@ func (a *campaignVirtualStoreAdapter) ReadRaw(path string) ([]byte, error) {
 // campaignLLMAdapter adapts perception.LLMClient to types.LLMClient.
 type campaignLLMAdapter struct {
 	client perception.LLMClient
+}
+
+// newCampaignLLMAdapter wraps a client for the session layer. Both campaign
+// paths shadow the type name with a local variable, so construction goes
+// through this helper rather than a composite literal.
+func newCampaignLLMAdapter(client perception.LLMClient) *campaignLLMAdapter {
+	return &campaignLLMAdapter{client: client}
 }
 
 func (a *campaignLLMAdapter) Complete(ctx context.Context, prompt string) (string, error) {

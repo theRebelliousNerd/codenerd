@@ -78,6 +78,25 @@ Decl side_effecting_action(ActionType) bound [/name].
 # atom (selected by world state "no_tool_call_retry") and retries once.
 Decl intent_requires_tool_call(IntentVerb) bound [/name].
 
+# reasoning_intensive_action(ActionType) - actions whose OUTPUT QUALITY dominates
+# their token cost: adversarial review, static analysis, policy authorship,
+# planning. Distinct from side_effecting_action/1, which is about whether prose
+# alone can complete the turn. An action can be one, both, or neither.
+Decl reasoning_intensive_action(ActionType) bound [/name].
+
+# reasoning_intensive_verb(IntentVerb) - verbs that are reasoning-intensive on
+# their own, independent of any action_mapping. Orchestration verbs (/campaign,
+# /assault) and speculative verbs (/dream, /shadow) live here because they plan
+# rather than delegate to a single action.
+Decl reasoning_intensive_verb(IntentVerb) bound [/name].
+
+# intent_requires_reasoning_model(IntentVerb) - derived predicate: true when the
+# turn should be served by the high-reasoning planner LLM slot rather than the
+# cheap bulk worker slot. The session executor queries this once per turn and
+# routes the whole tool loop accordingly. When no planner slot is configured the
+# answer is ignored and everything stays on the worker.
+Decl intent_requires_reasoning_model(IntentVerb) bound [/name].
+
 # tool_invocation(ToolName, Input, Timestamp) - Tool execution record
 # Records tool invocations for transparency/observability display
 Decl tool_invocation(ToolName, Input, Timestamp) bound [/name, /string, /number].

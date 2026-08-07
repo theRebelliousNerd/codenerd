@@ -44,7 +44,12 @@ func (e *Executor) runToolLoop(
 	compilationCtx *prompt.CompilationContext,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
-	llmResponse, err := e.generateResponse(ctx, systemPrompt, userInput, cfg)
+	// Resolve the turn's model once. Everything below — the initial
+	// generation, the no-tool retry, and every tool-result follow-up — shares
+	// one conversation history, so they must all hit the same client.
+	client := e.llmForVerb(result.Intent.Verb)
+
+	llmResponse, err := e.generateResponse(ctx, client, systemPrompt, userInput, cfg)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -72,7 +77,7 @@ func (e *Executor) runToolLoop(
 				"runToolLoop: intent_requires_tool_call(%q) derived true but model returned no tool_calls; recompiling prompt with no-tool-retry nudge atom",
 				result.Intent.Verb,
 			)
-			retried, retryErr := e.retryWithNoToolNudge(ctx, userInput, cfg, compilationCtx)
+			retried, retryErr := e.retryWithNoToolNudge(ctx, client, userInput, cfg, compilationCtx)
 			if retryErr == nil && retried != nil && len(retried.ToolCalls) > 0 {
 				llmResponse = retried
 			} else {
@@ -90,14 +95,14 @@ func (e *Executor) runToolLoop(
 	// (The Piggyback envelope carries tool_requests in structured output; a
 	// proper loop for that path would require re-invoking with a synthesized
 	// envelope. Out of scope for this fix.)
-	if ptp, ok := e.llmClient.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
+	if ptp, ok := client.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
 		toolErrs := e.executeToolBatchPiggyback(ctx, llmResponse.ToolCalls, cfg, result)
 		return llmResponse, toolErrs, nil
 	}
 
 	// Native multi-turn tool calling required for correct semantics on
 	// Anthropic/OpenAI-style providers.
-	trp, supportsLoop := e.llmClient.(types.ToolResultsProvider)
+	trp, supportsLoop := client.(types.ToolResultsProvider)
 	toolDefs := e.buildToolDefinitions(cfg)
 
 	// Seed the history with the initial user turn and the assistant's
@@ -171,7 +176,7 @@ func (e *Executor) runToolLoop(
 		// first execution pass. The model will not see the results this turn.
 		if !supportsLoop {
 			logging.Get(logging.CategorySession).Warn(
-				"LLM client does not implement ToolResultsProvider; tool results not fed back to model. Provider=%T", e.llmClient)
+				"LLM client does not implement ToolResultsProvider; tool results not fed back to model. Provider=%T", client)
 			return currentResponse, toolErrs, nil
 		}
 
@@ -317,6 +322,7 @@ func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
 //   - reissuing the LLM call.
 func (e *Executor) retryWithNoToolNudge(
 	ctx context.Context,
+	client types.LLMClient,
 	userInput string,
 	cfg *config.EffectiveAgentRuntimeConfig,
 	compilationCtx *prompt.CompilationContext,
@@ -339,7 +345,7 @@ func (e *Executor) retryWithNoToolNudge(
 		return nil, errors.New("no-tool-retry: JIT recompile produced empty prompt")
 	}
 
-	return e.generateResponse(ctx, compileResult.Prompt, userInput, cfg)
+	return e.generateResponse(ctx, client, compileResult.Prompt, userInput, cfg)
 }
 
 // executeToolBatchPiggyback handles the single-turn Piggyback path. Tools are

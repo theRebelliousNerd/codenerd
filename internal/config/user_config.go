@@ -97,6 +97,15 @@ type UserConfig struct {
 	// Image generation shards are excluded — see Image.
 	Worker *WorkerLLMConfig `json:"worker,omitempty"`
 
+	// Planner is an optional high-reasoning LLM for the work whose quality
+	// dominates its token cost: planning, adversarial review, static analysis,
+	// policy authorship. When nil, that work stays on the worker (or main)
+	// client. This exists so a two-tier stack — an expensive reasoning model
+	// plus a cheap bulk model — is expressible: without it, pointing Worker at
+	// a cheap model demotes /review and /audit along with everything else,
+	// which is backwards. See SecondaryLLMConfig.
+	Planner *PlannerLLMConfig `json:"planner,omitempty"`
+
 	// Image is the dedicated image-generation LLM (Nano Banana 2 / Gemini Image).
 	// Not routed through worker=ollama — image models are Gemini-only.
 	// API id: gemini-3.1-flash-image (Nano Banana 2).
@@ -515,17 +524,31 @@ type OllamaLLMConfig struct {
 	Model string `json:"model,omitempty"`
 }
 
-// WorkerLLMConfig selects a secondary LLM for non-main work (shards, spawn,
-// create, classification). When nil, workers share the main provider client.
-// Does NOT apply to image generation (see ImageLLMConfig).
-type WorkerLLMConfig struct {
-	// Provider: typically "ollama" for local testing.
+// SecondaryLLMConfig selects an LLM for a slot other than the main client.
+// Both the worker slot (bulk work) and the planner slot (reasoning work) use
+// this shape, so a slot is fully described by provider + model + optional
+// endpoint override.
+type SecondaryLLMConfig struct {
+	// Provider: any provider the main client supports, e.g. "meta",
+	// "dashscope", or "ollama" for local testing.
 	Provider string `json:"provider,omitempty"`
 	// Model: e.g. gemma4:12b
 	Model string `json:"model,omitempty"`
-	// Endpoint: optional override for ollama (defaults to ollama.endpoint or localhost).
+	// Endpoint: base-URL override. For ollama it defaults to ollama.endpoint
+	// or localhost; for OpenAI-compatible vendors it overrides the base URL so
+	// two slots can sit behind different gateways.
 	Endpoint string `json:"endpoint,omitempty"`
 }
+
+// WorkerLLMConfig selects a secondary LLM for non-main work (shards, spawn,
+// create, classification). When nil, workers share the main provider client.
+// Does NOT apply to image generation (see ImageLLMConfig).
+type WorkerLLMConfig = SecondaryLLMConfig
+
+// PlannerLLMConfig selects the high-reasoning LLM for planning and analysis
+// verbs. When nil, that work falls back to the worker client, then the main
+// client.
+type PlannerLLMConfig = SecondaryLLMConfig
 
 // ImageLLMConfig is the dedicated image-generation path (Gemini Nano Banana 2).
 // Official API model id: gemini-3.1-flash-image (alias: Nano Banana 2).
@@ -627,23 +650,47 @@ func (c *UserConfig) GetOllamaLLMConfig() OllamaLLMConfig {
 
 // GetWorkerLLMConfig returns the secondary worker LLM config, or nil if unset.
 func (c *UserConfig) GetWorkerLLMConfig() *WorkerLLMConfig {
-	if c == nil || c.Worker == nil {
+	if c == nil {
 		return nil
 	}
-	w := *c.Worker
-	if w.Provider == "" {
+	return c.resolveSecondarySlot(c.Worker)
+}
+
+// GetPlannerLLMConfig returns the high-reasoning planner LLM config, or nil if
+// unset. A planner slot pointing at the same provider+model as the worker is
+// treated as unset, since a distinct client would buy nothing but a second
+// connection pool.
+func (c *UserConfig) GetPlannerLLMConfig() *PlannerLLMConfig {
+	if c == nil {
 		return nil
 	}
-	if w.Provider == "ollama" {
+	p := c.resolveSecondarySlot(c.Planner)
+	if p == nil {
+		return nil
+	}
+	if w := c.resolveSecondarySlot(c.Worker); w != nil && *w == *p {
+		return nil
+	}
+	return p
+}
+
+// resolveSecondarySlot applies Ollama's endpoint/model defaults to a slot and
+// treats a provider-less slot as absent.
+func (c *UserConfig) resolveSecondarySlot(slot *SecondaryLLMConfig) *SecondaryLLMConfig {
+	if slot == nil || slot.Provider == "" {
+		return nil
+	}
+	out := *slot
+	if out.Provider == "ollama" {
 		ollama := c.GetOllamaLLMConfig()
-		if w.Endpoint == "" {
-			w.Endpoint = ollama.Endpoint
+		if out.Endpoint == "" {
+			out.Endpoint = ollama.Endpoint
 		}
-		if w.Model == "" {
-			w.Model = ollama.Model
+		if out.Model == "" {
+			out.Model = ollama.Model
 		}
 	}
-	return &w
+	return &out
 }
 
 // APIKeyForProvider returns the configured key for a named provider, without
