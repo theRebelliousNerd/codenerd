@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -68,10 +67,7 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 		zap.String("topic", topic))
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Boot Cortex to get wired environment
 	cortex, err := coresys.GetOrBootCortex(cmd.Context(), workspace, key, disableSystemShards)
@@ -124,10 +120,7 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 		zap.String("task", task))
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Boot Cortex
 	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, disableSystemShards)

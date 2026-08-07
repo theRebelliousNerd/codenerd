@@ -58,12 +58,21 @@ func TestIsStructuredOutputOnly_LeavesConversationalShardsAlone(t *testing.T) {
 
 // filterAtomsForStructuredOutput is the mechanism the flag drives. If it stops
 // removing protocol atoms, the flag becomes decorative.
+//
+// campaign/taxonomist/output_protocol is the case that broke the ID-prefix
+// version of this filter: it is gated shard_types: ["taxonomist", "planner"], so
+// it reaches the Decomposer's compile carrying "# OUTPUT PROTOCOL (PIGGYBACK
+// ENVELOPE) — You must ALWAYS output a JSON object with this exact structure. No
+// exceptions." Its ID starts with "campaign/", not "protocol/", so the prefix
+// match sailed past it and the planner kept returning control_packets.
 func TestFilterAtomsForStructuredOutput_RemovesBothProtocolFamilies(t *testing.T) {
 	atoms := []*PromptAtom{
 		{ID: "protocol/piggyback/envelope"},
 		{ID: "protocol/reasoning/trace"},
-		{ID: "safety/constitutional/default_deny"},
-		{ID: "identity/planner/mission"},
+		{ID: "campaign/taxonomist/output_protocol", Category: CategoryProtocol},
+		{ID: "campaign/taxonomist/reasoning_trace", Category: CategoryProtocol},
+		{ID: "safety/constitutional/default_deny", Category: CategorySafety},
+		{ID: "identity/planner/mission", Category: CategoryIdentity},
 	}
 
 	cc := NewCompilationContext()
@@ -82,6 +91,14 @@ func TestFilterAtomsForStructuredOutput_RemovesBothProtocolFamilies(t *testing.T
 	}
 	if strings.Contains(joined, "protocol/reasoning/") {
 		t.Error("a reasoning protocol atom survived into a structured-output compile")
+	}
+	if strings.Contains(joined, "campaign/taxonomist/output_protocol") {
+		t.Error("a CategoryProtocol atom whose ID is not under protocol/ survived; " +
+			"filtering must be by category, because that is the atom that kept the planner " +
+			"returning control_packets after the first fix")
+	}
+	if strings.Contains(joined, "campaign/taxonomist/reasoning_trace") {
+		t.Error("a CategoryProtocol reasoning atom survived into a structured-output compile")
 	}
 	if !strings.Contains(joined, "safety/constitutional/default_deny") {
 		t.Error("safety atoms must survive; structured output does not mean unconstrained")

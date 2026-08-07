@@ -57,10 +57,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	logger.Info("Processing instruction", zap.String("input", userInput))
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Boot Cortex (System Stabilization)
 	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, disableSystemShards)

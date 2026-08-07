@@ -68,10 +68,7 @@ func queryFacts(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Boot Cortex to load all persisted facts (including scan.mg)
 	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, disableSystemShards)
@@ -189,10 +186,7 @@ func runWhy(cmd *cobra.Command, args []string) error {
 	// Prefer cortex kernel (workspace facts) when boot is available; fall back
 	// to a fresh RealKernel with schemas/policy only.
 	var kern *core.RealKernel
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 	baseCtx := cmd.Context()
 	if baseCtx == nil {
 		baseCtx = context.Background()

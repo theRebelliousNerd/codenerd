@@ -33,18 +33,30 @@ func IsStructuredOutputOnly(shardType string) bool {
 	}
 }
 
-func isPiggybackProtocolAtom(atom *PromptAtom) bool {
+// imposesOutputContract reports whether an atom tells the model how to shape its
+// reply.
+//
+// The check is by CATEGORY, not by ID prefix. It used to match only
+// "protocol/piggyback/" and "protocol/reasoning/", which let
+// campaign/taxonomist/output_protocol through: that atom is gated
+// shard_types: ["taxonomist", "planner"], so it lands in the Decomposer's
+// compile carrying "# OUTPUT PROTOCOL (PIGGYBACK ENVELOPE) — You must ALWAYS
+// output a JSON object with this exact structure. No exceptions." The planner
+// then returned a control_packet instead of a plan, exactly as before, and the
+// only visible difference was one fewer copy of the instruction.
+//
+// Any atom in CategoryProtocol is a competing output contract by definition. A
+// structured-output shard gets its schema from its role prompt, so all of them
+// go. The ID checks stay as a backstop for atoms filed under the wrong category.
+func imposesOutputContract(atom *PromptAtom) bool {
 	if atom == nil {
 		return false
 	}
-	return strings.HasPrefix(atom.ID, "protocol/piggyback/")
-}
-
-func isReasoningProtocolAtom(atom *PromptAtom) bool {
-	if atom == nil {
-		return false
+	if atom.Category == CategoryProtocol {
+		return true
 	}
-	return strings.HasPrefix(atom.ID, "protocol/reasoning/")
+	return strings.HasPrefix(atom.ID, "protocol/piggyback/") ||
+		strings.HasPrefix(atom.ID, "protocol/reasoning/")
 }
 
 func filterAtomsForStructuredOutput(atoms []*PromptAtom, cc *CompilationContext) []*PromptAtom {
@@ -53,7 +65,7 @@ func filterAtomsForStructuredOutput(atoms []*PromptAtom, cc *CompilationContext)
 	}
 	filtered := make([]*PromptAtom, 0, len(atoms))
 	for _, atom := range atoms {
-		if isPiggybackProtocolAtom(atom) || isReasoningProtocolAtom(atom) {
+		if imposesOutputContract(atom) {
 			continue
 		}
 		filtered = append(filtered, atom)

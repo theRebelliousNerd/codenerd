@@ -182,7 +182,8 @@ Run without arguments to start the interactive chat interface.`,
 func init() {
 	// Global flags
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging")
-	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "Z.AI API key (or set ZAI_API_KEY env)")
+	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "",
+		"API key override for the configured provider (default: .nerd/config.json, then that provider's env var)")
 	rootCmd.PersistentFlags().StringVarP(&workspace, "workspace", "w", "", "Workspace directory (default: current)")
 	// Default timeout is 25m, but can be overridden by config.yaml or --timeout flag
 	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 25*time.Minute, "Operation timeout")

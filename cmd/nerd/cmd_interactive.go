@@ -47,10 +47,7 @@ func runInteractiveAction(shardType, verb, initialTarget string) error {
 	}()
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Boot Cortex once for entire session
 	fmt.Println("🔄 Booting Cortex for interactive session...")

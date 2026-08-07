@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -42,10 +41,7 @@ var mcpListCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		key := apiKey
-		if key == "" {
-			key = os.Getenv("ZAI_API_KEY")
-		}
+		key := resolveAPIKey(apiKey, workspace)
 
 		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 		if err != nil {
@@ -84,10 +80,7 @@ var mcpToolsCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		key := apiKey
-		if key == "" {
-			key = os.Getenv("ZAI_API_KEY")
-		}
+		key := resolveAPIKey(apiKey, workspace)
 
 		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 		if err != nil {
@@ -125,10 +118,7 @@ var mcpStatusCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		key := apiKey
-		if key == "" {
-			key = os.Getenv("ZAI_API_KEY")
-		}
+		key := resolveAPIKey(apiKey, workspace)
 
 		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 		if err != nil {
@@ -189,10 +179,7 @@ var autopoiesisStatusCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		key := apiKey
-		if key == "" {
-			key = os.Getenv("ZAI_API_KEY")
-		}
+		key := resolveAPIKey(apiKey, workspace)
 
 		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 		if err != nil {
@@ -240,10 +227,7 @@ var autopoiesisLearningCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		key := apiKey
-		if key == "" {
-			key = os.Getenv("ZAI_API_KEY")
-		}
+		key := resolveAPIKey(apiKey, workspace)
 
 		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 		if err != nil {
@@ -284,10 +268,7 @@ var autopoiesisToolsCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		key := apiKey
-		if key == "" {
-			key = os.Getenv("ZAI_API_KEY")
-		}
+		key := resolveAPIKey(apiKey, workspace)
 
 		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 		if err != nil {
@@ -348,10 +329,7 @@ var memoryStatusCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		key := apiKey
-		if key == "" {
-			key = os.Getenv("ZAI_API_KEY")
-		}
+		key := resolveAPIKey(apiKey, workspace)
 
 		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 		if err != nil {

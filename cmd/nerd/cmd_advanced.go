@@ -139,10 +139,7 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 	fmt.Println(strings.Repeat("─", 60))
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Boot Cortex
 	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
@@ -206,10 +203,7 @@ func runShadowSimulation(cmd *cobra.Command, args []string) error {
 	fmt.Println(strings.Repeat("─", 60))
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Boot Cortex
 	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
@@ -250,10 +244,7 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 	fmt.Println(strings.Repeat("─", 60))
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Boot Cortex
 	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
@@ -326,10 +317,7 @@ func runLogicQuery(cmd *cobra.Command, args []string) error {
 	fmt.Println(strings.Repeat("─", 60))
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Boot Cortex
 	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
@@ -365,10 +353,7 @@ func runAgentsList(cmd *cobra.Command, args []string) error {
 	fmt.Println(strings.Repeat("─", 60))
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Boot Cortex
 	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
@@ -419,10 +404,7 @@ func runToolCommand(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Boot Cortex
 	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
@@ -706,10 +688,7 @@ func runJITStatus(cmd *cobra.Command, args []string) error {
 	fmt.Println(strings.Repeat("─", 60))
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Boot Cortex
 	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)

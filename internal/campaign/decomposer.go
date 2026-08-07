@@ -451,6 +451,15 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 		if err == nil && refinedPlan != nil {
 			logging.Campaign("Refinement successful, rebuilding campaign")
 			previousCampaign := campaign
+			// Refining a degraded plan does not un-degrade it. refinePlan asks
+			// the model to fix validation issues in the phases it is given, so
+			// polishing the generic three-task scaffold yields a polished
+			// generic three-task scaffold. Carrying the flag forward is what
+			// makes the CLI banner appear: without this the second
+			// buildCampaign produced a Campaign with PlanDegraded false and the
+			// warning vanished, even though the WARN had already fired in the
+			// log.
+			refinedPlan.Degraded = refinedPlan.Degraded || rawPlan.Degraded
 			campaign = d.buildCampaign(campaignID, req, refinedPlan)
 			campaign.SourceDocs = sourceDocs
 			campaign.KnowledgeBase = kbPath

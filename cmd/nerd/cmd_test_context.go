@@ -104,10 +104,7 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Set up file logging
 	var consoleWriter io.Writer = os.Stdout

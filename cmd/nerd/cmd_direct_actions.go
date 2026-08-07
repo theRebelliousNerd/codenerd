@@ -256,10 +256,7 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		fmt.Println(strings.Repeat("─", 50))
 
 		// Resolve API key
-		key := apiKey
-		if key == "" {
-			key = os.Getenv("ZAI_API_KEY")
-		}
+		key := resolveAPIKey(apiKey, workspace)
 		tracer.Trace("CONFIG", "API key source: %s", func() string {
 			if apiKey != "" {
 				return "flag"
@@ -346,10 +343,7 @@ func runPerceptionTest(cmd *cobra.Command, args []string) error {
 	fmt.Println(strings.Repeat("─", 50))
 
 	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	key := resolveAPIKey(apiKey, workspace)
 
 	// Boot Cortex (lightweight - just need transducer)
 	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
