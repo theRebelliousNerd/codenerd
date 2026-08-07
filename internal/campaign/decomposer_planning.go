@@ -259,9 +259,27 @@ func (d *Decomposer) normalizeRawPlanFromLLM(plan *RawPlan, req DecomposeRequest
 		logging.Campaign("Fixed placeholder title to: %s", plan.Title)
 	}
 
-	// If no phases were generated, create a fallback scaffolding phase
+	// If no phases were generated, create a fallback scaffolding phase.
+	//
+	// This is a DEGRADED plan, not a plan. It is three generic tasks with the
+	// goal string pasted into each description, and it cannot express anything
+	// the goal actually asked for. It was previously logged at Campaign level
+	// and then reported to the user as "Campaign Plan ... Confidence: 50%" —
+	// indistinguishable from a real plan.
+	//
+	// Live consequence: a goal naming six specific documents to write reached
+	// here because the planner prompt carried both the plan schema and the
+	// Piggyback envelope protocol (see prompt.IsStructuredOutputOnly), so the
+	// model returned a control_packet and this parser saw no phases. The
+	// campaign then executed the scaffold, produced two files nobody asked for,
+	// and reported phases completed. Warn loudly enough that the next silent
+	// decomposition failure is visible in the log by itself.
 	if len(plan.Phases) == 0 {
-		logging.Campaign("No phases in plan, generating fallback structure")
+		logging.Get(logging.CategoryCampaign).Warn(
+			"DECOMPOSITION FAILED: the model returned no phases, so this campaign is running a generic "+
+				"three-task scaffold that cannot satisfy the goal. Check the planner response in _llm_io.log "+
+				"for an output-contract mismatch. Goal: %.120s", req.Goal)
+		plan.Degraded = true
 		goalPreview := req.Goal
 		if len(goalPreview) > 100 {
 			goalPreview = goalPreview[:100] + "..."
@@ -324,6 +342,7 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 		CreatedAt:       now,
 		UpdatedAt:       now,
 		Confidence:      plan.Confidence,
+		PlanDegraded:    plan.Degraded,
 		ContextBudget:   req.ContextBudget,
 		Phases:          make([]Phase, 0),
 		ContextProfiles: make([]ContextProfile, 0),

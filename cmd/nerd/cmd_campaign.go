@@ -412,6 +412,22 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		fmt.Println("\nAttempting to proceed anyway...")
 	}
 
+	// A degraded plan is not a plan. Say so before printing anything that looks
+	// like one — the generic three-phase scaffold with a plausible title and a
+	// confidence number is otherwise indistinguishable from real decomposition,
+	// and the campaign will go on to report phases completed while producing
+	// work nobody asked for.
+	if result.Campaign.PlanDegraded {
+		fmt.Println("\n╔═══════════════════════════════════════════════════════════╗")
+		fmt.Println("║  ⚠  DECOMPOSITION FAILED — THIS IS A PLACEHOLDER PLAN     ║")
+		fmt.Println("╚═══════════════════════════════════════════════════════════╝")
+		fmt.Println("The planner returned no phases, so codeNERD substituted a generic")
+		fmt.Println("three-task scaffold. It CANNOT satisfy a goal that names specific")
+		fmt.Println("deliverables. Check the planner response in .nerd/logs/*_llm_io.log")
+		fmt.Println("for an output-contract mismatch before letting this run.")
+		fmt.Println()
+	}
+
 	// Display plan summary
 	fmt.Printf("\n📊 Campaign Plan: %s\n", result.Campaign.Title)
 	fmt.Printf("   Confidence: %.0f%%\n", result.Campaign.Confidence*100)

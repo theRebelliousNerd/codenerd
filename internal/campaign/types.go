@@ -161,6 +161,17 @@ type Campaign struct {
 	UpdatedAt      time.Time        `json:"updated_at"`
 	Confidence     float64          `json:"confidence"` // LLM's confidence in the plan (0.0-1.0)
 
+	// PlanDegraded marks a campaign whose plan the decomposer synthesized
+	// because the model returned no phases. It is a generic three-task scaffold
+	// with the goal string pasted into each description, and it cannot express
+	// what the goal asked for.
+	//
+	// Persisted so a resumed campaign still knows, and surfaced by the CLI: a
+	// degraded plan shown as "Campaign Plan ... Confidence: 50%" is
+	// indistinguishable from a real one, and the campaign will report phases
+	// completed while doing something nobody asked for.
+	PlanDegraded bool `json:"plan_degraded,omitempty"`
+
 	// Structure
 	Phases          []Phase          `json:"phases"`
 	ContextProfiles []ContextProfile `json:"context_profiles,omitzero"`

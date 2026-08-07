@@ -480,6 +480,16 @@ type RawPlan struct {
 	Title      string     `json:"title"`
 	Confidence float64    `json:"confidence"`
 	Phases     []RawPhase `json:"phases"`
+
+	// Degraded marks a plan the decomposer synthesized because the model
+	// returned no phases. It is a generic three-task scaffold with the goal
+	// pasted into each description and cannot express what the goal asked for.
+	//
+	// Not a JSON field: it is never something the model says about itself, only
+	// something the parser knows. Callers must surface it — a degraded plan
+	// presented as a plan produced a campaign that reported phases completed
+	// while writing files nobody requested.
+	Degraded bool `json:"-"`
 }
 
 // RawPhase represents a proposed phase.
