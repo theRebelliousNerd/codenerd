@@ -486,6 +486,7 @@ func TestExecuteTask_Dispatch(t *testing.T) {
 	}
 }
 
+// TODO: Test scenarios where Task struct itself is nil, Task.ID is empty, or Description contains null bytes/non-printable chars.
 func TestNullEmptyInputs(t *testing.T) {
 	ctx := context.Background()
 	o := &Orchestrator{
@@ -507,6 +508,7 @@ func TestNullEmptyInputs(t *testing.T) {
 	}
 }
 
+// TODO: Test scenarios where JSON payloads contain incorrect types (e.g., array instead of string) and maps are uninitialized (nil).
 func TestTypeCoercion(t *testing.T) {
 	ctx := context.Background()
 	o := &Orchestrator{
@@ -527,6 +529,7 @@ func TestTypeCoercion(t *testing.T) {
 	}
 }
 
+// TODO: Test extreme file sizes (10GB+), 1 million lines of base64 data, completely fabricated programming languages, and massive un-parseable JSON.
 func TestUserRequestExtremes(t *testing.T) {
 	// Massive string for extractCodeBlock
 	massive := strings.Repeat("a", 50*1024*1024)
@@ -537,6 +540,7 @@ func TestUserRequestExtremes(t *testing.T) {
 	}
 }
 
+// TODO: Test concurrent state conflicts (two tasks writing to the same file simultaneously), symlink loop path traversals, and mid-execution directory deletion.
 func TestExecuteFileTask_ShardFailure_Fallback(t *testing.T) {
 	ctx := context.Background()
 	o := &Orchestrator{
