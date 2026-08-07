@@ -135,3 +135,21 @@ func TestIsRetryableServerStatus(t *testing.T) {
 		}
 	}
 }
+
+// Meta answered 404 model_not_found for a model that had already served ~200
+// calls that day, killing a shard delegation. A spurious 404 costs a whole
+// turn; a genuinely wrong model name costs one wasted retry.
+func TestIsTransientModelNotFound(t *testing.T) {
+	body := `{"error":{"code":"model_not_found","message":"The requested model was not found.","type":"invalid_request_error"}}`
+	if !isTransientModelNotFound(404, body) {
+		t.Error("404 model_not_found should be retried")
+	}
+	// A 404 for anything else is a real routing error -- do not mask it.
+	if isTransientModelNotFound(404, `{"error":{"message":"unknown route /v1/nope"}}`) {
+		t.Error("a non-model 404 must not be retried")
+	}
+	// The marker alone must not make other statuses retryable here.
+	if isTransientModelNotFound(400, body) {
+		t.Error("only 404 qualifies")
+	}
+}

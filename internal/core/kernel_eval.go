@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -113,11 +114,10 @@ func (k *RealKernel) rebuildProgram() error {
 	programInfo, err := analysis.AnalyzeOneUnit(parsed, nil)
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Error("rebuildProgram: analysis failed: %v", err)
-		// DEBUG: Dump program when analysis fails
-		if writeErr := os.WriteFile("debug_program_ERROR.mg", []byte(programStr), 0644); writeErr != nil {
+		if dumpPath, writeErr := writeFailedProgramDump(programStr); writeErr != nil {
 			logging.Get(logging.CategoryKernel).Warn("Failed to write debug dump: %v", writeErr)
 		} else {
-			logging.KernelDebug("Dumped failed program to debug_program_ERROR.mg")
+			logging.KernelDebug("Dumped failed program to %s", dumpPath)
 		}
 		return fmt.Errorf("failed to analyze program: %w", err)
 	}
@@ -729,4 +729,28 @@ func (k *RealKernel) ClearSchemas() {
 	k.programInfo = nil
 	k.policyDirty = true
 	k.invalidateDiffEngineLocked("ClearSchemas")
+}
+
+// writeFailedProgramDump saves the combined Mangle program that failed analysis
+// and returns the path it wrote.
+//
+// It writes under .nerd/debug/ rather than the process working directory. The
+// dump used to land wherever the process happened to be running, which put a
+// 700 KB debug_program_ERROR.mg *inside the scanned source tree* — and the
+// world scanner duly ingested it, asserting knowledge_link facts like
+// pred:panic_state/2 "defined_in" debug_program_ERROR.mg. A crash artifact was
+// being indexed as if it were real source, polluting the knowledge graph with
+// duplicate predicate definitions. .nerd/ is excluded from scans, so putting it
+// there fixes every ingestion path at once instead of adding a skip list to
+// each one.
+func writeFailedProgramDump(programStr string) (string, error) {
+	dir := filepath.Join(".nerd", "debug")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create debug dir: %w", err)
+	}
+	path := filepath.Join(dir, "debug_program_ERROR.mg")
+	if err := os.WriteFile(path, []byte(programStr), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
 }

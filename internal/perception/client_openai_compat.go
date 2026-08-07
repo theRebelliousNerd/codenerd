@@ -256,6 +256,19 @@ func isRetryableServerStatus(code int) bool {
 	return code >= 500 && code != http.StatusNotImplemented
 }
 
+// isTransientModelNotFound reports a 404 that claims the model does not exist
+// when it demonstrably does.
+//
+// Observed live: Meta answered `404 {"code":"model_not_found"}` for
+// muse-spark-1.2 mid-session, killing a shard delegation outright — while the
+// same model, same key and the same streaming+tools request shape returned 200
+// immediately before and after, and had already served ~200 calls that day.
+// A genuinely wrong model name costs one wasted retry; a spurious one currently
+// costs the whole turn, so retrying is the cheaper error.
+func isTransientModelNotFound(code int, body string) bool {
+	return code == http.StatusNotFound && strings.Contains(body, "model_not_found")
+}
+
 // isSchemaRejection reports whether a 400 body blames the structured-output
 // schema, so the caller can retry without response_format instead of failing
 // the turn.
@@ -445,9 +458,9 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 			// live: a single `500 internal server error` from Meta killed the
 			// turn outright even though the identical request succeeded on the
 			// next attempt. Retry these on the same backoff as 429.
-			if isRetryableServerStatus(resp.StatusCode) {
+			if isRetryableServerStatus(resp.StatusCode) || isTransientModelNotFound(resp.StatusCode, bodyStr) {
 				wait := retryDelay(resp, attempt)
-				logging.PerceptionWarn("[%s] server error (%d), retrying in %v", c.vendor, resp.StatusCode, wait)
+				logging.PerceptionWarn("[%s] retryable failure (%d), retrying in %v", c.vendor, resp.StatusCode, wait)
 				lastErr = fmt.Errorf("%s API request failed with status %d: %s", c.vendor, resp.StatusCode, bodyStr)
 				if sleepErr := sleepCtx(ctx, wait); sleepErr != nil {
 					return nil, sleepErr
