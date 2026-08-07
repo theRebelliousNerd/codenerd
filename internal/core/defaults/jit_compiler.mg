@@ -9,6 +9,7 @@
 Decl has_constraint(Atom, Dim).
 Decl satisfied_constraint(Atom, Dim).
 Decl blocked_by_context(Atom).
+Decl regime_dimension(Dim) bound [/name].
 
 # Selection predicates
 Decl mandatory_selection(Atom).
@@ -67,9 +68,60 @@ satisfied_constraint(Atom, Dim) :-
 # An atom is blocked only if context EXPLICITLY has a different value for Dim.
 # If context doesn't specify a dimension at all, atoms with that dimension pass through.
 # This prevents atoms from being blocked when their dimension isn't relevant to current context.
+#
+# This permissive default is correct for SITUATIONAL dimensions (language,
+# framework, campaign phase): "no language in context" should not suppress an
+# atom that happens to mention Go.
 blocked_by_context(Atom) :-
     has_constraint(Atom, Dim),
     current_context(Dim, _),
+    !satisfied_constraint(Atom, Dim).
+
+# ...but a REGIME dimension is not situational. It answers "which workflow is
+# this compile part of", and the honest answer for a compile that never set the
+# dimension is "not that one" -- so these are fail-closed.
+#
+# /shard   -- which persona is speaking
+# /mode    -- which operating mode (active, dream, thunderdome, ...)
+# /phase   -- which campaign phase
+# /layer   -- which build layer
+# /init_phase, /northstar_phase, /ouroboros_stage -- which step of a wizard
+#
+# Under the permissive rule alone, a compile that set none of these admitted
+# EVERY atom gated on them. Observed live: one `explain this file` turn compiled
+# 114 mandatory atoms / ~60k tokens carrying 25+ contradictory identities
+# (Nemesis, Coder, Tester, Legislator, Perception Firewall, the Ouroboros Tool
+# Generator, the Northstar wizard's "thought partner", ...). The model obeyed
+# the Perception Layer persona it found there -- "you describe what the user
+# wants, the harness fulfills it" -- and answered with an intent announcement
+# instead of doing the work. Identity leakage does not degrade a prompt, it
+# replaces the agent.
+#
+# Every one of these dimensions has a real producer, so the workflows that need
+# their own atoms still get them: /shard from the assembler, /phase from the
+# session context, /init_phase from internal/init/jit_integration.go,
+# /northstar_phase from cmd/nerd/chat/northstar_llm.go, /ouroboros_stage and
+# /layer from SessionContext.ExtraContext.
+#
+# /intent and /lang are deliberately NOT here. /lang is a relevance hint, and
+# /intent gates the bulk of useful flesh -- an atom that mentions `/fix` is
+# still worth reading on a turn whose verb has not been resolved.
+#
+# Go's matchSelector already implements exactly this (a constraint with no
+# context value returns false), but it only runs in fallbackFleshSelection --
+# the path used when Mangle is unavailable. This makes the live kernel path
+# agree with it.
+regime_dimension(/shard).
+regime_dimension(/mode).
+regime_dimension(/phase).
+regime_dimension(/layer).
+regime_dimension(/init_phase).
+regime_dimension(/northstar_phase).
+regime_dimension(/ouroboros_stage).
+
+blocked_by_context(Atom) :-
+    regime_dimension(Dim),
+    has_constraint(Atom, Dim),
     !satisfied_constraint(Atom, Dim).
 
 # Safe Skeleton: Mandatory atoms that are NOT blocked.

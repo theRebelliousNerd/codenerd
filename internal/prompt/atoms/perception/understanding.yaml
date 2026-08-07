@@ -5,6 +5,19 @@ description: Prompt for LLM-first intent classification
 
 # This prompt instructs the LLM to deeply understand user intent
 # and output a structured Understanding for harness routing.
+#
+# Gated to the transducer's own compile. getUnderstandingPrompt (see
+# internal/perception/understanding_adapter.go) calls
+# AssembleSystemPrompt(ctx, "perception-transducer", "perception"), which the
+# assembler turns into ShardType=/perception -- so this atom still reaches the
+# one prompt it was written for.
+#
+# Without the gate it was mandatory and unconditional, so it landed in EVERY
+# shard compile. Its instruction is the opposite of what a shard must do:
+# "You describe what the user wants. The harness determines how to fulfill it."
+# A `/explain` turn that inherited it answered by announcing the intent instead
+# of explaining the file.
+shard_types: ["/perception"]
 
 content: |
   ## Your Role: Perception Layer

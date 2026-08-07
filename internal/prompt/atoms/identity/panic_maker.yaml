@@ -124,6 +124,11 @@
   subcategory: "philosophy"
   priority: 60
   is_mandatory: false
+  # Gated like its siblings (mission, capabilities). Without a selector this
+  # persona fragment was a candidate in EVERY compile for every shard, since an
+  # atom with no gating dimension matches all contexts.
+  operational_modes: ["/thunderdome"]
+  depends_on: ["identity/panic_maker/mission"]
   content: |
     ## Philosophy
 

@@ -579,6 +579,27 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 		TokenBudget:     budget,
 	}
 
+	// Derive the persona this turn is acting as. Without it the compilation
+	// context carries no /shard dimension, and jit_compiler.mg's
+	// blocked_by_context only blocks an atom when the context HAS that
+	// dimension — so every shard-gated atom in the corpus was admitted. A
+	// single "explain this file" turn arrived with 114 mandatory atoms and
+	// ~60k tokens containing 25+ contradictory identities (Nemesis, Coder,
+	// Tester, Legislator, Perception Firewall, ...). The model then obeyed
+	// whichever it latched onto — usually the Perception Layer's "you describe
+	// what the user wants, the harness fulfills it" — and returned an intent
+	// announcement instead of doing the work. That is the hollow-output class
+	// previously treated as a model failure and papered over with retries.
+	//
+	// GetShardTypeForVerb is the same verb->persona mapping the routing layer
+	// uses, so the prompt agrees with the router about who is acting.
+	if shardType := perception.GetShardTypeForVerb(intent.Verb); shardType != "" {
+		cc.ShardType = "/" + strings.TrimPrefix(shardType, "/")
+		// ShardID selects the per-shard atom DB and must be the bare agent
+		// name, not an instance id.
+		cc.ShardID = strings.TrimPrefix(shardType, "/")
+	}
+
 	// Determine world states from kernel facts
 	if e.kernel != nil {
 		// Check for failing tests
@@ -665,10 +686,50 @@ func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient,
 	if err != nil {
 		return nil, err
 	}
+	e.warnOnDroppedToolRequests(text, cfg)
 	return &types.LLMToolResponse{
 		Text:       text,
 		StopReason: "end_turn",
 	}, nil
+}
+
+// warnOnDroppedToolRequests surfaces the case where the model asked for tools we
+// never offered it.
+//
+// This path runs with an empty tool catalog, so a tool_request in the envelope
+// cannot be executed -- but it MUST NOT be silent. Live, `nerd explain <file>`
+// hit a verb with no config atom, got zero tools, and the model responded with
+// required tool_requests for read_file and get_elements plus the surface text
+// "reading the file now...". The harness printed that sentence, logged
+// "Execution complete: 0 tool calls", and exited 0. To every downstream
+// consumer -- including the meta-cognitive supervisor, which was told
+// "Success: true" -- the turn had succeeded.
+//
+// The tool grant is the real fix (see NewDefaultConfigAtomProvider). This is the
+// detector that keeps the next instance of it from being invisible.
+func (e *Executor) warnOnDroppedToolRequests(text string, cfg *config.EffectiveAgentRuntimeConfig) {
+	processed := articulation.ProcessLLMResponse(text)
+	if processed.Control == nil || len(processed.Control.ToolRequests) == 0 {
+		return
+	}
+
+	names := make([]string, 0, len(processed.Control.ToolRequests))
+	required := 0
+	for _, req := range processed.Control.ToolRequests {
+		names = append(names, req.ToolName)
+		if req.Required {
+			required++
+		}
+	}
+
+	verb := "<unknown>"
+	if cfg != nil && cfg.IntentVerb != "" {
+		verb = cfg.IntentVerb
+	}
+	logging.Get(logging.CategorySession).Warn(
+		"Dropped %d tool_request(s) (%d required) for intent %s: the model asked for [%s] "+
+			"but no tools were configured, so this turn answered blind and still reports success",
+		len(names), required, verb, strings.Join(names, ", "))
 }
 
 // generateResponseWithPiggybackTools uses structured output for tool invocation.

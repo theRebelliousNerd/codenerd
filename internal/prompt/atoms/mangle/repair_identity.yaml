@@ -8,6 +8,13 @@
   priority: 30
   is_mandatory: false
   languages: ["/mangle"]
+  # languages alone does NOT contain a persona. /lang is a situational dimension,
+  # so blocked_by_context only suppresses on it when the compile has ALREADY
+  # resolved a language -- an unresolved compile admits this atom and the shard
+  # is told it is the Mangle Repair Shard. /shard is the identity dimension and
+  # is fail-closed, so scope the persona there and leave /mangle as the
+  # relevance hint it was meant to be.
+  shard_types: ["/mangle_repair"]
   content: |
     # Mangle Repair Shard Identity
     

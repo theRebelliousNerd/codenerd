@@ -3,11 +3,11 @@ package prompt
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 
 	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
+	"codenerd/internal/logging"
 )
 
 // ConfigAtom represents a configuration fragment associated with an intent.
@@ -81,15 +81,21 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 			found = true
 			continue
 		}
-		// Specialists arrive as "/consult/<persona>" from the chat layer.
-		// If no exact atom is registered for that persona, fall back to the
-		// /general atom so the agent still gets a reasonable tool set
-		// rather than running with zero capability.
-		if strings.HasPrefix(intent, "/consult/") {
-			if atom, ok := f.provider.GetAtom("/general"); ok {
-				finalAtom = finalAtom.Merge(atom)
-				found = true
-			}
+		// An unregistered intent falls back to /general so the agent still gets
+		// a read-only tool set rather than running with zero capability.
+		//
+		// This used to apply only to "/consult/<persona>" specialists, so every
+		// OTHER unregistered verb produced AllowedTools == nil. That is a worse
+		// failure than it looks: the caller logs a WARN, keeps the empty config,
+		// and proceeds to answer from an empty tool catalog -- the agent has no
+		// way to read a file and no way to say so. Degrade loudly, don't
+		// silently disarm.
+		if atom, ok := f.provider.GetAtom("/general"); ok {
+			logging.Get(logging.CategoryContext).Warn(
+				"No config atom for intent %q; falling back to /general read-only tools. "+
+					"Canonical verbs belong in NewDefaultConfigAtomProvider.", intent)
+			finalAtom = finalAtom.Merge(atom)
+			found = true
 		}
 	}
 
@@ -249,8 +255,31 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"write_file", // Can write documentation
 	)
 
+	// The intent lists below must cover every verb in
+	// perception.DefaultTaxonomyData, and each verb belongs to the persona that
+	// taxonomy declares as its ShardType. TestConfigAtoms_EveryTaxonomyVerbHasTools
+	// pins that; read it before editing these lists.
+	//
+	// They drifted badly once. The taxonomy grew to 36 verbs while this file
+	// still listed 9 of them plus a dozen synonyms that were never canonical
+	// ("/implement", "/check", "/find", ...), leaving 27 verbs with NO config
+	// atom. An unregistered verb resolved to zero AllowedTools, which made
+	// buildToolCatalogForPiggyback emit nothing and buildToolDefinitions log
+	// "no tools configured" -- so `nerd explain <file>` could not read the file
+	// it was asked to explain. It answered "reading the file now..." and exited
+	// 0. /explain is the highest-volume verb in the product.
+	//
+	// Non-canonical aliases are kept: they cost nothing and the perception layer
+	// has historically emitted some of them.
+
 	// Register coder intents
-	for _, intent := range []string{"/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"} {
+	for _, intent := range []string{
+		"/fix", "/refactor", "/create", "/write", "/delete", "/debug",
+		"/campaign", "/git", "/migrate", "/optimize", "/document",
+		"/scaffold", "/format",
+		// non-canonical aliases
+		"/implement", "/modify", "/add", "/update",
+	} {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    coderTools,
 			Policies: copyPolicySet(core.PolicySetCoder),
@@ -259,7 +288,11 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	}
 
 	// Register tester intents
-	for _, intent := range []string{"/test", "/cover", "/verify", "/validate"} {
+	for _, intent := range []string{
+		"/test", "/benchmark", "/profile",
+		// non-canonical aliases
+		"/cover", "/verify", "/validate",
+	} {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    testerTools,
 			Policies: copyPolicySet(core.PolicySetTester),
@@ -268,7 +301,11 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	}
 
 	// Register reviewer intents
-	for _, intent := range []string{"/review", "/audit", "/check", "/analyze", "/inspect"} {
+	for _, intent := range []string{
+		"/review", "/review_enhance", "/security", "/analyze", "/audit", "/lint",
+		// non-canonical aliases
+		"/check", "/inspect",
+	} {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    reviewerTools,
 			Policies: copyPolicySet(core.PolicySetReviewer),
@@ -277,7 +314,11 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	}
 
 	// Register researcher intents
-	for _, intent := range []string{"/research", "/learn", "/document", "/understand", "/explore", "/find"} {
+	for _, intent := range []string{
+		"/explore", "/search", "/research", "/init",
+		// non-canonical aliases
+		"/learn", "/understand", "/find",
+	} {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    researcherTools,
 			Policies: copyPolicySet(core.PolicySetResearcher),
@@ -309,7 +350,11 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"run_tests",
 		"run_command",
 	)
-	for _, intent := range []string{"/generate", "/generate-tool", "/tool_generator", "/create_tool"} {
+	for _, intent := range []string{
+		"/generate_tool",
+		// non-canonical aliases
+		"/generate", "/generate-tool", "/tool_generator", "/create_tool",
+	} {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    toolGenTools,
 			Policies: copyPolicySet(core.PolicySetToolGenerator),
@@ -322,6 +367,22 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		Tools:    coreTools,
 		Policies: copyPolicySet(core.PolicySetBase),
 		Priority: 50,
+	}
+
+	// Taxonomy verbs whose declared ShardType is /none. They route no persona,
+	// but "no persona" is not "no hands" -- /explain and /read exist to describe
+	// files, and answering from the filename alone is exactly the hallucination
+	// the constitutional prompt forbids. Core tools are read-only, so this grants
+	// the ability to look without the ability to change anything.
+	for _, intent := range []string{
+		"/explain", "/read", "/stats", "/knowledge", "/help", "/greet",
+		"/configure", "/dream", "/shadow", "/assault",
+	} {
+		provider.atoms[intent] = ConfigAtom{
+			Tools:    coreTools,
+			Policies: copyPolicySet(core.PolicySetBase),
+			Priority: 50,
+		}
 	}
 
 	return provider
