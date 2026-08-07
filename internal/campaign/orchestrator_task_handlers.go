@@ -1,11 +1,13 @@
 package campaign
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -680,10 +682,22 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 		"capability": capability,
 	})
 
+	// capability originates from LLM-authored task text, so it must be escaped
+	// before being interpolated into a Mangle query. Raw interpolation of a
+	// value containing a quote or newline produced a malformed query whose
+	// error was then swallowed by the `err == nil` guard below, leaving this
+	// loop to spin for the full 30 minutes and report "pending" as a success.
+	quotedCapability := strconv.Quote(capability)
+
 	// Poll for tool_ready or tool_registered fact (with timeout)
 	timeout := time.After(30 * time.Minute)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+
+	// A query that errors every tick can never succeed; bail out rather than
+	// burning the whole timeout on it.
+	const maxConsecutiveQueryErrors = 3
+	queryErrors := 0
 
 	for {
 		select {
@@ -699,7 +713,7 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 			}, nil
 		case <-ticker.C:
 			// Check if tool is now registered
-			facts, err := o.kernel.Query(fmt.Sprintf(`tool_registered("%s")`, capability))
+			facts, err := o.kernel.Query(fmt.Sprintf(`tool_registered(%s)`, quotedCapability))
 			if err == nil && len(facts) > 0 {
 				return map[string]any{
 					"status":     "complete",
@@ -709,12 +723,24 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 			}
 
 			// Also check has_capability
-			capFacts, capErr := o.kernel.Query(fmt.Sprintf(`has_capability("%s")`, capability))
+			capFacts, capErr := o.kernel.Query(fmt.Sprintf(`has_capability(%s)`, quotedCapability))
 			if capErr == nil && len(capFacts) > 0 {
 				return map[string]any{
 					"status":     "complete",
 					"capability": capability,
 				}, nil
+			}
+
+			if err != nil || capErr != nil {
+				queryErrors++
+				logging.CampaignWarn("tool_create poll query failed for capability %q (%d/%d): tool_registered=%v has_capability=%v",
+					capability, queryErrors, maxConsecutiveQueryErrors, err, capErr)
+				if queryErrors >= maxConsecutiveQueryErrors {
+					return nil, fmt.Errorf("tool registration poll for %q failed %d consecutive times: %w",
+						capability, queryErrors, cmp.Or(err, capErr))
+				}
+			} else {
+				queryErrors = 0
 			}
 		}
 	}
