@@ -415,7 +415,23 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	}
 
 	prompt := buildCriticPrompt(files, grounding)
-	response, err := client.CompleteWithSystem(ctx, criticSystemPrompt, prompt)
+
+	// Bound the review independently of the turn.
+	//
+	// Observed live on the first run of this gate: the critic call started
+	// (prompt_len=11407) and had not returned twenty minutes later, with no log
+	// line after it — the turn had finished its work, passed the build and test
+	// gates, and was then held open indefinitely by an advisory review. The
+	// client's own timeout did not save it.
+	//
+	// An advisory gate that cannot fail a turn but CAN hang one is worse than no
+	// gate at all: the failure is invisible and unbounded. A review that has not
+	// come back in criticTimeout is abandoned and the turn proceeds without it,
+	// which is precisely the behaviour "advisory" is supposed to mean.
+	criticCtx, cancelCritic := context.WithTimeout(ctx, criticTimeout)
+	defer cancelCritic()
+
+	response, err := client.CompleteWithSystem(criticCtx, criticSystemPrompt, prompt)
 	if err != nil {
 		// The critic is advisory. A failed review is a missing opinion, not a
 		// failed turn.
@@ -438,7 +454,10 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	}
 
 	history = append(history, types.Message{Role: "user", Text: formatUpliftPrompt(worth)})
-	uplifted, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, toolDefs)
+	upliftCtx, cancelUplift := context.WithTimeout(ctx, criticUpliftTimeout)
+	defer cancelUplift()
+
+	uplifted, err := trp.CompleteWithToolResults(upliftCtx, systemPrompt, history, toolDefs)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("uplift round failed (%v); turn continues", err)
 		return nil, nil
@@ -451,6 +470,18 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	}
 	return uplifted, upliftErrs
 }
+
+// criticTimeout bounds the adversarial review call.
+//
+// Three minutes is deliberately shorter than the client's own ceiling. The
+// review is the least important of the three gates and the only one whose
+// backend can stall without erroring; the cost of abandoning it is one missing
+// opinion, while the cost of waiting is the whole turn.
+const criticTimeout = 3 * time.Minute
+
+// criticUpliftTimeout bounds the follow-up round for the same reason. It is
+// longer than the review itself because this round makes real edits.
+const criticUpliftTimeout = 5 * time.Minute
 
 // criticSystemPrompt keeps the reviewer in the one role that makes it useful.
 const criticSystemPrompt = "You are a rigorous, adversarial code reviewer. You report only " +

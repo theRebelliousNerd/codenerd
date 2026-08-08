@@ -8,6 +8,7 @@ import (
 	"codenerd/internal/types"
 	"strings"
 	"testing"
+	"time"
 )
 
 // F-CRITIC: the build and test gates prove edits compile and were executed;
@@ -629,3 +630,74 @@ func TestCriticSeverityRank(t *testing.T) {
 	}
 }
 
+// The critic must not be able to hold a turn open.
+//
+// Observed live on this gate's first run: the review call started
+// (prompt_len=11407) and had not returned twenty minutes later. The turn's work
+// was done and both hard gates had passed; an advisory review was holding it.
+// An advisory gate that cannot fail a turn but CAN hang one is worse than no
+// gate, because the failure is invisible and unbounded.
+func TestCriticTimeouts_AreBounded(t *testing.T) {
+	if criticTimeout <= 0 || criticTimeout > 5*time.Minute {
+		t.Errorf("criticTimeout = %v; an advisory review must be bounded and short", criticTimeout)
+	}
+	if criticUpliftTimeout <= 0 || criticUpliftTimeout > 10*time.Minute {
+		t.Errorf("criticUpliftTimeout = %v; the uplift round must be bounded", criticUpliftTimeout)
+	}
+	// The review must be the shorter of the two: it produces an opinion, while
+	// the uplift round makes real edits.
+	if criticTimeout > criticUpliftTimeout {
+		t.Errorf("criticTimeout (%v) exceeds criticUpliftTimeout (%v); the cheap advisory call should be bounded tighter than the one that edits",
+			criticTimeout, criticUpliftTimeout)
+	}
+}
+
+// A stalled reviewer must yield the turn, not block it. This drives the gate
+// with a client that never returns and asserts it gives up.
+func TestVerifyAndUpliftWithCritic_AbandonsAStalledReview(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package p\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg := DefaultExecutorConfig()
+	cfg.WorkspaceRoot = ws
+	e := &Executor{config: cfg, llmClient: hangingLLM{}}
+
+	// A context the caller cancels is the mechanism that must win. Without the
+	// bound inside the gate, this call would never return.
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		e.verifyAndUpliftWithCritic(ctx, stubToolResults{}, "", nil, nil, nil,
+			&ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("critic gate did not return after its context expired; it can hang a turn")
+	}
+}
+
+// hangingLLM never answers, which is what the live stall looked like.
+type hangingLLM struct{}
+
+func (hangingLLM) Complete(ctx context.Context, _ string) (string, error) {
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+func (h hangingLLM) CompleteWithSystem(ctx context.Context, _, _ string) (string, error) {
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+func (hangingLLM) CompleteWithStreaming(ctx context.Context, _, _ string, _ bool) (<-chan string, <-chan error) {
+	return nil, nil
+}
+func (hangingLLM) CompleteWithTools(ctx context.Context, _, _ string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
