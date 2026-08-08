@@ -680,14 +680,11 @@ func (s *Store) IncrementTaskCount() (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, err := s.db.Exec(`UPDATE guardian_state SET tasks_since_check = tasks_since_check + 1 WHERE id = 1`)
-	if err != nil {
-		return 0, err
-	}
-
 	var count int
-	if err := s.db.QueryRow(`SELECT tasks_since_check FROM guardian_state WHERE id = 1`).Scan(&count); err != nil {
-		return 0, fmt.Errorf("load task count: %w", err)
+	// Parameterized query using RETURNING to atomically update and fetch the value
+	err := s.db.QueryRow(`UPDATE guardian_state SET tasks_since_check = tasks_since_check + 1 WHERE id = 1 RETURNING tasks_since_check`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("increment and load task count: %w", err)
 	}
 	return count, nil
 }
