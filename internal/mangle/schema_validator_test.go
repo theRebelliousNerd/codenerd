@@ -341,3 +341,54 @@ another_derived(Y) :- derived_fact(Y).
 		t.Error("Expected another_derived to be declared (from learned head)")
 	}
 }
+
+
+func TestValidateRules(t *testing.T) {
+	schemas := `
+Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
+Decl file_topology(Path.Type<string>).
+Decl next_action(Action.Type<name>).
+`
+	sv := NewSchemaValidator(schemas, "")
+	if err := sv.LoadDeclaredPredicates(); err != nil {
+		t.Fatalf("LoadDeclaredPredicates failed: %v", err)
+	}
+
+	tests := []struct {
+		name          string
+		rules         []string
+		expectedErrs  int
+	}{
+		{
+			"all valid rules",
+			[]string{
+				"next_action(/review) :- user_intent(_, /mutation, /review, _, _), file_topology(_).",
+				"file_topology(\"/src/main.go\").",
+			},
+			0,
+		},
+		{
+			"some invalid rules",
+			[]string{
+				"next_action(/review) :- undefined_predicate(X).",
+				"file_topology(\"/src/main.go\").",
+				"another_invalid(/x) :- foo(Y).",
+			},
+			2,
+		},
+		{
+			"empty rules",
+			[]string{},
+			0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := sv.ValidateRules(tt.rules)
+			if len(errs) != tt.expectedErrs {
+				t.Errorf("ValidateRules expected %d errors, got %d: %v", tt.expectedErrs, len(errs), errs)
+			}
+		})
+	}
+}
