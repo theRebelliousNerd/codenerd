@@ -176,6 +176,12 @@ type ExecutorConfig struct {
 // windows ≥128K and still leaves headroom for response + tool I/O.
 const DefaultTokenBudget = 65536
 
+// defaultSemanticTopK matches the value NewCompilationContext applies. This
+// path builds the CompilationContext as a literal, so it gets no defaults from
+// that constructor and must supply its own — a zero here reaches
+// VectorSearcher.Search as topK=0.
+const defaultSemanticTopK = 20
+
 // DefaultExecutorConfig returns sensible defaults.
 func DefaultExecutorConfig() ExecutorConfig {
 	return ExecutorConfig{
@@ -624,6 +630,32 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 		IntentTarget:    intent.Target,
 		OperationalMode: "/active",
 		TokenBudget:     budget,
+	}
+
+	// Drive vector atom selection.
+	//
+	// This struct is built literally, which bypasses the SemanticTopK default of
+	// 20 that NewCompilationContext applies, and SemanticQuery was never set at
+	// all. AtomSelector gates vector search on
+	// `s.vectorSearcher != nil && cc.SemanticQuery != ""`, so on the session
+	// executor path — every interactive turn and every CLI verb — the gate was
+	// always false and semantic search never ran. Observed live on one
+	// `nerd explain`: "vector=0ms | atoms=23 (skel=23 flesh=0)". The entire
+	// probabilistic half of the skeleton/flesh architecture was inert, with an
+	// embedding engine attached and 1,417 atoms indexed.
+	//
+	// The query is the target plus any constraint, which is the richest text
+	// available here — the same choice PromptAssembler.toCompilationContext
+	// makes (SemanticQuery = UserIntent.Target), widened because a bare file
+	// path embeds poorly and the constraint usually carries the real prose.
+	cc.SemanticQuery = strings.TrimSpace(intent.Target + " " + intent.Constraint)
+	if cc.SemanticQuery == "" {
+		// A verb alone is a weak query, but it is not nothing, and an empty
+		// string disables retrieval entirely.
+		cc.SemanticQuery = strings.TrimPrefix(intent.Verb, "/")
+	}
+	if cc.SemanticTopK <= 0 {
+		cc.SemanticTopK = defaultSemanticTopK
 	}
 
 	// Derive the persona this turn is acting as. Without it the compilation

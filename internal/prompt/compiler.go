@@ -240,8 +240,13 @@ type CompilationResult struct {
 	IncludedAtoms []*PromptAtom
 
 	// Token usage statistics
-	TotalTokens    int
-	BudgetUsed     float64 // Percentage of budget used
+	TotalTokens int
+	BudgetUsed  float64 // Percentage of budget used
+	// MandatoryCount / OptionalCount hold the skeleton / flesh split by
+	// CATEGORY (isSkeletonCategory), which is what the stats derived from them
+	// are labelled as. The names predate the skeleton/flesh vocabulary; they do
+	// NOT count the IsMandatory flag, and classifying on that flag is what made
+	// the JIT summary report flesh=0 while flesh atoms were being selected.
 	MandatoryCount int
 	OptionalCount  int
 
@@ -976,7 +981,22 @@ func (c *JITPromptCompiler) buildResultWithStats(
 		result.TotalTokens += atomTokens
 		result.CategoryTokens[oa.Atom.Category] += atomTokens
 
-		if oa.Atom.IsMandatory {
+		// Skeleton vs flesh is a CATEGORY distinction (identity, protocol,
+		// safety, methodology are skeleton — see isSkeletonCategory), not a
+		// mandatory-flag distinction.
+		//
+		// These counters classified on oa.Atom.IsMandatory and were reported as
+		// "skel=" / "flesh=" in the JIT summary line and as
+		// skeleton_atoms/flesh_atoms in the compilation_complete event. Because
+		// flesh-category atoms can also be mandatory, the summary printed
+		// "atoms=23 (skel=23 flesh=0)" on a compilation whose own selector had
+		// just logged "Merged 13 skeleton + 10 flesh = 23 total atoms".
+		//
+		// flesh=0 reads as "the probabilistic half of the architecture selected
+		// nothing", which is a wrong and expensive conclusion to hand a reader
+		// — it was drawn from this very line while diagnosing F-JIT-4. The two
+		// logs now measure the same thing and must agree.
+		if isSkeletonCategory(oa.Atom.Category) {
 			result.MandatoryCount++
 			skeletonTokens += atomTokens
 		} else {

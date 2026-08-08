@@ -364,9 +364,21 @@ func TestJITPromptCompiler_CompileResult(t *testing.T) {
 		assert.Greater(t, result.TotalTokens, 0)
 	})
 
-	t.Run("tracks mandatory vs optional", func(t *testing.T) {
-		assert.Equal(t, 1, result.MandatoryCount)
-		assert.GreaterOrEqual(t, result.OptionalCount, 0)
+	// MandatoryCount/OptionalCount are the skeleton/flesh split by CATEGORY,
+	// which is what the JIT summary and compilation_complete event label them
+	// as. The fixture above holds two skeleton-category atoms (identity,
+	// protocol) and one flesh-category atom (exemplar).
+	//
+	// This asserted MandatoryCount == 1, encoding the previous behaviour of
+	// classifying on the IsMandatory flag — only "identity" sets it. That
+	// mismatch is the defect: it made the summary print "skel=23 flesh=0" on a
+	// compilation whose selector had logged "13 skeleton + 10 flesh", because
+	// flesh-category atoms can also be mandatory.
+	t.Run("tracks skeleton vs flesh by category", func(t *testing.T) {
+		assert.Equal(t, 2, result.MandatoryCount, "identity and protocol are both skeleton categories")
+		assert.Equal(t, 1, result.OptionalCount, "exemplar is a flesh category")
+		assert.Equal(t, len(result.IncludedAtoms), result.MandatoryCount+result.OptionalCount,
+			"every included atom must land in exactly one half of the split")
 	})
 
 	t.Run("tracks category tokens", func(t *testing.T) {
