@@ -169,3 +169,43 @@ isolated `git worktree add ../codeNERD-<slug>` (immune to the main tree's branch
 switches) and push the branch. Note: a fresh worktree lacks the gitignored
 `.nerd/config.json`, so live `nerd` runs must use the main tree (once stable) or a
 copied-in config — never Write the original config.
+
+## Dream/shadow consulted daemon shards — F-DREAM-3, F-CAMP-2 (2026-08-08)
+
+`nerd dream <scenario>` ran its full 25-minute budget, EXIT=124, and emitted 376
+bytes: the header, the "Consulting 9 agents" line, and nothing else. No agent
+perspective, no error.
+
+**Root cause (F-DREAM-3), `internal/core/shards/manager.go`.**
+`ListAvailableShards` typed factory-registered shards from a hardcoded list of
+six system-shard names and labelled everything else `ephemeral`. The list had
+drifted from the registry: `mangle_repair`, `campaign_runner` and `legislator`
+all register `system` profiles (`internal/shards/registration.go`) but were
+reported `ephemeral`. dream and shadow filter on `ShardTypeSystem`, so they
+consulted all three. `CampaignRunnerShard.Execute` is an infinite supervision
+loop that only returns on cancellation — dream waited on it until its own
+deadline. Fixed by reading the type off the registered profile; the name list
+survives only as a fallback for a factory with no profile. `fcf0e849`
+
+**Second-order (F-CAMP-2), `internal/shards/system/campaign_runner.go`.** Once
+consulted, the runner did not merely idle — it loaded a real 22-task campaign
+off disk and tried to start it 299 times in 25 minutes, once every 5 seconds,
+each blocked by the same gate ("mandatory northstar safety review missing").
+`restartBackoffSec` doubled only when `LoadCampaign` failed; when the load
+succeeded and `orch.Run` returned the error, `tick()` **reset** the backoff to 5.
+The common failure path defeated the backoff the rare one set up. 850 attempts
+across the day. Fixed by codeNERD via `nerd fix`. `ed1f96c1`
+
+**How to apply.** Two lessons. (1) A hardcoded name list beside a registry always
+drifts; derive the type from the registry. (2) Dream's contract is "do NOT
+execute any actions" — but `DreamMode` is honoured in the session executor path
+(`executor.go`, `spawner.go`, `task_executor.go`) and *not* by system shards'
+own `Execute`. A system shard reached through dream will still do real work.
+That gap is closed here by not consulting them at all, not by the flag.
+
+**Verification note.** codeNERD's regression test initially appeared to pin the
+backoff, but against the pre-fix file it *panicked* on a nil `Kernel` rather than
+failing the assertion. Re-checked by reverting only the backoff logic while
+holding the new nil-guards constant: it then failed with
+`restartBackoffSec = 5, want 10`. A regression test that fails for the wrong
+reason has not pinned anything.
