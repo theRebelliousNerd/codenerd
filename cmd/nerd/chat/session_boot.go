@@ -635,7 +635,12 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		// This replaces LegacyBridge which wrapped ShardManager
 		taskExecutor = session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
 		virtualStore.SetTaskExecutor(&chatTaskDelegatorAdapter{executor: taskExecutor})
-		logging.Boot("JITExecutor wired to VirtualStore")
+		// Same executor for ShardManager's no-factory fallback. Domain personas
+		// and user-defined agents have no in-process factory since the JIT
+		// migration; without this, ShardManager.Spawn on those types resolved to
+		// a BaseShardAgent that returned a placeholder with a nil error.
+		shardMgr.SetTaskDelegator(&chatTaskDelegatorAdapter{executor: taskExecutor})
+		logging.Boot("JITExecutor wired to VirtualStore and ShardManager")
 
 		// Create Tool Store for persisting full tool execution results
 		var toolStore *store.ToolStore

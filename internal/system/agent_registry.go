@@ -262,6 +262,49 @@ func writeAgentRegistry(registryPath string, reg agentRegistryFile, existingByte
 	return true, nil
 }
 
+// UserAgentDefinition is the runtime-relevant slice of a .nerd/agents.json
+// entry: the agent's name and the tool names it is allowed to call.
+type UserAgentDefinition struct {
+	Name  string
+	Tools []string
+}
+
+// LoadUserAgentDefinitions reads .nerd/agents.json and returns the declared
+// user agents.
+//
+// The `tools` array in that file has been written since agent creation
+// (internal/init/agents.go:472-473 via GetToolsForAgentType, persisted at :616
+// and :710) and read by nothing. An agent therefore declared a toolchain and
+// then executed with whatever the /general fallback happened to grant, which is
+// read-only — so a specialist asked to change code could only produce prose.
+// registerUserAgentConfigAtoms in factory.go is the consumer that closes the loop.
+//
+// Best-effort: a missing or malformed registry yields no definitions rather
+// than an error, because boot must not fail on a user-editable cache file.
+func LoadUserAgentDefinitions(workspace string) []UserAgentDefinition {
+	if strings.TrimSpace(workspace) == "" {
+		return nil
+	}
+	registryPath := filepath.Join(workspace, ".nerd", "agents.json")
+	reg, _, err := loadAgentRegistry(registryPath)
+	if err != nil {
+		return nil
+	}
+
+	defs := make([]UserAgentDefinition, 0, len(reg.Agents))
+	for _, agent := range reg.Agents {
+		name := strings.TrimSpace(agent.Name)
+		if name == "" {
+			continue
+		}
+		defs = append(defs, UserAgentDefinition{
+			Name:  name,
+			Tools: append([]string(nil), agent.Tools...),
+		})
+	}
+	return defs
+}
+
 func countAgentAtoms(dbPath string) (int, error) {
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {

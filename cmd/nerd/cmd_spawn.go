@@ -5,7 +5,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"regexp"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -57,14 +58,36 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	topic, _ := cmd.Flags().GetString("topic")
 
-	// Validate name to prevent path traversal/injection
-	if !regexp.MustCompile(`^[a-zA-Z0-9_-]+$`).MatchString(name) {
-		return fmt.Errorf("invalid agent name: must be alphanumeric (dash/underscore allowed)")
+	// Validate name to prevent path traversal/injection.
+	if err := coresys.ValidateAgentName(name); err != nil {
+		return err
 	}
 
 	logger.Info("Defining specialist agent",
 		zap.String("name", name),
 		zap.String("topic", topic))
+
+	ws := workspace
+	if strings.TrimSpace(ws) == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("resolve workspace: %w", err)
+		}
+		ws = cwd
+	}
+
+	// Persist the definition BEFORE booting. This command used to only call
+	// ShardManager.DefineProfile — an in-memory map that died with the process —
+	// so a "defined" agent left nothing on disk and `nerd spawn <name>` in the
+	// next process found no prompts, no knowledge DB, and no registry entry.
+	// Writing prompts.yaml first also means the Cortex boot below discovers the
+	// agent, syncs its atoms into .nerd/shards/<name>_knowledge.db, and registers
+	// that DB with the JIT compiler in this same run.
+	promptsPath, err := coresys.WriteAgentDefinition(ws, name, topic, topic)
+	if err != nil {
+		return fmt.Errorf("failed to write agent definition: %w", err)
+	}
+	fmt.Printf("Wrote agent definition: %s\n", promptsPath)
 
 	// Resolve API key
 	key := resolveAPIKey(apiKey, workspace)
@@ -76,8 +99,9 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 	}
 	defer cortex.Close()
 
-	config := coreshards.DefaultSpecialistConfig(name, fmt.Sprintf("memory/shards/%s_knowledge.db", name))
-
+	knowledgePath := filepath.Join(ws, ".nerd", "shards", fmt.Sprintf("%s_knowledge.db", strings.ToLower(name)))
+	config := coreshards.DefaultSpecialistConfig(name, knowledgePath)
+	config.Type = types.ShardTypeUser
 	cortex.ShardManager.DefineProfile(name, config)
 
 	// Trigger deep research phase (§9.2)
@@ -97,7 +121,7 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Agent '%s' defined with topic '%s'\n", name, topic)
-	fmt.Println("Knowledge shard will be populated during first spawn.")
+	fmt.Printf("Edit %s to shape its identity, then run: nerd spawn %s \"<task>\"\n", promptsPath, name)
 	return nil
 }
 

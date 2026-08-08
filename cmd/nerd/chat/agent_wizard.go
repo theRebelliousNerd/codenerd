@@ -3,10 +3,9 @@ package chat
 import (
 	nerdconfig "codenerd/internal/config"
 	coreshards "codenerd/internal/core/shards"
+	coresys "codenerd/internal/system"
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -155,127 +154,17 @@ func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 	}
 }
 
-// generateAgentPromptsTemplate generates a starter prompts.yaml template for a new agent.
-// Creates .nerd/agents/{name}/prompts.yaml with identity, methodology, and domain knowledge atoms.
+// generateAgentPromptsTemplate generates a starter prompts.yaml template for a
+// new agent and registers it in .nerd/agents.json.
+//
+// The template itself lives in internal/system (RenderAgentPromptsYAML) so the
+// chat wizard and `nerd define-agent` cannot drift apart; this wrapper keeps the
+// wizard's call shape.
 func generateAgentPromptsTemplate(workspace, agentName, role, topics string) error {
-	// Create agent directory
-	agentDir := filepath.Join(workspace, ".nerd", "agents", agentName)
-	if err := os.MkdirAll(agentDir, 0755); err != nil {
-		return fmt.Errorf("failed to create agent directory: %w", err)
+	promptsPath, err := coresys.WriteAgentDefinition(workspace, agentName, role, topics)
+	if err != nil {
+		return err
 	}
-
-	// Generate prompts.yaml template
-	promptsPath := filepath.Join(agentDir, "prompts.yaml")
-
-	// Build the YAML template
-	template := fmt.Sprintf(`# Prompt atoms for %[1]s
-# These are loaded into the JIT prompt compiler when the agent is spawned.
-# Edit this file to customize the agent's identity, methodology, and domain knowledge.
-
-- id: "%[1]s/identity"
-  category: "identity"
-  subcategory: "%[1]s"
-  priority: 100
-  is_mandatory: true
-  description: "Identity and mission for %[1]s"
-  content_concise: |
-    You are %[1]s, a specialist agent in the codeNERD ecosystem.
-    Domain: %[2]s
-    Topics: %[3]s
-  content_min: |
-    You are %[1]s (%[2]s). Operate under the codeNERD kernel.
-  content: |
-    You are %[1]s, a specialist agent in the codeNERD ecosystem.
-
-    ## Domain
-    %[2]s
-
-    ## Research Topics
-    %[3]s
-
-    ## Core Responsibilities
-    - Provide expert guidance in your domain
-    - Follow best practices and established patterns
-    - Maintain high code quality standards
-    - Integrate seamlessly with the codeNERD architecture
-
-    ## Execution Mode
-    You operate under the control of the codeNERD kernel. You receive structured tasks
-    with clear objectives, focus patterns, and success criteria. Execute precisely.
-
-- id: "%[1]s/methodology"
-  category: "methodology"
-  subcategory: "%[1]s"
-  priority: 80
-  is_mandatory: false
-  depends_on: ["%[1]s/identity"]
-  description: "Methodology and quality bar for %[1]s"
-  content_concise: |
-    - Understand context before acting
-    - Consider edge cases and failure modes
-    - Write clear, maintainable code
-    - Verify with tests when feasible
-  content_min: |
-    Be precise, verify assumptions, and preserve correctness.
-  content: |
-    ## Methodology
-
-    ### Analysis Approach
-    - Understand the full context before acting
-    - Consider edge cases and failure modes
-    - Think through implications of changes
-
-    ### Implementation Standards
-    - Follow language idioms and conventions
-    - Write clear, maintainable code
-    - Include comprehensive error handling
-    - Document non-obvious decisions
-
-    ### Quality Assurance
-    - Verify assumptions before proceeding
-    - Test critical paths
-    - Consider performance implications
-    - Ensure backward compatibility when applicable
-
-- id: "%[1]s/domain"
-  category: "domain"
-  subcategory: "%[1]s"
-  priority: 70
-  is_mandatory: false
-  depends_on: ["%[1]s/identity", "%[1]s/methodology"]
-  description: "Domain knowledge, pitfalls, and references for %[1]s"
-  content_concise: |
-    Domain: %[2]s
-    Topics: %[3]s
-  content_min: |
-    Apply domain best practices for: %[3]s
-  content: |
-    ## Domain-Specific Knowledge
-
-    ### Key Concepts
-    [Add specific concepts, patterns, or frameworks relevant to this domain]
-
-    ### Common Pitfalls
-    [Add known issues, gotchas, or anti-patterns to avoid]
-
-    ### Best Practices
-    [Add domain-specific best practices and guidelines]
-
-    ### Resources
-    Research Topics: %[3]s
-
-    [Add additional references, documentation links, or learning resources]
-`,
-		agentName, // 1: stable id prefix
-		role,      // 2: domain/role
-		topics,    // 3: topics
-	)
-
-	// Write the template
-	if err := os.WriteFile(promptsPath, []byte(template), 0644); err != nil {
-		return fmt.Errorf("failed to write prompts.yaml: %w", err)
-	}
-
 	fmt.Printf("[AgentWizard] ✓ Generated prompts.yaml template at %s\n", promptsPath)
 	return nil
 }

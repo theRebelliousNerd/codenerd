@@ -621,6 +621,32 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 		// ShardID selects the per-shard atom DB and must be the bare agent
 		// name, not an instance id.
 		cc.ShardID = strings.TrimPrefix(shardType, "/")
+	} else if agent := UserAgentFromIntentVerb(intent.Verb); agent != "" {
+		// The verb is not in the built-in taxonomy, which leaves exactly one
+		// population: user-defined agents from .nerd/agents/<name>/prompts.yaml,
+		// reached as "/consult/<name>" (chat delegation) or "/<name>"
+		// (`nerd spawn <name>`, Cortex.SpawnTask).
+		//
+		// Two separate breakages were fixed by these two lines.
+		//
+		// ShardID: boot parses the agent's prompts.yaml into
+		// .nerd/shards/<name>_knowledge.db and registers it with the JIT
+		// compiler under the agent's name (internal/system/factory.go
+		// RegisterAgentDBWithJIT). collectAtomsWithStats only reads that DB when
+		// CompilationContext.ShardID names it. Nothing ever set ShardID to a
+		// user agent's name, so every custom agent ran with a generic prompt and
+		// its authored identity/methodology/domain atoms were dead weight on
+		// disk.
+		//
+		// ShardType: jit_compiler.mg's blocked_by_context only excludes an atom
+		// when the context HAS the shard dimension. With ShardType empty, every
+		// shard-gated atom in the corpus was admitted, so a custom agent was
+		// handed 25+ contradictory built-in identities (Coder, Nemesis, Tester,
+		// Perception Firewall, ...) and answered as whichever it latched onto.
+		// That is the same hollow-output failure documented above for the
+		// persona-less case.
+		cc.ShardType = "/" + agent
+		cc.ShardID = agent
 	}
 
 	// Determine world states from kernel facts

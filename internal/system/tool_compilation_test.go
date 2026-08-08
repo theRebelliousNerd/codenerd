@@ -88,8 +88,26 @@ func TestVirtualStore_CompilationDelegation(t *testing.T) {
 		t.Errorf("Expected delegation fact for /tool_generator not found. Core facts: %s", allFactsStr.String())
 	}
 
-	// Double Verify: Check output
-	if output != "BaseShardAgent execution" {
-		t.Errorf("Expected output 'BaseShardAgent execution', got: '%s'", output)
+	// Double Verify: the delegation must be reported as FAILED, not as output.
+	//
+	// This VirtualStore is built bare (core.NewVirtualStore), so its internal
+	// ShardManager has no tool_generator factory and no task delegator. That
+	// used to resolve to a BaseShardAgent whose Execute returned
+	// ("BaseShardAgent execution", nil), and this test asserted exactly that
+	// string — pinning a success verdict for zero work. An unroutable delegation
+	// now surfaces as an error with no output.
+	if output != "" {
+		t.Errorf("unroutable delegation produced output %q; it must produce none", output)
+	}
+
+	sawFailure := false
+	for _, f := range allFacts {
+		if f.Predicate == "delegation_failed" {
+			sawFailure = true
+			break
+		}
+	}
+	if !sawFailure {
+		t.Error("expected a delegation_failed fact: a delegation with no executor must be recorded as a failure, never as a silent success")
 	}
 }
