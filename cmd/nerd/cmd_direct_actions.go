@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -334,9 +335,41 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		stopHeartbeat := startHeartbeat(os.Stdout, heartbeatInterval)
 		defer stopHeartbeat()
 
+		// Snapshot the workspace root so undeclared writes become visible.
+		//
+		// Direct CLI verbs leave undeclared files in the repository root and
+		// never mention it. Two instances measured live 2026-08-08: 'nerd test
+		// internal/session/gate_names.go' left gate_cover.out in the root, and
+		// 'nerd define-agent --name GofmtExpert --topic ...' created a whole
+		// research/ directory containing a .mg file there. In both cases the
+		// command exited 0 and said nothing about the file, so the user finds
+		// out from git status later. The path is chosen by the model at write
+		// time, not by a constant in the code, so this cannot be fixed by
+		// correcting a hardcoded path - it needs a guard around execution.
+		//
+		// Campaigns already solve the same problem: internal/campaign/
+		// orchestrator_tasks.go has recordRootBaseline and
+		// sweepUndeclaredRootWrites, which snapshot the workspace root before
+		// the run and afterwards handle anything new that no task declared.
+		//
+		// Direct verbs have no write set to check against, only a target
+		// string, so we report only - moving a user's intended output would be
+		// worse than leaving it. The campaign helper snapshotWorkspaceRoot
+		// records only files (skips IsDir), so it would have missed the
+		// research/ directory entirely; this version records directories as
+		// well as files. Exclude .nerd since codeNERD writes there constantly.
+		wsRoot := strings.TrimSpace(workspace)
+		if wsRoot == "" {
+			if cwd, err := os.Getwd(); err == nil {
+				wsRoot = cwd
+			}
+		}
+		rootBefore := snapshotDirectRoot(wsRoot)
+
 		shardStart := time.Now()
 		result, err := cortex.SpawnTaskWithTarget(ctx, verb, target, target)
 		stopHeartbeat()
+		rootAfter := snapshotDirectRoot(wsRoot)
 		shardDuration := time.Since(shardStart)
 
 		if err != nil {
@@ -346,6 +379,9 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 				fmt.Println(strings.Repeat("─", 50))
 				fmt.Println("📋 Partial result (failed):")
 				fmt.Println(result)
+			}
+			if newEntries := findNewRootEntries(rootBefore, rootAfter); len(newEntries) > 0 {
+				fmt.Printf("⚠️  Created in the repository root, undeclared: %s\n", strings.Join(newEntries, ", "))
 			}
 			return fmt.Errorf("shard execution failed: %w", err)
 		}
@@ -367,10 +403,54 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		fmt.Println(strings.Repeat("─", 50))
 		fmt.Println("📋 Result:")
 		fmt.Println(result)
+		if newEntries := findNewRootEntries(rootBefore, rootAfter); len(newEntries) > 0 {
+			fmt.Printf("⚠️  Created in the repository root, undeclared: %s\n", strings.Join(newEntries, ", "))
+		}
 
 		tracer.TracePhase("COMPLETE")
 		return nil
 	}
+}
+
+// snapshotDirectRoot lists all entries (files and directories) directly in the
+// workspace root, excluding the .nerd directory. Directories are included
+// deliberately - the campaign helper snapshotWorkspaceRoot skips IsDir and would
+// have missed the research/ directory observed live on 2026-08-08.
+func snapshotDirectRoot(root string) map[string]bool {
+	if strings.TrimSpace(root) == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		if e.Name() == ".nerd" {
+			continue
+		}
+		seen[e.Name()] = true
+	}
+	return seen
+}
+
+// findNewRootEntries returns the sorted list of entries present in after but
+// absent from before. Either nil map yields nil (cannot compare, stay silent).
+func findNewRootEntries(before, after map[string]bool) []string {
+	if before == nil || after == nil {
+		return nil
+	}
+	var added []string
+	for name := range after {
+		if !before[name] {
+			added = append(added, name)
+		}
+	}
+	if len(added) == 0 {
+		return nil
+	}
+	sort.Strings(added)
+	return added
 }
 
 // isWriteOrientedDirectVerb used to live here, gating the hollow-success check
