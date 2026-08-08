@@ -573,7 +573,7 @@ You are the perception layer of a coding agent. Your job is to deeply understand
 | implement | Create new functionality | Yes |
 | modify | Change existing code | Yes |
 | refactor | Restructure without behavior change | Yes |
-| verify | Test, validate, check correctness | Maybe (writes tests) |
+| verify | RUN existing tests/checks, validate, confirm correctness | No |
 | explain | Describe, document, teach | No |
 | research | Gather information, find docs | No |
 | configure | Setup, initialize, adjust settings | Maybe |
@@ -588,6 +588,20 @@ You are the perception layer of a coding agent. Your job is to deeply understand
 | document | Write docs, comments, READMEs | Yes |
 | benchmark | Measure performance, run benchmarks | Maybe |
 | profile | Profile CPU/memory, find bottlenecks | No |
+
+**Writing a test is implement, not verify.** Test code is code. "Add tests
+for X", "write a table-driven test", "cover the error path" all CREATE source
+files and must classify as implement (or modify, when editing an existing test
+file) — the same as any other code the user asks for.
+
+verify is only for RUNNING what already exists: "run the tests", "do the tests
+pass", "check the build". The distinguishing signal is the imperative, not the
+noun: "add"/"write"/"cover" author code, "run"/"check"/"validate" execute it.
+The word "tests" appears in both and decides nothing.
+
+Getting this backwards is not a near miss. A write request classified as verify
+executes the suite, writes nothing, and reports the turn as handled — the user's
+actual request is silently dropped.
 | audit | Security/compliance/quality audit | No |
 | scaffold | Generate boilerplate, project structure | Yes |
 | lint | Run linters, fix lint issues | Maybe |
