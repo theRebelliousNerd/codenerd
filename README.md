@@ -1,470 +1,247 @@
 <div align="center">
 
-```text
-                    _      _   _ _____ ____  ____
-   ___ ___   __| | ___| \ | | ____|  _ \|  _ \
-  / __/ _ \ / _` |/ _ \  \| |  _| | |_) | | | |
- | (_| (_) | (_| |  __/ |\  | |___|  _ <| |_| |
-  \___\___/ \__,_|\___|_| \_|_____|_| \_\____/
-
-    Logic determines Reality; the Model merely describes it.
+```
+ ██████╗ ██████╗ ██████╗ ███████╗███╗   ██╗███████╗██████╗ ██████╗
+██╔════╝██╔═══██╗██╔══██╗██╔════╝████╗  ██║██╔════╝██╔══██╗██╔══██╗
+██║     ██║   ██║██║  ██║█████╗  ██╔██╗ ██║█████╗  ██████╔╝██║  ██║
+██║     ██║   ██║██║  ██║██╔══╝  ██║╚██╗██║██╔══╝  ██╔══██╗██║  ██║
+╚██████╗╚██████╔╝██████╔╝███████╗██║ ╚████║███████╗██║  ██║██████╔╝
+ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝╚═════╝
 ```
 
-[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
-[![Mangle](https://img.shields.io/badge/Kernel-Google_Mangle-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://github.com/google/mangle)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Architecture](https://img.shields.io/badge/Architecture-Neuro--Symbolic-purple?style=for-the-badge)]()
+### **Logic determines reality. The model merely describes it.**
 
-**A high-assurance Logic-First CLI coding agent that separates creative intelligence from deterministic control.**
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
+[![Kernel](https://img.shields.io/badge/Kernel-Mangle_Datalog-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://github.com/google/mangle)
+[![Architecture](https://img.shields.io/badge/Neuro--Symbolic-8B5CF6?style=for-the-badge)]()
+[![License](https://img.shields.io/badge/MIT-22C55E?style=for-the-badge)](LICENSE)
 
-[Quick Start](#-quick-start) · [Architecture](#-architecture) · [Commands](#-commands) · [Shards](#-shardagents) · [Documentation](#-documentation)
+**A coding agent that cannot take an action it can't prove it's allowed to take.**
+
+[Why](#the-category-error) · [How](#the-inversion) · [Install](#sixty-seconds) · [Commands](#the-surface) · [Safety](#the-constitution) · [Docs](#going-deeper)
 
 </div>
 
 ---
 
-## The Problem With AI Agents
+## The category error
 
-Current AI coding agents make a **category error**: they ask LLMs to handle *everything*—creativity AND planning, insight AND memory, problem-solving AND self-correction—when LLMs excel at the former but fundamentally struggle with the latter.
+Every coding agent you've used asks one model to do two incompatible jobs.
 
-**codeNERD inverts the hierarchy:**
+It has to be **creative** — read a gnarly stack trace, intuit the bug, invent a fix nobody wrote down. And it has to be an **executive** — remember what it decided forty turns ago, refuse the destructive command, keep the plan coherent across an hour of work.
 
-| Traditional Agents | codeNERD |
-|---|---|
-| LLM makes all decisions | Logic kernel makes decisions |
-| Probabilistic planning | Deterministic Datalog rules |
-| Context window = memory | Infinite memory via fact store |
-| Hope the model doesn't hallucinate | Constitutional safety gates |
-| Black box reasoning | Glass box traceability |
+Language models are extraordinary at the first job. They are structurally unsuited to the second. Attention is not a ledger. A context window is not a memory. "Please don't delete anything important" is not an access-control policy.
+
+So agents drift. They forget constraints they agreed to. They confidently do the thing you told them never to do. And the fix is always the same sad loop — a longer prompt, a sterner tone, a bigger window — because the *architecture* never changed.
+
+codeNERD changes the architecture.
 
 ---
 
-## The Architecture
+## The inversion
+
+> The LLM is the **creative center**. A Datalog kernel is the **executive**.
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         USER / TERMINAL                             │
-└─────────────────────────────────────┬───────────────────────────────┘
-                                      │
-                    ┌─────────────────▼─────────────────┐
-                    │    PERCEPTION TRANSDUCER (LLM)    │
-                    │    Natural Language → Mangle Atoms │
-                    └─────────────────┬─────────────────┘
-                                      │
-┌─────────────────────────────────────▼───────────────────────────────┐
-│                         CORTEX KERNEL                               │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │
-│  │   FACT STORE    │  │  MANGLE ENGINE  │  │   VIRTUAL STORE     │  │
-│  │   (Working Mem) │◄─┤  (Logic CPU)    │─►│   (FFI Gateway)     │  │
-│  └─────────────────┘  └─────────────────┘  └──────────┬──────────┘  │
-│                              ▲                        │             │
-│                              │                        ▼             │
-│                    ┌─────────┴─────────┐    ┌─────────────────────┐ │
-│                    │   POLICY RULES    │    │   SHARD MANAGER     │ │
-│                    │   (policy.gl)     │    │   ┌─────┬─────┐     │ │
-│                    └───────────────────┘    │   │Coder│Test │     │ │
-│                                             │   ├─────┼─────┤     │ │
-│                                             │   │Revw │Rsrch│     │ │
-│                                             │   └─────┴─────┘     │ │
-└─────────────────────────────────────────────┴─────────────────────┴─┘
-                                      │
-                    ┌─────────────────▼─────────────────┐
-                    │   ARTICULATION TRANSDUCER (LLM)   │
-                    │   Mangle Atoms → Natural Language  │
-                    │   + Piggyback Control Protocol     │
-                    └───────────────────────────────────┘
+        ╭──────────────╮                    ╭──────────────╮
+        │   THE MODEL  │                    │  THE KERNEL  │
+        ├──────────────┤                    ├──────────────┤
+        │ understands  │  ── facts ──▶      │ decides      │
+        │ synthesizes  │                    │ remembers    │
+        │ invents      │      ◀── plan ──   │ forbids      │
+        │ explains     │                    │ proves       │
+        ╰──────────────╯                    ╰──────────────╯
+           probabilistic                       deterministic
 ```
 
-### The OODA Loop
+The model never *decides*. It perceives and it articulates. In between, natural language is transduced into logical atoms, and a Mangle (Datalog) kernel derives what happens next from rules you can read, test, and version.
 
-Every interaction flows through:
+| | Conventional agent | codeNERD |
+|---|---|---|
+| **Who decides** | The model, per token | Datalog rules, per fact |
+| **Memory** | Context window (evaporates) | Fact store (persists) |
+| **Safety** | Instructions in a prompt | `permitted/1` derivation, default-deny |
+| **Planning** | Vibes, re-derived each turn | Stratified rules over a fact base |
+| **Auditability** | "Explain your reasoning" (it confabulates) | `nerd why` — the actual derivation chain |
+| **Failure mode** | Confident nonsense | Refusal with a citation |
 
-1. **Observe** — Perception Transducer converts NL to intent atoms
-2. **Orient** — Intent Routing logic determines persona and config atoms
-3. **Decide** — JIT Compiler assembles prompt and AgentConfig
-4. **Act** — Session Executor runs the unified execution loop
+**The load-bearing consequence:** an action that cannot derive `permitted(...)` does not execute. Not "is discouraged from executing." Does not execute. Safety is a property of the evaluator, not a request to the model.
 
 ---
 
-## Quick Start
+## The loop
 
-### Prerequisites
-
-- **Go 1.26+** — [Download](https://go.dev/dl/) (only for building from source)
-- **API Key** — Set `ZAI_API_KEY` environment variable
-
-### Option 1: Pre-built Binary (Recommended)
-
-1. **Download** the latest `nerd.exe` from [Releases](https://github.com/theRebelliousNerd/codenerd/releases)
-
-2. **Drop it in your project root:**
-
-   ```text
-   your-project/
-   ├── nerd.exe       # ← Drop the binary here
-   ├── src/
-   ├── package.json
-   └── ...
-   ```
-
-3. **Set your API key:**
-
-   ```bash
-   # Windows PowerShell
-   $env:ZAI_API_KEY="your-key-here"
-
-   # Windows CMD
-   set ZAI_API_KEY=your-key-here
-
-   # Linux/macOS
-   export ZAI_API_KEY="your-key-here"
-   ```
-
-4. **Initialize and run:**
-
-   ```bash
-   ./nerd init    # Creates .nerd/ directory, scans codebase
-   ./nerd         # Launch interactive chat TUI
-   ```
-
-### Option 2: Build from Source
-
-#### 1. Install & Build
-**Prerequisites:**
-- Go 1.26+
-- Docker (must be running for sandboxed execution)
-
-**Build:**
-```bash
-# Clone the repo
-git clone https://github.com/theRebelliousNerd/codenerd
-cd codenerd
-
-# Build the CLI
-go build -o nerd ./cmd/nerd
+```
+   ┌────────────────────────────────────────────────────────────────┐
+   │  you: "refactor the auth middleware to use the new token type" │
+   └───────────────────────────────┬────────────────────────────────┘
+                                   │
+              ╔════════════════════▼════════════════════╗
+   OBSERVE    ║  PERCEPTION — language ▸ logical atoms   ║
+              ║  user_intent(id, /mutation, /refactor…) ║
+              ╚════════════════════╤════════════════════╝
+                                   │
+        ╔══════════════════════════▼══════════════════════════╗
+        ║                    MANGLE KERNEL                    ║
+        ║   ┌───────────┐   ┌────────────┐   ┌────────────┐   ║
+ORIENT  ║   │   FACTS   │◀─▶│   RULES    │──▶│  POLICY    │   ║  DECIDE
+        ║   │  (memory) │   │ (planning) │   │(default    │   ║
+        ║   └───────────┘   └────────────┘   │  deny)     │   ║
+        ║         ▲                          └─────┬──────┘   ║
+        ╚═════════╪════════════════════════════════╪══════════╝
+                  │                                │
+                  │                    next_action(/refactor)
+                  │                                │
+              ╔═══╧════════════════════════════════▼════════╗
+   ACT        ║  VIRTUAL STORE — the only door to the world  ║
+              ║  CodeDOM · shell · fs · git · browser · MCP  ║
+              ╚════════════════════╤════════════════════════╝
+                                   │
+              ╔════════════════════▼════════════════════╗
+              ║  ARTICULATION — atoms ▸ language        ║
+              ╚═════════════════════════════════════════╝
 ```
 
-#### 2. Configure
-The CLI needs API keys for the intelligence layer.
-1. Run `nerd` once to generate the config file at `~/.codenerd/config.json`, OR manually create it.
-2. Set your keys via environment variables or the config file:
+Every turn is **Observe → Orient → Decide → Act**. Facts flow in; a plan is *derived*, not improvised; and the only path to the filesystem runs through a gate that checks the constitution first.
+
+---
+
+## What that buys you
+
+### 🧬 Prompts are compiled, not concatenated
+
+Prompts aren't strings glued together. They're **atoms** — versioned YAML units with priorities, dependencies, and shard gating — selected per turn by a JIT compiler against a token budget.
+
+```
+internal/prompt/atoms/
+├── protocol/     the control-stream contract
+├── capability/   how to actually use each tool
+├── exemplar/     worked examples, gated per persona
+└── campaign/     multi-phase orchestration behavior
+```
+
+Change behavior by editing an atom, not by hunting for a hardcoded string in a shard. Ask `/jit` and it shows you exactly which atoms were selected and why.
+
+### 🔬 Surgical edits, not string roulette
+
+Text-matching edits break on whitespace. codeNERD reads code as **structure**:
 
 ```bash
-export ZAI_API_KEY="your_key_here"
-# Optional: Context retrieval key if applicable
-export CONTEXT7_API_KEY="your_ctx_key"
+get_elements  path=internal/auth/user.go        # symbol index + real line ranges
+edit_lines    path=… start_line=42 end_line=55  # replace a precise extent
 ```
 
-#### 3. Initialize Your Project
-Navigate to your project directory (e.g., your Python app) and initialize CodeNERD. This creates a local `.nerd` directory and indexes your codebase.
+Every mutation reports the shift it caused — *"File is now 377 lines (−11). Line numbers at or after 42 are now STALE."* — so the next edit can't land at coordinates the previous one invalidated.
+
+### 🌐 Holographic context
+
+Ask about one file and the kernel hands the model that file's **neighborhood**: exported signatures, type definitions, who calls it, its architectural role, and its test coverage — assembled from the AST and the fact store, not guessed from a grep.
+
+### 📜 `nerd.md` — instructions with teeth
+
+Like `CLAUDE.md` or `AGENTS.md`, but the machine-readable half is **enforced, not suggested**. Strict YAML frontmatter becomes kernel facts:
+
+```yaml
+---
+forbid:
+  - match: .nerd/config.json
+    reason: user-owned runtime config
+---
+```
+
+That doesn't become a polite sentence in a system prompt. It becomes `project_forbidden_path/2` in the fact store, and the write is denied *before the tool runs* — on the interactive path and the shard path alike.
+
+### 🎭 Specialists, spawned on demand
+
+Coder, reviewer, tester, researcher, and any specialist you define. Each gets its own JIT-compiled identity, its own tool allowlist, and its own isolated context — so a delegated task can't contaminate your session's history.
+
+### ♻️ Ouroboros — it writes its own tools
+
+Hit a capability gap and codeNERD can generate, compile, and register a new tool into its own registry. The agent's surface is not fixed at build time.
+
+### 🔭 Glass box, all the way down
 
 ```bash
-cd /path/to/your/project
-/path/to/codenerd/nerd init
+nerd why permitted    # the derivation chain, fact by fact
+nerd query <pred>     # interrogate the kernel directly
 ```
-*Tip: Add `nerd` to your PATH for easier access.*
 
-## How to Use
+No "let me explain my reasoning" theater. The reasoning *is* the artifact.
 
-### Interactive Chat (TUI)
-The primary way to use CodeNERD is the interactive terminal UI.
+---
+
+## Sixty seconds
+
+**Prerequisites:** Go 1.26+ (source builds only) and an API key for any supported provider.
+
 ```bash
-nerd
+# 1. get a binary (or build: go build -o nerd ./cmd/nerd)
+#    drop it in your project root
+
+# 2. point it at a model
+export ANTHROPIC_API_KEY="…"      # or OPENAI_ / GEMINI_ / XAI_ / ZAI_
+                                  #    DASHSCOPE_ / META_ / MOONSHOT_ / OPENROUTER_
+
+# 3. wake it up
+./nerd init      # scans the codebase, builds the fact base, writes .nerd/
+./nerd           # interactive TUI
 ```
-Inside the TUI:
-- **Chat**: Type natural language requests (e.g., "Add a new endpoint to the API").
-- **Commands**: Use `/` commands like `/help`, `/status`, or `/apply`.
-- **Review**: The TUI shows you the "Glass Box" view of the agent's reasoning.
 
-### CLI Commands
-For headless or single-shot tasks:
-- **Run a task**: `nerd run "Analyze the security of this repo"`
-- **Query facts**: `nerd query "func:main"` (Inspect the knowledge graph)
+Ten providers are supported — Anthropic, OpenAI, Gemini, xAI, Z.AI, OpenRouter, DashScope, Meta, Moonshot, and local Ollama — plus `claude-cli` and `codex-cli` engines if you'd rather drive a subscription CLI.
 
-### Supported Languages
-CodeNERD has deep support for **Python** and **Go**, including:
-- **Symbol Indexing**: Tree-sitter integrated parsing.
-- **Sandboxed Execution**: Auto-provisioned Docker containers for running tests.
-- **Test Integration**: Automated `pytest` and `go test` execution.
+**Run models in tiers.** Reasoning-heavy verbs escape to an expensive model; everything else stays cheap. Which verbs qualify is *policy*, not a Go switch — it lives in `delegation.mg` as `intent_requires_reasoning_model/1`:
 
-See [Docs/guides/getting_started_python.md](Docs/guides/getting_started_python.md) for a detailed Python workflow.
-
-## Known Limitations
-- **Browser Snapshots**: Persistence is currently experimental.
-- **Specialist Agents**: Deep research agents are in active development.
+```jsonc
+{
+  "provider": "anthropic",
+  "model": "claude-opus-5",                                    // interactive turns
+  "worker":  { "provider": "ollama", "model": "qwen3:8b" },    // bulk: shards, delegated tasks
+  "planner": { "provider": "anthropic", "model": "claude-opus-5" } // /review /audit /campaign
+}
+```
 
 ---
 
-## Commands
+## The surface
 
-### Core Commands
+<table>
+<tr><th align="left">Core</th><th align="left">What it does</th></tr>
+<tr><td><code>nerd</code></td><td>Interactive TUI with the Glass Box pane</td></tr>
+<tr><td><code>nerd run "…"</code></td><td>One full OODA loop, headless</td></tr>
+<tr><td><code>nerd init</code></td><td>Scan the codebase, build <code>.nerd/</code></td></tr>
+<tr><td><code>nerd scan</code></td><td>Refresh the index without a full reinit</td></tr>
+<tr><td><code>nerd status</code></td><td>System state and loaded facts</td></tr>
+</table>
 
-| Command | Description |
-|---------|-------------|
-| `nerd` | Launch interactive chat TUI |
-| `nerd run "<instruction>"` | Execute single OODA loop |
-| `nerd init` | Initialize workspace (creates `.nerd/`) |
-| `nerd init --force` | Reinitialize (preserves learned preferences) |
-| `nerd scan` | Refresh codebase index without full reinit |
-| `nerd query <predicate>` | Query derived facts from kernel |
-| `nerd why [predicate]` | Explain derivation chain |
-| `nerd status` | Show system status and loaded facts |
-| `nerd check-mangle <files>` | Validate Mangle (.mg) syntax |
+<table>
+<tr><th align="left">Interrogate</th><th align="left">What it does</th></tr>
+<tr><td><code>nerd query &lt;pred&gt;</code></td><td>Query derived facts straight from the kernel</td></tr>
+<tr><td><code>nerd why [pred]</code></td><td>Print the derivation chain</td></tr>
+<tr><td><code>nerd explain &lt;file&gt;</code></td><td>Explain a file with full holographic context</td></tr>
+<tr><td><code>nerd check-mangle &lt;files&gt;</code></td><td>Validate <code>.mg</code> syntax and stratification</td></tr>
+</table>
 
-### Shard Commands
+<table>
+<tr><th align="left">Work</th><th align="left">What it does</th></tr>
+<tr><td><code>nerd review &lt;path&gt;</code></td><td>Review — routed to the reasoning tier</td></tr>
+<tr><td><code>nerd fix &lt;file&gt; "…"</code></td><td>Targeted mutation through the write gate</td></tr>
+<tr><td><code>nerd spawn &lt;persona&gt; "…"</code></td><td>Delegate to a specialist in isolated context</td></tr>
+<tr><td><code>nerd campaign start "…"</code></td><td>Multi-phase campaign with verified checkpoints</td></tr>
+<tr><td><code>nerd campaign start --docs ./specs/</code></td><td>Build straight from specification documents</td></tr>
+</table>
 
-| Command | Description |
-|---------|-------------|
-| `nerd spawn coder "<task>"` | Invoke CoderShard for code generation |
-| `nerd spawn tester "<task>"` | Invoke TesterShard for test creation |
-| `nerd spawn reviewer "<task>"` | Invoke ReviewerShard for code review |
-| `nerd spawn researcher "<topic>"` | Invoke ResearcherShard for deep research |
-| `nerd define-agent --name X --topic Y` | Define a new specialist agent |
+Campaigns decompose a goal into phases and tasks, run them with dependency ordering, and **verify each checkpoint before advancing** — a phase that claims success without evidence fails.
 
-### Campaign Commands
-
-| Command | Description |
-|---------|-------------|
-| `nerd campaign start "<goal>"` | Start a multi-phase campaign |
-| `nerd campaign start --docs ./specs/` | Start from spec documents |
-| `nerd campaign status` | Show current campaign progress |
-| `nerd campaign pause` | Pause the current campaign |
-| `nerd campaign resume` | Resume a paused campaign |
-| `nerd campaign list` | List all campaigns |
-
-**Adversarial assault (soak/stress) campaigns** run from chat mode:
-- Slash command: `/campaign assault [repo|module|subsystem|package] [include...] [--batch N] [--cycles N] [--timeout N] [--race] [--vet] [--no-nemesis]`
-- Natural language: `run an assault campaign on internal/core`
-
-### Browser Commands
-
-| Command | Description |
-|---------|-------------|
-| `nerd browser launch` | Launch headless Chrome instance |
-| `nerd browser session <url>` | Create browser session for a URL |
-| `nerd browser snapshot <id>` | Capture DOM as Mangle facts |
-
-### Chat Mode Commands
-
-Type `/help` in chat mode for full command list. Help is **progressive** — it shows commands appropriate for your experience level.
-
-| Command | Description |
-|---------|-------------|
-| `/help [all\|basic\|advanced\|expert]` | Progressive help by experience level |
-| `/query <pred>` | Query the Mangle kernel |
-| `/why <fact>` | **Enhanced** — Explain derivation with proof trees |
-| `/transparency [on\|off]` | Toggle visibility into codeNERD operations |
-| `/shadow` | Enter shadow mode (simulated execution) |
-| `/whatif <action>` | Project effects without executing |
-| `/campaign <start\|assault\|status\|pause\|resume\|list> [...]` | Start/manage campaigns (including adversarial assault sweeps) |
-| `/approve` | Approve pending changes |
-| `/agents` | Show active ShardAgents |
-| `/config` | Configuration menu |
-| `/clear` | Clear chat history |
-| `/quit` | Exit TUI |
+In chat mode, `/campaign assault internal/core` turns the whole thing adversarial: a Nemesis persona hunts for panics, races, and edge cases in a module until it stops finding them.
 
 ---
 
-## Agent Execution Model
+## The constitution
 
-codeNERD uses a **JIT-driven universal executor** that replaces hardcoded shard classes with dynamic, config-based agents. All agent behavior is now determined by:
-
-- **JIT-compiled prompts** from `internal/prompt/atoms/`
-- **Mangle intent routing rules** in `internal/mangle/intent_routing.mg`
-- **ConfigFactory-generated AgentConfig** specifying tools and policies
-
-### The Session Executor
-
-The **Session Executor** (`internal/session/executor.go`) is a unified execution loop that:
-
-1. Receives intent atoms from the Perception Transducer
-2. Queries Mangle logic to determine persona (coder, tester, reviewer, researcher)
-3. JIT-compiles a system prompt and AgentConfig
-4. Executes the LLM interaction with appropriate tools and safety gates
-5. Routes actions through VirtualStore
-
-### SubAgents
-
-**SubAgents** (`internal/session/subagent.go`) are dynamically spawned execution contexts with configurable lifecycle:
-
-| Type | Lifespan | Description |
-|------|----------|-------------|
-| **Ephemeral** | Single task | Spawn → Execute → Terminate (RAM only) |
-| **Persistent** | Multi-turn | Maintains conversation history and state |
-| **System** | Long-running | Background services (indexing, learning) |
-
-### Intent → Persona Mapping
-
-Mangle rules automatically route intents to the appropriate persona:
-
-| Intent Verbs | Persona | Tools | Policies |
-|--------------|---------|-------|----------|
-| fix, implement, refactor, create | **Coder** | file_write, shell_exec, git | code_safety.mg |
-| test, cover, verify, validate | **Tester** | test_exec, coverage_analyzer | test_strategy.mg |
-| review, audit, check, analyze | **Reviewer** | hypothesis_gen, impact_analysis | review_policy.mg |
-| research, learn, document, explore | **Researcher** | web_fetch, doc_parse, kb_ingest | research_strategy.mg |
-
-### No More Hardcoded Shards
-
-The previous architecture required separate Go implementations for each shard type (CoderShard, TesterShard, etc.), totaling ~35,000 lines of code. The new JIT-driven model eliminates this boilerplate, replacing it with:
-
-- **391 lines** in `session/executor.go` (universal loop)
-- **385 lines** in `session/spawner.go` (dynamic spawning)
-- **339 lines** in `session/subagent.go` (lifecycle management)
-- **228 lines** in `mangle/intent_routing.mg` (declarative routing)
-
----
-
-## Advanced Features
-
-### User Experience & Transparency
-
-codeNERD includes a comprehensive UX system that adapts to your experience level:
-
-#### Progressive Disclosure
-
-- **Beginner**: Core commands only with explanations
-- **Intermediate**: Basic + advanced shortcuts
-- **Advanced**: Full command set + keyboard shortcuts
-- **Expert**: All commands + internals access
-
-#### Transparency Mode (`/transparency on`)
-
-- See shard execution phases (Initializing → Analyzing → Generating → Complete)
-- View safety gate explanations when actions are blocked
-- Get verbose error context with remediation suggestions
-
-#### Enhanced `/why` Command
-
-```
-/why next_action
-
-## Explanation
-
-**Query**: `next_action`
-
-- `next_action(/spawn_coder)`
-  *derived via action selection strategy*
-  **Because:**
-  - `user_intent("id_123", /mutation, /fix, "auth.go", /none)` **(base fact)**
-```
-
-#### First-Run Onboarding
-
-- Automatic detection of new users
-- Interactive wizard for API setup and experience level
-- "Wow moment" demo of unique capabilities
-
-### Adversarial Co-Evolution (Nemesis)
-
-codeNERD includes a built-in adversary that tries to break your patches before they ship:
-
-```
-Patch Submitted → Nemesis Analyzes → Attack Tools Generated → Thunderdome Battle
-                                                                    ↓
-                                    ← Patch Hardened ← Vulnerabilities Found?
-```
-
-- **NemesisShard** generates targeted chaos tools to expose weaknesses
-- **VulnerabilityDB** tracks successful attacks and lazy patterns
-- **Thunderdome** arena runs attack vectors in isolated sandboxes
-- Integrated into `/review` command for adversarial code review
-
-### Adversarial Assault Campaign (Soak/Stress)
-
-The chat `/campaign assault ...` workflow runs staged `go test`/`go vet`/Nemesis sweeps over your repo (or selected modules/subsystems) and persists artifacts under `.nerd/campaigns/<campaign>/assault/` for long-horizon triage and remediation.
-
-### Multi-Language Data Flow Analysis
-
-Data flow extraction now supports 5 languages via Tree-sitter:
-
-| Language | Parser | Tracks |
-|----------|--------|--------|
-| Go | Native AST | Taint propagation, nil checks, error handling |
-| Python | Tree-sitter | Variable flow, imports, function calls |
-| TypeScript | Tree-sitter | Type-aware data flow, async chains |
-| JavaScript | Tree-sitter | Variable flow, closure analysis |
-| Rust | Tree-sitter | Ownership, borrowing, unsafe blocks |
-
-### JIT Prompt Compiler & Configuration System
-
-Runtime prompt and configuration assembly with context-aware atom selection:
-
-**Prompt Compilation:**
-- **Storage** - Agent prompts in `.nerd/shards/{agent}_knowledge.db`; shared corpus in `.nerd/prompts/corpus.db` (seeded from baked `internal/core/defaults/prompt_corpus.db`)
-- **Token Budget** - Automatic prompt trimming to stay within context limits
-- **Contextual Selection** - Atoms selected by intent verb, language, campaign phase
-- **Semantic Search** - Embedding-based retrieval of relevant prompt fragments
-
-**Configuration Generation (`internal/prompt/config_factory.go`):**
-- **ConfigAtom** - Fragments specifying tools, policies, and priority for each intent
-- **Config Merging** - Multiple ConfigAtoms merge to create comprehensive AgentConfig
-- **Tool Selection** - Only necessary tools are exposed to the LLM for each task
-- **Policy Loading** - Mangle policy files hot-loaded based on agent persona
-
-**Architecture:**
-```
-User Intent → Intent Routing (.mg) → ConfigFactory → AgentConfig
-                                   ↓
-                            JIT Compiler → System Prompt
-                                   ↓
-                            Session Executor → LLM + VirtualStore
-```
-
-This eliminates the need for hardcoded shard configurations, enabling fully dynamic agent specialization at runtime
-
-### MCP (Model Context Protocol) Integration
-
-JIT Tool Compiler for intelligent MCP tool serving:
-
-- **Skeleton/Flesh Bifurcation** - Core tools always available, context-dependent tools scored
-- **Three-Tier Rendering** - Full (≥70), Condensed (40-69), Minimal (20-39) based on relevance
-- **LLM Tool Analysis** - Automatic metadata extraction for new tools
-- **Mangle Integration** - Tool selection rules in logic
-
-### Prompt Evolution System (System Prompt Learning)
-
-Automatic evolution of prompt atoms based on execution feedback:
-
-- **LLM-as-Judge** - Evaluates task execution with detailed error categorization
-- **Strategy Database** - Problem-type-specific strategies that improve over time
-- **Atom Generator** - Creates new prompt atoms from failure patterns
-- **JIT Integration** - Evolved atoms immediately available at runtime
-
-### Impact-Aware Code Review
-
-ReviewerShard uses Mangle to build surgical review context:
-
-1. **Pre-flight Checks** — `go build` + `go vet` before LLM review
-2. **Hypothesis Generation** — Mangle rules flag potential issues (nil deref, SQL injection, race conditions)
-3. **Impact Analysis** — Queries call graph to include affected callers
-4. **LLM Verification** — Model confirms/refutes hypotheses with semantic understanding
+Safety isn't a paragraph in a prompt. It's a derivation that has to succeed.
 
 ```mangle
-# Example: Mangle flags unsafe dereference
-hypothesis(/unsafe_deref, File, Line, Var) :-
-    data_flow_sink(File, Line, Var, /deref),
-    !null_checked(File, Line, Var).
-```
-
-### Holographic Context
-
-X-Ray vision for AI agents analyzing code:
-
-- **Package Scope** — Sibling files, exported symbols, type definitions
-- **Architectural Layer** — Module, role, system purpose
-- **Dependency Graph** — Direct imports, importers, external deps
-- **Impact Priority** — Callers sorted by Mangle-derived importance
-
----
-
-## Safety Model
-
-### Constitutional Safety
-
-Every action must derive `permitted(Action)` through the policy rules:
-
-```mangle
+# Default deny. If you can't derive it, it doesn't run.
 permitted(Action) :- safe_action(Action).
 
 permitted(Action) :-
@@ -475,115 +252,83 @@ permitted(Action) :-
 dangerous_action(Action) :-
     action_type(Action, /exec_cmd),
     cmd_string(Action, Cmd),
-    fn:string_contains(Cmd, "rm").
+    fn:string_contains(Cmd, "rm -rf").
 ```
 
-### Commit Barrier
+Layered on top of that:
 
-Build errors block commits:
-
-```mangle
-block_commit("Build Broken") :-
-    diagnostic(/error, _, _, _, _).
-```
-
-### Shadow Mode
-
-Project effects before acting:
-
-```bash
-nerd run --shadow "delete all test files"
-# Shows what WOULD happen without executing
-```
+- **Commit barrier** — a broken build blocks the commit. `block_commit(R) :- diagnostic(/error, …)`
+- **Shadow mode** — `nerd run --shadow "…"` projects the effects without touching anything
+- **Dreamer** — destructive actions get simulated before they're real
+- **Workspace jail** — every path is resolved against the workspace root; escapes are refused
+- **Two gates, one definition** — the interactive path and the VirtualStore path share the *same* matcher, so a shard can never write what the session refused
 
 ---
 
-## Project Structure
+## It builds itself
+
+codeNERD is developed by pointing codeNERD at codeNERD.
+
+Its own architecture documentation under `Docs/architecture/` was written by the agent reading its own source. When a wiring gap or a dead subsystem is found, the fix is handed *back* to the agent — and the failures that produces are the real bug reports. A few that came out of exactly that loop:
+
+- The line-range edit tools never reported the line shift they caused, so a second edit landed at stale coordinates and silently duplicated declarations. Now every mutation states the delta and invalidates the old index.
+- `CloneForTask` copied three fields and forgot two, quietly stripping `nerd.md` rules and holographic context from *every* delegated task — invisible in interactive testing.
+- Output contracts were inferred by grepping the prompt for a marker, so a prompt that *forbade* an envelope got the envelope schema attached.
+
+Dogfooding isn't a slogan here. It's the test harness.
+
+---
+
+## Under the hood
+
+| Layer | Tech |
+|---|---|
+| Logic kernel | [Mangle](https://github.com/google/mangle) — Datalog with stratified negation & aggregation |
+| CLI / TUI | [Cobra](https://github.com/spf13/cobra) · [Bubble Tea](https://github.com/charmbracelet/bubbletea) |
+| Code structure | [Tree-sitter](https://github.com/smacker/go-tree-sitter) + Go AST |
+| Persistence | [SQLite](https://github.com/modernc/sqlite) + `sqlite-vec` for embeddings |
+| Browser | [Rod](https://github.com/go-rod/rod) (CDP) |
+| Sandbox | Docker, auto-provisioned |
+| Logging | [Zap](https://github.com/uber-go/zap), structured |
 
 ```
 codenerd/
-├── cmd/
-│   └── nerd/              # CLI entrypoint (Cobra, 80+ files)
-│       └── chat/          # Interactive TUI (Bubble Tea, modularized)
-├── internal/              # 32 packages, ~105K LOC (35K lines removed in JIT refactor)
-│   ├── core/              # Kernel, VirtualStore (modularized, ShardManager removed)
-│   ├── session/           # NEW: Session Executor, Spawner, SubAgent
-│   ├── jit/               # NEW: JIT configuration types and validation
-│   │   └── config/        # AgentConfig schema
-│   ├── perception/        # NL → Intent transduction, multi-provider LLM
-│   ├── articulation/      # Response generation + Piggyback Protocol
-│   ├── autopoiesis/       # Self-modification, Ouroboros, Prompt Evolution
-│   ├── mcp/               # MCP integration, JIT Tool Compiler
-│   ├── prompt/            # JIT Prompt Compiler, ConfigFactory, atoms
-│   ├── shards/            # Registration only (implementations removed)
-│   ├── mangle/            # .mg schema, policy, and intent routing files
-│   │   └── intent_routing.mg  # NEW: Declarative persona/action routing
-│   ├── store/             # Memory tiers (RAM, Vector, Graph)
-│   ├── campaign/          # Multi-phase goal orchestration
-│   ├── browser/           # Rod-based browser automation
-│   ├── world/             # Filesystem, AST, and GraphQuery interface
-│   ├── tactile/           # Tool execution layer
-│   ├── config/            # Configuration with LLM timeout consolidation
-│   ├── ux/                # User experience & journey tracking
-│   └── transparency/      # Operation visibility & explanations
-└── .nerd/                 # Workspace state (created by init)
+├── cmd/nerd/            CLI + Bubble Tea TUI
+└── internal/
+    ├── core/            kernel, VirtualStore, policy corpus
+    ├── session/         the clean execution loop, spawner, subagents
+    ├── prompt/          JIT compiler + the atom library
+    ├── perception/      language ▸ atoms, multi-provider clients
+    ├── articulation/    atoms ▸ language, Piggyback protocol
+    ├── mangle/          the Datalog engine binding
+    ├── world/           holographic context, codebase model
+    ├── campaign/        multi-phase orchestration
+    ├── autopoiesis/     Ouroboros, prompt evolution
+    └── projectdoc/      nerd.md parsing and enforcement
 ```
 
-**Major Architectural Changes (Dec 2024):**
-- **Removed** 35,000+ lines of hardcoded shard implementations
-- **Added** unified session-based execution model (~1,100 lines)
-- **Replaced** Go-based shard logic with Mangle intent routing rules
-- **Centralized** agent configuration through JIT ConfigFactory
-
 ---
 
-## Key Technologies
+## Going deeper
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **Logic Kernel** | [Google Mangle](https://github.com/google/mangle) | Datalog-based reasoning engine |
-| **CLI Framework** | [Cobra](https://github.com/spf13/cobra) | Command-line interface |
-| **TUI Framework** | [Bubble Tea](https://github.com/charmbracelet/bubbletea) | Terminal user interface |
-| **Browser Automation** | [Rod](https://github.com/go-rod/rod) | Chrome DevTools Protocol |
-| **Multi-Lang Parsing** | [Tree-sitter](https://github.com/smacker/go-tree-sitter) | AST parsing for Python, TS, JS, Rust |
-| **Persistence** | [SQLite](https://github.com/modernc/sqlite) | Specialist knowledge storage |
-| **Logging** | [Zap](https://github.com/uber-go/zap) | Structured logging |
+| | |
+|---|---|
+| [`CLAUDE.md`](CLAUDE.md) | Repo contract and working map |
+| [`Docs/architecture/`](Docs/architecture/) | Subsystem specifications |
+| [`internal/mangle/agents.md`](internal/mangle/agents.md) | Read this before editing any `.mg` file |
+| [`internal/prompt/agents.md`](internal/prompt/agents.md) | Read this before changing prompt behavior |
+| [`internal/core/agents.md`](internal/core/agents.md) | Kernel and execution internals |
 
----
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [CLAUDE.md](CLAUDE.md) | Agent instructions and project context |
-| [Architecture](/.claude/skills/codenerd-builder/references/architecture.md) | Theoretical foundations |
-| [Mangle Schemas](/.claude/skills/codenerd-builder/references/mangle-schemas.md) | Complete schema reference |
-| [Implementation Guide](/.claude/skills/codenerd-builder/references/implementation-guide.md) | Go patterns and components |
-| [Piggyback Protocol](/.claude/skills/codenerd-builder/references/piggyback-protocol.md) | Control stream specification |
-| [Campaign System](/.claude/skills/codenerd-builder/references/campaign-orchestrator.md) | Multi-phase orchestration |
-
----
-
-## Development
-
-### Building
+**Building:**
 
 ```bash
-go build -o nerd.exe ./cmd/nerd
-```
-
-### Testing
-
-```bash
+CGO_CFLAGS="-I$(pwd)/sqlite_headers" go build -o nerd ./cmd/nerd
 go test ./...
 ```
 
-### Mangle Rules
-
-All predicates require `Decl` in `schemas.gl` before use:
+**Writing rules** — variables are `UPPERCASE`, constants are `/lowercase`, every predicate needs a `Decl`, and negation only binds over variables a positive atom already bound:
 
 ```mangle
-# Variables are UPPERCASE, constants are /lowercase
 next_action(/generate_code) :-
     user_intent(ID, /mutation, /generate, Target, _),
     !block_action(ID, _).
@@ -591,26 +336,17 @@ next_action(/generate_code) :-
 
 ---
 
-## Philosophy
-
-> **"Logic determines Reality; the Model merely describes it."**
-
-The LLM is the creative center—it understands problems, generates solutions, and crafts novel approaches. But it does not *decide*. The Mangle kernel holds the ground truth, enforces invariants, and derives the next action through formal logic.
-
-This separation means:
-- **No hallucinated actions** — only logically permitted operations execute
-- **Perfect memory** — facts persist beyond context windows
-- **Glass box reasoning** — every decision is traceable via `nerd why`
-- **Self-correction** — abductive hypotheses trigger automatic recovery
-
----
-
 <div align="center">
 
-**Built for developers who demand deterministic safety with creative power.**
+### The wager
 
-[![GitHub](https://img.shields.io/badge/GitHub-theRebelliousNerd%2Fcodenerd-181717?style=flat-square&logo=github)](https://github.com/theRebelliousNerd/codenerd)
+**A model that can't remember its constraints will eventually violate them.**
+**A kernel that can't be creative will never surprise you.**
+
+Give each one the job it's actually good at.
+
+<br>
+
+[![GitHub](https://img.shields.io/badge/theRebelliousNerd%2Fcodenerd-181717?style=for-the-badge&logo=github)](https://github.com/theRebelliousNerd/codenerd)
 
 </div>
-
-> *[Archived & Reviewed by The Librarian on 2026-01-22]*
