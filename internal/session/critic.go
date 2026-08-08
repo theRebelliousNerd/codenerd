@@ -114,6 +114,20 @@ func buildCriticPrompt(writtenFiles map[string]string, uncoveredSummary string) 
 	b.WriteString("- When the code is sound, output the single line 'NO FINDINGS' and nothing else.\n")
 	b.WriteString("- Inventing a finding to appear useful is worse than finding nothing. Only report defects you can point to in the code above; if there are none, output 'NO FINDINGS'.\n")
 
+	// Comments that lie are a defect class the compiler and the tests cannot
+	// see, and this reviewer is the only stage that reads the prose and the code
+	// together.
+	//
+	// A mechanical checker was prototyped for this and rejected on measurement:
+	// matching identifiers cited in comments against declarations across the
+	// repo produced 49 unresolved hits under a narrow pattern and 227 under a
+	// wider one, and essentially all were stdlib methods, struct fields or
+	// parameters rather than fabrications. It would also have caught only one of
+	// the four fabrications actually observed — an invented incident is not an
+	// identifier. A check that is wrong that often is one that gets switched
+	// off, so the job goes here instead, where it costs nothing extra.
+	b.WriteString("- Check the comments against the code. Report as a finding any comment that: describes behaviour the code does not have, names a function, field, file or test that does not exist in what you were given, claims something is tested or verified when you can see it is not, or narrates an incident or measurement as fact. A confident comment with nothing behind it is worse than no comment, because the next reader believes it.\n")
+
 	// The uncovered and static-analysis sections are evidence, not decoration.
 	// Without an instruction naming them, a reviewer reads them as background
 	// and reports on the source alone — which wastes the one signal in the

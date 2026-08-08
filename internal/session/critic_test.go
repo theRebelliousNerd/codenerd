@@ -735,3 +735,22 @@ func TestBuildCriticPrompt_InstructsOnUncoveredEvidence(t *testing.T) {
 		t.Error("evidence instructions appear when there is no evidence")
 	}
 }
+
+// Comments that lie are a defect class neither the compiler nor the tests can
+// see, and the critic is the only stage that reads prose and code together.
+// F-DOC-1 recorded four real instances in two turns, so the reviewer is told to
+// look for them explicitly.
+func TestBuildCriticPrompt_AsksAboutCommentClaims(t *testing.T) {
+	p := buildCriticPrompt(map[string]string{"a.go": "package p\n"}, "")
+
+	for _, want := range []string{
+		"Check the comments against the code",
+		"does not exist",
+		"claims something is tested or verified",
+		"narrates an incident",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("critic prompt does not ask about %q, so a fabricated comment passes every gate", want)
+		}
+	}
+}
