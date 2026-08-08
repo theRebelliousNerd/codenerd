@@ -219,7 +219,6 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 	}
 }
 
-
 // TestValidateRules tests validation of multiple rules at once.
 func TestValidateRules(t *testing.T) {
 	schemas := `
