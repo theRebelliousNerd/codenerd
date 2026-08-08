@@ -844,7 +844,15 @@ func (e *PersistentDockerExecutor) CopyToContainer(ctx context.Context, containe
 
 	logging.TactileDebug("Copying %s to container %s:%s", srcPath, containerID[:12], dstPath)
 
-	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", srcPath, fmt.Sprintf("%s:%s", containerID, dstPath))
+	// We split the containerID and dstPath manually to avoid string interpolation that could lead to command injection if dstPath or containerID are manipulated.
+	// Sanitize container ID to prevent command injection
+	cleanContainerID := sanitizeContainerID(containerID)
+	if cleanContainerID == "" {
+		return fmt.Errorf("invalid container ID")
+	}
+	containerDst := cleanContainerID + ":" + dstPath
+	/* #nosec G204 */
+	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", srcPath, containerDst)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -863,7 +871,15 @@ func (e *PersistentDockerExecutor) CopyFromContainer(ctx context.Context, contai
 
 	logging.TactileDebug("Copying container %s:%s to %s", containerID[:12], srcPath, dstPath)
 
-	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", fmt.Sprintf("%s:%s", containerID, srcPath), dstPath)
+	// We split the containerID and srcPath manually to avoid string interpolation that could lead to command injection if srcPath or containerID are manipulated.
+	// Sanitize container ID to prevent command injection
+	cleanContainerID := sanitizeContainerID(containerID)
+	if cleanContainerID == "" {
+		return fmt.Errorf("invalid container ID")
+	}
+	containerSrc := cleanContainerID + ":" + srcPath
+	/* #nosec G204 */
+	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", containerSrc, dstPath)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -872,4 +888,15 @@ func (e *PersistentDockerExecutor) CopyFromContainer(ctx context.Context, contai
 	}
 
 	return nil
+}
+
+// sanitizeContainerID ensures the container ID only contains alphanumeric characters,
+// dashes, and underscores to prevent command injection via shell metacharacters.
+func sanitizeContainerID(id string) string {
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return ""
+		}
+	}
+	return id
 }
