@@ -509,6 +509,77 @@ func projectDocTargetPath(args map[string]any) string {
 	return ""
 }
 
+// pendingEditContentKeys are argument names that may carry the file content
+// for a write-mutation tool. Different tools use different conventions
+// ("content", "new_content", "text", etc.), so we check all known variants.
+var pendingEditContentKeys = []string{"content", "new_content", "newContent", "text", "body", "data", "patch"}
+
+// pendingEditContent extracts the content payload from a tool call's arguments.
+// Returns "" when no content key is present — e.g. delete_file/delete_lines
+// which intentionally carry no body.
+func pendingEditContent(args map[string]any) string {
+	for _, key := range pendingEditContentKeys {
+		if raw, ok := args[key]; ok {
+			if s, ok := raw.(string); ok {
+				return s
+			}
+			// Non-string payloads (e.g. JSON objects) — stringify for the fact.
+			if raw != nil {
+				if b, err := json.Marshal(raw); err == nil {
+					return string(b)
+				}
+				return fmt.Sprintf("%v", raw)
+			}
+		}
+	}
+	return ""
+}
+
+// assertPendingEdit asserts pending_edit(FilePath, Content) for a write-mutation
+// tool call. FilePath and Content are derived from the tool invocation via the
+// existing path/content extraction helpers, and the classification reuses
+// isWriteMutationTool so the predicate stays in sync with the write-mutation
+// registry (see isWriteMutationTool godoc). The assertion is best-effort: kernel
+// absence or assertion errors are logged and do not block the tool execution.
+// It returns the asserted fact and true when an assertion was made, so the
+// caller can defer the matching retraction. A pending_edit that is asserted and
+// never retracted is worse than one never asserted: the fact means "an edit is
+// in flight", so a stale one makes the 26 rules that read it reason about work
+// that finished long ago, and the facts accumulate without bound against the
+// kernel's fact ceiling.
+func (e *Executor) assertPendingEdit(call ToolCall) (types.Fact, bool) {
+	if !isWriteMutationTool(call.Name) {
+		return types.Fact{}, false
+	}
+	if e.kernel == nil {
+		return types.Fact{}, false
+	}
+	filePath := projectDocTargetPath(call.Args)
+	content := pendingEditContent(call.Args)
+	fact := types.Fact{
+		Predicate: "pending_edit",
+		Args:      []any{filePath, content},
+	}
+	if err := e.kernel.Assert(fact); err != nil {
+		logging.Get(logging.CategorySession).Warn("Failed to assert pending_edit for %s (%s): %v", call.Name, filePath, err)
+		return types.Fact{}, false
+	}
+	return fact, true
+}
+
+// retractPendingEdit removes the in-flight marker asserted by
+// assertPendingEdit. Callers defer it so it runs on every exit path — success,
+// tool error, gate refusal, timeout, or panic. Any path that can leave the fact
+// behind reintroduces the stale-fact problem the retraction exists to prevent.
+func (e *Executor) retractPendingEdit(fact types.Fact) {
+	if e.kernel == nil {
+		return
+	}
+	if err := e.kernel.RetractFact(fact); err != nil {
+		logging.Get(logging.CategorySession).Warn("Failed to retract pending_edit for %v: %v", fact.Args, err)
+	}
+}
+
 // projectForbidsWrite asks the kernel whether nerd.md protects this call's
 // target path.
 //
@@ -733,6 +804,20 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 			logging.Get(logging.CategorySession).Warn("Interactive executive gate BLOCKED tool %s: %v", call.Name, blockErr)
 			return "", fmt.Errorf("tool call blocked by executive gate: %w", blockErr)
 		}
+	}
+
+	// Assert pending_edit(FilePath, Content) immediately before any write-mutation
+	// tool execution, and retract it on every exit path. Reuses
+	// isWriteMutationTool so the classification stays consistent with the
+	// hollow-success and projectForbidsWrite gates.
+	//
+	// The deferred retraction is the load-bearing half: pending_edit means "an
+	// edit is in flight right now", and this function returns from many places
+	// (modular registry error, Ouroboros path, validator refusal, timeout). A
+	// fact left behind by any one of them would make every rule that reads it
+	// reason about an edit that already finished.
+	if pendingFact, asserted := e.assertPendingEdit(call); asserted {
+		defer e.retractPendingEdit(pendingFact)
 	}
 
 	// Apply timeout to tool execution

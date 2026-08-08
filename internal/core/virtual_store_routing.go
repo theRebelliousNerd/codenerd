@@ -313,6 +313,19 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		}, nil
 	}
 
+	// Mark the edit in flight for the policy layer, and clear it on every exit
+	// path. pending_edit is the root fact for 26 rules across 7 policy files
+	// (coder_safety, coder_quality, coder_impact, coder_workflow, coder_tdd,
+	// coder_observability, projectdoc); none of them derived anything because
+	// no Go code asserted it.
+	//
+	// Asserted here as well as in session.Executor because shards route writes
+	// through the VirtualStore and never touch the executor — the same split
+	// that made the nerd.md gate above necessary in both places.
+	if fact, asserted := v.assertPendingEdit(req); asserted {
+		defer v.retractPendingEdit(fact)
+	}
+
 	switch req.Type {
 	case ActionExecCmd:
 		return v.handleExecCmd(ctx, req)
