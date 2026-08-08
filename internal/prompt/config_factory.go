@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"strings"
 	"context"
 	"fmt"
 	"sync"
@@ -35,15 +36,36 @@ func (c ConfigAtom) Merge(other ConfigAtom) ConfigAtom {
 }
 
 func uniqueStrings(input []string) []string {
+	const MaxItems = 1000 // Prevent massive DoS
+
 	keys := make(map[string]bool)
-	list := []string{}
+	list := make([]string, 0, len(input)) // pre-allocate capacity
+
 	for _, entry := range input {
+		if len(list) >= MaxItems {
+			break
+		}
 		if _, value := keys[entry]; !value {
 			keys[entry] = true
-			list = append(list, entry)
+			list = append(list, entry) // copies the string reference, safe
 		}
 	}
 	return list
+}
+
+// Clone creates a deep copy of the ConfigAtom to prevent data races.
+func (c ConfigAtom) Clone() ConfigAtom {
+	tools := make([]string, len(c.Tools))
+	copy(tools, c.Tools)
+
+	policies := make([]string, len(c.Policies))
+	copy(policies, c.Policies)
+
+	return ConfigAtom{
+		Tools:    tools,
+		Policies: policies,
+		Priority: c.Priority,
+	}
 }
 
 // ConfigAtomProvider defines the interface for retrieving config atoms.
@@ -75,7 +97,8 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 	var finalAtom ConfigAtom
 	found := false
 
-	for _, intent := range intents {
+	for _, rawIntent := range intents {
+		intent := strings.TrimSpace(rawIntent)
 		if atom, ok := f.provider.GetAtom(intent); ok {
 			finalAtom = finalAtom.Merge(atom)
 			found = true
@@ -126,6 +149,13 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 
 // GenerateFallback creates a minimal config for when JIT compilation fails.
 func (f *ConfigFactory) GenerateFallback(ctx context.Context, intent string, fallbackIdentity string) *config.EffectiveAgentRuntimeConfig {
+	// Prevent OOM from massive fallback strings
+	const MaxFallbackLength = 1024 * 1024 // 1MB limit
+	if len(fallbackIdentity) > MaxFallbackLength {
+		fallbackIdentity = fallbackIdentity[:MaxFallbackLength]
+	}
+
+	intent = strings.TrimSpace(intent)
 	var finalAtom ConfigAtom
 	if atom, ok := f.provider.GetAtom(intent); ok {
 		finalAtom = atom
@@ -393,14 +423,17 @@ func (p *DefaultConfigAtomProvider) GetAtom(intent string) (ConfigAtom, bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	atom, ok := p.atoms[intent]
-	return atom, ok
+	if ok {
+		return atom.Clone(), true
+	}
+	return atom, false
 }
 
 // RegisterAtom adds or updates a config atom for an intent.
 func (p *DefaultConfigAtomProvider) RegisterAtom(intent string, atom ConfigAtom) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.atoms[intent] = atom
+	p.atoms[intent] = atom.Clone()
 }
 
 // NewDefaultConfigFactory creates a ConfigFactory with the default provider.
