@@ -5,10 +5,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -216,6 +218,47 @@ Example:
 	RunE: runPerceptionTest,
 }
 
+// heartbeatInterval is the period between liveness messages while a shard
+// is executing. Extracted as a constant so tests can inject a short interval
+// without waiting on real 30-second ticks.
+const heartbeatInterval = 30 * time.Second
+
+// startHeartbeat emits a periodic liveness line to out while the shard is
+// executing. The returned stop function closes the heartbeat goroutine and
+// blocks until it has exited, guaranteeing no further writes after it returns
+// so the result block cannot be interleaved.
+//
+// out should be the same stream the surrounding code uses (os.Stdout for the
+// direct-action commands) so OS-level redirection keeps behaving. interval is
+// the ticker period - production passes heartbeatInterval, tests inject a
+// short interval to avoid real sleeps.
+func startHeartbeat(out io.Writer, interval time.Duration) func() {
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	start := time.Now()
+	ticker := time.NewTicker(interval)
+	var stopOnce sync.Once
+	go func() {
+		defer close(finished)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				elapsed := time.Since(start).Round(time.Second)
+				fmt.Fprintf(out, "   … still working (%s elapsed)\n", elapsed)
+			}
+		}
+	}()
+	return func() {
+		stopOnce.Do(func() {
+			close(done)
+			<-finished
+		})
+	}
+}
+
 // runDirectAction creates a handler for direct action commands
 func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
@@ -288,9 +331,12 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		tracer.TracePhase("SHARD EXECUTION")
 		tracer.TraceShard("spawning %s (intent %s) with task: %s", shardType, verb, target)
 		fmt.Printf("⏳ Spawning %s shard...\n", shardType)
+		stopHeartbeat := startHeartbeat(os.Stdout, heartbeatInterval)
+		defer stopHeartbeat()
 
 		shardStart := time.Now()
 		result, err := cortex.SpawnTaskWithTarget(ctx, verb, target, target)
+		stopHeartbeat()
 		shardDuration := time.Since(shardStart)
 
 		if err != nil {
