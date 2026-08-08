@@ -203,6 +203,7 @@ func (e *Engine) RecomputeRules() error {
 }
 
 // stringContainsCallback is commented out as we transitioned to native :string:contains.
+/*
 type stringContainsCallback struct{}
 
 func (s stringContainsCallback) ShouldPushdown() bool { return false }
@@ -221,6 +222,7 @@ func (s stringContainsCallback) ExecuteQuery(inputs []ast.Constant, filters []as
 	}
 	return nil
 }
+*/
 
 // evalWithGasLimit wraps EvalStratifiedProgramWithStats with derived facts gas limit enforcement.
 // This prevents runaway inference from exhausting memory.
