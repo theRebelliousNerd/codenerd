@@ -152,6 +152,236 @@ func (h *HolographicProvider) GetContextWithContext(ctx context.Context, filePat
 	return h.getContextInternal(ctx, filePath)
 }
 
+// PromptSection renders holographic context for prompt injection.
+//
+// Mirrors the style of internal/projectdoc/facts.go:Document.PromptSection —
+// the frontmatter/facts are not readable by the model directly, and the
+// holographic context is likewise invisible unless rendered into prose.
+// It calls GetContextWithContext and returns "" on any error or nil context
+// so callers can concatenate unconditionally.
+//
+// The output is token-frugal: it summarizes rather than dumps, and caps long
+// lists, because it is injected into every prompt for a file-targeted turn.
+func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string) string {
+	if h == nil {
+		return ""
+	}
+	hc, err := h.GetContextWithContext(ctx, filePath)
+	if err != nil || hc == nil {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Holographic Context (")
+	b.WriteString(filePath)
+	b.WriteString(")\n\n")
+
+	// Architecture / package summary (one compact line).
+	if hc.TargetPkg != "" || hc.Layer != "" || hc.Module != "" || hc.Role != "" || hc.SystemPurpose != "" {
+		if hc.TargetPkg != "" {
+			b.WriteString("**Package**: `")
+			b.WriteString(hc.TargetPkg)
+			b.WriteString("`")
+		}
+		if hc.Layer != "" {
+			if hc.TargetPkg != "" {
+				b.WriteString(" · ")
+			}
+			b.WriteString("**Layer**: `")
+			b.WriteString(hc.Layer)
+			b.WriteString("`")
+		}
+		if hc.Module != "" {
+			b.WriteString(" · **Module**: `")
+			b.WriteString(hc.Module)
+			b.WriteString("`")
+		}
+		if hc.Role != "" {
+			b.WriteString(" · **Role**: `")
+			b.WriteString(hc.Role)
+			b.WriteString("`")
+		}
+		b.WriteString("\n")
+		if hc.SystemPurpose != "" {
+			b.WriteString(hc.SystemPurpose)
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
+	// Test coverage signal.
+	if hc.HasTests {
+		b.WriteString("**Tests**: yes")
+		if hc.TestCoverage > 0 {
+			fmt.Fprintf(&b, " (coverage %.0f%%)", hc.TestCoverage*100)
+		}
+		b.WriteString("\n\n")
+	} else {
+		b.WriteString("**Tests**: no\n\n")
+	}
+
+	// Exported signatures — prefer those defined in the target file, fall back to package.
+	const maxSigs = 8
+	base := filepath.Base(filePath)
+	var exported []SymbolSignature
+	for _, sig := range hc.PackageSignatures {
+		if sig.Exported {
+			exported = append(exported, sig)
+		}
+	}
+	var fileExported []SymbolSignature
+	for _, sig := range exported {
+		if sig.File == base {
+			fileExported = append(fileExported, sig)
+		}
+	}
+	sigs := exported
+	if len(fileExported) > 0 {
+		sigs = fileExported
+	}
+	if len(sigs) > 0 {
+		b.WriteString("### Exported signatures\n\n")
+		shown := sigs
+		truncated := 0
+		if len(shown) > maxSigs {
+			truncated = len(shown) - maxSigs
+			shown = shown[:maxSigs]
+		}
+		for _, sig := range shown {
+			b.WriteString("- `")
+			if sig.Receiver != "" {
+				b.WriteString("func (")
+				b.WriteString(sig.Receiver)
+				b.WriteString(") ")
+				b.WriteString(sig.Name)
+			} else {
+				b.WriteString("func ")
+				b.WriteString(sig.Name)
+			}
+			b.WriteString(sig.Params)
+			if sig.Returns != "" && sig.Returns != "()" {
+				b.WriteString(" ")
+				b.WriteString(sig.Returns)
+			}
+			b.WriteString("`")
+			if sig.File != "" && sig.File != base {
+				b.WriteString(" — `")
+				b.WriteString(sig.File)
+				b.WriteString("`")
+			}
+			b.WriteString("\n")
+		}
+		if truncated > 0 {
+			fmt.Fprintf(&b, "- … and %d more\n", truncated)
+		}
+		b.WriteString("\n")
+	}
+
+	// Type definitions — prefer file-local, cap.
+	const maxTypes = 8
+	var fileTypes []TypeDefinition
+	for _, td := range hc.PackageTypes {
+		if td.File == base {
+			fileTypes = append(fileTypes, td)
+		}
+	}
+	types := fileTypes
+	if len(types) == 0 {
+		types = hc.PackageTypes
+	}
+	if len(types) > 0 {
+		b.WriteString("### Type definitions\n\n")
+		shown := types
+		truncated := 0
+		if len(shown) > maxTypes {
+			truncated = len(shown) - maxTypes
+			shown = shown[:maxTypes]
+		}
+		for _, td := range shown {
+			b.WriteString("- `type ")
+			b.WriteString(td.Name)
+			b.WriteString("` — ")
+			b.WriteString(td.Kind)
+			if td.Kind == "struct" && len(td.Fields) > 0 {
+				fmt.Fprintf(&b, " (%d fields)", len(td.Fields))
+			} else if td.Kind == "interface" && len(td.Methods) > 0 {
+				fmt.Fprintf(&b, " (%d methods)", len(td.Methods))
+			}
+			if td.File != "" && td.File != base {
+				fmt.Fprintf(&b, " — `%s`", td.File)
+			}
+			b.WriteString("\n")
+		}
+		if truncated > 0 {
+			fmt.Fprintf(&b, "- … and %d more\n", truncated)
+		}
+		b.WriteString("\n")
+	}
+
+	// Callers — who calls this file (impact-aware if available).
+	const maxCallers = 8
+	if len(hc.PrioritizedCallers) > 0 {
+		b.WriteString("### Callers (impact-prioritized)\n\n")
+		shown := hc.PrioritizedCallers
+		truncated := 0
+		if len(shown) > maxCallers {
+			truncated = len(shown) - maxCallers
+			shown = shown[:maxCallers]
+		}
+		for _, c := range shown {
+			b.WriteString("- `")
+			b.WriteString(c.Name)
+			b.WriteString("` — `")
+			b.WriteString(filepath.Base(c.File))
+			b.WriteString("`")
+			if c.Priority != 0 {
+				fmt.Fprintf(&b, " (priority %d", c.Priority)
+				if c.Depth != 0 {
+					fmt.Fprintf(&b, ", depth %d", c.Depth)
+				}
+				b.WriteString(")")
+			}
+			b.WriteString("\n")
+		}
+		if truncated > 0 {
+			fmt.Fprintf(&b, "- … and %d more\n", truncated)
+		}
+		b.WriteString("\n")
+	} else if len(hc.CallGraph) > 0 {
+		b.WriteString("### Callers\n\n")
+		seen := make(map[string]struct{}, len(hc.CallGraph))
+		var callers []string
+		for _, e := range hc.CallGraph {
+			if _, ok := seen[e.Caller]; !ok {
+				seen[e.Caller] = struct{}{}
+				callers = append(callers, e.Caller)
+			}
+		}
+		truncated := 0
+		shown := callers
+		if len(shown) > maxCallers {
+			truncated = len(shown) - maxCallers
+			shown = shown[:maxCallers]
+		}
+		for _, caller := range shown {
+			b.WriteString("- `")
+			b.WriteString(caller)
+			b.WriteString("`\n")
+		}
+		if truncated > 0 {
+			fmt.Fprintf(&b, "- … and %d more\n", truncated)
+		}
+		b.WriteString("\n")
+	}
+
+	result := strings.TrimSpace(b.String())
+	if result == "" {
+		return ""
+	}
+	return result + "\n"
+}
+
+
 // getContextInternal is the shared cancellable context generator.
 func (h *HolographicProvider) getContextInternal(ctx context.Context, filePath string) (*HolographicContext, error) {
 	if filePath == "" {
