@@ -63,6 +63,47 @@ func TestEngineAddFact(t *testing.T) {
 	}
 }
 
+func TestEngineAddFactsContext(t *testing.T) {
+	cfg := DefaultConfig()
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	schema := `Decl person(Name, Age).`
+	if err := engine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("LoadSchemaString() error = %v", err)
+	}
+
+	facts := []Fact{
+		{Predicate: "person", Args: []any{"Alice", int64(30)}},
+		{Predicate: "person", Args: []any{"Bob", int64(25)}},
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		ctx := context.Background()
+		if err := engine.AddFactsContext(ctx, facts); err != nil {
+			t.Fatalf("AddFactsContext() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("EmptySlice", func(t *testing.T) {
+		ctx := context.Background()
+		if err := engine.AddFactsContext(ctx, []Fact{}); err != nil {
+			t.Fatalf("AddFactsContext() with empty slice error = %v", err)
+		}
+	})
+
+	t.Run("MissingSchema", func(t *testing.T) {
+		engine2, _ := NewEngine(cfg, nil)
+		ctx := context.Background()
+		err := engine2.AddFactsContext(ctx, facts)
+		if err == nil || err.Error() != "no schemas loaded; call LoadSchema first" {
+			t.Fatalf("AddFactsContext() expected errNoSchemas, got %v", err)
+		}
+	})
+}
+
 func TestEngineAddFacts(t *testing.T) {
 	cfg := DefaultConfig()
 	engine, err := NewEngine(cfg, nil)
