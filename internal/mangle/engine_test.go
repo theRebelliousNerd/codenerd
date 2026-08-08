@@ -1,6 +1,8 @@
 package mangle
 
 import (
+	"codeberg.org/TauCeti/mangle-go/ast"
+
 	"context"
 	"strings"
 	"sync"
@@ -908,5 +910,63 @@ func TestLargeStringHandling(t *testing.T) {
 		if len(facts) != 1 {
 			t.Errorf("Expected 1 fact, got %d", len(facts))
 		}
+	}
+}
+
+func TestStringContainsCallback_ExecuteQuery(t *testing.T) {
+	cb := stringContainsCallback{}
+
+	tests := []struct {
+		name     string
+		inputs   []ast.Constant
+		expected bool
+	}{
+		{
+			name:     "contains",
+			inputs:   []ast.Constant{ast.String("hello world"), ast.String("world")},
+			expected: true,
+		},
+		{
+			name:     "does not contain",
+			inputs:   []ast.Constant{ast.String("hello world"), ast.String("foo")},
+			expected: false,
+		},
+		{
+			name:     "not enough inputs",
+			inputs:   []ast.Constant{ast.String("hello world")},
+			expected: false,
+		},
+		{
+			name:     "wrong type input",
+			inputs:   []ast.Constant{ast.Number(123), ast.String("world")},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			err := cb.ExecuteQuery(tt.inputs, nil, nil, func([]ast.BaseTerm) {
+				called = true
+			})
+
+			if err != nil {
+				t.Fatalf("ExecuteQuery returned error: %v", err)
+			}
+
+			if called != tt.expected {
+				t.Errorf("ExecuteQuery called callback = %v, want %v", called, tt.expected)
+			}
+		})
+	}
+}
+
+func TestStringContainsCallback_ShouldMethods(t *testing.T) {
+	cb := stringContainsCallback{}
+	if cb.ShouldPushdown() != false {
+		t.Errorf("ShouldPushdown() = %v, want false", cb.ShouldPushdown())
+	}
+	if cb.ShouldQuery(nil, nil, nil) != true {
+		t.Errorf("ShouldQuery() = %v, want true", cb.ShouldQuery(nil, nil, nil))
 	}
 }
