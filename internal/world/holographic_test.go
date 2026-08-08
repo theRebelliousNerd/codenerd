@@ -151,6 +151,38 @@ func TestFormatWithPriorities(t *testing.T) {
 	}
 }
 
+func TestFormatWithPriorities_EmptyCallers(t *testing.T) {
+	tests := []struct {
+		name    string
+		callers []PrioritizedCaller
+	}{
+		{"NilSlice", nil},
+		{"EmptySlice", []PrioritizedCaller{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hc := &HolographicContext{
+				TargetFile: "target.go",
+				TargetPkg:  "world",
+				PrioritizedCallers: tt.callers,
+			}
+
+			formatted := hc.FormatWithPriorities()
+
+			expected := hc.FormatForPrompt()
+			if formatted != expected {
+				t.Errorf("FormatWithPriorities() = %q, want %q", formatted, expected)
+			}
+
+			if strings.Contains(formatted, "Impact-Prioritized Context") {
+				t.Errorf("FormatWithPriorities() should not contain 'Impact-Prioritized Context'")
+			}
+		})
+	}
+}
+
+
 func TestFormatPrioritizedCallersCompact(t *testing.T) {
 	hc := &HolographicContext{
 		PrioritizedCallers: []PrioritizedCaller{
