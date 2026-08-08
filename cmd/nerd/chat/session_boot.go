@@ -105,50 +105,12 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		core.ConfigureGlobalAPIScheduler(schedulerCfg)
 		initialMessages := []Message{}
 
-		// Initialize LLM client using the perception package's provider detection
+// Initialize LLM client using the perception package's provider detection
 		// This supports all providers: zai, anthropic, openai, gemini, xai, openrouter
 		// Configuration is read from .nerd/config.json or environment variables
 		logStep("Detecting LLM provider...")
-		baseLLMClient, clientErr := perception.NewClientFromEnv()
-		if clientErr != nil {
-			initialMessages = append(initialMessages, Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("⚠ LLM client init failed: %v\n\nSet an API key in `.nerd/config.json` or via environment variable.", clientErr),
-				Time:    time.Now(),
-			})
-			// Create a fallback client that will error on use
-			baseLLMClient = perception.NewZAIClient("")
-		} else {
-			// Report which provider was detected
-			providerCfg, _ := perception.DetectProvider()
-			if providerCfg != nil {
-				providerLabel := string(providerCfg.Provider)
-				modelInfo := providerCfg.Model
-
-				// CLI engines don't populate Provider/Model; report engine + configured CLI model.
-				switch providerCfg.Engine {
-				case "claude-cli":
-					providerLabel = "claude-cli"
-					if providerCfg.ClaudeCLI != nil && providerCfg.ClaudeCLI.Model != "" {
-						modelInfo = providerCfg.ClaudeCLI.Model
-					}
-				case "codex-cli":
-					providerLabel = "codex-cli"
-					if providerCfg.CodexCLI != nil && providerCfg.CodexCLI.Model != "" {
-						modelInfo = providerCfg.CodexCLI.Model
-					}
-				}
-
-				if modelInfo == "" {
-					modelInfo = "default"
-				}
-				initialMessages = append(initialMessages, Message{
-					Role:    "assistant",
-					Content: fmt.Sprintf("✓ Using %s (model: %s)", providerLabel, modelInfo),
-					Time:    time.Now(),
-				})
-			}
-		}
+		var baseLLMClient perception.LLMClient
+		baseLLMClient, initialMessages = detectLLMProvider(initialMessages)
 
 		// HEAVY OPERATION: NewRealKernel calls Evaluate() internally
 		logStep("Booting Mangle kernel...")
@@ -229,36 +191,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		// (appCfg.GetEmbeddingConfig). Do not hardcode model names here.
 		logStep("Initializing embedding engine from config.json...")
 		var embeddingEngine embedding.EmbeddingEngine
-		embCfg := appCfg.GetEmbeddingConfig()
-		if embCfg.Provider != "" {
-			embConfig := embedding.Config{
-				Provider:       embCfg.Provider,
-				OllamaEndpoint: embCfg.OllamaEndpoint,
-				OllamaModel:    embCfg.OllamaModel,
-				GenAIAPIKey:    embCfg.GenAIAPIKey,
-				GenAIModel:     embCfg.GenAIModel,
-				TaskType:       embCfg.TaskType,
-			}
-			logging.Boot("Embedding from config.json: provider=%s model=%s endpoint=%s",
-				embConfig.Provider, embConfig.OllamaModel, embConfig.OllamaEndpoint)
-			if engine, err := embedding.NewEngine(embConfig); err == nil {
-				embeddingEngine = engine
-				if localDB != nil {
-					localDB.SetEmbeddingEngine(engine)
-				}
-				initialMessages = append(initialMessages, Message{
-					Role:    "assistant",
-					Content: fmt.Sprintf("✓ Embedding engine: %s (from config.json)", engine.Name()),
-					Time:    time.Now(),
-				})
-			} else {
-				initialMessages = append(initialMessages, Message{
-					Role:    "assistant",
-					Content: fmt.Sprintf("⚠ Embedding init failed: %v", err),
-					Time:    time.Now(),
-				})
-			}
-		}
+		embeddingEngine, initialMessages = initEmbeddingEngine(appCfg, initialMessages, localDB)
 		if localDB != nil {
 			localDB.SetReflectionConfig(appCfg.GetReflectionConfig())
 		}
@@ -1138,4 +1071,80 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			},
 		}
 	}
+}
+
+func detectLLMProvider(initialMessages []Message) (perception.LLMClient, []Message) {
+	baseLLMClient, clientErr := perception.NewClientFromEnv()
+	if clientErr != nil {
+		initialMessages = append(initialMessages, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("⚠ LLM client init failed: %v\n\nSet an API key in `.nerd/config.json` or via environment variable.", clientErr),
+			Time:    time.Now(),
+		})
+		baseLLMClient = perception.NewZAIClient("")
+	} else {
+		providerCfg, _ := perception.DetectProvider()
+		if providerCfg != nil {
+			providerLabel := string(providerCfg.Provider)
+			modelInfo := providerCfg.Model
+
+			switch providerCfg.Engine {
+			case "claude-cli":
+				providerLabel = "claude-cli"
+				if providerCfg.ClaudeCLI != nil && providerCfg.ClaudeCLI.Model != "" {
+					modelInfo = providerCfg.ClaudeCLI.Model
+				}
+			case "codex-cli":
+				providerLabel = "codex-cli"
+				if providerCfg.CodexCLI != nil && providerCfg.CodexCLI.Model != "" {
+					modelInfo = providerCfg.CodexCLI.Model
+				}
+			}
+
+			if modelInfo == "" {
+				modelInfo = "default"
+			}
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("✓ Using %s (model: %s)", providerLabel, modelInfo),
+				Time:    time.Now(),
+			})
+		}
+	}
+	return baseLLMClient, initialMessages
+}
+
+func initEmbeddingEngine(appCfg *config.UserConfig, initialMessages []Message, localDB *store.LocalStore) (embedding.EmbeddingEngine, []Message) {
+	var embeddingEngine embedding.EmbeddingEngine
+	embCfg := appCfg.GetEmbeddingConfig()
+	if embCfg.Provider != "" {
+		embConfig := embedding.Config{
+			Provider:       embCfg.Provider,
+			OllamaEndpoint: embCfg.OllamaEndpoint,
+			OllamaModel:    embCfg.OllamaModel,
+			GenAIAPIKey:    embCfg.GenAIAPIKey,
+			GenAIModel:     embCfg.GenAIModel,
+			TaskType:       embCfg.TaskType,
+		}
+		logging.Boot("Embedding from config.json: provider=%s model=%s endpoint=%s",
+			embConfig.Provider, embConfig.OllamaModel, embConfig.OllamaEndpoint)
+		if engine, err := embedding.NewEngine(embConfig); err == nil {
+			embeddingEngine = engine
+			if localDB != nil {
+				localDB.SetEmbeddingEngine(engine)
+			}
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("✓ Embedding engine: %s (from config.json)", engine.Name()),
+				Time:    time.Now(),
+			})
+		} else {
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("⚠ Embedding init failed: %v", err),
+				Time:    time.Now(),
+			})
+		}
+	}
+	return embeddingEngine, initialMessages
 }
