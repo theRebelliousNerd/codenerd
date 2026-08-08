@@ -144,26 +144,36 @@ func (s *CampaignRunnerShard) tick(ctx context.Context) {
 			s.activeOrch = nil
 			s.activeOrchDone = nil
 			s.activeCampaignID = ""
-			s.lastStartAttempt = time.Time{}
-			s.restartBackoffSec = 5
-
 			if err != nil && err != context.Canceled {
 				logging.Get(logging.CategorySystemShards).Warn("[CampaignRunner] Campaign %s exited with error: %v", campaignID, err)
-				_ = s.Kernel.Assert(types.Fact{
-					Predicate: "campaign_runner_failure",
-					Args:      []any{campaignID, err.Error(), time.Now().Unix()},
-				})
+				if s.Kernel != nil {
+					_ = s.Kernel.Assert(types.Fact{
+						Predicate: "campaign_runner_failure",
+						Args:      []any{campaignID, err.Error(), time.Now().Unix()},
+					})
+				}
+				// Exponential backoff on repeated Run failures, capped at 300s.
+				if s.restartBackoffSec < 300 {
+					s.restartBackoffSec *= 2
+					if s.restartBackoffSec > 300 {
+						s.restartBackoffSec = 300
+					}
+				}
+				s.lastStartAttempt = time.Now()
 			} else {
 				logging.SystemShards("[CampaignRunner] Campaign %s completed or paused", campaignID)
-				_ = s.Kernel.Assert(types.Fact{
-					Predicate: "campaign_runner_success",
-					Args:      []any{campaignID, time.Now().Unix()},
-				})
+				if s.Kernel != nil {
+					_ = s.Kernel.Assert(types.Fact{
+						Predicate: "campaign_runner_success",
+						Args:      []any{campaignID, time.Now().Unix()},
+					})
+				}
+				s.lastStartAttempt = time.Time{}
+				s.restartBackoffSec = 5
 			}
 		default:
 		}
 	}
-
 	// If already supervising a campaign, nothing else to do.
 	if s.activeOrch != nil {
 		s.mu.Unlock()
