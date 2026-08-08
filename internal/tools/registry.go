@@ -179,10 +179,12 @@ func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]
 
 	// Validate required arguments
 	if err := r.validateArgs(tool, args); err != nil {
+		rejected := time.Since(start)
+		logging.Audit().ToolExec(tool.Name, "validate_args", rejected.Milliseconds(), false, err.Error())
 		return &ToolResult{
 			ToolName:   tool.Name,
 			Error:      err,
-			DurationMs: time.Since(start).Milliseconds(),
+			DurationMs: rejected.Milliseconds(),
 		}, err
 	}
 
@@ -192,6 +194,22 @@ func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]
 
 	duration := time.Since(start)
 	logging.ToolsDebug("Tool %s completed in %v (success=%v)", tool.Name, duration, err == nil)
+
+	// Record the invocation in the durable audit trail.
+	//
+	// The tool_invoke/tool_complete/tool_error families were declared in the
+	// audit taxonomy with no producer anywhere in the repo, so a run that
+	// executed hundreds of tools left no record of a single one. That is
+	// survivable when a human is watching the TUI and fatal for an unattended
+	// run, where the audit log is the only account of what happened.
+	//
+	// This is the chokepoint: ExecuteTool is reached by both the direct and the
+	// by-name paths, and both outcomes pass through it.
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+	logging.Audit().ToolExec(tool.Name, "execute", duration.Milliseconds(), err == nil, errMsg)
 
 	return &ToolResult{
 		ToolName:   tool.Name,

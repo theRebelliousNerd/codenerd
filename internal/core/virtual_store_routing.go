@@ -69,6 +69,12 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	// Constitutional logic check (defense in depth)
 	if err := v.checkConstitution(req); err != nil {
 		logging.Get(logging.CategoryVirtualStore).Warn("Constitutional violation: %s on %s - %v", req.Type, req.Target, err)
+		// Every constitutional verdict belongs in the durable record.
+		// SafetyCheck had no caller anywhere in the repo, so the safety_allow
+		// and safety_block families were never written — meaning the one
+		// decision this system is built around left no trace an unattended run
+		// could be audited against afterwards.
+		logging.Audit().SafetyCheck(string(req.Type)+" "+req.Target, false, err.Error())
 		v.injectFact(newSecurityViolationFact(req, err.Error()))
 		return "", err
 	}
@@ -90,9 +96,15 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 			"policy DENY action=%s target=%s payload_keys=%v",
 			req.Type, req.Target, payloadKeys)
 		err := fmt.Errorf("action %s not permitted by kernel policy", req.Type)
+		logging.Audit().SafetyCheck(string(req.Type)+" "+req.Target, false,
+			fmt.Sprintf("kernel policy derived no permitted/3 fact (payload_keys=%v)", payloadKeys))
 		v.injectFact(newSecurityViolationFact(req, err.Error()))
 		return "", err
 	}
+
+	// The allow verdict matters as much as the denial: an audit that records
+	// only refusals cannot answer "what was this run permitted to do?"
+	logging.Audit().SafetyCheck(string(req.Type)+" "+req.Target, true, "kernel policy permitted")
 
 	// Route to appropriate handler
 	logging.VirtualStoreDebug("Dispatching action %s to handler", req.Type)

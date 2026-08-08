@@ -172,15 +172,23 @@ func runTransparency(cmd *cobra.Command, args []string) error {
 	printAuditSection("🔧 Recent Tool Invocations", path, counts, []logging.AuditEventType{
 		logging.AuditToolInvoke, logging.AuditToolComplete, logging.AuditToolError,
 	})
+	printAuditSection("🛡️  Recent Constitutional Verdicts", path, counts, []logging.AuditEventType{
+		logging.AuditSafetyAllow, logging.AuditSafetyBlock,
+	})
 
 	fmt.Println(strings.Repeat("═", 60))
 	return nil
 }
 
-// printAuditSection renders one event family, distinguishing "nothing happened"
-// from "nothing records this". Several declared families — action_route,
-// tool_invoke, file_write — have no production call site, and reporting those
-// as "none recorded" invites the reader to conclude the system sat idle.
+// printAuditSection renders one event family.
+//
+// An empty family is reported as "none in this log" and nothing more. It is
+// tempting to call it "not instrumented" — and some families genuinely have no
+// producer — but that is a fact about the code, not something a count can
+// establish. action_route and action_complete are wired
+// (virtual_store_routing.go:99 and :151) and still read zero on a day of
+// read-only commands. Inferring a code fact from a runtime count is the exact
+// mistake this command exists to stop making.
 func printAuditSection(title, path string, counts map[logging.AuditEventType]int, types []logging.AuditEventType) {
 	fmt.Printf("\n%s\n", title)
 	fmt.Println(strings.Repeat("─", 40))
@@ -194,7 +202,7 @@ func printAuditSection(title, path string, counts map[logging.AuditEventType]int
 		for i, t := range types {
 			names[i] = string(t)
 		}
-		fmt.Printf("  Not instrumented — no %s events have ever been written.\n", strings.Join(names, "/"))
+		fmt.Printf("  No %s events in this log.\n", strings.Join(names, "/"))
 		return
 	}
 

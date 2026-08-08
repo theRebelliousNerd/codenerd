@@ -889,6 +889,19 @@ func (e *Executor) isToolAllowed(toolName string, cfg *config.EffectiveAgentRunt
 // assertSecurityViolation asserts a security_violation fact into the kernel to provide
 // context to the agent about why an action was blocked.
 func (e *Executor) assertSecurityViolation(actionAtom types.MangleAtom, reason string) {
+	// Record the denial durably before touching the kernel.
+	//
+	// The security_violation fact below is session-scoped: it dies with the
+	// process, so nothing about a refusal survived a run. logging.Audit()
+	// .SafetyCheck had no caller anywhere in the repo, so the safety_allow and
+	// safety_block families were declared and never written. For a system whose
+	// stated contract is "every action must derive permitted(...); default
+	// deny", the verdicts were the one thing no one could audit afterwards.
+	//
+	// Deliberately before the nil-kernel guard: a denial that happens because
+	// the kernel is missing is exactly the one worth having on disk.
+	logging.Audit().SafetyCheck(string(actionAtom), false, reason)
+
 	if e.kernel == nil {
 		return
 	}
@@ -921,8 +934,12 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 		// Otherwise the agent effectively runs in "god mode" on kernel init failure.
 		if e.config.EnableSafetyGate {
 			logging.Get(logging.CategorySession).Error("Safety check failed closed: kernel is nil while EnableSafetyGate=true")
+			logging.Audit().SafetyCheck(call.Name, false, "failed closed: kernel is nil while EnableSafetyGate=true")
 			return false
 		}
+		// Running ungated is the single most important thing to find in an
+		// unattended run's log after the fact.
+		logging.Audit().SafetyCheck(call.Name, true, "safety gate disabled and kernel is nil")
 		return true // Gate disabled: allow
 	}
 
@@ -1023,6 +1040,7 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 		}
 
 		// Match found!
+		logging.Audit().SafetyCheck(wantAction, true, "matched permitted("+wantAction+", "+target+", payload)")
 		return true
 	}
 
