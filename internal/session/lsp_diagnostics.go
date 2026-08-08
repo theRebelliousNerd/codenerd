@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"regexp"
 	"os/exec"
 	"strings"
 	"time"
@@ -87,10 +88,10 @@ func goplsDiagnostics(ctx context.Context, workspace string, writtenPaths []stri
 	}
 	// `gopls check` exits non-zero when it has findings, so a non-nil err with
 	// output is the normal reporting path, not a failure.
-	text := strings.TrimSpace(string(out))
+	text := keepDiagnosticLines(string(out))
 	if text == "" {
 		if err != nil {
-			logging.SessionDebug("gopls check failed with no output (%v); continuing", err)
+			logging.SessionDebug("gopls check failed with no usable output (%v); continuing", err)
 		}
 		return ""
 	}
@@ -98,6 +99,40 @@ func goplsDiagnostics(ctx context.Context, workspace string, writtenPaths []stri
 		text = text[:goplsMaxOutput] + "\n... (diagnostics truncated)"
 	}
 	return text
+}
+
+// diagnosticLineRe matches a real gopls diagnostic: a path, a line, a column,
+// and a message. Everything gopls says about itself looks different.
+var diagnosticLineRe = regexp.MustCompile(`^.+:\d+:\d+(-\d+)?: .+$`)
+
+// keepDiagnosticLines strips gopls's operational chatter, keeping only lines
+// that are actually diagnostics.
+//
+// This runs on CombinedOutput, so gopls's stderr is in the mix. Observed live
+// (2026-08-08): the only "diagnostic" fed to the critic on a clean turn was
+//
+//	telemetry prompt failed: unable to determine user config dir: %AppData% is not defined
+//
+// which is gopls complaining that build.GetBuildEnv hands it a restricted
+// environment without APPDATA. It says nothing about the code.
+//
+// Passing that to the reviewer under the heading "Static analysis reported"
+// is worse than passing nothing. The whole reason to include tool output is
+// that it is ground truth; presenting noise as ground truth invites exactly
+// the invented findings the critic is built to avoid. The reviewer cannot tell
+// the difference, so the filtering has to happen here.
+func keepDiagnosticLines(raw string) string {
+	var kept []string
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if diagnosticLineRe.MatchString(trimmed) {
+			kept = append(kept, trimmed)
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 // execLookPathForTest exposes the PATH lookup so tests can skip cleanly when

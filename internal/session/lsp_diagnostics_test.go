@@ -66,3 +66,53 @@ func Bad() {
 		t.Errorf("diagnostics do not name the analysed file: %q", got)
 	}
 }
+
+// gopls talks about itself on stderr, and CombinedOutput mixes that in. The
+// live run that first exercised this gate fed the critic exactly one line,
+// under the heading "Static analysis reported":
+//
+//	telemetry prompt failed: unable to determine user config dir: %AppData% is not defined
+//
+// That is gopls complaining about its own environment. Presenting it to a
+// reviewer as ground truth is worse than presenting nothing, because the whole
+// value of tool output is that it cannot be argued with — and a reviewer handed
+// noise labelled as evidence is being invited to invent a finding about it.
+func TestKeepDiagnosticLines(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "the observed telemetry noise is dropped",
+			raw:  "2026/08/08 12:07:12 Error:2026/08/08 12:07:12 telemetry prompt failed: unable to determine user config dir: %AppData% is not defined",
+			want: "",
+		},
+		{
+			name: "a real diagnostic is kept",
+			raw:  `C:\repo\internal\session\critic.go:85:4-41: Inefficient string concatenation in call to WriteString`,
+			want: `C:\repo\internal\session\critic.go:85:4-41: Inefficient string concatenation in call to WriteString`,
+		},
+		{
+			name: "unix-style diagnostic without a column range is kept",
+			raw:  "internal/session/a.go:12:3: result of fmt.Sprintf is not used",
+			want: "internal/session/a.go:12:3: result of fmt.Sprintf is not used",
+		},
+		{
+			name: "noise around a real diagnostic leaves only the diagnostic",
+			raw: "gopls: starting\n" +
+				"internal/session/a.go:12:3: result of fmt.Sprintf is not used\n" +
+				"telemetry prompt failed: whatever\n",
+			want: "internal/session/a.go:12:3: result of fmt.Sprintf is not used",
+		},
+		{"empty input", "", ""},
+		{"blank lines only", "\n\n   \n", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := keepDiagnosticLines(tc.raw); got != tc.want {
+				t.Errorf("keepDiagnosticLines(%q) = %q; want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}

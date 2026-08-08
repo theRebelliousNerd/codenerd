@@ -441,8 +441,14 @@ func (e *Executor) verifyAndUpliftWithCritic(
 
 	findings := parseCriticFindings(response)
 	result.CriticFindings = findings
+
+	// One line carrying every gate's verdict. Reaching this point means the
+	// build and tests already passed — the two hard gates return early
+	// otherwise — so those are true by construction here.
+	logging.Get(logging.CategorySession).Info("turn signals: %s",
+		SummarizeTurnSignals(true, true, len(result.UncoveredBlocks), len(findings)))
+
 	if len(findings) == 0 {
-		logging.SessionDebug("adversarial review found nothing")
 		return nil, nil
 	}
 
