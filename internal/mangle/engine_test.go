@@ -18,20 +18,29 @@ func TestMain(m *testing.M) {
 	)
 }
 
+// mockPersistence is the single Persistence double for this package. Three
+// separate definitions of it arrived from parallel branches; they are unified
+// here so a test can pick whichever affordance it needs without redeclaring the
+// type: canned facts/error, an observed call flag, or a full call hook.
 type mockPersistence struct {
 	facts []Fact
 	err   error
 
+	// called records that ReplaceFactsForFile ran at all, for tests that only
+	// care that persistence was reached.
+	called bool
+
 	// ReplaceFactsForFileFunc lets a test observe or fail the write path.
-	// Nil keeps the original behaviour: accept everything, record nothing.
+	// Nil falls back to returning err.
 	ReplaceFactsForFileFunc func(ctx context.Context, file string, facts []Fact, contentHash string) error
 }
 
 func (m *mockPersistence) ReplaceFactsForFile(ctx context.Context, file string, facts []Fact, contentHash string) error {
+	m.called = true
 	if m.ReplaceFactsForFileFunc != nil {
 		return m.ReplaceFactsForFileFunc(ctx, file, facts, contentHash)
 	}
-	return nil
+	return m.err
 }
 
 func (m *mockPersistence) LoadFacts(ctx context.Context) ([]Fact, error) {
@@ -108,19 +117,6 @@ func TestEngineAddFacts(t *testing.T) {
 	if err := engine.AddFacts(facts); err != nil {
 		t.Fatalf("AddFacts() error = %v", err)
 	}
-}
-
-
-
-type mockPersistence struct {
-	Persistence // Embed to panic on unimplemented methods, acting as interface guard
-	called bool
-	err error
-}
-
-func (m *mockPersistence) ReplaceFactsForFile(ctx context.Context, file string, facts []Fact, contentHash string) error {
-	m.called = true
-	return m.err
 }
 
 func TestEngineReplaceFactsForFile(t *testing.T) {
@@ -235,9 +231,6 @@ func TestEngineReplaceFactsForFile(t *testing.T) {
 	if engineWarn.factLimitWarned {
 		t.Fatalf("Expected factLimitWarned to be false after replacement")
 	}
-
-
-
 
 	// 6. Test evalWithGasLimit error (autoEval = true)
 	cfgGas := DefaultConfig()
