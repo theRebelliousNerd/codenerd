@@ -1,6 +1,8 @@
 package campaign
 
 import (
+	"sync"
+	"context"
 	"codenerd/internal/core"
 	"fmt"
 	"testing"
@@ -433,7 +435,7 @@ func TestOrchestrator_IsPhaseComplete(t *testing.T) {
 // Additional test for getCampaignBlockReason
 func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
 	// TODO: TestOrchestrator_StartNextPhase_NilContext
-	// TODO: TestOrchestrator_StartNextPhase_RaceCondition
+
 	// TODO: TestOrchestrator_StartNextPhase_DoubleInvocation
 	// TODO: TestOrchestrator_CompletePhase_NilPhase
 	// TODO: TestOrchestrator_CompletePhase_KernelAssertFailure
@@ -455,5 +457,56 @@ func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
 
 	if reason := orch.getCampaignBlockReason(); reason != "/security_violation" {
 		t.Errorf("Expected /security_violation, got %s", reason)
+	}
+}
+
+
+
+
+func TestOrchestrator_StartNextPhase_RaceCondition(t *testing.T) {
+	mockKernel := &MockKernel{
+		Facts: []core.Fact{
+			{
+				Predicate: "phase_eligible",
+				Args:      []any{"phase-1"},
+			},
+		},
+	}
+
+	campaignState := &Campaign{
+		ID: "camp-1",
+		Phases: []Phase{
+			{
+				ID:     "phase-1",
+				Name:   "Phase 1",
+				Status: PhasePending,
+			},
+		},
+	}
+
+	orch := &Orchestrator{
+		kernel: mockKernel,
+		campaign: campaignState,
+	}
+
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	numGoroutines := 10
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = orch.startNextPhase(ctx)
+		}()
+	}
+
+	wg.Wait()
+
+	// Verify phase status was updated.
+	orch.mu.RLock()
+	defer orch.mu.RUnlock()
+	if orch.campaign.Phases[0].Status != PhaseInProgress {
+		t.Errorf("Expected phase status to be PhaseInProgress, got %s", orch.campaign.Phases[0].Status)
 	}
 }
