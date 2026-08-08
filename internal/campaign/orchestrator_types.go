@@ -143,10 +143,11 @@ type OrchestratorConfig struct {
 	RiskIntelligenceTimeout time.Duration   // Optional timeout for pre-run intelligence snapshot gathering
 
 	// Intelligence integration (Campaign Intelligence Plan)
-	IntelligenceGatherer *IntelligenceGatherer // Pre-planning intelligence from 12 systems
-	AdvisoryBoard        *ShardAdvisoryBoard   // Domain expert consultation
-	EdgeCaseDetector     *EdgeCaseDetector     // File action decisions
-	ToolPregenerator     *ToolPregenerator     // Tool pre-generation via Ouroboros
+	IntelligenceGatherer *IntelligenceGatherer       // Pre-planning intelligence from 12 systems
+	AdvisoryBoard        *ShardAdvisoryBoard         // Domain expert consultation
+	EdgeCaseDetector     *EdgeCaseDetector           // File action decisions
+	ToolPregenerator     *ToolPregenerator           // Tool pre-generation via Ouroboros
+	NorthstarObserver    *northstar.CampaignObserver // Vision guardian; required by the protected-surface risk gate
 }
 
 // taskResult is used to collect async task outcomes in runPhase.

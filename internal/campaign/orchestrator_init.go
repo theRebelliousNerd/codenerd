@@ -359,6 +359,15 @@ func wireIntelligenceComponents(o *Orchestrator, cfg OrchestratorConfig) {
 	o.advisoryBoard = cfg.AdvisoryBoard
 	o.edgeCaseDetector = cfg.EdgeCaseDetector
 	o.toolPregenerator = cfg.ToolPregenerator
+
+	// Take the observer from config when supplied. This line used to read
+	// `o.configuredNorthstarObserver = o.northstarObserver`, copying a field
+	// nothing ever populated -- so it was always nil, and the protected-surface
+	// risk gate refused every campaign touching internal/core and friends. The
+	// setter existed; no caller did.
+	if cfg.NorthstarObserver != nil {
+		o.northstarObserver = cfg.NorthstarObserver
+	}
 	o.configuredNorthstarObserver = o.northstarObserver
 
 	// Wire intelligence components into decomposer for campaign planning

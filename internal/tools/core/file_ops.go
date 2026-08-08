@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -43,6 +44,65 @@ func ReadFileTool() *tools.Tool {
 	}
 }
 
+// notFoundWithSuggestions turns a missing-file error into a recoverable one by
+// naming what actually exists in the directory the caller aimed at.
+//
+// The failure this addresses: a model guesses a plausible filename
+// (internal/northstar/campaign_observer.go when the file is observer.go),
+// read_file returns a bare "no such file", and the run dead-ends -- observed
+// live killing a task after five guessed paths in one batch. A wrong guess
+// should cost one turn, not the whole task, so the error carries the directory
+// listing needed to self-correct.
+func notFoundWithSuggestions(absPath, rawPath string) error {
+	dir := filepath.Dir(absPath)
+	want := strings.ToLower(strings.TrimSuffix(filepath.Base(absPath), filepath.Ext(absPath)))
+
+	entries, dirErr := os.ReadDir(dir)
+	if dirErr != nil {
+		// The directory itself is missing -- say so plainly; that is a
+		// different mistake than a wrong filename.
+		return fmt.Errorf("file not found: %s (directory %s does not exist either; "+
+			"use glob or list_files to find the correct path before reading)",
+			rawPath, filepath.Dir(rawPath))
+	}
+
+	var related, all []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		all = append(all, name)
+		base := strings.ToLower(strings.TrimSuffix(name, filepath.Ext(name)))
+		// Substring either way catches observer.go for campaign_observer.go
+		// and vice versa, which is the common shape of this mistake.
+		if want != "" && (strings.Contains(base, want) || strings.Contains(want, base)) {
+			related = append(related, name)
+		}
+	}
+
+	sort.Strings(related)
+	sort.Strings(all)
+
+	const maxList = 40
+	if len(related) > 0 {
+		return fmt.Errorf("file not found: %s. Did you mean one of these in the same directory: %s? "+
+			"(read one of those, or use glob to search more widely -- do not guess another filename)",
+			rawPath, strings.Join(related, ", "))
+	}
+	if len(all) == 0 {
+		return fmt.Errorf("file not found: %s (directory exists but contains no files)", rawPath)
+	}
+	if len(all) > maxList {
+		return fmt.Errorf("file not found: %s. That directory contains %d files, including: %s ... "+
+			"(use glob to narrow it down rather than guessing)",
+			rawPath, len(all), strings.Join(all[:maxList], ", "))
+	}
+	return fmt.Errorf("file not found: %s. That directory contains: %s "+
+		"(pick one of those, or use glob to search elsewhere -- do not guess another filename)",
+		rawPath, strings.Join(all, ", "))
+}
+
 func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 	rawPath, _ := args["path"].(string)
 	if rawPath == "" {
@@ -62,6 +122,9 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 
 	content, err := os.ReadFile(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return "", notFoundWithSuggestions(path, rawPath)
+		}
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 

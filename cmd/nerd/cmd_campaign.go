@@ -8,6 +8,8 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/logging"
+	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
@@ -510,6 +512,12 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	advisoryBoard := campaign.NewShardAdvisoryBoard(consultationProvider)
 	fmt.Println("   ✓ Advisory board initialized")
 
+	// Create the Northstar observer - the risk gate REQUIRES this for any
+	// campaign touching a protected surface (see risk_scoring.go). Without it
+	// every such campaign is refused at start, which is how this path behaved
+	// until now: the setter existed and nothing ever called it.
+	northstarObserver := buildNorthstarObserver(cwd, llmClient, kern)
+
 	// Create EdgeCaseDetector - file action decisions (create/extend/modularize)
 	edgeCaseDetector := campaign.NewEdgeCaseDetector(kern, worldScanner)
 	fmt.Println("   ✓ Edge case detector initialized")
@@ -533,6 +541,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		EventChan:            eventChan,
 		IntelligenceGatherer: intelligenceGatherer,
 		AdvisoryBoard:        advisoryBoard,
+		NorthstarObserver:    northstarObserver,
 		EdgeCaseDetector:     edgeCaseDetector,
 		ToolPregenerator:     toolPregenerator,
 	})
@@ -934,6 +943,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		consultationProvider,
 	)
 	advisoryBoard := campaign.NewShardAdvisoryBoard(consultationProvider)
+	northstarObserver := buildNorthstarObserver(cwd, llmClient, kern)
 	edgeCaseDetector := campaign.NewEdgeCaseDetector(kern, worldScanner)
 
 	orchestrator, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
@@ -948,6 +958,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		EventChan:            eventChan,
 		IntelligenceGatherer: intelligenceGatherer,
 		AdvisoryBoard:        advisoryBoard,
+		NorthstarObserver:    northstarObserver,
 		EdgeCaseDetector:     edgeCaseDetector,
 	})
 	if err != nil {
@@ -1399,4 +1410,45 @@ func (a *campaignTaskDelegatorAdapter) Execute(ctx context.Context, intent strin
 		Task:       task,
 	}
 	return a.executor.Execute(ctx, req)
+}
+
+// buildNorthstarObserver constructs the vision-guardian observer the campaign
+// risk gate requires for protected surfaces.
+//
+// Why this exists: risk_scoring.go refuses to start any campaign whose targets
+// touch a protected root unless the orchestrator has a Northstar observer. The
+// setter for that field had ZERO callers repo-wide, so every such campaign was
+// permanently blocked -- reproduced live with `nerd campaign start` against
+// internal/core.
+//
+// Returns nil, loudly, when the guardian cannot be built. A nil observer keeps
+// the gate closed, which is the safe direction: an inert observer would satisfy
+// the gate while checking nothing, and a campaign that appears to run under a
+// guardian that is not actually guarding is worse than one that refuses to
+// start.
+func buildNorthstarObserver(cwd string, llmClient perception.LLMClient, kern types.Kernel) *northstar.CampaignObserver {
+	nerdDir := filepath.Join(cwd, ".nerd")
+
+	store, err := northstar.NewStore(nerdDir)
+	if err != nil {
+		logging.CampaignWarn("northstar store unavailable (%v); campaigns touching protected surfaces will be refused by the risk gate", err)
+		fmt.Println("   ⚠ Northstar observer unavailable — campaigns on protected paths will be refused")
+		return nil
+	}
+
+	guardian := northstar.NewGuardian(store, northstar.DefaultGuardianConfig())
+	if llmClient != nil {
+		guardian.SetLLMClient(llmClient)
+	}
+	if kern != nil {
+		guardian.SetParentKernel(kern)
+	}
+	if err := guardian.Initialize(); err != nil {
+		logging.CampaignWarn("northstar guardian failed to initialize (%v); campaigns touching protected surfaces will be refused by the risk gate", err)
+		fmt.Println("   ⚠ Northstar observer failed to initialize — campaigns on protected paths will be refused")
+		return nil
+	}
+
+	fmt.Println("   ✓ Northstar observer initialized")
+	return northstar.NewCampaignObserver(guardian)
 }
