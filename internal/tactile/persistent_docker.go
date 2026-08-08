@@ -343,6 +343,8 @@ func (e *PersistentDockerExecutor) CreateContainer(ctx context.Context, opts Con
 	for k, v := range opts.Labels {
 		args = append(args, "--label", fmt.Sprintf("%s=%s", k, v))
 	}
+	// Use -- to separate options from positional arguments
+	args = append(args, "--")
 
 	// Image
 	args = append(args, "--")
@@ -521,6 +523,8 @@ func (e *PersistentDockerExecutor) ExecInContainer(ctx context.Context, opts Con
 	if opts.User != "" {
 		args = append(args, "-u", opts.User)
 	}
+	// Use -- to prevent option injection
+	args = append(args, "--")
 
 	// Container ID
 	args = append(args, "--", opts.ContainerID)
