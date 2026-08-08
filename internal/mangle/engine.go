@@ -202,28 +202,6 @@ func (e *Engine) RecomputeRules() error {
 	return nil
 }
 
-// stringContainsCallback is commented out as we transitioned to native :string:contains.
-/*
-type stringContainsCallback struct{}
-
-func (s stringContainsCallback) ShouldPushdown() bool { return false }
-func (s stringContainsCallback) ShouldQuery(inputs []ast.Constant, filters []ast.BaseTerm, pushdown []ast.Term) bool {
-	return true
-}
-
-func (s stringContainsCallback) ExecuteQuery(inputs []ast.Constant, filters []ast.BaseTerm, pushdown []ast.Term, cb func([]ast.BaseTerm)) error {
-	if len(inputs) < 2 {
-		return nil
-	}
-	haystack, ok1 := convertBaseTermToInterface(inputs[0]).(string)
-	needle, ok2 := convertBaseTermToInterface(inputs[1]).(string)
-	if ok1 && ok2 && strings.Contains(haystack, needle) {
-		cb(nil)
-	}
-	return nil
-}
-*/
-
 // evalWithGasLimit wraps EvalStratifiedProgramWithStats with derived facts gas limit enforcement.
 // This prevents runaway inference from exhausting memory.
 // Uses pre-computed strata from rebuildProgramLocked() for proper stratified evaluation.
