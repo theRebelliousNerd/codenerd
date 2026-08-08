@@ -81,14 +81,40 @@ func TestFlightWatchdog_StopsUnderSustainedChurn(t *testing.T) {
 		wg.Wait()
 	}
 
-	require.Eventually(t, func() bool {
-		if !FlightRecorderEnabled() {
-			return true
+	// Bounded by rounds of churn, not by wall-clock.
+	//
+	// This was require.Eventually with a 15-second ceiling, and it passed alone
+	// and failed inside `go test ./...` — observed 2026-08-08. The churn is 64
+	// goroutines spinning on runtime.Gosched, so under a full parallel suite it
+	// gets a fraction of the CPU, produces trace data more slowly, and the guard
+	// is not reached before the deadline. The watchdog was never broken; the
+	// test was measuring machine load.
+	//
+	// That matters more than an ordinary flake here: the session test gate runs
+	// `go test` on touched packages, so a load-sensitive failure in this package
+	// intermittently fails real turns and teaches the agent to distrust a
+	// correct signal.
+	//
+	// Counting rounds instead makes CPU speed change how LONG the test takes
+	// rather than WHETHER it passes. The deadline that remains is a hang
+	// backstop, and it reports how far it got so a real regression is still
+	// legible.
+	const maxRounds = 400
+	deadline := time.Now().Add(2 * time.Minute)
+
+	rounds := 0
+	for FlightRecorderEnabled() {
+		if rounds >= maxRounds {
+			t.Fatalf("watchdog did not stop the recorder after %d rounds of sustained churn; "+
+				"it must trip once trace memory grows past the guard", rounds)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("watchdog did not stop the recorder within the hang backstop (%d rounds completed)", rounds)
 		}
 		churn()
-		return !FlightRecorderEnabled()
-	}, 15*time.Second, 10*time.Millisecond,
-		"watchdog must stop the recorder once sustained churn grows trace memory past the guard")
+		rounds++
+	}
+	t.Logf("watchdog tripped after %d rounds of churn", rounds)
 }
 
 // TestFlightWatchdog_NoTripUnderCap proves the guard does not false-fire:
