@@ -1367,6 +1367,11 @@ func initFinalExecutors(bctx *bootContext) error {
 	// loadProjectDoc, so a construction site that forgets this line loses the
 	// prose, not the guarantee.
 	bctx.sessionExecutor.SetProjectDoc(bctx.projectDoc)
+	if ck, ok := bctx.kernel.(*core.CortexKernel); ok {
+		if rk := ck.GetPrimaryRealKernel(); rk != nil {
+			bctx.sessionExecutor.SetFileContextProvider(world.NewHolographicProvider(rk, bctx.workspace))
+		}
+	}
 
 	bctx.sessionSpawner = session.NewSpawner(
 		sessionKernel,
