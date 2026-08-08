@@ -42,16 +42,26 @@ func TestPrioritizedCallerStruct(t *testing.T) {
 // TODO: Add TestHolographicContext_ConcurrentReadWrite - Test concurrent reads/writes to verify sync.RWMutex behavior (especially on regexCache) and prevent data races under heavy parallel access.
 // TODO: Add TestHolographicContext_DeletedFileMidFlight - Simulate file deletion between os.ReadDir and parser.ParseFile to ensure we log a warning instead of failing out completely.
 // TODO: Add TestHolographicContext_EmptyTypeDefinitions - Test extraction for structs with no fields or interfaces with no methods to confirm `Fields` and `Methods` serialization handling.
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/test-empty-callers-format-16405052432389677681
 func TestHolographicContext_FormatWithEmptyCallers(t *testing.T) {
 	hc := &HolographicContext{
 		TargetFile:         "target.go",
 		TargetPkg:          "world",
+<<<<<<< HEAD
 		PrioritizedCallers: []PrioritizedCaller{},
 		ImpactPriority:     50,
+=======
+		ImpactPriority:     50,
+		PrioritizedCallers: []PrioritizedCaller{},
+>>>>>>> origin/test-empty-callers-format-16405052432389677681
 	}
 
 	formatted := hc.FormatWithPriorities()
 
+<<<<<<< HEAD
 	// When PrioritizedCallers is empty, it should format only the standard context
 	// and NOT include the Impact-Prioritized Context section
 	if strings.Contains(formatted, "Impact-Prioritized Context") {
@@ -62,6 +72,21 @@ func TestHolographicContext_FormatWithEmptyCallers(t *testing.T) {
 		t.Errorf("FormatWithPriorities missing standard context when callers is empty, got:\n%s", formatted)
 	}
 }
+=======
+	if strings.Contains(formatted, "Impact-Prioritized Context") {
+		t.Error("FormatWithPriorities should not contain 'Impact-Prioritized Context' when PrioritizedCallers is an empty slice")
+	}
+	if strings.Contains(formatted, "Prioritized Callers") {
+		t.Error("FormatWithPriorities should not contain 'Prioritized Callers' when PrioritizedCallers is an empty slice")
+	}
+
+	// Should still contain standard formatting
+	if !strings.Contains(formatted, "Package: `world`") {
+		t.Errorf("FormatWithPriorities should still contain standard context formatting, got:\n%s", formatted)
+	}
+}
+
+>>>>>>> origin/test-empty-callers-format-16405052432389677681
 
 func TestHolographicContextWithPrioritizedCallers(t *testing.T) {
 	hc := &HolographicContext{
