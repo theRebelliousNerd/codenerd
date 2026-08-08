@@ -38,7 +38,26 @@ func TestPrioritizedCallerStruct(t *testing.T) {
 // TODO: Add TestHolographicContext_ConcurrentReadWrite - Test concurrent reads/writes to verify sync.RWMutex behavior (especially on regexCache) and prevent data races under heavy parallel access.
 // TODO: Add TestHolographicContext_DeletedFileMidFlight - Simulate file deletion between os.ReadDir and parser.ParseFile to ensure we log a warning instead of failing out completely.
 // TODO: Add TestHolographicContext_EmptyTypeDefinitions - Test extraction for structs with no fields or interfaces with no methods to confirm `Fields` and `Methods` serialization handling.
-// TODO: Add TestHolographicContext_FormatWithEmptyCallers - Test `FormatWithPriorities` behavior when `PrioritizedCallers` is explicitly initialized as an empty slice (not nil).
+func TestHolographicContext_FormatWithEmptyCallers(t *testing.T) {
+	hc := &HolographicContext{
+		TargetFile: "target.go",
+		TargetPkg:  "world",
+		PrioritizedCallers: []PrioritizedCaller{},
+		ImpactPriority: 50,
+	}
+
+	formatted := hc.FormatWithPriorities()
+
+	// When PrioritizedCallers is empty, it should format only the standard context
+	// and NOT include the Impact-Prioritized Context section
+	if strings.Contains(formatted, "Impact-Prioritized Context") {
+		t.Errorf("FormatWithPriorities should not contain 'Impact-Prioritized Context' when callers is empty, got:\n%s", formatted)
+	}
+
+	if !strings.Contains(formatted, "Package Context") {
+		t.Errorf("FormatWithPriorities missing standard context when callers is empty, got:\n%s", formatted)
+	}
+}
 
 func TestHolographicContextWithPrioritizedCallers(t *testing.T) {
 	hc := &HolographicContext{
