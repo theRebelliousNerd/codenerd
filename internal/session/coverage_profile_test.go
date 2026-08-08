@@ -301,3 +301,41 @@ func TestSummarizeUncovered_CapsTheList(t *testing.T) {
 		t.Errorf("summarizeUncovered(nil) = %q; want empty", s)
 	}
 }
+
+// The coverage gate reported this function uncovered on the turn that created
+// it (2026-08-08 11:26, "Turn wrote 21 block(s) of Go that no test executes"),
+// with `go test` green at the same moment. This test is the response to that
+// signal — which is the loop the gate exists to close.
+func TestNormalizeCoverPath(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"internal/session/foo.go", "internal/session/foo.go"},
+		{`internal\session\foo.go`, "internal/session/foo.go"},
+		{"./internal/session/foo.go", "internal/session/foo.go"},
+		{`.\internal\session\foo.go`, "internal/session/foo.go"},
+		{"", ""},
+		{"./", ""},
+		// Exactly one leading "./" is stripped, not all of them.
+		{"././foo.go", "./foo.go"},
+		// A parent-relative path does not start with "./" and is left alone.
+		{"../foo.go", "../foo.go"},
+	}
+	for _, tc := range cases {
+		if got := NormalizeCoverPath(tc.in); got != tc.want {
+			t.Errorf("NormalizeCoverPath(%q) = %q; want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// Windows path separators in written paths must still match a profile, which
+// always uses forward slashes. Without normalisation every comparison on
+// Windows fails silently and the gate reports nothing forever.
+func TestParseCoverProfile_MatchesWindowsStyleWrittenPaths(t *testing.T) {
+	profile := "mode: set\ncodenerd/internal/session/foo.go:10.14,20.1 3 0\n"
+	got, err := parseCoverProfile(strings.NewReader(profile), []string{`internal\session\foo.go`})
+	if err != nil {
+		t.Fatalf("parseCoverProfile: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("backslash-spelled written path did not match the profile: got %v", got)
+	}
+}

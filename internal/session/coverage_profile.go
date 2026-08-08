@@ -113,8 +113,7 @@ func parseCoverProfile(r io.Reader, writtenFiles []string) ([]UncoveredBlock, er
 		if wf == "" {
 			continue
 		}
-		wf = filepath.ToSlash(wf)
-		wf = strings.TrimPrefix(wf, "./")
+		wf = NormalizeCoverPath(wf)
 		if wf == "" {
 			continue
 		}
@@ -182,7 +181,7 @@ func parseCoverProfile(r io.Reader, writtenFiles []string) ([]UncoveredBlock, er
 		}
 
 		// Only blocks in files the turn wrote are surfaced.
-		fileSlash := filepath.ToSlash(file)
+		fileSlash := NormalizeCoverPath(file)
 		matched := false
 		for _, wf := range normalizedWritten {
 			if strings.HasSuffix(fileSlash, wf) {
@@ -360,3 +359,16 @@ func summarizeUncovered(blocks []UncoveredBlock) string {
 	}
 	return strings.Join(parts, ", ")
 }
+
+// NormalizeCoverPath puts a path in the form the profile comparison needs:
+// forward slashes, no leading "./".
+//
+// Coverage profiles always use forward slashes regardless of platform, while
+// written paths arrive however the tool that produced them spelled them. On
+// Windows that difference alone would make every suffix comparison fail.
+func NormalizeCoverPath(p string) string {
+	p = strings.ReplaceAll(p, "\\", "/")
+	p = strings.TrimPrefix(p, "./")
+	return p
+}
+
