@@ -76,32 +76,19 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 
 	// Find the predicate in the decls
 	predicateFound := false
-
-	if hasPattern {
-		// Fast path: direct lookup since we know the arity
-		pred := ast.PredicateSym{Symbol: predicateName, Arity: desiredArity}
-		if _, ok := k.programInfo.Decls[pred]; ok {
+	for pred := range k.programInfo.Decls {
+		if pred.Symbol == predicateName && (!hasPattern || pred.Arity == desiredArity) {
 			predicateFound = true
+			// Query the store for all atoms of this predicate
 			k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
 				fact := atomToFact(a)
-				if factMatchesPattern(fact, patternFact) {
+				// If a pattern was provided, filter by constants.
+				if !hasPattern || factMatchesPattern(fact, patternFact) {
 					results = append(results, fact)
 				}
 				return nil
 			})
-		}
-	} else {
-		for pred := range k.programInfo.Decls {
-			if pred.Symbol == predicateName {
-				predicateFound = true
-				// Query the store for all atoms of this predicate
-				k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
-					fact := atomToFact(a)
-					results = append(results, fact)
-					return nil
-				})
-				break
-			}
+			break
 		}
 	}
 
