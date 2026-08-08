@@ -1,6 +1,7 @@
 package mangle
 
 import (
+	"fmt"
 	"context"
 	"strings"
 	"sync"
@@ -17,6 +18,24 @@ func TestMain(m *testing.M) {
 	)
 }
 
+
+
+type mockPersistence struct {
+	facts []Fact
+	err   error
+}
+
+func (m *mockPersistence) ReplaceFactsForFile(ctx context.Context, file string, facts []Fact, contentHash string) error {
+	return nil
+}
+
+func (m *mockPersistence) LoadFacts(ctx context.Context) ([]Fact, error) {
+	return m.facts, m.err
+}
+
+func (m *mockPersistence) GetFileStates(ctx context.Context) (map[string]string, error) {
+	return nil, nil
+}
 func TestNewEngine(t *testing.T) {
 	cfg := DefaultConfig()
 	engine, err := NewEngine(cfg, nil)
@@ -908,5 +927,67 @@ func TestLargeStringHandling(t *testing.T) {
 		if len(facts) != 1 {
 			t.Errorf("Expected 1 fact, got %d", len(facts))
 		}
+	}
+}
+
+func TestEngine_WarmFromPersistence(t *testing.T) {
+	ctx := context.Background()
+	cfg := DefaultConfig()
+
+	// Scenario 1: Nil persistence
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+	if err := engine.WarmFromPersistence(ctx); err != nil {
+		t.Errorf("WarmFromPersistence() with nil persistence expected nil error, got %v", err)
+	}
+
+	// Scenario 2: LoadFacts returns error
+	mockErr := fmt.Errorf("mock load error")
+	pErr := &mockPersistence{err: mockErr}
+	engineErr, err := NewEngine(cfg, pErr)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+	if err := engineErr.WarmFromPersistence(ctx); err == nil || !strings.Contains(err.Error(), "mock load error") {
+		t.Errorf("WarmFromPersistence() expected mock load error, got %v", err)
+	}
+
+	// Scenario 3: LoadFacts returns empty facts
+	pEmpty := &mockPersistence{facts: []Fact{}}
+	engineEmpty, err := NewEngine(cfg, pEmpty)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+	if err := engineEmpty.WarmFromPersistence(ctx); err != nil {
+		t.Errorf("WarmFromPersistence() with empty facts expected nil error, got %v", err)
+	}
+
+	// Scenario 4: Facts available but schemas not loaded (errNoSchemas)
+	pNoSchema := &mockPersistence{facts: []Fact{{Predicate: "test", Args: []any{"a"}}}}
+	engineNoSchema, err := NewEngine(cfg, pNoSchema)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+	if err := engineNoSchema.WarmFromPersistence(ctx); err != errNoSchemas {
+		t.Errorf("WarmFromPersistence() with no schemas expected errNoSchemas, got %v", err)
+	}
+
+	// Scenario 5: Success
+	pSuccess := &mockPersistence{facts: []Fact{{Predicate: "test", Args: []any{"a"}}}}
+	engineSuccess, err := NewEngine(cfg, pSuccess)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	// Load dummy schema to satisfy programInfo != nil
+	dummySchema := "Decl test(X)."
+	if err := engineSuccess.LoadSchemaString(dummySchema); err != nil {
+		t.Fatalf("LoadSchema() error = %v", err)
+	}
+
+	if err := engineSuccess.WarmFromPersistence(ctx); err != nil {
+		t.Errorf("WarmFromPersistence() success scenario expected nil error, got %v", err)
 	}
 }
