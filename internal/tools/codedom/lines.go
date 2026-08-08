@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -100,6 +101,15 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 	result = append(result, newLines...)
 	result = append(result, lines[endIdx:]...)
 
+	// Refuse an edit that drops a delimiter the replaced range was holding.
+	// Observed repeatedly: a replacement range ends on a closing brace, the new
+	// content omits it, and the file silently stops parsing several
+	// declarations later. Failing here costs one retry; not failing costs a
+	// corrupted file that looks like a successful write.
+	if err := checkDelimiterBalance(path, lines[startIdx:endIdx], newLines); err != nil {
+		return "", err
+	}
+
 	// Write back
 	if err := os.WriteFile(path, []byte(strings.Join(result, "\n")), 0644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
@@ -110,6 +120,117 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 	return fmt.Sprintf("Replaced lines %d-%d (%d lines) with %d new lines in %s.%s",
 		startLine, endLine, linesReplaced, len(newLines), path,
 		lineShiftNotice(startLine, len(newLines)-linesReplaced, len(result))), nil
+}
+
+// checkDelimiterBalance refuses a replacement whose net brace/bracket/paren
+// balance differs from the text it replaces.
+//
+// The failure this prevents: an edit_lines range that ends on a closing brace,
+// replaced by content that omits it. The write succeeds, the tool reports
+// success, and the file stops compiling somewhere far below the edit -- so the
+// error surfaces detached from its cause, often after several more edits have
+// been layered on top. That is the worst shape of bug for an unattended run.
+//
+// Only applied to source files whose delimiters are structural. Comments and
+// string literals are skipped so a brace inside them cannot trip the check.
+func checkDelimiterBalance(path string, oldLines, newLines []string) error {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".go", ".java", ".c", ".h", ".cpp", ".hpp", ".cs", ".rs", ".js", ".jsx", ".ts", ".tsx", ".kt", ".swift", ".scala":
+	default:
+		return nil // not a brace-structured language; nothing to check
+	}
+
+	oldNet := netDelimiters(strings.Join(oldLines, "\n"))
+	newNet := netDelimiters(strings.Join(newLines, "\n"))
+
+	var offenders []string
+	for _, d := range []struct {
+		name  string
+		open  rune
+		close rune
+	}{{"braces", '{', '}'}, {"brackets", '[', ']'}, {"parens", '(', ')'}} {
+		if oldNet[d.open] != newNet[d.open] {
+			offenders = append(offenders, fmt.Sprintf(
+				"%s: replaced text had net %+d, new content has net %+d",
+				d.name, oldNet[d.open], newNet[d.open]))
+		}
+	}
+	if len(offenders) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"refusing edit: it changes delimiter balance in %s (%s).\n"+
+			"The lines you replaced were holding a delimiter your new content does not reproduce, "+
+			"which would leave the file unparseable below the edit.\n"+
+			"Re-read the exact range with get_element or read_file, include every closing delimiter "+
+			"the range contained, and retry. If the imbalance is intentional (you are deliberately "+
+			"moving a block), make the matching edit in the same call or widen the range to cover both ends",
+		path, strings.Join(offenders, "; "))
+}
+
+// netDelimiters counts opens minus closes per delimiter, ignoring anything
+// inside a string, rune, raw literal, or comment.
+func netDelimiters(src string) map[rune]int {
+	net := map[rune]int{'{': 0, '[': 0, '(': 0}
+
+	var inLine, inBlock, inStr, inRune, inRaw, esc bool
+	runes := []rune(src)
+	for i := 0; i < len(runes); i++ {
+		c := runes[i]
+		next := rune(0)
+		if i+1 < len(runes) {
+			next = runes[i+1]
+		}
+
+		switch {
+		case inLine:
+			if c == '\n' {
+				inLine = false
+			}
+		case inBlock:
+			if c == '*' && next == '/' {
+				inBlock = false
+				i++
+			}
+		case inStr, inRune:
+			if esc {
+				esc = false
+			} else if c == '\\' {
+				esc = true
+			} else if (inStr && c == '"') || (inRune && c == '\'') {
+				inStr, inRune = false, false
+			}
+		case inRaw:
+			if c == '`' {
+				inRaw = false
+			}
+		default:
+			switch {
+			case c == '/' && next == '/':
+				inLine = true
+				i++
+			case c == '/' && next == '*':
+				inBlock = true
+				i++
+			case c == '"':
+				inStr = true
+			case c == '\'':
+				inRune = true
+			case c == '`':
+				inRaw = true
+			case c == '{', c == '[', c == '(':
+				net[c]++
+			case c == '}':
+				net['{']--
+			case c == ']':
+				net['[']--
+			case c == ')':
+				net['(']--
+			}
+		}
+	}
+	return net
 }
 
 // lineShiftNotice reports how a mutation moved every line below it, so the
