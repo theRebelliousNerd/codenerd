@@ -2,12 +2,13 @@ package mangle
 
 import (
 	"context"
+	"go.uber.org/goleak"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"go.uber.org/goleak"
 )
 
 func TestMain(m *testing.M) {
@@ -41,6 +42,33 @@ func TestEngineLoadSchemaString(t *testing.T) {
 		t.Fatalf("LoadSchemaString() error = %v", err)
 	}
 }
+
+func TestEngineLoadSchema(t *testing.T) {
+	cfg := DefaultConfig()
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	tempDir := t.TempDir()
+	schemaPath := filepath.Join(tempDir, "test_schema.mg")
+	schemaContent := `Decl test_fact_file(X, Y).`
+
+	if err := os.WriteFile(schemaPath, []byte(schemaContent), 0644); err != nil {
+		t.Fatalf("Failed to write temporary schema file: %v", err)
+	}
+
+	if err := engine.LoadSchema(schemaPath); err != nil {
+		t.Fatalf("LoadSchema() error = %v", err)
+	}
+
+	// Test error when file doesn't exist
+	invalidPath := filepath.Join(tempDir, "does_not_exist.mg")
+	if err := engine.LoadSchema(invalidPath); err == nil {
+		t.Fatal("LoadSchema() expected error for non-existent file, got nil")
+	}
+}
+
 
 func TestEngineAddFact(t *testing.T) {
 	cfg := DefaultConfig()
