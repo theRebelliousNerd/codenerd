@@ -1,6 +1,7 @@
 package core
 
 import (
+	"codenerd/internal/build"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -390,7 +391,7 @@ func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (A
 		Binary:           "bash",
 		Arguments:        []string{"-c", testCmd},
 		WorkingDirectory: v.workingDir,
-		Environment:      v.getAllowedEnv(),
+		Environment:      v.buildToolEnv(),
 		Limits: &tactile.ResourceLimits{
 			TimeoutMs: int64(timeoutSeconds) * 1000,
 		},
@@ -439,7 +440,7 @@ func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest
 		Binary:           "bash",
 		Arguments:        []string{"-c", buildCmd},
 		WorkingDirectory: v.workingDir,
-		Environment:      v.getAllowedEnv(),
+		Environment:      v.buildToolEnv(),
 		Limits: &tactile.ResourceLimits{
 			TimeoutMs: int64(timeoutSeconds) * 1000,
 		},
@@ -1122,4 +1123,28 @@ func extToLang(ext string) string {
 	default:
 		return ext
 	}
+}
+
+// buildToolEnv is the environment for the run_tests and build_project handlers.
+//
+// getAllowedEnv alone reads only OS environment variables named in the
+// execution allowlist. The project's own build settings do not live there —
+// build.env_vars in .nerd/config.json is config, not environment — so
+// `go test ./...` and `go build ./...` ran without them.
+//
+// On this repo that means they could never work. Observed live 2026-08-08, the
+// run_tests handler executing its default command:
+//
+//	./sqlite-vec.h:7:10: fatal error: 'sqlite3.h' file not found
+//
+// codeNERD's own test action could not test codeNERD, and had been reporting
+// that compile failure as a test failure.
+//
+// build.GetBuildEnv supplies the base Go environment, the configured build vars
+// and an auto-detected CGO_CFLAGS. It is itself allowlist-respecting — it never
+// dumps os.Environ() — so unioning it with getAllowedEnv widens what these two
+// commands can build with, not what they can read.
+func (v *VirtualStore) buildToolEnv() []string {
+	env := build.GetBuildEnv(nil, v.workingDir)
+	return append(env, v.getAllowedEnv()...)
 }
