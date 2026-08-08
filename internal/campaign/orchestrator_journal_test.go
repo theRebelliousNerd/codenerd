@@ -58,7 +58,7 @@ func TestOrchestratorJournal_Gaps(t *testing.T) {
 			t.Errorf("Recovered journal missing the large event")
 		}
 	})
-	// TODO: TEST_GAP: Missing/Nil Payload Hash Verification. Verify checksumJournalEvent deterministic hashing when ev.Payload is exactly nil vs []byte("").
+	// REMEDIATED: TEST_GAP: Missing/Nil Payload Hash Verification. Verify checksumJournalEvent deterministic hashing when ev.Payload is exactly nil vs []byte("").
 	// TODO: TEST_GAP: [Null/Undefined/Empty] Verify appendJournalEventLocked behavior when o.campaign is nil, ensuring no file is created or panic occurs.
 	// TODO: TEST_GAP: [Null/Undefined/Empty] Verify journalPath handles an empty CampaignID ("") gracefully without polluting the root campaigns directory.
 	// TODO: TEST_GAP: [Type Coercion] Verify appendJournalEventLocked handles unmarshalable payload types (e.g., cyclic structs, math.NaN()) and returns the specific marshal error safely.
@@ -68,6 +68,31 @@ func TestOrchestratorJournal_Gaps(t *testing.T) {
 	// TODO: TEST_GAP: [State Conflicts] Verify writeCampaignSnapshotAtomic fallback mechanism (`writeJournalLinesAtomic` retry logic) works correctly if os.Rename fails due to concurrent access or file locking.
 	// TODO: TEST_GAP: [State Conflicts] Verify that two concurrent calls to appendJournalEventLocked from different goroutines (or processes) do not interleave bytes (requires file-level flock testing, not just mutex).
 	// REMEDIATED: TEST_GAP: Sequence Mismatch Truncation Test. Verify that if line N is corrupt, recovery correctly preserves 0..N-1 and safely overwrites the corrupt line.
+}
+
+func TestChecksumJournalEvent_NilEmptyPayload(t *testing.T) {
+	ev1 := campaignJournalEvent{
+		Seq:              1,
+		TimestampUnix:    1000,
+		EventType:        "test",
+		CampaignID:       "c1",
+		Payload:          nil,
+		SnapshotChecksum: "snap1",
+	}
+	ev2 := campaignJournalEvent{
+		Seq:              1,
+		TimestampUnix:    1000,
+		EventType:        "test",
+		CampaignID:       "c1",
+		Payload:          []byte(""),
+		SnapshotChecksum: "snap1",
+	}
+
+	h1 := checksumJournalEvent(ev1)
+	h2 := checksumJournalEvent(ev2)
+	if h1 != h2 {
+		t.Fatalf("h1 and h2 mismatch: %s != %s", h1, h2)
+	}
 }
 
 func TestOrchestratorJournal_UnsupportedSyncError_Integration(t *testing.T) {
