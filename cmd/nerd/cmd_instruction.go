@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -280,10 +281,55 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		output = output + "\n\n" + summary
 	}
 
+	// Compound instructions must account for every requested subtask before we
+	// can claim /complete. The existing hollow-success guard catches empty
+	// results, but a shard can return a plausible non-empty summary that
+	// describes only the part it did (observed live: TurnStart/TurnEnd done,
+	// IntentParsed silently dropped with no mention). Detect the instruction's
+	// subtasks and require the result to evidence each one. Do not weaken the
+	// hollow-success guard: this is an additional check that can only
+	// downgrade /complete to /partial or /failed.
+	subtasks := extractRequestedSubtasks(userInput)
+	var unaccounted []string
+	if len(subtasks) >= 2 && actionExecuted && actionErr == nil {
+		unaccounted = findUnaccountedSubtasks(subtasks, output)
+		if len(unaccounted) > 0 {
+			gapMsg := fmt.Sprintf("PARTIAL: %d of %d requested subtasks not evidenced in result: %s",
+				len(unaccounted), len(subtasks), strings.Join(unaccounted, "; "))
+			logger.Warn("Compound instruction incomplete",
+				zap.Int("total", len(subtasks)),
+				zap.Strings("missing", unaccounted),
+				zap.Strings("subtasks", subtasks))
+			output = output + "\n\n" + gapMsg + "\nMissing subtasks: " + strings.Join(unaccounted, " | ")
+			actionErr = fmt.Errorf("compound instruction incomplete: %d of %d subtasks not evidenced — missing: %s",
+				len(unaccounted), len(subtasks), strings.Join(unaccounted, ", "))
+		}
+	}
+
 	// 6. Articulation Layer: Report
 	status := "/complete"
 	if actionErr != nil || !actionExecuted {
-		status = "/failed"
+		// A subtask gap after a real action is a partial result, not a total
+		// failure — the distinction matters to policy and to the transcript.
+		if len(unaccounted) > 0 && actionExecuted {
+			status = "/partial"
+		} else {
+			status = "/failed"
+		}
+	}
+	mangleUpdates := []string{
+		fmt.Sprintf("task_status(/manual_instruction, %s)", status),
+		fmt.Sprintf("observation(/result, %q)", output),
+	}
+	if len(unaccounted) > 0 {
+		// Name the gap explicitly so policy and transcripts can see it even
+		// when the surface is truncated.
+		mangleUpdates = append(mangleUpdates,
+			fmt.Sprintf("observation(/subtask_gap, %q)", strings.Join(unaccounted, " | ")))
+	}
+	if len(subtasks) >= 2 && status == "/complete" {
+		mangleUpdates = append(mangleUpdates,
+			fmt.Sprintf("observation(/subtask_accounting, %q)", fmt.Sprintf("all %d subtasks evidenced", len(subtasks))))
 	}
 	payload := articulation.PiggybackEnvelope{
 		Surface: fmt.Sprintf("Processed: %s\nResult: %s", userInput, output),
@@ -295,10 +341,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 				Constraint: intent.Constraint,
 				Confidence: intent.Confidence,
 			},
-			MangleUpdates: []string{
-				fmt.Sprintf("task_status(/manual_instruction, %s)", status),
-				fmt.Sprintf("observation(/result, %q)", output),
-			},
+			MangleUpdates: mangleUpdates,
 		},
 	}
 	emitter.Emit(payload)
@@ -331,6 +374,8 @@ func nextActionFact(action, target string) core.Fact {
 
 // nextActionToShardType maps policy next_action atoms onto domain shard types
 // that SpawnTask can run. Empty means "not a shard handoff".
+// nextActionToShardType maps policy next_action atoms onto domain shard types
+// that SpawnTask can run. Empty means "not a shard handoff".
 func nextActionToShardType(action string) string {
 	action = strings.TrimSpace(strings.TrimPrefix(action, "/"))
 	switch strings.ToLower(action) {
@@ -348,3 +393,262 @@ func nextActionToShardType(action string) string {
 		return ""
 	}
 }
+
+// ---------------------------------------------------------------------------
+// F-RUN-1: per-subtask accounting for compound instructions
+// ---------------------------------------------------------------------------
+
+// compoundSplitRe splits a compound instruction into candidate subtask
+// fragments. It looks for strong separators: semicolons, newlines, " and ",
+// " then ", " also ", ", and ", " plus ", numbered/bulleted lists. A plain
+// comma alone is NOT a splitter — it would over-split single tasks.
+var compoundSplitRe = regexp.MustCompile(`(?i)\s*(?:;|\n)+\s*|\s+and\s+also\s+|\s+then\s+|\s+also\s+|\s*,\s*and\s+|\s+and\s+|\s+plus\s+`)
+
+var numberedListRe = regexp.MustCompile(`(?m)^\s*(?:\d+[.):]|[-*])\s+`)
+
+// extractRequestedSubtasks decomposes a user instruction into discrete
+// subtasks. It returns nil/empty for single-task instructions. A compound
+// instruction is defined as yielding >=2 non-trivial fragments after
+// splitting. The original fragment text is preserved so downstream
+// accounting can report which part was not evidenced.
+func extractRequestedSubtasks(input string) []string {
+	s := strings.TrimSpace(input)
+	if s == "" {
+		return nil
+	}
+	// Normalise whitespace for detection but keep original punctuation.
+	// First handle numbered/bulleted lists explicitly: they are unambiguous
+	// subtask separators.
+	if numberedListRe.MatchString(s) {
+		// Split on bullet/number markers. Keep the content after each marker.
+		parts := numberedListRe.Split(s, -1)
+		var out []string
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			// Further split each bullet on compound separators in case
+			// "1. Do X and also do Y" appears.
+			if p == "" {
+				continue
+			}
+			sub := compoundSplitRe.Split(p, -1)
+			for _, q := range sub {
+				q = strings.TrimSpace(strings.Trim(q, ".,; "))
+				if len(q) >= 3 {
+					out = append(out, q)
+				}
+			}
+		}
+		if len(out) >= 2 {
+			return dedupSubtasks(out)
+		}
+		// Fall through — not actually a multi-bullet instruction.
+	}
+
+	parts := compoundSplitRe.Split(s, -1)
+	var cleaned []string
+	for _, p := range parts {
+		p = strings.TrimSpace(strings.Trim(p, ".,; "))
+		// Strip leading discourse markers that would otherwise pollute
+		// keyword matching ("please ", "also ", "then ").
+		lower := strings.ToLower(p)
+		for _, prefix := range []string{"please ", "also ", "then ", "and "} {
+			if strings.HasPrefix(lower, prefix) {
+				p = strings.TrimSpace(p[len(prefix):])
+				lower = strings.ToLower(p)
+			}
+		}
+		if len(p) >= 3 {
+			cleaned = append(cleaned, p)
+		}
+	}
+	cleaned = mergeModifierFragments(cleaned)
+	if len(cleaned) < 2 {
+		return nil
+	}
+	return dedupSubtasks(cleaned)
+}
+
+// mergeModifierFragments folds single-token fragments back into the fragment
+// they were split from.
+//
+// " and " is a weak separator: it joins subtasks ("wire X and wire Y") but it
+// also joins coordinated modifiers inside ONE task ("reads cleanly and
+// consistently"). Splitting the latter invents a subtask named "consistently"
+// that no result will ever evidence, which would permanently downgrade an
+// ordinary single-task instruction to /partial. A false gap report is worse
+// than the miss this whole mechanism exists to catch, because it is the kind
+// of noise that gets a check switched off.
+//
+// The discriminator is grammatical, not statistical: a subtask is a clause and
+// has at least a verb and an object. A lone word is a modifier. Fragments are
+// merged rather than dropped so the reported subtask text still matches what
+// the user wrote.
+func mergeModifierFragments(parts []string) []string {
+	var out []string
+	for _, p := range parts {
+		if len(tokenRe.FindAllString(p, -1)) < 2 && len(out) > 0 {
+			out[len(out)-1] = out[len(out)-1] + " and " + p
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func dedupSubtasks(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	var out []string
+	for _, s := range in {
+		key := strings.ToLower(strings.TrimSpace(s))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, s)
+	}
+	return out
+}
+
+// subtaskGenericStopWords are filtered when building the distinctive token
+// set so "add IntentParsed support" collapses to ["intentparsed"] rather
+// than matching on the generic "support".
+var subtaskGenericStopWords = map[string]bool{
+	"and": true, "or": true, "the": true, "a": true, "an": true,
+	"to": true, "for": true, "in": true, "of": true, "on": true,
+	"with": true, "please": true, "then": true, "also": true,
+	"that": true, "this": true, "these": true, "those": true,
+	"is": true, "are": true, "be": true, "should": true, "will": true,
+	"would": true, "could": true, "do": true, "does": true, "it": true,
+	"its": true, "as": true, "by": true, "from": true, "at": true,
+	"if": true, "when": true, "while": true, "into": true, "out": true,
+	"over": true, "under": true, "up": true, "down": true,
+	"implement": true, "add": true, "create": true, "fix": true, "make": true,
+	"update": true, "ensure": true, "handle": true, "handling": true,
+	"support": true, "include": true, "including": true, "remove": true,
+	"delete": true, "feature": true, "code": true, "file": true,
+}
+
+// tokenRe extracts alphanumeric tokens (including underscores).
+var tokenRe = regexp.MustCompile(`[A-Za-z0-9_]+`)
+
+// findUnaccountedSubtasks returns the subset of subtasks whose distinctive
+// keywords are not evidenced in output. Matching is case-insensitive and
+// substring-based on the lowercased output. A subtask is considered
+// accounted for if every distinctive token appears in output, or — for
+// longer keyword sets — at least half of them appear. Generic stop words
+// are excluded so the check is driven by identifiers like TurnStart or
+// IntentParsed, not by filler.
+func findUnaccountedSubtasks(subtasks []string, output string) []string {
+	if len(subtasks) == 0 {
+		return nil
+	}
+	lowerOut := strings.ToLower(output)
+
+	// Tokens shared by several subtasks carry no discriminating information.
+	// "wire the TurnStart audit event and wire the TurnEnd audit event and wire
+	// the IntentParsed audit event" gives every subtask the tokens wire/audit/
+	// event; a result that mentions two of the three satisfies all of them.
+	// That is precisely how the live miss survived: for the dropped subtask,
+	// three shared tokens matched and only `intentparsed` did not, so the
+	// proportional rule scored it 3-of-4 and called it done.
+	//
+	// The tokens that actually identify a subtask are the ones its siblings do
+	// not have. Where those exist they are required in full — a result that
+	// never says "IntentParsed" is not evidence that IntentParsed was wired,
+	// no matter how much shared vocabulary it shares with its neighbours.
+	tokenOwners := make(map[string]int)
+	for _, st := range subtasks {
+		for _, kw := range distinctiveTokens(st) {
+			tokenOwners[kw]++
+		}
+	}
+
+	var missing []string
+	for _, st := range subtasks {
+		keywords := distinctiveTokens(st)
+
+		var unique []string
+		for _, kw := range keywords {
+			if tokenOwners[kw] == 1 {
+				unique = append(unique, kw)
+			}
+		}
+		if len(unique) > 0 {
+			for _, kw := range unique {
+				if !strings.Contains(lowerOut, kw) {
+					missing = append(missing, st)
+					break
+				}
+			}
+			continue
+		}
+
+		// No token separates this subtask from its siblings — fall back to the
+		// proportional rule, which is the best available signal when the
+		// instruction genuinely repeats itself.
+		if len(keywords) == 0 {
+			// No distinctive keywords — fall back to raw tokens of length >=3.
+			raw := tokenRe.FindAllString(st, -1)
+			for _, t := range raw {
+				if len(t) >= 3 {
+					keywords = append(keywords, strings.ToLower(t))
+				}
+			}
+			if len(keywords) == 0 {
+				continue
+			}
+		}
+		matched := 0
+		for _, kw := range keywords {
+			if strings.Contains(lowerOut, kw) {
+				matched++
+			}
+		}
+		// Require all keywords for 1-2 keyword subtasks; otherwise require
+		// at least half (ceil) to allow minor paraphrasing without letting a
+		// wholly-dropped subtask slip through.
+		required := len(keywords)
+		if len(keywords) > 2 {
+			required = (len(keywords) + 1) / 2
+		}
+		if matched < required {
+			missing = append(missing, st)
+		}
+	}
+	return missing
+}
+
+func distinctiveTokens(s string) []string {
+	toks := tokenRe.FindAllString(s, -1)
+	var out []string
+	seen := make(map[string]bool)
+	for _, t := range toks {
+		low := strings.ToLower(t)
+		if len(low) < 3 {
+			continue
+		}
+		if subtaskGenericStopWords[low] {
+			continue
+		}
+		if seen[low] {
+			continue
+		}
+		seen[low] = true
+		out = append(out, low)
+	}
+	// If filtering left us empty but there were tokens, keep the longest
+	// raw token so single-generic subtasks like "fix it" don't vanish.
+	if len(out) == 0 && len(toks) > 0 {
+		longest := ""
+		for _, t := range toks {
+			if len(t) > len(longest) {
+				longest = t
+			}
+		}
+		if len(longest) >= 2 {
+			return []string{strings.ToLower(longest)}
+		}
+	}
+	return out
+}
+
