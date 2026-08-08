@@ -488,9 +488,6 @@ func (h *HolographicProvider) buildGoContextWithContext(ctx context.Context, hc 
 			logging.Get(logging.CategoryWorld).Warn("buildGoContext: skipping huge sibling file: %s (%d bytes)", goFile, info.Size())
 			continue
 		}
-
-		// TODO: Create a test package containing a syntactically invalid go file
-		// to verify this error does not abort generation for the whole package.
 		if err := h.extractGoSignatures(hc, fset, goFile); err != nil {
 			logging.WorldDebug("HolographicProvider: failed to parse %s: %v", goFile, err)
 			// Continue with other files
