@@ -13,7 +13,6 @@ import (
 	"codenerd/internal/logging"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
-	"codeberg.org/TauCeti/mangle-go/factstore"
 )
 
 // =============================================================================
@@ -295,28 +294,18 @@ func (k *RealKernel) QueryAll() (map[string][]Fact, error) {
 		return results, nil
 	}
 
-	// Initialize all declared predicates with empty arrays for backward compatibility
+	// Iterate through all declared predicates
 	totalFacts := 0
 	for pred := range k.programInfo.Decls {
-		results[pred.Symbol] = make([]Fact, 0)
-	}
+		predName := pred.Symbol
+		results[predName] = make([]Fact, 0)
 
-	// Use factstore.GetAllFacts to retrieve all facts in a single scan instead of N+1 GetFacts calls
-	err := factstore.GetAllFacts(k.store, func(a ast.Atom) error {
-		// Only return facts for predicates that are actually declared
-		if _, ok := k.programInfo.Decls[a.Predicate]; !ok {
+		k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+			fact := atomToFact(a)
+			results[predName] = append(results[predName], fact)
+			totalFacts++
 			return nil
-		}
-
-		predName := a.Predicate.Symbol
-		fact := atomToFact(a)
-		results[predName] = append(results[predName], fact)
-		totalFacts++
-		return nil
-	})
-	if err != nil {
-		timer.Stop()
-		return nil, fmt.Errorf("failed to retrieve facts: %w", err)
+		})
 	}
 
 	timer.Stop()
@@ -547,9 +536,9 @@ func gitCmd(workspaceRoot string, args ...string) (string, error) {
 	// Defensive check against argument injection for dangerous flags
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "--exec-path") ||
-			strings.HasPrefix(arg, "-c") ||
-			strings.HasPrefix(arg, "--upload-pack") ||
-			strings.HasPrefix(arg, "--receive-pack") {
+		   strings.HasPrefix(arg, "-c") ||
+		   strings.HasPrefix(arg, "--upload-pack") ||
+		   strings.HasPrefix(arg, "--receive-pack") {
 			return "", fmt.Errorf("unauthorized git argument: %s", arg)
 		}
 	}
