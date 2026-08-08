@@ -901,7 +901,7 @@ func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *Compi
 	var shardDB *sql.DB
 	if cc.ShardID != "" {
 		c.shardMu.RLock()
-		shardDB = c.shardDBs[cc.ShardID]
+		shardDB = c.shardDBs[shardDBKey(cc.ShardID)]
 		c.shardMu.RUnlock()
 	}
 

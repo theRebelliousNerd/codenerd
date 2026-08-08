@@ -14,12 +14,53 @@ import (
 )
 
 // TaskRequest represents a structured request for task execution.
+//
+// IntentVerb is the single routing key. It previously shared the struct with
+// `Persona` and `ConfigRef`, which every caller populated and no code anywhere
+// read — two parallel routing inputs that looked authoritative and bound
+// nothing. They are gone: the persona is recoverable from the verb without loss
+// (perception.GetShardTypeForVerb for built-ins, UserAgentFromIntentVerb for
+// "/consult/<name>" and "/<name>"), and one routing key cannot drift out of
+// sync with itself.
 type TaskRequest struct {
-	IntentVerb string // Canonical intent verb (e.g., /fix, /review)
-	Persona    string // Optional persona (e.g., coder, reviewer)
+	IntentVerb string // Canonical intent verb (e.g., /fix, /review, /consult/rustexpert)
 	Task       string // The task description
-	ConfigRef  string // Optional named config/profile
 	Target     string // Resolved file or directory the verb acts on; empty when the task is prose rather than a target.
+}
+
+// UserAgentFromIntentVerb returns the user-defined agent name a verb addresses,
+// or "" when the verb belongs to the built-in taxonomy.
+//
+// Two shapes reach the executor for a user agent defined in
+// .nerd/agents/<name>/prompts.yaml:
+//
+//	/consult/<name>  chat delegation (cmd/nerd/chat/delegation_routing.go
+//	                 personaToIntent) and JITExecutor.SpawnConsultation
+//	/<name>          `nerd spawn <name>` and Cortex.SpawnTask, via
+//	                 normalizeTaskIntentVerb's bare-identifier branch
+//
+// The returned name is lower-cased; the JIT compiler's shard-DB registry is
+// keyed case-insensitively (internal/prompt/compiler_db.go shardDBKey) so it
+// matches the on-disk directory whatever its casing.
+func UserAgentFromIntentVerb(verb string) string {
+	v := strings.TrimSpace(verb)
+	if v == "" {
+		return ""
+	}
+	if after, ok := strings.CutPrefix(v, "/consult/"); ok {
+		return strings.ToLower(strings.TrimSpace(after))
+	}
+	name, ok := strings.CutPrefix(v, "/")
+	if !ok {
+		return ""
+	}
+	name = strings.TrimSpace(name)
+	// A single bare segment only. Anything with a separator is a structured
+	// verb, not an agent name.
+	if name == "" || strings.ContainsAny(name, "/ \t") {
+		return ""
+	}
+	return strings.ToLower(name)
 }
 
 // TaskExecutor is the unified interface for task execution.

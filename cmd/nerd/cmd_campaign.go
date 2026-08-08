@@ -482,6 +482,10 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 
 	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
 	virtualStore.SetTaskExecutor(&campaignTaskDelegatorAdapter{executor: taskExecutor})
+	// ShardManager has no factory for the domain personas or user-defined
+	// agents a campaign consults; route those through the clean loop instead of
+	// the BaseShardAgent placeholder that reported success without doing work.
+	shardMgr.SetTaskDelegator(&campaignTaskDelegatorAdapter{executor: taskExecutor})
 	consultationMgr := shards.NewConsultationManager(&campaignTaskExecutorConsultationSpawner{executor: taskExecutor})
 	consultationProvider := newCampaignConsultationProvider(consultationMgr)
 
@@ -917,6 +921,10 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 
 	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
 	virtualStore.SetTaskExecutor(&campaignTaskDelegatorAdapter{executor: taskExecutor})
+	// ShardManager has no factory for the domain personas or user-defined
+	// agents a campaign consults; route those through the clean loop instead of
+	// the BaseShardAgent placeholder that reported success without doing work.
+	shardMgr.SetTaskDelegator(&campaignTaskDelegatorAdapter{executor: taskExecutor})
 	consultationMgr := shards.NewConsultationManager(&campaignTaskExecutorConsultationSpawner{executor: taskExecutor})
 	consultationProvider := newCampaignConsultationProvider(consultationMgr)
 
@@ -1308,7 +1316,6 @@ func (s *campaignTaskExecutorConsultationSpawner) SpawnConsultation(ctx context.
 	}
 	req := session.TaskRequest{
 		IntentVerb: intent,
-		Persona:    specialistName,
 		Task:       task,
 	}
 	return s.executor.Execute(ctx, req)

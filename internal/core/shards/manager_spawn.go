@@ -246,31 +246,45 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		}
 	}
 
-	factory, hasFactory := sm.factories[typeName]
+	// Factory resolution, in order:
+	//  1. A factory registered for this exact type name.
+	//  2. The profile's BaseType factory, when the profile declares one.
+	//  3. The JIT clean loop, via the task delegator.
+	//
+	// Step 3 replaces two dead lookups (`sm.factories["researcher"]`, tried
+	// twice) and a BaseShardAgent fallback. No "researcher" factory has been
+	// registered anywhere since the JIT migration deleted the domain shards —
+	// grep RegisterShard: only system shards, requirements_interrogator and the
+	// image_generator aliases exist — so both lookups always returned nil and
+	// every persistent/user shard landed on BaseShardAgent, whose Execute
+	// returned a placeholder string with a nil error. That is a success verdict
+	// for zero work, which is the failure mode this project cares about most.
+	factory := sm.factories[typeName]
 
-	if !hasFactory && hasProfile {
-		baseType := strings.TrimPrefix(strings.ToLower(config.BaseType), "/")
-		if baseType != "" {
-			if baseFactory, ok := sm.factories[baseType]; ok {
-				factory = baseFactory
-				hasFactory = true
-			}
-		}
-
-		if factory == nil && (config.Type == types.ShardTypePersistent || config.Type == types.ShardTypeUser) {
-			factory = sm.factories["researcher"]
+	if factory == nil && hasProfile {
+		if baseType := strings.TrimPrefix(strings.ToLower(config.BaseType), "/"); baseType != "" {
+			factory = sm.factories[baseType]
 		}
 	}
 
 	if factory == nil {
-		if config.Type == types.ShardTypePersistent {
-			factory = sm.factories["researcher"]
+		// Image generation must never leave the Gemini Nano Banana 2 client
+		// (FM15). The delegator is wired to the worker LLM, so refuse rather
+		// than mis-route. The imageLLMClient guard above already covers the
+		// registered path; this covers a missing factory registration.
+		if appconfig.IsImageShardType(typeName) {
+			return "", fmt.Errorf("image shard %q has no registered factory; image generation cannot be delegated to the worker LLM", typeName)
 		}
-
-		if factory == nil {
-			factory = func(id string, config types.ShardConfig) types.ShardAgent {
-				return NewBaseShardAgent(id, config)
-			}
+		if sm.taskDelegator == nil {
+			return "", fmt.Errorf(
+				"cannot spawn shard %q: no factory registered and no task delegator wired "+
+					"(domain personas and user-defined agents run in the JIT clean loop; "+
+					"call ShardManager.SetTaskDelegator during boot)", typeName)
+		}
+		delegator := sm.taskDelegator
+		logging.Shards("SpawnAsyncWithContext: no factory for %s, delegating to the JIT clean loop", typeName)
+		factory = func(id string, cfg types.ShardConfig) types.ShardAgent {
+			return newDelegatedShardAgent(id, cfg, delegator, typeName)
 		}
 	}
 

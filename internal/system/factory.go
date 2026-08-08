@@ -1318,6 +1318,64 @@ func initShardManagement(bctx *bootContext) error {
 	return nil
 }
 
+// registerUserAgentConfigAtoms gives every user-defined agent in
+// .nerd/agents.json a config atom under both verb shapes the executor can see:
+// "/<name>" (from `nerd spawn <name>` / Cortex.SpawnTask, lower-cased by
+// normalizeTaskIntentVerb) and "/consult/<name>" (chat delegation and
+// SpawnConsultation).
+//
+// Without this, ConfigFactory.Generate found no atom for a custom agent, logged
+// a warning, and fell back to /general — a read-only tool set. A specialist
+// created to write Rust could not write a file, and because "/consult/<name>"
+// classifies as a query the hollow-success gate never fired: the agent returned
+// plausible prose and the run was recorded as a success.
+//
+// The grant is exactly what the project declared for that agent (registry
+// `tools`) unioned with the read-only core set, never more. Every mutation still
+// has to derive permitted(...) in the kernel.
+func registerUserAgentConfigAtoms(provider *prompt.DefaultConfigAtomProvider, workspace string) {
+	if provider == nil {
+		return
+	}
+	base, ok := provider.GetAtom("/general")
+	if !ok {
+		return
+	}
+
+	for _, def := range LoadUserAgentDefinitions(workspace) {
+		name := strings.ToLower(strings.TrimSpace(def.Name))
+		if name == "" {
+			continue
+		}
+
+		seen := make(map[string]struct{}, len(base.Tools)+len(def.Tools))
+		merged := make([]string, 0, len(base.Tools)+len(def.Tools))
+		for _, tool := range append(append([]string(nil), base.Tools...), def.Tools...) {
+			tool = strings.TrimSpace(tool)
+			if tool == "" {
+				continue
+			}
+			if _, dup := seen[tool]; dup {
+				continue
+			}
+			seen[tool] = struct{}{}
+			merged = append(merged, tool)
+		}
+
+		atom := prompt.ConfigAtom{
+			Tools:    merged,
+			Policies: append([]string(nil), base.Policies...),
+			// Above /general so an explicit agent atom wins a merge, below the
+			// built-in personas so a name collision cannot quietly demote /fix.
+			Priority: base.Priority + 5,
+		}
+		provider.RegisterAtom("/"+name, atom)
+		provider.RegisterAtom("/consult/"+name, atom)
+		logging.Get(logging.CategoryContext).Info(
+			"Registered config atom for user agent %q (%d tools)", name, len(merged))
+	}
+}
+
 func initFinalExecutors(bctx *bootContext) error {
 	worldCfg := bctx.appCfg.GetWorldConfig()
 	bctx.scanner = world.NewScannerWithConfig(world.ScannerConfig{
@@ -1336,7 +1394,14 @@ func initFinalExecutors(bctx *bootContext) error {
 	}
 	sessionLLM := &sessionLLMAdapter{client: taskLLM}
 
-	configFactory := prompt.NewDefaultConfigFactory()
+	// Config atoms decide which tools an intent verb may call. The built-in
+	// verbs are registered by NewDefaultConfigAtomProvider; user-defined agents
+	// are registered here from .nerd/agents.json so their declared toolchain is
+	// actually reachable instead of falling through to the read-only /general
+	// atom.
+	atomProvider := prompt.NewDefaultConfigAtomProvider()
+	registerUserAgentConfigAtoms(atomProvider, bctx.workspace)
+	configFactory := prompt.NewConfigFactory(atomProvider)
 
 	bctx.sessionExecutor = session.NewExecutor(
 		sessionKernel,
@@ -1407,6 +1472,14 @@ func initFinalExecutors(bctx *bootContext) error {
 
 	bctx.taskExecutor = session.NewJITExecutor(bctx.sessionExecutor, bctx.sessionSpawner, bctx.transducer)
 	bctx.virtualStore.SetTaskExecutor(&taskDelegatorAdapter{executor: bctx.taskExecutor})
+	// Domain personas (coder/tester/reviewer/researcher) and user-defined agents
+	// have no ShardManager factory — the JIT migration deleted those shards. Give
+	// the manager the same clean-loop executor so ShardManager.Spawn on such a
+	// type does real work instead of falling through to a BaseShardAgent that
+	// reported success without doing any.
+	if bctx.shardManager != nil {
+		bctx.shardManager.SetTaskDelegator(&taskDelegatorAdapter{executor: bctx.taskExecutor})
+	}
 	logging.Get(logging.CategorySession).Info("JITExecutor wired in BootCortex")
 	return nil
 }

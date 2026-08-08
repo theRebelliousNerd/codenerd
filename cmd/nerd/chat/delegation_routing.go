@@ -283,8 +283,12 @@ func shardTypeToTaskRequest(shardType, task string) session.TaskRequest {
 		// Already an intent verb.
 		return session.TaskRequest{IntentVerb: st, Task: task}
 	}
+	// The intent verb carries the persona losslessly: built-ins map back through
+	// perception.GetShardTypeForVerb, custom specialists through
+	// "/consult/<name>" (session.UserAgentFromIntentVerb). TaskRequest used to
+	// also carry a Persona field, which nothing ever read.
 	intent := personaToIntent(st)
-	return session.TaskRequest{IntentVerb: intent, Persona: st, Task: task}
+	return session.TaskRequest{IntentVerb: intent, Task: task}
 }
 
 // personaToIntent maps a persona / agent name to its canonical intent verb.

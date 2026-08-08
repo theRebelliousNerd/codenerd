@@ -1,321 +1,184 @@
 # internal/shards/
 
-**Status:** LEGACY - Implementations removed (December 2024)
-**Current Architecture:** See [JIT-Driven Execution Model](../../.claude/skills/codenerd-builder/references/jit-execution-model.md)
+**Status:** live. This package holds shard *registration*, *matching*, *consultation*, and
+*observation* — plus the one shard implementation that never moved (`RequirementsInterrogatorShard`).
+The shard *implementations* for domain personas are gone; those live in `internal/session/`.
+
+**Last verified:** 2026-08-08 against the code in this tree. Every file:line below was read, not
+remembered. The previous version of this file described a December 2024 architecture and was wrong
+in ways that mattered — it claimed `registration.go` mapped `/coder` to intents via a
+`MapLegacyCommand` function that does not exist, and pointed at
+`internal/mangle/intent_routing.mg` and `internal/prompt/config_defaults.go` for routing rules that
+live elsewhere.
 
 ---
 
-## ⚠️ Major Architectural Change
+## The two execution paths, and which one you want
 
-As of **December 2024**, this directory no longer contains shard implementations. The **hardcoded shard architecture has been completely replaced** by the **JIT-driven execution model**.
+There are two, they are not redundant, and picking the wrong one is the most common mistake here.
 
-### What Changed?
+| | `ShardManager` (`internal/core/shards/`) | Clean loop (`internal/session/`) |
+|---|---|---|
+| Serves | **system shards** — long-lived background services with Go implementations | **everything else** — domain personas and user-defined agents |
+| Members | `perception_firewall`, `world_model_ingestor`, `executive_policy`, `constitution_gate`, `legislator`, `mangle_repair`, `tactile_router`, `campaign_runner`, `session_planner`, `requirements_interrogator`, `image_generator` | `coder`, `tester`, `reviewer`, `researcher`, `nemesis`, and every `.nerd/agents/<name>/` agent |
+| Behavior comes from | hand-written Go (`internal/shards/system/`) | JIT-compiled prompt atoms + config atoms |
+| Entry | `ShardManager.Spawn` (`internal/core/shards/manager_spawn.go:133`) | `JITExecutor.Execute` (`internal/session/task_executor.go`) |
 
-- **Removed:** All shard implementations (~35,000 lines)
-  - `internal/shards/coder/` - DELETED
-  - `internal/shards/tester/` - DELETED
-  - `internal/shards/reviewer/` - DELETED
-  - `internal/shards/researcher/` - DELETED
-  - `internal/shards/nemesis/` - DELETED
-  - `internal/shards/tool_generator/` - DELETED
+`Cortex.SpawnTask` is the front door and routes between them:
+`internal/system/factory.go:358` (`SpawnTaskWithTarget`) sends image shards and any type whose
+profile is `types.ShardTypeSystem` to `ShardManager`, and everything else to `TaskExecutor`.
 
-- **Replaced By:** JIT-driven session-based execution (~1,600 lines)
-  - `internal/session/executor.go` - Universal execution loop
-  - `internal/session/spawner.go` - Dynamic subagent creation
-  - `internal/session/subagent.go` - Execution context
-  - `internal/mangle/intent_routing.mg` - Declarative routing logic
-  - `internal/prompt/config_factory.go` - AgentConfig generation
+**If `ShardManager` is asked for a type it has no factory for, it delegates to the clean loop**
+(`internal/core/shards/manager_spawn.go:262-289`). That is the seam that makes the two paths one
+system rather than two. It is wired at boot by `SetTaskDelegator`
+(`internal/core/shards/manager.go:297`), called from `internal/system/factory.go:1481`,
+`cmd/nerd/chat/session_boot.go`, and both campaign boot paths in `cmd/nerd/cmd_campaign.go`.
 
-### Current Directory Structure
-
-```
-shards/
-├── registration.go      # Legacy command mapping to intents
-└── system/             # System utilities (not shard implementations)
-    └── CLAUDE.md       # System component docs
-```
-
-**Note:** `registration.go` remains only to map legacy `/coder`, `/tester` commands to intents for backward compatibility.
-
----
-
-## Migration Guide: Old Shards → New System
-
-### Old Shard Types → New SubAgent Types
-
-| Old (Deprecated) | New (Current) |
-|------------------|---------------|
-| **Type A: Ephemeral Generalists** | **Ephemeral SubAgents** |
-| Spawn → Execute → Die, RAM only | Same concept, but configured via JIT |
-| CoderShard, TesterShard, ReviewerShard | persona(/coder), persona(/tester), persona(/reviewer) |
-| | |
-| **Type B: Persistent Specialists** | **Persistent SubAgents** |
-| Pre-populated with knowledge, SQLite | Multi-turn conversation, maintains history |
-| ResearcherShard | persona(/researcher) with custom ConfigAtoms |
-| | |
-| **Type S: System Shards** | **System SubAgents** |
-| Built-in capabilities | Long-running background services |
-| FileShard, ShellShard, GitShard | VirtualStore predicates + system tools |
-| | |
-| **Type O: Ouroboros** | **Autopoiesis + Prompt Evolution** |
-| ToolGeneratorShard | Remains in `internal/autopoiesis/` |
-
-### How Tasks Were Routed: Old vs New
-
-**Old (Hardcoded in ShardManager):**
-```go
-// internal/core/shard_manager.go (DELETED)
-func (sm *ShardManager) Route(intent UserIntent) Shard {
-    switch intent.Verb {
-    case "/fix", "/implement", "/refactor":
-        return sm.GetShard("coder")
-    case "/test":
-        return sm.GetShard("tester")
-    case "/review":
-        return sm.GetShard("reviewer")
-    // ... 200 more lines of hardcoded routing
-    }
-}
-```
-
-**New (Declarative Mangle Logic):**
-```mangle
-# internal/mangle/intent_routing.mg
-persona(/coder) :- user_intent(_, _, /fix, _, _).
-persona(/coder) :- user_intent(_, _, /implement, _, _).
-persona(/coder) :- user_intent(_, _, /refactor, _, _).
-
-persona(/tester) :- user_intent(_, _, /test, _, _).
-
-persona(/reviewer) :- user_intent(_, _, /review, _, _).
-```
-
-### How Configurations Were Set: Old vs New
-
-**Old (Hardcoded in Each Shard):**
-```go
-// internal/shards/coder/coder.go (DELETED)
-type CoderShard struct {
-    // Hardcoded tools
-    allowedTools []string{"file_read", "file_write", "shell_exec", "git"}
-
-    // Hardcoded policies
-    policies []string{"code_safety.mg", "git_workflow.mg"}
-
-    // Hardcoded system prompt
-    systemPrompt = "You are a code generation expert..."
-}
-```
-
-**New (JIT-Compiled Configuration):**
-```go
-// internal/prompt/config_factory.go
-ConfigAtom{
-    Tools:    ["file_read", "file_write", "shell_exec", "git"],
-    Policies: ["code_safety.mg", "git_workflow.mg"],
-    Priority: 10,
-}
-// Merged at runtime + JIT-compiled system prompt
-```
+> **Never fabricate a shard.** `BaseShardAgent.Execute`
+> (`internal/core/shards/agents.go:114`) returns an **error**. It is lifecycle plumbing — state,
+> kernel handle, LLM handle, permissions — that concrete shards embed; it has no task semantics.
+> It used to return `("BaseShardAgent execution", nil)`, and because `ShardManager` installed it
+> for every type with no factory, that placeholder became the answer for all four domain personas
+> and every user agent. Campaign consultations recorded it as specialist advice and parsed a
+> confidence out of it, the retry verifier accepted it as a completed retry, and
+> `nerd spawn <anything>` printed it and exited 0. Guarded by
+> `internal/core/shards/hollow_spawn_test.go`.
 
 ---
 
-## Current Architecture
+## What is in this package
 
-### Intent → Persona → Configuration Flow
+| File | What it does | Reached from |
+|---|---|---|
+| `registration.go` | Registers every system-shard factory and profile with `ShardManager`, injecting kernel / LLM / VirtualStore / learning store / prompt assembler. Also owns `DefaultShardPredicateManifests` (`registration.go:36`), the predicate-ownership table for the per-shard fact router. | `RegisterAllShardFactories` (`registration.go:333`); manifests consumed at `internal/system/factory.go:945` |
+| `requirements_interrogator.go` | The one surviving ephemeral shard implementation. Kept because its ask-the-user Socratic loop has no JIT equivalent. | registered at `registration.go:204`, `cmd/nerd/chat/session_boot.go:778` |
+| `consultation.go` | Cross-specialist consultation protocol: request, batch, cache, parse structured advice. Talks to any `ConsultationSpawner` (`consultation.go:61`). | `cmd/nerd/chat/session_boot.go:1027`, `session_shared_boot.go:348`, `cmd/nerd/cmd_campaign.go:485` and `:920` |
+| `matching.go` | Maps file patterns / imports / content to specialist names (`CoreTechnologyPatterns`), and classifies specialists as executor / advisor / observer. | `cmd/nerd/chat/delegation_modes.go:263-272` |
+| `observer_manager.go` | Observer registry for shard lifecycle events. | `cmd/nerd/chat/session_boot.go`, `session_shared_boot.go` |
+| `system/` | The system-shard implementations themselves. | via the factories in `registration.go` |
 
-```
-User Input: "Fix the bug in auth.go"
-     ↓
-Perception Transducer
-     ↓
-user_intent("id", /command, /fix, "auth.go", /none)
-     ↓
-Intent Routing (Mangle Logic)
-     Query: persona(P) :- user_intent(_, _, /fix, _, _).
-     Result: persona(/coder)
-     ↓
-ConfigFactory
-     GetAtom("/coder") → ConfigAtom{
-       Tools: ["file_read", "file_write", "shell_exec", "git"],
-       Policies: ["code_safety.mg", "git_workflow.mg"]
-     }
-     ↓
-JIT Compiler
-     Compile system prompt from atoms in internal/prompt/atoms/identity/coder.yaml
-     ↓
-Session Executor
-     Execute(ctx, AgentConfig{
-       IdentityPrompt: "You are a code fixer...",
-       Tools: [...],
-       Policies: [...]
-     })
-     ↓
-LLM + VirtualStore + Safety Gates
-     ↓
-Response
-```
-
-### Available Personas
-
-| Persona | Intent Verbs | Tools | Policies |
-|---------|--------------|-------|----------|
-| **Coder** | fix, implement, refactor, create, modify | file_write, shell_exec, git, build | code_safety.mg |
-| **Tester** | test, cover, verify, validate | test_exec, coverage_analyzer | test_strategy.mg |
-| **Reviewer** | review, audit, check, analyze | hypothesis_gen, impact_analysis | review_policy.mg |
-| **Researcher** | research, learn, document, explore | web_fetch, doc_parse, kb_ingest | research_strategy.mg |
+`registration.go` does **not** contain a `MapLegacyCommand`. Legacy persona names are mapped to
+intent verbs in two places instead: `normalizeTaskIntentVerb`
+(`internal/session/task_executor.go:106-144`) for CLI/`Cortex.SpawnTask` input, and
+`personaToIntent` (`cmd/nerd/chat/delegation_routing.go:297`) for chat delegation.
 
 ---
 
-## Adding a New "Shard" (Persona)
+## User-defined agents (the `.nerd/agents/` pipeline)
 
-**Old Way (Required 500-2000 lines of Go):**
-1. Implement `Shard` interface
-2. Create struct with kernel, virtualStore, llmClient
-3. Implement `Execute()` method with task parsing, LLM calls, etc.
-4. Register in ShardManager
-5. Write tests
-6. Recompile binary
+This is what `nerd init` creates (GoExpert, MangleExpert, …) and what `nerd define-agent` and the
+chat `/define-agent` wizard create. The full chain, in order:
 
-**New Way (Requires ~20 lines total):**
-
-### Step 1: Add Intent Routing Rule
-
-```mangle
-# File: internal/mangle/intent_routing.mg
-persona(/my_new_agent) :- user_intent(_, _, /my_verb, _, _).
+```
+.nerd/agents/<Name>/prompts.yaml          authored (or generated)
+        |
+        |  internal/prompt/sync/synchronizer.go SyncAll
+        |  run at boot: internal/system/factory.go:1098
+        v
+.nerd/shards/<lower(name)>_knowledge.db   prompt_atoms table
+        |
+        |  prompt.RegisterAgentDBWithJIT  — internal/system/factory.go:1202
+        |  keyed case-insensitively        — internal/prompt/compiler_db.go shardDBKey
+        v
+JIT compiler shardDBs[<lower(name)>]
+        |
+        |  selected only when CompilationContext.ShardID names it
+        |  internal/prompt/compiler.go:902-906 (collectAtomsWithStats)
+        v
+compiled system prompt
 ```
 
-### Step 2: Add Prompt Atoms
+The verb → agent binding is the piece that closes it. `Executor.buildCompilationContext`
+(`internal/session/executor.go:619-650`) resolves the persona in this order:
 
-```yaml
-# File: internal/prompt/atoms/identity/my_new_agent.yaml
-id: my_new_agent_identity
-category: identity
-content: |
-  You are a specialized agent for [purpose].
-  Your capabilities include:
-  - [capability 1]
-  - [capability 2]
+1. `perception.GetShardTypeForVerb(verb)` — built-in taxonomy (`/fix` → `coder`). **Checked first**,
+   so a core verb can never be mistaken for an agent.
+2. `session.UserAgentFromIntentVerb(verb)` (`internal/session/task_executor.go:45`) — everything
+   else. Accepts `/consult/<name>` (chat delegation) and `/<name>` (`nerd spawn <name>`), returns a
+   lower-cased agent name.
+
+Both `ShardID` **and** `ShardType` get set. `ShardID` selects the atom DB; `ShardType` supplies the
+shard dimension that `jit_compiler.mg`'s `blocked_by_context` needs in order to *exclude* other
+personas' atoms. With `ShardType` absent, every shard-gated atom in the corpus is admitted and the
+agent is handed 25+ contradictory identities — the documented hollow-output failure.
+
+Tools come from a config atom registered per agent at boot:
+`registerUserAgentConfigAtoms` (`internal/system/factory.go:1336`, called at `:1403`) reads the
+`tools` array from `.nerd/agents.json` and grants it **unioned with the read-only core set**, under
+both `/<name>` and `/consult/<name>`. Declaring a tool there is how a specialist earns write access;
+kernel `permitted(...)` still gates every mutation.
+
+### Adding an agent
+
+```bash
+nerd define-agent --name RustExpert --topic "Tokio async runtime"
+# writes .nerd/agents/RustExpert/prompts.yaml, syncs .nerd/agents.json, then researches
 ```
 
-### Step 3: (Optional) Define ConfigAtom
+Then edit `prompts.yaml` (identity / methodology / domain atoms, each with `content`,
+`content_concise`, `content_min` so the JIT budget can degrade rather than drop it), and:
 
-```go
-// File: internal/prompt/config_defaults.go
-// Or use default provider which auto-detects from persona name
+```bash
+nerd spawn RustExpert "port this module to tokio"
+# chat: /spawn RustExpert port this module to tokio
 ```
 
-**That's it!** The Session Executor will automatically:
-- Route intents with `/my_verb` to `persona(/my_new_agent)`
-- Load the identity prompt atoms
-- Generate AgentConfig with appropriate tools and policies
-- Execute the LLM interaction
+The single writer for that layout is `system.WriteAgentDefinition`
+(`internal/system/agent_definition.go`); the chat wizard and the CLI both call it, so their
+templates cannot drift.
 
-**No Go code. No recompilation. No tests beyond existing executor tests.**
+### Casing
 
----
-
-## Where Did Shard Logic Go?
-
-### CoderShard Logic → Multiple Places
-
-| Old CoderShard Method | New Location |
-|----------------------|--------------|
-| `parseTask()` | `internal/mangle/intent_routing.mg` (declarative rules) |
-| `buildContext()` | `internal/session/executor.go` (JIT Compiler integration) |
-| `generateCode()` | LLM with JIT-compiled prompt |
-| `applyEdits()` | VirtualStore tool execution |
-| `runBuild()` | VirtualStore `build_check` tool |
-| `trackLearning()` | `internal/autopoiesis/` (unchanged) |
-
-### TesterShard Logic → Multiple Places
-
-| Old TesterShard Method | New Location |
-|----------------------|--------------|
-| `detectFramework()` | `internal/mangle/intent_routing.mg` (test_framework rules) |
-| `generateTests()` | LLM with JIT-compiled prompt |
-| `runTests()` | VirtualStore `test_exec` tool |
-| `parseCoverage()` | VirtualStore tool |
-| `tddRepairLoop()` | `internal/mangle/policy.mg` (TDD rules unchanged) |
-
-### ReviewerShard Logic → Multiple Places
-
-| Old ReviewerShard Method | New Location |
-|----------------------|--------------|
-| `preflightChecks()` | VirtualStore `build_check`, `vet_check` tools |
-| `generateHypotheses()` | `internal/mangle/policy.mg` (hypothesis rules) |
-| `impactAnalysis()` | `internal/world/holographic.go` (unchanged) |
-| `verifyWithLLM()` | LLM with JIT-compiled prompt |
-| `scoreReview()` | LLM response parsing |
+`nerd init` creates lower-case directories; the chat wizard preserves what you typed;
+`.nerd/agents.json` may hold either. Discovery keys on the directory name
+(`internal/system/agent_registry.go:44`) while every verb arrives lower-cased. The shard-DB map
+normalizes both ends (`internal/prompt/compiler_db.go` `shardDBKey`), so casing does not matter —
+but do not reintroduce a case-sensitive lookup, because the failure is silent.
 
 ---
 
-## Backward Compatibility
+## Adding a system shard
 
-### Legacy Commands Still Work
+Only for genuinely long-lived Go services. Everything task-shaped should be a persona or a
+user agent instead.
 
-The `/coder`, `/tester`, `/reviewer` commands still function via `registration.go`:
-
-```go
-// internal/shards/registration.go
-func MapLegacyCommand(cmd string) string {
-    switch cmd {
-    case "/coder":   return "fix"
-    case "/tester":  return "test"
-    case "/reviewer": return "review"
-    default:         return cmd
-    }
-}
-```
-
-### Migration Path for Users
-
-Users can continue using:
-- `/coder "fix bug in auth.go"` → routes to `persona(/coder)`
-- `/tester "run tests"` → routes to `persona(/tester)`
-- `/reviewer "check for issues"` → routes to `persona(/reviewer)`
-
-Or use natural language:
-- "Fix bug in auth.go" → auto-routes to `persona(/coder)`
-- "Run tests" → auto-routes to `persona(/tester)`
-- "Review this code" → auto-routes to `persona(/reviewer)`
+1. Implement it in `internal/shards/system/`, embedding `BaseSystemShard`
+   (`internal/shards/system/base.go:263`) and **defining `Execute`**.
+2. Register a factory in `registration.go` (`registerSystemShards` / `registerLogicShards` /
+   `registerPlanningShards`) with the dependencies it needs.
+3. Define a profile with `Type: types.ShardTypeSystem` in `defineSystemShardProfiles`
+   (`registration.go:395`).
+4. If the chat TUI must also start it, mirror the registration in
+   `cmd/nerd/chat/session_boot.go:671-812` — that file has its own factory registrations, and a
+   shard registered in only one of the two places exists in only one of the two runtimes.
 
 ---
 
-## Key Benefits
+## Known dead code
 
-### 1. Massive Code Reduction
-- **95% less code** (35,000 → 1,600 lines)
-- Easier to maintain and debug
-- Fewer tests needed
+Called out rather than silently left to look live:
 
-### 2. Runtime Configurability
-- Update behavior via `.mg` files or YAML
-- No recompilation required
-- Hot-reload friendly (future)
+- **`Spawner.SpawnSpecialist` / `loadSpecialistConfig`** (`internal/session/spawner.go:302` and
+  `:535`) have no production caller — only `tests/e2e/`. They read
+  `.nerd/agents/<name>/config.yaml`, a file no code writes. The live user-agent path is
+  `Spawner.Spawn` via `JITExecutor`, documented above. Treat `config.yaml` as an unreleased
+  hand-authoring hook, not as how agents work.
+- **`EffectiveAgentRuntimeConfig.IdentityPrompt`** is produced by `ConfigFactory.Generate`
+  (`internal/prompt/config_factory.go:110`) and validated, but the executor's system prompt always
+  comes from `compileResult.Prompt` (`internal/session/executor.go`). The field carries tools and
+  policies, not identity.
 
-### 3. Zero Boilerplate for New Personas
-- Add Mangle rule + prompt atoms
-- No Go implementation required
-- Immediate availability
-
-### 4. Cleaner Architecture
-- Declarative routing (Mangle logic)
-- Composable configurations (ConfigAtoms)
-- Universal execution (Session Executor)
+`TaskRequest.Persona` and `TaskRequest.ConfigRef` used to belong on this list — every caller set
+them and nothing read them. They are gone; `IntentVerb` is the single routing key
+(`internal/session/task_executor.go:25`).
 
 ---
 
-## See Also
+## Tests that pin this
 
-- [JIT-Driven Execution Model](../../.claude/skills/codenerd-builder/references/jit-execution-model.md) - Complete guide to new architecture
-- [Intent Routing Rules](../mangle/intent_routing.mg) - Declarative routing logic
-- [Session Executor](../session/executor.go) - Universal execution loop
-- [ConfigFactory](../prompt/config_factory.go) - AgentConfig generation
-- [Architecture Changes](../../conductor/tracks/jit_refactor_20251226/ARCHITECTURE_CHANGES.md) - Migration metrics
-
----
-
-**Last Updated:** December 27, 2024
-**Architecture Version:** 2.0.0 (JIT-Driven)
+| Test | Guards |
+|---|---|
+| `internal/core/shards/hollow_spawn_test.go` | `BaseShardAgent.Execute` fails loudly; no-factory spawn errors or delegates; image shards are never delegated to the worker LLM |
+| `internal/session/user_agent_wiring_test.go` | verb → agent-name extraction; built-in verbs keep their persona; custom verbs set both shard dimensions |
+| `internal/system/user_agent_prompt_test.go` | prompts.yaml → knowledge DB → JIT → compiled prompt, with a real Mangle kernel; case-insensitive shard-DB lookup; declared tools reach the config atom |
+| `internal/shards/registration_manifest_test.go` | predicate ownership is unambiguous |

@@ -57,6 +57,14 @@ type ShardManager struct {
 	// without introducing import cycles from shards → transparency/store.
 	postSpawnHook func(agent types.ShardAgent)
 
+	// taskDelegator routes shard types that have no registered in-process
+	// factory into the JIT clean loop (session.TaskExecutor). The JIT migration
+	// deleted the coder/tester/reviewer/researcher factories, so without this
+	// every domain persona and every user-defined agent fell through to a
+	// BaseShardAgent that returned a placeholder string with a nil error.
+	// See SpawnAsyncWithContext for the resolution order.
+	taskDelegator TaskDelegator
+
 	// Resource limits enforcement
 	limitsEnforcer types.LimitsEnforcer
 
@@ -281,6 +289,23 @@ func (sm *ShardManager) RegisterShard(typeName string, factory types.ShardFactor
 	defer sm.mu.Unlock()
 	sm.factories[typeName] = factory
 	logging.Shards("Registered shard factory: %s", typeName)
+}
+
+// SetTaskDelegator attaches the JIT clean-loop executor used for shard types
+// with no registered factory. Without it, spawning such a type is a hard error
+// rather than a silent no-op — see SpawnAsyncWithContext.
+func (sm *ShardManager) SetTaskDelegator(d TaskDelegator) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.taskDelegator = d
+	logging.ShardsDebug("TaskDelegator attached to ShardManager")
+}
+
+// HasTaskDelegator reports whether a JIT clean-loop fallback is wired.
+func (sm *ShardManager) HasTaskDelegator() bool {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.taskDelegator != nil
 }
 
 func (sm *ShardManager) DefineProfile(name string, config types.ShardConfig) {

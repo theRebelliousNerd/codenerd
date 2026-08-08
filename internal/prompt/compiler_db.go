@@ -177,7 +177,7 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 		logging.Get(logging.CategoryContext).Info("Registered corpus database: %s", dbPath)
 	default:
 		// Treat unknown names as shard IDs for flexibility
-		c.shardDBs[name] = db
+		c.shardDBs[shardDBKey(name)] = db
 		logging.Get(logging.CategoryContext).Info("Registered database %s: %s", name, dbPath)
 	}
 
@@ -185,12 +185,26 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 	return nil
 }
 
+// shardDBKey normalizes a shard/agent identifier for the shardDBs map.
+//
+// Registration and lookup disagreed on case. A user agent is registered under
+// its on-disk directory name (internal/system/factory.go: RegisterAgentDBWithJIT
+// with agent.ID from DiscoverAgentsOnDisk, e.g. "RustExpert"), but every verb
+// that reaches the compiler has been lower-cased on the way in — `nerd spawn
+// RustExpert` becomes "/rustexpert" in normalizeTaskIntentVerb
+// (internal/session/task_executor.go). A case-sensitive map turned that into a
+// silent miss: the agent's own prompt atoms were loaded, indexed, and never
+// selected. Normalizing both ends removes the whole class.
+func shardDBKey(shardID string) string {
+	return strings.ToLower(strings.TrimSpace(strings.TrimPrefix(shardID, "/")))
+}
+
 // RegisterShardDB registers a shard-specific atom database.
 // The DB should be the agent's unified knowledge database (.nerd/shards/{name}_knowledge.db)
 // which contains both knowledge_atoms and prompt_atoms tables.
 func (c *JITPromptCompiler) RegisterShardDB(shardID string, db *sql.DB) {
 	c.shardMu.Lock()
-	c.shardDBs[shardID] = db
+	c.shardDBs[shardDBKey(shardID)] = db
 	c.shardMu.Unlock()
 	c.clearPromptCache(fmt.Sprintf("shard database registered: %s", shardID))
 }
@@ -198,9 +212,19 @@ func (c *JITPromptCompiler) RegisterShardDB(shardID string, db *sql.DB) {
 // UnregisterShardDB removes a shard database registration.
 func (c *JITPromptCompiler) UnregisterShardDB(shardID string) {
 	c.shardMu.Lock()
-	delete(c.shardDBs, shardID)
+	delete(c.shardDBs, shardDBKey(shardID))
 	c.shardMu.Unlock()
 	c.clearPromptCache(fmt.Sprintf("shard database unregistered: %s", shardID))
+}
+
+// LookupShardDB returns the atom database registered for an agent name, if any.
+// Exported so callers (and tests) can assert that a user-defined agent's
+// knowledge DB is actually reachable under the name the executor will use.
+func (c *JITPromptCompiler) LookupShardDB(shardID string) (*sql.DB, bool) {
+	c.shardMu.RLock()
+	defer c.shardMu.RUnlock()
+	db, ok := c.shardDBs[shardDBKey(shardID)]
+	return db, ok
 }
 
 // LoadAtoms loads atoms from a database into memory.

@@ -93,13 +93,19 @@ func TestBaseShardAgent_StopIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestBaseShardAgent_ExecuteDefault previously asserted the placeholder return
+// ("BaseShardAgent execution", nil) — it pinned the bug in place. BaseShardAgent
+// is lifecycle plumbing that every concrete shard overrides; reaching its
+// Execute means a wiring gap, and a wiring gap that reports success is the worst
+// outcome available. See TestBaseShardAgentExecuteIsNotFakeSuccess in
+// hollow_spawn_test.go for the full blast radius this covered up.
 func TestBaseShardAgent_ExecuteDefault(t *testing.T) {
 	a := newBaseAgent()
 	out, err := a.Execute(context.Background(), "do something")
-	if err != nil {
-		t.Fatalf("Execute returned error: %v", err)
+	if err == nil {
+		t.Fatal("Execute returned nil error; an unimplemented shard must fail loudly")
 	}
-	if out != "BaseShardAgent execution" {
-		t.Errorf("Execute output=%q, want the base placeholder", out)
+	if out != "" {
+		t.Errorf("Execute output=%q, want empty on failure", out)
 	}
 }

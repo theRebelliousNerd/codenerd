@@ -93,9 +93,76 @@ func (b *BaseShardAgent) HasPermission(p types.ShardPermission) bool {
 	return slices.Contains(b.config.Permissions, p)
 }
 
-// Execute is a placeholder; specific shards must embed BaseShardAgent and implement this.
+// Execute is a hard failure by design. BaseShardAgent carries lifecycle
+// plumbing (state, kernel handle, LLM handle, permissions) that concrete shards
+// embed; it has no task semantics of its own and every concrete shard overrides
+// this method.
+//
+// It used to return ("BaseShardAgent execution", nil) — a success verdict for
+// zero work. ShardManager installs a BaseShardAgent whenever a shard type has
+// no registered factory (see manager_spawn.go), and after the JIT migration
+// deleted the coder/tester/reviewer/researcher factories that fallback covered
+// every domain persona and every user-defined agent. The consequences were all
+// silent: campaign consultations recorded the placeholder string as specialist
+// advice and parsed a confidence out of it
+// (internal/shards/system/campaign_runner.go), the retry verifier accepted it
+// as a completed retry (internal/verification/verifier.go), and
+// `nerd spawn <anything> <task>` printed "Shard Result: BaseShardAgent
+// execution" and exited 0.
+//
+// Reaching this method means a wiring gap. A wiring gap must be loud.
 func (b *BaseShardAgent) Execute(ctx context.Context, task string) (string, error) {
-	return "BaseShardAgent execution", nil
+	return "", fmt.Errorf(
+		"shard %q (type %q) has no executable implementation: BaseShardAgent is lifecycle plumbing, not a task runner",
+		b.config.Name, b.config.Type)
+}
+
+// TaskDelegator routes a task into the JIT clean loop (session.TaskExecutor).
+// It is declared here rather than imported so internal/core/shards keeps no
+// dependency on internal/session; core.TaskDelegator and the chat/campaign
+// adapters satisfy the same shape.
+type TaskDelegator interface {
+	Execute(ctx context.Context, intent string, task string) (string, error)
+}
+
+// delegatedShardAgent adapts a TaskDelegator to types.ShardAgent so a shard
+// type with no in-process factory still performs real work — through the JIT
+// clean loop — while keeping ShardManager's lifecycle bookkeeping (active_shard
+// facts, Glass Box events, timeout, result recording) completely unchanged.
+//
+// This is the replacement for the BaseShardAgent fallback. The domain personas
+// and user-defined agents genuinely live in internal/session now; the correct
+// answer for "ShardManager has no factory for this" is "hand it to the executor
+// that does", not "fabricate an agent that returns a placeholder".
+type delegatedShardAgent struct {
+	*BaseShardAgent
+	delegator TaskDelegator
+	shardType string
+}
+
+func newDelegatedShardAgent(id string, config types.ShardConfig, delegator TaskDelegator, shardType string) *delegatedShardAgent {
+	return &delegatedShardAgent{
+		BaseShardAgent: NewBaseShardAgent(id, config),
+		delegator:      delegator,
+		shardType:      shardType,
+	}
+}
+
+// Execute forwards the task to the JIT clean loop under the shard's own type
+// name, which the executor normalizes into an intent verb.
+func (d *delegatedShardAgent) Execute(ctx context.Context, task string) (string, error) {
+	if d.delegator == nil {
+		return "", fmt.Errorf("delegated shard %q has no task delegator", d.shardType)
+	}
+	d.SetState(types.ShardStateRunning)
+	defer d.SetState(types.ShardStateCompleted)
+
+	logging.Shards("delegatedShardAgent: routing %s through the JIT clean loop", d.shardType)
+	result, err := d.delegator.Execute(ctx, d.shardType, task)
+	if err != nil {
+		return "", err
+	}
+	return result, nil
 }
 
 // Helper for subclasses to access LLM
