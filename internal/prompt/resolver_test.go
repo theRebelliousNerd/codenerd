@@ -30,7 +30,6 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with empty `DependsOn` array `[]string{}` versus `nil`.
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with empty string in `DependsOn` (`DependsOn: []string{""}`).
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with Self-Dependency via Empty String (atom ID "" depends on "").
-	// TODO: TEST_GAP: Type Coercion - Resolve with malformed Atom IDs containing unicode, spaces, or control chars.
 	// TODO: TEST_GAP: Type Coercion - Resolve with float64 precision limits, NaN, or Infinity scores.
 	// TODO: TEST_GAP: User Request Extremes - Resolve with massive dependency chains (e.g., 1,000,000 ScoredAtoms).
 	// TODO: TEST_GAP: User Request Extremes - Resolve with extreme Priority values (`math.MaxInt64` or `math.MinInt64`).
@@ -87,6 +86,18 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 			},
 			expectError: false,
 			expectedLen: 3,
+		},
+
+		{
+			name: "malformed atom IDs containing unicode, spaces, or control chars",
+			atoms: []*ScoredAtom{
+				{Atom: &PromptAtom{ID: "atom \n \t one", DependsOn: []string{"💥 emoji"}}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "💥 emoji", DependsOn: []string{"你好"}}, Combined: 0.6},
+				{Atom: &PromptAtom{ID: "你好"}, Combined: 0.7},
+			},
+			expectError:   false,
+			expectedLen:   3,
+			expectedOrder: []string{"你好", "💥 emoji", "atom \n \t one"},
 		},
 	}
 
