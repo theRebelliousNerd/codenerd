@@ -701,3 +701,34 @@ func (hangingLLM) CompleteWithTools(ctx context.Context, _, _ string, _ []types.
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
+
+// Evidence in the prompt is worthless if nothing tells the reviewer to use it.
+// Without an instruction naming the uncovered and static-analysis sections, a
+// reviewer reads them as background and reports on the source alone — wasting
+// the one signal in the prompt produced by a tool rather than a model.
+func TestBuildCriticPrompt_InstructsOnUncoveredEvidence(t *testing.T) {
+	files := map[string]string{"a.go": "package p\n"}
+
+	withEvidence := buildCriticPrompt(files, "a.go:10-12")
+	if !strings.Contains(withEvidence, "a.go:10-12") {
+		t.Error("uncovered summary is not embedded in the prompt")
+	}
+	if !strings.Contains(withEvidence, "tool output, not opinion") {
+		t.Error("prompt does not tell the reviewer the evidence is tool output")
+	}
+	if !strings.Contains(withEvidence, "so a test gets written for it") {
+		t.Error("prompt does not ask for uncovered logic to be reported, so coverage never improves")
+	}
+	// It must also permit declining: demanding a test for every uncovered block
+	// would manufacture tests for unreachable defensive branches.
+	if !strings.Contains(withEvidence, "not worth a test") {
+		t.Error("prompt gives no way to skip a block that genuinely does not need a test")
+	}
+
+	// With no evidence, those instructions must not appear — an empty coverage
+	// section followed by "account for the evidence above" is incoherent.
+	without := buildCriticPrompt(files, "")
+	if strings.Contains(without, "tool output, not opinion") {
+		t.Error("evidence instructions appear when there is no evidence")
+	}
+}

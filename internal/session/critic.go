@@ -114,6 +114,19 @@ func buildCriticPrompt(writtenFiles map[string]string, uncoveredSummary string) 
 	b.WriteString("- When the code is sound, output the single line 'NO FINDINGS' and nothing else.\n")
 	b.WriteString("- Inventing a finding to appear useful is worse than finding nothing. Only report defects you can point to in the code above; if there are none, output 'NO FINDINGS'.\n")
 
+	// The uncovered and static-analysis sections are evidence, not decoration.
+	// Without an instruction naming them, a reviewer reads them as background
+	// and reports on the source alone — which wastes the one signal in the
+	// prompt that was produced by a tool rather than by a model.
+	//
+	// Untested code is reported as a finding rather than raised in its own
+	// round: it reuses a round that is already being paid for, and it puts the
+	// request in the same channel as everything else the model must answer.
+	if strings.TrimSpace(uncoveredSummary) != "" {
+		b.WriteString("- The sections above are tool output, not opinion. Treat them as evidence you must account for.\n")
+		b.WriteString("- Report any listed uncovered block that belongs to logic worth testing as a finding, so a test gets written for it. Use medium severity. Skip blocks that are genuinely not worth a test (trivial getters, unreachable defensive branches) and do not report those.\n")
+	}
+
 	return b.String()
 }
 
