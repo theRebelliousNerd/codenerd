@@ -254,7 +254,7 @@ func (e *Executor) verifyAndRepairTests(
 	workspace := e.workspaceForVerification()
 	packages := packagesForPaths(result.WrittenPaths)
 
-	if untested := untestedGoFiles(result.WrittenPaths); len(untested) > 0 {
+	if untested := untestedWithoutCoverageOnDisk(workspace, result.WrittenPaths); len(untested) > 0 {
 		logging.Get(logging.CategorySession).Warn(
 			"Turn wrote production Go with no test alongside it: %s", strings.Join(untested, ", "))
 		result.UntestedPaths = untested

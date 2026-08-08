@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -29,11 +30,13 @@ import (
 // "unknown", never "pass". A verification that did not run must not be allowed
 // to look like one that did.
 //
-// Scope note: untestedGoFiles compares against files written in the SAME turn.
-// It answers "did this turn ship code without a test", not "does this package
-// have coverage" — a file edited today whose tests were written last week is
-// not flagged, by design. Package-level coverage is a different measurement and
-// belongs in a different function.
+// Scope note: untestedGoFiles is the pure same-turn predicate — "did this turn
+// write a test next to the code it wrote". On its own it is far too eager to
+// gate on, because editing a long-tested file without touching its test file
+// looks identical to shipping untested code. untestedWithoutCoverageOnDisk
+// narrows it to files with no test anywhere, and that is what the executor
+// uses. Neither answers "is this new function covered" — that needs a coverage
+// profile, not a filename comparison.
 //
 // Written by codeNERD on itself (2026-08-08), reviewed and corrected by hand.
 
@@ -66,6 +69,25 @@ type TestVerification struct {
 	Duration time.Duration
 }
 
+// DeduplicatePreservingOrder removes duplicate strings while preserving the
+// order of first occurrence. A nil input returns nil and the input slice is
+// not mutated.
+func DeduplicatePreservingOrder(in []string) []string {
+	if in == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
 // packagesForPaths maps written .go file paths to their Go package directories,
 // deduplicated. Non-Go files are skipped. The returned entries are the
 // directory packages suitable for `go test` (e.g. "./internal/session").
@@ -75,7 +97,6 @@ type TestVerification struct {
 // touchedGoFiles. Paths like "internal/session/foo.go" become
 // "./internal/session"; a file at the module root becomes ".".
 func packagesForPaths(paths []string) []string {
-	seen := make(map[string]struct{})
 	var out []string
 	for _, p := range paths {
 		trimmed := strings.TrimSpace(p)
@@ -90,10 +111,7 @@ func packagesForPaths(paths []string) []string {
 		// Normalise dir: clean dot segments and duplicate slashes.
 		dir = strings.TrimSpace(dir)
 		if dir == "." || dir == "" {
-			if _, ok := seen["."]; !ok {
-				seen["."] = struct{}{}
-				out = append(out, ".")
-			}
+			out = append(out, ".")
 			continue
 		}
 		// Strip any leading "./" then re-add it so the result is an explicit
@@ -110,21 +128,73 @@ func packagesForPaths(paths []string) []string {
 			cleaned = append(cleaned, part)
 		}
 		if len(cleaned) == 0 {
-			if _, ok := seen["."]; !ok {
-				seen["."] = struct{}{}
-				out = append(out, ".")
-			}
+			out = append(out, ".")
 			continue
 		}
 		pkg := "./" + strings.Join(cleaned, "/")
-		if _, ok := seen[pkg]; ok {
-			continue
-		}
-		seen[pkg] = struct{}{}
 		out = append(out, pkg)
 	}
+	out = DeduplicatePreservingOrder(out)
 	sort.Strings(out)
 	return out
+}
+
+// untestedWithoutCoverageOnDisk narrows untestedGoFiles to the files that have
+// no test anywhere — not merely no test written in this turn.
+//
+// untestedGoFiles alone is too eager to be an enforcement signal. It flagged
+// internal/session/test_verify.go on two consecutive live turns (2026-08-08
+// 11:08 and 11:13) because neither turn happened to rewrite
+// test_verify_test.go — a file sitting right next to it with 40 passing
+// subtests. A gate that cries wolf about tested code is one that gets ignored,
+// and then switched off.
+//
+// A file counts as covered when either its own <base>_test.go exists on disk or
+// its package contains any _test.go at all. The second clause is deliberate:
+// Go's convention does not require one test file per source file, and demanding
+// it would flag most of this repo.
+func untestedWithoutCoverageOnDisk(workspace string, paths []string) []string {
+	candidates := untestedGoFiles(paths)
+	if len(candidates) == 0 || strings.TrimSpace(workspace) == "" {
+		return candidates
+	}
+
+	var out []string
+	for _, rel := range candidates {
+		abs := rel
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(workspace, filepath.FromSlash(strings.TrimPrefix(filepath.ToSlash(rel), "./")))
+		}
+
+		sibling := strings.TrimSuffix(abs, filepath.Ext(abs)) + "_test.go"
+		if _, err := os.Stat(sibling); err == nil {
+			continue
+		}
+		if packageHasTestFile(filepath.Dir(abs)) {
+			continue
+		}
+		out = append(out, rel)
+	}
+	return out
+}
+
+// packageHasTestFile reports whether dir contains any _test.go file.
+func packageHasTestFile(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		// Unreadable directory is not evidence of missing tests. Fail toward
+		// silence: a false "untested" claim is worse than a missed one.
+		return true
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(strings.ToLower(e.Name()), "_test.go") {
+			return true
+		}
+	}
+	return false
 }
 
 // verifyTests runs `go test` on exactly the given packages and reports whether
@@ -258,3 +328,12 @@ func untestedGoFiles(paths []string) []string {
 	sort.Strings(out)
 	return out
 }
+// TrimGoExtension returns path with a trailing .go or .GO suffix removed,
+// leaving other paths unchanged. The suffix check is case-insensitive.
+func TrimGoExtension(path string) string {
+	if strings.HasSuffix(strings.ToLower(path), ".go") {
+		return path[:len(path)-3]
+	}
+	return path
+}
+

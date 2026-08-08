@@ -352,3 +352,70 @@ func TestVerifyAndRepairTests_SkipsWhenNotApplicable(t *testing.T) {
 		})
 	}
 }
+
+// The same-turn predicate is too eager to gate on. It flagged
+// internal/session/test_verify.go on two consecutive live turns (2026-08-08
+// 11:08 and 11:13) because neither turn rewrote test_verify_test.go — a file
+// sitting right next to it with 40 passing subtests. A gate that cries wolf
+// about tested code is one that gets ignored, then switched off.
+func TestUntestedWithoutCoverageOnDisk(t *testing.T) {
+	ws := t.TempDir()
+	mk := func(rel string) {
+		t.Helper()
+		p := filepath.Join(ws, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte("package p\n"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+
+	// covered/: source edited this turn, its own _test.go already on disk.
+	mk("covered/thing.go")
+	mk("covered/thing_test.go")
+	// sibling/: source edited this turn, no thing_test.go but the package has
+	// another test file. Go does not require one test file per source file.
+	mk("sibling/widget.go")
+	mk("sibling/other_test.go")
+	// bare/: source edited this turn, package has no test file at all.
+	mk("bare/lonely.go")
+
+	cases := []struct {
+		name    string
+		written []string
+		want    []string
+	}{
+		{"own test on disk is covered", []string{"covered/thing.go"}, nil},
+		{"package test file counts as covered", []string{"sibling/widget.go"}, nil},
+		{"no test anywhere is flagged", []string{"bare/lonely.go"}, []string{"bare/lonely.go"}},
+		{"test written this turn is covered", []string{"bare/lonely.go", "bare/lonely_test.go"}, nil},
+		{"non-go never flagged", []string{"bare/README.md"}, nil},
+		{
+			"mixed reports only the bare one",
+			[]string{"covered/thing.go", "sibling/widget.go", "bare/lonely.go"},
+			[]string{"bare/lonely.go"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := untestedWithoutCoverageOnDisk(ws, tc.written)
+			if len(got) != len(tc.want) {
+				t.Fatalf("untestedWithoutCoverageOnDisk(%v) = %v; want %v", tc.written, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("index %d = %q; want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+// An unreadable directory is not evidence that tests are missing. The gate
+// fails toward silence: a false "untested" claim is worse than a missed one.
+func TestPackageHasTestFile_UnreadableDirIsNotEvidence(t *testing.T) {
+	if !packageHasTestFile(filepath.Join(t.TempDir(), "does-not-exist")) {
+		t.Error("an unreadable directory was treated as proof of missing tests")
+	}
+}
