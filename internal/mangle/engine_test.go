@@ -1070,3 +1070,51 @@ func TestEngineReplaceFactsForFileWithHash_NoSchemas(t *testing.T) {
 		t.Fatalf("expected errNoSchemas, got %v", err)
 	}
 }
+
+// Distinct from TestEngineReplaceFactsForFileWithHash above, which asserts the
+// content hash reaches persistence. This one asserts the REPLACE half: writing
+// the same file twice must leave only the second set of facts, not both.
+func TestEngineReplaceFactsForFileWithHash_ReplacesPriorFacts(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = true
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	schema := `Decl test_fact(File, X).`
+	if err := engine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("LoadSchemaString() error = %v", err)
+	}
+
+	facts1 := []Fact{
+		{
+			Predicate: "test_fact",
+			Args:      []any{"test1.go", "A"},
+		},
+	}
+	if err := engine.ReplaceFactsForFileWithHash("test1.go", facts1, "hash1"); err != nil {
+		t.Fatalf("ReplaceFactsForFileWithHash() error = %v", err)
+	}
+
+	facts2 := []Fact{
+		{
+			Predicate: "test_fact",
+			Args:      []any{"test1.go", "B"},
+		},
+	}
+
+	if err := engine.ReplaceFactsForFileWithHash("test1.go", facts2, "hash2"); err != nil {
+		t.Fatalf("ReplaceFactsForFileWithHash() error = %v", err)
+	}
+
+	results := engine.QueryFacts("test_fact")
+	if len(results) != 1 {
+		t.Errorf("Expected 1 result binding, got %d", len(results))
+	} else {
+		val := results[0].Args[1]
+		if val != "B" && val != "/B" && val != "\"B\"" {
+			t.Errorf("Expected X=B, got X=%v", val)
+		}
+	}
+}
