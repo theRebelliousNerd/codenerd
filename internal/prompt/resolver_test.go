@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -727,4 +728,36 @@ func TestDependencyResolver_Resolve_ConcurrentBudgetManager(t *testing.T) {
 	}()
 
 	wg.Wait()
+}
+
+func TestDependencyResolver_MassiveDependencyChain(t *testing.T) {
+	resolver := NewDependencyResolver()
+	numAtoms := 1000000
+
+	atoms := make([]*ScoredAtom, 0, numAtoms)
+	for i := 1; i <= numAtoms; i++ {
+		id := fmt.Sprintf("atom_%d", i)
+		var deps []string
+		if i > 1 {
+			deps = []string{fmt.Sprintf("atom_%d", i-1)}
+		}
+		atoms = append(atoms, &ScoredAtom{
+			Atom: &PromptAtom{
+				ID:        id,
+				DependsOn: deps,
+			},
+			Combined: float64(numAtoms - i),
+		})
+	}
+
+	result, err := resolver.Resolve(atoms)
+	require.NoError(t, err)
+	require.Len(t, result, numAtoms)
+	// Verify exact order
+	for i := 0; i < numAtoms; i++ {
+		expected := fmt.Sprintf("atom_%d", i+1)
+		if result[i].Atom.ID != expected {
+			t.Fatalf("expected atom %s at index %d, got %s", expected, i, result[i].Atom.ID)
+		}
+	}
 }
