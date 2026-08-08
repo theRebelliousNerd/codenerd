@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,7 +36,6 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 	// TODO: TEST_GAP: User Request Extremes - Resolve with massive dependency chains (e.g., 1,000,000 ScoredAtoms).
 	// TODO: TEST_GAP: User Request Extremes - Resolve with extreme Priority values (`math.MaxInt64` or `math.MinInt64`).
 	// TODO: TEST_GAP: State Conflicts - Resolve with deterministic sorting on identical scores and identical dependencies (tie-breaker needed).
-	// TODO: TEST_GAP: State Conflicts - Resolve under concurrent modifications by BudgetManager (Race Conditions).
 	tests := []struct {
 		name          string
 		atoms         []*ScoredAtom
@@ -594,4 +594,53 @@ func BenchmarkSortByCategory(b *testing.B) {
 	for b.Loop() {
 		resolver.SortByCategory(atoms)
 	}
+}
+
+
+func TestDependencyResolver_Resolve_ConcurrentBudgetManager(t *testing.T) {
+	resolver := NewDependencyResolver()
+	budgetMgr := NewTokenBudgetManager()
+
+	// Base prompt atoms. They all share the same underlying PromptAtom pointers.
+	atoms1 := []*ScoredAtom{
+		{Atom: &PromptAtom{ID: "a", DependsOn: []string{"b"}, TokenCount: 10, Content: "aaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, Combined: 0.5},
+		{Atom: &PromptAtom{ID: "b", DependsOn: []string{"c"}, TokenCount: 10, Content: "bbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, Combined: 0.6},
+		{Atom: &PromptAtom{ID: "c", DependsOn: []string{}, TokenCount: 10, Content: "cccccccccccccccccccccccccccc"}, Combined: 0.7},
+	}
+
+	// Create another list that points to the SAME PromptAtom instances to simulate shared state
+	atoms2 := make([]*ScoredAtom, len(atoms1))
+	for i, sa := range atoms1 {
+		atoms2[i] = &ScoredAtom{
+			Atom:     sa.Atom,
+			Combined: sa.Combined,
+		}
+	}
+
+	// Pre-resolve atoms2 so BudgetManager has OrderedAtoms to work with
+	resolved2, err := resolver.Resolve(atoms2)
+	assert.NoError(t, err)
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			// Thread A: BudgetManager runs on `resolved2`, truncating the shared PromptAtoms
+			// It will mutate atom.Content internally
+			_, _ = budgetMgr.Fit(resolved2, 15)
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			// Thread B: Resolver runs on `atoms1` which reads ID/DependsOn of the shared PromptAtoms
+			_, _ = resolver.Resolve(atoms1)
+		}
+	}()
+
+	wg.Wait()
 }
