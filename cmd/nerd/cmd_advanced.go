@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -392,14 +393,7 @@ func runLogicQuery(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	predicate := "*"
-	if len(args) > 0 {
-		predicate = args[0]
-	}
-
 	fmt.Printf("🧠 Mangle Kernel Facts\n")
-	fmt.Printf("🔍 Query: %s\n", predicate)
-	fmt.Println(strings.Repeat("─", 60))
 
 	// Resolve API key
 	key := resolveAPIKey(apiKey, workspace)
@@ -410,6 +404,20 @@ func runLogicQuery(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
 	defer cortex.Close()
+
+	// With no predicate, show what the kernel holds.
+	//
+	// The default used to be the literal string "*", which is not a wildcard
+	// the kernel understands — it is simply a predicate name nothing matches.
+	// So bare `nerd logic` printed "Found 0 facts" on a kernel holding 3,737
+	// file_topology and 10,510 symbol_graph facts, and read as an empty brain.
+	if len(args) == 0 {
+		return printKernelFactSummary(cortex)
+	}
+
+	predicate := args[0]
+	fmt.Printf("🔍 Query: %s\n", predicate)
+	fmt.Println(strings.Repeat("─", 60))
 
 	// Query facts
 	facts, err := cortex.Kernel.Query(predicate)
@@ -424,6 +432,59 @@ func runLogicQuery(cmd *cobra.Command, args []string) error {
 			break
 		}
 		fmt.Printf("  %s\n", fact.String())
+	}
+
+	return nil
+}
+
+// printKernelFactSummary reports which predicates hold facts and how many,
+// which is the useful answer to a bare `nerd logic`. Naming a predicate still
+// lists its facts.
+func printKernelFactSummary(cortex *coresys.Cortex) error {
+	fmt.Println("🔍 Summary (pass a predicate to list its facts)")
+	fmt.Println(strings.Repeat("─", 60))
+
+	byPredicate, err := cortex.Kernel.QueryAll()
+	if err != nil {
+		return fmt.Errorf("failed to read kernel facts: %w", err)
+	}
+
+	counts := make(map[string]int, len(byPredicate))
+	for predicate, facts := range byPredicate {
+		counts[predicate] = len(facts)
+	}
+
+	if len(counts) == 0 {
+		fmt.Println("📊 The kernel holds no facts.")
+		fmt.Println("   Run 'nerd scan' to index the workspace.")
+		return nil
+	}
+
+	type predCount struct {
+		name  string
+		count int
+	}
+	ordered := make([]predCount, 0, len(counts))
+	total := 0
+	for name, count := range counts {
+		ordered = append(ordered, predCount{name, count})
+		total += count
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].count != ordered[j].count {
+			return ordered[i].count > ordered[j].count
+		}
+		return ordered[i].name < ordered[j].name
+	})
+
+	fmt.Printf("📊 %d facts across %d predicates:\n\n", total, len(ordered))
+	const shown = 25
+	for i, pc := range ordered {
+		if i >= shown {
+			fmt.Printf("\n... and %d more predicates\n", len(ordered)-shown)
+			break
+		}
+		fmt.Printf("  %-40s %7d\n", pc.name, pc.count)
 	}
 
 	return nil
