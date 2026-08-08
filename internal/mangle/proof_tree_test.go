@@ -155,3 +155,63 @@ func TestNewProofTreeTracer(t *testing.T) {
 		t.Errorf("Expected ruleIndex map to be initialized, but it was nil")
 	}
 }
+
+func TestProofTreeTracer_MaterializeToFacts(t *testing.T) {
+	cfg := DefaultConfig()
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	schema := `
+	Decl derivation_trace(Conclusion, RuleApplied, Premises) descr [mode("-", "-", "-")].
+	Decl proof_tree_node(ID, ParentID, Fact, RuleName) descr [mode("-", "-", "-", "-")].
+	`
+	if err := engine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("Failed to load schema: %v", err)
+	}
+
+	tracer := NewProofTreeTracer(engine)
+
+	node1 := &DerivationNode{
+		ID:       "node1",
+		Fact:     Fact{Predicate: "test_fact1", Args: []any{"a"}},
+		RuleName: "rule1",
+	}
+
+	node2 := &DerivationNode{
+		ID:       "node2",
+		ParentID: "node1",
+		Fact:     Fact{Predicate: "test_fact2", Args: []any{"b"}},
+		RuleName: "rule2",
+	}
+
+	node1.Children = append(node1.Children, node2)
+
+	trace := &DerivationTrace{
+		AllNodes: []*DerivationNode{node1, node2},
+	}
+
+	err = tracer.MaterializeToFacts(context.Background(), trace)
+	if err != nil {
+		t.Fatalf("MaterializeToFacts failed: %v", err)
+	}
+
+	traceFacts, err := engine.GetFacts("derivation_trace")
+	if err != nil {
+		t.Fatalf("GetFacts failed: %v", err)
+	}
+
+	if len(traceFacts) != 2 {
+		t.Errorf("Expected 2 derivation_trace facts, got %d", len(traceFacts))
+	}
+
+	nodeFacts, err := engine.GetFacts("proof_tree_node")
+	if err != nil {
+		t.Fatalf("GetFacts failed: %v", err)
+	}
+
+	if len(nodeFacts) != 2 {
+		t.Errorf("Expected 2 proof_tree_node facts, got %d", len(nodeFacts))
+	}
+}
