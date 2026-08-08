@@ -2,11 +2,11 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	"context"
 	"fmt"
 	"testing"
 	"time"
 )
-
 
 // TODO: [Type Coercion] Test getCurrentPhase when Mangle fact arguments (phase ID) are returned as unexpected types (int, float, boolean) instead of string.
 // TODO: [User Request Extremes] Test getCurrentPhase with phase IDs that are extremely long strings (1MB+) to check for memory exhaustion in the linear search array.
@@ -218,8 +218,8 @@ func TestOrchestrator_GetEligibleTasks_ExtremeBackoff(t *testing.T) {
 				ID: "/phase_1",
 				Tasks: []Task{
 					{ID: "/task_far_future", NextRetryAt: time.Now().Add(100 * 365 * 24 * time.Hour)}, // 100 years in future
-					{ID: "/task_far_past", NextRetryAt: time.Now().Add(-100 * 365 * 24 * time.Hour)}, // 100 years in past
-					{ID: "/task_zero_time", NextRetryAt: time.Time{}}, // zero time
+					{ID: "/task_far_past", NextRetryAt: time.Now().Add(-100 * 365 * 24 * time.Hour)},  // 100 years in past
+					{ID: "/task_zero_time", NextRetryAt: time.Time{}},                                 // zero time
 				},
 			},
 		},
@@ -428,13 +428,58 @@ func TestOrchestrator_IsPhaseComplete(t *testing.T) {
 	}
 }
 
+func TestOrchestrator_StartNextPhase_DoubleInvocation(t *testing.T) {
+	mockKernel := &MockKernel{}
+	_ = mockKernel.Assert(core.Fact{
+		Predicate: "phase_eligible",
+		Args:      []any{"p1"},
+	})
+
+	c := &Campaign{
+		ID: "camp_1",
+		Phases: []Phase{
+			{
+				ID:     "p1",
+				Name:   "Phase 1",
+				Order:  1,
+				Status: PhasePending,
+			},
+		},
+	}
+
+	orch := &Orchestrator{
+		kernel:   mockKernel,
+		campaign: c,
+	}
+
+	ctx := context.Background()
+
+	// 1. First invocation should succeed
+	err := orch.startNextPhase(ctx)
+	if err != nil {
+		t.Fatalf("First invocation failed: %v", err)
+	}
+	if c.Phases[0].Status != PhaseInProgress {
+		t.Errorf("Expected status to be PhaseInProgress, got %s", c.Phases[0].Status)
+	}
+
+	// 2. Second invocation should also succeed (idempotent)
+	err = orch.startNextPhase(ctx)
+	if err != nil {
+		t.Fatalf("Second invocation failed: %v", err)
+	}
+	if c.Phases[0].Status != PhaseInProgress {
+		t.Errorf("Expected status to remain PhaseInProgress, got %s", c.Phases[0].Status)
+	}
+}
+
 // TODO: [Null/Undefined/Empty] Test getCampaignBlockReason when 'campaign_blocked' has < 2 arguments.
+
 // TODO: [Type Coercion] Test getCampaignBlockReason when the reason argument is not a string (e.g. integer or boolean).
 // Additional test for getCampaignBlockReason
 func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
 	// TODO: TestOrchestrator_StartNextPhase_NilContext
 	// TODO: TestOrchestrator_StartNextPhase_RaceCondition
-	// TODO: TestOrchestrator_StartNextPhase_DoubleInvocation
 	// TODO: TestOrchestrator_CompletePhase_NilPhase
 	// TODO: TestOrchestrator_CompletePhase_KernelAssertFailure
 	// TODO: TestOrchestrator_Concurrency_ReadWritePhases
