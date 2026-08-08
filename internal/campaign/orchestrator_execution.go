@@ -57,6 +57,11 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	o.updateCampaignStatus(StatusActive)
 	o.mu.Unlock()
 
+	// Record the repository root before any task runs. The completion sweep
+	// compares against this, so a campaign can only ever move files it created
+	// itself — never something that was already there.
+	o.recordRootBaseline()
+
 	// Apply campaign-level timeout
 	if o.config.CampaignTimeout > 0 {
 		var timeoutCancel context.CancelFunc
@@ -146,6 +151,21 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 						o.campaign.CompletedTasks, o.campaign.TotalTasks)
 					_ = o.northstarObserver.EndCampaign(ctx, true, summary)
 				}
+
+				// Sweep scratch the campaign left in the user's repository root.
+				//
+				// Done here rather than per task on purpose. Blocking the write
+				// is the wrong shape: WriteSet is INFERRED by the decomposer
+				// from artifact paths and description text, tasks run
+				// concurrently, and a wrong block kills legitimate work. Moving
+				// files mid-campaign is also wrong, because a later phase may
+				// legitimately read what an earlier one produced.
+				//
+				// At completion both objections are gone. No further task can
+				// depend on the file, and moving it into the campaign's own
+				// artifacts directory preserves the content while leaving the
+				// repository as the user had it.
+				o.sweepUndeclaredRootWrites()
 
 				o.mu.Lock()
 				o.updateCampaignStatus(StatusCompleted)

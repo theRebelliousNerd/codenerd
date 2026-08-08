@@ -433,7 +433,7 @@ func (o *Orchestrator) computeRetryBackoff(errorType string, attemptNum int) tim
 	shift := min(max(attemptNum-1, 0), 10)
 
 	// Prevent overflow: check if multiplication will exceed max int64
-	multiplier := time.Duration(1<<shift)
+	multiplier := time.Duration(1 << shift)
 	var backoff time.Duration
 	if base > 0 && multiplier > 0 && base > math.MaxInt64/multiplier {
 		// Overflow would occur, cap at max

@@ -16,12 +16,12 @@ type BenchmarkMockKernel struct {
 func (m *BenchmarkMockKernel) Query(predicate string) ([]core.Fact, error) {
 	// If it's a specific query with arguments, we don't need to return the full dataset
 	if predicate == fmt.Sprintf(`tool_registered("%s")`, m.Capability) || predicate == fmt.Sprintf(`has_capability("%s")`, m.Capability) {
-	    return []core.Fact{
-	        {
-	            Predicate: "dummy",
-	            Args: []any{m.Capability},
-	        },
-	    }, nil
+		return []core.Fact{
+			{
+				Predicate: "dummy",
+				Args:      []any{m.Capability},
+			},
+		}, nil
 	}
 
 	var facts []core.Fact

@@ -686,3 +686,95 @@ func (o *Orchestrator) reportUnexpectedRootWrites(task *Task, before map[string]
 		"Task %s created %d file(s) in the workspace root that its write set does not account for: %s",
 		task.ID, len(unexpected), strings.Join(unexpected, ", "))
 }
+
+// recordRootBaseline captures the workspace root as it looked before the
+// campaign ran. Only files absent from this baseline are ever candidates for
+// the completion sweep, so a campaign can never move something it did not
+// create.
+func (o *Orchestrator) recordRootBaseline() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.rootBaseline = o.snapshotWorkspaceRoot()
+}
+
+// sweepUndeclaredRootWrites moves scratch the campaign left in the workspace
+// root into the campaign's own artifacts directory.
+//
+// Three conditions must all hold before a file is moved, and each rules out a
+// different way this could destroy something:
+//
+//   - It was absent when the campaign started, so the campaign created it.
+//   - No task declared it in a write set, so nobody asked for it to be there.
+//   - It is a file at the root, not a directory and not source in a package.
+//
+// The file is MOVED, never deleted. If the judgement here is wrong the content
+// is still on disk under the campaign that produced it.
+func (o *Orchestrator) sweepUndeclaredRootWrites() {
+	o.mu.RLock()
+	baseline := o.rootBaseline
+	campaign := o.campaign
+	o.mu.RUnlock()
+
+	if baseline == nil || campaign == nil {
+		return
+	}
+	root := strings.TrimSpace(o.config.Workspace)
+	if root == "" {
+		return
+	}
+
+	declared := make(map[string]bool)
+	for _, phase := range campaign.Phases {
+		for i := range phase.Tasks {
+			for _, p := range o.resolveTaskWriteSet(&phase.Tasks[i]) {
+				declared[filepath.Base(filepath.ToSlash(p))] = true
+			}
+		}
+	}
+
+	after := o.snapshotWorkspaceRoot()
+	var strays []string
+	for name := range after {
+		if !baseline[name] && !declared[name] {
+			strays = append(strays, name)
+		}
+	}
+	if len(strays) == 0 {
+		return
+	}
+	sort.Strings(strays)
+
+	dest := filepath.Join(root, ".nerd", "campaigns", shortCampaignID(campaign.ID), "artifacts")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		logging.CampaignWarn("Cannot sweep %d stray root file(s); artifacts dir unavailable: %v", len(strays), err)
+		return
+	}
+
+	moved := make([]string, 0, len(strays))
+	for _, name := range strays {
+		from := filepath.Join(root, name)
+		to := filepath.Join(dest, name)
+		if err := os.Rename(from, to); err != nil {
+			// Leaving it in place is the safe failure: the repository stays
+			// dirty, which is visible, rather than the content going missing.
+			logging.CampaignWarn("Could not move stray root file %s into the campaign artifacts: %v", name, err)
+			continue
+		}
+		moved = append(moved, name)
+	}
+	if len(moved) > 0 {
+		logging.CampaignWarn(
+			"Campaign %s created %d file(s) in the repository root that no task declared; moved into %s: %s",
+			campaign.ID, len(moved), dest, strings.Join(moved, ", "))
+	}
+}
+
+// shortCampaignID trims the leading atom marker and any prefix so the artifacts
+// path matches the directory the /document path already writes to.
+func shortCampaignID(id string) string {
+	s := strings.TrimPrefix(strings.TrimSpace(id), "/")
+	if i := strings.LastIndex(s, "_"); i >= 0 && i < len(s)-1 {
+		s = s[i+1:]
+	}
+	return s
+}

@@ -8,7 +8,7 @@ import (
 
 // A dummy Kernel implementation for benchmarking.
 type mockKernelForBench struct {
-    core.Kernel
+	core.Kernel
 	assertCount int
 	batchCount  int
 }
@@ -24,21 +24,21 @@ func (m *mockKernelForBench) AssertBatch(facts []core.Fact) error {
 }
 
 func (m *mockKernelForBench) QueryAll() (map[string][]core.Fact, error) {
-    res := make(map[string][]core.Fact)
-    for _, pred := range []string{"dom_node", "attr", "geometry", "computed_style", "interactable", "visible_text"} {
-        res[pred] = []core.Fact{{Predicate: pred}}
-    }
-    return res, nil
+	res := make(map[string][]core.Fact)
+	for _, pred := range []string{"dom_node", "attr", "geometry", "computed_style", "interactable", "visible_text"} {
+		res[pred] = []core.Fact{{Predicate: pred}}
+	}
+	return res, nil
 }
 
 func (m *mockKernelForBench) Query(pred string) ([]core.Fact, error) {
-    if pred == "context_profile" {
-        return []core.Fact{{
-            Predicate: "context_profile",
-            Args: []any{"profile-123", "", "", ""},
-        }}, nil
-    }
-    return nil, nil
+	if pred == "context_profile" {
+		return []core.Fact{{
+			Predicate: "context_profile",
+			Args:      []any{"profile-123", "", "", ""},
+		}}, nil
+	}
+	return nil, nil
 }
 
 func BenchmarkActivatePhaseSuppression(b *testing.B) {
@@ -84,9 +84,9 @@ func BenchmarkPruneIrrelevant(b *testing.B) {
 		kernel: mk,
 	}
 
-    profile := &ContextProfile{
-        RequiredSchemas: []string{},
-    }
+	profile := &ContextProfile{
+		RequiredSchemas: []string{},
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

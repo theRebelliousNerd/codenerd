@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
-	"runtime"
 )
 
 func TestOrchestratorJournal_Gaps(t *testing.T) {

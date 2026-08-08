@@ -18,6 +18,11 @@ const defaultParallelTasks = 3
 // Orchestrator runs the campaign execution loop.
 // It manages phase transitions, task execution, context paging, and checkpoints.
 type Orchestrator struct {
+	// rootBaseline is the workspace root as it looked before the campaign ran.
+	// Only files absent from it are candidates for the completion sweep, so a
+	// campaign can never move something it did not create.
+	rootBaseline map[string]bool
+
 	mu sync.RWMutex
 
 	// Core components
