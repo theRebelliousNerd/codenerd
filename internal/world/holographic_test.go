@@ -1067,3 +1067,32 @@ func TestHolographicContext_EmptyFile(t *testing.T) {
 		t.Errorf("Expected nil error for whitespace file, got: %v", err)
 	}
 }
+
+func TestBuildGoContext_InvalidSyntaxSibling(t *testing.T) {
+	dir := t.TempDir()
+
+	validFile := filepath.Join(dir, "valid.go")
+	if err := os.WriteFile(validFile, []byte("package main\nfunc Valid() {}"), 0644); err != nil {
+		t.Fatalf("Failed to write valid go file: %v", err)
+	}
+
+	invalidFile := filepath.Join(dir, "invalid.go")
+	if err := os.WriteFile(invalidFile, []byte("package main\nfunc Invalid() { // Missing closing brace"), 0644); err != nil {
+		t.Fatalf("Failed to write invalid go file: %v", err)
+	}
+
+	h := NewHolographicProvider(nil, dir)
+	hc := &HolographicContext{
+		PackageImports: make(map[string][]string),
+	}
+
+	err := h.buildGoContextWithContext(context.Background(), hc, validFile)
+	if err != nil {
+		t.Fatalf("buildGoContextWithContext failed due to sibling parse error: %v", err)
+	}
+
+	// Make sure the valid file's package name was extracted successfully
+	if hc.TargetPkg != "main" {
+		t.Errorf("Expected TargetPkg to be 'main', got '%s'", hc.TargetPkg)
+	}
+}
