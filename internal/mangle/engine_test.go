@@ -910,3 +910,24 @@ func TestLargeStringHandling(t *testing.T) {
 		}
 	}
 }
+
+func TestEngineResetDerivedFactCount(t *testing.T) {
+	cfg := DefaultConfig()
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	// Directly manipulate the derived count (since we are in the same package)
+	engine.derivedCount = 100
+
+	if count := engine.GetDerivedFactCount(); count != 100 {
+		t.Errorf("Expected derived count to be 100, got %d", count)
+	}
+
+	engine.ResetDerivedFactCount()
+
+	if count := engine.GetDerivedFactCount(); count != 0 {
+		t.Errorf("Expected derived count to be reset to 0, got %d", count)
+	}
+}
