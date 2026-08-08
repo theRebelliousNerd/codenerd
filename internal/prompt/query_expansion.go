@@ -110,8 +110,30 @@ func buildExpandedQuery(cc *CompilationContext) string {
 	}
 
 	// 3. Process Shard ID
+	//
+	// Tokenized, not added whole. Shard IDs are underscore-joined
+	// ("tool_generator_count_mangle_predicates_given_a_directory_path_s"), and
+	// a single 60-character term embeds as noise — the one word in it that
+	// mattered, "mangle", was invisible to the search. Tokenizing costs
+	// nothing for simple IDs: tokenize("coder") is still ["coder"].
 	if cc.ShardID != "" {
-		addTerm(cc.ShardID)
+		addTerms(tokenize(cc.ShardID))
+	}
+
+	// 3b. Process the explicit semantic query.
+	//
+	// SemanticQuery was consumed only by atom selection (selector.go), never by
+	// the knowledge-base search this query feeds. So a caller that described its
+	// task in prose — Ouroboros passes the tool's purpose — had that prose
+	// dropped on the floor here, and the 29k-entry knowledge base was searched
+	// with whatever the shard ID happened to contain.
+	if cc.SemanticQuery != "" {
+		for _, token := range tokenize(cc.SemanticQuery) {
+			addTerm(token)
+			if synonyms, ok := targetSynonyms[token]; ok {
+				addTerms(synonyms)
+			}
+		}
 	}
 
 	// 4. Process Language

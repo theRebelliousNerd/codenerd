@@ -85,6 +85,25 @@ func (pa *PromptAssembler) mapToPromptContext(m map[string]any) (*PromptContext,
 		}
 	}
 
+	// Ouroboros describes the tool it wants in prose, but passed no semantic
+	// query, so both retrieval channels ran starved: atom selection
+	// (selector.go, keyed on SemanticQuery) had nothing at all, and the
+	// knowledge-base search saw only the underscore-joined shard ID.
+	//
+	// Observed live: asked to "count mangle predicates given a directory path",
+	// the generator produced a counter that strips // and /* */ comments —
+	// C syntax — in a repo with 244 .mg files where the comment character is #.
+	// It counted every commented-out "# Decl ..." line as a declaration and
+	// over-reported by 2.5x. The knowledge to avoid that is indexed; nothing
+	// asked for it.
+	if pc.SemanticQuery == "" {
+		if v := extraContext["tool_purpose"]; v != "" {
+			pc.SemanticQuery = v
+		} else if v := extraContext["tool_name"]; v != "" {
+			pc.SemanticQuery = v
+		}
+	}
+
 	if len(extraContext) > 0 {
 		if pc.SessionCtx == nil {
 			pc.SessionCtx = &types.SessionContext{
