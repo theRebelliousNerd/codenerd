@@ -599,3 +599,33 @@ func TestFormatUpliftPrompt_AllowsRejectingAFinding(t *testing.T) {
 		t.Error("uplift prompt does not let the model reject a mistaken finding")
 	}
 }
+
+func TestCriticSeverityRank(t *testing.T) {
+	cases := []struct {
+		name string
+		sev  string
+		want int
+	}{
+		{"high", "high", 3},
+		{"medium", "medium", 2},
+		{"low", "low", 1},
+		{"unknown", "unknown", 0},
+		{"empty", "", 0},
+		{"critical is not a severity", "critical", 0},
+		{"high uppercase", "HIGH", 3},
+		{"medium mixed case", "Medium", 2},
+		{"low uppercase", "LOW", 1},
+		{"high with spaces", "  high  ", 3},
+		{"medium with spaces", " medium ", 2},
+		{"low with newline", "\tlow\n", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := CriticSeverityRank(tc.sev)
+			if got != tc.want {
+				t.Errorf("CriticSeverityRank(%q) = %d; want %d", tc.sev, got, tc.want)
+			}
+		})
+	}
+}
+

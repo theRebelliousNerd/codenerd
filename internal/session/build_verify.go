@@ -400,7 +400,21 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		return nil, nil
 	}
 
-	prompt := buildCriticPrompt(files, summarizeUncovered(result.UncoveredBlocks))
+	// Ground the reviewer in tool output before asking for its opinion. A
+	// reviewer with concrete diagnostics to check against reviews better than
+	// one given only source, and gopls reports a class of defect the compiler
+	// is deliberately silent about.
+	grounding := summarizeUncovered(result.UncoveredBlocks)
+	if diags := goplsDiagnostics(ctx, workspace, result.WrittenPaths); diags != "" {
+		result.StaticDiagnostics = diags
+		logging.Get(logging.CategorySession).Warn("gopls reported diagnostics on this turn's files:\n%s", diags)
+		if grounding != "" {
+			grounding += "\n\n"
+		}
+		grounding += "Static analysis (gopls) reported:\n" + diags
+	}
+
+	prompt := buildCriticPrompt(files, grounding)
 	response, err := client.CompleteWithSystem(ctx, criticSystemPrompt, prompt)
 	if err != nil {
 		// The critic is advisory. A failed review is a missing opinion, not a

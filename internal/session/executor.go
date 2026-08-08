@@ -443,6 +443,11 @@ type ExecutionResult struct {
 	// nothing here fails a turn.
 	CriticFindings []CriticFinding
 
+	// StaticDiagnostics is gopls output for this turn's files, when gopls is
+	// installed. It reports a class of defect the compiler is deliberately
+	// silent about; advisory, and empty on machines without gopls.
+	StaticDiagnostics string
+
 	// Duration is how long the execution took.
 	Duration time.Duration
 

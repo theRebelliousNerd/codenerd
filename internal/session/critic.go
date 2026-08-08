@@ -82,7 +82,14 @@ func buildCriticPrompt(writtenFiles map[string]string, uncoveredSummary string) 
 		sort.Strings(keys)
 		for _, path := range keys {
 			content := writtenFiles[path]
-			b.WriteString("File: " + path + "\n")
+			// Three writes rather than a concatenation: the builder is the whole
+			// point of using one. Reported by gopls on the turn that added the
+			// static-diagnostics gate, on code that had already passed the build
+			// and test gates — which is exactly the class of finding those two
+			// gates are silent about.
+			b.WriteString("File: ")
+			b.WriteString(path)
+			b.WriteString("\n")
 			b.WriteString("```\n")
 			b.WriteString(content)
 			// Ensure the closing fence starts on its own line even when the
@@ -187,6 +194,22 @@ func findingsWorthUplift(findings []CriticFinding) []CriticFinding {
 	}
 	return out
 }
+// CriticSeverityRank maps a severity string to a numeric rank for ordering.
+// It returns 3 for "high", 2 for "medium", 1 for "low" and 0 for anything
+// else, case-insensitively.
+func CriticSeverityRank(sev string) int {
+	switch strings.ToLower(strings.TrimSpace(sev)) {
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	case "low":
+		return 1
+	default:
+		return 0
+	}
+}
+
 
 // criticMaxFileBytes bounds how much of a written file is shown to the
 // reviewer. A turn that rewrites a very large file would otherwise blow the
