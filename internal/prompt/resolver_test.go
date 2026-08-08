@@ -761,3 +761,36 @@ func TestDependencyResolver_MassiveDependencyChain(t *testing.T) {
 		}
 	}
 }
+
+func TestDependencyResolver_Resolve_MassiveDependencyChain(t *testing.T) {
+	// Extreme case: 1,000,000 atoms forming a single long dependency chain
+	numAtoms := 1000000
+
+	atoms := make([]*ScoredAtom, numAtoms)
+	for i := 0; i < numAtoms; i++ {
+		var deps []string
+		if i > 0 {
+			// Each atom depends on the previous one (atom_i depends on atom_i-1)
+			deps = []string{fmt.Sprintf("atom_%d", i-1)}
+		}
+		atoms[i] = &ScoredAtom{
+			Atom: &PromptAtom{
+				ID:        fmt.Sprintf("atom_%d", i),
+				DependsOn: deps,
+			},
+			Combined: 0.5,
+		}
+	}
+
+	resolver := NewDependencyResolver()
+	ordered, err := resolver.Resolve(atoms)
+
+	require.NoError(t, err)
+	assert.Len(t, ordered, numAtoms)
+
+	// Since atom_i depends on atom_{i-1}, the sorted order should be 0, 1, 2...
+	// Check the first and last few to ensure correct sorting without iterating 1,000,000
+	assert.Equal(t, "atom_0", ordered[0].Atom.ID)
+	assert.Equal(t, "atom_1", ordered[1].Atom.ID)
+	assert.Equal(t, fmt.Sprintf("atom_%d", numAtoms-1), ordered[numAtoms-1].Atom.ID)
+}
