@@ -486,9 +486,22 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
+		attemptStart := time.Now()
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
+			// Log it. A transport-level failure was the one retry path with no
+			// log line at all, while 429s and retryable statuses both logged —
+			// so a stalled vendor produced total silence.
+			//
+			// Observed 2026-08-08: a DashScope reasoning call was still
+			// outstanding twenty minutes after "LLM call started", with nothing
+			// in any log between. Each attempt can consume the full
+			// httpClient.Timeout (10m) and there are up to four of them, so a
+			// caller whose context carries the 30-minute OODA ceiling can wait
+			// half an hour learning nothing.
+			logging.PerceptionWarn("[%s] request attempt %d/%d failed after %v (%v); retrying",
+				c.vendor, attempt+1, maxRetries+1, time.Since(attemptStart).Round(time.Second), err)
 			if sleepErr := sleepCtx(ctx, retryDelay(nil, attempt)); sleepErr != nil {
 				return nil, sleepErr
 			}
