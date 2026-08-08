@@ -3,9 +3,11 @@ package autopoiesis
 import (
 	"codenerd/internal/types"
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"codenerd/internal/logging"
 )
@@ -53,9 +55,15 @@ func (tg *ToolGenerator) GenerateTool(ctx context.Context, need *ToolNeed) (*Gen
 	// Generate the tool code using LLM
 	logging.AutopoiesisDebug("Generating tool code via LLM")
 	codeTimer := logging.StartTimer(logging.CategoryAutopoiesis, "LLMCodeGeneration")
-	code, err := tg.generateToolCode(ctx, need)
-	codeTimer.Stop()
+	// Half the budget at most. The other half is reserved so validation has a
+	// verdict AND regeneration can act on it -- measured live, generation
+	// otherwise consumes 100% and regeneration runs for 0ms.
+	genCtx, genCancel := stageBudget(ctx, "code generation", 0.5)
+	code, err := tg.generateToolCode(genCtx, need)
+	genCancel()
+	genElapsed := codeTimer.Stop()
 	if err != nil {
+		err = describeStageTimeout("tool code generation", genElapsed, err)
 		logging.Get(logging.CategoryAutopoiesis).Error("Failed to generate tool code: %v", err)
 		return nil, fmt.Errorf("failed to generate tool code: %w", err)
 	}
@@ -135,9 +143,12 @@ func (tg *ToolGenerator) RegenerateWithFeedback(
 	// Generate new code with feedback-aware system prompt
 	logging.AutopoiesisDebug("Regenerating code with safety feedback")
 	regenTimer := logging.StartTimer(logging.CategoryAutopoiesis, "LLMCodeRegeneration")
-	code, err := tg.regenerateToolCodeWithFeedback(ctx, enhancedNeed, previousTool.Code, feedback)
-	regenTimer.Stop()
+	regenCtx, regenCancel := stageBudget(ctx, "code regeneration", 0.6)
+	code, err := tg.regenerateToolCodeWithFeedback(regenCtx, enhancedNeed, previousTool.Code, feedback)
+	regenCancel()
+	regenElapsed := regenTimer.Stop()
 	if err != nil {
+		err = describeStageTimeout("tool code regeneration", regenElapsed, err)
 		logging.Get(logging.CategoryAutopoiesis).Error("Failed to regenerate tool code: %v", err)
 		return nil, fmt.Errorf("failed to regenerate tool code: %w", err)
 	}
@@ -667,4 +678,54 @@ func (tg *ToolGenerator) generateSchema(need *ToolNeed) ToolSchema {
 		Required: []string{"input"},
 		Returns:  need.OutputType,
 	}
+}
+
+// stageBudget caps a single Ouroboros LLM stage so one slow call cannot consume
+// the whole run's budget and starve the stages after it.
+//
+// Measured live on qwen3.8-max: one code-generation call took 597s, a second
+// took 410s, GenerateTool as a whole consumed the entire 20-minute deadline —
+// and LLMCodeRegeneration then ran for 0ms because the context was already
+// dead. The pipeline could not succeed at ANY total budget, because generation
+// always ate all of it before validation had a verdict to act on.
+//
+// fraction is the share of the ORIGINAL budget this stage may use, not of what
+// happens to be left, so an early overrun cannot silently borrow from later
+// stages. Returns a cancel func the caller must defer.
+func stageBudget(ctx context.Context, stage string, fraction float64) (context.Context, context.CancelFunc) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return ctx, func() {} // no budget to divide
+	}
+
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return ctx, func() {}
+	}
+
+	slice := time.Duration(float64(remaining) * fraction)
+	const floor = 90 * time.Second
+	if slice < floor {
+		// Too little left to be worth subdividing; let the stage race the
+		// parent deadline rather than guaranteeing it fails.
+		return ctx, func() {}
+	}
+
+	logging.AutopoiesisDebug("Ouroboros stage %s budgeted %s of %s remaining", stage, slice.Round(time.Second), remaining.Round(time.Second))
+	return context.WithTimeout(ctx, slice)
+}
+
+// describeStageTimeout turns a bare "context deadline exceeded" into something
+// an unattended run can act on: which stage ran out, and how long it had.
+// Without it the operator cannot tell a too-small budget from a broken feature
+// — the two produce byte-identical errors.
+func describeStageTimeout(stage string, budget time.Duration, err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%s exceeded its %s budget (raise --timeout; generation on a reasoning model routinely needs 10+ minutes per call): %w",
+			stage, budget.Round(time.Second), err)
+	}
+	return err
 }
