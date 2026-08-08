@@ -461,7 +461,6 @@ func TestEngineQueryFacts(t *testing.T) {
 	}
 }
 
-
 func TestEngineRecomputeRules(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AutoEval = false // Disable auto eval to test manual recompute
@@ -1324,5 +1323,58 @@ func TestEngineReplaceFactsForFileWithHash_ReplacesPriorFacts(t *testing.T) {
 		if val != "B" && val != "/B" && val != "\"B\"" {
 			t.Errorf("Expected X=B, got X=%v", val)
 		}
+	}
+}
+
+func TestEvaluateRule(t *testing.T) {
+	cfg := DefaultConfig()
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	// Load schema
+	schema := `Decl item(Name).`
+	if err := engine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("LoadSchemaString() error = %v", err)
+	}
+
+	// Add facts
+	_ = engine.AddFact("item", "apple")
+	_ = engine.AddFact("item", "banana")
+
+	// Test full iteration
+	count := 0
+	seq := engine.EvaluateRule("item")
+	seq(func(f Fact) bool {
+		count++
+		return true // continue iteration
+	})
+
+	if count != 2 {
+		t.Errorf("EvaluateRule() full iteration yielded %d facts, want 2", count)
+	}
+
+	// Test early abort (stop iteration)
+	abortCount := 0
+	seq(func(f Fact) bool {
+		abortCount++
+		return false // stop iteration early
+	})
+
+	if abortCount != 1 {
+		t.Errorf("EvaluateRule() early abort yielded %d facts, want 1", abortCount)
+	}
+
+	// Test unknown predicate
+	unknownCount := 0
+	unknownSeq := engine.EvaluateRule("unknown_predicate")
+	unknownSeq(func(f Fact) bool {
+		unknownCount++
+		return true
+	})
+
+	if unknownCount != 0 {
+		t.Errorf("EvaluateRule() for unknown predicate yielded %d facts, want 0", unknownCount)
 	}
 }
