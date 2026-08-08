@@ -13,7 +13,25 @@ import (
 )
 
 // RouteAction intercepts 'next_action' atoms and routes them to appropriate handlers.
+// RouteAction routes an action and returns only its output text.
+//
+// Kept as-is for the callers that legitimately want that. Note what it drops:
+// ActionResult.Success. A handler that ran to completion and reported failure
+// returns its output with a NIL error here, so a caller checking only the error
+// sees success.
+//
+// That is not a bug in this function — internal/core/tdd_loop.go depends on it,
+// because a failing `run_tests` is the TDD loop's expected state and must be
+// data rather than an error. It IS a trap for anyone else. Callers that need to
+// know whether the action succeeded must use RouteActionResult.
 func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, error) {
+	result, err := v.RouteActionResult(ctx, action)
+	return result.Output, err
+}
+
+// RouteActionResult routes an action and returns the full ActionResult,
+// including Success.
+func (v *VirtualStore) RouteActionResult(ctx context.Context, action Fact) (ActionResult, error) {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, fmt.Sprintf("RouteAction(%s)", action.Predicate))
 	defer timer.Stop()
 
@@ -24,7 +42,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	v.mu.RUnlock()
 	if bootGuardActive {
 		logging.VirtualStore("RouteAction BLOCKED by boot guard: %s (waiting for user interaction)", action.Predicate)
-		return "", fmt.Errorf("boot guard active: action routing blocked until first user interaction")
+		return ActionResult{}, fmt.Errorf("boot guard active: action routing blocked until first user interaction")
 	}
 
 	logging.VirtualStore("Routing action: predicate=%s, args=%d", action.Predicate, len(action.Args))
@@ -33,7 +51,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	req, err := v.parseActionFact(action)
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Failed to parse action fact: %v", err)
-		return "", fmt.Errorf("failed to parse action fact: %w", err)
+		return ActionResult{}, fmt.Errorf("failed to parse action fact: %w", err)
 	}
 
 	logging.VirtualStoreDebug("Parsed action: type=%s, target=%s", req.Type, req.Target)
@@ -48,7 +66,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 			logging.Get(logging.CategoryVirtualStore).Error(
 				"Dreamer unavailable; BLOCKED action: %s on %s", req.Type, req.Target)
 			v.injectFact(newSecurityViolationFact(req, reason))
-			return "", fmt.Errorf("action %s blocked: %s", req.Type, reason)
+			return ActionResult{}, fmt.Errorf("action %s blocked: %s", req.Type, reason)
 		}
 
 		dreamResult := dreamer.SimulateAction(ctx, req)
@@ -61,7 +79,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 				Predicate: "dream_blocked_action",
 				Args:      []any{dreamResult.ActionID, string(req.Type), req.Target, dreamResult.Reason},
 			})
-			return "", fmt.Errorf("action %s blocked by dreamer safety gate: %s", req.Type, dreamResult.Reason)
+			return ActionResult{}, fmt.Errorf("action %s blocked by dreamer safety gate: %s", req.Type, dreamResult.Reason)
 		}
 		logging.VirtualStoreDebug("Dreamer approved action: %s on %s", req.Type, req.Target)
 	}
@@ -76,7 +94,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 		// could be audited against afterwards.
 		logging.Audit().SafetyCheck(string(req.Type)+" "+req.Target, false, err.Error())
 		v.injectFact(newSecurityViolationFact(req, err.Error()))
-		return "", err
+		return ActionResult{}, err
 	}
 
 	// Kernel-level permission gate (default deny if kernel says not permitted)
@@ -99,7 +117,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 		logging.Audit().SafetyCheck(string(req.Type)+" "+req.Target, false,
 			fmt.Sprintf("kernel policy derived no permitted/3 fact (payload_keys=%v)", payloadKeys))
 		v.injectFact(newSecurityViolationFact(req, err.Error()))
-		return "", err
+		return ActionResult{}, err
 	}
 
 	// The allow verdict matters as much as the denial: an audit that records
@@ -118,7 +136,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 			Predicate: "execution_error",
 			Args:      []any{req.ActionID, err.Error()},
 		})
-		return "", err
+		return ActionResult{}, err
 	}
 
 	// Post-action validation: verify the action actually succeeded
@@ -166,7 +184,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	// Glass Box routing event always updates the activity line.
 	v.emitToolAndRoutingEvents(req, result, actionDuration)
 
-	return result.Output, validationErr
+	return result, validationErr
 }
 
 func (v *VirtualStore) requestForValidation(req ActionRequest) ActionRequest {

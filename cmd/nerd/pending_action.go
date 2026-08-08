@@ -79,5 +79,32 @@ func routePermittedAction(ctx context.Context, vs *core.VirtualStore, kernel cor
 		return "", err
 	}
 	defer retract()
-	return vs.RouteAction(ctx, fact)
+	result, err := vs.RouteActionResult(ctx, fact)
+	if err != nil {
+		return "", err
+	}
+	// A handler that ran to completion and reported failure returns a nil error
+	// from the routing layer — RouteAction drops ActionResult.Success, and it
+	// must, because the TDD loop needs a failing `run_tests` to be data rather
+	// than an error.
+	//
+	// The one-shot CLI is not the TDD loop. Observed live 2026-08-08: an
+	// instruction was misclassified /run_tests, the handler executed and
+	// reported success=false, and `nerd run` printed a completion envelope
+	// asserting task_status(/manual_instruction, /complete) with
+	// "all 8 subtasks evidenced" — and exited 0.
+	//
+	// Same family as the empty-shard-result guard directly above this call
+	// site: an action that did not succeed must not be reported as executed.
+	if !result.Success {
+		detail := strings.TrimSpace(result.Error)
+		if detail == "" {
+			detail = strings.TrimSpace(result.Output)
+		}
+		if detail == "" {
+			detail = "handler reported failure with no detail"
+		}
+		return result.Output, fmt.Errorf("action reported failure: %s", detail)
+	}
+	return result.Output, nil
 }
