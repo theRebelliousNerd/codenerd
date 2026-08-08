@@ -1367,10 +1367,14 @@ func initFinalExecutors(bctx *bootContext) error {
 	// loadProjectDoc, so a construction site that forgets this line loses the
 	// prose, not the guarantee.
 	bctx.sessionExecutor.SetProjectDoc(bctx.projectDoc)
+	var fileContextProvider session.FileContextProvider
 	if ck, ok := bctx.kernel.(*core.CortexKernel); ok {
 		if rk := ck.GetPrimaryRealKernel(); rk != nil {
-			bctx.sessionExecutor.SetFileContextProvider(world.NewHolographicProvider(rk, bctx.workspace))
+			fileContextProvider = world.NewHolographicProvider(rk, bctx.workspace)
 		}
+	}
+	if fileContextProvider != nil {
+		bctx.sessionExecutor.SetFileContextProvider(fileContextProvider)
 	}
 
 	bctx.sessionSpawner = session.NewSpawner(
@@ -1383,6 +1387,9 @@ func initFinalExecutors(bctx *bootContext) error {
 		session.DefaultSpawnerConfig(),
 	)
 	bctx.sessionSpawner.SetProjectDoc(bctx.projectDoc)
+	if fileContextProvider != nil {
+		bctx.sessionSpawner.SetFileContextProvider(fileContextProvider)
+	}
 
 	// Reasoning-intensive intents (/review, /audit, /campaign, ...) escape the
 	// worker tier onto the planner client. The kernel decides which those are
