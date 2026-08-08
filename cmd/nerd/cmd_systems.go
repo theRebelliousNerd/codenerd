@@ -56,7 +56,21 @@ var mcpListCmd = &cobra.Command{
 		servers, _ := cortex.Kernel.Query("mcp_server_registered")
 		if len(servers) == 0 {
 			fmt.Println("No MCP servers connected.")
-			fmt.Println("\nConfigure servers in .nerd/config.json under 'mcp_servers'")
+			// The key name matters more than usual here: LoadUserConfig decodes
+			// strictly, so an unknown top-level field is a hard load error, not
+			// a warning. This line used to say 'mcp_servers', which is not a
+			// field on UserConfig — following the instruction would have made
+			// codeNERD refuse to start. The real path is integrations.servers.
+			fmt.Println("\nConfigure servers in .nerd/config.json under 'integrations.servers':")
+			fmt.Println(`  "integrations": {`)
+			fmt.Println(`    "servers": {`)
+			fmt.Println(`      "my_server": {`)
+			fmt.Println(`        "enabled": true,`)
+			fmt.Println(`        "protocol": "stdio",`)
+			fmt.Println(`        "auto_connect": true`)
+			fmt.Println(`      }`)
+			fmt.Println(`    }`)
+			fmt.Println(`  }`)
 			return nil
 		}
 
