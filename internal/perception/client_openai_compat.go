@@ -629,6 +629,40 @@ func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPromp
 	// tracks. The usual cause is a reasoning model exhausting its completion
 	// budget on thinking, which the vendor reports as finish_reason "stop"
 	// rather than "length", so the status alone does not reveal it.
+	// One retry with thinking off before failing.
+	//
+	// Observed live (2026-08-08 07:01, qwen3.8-max): finish_reason "stop",
+	// reasoning_chars 2604, output_tokens 543, content empty. The model spent
+	// its turn on reasoning_content and stopped of its own accord — it did not
+	// hit a ceiling, so raising the completion budget does not address it.
+	// What does address it is asking again without the reasoning mode that
+	// produced the trace instead of an answer.
+	//
+	// Bounded to a single retry, and only when the vendor gave us reasoning but
+	// no content, so this cannot mask a genuinely empty answer or turn one
+	// failed call into an unbounded loop. If the retry is also empty the
+	// original diagnostic is returned unchanged.
+	if out == "" && c.enableThinking && msg.ReasoningContent != "" {
+		logging.PerceptionWarn(
+			"[%s] empty content with %d chars of reasoning; retrying once with thinking disabled",
+			c.vendor, len(msg.ReasoningContent))
+
+		retryBody := c.buildRequest(ctx, []OpenAIMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		}, false)
+		if piggyback {
+			retryBody.ResponseFormat = BuildOpenRouterPiggybackEnvelopeSchema()
+		}
+		if retryResp, retryErr := c.executeChat(ctx, retryBody, piggyback); retryErr == nil &&
+			len(retryResp.Choices) > 0 {
+			if retried := strings.TrimSpace(retryResp.Choices[0].Message.Content); retried != "" {
+				logging.PerceptionWarn("[%s] retry without thinking recovered %d chars", c.vendor, len(retried))
+				return retried, nil
+			}
+		}
+	}
+
 	if out == "" {
 		finish := resp.Choices[0].FinishReason
 		return "", fmt.Errorf("%s returned an empty completion (model=%s finish_reason=%q reasoning_chars=%d output_tokens=%d); "+
