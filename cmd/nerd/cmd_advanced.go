@@ -400,7 +400,20 @@ func runToolCommand(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// Honour the documented --timeout flag rather than a hardcoded ceiling.
+	//
+	// This was 5 minutes flat. `nerd tool generate` runs a whole Ouroboros
+	// pipeline behind that one deadline -- detect the need, generate the code
+	// via LLM, compile it, register it -- and the codegen call alone routinely
+	// exceeds five minutes on a reasoning model. The command advertises
+	// `--timeout` in its own help text (default 25m) and then ignored it, so
+	// every generation died with a bare "context deadline exceeded" that named
+	// neither the real limit nor the flag that was supposed to control it.
+	toolCtxTimeout := timeout
+	if toolCtxTimeout <= 0 {
+		toolCtxTimeout = 25 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), toolCtxTimeout)
 	defer cancel()
 
 	// Resolve API key
