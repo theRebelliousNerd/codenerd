@@ -100,6 +100,19 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 			expectedLen:   0,
 		},
 		{
+			// Distinct from the "empty string in DependsOn" case below: this one
+			// also pins the resulting ORDER, so a fix that drops the empty dep
+			// but scrambles the topological sort is still caught.
+			name: "empty string in DependsOn preserves ordering",
+			atoms: []*ScoredAtom{
+				{Atom: &PromptAtom{ID: "a", DependsOn: []string{""}}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "b", DependsOn: []string{"a"}}, Combined: 0.8},
+			},
+			expectError:   false,
+			expectedOrder: []string{"a", "b"},
+			expectedLen:   2,
+		},
+		{
 			name: "single atom no dependencies",
 			atoms: []*ScoredAtom{
 				{Atom: &PromptAtom{ID: "a", Priority: 50}, Combined: 0.5},
