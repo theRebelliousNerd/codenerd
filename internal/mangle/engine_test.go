@@ -2,6 +2,8 @@ package mangle
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -39,6 +41,54 @@ func TestEngineLoadSchemaString(t *testing.T) {
 	schema := `Decl test_fact(X, Y).`
 	if err := engine.LoadSchemaString(schema); err != nil {
 		t.Fatalf("LoadSchemaString() error = %v", err)
+	}
+}
+func TestEngineLoadSchema(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = false
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	// Create a temporary directory for our test schemas
+	tempDir, err := os.MkdirTemp("", "mangle-schema-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// 1. Test loading a valid schema file
+	validSchemaPath := filepath.Join(tempDir, "valid.mg")
+	validSchema := `Decl test_fact(X).`
+	if err := os.WriteFile(validSchemaPath, []byte(validSchema), 0644); err != nil {
+		t.Fatalf("Failed to write valid schema file: %v", err)
+	}
+
+	if err := engine.LoadSchema(validSchemaPath); err != nil {
+		t.Errorf("LoadSchema() with valid file failed: %v", err)
+	}
+
+	// Verify the schema was loaded (should be able to add facts)
+	if err := engine.AddFact("test_fact", "hello"); err != nil {
+		t.Errorf("Failed to add fact after LoadSchema: %v", err)
+	}
+
+	// 2. Test loading a non-existent file
+	invalidPath := filepath.Join(tempDir, "does_not_exist.mg")
+	if err := engine.LoadSchema(invalidPath); err == nil {
+		t.Error("LoadSchema() with non-existent file should have failed")
+	}
+
+	// 3. Test loading a file with invalid schema syntax
+	invalidSchemaPath := filepath.Join(tempDir, "invalid.mg")
+	invalidSchema := `Decl this_is_invalid` // Missing period
+	if err := os.WriteFile(invalidSchemaPath, []byte(invalidSchema), 0644); err != nil {
+		t.Fatalf("Failed to write invalid schema file: %v", err)
+	}
+
+	if err := engine.LoadSchema(invalidSchemaPath); err == nil {
+		t.Error("LoadSchema() with invalid syntax should have failed")
 	}
 }
 
