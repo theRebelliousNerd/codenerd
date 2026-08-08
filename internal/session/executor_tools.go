@@ -187,6 +187,16 @@ func (e *Executor) runToolLoop(
 			if tested != nil {
 				currentResponse = tested
 			}
+
+			// Last and weakest: is the code actually right? The compiler and
+			// the test runner only check what they were told to check. This
+			// round is advisory by construction and cannot fail the turn.
+			uplifted, upliftErrs := e.verifyAndUpliftWithCritic(
+				ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+			toolErrs = append(toolErrs, upliftErrs...)
+			if uplifted != nil {
+				currentResponse = uplifted
+			}
 			return currentResponse, toolErrs, nil
 		}
 	}

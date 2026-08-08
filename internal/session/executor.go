@@ -189,6 +189,17 @@ type ExecutorConfig struct {
 	// to. A turn can ship a green build and a broken program.
 	VerifyTestsAfterEdits bool
 
+	// CriticReviewAfterEdits runs one adversarial review of the code a turn
+	// wrote and, on a high or medium finding, one advisory round to respond.
+	// See verifyAndUpliftWithCritic.
+	//
+	// Default ON, but unlike the other two this gate can never fail a turn. The
+	// build and test gates are backed by a compiler and a test runner, which
+	// have no opinions. This one is a model reviewing a model, and it will
+	// sometimes be confidently wrong — a critic that can fail a turn on a
+	// hallucinated defect costs more than it saves.
+	CriticReviewAfterEdits bool
+
 	// WorkspaceRoot is the directory the verification build runs in. When empty
 	// the Executor resolves the workspace itself rather than silently skipping
 	// verification — see workspaceForVerification.
@@ -219,7 +230,8 @@ func DefaultExecutorConfig() ExecutorConfig {
 		// edits reported as complete) is silent, and a default-off guard against
 		// a silent failure protects nobody.
 		VerifyBuildAfterEdits: true,
-		VerifyTestsAfterEdits: true,
+		VerifyTestsAfterEdits:  true,
+		CriticReviewAfterEdits: true,
 	}
 }
 
@@ -425,6 +437,11 @@ type ExecutionResult struct {
 	// executed. This is the signal `go test` cannot give: a turn can add a
 	// function, add a test file that never calls it, and go green.
 	UncoveredBlocks []UncoveredBlock
+
+	// CriticFindings records what the adversarial review reported, including
+	// low-severity items that did not trigger an uplift round. Advisory only —
+	// nothing here fails a turn.
+	CriticFindings []CriticFinding
 
 	// Duration is how long the execution took.
 	Duration time.Duration

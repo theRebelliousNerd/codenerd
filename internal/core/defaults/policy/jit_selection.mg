@@ -1,6 +1,39 @@
 # JIT Prompt Selection Logic
 # Extracted from jit_logic.mg to reduce file size.
 # Handles ranking and final selection of prompt atoms.
+#
+# ---------------------------------------------------------------------------
+# STATUS (audited 2026-08-08): THIS IS NOT THE LIVE SELECTION RULESET.
+# ---------------------------------------------------------------------------
+#
+# The Go selector queries selected_result/3, which is defined in
+# defaults/jit_compiler.mg — see internal/prompt/selector.go,
+# loadSkeletonAtomsKernel and loadFleshAtomsKernel. Nothing in production Go
+# queries selected_atom, candidate_atom, mandatory_atom, prohibited_atom,
+# conflict_loser, has_skeleton_category or missing_skeleton_category. The only
+# non-Decl references to those predicates anywhere in the repo are a debug
+# logging allowlist (internal/core/kernel_query.go) and the world-model scan
+# graph.
+#
+# Both files are loaded into the same program (defaults/policy/*.mg via
+# kernel_init.go, then jit_compiler.mg via defaultCorePolicyModules), so these
+# rules are evaluated on every prompt compile and the results are discarded.
+# There is no predicate-name collision between the two rulesets, so this costs
+# work rather than correctness — but it does cost work, over ~890 atoms, on
+# every turn.
+#
+# Two rules here additionally could never have fired regardless of wiring:
+# mandatory_atom's skeleton-by-shard rule and candidate_atom's non-vector rule
+# both matched atom_tag(AtomID, /shard_type, ShardType), while the fact producer
+# (selector.go, addTags("shard", atom.ShardTypes)) emits the dimension as
+# /shard. Fixed here so the rules are at least correct, since a rule that cannot
+# match is a bug whether or not anyone runs it.
+#
+# Deleting the selection half of this file is the obvious follow-up and is
+# deliberately NOT done here: it is a larger change than a name fix, and this
+# repo has a habit of "unused" code turning out to be a wiring gap rather than
+# dead weight. Whoever removes it should confirm the Decls in
+# defaults/schemas_prompts.mg go with it.
 
 # -----------------------------------------------------------------------------
 # Selection Algorithm (Stratified)
@@ -160,7 +193,7 @@ skeleton_category(/methodology).
 mandatory_atom(AtomID) :-
     prompt_atom(AtomID, Category, _, _, _),
     skeleton_category(Category),
-    atom_tag(AtomID, /shard_type, ShardType),
+    atom_tag(AtomID, /shard, ShardType),
     compile_shard(_, ShardType),
     !prohibited_atom(AtomID).
 

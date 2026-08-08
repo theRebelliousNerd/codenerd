@@ -353,3 +353,109 @@ func buildRepairPrompt(compilerOutput string) string {
 		"  - a call to a helper function you planned but never wrote (\"undefined: ...\")\n" +
 		"Read the file around each reported line before editing it."
 }
+
+// verifyAndUpliftWithCritic runs one adversarial review of the code this turn
+// wrote and, when it reports something worth acting on, gives the model one
+// round to respond.
+//
+// This is the third question, after "does it compile" and "do the tests pass":
+// is it actually right. A turn can satisfy both mechanical gates and still ship
+// a logic error, a race, or a broken contract — the compiler and the test runner
+// only check what they were told to check.
+//
+// It is deliberately the weakest gate of the three, and it can NEVER fail a
+// turn. The other two gates are backed by a compiler and a test runner, which
+// do not have opinions. This one is backed by a model reviewing another model's
+// work, and it will sometimes be confidently wrong. A critic that can fail a
+// turn on a hallucinated defect is worse than no critic, because the cost lands
+// on correct code. So: findings become one advisory round, never an error.
+//
+// Only high and medium findings trigger the round. Low-severity output from a
+// reviewer asked to look hard at code is mostly style, and paying a full model
+// round for it on every write turn is how a useful signal turns into a tax.
+func (e *Executor) verifyAndUpliftWithCritic(
+	ctx context.Context,
+	trp types.ToolResultsProvider,
+	systemPrompt string,
+	history []types.Message,
+	toolDefs []types.ToolDefinition,
+	cfg *jitconfig.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) (*types.LLMToolResponse, []string) {
+	if !e.config.CriticReviewAfterEdits || trp == nil {
+		return nil, nil
+	}
+	if result == nil || result.SuccessfulWriteTools == 0 || !touchedGoFiles(result.WrittenPaths) {
+		return nil, nil
+	}
+
+	workspace := e.workspaceForVerification()
+	files := readWrittenFilesForReview(workspace, result.WrittenPaths)
+	if len(files) == 0 {
+		return nil, nil
+	}
+
+	client := e.criticClient()
+	if client == nil {
+		return nil, nil
+	}
+
+	prompt := buildCriticPrompt(files, summarizeUncovered(result.UncoveredBlocks))
+	response, err := client.CompleteWithSystem(ctx, criticSystemPrompt, prompt)
+	if err != nil {
+		// The critic is advisory. A failed review is a missing opinion, not a
+		// failed turn.
+		logging.Get(logging.CategorySession).Warn("adversarial review failed (%v); turn continues", err)
+		return nil, nil
+	}
+
+	findings := parseCriticFindings(response)
+	result.CriticFindings = findings
+	if len(findings) == 0 {
+		logging.SessionDebug("adversarial review found nothing")
+		return nil, nil
+	}
+
+	worth := findingsWorthUplift(findings)
+	logging.Get(logging.CategorySession).Warn(
+		"Adversarial review reported %d finding(s), %d worth acting on", len(findings), len(worth))
+	if len(worth) == 0 {
+		return nil, nil
+	}
+
+	history = append(history, types.Message{Role: "user", Text: formatUpliftPrompt(worth)})
+	uplifted, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, toolDefs)
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("uplift round failed (%v); turn continues", err)
+		return nil, nil
+	}
+
+	var upliftErrs []string
+	if uplifted != nil && len(uplifted.ToolCalls) > 0 {
+		_, errs := e.executeToolBatch(ctx, uplifted.ToolCalls, cfg, result)
+		upliftErrs = append(upliftErrs, errs...)
+	}
+	return uplifted, upliftErrs
+}
+
+// criticSystemPrompt keeps the reviewer in the one role that makes it useful.
+const criticSystemPrompt = "You are a rigorous, adversarial code reviewer. You report only " +
+	"defects you can point to in the code you were given. You have no incentive to find " +
+	"something: reporting nothing when the code is sound is a correct and valued outcome, " +
+	"and inventing a defect to appear useful is the worst thing you can do."
+
+// criticClient picks the model that reviews the turn.
+//
+// The planner slot when one is configured, on the theory that finding a bug
+// someone else missed is the reasoning-heavy job in this loop, and falling back
+// to the same client that wrote the code otherwise. Reviewing your own work
+// with your own weights is a weak check, but it is not a useless one, and it is
+// what is available when only one slot is configured.
+func (e *Executor) criticClient() types.LLMClient {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.plannerClient != nil {
+		return e.plannerClient
+	}
+	return e.llmClient
+}
