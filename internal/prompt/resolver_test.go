@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,7 +33,6 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with Self-Dependency via Empty String (atom ID "" depends on "").
 	// TODO: TEST_GAP: Type Coercion - Resolve with malformed Atom IDs containing unicode, spaces, or control chars.
 	// TODO: TEST_GAP: Type Coercion - Resolve with float64 precision limits, NaN, or Infinity scores.
-	// TODO: TEST_GAP: User Request Extremes - Resolve with massive dependency chains (e.g., 1,000,000 ScoredAtoms).
 	// TODO: TEST_GAP: User Request Extremes - Resolve with extreme Priority values (`math.MaxInt64` or `math.MinInt64`).
 	// TODO: TEST_GAP: State Conflicts - Resolve with deterministic sorting on identical scores and identical dependencies (tie-breaker needed).
 	// TODO: TEST_GAP: State Conflicts - Resolve under concurrent modifications by BudgetManager (Race Conditions).
@@ -593,5 +593,37 @@ func BenchmarkSortByCategory(b *testing.B) {
 
 	for b.Loop() {
 		resolver.SortByCategory(atoms)
+	}
+}
+
+func TestDependencyResolver_MassiveDependencyChain(t *testing.T) {
+	resolver := NewDependencyResolver()
+	numAtoms := 1000000
+
+	atoms := make([]*ScoredAtom, 0, numAtoms)
+	for i := 1; i <= numAtoms; i++ {
+		id := fmt.Sprintf("atom_%d", i)
+		var deps []string
+		if i > 1 {
+			deps = []string{fmt.Sprintf("atom_%d", i-1)}
+		}
+		atoms = append(atoms, &ScoredAtom{
+			Atom: &PromptAtom{
+				ID:        id,
+				DependsOn: deps,
+			},
+			Combined: float64(numAtoms - i),
+		})
+	}
+
+	result, err := resolver.Resolve(atoms)
+	require.NoError(t, err)
+	require.Len(t, result, numAtoms)
+	// Verify exact order
+	for i := 0; i < numAtoms; i++ {
+		expected := fmt.Sprintf("atom_%d", i+1)
+		if result[i].Atom.ID != expected {
+			t.Fatalf("expected atom %s at index %d, got %s", expected, i, result[i].Atom.ID)
+		}
 	}
 }
