@@ -59,6 +59,38 @@ func getBrowserConfig() browser.Config {
 	return cfg
 }
 
+// startBrowserManagerWithFallback tries to start the browser session manager
+// treating control.txt as a hint. If cfg.DebuggerURL is set (from controlFile)
+// and Start fails, the stale file is removed, a clear log is emitted, and a
+// single retry is made with an empty DebuggerURL so it launches a fresh browser
+// exactly as if the file had been absent. The updated cfg (DebuggerURL cleared
+// on fallback) and the manager to use are returned. On second failure that error
+// is returned.
+func startBrowserManagerWithFallback(ctx context.Context, cfg browser.Config, engine *mangle.Engine, controlFile string) (*browser.SessionManager, browser.Config, error) {
+	mgr := browser.NewSessionManager(cfg, engine)
+	if err := mgr.Start(ctx); err == nil {
+		return mgr, cfg, nil
+	} else if cfg.DebuggerURL == "" {
+		// No stored URL to fall back from — return original error.
+		return nil, cfg, err
+	} else {
+		origErr := err
+		logger.Warn("Stored browser control URL was stale, removing control file and retrying with fresh browser", zap.String("controlFile", controlFile), zap.String("storedURL", cfg.DebuggerURL), zap.Error(origErr))
+		if rmErr := os.Remove(controlFile); rmErr != nil && !os.IsNotExist(rmErr) {
+			logger.Warn("Failed to remove stale browser control file", zap.String("controlFile", controlFile), zap.Error(rmErr))
+		} else {
+			logger.Info("Removed stale browser control file", zap.String("controlFile", controlFile))
+		}
+		cfg.DebuggerURL = ""
+		retryMgr := browser.NewSessionManager(cfg, engine)
+		if err2 := retryMgr.Start(ctx); err2 != nil {
+			return nil, cfg, err2
+		}
+		logger.Info("Launched fresh browser after stale control URL fallback", zap.String("controlFile", controlFile))
+		return retryMgr, cfg, nil
+	}
+}
+
 // browserLaunch launches the browser instance
 func browserLaunch(cmd *cobra.Command, args []string) error {
 	logger.Info("Launching browser")
@@ -131,14 +163,16 @@ func browserSession(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create mangle engine: %w", err)
 	}
 
-	mgr := browser.NewSessionManager(cfg, engine)
-	if err := mgr.Start(ctx); err != nil {
+	mgr, cfg, err := startBrowserManagerWithFallback(ctx, cfg, engine, controlFile)
+	if err != nil {
 		return fmt.Errorf("failed to start session manager: %w", err)
 	}
 
 	session, err := mgr.CreateSession(ctx, url)
 	if err != nil {
-		// Shutdown only if we launched a new browser
+		// Shutdown only if we launched a new browser (cfg.DebuggerURL empty means
+		// either no control file existed or we fell back from a stale one and
+		// launched it ourselves).
 		if cfg.DebuggerURL == "" {
 			_ = mgr.Shutdown(context.Background())
 		}
@@ -179,8 +213,10 @@ func browserSnapshot(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create mangle engine: %w", err)
 	}
 
-	mgr := browser.NewSessionManager(cfg, engine)
-	if err := mgr.Start(ctx); err != nil {
+	// Snapshot never shuts the manager down, so it does not need the updated
+	// config the way browserSession does for its ownership check.
+	mgr, _, err := startBrowserManagerWithFallback(ctx, cfg, engine, controlFile)
+	if err != nil {
 		return fmt.Errorf("failed to connect to browser: %w", err)
 	}
 
