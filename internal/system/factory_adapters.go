@@ -157,8 +157,27 @@ func (ka *KernelAdapter) AssertBatch(facts []any) error {
 						// Integer constants
 						args[i] = t.NumValue
 					case ast.Float64Type:
-						// Float constants
-						args[i] = t.Float64Value
+						// Float constants.
+						//
+						// Float64Value is a METHOD on ast.Constant, not a field
+						// like NumValue beside it: func (c Constant)
+						// Float64Value() (float64, error). Writing it without
+						// parentheses compiles fine — Go produces a method
+						// value — and stores a func() (float64, error) in the
+						// fact argument. ToAtom then rejects the whole fact:
+						//
+						//   rejecting fact that fails ToAtom: vector_hit -
+						//   unsupported arg type func() (float64, error) at index 1
+						//
+						// Logged 1,209 times in one day. vector_hit(atomID,
+						// score) is the JIT compiler's semantic ranking signal,
+						// so every score was dropped and Mangle flesh selection
+						// ran blind, silently falling back to keyword matching.
+						f, ferr := t.Float64Value()
+						if ferr != nil {
+							return fmt.Errorf("fact string '%s': float constant at index %d: %w", v, i, ferr)
+						}
+						args[i] = f
 					default:
 						// DEFENSIVE: Unknown constant type - log and use Symbol as fallback
 						logging.Get(logging.CategoryContext).Warn("AssertBatch: unknown constant type %v, using Symbol fallback", t.Type)
@@ -255,7 +274,14 @@ func (a *mcpKernelAdapter) Assert(fact string) error {
 			case ast.NumberType:
 				args[i] = t.NumValue
 			case ast.Float64Type:
-				args[i] = t.Float64Value
+				// Float64Value is a method, not a field — see the identical
+				// site above. Omitting the call stores a method value and the
+				// kernel rejects the fact.
+				f, ferr := t.Float64Value()
+				if ferr != nil {
+					return fmt.Errorf("float constant at index %d: %w", i, ferr)
+				}
+				args[i] = f
 			default:
 				args[i] = t.Symbol
 			}

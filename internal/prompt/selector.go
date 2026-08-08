@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -239,6 +240,28 @@ func (b *factBuilder) WriteQuotedString(s string) {
 		}
 	}
 	b.WriteByte('"')
+}
+
+// vectorScoreToPercent maps a similarity score to the integer 0-100 scale the
+// JIT selection policy compares against.
+//
+// The kernel's /number bound is int64 in this Mangle fork, and
+// jit_selection.mg gates candidates on `Score > 30` "on 0-100 scale". Rounding
+// rather than truncating keeps 0.999 from landing below an identical score
+// recorded as 1.0, and clamping guards against a searcher returning a value
+// slightly outside 0..1 (dot-product backends can).
+func vectorScoreToPercent(score float64) int64 {
+	if math.IsNaN(score) {
+		return 0
+	}
+	pct := math.Round(score * 100)
+	if pct < 0 {
+		return 0
+	}
+	if pct > 100 {
+		return 100
+	}
+	return int64(pct)
 }
 
 func mangleQuoteString(s string) string {
@@ -959,9 +982,28 @@ func (s *AtomSelector) loadFleshAtomsKernel(
 		return nil, nil
 	}
 
-	// Add vector hits as facts
+	// Add vector hits as facts, scaled to the integer 0-100 the policy expects.
+	//
+	// This emitted strconv.FormatFloat(score, 'g', -1, 64) — a float in 0..1 —
+	// and was wrong twice over:
+	//
+	//  1. Wrong type. schemas_prompts.mg:359 declares
+	//     `vector_hit(AtomID, Score) bound [/string, /number]`, and /number is
+	//     int64 in this Mangle fork. Every float-valued fact was rejected
+	//     outright: 1,209 "rejecting fact that fails ToAtom: vector_hit"
+	//     entries in a single day.
+	//  2. Wrong scale. jit_selection.mg:211 filters `Score > 30` and says so in
+	//     its own comment — "sufficient similarity (> 30 on 0-100 scale)". A
+	//     cosine score never exceeds 1, so even had the type been accepted no
+	//     candidate could ever have passed that gate.
+	//
+	// Between them, Mangle flesh selection had never once seen a usable vector
+	// score, and every turn fell back to keyword matching. Rounding to an
+	// integer percentage is order-preserving, so the rules' comparisons keep
+	// their meaning — the same treatment the Ouroboros stability score needed
+	// for the same int64-only reason.
 	for id, score := range vectorScores {
-		facts = append(facts, "vector_hit("+mangleQuoteString(id)+", "+strconv.FormatFloat(score, 'g', -1, 64)+")")
+		facts = append(facts, "vector_hit("+mangleQuoteString(id)+", "+strconv.FormatInt(vectorScoreToPercent(score), 10)+")")
 	}
 
 	// Step 3: Query Mangle (if kernel available)
