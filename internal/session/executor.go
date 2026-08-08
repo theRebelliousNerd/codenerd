@@ -302,9 +302,13 @@ func (e *Executor) CloneForTask() *Executor {
 	clone.config = e.config
 	clone.ouroborosRegistry = e.ouroborosRegistry
 	clone.plannerClient = e.plannerClient
+	clone.projectDoc = e.projectDoc
+	clone.fileContext = e.fileContext
 	// Deliberately NOT copied: conversationHistory, sessionContext,
 	// sessionPersister/sessionID (task runs must not be recorded as session
 	// turns), EffectiveAgentRuntimeConfig (set per task by the caller).
+	// Per-workspace context (projectDoc, fileContext) IS inherited because a
+	// delegated task acts on the same workspace as the session that spawned it.
 	return clone
 }
 
