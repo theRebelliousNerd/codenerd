@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"regexp"
 )
+
+var containerIDRegexp = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
 
 // =============================================================================
 // PERSISTENT DOCKER EXECUTOR
@@ -395,6 +398,10 @@ func (e *PersistentDockerExecutor) CreateContainer(ctx context.Context, opts Con
 
 // StartContainer starts a stopped container.
 func (e *PersistentDockerExecutor) StartContainer(ctx context.Context, containerID string) error {
+	if !containerIDRegexp.MatchString(containerID) {
+		return fmt.Errorf("invalid container ID format")
+	}
+
 	if !e.available {
 		return fmt.Errorf("Docker is not available")
 	}
@@ -423,6 +430,10 @@ func (e *PersistentDockerExecutor) StartContainer(ctx context.Context, container
 
 // StopContainer stops a running container.
 func (e *PersistentDockerExecutor) StopContainer(ctx context.Context, containerID string, timeout time.Duration) error {
+	if !containerIDRegexp.MatchString(containerID) {
+		return fmt.Errorf("invalid container ID format")
+	}
+
 	if !e.available {
 		return fmt.Errorf("Docker is not available")
 	}
@@ -457,6 +468,10 @@ func (e *PersistentDockerExecutor) StopContainer(ctx context.Context, containerI
 
 // RemoveContainer removes a container.
 func (e *PersistentDockerExecutor) RemoveContainer(ctx context.Context, containerID string, force bool) error {
+	if !containerIDRegexp.MatchString(containerID) {
+		return fmt.Errorf("invalid container ID format")
+	}
+
 	if !e.available {
 		return fmt.Errorf("Docker is not available")
 	}
@@ -494,6 +509,10 @@ func (e *PersistentDockerExecutor) RemoveContainer(ctx context.Context, containe
 // ExecInContainer executes a command in a running container using docker exec.
 // This is the key differentiator from DockerExecutor - state is preserved.
 func (e *PersistentDockerExecutor) ExecInContainer(ctx context.Context, opts ContainerExecOptions) (*ExecutionResult, error) {
+	if !containerIDRegexp.MatchString(opts.ContainerID) {
+		return nil, fmt.Errorf("invalid container ID format")
+	}
+
 	timer := logging.StartTimer(logging.CategoryTactile, "Docker exec")
 	defer timer.Stop()
 
@@ -625,6 +644,10 @@ func (e *PersistentDockerExecutor) ExecInContainer(ctx context.Context, opts Con
 
 // HealthCheck checks if a container is healthy and responsive.
 func (e *PersistentDockerExecutor) HealthCheck(ctx context.Context, containerID string) (bool, error) {
+	if !containerIDRegexp.MatchString(containerID) {
+		return false, fmt.Errorf("invalid container ID format")
+	}
+
 	if !e.available {
 		return false, fmt.Errorf("Docker is not available")
 	}
@@ -661,6 +684,10 @@ func (e *PersistentDockerExecutor) HealthCheck(ctx context.Context, containerID 
 
 // CreateSnapshot creates a snapshot of a container using docker commit.
 func (e *PersistentDockerExecutor) CreateSnapshot(ctx context.Context, containerID, description string) (*ContainerSnapshot, error) {
+	if !containerIDRegexp.MatchString(containerID) {
+		return nil, fmt.Errorf("invalid container ID format")
+	}
+
 	if !e.available {
 		return nil, fmt.Errorf("Docker is not available")
 	}
@@ -838,6 +865,10 @@ func (e *PersistentDockerExecutor) Cleanup(ctx context.Context) error {
 
 // CopyToContainer copies a file from host to container.
 func (e *PersistentDockerExecutor) CopyToContainer(ctx context.Context, containerID, srcPath, dstPath string) error {
+	if !containerIDRegexp.MatchString(containerID) {
+		return fmt.Errorf("invalid container ID format")
+	}
+
 	if !e.available {
 		return fmt.Errorf("Docker is not available")
 	}
@@ -857,6 +888,10 @@ func (e *PersistentDockerExecutor) CopyToContainer(ctx context.Context, containe
 
 // CopyFromContainer copies a file from container to host.
 func (e *PersistentDockerExecutor) CopyFromContainer(ctx context.Context, containerID, srcPath, dstPath string) error {
+	if !containerIDRegexp.MatchString(containerID) {
+		return fmt.Errorf("invalid container ID format")
+	}
+
 	if !e.available {
 		return fmt.Errorf("Docker is not available")
 	}
