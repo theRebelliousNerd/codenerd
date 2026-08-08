@@ -5,9 +5,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"codenerd/internal/mcp"
 	coresys "codenerd/internal/system"
 
 	"github.com/spf13/cobra"
@@ -41,21 +43,16 @@ var mcpListCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		key := resolveAPIKey(apiKey, workspace)
-
-		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
-		if err != nil {
-			return fmt.Errorf("failed to boot cortex: %w", err)
-		}
-		defer cortex.Close()
-
 		fmt.Println("🔌 MCP Servers")
 		fmt.Println(strings.Repeat("─", 60))
 
-		// Query MCP server facts
-		servers, _ := cortex.Kernel.Query("mcp_server_registered")
+		servers, err := readMCPServers(ctx)
+		if err != nil {
+			return err
+		}
+
 		if len(servers) == 0 {
-			fmt.Println("No MCP servers connected.")
+			fmt.Println("No MCP servers recorded.")
 			// The key name matters more than usual here: LoadUserConfig decodes
 			// strictly, so an unknown top-level field is a hard load error, not
 			// a warning. This line used to say 'mcp_servers', which is not a
@@ -75,9 +72,7 @@ var mcpListCmd = &cobra.Command{
 		}
 
 		for _, srv := range servers {
-			if len(srv.Args) >= 2 {
-				fmt.Printf("  - %v (%v)\n", srv.Args[0], srv.Args[1])
-			}
+			fmt.Printf("  - %s (%s) %s [%s]\n", srv.ID, srv.Protocol, srv.Endpoint, srv.Status)
 		}
 
 		fmt.Printf("\nTotal: %d servers\n", len(servers))
@@ -94,28 +89,25 @@ var mcpToolsCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		key := resolveAPIKey(apiKey, workspace)
-
-		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
-		if err != nil {
-			return fmt.Errorf("failed to boot cortex: %w", err)
-		}
-		defer cortex.Close()
-
 		fmt.Println("🔧 MCP Tools")
 		fmt.Println(strings.Repeat("─", 60))
 
-		// Query tool capability facts
-		tools, _ := cortex.Kernel.Query("mcp_tool_capability")
+		tools, err := readMCPTools(ctx)
+		if err != nil {
+			return err
+		}
 		if len(tools) == 0 {
-			fmt.Println("No MCP tools available.")
+			fmt.Println("No MCP tools recorded.")
+			fmt.Println("Tools are discovered on connect; run 'nerd mcp list' to check for servers.")
 			return nil
 		}
 
 		for _, tool := range tools {
-			if len(tool.Args) >= 2 {
-				fmt.Printf("  - %v: %v\n", tool.Args[0], tool.Args[1])
+			desc := tool.Description
+			if len(desc) > 70 {
+				desc = desc[:70] + "..."
 			}
+			fmt.Printf("  - %s: %s\n", tool.Name, desc)
 		}
 
 		fmt.Printf("\nTotal: %d tools\n", len(tools))
@@ -132,33 +124,105 @@ var mcpStatusCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		key := resolveAPIKey(apiKey, workspace)
-
-		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
-		if err != nil {
-			return fmt.Errorf("failed to boot cortex: %w", err)
-		}
-		defer cortex.Close()
-
 		fmt.Println("🔌 MCP Status")
 		fmt.Println(strings.Repeat("─", 60))
 
-		// Query facts
-		servers, _ := cortex.Kernel.Query("mcp_server_registered")
-		tools, _ := cortex.Kernel.Query("mcp_tool_capability")
+		servers, err := readMCPServers(ctx)
+		if err != nil {
+			return err
+		}
+		tools, err := readMCPTools(ctx)
+		if err != nil {
+			return err
+		}
 
-		fmt.Printf("Connected Servers: %d\n", len(servers))
-		fmt.Printf("Available Tools:   %d\n", len(tools))
+		connected := 0
+		for _, s := range servers {
+			if s.Status == mcp.ServerStatusConnected {
+				connected++
+			}
+		}
 
-		// MCP integration is active if we have any servers registered
-		if len(servers) > 0 {
+		fmt.Printf("Recorded Servers:  %d\n", len(servers))
+		fmt.Printf("Connected:         %d\n", connected)
+		fmt.Printf("Discovered Tools:  %d\n", len(tools))
+		fmt.Printf("Store:             %s\n", mcpStorePath())
+
+		switch {
+		case connected > 0:
 			fmt.Println("\nMCP Integration: Active")
-		} else {
+		case len(servers) > 0:
+			fmt.Println("\nMCP Integration: servers recorded but none currently connected")
+		default:
 			fmt.Println("\nMCP Integration: No servers configured")
 		}
 
 		return nil
 	},
+}
+
+// The three commands above read the persisted MCP store rather than the kernel.
+//
+// They used to query mcp_server_registered and mcp_tool_capability. Both are
+// declared in schemas_mcp.mg and neither has a producer anywhere in the repo —
+// the only MCP fact ever asserted is mcp_tool_vector_score
+// (internal/mcp/compiler.go:83). So all three commands reported zero
+// unconditionally, and would have kept reporting zero with servers connected
+// and tools discovered. Same family as F-GLASS-1 and F-LOGS-1.
+//
+// internal/mcp/store.go already persists both to .nerd/mcp_tools.db, which
+// survives the process, so it is also the right source for a CLI invocation
+// that boots a fresh kernel holding no session facts. Reading it by path rather
+// than through Cortex.mcpBridge (unexported, and nil when no servers are
+// configured) means the record is visible whether or not a bridge is live.
+
+// mcpStorePath returns the on-disk location of the MCP store, matching
+// NewMCPIntegrationBridge.
+func mcpStorePath() string {
+	root := workspace
+	if root == "" {
+		root = "."
+	}
+	return filepath.Join(root, ".nerd", "mcp_tools.db")
+}
+
+// openMCPStore opens the persisted MCP store read-only-ish. The constructor
+// creates its tables if absent, so a workspace that never ran MCP yields an
+// empty store rather than an error.
+func openMCPStore() (*mcp.MCPToolStore, error) {
+	store, err := mcp.NewMCPToolStore(mcpStorePath(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open the MCP store at %s: %w", mcpStorePath(), err)
+	}
+	return store, nil
+}
+
+func readMCPServers(ctx context.Context) ([]*mcp.MCPServer, error) {
+	store, err := openMCPStore()
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+
+	servers, err := store.GetAllServers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read MCP servers: %w", err)
+	}
+	return servers, nil
+}
+
+func readMCPTools(ctx context.Context) ([]*mcp.MCPTool, error) {
+	store, err := openMCPStore()
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+
+	tools, err := store.GetAllTools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read MCP tools: %w", err)
+	}
+	return tools, nil
 }
 
 // =============================================================================
