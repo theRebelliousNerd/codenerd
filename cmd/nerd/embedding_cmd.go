@@ -20,6 +20,7 @@ var embeddingCmd = &cobra.Command{
 	Long: `Manage vector embedding configuration and maintenance.
 
 This command mirrors the interactive TUI /embedding commands.`,
+	RunE: parentGroupRunE,
 }
 
 var embeddingSetCmd = &cobra.Command{

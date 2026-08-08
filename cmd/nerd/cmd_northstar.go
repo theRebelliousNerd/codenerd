@@ -19,6 +19,7 @@ import (
 
 // northstarCmd is the parent command for northstar operations
 var northstarCmd = &cobra.Command{
+	Args:  cobra.NoArgs,
 	Use:   "northstar",
 	Short: "Project vision and requirements management",
 	Long: `The Northstar system defines your project's vision, target users,
@@ -33,6 +34,7 @@ Examples:
   nerd northstar query mission     # Query specific element
   nerd northstar facts             # Show Mangle facts
   nerd northstar export            # Export to various formats`,
+	RunE: parentGroupRunE,
 }
 
 // northstarShowCmd displays the current northstar definition

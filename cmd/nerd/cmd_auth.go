@@ -17,6 +17,7 @@ import (
 
 // authCmd manages CLI engine authentication
 var authCmd = &cobra.Command{
+	Args:  cobra.NoArgs,
 	Use:   "auth",
 	Short: "Manage CLI engine authentication",
 	Long: `Configure authentication for CLI-based and SuperGrok OAuth LLM engines.
@@ -26,6 +27,7 @@ Available subcommands:
   codex  - Authenticate and configure Codex CLI engine
   grok   - Authenticate SuperGrok / X Premium+ OAuth (xai-oauth engine)
   status - Show current authentication status`,
+	RunE: parentGroupRunE,
 }
 
 // authGrokCmd authenticates SuperGrok OAuth

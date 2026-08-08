@@ -32,6 +32,7 @@ var (
 var domCmd = &cobra.Command{
 	Use:   "dom",
 	Short: "Code DOM tools (semantic code editing)",
+	RunE:  parentGroupRunE,
 }
 
 // domDemoCmd runs a self-contained end-to-end Code DOM demo.

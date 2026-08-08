@@ -105,7 +105,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		core.ConfigureGlobalAPIScheduler(schedulerCfg)
 		initialMessages := []Message{}
 
-// Initialize LLM client using the perception package's provider detection
+		// Initialize LLM client using the perception package's provider detection
 		// This supports all providers: zai, anthropic, openai, gemini, xai, openrouter
 		// Configuration is read from .nerd/config.json or environment variables
 		logStep("Detecting LLM provider...")

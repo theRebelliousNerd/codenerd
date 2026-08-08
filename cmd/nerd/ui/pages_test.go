@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -72,7 +72,8 @@ func TestAutopoiesisPageModelUpdateAndTab(t *testing.T) {
 func TestCampaignPageModelViewAndUpdate(t *testing.T) {
 	model := NewCampaignPageModel()
 	if !strings.Contains(model.View(), "No Active Campaign") {
-		t.Fatalf("expected empty campaign view, got:\n%s", model.View())	}
+		t.Fatalf("expected empty campaign view, got:\n%s", model.View())
+	}
 
 	camp := &campaign.Campaign{
 		Title:              "Test Campaign",
@@ -339,7 +340,6 @@ func TestCampaignPageModelSummaryToggle(t *testing.T) {
 	if !strings.Contains(view, "Phase 2") {
 		t.Fatalf("expected phase name in default view")
 	}
-
 
 	// Toggle view
 	newModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})

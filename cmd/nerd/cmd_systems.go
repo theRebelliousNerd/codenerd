@@ -21,6 +21,7 @@ import (
 
 // mcpCmd is the parent command for MCP operations
 var mcpCmd = &cobra.Command{
+	Args:  cobra.NoArgs,
 	Use:   "mcp",
 	Short: "Model Context Protocol server management",
 	Long: `Manage MCP (Model Context Protocol) servers and tools.
@@ -32,6 +33,7 @@ Examples:
   nerd mcp list     # List connected MCP servers
   nerd mcp tools    # Show available MCP tools
   nerd mcp status   # Show MCP system status`,
+	RunE: parentGroupRunE,
 }
 
 // mcpListCmd lists connected MCP servers
@@ -231,6 +233,7 @@ func readMCPTools(ctx context.Context) ([]*mcp.MCPTool, error) {
 
 // autopoiesisCmd is the parent command for autopoiesis operations
 var autopoiesisCmd = &cobra.Command{
+	Args:    cobra.NoArgs,
 	Use:     "autopoiesis",
 	Aliases: []string{"auto"},
 	Short:   "Self-modification and learning system",
@@ -246,6 +249,7 @@ Examples:
   nerd autopoiesis status   # Show autopoiesis status
   nerd autopoiesis learning # Show learning history
   nerd autopoiesis tools    # Show generated tools`,
+	RunE: parentGroupRunE,
 }
 
 // autopoiesisStatusCmd shows autopoiesis status
@@ -383,6 +387,11 @@ var autopoiesisToolsCmd = &cobra.Command{
 
 // memoryCmd is the parent command for memory operations
 var memoryCmd = &cobra.Command{
+	// A parent command with no Run silently prints help and exits 0 for an
+	// unrecognised subcommand, so `nerd memory stats` (the real one is
+	// `status`) looked exactly like success. NoArgs makes cobra reject the
+	// unknown argument instead; a bare invocation still prints help.
+	Args:  cobra.NoArgs,
 	Use:   "memory",
 	Short: "Memory tier and context management",
 	Long: `View and manage codeNERD's 4-tier memory system.
@@ -396,6 +405,7 @@ Memory Tiers:
 Examples:
   nerd memory status   # Show memory statistics
   nerd memory query    # Query specific memories`,
+	RunE: parentGroupRunE,
 }
 
 // memoryStatusCmd shows memory status
@@ -472,4 +482,35 @@ func init() {
 	memoryCmd.AddCommand(
 		memoryStatusCmd,
 	)
+}
+
+// parentGroupRunE is the RunE for a command that exists only to hold
+// subcommands.
+//
+// Without it, cobra reaches `if !c.Runnable() { return flag.ErrHelp }` before it
+// validates arguments, and Execute treats ErrHelp as success. The result is that
+// `nerd memory stats` — the real subcommand is `status` — printed the group's
+// help text and exited 0, indistinguishable from a command that worked. Setting
+// Args: cobra.NoArgs does not fix it, because the runnable check comes first.
+//
+// A typo'd subcommand reporting success is the same false-success family as the
+// rest of this session's work: the caller cannot tell "did what you asked" from
+// "did nothing at all". Scripts, campaigns and shards all consume these exit
+// codes.
+//
+// Bare invocation still prints help and exits 0, which is the correct and
+// expected behaviour for a group.
+// Note on what actually does the work here: it is the mere PRESENCE of a RunE,
+// not this function's body. With one attached, cobra treats the command as
+// runnable, gets past the ErrHelp short-circuit, and emits its own
+// `unknown command "stats" for "nerd memory"` with a non-zero exit. Verified by
+// running it — the message on screen is cobra's, not one written here.
+//
+// So this body only ever runs for a bare invocation, and printing help is the
+// right response to that. An args branch was written first and then removed
+// once testing showed it unreachable; an unreachable branch with a confident
+// comment explaining what it handles is the failure mode the rest of this
+// session has been removing.
+func parentGroupRunE(cmd *cobra.Command, _ []string) error {
+	return cmd.Help()
 }

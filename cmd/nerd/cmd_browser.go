@@ -28,6 +28,7 @@ import (
 var browserCmd = &cobra.Command{
 	Use:   "browser",
 	Short: "Browser automation commands (DOM snapshotting, React reification)",
+	RunE:  parentGroupRunE,
 }
 
 var browserLaunchCmd = &cobra.Command{

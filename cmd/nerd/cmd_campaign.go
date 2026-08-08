@@ -117,6 +117,7 @@ func newCampaignLLMClients(appCfg *config.UserConfig, label string) (campaignLLM
 
 // campaignCmd is the parent command for campaign operations
 var campaignCmd = &cobra.Command{
+	Args:  cobra.NoArgs,
 	Use:   "campaign",
 	Short: "Campaign orchestration for long-running goals",
 	Long: `Campaigns are long-running, multi-phase goals that span sessions.
@@ -132,6 +133,7 @@ Examples:
   nerd campaign status
   nerd campaign pause
   nerd campaign resume`,
+	RunE: parentGroupRunE,
 }
 
 // campaignStartCmd starts a new campaign
