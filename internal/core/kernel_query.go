@@ -76,19 +76,48 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 
 	// Find the predicate in the decls
 	predicateFound := false
-	for pred := range k.programInfo.Decls {
-		if pred.Symbol == predicateName && (!hasPattern || pred.Arity == desiredArity) {
+
+	if hasPattern {
+		// O(1) direct lookup if we have the arity from a pattern
+		pred := ast.PredicateSym{Symbol: predicateName, Arity: desiredArity}
+		if _, ok := k.programInfo.Decls[pred]; ok {
 			predicateFound = true
-			// Query the store for all atoms of this predicate
 			k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
 				fact := atomToFact(a)
-				// If a pattern was provided, filter by constants.
-				if !hasPattern || factMatchesPattern(fact, patternFact) {
+				if factMatchesPattern(fact, patternFact) {
 					results = append(results, fact)
 				}
 				return nil
 			})
-			break
+		}
+	} else {
+		// Try O(1) lookup for common arities first to avoid O(N) iteration
+		for arity := 1; arity <= 10; arity++ {
+			pred := ast.PredicateSym{Symbol: predicateName, Arity: arity}
+			if _, ok := k.programInfo.Decls[pred]; ok {
+				predicateFound = true
+				k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+					fact := atomToFact(a)
+					results = append(results, fact)
+					return nil
+				})
+				break
+			}
+		}
+
+		// O(N) fallback if we didn't find it with common arities
+		if !predicateFound {
+			for pred := range k.programInfo.Decls {
+				if pred.Symbol == predicateName {
+					predicateFound = true
+					k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+						fact := atomToFact(a)
+						results = append(results, fact)
+						return nil
+					})
+					break
+				}
+			}
 		}
 	}
 
@@ -236,14 +265,15 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 	// Find the predicate in the decls
 	predicateFound := false
 	count := 0
-	for pred := range k.programInfo.Decls {
-		if pred.Symbol == predicateName && (!hasPattern || pred.Arity == desiredArity) {
+
+	if hasPattern {
+		// O(1) direct lookup if we have the arity from a pattern
+		pred := ast.PredicateSym{Symbol: predicateName, Arity: desiredArity}
+		if _, ok := k.programInfo.Decls[pred]; ok {
 			predicateFound = true
-			// Query the store for all atoms of this predicate
 			err := k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
 				fact := atomToFact(a)
-				// If a pattern was provided, filter by constants.
-				if !hasPattern || factMatchesPattern(fact, patternFact) {
+				if factMatchesPattern(fact, patternFact) {
 					if err := cb(fact); err != nil {
 						return err
 					}
@@ -255,7 +285,49 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 				timer.Stop()
 				return err
 			}
-			break
+		}
+	} else {
+		// Try O(1) lookup for common arities first to avoid O(N) iteration
+		for arity := 1; arity <= 10; arity++ {
+			pred := ast.PredicateSym{Symbol: predicateName, Arity: arity}
+			if _, ok := k.programInfo.Decls[pred]; ok {
+				predicateFound = true
+				err := k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+					fact := atomToFact(a)
+					if err := cb(fact); err != nil {
+						return err
+					}
+					count++
+					return nil
+				})
+				if err != nil {
+					timer.Stop()
+					return err
+				}
+				break
+			}
+		}
+
+		// O(N) fallback if we didn't find it with common arities
+		if !predicateFound {
+			for pred := range k.programInfo.Decls {
+				if pred.Symbol == predicateName {
+					predicateFound = true
+					err := k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+						fact := atomToFact(a)
+						if err := cb(fact); err != nil {
+							return err
+						}
+						count++
+						return nil
+					})
+					if err != nil {
+						timer.Stop()
+						return err
+					}
+					break
+				}
+			}
 		}
 	}
 
