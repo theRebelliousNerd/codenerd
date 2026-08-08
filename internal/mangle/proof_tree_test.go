@@ -155,3 +155,32 @@ func TestNewProofTreeTracer(t *testing.T) {
 		t.Errorf("Expected ruleIndex map to be initialized, but it was nil")
 	}
 }
+
+func TestProofTreeTracer_ClearCache(t *testing.T) {
+	// Create a dummy engine as done in TestNewProofTreeTracer
+	engine := &Engine{}
+	tracer := NewProofTreeTracer(engine)
+
+	query := "test_query(X)"
+	dummyTrace := &DerivationTrace{Query: query}
+
+	tracer.mu.Lock()
+	tracer.traces[query] = dummyTrace
+	tracer.mu.Unlock()
+
+	if cached := tracer.GetCachedTrace(query); cached != dummyTrace {
+		t.Errorf("Expected to get dummy trace from cache, got %v", cached)
+	}
+
+	tracer.ClearCache()
+
+	if cached := tracer.GetCachedTrace(query); cached != nil {
+		t.Errorf("Expected cache to be empty after ClearCache, but got a trace: %v", cached)
+	}
+
+	tracer.mu.RLock()
+	if len(tracer.traces) != 0 {
+		t.Errorf("Expected traces map to be empty, got length %d", len(tracer.traces))
+	}
+	tracer.mu.RUnlock()
+}
