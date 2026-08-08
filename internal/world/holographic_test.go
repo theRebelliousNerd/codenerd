@@ -14,6 +14,12 @@ import (
 	"codenerd/internal/core"
 
 	"github.com/google/go-cmp/cmp"
+
+	"encoding/json"
+	"go/parser"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPrioritizedCallerStruct(t *testing.T) {
@@ -1066,4 +1072,49 @@ func TestHolographicContext_EmptyFile(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected nil error for whitespace file, got: %v", err)
 	}
+}
+
+func TestExtractTypeDefinition_EmptyStructAndInterface(t *testing.T) {
+	src := `
+package test
+type EmptyStruct struct{}
+type EmptyInterface interface{}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.go", src, 0)
+	require.NoError(t, err)
+
+	h := &HolographicProvider{}
+	var defs []TypeDefinition
+
+	for _, decl := range f.Decls {
+		if genDecl, ok := decl.(*ast.GenDecl); ok {
+			for _, spec := range genDecl.Specs {
+				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+					def := h.extractTypeDefinition(fset, typeSpec, genDecl, "test.go")
+					defs = append(defs, def)
+				}
+			}
+		}
+	}
+
+	require.Len(t, defs, 2)
+
+	// Verify EmptyStruct
+	assert.Equal(t, "EmptyStruct", defs[0].Name)
+	assert.Equal(t, "struct", defs[0].Kind)
+	assert.Nil(t, defs[0].Fields)
+
+	b, err := json.Marshal(defs[0])
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), `"fields"`, "nil slices with omitempty should not be serialized")
+
+	// Verify EmptyInterface
+	assert.Equal(t, "EmptyInterface", defs[1].Name)
+	assert.Equal(t, "interface", defs[1].Kind)
+	assert.Nil(t, defs[1].Methods)
+
+	b, err = json.Marshal(defs[1])
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), `"methods"`, "nil slices with omitempty should not be serialized")
 }
