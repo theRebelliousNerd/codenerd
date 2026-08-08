@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"codeberg.org/TauCeti/mangle-go/ast"
+
 	"codenerd/internal/mangle"
 	"codenerd/internal/types"
 )
@@ -80,28 +82,60 @@ func (k *RealKernel) buildDerivationNode(ctx context.Context, fact mangle.Fact, 
 // classifyFact determines if a fact is EDB (base) or IDB (derived) and which rule produced it.
 // Replaces hardcoded maps with Mangle lookups (LOGOS Refactor).
 func (k *RealKernel) classifyFact(fact mangle.Fact) (mangle.DerivationSource, string) {
-	// 1. Check if it's explicitly marked as EDB
-	// Query is_edb_predicate(fact.Predicate)
-	// Since this is called frequently, in a real system we would cache this.
-	// For now, we rely on the Kernel's query speed.
-	edbResults, _ := k.Query(fmt.Sprintf("is_edb_predicate(\"%s\")", fact.Predicate))
-	if len(edbResults) > 0 {
-		return mangle.SourceEDB, ""
-	}
-
-	// 2. Check if it has a known rule source (IDB)
-	// Query rule_metadata(fact.Predicate, RuleName)
-	ruleResults, _ := k.Query(fmt.Sprintf("rule_metadata(\"%s\", RuleName)", fact.Predicate))
-	if len(ruleResults) > 0 {
-		if len(ruleResults[0].Args) > 1 {
-			if ruleName, ok := ruleResults[0].Args[1].(string); ok {
-				return mangle.SourceIDB, ruleName
+	// 1. Ask the analyzed program. A predicate that appears as a rule head IS
+	//    derived — this is the ground truth and it cannot drift.
+	//
+	//    This check used to be absent, and classification rested entirely on the
+	//    rule_metadata/is_edb_predicate facts consulted below. Those are a
+	//    hand-maintained list in the .mg corpus covering a few dozen predicates,
+	//    so every predicate added since it was written fell through to the EDB
+	//    default. buildDerivationNode only recurses into premises when a fact is
+	//    IDB, so `nerd why` printed a bare one-line "[EDB]" for genuinely derived
+	//    facts and never showed a derivation chain — observed live on
+	//    project_write_protected, which is derived at policy/projectdoc.mg:10.
+	//    A glass box you cannot see through is worse than no glass box, because
+	//    it still reads as an answer.
+	if info := k.GetProgramInfo(); info != nil {
+		for sym := range info.IdbPredicates {
+			if sym.Symbol == fact.Predicate {
+				// rule_metadata still supplies the friendly rule name when the
+				// corpus happens to carry one; the classification no longer
+				// depends on it.
+				return mangle.SourceIDB, k.ruleNameFor(fact.Predicate)
+			}
+		}
+		for sym := range info.EdbPredicates {
+			if sym.Symbol == fact.Predicate {
+				return mangle.SourceEDB, ""
 			}
 		}
 	}
 
+	// 2. Fall back to the curated metadata for predicates the analyzer does not
+	//    know about (e.g. facts asserted for a predicate declared elsewhere).
+	edbResults, _ := k.Query(fmt.Sprintf("is_edb_predicate(\"%s\")", fact.Predicate))
+	if len(edbResults) > 0 {
+		return mangle.SourceEDB, ""
+	}
+	if name := k.ruleNameFor(fact.Predicate); name != "" {
+		return mangle.SourceIDB, name
+	}
+
 	// Default to EDB if unknown (safe fallback)
 	return mangle.SourceEDB, ""
+}
+
+// ruleNameFor returns the descriptive rule name the corpus records for a
+// derived predicate, or "" when it records none. Absence is not evidence the
+// predicate is a base fact — it usually just means nobody added the metadata.
+func (k *RealKernel) ruleNameFor(predicate string) string {
+	ruleResults, _ := k.Query(fmt.Sprintf("rule_metadata(\"%s\", RuleName)", predicate))
+	if len(ruleResults) > 0 && len(ruleResults[0].Args) > 1 {
+		if ruleName, ok := ruleResults[0].Args[1].(string); ok {
+			return ruleName
+		}
+	}
+	return ""
 }
 
 // findPremises attempts to find the facts that supported this derivation.
@@ -161,6 +195,72 @@ func (k *RealKernel) findPremises(ctx context.Context, fact mangle.Fact, ruleNam
 		// Add more heuristics as needed
 	}
 
+	// Generic fallback: derive the premises from the ACTUAL rule bodies.
+	//
+	// The switch above covers four hand-written rule names out of the hundreds
+	// in the corpus, so every other derived fact rendered as a leaf and
+	// `nerd why` showed no chain at all — the glass box was three special cases
+	// wide. Reading the body predicates out of the analyzed program covers every
+	// rule, including ones added after this function was written.
+	if len(premises) == 0 {
+		premises = k.premisesFromProgram(fact)
+	}
+
+	return premises
+}
+
+// premisesFromProgram finds supporting facts by reading the body of every rule
+// whose head matches this fact's predicate, then querying those body
+// predicates. Mirrors mangle.ProofTreeTracer.findPremises, which already worked
+// this way — RealKernel simply never got the same treatment.
+//
+// Argument matching is a first-argument heuristic, as it is in the tracer: full
+// unification would need the variable bindings the evaluator discarded. A
+// zero-arity head (project_write_protected() and friends) has nothing to match
+// on, so all facts of each body predicate are shown — which is the correct
+// answer for a rule that fires on mere existence.
+func (k *RealKernel) premisesFromProgram(fact mangle.Fact) []mangle.Fact {
+	info := k.GetProgramInfo()
+	if info == nil {
+		return nil
+	}
+
+	bodyPreds := make(map[string]bool)
+	for _, rule := range info.Rules {
+		if rule.Head.Predicate.Symbol != fact.Predicate {
+			continue
+		}
+		for _, premise := range rule.Premises {
+			atom, ok := premise.(ast.Atom)
+			if !ok {
+				continue // negations, comparisons and transforms carry no facts
+			}
+			sym := atom.Predicate.Symbol
+			if sym == fact.Predicate {
+				continue // skip self-reference so recursive rules cannot loop
+			}
+			bodyPreds[sym] = true
+		}
+	}
+
+	var premises []mangle.Fact
+	for pred := range bodyPreds {
+		facts, err := k.Query(pred)
+		if err != nil {
+			continue
+		}
+		for _, bf := range facts {
+			// With no args on the head there is nothing to correlate against,
+			// so every supporting fact is relevant.
+			if len(fact.Args) == 0 {
+				premises = append(premises, convertCoreFactToMangle(bf))
+				continue
+			}
+			if len(bf.Args) >= 1 && types.ExtractString(bf.Args[0]) == types.ExtractString(fact.Args[0]) {
+				premises = append(premises, convertCoreFactToMangle(bf))
+			}
+		}
+	}
 	return premises
 }
 
