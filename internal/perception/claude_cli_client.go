@@ -237,6 +237,7 @@ func (c *ClaudeCodeCLIClient) executeCLI(ctx context.Context, prompt, model stri
 	args := c.buildArgs(prompt, model, opts)
 
 	// Create command with context for cancellation support
+	// #nosec G204 -- command arguments are built securely and passed directly without shell invocation
 	cmd := exec.CommandContext(ctx, "claude", args...)
 
 	// Capture stdout and stderr
@@ -288,6 +289,7 @@ func (c *ClaudeCodeCLIClient) executeStreaming(ctx context.Context, prompt strin
 	args := c.buildArgs(prompt, c.model, opts)
 
 	// Create command with context for cancellation support
+	// #nosec G204 -- command arguments are built securely and passed directly without shell invocation
 	cmd := exec.CommandContext(ctx, "claude", args...)
 
 	// Get stdout pipe for streaming
@@ -330,7 +332,7 @@ func (c *ClaudeCodeCLIClient) executeStreaming(ctx context.Context, prompt strin
 		// Call the callback
 		if err := callback(chunk); err != nil {
 			// User requested abort
-			cmd.Process.Kill()
+			_ = cmd.Process.Kill()
 			return err
 		}
 
