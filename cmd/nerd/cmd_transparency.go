@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"codenerd/internal/config"
-	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	coresys "codenerd/internal/system"
 
@@ -88,17 +87,6 @@ func runGlassbox(cmd *cobra.Command, args []string) error {
 
 	fmt.Println(strings.Repeat("═", 60))
 	return nil
-}
-
-func formatFactStr(f core.Fact) string {
-	if len(f.Args) == 0 {
-		return f.Predicate
-	}
-	args := make([]string, len(f.Args))
-	for i, a := range f.Args {
-		args[i] = fmt.Sprintf("%v", a)
-	}
-	return fmt.Sprintf("%s(%s)", f.Predicate, strings.Join(args, ", "))
 }
 
 // =============================================================================
