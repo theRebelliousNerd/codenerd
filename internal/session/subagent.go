@@ -80,6 +80,12 @@ type SubAgentConfig struct {
 	// verb the routing layer actually chose.
 	IntentVerb string
 
+	// IntentTarget is the resolved file or directory the verb acts on, empty
+	// when the task is prose rather than a target. Mirrors IntentVerb: when set,
+	// the subagent's preset intent carries the holographic per-file context target
+	// without inferring it from the task text.
+	IntentTarget string
+
 	// Timeout for the entire subagent execution.
 	Timeout time.Duration
 
@@ -273,11 +279,12 @@ func (s *SubAgent) execute(ctx context.Context, task string) (string, error) {
 	}
 	s.executor.SetHistory(s.conversationHistory)
 	intentVerb := s.config.IntentVerb
+	intentTarget := s.config.IntentTarget
 	s.mu.RUnlock()
 
 	// For single-turn execution, process the task. When the spawner recorded
 	// the routed intent verb, run with a preset intent — no re-perception.
-	result, err := s.executor.ProcessWithIntent(ctx, task, presetIntentForTask(intentVerb, task))
+	result, err := s.executor.ProcessWithIntent(ctx, task, presetIntentForTask(intentVerb, task, intentTarget))
 
 	// Sync history back from executor
 	s.mu.Lock()

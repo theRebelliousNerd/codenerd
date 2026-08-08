@@ -19,6 +19,7 @@ type TaskRequest struct {
 	Persona    string // Optional persona (e.g., coder, reviewer)
 	Task       string // The task description
 	ConfigRef  string // Optional named config/profile
+	Target     string // Resolved file or directory the verb acts on; empty when the task is prose rather than a target.
 }
 
 // TaskExecutor is the unified interface for task execution.
@@ -104,7 +105,7 @@ func normalizeTaskIntentVerb(verb string) (string, error) {
 // presetIntentForTask builds the pre-classified intent for a delegated task.
 // Returns nil when no verb is known, in which case the executor falls back to
 // perceiving the task text.
-func presetIntentForTask(intentVerb, task string) *perception.Intent {
+func presetIntentForTask(intentVerb, task, target string) *perception.Intent {
 	intentVerb = strings.TrimSpace(intentVerb)
 	if intentVerb == "" || !strings.HasPrefix(intentVerb, "/") {
 		return nil
@@ -112,7 +113,7 @@ func presetIntentForTask(intentVerb, task string) *perception.Intent {
 	return &perception.Intent{
 		Category:   categoryForIntentVerb(intentVerb),
 		Verb:       intentVerb,
-		Target:     "",
+		Target:     target,
 		Constraint: "",
 		// The routing layer already decided this verb; the executor must not
 		// second-guess it.
@@ -230,7 +231,7 @@ func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, s
 
 	// The routing layer already classified this task — run with the preset
 	// intent instead of re-perceiving the synthetic task string.
-	result, err := exec.ProcessWithIntent(ctx, inlineTask, presetIntentForTask(req.IntentVerb, inlineTask))
+	result, err := exec.ProcessWithIntent(ctx, inlineTask, presetIntentForTask(req.IntentVerb, inlineTask, req.Target))
 	if err != nil {
 		// Still surface any partial response text for diagnostics, but never
 		// treat hollow/tool failure as success for CLI one-shots.
@@ -271,10 +272,10 @@ func (j *JITExecutor) executeAsyncInternal(ctx context.Context, req TaskRequest,
 		Task:           req.Task,
 		Type:           SubAgentTypeEphemeral,
 		IntentVerb:     req.IntentVerb,
+		IntentTarget:   req.Target,
 		Timeout:        appconfig.GetLLMTimeouts().ShardExecutionTimeout,
 		SessionContext: sessionCtx,
 	}
-
 	// Spawner.Spawn() creates the agent. We must manually start it after tracking
 	// its ID to prevent a TOCTOU race where a very fast execution completes and
 	// caches its true result before ExecuteAsync initializes it to false.

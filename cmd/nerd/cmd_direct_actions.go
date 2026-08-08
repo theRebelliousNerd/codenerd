@@ -290,7 +290,7 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		fmt.Printf("⏳ Spawning %s shard...\n", shardType)
 
 		shardStart := time.Now()
-		result, err := cortex.SpawnTask(ctx, verb, target)
+		result, err := cortex.SpawnTaskWithTarget(ctx, verb, target, target)
 		shardDuration := time.Since(shardStart)
 
 		if err != nil {

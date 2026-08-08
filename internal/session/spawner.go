@@ -180,6 +180,12 @@ type SpawnRequest struct {
 	// IntentVerb is used for JIT config generation
 	IntentVerb string
 
+	// IntentTarget is the resolved file or directory the verb acts on, empty
+	// when the task is prose rather than a target. Mirrors IntentVerb: when set,
+	// the subagent's preset intent carries the holographic per-file context target
+	// without inferring it from the task text.
+	IntentTarget string
+
 	// Timeout for the subagent's execution
 	Timeout time.Duration
 
@@ -226,6 +232,7 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 		Type:                        req.Type,
 		EffectiveAgentRuntimeConfig: EffectiveAgentRuntimeConfig,
 		IntentVerb:                  req.IntentVerb,
+		IntentTarget:                req.IntentTarget,
 		Timeout:                     req.Timeout,
 		MaxTurns:                    100,
 		SessionContext:              req.SessionContext,

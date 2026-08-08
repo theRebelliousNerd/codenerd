@@ -352,6 +352,10 @@ func (c *missingLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 // — TaskExecutor is wired to the worker/main client and must not handle image gen.
 // All other tasks go through TaskExecutor.
 func (c *Cortex) SpawnTask(ctx context.Context, shardType string, task string) (string, error) {
+	return c.SpawnTaskWithTarget(ctx, shardType, task, "")
+}
+
+func (c *Cortex) SpawnTaskWithTarget(ctx context.Context, shardType string, task, target string) (string, error) {
 	normalized := normalizeShardTypeName(shardType)
 
 	// Image generation (Gemini Nano Banana 2) is isolated from the worker LLM.
@@ -378,6 +382,7 @@ func (c *Cortex) SpawnTask(ctx context.Context, shardType string, task string) (
 	req := session.TaskRequest{
 		IntentVerb: shardType,
 		Task:       task,
+		Target:     target,
 	}
 	return c.TaskExecutor.Execute(ctx, req)
 }
