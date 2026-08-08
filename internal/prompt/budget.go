@@ -659,7 +659,6 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 }
 
 // calculateAllocations determines token allocation per category.
-// TODO: Reliability: Handle precision loss/rounding errors in `BasePercent` allocations to ensure 100% of the budget is distributed effectively when `StrategyProportional` or `StrategyPriorityFirst` is used.
 func (m *TokenBudgetManager) calculateAllocations(
 	totalBudget int,
 	presentCategories map[AtomCategory]bool,
@@ -682,6 +681,13 @@ func (m *TokenBudgetManager) calculateAllocations(
 		return string(orderedCats[i]) < string(orderedCats[j])
 	})
 
+	var totalPercent float64
+	for _, cat := range orderedCats {
+		if presentCategories[cat] {
+			totalPercent += m.budgets[cat].BasePercent
+		}
+	}
+
 	switch m.strategy {
 	case StrategyProportional:
 		var remainder float64
@@ -690,7 +696,13 @@ func (m *TokenBudgetManager) calculateAllocations(
 			if !presentCategories[cat] {
 				continue
 			}
-			exact := float64(totalBudget)*budget.BasePercent + remainder
+
+			normalizedPercent := budget.BasePercent
+			if totalPercent > 0 {
+				normalizedPercent = budget.BasePercent / totalPercent
+			}
+
+			exact := float64(totalBudget)*normalizedPercent + remainder
 			allocation := int(math.Round(exact))
 			clampedAlloc := clamp(allocation, budget.MinTokens, budget.MaxTokens)
 			remainder = exact - float64(clampedAlloc)
@@ -712,8 +724,13 @@ func (m *TokenBudgetManager) calculateAllocations(
 					continue
 				}
 
+				normalizedPercent := budget.BasePercent
+				if totalPercent > 0 {
+					normalizedPercent = budget.BasePercent / totalPercent
+				}
+
 				if p == PriorityMandatory {
-					exact := float64(totalBudget)*budget.BasePercent + remainder
+					exact := float64(totalBudget)*normalizedPercent + remainder
 					allocation := int(math.Round(exact))
 					clampedAlloc := clamp(allocation, budget.MinTokens, budget.MaxTokens)
 					remainder = exact - float64(clampedAlloc)
@@ -723,7 +740,7 @@ func (m *TokenBudgetManager) calculateAllocations(
 					if remaining <= 0 {
 						allocations[cat] = 0
 					} else {
-						exact := float64(remaining)*budget.BasePercent + remainder
+						exact := float64(totalBudget)*normalizedPercent + remainder
 						allocation := int(math.Round(exact))
 						clampedAlloc := clamp(allocation, budget.MinTokens, budget.MaxTokens)
 
@@ -757,7 +774,12 @@ func (m *TokenBudgetManager) calculateAllocations(
 				continue
 			}
 
-			exact := float64(remaining)*budget.BasePercent + remainder
+			normalizedPercent := budget.BasePercent
+			if totalPercent > 0 {
+				normalizedPercent = budget.BasePercent / totalPercent
+			}
+
+			exact := float64(totalBudget)*normalizedPercent + remainder
 			allocation := int(math.Round(exact))
 			clampedAlloc := clamp(allocation, budget.MinTokens, budget.MaxTokens)
 
@@ -789,7 +811,13 @@ func (m *TokenBudgetManager) calculateAllocations(
 			if !presentCategories[cat] {
 				continue
 			}
-			exact := float64(remaining)*budget.BasePercent + remainder
+
+			normalizedPercent := budget.BasePercent
+			if totalPercent > 0 {
+				normalizedPercent = budget.BasePercent / totalPercent
+			}
+
+			exact := float64(remaining)*normalizedPercent + remainder
 			extra := int(math.Round(exact))
 
 			alloc := allocations[cat] + extra

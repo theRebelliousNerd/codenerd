@@ -791,7 +791,7 @@ func TestTokenBudgetManager_calculateAllocations(t *testing.T) {
 			totalAllocated += v
 		}
 
-		assert.Equal(t, 70, totalAllocated) // 33 from 100 (rem=67), 23 from 67 (rem=44), 14 from 44. Since it uses "remaining" base.
+		assert.Equal(t, 100, totalAllocated)
 	})
 
 	t.Run("balanced exact distribution", func(t *testing.T) {
