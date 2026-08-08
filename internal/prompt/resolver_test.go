@@ -136,6 +136,18 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 			expectedLen:   2,
 		},
 		{
+			// nil and an empty slice must behave identically -- a resolver that
+			// treats one as "has dependencies" reorders the prompt for no reason.
+			name: "empty DependsOn array vs nil",
+			atoms: []*ScoredAtom{
+				{Atom: &PromptAtom{ID: "a", DependsOn: []string{}}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "b", DependsOn: nil}, Combined: 0.6},
+			},
+			expectError:   false,
+			expectedLen:   2,
+			expectedOrder: []string{"b", "a"},
+		},
+		{
 			name: "single atom no dependencies",
 			atoms: []*ScoredAtom{
 				{Atom: &PromptAtom{ID: "a", Priority: 50}, Combined: 0.5},
