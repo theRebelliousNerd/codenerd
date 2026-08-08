@@ -238,14 +238,98 @@ func (v *VirtualStore) handleExecCmdModern(ctx context.Context, binary string, a
 	return actionResult, nil
 }
 
+// commandFromActionRequest resolves the shell command for run_tests and
+// build_project.
+//
+// An explicit payload["command"] is authoritative — a caller that names a
+// command means it. req.Target is NOT authoritative, and used to be: it was
+// returned verbatim whenever it was non-empty, and it went straight into
+// `bash -c`.
+//
+// req.Target for a perception-derived action is the intent target, which is the
+// user's own prose. Observed live 2026-08-08: an instruction beginning "Add
+// table-driven tests to internal/tactile/python/..." was classified /run_tests,
+// and the entire sentence was executed as a shell command —
+//
+//	bash: -c: line 1: syntax error near unexpected token `('
+//
+// Harmless there because prose is not valid shell. It is not harmless in
+// general. This text is not always typed by a human at a terminal: campaign
+// task descriptions, delegated shard tasks, nerd.md content and file-derived
+// targets all reach here, and any of them containing `;` or a backtick would be
+// executed rather than rejected. A component that turns arbitrary text into a
+// shell command is an injection surface regardless of who is expected to author
+// the text.
+//
+// A target is therefore only used as a command when it plausibly IS one. When
+// it is not, the default runs and the target is reported as ignored rather than
+// silently executed.
 func commandFromActionRequest(req ActionRequest, defaultCommand string) string {
 	if cmd, ok := req.Payload["command"].(string); ok && strings.TrimSpace(cmd) != "" {
 		return cmd
 	}
-	if strings.TrimSpace(req.Target) != "" {
-		return req.Target
+	if target := strings.TrimSpace(req.Target); target != "" {
+		if looksLikeShellCommand(target) {
+			return target
+		}
+		logging.Get(logging.CategoryVirtualStore).Warn(
+			"action target is not a shell command; running %q instead of executing it. Target was: %.120q",
+			defaultCommand, target)
 	}
 	return defaultCommand
+}
+
+// looksLikeShellCommand reports whether s is plausibly a command rather than
+// prose.
+//
+// Deliberately conservative: the cost of rejecting a real command is that the
+// default runs and says so, while the cost of accepting prose is executing it.
+// Those are not symmetric, so this errs toward rejection.
+func looksLikeShellCommand(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 300 {
+		return false
+	}
+	// A command is one line. Prose that reached here often is not.
+	if strings.ContainsAny(s, "\n\r") {
+		return false
+	}
+	fields := strings.Fields(s)
+	if len(fields) == 0 {
+		return false
+	}
+
+	// Allowlist, not denylist. A first draft rejected prose by looking for
+	// sentence punctuation and non-identifier characters in the head token, and
+	// it accepted "Add table-driven tests to ..." and "Run the tests please" —
+	// both are letters and spaces, which is exactly what a command looks like to
+	// a negative rule. Enumerating what prose looks like is unbounded;
+	// enumerating the programs these two actions may invoke is not.
+	head := fields[0]
+	if i := strings.LastIndexAny(head, `/\`); i >= 0 {
+		// An explicit path is self-identifying: prose does not begin with one.
+		return i < len(head)-1
+	}
+	head = strings.ToLower(strings.TrimSuffix(head, ".exe"))
+	return testAndBuildBinaries[head]
+}
+
+// testAndBuildBinaries is the set of programs run_tests and build_project may
+// name in a bare target.
+//
+// Scoped to what those two actions legitimately invoke rather than to the whole
+// execution allowlist: this decides whether a string is a command at all, not
+// whether the user is permitted to run it. The permission gate is separate and
+// still applies afterwards.
+var testAndBuildBinaries = map[string]bool{
+	"go": true, "gotestsum": true, "make": true, "cmake": true, "ninja": true,
+	"pytest": true, "python": true, "python3": true, "tox": true, "nox": true,
+	"npm": true, "npx": true, "yarn": true, "pnpm": true, "node": true,
+	"cargo": true, "rustc": true, "dotnet": true, "mvn": true, "gradle": true,
+	"bash": true, "sh": true, "pwsh": true, "powershell": true, "cmd": true,
+	"bazel": true, "buck": true, "just": true, "task": true, "mage": true,
+	"ctest": true, "meson": true, "tsc": true, "jest": true, "vitest": true,
+	"phpunit": true, "composer": true, "bundle": true, "rake": true, "rspec": true,
 }
 
 func timeoutSecondsFromActionRequest(req ActionRequest, defaultSeconds int) int {
