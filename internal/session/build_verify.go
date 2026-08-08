@@ -74,6 +74,29 @@ func touchedGoFiles(paths []string) bool {
 	return false
 }
 
+// workspaceForVerification resolves the directory the verification build runs
+// in, falling back to workspace discovery when the config does not carry one.
+//
+// The fallback is not belt-and-braces, it is the difference between a live gate
+// and a dead one. Only the system factory sets ExecutorConfig.WorkspaceRoot;
+// both campaign executors (cmd/nerd/cmd_campaign.go) construct an Executor and
+// never call SetConfig at all, so they inherit DefaultExecutorConfig with an
+// empty root — and campaigns are where the write volume is. With a bare field
+// read, verifyBuild would return Ran=false for every campaign edit and the
+// whole mechanism would report "verification skipped" forever while looking
+// enabled. That is the exact shape of the dormant-wiring defect this codebase
+// keeps producing, so the gate resolves its own workspace rather than trusting
+// every future construction site to remember a field.
+func (e *Executor) workspaceForVerification() string {
+	if ws := strings.TrimSpace(e.config.WorkspaceRoot); ws != "" {
+		return ws
+	}
+	if root, err := config.FindWorkspaceRoot(); err == nil && strings.TrimSpace(root) != "" {
+		return root
+	}
+	return ""
+}
+
 // verifyBuild compiles the workspace and reports whether it still builds.
 //
 // Uses build.GetBuildEnv so the verification inherits the same CGO_CFLAGS the
@@ -162,7 +185,8 @@ func (e *Executor) verifyAndRepairBuild(
 		return nil, nil, nil
 	}
 
-	verification := verifyBuild(ctx, e.config.WorkspaceRoot, nil)
+	workspace := e.workspaceForVerification()
+	verification := verifyBuild(ctx, workspace, nil)
 	if !verification.Ran || verification.OK {
 		return nil, nil, nil
 	}
@@ -190,7 +214,7 @@ func (e *Executor) verifyAndRepairBuild(
 		repairErrs = append(repairErrs, errs...)
 	}
 
-	recheck := verifyBuild(ctx, e.config.WorkspaceRoot, nil)
+	recheck := verifyBuild(ctx, workspace, nil)
 	if recheck.Ran && !recheck.OK {
 		return nil, repairErrs, fmt.Errorf(
 			"edits broke the build and the repair round did not fix it. Compiler output:\n%s", recheck.Output)

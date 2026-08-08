@@ -102,3 +102,33 @@ func TestBuildRepairPrompt_CarriesTheCompilerOutput(t *testing.T) {
 		}
 	}
 }
+
+// The gate must not be silently disabled by a construction site that forgets to
+// set WorkspaceRoot. Both campaign executors do exactly that, and campaigns are
+// where the write volume is — a bare field read would report "verification
+// skipped" forever while the feature looked enabled.
+func TestWorkspaceForVerification_FallsBackWhenConfigIsEmpty(t *testing.T) {
+	e := &Executor{config: DefaultExecutorConfig()}
+	if e.config.WorkspaceRoot != "" {
+		t.Fatalf("precondition: DefaultExecutorConfig should not carry a workspace, got %q", e.config.WorkspaceRoot)
+	}
+
+	got := e.workspaceForVerification()
+	if got == "" {
+		t.Fatal("workspaceForVerification returned empty from within a real workspace; the build gate would be inert on the campaign paths")
+	}
+	if _, err := os.Stat(filepath.Join(got, "go.mod")); err != nil {
+		t.Errorf("resolved workspace %q does not look like a Go module root: %v", got, err)
+	}
+}
+
+func TestWorkspaceForVerification_PrefersExplicitConfig(t *testing.T) {
+	want := t.TempDir()
+	cfg := DefaultExecutorConfig()
+	cfg.WorkspaceRoot = want
+	e := &Executor{config: cfg}
+
+	if got := e.workspaceForVerification(); got != want {
+		t.Errorf("workspaceForVerification() = %q; want the explicitly configured %q", got, want)
+	}
+}
