@@ -1,0 +1,36 @@
+{
+  "id": "campaign-1",
+  "type": "",
+  "title": "",
+  "goal": "",
+  "source_material": null,
+  "status": "",
+  "created_at": "0001-01-01T00:00:00Z",
+  "updated_at": "0001-01-01T00:00:00Z",
+  "confidence": 0,
+  "phases": [
+    {
+      "id": "phase-1",
+      "campaign_id": "",
+      "name": "Test Phase",
+      "order": 0,
+      "category": "",
+      "status": "/completed",
+      "context_profile": "",
+      "objectives": null,
+      "tasks": null,
+      "estimated_tasks": 0,
+      "estimated_complexity": "",
+      "compressed_at": "0001-01-01T00:00:00Z"
+    }
+  ],
+  "completed_phases": 1,
+  "total_phases": 0,
+  "completed_tasks": 0,
+  "total_tasks": 0,
+  "context_budget": 0,
+  "context_used": 0,
+  "context_utilization": 0,
+  "revision_number": 0,
+  "last_revision_summary": ""
+}

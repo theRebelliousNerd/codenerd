@@ -2,8 +2,10 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -432,7 +434,6 @@ func TestOrchestrator_IsPhaseComplete(t *testing.T) {
 // TODO: [Type Coercion] Test getCampaignBlockReason when the reason argument is not a string (e.g. integer or boolean).
 // Additional test for getCampaignBlockReason
 func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
-	// TODO: TestOrchestrator_StartNextPhase_RaceCondition
 	// TODO: TestOrchestrator_StartNextPhase_DoubleInvocation
 	// TODO: TestOrchestrator_CompletePhase_NilPhase
 	// TODO: TestOrchestrator_Concurrency_ReadWritePhases
@@ -495,5 +496,53 @@ func TestOrchestrator_StartNextPhase_NilContext(t *testing.T) {
 		t.Errorf("Expected error when calling startNextPhase with nil context, got nil")
 	} else if err.Error() != "context cannot be nil" {
 		t.Errorf("Expected 'context cannot be nil' error, got %v", err)
+	}
+}
+
+func TestOrchestrator_StartNextPhase_RaceCondition(t *testing.T) {
+	mockKernel := &MockKernel{
+		Facts: []core.Fact{
+			{
+				Predicate: "phase_eligible",
+				Args:      []any{"phase-1"},
+			},
+		},
+	}
+
+	campaignState := &Campaign{
+		ID: "camp-1",
+		Phases: []Phase{
+			{
+				ID:     "phase-1",
+				Name:   "Phase 1",
+				Status: PhasePending,
+			},
+		},
+	}
+
+	orch := &Orchestrator{
+		kernel:   mockKernel,
+		campaign: campaignState,
+	}
+
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	numGoroutines := 10
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = orch.startNextPhase(ctx)
+		}()
+	}
+
+	wg.Wait()
+
+	// Verify phase status was updated.
+	orch.mu.RLock()
+	defer orch.mu.RUnlock()
+	if orch.campaign.Phases[0].Status != PhaseInProgress {
+		t.Errorf("Expected phase status to be PhaseInProgress, got %s", orch.campaign.Phases[0].Status)
 	}
 }
