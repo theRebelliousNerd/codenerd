@@ -477,6 +477,8 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		session.DefaultSpawnerConfig(),
 	)
 
+	applyCampaignExecutorBudget(appCfg, cwd, sessionExecutor, sessionSpawner)
+
 	if llmSlots.planner != nil {
 		plannerAdapter := newCampaignLLMAdapter(llmSlots.planner)
 		sessionExecutor.SetPlannerClient(plannerAdapter)
@@ -922,6 +924,8 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		transducer,
 		session.DefaultSpawnerConfig(),
 	)
+
+	applyCampaignExecutorBudget(appCfg, cwd, sessionExecutor, sessionSpawner)
 
 	if llmSlots.planner != nil {
 		plannerAdapter := newCampaignLLMAdapter(llmSlots.planner)
@@ -1419,6 +1423,40 @@ func (a *campaignTaskDelegatorAdapter) Execute(ctx context.Context, intent strin
 	}
 	return a.executor.Execute(ctx, req)
 }
+// applyCampaignExecutorBudget gives a CLI campaign's executor and spawner the
+// same tool-loop budget the TUI gets from internal/system/factory.go.
+//
+// Neither of the two CLI campaign paths called SetConfig, so both silently ran
+// on DefaultExecutorConfig: 8 iterations regardless of
+// core_limits.max_tool_iterations, and an empty WorkspaceRoot. Eight is low for
+// the research-heavy work a campaign task does — measured live, a turn reported
+// "No exploration budget left" after eight iterations while the configured
+// budget was 24.
+func applyCampaignExecutorBudget(
+	appCfg *config.UserConfig,
+	workspace string,
+	executor *session.Executor,
+	spawner *session.Spawner,
+) session.ExecutorConfig {
+	execCfg := session.DefaultExecutorConfig()
+	execCfg.WorkspaceRoot = workspace
+	if appCfg != nil {
+		if limits := appCfg.GetCoreLimits(); limits.MaxToolCalls > 0 {
+			execCfg.MaxToolCalls = limits.MaxToolCalls
+		}
+		if limits := appCfg.GetCoreLimits(); limits.MaxToolIterations > 0 {
+			execCfg.MaxToolIterations = limits.MaxToolIterations
+		}
+	}
+	if executor != nil {
+		executor.SetConfig(execCfg)
+	}
+	if spawner != nil {
+		spawner.SetExecutorConfig(&execCfg)
+	}
+	return execCfg
+}
+
 // buildNorthstarObserver is a thin wrapper around northstar.BuildCampaignObserver
 // kept for backwards compatibility and to avoid duplicating the construction
 // logic. The canonical implementation lives in internal/northstar/campaign_observer.go.

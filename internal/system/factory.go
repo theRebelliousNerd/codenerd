@@ -1465,6 +1465,7 @@ func initFinalExecutors(bctx *bootContext) error {
 	if fileContextProvider != nil {
 		bctx.sessionSpawner.SetFileContextProvider(fileContextProvider)
 	}
+	bctx.sessionSpawner.SetExecutorConfig(&execCfg)
 
 	// Reasoning-intensive intents (/review, /audit, /campaign, ...) escape the
 	// worker tier onto the planner client. The kernel decides which those are
@@ -1474,7 +1475,6 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.sessionExecutor.SetPlannerClient(plannerSessionLLM)
 		bctx.sessionSpawner.SetPlannerClient(plannerSessionLLM)
 	}
-
 	bctx.taskExecutor = session.NewJITExecutor(bctx.sessionExecutor, bctx.sessionSpawner, bctx.transducer)
 	bctx.virtualStore.SetTaskExecutor(&taskDelegatorAdapter{executor: bctx.taskExecutor})
 	// Domain personas (coder/tester/reviewer/researcher) and user-defined agents

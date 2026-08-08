@@ -56,6 +56,14 @@ type Spawner struct {
 	// context to the compiled system prompt.
 	fileContext FileContextProvider
 
+	// executorConfig is the tool-loop budget inherited from the parent session.
+	// Nil means subagents keep DefaultExecutorConfig (8 iterations), preserving
+	// pre-fix behaviour when no parent budget has been supplied. When set,
+	// every spawned subagent receives it via Executor.SetConfig, mirroring the
+	// pattern for plannerClient/projectDoc/fileContext and ensuring the 24/120
+	// limits from .nerd/config.json reach the code that actually loops.
+	executorConfig *ExecutorConfig
+
 	// Active subagents
 	subagents map[string]*SubAgent
 
@@ -166,6 +174,23 @@ func (s *Spawner) currentFileContext() FileContextProvider {
 	return s.fileContext
 }
 
+// SetExecutorConfig installs the tool-loop budget every subagent spawned from
+// here on will inherit. Already-spawned subagents keep the config they were
+// built with. A nil cfg is a no-op, preserving the existing DefaultExecutorConfig
+// behaviour when the caller never sets a budget.
+func (s *Spawner) SetExecutorConfig(cfg *ExecutorConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.executorConfig = cfg
+}
+
+// currentExecutorConfig reads the executor config slot under the read lock.
+func (s *Spawner) currentExecutorConfig() *ExecutorConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.executorConfig
+}
+
 // SpawnRequest describes the parameters for spawning a subagent.
 type SpawnRequest struct {
 	// Name is the subagent name (e.g., "coder", "my-specialist")
@@ -262,6 +287,12 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	if fc := s.currentFileContext(); fc != nil {
 		agent.executor.SetFileContextProvider(fc)
 	}
+	// Forward the parent session's tool-loop budget. Guard on whether a config
+	// was actually supplied: a zero ExecutorConfig would zero MaxToolIterations
+	// rather than preserve the default 8.
+	if cfg := s.currentExecutorConfig(); cfg != nil {
+		agent.executor.SetConfig(*cfg)
+	}
 
 	// Phase 5: Register subagent (lock held briefly)
 	s.mu.Lock()
@@ -346,6 +377,13 @@ func (s *Spawner) SpawnSpecialist(ctx context.Context, name string, task string)
 	}
 	if s.fileContext != nil {
 		agent.executor.SetFileContextProvider(s.fileContext)
+	}
+	// Forward tool-loop budget. s.mu is already held for writing, so read the
+	// slot directly. Nil guard preserves the pre-fix default 8 iteration budget
+	// when no parent budget was supplied; forwarding a zero value would instead
+	// set MaxToolIterations to 0.
+	if s.executorConfig != nil {
+		agent.executor.SetConfig(*s.executorConfig)
 	}
 
 	s.subagents[agent.GetID()] = agent
