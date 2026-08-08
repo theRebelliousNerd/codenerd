@@ -432,6 +432,49 @@ func TestOrchestrator_IsPhaseComplete(t *testing.T) {
 
 // TODO: [Null/Undefined/Empty] Test getCampaignBlockReason when 'campaign_blocked' has < 2 arguments.
 // TODO: [Type Coercion] Test getCampaignBlockReason when the reason argument is not a string (e.g. integer or boolean).
+
+func TestOrchestrator_StartNextPhase_DoubleInvocation(t *testing.T) {
+	mockKernel := &MockKernel{}
+	c := &Campaign{
+		ID: "/campaign_1",
+		Phases: []Phase{
+			{
+				ID:     "/phase_1",
+				Name:   "Phase 1",
+				Status: PhasePending,
+			},
+		},
+	}
+
+	orch := &Orchestrator{
+		kernel:   mockKernel,
+		campaign: c,
+	}
+
+	_ = mockKernel.Assert(core.Fact{
+		Predicate: "phase_eligible",
+		Args:      []any{"/phase_1"},
+	})
+
+	err1 := orch.startNextPhase(context.Background())
+	if err1 != nil {
+		t.Fatalf("First invocation failed: %v", err1)
+	}
+
+	if orch.campaign.Phases[0].Status != PhaseInProgress {
+		t.Fatalf("Phase should be InProgress, got %v", orch.campaign.Phases[0].Status)
+	}
+
+	err2 := orch.startNextPhase(context.Background())
+	if err2 != nil {
+		t.Fatalf("Second invocation failed: %v", err2)
+	}
+
+	if orch.campaign.Phases[0].Status != PhaseInProgress {
+		t.Fatalf("Phase should still be InProgress, got %v", orch.campaign.Phases[0].Status)
+	}
+}
+
 // Additional test for getCampaignBlockReason
 func TestOrchestrator_CompletePhase_NilPhase(t *testing.T) {
 	mockKernel := &MockKernel{}
@@ -442,7 +485,6 @@ func TestOrchestrator_CompletePhase_NilPhase(t *testing.T) {
 }
 
 func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
-	// TODO: TestOrchestrator_StartNextPhase_DoubleInvocation
 	// TODO: TestOrchestrator_Concurrency_ReadWritePhases
 
 	mockKernel := &MockKernel{}
