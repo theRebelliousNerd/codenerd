@@ -890,14 +890,50 @@ func runJITStatus(cmd *cobra.Command, args []string) error {
 		fmt.Println("JIT Compiler not initialized")
 	}
 
-	// Show loaded prompt atoms
-	atoms, _ := cortex.Kernel.Query("prompt_atom")
-	fmt.Printf("\nLoaded Prompt Atoms: %d\n", len(atoms))
-	if len(atoms) > 0 && len(atoms) <= 10 {
-		for _, atom := range atoms {
-			fmt.Printf("  - %v\n", atom.Args[0])
+	// Show prompt atoms currently asserted in the kernel.
+	//
+	// This is NOT the corpus. prompt_atom facts are asserted per compile by the
+	// selector (internal/prompt/selector.go, buildContextFacts + AssertBatch),
+	// so on a freshly booted process — which `nerd jit` always is — the count is
+	// necessarily zero. Printed bare next to "Embedded Atoms: 892" it read as
+	// "the corpus failed to load", which is the opposite of the truth.
+	//
+	// The error was also being discarded, making a failed query indistinguishable
+	// from an empty one. Same defect family as the glassbox and transparency
+	// predicates fixed earlier: a diagnostic whose only possible answer here is
+	// "nothing", phrased as a fact about the system.
+	atoms, err := cortex.Kernel.Query("prompt_atom")
+	switch {
+	case err != nil:
+		fmt.Printf("\nPrompt Atoms In Kernel: query failed (%v)\n", err)
+	case len(atoms) == 0:
+		fmt.Printf("\nPrompt Atoms In Kernel: 0 — none asserted yet.\n")
+		fmt.Printf("  Atoms are asserted per compile, and this process has run %d.\n", statsCompilations(cortex))
+		fmt.Printf("  The %d embedded atoms above are the corpus and are unaffected.\n", embeddedCount(cortex))
+	default:
+		fmt.Printf("\nPrompt Atoms In Kernel: %d\n", len(atoms))
+		if len(atoms) <= 10 {
+			for _, atom := range atoms {
+				fmt.Printf("  - %v\n", atom.Args[0])
+			}
 		}
 	}
 
 	return nil
+}
+
+// statsCompilations and embeddedCount read the JIT stats defensively so the
+// explanatory lines in `nerd jit` cannot themselves panic on a nil compiler.
+func statsCompilations(cortex *coresys.Cortex) int {
+	if cortex == nil || cortex.JITCompiler == nil {
+		return 0
+	}
+	return int(cortex.JITCompiler.GetStats().TotalCompilations)
+}
+
+func embeddedCount(cortex *coresys.Cortex) int {
+	if cortex == nil || cortex.JITCompiler == nil {
+		return 0
+	}
+	return int(cortex.JITCompiler.GetStats().EmbeddedAtomCount)
 }
