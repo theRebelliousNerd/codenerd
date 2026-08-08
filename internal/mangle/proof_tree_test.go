@@ -2,6 +2,7 @@ package mangle
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -153,5 +154,82 @@ func TestNewProofTreeTracer(t *testing.T) {
 
 	if tracer.ruleIndex == nil {
 		t.Errorf("Expected ruleIndex map to be initialized, but it was nil")
+	}
+}
+
+func TestDerivationTrace_RenderJSON(t *testing.T) {
+	// Setup a fake derivation tree manually
+	root := &DerivationNode{
+		ID:       "node1",
+		Fact:     Fact{Predicate: "impacted", Args: []any{"main.go"}},
+		Source:   SourceIDB,
+		RuleName: "impacted",
+		Depth:    0,
+		Children: []*DerivationNode{
+			{
+				ID:       "node2",
+				ParentID: "node1",
+				Fact:     Fact{Predicate: "dependency_link", Args: []any{"main.go", "lib.go", "import"}},
+				Source:   SourceEDB,
+				Depth:    1,
+			},
+		},
+	}
+
+	trace := &DerivationTrace{
+		Query:     "impacted(X)",
+		RootNodes: []*DerivationNode{root},
+		Duration:  10 * time.Millisecond,
+	}
+
+	jsonBytes, err := trace.RenderJSON()
+	if err != nil {
+		t.Fatalf("RenderJSON failed: %v", err)
+	}
+
+	// Verify JSON structure
+	var result map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &result); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	if result["query"] != "impacted(X)" {
+		t.Errorf("Expected query 'impacted(X)', got %v", result["query"])
+	}
+
+	if result["duration"] != "10ms" {
+		t.Errorf("Expected duration '10ms', got %v", result["duration"])
+	}
+
+	roots, ok := result["roots"].([]interface{})
+	if !ok || len(roots) != 1 {
+		t.Fatalf("Expected 1 root node, got %v", result["roots"])
+	}
+
+	rootNode := roots[0].(map[string]interface{})
+	if rootNode["id"] != "node1" {
+		t.Errorf("Expected root id 'node1', got %v", rootNode["id"])
+	}
+	if rootNode["rule"] != "impacted" {
+		t.Errorf("Expected root rule 'impacted', got %v", rootNode["rule"])
+	}
+	if rootNode["source"] != "IDB" {
+		t.Errorf("Expected root source 'IDB', got %v", rootNode["source"])
+	}
+
+	children, ok := rootNode["children"].([]interface{})
+	if !ok || len(children) != 1 {
+		t.Fatalf("Expected 1 child node, got %v", rootNode["children"])
+	}
+
+	childNode := children[0].(map[string]interface{})
+	if childNode["id"] != "node2" {
+		t.Errorf("Expected child id 'node2', got %v", childNode["id"])
+	}
+	if childNode["parent_id"] != "node1" {
+		t.Errorf("Expected child parent_id 'node1', got %v", childNode["parent_id"])
+	}
+	if childNode["source"] != "EDB" {
+		t.Errorf("Expected child source 'EDB', got %v", childNode["source"])
 	}
 }
