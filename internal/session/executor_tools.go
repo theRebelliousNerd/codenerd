@@ -149,7 +149,7 @@ func (e *Executor) runToolLoop(
 
 		nextResp, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, toolDefs)
 		if err != nil {
-			return currentResponse, toolErrs, fmt.Errorf("tool-result follow-up failed: %w", err)
+			return currentResponse, toolErrs, describeToolLoopFailure(ctx, iter, len(toolResults), err)
 		}
 		currentResponse = nextResp
 
@@ -604,6 +604,42 @@ func (e *Executor) projectForbidsWrite(call ToolCall) (string, bool) {
 }
 
 // hollowSuccessPrefix is the stable error marker for hollow-completion failures.
+// describeToolLoopFailure explains a mid-loop failure in terms an operator can
+// act on.
+//
+// A bare "tool-result follow-up failed: context deadline exceeded" is
+// unactionable: it names neither the budget that expired, nor how much work was
+// already done, nor the flag that controls it. Observed live on
+// `nerd analyze internal/projectdoc` with an 8-minute budget — indistinguishable
+// from a broken shard, and the same shape already fixed for `nerd tool
+// generate` (describeStageTimeout) and `nerd dream` (dreamSummary). The
+// recurrence is the point: this is the third command where a timeout looked
+// like a defect.
+func describeToolLoopFailure(ctx context.Context, iteration, toolsThisRound int, err error) error {
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("tool-result follow-up failed: %w", err)
+	}
+
+	// The total budget is not recoverable here: only the deadline is in the
+	// context, and by the time this fires the remainder is negative. Saying
+	// "the operation budget ran out" is what can honestly be claimed; the
+	// caller knows the number it passed to --timeout.
+	overrun := ""
+	if deadline, ok := ctx.Deadline(); ok {
+		if over := time.Since(deadline).Round(time.Second); over > 0 {
+			overrun = fmt.Sprintf(" (overran by %s)", over)
+		}
+	}
+
+	return fmt.Errorf(
+		"tool-result follow-up failed after %d tool iteration(s), %d tool call(s) in the final round: %w — "+
+			"the work was progressing, not stuck; the operation budget ran out%s. Raise it with --timeout",
+		iteration+1, toolsThisRound, err, overrun)
+}
+
 const hollowSuccessPrefix = "hollow success blocked:"
 
 // isHollowSuccessError reports whether err is a hollow-completion failure.
