@@ -431,11 +431,18 @@ func TestOrchestrator_IsPhaseComplete(t *testing.T) {
 // TODO: [Null/Undefined/Empty] Test getCampaignBlockReason when 'campaign_blocked' has < 2 arguments.
 // TODO: [Type Coercion] Test getCampaignBlockReason when the reason argument is not a string (e.g. integer or boolean).
 // Additional test for getCampaignBlockReason
+func TestOrchestrator_CompletePhase_NilPhase(t *testing.T) {
+	mockKernel := &MockKernel{}
+	orch := &Orchestrator{kernel: mockKernel}
+
+	// This should not panic
+	orch.completePhase(nil)
+}
+
 func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
 	// TODO: TestOrchestrator_StartNextPhase_NilContext
 	// TODO: TestOrchestrator_StartNextPhase_RaceCondition
 	// TODO: TestOrchestrator_StartNextPhase_DoubleInvocation
-	// TODO: TestOrchestrator_CompletePhase_NilPhase
 	// TODO: TestOrchestrator_CompletePhase_KernelAssertFailure
 	// TODO: TestOrchestrator_Concurrency_ReadWritePhases
 

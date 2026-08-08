@@ -333,6 +333,10 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 
 // completePhase marks a phase as complete.
 func (o *Orchestrator) completePhase(phase *Phase) {
+	if phase == nil {
+		return
+	}
+
 	o.mu.Lock()
 
 	var completedTasks int
