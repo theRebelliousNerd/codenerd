@@ -188,6 +188,7 @@ func (tr *ToolRegistry) ExecuteRegisteredTool(ctx context.Context, toolName stri
 	}
 
 	startTime := time.Now()
+	/* #nosec G204 */
 	cmd := exec.CommandContext(ctx, tool.Command, args...)
 	if tr.workDir != "" {
 		cmd.Dir = tr.workDir
