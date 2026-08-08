@@ -754,3 +754,148 @@ func TestBuildCriticPrompt_AsksAboutCommentClaims(t *testing.T) {
 		}
 	}
 }
+
+// scriptedCriticLLM returns a fixed review, so the uplift path can be driven
+// without depending on a live model happening to find something.
+type scriptedCriticLLM struct {
+	review string
+	calls  int
+}
+
+func (s *scriptedCriticLLM) Complete(context.Context, string) (string, error) { return "", nil }
+func (s *scriptedCriticLLM) CompleteWithSystem(context.Context, string, string) (string, error) {
+	s.calls++
+	return s.review, nil
+}
+func (s *scriptedCriticLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {
+	return nil, nil
+}
+func (s *scriptedCriticLLM) CompleteWithTools(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	return nil, nil
+}
+
+// recordingToolResults captures the uplift turn so the test can assert what the
+// model was actually asked, and returns a response with no tool calls so the
+// gate finishes without needing the full tool-execution machinery.
+type recordingToolResults struct {
+	calls    int
+	lastText string
+}
+
+func (r *recordingToolResults) CompleteWithToolResults(
+	_ context.Context, _ string, history []types.Message, _ []types.ToolDefinition,
+) (*types.LLMToolResponse, error) {
+	r.calls++
+	if len(history) > 0 {
+		r.lastText = history[len(history)-1].Text
+	}
+	return &types.LLMToolResponse{Text: "fixed"}, nil
+}
+
+// The uplift round had never been observed firing in a live run, because every
+// clean run had nothing to report. This drives it deterministically: a scripted
+// reviewer returns a high-severity finding, and the test asserts the model is
+// actually asked to act on it.
+func TestVerifyAndUpliftWithCritic_FiresUpliftOnHighSeverityFinding(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.go"),
+		[]byte("package p\n\nfunc Add(a, b int) int { return a - b }\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	critic := &scriptedCriticLLM{review: "FINDING a.go:3 high: Add subtracts instead of adding"}
+	trp := &recordingToolResults{}
+
+	cfg := DefaultExecutorConfig()
+	cfg.WorkspaceRoot = ws
+	e := &Executor{config: cfg, llmClient: critic}
+
+	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}
+
+	resp, _, err := e.verifyAndUpliftWithCritic(
+		context.Background(), trp, "sys", nil, nil, nil, result)
+	if err != nil {
+		t.Fatalf("uplift returned an error: %v", err)
+	}
+
+	if critic.calls != 1 {
+		t.Errorf("critic was called %d times; want exactly 1", critic.calls)
+	}
+	if trp.calls != 1 {
+		t.Fatalf("uplift round fired %d times; want exactly 1 — the finding must reach the model", trp.calls)
+	}
+	if resp == nil {
+		t.Error("uplift response was not returned to the caller")
+	}
+	if len(result.CriticFindings) != 1 {
+		t.Fatalf("findings not recorded on the result: %+v", result.CriticFindings)
+	}
+	if result.CriticFindings[0].Severity != "high" {
+		t.Errorf("severity = %q; want high", result.CriticFindings[0].Severity)
+	}
+
+	// The uplift turn must carry the finding and permit rejecting it.
+	if !strings.Contains(trp.lastText, "Add subtracts instead of adding") {
+		t.Errorf("uplift prompt does not carry the finding: %q", trp.lastText)
+	}
+	if !strings.Contains(trp.lastText, "finding is wrong") {
+		t.Error("uplift prompt does not let the model reject a mistaken finding")
+	}
+}
+
+// A low-severity-only review must NOT pay for an uplift round. Low output from
+// a reviewer told to look hard is mostly style, and a model round per write turn
+// for that is how a signal becomes a tax.
+func TestVerifyAndUpliftWithCritic_LowSeverityDoesNotFireUplift(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package p\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	critic := &scriptedCriticLLM{review: "FINDING a.go:1 low: consider renaming this"}
+	trp := &recordingToolResults{}
+
+	cfg := DefaultExecutorConfig()
+	cfg.WorkspaceRoot = ws
+	e := &Executor{config: cfg, llmClient: critic}
+	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}
+
+	if _, _, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if trp.calls != 0 {
+		t.Errorf("uplift fired %d times for a low-severity-only review; want 0", trp.calls)
+	}
+	// It must still be recorded — advisory, but not discarded.
+	if len(result.CriticFindings) != 1 {
+		t.Errorf("low-severity finding was not recorded: %+v", result.CriticFindings)
+	}
+}
+
+// NO FINDINGS must cost nothing beyond the review itself. This is the property
+// most at risk in the whole design: a reviewer that must produce something will.
+func TestVerifyAndUpliftWithCritic_NoFindingsCostsNothingExtra(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package p\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	critic := &scriptedCriticLLM{review: "NO FINDINGS"}
+	trp := &recordingToolResults{}
+
+	cfg := DefaultExecutorConfig()
+	cfg.WorkspaceRoot = ws
+	e := &Executor{config: cfg, llmClient: critic}
+	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}
+
+	resp, errs, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result)
+	if err != nil || resp != nil || errs != nil {
+		t.Fatalf("a clean review must be a no-op, got resp=%v errs=%v err=%v", resp, errs, err)
+	}
+	if trp.calls != 0 {
+		t.Errorf("uplift fired %d times on NO FINDINGS; want 0", trp.calls)
+	}
+	if len(result.CriticFindings) != 0 {
+		t.Errorf("NO FINDINGS recorded findings: %+v", result.CriticFindings)
+	}
+}
