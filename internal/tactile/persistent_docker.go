@@ -1,6 +1,8 @@
 package tactile
 
 import (
+	"regexp"
+
 	"bytes"
 	"context"
 	"fmt"
@@ -11,6 +13,8 @@ import (
 
 	"codenerd/internal/logging"
 )
+
+var containerIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // =============================================================================
 // PERSISTENT DOCKER EXECUTOR
@@ -847,7 +851,6 @@ func (e *PersistentDockerExecutor) Cleanup(ctx context.Context) error {
 // FILE OPERATIONS
 // =============================================================================
 
-
 // isValidContainerID checks if the provided string is a valid Docker container ID or name.
 func isValidContainerID(id string) bool {
 	if len(id) == 0 || len(id) > 64 {
@@ -876,6 +879,12 @@ func (e *PersistentDockerExecutor) CopyToContainer(ctx context.Context, containe
 
 	if !isValidContainerID(containerID) {
 		return fmt.Errorf("invalid container ID format")
+	}
+
+	// A host path containing a colon would be parsed by docker cp as its own
+	// CONTAINER:PATH reference, silently retargeting the copy.
+	if strings.Contains(srcPath, ":") {
+		return fmt.Errorf("source path cannot contain colons")
 	}
 
 	logging.TactileDebug("Copying %s to container %s:%s", srcPath, getLogID(containerID), dstPath)
@@ -907,6 +916,12 @@ func (e *PersistentDockerExecutor) CopyFromContainer(ctx context.Context, contai
 
 	if !isValidContainerID(containerID) {
 		return fmt.Errorf("invalid container ID format")
+	}
+
+	// Same hazard in reverse: a colon in the host destination would be read as
+	// a container reference.
+	if strings.Contains(dstPath, ":") {
+		return fmt.Errorf("destination path cannot contain colons")
 	}
 
 	logging.TactileDebug("Copying container %s:%s to %s", getLogID(containerID), srcPath, dstPath)
