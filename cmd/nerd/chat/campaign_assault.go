@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
+	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
 	"codenerd/internal/usage"
 	"codenerd/internal/world"
@@ -114,6 +115,7 @@ func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 			IntelligenceGatherer: intelligenceGatherer,
 			AdvisoryBoard:        advisoryBoard,
 			EdgeCaseDetector:     edgeCaseDetector,
+			NorthstarObserver:    northstar.BuildCampaignObserver(m.workspace, m.client, m.kernel),
 		})
 		if err != nil {
 			return campaignErrorMsg{err: fmt.Errorf("failed to initialize assault orchestrator: %w", err)}

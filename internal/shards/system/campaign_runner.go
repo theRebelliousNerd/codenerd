@@ -21,6 +21,7 @@ import (
 	"codenerd/internal/campaign"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
+	"codenerd/internal/northstar"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
 	"codenerd/internal/world"
@@ -244,6 +245,7 @@ func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, wor
 		IntelligenceGatherer: intelligenceGatherer,
 		AdvisoryBoard:        advisoryBoard,
 		EdgeCaseDetector:     edgeCaseDetector,
+		NorthstarObserver:    northstar.BuildCampaignObserver(workspace, s.LLMClient, s.Kernel),
 	})
 	if err != nil {
 		logging.Get(logging.CategorySystemShards).Error("[CampaignRunner] Invalid orchestrator config for %s: %v", campaignID, err)

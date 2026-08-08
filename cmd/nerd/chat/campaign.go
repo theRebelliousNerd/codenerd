@@ -7,6 +7,7 @@ import (
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/northstar"
 	"codenerd/internal/usage"
 	"codenerd/internal/world"
 	"context"
@@ -138,6 +139,7 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 			IntelligenceGatherer: intelligenceGatherer,
 			AdvisoryBoard:        advisoryBoard,
 			EdgeCaseDetector:     edgeCaseDetector,
+			NorthstarObserver:    northstar.BuildCampaignObserver(m.workspace, m.client, m.kernel),
 		})
 		if err != nil {
 			return campaignErrorMsg{err: fmt.Errorf("failed to initialize campaign orchestrator: %w", err)}
