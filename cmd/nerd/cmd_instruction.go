@@ -228,6 +228,25 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 					if strings.TrimSpace(result) != "" {
 						output += "\n" + result
 					}
+				} else if strings.TrimSpace(result) == "" {
+					// An empty result is not success.
+					//
+					// This branch set actionExecuted = true on any nil error,
+					// so a shard returning "" was reported as executed and the
+					// envelope asserted task_status(/manual_instruction,
+					// /complete). Observed live on a two-part instruction: the
+					// coder shard did the first half, dropped the second, and
+					// returned an empty string — output read "Executed
+					// /delegate_coder via coder:" with nothing after the colon,
+					// and the command exited 0.
+					//
+					// The hollow-success guard below already exists for exactly
+					// this class of failure; it just could not see this case,
+					// because actionExecuted was already true by the time it
+					// ran. Same family as the BaseShardAgent stub that made
+					// `nerd spawn <anything>` succeed.
+					actionErr = fmt.Errorf("shard %s returned an empty result for %s: nothing was reported as done, so nothing can be verified", shard, action)
+					output = actionErr.Error()
 				} else {
 					actionExecuted = true
 					output = fmt.Sprintf("Executed %s via %s:\n%s", action, shard, result)
