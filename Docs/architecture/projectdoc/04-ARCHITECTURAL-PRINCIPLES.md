@@ -1,112 +1,92 @@
 # 04 — Architectural Principles: `nerd.md` Project-Instruction Subsystem
 
-> **Corpus type:** Normative — invariants that constrain `internal/projectdoc` + `internal/core/defaults` + `internal/session` interaction. Aspirational claims marked `planned:` / `ASSUMPTION`.
-> **Scope:** Derives from `internal/projectdoc`, `internal/core/defaults`, `internal/session` as read 2026-05-13 / re-verified 2026-08-07. Every claim cites `file:line`; uncited prose is not normative.
-> **Uncertainty note (2026-08-07):** Write budget exhausted before re-reading source bodies this turn. Citations below reuse line ranges verified in `01-VISION.md` synthesis (`internal/projectdoc/nerdmd.go:1-293`, `internal/projectdoc/facts.go:1-250`, `internal/core/defaults/schemas_projectdoc.mg`, `internal/core/defaults/policy/projectdoc.mg`, `internal/session/executor_tools.go:406-445`); JIT `PromptSection()` injection site in `internal/prompt/compiler.go` remains `ASSUMPTION` pending re-read (`verified: 01-VISION.md:uncertainty note`). `policy/projectdoc.mg:32-34` denial consumption path likewise `ASSUMPTION — planned:`. Markers `verified:` below mean "line range matched in prior synthesis", not "re-opened this turn".
+> **Corpus type:** Normative — invariants that constrain `internal/projectdoc` + `internal/session` interaction. Every claim cites `file:line` verified live in this turn via `read_file` (which prefixes each line with its real number and a tab).
+> **Scope:** `internal/projectdoc/nerdmd.go`, `internal/projectdoc/facts.go`, `internal/session/executor_tools.go` as read 2026-08-08.
 
-## 1. Principle: Parse Strictness — A Dropped Directive Is Worse Than No Directive
+## 1. Principle: Frontmatter Is Strict, Body Is Advisory
 
-A malformed `nerd.md` must fail loudly at parse, never silently drop a key (`verified: internal/projectdoc/nerdmd.go:23-27` — strictness thesis).
+`nerd.md` deliberately splits along the creative / executive line described at `internal/projectdoc/nerdmd.go:1-17`. The YAML frontmatter fenced by `---` is a strict schema that becomes enforcement; the Markdown body is prose that becomes advice.
 
-* `yaml.Decoder.KnownFields(true)` is enabled (`verified: internal/projectdoc/nerdmd.go:171`) so `projekt: go` is a hard error naming the line (`verified: internal/projectdoc/nerdmd.go:168-175`, `test: TestParse_UnknownKeyIsAHardError`).
-* Frontmatter is isolated by `splitFrontmatter` with a 4 MiB buffer (`verified: internal/projectdoc/nerdmd.go:188-189`) and validated after decode (`verified: internal/projectdoc/nerdmd.go:232-272`).
-* `Path` is slash-normalised on load (`verified: internal/projectdoc/nerdmd.go:153-158`) so later `Contains` checks are comparable.
-* Discovery is explicit: `Find(workspace)` returns `""` if absent, not an error, preserving "no file required" (`verified: internal/projectdoc/nerdmd.go:131-140`).
+**Why strict.** The thesis is stated explicitly at `internal/projectdoc/nerdmd.go:18-21`: a dropped directive is worse than no directive. An unknown key, bad schema version, or malformed entry is a hard error naming the line, never a silently ignored field.
 
-**Consequence:** No lenient fallback, no "best-effort" apply. Either the committed frontmatter is exactly understood or the run stops with a line-precise message.
+Mechanically:
 
-## 2. Principle: Typed Facts Over Prose — Safety Instructions Are `Decl`-Typed, Not Prompt Folklore
+* `Parse` at `internal/projectdoc/nerdmd.go:170-189` splits frontmatter from body via `splitFrontmatter` and then decodes with `decoder.KnownFields(true)` at `internal/projectdoc/nerdmd.go:180`. The comment at `internal/projectdoc/nerdmd.go:178-179` is explicit: failing on an unknown key is the only way the author finds out the binary will not honour their directive. Decode failure is wrapped as `invalid frontmatter` at `internal/projectdoc/nerdmd.go:182`.
+* After decode, `spec.validate()` at `internal/projectdoc/nerdmd.go:185` enforces the contract at `internal/projectdoc/nerdmd.go:236-273`: missing `schema` at `internal/projectdoc/nerdmd.go:237-238`, unsupported schema at `internal/projectdoc/nerdmd.go:240-244`, empty `forbid[].match` at `internal/projectdoc/nerdmd.go:248-249`, missing `forbid[].reason` at `internal/projectdoc/nerdmd.go:251-255`, empty convention id/rule at `internal/projectdoc/nerdmd.go:258-265`, and empty require at `internal/projectdoc/nerdmd.go:267-270`.
+* `splitFrontmatter` at `internal/projectdoc/nerdmd.go:195-234` requires the first line to be `---` at `internal/projectdoc/nerdmd.go:205-210` and requires the block to be closed at `internal/projectdoc/nerdmd.go:221-223`, with an explicit 4 MiB buffer at `internal/projectdoc/nerdmd.go:200` so a long body line cannot masquerade as a frontmatter error.
+* The schema itself is pinned: `SchemaVersion = "nerd/v1"` at `internal/projectdoc/nerdmd.go:43` with the comment at `internal/projectdoc/nerdmd.go:39-42` that it is pinned rather than range-checked so newer documents fail loudly. Adding a field to `Spec` at `internal/projectdoc/nerdmd.go:58-92` is defined at `internal/projectdoc/nerdmd.go:60-62` as a schema change that must bump that version.
 
-Every safety-relevant instruction becomes a typed Mangle fact with a bounded derivation (`verified: internal/projectdoc/facts.go:63-93` for `project_language/1`, `project_command/2`, `project_command_env/2`; `verified: internal/core/defaults/schemas_projectdoc.mg:18-71` for `Decl` of `project_forbidden_path/2`, `project_requirement/1`, `project_convention/2`, `project_command/2`, `project_command_env/2`, `has_project_doc/0`).
+**Why advisory.** The body half is the opposite kind by construction:
 
-* Only YAML frontmatter projects to facts; Markdown body after the second `---` is `TrimSpace` verbatim and never projected (`verified: internal/projectdoc/facts.go:47-52`).
-* `project_language/1` `Decl` lives in `internal/core/defaults/schemas_project.mg` (`verified: 01-VISION.md §2` — `schemas_project.mg` for `project_language/1`), remaining `project_*` in `schemas_projectdoc.mg` (`verified: internal/core/defaults/schemas_projectdoc.mg:18-71`).
-* `Facts()` is therefore a pure projection: frontmatter → kernel overlay (`verified: internal/projectdoc/facts.go:63-93`).
+* `Document.Body` at `internal/projectdoc/nerdmd.go:53-55` is `Markdown prose after the frontmatter, verbatim and trimmed. Advisory only.`
+* Only the frontmatter is projected to facts. The comment at `internal/projectdoc/facts.go:42-47` states the body belongs in the prompt, not the fact store, and `Facts()` at `internal/projectdoc/facts.go:51-54` projects `d.Spec` only.
+* Rendering the body for the model is a separate path: `PromptSection()` at `internal/projectdoc/facts.go:156-242` builds prose for prompt injection, including the forbid/require/conventions/commands summaries and then the trimmed body at `internal/projectdoc/facts.go:236-238`. The section header at `internal/projectdoc/facts.go:162-164` stamps the source path so the injection is traceable.
 
-**Consequence:** `project_*` facts are the single representation the kernel reasons over; prose cannot create a safety fact, and policy never pattern-matches Markdown (`verified: internal/projectdoc/facts.go:47-52` forbids it).
+**Consequence:** Writing a rule in prose does not create enforcement. Writing it in frontmatter does. The two containers never mix (`internal/projectdoc/facts.go:42-47` forbids asserting free text as fact).
 
-## 3. Principle: Executive vs Creative Split Is Load-Bearing
+## 2. Principle: Facts Go to the Kernel, Not a Go Struct
 
-| Half | Container | Form | Projection | Enforcement |
-|------|-----------|------|------------|-------------|
-| Executive | YAML frontmatter fenced by `---`, `schema: nerd/v1` pinned (`verified: internal/projectdoc/nerdmd.go:36,43,238-245`) | Strict, `KnownFields(true)` (`verified: internal/projectdoc/nerdmd.go:171`), bounded validation (`verified: internal/projectdoc/nerdmd.go:232-272`) | Kernel facts (`project_*`) (`verified: internal/projectdoc/facts.go:63-93`) via `Decl` (`verified: internal/core/defaults/schemas_projectdoc.mg:18-71`) | Mangle policy → `permitted` denial **before** tool execution |
-| Creative | Markdown body | Free prose, `TrimSpace` verbatim | Single `PromptSection` atom only (`verified: internal/projectdoc/facts.go:158-248`) | None — advisory via JIT injection (`ASSUMPTION: internal/prompt/compiler.go` site not re-read this turn) |
+A `forbid` rule does not become a cached Go map consulted by the executor. It becomes a kernel fact that policy and every executor path query under the same name.
 
-* Body is summarized into one JIT atom covering forbid/require/conventions/commands/body (`verified: internal/projectdoc/facts.go:158-248`) so the model is not surprised by a later hard denial.
-* Turning body into facts is explicitly forbidden (`verified: internal/projectdoc/facts.go:47-52`).
+* The enforced predicate is declared at `internal/projectdoc/facts.go:32-33` as `PredForbiddenPath = "project_forbidden_path"` with the comment `the ENFORCED one` and doc `project_forbidden_path(Match, Reason)`. Sibling predicates for present/name/language/command/env/requirement/convention are at `internal/projectdoc/facts.go:12-39`.
+* Projection is at `internal/projectdoc/facts.go:51-108`. `Facts()` emits `project_doc` at `internal/projectdoc/facts.go:56-58`, optional `project_name` at `internal/projectdoc/facts.go:60-62`, normalized `project_language` atom at `internal/projectdoc/facts.go:64-69` via `normalizeAtom` at `internal/projectdoc/facts.go:129-148`, `project_command` for `/build`/`/test`/`/lint`/`/run` at `internal/projectdoc/facts.go:71-84`, `project_command_env` at `internal/projectdoc/facts.go:86-91`, `project_forbidden_path` at `internal/projectdoc/facts.go:93-98`, `project_requirement` at `internal/projectdoc/facts.go:100-102`, and `project_convention` at `internal/projectdoc/facts.go:104-106`.
+* The authoritative gate is `projectForbidsWrite` at `internal/session/executor_tools.go:487-524`. Its header comment at `internal/session/executor_tools.go:477-486` states the kernel is the authority, not a cached Go struct: facts are asserted at boot like any EDB so policy, `/query`, and the gate see exactly the same rules, and a parallel in-memory copy would drift after one refactor.
+* `SetProjectDoc` at `internal/session/executor_tools.go:426-437` makes the structural implication explicit at `internal/session/executor_tools.go:426-432`: only the prose rendering is held on the executor; write protection is enforced by querying the kernel, so a subagent that never receives the pointer is still governed.
+* Enforcement ordering in `executeToolCall` at `internal/session/executor_tools.go:669-700` is `isToolAllowed` → `checkSafety` → `projectForbidsWrite` → Dreamer preflight. The comment at `internal/session/executor_tools.go:684-694` notes `projectForbidsWrite` at `internal/session/executor_tools.go:695-700` intentionally sits after the constitutional gate and before simulation: constitutional rules outrank project rules, and there is no reason to simulate an action already denied. The denial is observable and turns into `blocked by nerd.md: <path> is write-protected (<reason>)` at `internal/session/executor_tools.go:698-699` with a `Warn` at `internal/session/executor_tools.go:696-697`.
 
-**Consequence:** Enforcement and persuasion never mix. Facts enforce; atoms inform.
+Supporting details that keep the gate closed:
 
-## 4. Principle: Policy Is the Single Source of Truth; Executor Is the Gate
+* Only write-mutation tools are gated, checked at `internal/session/executor_tools.go:488-489` via `isWriteMutationTool` defined at `internal/session/executor_tools.go:411-424` (which must cover every `VirtualStore` durable-write action).
+* Target extraction checks every arg alias that names a path at `internal/session/executor_tools.go:463` (`projectDocPathArgs`) and `internal/session/executor_tools.go:466-475` (`projectDocTargetPath`), so `path` vs `file_path` vs `file` vs `filename` vs `target` vs `dest` vs `destination` cannot bypass the gate.
+* Live display of the rule for learnability, without moving enforcement to the prompt, is `PromptSection()` at `internal/projectdoc/facts.go:200-212` for `Write-protected paths (ENFORCED)` plus the restatement in `withProjectInstructions` at `internal/session/executor_tools.go:445-456`.
 
-`internal/core/defaults/policy/projectdoc.mg` derives `has_project_doc`, `project_has_command`, `project_write_denied` / `coder_block_write` (`verified: internal/core/defaults/policy/projectdoc.mg:32-34` — exists) and gates `permitted(Action,Target,Payload)`; `internal/session` consumes that derivation at the live gate.
+**Consequence:** There is one representation of a `forbid` rule: the kernel fact. Go structs render it; they never re-decide it.
 
-* Live enforcement is `projectForbidsWrite` in the executor (`verified: internal/session/executor_tools.go:406-445`) which denies `write_file` / `edit_lines` / `insert_lines` / `delete_lines` targeting a `forbid.match` before execution, charging the turn without filesystem mutation (`verified: internal/session/executor_tools.go:529` for message `blocked by nerd.md: <path> is write-protected (<reason>)` target).
-* **Planned alignment (`planned: ASSUMPTION`):** Executor will consume dormant `project_write_denied` / `coder_block_write` (`verified: internal/core/defaults/policy/projectdoc.mg:32-34` — derived but not yet consumed per `01-VISION.md §4`) so the kernel, not a duplicated `Contains` in Go, is the single authority. This requires a normalisation proof that `ToLower(ToSlash(...))` + `Contains` agrees in both layers (`planned:` artifact).
-* `require: [string]` and `conventions: [{id, rule}]` follow the same lifecycle when lifted: `project_requirement/1` / `project_convention/2` → `handoff_blocked(Requirement)` → `permitted(handoff,…)` (`planned:` — choice between `permitted(handoff,…)` vs post-tool advisory check still open per `01-VISION.md §6`).
+## 3. Principle: Absence of the File Is Not an Error
 
-**Consequence:** No tool runs that violates a derived `forbid`; denial is observable (`permitted`-gate) and not advisory.
+`nerd.md` is optional. An absent file means absent facts, not a failed run.
 
-## 5. Principle: Prompt Restatement Prevents Surprise Denial, But Never Replaces It
+* `FileName` at `internal/projectdoc/nerdmd.go:36` is `"nerd.md"`. `Find` at `internal/projectdoc/nerdmd.go:131-141` searches `filepath.Join(workspace, FileName)` and then `filepath.Join(workspace, ".nerd", FileName)` and returns `""` when absent, documented at `internal/projectdoc/nerdmd.go:130` as `Returns "" when absent, which is not an error: nerd.md is optional.`
+* `Load` at `internal/projectdoc/nerdmd.go:148-167` implements the `(nil, nil)` contract: at `internal/projectdoc/nerdmd.go:149-152` it calls `Find`, and if `path == ""` returns `nil, nil`. The doc comment at `internal/projectdoc/nerdmd.go:145-147` states `Returns (nil, nil) when the file does not exist. Returns an error only when the file exists and is invalid — an unreadable directive must never degrade to "no directive".`
+* The fact and prompt projections are nil-safe on that path: `Facts()` at `internal/projectdoc/facts.go:51-54` returns `nil` for a nil document `so callers can pass the result of Load straight through without a nil check`, and `PromptSection()` at `internal/projectdoc/facts.go:156-159` returns `""` for nil. `ForbidsPath` at `internal/projectdoc/nerdmd.go:281-283` likewise returns `false` when `d == nil`.
+* `withProjectInstructions` at `internal/session/executor_tools.go:445-456` calls `doc.PromptSection()` at `internal/session/executor_tools.go:450` and returns the input `systemPrompt` unchanged when `section == ""` at `internal/session/executor_tools.go:451-453`.
 
-`PromptSection()` (`verified: internal/projectdoc/facts.go:158-248`) renders the committed forbid/require/conventions/commands plus body into one JIT atom injected via `internal/prompt/compiler.go` (`ASSUMPTION: exact call site not re-read this turn`).
+Errors are still surfaced when the file exists:
 
-* The model learns the rule from the prompt before wasting a turn; enforcement remains the kernel's `permitted` derivation (`verified: internal/projectdoc/facts.go:158-248` + `verified: internal/session/executor_tools.go:529` denial path).
-* Body presence does not create a fact (`verified: internal/projectdoc/facts.go:47-52`), so prompt-only instructions cannot be enforced and fact-only rules are still rendered for learnability.
+* `os.ReadFile` failure at `internal/projectdoc/nerdmd.go:153-156` returns `fmt.Errorf("read %s: %w", path, err)`.
+* `Parse` failure at `internal/projectdoc/nerdmd.go:157-160` is wrapped as `fmt.Errorf("%s: %w", path, err)` so the line-precise message points at the file.
 
-**Consequence:** One turn is saved (model avoids the forbidden path), but security does not depend on the model reading the prompt.
+**Consequence:** A workspace without `nerd.md` behaves exactly as before adoption. A workspace with a malformed `nerd.md` stops loudly, never silently.
 
-## 6. Principle: Normalization Invariance — Substring on Slash-Normalised, Lower-Cased Paths
+## 4. Principle: The `nerd.md` Gate Fails Open on Kernel Error — Loudly
 
-`forbid.match` is substring, not glob, on slash-normalised, lower-cased paths — intentionally so Go and Mangle agree (`verified: internal/projectdoc/nerdmd.go:281-293` — `ForbidsPath`; `verified: internal/core/defaults/schemas_projectdoc.mg:40-44` — `Contains` agreement).
+When the kernel cannot be queried for `project_forbidden_path`, the `nerd.md` write gate allows the write and logs a warning. This is intentional and contrasts with the constitutional safety gate, which fails closed.
 
-* `Path` slash-normalisation at load (`verified: internal/projectdoc/nerdmd.go:153-158`) anchors this invariant.
-* Both layers apply `ToLower(ToSlash(path))` before `Contains` (`planned:` needs proof artifact that the two implementations are equivalent — `01-VISION.md §4`).
+* `projectForbidsWrite` at `internal/session/executor_tools.go:487-524` queries `projectdoc.PredForbiddenPath` at `internal/session/executor_tools.go:499`. On error it executes the fail-open path at `internal/session/executor_tools.go:500-508`: `Warn` at `internal/session/executor_tools.go:505-506` with `nerd.md write protection could not be evaluated for %s (%v); allowing the write` and `return "", false` at `internal/session/executor_tools.go:507`. The comment at `internal/session/executor_tools.go:501-504` explains why: a transient query failure is not evidence that the path is protected, and blocking every write would make the agent unusable the moment the kernel hiccups.
+* The nil-kernel path at `internal/session/executor_tools.go:495-497` similarly returns `("", false)` — no kernel means no derived `forbid` facts to enforce, so no denial fires.
+* The read path is symmetric: `intentRequiresToolCall` at `internal/session/executor_tools.go:360-376` queries `intent_requires_tool_call(%s)` at `internal/session/executor_tools.go:367-368` and on error logs at `internal/session/executor_tools.go:370-372` and `return false` at `internal/session/executor_tools.go:373`, documented at `internal/session/executor_tools.go:353-359` as conservatively returning false so a missing kernel never blocks a final answer.
+* Contrast with the constitutional gate `checkSafety` at `internal/session/executor_tools.go:798-923`: at `internal/session/executor_tools.go:810-817` it fails closed when `kernel == nil && EnableSafetyGate == true` with `return false` and `Error("Safety check failed closed...")`. The `nerd.md` gate is project policy (fail open on transient evaluation failure); the safety gate is constitutional (fail closed on missing kernel). Both choices are observable through structured logging (`Warn` vs `Error`).
 
-**Consequence:** No divergent glob dialect where the gate opens on one side and denies on the other. A diverging glob is explicitly out of scope (`verified: 01-VISION.md §3` non-goal).
+**Consequence:** A kernel hiccup degrades `nerd.md` to a visible warning rather than a global write freeze, while safety invariants remain deny-by-default.
 
-## 7. Principle: Schema Pinning — Fail Loud on Version Skew
+## 5. Supporting Invariants (Grounded)
 
-`SchemaVersion` is pinned to `nerd/v1` (`verified: internal/projectdoc/nerdmd.go:38-43` constant + `verified: internal/projectdoc/nerdmd.go:36,43,238-245` pin site); documents declaring `nerd/v9` emit `unsupported schema "nerd/v9"; this build speaks "nerd/v1"` (`verified: internal/projectdoc/nerdmd.go:240-245`).
+* **Normalization agreement.** `ForbidsPath` at `internal/projectdoc/nerdmd.go:281-292` normalizes with `strings.ToLower(filepath.ToSlash(...))` at `internal/projectdoc/nerdmd.go:285` and `internal/projectdoc/nerdmd.go:287` before `strings.Contains` at `internal/projectdoc/nerdmd.go:287`. `projectForbidsWrite` at `internal/session/executor_tools.go:510-520` applies the identical normalization at `internal/session/executor_tools.go:510` and `internal/session/executor_tools.go:515` before `Contains` at `internal/session/executor_tools.go:519`. `match` is substring, not glob, by design at `internal/projectdoc/nerdmd.go:108-114` — a glob that disagrees across Go and Mangle is a gate that sometimes opens.
+* **Reason required.** `validate` requires non-empty `Reason` at `internal/projectdoc/nerdmd.go:251-255` so a denial the agent cannot explain does not read as a malfunction that invites a workaround.
+* **Language as atom.** `project_language` is emitted as `types.MangleAtom` at `internal/projectdoc/facts.go:68` via `normalizeAtom` at `internal/projectdoc/facts.go:129-148` because policy unifies on `/go`, not `"go"` (`internal/projectdoc/facts.go:65-67`).
+* **Env-command separation.** `Commands.Env` at `internal/projectdoc/nerdmd.go:100-104` and its projection at `internal/projectdoc/facts.go:86-91` are typed separately from the command strings so `CGO_CFLAGS`-style prerequisites are not invisible in the command string.
 
-* No range check, no half-apply (`verified: 01-VISION.md §3` non-goal). Newer documents are rejected entirely rather than applied partially where the author believes a rule is live when it is not.
-* Strictness thesis (`verified: internal/projectdoc/nerdmd.go:23-27`) governs: a half-applied directive is a dropped directive.
+## 6. How Conformance Is Judged
 
-**Consequence:** Version skew is visible and actionable, not silent.
+* Every `forbid` in frontmatter at `internal/projectdoc/nerdmd.go:80-83` is a `project_forbidden_path` fact at `internal/projectdoc/facts.go:93-98` and a live denial at `internal/session/executor_tools.go:695-700` before filesystem mutation.
+* No body text at `internal/projectdoc/nerdmd.go:53-55` becomes a fact (`internal/projectdoc/facts.go:42-47` forbids it); it becomes prompt atom prose at `internal/projectdoc/facts.go:156-242`.
+* `KnownFields(true)` at `internal/projectdoc/nerdmd.go:180` plus `validate` at `internal/projectdoc/nerdmd.go:236-273` mean no half-understood document is applied; schema skew at `internal/projectdoc/nerdmd.go:240-244` is a full rejection.
+* Absent-file contract at `internal/projectdoc/nerdmd.go:130-131` and `internal/projectdoc/nerdmd.go:145-152` is preserved: absent means `nil` facts and unchanged prompt.
+* Kernel-unavailable behavior is fail-open with a `Warn` at `internal/session/executor_tools.go:505-507`, never a silent allow or a global freeze.
 
-## 8. Principle: Canonical Commands Close the Invisible-Prerequisite Gap
+## 7. Explicit Non-Goals
 
-`language: go` and `commands.*` (`commands.build`, `commands.test`, `commands.lint`, `commands.run`, `commands.env`) are projected as `project_language/1`, `project_command/2`, `project_command_env/2` (`verified: internal/projectdoc/facts.go:63-93`).
-
-* `commands.env` map (e.g. `CGO_CFLAGS`) is typed (`verified: internal/projectdoc/nerdmd.go:100-103` + `verified: internal/projectdoc/facts.go:86-93`) and `planned: ASSUMPTION` for hermetic executor materialisation when running canonical `build`/`test` — closing the `CGO_CFLAGS` invisible-prerequisite gap without capturing ambient env or adding a second config file (`planned:` per `01-VISION.md §4`; opt-in per-command vs global still open per `01-VISION.md §6`).
-
-**Consequence:** The model does not open source files to guess build/test commands; it reads the derived facts/JIT atom derived from the committed frontmatter.
-
-## 9. Principle: Optional Presence, Backward-Compatible When Absent
-
-`nerd.md` is optional at workspace root (fallback `.nerd/nerd.md`); when absent, behavior is unchanged and no file is required (follows `verified: internal/projectdoc/nerdmd.go:131-140` — `Find` returns `""`, not error). All `project_*` derivations are simply absent and no `permitted` denial fires.
-
-* When present, every instruction the author committed is rendered exactly — no silently dropped key (`verified: internal/projectdoc/nerdmd.go:23-27`, `verified: internal/projectdoc/nerdmd.go:168-175`).
-* JIT atom is still a single insertion (`verified: internal/projectdoc/facts.go:158-248`) — no amplification of prose into policy.
-
----
-
-### How Conformance Is Judged (normative)
-
-* Every safety-relevant instruction is a `Decl`-typed fact (`verified: internal/core/defaults/schemas_projectdoc.mg:18-71`) with a bounded derivation and an observable `permitted`-gate denial (`verified: internal/session/executor_tools.go:406-445`, `verified: internal/session/executor_tools.go:529` target; `verified: internal/core/defaults/policy/projectdoc.mg:32-34` for dormant derivation).
-* Verification stays green: `go test ./internal/projectdoc -run TestParse -count=1 -v` (`verified: 01-VISION.md §5` gate), `go vet ./internal/projectdoc`, `python .agents/skills/corpus-build/scripts/validate_architecture_corpora.py`.
-* `PromptSection` restatement (`verified: internal/projectdoc/facts.go:158-248`) precedes enforcement; enforcement never depends on it.
-
-### Explicit Non-Goals (reaffirmed, normative)
-
-* Do not turn Markdown body into facts (`verified: internal/projectdoc/facts.go:47-52`).
-* Do not adopt glob for `forbid.match` — keep substring so Go (`verified: internal/projectdoc/nerdmd.go:281-293`) and Mangle (`verified: internal/core/defaults/schemas_projectdoc.mg:40-44`) agree.
-* Do not range-check schema — stay pinned (`verified: internal/projectdoc/nerdmd.go:38-43`, `verified: internal/projectdoc/nerdmd.go:240-245`).
-* Do not add a parallel subsystem for `require`/`conventions` — reuse typed facts + Mangle + `permitted` lifecycle gates (`planned:` per `01-VISION.md §4`).
-
-### Open Choices (deferred, non-normative — see `01-VISION.md §6`)
-
-* `require` as `permitted(handoff,…)` vs post-tool advisory check.
-* Normalisation proof artifact for `project_write_denied` consumption.
-* `commands.env` hermetic scope (per-command vs global).
-* Exact `PromptSection()` injection point in `internal/prompt/compiler.go` (`ASSUMPTION`).
+* Do not turn body prose into facts (`internal/projectdoc/facts.go:42-47`).
+* Do not adopt glob for `forbid.match` (`internal/projectdoc/nerdmd.go:108-114` and `internal/projectdoc/nerdmd.go:281-292` vs `internal/session/executor_tools.go:510-520`).
+* Do not range-check schema (`internal/projectdoc/nerdmd.go:39-43` and `internal/projectdoc/nerdmd.go:240-244` — stay pinned to `nerd/v1`).
+* Do not cache `forbid` in a Go struct beside the kernel (`internal/session/executor_tools.go:477-486` and `internal/session/executor_tools.go:426-432`).
