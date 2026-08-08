@@ -59,6 +59,10 @@ func (v *VirtualStore) HydrateModularTools() error {
 	// Get the global registry for tools.Global() access by session.Executor
 	globalRegistry := tools.Global()
 
+	// Install the nerd.md write guard on BOTH registries before any tool is
+	// registered, so no window exists where a tool is callable but unguarded.
+	v.installToolWriteGuard(registry, globalRegistry)
+
 	// Register all core filesystem tools (to both registries)
 	if err := core.RegisterAll(registry); err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Failed to register core tools: %v", err)

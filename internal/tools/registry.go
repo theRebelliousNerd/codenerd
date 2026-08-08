@@ -19,7 +19,28 @@ type Registry struct {
 
 	// byCategory provides fast lookup by category.
 	byCategory map[ToolCategory][]*Tool
+
+	// writeGuard, when set, runs before every tool execution and can refuse
+	// it. See SetWriteGuard.
+	writeGuard WriteGuard
 }
+
+// WriteGuard vets a tool invocation before it runs. A non-nil error refuses
+// the call and the tool never executes.
+//
+// This exists because nerd.md's forbidden-path enforcement lived only in
+// callers — session.Executor.executeToolCall and VirtualStore.executeAction —
+// while the tools themselves enforced nothing and the registry is reachable
+// process-globally via tools.Execute. Any code path calling
+// tools.Global().Execute(ctx, "write_file", ...) directly bypassed both gates,
+// which is the exact failure the codebase already suffered once and documents
+// at virtual_store_routing.go:317 ("a shard could write .nerd/config.json").
+// Raised again by codeNERD's own security review of internal/tools/core/
+// file_ops.go.
+//
+// The guard is injected as a function so internal/tools keeps its single
+// dependency on internal/logging — it must not import projectdoc or core.
+type WriteGuard func(ctx context.Context, toolName string, args map[string]any) error
 
 // NewRegistry creates a new empty tool registry.
 func NewRegistry() *Registry {
@@ -188,6 +209,24 @@ func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]
 		}, err
 	}
 
+	// Consult the write guard before the tool can touch anything. This is the
+	// chokepoint every execution path reaches, including the process-global
+	// tools.Execute that bypassed the caller-side nerd.md gates entirely.
+	r.mu.RLock()
+	guard := r.writeGuard
+	r.mu.RUnlock()
+	if guard != nil {
+		if err := guard(ctx, tool.Name, args); err != nil {
+			refused := time.Since(start)
+			logging.Audit().ToolExec(tool.Name, "write_guard", refused.Milliseconds(), false, err.Error())
+			return &ToolResult{
+				ToolName:   tool.Name,
+				Error:      err,
+				DurationMs: refused.Milliseconds(),
+			}, err
+		}
+	}
+
 	// Execute the tool
 	logging.ToolsDebug("Executing tool: %s", tool.Name)
 	result, err := tool.Execute(ctx, args)
@@ -332,6 +371,25 @@ func intentToCategory(intent string) ToolCategory {
 
 // Global registry instance for convenience.
 var globalRegistry = NewRegistry()
+
+// SetWriteGuard installs a guard consulted before every tool execution on this
+// registry. Passing nil removes it.
+//
+// Defense in depth, not a replacement: the caller-side gates stay where they
+// are. This one exists so that a call site which forgets them — or is added
+// later by someone who does not know they exist — still cannot write a
+// protected path.
+func (r *Registry) SetWriteGuard(g WriteGuard) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.writeGuard = g
+}
+
+// SetGlobalWriteGuard installs a write guard on the global registry, which is
+// the one reachable via tools.Execute.
+func SetGlobalWriteGuard(g WriteGuard) {
+	globalRegistry.SetWriteGuard(g)
+}
 
 // Global returns the global tool registry.
 func Global() *Registry {
