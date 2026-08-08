@@ -27,7 +27,6 @@ func TestDependencyResolver_SetAllowMissingDeps(t *testing.T) {
 }
 
 func TestDependencyResolver_Resolve(t *testing.T) {
-	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with slices containing multiple nil elements, alternating nils, or an entire slice of nil elements.
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with empty `DependsOn` array `[]string{}` versus `nil`.
 	// TODO: TEST_GAP: Type Coercion - Resolve with malformed Atom IDs containing unicode, spaces, or control chars.
 	// TODO: TEST_GAP: Type Coercion - Resolve with float64 precision limits, NaN, or Infinity scores.
@@ -50,6 +49,39 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 			expectError:   false,
 			expectedOrder: []string{"a", "b", "c"},
 			expectedLen:   3,
+		},
+		{
+			name: "all nil elements",
+			atoms: []*ScoredAtom{
+				nil, nil, nil,
+			},
+			expectError: false,
+			expectedLen: 0,
+		},
+		{
+			name: "alternating nils with valid elements",
+			atoms: []*ScoredAtom{
+				nil,
+				{Atom: &PromptAtom{ID: "a", Priority: 50}, Combined: 0.5},
+				nil,
+				{Atom: &PromptAtom{ID: "b", Priority: 60}, Combined: 0.8},
+				nil,
+			},
+			expectError:   false,
+			expectedOrder: []string{"b", "a"},
+			expectedLen:   2,
+		},
+		{
+			name: "multiple nils and invalid elements",
+			atoms: []*ScoredAtom{
+				nil,
+				{Atom: nil, Combined: 0.5},
+				{Atom: &PromptAtom{ID: ""}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "valid", Priority: 50}, Combined: 0.5},
+			},
+			expectError:   false,
+			expectedOrder: []string{"valid"},
+			expectedLen:   1,
 		},
 		{
 			name:          "empty input",
@@ -95,7 +127,6 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 			expectedLen: 2,
 		},
 
-
 		{
 			name: "empty string in DependsOn",
 			atoms: []*ScoredAtom{
@@ -105,7 +136,7 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 			expectError: false,
 			expectedLen: 2,
 		},
-{
+		{
 			name: "multi-level dependency chain",
 			atoms: []*ScoredAtom{
 				{Atom: &PromptAtom{ID: "a", DependsOn: []string{"b"}}, Combined: 0.5},
@@ -622,7 +653,6 @@ func BenchmarkSortByCategory(b *testing.B) {
 		resolver.SortByCategory(atoms)
 	}
 }
-
 
 func TestDependencyResolver_Resolve_ConcurrentBudgetManager(t *testing.T) {
 	resolver := NewDependencyResolver()
