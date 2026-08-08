@@ -191,6 +191,35 @@ func TestShardManager_ListAvailableShards_WithSystemShard(t *testing.T) {
 	}
 }
 
+// A shard registered as a system profile must be reported as system even
+// though it is not in the legacy hardcoded name list.
+//
+// Regression: mangle_repair, campaign_runner and legislator all register
+// `system` profiles but were reported `ephemeral`, because the factory loop
+// consulted a hardcoded list of six names instead of the profile. `nerd dream`
+// filters on ShardTypeSystem, so it consulted campaign_runner — whose Execute
+// is an infinite supervision loop — and blocked on it for its whole 25-minute
+// budget, producing no output. Measured live 2026-08-08.
+func TestShardManager_ListAvailableShards_SystemProfileNotInLegacyList(t *testing.T) {
+	for _, name := range []string{"mangle_repair", "campaign_runner", "legislator"} {
+		t.Run(name, func(t *testing.T) {
+			sm := NewShardManager()
+			sm.RegisterShard(name, func(id string, cfg types.ShardConfig) types.ShardAgent { return nil })
+			cfg := DefaultSpecialistConfig(name, "")
+			cfg.Type = types.ShardTypeSystem
+			sm.DefineProfile(name, cfg)
+
+			shards := sm.ListAvailableShards()
+			if len(shards) != 1 {
+				t.Fatalf("expected 1 shard, got %d", len(shards))
+			}
+			if shards[0].Type != types.ShardTypeSystem {
+				t.Errorf("%s reported as %s; dream/shadow would consult it", name, shards[0].Type)
+			}
+		})
+	}
+}
+
 func TestShardManager_ListAvailableShards_MergesProfilesAndFactories(t *testing.T) {
 	sm := NewShardManager()
 	sm.RegisterShard("coder", func(id string, cfg types.ShardConfig) types.ShardAgent { return nil })

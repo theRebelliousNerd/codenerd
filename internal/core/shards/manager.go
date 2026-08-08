@@ -40,8 +40,8 @@ type ShardManager struct {
 	spawnCounter int64
 
 	// Core dependencies to inject into shards
-	kernel       types.Kernel
-	llmClient    types.LLMClient // default worker/main client for most shards
+	kernel    types.Kernel
+	llmClient types.LLMClient // default worker/main client for most shards
 	// imageLLMClient is Gemini Nano Banana 2 for image_generator shards only.
 	// Never the Ollama worker — image models are Gemini-only.
 	imageLLMClient types.LLMClient
@@ -325,6 +325,19 @@ func (sm *ShardManager) GetProfile(name string) (types.ShardConfig, bool) {
 // ShardInfo is an alias to types.ShardInfo for shard discovery.
 type ShardInfo = types.ShardInfo
 
+// legacySystemShardNames is the pre-profile hardcoded system-shard list, kept
+// only as a fallback for a factory registered without a profile. It is
+// deliberately not extended: new system shards get their type from the profile
+// they register, which is what stopped this list from drifting again.
+var legacySystemShardNames = map[string]bool{
+	"perception_firewall":  true,
+	"executive_policy":     true,
+	"constitution_gate":    true,
+	"tactile_router":       true,
+	"session_planner":      true,
+	"world_model_ingestor": true,
+}
+
 func (sm *ShardManager) ListAvailableShards() []ShardInfo {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -332,10 +345,24 @@ func (sm *ShardManager) ListAvailableShards() []ShardInfo {
 	var shards []ShardInfo
 
 	for name := range sm.factories {
+		// The registered profile is the authority on shard type. This loop used
+		// to carry a hardcoded list of six system-shard names, which drifted:
+		// mangle_repair, campaign_runner and legislator are all registered
+		// `system` (internal/shards/registration.go) but were reported
+		// `ephemeral` here. Callers that filter on ShardTypeSystem — dream and
+		// shadow — therefore consulted them. campaign_runner's Execute is an
+		// infinite supervision loop that only returns on cancellation, so
+		// `nerd dream` blocked on it until its own 25-minute budget expired and
+		// emitted no output at all. A name list cannot stay in sync with a
+		// registry; the profile can.
 		shardType := types.ShardTypeEphemeral
-		if name == "perception_firewall" || name == "executive_policy" ||
-			name == "constitution_gate" || name == "tactile_router" ||
-			name == "session_planner" || name == "world_model_ingestor" {
+		if profile, ok := sm.profiles[name]; ok {
+			shardType = profile.Type
+		} else if legacySystemShardNames[name] {
+			// Fallback only for a factory registered without a profile.
+			// Production registration always does both, so this is unreachable
+			// there; it keeps a profile-less registration from being reported
+			// as ephemeral, which is the dangerous direction.
 			shardType = types.ShardTypeSystem
 		}
 		shards = append(shards, ShardInfo{
