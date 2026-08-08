@@ -172,6 +172,21 @@ func (e *Executor) runToolLoop(
 			if repaired != nil {
 				currentResponse = repaired
 			}
+
+			// Compiling is a low bar. Now prove the code was actually run —
+			// see verifyAndRepairTests. Ordered after the build gate on
+			// purpose: `go test` on a package that does not compile reports
+			// the compiler's errors wrapped in test noise, which is a worse
+			// repair prompt than the compiler's own output.
+			tested, testErrs, testErr := e.verifyAndRepairTests(
+				ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+			toolErrs = append(toolErrs, testErrs...)
+			if testErr != nil {
+				return currentResponse, toolErrs, testErr
+			}
+			if tested != nil {
+				currentResponse = tested
+			}
 			return currentResponse, toolErrs, nil
 		}
 	}

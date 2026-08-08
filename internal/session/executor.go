@@ -179,8 +179,19 @@ type ExecutorConfig struct {
 	// be left unattended.
 	VerifyBuildAfterEdits bool
 
-	// WorkspaceRoot is the directory the verification build runs in. Empty
-	// disables verification, since compiling the wrong tree proves nothing.
+	// VerifyTestsAfterEdits runs `go test` on the packages a turn touched and
+	// gives the model one round to fix them if they fail. See
+	// internal/session/test_verify.go.
+	//
+	// Default ON, and deliberately separate from VerifyBuildAfterEdits: they
+	// answer different questions. Compiling proves the code parses and type-
+	// checks; it proves nothing about whether the code does what it is supposed
+	// to. A turn can ship a green build and a broken program.
+	VerifyTestsAfterEdits bool
+
+	// WorkspaceRoot is the directory the verification build runs in. When empty
+	// the Executor resolves the workspace itself rather than silently skipping
+	// verification — see workspaceForVerification.
 	WorkspaceRoot string
 }
 
@@ -208,6 +219,7 @@ func DefaultExecutorConfig() ExecutorConfig {
 		// edits reported as complete) is silent, and a default-off guard against
 		// a silent failure protects nobody.
 		VerifyBuildAfterEdits: true,
+		VerifyTestsAfterEdits: true,
 	}
 }
 
@@ -402,6 +414,12 @@ type ExecutionResult struct {
 	// post-edit build verification can tell a turn that touched Go source from
 	// one that only wrote markdown and skip the compile it does not need.
 	WrittenPaths []string
+
+	// UntestedPaths records production Go files this turn wrote with no test
+	// file alongside them. A warning, not a failure — a turn may legitimately
+	// edit a file whose tests were written long ago — but it is the signal that
+	// makes "always ship a test" auditable rather than aspirational.
+	UntestedPaths []string
 
 	// Duration is how long the execution took.
 	Duration time.Duration

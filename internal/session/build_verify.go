@@ -224,6 +224,104 @@ func (e *Executor) verifyAndRepairBuild(
 	return repaired, repairErrs, nil
 }
 
+// verifyAndRepairTests runs the tests for the packages this turn touched and,
+// when they fail, gives the model one repair round with the test output in
+// hand — the same contract as verifyAndRepairBuild, one level up.
+//
+// Compiling is a low bar. A turn can write code that builds cleanly, was never
+// executed once, and still be reported as complete. This closes that gap.
+//
+// It also reports production Go written without a test alongside it. That is a
+// warning, not a failure: a turn can legitimately edit an existing file whose
+// tests were written long ago, and failing it would make the gate wrong more
+// often than right. The gap is surfaced so the caller can name it.
+func (e *Executor) verifyAndRepairTests(
+	ctx context.Context,
+	trp types.ToolResultsProvider,
+	systemPrompt string,
+	history []types.Message,
+	toolDefs []types.ToolDefinition,
+	cfg *jitconfig.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) (*types.LLMToolResponse, []string, error) {
+	if !e.config.VerifyTestsAfterEdits {
+		return nil, nil, nil
+	}
+	if result == nil || result.SuccessfulWriteTools == 0 || !touchedGoFiles(result.WrittenPaths) {
+		return nil, nil, nil
+	}
+
+	workspace := e.workspaceForVerification()
+	packages := packagesForPaths(result.WrittenPaths)
+
+	if untested := untestedGoFiles(result.WrittenPaths); len(untested) > 0 {
+		logging.Get(logging.CategorySession).Warn(
+			"Turn wrote production Go with no test alongside it: %s", strings.Join(untested, ", "))
+		result.UntestedPaths = untested
+	}
+
+	verification := verifyTests(ctx, workspace, packages)
+	if !verification.Ran || verification.OK {
+		return nil, nil, nil
+	}
+
+	logging.Get(logging.CategorySession).Warn(
+		"Edits broke the tests; giving the model one repair round with the test output")
+
+	if trp == nil {
+		return nil, nil, fmt.Errorf(
+			"edits broke the tests and no repair is possible (client cannot accept tool results):\n%s",
+			verification.Output)
+	}
+
+	history = append(history, types.Message{Role: "user", Text: testRepairPrompt(verification.Output)})
+
+	repaired, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, toolDefs)
+	if err != nil {
+		return nil, nil, fmt.Errorf(
+			"edits broke the tests and the repair round failed (%v). Test output:\n%s", err, verification.Output)
+	}
+
+	var repairErrs []string
+	if repaired != nil && len(repaired.ToolCalls) > 0 {
+		_, errs := e.executeToolBatch(ctx, repaired.ToolCalls, cfg, result)
+		repairErrs = append(repairErrs, errs...)
+	}
+
+	// A test repair can break the build, so re-check both, cheapest first.
+	if recheckBuild := verifyBuild(ctx, workspace, nil); recheckBuild.Ran && !recheckBuild.OK {
+		return nil, repairErrs, fmt.Errorf(
+			"the test repair round broke the build. Compiler output:\n%s", recheckBuild.Output)
+	}
+	recheck := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))
+	if recheck.Ran && !recheck.OK {
+		return nil, repairErrs, fmt.Errorf(
+			"edits broke the tests and the repair round did not fix them. Test output:\n%s", recheck.Output)
+	}
+
+	logging.Get(logging.CategorySession).Info("Tests repaired successfully after one round")
+	return repaired, repairErrs, nil
+}
+
+// testRepairPrompt is the turn handed back to the model when its edits broke
+// the tests.
+//
+// It forbids the cheapest way out. An agent told only "the tests fail" will
+// often delete or weaken the assertion, which turns red green while destroying
+// the thing that made the suite worth running. The failing test is the
+// specification until proven otherwise.
+func testRepairPrompt(testOutput string) string {
+	return "Your edits compile but the tests fail. This is the test output:\n\n" +
+		"```\n" + testOutput + "\n```\n\n" +
+		"Fix the code so these tests pass, then stop. Do not explain, do not summarise, " +
+		"and do not report success — the tests will be run again.\n\n" +
+		"Do NOT delete the failing test, weaken its assertion, skip it, or change what it " +
+		"expects in order to make it pass. The test states the required behaviour; your code " +
+		"does not meet it yet. If — and only if — you can show the test itself asserts something " +
+		"incorrect, say so explicitly and explain why before changing it.\n\n" +
+		"Read the failing test and the code under test before editing either."
+}
+
 // buildRepairPrompt is the turn handed back to the model when its edits broke
 // the build.
 //
