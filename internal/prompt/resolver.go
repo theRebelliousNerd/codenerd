@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"codenerd/internal/logging"
@@ -133,8 +134,20 @@ func (r *DependencyResolver) topologicalSort(
 		if queue[i].Atom.IsMandatory != queue[j].Atom.IsMandatory {
 			return queue[i].Atom.IsMandatory
 		}
-		if queue[i].Combined != queue[j].Combined {
-			return queue[i].Combined > queue[j].Combined
+		// NaN-safe AND deterministic. A NaN score never outranks a real one,
+		// and anything that ties -- including two NaNs, which are never == --
+		// falls through to the atom ID so the compiled prompt is reproducible.
+		a := queue[i].Combined
+		b := queue[j].Combined
+		aNaN, bNaN := math.IsNaN(a), math.IsNaN(b)
+		switch {
+		case aNaN && bNaN: // tie: fall through to the ID comparison
+		case aNaN:
+			return false
+		case bNaN:
+			return true
+		case a != b:
+			return a > b
 		}
 		return queue[i].Atom.ID < queue[j].Atom.ID
 	})
@@ -165,8 +178,16 @@ func (r *DependencyResolver) topologicalSort(
 			var bestNode *ScoredAtom
 			for _, sa := range atoms {
 				if inDegree[sa.Atom.ID] > 0 {
-					if bestNode == nil || sa.Combined > bestNode.Combined {
+					if bestNode == nil {
 						bestNode = sa
+					} else {
+						saIsNaN := math.IsNaN(sa.Combined)
+						bestIsNaN := math.IsNaN(bestNode.Combined)
+						if !saIsNaN && bestIsNaN {
+							bestNode = sa
+						} else if !saIsNaN && !bestIsNaN && sa.Combined > bestNode.Combined {
+							bestNode = sa
+						}
 					}
 				}
 			}
@@ -386,7 +407,18 @@ func (r *DependencyResolver) SortByCategory(atoms []*OrderedAtom) []*OrderedAtom
 	// Sort within each category by score
 	for cat := range byCategory {
 		sort.Slice(byCategory[cat], func(i, j int) bool {
-			return byCategory[cat][i].Score > byCategory[cat][j].Score
+			a := byCategory[cat][i].Score
+			b := byCategory[cat][j].Score
+			if math.IsNaN(a) && math.IsNaN(b) {
+				return false
+			}
+			if math.IsNaN(a) {
+				return false
+			}
+			if math.IsNaN(b) {
+				return true
+			}
+			return a > b
 		})
 	}
 

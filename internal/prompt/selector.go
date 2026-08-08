@@ -1078,7 +1078,7 @@ func (s *AtomSelector) fallbackFleshSelection(
 		if cc != nil && cc.HasVectorWeight {
 			weight = cc.VectorWeight
 		}
-		combined := (1.0-weight) + weight*vScore // Base logic score is implicitly 1.0 for the multiplier before vector weight
+		combined := (1.0 - weight) + weight*vScore // Base logic score is implicitly 1.0 for the multiplier before vector weight
 
 		selected = append(selected, &ScoredAtom{
 			Atom:            atom,

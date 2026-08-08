@@ -18,8 +18,6 @@ func (m *MockConfigAtomProvider) GetAtom(intent string) (ConfigAtom, bool) {
 	return atom, ok
 }
 
-
-
 // TODO: [Null/Undefined/Empty] Missing test for NewConfigFactory(nil) which would panic when Generate() is called.
 // TODO: [Null/Undefined/Empty] Missing test for ConfigAtom.Merge behavior when Tools or Policies are explicitly nil versus empty slices, ensuring it doesn't panic and returns initialized slices if expected.
 // TODO: [Type Coercion] Missing test for intent strings containing null bytes (\x00) or non-UTF8 sequences. Ensure GetAtom safely handles these without panicking or returning unexpected fallback atoms.
