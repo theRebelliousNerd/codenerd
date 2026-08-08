@@ -107,7 +107,39 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 
 	linesReplaced := endLine - startLine + 1
 	logging.VirtualStore("edit_lines completed: %s (replaced %d lines with %d)", path, linesReplaced, len(newLines))
-	return fmt.Sprintf("Replaced lines %d-%d with %d new lines in %s", startLine, endLine, len(newLines), path), nil
+	return fmt.Sprintf("Replaced lines %d-%d (%d lines) with %d new lines in %s.%s",
+		startLine, endLine, linesReplaced, len(newLines), path,
+		lineShiftNotice(startLine, len(newLines)-linesReplaced, len(result))), nil
+}
+
+// lineShiftNotice reports how a mutation moved every line below it, so the
+// caller's next edit does not land at coordinates the previous edit invalidated.
+//
+// This exists because the tool result is the only feedback an LLM gets between
+// two edits to the same file. Without it the model reuses line numbers from an
+// earlier get_elements, and a multi-edit session silently duplicates or shreds
+// declarations — observed live: two edits to spawner.go produced duplicate
+// SetProjectDoc and SpawnSpecialist definitions from stale offsets.
+//
+// firstShifted is the first line number whose position changed; delta is how
+// far every line at or after it moved (negative means the file got shorter).
+func lineShiftNotice(firstShifted, delta, newTotal int) string {
+	if delta == 0 {
+		return fmt.Sprintf(" File is still %d lines; line numbers are unchanged.", newTotal)
+	}
+
+	correction := "subtract"
+	magnitude := -delta
+	if delta > 0 {
+		correction = "add"
+		magnitude = delta
+	}
+
+	return fmt.Sprintf(
+		" File is now %d lines (%+d). WARNING: line numbers at or after %d from any earlier"+
+			" get_elements/get_element/read_file are now STALE — %s %d to reuse them, or"+
+			" re-run get_elements on this file before the next edit.",
+		newTotal, delta, firstShifted, correction, magnitude)
 }
 
 // InsertLinesTool returns a tool for inserting lines at a position.
@@ -186,7 +218,9 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 	}
 
 	logging.VirtualStore("insert_lines completed: %s (inserted %d lines after line %d)", path, len(newLines), afterLine)
-	return fmt.Sprintf("Inserted %d lines after line %d in %s", len(newLines), afterLine, path), nil
+	return fmt.Sprintf("Inserted %d lines after line %d in %s.%s",
+		len(newLines), afterLine, path,
+		lineShiftNotice(afterLine+1, len(newLines), len(result))), nil
 }
 
 // DeleteLinesTool returns a tool for deleting lines from a file.
@@ -275,5 +309,7 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 
 	linesDeleted := endLine - startLine + 1
 	logging.VirtualStore("delete_lines completed: %s (deleted %d lines)", path, linesDeleted)
-	return fmt.Sprintf("Deleted lines %d-%d from %s", startLine, endLine, path), nil
+	return fmt.Sprintf("Deleted lines %d-%d (%d lines) from %s.%s",
+		startLine, endLine, linesDeleted, path,
+		lineShiftNotice(startLine, -linesDeleted, len(result))), nil
 }

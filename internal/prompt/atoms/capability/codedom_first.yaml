@@ -64,8 +64,29 @@
     - Required: `end_line` (integer, inclusive) — Ending line number
     - Returns: String confirmation e.g. "Deleted lines 10-14 from internal/auth/user.go"
 
+    ### Every edit moves the lines below it
+
+    An edit changes the coordinates of everything after it. A `get_elements` index taken before an edit is only valid for the region ABOVE that edit.
+
+    Each of the three tools reports the shift in its result, e.g.:
+
+    ```
+    Replaced lines 42-55 (14 lines) with 3 new lines in internal/session/spawner.go.
+    File is now 377 lines (-11). WARNING: line numbers at or after 42 from any earlier
+    get_elements/get_element/read_file are now STALE — subtract 11 to reuse them, or
+    re-run get_elements on this file before the next edit.
+    ```
+
+    Read that line. Before every subsequent edit to the same file, either apply the stated correction or call `get_elements` again. Editing at stale coordinates does not fail loudly — it silently writes into the wrong declaration and produces duplicated or shredded code.
+
+    Two habits that avoid the problem entirely:
+
+    - **Edit one region per file, then re-index.** Do not batch several `edit_lines` calls against one index.
+    - **Work bottom-up.** If you must make several edits to one file from a single index, apply the LAST (highest line number) edit first. Earlier line numbers are unaffected by later edits, so the index stays valid all the way up.
+
     ### Rules
 
     - Always call `get_elements` (or `get_element`) before editing to obtain accurate `start_line`/`end_line`; do not guess line numbers and do not `read_file` the entire file just to locate a symbol.
+    - After any `edit_lines`/`insert_lines`/`delete_lines`, treat every line number at or after the edit point as invalid until you re-index or apply the reported correction.
     - Always use `edit_lines`/`insert_lines`/`delete_lines` with the `path` + line range from the index instead of `edit_file` old_text/new_text matching.
     - `edit_file` is for config/data files (yaml, json, md), not for code edits — for code, the line-range tools are required because whitespace and formatting differences break text matching.
