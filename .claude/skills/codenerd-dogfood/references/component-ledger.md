@@ -209,3 +209,57 @@ failing the assertion. Re-checked by reverting only the backoff logic while
 holding the new nil-guards constant: it then failed with
 `restartBackoffSec = 5, want 10`. A regression test that fails for the wrong
 reason has not pinned anything.
+
+## Collaborators that were settable, required, and never set (2026-08-08)
+
+Three defects of one shape, all found by sweeping the LLM-consuming verbs.
+
+**F-NORTH-1 — `OrchestratorConfig.NorthstarObserver` set at 2 of 5 call sites.**
+`risk_scoring.go:238` refuses any campaign whose targets touch a protected root
+(`internal/core`, `internal/mangle`, `internal/campaign`, `internal/perception`,
+`internal/articulation`) when the observer is nil, so every campaign started
+from the TUI against the core of the codebase was refused. One was refused 850
+times in a day. `northstar_wiring_test.go` had guarded `wireIntelligenceComponents`
+all along and passed throughout, because the wiring function was never the broken
+part — the call sites were. Fixed at `6d3d3f8d`; the new test parses every
+`OrchestratorConfig` literal in the repo and names the file:line of any that omits
+the field, and fails if it finds fewer than five literals so a rename cannot turn
+it into a test that checks nothing.
+
+**F-CFG-1 — `core_limits` reached two executors out of five.**
+`max_tool_iterations: 24` was applied only by `factory.go` and the chat boot path.
+`NewSubAgent` and both CLI campaign paths built an Executor and never called
+`SetConfig`, so they silently ran on `DefaultExecutorConfig`: 8 iterations, empty
+WorkspaceRoot. The boot log printed "120 calls / 24 iterations" while session.log
+printed "Max tool iterations reached: 8" the same day, and a `nerd refactor` run
+wrote "No exploration budget left" into the file it was editing. Fixed at `4cd233de`.
+
+**F-UX-1 — a working verb was indistinguishable from a hang.** No output between
+"Spawning" and the result; `nerd analyze` went silent for 12 minutes while making
+43 tool calls. I killed it at 600s believing it deadlocked. Heartbeat added at
+`72e83cf7`.
+
+**How to apply.** The recurring shape is a dependency that is optional in the type
+system and mandatory in behaviour. Grepping for the setter finds the definition and
+the one site that uses it, which reads like the feature is wired. The question that
+actually finds these is "how many places CONSTRUCT this, and do all of them set it?"
+— `grep -rn "SomeConfig{"` and count. Two of five, two of five, and three of five.
+
+## What codeNERD did and did not do for itself (2026-08-08)
+
+It fixed F-CAMP-2 outright with a real regression test. On the three larger tasks it
+produced sound designs and correct partial work, then ran out of tool budget and said
+so rather than claiming completion — which is the behaviour that made delegating to it
+worthwhile. Three failure modes to expect and check for:
+
+- It left the tree not compiling twice (an import orphaned by a move; six imports
+  duplicated). Always `go build ./...` after handing it a task.
+- It invented `Cortex.SuccessfulWriteTools()` and wrote a comment asserting the
+  plumbing existed. The underlying field was real; the accessor was not.
+- Its regression test for F-CAMP-2 failed against the pre-fix code by PANICKING on a
+  nil Kernel, not by failing its assertion. Re-check that a regression test fails for
+  the intended reason, holding unrelated new guards constant.
+
+Sizing matters: single-file, single-function tasks completed; multi-file tasks
+(hoist a function across packages, then wire three call sites, then write a test) hit
+the 24-iteration ceiling every time. Split them.
