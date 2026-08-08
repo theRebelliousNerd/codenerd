@@ -49,6 +49,13 @@ type Spawner struct {
 	// prose to the compiled system prompt.
 	projectDoc *projectdoc.Document
 
+	// fileContext is the holographic per-file context provider. Nil means
+	// subagents run without holographic context, preserving current behaviour.
+	// When set, every spawned subagent receives it via
+	// Executor.SetFileContextProvider so withFileContext can append the rendered
+	// context to the compiled system prompt.
+	fileContext FileContextProvider
+
 	// Active subagents
 	subagents map[string]*SubAgent
 
@@ -142,6 +149,23 @@ func (s *Spawner) currentProjectDoc() *projectdoc.Document {
 	return s.projectDoc
 }
 
+// SetFileContextProvider attaches the holographic per-file context provider so
+// every subagent spawned from here on inherits the parent's context. Mirrors
+// SetProjectDoc. A nil provider means subagents run without holographic context,
+// preserving current behaviour.
+func (s *Spawner) SetFileContextProvider(p FileContextProvider) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fileContext = p
+}
+
+// currentFileContext reads the file context slot under the read lock.
+func (s *Spawner) currentFileContext() FileContextProvider {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.fileContext
+}
+
 // SpawnRequest describes the parameters for spawning a subagent.
 type SpawnRequest struct {
 	// Name is the subagent name (e.g., "coder", "my-specialist")
@@ -228,6 +252,9 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	if doc := s.currentProjectDoc(); doc != nil {
 		agent.executor.SetProjectDoc(doc)
 	}
+	if fc := s.currentFileContext(); fc != nil {
+		agent.executor.SetFileContextProvider(fc)
+	}
 
 	// Phase 5: Register subagent (lock held briefly)
 	s.mu.Lock()
@@ -309,6 +336,9 @@ func (s *Spawner) SpawnSpecialist(ctx context.Context, name string, task string)
 	// a redundant RLock (and to mirror the plannerClient pattern above).
 	if s.projectDoc != nil {
 		agent.executor.SetProjectDoc(s.projectDoc)
+	}
+	if s.fileContext != nil {
+		agent.executor.SetFileContextProvider(s.fileContext)
 	}
 
 	s.subagents[agent.GetID()] = agent
