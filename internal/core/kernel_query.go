@@ -73,23 +73,36 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 		timer.Stop()
 		return results, nil
 	}
-
 	// Find the predicate in the decls
+	// OPTIMIZATION: If we know the arity, we can look it up directly instead of iterating all declarations
 	predicateFound := false
-	for pred := range k.programInfo.Decls {
-		if pred.Symbol == predicateName && (!hasPattern || pred.Arity == desiredArity) {
+	var targetPred ast.PredicateSym
+
+	if hasPattern {
+		targetPred = ast.PredicateSym{Symbol: predicateName, Arity: desiredArity}
+		if _, ok := k.programInfo.Decls[targetPred]; ok {
 			predicateFound = true
-			// Query the store for all atoms of this predicate
-			k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
-				fact := atomToFact(a)
-				// If a pattern was provided, filter by constants.
-				if !hasPattern || factMatchesPattern(fact, patternFact) {
-					results = append(results, fact)
-				}
-				return nil
-			})
-			break
 		}
+	} else {
+		for pred := range k.programInfo.Decls {
+			if pred.Symbol == predicateName {
+				predicateFound = true
+				targetPred = pred
+				break
+			}
+		}
+	}
+
+	if predicateFound {
+		// Query the store for all atoms of this predicate
+		k.store.GetFacts(ast.NewQuery(targetPred), func(a ast.Atom) error {
+			fact := atomToFact(a)
+			// If a pattern was provided, filter by constants.
+			if !hasPattern || factMatchesPattern(fact, patternFact) {
+				results = append(results, fact)
+			}
+			return nil
+		})
 	}
 
 	if !predicateFound {
@@ -134,6 +147,23 @@ func patternArgMatches(pattern any, value any) bool {
 	// Variables are represented as strings like "?X" by atomToFact/baseTermToValue.
 	if s, ok := pattern.(string); ok && strings.HasPrefix(s, "?") {
 		return true
+	}
+
+	// OPTIMIZATION: Fast path: avoid reflection by using a type switch for common types
+	if p, ok := pattern.(string); ok {
+		if v, vok := value.(string); vok {
+			return p == v
+		}
+	}
+	if p, ok := pattern.(int64); ok {
+		if v, vok := value.(int64); vok {
+			return p == v
+		}
+	}
+	if p, ok := pattern.(float64); ok {
+		if v, vok := value.(float64); vok {
+			return p == v
+		}
 	}
 
 	// OPTIMIZATION: Replace reflect.DeepEqual with type switches
@@ -232,30 +262,43 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 		timer.Stop()
 		return nil
 	}
-
 	// Find the predicate in the decls
+	// OPTIMIZATION: If we know the arity, we can look it up directly instead of iterating all declarations
 	predicateFound := false
 	count := 0
-	for pred := range k.programInfo.Decls {
-		if pred.Symbol == predicateName && (!hasPattern || pred.Arity == desiredArity) {
+	var targetPred ast.PredicateSym
+
+	if hasPattern {
+		targetPred = ast.PredicateSym{Symbol: predicateName, Arity: desiredArity}
+		if _, ok := k.programInfo.Decls[targetPred]; ok {
 			predicateFound = true
-			// Query the store for all atoms of this predicate
-			err := k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
-				fact := atomToFact(a)
-				// If a pattern was provided, filter by constants.
-				if !hasPattern || factMatchesPattern(fact, patternFact) {
-					if err := cb(fact); err != nil {
-						return err
-					}
-					count++
-				}
-				return nil
-			})
-			if err != nil {
-				timer.Stop()
-				return err
+		}
+	} else {
+		for pred := range k.programInfo.Decls {
+			if pred.Symbol == predicateName {
+				predicateFound = true
+				targetPred = pred
+				break
 			}
-			break
+		}
+	}
+
+	if predicateFound {
+		// Query the store for all atoms of this predicate
+		err := k.store.GetFacts(ast.NewQuery(targetPred), func(a ast.Atom) error {
+			fact := atomToFact(a)
+			// If a pattern was provided, filter by constants.
+			if !hasPattern || factMatchesPattern(fact, patternFact) {
+				if err := cb(fact); err != nil {
+					return err
+				}
+				count++
+			}
+			return nil
+		})
+		if err != nil {
+			timer.Stop()
+			return err
 		}
 	}
 
@@ -293,19 +336,26 @@ func (k *RealKernel) QueryAll() (map[string][]Fact, error) {
 		timer.Stop()
 		return results, nil
 	}
-
-	// Iterate through all declared predicates
-	totalFacts := 0
+	// Group declarations by symbol to avoid multiple queries for the same predicate
+	// In Mangle, multiple declarations can have the same symbol but different arities,
+	// though our Fact struct currently doesn't differentiate by arity at the result map level.
+	predMap := make(map[string][]ast.PredicateSym)
 	for pred := range k.programInfo.Decls {
-		predName := pred.Symbol
-		results[predName] = make([]Fact, 0)
+		predMap[pred.Symbol] = append(predMap[pred.Symbol], pred)
+	}
 
-		k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
-			fact := atomToFact(a)
-			results[predName] = append(results[predName], fact)
-			totalFacts++
-			return nil
-		})
+	// Iterate through unique predicate symbols
+	totalFacts := 0
+	for predName, preds := range predMap {
+		results[predName] = make([]Fact, 0)
+		for _, pred := range preds {
+			k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				fact := atomToFact(a)
+				results[predName] = append(results[predName], fact)
+				totalFacts++
+				return nil
+			})
+		}
 	}
 
 	timer.Stop()
@@ -536,9 +586,9 @@ func gitCmd(workspaceRoot string, args ...string) (string, error) {
 	// Defensive check against argument injection for dangerous flags
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "--exec-path") ||
-		   strings.HasPrefix(arg, "-c") ||
-		   strings.HasPrefix(arg, "--upload-pack") ||
-		   strings.HasPrefix(arg, "--receive-pack") {
+			strings.HasPrefix(arg, "-c") ||
+			strings.HasPrefix(arg, "--upload-pack") ||
+			strings.HasPrefix(arg, "--receive-pack") {
 			return "", fmt.Errorf("unauthorized git argument: %s", arg)
 		}
 	}
