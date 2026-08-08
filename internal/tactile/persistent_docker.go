@@ -1,6 +1,8 @@
 package tactile
 
 import (
+	"regexp"
+
 	"bytes"
 	"context"
 	"fmt"
@@ -11,6 +13,8 @@ import (
 
 	"codenerd/internal/logging"
 )
+
+var containerIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // =============================================================================
 // PERSISTENT DOCKER EXECUTOR
@@ -842,9 +846,21 @@ func (e *PersistentDockerExecutor) CopyToContainer(ctx context.Context, containe
 		return fmt.Errorf("Docker is not available")
 	}
 
+	// Sanitize inputs to prevent command/argument injection
+	if !containerIDRegex.MatchString(containerID) {
+		return fmt.Errorf("invalid container ID")
+	}
+
+	// Prevent Docker from interpreting host path as a container reference
+	if strings.Contains(srcPath, ":") {
+		return fmt.Errorf("source path cannot contain colons")
+	}
+
 	logging.TactileDebug("Copying %s to container %s:%s", srcPath, containerID[:12], dstPath)
 
-	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", srcPath, fmt.Sprintf("%s:%s", containerID, dstPath))
+	// Safe construction after validation
+	targetPath := fmt.Sprintf("%s:%s", containerID, dstPath)
+	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", srcPath, targetPath)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -861,9 +877,21 @@ func (e *PersistentDockerExecutor) CopyFromContainer(ctx context.Context, contai
 		return fmt.Errorf("Docker is not available")
 	}
 
+	// Sanitize inputs to prevent command/argument injection
+	if !containerIDRegex.MatchString(containerID) {
+		return fmt.Errorf("invalid container ID")
+	}
+
+	// Prevent Docker from interpreting host path as a container reference
+	if strings.Contains(dstPath, ":") {
+		return fmt.Errorf("destination path cannot contain colons")
+	}
+
 	logging.TactileDebug("Copying container %s:%s to %s", containerID[:12], srcPath, dstPath)
 
-	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", fmt.Sprintf("%s:%s", containerID, srcPath), dstPath)
+	// Safe construction after validation
+	sourcePath := fmt.Sprintf("%s:%s", containerID, srcPath)
+	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", sourcePath, dstPath)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
