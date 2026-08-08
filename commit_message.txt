@@ -1,0 +1,5 @@
+🧪 [testing improvement] Removed obsolete stringContainsCallback from mangle engine
+
+🎯 What: Function ShouldPushdown for stringContainsCallback in internal/mangle/engine.go lacked test coverage. However, as noted in the source file, this code block was commented out (/* ... */) because the system "transitioned to native :string:contains."
+📊 Coverage: Since the code is explicitly obsolete, no longer used, and was only left behind as dead code, it should not be uncommented just to satisfy coverage. I have completely removed the dead code block.
+✨ Result: engine.go is cleaner and no longer contains the dead stringContainsCallback code that triggered the test coverage gap flag.

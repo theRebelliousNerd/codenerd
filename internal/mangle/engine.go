@@ -202,7 +202,6 @@ func (e *Engine) RecomputeRules() error {
 	return nil
 }
 
-
 // evalWithGasLimit wraps EvalStratifiedProgramWithStats with derived facts gas limit enforcement.
 // This prevents runaway inference from exhausting memory.
 // Uses pre-computed strata from rebuildProgramLocked() for proper stratified evaluation.
