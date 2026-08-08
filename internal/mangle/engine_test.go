@@ -910,3 +910,54 @@ func TestLargeStringHandling(t *testing.T) {
 		}
 	}
 }
+
+func TestEngineReset(t *testing.T) {
+	cfg := DefaultConfig()
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	// Load schema to populate programInfo and queryContext
+	schema := "Decl data(Value)."
+	if err := engine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("LoadSchemaString() error = %v", err)
+	}
+
+	// Add fact to populate baseStore, store, and factCount
+	_ = engine.AddFact("data", "test")
+
+	// Manually set derivedCount as it might require execution to populate
+	engine.derivedCount = 10
+
+	// Reset
+	engine.Reset()
+
+	if engine.factCount != 0 {
+		t.Errorf("Reset() did not clear factCount: got %d, want 0", engine.factCount)
+	}
+	if engine.derivedCount != 0 {
+		t.Errorf("Reset() did not clear derivedCount: got %d, want 0", engine.derivedCount)
+	}
+	if engine.programInfo != nil {
+		t.Errorf("Reset() did not clear programInfo")
+	}
+	if engine.queryContext != nil {
+		t.Errorf("Reset() did not clear queryContext")
+	}
+	if engine.baseStore == nil {
+		t.Errorf("Reset() did not initialize baseStore")
+	}
+	if len(engine.fileFacts) != 0 {
+		t.Errorf("Reset() did not clear fileFacts")
+	}
+	if len(engine.predicateIndex) != 0 {
+		t.Errorf("Reset() did not clear predicateIndex")
+	}
+	if engine.strata != nil {
+		t.Errorf("Reset() did not clear strata")
+	}
+	if engine.predToStratum != nil {
+		t.Errorf("Reset() did not clear predToStratum")
+	}
+}
