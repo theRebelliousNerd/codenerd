@@ -245,6 +245,9 @@ func (o *Orchestrator) isPhaseComplete(phase *Phase) bool {
 
 // startNextPhase starts the next eligible phase.
 func (o *Orchestrator) startNextPhase(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("context cannot be nil")
+	}
 	timer := logging.StartTimer(logging.CategoryCampaign, "startNextPhase")
 	defer timer.Stop()
 
