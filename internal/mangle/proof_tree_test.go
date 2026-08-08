@@ -155,3 +155,56 @@ func TestNewProofTreeTracer(t *testing.T) {
 		t.Errorf("Expected ruleIndex map to be initialized, but it was nil")
 	}
 }
+
+func TestProofTreeTracer_RenderJSON(t *testing.T) {
+	// Setup a fake derivation tree manually
+	root := &DerivationNode{
+		ID:       "node1",
+		Fact:     Fact{Predicate: "impacted", Args: []any{"main.go"}},
+		Source:   SourceIDB,
+		RuleName: "impacted",
+		Children: []*DerivationNode{
+			{
+				ID:       "node2",
+				ParentID: "node1",
+				Fact:   Fact{Predicate: "dependency_link", Args: []any{"main.go", "lib.go", "import"}},
+				Source: SourceEDB,
+			},
+		},
+	}
+
+	trace := &DerivationTrace{
+		Query:     "impacted(X)",
+		RootNodes: []*DerivationNode{root},
+		Duration:  10 * time.Millisecond,
+	}
+
+	jsonBytes, err := trace.RenderJSON()
+	if err != nil {
+		t.Fatalf("RenderJSON failed: %v", err)
+	}
+
+	if len(jsonBytes) == 0 {
+		t.Error("RenderJSON returned empty byte slice")
+	}
+
+	jsonStr := string(jsonBytes)
+
+	// Check for expected properties in the JSON output
+	expectedPatterns := []string{
+		`"query": "impacted(X)"`,
+		`"duration": "10ms"`,
+		`"id": "node1"`,
+		`"id": "node2"`,
+		`"parent_id": "node1"`,
+		`"source": "IDB"`,
+		`"source": "EDB"`,
+		`"rule": "impacted"`,
+	}
+
+	for _, pattern := range expectedPatterns {
+		if !strings.Contains(jsonStr, pattern) {
+			t.Errorf("JSON output missing expected pattern: %s\nGot:\n%s", pattern, jsonStr)
+		}
+	}
+}
