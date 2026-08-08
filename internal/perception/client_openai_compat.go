@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -818,10 +819,15 @@ func (c *OpenAICompatClient) CompleteWithTools(ctx context.Context, systemPrompt
 		systemPrompt = defaultSystemPrompt
 	}
 
-	reqBody := c.buildRequest(ctx, []OpenAIMessage{
+	messages := []OpenAIMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPrompt},
-	}, c.enableThinking)
+	}
+	if err := c.validateMetaTools(tools, messages); err != nil {
+		return nil, err
+	}
+
+	reqBody := c.buildRequest(ctx, messages, c.enableThinking)
 	reqBody.Tools = MapToolDefinitionsToOpenAI(tools)
 	if len(reqBody.Tools) > 0 {
 		reqBody.ToolChoice = "auto"
@@ -840,6 +846,10 @@ func (c *OpenAICompatClient) CompleteWithTools(ctx context.Context, systemPrompt
 func (c *OpenAICompatClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []ToolDefinition) (*LLMToolResponse, error) {
 	messages, err := MapTypesHistoryToOpenAIMessages(systemPrompt, history)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := c.validateMetaTools(tools, messages); err != nil {
 		return nil, err
 	}
 
@@ -884,3 +894,66 @@ func (c *OpenAICompatClient) toToolResponse(resp *OpenAIResponse) (*LLMToolRespo
 		},
 	}, nil
 }
+
+// Meta's Model API (dev.meta.ai/docs/tool-calling) rejects with HTTP 400:
+//   - function tool names outside ^[a-zA-Z0-9_.-]+$ or containing more than one dot
+//   - call_id values (function_call and function_call_output) outside 1-64 chars
+//
+// These helpers keep the Meta path from ever emitting such a payload. They are
+// deliberately vendor-scoped: DashScope and Moonshot have no documented limits
+// like these, so their traffic is left untouched.
+
+// metaToolNameRe is Meta's documented pattern for function tool names.
+var metaToolNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+
+// validateMetaToolName reports whether a function tool name satisfies Meta's
+// character set and at-most-one-dot constraints.
+func validateMetaToolName(name string) error {
+	if name == "" {
+		return fmt.Errorf("tool name is empty")
+	}
+	if !metaToolNameRe.MatchString(name) {
+		return fmt.Errorf("tool name %q violates Meta's ^[a-zA-Z0-9_.-]+$ constraint", name)
+	}
+	if strings.Count(name, ".") > 1 {
+		return fmt.Errorf("tool name %q contains more than one dot, which Meta rejects with HTTP 400", name)
+	}
+	return nil
+}
+
+// validateMetaCallID reports whether a call_id (on a function_call or a
+// function_call_output) satisfies Meta's 1-64 character constraint.
+func validateMetaCallID(id string) error {
+	if id == "" || len(id) > 64 {
+		return fmt.Errorf("call_id length %d violates Meta's 1-64 character constraint", len(id))
+	}
+	return nil
+}
+
+// validateMetaTools guards the Meta tool-calling path against payloads the
+// vendor rejects with HTTP 400: malformed function names and out-of-range
+// call_ids. It is a no-op for every other vendor.
+func (c *OpenAICompatClient) validateMetaTools(tools []ToolDefinition, messages []OpenAIMessage) error {
+	if c.vendor != ProviderMeta {
+		return nil
+	}
+	for _, t := range tools {
+		if err := validateMetaToolName(t.Name); err != nil {
+			return err
+		}
+	}
+	for _, m := range messages {
+		if m.ToolCallID != "" {
+			if err := validateMetaCallID(m.ToolCallID); err != nil {
+				return fmt.Errorf("tool result %s: %w", m.ToolCallID, err)
+			}
+		}
+		for _, tc := range m.ToolCalls {
+			if err := validateMetaCallID(tc.ID); err != nil {
+				return fmt.Errorf("assistant tool call %s: %w", tc.ID, err)
+			}
+		}
+	}
+	return nil
+}
+

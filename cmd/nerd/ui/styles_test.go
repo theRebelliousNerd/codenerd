@@ -7,6 +7,12 @@ import (
 )
 
 func TestDetectTheme(t *testing.T) {
+	// NO_COLOR short-circuits DetectTheme before any other signal is read, and
+	// it is commonly set in CI and agent shells. Without clearing it the first
+	// two assertions test nothing but the ambient environment.
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("COLORFGBG", "")
+
 	t.Setenv("CODENERD_DARK_MODE", "1")
 	dark := DetectTheme()
 	if !dark.IsDark {
