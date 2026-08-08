@@ -502,6 +502,8 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 		// Build tasks
 		taskIDMap := make(map[int]string) // Phase-local map for depends_on
 		logging.CampaignDebug("Building %d tasks for phase %s", len(rawPhase.Tasks), phaseID)
+		// Scoped per phase: see the duplicate-suppression note below.
+		seenTaskKeys := make(map[string]bool, len(rawPhase.Tasks))
 		for j, rawTask := range rawPhase.Tasks {
 			taskID := fmt.Sprintf("/task_%s_%d_%d", slug, i, j)
 			taskIDMap[j] = taskID
@@ -587,6 +589,35 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 					}
 				}
 				task.WriteSet = normalizeWriteSetPaths(d.workspace, inferredWriteSet)
+			}
+
+			// Drop tasks the planner emitted twice within one phase.
+			//
+			// Observed live 2026-08-08 on campaign fc6472c2: phase 1 came back
+			// with four tasks that were two tasks, each duplicated —
+			// "Modify internal/session/gate_names.go to add a doc comment"
+			// twice and "Run go test ./internal/session" twice. The IDs were
+			// distinct, so nothing downstream saw a duplicate; the orchestrator
+			// simply ran the same work again, and the two test tasks were
+			// in_progress concurrently.
+			//
+			// This is planner variance rather than a structural bug, which is
+			// exactly why it is worth handling here: an LLM will occasionally
+			// repeat itself, and every repetition is a full task's worth of
+			// model calls and wall-clock spent to reach a state already reached.
+			// Comparing normalized descriptions is deterministic and cheap.
+			//
+			// Deliberately scoped to within a phase. The same description in a
+			// LATER phase can be legitimate — verify, change, verify again — and
+			// suppressing that would silently delete real work.
+			if key := normalizedTaskKey(task.Description); key != "" {
+				if seenTaskKeys[key] {
+					logging.CampaignWarn(
+						"Planner emitted a duplicate task in phase %s; dropping it: %.80q",
+						phase.ID, task.Description)
+					continue
+				}
+				seenTaskKeys[key] = true
 			}
 
 			phase.Tasks = append(phase.Tasks, task)
@@ -683,4 +714,44 @@ Output ONLY valid JSON with the same structure as the input:`, string(planJSON),
 
 	logging.Campaign("Plan refined successfully: %s (phases=%d)", refinedPlan.Title, len(refinedPlan.Phases))
 	return &refinedPlan, nil
+}
+
+// normalizedTaskKey reduces a task description to a comparison key for
+// duplicate suppression: lowercased, punctuation-insensitive, whitespace
+// collapsed.
+//
+// Conservative on purpose. It only catches a planner repeating itself in
+// substantially the same words; two genuinely different tasks will not collide,
+// and the cost of a miss is the duplicate work we have today rather than a
+// deleted task.
+func normalizedTaskKey(desc string) string {
+	var b strings.Builder
+	lastSpace := true
+	for _, r := range strings.ToLower(strings.TrimSpace(desc)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '/', r == '.', r == '_', r == '-':
+			b.WriteRune(r)
+			lastSpace = false
+		default:
+			if !lastSpace {
+				b.WriteRune(' ')
+				lastSpace = true
+			}
+		}
+	}
+	key := strings.TrimSpace(b.String())
+
+	// Path characters are kept above so ./internal/session stays distinct from
+	// ./internal/core, but that also preserves sentence-ending punctuation and
+	// turns "..." into a key. Trim them at the edges, then require the key to
+	// contain something substantive — a description with no letters or digits
+	// cannot be compared, and the caller must let it through rather than
+	// suppress a task it failed to parse.
+	key = strings.Trim(key, "./_- ")
+	if !strings.ContainsFunc(key, func(r rune) bool {
+		return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+	}) {
+		return ""
+	}
+	return key
 }
