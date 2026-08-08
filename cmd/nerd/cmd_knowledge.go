@@ -61,29 +61,41 @@ func runKnowledgeList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	atoms, err := cortex.LocalDB.GetKnowledgeAtomsByPrefix("session/")
-	if err != nil || len(atoms) == 0 {
+	// List from the vector store, which is what the live semantic path reads.
+	//
+	// This used to call GetKnowledgeAtomsByPrefix("session/"), which reads the
+	// knowledge_atoms table and keeps only concepts starting with "session/".
+	// Both halves of that were wrong here: the atoms with embeddings live in
+	// the vectors table (1,417 of them in this workspace, every one
+	// content_type=knowledge_atom, while knowledge_atoms held 0), and no atom
+	// the system writes uses a "session/" prefix. So `nerd knowledge` reported
+	// an empty knowledge base while `nerd knowledge search` answered every
+	// query from the same database.
+	const listLimit = 10
+	atoms, err := cortex.LocalDB.RecentKnowledgeAtoms(listLimit)
+	if err != nil {
+		// An error is not an empty knowledge base. Reporting both the same way
+		// is how a broken read gets mistaken for a cold start.
+		return fmt.Errorf("failed to read the knowledge base: %w", err)
+	}
+	if len(atoms) == 0 {
 		fmt.Println("No knowledge entries found.")
+		fmt.Println("Run 'nerd init' to build the knowledge base, or 'nerd scan' to refresh the index.")
 		return nil
 	}
 
 	fmt.Println("📚 Knowledge Base")
 	fmt.Println(strings.Repeat("─", 60))
 
-	limit := min(len(atoms), 10)
-
-	for i := range limit {
-		atom := atoms[i]
+	for i, atom := range atoms {
 		concept := atom.Concept
 		if concept == "" {
-			concept = "(unknown)"
+			// Corpus atoms carry their subject in the content, not always in a
+			// concept tag; showing "(unknown)" for all of them hides the entry.
+			concept = truncateStr(strings.TrimSpace(strings.ReplaceAll(atom.Content, "\n", " ")), 48)
 		}
 		created := atom.CreatedAt.Format("2006-01-02 15:04")
-		fmt.Printf("%2d. %-40s  %s\n", i+1, truncateStr(concept, 40), created)
-	}
-
-	if len(atoms) > limit {
-		fmt.Printf("\n... and %d more entries\n", len(atoms)-limit)
+		fmt.Printf("%2d. %-50s  %s\n", i+1, truncateStr(concept, 50), created)
 	}
 
 	fmt.Println(strings.Repeat("─", 60))

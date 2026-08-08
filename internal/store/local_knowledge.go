@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -281,6 +282,75 @@ func (s *LocalStore) GetKnowledgeAtomsByPrefix(conceptPrefix string) ([]Knowledg
 	}
 
 	logging.StoreDebug("Retrieved %d knowledge atoms for prefix=%s", len(atoms), conceptPrefix)
+	return atoms, nil
+}
+
+// RecentKnowledgeAtoms lists the newest knowledge atoms from the vectors table
+// — the half of the dual store that the live semantic path actually reads.
+//
+// The two halves can and do diverge. In this workspace the knowledge_atoms
+// table holds 0 rows in .nerd/knowledge.db while the vectors table holds 1,417,
+// every one of them content_type=knowledge_atom, because the atoms written
+// through StoreKnowledgeAtom (no embedding) land in per-shard databases while
+// the embedded corpus lives in the main one. A lister that reads only
+// knowledge_atoms therefore reports an empty knowledge base on a workspace
+// whose semantic search answers every query.
+func (s *LocalStore) RecentKnowledgeAtoms(limit int) ([]KnowledgeAtom, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "RecentKnowledgeAtoms")
+	defer timer.Stop()
+
+	if limit <= 0 {
+		limit = 10
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(
+		`SELECT content, metadata, created_at FROM vectors ORDER BY created_at DESC LIMIT ?`,
+		limit*4, // over-fetch, then keep only knowledge atoms
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such table") {
+			return nil, nil
+		}
+		logging.Get(logging.CategoryStore).Error("Failed to list recent knowledge atoms: %v", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var atoms []KnowledgeAtom
+	for rows.Next() {
+		var content string
+		var metaJSON sql.NullString
+		var createdAt time.Time
+		if err := rows.Scan(&content, &metaJSON, &createdAt); err != nil {
+			continue
+		}
+
+		meta := map[string]any{}
+		if metaJSON.Valid && metaJSON.String != "" {
+			_ = json.Unmarshal([]byte(metaJSON.String), &meta)
+		}
+		if !matchesMetadata(meta, "content_type", "knowledge_atom") {
+			continue
+		}
+
+		atom := KnowledgeAtom{Content: content, CreatedAt: createdAt, Confidence: 0.8}
+		if concept, ok := meta["concept"].(string); ok {
+			atom.Concept = concept
+		}
+		if conf, ok := meta["confidence"].(float64); ok {
+			atom.Confidence = conf
+		}
+		atoms = append(atoms, atom)
+
+		if len(atoms) >= limit {
+			break
+		}
+	}
+
+	logging.StoreDebug("Retrieved %d recent knowledge atoms from the vector store", len(atoms))
 	return atoms, nil
 }
 
