@@ -293,3 +293,28 @@ func TestProofTreeTracer_MaterializeToFacts(t *testing.T) {
 		t.Errorf("Expected 2 proof_tree_node facts, got %d", len(nodeFacts))
 	}
 }
+
+func TestProofTreeTracer_ClearCache(t *testing.T) {
+	tracer := NewProofTreeTracer(nil)
+
+	// Add some dummy traces
+	tracer.traces["query1"] = &DerivationTrace{}
+	tracer.traces["query2"] = &DerivationTrace{}
+
+	if len(tracer.traces) != 2 {
+		t.Fatalf("Expected 2 traces in cache, got %d", len(tracer.traces))
+	}
+
+	// Clear the cache
+	tracer.ClearCache()
+
+	if len(tracer.traces) != 0 {
+		t.Errorf("Expected 0 traces after ClearCache, got %d", len(tracer.traces))
+	}
+
+	// Verify it still works correctly (e.g. was not set to nil but to a new map)
+	tracer.traces["query3"] = &DerivationTrace{}
+	if len(tracer.traces) != 1 {
+		t.Errorf("Expected 1 trace in cache after adding one post-clear, got %d", len(tracer.traces))
+	}
+}
