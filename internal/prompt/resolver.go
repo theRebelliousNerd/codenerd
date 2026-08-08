@@ -133,7 +133,10 @@ func (r *DependencyResolver) topologicalSort(
 		if queue[i].Atom.IsMandatory != queue[j].Atom.IsMandatory {
 			return queue[i].Atom.IsMandatory
 		}
-		return queue[i].Combined > queue[j].Combined
+		if queue[i].Combined != queue[j].Combined {
+			return queue[i].Combined > queue[j].Combined
+		}
+		return queue[i].Atom.ID < queue[j].Atom.ID
 	})
 
 	// Build reverse dependency map (atom -> atoms that depend on it)
@@ -194,7 +197,10 @@ func (r *DependencyResolver) topologicalSort(
 			if queue[i].Atom.IsMandatory != queue[j].Atom.IsMandatory {
 				return queue[i].Atom.IsMandatory
 			}
-			return queue[i].Combined > queue[j].Combined
+			if queue[i].Combined != queue[j].Combined {
+				return queue[i].Combined > queue[j].Combined
+			}
+			return queue[i].Atom.ID < queue[j].Atom.ID
 		})
 	}
 

@@ -33,7 +33,6 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 	// TODO: TEST_GAP: Type Coercion - Resolve with float64 precision limits, NaN, or Infinity scores.
 	// TODO: TEST_GAP: User Request Extremes - Resolve with massive dependency chains (e.g., 1,000,000 ScoredAtoms).
 	// TODO: TEST_GAP: User Request Extremes - Resolve with extreme Priority values (`math.MaxInt64` or `math.MinInt64`).
-	// TODO: TEST_GAP: State Conflicts - Resolve with deterministic sorting on identical scores and identical dependencies (tie-breaker needed).
 	tests := []struct {
 		name          string
 		atoms         []*ScoredAtom
@@ -41,6 +40,17 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 		expectedOrder []string // Expected atom IDs in order
 		expectedLen   int
 	}{
+		{
+			name: "deterministic sorting on identical scores and identical dependencies",
+			atoms: []*ScoredAtom{
+				{Atom: &PromptAtom{ID: "c"}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "a"}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "b"}, Combined: 0.5},
+			},
+			expectError:   false,
+			expectedOrder: []string{"a", "b", "c"},
+			expectedLen:   3,
+		},
 		{
 			name:          "empty input",
 			atoms:         nil,
