@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"codenerd/internal/autopoiesis"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	coresys "codenerd/internal/system"
@@ -169,7 +170,6 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 
 	// Get available shards
 	shards := cortex.ShardManager.ListAvailableShards()
-	fmt.Printf("🤖 Consulting %d agents...\n\n", len(shards))
 
 	// Consult each shard in dream mode
 	dreamCtx := &types.SessionContext{DreamMode: true}
@@ -194,12 +194,34 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 
 	// Indices into shards, so the concrete ShardInfo type stays unnamed here.
 	consultable := make([]int, 0, len(shards))
+	skippedImage := 0
 	for i, shard := range shards {
 		if shard.Type == types.ShardTypeSystem {
 			continue // internal/system shards have no perspective to offer
 		}
+		// The image generator is registered under seven aliases
+		// (internal/shards/registration.go:216), and ListAvailableShards
+		// returns each as a separate shard. Dream was therefore sending a
+		// text-consultation prompt to the same image model seven times per
+		// run, collecting seven HTTP 400s — measured live: 7 of 8 failures in
+		// a 12-minute run were exactly this, the eighth a real timeout.
+		// An image model has no perspective on a hypothetical to begin with.
+		if config.IsImageShardType(shard.Name) {
+			skippedImage++
+			continue
+		}
 		consultable = append(consultable, i)
 	}
+	// Announce the count actually consulted, not the raw registry size. It
+	// said "Consulting 22 agents" while consulting 9, so the error tally never
+	// added up to the announced total and the gap looked like silent drops.
+	fmt.Printf("🤖 Consulting %d agents", len(consultable))
+	if skipped := len(shards) - len(consultable); skipped > 0 {
+		fmt.Printf(" (%d skipped: %d system, %d image-generation aliases)",
+			skipped, skipped-skippedImage, skippedImage)
+	}
+	fmt.Println("...")
+	fmt.Println()
 
 	const dreamConcurrency = 6
 	results := make([]dreamResult, len(consultable))
