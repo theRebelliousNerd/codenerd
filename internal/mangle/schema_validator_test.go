@@ -1,6 +1,7 @@
 package mangle
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -339,5 +340,68 @@ another_derived(Y) :- derived_fact(Y).
 	}
 	if !sv.IsDeclared("another_derived") {
 		t.Error("Expected another_derived to be declared (from learned head)")
+	}
+}
+
+func TestHotLoadRule(t *testing.T) {
+	schemas := `
+Decl permitted(Action.Type<name>).
+Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
+`
+	sv := NewSchemaValidator(schemas, "")
+	if err := sv.LoadDeclaredPredicates(); err != nil {
+		t.Fatalf("LoadDeclaredPredicates failed: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		rule        string
+		expectError bool
+		errContains string
+	}{
+		{
+			name:        "valid rule with dot",
+			rule:        "candidate_action(/test) :- user_intent(_, _, /test, _, _).",
+			expectError: false,
+		},
+		{
+			name:        "valid rule missing dot",
+			rule:        "candidate_action(/test2) :- user_intent(_, _, /test2, _, _)",
+			expectError: false, // Should append dot and pass
+		},
+		{
+			name:        "empty rule",
+			rule:        "   \t\n  ",
+			expectError: true,
+			errContains: "empty rule",
+		},
+		{
+			name:        "parse error",
+			rule:        "invalid rule syntax -- not datalog.",
+			expectError: true,
+			errContains: "parse error",
+		},
+		{
+			name:        "forbidden head predicate",
+			rule:        "permitted(/dangerous) :- user_intent(_, _, _, _, _).",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := sv.HotLoadRule(tt.rule)
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("expected error to contain %q, got: %v", tt.errContains, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
 	}
 }
