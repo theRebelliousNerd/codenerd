@@ -1,0 +1,72 @@
+# Test-coverage mandate for every turn that writes code.
+#
+# is_mandatory: true + shard_types is the "mandatory FOR THESE SHARDS" idiom,
+# and it is the only reliable way in. The live selection ruleset is
+# internal/core/defaults/jit_compiler.mg (the Go selector queries
+# selected_result/3 there), where an atom becomes tentative via exactly two
+# routes: mandatory_selection — is_mandatory and not blocked_by_context — or a
+# vector_hit. The skeleton phase runs no vector search at all
+# (selector.go: "VectorScore: 0.0, // No vector search for skeleton"), so for a
+# skeleton-category atom is_mandatory is the ONLY route.
+#
+# is_mandatory does not mean "on every compile". /shard is a regime dimension
+# (jit_compiler.mg:114) and therefore fail-closed: an atom carrying shard_types
+# is blocked on any compile whose shard does not match. So this is paid for on
+# coder and tester compiles and nowhere else — not on perception, not on
+# /explain.
+#
+# This precision matters because the alternative was verified not to work. The
+# eight existing TDD atom files are gated on operational_modes: ["/tdd_repair"]
+# (a mode the session executor never sets — it hardcodes "/active") or on a
+# vector hit. A live /fix turn writing Go test code selected ZERO of them
+# (2026-08-08, JIT[coder] atoms=64 skel=32 flesh=32), and a first draft of this
+# atom with is_mandatory:false changed that count by exactly nothing. Methodology
+# that only appears when the dice land right is not a methodology.
+#
+# It is deliberately short. A mandatory atom is paid for on every write turn, so
+# it states the rule and the two ways agents evade it, and leaves the detailed
+# Go workflow to methodology/tdd/go_workflow.
+
+- id: "methodology/tdd/coverage_mandate"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 96
+  is_mandatory: true
+  shard_types: ["/coder", "/tester"]
+  content: |
+    ## TEST COVERAGE IS PART OF THE WORK, NOT A FOLLOW-UP
+
+    Code you write is not finished until it is exercised. When this turn creates
+    or changes behaviour, it also writes or updates the test that proves it.
+    Shipping the implementation and saying tests "can be added next" is an
+    unfinished turn, not a completed one.
+
+    ### WHAT THIS MEANS CONCRETELY
+    - New function, method, or branch -> a test that calls it.
+    - Bug fix -> a test that FAILS before your fix and passes after. If you
+      cannot state which assertion would have failed yesterday, you have not
+      characterised the bug.
+    - Changed behaviour -> update the existing test to state the new contract.
+      Do not leave a test asserting the old one.
+    - Pure rename, comment, or formatting change -> no new test needed. Say so.
+
+    ### THE TWO EVASIONS - DO NOT USE THEM
+    1. **The tautological test.** A test that mirrors the implementation line
+       for line, asserts on a mock you just configured, or can never fail proves
+       nothing and costs maintenance forever. Ask: what wrong implementation
+       would this catch? If the answer is "none", the test is decoration.
+    2. **Weakening the test to get green.** Deleting a failing test, loosening
+       its assertion, or skipping it turns red green while destroying the thing
+       that made the suite worth running. A failing test is a specification you
+       have not met yet. If the test itself is genuinely wrong, say so
+       explicitly and explain why before changing it.
+
+    ### VERIFICATION IS AUTOMATIC, SO DO NOT GUESS
+    Your edits are compiled and the affected packages are tested after this turn
+    regardless of what you report. Claiming success does not make a turn
+    successful; passing does. Run the tests yourself before you finish rather
+    than finding out afterwards.
+
+    Table-driven tests with named cases are the house style. Cover the boundary
+    and the error path, not only the happy path -- the happy path is the case
+    least likely to be wrong.
