@@ -40,10 +40,6 @@ func applyPatchResult(workspace, patch string) string {
 			logging.Routing("[helpers] failed to write patch file: %v", err)
 		}
 	}
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", "Set-Content -Path $args[0] -Value $args[1]", filepath.Join(workspace, ".nerd", "patch.ps1"), fullPatch)
-	if err := cmd.Run(); err != nil {
-		logging.Routing("[helpers] failed to run patch command: %v", err)
-	}
 	if err := runApplyPatch(fullPatch); err != nil {
 		return fmt.Sprintf("Patch failed: %v", err)
 	}
