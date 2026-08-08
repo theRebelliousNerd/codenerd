@@ -425,6 +425,23 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	}
 
 	result := &ExecutionResult{}
+	// Audit: turn boundaries (sessionID/turnNum derived from executor state).
+	e.mu.RLock()
+	auditSessionID := e.sessionID
+	auditTurnNum := len(e.conversationHistory)/2 + 1
+	e.mu.RUnlock()
+	if auditSessionID == "" {
+		auditSessionID = "default"
+	}
+	logging.Audit().TurnStart(auditSessionID, auditTurnNum, len(input))
+	// TurnEnd is deferred so every exit path (including early errors after this
+	// point) emits a matching session_event. Success is derived from result.Error
+	// at defer time; for early returns that bypass result, success remains false.
+	defer func() {
+		success := result != nil && result.Error == nil
+		// hollow-success and tool-error cases already surface via result.Error
+		logging.Audit().TurnEnd(auditSessionID, auditTurnNum, time.Since(start).Milliseconds(), success)
+	}()
 
 	// 1. OBSERVE: Transducer converts NL → Intent (skipped for preset intents)
 	var intent perception.Intent
@@ -438,6 +455,13 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		intent = observed
 	}
 	result.Intent = intent
+
+	// What the system understood the user to mean is the first link in every
+	// derivation chain that follows, and it was the one step no durable record
+	// captured — IntentParsed had zero callers. Without it, a turn that went
+	// wrong in an unattended run cannot be told apart from a turn that was
+	// asked for the wrong thing.
+	logging.Audit().IntentParsed(intent.Category, intent.Verb, intent.Target, intent.Confidence)
 
 	// Assert intent to kernel for Mangle policy evaluation. Interactive runs
 	// own /current_intent; task runs get a unique ID that is cleaned up when
