@@ -83,6 +83,22 @@ func TestRunCommandTool_Execute_Success(t *testing.T) {
 	execCommandContext = fakeExecCommandContext
 	defer func() { execCommandContext = oldExec }()
 
+	// Pin the PATH lookup as well, or this test measures the terminal it was
+	// launched from rather than the code.
+	//
+	// executeRunCommand consults execLookPath first: when the binary is absent
+	// it serves a Go builtin (builtins.go handles echo, ls, cat, wc, grep, ...)
+	// and returns BEFORE execCommandContext is ever called, so the mock above is
+	// bypassed entirely. Windows has no echo.exe, but Git Bash puts one on PATH
+	// — so this test passed under Git Bash and failed under PowerShell on the
+	// same commit, reporting "got: test" from the real builtin.
+	//
+	// Reporting a successful lookup keeps the turn on the exec path this test is
+	// actually about. The builtin fallback has its own tests.
+	oldLookPath := execLookPath
+	execLookPath = func(file string) (string, error) { return file, nil }
+	defer func() { execLookPath = oldLookPath }()
+
 	// Set env var to trigger helper
 	os.Setenv("GO_WANT_HELPER_PROCESS", "1")
 	defer os.Unsetenv("GO_WANT_HELPER_PROCESS")
@@ -108,6 +124,14 @@ func TestRunCommandTool_Execute_EnvVars(t *testing.T) {
 	oldExec := execCommandContext
 	execCommandContext = fakeExecCommandContext
 	defer func() { execCommandContext = oldExec }()
+
+	// Same reason as TestRunCommandTool_Execute_Success: without pinning the
+	// lookup, an absent echo.exe diverts the turn into the Go builtin and the
+	// exec mock is never reached. This test happens to pass either way today,
+	// which is exactly why it is worth pinning now rather than after it breaks.
+	oldLookPath := execLookPath
+	execLookPath = func(file string) (string, error) { return file, nil }
+	defer func() { execLookPath = oldLookPath }()
 
 	os.Setenv("GO_WANT_HELPER_PROCESS", "1")
 	defer os.Unsetenv("GO_WANT_HELPER_PROCESS")
