@@ -345,3 +345,119 @@ func TestConfigFactory_StateConflicts(t *testing.T) {
 
 	wg.Wait()
 }
+
+// TODO: [Null/Undefined/Empty] Missing test for Generate fallback with strings of only spaces ("   ").
+func TestConfigFactory_EmptySpacesIntent(t *testing.T) {
+	provider := &MockConfigAtomProvider{
+		atoms: map[string]ConfigAtom{
+			"": {
+				Tools: []string{"fallback"},
+			},
+			"/general": {
+				Tools: []string{"general"},
+			},
+		},
+	}
+	factory := NewConfigFactory(provider)
+	ctx := context.Background()
+	compilationResult := &CompilationResult{Prompt: "test"}
+
+	// "   " shouldn't panic, but it will fall back to /general
+	cfg, err := factory.Generate(ctx, compilationResult, "   ")
+	if err != nil {
+		t.Fatalf("Unexpected error for spaces intent: %v", err)
+	}
+	if cfg == nil {
+		t.Fatalf("Expected config, got nil")
+	}
+}
+
+// TODO: [User Request Extremes] Missing test for GenerateFallback with a massive fallbackIdentity string (e.g., 50MB) to ensure it doesn't cause OOM.
+func TestConfigFactory_MassiveFallbackIdentity(t *testing.T) {
+	factory := NewDefaultConfigFactory()
+	ctx := context.Background()
+
+	// Simulate 10MB string (smaller than 50MB for test speed, but large enough to catch blatant OOM)
+	massiveString := strings.Repeat("A", 10*1024*1024)
+
+	cfg := factory.GenerateFallback(ctx, "/fix", massiveString)
+	if cfg == nil {
+		t.Fatalf("GenerateFallback returned nil for massive string")
+	}
+	if len(cfg.IdentityPrompt) > 1024*1024 {
+		t.Fatalf("IdentityPrompt was not truncated (length: %d)", len(cfg.IdentityPrompt))
+	}
+}
+
+// TODO: [User Request Extremes] Missing test for uniqueStrings performance/OOM when handling a ConfigAtom with millions of duplicated tool strings.
+func TestConfigFactory_MassiveUniqueStrings(t *testing.T) {
+	provider := &MockConfigAtomProvider{
+		atoms: map[string]ConfigAtom{
+			"/base": {
+				Tools:    []string{"t1"},
+				Policies: []string{"p1.mg"},
+			},
+		},
+	}
+	factory := NewConfigFactory(provider)
+	ctx := context.Background()
+	compilationResult := &CompilationResult{Prompt: "test"}
+
+	// Test deduplication with 1,000,000 intents
+	// This might cause OOM if uniqueStrings is severely flawed, or it'll just be slow.
+	intents := make([]string, 1000000)
+	for i := range 1000000 {
+		intents[i] = "/base"
+	}
+
+	cfg, err := factory.Generate(ctx, compilationResult, intents...)
+	if err != nil {
+		t.Fatalf("Generate failed for large intents array: %v", err)
+	}
+	if len(cfg.AllowedTools) != 1 {
+		t.Errorf("Deduplication failed or returned wrong number of tools: %v", len(cfg.AllowedTools))
+	}
+}
+
+// TODO: [State Conflicts] Missing test verifying that mutating a slice (e.g., Tools) of a ConfigAtom *after* passing it to RegisterAtom does not cause race conditions.
+func TestConfigFactory_SliceMutationRace(t *testing.T) {
+	provider := NewDefaultConfigAtomProvider()
+
+	toolsSlice := []string{"initial_tool"}
+	atom := ConfigAtom{Tools: toolsSlice, Policies: []string{"policy.mg"}}
+
+	provider.RegisterAtom("/race_intent", atom)
+
+	factory := NewConfigFactory(provider)
+	ctx := context.Background()
+	compilationResult := &CompilationResult{Prompt: "test"}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Goroutine 1: Generate config
+	go func() {
+		defer wg.Done()
+		for range 1000 {
+			cfg, _ := factory.Generate(ctx, compilationResult, "/race_intent")
+			if cfg != nil && len(cfg.AllowedTools) > 0 {
+				// Just read it
+				_ = cfg.AllowedTools[0]
+			}
+		}
+	}()
+
+	// Goroutine 2: Mutate the original slice (simulating a careless caller)
+	go func() {
+		defer wg.Done()
+		for i := range 1000 {
+			if i%2 == 0 {
+				toolsSlice[0] = "mutated_tool"
+			} else {
+				toolsSlice[0] = "initial_tool"
+			}
+		}
+	}()
+
+	wg.Wait()
+}
