@@ -301,9 +301,9 @@ func browserSnapshot(cmd *cobra.Command, args []string) error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("// DOM Snapshot for session %s\n", sessionID))
-	sb.WriteString(fmt.Sprintf("// Captured at %s\n", time.Now().Format(time.RFC3339)))
-	sb.WriteString(fmt.Sprintf("// URL: %s\n\n", session.URL))
+	sb.WriteString(fmt.Sprintf("# DOM Snapshot for session %s\n", sessionID))
+	sb.WriteString(fmt.Sprintf("# Captured at %s\n", time.Now().Format(time.RFC3339)))
+	sb.WriteString(fmt.Sprintf("# URL: %s\n\n", session.URL))
 
 	totalFacts := 0
 	for _, pred := range domPredicates {
@@ -313,7 +313,7 @@ func browserSnapshot(cmd *cobra.Command, args []string) error {
 		}
 		for _, fact := range facts {
 			sb.WriteString(fact.String())
-			sb.WriteString(".\n")
+			sb.WriteString("\n")
 			totalFacts++
 		}
 	}
