@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,9 +90,6 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 
 	// Initialize go module
 	modContent := fmt.Sprintf("module %s\n\ngo 1.26.0\n", tool.Name)
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(modContent), 0644); err != nil {
-		return result, fmt.Errorf("failed to write go.mod: %w", err)
-	}
 
 	// Add replace directive if needed
 	mainModulePath := tc.config.WorkspaceRoot
@@ -102,10 +100,11 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 		if strings.ContainsAny(mainModulePath, "\n\r") {
 			return result, fmt.Errorf("security violation: workspace root path contains invalid characters")
 		}
-		/* #nosec G204 */
-		editCmd := exec.CommandContext(ctx, "go", "mod", "edit", "-replace", fmt.Sprintf("codenerd=%s", mainModulePath))
-		editCmd.Dir = tmpDir
-		_ = editCmd.Run()
+		modContent += fmt.Sprintf("replace codenerd => %s\n", strconv.Quote(mainModulePath))
+	}
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(modContent), 0644); err != nil {
+		return result, fmt.Errorf("failed to write go.mod: %w", err)
 	}
 
 	// Run go mod tidy
