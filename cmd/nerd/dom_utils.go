@@ -15,7 +15,7 @@ func runGoFmtFiles(ctx context.Context, ws string, files []string) error {
 	const chunkSize = 40
 	for start := 0; start < len(files); start += chunkSize {
 		end := min(start+chunkSize, len(files))
-		args := append([]string{"-w"}, files[start:end]...)
+		args := append([]string{"-w", "--"}, files[start:end]...)
 		gofmtCmd := exec.CommandContext(ctx, "gofmt", args...)
 		gofmtCmd.Dir = ws
 		if out, err := gofmtCmd.CombinedOutput(); err != nil {
