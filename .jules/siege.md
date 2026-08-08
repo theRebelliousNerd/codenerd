@@ -83,3 +83,7 @@
 ## 2025-01-01 - [Session-Kernel-VStore Integration]
 **Learning:** The Session Executor relies on `e.transducer.ParseIntentWithContext` and expects the `VirtualStore` (via `ExecuteTool`) to execute the appropriate actions. However, if a tool's capability is missing from the `AllowedTools` in the `AgentConfig`, it will fail closed without panic.
 **Action:** Always assert that `AgentConfig` includes the necessary tool permissions, otherwise VirtualStore tool execution will be silently blocked by the executor.
+
+## 2026-07-25 - VirtualStore Interactive Gate vs Dreamer Cache Collision
+**Learning:** The Dreamer's cache implementation uses `string(req.Type) + ":" + req.Target` as the cache key, completely ignoring the `req.Payload`. Two concurrent interactive tool calls (e.g. `write_file`) modifying the same file with different content will collide, potentially allowing a malicious payload to bypass safety checks by reusing the cache entry of a benign payload.
+**Action:** When testing the VirtualStore ↔ Dreamer boundary, always construct concurrent races that exploit cache key collisions (same type + target, different payload).
