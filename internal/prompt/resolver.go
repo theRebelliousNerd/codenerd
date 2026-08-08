@@ -106,6 +106,9 @@ func (r *DependencyResolver) topologicalSort(
 		}
 		seenDeps := make(map[string]bool)
 		for _, depID := range sa.Atom.DependsOn {
+			if depID == "" {
+				continue
+			}
 			if seenDeps[depID] {
 				continue
 			}
@@ -138,6 +141,9 @@ func (r *DependencyResolver) topologicalSort(
 	for _, sa := range atoms {
 		seenDeps := make(map[string]bool)
 		for _, depID := range sa.Atom.DependsOn {
+			if depID == "" {
+				continue
+			}
 			if seenDeps[depID] {
 				continue
 			}
