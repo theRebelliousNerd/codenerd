@@ -431,8 +431,10 @@ func TestDeleteFileTool_Execute_Success(t *testing.T) {
 	tmpFile := filepath.Join(tmpDir, "to_delete.txt")
 	os.WriteFile(tmpFile, []byte("delete me"), 0644)
 
+	// confirmed:true is now required, matching VirtualStore.handleDeleteFile.
 	result, err := executeDeleteFile(context.Background(), map[string]any{
-		"path": tmpFile,
+		"path":      tmpFile,
+		"confirmed": true,
 	})
 	if err != nil {
 		t.Fatalf("executeDeleteFile error: %v", err)

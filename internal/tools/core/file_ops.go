@@ -443,9 +443,16 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 	}
 
 	if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+		// An edit is a write and belongs in the durable record. read_file and
+		// write_file were instrumented; edit_file and delete_file were not,
+		// which left the two most forensically interesting mutations invisible
+		// to `nerd transparency`. Raised by codeNERD's own security review of
+		// this file.
+		logging.Audit().FileOp(logging.AuditFileWrite, path, 0, false, err.Error())
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
+	logging.Audit().FileOp(logging.AuditFileWrite, path, int64(len(newContent)), true, "")
 	logging.VirtualStore("edit_file completed: %s (%d replacements)", path, count)
 	return fmt.Sprintf("Replaced %d occurrence(s) in %s", count, path), nil
 }
@@ -454,16 +461,20 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 func DeleteFileTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "delete_file",
-		Description: "Delete a file (requires explicit permission)",
+		Description: "Delete a file. Irreversible: requires confirmed=true.",
 		Category:    tools.CategoryCode,
 		Priority:    50,
 		Execute:     executeDeleteFile,
 		Schema: tools.ToolSchema{
-			Required: []string{"path"},
+			Required: []string{"path", "confirmed"},
 			Properties: map[string]tools.Property{
 				"path": {
 					Type:        "string",
 					Description: "The file path to delete",
+				},
+				"confirmed": {
+					Type:        "boolean",
+					Description: "Must be true. Deliberate acknowledgement that this deletion is intended and irreversible.",
 				},
 			},
 		},
@@ -474,6 +485,21 @@ func executeDeleteFile(ctx context.Context, args map[string]any) (string, error)
 	rawPath, _ := args["path"].(string)
 	if rawPath == "" {
 		return "", fmt.Errorf("path is required")
+	}
+
+	// Match the VirtualStore twin's contract.
+	//
+	// The tool's own description claimed it "requires explicit permission" and
+	// the code enforced nothing, while VirtualStore.handleDeleteFile
+	// (virtual_store_file_actions.go:322) refuses without confirmed:true. Two
+	// paths to the same irreversible operation disagreeing on whether consent
+	// is needed means the weaker one is the real policy. Raised by codeNERD's
+	// own security review of this file.
+	//
+	// Declared in the schema as required, so the model is told to supply it
+	// rather than discovering the rule by failing.
+	if confirmed, _ := args["confirmed"].(bool); !confirmed {
+		return "", fmt.Errorf("delete_file requires confirmed=true: deleting %q is irreversible, so it must be acknowledged explicitly", rawPath)
 	}
 
 	root, err := workspaceRoot(ctx)
@@ -497,10 +523,16 @@ func executeDeleteFile(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("cannot delete directory with delete_file, use dedicated command")
 	}
 
+	// Size is captured before removal — afterwards there is nothing to stat,
+	// and "how much was destroyed" is the first question asked of a delete.
+	deletedSize := info.Size()
+
 	if err := os.Remove(path); err != nil {
+		logging.Audit().FileOp(logging.AuditFileDelete, path, deletedSize, false, err.Error())
 		return "", fmt.Errorf("failed to delete file: %w", err)
 	}
 
+	logging.Audit().FileOp(logging.AuditFileDelete, path, deletedSize, true, "")
 	logging.VirtualStore("delete_file completed: %s", path)
 	return fmt.Sprintf("Deleted %s", path), nil
 }
