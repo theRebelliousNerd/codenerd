@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -496,7 +495,10 @@ func (e *Executor) projectForbidsWrite(call ToolCall) (string, bool) {
 		return "", false
 	}
 
-	facts, err := e.kernel.Query(projectdoc.PredForbiddenPath)
+	// Matching lives in projectdoc.ForbiddenByKernel so this gate and the
+	// VirtualStore's cannot drift apart. They used to be one gate and one hole:
+	// shards route writes through the VirtualStore, which checked nothing.
+	reason, forbidden, err := projectdoc.ForbiddenByKernel(e.kernel, target)
 	if err != nil {
 		// Fail OPEN, loudly. A kernel query failure is not evidence that the
 		// path is protected, and turning every transient query error into a
@@ -506,21 +508,7 @@ func (e *Executor) projectForbidsWrite(call ToolCall) (string, bool) {
 			"nerd.md write protection could not be evaluated for %s (%v); allowing the write", target, err)
 		return "", false
 	}
-
-	normalized := strings.ToLower(filepath.ToSlash(target))
-	for _, fact := range facts {
-		if len(fact.Args) < 2 {
-			continue
-		}
-		match := strings.ToLower(filepath.ToSlash(types.ExtractString(fact.Args[0])))
-		if match == "" {
-			continue
-		}
-		if strings.Contains(normalized, match) {
-			return types.ExtractString(fact.Args[1]), true
-		}
-	}
-	return "", false
+	return reason, forbidden
 }
 
 // hollowSuccessPrefix is the stable error marker for hollow-completion failures.

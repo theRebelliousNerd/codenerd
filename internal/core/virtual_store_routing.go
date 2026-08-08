@@ -298,6 +298,21 @@ func (v *VirtualStore) parseActionFact(action Fact) (ActionRequest, error) {
 
 // executeAction dispatches to the appropriate handler.
 func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	// nerd.md write protection, at the one point every action passes through.
+	// Gating the six write handlers individually would be six chances to forget
+	// the seventh.
+	//
+	// This was a real hole, not a hypothetical: the only enforcement lived on
+	// session.Executor, and shards do not route writes through it — they route
+	// them here. A shard could write .nerd/config.json that the interactive path
+	// refused.
+	if reason, blocked := v.projectForbidsWrite(req); blocked {
+		return ActionResult{
+			Success: false,
+			Error:   fmt.Sprintf("blocked by nerd.md: %s is write-protected (%s)", req.Target, reason),
+		}, nil
+	}
+
 	switch req.Type {
 	case ActionExecCmd:
 		return v.handleExecCmd(ctx, req)

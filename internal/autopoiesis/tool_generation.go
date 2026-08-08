@@ -1,6 +1,7 @@
 package autopoiesis
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -244,7 +245,7 @@ Generate complete, compilable, SAFE Go code:`,
 		feedback, previousCode,
 		need.Name, need.Purpose, need.InputType, need.OutputType)
 
-	code, err := tg.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	code, err := tg.client.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), systemPrompt, userPrompt)
 	if err != nil {
 		return "", err
 	}
@@ -309,7 +310,7 @@ Generate complete, compilable, SAFE Go code:`,
 		feedback, previousCode,
 		need.Name, need.Purpose, need.InputType, need.OutputType)
 
-	code, err := tg.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	code, err := tg.client.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), systemPrompt, userPrompt)
 	if err != nil {
 		return "", err
 	}
@@ -371,7 +372,7 @@ Apply these learnings to generate better code.`, tg.learningsContext)
 
 	userPrompt += "\n\nGenerate complete, compilable Go code:"
 
-	code, err := tg.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	code, err := tg.client.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), systemPrompt, userPrompt)
 	if err != nil {
 		return "", err
 	}
@@ -381,6 +382,19 @@ Apply these learnings to generate better code.`, tg.learningsContext)
 }
 
 // generateToolCodeWithJIT generates tool code using JIT-compiled prompts
+// Every LLM call in this file returns raw Go inside a markdown fence, pulled out
+// by extractCodeBlock. None of them is a Piggyback envelope, so all five declare
+// types.WithStructuredOutputOnly.
+//
+// Without that declaration the client decides by searching the prompt for
+// "control_packet". The JIT-assembled tool_generator prompt contains it —
+// tool_generator is not in prompt.IsStructuredOutputOnly, so the piggyback atoms
+// compile in — and the client attaches the envelope JSON schema. A strict schema
+// is not advice: the model must then emit an envelope instead of code,
+// extractCodeBlock finds no fence, and the run burns the whole
+// ouroboros_timeout. Observed live: "specification failed: failed to generate
+// tool code: context deadline exceeded" after 10 minutes.
+
 func (tg *ToolGenerator) generateToolCodeWithJIT(ctx context.Context, need *ToolNeed, stage string) (string, error) {
 	logging.AutopoiesisDebug("Generating tool code with JIT for stage=%s", stage)
 
@@ -436,7 +450,7 @@ Apply these learnings to generate better code.`, tg.learningsContext)
 
 	userPrompt += "\n\nGenerate complete, compilable Go code:"
 
-	code, err := tg.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	code, err := tg.client.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), systemPrompt, userPrompt)
 	if err != nil {
 		return "", err
 	}
@@ -459,7 +473,7 @@ Generate comprehensive tests including:
 
 Generate complete test file in package "tools":`, code)
 
-	testCode, err := tg.client.Complete(ctx, prompt)
+	testCode, err := tg.client.Complete(types.WithStructuredOutputOnly(ctx), prompt)
 	if err != nil {
 		// Use comprehensive fallback test generation
 		return tg.generateFallbackTests(need, code), nil
