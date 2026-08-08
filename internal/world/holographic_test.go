@@ -2,8 +2,10 @@ package world
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"go/ast"
+	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -14,6 +16,8 @@ import (
 	"codenerd/internal/core"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPrioritizedCallerStruct(t *testing.T) {
@@ -40,10 +44,10 @@ func TestPrioritizedCallerStruct(t *testing.T) {
 // TODO: Add TestHolographicContext_EmptyTypeDefinitions - Test extraction for structs with no fields or interfaces with no methods to confirm `Fields` and `Methods` serialization handling.
 func TestHolographicContext_FormatWithEmptyCallers(t *testing.T) {
 	hc := &HolographicContext{
-		TargetFile: "target.go",
-		TargetPkg:  "world",
+		TargetFile:         "target.go",
+		TargetPkg:          "world",
 		PrioritizedCallers: []PrioritizedCaller{},
-		ImpactPriority: 50,
+		ImpactPriority:     50,
 	}
 
 	formatted := hc.FormatWithPriorities()
@@ -182,8 +186,8 @@ func TestFormatWithPriorities_EmptyCallers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			hc := &HolographicContext{
-				TargetFile: "target.go",
-				TargetPkg:  "world",
+				TargetFile:         "target.go",
+				TargetPkg:          "world",
 				PrioritizedCallers: tt.callers,
 			}
 
@@ -200,7 +204,6 @@ func TestFormatWithPriorities_EmptyCallers(t *testing.T) {
 		})
 	}
 }
-
 
 func TestFormatPrioritizedCallersCompact(t *testing.T) {
 	hc := &HolographicContext{
@@ -1146,4 +1149,49 @@ func TestBuildGoContext_InvalidSyntaxSibling(t *testing.T) {
 	if hc.TargetPkg != "main" {
 		t.Errorf("Expected TargetPkg to be 'main', got '%s'", hc.TargetPkg)
 	}
+}
+
+func TestExtractTypeDefinition_EmptyStructAndInterface(t *testing.T) {
+	src := `
+package test
+type EmptyStruct struct{}
+type EmptyInterface interface{}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.go", src, 0)
+	require.NoError(t, err)
+
+	h := &HolographicProvider{}
+	var defs []TypeDefinition
+
+	for _, decl := range f.Decls {
+		if genDecl, ok := decl.(*ast.GenDecl); ok {
+			for _, spec := range genDecl.Specs {
+				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+					def := h.extractTypeDefinition(fset, typeSpec, genDecl, "test.go")
+					defs = append(defs, def)
+				}
+			}
+		}
+	}
+
+	require.Len(t, defs, 2)
+
+	// Verify EmptyStruct
+	assert.Equal(t, "EmptyStruct", defs[0].Name)
+	assert.Equal(t, "struct", defs[0].Kind)
+	assert.Nil(t, defs[0].Fields)
+
+	b, err := json.Marshal(defs[0])
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), `"fields"`, "nil slices with omitempty should not be serialized")
+
+	// Verify EmptyInterface
+	assert.Equal(t, "EmptyInterface", defs[1].Name)
+	assert.Equal(t, "interface", defs[1].Kind)
+	assert.Nil(t, defs[1].Methods)
+
+	b, err = json.Marshal(defs[1])
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), `"methods"`, "nil slices with omitempty should not be serialized")
 }

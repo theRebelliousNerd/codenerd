@@ -604,8 +604,6 @@ func (h *HolographicProvider) extractFuncSignature(fset *token.FileSet, fn *ast.
 
 // extractTypeDefinition extracts a type's definition.
 func (h *HolographicProvider) extractTypeDefinition(fset *token.FileSet, ts *ast.TypeSpec, gd *ast.GenDecl, fileName string) TypeDefinition {
-	// TODO: Add tests for type definition extraction from empty structs or interfaces
-	// to verify nil vs empty slice serialization behavior.
 	typeDef := TypeDefinition{
 		Name:     ts.Name.Name,
 		File:     fileName,
