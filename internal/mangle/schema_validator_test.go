@@ -1,6 +1,7 @@
 package mangle
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -339,5 +340,101 @@ another_derived(Y) :- derived_fact(Y).
 	}
 	if !sv.IsDeclared("another_derived") {
 		t.Error("Expected another_derived to be declared (from learned head)")
+	}
+}
+
+// TestValidateProgram tests program validation.
+func TestValidateProgram(t *testing.T) {
+	schemas := `
+Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
+Decl file_topology(Path.Type<string>).
+Decl next_action(Action.Type<name>).
+`
+	sv := NewSchemaValidator(schemas, "")
+	if err := sv.LoadDeclaredPredicates(); err != nil {
+		t.Fatalf("LoadDeclaredPredicates failed: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		program     string
+		expectError bool
+		errContains string
+	}{
+		{
+			name: "valid program",
+			program: `
+Decl user_intent(A, B, C, D, E).
+Decl file_topology(A).
+Decl next_action(A).
+next_action(/review) :- user_intent(_, /mutation, /review, _, _), file_topology(_).
+file_topology("/src/main.go").
+`,
+			expectError: false,
+		},
+		{
+			name: "parse error",
+			program: `
+Decl user_intent(A, B, C, D, E).
+Decl file_topology(A).
+Decl next_action(A).
+next_action(/review) :- user_intent(_, /mutation, /review, _, _, // missing parenthesis
+`,
+			expectError: true,
+			errContains: "parse error",
+		},
+		{
+			name: "analysis error (unbound variable)",
+			program: `
+Decl user_intent(A, B, C, D, E).
+Decl file_topology(A).
+Decl next_action(A).
+next_action(X) :- user_intent(_, /mutation, /review, _, _), file_topology(_).
+`,
+			expectError: true,
+			errContains: "analysis error",
+		},
+		{
+			name: "validation error (undefined predicate)",
+			program: `
+Decl user_intent(A, B, C, D, E).
+Decl file_topology(A).
+Decl next_action(A).
+next_action(/review) :- undefined_pred(X), file_topology(_).
+`,
+			expectError: true,
+			errContains: "analysis error", // undefined predicate is caught by analysis first
+		},
+		{
+			name: "valid program with comments and empty lines",
+			program: `
+Decl user_intent(A, B, C, D, E).
+Decl file_topology(A).
+Decl next_action(A).
+
+# This is a comment
+
+next_action(/review) :- user_intent(_, /mutation, /review, _, _), file_topology(_).
+
+# Another comment
+file_topology("/src/main.go").
+`,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := sv.ValidateProgram(tt.program)
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("ValidateProgram expected error for: %s", tt.name)
+				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("ValidateProgram expected error containing %q, got: %v", tt.errContains, err)
+				}
+			} else if err != nil {
+				t.Errorf("ValidateProgram unexpected error for: %s: %v", tt.name, err)
+			}
+		})
 	}
 }
