@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -129,7 +130,19 @@ Equivalent to /jit in the TUI.`,
 
 // runDreamState executes dream state consultation
 func runDreamState(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// Honour --timeout rather than a hardcoded 5 minutes.
+	//
+	// Observed live: 22 agents consulted, every one failing "context deadline
+	// exceeded", and the command still printed "Dream state consultation
+	// complete" and exited 0. Three separate faults produced that, all fixed
+	// here — the flat 5-minute ceiling (identical to the bug already fixed in
+	// runToolCommand below), a strictly sequential fan-out sharing that one
+	// budget, and a success message that never consulted the results.
+	dreamTimeout := timeout
+	if dreamTimeout <= 0 {
+		dreamTimeout = 25 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), dreamTimeout)
 	defer cancel()
 
 	scenario := strings.Join(args, " ")
@@ -159,36 +172,108 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 
 	// Consult each shard in dream mode
 	dreamCtx := &types.SessionContext{DreamMode: true}
+	prompt := fmt.Sprintf("Dream Mode Consultation:\n\nScenario: %s\n\nProvide your perspective on this hypothetical. Do NOT execute any actions - only describe what you would do and the implications.", scenario)
 
+	// Consult concurrently.
+	//
+	// Sequentially, 22 consultations shared one deadline: cortex boot ate the
+	// first half-minute, each agent consumed what was left in turn, and every
+	// agent after the budget ran out failed instantly without making a single
+	// call. Same shape as the init doc-triage defect (196 sequential batches
+	// against a 25-minute timeout). The pool is deliberately modest — the
+	// APIScheduler is global, so a wider fan-out just queues behind the same
+	// rate limit.
+	type dreamResult struct {
+		index    int
+		name     string
+		shardTyp types.ShardType
+		response string
+		err      error
+	}
+
+	// Indices into shards, so the concrete ShardInfo type stays unnamed here.
+	consultable := make([]int, 0, len(shards))
 	for i, shard := range shards {
-		// Skip internal/system shards
 		if shard.Type == types.ShardTypeSystem {
+			continue // internal/system shards have no perspective to offer
+		}
+		consultable = append(consultable, i)
+	}
+
+	const dreamConcurrency = 6
+	results := make([]dreamResult, len(consultable))
+	sem := make(chan struct{}, dreamConcurrency)
+	var wg sync.WaitGroup
+
+	for slot, shardIdx := range consultable {
+		wg.Add(1)
+		go func(slot, shardIdx int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			shard := shards[shardIdx]
+			// Dream mode = low priority (background speculation)
+			result, err := cortex.SpawnTaskWithContext(ctx, shard.Name, prompt, dreamCtx, types.PriorityLow)
+			results[slot] = dreamResult{index: slot, name: shard.Name, shardTyp: shard.Type, response: result, err: err}
+		}(slot, shardIdx)
+	}
+	wg.Wait()
+
+	succeeded, failed := 0, 0
+	for i, r := range results {
+		fmt.Printf("[%d] %s (%s)...\n", i+1, r.name, r.shardTyp)
+		if r.err != nil {
+			failed++
+			fmt.Printf("   ❌ Error: %v\n\n", r.err)
 			continue
 		}
-
-		fmt.Printf("[%d] %s (%s)...\n", i+1, shard.Name, shard.Type)
-
-		prompt := fmt.Sprintf("Dream Mode Consultation:\n\nScenario: %s\n\nProvide your perspective on this hypothetical. Do NOT execute any actions - only describe what you would do and the implications.", scenario)
-
-		// Dream mode = low priority (background speculation)
-		result, err := cortex.SpawnTaskWithContext(ctx, shard.Name, prompt, dreamCtx, types.PriorityLow)
-		if err != nil {
-			fmt.Printf("   ❌ Error: %v\n\n", err)
-			continue
-		}
-
+		succeeded++
 		fmt.Printf("   ✓ Response:\n")
-		// Indent the response
-		for line := range strings.SplitSeq(truncateResponse(result, 500), "\n") {
+		for line := range strings.SplitSeq(truncateResponse(r.response, 500), "\n") {
 			fmt.Printf("     %s\n", line)
 		}
 		fmt.Println()
 	}
 
 	fmt.Println(strings.Repeat("─", 60))
-	fmt.Println("✅ Dream state consultation complete")
+
+	// Report the outcome the run actually had.
+	summary, err := dreamSummary(succeeded, failed, dreamTimeout, ctx.Err() != nil)
+	fmt.Println(summary)
+	if err != nil {
+		return err
+	}
 
 	return nil
+}
+
+// dreamSummary renders the outcome line and reports whether the consultation
+// failed outright.
+//
+// Split out from runDreamState so the all-failed branch can be pinned by a
+// test. It cannot be reached live any more: the concurrent fan-out completes
+// several agents even on a 32-second budget, which is exactly why the original
+// bug survived — the failure mode only appeared under a deadline the
+// sequential version imposed on itself, and the unconditional "✅ complete"
+// then hid it.
+func dreamSummary(succeeded, failed int, budget time.Duration, deadlineExpired bool) (string, error) {
+	switch {
+	case succeeded == 0 && failed > 0:
+		msg := fmt.Sprintf("❌ Dream state consultation FAILED: all %d agents errored", failed)
+		if deadlineExpired {
+			msg += fmt.Sprintf("\n   The %s budget expired. Raise it with --timeout.", budget)
+		}
+		return msg, fmt.Errorf("dream consultation failed: all %d agents errored", failed)
+	case failed > 0:
+		return fmt.Sprintf("⚠️  Dream state consultation partial: %d succeeded, %d failed", succeeded, failed), nil
+	case succeeded == 0:
+		// No consultable agents at all: not a success, and silently claiming
+		// one would repeat the defect in a different shape.
+		return "⚠️  Dream state consultation ran no agents (none available to consult)", nil
+	default:
+		return fmt.Sprintf("✅ Dream state consultation complete: %d agents responded", succeeded), nil
+	}
 }
 
 // runShadowSimulation runs shadow mode
