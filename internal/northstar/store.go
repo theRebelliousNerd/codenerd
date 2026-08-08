@@ -694,7 +694,7 @@ func (s *Store) ResetSessionObservations() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, err := s.db.Exec(`UPDATE guardian_state SET session_observations = 0 WHERE id = 1`)
+	_, err := s.db.Exec(`UPDATE guardian_state SET session_observations = 0 WHERE id = ?`, 1)
 	return err
 }
 
