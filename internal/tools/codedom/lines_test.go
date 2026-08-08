@@ -77,7 +77,7 @@ func TestEditLinesTool_Execute_Success(t *testing.T) {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	result, err := executeEditLines(context.Background(), map[string]any{
+	result, err := executeEditLines(wsCtxFor(t, tmpFile), map[string]any{
 		"path":        tmpFile,
 		"start_line":  float64(2), // JSON numbers are float64
 		"end_line":    float64(3),
@@ -107,7 +107,7 @@ func TestEditLinesTool_Execute_InvalidRange(t *testing.T) {
 	os.WriteFile(tmpFile, []byte(content), 0644)
 
 	// Start line out of range
-	_, err := executeEditLines(context.Background(), map[string]any{
+	_, err := executeEditLines(wsCtxFor(t, tmpFile), map[string]any{
 		"path":        tmpFile,
 		"start_line":  float64(10),
 		"end_line":    float64(11),
@@ -169,7 +169,7 @@ func TestInsertLinesTool_Execute_Success(t *testing.T) {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	result, err := executeInsertLines(context.Background(), map[string]any{
+	result, err := executeInsertLines(wsCtxFor(t, tmpFile), map[string]any{
 		"path":       tmpFile,
 		"after_line": float64(1),
 		"content":    "inserted",
@@ -201,7 +201,7 @@ func TestInsertLinesTool_Execute_AtBeginning(t *testing.T) {
 	content := "line1\nline2"
 	os.WriteFile(tmpFile, []byte(content), 0644)
 
-	_, err := executeInsertLines(context.Background(), map[string]any{
+	_, err := executeInsertLines(wsCtxFor(t, tmpFile), map[string]any{
 		"path":       tmpFile,
 		"after_line": float64(0), // Insert at beginning
 		"content":    "first_line",
@@ -253,7 +253,7 @@ func TestDeleteLinesTool_Execute_Success(t *testing.T) {
 	content := "line1\nline2\nline3\nline4"
 	os.WriteFile(tmpFile, []byte(content), 0644)
 
-	result, err := executeDeleteLines(context.Background(), map[string]any{
+	result, err := executeDeleteLines(wsCtxFor(t, tmpFile), map[string]any{
 		"path":       tmpFile,
 		"start_line": float64(2),
 		"end_line":   float64(3),
@@ -282,7 +282,7 @@ func TestDeleteLinesTool_Execute_InvalidRange(t *testing.T) {
 	os.WriteFile(tmpFile, []byte(content), 0644)
 
 	// End line beyond file length
-	_, err := executeDeleteLines(context.Background(), map[string]any{
+	_, err := executeDeleteLines(wsCtxFor(t, tmpFile), map[string]any{
 		"path":       tmpFile,
 		"start_line": float64(1),
 		"end_line":   float64(10),

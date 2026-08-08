@@ -1,7 +1,6 @@
 package codedom
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +34,7 @@ func TestEditLines_ReportsShrinkAndStaleWarning(t *testing.T) {
 	path := writeTempLines(t, 20)
 
 	// Replace 5 lines (10-14) with 2 -> file shrinks by 3.
-	out, err := executeEditLines(context.Background(), map[string]any{
+	out, err := executeEditLines(wsCtxFor(t, path), map[string]any{
 		"path":        path,
 		"start_line":  10,
 		"end_line":    14,
@@ -65,7 +64,7 @@ func TestEditLines_ReportsShrinkAndStaleWarning(t *testing.T) {
 func TestInsertLines_ReportsGrowth(t *testing.T) {
 	path := writeTempLines(t, 20)
 
-	out, err := executeInsertLines(context.Background(), map[string]any{
+	out, err := executeInsertLines(wsCtxFor(t, path), map[string]any{
 		"path":       path,
 		"after_line": 5,
 		"content":    "a\nb\nc\nd",
@@ -89,7 +88,7 @@ func TestInsertLines_ReportsGrowth(t *testing.T) {
 func TestDeleteLines_ReportsShrink(t *testing.T) {
 	path := writeTempLines(t, 20)
 
-	out, err := executeDeleteLines(context.Background(), map[string]any{
+	out, err := executeDeleteLines(wsCtxFor(t, path), map[string]any{
 		"path":       path,
 		"start_line": 3,
 		"end_line":   7,
@@ -111,7 +110,7 @@ func TestDeleteLines_ReportsShrink(t *testing.T) {
 func TestEditLines_SameSizeReplacementReportsNoShift(t *testing.T) {
 	path := writeTempLines(t, 20)
 
-	out, err := executeEditLines(context.Background(), map[string]any{
+	out, err := executeEditLines(wsCtxFor(t, path), map[string]any{
 		"path":        path,
 		"start_line":  4,
 		"end_line":    6,
@@ -134,7 +133,7 @@ func TestEditLines_SameSizeReplacementReportsNoShift(t *testing.T) {
 func TestLineShiftNotice_TotalMatchesDisk(t *testing.T) {
 	path := writeTempLines(t, 30)
 
-	if _, err := executeDeleteLines(context.Background(), map[string]any{
+	if _, err := executeDeleteLines(wsCtxFor(t, path), map[string]any{
 		"path":       path,
 		"start_line": 10,
 		"end_line":   19,
@@ -142,7 +141,7 @@ func TestLineShiftNotice_TotalMatchesDisk(t *testing.T) {
 		t.Fatalf("delete_lines: %v", err)
 	}
 
-	out, err := executeInsertLines(context.Background(), map[string]any{
+	out, err := executeInsertLines(wsCtxFor(t, path), map[string]any{
 		"path":       path,
 		"after_line": 1,
 		"content":    "x",

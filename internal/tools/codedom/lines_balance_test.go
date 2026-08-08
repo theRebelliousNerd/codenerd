@@ -1,7 +1,6 @@
 package codedom
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +39,7 @@ func TestEditLines_RefusesEditThatDropsClosingBrace(t *testing.T) {
 
 	// Lines 3-6 are the struct through its closing brace. The replacement
 	// keeps the fields but drops the "}" -- exactly the live failure.
-	_, err := executeEditLines(context.Background(), map[string]any{
+	_, err := executeEditLines(wsCtxFor(t, path), map[string]any{
 		"path":        path,
 		"start_line":  3,
 		"end_line":    6,
@@ -63,7 +62,7 @@ func TestEditLines_AllowsBalancedEdit(t *testing.T) {
 	path := writeGo(t, balGoSrc)
 
 	// Same edit, but correctly reproducing the closing brace.
-	out, err := executeEditLines(context.Background(), map[string]any{
+	out, err := executeEditLines(wsCtxFor(t, path), map[string]any{
 		"path":        path,
 		"start_line":  3,
 		"end_line":    6,
@@ -87,7 +86,7 @@ func TestEditLines_AllowsBalancedEdit(t *testing.T) {
 func TestEditLines_IgnoresDelimitersInCommentsAndStrings(t *testing.T) {
 	path := writeGo(t, balGoSrc)
 
-	out, err := executeEditLines(context.Background(), map[string]any{
+	out, err := executeEditLines(wsCtxFor(t, path), map[string]any{
 		"path":       path,
 		"start_line": 8,
 		"end_line":   8,
@@ -113,7 +112,7 @@ func TestEditLines_SkipsBalanceCheckForNonBraceFiles(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	if _, err := executeEditLines(context.Background(), map[string]any{
+	if _, err := executeEditLines(wsCtxFor(t, path), map[string]any{
 		"path":        path,
 		"start_line":  3,
 		"end_line":    3,

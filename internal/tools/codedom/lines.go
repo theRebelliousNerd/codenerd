@@ -44,9 +44,22 @@ func EditLinesTool() *tools.Tool {
 }
 
 func executeEditLines(ctx context.Context, args map[string]any) (string, error) {
-	path, _ := args["path"].(string)
-	if path == "" {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
 		return "", fmt.Errorf("path is required")
+	}
+	// Contain the path to the workspace.
+	//
+	// These three tools called os.ReadFile/os.WriteFile on the caller-supplied
+	// string directly — no root, no symlink resolution, no escape check — while
+	// the file_ops family next door routed every path through this same guard.
+	// Found by codeNERD's own security review of internal/tools/core/file_ops.go,
+	// which named the asymmetry as its highest finding. An absolute path also
+	// slips past the constitution's path_traversal_protection rule, which tests
+	// for a literal ".." and finds none in "C:\Users\...".
+	path, err := tools.ResolveWorkspacePath(ctx, "", rawPath)
+	if err != nil {
+		return "", err
 	}
 
 	startLine, ok := args["start_line"].(int)
@@ -292,9 +305,22 @@ func InsertLinesTool() *tools.Tool {
 }
 
 func executeInsertLines(ctx context.Context, args map[string]any) (string, error) {
-	path, _ := args["path"].(string)
-	if path == "" {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
 		return "", fmt.Errorf("path is required")
+	}
+	// Contain the path to the workspace.
+	//
+	// These three tools called os.ReadFile/os.WriteFile on the caller-supplied
+	// string directly — no root, no symlink resolution, no escape check — while
+	// the file_ops family next door routed every path through this same guard.
+	// Found by codeNERD's own security review of internal/tools/core/file_ops.go,
+	// which named the asymmetry as its highest finding. An absolute path also
+	// slips past the constitution's path_traversal_protection rule, which tests
+	// for a literal ".." and finds none in "C:\Users\...".
+	path, err := tools.ResolveWorkspacePath(ctx, "", rawPath)
+	if err != nil {
+		return "", err
 	}
 
 	afterLine := 0
@@ -373,9 +399,22 @@ func DeleteLinesTool() *tools.Tool {
 }
 
 func executeDeleteLines(ctx context.Context, args map[string]any) (string, error) {
-	path, _ := args["path"].(string)
-	if path == "" {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
 		return "", fmt.Errorf("path is required")
+	}
+	// Contain the path to the workspace.
+	//
+	// These three tools called os.ReadFile/os.WriteFile on the caller-supplied
+	// string directly — no root, no symlink resolution, no escape check — while
+	// the file_ops family next door routed every path through this same guard.
+	// Found by codeNERD's own security review of internal/tools/core/file_ops.go,
+	// which named the asymmetry as its highest finding. An absolute path also
+	// slips past the constitution's path_traversal_protection rule, which tests
+	// for a literal ".." and finds none in "C:\Users\...".
+	path, err := tools.ResolveWorkspacePath(ctx, "", rawPath)
+	if err != nil {
+		return "", err
 	}
 
 	startLine, ok := args["start_line"].(int)
