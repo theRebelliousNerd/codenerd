@@ -461,6 +461,67 @@ func TestEngineQueryFacts(t *testing.T) {
 	}
 }
 
+
+func TestEngineRecomputeRules(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = false // Disable auto eval to test manual recompute
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	// Should error if schema not loaded
+	err = engine.RecomputeRules()
+	if err != errNoSchemas {
+		t.Fatalf("Expected errNoSchemas before schema load, got: %v", err)
+	}
+
+	schema := `
+Decl parent(Name, Child).
+Decl ancestor(Name, Descendant).
+
+ancestor(A, B) :- parent(A, B).
+ancestor(A, C) :- parent(A, B), ancestor(B, C).
+`
+	if err := engine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("LoadSchemaString() error = %v", err)
+	}
+
+	// Insert facts
+	facts := []Fact{
+		{Predicate: "parent", Args: []any{"Alice", "Bob"}},
+		{Predicate: "parent", Args: []any{"Bob", "Charlie"}},
+	}
+	if err := engine.AddFacts(facts); err != nil {
+		t.Fatalf("AddFacts() error = %v", err)
+	}
+
+	// Without recomputing, ancestor facts shouldn't exist
+	ancestors, err := engine.GetFacts("ancestor")
+	if err != nil {
+		t.Fatalf("GetFacts() error = %v", err)
+	}
+	if len(ancestors) != 0 {
+		t.Fatalf("Expected 0 ancestor facts before RecomputeRules, got %d", len(ancestors))
+	}
+
+	// Recompute
+	err = engine.RecomputeRules()
+	if err != nil {
+		t.Fatalf("RecomputeRules() error = %v", err)
+	}
+
+	// Now ancestor facts should exist (Alice->Bob, Bob->Charlie, Alice->Charlie)
+	ancestors, err = engine.GetFacts("ancestor")
+	if err != nil {
+		t.Fatalf("GetFacts() error = %v", err)
+	}
+
+	if len(ancestors) != 3 {
+		t.Fatalf("Expected 3 ancestor facts after RecomputeRules, got %d", len(ancestors))
+	}
+}
+
 func TestEngineToggleAutoEval(t *testing.T) {
 	cfg := DefaultConfig()
 	engine, err := NewEngine(cfg, nil)
