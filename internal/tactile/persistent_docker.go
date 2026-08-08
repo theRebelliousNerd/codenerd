@@ -346,6 +346,9 @@ func (e *PersistentDockerExecutor) CreateContainer(ctx context.Context, opts Con
 	// Use -- to separate options from positional arguments
 	args = append(args, "--")
 
+	// Prevent option injection
+	args = append(args, "--")
+
 	// Image
 	args = append(args, "--")
 	args = append(args, image)
@@ -524,6 +527,9 @@ func (e *PersistentDockerExecutor) ExecInContainer(ctx context.Context, opts Con
 		args = append(args, "-u", opts.User)
 	}
 	// Use -- to prevent option injection
+	args = append(args, "--")
+
+	// Prevent option injection
 	args = append(args, "--")
 
 	// Container ID

@@ -449,6 +449,9 @@ func (e *DockerExecutor) buildDockerArgs(cmd Command) []string {
 	// Use -- to separate options from positional arguments
 	args = append(args, "--")
 
+	// Prevent option injection
+	args = append(args, "--")
+
 	// Add the image
 	args = append(args, image)
 
