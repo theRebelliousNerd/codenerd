@@ -454,6 +454,42 @@ func (e *Executor) withProjectInstructions(systemPrompt string) string {
 	return systemPrompt + "\n\n" + section
 }
 
+// FileContextProvider is the narrow interface for per-file holographic context.
+//
+// Declared in package session so nothing needs to import internal/world and no
+// import cycle is possible. Mirrors HolographicProvider.PromptSection.
+type FileContextProvider interface {
+	PromptSection(ctx context.Context, filePath string) string
+}
+
+// SetFileContextProvider attaches the holographic per-file context provider.
+func (e *Executor) SetFileContextProvider(p FileContextProvider) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.fileContext = p
+}
+
+// withFileContext appends holographic per-file context to a compiled system
+// prompt. Mirrors withProjectInstructions: returns systemPrompt unchanged when
+// the provider is nil, the target is empty, or the rendered section is empty.
+func (e *Executor) withFileContext(ctx context.Context, systemPrompt, target string) string {
+	if strings.TrimSpace(target) == "" {
+		return systemPrompt
+	}
+	e.mu.RLock()
+	p := e.fileContext
+	e.mu.RUnlock()
+	if p == nil {
+		return systemPrompt
+	}
+	section := p.PromptSection(ctx, target)
+	if strings.TrimSpace(section) == "" {
+		return systemPrompt
+	}
+	logging.Session("Injected holographic context for %s into system prompt (%d chars)", target, len(section))
+	return systemPrompt + "\n\n" + section
+}
+
 // projectDocPathArgs are the argument names a write-mutation tool may use to
 // name its target. Tools disagree ("path", "file_path", "file", "filename"), so
 // the gate checks all of them rather than trusting one convention — a

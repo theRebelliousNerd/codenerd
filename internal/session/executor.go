@@ -135,6 +135,11 @@ type Executor struct {
 	// projectDoc is the workspace's parsed nerd.md, or nil. Used only to render
 	// instructions into the prompt; enforcement reads the kernel.
 	projectDoc *projectdoc.Document
+
+	// fileContext is the holographic per-file context provider, or nil. Used only
+	// to render file-targeted context into the prompt. Narrow interface so no
+	// import of internal/world is needed and no import cycle is possible.
+	fileContext FileContextProvider
 }
 
 // ExecutorConfig holds configuration for the executor.
@@ -499,6 +504,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// the atom selector has no way to score a document it has never seen, and
 	// budget-driven eviction could silently drop the project's own rules.
 	systemPrompt := e.withProjectInstructions(compileResult.Prompt)
+	systemPrompt = e.withFileContext(ctx, systemPrompt, intent.Target)
 
 	// 5+6. LLM ↔ tools loop. The model may request tools, we execute them, then
 	// feed the results back as a new turn — repeated until the model returns a
