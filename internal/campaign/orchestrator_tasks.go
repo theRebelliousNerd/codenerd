@@ -8,6 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -307,7 +311,31 @@ func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Ta
 	logging.CampaignDebug("Task description: %s", task.Description)
 
 	o.emitEvent("task_started", phase.ID, task.ID, task.Description, nil)
+
+	// Snapshot the workspace root so out-of-scope writes become visible.
+	//
+	// Task.WriteSet exists, but its only consumer is the lock manager above,
+	// which serialises tasks that touch the same file. Nothing checks that a
+	// write actually LANDS inside the declared set, so a task is free to create
+	// whatever it likes wherever it likes.
+	//
+	// Observed live on campaign fc6472c2 (2026-08-08): a campaign asked only to
+	// add a doc comment also produced TEST_REPORT.md and
+	// research_runToolLoop_verification_gates.md in the repository root. No task
+	// requested either, and nothing reported that they appeared.
+	//
+	// This reports rather than blocks, deliberately. WriteSet is inferred by the
+	// decomposer from artifacts and description text, so it is not reliable
+	// enough to fail a task on — a wrong block would kill legitimate work, and
+	// this session already has the coverage gate crying wolf as a live lesson in
+	// what over-eager gating costs. Making the writes visible is the honest
+	// first step; enforcement can follow once the signal shows the inference is
+	// trustworthy.
+	rootBefore := o.snapshotWorkspaceRoot()
+
 	result, err := o.executeTaskWithRollback(ctx, task)
+
+	o.reportUnexpectedRootWrites(task, rootBefore)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Task failed: %s - %v", task.ID, err)
 		taskTimer.Stop()
@@ -601,4 +629,60 @@ func (o *Orchestrator) applyLearnings(ctx context.Context, task *Task, result an
 	o.mu.Unlock()
 
 	logging.Campaign("Captured %d learnings (total=%d)", len(facts), len(o.campaign.Learnings))
+}
+
+// snapshotWorkspaceRoot lists the files directly in the workspace root.
+//
+// Root level only: a task creating internal/foo/bar.go is doing its job, while
+// a task creating REPORT.md at the top of the repository is almost always
+// scratch nobody asked for. Directories are ignored — creating one is not the
+// pattern this watches for.
+func (o *Orchestrator) snapshotWorkspaceRoot() map[string]bool {
+	root := o.config.Workspace
+	if strings.TrimSpace(root) == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			seen[e.Name()] = true
+		}
+	}
+	return seen
+}
+
+// reportUnexpectedRootWrites names files a task created in the workspace root
+// that its declared write set does not account for.
+func (o *Orchestrator) reportUnexpectedRootWrites(task *Task, before map[string]bool) {
+	if before == nil || task == nil {
+		return
+	}
+	after := o.snapshotWorkspaceRoot()
+	if after == nil {
+		return
+	}
+
+	declared := make(map[string]bool)
+	for _, p := range o.resolveTaskWriteSet(task) {
+		declared[filepath.Base(filepath.ToSlash(p))] = true
+	}
+
+	var unexpected []string
+	for name := range after {
+		if !before[name] && !declared[name] {
+			unexpected = append(unexpected, name)
+		}
+	}
+	if len(unexpected) == 0 {
+		return
+	}
+	sort.Strings(unexpected)
+
+	logging.CampaignWarn(
+		"Task %s created %d file(s) in the workspace root that its write set does not account for: %s",
+		task.ID, len(unexpected), strings.Join(unexpected, ", "))
 }
