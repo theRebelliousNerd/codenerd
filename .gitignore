@@ -226,3 +226,7 @@ internal/campaign/.nerd/campaigns/c_test_triage/
 !.agents/skills/corpus-feature-tagging/**
 !.agents/skills/corpus-jules-dispatcher/
 !.agents/skills/corpus-jules-dispatcher/**
+
+# Campaign test artifacts (written by internal/campaign tests)
+internal/campaign/campaigns/
+internal/campaign/log.txt
