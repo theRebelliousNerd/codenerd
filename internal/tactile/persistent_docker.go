@@ -344,6 +344,9 @@ func (e *PersistentDockerExecutor) CreateContainer(ctx context.Context, opts Con
 		args = append(args, "--label", fmt.Sprintf("%s=%s", k, v))
 	}
 
+	// Prevent option injection
+	args = append(args, "--")
+
 	// Image
 	args = append(args, image)
 
@@ -433,6 +436,7 @@ func (e *PersistentDockerExecutor) StopContainer(ctx context.Context, containerI
 	if timeout > 0 {
 		args = append(args, "-t", fmt.Sprintf("%d", int(timeout.Seconds())))
 	}
+	args = append(args, "--")
 	args = append(args, containerID)
 
 	cmd := exec.CommandContext(ctx, e.dockerPath, args...)
@@ -467,6 +471,7 @@ func (e *PersistentDockerExecutor) RemoveContainer(ctx context.Context, containe
 	if force {
 		args = append(args, "-f")
 	}
+	args = append(args, "--")
 	args = append(args, containerID)
 
 	cmd := exec.CommandContext(ctx, e.dockerPath, args...)
@@ -520,6 +525,9 @@ func (e *PersistentDockerExecutor) ExecInContainer(ctx context.Context, opts Con
 	if opts.User != "" {
 		args = append(args, "-u", opts.User)
 	}
+
+	// Prevent option injection
+	args = append(args, "--")
 
 	// Container ID
 	args = append(args, opts.ContainerID)
@@ -630,7 +638,7 @@ func (e *PersistentDockerExecutor) HealthCheck(ctx context.Context, containerID 
 	}
 
 	// Check container status
-	cmd := exec.CommandContext(ctx, e.dockerPath, "inspect", "-f", "{{.State.Running}}", containerID)
+	cmd := exec.CommandContext(ctx, e.dockerPath, "inspect", "-f", "{{.State.Running}}", "--", containerID)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 
@@ -675,7 +683,7 @@ func (e *PersistentDockerExecutor) CreateSnapshot(ctx context.Context, container
 	snapshotTag := fmt.Sprintf("codenerd-snapshot-%s-%d", containerID[:12], time.Now().Unix())
 
 	// Docker commit
-	cmd := exec.CommandContext(ctx, e.dockerPath, "commit", "-m", description, containerID, snapshotTag)
+	cmd := exec.CommandContext(ctx, e.dockerPath, "commit", "-m", description, "--", containerID, snapshotTag)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -775,7 +783,7 @@ func (e *PersistentDockerExecutor) DeleteSnapshot(ctx context.Context, snapshotI
 
 	logging.Tactile("Deleting snapshot: %s", snapshot.ImageTag)
 
-	cmd := exec.CommandContext(ctx, e.dockerPath, "rmi", snapshot.ImageTag)
+	cmd := exec.CommandContext(ctx, e.dockerPath, "rmi", "--", snapshot.ImageTag)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to delete snapshot: %w", err)
 	}

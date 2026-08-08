@@ -447,6 +447,9 @@ func (e *DockerExecutor) buildDockerArgs(cmd Command) []string {
 		args = append(args, "-i")
 	}
 
+	// Prevent option injection
+	args = append(args, "--")
+
 	// Add the image
 	args = append(args, image)
 
@@ -465,7 +468,7 @@ func (e *DockerExecutor) PullImage(ctx context.Context, image string) error {
 	}
 
 	logging.Tactile("Pulling Docker image: %s", image)
-	cmd := exec.CommandContext(ctx, e.dockerPath, "pull", image)
+	cmd := exec.CommandContext(ctx, e.dockerPath, "pull", "--", image)
 	err := cmd.Run()
 	if err != nil {
 		logging.TactileError("Failed to pull Docker image: %s - %v", image, err)
