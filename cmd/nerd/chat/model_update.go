@@ -50,75 +50,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case windowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-
-		headerHeight := 4
-		footerHeight := 3
-		inputHeight := 3   // Smaller input height for textinput
-		paddingHeight := 2 // Extra padding for safety
-
-		// Calculate layout
-		chatWidth := msg.Width - 4
-		if m.showLogic {
-			logicWidth := msg.Width / 3
-			chatWidth = msg.Width - logicWidth - 4 // minus padding/borders
-		}
-		if chatWidth < 1 {
-			chatWidth = 1
-		}
-
-		errorPanelHeight := 0
-		if m.err != nil && m.showError {
-			// 1 header line + viewport height + 2 border lines
-			errorPanelHeight = 1 + errorPanelViewportHeight + 2
-		}
-
-		calcHeight := max(msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight-errorPanelHeight, 1)
-
-		if !m.ready {
-			m.viewport = viewport.New(chatWidth, calcHeight)
-			m.ready = true
-		} else {
-			m.viewport.Width = chatWidth
-			m.viewport.Height = calcHeight
-		}
-
-		// Error viewport lives inside a bordered box within the content area.
-		// Box uses 1-col padding left/right plus 1-col border left/right => total 4 cols.
-		m.errorVP.Width = max(chatWidth-4, 1)
-		m.errorVP.Height = errorPanelViewportHeight
-		if m.err != nil {
-			m.refreshErrorViewport()
-		}
-
-		// Reduce input width to accommodate border (2) + padding (2) + safety margin
-		m.textarea.SetWidth(chatWidth - 4)
-
-		// Update split pane dimensions
-		if m.splitPane != nil {
-			m.list.SetSize(msg.Width, msg.Height)
-			m.filepicker.Height = msg.Height - 15
-			m.splitPane.SetSize(msg.Width, msg.Height-headerHeight-footerHeight)
-			m.usagePage.SetSize(msg.Width, msg.Height-headerHeight)
-			m.campaignPage.SetSize(msg.Width, msg.Height-headerHeight)
-			m.autoPage.SetSize(msg.Width, msg.Height-headerHeight)
-
-		}
-		if m.logicPane != nil {
-			m.logicPane.SetSize(msg.Width/3, msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight)
-		}
-
-		// Update renderer word wrap
-		if m.renderer != nil {
-			m.renderer, _ = glamour.NewTermRenderer(
-				glamour.WithStandardStyle("dark"),
-				glamour.WithWordWrap(chatWidth-4),
-			)
-			// Re-render history with new wrapping
-			m.viewport.SetContent(m.renderHistory())
-		}
-
+		m = m.handleWindowSizeMsg(msg)
 	case tea.WindowSizeMsg:
 		// Convert to our alias and re-process
 		return m.Update(windowSizeMsg(msg))
@@ -308,60 +240,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.pushAssistantMsg(fmt.Sprintf("## Campaign Error\n\n%v", msg.err))
 
 	case northstarDocsAnalyzedMsg:
-		m.isLoading = false
-		if m.northstarWizard != nil {
-			if msg.err != nil {
-				m = m.pushAssistantMsg(fmt.Sprintf("⚠️ Document analysis encountered an error: %v\n\nContinuing without extracted insights.", msg.err))
-			} else if len(msg.facts) > 0 {
-				m.northstarWizard.ExtractedFacts = msg.facts
-				var sb strings.Builder
-				sb.WriteString(fmt.Sprintf("## Research Analysis Complete\n\nExtracted **%d key insights** from your documents:\n\n", len(msg.facts)))
-				for i, fact := range msg.facts {
-					if i < 5 { // Show first 5
-						sb.WriteString(fmt.Sprintf("- %s\n", fact))
-					}
-				}
-				if len(msg.facts) > 5 {
-					sb.WriteString(fmt.Sprintf("\n_...and %d more insights that will inform the process._\n", len(msg.facts)-5))
-				}
-				sb.WriteString("\n---\n\n## Phase 2: Problem Statement\n\n**What problem does this project solve?**\n\n_Your research insights will help refine this._")
-				m = m.pushAssistantMsg(sb.String())
-			}
-			m.northstarWizard.Phase = NorthstarProblemStatement
-			m.textarea.Placeholder = "Describe the problem..."
-		}
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
-
+		m = m.handleNorthstarDocsAnalyzedMsg(msg)
 	case requirementsGeneratedMsg:
-		m.isLoading = false
-		if m.northstarWizard != nil {
-			if msg.err != nil {
-				m = m.pushAssistantMsg(fmt.Sprintf("⚠️ Requirement generation encountered an error: %v\n\nYou can add requirements manually.", msg.err))
-			} else if len(msg.requirements) > 0 {
-				// Append generated requirements to wizard state
-				m.northstarWizard.Requirements = append(m.northstarWizard.Requirements, msg.requirements...)
-				var sb strings.Builder
-				sb.WriteString(fmt.Sprintf("## Requirements Generated\n\nAdded **%d requirements** from your vision and capabilities:\n\n", len(msg.requirements)))
-				for i, req := range msg.requirements {
-					if i < 5 { // Show first 5
-						sb.WriteString(fmt.Sprintf("- **%s** [%s]: %s\n", req.ID, req.Priority, req.Description))
-					}
-				}
-				if len(msg.requirements) > 5 {
-					sb.WriteString(fmt.Sprintf("\n_...and %d more requirements._\n", len(msg.requirements)-5))
-				}
-				sb.WriteString("\n_Add more requirements manually or type \"done\" to continue._")
-				m = m.pushAssistantMsg(sb.String())
-			} else {
-				m = m.pushAssistantMsg("No requirements could be auto-generated. Please add requirements manually.")
-			}
-			m.textarea.Placeholder = "Add requirement or 'done'..."
-		}
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
-
-	// Campaign message handlers
+		m = m.handleRequirementsGeneratedMsg(msg)
 	case campaignStartedMsg:
 		m.isLoading = false
 		m.activeCampaign = msg.campaign
@@ -421,56 +302,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// =========================================================================
 
 	case continuationInitMsg:
-		// First step already completed; render its surface and initialize counters.
-		if msg.firstResult != nil {
-			m.storeShardResult(msg.firstResult.ShardType, msg.firstResult.Task, msg.firstResult.Result, msg.firstResult.Facts)
-		}
-
-		if msg.totalSteps > 0 {
-			m.continuationTotal = msg.totalSteps
-		} else if m.continuationTotal == 0 {
-			m.continuationTotal = 2
-		}
-		m.continuationStep = 1
-		m.updateContinuationFacts()
-
-		m = m.pushAssistantMsg(msg.completedSurface)
-
-		// Decide whether to pause before next step.
-		shouldPause := false
-		switch m.continuationMode {
-		case ContinuationModeConfirm:
-			shouldPause = true
-		case ContinuationModeBreakpoint:
-			shouldPause = msg.next.isMutation
-		}
-
-		if shouldPause {
-			m.isLoading = false
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("?? Next: %s\n\nPress Enter to continue, or type new instructions.", msg.next.description),
-				Time:    time.Now(),
-			})
-			m.pendingSubtasks = append(m.pendingSubtasks, Subtask{
-				ID:          msg.next.subtaskID,
-				Description: msg.next.description,
-				ShardType:   msg.next.shardType,
-				IsMutation:  msg.next.isMutation,
-			})
-			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
-			return m, nil
-		}
-
-		// Auto-continue immediately.
-		m.isLoading = true
-		m.statusMessage = fmt.Sprintf("[%d/%d] %s", m.continuationStep, m.continuationTotal, msg.next.description)
-		return m, tea.Batch(
-			m.spinner.Tick,
-			m.executeSubtask(msg.next.subtaskID, msg.next.description, msg.next.shardType),
-		)
-
+		return m.handleContinuationInitMsg(msg)
 	case continueMsg:
 		// Store the just-completed subtask result for follow-ups.
 		if msg.completedShardResult != nil {
@@ -571,51 +403,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		persistCmd = m.saveSessionStateCmd()
 
 	case scanCompleteMsg:
-		startupScan := m.isBooting && m.bootStage == BootStageScanning
-		m.isLoading = false
-		if msg.err != nil {
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("**Scan failed:** %v", msg.err),
-				Time:    time.Now(),
-			})
-		} else {
-			m = m.addMessage(Message{
-				Role: "assistant",
-				Content: fmt.Sprintf(`**Scan complete**
-
-| Metric | Value |
-|--------|-------|
-| Files indexed | %d |
-| Directories | %d |
-| Facts generated | %d |
-| Duration | %.2fs |
-
-The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.directoryCount, msg.factCount, msg.duration.Seconds()),
-				Time: time.Now(),
-			})
+		var shouldReturn bool
+		m, persistCmd, shouldReturn = m.handleScanCompleteMsg(msg)
+		if shouldReturn {
+			return m, persistCmd
 		}
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
-		persistCmd = m.saveSessionStateCmd()
-
-		// If this was the startup scan, unlock chat input now that we're green.
-		if startupScan {
-			m.isBooting = false
-			m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
-			m.textarea.Focus()
-
-			// Fire first-run onboarding check AND LLM health check in parallel.
-			// The health check is a non-blocking smoke test that also generates
-			// a project-aware welcome message. If it fails, the user sees a
-			// warning but can still use slash commands.
-			return m, tea.Batch(
-				persistCmd,
-				checkFirstRun(m.workspace),
-				m.performWelcomeHealthCheck(msg),
-			)
-		}
-
 	case docRefreshCompleteMsg:
 		m.isLoading = false
 		if msg.err != nil {
@@ -738,159 +530,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		return m, m.tickMemory()
 
 	case bootCompleteMsg:
-		if msg.err != nil {
-			// Boot failed - unlock input so user can fix config.
-			m.isBooting = false
-			m.bootStage = BootStageBooting
-			m.err = msg.err
-			m.showError = true
-			m.focusError = false
-			m.refreshErrorViewport()
-			m.errorVP.GotoTop()
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("**System Boot Failed:** %v", msg.err),
-				Time:    time.Now(),
-			})
-		} else {
-			// Boot succeeded - keep UI in boot screen while we scan/index workspace.
-			m.isBooting = true
-			m.bootStage = BootStageScanning
-			// Populate components from the heavy initialization
-			c := msg.components
-			m.kernel = c.Kernel
-			m.shardMgr = c.ShardMgr
-			m.taskExecutor = c.TaskExecutor
-			m.shadowMode = c.ShadowMode
-			m.transducer = c.Transducer
-			m.executor = c.Executor
-			m.emitter = c.Emitter
-			m.virtualStore = c.VirtualStore
-			m.scanner = c.Scanner
-			m.localDB = c.LocalDB
-			m.embeddingEngine = c.EmbeddingEngine
-			m.learningStore = c.LearningStore
-			m.compressor = c.Compressor
-			m.feedbackStore = c.FeedbackStore
-			m.autopoiesis = c.Autopoiesis
-			m.autopoiesisCancel = c.AutopoiesisCancel
-			m.autopoiesisListenerCh = c.AutopoiesisListenerCh
-			m.verifier = c.Verifier
-			m.client = c.Client
-
-			if m.learningStore != nil && m.shardMgr != nil {
-				adapter := &learningStoreAdapter{store: m.learningStore}
-				m.shardMgr.SetLearningStore(adapter)
-			}
-			if m.learningStore != nil {
-				if m.embeddingEngine != nil {
-					m.learningStore.SetEmbeddingEngine(m.embeddingEngine)
-				}
-				if m.Config != nil {
-					m.learningStore.SetReflectionConfig(m.Config.GetReflectionConfig())
-				}
-			}
-
-			// Wire browser manager for graceful shutdown
-			m.browserMgr = c.BrowserManager
-			m.browserCtxCancel = c.BrowserCtxCancel
-			m.jitCompiler = c.JITCompiler
-
-			// Wire Mangle file watcher for real-time .mg validation
-			m.mangleWatcher = c.MangleWatcher
-
-			// Initialize Glass Box debug mode event bus
-			m.initGlassBox(c.GlassBoxEventBus)
-
-			// Initialize Tool Event bus for always-visible tool execution
-			m.initToolEventBus(c.ToolEventBus)
-
-			// Wire Tool Store for tool execution persistence
-			m.toolStore = c.ToolStore
-
-			// Wire Prompt Evolution System (System Prompt Learning)
-			m.promptEvolver = c.PromptEvolver
-
-			// Wire Background Observer Manager (Northstar alignment guardian)
-			m.observerMgr = c.ObserverMgr
-
-			// Wire Consultation Manager (cross-specialist collaboration protocol)
-			m.consultationMgr = c.ConsultationMgr
-
-			// Initialize Dream State learning collector and reuse the
-			// Dream subsystem singletons already constructed by the
-			// system factory (internal/system/factory.go). Constructing
-			// them a second time here used to spawn a parallel
-			// DreamRouter/DreamPlanManager that bypassed the VirtualStore
-			// wiring and caused duplicate "Creating DreamRouter" /
-			// "Creating DreamPlanManager" boot log lines.
-			m.dreamCollector = core.NewDreamLearningCollector()
-			if m.virtualStore != nil {
-				if dreamer := m.virtualStore.GetDreamer(); dreamer != nil {
-					m.dreamRouter = dreamer.GetDreamRouter()
-					m.dreamPlanManager = dreamer.GetDreamPlanManager()
-				}
-			}
-
-			// Wire Dream → Ouroboros tool need bridge (§8.3.1).
-			// The factory creates the router but does not have access to
-			// the Ouroboros queue, so we connect it here on the singleton
-			// instance.
-			if c.DreamToolQ != nil && m.dreamRouter != nil {
-				m.dreamRouter.SetOuroborosQueue(c.DreamToolQ)
-			}
-
-			// Boot already hydrated session state; trust the boot payload instead of
-			// re-hydrating and minting a second session identity here.
-			m.sessionID = c.SessionID
-			m.turnCount = c.TurnCount
-			if m.sessionID == "" {
-				m.sessionID = resolveSessionID(nil)
-			}
-			if m.shardMgr != nil {
-				m.shardMgr.SetSessionID(m.sessionID)
-			}
-
-			// Rehydrate semantic compression state for this session (if persisted).
-			m.hydrateCompressorForSession(m.sessionID)
-		}
-
-		// If boot failed, allow input immediately. If boot succeeded, wait until scan completes.
-		if msg.err != nil {
-			m.textarea.Placeholder = "System boot failed. Fix config then retry /scan or restart."
-			m.textarea.Focus()
-			return m, nil
-		}
-
-		m.textarea.Placeholder = "Indexing workspace..."
-
-		// Append any initial messages generated during boot
-		if msg.components != nil && len(msg.components.InitialMessages) > 0 {
-			m = m.addMessages(msg.components.InitialMessages...)
-		}
-
-		// Wire Background Observer Manager callback and start it
-		if m.observerMgr != nil {
-			m.observerAssessmentChan = make(chan shards.ObserverAssessment, 100)
-			assessCh := m.observerAssessmentChan
-			m.observerMgr.AddCallback(func(assessment shards.ObserverAssessment) {
-				select {
-				case assessCh <- assessment:
-				default:
-				}
-			})
-			if err := m.observerMgr.Start(); err != nil {
-				logging.Get(logging.CategoryShards).Error("Failed to start background observer manager: %v", err)
-			} else {
-				logging.Get(logging.CategoryShards).Info("Background observer manager started successfully")
-			}
-		}
-
-		// Now trigger the workspace scan (deferred). This keeps chat input hidden until ready.
-		// Also start listening for tool events, background observer assessments,
-		// and Glass Box events (the latter is no-op if the bus is disabled).
-		return m, tea.Batch(m.runScan(false), m.listenToolEvents(), m.listenObserverAssessments(), m.listenGlassBoxEvents())
-
+		return m.handleBootCompleteMsg(msg)
 	case onboardingCheckMsg:
 		// Handle first-run detection result
 		if msg.IsFirstRun {
@@ -943,59 +583,464 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		return m, nil
 
 	case knowledgeGatheredMsg:
-		// Knowledge gathering from specialists is complete. Synthesize the
-		// final answer with ONE follow-up LLM call. (This used to re-enter the
-		// entire processInput pipeline — perception again, the full DECIDE
-		// waterfall again, articulation again — doubling turn cost and
-		// re-rolling routing mid-turn. The synthesis call is bounded and
-		// deterministic.)
-		m.awaitingKnowledge = false
-
-		// Store gathered knowledge for this turn and for history
-		m.pendingKnowledge = msg.Results
-		m.knowledgeHistory = append(m.knowledgeHistory, msg.Results...)
-
-		// Persist knowledge to SQLite for future retrieval
-		m.persistKnowledgeResults(msg.Results)
-
-		// Log knowledge gathering summary
-		var successCount, failCount int
-		for _, kr := range msg.Results {
-			if kr.Error != nil {
-				failCount++
-			} else {
-				successCount++
-			}
-		}
-		logging.Get(logging.CategoryContext).Info(
-			"Knowledge gathering complete: %d succeeded, %d failed",
-			successCount, failCount,
-		)
-
-		// Show interim response to the user if provided
-		historyUpdated := false
-		if msg.InterimResponse != "" {
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: msg.InterimResponse,
-				Time:    time.Now(),
-			})
-			historyUpdated = true
-		}
-
-		if historyUpdated {
-			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
-			persistCmd = m.saveSessionStateCmd()
-		}
-
-		return m, tea.Batch(persistCmd, m.synthesizeWithKnowledge(msg.OriginalInput, msg.Results))
-
+		return m.handleKnowledgeGatheredMsg(msg)
 	}
 
 	m.viewport, vpCmd = m.viewport.Update(msg)
 
 	return m, tea.Batch(tiCmd, vpCmd, spCmd, persistCmd)
+}
+
+// handleBootCompleteMsg processes the bootCompleteMsg.
+func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		// Boot failed - unlock input so user can fix config.
+		m.isBooting = false
+		m.bootStage = BootStageBooting
+		m.err = msg.err
+		m.showError = true
+		m.focusError = false
+		m.refreshErrorViewport()
+		m.errorVP.GotoTop()
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("**System Boot Failed:** %v", msg.err),
+			Time:    time.Now(),
+		})
+	} else {
+		// Boot succeeded - keep UI in boot screen while we scan/index workspace.
+		m.isBooting = true
+		m.bootStage = BootStageScanning
+		// Populate components from the heavy initialization
+		c := msg.components
+		m.kernel = c.Kernel
+		m.shardMgr = c.ShardMgr
+		m.taskExecutor = c.TaskExecutor
+		m.shadowMode = c.ShadowMode
+		m.transducer = c.Transducer
+		m.executor = c.Executor
+		m.emitter = c.Emitter
+		m.virtualStore = c.VirtualStore
+		m.scanner = c.Scanner
+		m.localDB = c.LocalDB
+		m.embeddingEngine = c.EmbeddingEngine
+		m.learningStore = c.LearningStore
+		m.compressor = c.Compressor
+		m.feedbackStore = c.FeedbackStore
+		m.autopoiesis = c.Autopoiesis
+		m.autopoiesisCancel = c.AutopoiesisCancel
+		m.autopoiesisListenerCh = c.AutopoiesisListenerCh
+		m.verifier = c.Verifier
+		m.client = c.Client
+
+		if m.learningStore != nil && m.shardMgr != nil {
+			adapter := &learningStoreAdapter{store: m.learningStore}
+			m.shardMgr.SetLearningStore(adapter)
+		}
+		if m.learningStore != nil {
+			if m.embeddingEngine != nil {
+				m.learningStore.SetEmbeddingEngine(m.embeddingEngine)
+			}
+			if m.Config != nil {
+				m.learningStore.SetReflectionConfig(m.Config.GetReflectionConfig())
+			}
+		}
+
+		// Wire browser manager for graceful shutdown
+		m.browserMgr = c.BrowserManager
+		m.browserCtxCancel = c.BrowserCtxCancel
+		m.jitCompiler = c.JITCompiler
+
+		// Wire Mangle file watcher for real-time .mg validation
+		m.mangleWatcher = c.MangleWatcher
+
+		// Initialize Glass Box debug mode event bus
+		m.initGlassBox(c.GlassBoxEventBus)
+
+		// Initialize Tool Event bus for always-visible tool execution
+		m.initToolEventBus(c.ToolEventBus)
+
+		// Wire Tool Store for tool execution persistence
+		m.toolStore = c.ToolStore
+
+		// Wire Prompt Evolution System (System Prompt Learning)
+		m.promptEvolver = c.PromptEvolver
+
+		// Wire Background Observer Manager (Northstar alignment guardian)
+		m.observerMgr = c.ObserverMgr
+
+		// Wire Consultation Manager (cross-specialist collaboration protocol)
+		m.consultationMgr = c.ConsultationMgr
+
+		// Initialize Dream State learning collector and reuse the
+		// Dream subsystem singletons already constructed by the
+		// system factory (internal/system/factory.go). Constructing
+		// them a second time here used to spawn a parallel
+		// DreamRouter/DreamPlanManager that bypassed the VirtualStore
+		// wiring and caused duplicate "Creating DreamRouter" /
+		// "Creating DreamPlanManager" boot log lines.
+		m.dreamCollector = core.NewDreamLearningCollector()
+		if m.virtualStore != nil {
+			if dreamer := m.virtualStore.GetDreamer(); dreamer != nil {
+				m.dreamRouter = dreamer.GetDreamRouter()
+				m.dreamPlanManager = dreamer.GetDreamPlanManager()
+			}
+		}
+
+		// Wire Dream → Ouroboros tool need bridge (§8.3.1).
+		// The factory creates the router but does not have access to
+		// the Ouroboros queue, so we connect it here on the singleton
+		// instance.
+		if c.DreamToolQ != nil && m.dreamRouter != nil {
+			m.dreamRouter.SetOuroborosQueue(c.DreamToolQ)
+		}
+
+		// Boot already hydrated session state; trust the boot payload instead of
+		// re-hydrating and minting a second session identity here.
+		m.sessionID = c.SessionID
+		m.turnCount = c.TurnCount
+		if m.sessionID == "" {
+			m.sessionID = resolveSessionID(nil)
+		}
+		if m.shardMgr != nil {
+			m.shardMgr.SetSessionID(m.sessionID)
+		}
+
+		// Rehydrate semantic compression state for this session (if persisted).
+		m.hydrateCompressorForSession(m.sessionID)
+	}
+
+	// If boot failed, allow input immediately. If boot succeeded, wait until scan completes.
+	if msg.err != nil {
+		m.textarea.Placeholder = "System boot failed. Fix config then retry /scan or restart."
+		m.textarea.Focus()
+		return m, nil
+	}
+
+	m.textarea.Placeholder = "Indexing workspace..."
+
+	// Append any initial messages generated during boot
+	if msg.components != nil && len(msg.components.InitialMessages) > 0 {
+		m = m.addMessages(msg.components.InitialMessages...)
+	}
+
+	// Wire Background Observer Manager callback and start it
+	if m.observerMgr != nil {
+		m.observerAssessmentChan = make(chan shards.ObserverAssessment, 100)
+		assessCh := m.observerAssessmentChan
+		m.observerMgr.AddCallback(func(assessment shards.ObserverAssessment) {
+			select {
+			case assessCh <- assessment:
+			default:
+			}
+		})
+		if err := m.observerMgr.Start(); err != nil {
+			logging.Get(logging.CategoryShards).Error("Failed to start background observer manager: %v", err)
+		} else {
+			logging.Get(logging.CategoryShards).Info("Background observer manager started successfully")
+		}
+	}
+
+	// Now trigger the workspace scan (deferred). This keeps chat input hidden until ready.
+	// Also start listening for tool events, background observer assessments,
+	// and Glass Box events (the latter is no-op if the bus is disabled).
+	return m, tea.Batch(m.runScan(false), m.listenToolEvents(), m.listenObserverAssessments(), m.listenGlassBoxEvents())
+
+}
+
+// handleWindowSizeMsg processes the windowSizeMsg.
+func (m Model) handleWindowSizeMsg(msg windowSizeMsg) Model {
+	m.width = msg.Width
+	m.height = msg.Height
+
+	headerHeight := 4
+	footerHeight := 3
+	inputHeight := 3   // Smaller input height for textinput
+	paddingHeight := 2 // Extra padding for safety
+
+	// Calculate layout
+	chatWidth := msg.Width - 4
+	if m.showLogic {
+		logicWidth := msg.Width / 3
+		chatWidth = msg.Width - logicWidth - 4 // minus padding/borders
+	}
+	if chatWidth < 1 {
+		chatWidth = 1
+	}
+
+	errorPanelHeight := 0
+	if m.err != nil && m.showError {
+		// 1 header line + viewport height + 2 border lines
+		errorPanelHeight = 1 + errorPanelViewportHeight + 2
+	}
+
+	calcHeight := max(msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight-errorPanelHeight, 1)
+
+	if !m.ready {
+		m.viewport = viewport.New(chatWidth, calcHeight)
+		m.ready = true
+	} else {
+		m.viewport.Width = chatWidth
+		m.viewport.Height = calcHeight
+	}
+
+	// Error viewport lives inside a bordered box within the content area.
+	// Box uses 1-col padding left/right plus 1-col border left/right => total 4 cols.
+	m.errorVP.Width = max(chatWidth-4, 1)
+	m.errorVP.Height = errorPanelViewportHeight
+	if m.err != nil {
+		m.refreshErrorViewport()
+	}
+
+	// Reduce input width to accommodate border (2) + padding (2) + safety margin
+	m.textarea.SetWidth(chatWidth - 4)
+
+	// Update split pane dimensions
+	if m.splitPane != nil {
+		m.list.SetSize(msg.Width, msg.Height)
+		m.filepicker.Height = msg.Height - 15
+		m.splitPane.SetSize(msg.Width, msg.Height-headerHeight-footerHeight)
+		m.usagePage.SetSize(msg.Width, msg.Height-headerHeight)
+		m.campaignPage.SetSize(msg.Width, msg.Height-headerHeight)
+		m.autoPage.SetSize(msg.Width, msg.Height-headerHeight)
+
+	}
+	if m.logicPane != nil {
+		m.logicPane.SetSize(msg.Width/3, msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight)
+	}
+
+	// Update renderer word wrap
+	if m.renderer != nil {
+		m.renderer, _ = glamour.NewTermRenderer(
+			glamour.WithStandardStyle("dark"),
+			glamour.WithWordWrap(chatWidth-4),
+		)
+		// Re-render history with new wrapping
+		m.viewport.SetContent(m.renderHistory())
+	}
+
+	return m
+}
+
+// handleKnowledgeGatheredMsg processes the knowledgeGatheredMsg.
+func (m Model) handleKnowledgeGatheredMsg(msg knowledgeGatheredMsg) (tea.Model, tea.Cmd) {
+	var persistCmd tea.Cmd
+	// Knowledge gathering from specialists is complete. Synthesize the
+	// final answer with ONE follow-up LLM call. (This used to re-enter the
+	// entire processInput pipeline — perception again, the full DECIDE
+	// waterfall again, articulation again — doubling turn cost and
+	// re-rolling routing mid-turn. The synthesis call is bounded and
+	// deterministic.)
+	m.awaitingKnowledge = false
+
+	// Store gathered knowledge for this turn and for history
+	m.pendingKnowledge = msg.Results
+	m.knowledgeHistory = append(m.knowledgeHistory, msg.Results...)
+
+	// Persist knowledge to SQLite for future retrieval
+	m.persistKnowledgeResults(msg.Results)
+
+	// Log knowledge gathering summary
+	var successCount, failCount int
+	for _, kr := range msg.Results {
+		if kr.Error != nil {
+			failCount++
+		} else {
+			successCount++
+		}
+	}
+	logging.Get(logging.CategoryContext).Info(
+		"Knowledge gathering complete: %d succeeded, %d failed",
+		successCount, failCount,
+	)
+
+	// Show interim response to the user if provided
+	historyUpdated := false
+	if msg.InterimResponse != "" {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: msg.InterimResponse,
+			Time:    time.Now(),
+		})
+		historyUpdated = true
+	}
+
+	if historyUpdated {
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		persistCmd = m.saveSessionStateCmd()
+	}
+
+	return m, tea.Batch(persistCmd, m.synthesizeWithKnowledge(msg.OriginalInput, msg.Results))
+
+}
+
+// handleScanCompleteMsg processes the scanCompleteMsg.
+func (m Model) handleScanCompleteMsg(msg scanCompleteMsg) (Model, tea.Cmd, bool) {
+	var persistCmd tea.Cmd
+	startupScan := m.isBooting && m.bootStage == BootStageScanning
+	m.isLoading = false
+	if msg.err != nil {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("**Scan failed:** %v", msg.err),
+			Time:    time.Now(),
+		})
+	} else {
+		m = m.addMessage(Message{
+			Role: "assistant",
+			Content: fmt.Sprintf(`**Scan complete**
+
+| Metric | Value |
+|--------|-------|
+| Files indexed | %d |
+| Directories | %d |
+| Facts generated | %d |
+| Duration | %.2fs |
+
+The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.directoryCount, msg.factCount, msg.duration.Seconds()),
+			Time: time.Now(),
+		})
+	}
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	persistCmd = m.saveSessionStateCmd()
+
+	// If this was the startup scan, unlock chat input now that we're green.
+	if startupScan {
+		m.isBooting = false
+		m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
+		m.textarea.Focus()
+
+		// Fire first-run onboarding check AND LLM health check in parallel.
+		// The health check is a non-blocking smoke test that also generates
+		// a project-aware welcome message. If it fails, the user sees a
+		// warning but can still use slash commands.
+		return m, tea.Batch(
+			persistCmd,
+			checkFirstRun(m.workspace),
+			m.performWelcomeHealthCheck(msg),
+		), true
+	}
+
+	return m, persistCmd, false
+}
+
+// handleContinuationInitMsg processes the continuationInitMsg.
+func (m Model) handleContinuationInitMsg(msg continuationInitMsg) (tea.Model, tea.Cmd) {
+	// First step already completed; render its surface and initialize counters.
+	if msg.firstResult != nil {
+		m.storeShardResult(msg.firstResult.ShardType, msg.firstResult.Task, msg.firstResult.Result, msg.firstResult.Facts)
+	}
+
+	if msg.totalSteps > 0 {
+		m.continuationTotal = msg.totalSteps
+	} else if m.continuationTotal == 0 {
+		m.continuationTotal = 2
+	}
+	m.continuationStep = 1
+	m.updateContinuationFacts()
+
+	m = m.pushAssistantMsg(msg.completedSurface)
+
+	// Decide whether to pause before next step.
+	shouldPause := false
+	switch m.continuationMode {
+	case ContinuationModeConfirm:
+		shouldPause = true
+	case ContinuationModeBreakpoint:
+		shouldPause = msg.next.isMutation
+	}
+
+	if shouldPause {
+		m.isLoading = false
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("?? Next: %s\n\nPress Enter to continue, or type new instructions.", msg.next.description),
+			Time:    time.Now(),
+		})
+		m.pendingSubtasks = append(m.pendingSubtasks, Subtask{
+			ID:          msg.next.subtaskID,
+			Description: msg.next.description,
+			ShardType:   msg.next.shardType,
+			IsMutation:  msg.next.isMutation,
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+
+	// Auto-continue immediately.
+	m.isLoading = true
+	m.statusMessage = fmt.Sprintf("[%d/%d] %s", m.continuationStep, m.continuationTotal, msg.next.description)
+	return m, tea.Batch(
+		m.spinner.Tick,
+		m.executeSubtask(msg.next.subtaskID, msg.next.description, msg.next.shardType),
+	)
+
+}
+
+// handleNorthstarDocsAnalyzedMsg processes the northstarDocsAnalyzedMsg.
+func (m Model) handleNorthstarDocsAnalyzedMsg(msg northstarDocsAnalyzedMsg) Model {
+	m.isLoading = false
+	if m.northstarWizard != nil {
+		if msg.err != nil {
+			m = m.pushAssistantMsg(fmt.Sprintf("⚠️ Document analysis encountered an error: %v\n\nContinuing without extracted insights.", msg.err))
+		} else if len(msg.facts) > 0 {
+			m.northstarWizard.ExtractedFacts = msg.facts
+			var sb strings.Builder
+			sb.WriteString(fmt.Sprintf("## Research Analysis Complete\n\nExtracted **%d key insights** from your documents:\n\n", len(msg.facts)))
+			for i, fact := range msg.facts {
+				if i < 5 { // Show first 5
+					sb.WriteString(fmt.Sprintf("- %s\n", fact))
+				}
+			}
+			if len(msg.facts) > 5 {
+				sb.WriteString(fmt.Sprintf("\n_...and %d more insights that will inform the process._\n", len(msg.facts)-5))
+			}
+			sb.WriteString("\n---\n\n## Phase 2: Problem Statement\n\n**What problem does this project solve?**\n\n_Your research insights will help refine this._")
+			m = m.pushAssistantMsg(sb.String())
+		}
+		m.northstarWizard.Phase = NorthstarProblemStatement
+		m.textarea.Placeholder = "Describe the problem..."
+	}
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+
+	return m
+}
+
+// handleRequirementsGeneratedMsg processes the requirementsGeneratedMsg.
+func (m Model) handleRequirementsGeneratedMsg(msg requirementsGeneratedMsg) Model {
+	m.isLoading = false
+	if m.northstarWizard != nil {
+		if msg.err != nil {
+			m = m.pushAssistantMsg(fmt.Sprintf("⚠️ Requirement generation encountered an error: %v\n\nYou can add requirements manually.", msg.err))
+		} else if len(msg.requirements) > 0 {
+			// Append generated requirements to wizard state
+			m.northstarWizard.Requirements = append(m.northstarWizard.Requirements, msg.requirements...)
+			var sb strings.Builder
+			sb.WriteString(fmt.Sprintf("## Requirements Generated\n\nAdded **%d requirements** from your vision and capabilities:\n\n", len(msg.requirements)))
+			for i, req := range msg.requirements {
+				if i < 5 { // Show first 5
+					sb.WriteString(fmt.Sprintf("- **%s** [%s]: %s\n", req.ID, req.Priority, req.Description))
+				}
+			}
+			if len(msg.requirements) > 5 {
+				sb.WriteString(fmt.Sprintf("\n_...and %d more requirements._\n", len(msg.requirements)-5))
+			}
+			sb.WriteString("\n_Add more requirements manually or type \"done\" to continue._")
+			m = m.pushAssistantMsg(sb.String())
+		} else {
+			m = m.pushAssistantMsg("No requirements could be auto-generated. Please add requirements manually.")
+		}
+		m.textarea.Placeholder = "Add requirement or 'done'..."
+	}
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+
+	// Campaign message handlers
+	return m
 }
 
 // sessionStatePersistedMsg is dispatched after asynchronous session-state
