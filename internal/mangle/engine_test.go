@@ -2,6 +2,7 @@ package mangle
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -83,6 +84,160 @@ func TestEngineAddFacts(t *testing.T) {
 	}
 	if err := engine.AddFacts(facts); err != nil {
 		t.Fatalf("AddFacts() error = %v", err)
+	}
+}
+
+
+
+type mockPersistence struct {
+	Persistence // Embed to panic on unimplemented methods, acting as interface guard
+	called bool
+	err error
+}
+
+func (m *mockPersistence) ReplaceFactsForFile(ctx context.Context, file string, facts []Fact, contentHash string) error {
+	m.called = true
+	return m.err
+}
+
+func TestEngineReplaceFactsForFile(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Test normal operation and with hash
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	schema := `Decl file_info(File, Info).`
+	if err := engine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("LoadSchemaString() error = %v", err)
+	}
+
+	facts := []Fact{
+		{Predicate: "file_info", Args: []any{"test.txt", "initial info"}},
+	}
+	if err := engine.AddFacts(facts); err != nil {
+		t.Fatalf("AddFacts() error = %v", err)
+	}
+
+	newFacts := []Fact{
+		{Predicate: "file_info", Args: []any{"test.txt", "updated info 1"}},
+		{Predicate: "file_info", Args: []any{"test.txt", "updated info 2"}},
+	}
+
+	if err := engine.ReplaceFactsForFile("test.txt", newFacts); err != nil {
+		t.Fatalf("ReplaceFactsForFile() error = %v", err)
+	}
+
+	if engine.factCount != 2 {
+		t.Fatalf("expected factCount 2, got %d", engine.factCount)
+	}
+
+	newFactsWithHash := []Fact{
+		{Predicate: "file_info", Args: []any{"test.txt", "hash info 1"}},
+	}
+
+	if err := engine.ReplaceFactsForFileWithHash("test.txt", newFactsWithHash, "somehash"); err != nil {
+		t.Fatalf("ReplaceFactsForFileWithHash() error = %v", err)
+	}
+
+	if engine.factCount != 1 {
+		t.Fatalf("expected factCount 1, got %d", engine.factCount)
+	}
+
+	// Test error cases
+	// 1. No schemas loaded
+	engineNoSchemas, _ := NewEngine(cfg, nil)
+	if err := engineNoSchemas.ReplaceFactsForFile("test.txt", newFacts); err == nil {
+		t.Fatalf("Expected error when no schemas loaded, got nil")
+	}
+
+	// 2. Fact insertion error (e.g., limit exceeded)
+	cfgLimit := DefaultConfig()
+	cfgLimit.FactLimit = 1
+	engineLimit, _ := NewEngine(cfgLimit, nil)
+	engineLimit.LoadSchemaString(schema)
+
+	factsToExceed := []Fact{
+		{Predicate: "file_info", Args: []any{"test.txt", "info 1"}},
+		{Predicate: "file_info", Args: []any{"test.txt", "info 2"}},
+	}
+	if err := engineLimit.ReplaceFactsForFile("test.txt", factsToExceed); err == nil {
+		t.Fatalf("Expected error when fact limit exceeded, got nil")
+	}
+
+	// 3. Persistence error
+	mockPersist := &mockPersistence{err: fmt.Errorf("mock error")}
+	enginePersist, _ := NewEngine(cfg, mockPersist)
+	enginePersist.LoadSchemaString(schema)
+	if err := enginePersist.ReplaceFactsForFile("test.txt", newFacts); err == nil || !strings.Contains(err.Error(), "persist facts for") {
+		t.Fatalf("Expected persistence error, got: %v", err)
+	}
+
+	// 4. Persistence success
+	mockPersistSuccess := &mockPersistence{err: nil}
+	enginePersistSuccess, _ := NewEngine(cfg, mockPersistSuccess)
+	enginePersistSuccess.LoadSchemaString(schema)
+	if err := enginePersistSuccess.ReplaceFactsForFile("test.txt", newFacts); err != nil {
+		t.Fatalf("Expected no error from persistence, got: %v", err)
+	}
+	if !mockPersistSuccess.called {
+		t.Fatalf("Expected persistence to be called")
+	}
+
+	// 5. Test factLimitWarned reset behavior
+	cfgWarn := DefaultConfig()
+	cfgWarn.FactLimit = 100 // Set limit so 70% threshold can be tested
+	engineWarn, _ := NewEngine(cfgWarn, nil)
+	engineWarn.LoadSchemaString(schema)
+
+	// Add some initial facts
+	factsWarn := []Fact{
+		{Predicate: "file_info", Args: []any{"warn.txt", "initial info"}},
+	}
+	engineWarn.AddFacts(factsWarn)
+
+	// Manually set the warning flag
+	engineWarn.factLimitWarned = true
+
+	newFactsWarn := []Fact{
+		{Predicate: "file_info", Args: []any{"warn.txt", "updated info"}},
+	}
+	// Replacing should trigger removed > 0 and reset the flag
+	if err := engineWarn.ReplaceFactsForFile("warn.txt", newFactsWarn); err != nil {
+		t.Fatalf("ReplaceFactsForFile() error = %v", err)
+	}
+
+	if engineWarn.factLimitWarned {
+		t.Fatalf("Expected factLimitWarned to be false after replacement")
+	}
+
+
+
+
+	// 6. Test evalWithGasLimit error (autoEval = true)
+	cfgGas := DefaultConfig()
+	cfgGas.DerivedFactsLimit = 2 // Extremely low limit
+	engineGas, _ := NewEngine(cfgGas, nil)
+
+	schemaGas := `
+	Decl num(Int).
+	Decl next(Int).
+	num(X) :- next(X).
+	next(2) :- num(1).
+	next(3) :- next(2).
+	next(4) :- next(3).
+	`
+	if err := engineGas.LoadSchemaString(schemaGas); err != nil {
+		t.Fatalf("LoadSchemaString() error = %v", err)
+	}
+
+	factsGas := []Fact{
+		{Predicate: "num", Args: []any{int64(1)}},
+	}
+	if err := engineGas.ReplaceFactsForFile("gas.txt", factsGas); err == nil {
+		t.Fatalf("Expected limit error, got nil")
 	}
 }
 
