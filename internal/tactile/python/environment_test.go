@@ -76,3 +76,72 @@ func TestEnvironmentSetError(t *testing.T) {
 		t.Fatalf("expected stored error")
 	}
 }
+
+func TestExtractPytestError(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "assertion error line returned",
+			input: "collecting tests\nAssertionError: expected 1 but got 2\nmore output",
+			want:  "AssertionError: expected 1 but got 2",
+		},
+		{
+			name:  "error colon line returned",
+			input: "running pytest\nValueError: Error: something went wrong\nstack trace",
+			want:  "ValueError: Error: something went wrong",
+		},
+		{
+			name:  "failed line returned",
+			input: "collected 1 item\nFAILED test_foo.py::test_bar - assert False\nshort summary",
+			want:  "FAILED test_foo.py::test_bar - assert False",
+		},
+		{
+			name:  "first matching line wins",
+			input: "FAILED test_a.py::test_one\nAssertionError: second error\nError: third",
+			want:  "FAILED test_a.py::test_one",
+		},
+		{
+			name:  "trims whitespace from matched line",
+			input: "  AssertionError: spaced  \nnext line",
+			want:  "AssertionError: spaced",
+		},
+		{
+			name:  "fallback returns last non-empty line",
+			input: "collected 2 items\npassed in 0.03s\nsome summary line",
+			want:  "some summary line",
+		},
+		{
+			name:  "fallback trims and skips trailing empty lines",
+			input: "line one\nline two\n\n   \n",
+			want:  "line two",
+		},
+		{
+			name:  "fallback trims whitespace from last line",
+			input: "hello\n  last line with spaces   ",
+			want:  "last line with spaces",
+		},
+		{
+			name:  "unknown error on empty string",
+			input: "",
+			want:  "unknown error",
+		},
+		{
+			name:  "unknown error on whitespace only",
+			input: "   \n\n  \n",
+			want:  "unknown error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractPytestError(tt.input)
+			if got != tt.want {
+				t.Errorf("extractPytestError() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
