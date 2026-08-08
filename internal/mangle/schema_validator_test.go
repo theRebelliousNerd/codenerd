@@ -219,6 +219,65 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 	}
 }
 
+
+// TestValidateRules tests validation of multiple rules at once.
+func TestValidateRules(t *testing.T) {
+	schemas := `
+Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
+Decl file_topology(Path.Type<string>).
+Decl next_action(Action.Type<name>).
+`
+	sv := NewSchemaValidator(schemas, "")
+	if err := sv.LoadDeclaredPredicates(); err != nil {
+		t.Fatalf("LoadDeclaredPredicates failed: %v", err)
+	}
+
+	tests := []struct {
+		name          string
+		rules         []string
+		expectedError int
+	}{
+		{
+			"all valid rules",
+			[]string{
+				"next_action(/review) :- user_intent(_, /mutation, /review, _, _), file_topology(_).",
+				"file_topology(\"/src/main.go\").",
+			},
+			0,
+		},
+		{
+			"partial failure",
+			[]string{
+				"next_action(/review) :- user_intent(_, /mutation, /review, _, _), file_topology(_).",
+				"next_action(/review) :- undefined_predicate(X).", // Invalid
+			},
+			1,
+		},
+		{
+			"all failure",
+			[]string{
+				"next_action(/review) :- undefined1(X).",
+				"next_action(/review) :- undefined2(X).",
+			},
+			2,
+		},
+		{
+			"empty array",
+			[]string{},
+			0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errors := sv.ValidateRules(tt.rules)
+			if len(errors) != tt.expectedError {
+				t.Errorf("ValidateRules expected %d errors, got %d: %v", tt.expectedError, len(errors), errors)
+			}
+		})
+	}
+}
+
 // TestValidateLearnedRule tests protection of forbidden learned heads.
 func TestValidateLearnedRule(t *testing.T) {
 	schemas := `
