@@ -312,7 +312,7 @@ func (e *PersistentDockerExecutor) CreateContainer(ctx context.Context, opts Con
 
 	// Mounts
 	for _, mount := range opts.Mounts {
-		mountArg := fmt.Sprintf("%s:%s", mount.Source, mount.Target)
+		mountArg := mount.Source + ":" + mount.Target
 		if mount.ReadOnly {
 			mountArg += ":ro"
 		}
@@ -389,7 +389,7 @@ func (e *PersistentDockerExecutor) CreateContainer(ctx context.Context, opts Con
 	e.containers[containerID] = container
 	e.mu.Unlock()
 
-	logging.Tactile("Container created: %s (%s)", containerID[:12], image)
+	logging.Tactile("Container created: %s (%s)", getLogID(containerID), image)
 	return container, nil
 }
 
@@ -399,7 +399,7 @@ func (e *PersistentDockerExecutor) StartContainer(ctx context.Context, container
 		return fmt.Errorf("Docker is not available")
 	}
 
-	logging.Tactile("Starting container: %s", containerID[:12])
+	logging.Tactile("Starting container: %s", getLogID(containerID))
 
 	cmd := exec.CommandContext(ctx, e.dockerPath, "start", containerID)
 	var stderr bytes.Buffer
@@ -417,7 +417,7 @@ func (e *PersistentDockerExecutor) StartContainer(ctx context.Context, container
 	}
 	e.mu.Unlock()
 
-	logging.Tactile("Container started: %s", containerID[:12])
+	logging.Tactile("Container started: %s", getLogID(containerID))
 	return nil
 }
 
@@ -427,7 +427,7 @@ func (e *PersistentDockerExecutor) StopContainer(ctx context.Context, containerI
 		return fmt.Errorf("Docker is not available")
 	}
 
-	logging.Tactile("Stopping container: %s (timeout=%s)", containerID[:12], timeout)
+	logging.Tactile("Stopping container: %s (timeout=%s)", getLogID(containerID), timeout)
 
 	args := []string{"stop"}
 	if timeout > 0 {
@@ -451,7 +451,7 @@ func (e *PersistentDockerExecutor) StopContainer(ctx context.Context, containerI
 	}
 	e.mu.Unlock()
 
-	logging.Tactile("Container stopped: %s", containerID[:12])
+	logging.Tactile("Container stopped: %s", getLogID(containerID))
 	return nil
 }
 
@@ -461,7 +461,7 @@ func (e *PersistentDockerExecutor) RemoveContainer(ctx context.Context, containe
 		return fmt.Errorf("Docker is not available")
 	}
 
-	logging.Tactile("Removing container: %s (force=%v)", containerID[:12], force)
+	logging.Tactile("Removing container: %s (force=%v)", getLogID(containerID), force)
 
 	args := []string{"rm"}
 	if force {
@@ -483,7 +483,7 @@ func (e *PersistentDockerExecutor) RemoveContainer(ctx context.Context, containe
 	delete(e.containers, containerID)
 	e.mu.Unlock()
 
-	logging.Tactile("Container removed: %s", containerID[:12])
+	logging.Tactile("Container removed: %s", getLogID(containerID))
 	return nil
 }
 
@@ -669,10 +669,10 @@ func (e *PersistentDockerExecutor) CreateSnapshot(ctx context.Context, container
 		return nil, fmt.Errorf("snapshots are disabled")
 	}
 
-	logging.Tactile("Creating snapshot of container: %s", containerID[:12])
+	logging.Tactile("Creating snapshot of container: %s", getLogID(containerID))
 
 	// Generate snapshot tag
-	snapshotTag := fmt.Sprintf("codenerd-snapshot-%s-%d", containerID[:12], time.Now().Unix())
+	snapshotTag := fmt.Sprintf("codenerd-snapshot-%s-%d", getLogID(containerID), time.Now().Unix())
 
 	// Docker commit
 	cmd := exec.CommandContext(ctx, e.dockerPath, "commit", "-m", description, containerID, snapshotTag)
@@ -701,7 +701,7 @@ func (e *PersistentDockerExecutor) CreateSnapshot(ctx context.Context, container
 	e.snapshots[imageID] = snapshot
 	e.mu.Unlock()
 
-	logging.Tactile("Snapshot created: %s -> %s", containerID[:12], snapshotTag)
+	logging.Tactile("Snapshot created: %s -> %s", getLogID(containerID), snapshotTag)
 	return snapshot, nil
 }
 
@@ -836,15 +836,40 @@ func (e *PersistentDockerExecutor) Cleanup(ctx context.Context) error {
 // FILE OPERATIONS
 // =============================================================================
 
+
+// isValidContainerID checks if the provided string is a valid Docker container ID or name.
+func isValidContainerID(id string) bool {
+	if len(id) == 0 || len(id) > 64 {
+		return false
+	}
+	for _, r := range id {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && (r < 'A' || r > 'Z') && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func getLogID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
+
 // CopyToContainer copies a file from host to container.
 func (e *PersistentDockerExecutor) CopyToContainer(ctx context.Context, containerID, srcPath, dstPath string) error {
 	if !e.available {
 		return fmt.Errorf("Docker is not available")
 	}
 
-	logging.TactileDebug("Copying %s to container %s:%s", srcPath, containerID[:12], dstPath)
+	if !isValidContainerID(containerID) {
+		return fmt.Errorf("invalid container ID format")
+	}
 
-	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", srcPath, fmt.Sprintf("%s:%s", containerID, dstPath))
+	logging.TactileDebug("Copying %s to container %s:%s", srcPath, getLogID(containerID), dstPath)
+
+	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", srcPath, containerID+":"+dstPath)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -861,9 +886,13 @@ func (e *PersistentDockerExecutor) CopyFromContainer(ctx context.Context, contai
 		return fmt.Errorf("Docker is not available")
 	}
 
-	logging.TactileDebug("Copying container %s:%s to %s", containerID[:12], srcPath, dstPath)
+	if !isValidContainerID(containerID) {
+		return fmt.Errorf("invalid container ID format")
+	}
 
-	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", fmt.Sprintf("%s:%s", containerID, srcPath), dstPath)
+	logging.TactileDebug("Copying container %s:%s to %s", getLogID(containerID), srcPath, dstPath)
+
+	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", containerID+":"+srcPath, dstPath)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
