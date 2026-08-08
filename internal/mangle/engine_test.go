@@ -910,3 +910,106 @@ func TestLargeStringHandling(t *testing.T) {
 		}
 	}
 }
+
+
+// mockPersistence is a mock for testing Engine persistence.
+type mockPersistence struct {
+	ReplaceFactsForFileFunc func(ctx context.Context, file string, facts []Fact, contentHash string) error
+	LoadFactsFunc           func(ctx context.Context) ([]Fact, error)
+	GetFileStatesFunc       func(ctx context.Context) (map[string]string, error)
+}
+
+func (m *mockPersistence) ReplaceFactsForFile(ctx context.Context, file string, facts []Fact, contentHash string) error {
+	if m.ReplaceFactsForFileFunc != nil {
+		return m.ReplaceFactsForFileFunc(ctx, file, facts, contentHash)
+	}
+	return nil
+}
+
+func (m *mockPersistence) LoadFacts(ctx context.Context) ([]Fact, error) {
+	if m.LoadFactsFunc != nil {
+		return m.LoadFactsFunc(ctx)
+	}
+	return nil, nil
+}
+
+func (m *mockPersistence) GetFileStates(ctx context.Context) (map[string]string, error) {
+	if m.GetFileStatesFunc != nil {
+		return m.GetFileStatesFunc(ctx)
+	}
+	return nil, nil
+}
+
+func TestEngineReplaceFactsForFileWithHash(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = false // Disable auto-eval for this test
+
+	mockPersist := &mockPersistence{
+		ReplaceFactsForFileFunc: func(ctx context.Context, file string, facts []Fact, contentHash string) error {
+			if contentHash != "test-hash-123" {
+				t.Errorf("expected hash 'test-hash-123', got %q", contentHash)
+			}
+			return nil
+		},
+	}
+
+	engine, err := NewEngine(cfg, mockPersist)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	// Create a schema
+	schema := `Decl test_fact(X).`
+	if err := engine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("LoadSchemaString() error = %v", err)
+	}
+
+	// Create some dummy facts
+	fact := Fact{Predicate: "test_fact", Args: []any{"value1"}}
+
+	// Call the function under test
+	err = engine.ReplaceFactsForFileWithHash("testfile.mg", []Fact{fact}, "test-hash-123")
+	if err != nil {
+		t.Fatalf("ReplaceFactsForFileWithHash() error = %v", err)
+	}
+}
+
+func TestEngineReplaceFactsForFileWithHash_NoPersistence(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = false
+
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	schema := `Decl test_fact(X).`
+	if err := engine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("LoadSchemaString() error = %v", err)
+	}
+
+	fact := Fact{Predicate: "test_fact", Args: []any{"value1"}}
+
+	// This should succeed without panic or error despite no persistence
+	err = engine.ReplaceFactsForFileWithHash("testfile.mg", []Fact{fact}, "test-hash-123")
+	if err != nil {
+		t.Fatalf("ReplaceFactsForFileWithHash() error = %v", err)
+	}
+}
+
+func TestEngineReplaceFactsForFileWithHash_NoSchemas(t *testing.T) {
+	cfg := DefaultConfig()
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	// Do NOT load schema, should return errNoSchemas
+	err = engine.ReplaceFactsForFileWithHash("testfile.mg", nil, "hash")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err != errNoSchemas {
+		t.Fatalf("expected errNoSchemas, got %v", err)
+	}
+}
