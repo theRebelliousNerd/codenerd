@@ -123,8 +123,11 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", notFoundWithSuggestions(path, rawPath)
+			auditErr := notFoundWithSuggestions(path, rawPath)
+			logging.Audit().FileOp(logging.AuditFileRead, path, 0, false, auditErr.Error())
+			return "", auditErr
 		}
+		logging.Audit().FileOp(logging.AuditFileRead, path, 0, false, err.Error())
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
@@ -168,6 +171,7 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 
 	result = numberLines(result, startLine)
 
+	logging.Audit().FileOp(logging.AuditFileRead, path, int64(len(content)), true, "")
 	logging.VirtualStore("read_file completed: %s (%d bytes)", path, len(result))
 	return result, nil
 }
@@ -316,9 +320,11 @@ func executeWriteFile(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		logging.Audit().FileOp(logging.AuditFileWrite, path, 0, false, err.Error())
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
+	logging.Audit().FileOp(logging.AuditFileWrite, path, int64(len(content)), true, "")
 	logging.VirtualStore("write_file completed: %s (%d bytes)", path, len(content))
 	return fmt.Sprintf("Wrote %d bytes to %s", len(content), path), nil
 }
