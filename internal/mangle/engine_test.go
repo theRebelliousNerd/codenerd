@@ -322,6 +322,80 @@ func TestEngineGetFacts(t *testing.T) {
 	}
 }
 
+
+
+
+func TestEngineReset(t *testing.T) {
+	cfg := DefaultConfig()
+	engine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	// Load schema
+	schema := `Decl data(Value).`
+	if err := engine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("LoadSchemaString() error = %v", err)
+	}
+
+	// Add fact
+	if err := engine.AddFact("data", "test"); err != nil {
+		t.Fatalf("AddFact() error = %v", err)
+	}
+
+	// Check state before reset
+	if engine.factCount != 1 {
+		t.Errorf("Expected factCount to be 1, got %d", engine.factCount)
+	}
+	if len(engine.fileFacts) == 0 {
+		t.Errorf("Expected fileFacts to have entries")
+	}
+
+	// Reset
+	engine.Reset()
+
+	// Verify cleared facts
+	facts, _ := engine.GetFacts("data")
+	if len(facts) != 0 {
+		t.Errorf("GetFacts() after Reset() returned %d facts, want 0", len(facts))
+	}
+
+	// Verify cleared schema - adding fact should now fail since schema is missing
+	err = engine.AddFact("data", "test2")
+	if err == nil {
+		t.Errorf("AddFact() succeeded after Reset(), expected failure due to missing schema")
+	}
+
+	// Verify internal fields are reset
+	if engine.factCount != 0 {
+		t.Errorf("Expected factCount to be 0, got %d", engine.factCount)
+	}
+	if len(engine.fileFacts) != 0 {
+		t.Errorf("Expected fileFacts to be empty, got %v", engine.fileFacts)
+	}
+	if engine.programInfo != nil {
+		t.Errorf("Expected programInfo to be nil")
+	}
+	if engine.strata != nil {
+		t.Errorf("Expected strata to be nil")
+	}
+	if engine.predToStratum != nil {
+		t.Errorf("Expected predToStratum to be nil")
+	}
+	if engine.queryContext != nil {
+		t.Errorf("Expected queryContext to be nil")
+	}
+	if len(engine.predicateIndex) != 0 {
+		t.Errorf("Expected predicateIndex to be empty, got %v", engine.predicateIndex)
+	}
+	if engine.schemaFragments != nil {
+		t.Errorf("Expected schemaFragments to be nil")
+	}
+	if engine.derivedCount != 0 {
+		t.Errorf("Expected derivedCount to be 0, got %d", engine.derivedCount)
+	}
+}
+
 func TestEngineClear(t *testing.T) {
 	cfg := DefaultConfig()
 	engine, err := NewEngine(cfg, nil)
