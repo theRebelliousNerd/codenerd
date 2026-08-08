@@ -211,24 +211,18 @@ func (o *Orchestrator) determineConcurrencyLimit(active map[string]bool, phase *
 		}
 	}
 
-	// Count active task types
-	var researchCount, refactorCount, testCount int
-	for taskID := range active {
-		// Find task in phase
-		for _, t := range phase.Tasks {
-			if t.ID == taskID {
-				switch t.Type {
-				case TaskTypeResearch, TaskTypeDocument:
-					researchCount++
-				case TaskTypeRefactor, TaskTypeIntegrate:
-					refactorCount++
-				case TaskTypeTestRun, TaskTypeVerify:
-					testCount++
-				}
-				break
-			}
-		}
-	}
+	// Count active task types.
+	//
+	// This reads phase.Tasks while worker goroutines spawned by runPhase are
+	// concurrently writing task state through updateTaskStatus, which holds
+	// o.mu. Reading it unlocked was a real data race, caught by `go test -race`
+	// on the full package (it needs the scheduling pressure of the whole suite
+	// to surface, so the single test passes alone -- which is exactly why it
+	// survived).
+	//
+	// The lock is scoped to the read only: o.shardMgr.GetBackpressureStatus()
+	// above reaches into another subsystem and must not be called under o.mu.
+	researchCount, refactorCount, testCount := o.countActiveTaskTypes(active, phase)
 
 	// Adaptive Logic:
 	// 1. Refactoring is high-risk/CPU-heavy -> Throttle down
@@ -247,6 +241,39 @@ func (o *Orchestrator) determineConcurrencyLimit(active map[string]bool, phase *
 	}
 
 	return limit
+}
+
+// countActiveTaskTypes tallies the task types currently running, holding the
+// read lock for the whole traversal of phase.Tasks.
+//
+// Split out of determineConcurrencyLimit so the critical section covers exactly
+// the shared-state read and nothing else — in particular not the backpressure
+// call, which reaches into ShardManager and could block while holding o.mu.
+func (o *Orchestrator) countActiveTaskTypes(active map[string]bool, phase *Phase) (research, refactor, test int) {
+	if phase == nil {
+		return 0, 0, 0
+	}
+
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+
+	for taskID := range active {
+		for i := range phase.Tasks {
+			if phase.Tasks[i].ID != taskID {
+				continue
+			}
+			switch phase.Tasks[i].Type {
+			case TaskTypeResearch, TaskTypeDocument:
+				research++
+			case TaskTypeRefactor, TaskTypeIntegrate:
+				refactor++
+			case TaskTypeTestRun, TaskTypeVerify:
+				test++
+			}
+			break
+		}
+	}
+	return research, refactor, test
 }
 
 // HandleNewRequirement processes a dynamic requirement injection from an external system (e.g., Autopoiesis).
