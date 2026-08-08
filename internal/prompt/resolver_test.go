@@ -28,7 +28,6 @@ func TestDependencyResolver_SetAllowMissingDeps(t *testing.T) {
 func TestDependencyResolver_Resolve(t *testing.T) {
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with slices containing multiple nil elements, alternating nils, or an entire slice of nil elements.
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with empty `DependsOn` array `[]string{}` versus `nil`.
-	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with empty string in `DependsOn` (`DependsOn: []string{""}`).
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with Self-Dependency via Empty String (atom ID "" depends on "").
 	// TODO: TEST_GAP: Type Coercion - Resolve with malformed Atom IDs containing unicode, spaces, or control chars.
 	// TODO: TEST_GAP: Type Coercion - Resolve with float64 precision limits, NaN, or Infinity scores.
@@ -50,6 +49,17 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 			expectedOrder: nil,
 			expectedLen:   0,
 		},
+		{
+			name: "empty string in DependsOn",
+			atoms: []*ScoredAtom{
+				{Atom: &PromptAtom{ID: "a", DependsOn: []string{""}}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "b", DependsOn: []string{"a"}}, Combined: 0.8},
+			},
+			expectError: false,
+			expectedOrder: []string{"a", "b"},
+			expectedLen: 2,
+		},
+
 		{
 			name: "single atom no dependencies",
 			atoms: []*ScoredAtom{
