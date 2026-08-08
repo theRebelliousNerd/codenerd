@@ -1,7 +1,6 @@
 package codedom
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -132,18 +131,32 @@ func executeGetElements(ctx context.Context, args map[string]any) (string, error
 // extractCodeElements extracts code elements from a file using regex patterns.
 // This is a simplified implementation - full AST parsing is done by VirtualStore.
 func extractCodeElements(path string) ([]CodeElement, error) {
-	file, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
-
-	var elements []CodeElement
-	scanner := bufio.NewScanner(file)
-	lineNum := 0
+	content := string(data)
+	// Split into lines; handle empty file.
+	var lines []string
+	if content == "" {
+		lines = []string{}
+	} else {
+		lines = strings.Split(content, "\n")
+		// strings.Split with trailing newline yields an extra empty element that is not a real line.
+		if strings.HasSuffix(content, "\n") && len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
+		// Strip trailing \r for CRLF files to emulate bufio.Scanner behavior.
+		for i, l := range lines {
+			lines[i] = strings.TrimSuffix(l, "\r")
+		}
+	}
 
 	// Language detection based on extension
-	ext := strings.ToLower(path[strings.LastIndex(path, ".")+1:])
+	ext := ""
+	if dot := strings.LastIndex(path, "."); dot != -1 {
+		ext = strings.ToLower(path[dot+1:])
+	}
 
 	// Patterns for different languages
 	var patterns map[string]*regexp.Regexp
@@ -165,25 +178,180 @@ func extractCodeElements(path string) ([]CodeElement, error) {
 		patterns = genericPatterns
 	}
 
-	for scanner.Scan() {
-		lineNum++
-		line := scanner.Text()
-
+	var elements []CodeElement
+	for idx, line := range lines {
 		for elemType, pattern := range patterns {
 			if matches := pattern.FindStringSubmatch(line); matches != nil {
+				startLine := idx + 1
+				var endLine int
+				if ext == "py" {
+					endLine = findPythonEndLine(lines, idx)
+				} else {
+					endLine = findBraceEndLine(lines, idx)
+				}
 				elements = append(elements, CodeElement{
 					Name:      matches[1],
 					Type:      elemType,
 					File:      path,
-					StartLine: lineNum,
-					EndLine:   lineNum, // Would need block tracking for accurate end
+					StartLine: startLine,
+					EndLine:   endLine,
 					Signature: strings.TrimSpace(line),
 				})
 			}
 		}
 	}
 
-	return elements, scanner.Err()
+	return elements, nil
+}
+
+// findBraceEndLine computes the end line for brace-based languages by counting
+// braces from the declaration line until they balance. Braces inside string
+// literals (", ', `), rune literals and comments (//, /* */) are ignored.
+func findBraceEndLine(lines []string, startIdx int) int {
+	depth := 0
+	opened := false
+	inBlockComment := false
+	inBacktick := false
+
+	for i := startIdx; i < len(lines); i++ {
+		line := lines[i]
+		inDouble := false
+		inSingle := false
+		inLineComment := false
+		j := 0
+		for j < len(line) {
+			if inBlockComment {
+				if line[j] == '*' && j+1 < len(line) && line[j+1] == '/' {
+					inBlockComment = false
+					j += 2
+					continue
+				}
+				j++
+				continue
+			}
+			if inLineComment {
+				break
+			}
+			if inSingle {
+				if line[j] == '\\' {
+					// escaped character inside rune/char literal
+					if j+1 < len(line) {
+						j += 2
+					} else {
+						j++
+					}
+					continue
+				}
+				if line[j] == '\'' {
+					inSingle = false
+				}
+				j++
+				continue
+			}
+			if inDouble {
+				if line[j] == '\\' {
+					if j+1 < len(line) {
+						j += 2
+					} else {
+						j++
+					}
+					continue
+				}
+				if line[j] == '"' {
+					inDouble = false
+				}
+				j++
+				continue
+			}
+			if inBacktick {
+				if line[j] == '`' {
+					inBacktick = false
+				}
+				j++
+				continue
+			}
+			// Not inside any literal or comment
+			if line[j] == '/' && j+1 < len(line) {
+				if line[j+1] == '/' {
+					inLineComment = true
+					break
+				}
+				if line[j+1] == '*' {
+					inBlockComment = true
+					j += 2
+					continue
+				}
+			}
+			if line[j] == '"' {
+				inDouble = true
+				j++
+				continue
+			}
+			if line[j] == '\'' {
+				inSingle = true
+				j++
+				continue
+			}
+			if line[j] == '`' {
+				inBacktick = true
+				j++
+				continue
+			}
+			if line[j] == '{' {
+				depth++
+				opened = true
+			} else if line[j] == '}' {
+				depth--
+				if opened && depth == 0 {
+					return i + 1
+				}
+				if depth < 0 {
+					depth = 0
+				}
+			}
+			j++
+		}
+	}
+	if !opened {
+		return startIdx + 1
+	}
+	return len(lines)
+}
+
+// indentLevel returns the indentation level (number of leading spaces/tabs) of a line.
+func indentLevel(line string) int {
+	count := 0
+	for _, ch := range line {
+		if ch == ' ' || ch == '\t' {
+			count++
+		} else {
+			break
+		}
+	}
+	return count
+}
+
+// findPythonEndLine computes the end line for Python by indentation.
+// The element ends at the last line more indented than the declaration.
+func findPythonEndLine(lines []string, startIdx int) int {
+	if startIdx < 0 || startIdx >= len(lines) {
+		return startIdx + 1
+	}
+	baseIndent := indentLevel(lines[startIdx])
+	endIdx := startIdx
+	for i := startIdx + 1; i < len(lines); i++ {
+		line := lines[i]
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		curIndent := indentLevel(line)
+		if curIndent > baseIndent {
+			endIdx = i
+		} else {
+			break
+		}
+	}
+	return endIdx + 1
 }
 
 // GetElementTool returns a tool for getting a specific code element.

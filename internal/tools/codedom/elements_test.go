@@ -357,3 +357,169 @@ func Existing() {}
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+// =============================================================================
+// BLOCK EXTENT TESTS (table-driven)
+// =============================================================================
+
+func TestExtractCodeElements_BlockExtent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		filename string
+		content  string
+		wantName string
+		wantType string
+		wantStart int
+		wantEnd   int
+	}{
+		{
+			name:     "multi-line Go func",
+			filename: "test.go",
+			content: "package test\n\nfunc Foo(a int, b string) error {\n    if a > 0 {\n        return nil\n    }\n    return fmt.Errorf(\"nope\")\n}\n",
+			wantName: "Foo",
+			wantType: "function",
+			wantStart: 3,
+			wantEnd:   8,
+		},
+		{
+			name:     "Go struct",
+			filename: "test.go",
+			content: "package test\n\ntype MyStruct struct {\n    Name string\n    Age  int\n}\n",
+			wantName: "MyStruct",
+			wantType: "struct",
+			wantStart: 3,
+			wantEnd:   6,
+		},
+		{
+			name:     "nested braces",
+			filename: "test.go",
+			content: "package test\n\nfunc Nested() {\n    if true {\n        for i := 0; i < 10; i++ {\n            fmt.Println(i)\n        }\n    }\n}\n",
+			wantName: "Nested",
+			wantType: "function",
+			wantStart: 3,
+			wantEnd:   9,
+		},
+		{
+			name:     "brace inside string literal",
+			filename: "test.go",
+			content: "package test\n\nfunc WithString() {\n    fmt.Println(\"{ not a block }\")\n    x := \"}\"\n    y := '{'\n}\n",
+			wantName: "WithString",
+			wantType: "function",
+			wantStart: 3,
+			wantEnd:   7,
+		},
+		{
+			name:     "python function",
+			filename: "test.py",
+			content: "def foo():\n    x = 1\n    if True:\n        y = 2\n    return x\n\ndef bar():\n    pass\n",
+			wantName: "foo",
+			wantType: "function",
+			wantStart: 1,
+			wantEnd:   5,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tmpDir := t.TempDir()
+			path := filepath.Join(tmpDir, tc.filename)
+			if err := os.WriteFile(path, []byte(tc.content), 0644); err != nil {
+				t.Fatalf("failed to write test file: %v", err)
+			}
+			elements, err := extractCodeElements(path)
+			if err != nil {
+				t.Fatalf("extractCodeElements error: %v", err)
+			}
+			var found *CodeElement
+			for i := range elements {
+				if elements[i].Name == tc.wantName && elements[i].Type == tc.wantType {
+					found = &elements[i]
+					break
+				}
+			}
+			if found == nil {
+				t.Fatalf("element %q (%s) not found; elements=%v", tc.wantName, tc.wantType, elements)
+			}
+			if found.StartLine != tc.wantStart {
+				t.Errorf("StartLine mismatch: want %d, got %d", tc.wantStart, found.StartLine)
+			}
+			if found.EndLine != tc.wantEnd {
+				t.Errorf("EndLine mismatch: want %d, got %d", tc.wantEnd, found.EndLine)
+			}
+		})
+	}
+}
+
+func TestExtractCodeElements_BlockExtent_Additional(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		filename  string
+		content   string
+		wantName  string
+		wantStart int
+		wantEnd   int
+	}{
+		{
+			name:      "brace in line comment",
+			filename:  "test.go",
+			content:   "package test\n\nfunc CommentBrace() {\n    // this { is a comment\n    x := 1\n}\n",
+			wantName:  "CommentBrace",
+			wantStart: 3,
+			wantEnd:   6,
+		},
+		{
+			name:      "brace in block comment",
+			filename:  "test.go",
+			content:   "package test\n\nfunc BlockComment() {\n    /* { block comment } */\n    x := 1\n}\n",
+			wantName:  "BlockComment",
+			wantStart: 3,
+			wantEnd:   6,
+		},
+		{
+			name:      "python nested def indent",
+			filename:  "test.py",
+			content:   "def outer():\n    x = 1\n    y = 2\n\ndef next_func():\n    pass\n",
+			wantName:  "outer",
+			wantStart: 1,
+			wantEnd:   3,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tmpDir := t.TempDir()
+			path := filepath.Join(tmpDir, tc.filename)
+			if err := os.WriteFile(path, []byte(tc.content), 0644); err != nil {
+				t.Fatalf("failed to write test file: %v", err)
+			}
+			elements, err := extractCodeElements(path)
+			if err != nil {
+				t.Fatalf("extractCodeElements error: %v", err)
+			}
+			var found *CodeElement
+			for i := range elements {
+				if elements[i].Name == tc.wantName {
+					found = &elements[i]
+					break
+				}
+			}
+			if found == nil {
+				t.Fatalf("element %q not found; elements=%v", tc.wantName, elements)
+			}
+			if found.StartLine != tc.wantStart {
+				t.Errorf("StartLine mismatch: want %d, got %d", tc.wantStart, found.StartLine)
+			}
+			if found.EndLine != tc.wantEnd {
+				t.Errorf("EndLine mismatch: want %d, got %d", tc.wantEnd, found.EndLine)
+			}
+		})
+	}
+}

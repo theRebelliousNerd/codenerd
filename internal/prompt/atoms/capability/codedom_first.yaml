@@ -1,0 +1,71 @@
+# CodeDOM First — Prefer semantic Code DOM tools over whole-file text tools
+
+- id: "capability/codedom_first"
+  category: "capability"
+  priority: 88
+  is_mandatory: true
+  shard_types: [coder, reviewer, tester]
+  description: "Prefer Code DOM line-range tools over whole-file reads and text-match edits"
+  content: |
+    ## CodeDOM First: Use Semantic Tools Before Text Tools
+
+    Prefer the Code DOM tools over reading whole files and doing whole-text matching. They are cheaper, more precise, and whitespace-robust.
+
+    ### Discovery: get_elements and get_element
+
+    Use `get_elements` to get a file's symbol index with line ranges instead of `read_file` on the whole file — it is far cheaper in tokens.
+
+    Tool: `get_elements`
+    - Required: `path` (string) — File path to analyze
+    - Optional: `type` (string) — Filter by element type (function, class, method, struct, interface)
+    - Returns: JSON array of `CodeElement` objects (or the string "No code elements found" when empty). Each element has `name`, `type`, `file`, `start_line`, `end_line`, `signature`:
+      ```json
+      [
+        {
+          "name": "Login",
+          "type": "function",
+          "file": "internal/auth/user.go",
+          "start_line": 42,
+          "end_line": 55,
+          "signature": "func Login(ctx context.Context, email, password string) (*User, error)"
+        }
+      ]
+      ```
+
+    Use `get_element` to fetch one element's body when you already know its name, rather than scanning the whole file.
+
+    Tool: `get_element`
+    - Required: `path` (string) — File path to search
+    - Required: `name` (string) — Element name to find
+    - Returns: Single `CodeElement` JSON object with the same fields (`name`, `type`, `file`, `start_line`, `end_line`, `signature`), or error "element not found: <name>"
+
+    Typical workflow: call `get_elements` with `path` to obtain `start_line`/`end_line` for the target, then operate on that range. Call `get_element` with `path` and `name` when you need the exact lines for one symbol.
+
+    ### Editing: edit_lines / insert_lines / delete_lines
+
+    Use `edit_lines`, `insert_lines`, and `delete_lines` to change code by line range rather than `edit_file` whole-text matching which fails when whitespace differs. All line numbers are 1-indexed.
+
+    Tool: `edit_lines` — Replace specific lines in a file
+    - Required: `path` (string) — File path to edit
+    - Required: `start_line` (integer, 1-indexed) — Starting line number
+    - Required: `end_line` (integer, inclusive) — Ending line number
+    - Required: `new_content` (string) — New content to replace the lines with
+    - Returns: String confirmation e.g. "Replaced lines 42-55 with 3 new lines in internal/auth/user.go"
+
+    Tool: `insert_lines` — Insert lines at a position
+    - Required: `path` (string) — File path to edit
+    - Required: `after_line` (integer) — Insert after this line number (0 to insert at beginning)
+    - Required: `content` (string) — Content to insert
+    - Returns: String confirmation e.g. "Inserted 4 lines after line 20 in internal/auth/user.go"
+
+    Tool: `delete_lines` — Delete a range of lines
+    - Required: `path` (string) — File path to edit
+    - Required: `start_line` (integer, 1-indexed) — Starting line number
+    - Required: `end_line` (integer, inclusive) — Ending line number
+    - Returns: String confirmation e.g. "Deleted lines 10-14 from internal/auth/user.go"
+
+    ### Rules
+
+    - Always call `get_elements` (or `get_element`) before editing to obtain accurate `start_line`/`end_line`; do not guess line numbers and do not `read_file` the entire file just to locate a symbol.
+    - Always use `edit_lines`/`insert_lines`/`delete_lines` with the `path` + line range from the index instead of `edit_file` old_text/new_text matching.
+    - `edit_file` is for config/data files (yaml, json, md), not for code edits — for code, the line-range tools are required because whitespace and formatting differences break text matching.
