@@ -3,6 +3,7 @@
 package tactile
 
 import (
+	"strconv"
 	"bytes"
 	"context"
 	"fmt"
@@ -195,7 +196,9 @@ func killProcessGroup(cmd *exec.Cmd) error {
 	}
 
 	// On Windows, use taskkill to kill process tree
-	killCmd := exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", cmd.Process.Pid))
+	pidStr := strconv.Itoa(cmd.Process.Pid)
+	// #nosec G204 -- pid is safely converted from an integer
+	killCmd := exec.Command("taskkill", "/F", "/T", "/PID", pidStr)
 	killCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	if err := killCmd.Run(); err != nil {
