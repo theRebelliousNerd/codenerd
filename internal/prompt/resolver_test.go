@@ -32,7 +32,6 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with empty `DependsOn` array `[]string{}` versus `nil`.
 	// TODO: TEST_GAP: Type Coercion - Resolve with malformed Atom IDs containing unicode, spaces, or control chars.
 	// TODO: TEST_GAP: User Request Extremes - Resolve with massive dependency chains (e.g., 1,000,000 ScoredAtoms).
-	// TODO: TEST_GAP: User Request Extremes - Resolve with extreme Priority values (`math.MaxInt64` or `math.MinInt64`).
 	tests := []struct {
 		name          string
 		atoms         []*ScoredAtom
@@ -40,6 +39,29 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 		expectedOrder []string // Expected atom IDs in order
 		expectedLen   int
 	}{
+
+		{
+			name: "extreme Priority values max int64",
+			atoms: []*ScoredAtom{
+				{Atom: &PromptAtom{ID: "c", Priority: 50}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "a", Priority: 9223372036854775807}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "b", Priority: 100}, Combined: 0.5},
+			},
+			expectError:   false,
+			expectedOrder: []string{"a", "b", "c"},
+			expectedLen:   3,
+		},
+		{
+			name: "extreme Priority values min int64",
+			atoms: []*ScoredAtom{
+				{Atom: &PromptAtom{ID: "c", Priority: -9223372036854775808}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "a", Priority: 100}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "b", Priority: -50}, Combined: 0.5},
+			},
+			expectError:   false,
+			expectedOrder: []string{"a", "b", "c"},
+			expectedLen:   3,
+		},
 		{
 			name: "deterministic sorting on identical scores and identical dependencies",
 			atoms: []*ScoredAtom{

@@ -134,20 +134,24 @@ func (r *DependencyResolver) topologicalSort(
 		if queue[i].Atom.IsMandatory != queue[j].Atom.IsMandatory {
 			return queue[i].Atom.IsMandatory
 		}
-		// NaN-safe AND deterministic. A NaN score never outranks a real one,
-		// and anything that ties -- including two NaNs, which are never == --
-		// falls through to the atom ID so the compiled prompt is reproducible.
+		// NaN-safe and fully deterministic, in four tiers: a NaN score never
+		// outranks a real one; then score; then declared priority; then atom
+		// ID. Two NaNs are never ==, so they must fall through rather than be
+		// compared -- otherwise the compiled prompt is not reproducible.
 		a := queue[i].Combined
 		b := queue[j].Combined
 		aNaN, bNaN := math.IsNaN(a), math.IsNaN(b)
 		switch {
-		case aNaN && bNaN: // tie: fall through to the ID comparison
+		case aNaN && bNaN: // tie: fall through to priority, then ID
 		case aNaN:
 			return false
 		case bNaN:
 			return true
 		case a != b:
 			return a > b
+		}
+		if queue[i].Atom.Priority != queue[j].Atom.Priority {
+			return queue[i].Atom.Priority > queue[j].Atom.Priority
 		}
 		return queue[i].Atom.ID < queue[j].Atom.ID
 	})
