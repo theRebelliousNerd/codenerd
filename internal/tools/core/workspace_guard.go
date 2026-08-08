@@ -72,9 +72,20 @@ func resolveWorkspacePath(ctx context.Context, root, p string) (string, error) {
 		absRoot = resolved
 	}
 
-	absPath, err := filepath.Abs(p)
-	if err != nil {
-		return "", fmt.Errorf("invalid path %q: %w", p, err)
+	// A relative tool path is workspace-relative, not CWD-relative.
+	//
+	// filepath.Abs resolves against the process working directory. That is the
+	// same thing only when the workspace IS the working directory, which is the
+	// default but not the contract: -w/--workspace sets the root without
+	// chdir'ing (only the dom subcommands chdir, in cmd/nerd/dom_cmd.go). So
+	// `nerd -w D:\project read_file internal/foo.go` from another directory
+	// resolved to <cwd>/internal/foo.go and was then rejected for escaping
+	// D:\project — every relative path failed, for the flag's entire lifetime.
+	var absPath string
+	if filepath.IsAbs(p) {
+		absPath = filepath.Clean(p)
+	} else {
+		absPath = filepath.Join(absRoot, p)
 	}
 
 	resolved, err := filepath.EvalSymlinks(absPath)
