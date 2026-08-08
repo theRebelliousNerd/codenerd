@@ -445,7 +445,11 @@ func runDomEdit(cmd *cobra.Command, args []string) error {
 	}
 
 	if domEditGoFmt {
-		gofmtCmd := exec.CommandContext(ctx, "gofmt", "-w", absTarget)
+		safeTarget := absTarget
+		if len(safeTarget) > 0 && safeTarget[0] == '-' {
+			safeTarget = "./" + safeTarget
+		}
+		gofmtCmd := exec.CommandContext(ctx, "gofmt", "-w", safeTarget)
 		gofmtCmd.Dir = ws
 		if out, err := gofmtCmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("gofmt failed: %w\n%s", err, string(out))
