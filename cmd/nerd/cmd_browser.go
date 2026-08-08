@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"codenerd/internal/browser"
+	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 
@@ -57,6 +58,21 @@ func getBrowserConfig() browser.Config {
 	cfg := browser.DefaultConfig()
 	cfg.SessionStore = filepath.Join(cwd, ".nerd", "browser", "sessions.json")
 	return cfg
+}
+
+// loadBrowserSchema loads the embedded browser DOM schema into the engine.
+// It must be called after creating the engine and before constructing the
+// SessionManager, because DOM reification asserts predicates declared in
+// schemas_browser.mg (element/3, position/5, etc.).
+func loadBrowserSchema(engine *mangle.Engine) error {
+	schema, err := core.GetDefaultContent("schemas_browser.mg")
+	if err != nil {
+		return fmt.Errorf("failed to read browser schema: %w", err)
+	}
+	if err := engine.LoadSchemaString(schema); err != nil {
+		return fmt.Errorf("failed to load browser schema: %w", err)
+	}
+	return nil
 }
 
 // startBrowserManagerWithFallback tries to start the browser session manager
@@ -163,6 +179,10 @@ func browserSession(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create mangle engine: %w", err)
 	}
 
+	if err := loadBrowserSchema(engine); err != nil {
+		return err
+	}
+
 	mgr, cfg, err := startBrowserManagerWithFallback(ctx, cfg, engine, controlFile)
 	if err != nil {
 		return fmt.Errorf("failed to start session manager: %w", err)
@@ -211,6 +231,10 @@ func browserSnapshot(cmd *cobra.Command, args []string) error {
 	engine, err := mangle.NewEngine(mangle.DefaultConfig(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to create mangle engine: %w", err)
+	}
+
+	if err := loadBrowserSchema(engine); err != nil {
+		return err
 	}
 
 	// Snapshot never shuts the manager down, so it does not need the updated
