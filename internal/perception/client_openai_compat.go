@@ -91,7 +91,10 @@ var openAICompatVendorDefaults = map[Provider]vendorDefault{
 	},
 	ProviderMeta: {
 		baseURL: "https://api.meta.ai/v1",
-		model:   "muse-spark-1.2",
+		// Contributor tier is the only Meta model this project uses. See
+		// normalizeMetaModel for why the plain name is not merely a different
+		// default but a wrong one.
+		model: metaContributorModel,
 	},
 	ProviderMoonshot: {
 		baseURL: "https://api.moonshot.ai/v1",
@@ -168,6 +171,11 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 	if cfg.Model == "" {
 		cfg.Model = openAICompatVendorDefaults[cfg.Vendor].model
 	}
+	// Normalize once at construction so GetModel() and every log line report
+	// the model that will actually be sent, not the one that was requested.
+	if cfg.Vendor == ProviderMeta {
+		cfg.Model = normalizeMetaModel(cfg.Model)
+	}
 
 	// Reasoning models spend the completion budget on thinking before emitting
 	// any visible content, so a small ceiling yields an EMPTY response rather
@@ -203,7 +211,9 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 }
 
 // SetModel changes the model used for completions.
-func (c *OpenAICompatClient) SetModel(model string) { c.model = model }
+// SetModel normalizes on the way in, so GetModel reports what will actually be
+// sent rather than what was asked for.
+func (c *OpenAICompatClient) SetModel(model string) { c.model = c.normalizeModel(model) }
 
 // GetModel returns the current model.
 func (c *OpenAICompatClient) GetModel() string { return c.model }
@@ -214,11 +224,55 @@ func (c *OpenAICompatClient) ModelForContext(ctx context.Context) string {
 	if ctx != nil {
 		if v := ctx.Value(types.CtxKeyModelName); v != nil {
 			if model, ok := v.(string); ok && strings.TrimSpace(model) != "" {
-				return strings.TrimSpace(model)
+				return c.normalizeModel(strings.TrimSpace(model))
 			}
 		}
 	}
-	return c.model
+	return c.normalizeModel(c.model)
+}
+
+// metaContributorModel is the only Meta model this project is permitted to
+// use.
+const metaContributorModel = "muse-spark-1.2-contributor"
+
+// normalizeModel applies vendor-level model constraints to whatever the
+// config, the wizard, or a per-shard override asked for.
+func (c *OpenAICompatClient) normalizeModel(model string) string {
+	if c.vendor != ProviderMeta {
+		return model
+	}
+	return normalizeMetaModel(model)
+}
+
+// normalizeMetaModel forces every Meta request onto the contributor tier.
+//
+// Meta serves muse-spark under two names that differ only by suffix, and the
+// plain one is a different commercial tier — not a different default. Measured
+// on a single day: 482 completions went to "muse-spark-1.2" and zero to
+// "muse-spark-1.2-contributor", because six separate places in .nerd/config.json
+// (worker, four shard_profiles, default_shard) named the plain model and the
+// vendor default here agreed with them. Nothing failed, so nothing surfaced it
+// — the calls succeed on either name, which is exactly what makes this the kind
+// of mistake that runs for eleven million tokens before anyone notices.
+//
+// Normalizing here rather than at each config site is deliberate: this is the
+// single function every request's model flows through, so no config key, wizard
+// choice, per-shard profile, or CtxKeyModelName override can route Meta traffic
+// off the contributor tier. It warns rather than silently substituting, because
+// a config that says one thing while the client does another is its own defect.
+func normalizeMetaModel(model string) string {
+	trimmed := strings.TrimSpace(model)
+	if trimmed == "" {
+		return metaContributorModel
+	}
+	if strings.HasSuffix(trimmed, "-contributor") {
+		return trimmed
+	}
+
+	logging.PerceptionWarn(
+		"[meta] model %q is not the contributor tier; using %q instead. Update .nerd/config.json so the config matches what runs.",
+		trimmed, metaContributorModel)
+	return metaContributorModel
 }
 
 // reasoningEffortForContext maps a per-shard capability tier onto the vendor's

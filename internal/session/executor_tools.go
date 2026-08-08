@@ -196,7 +196,7 @@ func (e *Executor) runToolLoop(
 	if finalErr != nil {
 		logging.Get(logging.CategorySession).Error(
 			"Forced final answer failed after exhausting tool iterations: %v", finalErr)
-		return currentResponse, toolErrs, nil
+		return currentResponse, toolErrs, fmt.Errorf("tool iteration budget exhausted (%d iterations, %d tool calls executed): forced final answer failed: %w", maxIter, result.ToolCallsExecuted, finalErr)
 	}
 	return final, toolErrs, nil
 }

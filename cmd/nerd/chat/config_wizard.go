@@ -148,8 +148,14 @@ var ProviderModels = map[string][]string{
 	// rejects every model for the provider, because validation looks the
 	// provider up in this map and an absent key yields an empty candidate list.
 	"dashscope": {"qwen3.8-max", "qwen3.8-plus", "qwen3.7-max"},
-	"meta":      {"muse-spark-1.2", "muse-spark-1.2-contributor", "muse-spark-1.1"},
-	"moonshot":  {"kimi-k3", "kimi-latest"},
+	// Contributor tier only. Offering the plain names let `/model` and the
+	// wizard write a config that routes Meta traffic to a different commercial
+	// tier — 482 completions in one day went to "muse-spark-1.2" before anyone
+	// noticed, because both names work and only the bill differs. The client
+	// normalizes anyway (normalizeMetaModel), but a picker that offers a value
+	// the client will silently override is a picker that lies.
+	"meta":     {"muse-spark-1.2-contributor"},
+	"moonshot": {"kimi-k3", "kimi-latest"},
 }
 
 var claudeCLIWizardModels = []string{"sonnet", "opus", "haiku"}

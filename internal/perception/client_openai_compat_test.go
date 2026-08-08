@@ -36,7 +36,7 @@ func TestNewOpenAICompatClient_RequiresKeyAndBaseURL(t *testing.T) {
 func TestDefaultOpenAICompatConfig_VendorEndpoints(t *testing.T) {
 	cases := map[Provider]struct{ base, model string }{
 		ProviderDashScope: {"https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen3.8-max"},
-		ProviderMeta:      {"https://api.meta.ai/v1", "muse-spark-1.2"},
+		ProviderMeta:      {"https://api.meta.ai/v1", "muse-spark-1.2-contributor"},
 		ProviderMoonshot:  {"https://api.moonshot.ai/v1", "kimi-k3"},
 	}
 	for vendor, want := range cases {
@@ -145,8 +145,11 @@ func TestBuildRequest_DashScopeThinking(t *testing.T) {
 func TestModelForContext_OverridesDefault(t *testing.T) {
 	c := newTestCompatClient(t, ProviderMeta, "https://api.meta.ai/v1")
 
-	if got := c.ModelForContext(context.Background()); got != "muse-spark-1.2" {
-		t.Errorf("default model = %q", got)
+	// The default is the contributor tier — see normalizeMetaModel. This
+	// asserted the plain "muse-spark-1.2", which is the wrong commercial tier
+	// and is what let 482 completions in one day run on it.
+	if got := c.ModelForContext(context.Background()); got != "muse-spark-1.2-contributor" {
+		t.Errorf("default model = %q, want muse-spark-1.2-contributor", got)
 	}
 	ctx := context.WithValue(context.Background(), types.CtxKeyModelName, "muse-spark-1.2-contributor")
 	if got := c.ModelForContext(ctx); got != "muse-spark-1.2-contributor" {
