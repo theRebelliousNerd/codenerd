@@ -104,6 +104,12 @@ func (c *Compressor) refreshActivationContextsLocked() {
 		return nil
 	}
 
+	c.refreshCampaignContextLocked(getFacts)
+	c.refreshIssueContextLocked(getFacts)
+	c.refreshBackReferenceContextLocked(getFacts)
+}
+
+func (c *Compressor) refreshCampaignContextLocked(getFacts func(pred string) []core.Fact) {
 	// -------------------------------------------------------------------------
 	// Campaign context (phase-aware activation)
 	// -------------------------------------------------------------------------
@@ -220,6 +226,9 @@ func (c *Compressor) refreshActivationContextsLocked() {
 		})
 	}
 
+}
+
+func (c *Compressor) refreshIssueContextLocked(getFacts func(pred string) []core.Fact) {
 	// -------------------------------------------------------------------------
 	// Issue context (issue-driven activation)
 	// -------------------------------------------------------------------------
@@ -383,6 +392,9 @@ func (c *Compressor) refreshActivationContextsLocked() {
 		Source:         source,
 	})
 
+}
+
+func (c *Compressor) refreshBackReferenceContextLocked(getFacts func(pred string) []core.Fact) {
 	// -------------------------------------------------------------------------
 	// Back-reference context (follow-up question activation)
 	// -------------------------------------------------------------------------
