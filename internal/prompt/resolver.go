@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"codenerd/internal/logging"
@@ -130,7 +131,18 @@ func (r *DependencyResolver) topologicalSort(
 		if queue[i].Atom.IsMandatory != queue[j].Atom.IsMandatory {
 			return queue[i].Atom.IsMandatory
 		}
-		return queue[i].Combined > queue[j].Combined
+		a := queue[i].Combined
+		b := queue[j].Combined
+		if math.IsNaN(a) && math.IsNaN(b) {
+			return false
+		}
+		if math.IsNaN(a) {
+			return false
+		}
+		if math.IsNaN(b) {
+			return true
+		}
+		return a > b
 	})
 
 	// Build reverse dependency map (atom -> atoms that depend on it)
@@ -156,8 +168,16 @@ func (r *DependencyResolver) topologicalSort(
 			var bestNode *ScoredAtom
 			for _, sa := range atoms {
 				if inDegree[sa.Atom.ID] > 0 {
-					if bestNode == nil || sa.Combined > bestNode.Combined {
+					if bestNode == nil {
 						bestNode = sa
+					} else {
+						saIsNaN := math.IsNaN(sa.Combined)
+						bestIsNaN := math.IsNaN(bestNode.Combined)
+						if !saIsNaN && bestIsNaN {
+							bestNode = sa
+						} else if !saIsNaN && !bestIsNaN && sa.Combined > bestNode.Combined {
+							bestNode = sa
+						}
 					}
 				}
 			}
@@ -374,7 +394,18 @@ func (r *DependencyResolver) SortByCategory(atoms []*OrderedAtom) []*OrderedAtom
 	// Sort within each category by score
 	for cat := range byCategory {
 		sort.Slice(byCategory[cat], func(i, j int) bool {
-			return byCategory[cat][i].Score > byCategory[cat][j].Score
+			a := byCategory[cat][i].Score
+			b := byCategory[cat][j].Score
+			if math.IsNaN(a) && math.IsNaN(b) {
+				return false
+			}
+			if math.IsNaN(a) {
+				return false
+			}
+			if math.IsNaN(b) {
+				return true
+			}
+			return a > b
 		})
 	}
 

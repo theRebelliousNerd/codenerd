@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,7 +32,6 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with empty string in `DependsOn` (`DependsOn: []string{""}`).
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with Self-Dependency via Empty String (atom ID "" depends on "").
 	// TODO: TEST_GAP: Type Coercion - Resolve with malformed Atom IDs containing unicode, spaces, or control chars.
-	// TODO: TEST_GAP: Type Coercion - Resolve with float64 precision limits, NaN, or Infinity scores.
 	// TODO: TEST_GAP: User Request Extremes - Resolve with massive dependency chains (e.g., 1,000,000 ScoredAtoms).
 	// TODO: TEST_GAP: User Request Extremes - Resolve with extreme Priority values (`math.MaxInt64` or `math.MinInt64`).
 	// TODO: TEST_GAP: State Conflicts - Resolve with deterministic sorting on identical scores and identical dependencies (tie-breaker needed).
@@ -87,6 +87,20 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 			},
 			expectError: false,
 			expectedLen: 3,
+		},
+		{
+			name: "float64 precision limits, NaN, or Infinity scores",
+			atoms: []*ScoredAtom{
+				{Atom: &PromptAtom{ID: "nan"}, Combined: math.NaN()},
+				{Atom: &PromptAtom{ID: "inf"}, Combined: math.Inf(1)},
+				{Atom: &PromptAtom{ID: "-inf"}, Combined: math.Inf(-1)},
+				{Atom: &PromptAtom{ID: "max"}, Combined: math.MaxFloat64},
+				{Atom: &PromptAtom{ID: "smallest"}, Combined: math.SmallestNonzeroFloat64},
+				{Atom: &PromptAtom{ID: "normal"}, Combined: 1.0},
+			},
+			expectError:   false,
+			expectedOrder: []string{"inf", "max", "normal", "smallest", "-inf", "nan"},
+			expectedLen:   6,
 		},
 	}
 
