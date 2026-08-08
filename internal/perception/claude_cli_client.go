@@ -234,10 +234,11 @@ func (c *ClaudeCodeCLIClient) executeCLI(ctx context.Context, prompt, model stri
 	defer cancel()
 
 	// Build command arguments
-	args := c.buildArgs(prompt, model, opts)
+	args := c.buildArgs(model, opts)
 
 	// Create command with context for cancellation support
 	cmd := exec.CommandContext(ctx, "claude", args...)
+	cmd.Stdin = strings.NewReader(prompt)
 
 	// Capture stdout and stderr
 	var stdout, stderr bytes.Buffer
@@ -285,10 +286,11 @@ func (c *ClaudeCodeCLIClient) executeStreaming(ctx context.Context, prompt strin
 
 	// Force streaming output format
 	opts.Streaming = true
-	args := c.buildArgs(prompt, c.model, opts)
+	args := c.buildArgs(c.model, opts)
 
 	// Create command with context for cancellation support
 	cmd := exec.CommandContext(ctx, "claude", args...)
+	cmd.Stdin = strings.NewReader(prompt)
 
 	// Get stdout pipe for streaming
 	stdout, err := cmd.StdoutPipe()
@@ -363,16 +365,14 @@ func (c *ClaudeCodeCLIClient) executeStreaming(ctx context.Context, prompt strin
 // - Tools are DISABLED (codeNERD has its own tools)
 // - Max turns is 1 (single completion, no agentic loops) - bumped to 2 for JSON schema
 // - System prompt REPLACES Claude Code instructions
-func (c *ClaudeCodeCLIClient) buildArgs(prompt, model string, opts *ExecutionOptions) []string {
+func (c *ClaudeCodeCLIClient) buildArgs(model string, opts *ExecutionOptions) []string {
 	// Determine max turns: JSON schema validation requires extra turns internally
 	// The schema tool call counts as a turn, plus the final output
 	maxTurns := c.maxTurns
 	if opts != nil && opts.JSONSchema != "" && maxTurns < 3 {
 		maxTurns = 3 // JSON schema uses internal tool calls that count as turns
 	}
-
 	args := []string{
-		"-p", prompt,
 		"--model", model,
 		"--max-turns", fmt.Sprintf("%d", maxTurns),
 	}
