@@ -18,7 +18,9 @@
 
 **A coding agent that cannot take an action it can't prove it's allowed to take.**
 
-[Why](#the-category-error) · [How](#the-inversion) · [Install](#sixty-seconds) · [Commands](#the-surface) · [Safety](#the-constitution) · [Docs](#going-deeper)
+*Built to run unattended for weeks — and to solve 100% of SWE-bench.*
+
+[Why](#the-category-error) · [How](#the-inversion) · [North Star](#the-north-star) · [Install](#sixty-seconds) · [Commands](#the-surface) · [Safety](#the-constitution) · [Docs](#going-deeper)
 
 </div>
 
@@ -262,6 +264,28 @@ Layered on top of that:
 - **Dreamer** — destructive actions get simulated before they're real
 - **Workspace jail** — every path is resolved against the workspace root; escapes are refused
 - **Two gates, one definition** — the interactive path and the VirtualStore path share the *same* matcher, so a shard can never write what the session refused
+
+---
+
+## The north star
+
+Two targets. Neither is reached yet. Both are stated here because they're what every design decision in this repo is being measured against.
+
+### ⏳ Run unattended for weeks — and be trustworthy the whole time
+
+Not "survive a long session." *Weeks.* Which is a fundamentally different engineering problem, because the thing that kills long autonomy isn't crashing — it's **silent drift**. An agent that reports success while quietly dropping work doesn't fail loudly at hour 200; it fails at hour 3 and spends the next 197 building on a lie.
+
+Real example, from this repo, this month: a merge routine reported 77 branches successfully merged. Every command it ran returned zero. It had silently dropped five performance optimizations, four refactors, and dozens of test declarations — because it verified **process** ("did the command succeed") instead of **outcome** ("is the content actually there"). An hour of work is recoverable. Weeks are not.
+
+That's the entire argument for the kernel. A fact store records what is *true*, not what was *attempted*. Campaign checkpoints must produce evidence, not a return code — an early build of that system counted "verifier was nil, so nothing failed" as a pass, and every phase reported verified having verified nothing. That bug is the north star's exact antagonist.
+
+> **The invariant:** the agent's own status report must be worthless as a claim and valuable only as a citation. If it says a thing is done, there is a derivation showing it.
+
+### 🎯 100% on SWE-bench
+
+Not "competitive." All of it.
+
+The same discipline scaled to a single task: a patch that compiles is not a patch that fixes the issue, and an agent that cannot tell those apart has a ceiling well under 100%. Getting there means never confusing *plausible* with *verified* — which is why the model proposes and the kernel disposes.
 
 ---
 
