@@ -56,6 +56,21 @@ type RealKernel struct {
 	policy            string
 	learned           string              // Learned rules (autopoiesis) - loaded from learned.mg
 	loadedPolicyFiles map[string]struct{} // Idempotency: policy modules loaded via LoadPolicyFile (keyed by case-insensitive basename)
+
+	// sandbox marks a throwaway kernel used to trial-compile a candidate rule
+	// (validateRuleSandbox). A parse or analysis failure there is an expected
+	// outcome the caller handles — the Legislator repairs the rule and retries,
+	// and usually succeeds on attempt 2 — not a production fault.
+	//
+	// Without this, every rejected candidate logged two ERROR lines
+	// ("rebuildProgram: parse failed", "HotLoadRule: rule rejected by sandbox
+	// compiler") indistinguishable from the real corpus failing to parse. They
+	// were the loudest entries in the kernel log after `nerd logs` was fixed,
+	// and cost a full investigation before the Legislator's own log revealed
+	// "Rule auto-repaired by feedback loop sanitizer ... hot-loaded
+	// successfully" seconds later. Zero value is false, so every other kernel
+	// keeps logging these at ERROR.
+	sandbox bool
 	schemaValidator   *mangle.SchemaValidator
 	initialized       bool
 	manglePath        string      // Path to mangle files directory

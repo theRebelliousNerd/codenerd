@@ -89,7 +89,14 @@ func (k *RealKernel) rebuildProgram() error {
 	parseTimer := logging.StartTimer(logging.CategoryKernel, "rebuildProgram.parse")
 	parsed, err := parseUnit(strings.NewReader(programStr))
 	if err != nil {
-		logging.Get(logging.CategoryKernel).Error("rebuildProgram: parse failed: %v", err)
+		// In a sandbox this is a trial compile of a candidate rule and a
+		// rejection is the expected outcome the caller handles; see the
+		// `sandbox` field on RealKernel.
+		if k.sandbox {
+			logging.KernelDebug("rebuildProgram (sandbox): candidate rejected at parse: %v", err)
+		} else {
+			logging.Get(logging.CategoryKernel).Error("rebuildProgram: parse failed: %v", err)
+		}
 		return fmt.Errorf("failed to parse program: %w", err)
 	}
 	parseTimer.Stop()
@@ -113,6 +120,13 @@ func (k *RealKernel) rebuildProgram() error {
 	analyzeTimer := logging.StartTimer(logging.CategoryKernel, "rebuildProgram.analyze")
 	programInfo, err := analysis.AnalyzeOneUnit(parsed, nil)
 	if err != nil {
+		// A sandbox rejection is expected and handled by the caller, and its
+		// program is a throwaway — dumping it to disk on every rejected
+		// candidate would churn debug_program_ERROR.mg with non-faults.
+		if k.sandbox {
+			logging.KernelDebug("rebuildProgram (sandbox): candidate rejected at analysis: %v", err)
+			return fmt.Errorf("failed to analyze program: %w", err)
+		}
 		logging.Get(logging.CategoryKernel).Error("rebuildProgram: analysis failed: %v", err)
 		if dumpPath, writeErr := writeFailedProgramDump(programStr); writeErr != nil {
 			logging.Get(logging.CategoryKernel).Warn("Failed to write debug dump: %v", writeErr)

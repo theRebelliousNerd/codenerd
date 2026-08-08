@@ -197,7 +197,11 @@ func (k *RealKernel) HotLoadRule(rule string) error {
 	logging.KernelDebug("HotLoadRule: creating sandbox kernel for validation")
 	logging.KernelDebug("HotLoadRule: validating rule in sandbox...")
 	if err := validateRuleSandbox(rule, schemas, policy, learned); err != nil {
-		logging.Get(logging.CategoryKernel).Error("HotLoadRule: rule rejected by sandbox compiler: %v", err)
+		// Warn, not Error: rejecting a candidate rule is this gate working.
+		// The caller (Legislator) repairs and retries, and typically ratifies
+		// on the next attempt. Logged at ERROR it was indistinguishable from
+		// the production corpus failing to parse.
+		logging.Get(logging.CategoryKernel).Warn("HotLoadRule: candidate rule rejected by sandbox compiler (caller may repair and retry): %v", err)
 		return fmt.Errorf("rule rejected by sandbox compiler: %w", err)
 	}
 	logging.KernelDebug("HotLoadRule: sandbox validation passed")
@@ -404,6 +408,7 @@ func validateRuleSandbox(rule, schemas, policy, learned string) error {
 		store:             factstore.NewSimpleInMemoryStore(),
 		loadedPolicyFiles: make(map[string]struct{}),
 		policyDirty:       true,
+		sandbox:           true,
 	}
 	sandbox.schemas = schemas
 	sandbox.policy = policy
