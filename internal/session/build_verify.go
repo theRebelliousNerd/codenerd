@@ -1,0 +1,221 @@
+package session
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+
+	"codenerd/internal/build"
+	"codenerd/internal/config"
+	jitconfig "codenerd/internal/jit/config"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+)
+
+// Post-edit build verification.
+//
+// codeNERD edited cmd/nerd/cmd_instruction.go, produced four compile errors —
+// an unused import, a duplicated block redeclaring variables with :=, and two
+// calls to helper functions it never wrote — then asserted
+// task_status(/manual_instruction, /complete) and exited 0. A single `go build`
+// would have caught all four.
+//
+// Nothing verified write-tool output. internal/core/self_healing.go defines a
+// SelfHealer with HandleValidationFailure / retryAction / rollbackAction /
+// escalateToUser and has zero production callers anywhere in the repo;
+// ValidatorRegistry survives only in comments describing what it would dispatch
+// on. The machinery to check the work existed and was wired to nothing.
+//
+// Detection alone would only convert a false success into an honest failure.
+// The point of this file is the repair round: the compiler's own errors go back
+// to the model as a tool-result turn, so the agent fixes its mistake rather
+// than handing back broken code. That is the difference between an agent that
+// writes plausible code and one that can finish a job.
+
+// buildVerifyTimeout bounds the verification build. A cold `go build ./...` on
+// this repo takes tens of seconds; the ceiling is generous because a verify
+// that times out reports a false alarm, which is worse than a slow one.
+const buildVerifyTimeout = 4 * time.Minute
+
+// buildVerifyMaxOutput caps how much compiler output is fed back to the model.
+// Go reports errors newest-package-first and a broken edit usually produces a
+// handful; a runaway cascade would otherwise blow the context budget the repair
+// round needs.
+const buildVerifyMaxOutput = 6000
+
+// BuildVerification is the outcome of compiling the workspace after edits.
+type BuildVerification struct {
+	// Ran is false when verification was skipped (no Go files touched, no Go
+	// toolchain, verification disabled). A skipped verification is NOT a pass
+	// and must never be reported as one.
+	Ran bool
+
+	// OK is true only when the build actually succeeded.
+	OK bool
+
+	// Output is the compiler's stderr/stdout, truncated. Empty on success.
+	Output string
+
+	// Duration is how long the build took.
+	Duration time.Duration
+}
+
+// touchedGoFiles reports whether any successful write-mutation touched a .go
+// file. Verification is pointless — and expensive — for a turn that only wrote
+// markdown.
+func touchedGoFiles(paths []string) bool {
+	for _, p := range paths {
+		if strings.HasSuffix(strings.ToLower(strings.TrimSpace(p)), ".go") {
+			return true
+		}
+	}
+	return false
+}
+
+// verifyBuild compiles the workspace and reports whether it still builds.
+//
+// Uses build.GetBuildEnv so the verification inherits the same CGO_CFLAGS the
+// project needs (this repo does not compile without
+// -I<workspace>/sqlite_headers). A verification that fails for want of the
+// build environment would send the agent chasing phantom errors, which is
+// worse than not verifying at all.
+func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConfig) BuildVerification {
+	start := time.Now()
+
+	if strings.TrimSpace(workspace) == "" {
+		return BuildVerification{Ran: false}
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		logging.Get(logging.CategorySession).Warn(
+			"build verification skipped: no Go toolchain on PATH (%v)", err)
+		return BuildVerification{Ran: false}
+	}
+
+	// Bound the build independently of the turn's remaining budget: a verify
+	// that inherits an almost-expired context reports a spurious failure.
+	buildCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), buildVerifyTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(buildCtx, "go", "build", "./...")
+	cmd.Dir = workspace
+	cmd.Env = build.GetBuildEnv(userCfg, workspace)
+
+	out, err := cmd.CombinedOutput()
+	elapsed := time.Since(start)
+
+	if err == nil {
+		logging.SessionDebug("build verification passed in %s", elapsed.Round(time.Millisecond))
+		return BuildVerification{Ran: true, OK: true, Duration: elapsed}
+	}
+
+	if buildCtx.Err() != nil {
+		// A timeout is not evidence the code is broken. Report it as "did not
+		// run" so the turn is not failed on a verification that never finished.
+		logging.Get(logging.CategorySession).Warn(
+			"build verification timed out after %s; treating as not run", buildVerifyTimeout)
+		return BuildVerification{Ran: false, Duration: elapsed}
+	}
+
+	text := strings.TrimSpace(string(out))
+	if text == "" {
+		text = err.Error()
+	}
+	if len(text) > buildVerifyMaxOutput {
+		text = text[:buildVerifyMaxOutput] + "\n... (compiler output truncated)"
+	}
+
+	logging.Get(logging.CategorySession).Warn(
+		"build verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), text)
+
+	return BuildVerification{Ran: true, OK: false, Output: text, Duration: elapsed}
+}
+
+// verifyAndRepairBuild compiles the workspace after a turn's edits and, if the
+// build is broken, gives the model exactly one round to fix it with the
+// compiler's own output in hand.
+//
+// One round, not a loop: a model that cannot fix its own syntax with the errors
+// in front of it will not fix it on the fourth attempt either, and an unbounded
+// repair loop is how an unattended run burns a budget going nowhere. If the
+// second build still fails, the turn fails — loudly, with the errors — rather
+// than reporting the success that started this whole problem.
+//
+// Returns the model's post-repair response when a repair happened, nil when no
+// repair was needed, and an error when the build is still broken.
+func (e *Executor) verifyAndRepairBuild(
+	ctx context.Context,
+	trp types.ToolResultsProvider,
+	systemPrompt string,
+	history []types.Message,
+	current *types.LLMToolResponse,
+	toolDefs []types.ToolDefinition,
+	cfg *jitconfig.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) (*types.LLMToolResponse, []string, error) {
+	if !e.config.VerifyBuildAfterEdits {
+		return nil, nil, nil
+	}
+	// Nothing was written, or nothing written was Go: no compile to run.
+	if result == nil || result.SuccessfulWriteTools == 0 || !touchedGoFiles(result.WrittenPaths) {
+		return nil, nil, nil
+	}
+
+	verification := verifyBuild(ctx, e.config.WorkspaceRoot, nil)
+	if !verification.Ran || verification.OK {
+		return nil, nil, nil
+	}
+
+	logging.Get(logging.CategorySession).Warn(
+		"Edits broke the build; giving the model one repair round with the compiler output")
+
+	if trp == nil {
+		return nil, nil, fmt.Errorf(
+			"edits broke the build and no repair is possible (client cannot accept tool results):\n%s",
+			verification.Output)
+	}
+
+	history = append(history, types.Message{Role: "user", Text: buildRepairPrompt(verification.Output)})
+
+	repaired, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, toolDefs)
+	if err != nil {
+		return nil, nil, fmt.Errorf(
+			"edits broke the build and the repair round failed (%v). Compiler output:\n%s", err, verification.Output)
+	}
+
+	var repairErrs []string
+	if repaired != nil && len(repaired.ToolCalls) > 0 {
+		_, errs := e.executeToolBatch(ctx, repaired.ToolCalls, cfg, result)
+		repairErrs = append(repairErrs, errs...)
+	}
+
+	recheck := verifyBuild(ctx, e.config.WorkspaceRoot, nil)
+	if recheck.Ran && !recheck.OK {
+		return nil, repairErrs, fmt.Errorf(
+			"edits broke the build and the repair round did not fix it. Compiler output:\n%s", recheck.Output)
+	}
+
+	logging.Get(logging.CategorySession).Info("Build repaired successfully after one round")
+	return repaired, repairErrs, nil
+}
+
+// buildRepairPrompt is the turn handed back to the model when its edits broke
+// the build.
+//
+// It states the failure as fact and asks for a fix, rather than asking whether
+// one is needed — the compiler has already decided. It also names the specific
+// mistakes seen in the live failure, because those are the ones an editing
+// agent actually makes: a stale import left behind, a block pasted twice, and a
+// call to a helper that was planned but never written.
+func buildRepairPrompt(compilerOutput string) string {
+	return "Your edits do not compile. This is the compiler's output:\n\n" +
+		"```\n" + compilerOutput + "\n```\n\n" +
+		"Fix every error above using the edit tools, then stop. Do not explain, do not " +
+		"summarise, and do not report success — the build will be checked again.\n\n" +
+		"Check specifically for the mistakes that produce these errors:\n" +
+		"  - an import added for code you did not end up writing (\"imported and not used\")\n" +
+		"  - a block inserted twice, re-declaring variables with := (\"no new variables on left side of :=\")\n" +
+		"  - a call to a helper function you planned but never wrote (\"undefined: ...\")\n" +
+		"Read the file around each reported line before editing it."
+}

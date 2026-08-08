@@ -161,7 +161,17 @@ func (e *Executor) runToolLoop(
 		})
 
 		if len(nextResp.ToolCalls) == 0 {
-			// Model returned a final answer.
+			// Model returned a final answer. Before accepting it, make sure the
+			// edits it made actually compile — see verifyAndRepairBuild.
+			repaired, repairErrs, repairErr := e.verifyAndRepairBuild(
+				ctx, trp, systemPrompt, history, currentResponse, toolDefs, cfg, result)
+			toolErrs = append(toolErrs, repairErrs...)
+			if repairErr != nil {
+				return currentResponse, toolErrs, repairErr
+			}
+			if repaired != nil {
+				currentResponse = repaired
+			}
 			return currentResponse, toolErrs, nil
 		}
 	}
@@ -337,6 +347,9 @@ func (e *Executor) executeToolBatch(
 
 		if isWriteMutationTool(call.Name) {
 			result.SuccessfulWriteTools++
+			if target := projectDocTargetPath(call.Input); target != "" {
+				result.WrittenPaths = append(result.WrittenPaths, target)
+			}
 		}
 		logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(out))
 		toolResults = append(toolResults, types.ToolResult{
@@ -761,6 +774,9 @@ func (e *Executor) executeToolBatchPiggyback(
 		}
 		if isWriteMutationTool(call.Name) {
 			result.SuccessfulWriteTools++
+			if target := projectDocTargetPath(call.Input); target != "" {
+				result.WrittenPaths = append(result.WrittenPaths, target)
+			}
 		}
 		logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(out))
 	}

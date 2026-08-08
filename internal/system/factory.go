@@ -1416,18 +1416,23 @@ func initFinalExecutors(bctx *bootContext) error {
 	// for research-heavy work: a `nerd create <architecture doc>` turn spent its
 	// whole budget reading source and reached the ceiling before writing
 	// anything.
-	if limits := bctx.appCfg.GetCoreLimits(); limits.MaxToolCalls > 0 || limits.MaxToolIterations > 0 {
-		execCfg := session.DefaultExecutorConfig()
-		if limits.MaxToolCalls > 0 {
-			execCfg.MaxToolCalls = limits.MaxToolCalls
-		}
-		if limits.MaxToolIterations > 0 {
-			execCfg.MaxToolIterations = limits.MaxToolIterations
-		}
-		bctx.sessionExecutor.SetConfig(execCfg)
-		logging.Boot("Tool loop budget: %d calls / %d iterations per turn",
-			execCfg.MaxToolCalls, execCfg.MaxToolIterations)
+	//
+	// Applied unconditionally now, because it also carries WorkspaceRoot for
+	// post-edit build verification. Gating the whole config behind "did the user
+	// set a core limit?" left verification without a tree to compile on any
+	// workspace that took the defaults — a guard that is off by default for most
+	// users is not a guard.
+	execCfg := session.DefaultExecutorConfig()
+	execCfg.WorkspaceRoot = bctx.workspace
+	if limits := bctx.appCfg.GetCoreLimits(); limits.MaxToolCalls > 0 {
+		execCfg.MaxToolCalls = limits.MaxToolCalls
 	}
+	if limits := bctx.appCfg.GetCoreLimits(); limits.MaxToolIterations > 0 {
+		execCfg.MaxToolIterations = limits.MaxToolIterations
+	}
+	bctx.sessionExecutor.SetConfig(execCfg)
+	logging.Boot("Tool loop budget: %d calls / %d iterations per turn; build verification after edits: %v (workspace %s)",
+		execCfg.MaxToolCalls, execCfg.MaxToolIterations, execCfg.VerifyBuildAfterEdits, execCfg.WorkspaceRoot)
 
 	if bctx.localDB != nil {
 		bctx.sessionExecutor.SetSessionPersister(bctx.localDB)

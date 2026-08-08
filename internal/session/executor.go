@@ -168,6 +168,20 @@ type ExecutorConfig struct {
 	// UserConfig should derive this from
 	// ContextWindow.MaxTokens / appropriate fraction.
 	TokenBudget int
+
+	// VerifyBuildAfterEdits compiles the workspace after a turn that wrote Go
+	// files, and gives the model one round to fix the build with the compiler's
+	// output if it broke. See internal/session/build_verify.go.
+	//
+	// Default ON. codeNERD shipped four compile errors and reported
+	// task_status(/manual_instruction, /complete) with exit 0 before this
+	// existed; an agent that cannot be trusted to compile its own edits cannot
+	// be left unattended.
+	VerifyBuildAfterEdits bool
+
+	// WorkspaceRoot is the directory the verification build runs in. Empty
+	// disables verification, since compiling the wrong tree proves nothing.
+	WorkspaceRoot string
 }
 
 // DefaultTokenBudget is the prompt-compilation budget used when no
@@ -190,6 +204,10 @@ func DefaultExecutorConfig() ExecutorConfig {
 		ToolTimeout:       5 * time.Minute,
 		EnableSafetyGate:  true,
 		TokenBudget:       DefaultTokenBudget,
+		// On by default: the failure this prevents (confident, non-compiling
+		// edits reported as complete) is silent, and a default-off guard against
+		// a silent failure protects nobody.
+		VerifyBuildAfterEdits: true,
 	}
 }
 
@@ -379,6 +397,11 @@ type ExecutionResult struct {
 	// completed without error. Used to block hollow success on write-oriented
 	// intents that only produced prose or non-mutating tool calls.
 	SuccessfulWriteTools int
+
+	// WrittenPaths records the target of every successful write mutation, so
+	// post-edit build verification can tell a turn that touched Go source from
+	// one that only wrote markdown and skip the compile it does not need.
+	WrittenPaths []string
 
 	// Duration is how long the execution took.
 	Duration time.Duration
