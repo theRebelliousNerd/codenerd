@@ -191,11 +191,18 @@ func (e *Executor) runToolLoop(
 			// Last and weakest: is the code actually right? The compiler and
 			// the test runner only check what they were told to check. This
 			// round is advisory by construction and cannot fail the turn.
-			uplifted, upliftErrs := e.verifyAndUpliftWithCritic(
+			uplifted, upliftErrs, upliftErr := e.verifyAndUpliftWithCritic(
 				ctx, trp, systemPrompt, history, toolDefs, cfg, result)
 			toolErrs = append(toolErrs, upliftErrs...)
 			if uplifted != nil {
 				currentResponse = uplifted
+			}
+			// The critic's opinion cannot fail a turn; its edits can. This error
+			// is only ever returned when the uplift round itself broke the build
+			// or the tests, which the compiler and test runner decide, not the
+			// reviewer.
+			if upliftErr != nil {
+				return currentResponse, toolErrs, upliftErr
 			}
 			return currentResponse, toolErrs, nil
 		}

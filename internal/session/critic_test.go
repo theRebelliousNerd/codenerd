@@ -528,8 +528,11 @@ func TestVerifyAndUpliftWithCritic_SkipsWhenNotApplicable(t *testing.T) {
 
 			// A nil client would panic if the gate got as far as calling the
 			// model, so reaching the end proves we short-circuited.
-			resp, errs := e.verifyAndUpliftWithCritic(
+			resp, errs, err := e.verifyAndUpliftWithCritic(
 				context.Background(), stubToolResults{}, "", nil, nil, nil, tc.result)
+			if err != nil {
+				t.Fatalf("gate should have skipped, got error: %v", err)
+			}
 			if resp != nil || errs != nil {
 				t.Errorf("gate should have skipped, got resp=%v errs=%v", resp, errs)
 			}

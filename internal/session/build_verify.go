@@ -381,23 +381,23 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	toolDefs []types.ToolDefinition,
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
-) (*types.LLMToolResponse, []string) {
+) (*types.LLMToolResponse, []string, error) {
 	if !e.config.CriticReviewAfterEdits || trp == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if result == nil || result.SuccessfulWriteTools == 0 || !touchedGoFiles(result.WrittenPaths) {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	workspace := e.workspaceForVerification()
 	files := readWrittenFilesForReview(workspace, result.WrittenPaths)
 	if len(files) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	client := e.criticClient()
 	if client == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// Ground the reviewer in tool output before asking for its opinion. A
@@ -436,7 +436,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		// The critic is advisory. A failed review is a missing opinion, not a
 		// failed turn.
 		logging.Get(logging.CategorySession).Warn("adversarial review failed (%v); turn continues", err)
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	findings := parseCriticFindings(response)
@@ -449,14 +449,14 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		SummarizeTurnSignals(true, true, len(result.UncoveredBlocks), len(findings)))
 
 	if len(findings) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	worth := findingsWorthUplift(findings)
 	logging.Get(logging.CategorySession).Warn(
 		"Adversarial review reported %d finding(s), %d worth acting on", len(findings), len(worth))
 	if len(worth) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	history = append(history, types.Message{Role: "user", Text: formatUpliftPrompt(worth)})
@@ -466,15 +466,36 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	uplifted, err := trp.CompleteWithToolResults(upliftCtx, systemPrompt, history, toolDefs)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("uplift round failed (%v); turn continues", err)
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	var upliftErrs []string
 	if uplifted != nil && len(uplifted.ToolCalls) > 0 {
 		_, errs := e.executeToolBatch(ctx, uplifted.ToolCalls, cfg, result)
 		upliftErrs = append(upliftErrs, errs...)
+
+		// Re-verify. The uplift round makes real edits, and it runs AFTER the
+		// build and test gates have already had their turn — so without this,
+		// code written here is the only code in the whole loop that ships
+		// unverified. That is precisely the false success the stack exists to
+		// prevent, reintroduced at the last step.
+		//
+		// This does not contradict "the critic can never fail a turn". The
+		// critic's OPINION is advisory: a hallucinated finding must not fail
+		// anything. Its EDITS are not privileged — they answer to the compiler
+		// and the test runner like every other edit. Acting on a wrong finding
+		// and breaking the build is a real break, whoever suggested it.
+		if verification := verifyBuild(ctx, workspace, nil); verification.Ran && !verification.OK {
+			return uplifted, upliftErrs, fmt.Errorf(
+				"the adversarial review's uplift round broke the build. Compiler output:\n%s",
+				verification.Output)
+		}
+		if tv := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths)); tv.Ran && !tv.OK {
+			return uplifted, upliftErrs, fmt.Errorf(
+				"the adversarial review's uplift round broke the tests. Test output:\n%s", tv.Output)
+		}
 	}
-	return uplifted, upliftErrs
+	return uplifted, upliftErrs, nil
 }
 
 // criticTimeout bounds the adversarial review call.
