@@ -2,11 +2,11 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 )
-
 
 // TODO: [Type Coercion] Test getCurrentPhase when Mangle fact arguments (phase ID) are returned as unexpected types (int, float, boolean) instead of string.
 // TODO: [User Request Extremes] Test getCurrentPhase with phase IDs that are extremely long strings (1MB+) to check for memory exhaustion in the linear search array.
@@ -218,8 +218,8 @@ func TestOrchestrator_GetEligibleTasks_ExtremeBackoff(t *testing.T) {
 				ID: "/phase_1",
 				Tasks: []Task{
 					{ID: "/task_far_future", NextRetryAt: time.Now().Add(100 * 365 * 24 * time.Hour)}, // 100 years in future
-					{ID: "/task_far_past", NextRetryAt: time.Now().Add(-100 * 365 * 24 * time.Hour)}, // 100 years in past
-					{ID: "/task_zero_time", NextRetryAt: time.Time{}}, // zero time
+					{ID: "/task_far_past", NextRetryAt: time.Now().Add(-100 * 365 * 24 * time.Hour)},  // 100 years in past
+					{ID: "/task_zero_time", NextRetryAt: time.Time{}},                                 // zero time
 				},
 			},
 		},
@@ -436,7 +436,6 @@ func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
 	// TODO: TestOrchestrator_StartNextPhase_RaceCondition
 	// TODO: TestOrchestrator_StartNextPhase_DoubleInvocation
 	// TODO: TestOrchestrator_CompletePhase_NilPhase
-	// TODO: TestOrchestrator_CompletePhase_KernelAssertFailure
 	// TODO: TestOrchestrator_Concurrency_ReadWritePhases
 
 	mockKernel := &MockKernel{}
@@ -455,5 +454,37 @@ func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
 
 	if reason := orch.getCampaignBlockReason(); reason != "/security_violation" {
 		t.Errorf("Expected /security_violation, got %s", reason)
+	}
+}
+
+func TestOrchestrator_CompletePhase_KernelAssertFailure(t *testing.T) {
+	mockKernel := &MockKernel{
+		AssertErr: errors.New("kernel assert failed"),
+	}
+
+	phase := &Phase{
+		ID:     "phase-1",
+		Name:   "Test Phase",
+		Status: PhaseInProgress,
+	}
+
+	camp := &Campaign{
+		ID:     "campaign-1",
+		Phases: []Phase{*phase},
+	}
+
+	orch := &Orchestrator{
+		kernel:   mockKernel,
+		campaign: camp,
+	}
+
+	orch.completePhase(phase)
+
+	// Verify phase was still completed despite the kernel error
+	if orch.campaign.Phases[0].Status != PhaseCompleted {
+		t.Errorf("expected phase status to be PhaseCompleted, got %v", orch.campaign.Phases[0].Status)
+	}
+	if orch.campaign.CompletedPhases != 1 {
+		t.Errorf("expected CompletedPhases to be 1, got %d", orch.campaign.CompletedPhases)
 	}
 }
