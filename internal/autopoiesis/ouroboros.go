@@ -62,6 +62,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -620,18 +621,18 @@ func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, n
 	// Assert Current State (baseline stability 0.0 for new tool)
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "state",
-		Args:      []any{stepID, 0.0, zeroLocStr},
+		Args:      []any{stepID, stabilityScore(0.0), zeroLocStr},
 	})
 	// Assert base_stability for penalty calculations
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "base_stability",
-		Args:      []any{stepID, 0.0},
+		Args:      []any{stepID, stabilityScore(0.0)},
 	})
 
 	// Assert Proposed State
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "state",
-		Args:      []any{nextStepID, stability, locStr},
+		Args:      []any{nextStepID, stabilityScore(stability), locStr},
 	})
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "proposed",
@@ -639,7 +640,7 @@ func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, n
 	})
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "base_stability",
-		Args:      []any{nextStepID, stability},
+		Args:      []any{nextStepID, stabilityScore(stability)},
 	})
 
 	// Check Halting Oracle (Stagnation)
@@ -765,7 +766,7 @@ func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, res
 	// Loc is bound /string — see comment in SimulateAction above.
 	_ = o.engine.AddFacts([]mangle.Fact{
 		{Predicate: "history", Args: []any{nextStepID, hashStr}},
-		{Predicate: "state", Args: []any{nextStepID, 1.0, strconv.Itoa(strings.Count(tool.Code, "\n"))}},
+		{Predicate: "state", Args: []any{nextStepID, stabilityScore(1.0), strconv.Itoa(strings.Count(tool.Code, "\n"))}},
 	})
 	logging.AutopoiesisDebug("Mangle history updated for %s", nextStepID)
 
@@ -792,7 +793,7 @@ func (o *OuroborosLoop) initializeState(stepID string, maxIters, maxRetries int)
 	_ = o.engine.AddFacts([]mangle.Fact{
 		{Predicate: "max_iterations", Args: []any{maxIters}},
 		{Predicate: "max_retries", Args: []any{maxRetries}},
-		{Predicate: "base_stability", Args: []any{stepID, 0.0}},
+		{Predicate: "base_stability", Args: []any{stepID, stabilityScore(0.0)}},
 	})
 }
 
@@ -864,7 +865,7 @@ func (o *OuroborosLoop) updateStability(stepID string, iterNum int, confidence f
 	logging.AutopoiesisDebug("Updating stability: stepID=%s, iter=%d, confidence=%.2f",
 		stepID, iterNum, confidence)
 	_ = o.engine.AddFacts([]mangle.Fact{
-		{Predicate: "base_stability", Args: []any{stepID, confidence}},
+		{Predicate: "base_stability", Args: []any{stepID, stabilityScore(confidence)}},
 		{Predicate: "state_at_iteration", Args: []any{stepID, iterNum, confidence}},
 	})
 }
@@ -1162,4 +1163,21 @@ func GenerateToolRegistrationFacts(tool *RuntimeTool) []string {
 		facts = append(facts, fmt.Sprintf(`tool_binary_path(%q, %q).`, tool.Name, tool.BinaryPath))
 	}
 	return facts
+}
+
+// stabilityScore converts a 0.0-1.0 stability/confidence into the integer basis
+// the kernel can actually compare.
+//
+// schemas_state.mg declares Stability as /number and valid_transition compares
+// it with `NextStability >= CurrStability`. This Mangle fork's comparison
+// builtins are int64-only, so asserting a float64 makes the comparison fail
+// outright rather than evaluate false — observed live as
+// "transition query failed: value 1 (4) is not a number", which aborted every
+// Ouroboros run at the transition gate.
+//
+// Scaling every stability value by the same factor preserves ordering exactly,
+// so the rules keep their meaning. 100 gives whole-percent resolution, which is
+// finer than any threshold in the corpus.
+func stabilityScore(v float64) int64 {
+	return int64(math.Round(v * 100))
 }
