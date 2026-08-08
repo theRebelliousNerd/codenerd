@@ -26,7 +26,6 @@ func TestDependencyResolver_SetAllowMissingDeps(t *testing.T) {
 }
 
 func TestDependencyResolver_Resolve(t *testing.T) {
-	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with slices containing multiple nil elements, alternating nils, or an entire slice of nil elements.
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with empty `DependsOn` array `[]string{}` versus `nil`.
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with empty string in `DependsOn` (`DependsOn: []string{""}`).
 	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with Self-Dependency via Empty String (atom ID "" depends on "").
@@ -43,6 +42,39 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 		expectedOrder []string // Expected atom IDs in order
 		expectedLen   int
 	}{
+		{
+			name: "all nil elements",
+			atoms: []*ScoredAtom{
+				nil, nil, nil,
+			},
+			expectError:   false,
+			expectedLen:   0,
+		},
+		{
+			name: "alternating nils with valid elements",
+			atoms: []*ScoredAtom{
+				nil,
+				{Atom: &PromptAtom{ID: "a", Priority: 50}, Combined: 0.5},
+				nil,
+				{Atom: &PromptAtom{ID: "b", Priority: 60}, Combined: 0.8},
+				nil,
+			},
+			expectError: false,
+			expectedOrder: []string{"b", "a"},
+			expectedLen: 2,
+		},
+		{
+			name: "multiple nils and invalid elements",
+			atoms: []*ScoredAtom{
+				nil,
+				{Atom: nil, Combined: 0.5},
+				{Atom: &PromptAtom{ID: ""}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "valid", Priority: 50}, Combined: 0.5},
+			},
+			expectError: false,
+			expectedOrder: []string{"valid"},
+			expectedLen: 1,
+		},
 		{
 			name:          "empty input",
 			atoms:         nil,
