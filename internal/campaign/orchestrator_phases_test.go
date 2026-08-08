@@ -432,7 +432,6 @@ func TestOrchestrator_IsPhaseComplete(t *testing.T) {
 // TODO: [Type Coercion] Test getCampaignBlockReason when the reason argument is not a string (e.g. integer or boolean).
 // Additional test for getCampaignBlockReason
 func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
-	// TODO: TestOrchestrator_StartNextPhase_NilContext
 	// TODO: TestOrchestrator_StartNextPhase_RaceCondition
 	// TODO: TestOrchestrator_StartNextPhase_DoubleInvocation
 	// TODO: TestOrchestrator_CompletePhase_NilPhase
@@ -455,5 +454,15 @@ func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
 
 	if reason := orch.getCampaignBlockReason(); reason != "/security_violation" {
 		t.Errorf("Expected /security_violation, got %s", reason)
+	}
+}
+
+func TestOrchestrator_StartNextPhase_NilContext(t *testing.T) {
+	orch := &Orchestrator{}
+	err := orch.startNextPhase(nil)
+	if err == nil {
+		t.Errorf("Expected error when calling startNextPhase with nil context, got nil")
+	} else if err.Error() != "context cannot be nil" {
+		t.Errorf("Expected 'context cannot be nil' error, got %v", err)
 	}
 }
