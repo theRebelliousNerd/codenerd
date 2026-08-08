@@ -421,6 +421,11 @@ type ExecutionResult struct {
 	// makes "always ship a test" auditable rather than aspirational.
 	UntestedPaths []string
 
+	// UncoveredBlocks records blocks in this turn's own files that no test
+	// executed. This is the signal `go test` cannot give: a turn can add a
+	// function, add a test file that never calls it, and go green.
+	UncoveredBlocks []UncoveredBlock
+
 	// Duration is how long the execution took.
 	Duration time.Duration
 

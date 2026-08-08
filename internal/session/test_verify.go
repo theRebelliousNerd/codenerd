@@ -203,7 +203,10 @@ func packageHasTestFile(dir string) bool {
 // Uses build.GetBuildEnv so the verification inherits the same CGO_CFLAGS the
 // project needs. A verification that fails for want of the build environment
 // would send the agent chasing phantom failures.
-func verifyTests(ctx context.Context, workspace string, packages []string) TestVerification {
+// extraArgs are passed to `go test` before the package list, so a caller can
+// ask for a coverage profile from the same invocation instead of paying for a
+// second full test run.
+func verifyTests(ctx context.Context, workspace string, packages []string, extraArgs ...string) TestVerification {
 	start := time.Now()
 
 	if strings.TrimSpace(workspace) == "" {
@@ -230,7 +233,8 @@ func verifyTests(ctx context.Context, workspace string, packages []string) TestV
 	buildCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), testVerifyTimeout)
 	defer cancel()
 
-	args := append([]string{"test"}, filtered...)
+	args := append([]string{"test"}, extraArgs...)
+	args = append(args, filtered...)
 	cmd := exec.CommandContext(buildCtx, "go", args...)
 	cmd.Dir = workspace
 	cmd.Env = build.GetBuildEnv(nil, workspace)

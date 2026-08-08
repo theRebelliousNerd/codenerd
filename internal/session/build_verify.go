@@ -260,7 +260,19 @@ func (e *Executor) verifyAndRepairTests(
 		result.UntestedPaths = untested
 	}
 
-	verification := verifyTests(ctx, workspace, packages)
+	verification, uncovered := verifyTestsWithCoverage(ctx, workspace, packages, result.WrittenPaths)
+
+	// Coverage is reported whether or not the tests passed. Green tests over
+	// code that was never executed is the precise false success this signal
+	// exists to expose — `go test` cannot tell the two apart, only the profile
+	// can.
+	if len(uncovered) > 0 {
+		result.UncoveredBlocks = uncovered
+		logging.Get(logging.CategorySession).Warn(
+			"Turn wrote %d block(s) of Go that no test executes: %s",
+			len(uncovered), summarizeUncovered(uncovered))
+	}
+
 	if !verification.Ran || verification.OK {
 		return nil, nil, nil
 	}
