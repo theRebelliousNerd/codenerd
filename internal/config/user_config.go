@@ -191,6 +191,10 @@ type UserConfig struct {
 	// Integration service configuration
 	Integrations *IntegrationsConfig `json:"integrations,omitempty"`
 
+	// Native browser automation configuration. This is intentionally separate
+	// from integrations.servers.browser, which describes an external MCP server.
+	Browser *BrowserAutomationConfig `json:"browser,omitempty"`
+
 	// =========================================================================
 	// TOOL GENERATION (Ouroboros)
 	// =========================================================================
@@ -1215,6 +1219,66 @@ func (c *UserConfig) GetIntegrations() IntegrationsConfig {
 	}
 }
 
+// BrowserAutomationConfig controls codeNERD's native Rod browser manager.
+type BrowserAutomationConfig struct {
+	DebuggerURL         string   `json:"debugger_url,omitempty"`
+	Launch              []string `json:"launch,omitempty"`
+	Headless            bool     `json:"headless,omitempty"`
+	ViewportWidth       int      `json:"viewport_width,omitempty"`
+	ViewportHeight      int      `json:"viewport_height,omitempty"`
+	NavigationTimeoutMs int      `json:"navigation_timeout_ms,omitempty"`
+	MultiTabDefault     *bool    `json:"multi_tab_default,omitempty"`
+	MaxTabs             int      `json:"max_tabs,omitempty"`
+	MaxBrowsers         int      `json:"max_browsers,omitempty"`
+	IdleTabTimeoutMs    int      `json:"idle_tab_timeout_ms,omitempty"`
+	ExtraSensitiveKeys  []string `json:"extra_sensitive_keys,omitempty"`
+	WritableRoots       []string `json:"writable_roots,omitempty"`
+}
+
+// DefaultBrowserAutomationConfig returns BrowserNERD-compatible lifecycle defaults.
+func DefaultBrowserAutomationConfig() BrowserAutomationConfig {
+	sharedTabs := true
+	return BrowserAutomationConfig{
+		ViewportWidth:       1920,
+		ViewportHeight:      1080,
+		NavigationTimeoutMs: 30000,
+		MultiTabDefault:     &sharedTabs,
+		MaxTabs:             32,
+		MaxBrowsers:         4,
+	}
+}
+
+// GetBrowserConfig returns native browser settings with limits normalized.
+func (c *UserConfig) GetBrowserConfig() BrowserAutomationConfig {
+	defaults := DefaultBrowserAutomationConfig()
+	if c == nil || c.Browser == nil {
+		return defaults
+	}
+	cfg := *c.Browser
+	if cfg.ViewportWidth <= 0 {
+		cfg.ViewportWidth = defaults.ViewportWidth
+	}
+	if cfg.ViewportHeight <= 0 {
+		cfg.ViewportHeight = defaults.ViewportHeight
+	}
+	if cfg.NavigationTimeoutMs <= 0 {
+		cfg.NavigationTimeoutMs = defaults.NavigationTimeoutMs
+	}
+	if cfg.MultiTabDefault == nil {
+		cfg.MultiTabDefault = defaults.MultiTabDefault
+	}
+	if cfg.MaxTabs <= 0 {
+		cfg.MaxTabs = defaults.MaxTabs
+	}
+	if cfg.MaxBrowsers <= 0 {
+		cfg.MaxBrowsers = defaults.MaxBrowsers
+	}
+	if cfg.IdleTabTimeoutMs < 0 {
+		cfg.IdleTabTimeoutMs = 0
+	}
+	return cfg
+}
+
 // GetExecution returns execution settings with defaults.
 func (c *UserConfig) GetExecution() ExecutionConfig {
 	if c.Execution != nil {
@@ -1296,6 +1360,7 @@ func DefaultUserConfig() *UserConfig {
 	toolGen := DefaultToolGenerationConfig()
 	ctxWin := DefaultContextWindowConfig()
 	reflection := DefaultReflectionConfig()
+	browserCfg := DefaultBrowserAutomationConfig()
 
 	return &UserConfig{
 		Provider:                     "zai",
@@ -1314,6 +1379,7 @@ func DefaultUserConfig() *UserConfig {
 		CoreLimits:                   DefaultCoreLimits(),
 		World:                        &w,
 		Integrations:                 DefaultIntegrationsConfig(),
+		Browser:                      &browserCfg,
 		ToolGeneration:               &toolGen,
 		Build:                        &build,
 		Execution:                    DefaultExecutionConfig(),

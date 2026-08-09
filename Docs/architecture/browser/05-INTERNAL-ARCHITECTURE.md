@@ -1,7 +1,7 @@
 # 05 — Internal Architecture: browser
 
-> Last verified against codebase: 2026-07-13  
-> Sources: `session_manager.go`, `session_manager_dom.go`, `honeypot.go`
+> Last verified against codebase: 2026-08-09
+> Sources: `session_manager.go`, `session_lifecycle.go`, `session_manager_dom.go`, `fact_redaction.go`, `security/`, `honeypot.go`
 
 ## 1. Component diagram
 
@@ -9,7 +9,8 @@
                     ┌─────────────────────────────────────┐
                     │           SessionManager            │
                     │  cfg, engine EngineSink, mu,        │
-                    │  browser *rod.Browser, sessions map │
+                    │  browsers map, sessions map,        │
+                    │  redactor, path policy, reaper      │
                     └──────────────┬──────────────────────┘
            Start/Connect           │
                                    ▼
@@ -17,7 +18,7 @@
                     │     Chrome (CDP WebSocket)          │
                     │     controlURL                      │
                     └──────────────┬──────────────────────┘
-                                   │ Incognito + Page
+                                   │ Shared or isolated Page
               ┌────────────────────┼────────────────────┐
               ▼                    ▼                    ▼
       sessionRecord          sessionRecord         event stream
@@ -40,12 +41,13 @@
 | Type | Visibility | Role |
 |------|------------|------|
 | `Session` | exported | Public metadata JSON |
-| `sessionRecord` | private | meta + `*rod.Page` |
+| `sessionRecord` | private | meta + page + isolated context + stream cancel |
+| `BrowserInstance` | exported | Managed browser metadata and tab count |
 | `Config` | exported | Launch, viewport, timeouts, ingestion flags |
 | `eventThrottler` | private | Per-key rate limit for CDP fact spam |
 | `EngineSink` | exported interface | `AddFacts([]mangle.Fact) error` |
 | `engineAdapter` | private | Wraps `*mangle.Engine` |
-| `SessionManager` | exported | Owns browser + sessions |
+| `SessionManager` | exported | Owns bounded browsers, sessions, streams, and evidence policy |
 | `HoneypotDetector` | exported | Rule-based analysis |
 | `DetectionResult`, `Link` | exported | Honeypot API results |
 
@@ -68,13 +70,13 @@
           │                                  │
           │ Version() fail → Close, reset map
           │
-          │ CreateSession / Attach / ensureStarted
+          │ CreateTab / AttachToBrowser / ensureStarted
           ▼
    [sessions: active | attached | forked | detached]
           │
           │ Shutdown
           ▼
-   close pages, close browser, clear controlURL
+   cancel streams, close pages/contexts, close browsers, clear maps
 ```
 
 Session statuses observed in code:
@@ -90,13 +92,13 @@ Session statuses observed in code:
 
 ```
 ensureStarted
-  → browser.Incognito()
-  → Page(TargetCreateTarget{URL})
+  → selected browser or explicit Incognito()
+  → Page(about:blank)
   → EmulationSetDeviceMetricsOverride (viewport)
   → Navigate with NavigationTimeout
   → uuid session ID, store sessionRecord
-  → startEventStream (if engine != nil)
-  → persistSessions
+  → manager-owned startEventStream (if sink != nil)
+  → redacted private persistSessions
 ```
 
 ## 5. Event stream architecture
@@ -131,7 +133,7 @@ Visibility flag on layout uses display/visibility/opacity/rect heuristics in pag
 1. Eval JS walks `__reactFiber*` from root / `#root` / body.  
 2. Sanitize props/state to primitives.  
 3. Emit `react_component`, `react_prop`, `react_state` (hook index coerced to int64), `dom_mapping`.  
-4. `engine.AddFacts`; requires non-nil engine.
+4. Copy/redact facts, then `EngineSink.AddFacts`; requires non-nil sink.
 
 ## 8. Honeypot analysis pipeline
 

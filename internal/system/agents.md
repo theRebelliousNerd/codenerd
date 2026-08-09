@@ -20,3 +20,6 @@
   workspace and reject invalid durations or path escapes during boot.
 - The production prompt `KernelAdapter` must create a private RealKernel clone
   for each compilation. Never let JIT selector facts mutate the live Cortex.
+- The Cortex owns the process browser manager. Bind modular research tools to
+  that manager and adapt browser facts into `SystemKernel.AssertBatch`; a
+  private browser-only Mangle engine makes runtime evidence invisible.

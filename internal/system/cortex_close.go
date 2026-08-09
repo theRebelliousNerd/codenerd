@@ -3,6 +3,7 @@ package system
 import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/tools/research"
 	"context"
 	"errors"
 	"fmt"
@@ -79,6 +80,7 @@ func (c *Cortex) Close() error {
 
 	if c.BrowserManager != nil {
 		browserManager := c.BrowserManager
+		research.ClearBrowserManager(browserManager)
 		if err := runCloseStep("BrowserManager.Shutdown", closeStepTimeout, func() error {
 			ctx, cancel := context.WithTimeout(context.Background(), closeStepTimeout)
 			defer cancel()

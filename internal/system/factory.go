@@ -20,6 +20,7 @@ import (
 	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/system"
+	"codenerd/internal/tools/research"
 	"codenerd/internal/types"
 	"database/sql"
 	"errors"
@@ -1227,11 +1228,45 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	}
 
 	browserCfg := browser.DefaultConfig()
+	configuredBrowser := bctx.appCfg.GetBrowserConfig()
+	browserCfg.DebuggerURL = configuredBrowser.DebuggerURL
+	browserCfg.Launch = append([]string(nil), configuredBrowser.Launch...)
+	browserCfg.Headless = configuredBrowser.Headless
+	browserCfg.ViewportWidth = configuredBrowser.ViewportWidth
+	browserCfg.ViewportHeight = configuredBrowser.ViewportHeight
+	browserCfg.NavigationTimeoutMs = configuredBrowser.NavigationTimeoutMs
+	browserCfg.MultiTabDefault = configuredBrowser.MultiTabDefault
+	browserCfg.MaxTabs = configuredBrowser.MaxTabs
+	browserCfg.MaxBrowsers = configuredBrowser.MaxBrowsers
+	browserCfg.IdleTabTimeoutMs = configuredBrowser.IdleTabTimeoutMs
+	browserCfg.ExtraSensitiveKeys = append([]string(nil), configuredBrowser.ExtraSensitiveKeys...)
+	browserCfg.WorkspaceRoot = bctx.workspace
+	browserCfg.WritableRoots = append([]string(nil), configuredBrowser.WritableRoots...)
 	browserCfg.SessionStore = filepath.Join(bctx.workspace, ".nerd", "browser", "sessions.json")
-	if engine, err := mangle.NewEngine(mangle.DefaultConfig(), nil); err == nil {
-		bctx.browserMgr = browser.NewSessionManager(browserCfg, engine)
-	}
+	bctx.browserMgr = browser.NewSessionManagerWithSink(browserCfg, browserKernelSink{kernel: bctx.kernel})
+	research.SetBrowserManager(bctx.browserMgr)
 	return nil
+}
+
+// browserKernelSink keeps browser evidence in the Cortex's live kernel. The
+// standalone browser mangle.Engine used before this adapter created a private
+// fact island that no planner, shard, or policy query could observe.
+type browserKernelSink struct {
+	kernel SystemKernel
+}
+
+func (s browserKernelSink) AddFacts(facts []mangle.Fact) error {
+	if s.kernel == nil || len(facts) == 0 {
+		return nil
+	}
+	converted := make([]core.Fact, 0, len(facts))
+	for _, fact := range facts {
+		converted = append(converted, core.Fact{
+			Predicate: fact.Predicate,
+			Args:      append([]any(nil), fact.Args...),
+		})
+	}
+	return s.kernel.AssertBatch(converted)
 }
 
 func initShardManagement(bctx *bootContext) error {

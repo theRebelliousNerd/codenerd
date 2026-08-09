@@ -1,6 +1,6 @@
 # 12 — Failure Modes: browser
 
-> Last verified against codebase: 2026-07-13
+> Last verified against codebase: 2026-08-09
 
 ## FM-01 — Chrome not installed / launcher fails
 
@@ -31,8 +31,8 @@
 | | |
 |--|--|
 | **Symptom** | No DOM/event facts; ReifyReact errors “mangle engine not configured”; event stream skipped |
-| **Cause** | Research singleton uses nil engine; tests pass nil sink |
-| **Mitigation** | Pass production engine; detect nil before expecting world-model updates |
+| **Cause** | Focused/standalone caller passed nil sink; system binding was bypassed |
+| **Mitigation** | System boot installs `browserKernelSink` and binds research tools; detect nil before expecting world-model updates |
 
 ## FM-05 — Fact type rejection in Mangle
 
@@ -88,15 +88,15 @@
 |--|--|
 | **Symptom** | Zombie chromes after CLI session without launch lifecycle |
 | **Cause** | `browser session` leaves browser up; process killed without Shutdown |
-| **Mitigation** | Prefer `launch` long-running parent; OS process kill; future session-close command |
+| **Mitigation** | Prefer `launch` long-running parent; use `CloseSession`/`CloseBrowser`; retain signal shutdown |
 
-## FM-12 — Dual managers diverge
+## FM-12 — Standalone CLI and Cortex manager diverge
 
 | | |
 |--|--|
 | **Symptom** | Tool session IDs unknown to CLI store; facts not in kernel |
-| **Cause** | Research singleton vs CLI manager vs nil chat field |
-| **Mitigation** | Single owner manager (see gap P0) |
+| **Cause** | CLI is a separate process/export engine; its session IDs are not Cortex identity |
+| **Mitigation** | System routes share one Cortex-owned manager; keep CLI separation explicit in UX |
 
 ## FM-13 — React reification empty
 
@@ -111,8 +111,8 @@
 | | |
 |--|--|
 | **Symptom** | Rare panics or connect flaps |
-| **Cause** | Multiple goroutines Start while Shutdown |
-| **Mitigation** | Serialize lifecycle at caller; mutex covers map but long connect holds lock |
+| **Cause** | Lifecycle calls overlap while Chrome is connecting or closing |
+| **Mitigation** | `startMu` serializes Start/LaunchAdditional/Shutdown; state lock protects maps |
 
 ## FM-15 — VS browse always fails
 

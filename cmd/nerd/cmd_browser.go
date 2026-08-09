@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"codenerd/internal/browser"
+	browsersecurity "codenerd/internal/browser/security"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
@@ -56,6 +58,22 @@ var browserSnapshotCmd = &cobra.Command{
 func getBrowserConfig() browser.Config {
 	cwd, _ := os.Getwd()
 	cfg := browser.DefaultConfig()
+	if userCfg, err := config.LoadUserConfig(filepath.Join(cwd, ".nerd", "config.json")); err == nil {
+		configured := userCfg.GetBrowserConfig()
+		cfg.DebuggerURL = configured.DebuggerURL
+		cfg.Launch = append([]string(nil), configured.Launch...)
+		cfg.Headless = configured.Headless
+		cfg.ViewportWidth = configured.ViewportWidth
+		cfg.ViewportHeight = configured.ViewportHeight
+		cfg.NavigationTimeoutMs = configured.NavigationTimeoutMs
+		cfg.MultiTabDefault = configured.MultiTabDefault
+		cfg.MaxTabs = configured.MaxTabs
+		cfg.MaxBrowsers = configured.MaxBrowsers
+		cfg.IdleTabTimeoutMs = configured.IdleTabTimeoutMs
+		cfg.ExtraSensitiveKeys = append([]string(nil), configured.ExtraSensitiveKeys...)
+		cfg.WritableRoots = append([]string(nil), configured.WritableRoots...)
+	}
+	cfg.WorkspaceRoot = cwd
 	cfg.SessionStore = filepath.Join(cwd, ".nerd", "browser", "sessions.json")
 	return cfg
 }
@@ -131,8 +149,8 @@ func browserLaunch(cmd *cobra.Command, args []string) error {
 		logging.BootWarn("failed to get working directory: %v", err)
 	}
 	controlFile := filepath.Join(cwd, ".nerd", "browser", "control.txt")
-	if err := os.MkdirAll(filepath.Dir(controlFile), 0o755); err == nil {
-		if err := os.WriteFile(controlFile, []byte(mgr.ControlURL()), 0o644); err != nil {
+	if err := browsersecurity.EnsurePrivateDir(filepath.Dir(controlFile)); err == nil {
+		if err := browsersecurity.WritePrivateFile(controlFile, []byte(mgr.ControlURL())); err != nil {
 			logging.BootWarn("failed to write browser control file: %v", err)
 		}
 	}
@@ -285,11 +303,14 @@ func browserSnapshot(cmd *cobra.Command, args []string) error {
 
 	// Export facts to file
 	factsDir := filepath.Join(cwd, ".nerd", "browser", "snapshots")
-	if err := os.MkdirAll(factsDir, 0o755); err != nil {
+	if err := browsersecurity.EnsurePrivateDir(factsDir); err != nil {
 		return fmt.Errorf("failed to create snapshots dir: %w", err)
 	}
 
-	snapshotFile := filepath.Join(factsDir, fmt.Sprintf("%s_%d.mg", sessionID, time.Now().Unix()))
+	snapshotFile, err := mgr.ResolveOutputPath("", factsDir, fmt.Sprintf("%s_%d.mg", sessionID, time.Now().Unix()))
+	if err != nil {
+		return err
+	}
 
 	// Query for all DOM-related predicates
 	domPredicates := []string{
@@ -323,7 +344,7 @@ func browserSnapshot(cmd *cobra.Command, args []string) error {
 		fmt.Println("Try waiting for the page to fully load, then run snapshot again.")
 	}
 
-	if err := os.WriteFile(snapshotFile, []byte(sb.String()), 0o644); err != nil {
+	if err := browsersecurity.WritePrivateFile(snapshotFile, []byte(sb.String())); err != nil {
 		return fmt.Errorf("failed to write snapshot: %w", err)
 	}
 

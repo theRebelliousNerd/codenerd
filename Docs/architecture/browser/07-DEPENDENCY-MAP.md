@@ -1,6 +1,6 @@
 # 07 — Dependency Map: browser
 
-> Last verified against codebase: 2026-07-13
+> Last verified against codebase: 2026-08-09
 
 ## 1. Package imports (upstream — what browser needs)
 
@@ -10,6 +10,7 @@ From `internal/browser/*.go` (non-test):
 |------------|-----|
 | `codenerd/internal/logging` | CategoryBrowser, timers, Browser* helpers |
 | `codenerd/internal/mangle` | Fact, Engine (adapter + honeypot) |
+| `codenerd/internal/browser/security` | Pre-sink redaction and writable-root policy |
 | `codenerd/internal/types` | `ExtractString` for rule results (honeypot) |
 | `github.com/go-rod/rod` | Browser, Page, Element, Eval |
 | `github.com/go-rod/rod/lib/launcher` | Launch Chrome |
@@ -24,11 +25,12 @@ From `internal/browser/*.go` (non-test):
 
 | Importer | Path evidence | How used |
 |----------|---------------|----------|
-| CLI | `cmd/nerd/cmd_browser.go` | NewSessionManager, Start, CreateSession, SnapshotDOM, ReifyReact |
+| CLI | `cmd/nerd/cmd_browser.go` | Native config, private artifacts, lifecycle + snapshot export |
 | Chat model | `cmd/nerd/chat/model_types.go` | Field types `*browser.SessionManager` |
 | Chat boot | `cmd/nerd/chat/session_boot.go`, `session_shared_boot.go` | Declares/passes browserMgr (often nil) into shards |
 | Tactile router | `internal/shards/system/router.go` | `BrowserManager *browser.SessionManager`, `SetBrowserManager` |
-| Research tools | `internal/tools/research/browser.go` | Shared SessionManager for modular tools |
+| Research tools | `internal/tools/research/browser.go` | Cortex-bound SessionManager for modular tools |
+| System factory | `internal/system/factory.go` | Live-kernel sink and shared-manager binding |
 
 ## 3. Soft dependencies (no Go import, semantic coupling)
 

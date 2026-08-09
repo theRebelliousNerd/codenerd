@@ -13,17 +13,42 @@ import (
 
 // browserManager holds a shared browser session manager.
 var (
-	browserMgr     *browser.SessionManager
-	browserMgrOnce sync.Once
-	browserMgrMu   sync.Mutex
+	browserMgr   *browser.SessionManager
+	browserMgrMu sync.RWMutex
 )
 
 // getBrowserManager returns the shared browser session manager.
 func getBrowserManager() *browser.SessionManager {
-	browserMgrOnce.Do(func() {
+	browserMgrMu.RLock()
+	mgr := browserMgr
+	browserMgrMu.RUnlock()
+	if mgr != nil {
+		return mgr
+	}
+	browserMgrMu.Lock()
+	defer browserMgrMu.Unlock()
+	if browserMgr == nil {
 		browserMgr = browser.NewSessionManager(browser.DefaultConfig(), nil)
-	})
+	}
 	return browserMgr
+}
+
+// SetBrowserManager binds research tools to the Cortex-owned browser manager.
+// Passing nil restores lazy standalone construction for narrow package use.
+func SetBrowserManager(mgr *browser.SessionManager) {
+	browserMgrMu.Lock()
+	browserMgr = mgr
+	browserMgrMu.Unlock()
+}
+
+// ClearBrowserManager removes mgr only if it is still the process binding.
+// This prevents an older Cortex shutdown from detaching a newer Cortex manager.
+func ClearBrowserManager(mgr *browser.SessionManager) {
+	browserMgrMu.Lock()
+	if browserMgr == mgr {
+		browserMgr = nil
+	}
+	browserMgrMu.Unlock()
 }
 
 // BrowserNavigateTool returns a tool for navigating to a URL with a browser.
@@ -63,9 +88,9 @@ func executeBrowserNavigate(ctx context.Context, args map[string]any) (string, e
 
 	sessionID, _ := args["session_id"].(string)
 
-	logging.BrowserDebug("Browser navigate: url=%s, session=%s", url, sessionID)
-
 	mgr := getBrowserManager()
+	safeURL := mgr.SanitizeForEvidence(url)
+	logging.BrowserDebug("Browser navigate: url=%s, session=%s", safeURL, sessionID)
 
 	// Start browser if needed
 	if err := mgr.Start(ctx); err != nil {
@@ -94,10 +119,10 @@ func executeBrowserNavigate(ctx context.Context, args map[string]any) (string, e
 		}
 	}
 
-	logging.Browser("Browser navigated to %s (session=%s)", url, session.ID)
+	logging.Browser("Browser navigated to %s (session=%s)", safeURL, session.ID)
 
 	return fmt.Sprintf("Successfully navigated to %s\nSession ID: %s\nStatus: %s",
-		url, session.ID, session.Status), nil
+		safeURL, session.ID, session.Status), nil
 }
 
 // BrowserExtractTool returns a tool for extracting content from a browser page.
@@ -162,7 +187,7 @@ func executeBrowserExtract(ctx context.Context, args map[string]any) (string, er
 	}
 
 	logging.Browser("Browser extract completed: %d chars", len(text))
-	return text, nil
+	return mgr.SanitizeForEvidence(text), nil
 }
 
 // BrowserScreenshotTool returns a tool for capturing screenshots.
@@ -348,8 +373,9 @@ func executeBrowserClose(ctx context.Context, args map[string]any) (string, erro
 
 	logging.BrowserDebug("Browser close: session=%s", sessionID)
 
-	// Note: The browser package doesn't have a direct close session method,
-	// so we just log this for now. The session will be cleaned up on shutdown.
-	logging.Browser("Browser session marked for close: %s", sessionID)
-	return fmt.Sprintf("Session %s marked for close", sessionID), nil
+	if err := getBrowserManager().CloseSession(ctx, sessionID); err != nil {
+		return "", fmt.Errorf("failed to close browser session: %w", err)
+	}
+	logging.Browser("Browser session closed: %s", sessionID)
+	return fmt.Sprintf("Session %s closed", sessionID), nil
 }

@@ -5,9 +5,9 @@
 ## P0
 
 - [ ] Complete BPAR-1 runtime truth, lifecycle, cancellation, and privacy gates
-- [ ] Single Cortex-owned `SessionManager` with live kernel `EngineSink`
+- [x] Single Cortex-owned `SessionManager` with live kernel `EngineSink`
 - [ ] On-demand construct + inject into `TactileRouterShard` / chat model on first browser action
-- [ ] Point research tools at shared manager (or inject sink into singleton)
+- [x] Point research tools at shared manager
 - [ ] Document operator risk: CLI engines do not feed chat kernel (already true — keep explicit in UX)
 
 ## P1
@@ -24,13 +24,13 @@
 - [ ] Complete BPAR-4 evidence/spec/declarative-test surface
 - [ ] TUI browser status / session list slash command
 - [ ] VS `handleBrowse` thin delegate to shared manager (if design accepts)
-- [ ] Session close API that stops event-stream ctx per session
+- [x] Session close API that stops event-stream ctx per session
 - [ ] Contract tests: SnapshotDOM predicates ⊆ Decl in schemas_browser.mg
 
 ## P3
 
 - [ ] Complete BPAR-5 contract audit, repo trace, Docker correlation, and final live parity gate
-- [ ] Redact secrets from URL logging / session store
+- [x] Redact secrets from browser logs, fact sink, results, and session store
 - [ ] Fact GC / epoch for long event streams
 - [ ] Header ingestion default policy for research vs operator modes
 - [ ] CI job: integration tag with headless Chrome

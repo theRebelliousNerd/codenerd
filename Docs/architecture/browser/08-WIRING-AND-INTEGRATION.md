@@ -15,7 +15,7 @@ user_intent
   → further next_action / articulation
 ```
 
-Today, path (A) uses a separate nil-sink singleton; the system-factory form of (B) receives a manager backed by a private Mangle engine; legacy chat remains conditional; (C) uses throwaway engines and workspace files. None writes browser facts into the live executive kernel.
+System paths (A) and (B) share the Cortex-owned manager, whose `browserKernelSink` writes facts into the live executive kernel. Legacy chat remains conditional. Path (C) is a separate operator export workflow with a schema-loaded engine and private workspace files.
 
 ## 2. CLI wiring (`cmd/nerd`)
 
@@ -28,8 +28,8 @@ Today, path (A) uses a separate nil-sink singleton; the system-factory form of (
 
 ### Config helper
 
-`getBrowserConfig()` → `DefaultConfig()` +  
-`SessionStore = <cwd>/.nerd/browser/sessions.json`
+`getBrowserConfig()` loads the top-level native `.nerd/config.json` `browser`
+block, then pins `SessionStore` and workspace output policy under `<cwd>/.nerd/browser/`.
 
 ### `nerd browser launch`
 
@@ -54,7 +54,7 @@ Today, path (A) uses a separate nil-sink singleton; the system-factory form of (
 
 ## 3. Chat / Cortex boot
 
-The current system factory (`internal/system/factory.go`) creates a workspace manager backed by a new private `mangle.Engine` and injects it into its tactile-router factory. The legacy chat boot path still contains:
+The current system factory (`internal/system/factory.go`) creates one workspace manager backed by `browserKernelSink`, injects it into tactile routing, and binds modular research tools with `research.SetBrowserManager`. The legacy chat boot path still contains:
 
 ```go
 // Browser Manager is created on-demand when needed (not at boot)
@@ -71,7 +71,7 @@ if browserMgr != nil {
 ```
 
 `Cortex` / chat model carry `BrowserManager *browser.SessionManager` fields (`model_types.go`).  
-The gap is no longer absolute construction; it is split ownership and split reasoning reality. The constructed manager does not share the production `RealKernel`, while research tools construct another nil-sink singleton.
+The remaining gap is surface reachability: the existing six research tools share live facts, but multi-browser/isolation/focus lifecycle operations are not yet exposed through the progressive tool contract.
 
 ## 4. TactileRouterShard
 
@@ -111,8 +111,10 @@ The gap is no longer absolute construction; it is split ownership and split reas
 | `browser_type` | Type text |
 | `browser_close` | Close session path |
 
-Uses `getBrowserManager()` → `NewSessionManager(DefaultConfig(), **nil**)` once.  
-**No DOM fact stream; no honeypot.**
+`getBrowserManager()` resolves the Cortex-owned manager installed by
+`research.SetBrowserManager`; a nil-sink manager is constructed lazily only for
+narrow standalone package use. `browser_close` calls `CloseSession` and cancels
+the tab's event stream.
 
 ## 7. Mangle program load
 
@@ -138,9 +140,9 @@ Intent routing (`internal/mangle/intent_routing.mg`): modular browser tools allo
 |------|--------|
 | Schemas in kernel | **Live** |
 | Honeypot policy | **Live** (when engine has facts) |
-| CLI operator path | **Live** (isolated engine) |
-| Research tools effect path | **Live** (no facts) |
-| System Cortex BrowserManager field | **Constructed with private engine** |
+| CLI operator path | **Live** (standalone export engine) |
+| Research tools effect path | **Live** (shared Cortex manager/facts after system boot) |
+| System Cortex BrowserManager field | **Constructed with live-kernel adapter** |
 | Legacy chat BrowserManager field | **Declared; nil** |
 | Tactile SetBrowserManager | **Wired in system factory; conditional in legacy chat** |
 | VS handleBrowse | **Explicit refuse** |
@@ -149,8 +151,7 @@ Intent routing (`internal/mangle/intent_routing.mg`): modular browser tools allo
 
 ## 9. Recommended integration sequence (docs-only guidance)
 
-1. Replace the private browser engine with a live-kernel adapter.
-2. Set into cortex struct + tactile router.  
-3. Point research `getBrowserManager` at the same instance (or deprecate singleton).  
-4. Optionally implement VS handleBrowse as thin delegate.  
-5. Run SnapshotDOM after navigate before honeypot/safe click decisions.
+1. Expose the BPAR-1 lifecycle through progressive native tools and operator CLI commands.
+2. Add a live modular-tool → browser event → Cortex query proof.
+3. Optionally implement VS handleBrowse as a thin delegate.
+4. Run SnapshotDOM after navigate before honeypot/safe click decisions.

@@ -1,6 +1,6 @@
 # 04 — Architectural Principles: browser
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-09
 > Binding for changes under `internal/browser/` and its immediate callers.
 
 ## P1 — Facts are the product; pixels are evidence
@@ -13,15 +13,15 @@ Honeypot **judgment** is rule-derived (`is_honeypot`, `honeypot_detected`, `safe
 
 ## P3 — EngineSink is the only write path into logic
 
-`SessionManager` depends on `EngineSink` (not concrete kernel types beyond the constructor adapter). Tests use fake sinks. Callers that pass `nil` deliberately disable reification — that must be an explicit, documented choice (research tools today).
+`SessionManager` depends on `EngineSink` (not concrete kernel types beyond the constructor adapter). Tests use fake sinks. Callers that pass `nil` deliberately disable reification. Production system boot must bind the Cortex-owned manager to the live kernel; nil sinks are for focused or standalone use.
 
 ## P4 — Session identity is first-class
 
 Every mutation (`Navigate`, `Click`, `Type`, `Screenshot`, `SnapshotDOM`, `ReifyReact`) is keyed by `sessionID`. Unknown session ⇒ error, not silent no-op (except `UpdateMetadata` which no-ops by design).
 
-## P5 — Isolation by default (incognito)
+## P5 — Shared tabs by default; isolation is explicit
 
-`CreateSession` opens an **incognito** context then a page. Forking clones cookies + storage into a new session rather than sharing the same browsing context. Prefer this over global profile pollution.
+`CreateSession` follows `multi_tab_default` (shared by default). `CreateTab` may request an isolated context, and `ForkSession` always isolates after cloning cookies/storage. Do not silently change profile semantics at a tool boundary.
 
 ## P6 — Budget the world model
 

@@ -7,34 +7,51 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
+	"sort"
 	"sync"
 	"time"
 
+	browsersecurity "codenerd/internal/browser/security"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/launcher"
-	"github.com/go-rod/rod/lib/launcher/flags"
 	"github.com/go-rod/rod/lib/proto"
-	"github.com/google/uuid"
 )
 
 // Session describes the public metadata for a tracked browser context.
 type Session struct {
 	ID         string    `json:"id"`
+	BrowserID  string    `json:"browser_id,omitempty"`
 	TargetID   string    `json:"target_id,omitempty"`
 	URL        string    `json:"url,omitempty"`
 	Title      string    `json:"title,omitempty"`
 	Status     string    `json:"status,omitempty"`
+	Isolated   bool      `json:"isolated,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	LastActive time.Time `json:"last_active"`
 }
 
 type sessionRecord struct {
-	meta Session
-	page *rod.Page
+	meta         Session
+	page         *rod.Page
+	isolated     *rod.Browser
+	streamCancel context.CancelFunc
+}
+
+// BrowserInstance describes a managed Chrome connection.
+type BrowserInstance struct {
+	ID         string    `json:"id"`
+	ControlURL string    `json:"control_url,omitempty"`
+	Default    bool      `json:"default"`
+	CreatedAt  time.Time `json:"created_at"`
+	TabCount   int       `json:"tab_count"`
+}
+
+type browserRecord struct {
+	meta    BrowserInstance
+	browser *rod.Browser
+	cancel  context.CancelFunc
 }
 
 type eventThrottler struct {
@@ -82,10 +99,18 @@ type Config struct {
 	EnableDOMIngestion    bool     `json:"enable_dom_ingestion"`
 	EnableHeaderIngestion bool     `json:"enable_header_ingestion"`
 	EventThrottleMs       int      `json:"event_throttle_ms"`
+	MultiTabDefault       *bool    `json:"multi_tab_default,omitempty"`
+	MaxTabs               int      `json:"max_tabs,omitempty"`
+	MaxBrowsers           int      `json:"max_browsers,omitempty"`
+	IdleTabTimeoutMs      int      `json:"idle_tab_timeout_ms,omitempty"`
+	ExtraSensitiveKeys    []string `json:"extra_sensitive_keys,omitempty"`
+	WorkspaceRoot         string   `json:"workspace_root,omitempty"`
+	WritableRoots         []string `json:"writable_roots,omitempty"`
 }
 
 // DefaultConfig returns sensible defaults.
 func DefaultConfig() Config {
+	sharedTabs := true
 	return Config{
 		Headless:            false,
 		ViewportWidth:       1920,
@@ -94,6 +119,9 @@ func DefaultConfig() Config {
 		EventLoggingLevel:   "normal",
 		EnableDOMIngestion:  true,
 		EventThrottleMs:     100,
+		MultiTabDefault:     &sharedTabs,
+		MaxTabs:             32,
+		MaxBrowsers:         4,
 	}
 }
 
@@ -126,6 +154,35 @@ func (c Config) NavigationTimeout() time.Duration {
 	return time.Duration(c.NavigationTimeoutMs) * time.Millisecond
 }
 
+// IsMultiTabDefault reports whether ordinary tabs share the browser profile.
+func (c Config) IsMultiTabDefault() bool {
+	return c.MultiTabDefault == nil || *c.MultiTabDefault
+}
+
+// GetMaxTabs returns the manager-wide tab limit.
+func (c Config) GetMaxTabs() int {
+	if c.MaxTabs <= 0 {
+		return 32
+	}
+	return c.MaxTabs
+}
+
+// GetMaxBrowsers returns the managed browser limit.
+func (c Config) GetMaxBrowsers() int {
+	if c.MaxBrowsers <= 0 {
+		return 4
+	}
+	return c.MaxBrowsers
+}
+
+// GetIdleTabTimeout returns zero when idle tab reaping is disabled.
+func (c Config) GetIdleTabTimeout() time.Duration {
+	if c.IdleTabTimeoutMs <= 0 {
+		return 0
+	}
+	return time.Duration(c.IdleTabTimeoutMs) * time.Millisecond
+}
+
 // EngineSink defines the minimal interface for the Mangle logic layer.
 type EngineSink interface {
 	AddFacts(facts []mangle.Fact) error
@@ -142,12 +199,19 @@ func (a *engineAdapter) AddFacts(facts []mangle.Fact) error {
 
 // SessionManager owns the detached Chrome instance and tracks active sessions.
 type SessionManager struct {
-	cfg        Config
-	engine     EngineSink
-	mu         sync.RWMutex
-	browser    *rod.Browser
-	sessions   map[string]*sessionRecord
-	controlURL string // WebSocket URL for DevTools
+	cfg          Config
+	engine       EngineSink
+	startMu      sync.Mutex
+	mu           sync.RWMutex
+	browser      *rod.Browser
+	sessions     map[string]*sessionRecord
+	controlURL   string // WebSocket URL for DevTools
+	browsers     map[string]*browserRecord
+	defaultID    string
+	reaperCancel context.CancelFunc
+	redactor     *browsersecurity.Redactor
+	pathPolicy   *browsersecurity.PathPolicy
+	pendingTabs  int
 }
 
 // NewSessionManager creates a new session manager.
@@ -156,20 +220,37 @@ func NewSessionManager(cfg Config, engine *mangle.Engine) *SessionManager {
 	if engine != nil {
 		sink = &engineAdapter{engine: engine}
 	}
-	return &SessionManager{
-		cfg:      cfg,
-		engine:   sink,
-		sessions: make(map[string]*sessionRecord),
-	}
+	return newSessionManager(cfg, sink)
 }
 
 // NewSessionManagerWithSink creates a session manager with a custom sink.
 func NewSessionManagerWithSink(cfg Config, sink EngineSink) *SessionManager {
-	return &SessionManager{
-		cfg:      cfg,
-		engine:   sink,
-		sessions: make(map[string]*sessionRecord),
+	return newSessionManager(cfg, sink)
+}
+
+func newSessionManager(cfg Config, sink EngineSink) *SessionManager {
+	policy, err := browsersecurity.NewPathPolicy(cfg.WorkspaceRoot, cfg.WritableRoots)
+	if err != nil {
+		logging.BrowserWarn("Browser output path policy unavailable: %v", err)
 	}
+	return &SessionManager{
+		cfg:        cfg,
+		engine:     sink,
+		sessions:   make(map[string]*sessionRecord),
+		browsers:   make(map[string]*browserRecord),
+		redactor:   browsersecurity.NewRedactor(cfg.ExtraSensitiveKeys),
+		pathPolicy: policy,
+	}
+}
+
+// ResolveOutputPath confines a browser artifact to configured writable roots.
+func (m *SessionManager) ResolveOutputPath(requested, defaultRoot, defaultName string) (string, error) {
+	return m.pathPolicy.ResolveForWrite(requested, defaultRoot, defaultName)
+}
+
+// SanitizeForEvidence redacts a string before it is logged, returned, or persisted.
+func (m *SessionManager) SanitizeForEvidence(value string) string {
+	return m.redactor.SanitizeString(value)
 }
 
 // Start connects to an existing Chrome or launches a new one.
@@ -178,87 +259,8 @@ func (m *SessionManager) Start(ctx context.Context) error {
 	defer timer.Stop()
 
 	logging.Browser("Starting browser session manager")
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// If we already have a browser, verify it's still alive
-	if m.browser != nil {
-		logging.BrowserDebug("Checking existing browser connection health")
-		_, err := m.browser.Version()
-		if err == nil {
-			logging.BrowserDebug("Browser connection healthy, reusing existing session")
-			return nil // Browser is healthy
-		}
-		logging.BrowserWarn("Stale browser connection detected, reconnecting...")
-		_ = m.browser.Close()
-		m.browser = nil
-		m.controlURL = ""
-		m.sessions = make(map[string]*sessionRecord)
-	}
-
-	logging.BrowserDebug("Loading persisted sessions")
-	if err := m.loadSessionsLocked(); err != nil {
-		logging.BrowserError("Failed to load sessions: %v", err)
-		return fmt.Errorf("load sessions: %w", err)
-	}
-
-	controlURL := m.cfg.DebuggerURL
-	if controlURL == "" && len(m.cfg.Launch) > 0 {
-		bin := m.cfg.Launch[0]
-		logging.Browser("Launching Chrome from binary: %s (headless=%v)", bin, m.cfg.IsHeadless())
-		launch := launcher.New().Bin(bin).Headless(m.cfg.IsHeadless())
-		if len(m.cfg.Launch) > 1 {
-			for _, rawFlag := range m.cfg.Launch[1:] {
-				flagStr := strings.TrimLeft(rawFlag, "-")
-				name, val, hasVal := strings.Cut(flagStr, "=")
-				if hasVal {
-					launch = launch.Set(flags.Flag(name), val)
-				} else {
-					launch = launch.Set(flags.Flag(name))
-				}
-			}
-		}
-		url, err := launch.Launch()
-		if err != nil {
-			logging.BrowserWarn("Chrome launch failed, trying fallback: %v", err)
-			// Fallback
-			fallback := launcher.New().Bin(bin).Headless(m.cfg.IsHeadless())
-			if alt, altErr := fallback.Launch(); altErr == nil {
-				controlURL = alt
-				logging.Browser("Chrome launched via fallback, control URL: %s", controlURL)
-			} else {
-				logging.BrowserError("Chrome launch failed (primary: %v, fallback: %v)", err, altErr)
-				return fmt.Errorf("launch chrome: %w (fallback: %v)", err, altErr)
-			}
-		} else {
-			controlURL = url
-			logging.Browser("Chrome launched successfully, control URL: %s", controlURL)
-		}
-	}
-
-	if controlURL == "" {
-		// Try default launcher
-		logging.Browser("No debugger URL configured, using default launcher")
-		url, err := launcher.New().Headless(m.cfg.IsHeadless()).Launch()
-		if err != nil {
-			logging.BrowserError("Default launcher failed: %v", err)
-			return fmt.Errorf("no debugger_url and failed to launch: %w", err)
-		}
-		controlURL = url
-		logging.Browser("Default launcher succeeded, control URL: %s", controlURL)
-	}
-
-	logging.BrowserDebug("Connecting to Chrome at: %s", controlURL)
-	browser := rod.New().ControlURL(controlURL).Context(ctx)
-	if err := browser.Connect(); err != nil {
-		logging.BrowserError("Failed to connect to Chrome: %v", err)
-		return fmt.Errorf("connect to chrome: %w", err)
-	}
-
-	m.browser = browser
-	m.controlURL = controlURL
-	logging.Browser("Browser session manager started successfully")
-	return nil
+	_, err := m.startDefault(ctx)
+	return err
 }
 
 func (m *SessionManager) ensureStarted(ctx context.Context) error {
@@ -287,32 +289,7 @@ func (m *SessionManager) IsConnected() bool {
 
 // Shutdown closes tracked pages and the browser.
 func (m *SessionManager) Shutdown(ctx context.Context) error {
-	logging.Browser("Shutting down browser session manager")
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	sessionCount := len(m.sessions)
-	logging.BrowserDebug("Closing %d active sessions", sessionCount)
-	for id, record := range m.sessions {
-		if record.page != nil {
-			logging.BrowserDebug("Closing session page: %s", id)
-			_ = record.page.Close()
-		}
-		delete(m.sessions, id)
-	}
-
-	var err error
-	if m.browser != nil {
-		logging.BrowserDebug("Closing browser connection")
-		err = m.browser.Close()
-		if err != nil {
-			logging.BrowserError("Error closing browser: %v", err)
-		}
-		m.browser = nil
-	}
-	m.controlURL = ""
-	logging.Browser("Browser session manager shutdown complete")
-	return err
+	return m.shutdown(ctx)
 }
 
 // List returns metadata for all known sessions.
@@ -324,120 +301,34 @@ func (m *SessionManager) List() []Session {
 	for _, record := range m.sessions {
 		results = append(results, record.meta)
 	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].CreatedAt.Equal(results[j].CreatedAt) {
+			return results[i].ID < results[j].ID
+		}
+		return results[i].CreatedAt.Before(results[j].CreatedAt)
+	})
 	return results
 }
 
 // CreateSession opens a new page and tracks it.
 func (m *SessionManager) CreateSession(ctx context.Context, url string) (*Session, error) {
-	timer := logging.StartTimer(logging.CategoryBrowser, "Create browser session")
-	defer timer.Stop()
-
-	logging.Browser("Creating new browser session for URL: %s", url)
-	if err := m.ensureStarted(ctx); err != nil {
-		logging.BrowserError("Failed to ensure browser started: %v", err)
-		return nil, err
-	}
-	if m.browser == nil {
-		logging.BrowserError("Browser not connected when creating session")
-		return nil, errors.New("browser not connected")
-	}
-
-	logging.BrowserDebug("Creating incognito context")
-	incognito, err := m.browser.Incognito()
-	if err != nil {
-		logging.BrowserError("Failed to create incognito context: %v", err)
-		return nil, fmt.Errorf("incognito context: %w", err)
-	}
-
-	logging.BrowserDebug("Creating new page")
-	page, err := incognito.Page(proto.TargetCreateTarget{URL: url})
-	if err != nil {
-		logging.BrowserError("Failed to create page: %v", err)
-		return nil, fmt.Errorf("create page: %w", err)
-	}
-
-	// Set viewport dimensions
-	logging.BrowserDebug("Setting viewport: %dx%d", m.cfg.GetViewportWidth(), m.cfg.GetViewportHeight())
-	if err := (proto.EmulationSetDeviceMetricsOverride{
-		Width:             m.cfg.GetViewportWidth(),
-		Height:            m.cfg.GetViewportHeight(),
-		DeviceScaleFactor: 1.0,
-		Mobile:            false,
-	}).Call(page); err != nil {
-		logging.BrowserWarn("Failed to set viewport: %v", err)
-	}
-
-	// Navigate
-	logging.Browser("Navigating to URL: %s (timeout=%s)", url, m.cfg.NavigationTimeout())
-	_ = page.Timeout(m.cfg.NavigationTimeout()).Navigate(url)
-
-	meta := Session{
-		ID:         uuid.NewString(),
-		TargetID:   string(page.TargetID),
-		URL:        url,
-		Status:     "active",
-		CreatedAt:  time.Now(),
-		LastActive: time.Now(),
-	}
-
-	m.mu.Lock()
-	m.sessions[meta.ID] = &sessionRecord{meta: meta, page: page}
-	m.mu.Unlock()
-
-	logging.BrowserDebug("Starting event stream for session: %s", meta.ID)
-	m.startEventStream(ctx, meta.ID, page)
-	_ = m.persistSessions()
-
-	logging.Browser("Session created successfully: %s (target=%s)", meta.ID, meta.TargetID)
-	return &meta, nil
+	return m.CreateTab(ctx, "", url, !m.cfg.IsMultiTabDefault())
 }
 
 // Attach binds to an existing target by TargetID.
 func (m *SessionManager) Attach(ctx context.Context, targetID string) (*Session, error) {
-	logging.Browser("Attaching to existing browser target: %s", targetID)
-	if err := m.ensureStarted(ctx); err != nil {
-		logging.BrowserError("Failed to ensure browser started for attach: %v", err)
-		return nil, err
-	}
-	if m.browser == nil {
-		logging.BrowserError("Browser not connected when attaching")
-		return nil, errors.New("browser not connected")
-	}
-
-	logging.BrowserDebug("Getting page from target: %s", targetID)
-	page, err := m.browser.PageFromTarget(proto.TargetTargetID(targetID))
-	if err != nil {
-		logging.BrowserError("Failed to attach to target %s: %v", targetID, err)
-		return nil, fmt.Errorf("attach to target %s: %w", targetID, err)
-	}
-
-	meta := Session{
-		ID:         uuid.NewString(),
-		TargetID:   targetID,
-		Status:     "attached",
-		CreatedAt:  time.Now(),
-		LastActive: time.Now(),
-	}
-
-	m.mu.Lock()
-	m.sessions[meta.ID] = &sessionRecord{meta: meta, page: page}
-	m.mu.Unlock()
-
-	logging.BrowserDebug("Starting event stream for attached session: %s", meta.ID)
-	m.startEventStream(ctx, meta.ID, page)
-	_ = m.persistSessions()
-	logging.Browser("Successfully attached to target %s as session %s", targetID, meta.ID)
-	return &meta, nil
+	return m.AttachToBrowser(ctx, "", targetID)
 }
 
 // Page returns the underlying Rod page for a session.
 func (m *SessionManager) Page(sessionID string) (*rod.Page, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	rec, ok := m.sessions[sessionID]
 	if !ok {
 		return nil, false
 	}
+	rec.meta.LastActive = time.Now()
 	return rec.page, true
 }
 
@@ -450,6 +341,7 @@ func (m *SessionManager) UpdateMetadata(sessionID string, updater func(Session) 
 		return
 	}
 	rec.meta = updater(rec.meta)
+	rec.meta.LastActive = time.Now()
 }
 
 // GetSession returns session metadata.
@@ -619,7 +511,7 @@ func (m *SessionManager) ReifyReact(ctx context.Context, sessionID string) ([]ma
 		}
 	}
 
-	if err := m.engine.AddFacts(facts); err != nil {
+	if err := m.addFacts(facts); err != nil {
 		return nil, err
 	}
 	return facts, nil
@@ -655,7 +547,7 @@ func (m *SessionManager) ForkSession(ctx context.Context, sessionID, url string)
 		}
 	}
 
-	dest, err := m.CreateSession(ctx, targetURL)
+	dest, err := m.CreateTab(ctx, srcMeta.BrowserID, targetURL, true)
 	if err != nil {
 		return nil, fmt.Errorf("create forked session: %w", err)
 	}
@@ -700,7 +592,7 @@ func (m *SessionManager) Navigate(ctx context.Context, sessionID, url string) er
 	timer := logging.StartTimer(logging.CategoryBrowser, "Page navigation")
 	defer timer.Stop()
 
-	logging.Browser("Navigating session %s to URL: %s", sessionID, url)
+	logging.Browser("Navigating session %s to URL: %s", sessionID, m.SanitizeForEvidence(url))
 	if err := m.ensureStarted(ctx); err != nil {
 		logging.BrowserError("Failed to ensure browser started for navigation: %v", err)
 		return err

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	browsersecurity "codenerd/internal/browser/security"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 
@@ -63,7 +64,8 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 						const target = ev.target || {};
 						const id = target.id || target.name || '';
 						const value = target.value || '';
-						w.__browsernerdEvents.push({ type: 'input', id, value, ts: Date.now() });
+					const descriptor = [target.type, target.name, target.id, target.autocomplete, target.getAttribute && target.getAttribute('aria-label')].filter(Boolean).join(' ');
+					w.__browsernerdEvents.push({ type: 'input', id, value, descriptor, ts: Date.now() });
 					} catch (e) {}
 				}, true);
 
@@ -72,7 +74,8 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 						const target = ev.target || {};
 						const id = target.id || target.name || '';
 						const value = target.value || '';
-						w.__browsernerdEvents.push({ type: 'input', id, value, ts: Date.now() });
+					const descriptor = [target.type, target.name, target.id, target.autocomplete, target.getAttribute && target.getAttribute('aria-label')].filter(Boolean).join(' ');
+					w.__browsernerdEvents.push({ type: 'input', id, value, descriptor, ts: Date.now() });
 					} catch (e) {}
 				}, true);
 
@@ -107,11 +110,11 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					Timestamp: now,
 				},
 			}
-			if err := m.engine.AddFacts(facts); err != nil {
+			if err := m.addFacts(facts); err != nil {
 				logging.BrowserError("[session:%s] navigation fact error: %v", sessionID, err)
 			}
 			m.UpdateMetadata(sessionID, func(s Session) Session {
-				s.URL = ev.Frame.URL
+				s.URL = m.redactor.SanitizeString(ev.Frame.URL)
 				s.LastActive = now
 				return s
 			})
@@ -128,7 +131,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				}
 				now := time.Now()
 				msg := stringifyConsoleArgs(ev.Args)
-				if err := m.engine.AddFacts([]mangle.Fact{{
+				if err := m.addFacts([]mangle.Fact{{
 					Predicate: "console_event",
 					Args:      []any{string(ev.Type), msg, now.UnixMilli()},
 					Timestamp: now,
@@ -189,13 +192,13 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					})
 				}
 
-				if err := m.engine.AddFacts(facts); err != nil {
+				if err := m.addFacts(facts); err != nil {
 					logging.BrowserError("[session:%s] net_request fact error: %v", sessionID, err)
 				}
 
 				if captureHeaders && ev.Request != nil {
 					for k, v := range ev.Request.Headers {
-						if err := m.engine.AddFacts([]mangle.Fact{{
+						if err := m.addFacts([]mangle.Fact{{
 							Predicate: "net_header",
 							Args:      []any{string(ev.RequestID), "req", strings.ToLower(k), fmt.Sprintf("%v", v)},
 							Timestamp: now,
@@ -215,7 +218,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					latency = int64(ev.Response.Timing.ReceiveHeadersEnd)
 					duration = int64(ev.Response.Timing.ConnectEnd)
 				}
-				if err := m.engine.AddFacts([]mangle.Fact{{
+				if err := m.addFacts([]mangle.Fact{{
 					Predicate: "net_response",
 					Args:      []any{string(ev.RequestID), ev.Response.Status, latency, duration},
 					Timestamp: now,
@@ -225,7 +228,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 
 				if captureHeaders && ev.Response != nil {
 					for k, v := range ev.Response.Headers {
-						if err := m.engine.AddFacts([]mangle.Fact{{
+						if err := m.addFacts([]mangle.Fact{{
 							Predicate: "net_header",
 							Args:      []any{string(ev.RequestID), "res", strings.ToLower(k), fmt.Sprintf("%v", v)},
 							Timestamp: now,
@@ -289,11 +292,12 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 						continue
 					}
 					var events []struct {
-						Type  string  `json:"type"`
-						ID    string  `json:"id"`
-						Name  string  `json:"name"`
-						Value string  `json:"value"`
-						TS    float64 `json:"ts"`
+						Type       string  `json:"type"`
+						ID         string  `json:"id"`
+						Name       string  `json:"name"`
+						Value      string  `json:"value"`
+						Descriptor string  `json:"descriptor"`
+						TS         float64 `json:"ts"`
 					}
 					if err := json.Unmarshal(raw, &events); err != nil {
 						continue
@@ -310,9 +314,10 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 								Timestamp: ts,
 							})
 						case "input":
+							safeValue := m.redactor.RedactInputValue(ev.Descriptor, ev.Value)
 							facts = append(facts, mangle.Fact{
 								Predicate: "input_event",
-								Args:      []any{ev.ID, ev.Value, ts.UnixMilli()},
+								Args:      []any{ev.ID, safeValue, ts.UnixMilli()},
 								Timestamp: ts,
 							})
 						case "state":
@@ -324,7 +329,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 						}
 					}
 					if len(facts) > 0 {
-						if err := m.engine.AddFacts(facts); err != nil {
+						if err := m.addFacts(facts); err != nil {
 							logging.BrowserError("[session:%s] click/state fact error: %v", sessionID, err)
 						}
 					}
@@ -427,6 +432,17 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 	now := time.Now()
 	facts := make([]mangle.Fact, 0, len(nodes)*6)
 	for _, n := range nodes {
+		n.Text = m.redactor.SanitizeString(n.Text)
+		descriptor := strings.Join([]string{n.Tag, n.ID, n.Attrs["type"], n.Attrs["name"], n.Attrs["autocomplete"], n.Attrs["aria-label"]}, " ")
+		for key, value := range n.Attrs {
+			if strings.EqualFold(key, "value") {
+				n.Attrs[key] = m.redactor.RedactInputValue(descriptor, value)
+			} else if m.redactor.IsSensitiveKey(key) {
+				n.Attrs[key] = "[REDACTED]"
+			} else {
+				n.Attrs[key] = m.redactor.SanitizeString(value)
+			}
+		}
 		// 1. Assert standard DOM predicates aligned with schemas_browser.mg (no sessionID prefix)
 		facts = append(facts, mangle.Fact{
 			Predicate: "dom_node",
@@ -539,7 +555,7 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 			}
 		}
 	}
-	return m.engine.AddFacts(facts)
+	return m.addFacts(facts)
 }
 
 // SnapshotDOM triggers a one-off DOM capture for the given session.
@@ -618,10 +634,10 @@ func (m *SessionManager) persistSessions() error {
 		return err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(m.cfg.SessionStore), 0o755); err != nil {
+	if err := browsersecurity.EnsurePrivateDir(filepath.Dir(m.cfg.SessionStore)); err != nil {
 		return err
 	}
-	return os.WriteFile(m.cfg.SessionStore, data, 0o644)
+	return browsersecurity.WritePrivateFile(m.cfg.SessionStore, data)
 }
 
 // loadSessionsLocked loads persisted metadata. Caller must hold lock.

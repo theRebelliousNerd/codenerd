@@ -1,6 +1,6 @@
 # 06 — Public API and Types: browser
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-09
 > Package: `codenerd/internal/browser`
 
 ## 1. Config
@@ -19,6 +19,11 @@
 | `EnableDOMIngestion` | `enable_dom_ingestion` | Default true |
 | `EnableHeaderIngestion` | `enable_header_ingestion` | Default false (zero value) |
 | `EventThrottleMs` | `event_throttle_ms` | Default 100 |
+| `MultiTabDefault` | `multi_tab_default` | Shared tabs by default; pointer preserves explicit false |
+| `MaxTabs` / `MaxBrowsers` | … | Defaults 32 / 4 |
+| `IdleTabTimeoutMs` | `idle_tab_timeout_ms` | Zero disables reaping |
+| `ExtraSensitiveKeys` | `extra_sensitive_keys` | Additional fact/log/result redaction keys |
+| `WorkspaceRoot` / `WritableRoots` | … | Browser artifact path policy |
 
 ### Constructors / helpers
 
@@ -28,13 +33,17 @@
 | `(Config).IsHeadless()` | Headless flag |
 | `(Config).GetViewportWidth/Height()` | Zero → 1920/1080 |
 | `(Config).NavigationTimeout()` | Zero → 30s |
+| `(Config).IsMultiTabDefault()` | Nil → true |
+| `(Config).GetMaxTabs/GetMaxBrowsers()` | Non-positive → 32/4 |
+| `(Config).GetIdleTabTimeout()` | Non-positive → disabled |
 
 ## 2. Session
 
 ```go
 type Session struct {
-    ID, TargetID, URL, Title, Status string
-    CreatedAt, LastActive            time.Time
+    ID, BrowserID, TargetID, URL, Title, Status string
+    Isolated                                  bool
+    CreatedAt, LastActive                     time.Time
 }
 ```
 
@@ -65,18 +74,25 @@ Used by SessionManager for all reification paths. Tests implement this interface
 | `Shutdown` | `(ctx) error` | Close pages + browser |
 | `ControlURL` | `() string` | DevTools WS URL |
 | `IsConnected` | `() bool` | `browser != nil` |
+| `LaunchAdditional` | `(ctx) (*BrowserInstance, error)` | Bounded independent browser process |
+| `ListBrowsers` | `() []BrowserInstance` | Deterministic inventory + tab counts |
+| `CloseBrowser` | `(ctx, browserID) error` | Close its tabs; promote another default |
 
 ### Sessions
 
 | Method | Notes |
 |--------|-------|
 | `List` | All metadata copies |
-| `CreateSession(ctx, url)` | Incognito page + stream + persist |
+| `CreateSession(ctx, url)` | Uses configured shared/isolation default |
+| `CreateTab(ctx, browserID, url, isolated)` | Explicit browser/profile semantics |
 | `Attach(ctx, targetID)` | PageFromTarget |
+| `AttachToBrowser(ctx, browserID, targetID)` | Attach on selected browser |
+| `FocusSession(ctx, id)` | Activate tab |
+| `CloseSession(ctx, id)` | Cancel stream + close tab/context; idempotent |
 | `GetSession(id)` | (Session, bool) |
 | `Page(id)` | (*rod.Page, bool) — escape hatch |
 | `UpdateMetadata(id, func)` | In-place meta transform |
-| `ForkSession(ctx, sessionID, url)` | Clone cookies/storage |
+| `ForkSession(ctx, sessionID, url)` | Clone cookies/storage into isolation |
 
 ### Effects
 
@@ -86,6 +102,8 @@ Used by SessionManager for all reification paths. Tests implement this interface
 | `Click(ctx, sessionID, selector)` | Left click once |
 | `Type(ctx, sessionID, selector, text)` | `el.Input` |
 | `Screenshot(ctx, sessionID, fullPage)` | `[]byte` PNG |
+| `ResolveOutputPath(...)` | Confine artifact under writable roots |
+| `SanitizeForEvidence(value)` | Redact before return/log/persist |
 
 ### Reification
 

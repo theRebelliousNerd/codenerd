@@ -11,3 +11,7 @@
 - Normal chat, campaign, and factory boot paths must consume the same execution
   and provider settings. An invalid explicit config fails closed before ambient
   environment detection.
+- Native browser settings live under the top-level `browser` block, separate
+  from `integrations.servers.browser` (an external MCP endpoint). Preserve
+  pointer semantics for `multi_tab_default` so explicit isolation is not
+  overwritten by shared-tab defaults.

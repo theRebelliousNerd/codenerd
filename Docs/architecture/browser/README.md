@@ -4,7 +4,7 @@
 > Status: Living Reference Document — code-grounded full corpus  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/browser/`  
-> Scale: **3** non-test Go files ≈ **1,900** lines; **6** test files; **0** package-local `.mg`  
+> Scale: **7** non-test Go files ≈ **2,800** lines; **10** test files; **0** package-local `.mg`
 > Companion Mangle: `internal/core/defaults/schemas_browser.mg`, `policy/browser.mg`, `policy/browser_honeypot.mg`
 
 ## Scope
@@ -48,7 +48,7 @@ Earlier stub names (`01-DOMAIN-MODEL.md`, `02-CURRENT-STATE-BROWSER.md`, …) ar
 
 ```powershell
 # Unit + coverage tests (no Chrome required for most)
-go test ./internal/browser/ -count=1
+go test ./internal/browser/... -count=1
 
 # Integration tests (need Chrome/CDP; build tag integration)
 go test -tags=integration ./internal/browser/ -count=1 -timeout 120s
@@ -56,6 +56,11 @@ go test -tags=integration ./internal/browser/ -count=1 -timeout 120s
 # Honeypot policy unit tests (companion Mangle)
 go test ./internal/core/defaults/policy/ -run Honeypot -count=1
 ```
+
+Native lifecycle/security settings live in `.nerd/config.json` under
+`browser` (not `integrations.servers.browser`), including
+`multi_tab_default`, `max_tabs`, `max_browsers`, `idle_tab_timeout_ms`,
+`extra_sensitive_keys`, and `writable_roots`.
 
 ### Manual CLI smoke (optional)
 

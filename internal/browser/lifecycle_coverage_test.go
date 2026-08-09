@@ -76,6 +76,7 @@ func TestBrowserLifecycle_WhenChromeAvailable(t *testing.T) {
 				<h1 id="heading">Test Page</h1>
 				<button id="btn1">Click Me</button>
 				<input id="input1" type="text" />
+				<input id="password1" name="password" type="password" />
 				<a href="/page2">Link to Page 2</a>
 				<a href="/hidden" style="display:none">Hidden Link</a>
 			</body></html>`)
@@ -105,10 +106,12 @@ func TestBrowserLifecycle_WhenChromeAvailable(t *testing.T) {
 		}()
 
 		// --- Start ---
-		err := sm.Start(ctx)
+		startRequestCtx, cancelStartRequest := context.WithCancel(ctx)
+		err := sm.Start(startRequestCtx)
 		if err != nil {
 			t.Fatalf("Start failed: %v", err)
 		}
+		cancelStartRequest()
 		if !sm.IsConnected() {
 			t.Fatal("Expected IsConnected()=true after Start")
 		}
@@ -143,6 +146,48 @@ func TestBrowserLifecycle_WhenChromeAvailable(t *testing.T) {
 			t.Fatal("Expected non-nil page")
 		}
 
+		// Shared tabs preserve browser-profile state and survive the request
+		// context that created them. Explicitly isolated tabs do neither.
+		if _, err := page.Context(ctx).Eval(`() => { localStorage.setItem('codenerd-shared', 'yes'); return true }`); err != nil {
+			t.Fatalf("seed shared storage: %v", err)
+		}
+		requestCtx, requestCancel := context.WithCancel(ctx)
+		shared, err := sm.CreateTab(requestCtx, session.BrowserID, ts.URL, false)
+		if err != nil {
+			t.Fatalf("CreateTab(shared) failed: %v", err)
+		}
+		requestCancel()
+		sharedPage, ok := sm.Page(shared.ID)
+		if !ok {
+			t.Fatal("shared tab was not tracked")
+		}
+		sharedValue, err := sharedPage.Context(ctx).Eval(`() => localStorage.getItem('codenerd-shared') === 'yes'`)
+		if err != nil || !sharedValue.Value.Bool() {
+			t.Fatalf("shared tab lost profile storage: value=%v err=%v", sharedValue, err)
+		}
+		if err := sm.FocusSession(ctx, shared.ID); err != nil {
+			t.Fatalf("FocusSession(shared) failed: %v", err)
+		}
+
+		isolated, err := sm.CreateTab(ctx, session.BrowserID, ts.URL, true)
+		if err != nil {
+			t.Fatalf("CreateTab(isolated) failed: %v", err)
+		}
+		isolatedPage, ok := sm.Page(isolated.ID)
+		if !ok {
+			t.Fatal("isolated tab was not tracked")
+		}
+		isolatedValue, err := isolatedPage.Context(ctx).Eval(`() => localStorage.getItem('codenerd-shared') === null`)
+		if err != nil || !isolatedValue.Value.Bool() {
+			t.Fatalf("isolated tab inherited shared storage: value=%v err=%v", isolatedValue, err)
+		}
+		if err := sm.CloseSession(ctx, shared.ID); err != nil {
+			t.Fatalf("CloseSession(shared) failed: %v", err)
+		}
+		if err := sm.CloseSession(ctx, isolated.ID); err != nil {
+			t.Fatalf("CloseSession(isolated) failed: %v", err)
+		}
+
 		// --- Navigate ---
 		err = sm.Navigate(ctx, session.ID, ts.URL+"/page2")
 		if err != nil {
@@ -164,6 +209,18 @@ func TestBrowserLifecycle_WhenChromeAvailable(t *testing.T) {
 		err = sm.Type(ctx, session.ID, "#input1", "hello world")
 		if err != nil {
 			t.Logf("Type warning (timing): %v", err)
+		}
+		const browserSecretFixture = "live-browser-secret-7419"
+		if err := sm.Type(ctx, session.ID, "#password1", browserSecretFixture); err != nil {
+			t.Logf("Password type warning (timing): %v", err)
+		}
+		time.Sleep(600 * time.Millisecond)
+		for _, fact := range sink.getFacts() {
+			for _, arg := range fact.Args {
+				if value, ok := arg.(string); ok && value == browserSecretFixture {
+					t.Fatalf("live browser secret reached fact sink in %s", fact.Predicate)
+				}
+			}
 		}
 
 		// --- Screenshot viewport ---

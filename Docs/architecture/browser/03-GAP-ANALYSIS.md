@@ -14,25 +14,25 @@
 | Honeypot via Mangle | `HoneypotDetector` + `browser_honeypot.mg` | **Done** (suspicious URL only if Go asserts intermediate fact) |
 | Spatial policy | `browser.mg` left_of/above, constrained to interactable | **Done** |
 | CLI operator surface | launch / session / snapshot | **Partial** — no click/type/screenshot/list/fork cobra verbs |
-| Single Cortex-owned manager | System factory constructs one; research uses a separate singleton and legacy chat still leaves nil | **Partial / split ownership** |
+| Single Cortex-owned manager | System factory constructs it and binds tactile + modular research tools; lazy fallback remains for narrow standalone use | **Done in system boot** |
 | VS executes browser actions | `handleBrowse` returns hard failure requiring shard | **Partial / intentional stub** |
-| Modular tools execute browser | `internal/tools/research/browser.go` works but **no EngineSink** | **Partial** |
+| Modular tools execute browser | Research tools resolve the Cortex-owned manager and real `browser_close` | **Done for existing six tools** |
 | Tactile router has manager | System factory injects its manager; legacy chat path remains conditional | **Partial** |
 | Constitution gates | navigate/screenshot/read_dom safe; click/type not listed | **Done** (policy) |
-| Fact sink = production kernel | System factory and CLI build throwaway `mangle.Engine`; research uses nil | **Gap** for executive truth |
+| Fact sink = production kernel | System factory adapts browser facts into live `SystemKernel.AssertBatch`; CLI keeps an export-only engine | **Done in Cortex; CLI intentionally separate** |
 | Session reattach | Load store as `detached`; CLI snapshot re-Attach by TargetID | **Partial** — TargetID may be stale after Chrome restart |
 | Header ingestion | Config flag exists; default `EnableHeaderIngestion` false in DefaultConfig | **Optional off** |
 | `honeypot_suspicious_url` generation | Policy comment: assert from Go; no URL pattern analyzer found in package | **Gap** |
 | Clip / overflow honeypot reasons in Go | Reason table includes clip/overflow; policy rules incomplete vs Go list | **Partial mismatch** |
-| Multi-engine concurrent Chrome | One browser per manager; multiple managers possible | **Risk** |
+| Multi-browser lifecycle | One manager can bound, list, select, promote, and close multiple browser processes | **Package done; progressive/CLI exposure pending** |
 
 ## 2. Priority ranking
 
 ### P0 — Correctness / safety wiring
 
-1. **Own a Cortex-scoped SessionManager** with engine sink = live kernel adapter and share it with tactile + modular tools.
-2. **Close execution path**: either implement VS handleBrowse via shared manager, or guarantee modular tool + router always share that manager.  
-3. Document that **research tools currently reify nothing** (nil engine) — agents cannot see DOM facts from tool path alone.
+1. **Expose BPAR-1 lifecycle progressively** so multi-browser selection, isolation, focus, and close are agent/operator reachable.
+2. **Close execution path**: either implement VS handleBrowse via the shared manager, or keep the modular-tool + router guarantee explicit.
+3. Add live Cortex proof that a modular navigation fact is queryable through the authorizing kernel.
 
 ### P1 — Policy completeness
 
@@ -48,9 +48,9 @@
 
 ### P3 — Hardening
 
-10. Session store encryption / redaction of URLs with secrets.  
+10. Consider session-store encryption beyond the shipped redaction/private-file baseline.
 11. Bounded fact retention / GC for long-lived event streams.  
-12. Explicit cancel of event-stream goroutines on session close (today Shutdown closes pages; stream exit relies on ctx / page death).
+12. Add bounded fact retention / epoch cleanup for long-lived event streams.
 
 The complete pinned uplift contract is [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md).
 
@@ -67,7 +67,7 @@ The complete pinned uplift contract is [BROWSERNERD-PARITY.md](BROWSERNERD-PARIT
 
 ## 4. Risk if ignored
 
-- Agents call `browser_navigate` via modular tools, get text status only, **hallucinate page content**.  
+- Existing individual tools still lack progressive bounded observe/reason views, so agents may over-read text or under-use kernel evidence.
 - HoneypotDetector unused in tool path → clicks trap links.  
-- Multiple Chrome processes if CLI + research + future chat each Start independently.  
-- Policy tests pass while production path never loads page facts into the same engine that evaluates rules.
+- CLI remains a separate operator process; progressive tools need explicit multi-browser selection to avoid accidental process growth.
+- Live-kernel wiring is unit-proven, but a full modular-tool-to-kernel live Chrome proof remains a BPAR-1 gate.

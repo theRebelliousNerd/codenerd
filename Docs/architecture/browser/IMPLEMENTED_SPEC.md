@@ -1,14 +1,14 @@
 # browser — Implemented Spec (Deep-Dive)
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-09
 > Status: Living Reference Document  
 > Language: Go  
 > Package: `codenerd/internal/browser`  
 > Primary sources: `internal/browser/*.go`  
 > Companion logic: `internal/core/defaults/schemas_browser.mg`, `policy/browser.mg`, `policy/browser_honeypot.mg`  
-> Scale: **3** non-test Go files ≈ **1,900** lines; **6** test files; **0** package-local `.mg`
+> Scale: **7** non-test Go files ≈ **2,800** lines; **10** test files; **0** package-local `.mg`
 
-> 2026-08-09 wiring delta: `internal/system/factory.go` now constructs and injects a workspace browser manager, but it uses a private `mangle.Engine`; research tools still use a separate nil-sink singleton and the legacy chat boot remains nil. See [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md).
+> 2026-08-09 BPAR-1 delta: system boot uses a live-kernel sink and binds research tools to the Cortex manager. Lifecycle, cancellation, native config, redaction, and path-policy foundations are implemented; progressive parity surfaces remain open. See [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md).
 
 ## 1. Overview
 
@@ -31,7 +31,7 @@ It does **not** own constitutional permission, VirtualStore routing, or chat boo
 | Default nav timeout | 30s |
 | Default event throttle | 100ms |
 | DOM capture budget | 200 nodes per snapshot |
-| Session isolation | Incognito context per CreateSession |
+| Session profile | Shared tabs by default; explicit isolation; forks always isolate |
 | Fact interface | `EngineSink.AddFacts` |
 | Logging | `logging.CategoryBrowser` |
 | Workspace store (CLI) | `.nerd/browser/sessions.json` |
@@ -74,19 +74,19 @@ user_intent → kernel next_action → tool/shard
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Config + defaults | **Implemented** | `DefaultConfig`, getters |
+| Config + defaults | **Implemented** | Native `.nerd/config.json` browser block; lifecycle/security defaults |
 | Start / connect / launch fallback | **Implemented** | DebuggerURL, Launch[], default launcher |
-| Session CRUD + list | **Implemented** | Create, Attach, Get, List, Page |
+| Browser/session lifecycle | **Implemented in package** | Multi-browser list/launch/select/close; tab create/attach/focus/fork/close |
 | Navigate / Click / Type / Screenshot | **Implemented** | Selector-based |
 | Fork (cookies + storage) | **Implemented** | Best-effort restore |
-| Session metadata persist | **Implemented** | Optional SessionStore JSON |
+| Session metadata persist | **Implemented** | Redacted owner-only SessionStore JSON |
 | Event stream (nav/console/net/DOM/hooks) | **Implemented** | Requires non-nil sink |
 | DOM capture / SnapshotDOM | **Implemented** | Max 200 nodes; multi-predicate |
 | React Fiber reify | **Implemented** | Best-effort; needs fiber keys |
 | Honeypot detector | **Implemented** | Depends on engine+policy load |
 | CLI launch/session/snapshot | **Implemented** | `cmd/nerd/cmd_browser.go` |
-| Research modular tools | **Implemented** | Nil engine — no reify |
-| System boot live manager | **Partial** | Constructed and injected, but backed by a private engine rather than `RealKernel` |
+| Research modular tools | **Implemented (legacy six)** | Shared Cortex manager; real close; progressive surface pending |
+| System boot live manager | **Implemented** | `browserKernelSink` → live `SystemKernel.AssertBatch` |
 | Legacy chat BrowserManager inject | **Partial** | Field + setter exist; legacy boot remains nil |
 | VS handleBrowse | **Stub** | Explicit refuse → shard |
 | Package-local Mangle | **N/A** | Lives in core defaults |
@@ -103,9 +103,12 @@ user_intent → kernel next_action → tool/shard
 
 ```
 internal/browser/
-  session_manager.go           # lifecycle, effects, React reify
+  session_manager.go           # types, effects, React reify
+  session_lifecycle.go         # browser/tab lifecycle, limits, reaper
   session_manager_dom.go       # event stream, DOM capture, persist helpers
+  fact_redaction.go            # pre-sink evidence redaction
   honeypot.go                  # honeypot detector
+  security/                    # redactor + writable path policy
   session_manager_coverage_test.go
   start_coverage_test.go
   honeypot_coverage_test.go
@@ -146,33 +149,33 @@ Nil engine/sink is allowed: manager still automates Chrome; observation is disab
 
 ### 4.2 Start algorithm
 
-1. If `browser != nil` and `Version()` OK → return (reuse).  
-2. Else close stale browser, clear sessions map.  
+1. Serialize start with `startMu`; if the default browser is healthy, reuse it.
+2. Else close stale browser, cancel session streams, and clear lifecycle maps.
 3. `loadSessionsLocked()` from SessionStore (status → `detached`).  
 4. Resolve control URL:  
    - `cfg.DebuggerURL` if set  
    - else Launch binary with optional flags (Cut on `=`) + headless  
    - primary Launch fail → bare fallback Launch  
    - else default `launcher.New().Headless(...).Launch()`  
-5. `rod.New().ControlURL(controlURL).Context(ctx).Connect()`  
-6. Store browser + controlURL.
+5. Connect under the caller context, then root the managed browser in a manager-owned background context.
+6. Register a default `BrowserInstance`; start the optional idle reaper.
 
 `ensureStarted` is the lazy entry used by session ops: RLock check, then Start.
 
 ### 4.3 CreateSession
 
-- Incognito browser context  
+- Shared profile tab by default (`multi_tab_default=true`); explicit isolated context when requested
 - New page with initial URL  
 - Device metrics override for viewport  
 - Navigate (timeout) — navigate error currently ignored with `_ =` on create  
 - UUID session ID; status `active`  
-- `startEventStream`  
-- `persistSessions`  
+- manager-owned cancelable `startEventStream`
+- redacted private `persistSessions`
 
 ### 4.4 Attach / Fork
 
 - **Attach:** `PageFromTarget`, status `attached`, stream, persist.  
-- **Fork:** NetworkGetCookies + local/session storage JSON → CreateSession → SetCookies + restoreStorage → status `forked`.
+- **Fork:** NetworkGetCookies + local/session storage JSON → isolated CreateTab → SetCookies + restoreStorage → status `forked`.
 
 ### 4.5 Effects
 
@@ -294,7 +297,7 @@ Categories in `schemas_browser.mg`:
 | Consumer | Path | Behavior |
 |----------|------|----------|
 | CLI | `cmd/nerd/cmd_browser.go` | Operator lifecycle + snapshot export |
-| Research tools | `internal/tools/research/browser.go` | Shared manager, nil engine |
+| Research tools | `internal/tools/research/browser.go` | Cortex-owned shared manager after system boot |
 | Tactile router | `internal/shards/system/router.go` | Optional BrowserManager field |
 | Chat types/boot | `cmd/nerd/chat/*` | Holds pointer; constructs nil |
 
@@ -315,18 +318,11 @@ Categories in `schemas_browser.mg`:
 ### 8.4 Wiring diagram (as of verification)
 
 ```
-┌──────── CLI ────────┐   ┌──── research tools ────┐   ┌──── system boot ─────┐
-│ throwaway Engine    │   │ nil Engine             │   │ private Mangle Engine│
-│ SessionManager      │   │ package singleton mgr  │   │ manager → tactile    │
-│ .nerd/browser/*     │   │ no fact stream         │   │ legacy chat still nil│
-└─────────────────────┘   └────────────────────────┘   └───────────────────────┘
-         │                          │                          │
-         └──────────────┬───────────┴──────────────────────────┘
-                        ▼
-              internal/browser.SessionManager
-                        │
-                        ▼
-                   Chrome (Rod)
+system factory ──► Cortex-owned SessionManager ──► tactile + research tools
+                         │
+                         └── browserKernelSink ──► live SystemKernel
+
+standalone CLI ──► export SessionManager + schema-loaded export engine
 ```
 
 ---
@@ -381,9 +377,9 @@ Full matrix: [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
 
 Top three:
 
-1. No shared manager with a live `RealKernel` sink.
-2. Research tools reify nothing.  
-3. Chat/tactile BrowserManager remains nil at boot without completed on-demand construct.
+1. No progressive `browser_observe` / `browser_act` lifecycle surface yet.
+2. No bounded `browser_mangle` query/rule/temporal surface.
+3. No full modular-tool → live Chrome → authorizing-kernel end-to-end proof yet.
 
 ---
 
@@ -395,7 +391,7 @@ See [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md). Short form
 2. Mangle judges; Go extracts  
 3. EngineSink isolation  
 4. Session ID first-class  
-5. Incognito isolation  
+5. Shared tabs with explicit isolation; forks isolate
 6. Budgeted capture  
 7. On-demand Chrome  
 8. RWMutex map safety  
@@ -410,7 +406,7 @@ See [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md). Short form
 
 Constructors: `DefaultConfig`, `NewSessionManager`, `NewSessionManagerWithSink`, `NewHoneypotDetector`.  
 
-SessionManager methods: Start, Shutdown, ControlURL, IsConnected, List, CreateSession, Attach, Page, UpdateMetadata, GetSession, ReifyReact, ForkSession, Navigate, Click, Type, Screenshot, SnapshotDOM.  
+SessionManager methods include Start/Shutdown, LaunchAdditional/ListBrowsers/CloseBrowser, List/CreateSession/CreateTab/Attach/AttachToBrowser/FocusSession/CloseSession/ForkSession, Page/GetSession, Navigate/Click/Type/Screenshot/SnapshotDOM/ReifyReact, ResolveOutputPath, and SanitizeForEvidence.
 
 Honeypot methods: AnalyzePage, IsHoneypot, GetSafeLinks, GetAllLinksWithAnalysis.  
 

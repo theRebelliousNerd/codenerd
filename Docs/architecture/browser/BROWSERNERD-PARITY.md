@@ -21,13 +21,13 @@ Binding adaptation rules:
 
 | ID | BrowserNERD capability | codeNERD baseline evidence | Baseline | Acceptance gate |
 |---|---|---|---|---|
-| BP-01 | Launch, attach, reconnect, shutdown | `SessionManager.Start/Shutdown`; CLI stale-control recovery | partial | Managed and attached browsers survive request contexts and shut down without orphaned streams |
-| BP-02 | Multiple browser instances | One `browser` and `controlURL` per manager | missing | List, launch, select, and close bounded browser instances |
-| BP-03 | Shared tabs plus explicit isolation | `CreateSession` always creates an incognito context | missing | Shared tabs are the default; callers may request isolated contexts |
-| BP-04 | Session list/create/attach/focus/fork/close | list/create/attach/fork exist; focus and close do not | partial | Every lifecycle operation is available from package, progressive tool, and CLI where operator-relevant |
-| BP-05 | Tab/browser limits and idle reaping | No limits or per-session reaper | missing | Configured limits fail closed; idle tabs are reaped; reaper cancels on shutdown |
-| BP-06 | Per-session ingestion lifetime | Event stream inherits the creating request context | missing | Each session owns a cancelable background stream closed by session/browser shutdown |
-| BP-07 | Persistent, privacy-safe metadata | `.nerd/browser/sessions.json` persists raw URL metadata | partial | Credentials and sensitive query values are redacted; files are owner-only |
+| BP-01 | Launch, attach, reconnect, shutdown | Manager-owned browser contexts; stale reconnect; stream-first shutdown; CLI recovery | partial | Managed and attached browsers survive request contexts and shut down without orphaned streams |
+| BP-02 | Multiple browser instances | `LaunchAdditional`, `ListBrowsers`, selection, promotion, and `CloseBrowser` exist with bounds | partial | List, launch, select, and close bounded browser instances |
+| BP-03 | Shared tabs plus explicit isolation | `CreateTab` shares by default; explicit incognito; forks always isolate; live storage differential | partial | Shared tabs are the default; callers may request isolated contexts |
+| BP-04 | Session list/create/attach/focus/fork/close | Package lifecycle is complete; research close is real; progressive/CLI exposure remains incomplete | partial | Every lifecycle operation is available from package, progressive tool, and CLI where operator-relevant |
+| BP-05 | Tab/browser limits and idle reaping | Native config, allocation guards, idle reaper, shutdown cancel, focused tests | partial | Configured limits fail closed; idle tabs are reaped; reaper cancels on shutdown |
+| BP-06 | Per-session ingestion lifetime | Background stream context stored per session; close/browser/shutdown cancel it; live request-cancel proof | done | Each session owns a cancelable background stream closed by session/browser shutdown |
+| BP-07 | Persistent, privacy-safe metadata | Redacted URLs and owner-only session/control/snapshot files; security tests | partial | Credentials and sensitive query values are redacted; files are owner-only |
 | BP-08 | Compact page state and navigation map | DOM snapshot and raw extraction only | partial | Bounded state and navigation observations return summaries and stable evidence handles |
 | BP-09 | Stable interactive element refs | Selector-only click/type; no element registry | missing | Observe returns session-scoped refs with generation-aware re-identification |
 | BP-10 | Interactive, grid, and hidden-content discovery | Dense DOM facts; no dedicated bounded views | partial | Token-bounded discovery modes match BrowserNERD's observable slices |
@@ -36,9 +36,9 @@ Binding adaptation rules:
 | BP-13 | Sequential action plans | No consolidated execution surface | missing | `browser_act` executes typed operations with stop-on-error and bounded result views |
 | BP-14 | Stable/fact/condition waits | No browser wait surface | missing | Context-cancelable waits consume fresh live-kernel facts and enforce time/result bounds |
 | BP-15 | Progressive observe/act/reason/audit | Six individual research tools only | missing | Native `browser_observe`, `browser_act`, `browser_reason`, and `browser_audit` tools ship JIT-first |
-| BP-16 | Bounded Mangle read/query/rule/temporal/watch | Main kernel exists; browser manager uses an isolated engine in system boot and nil sink in research tools | partial | `browser_mangle` delegates to the live kernel with explicit query/rule/result/time ceilings |
-| BP-17 | Default credential redaction | No browser redactor | missing | URLs, headers, input events, results, logs, sessions, and evidence redact by default |
-| BP-18 | Confined model-directed writes | CLI snapshots use a fixed workspace directory; tool screenshot returns base64 | partial | Screenshot/evidence/spec outputs resolve under allowed roots and reject traversal/symlink escapes |
+| BP-16 | Bounded Mangle read/query/rule/temporal/watch | Cortex manager now asserts into live `SystemKernel`; bounded `browser_mangle` surface remains absent | partial | `browser_mangle` delegates to the live kernel with explicit query/rule/result/time ceilings |
+| BP-17 | Default credential redaction | Central pre-sink redactor covers URLs, headers, input/DOM/React facts, metadata, logs, and text results | partial | URLs, headers, input events, results, logs, sessions, and evidence redact by default |
+| BP-18 | Confined model-directed writes | Symlink-aware writable-root policy; private CLI snapshots/session/control files | partial | Screenshot/evidence/spec outputs resolve under allowed roots and reject traversal/symlink escapes |
 | BP-19 | Unsafe JavaScript gate | No arbitrary JS tool | missing | Disabled by default; enabling config alone is insufficient without constitutional approval |
 | BP-20 | Bounded runtime evidence and flight recorder | General logging exists; no session step evidence or browser trace export | partial | Bounded route/toast/console/request evidence and redacted owner-only JSONL traces |
 | BP-21 | Configurable spec delivery and conformance | Architecture corpus exists; no browser spec tools | missing | `browser_specs` discovers bounded workspace docs and runs declared invariants |

@@ -1816,8 +1816,7 @@ func TestExecuteBrowserClose_WhenEmptySessionID_ShouldReturnError(t *testing.T) 
 	}
 }
 
-func TestExecuteBrowserClose_WhenValidSessionID_ShouldReturnMarkedMessage(t *testing.T) {
-	t.Parallel()
+func TestExecuteBrowserClose_WhenValidSessionID_ShouldCloseSession(t *testing.T) {
 	result, err := executeBrowserClose(context.Background(), map[string]any{
 		"session_id": "test-session-123",
 	})
@@ -1827,8 +1826,8 @@ func TestExecuteBrowserClose_WhenValidSessionID_ShouldReturnMarkedMessage(t *tes
 	if !strings.Contains(result, "test-session-123") {
 		t.Errorf("expected session ID in result, got %q", result)
 	}
-	if !strings.Contains(result, "marked for close") {
-		t.Errorf("expected 'marked for close', got %q", result)
+	if !strings.Contains(result, "closed") {
+		t.Errorf("expected 'closed', got %q", result)
 	}
 }
 
