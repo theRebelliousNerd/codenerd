@@ -13,7 +13,7 @@ From `internal/core/defaults/policy/constitution.mg`:
 | `/browser_read_dom` | Yes |
 | `/browser_extract` / `/browser_click` / `/browser_type` / `/browser_close` | Yes |
 | `/browser_observe` / `/browser_act` | Yes |
-| `/browser_mangle` / `/browser_wait` / `/browser_reason` / `/browser_evidence` | Yes |
+| `/browser_mangle` / `/browser_wait` / `/browser_reason` / `/browser_evidence` / `/browser_specs` | Yes |
 
 `safe_action` is not authority. The effective JIT allowlist first constrains availability, then the session executor asserts an exact `pending_action` and requires matching `permitted(Action, Target, Payload)`. Package methods themselves do **not** call `permitted(...)` — direct package callers are trusted integration code.
 
@@ -80,6 +80,8 @@ Policy files derive traps from evidence:
 4. `browser_wait` is fresh-only by default; callers use `browser_act.started_ms` as the action watermark.
 5. `browser_reason` refreshes page state, scopes current-route evidence by default, and re-redacts public fact arguments.
 6. `browser_evidence` requires one session, caps result items and scanned bytes, and never accepts an unconstrained filesystem read.
+7. `browser_specs` reads only workspace-confined configured roots, indexes, and links; absolute/symlink escapes are rejected and every file/catalog/parser/result dimension is capped.
+8. A spec check refreshes the live session, accepts only one allowlisted browser atom with the requested SessionID, never mutates facts/rules, and cannot report passed when discovery or selection was truncated or warned.
 
 ## 8. Content safety (out of package)
 
@@ -87,4 +89,4 @@ No URL allowlist / SSRF guard inside SessionManager. Any reachable URL the proce
 
 ## 9. Sensitive evidence
 
-Browser URLs, headers, input/DOM/React values, console text, metadata, and text tool results pass through the redactor. Type logs text **length**, not content. Model-directed artifact paths must pass the symlink-aware writable-root policy. Persisted files use exact Unix owner modes or a protected current-user-owned Windows DACL. Explicit evidence export is create-only and cannot overwrite an existing path. The recorder rotates by configured file bytes/count, caps rows/read scans/exports, and treats write failure as diagnostic rather than an effect failure. Screenshots still contain page pixels and must be treated as sensitive evidence by callers.
+Browser URLs, headers, input/DOM/React values, console text, metadata, spec excerpts, invariant queries, and text tool results pass through the redactor. Type logs text **length**, not content. Model-directed artifact paths must pass the symlink-aware writable-root policy. Persisted files use exact Unix owner modes or a protected current-user-owned Windows DACL. Explicit evidence export is create-only and cannot overwrite an existing path. The recorder rotates by configured file bytes/count, caps rows/read scans/exports, and treats write failure as diagnostic rather than an effect failure. Specs are read-only workspace inputs, not model-directed writes. Screenshots still contain page pixels and must be treated as sensitive evidence by callers.

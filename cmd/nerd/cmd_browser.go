@@ -76,6 +76,7 @@ func getBrowserConfig() browser.Config {
 		cfg.EvidenceDir = configured.EvidenceDir
 		cfg.MaxEvidenceFiles = configured.MaxEvidenceFiles
 		cfg.MaxEvidenceFileBytes = configured.MaxEvidenceFileBytes
+		cfg.Specs = configured.Specs
 	}
 	cfg.WorkspaceRoot = cwd
 	cfg.SessionStore = filepath.Join(cwd, ".nerd", "browser", "sessions.json")

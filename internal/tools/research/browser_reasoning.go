@@ -455,15 +455,18 @@ func queryScopedBrowserFacts(ctx context.Context, kernel types.Kernel, query, pr
 				return err
 			}
 			scanned++
+			if scanned > maxBrowserKernelScan {
+				return errBrowserKernelScanLimit
+			}
 			if fact.Predicate == predicate && len(fact.Args) > 0 && fmt.Sprint(fact.Args[0]) == sessionID {
 				result = append(result, types.Fact{Predicate: fact.Predicate, Args: append([]any(nil), fact.Args...)})
 			}
-			if scanned >= maxBrowserKernelScan {
-				return errBrowserKernelScanLimit
-			}
 			return nil
 		})
-		if err != nil && !errors.Is(err, errBrowserKernelScanLimit) {
+		if err != nil {
+			if errors.Is(err, errBrowserKernelScanLimit) {
+				return result, errBrowserKernelScanLimit
+			}
 			return nil, err
 		}
 		return result, nil
@@ -476,7 +479,10 @@ func queryScopedBrowserFacts(ctx context.Context, kernel types.Kernel, query, pr
 		return nil, err
 	}
 	result := make([]types.Fact, 0, len(facts))
-	for _, fact := range facts {
+	for index, fact := range facts {
+		if index >= maxBrowserKernelScan {
+			return result, errBrowserKernelScanLimit
+		}
 		if fact.Predicate != predicate || len(fact.Args) == 0 || fmt.Sprint(fact.Args[0]) != sessionID {
 			continue
 		}

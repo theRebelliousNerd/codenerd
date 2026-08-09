@@ -29,6 +29,8 @@ func BrowserObserveTool() *tools.Tool {
 				"internal_only": {Type: "boolean", Description: "For nav mode, omit external origins", Default: false},
 				"full_page":     {Type: "boolean", Description: "For screenshot mode, capture the full page", Default: false},
 				"save_path":     {Type: "string", Description: "For screenshot mode, optional path under configured writable roots"},
+				"include_specs": {Type: "boolean", Description: "Attach bounded route/term-matched workspace spec context", Default: false},
+				"spec_terms":    {Type: "array", Description: "Optional bounded spec relevance terms", Items: &tools.PropertyItems{Type: "string"}},
 			},
 		},
 	}
@@ -46,6 +48,14 @@ func executeBrowserObserve(ctx context.Context, args map[string]any) (string, er
 	})
 	if err != nil {
 		return "", fmt.Errorf("browser observe: %w", err)
+	}
+	if boolArg(args, "include_specs", false) && observation.SessionID != "" {
+		matches, matchErr := browserSpecContext(ctx, getBrowserManager(), observation.SessionID, stringSliceArg(args["spec_terms"]))
+		if matchErr != nil {
+			observation.Data["spec_context_error"] = matchErr.Error()
+		} else {
+			observation.Data["spec_context"] = matches
+		}
 	}
 	recordBrowserToolEvidence(observation.SessionID, "observe", map[string]any{
 		"mode": observation.Mode, "view": observation.View, "summary": observation.Summary,
@@ -71,6 +81,8 @@ func BrowserActTool() *tools.Tool {
 				"stop_on_error": {Type: "boolean", Description: "Stop after the first failed operation", Default: true},
 				"view":          {Type: "string", Description: "Result disclosure depth", Default: "compact", Enum: []any{"summary", "compact", "full"}},
 				"max_items":     {Type: "integer", Description: "Maximum per-operation results returned", Default: 20},
+				"include_specs": {Type: "boolean", Description: "Attach bounded route/term-matched workspace spec context after the plan", Default: false},
+				"spec_terms":    {Type: "array", Description: "Optional bounded spec relevance terms", Items: &tools.PropertyItems{Type: "string"}},
 			},
 		},
 	}
@@ -125,6 +137,14 @@ func executeBrowserAct(ctx context.Context, args map[string]any) (string, error)
 	}
 	if results != nil {
 		output["results"] = results
+	}
+	if boolArg(args, "include_specs", false) && execution.SessionID != "" {
+		matches, matchErr := browserSpecContext(ctx, getBrowserManager(), execution.SessionID, stringSliceArg(args["spec_terms"]))
+		if matchErr != nil {
+			output["spec_context_error"] = matchErr.Error()
+		} else {
+			output["spec_context"] = matches
+		}
 	}
 	recordBrowserToolEvidence(execution.SessionID, "act", map[string]any{
 		"success": execution.Success, "status": execution.Status, "started_ms": execution.StartedMS,

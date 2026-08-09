@@ -13,8 +13,14 @@ func TestGetBrowserConfigDefaultsAndExplicitIsolation(t *testing.T) {
 	if defaults.EvidenceEnabled == nil || !*defaults.EvidenceEnabled || defaults.MaxEvidenceFiles != 16 || defaults.MaxEvidenceFileBytes != 4<<20 {
 		t.Fatalf("unexpected browser evidence defaults: %+v", defaults)
 	}
+	if !defaults.Specs.IsEnabled() || defaults.Specs.MaxFiles != 2000 || defaults.Specs.MaxResults != 12 {
+		t.Fatalf("unexpected browser spec defaults: %+v", defaults.Specs)
+	}
 
 	shared := false
+	specConfig := defaults.Specs
+	specConfig.Enabled = boolConfigPointer(false)
+	specConfig.MaxFiles = 9000
 	cfg := (&UserConfig{Browser: &BrowserAutomationConfig{
 		MultiTabDefault:      &shared,
 		MaxTabs:              7,
@@ -22,6 +28,7 @@ func TestGetBrowserConfigDefaultsAndExplicitIsolation(t *testing.T) {
 		IdleTabTimeoutMs:     5000,
 		MaxEvidenceFiles:     3,
 		MaxEvidenceFileBytes: 1024,
+		Specs:                specConfig,
 	}}).GetBrowserConfig()
 	if cfg.MultiTabDefault == nil || *cfg.MultiTabDefault {
 		t.Fatal("explicit multi_tab_default=false was not preserved")
@@ -34,6 +41,9 @@ func TestGetBrowserConfigDefaultsAndExplicitIsolation(t *testing.T) {
 	}
 	if cfg.MaxEvidenceFiles != 3 || cfg.MaxEvidenceFileBytes != 1024 {
 		t.Fatalf("explicit evidence limits were not preserved: %+v", cfg)
+	}
+	if cfg.Specs.IsEnabled() || cfg.Specs.MaxFiles != 5000 {
+		t.Fatalf("explicit browser spec config was not preserved/capped: %+v", cfg.Specs)
 	}
 }
 
@@ -63,5 +73,8 @@ func TestGetBrowserConfigNormalizesInvalidLimits(t *testing.T) {
 	}}).GetBrowserConfig()
 	if capped.MaxEvidenceFiles != 256 || capped.MaxEvidenceFileBytes != 64<<20 {
 		t.Fatalf("evidence hard caps were not enforced: %+v", capped)
+	}
+	if capped.Specs.MaxFiles != 2000 || capped.Specs.MaxExcerptBytes != 1200 {
+		t.Fatalf("browser spec defaults were not normalized: %+v", capped.Specs)
 	}
 }

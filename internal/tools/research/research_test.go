@@ -122,6 +122,14 @@ func TestBrowserEvidenceTool_Definition(t *testing.T) {
 	}
 }
 
+func TestBrowserSpecsTool_Definition(t *testing.T) {
+	t.Parallel()
+	tool := BrowserSpecsTool()
+	if tool.Name != "browser_specs" || tool.Execute == nil || len(tool.Schema.Properties["operation"].Enum) != 3 {
+		t.Fatalf("unexpected browser specs definition: %+v", tool)
+	}
+}
+
 func TestDecodeActionOperations_RejectsInvalidAndDecodesFields(t *testing.T) {
 	t.Parallel()
 	if _, err := decodeActionOperations(nil); err == nil {

@@ -18,3 +18,6 @@
 - Browser evidence settings govern a redacted, rotated, current-user-only JSONL
   recorder under the workspace. Preserve default-on pointer semantics and hard
   file-count/file-size ceilings when adding config migrations or wizards.
+- Native browser `specs` config is a nested bounded catalog. Preserve enabled
+  pointer semantics and workspace-only roots; configuration must not grant
+  arbitrary filesystem read authority.

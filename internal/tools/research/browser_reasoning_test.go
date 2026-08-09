@@ -3,6 +3,7 @@ package research
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -102,6 +103,17 @@ func TestValidateBrowserQueryRejectsGeneralKernelAndRules(t *testing.T) {
 	}
 	if predicate, err := validateBrowserQuery("failed_request_at(S, R, U, Status, T)."); err != nil || predicate != "failed_request_at" {
 		t.Fatalf("valid browser query = %q, %v", predicate, err)
+	}
+}
+
+func TestQueryScopedBrowserFactsReportsScanTruncation(t *testing.T) {
+	facts := make([]types.Fact, maxBrowserKernelScan+1)
+	for index := range facts {
+		facts[index] = types.Fact{Predicate: "console_event", Args: []any{"other-session", "error", index, int64(index)}}
+	}
+	kernel := &browserReasoningKernel{facts: facts}
+	if _, err := queryScopedBrowserFacts(context.Background(), kernel, "console_event", "console_event", "session-a"); !errors.Is(err, errBrowserKernelScanLimit) {
+		t.Fatalf("expected explicit scan limit, got %v", err)
 	}
 }
 

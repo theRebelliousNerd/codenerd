@@ -13,6 +13,7 @@ import (
 	"time"
 
 	browsersecurity "codenerd/internal/browser/security"
+	browserspec "codenerd/internal/browser/specs"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 
@@ -90,28 +91,29 @@ func (t *eventThrottler) Allow(key string) bool {
 
 // Config holds browser configuration.
 type Config struct {
-	DebuggerURL           string   `json:"debugger_url"`
-	Launch                []string `json:"launch"`
-	Headless              bool     `json:"headless"`
-	ViewportWidth         int      `json:"viewport_width"`
-	ViewportHeight        int      `json:"viewport_height"`
-	NavigationTimeoutMs   int      `json:"navigation_timeout_ms"`
-	SessionStore          string   `json:"session_store"`
-	EventLoggingLevel     string   `json:"event_logging_level"` // minimal, normal, verbose
-	EnableDOMIngestion    bool     `json:"enable_dom_ingestion"`
-	EnableHeaderIngestion bool     `json:"enable_header_ingestion"`
-	EventThrottleMs       int      `json:"event_throttle_ms"`
-	MultiTabDefault       *bool    `json:"multi_tab_default,omitempty"`
-	MaxTabs               int      `json:"max_tabs,omitempty"`
-	MaxBrowsers           int      `json:"max_browsers,omitempty"`
-	IdleTabTimeoutMs      int      `json:"idle_tab_timeout_ms,omitempty"`
-	ExtraSensitiveKeys    []string `json:"extra_sensitive_keys,omitempty"`
-	WorkspaceRoot         string   `json:"workspace_root,omitempty"`
-	WritableRoots         []string `json:"writable_roots,omitempty"`
-	EvidenceEnabled       *bool    `json:"evidence_enabled,omitempty"`
-	EvidenceDir           string   `json:"evidence_dir,omitempty"`
-	MaxEvidenceFiles      int      `json:"max_evidence_files,omitempty"`
-	MaxEvidenceFileBytes  int64    `json:"max_evidence_file_bytes,omitempty"`
+	DebuggerURL           string             `json:"debugger_url"`
+	Launch                []string           `json:"launch"`
+	Headless              bool               `json:"headless"`
+	ViewportWidth         int                `json:"viewport_width"`
+	ViewportHeight        int                `json:"viewport_height"`
+	NavigationTimeoutMs   int                `json:"navigation_timeout_ms"`
+	SessionStore          string             `json:"session_store"`
+	EventLoggingLevel     string             `json:"event_logging_level"` // minimal, normal, verbose
+	EnableDOMIngestion    bool               `json:"enable_dom_ingestion"`
+	EnableHeaderIngestion bool               `json:"enable_header_ingestion"`
+	EventThrottleMs       int                `json:"event_throttle_ms"`
+	MultiTabDefault       *bool              `json:"multi_tab_default,omitempty"`
+	MaxTabs               int                `json:"max_tabs,omitempty"`
+	MaxBrowsers           int                `json:"max_browsers,omitempty"`
+	IdleTabTimeoutMs      int                `json:"idle_tab_timeout_ms,omitempty"`
+	ExtraSensitiveKeys    []string           `json:"extra_sensitive_keys,omitempty"`
+	WorkspaceRoot         string             `json:"workspace_root,omitempty"`
+	WritableRoots         []string           `json:"writable_roots,omitempty"`
+	EvidenceEnabled       *bool              `json:"evidence_enabled,omitempty"`
+	EvidenceDir           string             `json:"evidence_dir,omitempty"`
+	MaxEvidenceFiles      int                `json:"max_evidence_files,omitempty"`
+	MaxEvidenceFileBytes  int64              `json:"max_evidence_file_bytes,omitempty"`
+	Specs                 browserspec.Config `json:"specs,omitempty"`
 }
 
 // DefaultConfig returns sensible defaults.
@@ -131,6 +133,7 @@ func DefaultConfig() Config {
 		EvidenceEnabled:      boolPointer(true),
 		MaxEvidenceFiles:     16,
 		MaxEvidenceFileBytes: 4 << 20,
+		Specs:                browserspec.DefaultConfig(),
 	}
 }
 
@@ -250,6 +253,7 @@ type SessionManager struct {
 	redactor     *browsersecurity.Redactor
 	pathPolicy   *browsersecurity.PathPolicy
 	recorder     *FlightRecorder
+	specCatalog  *browserspec.Catalog
 	pendingTabs  int
 }
 
@@ -288,8 +292,35 @@ func newSessionManager(cfg Config, sink EngineSink) *SessionManager {
 			manager.recorder = recorder
 		}
 	}
+	if cfg.Specs.IsEnabled() && strings.TrimSpace(cfg.WorkspaceRoot) != "" {
+		catalog, catalogErr := browserspec.NewCatalog(cfg.WorkspaceRoot, cfg.Specs)
+		if catalogErr != nil {
+			logging.BrowserWarn("Browser spec catalog unavailable: %v", catalogErr)
+		} else {
+			manager.specCatalog = catalog
+		}
+	}
 	return manager
 }
+
+// LoadSpecs loads the bounded workspace browser specification catalog.
+func (m *SessionManager) LoadSpecs(ctx context.Context) (browserspec.LoadResult, error) {
+	if m == nil || m.specCatalog == nil {
+		return browserspec.LoadResult{}, fmt.Errorf("browser specs are disabled or unavailable")
+	}
+	return m.specCatalog.Load(ctx)
+}
+
+// SpecsConfig returns the normalized catalog delivery limits.
+func (m *SessionManager) SpecsConfig() browserspec.Config {
+	if m == nil || m.specCatalog == nil {
+		return browserspec.Config{}
+	}
+	return m.specCatalog.Config()
+}
+
+// SpecsEnabled reports whether the manager has a usable workspace catalog.
+func (m *SessionManager) SpecsEnabled() bool { return m != nil && m.specCatalog != nil }
 
 // ResolveOutputPath confines a browser artifact to configured writable roots.
 func (m *SessionManager) ResolveOutputPath(requested, defaultRoot, defaultName string) (string, error) {

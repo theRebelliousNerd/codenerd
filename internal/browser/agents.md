@@ -21,6 +21,9 @@
   ceilings. Request lifecycle evidence must remain paired.
 - Explicit evidence exports create new files only; never overwrite an existing
   path selected by the model.
+- Browser spec roots, indexes, and Markdown links are read-only and confined to
+  the active workspace through symlinks. Keep catalog/check limits hard and
+  evaluate invariants only through the live kernel's browser allowlist.
 - Progressive observations must be token-bounded and issue only opaque,
   session-scoped refs. Navigation invalidates the ref generation; actions must
   re-identify through the private fingerprint registry and fail closed when a

@@ -41,19 +41,19 @@ Binding adaptation rules:
 | BP-18 | Confined model-directed writes | Symlink-aware writable-root policy; current-user-only CLI, screenshot, and evidence artifacts on Windows and Unix | partial | Screenshot/evidence/spec outputs resolve under allowed roots and reject traversal/symlink escapes |
 | BP-19 | Unsafe JavaScript gate | No arbitrary JS tool | missing | Disabled by default; enabling config alone is insufficient without constitutional approval |
 | BP-20 | Bounded runtime evidence and flight recorder | Default-on redacted JSONL recorder with per-session reads, rotation/pruning, confined export, hard scan/result ceilings, and live Chrome/ACL proof | done | Bounded route/toast/console/request evidence and redacted owner-only JSONL traces |
-| BP-21 | Configurable spec delivery and conformance | Architecture corpus exists; no browser spec tools | missing | `browser_specs` discovers bounded workspace docs and runs declared invariants |
+| BP-21 | Configurable spec delivery and conformance | Native `browser_specs` lists/ranks named workspace corpora, parses native and BrowserNERD-compatible invariants, and checks bounded single atoms against the live session kernel; live Chrome proof passes | done | `browser_specs` discovers bounded workspace docs and runs declared invariants |
 | BP-22 | Declarative browser tests and generation | Go lifecycle tests only | partial | Create/inspect/run declarative tests plus bounded generation and live execution proof |
 | BP-23 | Console, toast, request, and stability diagnosis | `browser_reason` returns bounded live-kernel failures, correlations, contradictions, blockers, changes, and recommendations; live session-isolation proof passes | done | `browser_reason` returns bounded correlated findings from fresh facts |
 | BP-24 | Contract audit and repository trace | No browser contract/repo tracing | missing | Bounded non-mutating discovery, explicit mutating approval, evidence, and source-path findings |
 | BP-25 | Docker log correlation | No browser-facing correlation | missing | Optional configured containers correlate runtime errors without becoming a hard dependency |
-| BP-26 | Delivery evaluation | Unit/race/live Chrome gates cover lifecycle, progressive actions, fresh waits, same-kernel queries, session isolation, and diagnosis; declarative/competitor evaluation remains | partial | Unit, race, live Chrome, declarative, security, and token-budget gates are reproducible |
+| BP-26 | Delivery evaluation | Unit/race/live Chrome gates cover lifecycle, progressive actions, fresh waits, same-kernel queries, session isolation, diagnosis, evidence, and spec conformance; declarative/competitor evaluation remains | partial | Unit, race, live Chrome, declarative, security, and token-budget gates are reproducible |
 
 ## Delivery order
 
 1. **BPAR-1 — runtime truth and lifecycle.** Live-kernel sink, one shared manager route, multi-browser/tab lifecycle, close/focus, limits, cancellation, redaction, path policy.
 2. **BPAR-2 — progressive observation and action.** Stable refs, bounded state/nav/interactive/grid/hidden views, fill/key/history, `browser_observe` and `browser_act`, JIT atoms.
 3. **BPAR-3 — reasoning and waits (complete).** Live-kernel read-only `browser_mangle`, bounded fresh waits, `browser_reason`, session-scoped diagnosis, temporal evidence.
-4. **BPAR-4 — evidence, specs, and declarative tests (in progress).** Flight recorder complete; spec delivery/conformance and browser test create/inspect/run/generate remain.
+4. **BPAR-4 — evidence, specs, and declarative tests (in progress).** Flight recorder and spec delivery/conformance complete; browser test create/inspect/run/generate remains.
 5. **BPAR-5 — audit and final proof.** Contract audit, repo trace, optional Docker correlation, security assault, live end-to-end parity matrix.
 
 ## Final parity gate

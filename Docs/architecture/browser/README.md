@@ -4,7 +4,7 @@
 > Status: Living Reference Document — code-grounded full corpus  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/browser/`  
-> Scale: **13** checked-in non-test Go files ≈ **5,160** lines (**12** per platform); **13** package test files; **0** package-local `.mg`
+> Scale: **16** checked-in non-test Go files ≈ **6,331** lines (**15** per platform); **15** package test files; **0** package-local `.mg`
 > Companion Mangle: `internal/core/defaults/schemas_browser.mg`, `policy/browser.mg`, `policy/browser_honeypot.mg`
 
 ## Scope
@@ -67,7 +67,8 @@ Native lifecycle/security settings live in `.nerd/config.json` under
 `browser` (not `integrations.servers.browser`), including
 `multi_tab_default`, `max_tabs`, `max_browsers`, `idle_tab_timeout_ms`,
 `extra_sensitive_keys`, `writable_roots`, `evidence_enabled`, `evidence_dir`,
-`max_evidence_files`, and `max_evidence_file_bytes`.
+`max_evidence_files`, `max_evidence_file_bytes`, and the nested bounded
+`specs` catalog (`sources`, roots/indexes/globs, and delivery ceilings).
 
 Agent-facing progressive behavior is native and JIT-selected:
 `browser_observe` returns bounded slices and opaque generation-bound refs;
@@ -76,6 +77,10 @@ Agent-facing progressive behavior is native and JIT-selected:
 `browser_reason` and read-only `browser_mangle` consume session-scoped evidence
 from the same Cortex kernel that receives browser facts. `browser_evidence`
 reads or explicitly exports bounded redacted per-session JSONL provenance.
+`browser_specs` lists/ranks workspace-confined Markdown and checks declared
+single-atom present/absent invariants against that same live session kernel.
+`browser_observe` and `browser_act` can attach ranked excerpts with
+`include_specs` and bounded `spec_terms`.
 
 ### Manual CLI smoke (optional)
 

@@ -60,7 +60,7 @@ func TestConfigGeneration_StandardIntents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to generate researcher config: %v", err)
 	}
-	assertContainsAll(t, researchCfg.AllowedTools, []string{"browser_observe", "browser_act", "browser_mangle", "browser_wait", "browser_reason", "browser_evidence"}, "Researcher")
+	assertContainsAll(t, researchCfg.AllowedTools, []string{"browser_observe", "browser_act", "browser_mangle", "browser_wait", "browser_reason", "browser_evidence", "browser_specs"}, "Researcher")
 }
 
 func TestDefaultConfigAtomProvider_ProgressiveBrowserToolsReachResearchAndVerify(t *testing.T) {
@@ -70,7 +70,7 @@ func TestDefaultConfigAtomProvider_ProgressiveBrowserToolsReachResearchAndVerify
 		if !ok {
 			t.Fatalf("missing config atom for %s", intent)
 		}
-		assertContainsAll(t, atom.Tools, []string{"browser_observe", "browser_act", "browser_mangle", "browser_wait", "browser_reason", "browser_evidence"}, intent)
+		assertContainsAll(t, atom.Tools, []string{"browser_observe", "browser_act", "browser_mangle", "browser_wait", "browser_reason", "browser_evidence", "browser_specs"}, intent)
 	}
 }
 

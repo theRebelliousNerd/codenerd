@@ -62,6 +62,28 @@ document.getElementById('trigger').addEventListener('click', async () => {
 		t.Fatalf("NewRealKernel: %v", err)
 	}
 	workspace := t.TempDir()
+	specRoot := filepath.Join(workspace, ".nerd", "browser", "specs")
+	if err := os.MkdirAll(specRoot, 0o700); err != nil {
+		t.Fatalf("create live spec root: %v", err)
+	}
+	liveSpec := `---
+name: BPAR live failure contract
+binding:
+  - { kind: route, target: / }
+invariants:
+  - name: visible-error-correlated
+    query: "user_visible_error(S, Kind, Message, Timestamp)"
+    expect: present
+  - name: no-fatal-console
+    query: "console_event(S, \"fatal\", Message, Timestamp)"
+    expect: absent
+---
+# BPAR live failure contract
+The test route must correlate its expected failure without a fatal console event.
+`
+	if err := os.WriteFile(filepath.Join(specRoot, "live-failure.md"), []byte(liveSpec), 0o600); err != nil {
+		t.Fatalf("write live spec: %v", err)
+	}
 	cfg := browser.DefaultConfig()
 	cfg.Headless = true
 	cfg.EventThrottleMs = 10
@@ -84,19 +106,26 @@ document.getElementById('trigger').addEventListener('click', async () => {
 
 	observeRaw, err := research.BrowserObserveTool().Execute(ctx, map[string]any{
 		"session_id": session.ID, "mode": "interactive", "view": "compact", "max_items": 10,
+		"include_specs": true, "spec_terms": []any{"failure"},
 	})
 	if err != nil {
 		t.Fatalf("browser_observe: %v", err)
+	}
+	if !strings.Contains(observeRaw, `"spec_context"`) || !strings.Contains(observeRaw, "BPAR live failure contract") {
+		t.Fatalf("browser_observe missing spec context: %s", observeRaw)
 	}
 	triggerRef := findInteractiveRef(t, observeRaw, "Trigger failure")
 
 	actRaw, err := research.BrowserActTool().Execute(ctx, map[string]any{
 		"session_id": session.ID,
 		"operations": []any{map[string]any{"type": "interact", "ref": triggerRef, "action": "click"}},
-		"view":       "full",
+		"view":       "full", "include_specs": true,
 	})
 	if err != nil {
 		t.Fatalf("browser_act: %v", err)
+	}
+	if !strings.Contains(actRaw, `"spec_context"`) {
+		t.Fatalf("browser_act missing spec context: %s", actRaw)
 	}
 	var act map[string]any
 	if err := json.Unmarshal([]byte(actRaw), &act); err != nil {
@@ -155,6 +184,19 @@ document.getElementById('trigger').addEventListener('click', async () => {
 	})
 	if err != nil || !strings.Contains(mangleRaw, "/fail") || !strings.Contains(mangleRaw, "503") {
 		t.Fatalf("browser_mangle live query: %v, %s", err, mangleRaw)
+	}
+
+	specGetRaw, err := research.BrowserSpecsTool().Execute(ctx, map[string]any{
+		"operation": "get", "session_id": session.ID, "terms": []any{"failure"}, "view": "full",
+	})
+	if err != nil || !strings.Contains(specGetRaw, "BPAR live failure contract") {
+		t.Fatalf("browser_specs live get: %v, %s", err, specGetRaw)
+	}
+	specCheckRaw, err := research.BrowserSpecsTool().Execute(ctx, map[string]any{
+		"operation": "check", "session_id": session.ID, "view": "full", "diagnose_on_failure": false,
+	})
+	if err != nil || !strings.Contains(specCheckRaw, `"status":"passed"`) || !strings.Contains(specCheckRaw, `"checked":2`) {
+		t.Fatalf("browser_specs live check: %v, %s", err, specCheckRaw)
 	}
 
 	evidenceRaw, err := research.BrowserEvidenceTool().Execute(ctx, map[string]any{

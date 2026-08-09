@@ -23,11 +23,11 @@ go test ./internal/tools/research/ -run Browser -count=1
 # Live progressive modular registry route
 go test -tags=integration ./internal/tools/research/ -run TestBrowserProgressiveTools_Live -count=1
 
-# Live BPAR-3/BPAR-4 evidence route: observe → act → waits → reason/query → private evidence read/export
+# Live BPAR-3/BPAR-4 route: observe/spec context → act → waits → reason/query → private evidence → spec conformance
 go test -tags=integration ./internal/tools/research/ -run TestBrowserReasoningToolsLiveCortexRoute -count=1 -v
 
 # Focused race gate
-go test -race ./internal/browser ./internal/tools/research ./internal/prompt ./internal/prompt/sync
+go test -race ./internal/browser/... ./internal/tools/research ./internal/prompt ./internal/prompt/sync
 ```
 
 ## 2. Test file map
@@ -44,10 +44,13 @@ go test -race ./internal/browser ./internal/tools/research ./internal/prompt ./i
 | `progressive_action_test.go` | — | Hard bounds, closed modes, stop-on-error |
 | `flight_recorder_test.go` | — | Recursive redaction, row/read limits, rotation/pruning, session isolation, confined export |
 | `security/path_policy_test.go` | — | Traversal/symlink refusal and actual current-user-only platform permissions |
+| `specs/parser_test.go` | — | Native and BrowserNERD-compatible invariants plus YAML alias/depth/query/count bounds |
+| `specs/catalog_test.go` | — | Named sources, index ordering, ranking/ranges, hard file/byte/entry limits, traversal and symlink escape |
 | `internal/tools/research/browser_progressive_live_test.go` | `integration` | Live registry route: all BPAR-2 views/actions, secret sink/result check, confined screenshot |
 | `internal/tools/research/browser_reasoning_test.go` | — | Query allowlist, bounds, fresh waits, stability, reason views, session isolation, stale-fact refusal |
 | `internal/tools/research/browser_evidence_test.go` | — | Bounded read/export tool output and pre-persistence credential redaction |
-| `internal/tools/research/browser_reasoning_live_test.go` | `integration` | Production-shaped Cortex route: observe/act, waits, derived reason, foreign-session exclusion, same-kernel query, bounded recorder read, private export ACL |
+| `internal/tools/research/browser_specs_test.go` | — | List/get/check contracts, live-kernel-only guard, invalid query/expect handling, redacted bounded output, and truncated-catalog refusal |
+| `internal/tools/research/browser_reasoning_live_test.go` | `integration` | Production-shaped Cortex route: observe/act with spec context, waits, derived reason, foreign-session exclusion, same-kernel query/spec check, bounded recorder read, private export ACL |
 | `internal/core/defaults/policy/browser_reasoning_test.go` | — | Real-Mangle typed and session-scoped failure/root-cause/visible-error/blocker derivation |
 
 ## 3. Coverage strengths
@@ -57,7 +60,7 @@ go test -race ./internal/browser ./internal/tools/research ./internal/prompt ./i
 - Honeypot rule table against real `.mg` files (not duplicated rule strings alone).  
 - Persist/load round-trip of SessionStore.  
 - Explicit concurrency smoke on map + throttler.
-- Same-Cortex live proof for fact ingestion, derived diagnosis, query, fresh waits, recorder read/export, platform privacy, and cross-session exclusion.
+- Same-Cortex live proof for fact ingestion, derived diagnosis, query, fresh waits, recorder read/export, platform privacy, spec retrieval/conformance, and cross-session exclusion.
 
 ## 4. Coverage gaps
 

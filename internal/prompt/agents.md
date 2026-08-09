@@ -19,3 +19,6 @@
 - Browser flight-recorder guidance lives in
   `atoms/capability/browser_evidence.yaml`; preserve provenance, truncation,
   redaction, owner-only persistence, and writable-root confinement.
+- Browser spec guidance lives in `atoms/capability/browser_specs.yaml`; keep
+  delivery workspace-confined and invariant checks read-only against the live
+  Cortex browser allowlist.

@@ -75,6 +75,15 @@
 - `browser_evidence` performs explicit bounded status/read/export operations;
   exports are confined and current-user-only.
 
+### Spec delivery
+
+- `browser_specs` reports corpus scope as specs/files/directory entries/bytes
+  scanned, warnings, and catalog/result truncation.
+- List/get return ranked compact metadata and bounded redacted excerpts;
+  observe/act spec context carries the same scope fields.
+- Check reports checked/skipped/violations plus `passed`, `failed`, `no_checks`,
+  or `incomplete`; warnings or truncation can never become a clean pass.
+
 ### Honeypot
 
 - Info: analysis start/complete counts  
@@ -98,6 +107,8 @@ Additional knobs:
 - `EvidenceDir` (default `.nerd/browser/traces`)
 - `MaxEvidenceFiles` (default 16)
 - `MaxEvidenceFileBytes` (default 4 MiB)
+- `Specs` (default enabled under `.nerd/browser/specs`, with normalized source,
+  file, byte, result, excerpt, catalog, warning, and traversal ceilings)
 
 ## 5. Operator artifacts
 
@@ -109,6 +120,7 @@ Additional knobs:
 | Allowed writable-root screenshot path | Progressive screenshot evidence; owner-only file with digest metadata |
 | `.nerd/browser/traces/flight_<session>*.jsonl` | Rotated redacted per-session flight evidence |
 | `.nerd/browser/traces/exports/*.jsonl` | Explicit bounded owner-only evidence selection |
+| `.nerd/browser/specs/*.md` | Read-only configured spec input; not written by the runtime |
 
 ## 6. Metrics / glass box
 
@@ -124,3 +136,4 @@ No dedicated Prometheus counters in package. Glass box / tool event bus may obse
 6. If an action ref is stale, observe again and use the new generation's ref.
 7. If a wait times out, compare its `since_ms` watermark with recent session-scoped event timestamps; do not disable freshness to mask a missing event.
 8. Use `browser_evidence status/read` before export; a disabled recorder or truncated scan is explicit in the tool result/error.
+9. Inspect `browser_specs` warnings and catalog scope before trusting a check; `incomplete` means the requested corpus was not fully proven.

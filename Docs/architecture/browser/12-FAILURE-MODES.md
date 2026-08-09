@@ -169,3 +169,19 @@
 | **Symptom** | `browser_evidence` reports disabled, a truncated bounded result, or refuses an export path |
 | **Cause** | Workspace-less/disabled recorder, row/read/scan/file ceilings, an existing export target, or writable-root traversal/symlink confinement |
 | **Mitigation** | Configure the native browser evidence block; narrow by session/type/time; choose a new export path below configured writable roots; never bypass the privacy policy |
+
+## FM-22 — Spec catalog disabled, invalid, or incomplete
+
+| | |
+|--|--|
+| **Symptom** | `browser_specs` is unavailable, warns about documents, reports truncation, or returns `incomplete` instead of passing conformance |
+| **Cause** | Workspace-less/disabled catalog, missing root, invalid/oversized Markdown or YAML, alias/depth/count limit, or configured file/byte/entry/result ceiling |
+| **Mitigation** | Configure nested `browser.specs`, repair or narrow the workspace corpus, and rerun until warnings/truncation are absent; never reinterpret incomplete as passed |
+
+## FM-23 — Spec path or invariant rejected
+
+| | |
+|--|--|
+| **Symptom** | Discovery refuses a root/index/link, or a check records an invalid query/expect as a violation |
+| **Cause** | Absolute/traversal/symlink workspace escape, a non-single-atom/general predicate query, missing SessionID scope, unsupported expectation, or live-kernel scan ceiling |
+| **Mitigation** | Keep all sources under the active workspace; use `present` or `absent` with one allowlisted session-scoped browser atom; narrow live evidence rather than bypassing the limit |

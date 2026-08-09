@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	browserspec "codenerd/internal/browser/specs"
 	"codenerd/internal/features"
 	"codenerd/internal/logging"
 )
@@ -1221,22 +1222,23 @@ func (c *UserConfig) GetIntegrations() IntegrationsConfig {
 
 // BrowserAutomationConfig controls codeNERD's native Rod browser manager.
 type BrowserAutomationConfig struct {
-	DebuggerURL          string   `json:"debugger_url,omitempty"`
-	Launch               []string `json:"launch,omitempty"`
-	Headless             bool     `json:"headless,omitempty"`
-	ViewportWidth        int      `json:"viewport_width,omitempty"`
-	ViewportHeight       int      `json:"viewport_height,omitempty"`
-	NavigationTimeoutMs  int      `json:"navigation_timeout_ms,omitempty"`
-	MultiTabDefault      *bool    `json:"multi_tab_default,omitempty"`
-	MaxTabs              int      `json:"max_tabs,omitempty"`
-	MaxBrowsers          int      `json:"max_browsers,omitempty"`
-	IdleTabTimeoutMs     int      `json:"idle_tab_timeout_ms,omitempty"`
-	ExtraSensitiveKeys   []string `json:"extra_sensitive_keys,omitempty"`
-	WritableRoots        []string `json:"writable_roots,omitempty"`
-	EvidenceEnabled      *bool    `json:"evidence_enabled,omitempty"`
-	EvidenceDir          string   `json:"evidence_dir,omitempty"`
-	MaxEvidenceFiles     int      `json:"max_evidence_files,omitempty"`
-	MaxEvidenceFileBytes int64    `json:"max_evidence_file_bytes,omitempty"`
+	DebuggerURL          string             `json:"debugger_url,omitempty"`
+	Launch               []string           `json:"launch,omitempty"`
+	Headless             bool               `json:"headless,omitempty"`
+	ViewportWidth        int                `json:"viewport_width,omitempty"`
+	ViewportHeight       int                `json:"viewport_height,omitempty"`
+	NavigationTimeoutMs  int                `json:"navigation_timeout_ms,omitempty"`
+	MultiTabDefault      *bool              `json:"multi_tab_default,omitempty"`
+	MaxTabs              int                `json:"max_tabs,omitempty"`
+	MaxBrowsers          int                `json:"max_browsers,omitempty"`
+	IdleTabTimeoutMs     int                `json:"idle_tab_timeout_ms,omitempty"`
+	ExtraSensitiveKeys   []string           `json:"extra_sensitive_keys,omitempty"`
+	WritableRoots        []string           `json:"writable_roots,omitempty"`
+	EvidenceEnabled      *bool              `json:"evidence_enabled,omitempty"`
+	EvidenceDir          string             `json:"evidence_dir,omitempty"`
+	MaxEvidenceFiles     int                `json:"max_evidence_files,omitempty"`
+	MaxEvidenceFileBytes int64              `json:"max_evidence_file_bytes,omitempty"`
+	Specs                browserspec.Config `json:"specs,omitempty"`
 }
 
 // DefaultBrowserAutomationConfig returns BrowserNERD-compatible lifecycle defaults.
@@ -1252,6 +1254,7 @@ func DefaultBrowserAutomationConfig() BrowserAutomationConfig {
 		EvidenceEnabled:      boolConfigPointer(true),
 		MaxEvidenceFiles:     16,
 		MaxEvidenceFileBytes: 4 << 20,
+		Specs:                browserspec.DefaultConfig(),
 	}
 }
 
@@ -1298,6 +1301,7 @@ func (c *UserConfig) GetBrowserConfig() BrowserAutomationConfig {
 	} else if cfg.MaxEvidenceFileBytes > 64<<20 {
 		cfg.MaxEvidenceFileBytes = 64 << 20
 	}
+	cfg.Specs = cfg.Specs.Normalize()
 	return cfg
 }
 

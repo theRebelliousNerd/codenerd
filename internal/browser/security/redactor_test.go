@@ -14,6 +14,7 @@ func TestRedactorSanitizesBrowserEvidence(t *testing.T) {
 	}{
 		{name: "authorization", value: "Bearer abc.def-123", deny: "abc.def-123"},
 		{name: "query", value: "https://example.test/?api_key=secret-value&safe=yes", deny: "secret-value"},
+		{name: "embedded query", value: "Open https://example.test/callback?token=secret-value after login.", deny: "secret-value"},
 		{name: "assignment", value: "password=hunter2", deny: "hunter2"},
 		{name: "jwt", value: "eyJabcdefghijk.abcdefghijk.abcdefghijk", deny: "eyJabcdefghijk"},
 	}

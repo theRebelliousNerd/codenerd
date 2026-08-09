@@ -17,7 +17,8 @@ const Redacted = "[REDACTED]"
 var (
 	authorizationPattern = regexp.MustCompile(`(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]+`)
 	jwtPattern           = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`)
-	assignmentPattern    = regexp.MustCompile(`(?i)(password|passwd|authorization|cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret)(\s*[:=]\s*)([^&\s,;"'}]+)`)
+	assignmentPattern    = regexp.MustCompile(`(?i)(password|passwd|authorization|cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|token)(\s*[:=]\s*)([^&\s,;"'}]+)`)
+	embeddedURLPattern   = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
 )
 
 // Redactor sanitizes browser evidence before it reaches logs, facts, or disk.
@@ -65,6 +66,7 @@ func (r *Redactor) SanitizeString(value string) string {
 		return value
 	}
 	value = r.RedactURL(value)
+	value = embeddedURLPattern.ReplaceAllStringFunc(value, r.RedactURL)
 	value = authorizationPattern.ReplaceAllStringFunc(value, func(match string) string {
 		fields := strings.Fields(match)
 		if len(fields) == 0 {
