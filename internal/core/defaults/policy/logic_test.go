@@ -9,7 +9,6 @@ import (
 	"codenerd/internal/mangle"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
-	"codeberg.org/TauCeti/mangle-go/parse"
 	"go.uber.org/goleak"
 )
 
@@ -221,7 +220,7 @@ func loadEDBViaEngine(t *testing.T, eng *mangle.Engine, content string) {
 
 		// Use Mangle's parser to parse the fact string into an Atom
 		// parse.Atom returns an ast.Atom
-		parsedAtom, err := parse.Atom(line)
+		parsedAtom, err := mangle.ParseAtom(line)
 		if err != nil {
 			t.Fatalf("Failed to parse fact '%s': %v", line, err)
 		}
@@ -253,7 +252,7 @@ func checkGolden(t *testing.T, eng *mangle.Engine, goldenPath string) {
 			continue
 		}
 
-		expectedAtom, err := parse.Atom(line)
+		expectedAtom, err := mangle.ParseAtom(line)
 		if err != nil {
 			t.Fatalf("Failed to parse golden line '%s': %v", line, err)
 		}

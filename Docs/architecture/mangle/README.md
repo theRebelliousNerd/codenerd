@@ -93,9 +93,11 @@ Suppose a user asks codeNERD to fix a failing Go test.
    session budgets stop repair thrash. A parse, schema, arity, stratification, or
    protected-head failure is returned rather than silently becoming policy.
 
-**PARTIAL:** the journey still has two important seams. Raw parser calls remain in
-the sanitizer and synth compiler, outside the shared parse lock. Unified fast
-path Query/Snapshot reads also do not use the store populated by ApplyAtomDelta.
+**PARTIAL:** the journey still has one important semantic seam. Unified fast-path
+Query/Snapshot reads do not use the store populated by ApplyAtomDelta. The parser
+boundary is now **VERIFIED CURRENT**: sanitizer, synth, core, and system adapter
+production calls enter the shared parse lock, with a source guard and mixed-caller
+race regression preventing bypass.
 Differential created-fact gas parity is now **VERIFIED CURRENT** by
 `internal/mangle/differential_test.go#TestDifferentialEngine_DerivedFactsLimit`.
 Kernel zero-config parity is separately guarded by
@@ -105,7 +107,7 @@ reusable Engine's 100,000 default.
 
 ## What exists today
 
-The realized package contains 21 non-test Go files, 40 Go test files, and one
+The realized package contains 21 non-test Go files, 45 Go test files, and one
 package-local `.mg` file. `go test ./internal/mangle/... -count=1` passed on the
 reviewed tree. This is meaningful package evidence, not proof of every kernel,
 race, or long-horizon path.
@@ -117,7 +119,7 @@ race, or long-horizon path.
 | Engine wrapper, fact conversion, persistence warm-up, queries | **VERIFIED CURRENT** | `internal/mangle/engine.go#Engine`; `internal/mangle/engine_test.go#TestEngineQuery`, `internal/mangle/engine_test.go#TestDerivedFactsGasLimit` |
 | Full-path gas limit | **VERIFIED CURRENT** | `internal/mangle/engine.go#Engine.evalWithGasLimit` forwards `WithCreatedFactLimit`; its focused regression passes |
 | Differential engine and kernel opt-in | **PARTIAL** | `internal/mangle/differential.go#DifferentialEngine`, `internal/core/kernel_eval_test.go#TestKernelDifferentialEval`; result, positive-limit enforcement, and zero-config kernel ceiling parity are tested, while external/provenance options remain unsupported and use full fallback |
-| Process-wide parser lock | **PARTIAL** | `internal/mangle/parse_lock_test.go#TestParseMixed_Concurrent` covers the chokepoint, but `internal/mangle/transpiler/sanitizer.go#Sanitizer.Sanitize` and `internal/mangle/synth/compile.go#Compile` call `parse.Unit` directly |
+| Process-wide parser lock | **VERIFIED CURRENT** | `internal/mangle/parse_lock.go#ParseUnit` and `ParseAtom` are the only raw parser calls; `internal/mangle/parse_lock_test.go#TestCodeUsesSerializedMangleParser` scans the whole root Go module, including tests and function references, while `internal/mangle/parse_callers_integration_test.go#TestProductionParserCallersShareSerializedEntryPoint` passes under race |
 | Learned-rule protection | **VERIFIED CURRENT** | `internal/mangle/schema_validator.go#SchemaValidator.ValidateLearnedRule`; protected heads include permissions, approvals, and runtime pipeline facts |
 | Structured Mangle synthesis | **VERIFIED CURRENT** | `internal/mangle/synth/compile.go#Compile`, `internal/mangle/synth/validate.go#ValidateSpec`; legislator requires the single-clause schema at `internal/shards/system/legislator.go#NewLegislatorShard` |
 | Feedback and retry budgets | **VERIFIED CURRENT** | `internal/mangle/feedback/loop.go#FeedbackLoop.GenerateAndValidate`, `internal/mangle/feedback/types_test.go#TestValidationBudget_Concurrency` |
@@ -133,10 +135,10 @@ race, or long-horizon path.
 | Fact flow | **PARTIAL** | Perception and system state produce EDB facts; core derives `next_action` and `permitted/3`; VirtualStore executes and articulation responds. `internal/mangle` owns the differential adapter and reusable engine, but core's full path evaluates directly through mangle-go at `internal/core/kernel_eval.go#RealKernel.evaluateFullLocked`. |
 | JIT and agents | **PARTIAL** | The feedback loop can request context-selected predicates through `internal/mangle/feedback/loop.go#PredicateSelectorInterface`. Legislator requires structured synth; executive, constitution, and kernel hot-load feedback loops are constructed with synth off unless configured. Prompt text and token budgeting remain owned by prompt/articulation, not this package. |
 | Wiring | **PARTIAL** | Core uses the parse lock, schema validator, and opt-in differential engine. CLI/browser use the reusable engine; query UX uses proof types; mangle-lsp exposes the LSP. The package-local intent file is not the runtime boot authority, and unified fast-path read APIs have an unguarded mode boundary. |
-| State and concurrency | **PARTIAL** | `Engine` and `DifferentialEngine` guard mutable stores with mutexes; parse calls through `ParseUnit`/`ParseAtom` share one process lock. Snapshots deep-copy stratum stores rather than providing structural copy-on-write. Raw sanitizer/synth parser calls bypass the lock, so the concurrency contract is incomplete. |
+| State and concurrency | **PARTIAL** | `Engine` and `DifferentialEngine` guard mutable stores with mutexes; every production parse call routes through the process-wide `ParseUnit`/`ParseAtom` lock and a source guard enforces that boundary. Snapshots deep-copy stratum stores rather than providing structural copy-on-write, and unified read semantics remain incomplete. |
 | Recovery | **PARTIAL** | Feedback attempts have per-attempt and total deadlines plus session budgets; core invalidates differential state on policy changes/retract/clear and falls back to full evaluation; `Engine.WarmFromPersistence` restores EDB facts. There is no general automatic retry for evaluator failures, and recovery receipts are not unified. |
 | Observability | **PARTIAL** | Logs expose parse/evaluation activity, `Engine.GetStats` reports fact counts, and proof/LSP diagnostics exist. There is no single bounded evaluation receipt containing path, policy/fact fingerprints, options, fallback reason, created facts, and proof correlation. |
-| Testing | **VERIFIED CURRENT** for the package suite; **PARTIAL** system-wide | 40 test files cover engine behavior, differential result and gas parity, parser concurrency, fuzz seeds, schema gates, feedback, synth, sanitizer, LSP, and torture cases. Missing decisive gates include unified-mode Query/Snapshot behavior and a race run spanning sanitizer/synth with concurrent kernel parsing. |
+| Testing | **VERIFIED CURRENT** for the package and parser boundary; **PARTIAL** system-wide | 45 test files cover engine behavior, differential result and gas parity, parser concurrency, fuzz seeds, schema gates, feedback, synth, sanitizer, LSP, and torture cases. Mixed ParseUnit/ParseAtom/sanitizer/synth callers pass under race, and the core concurrency slice passes under race. Unified-mode Query/Snapshot behavior remains the decisive missing gate. |
 
 ## North star
 
@@ -175,8 +177,8 @@ without performing an external action. That proposal is
 `mangle-explainable-replay-v1` in [TODO.md](TODO.md).
 
 Other evidence-backed gaps remain dependency-ordered in
-[03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md): close raw parser bypasses and the unified
-read-contract bug, make the package-local intent source's status explicit, unify
+[03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md): close the unified read-contract bug,
+make the package-local intent source's status explicit, unify
 proof/provenance, and only then pursue true delta propagation.
 
 ## Choose a reading route

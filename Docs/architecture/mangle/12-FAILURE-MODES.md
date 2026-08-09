@@ -59,13 +59,13 @@
 | **Causes** | `!p` depends on `p` through cycle |
 | **Mitigation** | Rewrite rules; positive binding generators; classifier guidance |
 
-## FM8 — Parse race (historical / residual)
+## FM8 — Parse race (historical / guarded)
 
 | | |
 |--|--|
 | **Symptom** | Race detector hits in ANTLR adaptivePredict; flaky parse |
 | **Causes** | Concurrent parse.Unit without parseMu |
-| **Mitigation** | Always ParseUnit/ParseAtom; fix remaining unlocked sites (sanitizer/synth) |
+| **Mitigation** | Always ParseUnit/ParseAtom; whole-module AST guard plus mixed ParseUnit/ParseAtom/sanitizer/synth race regression |
 
 ## FM9 — Diff path incorrect with externals
 

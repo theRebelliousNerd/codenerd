@@ -123,8 +123,8 @@ required boot dependency.
 
 ## Supporting backlog, subordinate to the cards
 
-- Close direct `parse.Unit` production calls and prove mixed parser concurrency
-  under `go test -race`.
+- [x] Close direct `parse.Unit` production calls and prove mixed parser
+  concurrency under `go test -race` (2026-08-09).
 - Pin or remove the package-local intent-rule shadow after a live-runtime parity
   decision.
 - Make unified-fast-path Query/Snapshot behavior explicit and tested.

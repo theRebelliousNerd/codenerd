@@ -61,9 +61,10 @@ proves unset full/diff kernel ceilings match.
 
 **Statement:** No concurrent mutation of ANTLR global prediction state.
 
-**Enforcement:** `parseMu` around `ParseUnit` / `ParseAtom`; core delegates.
-
-**Gap:** `transpiler.Sanitizer` and `synth.Compile` may call `parse.Unit` unlocked.
+**Enforcement:** `parseMu` around `ParseUnit` / `ParseAtom`; core, sanitizer,
+synth, system adapters, and tests delegate. A whole-module AST source guard rejects
+raw parser selectors outside `parse_lock.go`, and mixed callers pass under
+`go test -race`.
 
 ### I7 — Schemas before use
 

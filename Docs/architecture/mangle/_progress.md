@@ -4,6 +4,22 @@
 |------|--------|
 | 2026-07-13 | Full corpus rebuild from `internal/mangle/` source (docs-only). Flagship `IMPLEMENTED_SPEC.md` rewritten with dense engine / differential / feedback deep dives. Canonical doc set per `Docs/architecture/_rebuild/SUBAGENT_INSTRUCTIONS.md`. Quality bar: `Docs/architecture/cli/`. |
 
+## 2026-08-09 parser concurrency boundary
+
+- Routed sanitizer, synth compiler, and both system fact adapters through the
+  process-wide `ParseUnit` chokepoint.
+- Added a whole-module AST source guard that rejects raw parser selectors outside
+  `parse_lock.go`, including test calls and function references, plus a mixed
+  ParseUnit/ParseAtom/sanitizer/synth race test.
+- Corrected `TestCortexKernel_WhenConcurrentTransactions_ShouldNotDeadlock`: it
+  previously started `Wait` before any `Add`, allowing an immediate false pass
+  and leaked workers. Five focused race repetitions and the full concurrency
+  slice now pass.
+- Verification: affected packages pass serially; mixed caller race passes five
+  repetitions; core concurrency race passes in 75.357s; vet passes. The full
+  799-test core race package reached its 10-minute package timeout without a
+  race and is not claimed green.
+
 ## Files produced (canonical set)
 
 - README.md

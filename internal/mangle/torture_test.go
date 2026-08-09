@@ -29,7 +29,6 @@ import (
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/factstore"
-	"codeberg.org/TauCeti/mangle-go/parse"
 )
 
 // =============================================================================
@@ -38,7 +37,7 @@ import (
 
 func TestTorture_Parse_EmptySchema(t *testing.T) {
 	// GCC parallel: empty translation unit should compile
-	_, err := parse.Unit(strings.NewReader(""))
+	_, err := ParseUnit(strings.NewReader(""))
 	if err != nil {
 		t.Fatalf("empty string should parse: %v", err)
 	}
@@ -46,7 +45,7 @@ func TestTorture_Parse_EmptySchema(t *testing.T) {
 
 func TestTorture_Parse_CommentOnly(t *testing.T) {
 	src := "# This is only a comment\n# Another comment\n"
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("comment-only program should parse: %v", err)
 	}
@@ -54,7 +53,7 @@ func TestTorture_Parse_CommentOnly(t *testing.T) {
 
 func TestTorture_Parse_SingleDecl(t *testing.T) {
 	src := `Decl simple(X).`
-	unit, err := parse.Unit(strings.NewReader(src))
+	unit, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("single Decl should parse: %v", err)
 	}
@@ -65,7 +64,7 @@ func TestTorture_Parse_SingleDecl(t *testing.T) {
 
 func TestTorture_Parse_DeclWithBound(t *testing.T) {
 	src := `Decl typed_pred(Name, Age, Score) bound [/string, /number, /float64].`
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("Decl with bound should parse: %v", err)
 	}
@@ -73,7 +72,7 @@ func TestTorture_Parse_DeclWithBound(t *testing.T) {
 
 func TestTorture_Parse_MultipleBoundAlternatives(t *testing.T) {
 	src := `Decl polymorphic(X, Y) bound [/string, /string] bound [/number, /number].`
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("Decl with multiple bound alternatives should parse: %v", err)
 	}
@@ -81,7 +80,7 @@ func TestTorture_Parse_MultipleBoundAlternatives(t *testing.T) {
 
 func TestTorture_Parse_DeclWithMode(t *testing.T) {
 	src := `Decl queryable(X, Y) descr [mode("-", "-")].`
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("Decl with mode descriptor should parse: %v", err)
 	}
@@ -89,7 +88,7 @@ func TestTorture_Parse_DeclWithMode(t *testing.T) {
 
 func TestTorture_Parse_GroundFact(t *testing.T) {
 	src := `Decl color(X). color(/red).`
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("ground fact should parse: %v", err)
 	}
@@ -105,7 +104,7 @@ status(/pending).
 status(/error_state).
 status(/a123).
 `
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("name constants should parse: %v", err)
 	}
@@ -118,7 +117,7 @@ Decl ancestor(X, Y).
 ancestor(X, Y) :- parent(X, Y).
 ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
 `
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("recursive rule should parse: %v", err)
 	}
@@ -131,7 +130,7 @@ Decl admin(X).
 Decl non_admin(X).
 non_admin(X) :- person(X), !admin(X).
 `
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("rule with negation should parse: %v", err)
 	}
@@ -143,7 +142,7 @@ Decl score(Name, Value).
 Decl high_score(Name).
 high_score(Name) :- score(Name, V), V >= 90.
 `
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("comparison in rule should parse: %v", err)
 	}
@@ -159,7 +158,7 @@ total_by_region(Region, Total) :-
     do fn:group_by(Region),
     let Total = fn:Sum(Amount).
 `
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("aggregation pipeline should parse: %v", err)
 	}
@@ -174,7 +173,7 @@ total_items(N) :-
     do fn:group_by(),
     let N = fn:Count().
 `
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("count aggregation should parse: %v", err)
 	}
@@ -189,7 +188,7 @@ item_tags(Item, Tags) :-
     do fn:group_by(Item),
     let Tags = fn:collect(Tag).
 `
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("collect aggregation should parse: %v", err)
 	}
@@ -201,7 +200,7 @@ Decl edge(X, Y).
 Decl has_outgoing(X).
 has_outgoing(X) :- edge(X, _).
 `
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("anonymous variable should parse: %v", err)
 	}
@@ -213,7 +212,7 @@ Decl input(X).
 Decl computed(X, Y).
 computed(X, Y) :- input(X), Y = fn:plus(X, 1).
 `
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("arithmetic builtins should parse: %v", err)
 	}
@@ -228,7 +227,7 @@ Decl via_edge(X).
 reachable(X) :- start(X).
 reachable(X) :- via_edge(X).
 `
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("multi-clause union should parse: %v", err)
 	}
@@ -243,7 +242,7 @@ func TestTorture_Parse_DeeplyNestedProgram(t *testing.T) {
 	for i := range 20 {
 		sb.WriteString("Decl chain_" + string(rune('a'+i%26)) + "(X, Y).\n")
 	}
-	_, err := parse.Unit(strings.NewReader(sb.String()))
+	_, err := ParseUnit(strings.NewReader(sb.String()))
 	if err != nil {
 		t.Fatalf("large program should parse: %v", err)
 	}
@@ -257,7 +256,7 @@ msg("Ströme").
 msg("café").
 msg("αβγ").
 `
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("unicode in strings should parse: %v", err)
 	}
@@ -267,7 +266,7 @@ func TestTorture_Parse_MixedTypesInDecl(t *testing.T) {
 	src := `
 Decl record(ID, Name, Score, Active, Updated) bound [/number, /string, /float64, /name, /string].
 `
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("mixed types in Decl should parse: %v", err)
 	}
@@ -706,7 +705,7 @@ eligible(Name, Dept, Budget, Head) :-
 func TestTorture_Error_SyntaxError(t *testing.T) {
 	// Missing period
 	src := `Decl foo(X)`
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	if err == nil {
 		t.Error("missing period should cause parse error")
 	}
@@ -715,7 +714,7 @@ func TestTorture_Error_SyntaxError(t *testing.T) {
 func TestTorture_Error_InvalidAtomSyntax(t *testing.T) {
 	// Atom starting with uppercase (variables are uppercase, predicates are lowercase)
 	src := `Decl Valid(X).`
-	_, err := parse.Unit(strings.NewReader(src))
+	_, err := ParseUnit(strings.NewReader(src))
 	// "Valid" starts with uppercase — this might be rejected as a predicate name
 	if err == nil {
 		t.Log("uppercase predicate name was accepted (may be valid in some Mangle versions)")
@@ -1326,10 +1325,6 @@ func TestTorture_TypeSystem_Infinity(t *testing.T) {
 	}
 }
 
-
-
-
-
 // TODO: Add tests for extreme arity (e.g., passing 1000 arguments to a fact).
 // TODO: Add tests for extreme length strings (e.g., passing a 10MB string as an argument).
 // TODO: Add tests for excessively large AssertBatch operations to verify memory limits.
@@ -1392,12 +1387,6 @@ func TestTorture_TypeSystem_BoolValues(t *testing.T) {
 		t.Errorf("expected 2 bool facts, got %d", len(facts))
 	}
 }
-
-
-
-
-
-
 
 // TODO: Add tests for explicit nil interface values passed as positional arguments.
 // TODO: Add tests for passing empty slices ([]any{}) where arity > 0 is expected.
@@ -2613,10 +2602,6 @@ Decl gamma(X, Y, Z).
 // =============================================================================
 // 14. ADDITIONAL CONCURRENCY TORTURE
 // =============================================================================
-
-
-
-
 
 // TODO: Add tests for asserting and retracting the exact same fact simultaneously across many goroutines.
 // TODO: Add tests querying the engine while Clear() or Close() is actively executing.

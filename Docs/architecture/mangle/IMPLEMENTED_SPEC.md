@@ -92,7 +92,7 @@ Mangle participates as the **evaluation engine** and as the **gate** on learned 
 | intent_routing.mg | **Source present** | Declarative intent routing rules |
 | Diff path + external predicates | **Partial** | Kernel **falls back** to full eval |
 | Diff path + created-fact gas | **Implemented** | `evalOptions` forwards the configured positive limit on unified atom, legacy atom, and legacy fact routes |
-| Sanitizer via ParseUnit | **Partial** | Uses `parse.Unit` directly |
+| Production parsing via ParseUnit/ParseAtom | **Implemented** | Core, sanitizer, synth, and system adapters use the shared chokepoint; source scan and mixed-caller race tests guard it |
 | True delta propagation | **Not implemented** | Re-eval / unified re-eval instead |
 
 **Overall:** living production package — **not** pre-implementation.
@@ -501,7 +501,7 @@ LLM emits **structured JSON**, not freehand Mangle:
 
 1. `DecodeSpec` — extract JSON (fenced code, piggyback surfaces).
 2. `ValidateSpec` — structural rules + options (`RequireSingleClause`, allow decls/package/use).
-3. `Compile` — render Package/Use/Decl/Clause lines → `parse.Unit` → optional `AnalyzeOneUnit`.
+3. `Compile` — render Package/Use/Decl/Clause lines → `mangle.ParseUnit` → optional `AnalyzeOneUnit`.
 4. `Result{Source, Clauses, Decls}` — FeedbackLoop takes `SingleClause()` when configured.
 
 ### 7.3 Design intent (`synth/README.md`)
@@ -523,7 +523,8 @@ Long-term: VirtualStore tool `mangle_synth_tool` so agents never emit raw Mangle
 
 `UpdateFromProgramInfo` keeps predicate type maps current after kernel rebuild.
 
-**Note:** `Sanitize` calls `parse.Unit` directly rather than `mangle.ParseUnit` — concurrent risk under race detector if mixed with locked parsers.
+**Verified:** `Sanitize` and `SanitizeAtoms` call `mangle.ParseUnit`; the same
+process-wide mutex is shared with core, synth, system adapters, and ParseAtom.
 
 ---
 
@@ -585,7 +586,11 @@ func ParseUnit(reader io.Reader) (parse.SourceUnit, error)
 func ParseAtom(s string) (ast.Atom, error)
 ```
 
-**Rule:** all packages must use these entry points. Core’s `parseUnit` delegates to `mangle.ParseUnit` (`internal/core/parse_serial.go`).
+**Rule:** all packages must use these entry points. Core’s `parseUnit`, sanitizer,
+synth compiler, and system fact adapters delegate to `mangle.ParseUnit`. An AST
+test scans the root module's Go sources, including tests and function references,
+for raw parser selectors outside `parse_lock.go`,
+and a mixed-caller integration test passes under the race detector.
 
 Parsing is cheap vs eval; serialization is not a throughput bottleneck.
 

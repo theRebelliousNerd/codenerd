@@ -47,7 +47,7 @@ internal/mangle/
 | Differential engine | **PARTIAL** | `internal/mangle/differential.go#DifferentialEngine` supports legacy strata stores and an opt-in unified store. Kernel result parity, zero-config 500,000 ceiling parity, and all three direct created-fact-limit routes are covered; external/provenance options remain full-path-only |
 | Snapshot | **VERIFIED CURRENT** for legacy mode | `internal/mangle/differential.go#DifferentialEngine.Snapshot`, `internal/mangle/differential_test.go#TestSnapshotIsolation`; it deep-copies strata stores rather than structural COW |
 | Virtual predicates | **VERIFIED CURRENT** for bound first-key loader shape | `internal/mangle/differential.go#DifferentialEngine.RegisterVirtualPredicate`, `internal/mangle/differential_test.go#TestLazyLoading` |
-| Parser lock | **PARTIAL** | `internal/mangle/parse_lock.go#ParseUnit` and `ParseAtom` share one mutex; sanitizer and synth production paths still invoke `parse.Unit` directly |
+| Parser lock | **VERIFIED CURRENT** | `internal/mangle/parse_lock.go#ParseUnit` and `ParseAtom` share one mutex; sanitizer, synth, core, system adapters, and tests route through it. `TestCodeUsesSerializedMangleParser` scans the whole root module for raw parser selectors and the mixed-caller integration test passes under race |
 | Schema/protected-head gate | **VERIFIED CURRENT** | `internal/mangle/schema_validator.go#SchemaValidator.ValidateLearnedRule` checks protected heads, learned-fact declarations, head arity, and body declarations |
 | Feedback | **VERIFIED CURRENT** | `internal/mangle/feedback/loop.go#FeedbackLoop.GenerateAndValidate` applies deadlines, retry budgets, JIT predicate selection, optional synth, sanitizer, and validator feedback |
 | Synth | **VERIFIED CURRENT** | `internal/mangle/synth/decoder.go#DecodeSpec`, `internal/mangle/synth/validate.go#ValidateSpec`, `internal/mangle/synth/compile.go#Compile` |
@@ -177,6 +177,13 @@ The follow-up P0 receipt also passed:
 ```text
 go test ./internal/mangle -run '^TestDifferentialEngine_DerivedFactsLimit$' -count=1
 go test ./internal/mangle -run '^(TestDifferentialEngine_|TestNewDifferentialEngine|TestDerivedFactsGasLimit)' -count=1
+```
+
+The 2026-08-09 parser-boundary receipt passed:
+
+```text
+go test -race ./internal/mangle -run '^Test(CodeUsesSerializedMangleParser|ProductionParserCallersShareSerializedEntryPoint)$' -count=5
+go test -race ./internal/core -run 'Concurrent|DreamerSingleton|DreamRouterSingleton' -count=1
 ```
 
 This receipt does not claim `-race`, fuzz duration, kernel-wide, CLI, or campaign

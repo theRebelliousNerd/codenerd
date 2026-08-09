@@ -8,9 +8,9 @@
 The package is substantial production infrastructure, not a skeleton. Engine,
 feedback, synthesis, schema validation, proof, LSP, and differential code all
 exist and have package tests. The former differential created-fact-limit gap is
-closed. The highest-priority remaining gaps are narrower: production authoring
-paths bypass the process-wide parser lock, and unified read APIs do not see the
-store populated by the fast path.
+closed. The production parser-bypass gap is also closed. The highest-priority
+remaining gap is narrower: unified read APIs do not see the store populated by
+the fast path.
 
 Created-fact gas parity is now fixed and regression-proven. Optimization work
 should still stop behind the remaining parser, exported read-contract, and
@@ -27,7 +27,7 @@ differential modes enforce comparable safety and evidence.
 
 | Gap | Current evidence | Target | Severity | Disposition |
 |---|---|---|---|---|
-| Raw parser calls bypass the shared lock | `internal/mangle/transpiler/sanitizer.go#Sanitizer.Sanitize`, `SanitizeAtoms`, and `internal/mangle/synth/compile.go#Compile` call `parse.Unit` directly | All production parsing enters `ParseUnit`/`ParseAtom`; concurrent mixed callers pass under race | **P0 / High concurrency** | Replace direct calls without creating an import cycle; add cross-package race coverage |
+| Raw parser calls bypass the shared lock | Sanitizer, synth, both system fact adapters, and test helpers now call `internal/mangle` wrappers; a whole-module AST scan rejects raw parser selectors outside `parse_lock.go` | All parsing enters `ParseUnit`/`ParseAtom`; concurrent mixed callers pass under race | **CLOSED 2026-08-09** | `TestCodeUsesSerializedMangleParser` and `TestProductionParserCallersShareSerializedEntryPoint`; core concurrency race slice also passes |
 | Unified fast path has an unguarded read contract | `ApplyAtomDelta` populates `unifiedStore`; `Query` and `Snapshot` read/copy only `strataStores` | Either keep both stores coherent or reject unsupported read APIs with a typed error | **P0 / High correctness for exported API** | Pin mode contract, reproduce, add Query/Snapshot tests; kernel's current use is limited to `CopyAllFactsTo` |
 | Evaluator options are not one typed contract | Full and diff modes now share gas; external callbacks and provenance remain full-path-only | One option surface with explicit support/fallback result | **P1 / Medium** | Preserve the verified gas regression; retain full fallback until each additional option is proven |
 | Package-local intent rules shadow runtime intent rules | Package tests load `internal/mangle/intent_routing.mg`; boot loads `internal/core/defaults/schema/intent_routing.mg`; files differ | One authority or an explicit generated fixture with parity checks | **P1 / Medium** | Decide owner, replace stale comments, and test the live embedded module list |
@@ -71,7 +71,7 @@ verified diff gas regression ──> remaining option contracts ──> broader 
                  |                              |
                  +------------------------------+──> result/fallback receipt
 
-parse chokepoint ──> mixed race gate ──> structured synth rollout
+parse chokepoint ──> mixed race gate [closed] ──> structured synth rollout
 
 intent authority decision ──> runtime corpus parity tests
 

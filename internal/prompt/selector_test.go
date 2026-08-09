@@ -5,7 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"codeberg.org/TauCeti/mangle-go/parse"
+	manglepkg "codenerd/internal/mangle"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -57,8 +58,8 @@ func (k *validatingKernel) AssertBatch(facts []any) error {
 		}
 
 		// We mimic internal/mangle's permissive parse behavior: try as-is, then with '.'.
-		if _, err := parse.Atom(s); err != nil {
-			if _, err2 := parse.Atom(s + "."); err2 != nil {
+		if _, err := manglepkg.ParseAtom(s); err != nil {
+			if _, err2 := manglepkg.ParseAtom(s + "."); err2 != nil {
 				return err2
 			}
 		}

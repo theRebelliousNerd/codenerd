@@ -46,6 +46,6 @@ Failures of alignment would look like: learned rules defining `permitted`, unbou
 | Risk | Mitigation status |
 |------|-------------------|
 | Diff path silently drops external predicates | Kernel falls back to full eval when externals present (`kernel_eval.go`) |
-| Sanitizer uses `parse.Unit` directly (not `ParseUnit`) | Race risk if concurrent with other parsers — see OPEN-QUESTIONS |
+| Production caller bypasses `ParseUnit` / `ParseAtom` | **Closed 2026-08-09:** sanitizer, synth, core, and system adapters share the lock; source and mixed-caller race guards prevent regression |
 | Regex Decl loading misses exotic Decl forms | Prefer `UpdateFromProgramInfo` / analysis when available |
 | intent_routing.mg vs core policy duplication | Treat as supplemental; verify load site before relying |

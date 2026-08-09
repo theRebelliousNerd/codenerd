@@ -12,7 +12,6 @@ import (
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/engine"
 	"codeberg.org/TauCeti/mangle-go/factstore"
-	"codeberg.org/TauCeti/mangle-go/parse"
 )
 
 // TestSchemasGLParsesWithoutError validates that the modular schemas parse correctly.
@@ -26,7 +25,7 @@ func TestSchemasGLParsesWithoutError(t *testing.T) {
 		t.Fatalf("Failed to read schemas.mg: %v", err)
 	}
 
-	unit, err := parse.Unit(strings.NewReader(string(data)))
+	unit, err := ParseUnit(strings.NewReader(string(data)))
 	if err != nil {
 		t.Fatalf("Failed to parse schemas.mg: %v", err)
 	}
@@ -52,7 +51,7 @@ func TestSchemasGLParsesWithoutError(t *testing.T) {
 			continue
 		}
 
-		schemaUnit, err := parse.Unit(strings.NewReader(string(schemaData)))
+		schemaUnit, err := ParseUnit(strings.NewReader(string(schemaData)))
 		if err != nil {
 			t.Errorf("Failed to parse %s: %v", schemaFile, err)
 			continue
@@ -95,7 +94,7 @@ func TestPolicyGLParsesWithoutError(t *testing.T) {
 		return
 	}
 
-	unit, err := parse.Unit(strings.NewReader(string(data)))
+	unit, err := ParseUnit(strings.NewReader(string(data)))
 	if err != nil {
 		t.Fatalf("Failed to parse policy/constitution.mg: %v", err)
 	}
@@ -130,7 +129,7 @@ func TestSchemasPlusPolicyAnalyzeTogether(t *testing.T) {
 	// Combine schemas and policy
 	combined := string(schemasData) + "\n\n" + string(policyData)
 
-	unit, err := parse.Unit(strings.NewReader(combined))
+	unit, err := ParseUnit(strings.NewReader(combined))
 	if err != nil {
 		t.Fatalf("Failed to parse combined schemas+policy: %v", err)
 	}
@@ -255,7 +254,7 @@ func TestDefaults_NoDuplicatePredicateDecls(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to read %s: %v", path, err)
 		}
-		unit, err := parse.Unit(strings.NewReader(string(data)))
+		unit, err := ParseUnit(strings.NewReader(string(data)))
 		if err != nil {
 			t.Fatalf("failed to parse %s: %v", path, err)
 		}
@@ -311,7 +310,7 @@ func TestCoderGLParsesWithoutError(t *testing.T) {
 			t.Errorf("Failed to read %s: %v", f, err)
 			continue
 		}
-		if _, err := parse.Unit(strings.NewReader(string(data))); err != nil {
+		if _, err := ParseUnit(strings.NewReader(string(data))); err != nil {
 			t.Errorf("Failed to parse %s: %v", f, err)
 		} else {
 			t.Logf("%s parsed successfully", f)
@@ -327,7 +326,7 @@ func TestTesterGLParsesWithoutError(t *testing.T) {
 		t.Skipf("tester.mg not found (optional): %v", err)
 	}
 
-	_, err = parse.Unit(strings.NewReader(string(data)))
+	_, err = ParseUnit(strings.NewReader(string(data)))
 	if err != nil {
 		t.Fatalf("Failed to parse tester.mg: %v", err)
 	}
@@ -343,7 +342,7 @@ func TestReviewerGLParsesWithoutError(t *testing.T) {
 		t.Skipf("reviewer.mg not found (optional): %v", err)
 	}
 
-	_, err = parse.Unit(strings.NewReader(string(data)))
+	_, err = ParseUnit(strings.NewReader(string(data)))
 	if err != nil {
 		t.Fatalf("Failed to parse reviewer.mg: %v", err)
 	}
@@ -359,7 +358,7 @@ func TestChaosGLParsesWithoutError(t *testing.T) {
 		t.Skipf("chaos.mg not found (optional): %v", err)
 	}
 
-	_, err = parse.Unit(strings.NewReader(string(data)))
+	_, err = ParseUnit(strings.NewReader(string(data)))
 	if err != nil {
 		t.Fatalf("Failed to parse chaos.mg: %v", err)
 	}
@@ -422,7 +421,7 @@ func TestAllGLFilesCombinedAnalysis(t *testing.T) {
 		t.Skip("Not enough .mg files found for combined analysis")
 	}
 
-	unit, err := parse.Unit(strings.NewReader(combined.String()))
+	unit, err := ParseUnit(strings.NewReader(combined.String()))
 	if err != nil {
 		t.Fatalf("Failed to parse combined .mg files: %v", err)
 	}
@@ -876,7 +875,7 @@ func evaluateAndQuery(t *testing.T, program string, facts []testFact, queryPred 
 	t.Helper()
 
 	// Parse the program
-	unit, err := parse.Unit(strings.NewReader(program))
+	unit, err := ParseUnit(strings.NewReader(program))
 	if err != nil {
 		t.Fatalf("Failed to parse program: %v", err)
 	}

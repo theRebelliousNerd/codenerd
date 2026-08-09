@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
-	"codeberg.org/TauCeti/mangle-go/parse"
 	"codenerd/internal/mangle"
 	"go.uber.org/goleak"
 )
@@ -61,7 +60,7 @@ func TestLogic_Safety(t *testing.T) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		atom, err := parse.Atom(line)
+		atom, err := mangle.ParseAtom(line)
 		if err != nil {
 			t.Fatalf("Failed to parse atom %s: %v", line, err)
 		}

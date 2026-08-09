@@ -1,8 +1,9 @@
 package mangle_test
 
 import (
-	"codeberg.org/TauCeti/mangle-go/parse"
 	"testing"
+
+	manglepkg "codenerd/internal/mangle"
 )
 
 func FuzzParseAtom(f *testing.F) {
@@ -14,6 +15,6 @@ func FuzzParseAtom(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data string) {
 		// Just verify it doesn't panic
-		_, _ = parse.Atom(data)
+		_, _ = manglepkg.ParseAtom(data)
 	})
 }

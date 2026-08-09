@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -13,23 +14,34 @@ import (
 	"testing"
 )
 
-func TestProductionCodeUsesSerializedMangleParser(t *testing.T) {
+func TestCodeUsesSerializedMangleParser(t *testing.T) {
 	_, testFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("locate parse lock test")
 	}
-	internalDir := filepath.Clean(filepath.Join(filepath.Dir(testFile), ".."))
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(testFile), "..", ".."))
 	lockFile := filepath.Join(filepath.Dir(testFile), "parse_lock.go")
 	fset := token.NewFileSet()
 
-	err := filepath.WalkDir(internalDir, func(path string, entry fs.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(repoRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() && entry.Name() == "testdata" {
-			return filepath.SkipDir
+		if entry.IsDir() {
+			if path == repoRoot {
+				return nil
+			}
+			if entry.Name() == "vendor" || entry.Name() == "testdata" || entry.Name() == "node_modules" || strings.HasPrefix(entry.Name(), ".") {
+				return filepath.SkipDir
+			}
+			if _, err := os.Stat(filepath.Join(path, "go.mod")); err == nil {
+				return filepath.SkipDir
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+			return nil
 		}
-		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") || path == lockFile {
+		if filepath.Ext(path) != ".go" || path == lockFile {
 			return nil
 		}
 
@@ -50,16 +62,17 @@ func TestProductionCodeUsesSerializedMangleParser(t *testing.T) {
 			if imported.Name != nil {
 				alias = imported.Name.Name
 			}
+			if alias == "." || alias == "_" {
+				position := fset.Position(imported.Pos())
+				t.Errorf("%s imports the unsafe parser as %q; use internal/mangle ParseUnit or ParseAtom", position, alias)
+				continue
+			}
 			parseAliases[alias] = struct{}{}
 		}
 
 		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			selector, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || (selector.Sel.Name != "Unit" && selector.Sel.Name != "Atom") {
+			selector, ok := node.(*ast.SelectorExpr)
+			if !ok || selector.Sel.Name == "SourceUnit" {
 				return true
 			}
 			qualifier, ok := selector.X.(*ast.Ident)
@@ -67,7 +80,7 @@ func TestProductionCodeUsesSerializedMangleParser(t *testing.T) {
 				return true
 			}
 			if _, direct := parseAliases[qualifier.Name]; direct {
-				position := fset.Position(call.Pos())
+				position := fset.Position(selector.Pos())
 				t.Errorf("%s calls the unsafe parser directly; use internal/mangle ParseUnit or ParseAtom", position)
 			}
 			return true
