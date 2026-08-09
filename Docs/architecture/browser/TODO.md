@@ -4,7 +4,7 @@
 
 ## P0
 
-- [ ] Complete BPAR-1 runtime truth, lifecycle, cancellation, and privacy gates
+- [x] Complete BPAR-1 runtime truth, lifecycle, cancellation, and privacy gates
 - [x] Single Cortex-owned `SessionManager` with live kernel `EngineSink`
 - [ ] On-demand construct + inject into `TactileRouterShard` / chat model on first browser action
 - [x] Point research tools at shared manager
@@ -12,7 +12,7 @@
 
 ## P1
 
-- [ ] Complete BPAR-2 progressive observe/act surface with JIT atoms
+- [x] Complete BPAR-2 progressive observe/act surface with JIT atoms
 - [ ] Complete BPAR-3 live-kernel reasoning and waits
 - [ ] Implement Go `honeypot_suspicious_url` assertion or drop from reason table/policy
 - [ ] Align Go reason checklist with `browser_honeypot.mg` (clip/overflow/no_keyboard coverage)

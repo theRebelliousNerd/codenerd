@@ -1,6 +1,6 @@
 # 11 — Observability: browser
 
-> Last verified against codebase: 2026-07-13
+> Last verified against codebase: 2026-08-09
 
 ## 1. Logging category
 
@@ -40,7 +40,17 @@
 
 - Debug: stream config (level, captureDOM, captureHeaders)  
 - Error: per-predicate AddFacts failures with `[session:%s]` prefix  
-- Debug: skip when no engine  
+- Nil sink: navigation-only tracking remains active; fact-producing streams are omitted
+
+### Progressive tools
+
+- Every observation returns a stable evidence handle shaped as
+  `browser:<session>:g<generation>:<mode>`.
+- Summary/compact/full detail and item caps bound agent-visible output.
+- Screenshots report confined path, media type, byte count, and SHA-256 rather
+  than returning image bytes in tool JSON.
+- Action results expose operation outcome and safe metadata, never selectors,
+  input values, or credential material.
 
 ### Honeypot
 
@@ -69,6 +79,7 @@ Additional knobs:
 | `.nerd/browser/control.txt` | Live CDP endpoint for attach |
 | `.nerd/browser/sessions.json` | Session inventory after crash |
 | `.nerd/browser/snapshots/*.mg` | Post-mortem fact dumps from CLI |
+| Allowed writable-root screenshot path | Progressive screenshot evidence; owner-only file with digest metadata |
 
 ## 6. Metrics / glass box
 
@@ -79,5 +90,6 @@ No dedicated Prometheus counters in package. Glass box / tool event bus may obse
 1. Raise EventLoggingLevel and enable header ingestion for network issues.  
 2. Use `nerd browser snapshot` after hang to see last DOM facts.  
 3. Filter logs by category `browser`.  
-4. If no facts appear, check `engine == nil` and EventLoggingLevel `minimal`.  
+4. If no facts appear, check sink binding and EventLoggingLevel `minimal`; nil-sink navigation metadata may still advance.
 5. Stale control.txt after crashed launch → connect errors; delete and relaunch.
+6. If an action ref is stale, observe again and use the new generation's ref.

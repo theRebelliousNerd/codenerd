@@ -339,14 +339,23 @@ func (m *SessionManager) CreateTab(ctx context.Context, browserID, url string, i
 	if err := page.Context(ctx).Timeout(m.cfg.NavigationTimeout()).Navigate(url); err != nil {
 		logging.BrowserWarn("Initial navigation failed for %s: %v", m.SanitizeForEvidence(url), err)
 	}
+	actualURL := url
+	title := ""
+	if info, infoErr := page.Context(ctx).Info(); infoErr == nil && info != nil {
+		if info.URL != "" {
+			actualURL = info.URL
+		}
+		title = info.Title
+	}
 
 	now := time.Now()
 	meta := Session{
 		ID: uuid.NewString(), BrowserID: browserID, TargetID: string(page.TargetID),
-		URL: m.redactor.SanitizeString(url), Status: "active", Isolated: isolated, CreatedAt: now, LastActive: now,
+		URL: m.redactor.SanitizeString(actualURL), Title: m.redactor.SanitizeString(title),
+		Status: "active", Isolated: isolated, CreatedAt: now, LastActive: now,
 	}
 	streamCtx, streamCancel := context.WithCancel(context.Background())
-	record := &sessionRecord{meta: meta, page: page, isolated: isolatedBrowser, streamCancel: streamCancel}
+	record := &sessionRecord{meta: meta, page: page, isolated: isolatedBrowser, streamCancel: streamCancel, registry: NewElementRegistry()}
 	m.mu.Lock()
 	m.sessions[meta.ID] = record
 	m.mu.Unlock()
@@ -390,9 +399,13 @@ func (m *SessionManager) AttachToBrowser(ctx context.Context, browserID, targetI
 	page = page.Context(context.Background())
 	now := time.Now()
 	meta := Session{ID: uuid.NewString(), BrowserID: browserID, TargetID: targetID, Status: "attached", CreatedAt: now, LastActive: now}
+	if info, infoErr := page.Context(ctx).Info(); infoErr == nil && info != nil {
+		meta.URL = m.redactor.SanitizeString(info.URL)
+		meta.Title = m.redactor.SanitizeString(info.Title)
+	}
 	streamCtx, streamCancel := context.WithCancel(context.Background())
 	m.mu.Lock()
-	m.sessions[meta.ID] = &sessionRecord{meta: meta, page: page, streamCancel: streamCancel}
+	m.sessions[meta.ID] = &sessionRecord{meta: meta, page: page, streamCancel: streamCancel, registry: NewElementRegistry()}
 	m.mu.Unlock()
 	m.startEventStream(streamCtx, meta.ID, page)
 	_ = m.persistSessions()

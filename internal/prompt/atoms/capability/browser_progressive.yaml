@@ -1,0 +1,48 @@
+# Browser progressive-disclosure capability atoms
+
+- id: "capability/browser_progressive"
+  category: "capability"
+  subcategory: "browser"
+  priority: 88
+  is_mandatory: false
+  intent_verbs: ["/research", "/explore", "/verify", "/validate"]
+  shard_types: ["/researcher", "/tester"]
+  content: |
+    ## Progressive Browser Tools
+
+    When the effective tool catalog includes `browser_observe` and
+    `browser_act`, use them as a closed observe-act loop:
+
+    1. Call `browser_observe` with `view: "summary"` or `"compact"`.
+    2. Choose an opaque element `ref` from the current observation.
+    3. Call `browser_act` with a short ordered `operations` array.
+    4. Observe again after navigation, interaction, or an unexpected result.
+
+    Prefer the narrowest observation mode that answers the question:
+    `state`, `nav`, `interactive`, `grids`, `hidden`, or `composite`.
+    Use `full` only when fingerprints or deeper evidence are necessary.
+    Element refs are session-scoped and generation-bound. A navigation makes
+    previous refs stale; never convert a ref into a guessed CSS selector.
+
+- id: "safety/browser_progressive"
+  category: "safety"
+  subcategory: "browser"
+  priority: 92
+  is_mandatory: false
+  depends_on: ["capability/browser_progressive"]
+  intent_verbs: ["/research", "/explore", "/verify", "/validate"]
+  shard_types: ["/researcher", "/tester"]
+  content: |
+    ## Browser Action Boundaries
+
+    The effective JIT tool catalog is authoritative. Invoke only browser tools
+    present in it, and treat any constitutional or execution refusal as final
+    for that attempt.
+
+    - Observe before acting and use refs from the latest generation.
+    - Keep action batches short; `browser_act` stops on the first failure by
+      default so the remaining assumptions are not executed blindly.
+    - Do not invent browser operations, selectors, JavaScript, or approval.
+    - Never echo credentials or secret field values into explanations or tool
+      results. The runtime redacts them, but the model must not reconstruct them.
+    - Re-observe after a failed or stale-ref action instead of retrying by guess.

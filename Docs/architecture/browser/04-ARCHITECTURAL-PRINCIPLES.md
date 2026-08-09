@@ -13,7 +13,7 @@ Honeypot **judgment** is rule-derived (`is_honeypot`, `honeypot_detected`, `safe
 
 ## P3 — EngineSink is the only write path into logic
 
-`SessionManager` depends on `EngineSink` (not concrete kernel types beyond the constructor adapter). Tests use fake sinks. Callers that pass `nil` deliberately disable reification. Production system boot must bind the Cortex-owned manager to the live kernel; nil sinks are for focused or standalone use.
+`SessionManager` depends on `EngineSink` (not concrete kernel types beyond the constructor adapter). Tests use fake sinks. Callers that pass `nil` disable fact reification while retaining navigation metadata and ref-generation tracking. Production system boot must bind the Cortex-owned manager to the live kernel; nil sinks are for focused or standalone use.
 
 ## P4 — Session identity is first-class
 

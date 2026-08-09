@@ -93,6 +93,23 @@ Used by SessionManager for all reification paths. Tests implement this interface
 | `Page(id)` | (*rod.Page, bool) — escape hatch |
 | `UpdateMetadata(id, func)` | In-place meta transform |
 | `ForkSession(ctx, sessionID, url)` | Clone cookies/storage into isolation |
+| `Registry(id)` | Session-scoped opaque-ref registry; created lazily for restored records |
+
+### Progressive observations and actions
+
+| Method | Notes |
+|--------|-------|
+| `Observe(ctx, sessionID, ObserveOptions)` | Bounded state/nav/interactive/grid/hidden/screenshot/DOM/React/session disclosure |
+| `ExecuteActions(ctx, sessionID, []ActionOperation, stopOnError)` | Closed sequence; hard cap 25 |
+| `InteractRef(ctx, sessionID, ref, action, value, submit)` | Fingerprint re-identification; stale refs fail closed |
+| `FillRefs(ctx, sessionID, fields, submit, submitButton)` | Bounded ref/value form batch |
+| `PressKey(ctx, sessionID, key)` | Closed named/printable key vocabulary and modifiers |
+| `History(ctx, sessionID, action)` | Back, forward, reload; invalidates ref generation |
+
+Public progressive types: `ObserveOptions`, `ProgressiveObservation`,
+`PageState`, `InteractiveElement`, `NavigationElement`, `GridObservation`,
+`HiddenObservation`, `ScreenshotEvidence`, `ElementFingerprint`,
+`ActionOperation`, `FillField`, `ActionStepResult`, and `ActionExecution`.
 
 ### Effects
 
@@ -149,6 +166,7 @@ Used by SessionManager for all reification paths. Tests implement this interface
 | `element` / `position` / `geometry` / `interactable` | … | DOM capture |
 | `attribute` / `css_property` / `computed_style` | … | DOM capture |
 | `react_component` / `react_prop` / `react_state` / `dom_mapping` | … | ReifyReact |
+| `link` / `interactable` / `visible` | qualified session ref + bounded observation data | Progressive observe |
 
 ## 7. Fact predicates (Honeypot emit)
 

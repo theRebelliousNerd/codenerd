@@ -6,9 +6,9 @@
 > Package: `codenerd/internal/browser`  
 > Primary sources: `internal/browser/*.go`  
 > Companion logic: `internal/core/defaults/schemas_browser.mg`, `policy/browser.mg`, `policy/browser_honeypot.mg`  
-> Scale: **7** non-test Go files ≈ **2,800** lines; **10** test files; **0** package-local `.mg`
+> Scale: **10** non-test Go files ≈ **4,400** lines; **12** package test files; **0** package-local `.mg`
 
-> 2026-08-09 BPAR-1 delta: system boot uses a live-kernel sink and binds research tools to the Cortex manager. Lifecycle, cancellation, native config, redaction, and path-policy foundations are implemented; progressive parity surfaces remain open. See [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md).
+> 2026-08-09 BPAR-1/BPAR-2 delta: system boot uses a live-kernel sink and binds research tools to the Cortex manager. Lifecycle/security foundations plus native progressive observe/act, opaque refs, bounded views, exact permission, and JIT atoms are implemented. See [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md).
 
 ## 1. Overview
 
@@ -16,7 +16,7 @@
 
 The package has two public centers of gravity:
 
-1. **`SessionManager`** — owns Chrome connection, multi-session pages, CDP/JS event streams, DOM snapshot, React Fiber reification, navigation and interaction primitives.  
+1. **`SessionManager`** — owns Chrome connection, multi-session pages, CDP/JS event streams, DOM/React reification, generation-bound refs, bounded observations, and closed sequential actions.
 2. **`HoneypotDetector`** — extracts element/CSS/geometry facts into a `*mangle.Engine` and evaluates `is_honeypot` / reason predicates defined in policy.
 
 It does **not** own constitutional permission, VirtualStore routing, or chat boot assembly. Those wire *to* this package (partially).
@@ -77,15 +77,16 @@ user_intent → kernel next_action → tool/shard
 | Config + defaults | **Implemented** | Native `.nerd/config.json` browser block; lifecycle/security defaults |
 | Start / connect / launch fallback | **Implemented** | DebuggerURL, Launch[], default launcher |
 | Browser/session lifecycle | **Implemented in package** | Multi-browser list/launch/select/close; tab create/attach/focus/fork/close |
-| Navigate / Click / Type / Screenshot | **Implemented** | Selector-based |
+| Navigate / Click / Type / Screenshot | **Implemented** | Legacy selector primitives plus progressive ref resolution |
+| Progressive observe / act | **Implemented** | Bounded disclosure, generation refs, fingerprint fallback, closed 25-op plans |
 | Fork (cookies + storage) | **Implemented** | Best-effort restore |
 | Session metadata persist | **Implemented** | Redacted owner-only SessionStore JSON |
-| Event stream (nav/console/net/DOM/hooks) | **Implemented** | Requires non-nil sink |
+| Event stream (nav/console/net/DOM/hooks) | **Implemented** | Nil sink retains navigation lifecycle only |
 | DOM capture / SnapshotDOM | **Implemented** | Max 200 nodes; multi-predicate |
 | React Fiber reify | **Implemented** | Best-effort; needs fiber keys |
 | Honeypot detector | **Implemented** | Depends on engine+policy load |
 | CLI launch/session/snapshot | **Implemented** | `cmd/nerd/cmd_browser.go` |
-| Research modular tools | **Implemented (legacy six)** | Shared Cortex manager; real close; progressive surface pending |
+| Research modular tools | **Implemented (eight through BPAR-2)** | Shared Cortex manager; legacy six plus observe/act |
 | System boot live manager | **Implemented** | `browserKernelSink` → live `SystemKernel.AssertBatch` |
 | Legacy chat BrowserManager inject | **Partial** | Field + setter exist; legacy boot remains nil |
 | VS handleBrowse | **Stub** | Explicit refuse → shard |
@@ -103,6 +104,9 @@ user_intent → kernel next_action → tool/shard
 
 ```
 internal/browser/
+  element_registry.go           # opaque generation-bound refs
+  progressive_observe.go        # bounded observation views
+  progressive_action.go         # ref resolution + closed plans
   session_manager.go           # types, effects, React reify
   session_lifecycle.go         # browser/tab lifecycle, limits, reaper
   session_manager_dom.go       # event stream, DOM capture, persist helpers
@@ -297,7 +301,7 @@ Categories in `schemas_browser.mg`:
 | Consumer | Path | Behavior |
 |----------|------|----------|
 | CLI | `cmd/nerd/cmd_browser.go` | Operator lifecycle + snapshot export |
-| Research tools | `internal/tools/research/browser.go` | Cortex-owned shared manager after system boot |
+| Research tools | `internal/tools/research/browser.go`, `browser_progressive.go` | Cortex-owned shared manager after system boot |
 | Tactile router | `internal/shards/system/router.go` | Optional BrowserManager field |
 | Chat types/boot | `cmd/nerd/chat/*` | Holds pointer; constructs nil |
 
@@ -306,9 +310,9 @@ Categories in `schemas_browser.mg`:
 | Layer | Names |
 |-------|-------|
 | VS ActionType | browser_navigate, browser_extract, browser_screenshot, browser_click, browser_type, browser_close |
-| Constitution safe_action | browser_navigate, browser_screenshot, browser_read_dom |
+| Constitution safe_action | all registered browser spellings, including browser_observe/browser_act; exact pending payload still required |
 | Router patterns | browse, browser_navigate, browser_screenshot, browser_read_dom → browser_tool |
-| Tool registry | browser_navigate/extract/screenshot/click/type/close |
+| Tool registry | browser_navigate/extract/screenshot/click/type/close/observe/act |
 | Intent routing | modular_tool_allowed browser_* under research/verify |
 
 ### 8.3 VirtualStore stance
@@ -377,9 +381,9 @@ Full matrix: [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
 
 Top three:
 
-1. No progressive `browser_observe` / `browser_act` lifecycle surface yet.
-2. No bounded `browser_mangle` query/rule/temporal surface.
-3. No full modular-tool → live Chrome → authorizing-kernel end-to-end proof yet.
+1. No bounded `browser_mangle` query/rule/temporal surface.
+2. No progressive `browser_reason` / `browser_audit` surface.
+3. Live modular-tool Chrome proof reaches the bound sink, but does not yet query evidence back through the authorizing Cortex kernel.
 
 ---
 
@@ -397,7 +401,7 @@ See [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md). Short form
 8. RWMutex map safety  
 9. Dual CSS encodings intentional  
 10. System Chrome dependency  
-11. Constitutional default deny for click/type  
+11. Effective JIT allowlist plus exact constitutional permission for every browser tool
 12. Wiring audit before deletion  
 
 ---
@@ -406,7 +410,7 @@ See [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md). Short form
 
 Constructors: `DefaultConfig`, `NewSessionManager`, `NewSessionManagerWithSink`, `NewHoneypotDetector`.  
 
-SessionManager methods include Start/Shutdown, LaunchAdditional/ListBrowsers/CloseBrowser, List/CreateSession/CreateTab/Attach/AttachToBrowser/FocusSession/CloseSession/ForkSession, Page/GetSession, Navigate/Click/Type/Screenshot/SnapshotDOM/ReifyReact, ResolveOutputPath, and SanitizeForEvidence.
+SessionManager methods include Start/Shutdown, LaunchAdditional/ListBrowsers/CloseBrowser, List/CreateSession/CreateTab/Attach/AttachToBrowser/FocusSession/CloseSession/ForkSession, Page/GetSession/Registry, Observe/ExecuteActions/InteractRef/FillRefs/PressKey/History, Navigate/Click/Type/Screenshot/SnapshotDOM/ReifyReact, ResolveOutputPath, and SanitizeForEvidence.
 
 Honeypot methods: AnalyzePage, IsHoneypot, GetSafeLinks, GetAllLinksWithAnalysis.  
 
@@ -421,8 +425,8 @@ Full tables: [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md).
 | Principle | Realization |
 |-----------|-------------|
 | LLM creative / kernel executive | Reification enables kernel; LLM does not invent honeypot status |
-| permitted / default deny | Constitution lists safe browser subset; click/type not auto-safe |
-| JIT prompt atoms | N/A inside package; tool names listed in prompt configs |
+| permitted / default deny | Exact pending action payload must derive permission after JIT availability selection |
+| JIT prompt atoms | Progressive ref-first protocol lives in `capability/browser_progressive` |
 | Wiring before deletion | Multiple partial consumers — do not delete SessionManager APIs lightly |
 
 ---

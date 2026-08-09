@@ -8,8 +8,8 @@
 |----------|-------|
 | Import path | `codenerd/internal/browser` |
 | Package comment | Browser automation with DOM/React reification into Mangle facts; adapted from BrowserNERD for Cortex 1.5.0 Browser Physics (§9.0) |
-| Non-test Go files | **7** (5 root package + 2 `security`) |
-| Test Go files | **10** (8 root package + 2 `security`) |
+| Non-test Go files | **10** (8 root package + 2 `security`) |
+| Test Go files | **12** (10 root package + 2 `security`) |
 | Package-local `.mg` | **0** (schemas/policy live under `internal/core/defaults/`) |
 | Primary third-party | `github.com/go-rod/rod` (+ launcher, proto) |
 | UUID | `github.com/google/uuid` for session IDs |
@@ -18,15 +18,18 @@
 
 | Path | ≈Lines | Role |
 |------|-------:|------|
-| `internal/browser/session_manager.go` | ~694 | Config/types, core operations, Navigate/Click/Type/Screenshot, ReifyReact |
-| `internal/browser/session_lifecycle.go` | ~536 | Browser/tab lifecycle, shared/isolation semantics, limits, reaper, cancellation |
-| `internal/browser/session_manager_dom.go` | ~693 | Event stream, redacted DOM capture, storage snapshot/restore, private session persistence |
+| `internal/browser/session_manager.go` | ~739 | Config/types, core operations, Navigate/Click/Type/Screenshot, ReifyReact |
+| `internal/browser/element_registry.go` | ~171 | Generation-bound opaque refs and private element fingerprints |
+| `internal/browser/progressive_observe.go` | ~676 | Bounded state/nav/interactive/grid/hidden/screenshot/DOM/React observation |
+| `internal/browser/progressive_action.go` | ~615 | Ref resolution plus closed sequential action/lifecycle plans |
+| `internal/browser/session_lifecycle.go` | ~618 | Browser/tab lifecycle, shared/isolation semantics, limits, reaper, cancellation |
+| `internal/browser/session_manager_dom.go` | ~722 | Event stream, redacted DOM capture, storage snapshot/restore, private session persistence |
 | `internal/browser/fact_redaction.go` | ~64 | Copy-on-write pre-sink browser fact redaction |
 | `internal/browser/honeypot.go` | ~413 | HoneypotDetector: emit page facts, EvaluateRule, safe links |
 | `internal/browser/security/redactor.go` | ~248 | URL/header/input/recursive evidence redaction |
 | `internal/browser/security/path_policy.go` | ~156 | Writable-root and symlink confinement; private files |
 
-**≈2,800 non-test LOC** across lifecycle, reification, security, and detector modules.
+**≈4,400 non-test LOC** across lifecycle, progressive tools, reification, security, and detector modules.
 
 ## 3. File inventory (tests)
 
@@ -40,6 +43,8 @@
 | `browser_integration_test.go` | `integration` | httptest + headless Chrome: navigation facts, click/input events |
 | `session_lifecycle_test.go` | (default) | Lifecycle defaults, close cancellation, browser promotion, idle reaping |
 | `fact_redaction_test.go` | (default) | Pre-sink redaction and manager output policy |
+| `element_registry_test.go` | (default) | Stable refs, navigation invalidation, copy isolation, stale snapshot rejection |
+| `progressive_action_test.go` | (default) | Observe option and action batch bounds/stop-on-error |
 | `security/*_test.go` | (default) | Credential fixtures, traversal/symlink escape, private artifacts |
 
 ## 4. Companion files (outside package, load-bearing)
@@ -50,7 +55,7 @@
 | `internal/core/defaults/policy/browser.mg` | Spatial `left_of`/`above`, `honeypot_detected`, `safe_interactable`, checkbox targeting |
 | `internal/core/defaults/policy/browser_honeypot.mg` | Intermediate honeypot predicates + `is_honeypot` / `high_confidence_honeypot` |
 | `internal/core/defaults/policy/browser_honeypot_test.go` | Policy-only unit tests |
-| `internal/core/defaults/policy/constitution.mg` | `safe_action` for navigate/screenshot/read_dom |
+| `internal/core/defaults/policy/constitution.mg` | Exact permission derivation for registered browser tool spellings |
 | `internal/core/defaults/policy/delegation.mg` | `tool_capabilities(/browser, …)` |
 | `internal/core/defaults/policy/system_routing.mg` | `routing_table(/browser, /browser_tool, /high)` |
 | `internal/core/kernel_init.go` | Loads `schemas_browser.mg` into kernel program |
@@ -60,7 +65,8 @@
 | `cmd/nerd/chat/session_boot.go` | Legacy chat boot path still declares `browserMgr` **nil until needed** |
 | `cmd/nerd/chat/model_types.go` | `browserMgr` / `BrowserManager` fields |
 | `internal/shards/system/router.go` | `SetBrowserManager`, tool routes for browser_* |
-| `internal/tools/research/browser.go` | Modular tools bound to the Cortex-owned manager; lazy fallback only outside boot |
+| `internal/tools/research/browser.go`, `browser_progressive.go` | Legacy and progressive tools bound to the Cortex-owned manager; lazy fallback only outside boot |
+| `internal/prompt/atoms/capability/browser_progressive.yaml` | JIT ref-first observe/act method and safety boundary |
 | `internal/core/virtual_store_types.go` | ActionBrowser* ActionType constants |
 | `internal/core/virtual_store_actions.go` | `handleBrowse` refuse + modular tool arg mapping |
 | `internal/logging/logger.go` | `CategoryBrowser` |
@@ -80,12 +86,12 @@
 2. **`captureDOMFacts`** — dense fact emission (multiple predicates per node; dual string/atom CSS encodings).  
 3. **`ReifyReact`** — large inline JS fiber walker; type coercion for hook indices.  
 4. **`HoneypotDetector.emitPageFacts`** — per-element style/position/attribute PushFact.  
-5. **Route completeness** — system and modular tools share the Cortex manager/live kernel; standalone CLI remains an operator export workflow, while progressive parity tools are not built yet.
+5. **Route completeness** — system and modular tools share the Cortex manager/live kernel; observe/act are live, while reason/audit/spec/declarative-test parity and operator CLI expansion remain open.
 
 ## 7. What is intentionally not here
 
 - No HTTP API server inside the package  
 - No Mangle source files inside `internal/browser/`  
 - No VirtualStore interface implementation  
-- No prompt atoms  
+- Prompt behavior lives outside the package in the JIT atom corpus
 - System boot browser facts enter the live kernel through `browserKernelSink`; standalone CLI managers intentionally use a schema-loaded export engine

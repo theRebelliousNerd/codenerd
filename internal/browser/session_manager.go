@@ -37,6 +37,7 @@ type sessionRecord struct {
 	page         *rod.Page
 	isolated     *rod.Browser
 	streamCancel context.CancelFunc
+	registry     *ElementRegistry
 }
 
 // BrowserInstance describes a managed Chrome connection.
@@ -355,6 +356,27 @@ func (m *SessionManager) GetSession(sessionID string) (Session, bool) {
 	return rec.meta, true
 }
 
+// Registry returns the session-scoped element registry. Existing records from
+// older persisted metadata and focused tests receive one lazily.
+func (m *SessionManager) Registry(sessionID string) *ElementRegistry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	record, ok := m.sessions[sessionID]
+	if !ok {
+		return nil
+	}
+	if record.registry == nil {
+		record.registry = NewElementRegistry()
+	}
+	return record.registry
+}
+
+func (m *SessionManager) invalidateElementReferences(sessionID string) {
+	if registry := m.Registry(sessionID); registry != nil {
+		registry.Clear()
+	}
+}
+
 // ReifyReact walks the React Fiber tree and emits facts for components, props, and state.
 func (m *SessionManager) ReifyReact(ctx context.Context, sessionID string) ([]mangle.Fact, error) {
 	if m.engine == nil {
@@ -602,11 +624,27 @@ func (m *SessionManager) Navigate(ctx context.Context, sessionID, url string) er
 		logging.BrowserError("Unknown session for navigation: %s", sessionID)
 		return fmt.Errorf("unknown session: %s", sessionID)
 	}
+	// Navigation may partially succeed even when Rod reports an error. Fail
+	// closed by invalidating element refs before issuing it.
+	m.invalidateElementReferences(sessionID)
 	logging.BrowserDebug("Navigating with timeout: %s", m.cfg.NavigationTimeout())
 	err := page.Context(ctx).Timeout(m.cfg.NavigationTimeout()).Navigate(url)
 	if err != nil {
 		logging.BrowserError("Navigation failed for session %s: %v", sessionID, err)
 	} else {
+		actualURL := url
+		title := ""
+		if info, infoErr := page.Context(ctx).Info(); infoErr == nil && info != nil {
+			if info.URL != "" {
+				actualURL = info.URL
+			}
+			title = info.Title
+		}
+		m.UpdateMetadata(sessionID, func(session Session) Session {
+			session.URL = m.redactor.SanitizeString(actualURL)
+			session.Title = m.redactor.SanitizeString(title)
+			return session
+		})
 		logging.BrowserDebug("Navigation completed for session %s", sessionID)
 	}
 	return err

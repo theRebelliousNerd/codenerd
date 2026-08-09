@@ -25,6 +25,8 @@ func RegisterDefaultConfigAtoms(registry *SimpleRegistry) {
 		Tools: []string{
 			"read_file",
 			"run_shell_command",
+			"browser_observe",
+			"browser_act",
 		},
 		Policies: copyPolicySet("tester"),
 		Priority: 10,
@@ -53,6 +55,8 @@ func RegisterDefaultConfigAtoms(registry *SimpleRegistry) {
 			"web_fetch",
 			"browser_navigate",
 			"browser_extract",
+			"browser_observe",
+			"browser_act",
 			"research_cache_get",
 			"research_cache_set",
 		},

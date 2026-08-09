@@ -80,6 +80,38 @@ func TestBrowserCloseTool_Definition(t *testing.T) {
 	}
 }
 
+func TestBrowserProgressiveTools_Definition(t *testing.T) {
+	t.Parallel()
+
+	observe := BrowserObserveTool()
+	if observe.Name != "browser_observe" || observe.Priority <= BrowserNavigateTool().Priority {
+		t.Fatalf("unexpected observe definition: name=%q priority=%d", observe.Name, observe.Priority)
+	}
+	act := BrowserActTool()
+	if act.Name != "browser_act" || len(act.Schema.Required) != 1 || act.Schema.Required[0] != "operations" {
+		t.Fatalf("unexpected act definition: name=%q required=%v", act.Name, act.Schema.Required)
+	}
+	if act.Schema.Properties["operations"].Items == nil || act.Schema.Properties["operations"].Items.Type != "object" {
+		t.Fatal("browser_act operations schema must declare object items")
+	}
+}
+
+func TestDecodeActionOperations_RejectsInvalidAndDecodesFields(t *testing.T) {
+	t.Parallel()
+	if _, err := decodeActionOperations(nil); err == nil {
+		t.Fatal("expected nil operations to fail")
+	}
+	operations, err := decodeActionOperations([]any{map[string]any{
+		"type": "fill", "fields": []any{map[string]any{"ref": "e1_1", "value": "hello"}},
+	}})
+	if err != nil {
+		t.Fatalf("decodeActionOperations failed: %v", err)
+	}
+	if len(operations) != 1 || len(operations[0].Fields) != 1 || operations[0].Fields[0].Ref != "e1_1" {
+		t.Fatalf("unexpected decoded operations: %+v", operations)
+	}
+}
+
 // =============================================================================
 // WEB SEARCH TOOL TESTS
 // =============================================================================

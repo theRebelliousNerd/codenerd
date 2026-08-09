@@ -1,9 +1,9 @@
 package prompt
 
 import (
-	"strings"
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"codenerd/internal/core"
@@ -261,6 +261,8 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"bash",
 		"write_file", // Can write test files
 		"edit_file",
+		"browser_observe",
+		"browser_act",
 	)
 	testerTools = append(testerTools, codeDomTools...)
 	testerTools = append(testerTools, testImpactTools...)
@@ -280,6 +282,8 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"web_fetch",
 		"browser_navigate",
 		"browser_extract",
+		"browser_observe",
+		"browser_act",
 		"research_cache_get",
 		"research_cache_set",
 		"write_file", // Can write documentation

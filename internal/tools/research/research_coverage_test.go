@@ -1853,6 +1853,8 @@ func TestRegisterAll_WhenValidRegistry_ShouldRegisterAllTools(t *testing.T) {
 		"browser_click",
 		"browser_type",
 		"browser_close",
+		"browser_observe",
+		"browser_act",
 		"research_cache_get",
 		"research_cache_set",
 		"research_cache_clear",

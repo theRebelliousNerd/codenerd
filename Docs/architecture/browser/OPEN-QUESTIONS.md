@@ -1,16 +1,16 @@
 # OPEN QUESTIONS — browser
 
-> Last verified: 2026-07-13 · Only questions not already decided in code comments
+> Last verified: 2026-08-09 · Only questions not already decided in code comments
 
-## Ownership
+## Reasoning and evidence
 
-1. **Who owns the long-lived Chrome process in agent mode?** CLI launch process, research singleton, or a Cortex-supervised manager with explicit Shutdown on session end?
+1. **What freshness/epoch contract should BPAR-3 waits use?** Event facts currently accumulate; waits must not succeed from stale prior-page evidence.
 
-2. **Should modular research tools reify into the Cortex kernel engine, a side engine, or remain fact-free by design?** Fact-free is simpler for fetch-like use; fact-full is required for honeypot-safe agent browsing.
+2. **Which bounded evidence handle should `browser_reason` expose for later audit without creating a second fact store?**
 
 ## Safety policy
 
-3. **Must Click/Type hard-fail inside SessionManager when honeypot rules match, or only at kernel permit time?** Hard-fail couples package to engine rules always; permit-time preserves operator escape hatches.
+3. **Must ref-based interaction hard-fail inside SessionManager when honeypot rules match, or only at kernel permit time?** Hard-fail couples package to engine rules always; permit-time preserves operator escape hatches.
 
 4. **Is `honeypot_suspicious_url` still a product requirement without Mangle string predicates?** If yes, which URL patterns (tracking pixels, bait paths)?
 
@@ -31,3 +31,5 @@
 9. **Will CI always install Chrome for lifecycle tests, or keep Skip + optional integration tag indefinitely?**
 
 10. **Is exporting `.mg` snapshots the long-term audit format, or should facts stream into knowledge store / glass box only?**
+
+11. **Should unsafe JavaScript remain absent, or ship disabled-by-default with both config and explicit constitutional approval as BPAR-5 requires?**

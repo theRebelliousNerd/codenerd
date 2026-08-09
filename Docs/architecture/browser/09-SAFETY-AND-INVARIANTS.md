@@ -11,11 +11,10 @@ From `internal/core/defaults/policy/constitution.mg`:
 | `/browser_navigate` | Yes |
 | `/browser_screenshot` | Yes |
 | `/browser_read_dom` | Yes |
-| `/browser_click` | **No** |
-| `/browser_type` | **No** |
-| `/browser_close` | **No** |
+| `/browser_extract` / `/browser_click` / `/browser_type` / `/browser_close` | Yes |
+| `/browser_observe` / `/browser_act` | Yes |
 
-Default deny elsewhere still applies: if an action is not permitted, kernel must not schedule it. Package methods themselves do **not** call `permitted(...)` — safety is caller/kernel responsibility.
+`safe_action` is not authority. The effective JIT allowlist first constrains availability, then the session executor asserts an exact `pending_action` and requires matching `permitted(Action, Target, Payload)`. Package methods themselves do **not** call `permitted(...)` — direct package callers are trusted integration code.
 
 ## 2. Honeypot as safety layer
 
@@ -53,6 +52,8 @@ Policy files derive traps from evidence:
 4. Event stream must tolerate engine `AddFacts` errors (log, continue).  
 5. `startMu` serializes lifecycle setup without holding the state write lock across Chrome connect.
 6. Session streams use manager-owned contexts and must be canceled by tab/browser/shutdown close.
+7. Element refs are opaque and session-scoped; navigation clears the registry generation.
+8. An observation registers fingerprints only if its capture generation is still current; racing navigation fails the observation closed.
 
 ## 5. Resource invariants
 
@@ -66,7 +67,7 @@ Policy files derive traps from evidence:
 1. `react_state` hook indices coerced to int64 (avoid float64 /number mismatch).  
 2. Dual CSS encodings keep policy matches across string vs atom worlds.  
 3. DOM max 200 nodes — incomplete but finite.  
-4. Nil sink disables streams and errors ReifyReact — production Cortex boot must never use it.
+4. Nil sink keeps only the navigation lifecycle stream and errors ReifyReact — production Cortex boot must never use it.
 5. Every fact batch is copy-on-write redacted before its configured sink.
 
 ## 7. Content safety (out of package)

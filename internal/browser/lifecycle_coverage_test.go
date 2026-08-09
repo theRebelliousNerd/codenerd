@@ -79,6 +79,8 @@ func TestBrowserLifecycle_WhenChromeAvailable(t *testing.T) {
 				<input id="password1" name="password" type="password" />
 				<a href="/page2">Link to Page 2</a>
 				<a href="/hidden" style="display:none">Hidden Link</a>
+				<details><summary id="more">More</summary><p>Hidden details</p></details>
+				<table aria-label="Rows"><tr><th>Name</th></tr><tr data-row-id="one"><td>One</td></tr></table>
 			</body></html>`)
 		}
 	}))
@@ -198,6 +200,71 @@ func TestBrowserLifecycle_WhenChromeAvailable(t *testing.T) {
 			t.Fatalf("Navigate back failed: %v", err)
 		}
 		time.Sleep(300 * time.Millisecond)
+
+		// --- Progressive observe/act parity route ---
+		observation, err := sm.Observe(ctx, session.ID, ObserveOptions{
+			Mode: "composite", View: "full", MaxItems: 20, VisibleOnly: true,
+		})
+		if err != nil {
+			t.Fatalf("Observe(composite) failed: %v", err)
+		}
+		interactive, ok := observation.Data["interactive"].([]InteractiveElement)
+		if !ok || len(interactive) == 0 {
+			t.Fatalf("Observe returned no interactive elements: %#v", observation.Data["interactive"])
+		}
+		var buttonRef, inputRef string
+		for _, element := range interactive {
+			if element.Fingerprint == nil {
+				continue
+			}
+			switch element.Fingerprint.ID {
+			case "btn1":
+				buttonRef = element.Ref
+			case "input1":
+				inputRef = element.Ref
+			}
+		}
+		if buttonRef == "" || inputRef == "" {
+			t.Fatalf("Observe did not issue refs for fixture controls: button=%q input=%q", buttonRef, inputRef)
+		}
+		if counts, ok := observation.Data["counts"].(map[string]int); !ok || counts["grids"] == 0 || counts["hidden"] == 0 {
+			t.Fatalf("Observe did not discover grid/hidden surfaces: %#v", observation.Data["counts"])
+		}
+		repeated, err := sm.Observe(ctx, session.ID, ObserveOptions{Mode: "interactive", View: "full", MaxItems: 20, VisibleOnly: true})
+		if err != nil {
+			t.Fatalf("Observe(interactive) failed: %v", err)
+		}
+		stable := false
+		for _, element := range repeated.Data["interactive"].([]InteractiveElement) {
+			if element.Fingerprint != nil && element.Fingerprint.ID == "btn1" && element.Ref == buttonRef {
+				stable = true
+			}
+		}
+		if !stable || repeated.Generation != observation.Generation {
+			t.Fatalf("ref was not stable within generation: first=%d second=%d", observation.Generation, repeated.Generation)
+		}
+		execution, err := sm.ExecuteActions(ctx, session.ID, []ActionOperation{
+			{Type: "interact", Ref: inputRef, Action: "type", Value: "progressive text"},
+			{Type: "key", Key: "End"},
+			{Type: "interact", Ref: buttonRef, Action: "click"},
+		}, true)
+		if err != nil || !execution.Success || execution.Counts["succeeded"] != 3 {
+			t.Fatalf("ExecuteActions failed: execution=%+v err=%v", execution, err)
+		}
+		oldGeneration := observation.Generation
+		if err := sm.Navigate(ctx, session.ID, ts.URL+"/page2"); err != nil {
+			t.Fatalf("Navigate for stale-ref proof failed: %v", err)
+		}
+		if _, staleErr := sm.InteractRef(ctx, session.ID, buttonRef, "click", "", false); staleErr == nil {
+			t.Fatal("expected pre-navigation ref to fail closed")
+		}
+		if registry := sm.Registry(session.ID); registry.Generation() <= oldGeneration {
+			t.Fatalf("navigation did not advance ref generation: before=%d after=%d", oldGeneration, registry.Generation())
+		}
+		if err := sm.Navigate(ctx, session.ID, ts.URL); err != nil {
+			t.Fatalf("Navigate after stale-ref proof failed: %v", err)
+		}
+		time.Sleep(200 * time.Millisecond)
 
 		// --- Click ---
 		err = sm.Click(ctx, session.ID, "#btn1")

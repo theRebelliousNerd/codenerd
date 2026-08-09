@@ -4,7 +4,7 @@
 > Status: Living Reference Document — code-grounded full corpus  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/browser/`  
-> Scale: **7** non-test Go files ≈ **2,800** lines; **10** test files; **0** package-local `.mg`
+> Scale: **10** non-test Go files ≈ **4,400** lines; **12** package test files; **0** package-local `.mg`
 > Companion Mangle: `internal/core/defaults/schemas_browser.mg`, `policy/browser.mg`, `policy/browser_honeypot.mg`
 
 ## Scope
@@ -55,12 +55,19 @@ go test -tags=integration ./internal/browser/ -count=1 -timeout 120s
 
 # Honeypot policy unit tests (companion Mangle)
 go test ./internal/core/defaults/policy/ -run Honeypot -count=1
+
+# Production modular-registry progressive route (Chrome required)
+go test -tags=integration ./internal/tools/research/ -run TestBrowserProgressiveTools_Live -count=1
 ```
 
 Native lifecycle/security settings live in `.nerd/config.json` under
 `browser` (not `integrations.servers.browser`), including
 `multi_tab_default`, `max_tabs`, `max_browsers`, `idle_tab_timeout_ms`,
 `extra_sensitive_keys`, and `writable_roots`.
+
+Agent-facing progressive behavior is native and JIT-selected:
+`browser_observe` returns bounded slices and opaque generation-bound refs;
+`browser_act` consumes those refs through a closed, stop-on-error operation list.
 
 ### Manual CLI smoke (optional)
 

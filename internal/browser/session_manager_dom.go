@@ -20,8 +20,59 @@ import (
 
 // startEventStream wires Rod CDP events into the fact sink.
 func (m *SessionManager) startEventStream(ctx context.Context, sessionID string, page *rod.Page) {
+	if page == nil {
+		logging.BrowserDebug("Event stream skipped - nil page for session %s", sessionID)
+		return
+	}
+	ctx = normalizeContext(ctx)
+	handleNavigation := func(ev *proto.PageFrameNavigated) {
+		if ev == nil || ev.Frame == nil || ev.Frame.ParentID != "" {
+			return
+		}
+		// CDP can deliver queued frame events after a rapid navigate/back pair.
+		// Ignore an event that no longer describes the live target; otherwise it
+		// would roll metadata backward and invalidate freshly observed refs.
+		if info, infoErr := page.Context(ctx).Info(); infoErr == nil && info != nil && info.URL != "" && info.URL != ev.Frame.URL {
+			return
+		}
+		now := time.Now()
+		safeURL := m.redactor.SanitizeString(ev.Frame.URL)
+		registry := m.Registry(sessionID)
+		// EachEvent may replay the page's initial same-URL frame event when the
+		// stream is attached. That is not a navigation and must not race the
+		// first observation. Explicit manager navigation already invalidates an
+		// empty registry; event-driven navigation matters once refs exist.
+		if registry != nil && registry.Count() > 0 {
+			registry.Clear()
+		}
+		facts := []mangle.Fact{
+			{
+				Predicate: "navigation_event",
+				Args:      []any{sessionID, ev.Frame.URL, now.UnixMilli()},
+				Timestamp: now,
+			},
+			{
+				Predicate: "current_url",
+				Args:      []any{sessionID, ev.Frame.URL},
+				Timestamp: now,
+			},
+		}
+		if err := m.addFacts(facts); err != nil {
+			logging.BrowserError("[session:%s] navigation fact error: %v", sessionID, err)
+		}
+		m.UpdateMetadata(sessionID, func(s Session) Session {
+			s.URL = safeURL
+			s.LastActive = now
+			return s
+		})
+	}
+
 	if m.engine == nil {
-		logging.BrowserDebug("Event stream skipped - no engine configured")
+		// Ref invalidation and session metadata are lifecycle invariants, not fact
+		// ingestion features. Keep the lightweight navigation stream alive for
+		// standalone managers too.
+		logging.BrowserDebug("Starting navigation-only event stream - no engine configured")
+		go page.Context(ctx).EachEvent(handleNavigation)()
 		return
 	}
 
@@ -96,29 +147,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 		})
 
 		// Navigation events
-		waitNav := page.Context(ctx).EachEvent(func(ev *proto.PageFrameNavigated) {
-			now := time.Now()
-			facts := []mangle.Fact{
-				{
-					Predicate: "navigation_event",
-					Args:      []any{sessionID, ev.Frame.URL, now.UnixMilli()},
-					Timestamp: now,
-				},
-				{
-					Predicate: "current_url",
-					Args:      []any{sessionID, ev.Frame.URL},
-					Timestamp: now,
-				},
-			}
-			if err := m.addFacts(facts); err != nil {
-				logging.BrowserError("[session:%s] navigation fact error: %v", sessionID, err)
-			}
-			m.UpdateMetadata(sessionID, func(s Session) Session {
-				s.URL = m.redactor.SanitizeString(ev.Frame.URL)
-				s.LastActive = now
-				return s
-			})
-		})
+		waitNav := page.Context(ctx).EachEvent(handleNavigation)
 
 		// Console, network, and DOM streams
 		waitRest := page.Context(ctx).EachEvent(
@@ -661,7 +690,7 @@ func (m *SessionManager) loadSessionsLocked() error {
 
 	for _, s := range sessions {
 		s.Status = "detached"
-		m.sessions[s.ID] = &sessionRecord{meta: s, page: nil}
+		m.sessions[s.ID] = &sessionRecord{meta: s, page: nil, registry: NewElementRegistry()}
 	}
 	return nil
 }

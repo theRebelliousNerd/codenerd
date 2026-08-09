@@ -10,3 +10,6 @@
   - `go run ./cmd/tools/validate_prompt_atoms -root internal/prompt/atoms -fail-on-warn`
   - `go test -count=1 ./internal/prompt ./internal/prompt/sync ./cmd/tools/validate_prompt_atoms`
   - `go test -race -count=1 ./internal/prompt ./internal/prompt/sync`
+- Browser observe/act guidance lives in
+  `atoms/capability/browser_progressive.yaml`; keep it ref-first, bounded, and
+  free of raw selector or arbitrary-JavaScript instructions.

@@ -91,6 +91,32 @@ func TestLogic_Safety(t *testing.T) {
 
 	// "nc -e" should be denied (id6)
 	checkPermittedRepro(t, eng, "id6", false)
+
+	// Progressive browser tools are reachable only through the same exact
+	// pending_action -> permitted payload contract as every other tool.
+	for _, action := range []string{"/browser_observe", "/browser_act"} {
+		target := "browser-session"
+		payload := `{"session_id":"browser-session"}`
+		if err := eng.AddFact("pending_action", "browser-policy", action, target, payload, int64(1)); err != nil {
+			t.Fatalf("add %s pending action: %v", action, err)
+		}
+		facts, err := eng.GetFacts("permitted")
+		if err != nil || !containsPermission(facts, action, target, payload) {
+			t.Fatalf("%s did not derive exact permission: facts=%v err=%v", action, facts, err)
+		}
+	}
+}
+
+func containsPermission(facts []mangle.Fact, action, target, payload string) bool {
+	for _, fact := range facts {
+		if len(fact.Args) != 3 {
+			continue
+		}
+		if fmt.Sprint(fact.Args[0]) == action && fmt.Sprint(fact.Args[1]) == target && fmt.Sprint(fact.Args[2]) == payload {
+			return true
+		}
+	}
+	return false
 }
 
 func checkPermittedRepro(t *testing.T, eng *mangle.Engine, actionID string, shouldPermit bool) {

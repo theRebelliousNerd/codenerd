@@ -69,7 +69,7 @@ This is Cortex §9.0 “Browser Physics”: geometry and CSS are first-class inp
 
 | North star | Browser realization |
 |------------|---------------------|
-| LLM = creative center | Model proposes “inspect this SPA” / selectors; does not invent safety |
+| LLM = creative center | Model proposes “inspect this SPA,” observes, and chooses opaque refs; it does not invent selectors or safety authority |
 | Kernel = executive | `is_honeypot`, `safe_interactable`, `safe_action` gate effects |
 | Transduction | Rod JS eval + CDP → `mangle.Fact` atoms |
 | Default deny | Constitution lists only navigate/screenshot/read_dom as safe browser actions |

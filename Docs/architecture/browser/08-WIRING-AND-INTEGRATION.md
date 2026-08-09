@@ -71,7 +71,7 @@ if browserMgr != nil {
 ```
 
 `Cortex` / chat model carry `BrowserManager *browser.SessionManager` fields (`model_types.go`).  
-The remaining gap is surface reachability: the existing six research tools share live facts, but multi-browser/isolation/focus lifecycle operations are not yet exposed through the progressive tool contract.
+The BPAR-2 surface is reachable: the legacy six and progressive observe/act tools share the same manager, and act exposes browser/session lifecycle operations. Remaining reachability gaps are reason/audit/spec tools, the legacy chat boot path, and operator CLI expansion.
 
 ## 4. TactileRouterShard
 
@@ -110,11 +110,17 @@ The remaining gap is surface reachability: the existing six research tools share
 | `browser_click` | Click selector |
 | `browser_type` | Type text |
 | `browser_close` | Close session path |
+| `browser_observe` | Bounded state/nav/interactive/grid/hidden/screenshot/DOM/React views + opaque refs |
+| `browser_act` | Closed sequential ref/action/lifecycle operations with stop-on-error |
 
 `getBrowserManager()` resolves the Cortex-owned manager installed by
 `research.SetBrowserManager`; a nil-sink manager is constructed lazily only for
 narrow standalone package use. `browser_close` calls `CloseSession` and cancels
 the tab's event stream.
+
+Both progressive names are selected for research and verification intents by
+the config factory and `intent_routing.mg`. The JIT atom
+`capability/browser_progressive` supplies the observe-first/ref-first method.
 
 ## 7. Mangle program load
 
@@ -127,6 +133,8 @@ Constitution:
 safe_action(/browser_navigate).
 safe_action(/browser_screenshot).
 safe_action(/browser_read_dom).
+safe_action(/browser_observe).
+safe_action(/browser_act).
 ```
 
 Routing: `routing_table(/browser, /browser_tool, /high)`.  
@@ -141,7 +149,7 @@ Intent routing (`internal/mangle/intent_routing.mg`): modular browser tools allo
 | Schemas in kernel | **Live** |
 | Honeypot policy | **Live** (when engine has facts) |
 | CLI operator path | **Live** (standalone export engine) |
-| Research tools effect path | **Live** (shared Cortex manager/facts after system boot) |
+| Research tools effect path | **Live** (legacy + BPAR-2 progressive tools share Cortex manager/facts) |
 | System Cortex BrowserManager field | **Constructed with live-kernel adapter** |
 | Legacy chat BrowserManager field | **Declared; nil** |
 | Tactile SetBrowserManager | **Wired in system factory; conditional in legacy chat** |
@@ -151,7 +159,7 @@ Intent routing (`internal/mangle/intent_routing.mg`): modular browser tools allo
 
 ## 9. Recommended integration sequence (docs-only guidance)
 
-1. Expose the BPAR-1 lifecycle through progressive native tools and operator CLI commands.
-2. Add a live modular-tool → browser event → Cortex query proof.
+1. Build BPAR-3 bounded waits/reasoning over fresh live-kernel evidence.
+2. Extend the live modular-tool → browser event proof with a Cortex query assertion.
 3. Optionally implement VS handleBrowse as a thin delegate.
 4. Run SnapshotDOM after navigate before honeypot/safe click decisions.

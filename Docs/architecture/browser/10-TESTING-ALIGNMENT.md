@@ -1,6 +1,6 @@
 # 10 — Testing Alignment: browser
 
-> Last verified against codebase: 2026-07-13
+> Last verified against codebase: 2026-08-09
 
 ## 1. Commands
 
@@ -19,6 +19,12 @@ go test ./internal/core/defaults/policy/ -run 'Honeypot|Browser' -count=1
 
 # Research tool browser wrappers (other package)
 go test ./internal/tools/research/ -run Browser -count=1
+
+# Live progressive modular registry route
+go test -tags=integration ./internal/tools/research/ -run TestBrowserProgressiveTools_Live -count=1
+
+# Focused race gate
+go test -race ./internal/browser ./internal/tools/research ./internal/prompt ./internal/prompt/sync
 ```
 
 ## 2. Test file map
@@ -31,6 +37,9 @@ go test ./internal/tools/research/ -run Browser -count=1
 | `honeypot_test.go` | — | Full engine + schema + policy: display none, visibility, offscreen, zero size, suspicious URL fact, normal element |
 | `lifecycle_coverage_test.go` | — | Shared Chrome: create, navigate, click, type, screenshot, snapshot, multi-page; Skip if no Chrome |
 | `browser_integration_test.go` | `integration` | httptest Hello World + interaction facts (`dom_text`/`navigation_event`/`click_event`/`input_event`) |
+| `element_registry_test.go` | — | Stable refs, copy isolation, navigation generation, stale snapshot refusal |
+| `progressive_action_test.go` | — | Hard bounds, closed modes, stop-on-error |
+| `internal/tools/research/browser_progressive_live_test.go` | `integration` | Live registry route: all BPAR-2 views/actions, secret sink/result check, confined screenshot |
 
 ## 3. Coverage strengths
 
@@ -45,11 +54,11 @@ go test ./internal/tools/research/ -run Browser -count=1
 | Area | Gap |
 |------|-----|
 | Full CDP event matrix | net_request/net_response/console/header paths lightly or unasserted in unit tests |
-| ReifyReact happy path | Needs React page fixture; mostly error-path tested |
+| ReifyReact happy path | Progressive route reaches the mode on a non-React page; a real React Fiber fixture remains absent |
 | ForkSession happy path | Error paths covered; full cookie restore may be lifecycle-only |
 | HoneypotDetector with live page | AnalyzePage/GetSafeLinks need Chrome + HTML fixtures (partial in lifecycle) |
 | CLI cmd_browser | No package tests under cmd for browser subcommands (may live elsewhere) |
-| Wiring | No test that chat boot injects non-nil BrowserManager |
+| Wiring | System factory binding is unit-tested and modular registry is live-tested; legacy chat injection remains unproved |
 | Multi-manager contention | Not tested |
 | Fact schema type rejections | Only react_state int coercion documented/tested indirectly |
 
@@ -68,7 +77,7 @@ go test ./internal/tools/research/ -run Browser -count=1
 2. SnapshotDOM predicate inventory assertion vs Decl list.  
 3. Event throttle under synthetic burst sink.  
 4. Attach after CreateSession TargetID round-trip.  
-5. Contract test: research tools vs manager with sink receives navigation_event.
+5. Cortex query assertion after live modular-tool fact ingestion.
 
 ## 7. CI posture
 

@@ -2,7 +2,7 @@
 
 > Last verified against codebase: 2026-08-09
 > Status: Living Reference Document — code-grounded  
-> Source: `internal/browser/` (7 non-test ≈ 2.8k LOC; 10 tests) + companion schemas/policy under `internal/core/defaults/`
+> Source: `internal/browser/` (10 non-test ≈ 4.4k LOC; 12 tests) + companion schemas/policy under `internal/core/defaults/`
 
 ## 1. North-star statement
 
@@ -14,14 +14,14 @@ codeNERD treats the browser as a **physics engine for the world-model**, not a f
 |-----------|-------------|----------|
 | Creative/executive split | **4** | Go drives Rod; system facts land through `browserKernelSink` in the live executive kernel. Honeypot outcomes remain rule-derived (`honeypot.go`, `browser_honeypot.mg`). Progressive reasoning/query surfaces remain open. |
 | Fact-flow fidelity | **4** | `captureDOMFacts`, event stream, `ReifyReact` emit schema-aligned predicates (`session_manager_dom.go`, `schemas_browser.mg`). CLI snapshot exports facts to `.nerd/browser/snapshots/*.mg`. |
-| Constitutional safety | **3** | `safe_action(/browser_navigate\|screenshot\|read_dom)` in `constitution.mg`; tactile router marks navigate as `RequiresSafe: true`. Click/type are **not** constitutionally listed as safe actions — intentional high-risk. Wiring of browser into live OODA is partial (boot leaves `browserMgr` nil; VS `handleBrowse` refuses direct execution). |
-| JIT / atom discipline | **2** | Package is effectful infrastructure, not prompt-facing. Prompt configs list `browser_navigate` as a tool name (`internal/prompt/config_*.go`) but browser itself has no prompt atoms — correct. |
+| Constitutional safety | **4** | All registered browser spellings, including observe/act, still require exact `pending_action` → `permitted(action,target,payload)` derivation. Browser session/browser/target handles are recognized safety targets. |
+| JIT / atom discipline | **4** | Research/test intent configs select observe/act; `capability/browser_progressive` and its safety dependency teach the bounded ref-first protocol without inventing authority. |
 | Observability | **4** | Dedicated `logging.CategoryBrowser` + convenience helpers + timers on start/create/navigate/screenshot/honeypot (`logger.go`, package sources). |
-| Test grounding | **4** | Dense unit coverage of config, throttler, session map, persist/load, honeypot reason tables; lifecycle tests when Chrome present; integration tag for nav/interaction. |
+| Test grounding | **5** | Unit/race coverage plus live modular-registry Chrome proof for observations, refs, actions, secret redaction, screenshot confinement, DOM and React modes. |
 | Wiring completeness | **4** | Cortex owns one manager for tactile + research; facts enter live kernel. Standalone CLI and legacy chat distinctions remain explicit; VS browse handler is still a hard redirect. |
 | Isolation / multi-session | **4** | Shared profile tabs by default, explicit isolation, isolated forks, multi-browser bounds, redacted private metadata. |
 
-**Overall alignment: 4 / 5** — runtime ownership and fact truth are repaired; residual risk is progressive surface and end-to-end parity incompleteness.
+**Overall alignment: 4 / 5** — runtime truth and BPAR-2 observe/act are production-routed; reason/audit/spec/evidence parity remains incomplete.
 
 ## 3. What “good” looks like (browser-specific)
 
@@ -43,4 +43,4 @@ codeNERD treats the browser as a **physics engine for the world-model**, not a f
 
 ## 5. Verdict
 
-Treat `internal/browser` as **implemented and load-bearing**, not pre-product. Continue BPAR-2 progressive observe/act work, close the remaining VS/shard/tool reachability gaps, and assert `honeypot_suspicious_url` from Go (noted missing in policy comments).
+Treat `internal/browser` as **implemented and load-bearing**, not pre-product. Continue BPAR-3 reasoning/wait work, close the remaining VS/shard/tool reachability gaps, and assert `honeypot_suspicious_url` from Go (noted missing in policy comments).

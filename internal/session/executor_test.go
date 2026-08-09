@@ -109,6 +109,19 @@ func TestExecutor_CheckSafety_SafeActionWithoutPermittedDenies(t *testing.T) {
 	}
 }
 
+func TestExecutor_ExtractTargetRecognizesBrowserHandles(t *testing.T) {
+	executor := &Executor{}
+	for key, want := range map[string]string{
+		"session_id": "session-1",
+		"browser_id": "browser-1",
+		"target_id":  "target-1",
+	} {
+		if got := executor.extractTarget(map[string]any{key: want}); got != want {
+			t.Fatalf("extractTarget(%s) = %q, want %q", key, got, want)
+		}
+	}
+}
+
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify empty ToolCall.Name rejects strictly instead of allowing through to Mangle as "/".
 // TestExecutor_EmptyToolCallName tests behavior when ToolCall.Name is empty
 func TestExecutor_EmptyToolCallName(t *testing.T) {

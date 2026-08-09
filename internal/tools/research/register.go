@@ -23,6 +23,8 @@ func RegisterAll(registry *tools.Registry) error {
 		BrowserClickTool(),
 		BrowserTypeTool(),
 		BrowserCloseTool(),
+		BrowserObserveTool(),
+		BrowserActTool(),
 
 		// Caching
 		CacheGetTool(),

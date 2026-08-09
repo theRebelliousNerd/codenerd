@@ -1460,7 +1460,7 @@ func (e *Executor) extractTarget(args map[string]any) string {
 	if target := projectdoc.TargetPath(args); target != "" {
 		return target
 	}
-	for _, key := range []string{"url", "query", "pattern", "glob", "dir", "directory"} {
+	for _, key := range []string{"url", "query", "pattern", "glob", "dir", "directory", "session_id", "browser_id", "target_id"} {
 		if val, ok := args[key]; ok {
 			if target := strings.TrimSpace(types.ExtractString(val)); target != "" {
 				return target

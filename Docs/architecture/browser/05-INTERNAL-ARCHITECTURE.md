@@ -1,7 +1,7 @@
 # 05 — Internal Architecture: browser
 
 > Last verified against codebase: 2026-08-09
-> Sources: `session_manager.go`, `session_lifecycle.go`, `session_manager_dom.go`, `fact_redaction.go`, `security/`, `honeypot.go`
+> Sources: `session_manager.go`, `session_lifecycle.go`, `session_manager_dom.go`, `element_registry.go`, `progressive_observe.go`, `progressive_action.go`, `fact_redaction.go`, `security/`, `honeypot.go`
 
 ## 1. Component diagram
 
@@ -10,7 +10,8 @@
                     │           SessionManager            │
                     │  cfg, engine EngineSink, mu,        │
                     │  browsers map, sessions map,        │
-                    │  redactor, path policy, reaper      │
+                    │  registries, redactor, path policy, │
+                    │  reaper                             │
                     └──────────────┬──────────────────────┘
            Start/Connect           │
                                    ▼
@@ -23,8 +24,11 @@
               ▼                    ▼                    ▼
       sessionRecord          sessionRecord         event stream
       meta + *rod.Page       ...                   goroutines
+      + ElementRegistry
               │
               ├─ Navigate / Click / Type / Screenshot
+              ├─ Observe → bounded views + opaque refs
+              ├─ ExecuteActions → closed sequential plan
               ├─ SnapshotDOM → captureDOMFacts
               ├─ ReifyReact → fiber JS → facts
               └─ ForkSession → cookies + storage
@@ -48,6 +52,9 @@
 | `EngineSink` | exported interface | `AddFacts([]mangle.Fact) error` |
 | `engineAdapter` | private | Wraps `*mangle.Engine` |
 | `SessionManager` | exported | Owns bounded browsers, sessions, streams, and evidence policy |
+| `ElementRegistry` | exported | Owns generation-bound opaque refs and private selector resolution |
+| `ObserveOptions`, `ProgressiveObservation` | exported | Bounded progressive observation request/result |
+| `ActionOperation`, `ActionExecution` | exported | Closed sequential action request/result |
 | `HoneypotDetector` | exported | Rule-based analysis |
 | `DetectionResult`, `Link` | exported | Honeypot API results |
 
@@ -97,7 +104,7 @@ ensureStarted
   → EmulationSetDeviceMetricsOverride (viewport)
   → Navigate with NavigationTimeout
   → uuid session ID, store sessionRecord
-  → manager-owned startEventStream (if sink != nil)
+  → manager-owned startEventStream
   → redacted private persistSessions
 ```
 
@@ -112,9 +119,33 @@ ensureStarted
 5. Ticker 500ms drains `__browsernerdEvents` → `click_event` / `input_event` / `state_change`.  
 6. WaitGroup of three: nav waiter, rest waiter, poller.
 
-**Skip condition:** `m.engine == nil` → entire stream disabled (debug log only).
+With a nil sink, the stream still consumes main-frame navigation events so
+session metadata and ref-generation invalidation remain correct. DOM, console,
+network, and in-page event reification are enabled only when a sink is present.
 
-## 6. DOM capture pipeline
+## 6. Progressive observe/ref/action pipeline
+
+```
+Observe(session, mode/detail/bounds)
+  → capture bounded page state
+  → verify URL + registry generation did not change during capture
+  → atomically register fingerprints for that generation
+  → return redacted observations with opaque e<generation>_<n> refs
+  → optional confined screenshot evidence (path, media type, bytes, SHA-256)
+
+ExecuteActions(session, operations, stopOnError)
+  → validate closed operation vocabulary and batch bounds
+  → resolve refs privately through ElementRegistry
+  → try stored selector candidates, then bounded fingerprint re-identification
+  → execute in order and return redacted per-step results
+```
+
+Navigation clears the registry and advances its generation before explicit
+navigation and when a real CDP main-frame navigation is observed. A captured
+snapshot from an older generation cannot repopulate the registry. Selectors and
+typed values remain private implementation details.
+
+## 7. DOM capture pipeline
 
 Per node (up to 200):
 
@@ -128,14 +159,14 @@ Per node (up to 200):
 
 Visibility flag on layout uses display/visibility/opacity/rect heuristics in page JS.
 
-## 7. React reification pipeline
+## 8. React reification pipeline
 
 1. Eval JS walks `__reactFiber*` from root / `#root` / body.  
 2. Sanitize props/state to primitives.  
 3. Emit `react_component`, `react_prop`, `react_state` (hook index coerced to int64), `dom_mapping`.  
 4. Copy/redact facts, then `EngineSink.AddFacts`; requires non-nil sink.
 
-## 8. Honeypot analysis pipeline
+## 9. Honeypot analysis pipeline
 
 ```
 AnalyzePage(page)
@@ -148,23 +179,24 @@ Confidence: base 0.5 + 0.15 × reason count, cap 1.0.
 
 `GetSafeLinks` filters out links with any reason; `GetAllLinksWithAnalysis` returns both.
 
-## 9. Persistence
+## 10. Persistence
 
 - **SessionStore** path: JSON marshal of `[]Session` metadata only (no cookies in file).  
 - Load marks sessions detached with `page=nil`.  
 - CLI additionally writes **control.txt** for debugger URL sharing across process invocations.
 
-## 10. ForkSession
+## 11. ForkSession
 
 Snapshot Network cookies + localStorage/sessionStorage JSON → CreateSession → SetCookies + restoreStorage → status `forked`.
 
-## 11. Threading model
+## 12. Threading model
 
 | Concern | Mechanism |
 |---------|-----------|
 | Session map | `sync.RWMutex` on manager |
 | Event throttler | own `sync.Mutex` |
 | Event stream | detached goroutines; uses page Context |
+| Ref registry | own mutex; generation-checked batch registration |
 | Research tools | package-level `sync.Once` manager + mutex |
 
 No global lock across managers.

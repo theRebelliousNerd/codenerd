@@ -30,9 +30,9 @@
 
 | | |
 |--|--|
-| **Symptom** | No DOM/event facts; ReifyReact errors “mangle engine not configured”; event stream skipped |
+| **Symptom** | No DOM/console/network facts; ReifyReact errors “mangle engine not configured” |
 | **Cause** | Focused/standalone caller passed nil sink; system binding was bypassed |
-| **Mitigation** | System boot installs `browserKernelSink` and binds research tools; detect nil before expecting world-model updates |
+| **Mitigation** | System boot installs `browserKernelSink` and binds research tools; navigation-only tracking still maintains metadata/ref invalidation, but a sink is required for world-model updates |
 
 ## FM-05 — Fact type rejection in Mangle
 
@@ -121,3 +121,19 @@
 | **Symptom** | Action browse → error string requiring TactileRouterShard |
 | **Cause** | Intentional handleBrowse stub |
 | **Mitigation** | Use modular tools or wire shard manager; do not treat as package bug alone |
+
+## FM-16 — Stale progressive element ref
+
+| | |
+|--|--|
+| **Symptom** | `browser_act` refuses a previously returned `e<generation>_<n>` ref |
+| **Cause** | Navigation advanced the session registry generation, or the page changed enough that bounded fingerprint re-identification failed |
+| **Mitigation** | Run `browser_observe` again and act on a current ref; never fall back to a model-invented selector |
+
+## FM-17 — Observation crosses navigation
+
+| | |
+|--|--|
+| **Symptom** | Observe returns a stale-snapshot/navigation-changed error instead of elements |
+| **Cause** | URL or registry generation changed while the page snapshot was being captured/materialized |
+| **Mitigation** | Retry observe after navigation settles; generation-checked registration prevents stale DOM from repopulating refs |

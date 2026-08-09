@@ -92,6 +92,15 @@ safe_action(/embed_text).
 safe_action(/browser_navigate).
 safe_action(/browser_screenshot).
 safe_action(/browser_read_dom).
+# Registered modular spellings. Availability still comes from the effective
+# JIT allowlist and execution still requires an exact pending_action payload;
+# these facts only let the constitutional rule positively derive permitted/3.
+safe_action(/browser_extract).
+safe_action(/browser_click).
+safe_action(/browser_type).
+safe_action(/browser_close).
+safe_action(/browser_observe).
+safe_action(/browser_act).
 
 # System lifecycle
 safe_action(/initialize).

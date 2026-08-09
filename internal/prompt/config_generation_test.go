@@ -54,6 +54,24 @@ func TestConfigGeneration_StandardIntents(t *testing.T) {
 		t.Fatalf("Failed to generate reviewer config: %v", err)
 	}
 	assertContainsAll(t, reviewerCfg.Policies, []string{"policy/constitution.mg", "policy/validation.mg", "reviewer.mg"}, "Reviewer")
+
+	// Researcher progressive browser loop.
+	researchCfg, err := factory.Generate(ctx, result, "/researcher")
+	if err != nil {
+		t.Fatalf("Failed to generate researcher config: %v", err)
+	}
+	assertContainsAll(t, researchCfg.AllowedTools, []string{"browser_observe", "browser_act"}, "Researcher")
+}
+
+func TestDefaultConfigAtomProvider_ProgressiveBrowserToolsReachResearchAndVerify(t *testing.T) {
+	provider := NewDefaultConfigAtomProvider()
+	for _, intent := range []string{"/research", "/explore", "/verify", "/validate"} {
+		atom, ok := provider.GetAtom(intent)
+		if !ok {
+			t.Fatalf("missing config atom for %s", intent)
+		}
+		assertContainsAll(t, atom.Tools, []string{"browser_observe", "browser_act"}, intent)
+	}
 }
 
 func TestConfigGeneration_HybridIntents(t *testing.T) {

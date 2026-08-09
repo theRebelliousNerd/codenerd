@@ -42,9 +42,10 @@ From `internal/browser/*.go` (non-test):
 | `internal/core/kernel_init.go` | Loads schemas_browser into programs |
 | `internal/core/virtual_store_types.go` | ActionBrowser* constants name-aligned with tools |
 | `internal/core/virtual_store_actions.go` | Documents shard ownership; modular tool arg mapping |
-| `internal/core/defaults/policy/constitution.mg` | safe_action browser subset |
-| `internal/mangle/intent_routing.mg` | modular_tool_allowed browser_* for research/verify intents |
-| `internal/prompt/config_*.go` | Tool allowlists include browser_navigate |
+| `internal/core/defaults/policy/constitution.mg` | All registered legacy and progressive browser spellings are safe actions; exact permission still requires availability and a matching pending action |
+| `internal/mangle/intent_routing.mg` | Legacy and progressive browser tools allowed for research/verify intents |
+| `internal/prompt/config_*.go` | Researcher/tester allowlists include `browser_observe` and `browser_act` |
+| `internal/prompt/atoms/capability/browser_progressive.yaml` | JIT-selected ref-first method and safety boundary |
 | Workspace `.nerd/browser/*` | Operator persistence contract |
 
 ## 4. Layer diagram
@@ -54,6 +55,7 @@ cmd/nerd (browser cobra + chat fields)
         │
         ├──► internal/browser  ◄── internal/tools/research
         │         │
+        │         ├──► opaque ref registry + progressive observe/act
         │         ├──► internal/mangle
         │         ├──► internal/logging
         │         └──► go-rod → Chrome
@@ -61,6 +63,8 @@ cmd/nerd (browser cobra + chat fields)
 internal/shards/system (holds *SessionManager)
         │
 internal/core (schemas, policy, VS action types — no import of browser package)
+
+internal/prompt (JIT atoms/config) ──► effective modular-tool catalog
 ```
 
 ## 5. Cyclic risk

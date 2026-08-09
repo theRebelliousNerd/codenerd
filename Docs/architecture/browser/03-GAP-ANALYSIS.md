@@ -16,23 +16,24 @@
 | CLI operator surface | launch / session / snapshot | **Partial** — no click/type/screenshot/list/fork cobra verbs |
 | Single Cortex-owned manager | System factory constructs it and binds tactile + modular research tools; lazy fallback remains for narrow standalone use | **Done in system boot** |
 | VS executes browser actions | `handleBrowse` returns hard failure requiring shard | **Partial / intentional stub** |
-| Modular tools execute browser | Research tools resolve the Cortex-owned manager and real `browser_close` | **Done for existing six tools** |
+| Modular tools execute browser | Legacy six plus `browser_observe` / `browser_act` resolve the Cortex-owned manager | **Done through BPAR-2** |
 | Tactile router has manager | System factory injects its manager; legacy chat path remains conditional | **Partial** |
-| Constitution gates | navigate/screenshot/read_dom safe; click/type not listed | **Done** (policy) |
+| Constitution gates | Effective allowlist plus exact pending payload permission for every registered browser spelling | **Done** (policy + tests) |
 | Fact sink = production kernel | System factory adapts browser facts into live `SystemKernel.AssertBatch`; CLI keeps an export-only engine | **Done in Cortex; CLI intentionally separate** |
 | Session reattach | Load store as `detached`; CLI snapshot re-Attach by TargetID | **Partial** — TargetID may be stale after Chrome restart |
 | Header ingestion | Config flag exists; default `EnableHeaderIngestion` false in DefaultConfig | **Optional off** |
 | `honeypot_suspicious_url` generation | Policy comment: assert from Go; no URL pattern analyzer found in package | **Gap** |
 | Clip / overflow honeypot reasons in Go | Reason table includes clip/overflow; policy rules incomplete vs Go list | **Partial mismatch** |
-| Multi-browser lifecycle | One manager can bound, list, select, promote, and close multiple browser processes | **Package done; progressive/CLI exposure pending** |
+| Multi-browser lifecycle | One manager can bound, list, select, promote, and close multiple browser processes; progressive act exposes lifecycle operations | **Package/agent done; CLI expansion pending** |
+| Progressive observation/action | Bounded modes, opaque generation refs, closed sequential operations, JIT atoms | **Done (BPAR-2)** |
 
 ## 2. Priority ranking
 
 ### P0 — Correctness / safety wiring
 
-1. **Expose BPAR-1 lifecycle progressively** so multi-browser selection, isolation, focus, and close are agent/operator reachable.
+1. **Complete BPAR-3 reasoning/waits** against fresh live-kernel facts with hard time/result ceilings.
 2. **Close execution path**: either implement VS handleBrowse via the shared manager, or keep the modular-tool + router guarantee explicit.
-3. Add live Cortex proof that a modular navigation fact is queryable through the authorizing kernel.
+3. Add a same-kernel query assertion to the live modular-tool proof (the current live sink proves ingestion but not a Cortex query).
 
 ### P1 — Policy completeness
 
@@ -67,7 +68,7 @@ The complete pinned uplift contract is [BROWSERNERD-PARITY.md](BROWSERNERD-PARIT
 
 ## 4. Risk if ignored
 
-- Existing individual tools still lack progressive bounded observe/reason views, so agents may over-read text or under-use kernel evidence.
+- Observe/act are bounded; reason/audit/spec views remain absent, so diagnosis can still under-use kernel evidence.
 - HoneypotDetector unused in tool path → clicks trap links.  
 - CLI remains a separate operator process; progressive tools need explicit multi-browser selection to avoid accidental process growth.
-- Live-kernel wiring is unit-proven, but a full modular-tool-to-kernel live Chrome proof remains a BPAR-1 gate.
+- The live modular registry proves facts reach the bound sink; querying those facts through the authorizing Cortex kernel remains a BPAR-3 gate.
