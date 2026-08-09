@@ -5,6 +5,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	manglepkg "codenerd/internal/mangle"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
@@ -16,7 +17,6 @@ import (
 	"os"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
-	"codeberg.org/TauCeti/mangle-go/parse"
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for project corpus
 )
 
@@ -127,7 +127,7 @@ func (ka *KernelAdapter) AssertBatch(facts []any) error {
 				input += "."
 			}
 
-			parsed, err := parse.Unit(strings.NewReader(input))
+			parsed, err := manglepkg.ParseUnit(strings.NewReader(input))
 			if err != nil {
 				return fmt.Errorf("failed to parse fact string '%s': %w", v, err)
 			}
@@ -252,7 +252,7 @@ func (a *mcpKernelAdapter) Assert(fact string) error {
 		input += "."
 	}
 
-	parsed, err := parse.Unit(strings.NewReader(input))
+	parsed, err := manglepkg.ParseUnit(strings.NewReader(input))
 	if err != nil {
 		return fmt.Errorf("failed to parse fact '%s': %w", fact, err)
 	}

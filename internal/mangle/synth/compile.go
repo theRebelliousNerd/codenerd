@@ -5,9 +5,10 @@ import (
 	"strconv"
 	"strings"
 
+	manglepkg "codenerd/internal/mangle"
+
 	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codeberg.org/TauCeti/mangle-go/ast"
-	"codeberg.org/TauCeti/mangle-go/parse"
 )
 
 func Compile(spec Spec, options Options) (Result, error) {
@@ -58,7 +59,7 @@ func Compile(spec Spec, options Options) (Result, error) {
 	}
 
 	source := strings.Join(lines, "\n")
-	unit, err := parse.Unit(strings.NewReader(source))
+	unit, err := manglepkg.ParseUnit(strings.NewReader(source))
 	if err != nil {
 		return Result{}, fmt.Errorf("mangle parse failed: %w", err)
 	}

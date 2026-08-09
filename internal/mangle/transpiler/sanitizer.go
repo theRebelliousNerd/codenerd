@@ -9,7 +9,6 @@ import (
 
 	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codeberg.org/TauCeti/mangle-go/ast"
-	"codeberg.org/TauCeti/mangle-go/parse"
 )
 
 // Sanitizer acts as a Compiler Frontend for LLM-generated Mangle logic.
@@ -44,7 +43,7 @@ func (s *Sanitizer) Sanitize(raw string) (string, error) {
 	preprocessed := s.preprocessAggregations(raw)
 
 	// 2. Parse
-	unit, err := parse.Unit(strings.NewReader(preprocessed))
+	unit, err := mangle.ParseUnit(strings.NewReader(preprocessed))
 	if err != nil {
 		return "", fmt.Errorf("parse error: %w", err)
 	}
@@ -83,7 +82,7 @@ func (s *Sanitizer) preprocessAggregations(raw string) string {
 
 // SanitizeAtoms acts as the public entry point for just Atom Interning (Pass 1).
 func (s *Sanitizer) SanitizeAtoms(raw string) (string, error) {
-	unit, err := parse.Unit(strings.NewReader(raw))
+	unit, err := mangle.ParseUnit(strings.NewReader(raw))
 	if err != nil {
 		return "", fmt.Errorf("parse error: %w", err)
 	}

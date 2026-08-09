@@ -432,12 +432,6 @@ func TestCortexKernel_WhenConcurrentTransactions_ShouldNotDeadlock(t *testing.T)
 	var wg sync.WaitGroup
 	const goroutines = 5
 
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
 	for i := range goroutines {
 		wg.Add(1)
 		go func(id int) {
@@ -450,6 +444,12 @@ func TestCortexKernel_WhenConcurrentTransactions_ShouldNotDeadlock(t *testing.T)
 			}
 		}(i)
 	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
 
 	select {
 	case <-done:

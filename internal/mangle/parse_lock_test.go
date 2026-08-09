@@ -1,10 +1,83 @@
 package mangle
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 )
+
+func TestProductionCodeUsesSerializedMangleParser(t *testing.T) {
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate parse lock test")
+	}
+	internalDir := filepath.Clean(filepath.Join(filepath.Dir(testFile), ".."))
+	lockFile := filepath.Join(filepath.Dir(testFile), "parse_lock.go")
+	fset := token.NewFileSet()
+
+	err := filepath.WalkDir(internalDir, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() && entry.Name() == "testdata" {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") || path == lockFile {
+			return nil
+		}
+
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		parseAliases := make(map[string]struct{})
+		for _, imported := range file.Imports {
+			importPath, err := strconv.Unquote(imported.Path.Value)
+			if err != nil {
+				return err
+			}
+			if importPath != "codeberg.org/TauCeti/mangle-go/parse" {
+				continue
+			}
+			alias := "parse"
+			if imported.Name != nil {
+				alias = imported.Name.Name
+			}
+			parseAliases[alias] = struct{}{}
+		}
+
+		ast.Inspect(file, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || (selector.Sel.Name != "Unit" && selector.Sel.Name != "Atom") {
+				return true
+			}
+			qualifier, ok := selector.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			if _, direct := parseAliases[qualifier.Name]; direct {
+				position := fset.Position(call.Pos())
+				t.Errorf("%s calls the unsafe parser directly; use internal/mangle ParseUnit or ParseAtom", position)
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scan production parser calls: %v", err)
+	}
+}
 
 func TestParseUnit_Concurrent(t *testing.T) {
 	const numGoroutines = 100
