@@ -411,3 +411,151 @@ func TestFindBashWindows(t *testing.T) {
 	// Just verify it doesn't panic.
 	_ = findBashWindows()
 }
+
+// =============================================================================
+// IS-COMPOUND-COMMAND TESTS
+// =============================================================================
+
+func TestIsCompoundCommand(t *testing.T) {
+	cases := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{"simple", "echo hello", false},
+		{"and_and", "echo a && echo b", true},
+		{"or_or", "false || echo ok", true},
+		{"pipe", "echo a | grep a", true},
+		{"semicolon", "echo a; echo b", true},
+		{"newline", "echo a\necho b", true},
+		{"redirect_in", "cat < file.txt", true},
+		{"redirect_out", "echo hi > file.txt", true},
+		{"stderr_redirect", "echo hi 2>&1", true},
+		{"quoted_and", "echo 'a && b'", false},
+		{"quoted_pipe", "echo \"a | b\"", false},
+		{"quoted_semicolon", "echo 'a; b'", false},
+		{"quoted_redirect", "echo 'a > b'", false},
+		{"quoted_newline_single", "echo 'a\nb'", false},
+		{"quoted_regex_pipe", "grep 'a|b' file.txt", false},
+		{"quoted_regex_pipe_double", "grep \"a|b\" file.txt", false},
+		{"backslash_escaped_single", "echo 'a\\' && b'", false},
+		{"backslash_escaped_double", "echo \"a\\\" && b\"", false},
+		{"backtick_escaped_single", "echo 'a`'b'", false},
+		{"backtick_escaped_double", "echo \"a`\"b\"", false},
+		{"carriage_return", "echo a\recho b", true},
+		{"crlf_newline", "echo a\r\necho b", true},
+		{"mixed_quoted_and_real", "echo 'a && b' && echo c", true},
+		{"empty", "", false},
+		{"lone_ampersand", "echo a & echo b", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isCompoundCommand(tc.input)
+			if got != tc.expected {
+				t.Errorf("isCompoundCommand(%q) = %v, want %v", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// RUN COMMAND COMPOUND ROUTING TESTS
+// =============================================================================
+
+func TestRunCommandTool_CompoundRouting(t *testing.T) {
+	cases := []struct {
+		name        string
+		command     string
+		wantShell   bool
+		wantArgsSub string
+	}{
+		{"simple_no_shell", "echo hello", false, ""},
+		{"quoted_operator_no_shell", "echo 'a && b'", false, ""},
+		{"quoted_pipe_no_shell", "echo \"a | b\"", false, ""},
+		{"and_and_shell", "echo a && echo b", true, "echo a && echo b"},
+		{"pipe_shell", "echo a | cat", true, "echo a | cat"},
+		{"semicolon_shell", "echo a; echo b", true, "echo a; echo b"},
+		{"newline_shell", "echo a\necho b", true, "echo a"},
+		{"redirect_shell", "echo hi > /tmp/x", true, "echo hi > /tmp/x"},
+		{"stderr_redirect_shell", "echo hi 2>&1", true, "echo hi 2>&1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotCmd string
+			var gotArgs []string
+			oldExec := execCommandContext
+			execCommandContext = func(ctx context.Context, command string, args ...string) *exec.Cmd {
+				gotCmd = command
+				gotArgs = args
+				return fakeExecCommandContext(ctx, command, args...)
+			}
+			defer func() { execCommandContext = oldExec }()
+
+			oldLookPath := execLookPath
+			execLookPath = func(file string) (string, error) { return file, nil }
+			defer func() { execLookPath = oldLookPath }()
+
+			os.Setenv("GO_WANT_HELPER_PROCESS", "1")
+			defer os.Unsetenv("GO_WANT_HELPER_PROCESS")
+			os.Setenv("MOCK_OUTPUT", "ok")
+			defer os.Unsetenv("MOCK_OUTPUT")
+
+			_, err := executeRunCommand(context.Background(), map[string]any{
+				"command": tc.command,
+			})
+			if err != nil {
+				t.Fatalf("executeRunCommand error: %v", err)
+			}
+
+			isShell := gotCmd == "sh" || gotCmd == "pwsh" || gotCmd == "powershell" || strings.Contains(gotCmd, "pwsh") || strings.Contains(gotCmd, "powershell")
+			// On non-Windows the shell path is "sh"; on Windows it is pwsh/powershell.
+			// Accept either as "shell routed".
+			if tc.wantShell && !isShell {
+				t.Errorf("expected shell routing for %q, got cmd %q args %v", tc.command, gotCmd, gotArgs)
+			}
+			if !tc.wantShell && isShell {
+				t.Errorf("expected direct exec for %q, got shell cmd %q args %v", tc.command, gotCmd, gotArgs)
+			}
+			if tc.wantShell && tc.wantArgsSub != "" {
+				joined := strings.Join(gotArgs, " ")
+				if !strings.Contains(joined, tc.wantArgsSub) {
+					t.Errorf("expected args to contain %q, got %v", tc.wantArgsSub, gotArgs)
+				}
+			}
+			if tc.wantShell {
+				// Verify -c or -Command is present in args
+				hasFlag := false
+				for _, a := range gotArgs {
+					if a == "-c" || a == "-Command" {
+						hasFlag = true
+						break
+					}
+				}
+				if !hasFlag {
+					t.Errorf("expected shell flag -c or -Command in args, got %v", gotArgs)
+				}
+			}
+		})
+	}
+}
+
+func TestRunCommandTool_WindowsCompoundRegression(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only test")
+	}
+	if _, err := exec.LookPath("pwsh"); err != nil {
+		t.Skip("pwsh not available")
+	}
+	result, err := executeRunCommand(context.Background(), map[string]any{
+		"command": "Write-Output MARKER_ONE && Write-Output MARKER_TWO",
+	})
+	if err != nil {
+		t.Fatalf("executeRunCommand error: %v", err)
+	}
+	if !strings.Contains(result, "MARKER_ONE") {
+		t.Errorf("expected MARKER_ONE in output, got %q", result)
+	}
+	if !strings.Contains(result, "MARKER_TWO") {
+		t.Errorf("expected MARKER_TWO in output, got %q", result)
+	}
+}

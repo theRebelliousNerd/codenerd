@@ -72,11 +72,71 @@ func coerceInt(v any) (int, bool) {
 	return 0, false
 }
 
+// isCompoundCommand reports whether s contains an unquoted shell compound operator.
+// It is quote-aware: operators inside single or double quotes are ignored.
+// It handles backslash-escaped and backtick-escaped quotes and carriage-return newlines.
+func isCompoundCommand(s string) bool {
+	inSingle := false
+	inDouble := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if inSingle {
+			if c == '\\' || c == '`' {
+				if i+1 < len(s) && s[i+1] == '\'' {
+					i++
+				}
+				continue
+			}
+			if c == '\'' {
+				inSingle = false
+			}
+			continue
+		}
+		if inDouble {
+			if c == '\\' || c == '`' {
+				if i+1 < len(s) && s[i+1] == '"' {
+					i++
+				}
+				continue
+			}
+			if c == '"' {
+				inDouble = false
+			}
+			continue
+		}
+		if c == '\\' || c == '`' {
+			if i+1 < len(s) && (s[i+1] == '\'' || s[i+1] == '"') {
+				i++
+				continue
+			}
+		}
+		if c == '\'' {
+			inSingle = true
+			continue
+		}
+		if c == '"' {
+			inDouble = true
+			continue
+		}
+		switch c {
+		case ';', '\n', '\r', '<', '>':
+			return true
+		case '|':
+			return true
+		case '&':
+			if i+1 < len(s) && s[i+1] == '&' {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // RunCommandTool returns a tool for executing shell commands.
 func RunCommandTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "run_command",
-		Description: "Execute a shell command and return its output",
+		Description: "Execute a shell command and return its output. Supports compound commands (&&, ||, |, ;, newline, <, >) via shell routing (pwsh/powershell with -NoProfile -NonInteractive -Command on Windows, sh -c elsewhere); simple commands execute directly via exec. Operators inside single or double quotes do not trigger routing. Timeout, working directory, env, output bounds, and upstream permission decisions are preserved in both paths.",
 		Category:    tools.CategoryCode,
 		Priority:    70,
 		Execute:     executeRunCommand,
@@ -123,8 +183,74 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 
 	logging.VirtualStoreDebug("run_command: cmd=%s, dir=%s, timeout=%ds", command, workingDir, timeout)
 
+	// Compound-command routing: if the command contains an unquoted shell
+	// operator (&&, ||, |, ;, newline, <, >), execute via shell so the
+	// operator is interpreted. Operators inside single or double quotes do
+	// not trigger routing. On Windows route through pwsh then powershell
+	// with -NoProfile -NonInteractive -Command; elsewhere via sh -c.
+	// The upstream permission decision already gated this command, so this
+	// only changes how it runs. Timeout, working directory, env, and output
+	// bounds are preserved in both paths.
+	if isCompoundCommand(command) {
+		execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+		defer cancel()
+
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			shellPath := ""
+			if p, err := execLookPath("pwsh"); err == nil {
+				shellPath = p
+			} else if p, err := execLookPath("powershell"); err == nil {
+				shellPath = p
+			}
+			if shellPath == "" {
+				return "", fmt.Errorf("interpreter not found: neither pwsh nor powershell is available")
+			}
+			cmd = execCommandContext(execCtx, shellPath, "-NoProfile", "-NonInteractive", "-Command", command)
+		} else {
+			cmd = execCommandContext(execCtx, "sh", "-c", command)
+		}
+
+		if workingDir != "" {
+			cmd.Dir = workingDir
+		}
+		finalEnv := os.Environ()
+		if envMap, ok := args["env"].(map[string]any); ok {
+			for k, v := range envMap {
+				if vs, ok := v.(string); ok {
+					finalEnv = append(finalEnv, fmt.Sprintf("%s=%s", k, vs))
+				}
+			}
+		}
+		cmd.Env = finalEnv
+
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		runErr := cmd.Run()
+
+		output := stdout.String()
+		if stderr.Len() > 0 {
+			if output != "" {
+				output += "\n--- stderr ---\n"
+			}
+			output += stderr.String()
+		}
+		if len(output) > 50000 {
+			output = output[:50000] + "\n...[truncated]"
+		}
+		if runErr != nil {
+			if execCtx.Err() == context.DeadlineExceeded {
+				return output, fmt.Errorf("command timed out after %d seconds", timeout)
+			}
+			logging.VirtualStore("run_command failed: %s (%v)", command, runErr)
+			return output, fmt.Errorf("command failed: %w\nOutput:\n%s", runErr, output)
+		}
+		logging.VirtualStore("run_command completed: %s (%d bytes output)", command, len(output))
+		return output, nil
+	}
 	// Parse command safely using shellquote to prevent command injection
-	// The run_command tool is for single commands; use the bash tool for scripts
 	parsedArgs, err := shellquote.Split(command)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse command: %w", err)
