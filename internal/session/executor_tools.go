@@ -61,6 +61,7 @@ func (e *Executor) runToolLoop(
 	if llmResponse == nil {
 		return nil, nil, errors.New("initial LLM generation returned a nil response")
 	}
+	e.promotePiggybackToolRequests(llmResponse)
 
 	// No tools requested.
 	//
@@ -91,6 +92,7 @@ func (e *Executor) runToolLoop(
 				// even if the model still chose a prose-only conclusion; returning
 				// the original planning text discards the entire retry.
 				llmResponse = retried
+				e.promotePiggybackToolRequests(llmResponse)
 				if len(retried.ToolCalls) == 0 {
 					return llmResponse, nil, nil
 				}
@@ -235,6 +237,7 @@ func (e *Executor) runToolLoop(
 		if nextResp == nil {
 			return currentResponse, toolErrs, errors.New("tool-result follow-up returned a nil response")
 		}
+		e.promotePiggybackToolRequests(nextResp)
 		currentResponse = nextResp
 
 		// Append the next assistant turn to history (whether or not it has more tool calls).
@@ -490,6 +493,7 @@ func (e *Executor) forceFinalAnswer(
 	if final == nil {
 		return pending, toolErrs, errors.New("final completion returned nothing")
 	}
+	e.promotePiggybackToolRequests(final)
 
 	// Preserve original tool calls for history before clearing. The returned
 	// response must clear ToolCalls so callers do not replay them, but the
