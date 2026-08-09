@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -611,7 +612,10 @@ func (e *Executor) executeAndRecordToolCall(
 	if isWriteMutationTool(call.Name) {
 		result.SuccessfulWriteTools++
 		if target := projectDocTargetPath(call.Input); target != "" {
-			result.WrittenPaths = append(result.WrittenPaths, target)
+			normalized := canonicalizeWrittenPath(target, e.workspaceForVerification())
+			if normalized != "" {
+				result.WrittenPaths = append(result.WrittenPaths, normalized)
+			}
 		}
 	}
 	return out, nil
@@ -799,6 +803,31 @@ func (e *Executor) withFileContext(ctx context.Context, systemPrompt, target str
 // write-protection rule that only fires for tools using the arg name we guessed
 // is a gate with holes in it.
 var projectDocPathArgs = projectdoc.PathArgs
+
+func canonicalizeWrittenPath(target, workspace string) string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return ""
+	}
+	clean := filepath.Clean(target)
+	if !filepath.IsAbs(clean) {
+		return filepath.ToSlash(clean)
+	}
+	if workspace != "" {
+		ws := strings.TrimSpace(workspace)
+		if ws != "" {
+			if absWS, err := filepath.Abs(ws); err == nil {
+				absWS = filepath.Clean(absWS)
+				if rel, err := filepath.Rel(absWS, clean); err == nil {
+					if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+						return filepath.ToSlash(rel)
+					}
+				}
+			}
+		}
+	}
+	return filepath.ToSlash(clean)
+}
 
 // projectDocTargetPath extracts the target path from a tool call's arguments.
 func projectDocTargetPath(args map[string]any) string {
