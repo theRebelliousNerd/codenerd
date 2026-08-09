@@ -575,6 +575,21 @@ Besides effect routing, VS answers **on-demand atoms** during Mangle evaluation 
 
 Unknown symbols return `nil, nil` (no atoms). External/virtual predicates force **full** evaluate when present: differential path deliberately skips when `hasExternalPredicatesLocked()` is true because diff eval does not yet forward external-predicate options (documented in `kernel_eval.go`).
 
+Virtual outputs are typed before `appendAtom`, because that helper bypasses the
+kernel's Decl-directed fact coercion. Activation and strategic confidence ratios
+use `types.PercentFromRatio`; strategic and shard categories are name constants;
+session turn numbers accept the integer representation returned by LocalStore.
+`QueryTraceStats` calls the store's exact shard-filtered aggregate rather than
+reconstructing counts from top-N/global reports. `strategic_knowledge/3` and
+`trace_stats/4` have explicit Decls, and a real-kernel regression asserts and
+queries every affected fact family.
+
+`HydrateSessionContext` requires `types.KernelTransactor`. It atomically replaces
+the prior dynamic snapshot even when one query source fails, returns the committed
+partial count with a joined warning, and returns count zero when commit fails.
+`HydrateLearnings` similarly returns joined query/assert failures instead of
+silently reporting partial work as success.
+
 Kernel bind: `RealKernel.SetVirtualStore` / VS `SetKernel` mutual wire so callbacks exist during fixpoint.
 
 ---

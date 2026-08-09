@@ -1,5 +1,22 @@
 # store — Corpus Rebuild Progress
 
+## 2026-08-09 — Exact per-shard trace statistics
+
+- Added `TraceTypeStats` and `GetTraceStatsForType` on `TraceStore` plus the
+  `LocalStore` facade.
+- One shard-filtered SQL aggregate now supplies total, success, failure, and
+  rounded mean duration without the broad report's top-ten and five-sample
+  presentation thresholds.
+- `TestTraceStore_StatsForTypeAreExactWithoutSampleThreshold` covers mixed shard
+  populations, a one-sample shard, an all-failure shard member, and a missing
+  shard. Focused and race runs passed; store corpus implementation verification
+  passed in 2.785s.
+- Strict corpus structure remains invalid on pre-existing documentation debt:
+  seven superseded legacy files, seven missing README entry sections, and no
+  feature cards. There are zero broken links or unresolved source references.
+  This packet updates implementation truth but does not claim strict corpus
+  completion.
+
 ## 2026-07-13 — Full rebuild (SUBAGENT contract)
 
 **Mode:** Docs only under `Docs/architecture/store/`  

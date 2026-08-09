@@ -90,6 +90,9 @@ Decl learned_constraint(Predicate, Args) bound [/string, /string].
 # activation(FactID, Score) - Recent activation scores
 Decl activation(FactID, Score) bound [/string, /number].
 
+# strategic_knowledge(Category, Content, Confidence) - Hydrated /init knowledge
+Decl strategic_knowledge(Category, Content, Confidence) bound [/name, /string, /number].
+
 # session_turn(SessionID, TurnNumber, UserInput, Response) - Conversation history
 Decl session_turn(SessionID, TurnNumber, UserInput, Response) bound [/string, /number, /string, /string].
 
@@ -181,4 +184,3 @@ Decl constraint_violation(Action, Reason) bound [/name, /string].
 # jit_fallback(ShardType, Reason)
 # Asserted by Go when JIT prompt compilation fails and Articulation falls back.
 Decl jit_fallback(ShardType, Reason) bound [/name, /string].
-

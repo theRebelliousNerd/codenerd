@@ -1,5 +1,38 @@
 # core — Architecture Corpus Progress
 
+## 2026-08-09 — Virtual predicate fact-boundary reconciliation
+
+- Rebuilt codeNERD reviewed `internal/core/virtual_store_predicates.go` twice:
+  the pre-fix run exposed zeroed session turns and lossy per-shard statistics;
+  the accompanying source audit found raw float ratios, missing Decls, and
+  hidden hydration failures. The post-fix run found the remaining
+  non-transactional-kernel panic and stale-snapshot policy gap.
+- Runtime now emits Decl-compatible activation, strategic, trace, trace-stat,
+  and session facts. Exact per-shard SQL statistics retain one-sample shards and
+  use their own duration population.
+- Hydration query/assert/commit failures are visible. Session hydration replaces
+  stale context atomically with the fresh partial snapshot and reports the
+  committed count; missing transaction support and failed commits return errors.
+- Discriminating tests:
+  `TestTraceStore_StatsForTypeAreExactWithoutSampleThreshold`,
+  `TestVirtualStorePredicates_AtomTypesMatchSchemas`,
+  `TestVirtualStorePredicateFactsMatchLiveKernelSchemas`, and
+  `TestHydrationSurfacesFailures`.
+- Product gates: focused core/store and exact changed-path race tests passed;
+  `go vet ./internal/store ./internal/core` passed. Strict+verify core corpus was
+  valid with 23 Markdown files, 5 feature cards, zero warnings/errors/broken
+  links/unresolved refs; `internal/core/...` passed in 117.565s (root 113.305s).
+- The default `go test ./... -count=1` fan-out timed out four heavy packages
+  without assertion failures. Bounded reruns passed: `cmd/nerd` 342.121s,
+  browser 61.247s, core 113.305s, system 78.152s; every other package passed in
+  the original sweep. This is truthful package coverage, not a claim that the
+  default parallel harness is healthy.
+- Broad `go test -race ./internal/store ./internal/core` exposed an intermittent
+  ANTLR/Mangle parser race during unchanged
+  `TestShardManager_ConcurrentToolQueries` and then timed out. The exact changed
+  tests are race-clean; an isolated `origin/main` five-repeat focused run did not
+  reproduce it. The broad race/fan-out debt remains open for the next packet.
+
 ## 2026-07-13 — Executive-envelope repair reconciliation
 
 - **Source commit:** `c8f21b46ec4b28529953094e0c18dac4dfd0c8eb`

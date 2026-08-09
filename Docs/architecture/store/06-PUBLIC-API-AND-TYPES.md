@@ -1,6 +1,6 @@
 # store — Public API and Types
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-08-09**
 > Package: `codenerd/internal/store`  
 > Note: Go exports all capitalized symbols; this lists **architecturally meaningful** ones with file refs.
 
@@ -51,6 +51,7 @@
 |------|------|
 | `TraceStore` | `trace_store.go` |
 | `ReasoningTrace` | `trace_store.go` |
+| `TraceTypeStats` | `trace_store.go` | Exact one-shard total/success/fail/mean-duration aggregate |
 | `TraceEmbeddingCandidate` / `TraceEmbeddingUpdate` | `trace_reflection.go` |
 | `TraceRecallHit` / `LearningRecallHit` | `reflection_search.go` |
 | `LearningEmbeddingCandidate` / `LearningEmbeddingUpdate` | `learning_reflection.go` |
@@ -84,6 +85,7 @@
 | Graph | `StoreLink`, `QueryLinks`, `TraversePath`, `HydrateKnowledgeGraph` (`local_graph.go`) |
 | Vector | `StoreVector`, `VectorRecall` (`local_vector.go`); `StoreVectorWithEmbedding`, `StoreVectorBatchWithEmbedding`, `VectorRecallSemantic*` (`vector_store.go`) |
 | Session | `LogActivation`, `GetRecentActivations`, `StoreSessionTurn`, `GetSessionHistory`, `StoreCompressedState`, `LoadLatestCompressedState` (`local_session.go`) |
+| Trace statistics | `GetTraceStats` for broad observability; `GetTraceStatsForType` for exact policy-facing one-shard values (`trace_store.go`, facade in `local_verification.go`) |
 | World | `UpsertWorldFile`, `DeleteWorldFile`, `ReplaceWorldFactsForFile`, `LoadWorldFactsForFile`, `LoadAllWorldFacts`, `UpdateWorldFilesAndFacts`, `DeleteWorldFiles` (`local_world.go`) |
 | Knowledge | `StoreKnowledgeAtom`, `GetKnowledgeAtoms*`, `StoreKnowledgeAtomWithEmbedding`, `SearchKnowledgeAtomsSemantic` (`local_knowledge.go`) |
 | Prompt | `StorePromptAtom`, `LoadPromptAtoms*`, `GetPromptAtom`, `DeletePromptAtom` (`local_prompt.go`) |

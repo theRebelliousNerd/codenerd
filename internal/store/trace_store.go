@@ -52,6 +52,16 @@ type ReasoningTrace struct {
 	CreatedAt         time.Time `json:"timestamp"`
 }
 
+// TraceTypeStats is the exact aggregate for one shard type. Counts and
+// duration come from the same filtered SQL snapshot so callers never have to
+// reconstruct per-type values from lossy global summaries.
+type TraceTypeStats struct {
+	TotalCount    int64
+	SuccessCount  int64
+	FailCount     int64
+	AvgDurationMs int64
+}
+
 // NewTraceStore creates a new TraceStore using an existing database connection.
 // The database must already have the reasoning_traces table created.
 func NewTraceStore(db *sql.DB, dbPath string) (*TraceStore, error) {
@@ -519,6 +529,31 @@ func (ts *TraceStore) GetTraceStats() (map[string]any, error) {
 	}
 	stats["success_rate_by_type"] = successByType
 
+	return stats, nil
+}
+
+// GetTraceStatsForType returns exact statistics for one shard type. Unlike
+// GetTraceStats, this query is not volume-limited and has no minimum sample
+// threshold, so a shard's first executions remain visible and truthful.
+func (ts *TraceStore) GetTraceStatsForType(shardType string) (TraceTypeStats, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetTraceStatsForType")
+	defer timer.Stop()
+
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	var stats TraceTypeStats
+	err := ts.db.QueryRow(`
+		SELECT COUNT(*),
+		       COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0),
+		       COALESCE(CAST(ROUND(AVG(duration_ms)) AS INTEGER), 0)
+		FROM reasoning_traces
+		WHERE shard_type = ?`, shardType,
+	).Scan(&stats.TotalCount, &stats.SuccessCount, &stats.AvgDurationMs)
+	if err != nil {
+		return TraceTypeStats{}, fmt.Errorf("query trace stats for shard type %q: %w", shardType, err)
+	}
+	stats.FailCount = stats.TotalCount - stats.SuccessCount
 	return stats, nil
 }
 

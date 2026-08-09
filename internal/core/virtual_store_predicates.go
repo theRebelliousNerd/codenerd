@@ -2,7 +2,9 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -179,11 +181,26 @@ func (v *VirtualStore) QueryActivations(limit int, minScore float64) ([]Fact, er
 		return nil, fmt.Errorf("failed to query activations: %w", err)
 	}
 
-	facts := make([]Fact, 0, len(activations))
+	type activation struct {
+		factID string
+		score  float64
+	}
+	ordered := make([]activation, 0, len(activations))
 	for factID, score := range activations {
+		ordered = append(ordered, activation{factID: factID, score: score})
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].score == ordered[j].score {
+			return ordered[i].factID < ordered[j].factID
+		}
+		return ordered[i].score > ordered[j].score
+	})
+
+	facts := make([]Fact, 0, len(ordered))
+	for _, item := range ordered {
 		facts = append(facts, Fact{
 			Predicate: "activation",
-			Args:      []any{factID, score},
+			Args:      []any{item.factID, types.PercentFromRatio(item.score)},
 		})
 	}
 	return facts, nil
@@ -232,8 +249,11 @@ func (v *VirtualStore) QuerySession(sessionID string, limit int) ([]Fact, error)
 	}
 
 	facts := make([]Fact, 0, len(history))
-	for _, turn := range history {
-		turnNum, _ := turn["turn_number"].(int64)
+	for index, turn := range history {
+		turnNum, ok := storedInt64(turn["turn_number"])
+		if !ok {
+			return nil, fmt.Errorf("session %q history row %d has invalid turn_number type %T", sessionID, index, turn["turn_number"])
+		}
 		userInput, _ := turn["user_input"].(string)
 		response, _ := turn["response"].(string)
 		facts = append(facts, Fact{
@@ -283,14 +303,8 @@ func (v *VirtualStore) QueryTraces(shardType string, limit int) ([]Fact, error) 
 
 	facts := make([]Fact, 0, len(traces))
 	for _, trace := range traces {
-		shardAtom := strings.TrimSpace(trace.ShardType)
-		if shardAtom != "" && !strings.HasPrefix(shardAtom, "/") {
-			shardAtom = "/" + shardAtom
-		}
-		categoryAtom := strings.TrimSpace(trace.ShardCategory)
-		if categoryAtom != "" && !strings.HasPrefix(categoryAtom, "/") {
-			categoryAtom = "/" + categoryAtom
-		}
+		shardAtom := mangleNameOrUnknown(trace.ShardType)
+		categoryAtom := mangleNameOrUnknown(trace.ShardCategory)
 
 		facts = append(facts, Fact{
 			Predicate: "reasoning_trace",
@@ -315,6 +329,10 @@ func (v *VirtualStore) QueryTraceStats(shardType string) ([]Fact, error) {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "QueryTraceStats")
 	defer timer.Stop()
 
+	shardType = strings.TrimSpace(strings.TrimPrefix(shardType, "/"))
+	if shardType == "" {
+		return nil, fmt.Errorf("shard type is required")
+	}
 	logging.VirtualStoreDebug("QueryTraceStats: shardType=%s", shardType)
 
 	v.mu.RLock()
@@ -326,53 +344,62 @@ func (v *VirtualStore) QueryTraceStats(shardType string) ([]Fact, error) {
 		return nil, fmt.Errorf("no knowledge database configured")
 	}
 
-	stats, err := db.GetTraceStats()
+	stats, err := db.GetTraceStatsForType(shardType)
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("QueryTraceStats failed: %v", err)
 		return nil, fmt.Errorf("failed to query trace stats: %w", err)
 	}
 
-	// Extract stats for the requested shard type
-	successRateByType, _ := stats["success_rate_by_type"].(map[string]float64)
-	byShardType, _ := stats["by_shard_type"].(map[string]int64)
-
-	totalCount := int64(0)
-	successRate := 0.0
-	avgDuration := 0.0
-
-	if byShardType != nil {
-		if count, ok := byShardType[shardType]; ok {
-			totalCount = count
-		}
-	}
-	if successRateByType != nil {
-		if rate, ok := successRateByType[shardType]; ok {
-			successRate = rate
-		}
-	}
-	if avgDur, ok := stats["avg_duration_ms"].(float64); ok {
-		avgDuration = avgDur
-	}
-
-	// Calculate success and fail counts from rate
-	successCount := int64(float64(totalCount) * successRate)
-	failCount := totalCount - successCount
+	shardAtom := "/" + shardType
 
 	facts := []Fact{
 		{
 			Predicate: "trace_stats",
 			Args: []any{
-				shardType,
-				successCount,
-				failCount,
-				int64(avgDuration), // Milliseconds as integer per schema
+				MangleAtom(shardAtom),
+				stats.SuccessCount,
+				stats.FailCount,
+				stats.AvgDurationMs,
 			},
 		},
 	}
 
-	logging.VirtualStoreDebug("QueryTraceStats: shardType=%s total=%d success=%d fail=%d avgDur=%.2f",
-		shardType, totalCount, successCount, failCount, avgDuration)
+	logging.VirtualStoreDebug("QueryTraceStats: shardType=%s total=%d success=%d fail=%d avgDur=%d",
+		shardType, stats.TotalCount, stats.SuccessCount, stats.FailCount, stats.AvgDurationMs)
 	return facts, nil
+}
+
+func storedInt64(value any) (int64, bool) {
+	switch number := value.(type) {
+	case int:
+		return int64(number), true
+	case int8:
+		return int64(number), true
+	case int16:
+		return int64(number), true
+	case int32:
+		return int64(number), true
+	case int64:
+		return number, true
+	case uint:
+		if uint64(number) > uint64(^uint64(0)>>1) {
+			return 0, false
+		}
+		return int64(number), true
+	case uint8:
+		return int64(number), true
+	case uint16:
+		return int64(number), true
+	case uint32:
+		return int64(number), true
+	case uint64:
+		if number > uint64(^uint64(0)>>1) {
+			return 0, false
+		}
+		return int64(number), true
+	default:
+		return 0, false
+	}
 }
 
 // toAtomOrString converts string to MangleAtom if it starts with /.
@@ -453,6 +480,7 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 	}
 
 	count := 0
+	var hydrationErrs []error
 
 	// Helper to assert with atom conversion
 	assertLearned := func(metaPred string, fact Fact) error {
@@ -473,43 +501,59 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 
 	// 1. Load all preferences (highest priority)
 	preferences, err := v.QueryAllLearned("preference")
-	if err == nil {
+	if err != nil {
+		hydrationErrs = append(hydrationErrs, fmt.Errorf("query preferences: %w", err))
+	} else {
 		for _, fact := range preferences {
-			if err := assertLearned("learned_preference", fact); err == nil {
-				count++
+			if err := assertLearned("learned_preference", fact); err != nil {
+				hydrationErrs = append(hydrationErrs, fmt.Errorf("assert preference %s: %w", fact.Predicate, err))
+				continue
 			}
+			count++
 		}
 	}
 
 	// 2. Load all user facts
 	userFacts, err := v.QueryAllLearned("user_fact")
-	if err == nil {
+	if err != nil {
+		hydrationErrs = append(hydrationErrs, fmt.Errorf("query user facts: %w", err))
+	} else {
 		for _, fact := range userFacts {
-			if err := assertLearned("learned_fact", fact); err == nil {
-				count++
+			if err := assertLearned("learned_fact", fact); err != nil {
+				hydrationErrs = append(hydrationErrs, fmt.Errorf("assert user fact %s: %w", fact.Predicate, err))
+				continue
 			}
+			count++
 		}
 	}
 
 	// 3. Load all constraints
 	constraints, err := v.QueryAllLearned("constraint")
-	if err == nil {
+	if err != nil {
+		hydrationErrs = append(hydrationErrs, fmt.Errorf("query constraints: %w", err))
+	} else {
 		for _, fact := range constraints {
-			if err := assertLearned("learned_constraint", fact); err == nil {
-				count++
+			if err := assertLearned("learned_constraint", fact); err != nil {
+				hydrationErrs = append(hydrationErrs, fmt.Errorf("assert constraint %s: %w", fact.Predicate, err))
+				continue
 			}
+			count++
 		}
 	}
 
 	// 4. Load knowledge graph links (now delegates to dedicated method)
 	kgCount, err := v.HydrateKnowledgeGraph(ctx)
-	if err == nil {
+	if err != nil {
+		hydrationErrs = append(hydrationErrs, err)
+	} else {
 		count += kgCount
 	}
 
 	// 5. Load recent activations (top 50 with score > 0.3)
 	activations, err := v.QueryActivations(50, 0.3)
-	if err == nil {
+	if err != nil {
+		hydrationErrs = append(hydrationErrs, fmt.Errorf("query activations: %w", err))
+	} else {
 		for _, fact := range activations {
 			// Activations are direct facts, not meta-facts
 			safeArgs := make([]any, len(fact.Args))
@@ -519,12 +563,18 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 			if err := kernel.Assert(Fact{
 				Predicate: fact.Predicate,
 				Args:      safeArgs,
-			}); err == nil {
-				count++
+			}); err != nil {
+				hydrationErrs = append(hydrationErrs, fmt.Errorf("assert activation %v: %w", fact.Args[0], err))
+				continue
 			}
+			count++
 		}
 	}
 
+	if err := errors.Join(hydrationErrs...); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("HydrateLearnings incomplete after %d facts: %v", count, err)
+		return count, fmt.Errorf("hydrate learnings incomplete after %d facts: %w", count, err)
+	}
 	logging.VirtualStore("HydrateLearnings completed: %d facts hydrated", count)
 	return count, nil
 }
@@ -548,8 +598,12 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 		logging.Get(logging.CategoryVirtualStore).Error("HydrateSessionContext: no kernel configured")
 		return 0, fmt.Errorf("no kernel configured")
 	}
+	if _, ok := kernel.(types.KernelTransactor); !ok {
+		return 0, fmt.Errorf("hydrate session context: kernel does not support transactions")
+	}
 
 	count := 0
+	var queryErrs []error
 
 	// Collect all facts to hydrate before touching the kernel.
 	var allFacts []Fact
@@ -560,6 +614,7 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 			count += len(turns)
 		} else if err != nil {
 			logging.VirtualStoreDebug("HydrateSessionContext: session turns failed: %v", err)
+			queryErrs = append(queryErrs, fmt.Errorf("query session turns: %w", err))
 		}
 	}
 
@@ -569,6 +624,7 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 			count += len(matches)
 		} else if err != nil {
 			logging.VirtualStoreDebug("HydrateSessionContext: recall failed: %v", err)
+			queryErrs = append(queryErrs, fmt.Errorf("recall similar content: %w", err))
 		}
 	}
 
@@ -582,8 +638,11 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 			count += len(traces)
 		} else if err != nil {
 			logging.VirtualStoreDebug("HydrateSessionContext: traces failed for %s: %v", normalized, err)
+			queryErrs = append(queryErrs, fmt.Errorf("query traces for %s: %w", normalized, err))
 		}
 	}
+
+	queryErr := errors.Join(queryErrs...)
 
 	// Atomic retract + assert: clear stale context and load new facts in one rebuild.
 	tx := types.NewKernelTx(kernel)
@@ -593,6 +652,10 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 	tx.LoadFacts(allFacts)
 	if err := tx.Commit(); err != nil {
 		logging.Get(logging.CategoryKernel).Warn("HydrateSessionContext: transaction commit failed: %v", err)
+		return 0, fmt.Errorf("hydrate session context transaction: %w", err)
+	}
+	if queryErr != nil {
+		return count, fmt.Errorf("hydrate session context committed partial snapshot: %w", queryErr)
 	}
 
 	logging.VirtualStore("HydrateSessionContext completed: %d facts hydrated", count)
@@ -673,12 +736,7 @@ func (v *VirtualStore) getQuerySessionAtoms(query ast.Atom) ([]ast.Atom, error) 
 		return nil, nil
 	}
 
-	limit := defaultSessionLimit
-	if turn, ok := queryArgInt(query.Args, 1); ok && turn > limit {
-		limit = turn
-	}
-
-	facts, err := v.QuerySession(sessionID, limit)
+	facts, err := v.QuerySession(sessionID, defaultSessionLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -816,7 +874,7 @@ func (v *VirtualStore) getQueryTraceStatsAtoms(query ast.Atom) ([]ast.Atom, erro
 			continue
 		}
 		shardOut := f.Args[0]
-		if shardRaw != "" && toString(shardOut) == shardType {
+		if shardRaw != "" && strings.TrimPrefix(toString(shardOut), "/") == shardType {
 			shardOut = shardRaw
 		}
 		atoms = appendAtom(atoms, "query_trace_stats", shardOut, f.Args[1], f.Args[2], f.Args[3])
@@ -907,6 +965,17 @@ func appendAtom(atoms []ast.Atom, predicate string, args ...any) []ast.Atom {
 	return append(atoms, atom)
 }
 
+func mangleNameOrUnknown(value string) MangleAtom {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return MangleAtom("/unknown")
+	}
+	if !strings.HasPrefix(value, "/") {
+		value = "/" + value
+	}
+	return MangleAtom(value)
+}
+
 // =============================================================================
 // STRATEGIC KNOWLEDGE VIRTUAL PREDICATES
 // =============================================================================
@@ -944,10 +1013,13 @@ func (v *VirtualStore) QueryStrategicKnowledge(category string) ([]Fact, error) 
 	facts := make([]Fact, 0, len(atoms))
 	for _, atom := range atoms {
 		// Extract the subcategory from the concept (e.g., "strategic/vision" -> "vision")
-		subcategory := strings.TrimPrefix(atom.Concept, "strategic/")
+		subcategory := strings.TrimSpace(strings.TrimPrefix(atom.Concept, "strategic/"))
+		if subcategory == "" {
+			return nil, fmt.Errorf("strategic knowledge atom %q has no category", atom.Concept)
+		}
 		facts = append(facts, Fact{
 			Predicate: "strategic_knowledge",
-			Args:      []any{subcategory, atom.Content, atom.Confidence},
+			Args:      []any{MangleAtom("/" + subcategory), atom.Content, types.PercentFromRatio(atom.Confidence)},
 		})
 	}
 

@@ -292,6 +292,45 @@ func TestTraceStore_Stats(t *testing.T) {
 	}
 }
 
+func TestTraceStore_StatsForTypeAreExactWithoutSampleThreshold(t *testing.T) {
+	store, err := NewLocalStore(filepath.Join(t.TempDir(), "typed-trace-stats.db"))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	traceStore := store.GetTraceStore()
+	for _, trace := range []*ReasoningTrace{
+		{ID: "coder-ok", ShardID: "c1", ShardType: "coder", ShardCategory: "system", SessionID: "s", SystemPrompt: "s", UserPrompt: "u", Response: "r", Success: true, DurationMs: 100},
+		{ID: "coder-fail", ShardID: "c2", ShardType: "coder", ShardCategory: "system", SessionID: "s", SystemPrompt: "s", UserPrompt: "u", Response: "r", Success: false, DurationMs: 301},
+		{ID: "reviewer-ok", ShardID: "r1", ShardType: "reviewer", ShardCategory: "system", SessionID: "s", SystemPrompt: "s", UserPrompt: "u", Response: "r", Success: true, DurationMs: 900},
+	} {
+		if err := traceStore.StoreReasoningTrace(trace); err != nil {
+			t.Fatalf("store trace %s: %v", trace.ID, err)
+		}
+	}
+
+	tests := []struct {
+		shardType string
+		want      TraceTypeStats
+	}{
+		{"coder", TraceTypeStats{TotalCount: 2, SuccessCount: 1, FailCount: 1, AvgDurationMs: 201}},
+		{"reviewer", TraceTypeStats{TotalCount: 1, SuccessCount: 1, FailCount: 0, AvgDurationMs: 900}},
+		{"missing", TraceTypeStats{}},
+	}
+	for _, test := range tests {
+		t.Run(test.shardType, func(t *testing.T) {
+			got, err := traceStore.GetTraceStatsForType(test.shardType)
+			if err != nil {
+				t.Fatalf("GetTraceStatsForType: %v", err)
+			}
+			if got != test.want {
+				t.Errorf("GetTraceStatsForType(%q) = %+v, want %+v", test.shardType, got, test.want)
+			}
+		})
+	}
+}
+
 func TestTraceStore_SimilarTasks(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test_traces.db")

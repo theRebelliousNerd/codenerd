@@ -2,6 +2,8 @@
 
 The Cortex - the decision-making center of codeNERD. Contains the Mangle kernel, fact management, and VirtualStore (FFI gateway).
 
+Contributor contracts for fact typing, virtual predicates, trace statistics, and context hydration live in [agents.md](agents.md).
+
 **Architecture Version:** 2.0.0 (December 2024 - JIT-Driven)
 
 ---

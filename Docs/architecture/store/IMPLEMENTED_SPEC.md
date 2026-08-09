@@ -291,6 +291,12 @@ CRUD in `local_prompt.go`. Re-embed: `ReembedAllPromptAtomsForce`. Used by `inte
 
 `TraceStore` owns durable trace ops; `LocalStore` wraps with `StoreReasoningTrace(any)` (reflection-friendly) and query facades. Wired from `internal/system/factory.go` via `createTraceStoreAdapter` + `perception.NewTracingLLMClient`.
 
+`GetTraceStatsForType(shardType)` returns `TraceTypeStats` from one filtered SQL
+aggregate: total, success, failure, and rounded average duration. It deliberately
+has no top-N truncation or five-sample threshold, so VirtualStore policy facts are
+truthful from a shard's first trace. The broader `GetTraceStats` report remains an
+observability summary and is not a source for exact per-shard policy facts.
+
 Reflection columns (`summary_descriptor`, `embedding*`) feed `reflection_worker` and `RecallTracesByEmbedding` / lexical variants.
 
 ### 4.11 Learning candidates + review findings

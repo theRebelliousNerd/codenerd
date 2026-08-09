@@ -119,6 +119,10 @@ Decl corrective_action_effective(TaskID, ActionType) bound [/string, /name].
 # ShardCategory: /system, /ephemeral, /specialist
 Decl reasoning_trace(TraceID, ShardType, ShardCategory, SessionID, Success, DurationMs) bound [/string, /name, /name, /string, /name, /number].
 
+# trace_stats(ShardType, SuccessCount, FailCount, AvgDurationMs)
+# Exact per-shard aggregate returned by VirtualStore.QueryTraceStats.
+Decl trace_stats(ShardType, SuccessCount, FailCount, AvgDurationMs) bound [/name, /number, /number, /number].
+
 # trace_quality(TraceID, Score)
 # Quality score assigned after analysis (0.0-1.0)
 Decl trace_quality(TraceID, Score) bound [/string, /number].

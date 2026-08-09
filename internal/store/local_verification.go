@@ -262,3 +262,8 @@ func (s *LocalStore) UpdateTraceQuality(traceID string, score float64, notes []s
 func (s *LocalStore) GetTraceStats() (map[string]any, error) {
 	return s.traceStore.GetTraceStats()
 }
+
+// GetTraceStatsForType returns exact statistics for one shard type.
+func (s *LocalStore) GetTraceStatsForType(shardType string) (TraceTypeStats, error) {
+	return s.traceStore.GetTraceStatsForType(shardType)
+}

@@ -24,6 +24,20 @@ func (m *mockGraphQuery) QueryGraph(queryType string, params map[string]any) (an
 
 type stubTransactorKernel struct {
 	*stubKernel
+	commitErr error
+}
+
+type failingAssertKernel struct {
+	*stubTransactorKernel
+	assertErr error
+}
+
+type nonTransactionalKernel struct {
+	*stubKernel
+}
+
+func (k *failingAssertKernel) Assert(Fact) error {
+	return k.assertErr
 }
 
 type stubKernelTransaction struct {
@@ -38,7 +52,7 @@ func (s *stubKernelTransaction) Assert(fact Fact) {
 	s.k.asserted = append(s.k.asserted, fact)
 }
 func (s *stubKernelTransaction) Commit() error {
-	return nil
+	return s.k.commitErr
 }
 
 func (s *stubTransactorKernel) Transaction() types.KernelTransaction {
@@ -177,6 +191,9 @@ func TestVirtualStorePredicates_DbOperations(t *testing.T) {
 	if len(acts) != 1 || acts[0].Predicate != "activation" {
 		t.Errorf("expected 1 activation, got %v", acts)
 	}
+	if got := acts[0].Args[1]; got != int64(95) {
+		t.Errorf("expected activation score on Mangle's 0..100 integer scale, got %#v", got)
+	}
 
 	// 4. Vector Recall
 	if err := db.StoreVector("golang programming language", map[string]any{"doc_id": "doc_1"}); err != nil {
@@ -201,6 +218,9 @@ func TestVirtualStorePredicates_DbOperations(t *testing.T) {
 	if len(turns) != 1 || turns[0].Predicate != "session_turn" {
 		t.Errorf("expected 1 session_turn, got %v", turns)
 	}
+	if got := turns[0].Args[1]; got != int64(1) {
+		t.Errorf("expected stored turn number 1, got %#v", got)
+	}
 
 	// 6. Shard Traces & Stats
 	trace := &store.ReasoningTrace{
@@ -218,12 +238,28 @@ func TestVirtualStorePredicates_DbOperations(t *testing.T) {
 	if err := db.GetTraceStore().StoreReasoningTrace(trace); err != nil {
 		t.Fatalf("failed to store trace: %v", err)
 	}
+	for _, additional := range []*store.ReasoningTrace{
+		{
+			ID: "trace_2", ShardID: "shard_2", ShardType: "coder", ShardCategory: "system",
+			SessionID: "session_A", SystemPrompt: "sys", UserPrompt: "test", Response: "failed",
+			Success: false, DurationMs: 250,
+		},
+		{
+			ID: "trace_3", ShardID: "shard_3", ShardType: "reviewer", ShardCategory: "system",
+			SessionID: "session_A", SystemPrompt: "sys", UserPrompt: "review", Response: "done",
+			Success: true, DurationMs: 900,
+		},
+	} {
+		if err := db.GetTraceStore().StoreReasoningTrace(additional); err != nil {
+			t.Fatalf("failed to store additional trace: %v", err)
+		}
+	}
 	traces, err := vs.QueryTraces("coder", 5)
 	if err != nil {
 		t.Fatalf("failed to query traces: %v", err)
 	}
-	if len(traces) != 1 || traces[0].Predicate != "reasoning_trace" {
-		t.Errorf("expected 1 reasoning_trace, got %v", traces)
+	if len(traces) != 2 || traces[0].Predicate != "reasoning_trace" {
+		t.Errorf("expected 2 reasoning_trace facts, got %v", traces)
 	}
 
 	stats, err := vs.QueryTraceStats("coder")
@@ -232,6 +268,16 @@ func TestVirtualStorePredicates_DbOperations(t *testing.T) {
 	}
 	if len(stats) != 1 || stats[0].Predicate != "trace_stats" {
 		t.Errorf("expected 1 trace_stats, got %v", stats)
+	}
+	if got, want := stats[0].Args, []any{MangleAtom("/coder"), int64(1), int64(1), int64(200)}; !equalFactArgs(got, want) {
+		t.Errorf("coder trace stats = %#v, want %#v", got, want)
+	}
+	reviewerStats, err := vs.QueryTraceStats("reviewer")
+	if err != nil {
+		t.Fatalf("failed to query reviewer trace stats: %v", err)
+	}
+	if got, want := reviewerStats[0].Args, []any{MangleAtom("/reviewer"), int64(1), int64(0), int64(900)}; !equalFactArgs(got, want) {
+		t.Errorf("single-sample reviewer stats = %#v, want %#v", got, want)
 	}
 
 	// 7. Strategic Knowledge
@@ -245,6 +291,9 @@ func TestVirtualStorePredicates_DbOperations(t *testing.T) {
 	if len(sk) != 1 || sk[0].Predicate != "strategic_knowledge" {
 		t.Errorf("expected 1 strategic_knowledge, got %v", sk)
 	}
+	if got, want := sk[0].Args, []any{MangleAtom("/vision"), "long horizon goal", int64(95)}; !equalFactArgs(got, want) {
+		t.Errorf("strategic knowledge args = %#v, want %#v", got, want)
+	}
 
 	// 8. Hydrate functions
 	k.asserted = nil
@@ -255,6 +304,18 @@ func TestVirtualStorePredicates_DbOperations(t *testing.T) {
 	if hCount == 0 || len(k.asserted) == 0 {
 		t.Errorf("expected hydrated learnings, count=%d asserted=%d", hCount, len(k.asserted))
 	}
+	assertedActivation := false
+	for _, fact := range k.asserted {
+		if fact.Predicate == "activation" {
+			assertedActivation = true
+			if got := fact.Args[1]; got != int64(95) {
+				t.Errorf("hydrated activation score = %#v, want int64(95)", got)
+			}
+		}
+	}
+	if !assertedActivation {
+		t.Error("expected HydrateLearnings to assert activation")
+	}
 
 	k.asserted = nil
 	hsCount, err := vs.HydrateSessionContext(context.Background(), "session_A", "golang", []string{"coder"})
@@ -264,6 +325,260 @@ func TestVirtualStorePredicates_DbOperations(t *testing.T) {
 	if hsCount == 0 || len(k.asserted) == 0 {
 		t.Errorf("expected hydrated session context, count=%d asserted=%d", hsCount, len(k.asserted))
 	}
+}
+
+func equalFactArgs(got, want []any) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestVirtualStorePredicates_AtomTypesMatchSchemas(t *testing.T) {
+	db, err := store.NewLocalStore(filepath.Join(t.TempDir(), "typed-atoms.db"))
+	if err != nil {
+		t.Fatalf("create local store: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.LogActivation("fact-typed", 0.81); err != nil {
+		t.Fatalf("log activation: %v", err)
+	}
+	if err := db.StoreKnowledgeAtom("strategic/vision", "typed", 0.92); err != nil {
+		t.Fatalf("store strategic atom: %v", err)
+	}
+	if err := db.GetTraceStore().StoreReasoningTrace(&store.ReasoningTrace{
+		ID: "trace-typed", ShardID: "typed", ShardType: "coder", SessionID: "typed",
+		SystemPrompt: "system", UserPrompt: "user", Response: "response", Success: true, DurationMs: 42,
+	}); err != nil {
+		t.Fatalf("store reasoning trace: %v", err)
+	}
+
+	vs := NewVirtualStore(nil)
+	vs.SetLocalDB(db)
+
+	query := func(predicate string, args ...any) []ast.Atom {
+		t.Helper()
+		atom, atomErr := (Fact{Predicate: predicate, Args: args}).ToAtom()
+		if atomErr != nil {
+			t.Fatalf("make %s query: %v", predicate, atomErr)
+		}
+		atoms, getErr := vs.Get(atom)
+		if getErr != nil {
+			t.Fatalf("query %s: %v", predicate, getErr)
+		}
+		if len(atoms) != 1 {
+			t.Fatalf("query %s returned %d atoms, want 1", predicate, len(atoms))
+		}
+		return atoms
+	}
+
+	activation := query("query_activations")[0]
+	if score := activation.Args[1].(ast.Constant); score.Type != ast.NumberType || score.NumValue != 81 {
+		t.Errorf("activation score constant = %#v, want Number(81)", score)
+	}
+
+	strategic := query("query_strategic", "/vision")[0]
+	if category := strategic.Args[0].(ast.Constant); category.Type != ast.NameType {
+		t.Errorf("strategic category type = %v, want NameType", category.Type)
+	}
+	if confidence := strategic.Args[2].(ast.Constant); confidence.Type != ast.NumberType || confidence.NumValue != 92 {
+		t.Errorf("strategic confidence constant = %#v, want Number(92)", confidence)
+	}
+
+	traceFacts, err := vs.QueryTraces("coder", 10)
+	if err != nil {
+		t.Fatalf("query trace facts: %v", err)
+	}
+	if category := traceFacts[0].Args[2]; category != MangleAtom("/unknown") {
+		t.Errorf("empty trace category = %#v, want MangleAtom(/unknown)", category)
+	}
+	traces := query("query_traces", "/coder", 10)[0]
+	if success := traces.Args[3].(ast.Constant); success.Type != ast.NameType || success.Symbol != "/true" {
+		t.Errorf("trace success = %#v, want /true Name constant", success)
+	}
+
+	traceStats := query("query_trace_stats", "/coder")[0]
+	if shardType := traceStats.Args[0].(ast.Constant); shardType.Type != ast.NameType {
+		t.Errorf("trace stats shard type = %#v, want Name constant", shardType)
+	}
+	for _, index := range []int{1, 2, 3} {
+		if value := traceStats.Args[index].(ast.Constant); value.Type != ast.NumberType {
+			t.Errorf("trace stats arg %d = %#v, want Number constant", index, value)
+		}
+	}
+}
+
+func TestVirtualStorePredicateFactsMatchLiveKernelSchemas(t *testing.T) {
+	db, err := store.NewLocalStore(filepath.Join(t.TempDir(), "live-schema.db"))
+	if err != nil {
+		t.Fatalf("create local store: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.LogActivation("live-fact", 0.73); err != nil {
+		t.Fatalf("log activation: %v", err)
+	}
+	if err := db.StoreKnowledgeAtom("strategic/pattern", "live pattern", 0.88); err != nil {
+		t.Fatalf("store strategic atom: %v", err)
+	}
+	if err := db.GetTraceStore().StoreReasoningTrace(&store.ReasoningTrace{
+		ID: "live-trace", ShardID: "live", ShardType: "reviewer", SessionID: "live-session",
+		SystemPrompt: "system", UserPrompt: "user", Response: "response", Success: true, DurationMs: 84,
+	}); err != nil {
+		t.Fatalf("store reasoning trace: %v", err)
+	}
+
+	vs := NewVirtualStore(nil)
+	vs.SetLocalDB(db)
+	factGroups := []struct {
+		predicate string
+		query     func() ([]Fact, error)
+	}{
+		{"activation", func() ([]Fact, error) { return vs.QueryActivations(10, 0) }},
+		{"strategic_knowledge", func() ([]Fact, error) { return vs.QueryStrategicKnowledge("pattern") }},
+		{"reasoning_trace", func() ([]Fact, error) { return vs.QueryTraces("reviewer", 10) }},
+		{"trace_stats", func() ([]Fact, error) { return vs.QueryTraceStats("reviewer") }},
+	}
+
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	for _, group := range factGroups {
+		facts, queryErr := group.query()
+		if queryErr != nil {
+			t.Fatalf("query %s facts: %v", group.predicate, queryErr)
+		}
+		if len(facts) != 1 {
+			t.Fatalf("query %s returned %d facts, want 1", group.predicate, len(facts))
+		}
+		if assertErr := kernel.Assert(facts[0]); assertErr != nil {
+			t.Fatalf("assert %s into live kernel: %v", group.predicate, assertErr)
+		}
+		got, queryErr := kernel.Query(group.predicate)
+		if queryErr != nil {
+			t.Fatalf("query live kernel for %s: %v", group.predicate, queryErr)
+		}
+		if len(got) != 1 {
+			t.Errorf("live kernel %s facts = %d, want 1: %+v", group.predicate, len(got), got)
+		}
+	}
+}
+
+func TestHydrationSurfacesFailures(t *testing.T) {
+	t.Run("learning query failure", func(t *testing.T) {
+		db, err := store.NewLocalStore(filepath.Join(t.TempDir(), "closed.db"))
+		if err != nil {
+			t.Fatalf("create local store: %v", err)
+		}
+		vs := NewVirtualStore(nil)
+		vs.SetLocalDB(db)
+		vs.SetKernel(&stubTransactorKernel{stubKernel: &stubKernel{}})
+		if err := db.Close(); err != nil {
+			t.Fatalf("close local store: %v", err)
+		}
+
+		if _, err := vs.HydrateLearnings(context.Background()); err == nil {
+			t.Fatal("expected closed-store hydration failure to be returned")
+		}
+	})
+
+	t.Run("session kernel without transactions", func(t *testing.T) {
+		db, err := store.NewLocalStore(filepath.Join(t.TempDir(), "no-transaction.db"))
+		if err != nil {
+			t.Fatalf("create local store: %v", err)
+		}
+		defer db.Close()
+
+		vs := NewVirtualStore(nil)
+		vs.SetLocalDB(db)
+		vs.SetKernel(&nonTransactionalKernel{stubKernel: &stubKernel{}})
+
+		count, err := vs.HydrateSessionContext(context.Background(), "", "", nil)
+		if err == nil || !strings.Contains(err.Error(), "does not support transactions") {
+			t.Fatalf("HydrateSessionContext error = %v, want transaction capability error", err)
+		}
+		if count != 0 {
+			t.Fatalf("HydrateSessionContext count = %d without transaction support, want 0", count)
+		}
+	})
+
+	t.Run("learning assertion failure", func(t *testing.T) {
+		db, err := store.NewLocalStore(filepath.Join(t.TempDir(), "assert.db"))
+		if err != nil {
+			t.Fatalf("create local store: %v", err)
+		}
+		defer db.Close()
+		if err := db.StoreFact("pref", []any{"value"}, "preference", 5); err != nil {
+			t.Fatalf("store preference: %v", err)
+		}
+
+		vs := NewVirtualStore(nil)
+		vs.SetLocalDB(db)
+		vs.SetKernel(&failingAssertKernel{
+			stubTransactorKernel: &stubTransactorKernel{stubKernel: &stubKernel{}},
+			assertErr:            errors.New("assert rejected"),
+		})
+
+		count, err := vs.HydrateLearnings(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "assert rejected") {
+			t.Fatalf("HydrateLearnings error = %v, want assertion failure", err)
+		}
+		if count != 0 {
+			t.Fatalf("HydrateLearnings count = %d after rejected assertion, want 0", count)
+		}
+	})
+
+	t.Run("session query failure commits fresh empty snapshot", func(t *testing.T) {
+		db, err := store.NewLocalStore(filepath.Join(t.TempDir(), "partial.db"))
+		if err != nil {
+			t.Fatalf("create local store: %v", err)
+		}
+		vs := NewVirtualStore(nil)
+		vs.SetLocalDB(db)
+		kernel := &stubTransactorKernel{stubKernel: &stubKernel{}}
+		vs.SetKernel(kernel)
+		if err := db.Close(); err != nil {
+			t.Fatalf("close local store: %v", err)
+		}
+
+		count, err := vs.HydrateSessionContext(context.Background(), "session", "", nil)
+		if err == nil || !strings.Contains(err.Error(), "committed partial snapshot") {
+			t.Fatalf("HydrateSessionContext error = %v, want partial snapshot warning", err)
+		}
+		if count != 0 {
+			t.Fatalf("HydrateSessionContext count = %d, want 0", count)
+		}
+	})
+
+	t.Run("session transaction failure", func(t *testing.T) {
+		db, err := store.NewLocalStore(filepath.Join(t.TempDir(), "commit.db"))
+		if err != nil {
+			t.Fatalf("create local store: %v", err)
+		}
+		defer db.Close()
+
+		vs := NewVirtualStore(nil)
+		vs.SetLocalDB(db)
+		vs.SetKernel(&stubTransactorKernel{
+			stubKernel: &stubKernel{},
+			commitErr:  errors.New("commit rejected"),
+		})
+
+		count, err := vs.HydrateSessionContext(context.Background(), "", "", nil)
+		if err == nil || !strings.Contains(err.Error(), "commit rejected") {
+			t.Fatalf("HydrateSessionContext error = %v, want commit failure", err)
+		}
+		if count != 0 {
+			t.Fatalf("HydrateSessionContext count = %d after failed commit, want 0", count)
+		}
+	})
 }
 
 func TestVirtualStorePredicates_GetAtoms(t *testing.T) {

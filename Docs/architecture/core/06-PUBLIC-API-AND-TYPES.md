@@ -1,6 +1,6 @@
 # core — Public API and Types
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-08-09**
 > Scope: symbols other packages are expected to use. Internal helpers omitted unless critical.
 
 ## 1. Type aliases (cycle break)
@@ -80,6 +80,18 @@ Prefer `types.Kernel` in new cross-package APIs; core aliases exist for historic
 | `CheckKernelPermitted` | Exact canonical `permitted/3` query; nil/mismatch denies |
 | `GetDreamer` | Access speculative engine |
 | `GetStrategicSummary` | Summary helper |
+
+### Durable-context query and hydration entry points
+
+| Method | Contract |
+|--------|----------|
+| `QuerySession` | Emits the stored integer turn number; malformed numeric representations fail visibly |
+| `QueryActivations` | Deterministic score-descending output on the Mangle 0..100 integer scale |
+| `QueryTraces` | Emits Decl-compatible shard/category names, using `/unknown` for absent categories |
+| `QueryTraceStats` | Exact per-shard counts and rounded mean duration, including samples below five |
+| `QueryStrategicKnowledge` | Emits category names and integer-percent confidence |
+| `HydrateLearnings` | Best-effort assertions with joined query/assert errors and a truthful successful count |
+| `HydrateSessionContext` | Transactional fresh snapshot; partial query warnings preserve committed count; commit failure returns zero |
 
 ### Core types (`virtual_store_types.go`)
 

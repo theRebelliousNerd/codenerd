@@ -1,6 +1,6 @@
 # core — Failure Modes
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-08-09**
 
 ## Legend
 
@@ -145,6 +145,19 @@ as time, or router results use a different ID from the executive action.
 as if it were a file path.
 **Cause:** result omitted concrete file metadata.
 **Mitigation:** edit handlers return `Metadata["file"]`; validator prefers it.
+
+## F22 — Virtual predicate emits a Decl-incompatible fact (S1/S2)
+
+**Symptom:** an external query or hydration returns no usable derivations, or one
+float comparison aborts the kernel evaluation. Trace statistics can also report a
+small shard as all-failed when reconstructed from thresholded global summaries.
+**Cause:** `appendAtom` is outside the kernel's Decl-aware fact boundary; raw 0..1
+floats, string categories, zeroed turn numbers, or lossy aggregate maps reach a
+typed predicate.
+**Mitigation:** type at each virtual source with `MangleAtom` and percent helpers;
+use exact per-shard SQL aggregates; test AST constant types and assert hydrated
+facts into `RealKernel`. Context hydration must surface source/assert/commit
+failures and requires a transactional kernel.
 
 ---
 
