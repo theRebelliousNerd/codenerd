@@ -8,8 +8,8 @@
 |----------|-------|
 | Import path | `codenerd/internal/browser` |
 | Package comment | Browser automation with DOM/React reification into Mangle facts; adapted from BrowserNERD for Cortex 1.5.0 Browser Physics (§9.0) |
-| Non-test Go files | **10** (8 root package + 2 `security`) |
-| Test Go files | **12** (10 root package + 2 `security`) |
+| Non-test Go files | **13 checked in** (12 per platform; Windows/Unix permission implementations are build-tagged) |
+| Test Go files | **13** (11 root package + 2 `security`) |
 | Package-local `.mg` | **0** (schemas/policy live under `internal/core/defaults/`) |
 | Primary third-party | `github.com/go-rod/rod` (+ launcher, proto) |
 | UUID | `github.com/google/uuid` for session IDs |
@@ -25,11 +25,13 @@
 | `internal/browser/session_lifecycle.go` | ~618 | Browser/tab lifecycle, shared/isolation semantics, limits, reaper, cancellation |
 | `internal/browser/session_manager_dom.go` | ~722 | Event stream, redacted DOM capture, storage snapshot/restore, private session persistence |
 | `internal/browser/fact_redaction.go` | ~64 | Copy-on-write pre-sink browser fact redaction |
+| `internal/browser/flight_recorder.go` | ~459 | Bounded redacted per-session JSONL evidence, rotation, read, and export |
 | `internal/browser/honeypot.go` | ~413 | HoneypotDetector: emit page facts, EvaluateRule, safe links |
 | `internal/browser/security/redactor.go` | ~248 | URL/header/input/recursive evidence redaction |
-| `internal/browser/security/path_policy.go` | ~156 | Writable-root and symlink confinement; private files |
+| `internal/browser/security/path_policy.go` | ~165 | Writable-root and symlink confinement; private files |
+| `internal/browser/security/private_permissions_*.go` | ~110 | Unix modes or protected current-user-only Windows DACLs |
 
-**≈4,400 non-test LOC** across lifecycle, progressive tools, reification, security, and detector modules.
+**≈5,160 checked-in non-test LOC** across lifecycle, progressive tools, reification, evidence, security, and detector modules.
 
 ## 3. File inventory (tests)
 
@@ -45,6 +47,7 @@
 | `fact_redaction_test.go` | (default) | Pre-sink redaction and manager output policy |
 | `element_registry_test.go` | (default) | Stable refs, navigation invalidation, copy isolation, stale snapshot rejection |
 | `progressive_action_test.go` | (default) | Observe option and action batch bounds/stop-on-error |
+| `flight_recorder_test.go` | (default) | Pre-persistence redaction, bounded reads, rotation/pruning, confined private export, session privacy |
 | `security/*_test.go` | (default) | Credential fixtures, traversal/symlink escape, private artifacts |
 
 ## 4. Companion files (outside package, load-bearing)
@@ -66,9 +69,10 @@
 | `cmd/nerd/chat/session_boot.go` | Legacy chat boot path still declares `browserMgr` **nil until needed** |
 | `cmd/nerd/chat/model_types.go` | `browserMgr` / `BrowserManager` fields |
 | `internal/shards/system/router.go` | `SetBrowserManager`, tool routes for browser_* |
-| `internal/tools/research/browser.go`, `browser_progressive.go`, `browser_reasoning.go` | Legacy, progressive, bounded wait/query, and diagnosis tools bound to the Cortex-owned manager and live kernel |
+| `internal/tools/research/browser.go`, `browser_progressive.go`, `browser_reasoning.go`, `browser_evidence.go` | Legacy, progressive, bounded wait/query/diagnosis, and private evidence tools bound to the Cortex-owned manager and live kernel |
 | `internal/prompt/atoms/capability/browser_progressive.yaml` | JIT ref-first observe/act method and safety boundary |
 | `internal/prompt/atoms/capability/browser_reasoning.yaml` | JIT action-watermark, fresh-wait, read-only-query, and diagnosis method |
+| `internal/prompt/atoms/capability/browser_evidence.yaml` | JIT bounded-read/export and privacy method |
 | `internal/core/virtual_store_types.go` | ActionBrowser* ActionType constants |
 | `internal/core/virtual_store_actions.go` | `handleBrowse` refuse + modular tool arg mapping |
 | `internal/logging/logger.go` | `CategoryBrowser` |
@@ -81,6 +85,8 @@
 | `.nerd/browser/sessions.json` | SessionManager | Redacted JSON metadata, owner-only |
 | `.nerd/browser/control.txt` | `nerd browser launch` | Owner-only DevTools WebSocket control URL |
 | `.nerd/browser/snapshots/<session>_<unix>.mg` | `nerd browser snapshot` | Redacted owner-only fact dump under path policy |
+| `.nerd/browser/traces/flight_<session>*.jsonl` | FlightRecorder | Redacted, rotated, current-user-only per-session event and tool evidence |
+| `.nerd/browser/traces/exports/*.jsonl` | `browser_evidence export` | Explicit bounded selection under writable-root policy |
 
 ## 6. Hotspots
 
@@ -88,7 +94,7 @@
 2. **`captureDOMFacts`** — dense fact emission (multiple typed predicates per session-qualified node).
 3. **`ReifyReact`** — large inline JS fiber walker; type coercion for hook indices.  
 4. **`HoneypotDetector.emitPageFacts`** — per-element style/position/attribute PushFact.  
-5. **Route completeness** — system and modular tools share the Cortex manager/live kernel; observe/act/mangle/wait/reason are live, while audit/spec/declarative-test parity and operator CLI expansion remain open.
+5. **Route completeness** — system and modular tools share the Cortex manager/live kernel; observe/act/mangle/wait/reason/evidence are live, while audit/spec/declarative-test parity and operator CLI expansion remain open.
 
 ## 7. What is intentionally not here
 

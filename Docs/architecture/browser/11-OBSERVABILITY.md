@@ -63,6 +63,18 @@
 - `browser_mangle` exposes only allowlisted, session-scoped, re-redacted facts;
   it is not a policy mutation or arbitrary kernel-query interface.
 
+### Flight evidence
+
+- The default-on recorder writes selected already-redacted fact batches and
+  bounded observe/act/wait/reason summaries as per-session JSONL.
+- One record is capped at 64 KiB; oversized records become digest/size summaries.
+- Reads cap at 100 items and 8 MiB scanned; exports cap at 1,000 items.
+- Files rotate by `max_evidence_file_bytes` and prune to
+  `max_evidence_files`; responses expose files read, bytes scanned, and
+  truncation.
+- `browser_evidence` performs explicit bounded status/read/export operations;
+  exports are confined and current-user-only.
+
 ### Honeypot
 
 - Info: analysis start/complete counts  
@@ -82,6 +94,10 @@ Additional knobs:
 - `EnableDOMIngestion` (default true)  
 - `EnableHeaderIngestion` (default false)  
 - `EventThrottleMs` (default 100) — reduces fact/log pressure  
+- `EvidenceEnabled` (default true)
+- `EvidenceDir` (default `.nerd/browser/traces`)
+- `MaxEvidenceFiles` (default 16)
+- `MaxEvidenceFileBytes` (default 4 MiB)
 
 ## 5. Operator artifacts
 
@@ -91,6 +107,8 @@ Additional knobs:
 | `.nerd/browser/sessions.json` | Session inventory after crash |
 | `.nerd/browser/snapshots/*.mg` | Post-mortem fact dumps from CLI |
 | Allowed writable-root screenshot path | Progressive screenshot evidence; owner-only file with digest metadata |
+| `.nerd/browser/traces/flight_<session>*.jsonl` | Rotated redacted per-session flight evidence |
+| `.nerd/browser/traces/exports/*.jsonl` | Explicit bounded owner-only evidence selection |
 
 ## 6. Metrics / glass box
 
@@ -105,3 +123,4 @@ No dedicated Prometheus counters in package. Glass box / tool event bus may obse
 5. Stale control.txt after crashed launch → connect errors; delete and relaunch.
 6. If an action ref is stale, observe again and use the new generation's ref.
 7. If a wait times out, compare its `since_ms` watermark with recent session-scoped event timestamps; do not disable freshness to mask a missing event.
+8. Use `browser_evidence status/read` before export; a disabled recorder or truncated scan is explicit in the tool result/error.

@@ -58,4 +58,30 @@ func TestPrivateBrowserArtifactPermissions(t *testing.T) {
 	if err != nil || string(data) != "evidence" {
 		t.Fatalf("private artifact read = %q, %v", data, err)
 	}
+	privateDir, err := IsPrivatePath(dir, true)
+	if err != nil || !privateDir {
+		t.Fatalf("private directory policy = %v, %v", privateDir, err)
+	}
+	privateFile, err := IsPrivatePath(path, false)
+	if err != nil || !privateFile {
+		t.Fatalf("private file policy = %v, %v", privateFile, err)
+	}
+}
+
+func TestWritePrivateFileExclusiveRefusesOverwrite(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "private")
+	if err := EnsurePrivateDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "artifact.txt")
+	if err := WritePrivateFileExclusive(path, []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	if err := WritePrivateFileExclusive(path, []byte("second")); err == nil {
+		t.Fatal("exclusive private write overwrote an existing artifact")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "first" {
+		t.Fatalf("exclusive artifact = %q, %v", data, err)
+	}
 }

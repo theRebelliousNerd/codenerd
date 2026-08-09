@@ -13,7 +13,7 @@ From `internal/core/defaults/policy/constitution.mg`:
 | `/browser_read_dom` | Yes |
 | `/browser_extract` / `/browser_click` / `/browser_type` / `/browser_close` | Yes |
 | `/browser_observe` / `/browser_act` | Yes |
-| `/browser_mangle` / `/browser_wait` / `/browser_reason` | Yes |
+| `/browser_mangle` / `/browser_wait` / `/browser_reason` / `/browser_evidence` | Yes |
 
 `safe_action` is not authority. The effective JIT allowlist first constrains availability, then the session executor asserts an exact `pending_action` and requires matching `permitted(Action, Target, Payload)`. Package methods themselves do **not** call `permitted(...)` — direct package callers are trusted integration code.
 
@@ -70,7 +70,7 @@ Policy files derive traps from evidence:
 3. Event and derived reasoning facts carry SessionID; DOM node IDs are session-qualified.
 4. DOM max 200 nodes and page hook buffer max 200 events — incomplete but finite.
 5. Nil sink keeps only the navigation lifecycle stream and errors ReifyReact — production Cortex boot must never use it.
-6. Every fact batch is copy-on-write redacted before its configured sink.
+6. Every fact batch is copy-on-write redacted before its configured sink and before selected evidence is persisted.
 
 ## 7. Reasoning/query invariants
 
@@ -79,6 +79,7 @@ Policy files derive traps from evidence:
 3. Query scans, returned facts, condition count, polling, and timeout are capped.
 4. `browser_wait` is fresh-only by default; callers use `browser_act.started_ms` as the action watermark.
 5. `browser_reason` refreshes page state, scopes current-route evidence by default, and re-redacts public fact arguments.
+6. `browser_evidence` requires one session, caps result items and scanned bytes, and never accepts an unconstrained filesystem read.
 
 ## 8. Content safety (out of package)
 
@@ -86,4 +87,4 @@ No URL allowlist / SSRF guard inside SessionManager. Any reachable URL the proce
 
 ## 9. Sensitive evidence
 
-Browser URLs, headers, input/DOM/React values, console text, metadata, and text tool results pass through the redactor. Type logs text **length**, not content. Model-directed artifact paths must pass the symlink-aware writable-root policy; persisted files use owner-only permissions. Screenshots still contain page pixels and must be treated as sensitive evidence by callers.
+Browser URLs, headers, input/DOM/React values, console text, metadata, and text tool results pass through the redactor. Type logs text **length**, not content. Model-directed artifact paths must pass the symlink-aware writable-root policy. Persisted files use exact Unix owner modes or a protected current-user-owned Windows DACL. Explicit evidence export is create-only and cannot overwrite an existing path. The recorder rotates by configured file bytes/count, caps rows/read scans/exports, and treats write failure as diagnostic rather than an effect failure. Screenshots still contain page pixels and must be treated as sensitive evidence by callers.

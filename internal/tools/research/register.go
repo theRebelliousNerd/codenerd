@@ -28,6 +28,7 @@ func RegisterAll(registry *tools.Registry) error {
 		BrowserMangleTool(),
 		BrowserWaitTool(),
 		BrowserReasonTool(),
+		BrowserEvidenceTool(),
 
 		// Caching
 		CacheGetTool(),

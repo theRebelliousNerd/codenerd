@@ -161,3 +161,11 @@
 | **Symptom** | `browser_mangle` rejects a rule, mutation, general predicate, or oversized request |
 | **Cause** | Deliberate read-only allowlist and hard ceilings at the model/kernel boundary |
 | **Mitigation** | Query one allowed browser predicate for one session; use shipped derived predicates; design a separately authorized rule sandbox if product requirements demand mutation |
+
+## FM-21 — Evidence disabled, truncated, or rejected
+
+| | |
+|--|--|
+| **Symptom** | `browser_evidence` reports disabled, a truncated bounded result, or refuses an export path |
+| **Cause** | Workspace-less/disabled recorder, row/read/scan/file ceilings, an existing export target, or writable-root traversal/symlink confinement |
+| **Mitigation** | Configure the native browser evidence block; narrow by session/type/time; choose a new export path below configured writable roots; never bypass the privacy policy |

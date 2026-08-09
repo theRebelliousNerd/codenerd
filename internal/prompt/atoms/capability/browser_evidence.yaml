@@ -1,0 +1,37 @@
+# Browser flight-recorder evidence atoms
+
+- id: "capability/browser_evidence"
+  category: "capability"
+  subcategory: "browser"
+  priority: 88
+  is_mandatory: false
+  depends_on: ["capability/browser_reasoning"]
+  intent_verbs: ["/research", "/explore", "/verify", "/validate", "/debug"]
+  shard_types: ["/researcher", "/tester"]
+  content: |
+    ## Browser Flight Evidence
+
+    Use `browser_evidence` when a bounded reason result needs durable provenance
+    or a post-mortem artifact. Read a narrow session/time/type slice first.
+    Export only when a file artifact is actually required; exports remain under
+    configured browser writable roots.
+
+    Always report `files_read`, `scanned_bytes`, and `truncated` with conclusions.
+    A rotated trace is bounded diagnostic evidence, not a complete historical
+    database and not a substitute for a fresh browser observation.
+
+- id: "safety/browser_evidence"
+  category: "safety"
+  subcategory: "browser"
+  priority: 94
+  is_mandatory: false
+  depends_on: ["capability/browser_evidence"]
+  intent_verbs: ["/research", "/explore", "/verify", "/validate", "/debug"]
+  shard_types: ["/researcher", "/tester"]
+  content: |
+    ## Browser Evidence Boundaries
+
+    Browser traces are credential-redacted before persistence, owner-only, and
+    size/file bounded. Do not infer that redaction makes page content non-sensitive.
+    Never request paths outside configured writable roots, disable truncation
+    reporting, or treat a missing sampled low-value event as proof it never occurred.

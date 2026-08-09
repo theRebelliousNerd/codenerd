@@ -1221,32 +1221,41 @@ func (c *UserConfig) GetIntegrations() IntegrationsConfig {
 
 // BrowserAutomationConfig controls codeNERD's native Rod browser manager.
 type BrowserAutomationConfig struct {
-	DebuggerURL         string   `json:"debugger_url,omitempty"`
-	Launch              []string `json:"launch,omitempty"`
-	Headless            bool     `json:"headless,omitempty"`
-	ViewportWidth       int      `json:"viewport_width,omitempty"`
-	ViewportHeight      int      `json:"viewport_height,omitempty"`
-	NavigationTimeoutMs int      `json:"navigation_timeout_ms,omitempty"`
-	MultiTabDefault     *bool    `json:"multi_tab_default,omitempty"`
-	MaxTabs             int      `json:"max_tabs,omitempty"`
-	MaxBrowsers         int      `json:"max_browsers,omitempty"`
-	IdleTabTimeoutMs    int      `json:"idle_tab_timeout_ms,omitempty"`
-	ExtraSensitiveKeys  []string `json:"extra_sensitive_keys,omitempty"`
-	WritableRoots       []string `json:"writable_roots,omitempty"`
+	DebuggerURL          string   `json:"debugger_url,omitempty"`
+	Launch               []string `json:"launch,omitempty"`
+	Headless             bool     `json:"headless,omitempty"`
+	ViewportWidth        int      `json:"viewport_width,omitempty"`
+	ViewportHeight       int      `json:"viewport_height,omitempty"`
+	NavigationTimeoutMs  int      `json:"navigation_timeout_ms,omitempty"`
+	MultiTabDefault      *bool    `json:"multi_tab_default,omitempty"`
+	MaxTabs              int      `json:"max_tabs,omitempty"`
+	MaxBrowsers          int      `json:"max_browsers,omitempty"`
+	IdleTabTimeoutMs     int      `json:"idle_tab_timeout_ms,omitempty"`
+	ExtraSensitiveKeys   []string `json:"extra_sensitive_keys,omitempty"`
+	WritableRoots        []string `json:"writable_roots,omitempty"`
+	EvidenceEnabled      *bool    `json:"evidence_enabled,omitempty"`
+	EvidenceDir          string   `json:"evidence_dir,omitempty"`
+	MaxEvidenceFiles     int      `json:"max_evidence_files,omitempty"`
+	MaxEvidenceFileBytes int64    `json:"max_evidence_file_bytes,omitempty"`
 }
 
 // DefaultBrowserAutomationConfig returns BrowserNERD-compatible lifecycle defaults.
 func DefaultBrowserAutomationConfig() BrowserAutomationConfig {
 	sharedTabs := true
 	return BrowserAutomationConfig{
-		ViewportWidth:       1920,
-		ViewportHeight:      1080,
-		NavigationTimeoutMs: 30000,
-		MultiTabDefault:     &sharedTabs,
-		MaxTabs:             32,
-		MaxBrowsers:         4,
+		ViewportWidth:        1920,
+		ViewportHeight:       1080,
+		NavigationTimeoutMs:  30000,
+		MultiTabDefault:      &sharedTabs,
+		MaxTabs:              32,
+		MaxBrowsers:          4,
+		EvidenceEnabled:      boolConfigPointer(true),
+		MaxEvidenceFiles:     16,
+		MaxEvidenceFileBytes: 4 << 20,
 	}
 }
+
+func boolConfigPointer(value bool) *bool { return &value }
 
 // GetBrowserConfig returns native browser settings with limits normalized.
 func (c *UserConfig) GetBrowserConfig() BrowserAutomationConfig {
@@ -1275,6 +1284,19 @@ func (c *UserConfig) GetBrowserConfig() BrowserAutomationConfig {
 	}
 	if cfg.IdleTabTimeoutMs < 0 {
 		cfg.IdleTabTimeoutMs = 0
+	}
+	if cfg.EvidenceEnabled == nil {
+		cfg.EvidenceEnabled = defaults.EvidenceEnabled
+	}
+	if cfg.MaxEvidenceFiles <= 0 {
+		cfg.MaxEvidenceFiles = defaults.MaxEvidenceFiles
+	} else if cfg.MaxEvidenceFiles > 256 {
+		cfg.MaxEvidenceFiles = 256
+	}
+	if cfg.MaxEvidenceFileBytes <= 0 {
+		cfg.MaxEvidenceFileBytes = defaults.MaxEvidenceFileBytes
+	} else if cfg.MaxEvidenceFileBytes > 64<<20 {
+		cfg.MaxEvidenceFileBytes = 64 << 20
 	}
 	return cfg
 }

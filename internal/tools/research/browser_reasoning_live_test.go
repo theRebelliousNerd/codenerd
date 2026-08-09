@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"codenerd/internal/browser"
+	browsersecurity "codenerd/internal/browser/security"
 	"codenerd/internal/core"
 	"codenerd/internal/mangle"
 	"codenerd/internal/tools/research"
@@ -153,6 +155,33 @@ document.getElementById('trigger').addEventListener('click', async () => {
 	})
 	if err != nil || !strings.Contains(mangleRaw, "/fail") || !strings.Contains(mangleRaw, "503") {
 		t.Fatalf("browser_mangle live query: %v, %s", err, mangleRaw)
+	}
+
+	evidenceRaw, err := research.BrowserEvidenceTool().Execute(ctx, map[string]any{
+		"operation": "read", "session_id": session.ID, "max_items": 100,
+	})
+	if err != nil || !strings.Contains(evidenceRaw, `"type":"act"`) ||
+		!strings.Contains(evidenceRaw, `"type":"reason"`) || strings.Contains(evidenceRaw, "foreign-session-marker") {
+		t.Fatalf("browser_evidence live read: %v, %s", err, evidenceRaw)
+	}
+	exportRaw, err := research.BrowserEvidenceTool().Execute(ctx, map[string]any{
+		"operation": "export", "session_id": session.ID, "max_items": 100,
+	})
+	if err != nil {
+		t.Fatalf("browser_evidence live export: %v", err)
+	}
+	var exported map[string]any
+	if err := json.Unmarshal([]byte(exportRaw), &exported); err != nil {
+		t.Fatalf("decode browser_evidence export: %v", err)
+	}
+	exportPath := exported["path"].(string)
+	private, err := browsersecurity.IsPrivatePath(exportPath, false)
+	if err != nil || !private {
+		t.Fatalf("browser evidence export is not current-user-only: private=%v err=%v path=%s", private, err, exportPath)
+	}
+	exportedBytes, err := os.ReadFile(exportPath)
+	if err != nil || strings.Contains(string(exportedBytes), "foreign-session-marker") {
+		t.Fatalf("browser evidence export scope: %v, %s", err, exportedBytes)
 	}
 }
 

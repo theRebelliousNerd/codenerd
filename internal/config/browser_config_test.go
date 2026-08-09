@@ -10,13 +10,18 @@ func TestGetBrowserConfigDefaultsAndExplicitIsolation(t *testing.T) {
 	if defaults.MaxTabs != 32 || defaults.MaxBrowsers != 4 {
 		t.Fatalf("unexpected browser limits: tabs=%d browsers=%d", defaults.MaxTabs, defaults.MaxBrowsers)
 	}
+	if defaults.EvidenceEnabled == nil || !*defaults.EvidenceEnabled || defaults.MaxEvidenceFiles != 16 || defaults.MaxEvidenceFileBytes != 4<<20 {
+		t.Fatalf("unexpected browser evidence defaults: %+v", defaults)
+	}
 
 	shared := false
 	cfg := (&UserConfig{Browser: &BrowserAutomationConfig{
-		MultiTabDefault:  &shared,
-		MaxTabs:          7,
-		MaxBrowsers:      2,
-		IdleTabTimeoutMs: 5000,
+		MultiTabDefault:      &shared,
+		MaxTabs:              7,
+		MaxBrowsers:          2,
+		IdleTabTimeoutMs:     5000,
+		MaxEvidenceFiles:     3,
+		MaxEvidenceFileBytes: 1024,
 	}}).GetBrowserConfig()
 	if cfg.MultiTabDefault == nil || *cfg.MultiTabDefault {
 		t.Fatal("explicit multi_tab_default=false was not preserved")
@@ -27,21 +32,36 @@ func TestGetBrowserConfigDefaultsAndExplicitIsolation(t *testing.T) {
 	if cfg.ViewportWidth != 1920 || cfg.NavigationTimeoutMs != 30000 {
 		t.Fatalf("browser zero values were not defaulted: %+v", cfg)
 	}
+	if cfg.MaxEvidenceFiles != 3 || cfg.MaxEvidenceFileBytes != 1024 {
+		t.Fatalf("explicit evidence limits were not preserved: %+v", cfg)
+	}
 }
 
 func TestGetBrowserConfigNormalizesInvalidLimits(t *testing.T) {
 	cfg := (&UserConfig{Browser: &BrowserAutomationConfig{
-		ViewportWidth:       -1,
-		ViewportHeight:      -1,
-		NavigationTimeoutMs: -1,
-		MaxTabs:             -1,
-		MaxBrowsers:         -1,
-		IdleTabTimeoutMs:    -1,
+		ViewportWidth:        -1,
+		ViewportHeight:       -1,
+		NavigationTimeoutMs:  -1,
+		MaxTabs:              -1,
+		MaxBrowsers:          -1,
+		IdleTabTimeoutMs:     -1,
+		MaxEvidenceFiles:     -1,
+		MaxEvidenceFileBytes: -1,
 	}}).GetBrowserConfig()
 	if cfg.ViewportWidth != 1920 || cfg.ViewportHeight != 1080 || cfg.NavigationTimeoutMs != 30000 {
 		t.Fatalf("invalid browser dimensions/timeouts were not normalized: %+v", cfg)
 	}
 	if cfg.MaxTabs != 32 || cfg.MaxBrowsers != 4 || cfg.IdleTabTimeoutMs != 0 {
 		t.Fatalf("invalid browser limits were not normalized: %+v", cfg)
+	}
+	if cfg.MaxEvidenceFiles != 16 || cfg.MaxEvidenceFileBytes != 4<<20 {
+		t.Fatalf("invalid evidence limits were not normalized: %+v", cfg)
+	}
+
+	capped := (&UserConfig{Browser: &BrowserAutomationConfig{
+		MaxEvidenceFiles: 1000, MaxEvidenceFileBytes: 1 << 30,
+	}}).GetBrowserConfig()
+	if capped.MaxEvidenceFiles != 256 || capped.MaxEvidenceFileBytes != 64<<20 {
+		t.Fatalf("evidence hard caps were not enforced: %+v", capped)
 	}
 }

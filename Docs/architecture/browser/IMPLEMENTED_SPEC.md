@@ -6,9 +6,9 @@
 > Package: `codenerd/internal/browser`  
 > Primary sources: `internal/browser/*.go`  
 > Companion logic: `internal/core/defaults/schemas_browser.mg`, `policy/browser.mg`, `policy/browser_honeypot.mg`  
-> Scale: **10** non-test Go files ≈ **4,400** lines; **12** package test files; **0** package-local `.mg`
+> Scale: **13** checked-in non-test Go files ≈ **5,160** lines (**12** per platform); **13** package test files; **0** package-local `.mg`
 
-> 2026-08-09 BPAR-1/BPAR-2/BPAR-3 delta: system boot binds research tools to one Cortex manager and its live kernel. Lifecycle/security foundations, progressive observe/act, read-only bounded Mangle, fresh waits, derived diagnosis, exact permission, and JIT atoms are implemented. See [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md).
+> 2026-08-09 BPAR-1/BPAR-2/BPAR-3 plus BPAR-4 evidence delta: system boot binds research tools to one Cortex manager, live kernel, and bounded recorder. Lifecycle/security foundations, progressive observe/act, read-only bounded Mangle, fresh waits, derived diagnosis, private flight evidence, exact permission, and JIT atoms are implemented. See [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md).
 
 ## 1. Overview
 
@@ -87,7 +87,8 @@ user_intent → kernel next_action → tool/shard
 | React Fiber reify | **Implemented** | Best-effort; needs fiber keys |
 | Honeypot detector | **Implemented** | Depends on engine+policy load |
 | CLI launch/session/snapshot | **Implemented** | `cmd/nerd/cmd_browser.go` |
-| Research modular tools | **Implemented (eleven through BPAR-3)** | Shared Cortex manager/kernel; legacy six plus observe/act/mangle/wait/reason |
+| Research modular tools | **Implemented (twelve through BPAR-4 evidence)** | Shared Cortex manager/kernel/recorder; legacy six plus observe/act/mangle/wait/reason/evidence |
+| Browser flight evidence | **Implemented** | Redacted rotated per-session JSONL, bounded read/export, current-user-only platform permissions |
 | System boot live manager | **Implemented** | `browserKernelSink` → live `SystemKernel.AssertBatch` |
 | Legacy chat BrowserManager inject | **Partial** | Field + setter exist; legacy boot remains nil |
 | VS handleBrowse | **Stub** | Explicit refuse → shard |
@@ -112,8 +113,9 @@ internal/browser/
   session_lifecycle.go         # browser/tab lifecycle, limits, reaper
   session_manager_dom.go       # event stream, DOM capture, persist helpers
   fact_redaction.go            # pre-sink evidence redaction
+  flight_recorder.go           # bounded rotated JSONL evidence
   honeypot.go                  # honeypot detector
-  security/                    # redactor + writable path policy
+  security/                    # redactor + writable path policy + platform privacy ACL/modes
   session_manager_coverage_test.go
   start_coverage_test.go
   honeypot_coverage_test.go
@@ -303,7 +305,7 @@ Categories in `schemas_browser.mg`:
 | Consumer | Path | Behavior |
 |----------|------|----------|
 | CLI | `cmd/nerd/cmd_browser.go` | Operator lifecycle + snapshot export |
-| Research tools | `internal/tools/research/browser.go`, `browser_progressive.go`, `browser_reasoning.go` | Cortex-owned shared manager and live kernel after system boot |
+| Research tools | `internal/tools/research/browser.go`, `browser_progressive.go`, `browser_reasoning.go`, `browser_evidence.go` | Cortex-owned shared manager, live kernel, and recorder after system boot |
 | Tactile router | `internal/shards/system/router.go` | Optional BrowserManager field |
 | Chat types/boot | `cmd/nerd/chat/*` | Holds pointer; constructs nil |
 
@@ -312,9 +314,9 @@ Categories in `schemas_browser.mg`:
 | Layer | Names |
 |-------|-------|
 | VS ActionType | browser_navigate, browser_extract, browser_screenshot, browser_click, browser_type, browser_close |
-| Constitution safe_action | all registered browser spellings, including observe/act/mangle/wait/reason; exact pending payload still required |
+| Constitution safe_action | all registered browser spellings, including observe/act/mangle/wait/reason/evidence; exact pending payload still required |
 | Router patterns | browse, browser_navigate, browser_screenshot, browser_read_dom → browser_tool |
-| Tool registry | browser_navigate/extract/screenshot/click/type/close/observe/act/mangle/wait/reason |
+| Tool registry | browser_navigate/extract/screenshot/click/type/close/observe/act/mangle/wait/reason/evidence |
 | Intent routing | modular_tool_allowed browser_* under research/verify |
 
 ### 8.3 VirtualStore stance
@@ -338,6 +340,7 @@ standalone CLI ──► export SessionManager + schema-loaded export engine
 - Category: `browser`  
 - Timers: start, create session, navigation, screenshot, honeypot analysis  
 - Stream errors logged per session with predicate context  
+- Redacted per-session JSONL evidence rotates/prunes under `.nerd/browser/traces`; reads and exports report scope/truncation
 - See [11-OBSERVABILITY.md](11-OBSERVABILITY.md)
 
 ---
@@ -373,7 +376,7 @@ Commands: see [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md) and README.
 | FM-14 | Lifecycle races |
 | FM-15 | VS browse refuse |
 | FM-16/17 | Stale progressive ref / observation crosses navigation |
-| FM-18/19/20 | Stale-wait success / cross-session leakage / rejected query |
+| FM-18/19/20/21 | Stale-wait success / cross-session leakage / rejected query / bounded-evidence refusal |
 
 Details: [12-FAILURE-MODES.md](12-FAILURE-MODES.md).
 
@@ -386,7 +389,7 @@ Full matrix: [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
 Top three:
 
 1. No safe caller-supplied rule sandbox; `browser_mangle` is intentionally read-only.
-2. No progressive `browser_audit`, flight-recorder, spec, or declarative-test surface.
+2. No progressive `browser_audit`, spec, or declarative-test surface; the flight recorder/evidence slice is shipped.
 3. No bounded fact retention/GC for accumulated long-lived event history.
 
 ---

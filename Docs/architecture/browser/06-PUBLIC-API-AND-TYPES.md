@@ -194,6 +194,7 @@ Derived (policy, not emitted by detector as base): `is_honeypot`, `honeypot_*`, 
 | `browser_mangle` | Read-only, session-scoped query/read/temporal/evaluate/await operations over an explicit browser-predicate allowlist; bounded results and no fact/rule mutation |
 | `browser_wait` | Context-cancelable stable/fact/condition waits; fresh-only by default; accepts the `browser_act.started_ms` action watermark; timeout capped at 30 seconds |
 | `browser_reason` | Refreshes page state and returns bounded health/failure/change views from live-kernel derived and event facts, scoped to the current route by default |
+| `browser_evidence` | Status/read/export for redacted per-session JSONL evidence; reads cap items and scanned bytes; exports remain under configured writable roots |
 
 ## 9. Non-exported helpers (test-visible same package)
 

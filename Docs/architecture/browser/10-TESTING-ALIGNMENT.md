@@ -23,7 +23,7 @@ go test ./internal/tools/research/ -run Browser -count=1
 # Live progressive modular registry route
 go test -tags=integration ./internal/tools/research/ -run TestBrowserProgressiveTools_Live -count=1
 
-# Live BPAR-3 route: observe → act → fresh waits → reason → same-kernel query
+# Live BPAR-3/BPAR-4 evidence route: observe → act → waits → reason/query → private evidence read/export
 go test -tags=integration ./internal/tools/research/ -run TestBrowserReasoningToolsLiveCortexRoute -count=1 -v
 
 # Focused race gate
@@ -42,9 +42,12 @@ go test -race ./internal/browser ./internal/tools/research ./internal/prompt ./i
 | `browser_integration_test.go` | `integration` | httptest Hello World + interaction facts (`dom_text`/`navigation_event`/`click_event`/`input_event`) |
 | `element_registry_test.go` | — | Stable refs, copy isolation, navigation generation, stale snapshot refusal |
 | `progressive_action_test.go` | — | Hard bounds, closed modes, stop-on-error |
+| `flight_recorder_test.go` | — | Recursive redaction, row/read limits, rotation/pruning, session isolation, confined export |
+| `security/path_policy_test.go` | — | Traversal/symlink refusal and actual current-user-only platform permissions |
 | `internal/tools/research/browser_progressive_live_test.go` | `integration` | Live registry route: all BPAR-2 views/actions, secret sink/result check, confined screenshot |
 | `internal/tools/research/browser_reasoning_test.go` | — | Query allowlist, bounds, fresh waits, stability, reason views, session isolation, stale-fact refusal |
-| `internal/tools/research/browser_reasoning_live_test.go` | `integration` | Production-shaped Cortex route: observe/act, action-watermark conditions, stable wait, derived reason, foreign-session exclusion, same-kernel query |
+| `internal/tools/research/browser_evidence_test.go` | — | Bounded read/export tool output and pre-persistence credential redaction |
+| `internal/tools/research/browser_reasoning_live_test.go` | `integration` | Production-shaped Cortex route: observe/act, waits, derived reason, foreign-session exclusion, same-kernel query, bounded recorder read, private export ACL |
 | `internal/core/defaults/policy/browser_reasoning_test.go` | — | Real-Mangle typed and session-scoped failure/root-cause/visible-error/blocker derivation |
 
 ## 3. Coverage strengths
@@ -54,7 +57,7 @@ go test -race ./internal/browser ./internal/tools/research ./internal/prompt ./i
 - Honeypot rule table against real `.mg` files (not duplicated rule strings alone).  
 - Persist/load round-trip of SessionStore.  
 - Explicit concurrency smoke on map + throttler.
-- Same-Cortex live proof for fact ingestion, derived diagnosis, query, fresh waits, and cross-session exclusion.
+- Same-Cortex live proof for fact ingestion, derived diagnosis, query, fresh waits, recorder read/export, platform privacy, and cross-session exclusion.
 
 ## 4. Coverage gaps
 

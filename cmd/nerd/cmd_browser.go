@@ -72,6 +72,10 @@ func getBrowserConfig() browser.Config {
 		cfg.IdleTabTimeoutMs = configured.IdleTabTimeoutMs
 		cfg.ExtraSensitiveKeys = append([]string(nil), configured.ExtraSensitiveKeys...)
 		cfg.WritableRoots = append([]string(nil), configured.WritableRoots...)
+		cfg.EvidenceEnabled = configured.EvidenceEnabled
+		cfg.EvidenceDir = configured.EvidenceDir
+		cfg.MaxEvidenceFiles = configured.MaxEvidenceFiles
+		cfg.MaxEvidenceFileBytes = configured.MaxEvidenceFileBytes
 	}
 	cfg.WorkspaceRoot = cwd
 	cfg.SessionStore = filepath.Join(cwd, ".nerd", "browser", "sessions.json")

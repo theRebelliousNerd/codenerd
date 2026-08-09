@@ -2,7 +2,7 @@
 
 > Last verified against codebase: 2026-08-09
 > Status: Living Reference Document — code-grounded  
-> Source: `internal/browser/` (10 non-test ≈ 4.4k LOC; 12 tests) + companion schemas/policy under `internal/core/defaults/`
+> Source: `internal/browser/` (13 checked-in non-test ≈ 5.16k LOC, 12 per platform; 13 tests) + companion schemas/policy under `internal/core/defaults/`
 
 ## 1. North-star statement
 

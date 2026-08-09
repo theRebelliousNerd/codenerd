@@ -1242,6 +1242,10 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	browserCfg.ExtraSensitiveKeys = append([]string(nil), configuredBrowser.ExtraSensitiveKeys...)
 	browserCfg.WorkspaceRoot = bctx.workspace
 	browserCfg.WritableRoots = append([]string(nil), configuredBrowser.WritableRoots...)
+	browserCfg.EvidenceEnabled = configuredBrowser.EvidenceEnabled
+	browserCfg.EvidenceDir = configuredBrowser.EvidenceDir
+	browserCfg.MaxEvidenceFiles = configuredBrowser.MaxEvidenceFiles
+	browserCfg.MaxEvidenceFileBytes = configuredBrowser.MaxEvidenceFileBytes
 	browserCfg.SessionStore = filepath.Join(bctx.workspace, ".nerd", "browser", "sessions.json")
 	bctx.browserMgr = browser.NewSessionManagerWithSink(browserCfg, browserKernelSink{kernel: bctx.kernel})
 	research.SetBrowserRuntime(bctx.browserMgr, bctx.kernel)

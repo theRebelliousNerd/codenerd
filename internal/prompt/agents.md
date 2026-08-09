@@ -16,3 +16,6 @@
 - Browser wait/reason/read-only-Mangle guidance lives in
   `atoms/capability/browser_reasoning.yaml`; keep waits fresh by default and do
   not teach rule/fact mutation through the browser surface.
+- Browser flight-recorder guidance lives in
+  `atoms/capability/browser_evidence.yaml`; preserve provenance, truncation,
+  redaction, owner-only persistence, and writable-root confinement.

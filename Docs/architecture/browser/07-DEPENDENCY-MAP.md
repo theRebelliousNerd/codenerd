@@ -29,7 +29,7 @@ From `internal/browser/*.go` (non-test):
 | Chat model | `cmd/nerd/chat/model_types.go` | Field types `*browser.SessionManager` |
 | Chat boot | `cmd/nerd/chat/session_boot.go`, `session_shared_boot.go` | Declares/passes browserMgr (often nil) into shards |
 | Tactile router | `internal/shards/system/router.go` | `BrowserManager *browser.SessionManager`, `SetBrowserManager` |
-| Research tools | `internal/tools/research/browser*.go` | Cortex-bound SessionManager plus live-kernel reader for effect, wait, query, and diagnosis tools |
+| Research tools | `internal/tools/research/browser*.go` | Cortex-bound SessionManager plus live-kernel reader and bounded recorder route for effect, wait, query, diagnosis, and evidence tools |
 | System factory | `internal/system/factory.go` | Live-kernel sink and paired manager/kernel binding |
 
 ## 3. Soft dependencies (no Go import, semantic coupling)
@@ -44,8 +44,8 @@ From `internal/browser/*.go` (non-test):
 | `internal/core/virtual_store_actions.go` | Documents shard ownership; modular tool arg mapping |
 | `internal/core/defaults/policy/constitution.mg` | All registered legacy, progressive, and reasoning browser spellings are safe actions; exact permission still requires availability and a matching pending action |
 | `internal/mangle/intent_routing.mg` | Legacy, progressive, and reasoning browser tools allowed for research/verify intents |
-| `internal/prompt/config_*.go` | Researcher/tester allowlists include observe/act/mangle/wait/reason |
-| `internal/prompt/atoms/capability/browser_progressive.yaml`, `browser_reasoning.yaml` | JIT-selected ref-first action and fresh-evidence reasoning boundaries |
+| `internal/prompt/config_*.go` | Researcher/tester allowlists include observe/act/mangle/wait/reason/evidence |
+| `internal/prompt/atoms/capability/browser_progressive.yaml`, `browser_reasoning.yaml`, `browser_evidence.yaml` | JIT-selected ref-first action, fresh reasoning, and bounded evidence boundaries |
 | Workspace `.nerd/browser/*` | Operator persistence contract |
 
 ## 4. Layer diagram

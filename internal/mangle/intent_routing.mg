@@ -285,6 +285,7 @@ modular_tool_allowed(/browser_act, Intent) :- verb_category(Intent, /research).
 modular_tool_allowed(/browser_mangle, Intent) :- verb_category(Intent, /research).
 modular_tool_allowed(/browser_wait, Intent) :- verb_category(Intent, /research).
 modular_tool_allowed(/browser_reason, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/browser_evidence, Intent) :- verb_category(Intent, /research).
 modular_tool_allowed(/research_cache_get, Intent) :- verb_category(Intent, /research).
 modular_tool_allowed(/research_cache_set, Intent) :- verb_category(Intent, /research).
 
@@ -301,6 +302,7 @@ modular_tool_allowed(/browser_act, Intent) :- verb_category(Intent, /verify).
 modular_tool_allowed(/browser_mangle, Intent) :- verb_category(Intent, /verify).
 modular_tool_allowed(/browser_wait, Intent) :- verb_category(Intent, /verify).
 modular_tool_allowed(/browser_reason, Intent) :- verb_category(Intent, /verify).
+modular_tool_allowed(/browser_evidence, Intent) :- verb_category(Intent, /verify).
 
 # Intent category mappings for research/learn/document/verify
 verb_category(/research, /research) :- user_intent(_, _, /research, _, _).
@@ -322,6 +324,7 @@ modular_tool_priority(/browser_act, 65).
 modular_tool_priority(/browser_mangle, 72).
 modular_tool_priority(/browser_wait, 71).
 modular_tool_priority(/browser_reason, 73).
+modular_tool_priority(/browser_evidence, 74).
 
 # =============================================================================
 # SECTION 6: Subagent Spawning

@@ -216,6 +216,9 @@ func executeBrowserMangle(ctx context.Context, args map[string]any) (string, err
 		if waitErr != nil {
 			return "", fmt.Errorf("browser mangle: %w", waitErr)
 		}
+		recordBrowserToolEvidence(sessionID, "wait", map[string]any{
+			"tool": "browser_mangle", "operation": operation, "result": waited,
+		})
 		return marshalProgressiveResult(waited)
 	default:
 		return "", fmt.Errorf("browser mangle: unsupported operation %q", operation)
@@ -239,6 +242,9 @@ func executeBrowserMangle(ctx context.Context, args map[string]any) (string, err
 	if view != "summary" {
 		output["facts"] = publicBrowserFacts(getBrowserManager(), facts, view == "full")
 	}
+	recordBrowserToolEvidence(sessionID, "mangle", map[string]any{
+		"operation": operation, "view": view, "count": total, "truncated": truncated,
+	})
 	return marshalProgressiveResult(output)
 }
 
@@ -260,6 +266,7 @@ func executeBrowserWait(ctx context.Context, args map[string]any) (string, error
 		if err != nil {
 			return "", fmt.Errorf("browser wait: %w", err)
 		}
+		recordBrowserToolEvidence(sessionID, "wait", map[string]any{"mode": mode, "result": result})
 		return marshalProgressiveResult(result)
 	}
 	operation := "await_fact"
@@ -276,6 +283,7 @@ func executeBrowserWait(ctx context.Context, args map[string]any) (string, error
 	if err != nil {
 		return "", fmt.Errorf("browser wait: %w", err)
 	}
+	recordBrowserToolEvidence(sessionID, "wait", map[string]any{"mode": mode, "result": result})
 	return marshalProgressiveResult(result)
 }
 
@@ -409,6 +417,10 @@ func executeBrowserReason(ctx context.Context, args map[string]any) (string, err
 	if view != "summary" {
 		output["data"] = data
 	}
+	recordBrowserToolEvidence(sessionID, "reason", map[string]any{
+		"topic": topic, "view": view, "status": status, "counts": counts,
+		"summary": output["summary"], "effective_since_ms": since,
+	})
 	return marshalProgressiveResult(output)
 }
 

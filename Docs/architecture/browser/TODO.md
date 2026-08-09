@@ -22,6 +22,9 @@
 ## P2
 
 - [ ] Complete BPAR-4 evidence/spec/declarative-test surface
+- [x] Ship bounded redacted flight evidence with current-user-only JSONL export
+- [ ] Ship bounded workspace browser spec delivery and conformance
+- [ ] Ship browser test create/inspect/run/generate with live execution proof
 - [ ] TUI browser status / session list slash command
 - [ ] VS `handleBrowse` thin delegate to shared manager (if design accepts)
 - [x] Session close API that stops event-stream ctx per session

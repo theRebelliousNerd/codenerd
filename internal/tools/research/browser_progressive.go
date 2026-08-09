@@ -47,6 +47,11 @@ func executeBrowserObserve(ctx context.Context, args map[string]any) (string, er
 	if err != nil {
 		return "", fmt.Errorf("browser observe: %w", err)
 	}
+	recordBrowserToolEvidence(observation.SessionID, "observe", map[string]any{
+		"mode": observation.Mode, "view": observation.View, "summary": observation.Summary,
+		"generation": observation.Generation, "truncated": observation.Truncated,
+		"evidence_handles": observation.EvidenceHandles,
+	})
 	return marshalProgressiveResult(observation)
 }
 
@@ -121,6 +126,11 @@ func executeBrowserAct(ctx context.Context, args map[string]any) (string, error)
 	if results != nil {
 		output["results"] = results
 	}
+	recordBrowserToolEvidence(execution.SessionID, "act", map[string]any{
+		"success": execution.Success, "status": execution.Status, "started_ms": execution.StartedMS,
+		"finished_ms": execution.FinishedMS, "summary": execution.Summary, "counts": execution.Counts,
+		"results": execution.Results, "evidence_handles": execution.EvidenceHandles,
+	})
 	return marshalProgressiveResult(output)
 }
 

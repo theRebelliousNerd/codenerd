@@ -94,7 +94,7 @@ func TestLogic_Safety(t *testing.T) {
 
 	// Progressive browser and reasoning tools are reachable only through the same exact
 	// pending_action -> permitted payload contract as every other tool.
-	for _, action := range []string{"/browser_observe", "/browser_act", "/browser_mangle", "/browser_wait", "/browser_reason"} {
+	for _, action := range []string{"/browser_observe", "/browser_act", "/browser_mangle", "/browser_wait", "/browser_reason", "/browser_evidence"} {
 		target := "browser-session"
 		payload := `{"session_id":"browser-session"}`
 		if err := eng.AddFact("pending_action", "browser-policy", action, target, payload, int64(1)); err != nil {

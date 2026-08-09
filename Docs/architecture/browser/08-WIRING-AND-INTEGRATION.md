@@ -71,7 +71,7 @@ if browserMgr != nil {
 ```
 
 `Cortex` / chat model carry `BrowserManager *browser.SessionManager` fields (`model_types.go`).  
-The BPAR-3 surface is reachable: the legacy six plus observe/act/mangle/wait/reason share the manager; reasoning reads the same kernel that receives browser facts. Remaining reachability gaps are audit/spec/declarative-test tools, the legacy chat boot path, and operator CLI expansion.
+The BPAR-3 surface and BPAR-4 evidence slice are reachable: the legacy six plus observe/act/mangle/wait/reason/evidence share the manager; reasoning reads the same kernel that receives browser facts and evidence reads the manager-owned recorder. Remaining reachability gaps are audit/spec/declarative-test tools, the legacy chat boot path, and operator CLI expansion.
 
 ## 4. TactileRouterShard
 
@@ -115,6 +115,7 @@ The BPAR-3 surface is reachable: the legacy six plus observe/act/mangle/wait/rea
 | `browser_mangle` | Bounded read-only query/read/temporal/evaluate/await access to session-scoped browser predicates in the live Cortex kernel |
 | `browser_wait` | Fresh-only stable/fact/condition waits with context cancellation, action watermarks, and a 30-second timeout ceiling |
 | `browser_reason` | Bounded live-kernel health, failure, blocker, change, correlation, and recommendation views |
+| `browser_evidence` | Bounded status/read/export over redacted per-session JSONL evidence with confined private output |
 
 `getBrowserManager()` resolves the Cortex-owned manager installed by
 `research.SetBrowserRuntime`; its paired kernel is cleared only when the owning
@@ -124,8 +125,9 @@ tab's event stream.
 
 The progressive and reasoning names are selected for research and verification
 intents by the config factory and `intent_routing.mg`. JIT atoms
-`capability/browser_progressive` and `capability/browser_reasoning` supply the
-observe-first/ref-first and action-watermark/fresh-evidence methods.
+`capability/browser_progressive`, `capability/browser_reasoning`, and
+`capability/browser_evidence` supply the observe-first/ref-first,
+action-watermark/fresh-reasoning, and bounded provenance methods.
 
 ## 7. Mangle program load
 
@@ -143,6 +145,7 @@ safe_action(/browser_act).
 safe_action(/browser_mangle).
 safe_action(/browser_wait).
 safe_action(/browser_reason).
+safe_action(/browser_evidence).
 ```
 
 Routing: `routing_table(/browser, /browser_tool, /high)`.  
@@ -157,7 +160,7 @@ Intent routing (`internal/mangle/intent_routing.mg`): modular browser tools allo
 | Schemas in kernel | **Live** |
 | Honeypot policy | **Live** (when engine has facts) |
 | CLI operator path | **Live** (standalone export engine) |
-| Research tools effect path | **Live** (legacy + BPAR-2/BPAR-3 tools share Cortex manager and live kernel) |
+| Research tools effect path | **Live** (legacy + BPAR-2/BPAR-3 plus BPAR-4 evidence share the Cortex manager/live kernel/recorder) |
 | System Cortex BrowserManager field | **Constructed with live-kernel adapter** |
 | Legacy chat BrowserManager field | **Declared; nil** |
 | Tactile SetBrowserManager | **Wired in system factory; conditional in legacy chat** |
@@ -167,6 +170,6 @@ Intent routing (`internal/mangle/intent_routing.mg`): modular browser tools allo
 
 ## 9. Recommended integration sequence (docs-only guidance)
 
-1. Build BPAR-4 flight-recorder, spec, and declarative-test surfaces over the existing live-kernel truth.
+1. Build BPAR-4 spec and declarative-test surfaces over the existing live-kernel truth and shipped recorder.
 2. Optionally implement VS handleBrowse as a thin delegate.
 3. Run SnapshotDOM after navigate before honeypot/safe click decisions.

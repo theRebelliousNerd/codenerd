@@ -103,24 +103,55 @@ func EnsurePrivateDir(path string) error {
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		return err
 	}
-	return os.Chmod(path, 0o700)
+	return protectPrivatePath(path, true)
 }
 
 // WritePrivateFile writes an owner-only browser artifact.
 func WritePrivateFile(path string, data []byte) error {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	return writePrivateFile(path, data, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, false)
+}
+
+// WritePrivateFileExclusive creates an owner-only artifact without overwriting
+// an existing path.
+func WritePrivateFileExclusive(path string, data []byte) error {
+	return writePrivateFile(path, data, os.O_CREATE|os.O_EXCL|os.O_WRONLY, true)
+}
+
+func writePrivateFile(path string, data []byte, flags int, removeOnFailure bool) error {
+	file, err := os.OpenFile(path, flags, 0o600)
 	if err != nil {
-		return err
-	}
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
 		return err
 	}
 	if _, err := file.Write(data); err != nil {
 		_ = file.Close()
+		if removeOnFailure {
+			_ = os.Remove(path)
+		}
 		return err
 	}
-	return file.Close()
+	if err := file.Close(); err != nil {
+		if removeOnFailure {
+			_ = os.Remove(path)
+		}
+		return err
+	}
+	if err := ProtectPrivateFile(path); err != nil {
+		if removeOnFailure {
+			_ = os.Remove(path)
+		}
+		return err
+	}
+	return nil
+}
+
+// ProtectPrivateFile applies the platform's current-user-only file policy.
+func ProtectPrivateFile(path string) error {
+	return protectPrivatePath(path, false)
+}
+
+// IsPrivatePath verifies the platform's current-user-only path policy.
+func IsPrivatePath(path string, directory bool) (bool, error) {
+	return isPrivatePath(path, directory)
 }
 
 func pathWithin(root, target string) bool {

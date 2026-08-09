@@ -6,10 +6,12 @@ import (
 )
 
 func (m *SessionManager) addFacts(facts []mangle.Fact) error {
+	safeFacts := m.sanitizeFacts(facts)
+	m.recordFlightFacts(safeFacts)
 	if m.engine == nil {
 		return nil
 	}
-	return m.engine.AddFacts(m.sanitizeFacts(facts))
+	return m.engine.AddFacts(safeFacts)
 }
 
 func (m *SessionManager) sanitizeFacts(facts []mangle.Fact) []mangle.Fact {

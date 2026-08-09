@@ -15,3 +15,6 @@
   from `integrations.servers.browser` (an external MCP endpoint). Preserve
   pointer semantics for `multi_tab_default` so explicit isolation is not
   overwritten by shared-tab defaults.
+- Browser evidence settings govern a redacted, rotated, current-user-only JSONL
+  recorder under the workspace. Preserve default-on pointer semantics and hard
+  file-count/file-size ceilings when adding config migrations or wizards.

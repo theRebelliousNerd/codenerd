@@ -38,9 +38,9 @@ Binding adaptation rules:
 | BP-15 | Progressive observe/act/reason/audit | Observe/act/reason are native and JIT-first; audit remains BPAR-5 work | partial | Native `browser_observe`, `browser_act`, `browser_reason`, and `browser_audit` tools ship JIT-first |
 | BP-16 | Bounded Mangle read/query/rule/temporal/watch | `browser_mangle` provides bounded live-kernel read/query/temporal/evaluate/wait operations; fact mutation and rule submission are intentionally absent pending a safe sandbox | partial | `browser_mangle` delegates to the live kernel with explicit query/rule/result/time ceilings |
 | BP-17 | Default credential redaction | Central pre-sink redactor plus live progressive fill proof: secret absent from result and sink | done | URLs, headers, input events, results, logs, sessions, and evidence redact by default |
-| BP-18 | Confined model-directed writes | Symlink-aware writable-root policy; private CLI snapshots/session/control files | partial | Screenshot/evidence/spec outputs resolve under allowed roots and reject traversal/symlink escapes |
+| BP-18 | Confined model-directed writes | Symlink-aware writable-root policy; current-user-only CLI, screenshot, and evidence artifacts on Windows and Unix | partial | Screenshot/evidence/spec outputs resolve under allowed roots and reject traversal/symlink escapes |
 | BP-19 | Unsafe JavaScript gate | No arbitrary JS tool | missing | Disabled by default; enabling config alone is insufficient without constitutional approval |
-| BP-20 | Bounded runtime evidence and flight recorder | Route/toast/console/request evidence is session-scoped and queryable; no owner-only step trace export yet | partial | Bounded route/toast/console/request evidence and redacted owner-only JSONL traces |
+| BP-20 | Bounded runtime evidence and flight recorder | Default-on redacted JSONL recorder with per-session reads, rotation/pruning, confined export, hard scan/result ceilings, and live Chrome/ACL proof | done | Bounded route/toast/console/request evidence and redacted owner-only JSONL traces |
 | BP-21 | Configurable spec delivery and conformance | Architecture corpus exists; no browser spec tools | missing | `browser_specs` discovers bounded workspace docs and runs declared invariants |
 | BP-22 | Declarative browser tests and generation | Go lifecycle tests only | partial | Create/inspect/run declarative tests plus bounded generation and live execution proof |
 | BP-23 | Console, toast, request, and stability diagnosis | `browser_reason` returns bounded live-kernel failures, correlations, contradictions, blockers, changes, and recommendations; live session-isolation proof passes | done | `browser_reason` returns bounded correlated findings from fresh facts |
@@ -53,7 +53,7 @@ Binding adaptation rules:
 1. **BPAR-1 — runtime truth and lifecycle.** Live-kernel sink, one shared manager route, multi-browser/tab lifecycle, close/focus, limits, cancellation, redaction, path policy.
 2. **BPAR-2 — progressive observation and action.** Stable refs, bounded state/nav/interactive/grid/hidden views, fill/key/history, `browser_observe` and `browser_act`, JIT atoms.
 3. **BPAR-3 — reasoning and waits (complete).** Live-kernel read-only `browser_mangle`, bounded fresh waits, `browser_reason`, session-scoped diagnosis, temporal evidence.
-4. **BPAR-4 — evidence, specs, and declarative tests.** Flight recorder, spec delivery/conformance, browser test create/inspect/run/generate.
+4. **BPAR-4 — evidence, specs, and declarative tests (in progress).** Flight recorder complete; spec delivery/conformance and browser test create/inspect/run/generate remain.
 5. **BPAR-5 — audit and final proof.** Contract audit, repo trace, optional Docker correlation, security assault, live end-to-end parity matrix.
 
 ## Final parity gate

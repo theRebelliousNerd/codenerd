@@ -16,7 +16,7 @@
 | CLI operator surface | launch / session / snapshot | **Partial** — no click/type/screenshot/list/fork cobra verbs |
 | Single Cortex-owned manager | System factory constructs it and binds tactile + modular research tools; lazy fallback remains for narrow standalone use | **Done in system boot** |
 | VS executes browser actions | `handleBrowse` returns hard failure requiring shard | **Partial / intentional stub** |
-| Modular tools execute browser | Legacy six plus observe/act/mangle/wait/reason resolve the Cortex-owned manager and live kernel | **Done through BPAR-3** |
+| Modular tools execute browser | Legacy six plus observe/act/mangle/wait/reason/evidence resolve the Cortex-owned manager and live kernel | **Done through the BPAR-4 evidence slice** |
 | Tactile router has manager | System factory injects its manager; legacy chat path remains conditional | **Partial** |
 | Constitution gates | Effective allowlist plus exact pending payload permission for every registered browser spelling | **Done** (policy + tests) |
 | Fact sink = production kernel | System factory adapts browser facts into live `SystemKernel.AssertBatch`; CLI keeps an export-only engine | **Done in Cortex; CLI intentionally separate** |
@@ -27,12 +27,13 @@
 | Multi-browser lifecycle | One manager can bound, list, select, promote, and close multiple browser processes; progressive act exposes lifecycle operations | **Package/agent done; CLI expansion pending** |
 | Progressive observation/action | Bounded modes, opaque generation refs, closed sequential operations, JIT atoms | **Done (BPAR-2)** |
 | Live-kernel reasoning/waits | Read-only bounded queries, action watermarks, fresh fact/condition/stability waits, derived diagnosis, session isolation | **Done (BPAR-3)** |
+| Bounded browser flight evidence | Redacted per-session JSONL, hard read/export/scan ceilings, rotation/pruning, confined current-user-only export, live route proof | **Done (BPAR-4 evidence slice)** |
 
 ## 2. Priority ranking
 
 ### P0 — Correctness / safety wiring
 
-1. **Complete BPAR-4 evidence/spec/declarative-test delivery** without creating a second fact store or authority root.
+1. **Complete BPAR-4 spec/declarative-test delivery** over the shipped recorder and live kernel without creating a second fact store or authority root.
 2. **Close execution path**: either implement VS handleBrowse via the shared manager, or keep the modular-tool + router guarantee explicit.
 3. Add bounded fact retention/GC so long-lived sessions do not retain event history forever.
 
@@ -68,7 +69,7 @@ The complete pinned uplift contract is [BROWSERNERD-PARITY.md](BROWSERNERD-PARIT
 
 ## 4. Risk if ignored
 
-- Observe/act/reason are bounded and live; audit/spec/declarative-test views remain absent, so delivery evidence is still incomplete.
+- Observe/act/reason/evidence are bounded and live; audit/spec/declarative-test views remain absent, so delivery evidence is still incomplete.
 - HoneypotDetector unused in tool path → clicks trap links.  
 - CLI remains a separate operator process; progressive tools need explicit multi-browser selection to avoid accidental process growth.
 - `browser_mangle` deliberately cannot submit rules or mutate facts; a future rule sandbox needs an explicit authority and resource contract.

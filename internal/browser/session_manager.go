@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -107,23 +108,59 @@ type Config struct {
 	ExtraSensitiveKeys    []string `json:"extra_sensitive_keys,omitempty"`
 	WorkspaceRoot         string   `json:"workspace_root,omitempty"`
 	WritableRoots         []string `json:"writable_roots,omitempty"`
+	EvidenceEnabled       *bool    `json:"evidence_enabled,omitempty"`
+	EvidenceDir           string   `json:"evidence_dir,omitempty"`
+	MaxEvidenceFiles      int      `json:"max_evidence_files,omitempty"`
+	MaxEvidenceFileBytes  int64    `json:"max_evidence_file_bytes,omitempty"`
 }
 
 // DefaultConfig returns sensible defaults.
 func DefaultConfig() Config {
 	sharedTabs := true
 	return Config{
-		Headless:            false,
-		ViewportWidth:       1920,
-		ViewportHeight:      1080,
-		NavigationTimeoutMs: 30000,
-		EventLoggingLevel:   "normal",
-		EnableDOMIngestion:  true,
-		EventThrottleMs:     100,
-		MultiTabDefault:     &sharedTabs,
-		MaxTabs:             32,
-		MaxBrowsers:         4,
+		Headless:             false,
+		ViewportWidth:        1920,
+		ViewportHeight:       1080,
+		NavigationTimeoutMs:  30000,
+		EventLoggingLevel:    "normal",
+		EnableDOMIngestion:   true,
+		EventThrottleMs:      100,
+		MultiTabDefault:      &sharedTabs,
+		MaxTabs:              32,
+		MaxBrowsers:          4,
+		EvidenceEnabled:      boolPointer(true),
+		MaxEvidenceFiles:     16,
+		MaxEvidenceFileBytes: 4 << 20,
 	}
+}
+
+func boolPointer(value bool) *bool { return &value }
+
+// IsEvidenceEnabled reports whether the bounded flight recorder is enabled.
+func (c Config) IsEvidenceEnabled() bool {
+	return c.EvidenceEnabled == nil || *c.EvidenceEnabled
+}
+
+// GetMaxEvidenceFiles returns the global rotated trace-file ceiling.
+func (c Config) GetMaxEvidenceFiles() int {
+	if c.MaxEvidenceFiles <= 0 {
+		return 16
+	}
+	if c.MaxEvidenceFiles > 256 {
+		return 256
+	}
+	return c.MaxEvidenceFiles
+}
+
+// GetMaxEvidenceFileBytes returns the per-trace rotation threshold.
+func (c Config) GetMaxEvidenceFileBytes() int64 {
+	if c.MaxEvidenceFileBytes <= 0 {
+		return 4 << 20
+	}
+	if c.MaxEvidenceFileBytes > 64<<20 {
+		return 64 << 20
+	}
+	return c.MaxEvidenceFileBytes
 }
 
 // IsHeadless returns the headless setting.
@@ -212,6 +249,7 @@ type SessionManager struct {
 	reaperCancel context.CancelFunc
 	redactor     *browsersecurity.Redactor
 	pathPolicy   *browsersecurity.PathPolicy
+	recorder     *FlightRecorder
 	pendingTabs  int
 }
 
@@ -234,7 +272,7 @@ func newSessionManager(cfg Config, sink EngineSink) *SessionManager {
 	if err != nil {
 		logging.BrowserWarn("Browser output path policy unavailable: %v", err)
 	}
-	return &SessionManager{
+	manager := &SessionManager{
 		cfg:        cfg,
 		engine:     sink,
 		sessions:   make(map[string]*sessionRecord),
@@ -242,6 +280,15 @@ func newSessionManager(cfg Config, sink EngineSink) *SessionManager {
 		redactor:   browsersecurity.NewRedactor(cfg.ExtraSensitiveKeys),
 		pathPolicy: policy,
 	}
+	if cfg.IsEvidenceEnabled() && strings.TrimSpace(cfg.WorkspaceRoot) != "" && policy != nil {
+		recorder, recorderErr := NewFlightRecorder(cfg, policy, manager.redactor)
+		if recorderErr != nil {
+			logging.BrowserWarn("Browser flight recorder unavailable: %v", recorderErr)
+		} else {
+			manager.recorder = recorder
+		}
+	}
+	return manager
 }
 
 // ResolveOutputPath confines a browser artifact to configured writable roots.

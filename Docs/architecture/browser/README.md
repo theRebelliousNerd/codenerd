@@ -4,7 +4,7 @@
 > Status: Living Reference Document — code-grounded full corpus  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/browser/`  
-> Scale: **10** non-test Go files ≈ **4,400** lines; **12** package test files; **0** package-local `.mg`
+> Scale: **13** checked-in non-test Go files ≈ **5,160** lines (**12** per platform); **13** package test files; **0** package-local `.mg`
 > Companion Mangle: `internal/core/defaults/schemas_browser.mg`, `policy/browser.mg`, `policy/browser_honeypot.mg`
 
 ## Scope
@@ -66,14 +66,16 @@ go test -tags=integration ./internal/tools/research/ -run TestBrowserReasoningTo
 Native lifecycle/security settings live in `.nerd/config.json` under
 `browser` (not `integrations.servers.browser`), including
 `multi_tab_default`, `max_tabs`, `max_browsers`, `idle_tab_timeout_ms`,
-`extra_sensitive_keys`, and `writable_roots`.
+`extra_sensitive_keys`, `writable_roots`, `evidence_enabled`, `evidence_dir`,
+`max_evidence_files`, and `max_evidence_file_bytes`.
 
 Agent-facing progressive behavior is native and JIT-selected:
 `browser_observe` returns bounded slices and opaque generation-bound refs;
 `browser_act` consumes those refs through a closed, stop-on-error operation list.
 `browser_act.started_ms` is the freshness watermark for `browser_wait`, while
 `browser_reason` and read-only `browser_mangle` consume session-scoped evidence
-from the same Cortex kernel that receives browser facts.
+from the same Cortex kernel that receives browser facts. `browser_evidence`
+reads or explicitly exports bounded redacted per-session JSONL provenance.
 
 ### Manual CLI smoke (optional)
 

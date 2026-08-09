@@ -16,6 +16,11 @@
 - Console, network, toast, DOM-update, click/input, and state-change events are
   session-scoped at argument zero. Preserve timestamp positions declared in
   `schemas_browser.mg`; waits and current-route diagnosis depend on them.
+- Flight evidence is recorded only after fact redaction, under the configured
+  writable-root policy, with a current-user-only ACL and hard file/size/read
+  ceilings. Request lifecycle evidence must remain paired.
+- Explicit evidence exports create new files only; never overwrite an existing
+  path selected by the model.
 - Progressive observations must be token-bounded and issue only opaque,
   session-scoped refs. Navigation invalidates the ref generation; actions must
   re-identify through the private fingerprint registry and fail closed when a
