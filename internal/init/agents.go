@@ -216,7 +216,8 @@ type KnowledgeBaseStats struct {
 	SkippedAtoms  int
 	TotalAtoms    int
 
-	// Quality metrics from research
+	// Legacy names retained for registry compatibility. These are atom-count
+	// population metrics, not semantic quality measurements.
 	QualityScore  float64
 	QualityRating string
 }
@@ -628,7 +629,7 @@ func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, age
 			fmt.Printf("     + %s upgraded (added %d new, skipped %d existing, total %d atoms)\n",
 				agent.Name, stats.NewAtoms, stats.SkippedAtoms, stats.TotalAtoms)
 		} else if stats.QualityScore > 0 {
-			fmt.Printf("     + %s ready (%d atoms, Quality: %.0f%% - %s)\n",
+			fmt.Printf("     + %s ready (%d atoms, KB population: %.0f%% - %s)\n",
 				agent.Name, totalKBSize, stats.QualityScore, stats.QualityRating)
 		} else {
 			fmt.Printf("     + %s ready (%d knowledge atoms)\n", agent.Name, totalKBSize)

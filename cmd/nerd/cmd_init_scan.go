@@ -134,6 +134,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Warning: worker LLM init failed: %v (init uses the main client)\n", werr)
 	} else if worker != nil {
 		config.LLMClient = core.NewScheduledLLMCall("init", worker)
+		if appCfg != nil && appCfg.Worker != nil {
+			config.LLMProvider = appCfg.Worker.Provider
+			config.LLMModel = appCfg.Worker.Model
+		}
 	}
 	if config.LLMClient == nil {
 		if llmClient, err := newConfiguredLLMClient(appCfg, "init"); err != nil {
@@ -141,6 +145,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 			fmt.Fprintln(os.Stderr, "         Knowledge-base and documentation phases will be skipped.")
 		} else {
 			config.LLMClient = llmClient
+			if appCfg != nil {
+				config.LLMProvider = appCfg.Provider
+				if appCfg.Engine != "" && !strings.EqualFold(appCfg.Engine, "api") {
+					config.LLMProvider = appCfg.Engine
+				}
+				config.LLMModel = appCfg.Model
+			}
 		}
 	}
 

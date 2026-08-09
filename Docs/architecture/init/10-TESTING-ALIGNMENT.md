@@ -1,6 +1,6 @@
 # init — Testing Alignment
 
-> Last verified: 2026-07-13
+> Last verified: 2026-08-09
 
 ## Commands
 
@@ -28,6 +28,7 @@ go test ./cmd/nerd/... -count=1
 | `agents_knowledge_helpers_test.go` | Atom hash set, research parse, base atoms, doc hash |
 | `interactive_display_test.go` | Display + DefaultInteractiveConfig |
 | `typeu_coverage_test.go` | Type U parse/validate + directory structure |
+| `initializer_truth_test.go` | Overlay preservation, timeout, corrupt config, LLM metrics/race, success truth, phase numbering |
 
 ## What is well covered
 
@@ -37,6 +38,8 @@ go test ./cmd/nerd/... -count=1
 - ETA tracker phase accounting.
 - Type U validation edge cases.
 - Backup find/cleanup dry-run and delete.
+- Force-init `.gitignore`/Mangle overlay preservation and concurrent LLM outcome accounting.
+- Workspace-rooted kernel dependencies and required-failure success semantics.
 
 ## Gaps
 

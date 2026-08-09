@@ -1,6 +1,6 @@
 # init — Failure Modes
 
-> Last verified: 2026-07-13
+> Last verified: 2026-08-09
 
 ## Hard failures (abort Initialize)
 
@@ -8,25 +8,29 @@
 |------|-------|--------------|------------|
 | Directory create fails | Permissions / full disk | Error return | Fix FS permissions; free space |
 | Embedding engine init fails | Bad config / Ollama down / missing keys | Error after knowledge.db create | Fix `.nerd/config.json` embedding section; start Ollama; set GenAI key |
-| NewInitializer kernel fails | Core kernel construction error | Immediate error | Investigate `core.NewRealKernel` |
+| Mangle overlay creation fails | Permissions / full disk | Error; existing overlay content remains untouched | Fix filesystem and retry |
+| NewInitializer kernel fails | Core kernel construction error | Immediate error | Investigate `core.NewRealKernelWithWorkspace` |
 | Context cancelled | Timeout / Ctrl+C | “Initialization cancelled” / ctx error | Raise timeout; re-run `--force` |
+
+## Required failures (continue to collect, then `Success=false`)
+
+| Mode | Cause | Effect |
+|------|-------|--------|
+| System shards or migration fail | Runtime/store issue | Failure recorded; later independent phases may still run |
+| Scan or LoadFacts fails | FS/kernel issue | Failure recorded; profile may be incomplete |
+| Profile/facts/prompt stores fail | I/O or DB | Failure recorded |
+| Preferences/session/tools/registry/prompt sync fail | I/O or DB | Failure recorded |
+| Structural validation fails, is invalid, or finds zero shard DBs | Corrupt/incomplete KB output | Failure recorded; `Success=false` |
 
 ## Soft failures (warnings, continue)
 
 | Mode | Cause | Effect |
 |------|-------|--------|
-| System shards fail to start | Shard manager issue | Warning; detection continues |
-| Migration check fails | Corrupt agent DBs | Warning |
-| Scan fails | FS / scanner error | Warning; profile may lack file counts |
-| LoadFacts fails | Kernel fact error | Warning |
-| Profile/prefs/session write fails | I/O | Warning; may leave uninitialized marker missing if profile fails |
 | Shared KB issues | Store errors | Warning; agents may miss inheritance |
 | Agent KB create fails | Per-agent | Agent status failed; others continue |
-| Strategic knowledge fails | No LLM / bad JSON | Warning |
+| Strategic knowledge / LLM call fails | Provider, timeout, bad JSON | Warning plus aggregate provider/model failure counts |
 | Core/campaign KB fails | Store | Warning |
 | Tool generation | Stub always “empty” | Message, not failure |
-| Prompt sync fails | YAML/DB | Warning |
-| Validation invalid DBs | Missing tables/low atoms | Printed issues; Success may still true |
 
 ## Detection failure modes
 
@@ -42,8 +46,8 @@
 | Mode | Effect |
 |------|--------|
 | No Context7 key | Research thin; base atoms only |
-| Context7 fetch short/empty | Fewer atoms; quality score drops |
-| SkipResearch true | Explicit basic quality; recommendation to re-run force |
+| Context7 fetch short/empty | Fewer atoms; population score drops |
+| SkipResearch true | Explicit basic population; recommendation to re-run force |
 
 ## Concurrency failure modes
 
@@ -71,7 +75,7 @@ nerd init --cleanup-backups
 
 ## Dangerous misconceptions
 
-1. **`Success: true` means perfect KBs** — validation may still report invalid/low-atom DBs.
+1. **`Success: true` means semantic quality** — it means required artifacts completed; structural validation and enrichment metrics are separate.
 2. **`IsInitialized` means agents ready** — only profile.json; agents may be skipped via SkipAgentCreate.
 3. **scan == init** — scan does not rebuild agent knowledge.
 4. **Tool definitions == runnable tools** — static JSON catalog; Ouroboros generation stubbed.

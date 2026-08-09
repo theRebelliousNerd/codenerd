@@ -890,7 +890,7 @@ tools/.traces/
 # tools/*.go
 # agents/
 `
-	if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
+	if err := writeFileIfAbsent(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
 		return "", fmt.Errorf("failed to create .gitignore: %w", err)
 	}
 

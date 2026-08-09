@@ -1,6 +1,6 @@
 # init — Safety and Invariants
 
-> Last verified: 2026-07-13
+> Last verified: 2026-08-09
 
 ## Scope of safety
 
@@ -24,6 +24,10 @@ Scan facts enter the kernel via `LoadFacts`, not per-file `Assert` loops (perfor
 
 Agent KB upgrade uses content-hash sets (`buildAtomHashSet` / `appendKnowledgeAtom`) so re-init does not infinitely duplicate identical atoms.
 
+User Mangle overlays are stronger than best-effort: `extensions.mg` and
+`policy_overrides.mg` use atomic create-if-absent and are never replaced by
+force init. The same rule protects the user-customizable `.nerd/.gitignore`.
+
 ### I5 — Shared-before-specialist
 
 Shared pool creation precedes Type-3 KB creation in the happy path so inheritance is meaningful.
@@ -34,7 +38,9 @@ Progress channel sends use `select`/`default`; a stuck UI consumer cannot deadlo
 
 ### I7 — Context cancellation
 
-Long research uses derived timeouts (`WithTimeout`) and parent `ctx` from CLI timeout / SIGINT.
+`Initialize` applies `InitConfig.Timeout` to every caller, preserves a shorter
+parent deadline, and checks cancellation between phases. Long research also
+derives child timeouts from that bounded context.
 
 ### I8 — Mangle constant safety
 
@@ -42,7 +48,9 @@ Generated name constants pass `sanitizeForMangle`; string args escaped in `gener
 
 ### I9 — Validation observability
 
-Successful init runs `ValidateAllAgentDBs` and reports invalid DBs; does not silently claim perfect KBs when tables missing.
+Successful init runs `ValidateAllAgentDBs` and labels that result structural.
+Required artifact failures make `Success=false`; optional LLM failures are
+counted separately and visibly degrade the summary.
 
 ### I10 — Embedding requirement honesty
 
@@ -52,7 +60,7 @@ If sqlite-vec path requires embeddings, failure to create embedding engine is a 
 
 | Resource | Guard |
 |----------|--------|
-| `createdAgents` / grounding sources | `Initializer.mu` |
+| Grounding sources / LLM call metrics | `Initializer.mu` |
 | ETA maps | `ETATracker.mu` |
 | Parallel agent KBs | Separate DB paths per agent; worker pool results channel |
 | ProgressChan | Non-blocking send |

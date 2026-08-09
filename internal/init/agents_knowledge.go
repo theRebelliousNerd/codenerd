@@ -129,21 +129,21 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 			}
 		}
 
-		// Calculate quality based on atoms found
+		// Calculate the legacy population proxy from newly added atom count.
 		if stats.NewAtoms > 10 {
 			stats.QualityScore = 80.0
-			stats.QualityRating = "Good"
+			stats.QualityRating = "Well populated"
 		} else if stats.NewAtoms > 5 {
 			stats.QualityScore = 65.0
-			stats.QualityRating = "Moderate"
+			stats.QualityRating = "Moderately populated"
 		} else {
 			stats.QualityScore = 50.0
-			stats.QualityRating = "Basic"
+			stats.QualityRating = "Basic population"
 		}
 	} else if i.config.SkipResearch {
 		fmt.Printf("     Skipping research for %s (--skip-research)\n", agent.Name)
 		stats.QualityScore = 50.0
-		stats.QualityRating = "Basic"
+		stats.QualityRating = "Basic population"
 	}
 
 	// Calculate total atoms

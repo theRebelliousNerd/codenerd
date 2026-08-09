@@ -1,6 +1,6 @@
 # init — TODO
 
-> Last verified: 2026-07-13  
+> Last verified: 2026-08-09
 > Docs-only backlog; no code claims of completion.
 
 ## P0
@@ -18,7 +18,7 @@
 ## P2
 
 - [ ] Improve framework detection (populate `ProjectProfile.Framework` from deps).
-- [ ] Replace naive KB quality scores or label them “heuristic”.
+- [x] Label legacy KB quality fields in operator UX as atom-count population proxies (semantic replacement remains optional future work).
 - [ ] Monorepo multi-root profiles (beyond 2-level globs).
 - [ ] Hermetic tests for strategic knowledge JSON parsing with fake LLM.
 

@@ -39,6 +39,13 @@ func TestNewInitializer(t *testing.T) {
 	if init == nil {
 		t.Fatal("Expected non-nil initializer")
 	}
+	wantWorkspace, err := filepath.Abs(tmpDir)
+	if err != nil {
+		t.Fatalf("filepath.Abs() error = %v", err)
+	}
+	if got := init.kernel.GetWorkspace(); got != wantWorkspace {
+		t.Fatalf("initializer kernel workspace = %q, want %q", got, wantWorkspace)
+	}
 	defer init.Close()
 }
 

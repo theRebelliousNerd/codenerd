@@ -1,6 +1,6 @@
 # init — Observability
 
-> Last verified: 2026-07-13
+> Last verified: 2026-08-09
 
 ## Logging categories
 
@@ -21,7 +21,8 @@ Init is **chatty on stdout** by design:
 
 - Phase banners (`📊 Phase 2`, `🤖 Phase 6`, …)
 - Per-agent research lines
-- Final framed summary (project stats, agents, duration, warnings)
+- Final framed summary (project stats, required failures, warnings, duration)
+- LLM enrichment attempts/successes/failures with provider/model and bounded last error
 - Recommendations (max 4)
 - Validation section + backup cleanup hint
 - Next-step slash commands
@@ -48,9 +49,11 @@ Consumers (TUI) can attach a buffered channel. CLI `runInit` currently often lea
 
 `DefaultPhaseDurations` seeds expected seconds per phase; actuals overwrite on `CompletePhase`. Remaining estimate sums remaining phase map entries.
 
-## Metrics (absent)
+## Metrics
 
-No Prometheus/OTel counters in package. Observability is logs + stdout + optional progress channel.
+`InitResult.LLMMetrics` is machine-readable per-run telemetry. It distinguishes
+provider failures from atom-count population and drives the degraded summary.
+The package still has no Prometheus/OTel exporter.
 
 ## Debug artifacts
 
@@ -58,6 +61,9 @@ No Prometheus/OTel counters in package. Observability is logs + stdout + optiona
 |----------|---------|
 | `debug_program_ERROR.mg` in package dir | Kernel crash dump residue (repo hygiene issue if committed) |
 | `InitResult.Warnings` | Machine-usable list of soft failures |
+| `InitResult.Failures` | Machine-usable required failures; non-empty means `Success=false` |
+| `InitResult.LLMMetrics` | Provider/model and enrichment outcome counts |
+| `InitResult.Validation` | Per-shard structural results used before `Success` is derived |
 | `InitResult.GroundingSources` | Gemini URL sources when enabled |
 | `doc_ingestion_state.json` | Resume state for doc campaign |
 

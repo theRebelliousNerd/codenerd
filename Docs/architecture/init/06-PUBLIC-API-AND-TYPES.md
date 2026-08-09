@@ -1,6 +1,6 @@
 # init — Public API and Types
 
-> Last verified: 2026-07-13  
+> Last verified: 2026-08-09
 > Package import path: `codenerd/internal/init`
 
 ## Construction / lifecycle
@@ -16,15 +16,16 @@
 
 | Type | File | Fields of note |
 |------|------|----------------|
-| `InitConfig` | `initializer.go` | Workspace, LLMClient, ShardManager, Interactive, Timeout, SkipResearch, SkipAgentCreate, PreferenceHints, ProgressChan, Context7APIKey |
+| `InitConfig` | `initializer.go` | Workspace, LLMClient, LLMProvider/Model labels, ShardManager, Interactive, Timeout, skip flags, progress, Context7 key |
 | `InitProgress` | `initializer.go` | Phase, Message, Percent, AgentUpdate, ETA fields |
 | `AgentCreationUpdate` | `initializer.go` | Per-agent status/quality |
-| `InitResult` | `initializer.go` | Success, Profile, Preferences, FilesCreated, FactsGenerated, agents, grounding |
+| `InitResult` | `initializer.go` | Success, Failures, Warnings, LLMMetrics, Validation, Profile, files, agents, grounding |
+| `InitLLMMetrics` | `initializer.go` | Provider/model, attempts, succeeded, failed, bounded last error |
 | `ProjectProfile` | `initializer.go` | Identity + language + deps + paths + stats |
 | `DependencyInfo` | `initializer.go` | Name, Version, MajorVersion, Type |
 | `UserPreferences` | `initializer.go` | Style + safety + communication prefs |
 | `RecommendedAgent` | `initializer.go` | Name, Type, Topics, Permissions, Tools… |
-| `CreatedAgent` | `initializer.go` | KnowledgePath, KBSize, Status, Quality* |
+| `CreatedAgent` | `initializer.go` | KnowledgePath, KBSize, Status, legacy Quality* population proxy fields |
 | `SessionState` | `initializer.go` | SessionID, turns, suspension, goals |
 | `ChatMessage` / `SessionHistory` | `initializer.go` | Conversation persistence |
 

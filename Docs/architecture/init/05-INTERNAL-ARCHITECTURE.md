@@ -1,6 +1,6 @@
 # init — Internal Architecture
 
-> Last verified: 2026-07-13
+> Last verified: 2026-08-09
 
 ## Component map
 
@@ -86,10 +86,10 @@ flowchart TD
 | Type | Responsibility |
 |------|----------------|
 | `Initializer` | Holds deps; runs phases |
-| `InitConfig` | Workspace, LLM, timeouts, skip flags, progress chan, Context7 key |
+| `InitConfig` | Workspace, LLM + provider/model labels, timeout, skip flags, progress, Context7 key |
 | `ProjectProfile` | Durable project identity |
 | `RecommendedAgent` / `CreatedAgent` | Desired vs materialised specialists |
-| `InitResult` | Success, files, warnings, agents, grounding |
+| `InitResult` | Success, required failures, warnings, LLM metrics, files, agents, grounding |
 | `InitProgress` / `ETATracker` | UX progress |
 | `StrategicKnowledge` | LLM-derived architecture soul |
 | `DocumentInfo` / `DocIngestionState` | Doc campaign tracking |
@@ -145,7 +145,7 @@ Doc processing can assert `doc_ingestion` facts on the init kernel and persist `
 ## Concurrency
 
 - `createAgentsParallel` uses worker pool + result aggregation.
-- `Initializer.mu` protects `createdAgents` / grounding sources.
+- `Initializer.mu` protects grounding sources and LLM outcome metrics.
 - `ETATracker` uses `sync.RWMutex`.
 - Progress sends are non-blocking.
 

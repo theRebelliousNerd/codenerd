@@ -72,6 +72,9 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 		// Run the comprehensive initialization
 		result, err := initializer.Initialize(ctx)
 		close(progressCh) // Stop progress forwarder
+		if closeErr := initializer.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close initializer: %w", closeErr)
+		}
 
 		if err != nil {
 			return errorMsg(fmt.Errorf("initialization failed: %w", err))

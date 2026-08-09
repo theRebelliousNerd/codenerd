@@ -1,6 +1,6 @@
 # init — Wiring and Integration
 
-> Last verified: 2026-07-13
+> Last verified: 2026-08-09
 
 ## CLI wiring (`cmd/nerd/cmd_init_scan.go`)
 
@@ -13,9 +13,11 @@ runInit
   if --cleanup-backups → CleanupBackups; return
   if IsInitialized && !force → message; return
   DefaultInitConfig(cwd)
-  optional perception.NewZAIClient → core.NewScheduledLLMCall("init", …)
+  load workspace UserConfig
+  worker client → configured main client fallback → core.NewScheduledLLMCall
+  pass provider/model labels for machine-readable enrichment metrics
   Context7 from CONTEXT7_API_KEY or config.json
-  NewInitializer → Initialize → Close
+  NewInitializer → Initialize-owned timeout → Success/failure check → Close
 ```
 
 Flags relevant (defined on root/init command tree elsewhere in `cmd/nerd`): `force`, `cleanup-backups`, `api-key`, `timeout`, `workspace`.
@@ -48,7 +50,7 @@ Chat boot is **not** `Initializer.Initialize`. Boot assumes artifacts already ex
 
 ```
 NewInitializer
-  core.NewRealKernel + SetWorkspace
+  resolve workspace → core.NewRealKernelWithWorkspace
   coreshards.NewShardManager (or injected)
   optional SetLLMClient + GroundingHelper
 

@@ -35,9 +35,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
+)
+
+var (
+	initSecretKVPattern = regexp.MustCompile(`(?i)((?:"?(?:api[_-]?key|secret|token|password)"?\s*[:=]\s*"?|bearer\s+))([^"\s,&]+)`)
+	initSecretPattern   = regexp.MustCompile(`(AIza[0-9A-Za-z_-]{10,}|sk-[A-Za-z0-9]{10,}|ctx7sk-[0-9a-f-]{8,}|gh[pousr]_[A-Za-z0-9]{10,}|xox[baprs]-[A-Za-z0-9-]{10,})`)
 )
 
 // InitProgress represents a progress update during initialization.
@@ -61,7 +67,7 @@ type AgentCreationUpdate struct {
 	KBSize        int     // Knowledge base size (facts/atoms)
 	AtomCount     int     // E1: Current atom count during research
 	TopicProgress string  // E1: Current topic being researched
-	QualityScore  float64 // E1: Research quality score (0-100)
+	QualityScore  float64 // E1: Atom-count population proxy (0-100), not semantic quality
 }
 
 // RecommendedAgent represents an agent recommended by the Researcher.
@@ -81,6 +87,8 @@ type RecommendedAgent struct {
 type InitConfig struct {
 	Workspace       string
 	LLMClient       perception.LLMClient
+	LLMProvider     string                   // Human-readable provider used in summaries
+	LLMModel        string                   // Human-readable model used in summaries
 	ShardManager    *coreshards.ShardManager // Shard manager for agent spawning
 	Interactive     bool                     // Whether to prompt user for preferences
 	Timeout         time.Duration            // Maximum time for initialization
@@ -167,14 +175,17 @@ type UserPreferences struct {
 
 // InitResult represents the result of initialization.
 type InitResult struct {
-	Success        bool            `json:"success"`
-	Profile        ProjectProfile  `json:"profile"`
-	Preferences    UserPreferences `json:"preferences"`
-	NerdDir        string          `json:"nerd_dir"`
-	FilesCreated   []string        `json:"files_created"`
-	FactsGenerated int             `json:"facts_generated"`
-	Duration       time.Duration   `json:"duration"`
-	Warnings       []string        `json:"warnings,omitzero"`
+	Success        bool               `json:"success"`
+	Profile        ProjectProfile     `json:"profile"`
+	Preferences    UserPreferences    `json:"preferences"`
+	NerdDir        string             `json:"nerd_dir"`
+	FilesCreated   []string           `json:"files_created"`
+	FactsGenerated int                `json:"facts_generated"`
+	Duration       time.Duration      `json:"duration"`
+	Warnings       []string           `json:"warnings,omitzero"`
+	Failures       []string           `json:"failures,omitzero"`
+	LLMMetrics     InitLLMMetrics     `json:"llm_metrics"`
+	Validation     *ValidationSummary `json:"validation,omitempty"`
 
 	// Type 3 Agent Creation Results
 	RecommendedAgents []RecommendedAgent `json:"recommended_agents,omitzero"`
@@ -184,6 +195,18 @@ type InitResult struct {
 	// Gemini Grounding (when Gemini is the LLM provider)
 	GroundingSources []string `json:"grounding_sources,omitzero"` // URLs used to ground LLM responses
 	GroundingEnabled bool     `json:"grounding_enabled,omitzero"` // Whether grounding was active
+}
+
+// InitLLMMetrics reports the enrichment calls made during initialization.
+// LLM failures degrade enrichment but do not make structurally valid init
+// artifacts unusable, so they are reported separately from required failures.
+type InitLLMMetrics struct {
+	Provider  string `json:"provider,omitzero"`
+	Model     string `json:"model,omitzero"`
+	Attempts  int    `json:"attempts"`
+	Succeeded int    `json:"succeeded"`
+	Failed    int    `json:"failed"`
+	LastError string `json:"last_error,omitzero"`
 }
 
 // CreatedAgent represents a Type 3 agent that was created during init.
@@ -197,9 +220,10 @@ type CreatedAgent struct {
 	Tools           []string          `json:"tools,omitzero"`
 	ToolPreferences map[string]string `json:"tool_preferences,omitzero"`
 
-	// Quality metrics (populated during research)
-	QualityScore  float64 `json:"quality_score,omitzero"`  // 0-100 quality score
-	QualityRating string  `json:"quality_rating,omitzero"` // "Excellent", "Good", "Adequate", "Needs improvement"
+	// Legacy JSON field names retained for compatibility. Values measure KB
+	// population by atom count; they do not measure semantic quality.
+	QualityScore  float64 `json:"quality_score,omitzero"`
+	QualityRating string  `json:"quality_rating,omitzero"`
 }
 
 // Initializer handles the cold-start initialization process.
@@ -217,8 +241,8 @@ type Initializer struct {
 	groundingSources []string // Accumulated grounding sources from all LLM calls
 
 	// Concurrency
-	mu            sync.RWMutex
-	createdAgents []CreatedAgent
+	mu         sync.RWMutex
+	llmMetrics InitLLMMetrics
 
 	// E2: ETA tracking
 	etaTracker *ETATracker
@@ -226,6 +250,19 @@ type Initializer struct {
 
 // NewInitializer creates a new initializer.
 func NewInitializer(initConfig InitConfig) (*Initializer, error) {
+	workspace := strings.TrimSpace(initConfig.Workspace)
+	if workspace == "" {
+		var err error
+		workspace, err = os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("resolve initializer workspace: %w", err)
+		}
+	}
+	if abs, err := filepath.Abs(workspace); err == nil {
+		workspace = abs
+	}
+	initConfig.Workspace = workspace
+
 	// Researcher shard removed - JIT clean loop handles research
 	// Auto-detect Context7 API key if not explicitly provided (C1 enhancement)
 	context7Key := initConfig.Context7APIKey
@@ -237,19 +274,31 @@ func NewInitializer(initConfig InitConfig) (*Initializer, error) {
 		}
 	}
 
-	kernel, err := core.NewRealKernel()
+	kernel, err := core.NewRealKernelWithWorkspace(initConfig.Workspace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kernel: %w", err)
 	}
-	kernel.SetWorkspace(initConfig.Workspace) // Ensure .nerd paths resolve correctly
+
+	metrics := InitLLMMetrics{
+		Provider: strings.TrimSpace(initConfig.LLMProvider),
+		Model:    strings.TrimSpace(initConfig.LLMModel),
+	}
+	if metrics.Model == "" && initConfig.LLMClient != nil {
+		if modelProvider, ok := initConfig.LLMClient.(interface{ GetModel() string }); ok {
+			metrics.Model = strings.TrimSpace(modelProvider.GetModel())
+		}
+	}
+	if metrics.Provider == "" && initConfig.LLMClient != nil {
+		metrics.Provider = fmt.Sprintf("%T", initConfig.LLMClient)
+	}
 
 	init := &Initializer{
-		config:        initConfig,
-		scanner:       world.NewScanner(),
-		kernel:        kernel,
-		createdAgents: make([]CreatedAgent, 0),
-		embedEngine:   nil,
-		etaTracker:    NewETATracker(22), // E2: 22 phases in total (see allPhases in Initialize)
+		config:      initConfig,
+		scanner:     world.NewScanner(),
+		kernel:      kernel,
+		embedEngine: nil,
+		llmMetrics:  metrics,
+		etaTracker:  NewETATracker(22), // E2: 22 phases in total (see allPhases in Initialize)
 	}
 
 	// Use provided shard manager or create new one
@@ -289,9 +338,20 @@ func (i *Initializer) ensureEmbeddingEngine() error {
 	}
 	// Prefer workspace config.json — that is the product rule of record.
 	cfgPath := filepath.Join(i.config.Workspace, ".nerd", "config.json")
-	uc, err := config.LoadUserConfig(cfgPath)
-	if err != nil || uc == nil {
-		uc, _ = config.GlobalConfig()
+	var uc *config.UserConfig
+	if _, err := os.Stat(cfgPath); err == nil {
+		uc, err = config.LoadUserConfig(cfgPath)
+		if err != nil {
+			return fmt.Errorf("load workspace embedding config: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect workspace embedding config: %w", err)
+	} else {
+		uc, err = config.GlobalConfig()
+		if err != nil {
+			logging.Boot("Global embedding config unavailable, using defaults: %v", err)
+			uc = nil
+		}
 	}
 	if uc == nil {
 		uc = config.DefaultUserConfig()
@@ -305,13 +365,20 @@ func (i *Initializer) ensureEmbeddingEngine() error {
 		GenAIModel:     ucEmb.GenAIModel,
 		TaskType:       ucEmb.TaskType,
 	}
-	logging.Boot("Init embedding engine from config.json: provider=%s model=%s", embCfg.Provider, embCfg.OllamaModel)
+	logging.Boot("Init embedding engine from config.json: provider=%s model=%s", embCfg.Provider, initEmbeddingModel(embCfg))
 	engine, err := embedding.NewEngine(embCfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize embedding engine (required for sqlite-vec): %w", err)
 	}
 	i.embedEngine = engine
 	return nil
+}
+
+func initEmbeddingModel(cfg embedding.Config) string {
+	if strings.EqualFold(cfg.Provider, "genai") {
+		return cfg.GenAIModel
+	}
+	return cfg.OllamaModel
 }
 
 // Initialize performs the full initialization process.
@@ -324,17 +391,28 @@ func (i *Initializer) ensureEmbeddingEngine() error {
 // 6. Auto-spawn Type 3 persistent agents
 // 7. Register agents with shard manager for dynamic calling
 
-// 4. Kick off Researcher shard to analyze what Type 3 agents are needed
-// 5. Create knowledge bases for each Type 3 agent
-// 6. Auto-spawn Type 3 persistent agents
-// 7. Register agents with shard manager for dynamic calling
 func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	startTime := time.Now()
+	ctx, cancel := initializationContext(ctx, i.config.Timeout)
+	defer cancel()
 	result := &InitResult{
 		FilesCreated:  make([]string, 0),
 		Warnings:      make([]string, 0),
 		AgentKBs:      make(map[string]int),
 		CreatedAgents: make([]CreatedAgent, 0),
+	}
+	checkContext := func(stage string) error {
+		if err := ctx.Err(); err != nil {
+			wrapped := fmt.Errorf("initialization stopped during %s: %w", stage, err)
+			result.Failures = append(result.Failures, wrapped.Error())
+			result.LLMMetrics = i.snapshotLLMMetrics()
+			result.Duration = time.Since(startTime)
+			return wrapped
+		}
+		return nil
+	}
+	if err := checkContext("startup"); err != nil {
+		return result, err
 	}
 
 	runner := newPhaseRunner(i)
@@ -345,73 +423,193 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 
 	// Ensure system shards are running before heavy lifting.
 	if err := i.shardMgr.StartSystemShards(ctx); err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to start system shards: %v", err))
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to start system shards: %v", err))
 	}
 	runner.complete("setup")
+	if err := checkContext("system shard startup"); err != nil {
+		return result, err
+	}
 
 	// Phase 0: Migrations
 	i.runPhase0Migrations(runner, result)
+	if err := checkContext("database migration"); err != nil {
+		return result, err
+	}
 
 	// Phase 1: Directory & DB Setup
 	nerdDir, err := i.runPhase1DirectorySetup(runner, result)
 	if err != nil {
-		return nil, err
+		result.Failures = append(result.Failures, err.Error())
+		result.Duration = time.Since(startTime)
+		return result, err
 	}
 	result.NerdDir = nerdDir
+	if err := checkContext("directory and database setup"); err != nil {
+		return result, err
+	}
 
 	// Phase 2: Codebase Scan
 	scanResult := i.runPhase2Scanning(ctx, runner, result)
+	if err := checkContext("codebase scan"); err != nil {
+		return result, err
+	}
 
 	// Phase 3: Analysis (STUBBED)
 	i.runPhase3Analysis(runner)
+	if err := checkContext("analysis framework setup"); err != nil {
+		return result, err
+	}
 
 	// Phase 4: Build Profile
 	profile := i.runPhase4Profile(runner, result, nerdDir, scanResult)
+	if err := checkContext("project profile creation"); err != nil {
+		return result, err
+	}
 
 	// Phase 5: Facts
 	i.runPhase5Facts(runner, result, nerdDir, profile)
+	if err := checkContext("fact generation"); err != nil {
+		return result, err
+	}
 
 	// Phase 5b: Prompt Atoms
 	i.runPhase5bPromptAtoms(runner, result, profile)
+	if err := checkContext("prompt atom population"); err != nil {
+		return result, err
+	}
 
 	// Phase 5c: Prompt DB
 	i.runPhase5cPromptDB(ctx, runner, result, nerdDir)
+	if err := checkContext("prompt database initialization"); err != nil {
+		return result, err
+	}
 
 	// Phase 6: Analyze Agents
 	recommendedAgents := i.runPhase6AnalyzeAgents(runner, result, profile)
+	if err := checkContext("agent analysis"); err != nil {
+		return result, err
+	}
 
 	// Phase 7: Create Agent Knowledge Bases
 	i.runPhase7aCreateAgentKBs(ctx, runner, result, nerdDir, recommendedAgents)
+	if err := checkContext("agent knowledge creation"); err != nil {
+		return result, err
+	}
 
 	// Phase 7b: Create Codebase Knowledge Base
 	i.runPhase7bCreateCodebaseKB(ctx, runner, result, nerdDir, profile, scanResult)
+	if err := checkContext("codebase knowledge creation"); err != nil {
+		return result, err
+	}
 
 	// Phase 7c: Create Core Shard Knowledge Bases
 	i.runPhase7cCreateCoreShardKBs(ctx, runner, result, nerdDir, profile)
+	if err := checkContext("core shard knowledge creation"); err != nil {
+		return result, err
+	}
 
 	// Phase 7d: Create Campaign Knowledge Base
 	i.runPhase7dCreateCampaignKB(ctx, runner, result, nerdDir, profile)
+	if err := checkContext("campaign knowledge creation"); err != nil {
+		return result, err
+	}
 
 	// Phase 7e: Generate Project-Specific Tools
 	i.runPhase7eGenerateTools(ctx, runner, result, nerdDir, profile)
+	if err := checkContext("project tool generation"); err != nil {
+		return result, err
+	}
 
 	// Phase 8: Preferences
 	i.runPhase8Preferences(runner, result, nerdDir)
+	if err := checkContext("preference initialization"); err != nil {
+		return result, err
+	}
 
 	// Phase 9: Session State
 	i.runPhase9Session(runner, result, nerdDir)
+	if err := checkContext("session initialization"); err != nil {
+		return result, err
+	}
 
 	// Phase 10: Generate Tool Definitions
 	i.runPhase10Tools(runner, result, nerdDir, profile)
+	if err := checkContext("tool definition generation"); err != nil {
+		return result, err
+	}
 
 	// Phase 11: Agent Registry
 	i.runPhase11Registry(runner, result, nerdDir)
+	if err := checkContext("agent registry creation"); err != nil {
+		return result, err
+	}
 
 	// Phase 12: Prompt Sync
 	i.runPhase12PromptSync(ctx, runner, result, nerdDir)
+	if err := checkContext("prompt synchronization"); err != nil {
+		return result, err
+	}
 
 	// COMPLETE
 	return i.finalizeInitialization(runner, result, startTime, profile)
+}
+
+func initializationContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if timeout > 0 {
+		return context.WithTimeout(parent, timeout)
+	}
+	return context.WithCancel(parent)
+}
+
+func (i *Initializer) recordLLMCall(err error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	i.llmMetrics.Attempts++
+	if err == nil {
+		i.llmMetrics.Succeeded++
+		return
+	}
+	i.llmMetrics.Failed++
+	i.llmMetrics.LastError = boundedInitError(err, 240)
+}
+
+func (i *Initializer) snapshotLLMMetrics() InitLLMMetrics {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.llmMetrics
+}
+
+func boundedInitError(err error, maxRunes int) string {
+	if err == nil {
+		return ""
+	}
+	clean := strings.Join(strings.Fields(err.Error()), " ")
+	clean = initSecretKVPattern.ReplaceAllString(clean, "${1}[redacted]")
+	clean = initSecretPattern.ReplaceAllString(clean, "[redacted]")
+	runes := []rune(clean)
+	if maxRunes > 0 && len(runes) > maxRunes {
+		return string(runes[:maxRunes]) + "..."
+	}
+	return clean
+}
+
+func formatLLMIdentity(metrics InitLLMMetrics) string {
+	provider := strings.TrimSpace(metrics.Provider)
+	model := strings.TrimSpace(metrics.Model)
+	switch {
+	case provider != "" && model != "":
+		return provider + "/" + model
+	case provider != "":
+		return provider
+	case model != "":
+		return model
+	default:
+		return "provider/model unknown"
+	}
 }
 
 type phaseRunner struct {
@@ -435,7 +633,7 @@ func newPhaseRunner(i *Initializer) *phaseRunner {
 		i:               i,
 		allPhases:       allPhases,
 		remainingPhases: remainingPhases,
-		phaseNum:        0,
+		phaseNum:        1,
 	}
 }
 
@@ -461,7 +659,7 @@ func (i *Initializer) runPhase0Migrations(runner *phaseRunner, result *InitResul
 		runner.start("migration", "Checking database schemas...", 0.02)
 		migrationResults, migErr := store.MigrateAllAgentDBs(existingNerdDir)
 		if migErr != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("Migration check failed: %v", migErr))
+			result.Failures = append(result.Failures, fmt.Sprintf("Migration check failed: %v", migErr))
 		} else if len(migrationResults) > 0 {
 			for agentName, migResult := range migrationResults {
 				if migResult.MigrationsRun > 0 {
@@ -488,7 +686,7 @@ func (i *Initializer) runPhase1DirectorySetup(runner *phaseRunner, result *InitR
 	}
 
 	if err := i.createMangleTemplates(nerdDir); err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create mangle templates: %v", err))
+		return "", fmt.Errorf("create mangle templates: %w", err)
 	}
 
 	fmt.Println("✓ Created .nerd/ directory structure")
@@ -496,7 +694,7 @@ func (i *Initializer) runPhase1DirectorySetup(runner *phaseRunner, result *InitR
 	dbPath := filepath.Join(nerdDir, "knowledge.db")
 	i.localDB, err = store.NewLocalStore(dbPath)
 	if err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to initialize database: %v", err))
+		return "", fmt.Errorf("initialize knowledge database: %w", err)
 	} else {
 		if err := i.ensureEmbeddingEngine(); err != nil {
 			return "", err
@@ -508,7 +706,7 @@ func (i *Initializer) runPhase1DirectorySetup(runner *phaseRunner, result *InitR
 
 	northstarStore, err := northstar.NewStore(nerdDir)
 	if err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to initialize Northstar store: %v", err))
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to initialize Northstar store: %v", err))
 	} else {
 		northstarStore.Close()
 		northstarDBPath := filepath.Join(nerdDir, "northstar_knowledge.db")
@@ -526,7 +724,7 @@ func (i *Initializer) runPhase2Scanning(ctx context.Context, runner *phaseRunner
 
 	scanResult, err := i.scanner.ScanDirectory(ctx, i.config.Workspace)
 	if err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Codebase scan failed: %v", err))
+		result.Failures = append(result.Failures, fmt.Sprintf("Codebase scan failed: %v", err))
 		runner.complete("scanning")
 		return nil
 	}
@@ -536,7 +734,7 @@ func (i *Initializer) runPhase2Scanning(ctx context.Context, runner *phaseRunner
 	facts := scanResult.ToFacts()
 	if len(facts) > 0 {
 		if err := i.kernel.LoadFacts(facts); err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to load scan facts: %v", err))
+			result.Failures = append(result.Failures, fmt.Sprintf("Failed to load scan facts: %v", err))
 		}
 	}
 	runner.complete("scanning")
@@ -563,7 +761,7 @@ func (i *Initializer) runPhase4Profile(runner *phaseRunner, result *InitResult, 
 
 	profilePath := filepath.Join(nerdDir, "profile.json")
 	if err := i.saveProfile(profilePath, profile); err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to save profile: %v", err))
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to save profile: %v", err))
 	} else {
 		result.FilesCreated = append(result.FilesCreated, profilePath)
 		fmt.Println("✓ Saved project profile")
@@ -579,7 +777,7 @@ func (i *Initializer) runPhase5Facts(runner *phaseRunner, result *InitResult, ne
 	factsPath := filepath.Join(nerdDir, "profile.mg")
 	factsCount, err := i.generateFactsFile(factsPath, profile)
 	if err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to generate facts: %v", err))
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to generate facts: %v", err))
 	} else {
 		result.FilesCreated = append(result.FilesCreated, factsPath)
 		result.FactsGenerated = factsCount
@@ -593,7 +791,7 @@ func (i *Initializer) runPhase5bPromptAtoms(runner *phaseRunner, result *InitRes
 	fmt.Println("\n📝 Phase 5b: Populating Project-Specific Prompt Atoms")
 
 	if err := i.populateProjectAtoms(profile); err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to populate prompt atoms: %v", err))
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to populate prompt atoms: %v", err))
 	}
 	runner.complete("prompt_atoms")
 }
@@ -603,7 +801,7 @@ func (i *Initializer) runPhase5cPromptDB(ctx context.Context, runner *phaseRunne
 	fmt.Println("\n📦 Phase 5c: Initializing Prompt Corpus Database")
 
 	if err := i.initializePromptDatabase(ctx, nerdDir); err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to initialize prompt database: %v", err))
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to initialize prompt database: %v", err))
 	} else {
 		corpusDBPath := filepath.Join(nerdDir, "prompts", "corpus.db")
 		result.FilesCreated = append(result.FilesCreated, corpusDBPath)
@@ -647,7 +845,7 @@ func (i *Initializer) runPhase7aCreateAgentKBs(ctx context.Context, runner *phas
 	runner.complete("shared_kb")
 
 	runner.start("kb_creation", "Creating agent knowledge bases...", 0.55)
-	fmt.Println("\n📚 Phase 7b: Creating Agent Knowledge Bases")
+	fmt.Println("\n📚 Phase 7a.2: Creating Agent Knowledge Bases")
 
 	createdAgents, agentKBs := i.createType3Agents(ctx, nerdDir, recommendedAgents, result)
 	result.CreatedAgents = createdAgents
@@ -748,7 +946,7 @@ func (i *Initializer) runPhase8Preferences(runner *phaseRunner, result *InitResu
 
 	prefsPath := filepath.Join(nerdDir, "preferences.json")
 	if err := i.savePreferences(prefsPath, preferences); err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to save preferences: %v", err))
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to save preferences: %v", err))
 	} else {
 		result.FilesCreated = append(result.FilesCreated, prefsPath)
 		fmt.Println("✓ Initialized preferences")
@@ -761,7 +959,7 @@ func (i *Initializer) runPhase9Session(runner *phaseRunner, result *InitResult, 
 
 	sessionPath := filepath.Join(nerdDir, "session.json")
 	if err := i.initSessionState(sessionPath); err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to init session: %v", err))
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to init session: %v", err))
 	} else {
 		result.FilesCreated = append(result.FilesCreated, sessionPath)
 	}
@@ -779,7 +977,7 @@ func (i *Initializer) runPhase10Tools(runner *phaseRunner, result *InitResult, n
 
 	tools := GenerateToolsForProject(detectedTech)
 	if err := SaveToolsToFile(nerdDir, tools); err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to save tools: %v", err))
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to save tools: %v", err))
 	} else {
 		toolsFile := filepath.Join(nerdDir, "tools", "available_tools.json")
 		result.FilesCreated = append(result.FilesCreated, toolsFile)
@@ -801,7 +999,7 @@ func (i *Initializer) runPhase11Registry(runner *phaseRunner, result *InitResult
 
 	registryPath := filepath.Join(nerdDir, "agents.json")
 	if err := i.saveAgentRegistry(registryPath, result.CreatedAgents); err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to save agent registry: %v", err))
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to save agent registry: %v", err))
 	} else {
 		result.FilesCreated = append(result.FilesCreated, registryPath)
 	}
@@ -814,8 +1012,8 @@ func (i *Initializer) runPhase12PromptSync(ctx context.Context, runner *phaseRun
 
 	promptCount, syncErr := prompt.ReloadAllPrompts(ctx, nerdDir, i.embedEngine)
 	if syncErr != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to sync agent prompts: %v", syncErr))
-		fmt.Printf("   ⚠ Warning: %v\n", syncErr)
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to sync agent prompts: %v", syncErr))
+		fmt.Printf("   ✗ Required failure: %v\n", syncErr)
 	} else if promptCount > 0 {
 		fmt.Printf("   ✓ Synced %d prompt atoms to knowledge DBs\n", promptCount)
 		logging.Boot("Synced %d prompt atoms from YAML to knowledge DBs", promptCount)
@@ -826,7 +1024,18 @@ func (i *Initializer) runPhase12PromptSync(ctx context.Context, runner *phaseRun
 }
 
 func (i *Initializer) finalizeInitialization(runner *phaseRunner, result *InitResult, startTime time.Time, profile ProjectProfile) (*InitResult, error) {
-	result.Success = true
+	result.LLMMetrics = i.snapshotLLMMetrics()
+	if result.LLMMetrics.Failed > 0 {
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"LLM enrichment degraded: %d/%d calls failed (%s; last error: %s)",
+			result.LLMMetrics.Failed, result.LLMMetrics.Attempts,
+			formatLLMIdentity(result.LLMMetrics), result.LLMMetrics.LastError,
+		))
+	}
+	validation, validationErr := ValidateAllAgentDBs(result.NerdDir)
+	result.Validation = validation
+	recordValidationOutcome(result, validation, validationErr)
+	result.Success = initializationSucceeded(result)
 	result.Duration = time.Since(startTime)
 
 	if i.grounding != nil && i.grounding.IsGroundingAvailable() {
@@ -847,7 +1056,13 @@ func (i *Initializer) finalizeInitialization(runner *phaseRunner, result *InitRe
 		}
 	}
 
-	runner.start("complete", "Initialization complete!", 1.0)
+	completionMessage := "Initialization complete!"
+	if !result.Success {
+		completionMessage = "Initialization completed with required failures"
+	} else if result.LLMMetrics.Failed > 0 {
+		completionMessage = "Initialization complete with degraded LLM enrichment"
+	}
+	runner.start("complete", completionMessage, 1.0)
 	runner.complete("complete")
 
 	i.printSummary(result, profile)
@@ -855,6 +1070,29 @@ func (i *Initializer) finalizeInitialization(runner *phaseRunner, result *InitRe
 	return result, nil
 }
 
+func recordValidationOutcome(result *InitResult, summary *ValidationSummary, err error) {
+	if result == nil {
+		return
+	}
+	if err != nil {
+		result.Failures = append(result.Failures, fmt.Sprintf("Knowledge-base validation failed: %v", err))
+		return
+	}
+	if summary == nil {
+		result.Failures = append(result.Failures, "Knowledge-base validation returned no result")
+		return
+	}
+	if summary.TotalDBs == 0 {
+		result.Failures = append(result.Failures, "Knowledge-base validation found no shard databases")
+		return
+	}
+	if !summary.OverallValid {
+		result.Failures = append(result.Failures, fmt.Sprintf(
+			"Knowledge-base validation found %d/%d invalid shard databases",
+			summary.InvalidDBs, summary.TotalDBs,
+		))
+	}
+}
 
 // sendProgress sends a progress update if channel is configured.
 // E2: Now includes ETA tracking data when available.
@@ -938,8 +1176,8 @@ func (i *Initializer) createMangleTemplates(nerdDir string) error {
 # Decl project_metadata(Key, Value).
 # Decl deploy_target(Env, URL).
 `
-	if err := os.WriteFile(extPath, []byte(extContent), 0644); err != nil {
-		return err
+	if err := writeFileIfAbsent(extPath, []byte(extContent), 0644); err != nil {
+		return fmt.Errorf("create extensions template: %w", err)
 	}
 
 	// policy_overrides.mg - For custom rules
@@ -954,17 +1192,49 @@ func (i *Initializer) createMangleTemplates(nerdDir string) error {
 #     target_path(Action, Path),
 #     fn:string_suffix(Path, ".tmp").
 `
-	if err := os.WriteFile(policyPath, []byte(policyContent), 0644); err != nil {
-		return err
+	if err := writeFileIfAbsent(policyPath, []byte(policyContent), 0644); err != nil {
+		return fmt.Errorf("create policy overrides template: %w", err)
 	}
 
 	return nil
 }
 
-// printSummary prints the initialization summary with quality metrics.
+func initializationSucceeded(result *InitResult) bool {
+	return result != nil && len(result.Failures) == 0
+}
+
+// writeFileIfAbsent atomically creates a seed file without replacing user
+// content. O_EXCL closes the check-then-write race during concurrent init runs.
+func writeFileIfAbsent(path string, content []byte, mode os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil
+		}
+		return err
+	}
+	if _, err := f.Write(content); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
+}
+
+// printSummary prints structural results and separately labels enrichment.
 func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 	fmt.Println("\n" + strings.Repeat("═", 60))
-	fmt.Println("✅ INITIALIZATION COMPLETE")
+	if result.Success && result.LLMMetrics.Failed == 0 {
+		fmt.Println("✅ INITIALIZATION COMPLETE")
+	} else if result.Success {
+		fmt.Println("⚠️ INITIALIZATION COMPLETE (ENRICHMENT DEGRADED)")
+	} else {
+		fmt.Println("❌ INITIALIZATION INCOMPLETE")
+	}
 	fmt.Println(strings.Repeat("═", 60))
 
 	fmt.Printf("\n📁 Project: %s\n", profile.Name)
@@ -981,16 +1251,16 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 	if len(result.CreatedAgents) > 0 {
 		fmt.Printf("\n🤖 Type 3 Agents Created:\n")
 		for _, agent := range result.CreatedAgents {
-			// Display with quality metrics if available
+			// This score is an atom-count population proxy, not semantic quality.
 			if agent.QualityScore > 0 {
-				fmt.Printf("   • %s: %d atoms (Quality: %.0f%% - %s)\n",
+				fmt.Printf("   • %s: %d atoms (KB population score: %.0f%% - %s)\n",
 					agent.Name, agent.KBSize, agent.QualityScore, agent.QualityRating)
 			} else {
 				fmt.Printf("   • %s (%d KB atoms) - %s\n", agent.Name, agent.KBSize, agent.Status)
 			}
 		}
 
-		// Show average quality score
+		// Show average atom-count population score.
 		var totalQuality float64
 		var qualityCount int
 		for _, agent := range result.CreatedAgents {
@@ -1001,8 +1271,16 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 		}
 		if qualityCount > 0 {
 			avgQuality := totalQuality / float64(qualityCount)
-			fmt.Printf("\n   📊 Average KB Quality: %.0f%%\n", avgQuality)
+			fmt.Printf("\n   📊 Average KB Population Score: %.0f%% (atom-count proxy)\n", avgQuality)
 		}
+	}
+
+	if result.LLMMetrics.Attempts > 0 {
+		fmt.Printf("\n🤖 LLM Enrichment: %d/%d succeeded; %d failed (%s)\n",
+			result.LLMMetrics.Succeeded, result.LLMMetrics.Attempts,
+			result.LLMMetrics.Failed, formatLLMIdentity(result.LLMMetrics))
+	} else {
+		fmt.Println("\n🤖 LLM Enrichment: no calls attempted")
 	}
 
 	// Show generated tools
@@ -1020,6 +1298,12 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 			fmt.Printf("   - %s\n", w)
 		}
 	}
+	if len(result.Failures) > 0 {
+		fmt.Println("\n❌ Required initialization failures:")
+		for _, failure := range result.Failures {
+			fmt.Printf("   - %s\n", failure)
+		}
+	}
 
 	// Post-init recommendations based on project analysis
 	fmt.Println("\n" + strings.Repeat("─", 60))
@@ -1029,12 +1313,12 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 	// Run post-init validation
 	fmt.Println("\n" + strings.Repeat("─", 60))
 	fmt.Println("🔍 Validating knowledge bases...")
-	validationSummary, err := ValidateAllAgentDBs(result.NerdDir)
-	if err != nil {
-		fmt.Printf("   ⚠ Validation failed: %v\n", err)
+	validationSummary := result.Validation
+	if validationSummary == nil {
+		fmt.Println("   ✗ Structural validation did not return a result")
 	} else {
 		if validationSummary.OverallValid {
-			fmt.Printf("   ✓ All %d knowledge bases validated successfully\n", validationSummary.TotalDBs)
+			fmt.Printf("   ✓ All %d knowledge bases structurally validated\n", validationSummary.TotalDBs)
 		} else {
 			fmt.Printf("   ⚠ %d/%d knowledge bases have issues\n", validationSummary.InvalidDBs, validationSummary.TotalDBs)
 			for name, res := range validationSummary.Results {
@@ -1053,11 +1337,17 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 	}
 
 	fmt.Println("\n" + strings.Repeat("─", 60))
-	fmt.Println("🚀 Next steps:")
-	fmt.Println("   • Run `nerd chat` to start interactive session")
-	fmt.Println("   • Use `/northstar` to define your project vision")
-	fmt.Println("   • Use `/agents` to see available agents")
-	fmt.Println("   • Use `/spawn <agent> <task>` to delegate tasks")
+	if result.Success {
+		fmt.Println("🚀 Next steps:")
+		fmt.Println("   • Run `nerd chat` to start interactive session")
+		fmt.Println("   • Use `/northstar` to define your project vision")
+		fmt.Println("   • Use `/agents` to see available agents")
+		fmt.Println("   • Use `/spawn <agent> <task>` to delegate tasks")
+	} else {
+		fmt.Println("🛠️ Recovery:")
+		fmt.Println("   • Resolve the required failures above")
+		fmt.Println("   • Re-run `nerd init --force` before starting chat")
+	}
 	fmt.Println(strings.Repeat("─", 60))
 }
 
@@ -1065,11 +1355,11 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 func (i *Initializer) printRecommendations(result *InitResult, profile ProjectProfile) {
 	recommendations := []string{}
 
-	// Check for low quality KBs
+	// Check for sparsely populated KBs. The score is based on atom count.
 	for _, agent := range result.CreatedAgents {
 		if agent.QualityScore > 0 && agent.QualityScore < 50 {
 			recommendations = append(recommendations,
-				fmt.Sprintf("Run `/init --force` to improve %s KB quality (currently %.0f%%)", agent.Name, agent.QualityScore))
+				fmt.Sprintf("Run `/init --force` to improve %s KB population (currently %.0f%%)", agent.Name, agent.QualityScore))
 		}
 	}
 

@@ -259,7 +259,7 @@ func PrintValidationSummary(summary *ValidationSummary) {
 	// Print summary
 	fmt.Println(strings.Repeat("─", 60))
 	if summary.OverallValid {
-		fmt.Printf("✓ All %d databases validated successfully\n", summary.TotalDBs)
+		fmt.Printf("✓ All %d databases structurally validated\n", summary.TotalDBs)
 	} else {
 		fmt.Printf("✗ %d/%d databases have issues\n", summary.InvalidDBs, summary.TotalDBs)
 	}

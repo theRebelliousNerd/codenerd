@@ -1,6 +1,6 @@
 # init — Architecture Corpus (`internal/init`)
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-09
 > Status: Living Reference Document  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/init/`  
@@ -27,6 +27,12 @@ At runtime (after init):
 ```
 
 Init is the **substrate bootstrap**: logic executive and specialists need a workspace, profile facts, and KBs before OODA is useful.
+
+The completion contract is deliberately split: required artifact failures make
+`InitResult.Success` false, including failed or empty structural KB validation,
+while optional LLM enrichment failures are counted and reported as degraded.
+The legacy `QualityScore` JSON fields are presented as atom-count population
+proxies, not semantic quality.
 
 ## Document map
 

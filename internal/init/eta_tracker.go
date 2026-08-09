@@ -24,7 +24,7 @@ func DefaultPhaseDurations() map[string]time.Duration {
 		"migration":       3 * time.Second,
 		"directory":       5 * time.Second,
 		"scanning":        20 * time.Second,
-		"analysis":        75 * time.Second, // 60-90s average
+		"analysis":        1 * time.Second, // print-only JIT handoff phase
 		"profile":         5 * time.Second,
 		"facts":           10 * time.Second,
 		"prompt_atoms":    3 * time.Second,

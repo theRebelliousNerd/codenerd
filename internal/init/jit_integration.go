@@ -207,8 +207,12 @@ func (i *Initializer) withJITPrompt(ctx context.Context, phase, task string, pro
 		prompt = i.buildFallbackPrompt(phase, task)
 	}
 
-	// Call the handler with the assembled prompt
-	return handler(ctx, prompt)
+	// All init LLM calls pass this chokepoint, so record one outcome per actual
+	// provider attempt. Prompt compilation failures use the local fallback and
+	// are not provider attempts.
+	response, callErr := handler(ctx, prompt)
+	i.recordLLMCall(callErr)
+	return response, callErr
 }
 
 // BuildInitCompilationContext creates a CompilationContext for an init phase.

@@ -2,6 +2,7 @@
 
 | Date | Action |
 |------|--------|
+| 2026-08-09 | F-INIT-2 truth/safety packet: preserved user `.gitignore` and Mangle overlays, closed chat-owned initializer resources, enforced timeout/cancellation, rooted the kernel before load, added required failures and LLM provider/model outcome metrics, relabeled atom-count scores, and added regression/race coverage. |
 | 2026-07-13 | Full architecture corpus rebuilt from `internal/init/` source (docs only). Replaced thin auto-inventory stubs with cli-quality narrative set per `Docs/architecture/_rebuild/SUBAGENT_INSTRUCTIONS.md`. |
 
 ## Deliverables

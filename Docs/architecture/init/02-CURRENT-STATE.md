@@ -1,6 +1,6 @@
 # init — Current State
 
-> Last verified: 2026-07-13  
+> Last verified: 2026-08-09
 > Package: `internal/init/`
 
 ## Inventory summary
@@ -8,9 +8,9 @@
 | Kind | Count | Notes |
 |------|------:|-------|
 | Non-test `.go` | **16** | Core implementation |
-| Test `.go` | **7** | Unit + coverage suites |
+| Test `.go` | **8** | Unit + coverage suites, including initializer truth coverage |
 | `.mg` in package | **1** | `debug_program_ERROR.mg` — crash dump artifact, **not** product schema |
-| Package docs (`README.md` / `agents.md`) | **0** | Guidance lives in this corpus |
+| Package docs (`README.md` / `agents.md`) | **1** | `internal/init/agents.md` carries scoped implementation invariants |
 
 ### Non-test sources (approx line counts)
 
@@ -44,6 +44,7 @@
 | `agents_knowledge_helpers_test.go` | Atom hashing, research parse, base atoms |
 | `interactive_display_test.go` | Display helpers, defaults |
 | `typeu_coverage_test.go` | Type U flags + directory structure |
+| `initializer_truth_test.go` | Overlay preservation, timeout, config, enrichment metrics, result truth |
 
 ## What works today (behavioral)
 
@@ -59,6 +60,8 @@
 10. **Validation** of agent DBs (tables, schema version, hashes, min atoms).
 11. **Session persistence helpers** used heavily by chat (`SessionState`, history).
 12. **Static tool definitions** written to `.nerd/tools/available_tools.json`.
+13. **Machine-readable completion truth** via required failures and per-provider LLM outcome metrics.
+14. **Force-init overlay preservation** via atomic create-if-absent templates.
 
 ## What is intentionally partial
 
@@ -69,7 +72,7 @@
 | `generateProjectTools` | Stub: logs would-be tools, returns empty |
 | Interactive selection | Library complete; not always invoked from CLI `runInit` |
 | Type U agents | Parse/validate APIs; not clearly merged into default `runInit` |
-| Deep research quality | Heuristic scores (atom counts), not formal evaluation |
+| Deep research semantics | Legacy scores are labeled atom-count population proxies, not formal evaluation |
 
 ## Artifacts written under `.nerd/`
 
@@ -88,7 +91,7 @@
 | `shards/*.db` | agent/core/shared KBs |
 | `prompts/corpus.db` | prompt database init |
 | `tools/available_tools.json` | static catalog |
-| `mangle/extensions.mg`, `policy_overrides.mg` | templates |
+| `mangle/extensions.mg`, `policy_overrides.mg` | create-if-absent user-owned templates |
 | `doc_ingestion_state.json` | strategic doc campaign (when used) |
 
 ## Hotspots

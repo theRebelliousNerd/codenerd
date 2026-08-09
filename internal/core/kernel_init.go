@@ -106,6 +106,7 @@ func NewRealKernelWithWorkspace(workspaceRoot string) (*RealKernel, error) {
 		workspaceRoot:     workspaceRoot,
 		loadedPolicyFiles: make(map[string]struct{}),
 		policyDirty:       true, // Need to parse on first use
+		eventBus:          NewFactEventBus(),
 	}
 	logging.KernelDebug("Kernel struct created with workspaceRoot=%s, policyDirty=true", workspaceRoot)
 

@@ -1,11 +1,11 @@
 # init — Implemented Spec (Deep-Dive)
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-09
 > Status: Living Reference Document  
 > Language: Go  
 > Package: `internal/init`  
 > CLI: `nerd init`, `nerd scan` (`cmd/nerd/cmd_init_scan.go`)  
-> Scale: **16** non-test Go files ≈ **8.7k** lines; **7** test files; **1** debug `.mg` artifact  
+> Scale: **16** non-test Go files; **8** test files; **1** scoped `agents.md`; **1** debug `.mg` artifact
 
 ## 1. Overview
 
@@ -30,7 +30,8 @@ Unlike a thin “mkdir .nerd” scaffold, init:
 | LLM role | Strategic knowledge + optional JIT phase prompts; not executive |
 | Progress | Optional `ProgressChan` + `ETATracker` |
 | Default timeout (config) | 30 minutes (`DefaultInitConfig`) |
-| CLI timeout | Global CLI timeout context |
+| Timeout enforcement | CLI parent context plus `Initialize`-owned `InitConfig.Timeout` deadline |
+| Completion truth | Required failures and structural validation set `Success`; LLM failures report degraded enrichment metrics |
 | Architecture slogan applied | Describe project into facts/atoms; logic later decides actions |
 
 ### High-level control flow
@@ -157,29 +158,32 @@ Full tables: [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md).
 ### 5.1 Construction (`NewInitializer`)
 
 ```
+Resolve absolute workspace before kernel boot
 AutoDetectContext7APIKey if empty
-core.NewRealKernel + SetWorkspace
+core.NewRealKernelWithWorkspace
 world.NewScanner
 ETATracker(22)
 ShardManager new or injected
-if LLMClient: SetLLMClient + research.NewGroundingHelper + EnableGoogleSearch when available
+if LLMClient: record provider/model + SetLLMClient + optional grounding
 ```
 
-Embedding engine is **lazy** via `ensureEmbeddingEngine` (reads workspace or global `config.json`).
+Embedding engine is **lazy** via `ensureEmbeddingEngine`. A present but corrupt
+workspace config fails closed; only an absent workspace config falls back to the
+global config/defaults.
 
 ### 5.2 Phase table (behavioral)
 
 | # | Name | Criticality | Failure mode |
 |---|------|-------------|--------------|
-| 1 | setup | Low | Warning if system shards fail |
-| 2 | migration | Medium | Warning |
-| 3 | directory | **Hard** | Error on mkdir; error on embedding after DB |
-| 4 | scanning | Medium | Warning |
+| 1 | setup | Required | Failure recorded if system shards fail |
+| 2 | migration | Required | Failure recorded |
+| 3 | directory | **Hard** | Error on mkdir, template create, DB, or embedding |
+| 4 | scanning | Required | Failure recorded |
 | 5 | analysis | None | Stub only |
-| 6 | profile | High | Warning if save fails (marker missing) |
-| 7 | facts | Medium | Warning |
-| 8 | prompt_atoms | Low | Warning |
-| 9 | prompt_db | Medium | Warning |
+| 6 | profile | Required | Failure recorded if save fails |
+| 7 | facts | Required | Failure recorded |
+| 8 | prompt_atoms | Required | Failure recorded |
+| 9 | prompt_db | Required | Failure recorded |
 | 10 | agents | Low | Always produces list (maybe generic) |
 | 11 | shared_kb | Medium | Warning |
 | 12 | kb_creation | High | Per-agent soft fail |
@@ -187,12 +191,12 @@ Embedding engine is **lazy** via `ensureEmbeddingEngine` (reads workspace or glo
 | 14 | core_shards_kb | Medium | Warning |
 | 15 | campaign_kb | Low | Warning |
 | 16 | tool_generation | None | Stub |
-| 17 | preferences | Medium | Warning |
-| 18 | session | Medium | Warning |
-| 19 | tools | Low | Warning |
-| 20 | registry | Medium | Warning |
-| 21 | prompt_sync | Medium | Warning |
-| 22 | complete | — | Summary + validation |
+| 17 | preferences | Required | Failure recorded |
+| 18 | session | Required | Failure recorded |
+| 19 | tools | Required | Failure recorded |
+| 20 | registry | Required | Failure recorded |
+| 21 | prompt_sync | Required | Failure recorded |
+| 22 | complete | — | Validate shard DBs, derive Success/enrichment status, then print summary |
 
 ### 5.3 Directory tree created
 
@@ -216,6 +220,10 @@ Embedding engine is **lazy** via `ensureEmbeddingEngine` (reads workspace or glo
   session.json
   agents.json
 ```
+
+`.gitignore`, `mangle/extensions.mg`, and `mangle/policy_overrides.mg` are
+atomically created only when absent. Force reinitialization never replaces
+user-owned contents.
 
 ### 5.4 Detection details
 
@@ -252,7 +260,9 @@ createType3Agents:
 registerAgentsWithShardManager
 ```
 
-Quality scores: thresholds on new atom counts (80/65/50) — heuristic only.
+Legacy `QualityScore` values use thresholds on new atom counts (80/65/50).
+Operator output labels them **KB population scores (atom-count proxy)**. They are
+not evidence of semantic or LLM quality.
 
 ### 5.7 Strategic knowledge
 
@@ -347,7 +357,7 @@ Top residual issues:
 2. Tool generation stub.
 3. Project prompt atoms may not reach JIT corpus.db.
 4. Framework field often under-populated.
-5. Quality scores naive.
+5. Legacy population scores are atom-count proxies; a semantic metric is not implemented.
 
 ---
 
