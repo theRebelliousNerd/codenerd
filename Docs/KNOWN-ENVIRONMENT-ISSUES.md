@@ -63,3 +63,35 @@ left alone. Setting GOEXPERIMENT in `.nerd/config.json`'s `build.env_vars` would
 make codeNERD's own builds stable while leaving manual `go build` and `go test`
 still crashing, which is a worse kind of confusing. It is a machine-level
 setting and belongs in the environment.
+
+---
+
+## Default Go package fan-out is much slower than `-p 4` on this host
+
+**Symptom.** Heavy packages appear hung or hit their package timeout during
+`go test ./...`, while the same packages pass alone. On this 32-logical-CPU
+Windows host, Go's default package fan-out also competes with nested Go, Git,
+gofmt, and Chrome subprocesses used by integration-shaped tests.
+
+**Do not diagnose this from a green isolated rerun alone.** The 2026-08-09
+suite repair first captured timeout goroutines and closed separate test defects:
+live LLM calls from ordinary CLI tests, leaked signal waiters, nil-stdin child
+processes entering Windows `os.DevNull`/`GetConsoleMode`, and a browser negative
+selector consuming a shared 60-second context.
+
+After those repairs, both complete commands pass with Green Tea disabled:
+
+| Command | Slowest package | Result |
+|---|---:|---|
+| `go test -p 4 ./... -count=1 -timeout=15m` | `internal/core` 138.526s | pass |
+| `go test ./... -count=1 -timeout=15m` | `internal/core` 573.983s | pass |
+
+**Practical use.** Keep the standard command as the release/handoff gate. Use
+`-p 4` for a faster stable diagnostic pass on this machine, especially when
+other codeNERD/Test Forge Go processes are already resident. A package that
+still fails under `-p 4` needs its own stack capture; do not dismiss it as
+parallelism.
+
+No repository-wide `GOFLAGS=-p=4` setting was added. That would hide the host
+characteristic from CI and other developers rather than make the tests more
+hermetic.

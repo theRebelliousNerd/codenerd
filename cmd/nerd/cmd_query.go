@@ -81,17 +81,20 @@ func queryFacts(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("query failed: %w", err)
 	}
+	printQueryFacts(predicate, facts)
+	return nil
+}
 
+func printQueryFacts(predicate string, facts []core.Fact) {
 	if len(facts) == 0 {
 		fmt.Printf("No facts found for predicate '%s'\n", predicate)
-		return nil
+		return
 	}
 
 	fmt.Printf("Facts for '%s':\n", predicate)
 	for _, fact := range facts {
 		fmt.Printf("  %s\n", fact.String())
 	}
-	return nil
 }
 
 // showStatus displays system status

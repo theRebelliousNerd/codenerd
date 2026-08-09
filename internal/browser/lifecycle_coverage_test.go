@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -233,20 +234,29 @@ func TestBrowserLifecycle_WhenChromeAvailable(t *testing.T) {
 		}
 		time.Sleep(300 * time.Millisecond)
 
-		err = sm.Click(ctx, session.ID, "#nonexistent-button-xyz")
+		clickCtx, cancelClick := context.WithTimeout(ctx, time.Second)
+		err = sm.Click(clickCtx, session.ID, "#nonexistent-button-xyz")
+		cancelClick()
 		if err == nil {
 			t.Error("Expected error for non-existent selector in Click")
 		}
 
 		// --- Type invalid selector ---
-		err = sm.Type(ctx, session.ID, "#nonexistent-input-xyz", "test")
+		typeCtx, cancelType := context.WithTimeout(ctx, time.Second)
+		err = sm.Type(typeCtx, session.ID, "#nonexistent-input-xyz", "test")
+		cancelType()
 		if err == nil {
 			t.Error("Expected error for non-existent selector in Type")
 		}
 
 		// --- ReifyReact on non-React page ---
-		reactFacts, err := sm.ReifyReact(ctx, session.ID)
+		reactCtx, cancelReact := context.WithTimeout(ctx, 3*time.Second)
+		reactFacts, err := sm.ReifyReact(reactCtx, session.ID)
+		cancelReact()
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("ReifyReact stalled on a non-React page: %v", err)
+			}
 			t.Logf("ReifyReact returned error (acceptable for non-React page): %v", err)
 		} else {
 			t.Logf("ReifyReact returned %d facts for non-React page", len(reactFacts))

@@ -8,13 +8,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 
 	nerdconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
-	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
 	"codenerd/internal/world"
@@ -62,22 +62,21 @@ recreating agent knowledge bases.`,
 
 // runInit performs the cold-start initialization
 func runInit(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+	return runInitWithLLMConfigurer(cmd, args, configureInitLLM)
+}
 
-	// Handle graceful shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		fmt.Println("\nInitialization cancelled")
-		cancel()
-	}()
+// runInitWithLLMConfigurer keeps command tests hermetic while preserving the
+// complete production initializer. The command entry point always uses
+// configureInitLLM; tests may provide nil to prove the filesystem workflow
+// without contacting the user's configured provider.
+func runInitWithLLMConfigurer(cmd *cobra.Command, args []string, configureLLM func(*nerdinit.InitConfig, *nerdconfig.UserConfig)) error {
+	ctx, stop := commandOperationContext(cmd)
+	defer stop()
 
 	// Resolve workspace
-	cwd := workspace
-	if cwd == "" {
-		cwd, _ = os.Getwd()
+	cwd, err := resolveCommandWorkspace()
+	if err != nil {
+		return err
 	}
 
 	// Handle backup cleanup (can run standalone without full init)
@@ -107,6 +106,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Configure initializer
 	config := nerdinit.DefaultInitConfig(cwd)
 	config.Timeout = timeout
+	appCfg := loadCampaignConfig(filepath.Join(cwd, ".nerd"))
+	config.Context7APIKey = appCfg.GetContext7APIKey()
 
 	// Set up the LLM client from .nerd/config.json (wrapped with the scheduler
 	// for concurrency control).
@@ -125,46 +126,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// ~25s per call on a high-reasoning model, so the serialized loop needs ~82
 	// minutes and cannot finish inside the 25-minute operation timeout. On the
 	// cheap tier the same loop is the work the tier exists for.
-	appCfg := loadCampaignConfig(filepath.Join(cwd, ".nerd"))
-	if apiKey != "" && appCfg != nil && appCfg.APIKey == "" {
-		// --api-key overrides the configured provider's key, not the provider.
-		appCfg.APIKey = apiKey
-	}
-	if worker, werr := perception.NewWorkerClientFromUserConfig(appCfg); werr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: worker LLM init failed: %v (init uses the main client)\n", werr)
-	} else if worker != nil {
-		config.LLMClient = core.NewScheduledLLMCall("init", worker)
-		if appCfg != nil && appCfg.Worker != nil {
-			config.LLMProvider = appCfg.Worker.Provider
-			config.LLMModel = appCfg.Worker.Model
-		}
-	}
-	if config.LLMClient == nil {
-		if llmClient, err := newConfiguredLLMClient(appCfg, "init"); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: no LLM client for init: %v\n", err)
-			fmt.Fprintln(os.Stderr, "         Knowledge-base and documentation phases will be skipped.")
-		} else {
-			config.LLMClient = llmClient
-			if appCfg != nil {
-				config.LLMProvider = appCfg.Provider
-				if appCfg.Engine != "" && !strings.EqualFold(appCfg.Engine, "api") {
-					config.LLMProvider = appCfg.Engine
-				}
-				config.LLMModel = appCfg.Model
-			}
-		}
-	}
-
-	// Set Context7 API key from environment or config
-	context7Key := os.Getenv("CONTEXT7_API_KEY")
-	if context7Key == "" {
-		// Try loading from config.json
-		if providerCfg, err := perception.LoadConfigJSON(nerdconfig.DefaultUserConfigPath()); err == nil && providerCfg.Context7APIKey != "" {
-			context7Key = providerCfg.Context7APIKey
-		}
-	}
-	if context7Key != "" {
-		config.Context7APIKey = context7Key
+	if configureLLM != nil {
+		configureLLM(&config, appCfg)
 	}
 
 	// Run initialization
@@ -180,25 +143,91 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	if !result.Success {
+		if len(result.Failures) > 0 {
+			return fmt.Errorf("initialization completed with errors: %s", result.Failures[0])
+		}
 		return fmt.Errorf("initialization completed with errors")
 	}
 
 	return nil
 }
 
+func configureInitLLM(config *nerdinit.InitConfig, appCfg *nerdconfig.UserConfig) {
+	if err := applyInitAPIKeyOverride(appCfg, apiKey); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: --api-key override ignored: %v\n", err)
+	}
+	if worker, werr := perception.NewWorkerClientFromUserConfig(appCfg); werr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: worker LLM init failed: %v (init uses the main client)\n", werr)
+	} else if worker != nil {
+		if warning := initAPIKeyWorkerWarning(appCfg, apiKey); warning != "" {
+			fmt.Fprintln(os.Stderr, warning)
+		}
+		config.LLMClient = core.NewScheduledLLMCall("init", worker)
+		if appCfg.Worker != nil {
+			config.LLMProvider = appCfg.Worker.Provider
+			config.LLMModel = appCfg.Worker.Model
+		}
+	}
+	if config.LLMClient == nil {
+		if llmClient, err := newConfiguredLLMClient(appCfg, "init"); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: no LLM client for init: %v\n", err)
+			fmt.Fprintln(os.Stderr, "         Knowledge-base and documentation phases will be skipped.")
+		} else {
+			config.LLMClient = llmClient
+			config.LLMProvider = appCfg.Provider
+			if appCfg.Engine != "" && !strings.EqualFold(appCfg.Engine, "api") {
+				config.LLMProvider = appCfg.Engine
+			}
+			config.LLMModel = appCfg.Model
+		}
+	}
+}
+
+func applyInitAPIKeyOverride(appCfg *nerdconfig.UserConfig, override string) error {
+	if override == "" {
+		return nil
+	}
+	provider, _ := appCfg.GetActiveProvider()
+	return appCfg.SetAPIKeyForProvider(provider, override)
+}
+
+func initAPIKeyWorkerWarning(appCfg *nerdconfig.UserConfig, override string) string {
+	if strings.TrimSpace(override) == "" || appCfg == nil || appCfg.Worker == nil {
+		return ""
+	}
+	mainProvider, _ := appCfg.GetActiveProvider()
+	workerProvider := strings.TrimSpace(appCfg.Worker.Provider)
+	if workerProvider == "" || strings.EqualFold(mainProvider, workerProvider) {
+		return ""
+	}
+	return fmt.Sprintf("Warning: --api-key applies to the main %s client; init is using the configured %s worker", mainProvider, workerProvider)
+}
+
 // runScan refreshes the codebase index
 func runScan(cmd *cobra.Command, args []string) error {
+	return runScanWithKernelFactory(cmd, args, func(workspace string) (scanKernel, error) {
+		return core.NewRealKernelWithWorkspace(workspace)
+	})
+}
+
+type scanKernel interface {
+	LoadFacts([]core.Fact) error
+	LoadFactsFromFile(string) error
+}
+
+func runScanWithKernelFactory(cmd *cobra.Command, args []string, newKernel func(string) (scanKernel, error)) error {
 	// Resolve workspace
-	cwd := workspace
-	if cwd == "" {
-		cwd, _ = os.Getwd()
+	cwd, err := resolveCommandWorkspace()
+	if err != nil {
+		return err
 	}
 
 	// Check if initialized
 	if !nerdinit.IsInitialized(cwd) {
-		fmt.Println("Project not initialized. Run 'nerd init' first.")
-		return nil
+		return fmt.Errorf("project not initialized; run 'nerd init' first")
 	}
+	ctx, stop := commandOperationContext(cmd)
+	defer stop()
 
 	fmt.Println("🔍 Scanning codebase...")
 
@@ -206,24 +235,15 @@ func runScan(cmd *cobra.Command, args []string) error {
 	scanner := world.NewScanner()
 
 	// Scan workspace
-	facts, err := scanner.ScanWorkspace(cwd)
+	facts, err := scanner.ScanWorkspaceCtx(ctx, cwd)
 	if err != nil {
 		return fmt.Errorf("scan failed: %w", err)
 	}
 
-	// Persist fast world snapshot to knowledge.db for incremental boots.
-	dbPath := filepath.Join(cwd, ".nerd", "knowledge.db")
-	if db, dbErr := store.NewLocalStore(dbPath); dbErr == nil {
-		if err := world.PersistFastSnapshotToDB(db, facts); err != nil {
-			logging.WorldWarn("failed to persist world snapshot to DB: %v", err)
-		}
-		if err := db.Close(); err != nil {
-			logging.StoreWarn("failed to close knowledge DB: %v", err)
-		}
-	}
-
-	// Initialize kernel and load facts
-	kernel, err := core.NewRealKernel()
+	// This full kernel boot is a deliberate validation gate. The scanner's
+	// durable DB cache is the preferred boot source, so it must never be
+	// replaced until the exact fact set has evaluated successfully.
+	kernel, err := newKernel(cwd)
 	if err != nil {
 		return fmt.Errorf("failed to create kernel: %w", err)
 	}
@@ -239,13 +259,26 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Persist the validated snapshot to the preferred incremental boot source.
+	dbPath := filepath.Join(cwd, ".nerd", "knowledge.db")
+	db, err := store.NewLocalStore(dbPath)
+	if err != nil {
+		return fmt.Errorf("open knowledge DB %s: %w", dbPath, err)
+	}
+	if err := world.PersistFastSnapshotToDB(db, facts); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("persist world snapshot to knowledge DB: %w", err)
+	}
+	if err := db.Close(); err != nil {
+		return fmt.Errorf("close knowledge DB: %w", err)
+	}
+
 	// Persist scan facts to .nerd/mangle/scan.mg for reloading on boot
 	scanPath := filepath.Join(cwd, ".nerd", "mangle", "scan.mg")
 	if writeErr := writeScanFacts(scanPath, facts); writeErr != nil {
-		fmt.Printf("⚠️ Warning: failed to persist scan facts: %v\n", writeErr)
-	} else {
-		fmt.Printf("   Facts persisted: %s\n", scanPath)
+		return fmt.Errorf("persist scan facts: %w", writeErr)
 	}
+	fmt.Printf("   Facts persisted: %s\n", scanPath)
 
 	// Count files and directories
 	fileCount := 0
@@ -279,12 +312,51 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	if len(langStats) > 0 {
 		fmt.Println("\n   Language Breakdown:")
-		for lang, count := range langStats {
+		for _, lang := range sortedLanguageNames(langStats) {
+			count := langStats[lang]
 			fmt.Printf("     %-12s: %d\n", lang, count)
 		}
 	}
 
 	return nil
+}
+
+func commandOperationContext(cmd *cobra.Command) (context.Context, func()) {
+	parent := context.Background()
+	if cmd != nil && cmd.Context() != nil {
+		parent = cmd.Context()
+	}
+	signalCtx, stopSignals := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := context.WithTimeout(signalCtx, timeout)
+	return ctx, func() {
+		cancel()
+		stopSignals()
+	}
+}
+
+func resolveCommandWorkspace() (string, error) {
+	resolved := workspace
+	if resolved == "" {
+		var err error
+		resolved, err = os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("resolve workspace: %w", err)
+		}
+	}
+	abs, err := filepath.Abs(resolved)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace %q: %w", resolved, err)
+	}
+	return filepath.Clean(abs), nil
+}
+
+func sortedLanguageNames(stats map[string]int) []string {
+	names := make([]string, 0, len(stats))
+	for name := range stats {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // writeScanFacts persists scan facts to a .mg file for reloading on boot.

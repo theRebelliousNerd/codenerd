@@ -11,6 +11,7 @@ import (
 
 	"codenerd/internal/build"
 	"codenerd/internal/logging"
+	"codenerd/internal/processutil"
 )
 
 // Post-edit test verification.
@@ -235,7 +236,7 @@ func verifyTests(ctx context.Context, workspace string, packages []string, extra
 
 	args := append([]string{"test"}, extraArgs...)
 	args = append(args, filtered...)
-	cmd := exec.CommandContext(buildCtx, "go", args...)
+	cmd := processutil.NonInteractive(exec.CommandContext(buildCtx, "go", args...))
 	cmd.Dir = workspace
 	cmd.Env = build.GetBuildEnv(nil, workspace)
 
@@ -332,6 +333,7 @@ func untestedGoFiles(paths []string) []string {
 	sort.Strings(out)
 	return out
 }
+
 // TrimGoExtension returns path with a trailing .go or .GO suffix removed,
 // leaving other paths unchanged. The suffix check is case-insensitive.
 func TrimGoExtension(path string) string {
@@ -340,4 +342,3 @@ func TrimGoExtension(path string) string {
 	}
 	return path
 }
-

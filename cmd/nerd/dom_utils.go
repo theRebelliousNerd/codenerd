@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+
+	"codenerd/internal/processutil"
 )
 
 func runGoFmtFiles(ctx context.Context, ws string, files []string) error {
@@ -26,7 +28,7 @@ func runGoFmtFiles(ctx context.Context, ws string, files []string) error {
 			safeFiles = append(safeFiles, f)
 		}
 		args := append([]string{"-w", "--"}, safeFiles...)
-		gofmtCmd := exec.CommandContext(ctx, "gofmt", args...)
+		gofmtCmd := processutil.NonInteractive(exec.CommandContext(ctx, "gofmt", args...))
 		gofmtCmd.Dir = ws
 		if out, err := gofmtCmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("gofmt failed: %w\n%s", err, string(out))

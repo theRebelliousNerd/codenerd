@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/processutil"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 )
@@ -566,14 +567,14 @@ func gitCmd(workspaceRoot string, args ...string) (string, error) {
 	// Defensive check against argument injection for dangerous flags
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "--exec-path") ||
-		   strings.HasPrefix(arg, "-c") ||
-		   strings.HasPrefix(arg, "--upload-pack") ||
-		   strings.HasPrefix(arg, "--receive-pack") {
+			strings.HasPrefix(arg, "-c") ||
+			strings.HasPrefix(arg, "--upload-pack") ||
+			strings.HasPrefix(arg, "--receive-pack") {
 			return "", fmt.Errorf("unauthorized git argument: %s", arg)
 		}
 	}
 
-	cmd := exec.Command("git", append([]string{"-C", workspaceRoot}, args...)...)
+	cmd := processutil.NonInteractive(exec.Command("git", append([]string{"-C", workspaceRoot}, args...)...))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w (%s)", strings.Join(args, " "), err, strings.TrimSpace(string(output)))

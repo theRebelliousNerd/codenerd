@@ -770,6 +770,46 @@ func (c *UserConfig) APIKeyForProvider(provider string) string {
 	}
 }
 
+// SetAPIKeyForProvider updates the root-level key used by a named main
+// provider. Secondary slots such as worker and planner remain independent:
+// their provider selection must not be silently changed by a main-client CLI
+// override.
+func (c *UserConfig) SetAPIKeyForProvider(provider, apiKey string) error {
+	if c == nil {
+		return fmt.Errorf("set API key: nil user config")
+	}
+
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "":
+		// Preserve the legacy no-provider behavior. GetActiveProvider interprets
+		// APIKey as Z.AI only when no explicit provider is configured.
+		c.APIKey = apiKey
+	case "anthropic":
+		c.AnthropicAPIKey = apiKey
+	case "openai":
+		c.OpenAIAPIKey = apiKey
+	case "gemini":
+		c.GeminiAPIKey = apiKey
+	case "xai":
+		c.XAIAPIKey = apiKey
+	case "zai":
+		c.ZAIAPIKey = apiKey
+	case "openrouter":
+		c.OpenRouterAPIKey = apiKey
+	case "dashscope":
+		c.DashScopeAPIKey = apiKey
+	case "meta":
+		c.MetaAPIKey = apiKey
+	case "moonshot":
+		c.MoonshotAPIKey = apiKey
+	case "ollama":
+		return fmt.Errorf("provider %q is keyless", provider)
+	default:
+		return fmt.Errorf("unsupported provider %q", provider)
+	}
+	return nil
+}
+
 // GetActiveProvider returns the provider and API key to use.
 //
 // Config is boss: if c.Provider is explicitly set, ONLY that provider's key is

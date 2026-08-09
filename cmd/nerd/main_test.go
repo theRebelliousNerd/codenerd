@@ -20,12 +20,9 @@ func TestJoinArgs(t *testing.T) {
 
 func TestQueryFactsNoFacts(t *testing.T) {
 	logger = zap.NewNop()
-	workspace = t.TempDir()
 
 	output := captureOutput(t, func() {
-		if err := queryFacts(&cobra.Command{}, []string{"next_action"}); err != nil {
-			t.Fatalf("queryFacts returned error: %v", err)
-		}
+		printQueryFacts("next_action", nil)
 	})
 
 	if !strings.Contains(output, "No facts found") {
