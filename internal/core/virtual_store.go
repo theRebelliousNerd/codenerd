@@ -1104,8 +1104,21 @@ func (v *VirtualStore) WriteFile(path string, content []string) error {
 		_, err := editor.WriteFile(path, content)
 		return err
 	}
-	// Fallback: direct write
-	return os.WriteFile(path, []byte(strings.Join(content, "\n")), 0644)
+	// Fallback: direct write, preserving whatever line ending the file already
+	// uses. Joining with "\n" unconditionally silently converted CRLF files to
+	// LF, and the partial-edit paths then spliced LF lines back into CRLF files
+	// and left them mixed — codeNERD's own world scanner flagged two files it
+	// had edited (encoding_issue /crlf_inconsistent). A new file keeps the old
+	// behaviour rather than inventing a convention.
+	out := strings.Join(content, "\n")
+	ending, exists, err := existingLineEnding(path)
+	if err != nil {
+		return fmt.Errorf("detect line ending for %s: %w", path, err)
+	}
+	if exists {
+		out = normalizeLineEnding(out, ending)
+	}
+	return os.WriteFile(path, []byte(out), 0644)
 }
 
 // ReadRaw reads a file and returns its raw bytes.

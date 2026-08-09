@@ -216,7 +216,17 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 		}, nil
 	}
 
-	err := os.WriteFile(path, []byte(content), 0644)
+	// Overwriting an existing file keeps that file's line ending; a new file
+	// keeps the previous behaviour. See internal/core/line_ending.go.
+	ending, exists, err := existingLineEnding(path)
+	if err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+	if exists {
+		content = normalizeLineEnding(content, ending)
+	}
+
+	err = os.WriteFile(path, []byte(content), 0644)
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Failed to write file %s: %v", path, err)
 		return ActionResult{
@@ -276,7 +286,12 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 		}, nil
 	}
 
-	content := string(data)
+	// Match in LF space so model-emitted multi-line text can target either LF
+	// or CRLF files. Restore the file's original convention after replacement.
+	originalEnding := detectLineEnding(data)
+	content := normalizeLineEnding(string(data), "\n")
+	oldContent = normalizeLineEnding(oldContent, "\n")
+	newContent = normalizeLineEnding(newContent, "\n")
 	if !strings.Contains(content, oldContent) {
 		logging.Get(logging.CategoryVirtualStore).Warn("Edit failed: pattern not found in %s", path)
 		return ActionResult{
@@ -289,6 +304,12 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 	}
 
 	newFileContent := strings.Replace(content, oldContent, newContent, 1)
+
+	// The spliced-in replacement carries whatever line ending the model emitted,
+	// which is how a CRLF file ended up with 36 lone LFs in it. Re-normalize the
+	// whole file to its own convention. The file exists by construction here —
+	// it was just read — so this branch always applies.
+	newFileContent = normalizeLineEnding(newFileContent, originalEnding)
 
 	err = os.WriteFile(path, []byte(newFileContent), 0644)
 	if err != nil {

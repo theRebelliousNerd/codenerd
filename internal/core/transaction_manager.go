@@ -368,8 +368,20 @@ func (tm *TransactionManager) Commit(ctx context.Context) error {
 				return txn.Error
 			}
 
-			// Write the file
-			if err := os.WriteFile(edit.FilePath, edit.Content, 0644); err != nil {
+			content := edit.Content
+			ending, exists, err := existingLineEnding(edit.FilePath)
+			if err != nil {
+				tm.rollback(txn, committedFiles)
+				txn.Status = TxnStatusAborted
+				txn.Error = fmt.Errorf("failed to detect line ending: %s - %w", edit.FilePath, err)
+				return txn.Error
+			}
+			if exists {
+				content = []byte(normalizeLineEnding(string(content), ending))
+			}
+
+			// Write the file.
+			if err := os.WriteFile(edit.FilePath, content, 0644); err != nil {
 				tm.rollback(txn, committedFiles)
 				txn.Status = TxnStatusAborted
 				txn.Error = fmt.Errorf("failed to write file: %s - %w", edit.FilePath, err)

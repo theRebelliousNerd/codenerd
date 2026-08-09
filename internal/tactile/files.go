@@ -341,6 +341,14 @@ func (e *FileEditor) WriteFile(path string, lines []string) (*FileResult, error)
 	if len(lines) > 0 {
 		content += "\n" // Ensure trailing newline
 	}
+	ending, exists, err := ExistingLineEnding(absPath)
+	if err != nil {
+		logging.TactileError("Failed to detect existing line ending: %s - %v", path, err)
+		return &FileResult{Success: false, Path: path, Error: err.Error()}, err
+	}
+	if exists {
+		content = NormalizeLineEnding(content, ending)
+	}
 
 	if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
 		logging.TactileError("File write failed: %s - %v", path, err)

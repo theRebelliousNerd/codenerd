@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/tactile"
 	"codenerd/internal/tools"
 )
 
@@ -319,6 +320,14 @@ func executeWriteFile(ctx context.Context, args map[string]any) (string, error) 
 		}
 	}
 
+	ending, exists, err := tactile.ExistingLineEnding(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to detect existing line ending: %w", err)
+	}
+	if exists {
+		content = tactile.NormalizeLineEnding(content, ending)
+	}
+
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		logging.Audit().FileOp(logging.AuditFileWrite, path, 0, false, err.Error())
 		return "", fmt.Errorf("failed to write file: %w", err)
@@ -407,7 +416,10 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
-	contentStr := string(content)
+	originalEnding := tactile.DetectLineEnding(content)
+	contentStr := tactile.NormalizeLineEnding(string(content), "\n")
+	oldText = tactile.NormalizeLineEnding(oldText, "\n")
+	newText = tactile.NormalizeLineEnding(newText, "\n")
 
 	if !strings.Contains(contentStr, oldText) {
 		// read_file now returns "N\tline" so the model can cite file:line. The
@@ -441,6 +453,7 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 		count = 1
 		newContent = strings.Replace(contentStr, oldText, newText, 1)
 	}
+	newContent = tactile.NormalizeLineEnding(newContent, originalEnding)
 
 	if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
 		// An edit is a write and belongs in the durable record. read_file and

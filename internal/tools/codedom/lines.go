@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/tactile"
 	"codenerd/internal/tools"
 )
 
@@ -91,7 +92,8 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
-	lines := strings.Split(string(content), "\n")
+	ending := tactile.DetectLineEnding(content)
+	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
 
 	// Validate line numbers
 	if startLine < 1 || startLine > len(lines) {
@@ -106,7 +108,7 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 	endIdx := endLine
 
 	// Split new content into lines
-	newLines := strings.Split(newContent, "\n")
+	newLines := strings.Split(tactile.NormalizeLineEnding(newContent, "\n"), "\n")
 
 	// Build new content
 	var result []string
@@ -124,7 +126,8 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	// Write back
-	if err := os.WriteFile(path, []byte(strings.Join(result, "\n")), 0644); err != nil {
+	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
+	if err := os.WriteFile(path, []byte(output), 0644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -343,7 +346,8 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
-	lines := strings.Split(string(content), "\n")
+	ending := tactile.DetectLineEnding(content)
+	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
 
 	// Validate line number
 	if afterLine < 0 || afterLine > len(lines) {
@@ -351,7 +355,7 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 	}
 
 	// Split insert content into lines
-	newLines := strings.Split(insertContent, "\n")
+	newLines := strings.Split(tactile.NormalizeLineEnding(insertContent, "\n"), "\n")
 
 	// Build new content
 	var result []string
@@ -360,7 +364,8 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 	result = append(result, lines[afterLine:]...)
 
 	// Write back
-	if err := os.WriteFile(path, []byte(strings.Join(result, "\n")), 0644); err != nil {
+	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
+	if err := os.WriteFile(path, []byte(output), 0644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -443,7 +448,8 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
-	lines := strings.Split(string(content), "\n")
+	ending := tactile.DetectLineEnding(content)
+	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
 
 	// Validate line numbers
 	if startLine < 1 || startLine > len(lines) {
@@ -463,7 +469,8 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 	result = append(result, lines[endIdx:]...)
 
 	// Write back
-	if err := os.WriteFile(path, []byte(strings.Join(result, "\n")), 0644); err != nil {
+	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
+	if err := os.WriteFile(path, []byte(output), 0644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 

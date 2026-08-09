@@ -299,7 +299,7 @@ func (mw *MangleWatcher) validateAndRepair(ctx context.Context, path string) {
 
 	// Rewrite file if any rules were repaired
 	if needsRewrite {
-		newContent := strings.Join(repairedRules, "\n\n")
+		newContent := normalizeLineEnding(strings.Join(repairedRules, "\n\n"), detectLineEnding(content))
 		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
 			logging.Get(logging.CategoryKernel).Error("MangleWatcher: failed to write repaired file: %v", err)
 			mw.mu.Lock()
