@@ -37,9 +37,19 @@ DefaultExecutorConfig
   → modernExecutor + useModernExecutor flag
 ```
 
-`injectTactileFact` maps `tactile.Fact` → `core.Fact`, normalizes some status strings to Mangle atoms, `kernel.Assert`.
+`injectTactileFact` maps `tactile.Fact` → `core.Fact` without guessing whether a
+bare string is a Mangle name, and returns the `kernel.Assert` error. Producers
+use explicit `/name` values where the Decl requires them; this preserves string
+IDs/tags such as `success` or `none`. The callback logs assertion errors; focused
+core tests can assert the same boundary directly.
 
 When modern path is active, shell actions should hit composite + audit. Confirm call sites honor `useModernExecutor` vs legacy `executor` field (both exist on VirtualStore).
+
+For completed commands, `AuditEvent.ToFacts` deterministically recognizes only
+the `go test` and `go build` subcommands. Their output summaries are appended to
+the generic lifecycle facts and therefore flow through the same callback into
+the kernel. Exit code is authoritative for pass/build-success state; parsed
+details provide counts, failed-test names, coverage, and diagnostics.
 
 ## File editor adapter
 
@@ -92,7 +102,9 @@ Tactile **does not load `.mg` files**. Declared predicates live under `internal/
 | Files | `schemas_codedom.mg` (`file_read`, `file_written`) |
 | Notes | `schemas_execution.mg` comments on overlapping decls |
 
-If audit emits a predicate without Decl, kernel Assert may fail (logged as inject error).
+Every current audit/analyzer predicate has a matching Decl. A missing Decl,
+wrong arity, or wrong bound still makes kernel Assert fail and is logged as an
+inject error.
 
 ## Registration checklist (for new integrations)
 

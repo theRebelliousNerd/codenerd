@@ -101,8 +101,17 @@
 |--|--|
 | **Class** | Integration |
 | **Symptom** | VirtualStore logs “Failed to inject tactile fact” |
-| **Cause** | Missing Decl, wrong arity, kernel not set |
-| **Mitigation** | Align ToFacts with schemas_*.mg; ensure SetKernel before execute |
+| **Cause** | Missing Decl, wrong arity/bound, kernel not set |
+| **Mitigation** | Align ToFacts with schemas_*.mg; ensure SetKernel before execute; run the real-kernel analyzer-fact regression |
+
+## FM10A — Audit file sink fails silently
+
+| | |
+|--|--|
+| **Class** | Observability / Security |
+| **Symptom** | `AuditFileWriteErrors` increases and `LastAuditFileError` is populated |
+| **Cause** | Closed/unwritable file, failed rotation recovery, disk or filesystem error |
+| **Mitigation** | Inspect tactile warning + metrics; re-enable a valid owner-only path. Log writes never re-execute the command. |
 
 ## FM11 — Env secrets not available to tool
 

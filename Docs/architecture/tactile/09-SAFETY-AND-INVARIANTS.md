@@ -1,6 +1,6 @@
 # tactile — Safety and Invariants
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-08-09**
 
 ## Layered safety model
 
@@ -42,8 +42,8 @@ Defaults: 30s timeout, 10MB output, 10m max timeout cap via Merge.
 
 ### I5 — Sandbox mode validation per executor
 
-Direct rejects non-none sandbox; Docker requires docker mode; etc.  
-**Tension:** Composite may fall back to default Direct if mode unregistered — **violates ideal fail-closed** (known gap).
+Direct rejects non-none sandbox; Docker requires docker mode; etc. Composite
+uses Direct only for absent/`none`; an explicitly unavailable mode fails closed.
 
 ### I6 — Cycle-free Fact type
 
@@ -51,7 +51,7 @@ Tactile Fact is independent of core.Fact. Conversion only at VS boundary.
 
 ### I7 — Concurrent callback safety
 
-Audit/file callbacks copied under RLock before invoke; metrics use locks.  
+Audit callback slices are cloned under RLock before invoke; metrics use locks.
 **Invariant:** SetCallback during execute should not race map iteration (composite propagates under lock).
 
 ### I8 — Process tree kill best-effort
@@ -67,7 +67,8 @@ Relative paths join WorkingDir. Absolute paths used as-is.
 ### I10 — Privileged isolation features degrade
 
 cgroup write requires permissions; namespaces may need root/userns; firejail must exist.  
-**Invariant:** detection fails soft to weaker executor rather than panic (good availability, weaker security — document at call site).
+**Invariant:** optional probes may report unavailable, but an explicitly requested
+isolation mode never degrades to Direct.
 
 ## Constitutional relationship
 
@@ -97,6 +98,16 @@ Known related decls:
 - `file_read`, `file_written` — `schemas_codedom.mg`  
 
 Audit full ToFacts catalog against Decl when changing audit.go.
+
+On-disk audit events use owner-only permissions, redact command environment,
+stdin, and known secret-bearing argument forms, and bound each captured output
+field to 64 KiB. The `execution_command` kernel fact uses the same argument
+redaction. Write failures are reported through tactile warnings plus
+`AuditFileWriteErrors` and `LastAuditFileError` metrics.
+
+Structured Go output may contain thousands of item lines; analyzer detail facts
+are capped at 100 failed tests and 100 diagnostics per execution. Aggregate
+counts remain untruncated.
 
 ## What tactile will not enforce
 

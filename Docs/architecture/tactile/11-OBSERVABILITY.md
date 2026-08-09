@@ -1,6 +1,6 @@
 # tactile — Observability
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-08-09**
 
 ## Logging category
 
@@ -44,6 +44,7 @@ Timers emit duration on stop (per logging package behavior).
 | TotalDurationMs / TotalCPUTimeMs / TotalMemoryBytes | aggregates |
 | ExecutionsByBinary / BySession | histograms |
 | SuccessRate / AvgDurationMs | derived |
+| AuditFileWriteErrors / LastAuditFileError | persistent sink health |
 
 Access:
 
@@ -56,9 +57,10 @@ Not exported as Prometheus by default — snapshot is pull-based.
 
 `AuditFileLogger`:
 
-- JSON Lines of `AuditEvent`  
+- JSON Lines of sanitized `AuditEvent`
 - `EnableFileLogging(path)` on AuditLogger  
-- `Rotate()` renames with timestamp  
+- owner-only file mode; environment/stdin and known secret-bearing arguments redacted; each output field capped at 64 KiB
+- `Rotate()` uses a nanosecond timestamp and never retains a closed handle
 
 Useful for forensic offline review of motor activity.
 
@@ -79,6 +81,9 @@ When fact callback wired, kernel receives structured events. This is **logic tel
 | `Command.Tags` | Extra `execution_tag` facts |
 | `Capabilities()` | Feature discovery at runtime |
 | `PooledExecutor.Stats()` | Pool pressure |
+
+`execution_command` stores a redacted command string: known token/password/API
+key/authorization argument forms do not enter the kernel fact store.
 
 ## Gaps
 

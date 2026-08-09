@@ -541,6 +541,17 @@ Decl execution_error(RequestID, ErrorMessage) bound [/string, /string].
 # execution_blocked(RequestID, Reason, Timestamp) - command was blocked by policy/sandbox
 Decl execution_blocked(RequestID, Reason, Timestamp) bound [/string, /string, /number].
 
+# Structured summaries parsed from test and build output. These names are
+# deliberately execution-scoped so they cannot collide with tester/world facts
+# that use test_result, failed_test, test_coverage, build_result, or diagnostic
+# with different meanings and arities.
+Decl execution_test_summary(RequestID, Passed, Failed, Skipped) bound [/string, /number, /number, /number].
+Decl execution_test_state(RequestID, State) bound [/string, /name].
+Decl execution_failed_test(RequestID, TestName) bound [/string, /string].
+Decl execution_test_coverage(RequestID, CoveragePercent) bound [/string, /number].
+Decl execution_build_summary(RequestID, Success, Errors, Warnings) bound [/string, /name, /number, /number].
+Decl execution_diagnostic(RequestID, Severity, FilePath, Line, Column, Message) bound [/string, /name, /string, /number, /number, /string].
+
 # -----------------------------------------------------------------------------
 # 33.9 Policy Derived Predicates (Section 21 Support)
 # -----------------------------------------------------------------------------

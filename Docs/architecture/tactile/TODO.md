@@ -2,6 +2,34 @@
 
 > Sole authoritative `NERD_FEATURE` surface for the tactile corpus.
 
+## P0: Keep analyzer facts schema-safe and audit loss visible
+
+<!-- NERD_FEATURE
+id: tactile-audit-schema-integrity-v1
+owner: tactile
+status: verified
+kind: truth-gap
+depends_on: []
+affects: [tactile, core, mangle, observability]
+-->
+
+**Value.** Test/build summaries emitted by tactile are accepted by the live
+kernel without colliding with tester/world predicates, while persistent audit
+loss is visible and stored command evidence is bounded.
+
+**Evidence.** Dedicated `execution_*` Decls, including a request-correlated test
+state that cannot mutate the TDD state machine, match every analyzer fact.
+Completed `go test`/`go build` events append these facts automatically, and
+`virtual_store_tactile_audit_test.go` injects and queries that production event
+path through a real kernel. Audit tests cover handle replacement/rotation,
+fallback lifecycle events, redaction, output bounds, and sink-error metrics.
+
+**Negative acceptance.** Coverage never enters a `/number` slot as float64;
+Windows paths retain their drive letter; environment/stdin/known secret argv
+values and unbounded stdout are not written to the JSONL sink; an unaudited
+executor cannot silently produce zero lifecycle events; killed results remain
+killed even when the executor also returns a timeout error.
+
 ## P0: Preserve requested isolation and construction configuration
 
 <!-- NERD_FEATURE

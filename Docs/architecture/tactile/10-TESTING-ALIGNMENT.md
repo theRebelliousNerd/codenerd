@@ -1,6 +1,6 @@
 # tactile — Testing Alignment
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-08-09**
 
 ## Commands
 
@@ -27,7 +27,9 @@ Platform-tagged tests only compile on their OS (e.g. `docker_platform_windows_te
 | AuditEvent.ToFacts (all event types) | `audit_test.go` | Strong |
 | Fact.String formatting | `audit_test.go` | Strong |
 | ExecutionMetrics | `audit_test.go` | Strong |
-| OutputAnalyzer test/build | `audit_test.go` | Good |
+| OutputAnalyzer test/build | `audit_test.go` | Strong; exact summaries, integer coverage, Windows paths |
+| Completed go test/build analyzer facts through live Mangle schema | `internal/core/virtual_store_tactile_audit_test.go` | Strong |
+| Audit sink lifecycle/redaction/errors | `audit_test.go` | Strong |
 | FileAuditEvent.ToFacts | `coverage_boost_test.go` | Strong |
 | FileEditor read/write/edit/insert/delete | `files_test.go`, boost | Strong |
 | limitedWriter | boost | Strong |
@@ -47,7 +49,7 @@ Platform-tagged tests only compile on their OS (e.g. `docker_platform_windows_te
 | Live cgroup Setup/AddProcess | Needs privileged Linux |
 | Live Namespace clone | Privileged / kernel config |
 | PersistentDocker full lifecycle against real daemon | Orphan containers |
-| VirtualStore modern executor end-to-end fact inject (in tactile pkg) | Covered more in core/e2e |
+| Full process execution through VirtualStore plus fact query | Schema boundary is real-kernel tested; live process route remains broader integration |
 | RetryExecutor timing correctness | Busy-loop may hide bugs |
 | Concurrent Execute stress | Race detector optional |
 
@@ -63,11 +65,12 @@ Platform-tagged tests only compile on their OS (e.g. `docker_platform_windows_te
 
 ## Recommended test additions (backlog)
 
-1. Composite: request `SandboxDocker` when docker unavailable → assert **error**, not silent direct (once fail-closed fixed).  
-2. Merge caps TimeoutMs at MaxTimeout.  
-3. inject path: AuditLogger factCallback receives execution_started then completed for Direct.  
-4. PersistentDocker unit tests with fake dockerPath / stub runner if introduced.  
-5. python state transitions without real docker (interface seams).
+1. Full live process path: AuditLogger callback receives execution_started then
+   completed for Direct and the queried kernel facts retain correlation. The
+   current real-kernel test proves the production `AuditEvent.ToFacts` analyzer
+   bridge without launching a subprocess.
+2. PersistentDocker unit tests with fake dockerPath / stub runner if introduced.
+3. python state transitions without real docker (interface seams).
 
 ## External tests that depend on tactile
 

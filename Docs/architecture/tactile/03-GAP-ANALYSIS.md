@@ -1,6 +1,6 @@
 # tactile — Gap Analysis
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-08-09**
 
 ## Method
 
@@ -34,8 +34,7 @@ Compare vision ([01-VISION.md](01-VISION.md)) and north star to living code. Dis
 
 | ID | Gap | Why | Direction |
 |----|-----|-----|-----------|
-| G-P1-1 | Composite never auto-registers namespace/firejail | Requesting those modes falls through to **default direct** silently | Register when available or fail closed in Validate at composite level |
-| G-P1-2 | Silent fallback to defaultExecutor when mode missing from map | Sandbox request may execute unsandboxed | Fail hard or emit `execution_blocked` |
+| G-P1-1 | Composite never auto-registers namespace/firejail | Those backends require explicit registration; unavailable explicit modes now fail closed | Register when available if default discovery is desired |
 | G-P1-3 | Windows `GetPlatformExecutor` ignores Docker availability for return type | Platform “best” less useful on Windows | Align with Darwin Composite behavior |
 | G-P1-4 | RetryExecutor delay not real sleep | Retries may spin | Use `time.After` + ctx |
 
@@ -43,7 +42,7 @@ Compare vision ([01-VISION.md](01-VISION.md)) and north star to living code. Dis
 
 | ID | Gap | Why | Direction |
 |----|-----|-----|-----------|
-| G-P2-1 | Not all audit predicates Decl’d/consumed in policy | Facts without rules are telemetry only | Audit Decl vs ToFacts catalog |
+| G-P2-1 | Audit predicates are Decl-aligned, but policy consumption is sparse | Facts without rules remain telemetry only | Add consumers only where a concrete executive decision needs them |
 | G-P2-2 | docker stats not used for ResourceUsage | Docker path has SupportsResourceUsage false | Optional stats parse |
 | G-P2-3 | PersistentDocker idle timeout config unused for eviction | Config field vs behavior drift | Implement idle reaper or drop field |
 | G-P2-4 | SWE-bench harness not first-class CLI command surface | Benchmark path harder to operate | Optional CLI later |
@@ -56,6 +55,17 @@ Compare vision ([01-VISION.md](01-VISION.md)) and north star to living code. Dis
 - The composite factory formerly probed Docker through default configuration
   even when the caller supplied another binary/config. It now forwards the
   actual `ExecutorConfig`, with a focused configuration-propagation regression.
+
+### Closed in the 2026-08-09 audit
+
+- OutputAnalyzer formerly reused five tester/world predicates with incompatible
+  arities and types. It now emits dedicated `execution_*` summaries declared in
+  `schemas_shards.mg`, and a real-kernel test proves every emitted fact is
+  accepted and queryable.
+- Audit-file replacement/rotation no longer leaks or retains closed handles;
+  sink errors are observable, secrets are redacted, and stored output is bounded.
+- `AuditedExecutorWrapper` now supplies lifecycle events for executors that do
+  not implement `SetAuditCallback`.
 
 ### P3 — polish
 

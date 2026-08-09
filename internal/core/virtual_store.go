@@ -269,7 +269,10 @@ func (v *VirtualStore) initModernExecutor() {
 
 	// Wire audit events to emit facts to kernel
 	v.auditLogger.SetFactCallback(func(fact tactile.Fact) {
-		v.injectTactileFact(fact)
+		if err := v.injectTactileFact(fact); err != nil {
+			logging.Get(logging.CategoryVirtualStore).Error(
+				"Failed to inject tactile fact %s: %v", fact.Predicate, err)
+		}
 	})
 
 	// Connect audit logger to executor
@@ -330,46 +333,24 @@ func (v *VirtualStore) processValidationResults(req ActionRequest, result Action
 }
 
 // injectTactileFact converts a tactile.Fact to core.Fact and injects to kernel.
-func (v *VirtualStore) injectTactileFact(tf tactile.Fact) {
+func (v *VirtualStore) injectTactileFact(tf tactile.Fact) error {
 	v.mu.RLock()
 	kernel := v.kernel
 	v.mu.RUnlock()
 
 	if kernel == nil {
 		logging.VirtualStoreDebug("Cannot inject tactile fact %s: no kernel configured", tf.Predicate)
-		return
-	}
-
-	// Normalize args to Mangle atoms where appropriate (Fix 11.11)
-	normalizedArgs := make([]any, len(tf.Args))
-	for i, arg := range tf.Args {
-		normalizedArgs[i] = v.normalizeAtom(arg)
+		return fmt.Errorf("cannot inject tactile fact %s: no kernel configured", tf.Predicate)
 	}
 
 	// Convert tactile.Fact to core.Fact
 	coreFact := Fact{
 		Predicate: tf.Predicate,
-		Args:      normalizedArgs,
+		Args:      append([]any(nil), tf.Args...),
 	}
 
 	logging.VirtualStoreDebug("Injecting tactile fact: %s (args=%d)", tf.Predicate, len(tf.Args))
-	if err := kernel.Assert(coreFact); err != nil {
-		logging.Get(logging.CategoryVirtualStore).Error("Failed to inject tactile fact %s: %v", tf.Predicate, err)
-	}
-}
-
-// normalizeAtom converts known status strings to Mangle atoms.
-func (v *VirtualStore) normalizeAtom(val any) any {
-	s, ok := val.(string)
-	if !ok {
-		return val
-	}
-	// List of keywords that should be treated as atoms in Mangle policies
-	switch s {
-	case "success", "failure", "strict", "permissive", "none", "running", "completed", "failed", "pending", "blocked":
-		return MangleAtom("/" + s)
-	}
-	return val
+	return kernel.Assert(coreFact)
 }
 
 // EnableModernExecutor switches to the modern tactile executor.

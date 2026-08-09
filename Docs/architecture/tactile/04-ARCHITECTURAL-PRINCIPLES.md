@@ -49,7 +49,8 @@ Ephemeral Docker ≠ persistent Docker ≠ python.Environment ≠ swebench.Harne
 
 If a sandbox mode is requested, either execute under that mode or **fail**. Silent downgrade to unsandboxed direct violates user/policy expectations.
 
-*(Today’s Composite fallback to defaultExecutor is a known tension with this principle — see gaps.)*
+Composite now enforces this: only absent/none isolation selects Direct, while an
+explicit unavailable mode fails closed.
 
 ## P12 — Minimal external surface for subpackages
 

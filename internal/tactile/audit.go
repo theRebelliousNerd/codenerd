@@ -7,10 +7,28 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
+
+const (
+	auditFileMode        = 0600
+	auditDirectoryMode   = 0700
+	auditOutputMaxBytes  = 64 * 1024
+	auditDetailFactLimit = 100
+)
+
+var goDiagnosticPattern = regexp.MustCompile(`^(.+\.go):([0-9]+):([0-9]+):\s*(.*)$`)
+
+var secretAssignmentPattern = regexp.MustCompile(`(?i)(token|password|api[-_]?key|access_token)=([^&\s]+)`)
 
 // Fact represents a Mangle fact for kernel injection.
 // This mirrors core.Fact but is defined here to avoid import cycles.
@@ -21,32 +39,7 @@ type Fact struct {
 
 // String returns the Datalog string representation of the fact.
 func (f Fact) String() string {
-	var args []string
-	for _, arg := range f.Args {
-		switch v := arg.(type) {
-		case string:
-			if strings.HasPrefix(v, "/") {
-				args = append(args, v)
-			} else {
-				args = append(args, fmt.Sprintf("%q", v))
-			}
-		case int:
-			args = append(args, fmt.Sprintf("%d", v))
-		case int64:
-			args = append(args, fmt.Sprintf("%d", v))
-		case float64:
-			args = append(args, fmt.Sprintf("%f", v))
-		case bool:
-			if v {
-				args = append(args, "/true")
-			} else {
-				args = append(args, "/false")
-			}
-		default:
-			args = append(args, fmt.Sprintf("%v", v))
-		}
-	}
-	return fmt.Sprintf("%s(%s).", f.Predicate, strings.Join(args, ", "))
+	return types.Fact{Predicate: f.Predicate, Args: f.Args}.String()
 }
 
 // ToFacts converts an AuditEvent to Mangle facts for kernel injection.
@@ -55,7 +48,9 @@ func (e AuditEvent) ToFacts() []Fact {
 	facts := make([]Fact, 0)
 
 	timestamp := e.Timestamp.Unix()
-	cmdString := e.Command.CommandString()
+	commandForAudit := e.Command
+	commandForAudit.Arguments = redactArguments(e.Command.Arguments)
+	cmdString := commandForAudit.CommandString()
 
 	switch e.Type {
 	case AuditEventStart:
@@ -92,7 +87,7 @@ func (e AuditEvent) ToFacts() []Fact {
 
 	case AuditEventComplete:
 		if e.Result == nil {
-			break
+			return facts
 		}
 
 		// execution_completed(RequestID, ExitCode, DurationMs, Timestamp)
@@ -105,6 +100,8 @@ func (e AuditEvent) ToFacts() []Fact {
 				timestamp,
 			},
 		})
+
+		facts = append(facts, analyzeExecutionOutputFacts(e.Command, e.Result)...)
 
 		// execution_output(RequestID, StdoutLen, StderrLen)
 		facts = append(facts, Fact{
@@ -162,17 +159,21 @@ func (e AuditEvent) ToFacts() []Fact {
 
 		// Sandbox mode fact
 		// execution_sandbox(RequestID, SandboxMode)
+		sandboxMode := string(e.Result.SandboxUsed)
+		if sandboxMode == "" {
+			sandboxMode = string(SandboxNone)
+		}
 		facts = append(facts, Fact{
 			Predicate: "execution_sandbox",
 			Args: []any{
 				e.Command.RequestID,
-				"/" + string(e.Result.SandboxUsed),
+				"/" + sandboxMode,
 			},
 		})
 
 	case AuditEventKilled:
 		if e.Result == nil {
-			break
+			return facts
 		}
 
 		// execution_killed(RequestID, Reason, DurationMs)
@@ -256,6 +257,10 @@ type AuditLogger struct {
 
 	// metrics tracks execution statistics
 	metrics *ExecutionMetrics
+
+	// File-write failures must be observable even though Log cannot return an error.
+	fileWriteErrors int64
+	lastFileError   string
 }
 
 // NewAuditLogger creates a new audit logger.
@@ -282,24 +287,33 @@ func (l *AuditLogger) SetFactCallback(callback func(Fact)) {
 
 // EnableFileLogging enables logging to a file.
 func (l *AuditLogger) EnableFileLogging(path string) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	fl, err := NewAuditFileLogger(path)
 	if err != nil {
 		return err
 	}
+
+	l.mu.Lock()
+	previous := l.fileLogger
 	l.fileLogger = fl
+	l.mu.Unlock()
+
+	if previous != nil {
+		if err := previous.Close(); err != nil {
+			logging.TactileWarn("New audit log is active, but closing the previous log failed: %v", err)
+		}
+	}
 	return nil
 }
 
 // Close closes the audit logger and any file handles.
 func (l *AuditLogger) Close() error {
 	l.mu.Lock()
-	defer l.mu.Unlock()
+	fileLogger := l.fileLogger
+	l.fileLogger = nil
+	l.mu.Unlock()
 
-	if l.fileLogger != nil {
-		return l.fileLogger.Close()
+	if fileLogger != nil {
+		return fileLogger.Close()
 	}
 	return nil
 }
@@ -307,7 +321,7 @@ func (l *AuditLogger) Close() error {
 // Log logs an audit event.
 func (l *AuditLogger) Log(event AuditEvent) {
 	l.mu.RLock()
-	callbacks := l.callbacks
+	callbacks := slices.Clone(l.callbacks)
 	factCallback := l.factCallback
 	fileLogger := l.fileLogger
 	metrics := l.metrics
@@ -332,7 +346,13 @@ func (l *AuditLogger) Log(event AuditEvent) {
 
 	// Write to file if enabled
 	if fileLogger != nil {
-		fileLogger.Write(event)
+		if err := fileLogger.Write(event); err != nil {
+			l.mu.Lock()
+			l.fileWriteErrors++
+			l.lastFileError = err.Error()
+			l.mu.Unlock()
+			logging.TactileWarn("Audit file write failed: %v", err)
+		}
 	}
 }
 
@@ -342,9 +362,15 @@ func (l *AuditLogger) GetMetrics() ExecutionMetricsSnapshot {
 	defer l.mu.RUnlock()
 
 	if l.metrics == nil {
-		return ExecutionMetricsSnapshot{}
+		return ExecutionMetricsSnapshot{
+			AuditFileWriteErrors: l.fileWriteErrors,
+			LastAuditFileError:   l.lastFileError,
+		}
 	}
-	return l.metrics.Snapshot()
+	snapshot := l.metrics.Snapshot()
+	snapshot.AuditFileWriteErrors = l.fileWriteErrors
+	snapshot.LastAuditFileError = l.lastFileError
+	return snapshot
 }
 
 // AuditFileLogger writes audit events to a file in JSON Lines format.
@@ -358,12 +384,12 @@ type AuditFileLogger struct {
 func NewAuditFileLogger(path string) (*AuditFileLogger, error) {
 	// Ensure directory exists
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, auditDirectoryMode); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
 
 	// Open file for append
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, auditFileMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %w", err)
 	}
@@ -383,13 +409,101 @@ func (l *AuditFileLogger) Write(event AuditEvent) error {
 		return fmt.Errorf("log file not open")
 	}
 
-	data, err := json.Marshal(event)
+	data, err := json.Marshal(sanitizeAuditEvent(event))
 	if err != nil {
 		return err
 	}
 
 	_, err = l.file.Write(append(data, '\n'))
 	return err
+}
+
+// sanitizeAuditEvent keeps the on-disk audit useful without persisting caller
+// environment values, stdin, or unbounded process output. In-memory callbacks
+// still receive the original event.
+func sanitizeAuditEvent(event AuditEvent) AuditEvent {
+	sanitized := event
+	sanitized.Command = event.Command
+	sanitized.Command.Arguments = redactArguments(event.Command.Arguments)
+	sanitized.Command.Environment = redactEnvironment(event.Command.Environment)
+	sanitized.Command.Tags = maps.Clone(event.Command.Tags)
+	if sanitized.Command.Stdin != "" {
+		sanitized.Command.Stdin = "[REDACTED]"
+	}
+
+	if event.Result != nil {
+		result := *event.Result
+		result.Stdout = boundedAuditOutput(result.Stdout)
+		result.Stderr = boundedAuditOutput(result.Stderr)
+		result.Combined = boundedAuditOutput(result.Combined)
+		if result.Command != nil {
+			command := *result.Command
+			command.Arguments = redactArguments(result.Command.Arguments)
+			command.Environment = redactEnvironment(result.Command.Environment)
+			command.Tags = maps.Clone(result.Command.Tags)
+			if command.Stdin != "" {
+				command.Stdin = "[REDACTED]"
+			}
+			result.Command = &command
+		}
+		sanitized.Result = &result
+	}
+
+	return sanitized
+}
+
+func redactEnvironment(environment []string) []string {
+	if len(environment) == 0 {
+		return nil
+	}
+	redacted := make([]string, len(environment))
+	for i, entry := range environment {
+		name, _, found := strings.Cut(entry, "=")
+		if !found {
+			name = entry
+		}
+		redacted[i] = name + "=[REDACTED]"
+	}
+	return redacted
+}
+
+func redactArguments(arguments []string) []string {
+	if len(arguments) == 0 {
+		return nil
+	}
+	redacted := slices.Clone(arguments)
+	redactNext := false
+	for i, argument := range redacted {
+		if redactNext {
+			redacted[i] = "[REDACTED]"
+			redactNext = false
+			continue
+		}
+
+		lower := strings.ToLower(argument)
+		switch lower {
+		case "--token", "--password", "--api-key", "--api_key", "--apikey", "--authorization", "--access-token", "--access_token":
+			redactNext = true
+			continue
+		}
+		if index := strings.Index(lower, "authorization:"); index >= 0 {
+			redacted[i] = argument[:index+len("authorization:")] + " [REDACTED]"
+			continue
+		}
+		redacted[i] = secretAssignmentPattern.ReplaceAllString(argument, "$1=[REDACTED]")
+	}
+	return redacted
+}
+
+func boundedAuditOutput(output string) string {
+	if len(output) <= auditOutputMaxBytes {
+		return output
+	}
+	cut := auditOutputMaxBytes
+	for cut > 0 && !utf8.RuneStart(output[cut]) {
+		cut--
+	}
+	return output[:cut] + "\n[TRUNCATED IN AUDIT LOG]"
 }
 
 // Close closes the log file.
@@ -418,17 +532,33 @@ func (l *AuditFileLogger) Rotate() error {
 	if err := l.file.Close(); err != nil {
 		return err
 	}
+	l.file = nil
 
 	// Rename to timestamped backup
-	backupPath := fmt.Sprintf("%s.%s", l.path, time.Now().Format("20060102-150405"))
+	backupPath := fmt.Sprintf("%s.%s", l.path, time.Now().Format("20060102-150405.000000000"))
 	if err := os.Rename(l.path, backupPath); err != nil {
-		return err
+		// Recover the active path when possible. Regardless of recovery, l.file
+		// never retains a closed handle.
+		file, reopenErr := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, auditFileMode)
+		if reopenErr == nil {
+			l.file = file
+			return fmt.Errorf("rotate audit log: %w", err)
+		}
+		return fmt.Errorf("rotate audit log: %v; reopen active log: %w", err, reopenErr)
 	}
 
 	// Open new file
-	file, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, auditFileMode)
 	if err != nil {
-		return err
+		if rollbackErr := os.Rename(backupPath, l.path); rollbackErr == nil {
+			recovered, reopenErr := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, auditFileMode)
+			if reopenErr == nil {
+				l.file = recovered
+				return fmt.Errorf("open new audit log after rotate: %w; restored previous log", err)
+			}
+			return fmt.Errorf("open new audit log after rotate: %v; reopen restored log: %w", err, reopenErr)
+		}
+		return fmt.Errorf("open new audit log after rotate: %w", err)
 	}
 
 	l.file = file
@@ -444,6 +574,7 @@ type ExecutionMetrics struct {
 	failedExecutions     int64
 	killedExecutions     int64
 	blockedExecutions    int64
+	durationSamples      int64
 
 	totalDurationMs  int64
 	totalCPUTimeMs   int64
@@ -480,6 +611,7 @@ func (m *ExecutionMetrics) RecordEvent(event AuditEvent) {
 
 	case AuditEventComplete:
 		if event.Result != nil {
+			m.durationSamples++
 			if event.Result.Success && event.Result.ExitCode == 0 {
 				m.successfulExecutions++
 			} else if !event.Result.Success {
@@ -496,6 +628,7 @@ func (m *ExecutionMetrics) RecordEvent(event AuditEvent) {
 	case AuditEventKilled:
 		m.killedExecutions++
 		if event.Result != nil {
+			m.durationSamples++
 			m.totalDurationMs += event.Result.Duration.Milliseconds()
 		}
 
@@ -522,6 +655,8 @@ type ExecutionMetricsSnapshot struct {
 	LastEventTime        time.Time        `json:"last_event_time"`
 	SuccessRate          float64          `json:"success_rate"`
 	AvgDurationMs        float64          `json:"avg_duration_ms"`
+	AuditFileWriteErrors int64            `json:"audit_file_write_errors"`
+	LastAuditFileError   string           `json:"last_audit_file_error,omitempty"`
 }
 
 // Snapshot returns a point-in-time copy of the metrics.
@@ -538,10 +673,12 @@ func (m *ExecutionMetrics) Snapshot() ExecutionMetricsSnapshot {
 	// Calculate derived metrics
 	successRate := float64(0)
 	avgDuration := float64(0)
-	completed := m.successfulExecutions + m.failedExecutions + m.killedExecutions
-	if completed > 0 {
-		successRate = float64(m.successfulExecutions) / float64(completed)
-		avgDuration = float64(m.totalDurationMs) / float64(completed)
+	classified := m.successfulExecutions + m.failedExecutions + m.killedExecutions
+	if classified > 0 {
+		successRate = float64(m.successfulExecutions) / float64(classified)
+	}
+	if m.durationSamples > 0 {
+		avgDuration = float64(m.totalDurationMs) / float64(m.durationSamples)
 	}
 
 	return ExecutionMetricsSnapshot{
@@ -571,6 +708,7 @@ func (m *ExecutionMetrics) Reset() {
 	m.failedExecutions = 0
 	m.killedExecutions = 0
 	m.blockedExecutions = 0
+	m.durationSamples = 0
 	m.totalDurationMs = 0
 	m.totalCPUTimeMs = 0
 	m.totalMemoryBytes = 0
@@ -581,26 +719,97 @@ func (m *ExecutionMetrics) Reset() {
 
 // AuditedExecutorWrapper wraps any Executor to add audit logging.
 type AuditedExecutorWrapper struct {
-	executor Executor
-	logger   *AuditLogger
+	executor      Executor
+	logger        *AuditLogger
+	callbackWired bool
 }
 
 // NewAuditedExecutor wraps an executor with audit logging.
 func NewAuditedExecutor(executor Executor, logger *AuditLogger) *AuditedExecutorWrapper {
 	// If the executor already supports audit callbacks, use that
-	if audited, ok := executor.(interface{ SetAuditCallback(func(AuditEvent)) }); ok {
+	callbackWired := false
+	if audited, ok := executor.(AuditedExecutorInterface); ok && logger != nil {
 		audited.SetAuditCallback(logger.Log)
+		callbackWired = true
 	}
 
 	return &AuditedExecutorWrapper{
-		executor: executor,
-		logger:   logger,
+		executor:      executor,
+		logger:        logger,
+		callbackWired: callbackWired,
 	}
 }
 
 // Execute runs a command and logs the execution.
 func (w *AuditedExecutorWrapper) Execute(ctx context.Context, cmd Command) (*ExecutionResult, error) {
-	return w.executor.Execute(ctx, cmd)
+	if w.callbackWired || w.logger == nil {
+		return w.executor.Execute(ctx, cmd)
+	}
+
+	startedAt := time.Now()
+	executorName := w.executor.Capabilities().Name
+	w.logger.Log(AuditEvent{
+		Type:         AuditEventStart,
+		Timestamp:    startedAt,
+		Command:      cmd,
+		SessionID:    cmd.SessionID,
+		ExecutorName: executorName,
+	})
+
+	result, err := w.executor.Execute(ctx, cmd)
+	finishedAt := time.Now()
+	auditResult := result
+	if result != nil {
+		resultCopy := *result
+		if resultCopy.StartedAt.IsZero() {
+			resultCopy.StartedAt = startedAt
+		}
+		if resultCopy.FinishedAt.IsZero() {
+			resultCopy.FinishedAt = finishedAt
+		}
+		if resultCopy.Duration == 0 {
+			resultCopy.Duration = finishedAt.Sub(startedAt)
+		}
+		if err != nil && resultCopy.Error == "" {
+			resultCopy.Error = err.Error()
+		}
+		auditResult = &resultCopy
+	} else if err != nil {
+		auditResult = &ExecutionResult{
+			Success:    false,
+			ExitCode:   -1,
+			Error:      err.Error(),
+			StartedAt:  startedAt,
+			FinishedAt: finishedAt,
+			Duration:   finishedAt.Sub(startedAt),
+		}
+	} else if result == nil {
+		auditResult = &ExecutionResult{
+			Success:    false,
+			ExitCode:   -1,
+			Error:      "executor returned no result",
+			StartedAt:  startedAt,
+			FinishedAt: finishedAt,
+			Duration:   finishedAt.Sub(startedAt),
+		}
+	}
+
+	eventType := AuditEventComplete
+	if result != nil && result.Killed {
+		eventType = AuditEventKilled
+	} else if err != nil || result == nil {
+		eventType = AuditEventError
+	}
+	w.logger.Log(AuditEvent{
+		Type:         eventType,
+		Timestamp:    finishedAt,
+		Command:      cmd,
+		Result:       auditResult,
+		SessionID:    cmd.SessionID,
+		ExecutorName: executorName,
+	})
+
+	return result, err
 }
 
 // Capabilities returns the wrapped executor's capabilities.
@@ -631,6 +840,7 @@ func (a *OutputAnalyzer) AnalyzeTestOutput(output string) TestAnalysis {
 	analysis := TestAnalysis{
 		RawOutput: output,
 	}
+	sawFailure := false
 
 	lines := strings.SplitSeq(output, "\n")
 	for line := range lines {
@@ -641,6 +851,7 @@ func (a *OutputAnalyzer) AnalyzeTestOutput(output string) TestAnalysis {
 			analysis.Passed++
 		} else if strings.HasPrefix(line, "--- FAIL:") {
 			analysis.Failed++
+			sawFailure = true
 			// Extract test name
 			parts := strings.Fields(line)
 			if len(parts) >= 3 {
@@ -648,10 +859,11 @@ func (a *OutputAnalyzer) AnalyzeTestOutput(output string) TestAnalysis {
 			}
 		} else if strings.HasPrefix(line, "--- SKIP:") {
 			analysis.Skipped++
-		} else if strings.HasPrefix(line, "PASS") {
+		} else if line == "PASS" && !sawFailure {
 			analysis.OverallPass = true
-		} else if strings.HasPrefix(line, "FAIL") {
+		} else if line == "FAIL" || strings.HasPrefix(line, "FAIL\t") {
 			analysis.OverallPass = false
+			sawFailure = true
 		}
 
 		// Extract timing
@@ -659,14 +871,76 @@ func (a *OutputAnalyzer) AnalyzeTestOutput(output string) TestAnalysis {
 			// Parse coverage percentage
 			for part := range strings.FieldsSeq(line) {
 				if strings.HasSuffix(part, "%") {
-					fmt.Sscanf(part, "%f%%", &analysis.Coverage)
+					var coverage float64
+					if n, err := fmt.Sscanf(part, "%f%%", &coverage); err == nil && n == 1 {
+						analysis.Coverage = coverage
+					}
 				}
 			}
 		}
 	}
 
 	analysis.Total = analysis.Passed + analysis.Failed + analysis.Skipped
+	if sawFailure || analysis.Failed > 0 {
+		analysis.OverallPass = false
+	}
 	return analysis
+}
+
+// analyzeExecutionOutputFacts deterministically connects completed Go test/build
+// commands to the structured analyzer facts. Other binaries and Go subcommands
+// retain only the generic execution lifecycle facts.
+func analyzeExecutionOutputFacts(command Command, result *ExecutionResult) []Fact {
+	if result == nil || goCommandSubcommand(command) == "" {
+		return nil
+	}
+	output := result.Combined
+	if output == "" {
+		output = result.Stdout
+		if result.Stderr != "" {
+			if output != "" {
+				output += "\n"
+			}
+			output += result.Stderr
+		}
+	}
+
+	analyzer := NewOutputAnalyzer()
+	switch goCommandSubcommand(command) {
+	case "test":
+		analysis := analyzer.AnalyzeTestOutput(output)
+		analysis.OverallPass = result.Success && result.ExitCode == 0
+		return analysis.ToFacts(command.RequestID)
+	case "build":
+		analysis := analyzer.AnalyzeBuildOutput(output)
+		analysis.Success = result.Success && result.ExitCode == 0
+		return analysis.ToFacts(command.RequestID)
+	default:
+		return nil
+	}
+}
+
+func goCommandSubcommand(command Command) string {
+	binaryPath := strings.ReplaceAll(command.Binary, `\`, "/")
+	binary := strings.TrimSuffix(strings.ToLower(filepath.Base(binaryPath)), ".exe")
+	if binary != "go" {
+		return ""
+	}
+	for i := 0; i < len(command.Arguments); i++ {
+		argument := command.Arguments[i]
+		if argument == "-C" {
+			i++
+			continue
+		}
+		if strings.HasPrefix(argument, "-C=") || strings.HasPrefix(argument, "-") {
+			continue
+		}
+		if argument == "test" || argument == "build" {
+			return argument
+		}
+		return ""
+	}
+	return ""
 }
 
 // TestAnalysis contains extracted test information.
@@ -685,34 +959,37 @@ type TestAnalysis struct {
 func (t TestAnalysis) ToFacts(requestID string) []Fact {
 	facts := []Fact{
 		{
-			Predicate: "test_result",
+			Predicate: "execution_test_summary",
 			Args:      []any{requestID, int64(t.Passed), int64(t.Failed), int64(t.Skipped)},
 		},
 	}
 
 	if t.OverallPass {
 		facts = append(facts, Fact{
-			Predicate: "test_state",
-			Args:      []any{"/passing"},
+			Predicate: "execution_test_state",
+			Args:      []any{requestID, "/passing"},
 		})
 	} else {
 		facts = append(facts, Fact{
-			Predicate: "test_state",
-			Args:      []any{"/failing"},
+			Predicate: "execution_test_state",
+			Args:      []any{requestID, "/failing"},
 		})
 	}
 
-	for _, name := range t.FailedTests {
+	for i, name := range t.FailedTests {
+		if i >= auditDetailFactLimit {
+			break
+		}
 		facts = append(facts, Fact{
-			Predicate: "failed_test",
+			Predicate: "execution_failed_test",
 			Args:      []any{requestID, name},
 		})
 	}
 
 	if t.Coverage > 0 {
 		facts = append(facts, Fact{
-			Predicate: "test_coverage",
-			Args:      []any{requestID, t.Coverage},
+			Predicate: "execution_test_coverage",
+			Args:      []any{requestID, types.PercentClamp(t.Coverage)},
 		})
 	}
 
@@ -733,27 +1010,25 @@ func (a *OutputAnalyzer) AnalyzeBuildOutput(output string) BuildAnalysis {
 			continue
 		}
 
-		// Go compiler error pattern: file.go:line:col: message
-		// Match any line with file.go:number:number: pattern (standard Go error format)
-		parts := strings.SplitN(line, ":", 4)
-		if len(parts) >= 4 && strings.HasSuffix(parts[0], ".go") {
-			lineNum := int64(0)
-			colNum := int64(0)
-			_, err1 := fmt.Sscanf(parts[1], "%d", &lineNum)
-			_, err2 := fmt.Sscanf(parts[2], "%d", &colNum)
+		// Go compiler error pattern: file.go:line:col: message. The greedy
+		// file group preserves Windows drive-letter paths.
+		parts := goDiagnosticPattern.FindStringSubmatch(line)
+		if len(parts) == 5 {
+			lineNum, err1 := strconv.ParseInt(parts[2], 10, 64)
+			colNum, err2 := strconv.ParseInt(parts[3], 10, 64)
 
 			// Only process if we successfully parsed line and column numbers
 			if err1 == nil && err2 == nil && lineNum > 0 {
 				severity := "error"
-				if strings.Contains(parts[3], "warning") {
+				if strings.Contains(parts[4], "warning") {
 					severity = "warning"
 				}
 
 				analysis.Diagnostics = append(analysis.Diagnostics, Diagnostic{
-					File:     parts[0],
+					File:     parts[1],
 					Line:     int(lineNum),
 					Column:   int(colNum),
-					Message:  strings.TrimSpace(parts[3]),
+					Message:  strings.TrimSpace(parts[4]),
 					Severity: severity,
 				})
 
@@ -790,18 +1065,36 @@ type Diagnostic struct {
 
 // ToFacts converts build analysis to Mangle facts.
 func (b BuildAnalysis) ToFacts(requestID string) []Fact {
+	success := "/false"
+	if b.Success {
+		success = "/true"
+	}
 	facts := []Fact{
 		{
-			Predicate: "build_result",
-			Args:      []any{requestID, b.Success, int64(b.Errors), int64(b.Warnings)},
+			Predicate: "execution_build_summary",
+			Args:      []any{requestID, success, int64(b.Errors), int64(b.Warnings)},
 		},
 	}
 
-	for _, d := range b.Diagnostics {
-		severityName := "/" + d.Severity
+	for i, d := range b.Diagnostics {
+		if i >= auditDetailFactLimit {
+			break
+		}
+		severity := strings.TrimSpace(d.Severity)
+		if severity == "" {
+			severity = "error"
+		}
+		severityName := "/" + severity
 		facts = append(facts, Fact{
-			Predicate: "diagnostic",
-			Args:      []any{severityName, d.File, int64(d.Line), d.Message},
+			Predicate: "execution_diagnostic",
+			Args: []any{
+				requestID,
+				severityName,
+				d.File,
+				int64(d.Line),
+				int64(d.Column),
+				d.Message,
+			},
 		})
 	}
 

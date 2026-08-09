@@ -313,7 +313,8 @@ Does **not** implement the plain `Executor` interface as primary path; higher la
 - Registers `DockerExecutor` for `SandboxDocker` **if** available.  
 - Does **not** auto-register Firejail/Namespace (those need `RegisterExecutor` or platform factory).
 
-`selectExecutor`: mode from `cmd.Sandbox.Mode`, else none; fallback **default** direct if mode missing from map.
+`selectExecutor`: mode from `cmd.Sandbox.Mode`, else none. Only absent/none uses
+the default Direct executor; an explicitly unavailable mode returns an error.
 
 Factory methods:
 
@@ -395,7 +396,7 @@ VirtualStore uses `core.NewTactileFileEditorAdapter` so core does not import cyc
 
 ### 7.1 Fact type
 
-Local `tactile.Fact` mirrors core facts **without importing core** (cycle avoidance). `String()` renders Datalog-ish text; string atoms starting with `/` stay bare.
+Local `tactile.Fact` mirrors core facts **without importing core** (cycle avoidance). `String()` delegates to the canonical `types.Fact` renderer so paths are not mistaken for Mangle names.
 
 ### 7.2 Execution fact catalog
 
@@ -413,14 +414,24 @@ Local `tactile.Fact` mirrors core facts **without importing core** (cycle avoida
 
 - Multiple event callbacks  
 - Optional fact callback  
-- Optional JSONL `AuditFileLogger` with rotate  
-- Embedded `ExecutionMetrics` → snapshot (success rate, avg duration, by binary/session)
+- Optional JSONL `AuditFileLogger` with nanosecond-unique rotate, owner-only file
+  mode, environment/stdin redaction, and 64 KiB per-output-field bounds
+- Embedded `ExecutionMetrics` → snapshot (success rate, avg duration, by
+  binary/session, audit-sink write failures and last error)
+- `AuditedExecutorWrapper` emits a fallback start/terminal lifecycle when the
+  wrapped executor has no native audit callback
 
 ### 7.4 OutputAnalyzer
 
-- Go `--- PASS/FAIL/SKIP` and coverage %  
-- Go compiler `file.go:line:col: msg` diagnostics  
-- Emit `test_result`, `test_state`, `failed_test`, `test_coverage`, `build_result`, `diagnostic`
+- Go `--- PASS/FAIL/SKIP` and coverage %, with exact summary matching
+- Go compiler `file.go:line:col: msg` diagnostics, including Windows drive paths
+- Emit `execution_test_summary`, `execution_test_state`, `execution_failed_test`,
+  `execution_test_coverage`, `execution_build_summary`, and
+  `execution_diagnostic`; coverage is a bounded integer percent
+- Completed `go test` and `go build` audit events are classified by exact binary
+  and subcommand and append the analyzer facts automatically; other commands do
+  not enter this path. Per-item failed-test and diagnostic facts are capped at
+  100 per execution while the aggregate summary retains the full counts.
 
 Not a general multi-language parser — honest scope.
 
@@ -511,7 +522,9 @@ Examples:
 - `schemas_shards.mg`: `execution_started`, `execution_completed`, …  
 - `schemas_codedom.mg`: `file_read`, `file_written`  
 
-Not all audit predicates necessarily have full Decl coverage — treat as wiring audit item.
+Every predicate currently emitted by `AuditEvent.ToFacts`, `TestAnalysis.ToFacts`,
+and `BuildAnalysis.ToFacts` has a matching Decl. Policy consumption remains
+selective; unused facts are telemetry rather than executive state.
 
 ---
 
