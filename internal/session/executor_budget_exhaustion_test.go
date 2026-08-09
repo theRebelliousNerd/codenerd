@@ -283,11 +283,12 @@ func TestForceFinalAnswer_RefusesUnofferedToolCalls(t *testing.T) {
 	}
 	executor.config.EnableSafetyGate = false
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/review"}}
+	history := []types.Message{}
 	final, errs, err := executor.forceFinalAnswer(
 		context.Background(),
 		finalToolCallProvider{toolName: toolName},
 		"system",
-		nil,
+		&history,
 		&types.LLMToolResponse{},
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
 		result,
@@ -304,6 +305,7 @@ func TestForceFinalAnswer_RefusesUnofferedToolCalls(t *testing.T) {
 	if len(final.ToolCalls) != 0 {
 		t.Fatalf("returned response still advertises refused calls: %v", final.ToolCalls)
 	}
+	assertToolCallPaired(t, history, toolName, true)
 }
 
 func TestForceFinalAnswer_ExecutesOfferedWriteThenClearsIt(t *testing.T) {
@@ -317,15 +319,15 @@ func TestForceFinalAnswer_ExecutesOfferedWriteThenClearsIt(t *testing.T) {
 			return "done", nil
 		},
 	})
-
 	executor := &Executor{kernel: &MockKernel{}, config: DefaultExecutorConfig(), virtualStore: &MockVirtualStore{}}
 	executor.config.EnableSafetyGate = false
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/create"}}
+	history := []types.Message{}
 	final, errs, err := executor.forceFinalAnswer(
 		context.Background(),
 		finalToolCallProvider{toolName: toolName},
 		"system",
-		nil,
+		&history,
 		&types.LLMToolResponse{},
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
 		result,
@@ -338,6 +340,134 @@ func TestForceFinalAnswer_ExecutesOfferedWriteThenClearsIt(t *testing.T) {
 	}
 	if len(final.ToolCalls) != 0 {
 		t.Fatalf("returned response still advertises executed calls: %v", final.ToolCalls)
+	}
+	assertToolCallPaired(t, history, toolName, false)
+}
+
+type capturingProvider struct {
+	captured *[]types.Message
+	text     string
+}
+
+func (c *capturingProvider) CompleteWithToolResults(_ context.Context, _ string, history []types.Message, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	*c.captured = append([]types.Message(nil), history...)
+	return &types.LLMToolResponse{Text: c.text}, nil
+}
+
+func TestForceFinalAnswer_PendingCallPairedBeforeNudge(t *testing.T) {
+	const toolName = "pending_write_tool"
+	executions := 0
+	tools.Global().Register(&tools.Tool{
+		Name:     toolName,
+		Category: tools.CategoryCode,
+		Execute: func(context.Context, map[string]any) (string, error) {
+			executions++
+			return "pending done", nil
+		},
+	})
+	pendingID := "pending-1"
+	pendingCall := types.ToolCall{ID: pendingID, Name: toolName, Input: map[string]any{"path": "pending.txt"}}
+	history := []types.Message{
+		{Role: "assistant", ToolCalls: []types.ToolCall{pendingCall}},
+	}
+	pending := &types.LLMToolResponse{ToolCalls: []types.ToolCall{pendingCall}}
+
+	var captured []types.Message
+	provider := &capturingProvider{captured: &captured, text: "final answer"}
+
+	executor := &Executor{kernel: &MockKernel{}, config: DefaultExecutorConfig(), virtualStore: &MockVirtualStore{}}
+	executor.config.EnableSafetyGate = false
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/review"}}
+	final, errs, err := executor.forceFinalAnswer(
+		context.Background(),
+		provider,
+		"system",
+		&history,
+		pending,
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		result,
+	)
+	if err != nil {
+		t.Fatalf("forceFinalAnswer error=%v", err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("unexpected toolErrors=%v", errs)
+	}
+	if executions != 1 {
+		t.Fatalf("pending executions=%d, want 1", executions)
+	}
+	if final.Text != "final answer" {
+		t.Fatalf("final.Text=%q, want %q", final.Text, "final answer")
+	}
+	if len(final.ToolCalls) != 0 {
+		t.Fatalf("final.ToolCalls=%v, want empty", final.ToolCalls)
+	}
+	assertToolCallPaired(t, history, pendingID, false)
+	if len(captured) == 0 {
+		t.Fatalf("provider received no history")
+	}
+	callIdx, resultIdx, nudgeIdx := -1, -1, -1
+	for i, m := range captured {
+		for _, c := range m.ToolCalls {
+			if c.ID == pendingID {
+				callIdx = i
+			}
+		}
+		for _, r := range m.ToolResults {
+			if r.ToolUseID == pendingID {
+				resultIdx = i
+			}
+		}
+		if m.Role == "user" && m.Text != "" && (strings.Contains(m.Text, "tool budget") || strings.Contains(m.Text, "exploration budget")) {
+			nudgeIdx = i
+		}
+	}
+	if callIdx == -1 || resultIdx == -1 || nudgeIdx == -1 {
+		t.Fatalf("captured history missing call (%d) result (%d) or nudge (%d): %#v", callIdx, resultIdx, nudgeIdx, captured)
+	}
+	if !(callIdx < resultIdx && resultIdx < nudgeIdx) {
+		t.Fatalf("ordering wrong: call %d result %d nudge %d, want call < result < nudge", callIdx, resultIdx, nudgeIdx)
+	}
+}
+
+func assertToolCallPaired(t *testing.T, history []types.Message, wantID string, wantIsError bool) {
+	t.Helper()
+	callCount := 0
+	callIdx := -1
+	for i, m := range history {
+		for _, c := range m.ToolCalls {
+			if c.ID == wantID {
+				if m.Role != "assistant" {
+					t.Fatalf("ToolCall %q found in Role %q, want assistant", wantID, m.Role)
+				}
+				callCount++
+				callIdx = i
+			}
+		}
+	}
+	if callCount != 1 {
+		t.Fatalf("want exactly one assistant ToolCall with ID %q, got %d in history %#v", wantID, callCount, history)
+	}
+	resultCount := 0
+	resultIdx := -1
+	var gotIsError bool
+	for i, m := range history {
+		for _, r := range m.ToolResults {
+			if r.ToolUseID == wantID {
+				resultCount++
+				resultIdx = i
+				gotIsError = r.IsError
+			}
+		}
+	}
+	if resultCount != 1 {
+		t.Fatalf("want exactly one ToolResult with ToolUseID %q, got %d in history %#v", wantID, resultCount, history)
+	}
+	if resultIdx <= callIdx {
+		t.Fatalf("ToolResult for %q at index %d must be after ToolCall at %d", wantID, resultIdx, callIdx)
+	}
+	if gotIsError != wantIsError {
+		t.Fatalf("ToolResult IsError for %q = %v, want %v", wantID, gotIsError, wantIsError)
 	}
 }
 

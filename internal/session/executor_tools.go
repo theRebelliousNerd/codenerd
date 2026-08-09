@@ -159,7 +159,7 @@ func (e *Executor) runToolLoop(
 		// provider call that can only end in context deadline exceeded.
 		if hasFinalizationCutoff && !time.Now().Before(finalizationCutoff) {
 			final, finalErrs, finalErr := e.forceDeadlineFinalAnswer(
-				ctx, trp, systemPrompt, history, currentResponse, cfg, result,
+				ctx, trp, systemPrompt, &history, currentResponse, cfg, result,
 				false, finalizationReserve)
 			toolErrs = append(toolErrs, finalErrs...)
 			if finalErr != nil {
@@ -205,7 +205,7 @@ func (e *Executor) runToolLoop(
 		if hasFinalizationCutoff && explorationCtx.Err() != nil && ctx.Err() == nil {
 			cancelExploration()
 			final, finalErrs, finalErr := e.forceDeadlineFinalAnswer(
-				ctx, trp, systemPrompt, history, currentResponse, cfg, result,
+				ctx, trp, systemPrompt, &history, currentResponse, cfg, result,
 				true, finalizationReserve)
 			toolErrs = append(toolErrs, finalErrs...)
 			if finalErr != nil {
@@ -220,7 +220,7 @@ func (e *Executor) runToolLoop(
 		cancelExploration()
 		if plannedFinalization {
 			final, finalErrs, finalErr := e.forceDeadlineFinalAnswer(
-				ctx, trp, systemPrompt, history, currentResponse, cfg, result,
+				ctx, trp, systemPrompt, &history, currentResponse, cfg, result,
 				true, finalizationReserve)
 			toolErrs = append(toolErrs, finalErrs...)
 			if finalErr != nil {
@@ -275,7 +275,7 @@ func (e *Executor) runToolLoop(
 		"Max tool iterations reached: %d; forcing a final answer from %d executed tool call(s)",
 		maxIter, result.ToolCallsExecuted)
 
-	final, finalErrs, finalErr := e.forceFinalAnswer(ctx, trp, systemPrompt, history, currentResponse, cfg, result)
+	final, finalErrs, finalErr := e.forceFinalAnswer(ctx, trp, systemPrompt, &history, currentResponse, cfg, result)
 	toolErrs = append(toolErrs, finalErrs...)
 	if finalErr != nil {
 		logging.Get(logging.CategorySession).Error(
@@ -374,13 +374,17 @@ func (e *Executor) forceDeadlineFinalAnswer(
 	ctx context.Context,
 	trp types.ToolResultsProvider,
 	systemPrompt string,
-	history []types.Message,
+	history *[]types.Message,
 	pending *types.LLMToolResponse,
 	cfg *config.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 	pendingResultsRecorded bool,
 	reserve time.Duration,
 ) (*types.LLMToolResponse, []string, error) {
+	if history == nil {
+		empty := []types.Message{}
+		history = &empty
+	}
 	if !pendingResultsRecorded && pending != nil && len(pending.ToolCalls) > 0 {
 		results := make([]types.ToolResult, 0, len(pending.ToolCalls))
 		for _, call := range pending.ToolCalls {
@@ -390,7 +394,7 @@ func (e *Executor) forceDeadlineFinalAnswer(
 				IsError:   true,
 			})
 		}
-		history = append(history, types.Message{Role: "user", ToolResults: results})
+		*history = append(*history, types.Message{Role: "user", ToolResults: results})
 	}
 
 	withoutPendingCalls := &types.LLMToolResponse{}
@@ -438,7 +442,7 @@ func (e *Executor) forceFinalAnswer(
 	ctx context.Context,
 	trp types.ToolResultsProvider,
 	systemPrompt string,
-	history []types.Message,
+	history *[]types.Message,
 	pending *types.LLMToolResponse,
 	cfg *config.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
@@ -449,12 +453,16 @@ func (e *Executor) forceFinalAnswer(
 	if pending == nil {
 		return nil, nil, errors.New("cannot force a final answer from a nil pending response")
 	}
+	if history == nil {
+		empty := []types.Message{}
+		history = &empty
+	}
 
 	var toolErrs []string
 	if len(pending.ToolCalls) > 0 {
 		toolResults, errs := e.executeToolBatch(ctx, pending.ToolCalls, cfg, result)
 		toolErrs = append(toolErrs, errs...)
-		history = append(history, types.Message{Role: "user", ToolResults: toolResults})
+		*history = append(*history, types.Message{Role: "user", ToolResults: toolResults})
 	}
 
 	// Only intents whose terminal contract specifically requires a durable file
@@ -473,9 +481,9 @@ func (e *Executor) forceFinalAnswer(
 			len(finalTools), result.Intent.Verb)
 	}
 
-	history = append(history, types.Message{Role: "user", Text: nudge})
+	*history = append(*history, types.Message{Role: "user", Text: nudge})
 
-	final, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, finalTools)
+	final, err := trp.CompleteWithToolResults(ctx, systemPrompt, *history, finalTools)
 	if err != nil {
 		return pending, toolErrs, fmt.Errorf("final completion failed: %w", err)
 	}
@@ -483,9 +491,14 @@ func (e *Executor) forceFinalAnswer(
 		return pending, toolErrs, errors.New("final completion returned nothing")
 	}
 
-	// Execute whatever writes the model asked for. Handing back an unexecuted
-	// write tool_call would reproduce the original bug one layer down: the
-	// deliverable named but never produced.
+	// Preserve original tool calls for history before clearing. The returned
+	// response must clear ToolCalls so callers do not replay them, but the
+	// conversation history must retain a balanced tool_use/tool_result pair
+	// for every call so that subsequent verification/repair calls are valid
+	// with strict providers (e.g. Meta: Missing tool response for tool_call_id).
+	originalFinalCalls := append([]types.ToolCall(nil), final.ToolCalls...)
+	*history = append(*history, types.Message{Role: "assistant", Text: final.Text, ToolCalls: originalFinalCalls})
+
 	offered := make(map[string]struct{}, len(finalTools))
 	for _, definition := range finalTools {
 		offered[definition.Name] = struct{}{}
@@ -503,9 +516,34 @@ func (e *Executor) forceFinalAnswer(
 	}
 
 	hadPermittedFinalCalls := len(permittedFinalCalls) > 0
+	var permittedResults []types.ToolResult
 	if hadPermittedFinalCalls {
-		_, errs := e.executeToolBatch(ctx, permittedFinalCalls, cfg, result)
+		var errs []string
+		permittedResults, errs = e.executeToolBatch(ctx, permittedFinalCalls, cfg, result)
 		toolErrs = append(toolErrs, errs...)
+	}
+	// Build balanced ToolResults for every final call in original order:
+	// real executeToolBatch result for permitted writes, synthetic IsError
+	// for refused/unoffered calls.
+	if len(originalFinalCalls) > 0 {
+		permittedMap := make(map[string]types.ToolResult, len(permittedResults))
+		for _, r := range permittedResults {
+			permittedMap[r.ToolUseID] = r
+		}
+		finalResults := make([]types.ToolResult, 0, len(originalFinalCalls))
+		for _, call := range originalFinalCalls {
+			if r, ok := permittedMap[call.ID]; ok {
+				finalResults = append(finalResults, r)
+			} else {
+				// Refused/unoffered synthetic result.
+				finalResults = append(finalResults, types.ToolResult{
+					ToolUseID: call.ID,
+					Content:   fmt.Sprintf("%s: not offered during forced finalization", call.Name),
+					IsError:   true,
+				})
+			}
+		}
+		*history = append(*history, types.Message{Role: "user", ToolResults: finalResults})
 	}
 	// Offered calls have run; unoffered calls were refused. Neither is pending
 	// work for a caller to replay.
