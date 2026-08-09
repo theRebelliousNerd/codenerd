@@ -1,0 +1,61 @@
+# BrowserNERD parity contract
+
+> Source baseline: `C:\CodeProjects\SybioGenv3\crossthread\dev_tools\BrowserNERD` at CrossThread commit `0610dacd022dfc3736f6c4f756a6625ce0bfd21b` (2026-08-03)
+> codeNERD baseline: `9170ad07` (2026-08-09)
+> Status: active implementation contract
+
+## Meaning of parity
+
+Parity means the BrowserNERD capability is reachable through codeNERD's production runtime, bounded and tested, with equivalent observable behavior. It does not mean embedding BrowserNERD's standalone MCP server or its second Mangle engine.
+
+Binding adaptation rules:
+
+- Browser facts enter codeNERD's live `RealKernel`; no parallel reasoning reality.
+- Agent-facing behavior is exposed as native modular tools and JIT prompt atoms. Names follow codeNERD's underscore convention.
+- Mutating browser actions remain subject to codeNERD constitutional permission and default deny.
+- Workspace settings live under `.nerd/`; no independent `.browsernerd` authority root.
+- Source-derived implementation retains BrowserNERD attribution and Apache-2.0 notice requirements.
+- A row is `done` only after unit coverage and live Chrome proof reach the production-facing route.
+
+## Capability ledger
+
+| ID | BrowserNERD capability | codeNERD baseline evidence | Baseline | Acceptance gate |
+|---|---|---|---|---|
+| BP-01 | Launch, attach, reconnect, shutdown | `SessionManager.Start/Shutdown`; CLI stale-control recovery | partial | Managed and attached browsers survive request contexts and shut down without orphaned streams |
+| BP-02 | Multiple browser instances | One `browser` and `controlURL` per manager | missing | List, launch, select, and close bounded browser instances |
+| BP-03 | Shared tabs plus explicit isolation | `CreateSession` always creates an incognito context | missing | Shared tabs are the default; callers may request isolated contexts |
+| BP-04 | Session list/create/attach/focus/fork/close | list/create/attach/fork exist; focus and close do not | partial | Every lifecycle operation is available from package, progressive tool, and CLI where operator-relevant |
+| BP-05 | Tab/browser limits and idle reaping | No limits or per-session reaper | missing | Configured limits fail closed; idle tabs are reaped; reaper cancels on shutdown |
+| BP-06 | Per-session ingestion lifetime | Event stream inherits the creating request context | missing | Each session owns a cancelable background stream closed by session/browser shutdown |
+| BP-07 | Persistent, privacy-safe metadata | `.nerd/browser/sessions.json` persists raw URL metadata | partial | Credentials and sensitive query values are redacted; files are owner-only |
+| BP-08 | Compact page state and navigation map | DOM snapshot and raw extraction only | partial | Bounded state and navigation observations return summaries and stable evidence handles |
+| BP-09 | Stable interactive element refs | Selector-only click/type; no element registry | missing | Observe returns session-scoped refs with generation-aware re-identification |
+| BP-10 | Interactive, grid, and hidden-content discovery | Dense DOM facts; no dedicated bounded views | partial | Token-bounded discovery modes match BrowserNERD's observable slices |
+| BP-11 | Screenshot, DOM, and React observations | All three primitives exist | partial | They are reachable through progressive observe with bounded outputs and safe file policy |
+| BP-12 | Navigate/interact/fill/key/history | Navigate/click/type exist | partial | Ref-based interaction, form batches, keyboard, and history are production-routed |
+| BP-13 | Sequential action plans | No consolidated execution surface | missing | `browser_act` executes typed operations with stop-on-error and bounded result views |
+| BP-14 | Stable/fact/condition waits | No browser wait surface | missing | Context-cancelable waits consume fresh live-kernel facts and enforce time/result bounds |
+| BP-15 | Progressive observe/act/reason/audit | Six individual research tools only | missing | Native `browser_observe`, `browser_act`, `browser_reason`, and `browser_audit` tools ship JIT-first |
+| BP-16 | Bounded Mangle read/query/rule/temporal/watch | Main kernel exists; browser manager uses an isolated engine in system boot and nil sink in research tools | partial | `browser_mangle` delegates to the live kernel with explicit query/rule/result/time ceilings |
+| BP-17 | Default credential redaction | No browser redactor | missing | URLs, headers, input events, results, logs, sessions, and evidence redact by default |
+| BP-18 | Confined model-directed writes | CLI snapshots use a fixed workspace directory; tool screenshot returns base64 | partial | Screenshot/evidence/spec outputs resolve under allowed roots and reject traversal/symlink escapes |
+| BP-19 | Unsafe JavaScript gate | No arbitrary JS tool | missing | Disabled by default; enabling config alone is insufficient without constitutional approval |
+| BP-20 | Bounded runtime evidence and flight recorder | General logging exists; no session step evidence or browser trace export | partial | Bounded route/toast/console/request evidence and redacted owner-only JSONL traces |
+| BP-21 | Configurable spec delivery and conformance | Architecture corpus exists; no browser spec tools | missing | `browser_specs` discovers bounded workspace docs and runs declared invariants |
+| BP-22 | Declarative browser tests and generation | Go lifecycle tests only | partial | Create/inspect/run declarative tests plus bounded generation and live execution proof |
+| BP-23 | Console, toast, request, and stability diagnosis | Console/network facts are emitted; no progressive diagnosis | partial | `browser_reason` returns bounded correlated findings from fresh facts |
+| BP-24 | Contract audit and repository trace | No browser contract/repo tracing | missing | Bounded non-mutating discovery, explicit mutating approval, evidence, and source-path findings |
+| BP-25 | Docker log correlation | No browser-facing correlation | missing | Optional configured containers correlate runtime errors without becoming a hard dependency |
+| BP-26 | Delivery evaluation | One live lifecycle test; no competitor/eval harness | partial | Unit, race, live Chrome, declarative, security, and token-budget gates are reproducible |
+
+## Delivery order
+
+1. **BPAR-1 — runtime truth and lifecycle.** Live-kernel sink, one shared manager route, multi-browser/tab lifecycle, close/focus, limits, cancellation, redaction, path policy.
+2. **BPAR-2 — progressive observation and action.** Stable refs, bounded state/nav/interactive/grid/hidden views, fill/key/history, `browser_observe` and `browser_act`, JIT atoms.
+3. **BPAR-3 — reasoning and waits.** Live-kernel `browser_mangle`, bounded waits, `browser_reason`, diagnosis, temporal evidence.
+4. **BPAR-4 — evidence, specs, and declarative tests.** Flight recorder, spec delivery/conformance, browser test create/inspect/run/generate.
+5. **BPAR-5 — audit and final proof.** Contract audit, repo trace, optional Docker correlation, security assault, live end-to-end parity matrix.
+
+## Final parity gate
+
+Feature parity may be claimed only when every `BP-*` row is `done`, the production modular-tool route has live Chrome evidence, the browser fact stream is queryable from the same kernel that authorizes actions, and no unredacted credential fixture survives the security suite.

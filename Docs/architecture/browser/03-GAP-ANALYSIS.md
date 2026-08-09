@@ -1,6 +1,6 @@
 # 03 — Gap Analysis: browser
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-09
 > Vision: [01-VISION.md](01-VISION.md) · Reality: [02-CURRENT-STATE.md](02-CURRENT-STATE.md)
 
 ## 1. Spec vs reality matrix
@@ -14,12 +14,12 @@
 | Honeypot via Mangle | `HoneypotDetector` + `browser_honeypot.mg` | **Done** (suspicious URL only if Go asserts intermediate fact) |
 | Spatial policy | `browser.mg` left_of/above, constrained to interactable | **Done** |
 | CLI operator surface | launch / session / snapshot | **Partial** — no click/type/screenshot/list/fork cobra verbs |
-| Single Cortex-owned manager | Boot leaves nil; research uses separate singleton with nil engine | **Gap** |
+| Single Cortex-owned manager | System factory constructs one; research uses a separate singleton and legacy chat still leaves nil | **Partial / split ownership** |
 | VS executes browser actions | `handleBrowse` returns hard failure requiring shard | **Partial / intentional stub** |
 | Modular tools execute browser | `internal/tools/research/browser.go` works but **no EngineSink** | **Partial** |
-| Tactile router has manager | Field + setter + routes; boot only wires if non-nil | **Wiring gap** (always nil at boot) |
+| Tactile router has manager | System factory injects its manager; legacy chat path remains conditional | **Partial** |
 | Constitution gates | navigate/screenshot/read_dom safe; click/type not listed | **Done** (policy) |
-| Fact sink = production kernel | CLI builds throwaway `mangle.NewEngine`; research uses nil | **Gap** for agent-visible world model |
+| Fact sink = production kernel | System factory and CLI build throwaway `mangle.Engine`; research uses nil | **Gap** for executive truth |
 | Session reattach | Load store as `detached`; CLI snapshot re-Attach by TargetID | **Partial** — TargetID may be stale after Chrome restart |
 | Header ingestion | Config flag exists; default `EnableHeaderIngestion` false in DefaultConfig | **Optional off** |
 | `honeypot_suspicious_url` generation | Policy comment: assert from Go; no URL pattern analyzer found in package | **Gap** |
@@ -30,7 +30,7 @@
 
 ### P0 — Correctness / safety wiring
 
-1. **Own a Cortex-scoped SessionManager** with engine sink = live kernel (or kernel-facing adapter), construct on first browser action, inject into tactile router + modular tools.  
+1. **Own a Cortex-scoped SessionManager** with engine sink = live kernel adapter and share it with tactile + modular tools.
 2. **Close execution path**: either implement VS handleBrowse via shared manager, or guarantee modular tool + router always share that manager.  
 3. Document that **research tools currently reify nothing** (nil engine) — agents cannot see DOM facts from tool path alone.
 
@@ -51,6 +51,8 @@
 10. Session store encryption / redaction of URLs with secrets.  
 11. Bounded fact retention / GC for long-lived event streams.  
 12. Explicit cancel of event-stream goroutines on session close (today Shutdown closes pages; stream exit relies on ctx / page death).
+
+The complete pinned uplift contract is [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md).
 
 ## 3. Non-gaps (do not “fix”)
 

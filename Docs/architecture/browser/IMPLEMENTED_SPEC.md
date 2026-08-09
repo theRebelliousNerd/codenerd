@@ -8,6 +8,8 @@
 > Companion logic: `internal/core/defaults/schemas_browser.mg`, `policy/browser.mg`, `policy/browser_honeypot.mg`  
 > Scale: **3** non-test Go files ≈ **1,900** lines; **6** test files; **0** package-local `.mg`
 
+> 2026-08-09 wiring delta: `internal/system/factory.go` now constructs and injects a workspace browser manager, but it uses a private `mangle.Engine`; research tools still use a separate nil-sink singleton and the legacy chat boot remains nil. See [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md).
+
 ## 1. Overview
 
 `internal/browser` is codeNERD’s **Browser Physics** implementation: a go-rod control plane over Chrome that turns live pages into **Mangle facts** the executive kernel can reason over. It is adapted from BrowserNERD and oriented to Cortex §9.0.
@@ -84,8 +86,8 @@ user_intent → kernel next_action → tool/shard
 | Honeypot detector | **Implemented** | Depends on engine+policy load |
 | CLI launch/session/snapshot | **Implemented** | `cmd/nerd/cmd_browser.go` |
 | Research modular tools | **Implemented** | Nil engine — no reify |
-| Chat boot live manager | **Partial** | Field exists; nil until needed; no construct path found |
-| Tactile BrowserManager inject | **Partial** | Setter + routes; boot skips if nil |
+| System boot live manager | **Partial** | Constructed and injected, but backed by a private engine rather than `RealKernel` |
+| Legacy chat BrowserManager inject | **Partial** | Field + setter exist; legacy boot remains nil |
 | VS handleBrowse | **Stub** | Explicit refuse → shard |
 | Package-local Mangle | **N/A** | Lives in core defaults |
 | Unit/coverage tests | **Strong** | Large table coverage |
@@ -313,11 +315,11 @@ Categories in `schemas_browser.mg`:
 ### 8.4 Wiring diagram (as of verification)
 
 ```
-┌──────── CLI ────────┐   ┌──── research tools ────┐   ┌──── chat boot ────┐
-│ throwaway Engine    │   │ nil Engine             │   │ browserMgr = nil  │
-│ SessionManager      │   │ package singleton mgr  │   │ tactile if non-nil│
-│ .nerd/browser/*     │   │ no fact stream         │   │                  │
-└─────────────────────┘   └────────────────────────┘   └──────────────────┘
+┌──────── CLI ────────┐   ┌──── research tools ────┐   ┌──── system boot ─────┐
+│ throwaway Engine    │   │ nil Engine             │   │ private Mangle Engine│
+│ SessionManager      │   │ package singleton mgr  │   │ manager → tactile    │
+│ .nerd/browser/*     │   │ no fact stream         │   │ legacy chat still nil│
+└─────────────────────┘   └────────────────────────┘   └───────────────────────┘
          │                          │                          │
          └──────────────┬───────────┴──────────────────────────┘
                         ▼
@@ -379,7 +381,7 @@ Full matrix: [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
 
 Top three:
 
-1. No single Cortex-owned manager with live kernel sink.  
+1. No shared manager with a live `RealKernel` sink.
 2. Research tools reify nothing.  
 3. Chat/tactile BrowserManager remains nil at boot without completed on-demand construct.
 

@@ -21,7 +21,7 @@ Decisions: [DARK-FACTORY-JOURNAL.md](DARK-FACTORY-JOURNAL.md)
 |--------|--------|--------|-----------|-----------|------|
 | [articulation](articulation/) | `internal/articulation/` | Realized — deep corpus | 8 go / 7 tests | 19965B | [SPEC](articulation/IMPLEMENTED_SPEC.md) |
 | [autopoiesis](autopoiesis/) | `internal/autopoiesis/` | Realized — deep corpus | 37 go / 30 tests | 22937B | [SPEC](autopoiesis/IMPLEMENTED_SPEC.md) |
-| [browser](browser/) | `internal/browser/` | Realized — deep corpus | 3 go / 6 tests | 17677B | [SPEC](browser/IMPLEMENTED_SPEC.md) |
+| [browser](browser/) | `internal/browser/` | Realized — parity uplift active | 3 go / 6 tests | 18042B | [SPEC](browser/IMPLEMENTED_SPEC.md) |
 | [build](build/) | `internal/build/` | Realized — deep corpus | 1 go / 2 tests | 17427B | [SPEC](build/IMPLEMENTED_SPEC.md) |
 | [campaign](campaign/) | `internal/campaign/` | Realized — deep corpus | 44 go / 29 tests | 26180B | [SPEC](campaign/IMPLEMENTED_SPEC.md) |
 | [config](config/) | `internal/config/` | Realized — deep corpus | 17 go / 5 tests | 21429B | [SPEC](config/IMPLEMENTED_SPEC.md) |

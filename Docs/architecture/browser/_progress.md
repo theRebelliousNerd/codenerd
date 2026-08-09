@@ -4,6 +4,7 @@
 |------|-------|
 | 2026-07-13 | Thin auto-inventory stubs (tier 2) generated |
 | 2026-07-13 | **Full corpus rebuild** to SUBAGENT_INSTRUCTIONS quality bar (CLI-depth): research of `internal/browser/` + reverse wiring (CLI, chat boot, tactile router, research tools, schemas/policy, VirtualStore); wrote full required document set including dense `IMPLEMENTED_SPEC.md` |
+| 2026-08-09 | Pinned BrowserNERD source at CrossThread `0610dacd0`; reconciled the newer system-factory manager wiring; added `BROWSERNERD-PARITY.md` with 26 capability gates and five bounded delivery milestones |
 
 ## Rebuild notes
 

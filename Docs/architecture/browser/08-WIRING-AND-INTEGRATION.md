@@ -1,6 +1,6 @@
 # 08 — Wiring and Integration: browser
 
-> Last verified against codebase: 2026-07-13
+> Last verified against codebase: 2026-08-09
 
 ## 1. Fact-flow placement
 
@@ -15,7 +15,7 @@ user_intent
   → further next_action / articulation
 ```
 
-Today, path (A) works without facts; (B) is registered but manager usually nil; (C) uses throwaway engines and workspace files.
+Today, path (A) uses a separate nil-sink singleton; the system-factory form of (B) receives a manager backed by a private Mangle engine; legacy chat remains conditional; (C) uses throwaway engines and workspace files. None writes browser facts into the live executive kernel.
 
 ## 2. CLI wiring (`cmd/nerd`)
 
@@ -54,7 +54,7 @@ Today, path (A) works without facts; (B) is registered but manager usually nil; 
 
 ## 3. Chat / Cortex boot
 
-`session_boot.go` (and shared boot):
+The current system factory (`internal/system/factory.go`) creates a workspace manager backed by a new private `mangle.Engine` and injects it into its tactile-router factory. The legacy chat boot path still contains:
 
 ```go
 // Browser Manager is created on-demand when needed (not at boot)
@@ -71,7 +71,7 @@ if browserMgr != nil {
 ```
 
 `Cortex` / chat model carry `BrowserManager *browser.SessionManager` fields (`model_types.go`).  
-**As of verification, no on-demand constructor path was found in boot that assigns non-nil** — wiring hook exists; production of the manager is the gap.
+The gap is no longer absolute construction; it is split ownership and split reasoning reality. The constructed manager does not share the production `RealKernel`, while research tools construct another nil-sink singleton.
 
 ## 4. TactileRouterShard
 
@@ -140,16 +140,16 @@ Intent routing (`internal/mangle/intent_routing.mg`): modular browser tools allo
 | Honeypot policy | **Live** (when engine has facts) |
 | CLI operator path | **Live** (isolated engine) |
 | Research tools effect path | **Live** (no facts) |
-| Chat BrowserManager field | **Declared** |
-| Boot construct manager | **Not at boot; on-demand not completed** |
-| Tactile SetBrowserManager | **Conditional; usually skipped** |
+| System Cortex BrowserManager field | **Constructed with private engine** |
+| Legacy chat BrowserManager field | **Declared; nil** |
+| Tactile SetBrowserManager | **Wired in system factory; conditional in legacy chat** |
 | VS handleBrowse | **Explicit refuse** |
 | VS modular browser tools | **Arg mapping + registry if registered** |
 | HoneypotDetector in CLI/agent path | **Not wired as first-class command** |
 
 ## 9. Recommended integration sequence (docs-only guidance)
 
-1. Construct manager with live kernel engine on first browser tool call.  
+1. Replace the private browser engine with a live-kernel adapter.
 2. Set into cortex struct + tactile router.  
 3. Point research `getBrowserManager` at the same instance (or deprecate singleton).  
 4. Optionally implement VS handleBrowse as thin delegate.  

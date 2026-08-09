@@ -1,6 +1,6 @@
 # 02 — Current State: `internal/browser`
 
-> Precise inventory as of 2026-07-13. Paths relative to repo root.
+> Precise inventory refreshed 2026-08-09. Paths relative to repo root.
 
 ## 1. Package identity
 
@@ -49,7 +49,8 @@
 | `internal/core/kernel_init.go` | Loads `schemas_browser.mg` into kernel program |
 | `cmd/nerd/cmd_browser.go` | Cobra: launch / session / snapshot |
 | `cmd/nerd/main.go` | Registers `browserCmd` |
-| `cmd/nerd/chat/session_boot.go` | Declares `browserMgr` **nil until needed** |
+| `internal/system/factory.go` | Constructs a workspace manager with a private Mangle engine and injects it into the system tactile router |
+| `cmd/nerd/chat/session_boot.go` | Legacy chat boot path still declares `browserMgr` **nil until needed** |
 | `cmd/nerd/chat/model_types.go` | `browserMgr` / `BrowserManager` fields |
 | `internal/shards/system/router.go` | `SetBrowserManager`, tool routes for browser_* |
 | `internal/tools/research/browser.go` | Modular tools wrapping SessionManager singleton |
@@ -72,7 +73,7 @@
 2. **`captureDOMFacts`** — dense fact emission (multiple predicates per node; dual string/atom CSS encodings).  
 3. **`ReifyReact`** — large inline JS fiber walker; type coercion for hook indices.  
 4. **`HoneypotDetector.emitPageFacts`** — per-element style/position/attribute PushFact.  
-5. **Dual ownership** — research package singleton vs chat `BrowserManager` field vs CLI ephemeral managers.
+5. **Multiple realities** — system factory manager with a private Mangle engine, research singleton with nil sink, legacy chat nil manager, and CLI ephemeral managers.
 
 ## 7. What is intentionally not here
 
@@ -80,4 +81,4 @@
 - No Mangle source files inside `internal/browser/`  
 - No VirtualStore interface implementation  
 - No prompt atoms  
-- BrowserMgr not constructed in default chat boot path (lazy/on-demand design comment)
+- Browser manager construction differs by boot path; only `internal/system/factory.go` constructs one, and its facts do not enter the live `RealKernel`

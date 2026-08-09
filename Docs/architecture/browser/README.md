@@ -1,6 +1,6 @@
 # browser — Architecture Corpus (`internal/browser`)
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-09
 > Status: Living Reference Document — code-grounded full corpus  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/browser/`  
@@ -22,6 +22,7 @@ It is **not**:
 | Doc | Role |
 |-----|------|
 | [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) | **Flagship** living architecture + inventory + deep dives |
+| [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md) | Pinned BrowserNERD feature-parity contract and delivery gates |
 | [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md) | North-star alignment scores |
 | [01-VISION.md](01-VISION.md) | Target product/architecture vision |
 | [02-CURRENT-STATE.md](02-CURRENT-STATE.md) | Precise on-disk inventory |
