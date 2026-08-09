@@ -92,6 +92,16 @@ func TestProjectForbidsWrite_FindsTargetUnderEveryArgName(t *testing.T) {
 	}
 }
 
+func TestProjectForbidsWrite_BlocksWriteWithoutRecognizedTarget(t *testing.T) {
+	e := newProtectedExecutor(t)
+	reason, denied := e.projectForbidsWrite(ToolCall{
+		Name: "write_file", Args: map[string]any{"content": "x"},
+	})
+	if !denied || !strings.Contains(reason, "target") {
+		t.Fatalf("denied=%v reason=%q, want missing-target denial", denied, reason)
+	}
+}
+
 // The whole loop must refuse, not just the predicate. This is the behaviour a
 // user relies on when they write a forbid rule.
 //
@@ -178,17 +188,30 @@ func TestProjectForbidsWrite_EnforcedWithoutThePromptCopy(t *testing.T) {
 	}
 }
 
-// A kernel that cannot answer is not evidence that a path is protected. Turning
-// every transient query failure into a blocked write would make the agent
-// unusable the moment the kernel hiccups, so the gate fails open — but it must
-// say so, or a degraded kernel silently becomes an unprotected workspace.
-func TestProjectForbidsWrite_FailsOpenOnKernelError(t *testing.T) {
+// A machine-enforced forbid rule must not silently disappear when its policy
+// authority is unavailable. Reads remain usable for diagnosis; writes fail
+// closed until the kernel can answer again.
+func TestProjectForbidsWrite_FailsClosedOnKernelError(t *testing.T) {
 	e := newProtectedExecutor(t)
 	e.kernel.(*MockKernel).QueryError = errors.New("kernel unavailable")
 
 	call := ToolCall{Name: "write_file", Args: map[string]any{"path": ".nerd/config.json"}}
-	if _, denied := e.projectForbidsWrite(call); denied {
-		t.Error("a kernel query failure must not be read as a denial")
+	reason, denied := e.projectForbidsWrite(call)
+	if !denied {
+		t.Error("a kernel query failure allowed a write while protection was unknown")
+	}
+	if !strings.Contains(reason, "could not be evaluated") {
+		t.Fatalf("denial reason = %q, want degraded-protection explanation", reason)
+	}
+}
+
+func TestProjectForbidsWrite_FailsClosedWithoutKernel(t *testing.T) {
+	e := &Executor{config: DefaultExecutorConfig()}
+	reason, denied := e.projectForbidsWrite(ToolCall{
+		Name: "write_file", Args: map[string]any{"path": "internal/session/executor.go"},
+	})
+	if !denied || !strings.Contains(reason, "unavailable") {
+		t.Fatalf("denied=%v reason=%q, want unavailable-authority denial", denied, reason)
 	}
 }
 

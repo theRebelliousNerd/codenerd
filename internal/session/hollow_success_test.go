@@ -2,9 +2,11 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
+	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -17,6 +19,10 @@ func TestIsWriteOrientedIntent(t *testing.T) {
 		"/fix":      true,
 		"/refactor": true,
 		"/write":    true,
+		"/optimize": true,
+		"/commit":   false,
+		"/format":   false,
+		"/migrate":  false,
 		"/explain":  false,
 		"/review":   false,
 		"/research": false,
@@ -27,6 +33,74 @@ func TestIsWriteOrientedIntent(t *testing.T) {
 			t.Errorf("isWriteOrientedIntent(%q)=%v want %v", verb, got, want)
 		}
 	}
+}
+
+func TestWriteOrientedIntentFallbackMatchesPolicy(t *testing.T) {
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	facts, err := kernel.Query("write_oriented_intent")
+	if err != nil {
+		t.Fatalf("query write_oriented_intent: %v", err)
+	}
+	fromPolicy := make(map[string]struct{}, len(facts))
+	for _, fact := range facts {
+		if len(fact.Args) != 1 {
+			t.Fatalf("malformed write_oriented_intent fact: %#v", fact)
+		}
+		fromPolicy[types.ExtractString(fact.Args[0])] = struct{}{}
+	}
+	if len(fromPolicy) != len(writeOrientedIntentFallback) {
+		t.Fatalf("policy verbs=%v fallback=%v", fromPolicy, writeOrientedIntentFallback)
+	}
+	for verb := range writeOrientedIntentFallback {
+		if _, ok := fromPolicy[verb]; !ok {
+			t.Errorf("fallback verb %s is absent from write_oriented_intent policy", verb)
+		}
+	}
+
+	executor := &Executor{kernel: kernel}
+	for verb := range fromPolicy {
+		if !executor.writeOrientedIntent(verb) {
+			t.Errorf("kernel-backed writeOrientedIntent(%s) = false", verb)
+		}
+	}
+	if executor.writeOrientedIntent("/commit") {
+		t.Error("/commit requires a command, not a file mutation")
+	}
+}
+
+func TestCheckHollowSuccess_CommandOrientedIntentDoesNotRequireWriteTool(t *testing.T) {
+	exec := NewExecutor(
+		&requiresToolKernel{MockKernel: &MockKernel{}},
+		&MockVirtualStore{},
+		&MockLLMClient{},
+		&MockJITCompiler{},
+		&MockConfigFactory{},
+		&MockTransducer{},
+	)
+	for _, verb := range []string{"/commit", "/format", "/migrate"} {
+		t.Run(verb, func(t *testing.T) {
+			result := &ExecutionResult{
+				Intent:              perception.Intent{Verb: verb},
+				ToolCallsExecuted:   1,
+				SuccessfulToolCalls: 1,
+			}
+			if err := exec.checkHollowSuccess(result); err != nil {
+				t.Fatalf("a command-backed %s must not require write_file/edit_file: %v", verb, err)
+			}
+		})
+	}
+}
+
+type requiresToolKernel struct{ *MockKernel }
+
+func (k *requiresToolKernel) Query(query string) ([]types.Fact, error) {
+	if strings.HasPrefix(query, "intent_requires_tool_call(") {
+		return []types.Fact{{Predicate: "intent_requires_tool_call"}}, nil
+	}
+	return k.MockKernel.Query(query)
 }
 
 func TestIsWriteMutationTool(t *testing.T) {
@@ -70,16 +144,16 @@ func TestCheckHollowSuccess_WriteOrientedOnlyReadTools(t *testing.T) {
 		&MockTransducer{},
 	)
 	result := &ExecutionResult{
-		Intent:               perception.Intent{Verb: "/fix"},
-		ToolCallsExecuted:    2,
-		SuccessfulWriteTools: 0,
+		Intent:              perception.Intent{Verb: "/fix"},
+		ToolCallsExecuted:   2,
+		SuccessfulToolCalls: 2,
 	}
 	err := exec.checkHollowSuccess(result)
 	if err == nil {
 		t.Fatal("expected hollow success when write-oriented intent has no write tools")
 	}
-	if !strings.Contains(err.Error(), "write_file") {
-		t.Fatalf("expected write_file mention, got: %v", err)
+	if !strings.Contains(err.Error(), "write-mutation tool") {
+		t.Fatalf("expected recognized mutation-tool explanation, got: %v", err)
 	}
 }
 
@@ -95,10 +169,40 @@ func TestCheckHollowSuccess_WriteOrientedWithWriteTool(t *testing.T) {
 	result := &ExecutionResult{
 		Intent:               perception.Intent{Verb: "/create"},
 		ToolCallsExecuted:    1,
+		SuccessfulToolCalls:  1,
 		SuccessfulWriteTools: 1,
 	}
 	if err := exec.checkHollowSuccess(result); err != nil {
 		t.Fatalf("expected success when write tool landed: %v", err)
+	}
+}
+
+func TestCheckHollowSuccess_FailedToolDoesNotSatisfyCommandIntent(t *testing.T) {
+	exec := NewExecutor(
+		&requiresToolKernel{MockKernel: &MockKernel{}},
+		&MockVirtualStore{},
+		&MockLLMClient{},
+		&MockJITCompiler{},
+		&MockConfigFactory{},
+		&MockTransducer{},
+	)
+	result := &ExecutionResult{
+		Intent:              perception.Intent{Verb: "/commit"},
+		ToolCallsExecuted:   1,
+		SuccessfulToolCalls: 0,
+	}
+	if err := exec.checkHollowSuccess(result); err == nil {
+		t.Fatal("a failed command attempt must not satisfy /commit")
+	}
+}
+
+func TestIsHollowSuccessErrorSurvivesWrapping(t *testing.T) {
+	original := newHollowSuccessError("test")
+	if !isHollowSuccessError(fmt.Errorf("outer: %w", original)) {
+		t.Fatal("typed hollow-success identity was lost through wrapping")
+	}
+	if isHollowSuccessError(fmt.Errorf("%s lookalike", hollowSuccessPrefix)) {
+		t.Fatal("plain text containing the prefix must not impersonate a hollow-success error")
 	}
 }
 

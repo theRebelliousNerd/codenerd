@@ -2,6 +2,7 @@ package session
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"codenerd/internal/types"
@@ -15,6 +16,17 @@ type recordingKernel struct {
 	asserted  []types.Fact
 	retracted []types.Fact
 	assertErr error
+}
+
+func TestPendingEditContent_LargeBodyBecomesBoundedDigest(t *testing.T) {
+	content := strings.Repeat("x", maxPendingEditContentBytes+1)
+	got := pendingEditContent(map[string]any{"content": content})
+	if !strings.HasPrefix(got, "sha256:") || !strings.Contains(got, "bytes:16385") {
+		t.Fatalf("large content = %q, want bounded digest with original size", got)
+	}
+	if len(got) > 128 {
+		t.Fatalf("digest metadata is unexpectedly large: %d bytes", len(got))
+	}
 }
 
 func (k *recordingKernel) Assert(f types.Fact) error {
@@ -80,6 +92,19 @@ func TestAssertPendingEdit_IgnoresNonMutatingTools(t *testing.T) {
 	}
 	if len(k.asserted) != 0 {
 		t.Errorf("asserted %d facts for read-only tools, want 0", len(k.asserted))
+	}
+}
+
+func TestAssertPendingEdit_RefusesWriteWithoutTarget(t *testing.T) {
+	k := &recordingKernel{}
+	e := &Executor{kernel: k}
+	if _, ok := e.assertPendingEdit(ToolCall{
+		Name: "write_file", Args: map[string]any{"content": "package p"},
+	}); ok {
+		t.Fatal("write without a recognized target asserted pending_edit")
+	}
+	if len(k.asserted) != 0 {
+		t.Fatalf("asserted facts = %v, want none", k.asserted)
 	}
 }
 

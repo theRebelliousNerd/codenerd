@@ -39,7 +39,7 @@ Gates 1 and 2 can fail a turn. Gates 3 (coverage) and 4 (critic) are advisory an
 
 **When it fails:**
 
-1. `verifyAndRepairBuild` checks `e.config.VerifyBuildAfterEdits`; if false, returns immediately (gate disabled).
+1. `verifyAndRepairBuild` checks a coherent config snapshot's `VerifyBuildAfterEdits`; if false, returns immediately (gate disabled).
 2. Runs `verifyBuild`. If `!Ran || OK`, returns no repair (nothing to fix or nothing to check).
 3. Otherwise logs `Edits broke the build; giving the model one repair round with the compiler output`.
 4. If `trp == nil` (client cannot accept tool results), returns `fmt.Errorf("edits broke the build and no repair is possible...")` — turn fails without a repair attempt.
@@ -65,7 +65,7 @@ Timeout handling: if `buildCtx.Err() != nil` after `CombinedOutput`, `verifyBuil
 
 **When it fails:**
 
-1. Checks `e.config.VerifyTestsAfterEdits`; if false, returns.
+1. Checks a coherent config snapshot's `VerifyTestsAfterEdits`; if false, returns.
 2. Guard: `SuccessfulWriteTools == 0` or `!touchedGoFiles(...)` → skip.
 3. Computes `packages := packagesForPaths(result.WrittenPaths)` (workspace-relative `.go` paths → `go test` package patterns like `./internal/session`, deduplicated, sorted).
 4. Calls `untestedWithoutCoverageOnDisk(workspace, result.WrittenPaths)`; if non-empty, sets `result.UntestedPaths` and logs a warning. This is **warning only, never a failure** — editing a long-tested file without rewriting its test file is legitimate.
@@ -117,7 +117,7 @@ Coverage never turns a passing turn into a failing one.
 
 **When it finds something:**
 
-1. `verifyAndUpliftWithCritic` checks `e.config.CriticReviewAfterEdits`; if false, returns immediately.
+1. `verifyAndUpliftWithCritic` checks a coherent config snapshot's `CriticReviewAfterEdits`; if false, returns immediately.
 2. Guard: same `SuccessfulWriteTools` / `touchedGoFiles` checks as above; also skips when `readWrittenFilesForReview` returns empty (no readable non-test `.go` files, caps applied).
 3. `readWrittenFilesForReview` loads at most `criticMaxFiles` written non-test `.go` files, newest-written first, truncating any file over `criticMaxFileBytes` with `// ... (truncated for review)`. Test files (`_test.go`) are intentionally excluded.
 4. Optionally collects `goplsDiagnostics` — runs `gopls check` on at most `goplsMaxFiles` written files, filtered through `keepDiagnosticLines` (regex `^.+:\d+:\d+(-\d+)?: .+$`) to drop operational chatter like missing `%AppData%`. Absent `gopls` or timeout returns `""` (silence, not an error). Output is capped at `goplsMaxOutput` and handed to the critic prompt as grounding; the critic is explicitly told to treat tool output as evidence.
@@ -178,6 +178,7 @@ type ExecutorConfig struct {
     MaxToolCalls           int
     MaxToolIterations      int
     ToolTimeout            time.Duration
+    FinalAnswerReserve     time.Duration // conclusion window before the outer deadline; default 5m
     EnableSafetyGate       bool
     TokenBudget            int
     VerifyBuildAfterEdits  bool   // gate 1 — default true
@@ -202,6 +203,7 @@ type ExecutionResult struct {
     Response            string
     Intent              perception.Intent
     ToolCallsExecuted   int
+    SuccessfulToolCalls int              // successful execution, independent of tool kind
     SuccessfulWriteTools int              // gate guard: >0 required
     WrittenPaths        []string         // gate input: which packages/files to check
     UntestedPaths       []string         // gate 2 warning: production Go with no test alongside it

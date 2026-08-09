@@ -1,17 +1,17 @@
 # 12 — Failure Modes: session
 
-> Last verified: 2026-07-13
+> Last verified: 2026-08-09
 
 ## 1. Catalog
 
 | ID | Failure | Detection | Mitigation in code | Residual risk |
 |----|---------|-----------|--------------------|---------------|
 | F1 | Empty user input | Guard in ProcessWithIntent | Error return | Caller must handle |
-| F2 | Context cancelled before/during loop | ctx.Err checks | Abort tool loop | Partial tools may have executed |
+| F2 | Context cancelled before/during loop | ctx.Err checks | Pair remaining tool IDs with cancellation errors; abort | Earlier tools may have executed |
 | F3 | Transducer failure | observe error | Process fails | No silent wrong intent |
 | F4 | JIT compile failure | compile err | Baseline prompt | Weaker specialization |
-| F5 | ConfigFactory failure | compileConfig | Empty config | May widen tools if allow-list empty |
-| F6 | LLM generation failure | generateResponse err | Fatal to Process | No response |
+| F5 | ConfigFactory failure | compileConfig | Empty config; tool allowlist fails closed | Prose-only response remains possible |
+| F6 | LLM generation failure or nil response | generateResponse / follow-up guards | Fatal to Process | No response |
 | F7 | Planning-only on mutation intent | no tool_calls + Mangle requires | Single nudge retry | Retry may still fail |
 | F8 | Tool not allowed / missing | isToolAllowed / registries | Error tool result | Model may spin |
 | F9 | Safety deny | checkSafety false | Block tool | Correct deny |
@@ -21,7 +21,9 @@
 | F13 | Executive gate preflight block | Preflight error | Block tool | Correct |
 | F14 | Post-validate fail | Validate error | Error after side effect? | Side effect may already land; model retries |
 | F15 | Tool timeout | context.WithTimeout | Error | Partial external effects |
-| F16 | Max tool calls / iterations | counters | Stop / return | Incomplete task |
+| F16 | Max tool calls / iterations | counters | Pair budget errors; reduced-tool forced final | Incomplete task may be reported explicitly |
+| F16a | Outer deadline approaches during exploration | exploration cutoff | Reserve 5m (or half of short remainder), force final under parent context | Final provider call can still exceed reserve |
+| F16b | Piggyback write breaks build/tests | shared post-edit gate | Fail with compiler/test evidence; no native repair channel | Operator/model must repair in a later turn |
 | F17 | Client lacks ToolResultsProvider | supportsLoop false | One-shot tools, warn | Model never sees results |
 | F18 | Piggyback single-round only | code path | Execute tools, no feedback | Model may invent success |
 | F19 | Max subagents | Spawn error | Caller backoff | Orchestrator must handle |
@@ -36,6 +38,8 @@
 | F28 | Mangle update blocked | FilterMangleUpdates | Override envelope | Correct |
 | F29 | Panic in tool | depends on registry | Process-level recovery tested for some state conflicts | Not universal recover |
 | F30 | Campaign vs Cortex wire drift | dual constructors | Manual audit | Config inconsistency |
+| F31 | nerd.md query unavailable during write | three write gates | Fail closed + durable safety audit | Writes pause until kernel recovery |
+| F32 | Large pending edit body | byte cap | Store SHA-256 digest metadata above 16 KiB | Policies cannot inspect full oversized body |
 
 ## 2. Partial execution semantics
 

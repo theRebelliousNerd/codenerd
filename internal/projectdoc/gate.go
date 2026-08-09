@@ -30,10 +30,10 @@ type FactQuerier interface {
 // VirtualStore, which is how shards actually route file writes, checked nothing.
 // A shard could write a protected path that the interactive path refused.
 //
-// Fail OPEN, loudly. A kernel query failure is not evidence that a path is
-// protected, and turning every transient error into a blocked write makes the
-// agent unusable the moment the kernel hiccups. Callers log the warning; this
-// function reports the error so they can.
+// Query failures are returned to callers, which fail write gates closed. The
+// helper itself cannot construct an enforcement error because callers need
+// surface-specific logging, but it never converts an unavailable authority into
+// an allow decision.
 func ForbiddenByKernel(q FactQuerier, target string) (reason string, forbidden bool, err error) {
 	if q == nil || strings.TrimSpace(target) == "" {
 		return "", false, nil

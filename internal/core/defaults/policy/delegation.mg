@@ -162,6 +162,20 @@ action_mapping(/write, /fs_write).
 action_mapping(/document, /delegate_researcher).
 action_mapping(/commit, /delegate_coder).
 
+# File-mutation terminal contracts. This is deliberately narrower than
+# side_effecting_action: /commit, /test, and /research require real tools but do
+# not require write_file/edit_file. internal/session queries this relation and
+# carries a tested static fallback only for degraded-kernel operation.
+write_oriented_intent(/create).
+write_oriented_intent(/fix).
+write_oriented_intent(/refactor).
+write_oriented_intent(/write).
+write_oriented_intent(/delete).
+write_oriented_intent(/implement).
+write_oriented_intent(/scaffold).
+write_oriented_intent(/optimize).
+write_oriented_intent(/document).
+
 # Debug actions
 action_mapping(/debug, /delegate_coder).
 

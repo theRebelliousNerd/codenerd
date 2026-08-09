@@ -1,17 +1,17 @@
 # 02 — Current State: session
 
-> Last verified: 2026-07-13  
+> Last verified: 2026-08-09
 > Source root: `internal/session/`
 
 ## 1. Inventory summary
 
 | Class | Count | Notes |
 |-------|------:|-------|
-| Non-test `.go` | 6 | executor, executor_tools, spawner, subagent, task_executor, semantic_compressor |
-| Test `.go` | 14 | including mocks_test.go |
-| Package `.md` | 1 | `internal/session/README.md` |
+| Non-test `.go` | 14 | executor/tool loop, verification gates, spawner/subagent/task runtime, summaries |
+| Test `.go` | 33 | including mocks and live-defect regression suites |
+| Package `.md` | 2 | `internal/session/README.md`, scoped `agents.md` guidance |
 | Local `.mg` | 0 | uses global policy corpus |
-| Approx non-test LOC | ~3149 | executor pair ~1644 |
+| Approx non-test LOC | ~5700 | package inventory measured 2026-08-09 |
 
 ## 2. File roles
 
@@ -19,10 +19,14 @@
 |------|------|----------|
 | `executor.go` | Clean loop, interfaces, Piggyback, history, persist | `ProcessWithIntent`, `generateResponse*`, `processMangleUpdatesFromEnvelope`, `processPiggybackControlPacket` |
 | `executor_tools.go` | Tool loop + safety | `runToolLoop`, `checkSafety`, `executeToolCall` |
+| `build_verify.go`, `test_verify.go`, `coverage_profile.go` | Post-edit build/test/coverage gates | verify, repair, bounded subprocesses |
+| `critic.go`, `lsp_diagnostics.go`, `severity.go` | Advisory semantic and diagnostic gates | critic uplift, gopls findings |
+| `gate_names.go` | Stable verification gate names | gate identity |
 | `spawner.go` | Registry + JIT config for workers | `Spawn` pending reservation, `loadSpecialistConfig` |
 | `subagent.go` | Isolated runner | `Run`/`execute`, `CompressMemory` |
 | `task_executor.go` | Unified task API | `ExecuteWithContext`, async TOCTOU fix |
 | `semantic_compressor.go` | LLM summarizer | `Compress` |
+| `turn_summary.go` | Compact execution summaries | result evidence |
 
 ## 3. Exported surface (summary)
 
@@ -50,6 +54,7 @@ Primary interfaces:
 | MaxToolCalls | 50 | `DefaultExecutorConfig` |
 | MaxToolIterations | 8 | same |
 | ToolTimeout | 5m | same |
+| FinalAnswerReserve | 5m (half of remainder for short turns) | same |
 | EnableSafetyGate | true | same |
 | TokenBudget | 65536 | `DefaultTokenBudget` |
 | Executor history max | 50 | `appendToHistory` |
@@ -108,3 +113,18 @@ No `.mg` files in package. Runtime queries/asserts predicates listed in [IMPLEME
 Focused package, race, vet, and integration-tagged gates passed; see
 [_progress](_progress.md) for the receipt and [TODO](TODO.md) for authoritative
 feature status.
+
+## 10. Verified 2026-08-09 live-review repairs
+
+- Deadline-bound tool loops reserve a conclusion window and preserve provider
+  tool-use/result pairing without replaying effects.
+- Native and Piggyback batches share one execution, budget, cancellation, and
+  accounting implementation. Both transports also run the build, test, and
+  advisory critic gates after durable Go writes; Piggyback hard-gate failures
+  fail explicitly because that protocol has no native repair round.
+- `SetConfig` and every production config read use the executor mutex and a
+  coherent snapshot; the session race suite covers concurrent replacement.
+- `write_oriented_intent/1` is policy-owned. A real-kernel parity test pins the
+  conservative Go fallback used during partial initialization.
+- Write protection fails closed on missing targets, query failures, and a
+  missing policy authority at executor, VirtualStore, and registry layers.

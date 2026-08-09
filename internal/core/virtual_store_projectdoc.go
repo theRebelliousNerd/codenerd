@@ -30,9 +30,6 @@ func (v *VirtualStore) projectForbidsWrite(req ActionRequest) (string, bool) {
 	v.mu.RLock()
 	kernel := v.kernel
 	v.mu.RUnlock()
-	if kernel == nil {
-		return "", false
-	}
 	return projectForbidsWriteWith(kernel, req)
 }
 
@@ -44,16 +41,23 @@ func projectForbidsWriteWith(q projectdoc.FactQuerier, req ActionRequest) (strin
 	if _, isWrite := writeMutationActions[req.Type]; !isWrite {
 		return "", false
 	}
+	if req.Target == "" {
+		return "write target is missing", true
+	}
+	if q == nil {
+		return "nerd.md write protection authority is unavailable", true
+	}
 
 	reason, forbidden, err := projectdoc.ForbiddenByKernel(q, req.Target)
 	if err != nil {
-		// Fail OPEN, loudly — same rationale as the executor gate: a query
-		// failure is not evidence the path is protected, and blocking every
-		// write on a kernel hiccup makes the agent unusable.
+		// Fail closed: an unavailable policy authority cannot prove a write is
+		// allowed. Reads are not classified here and remain available.
+		reason := "nerd.md write protection could not be evaluated: " + err.Error()
 		logging.VirtualStoreWarn(
-			"nerd.md write protection could not be evaluated for %s (%v); allowing the write",
+			"nerd.md blocked write to %s because protection could not be evaluated (%v)",
 			req.Target, err)
-		return "", false
+		logging.Audit().SafetyCheck("nerd.md_write_guard", false, reason)
+		return reason, true
 	}
 	return reason, forbidden
 }

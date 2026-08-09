@@ -155,6 +155,14 @@ type ExecutorConfig struct {
 	// ToolTimeout is the maximum time for a single tool execution.
 	ToolTimeout time.Duration
 
+	// FinalAnswerReserve keeps the tail of a deadline-bound turn available for
+	// one tool-free completion. Ordinary tool exploration is cancelled at the
+	// deadline minus this reserve so a progressing review cannot consume its
+	// entire operation budget and exit without a verdict. When the remaining
+	// turn budget is shorter than twice this value, half of the remainder is
+	// reserved instead. Zero falls back to the default.
+	FinalAnswerReserve time.Duration
+
 	// EnableSafetyGate enables constitutional safety checks.
 	EnableSafetyGate bool
 
@@ -212,6 +220,13 @@ type ExecutorConfig struct {
 // windows ≥128K and still leaves headroom for response + tool I/O.
 const DefaultTokenBudget = 65536
 
+const (
+	defaultMaxToolCalls       = 50
+	defaultMaxToolIterations  = 8
+	defaultToolTimeout        = 5 * time.Minute
+	defaultFinalAnswerReserve = 5 * time.Minute
+)
+
 // defaultSemanticTopK matches the value NewCompilationContext applies. This
 // path builds the CompilationContext as a literal, so it gets no defaults from
 // that constructor and must supply its own — a zero here reaches
@@ -221,15 +236,16 @@ const defaultSemanticTopK = 20
 // DefaultExecutorConfig returns sensible defaults.
 func DefaultExecutorConfig() ExecutorConfig {
 	return ExecutorConfig{
-		MaxToolCalls:      50,
-		MaxToolIterations: 8,
-		ToolTimeout:       5 * time.Minute,
-		EnableSafetyGate:  true,
-		TokenBudget:       DefaultTokenBudget,
+		MaxToolCalls:       defaultMaxToolCalls,
+		MaxToolIterations:  defaultMaxToolIterations,
+		ToolTimeout:        defaultToolTimeout,
+		FinalAnswerReserve: defaultFinalAnswerReserve,
+		EnableSafetyGate:   true,
+		TokenBudget:        DefaultTokenBudget,
 		// On by default: the failure this prevents (confident, non-compiling
 		// edits reported as complete) is silent, and a default-off guard against
 		// a silent failure protects nobody.
-		VerifyBuildAfterEdits: true,
+		VerifyBuildAfterEdits:  true,
 		VerifyTestsAfterEdits:  true,
 		CriticReviewAfterEdits: true,
 	}
@@ -308,9 +324,9 @@ func (e *Executor) intentRequiresReasoningModel(verb string) bool {
 	}
 
 	// Intent verbs arrive as Mangle atoms already ("/review", "/campaign"), so
-	// they need no quoting — but a verb that is not an atom would be a syntax
-	// error in the query, so reject anything unexpected rather than build one.
-	if !strings.HasPrefix(verb, "/") {
+	// they need no quoting — but an invalid atom would become query source, so
+	// reject anything unexpected rather than interpolate it.
+	if !validMangleVerb(verb) {
 		logging.SessionDebug("intentRequiresReasoningModel: %q is not an atom, defaulting to false", verb)
 		return false
 	}
@@ -367,6 +383,16 @@ func (e *Executor) SetConfig(cfg ExecutorConfig) {
 	e.config = cfg
 }
 
+// configSnapshot returns one coherent executor configuration. SetConfig is
+// legal after construction and is used by campaign/e2e surfaces; every runtime
+// read must therefore go through the same lock rather than racing a multi-field
+// struct assignment.
+func (e *Executor) configSnapshot() ExecutorConfig {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.config
+}
+
 // SetAgentConfig injects a pre-compiled agent config, bypassing JIT config compilation.
 func (e *Executor) SetAgentConfig(cfg *config.EffectiveAgentRuntimeConfig) {
 	e.mu.Lock()
@@ -416,6 +442,12 @@ type ExecutionResult struct {
 
 	// ToolCallsExecuted is the number of tool calls made.
 	ToolCallsExecuted int
+
+	// SuccessfulToolCalls counts tool calls that completed without an execution,
+	// safety, validation, or budget error. Hollow-success checks use this rather
+	// than ToolCallsExecuted so a failed command cannot satisfy a side-effecting
+	// intent merely because it was attempted.
+	SuccessfulToolCalls int
 
 	// SuccessfulWriteTools counts write_file/edit_file (and peers) that
 	// completed without error. Used to block hollow success on write-oriented
@@ -689,7 +721,7 @@ func (e *Executor) observe(ctx context.Context, input string) (perception.Intent
 
 // buildCompilationContext creates a CompilationContext from the current state.
 func (e *Executor) buildCompilationContext(ctx context.Context, intent perception.Intent) *prompt.CompilationContext {
-	budget := e.config.TokenBudget
+	budget := e.configSnapshot().TokenBudget
 	if budget <= 0 {
 		budget = DefaultTokenBudget
 	}

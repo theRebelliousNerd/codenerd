@@ -1,11 +1,11 @@
 # session — Implemented Spec (Deep-Dive)
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-09
 > Status: Living Reference Document  
 > Language: Go  
 > Module: `codenerd`  
 > Primary sources: `internal/session/`  
-> Scale: **6** non-test Go ≈ **3,149** lines; **14** test files; **0** package-local `.mg`  
+> Scale: **14** non-test Go ≈ **5,700** lines; **33** test files; **0** package-local `.mg`
 > Flagship component: **`Executor`** (`executor.go` + `executor_tools.go`)
 
 ---
@@ -38,7 +38,7 @@ In practice, **spawn and factories still exist** as higher-level surfaces (`Spaw
 | Primary entry (system tasks) | `TaskExecutor` → `JITExecutor` |
 | Parallel workers | `Spawner` → `SubAgent` (own history, shared kernel/store) |
 | Safety default | `EnableSafetyGate: true`, fail-closed if kernel nil |
-| Tool iteration caps | `MaxToolCalls=50`, `MaxToolIterations=8`, `ToolTimeout=5m` |
+| Tool iteration caps | `MaxToolCalls=50`, `MaxToolIterations=8`, `ToolTimeout=5m`, `FinalAnswerReserve=5m` |
 | Token budget default | `DefaultTokenBudget = 65536` |
 | History cap (executor) | 50 turns |
 | Compression (subagent) | threshold 10 → LLM summary + recent half |
@@ -215,6 +215,7 @@ Local interfaces (to avoid tight import cycles / over-coupling):
 | `MaxToolCalls` | 50 | Hard budget per Process |
 | `MaxToolIterations` | 8 | LLM↔tools rounds |
 | `ToolTimeout` | 5 minutes | Per tool call |
+| `FinalAnswerReserve` | 5 minutes | Preserve a conclusion window before a turn deadline; short turns reserve half of their remainder |
 | `EnableSafetyGate` | true | Constitutional default |
 | `TokenBudget` | 65536 (`DefaultTokenBudget`) | Avoid silent atom drop at 8192 |
 
@@ -233,6 +234,10 @@ Historical bug (documented in comments): hardcoded 8192 token budget caused spaw
 | `SetSessionPersister` / `SetSessionID` | Turn storage |
 
 **Why CloneForTask exists:** inline task execution used to run on the shared session executor, which (a) raced on `SetSessionContext` and (b) contaminated interactive history with delegated task turns.
+
+`SetConfig` remains legal after construction. Runtime readers take a mutex-backed
+`configSnapshot`, so replacing the multi-field struct cannot race with tool,
+budget, compilation, or verification paths.
 
 ### 4.4 Process / ProcessWithIntent
 
@@ -307,17 +312,20 @@ See §5.
 5. `persistTurn` async if persister set  
 6. If tools errored **and** final response empty → set `result.Error`  
 
-Returns `*ExecutionResult` with Response, Intent, ToolCallsExecuted, Duration, Error.
+Returns `*ExecutionResult` with response/intent, attempted and successful tool counters, written-path evidence, duration, and error state.
 
 ### 4.5 ExecutionResult
 
 ```go
 type ExecutionResult struct {
-    Response          string
-    Intent            perception.Intent
-    ToolCallsExecuted int
-    Duration          time.Duration
-    Error             error
+    Response             string
+    Intent               perception.Intent
+    ToolCallsExecuted    int
+    SuccessfulToolCalls  int
+    SuccessfulWriteTools int
+    WrittenPaths         []string
+    Duration             time.Duration
+    Error                error
 }
 ```
 
@@ -336,16 +344,28 @@ generateResponse(...)
   │    └─ else return text
   │
   ├─ PiggybackToolProvider.ShouldUsePiggybackTools()?
-  │    └─ executeToolBatchPiggyback (single round; no results feedback)
+  │    └─ executeToolBatchPiggyback (shared batch semantics; no results feedback)
+  │         └─ verifyCompletedToolTurn (hard failures cannot auto-repair)
   │
   └─ native path
+       derive exploration cutoff = turn deadline - FinalAnswerReserve
        for iter < MaxToolIterations:
-         execute each ToolCall (budget MaxToolCalls)
+         execute each ToolCall (budget MaxToolCalls, bounded by exploration cutoff)
          if !ToolResultsProvider → return after first batch (warn)
-         CompleteWithToolResults(...)
+         CompleteWithToolResults(..., exploration context)
          if no more tool_calls → return final
+         if exploration cutoff → pair pending results and force a capability-reduced final under parent context
        warn max iterations
 ```
+
+The deadline and iteration ceilings are independent. A live 12-minute self-review previously reached the outer deadline during an ordinary tool-result follow-up and returned no verdict. The deadline-aware path now cancels exploration with five minutes reserved, preserves provider tool-use/tool-result pairing, and makes one capability-reduced final completion. Read-oriented finals receive no tools; write-oriented finals may receive only write mutations when no write has landed. For a turn with less than ten minutes remaining when the loop begins, the reserve is capped at half of that remainder so exploration is not eliminated.
+
+`verifyCompletedToolTurn` owns the post-edit build, test/coverage, and advisory
+critic sequence for every terminal path: natural completion, deadline/iteration
+forced final, one-shot native fallback, and Piggyback. Native providers may
+receive one repair round. Piggyback remains single-round, so a compiler/test
+failure returns the grounded error rather than bypassing proof or attempting an
+incompatible native follow-up.
 
 ### 5.2 Why no-tool retry exists
 
@@ -360,6 +380,12 @@ Mitigation is **neuro-symbolic**, not a hardcoded Go string:
 5. Single reissue  
 
 If kernel unavailable, `intentRequiresToolCall` returns **false** (do not block final answers on missing policy).
+
+The narrower terminal contract for durable mutation is
+`write_oriented_intent/1`. It controls which forced finals retain write tools
+and whether successful read/command calls can satisfy hollow-success checks.
+The policy relation is authoritative; a parity-tested static set is retained as
+a conservative minimum for degraded or partially initialized kernels.
 
 ### 5.3 `generateResponse` dual mode
 
@@ -395,11 +421,7 @@ Modular path returns `result.Result` string; Ouroboros returns raw string. Tool 
 
 ### 5.6 Allow-list semantics
 
-```go
-// isToolAllowed: empty AllowedTools means unrestricted (true)
-```
-
-This is intentional for bootstrap / empty config fallback, but means a failed ConfigFactory can widen tools. Safety still depends on `checkSafety` + executive gate when enabled.
+`isToolAllowed` fails closed when the effective config is nil or `AllowedTools` is empty. A failed ConfigFactory can still leave the model able to produce prose, but it grants no ambient tool capability.
 
 ---
 
@@ -416,17 +438,18 @@ Located in `executor_tools.go`. Invoked only when `EnableSafetyGate` is true.
 | Kernel nil + gate off | Allow |
 | Normalize action | Prefix `/` if missing → `MangleAtom` |
 | Args nil | `{}` JSON (not `null`) for permitted match |
-| Extract target | keys: path, filename, filepath, file, url, target, query, pattern, glob, dir, directory |
+| Extract target | shared `projectdoc.PathArgs` first (`path`, `file_path`, `filepath`, `file`, `filename`, `target`, `dest`, `destination`), then URL/search keys |
 | Payload | JSON marshal; **>100KB → deny** (no silent truncate) |
 | Assert | `pending_action(ActionID, ActionType, Target, Payload, Timestamp)` |
-| Query | all `permitted` facts; match action+target+payload exactly |
+| Query | grounded `permitted(Action, Target, Payload)` fast path; bare-predicate compatibility fallback; exact match remains mandatory |
 | Cleanup | `defer RetractFact(pending)` |
-| Fallback | If exact payload miss but `safe_action` holds for verb → **allow with warn** |
-| Else | Deny |
+| No match / query error | Deny |
 
-### 6.2 Why safe_action fallback
+### 6.2 Project write protection
 
-Large `write_file` contents can fail exact payload match when Mangle string-normalizes escapes/truncation, even though the action is constitutionally safe. Fallback remains **fail-closed for unknown tools**.
+Machine-readable `nerd.md` forbids are enforced independently at the session executor, VirtualStore action router, and global registry write guard. All three use `projectdoc.IsWriteMutationTool`, `TargetPath`, and `ForbiddenByKernel`; all three fail closed when the kernel cannot evaluate protection. This is intentionally stricter than prompt prose: a degraded policy authority cannot prove a write is allowed.
+
+`pending_edit(FilePath, Content)` is asserted only during a recognized write mutation and always retracted with `defer`. Content larger than 16 KiB is represented as `sha256:<digest> bytes:<size>` because current policy rules bind only FilePath and ignore Content.
 
 ### 6.3 Mangle predicates touched by session (not Decl’d here)
 

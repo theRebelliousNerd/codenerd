@@ -78,6 +78,12 @@ Decl side_effecting_action(ActionType) bound [/name].
 # atom (selected by world state "no_tool_call_retry") and retries once.
 Decl intent_requires_tool_call(IntentVerb) bound [/name].
 
+# write_oriented_intent(IntentVerb) - verbs whose terminal contract requires a
+# durable file mutation, not merely any successful tool invocation. The session
+# executor uses this to retain write tools during forced finalization and to
+# reject hollow prose-only completion.
+Decl write_oriented_intent(IntentVerb) bound [/name].
+
 # reasoning_intensive_action(ActionType) - actions whose OUTPUT QUALITY dominates
 # their token cost: adversarial review, static analysis, policy authorship,
 # planning. Distinct from side_effecting_action/1, which is about whether prose

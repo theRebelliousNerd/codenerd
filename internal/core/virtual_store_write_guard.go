@@ -45,26 +45,25 @@ func (v *VirtualStore) toolWriteGuard() tools.WriteGuard {
 
 		target := projectdoc.TargetPath(args)
 		if target == "" {
-			return nil
+			return fmt.Errorf("blocked by nerd.md: %s has no recognized target path", toolName)
 		}
 
 		v.mu.RLock()
 		kernel := v.kernel
 		v.mu.RUnlock()
 		if kernel == nil {
-			return nil
+			return fmt.Errorf("blocked by nerd.md: write protection authority is unavailable for %s", target)
 		}
 
 		reason, forbidden, err := projectdoc.ForbiddenByKernel(kernel, target)
 		if err != nil {
-			// Fail OPEN, loudly — matching both caller-side gates verbatim.
-			// A kernel query failure is not evidence the path is protected, and
-			// turning every transient error into a blocked write would make the
-			// agent unusable the moment the kernel hiccups. The warning is what
-			// makes the degraded state visible.
+			// Fail closed at the lowest write surface as well. A direct registry
+			// caller must not bypass protection merely because the kernel failed.
+			reason := fmt.Sprintf("write protection could not be evaluated: %v", err)
 			logging.Get(logging.CategoryVirtualStore).Warn(
-				"nerd.md write protection could not be evaluated for %s at the tool layer (%v); allowing the write", target, err)
-			return nil
+				"nerd.md blocked %s on %s because protection could not be evaluated: %v", toolName, target, err)
+			logging.Audit().SafetyCheck("nerd.md_write_guard", false, reason)
+			return fmt.Errorf("blocked by nerd.md: %s (%s)", target, reason)
 		}
 		if !forbidden {
 			return nil

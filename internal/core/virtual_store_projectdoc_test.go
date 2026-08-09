@@ -11,6 +11,7 @@ var errKernelDown = errors.New("kernel unavailable")
 
 // forbidKernel returns one project_forbidden_path fact and errors on demand.
 type forbidKernel struct {
+	types.Kernel
 	match  string
 	reason string
 	err    error
@@ -95,27 +96,60 @@ func TestVirtualStore_ProjectForbidsWrite_UnprotectedPathPassesThrough(t *testin
 	}
 }
 
-// A kernel hiccup must not block every write; it must be visible instead.
-func TestVirtualStore_ProjectForbidsWrite_FailsOpenOnKernelError(t *testing.T) {
-	q := &forbidKernel{err: errKernelDown}
-
-	if _, blocked := projectForbidsWriteWith(q, ActionRequest{
-		Type:   ActionWriteFile,
-		Target: ".nerd/config.json",
-	}); blocked {
-		t.Error("a kernel query failure blocked the write; the gate must fail open and warn")
+func TestVirtualStore_ProjectForbidsWrite_BlocksMissingTarget(t *testing.T) {
+	q := &forbidKernel{match: ".nerd/config.json", reason: "live user config"}
+	if reason, blocked := projectForbidsWriteWith(q, ActionRequest{Type: ActionWriteFile}); !blocked || reason == "" {
+		t.Fatalf("blocked=%v reason=%q, want missing-target denial", blocked, reason)
 	}
 }
 
-// No kernel attached is not evidence of protection either. This goes through
-// the method rather than the seam, so it also covers the nil-kernel short
-// circuit in VirtualStore.projectForbidsWrite.
-func TestVirtualStore_ProjectForbidsWrite_NoKernelAllows(t *testing.T) {
+// A kernel hiccup makes protection unknowable, so writes fail closed while
+// reads remain available through their separate path.
+func TestVirtualStore_ProjectForbidsWrite_FailsClosedOnKernelError(t *testing.T) {
+	q := &forbidKernel{err: errKernelDown}
+
+	reason, blocked := projectForbidsWriteWith(q, ActionRequest{
+		Type:   ActionWriteFile,
+		Target: ".nerd/config.json",
+	})
+	if !blocked {
+		t.Error("a kernel query failure allowed a write while protection was unknown")
+	}
+	if reason == "" {
+		t.Error("a degraded-policy denial must explain why it fired")
+	}
+}
+
+func TestVirtualStore_ToolWriteGuardFailsClosedOnKernelError(t *testing.T) {
+	v := &VirtualStore{kernel: &forbidKernel{err: errKernelDown}}
+	guard := v.toolWriteGuard()
+	if err := guard(nil, "write_file", map[string]any{"path": ".nerd/config.json"}); err == nil {
+		t.Fatal("tool-layer write guard allowed a write while policy was unavailable")
+	}
+}
+
+func TestVirtualStore_ToolWriteGuardBlocksMissingTarget(t *testing.T) {
+	v := &VirtualStore{kernel: &forbidKernel{match: ".nerd/config.json", reason: "live user config"}}
+	if err := v.toolWriteGuard()(nil, "write_file", map[string]any{"content": "x"}); err == nil {
+		t.Fatal("tool-layer write guard allowed a write without a recognized target")
+	}
+}
+
+// No kernel means no policy authority. This goes through the method rather
+// than the seam so the production nil-kernel path stays fail closed.
+func TestVirtualStore_ProjectForbidsWrite_NoKernelBlocks(t *testing.T) {
 	v := &VirtualStore{}
 	if _, blocked := v.projectForbidsWrite(ActionRequest{
 		Type:   ActionWriteFile,
 		Target: ".nerd/config.json",
-	}); blocked {
-		t.Error("write blocked with no kernel attached")
+	}); !blocked {
+		t.Error("write allowed with no policy authority attached")
+	}
+}
+
+func TestVirtualStore_ToolWriteGuardBlocksWithoutKernel(t *testing.T) {
+	v := &VirtualStore{}
+	if err := v.toolWriteGuard()(nil, "write_file", map[string]any{"path": "internal/core/kernel.go"}); err == nil {
+		t.Fatal("tool-layer write guard allowed a write with no policy authority")
 	}
 }

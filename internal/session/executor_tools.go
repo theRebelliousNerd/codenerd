@@ -2,12 +2,15 @@ package session
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
@@ -54,6 +57,9 @@ func (e *Executor) runToolLoop(
 	if err != nil {
 		return nil, nil, err
 	}
+	if llmResponse == nil {
+		return nil, nil, errors.New("initial LLM generation returned a nil response")
+	}
 
 	// No tools requested.
 	//
@@ -79,8 +85,14 @@ func (e *Executor) runToolLoop(
 				result.Intent.Verb,
 			)
 			retried, retryErr := e.retryWithNoToolNudge(ctx, client, userInput, cfg, compilationCtx)
-			if retryErr == nil && retried != nil && len(retried.ToolCalls) > 0 {
+			if retryErr == nil && retried != nil {
+				// The retry ran under the more informative JIT prompt. Preserve it
+				// even if the model still chose a prose-only conclusion; returning
+				// the original planning text discards the entire retry.
 				llmResponse = retried
+				if len(retried.ToolCalls) == 0 {
+					return llmResponse, nil, nil
+				}
 			} else {
 				if retryErr != nil {
 					logging.Get(logging.CategorySession).Warn("runToolLoop: no-tool-retry path failed: %v", retryErr)
@@ -98,13 +110,17 @@ func (e *Executor) runToolLoop(
 	// envelope. Out of scope for this fix.)
 	if ptp, ok := client.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
 		toolErrs := e.executeToolBatchPiggyback(ctx, llmResponse.ToolCalls, cfg, result)
-		return llmResponse, toolErrs, nil
+		verified, verifyErrs, verifyErr := e.verifyCompletedToolTurn(
+			ctx, nil, systemPrompt, nil, llmResponse, e.buildToolDefinitions(cfg), cfg, result)
+		toolErrs = append(toolErrs, verifyErrs...)
+		return verified, toolErrs, verifyErr
 	}
 
 	// Native multi-turn tool calling required for correct semantics on
 	// Anthropic/OpenAI-style providers.
 	trp, supportsLoop := client.(types.ToolResultsProvider)
 	toolDefs := e.buildToolDefinitions(cfg)
+	executorCfg := e.configSnapshot()
 
 	// Seed the history with the initial user turn and the assistant's
 	// first response (which contains the tool_use blocks).
@@ -113,32 +129,67 @@ func (e *Executor) runToolLoop(
 		{Role: "assistant", Text: llmResponse.Text, ToolCalls: llmResponse.ToolCalls},
 	}
 
-	maxIter := e.config.MaxToolIterations
+	maxIter := executorCfg.MaxToolIterations
 	if maxIter <= 0 {
-		maxIter = 8
+		maxIter = defaultMaxToolIterations
 	}
+	finalizationCutoff, finalizationReserve, hasFinalizationCutoff :=
+		toolExplorationCutoff(ctx, executorCfg.FinalAnswerReserve)
+	// A client that cannot consume tool results has no final follow-up phase to
+	// reserve; it retains the existing one-batch graceful-degradation behavior.
+	hasFinalizationCutoff = hasFinalizationCutoff && supportsLoop
 
 	var toolErrs []string
 	currentResponse := llmResponse
+	verifyTerminal := func(response *types.LLMToolResponse) (*types.LLMToolResponse, error) {
+		verified, verifyErrs, verifyErr := e.verifyCompletedToolTurn(
+			ctx, trp, systemPrompt, history, response, toolDefs, cfg, result)
+		toolErrs = append(toolErrs, verifyErrs...)
+		return verified, verifyErr
+	}
 
 	for iter := 0; iter < maxIter; iter++ {
 		if ctx.Err() != nil {
 			return currentResponse, toolErrs, ctx.Err()
 		}
 
+		// A deadline is a second budget, independent of MaxToolIterations. Keep
+		// its tail for a conclusion instead of starting another open-ended
+		// provider call that can only end in context deadline exceeded.
+		if hasFinalizationCutoff && !time.Now().Before(finalizationCutoff) {
+			final, finalErrs, finalErr := e.forceDeadlineFinalAnswer(
+				ctx, trp, systemPrompt, history, currentResponse, cfg, result,
+				false, finalizationReserve)
+			toolErrs = append(toolErrs, finalErrs...)
+			if finalErr != nil {
+				return currentResponse, toolErrs, finalErr
+			}
+			verified, verifyErr := verifyTerminal(final)
+			return verified, toolErrs, verifyErr
+		}
+
+		explorationCtx := ctx
+		cancelExploration := func() {}
+		if hasFinalizationCutoff {
+			explorationCtx, cancelExploration = context.WithDeadline(ctx, finalizationCutoff)
+		}
+
 		// Execute all tool calls from this turn and collect tool_result blocks.
-		toolResults, batchErrs := e.executeToolBatch(ctx, currentResponse.ToolCalls, cfg, result)
+		toolResults, batchErrs := e.executeToolBatch(explorationCtx, currentResponse.ToolCalls, cfg, result)
 		toolErrs = append(toolErrs, batchErrs...)
 		if ctx.Err() != nil {
+			cancelExploration()
 			return currentResponse, toolErrs, ctx.Err()
 		}
 
 		// If the client can't accept tool results back, we're done after the
 		// first execution pass. The model will not see the results this turn.
 		if !supportsLoop {
+			cancelExploration()
 			logging.Get(logging.CategorySession).Warn(
 				"LLM client does not implement ToolResultsProvider; tool results not fed back to model. Provider=%T", client)
-			return currentResponse, toolErrs, nil
+			verified, verifyErr := verifyTerminal(currentResponse)
+			return verified, toolErrs, verifyErr
 		}
 
 		// Append the user tool_result turn to history and re-invoke.
@@ -147,9 +198,41 @@ func (e *Executor) runToolLoop(
 			ToolResults: toolResults,
 		})
 
-		nextResp, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, toolDefs)
+		// A tool can itself reach the exploration cutoff. Its result (including
+		// any cancellation error) is already paired in history, so do not run
+		// it again on the forced-final path.
+		if hasFinalizationCutoff && explorationCtx.Err() != nil && ctx.Err() == nil {
+			cancelExploration()
+			final, finalErrs, finalErr := e.forceDeadlineFinalAnswer(
+				ctx, trp, systemPrompt, history, currentResponse, cfg, result,
+				true, finalizationReserve)
+			toolErrs = append(toolErrs, finalErrs...)
+			if finalErr != nil {
+				return currentResponse, toolErrs, finalErr
+			}
+			verified, verifyErr := verifyTerminal(final)
+			return verified, toolErrs, verifyErr
+		}
+
+		nextResp, err := trp.CompleteWithToolResults(explorationCtx, systemPrompt, history, toolDefs)
+		plannedFinalization := hasFinalizationCutoff && errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil
+		cancelExploration()
+		if plannedFinalization {
+			final, finalErrs, finalErr := e.forceDeadlineFinalAnswer(
+				ctx, trp, systemPrompt, history, currentResponse, cfg, result,
+				true, finalizationReserve)
+			toolErrs = append(toolErrs, finalErrs...)
+			if finalErr != nil {
+				return currentResponse, toolErrs, finalErr
+			}
+			verified, verifyErr := verifyTerminal(final)
+			return verified, toolErrs, verifyErr
+		}
 		if err != nil {
 			return currentResponse, toolErrs, describeToolLoopFailure(ctx, iter, len(toolResults), err)
+		}
+		if nextResp == nil {
+			return currentResponse, toolErrs, errors.New("tool-result follow-up returned a nil response")
 		}
 		currentResponse = nextResp
 
@@ -161,50 +244,8 @@ func (e *Executor) runToolLoop(
 		})
 
 		if len(nextResp.ToolCalls) == 0 {
-			// Model returned a final answer. Before accepting it, make sure the
-			// edits it made actually compile — see verifyAndRepairBuild.
-			repaired, repairErrs, repairErr := e.verifyAndRepairBuild(
-				ctx, trp, systemPrompt, history, currentResponse, toolDefs, cfg, result)
-			toolErrs = append(toolErrs, repairErrs...)
-			if repairErr != nil {
-				return currentResponse, toolErrs, repairErr
-			}
-			if repaired != nil {
-				currentResponse = repaired
-			}
-
-			// Compiling is a low bar. Now prove the code was actually run —
-			// see verifyAndRepairTests. Ordered after the build gate on
-			// purpose: `go test` on a package that does not compile reports
-			// the compiler's errors wrapped in test noise, which is a worse
-			// repair prompt than the compiler's own output.
-			tested, testErrs, testErr := e.verifyAndRepairTests(
-				ctx, trp, systemPrompt, history, toolDefs, cfg, result)
-			toolErrs = append(toolErrs, testErrs...)
-			if testErr != nil {
-				return currentResponse, toolErrs, testErr
-			}
-			if tested != nil {
-				currentResponse = tested
-			}
-
-			// Last and weakest: is the code actually right? The compiler and
-			// the test runner only check what they were told to check. This
-			// round is advisory by construction and cannot fail the turn.
-			uplifted, upliftErrs, upliftErr := e.verifyAndUpliftWithCritic(
-				ctx, trp, systemPrompt, history, toolDefs, cfg, result)
-			toolErrs = append(toolErrs, upliftErrs...)
-			if uplifted != nil {
-				currentResponse = uplifted
-			}
-			// The critic's opinion cannot fail a turn; its edits can. This error
-			// is only ever returned when the uplift round itself broke the build
-			// or the tests, which the compiler and test runner decide, not the
-			// reviewer.
-			if upliftErr != nil {
-				return currentResponse, toolErrs, upliftErr
-			}
-			return currentResponse, toolErrs, nil
+			verified, verifyErr := verifyTerminal(currentResponse)
+			return verified, toolErrs, verifyErr
 		}
 	}
 
@@ -239,6 +280,133 @@ func (e *Executor) runToolLoop(
 		logging.Get(logging.CategorySession).Error(
 			"Forced final answer failed after exhausting tool iterations: %v", finalErr)
 		return currentResponse, toolErrs, fmt.Errorf("tool iteration budget exhausted (%d iterations, %d tool calls executed): forced final answer failed: %w", maxIter, result.ToolCallsExecuted, finalErr)
+	}
+	verified, verifyErr := verifyTerminal(final)
+	return verified, toolErrs, verifyErr
+}
+
+// verifyCompletedToolTurn is the transport-independent post-edit gate. Native
+// and Piggyback calls differ in how tool results return to the model, but both
+// must compile and test durable Go edits before the turn can report success.
+// A Piggyback client has no native repair channel, so hard-gate failures remain
+// failures with the compiler/test output instead of being silently skipped.
+func (e *Executor) verifyCompletedToolTurn(
+	ctx context.Context,
+	trp types.ToolResultsProvider,
+	systemPrompt string,
+	history []types.Message,
+	current *types.LLMToolResponse,
+	toolDefs []types.ToolDefinition,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) (*types.LLMToolResponse, []string, error) {
+	if current == nil {
+		return nil, nil, errors.New("cannot verify a nil completed response")
+	}
+
+	var toolErrs []string
+	repaired, repairErrs, repairErr := e.verifyAndRepairBuild(
+		ctx, trp, systemPrompt, history, current, toolDefs, cfg, result)
+	toolErrs = append(toolErrs, repairErrs...)
+	if repairErr != nil {
+		return current, toolErrs, repairErr
+	}
+	if repaired != nil {
+		current = repaired
+	}
+
+	// Compile first: test output wrapped around compiler errors is a worse
+	// repair signal than the compiler's direct output.
+	tested, testErrs, testErr := e.verifyAndRepairTests(
+		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+	toolErrs = append(toolErrs, testErrs...)
+	if testErr != nil {
+		return current, toolErrs, testErr
+	}
+	if tested != nil {
+		current = tested
+	}
+
+	// The critic is advisory; only its resulting edits can fail the turn through
+	// the mechanical rechecks inside verifyAndUpliftWithCritic.
+	uplifted, upliftErrs, upliftErr := e.verifyAndUpliftWithCritic(
+		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+	toolErrs = append(toolErrs, upliftErrs...)
+	if uplifted != nil {
+		current = uplifted
+	}
+	if upliftErr != nil {
+		return current, toolErrs, upliftErr
+	}
+	return current, toolErrs, nil
+}
+
+// toolExplorationCutoff divides a deadline-bound turn into exploration and
+// finalization phases. Long turns reserve five minutes by default; short turns
+// reserve half of whatever remains so both phases retain a usable budget.
+func toolExplorationCutoff(ctx context.Context, configuredReserve time.Duration) (time.Time, time.Duration, bool) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return time.Time{}, 0, false
+	}
+
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return deadline, 0, true
+	}
+	if configuredReserve <= 0 {
+		configuredReserve = defaultFinalAnswerReserve
+	}
+	reserve := configuredReserve
+	if half := remaining / 2; reserve > half {
+		reserve = half
+	}
+	return deadline.Add(-reserve), reserve, true
+}
+
+// forceDeadlineFinalAnswer transitions from exploration to conclusion while
+// preserving provider tool-use/tool-result pairing. If a pending batch did not
+// run before the cutoff, it is paired with explicit cancellation results; the
+// model gets an honest gap instead of an invalid conversation or a duplicated
+// side effect.
+func (e *Executor) forceDeadlineFinalAnswer(
+	ctx context.Context,
+	trp types.ToolResultsProvider,
+	systemPrompt string,
+	history []types.Message,
+	pending *types.LLMToolResponse,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+	pendingResultsRecorded bool,
+	reserve time.Duration,
+) (*types.LLMToolResponse, []string, error) {
+	if !pendingResultsRecorded && pending != nil && len(pending.ToolCalls) > 0 {
+		results := make([]types.ToolResult, 0, len(pending.ToolCalls))
+		for _, call := range pending.ToolCalls {
+			results = append(results, types.ToolResult{
+				ToolUseID: call.ID,
+				Content:   "not executed: the turn entered its reserved final-answer window",
+				IsError:   true,
+			})
+		}
+		history = append(history, types.Message{Role: "user", ToolResults: results})
+	}
+
+	withoutPendingCalls := &types.LLMToolResponse{}
+	if pending != nil {
+		copy := *pending
+		copy.ToolCalls = nil
+		withoutPendingCalls = &copy
+	}
+
+	logging.Get(logging.CategorySession).Warn(
+		"Tool exploration reached its deadline boundary; reserving %s for a forced final answer after %d executed tool call(s)",
+		reserve.Round(time.Second), result.ToolCallsExecuted)
+	final, toolErrs, err := e.forceFinalAnswer(
+		ctx, trp, systemPrompt, history, withoutPendingCalls, cfg, result)
+	if err != nil {
+		return pending, toolErrs, fmt.Errorf(
+			"deadline-aware forced final answer failed with %s reserved: %w", reserve.Round(time.Second), err)
 	}
 	return final, toolErrs, nil
 }
@@ -277,6 +445,9 @@ func (e *Executor) forceFinalAnswer(
 	if trp == nil {
 		return pending, nil, errors.New("client does not support tool-result follow-up")
 	}
+	if pending == nil {
+		return nil, nil, errors.New("cannot force a final answer from a nil pending response")
+	}
 
 	var toolErrs []string
 	if len(pending.ToolCalls) > 0 {
@@ -285,9 +456,11 @@ func (e *Executor) forceFinalAnswer(
 		history = append(history, types.Message{Role: "user", ToolResults: toolResults})
 	}
 
-	// The kernel decides which verbs need a real side effect
-	// (intent_requires_tool_call/1 in delegation.mg), not a Go switch.
-	needsWrite := e.intentRequiresToolCall(result.Intent.Verb) && result.SuccessfulWriteTools == 0
+	// Only intents whose terminal contract specifically requires a durable file
+	// mutation retain write tools. intentRequiresToolCall is broader: /commit,
+	// /test, and /research also require real tools, but offering write_file as
+	// their only final capability would not let them complete correctly.
+	needsWrite := e.writeOrientedIntent(result.Intent.Verb) && result.SuccessfulWriteTools == 0
 
 	nudge := readOnlyBudgetExhaustedNudge
 	var finalTools []types.ToolDefinition
@@ -312,12 +485,32 @@ func (e *Executor) forceFinalAnswer(
 	// Execute whatever writes the model asked for. Handing back an unexecuted
 	// write tool_call would reproduce the original bug one layer down: the
 	// deliverable named but never produced.
-	if len(final.ToolCalls) > 0 {
-		_, errs := e.executeToolBatch(ctx, final.ToolCalls, cfg, result)
-		toolErrs = append(toolErrs, errs...)
+	offered := make(map[string]struct{}, len(finalTools))
+	for _, definition := range finalTools {
+		offered[definition.Name] = struct{}{}
+	}
+	permittedFinalCalls := make([]types.ToolCall, 0, len(final.ToolCalls))
+	for _, call := range final.ToolCalls {
+		if _, ok := offered[call.Name]; !ok {
+			logging.Get(logging.CategorySession).Warn(
+				"Forced final answer requested unoffered tool %s; refusing execution", call.Name)
+			toolErrs = append(toolErrs, fmt.Sprintf(
+				"%s: not offered during forced finalization", call.Name))
+			continue
+		}
+		permittedFinalCalls = append(permittedFinalCalls, call)
 	}
 
-	if strings.TrimSpace(final.Text) == "" && len(final.ToolCalls) == 0 {
+	hadPermittedFinalCalls := len(permittedFinalCalls) > 0
+	if hadPermittedFinalCalls {
+		_, errs := e.executeToolBatch(ctx, permittedFinalCalls, cfg, result)
+		toolErrs = append(toolErrs, errs...)
+	}
+	// Offered calls have run; unoffered calls were refused. Neither is pending
+	// work for a caller to replay.
+	final.ToolCalls = nil
+
+	if strings.TrimSpace(final.Text) == "" && !hadPermittedFinalCalls {
 		return pending, toolErrs, errors.New("final completion returned neither text nor a tool call")
 	}
 	return final, toolErrs, nil
@@ -350,10 +543,22 @@ func (e *Executor) executeToolBatch(
 ) ([]types.ToolResult, []string) {
 	toolResults := make([]types.ToolResult, 0, len(calls))
 	var toolErrs []string
+	maxToolCalls := effectiveMaxToolCalls(e.configSnapshot().MaxToolCalls)
 
 	for _, call := range calls {
-		if result.ToolCallsExecuted >= e.config.MaxToolCalls {
-			logging.Get(logging.CategorySession).Warn("Max tool calls reached: %d", e.config.MaxToolCalls)
+		if err := ctx.Err(); err != nil {
+			for _, skipped := range calls[len(toolResults):] {
+				toolResults = append(toolResults, types.ToolResult{
+					ToolUseID: skipped.ID,
+					Content:   "not executed: tool batch context ended: " + err.Error(),
+					IsError:   true,
+				})
+				toolErrs = append(toolErrs, fmt.Sprintf("%s: %v", skipped.Name, err))
+			}
+			break
+		}
+		if result.ToolCallsExecuted >= maxToolCalls {
+			logging.Get(logging.CategorySession).Warn("Max tool calls reached: %d", maxToolCalls)
 			toolResults = append(toolResults, types.ToolResult{
 				ToolUseID: call.ID,
 				Content:   "tool call budget exceeded for this turn",
@@ -363,8 +568,7 @@ func (e *Executor) executeToolBatch(
 			continue
 		}
 
-		out, execErr := e.executeToolCall(ctx, ToolCall{ID: call.ID, Name: call.Name, Args: call.Input}, cfg)
-		result.ToolCallsExecuted++
+		out, execErr := e.executeAndRecordToolCall(ctx, call, cfg, result)
 
 		if execErr != nil {
 			logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, execErr)
@@ -377,12 +581,6 @@ func (e *Executor) executeToolBatch(
 			continue
 		}
 
-		if isWriteMutationTool(call.Name) {
-			result.SuccessfulWriteTools++
-			if target := projectDocTargetPath(call.Input); target != "" {
-				result.WrittenPaths = append(result.WrittenPaths, target)
-			}
-		}
 		logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(out))
 		toolResults = append(toolResults, types.ToolResult{
 			ToolUseID: call.ID,
@@ -394,6 +592,31 @@ func (e *Executor) executeToolBatch(
 	return toolResults, toolErrs
 }
 
+// executeAndRecordToolCall is the single accounting path shared by native and
+// Piggyback batches. The two transports frame results differently, but a call
+// attempt, successful effect, write count, and written path must never drift.
+func (e *Executor) executeAndRecordToolCall(
+	ctx context.Context,
+	call types.ToolCall,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) (string, error) {
+	out, err := e.executeToolCall(ctx, ToolCall{ID: call.ID, Name: call.Name, Args: call.Input}, cfg)
+	result.ToolCallsExecuted++
+	if err != nil {
+		return "", err
+	}
+
+	result.SuccessfulToolCalls++
+	if isWriteMutationTool(call.Name) {
+		result.SuccessfulWriteTools++
+		if target := projectDocTargetPath(call.Input); target != "" {
+			result.WrittenPaths = append(result.WrittenPaths, target)
+		}
+	}
+	return out, nil
+}
+
 // intentRequiresToolCall asks the Mangle kernel whether the supplied intent
 // verb requires a real tool_call to make progress. The decision logic lives
 // entirely in the policy corpus (delegation.mg → intent_requires_tool_call/1
@@ -402,7 +625,13 @@ func (e *Executor) executeToolBatch(
 // conservatively return false so we never block a final answer on missing
 // policy.
 func (e *Executor) intentRequiresToolCall(verb string) bool {
-	if e.kernel == nil || verb == "" {
+	verb = strings.TrimSpace(verb)
+	validVerb := validMangleVerb(verb)
+	if e.kernel == nil || !validVerb {
+		if verb != "" && !validVerb {
+			logging.Get(logging.CategorySession).Warn(
+				"intentRequiresToolCall rejected malformed verb %q", verb)
+		}
 		return false
 	}
 	// Mangle atom constants are lowercase and slash-prefixed. The intent verb
@@ -419,17 +648,54 @@ func (e *Executor) intentRequiresToolCall(verb string) bool {
 	return len(facts) > 0
 }
 
-// isWriteOrientedIntent reports intents whose completion requires durable
-// file mutations (write_file/edit_file/...). Pure analysis/query verbs are
-// false so prose-only answers remain valid terminal responses.
-func isWriteOrientedIntent(verb string) bool {
-	switch strings.TrimSpace(verb) {
-	case "/create", "/fix", "/refactor", "/write", "/delete", "/implement",
-		"/scaffold", "/optimize", "/format", "/migrate", "/document", "/commit":
-		return true
-	default:
+// validMangleVerb admits only the atom shape emitted by perception and used by
+// the policy corpus. Query helpers interpolate this value into Mangle source,
+// so accepting whitespace, delimiters, or a second slash would turn malformed
+// user state into a query-language fragment.
+func validMangleVerb(verb string) bool {
+	if len(verb) < 2 || verb[0] != '/' {
 		return false
 	}
+	for i := 1; i < len(verb); i++ {
+		c := verb[i]
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+var writeOrientedIntentFallback = map[string]struct{}{
+	"/create": {}, "/fix": {}, "/refactor": {}, "/write": {},
+	"/delete": {}, "/implement": {}, "/scaffold": {}, "/optimize": {},
+	"/document": {},
+}
+
+// isWriteOrientedIntent is the degraded-kernel fallback for the authoritative
+// write_oriented_intent/1 policy predicate. Keep it query-free so a write turn
+// still retains write tools while the kernel is unavailable; a real-kernel test
+// pins this set byte-for-byte to the policy facts.
+func isWriteOrientedIntent(verb string) bool {
+	_, ok := writeOrientedIntentFallback[strings.TrimSpace(verb)]
+	return ok
+}
+
+func (e *Executor) writeOrientedIntent(verb string) bool {
+	verb = strings.TrimSpace(verb)
+	if e.kernel != nil && validMangleVerb(verb) {
+		facts, err := e.kernel.Query(fmt.Sprintf("write_oriented_intent(%s)", verb))
+		if err == nil && len(facts) > 0 {
+			return true
+		}
+		if err != nil {
+			logging.Get(logging.CategorySession).Warn(
+				"write_oriented_intent query failed for %s; using pinned fallback: %v", verb, err)
+		}
+	}
+	// The pinned set is a conservative minimum, not an override of positive
+	// kernel policy. It preserves fail-safe hollow-success behavior if a test,
+	// partially initialized kernel, or older policy snapshot returns no facts.
+	return isWriteOrientedIntent(verb)
 }
 
 // isWriteMutationTool reports tools that land durable file/workspace changes.
@@ -551,18 +817,32 @@ func pendingEditContent(args map[string]any) string {
 	for _, key := range pendingEditContentKeys {
 		if raw, ok := args[key]; ok {
 			if s, ok := raw.(string); ok {
-				return s
+				return boundedPendingEditContent(s)
 			}
 			// Non-string payloads (e.g. JSON objects) — stringify for the fact.
 			if raw != nil {
 				if b, err := json.Marshal(raw); err == nil {
-					return string(b)
+					return boundedPendingEditContent(string(b))
 				}
-				return fmt.Sprintf("%v", raw)
+				return boundedPendingEditContent(fmt.Sprintf("%v", raw))
 			}
 		}
 	}
 	return ""
+}
+
+const maxPendingEditContentBytes = 16 * 1024
+
+// boundedPendingEditContent prevents a single file body from being copied into
+// the kernel's fact store. Current policy binds only FilePath and treats Content
+// as anonymous; retaining a digest preserves identity for diagnostics without
+// retaining an unbounded source blob.
+func boundedPendingEditContent(content string) string {
+	if len(content) <= maxPendingEditContentBytes {
+		return content
+	}
+	digest := sha256.Sum256([]byte(content))
+	return fmt.Sprintf("sha256:%x bytes:%d", digest, len(content))
 }
 
 // assertPendingEdit asserts pending_edit(FilePath, Content) for a write-mutation
@@ -585,6 +865,11 @@ func (e *Executor) assertPendingEdit(call ToolCall) (types.Fact, bool) {
 		return types.Fact{}, false
 	}
 	filePath := projectDocTargetPath(call.Args)
+	if filePath == "" {
+		logging.Get(logging.CategorySession).Warn(
+			"Refusing to assert pending_edit for %s without a recognized target path", call.Name)
+		return types.Fact{}, false
+	}
 	content := pendingEditContent(call.Args)
 	fact := types.Fact{
 		Predicate: "pending_edit",
@@ -626,10 +911,10 @@ func (e *Executor) projectForbidsWrite(call ToolCall) (string, bool) {
 	}
 	target := projectDocTargetPath(call.Args)
 	if target == "" {
-		return "", false
+		return "write target is missing or uses an unrecognized path argument", true
 	}
 	if e.kernel == nil {
-		return "", false
+		return "nerd.md write protection authority is unavailable", true
 	}
 
 	// Matching lives in projectdoc.ForbiddenByKernel so this gate and the
@@ -637,18 +922,18 @@ func (e *Executor) projectForbidsWrite(call ToolCall) (string, bool) {
 	// shards route writes through the VirtualStore, which checked nothing.
 	reason, forbidden, err := projectdoc.ForbiddenByKernel(e.kernel, target)
 	if err != nil {
-		// Fail OPEN, loudly. A kernel query failure is not evidence that the
-		// path is protected, and turning every transient query error into a
-		// blocked write would make the agent unusable the moment the kernel
-		// hiccups. The warning is what makes the degraded state visible.
+		// Fail closed. nerd.md's machine-readable protection is an executive
+		// constraint, and a kernel failure means the executor cannot prove that
+		// this write is allowed. Reads remain available for diagnosis.
+		reason := fmt.Sprintf("write protection could not be evaluated: %v", err)
 		logging.Get(logging.CategorySession).Warn(
-			"nerd.md write protection could not be evaluated for %s (%v); allowing the write", target, err)
-		return "", false
+			"nerd.md BLOCKED %s because protection could not be evaluated: %v", target, err)
+		logging.Audit().SafetyCheck("nerd.md_write_guard", false, reason)
+		return reason, true
 	}
 	return reason, forbidden
 }
 
-// hollowSuccessPrefix is the stable error marker for hollow-completion failures.
 // describeToolLoopFailure explains a mid-loop failure in terms an operator can
 // act on.
 //
@@ -685,11 +970,25 @@ func describeToolLoopFailure(ctx context.Context, iteration, toolsThisRound int,
 		iteration+1, toolsThisRound, err, overrun)
 }
 
+// hollowSuccessPrefix is the stable error marker for hollow-completion failures.
 const hollowSuccessPrefix = "hollow success blocked:"
+
+type hollowSuccessError struct {
+	detail string
+}
+
+func (e *hollowSuccessError) Error() string {
+	return hollowSuccessPrefix + " " + e.detail
+}
+
+func newHollowSuccessError(format string, args ...any) error {
+	return &hollowSuccessError{detail: fmt.Sprintf(format, args...)}
+}
 
 // isHollowSuccessError reports whether err is a hollow-completion failure.
 func isHollowSuccessError(err error) bool {
-	return err != nil && strings.Contains(err.Error(), hollowSuccessPrefix)
+	var hollow *hollowSuccessError
+	return errors.As(err, &hollow)
 }
 
 // checkHollowSuccess fails when a side-effect-requiring intent finished
@@ -710,24 +1009,24 @@ func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
 		return nil
 	}
 
-	requiresTools := e.intentRequiresToolCall(verb) || isWriteOrientedIntent(verb)
+	requiresTools := e.intentRequiresToolCall(verb) || e.writeOrientedIntent(verb)
 	if !requiresTools {
 		return nil
 	}
 
-	if result.ToolCallsExecuted == 0 {
-		return fmt.Errorf(
-			"%s intent %s requires side effects but no tool calls completed",
-			hollowSuccessPrefix, verb,
+	if result.SuccessfulToolCalls == 0 {
+		return newHollowSuccessError(
+			"intent %s requires side effects but no tool calls completed successfully (attempted=%d)",
+			verb, result.ToolCallsExecuted,
 		)
 	}
 
 	// Write-oriented work that only ran read/search tools still claims success
 	// in live matrices (prose "Created backend/main.go" with no write_file).
-	if isWriteOrientedIntent(verb) && result.SuccessfulWriteTools == 0 {
-		return fmt.Errorf(
-			"%s write-oriented intent %s completed without write_file/edit_file (tool_calls=%d)",
-			hollowSuccessPrefix, verb, result.ToolCallsExecuted,
+	if e.writeOrientedIntent(verb) && result.SuccessfulWriteTools == 0 {
+		return newHollowSuccessError(
+			"write-oriented intent %s completed without a recognized write-mutation tool (tool_calls=%d)",
+			verb, result.ToolCallsExecuted,
 		)
 	}
 	return nil
@@ -783,35 +1082,10 @@ func (e *Executor) executeToolBatchPiggyback(
 	cfg *config.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) []string {
-	var toolErrs []string
-	for _, call := range calls {
-		if result.ToolCallsExecuted >= e.config.MaxToolCalls {
-			logging.Get(logging.CategorySession).Warn("Max tool calls reached: %d", e.config.MaxToolCalls)
-			break
-		}
-		toolCall := ToolCall{
-			ID:   call.ID,
-			Name: call.Name,
-			Args: call.Input,
-		}
-		out, execErr := e.executeToolCall(ctx, toolCall, cfg)
-		result.ToolCallsExecuted++
-		if execErr != nil {
-			logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, execErr)
-			if ctx.Err() != nil {
-				return toolErrs
-			}
-			toolErrs = append(toolErrs, fmt.Sprintf("%s: %v", call.Name, execErr))
-			continue
-		}
-		if isWriteMutationTool(call.Name) {
-			result.SuccessfulWriteTools++
-			if target := projectDocTargetPath(call.Input); target != "" {
-				result.WrittenPaths = append(result.WrittenPaths, target)
-			}
-		}
-		logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(out))
-	}
+	// Piggyback does not feed results back to the provider, but execution,
+	// cancellation, budget handling, and accounting must still be identical to
+	// the native path. Discard only the transport-specific result frames.
+	_, toolErrs := e.executeToolBatch(ctx, calls, cfg, result)
 	return toolErrs
 }
 
@@ -823,7 +1097,25 @@ func truncateToolResult(s string) string {
 	if len(s) <= limit {
 		return s
 	}
-	return s[:limit] + "\n...[truncated]"
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "\n...[truncated]"
+}
+
+func effectiveMaxToolCalls(configured int) int {
+	if configured <= 0 {
+		return defaultMaxToolCalls
+	}
+	return configured
+}
+
+func effectiveToolTimeout(configured time.Duration) time.Duration {
+	if configured <= 0 {
+		return defaultToolTimeout
+	}
+	return configured
 }
 
 // executeToolCall routes a tool call through the appropriate registry with safety checks.
@@ -831,6 +1123,7 @@ func truncateToolResult(s string) string {
 // 1. Modular tools (tools.Global()) - Go function handlers
 // 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
 func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.EffectiveAgentRuntimeConfig) (string, error) {
+	executorCfg := e.configSnapshot()
 	// The effective JIT allowlist is authoritative for every execution backend.
 	// Registry membership only proves that a handler exists; it does not grant
 	// the current agent the capability to invoke that handler.
@@ -839,8 +1132,8 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	}
 
 	// Safety check via Constitutional Gate
-	if e.config.EnableSafetyGate {
-		if !e.checkSafety(call) {
+	if executorCfg.EnableSafetyGate {
+		if !e.checkSafetyWithGate(call, true) {
 			return "", fmt.Errorf("tool call blocked by safety gate: %s", call.Name)
 		}
 	}
@@ -890,7 +1183,7 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	}
 
 	// Apply timeout to tool execution
-	toolCtx, cancel := context.WithTimeout(ctx, e.config.ToolTimeout)
+	toolCtx, cancel := context.WithTimeout(ctx, effectiveToolTimeout(executorCfg.ToolTimeout))
 	defer cancel()
 
 	// Route to appropriate registry
@@ -978,7 +1271,9 @@ func (e *Executor) assertSecurityViolation(actionAtom types.MangleAtom, reason s
 		Predicate: "security_violation",
 		Args:      []any{actionAtom, reason, time.Now().Unix()},
 	}
-	_ = e.kernel.Assert(fact)
+	if err := e.kernel.Assert(fact); err != nil {
+		logging.Get(logging.CategorySession).Warn("Failed to assert security_violation: %v", err)
+	}
 }
 
 // maxPayloadBytes caps the JSON-serialized tool args we'll push into the
@@ -988,20 +1283,22 @@ const maxPayloadBytes = 100 * 1024 // 100 KB
 
 // checkSafety verifies a tool call against the Constitutional Gate.
 func (e *Executor) checkSafety(call ToolCall) bool {
+	return e.checkSafetyWithGate(call, e.configSnapshot().EnableSafetyGate)
+}
+
+func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) bool {
 	// Categorically reject empty tool names — they would assert "/" as the
 	// action atom, which is meaningless and bypasses meaningful policy match.
 	if strings.TrimSpace(call.Name) == "" {
 		logging.Get(logging.CategorySession).Warn("Safety check denied: empty tool call name")
-		if e.kernel != nil {
-			e.assertSecurityViolation(types.MangleAtom("/unknown"), "empty tool call name")
-		}
+		e.assertSecurityViolation(types.MangleAtom("/unknown"), "empty tool call name")
 		return false
 	}
 
 	if e.kernel == nil {
 		// If the safety gate is enabled, missing kernel must FAIL CLOSED.
 		// Otherwise the agent effectively runs in "god mode" on kernel init failure.
-		if e.config.EnableSafetyGate {
+		if safetyGateEnabled {
 			logging.Get(logging.CategorySession).Error("Safety check failed closed: kernel is nil while EnableSafetyGate=true")
 			logging.Audit().SafetyCheck(call.Name, false, "failed closed: kernel is nil while EnableSafetyGate=true")
 			return false
@@ -1017,6 +1314,12 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 	actionName := call.Name
 	if !strings.HasPrefix(actionName, "/") {
 		actionName = "/" + actionName
+	}
+	if !validMangleActionAtom(actionName) {
+		logging.Get(logging.CategorySession).Warn(
+			"Safety check denied malformed action name %q", call.Name)
+		e.assertSecurityViolation(types.MangleAtom("/unknown"), "malformed tool action name")
+		return false
 	}
 	actionAtom := types.MangleAtom(actionName)
 
@@ -1074,17 +1377,30 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 		}
 	}()
 
-	// 3. Query permitted
-	// permitted(Action, Target, Payload)
-	// We query for all permitted facts and filter for matching this exact request.
-	facts, err := e.kernel.Query("permitted")
-	if err != nil {
-		logging.Get(logging.CategorySession).Error("Safety check failed: query error: %v", err)
-		e.assertSecurityViolation(actionAtom, "failed to query permitted facts")
-		return false
-	}
-
+	// 3. Query permitted(Action, Target, Payload) using the kernel's grounded
+	// pattern form. This avoids scanning the whole permitted relation on the
+	// normal allowed path. The bare-predicate fallback preserves compatibility
+	// with lightweight Kernel implementations that only support Query("name").
 	wantAction := string(actionAtom)
+	exactQuery := fmt.Sprintf("permitted(%s, %s, %s)",
+		wantAction, strconv.Quote(target), strconv.Quote(payload))
+	facts, exactErr := e.kernel.Query(exactQuery)
+	if exactErr != nil || len(facts) == 0 {
+		var fallbackErr error
+		facts, fallbackErr = e.kernel.Query("permitted")
+		if fallbackErr != nil {
+			if exactErr != nil {
+				fallbackErr = fmt.Errorf("exact query failed: %v; predicate query failed: %w", exactErr, fallbackErr)
+			}
+			logging.Get(logging.CategorySession).Error("Safety check failed: query error: %v", fallbackErr)
+			e.assertSecurityViolation(actionAtom, "failed to query permitted facts")
+			return false
+		}
+	}
+	if exactErr != nil {
+		logging.Get(logging.CategorySession).Debug(
+			"Kernel does not support grounded permitted query; used predicate fallback: %v", exactErr)
+	}
 	for _, f := range facts {
 		if len(f.Args) != 3 {
 			continue
@@ -1118,13 +1434,37 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 	return false
 }
 
+// validMangleActionAtom is intentionally a little broader than
+// validMangleVerb: legacy tool registries contain camelCase action names, while
+// perceived intent verbs are normalized lowercase. Both forms remain safe to
+// interpolate when restricted to one slash followed by ASCII alphanumerics or
+// underscores.
+func validMangleActionAtom(action string) bool {
+	if len(action) < 2 || action[0] != '/' {
+		return false
+	}
+	for i := 1; i < len(action); i++ {
+		c := action[i]
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
+			(c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return true
+}
+
 // extractTarget attempts to identify the primary target of a tool call.
 func (e *Executor) extractTarget(args map[string]any) string {
-	// Common keys for targets (include glob/search patterns used by tools).
-	candidates := []string{"path", "filename", "filepath", "file", "url", "target", "query", "pattern", "glob", "dir", "directory"}
-	for _, key := range candidates {
+	// Path-bearing calls share the exact extraction contract used by nerd.md's
+	// write gate. Search/network tools then add their non-path target keys.
+	if target := projectdoc.TargetPath(args); target != "" {
+		return target
+	}
+	for _, key := range []string{"url", "query", "pattern", "glob", "dir", "directory"} {
 		if val, ok := args[key]; ok {
-			return types.ExtractString(val)
+			if target := strings.TrimSpace(types.ExtractString(val)); target != "" {
+				return target
+			}
 		}
 	}
 	return "unknown"

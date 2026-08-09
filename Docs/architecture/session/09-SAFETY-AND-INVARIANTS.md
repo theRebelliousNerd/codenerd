@@ -1,6 +1,6 @@
 # 09 — Safety and Invariants: session
 
-> Last verified: 2026-07-13
+> Last verified: 2026-08-09
 
 ## 1. Constitutional model
 
@@ -69,11 +69,32 @@ Names with `..` or `/` `\` rejected before filesystem read.
 
 Only allowlisted predicates; blocked atoms get constitutional override on envelope.
 
+### I13 — Forced-final tools cannot widen capability
+
+The deadline/iteration final completion may execute only tools present in the reduced final tool definitions. Read-oriented finals receive none; write-oriented finals receive recognized write mutations only. Unoffered calls are refused and cleared from the returned response.
+
+### I14 — nerd.md write protection fails closed
+
+Executor, VirtualStore, and the registry write guard all block a write when `project_forbidden_path` cannot be queried. An unavailable authority is not an allow decision; reads remain available for diagnosis.
+
+### I15 — In-flight edit facts are bounded
+
+`pending_edit` retains bodies up to 16 KiB. Larger bodies become SHA-256 digest metadata, preventing source blobs from inflating the kernel fact store.
+
+### I16 — Write intent has a policy-owned terminal contract
+
+`write_oriented_intent/1` identifies verbs that require a durable file mutation. The executor queries it for forced-final capabilities and hollow-success checks; a real-kernel parity test keeps the conservative degraded-mode fallback identical to the policy facts.
+
+### I17 — Post-edit proof is transport-independent
+
+Every tool-loop terminal path, including natural completion, deadline/iteration forced final, one-shot native fallback, and Piggyback, reaches `verifyCompletedToolTurn`. All must pass build and test gates and run the advisory critic. Piggyback cannot perform a native repair round, so a red compiler or test result fails the turn with its evidence instead of being skipped.
+
 ## 3. Safety algorithms (reference)
 
 Full narrative: [IMPLEMENTED_SPEC.md §6](IMPLEMENTED_SPEC.md).
 
-`safe_action` fallback: only after pending_action was asserted and exact permitted match failed; still deny unknown verbs.
+There is no `safe_action/1` authorization fallback. A tool call must match the
+exact `permitted(Action, Target, Payload)` relation or it is denied.
 
 ## 4. Concurrency hazards
 
@@ -82,6 +103,7 @@ Full narrative: [IMPLEMENTED_SPEC.md §6](IMPLEMENTED_SPEC.md).
 | Concurrent Spawn vs max | pendingSpawns + double-check |
 | Shared kernel facts | Task-scoped intent IDs; retract pending_action |
 | SetSessionContext race on shared executor | CloneForTask for inline tasks |
+| SetConfig replacement during execution | Mutex-protected coherent config snapshots |
 | CompressMemory holds lock during LLM | Unlock around Compress |
 | Concurrent Ouroboros set | Executor mutex |
 
@@ -101,6 +123,7 @@ Kernel-level serialization of concurrent `Assert`/`Query` is a core package conc
 
 - Specialist configs load from workspace `.nerd/agents/` — treat as trusted workspace content; size-capped.  
 - Tool results truncated only when fed back to the model (16KB); full result still returned from modular execute to caller path.  
+- Large `pending_edit` content is represented by a bounded digest; current policy binds the path and treats content anonymously.
 - Persist goroutine is best-effort; do not store secrets in free-form response persistence without higher-layer scrubbing.
 
 ## 7. Testing anchors

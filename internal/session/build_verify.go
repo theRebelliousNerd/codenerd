@@ -88,7 +88,7 @@ func touchedGoFiles(paths []string) bool {
 // keeps producing, so the gate resolves its own workspace rather than trusting
 // every future construction site to remember a field.
 func (e *Executor) workspaceForVerification() string {
-	if ws := strings.TrimSpace(e.config.WorkspaceRoot); ws != "" {
+	if ws := strings.TrimSpace(e.configSnapshot().WorkspaceRoot); ws != "" {
 		return ws
 	}
 	if root, err := config.FindWorkspaceRoot(); err == nil && strings.TrimSpace(root) != "" {
@@ -177,7 +177,7 @@ func (e *Executor) verifyAndRepairBuild(
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
-	if !e.config.VerifyBuildAfterEdits {
+	if !e.configSnapshot().VerifyBuildAfterEdits {
 		return nil, nil, nil
 	}
 	// Nothing was written, or nothing written was Go: no compile to run.
@@ -244,7 +244,7 @@ func (e *Executor) verifyAndRepairTests(
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
-	if !e.config.VerifyTestsAfterEdits {
+	if !e.configSnapshot().VerifyTestsAfterEdits {
 		return nil, nil, nil
 	}
 	if result == nil || result.SuccessfulWriteTools == 0 || !touchedGoFiles(result.WrittenPaths) {
@@ -382,7 +382,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
-	if !e.config.CriticReviewAfterEdits || trp == nil {
+	if !e.configSnapshot().CriticReviewAfterEdits {
 		return nil, nil, nil
 	}
 	if result == nil || result.SuccessfulWriteTools == 0 || !touchedGoFiles(result.WrittenPaths) {
@@ -456,6 +456,11 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	logging.Get(logging.CategorySession).Warn(
 		"Adversarial review reported %d finding(s), %d worth acting on", len(findings), len(worth))
 	if len(worth) == 0 {
+		return nil, nil, nil
+	}
+	if trp == nil {
+		logging.Get(logging.CategorySession).Warn(
+			"Adversarial review found %d actionable item(s), but this provider has no repair channel", len(worth))
 		return nil, nil, nil
 	}
 

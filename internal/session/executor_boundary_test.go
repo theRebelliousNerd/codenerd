@@ -2,18 +2,90 @@ package session
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
 	"codenerd/internal/jit/config"
+	"codenerd/internal/projectdoc"
 	"codenerd/internal/types"
 )
+
+func TestExecutorExtractTargetSharesProjectDocPathContract(t *testing.T) {
+	executor := &Executor{}
+	for _, key := range projectdoc.PathArgs {
+		t.Run(key, func(t *testing.T) {
+			const want = "protected/config.json"
+			if got := executor.extractTarget(map[string]any{key: want}); got != want {
+				t.Fatalf("extractTarget(%s) = %q, want %q", key, got, want)
+			}
+		})
+	}
+}
+
+func TestValidMangleVerbRejectsQueryFragments(t *testing.T) {
+	for _, valid := range []string{"/review", "/generate_tool", "/v2"} {
+		if !validMangleVerb(valid) {
+			t.Errorf("validMangleVerb(%q) = false", valid)
+		}
+	}
+	for _, invalid := range []string{"", "review", "/Review", "/review)", "/review, /other", "/consult/name", "/with-dash"} {
+		if validMangleVerb(invalid) {
+			t.Errorf("validMangleVerb(%q) = true", invalid)
+		}
+	}
+}
+
+type exactPermissionKernel struct {
+	*MockKernel
+	bareQueries int
+}
+
+func (k *exactPermissionKernel) Query(query string) ([]types.Fact, error) {
+	if query == "permitted" {
+		k.bareQueries++
+		return nil, nil
+	}
+	if strings.HasPrefix(query, "permitted(") {
+		return []types.Fact{{
+			Predicate: "permitted",
+			Args:      []any{types.MangleAtom("/read_file"), "x.go", `{"path":"x.go"}`},
+		}}, nil
+	}
+	return k.MockKernel.Query(query)
+}
+
+func TestCheckSafetyUsesGroundedPermissionQueryFastPath(t *testing.T) {
+	kernel := &exactPermissionKernel{MockKernel: &MockKernel{}}
+	executor := &Executor{kernel: kernel, config: DefaultExecutorConfig()}
+	allowed := executor.checkSafety(ToolCall{
+		ID: "exact-permission-1", Name: "read_file", Args: map[string]any{"path": "x.go"},
+	})
+	if !allowed {
+		t.Fatal("grounded permitted fact was denied")
+	}
+	if kernel.bareQueries != 0 {
+		t.Fatalf("bare permitted scans = %d, want 0 on an exact-match fast path", kernel.bareQueries)
+	}
+}
+
+func TestCheckSafetyRejectsMalformedActionBeforeQuery(t *testing.T) {
+	kernel := &MockKernel{}
+	executor := &Executor{kernel: kernel, config: DefaultExecutorConfig()}
+	if executor.checkSafety(ToolCall{ID: "malformed-1", Name: "read file", Args: map[string]any{"path": "x.go"}}) {
+		t.Fatal("malformed action name was allowed")
+	}
+	for _, fact := range kernel.asserts {
+		if fact.Predicate == "pending_action" {
+			t.Fatalf("malformed action reached pending_action: %#v", fact)
+		}
+	}
+}
 
 // TestExecutor_CheckSafety_NilAgentConfigGracefulRejection verifies that when
 // AgentConfig is nil, buildToolDefinitions returns nil (gracefully) and
 // isToolAllowed fails closed. The pipeline should not panic.
 //
 // QA boundary item: "Add test for nil AgentConfig — graceful rejection"
-// TODO: TEST_GAP: [State Conflicts & Concurrency] Write a concurrency test executing `checkSafety` in a tight loop across multiple goroutines while concurrently updating state via `SetConfig` to expose unsynchronized read data races.
 func TestExecutor_CheckSafety_NilAgentConfigGracefulRejection(t *testing.T) {
 	executor := &Executor{
 		kernel: &MockKernel{},
@@ -40,6 +112,41 @@ func TestExecutor_CheckSafety_NilAgentConfigGracefulRejection(t *testing.T) {
 	if executor.isToolAllowed("any_tool", emptyCfg) {
 		t.Error("expected isToolAllowed to fail closed for empty cfg")
 	}
+}
+
+func TestExecutorConfigSnapshotConcurrentSet(t *testing.T) {
+	executor := &Executor{config: DefaultExecutorConfig()}
+	first := DefaultExecutorConfig()
+	first.MaxToolCalls = 11
+	first.TokenBudget = 111
+	second := DefaultExecutorConfig()
+	second.MaxToolCalls = 22
+	second.TokenBudget = 222
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 2_000; i++ {
+			if i%2 == 0 {
+				executor.SetConfig(first)
+			} else {
+				executor.SetConfig(second)
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 2_000; i++ {
+			got := executor.configSnapshot()
+			if (got.MaxToolCalls == first.MaxToolCalls && got.TokenBudget != first.TokenBudget) ||
+				(got.MaxToolCalls == second.MaxToolCalls && got.TokenBudget != second.TokenBudget) {
+				t.Errorf("torn config snapshot: MaxToolCalls=%d TokenBudget=%d", got.MaxToolCalls, got.TokenBudget)
+				return
+			}
+		}
+	}()
+	wg.Wait()
 }
 
 // TestExecutor_CheckSafety_MassivePayloadRejected verifies that payloads
