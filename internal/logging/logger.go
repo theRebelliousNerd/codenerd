@@ -154,9 +154,18 @@ func initializeInternal(ws string) error {
 		config.DebugMode = false
 	}
 
+	runPrefixMu.Lock()
+	runPrefix = generateRunPrefix()
+	runPrefixMu.Unlock()
+	clearOrdinaryLogs(logsDir)
+
 	// Only create logs directory if debug mode is enabled
 	if !config.DebugMode {
 		return nil // Silent no-op in production mode
+	}
+
+	if logsDirSymlinkRejected(logsDir) {
+		return fmt.Errorf("refusing symlinked logs directory: %s", logsDir)
 	}
 
 	if err := os.MkdirAll(logsDir, 0o700); err != nil {
@@ -295,11 +304,13 @@ func Get(category Category) *Logger {
 		return l
 	}
 
-	// Create log file with date prefix for easy rotation
-	date := time.Now().Format("2006-01-02")
-	filename := fmt.Sprintf("%s_%s.log", date, category)
+	// Create log file with run prefix for isolation (date fallback before Initialize)
+	prefix := currentRunPrefix()
+	if prefix == "" {
+		prefix = time.Now().Format("2006-01-02")
+	}
+	filename := fmt.Sprintf("%s_%s.log", prefix, category)
 	logPath := filepath.Join(logsDir, filename)
-
 	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		// Fall back to no-op logger
@@ -390,14 +401,13 @@ func (l *Logger) Error(format string, args ...any) {
 // --- Aggregated problems log -------------------------------------------------
 //
 // Every WARN and ERROR is mirrored, in addition to its own category file, into
-// a single <date>_problems.log. Diagnosing a run otherwise means grepping ~25
+// a single <run>_problems.log. Diagnosing a run otherwise means grepping ~25
 // category files and manually interleaving them by timestamp, which is how a
 // cold start managed to report success while 195 of 196 LLM calls were failing:
 // the evidence existed, just nowhere anyone would look.
 //
 // This is a mirror, never a move — category files keep their own WARN/ERROR
 // lines so nothing that reads them today changes.
-
 var (
 	problemsMu     sync.Mutex
 	problemsLogger *log.Logger
@@ -420,7 +430,11 @@ func mirrorToProblems(category Category, level, msg string) {
 		if dir == "" {
 			return // Initialize() has not run yet; category logger is a no-op too.
 		}
-		path := filepath.Join(dir, fmt.Sprintf("%s_problems.log", time.Now().Format("2006-01-02")))
+		prefix := currentRunPrefix()
+		if prefix == "" {
+			prefix = time.Now().Format("2006-01-02")
+		}
+		path := filepath.Join(dir, fmt.Sprintf("%s_problems.log", prefix))
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
 			problemsFailed = true

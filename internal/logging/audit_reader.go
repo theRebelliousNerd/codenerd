@@ -39,8 +39,9 @@ func AuditLogsDir() string {
 	return logsDir
 }
 
-// LatestAuditLogPath returns the most recent audit log file. Files are named
-// YYYY-MM-DD_audit.log, so lexical order is chronological order.
+// LatestAuditLogPath returns the most recent audit log file. run-prefixed audit
+// filenames are lexically chronological because the UTC timestamp is the leading
+// component, so lexical order is chronological order.
 func LatestAuditLogPath() (string, error) {
 	dir := AuditLogsDir()
 	if dir == "" {

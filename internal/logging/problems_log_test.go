@@ -5,13 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
-
-// problemsLogPath returns today's aggregated problems log inside a workspace.
-func problemsLogPath(ws string) string {
-	return filepath.Join(ws, ".nerd", "logs", time.Now().Format("2006-01-02")+"_problems.log")
-}
 
 // Every WARN and ERROR must land in one aggregated file, tagged with the
 // category it came from. Without it, diagnosing a run means grepping ~25
@@ -34,7 +28,15 @@ func TestProblemsLog_AggregatesWarnAndErrorAcrossCategories(t *testing.T) {
 
 	CloseAll()
 
-	data, err := os.ReadFile(problemsLogPath(ws))
+	logsDir := filepath.Join(ws, ".nerd", "logs")
+	matches, err := filepath.Glob(filepath.Join(logsDir, "*_problems.log"))
+	if err != nil {
+		t.Fatalf("glob problems log: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected exactly one problems log, got %d: %v", len(matches), matches)
+	}
+	data, err := os.ReadFile(matches[0])
 	if err != nil {
 		t.Fatalf("problems log not written: %v", err)
 	}
@@ -72,8 +74,15 @@ func TestProblemsLog_DoesNotStealFromCategoryFiles(t *testing.T) {
 	Get(CategoryKernel).Error("still in the category file")
 	CloseAll()
 
-	catPath := filepath.Join(ws, ".nerd", "logs", time.Now().Format("2006-01-02")+"_kernel.log")
-	data, err := os.ReadFile(catPath)
+	logsDir := filepath.Join(ws, ".nerd", "logs")
+	matches, err := filepath.Glob(filepath.Join(logsDir, "*_kernel.log"))
+	if err != nil {
+		t.Fatalf("glob kernel log: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected exactly one kernel log, got %d: %v", len(matches), matches)
+	}
+	data, err := os.ReadFile(matches[0])
 	if err != nil {
 		t.Fatalf("category log not written: %v", err)
 	}

@@ -148,8 +148,11 @@ func InitAudit() error {
 		return nil // Already initialized
 	}
 
-	date := time.Now().Format("2006-01-02")
-	auditPath := filepath.Join(logsDir, fmt.Sprintf("%s_audit.log", date))
+	prefix := currentRunPrefix()
+	if prefix == "" {
+		prefix = time.Now().Format("2006-01-02")
+	}
+	auditPath := filepath.Join(logsDir, fmt.Sprintf("%s_audit.log", prefix))
 
 	file, err := os.OpenFile(auditPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {

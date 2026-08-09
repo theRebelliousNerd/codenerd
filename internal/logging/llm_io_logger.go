@@ -4,7 +4,7 @@
 // the FULL prompt package (system prompt, conversation history, user prompt)
 // and raw LLM responses to a dedicated log file:
 //
-//	.nerd/logs/YYYY-MM-DD_llm_io.log
+//	.nerd/logs/<runPrefix>_llm_io.log  (falls back to .nerd/logs/YYYY-MM-DD_llm_io.log when run prefix is empty)
 //
 // This is invaluable for debugging perception/articulation prompt quality,
 // token usage, and understanding what the LLM actually sees vs what we think
@@ -55,8 +55,11 @@ func initLLMIOLogger() {
 			return
 		}
 
-		dateStr := time.Now().Format("2006-01-02")
-		logPath := filepath.Join(logsDir, dateStr+"_llm_io.log")
+		prefix := currentRunPrefix()
+		if prefix == "" {
+			prefix = time.Now().Format("2006-01-02")
+		}
+		logPath := filepath.Join(logsDir, prefix+"_llm_io.log")
 
 		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
