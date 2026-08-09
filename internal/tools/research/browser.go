@@ -9,12 +9,15 @@ import (
 	"codenerd/internal/browser"
 	"codenerd/internal/logging"
 	"codenerd/internal/tools"
+	"codenerd/internal/types"
 )
 
 // browserManager holds a shared browser session manager.
 var (
-	browserMgr   *browser.SessionManager
-	browserMgrMu sync.RWMutex
+	browserMgr         *browser.SessionManager
+	browserKernel      types.Kernel
+	browserKernelOwner *browser.SessionManager
+	browserMgrMu       sync.RWMutex
 )
 
 // getBrowserManager returns the shared browser session manager.
@@ -38,7 +41,27 @@ func getBrowserManager() *browser.SessionManager {
 func SetBrowserManager(mgr *browser.SessionManager) {
 	browserMgrMu.Lock()
 	browserMgr = mgr
+	if browserKernelOwner != mgr {
+		browserKernel = nil
+		browserKernelOwner = nil
+	}
 	browserMgrMu.Unlock()
+}
+
+// SetBrowserRuntime binds both browser control and browser reasoning to one
+// Cortex. The kernel is the same live authority used for planning and policy.
+func SetBrowserRuntime(mgr *browser.SessionManager, kernel types.Kernel) {
+	browserMgrMu.Lock()
+	browserMgr = mgr
+	browserKernel = kernel
+	browserKernelOwner = mgr
+	browserMgrMu.Unlock()
+}
+
+func getBrowserKernel() types.Kernel {
+	browserMgrMu.RLock()
+	defer browserMgrMu.RUnlock()
+	return browserKernel
 }
 
 // ClearBrowserManager removes mgr only if it is still the process binding.
@@ -47,6 +70,10 @@ func ClearBrowserManager(mgr *browser.SessionManager) {
 	browserMgrMu.Lock()
 	if browserMgr == mgr {
 		browserMgr = nil
+	}
+	if browserKernelOwner == mgr {
+		browserKernel = nil
+		browserKernelOwner = nil
 	}
 	browserMgrMu.Unlock()
 }

@@ -101,12 +101,35 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				if (w.__browsernerdHooked) return true;
 				w.__browsernerdHooked = true;
 				w.__browsernerdEvents = [];
+				w.__browsernerdToastKeys = new Set();
+				const enqueue = (event) => {
+					if (!Array.isArray(w.__browsernerdEvents)) w.__browsernerdEvents = [];
+					if (w.__browsernerdEvents.length >= 200) w.__browsernerdEvents.shift();
+					w.__browsernerdEvents.push(event);
+				};
+				const recordToast = (node) => {
+					if (!node || node.nodeType !== 1) return;
+					const candidates = [];
+					if (node.matches && node.matches('[role="alert"],[role="status"],[aria-live],.toast,.snackbar,.notification,.alert')) candidates.push(node);
+					if (node.querySelectorAll) candidates.push(...node.querySelectorAll('[role="alert"],[role="status"],[aria-live],.toast,.snackbar,.notification,.alert'));
+					for (const el of candidates.slice(0, 20)) {
+						const text = String(el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+						if (!text) continue;
+						const marker = [el.getAttribute && el.getAttribute('role'), el.className, el.getAttribute && el.getAttribute('aria-live')].filter(Boolean).join(' ').toLowerCase();
+						const level = /error|danger|assertive/.test(marker) ? 'error' : (/warn/.test(marker) ? 'warning' : 'info');
+						const key = level + '|' + text;
+						if (w.__browsernerdToastKeys.has(key)) continue;
+						if (w.__browsernerdToastKeys.size >= 100) w.__browsernerdToastKeys.clear();
+						w.__browsernerdToastKeys.add(key);
+						enqueue({ type: 'toast', text, level, source: 'dom', ts: Date.now() });
+					}
+				};
 
 				document.addEventListener('click', (ev) => {
 					try {
 						const target = ev.target || {};
 						const id = target.id || '';
-						w.__browsernerdEvents.push({ type: 'click', id, ts: Date.now() });
+						enqueue({ type: 'click', id, ts: Date.now() });
 					} catch (e) {}
 				}, true);
 
@@ -116,7 +139,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 						const id = target.id || target.name || '';
 						const value = target.value || '';
 					const descriptor = [target.type, target.name, target.id, target.autocomplete, target.getAttribute && target.getAttribute('aria-label')].filter(Boolean).join(' ');
-					w.__browsernerdEvents.push({ type: 'input', id, value, descriptor, ts: Date.now() });
+					enqueue({ type: 'input', id, value, descriptor, ts: Date.now() });
 					} catch (e) {}
 				}, true);
 
@@ -126,19 +149,27 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 						const id = target.id || target.name || '';
 						const value = target.value || '';
 					const descriptor = [target.type, target.name, target.id, target.autocomplete, target.getAttribute && target.getAttribute('aria-label')].filter(Boolean).join(' ');
-					w.__browsernerdEvents.push({ type: 'input', id, value, descriptor, ts: Date.now() });
+					enqueue({ type: 'input', id, value, descriptor, ts: Date.now() });
 					} catch (e) {}
 				}, true);
 
+				let lastDOMEvent = 0;
 				const obs = new MutationObserver((mutations) => {
+					const now = Date.now();
+					if (now - lastDOMEvent >= 100) {
+						lastDOMEvent = now;
+						enqueue({ type: 'dom', ts: now });
+					}
 					mutations.forEach((m) => {
 						if (m.type === 'attributes' && m.attributeName && m.attributeName.startsWith('data-state')) {
 							const val = (m.target && m.target.getAttribute) ? (m.target.getAttribute(m.attributeName) || '') : '';
-							w.__browsernerdEvents.push({ type: 'state', name: m.attributeName, value: val, ts: Date.now() });
+							enqueue({ type: 'state', name: m.attributeName, value: val, ts: now });
 						}
+						if (m.type === 'childList') Array.from(m.addedNodes || []).forEach(recordToast);
 					});
 				});
-				obs.observe(document.documentElement || document.body, { attributes: true, subtree: true });
+				obs.observe(document.documentElement || document.body, { attributes: true, childList: true, subtree: true });
+				recordToast(document.body);
 				return true;
 			}
 			`,
@@ -150,6 +181,15 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 		waitNav := page.Context(ctx).EachEvent(handleNavigation)
 
 		// Console, network, and DOM streams
+		type requestState struct {
+			started   time.Time
+			method    string
+			url       string
+			initType  string
+			factAdded bool
+		}
+		var requestMu sync.Mutex
+		requestStates := make(map[proto.NetworkRequestID]requestState)
 		waitRest := page.Context(ctx).EachEvent(
 			func(ev *proto.RuntimeConsoleAPICalled) {
 				if consoleErrorsOnly && ev.Type != proto.RuntimeConsoleAPICalledTypeError && ev.Type != proto.RuntimeConsoleAPICalledTypeWarning {
@@ -162,16 +202,13 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				msg := stringifyConsoleArgs(ev.Args)
 				if err := m.addFacts([]mangle.Fact{{
 					Predicate: "console_event",
-					Args:      []any{string(ev.Type), msg, now.UnixMilli()},
+					Args:      []any{sessionID, string(ev.Type), msg, now.UnixMilli()},
 					Timestamp: now,
 				}}); err != nil {
 					logging.BrowserError("[session:%s] console fact error: %v", sessionID, err)
 				}
 			},
 			func(ev *proto.NetworkRequestWillBeSent) {
-				if !throttler.Allow("net_request") {
-					return
-				}
 				now := time.Now()
 				initiatorType := ""
 				initiatorID := ""
@@ -202,10 +239,20 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 						}
 					}
 				}
+				addRequestFact := throttler.Allow("net_request")
+				requestMu.Lock()
+				requestStates[ev.RequestID] = requestState{
+					started: now, method: ev.Request.Method, url: ev.Request.URL,
+					initType: initiatorType, factAdded: addRequestFact,
+				}
+				requestMu.Unlock()
+				if !addRequestFact {
+					return
+				}
 
 				facts := []mangle.Fact{{
 					Predicate: "net_request",
-					Args:      []any{string(ev.RequestID), ev.Request.Method, ev.Request.URL, initiatorType, now.UnixMilli()},
+					Args:      []any{sessionID, string(ev.RequestID), ev.Request.Method, ev.Request.URL, initiatorType, now.UnixMilli()},
 					Timestamp: now,
 				}}
 
@@ -216,7 +263,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					}
 					facts = append(facts, mangle.Fact{
 						Predicate: "request_initiator",
-						Args:      []any{string(ev.RequestID), initiatorType, parentRef},
+						Args:      []any{sessionID, string(ev.RequestID), initiatorType, parentRef},
 						Timestamp: now,
 					})
 				}
@@ -229,7 +276,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					for k, v := range ev.Request.Headers {
 						if err := m.addFacts([]mangle.Fact{{
 							Predicate: "net_header",
-							Args:      []any{string(ev.RequestID), "req", strings.ToLower(k), fmt.Sprintf("%v", v)},
+							Args:      []any{sessionID, string(ev.RequestID), "req", strings.ToLower(k), fmt.Sprintf("%v", v)},
 							Timestamp: now,
 						}}); err != nil {
 							logging.BrowserError("[session:%s] net_header fact error: %v", sessionID, err)
@@ -238,20 +285,39 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				}
 			},
 			func(ev *proto.NetworkResponseReceived) {
-				if !throttler.Allow("net_response") {
-					return
-				}
 				now := time.Now()
 				var latency, duration int64
 				if ev.Response != nil && ev.Response.Timing != nil {
 					latency = int64(ev.Response.Timing.ReceiveHeadersEnd)
-					duration = int64(ev.Response.Timing.ConnectEnd)
 				}
-				if err := m.addFacts([]mangle.Fact{{
+				requestMu.Lock()
+				state, tracked := requestStates[ev.RequestID]
+				delete(requestStates, ev.RequestID)
+				requestMu.Unlock()
+				if tracked {
+					duration = now.Sub(state.started).Milliseconds()
+				}
+				addResponseFact := tracked && state.factAdded
+				if !addResponseFact {
+					addResponseFact = ev.Response.Status >= 400 || throttler.Allow("net_response")
+				}
+				if !addResponseFact {
+					return
+				}
+				facts := make([]mangle.Fact, 0, 2)
+				if tracked && !state.factAdded {
+					facts = append(facts, mangle.Fact{
+						Predicate: "net_request",
+						Args:      []any{sessionID, string(ev.RequestID), state.method, state.url, state.initType, state.started.UnixMilli()},
+						Timestamp: state.started,
+					})
+				}
+				facts = append(facts, mangle.Fact{
 					Predicate: "net_response",
-					Args:      []any{string(ev.RequestID), ev.Response.Status, latency, duration},
+					Args:      []any{sessionID, string(ev.RequestID), int64(ev.Response.Status), latency, duration},
 					Timestamp: now,
-				}}); err != nil {
+				})
+				if err := m.addFacts(facts); err != nil {
 					logging.BrowserError("[session:%s] net_response fact error: %v", sessionID, err)
 				}
 
@@ -259,12 +325,35 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					for k, v := range ev.Response.Headers {
 						if err := m.addFacts([]mangle.Fact{{
 							Predicate: "net_header",
-							Args:      []any{string(ev.RequestID), "res", strings.ToLower(k), fmt.Sprintf("%v", v)},
+							Args:      []any{sessionID, string(ev.RequestID), "res", strings.ToLower(k), fmt.Sprintf("%v", v)},
 							Timestamp: now,
 						}}); err != nil {
 							logging.BrowserError("[session:%s] res net_header fact error: %v", sessionID, err)
 						}
 					}
+				}
+			},
+			func(ev *proto.NetworkLoadingFailed) {
+				now := time.Now()
+				requestMu.Lock()
+				state, tracked := requestStates[ev.RequestID]
+				delete(requestStates, ev.RequestID)
+				requestMu.Unlock()
+				facts := make([]mangle.Fact, 0, 2)
+				if tracked && !state.factAdded {
+					facts = append(facts, mangle.Fact{
+						Predicate: "net_request",
+						Args:      []any{sessionID, string(ev.RequestID), state.method, state.url, state.initType, state.started.UnixMilli()},
+						Timestamp: state.started,
+					})
+				}
+				facts = append(facts, mangle.Fact{
+					Predicate: "net_failure",
+					Args:      []any{sessionID, string(ev.RequestID), ev.ErrorText, string(ev.BlockedReason), now.UnixMilli()},
+					Timestamp: now,
+				})
+				if err := m.addFacts(facts); err != nil {
+					logging.BrowserError("[session:%s] net_failure fact error: %v", sessionID, err)
 				}
 			},
 			func(ev *proto.DOMDocumentUpdated) {
@@ -325,6 +414,9 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 						ID         string  `json:"id"`
 						Name       string  `json:"name"`
 						Value      string  `json:"value"`
+						Text       string  `json:"text"`
+						Level      string  `json:"level"`
+						Source     string  `json:"source"`
 						Descriptor string  `json:"descriptor"`
 						TS         float64 `json:"ts"`
 					}
@@ -339,20 +431,32 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 						case "click":
 							facts = append(facts, mangle.Fact{
 								Predicate: "click_event",
-								Args:      []any{ev.ID, ts.UnixMilli()},
+								Args:      []any{sessionID, ev.ID, ts.UnixMilli()},
 								Timestamp: ts,
 							})
 						case "input":
 							safeValue := m.redactor.RedactInputValue(ev.Descriptor, ev.Value)
 							facts = append(facts, mangle.Fact{
 								Predicate: "input_event",
-								Args:      []any{ev.ID, safeValue, ts.UnixMilli()},
+								Args:      []any{sessionID, ev.ID, safeValue, ts.UnixMilli()},
 								Timestamp: ts,
 							})
 						case "state":
 							facts = append(facts, mangle.Fact{
 								Predicate: "state_change",
-								Args:      []any{ev.Name, ev.Value, ts.UnixMilli()},
+								Args:      []any{sessionID, ev.Name, ev.Value, ts.UnixMilli()},
+								Timestamp: ts,
+							})
+						case "dom":
+							facts = append(facts, mangle.Fact{
+								Predicate: "dom_updated",
+								Args:      []any{sessionID, ts.UnixMilli()},
+								Timestamp: ts,
+							})
+						case "toast":
+							facts = append(facts, mangle.Fact{
+								Predicate: "toast_notification",
+								Args:      []any{sessionID, ev.Text, ev.Level, ev.Source, ts.UnixMilli()},
 								Timestamp: ts,
 							})
 						}
@@ -459,10 +563,12 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 	}
 
 	now := time.Now()
-	facts := make([]mangle.Fact, 0, len(nodes)*6)
+	facts := make([]mangle.Fact, 0, len(nodes)*6+1)
 	for _, n := range nodes {
 		n.Text = m.redactor.SanitizeString(n.Text)
 		descriptor := strings.Join([]string{n.Tag, n.ID, n.Attrs["type"], n.Attrs["name"], n.Attrs["autocomplete"], n.Attrs["aria-label"]}, " ")
+		n.ID = qualifyBrowserNode(sessionID, n.ID)
+		n.Parent = qualifyBrowserNode(sessionID, n.Parent)
 		for key, value := range n.Attrs {
 			if strings.EqualFold(key, "value") {
 				n.Attrs[key] = m.redactor.RedactInputValue(descriptor, value)
@@ -472,7 +578,7 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 				n.Attrs[key] = m.redactor.SanitizeString(value)
 			}
 		}
-		// 1. Assert standard DOM predicates aligned with schemas_browser.mg (no sessionID prefix)
+		// 1. Assert standard DOM predicates with session-qualified identities.
 		facts = append(facts, mangle.Fact{
 			Predicate: "dom_node",
 			Args:      []any{n.ID, n.Tag, n.Text, n.Parent},
@@ -496,13 +602,6 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 				Args:      []any{n.ID, k, v},
 				Timestamp: now,
 			})
-			if v == "true" || v == "-1" {
-				facts = append(facts, mangle.Fact{
-					Predicate: "attribute",
-					Args:      []any{n.ID, k, "/" + v},
-					Timestamp: now,
-				})
-			}
 		}
 
 		visibleAtom := "/false"
@@ -576,15 +675,19 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 					Args:      []any{n.ID, k, v},
 					Timestamp: now,
 				})
-				facts = append(facts, mangle.Fact{
-					Predicate: "css_property",
-					Args:      []any{n.ID, "/" + k, "/" + v},
-					Timestamp: now,
-				})
 			}
 		}
 	}
+	facts = append(facts, mangle.Fact{
+		Predicate: "dom_updated",
+		Args:      []any{sessionID, now.UnixMilli()},
+		Timestamp: now,
+	})
 	return m.addFacts(facts)
+}
+
+func qualifyBrowserNode(sessionID, nodeID string) string {
+	return sessionID + ":" + nodeID
 }
 
 // SnapshotDOM triggers a one-off DOM capture for the given session.

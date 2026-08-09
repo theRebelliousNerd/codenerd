@@ -45,3 +45,49 @@ target_checkbox(CheckID, LabelText) :-
     attribute(CheckID, /type, /checkbox),
     dom_text(TextID, LabelText),
     left_of(CheckID, TextID).
+
+# Session-scoped browser diagnosis. These rules operate in the same live
+# Cortex that authorizes tools; there is no private browser reasoning engine.
+failed_request(SessionID, ReqID, URL, Status) :-
+    net_request(SessionID, ReqID, _, URL, _, _),
+    net_response(SessionID, ReqID, Status, _, _),
+    Status >= 400.
+
+failed_request_at(SessionID, ReqID, URL, Status, Timestamp) :-
+    net_request(SessionID, ReqID, _, URL, _, Timestamp),
+    net_response(SessionID, ReqID, Status, _, _),
+    Status >= 400.
+
+slow_api(SessionID, ReqID, URL, Duration) :-
+    net_request(SessionID, ReqID, _, URL, _, _),
+    net_response(SessionID, ReqID, _, _, Duration),
+    Duration >= 1000.
+
+slow_api_at(SessionID, ReqID, URL, Duration, Timestamp) :-
+    net_request(SessionID, ReqID, _, URL, _, Timestamp),
+    net_response(SessionID, ReqID, _, _, Duration),
+    Duration >= 1000.
+
+root_cause(SessionID, URL, "network", "http_status") :-
+    failed_request(SessionID, _, URL, _).
+root_cause_at(SessionID, URL, "network", "http_status", Timestamp) :-
+    failed_request_at(SessionID, _, URL, _, Timestamp).
+
+root_cause(SessionID, Message, "console", "console_error") :-
+    console_event(SessionID, "error", Message, _).
+root_cause_at(SessionID, Message, "console", "console_error", Timestamp) :-
+    console_event(SessionID, "error", Message, Timestamp).
+root_cause(SessionID, ErrorText, "network", "request_failed") :-
+    net_failure(SessionID, _, ErrorText, _, _).
+root_cause_at(SessionID, ErrorText, "network", "request_failed", Timestamp) :-
+    net_failure(SessionID, _, ErrorText, _, Timestamp).
+
+user_visible_error(SessionID, "console", Message, Timestamp) :-
+    console_event(SessionID, "error", Message, Timestamp).
+user_visible_error(SessionID, "toast", Message, Timestamp) :-
+    toast_notification(SessionID, Message, "error", _, Timestamp).
+
+interaction_blocked(SessionID, "modal_or_dialog") :-
+    browser_page_state(SessionID, _, _, /true, _).
+interaction_blocked_at(SessionID, "modal_or_dialog", Timestamp) :-
+    browser_page_state(SessionID, _, _, /true, Timestamp).

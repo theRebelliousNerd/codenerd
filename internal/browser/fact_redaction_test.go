@@ -14,8 +14,8 @@ func TestSessionManagerRedactsFactsBeforeSink(t *testing.T) {
 	cfg.ExtraSensitiveKeys = []string{"workspace-secret"}
 	sm := NewSessionManagerWithSink(cfg, sink)
 	facts := []mangle.Fact{
-		{Predicate: "net_header", Args: []any{"request-1", "req", "authorization", "Bearer top-secret"}},
-		{Predicate: "input_event", Args: []any{"password-field", "hunter2", int64(1)}},
+		{Predicate: "net_header", Args: []any{"session-1", "request-1", "req", "authorization", "Bearer top-secret"}},
+		{Predicate: "input_event", Args: []any{"session-1", "password-field", "hunter2", int64(1)}},
 		{Predicate: "react_prop", Args: []any{"component-1", "api_key", "key-value"}},
 		{Predicate: "current_url", Args: []any{"session-1", "https://example.test/?workspace_secret=hidden"}},
 	}
@@ -24,16 +24,16 @@ func TestSessionManagerRedactsFactsBeforeSink(t *testing.T) {
 	}
 
 	got := sink.getFacts()
-	if got[0].Args[3] != "Bearer "+browsersecurity.Redacted {
-		t.Fatalf("authorization header was not redacted: %#v", got[0].Args[3])
+	if got[0].Args[4] != "Bearer "+browsersecurity.Redacted {
+		t.Fatalf("authorization header was not redacted: %#v", got[0].Args[4])
 	}
-	if got[1].Args[1] != browsersecurity.Redacted || got[2].Args[2] != browsersecurity.Redacted {
+	if got[1].Args[2] != browsersecurity.Redacted || got[2].Args[2] != browsersecurity.Redacted {
 		t.Fatalf("input/prop secrets were not redacted: %#v %#v", got[1], got[2])
 	}
 	if strings.Contains(got[3].Args[1].(string), "hidden") {
 		t.Fatalf("URL secret was not redacted: %#v", got[3].Args[1])
 	}
-	if facts[0].Args[3] != "Bearer top-secret" {
+	if facts[0].Args[4] != "Bearer top-secret" {
 		t.Fatal("fact redaction mutated the producer's input")
 	}
 }

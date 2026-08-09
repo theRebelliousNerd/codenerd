@@ -52,7 +52,8 @@
 | Path | Role |
 |------|------|
 | `internal/core/defaults/schemas_browser.mg` | Decl for DOM, honeypot, React, network, events, interactable |
-| `internal/core/defaults/policy/browser.mg` | Spatial `left_of`/`above`, `honeypot_detected`, `safe_interactable`, checkbox targeting |
+| `internal/core/defaults/policy/browser.mg` | Spatial/safety rules plus session-scoped failed request, slow API, root-cause, visible-error, and interaction-blocked derivations |
+| `internal/core/defaults/policy/browser_reasoning_test.go` | Real-Mangle typed/session-isolation checks for browser reasoning rules |
 | `internal/core/defaults/policy/browser_honeypot.mg` | Intermediate honeypot predicates + `is_honeypot` / `high_confidence_honeypot` |
 | `internal/core/defaults/policy/browser_honeypot_test.go` | Policy-only unit tests |
 | `internal/core/defaults/policy/constitution.mg` | Exact permission derivation for registered browser tool spellings |
@@ -65,8 +66,9 @@
 | `cmd/nerd/chat/session_boot.go` | Legacy chat boot path still declares `browserMgr` **nil until needed** |
 | `cmd/nerd/chat/model_types.go` | `browserMgr` / `BrowserManager` fields |
 | `internal/shards/system/router.go` | `SetBrowserManager`, tool routes for browser_* |
-| `internal/tools/research/browser.go`, `browser_progressive.go` | Legacy and progressive tools bound to the Cortex-owned manager; lazy fallback only outside boot |
+| `internal/tools/research/browser.go`, `browser_progressive.go`, `browser_reasoning.go` | Legacy, progressive, bounded wait/query, and diagnosis tools bound to the Cortex-owned manager and live kernel |
 | `internal/prompt/atoms/capability/browser_progressive.yaml` | JIT ref-first observe/act method and safety boundary |
+| `internal/prompt/atoms/capability/browser_reasoning.yaml` | JIT action-watermark, fresh-wait, read-only-query, and diagnosis method |
 | `internal/core/virtual_store_types.go` | ActionBrowser* ActionType constants |
 | `internal/core/virtual_store_actions.go` | `handleBrowse` refuse + modular tool arg mapping |
 | `internal/logging/logger.go` | `CategoryBrowser` |
@@ -83,10 +85,10 @@
 ## 6. Hotspots
 
 1. **`startEventStream`** — goroutine fan-out (nav wait, multi-event wait, 500ms poll of in-page buffer).  
-2. **`captureDOMFacts`** — dense fact emission (multiple predicates per node; dual string/atom CSS encodings).  
+2. **`captureDOMFacts`** — dense fact emission (multiple typed predicates per session-qualified node).
 3. **`ReifyReact`** — large inline JS fiber walker; type coercion for hook indices.  
 4. **`HoneypotDetector.emitPageFacts`** — per-element style/position/attribute PushFact.  
-5. **Route completeness** — system and modular tools share the Cortex manager/live kernel; observe/act are live, while reason/audit/spec/declarative-test parity and operator CLI expansion remain open.
+5. **Route completeness** — system and modular tools share the Cortex manager/live kernel; observe/act/mangle/wait/reason are live, while audit/spec/declarative-test parity and operator CLI expansion remain open.
 
 ## 7. What is intentionally not here
 

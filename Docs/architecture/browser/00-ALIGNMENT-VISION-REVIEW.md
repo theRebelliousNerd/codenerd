@@ -12,16 +12,16 @@ codeNERD treats the browser as a **physics engine for the world-model**, not a f
 
 | Dimension | Score (0–5) | Evidence |
 |-----------|-------------|----------|
-| Creative/executive split | **4** | Go drives Rod; system facts land through `browserKernelSink` in the live executive kernel. Honeypot outcomes remain rule-derived (`honeypot.go`, `browser_honeypot.mg`). Progressive reasoning/query surfaces remain open. |
-| Fact-flow fidelity | **4** | `captureDOMFacts`, event stream, `ReifyReact` emit schema-aligned predicates (`session_manager_dom.go`, `schemas_browser.mg`). CLI snapshot exports facts to `.nerd/browser/snapshots/*.mg`. |
-| Constitutional safety | **4** | All registered browser spellings, including observe/act, still require exact `pending_action` → `permitted(action,target,payload)` derivation. Browser session/browser/target handles are recognized safety targets. |
-| JIT / atom discipline | **4** | Research/test intent configs select observe/act; `capability/browser_progressive` and its safety dependency teach the bounded ref-first protocol without inventing authority. |
+| Creative/executive split | **5** | Go drives Rod; session-scoped facts land in the live executive kernel, whose browser policy derives failures, root causes, visible errors, and blockers. `browser_mangle` is a bounded read-only view of that same kernel. |
+| Fact-flow fidelity | **5** | `captureDOMFacts`, the event stream, and `ReifyReact` emit schema-aligned predicates. BPAR-3 live proof observes, acts, waits on fresh facts, derives diagnoses, and reads them back through the authorizing kernel. |
+| Constitutional safety | **4** | All registered browser spellings, including observe/act/mangle/wait/reason, still require exact `pending_action` → `permitted(action,target,payload)` derivation. Browser session/browser/target handles are recognized safety targets. |
+| JIT / atom discipline | **5** | Research/test intent configs select progressive and reasoning tools; `capability/browser_progressive` and `capability/browser_reasoning` teach the ref-first, action-watermark, fresh-evidence protocol without inventing authority. |
 | Observability | **4** | Dedicated `logging.CategoryBrowser` + convenience helpers + timers on start/create/navigate/screenshot/honeypot (`logger.go`, package sources). |
-| Test grounding | **5** | Unit/race coverage plus live modular-registry Chrome proof for observations, refs, actions, secret redaction, screenshot confinement, DOM and React modes. |
+| Test grounding | **5** | Unit/race coverage plus live modular-registry Chrome proofs for observations, refs, actions, redaction, confined screenshots, fresh waits, session isolation, Cortex queries, and derived diagnosis. |
 | Wiring completeness | **4** | Cortex owns one manager for tactile + research; facts enter live kernel. Standalone CLI and legacy chat distinctions remain explicit; VS browse handler is still a hard redirect. |
 | Isolation / multi-session | **4** | Shared profile tabs by default, explicit isolation, isolated forks, multi-browser bounds, redacted private metadata. |
 
-**Overall alignment: 4 / 5** — runtime truth and BPAR-2 observe/act are production-routed; reason/audit/spec/evidence parity remains incomplete.
+**Overall alignment: 4 / 5** — BPAR-1 through BPAR-3 are production-routed; audit, spec, declarative-test, flight-recorder, and final-evaluation parity remain incomplete.
 
 ## 3. What “good” looks like (browser-specific)
 
@@ -43,4 +43,4 @@ codeNERD treats the browser as a **physics engine for the world-model**, not a f
 
 ## 5. Verdict
 
-Treat `internal/browser` as **implemented and load-bearing**, not pre-product. Continue BPAR-3 reasoning/wait work, close the remaining VS/shard/tool reachability gaps, and assert `honeypot_suspicious_url` from Go (noted missing in policy comments).
+Treat `internal/browser` as **implemented and load-bearing**, not pre-product. Continue BPAR-4 evidence/spec/declarative-test work, close the remaining VS/shard/operator reachability gaps, and assert `honeypot_suspicious_url` from Go (noted missing in policy comments).

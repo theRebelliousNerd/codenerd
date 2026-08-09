@@ -29,19 +29,19 @@ func (m *SessionManager) sanitizeFacts(facts []mangle.Fact) []mangle.Fact {
 
 		switch fact.Predicate {
 		case "net_header":
-			if len(result[i].Args) >= 4 {
-				name, nameOK := result[i].Args[2].(string)
-				value, valueOK := fact.Args[3].(string)
+			if len(result[i].Args) >= 5 {
+				name, nameOK := result[i].Args[3].(string)
+				value, valueOK := fact.Args[4].(string)
 				if nameOK && valueOK {
-					result[i].Args[3] = redactor.RedactHeader(name, value)
+					result[i].Args[4] = redactor.RedactHeader(name, value)
 				}
 			}
 		case "input_event":
-			if len(result[i].Args) >= 2 {
-				descriptor, descriptorOK := result[i].Args[0].(string)
-				value, valueOK := fact.Args[1].(string)
+			if len(result[i].Args) >= 3 {
+				descriptor, descriptorOK := result[i].Args[1].(string)
+				value, valueOK := fact.Args[2].(string)
 				if descriptorOK && valueOK {
-					result[i].Args[1] = redactor.RedactInputValue(descriptor, value)
+					result[i].Args[2] = redactor.RedactInputValue(descriptor, value)
 				}
 			}
 		case "dom_attr", "attribute":

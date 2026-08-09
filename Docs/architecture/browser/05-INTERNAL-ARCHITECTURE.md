@@ -113,11 +113,15 @@ ensureStarted
 `startEventStream` returns immediately after launching a goroutine that:
 
 1. Optionally `DOMEnable` + initial `captureDOMFacts` when DOM ingestion enabled and level ≠ minimal.  
-2. Injects page hooks (`window.__browsernerdEvents`) for click/input/change + MutationObserver on `data-state*`.  
+2. Injects a bounded page hook buffer (`window.__browsernerdEvents`) for click/input/change, DOM mutation, and deduplicated toast/live-region observations.
 3. `EachEvent` for `PageFrameNavigated` → `navigation_event`, `current_url` + metadata URL update.  
-4. `EachEvent` for console, `NetworkRequestWillBeSent`, `NetworkResponseReceived`, `DOMDocumentUpdated`.  
-5. Ticker 500ms drains `__browsernerdEvents` → `click_event` / `input_event` / `state_change`.  
+4. `EachEvent` for console, `NetworkRequestWillBeSent`, `NetworkResponseReceived`, `NetworkLoadingFailed`, and `DOMDocumentUpdated`; request start times provide response durations.
+5. Ticker 500ms drains `__browsernerdEvents` → session-scoped click/input/state/DOM/toast facts.
 6. WaitGroup of three: nav waiter, rest waiter, poller.
+
+Network throttling preserves lifecycle integrity: any emitted request receives a
+response/failure completion, and HTTP errors or loading failures reconstruct a
+paired request fact when the initial low-value request was throttled.
 
 With a nil sink, the stream still consumes main-frame navigation events so
 session metadata and ref-generation invalidation remain correct. DOM, console,
@@ -152,10 +156,9 @@ Per node (up to 200):
 | Predicate family | Purpose |
 |------------------|---------|
 | `dom_node`, `dom_text`, `dom_attr`, `dom_layout` | Schema-aligned tree |
-| `attribute` (and atomized true/-1) | Honeypot attribute rules |
 | `element`, `position`, `geometry` | Spatial + honeypot geometry |
 | `interactable` | button/a/input/textarea/select classification |
-| `computed_style`, `css_property` (string + atom) | Style-based honeypot |
+| `computed_style` | Typed style evidence; package-local honeypot analysis owns its separate element rule facts |
 
 Visibility flag on layout uses display/visibility/opacity/rect heuristics in page JS.
 
@@ -200,3 +203,18 @@ Snapshot Network cookies + localStorage/sessionStorage JSON → CreateSession �
 | Research tools | package-level `sync.Once` manager + mutex |
 
 No global lock across managers.
+
+## 13. BPAR-3 live reasoning path
+
+```text
+SessionManager event/observe facts
+  → browserKernelSink.AssertBatch
+  → live SystemKernel + browser.mg derivations
+  → browser_wait / browser_reason / read-only browser_mangle
+```
+
+All event and derived predicates carry `SessionID`. `browser_act` returns
+`started_ms`; fresh waits use it as a lower-bound watermark so accumulated facts
+from an earlier action cannot satisfy the new wait. Stability combines bounded
+network-idle and DOM-idle windows. Querying is restricted to declared browser
+predicates and capped before serialization.

@@ -54,7 +54,7 @@ block, then pins `SessionStore` and workspace output policy under `<cwd>/.nerd/b
 
 ## 3. Chat / Cortex boot
 
-The current system factory (`internal/system/factory.go`) creates one workspace manager backed by `browserKernelSink`, injects it into tactile routing, and binds modular research tools with `research.SetBrowserManager`. The legacy chat boot path still contains:
+The current system factory (`internal/system/factory.go`) creates one workspace manager backed by `browserKernelSink`, injects it into tactile routing, and binds the manager plus the same live kernel to modular research tools with `research.SetBrowserRuntime`. The legacy chat boot path still contains:
 
 ```go
 // Browser Manager is created on-demand when needed (not at boot)
@@ -71,7 +71,7 @@ if browserMgr != nil {
 ```
 
 `Cortex` / chat model carry `BrowserManager *browser.SessionManager` fields (`model_types.go`).  
-The BPAR-2 surface is reachable: the legacy six and progressive observe/act tools share the same manager, and act exposes browser/session lifecycle operations. Remaining reachability gaps are reason/audit/spec tools, the legacy chat boot path, and operator CLI expansion.
+The BPAR-3 surface is reachable: the legacy six plus observe/act/mangle/wait/reason share the manager; reasoning reads the same kernel that receives browser facts. Remaining reachability gaps are audit/spec/declarative-test tools, the legacy chat boot path, and operator CLI expansion.
 
 ## 4. TactileRouterShard
 
@@ -112,15 +112,20 @@ The BPAR-2 surface is reachable: the legacy six and progressive observe/act tool
 | `browser_close` | Close session path |
 | `browser_observe` | Bounded state/nav/interactive/grid/hidden/screenshot/DOM/React views + opaque refs |
 | `browser_act` | Closed sequential ref/action/lifecycle operations with stop-on-error |
+| `browser_mangle` | Bounded read-only query/read/temporal/evaluate/await access to session-scoped browser predicates in the live Cortex kernel |
+| `browser_wait` | Fresh-only stable/fact/condition waits with context cancellation, action watermarks, and a 30-second timeout ceiling |
+| `browser_reason` | Bounded live-kernel health, failure, blocker, change, correlation, and recommendation views |
 
 `getBrowserManager()` resolves the Cortex-owned manager installed by
-`research.SetBrowserManager`; a nil-sink manager is constructed lazily only for
-narrow standalone package use. `browser_close` calls `CloseSession` and cancels
-the tab's event stream.
+`research.SetBrowserRuntime`; its paired kernel is cleared only when the owning
+manager is cleared. A nil-sink manager is constructed lazily only for narrow
+standalone package use. `browser_close` calls `CloseSession` and cancels the
+tab's event stream.
 
-Both progressive names are selected for research and verification intents by
-the config factory and `intent_routing.mg`. The JIT atom
-`capability/browser_progressive` supplies the observe-first/ref-first method.
+The progressive and reasoning names are selected for research and verification
+intents by the config factory and `intent_routing.mg`. JIT atoms
+`capability/browser_progressive` and `capability/browser_reasoning` supply the
+observe-first/ref-first and action-watermark/fresh-evidence methods.
 
 ## 7. Mangle program load
 
@@ -135,6 +140,9 @@ safe_action(/browser_screenshot).
 safe_action(/browser_read_dom).
 safe_action(/browser_observe).
 safe_action(/browser_act).
+safe_action(/browser_mangle).
+safe_action(/browser_wait).
+safe_action(/browser_reason).
 ```
 
 Routing: `routing_table(/browser, /browser_tool, /high)`.  
@@ -149,7 +157,7 @@ Intent routing (`internal/mangle/intent_routing.mg`): modular browser tools allo
 | Schemas in kernel | **Live** |
 | Honeypot policy | **Live** (when engine has facts) |
 | CLI operator path | **Live** (standalone export engine) |
-| Research tools effect path | **Live** (legacy + BPAR-2 progressive tools share Cortex manager/facts) |
+| Research tools effect path | **Live** (legacy + BPAR-2/BPAR-3 tools share Cortex manager and live kernel) |
 | System Cortex BrowserManager field | **Constructed with live-kernel adapter** |
 | Legacy chat BrowserManager field | **Declared; nil** |
 | Tactile SetBrowserManager | **Wired in system factory; conditional in legacy chat** |
@@ -159,7 +167,6 @@ Intent routing (`internal/mangle/intent_routing.mg`): modular browser tools allo
 
 ## 9. Recommended integration sequence (docs-only guidance)
 
-1. Build BPAR-3 bounded waits/reasoning over fresh live-kernel evidence.
-2. Extend the live modular-tool → browser event proof with a Cortex query assertion.
-3. Optionally implement VS handleBrowse as a thin delegate.
-4. Run SnapshotDOM after navigate before honeypot/safe click decisions.
+1. Build BPAR-4 flight-recorder, spec, and declarative-test surfaces over the existing live-kernel truth.
+2. Optionally implement VS handleBrowse as a thin delegate.
+3. Run SnapshotDOM after navigate before honeypot/safe click decisions.

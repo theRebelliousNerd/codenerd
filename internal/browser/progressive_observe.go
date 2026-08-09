@@ -300,9 +300,22 @@ func (m *SessionManager) Observe(ctx context.Context, sessionID string, opts Obs
 		return ProgressiveObservation{}, fmt.Errorf("page navigated while materializing observation; observe session %s again", sessionID)
 	}
 	facts := append(navFacts, interactiveFacts...)
+	now := time.Now()
 	if state.URL != "" {
-		facts = append(facts, mangle.Fact{Predicate: "current_url", Args: []any{sessionID, state.URL}, Timestamp: time.Now()})
+		facts = append(facts, mangle.Fact{Predicate: "current_url", Args: []any{sessionID, state.URL}, Timestamp: now})
 	}
+	loading, hasDialog := "/false", "/false"
+	if state.Loading {
+		loading = "/true"
+	}
+	if state.HasDialog {
+		hasDialog = "/true"
+	}
+	facts = append(facts, mangle.Fact{
+		Predicate: "browser_page_state",
+		Args:      []any{sessionID, state.URL, loading, hasDialog, now.UnixMilli()},
+		Timestamp: now,
+	})
 	if len(facts) > 0 {
 		if factErr := m.addFacts(facts); factErr != nil {
 			return ProgressiveObservation{}, fmt.Errorf("assert observation facts: %w", factErr)

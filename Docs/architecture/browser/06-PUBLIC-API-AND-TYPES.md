@@ -156,17 +156,24 @@ Public progressive types: `ObserveOptions`, `ProgressiveObservation`,
 |-----------|--------------|--------|
 | `navigation_event` | session, url, ms | CDP nav |
 | `current_url` | session, url | CDP nav |
-| `console_event` | type, msg, ms | CDP console |
-| `net_request` | id, method, url, initType, ms | CDP network |
-| `request_initiator` | id, type, parentRef | CDP network |
-| `net_response` | id, status, latency, duration | CDP network |
-| `net_header` | id, req\|res, key, value | optional headers |
-| `click_event` / `input_event` / `state_change` | … | JS hook poll |
+| `console_event` | session, level, msg, ms | CDP console |
+| `net_request` | session, id, method, url, initType, ms | CDP network |
+| `request_initiator` | session, id, type, parentRef | CDP network |
+| `net_response` | session, id, status, latency, duration | CDP network |
+| `net_failure` | session, id, error, blockedReason, ms | CDP network failure |
+| `net_header` | session, id, req\|res, key, value | optional headers |
+| `click_event` / `input_event` / `state_change` | session, … | bounded JS hook poll |
+| `dom_updated` / `toast_notification` | session, …, ms | MutationObserver/hook poll |
+| `browser_page_state` | session, url, loading, hasDialog, ms | progressive observe refresh |
 | `dom_node` / `dom_text` / `dom_attr` / `dom_layout` | … | DOM capture |
 | `element` / `position` / `geometry` / `interactable` | … | DOM capture |
 | `attribute` / `css_property` / `computed_style` | … | DOM capture |
 | `react_component` / `react_prop` / `react_state` / `dom_mapping` | … | ReifyReact |
 | `link` / `interactable` / `visible` | qualified session ref + bounded observation data | Progressive observe |
+
+Session qualification is part of the event schema, not a caller-side filter.
+DOM node IDs are also session-qualified before assertion to prevent cross-tab
+identity collisions.
 
 ## 7. Fact predicates (Honeypot emit)
 
@@ -180,6 +187,14 @@ Public progressive types: `ObserveOptions`, `ProgressiveObservation`,
 
 Derived (policy, not emitted by detector as base): `is_honeypot`, `honeypot_*`, `high_confidence_honeypot`.
 
-## 8. Non-exported helpers (test-visible same package)
+## 8. Native reasoning tools (companion research package)
+
+| Tool | Contract |
+|------|----------|
+| `browser_mangle` | Read-only, session-scoped query/read/temporal/evaluate/await operations over an explicit browser-predicate allowlist; bounded results and no fact/rule mutation |
+| `browser_wait` | Context-cancelable stable/fact/condition waits; fresh-only by default; accepts the `browser_act.started_ms` action watermark; timeout capped at 30 seconds |
+| `browser_reason` | Refreshes page state and returns bounded health/failure/change views from live-kernel derived and event facts, scoped to the current route by default |
+
+## 9. Non-exported helpers (test-visible same package)
 
 Coverage tests call: `stringifyConsoleArgs`, `coalesceNonEmpty`, `isInternalScript`, `persistSessions`, `loadSessionsLocked`, `newEventThrottler`, `startEventStream`. These are package-private; external callers should not depend on them.

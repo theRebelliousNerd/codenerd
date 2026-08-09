@@ -8,7 +8,7 @@
 > Companion logic: `internal/core/defaults/schemas_browser.mg`, `policy/browser.mg`, `policy/browser_honeypot.mg`  
 > Scale: **10** non-test Go files ≈ **4,400** lines; **12** package test files; **0** package-local `.mg`
 
-> 2026-08-09 BPAR-1/BPAR-2 delta: system boot uses a live-kernel sink and binds research tools to the Cortex manager. Lifecycle/security foundations plus native progressive observe/act, opaque refs, bounded views, exact permission, and JIT atoms are implemented. See [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md).
+> 2026-08-09 BPAR-1/BPAR-2/BPAR-3 delta: system boot binds research tools to one Cortex manager and its live kernel. Lifecycle/security foundations, progressive observe/act, read-only bounded Mangle, fresh waits, derived diagnosis, exact permission, and JIT atoms are implemented. See [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md).
 
 ## 1. Overview
 
@@ -79,6 +79,7 @@ user_intent → kernel next_action → tool/shard
 | Browser/session lifecycle | **Implemented in package** | Multi-browser list/launch/select/close; tab create/attach/focus/fork/close |
 | Navigate / Click / Type / Screenshot | **Implemented** | Legacy selector primitives plus progressive ref resolution |
 | Progressive observe / act | **Implemented** | Bounded disclosure, generation refs, fingerprint fallback, closed 25-op plans |
+| Live-kernel reason / wait | **Implemented** | Session-scoped derived facts, action-watermark waits, read-only query surface, bounded diagnosis |
 | Fork (cookies + storage) | **Implemented** | Best-effort restore |
 | Session metadata persist | **Implemented** | Redacted owner-only SessionStore JSON |
 | Event stream (nav/console/net/DOM/hooks) | **Implemented** | Nil sink retains navigation lifecycle only |
@@ -86,7 +87,7 @@ user_intent → kernel next_action → tool/shard
 | React Fiber reify | **Implemented** | Best-effort; needs fiber keys |
 | Honeypot detector | **Implemented** | Depends on engine+policy load |
 | CLI launch/session/snapshot | **Implemented** | `cmd/nerd/cmd_browser.go` |
-| Research modular tools | **Implemented (eight through BPAR-2)** | Shared Cortex manager; legacy six plus observe/act |
+| Research modular tools | **Implemented (eleven through BPAR-3)** | Shared Cortex manager/kernel; legacy six plus observe/act/mangle/wait/reason |
 | System boot live manager | **Implemented** | `browserKernelSink` → live `SystemKernel.AssertBatch` |
 | Legacy chat BrowserManager inject | **Partial** | Field + setter exist; legacy boot remains nil |
 | VS handleBrowse | **Stub** | Explicit refuse → shard |
@@ -286,8 +287,9 @@ Categories in `schemas_browser.mg`:
 | Honeypot intermediates | honeypot_*, is_honeypot, high_confidence_honeypot |
 | DOM extended | dom_node, dom_text, dom_attr, dom_layout |
 | React | react_component, react_prop, react_state, dom_mapping |
-| Network | net_request, net_response, net_header, request_initiator |
-| Events | navigation_event, current_url, console_event, click_event, input_event, state_change |
+| Network | session-scoped net_request, net_response, net_failure, net_header, request_initiator |
+| Events | session-scoped navigation/current URL, console, click/input/state, DOM update, toast, page state |
+| Reasoning | failed_request(_at), slow_api(_at), root_cause(_at), user_visible_error, interaction_blocked(_at) |
 | Interaction | interactable, geometry |
 
 `browser.mg` spatial rules constrained to **interactable** pairs to avoid O(N²) on full DOM.
@@ -301,7 +303,7 @@ Categories in `schemas_browser.mg`:
 | Consumer | Path | Behavior |
 |----------|------|----------|
 | CLI | `cmd/nerd/cmd_browser.go` | Operator lifecycle + snapshot export |
-| Research tools | `internal/tools/research/browser.go`, `browser_progressive.go` | Cortex-owned shared manager after system boot |
+| Research tools | `internal/tools/research/browser.go`, `browser_progressive.go`, `browser_reasoning.go` | Cortex-owned shared manager and live kernel after system boot |
 | Tactile router | `internal/shards/system/router.go` | Optional BrowserManager field |
 | Chat types/boot | `cmd/nerd/chat/*` | Holds pointer; constructs nil |
 
@@ -310,9 +312,9 @@ Categories in `schemas_browser.mg`:
 | Layer | Names |
 |-------|-------|
 | VS ActionType | browser_navigate, browser_extract, browser_screenshot, browser_click, browser_type, browser_close |
-| Constitution safe_action | all registered browser spellings, including browser_observe/browser_act; exact pending payload still required |
+| Constitution safe_action | all registered browser spellings, including observe/act/mangle/wait/reason; exact pending payload still required |
 | Router patterns | browse, browser_navigate, browser_screenshot, browser_read_dom → browser_tool |
-| Tool registry | browser_navigate/extract/screenshot/click/type/close/observe/act |
+| Tool registry | browser_navigate/extract/screenshot/click/type/close/observe/act/mangle/wait/reason |
 | Intent routing | modular_tool_allowed browser_* under research/verify |
 
 ### 8.3 VirtualStore stance
@@ -322,9 +324,9 @@ Categories in `schemas_browser.mg`:
 ### 8.4 Wiring diagram (as of verification)
 
 ```
-system factory ──► Cortex-owned SessionManager ──► tactile + research tools
+system factory ──► Cortex-owned SessionManager ──► tactile + effect tools
                          │
-                         └── browserKernelSink ──► live SystemKernel
+                         └── browserKernelSink ──► live SystemKernel ──► reason/wait/query tools
 
 standalone CLI ──► export SessionManager + schema-loaded export engine
 ```
@@ -370,6 +372,8 @@ Commands: see [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md) and README.
 | FM-13 | Empty React reify |
 | FM-14 | Lifecycle races |
 | FM-15 | VS browse refuse |
+| FM-16/17 | Stale progressive ref / observation crosses navigation |
+| FM-18/19/20 | Stale-wait success / cross-session leakage / rejected query |
 
 Details: [12-FAILURE-MODES.md](12-FAILURE-MODES.md).
 
@@ -381,9 +385,9 @@ Full matrix: [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
 
 Top three:
 
-1. No bounded `browser_mangle` query/rule/temporal surface.
-2. No progressive `browser_reason` / `browser_audit` surface.
-3. Live modular-tool Chrome proof reaches the bound sink, but does not yet query evidence back through the authorizing Cortex kernel.
+1. No safe caller-supplied rule sandbox; `browser_mangle` is intentionally read-only.
+2. No progressive `browser_audit`, flight-recorder, spec, or declarative-test surface.
+3. No bounded fact retention/GC for accumulated long-lived event history.
 
 ---
 

@@ -13,6 +13,9 @@
   configured writable roots, including through existing symlink parents.
 - Browser evidence belongs in the live Cortex kernel. Package-local sinks are
   acceptable only for focused tests and standalone CLI export workflows.
+- Console, network, toast, DOM-update, click/input, and state-change events are
+  session-scoped at argument zero. Preserve timestamp positions declared in
+  `schemas_browser.mg`; waits and current-route diagnosis depend on them.
 - Progressive observations must be token-bounded and issue only opaque,
   session-scoped refs. Navigation invalidates the ref generation; actions must
   re-identify through the private fingerprint registry and fail closed when a

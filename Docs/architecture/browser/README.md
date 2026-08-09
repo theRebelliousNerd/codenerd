@@ -58,6 +58,9 @@ go test ./internal/core/defaults/policy/ -run Honeypot -count=1
 
 # Production modular-registry progressive route (Chrome required)
 go test -tags=integration ./internal/tools/research/ -run TestBrowserProgressiveTools_Live -count=1
+
+# Production live-kernel reasoning/wait route (Chrome required)
+go test -tags=integration ./internal/tools/research/ -run TestBrowserReasoningToolsLiveCortexRoute -count=1 -v
 ```
 
 Native lifecycle/security settings live in `.nerd/config.json` under
@@ -68,6 +71,9 @@ Native lifecycle/security settings live in `.nerd/config.json` under
 Agent-facing progressive behavior is native and JIT-selected:
 `browser_observe` returns bounded slices and opaque generation-bound refs;
 `browser_act` consumes those refs through a closed, stop-on-error operation list.
+`browser_act.started_ms` is the freshness watermark for `browser_wait`, while
+`browser_reason` and read-only `browser_mangle` consume session-scoped evidence
+from the same Cortex kernel that receives browser facts.
 
 ### Manual CLI smoke (optional)
 

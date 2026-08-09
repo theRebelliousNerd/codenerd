@@ -169,14 +169,14 @@ func TestSessionManager_Interaction_Integration(t *testing.T) {
 		foundInput := false
 		for _, f := range facts {
 			if f.Predicate == "click_event" {
-				// Args: ID, timestamp
-				if len(f.Args) >= 1 && f.Args[0] == "btn1" {
+				// Args: SessionID, ID, timestamp
+				if len(f.Args) >= 2 && f.Args[0] == session.ID && f.Args[1] == "btn1" {
 					foundClick = true
 				}
 			}
 			if f.Predicate == "input_event" {
-				// Args: ID, Value, timestamp
-				if len(f.Args) >= 2 && f.Args[0] == "inp1" && f.Args[1] == "hello" {
+				// Args: SessionID, ID, Value, timestamp
+				if len(f.Args) >= 3 && f.Args[0] == session.ID && f.Args[1] == "inp1" && f.Args[2] == "hello" {
 					foundInput = true
 				}
 			}

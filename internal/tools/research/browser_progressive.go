@@ -114,6 +114,7 @@ func executeBrowserAct(ctx context.Context, args map[string]any) (string, error)
 	}
 	output := map[string]any{
 		"success": execution.Success, "status": execution.Status, "session_id": execution.SessionID,
+		"started_ms": execution.StartedMS, "finished_ms": execution.FinishedMS,
 		"summary": execution.Summary, "counts": execution.Counts, "view": view,
 		"evidence_handles": execution.EvidenceHandles, "truncated": truncated,
 	}

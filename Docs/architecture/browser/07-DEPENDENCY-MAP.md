@@ -29,23 +29,23 @@ From `internal/browser/*.go` (non-test):
 | Chat model | `cmd/nerd/chat/model_types.go` | Field types `*browser.SessionManager` |
 | Chat boot | `cmd/nerd/chat/session_boot.go`, `session_shared_boot.go` | Declares/passes browserMgr (often nil) into shards |
 | Tactile router | `internal/shards/system/router.go` | `BrowserManager *browser.SessionManager`, `SetBrowserManager` |
-| Research tools | `internal/tools/research/browser.go` | Cortex-bound SessionManager for modular tools |
-| System factory | `internal/system/factory.go` | Live-kernel sink and shared-manager binding |
+| Research tools | `internal/tools/research/browser*.go` | Cortex-bound SessionManager plus live-kernel reader for effect, wait, query, and diagnosis tools |
+| System factory | `internal/system/factory.go` | Live-kernel sink and paired manager/kernel binding |
 
 ## 3. Soft dependencies (no Go import, semantic coupling)
 
 | Artifact | Coupling |
 |----------|----------|
 | `internal/core/defaults/schemas_browser.mg` | Decl must match emitted predicates |
-| `internal/core/defaults/policy/browser.mg` | Consumes interactable/geometry/computed_style |
+| `internal/core/defaults/policy/browser.mg` | Consumes interactable/geometry plus session event facts; derives browser failures, root causes, visible errors, and blockers |
 | `internal/core/defaults/policy/browser_honeypot.mg` | Consumes css_property/position/attribute; extracted from honeypot.go comments |
 | `internal/core/kernel_init.go` | Loads schemas_browser into programs |
 | `internal/core/virtual_store_types.go` | ActionBrowser* constants name-aligned with tools |
 | `internal/core/virtual_store_actions.go` | Documents shard ownership; modular tool arg mapping |
-| `internal/core/defaults/policy/constitution.mg` | All registered legacy and progressive browser spellings are safe actions; exact permission still requires availability and a matching pending action |
-| `internal/mangle/intent_routing.mg` | Legacy and progressive browser tools allowed for research/verify intents |
-| `internal/prompt/config_*.go` | Researcher/tester allowlists include `browser_observe` and `browser_act` |
-| `internal/prompt/atoms/capability/browser_progressive.yaml` | JIT-selected ref-first method and safety boundary |
+| `internal/core/defaults/policy/constitution.mg` | All registered legacy, progressive, and reasoning browser spellings are safe actions; exact permission still requires availability and a matching pending action |
+| `internal/mangle/intent_routing.mg` | Legacy, progressive, and reasoning browser tools allowed for research/verify intents |
+| `internal/prompt/config_*.go` | Researcher/tester allowlists include observe/act/mangle/wait/reason |
+| `internal/prompt/atoms/capability/browser_progressive.yaml`, `browser_reasoning.yaml` | JIT-selected ref-first action and fresh-evidence reasoning boundaries |
 | Workspace `.nerd/browser/*` | Operator persistence contract |
 
 ## 4. Layer diagram
@@ -53,7 +53,7 @@ From `internal/browser/*.go` (non-test):
 ```
 cmd/nerd (browser cobra + chat fields)
         │
-        ├──► internal/browser  ◄── internal/tools/research
+        ├──► internal/browser  ◄── internal/tools/research (manager + live kernel)
         │         │
         │         ├──► opaque ref registry + progressive observe/act
         │         ├──► internal/mangle
@@ -62,7 +62,7 @@ cmd/nerd (browser cobra + chat fields)
         │
 internal/shards/system (holds *SessionManager)
         │
-internal/core (schemas, policy, VS action types — no import of browser package)
+internal/core (schemas, derived browser policy, VS action types — no import of browser package)
 
 internal/prompt (JIT atoms/config) ──► effective modular-tool catalog
 ```

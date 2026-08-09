@@ -4,9 +4,9 @@
 
 ## Reasoning and evidence
 
-1. **What freshness/epoch contract should BPAR-3 waits use?** Event facts currently accumulate; waits must not succeed from stale prior-page evidence.
+1. **Should `browser_mangle` ever accept caller-supplied rules?** The shipped BPAR-3 surface is deliberately read-only; a rule path needs a separate syntax, resource, lifetime, and constitutional authority contract.
 
-2. **Which bounded evidence handle should `browser_reason` expose for later audit without creating a second fact store?**
+2. **Should BPAR-4 audit handles point to a redacted owner-only JSONL flight recorder, or remain reproducible live-kernel queries plus action watermarks?**
 
 ## Safety policy
 

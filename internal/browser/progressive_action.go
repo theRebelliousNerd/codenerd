@@ -61,6 +61,8 @@ type ActionExecution struct {
 	Success         bool               `json:"success"`
 	Status          string             `json:"status"`
 	SessionID       string             `json:"session_id,omitempty"`
+	StartedMS       int64              `json:"started_ms"`
+	FinishedMS      int64              `json:"finished_ms"`
 	Summary         string             `json:"summary"`
 	Counts          map[string]int     `json:"counts"`
 	Results         []ActionStepResult `json:"results"`
@@ -71,6 +73,7 @@ type ActionExecution struct {
 // requested. Every operation consumes the current active session unless it
 // carries an explicit session_id.
 func (m *SessionManager) ExecuteActions(ctx context.Context, sessionID string, operations []ActionOperation, stopOnError bool) (ActionExecution, error) {
+	startedMS := time.Now().UnixMilli()
 	if len(operations) == 0 {
 		return ActionExecution{}, fmt.Errorf("operations must be a non-empty array")
 	}
@@ -229,7 +232,7 @@ func (m *SessionManager) ExecuteActions(ctx context.Context, sessionID string, o
 	}
 	handle := fmt.Sprintf("browser:%s:act:%d", activeSession, time.Now().UnixMilli())
 	return ActionExecution{
-		Success: failed == 0, Status: status, SessionID: activeSession,
+		Success: failed == 0, Status: status, SessionID: activeSession, StartedMS: startedMS, FinishedMS: time.Now().UnixMilli(),
 		Summary: fmt.Sprintf("executed %d operation(s): %d succeeded, %d failed", len(results), succeeded, failed),
 		Counts:  map[string]int{"total": len(results), "succeeded": succeeded, "failed": failed},
 		Results: results, EvidenceHandles: []string{handle},
@@ -304,12 +307,11 @@ func (m *SessionManager) InteractRef(ctx context.Context, sessionID, ref, action
 	}
 
 	now := time.Now()
-	qualified := qualifiedRef(sessionID, ref)
 	var fact mangle.Fact
 	if action == "type" || action == "select" || action == "clear" {
-		fact = mangle.Fact{Predicate: "input_event", Args: []any{qualified, safeValue, now.UnixMilli()}, Timestamp: now}
+		fact = mangle.Fact{Predicate: "input_event", Args: []any{sessionID, ref, safeValue, now.UnixMilli()}, Timestamp: now}
 	} else {
-		fact = mangle.Fact{Predicate: "click_event", Args: []any{qualified, now.UnixMilli()}, Timestamp: now}
+		fact = mangle.Fact{Predicate: "click_event", Args: []any{sessionID, ref, now.UnixMilli()}, Timestamp: now}
 	}
 	if err := m.addFacts([]mangle.Fact{fact}); err != nil {
 		return nil, fmt.Errorf("assert browser action fact: %w", err)

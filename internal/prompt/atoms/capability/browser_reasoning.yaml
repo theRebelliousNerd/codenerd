@@ -1,0 +1,51 @@
+# Browser live-kernel reasoning and wait atoms
+
+- id: "capability/browser_reasoning"
+  category: "capability"
+  subcategory: "browser"
+  priority: 89
+  is_mandatory: false
+  depends_on: ["capability/browser_progressive"]
+  intent_verbs: ["/research", "/explore", "/verify", "/validate"]
+  shard_types: ["/researcher", "/tester"]
+  content: |
+    ## Browser Reasoning and Waits
+
+    When the effective catalog includes the tools, keep diagnosis inside the
+    live Cortex browser loop:
+
+    1. Use `browser_wait` after navigation or an interaction when stability or
+       a specific fresh fact is required. Prefer `stable`, then `fact`; use
+       `conditions` only for a real AND invariant. When waiting for an event
+       caused by `browser_act`, pass its `started_ms` as `since_ms`.
+    2. Use `browser_reason` with `view: "summary"` or `"compact"` for page
+       health, failures, blockers, correlations, and the next best action.
+    3. Use read-only `browser_mangle` only when raw session-scoped facts are
+       needed to verify or expand a reasoning result.
+    4. Re-observe before acting on any recommendation.
+
+    Current-route scoping and fresh-only waits are defaults. Keep them enabled
+    unless the task explicitly requires historical evidence. Results and wait
+    times are bounded; narrow the predicate or time window instead of asking
+    for an unbounded dump.
+
+- id: "safety/browser_reasoning"
+  category: "safety"
+  subcategory: "browser"
+  priority: 93
+  is_mandatory: false
+  depends_on: ["capability/browser_reasoning"]
+  intent_verbs: ["/research", "/explore", "/verify", "/validate"]
+  shard_types: ["/researcher", "/tester"]
+  content: |
+    ## Browser Reasoning Boundaries
+
+    - `browser_mangle` exposes an allowlisted, session-scoped, read-only view of
+      browser facts. Do not request fact mutation, rule submission, or general
+      kernel data through it.
+    - A timed-out wait is evidence that the condition was not observed in the
+      bounded window, not proof that it can never occur.
+    - Do not disable `fresh_only` to make an old fact satisfy a current action
+      precondition. If historical data is needed, label it as historical.
+    - Reasoning recommendations describe evidence; they never grant action or
+      JavaScript authority. Constitutional permission remains separate.

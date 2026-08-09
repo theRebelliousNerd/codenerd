@@ -13,7 +13,7 @@
 ## P1
 
 - [x] Complete BPAR-2 progressive observe/act surface with JIT atoms
-- [ ] Complete BPAR-3 live-kernel reasoning and waits
+- [x] Complete BPAR-3 live-kernel reasoning and waits
 - [ ] Implement Go `honeypot_suspicious_url` assertion or drop from reason table/policy
 - [ ] Align Go reason checklist with `browser_honeypot.mg` (clip/overflow/no_keyboard coverage)
 - [ ] Optional gate: Click/Type refuse when `is_honeypot` for resolved element (caller-level or manager-level flag)

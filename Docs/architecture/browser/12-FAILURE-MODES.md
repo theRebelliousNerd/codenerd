@@ -40,7 +40,7 @@
 |--|--|
 | **Symptom** | AddFacts errors in stream logs; incomplete state |
 | **Cause** | Arg type mismatch vs Decl (e.g. float hook index before coercion) |
-| **Mitigation** | Keep int64 coercion; dual string/atom CSS; schema/test when adding fields |
+| **Mitigation** | Keep int64 coercion and exact Decl shapes; do not emit atom-shaped duplicates for string predicates; schema-test new fields and exercise them against `RealKernel` |
 
 ## FM-06 — Element not found (Click/Type)
 
@@ -137,3 +137,27 @@
 | **Symptom** | Observe returns a stale-snapshot/navigation-changed error instead of elements |
 | **Cause** | URL or registry generation changed while the page snapshot was being captured/materialized |
 | **Mitigation** | Retry observe after navigation settles; generation-checked registration prevents stale DOM from repopulating refs |
+
+## FM-18 — Wait succeeds from old evidence
+
+| | |
+|--|--|
+| **Symptom** | A condition appears satisfied before the new action produces an event |
+| **Cause** | Caller disabled fresh-only or omitted the action watermark while event facts accumulate |
+| **Mitigation** | Pass `browser_act.started_ms` as `since_ms`; keep fresh-only enabled; use current-session predicates |
+
+## FM-19 — Cross-session diagnosis leakage
+
+| | |
+|--|--|
+| **Symptom** | One tab's console/network error appears in another tab's diagnosis |
+| **Cause** | New event/rule omitted SessionID or a caller attempted a non-scoped query |
+| **Mitigation** | Keep event and derived schemas session-scoped; `browser_mangle` enforces SessionID; retain live foreign-session exclusion coverage |
+
+## FM-20 — Browser query rejected
+
+| | |
+|--|--|
+| **Symptom** | `browser_mangle` rejects a rule, mutation, general predicate, or oversized request |
+| **Cause** | Deliberate read-only allowlist and hard ceilings at the model/kernel boundary |
+| **Mitigation** | Query one allowed browser predicate for one session; use shipped derived predicates; design a separately authorized rule sandbox if product requirements demand mutation |

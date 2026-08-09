@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"codenerd/internal/tools"
 )
 
 // =============================================================================
@@ -93,6 +95,22 @@ func TestBrowserProgressiveTools_Definition(t *testing.T) {
 	}
 	if act.Schema.Properties["operations"].Items == nil || act.Schema.Properties["operations"].Items.Type != "object" {
 		t.Fatal("browser_act operations schema must declare object items")
+	}
+}
+
+func TestBrowserReasoningTools_Definition(t *testing.T) {
+	t.Parallel()
+
+	for _, tool := range []*tools.Tool{BrowserMangleTool(), BrowserWaitTool(), BrowserReasonTool()} {
+		if tool == nil || tool.Name == "" || tool.Execute == nil {
+			t.Fatalf("invalid browser reasoning tool: %+v", tool)
+		}
+		if _, ok := tool.Schema.Properties["session_id"]; !ok {
+			t.Fatalf("%s must expose session_id", tool.Name)
+		}
+	}
+	if got := BrowserMangleTool().Schema.Properties["operation"].Enum; len(got) != 6 {
+		t.Fatalf("browser_mangle operation vocabulary = %v", got)
 	}
 }
 

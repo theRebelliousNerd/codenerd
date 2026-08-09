@@ -101,6 +101,9 @@ safe_action(/browser_type).
 safe_action(/browser_close).
 safe_action(/browser_observe).
 safe_action(/browser_act).
+safe_action(/browser_mangle).
+safe_action(/browser_wait).
+safe_action(/browser_reason).
 
 # System lifecycle
 safe_action(/initialize).

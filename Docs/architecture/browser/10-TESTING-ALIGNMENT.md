@@ -23,6 +23,9 @@ go test ./internal/tools/research/ -run Browser -count=1
 # Live progressive modular registry route
 go test -tags=integration ./internal/tools/research/ -run TestBrowserProgressiveTools_Live -count=1
 
+# Live BPAR-3 route: observe → act → fresh waits → reason → same-kernel query
+go test -tags=integration ./internal/tools/research/ -run TestBrowserReasoningToolsLiveCortexRoute -count=1 -v
+
 # Focused race gate
 go test -race ./internal/browser ./internal/tools/research ./internal/prompt ./internal/prompt/sync
 ```
@@ -40,6 +43,9 @@ go test -race ./internal/browser ./internal/tools/research ./internal/prompt ./i
 | `element_registry_test.go` | — | Stable refs, copy isolation, navigation generation, stale snapshot refusal |
 | `progressive_action_test.go` | — | Hard bounds, closed modes, stop-on-error |
 | `internal/tools/research/browser_progressive_live_test.go` | `integration` | Live registry route: all BPAR-2 views/actions, secret sink/result check, confined screenshot |
+| `internal/tools/research/browser_reasoning_test.go` | — | Query allowlist, bounds, fresh waits, stability, reason views, session isolation, stale-fact refusal |
+| `internal/tools/research/browser_reasoning_live_test.go` | `integration` | Production-shaped Cortex route: observe/act, action-watermark conditions, stable wait, derived reason, foreign-session exclusion, same-kernel query |
+| `internal/core/defaults/policy/browser_reasoning_test.go` | — | Real-Mangle typed and session-scoped failure/root-cause/visible-error/blocker derivation |
 
 ## 3. Coverage strengths
 
@@ -48,19 +54,20 @@ go test -race ./internal/browser ./internal/tools/research ./internal/prompt ./i
 - Honeypot rule table against real `.mg` files (not duplicated rule strings alone).  
 - Persist/load round-trip of SessionStore.  
 - Explicit concurrency smoke on map + throttler.
+- Same-Cortex live proof for fact ingestion, derived diagnosis, query, fresh waits, and cross-session exclusion.
 
 ## 4. Coverage gaps
 
 | Area | Gap |
 |------|-----|
-| Full CDP event matrix | net_request/net_response/console/header paths lightly or unasserted in unit tests |
+| Full CDP event matrix | request/response/failure, console, toast, DOM, and dialog paths have focused/live coverage; header ingestion remains lightly asserted |
 | ReifyReact happy path | Progressive route reaches the mode on a non-React page; a real React Fiber fixture remains absent |
 | ForkSession happy path | Error paths covered; full cookie restore may be lifecycle-only |
 | HoneypotDetector with live page | AnalyzePage/GetSafeLinks need Chrome + HTML fixtures (partial in lifecycle) |
 | CLI cmd_browser | No package tests under cmd for browser subcommands (may live elsewhere) |
 | Wiring | System factory binding is unit-tested and modular registry is live-tested; legacy chat injection remains unproved |
 | Multi-manager contention | Not tested |
-| Fact schema type rejections | Only react_state int coercion documented/tested indirectly |
+| Fact schema type rejections | Live `RealKernel` accepts BPAR-3 event batches and policy tests pin typed schemas; exhaustive predicate/Decl conformance remains open |
 
 ## 5. Alignment with principles
 
@@ -77,7 +84,7 @@ go test -race ./internal/browser ./internal/tools/research ./internal/prompt ./i
 2. SnapshotDOM predicate inventory assertion vs Decl list.  
 3. Event throttle under synthetic burst sink.  
 4. Attach after CreateSession TargetID round-trip.  
-5. Cortex query assertion after live modular-tool fact ingestion.
+5. Header-ingestion redaction and schema conformance through live Chrome.
 
 ## 7. CI posture
 

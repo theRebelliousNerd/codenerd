@@ -21,3 +21,20 @@ func TestBrowserManagerBindingCompareAndClear(t *testing.T) {
 	}
 	SetBrowserManager(nil)
 }
+
+func TestBrowserRuntimeBindingKeepsKernelPairedWithManager(t *testing.T) {
+	first := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	second := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	kernel := &browserReasoningKernel{}
+	SetBrowserRuntime(first, kernel)
+
+	ClearBrowserManager(second)
+	if getBrowserKernel() != kernel {
+		t.Fatal("clearing a different manager detached the live browser kernel")
+	}
+	ClearBrowserManager(first)
+	if getBrowserKernel() != nil {
+		t.Fatal("clearing the owning manager retained a stale browser kernel")
+	}
+	SetBrowserManager(nil)
+}

@@ -52,6 +52,17 @@
 - Action results expose operation outcome and safe metadata, never selectors,
   input values, or credential material.
 
+### Live reasoning and waits
+
+- `browser_act` exposes `started_ms` and `finished_ms`; the start value is the
+  freshness watermark for follow-up waits.
+- `browser_wait` reports bounded matched conditions or network/DOM stability,
+  never a silent success from stale facts when fresh-only is enabled.
+- `browser_reason` returns bounded derived failures, blockers, correlations,
+  contradictions, changes, and recommendations from the live kernel.
+- `browser_mangle` exposes only allowlisted, session-scoped, re-redacted facts;
+  it is not a policy mutation or arbitrary kernel-query interface.
+
 ### Honeypot
 
 - Info: analysis start/complete counts  
@@ -93,3 +104,4 @@ No dedicated Prometheus counters in package. Glass box / tool event bus may obse
 4. If no facts appear, check sink binding and EventLoggingLevel `minimal`; nil-sink navigation metadata may still advance.
 5. Stale control.txt after crashed launch → connect errors; delete and relaunch.
 6. If an action ref is stale, observe again and use the new generation's ref.
+7. If a wait times out, compare its `since_ms` watermark with recent session-scoped event timestamps; do not disable freshness to mask a missing event.

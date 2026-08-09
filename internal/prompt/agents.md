@@ -13,3 +13,6 @@
 - Browser observe/act guidance lives in
   `atoms/capability/browser_progressive.yaml`; keep it ref-first, bounded, and
   free of raw selector or arbitrary-JavaScript instructions.
+- Browser wait/reason/read-only-Mangle guidance lives in
+  `atoms/capability/browser_reasoning.yaml`; keep waits fresh by default and do
+  not teach rule/fact mutation through the browser surface.

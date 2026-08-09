@@ -1244,7 +1244,7 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	browserCfg.WritableRoots = append([]string(nil), configuredBrowser.WritableRoots...)
 	browserCfg.SessionStore = filepath.Join(bctx.workspace, ".nerd", "browser", "sessions.json")
 	bctx.browserMgr = browser.NewSessionManagerWithSink(browserCfg, browserKernelSink{kernel: bctx.kernel})
-	research.SetBrowserManager(bctx.browserMgr)
+	research.SetBrowserRuntime(bctx.browserMgr, bctx.kernel)
 	return nil
 }
 
