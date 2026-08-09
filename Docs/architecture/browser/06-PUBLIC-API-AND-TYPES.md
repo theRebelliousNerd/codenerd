@@ -195,7 +195,7 @@ identity collisions.
 
 Derived (policy, not emitted by detector as base): `is_honeypot`, `honeypot_*`, `high_confidence_honeypot`.
 
-## 8. Native reasoning and spec tools (companion research package)
+## 8. Native reasoning, spec, and declarative-test tools (companion research package)
 
 | Tool | Contract |
 |------|----------|
@@ -204,12 +204,17 @@ Derived (policy, not emitted by detector as base): `is_honeypot`, `honeypot_*`, 
 | `browser_reason` | Refreshes page state and returns bounded health/failure/change views from live-kernel derived and event facts, scoped to the current route by default |
 | `browser_evidence` | Status/read/export for redacted per-session JSONL evidence; reads cap items and scanned bytes; exports remain under configured writable roots |
 | `browser_specs` | List/get/check named workspace-confined Markdown corpora; ranks by source/file/line/component/route/selector/terms and checks only declared single-atom present/absent invariants against one live session |
+| `browser_test` | Create/inspect/generate/run strict portable fixtures; generation reads bounded redacted action-intent evidence, replay resolves unique selector-free semantic targets, credentials expand from `value_env` only in an execution copy, and assertions query the live session kernel with per-assertion fresh baselines |
 
 The companion `internal/browser/specs` package exports `Source`, `Config`,
 `Binding`, `Invariant`, `Spec`, `LoadResult`, `MatchInput`, `Match`,
 `SelectedInvariant`, and `Catalog`. `NewCatalog`, `Catalog.Load`, `MatchSpecs`,
 `CountMatchingSpecs`, and `SelectInvariants` enforce workspace and resource
 boundaries before any document reaches a model-facing result.
+
+The companion `internal/browser/testspec` package exports `Spec`, `Assertion`,
+strict parse/marshal/normalize helpers, and execution-only environment
+resolution. `browser.ElementMatcher` is the portable selector-free target type.
 
 ## 9. Non-exported helpers (test-visible same package)
 

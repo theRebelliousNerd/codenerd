@@ -185,3 +185,27 @@
 | **Symptom** | Discovery refuses a root/index/link, or a check records an invalid query/expect as a violation |
 | **Cause** | Absolute/traversal/symlink workspace escape, a non-single-atom/general predicate query, missing SessionID scope, unsupported expectation, or live-kernel scan ceiling |
 | **Mitigation** | Keep all sources under the active workspace; use `present` or `absent` with one allowlisted session-scoped browser atom; narrow live evidence rather than bypassing the limit |
+
+## FM-24 — Declarative fixture invalid or nonportable
+
+| | |
+|--|--|
+| **Symptom** | `browser_test create/inspect/run` returns `invalid` before replay |
+| **Cause** | Oversized or aliased YAML, unknown fields, opaque refs/raw selectors, unsupported actions, literal sensitive values, or invalid assertion atoms |
+| **Mitigation** | Use one bounded document, selector-free semantic targets, the closed action vocabulary, `value_env` for sensitive fields, and allowlisted session-scoped atoms |
+
+## FM-25 — Semantic target cannot resolve uniquely
+
+| | |
+|--|--|
+| **Symptom** | Replay refuses an element target as missing, ambiguous, or incompletely discovered |
+| **Cause** | Page drift, a matcher that is too broad, a hidden element, or truncated interactive discovery |
+| **Mitigation** | Regenerate or strengthen the matcher with stable semantic attributes; never persist a transient ref or raw selector as a fallback |
+
+## FM-26 — Declarative execution secret unavailable
+
+| | |
+|--|--|
+| **Symptom** | Run reports a required environment variable before effects |
+| **Cause** | A `value_env` variable is absent from the execution environment |
+| **Mitigation** | Supply the named variable through the trusted runtime; do not replace it with a credential literal in portable YAML |

@@ -24,6 +24,9 @@
 - Browser spec roots, indexes, and Markdown links are read-only and confined to
   the active workspace through symlinks. Keep catalog/check limits hard and
   evaluate invariants only through the live kernel's browser allowlist.
+- Declarative fixtures persist semantic element matchers, never private
+  selectors or generation-bound refs. Resolution must be unique and fail when
+  discovery is truncated; credential values use execution-only `value_env`.
 - Progressive observations must be token-bounded and issue only opaque,
   session-scoped refs. Navigation invalidates the ref generation; actions must
   re-identify through the private fingerprint registry and fail closed when a

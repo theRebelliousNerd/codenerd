@@ -2,7 +2,7 @@
 
 > Last verified against codebase: 2026-08-09
 > Status: Living Reference Document — code-grounded  
-> Source: `internal/browser/` (16 checked-in non-test ≈ 6.33k LOC, 15 per platform; 15 tests) + companion schemas/policy under `internal/core/defaults/`
+> Source: `internal/browser/` (19 checked-in non-test ≈ 7.00k LOC, 18 per platform; 17 tests) + companion schemas/policy under `internal/core/defaults/`
 
 ## 1. North-star statement
 
@@ -14,14 +14,14 @@ codeNERD treats the browser as a **physics engine for the world-model**, not a f
 |-----------|-------------|----------|
 | Creative/executive split | **5** | Go drives Rod; session-scoped facts land in the live executive kernel, whose browser policy derives failures, root causes, visible errors, and blockers. `browser_mangle` is a bounded read-only view of that same kernel. |
 | Fact-flow fidelity | **5** | `captureDOMFacts`, the event stream, and `ReifyReact` emit schema-aligned predicates. BPAR-3 live proof observes, acts, waits on fresh facts, derives diagnoses, and reads them back through the authorizing kernel. |
-| Constitutional safety | **4** | All registered browser spellings, including observe/act/mangle/wait/reason/evidence/specs, still require exact `pending_action` → `permitted(action,target,payload)` derivation. Browser session/browser/target handles are recognized safety targets. |
-| JIT / atom discipline | **5** | Research/test intent configs select progressive, reasoning, evidence, and spec tools; capability atoms teach ref-first action, fresh evidence, private provenance, and bounded workspace spec use without inventing authority. |
+| Constitutional safety | **4** | All registered browser spellings, including observe/act/mangle/wait/reason/evidence/specs/test, still require exact `pending_action` → `permitted(action,target,payload)` derivation. Browser session/browser/target handles are recognized safety targets. |
+| JIT / atom discipline | **5** | Research/test intent configs select progressive, reasoning, evidence, spec, and declarative-test tools; capability atoms teach ref-first action, fresh evidence, private provenance, bounded workspace specs, and portable semantic fixtures without inventing authority. |
 | Observability | **4** | Dedicated `logging.CategoryBrowser` + convenience helpers + timers on start/create/navigate/screenshot/honeypot (`logger.go`, package sources). |
-| Test grounding | **5** | Unit/race coverage plus live modular-registry Chrome proofs for observations, refs, actions, redaction, confined screenshots, fresh waits, session isolation, Cortex queries, derived diagnosis, evidence, and spec conformance. |
+| Test grounding | **5** | Unit/race coverage plus live modular-registry Chrome proofs for observations, refs, actions, redaction, confined screenshots, fresh waits, session isolation, Cortex queries, diagnosis, evidence, spec conformance, and declarative generation/replay. |
 | Wiring completeness | **4** | Cortex owns one manager for tactile + research; facts enter live kernel. Standalone CLI and legacy chat distinctions remain explicit; VS browse handler is still a hard redirect. |
 | Isolation / multi-session | **4** | Shared profile tabs by default, explicit isolation, isolated forks, multi-browser bounds, redacted private metadata. |
 
-**Overall alignment: 4 / 5** — BPAR-1 through BPAR-3 and the BPAR-4 evidence/spec slices are production-routed; audit, declarative-test, and final-evaluation parity remain incomplete.
+**Overall alignment: 4 / 5** — BPAR-1 through BPAR-4 are production-routed; audit, repository-trace, Docker-correlation, and final-evaluation parity remain incomplete.
 
 ## 3. What “good” looks like (browser-specific)
 
@@ -43,4 +43,4 @@ codeNERD treats the browser as a **physics engine for the world-model**, not a f
 
 ## 5. Verdict
 
-Treat `internal/browser` as **implemented and load-bearing**, not pre-product. Continue BPAR-4 declarative-test work, close the remaining VS/shard/operator reachability gaps, and assert `honeypot_suspicious_url` from Go (noted missing in policy comments).
+Treat `internal/browser` as **implemented and load-bearing**, not pre-product. Continue BPAR-5 audit/final-proof work, close the remaining VS/shard/operator reachability gaps, and assert `honeypot_suspicious_url` from Go (noted missing in policy comments).

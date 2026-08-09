@@ -199,6 +199,55 @@ The test route must correlate its expected failure without a fatal console event
 		t.Fatalf("browser_specs live check: %v, %s", err, specCheckRaw)
 	}
 
+	generatedRaw, err := research.BrowserTestTool().Execute(ctx, map[string]any{
+		"operation": "generate", "session_id": session.ID, "since_ms": startedMS,
+		"name": "trigger failure", "view": "full",
+	})
+	if err != nil || !strings.Contains(generatedRaw, "id: trigger") || strings.Contains(generatedRaw, "ref:") || strings.Contains(generatedRaw, "selector") {
+		t.Fatalf("browser_test live generate: %v, %s", err, generatedRaw)
+	}
+	var generated map[string]any
+	if err := json.Unmarshal([]byte(generatedRaw), &generated); err != nil {
+		t.Fatalf("decode browser_test generate: %v", err)
+	}
+	generatedYAML, _ := generated["test_yaml"].(string)
+	inspectRaw, err := research.BrowserTestTool().Execute(ctx, map[string]any{
+		"operation": "inspect", "test_yaml": generatedYAML, "view": "summary",
+	})
+	if err != nil || !strings.Contains(inspectRaw, `"status":"valid"`) || !strings.Contains(inspectRaw, `"action_count":1`) {
+		t.Fatalf("browser_test live inspect: %v, %s", err, inspectRaw)
+	}
+
+	passingFixture := map[string]any{
+		"name": "failure signal is observable", "session_id": session.ID,
+		"actions": []any{map[string]any{
+			"type": "interact", "action": "click", "target": map[string]any{"id": "trigger", "tag_name": "button"},
+		}},
+		"assertions": []any{
+			map[string]any{"name": "new console error", "query": `console_event(S, "error", Message, Timestamp)`, "expect": "present", "scope": "fresh"},
+			map[string]any{"name": "no fatal console", "query": `console_event(S, "fatal", Message, Timestamp)`, "expect": "absent", "scope": "fresh"},
+		},
+	}
+	testRunRaw, err := research.BrowserTestTool().Execute(ctx, map[string]any{
+		"operation": "run", "test": passingFixture, "view": "full", "settle_timeout_ms": 5000,
+	})
+	if err != nil || !strings.Contains(testRunRaw, `"status":"passed"`) || !strings.Contains(testRunRaw, `"assertion_count":2`) {
+		t.Fatalf("browser_test live run: %v, %s", err, testRunRaw)
+	}
+
+	failingRaw, err := research.BrowserTestTool().Execute(ctx, map[string]any{
+		"operation": "run", "session_id": session.ID, "view": "full",
+		"test": map[string]any{
+			"name": "existing error is diagnosed",
+			"assertions": []any{map[string]any{
+				"name": "no current console error", "query": `console_event(S, "error", Message, Timestamp)`, "expect": "absent", "scope": "current",
+			}},
+		},
+	})
+	if err != nil || !strings.Contains(failingRaw, `"status":"failed"`) || !strings.Contains(failingRaw, `"diagnosis"`) || !strings.Contains(failingRaw, "bpar3-console-marker") {
+		t.Fatalf("browser_test live failure diagnosis: %v, %s", err, failingRaw)
+	}
+
 	evidenceRaw, err := research.BrowserEvidenceTool().Execute(ctx, map[string]any{
 		"operation": "read", "session_id": session.ID, "max_items": 100,
 	})

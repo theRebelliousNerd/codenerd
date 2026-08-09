@@ -1860,6 +1860,7 @@ func TestRegisterAll_WhenValidRegistry_ShouldRegisterAllTools(t *testing.T) {
 		"browser_reason",
 		"browser_evidence",
 		"browser_specs",
+		"browser_test",
 		"research_cache_get",
 		"research_cache_set",
 		"research_cache_clear",

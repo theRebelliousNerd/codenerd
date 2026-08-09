@@ -4,7 +4,7 @@
 > Status: Living Reference Document — code-grounded full corpus  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/browser/`  
-> Scale: **16** checked-in non-test Go files ≈ **6,331** lines (**15** per platform); **15** package test files; **0** package-local `.mg`
+> Scale: **19** checked-in non-test Go files ≈ **7,007** lines (**18** per platform); **17** package test files; **0** package-local `.mg`
 > Companion Mangle: `internal/core/defaults/schemas_browser.mg`, `policy/browser.mg`, `policy/browser_honeypot.mg`
 
 ## Scope
@@ -79,6 +79,8 @@ from the same Cortex kernel that receives browser facts. `browser_evidence`
 reads or explicitly exports bounded redacted per-session JSONL provenance.
 `browser_specs` lists/ranks workspace-confined Markdown and checks declared
 single-atom present/absent invariants against that same live session kernel.
+`browser_test` creates, inspects, generates, and runs bounded selector-free
+semantic fixtures; sensitive values use execution-only `value_env` expansion.
 `browser_observe` and `browser_act` can attach ranked excerpts with
 `include_specs` and bounded `spec_terms`.
 

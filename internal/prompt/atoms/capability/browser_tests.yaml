@@ -1,0 +1,40 @@
+# Browser declarative-test atoms
+
+- id: "capability/browser_tests"
+  category: "capability"
+  subcategory: "browser"
+  priority: 89
+  is_mandatory: false
+  depends_on: ["capability/browser_reasoning", "capability/browser_evidence"]
+  intent_verbs: ["/verify", "/validate", "/test", "/debug"]
+  shard_types: ["/tester", "/researcher"]
+  content: |
+    ## Declarative Browser Tests
+
+    Use `browser_test` to create, inspect, generate, or run compact browser
+    fixtures. Generate after driving a representative flow, then edit its
+    assertions before treating the draft as a contract. Run replays through
+    `browser_act`, establishes per-assertion baselines, waits for bounded
+    quiescence, and checks the same live Cortex kernel that receives events.
+
+    Prefer semantic targets such as data-testid, id, name, or ARIA identity.
+    Use `value_env` for credentials; environment values exist only in the
+    execution copy and never belong in portable YAML.
+
+- id: "safety/browser_tests"
+  category: "safety"
+  subcategory: "browser"
+  priority: 96
+  is_mandatory: false
+  depends_on: ["capability/browser_tests"]
+  intent_verbs: ["/verify", "/validate", "/test", "/debug"]
+  shard_types: ["/tester", "/researcher"]
+  content: |
+    ## Declarative Browser Test Boundaries
+
+    Fixtures may contain only the closed portable action vocabulary,
+    selector-free semantic targets, and bounded single-atom browser queries.
+    Reject opaque refs, raw selectors, aliases, unknown fields, literal values
+    for sensitive targets, rule submission, mutation, and cross-session facts.
+    A replay error, query error, scan limit, ambiguous target, truncated action
+    history, or failed settle is never a passing test.

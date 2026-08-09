@@ -22,3 +22,6 @@
 - Browser spec guidance lives in `atoms/capability/browser_specs.yaml`; keep
   delivery workspace-confined and invariant checks read-only against the live
   Cortex browser allowlist.
+- Browser declarative-test guidance lives in
+  `atoms/capability/browser_tests.yaml`; keep fixtures semantic-targeted,
+  credential-free, bounded, and limited to live-kernel single-atom assertions.

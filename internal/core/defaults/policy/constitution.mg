@@ -106,6 +106,7 @@ safe_action(/browser_wait).
 safe_action(/browser_reason).
 safe_action(/browser_evidence).
 safe_action(/browser_specs).
+safe_action(/browser_test).
 
 # System lifecycle
 safe_action(/initialize).

@@ -268,6 +268,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"browser_reason",
 		"browser_evidence",
 		"browser_specs",
+		"browser_test",
 	)
 	testerTools = append(testerTools, codeDomTools...)
 	testerTools = append(testerTools, testImpactTools...)
@@ -294,6 +295,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"browser_reason",
 		"browser_evidence",
 		"browser_specs",
+		"browser_test",
 		"research_cache_get",
 		"research_cache_set",
 		"write_file", // Can write documentation

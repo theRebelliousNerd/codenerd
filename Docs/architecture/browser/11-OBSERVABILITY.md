@@ -84,6 +84,16 @@
 - Check reports checked/skipped/violations plus `passed`, `failed`, `no_checks`,
   or `incomplete`; warnings or truncation can never become a clean pass.
 
+### Declarative tests
+
+- Successful portable `browser_act` operations add redacted `action_intent`
+  rows; `browser_test generate` fails explicitly on empty, truncated, or
+  over-limit history.
+- Run reports replay status, per-assertion match counts, violations, timestamps,
+  and a stable test evidence handle; full view caps fact samples at three.
+- Failed runs may attach bounded `browser_reason` diagnosis from the same live
+  session kernel. Fixture errors are redacted before return.
+
 ### Honeypot
 
 - Info: analysis start/complete counts  
@@ -137,3 +147,4 @@ No dedicated Prometheus counters in package. Glass box / tool event bus may obse
 7. If a wait times out, compare its `since_ms` watermark with recent session-scoped event timestamps; do not disable freshness to mask a missing event.
 8. Use `browser_evidence status/read` before export; a disabled recorder or truncated scan is explicit in the tool result/error.
 9. Inspect `browser_specs` warnings and catalog scope before trusting a check; `incomplete` means the requested corpus was not fully proven.
+10. Inspect `browser_test` replay, settle, and assertion rows in full view; an ambiguous semantic target or missing `value_env` fails closed before effects.

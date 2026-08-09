@@ -11,7 +11,7 @@ From `internal/browser/*.go` (non-test):
 | `codenerd/internal/logging` | CategoryBrowser, timers, Browser* helpers |
 | `codenerd/internal/mangle` | Fact, Engine (adapter + honeypot) |
 | `codenerd/internal/browser/security` | Pre-sink redaction and writable-root policy |
-| `gopkg.in/yaml.v3` | Bounded spec frontmatter/index parsing; aliases and excessive node depth are rejected |
+| `gopkg.in/yaml.v3` | Bounded spec frontmatter/index and declarative-test parsing; aliases and excessive node depth are rejected |
 | `codenerd/internal/types` | `ExtractString` for rule results (honeypot) |
 | `github.com/go-rod/rod` | Browser, Page, Element, Eval |
 | `github.com/go-rod/rod/lib/launcher` | Launch Chrome |
@@ -30,7 +30,7 @@ From `internal/browser/*.go` (non-test):
 | Chat model | `cmd/nerd/chat/model_types.go` | Field types `*browser.SessionManager` |
 | Chat boot | `cmd/nerd/chat/session_boot.go`, `session_shared_boot.go` | Declares/passes browserMgr (often nil) into shards |
 | Tactile router | `internal/shards/system/router.go` | `BrowserManager *browser.SessionManager`, `SetBrowserManager` |
-| Research tools | `internal/tools/research/browser*.go` | Cortex-bound SessionManager plus live-kernel reader, bounded recorder, and workspace catalog route for effect, wait, query, diagnosis, evidence, and spec tools |
+| Research tools | `internal/tools/research/browser*.go` | Cortex-bound SessionManager plus live-kernel reader, bounded recorder, and workspace catalog route for effect, wait, query, diagnosis, evidence, spec, and declarative-test tools |
 | System factory | `internal/system/factory.go` | Live-kernel sink and paired manager/kernel binding |
 
 ## 3. Soft dependencies (no Go import, semantic coupling)
@@ -44,9 +44,9 @@ From `internal/browser/*.go` (non-test):
 | `internal/core/virtual_store_types.go` | ActionBrowser* constants name-aligned with tools |
 | `internal/core/virtual_store_actions.go` | Documents shard ownership; modular tool arg mapping |
 | `internal/core/defaults/policy/constitution.mg` | All registered legacy, progressive, and reasoning browser spellings are safe actions; exact permission still requires availability and a matching pending action |
-| `internal/mangle/intent_routing.mg` | Legacy, progressive, reasoning, evidence, and spec browser tools allowed for research/verify intents |
-| `internal/prompt/config_*.go` | Researcher/tester allowlists include observe/act/mangle/wait/reason/evidence/specs |
-| `internal/prompt/atoms/capability/browser_progressive.yaml`, `browser_reasoning.yaml`, `browser_evidence.yaml`, `browser_specs.yaml` | JIT-selected ref-first action, fresh reasoning, bounded evidence, and workspace spec boundaries |
+| `internal/mangle/intent_routing.mg` | Legacy, progressive, reasoning, evidence, spec, and declarative-test browser tools allowed for research/verify intents |
+| `internal/prompt/config_*.go` | Researcher/tester allowlists include observe/act/mangle/wait/reason/evidence/specs/test |
+| `internal/prompt/atoms/capability/browser_progressive.yaml`, `browser_reasoning.yaml`, `browser_evidence.yaml`, `browser_specs.yaml`, `browser_tests.yaml` | JIT-selected ref-first action, fresh reasoning, bounded evidence/spec, and portable semantic-test boundaries |
 | Workspace `.nerd/browser/*` | Operator persistence contract |
 
 ## 4. Layer diagram
@@ -58,6 +58,7 @@ cmd/nerd (browser cobra + chat fields)
         │         │
         │         ├──► opaque ref registry + progressive observe/act
         │         ├──► bounded workspace spec catalog
+        │         ├──► portable declarative fixture contracts
         │         ├──► internal/mangle
         │         ├──► internal/logging
         │         └──► go-rod → Chrome

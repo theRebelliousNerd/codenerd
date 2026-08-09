@@ -8,8 +8,8 @@
 |----------|-------|
 | Import path | `codenerd/internal/browser` |
 | Package comment | Browser automation with DOM/React reification into Mangle facts; adapted from BrowserNERD for Cortex 1.5.0 Browser Physics (§9.0) |
-| Non-test Go files | **16 checked in** (15 per platform; Windows/Unix permission implementations are build-tagged) |
-| Test Go files | **15** (11 root package + 2 `security` + 2 `specs`) |
+| Non-test Go files | **19 checked in** (18 per platform; Windows/Unix permission implementations are build-tagged) |
+| Test Go files | **17** (12 root package + 2 `security` + 2 `specs` + 1 `testspec`) |
 | Package-local `.mg` | **0** (schemas/policy live under `internal/core/defaults/`) |
 | Primary third-party | `github.com/go-rod/rod` (+ launcher, proto) |
 | UUID | `github.com/google/uuid` for session IDs |
@@ -21,7 +21,8 @@
 | `internal/browser/session_manager.go` | ~817 | Config/types, core operations, Navigate/Click/Type/Screenshot, ReifyReact |
 | `internal/browser/element_registry.go` | ~171 | Generation-bound opaque refs and private element fingerprints |
 | `internal/browser/progressive_observe.go` | ~689 | Bounded state/nav/interactive/grid/hidden/screenshot/DOM/React observation |
-| `internal/browser/progressive_action.go` | ~617 | Ref resolution plus closed sequential action/lifecycle plans |
+| `internal/browser/progressive_action.go` | ~766 | Ref/semantic-target resolution plus closed sequential action/lifecycle plans and portable action-intent evidence |
+| `internal/browser/declarative_matcher.go` | ~146 | Selector-free semantic fixture matchers and unique live-page resolution |
 | `internal/browser/session_lifecycle.go` | ~618 | Browser/tab lifecycle, shared/isolation semantics, limits, reaper, cancellation |
 | `internal/browser/session_manager_dom.go` | ~825 | Event stream, redacted DOM capture, storage snapshot/restore, private session persistence |
 | `internal/browser/fact_redaction.go` | ~66 | Copy-on-write pre-sink browser fact redaction |
@@ -33,8 +34,10 @@
 | `internal/browser/specs/types.go` | ~180 | Bounded native catalog config, spec/binding/invariant and match contracts |
 | `internal/browser/specs/parser.go` | ~329 | Capped Markdown/YAML parser with native and BrowserNERD-compatible invariants |
 | `internal/browser/specs/catalog.go` | ~588 | Workspace-confined discovery, index hints, ranking, excerpts, and invariant selection |
+| `internal/browser/testspec/parser.go` | ~349 | Strict bounded YAML/JSON fixtures, portable action validation, and execution-only environment resolution |
+| `internal/browser/testspec/types.go` | ~32 | Declarative fixture/assertion contracts and hard ceilings |
 
-**≈6,331 checked-in non-test LOC** across lifecycle, progressive tools, reification, evidence, security, specs, and detector modules.
+**≈7,007 checked-in non-test LOC** across lifecycle, progressive tools, reification, evidence, security, specs/tests, and detector modules.
 
 ## 3. File inventory (tests)
 
@@ -53,6 +56,8 @@
 | `flight_recorder_test.go` | (default) | Pre-persistence redaction, bounded reads, rotation/pruning, confined private export, session privacy |
 | `security/*_test.go` | (default) | Credential fixtures, traversal/symlink escape, private artifacts |
 | `specs/*_test.go` | (default) | Native/compatible parsing, aliases/depth/size/count bounds, ranking, indexes, file ranges, traversal and symlink escape |
+| `testspec/parser_test.go` | (default) | Strict portable fixture parsing, selector/ref/secret rejection, YAML bounds, and environment-copy isolation |
+| `declarative_matcher_test.go` | (default) | Semantic matcher privacy/validation and portable action-intent evidence |
 
 ## 4. Companion files (outside package, load-bearing)
 
@@ -73,11 +78,12 @@
 | `cmd/nerd/chat/session_boot.go` | Legacy chat boot path still declares `browserMgr` **nil until needed** |
 | `cmd/nerd/chat/model_types.go` | `browserMgr` / `BrowserManager` fields |
 | `internal/shards/system/router.go` | `SetBrowserManager`, tool routes for browser_* |
-| `internal/tools/research/browser.go`, `browser_progressive.go`, `browser_reasoning.go`, `browser_evidence.go`, `browser_specs.go` | Legacy, progressive, bounded wait/query/diagnosis, private evidence, and workspace spec tools bound to the Cortex-owned manager and live kernel |
+| `internal/tools/research/browser.go`, `browser_progressive.go`, `browser_reasoning.go`, `browser_evidence.go`, `browser_specs.go`, `browser_declarative.go` | Legacy, progressive, wait/query/diagnosis, private evidence, workspace spec, and declarative-test tools bound to the Cortex-owned manager and live kernel |
 | `internal/prompt/atoms/capability/browser_progressive.yaml` | JIT ref-first observe/act method and safety boundary |
 | `internal/prompt/atoms/capability/browser_reasoning.yaml` | JIT action-watermark, fresh-wait, read-only-query, and diagnosis method |
 | `internal/prompt/atoms/capability/browser_evidence.yaml` | JIT bounded-read/export and privacy method |
 | `internal/prompt/atoms/capability/browser_specs.yaml` | JIT bounded spec discovery, relevance, and live-kernel conformance method |
+| `internal/prompt/atoms/capability/browser_tests.yaml` | JIT portable semantic-fixture generation/replay and credential boundary |
 | `internal/core/virtual_store_types.go` | ActionBrowser* ActionType constants |
 | `internal/core/virtual_store_actions.go` | `handleBrowse` refuse + modular tool arg mapping |
 | `internal/logging/logger.go` | `CategoryBrowser` |
@@ -100,7 +106,7 @@
 2. **`captureDOMFacts`** — dense fact emission (multiple typed predicates per session-qualified node).
 3. **`ReifyReact`** — large inline JS fiber walker; type coercion for hook indices.  
 4. **`HoneypotDetector.emitPageFacts`** — per-element style/position/attribute PushFact.  
-5. **Route completeness** — system and modular tools share the Cortex manager/live kernel; observe/act/mangle/wait/reason/evidence/specs are live, while audit/declarative-test parity and operator CLI expansion remain open.
+5. **Route completeness** — system and modular tools share the Cortex manager/live kernel; observe/act/mangle/wait/reason/evidence/specs/test are live, while audit parity and operator CLI expansion remain open.
 
 ## 7. What is intentionally not here
 

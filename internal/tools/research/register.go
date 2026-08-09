@@ -30,6 +30,7 @@ func RegisterAll(registry *tools.Registry) error {
 		BrowserReasonTool(),
 		BrowserEvidenceTool(),
 		BrowserSpecsTool(),
+		BrowserTestTool(),
 
 		// Caching
 		CacheGetTool(),

@@ -69,7 +69,7 @@ func executeBrowserObserve(ctx context.Context, args map[string]any) (string, er
 func BrowserActTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "browser_act",
-		Description: `Execute up to 25 browser operations in sequence. Observe first and use opaque refs. Operation types: navigate{url}; interact{ref,action,value,submit} where action is click|type|select|toggle|clear; fill{fields:[{ref,value}],submit,submit_button}; key{key}; history{action:back|forward|reload}; sleep{duration_ms}; session_create/session_attach/session_fork/session_focus/session_close; browser_launch/browser_close. Stops on the first failure by default. Arbitrary JavaScript and fact waits are intentionally unavailable here.`,
+		Description: `Execute up to 25 browser operations in sequence. Interactive calls normally consume fresh opaque refs from browser_observe; declarative replay may instead use a bounded semantic target that resolves uniquely to a fresh ref. Operation types: navigate{url}; interact{ref|target,action,value,submit} where action is click|type|select|toggle|clear; fill{fields:[{ref|target,value}],submit,submit_button|submit_target}; key{key}; history{action:back|forward|reload}; sleep{duration_ms}; session_create/session_attach/session_fork/session_focus/session_close; browser_launch/browser_close. Stops on the first failure by default. Arbitrary JavaScript and fact waits are intentionally unavailable here.`,
 		Category:    tools.CategoryResearch,
 		Priority:    65,
 		Execute:     executeBrowserAct,

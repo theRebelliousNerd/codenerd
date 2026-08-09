@@ -26,27 +26,32 @@ const (
 )
 
 type FillField struct {
-	Ref   string `json:"ref"`
-	Value string `json:"value"`
+	Ref      string          `json:"ref,omitempty" yaml:"ref,omitempty"`
+	Target   *ElementMatcher `json:"target,omitempty" yaml:"target,omitempty"`
+	Value    string          `json:"value,omitempty" yaml:"value,omitempty"`
+	ValueEnv string          `json:"value_env,omitempty" yaml:"value_env,omitempty"`
 }
 
 type ActionOperation struct {
-	Type            string      `json:"type"`
-	URL             string      `json:"url,omitempty"`
-	Ref             string      `json:"ref,omitempty"`
-	Action          string      `json:"action,omitempty"`
-	Value           string      `json:"value,omitempty"`
-	Submit          bool        `json:"submit,omitempty"`
-	Fields          []FillField `json:"fields,omitempty"`
-	SubmitButton    string      `json:"submit_button,omitempty"`
-	Key             string      `json:"key,omitempty"`
-	DurationMS      int         `json:"duration_ms,omitempty"`
-	BrowserID       string      `json:"browser_id,omitempty"`
-	TargetID        string      `json:"target_id,omitempty"`
-	SessionID       string      `json:"session_id,omitempty"`
-	SourceSessionID string      `json:"source_session_id,omitempty"`
-	Isolated        bool        `json:"isolated,omitempty"`
-	NewInstance     *bool       `json:"new_instance,omitempty"`
+	Type            string          `json:"type" yaml:"type"`
+	URL             string          `json:"url,omitempty" yaml:"url,omitempty"`
+	Ref             string          `json:"ref,omitempty" yaml:"ref,omitempty"`
+	Target          *ElementMatcher `json:"target,omitempty" yaml:"target,omitempty"`
+	Action          string          `json:"action,omitempty" yaml:"action,omitempty"`
+	Value           string          `json:"value,omitempty" yaml:"value,omitempty"`
+	ValueEnv        string          `json:"value_env,omitempty" yaml:"value_env,omitempty"`
+	Submit          bool            `json:"submit,omitempty" yaml:"submit,omitempty"`
+	Fields          []FillField     `json:"fields,omitempty" yaml:"fields,omitempty"`
+	SubmitButton    string          `json:"submit_button,omitempty" yaml:"submit_button,omitempty"`
+	SubmitTarget    *ElementMatcher `json:"submit_target,omitempty" yaml:"submit_target,omitempty"`
+	Key             string          `json:"key,omitempty" yaml:"key,omitempty"`
+	DurationMS      int             `json:"duration_ms,omitempty" yaml:"duration_ms,omitempty"`
+	BrowserID       string          `json:"browser_id,omitempty" yaml:"browser_id,omitempty"`
+	TargetID        string          `json:"target_id,omitempty" yaml:"target_id,omitempty"`
+	SessionID       string          `json:"session_id,omitempty" yaml:"session_id,omitempty"`
+	SourceSessionID string          `json:"source_session_id,omitempty" yaml:"source_session_id,omitempty"`
+	Isolated        bool            `json:"isolated,omitempty" yaml:"isolated,omitempty"`
+	NewInstance     *bool           `json:"new_instance,omitempty" yaml:"new_instance,omitempty"`
 }
 
 type ActionStepResult struct {
@@ -95,8 +100,9 @@ func (m *SessionManager) ExecuteActions(ctx context.Context, sessionID string, o
 		}
 		step := ActionStepResult{Index: index, Type: opType}
 		var (
-			result map[string]any
-			err    error
+			result   map[string]any
+			err      error
+			portable *ActionOperation
 		)
 
 		switch opType {
@@ -108,28 +114,72 @@ func (m *SessionManager) ExecuteActions(ctx context.Context, sessionID string, o
 			if err == nil {
 				err = m.Navigate(ctx, stepSession, operation.URL)
 				result = map[string]any{"url": m.SanitizeForEvidence(operation.URL)}
+				if err == nil {
+					portable = &ActionOperation{Type: "navigate", URL: m.SanitizeForEvidence(operation.URL)}
+				}
 			}
 		case "interact":
 			err = requireSession(stepSession)
 			if err == nil {
-				result, err = m.InteractRef(ctx, stepSession, operation.Ref, operation.Action, operation.Value, operation.Submit)
+				resolved := operation
+				if strings.TrimSpace(resolved.ValueEnv) != "" {
+					err = fmt.Errorf("value_env must be resolved by the declarative test runner")
+				}
+				if err == nil && strings.TrimSpace(resolved.Ref) == "" && resolved.Target != nil {
+					resolved.Ref, err = m.ResolveElementMatcher(ctx, stepSession, *resolved.Target)
+				}
+				var matcher ElementMatcher
+				if err == nil {
+					matcher, err = m.MatcherForRef(stepSession, resolved.Ref)
+				}
+				if err == nil {
+					result, err = m.InteractRef(ctx, stepSession, resolved.Ref, resolved.Action, resolved.Value, resolved.Submit)
+				}
+				if err == nil {
+					portable = portableInteractOperation(m, resolved, matcher, result)
+				}
 			}
 		case "fill":
 			err = requireSession(stepSession)
 			if err == nil {
-				result, err = m.FillRefs(ctx, stepSession, operation.Fields, operation.Submit, operation.SubmitButton)
+				resolved := operation
+				var portableFields []FillField
+				resolved.Fields, portableFields, err = m.resolvePortableFillFields(ctx, stepSession, operation.Fields)
+				submitMatcher := operation.SubmitTarget
+				if err == nil && strings.TrimSpace(resolved.SubmitButton) == "" && resolved.SubmitTarget != nil {
+					resolved.SubmitButton, err = m.ResolveElementMatcher(ctx, stepSession, *resolved.SubmitTarget)
+				}
+				if err == nil && strings.TrimSpace(resolved.SubmitButton) != "" {
+					matched, matchErr := m.MatcherForRef(stepSession, resolved.SubmitButton)
+					err = matchErr
+					if matchErr == nil {
+						submitMatcher = &matched
+					}
+				}
+				if err == nil {
+					result, err = m.FillRefs(ctx, stepSession, resolved.Fields, resolved.Submit, resolved.SubmitButton)
+				}
+				if err == nil {
+					portable = &ActionOperation{Type: "fill", Fields: portableFields, Submit: resolved.Submit, SubmitTarget: submitMatcher}
+				}
 			}
 		case "key":
 			err = requireSession(stepSession)
 			if err == nil {
 				err = m.PressKey(ctx, stepSession, operation.Key)
 				result = map[string]any{"key": operation.Key}
+				if err == nil {
+					portable = &ActionOperation{Type: "key", Key: operation.Key}
+				}
 			}
 		case "history":
 			err = requireSession(stepSession)
 			if err == nil {
 				err = m.History(ctx, stepSession, operation.Action)
 				result = map[string]any{"action": strings.ToLower(operation.Action)}
+				if err == nil {
+					portable = &ActionOperation{Type: "history", Action: strings.ToLower(operation.Action)}
+				}
 			}
 		case "sleep":
 			duration := time.Duration(operation.DurationMS) * time.Millisecond
@@ -138,6 +188,9 @@ func (m *SessionManager) ExecuteActions(ctx context.Context, sessionID string, o
 			} else {
 				err = sleepWithContext(ctx, duration)
 				result = map[string]any{"slept_ms": operation.DurationMS}
+				if err == nil {
+					portable = &ActionOperation{Type: "sleep", DurationMS: operation.DurationMS}
+				}
 			}
 		case "session_create":
 			created, createErr := m.CreateTab(ctx, operation.BrowserID, operation.URL, operation.Isolated)
@@ -221,6 +274,9 @@ func (m *SessionManager) ExecuteActions(ctx context.Context, sessionID string, o
 			succeeded++
 		}
 		results = append(results, step)
+		if err == nil && portable != nil {
+			m.recordActionIntent(stepSession, *portable)
+		}
 		if err != nil && stopOnError {
 			break
 		}
@@ -244,6 +300,12 @@ func (m *SessionManager) ExecuteActions(ctx context.Context, sessionID string, o
 func (m *SessionManager) InteractRef(ctx context.Context, sessionID, ref, action, value string, submit bool) (map[string]any, error) {
 	if strings.TrimSpace(ref) == "" {
 		return nil, fmt.Errorf("ref is required")
+	}
+	// Rod's clickability check waits on requestAnimationFrame. Chrome throttles
+	// that callback for background tabs, so activate the explicitly targeted
+	// session before resolving or interacting with its element.
+	if err := m.FocusSession(ctx, sessionID); err != nil {
+		return nil, err
 	}
 	action = strings.ToLower(strings.TrimSpace(action))
 	if action == "" {
@@ -343,6 +405,93 @@ func (m *SessionManager) FillRefs(ctx context.Context, sessionID string, fields 
 		}
 	}
 	return map[string]any{"filled_refs": filled, "submitted": submit || submitButton != ""}, nil
+}
+
+func portableInteractOperation(m *SessionManager, operation ActionOperation, matcher ElementMatcher, result map[string]any) *ActionOperation {
+	action := strings.ToLower(strings.TrimSpace(operation.Action))
+	if action == "" {
+		action = "click"
+	}
+	portable := &ActionOperation{Type: "interact", Target: &matcher, Action: action, Submit: operation.Submit}
+	if action == "type" || action == "select" {
+		portable.Value, portable.ValueEnv = portableInputValue(m, matcher, operation.Value)
+		if redacted, _ := result["redacted"].(bool); redacted {
+			portable.Value = ""
+			portable.ValueEnv = matcherEnvironmentName(matcher)
+		}
+	}
+	return portable
+}
+
+func (m *SessionManager) resolvePortableFillFields(ctx context.Context, sessionID string, fields []FillField) ([]FillField, []FillField, error) {
+	resolved := make([]FillField, len(fields))
+	portable := make([]FillField, len(fields))
+	for index, field := range fields {
+		if strings.TrimSpace(field.ValueEnv) != "" {
+			return nil, nil, fmt.Errorf("fields[%d].value_env must be resolved by the declarative test runner", index)
+		}
+		ref := strings.TrimSpace(field.Ref)
+		var err error
+		if ref == "" && field.Target != nil {
+			ref, err = m.ResolveElementMatcher(ctx, sessionID, *field.Target)
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("fields[%d]: %w", index, err)
+		}
+		matcher, err := m.MatcherForRef(sessionID, ref)
+		if err != nil {
+			return nil, nil, fmt.Errorf("fields[%d]: %w", index, err)
+		}
+		resolved[index] = FillField{Ref: ref, Value: field.Value}
+		value, valueEnv := portableInputValue(m, matcher, field.Value)
+		portable[index] = FillField{Target: &matcher, Value: value, ValueEnv: valueEnv}
+	}
+	return resolved, portable, nil
+}
+
+func portableInputValue(m *SessionManager, matcher ElementMatcher, value string) (string, string) {
+	descriptor := strings.Join([]string{
+		matcher.DataTestID, matcher.ID, matcher.Name, matcher.AriaLabel,
+		matcher.Role, matcher.Text, matcher.TagName, matcher.InputType,
+	}, " ")
+	safe := m.redactor.RedactInputValue(descriptor, value)
+	if safe == browsersecurity.Redacted || safe != value || matcher.IsSensitive() {
+		return "", matcherEnvironmentName(matcher)
+	}
+	return safe, ""
+}
+
+func matcherEnvironmentName(matcher ElementMatcher) string {
+	identity := firstNonEmpty(matcher.DataTestID, matcher.ID, matcher.Name, matcher.AriaLabel, matcher.Role, matcher.TagName, "secret")
+	var normalized strings.Builder
+	for _, char := range strings.ToUpper(identity) {
+		if char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' {
+			normalized.WriteRune(char)
+		} else if normalized.Len() > 0 {
+			normalized.WriteByte('_')
+		}
+	}
+	name := strings.Trim(normalized.String(), "_")
+	if name == "" {
+		name = "SECRET"
+	}
+	return "CODENERD_BROWSER_TEST_" + name
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func (m *SessionManager) recordActionIntent(sessionID string, operation ActionOperation) {
+	if m == nil || m.recorder == nil || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	_, _ = m.recorder.Record(sessionID, "action_intent", map[string]any{"operation": operation})
 }
 
 func (m *SessionManager) PressKey(ctx context.Context, sessionID, keySpec string) error {
