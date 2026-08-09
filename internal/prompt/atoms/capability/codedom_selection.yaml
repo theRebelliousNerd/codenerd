@@ -17,10 +17,11 @@
 
     | Scenario | Tool | Why |
     |----------|------|-----|
-    | Find a function/class by name | `get_elements` | Stable refs, no grep guessing |
-    | Edit WITHIN a function body | `edit_lines` with Ref | Preserves context, atomic |
+    | Find a function/class by name | `get_elements` with `path` | 1-indexed file ranges, no grep guessing |
+    | Edit WITHIN a function body (existing code) | `edit_lines` with `path` + 1-indexed file range | Preserves context, atomic |
+    | Edit an existing Markdown section (`.md`/`.markdown`) | bounded `read_file`/`grep` locate, then `edit_lines`/`insert_lines`/`delete_lines` with `path` + range | Same line-range tools as code (preferred over `edit_file`); `get_elements` does NOT parse Markdown |
     | Understand call dependencies | Mangle query | Graph traversal, not text search |
-    | Refactor across multiple files | Transaction + edit_lines | Atomic, rollback on failure |
+    | Refactor across multiple files | Transaction + `edit_lines` with `path` + ranges | Atomic, rollback on failure |
     | Check which tests to run | `get_impacted_tests` | Dependency-aware selection |
     | Verify edit safety | Check `deny_edit` facts | Constitutional safety |
 
@@ -29,47 +30,67 @@
     | Scenario | Tool | Why |
     |----------|------|-----|
     | Search for arbitrary patterns | `grep` | Regex on text, not structure |
-    | Edit config files (.json, .yaml, .toml) | `read_file`/`write_file` | No code structure |
-    | Append to end of file | `write_file` | No element structure |
-    | Bulk find-replace (strings) | `grep` + `edit` | Pattern-based, not semantic |
+    | Edit config/data files (`.json`, `.yaml`, `.toml`, `.env`) | `edit_file` | No code structure; correct default for these formats |
+    | Create new file with supplied full content (code OR Markdown) | `write_file` | No lines/elements yet; early-out is correct |
+    | Bulk find-replace (strings) | `grep` + `edit` only after line-range tool concrete failure | Pattern-based, not semantic |
+
+    `edit_file` is NOT the default for existing code or existing Markdown. For those, it is only a bounded fallback when `edit_lines`/`insert_lines`/`delete_lines` cannot represent the operation or a line tool returns a concrete failure.
 
     ### Decision Flowchart
 
     ```
-    Is the target CODE (functions, classes, methods)?
-      YES → Does it have a NAME you know?
-              YES → Use get_elements → edit_lines with Ref
-              NO  → Use grep to find it, THEN get_elements
-      NO  → Is it CONFIG or DATA?
-              YES → Use read_file/write_file
-              NO  → Use grep/text tools
+    Is the target an EXISTING file?
+      YES → Is it CODE?
+              YES → Use get_elements path + type → edit_lines/insert_lines/delete_lines with path + 1-indexed file ranges
+              NO  → Is it Markdown (.md/.markdown)?
+                      YES → One bounded read_file range or scoped grep to locate heading/range, then SAME edit_lines/insert_lines/delete_lines with path + ranges (preferred over edit_file; get_elements does NOT parse Markdown)
+                      NO  → Is it CONFIG/DATA (.json/.yaml/.toml/.env)?
+                              YES → Use edit_file (correct default)
+                              NO  → Use grep/text tools; if edit needed try line-range tools first, edit_file only on concrete line-tool failure
+      NO  → Is it a NEW file with supplied full content (code or Markdown)?
+              YES → Use write_file with path + complete content immediately (no get_elements/read_file/glob first)
+              NO  → Follow bounded-investigation then write (identity/coder/investigate_first)
     ```
 
     ### Example: "Fix the Login function"
 
     WRONG (text-based):
     ```
-    grep "func Login" → find line number → edit by line
+    grep "func Login" → find line 42 → edit_file old_text/new_text guess
     ```
 
-    RIGHT (semantic):
+    RIGHT (CodeDOM — existing code):
     ```
-    get_elements type=/function → find "go:auth/user.go:Login"
-    edit_lines ref="go:auth/user.go:Login" start=5 end=10 content="..."
+    get_elements path="internal/auth/user.go" type="/function"
+    → Element "Login" lines 42-55 (1-indexed file ranges; Ref available for graph queries)
+
+    edit_lines path="internal/auth/user.go" start_line=42 end_line=47 new_content="// fixed\n..."
+    → 1-indexed FILE ranges; required: path, start_line, end_line, new_content
+    ```
+
+    RIGHT (CodeDOM — existing Markdown):
+    ```
+    read_file path="docs/guide.md" start_line=1 end_line=80  (or scoped grep for "## Usage")
+    → Locate heading at lines 42-55 (1-indexed file ranges; get_elements does NOT parse Markdown)
+
+    edit_lines path="docs/guide.md" start_line=42 end_line=55 new_content="## Usage\n...updated..."
+    → Same 1-indexed line-range tools as code; preferred over edit_file
     ```
 
     The semantic approach:
-    - Uses STABLE references (survives other edits)
+    - Uses STABLE file ranges + re-index on shift (survives earlier edits when you re-index)
     - Triggers SAFETY checks (deny_edit rules)
-    - Updates CODE GRAPH (callers/callees)
+    - Updates CODE GRAPH (callers/callees) via Ref where available
     - Enables IMPACT ANALYSIS (which tests to run)
 
     ### Before ANY Edit, Ask:
 
-    1. Can I identify the target by ELEMENT NAME? → Use CodeDOM
-    2. Will this edit affect OTHER elements? → Query dependencies first
-    3. Is this a MULTI-FILE change? → Use transactions
-    4. Do I need to run tests? → Use get_impacted_tests, not "go test ./..."
+    1. Can I identify the target by ELEMENT NAME (code)? → Use `get_elements` with `path` then `edit_lines` with `path` + file ranges
+    2. Is it existing Markdown? → One bounded `read_file`/`grep` to locate, then `edit_lines`/`insert_lines`/`delete_lines` with `path` + file ranges (not `edit_file`, not `get_elements`)
+    3. Is it a new file with supplied full content? → Use `write_file` immediately (early-out)
+    4. Will this edit affect OTHER elements? → Query dependencies first
+    5. Is this a MULTI-FILE change? → Use transactions with `path` + ranges per file; re-index after each file's edit (stale-line guidance)
+    6. Do I need to run tests? → Use get_impacted_tests, not "go test ./..."
 
 - id: "capability/codedom_workflow"
   category: "capability"
@@ -81,63 +102,86 @@
   content: |
     ## Standard CodeDOM Workflow
 
-    For ANY code modification, follow this workflow:
+    For ANY modification to an existing file, follow this workflow:
 
-    ### 1. DISCOVER - Find the target element
+    ### 1. DISCOVER — Find the target range
 
+    Existing source code (preferred):
     ```json
     {
       "tool": "get_elements",
       "params": {
-        "file": "path/to/file.go",
+        "path": "path/to/file.go",
         "type": "/function"
       }
     }
     ```
+    Result gives you 1-indexed file `start_line`/`end_line` (and Ref for graph queries like `caller_of`). For a single known symbol, `get_element` with `path` + `name` returns the same file ranges.
 
-    Result gives you Refs like `go:path/file.go:FunctionName`
+    Existing Markdown (`.md`/`.markdown`) — same edit tools, different locate step:
+    ```json
+    {
+      "tool": "read_file",
+      "params": {
+        "path": "docs/guide.md",
+        "start_line": 1,
+        "end_line": 80
+      }
+    }
+    ```
+    Or scoped `grep` for the heading. Do NOT use `get_elements` for Markdown — it has no CodeElement parser and does not return Markdown headings or Refs.
 
-    ### 2. UNDERSTAND - Query the code graph
+    ### 2. UNDERSTAND — Query the code graph (for code)
 
-    Before editing, understand impact:
+    Before editing code, understand impact:
     - Who CALLS this function? (`caller_of`)
     - What does it CALL? (`code_calls`)
     - Does it touch API contracts? (`wire_name`, `api_dependency`)
 
-    ### 3. PLAN - Check safety
+    ### 3. PLAN — Check safety
 
     Query `deny_edit` rules. If editing would trigger safety blocks:
     - `/auth_removed` - Don't remove auth decorators
     - `/goroutine_leak_risk` - Don't remove context cancellation
     - `/no_test_coverage` - Add tests first
 
-    ### 4. EDIT - Use semantic tools
+    ### 4. EDIT — Use line-range tools with `path` + 1-indexed file ranges
 
+    Existing code:
     ```json
     {
       "tool": "edit_lines",
       "params": {
-        "ref": "go:auth/user.go:Login",
-        "start_line": 5,
-        "end_line": 10,
+        "path": "internal/auth/user.go",
+        "start_line": 42,
+        "end_line": 47,
         "new_content": "// fixed implementation\nreturn nil"
       }
     }
     ```
+    Required: `path`, `start_line`, `end_line`, `new_content`. `insert_lines` requires `path`, `after_line`, `content`; `delete_lines` requires `path`, `start_line`, `end_line`. All line numbers are 1-indexed FILE ranges, not element-relative. Same `path` + range contract applies to existing Markdown after the bounded locate step.
 
-    ### 5. VERIFY - Run impacted tests
+    New file (code or Markdown) with supplied full content: skip DISCOVER entirely — use `write_file` with `path` + complete `content` immediately (early-out).
+
+    Config/data (`.json`/`.yaml`/`.toml`/`.env`): `edit_file` is the correct default. For existing code/Markdown, `edit_file` is only a bounded fallback when line-range tools cannot represent the operation or return a concrete failure.
+
+    ### 5. RE-INDEX — Handle stale lines
+
+    Every `edit_lines`/`insert_lines`/`delete_lines` reports the shift. Before every subsequent edit to the same file, either apply the correction or re-run `get_elements` (code) / bounded `read_file` (Markdown). Also respect `identity/coder/investigate_first` bounded-evidence and `identity/coder/tool_usage` new-file early-out: do not defer writes and do not rediscover when task already supplies target + pattern.
+
+    ### 6. VERIFY — Run impacted tests
 
     ```json
     {
       "tool": "get_impacted_tests",
       "params": {
-        "edited_refs": ["go:auth/user.go:Login"]
+        "edited_refs": ["go:internal/auth/user.go:Login"]
       }
     }
     ```
 
     Only run the tests that actually depend on your changes.
 
-    ### 6. ITERATE - If tests fail, repeat from step 1
+    ### 7. ITERATE — If tests fail, repeat from step 1
 
     The CodeDOM preserves your edit history and can rollback if needed.

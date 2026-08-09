@@ -891,13 +891,10 @@ type sourceBreakdown struct {
 
 // collectAtomsWithStats gathers atoms and tracks source breakdown.
 func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *CompilationContext) ([]*PromptAtom, sourceBreakdown, error) {
-	var allAtoms []*PromptAtom
 	var breakdown sourceBreakdown
 
-	// ⚡ Bolt: Lock contention optimization
-	// Acquired RLock only to read shared pointers (embeddedCorpus, projectDB, shardDB)
-	// instead of wrapping the entire function. This prevents slow database queries
-	// (loadAtomsFromDB) from blocking other threads from accessing the compiler state.
+	// Bolt: acquire locks only long enough to copy shared pointers. Database
+	// queries must not hold compiler locks.
 	c.dbMu.RLock()
 	embeddedCorpus := c.embeddedCorpus
 	projectDB := c.projectDB
@@ -910,42 +907,69 @@ func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *Compi
 		c.shardMu.RUnlock()
 	}
 
-	// 1. Embedded corpus (always first)
+	// Earlier sources are authoritative. In particular, the embedded corpus is
+	// the canonical source for built-in atoms; the project database may contain
+	// an older synchronized copy when embedding refresh is unavailable. Letting
+	// both copies through can place contradictory instructions in one prompt.
+	embeddedCount := 0
 	if embeddedCorpus != nil {
-		// Optimization: Pre-allocate slice with capacity for embedded + buffer for others
-		// This avoids multiple reallocations during append.
-		count := embeddedCorpus.Count()
-		breakdown.embedded = count
-		allAtoms = make([]*PromptAtom, 0, count+100)
-		allAtoms = embeddedCorpus.AppendAll(allAtoms)
+		embeddedCount = embeddedCorpus.Count()
+	}
+	allAtoms := make([]*PromptAtom, 0, embeddedCount+100)
+	seen := make(map[string]string, embeddedCount+100)
+	appendSource := func(source string, atoms []*PromptAtom) (added, duplicates int) {
+		for _, atom := range atoms {
+			if atom == nil || atom.ID == "" {
+				// Preserve existing invalid-atom handling in the selector/resolver.
+				allAtoms = append(allAtoms, atom)
+				added++
+				continue
+			}
+			if _, exists := seen[atom.ID]; exists {
+				duplicates++
+				continue
+			}
+			seen[atom.ID] = source
+			allAtoms = append(allAtoms, atom)
+			added++
+		}
+		if duplicates > 0 {
+			logging.Get(logging.CategoryJIT).Debug(
+				"Skipped %d duplicate %s atom(s); earlier sources take precedence",
+				duplicates, source,
+			)
+		}
+		return added, duplicates
 	}
 
-	// 2. Project database
+	// 1. Embedded corpus: canonical built-in atoms always win duplicate IDs.
+	if embeddedCorpus != nil {
+		breakdown.embedded, _ = appendSource("embedded", embeddedCorpus.All())
+	}
+
+	// 2. Project database: adds project-only atoms, never stale built-in copies.
 	if projectDB != nil {
 		projectAtoms, err := c.loadAtomsFromDB(ctx, projectDB)
 		if err != nil {
 			logging.Get(logging.CategoryJIT).Warn("Failed to load project atoms: %v", err)
 		} else {
-			breakdown.project = len(projectAtoms)
-			allAtoms = append(allAtoms, projectAtoms...)
+			breakdown.project, _ = appendSource("project", projectAtoms)
 		}
 	}
 
-	// 3. Shard-specific database (if shard context is set)
+	// 3. Shard-specific database: adds scoped atoms with unique IDs.
 	if shardDB != nil {
 		shardAtoms, err := c.loadAtomsFromDB(ctx, shardDB)
 		if err != nil {
 			logging.Get(logging.CategoryJIT).Warn("Failed to load shard atoms: %v", err)
 		} else {
-			breakdown.shard = len(shardAtoms)
-			allAtoms = append(allAtoms, shardAtoms...)
+			breakdown.shard, _ = appendSource("shard", shardAtoms)
 		}
 	}
 
-	// 4. Evolved atoms from SPL (System Prompt Learning)
+	// 4. Evolved atoms from SPL (System Prompt Learning).
 	evolvedAtoms := c.collectEvolvedAtoms(cc)
-	breakdown.evolved = len(evolvedAtoms)
-	allAtoms = append(allAtoms, evolvedAtoms...)
+	breakdown.evolved, _ = appendSource("evolved", evolvedAtoms)
 
 	return allAtoms, breakdown, nil
 }

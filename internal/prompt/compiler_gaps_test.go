@@ -88,6 +88,84 @@ func TestCompiler_RegisterDB_BadPaths(t *testing.T) {
 			// Main requirement: must not panic
 		})
 	}
+
+	t.Run("embedded atom wins over stale project duplicate", func(t *testing.T) {
+		canonical := NewPromptAtom("identity/canonical", CategoryIdentity, "canonical embedded content")
+		canonical.IsMandatory = true
+		canonical.Priority = 100
+
+		dupCompiler, err := NewJITPromptCompiler(
+			WithEmbeddedCorpus(NewEmbeddedCorpus([]*PromptAtom{canonical})),
+		)
+		if err != nil {
+			t.Fatalf("NewJITPromptCompiler failed: %v", err)
+		}
+		defer func() { _ = dupCompiler.Close() }()
+
+		dbPath := filepath.Join(t.TempDir(), "corpus.db")
+		if err := dupCompiler.RegisterDB("project", dbPath); err != nil {
+			t.Fatalf("RegisterDB failed: %v", err)
+		}
+
+		schema := `
+			CREATE TABLE prompt_atoms (
+				atom_id TEXT PRIMARY KEY,
+				version INTEGER NOT NULL,
+				content TEXT NOT NULL,
+				token_count INTEGER NOT NULL,
+				content_hash TEXT NOT NULL,
+				description TEXT,
+				content_concise TEXT,
+				content_min TEXT,
+				category TEXT NOT NULL,
+				subcategory TEXT,
+				priority INTEGER NOT NULL,
+				is_mandatory BOOLEAN NOT NULL,
+				is_exclusive TEXT,
+				created_at DATETIME NOT NULL
+			);
+			CREATE TABLE atom_context_tags (
+				atom_id TEXT NOT NULL,
+				dimension TEXT NOT NULL,
+				tag TEXT NOT NULL
+			);`
+		if _, err := dupCompiler.projectDB.Exec(schema); err != nil {
+			t.Fatalf("create prompt schema: %v", err)
+		}
+
+		insert := `INSERT INTO prompt_atoms
+			(atom_id, version, content, token_count, content_hash, description,
+			 content_concise, content_min, category, subcategory, priority,
+			 is_mandatory, is_exclusive, created_at)
+		VALUES
+			('identity/canonical', 1, 'stale persisted content', 5, 'stale-hash', '', '', '', 'identity', '', 100, 1, '', CURRENT_TIMESTAMP),
+			('project/only', 1, 'project-only content', 5, 'project-hash', '', '', '', 'context', '', 10, 0, '', CURRENT_TIMESTAMP)`
+		if _, err := dupCompiler.projectDB.Exec(insert); err != nil {
+			t.Fatalf("insert prompt atoms: %v", err)
+		}
+
+		atoms, breakdown, err := dupCompiler.collectAtomsWithStats(context.Background(), NewCompilationContext())
+		if err != nil {
+			t.Fatalf("collectAtomsWithStats failed: %v", err)
+		}
+		if len(atoms) != 2 {
+			t.Fatalf("candidate count = %d, want 2 unique atoms", len(atoms))
+		}
+		if breakdown.embedded != 1 || breakdown.project != 1 {
+			t.Fatalf("source breakdown = embedded:%d project:%d, want 1 and 1 unique atoms", breakdown.embedded, breakdown.project)
+		}
+
+		byID := make(map[string]*PromptAtom, len(atoms))
+		for _, atom := range atoms {
+			byID[atom.ID] = atom
+		}
+		if got := byID["identity/canonical"]; got == nil || got.Content != "canonical embedded content" {
+			t.Fatalf("canonical atom = %#v, want embedded content instead of stale project copy", got)
+		}
+		if got := byID["project/only"]; got == nil || got.Content != "project-only content" {
+			t.Fatalf("project-only atom = %#v, want unique project atom retained", got)
+		}
+	})
 }
 
 func TestCompiler_KernelNonStringFacts(t *testing.T) {

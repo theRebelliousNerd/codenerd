@@ -17,26 +17,33 @@
 
     ### Available Code DOM Tools
 
-    **Element Discovery:**
-    - `get_elements` - List elements in a file with their Refs
-    - `get_element` - Get a specific element by Ref
+    **Element Discovery (existing source code):**
+    - `get_elements` — List elements in a file with 1-indexed file ranges (`path` + optional `type`) and Refs for graph queries
+    - `get_element` — Get a specific element by `path` + `name` with its 1-indexed file `start_line`/`end_line`
 
-    **Element Editing:**
-    - `edit_lines` - Edit specific lines within an element (uses Ref)
-    - `insert_lines` - Insert code at a position within an element
-    - `delete_lines` - Remove lines from an element
+    **Line-Range Editing (existing code AND existing Markdown):**
+    - `edit_lines` — Replace `path` `start_line`–`end_line` (1-indexed file ranges) with `new_content` (required: `path`, `start_line`, `end_line`, `new_content`)
+    - `insert_lines` — Insert `content` after `after_line` in `path` (required: `path`, `after_line`, `content`)
+    - `delete_lines` — Delete `path` `start_line`–`end_line` (required: `path`, `start_line`, `end_line`)
+    - For existing Markdown (`.md`/`.markdown`), locate the heading/range first with one bounded `read_file` range or scoped `grep`, then use these SAME line-range tools (preferred over `edit_file`; `get_elements` does NOT parse Markdown)
 
     **Impact Analysis:**
     - `get_impacted_tests` - Query which tests would be affected by edits
     - `run_impacted_tests` - Run only the tests affected by changes
 
+    **New file / config fallback:**
+    - `write_file` — Create a new file (code or Markdown) with supplied full content (`path` + `content`); correct early-out when no lines/elements exist yet
+    - `edit_file` — Edit config/data (`.json`/`.yaml`/`.toml`/`.env`); for existing code/Markdown only a bounded fallback when line-range tools cannot represent the operation or return a concrete failure
+
     ### Tool vs. Text Approach
 
-    | Task | Wrong (Text) | Right (Semantic) |
+    | Task | Wrong (Text) | Right (Semantic / Line-Range) |
     |------|-------------|-----------------|
-    | Find function | `grep -n "func Login"` | `get_elements --type function --name Login` |
-    | Edit method | `sed -i '42,55d' file.go` | `edit_lines --ref go:user.go:User.Login` |
-    | Rename field | `find . -name "*.go" \| xargs sed` | Query `wire_name`, use transaction |
+    | Find function | `grep -n "func Login"` | `get_elements path="internal/auth/user.go" type="/function"` → 1-indexed file ranges + Ref |
+    | Edit method (existing code) | `edit_file old_text/new_text` or `sed -i '42,55d'` | `edit_lines path="internal/auth/user.go" start_line=42 end_line=47 new_content="..."` |
+    | Edit Markdown section (existing `.md`) | `edit_file old_text/new_text` guess | bounded `read_file`/`grep` locate, then `edit_lines path="docs/guide.md" start_line=42 end_line=55 new_content="..."` (preferred; `get_elements` does NOT parse Markdown) |
+    | Create new file with supplied content | `get_elements`/`read_file`/`glob` first | `write_file path="..." content="..."` immediately (code OR Markdown) |
+    | Rename field | `find . -name "*.go" \| xargs sed` | Query `wire_name`, use transaction with `edit_lines` per file (`path` + ranges) |
     | Run affected tests | `go test ./...` | `run_impacted_tests --edited-refs [...]` |
 
     ### get_elements Example
@@ -45,7 +52,7 @@
     {
       "tool_name": "get_elements",
       "tool_args": {
-        "file": "internal/auth/user.go",
+        "path": "internal/auth/user.go",
         "type": "function"
       }
     }
@@ -62,33 +69,60 @@
           "end_line": 55,
           "signature": "func Login(ctx context.Context, email, password string) (*User, error)",
           "visibility": "/public"
-        },
-        ...
+        }
       ]
     }
     ```
+    `start_line`/`end_line` are 1-indexed FILE line ranges. Use them directly with `edit_lines`/`delete_lines` (`path` + range); `insert_lines` uses `after_line`.
 
-    ### edit_lines Example
+    ### edit_lines Example (existing source)
 
     ```json
     {
       "tool_name": "edit_lines",
       "tool_args": {
-        "ref": "go:internal/auth/user.go:Login",
-        "start_line": 45,
+        "path": "internal/auth/user.go",
+        "start_line": 42,
         "end_line": 47,
         "new_content": "    // Validate credentials\n    if err := validateCredentials(email, password); err != nil {\n        return nil, fmt.Errorf(\"invalid credentials: %w\", err)\n    }"
       }
     }
     ```
+    Required: `path`, `start_line`, `end_line`, `new_content`. All line numbers are 1-indexed file ranges, not element-relative. `insert_lines` requires `path`, `after_line`, `content`; `delete_lines` requires `path`, `start_line`, `end_line`.
 
-    ### Why Refs Matter for Tools
+    ### edit_lines Example (existing Markdown — same tool, bounded locate first)
 
-    When you use a Ref with a tool:
-    1. The system knows the **semantic boundary**
-    2. Line numbers are **relative to the element**, not the file
-    3. Changes are **validated** against the element's grammar
-    4. Dependency tracking is **automatic**
+    ```json
+    {
+      "tool_name": "read_file",
+      "tool_args": {
+        "path": "docs/guide.md",
+        "start_line": 1,
+        "end_line": 80
+      }
+    }
+    ```
+    Locate heading, then:
+    ```json
+    {
+      "tool_name": "edit_lines",
+      "tool_args": {
+        "path": "docs/guide.md",
+        "start_line": 42,
+        "end_line": 55,
+        "new_content": "## Usage\n...updated content...\n"
+      }
+    }
+    ```
+    Markdown has no CodeElement parser — do NOT use `get_elements` for Markdown headings or Refs; use one bounded `read_file` range or scoped `grep`, then the same `edit_lines`/`insert_lines`/`delete_lines` with `path` + 1-indexed file ranges (preferred over `edit_file`).
+
+    ### Why File Ranges Matter for Tools
+
+    When you use `path` + 1-indexed file ranges from `get_elements`/`get_element` (code) or a bounded `read_file`/`grep` locate (Markdown):
+    1. The system knows the **file boundary** (not element-relative offsets)
+    2. Line numbers are **1-indexed file ranges** — every edit shifts lines below it (read the WARNING or re-index before the next edit)
+    3. Changes are **validated** and **atomic** where the tool supports it
+    4. Dependency tracking via **Ref** (code) remains available for impact analysis (`get_impacted_tests`)
 
 - id: "capability/codedom_test_tools"
   category: "capability"
@@ -239,5 +273,5 @@
     1. **Query**: Find elements matching criteria
     2. **Analyze**: Review the results
     3. **Plan**: Decide which elements to modify
-    4. **Edit**: Use semantic tools with discovered Refs
+    4. **Edit**: Use `edit_lines`/`insert_lines`/`delete_lines` with `path` + 1-indexed file ranges from `get_elements`/`get_element` (code) or bounded `read_file`/`grep` (Markdown); `edit_file` only on concrete line-tool failure or for config/data formats
     5. **Verify**: Run impacted tests

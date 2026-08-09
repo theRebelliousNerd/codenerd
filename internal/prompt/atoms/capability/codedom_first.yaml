@@ -43,12 +43,12 @@
 
     ### Editing: edit_lines / insert_lines / delete_lines
 
-    Use `edit_lines`, `insert_lines`, and `delete_lines` to change code by line range rather than `edit_file` whole-text matching which fails when whitespace differs. All line numbers are 1-indexed.
+    Use `edit_lines`, `insert_lines`, and `delete_lines` to change existing files by 1-indexed file line range rather than `edit_file` whole-text matching which fails when whitespace differs. All line numbers are 1-indexed FILE ranges (not element-relative).
 
     Tool: `edit_lines` — Replace specific lines in a file
     - Required: `path` (string) — File path to edit
-    - Required: `start_line` (integer, 1-indexed) — Starting line number
-    - Required: `end_line` (integer, inclusive) — Ending line number
+    - Required: `start_line` (integer, 1-indexed) — Starting line number (inclusive file range)
+    - Required: `end_line` (integer, inclusive) — Ending line number (inclusive file range)
     - Required: `new_content` (string) — New content to replace the lines with
     - Returns: String confirmation e.g. "Replaced lines 42-55 with 3 new lines in internal/auth/user.go"
 
@@ -64,9 +64,15 @@
     - Required: `end_line` (integer, inclusive) — Ending line number
     - Returns: String confirmation e.g. "Deleted lines 10-14 from internal/auth/user.go"
 
+    These line-range tools are the preferred edit path for BOTH existing source code AND existing Markdown (`.md`/`.markdown`). For new files with supplied full content, `write_file` early-out remains correct because no lines/elements exist yet.
+
+    ### Existing Markdown (.md/.markdown): same line-range tools, different locate step
+
+    Markdown has no semantic CodeElement parser today — do NOT claim `get_elements` returns Markdown headings or Refs. For existing Markdown, locate the exact heading/range first with one bounded `read_file` range (e.g., `read_file path="docs/guide.md" start_line=1 end_line=80`) or a scoped `grep` for the heading, then apply the same `edit_lines`/`insert_lines`/`delete_lines` with `path` + 1-indexed file ranges. `edit_file` is NOT the default for Markdown.
+
     ### Every edit moves the lines below it
 
-    An edit changes the coordinates of everything after it. A `get_elements` index taken before an edit is only valid for the region ABOVE that edit.
+    An edit changes the coordinates of everything after it. A `get_elements` index taken before an edit is only valid for the region ABOVE that edit. A bounded `read_file` range index for Markdown has the same staleness property.
 
     Each of the three tools reports the shift in its result, e.g.:
 
@@ -77,16 +83,25 @@
     re-run get_elements on this file before the next edit.
     ```
 
-    Read that line. Before every subsequent edit to the same file, either apply the stated correction or call `get_elements` again. Editing at stale coordinates does not fail loudly — it silently writes into the wrong declaration and produces duplicated or shredded code.
+    Read that line. Before every subsequent edit to the same file, either apply the stated correction or call `get_elements` again (or re-read the bounded Markdown range). Editing at stale coordinates does not fail loudly — it silently writes into the wrong declaration and produces duplicated or shredded code.
 
     Two habits that avoid the problem entirely:
 
     - **Edit one region per file, then re-index.** Do not batch several `edit_lines` calls against one index.
     - **Work bottom-up.** If you must make several edits to one file from a single index, apply the LAST (highest line number) edit first. Earlier line numbers are unaffected by later edits, so the index stays valid all the way up.
 
+    ### Policy Precedence
+
+    1. **Existing source code** → `get_elements`/`get_element` with `path` to obtain 1-indexed file ranges, then `edit_lines`/`insert_lines`/`delete_lines` with `path` + ranges.
+    2. **Existing Markdown (.md/.markdown)** → one bounded `read_file` range or scoped `grep` to locate, then SAME `edit_lines`/`insert_lines`/`delete_lines` with `path` + 1-indexed ranges (preferred over `edit_file`; `get_elements` does NOT parse Markdown).
+    3. **New file (code or Markdown) with supplied full content** → `write_file` with `path` + complete `content` immediately; no `get_elements`/`read_file`/`glob` first.
+    4. **Config/data (`.json`/`.yaml`/`.toml`/`.env`)** → `edit_file` is the correct default.
+    5. **Only if line-range tools cannot represent the operation or return a concrete failure** → bounded `edit_file` fallback for existing code/Markdown (not the default).
+
     ### Rules
 
-    - Always call `get_elements` (or `get_element`) before editing to obtain accurate `start_line`/`end_line`; do not guess line numbers and do not `read_file` the entire file just to locate a symbol.
+    - Always call `get_elements` (or `get_element`) with `path` before editing existing source to obtain accurate `start_line`/`end_line`; do not guess line numbers and do not `read_file` the entire file just to locate a symbol. For existing Markdown, use one bounded `read_file` range or scoped `grep` — do NOT use `get_elements` for Markdown.
     - After any `edit_lines`/`insert_lines`/`delete_lines`, treat every line number at or after the edit point as invalid until you re-index or apply the reported correction.
-    - Always use `edit_lines`/`insert_lines`/`delete_lines` with the `path` + line range from the index instead of `edit_file` old_text/new_text matching.
-    - `edit_file` is for config/data files (yaml, json, md), not for code edits — for code, the line-range tools are required because whitespace and formatting differences break text matching.
+    - Always use `edit_lines`/`insert_lines`/`delete_lines` with `path` + 1-indexed file line range from the index instead of `edit_file` old_text/new_text matching for existing code and existing Markdown.
+    - `edit_file` is for config/data files (`.json`, `.yaml`, `.toml`, `.env`), not for existing code or Markdown edits — for those, the line-range tools are required. Bounded `edit_file` is only a fallback when line-range tools cannot represent the operation or a line tool returns a concrete failure.
+    - Creating a new file (code or Markdown) with supplied full content → `write_file` early-out is correct; do not pre-discovery.
