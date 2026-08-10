@@ -80,6 +80,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		o.isRunning = false
 		o.cancelFunc = nil
 		o.mu.Unlock()
+		o.finalizeCancellation(ctx)
 		runTimer.StopWithInfo()
 	}()
 
@@ -226,6 +227,31 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// finalizeCancellation persists a paused status when cancellation terminates
+// execution before a terminal state is reached. It is idempotent and never
+// overwrites completed or failed campaigns. It ensures the in-memory status
+// and the on-disk campaign.json converge, fixing the timeout case where
+// context expiration inside runPhase returned before the top-loop ctx.Done
+// branch could persist the pause. It no-ops unless ctx.Err is non-nil so
+// ordinary non-context errors and successful completions are not overwritten.
+func (o *Orchestrator) finalizeCancellation(ctx context.Context) {
+	if ctx.Err() == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.campaign == nil {
+		return
+	}
+	if o.campaign.Status == StatusCompleted || o.campaign.Status == StatusFailed {
+		return
+	}
+	if o.campaign.Status != StatusPaused {
+		o.updateCampaignStatus(StatusPaused)
+	}
+	_ = o.saveCampaign()
 }
 
 // runHeartbeatLoop periodically emits progress, updates kernel heartbeat facts,

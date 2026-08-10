@@ -1,6 +1,12 @@
 package campaign
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // TODO: Null/Undefined/Empty: What happens if o.campaign is initialized but has an empty ID or title?
 // TODO: Null/Undefined/Empty: What if o.config is partially initialized (e.g., CampaignTimeout == 0 vs negative timeout)?
@@ -38,4 +44,53 @@ import "testing"
 
 func TestOrchestratorExecution_Placeholder(t *testing.T) {
 	// Satisfy the build
+}
+
+func TestFinalizeCancellationPersistsPausedCampaign(t *testing.T) {
+	nerdDir := filepath.Join(t.TempDir(), ".nerd")
+	o := &Orchestrator{
+		nerdDir: nerdDir,
+		kernel:  &MockKernel{},
+		campaign: &Campaign{
+			ID:     "campaign_timeout",
+			Title:  "timeout persistence",
+			Status: StatusActive,
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	o.finalizeCancellation(ctx)
+
+	path := filepath.Join(nerdDir, "campaigns", "campaign_timeout.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read persisted campaign: %v", err)
+	}
+	var persisted Campaign
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatalf("decode persisted campaign: %v", err)
+	}
+	if persisted.Status != StatusPaused {
+		t.Fatalf("persisted status = %s, want %s", persisted.Status, StatusPaused)
+	}
+}
+
+func TestFinalizeCancellationDoesNotPauseWithoutCancellation(t *testing.T) {
+	o := &Orchestrator{
+		nerdDir: filepath.Join(t.TempDir(), ".nerd"),
+		kernel:  &MockKernel{},
+		campaign: &Campaign{
+			ID:     "campaign_active",
+			Status: StatusActive,
+		},
+	}
+
+	o.finalizeCancellation(context.Background())
+	if o.campaign.Status != StatusActive {
+		t.Fatalf("status = %s, want active for ordinary return", o.campaign.Status)
+	}
+	if _, err := os.Stat(filepath.Join(o.nerdDir, "campaigns", "campaign_active.json")); !os.IsNotExist(err) {
+		t.Fatalf("ordinary return unexpectedly persisted cancellation state: %v", err)
+	}
 }
