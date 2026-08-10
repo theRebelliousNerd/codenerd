@@ -1,6 +1,7 @@
 package projectdoc
 
 import (
+	"path/filepath"
 	"strings"
 
 	"codenerd/internal/types"
@@ -37,6 +38,14 @@ const (
 
 	// PredConvention records a named project rule. project_convention(ID, Rule)
 	PredConvention = "project_convention"
+
+	// PredModuleNorthstar records a module's declared purpose.
+	// module_northstar(ModulePath, Purpose)
+	PredModuleNorthstar = "module_northstar"
+
+	// PredModuleRequirement records one requirement a module declares.
+	// module_requirement(ModulePath, ID, Statement, Severity)
+	PredModuleRequirement = "module_requirement"
 )
 
 // Facts projects the document's frontmatter into kernel facts.
@@ -103,6 +112,26 @@ func (d *Document) Facts() []types.Fact {
 
 	for _, c := range d.Spec.Conventions {
 		facts = append(facts, types.Fact{Predicate: PredConvention, Args: []any{c.ID, c.Rule}})
+	}
+
+	if d.Spec.Northstar != nil {
+		modulePath := filepath.ToSlash(filepath.Dir(d.Path))
+		if modulePath == "" {
+			modulePath = "."
+		}
+		if purpose := strings.TrimSpace(d.Spec.Northstar.Purpose); purpose != "" {
+			facts = append(facts, types.Fact{Predicate: PredModuleNorthstar, Args: []any{modulePath, purpose}})
+		}
+		for _, req := range d.Spec.Northstar.Requirements {
+			sev := strings.TrimSpace(req.Severity)
+			var sevAtom types.MangleAtom
+			if sev == "" {
+				sevAtom = types.MangleAtom("/unspecified")
+			} else {
+				sevAtom = types.MangleAtom("/" + sev)
+			}
+			facts = append(facts, types.Fact{Predicate: PredModuleRequirement, Args: []any{modulePath, req.ID, req.Statement, sevAtom}})
+		}
 	}
 
 	return facts
