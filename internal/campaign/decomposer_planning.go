@@ -543,13 +543,51 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 			}
 
 			// Context injection references (for shard-aware planning)
-			// Use globalTaskIDMap for cross-phase references
+			// Use globalTaskIDMap for cross-phase references. Deduplicate
+			// explicit mappings while preserving stable order so an explicit
+			// index repeated by the model does not produce duplicate IDs, and
+			// so later research inheritance can check the same set.
+			seenCtx := make(map[string]struct{}, len(rawTask.ContextFrom))
 			for _, ctxIdx := range rawTask.ContextFrom {
 				if ctxTaskID, ok := globalTaskIDMap[ctxIdx]; ok {
+					if _, exists := seenCtx[ctxTaskID]; exists {
+						continue
+					}
 					task.ContextFrom = append(task.ContextFrom, ctxTaskID)
+					seenCtx[ctxTaskID] = struct{}{}
 					logging.CampaignDebug("Task %s will receive context from task %s (global index %d)", taskID, ctxTaskID, ctxIdx)
 				} else {
 					logging.Get(logging.CategoryCampaign).Warn("Task %s references unknown context source index %d", taskID, ctxIdx)
+				}
+			}
+
+			// Deterministic research handoff: if the model omitted context_from
+			// but the task directly depends on a prior research task, inherit it.
+			// orchestrator_task_results.go only injects ContextFrom, so without
+			// this the coder never sees discovery artifacts (campaign 46015b77
+			// invented a 480-line isolated subsystem). Preserve explicit
+			// mappings, deduplicate while preserving stable order, and never
+			// allow current/self/forward references or prose inference.
+			for _, depIdx := range rawTask.DependsOn {
+				if depIdx < 0 || depIdx >= j {
+					continue
+				}
+				if depIdx >= len(rawPhase.Tasks) {
+					continue
+				}
+				depRaw := rawPhase.Tasks[depIdx]
+				depType := normalizeTaskType(depRaw.Type, defaultTaskTypeForCategory(phaseCategory))
+				if depType != TaskTypeResearch {
+					continue
+				}
+				if depTaskID, ok := taskIDMap[depIdx]; ok {
+					if _, exists := seenCtx[depTaskID]; exists {
+						continue
+					}
+					task.ContextFrom = append(task.ContextFrom, depTaskID)
+					seenCtx[depTaskID] = struct{}{}
+					logging.CampaignDebug("Inherited research context for task %s from dependency %s (research) via depends_on %d", taskID, depTaskID, depIdx)
+					logging.Campaign("Task %s inherits research context from %s", taskID, depTaskID)
 				}
 			}
 
@@ -557,7 +595,6 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 			if task.Shard != "" {
 				logging.CampaignDebug("Task %s has explicit shard routing: %s", taskID, task.Shard)
 			}
-
 			// Artifacts
 			for _, artifactPath := range rawTask.Artifacts {
 				artifactType := "/source_file"

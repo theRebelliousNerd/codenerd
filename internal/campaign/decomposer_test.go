@@ -559,6 +559,150 @@ func TestLLMProposePlan_MalformedAfterRetryFails(t *testing.T) {
 		t.Fatalf("expected retry parse failure message, got %v", err)
 	}
 }
+func TestBuildCampaign_ResearchContextInheritsDependsOn(t *testing.T) {
+	kernel := &MockKernel{}
+	d := NewDecomposer(kernel, &mockLLMClient{}, t.TempDir())
+	campaign := d.buildCampaign("/campaign_46015b77", DecomposeRequest{
+		Goal:          "test research handoff",
+		CampaignType:  CampaignTypeCustom,
+		ContextBudget: 1000,
+	}, &RawPlan{
+		Title:      "Plan",
+		Confidence: 0.9,
+		Phases: []RawPhase{{
+			Name:        "Phase 0",
+			Category:    "/research",
+			Description: "discovery",
+			Tasks: []RawTask{
+				{Description: "research the codebase", Type: "/research", Priority: "/high"},
+				{Description: "implement feature", Type: "/file_create", Priority: "/high", DependsOn: []int{0}},
+			},
+		}},
+	})
+	if len(campaign.Phases) != 1 || len(campaign.Phases[0].Tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(campaign.Phases[0].Tasks))
+	}
+	coder := campaign.Phases[0].Tasks[1]
+	if len(coder.ContextFrom) != 1 {
+		t.Fatalf("expected 1 inherited context, got %v", coder.ContextFrom)
+	}
+	if coder.ContextFrom[0] != campaign.Phases[0].Tasks[0].ID {
+		t.Fatalf("expected ContextFrom %q, got %q", campaign.Phases[0].Tasks[0].ID, coder.ContextFrom[0])
+	}
+	if len(coder.DependsOn) != 1 || coder.DependsOn[0] != campaign.Phases[0].Tasks[0].ID {
+		t.Fatalf("depends_on not wired correctly: %v", coder.DependsOn)
+	}
+}
+
+func TestBuildCampaign_ExplicitContextPreservedWithoutDuplicates(t *testing.T) {
+	kernel := &MockKernel{}
+	d := NewDecomposer(kernel, &mockLLMClient{}, t.TempDir())
+	campaign := d.buildCampaign("/campaign_test_dup", DecomposeRequest{
+		Goal:          "dup",
+		CampaignType:  CampaignTypeCustom,
+		ContextBudget: 1000,
+	}, &RawPlan{
+		Title:      "Plan",
+		Confidence: 0.9,
+		Phases: []RawPhase{{
+			Name:        "Phase 0",
+			Category:    "/research",
+			Description: "dup",
+			Tasks: []RawTask{
+				{Description: "research", Type: "/research", Priority: "/high"},
+				{Description: "implement", Type: "/file_create", Priority: "/high", DependsOn: []int{0}, ContextFrom: []int{0}},
+			},
+		}},
+	})
+	coder := campaign.Phases[0].Tasks[1]
+	if len(coder.ContextFrom) != 1 {
+		t.Fatalf("expected deduped 1 context, got %d: %v", len(coder.ContextFrom), coder.ContextFrom)
+	}
+	if coder.ContextFrom[0] != campaign.Phases[0].Tasks[0].ID {
+		t.Fatalf("wrong context id: %v", coder.ContextFrom)
+	}
+}
+
+func TestBuildCampaign_NonResearchDependencyNotInjected(t *testing.T) {
+	kernel := &MockKernel{}
+	d := NewDecomposer(kernel, &mockLLMClient{}, t.TempDir())
+	campaign := d.buildCampaign("/campaign_test_nonresearch", DecomposeRequest{
+		Goal:          "non-research",
+		CampaignType:  CampaignTypeCustom,
+		ContextBudget: 1000,
+	}, &RawPlan{
+		Title:      "Plan",
+		Confidence: 0.9,
+		Phases: []RawPhase{{
+			Name:        "Phase 0",
+			Category:    "/service",
+			Description: "service",
+			Tasks: []RawTask{
+				{Description: "write file A", Type: "/file_create", Priority: "/high"},
+				{Description: "write file B", Type: "/file_modify", Priority: "/high", DependsOn: []int{0}},
+			},
+		}},
+	})
+	coder := campaign.Phases[0].Tasks[1]
+	if len(coder.ContextFrom) != 0 {
+		t.Fatalf("expected 0 context for non-research dependency, got %v", coder.ContextFrom)
+	}
+}
+
+func TestBuildCampaign_InvalidForwardDependencyNotInjected(t *testing.T) {
+	kernel := &MockKernel{}
+	d := NewDecomposer(kernel, &mockLLMClient{}, t.TempDir())
+	// invalid index, self-reference, and forward reference must not become context
+	campaign := d.buildCampaign("/campaign_test_invalid", DecomposeRequest{
+		Goal:          "invalid",
+		CampaignType:  CampaignTypeCustom,
+		ContextBudget: 1000,
+	}, &RawPlan{
+		Title:      "Plan",
+		Confidence: 0.9,
+		Phases: []RawPhase{{
+			Name:        "Phase 0",
+			Category:    "/research",
+			Description: "invalid",
+			Tasks: []RawTask{
+				{Description: "research", Type: "/research", Priority: "/high"},
+				{Description: "self ref", Type: "/file_create", Priority: "/high", DependsOn: []int{1}},
+				{Description: "forward ref", Type: "/file_create", Priority: "/high", DependsOn: []int{5}},
+				{Description: "negative ref", Type: "/file_create", Priority: "/high", DependsOn: []int{-1}},
+			},
+		}},
+	})
+	for idx, task := range campaign.Phases[0].Tasks {
+		if len(task.ContextFrom) != 0 {
+			t.Fatalf("task %d (%q) should have 0 context, got %v", idx, task.Description, task.ContextFrom)
+		}
+	}
+	// valid inheritance still works alongside invalid ones
+	campaign2 := d.buildCampaign("/campaign_test_mixed", DecomposeRequest{
+		Goal:          "mixed",
+		CampaignType:  CampaignTypeCustom,
+		ContextBudget: 1000,
+	}, &RawPlan{
+		Title:      "Plan",
+		Confidence: 0.9,
+		Phases: []RawPhase{{
+			Name:        "Phase 0",
+			Category:    "/service",
+			Description: "mixed",
+			Tasks: []RawTask{
+				{Description: "research", Type: "/research", Priority: "/high"},
+				{Description: "normal code", Type: "/file_create", Priority: "/high"},
+				{Description: "coder depends on research", Type: "/file_create", Priority: "/high", DependsOn: []int{0}},
+			},
+		}},
+	})
+	if len(campaign2.Phases[0].Tasks[2].ContextFrom) != 1 {
+		t.Fatalf("mixed valid research should be inherited, got %v", campaign2.Phases[0].Tasks[2].ContextFrom)
+	}
+	if campaign2.Phases[0].Tasks[1].ContextFrom != nil && len(campaign2.Phases[0].Tasks[1].ContextFrom) != 0 {
+		t.Fatalf("non-dependent task should not have context, got %v", campaign2.Phases[0].Tasks[1].ContextFrom)
+	}
+}
 
 func TestLLMProposePlan_EmptyPhasesFallsBackToScaffold(t *testing.T) {
 	client := &mockLLMClient{
