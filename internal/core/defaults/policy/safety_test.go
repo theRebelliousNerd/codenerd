@@ -92,9 +92,9 @@ func TestLogic_Safety(t *testing.T) {
 	// "nc -e" should be denied (id6)
 	checkPermittedRepro(t, eng, "id6", false)
 
-	// Progressive browser and reasoning tools are reachable only through the same exact
+	// Progressive browser, reasoning, and grounded research tools are reachable only through the same exact
 	// pending_action -> permitted payload contract as every other tool.
-	for _, action := range []string{"/browser_observe", "/browser_act", "/browser_mangle", "/browser_wait", "/browser_reason", "/browser_evidence", "/browser_specs", "/browser_test"} {
+	for _, action := range []string{"/browser_observe", "/browser_act", "/browser_mangle", "/browser_wait", "/browser_reason", "/browser_evidence", "/browser_specs", "/browser_test", "/grounded_web_search"} {
 		target := "browser-session"
 		payload := `{"session_id":"browser-session"}`
 		if err := eng.AddFact("pending_action", "browser-policy", action, target, payload, int64(1)); err != nil {

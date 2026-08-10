@@ -217,6 +217,7 @@ persona_tool_allowed(/researcher, /web_search).
 persona_tool_allowed(/researcher, /web_fetch).
 persona_tool_allowed(/researcher, /context7_fetch).
 persona_tool_allowed(/researcher, /write_file).  # Can write documentation
+persona_tool_allowed(/researcher, /grounded_web_search).
 
 # =============================================================================
 # SECTION 4.5: Modular Tool Routing
@@ -290,6 +291,9 @@ modular_tool_allowed(/browser_specs, Intent) :- verb_category(Intent, /research)
 modular_tool_allowed(/browser_test, Intent) :- verb_category(Intent, /research).
 modular_tool_allowed(/research_cache_get, Intent) :- verb_category(Intent, /research).
 modular_tool_allowed(/research_cache_set, Intent) :- verb_category(Intent, /research).
+# Provider-native grounded search is restricted to research and verification.
+modular_tool_allowed(/grounded_web_search, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/grounded_web_search, Intent) :- verb_category(Intent, /verify).
 
 # Context7 also available for /learn and /document intents
 modular_tool_allowed(/context7_fetch, Intent) :- verb_category(Intent, /learn).

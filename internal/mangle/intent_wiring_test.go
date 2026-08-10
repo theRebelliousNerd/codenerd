@@ -193,3 +193,156 @@ Decl persona_tool_allowed(Persona, Tool).
 		}
 	})
 }
+
+func TestGroundedWebSearchRouting(t *testing.T) {
+	intentRoutingPath := findMangleFile(t, "intent_routing.mg")
+	data, err := os.ReadFile(intentRoutingPath)
+	if err != nil {
+		t.Fatalf("Failed to read intent_routing.mg: %v", err)
+	}
+	mockSchema := `
+Decl user_intent(ID, Category, Verb, Target, Constraint).
+Decl file_topology(Path, Hash, Language, LastModified, IsTestFile).
+Decl file_exists(Path).
+Decl file_edited(Path).
+Decl action_verified(ID, Type, Method, Confidence, Timestamp).
+Decl test_state(State).
+Decl tdd_state(State).
+Decl next_action(Action).
+Decl persona_tool_allowed(Persona, Tool).
+Decl modular_tool_allowed(Tool, Intent).
+Decl modular_tool_priority(Tool, Priority).
+`
+	program := mockSchema + "\n" + string(data)
+
+	t.Run("researcher persona has grounded_web_search", func(t *testing.T) {
+		result := evaluateAndQuery(t, program, nil, "persona_tool_allowed")
+		found := false
+		for _, f := range result {
+			if len(f.Args) == 2 {
+				persona, ok1 := f.Args[0].(string)
+				tool, ok2 := f.Args[1].(string)
+				if ok1 && ok2 && persona == "/researcher" && tool == "/grounded_web_search" {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			t.Errorf("Expected persona_tool_allowed(/researcher, /grounded_web_search), got: %v", result)
+		}
+	})
+
+	t.Run("coder persona does NOT have grounded_web_search", func(t *testing.T) {
+		result := evaluateAndQuery(t, program, []testFact{
+			{"user_intent", []any{"id1", "/command", "/fix", "file.go", "/none"}},
+		}, "persona_tool_allowed")
+		for _, f := range result {
+			if len(f.Args) == 2 {
+				persona, ok1 := f.Args[0].(string)
+				tool, ok2 := f.Args[1].(string)
+				if ok1 && ok2 && persona == "/coder" && tool == "/grounded_web_search" {
+					t.Errorf("coder must not have grounded_web_search, but found: %v", result)
+					break
+				}
+			}
+		}
+	})
+
+	t.Run("modular_tool_allowed for research", func(t *testing.T) {
+		facts := []testFact{
+			{"user_intent", []any{"id1", "/command", "/research", "topic", "/none"}},
+		}
+		result := evaluateAndQuery(t, program, facts, "modular_tool_allowed")
+		found := false
+		for _, f := range result {
+			if len(f.Args) == 2 {
+				tool, ok1 := f.Args[0].(string)
+				intent, ok2 := f.Args[1].(string)
+				if ok1 && ok2 && tool == "/grounded_web_search" && intent == "/research" {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			t.Errorf("Expected modular_tool_allowed(/grounded_web_search, /research), got: %v", result)
+		}
+	})
+
+	t.Run("modular_tool_allowed for verify", func(t *testing.T) {
+		facts := []testFact{
+			{"user_intent", []any{"id1", "/command", "/verify", "topic", "/none"}},
+		}
+		result := evaluateAndQuery(t, program, facts, "modular_tool_allowed")
+		found := false
+		for _, f := range result {
+			if len(f.Args) == 2 {
+				tool, ok1 := f.Args[0].(string)
+				intent, ok2 := f.Args[1].(string)
+				if ok1 && ok2 && tool == "/grounded_web_search" && intent == "/verify" {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			t.Errorf("Expected modular_tool_allowed(/grounded_web_search, /verify), got: %v", result)
+		}
+	})
+
+	t.Run("fix does NOT derive grounded_web_search", func(t *testing.T) {
+		facts := []testFact{
+			{"user_intent", []any{"id1", "/command", "/fix", "file.go", "/none"}},
+		}
+		result := evaluateAndQuery(t, program, facts, "modular_tool_allowed")
+		for _, f := range result {
+			if len(f.Args) == 2 {
+				tool, ok1 := f.Args[0].(string)
+				if ok1 && tool == "/grounded_web_search" {
+					t.Errorf("fix intent must not derive grounded_web_search, got: %v", result)
+					break
+				}
+			}
+		}
+	})
+
+	t.Run("create code intent does NOT derive grounded_web_search", func(t *testing.T) {
+		facts := []testFact{
+			{"user_intent", []any{"id1", "/command", "/create", "file.go", "/none"}},
+		}
+		result := evaluateAndQuery(t, program, facts, "modular_tool_allowed")
+		for _, f := range result {
+			if len(f.Args) == 2 {
+				tool, ok1 := f.Args[0].(string)
+				if ok1 && tool == "/grounded_web_search" {
+					t.Errorf("create code intent must not derive grounded_web_search, got: %v", result)
+					break
+				}
+			}
+		}
+	})
+
+	t.Run("explore research and validate verify also allow grounded", func(t *testing.T) {
+		for _, verb := range []string{"/explore", "/validate"} {
+			facts := []testFact{
+				{"user_intent", []any{"id1", "/command", verb, "topic", "/none"}},
+			}
+			result := evaluateAndQuery(t, program, facts, "modular_tool_allowed")
+			found := false
+			for _, f := range result {
+				if len(f.Args) == 2 {
+					tool, ok1 := f.Args[0].(string)
+					intent, ok2 := f.Args[1].(string)
+					if ok1 && ok2 && tool == "/grounded_web_search" && intent == verb {
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				t.Errorf("Expected modular_tool_allowed(/grounded_web_search, %s), got: %v", verb, result)
+			}
+		}
+	})
+}
