@@ -258,7 +258,11 @@ func executeGrep(ctx context.Context, args map[string]any) (string, error) {
 			if info.IsDir() {
 				// Skip hidden and common excluded directories
 				name := info.Name()
-				if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+				if strings.HasPrefix(name, ".") {
+					if p != path {
+						return filepath.SkipDir
+					}
+				} else if name == "node_modules" || name == "vendor" {
 					return filepath.SkipDir
 				}
 				return nil
