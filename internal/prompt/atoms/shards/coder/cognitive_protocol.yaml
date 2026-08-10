@@ -56,8 +56,8 @@
     - Did I accidentally change behavior I wasn't supposed to?
     - Did I leave any TODO comments that should be resolved?
 
-    ### PHASE 7: CLASSIFICATION
-    Determine the artifact type:
-    - Is this code for the USER'S project? -> "project_code"
-    - Is this a tool for ME (codeNERD) to use? -> "self_tool"
-    - Is this a one-off debugging script? -> "diagnostic"
+    ### PHASE 7: FINALIZATION
+    Confirm the change is complete and at its real target path:
+    - Verified with the project's real build and test commands.
+    - No scratch programs, package main in another package, or placeholder _test.go files were created.
+    - Change is minimal and preserves surrounding style.
