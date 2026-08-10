@@ -346,9 +346,15 @@ codenerd/
 **Building:**
 
 ```bash
-CGO_CFLAGS="-I$(pwd)/sqlite_headers" go build -o nerd ./cmd/nerd
+CGO_CFLAGS="-I$(pwd)/sqlite_headers" go build -tags sqlite_vec -o nerd ./cmd/nerd
 go test ./...
 ```
+
+`-tags sqlite_vec` is required, not optional. Vector support lives behind
+`//go:build sqlite_vec && cgo`; without the tag the binary boots fine but logs
+`sqlite-vec not available; falling back from ANN to lexical search` and the
+prompt selector's vector half silently degrades to lexical matching. Setting
+`CGO_CFLAGS` alone does not enable it.
 
 **Writing rules** — variables are `UPPERCASE`, constants are `/lowercase`, every predicate needs a `Decl`, and negation only binds over variables a positive atom already bound:
 
