@@ -67,6 +67,14 @@ type OpenAICompatClient struct {
 	// thinking is normally disabled.
 	reasoningEffortOverride string
 
+	// reasoningCache holds Muse Spark's encrypted reasoning blocks so the
+	// Responses surface can replay them on the next tool-loop turn. Keyed by
+	// the assistant turn's position in history. In-memory only: a reasoning
+	// block belongs to one conversation, and replaying a stale one into an
+	// unrelated turn would be worse than replaying nothing.
+	reasoningMu    sync.Mutex
+	reasoningCache map[string][]metaResponsesItem
+
 	mu          sync.Mutex
 	lastRequest time.Time
 }
@@ -931,6 +939,14 @@ func (c *OpenAICompatClient) CompleteWithTools(ctx context.Context, systemPrompt
 // satisfying types.ToolResultsProvider so the session executor can run a full
 // agentic loop instead of falling back to single-turn tool use.
 func (c *OpenAICompatClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []ToolDefinition) (*LLMToolResponse, error) {
+	// Meta goes through the Responses surface. This is the multi-turn tool
+	// loop, and Chat Completions discards Muse Spark's reasoning between turns
+	// — which is what makes a long loop repeat work it already did and lose the
+	// thread. See client_meta_responses.go for the full reasoning.
+	if c.supportsResponsesAPI() {
+		return c.completeWithToolResultsViaResponses(ctx, systemPrompt, history, tools)
+	}
+
 	messages, err := MapTypesHistoryToOpenAIMessages(systemPrompt, history)
 	if err != nil {
 		return nil, err
