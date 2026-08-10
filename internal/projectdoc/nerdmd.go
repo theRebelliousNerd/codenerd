@@ -89,6 +89,19 @@ type Spec struct {
 
 	// Conventions are named, checkable project rules.
 	Conventions []Convention `yaml:"conventions,omitempty"`
+
+	// Northstar is an optional block declaring the module's purpose and its
+	// requirements.
+	//
+	// It does NOT bump SchemaVersion, deliberately deviating from the note
+	// above that adding a field requires a bump. The reason: validation at
+	// line 240 requires s.Schema to EQUAL SchemaVersion exactly, so bumping
+	// to nerd/v2 would reject every existing nerd.md that declares schema
+	// nerd/v1. The field is optional, so v1 files that do not use it are
+	// completely unaffected; a v1 file that DOES use it fails loudly on an
+	// older binary with an unknown-field error, which is the strictness that
+	// decoder.KnownFields(true) at line 180 exists to provide.
+	Northstar *Northstar `yaml:"northstar,omitempty"`
 }
 
 // Commands holds the project's canonical shell invocations.
@@ -124,6 +137,27 @@ type ForbidRule struct {
 type Convention struct {
 	ID   string `yaml:"id"`
 	Rule string `yaml:"rule"`
+}
+
+// Northstar declares the module's purpose and its requirements.
+type Northstar struct {
+	// Purpose is the module's high-level purpose.
+	Purpose string `yaml:"purpose,omitempty"`
+
+	// Requirements are the module's requirements.
+	Requirements []NorthstarRequirement `yaml:"requirements,omitempty"`
+}
+
+// NorthstarRequirement is a single requirement within a Northstar block.
+type NorthstarRequirement struct {
+	// ID is the stable requirement identifier.
+	ID string `yaml:"id"`
+
+	// Statement is the human-readable requirement text.
+	Statement string `yaml:"statement"`
+
+	// Severity indicates the requirement's importance when present.
+	Severity string `yaml:"severity,omitempty"`
 }
 
 // Find locates nerd.md for a workspace, searching the workspace root and then
@@ -267,6 +301,25 @@ func (s *Spec) validate() error {
 	for i, r := range s.Require {
 		if strings.TrimSpace(r) == "" {
 			return fmt.Errorf("require[%d] is empty", i)
+		}
+	}
+
+	if s.Northstar != nil {
+		seen := make(map[string]struct{}, len(s.Northstar.Requirements))
+		for i, req := range s.Northstar.Requirements {
+			if strings.TrimSpace(req.ID) == "" {
+				return fmt.Errorf("northstar.requirements[%d] has an empty %q", i, "id")
+			}
+			if _, dup := seen[req.ID]; dup {
+				return fmt.Errorf("northstar.requirements[%d] has duplicate %q %q", i, "id", req.ID)
+			}
+			seen[req.ID] = struct{}{}
+			if strings.TrimSpace(req.Statement) == "" {
+				return fmt.Errorf("northstar.requirements[%d] (id %q) has an empty %q", i, req.ID, "statement")
+			}
+			if sev := strings.TrimSpace(req.Severity); sev != "" && sev != "blocker" && sev != "major" && sev != "minor" {
+				return fmt.Errorf("northstar.requirements[%d] (id %q) has invalid %q %q; expected one of %q, %q, %q", i, req.ID, "severity", req.Severity, "blocker", "major", "minor")
+			}
 		}
 	}
 
