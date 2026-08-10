@@ -397,3 +397,82 @@ func cloneStringMapForTest(src map[string]string) map[string]string {
 	maps.Copy(out, src)
 	return out
 }
+
+func TestExpandSnapshotPaths_GlobSortedDedupedExcludesTxt(t *testing.T) {
+	dir := t.TempDir()
+	aGo := filepath.Join(dir, "a.go")
+	bGo := filepath.Join(dir, "b.go")
+	cTxt := filepath.Join(dir, "c.txt")
+	for _, p := range []string{aGo, bGo, cTxt} {
+		if err := os.WriteFile(p, []byte("x"), 0644); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+	pattern := filepath.Join(dir, "*.go")
+	// Pass same glob twice to prove deduplication.
+	expanded, err := expandSnapshotPaths([]string{pattern, pattern})
+	if err != nil {
+		t.Fatalf("expandSnapshotPaths() error = %v", err)
+	}
+	want := []string{filepath.Clean(aGo), filepath.Clean(bGo)}
+	if !reflect.DeepEqual(expanded, want) {
+		t.Fatalf("expandSnapshotPaths() = %v, want %v", expanded, want)
+	}
+	for _, p := range expanded {
+		if strings.HasSuffix(p, ".txt") {
+			t.Fatalf("unexpected .txt in expanded: %v", expanded)
+		}
+	}
+}
+
+func TestExpandSnapshotPaths_UnmatchedGlobYieldsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	pattern := filepath.Join(dir, "no_match_*.go")
+	expanded, err := expandSnapshotPaths([]string{pattern})
+	if err != nil {
+		t.Fatalf("expandSnapshotPaths() error = %v", err)
+	}
+	if len(expanded) != 0 {
+		t.Fatalf("expected empty, got %v", expanded)
+	}
+	if expanded != nil {
+		t.Fatalf("expected nil slice for empty expansion, got %v", expanded)
+	}
+}
+
+func TestExpandSnapshotPaths_ExactMissingPathPreserved(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "does_not_exist.go")
+	expanded, err := expandSnapshotPaths([]string{missing})
+	if err != nil {
+		t.Fatalf("expandSnapshotPaths() error = %v", err)
+	}
+	want := []string{filepath.Clean(missing)}
+	if !reflect.DeepEqual(expanded, want) {
+		t.Fatalf("expandSnapshotPaths() = %v, want %v", expanded, want)
+	}
+	// Verify capture semantics can produce Exists:false for preserved missing path.
+	orch := &Orchestrator{campaign: &Campaign{ID: "test", Phases: []Phase{{ID: "p0", Tasks: []Task{{ID: "t0", Type: TaskTypeFileModify}}}}}}
+	orch.campaign.Phases[0].Tasks[0].WriteSet = []string{missing}
+	snap, err := orch.captureTaskExecutionSnapshot(&orch.campaign.Phases[0].Tasks[0])
+	if err != nil {
+		t.Fatalf("captureTaskExecutionSnapshot() error = %v", err)
+	}
+	if len(snap.fileMutations) != 1 || snap.fileMutations[0].Exists {
+		t.Fatalf("expected single Exists:false mutation, got %#v", snap.fileMutations)
+	}
+	if !strings.EqualFold(snap.fileMutations[0].Path, filepath.Clean(missing)) {
+		t.Fatalf("unexpected path %q", snap.fileMutations[0].Path)
+	}
+}
+
+func TestExpandSnapshotPaths_InvalidGlobYieldsError(t *testing.T) {
+	// "[invalid" is an invalid glob per path/filepath.Match.
+	_, err := expandSnapshotPaths([]string{"[invalid"})
+	if err == nil {
+		t.Fatalf("expected error for invalid glob, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid glob pattern") {
+		t.Fatalf("unexpected error %v", err)
+	}
+}

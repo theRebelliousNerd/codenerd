@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"sort"
 
 	"codenerd/internal/logging"
 )
@@ -144,7 +145,11 @@ func (o *Orchestrator) captureTaskExecutionSnapshot(task *Task) (taskExecutionSn
 	}
 
 	writeSet := o.resolveTaskWriteSet(task)
-	for _, absPath := range writeSet {
+	expanded, err := expandSnapshotPaths(writeSet)
+	if err != nil {
+		return snapshot, err
+	}
+	for _, absPath := range expanded {
 		info, err := os.Stat(absPath)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -171,6 +176,66 @@ func (o *Orchestrator) captureTaskExecutionSnapshot(task *Task) (taskExecutionSn
 	}
 
 	return snapshot, nil
+}
+
+func containsGlobMeta(path string) bool {
+	for _, r := range path {
+		if r == '*' || r == '?' || r == '[' {
+			return true
+		}
+	}
+	return false
+}
+
+func expandSnapshotPaths(paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, len(paths)*2)
+	var expanded []string
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		if containsGlobMeta(p) {
+			if _, err := filepath.Match(p, ""); err != nil {
+				return nil, fmt.Errorf("invalid glob pattern %q: %w", p, err)
+			}
+			matches, err := filepath.Glob(p)
+			if err != nil {
+				return nil, fmt.Errorf("invalid glob pattern %q: %w", p, err)
+			}
+			if len(matches) == 0 {
+				continue
+			}
+			for _, m := range matches {
+				clean := filepath.Clean(m)
+				if _, ok := seen[clean]; !ok {
+					seen[clean] = struct{}{}
+					expanded = append(expanded, clean)
+				}
+			}
+			continue
+		}
+		clean := filepath.Clean(p)
+		if _, ok := seen[clean]; !ok {
+			seen[clean] = struct{}{}
+			expanded = append(expanded, clean)
+		}
+	}
+	if len(expanded) == 0 {
+		return nil, nil
+	}
+	sort.Strings(expanded)
+	deduped := expanded[:0]
+	var prev string
+	for i, v := range expanded {
+		if i == 0 || v != prev {
+			deduped = append(deduped, v)
+			prev = v
+		}
+	}
+	return deduped, nil
 }
 
 func (o *Orchestrator) rollbackTaskExecutionSnapshot(snapshot taskExecutionSnapshot) error {
