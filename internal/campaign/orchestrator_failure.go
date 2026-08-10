@@ -184,19 +184,29 @@ taskSearch:
 		}
 	}
 
-	// Check if replan is needed
-	facts, _ := o.kernel.Query("replan_needed")
-	if len(facts) > 0 {
-		logging.Campaign("Replan triggered due to task failures")
-		o.emitEvent("replan_triggered", "", "", "Too many failures, triggering replan", nil)
-		if repErr := o.replanner.Replan(ctx, o.campaign, task.ID); repErr != nil {
-			logging.Get(logging.CategoryCampaign).Error("Replan failed: %v", repErr)
-			o.emitEvent("replan_failed", "", "", repErr.Error(), nil)
-		} else {
-			o.mu.Lock()
-			logging.Campaign("Campaign replanned, new revision: %d", o.campaign.RevisionNumber)
-			_ = o.saveCampaign()
-			o.mu.Unlock()
+	// Deterministic retry/replan contract: never invoke failure-driven Replanner while
+	// the failed task is still retryable/pending. Observed live: a /file_modify left
+	// pending for bounded retry was immediately replaced by a semantically duplicate
+	// task via replan_needed, and runPhase scheduled both concurrently producing
+	// competing files. Gate replanning until terminal failure.
+	if !markedFailed {
+		logging.CampaignDebug("Skipping failure-driven replan for %s: still retryable (status=%s, nextRetryAt=%v)", task.ID, newStatus, nextRetryAt)
+	} else {
+		facts, _ := o.kernel.Query("replan_needed")
+		if len(facts) > 0 {
+			logging.Campaign("Replan triggered due to task failures")
+			o.emitEvent("replan_triggered", "", "", "Too many failures, triggering replan", nil)
+			if o.replanner == nil {
+				logging.Get(logging.CategoryCampaign).Warn("Replan needed but no replanner configured for task %s", task.ID)
+			} else if repErr := o.replanner.Replan(ctx, o.campaign, task.ID); repErr != nil {
+				logging.Get(logging.CategoryCampaign).Error("Replan failed: %v", repErr)
+				o.emitEvent("replan_failed", "", "", repErr.Error(), nil)
+			} else {
+				o.mu.Lock()
+				logging.Campaign("Campaign replanned, new revision: %d", o.campaign.RevisionNumber)
+				_ = o.saveCampaign()
+				o.mu.Unlock()
+			}
 		}
 	}
 

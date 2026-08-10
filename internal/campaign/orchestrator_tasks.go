@@ -52,6 +52,27 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 	active := make(map[string]bool)
 	results := make(chan taskResult, o.maxParallelTasks*2)
 
+	// drainActive joins in-flight task goroutines after context cancellation.
+	// Deterministic contract: on cancellation, stop scheduling and drain results
+	// without blocking forever (observed live: Ctrl+C canceled parent but workers stayed alive).
+	drainActive := func() {
+		if len(active) == 0 {
+			return
+		}
+		const drainTimeout = 5 * time.Second
+		timer := time.NewTimer(drainTimeout)
+		defer timer.Stop()
+		for len(active) > 0 {
+			select {
+			case res := <-results:
+				delete(active, res.taskID)
+			case <-timer.C:
+				logging.Get(logging.CategoryCampaign).Warn("runPhase cancellation drain timed out with %d active tasks still running", len(active))
+				return
+			}
+		}
+	}
+
 	for {
 		// Re-bind to the live phase each iteration. A concurrent task rollback
 		// (assault), replan, or rolling-wave can swap o.campaign.Phases to a
@@ -66,10 +87,11 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 			return nil
 		}
 
-		// Respect cancellation
+		// Respect cancellation — drain in-flight workers before returning.
 		select {
 		case <-ctx.Done():
 			logging.Campaign("Phase %s cancelled", phase.Name)
+			drainActive()
 			return ctx.Err()
 		default:
 		}
@@ -85,6 +107,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 			select {
 			case <-ctx.Done():
 				logging.Campaign("Phase %s cancelled during pause", phase.Name)
+				drainActive()
 				return ctx.Err()
 			case <-pauseCh:
 				// Resumed; fall through to schedule
@@ -204,6 +227,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 						continue
 					}
 					if errors.Is(lockErr, context.Canceled) || errors.Is(lockErr, context.DeadlineExceeded) {
+						drainActive()
 						return lockErr
 					}
 					logging.Get(logging.CategoryCampaign).Error("Write-set lock error for task %s: %v", task.ID, lockErr)
@@ -242,6 +266,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 		// Wait for activity (completion or new eligibility)
 		select {
 		case <-ctx.Done():
+			drainActive()
 			return ctx.Err()
 		case res := <-results:
 			delete(active, res.taskID)
