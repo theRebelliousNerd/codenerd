@@ -1,0 +1,46 @@
+# Scratch Artifacts Hallucination Prevention
+# Prevents throwaway package main programs and fake *_test.go files that break the build or fake coverage.
+
+- id: "hallucination/coder/scratch_artifacts"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## HALLUCINATION PREVENTION: SCRATCH ARTIFACTS
+
+    You will be tempted to verify with throwaway mains or empty test stubs. They break the build for everyone.
+
+    ### WRONG
+    ```go
+    // internal/projectdoc/verify_northstar.go
+    package main // WRONG: one directory = one package; "found packages projectdoc and main"
+    func main() { /* ad-hoc check */ }
+    // test_normalize.go at repo root, package main, syntax error "non-boolean condition in for" -> entire build fails
+    ```
+    ```go
+    // northstar_manual_test.go — 38 bytes, no test function
+    //go:build ignore
+    package projectdoc // WRONG: go test reports "ok" in 0.027s having run nothing
+    ```
+
+    ### RIGHT
+    ```go
+    // internal/projectdoc/northstar_test.go
+    func TestNormalize(t *testing.T) {
+        if got := Normalize(" input "); got != "input" {
+            t.Fatalf("got %q", got)
+        }
+    }
+    ```
+    ```bash
+    go test ./internal/projectdoc -run TestNormalize
+    go build ./... && go vet ./...
+    ```
+
+    ### MITIGATION
+    - Never create package main inside a package directory or at the repository root.
+    - Never put //go:build ignore in *_test.go; it claims coverage while running nothing.
+    - *_test.go must contain at least one func TestXxx(t *testing.T) that asserts.
+    - If you need a scratch file, do not write it to the repo — say so in your result.

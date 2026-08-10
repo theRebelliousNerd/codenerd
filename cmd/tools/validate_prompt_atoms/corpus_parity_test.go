@@ -53,8 +53,8 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 		t.Fatal("validator and embedded runtime atom order differ")
 	}
 
-	const wantCount = 904
-	const wantDigest = "578080f085b73838344a516b123b34e5f67fa30d2a9bbc4bcfa43b9c1d33e8fd"
+	const wantCount = 905
+	const wantDigest = "5452cea88d5182a9d3226abdeb3b3fa16febe9c2961b80e41e0c2726b04819b0"
 	if len(stats.AtomIDs) != wantCount {
 		t.Fatalf("atom count = %d, want golden %d", len(stats.AtomIDs), wantCount)
 	}
