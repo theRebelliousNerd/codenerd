@@ -1294,8 +1294,42 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 
 	// Safety check via Constitutional Gate
 	if executorCfg.EnableSafetyGate {
-		if !e.checkSafetyWithGate(call, true) {
-			return "", fmt.Errorf("tool call blocked by safety gate: %s", call.Name)
+		if ok, reason := e.checkSafetyWithGate(call, true); !ok {
+			// DENY PATH ONLY: ask the kernel whether this action atom
+			// requires explicit human permission. Hot path (allowed) is
+			// unaffected.
+			actionLabel := call.Name
+			if strings.TrimSpace(actionLabel) == "" {
+				actionLabel = "unknown"
+			}
+			target := e.extractTarget(call.Args)
+			actionAtom := actionLabel
+			if !strings.HasPrefix(actionAtom, "/") {
+				actionAtom = "/" + actionAtom
+			}
+			requiresPermission := false
+			if validMangleActionAtom(actionAtom) && e.kernel != nil {
+				grounded := fmt.Sprintf("requires_permission(%s)", actionAtom)
+				if facts, err := e.kernel.Query(grounded); err == nil && len(facts) > 0 {
+					requiresPermission = true
+				} else {
+					if facts2, err2 := e.kernel.Query("requires_permission"); err2 == nil {
+						for _, f := range facts2 {
+							if len(f.Args) == 0 {
+								continue
+							}
+							if types.ExtractString(f.Args[0]) == actionAtom {
+								requiresPermission = true
+								break
+							}
+						}
+					}
+				}
+			}
+			if requiresPermission {
+				return "", fmt.Errorf("tool call blocked by safety gate: action %s target %s denied (%s); this action requires human approval and cannot be self-authorized — do not retry the same call, it will fail identically; ask the user to perform it or accomplish the goal another way", actionLabel, target, reason)
+			}
+			return "", fmt.Errorf("tool call blocked by safety gate: action %s target %s denied (%s); constitution derived no permitted(...) fact for that action and target — identical retry will fail", actionLabel, target, reason)
 		}
 	}
 
@@ -1455,16 +1489,17 @@ const maxPayloadBytes = 100 * 1024 // 100 KB
 
 // checkSafety verifies a tool call against the Constitutional Gate.
 func (e *Executor) checkSafety(call ToolCall) bool {
-	return e.checkSafetyWithGate(call, e.configSnapshot().EnableSafetyGate)
+	ok, _ := e.checkSafetyWithGate(call, e.configSnapshot().EnableSafetyGate)
+	return ok
 }
 
-func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) bool {
+func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (bool, string) {
 	// Categorically reject empty tool names — they would assert "/" as the
 	// action atom, which is meaningless and bypasses meaningful policy match.
 	if strings.TrimSpace(call.Name) == "" {
 		logging.Get(logging.CategorySession).Warn("Safety check denied: empty tool call name")
 		e.assertSecurityViolation(types.MangleAtom("/unknown"), "empty tool call name")
-		return false
+		return false, "empty tool call name"
 	}
 
 	if e.kernel == nil {
@@ -1473,12 +1508,12 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) bo
 		if safetyGateEnabled {
 			logging.Get(logging.CategorySession).Error("Safety check failed closed: kernel is nil while EnableSafetyGate=true")
 			logging.Audit().SafetyCheck(call.Name, false, "failed closed: kernel is nil while EnableSafetyGate=true")
-			return false
+			return false, "failed closed: kernel is nil while EnableSafetyGate=true"
 		}
 		// Running ungated is the single most important thing to find in an
 		// unattended run's log after the fact.
 		logging.Audit().SafetyCheck(call.Name, true, "safety gate disabled and kernel is nil")
-		return true // Gate disabled: allow
+		return true, "" // Gate disabled: allow
 	}
 
 	// 1. Prepare Mangle terms
@@ -1491,7 +1526,7 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) bo
 		logging.Get(logging.CategorySession).Warn(
 			"Safety check denied malformed action name %q", call.Name)
 		e.assertSecurityViolation(types.MangleAtom("/unknown"), "malformed tool action name")
-		return false
+		return false, "malformed tool action name"
 	}
 	actionAtom := types.MangleAtom(actionName)
 
@@ -1508,7 +1543,7 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) bo
 	if err != nil {
 		logging.Get(logging.CategorySession).Error("Safety check failed: cannot marshal args: %v", err)
 		e.assertSecurityViolation(actionAtom, "cannot marshal args")
-		return false
+		return false, "cannot marshal args"
 	}
 	// Reject oversized payloads outright. Truncating would silently break the
 	// permitted-fact comparison (truncated payload != permitted payload), so
@@ -1518,7 +1553,7 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) bo
 			"Safety check denied: payload too large for kernel (%d bytes > %d)",
 			len(payloadBytes), maxPayloadBytes)
 		e.assertSecurityViolation(actionAtom, fmt.Sprintf("payload too large: %d > %d", len(payloadBytes), maxPayloadBytes))
-		return false
+		return false, fmt.Sprintf("payload too large: %d > %d", len(payloadBytes), maxPayloadBytes)
 	}
 	payload := string(payloadBytes)
 	timestamp := time.Now().Unix()
@@ -1539,7 +1574,7 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) bo
 	if err := e.kernel.Assert(pendingFact); err != nil {
 		logging.Get(logging.CategorySession).Error("Safety check failed: assertion error: %v", err)
 		e.assertSecurityViolation(actionAtom, "failed to assert pending_action")
-		return false
+		return false, "failed to assert pending_action"
 	}
 
 	// Ensure cleanup of pending_action
@@ -1566,7 +1601,7 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) bo
 			}
 			logging.Get(logging.CategorySession).Error("Safety check failed: query error: %v", fallbackErr)
 			e.assertSecurityViolation(actionAtom, "failed to query permitted facts")
-			return false
+			return false, "failed to query permitted facts"
 		}
 	}
 	if exactErr != nil {
@@ -1598,12 +1633,13 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) bo
 
 		// Match found!
 		logging.Audit().SafetyCheck(wantAction, true, "matched permitted("+wantAction+", "+target+", payload)")
-		return true
+		return true, ""
 	}
 
 	logging.Get(logging.CategorySession).Warn("Safety check denied action: %s (target: %s)", actionName, target)
-	e.assertSecurityViolation(actionAtom, fmt.Sprintf("action not permitted: target=%s", target))
-	return false
+	reason := fmt.Sprintf("action not permitted: target=%s", target)
+	e.assertSecurityViolation(actionAtom, reason)
+	return false, reason
 }
 
 // validMangleActionAtom is intentionally a little broader than
