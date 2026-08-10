@@ -258,9 +258,10 @@ func (e *Executor) runToolLoop(
 
 		// The model still has executable work at the current boundary. The
 		// orchestrator may extend only when the trace since the prior boundary
-		// contains novel successful results and no deterministic repeat cycle.
+		// contains intent-appropriate material progress and no deterministic
+		// repeat cycle or write-task read-only stall.
 		if iter+1 >= budget.iterationLimit {
-			decision := budget.maybeExtend()
+			decision := budget.maybeExtend(e.writeOrientedIntent(result.Intent.Verb))
 			if decision.Granted {
 				logging.Get(logging.CategorySession).Warn(
 					"Adaptive tool budget extended by %d rounds to %d after %d executed tool call(s): %s",

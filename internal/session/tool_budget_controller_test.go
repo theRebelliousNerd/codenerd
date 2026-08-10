@@ -23,7 +23,7 @@ func TestToolBudgetController_GrantsOnlyBoundedProgressExtensions(t *testing.T) 
 		[]types.ToolCall{{ID: "read-1", Name: "read_file", Input: map[string]any{"path": "a.go"}}},
 		[]types.ToolResult{{ToolUseID: "read-1", Content: "package a"}},
 	)
-	first := controller.maybeExtend()
+	first := controller.maybeExtend(false)
 	if !first.Granted || first.AddedRounds != 3 || first.NewLimit != 5 {
 		t.Fatalf("first extension = %#v, want +3 to 5", first)
 	}
@@ -32,11 +32,11 @@ func TestToolBudgetController_GrantsOnlyBoundedProgressExtensions(t *testing.T) 
 		[]types.ToolCall{{ID: "read-2", Name: "read_file", Input: map[string]any{"path": "b.go"}}},
 		[]types.ToolResult{{ToolUseID: "read-2", Content: "package b"}},
 	)
-	second := controller.maybeExtend()
+	second := controller.maybeExtend(false)
 	if !second.Granted || second.NewLimit != 8 {
 		t.Fatalf("second extension = %#v, want limit 8", second)
 	}
-	third := controller.maybeExtend()
+	third := controller.maybeExtend(false)
 	if third.Granted || third.NewLimit != 8 || !strings.Contains(third.Reason, "hard limit") {
 		t.Fatalf("third extension = %#v, want bounded refusal", third)
 	}
@@ -53,7 +53,7 @@ func TestToolBudgetController_RefusesRepeatedTraceCycle(t *testing.T) {
 	call.ID, result.ToolUseID = "second", "second"
 	controller.observe([]types.ToolCall{call}, []types.ToolResult{result})
 
-	decision := controller.maybeExtend()
+	decision := controller.maybeExtend(false)
 	if decision.Granted || !decision.LoopDetected || !strings.Contains(decision.Reason, "repeated") {
 		t.Fatalf("decision = %#v, want deterministic loop refusal", decision)
 	}
@@ -68,7 +68,7 @@ func TestToolBudgetController_ReReadWithChangedEvidenceIsProgress(t *testing.T) 
 	call.ID = "after"
 	controller.observe([]types.ToolCall{call}, []types.ToolResult{{ToolUseID: "after", Content: "after"}})
 
-	decision := controller.maybeExtend()
+	decision := controller.maybeExtend(false)
 	if !decision.Granted || decision.LoopDetected {
 		t.Fatalf("changed evidence must count as progress, got %#v", decision)
 	}
@@ -80,7 +80,7 @@ func TestToolBudgetController_RefusesErrorsWithoutProgress(t *testing.T) {
 		[]types.ToolCall{{ID: "bad", Name: "read_file", Input: map[string]any{"path": "guessed/missing.go"}}},
 		[]types.ToolResult{{ToolUseID: "bad", Content: "file not found", IsError: true}},
 	)
-	decision := controller.maybeExtend()
+	decision := controller.maybeExtend(false)
 	if decision.Granted || !strings.Contains(decision.Reason, "no novel successful") {
 		t.Fatalf("decision = %#v, want no-progress refusal", decision)
 	}
@@ -102,6 +102,80 @@ func TestToolBudgetNudge_IsProgressiveAndAdvertisesBatchCodeDOM(t *testing.T) {
 	}
 	if len(critical) > 240 {
 		t.Fatalf("critical nudge is not token-efficient: %d chars", len(critical))
+	}
+}
+
+func TestToolBudgetController_WriteOriented_NovelReadRefusesWithReadOnlyStall(t *testing.T) {
+	controller := newToolBudgetController(DefaultExecutorConfig())
+	controller.observe(
+		[]types.ToolCall{{ID: "r1", Name: "read_file", Input: map[string]any{"path": "a.go"}}},
+		[]types.ToolResult{{ToolUseID: "r1", Content: "package a"}},
+	)
+	decision := controller.maybeExtend(true)
+	if decision.Granted || !decision.ReadOnlyStall || !strings.Contains(decision.Reason, "stalled") {
+		t.Fatalf("decision = %#v, want read-only stall refusal for write task", decision)
+	}
+}
+
+func TestToolBudgetController_WriteOriented_WriteGrantsAndResetsCounters(t *testing.T) {
+	cfg := DefaultExecutorConfig()
+	cfg.MaxToolCalls = 20
+	cfg.MaxToolIterations = 1
+	cfg.ToolIterationExtensionSize = 2
+	controller := newToolBudgetController(cfg)
+	controller.observe(
+		[]types.ToolCall{{ID: "w1", Name: "write_file", Input: map[string]any{"path": "a.go", "content": "x"}}},
+		[]types.ToolResult{{ToolUseID: "w1", Content: "ok"}},
+	)
+	decision := controller.maybeExtend(true)
+	if !decision.Granted || decision.ReadOnlyStall {
+		t.Fatalf("decision = %#v, want granted write extension", decision)
+	}
+	if controller.progressSinceExtension != 0 || controller.writesSinceExtension != 0 || controller.verifiesSinceExtension != 0 {
+		t.Fatalf("counters not reset after grant: novel=%d writes=%d verifies=%d", controller.progressSinceExtension, controller.writesSinceExtension, controller.verifiesSinceExtension)
+	}
+	// Without new progress, next boundary must refuse and clear distinct reason.
+	next := controller.maybeExtend(true)
+	if next.Granted || !strings.Contains(next.Reason, "no novel successful") {
+		t.Fatalf("next decision = %#v, want no-progress refusal after reset", next)
+	}
+}
+
+func TestToolBudgetController_WriteOriented_PostWriteVerificationGrants(t *testing.T) {
+	controller := newToolBudgetController(DefaultExecutorConfig())
+	controller.observe(
+		[]types.ToolCall{{ID: "w1", Name: "write_file", Input: map[string]any{"path": "a.go", "content": "x"}}},
+		[]types.ToolResult{{ToolUseID: "w1", Content: "ok"}},
+	)
+	if decision := controller.maybeExtend(true); !decision.Granted {
+		t.Fatalf("write extension = %#v, want grant", decision)
+	}
+	controller.observe(
+		[]types.ToolCall{{ID: "t1", Name: "run_command", Input: map[string]any{"command": "go test ./internal/session -count=1"}}},
+		[]types.ToolResult{{ToolUseID: "t1", Content: "ok"}},
+	)
+	decision := controller.maybeExtend(true)
+	if !decision.Granted || decision.ReadOnlyStall {
+		t.Fatalf("post-write verification extension = %#v, want grant", decision)
+	}
+}
+
+func TestFocusedVerificationCall_RejectsChainedShell(t *testing.T) {
+	call := types.ToolCall{Name: "run_command", Input: map[string]any{"command": "go test ./...; remove-everything"}}
+	if isFocusedVerificationCall(call) {
+		t.Fatal("chained shell command must not count as focused verification")
+	}
+}
+
+func TestToolBudgetController_ReadOnlyTask_NovelReadGrants(t *testing.T) {
+	controller := newToolBudgetController(DefaultExecutorConfig())
+	controller.observe(
+		[]types.ToolCall{{ID: "r1", Name: "read_file", Input: map[string]any{"path": "a.go"}}},
+		[]types.ToolResult{{ToolUseID: "r1", Content: "package a"}},
+	)
+	decision := controller.maybeExtend(false)
+	if !decision.Granted || decision.ReadOnlyStall {
+		t.Fatalf("decision = %#v, want granted read-only extension", decision)
 	}
 }
 

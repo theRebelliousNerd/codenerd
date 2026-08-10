@@ -30,8 +30,10 @@ Routing/orchestration already classified the verb. Re-perception of synthetic ta
 `MaxToolCalls`, the adaptive hard iteration limit, and `ToolTimeout` remain hard
 cost/hang boundaries. The base `MaxToolIterations` may grow only through a
 configured number of small deterministic extensions when the executed trace
-contains novel successful results and no repeated period-1/2/3 cycle. The model
-cannot self-authorize an extension.
+contains novel successful results and no repeated period-1/2/3 cycle. Write
+turns additionally require a durable write or focused post-write verification;
+novel reads alone are a deterministic stall. The model cannot self-authorize an
+extension.
 
 ## P7 — Dual tool protocol, single safety path
 

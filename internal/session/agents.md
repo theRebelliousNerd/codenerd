@@ -21,9 +21,10 @@
   replay a side effect while transitioning from exploration to forced final.
   Every terminal path must still reach the shared post-edit proof gate.
 - Adaptive tool-budget extensions must remain deterministic and bounded by the
-  hard tool-call/time ceilings. Grant only on novel successful tool evidence;
-  repeated full call+argument+result cycles deny extension. Keep the live
-  calls/rounds nudge short and attach it to an already-paired tool result.
+  hard tool-call/time ceilings. For write intents, novel reads are orientation,
+  not progress: only a durable write or focused post-write verification earns
+  an extension. Repeated traces and read-only stalls deny extension. Keep the
+  live calls/rounds nudge short and attach it to a paired tool result.
 - New LLM-facing behavior is a prompt atom first. `AvailableTools` describes the
   effective envelope; it is not authority.
 - Maintain explicit ownership for executor history, Spawner reservations, SubAgent

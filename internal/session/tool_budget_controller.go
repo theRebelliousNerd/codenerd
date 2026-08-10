@@ -28,6 +28,9 @@ type toolBudgetController struct {
 	trace                  []toolBudgetObservation
 	seenEvents             map[string]struct{}
 	progressSinceExtension int
+	writesSinceExtension   int
+	verifiesSinceExtension int
+	hasSuccessfulWrite     bool
 }
 
 type toolBudgetObservation struct {
@@ -37,13 +40,13 @@ type toolBudgetObservation struct {
 	novel     int
 	writes    int
 }
-
 type toolBudgetExtensionDecision struct {
-	Granted      bool
-	AddedRounds  int
-	NewLimit     int
-	LoopDetected bool
-	Reason       string
+	Granted       bool
+	AddedRounds   int
+	NewLimit      int
+	LoopDetected  bool
+	ReadOnlyStall bool
+	Reason        string
 }
 
 func newToolBudgetController(cfg ExecutorConfig) *toolBudgetController {
@@ -114,6 +117,10 @@ func (c *toolBudgetController) observe(calls []types.ToolCall, results []types.T
 		observation.successes++
 		if isWriteMutationTool(call.Name) {
 			observation.writes++
+			c.writesSinceExtension++
+			c.hasSuccessfulWrite = true
+		} else if c.hasSuccessfulWrite && isFocusedVerificationCall(call) {
+			c.verifiesSinceExtension++
 		}
 		if _, seen := c.seenEvents[event]; !seen {
 			c.seenEvents[event] = struct{}{}
@@ -155,8 +162,10 @@ func digestStrings(parts []string) string {
 // maybeExtend is called only when the model returns another tool batch at the
 // current iteration boundary. The grant is mechanical: novel successful tool
 // evidence since the previous boundary, no repeated tail cycle, and remaining
-// configured extension capacity.
-func (c *toolBudgetController) maybeExtend() toolBudgetExtensionDecision {
+// configured extension capacity. For write-oriented intents, a successful
+// durable write or focused post-write verification is required; novel
+// read/search evidence alone is a deterministic stall.
+func (c *toolBudgetController) maybeExtend(writeOriented bool) toolBudgetExtensionDecision {
 	decision := toolBudgetExtensionDecision{NewLimit: c.iterationLimit}
 	if c == nil || !c.adaptive {
 		decision.Reason = "adaptive tool budget disabled"
@@ -175,6 +184,11 @@ func (c *toolBudgetController) maybeExtend() toolBudgetExtensionDecision {
 		decision.Reason = "no novel successful tool result since the previous boundary"
 		return decision
 	}
+	if writeOriented && c.writesSinceExtension == 0 && c.verifiesSinceExtension == 0 {
+		decision.ReadOnlyStall = true
+		decision.Reason = "write-oriented intent stalled: no durable write or post-write verification since the previous boundary"
+		return decision
+	}
 
 	added := c.extensionSize
 	if remaining := c.hardLimit - c.iterationLimit; added > remaining {
@@ -187,11 +201,45 @@ func (c *toolBudgetController) maybeExtend() toolBudgetExtensionDecision {
 	c.iterationLimit += added
 	c.extensions++
 	c.progressSinceExtension = 0
+	c.writesSinceExtension = 0
+	c.verifiesSinceExtension = 0
 	decision.Granted = true
 	decision.AddedRounds = added
 	decision.NewLimit = c.iterationLimit
 	decision.Reason = "novel successful tool results without a repeated trace cycle"
 	return decision
+}
+
+// isFocusedVerificationCall recognizes bounded proof steps that can earn a
+// follow-up extension after a durable write. Generic shell calls qualify only
+// when they contain one unchained, well-known verification command.
+func isFocusedVerificationCall(call types.ToolCall) bool {
+	switch strings.TrimSpace(call.Name) {
+	case "run_tests", "test_single", "run_impacted_tests", "coverage", "run_build", "check_syntax", "lint":
+		return true
+	case "run_command", "exec_cmd", "bash":
+		command := ""
+		for _, key := range []string{"command", "cmd"} {
+			if value, ok := call.Input[key].(string); ok {
+				command = value
+				break
+			}
+		}
+		command = strings.ToLower(strings.TrimSpace(command))
+		if command == "" || strings.ContainsAny(command, "\r\n;|") || strings.Contains(command, "&&") {
+			return false
+		}
+		for _, prefix := range []string{
+			"go test", "go vet", "go build", "git diff --check",
+			"cargo test", "cargo check", "pytest", "python -m pytest",
+			"npm test", "npm run test", "pnpm test", "yarn test",
+		} {
+			if command == prefix || strings.HasPrefix(command, prefix+" ") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // repeatedTailCycle detects deterministic period-1, period-2, and period-3

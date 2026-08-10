@@ -153,9 +153,9 @@ type ExecutorConfig struct {
 	MaxToolIterations int
 
 	// AdaptiveToolBudget permits bounded iteration extensions when the
-	// deterministic tool trace shows novel successful work and no repeated
-	// cycle. The total remains bounded by MaxToolCalls, timeout, extension size,
-	// and extension count.
+	// deterministic trace shows intent-appropriate progress and no repeated
+	// cycle or write-task read-only stall. The total remains bounded by
+	// MaxToolCalls, timeout, extension size, and extension count.
 	AdaptiveToolBudget bool
 
 	// ToolIterationExtensionSize is the number of rounds granted by one

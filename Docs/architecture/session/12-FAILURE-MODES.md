@@ -21,7 +21,7 @@
 | F13 | Executive gate preflight block | Preflight error | Block tool | Correct |
 | F14 | Post-validate fail | Validate error | Error after side effect? | Side effect may already land; model retries |
 | F15 | Tool timeout | context.WithTimeout | Error | Partial external effects |
-| F16 | Max tool calls / effective iterations | counters + deterministic trace | Progress may receive bounded extensions; repeated/no-progress traces converge to reduced-tool forced final | Incomplete task may be reported explicitly |
+| F16 | Max tool calls / effective iterations | counters + deterministic trace | Material progress may receive bounded extensions; repeated cycles and write-task read-only stalls converge to reduced-tool forced final | Incomplete task may be reported explicitly |
 | F16a | Outer deadline approaches during exploration | exploration cutoff | Reserve 5m (or half of short remainder), force final under parent context | Final provider call can still exceed reserve |
 | F16b | Piggyback write breaks build/tests | shared post-edit gate | Fail with compiler/test evidence; no native repair channel | Operator/model must repair in a later turn |
 | F17 | Client lacks ToolResultsProvider | supportsLoop false | One-shot tools, warn | Model never sees results |

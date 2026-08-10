@@ -360,7 +360,9 @@ generateResponse(...)
          if !ToolResultsProvider → return after first batch (warn)
          CompleteWithToolResults(..., exploration context)
          if no more tool_calls → return final
-         at boundary: extend only for novel successful trace with no repeated cycle
+         at boundary: extend only for intent-appropriate material progress;
+           write turns need a durable write or focused post-write verification,
+           and repeated cycles/read-only stalls deny extension
          if exploration cutoff → pair pending results and force a capability-reduced final under parent context
        warn effective iteration budget reached
 ```
