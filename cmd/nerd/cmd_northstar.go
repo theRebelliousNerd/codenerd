@@ -638,77 +638,79 @@ func generateNorthstarMangleFromState(ns *NorthstarState) string {
 	sb.WriteString("# This file defines the project's north star and informs kernel reasoning.\n")
 	sb.WriteString("# Schema declarations are in internal/core/defaults/schemas.mg\n\n")
 
-	// Core Vision Facts
+	// Core Vision Facts - IDs are /string per Decl, use "global" as canonical ID (see internal/northstar/types.go ToFacts)
 	sb.WriteString("# Core Vision Facts\n")
-	sb.WriteString(fmt.Sprintf("northstar_mission(/ns_mission, %q).\n", ns.Mission))
-	sb.WriteString(fmt.Sprintf("northstar_problem(/ns_problem, %q).\n", ns.Problem))
-	sb.WriteString(fmt.Sprintf("northstar_vision(/ns_vision, %q).\n", ns.Vision))
+	sb.WriteString(fmt.Sprintf("northstar_mission(%q, %q).\n", "global", ns.Mission))
+	sb.WriteString(fmt.Sprintf("northstar_problem(%q, %q).\n", "global", ns.Problem))
+	sb.WriteString(fmt.Sprintf("northstar_vision(%q, %q).\n", "global", ns.Vision))
 	sb.WriteString("\n")
 
 	// Personas
 	if len(ns.Personas) > 0 {
 		sb.WriteString("# User Personas\n")
 		for i, p := range ns.Personas {
-			personaID := fmt.Sprintf("/persona_%d", i+1)
-			sb.WriteString(fmt.Sprintf("northstar_persona(%s, %q).\n", personaID, p.Name))
+			personaID := fmt.Sprintf("persona_%d", i+1)
+			sb.WriteString(fmt.Sprintf("northstar_persona(%q, %q).\n", personaID, p.Name))
 			for _, pain := range p.PainPoints {
-				sb.WriteString(fmt.Sprintf("northstar_pain_point(%s, %q).\n", personaID, pain))
+				sb.WriteString(fmt.Sprintf("northstar_pain_point(%q, %q).\n", personaID, pain))
 			}
 			for _, need := range p.Needs {
-				sb.WriteString(fmt.Sprintf("northstar_need(%s, %q).\n", personaID, need))
+				sb.WriteString(fmt.Sprintf("northstar_need(%q, %q).\n", personaID, need))
 			}
 		}
 		sb.WriteString("\n")
 	}
 
-	// Capabilities
+	// Capabilities - Decl bound [/string, /string, /name, /number]: ID string, Desc string, Timeline /name, Priority /number
 	if len(ns.Capabilities) > 0 {
 		sb.WriteString("# Capabilities\n")
 		for i, c := range ns.Capabilities {
-			capID := fmt.Sprintf("/cap_%d", i+1)
+			capID := fmt.Sprintf("cap_%d", i+1)
 			timeline := strings.ToLower(strings.ReplaceAll(c.Timeline, " ", "_"))
-			priority := strings.ToLower(c.Priority)
-			sb.WriteString(fmt.Sprintf("northstar_capability(%s, %q, /%s, /%s).\n",
+			priority := northstarPriorityToNumber(c.Priority)
+			sb.WriteString(fmt.Sprintf("northstar_capability(%q, %q, /%s, %d).\n",
 				capID, c.Description, timeline, priority))
 		}
 		sb.WriteString("\n")
 	}
 
-	// Risks
+	// Risks - Decl bound [/string, /string, /name, /number]: ID string, Desc string, Likelihood /name, Impact /number
 	if len(ns.Risks) > 0 {
 		sb.WriteString("# Risks\n")
 		for i, r := range ns.Risks {
-			riskID := fmt.Sprintf("/risk_%d", i+1)
+			riskID := fmt.Sprintf("risk_%d", i+1)
 			likelihood := strings.ToLower(r.Likelihood)
-			impact := strings.ToLower(r.Impact)
-			sb.WriteString(fmt.Sprintf("northstar_risk(%s, %q, /%s, /%s).\n",
+			impact := northstarRiskImpactToNumber(r.Impact)
+			sb.WriteString(fmt.Sprintf("northstar_risk(%q, %q, /%s, %d).\n",
 				riskID, r.Description, likelihood, impact))
 			if r.Mitigation != "" && strings.ToLower(r.Mitigation) != "none" {
-				sb.WriteString(fmt.Sprintf("northstar_mitigation(%s, %q).\n", riskID, r.Mitigation))
+				// Decl northstar_mitigation(RiskID, Strategy) bound [/string, /name] - Strategy is /name atom
+				sb.WriteString(fmt.Sprintf("northstar_mitigation(%q, /mitigation).\n", riskID))
 			}
 		}
 		sb.WriteString("\n")
 	}
 
-	// Requirements
+	// Requirements - Decl bound [/string, /name, /string, /number]: ReqID string, Type /name, Description string, Priority /number
 	if len(ns.Requirements) > 0 {
 		sb.WriteString("# Requirements\n")
 		for _, r := range ns.Requirements {
-			reqID := fmt.Sprintf("/%s", strings.ToLower(r.ID))
-			reqType := strings.ToLower(r.Type)
-			priority := strings.ToLower(strings.ReplaceAll(r.Priority, "-", "_"))
-			sb.WriteString(fmt.Sprintf("northstar_requirement(%s, /%s, %q, /%s).\n",
+			reqID := strings.ToLower(r.ID)
+			reqType := strings.ToLower(strings.ReplaceAll(r.Type, "-", "_"))
+			reqType = strings.ReplaceAll(reqType, " ", "_")
+			priority := northstarPriorityToNumber(r.Priority)
+			sb.WriteString(fmt.Sprintf("northstar_requirement(%q, /%s, %q, %d).\n",
 				reqID, reqType, r.Description, priority))
 		}
 		sb.WriteString("\n")
 	}
 
-	// Constraints
+	// Constraints - Decl bound [/string, /string]
 	if len(ns.Constraints) > 0 {
 		sb.WriteString("# Constraints\n")
 		for i, c := range ns.Constraints {
-			constraintID := fmt.Sprintf("/constraint_%d", i+1)
-			sb.WriteString(fmt.Sprintf("northstar_constraint(%s, %q).\n", constraintID, c))
+			constraintID := fmt.Sprintf("constraint_%d", i+1)
+			sb.WriteString(fmt.Sprintf("northstar_constraint(%q, %q).\n", constraintID, c))
 		}
 		sb.WriteString("\n")
 	}
@@ -716,6 +718,34 @@ func generateNorthstarMangleFromState(ns *NorthstarState) string {
 	sb.WriteString("northstar_defined().\n")
 
 	return sb.String()
+}
+
+func northstarPriorityToNumber(p string) int {
+	switch strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(p, "-", "_"), " ", "_")) {
+	case "critical", "must_have":
+		return 100
+	case "high", "should_have":
+		return 80
+	case "medium":
+		return 50
+	case "low", "nice_to_have":
+		return 20
+	default:
+		return 50
+	}
+}
+
+func northstarRiskImpactToNumber(impact string) int {
+	switch strings.ToLower(strings.TrimSpace(impact)) {
+	case "high":
+		return 100
+	case "medium":
+		return 50
+	case "low":
+		return 20
+	default:
+		return 50
+	}
 }
 
 // northstarStateToVision converts a NorthstarState into a northstar.Vision for store persistence.

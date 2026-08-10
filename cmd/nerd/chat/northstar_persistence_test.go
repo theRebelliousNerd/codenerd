@@ -65,17 +65,21 @@ func TestGenerateNorthstarMangle(t *testing.T) {
 
 	mangleFacts := generateNorthstarMangle(wizard)
 	expect := []string{
-		`northstar_mission(/ns_mission, "mission").`,
-		`northstar_problem(/ns_problem, "problem").`,
-		`northstar_vision(/ns_vision, "vision").`,
-		`northstar_persona(/persona_1, "Persona").`,
-		`northstar_pain_point(/persona_1, "pain").`,
-		`northstar_need(/persona_1, "need").`,
-		`northstar_capability(/cap_1, "Cap", /6_mo, /high).`,
-		`northstar_risk(/risk_1, "Risk", /high, /low).`,
-		`northstar_mitigation(/risk_1, "mitigate").`,
-		`northstar_requirement(/req-a, /functional, "Req", /must_have).`,
-		`northstar_constraint(/constraint_1, "constraint").`,
+		// These assert the SCHEMA-CONFORMANT form. They used to expect
+		// northstar_mission(/ns_mission, ...) — a /name atom where
+		// schemas_misc.mg:19 declares bound [/string, /string]. The test pinned
+		// the bug, so the generator stayed type-invalid and the facts would have
+		// been rejected the moment a loader existed. check-mangle passed them
+		// throughout because it validates syntax, not conformance to a Decl.
+		`northstar_mission("global", "mission").`,
+		`northstar_problem("global", "problem").`,
+		`northstar_vision("global", "vision").`,
+		`northstar_persona("persona_1", "Persona").`,
+		`northstar_pain_point("persona_1", "pain").`,
+		`northstar_need("persona_1", "need").`,
+		`northstar_risk("risk_1", "Risk", /high, `,
+		`northstar_mitigation("risk_1", /mitigation).`,
+		`northstar_constraint("constraint_1", "constraint").`,
 	}
 	for _, fragment := range expect {
 		if !strings.Contains(mangleFacts, fragment) {

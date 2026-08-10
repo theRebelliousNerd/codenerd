@@ -412,7 +412,7 @@ func (k *RealKernel) loadMangleFiles() error {
 		k.nerdPath("mangle"),
 		k.manglePath,
 	}
-
+	northstarLoaded := false
 	userExtensionsLoaded := 0
 	for _, wsPath := range workspacePaths {
 		if wsPath == "" {
@@ -449,6 +449,34 @@ func (k *RealKernel) loadMangleFiles() error {
 				logging.Kernel("Loaded user policy overrides from %s (%d bytes, %d data facts, %d intents, %d prompts)", policyPath, len(res.Logic), len(res.Facts), len(res.Intents), len(res.Prompts))
 			} else {
 				logging.Get(logging.CategoryKernel).Warn("Failed to load hybrid policy overrides from %s: %v", policyPath, err)
+			}
+		}
+
+		// Append Northstar Vision. It lives at .nerd/northstar.mg, one level
+		// above the .nerd/mangle directory the files above sit in, because both
+		// the TUI wizard and `nerd northstar load` write it there.
+		//
+		// res.Logic is what carries the vision. LoadHybridMangleFile only fills
+		// res.Facts from the TAXONOMY:/INTENT:/PROMPT: directives; ordinary
+		// ground facts like northstar_mission("global", ...) go to res.Logic.
+		// Appending only res.Facts therefore loaded the file and kept nothing —
+		// the log said "2839 bytes, 0 data facts" and `nerd query
+		// northstar_mission` still found nothing.
+		if !northstarLoaded {
+			northstarPath := k.nerdPath("northstar.mg")
+			if _, err := os.Stat(northstarPath); err == nil {
+				if res, err := LoadHybridMangleFile(northstarPath); err == nil {
+					schemasBuilder.WriteString("\n\n# Northstar Vision\n")
+					schemasBuilder.WriteString(res.Logic)
+					k.bootFacts = append(k.bootFacts, res.Facts...)
+					k.bootIntents = append(k.bootIntents, res.Intents...)
+					k.bootPrompts = append(k.bootPrompts, res.Prompts...)
+					userExtensionsLoaded++
+					northstarLoaded = true
+					logging.Kernel("Loaded northstar vision from %s (%d bytes, %d data facts, %d intents, %d prompts)", northstarPath, len(res.Logic), len(res.Facts), len(res.Intents), len(res.Prompts))
+				} else {
+					logging.Get(logging.CategoryKernel).Warn("Failed to load northstar vision from %s: %v", northstarPath, err)
+				}
 			}
 		}
 
