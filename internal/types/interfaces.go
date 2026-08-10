@@ -378,3 +378,36 @@ type TokenCounter interface {
 	// CountTokens counts the total number of tokens for the given prompt.
 	CountTokens(ctx context.Context, systemPrompt, userPrompt string) (int, error)
 }
+
+// GroundedWebSearcher is an optional provider-neutral interface for LLM clients
+// that support native grounded web search (e.g., Meta /responses with web_search).
+// Use type assertion to detect capability:
+//
+//	if gws, ok := client.(types.GroundedWebSearcher); ok {
+//	    result, err := gws.GroundedWebSearch(ctx, "query")
+//	}
+type GroundedWebSearcher interface {
+	GroundedWebSearch(ctx context.Context, query string) (*GroundedWebSearchResult, error)
+}
+
+// GroundedWebSearchResult contains the grounded answer, citations, and token usage.
+type GroundedWebSearchResult struct {
+	Text      string             `json:"text"`
+	Citations []GroundedCitation `json:"citations,omitempty"`
+	Usage     GroundedUsage      `json:"usage"`
+}
+
+// GroundedCitation represents a URL citation anchoring a segment of the grounded response.
+type GroundedCitation struct {
+	URL        string `json:"url"`
+	Title      string `json:"title,omitempty"`
+	StartIndex int    `json:"start_index"`
+	EndIndex   int    `json:"end_index"`
+}
+
+// GroundedUsage captures token usage for a grounded web search call.
+type GroundedUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	TotalTokens  int `json:"total_tokens"`
+}
