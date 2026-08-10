@@ -77,6 +77,7 @@ func (g *Guardian) SetParentKernel(client KernelClient) {
 	defer g.mu.Unlock()
 	g.kernel = client
 }
+
 // SetQuerier sets the FactQuerier for module northstar resolution.
 func (g *Guardian) SetQuerier(q FactQuerier) {
 	g.mu.Lock()
@@ -551,6 +552,60 @@ func (g *Guardian) calculatePathRelevance(path string) float64 {
 		if matchesHighImpactPath(highImpact, path) {
 			return 0.9
 		}
+	}
+	// Module northstar tier (NS-6): deterministic, LLM-free signal that
+	// decides WHEN to spend an expensive LLM alignment check. A module's
+	// own severity is the cheapest honest signal available.
+	//
+	// Must be checked AFTER HighImpactPath so existing behaviour never
+	// regresses, and must fall through to the original 0.5 when the
+	// querier is absent, no module governs the path, or any lookup
+	// errors. No background cache, no LLM call.
+	var q FactQuerier
+	g.mu.RLock()
+	q = g.querier
+	g.mu.RUnlock()
+	if q == nil {
+		return 0.5
+	}
+	mod, err := ModuleForPath(q, path)
+	if err != nil || mod == "" {
+		return 0.5
+	}
+	reqs, err := ModuleRequirementsFor(q, mod)
+	if err != nil {
+		return 0.5
+	}
+	if len(reqs) > 0 {
+		hasBlocker := false
+		hasMajor := false
+		for _, r := range reqs {
+			sev := strings.TrimSpace(strings.ToLower(r.Severity))
+			sev = strings.TrimPrefix(sev, "/")
+			switch sev {
+			case "blocker":
+				hasBlocker = true
+			case "major":
+				hasMajor = true
+			}
+		}
+		if hasBlocker {
+			return 0.9
+		}
+		if hasMajor {
+			return 0.7
+		}
+		// Only /minor or /unspecified (including empty/unknown) requirements.
+		return 0.6
+	}
+	// No requirements: module with a purpose but no requirements scores 0.6
+	// (it cared enough to declare something). Lookup error falls back to 0.5.
+	purpose, err := EffectiveModulePurpose(q, mod)
+	if err != nil {
+		return 0.5
+	}
+	if strings.TrimSpace(purpose) != "" {
+		return 0.6
 	}
 	return 0.5
 }
