@@ -35,6 +35,9 @@ config cannot authorize or expose tools.
   validated before spawn.
 - Tool calls are bounded by call count, loop count, timeout, capability, exact
   constitutional permission, and VirtualStore validation.
+- Native loops receive compact remaining-call/round telemetry. The base round
+  limit may receive only bounded deterministic extensions when executed results
+  are novel and successful; repeated trace cycles force convergence.
 - Shared kernel use requires task/turn identity and cleanup; per-task history is
   cloned/isolated.
 

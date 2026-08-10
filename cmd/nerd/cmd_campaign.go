@@ -1423,6 +1423,7 @@ func (a *campaignTaskDelegatorAdapter) Execute(ctx context.Context, intent strin
 	}
 	return a.executor.Execute(ctx, req)
 }
+
 // applyCampaignExecutorBudget gives a CLI campaign's executor and spawner the
 // same tool-loop budget the TUI gets from internal/system/factory.go.
 //
@@ -1441,11 +1442,24 @@ func applyCampaignExecutorBudget(
 	execCfg := session.DefaultExecutorConfig()
 	execCfg.WorkspaceRoot = workspace
 	if appCfg != nil {
-		if limits := appCfg.GetCoreLimits(); limits.MaxToolCalls > 0 {
+		limits := appCfg.GetCoreLimits()
+		if limits.MaxToolCalls > 0 {
 			execCfg.MaxToolCalls = limits.MaxToolCalls
 		}
-		if limits := appCfg.GetCoreLimits(); limits.MaxToolIterations > 0 {
+		if limits.MaxToolIterations > 0 {
 			execCfg.MaxToolIterations = limits.MaxToolIterations
+		}
+		if limits.AdaptiveToolBudget != nil {
+			execCfg.AdaptiveToolBudget = *limits.AdaptiveToolBudget
+		}
+		if limits.ToolIterationExtensionSize > 0 {
+			execCfg.ToolIterationExtensionSize = limits.ToolIterationExtensionSize
+		}
+		if limits.MaxToolIterationExtensions > 0 {
+			execCfg.MaxToolIterationExtensions = limits.MaxToolIterationExtensions
+		}
+		if limits.ToolLoopRepeatThreshold > 0 {
+			execCfg.ToolLoopRepeatThreshold = limits.ToolLoopRepeatThreshold
 		}
 	}
 	if executor != nil {

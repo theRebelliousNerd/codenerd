@@ -52,7 +52,11 @@ Primary interfaces:
 | Knob | Default | Defined |
 |------|---------|---------|
 | MaxToolCalls | 50 | `DefaultExecutorConfig` |
-| MaxToolIterations | 8 | same |
+| MaxToolIterations | 8 base | same |
+| AdaptiveToolBudget | true | same |
+| ToolIterationExtensionSize | 8 | same |
+| MaxToolIterationExtensions | 2 | same |
+| ToolLoopRepeatThreshold | 2 identical trace cycles | same |
 | ToolTimeout | 5m | same |
 | FinalAnswerReserve | 5m (half of remainder for short turns) | same |
 | EnableSafetyGate | true | same |

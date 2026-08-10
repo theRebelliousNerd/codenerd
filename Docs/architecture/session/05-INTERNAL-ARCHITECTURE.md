@@ -38,7 +38,11 @@
 5. JIT emits system prompt; ConfigFactory emits allowed tools.  
 6. LLM returns text and/or tool calls.  
 7. For each tool: safety → preflight → execute → validate.  
-8. Tool results (native) feed back up to MaxToolIterations and only until the deadline’s reserved final-answer window; Piggyback shares the same batch accounting but remains single-round.
+8. Native tool results carry compact remaining-call/round guidance. The loop
+   runs to the base MaxToolIterations and may receive bounded deterministic
+   extensions only for novel successful traces; repeated cycles deny extension.
+   The deadline’s reserved final-answer window remains independent. Piggyback
+   shares batch accounting but remains single-round.
 9. Native and Piggyback write turns pass the shared build/test/critic gate; Piggyback remains single-round and cannot auto-repair a hard-gate failure.
 10. Piggyback control packet processed; surface text returned.
 11. History + optional persist + taxonomy learning.

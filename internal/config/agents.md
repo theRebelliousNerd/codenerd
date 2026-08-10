@@ -11,6 +11,10 @@
 - Normal chat, campaign, and factory boot paths must consume the same execution
   and provider settings. An invalid explicit config fails closed before ambient
   environment detection.
+- Tool-budget adaptation is executable policy: preserve the explicit
+  `adaptive_tool_budget=false` pointer value, bound extension size/count and
+  repeat thresholds, and propagate the same resolved limits to chat, campaigns,
+  and spawned agents.
 - Native browser settings live under the top-level `browser` block, separate
   from `integrations.servers.browser` (an external MCP endpoint). Preserve
   pointer semantics for `multi_tab_default` so explicit isolation is not

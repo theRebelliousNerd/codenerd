@@ -1466,15 +1466,30 @@ func initFinalExecutors(bctx *bootContext) error {
 	// users is not a guard.
 	execCfg := session.DefaultExecutorConfig()
 	execCfg.WorkspaceRoot = bctx.workspace
-	if limits := bctx.appCfg.GetCoreLimits(); limits.MaxToolCalls > 0 {
+	limits := bctx.appCfg.GetCoreLimits()
+	if limits.MaxToolCalls > 0 {
 		execCfg.MaxToolCalls = limits.MaxToolCalls
 	}
-	if limits := bctx.appCfg.GetCoreLimits(); limits.MaxToolIterations > 0 {
+	if limits.MaxToolIterations > 0 {
 		execCfg.MaxToolIterations = limits.MaxToolIterations
 	}
+	if limits.AdaptiveToolBudget != nil {
+		execCfg.AdaptiveToolBudget = *limits.AdaptiveToolBudget
+	}
+	if limits.ToolIterationExtensionSize > 0 {
+		execCfg.ToolIterationExtensionSize = limits.ToolIterationExtensionSize
+	}
+	if limits.MaxToolIterationExtensions > 0 {
+		execCfg.MaxToolIterationExtensions = limits.MaxToolIterationExtensions
+	}
+	if limits.ToolLoopRepeatThreshold > 0 {
+		execCfg.ToolLoopRepeatThreshold = limits.ToolLoopRepeatThreshold
+	}
 	bctx.sessionExecutor.SetConfig(execCfg)
-	logging.Boot("Tool loop budget: %d calls / %d iterations per turn; build verification after edits: %v (workspace %s)",
-		execCfg.MaxToolCalls, execCfg.MaxToolIterations, execCfg.VerifyBuildAfterEdits, execCfg.WorkspaceRoot)
+	logging.Boot("Tool loop budget: %d calls / %d base iterations; adaptive=%v extension=%dx%d repeat_threshold=%d; build verification after edits: %v (workspace %s)",
+		execCfg.MaxToolCalls, execCfg.MaxToolIterations, execCfg.AdaptiveToolBudget,
+		execCfg.MaxToolIterationExtensions, execCfg.ToolIterationExtensionSize,
+		execCfg.ToolLoopRepeatThreshold, execCfg.VerifyBuildAfterEdits, execCfg.WorkspaceRoot)
 
 	if bctx.localDB != nil {
 		bctx.sessionExecutor.SetSessionPersister(bctx.localDB)

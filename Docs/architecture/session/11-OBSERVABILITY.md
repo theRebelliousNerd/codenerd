@@ -25,7 +25,9 @@ Convenience helpers:
 | JIT / config failures | compile paths | Warn |
 | Tool defs count / Piggyback catalog size | generateResponse* | Info/Debug |
 | No-tool retry triggered | runToolLoop | Warn |
-| Max tool calls / iterations | runToolLoop | Warn |
+| Base/hard tool budget and extension policy | factory boot | Info |
+| Extension granted/refused with reason | runToolLoop | Warn |
+| Final effective tool iteration budget | runToolLoop | Warn |
 | Tool failure | execute paths | Error |
 | Safety deny / fail closed | checkSafety | Warn/Error |
 | safe_action fallback allow | checkSafety | Warn |

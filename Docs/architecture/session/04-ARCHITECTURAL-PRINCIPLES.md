@@ -25,9 +25,13 @@ If `EnableSafetyGate` is true and the kernel is missing, or payload cannot be re
 
 Routing/orchestration already classified the verb. Re-perception of synthetic task text is wasteful and can mis-route.
 
-## P6 — Tool budgets are hard stops
+## P6 — Tool budgets are bounded control loops
 
-`MaxToolCalls`, `MaxToolIterations`, and `ToolTimeout` exist to bound cost and hang risk. Raising them requires product reason, not silent default creep.
+`MaxToolCalls`, the adaptive hard iteration limit, and `ToolTimeout` remain hard
+cost/hang boundaries. The base `MaxToolIterations` may grow only through a
+configured number of small deterministic extensions when the executed trace
+contains novel successful results and no repeated period-1/2/3 cycle. The model
+cannot self-authorize an extension.
 
 ## P7 — Dual tool protocol, single safety path
 

@@ -132,10 +132,7 @@ func (e *Executor) runToolLoop(
 		{Role: "assistant", Text: llmResponse.Text, ToolCalls: llmResponse.ToolCalls},
 	}
 
-	maxIter := executorCfg.MaxToolIterations
-	if maxIter <= 0 {
-		maxIter = defaultMaxToolIterations
-	}
+	budget := newToolBudgetController(executorCfg)
 	finalizationCutoff, finalizationReserve, hasFinalizationCutoff :=
 		toolExplorationCutoff(ctx, executorCfg.FinalAnswerReserve)
 	// A client that cannot consume tool results has no final follow-up phase to
@@ -151,7 +148,7 @@ func (e *Executor) runToolLoop(
 		return verified, verifyErr
 	}
 
-	for iter := 0; iter < maxIter; iter++ {
+	for iter := 0; iter < budget.iterationLimit; iter++ {
 		if ctx.Err() != nil {
 			return currentResponse, toolErrs, ctx.Err()
 		}
@@ -180,6 +177,13 @@ func (e *Executor) runToolLoop(
 		// Execute all tool calls from this turn and collect tool_result blocks.
 		toolResults, batchErrs := e.executeToolBatch(explorationCtx, currentResponse.ToolCalls, cfg, result)
 		toolErrs = append(toolErrs, batchErrs...)
+		budget.observe(currentResponse.ToolCalls, toolResults)
+		toolResults = appendToolBudgetNudge(toolResults, budget.nudge(
+			iter+1,
+			result.ToolCallsExecuted,
+			e.writeOrientedIntent(result.Intent.Verb),
+			hasToolDefinition(toolDefs, "apply_edits"),
+		))
 		if ctx.Err() != nil {
 			cancelExploration()
 			return currentResponse, toolErrs, ctx.Err()
@@ -251,6 +255,22 @@ func (e *Executor) runToolLoop(
 			verified, verifyErr := verifyTerminal(currentResponse)
 			return verified, toolErrs, verifyErr
 		}
+
+		// The model still has executable work at the current boundary. The
+		// orchestrator may extend only when the trace since the prior boundary
+		// contains novel successful results and no deterministic repeat cycle.
+		if iter+1 >= budget.iterationLimit {
+			decision := budget.maybeExtend()
+			if decision.Granted {
+				logging.Get(logging.CategorySession).Warn(
+					"Adaptive tool budget extended by %d rounds to %d after %d executed tool call(s): %s",
+					decision.AddedRounds, decision.NewLimit, result.ToolCallsExecuted, decision.Reason)
+			} else {
+				logging.Get(logging.CategorySession).Warn(
+					"Adaptive tool budget refused extension at %d rounds after %d executed tool call(s): %s",
+					budget.iterationLimit, result.ToolCallsExecuted, decision.Reason)
+			}
+		}
 	}
 
 	// Iteration budget exhausted. currentResponse still holds UNEXECUTED tool
@@ -275,15 +295,16 @@ func (e *Executor) runToolLoop(
 	// now do the thing" is the instruction that turn needed; "you have explored
 	// enough, now describe the thing" is not.
 	logging.Get(logging.CategorySession).Warn(
-		"Max tool iterations reached: %d; forcing a final answer from %d executed tool call(s)",
-		maxIter, result.ToolCallsExecuted)
+		"Tool iteration budget reached: %d rounds (base %d, hard %d, extensions %d/%d); forcing a final answer from %d executed tool call(s)",
+		budget.iterationLimit, budget.baseLimit, budget.hardLimit, budget.extensions,
+		budget.maxExtensions, result.ToolCallsExecuted)
 
 	final, finalErrs, finalErr := e.forceFinalAnswer(ctx, trp, systemPrompt, &history, currentResponse, cfg, result)
 	toolErrs = append(toolErrs, finalErrs...)
 	if finalErr != nil {
 		logging.Get(logging.CategorySession).Error(
 			"Forced final answer failed after exhausting tool iterations: %v", finalErr)
-		return currentResponse, toolErrs, fmt.Errorf("tool iteration budget exhausted (%d iterations, %d tool calls executed): forced final answer failed: %w", maxIter, result.ToolCallsExecuted, finalErr)
+		return currentResponse, toolErrs, fmt.Errorf("tool iteration budget exhausted (%d iterations, %d tool calls executed): forced final answer failed: %w", budget.iterationLimit, result.ToolCallsExecuted, finalErr)
 	}
 	verified, verifyErr := verifyTerminal(final)
 	return verified, toolErrs, verifyErr

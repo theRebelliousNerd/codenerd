@@ -38,7 +38,7 @@ In practice, **spawn and factories still exist** as higher-level surfaces (`Spaw
 | Primary entry (system tasks) | `TaskExecutor` → `JITExecutor` |
 | Parallel workers | `Spawner` → `SubAgent` (own history, shared kernel/store) |
 | Safety default | `EnableSafetyGate: true`, fail-closed if kernel nil |
-| Tool iteration caps | `MaxToolCalls=50`, `MaxToolIterations=8`, `ToolTimeout=5m`, `FinalAnswerReserve=5m` |
+| Tool iteration caps | `MaxToolCalls=50`, base `MaxToolIterations=8`, adaptive `2x8` extension cap, repeat threshold `2`, `ToolTimeout=5m`, `FinalAnswerReserve=5m` |
 | Token budget default | `DefaultTokenBudget = 65536` |
 | History cap (executor) | 50 turns |
 | Compression (subagent) | threshold 10 → LLM summary + recent half |
@@ -213,7 +213,11 @@ Local interfaces (to avoid tight import cycles / over-coupling):
 | Field | Default | Rationale |
 |-------|---------|-----------|
 | `MaxToolCalls` | 50 | Hard budget per Process |
-| `MaxToolIterations` | 8 | LLM↔tools rounds |
+| `MaxToolIterations` | 8 | Base LLM↔tools rounds |
+| `AdaptiveToolBudget` | true | Permit deterministic progress extensions |
+| `ToolIterationExtensionSize` | 8 | Rounds per extension |
+| `MaxToolIterationExtensions` | 2 | Per-turn extension cap |
+| `ToolLoopRepeatThreshold` | 2 | Identical tail cycles deny extension |
 | `ToolTimeout` | 5 minutes | Per tool call |
 | `FinalAnswerReserve` | 5 minutes | Preserve a conclusion window before a turn deadline; short turns reserve half of their remainder |
 | `EnableSafetyGate` | true | Constitutional default |
@@ -349,16 +353,28 @@ generateResponse(...)
   │
   └─ native path
        derive exploration cutoff = turn deadline - FinalAnswerReserve
-       for iter < MaxToolIterations:
+       controller = base MaxToolIterations + bounded extension policy
+       for iter < controller.effectiveLimit:
          execute each ToolCall (budget MaxToolCalls, bounded by exploration cutoff)
+         attach compact remaining-call/round guidance to the paired tool result
          if !ToolResultsProvider → return after first batch (warn)
          CompleteWithToolResults(..., exploration context)
          if no more tool_calls → return final
+         at boundary: extend only for novel successful trace with no repeated cycle
          if exploration cutoff → pair pending results and force a capability-reduced final under parent context
-       warn max iterations
+       warn effective iteration budget reached
 ```
 
-The deadline and iteration ceilings are independent. A live 12-minute self-review previously reached the outer deadline during an ordinary tool-result follow-up and returned no verdict. The deadline-aware path now cancels exploration with five minutes reserved, preserves provider tool-use/tool-result pairing, and makes one capability-reduced final completion. Read-oriented finals receive no tools; write-oriented finals may receive only write mutations when no write has landed. For a turn with less than ten minutes remaining when the loop begins, the reserve is capped at half of that remainder so exploration is not eliminated.
+The deadline and adaptive iteration ceilings are independent. Adaptive grants
+remain subordinate to the hard tool-call count and deadline. A live 12-minute
+self-review previously reached the outer deadline during an ordinary tool-result
+follow-up and returned no verdict. The deadline-aware path now cancels
+exploration with five minutes reserved, preserves provider tool-use/tool-result
+pairing, and makes one capability-reduced final completion. Read-oriented finals
+receive no tools; write-oriented finals may receive only write mutations when no
+write has landed. For a turn with less than ten minutes remaining when the loop
+begins, the reserve is capped at half of that remainder so exploration is not
+eliminated.
 
 `verifyCompletedToolTurn` owns the post-edit build, test/coverage, and advisory
 critic sequence for every terminal path: natural completion, deadline/iteration

@@ -28,6 +28,23 @@ type CoreLimits struct {
 	// reading source and hit the ceiling before writing anything. Raise these
 	// for research-heavy or documentation work; lower them to cap spend.
 	MaxToolIterations int `yaml:"max_tool_iterations" json:"max_tool_iterations,omitempty"`
+
+	// AdaptiveToolBudget lets the session orchestrator extend the iteration
+	// ceiling when deterministic telemetry shows novel successful work and no
+	// repeated tool-call cycle. Nil means enabled.
+	AdaptiveToolBudget *bool `yaml:"adaptive_tool_budget" json:"adaptive_tool_budget,omitempty"`
+
+	// ToolIterationExtensionSize is the number of additional LLM -> tool rounds
+	// in one progress extension. Zero uses the code default (8).
+	ToolIterationExtensionSize int `yaml:"tool_iteration_extension_size" json:"tool_iteration_extension_size,omitempty"`
+
+	// MaxToolIterationExtensions caps progress extensions per turn. Zero uses
+	// the code default (2). Set AdaptiveToolBudget=false to disable extensions.
+	MaxToolIterationExtensions int `yaml:"max_tool_iteration_extensions" json:"max_tool_iteration_extensions,omitempty"`
+
+	// ToolLoopRepeatThreshold is the number of identical deterministic trace
+	// cycles that marks a loop and blocks further extensions. Zero uses 2.
+	ToolLoopRepeatThreshold int `yaml:"tool_loop_repeat_threshold" json:"tool_loop_repeat_threshold,omitempty"`
 }
 
 // APISchedulerPolicy is user-facing configuration for the cooperative LLM API
@@ -99,6 +116,21 @@ func (c *Config) ValidateCoreLimits() error {
 	if c.CoreLimits.MaxDerivedFactsLimit < 1000 {
 		return fmt.Errorf("max_derived_facts_limit must be >= 1000")
 	}
+	if c.CoreLimits.MaxToolCalls < 0 {
+		return fmt.Errorf("max_tool_calls must be >= 0")
+	}
+	if c.CoreLimits.MaxToolIterations < 0 {
+		return fmt.Errorf("max_tool_iterations must be >= 0")
+	}
+	if c.CoreLimits.ToolIterationExtensionSize < 0 || c.CoreLimits.ToolIterationExtensionSize > 64 {
+		return fmt.Errorf("tool_iteration_extension_size must be between 0 and 64")
+	}
+	if c.CoreLimits.MaxToolIterationExtensions < 0 || c.CoreLimits.MaxToolIterationExtensions > 8 {
+		return fmt.Errorf("max_tool_iteration_extensions must be between 0 and 8")
+	}
+	if threshold := c.CoreLimits.ToolLoopRepeatThreshold; threshold != 0 && (threshold < 2 || threshold > 8) {
+		return fmt.Errorf("tool_loop_repeat_threshold must be 0 or between 2 and 8")
+	}
 	return nil
 }
 
@@ -116,12 +148,17 @@ func (c *Config) EnforceCoreLimits() map[string]int {
 
 // DefaultCoreLimits returns a CoreLimits with sensible defaults.
 func DefaultCoreLimits() *CoreLimits {
+	adaptiveToolBudget := true
 	return &CoreLimits{
-		MaxTotalMemoryMB:      12288,
-		MaxConcurrentShards:   12,
-		MaxConcurrentAPICalls: 5,
-		MaxSessionDurationMin: 120,
-		MaxFactsInKernel:      250000,
-		MaxDerivedFactsLimit:  100000,
+		MaxTotalMemoryMB:           12288,
+		MaxConcurrentShards:        12,
+		MaxConcurrentAPICalls:      5,
+		MaxSessionDurationMin:      120,
+		MaxFactsInKernel:           250000,
+		MaxDerivedFactsLimit:       100000,
+		AdaptiveToolBudget:         &adaptiveToolBudget,
+		ToolIterationExtensionSize: 8,
+		MaxToolIterationExtensions: 2,
+		ToolLoopRepeatThreshold:    2,
 	}
 }

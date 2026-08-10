@@ -152,6 +152,23 @@ type ExecutorConfig struct {
 	// tools could spin forever. 0 falls back to the default.
 	MaxToolIterations int
 
+	// AdaptiveToolBudget permits bounded iteration extensions when the
+	// deterministic tool trace shows novel successful work and no repeated
+	// cycle. The total remains bounded by MaxToolCalls, timeout, extension size,
+	// and extension count.
+	AdaptiveToolBudget bool
+
+	// ToolIterationExtensionSize is the number of rounds granted by one
+	// progress extension.
+	ToolIterationExtensionSize int
+
+	// MaxToolIterationExtensions caps progress extensions in one turn.
+	MaxToolIterationExtensions int
+
+	// ToolLoopRepeatThreshold is the repeated trace-cycle count that blocks an
+	// extension and forces convergence.
+	ToolLoopRepeatThreshold int
+
 	// ToolTimeout is the maximum time for a single tool execution.
 	ToolTimeout time.Duration
 
@@ -221,10 +238,13 @@ type ExecutorConfig struct {
 const DefaultTokenBudget = 65536
 
 const (
-	defaultMaxToolCalls       = 50
-	defaultMaxToolIterations  = 8
-	defaultToolTimeout        = 5 * time.Minute
-	defaultFinalAnswerReserve = 5 * time.Minute
+	defaultMaxToolCalls               = 50
+	defaultMaxToolIterations          = 8
+	defaultToolIterationExtensionSize = 8
+	defaultMaxToolIterationExtensions = 2
+	defaultToolLoopRepeatThreshold    = 2
+	defaultToolTimeout                = 5 * time.Minute
+	defaultFinalAnswerReserve         = 5 * time.Minute
 )
 
 // defaultSemanticTopK matches the value NewCompilationContext applies. This
@@ -236,12 +256,16 @@ const defaultSemanticTopK = 20
 // DefaultExecutorConfig returns sensible defaults.
 func DefaultExecutorConfig() ExecutorConfig {
 	return ExecutorConfig{
-		MaxToolCalls:       defaultMaxToolCalls,
-		MaxToolIterations:  defaultMaxToolIterations,
-		ToolTimeout:        defaultToolTimeout,
-		FinalAnswerReserve: defaultFinalAnswerReserve,
-		EnableSafetyGate:   true,
-		TokenBudget:        DefaultTokenBudget,
+		MaxToolCalls:               defaultMaxToolCalls,
+		MaxToolIterations:          defaultMaxToolIterations,
+		AdaptiveToolBudget:         true,
+		ToolIterationExtensionSize: defaultToolIterationExtensionSize,
+		MaxToolIterationExtensions: defaultMaxToolIterationExtensions,
+		ToolLoopRepeatThreshold:    defaultToolLoopRepeatThreshold,
+		ToolTimeout:                defaultToolTimeout,
+		FinalAnswerReserve:         defaultFinalAnswerReserve,
+		EnableSafetyGate:           true,
+		TokenBudget:                DefaultTokenBudget,
 		// On by default: the failure this prevents (confident, non-compiling
 		// edits reported as complete) is silent, and a default-off guard against
 		// a silent failure protects nobody.
