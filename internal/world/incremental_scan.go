@@ -106,7 +106,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			dirCount++
 			dirFacts = append(dirFacts, core.Fact{
 				Predicate: "directory",
-				Args:      []any{path, name},
+				Args:      []any{canonicalScanPath(root, path), name},
 			})
 			return nil
 		}
@@ -285,10 +285,11 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 				isTestStr = "/true"
 			}
 
+			canonical := canonicalScanPath(root, path)
 			ft := core.Fact{
 				Predicate: "file_topology",
 				Args: []any{
-					path,
+					canonical,
 					hash,
 					core.MangleAtom("/" + lang),
 					info.ModTime().UnixNano(),
@@ -303,10 +304,10 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			// files within one package directory instead of Cartesian-joining the
 			// whole repo. Emitted here too so incrementally re-scanned files keep
 			// their directory key.
-			if dir := filepath.ToSlash(filepath.Dir(path)); dir != "" {
+			if dir := filepath.ToSlash(filepath.Dir(canonical)); dir != "" {
 				additional = append(additional, core.Fact{
 					Predicate: "file_dir",
-					Args:      []any{path, dir},
+					Args:      []any{canonical, dir},
 				})
 			}
 			if !isTest && (s.config.MaxASTFileBytes <= 0 || info.Size() <= s.config.MaxASTFileBytes) {
