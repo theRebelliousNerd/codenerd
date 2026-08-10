@@ -1,3 +1,7 @@
+// TODO: Null/Undefined/Empty: Test empty/nil variants for `atoms` where intermediate pointers are null (e.g. `oa.Atom == nil`) during Fit execution to ensure no panics.
+// TODO: Type Coercion: Test if `BasePercent` is set to `math.NaN()` or `math.Inf(1)` in `SetCategoryBudget` and how allocations handles this float64 edge case.
+// TODO: User Request Extremes: Test `totalBudget` as exactly `math.MaxInt` combined with large base percentages, verifying float64 to int conversions do not wrap around to negative numbers.
+// TODO: State Conflicts: Test concurrent access to `GenerateReport` while another goroutine modifies `SetCategoryBudget`, verifying if lack of RWMutex in `GenerateReport` causes race conditions or panics.
 package prompt
 
 import (
