@@ -402,6 +402,24 @@ func ClassifyShellEffect(command string) ShellEffectKind {
 		}
 	}
 
+	// gofmt is the one formatting check a Go agent must be able to run on its
+	// own output, and it was falling through to UnknownMutating and being
+	// refused outright. Split it by flag rather than allowing the binary:
+	// -l lists and -d diffs to stdout and touch nothing, while -w rewrites
+	// files in place and must go through the mutation path like any other
+	// write. Checked before the readOnly prefix list so a bare "gofmt" or an
+	// unrecognised flag combination still falls through to the default deny.
+	if hasCommandPrefix(lower, "gofmt") || hasCommandPrefix(lower, "go fmt") {
+		if strings.Contains(lower, " -w") || hasCommandPrefix(lower, "go fmt") {
+			// go fmt always writes; gofmt -w writes.
+			return ShellEffectMutating
+		}
+		if strings.Contains(lower, " -l") || strings.Contains(lower, " -d") {
+			return ShellEffectReadOnly
+		}
+		return ShellEffectUnknownMutating
+	}
+
 	readOnly := []string{
 		"git status", "git diff", "git log", "git show", "git ls-files",
 		"git rev-parse", "git grep", "git blame", "git cat-file",

@@ -92,8 +92,24 @@ type metaResponsesRequest struct {
 
 	// Store is a pointer so that "false" is transmitted. The field defaults to
 	// true server-side, and a plain bool would make the off state omitempty
-	// away — silently persisting every request.
+	// away — silently persisting every request. Note that store:false does not
+	// disable prompt caching: cached prefixes are still reused and
+	// cached_tokens still reports hits. It only turns off response retrieval.
 	Store *bool `json:"store,omitempty"`
+
+	// PromptCacheRetention asks for extended prefix retention. The default,
+	// in_memory, is evicted under memory pressure, which showed up in practice
+	// as cache hits alternating with total misses on a ~35k-token prefix --
+	// roughly half of every conversation re-billed at the uncached rate. "24h"
+	// requests retention for up to a day. It is a hint, not a guarantee: the
+	// server still evicts under load.
+	PromptCacheRetention string `json:"prompt_cache_retention,omitempty"`
+
+	// PromptCacheKey routes requests that share a prefix to the same cache.
+	// Without it the server infers grouping, which scatters when several slots
+	// (main, worker, planner) issue interleaved requests carrying the same
+	// system prompt and tool definitions.
+	PromptCacheKey string `json:"prompt_cache_key,omitempty"`
 
 	// Truncation accepts only "disabled".
 	Truncation string `json:"truncation,omitempty"`
@@ -376,6 +392,19 @@ func (c *OpenAICompatClient) executeResponses(ctx context.Context, reqBody metaR
 	return &reply, nil
 }
 
+// metaPromptCacheRetention asks for the longer of the two retention options.
+// Muse Spark rejects "none", so the only real choice is between the in-memory
+// default and this.
+const metaPromptCacheRetention = "24h"
+
+// promptCacheKey groups requests that share a cacheable prefix. The prefix is
+// determined by the model and the output ceiling, and by nothing per-turn --
+// deliberately, because a key that varied per session or per request would
+// partition the cache and defeat its own purpose.
+func (c *OpenAICompatClient) promptCacheKey() string {
+	return fmt.Sprintf("codenerd:%s:%d", c.model, c.maxOutputTokens)
+}
+
 // newResponsesRequest builds a request with this client's configured reasoning
 // effort and output ceiling applied.
 func (c *OpenAICompatClient) newResponsesRequest(ctx context.Context, input []any, thinking bool) metaResponsesRequest {
@@ -389,6 +418,11 @@ func (c *OpenAICompatClient) newResponsesRequest(ctx context.Context, input []an
 		// conversation state on the vendor for no reason.
 		Store:      &store,
 		Truncation: "disabled",
+		// Long conversations against a large, stable prefix are exactly the
+		// case extended retention exists for; the in-memory default was being
+		// evicted mid-conversation.
+		PromptCacheRetention: metaPromptCacheRetention,
+		PromptCacheKey:       c.promptCacheKey(),
 	}
 
 	if c.maxOutputTokens > 0 {
