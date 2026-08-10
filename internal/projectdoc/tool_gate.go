@@ -224,18 +224,53 @@ func ValidateShellToolInvocation(toolName string, args map[string]any) (ShellEff
 	}
 
 	normalizedName := strings.ToLower(strings.TrimSpace(toolName))
-	if normalizedName == "run_build" && ShellCommand(args) == "" {
-		return ShellEffectVerification, normalizedName + " (auto-detected)", nil
+	// Dedicated verification tools are classified by identity. They resolve to
+	// verification when absent or when they are a recognised build/test
+	// invocation, but still refuse obviously mutating commands (knownMutations).
+	if normalizedName == "run_build" || normalizedName == "run_tests" {
+		rawCmd := ShellCommand(args)
+		var command string
+		if normalizedName == "run_build" && rawCmd == "" {
+			return ShellEffectVerification, normalizedName + " (auto-detected)", nil
+		}
+		if normalizedName == "run_tests" && rawCmd == "" {
+			// The concrete test runner is selected later from project files. A
+			// synthetic verification prefix lets us still reject injected pattern
+			// syntax before that selection happens.
+			command = joinStructuredCommand("go test", args, "pattern")
+			if strings.TrimSpace(command) == "go test" {
+				return ShellEffectVerification, normalizedName + " (auto-detected)", nil
+			}
+		} else {
+			command = structuredShellCommand(normalizedName, args)
+			if strings.TrimSpace(command) == "" {
+				return ShellEffectVerification, normalizedName + " (auto-detected)", nil
+			}
+		}
+		// Refuse obviously mutating payloads even when smuggled via verification tools.
+		lower := strings.ToLower(command)
+		for _, marker := range knownMutations {
+			if strings.Contains(lower, marker) {
+				kind := ShellEffectMutating
+				return kind, command, fmt.Errorf(
+					"blocked by shell-effect gate: %s is %s and lacks deterministic task-scope authorization",
+					toolName, kind,
+				)
+			}
+		}
+		kind := ClassifyShellEffect(command)
+		if kind.AllowedWithoutMutationScope() {
+			return kind, command, nil
+		}
+		if kind == ShellEffectNone {
+			return kind, command, fmt.Errorf("blocked by shell-effect gate: %s has no command payload", toolName)
+		}
+		return kind, command, fmt.Errorf(
+			"blocked by shell-effect gate: %s is %s and lacks deterministic task-scope authorization",
+			toolName, kind,
+		)
 	}
-	command := ""
-	if normalizedName == "run_tests" && ShellCommand(args) == "" {
-		// The concrete test runner is selected later from project files. A
-		// synthetic verification prefix lets us still reject injected pattern
-		// syntax before that selection happens.
-		command = joinStructuredCommand("go test", args, "pattern")
-	} else {
-		command = structuredShellCommand(normalizedName, args)
-	}
+	command := structuredShellCommand(normalizedName, args)
 	kind := ClassifyShellEffect(command)
 	if kind.AllowedWithoutMutationScope() {
 		return kind, command, nil
@@ -283,6 +318,57 @@ func stringArg(args map[string]any, key string) string {
 	return ""
 }
 
+var knownMutations = []string{
+	"git add", "git am", "git apply", "git checkout", "git cherry-pick",
+	"git clean", "git commit", "git fetch", "git merge", "git mv",
+	"git pull", "git push", "git rebase", "git reset", "git restore",
+	"git rm", "git stash", "git switch", "git tag",
+	"rm ", "rm\t", "rmdir", "shutil.rmtree", "rmtree", ".unlink(",
+	" unlink(", "os.remove", "os.unlink", "del ", "erase ",
+	"remove-item", "clear-content", "set-content", "add-content",
+	"new-item", "move-item", "copy-item", "rename-item", "out-file",
+	"export-csv", "set-item", "set-acl",
+}
+
+var safePipeReaders = map[string]struct{}{
+	"head": {}, "tail": {}, "cat": {}, "wc": {}, "grep": {}, "rg": {}, "sort": {}, "uniq": {},
+}
+
+func stripBenignOutputTail(command string) string {
+	s := strings.TrimSpace(command)
+	for {
+		trimmed := strings.TrimSpace(s)
+		if strings.HasSuffix(trimmed, "2>&1") {
+			s = strings.TrimSpace(strings.TrimSuffix(trimmed, "2>&1"))
+			continue
+		}
+		idx := strings.LastIndex(trimmed, "|")
+		if idx == -1 {
+			break
+		}
+		tail := strings.TrimSpace(trimmed[idx+1:])
+		if tail == "" {
+			break
+		}
+		if strings.ContainsAny(tail, "\r\n;`") || strings.Contains(tail, "$(") {
+			break
+		}
+		if strings.ContainsAny(tail, "&><") {
+			break
+		}
+		fields := strings.Fields(tail)
+		if len(fields) == 0 {
+			break
+		}
+		first := strings.ToLower(fields[0])
+		if _, ok := safePipeReaders[first]; !ok {
+			break
+		}
+		s = strings.TrimSpace(trimmed[:idx])
+	}
+	return s
+}
+
 // ClassifyShellEffect applies a deliberately small allowlist. Compound syntax,
 // output flags, known mutation verbs, and every unrecognized command fail
 // closed. The exact incident commands are classified as mutating before any
@@ -292,23 +378,16 @@ func ClassifyShellEffect(command string) ShellEffectKind {
 	if raw == "" {
 		return ShellEffectNone
 	}
-	lower := strings.ToLower(raw)
+	// Strip benign output-redirection tails for classification purposes only.
+	// This allows verification commands like "go build ./... 2>&1" or
+	// "go test ./... | head" to remain verification.
+	stripped := stripBenignOutputTail(raw)
+	lower := strings.ToLower(stripped)
 
-	if strings.ContainsAny(raw, "\r\n;|&><`") || strings.Contains(lower, "$(") {
+	if strings.ContainsAny(stripped, "\r\n;|&><`") || strings.Contains(lower, "$(") {
 		return ShellEffectUnknownMutating
 	}
 
-	knownMutations := []string{
-		"git add", "git am", "git apply", "git checkout", "git cherry-pick",
-		"git clean", "git commit", "git fetch", "git merge", "git mv",
-		"git pull", "git push", "git rebase", "git reset", "git restore",
-		"git rm", "git stash", "git switch", "git tag",
-		"rm ", "rm\t", "rmdir", "shutil.rmtree", "rmtree", ".unlink(",
-		" unlink(", "os.remove", "os.unlink", "del ", "erase ",
-		"remove-item", "clear-content", "set-content", "add-content",
-		"new-item", "move-item", "copy-item", "rename-item", "out-file",
-		"export-csv", "set-item", "set-acl",
-	}
 	for _, marker := range knownMutations {
 		if strings.Contains(lower, marker) {
 			return ShellEffectMutating
