@@ -1,17 +1,21 @@
 # Northstar Vision Reasoning
 # Section 42 of Cortex Executive Policy
 
-# --- Critical Path Derivation ---
-
 # Derive critical capabilities (priority = /critical)
+# FIX: Priority is /number per schemas_misc.mg Decl northstar_capability(..., /number) and parsePriority(critical)=100.
+# Uses Priority = 100 equality because critical is the discrete max value (100); threshold >=100 would be equivalent.
 critical_capability(CapID) :-
-    northstar_capability(CapID, _, _, /critical).
-
+    northstar_capability(CapID, _, _, Priority),
+    Priority = 100.
 # Derive high-risk items (both likelihood AND impact are high)
+# FIX: northstar_risk Decl is bound [/string, /string, /name, /number] per schemas_misc.mg.
+# Position 3 Likelihood is genuinely /name so /high there is correct; position 4 Impact is /number
+# so matching /high there can never unify. Impact via parseRiskImpact(high)=100 - use threshold >=80
+# (covers high=100; if schema ever added critical at 100, same bucket) rather than =100 only.
 high_risk(RiskID) :-
-    northstar_risk(RiskID, _, /high, /high).
+    northstar_risk(RiskID, _, /high, Impact),
+    Impact >= 80.
 
-# Helper: risk has at least one mitigation
 has_mitigation(RiskID) :-
     northstar_mitigation(RiskID, _).
 
@@ -49,8 +53,11 @@ orphan_capability(CapID, Desc) :-
 # --- Requirements Traceability ---
 
 # Must-have requirements (priority = /must_have)
+# FIX: Priority is /number per schemas_misc.mg (must_have maps to 100 via parsePriority); use numeric equality
+# Equality chosen because must_have is discrete max (100); threshold >=100 would be equivalent since 100 is max.
 must_have_requirement(ReqID, Desc) :-
-    northstar_requirement(ReqID, _, Desc, /must_have).
+    northstar_requirement(ReqID, _, Desc, Priority),
+    Priority = 100.
 
 # Helper: requirement is supported by at least one capability
 is_supported_req(ReqID) :-
