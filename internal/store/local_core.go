@@ -533,6 +533,22 @@ func (s *LocalStore) detectVecExtension() {
 	s.vectorExt = false
 }
 
+// vecExtensionAvailable reports whether this handle can run sqlite-vec
+// functions. Unlike detectVecExtension it never creates or drops a table, so
+// it is safe to call from a read path: search-time fallback logging needs to
+// tell "extension missing" apart from "index not built yet", and answering
+// that question must not mutate the database.
+func vecExtensionAvailable(db *sql.DB) bool {
+	if db == nil {
+		return false
+	}
+	var version string
+	if err := db.QueryRow("SELECT vec_version()").Scan(&version); err != nil {
+		return false
+	}
+	return version != ""
+}
+
 // CosineSimilarity computes cosine similarity between two vectors.
 func CosineSimilarity(a, b []float64) float64 {
 	if len(a) != len(b) {

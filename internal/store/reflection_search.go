@@ -275,10 +275,21 @@ func (ls *LearningStore) recallLearningsInShard(query []float32, shardType strin
 		}
 		logging.Get(logging.CategoryStore).Error("vec search failed for learnings: %v", err)
 	} else {
-		// sqlite-vec absence is a recoverable condition; report which table
-		// was checked so the operator knows whether the miss is a table/state
-		// problem or an extension problem. Kept at Warn — fallback is recoverable.
-		logging.Get(logging.CategoryStore).Warn("sqlite-vec not available; falling back from ANN to lexical search: table %q does not exist", "learnings_vec")
+		// Two genuinely different conditions land here and they need different
+		// fixes, so do not report them with the same message or the same
+		// severity. Blaming sqlite-vec for a cold index sends the operator to
+		// build flags when the real answer is "the reflection worker has not
+		// embedded anything for this shard yet", which resolves on its own.
+		if vecExtensionAvailable(db) {
+			// Extension is present; syncLearningVectorIndex simply has not run
+			// for this shard yet (no embedded learnings => no table). Expected
+			// on a cold or low-learning store, so this is not a warning.
+			logging.StoreDebug("learning ANN index not built yet for shard %q (table %q absent, sqlite-vec present); using lexical search", shardType, "learnings_vec")
+		} else {
+			// Genuine capability loss: the binary or handle cannot do vec0 at
+			// all, so ANN will never work here until the build/link is fixed.
+			logging.Get(logging.CategoryStore).Error("sqlite-vec not available; ANN search degraded to lexical for shard %q: vec0 unsupported on this handle and table %q does not exist", shardType, "learnings_vec")
+		}
 	}
 
 	return nil, fmt.Errorf("ANN search failed (sqlite-vec required)")
