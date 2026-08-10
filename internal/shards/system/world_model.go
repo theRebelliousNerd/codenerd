@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -377,10 +378,11 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 		w.mu.Unlock()
 
 		// Emit file_topology fact
+		normalizedPath := normalizeTopologyPath(w.config.RootPath, fileInfo.Path)
 		ft := types.Fact{
 			Predicate: "file_topology",
 			Args: []any{
-				fileInfo.Path,
+				normalizedPath,
 				fileInfo.Hash,
 				fileInfo.Language,
 				fileInfo.LastModified.Unix(),
@@ -460,10 +462,11 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 		changedFiles++
 
 		// Emit updated file_topology fact
+		normalizedPath := normalizeTopologyPath(w.config.RootPath, fileInfo.Path)
 		ft := types.Fact{
 			Predicate: "file_topology",
 			Args: []any{
-				fileInfo.Path,
+				normalizedPath,
 				fileInfo.Hash,
 				fileInfo.Language,
 				fileInfo.LastModified.Unix(),
@@ -599,6 +602,63 @@ func isTestFile(path string) bool {
 	}
 	return false
 }
+// normalizeTopologyPath returns the workspace-relative POSIX form of p.
+// If p is absolute it is made relative to workspaceRoot; backslashes are
+// converted to forward slashes, and an already-relative POSIX path is left
+// unchanged (aside from separator normalisation and cleaning).
+func normalizeTopologyPath(workspaceRoot, p string) string {
+	// Normalise separators so Windows paths are handled uniformly on any OS.
+	pSlash := strings.ReplaceAll(p, "\\", "/")
+	rootSlash := strings.ReplaceAll(workspaceRoot, "\\", "/")
+
+	pSlash = path.Clean(pSlash)
+	rootSlash = path.Clean(rootSlash)
+
+	isAbs := func(s string) bool {
+		if strings.HasPrefix(s, "/") {
+			return true
+		}
+		if len(s) >= 2 && s[1] == ':' {
+			return true
+		}
+		if filepath.IsAbs(s) || filepath.IsAbs(p) {
+			return true
+		}
+		return false
+	}
+
+	if !isAbs(pSlash) {
+		return pSlash
+	}
+
+	// Try OS-aware relativisation first.
+	if rel, err := filepath.Rel(workspaceRoot, p); err == nil && rel != "." && rel != p {
+		// filepath.Rel on Linux does not understand Windows drives; detect that
+		// case and fall through to manual prefix stripping.
+		if !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !strings.HasPrefix(rel, "../") && rel != ".." {
+			relSlash := strings.ReplaceAll(rel, "\\", "/")
+			relSlash = path.Clean(relSlash)
+			if !strings.Contains(relSlash, ":") && !isAbs(relSlash) {
+				return relSlash
+			}
+		}
+	}
+
+	// Fallback: manual prefix stripping (case-insensitive for Windows).
+	lowerRoot := strings.ToLower(rootSlash)
+	lowerP := strings.ToLower(pSlash)
+	if lowerRoot != "." && lowerRoot != "" && strings.HasPrefix(lowerP, lowerRoot+"/") {
+		suffix := pSlash[len(rootSlash)+1:]
+		suffix = path.Clean(suffix)
+		suffix = strings.ReplaceAll(suffix, "\\", "/")
+		return suffix
+	}
+	if strings.EqualFold(pSlash, rootSlash) {
+		return "."
+	}
+	return pSlash
+}
+
 
 // handleAutopoiesis uses LLM for semantic interpretation.
 func (w *WorldModelIngestorShard) handleAutopoiesis(ctx context.Context) {
