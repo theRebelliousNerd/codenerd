@@ -35,12 +35,15 @@ type KernelClient interface {
 
 // Guardian is the Northstar vision guardian.
 // It monitors project activity and ensures alignment with the defined vision.
+// Guardian is the Northstar vision guardian.
+// It monitors project activity and ensures alignment with the defined vision.
 type Guardian struct {
-	store  *Store
-	config GuardianConfig
-	llm    LLMClient
-	kernel KernelClient
-	mu     sync.RWMutex
+	store   *Store
+	config  GuardianConfig
+	llm     LLMClient
+	kernel  KernelClient
+	querier FactQuerier
+	mu      sync.RWMutex
 
 	// Runtime state
 	state  *GuardianState
@@ -73,6 +76,12 @@ func (g *Guardian) SetParentKernel(client KernelClient) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.kernel = client
+}
+// SetQuerier sets the FactQuerier for module northstar resolution.
+func (g *Guardian) SetQuerier(q FactQuerier) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.querier = q
 }
 
 // Initialize loads the vision and state from the store.
@@ -244,7 +253,7 @@ func (g *Guardian) CheckAlignment(ctx context.Context, trigger AlignmentTrigger,
 	}
 
 	// Build the alignment prompt
-	systemPrompt := g.buildAlignmentSystemPrompt(vision)
+	systemPrompt := g.buildAlignmentSystemPrompt(vision, subject)
 	userPrompt := g.buildAlignmentUserPrompt(subject, context)
 
 	response, err := llm.CompleteWithSystem(ctx, systemPrompt, userPrompt)
@@ -269,7 +278,7 @@ func (g *Guardian) CheckAlignment(ctx context.Context, trigger AlignmentTrigger,
 	return check, nil
 }
 
-func (g *Guardian) buildAlignmentSystemPrompt(vision *Vision) string {
+func (g *Guardian) buildAlignmentSystemPrompt(vision *Vision, subject ...string) string {
 	var sb strings.Builder
 	sb.WriteString("You are the Northstar Alignment Guardian for a software project.\n\n")
 	sb.WriteString("## Project Vision\n")
@@ -319,6 +328,44 @@ func (g *Guardian) buildAlignmentSystemPrompt(vision *Vision) string {
 			sb.WriteString(fmt.Sprintf("- %s\n", c))
 		}
 		sb.WriteString("\n")
+	}
+
+	// Module northstar refinement: when the subject lives inside a module that
+	// declares its own purpose, include that purpose and its requirements
+	// ALONGSIDE the project vision. A module refines the project northstar; it
+	// must never be able to opt out of it. When no querier is set or no module
+	// governs the subject, behaviour is exactly as before.
+	subjectStr := ""
+	if len(subject) > 0 {
+		subjectStr = subject[0]
+	}
+	var q FactQuerier
+	g.mu.RLock()
+	q = g.querier
+	g.mu.RUnlock()
+	if q != nil && strings.TrimSpace(subjectStr) != "" {
+		mod, err := ModuleForPath(q, subjectStr)
+		if err == nil && mod != "" {
+			purpose, err := EffectiveModulePurpose(q, mod)
+			if err == nil && purpose != "" {
+				sb.WriteString(fmt.Sprintf("## Module Northstar (%s)\n", mod))
+				sb.WriteString(fmt.Sprintf("**Purpose:** %s\n\n", purpose))
+				reqs, err := ModuleRequirementsFor(q, mod)
+				if err == nil && len(reqs) > 0 {
+					sb.WriteString("### Module Requirements\n")
+					for _, r := range reqs {
+						sev := strings.TrimSpace(r.Severity)
+						if sev != "" {
+							sev = strings.TrimPrefix(sev, "/")
+							sb.WriteString(fmt.Sprintf("- [%s/%s] %s\n", r.ID, sev, r.Statement))
+						} else {
+							sb.WriteString(fmt.Sprintf("- [%s] %s\n", r.ID, r.Statement))
+						}
+					}
+					sb.WriteString("\n")
+				}
+			}
+		}
 	}
 
 	sb.WriteString("## Your Task\n")

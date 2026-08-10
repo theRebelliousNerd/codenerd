@@ -38,6 +38,13 @@ func BuildCampaignObserver(cwd string, llmClient LLMClient, kern KernelClient) *
 	if kern != nil {
 		guardian.SetParentKernel(kern)
 	}
+	// A guardian without a querier is exactly the inert observer this
+	// function's doc comment warns about for module northstars -- it would
+	// satisfy the risk gate while checking alignment against the project
+	// vision alone and silently ignoring every module's declared purpose.
+	if q, ok := kern.(FactQuerier); ok {
+		guardian.SetQuerier(q)
+	}
 	if err := guardian.Initialize(); err != nil {
 		logging.CampaignWarn("northstar guardian failed to initialize (%v); campaigns touching protected surfaces will be refused by the risk gate", err)
 		fmt.Println("   ⚠ Northstar observer failed to initialize — campaigns on protected paths will be refused")
