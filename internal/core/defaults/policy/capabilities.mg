@@ -28,7 +28,7 @@ next_action(/build_project) :- user_intent(/current_intent, _, /build, _, _), !e
 next_action(/exec_tool) :- user_intent(/current_intent, _, /exec, _, "tool"), !executive_processed_intent(/current_intent).
 next_action(/git_operation) :- user_intent(/current_intent, _, /git, _, _), !executive_processed_intent(/current_intent).
 next_action(/browse) :- user_intent(/current_intent, _, /browse, _, _), !executive_processed_intent(/current_intent).
-next_action(/research) :- user_intent(/current_intent, _, /research, _, _), !executive_processed_intent(/current_intent).
+next_action(/delegate_researcher) :- user_intent(/current_intent, _, /research, _, _), !executive_processed_intent(/current_intent).
 next_action(/delegate) :- user_intent(/current_intent, _, /delegate, _, _), !executive_processed_intent(/current_intent).
 next_action(/escalate) :- user_intent(/current_intent, _, /escalate, _, _), !executive_processed_intent(/current_intent).
 
