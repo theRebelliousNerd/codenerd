@@ -247,6 +247,17 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 		reasoningEffortHighSpeed:     "low",
 		reasoningEffortOverride:      reasoningOverride,
 	}
+	// Report the settings that actually took effect. Several of these have a
+	// non-obvious default applied when the config leaves them zero, so the only
+	// way to confirm a configured value survived the trip from user config to
+	// client used to be reading the factory; now one boot line answers it.
+	effort := reasoningOverride
+	if effort == "" {
+		effort = "per-call"
+	}
+	logging.Get(logging.CategoryPerception).Info(
+		"llm client ready: vendor=%s model=%s max_output_tokens=%d reasoning_effort=%s thinking=%v",
+		c.vendor, c.model, c.maxOutputTokens, effort, c.enableThinking)
 	return c, nil
 }
 
