@@ -943,10 +943,14 @@ func (i *Initializer) initializePromptDatabase(ctx context.Context, nerdDir stri
 		return fmt.Errorf("failed to ensure corpus schema: %w", err)
 	}
 
-	// Best-effort: ensure tag rows exist for embedded atoms (older corpora may be missing tags).
+	// Best-effort: restore the canonical embedded atom set while preserving
+	// project-owned rows. Runtime collection still gives embedded atoms
+	// precedence if reconciliation cannot complete.
 	if embedded, err := prompt.LoadEmbeddedCorpus(); err == nil {
-		if err := prompt.HydrateAtomContextTags(ctx, db, embedded.All()); err != nil {
-			logging.Boot("Warning: failed to hydrate corpus atom tags: %v", err)
+		if counts, err := prompt.ReconcilePromptCorpus(ctx, db, embedded.All()); err != nil {
+			logging.Boot("Warning: failed to reconcile prompt corpus: %v", err)
+		} else {
+			logging.Boot("Reconciled prompt corpus: upserted=%d deleted=%d retained_embeddings=%d cleared_embeddings=%d", counts.Upserted, counts.Deleted, counts.RetainedEmbeddings, counts.ClearedEmbeddings)
 		}
 	}
 

@@ -427,8 +427,10 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 						if err := loader.EnsureSchema(context.Background(), db); err != nil {
 							logging.BootWarn("Failed to ensure corpus schema: %v", err)
 						} else if embeddedCorpus != nil {
-							if err := prompt.HydrateAtomContextTags(context.Background(), db, embeddedCorpus.All()); err != nil {
-								logging.BootWarn("Failed to hydrate corpus tags: %v", err)
+							if counts, err := prompt.ReconcilePromptCorpus(context.Background(), db, embeddedCorpus.All()); err != nil {
+								logging.BootWarn("Failed to reconcile corpus: %v", err)
+							} else {
+								logging.Boot("Reconciled corpus: upserted=%d deleted=%d retained_embeddings=%d cleared_embeddings=%d", counts.Upserted, counts.Deleted, counts.RetainedEmbeddings, counts.ClearedEmbeddings)
 							}
 						}
 						_ = db.Close()

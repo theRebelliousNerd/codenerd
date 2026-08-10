@@ -1138,8 +1138,10 @@ func initIntelligenceLayer(bctx *bootContext) error {
 				_ = projectDB.Close()
 			} else {
 				if embeddedCorpus != nil {
-					if err := prompt.HydrateAtomContextTags(bctx.ctx, projectDB, embeddedCorpus.All()); err != nil {
-						logging.Get(logging.CategoryContext).Warn("Failed to hydrate project corpus tags: %v", err)
+					if counts, err := prompt.ReconcilePromptCorpus(bctx.ctx, projectDB, embeddedCorpus.All()); err != nil {
+						logging.Get(logging.CategoryContext).Warn("Failed to reconcile project corpus: %v", err)
+					} else {
+						logging.Get(logging.CategoryContext).Info("Reconciled project corpus: upserted=%d deleted=%d retained_embeddings=%d cleared_embeddings=%d", counts.Upserted, counts.Deleted, counts.RetainedEmbeddings, counts.ClearedEmbeddings)
 					}
 				}
 				bctx.projectDB = projectDB
