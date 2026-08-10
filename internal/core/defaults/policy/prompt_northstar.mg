@@ -167,3 +167,37 @@ injectable_context(/unmitigated_risk_warning, Desc) :-
 injectable_context(/constraint, Desc) :-
     northstar_defined(),
     northstar_constraint(_, Desc).
+
+# -----------------------------------------------------------------------------
+# Module Northstar inherit-and-refine
+# -----------------------------------------------------------------------------
+# A module INHERITS the project northstar and may refine it. A module that
+# declares its own purpose uses it; a module that declares only requirements
+# still resolves to the project mission. A module must never silently opt out
+# of the project's purpose, which is why the fallback exists at all.
+
+Decl module_known(ModulePath) bound [/string].
+Decl module_has_own_purpose(ModulePath) bound [/string].
+Decl effective_module_purpose(ModulePath, Purpose) bound [/string, /string].
+
+module_known(ModulePath) :- module_northstar(ModulePath, _).
+module_known(ModulePath) :- module_requirement(ModulePath, _, _, _).
+
+# Single-argument projection for safe negation. In this Mangle fork, negating
+# a multi-argument literal with wildcards does NOT exclude correctly. Writing
+# !module_northstar(ModulePath, _) directly would silently fail to filter.
+# That is exactly why module_has_own_purpose/1 exists as a single-argument
+# projection and the negation is applied to IT. Keep that structure and keep
+# this comment explaining it, or the rule will look right and behave wrong.
+module_has_own_purpose(ModulePath) :- module_northstar(ModulePath, _).
+
+effective_module_purpose(ModulePath, Purpose) :- module_northstar(ModulePath, Purpose).
+
+# Fallback to project mission when module has no own purpose. Negation is
+# only safe over variables already bound by a positive atom, which is why
+# module_known(ModulePath) appears BEFORE the negated literal in the second
+# effective_module_purpose rule. Do not reorder those.
+effective_module_purpose(ModulePath, Purpose) :-
+    module_known(ModulePath),
+    !module_has_own_purpose(ModulePath),
+    northstar_mission(_, Purpose).

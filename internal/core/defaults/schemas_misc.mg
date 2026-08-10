@@ -82,6 +82,12 @@ Decl northstar_addresses(ReqID, RiskID) bound [/string, /string].
 # northstar_constraint(ConstraintID, Description) - Hard project constraints
 Decl northstar_constraint(ConstraintID, Description) bound [/string, /string].
 
+# module_northstar(ModulePath, Purpose) - a module's declared purpose
+Decl module_northstar(ModulePath, Purpose) bound [/string, /string].
+
+# module_requirement(ModulePath, ID, Statement, Severity) - one requirement a module declares
+Decl module_requirement(ModulePath, ID, Statement, Severity) bound [/string, /string, /string, /name].
+
 # -----------------------------------------------------------------------------
 # 43.7 Derived Predicates
 # -----------------------------------------------------------------------------
