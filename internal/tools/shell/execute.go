@@ -75,61 +75,30 @@ func coerceInt(v any) (int, bool) {
 // isCompoundCommand reports whether s contains an unquoted shell compound operator.
 // It is quote-aware: operators inside single or double quotes are ignored.
 // It handles backslash-escaped and backtick-escaped quotes and carriage-return newlines.
+// isCompoundCommand reports whether s contains an unquoted shell operator and
+// therefore has to run through a shell rather than a direct exec.
+//
+// It shares scanShell with commandStages so that the two can never disagree
+// about what is quoted; see the note on scanShell for the drift this prevents.
 func isCompoundCommand(s string) bool {
-	inSingle := false
-	inDouble := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if inSingle {
-			if c == '\\' || c == '`' {
-				if i+1 < len(s) && s[i+1] == '\'' {
-					i++
-				}
-				continue
-			}
-			if c == '\'' {
-				inSingle = false
-			}
-			continue
-		}
-		if inDouble {
-			if c == '\\' || c == '`' {
-				if i+1 < len(s) && s[i+1] == '"' {
-					i++
-				}
-				continue
-			}
-			if c == '"' {
-				inDouble = false
-			}
-			continue
-		}
-		if c == '\\' || c == '`' {
-			if i+1 < len(s) && (s[i+1] == '\'' || s[i+1] == '"') {
-				i++
-				continue
-			}
-		}
-		if c == '\'' {
-			inSingle = true
-			continue
-		}
-		if c == '"' {
-			inDouble = true
-			continue
+	compound := false
+	scanShell(s, func(i int, c byte, quoted bool) bool {
+		if quoted {
+			return true
 		}
 		switch c {
-		case ';', '\n', '\r', '<', '>':
-			return true
-		case '|':
-			return true
+		case ';', '\n', '\r', '<', '>', '|':
+			compound = true
+			return false
 		case '&':
 			if i+1 < len(s) && s[i+1] == '&' {
-				return true
+				compound = true
+				return false
 			}
 		}
-	}
-	return false
+		return true
+	})
+	return compound
 }
 
 // RunCommandTool returns a tool for executing shell commands.

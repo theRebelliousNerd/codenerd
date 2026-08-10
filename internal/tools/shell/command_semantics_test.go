@@ -74,10 +74,48 @@ func TestRunCommandRealFailureStillFails(t *testing.T) {
 }
 
 func TestCommandStagesRespectsQuoting(t *testing.T) {
-	got := commandStages(`echo "a | b" | grep x`)
-	want := []string{`echo "a | b"`, "grep x"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("commandStages = %#v, want %#v", got, want)
+	cases := []struct {
+		command string
+		want    []string
+	}{
+		{`echo "a | b" | grep x`, []string{`echo "a | b"`, "grep x"}},
+		{`echo 'a ; b' ; grep x`, []string{`echo 'a ; b'`, "grep x"}},
+
+		// Escaped quotes. Before the two parsers were unified, the stage
+		// splitter treated the backslash-escaped quote as closing the string
+		// and split at the pipe inside it, yielding a final stage of `b"`.
+		{`echo "a \" | b" | grep x`, []string{`echo "a \" | b"`, "grep x"}},
+		{"echo \"a `\" | b\" | grep x", []string{"echo \"a `\" | b\"", "grep x"}},
+	}
+	for _, tc := range cases {
+		if got := commandStages(tc.command); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("commandStages(%q) = %#v, want %#v", tc.command, got, tc.want)
+		}
+	}
+}
+
+// TestParsersAgreeOnQuoting is the structural guard behind the unification:
+// whenever commandStages finds more than one stage the command must also be
+// compound, because both answers now come from the same scan. If these ever
+// disagree, a command runs through the wrong execution path or its exit code is
+// attributed to the wrong stage.
+func TestParsersAgreeOnQuoting(t *testing.T) {
+	commands := []string{
+		`echo "a \" | b" | grep x`,
+		"echo `\"` | grep x",
+		`echo 'a | b'`,
+		`echo "a | b"`,
+		"go test ./... | grep FAIL",
+		"go build ./...",
+		`grep "a|b" file`,
+		`echo "unterminated | grep x`,
+	}
+	for _, cmd := range commands {
+		multi := len(commandStages(cmd)) > 1
+		if multi && !isCompoundCommand(cmd) {
+			t.Errorf("%q splits into %d stages but isCompoundCommand says simple",
+				cmd, len(commandStages(cmd)))
+		}
 	}
 }
 
@@ -88,6 +126,8 @@ func TestStageBinary(t *testing.T) {
 		"CGO_ENABLED=1 go build": "go",
 		"/usr/bin/wc -l":         "wc",
 		`C:\tools\grep.exe x`:    "grep",
+		`"grep" -n foo`:          "grep",
+		`'grep' -n foo`:          "grep",
 		"":                       "",
 	}
 	for in, want := range cases {

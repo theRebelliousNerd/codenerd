@@ -73,14 +73,99 @@ func searchFoundNothing(command string, exitCode int, stderr string) bool {
 	return searchUtilities[stageBinary(stages[len(stages)-1])]
 }
 
-// commandStages splits a command into its pipeline/sequence stages, honouring
-// quoting with the same rules as isCompoundCommand so an operator inside a
-// quoted string is not treated as a separator.
+// scanShell walks s and reports, for every byte, whether it sits in a position
+// where a shell operator would be interpreted.
+//
+// It exists so that "is this command compound" and "what are its stages" cannot
+// answer differently. They previously each carried their own quote tracking,
+// and the copies had already drifted: the stage splitter did not honour a quote
+// escaped with a backslash or backtick, so `echo "a \" | b" | grep x` split at
+// the pipe *inside* the quoted string and the final stage came out as `b"`.
+// A misread final stage is a misread exit code, which is the whole decision
+// this file exists to make.
+//
+// quoted is true for anything the shell would treat as literal text -- bytes
+// inside quotes, the quote delimiters themselves, and an escape character with
+// the quote it protects -- so a caller can simply ignore operators while quoted
+// is set. fn returns false to stop the scan early.
+func scanShell(s string, fn func(i int, c byte, quoted bool) bool) {
+	inSingle := false
+	inDouble := false
+
+	// emitPair reports an escape byte and the quote it protects, keeping the
+	// escape from opening or closing a quoted region.
+	emitPair := func(i *int, c byte) bool {
+		if !fn(*i, c, true) {
+			return false
+		}
+		*i++
+		return fn(*i, s[*i], true)
+	}
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		escapes := c == '\\' || c == '`'
+
+		switch {
+		case inSingle:
+			if escapes && i+1 < len(s) && s[i+1] == '\'' {
+				if !emitPair(&i, c) {
+					return
+				}
+				continue
+			}
+			if c == '\'' {
+				inSingle = false
+			}
+			if !fn(i, c, true) {
+				return
+			}
+		case inDouble:
+			if escapes && i+1 < len(s) && s[i+1] == '"' {
+				if !emitPair(&i, c) {
+					return
+				}
+				continue
+			}
+			if c == '"' {
+				inDouble = false
+			}
+			if !fn(i, c, true) {
+				return
+			}
+		default:
+			if escapes && i+1 < len(s) && (s[i+1] == '\'' || s[i+1] == '"') {
+				if !emitPair(&i, c) {
+					return
+				}
+				continue
+			}
+			if c == '\'' {
+				inSingle = true
+				if !fn(i, c, true) {
+					return
+				}
+				continue
+			}
+			if c == '"' {
+				inDouble = true
+				if !fn(i, c, true) {
+					return
+				}
+				continue
+			}
+			if !fn(i, c, false) {
+				return
+			}
+		}
+	}
+}
+
+// commandStages splits a command into its pipeline/sequence stages. Operators
+// inside quotes are text, not separators.
 func commandStages(s string) []string {
 	var stages []string
 	var cur strings.Builder
-	inSingle := false
-	inDouble := false
 
 	flush := func() {
 		if t := strings.TrimSpace(cur.String()); t != "" {
@@ -89,44 +174,29 @@ func commandStages(s string) []string {
 		cur.Reset()
 	}
 
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if inSingle {
-			if c == '\'' {
-				inSingle = false
-			}
-			cur.WriteByte(c)
-			continue
+	skipNext := false
+	scanShell(s, func(i int, c byte, quoted bool) bool {
+		if skipNext {
+			skipNext = false
+			return true
 		}
-		if inDouble {
-			if c == '"' {
-				inDouble = false
+		if !quoted {
+			switch c {
+			case '|', '&':
+				// A doubled operator (|| or &&) is one separator.
+				if i+1 < len(s) && s[i+1] == c {
+					skipNext = true
+				}
+				flush()
+				return true
+			case ';', '\n', '\r':
+				flush()
+				return true
 			}
-			cur.WriteByte(c)
-			continue
-		}
-		switch c {
-		case '\'':
-			inSingle = true
-			cur.WriteByte(c)
-			continue
-		case '"':
-			inDouble = true
-			cur.WriteByte(c)
-			continue
-		case '|', '&':
-			// Consume a doubled operator (|| or &&) as one separator.
-			if i+1 < len(s) && s[i+1] == c {
-				i++
-			}
-			flush()
-			continue
-		case ';', '\n', '\r':
-			flush()
-			continue
 		}
 		cur.WriteByte(c)
-	}
+		return true
+	})
 	flush()
 	return stages
 }
@@ -142,6 +212,8 @@ func stageBinary(stage string) string {
 			continue
 		}
 		f = strings.TrimPrefix(f, "(")
+		// A quoted binary is still that binary: "grep" -n foo invokes grep.
+		f = strings.Trim(f, `"'`)
 		if f == "" {
 			continue
 		}
