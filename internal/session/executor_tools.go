@@ -1005,6 +1005,30 @@ func (e *Executor) projectForbidsWrite(call ToolCall) (string, bool) {
 	return reason, forbidden
 }
 
+// checkShellEffect denies shell invocations whose effects are mutating,
+// ambiguous, or missing. Command text is only evidence about effect; it cannot
+// authorize itself. Read-only and explicit verification commands remain usable
+// while immutable task-baseline authorization is implemented.
+func (e *Executor) checkShellEffect(call ToolCall) error {
+	kind, _, err := projectdoc.ValidateShellToolInvocation(call.Name, call.Args)
+	if err == nil {
+		return nil
+	}
+
+	reason := fmt.Sprintf("%s effect=%s: %v", call.Name, kind, err)
+	actionName := strings.TrimSpace(call.Name)
+	if !strings.HasPrefix(actionName, "/") {
+		actionName = "/" + actionName
+	}
+	if validMangleActionAtom(actionName) {
+		e.assertSecurityViolation(types.MangleAtom(actionName), reason)
+	} else {
+		logging.Audit().SafetyCheck("shell_effect_gate", false, reason)
+	}
+	logging.Get(logging.CategorySession).Warn("shell-effect gate BLOCKED %s effect=%s", call.Name, kind)
+	return err
+}
+
 // describeToolLoopFailure explains a mid-loop failure in terms an operator can
 // act on.
 //
@@ -1207,6 +1231,13 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 		if !e.checkSafetyWithGate(call, true) {
 			return "", fmt.Errorf("tool call blocked by safety gate: %s", call.Name)
 		}
+	}
+
+	// The constitutional gate classifies run_command as generally available;
+	// effect scope is a separate executive decision. This gate closes the path
+	// that previously let shell cleanup bypass write-mutation accounting.
+	if err := e.checkShellEffect(call); err != nil {
+		return "", err
 	}
 
 	// Project write protection declared in nerd.md.

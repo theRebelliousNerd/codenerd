@@ -241,6 +241,61 @@ func TestExec(t *testing.T) {
 	}
 }
 
+func TestDirectShellEffectGateStopsIncidentBeforeExecutor(t *testing.T) {
+	vs, _ := createActionsTestVS(t)
+	mockExec := vs.executor.(*mockActionsExecutor)
+	executed := false
+	mockExec.executeFunc = func(context.Context, tactile.Command) (*tactile.ExecutionResult, error) {
+		executed = true
+		return &tactile.ExecutionResult{Success: true, ExitCode: 0, Stdout: "executed"}, nil
+	}
+
+	if _, _, err := vs.Exec(context.Background(),
+		`python -c "import shutil; shutil.rmtree('internal/browser/repotrace')"`, nil); err == nil {
+		t.Fatal("direct Exec allowed the repotrace deletion command")
+	}
+	if executed {
+		t.Fatal("direct Exec reached the tactile executor for a denied command")
+	}
+
+	result, err := vs.handleExecCmd(context.Background(), ActionRequest{
+		Target: "git checkout -- internal/logging/logging.go internal/logging/audit.go",
+	})
+	if err != nil {
+		t.Fatalf("handleExecCmd returned infrastructure error: %v", err)
+	}
+	if result.Success || result.Error == "" {
+		t.Fatalf("handleExecCmd allowed incident cleanup: %+v", result)
+	}
+	if executed {
+		t.Fatal("handleExecCmd reached the tactile executor for a denied command")
+	}
+
+	result, err = vs.handleGitOperation(context.Background(), ActionRequest{
+		Target: "checkout",
+		Payload: map[string]any{
+			"args": []any{"--", "internal/logging/logging.go"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("handleGitOperation returned infrastructure error: %v", err)
+	}
+	if result.Success || result.Error == "" {
+		t.Fatalf("handleGitOperation allowed incident cleanup: %+v", result)
+	}
+	if executed {
+		t.Fatal("handleGitOperation reached the tactile executor for a denied command")
+	}
+
+	executed = false
+	if _, _, err := vs.Exec(context.Background(), "echo hello", nil); err != nil {
+		t.Fatalf("read-only direct Exec was denied: %v", err)
+	}
+	if !executed {
+		t.Fatal("read-only direct Exec did not reach tactile executor")
+	}
+}
+
 // TestHandleExecCmd tests basic shell execution handler
 func TestHandleExecCmd(t *testing.T) {
 	vs, _ := createActionsTestVS(t)

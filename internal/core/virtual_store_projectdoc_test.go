@@ -1,9 +1,11 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"testing"
 
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
 
@@ -151,5 +153,73 @@ func TestVirtualStore_ToolWriteGuardBlocksWithoutKernel(t *testing.T) {
 	v := &VirtualStore{}
 	if err := v.toolWriteGuard()(nil, "write_file", map[string]any{"path": "internal/core/kernel.go"}); err == nil {
 		t.Fatal("tool-layer write guard allowed a write with no policy authority")
+	}
+}
+
+func TestVirtualStore_ToolWriteGuardStopsShellIncidentAtRegistry(t *testing.T) {
+	v := &VirtualStore{}
+	registry := tools.NewRegistry()
+	v.installToolWriteGuard(registry)
+
+	executed := false
+	if err := registry.Register(&tools.Tool{
+		Name:     "run_command",
+		Category: tools.CategoryCode,
+		Schema: tools.ToolSchema{
+			Required: []string{"command"},
+		},
+		Execute: func(context.Context, map[string]any) (string, error) {
+			executed = true
+			return "executed", nil
+		},
+	}); err != nil {
+		t.Fatalf("register command probe: %v", err)
+	}
+
+	for _, command := range []string{
+		"git checkout -- internal/logging/logging.go internal/logging/audit.go",
+		`python -c "import shutil; shutil.rmtree('internal/browser/repotrace')"`,
+		"git status && Remove-Item internal/logging/logging.go",
+	} {
+		executed = false
+		if _, err := registry.Execute(context.Background(), "run_command", map[string]any{"command": command}); err == nil {
+			t.Fatalf("registry allowed incident command %q", command)
+		}
+		if executed {
+			t.Fatalf("incident command %q reached the registered handler", command)
+		}
+	}
+
+	executed = false
+	result, err := registry.Execute(context.Background(), "run_command", map[string]any{"command": "go test ./internal/projectdoc"})
+	if err != nil {
+		t.Fatalf("verification command was denied: %v", err)
+	}
+	if !executed || result.Result != "executed" {
+		t.Fatalf("verification command did not reach handler: executed=%v result=%q", executed, result.Result)
+	}
+
+	gitExecuted := false
+	if err := registry.Register(&tools.Tool{
+		Name:     "git_operation",
+		Category: tools.CategoryCode,
+		Schema: tools.ToolSchema{
+			Required: []string{"operation"},
+		},
+		Execute: func(context.Context, map[string]any) (string, error) {
+			gitExecuted = true
+			return "executed", nil
+		},
+	}); err != nil {
+		t.Fatalf("register git probe: %v", err)
+	}
+	if _, err := registry.Execute(context.Background(), "git_operation", map[string]any{
+		"operation": "checkout",
+		"args":      "-- internal/logging/logging.go",
+	}); err == nil {
+		t.Fatal("registry allowed structured git checkout")
+	}
+	if gitExecuted {
+		t.Fatal("structured git checkout reached the registered handler")
 	}
 }

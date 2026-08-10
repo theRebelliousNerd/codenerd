@@ -1,16 +1,13 @@
 package projectdoc
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
-// The write-mutation classification and target extraction live here so every
-// gate shares one definition.
-//
-// They were private to internal/session, which meant the VirtualStore gate and
-// any future gate had to restate them — and a write-protection rule that only
-// fires for the tool names or argument names one gate happens to know about is
-// a gate with holes in it. codeNERD's own security review of
-// internal/tools/core/file_ops.go raised the consequence: enforcement lived
-// only in callers, so tools.Global().Execute bypassed it entirely.
+// The mutation classification and target extraction live here so every gate
+// shares one definition. Caller-only copies previously let direct registry
+// execution bypass project policy.
 
 // PathArgs are the argument names a write-mutation tool may use to name its
 // target. Tools disagree ("path", "file_path", "file", "filename"), so every
@@ -31,10 +28,6 @@ func TargetPath(args map[string]any) string {
 }
 
 // IsWriteMutationTool reports whether a tool name durably mutates a file.
-//
-// The defensive aliases are names a model may plausibly emit that are not
-// registered today. Accepting them costs nothing and keeps the gate closed if
-// one is ever added.
 func IsWriteMutationTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case // Registered VirtualStore write actions.
@@ -47,4 +40,222 @@ func IsWriteMutationTool(name string) bool {
 	default:
 		return false
 	}
+}
+
+// IsShellTool reports whether a tool name can route a command to a host shell
+// or process executor. run_command is the registered modular tool; the others
+// cover VirtualStore action aliases and defensive future registry names.
+func IsShellTool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "run_command", "bash", "sh", "pwsh", "powershell", "cmd",
+		"shell", "exec", "run_shell", "run_build", "run_tests",
+		"git_diff", "git_log", "git_operation":
+		return true
+	default:
+		return false
+	}
+}
+
+// ShellEffectKind is a bounded classification of a shell invocation.
+type ShellEffectKind int
+
+const (
+	ShellEffectNone ShellEffectKind = iota
+	ShellEffectReadOnly
+	ShellEffectVerification
+	ShellEffectMutating
+	ShellEffectUnknownMutating
+)
+
+func (k ShellEffectKind) String() string {
+	switch k {
+	case ShellEffectNone:
+		return "none"
+	case ShellEffectReadOnly:
+		return "read_only"
+	case ShellEffectVerification:
+		return "verification"
+	case ShellEffectMutating:
+		return "mutating"
+	case ShellEffectUnknownMutating:
+		return "unknown_mutating"
+	default:
+		return "unknown"
+	}
+}
+
+// IsMutating reports whether a command is known or conservatively assumed to
+// mutate. A missing command is denied separately by ValidateShellToolInvocation.
+func (k ShellEffectKind) IsMutating() bool {
+	return k == ShellEffectMutating || k == ShellEffectUnknownMutating
+}
+
+// AllowedWithoutMutationScope reports the two command classes that remain
+// usable before baseline-aware shell authorization exists. Verification is a
+// separate class because tests and builds may execute code even though the user
+// explicitly requires them to remain available.
+func (k ShellEffectKind) AllowedWithoutMutationScope() bool {
+	return k == ShellEffectReadOnly || k == ShellEffectVerification
+}
+
+// ShellCommand extracts the command payload from a shell-capable tool call.
+// Alternate keys cover defensive aliases; run_command itself uses "command".
+func ShellCommand(args map[string]any) string {
+	for _, key := range []string{"command", "script", "cmd", "content"} {
+		if raw, ok := args[key]; ok {
+			if command, ok := raw.(string); ok && strings.TrimSpace(command) != "" {
+				return command
+			}
+		}
+	}
+	return ""
+}
+
+// ValidateShellToolInvocation is the shared fail-closed decision used by the
+// session executor and the lowest registry guard. It classifies effects but
+// never infers permission from command text. Until immutable task baseline and
+// exact-path scope authority are wired, every shell mutation is refused.
+func ValidateShellToolInvocation(toolName string, args map[string]any) (ShellEffectKind, string, error) {
+	if !IsShellTool(toolName) {
+		return ShellEffectNone, "", nil
+	}
+
+	normalizedName := strings.ToLower(strings.TrimSpace(toolName))
+	if normalizedName == "run_build" && ShellCommand(args) == "" {
+		return ShellEffectVerification, normalizedName + " (auto-detected)", nil
+	}
+	command := ""
+	if normalizedName == "run_tests" && ShellCommand(args) == "" {
+		// The concrete test runner is selected later from project files. A
+		// synthetic verification prefix lets us still reject injected pattern
+		// syntax before that selection happens.
+		command = joinStructuredCommand("go test", args, "pattern")
+	} else {
+		command = structuredShellCommand(normalizedName, args)
+	}
+	kind := ClassifyShellEffect(command)
+	if kind.AllowedWithoutMutationScope() {
+		return kind, command, nil
+	}
+	if kind == ShellEffectNone {
+		return kind, command, fmt.Errorf("blocked by shell-effect gate: %s has no command payload", toolName)
+	}
+	return kind, command, fmt.Errorf(
+		"blocked by shell-effect gate: %s is %s and lacks deterministic task-scope authorization",
+		toolName, kind,
+	)
+}
+
+func structuredShellCommand(toolName string, args map[string]any) string {
+	switch toolName {
+	case "git_diff":
+		return joinStructuredCommand("git diff", args, "commit", "path")
+	case "git_log":
+		return joinStructuredCommand("git log", args, "format", "since", "author", "path")
+	case "git_operation":
+		return joinStructuredCommand("git "+stringArg(args, "operation"), args, "args", "message", "branch", "files")
+	case "run_tests":
+		return joinStructuredCommand(ShellCommand(args), args, "pattern")
+	default:
+		return ShellCommand(args)
+	}
+}
+
+func joinStructuredCommand(base string, args map[string]any, keys ...string) string {
+	parts := []string{strings.TrimSpace(base)}
+	for _, key := range keys {
+		if value := stringArg(args, key); value != "" {
+			parts = append(parts, value)
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, " "))
+}
+
+func stringArg(args map[string]any, key string) string {
+	if raw, ok := args[key]; ok {
+		if value, ok := raw.(string); ok {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+// ClassifyShellEffect applies a deliberately small allowlist. Compound syntax,
+// output flags, known mutation verbs, and every unrecognized command fail
+// closed. The exact incident commands are classified as mutating before any
+// read-only prefix is considered.
+func ClassifyShellEffect(command string) ShellEffectKind {
+	raw := strings.TrimSpace(command)
+	if raw == "" {
+		return ShellEffectNone
+	}
+	lower := strings.ToLower(raw)
+
+	if strings.ContainsAny(raw, "\r\n;|&><`") || strings.Contains(lower, "$(") {
+		return ShellEffectUnknownMutating
+	}
+
+	knownMutations := []string{
+		"git add", "git am", "git apply", "git checkout", "git cherry-pick",
+		"git clean", "git commit", "git fetch", "git merge", "git mv",
+		"git pull", "git push", "git rebase", "git reset", "git restore",
+		"git rm", "git stash", "git switch", "git tag",
+		"rm ", "rm\t", "rmdir", "shutil.rmtree", "rmtree", ".unlink(",
+		" unlink(", "os.remove", "os.unlink", "del ", "erase ",
+		"remove-item", "clear-content", "set-content", "add-content",
+		"new-item", "move-item", "copy-item", "rename-item", "out-file",
+		"export-csv", "set-item", "set-acl",
+	}
+	for _, marker := range knownMutations {
+		if strings.Contains(lower, marker) {
+			return ShellEffectMutating
+		}
+	}
+
+	// These options make otherwise observational commands write files or invoke
+	// external helpers.
+	for _, marker := range []string{"--output", "--ext-diff", "--textconv", " -o "} {
+		if strings.Contains(lower, marker) {
+			return ShellEffectUnknownMutating
+		}
+	}
+
+	readOnly := []string{
+		"git status", "git diff", "git log", "git show", "git ls-files",
+		"git rev-parse", "git grep", "git blame", "git cat-file",
+		"git worktree list", "git branch --show-current", "git branch --list",
+		"ls", "dir", "tree", "cat", "head", "tail", "grep", "rg", "wc",
+		"pwd", "whoami", "echo", "python --version", "python3 --version",
+		"node --version", "get-childitem", "get-content", "get-item",
+		"get-location", "test-path", "resolve-path", "select-string",
+		"write-output",
+	}
+	for _, prefix := range readOnly {
+		if hasCommandPrefix(lower, prefix) {
+			return ShellEffectReadOnly
+		}
+	}
+
+	verification := []string{
+		"go test", "go vet", "go list", "go version", "go build",
+		"cargo test", "cargo check", "cargo build", "npm test", "npm run build",
+		"pytest", "python -m pytest", "python3 -m pytest", "dotnet test", "dotnet build",
+		"mvn test", "mvn package", "gradle test", "gradle build", "./gradlew test",
+		"./gradlew build", "cmake --build", "ctest", "bazel test", "bazel build",
+	}
+	for _, prefix := range verification {
+		if hasCommandPrefix(lower, prefix) {
+			return ShellEffectVerification
+		}
+	}
+
+	return ShellEffectUnknownMutating
+}
+
+func hasCommandPrefix(command, prefix string) bool {
+	if command == prefix {
+		return true
+	}
+	return strings.HasPrefix(command, prefix) && len(command) > len(prefix) &&
+		(command[len(prefix)] == ' ' || command[len(prefix)] == '\t')
 }

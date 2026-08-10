@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
 	"codenerd/internal/tactile"
 )
 
@@ -20,6 +21,9 @@ import (
 // This is used by the session package to execute tools directly via VirtualStore.
 func (v *VirtualStore) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
 	// 1. Safety Checks
+	if err := validateDirectShellEffect("exec", cmd); err != nil {
+		return "", "", err
+	}
 	if strings.Contains(cmd, "..") {
 		return "", "", fmt.Errorf("path traversal detected in command: %s", cmd)
 	}
@@ -113,7 +117,6 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 			Error:   "path traversal detected in command",
 		}, nil
 	}
-
 	// Enforce binary allowlist (defense in depth)
 	if !v.isBinaryAllowed(binary) {
 		logging.Get(logging.CategoryVirtualStore).Warn("Binary not allowed: %s", binary)
@@ -121,6 +124,9 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 			Success: false,
 			Error:   fmt.Sprintf("binary %s not allowed", binary),
 		}, nil
+	}
+	if err := validateDirectShellEffect("exec", commandForExecGate(binary, args, req.Target)); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
 	}
 
 	// Use modern executor if enabled (auto-generates audit facts)
@@ -193,6 +199,9 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 
 // handleExecCmdModern executes using the new tactile.Executor with auto-audit.
 func (v *VirtualStore) handleExecCmdModern(ctx context.Context, binary string, args []string, timeout int, sessionID, requestID string) (ActionResult, error) {
+	if err := validateDirectShellEffect("exec", commandForExecGate(binary, args, "")); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
 	cmd := tactile.Command{
 		Binary:           binary,
 		Arguments:        args,
@@ -492,6 +501,15 @@ func (v *VirtualStore) handleGitOperation(ctx context.Context, req ActionRequest
 			args = append(args, fmt.Sprintf("%v", a))
 		}
 	}
+	if err := validateDirectShellEffect("exec", "git "+strings.Join(args, " ")); err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+			FactsToAdd: []Fact{
+				{Predicate: "git_result", Args: []any{operation, false, err.Error()}},
+			},
+		}, nil
+	}
 
 	logging.VirtualStore("Git operation: %s %v", operation, args[1:])
 
@@ -535,6 +553,32 @@ func (v *VirtualStore) handleGitOperation(ctx context.Context, req ActionRequest
 			{Predicate: "git_result", Args: []any{operation, success, output}},
 		},
 	}, nil
+}
+
+func validateDirectShellEffect(toolName, command string) error {
+	kind, _, err := projectdoc.ValidateShellToolInvocation(toolName, map[string]any{"command": command})
+	if err == nil {
+		return nil
+	}
+	reason := fmt.Sprintf("%s effect=%s: %v", toolName, kind, err)
+	logging.Get(logging.CategoryVirtualStore).Warn("direct shell-effect gate blocked %s effect=%s", toolName, kind)
+	logging.Audit().SafetyCheck("shell_effect_guard", false, reason)
+	return err
+}
+
+func commandForExecGate(binary string, args []string, target string) string {
+	base := strings.ToLower(strings.TrimSuffix(filepath.Base(strings.TrimSpace(binary)), ".exe"))
+	if len(args) > 1 {
+		first := strings.ToLower(strings.TrimSpace(args[0]))
+		if (base == "bash" || base == "sh" || base == "cmd" || base == "pwsh" || base == "powershell") &&
+			(first == "-c" || first == "/c" || first == "-command") {
+			return strings.Join(args[1:], " ")
+		}
+	}
+	if strings.TrimSpace(target) != "" && (base == "bash" || base == "sh" || base == "cmd" || base == "pwsh" || base == "powershell") {
+		return target
+	}
+	return strings.TrimSpace(strings.Join(append([]string{binary}, args...), " "))
 }
 
 func (v *VirtualStore) handleShowDiff(ctx context.Context, req ActionRequest) (ActionResult, error) {
