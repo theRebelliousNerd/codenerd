@@ -15,6 +15,7 @@ func RegisterAll(registry *tools.Registry) error {
 		EditLinesTool(),
 		InsertLinesTool(),
 		DeleteLinesTool(),
+		ApplyEditsTool(),
 
 		// Test impact analysis
 		RunImpactedTestsTool(),

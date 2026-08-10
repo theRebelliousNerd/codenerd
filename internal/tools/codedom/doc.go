@@ -4,12 +4,12 @@
 // code elements (functions, classes, methods) rather than raw text.
 //
 // Tools:
-//   - open_file: Open a file and load its code elements
-//   - get_elements: Query code elements in the current scope
+//   - get_elements: Query code elements in a file
 //   - get_element: Get a specific element by reference
-//   - edit_element: Replace an element's body
+//   - edit_lines: Replace specific lines in a file
 //   - insert_lines: Insert lines at a position
 //   - delete_lines: Delete a range of lines
-//   - refresh_scope: Re-parse after changes
-//   - close_scope: Close the current scope
+//   - apply_edits: Transactionally apply 2-16 edits across distinct existing files
+//   - run_impacted_tests: Run tests affected by recent edits
+//   - get_impacted_tests: Query impacted tests without running
 package codedom

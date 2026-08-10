@@ -1,8 +1,9 @@
 package codedom
 
 import (
-	"codenerd/internal/tools"
 	"testing"
+
+	"codenerd/internal/tools"
 )
 
 func TestRegisterAll(t *testing.T) {
@@ -20,6 +21,7 @@ func TestRegisterAll(t *testing.T) {
 		"edit_lines",
 		"insert_lines",
 		"delete_lines",
+		"apply_edits",
 		"run_impacted_tests",
 		"get_impacted_tests",
 	}
