@@ -85,6 +85,8 @@ Content:
 }
 
 // extractRequirementsSmart performs retrieval-augmented requirement extraction using the vector store.
+// It keeps vector recall per discovery question, deduplicates repeated snippets, caps context,
+// and performs exactly one LLM synthesis call for the whole goal, returning at most 20 requirements.
 func (d *Decomposer) extractRequirementsSmart(ctx context.Context, campaignID, goal, kbPath string, files []FileMetadata) ([]Requirement, error) {
 	if d.llmClient == nil {
 		logging.CampaignDebug("No LLM client, skipping requirement extraction")
@@ -105,20 +107,20 @@ func (d *Decomposer) extractRequirementsSmart(ctx context.Context, campaignID, g
 	}
 	defer kbStore.Close()
 
-	reqs := make([]Requirement, 0)
-	seen := make(map[string]bool)
-	reqCounter := 0
 	allowedPaths := d.relevantPathsFromKernel()
 	if len(allowedPaths) == 0 {
 		allowedPaths = pathsForGoal(goal, files)
 	}
 	logging.CampaignDebug("Using %d allowed paths for vector recall", len(allowedPaths))
 
+	// Collect deduped snippets across all discovery questions.
+	seenSnippet := make(map[string]struct{})
+	var uniqueEntries []store.VectorEntry
+
 	for i, q := range questions {
 		logging.CampaignDebug("Processing question %d/%d: %s", i+1, len(questions), q[:min(80, len(q))])
 
 		var entries []store.VectorEntry
-		var err error
 		if len(allowedPaths) > 0 {
 			entries, err = kbStore.VectorRecallSemanticByPaths(ctx, q, 6, allowedPaths)
 		} else {
@@ -134,69 +136,119 @@ func (d *Decomposer) extractRequirementsSmart(ctx context.Context, campaignID, g
 		}
 		logging.CampaignDebug("Retrieved %d vector entries", len(entries))
 
-		var sb strings.Builder
 		for _, e := range entries {
-			path := ""
-			if p, ok := e.Metadata["path"].(string); ok {
-				path = p
+			key := strings.TrimSpace(e.Content)
+			if key == "" {
+				continue
 			}
-			sb.WriteString(fmt.Sprintf("PATH: %s\n", path))
-			sb.WriteString(e.Content)
-			sb.WriteString("\n---\n")
+			// Deduplicate by normalized content only so identical snippets
+			// retrieved for different questions are not repeated in context.
+			if _, ok := seenSnippet[key]; ok {
+				continue
+			}
+			seenSnippet[key] = struct{}{}
+			uniqueEntries = append(uniqueEntries, e)
 		}
+	}
 
-		prompt := fmt.Sprintf(`Goal: %s
-Question: %s
-Given the retrieved snippets, extract discrete requirements as JSON:
+	if len(uniqueEntries) == 0 {
+		logging.CampaignDebug("No unique snippets after deduplication")
+		return nil, nil
+	}
+
+	// Cap context: limit number of snippets and total characters sent to LLM.
+	const maxSnippets = 30
+	const maxContextChars = 12000
+	if len(uniqueEntries) > maxSnippets {
+		uniqueEntries = uniqueEntries[:maxSnippets]
+	}
+
+	var sb strings.Builder
+	chars := 0
+	for _, e := range uniqueEntries {
+		path := ""
+		if p, ok := e.Metadata["path"].(string); ok {
+			path = p
+		}
+		chunk := fmt.Sprintf("PATH: %s\n%s\n---\n", path, e.Content)
+		if chars+len(chunk) > maxContextChars {
+			if chars == 0 {
+				avail := maxContextChars - len(fmt.Sprintf("PATH: %s\n\n---\n", path))
+				if avail > 0 && avail < len(e.Content) {
+					chunk = fmt.Sprintf("PATH: %s\n%s\n---\n", path, e.Content[:avail])
+				} else {
+					break
+				}
+			} else {
+				break
+			}
+		}
+		sb.WriteString(chunk)
+		chars += len(chunk)
+	}
+
+	snippetsStr := sb.String()
+	if len(snippetsStr) > maxContextChars {
+		snippetsStr = snippetsStr[:maxContextChars]
+	}
+
+	// Exactly one LLM synthesis call for the whole goal.
+	prompt := fmt.Sprintf(`Goal: %s
+Given the retrieved snippets, extract discrete requirements directly relevant to the goal as JSON (at most 20):
 {
   "requirements": [
     {"description": "...", "priority": "/critical|/high|/normal|/low", "source": "path"}
   ]
 }
+Return only requirements directly relevant to the goal. No duplicates. Return JSON only.
 
 Snippets:
-%s
-Return JSON only.`, goal, q, sb.String())
+%s`, goal, snippetsStr)
 
-		// Use grounding for research-intensive requirement extraction
-		resp, err := d.completeWithGrounding(ctx, prompt)
-		if err != nil {
-			logging.CampaignDebug("LLM extraction failed: %v", err)
+	resp, err := d.completeWithGrounding(ctx, prompt)
+	if err != nil {
+		logging.CampaignDebug("LLM extraction failed: %v", err)
+		return nil, nil
+	}
+
+	resp = cleanJSONResponse(resp)
+	var parsed struct {
+		Requirements []struct {
+			Description string `json:"description"`
+			Priority    string `json:"priority"`
+			Source      string `json:"source"`
+		} `json:"requirements"`
+	}
+	if err := json.Unmarshal([]byte(resp), &parsed); err != nil {
+		logging.CampaignDebug("Failed to parse requirements JSON: %v", err)
+		return nil, nil
+	}
+
+	reqs := make([]Requirement, 0, len(parsed.Requirements))
+	seen := make(map[string]bool)
+	reqCounter := 0
+	for _, r := range parsed.Requirements {
+		desc := strings.TrimSpace(r.Description)
+		if desc == "" {
 			continue
 		}
-
-		resp = cleanJSONResponse(resp)
-		var parsed struct {
-			Requirements []struct {
-				Description string `json:"description"`
-				Priority    string `json:"priority"`
-				Source      string `json:"source"`
-			} `json:"requirements"`
-		}
-		if err := json.Unmarshal([]byte(resp), &parsed); err != nil {
-			logging.CampaignDebug("Failed to parse requirements JSON: %v", err)
+		key := fmt.Sprintf("%s|%s", r.Source, desc)
+		if seen[key] {
 			continue
 		}
-
-		extractedCount := 0
-		for _, r := range parsed.Requirements {
-			key := fmt.Sprintf("%s|%s", r.Source, r.Description)
-			if seen[key] {
-				continue
-			}
-			reqCounter++
-			id := fmt.Sprintf("/req_%s_%04d", sanitizeCampaignID(campaignID), reqCounter)
-			seen[key] = true
-			reqs = append(reqs, Requirement{
-				ID:          id,
-				CampaignID:  campaignID,
-				Description: r.Description,
-				Priority:    defaultPriority(r.Priority),
-				Source:      r.Source,
-			})
-			extractedCount++
+		seen[key] = true
+		reqCounter++
+		id := fmt.Sprintf("/req_%s_%04d", sanitizeCampaignID(campaignID), reqCounter)
+		reqs = append(reqs, Requirement{
+			ID:          id,
+			CampaignID:  campaignID,
+			Description: desc,
+			Priority:    defaultPriority(r.Priority),
+			Source:      r.Source,
+		})
+		if len(reqs) >= 20 {
+			break
 		}
-		logging.CampaignDebug("Extracted %d new requirements from question %d", extractedCount, i+1)
 	}
 
 	logging.Campaign("Total requirements extracted: %d", len(reqs))
