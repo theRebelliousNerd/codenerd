@@ -72,9 +72,6 @@ func coerceInt(v any) (int, bool) {
 	return 0, false
 }
 
-// isCompoundCommand reports whether s contains an unquoted shell compound operator.
-// It is quote-aware: operators inside single or double quotes are ignored.
-// It handles backslash-escaped and backtick-escaped quotes and carriage-return newlines.
 // isCompoundCommand reports whether s contains an unquoted shell operator and
 // therefore has to run through a shell rather than a direct exec.
 //
@@ -166,16 +163,37 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 
 		var cmd *exec.Cmd
 		if runtime.GOOS == "windows" {
-			shellPath := ""
-			if p, err := execLookPath("pwsh"); err == nil {
-				shellPath = p
-			} else if p, err := execLookPath("powershell"); err == nil {
-				shellPath = p
+			// A model writes its pipelines with grep, head and wc. A
+			// PowerShell-parented process cannot run any of them -- they are
+			// not cmdlets and not on its inherited PATH -- so the command fails
+			// outright and costs a whole turn to rediscover. The builtin
+			// fallback below rescues these names for SIMPLE commands only;
+			// anything containing a pipe is routed here first and never reaches
+			// it. When a POSIX shell is installed, run the pipeline there and
+			// it simply works.
+			//
+			// Only stages PowerShell cannot execute trigger the switch, so no
+			// command that succeeds under PowerShell today changes path.
+			if posix := posixOnlyStagesIn(command); len(posix) > 0 {
+				if bashPath := findBashWindows(); bashPath != "" {
+					logging.VirtualStoreDebug(
+						"run_command: routing to %s instead of PowerShell; POSIX-only stages: %s",
+						bashPath, strings.Join(posix, ", "))
+					cmd = execCommandContext(execCtx, bashPath, "-c", command)
+				}
 			}
-			if shellPath == "" {
-				return "", fmt.Errorf("interpreter not found: neither pwsh nor powershell is available")
+			if cmd == nil {
+				shellPath := ""
+				if p, err := execLookPath("pwsh"); err == nil {
+					shellPath = p
+				} else if p, err := execLookPath("powershell"); err == nil {
+					shellPath = p
+				}
+				if shellPath == "" {
+					return "", fmt.Errorf("interpreter not found: neither pwsh nor powershell is available")
+				}
+				cmd = execCommandContext(execCtx, shellPath, "-NoProfile", "-NonInteractive", "-Command", command)
 			}
-			cmd = execCommandContext(execCtx, shellPath, "-NoProfile", "-NonInteractive", "-Command", command)
 		} else {
 			cmd = execCommandContext(execCtx, "sh", "-c", command)
 		}
@@ -257,8 +275,14 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 		// PowerShell is present. The command already passed the upstream
 		// permission gate, so this changes how it runs, not whether it may.
 		if runtime.GOOS == "windows" && isLikelyPowerShell(parsedArgs[0]) {
-			if psPath, err := execLookPath("powershell"); err == nil {
-				parsedArgs = []string{psPath, "-NoProfile", "-NonInteractive", "-Command", command}
+			shellPath := ""
+			if p, err := execLookPath("pwsh"); err == nil {
+				shellPath = p
+			} else if p, err := execLookPath("powershell"); err == nil {
+				shellPath = p
+			}
+			if shellPath != "" {
+				parsedArgs = []string{shellPath, "-NoProfile", "-NonInteractive", "-Command", command}
 				logging.VirtualStore("run_command routing via PowerShell: %s", command)
 			}
 		}

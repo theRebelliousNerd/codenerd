@@ -38,6 +38,54 @@ func runCommandDescription() string {
 		"bounds, and upstream permission decisions are preserved on every path."
 }
 
+// posixOnlyUtilities are the tools a model reaches for by reflex when it writes
+// a pipeline, and that a PowerShell-parented process on Windows cannot run:
+// they are neither cmdlets nor aliases, and they are not on the PATH such a
+// process inherits. Measured on the dev host: from PowerShell, Get-Command
+// reports grep, head, wc and sed all NOT FOUND, even though the same names
+// resolve fine from a Git Bash shell -- which is exactly the trap, because a
+// check run from Git Bash reports success for a pipeline that fails in
+// production.
+//
+// Deliberately conservative. Names PowerShell aliases to something with
+// different semantics (sort -> Sort-Object, tee -> Tee-Object) are excluded:
+// they do not hard-fail, so rerouting on their account would change the meaning
+// of commands that work today. Real executables that run fine under PowerShell
+// (rg, jq, git, go) are excluded for the same reason.
+var posixOnlyUtilities = map[string]bool{
+	"grep":     true,
+	"egrep":    true,
+	"fgrep":    true,
+	"head":     true,
+	"tail":     true,
+	"wc":       true,
+	"sed":      true,
+	"awk":      true,
+	"gawk":     true,
+	"cut":      true,
+	"tr":       true,
+	"uniq":     true,
+	"xargs":    true,
+	"basename": true,
+	"dirname":  true,
+}
+
+// posixOnlyStagesIn reports which POSIX-only utilities a command invokes, in
+// order of appearance and without duplicates.
+func posixOnlyStagesIn(command string) []string {
+	var found []string
+	seen := map[string]bool{}
+	for _, stage := range commandStages(command) {
+		bin := stageBinary(stage)
+		if bin == "" || seen[bin] || !posixOnlyUtilities[bin] {
+			continue
+		}
+		seen[bin] = true
+		found = append(found, bin)
+	}
+	return found
+}
+
 // searchUtilities exit non-zero to report "found nothing", not "I broke".
 // grep and ripgrep both use exit 1 for no-match and reserve exit 2 and above
 // for real errors such as an unreadable file or a bad pattern; findstr uses 1

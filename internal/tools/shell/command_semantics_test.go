@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -48,7 +49,18 @@ func TestSearchFoundNothing(t *testing.T) {
 // this exact call returned `command failed: exit status 1` with empty output,
 // so a search that correctly found nothing was indistinguishable from broken
 // tooling.
+//
+// The skip matters as much as the assertion. An earlier version of this test
+// ran grep unconditionally and passed when the suite was launched from Git
+// Bash, because that shell puts /usr/bin on PATH — while the very same test
+// failed when launched from PowerShell, where grep does not exist. A test whose
+// verdict depends on which shell started it is worse than no test: it reported
+// green for the environment nobody runs in.
 func TestRunCommandNoMatchIsNotAFailure(t *testing.T) {
+	if !posixPipelineRunnable() {
+		t.Skip("no shell on this host can run a grep pipeline; nothing to prove")
+	}
+
 	out, err := executeRunCommand(context.Background(), map[string]any{
 		"command":         "echo hello | grep definitely-not-present-anywhere",
 		"timeout_seconds": 30,
@@ -61,9 +73,22 @@ func TestRunCommandNoMatchIsNotAFailure(t *testing.T) {
 	}
 }
 
+// posixPipelineRunnable reports whether this host can run a grep pipeline at
+// all — either grep is directly on PATH, or (on Windows) a POSIX shell is
+// installed for the reroute to use.
+func posixPipelineRunnable() bool {
+	if _, err := execLookPath("grep"); err == nil {
+		return true
+	}
+	return runtime.GOOS == "windows" && findBashWindows() != ""
+}
+
 // TestRunCommandRealFailureStillFails is the guard on the other side: the fix
 // must not swallow genuine non-zero exits.
 func TestRunCommandRealFailureStillFails(t *testing.T) {
+	if !posixPipelineRunnable() {
+		t.Skip("no shell on this host can run a grep pipeline; nothing to prove")
+	}
 	_, err := executeRunCommand(context.Background(), map[string]any{
 		"command":         "echo hello | grep -r pattern /no/such/path/at/all",
 		"timeout_seconds": 30,
