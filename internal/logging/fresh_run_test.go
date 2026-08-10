@@ -1,9 +1,12 @@
 package logging
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"testing"
 )
 
@@ -231,4 +234,125 @@ func TestInitialize_DebugFalse_ClearsStaleLogAndSetsPrefix(t *testing.T) {
 		}
 		t.Fatalf("Stat stale.log after Initialize: %v", err)
 	}
+}
+
+
+func TestClearOrdinaryLogs_RetentionWindow_KeepsNewest10(t *testing.T) {
+	if DefaultLogRetentionRuns != 10 {
+		t.Fatalf("DefaultLogRetentionRuns = %d, want 10", DefaultLogRetentionRuns)
+	}
+	tmp := t.TempDir()
+	logsDir := filepath.Join(tmp, ".nerd", "logs")
+	if err := os.MkdirAll(logsDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll logsDir: %v", err)
+	}
+
+	// Create 13 distinct synthetic run prefixes. Format matches
+	// generateRunPrefix: 20060102_150405.000000000_<pid>_<seq>_<rand> (46 chars)
+	// Lexical order equals chronological order, so increasing nanos = newer.
+	const total = 13
+	prefixes := make([]string, total)
+	for i := 0; i < total; i++ {
+		// Use deterministic sortable prefixes: timestamp nanos increments with i,
+		// pid/seq fixed, rand derived from i to keep distinct but still ordered by nanos.
+		prefixes[i] = fmt.Sprintf("20250101_000000.%09d_000001_000001_%06x", i, i)
+		if got := runPrefixFromLogName(prefixes[i] + "_boot.log"); got != prefixes[i] {
+			t.Fatalf("synthetic prefix %q not recognised by runPrefixFromLogName: got %q", prefixes[i], got)
+		}
+	}
+	// Create two log files per prefix to verify grouping keeps all files for a prefix.
+	for _, p := range prefixes {
+		for _, suffix := range []string{"_boot.log", "_audit.log"} {
+			path := filepath.Join(logsDir, p+suffix)
+			if err := os.WriteFile(path, []byte("data "+p), 0o600); err != nil {
+				t.Fatalf("write %s: %v", path, err)
+			}
+		}
+	}
+	// Also create a nested dir and a non-log file to ensure they are preserved
+	// even when retention trimming occurs.
+	nestedDir := filepath.Join(logsDir, "nested_keep")
+	if err := os.MkdirAll(nestedDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll nested: %v", err)
+	}
+	nestedLog := filepath.Join(nestedDir, "old.log")
+	if err := os.WriteFile(nestedLog, []byte("keep"), 0o600); err != nil {
+		t.Fatalf("write nested log: %v", err)
+	}
+	notesPath := filepath.Join(logsDir, "notes.txt")
+	if err := os.WriteFile(notesPath, []byte("keep notes"), 0o600); err != nil {
+		t.Fatalf("write notes.txt: %v", err)
+	}
+
+	clearOrdinaryLogs(logsDir)
+
+	// Determine expected survivors: newest 10 distinct prefixes (lexically largest).
+	// Since prefixes were created in ascending order (0 oldest, 12 newest),
+	// oldest 3 are prefixes[0], [1], [2]; newest 10 are [3]..[12].
+	sorted := append([]string(nil), prefixes...)
+	sort.Strings(sorted) // ascending = oldest first
+	oldest := sorted[:3]
+	newest := sorted[3:]
+
+	// Oldest 3 prefixes' files must be gone.
+	for _, p := range oldest {
+		for _, suffix := range []string{"_boot.log", "_audit.log"} {
+			path := filepath.Join(logsDir, p+suffix)
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				if err == nil {
+					t.Fatalf("expected oldest prefix %q file %s to be deleted, but it still exists", p, suffix)
+				}
+				t.Fatalf("Stat %s: %v", path, err)
+			}
+		}
+	}
+	// Newest 10 prefixes' files must survive intact.
+	for _, p := range newest {
+		for _, suffix := range []string{"_boot.log", "_audit.log"} {
+			path := filepath.Join(logsDir, p+suffix)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("expected newest prefix %q file %s to survive, but ReadFile failed: %v", p, suffix, err)
+			}
+			want := "data " + p
+			if string(data) != want {
+				t.Fatalf("newest prefix %q file %s content = %q, want %q", p, suffix, string(data), want)
+			}
+		}
+	}
+	// Verify exactly 10 distinct prefixes remain (20 files).
+	entries, err := os.ReadDir(logsDir)
+	if err != nil {
+		t.Fatalf("ReadDir logsDir: %v", err)
+	}
+	remainingPrefixes := make(map[string]struct{})
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !isLogFile(name) {
+			continue
+		}
+		p := runPrefixFromLogName(name)
+		if p == "" {
+			t.Fatalf("unexpected unprefixed .log file remaining: %q", name)
+		}
+		remainingPrefixes[p] = struct{}{}
+	}
+	if len(remainingPrefixes) != 10 {
+		t.Fatalf("remaining distinct prefixes = %d, want 10; got %v", len(remainingPrefixes), remainingPrefixes)
+	}
+	// Check nested and non-log preserved.
+	if data, err := os.ReadFile(nestedLog); err != nil || string(data) != "keep" {
+		t.Fatalf("nested log should be preserved: err=%v data=%q", err, string(data))
+	}
+	if data, err := os.ReadFile(notesPath); err != nil || string(data) != "keep notes" {
+		t.Fatalf("notes.txt should be preserved: err=%v data=%q", err, string(data))
+	}
+}
+
+// isLogFile reports whether name ends with .log case-insensitive (helper for test).
+func isLogFile(name string) bool {
+	return strings.HasSuffix(strings.ToLower(name), ".log")
 }

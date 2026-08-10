@@ -5,6 +5,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -135,8 +137,22 @@ func runTransparency(cmd *cobra.Command, args []string) error {
 	// user_intent, next_action and permitted are session-scoped and die with
 	// the process, so a fresh CLI invocation sees an empty kernel by
 	// construction. The audit log is the record that survives.
-	path, err := logging.LatestAuditLogPath()
-	if err != nil {
+	//
+	// Selecting the log needs care: the transparency command itself creates a
+	// brand-new run log that contains no tool/shard/action/safety events
+	// (94-byte header only). Picking LatestAuditLogPath by definition picks
+	// that empty file and always reports "No … events in this log" even when
+	// the previous run has thousands of events. We scan backwards for the most
+	// recent log that actually contains at least one event type we are about
+	// to report, falling back to the most recent only if none do.
+	relevantTypes := []logging.AuditEventType{
+		logging.AuditShardSpawn, logging.AuditShardExecute, logging.AuditShardComplete,
+		logging.AuditActionRoute, logging.AuditActionExecute, logging.AuditActionComplete,
+		logging.AuditToolInvoke, logging.AuditToolComplete, logging.AuditToolError,
+		logging.AuditSafetyAllow, logging.AuditSafetyBlock,
+	}
+	path, mostRecent, skipped, selErr := selectAuditLogWithEvents(relevantTypes)
+	if selErr != nil {
 		fmt.Println("\n⚠️  No audit log available.")
 		fmt.Println("   Audit logging is gated on debug mode. Set logging.debug_mode")
 		fmt.Println("   in .nerd/config.json to record decisions.")
@@ -144,7 +160,12 @@ func runTransparency(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("\nSource: %s\n", path)
+	if skipped {
+		fmt.Printf("\nSource: %s\n", path)
+		fmt.Printf("(most recent log %s contained no relevant events; showing %s)\n", mostRecent, path)
+	} else {
+		fmt.Printf("\nSource: %s\n", path)
+	}
 
 	counts, err := logging.CountAuditEventTypes(path)
 	if err != nil {
@@ -166,6 +187,53 @@ func runTransparency(cmd *cobra.Command, args []string) error {
 
 	fmt.Println(strings.Repeat("═", 60))
 	return nil
+}
+
+// selectAuditLogWithEvents returns the most recent audit log that contains at
+// least one event of the relevant types. It scans lexically-sorted log files
+// newest first (filenames are timestamp-prefixed so lexical order is
+// chronological). If no log contains a relevant event it falls back to the most
+// recent log so the caller can render an honest empty report. When the
+// selected log is not the most recent, skipped is true and the caller should
+// print which file was actually read so the output is unambiguous.
+func selectAuditLogWithEvents(relevant []logging.AuditEventType) (selected, mostRecent string, skipped bool, err error) {
+	dir := logging.AuditLogsDir()
+	if dir == "" {
+		// No workspace / not initialized — delegate to the existing helper so
+		// error semantics (ErrNoAuditLog) are preserved.
+		p, e := logging.LatestAuditLogPath()
+		return p, p, false, e
+	}
+
+	matches, e := filepath.Glob(filepath.Join(dir, "*_audit.log"))
+	if e != nil {
+		return "", "", false, e
+	}
+	if len(matches) == 0 {
+		return "", "", false, logging.ErrNoAuditLog
+	}
+
+	sort.Strings(matches)
+	mostRecent = matches[len(matches)-1]
+
+	for i := len(matches) - 1; i >= 0; i-- {
+		candidate := matches[i]
+		counts, err := logging.CountAuditEventTypes(candidate)
+		if err != nil {
+			// Unreadable or truncated file — treat as empty and try older log.
+			continue
+		}
+		for _, t := range relevant {
+			if counts[t] > 0 {
+				skipped = candidate != mostRecent
+				return candidate, mostRecent, skipped, nil
+			}
+		}
+	}
+
+	// No log contained any relevant event — fallback to the most recent so the
+	// empty report is honest and debuggable.
+	return mostRecent, mostRecent, false, nil
 }
 
 // printAuditSection renders one event family.

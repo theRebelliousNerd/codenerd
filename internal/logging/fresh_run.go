@@ -1,9 +1,14 @@
 // Package logging — fresh-run ordinary log reset and run-prefix isolation.
 //
 // On each codeNERD process initialization, ordinary top-level log files
-// under .nerd/logs/*.log are cleared so that no prior run's data is
-// reused or appended — including multiple runs on the same calendar day.
+// under .nerd/logs/*.log are trimmed to a retention window: the most
+// recent DefaultLogRetentionRuns distinct run prefixes are kept and only
+// logs belonging to older prefixes are cleared. This preserves recent
+// history for transparency while preventing unbounded growth — including
+// multiple runs on the same calendar day.
 // Browser flight/evidence traces, non-log files, and nested directories
+// are preserved. All mutations are workspace-contained, symlink-safe, and
+// best-effort robust when a prior process still holds a file open.
 // are preserved. All mutations are workspace-contained, symlink-safe, and
 // best-effort robust when a prior process still holds a file open.
 //
@@ -20,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,6 +37,12 @@ var (
 	runPrefixMu  sync.RWMutex
 	runPrefixSeq uint64
 )
+
+// DefaultLogRetentionRuns is the number of most recent distinct run
+// prefixes to keep on disk. clearOrdinaryLogs deletes only files
+// belonging to older prefixes, preserving recent history for
+// transparency while bounding growth.
+const DefaultLogRetentionRuns = 10
 
 // generateRunPrefix returns a process-unique, lexically sortable prefix.
 // Format: 20060102_150405.000000000_<pid>_<seq>_<rand> where the timestamp
@@ -90,10 +102,81 @@ func logsDirSymlinkRejected(logsDir string) bool {
 	return false
 }
 
+// runPrefixFromLogName extracts the run prefix from a log filename if it
+// begins with a valid run prefix produced by generateRunPrefix. The prefix
+// format is 20060102_150405.000000000_<pid>_<seq>_<rand> (46 chars):
+//  8 digits date, '_' , 6 digits time, '.' , 9 digits nanos, '_' ,
+//  6 digits pid, '_' , 6 digits seq, '_' , 6 hex chars. Lexical order of
+// this prefix equals chronological order. Returns the prefix string on
+// success or "" if the name does not start with a valid prefix.
+func runPrefixFromLogName(name string) string {
+	const prefixLen = 46
+	if len(name) < prefixLen {
+		return ""
+	}
+	candidate := name[:prefixLen]
+	// 0-7: YYYYMMDD digits
+	for i := 0; i < 8; i++ {
+		if candidate[i] < '0' || candidate[i] > '9' {
+			return ""
+		}
+	}
+	if candidate[8] != '_' {
+		return ""
+	}
+	// 9-14: HHMMSS digits
+	for i := 9; i < 15; i++ {
+		if candidate[i] < '0' || candidate[i] > '9' {
+			return ""
+		}
+	}
+	if candidate[15] != '.' {
+		return ""
+	}
+	// 16-24: nanoseconds 9 digits
+	for i := 16; i < 25; i++ {
+		if candidate[i] < '0' || candidate[i] > '9' {
+			return ""
+		}
+	}
+	if candidate[25] != '_' {
+		return ""
+	}
+	// 26-31: pid 6 digits
+	for i := 26; i < 32; i++ {
+		if candidate[i] < '0' || candidate[i] > '9' {
+			return ""
+		}
+	}
+	if candidate[32] != '_' {
+		return ""
+	}
+	// 33-38: seq 6 digits
+	for i := 33; i < 39; i++ {
+		if candidate[i] < '0' || candidate[i] > '9' {
+			return ""
+		}
+	}
+	if candidate[39] != '_' {
+		return ""
+	}
+	// 40-45: rand 6 hex chars
+	for i := 40; i < 46; i++ {
+		c := candidate[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return ""
+		}
+	}
+	return candidate
+}
+
 // clearOrdinaryLogs removes/truncates previous top-level *.log files
-// under logsDir. It is intentionally best-effort: any single entry that
-// cannot be cleared (e.g., locked on Windows) is warned to stderr and
-// skipped so that process startup is never blocked by stale logs.
+// under logsDir using a retention window. Instead of deleting all prior
+// logs, it keeps the most recent DefaultLogRetentionRuns distinct run
+// prefixes (lexically newest first, which equals chronological order) and
+// deletes only files belonging to older prefixes. Legacy or unprefixed
+// *.log files that do not start with a valid run prefix are treated as
+// expired and removed.
 //
 // Invariants:
 //   - Only direct children of logsDir with suffix ".log" are considered.
@@ -120,6 +203,12 @@ func clearOrdinaryLogs(logsDir string) {
 		fmt.Fprintf(os.Stderr, "[logging] fresh-run: could not list logs directory %s: %v\n", cleanLogsDir, err)
 		return
 	}
+	// Classify candidates by run prefix. Files that do not start with a
+	// valid run prefix are collected as unprefixed (legacy) and deleted
+	// regardless of the retention window to preserve prior cleanup
+	// behaviour for stale non-prefixed logs (e.g., a.log, stale.log).
+	prefixToFiles := make(map[string][]string)
+	var unprefixedFiles []string
 	for _, entry := range entries {
 		name := entry.Name()
 		// Only ordinary log files.
@@ -162,14 +251,50 @@ func clearOrdinaryLogs(logsDir string) {
 			continue
 		}
 
-		// Robust removal/truncation: try Remove first so unlocked old
-		// ordinary logs disappear; if Remove fails for a non-not-exist
-		// error (e.g., sharing violation on Windows due to a locked file),
-		// fall back to truncating in place with O_WRONLY|O_TRUNC as best
-		// effort, preserving private permissions. Warn rather than fail
-		// the boot.
-		if err := truncateOrRemove(cleanFull); err != nil {
-			fmt.Fprintf(os.Stderr, "[logging] fresh-run: could not clear %s: %v (continuing)\n", cleanFull, err)
+		prefix := runPrefixFromLogName(name)
+		if prefix == "" {
+			unprefixedFiles = append(unprefixedFiles, cleanFull)
+		} else {
+			prefixToFiles[prefix] = append(prefixToFiles[prefix], cleanFull)
+		}
+	}
+
+	// Determine which prefixes to keep: the newest DefaultLogRetentionRuns
+	// distinct prefixes when sorted descending (lexically descending ==
+	// chronologically newest first because the prefix itself is sortable).
+	if len(prefixToFiles) == 0 && len(unprefixedFiles) == 0 {
+		return
+	}
+	distinct := make([]string, 0, len(prefixToFiles))
+	for p := range prefixToFiles {
+		distinct = append(distinct, p)
+	}
+	// Sort descending so newest (largest lexical) comes first.
+	sort.Sort(sort.Reverse(sort.StringSlice(distinct)))
+	keep := make(map[string]struct{}, DefaultLogRetentionRuns)
+	for i, p := range distinct {
+		if i < DefaultLogRetentionRuns {
+			keep[p] = struct{}{}
+		} else {
+			break
+		}
+	}
+
+	// Delete legacy/unprefixed files (best-effort).
+	for _, path := range unprefixedFiles {
+		if err := truncateOrRemove(path); err != nil {
+			fmt.Fprintf(os.Stderr, "[logging] fresh-run: could not clear %s: %v (continuing)\n", path, err)
+		}
+	}
+	// Delete files belonging to prefixes outside the retention window.
+	for prefix, files := range prefixToFiles {
+		if _, ok := keep[prefix]; ok {
+			continue
+		}
+		for _, path := range files {
+			if err := truncateOrRemove(path); err != nil {
+				fmt.Fprintf(os.Stderr, "[logging] fresh-run: could not clear %s: %v (continuing)\n", path, err)
+			}
 		}
 	}
 }
