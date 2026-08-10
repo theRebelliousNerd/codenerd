@@ -186,6 +186,18 @@ safe_action(/git_operation).
 safe_action(/git_diff).
 safe_action(/git_log).
 
+# SWE-bench operations — benchmark equivalents of already-permitted operations
+# (/write_file, /edit_file and /run_tests are all safe_action today). Handlers
+# live in internal/core/virtual_store_python.go and the router already marks
+# them RequiresSafe, so the ConstitutionGate can derive permitted/3.
+safe_action(/swebench_setup).
+safe_action(/swebench_apply_patch).
+safe_action(/swebench_run_tests).
+safe_action(/swebench_snapshot).
+safe_action(/swebench_restore).
+safe_action(/swebench_evaluate).
+safe_action(/swebench_teardown).
+
 # Blocked patterns for dangerous commands
 blocked_pattern("git push --force").
 blocked_pattern("git push -f").
