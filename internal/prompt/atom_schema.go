@@ -57,6 +57,8 @@ type AtomDefinition struct {
 	ShardTypes       []string `yaml:"shard_types,omitempty"`
 	Languages        []string `yaml:"languages,omitempty"`
 	Frameworks       []string `yaml:"frameworks,omitempty"`
+	Models           []string `yaml:"models,omitempty"`
+	Providers        []string `yaml:"providers,omitempty"`
 	WorldStates      []string `yaml:"world_states,omitempty"`
 
 	Content     string `yaml:"content,omitempty"`
@@ -568,6 +570,8 @@ func (definition AtomDefinition) toPromptAtom(sourcePath string, readContent Ato
 		ShardTypes:       append([]string(nil), definition.ShardTypes...),
 		Languages:        append([]string(nil), definition.Languages...),
 		Frameworks:       append([]string(nil), definition.Frameworks...),
+		Models:           append([]string(nil), definition.Models...),
+		Providers:        append([]string(nil), definition.Providers...),
 		WorldStates:      append([]string(nil), definition.WorldStates...),
 		CreatedAt:        time.Now(),
 	}
@@ -586,6 +590,8 @@ func (definition AtomDefinition) toPromptAtom(sourcePath string, readContent Ato
 		{"shard_types", atom.ShardTypes, true},
 		{"languages", atom.Languages, true},
 		{"frameworks", atom.Frameworks, true},
+		{"models", atom.Models, true},
+		{"providers", atom.Providers, true},
 		{"world_states", atom.WorldStates, false},
 		{"depends_on", atom.DependsOn, false},
 		{"conflicts_with", atom.ConflictsWith, false},
@@ -613,7 +619,15 @@ func validateAtomStringList(name string, values []string, normalizeSlash bool) e
 			return fmt.Errorf("%s contains an empty value", name)
 		}
 		if normalizeSlash {
-			value = strings.TrimPrefix(value, "/")
+			if name == "models" || name == "providers" {
+				normalized := NormalizeSelectorAtom(value)
+				if value != normalized {
+					return fmt.Errorf("%s contains invalid value %q: must be a valid Mangle atom (lowercase, slash-prefixed, letters/digits/underscore only), did you mean %q?", name, raw, normalized)
+				}
+				value = strings.TrimPrefix(value, "/")
+			} else {
+				value = strings.TrimPrefix(value, "/")
+			}
 		}
 		if _, ok := seen[value]; ok {
 			return fmt.Errorf("%s contains duplicate value %q", name, value)
@@ -697,4 +711,29 @@ var metadataSlugPattern = regexp.MustCompile(`[^a-z0-9]+`)
 func slugMetadataName(value string) string {
 	value = strings.Trim(metadataSlugPattern.ReplaceAllString(strings.ToLower(strings.TrimSpace(value)), "_"), "_")
 	return value
+}
+
+// NormalizeSelectorAtom converts a free-form identifier such as a model name
+// into the Mangle atom form used by atom selectors.
+func NormalizeSelectorAtom(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.ToLower(s)
+	if strings.HasPrefix(s, "/") {
+		s = s[1:]
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 1)
+	prevUnderscore := false
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			b.WriteRune(r)
+			prevUnderscore = false
+		} else {
+			if !prevUnderscore {
+				b.WriteRune('_')
+				prevUnderscore = true
+			}
+		}
+	}
+	return "/" + b.String()
 }

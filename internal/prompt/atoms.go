@@ -189,6 +189,12 @@ type PromptAtom struct {
 	// Frameworks: /bubbletea, /gin, /react, /django, /rod, /lipgloss
 	Frameworks []string `json:"frameworks,omitempty"`
 
+	// Models: /muse_spark_1_2_contributor, /gpt_4o, /claude_3_5_sonnet
+	Models []string `json:"models,omitempty"`
+
+	// Providers: /meta, /openai, /anthropic
+	Providers []string `json:"providers,omitempty"`
+
 	// WorldStates: failing_tests, diagnostics, large_refactor, security_issues, new_files, high_churn
 	WorldStates []string `json:"world_states,omitempty"`
 
@@ -285,6 +291,8 @@ func (a *PromptAtom) NormalizeSelectors() {
 	normalizeList(a.ShardTypes)
 	normalizeList(a.Languages)
 	normalizeList(a.Frameworks)
+	normalizeList(a.Models)
+	normalizeList(a.Providers)
 }
 
 func normalizeList(list []string) {
@@ -481,6 +489,8 @@ func (a *PromptAtom) ToSelectorFacts() []core.Fact {
 	addSelectorFacts("shard_type", a.ShardTypes)
 	addSelectorFacts("language", a.Languages)
 	addSelectorFacts("framework", a.Frameworks)
+	addSelectorFacts("model", a.Models)
+	addSelectorFacts("provider", a.Providers)
 	addSelectorFacts("world_state", a.WorldStates)
 
 	return facts
@@ -577,6 +587,8 @@ func (a *PromptAtom) Clone() *PromptAtom {
 	clone.ShardTypes = copyStringSlice(a.ShardTypes)
 	clone.Languages = copyStringSlice(a.Languages)
 	clone.Frameworks = copyStringSlice(a.Frameworks)
+	clone.Models = copyStringSlice(a.Models)
+	clone.Providers = copyStringSlice(a.Providers)
 	clone.WorldStates = copyStringSlice(a.WorldStates)
 	clone.DependsOn = copyStringSlice(a.DependsOn)
 	clone.ConflictsWith = copyStringSlice(a.ConflictsWith)
