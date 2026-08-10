@@ -402,6 +402,56 @@ var northstarStatsCmd = &cobra.Command{
 				fmt.Printf("  %s: %d\n", t, count)
 			}
 		}
+		return nil
+	},
+}
+
+// northstarLoadCmd loads a northstar definition from a JSON file
+var northstarLoadCmd = &cobra.Command{
+	Use:   "load <path>",
+	Short: "Load northstar definition from a JSON file",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		data, err := os.ReadFile(args[0])
+		if err != nil {
+			return fmt.Errorf("failed to read %s: %w", args[0], err)
+		}
+
+		var ns NorthstarState
+		if err := json.Unmarshal(data, &ns); err != nil {
+			return fmt.Errorf("failed to parse %s: %w", args[0], err)
+		}
+
+		if ns.Mission == "" {
+			return fmt.Errorf("invalid northstar: Mission must not be empty")
+		}
+
+		ws := workspace
+		if ws == "" {
+			ws, _ = os.Getwd()
+		}
+
+		nerdDir := filepath.Join(ws, ".nerd")
+		if err := os.MkdirAll(nerdDir, 0755); err != nil {
+			return fmt.Errorf("failed to create .nerd directory: %w", err)
+		}
+
+		out, err := json.MarshalIndent(ns, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal northstar: %w", err)
+		}
+
+		jsonPath := filepath.Join(ws, ".nerd", "northstar.json")
+		if err := os.WriteFile(jsonPath, out, 0644); err != nil {
+			return fmt.Errorf("failed to write %s: %w", jsonPath, err)
+		}
+
+		fmt.Printf("Mission: %s\n", ns.Mission)
+		fmt.Printf("User Personas:        %d\n", len(ns.Personas))
+		fmt.Printf("Capabilities:         %d\n", len(ns.Capabilities))
+		fmt.Printf("Risks:                %d\n", len(ns.Risks))
+		fmt.Printf("Requirements:         %d\n", len(ns.Requirements))
+		fmt.Printf("Constraints:          %d\n", len(ns.Constraints))
 
 		return nil
 	},
@@ -546,5 +596,6 @@ func init() {
 		northstarFactsCmd,
 		northstarExportCmd,
 		northstarStatsCmd,
+		northstarLoadCmd,
 	)
 }
