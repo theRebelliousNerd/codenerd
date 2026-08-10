@@ -285,6 +285,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	researcherTools := copyTools(coreTools,
 		"context7_fetch", // LLM-optimized documentation
 		"web_search",
+		"grounded_web_search",
 		"web_fetch",
 		"browser_navigate",
 		"browser_extract",
@@ -300,6 +301,8 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"research_cache_set",
 		"write_file", // Can write documentation
 	)
+
+	verificationTools := copyTools(testerTools, "grounded_web_search")
 
 	// The intent lists below must cover every verb in
 	// perception.DefaultTaxonomyData, and each verb belongs to the persona that
@@ -333,14 +336,25 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		}
 	}
 
-	// Register tester intents
+	// Register tester intents (ordinary)
 	for _, intent := range []string{
 		"/test", "/benchmark", "/profile",
 		// non-canonical aliases
-		"/cover", "/verify", "/validate",
+		"/cover",
 	} {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    testerTools,
+			Policies: copyPolicySet(core.PolicySetTester),
+			Priority: 90,
+		}
+	}
+
+	// Register verification intents (tester + grounded search)
+	for _, intent := range []string{
+		"/verify", "/validate",
+	} {
+		provider.atoms[intent] = ConfigAtom{
+			Tools:    verificationTools,
 			Policies: copyPolicySet(core.PolicySetTester),
 			Priority: 90,
 		}

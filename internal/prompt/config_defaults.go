@@ -58,6 +58,7 @@ func RegisterDefaultConfigAtoms(registry *SimpleRegistry) {
 		Tools: []string{
 			"context7_fetch",
 			"web_search",
+			"grounded_web_search",
 			"web_fetch",
 			"browser_navigate",
 			"browser_extract",

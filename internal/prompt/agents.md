@@ -25,3 +25,7 @@
 - Browser declarative-test guidance lives in
   `atoms/capability/browser_tests.yaml`; keep fixtures semantic-targeted,
   credential-free, bounded, and limited to live-kernel single-atom assertions.
+- Grounded web search guidance lives at
+  `atoms/capability/grounded_web_search.yaml`; select it only when
+  `grounded_web_search` is in the effective JIT catalog, never for ordinary
+  `/test`, `/benchmark`, or `/profile` intents.

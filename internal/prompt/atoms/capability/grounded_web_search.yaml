@@ -1,0 +1,17 @@
+# Grounded web search capability atom - JIT visibility only for verification/research
+- id: "capability/grounded_web_search"
+  category: "capability"
+  subcategory: "grounded_search"
+  priority: 87
+  is_mandatory: false
+  intent_verbs: ["/research", "/explore", "/verify", "/validate"]
+  shard_types: ["/researcher", "/tester"]
+  content: |
+    ## Grounded Web Search
+
+    Use only when the effective catalog includes `grounded_web_search`.
+
+    - Ask one precise current-fact query.
+    - Consume structured text/citations/usage and cite sources.
+    - Never request or expose hidden reasoning.
+    - Fall back to other research/browser tools only if needed.
