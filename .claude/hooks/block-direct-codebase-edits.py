@@ -23,14 +23,28 @@ OVERRIDE
   own build is broken, the tool loop cannot reach the file). The standing
   agreement is that Claude fixes the BLOCKER so codeNERD can continue.
 
-  To take it, write a reason first:
+  An override must PROVE codeNERD was actually tried. Free-text reasons were
+  self-granted in practice — 40 of them in a single session — which made this
+  a speed bump rather than a constraint. So the file must now carry:
 
-      echo "why codeNERD cannot do this" > .claude/.dogfood-override
+      ATTEMPTED: <path to a .nerd/logs/*.log from the failed run>
+      REASON: <why codeNERD could not do it>
 
-  The override is SINGLE USE — consumed by the next write — and every use is
-  appended to .claude/dogfood-overrides.log with the file and the reason.
-  There is no silent bypass, on purpose: an override Claude can take without
-  leaving a trace is not a constraint.
+  The hook verifies that the named log exists, is recent, and actually records
+  a failure. A reason with no verifiable attempt is refused.
+
+  Overrides are also CAPPED at MAX_OVERRIDES_PER_DAY. Past the cap the answer
+  is no until the next day — scarcity is the point. Ask the user to make the
+  edit, or to lift the cap deliberately.
+
+  Still SINGLE USE, and every use is appended to
+  .claude/dogfood-overrides.log. An override that can be taken without leaving
+  a trace is not a constraint.
+
+  NOTE: .claude/settings.json also carries permissions.deny for internal/**,
+  cmd/** and pkg/**. That is enforced by the harness, not by this hook, and
+  Claude cannot grant it to itself — only the user can approve. This hook
+  remains as defense in depth and as the place the reasoning is recorded.
 
 Exit codes: 0 allow, 2 block (stderr goes back to Claude).
 """
@@ -61,6 +75,28 @@ BLOCKED_SUFFIXES = (".go", ".mg")
 
 OVERRIDE_FILE = ".claude/.dogfood-override"
 OVERRIDE_LOG = ".claude/dogfood-overrides.log"
+
+# Scarcity is the mechanism. 40 overrides were taken in one session under the
+# old free-text rule, which is what a non-constraint looks like.
+MAX_OVERRIDES_PER_DAY = 3
+
+# A cited codeNERD run has to be from this session's work, not yesterday's.
+MAX_ATTEMPT_AGE_S = 60 * 60
+
+# Substrings that show the cited run actually failed rather than succeeded.
+FAILURE_MARKERS = (
+    "shard execution failed",
+    "execution failed",
+    "llm generation failed",
+    "broke the tests",
+    "did not fix them",
+    "build failed",
+    "panic:",
+    "blocked by shell-effect gate",
+    "tool-iteration",
+    "max iterations",
+    "error:",
+)
 
 
 def repo_root() -> str:
@@ -102,8 +138,62 @@ def is_source(rel: str) -> bool:
     return False
 
 
+def overrides_used_today(root: str) -> int:
+    """Count override log entries stamped with today's UTC date."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        with open(os.path.join(root, OVERRIDE_LOG), "r", encoding="utf-8") as fh:
+            return sum(1 for line in fh if line.startswith(today))
+    except Exception:
+        return 0
+
+
+def attempt_is_verifiable(root: str, body: str):
+    """Return (ok, detail). An override must cite a real, failed codeNERD run.
+
+    Free text was self-granted in practice, so the ATTEMPTED: line must name a
+    log this hook can open, that is recent, and that actually records a
+    failure. This cannot be satisfied without having run codeNERD.
+    """
+    attempted = ""
+    for line in body.splitlines():
+        if line.strip().upper().startswith("ATTEMPTED:"):
+            attempted = line.split(":", 1)[1].strip()
+            break
+    if not attempted:
+        return False, "no ATTEMPTED: line naming the log of a failed codeNERD run"
+
+    log_path = attempted if os.path.isabs(attempted) else os.path.join(root, attempted)
+    if not os.path.exists(log_path):
+        return False, f"ATTEMPTED names {attempted!r}, which does not exist"
+
+    age_s = abs(datetime.now(timezone.utc).timestamp() - os.path.getmtime(log_path))
+    if age_s > MAX_ATTEMPT_AGE_S:
+        return False, (
+            f"ATTEMPTED log is {int(age_s // 60)} minutes old; "
+            f"re-run codeNERD (limit {MAX_ATTEMPT_AGE_S // 60} minutes)"
+        )
+
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read().lower()
+    except Exception as exc:
+        return False, f"could not read ATTEMPTED log: {exc}"
+
+    if not any(m in text for m in FAILURE_MARKERS):
+        return False, (
+            "ATTEMPTED log records no failure — if codeNERD did not fail, "
+            "it was not blocked, so fix it there"
+        )
+    return True, attempted
+
+
 def consume_override(root: str, rel: str, tool: str):
-    """Return the override reason if one is staged, consuming it. Else None."""
+    """Return the override reason if a VALID one is staged, consuming it.
+
+    Returns None when no override is staged, or a ("__refused__", detail)
+    tuple when one is staged but does not justify itself.
+    """
     path = os.path.join(root, OVERRIDE_FILE)
     if not os.path.exists(path):
         return None
@@ -114,6 +204,22 @@ def consume_override(root: str, rel: str, tool: str):
         reason = ""
     if not reason:
         return None
+
+    used = overrides_used_today(root)
+    if used >= MAX_OVERRIDES_PER_DAY:
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+        return ("__refused__", f"daily override cap reached ({used}/{MAX_OVERRIDES_PER_DAY})")
+
+    ok, detail = attempt_is_verifiable(root, reason)
+    if not ok:
+        try:
+            os.remove(path)  # a refused override is still spent, so this cannot be brute-forced
+        except Exception:
+            pass
+        return ("__refused__", detail)
 
     try:
         os.remove(path)  # single use
@@ -152,10 +258,25 @@ def main() -> int:
         return 0
 
     reason = consume_override(root, rel, tool)
+    if isinstance(reason, tuple):
+        # An override was staged but did not justify itself. It is already
+        # spent, so this cannot be retried by simply writing the file again.
+        print(
+            f"[dogfood] OVERRIDE REFUSED for {rel}: {reason[1]}\n"
+            f"[dogfood] An override must cite a codeNERD run that actually failed:\n"
+            f"    ATTEMPTED: .nerd/logs/<the failed run>.log\n"
+            f"    REASON: <why codeNERD could not do it>\n"
+            f"[dogfood] Run ./nerd.exe fix \"...\" first. If it succeeds, there was "
+            f"nothing to override.",
+            file=sys.stderr,
+        )
+        return 2
     if reason:
+        used = overrides_used_today(root)
         print(
             f"[dogfood] override consumed for {rel}: {reason}\n"
-            f"[dogfood] logged to {OVERRIDE_LOG}; the next write is blocked again.",
+            f"[dogfood] {used}/{MAX_OVERRIDES_PER_DAY} used today; "
+            f"logged to {OVERRIDE_LOG}. The next write is blocked again.",
             file=sys.stderr,
         )
         return 0
