@@ -275,7 +275,11 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// FIX(BUG-005): Hydrate modular tools so JITExecutor can use them
-	if err := virtualStore.HydrateModularTools(); err != nil {
+	var groundedSearcher types.GroundedWebSearcher
+	if gws, ok := llmClient.(types.GroundedWebSearcher); ok {
+		groundedSearcher = gws
+	}
+	if err := virtualStore.HydrateModularTools(groundedSearcher); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to hydrate modular tools: %v\n", err)
 	}
 
@@ -817,7 +821,11 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	virtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 
 	// FIX(BUG-005): Hydrate modular tools so JITExecutor can use them
-	if err := virtualStore.HydrateModularTools(); err != nil {
+	var groundedSearcherResume types.GroundedWebSearcher
+	if gws, ok := llmClient.(types.GroundedWebSearcher); ok {
+		groundedSearcherResume = gws
+	}
+	if err := virtualStore.HydrateModularTools(groundedSearcherResume); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to hydrate modular tools: %v\n", err)
 	}
 

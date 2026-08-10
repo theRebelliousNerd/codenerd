@@ -1001,7 +1001,11 @@ func initExecutionLayer(bctx *bootContext) error {
 		bctx.virtualStore.SetTransactionManager(transactionMgr)
 	}
 
-	if err := bctx.virtualStore.HydrateModularTools(); err != nil {
+	var groundedSearcher types.GroundedWebSearcher
+	if gws, ok := bctx.llmClient.(types.GroundedWebSearcher); ok {
+		groundedSearcher = gws
+	}
+	if err := bctx.virtualStore.HydrateModularTools(groundedSearcher); err != nil {
 		logging.Get(logging.CategorySession).Warn("Failed to hydrate modular tools: %v", err)
 	}
 

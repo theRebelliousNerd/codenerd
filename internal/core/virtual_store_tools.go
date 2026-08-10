@@ -11,6 +11,7 @@ import (
 	"codenerd/internal/tools/core"
 	"codenerd/internal/tools/research"
 	"codenerd/internal/tools/shell"
+	"codenerd/internal/types"
 )
 
 // GetToolRegistry returns the tool registry.
@@ -42,7 +43,7 @@ func (v *VirtualStore) RegisterModularTool(tool *tools.Tool) error {
 
 // HydrateModularTools registers all built-in modular tools.
 // This should be called during session initialization.
-func (v *VirtualStore) HydrateModularTools() error {
+func (v *VirtualStore) HydrateModularTools(searchers ...types.GroundedWebSearcher) error {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "HydrateModularTools")
 	defer timer.Stop()
 
@@ -98,6 +99,27 @@ func (v *VirtualStore) HydrateModularTools() error {
 	}
 	if err := research.RegisterAll(globalRegistry); err != nil {
 		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register research tools to global registry: %v", err)
+	}
+
+	// Select at most the first non-nil searcher deterministically.
+	var searcher types.GroundedWebSearcher
+	for _, s := range searchers {
+		if s != nil {
+			searcher = s
+			break
+		}
+	}
+
+	// Conditionally register grounded_web_search on both registries with matching error/warn behavior.
+	if err := func() error {
+		_, err := research.RegisterGroundedWebSearchIfSupported(registry, searcher)
+		return err
+	}(); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to register grounded_web_search: %v", err)
+		return fmt.Errorf("failed to register grounded_web_search: %w", err)
+	}
+	if _, err := research.RegisterGroundedWebSearchIfSupported(globalRegistry, searcher); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register grounded_web_search to global registry: %v", err)
 	}
 
 	logging.VirtualStore("Modular tools hydrated: %d tools in registry, %d tools in global", registry.Count(), globalRegistry.Count())
