@@ -25,8 +25,10 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -199,6 +201,100 @@ func Load(workspace string) (*Document, error) {
 	}
 	return doc, nil
 }
+// LoadAll returns the root document (if any) followed by every module-level
+// nerd.md found beneath the workspace.
+func LoadAll(workspace string) ([]*Document, error) {
+	var docs []*Document
+
+	rootDoc, err := Load(workspace)
+	if err != nil {
+		return nil, err
+	}
+	if rootDoc != nil {
+		docs = append(docs, rootDoc)
+	}
+
+	walkRoot := workspace
+	if walkRoot == "" {
+		walkRoot = "."
+	}
+
+	rootRel := ""
+	if rootDoc != nil {
+		rootRel = rootDoc.Path
+	}
+
+	var modules []*Document
+	var walkErr error
+
+	err = filepath.WalkDir(walkRoot, func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if strings.HasPrefix(name, ".") {
+				if p != walkRoot {
+					return fs.SkipDir
+				}
+			} else if name == "node_modules" || name == "vendor" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.Name() != FileName {
+			return nil
+		}
+		rel, relErr := filepath.Rel(walkRoot, p)
+		if relErr != nil {
+			rel = p
+		}
+		relPOSIX := filepath.ToSlash(rel)
+		if relPOSIX == rootRel {
+			return nil
+		}
+		if filepath.ToSlash(filepath.Dir(relPOSIX)) == "." {
+			return nil
+		}
+		data, readErr := os.ReadFile(p)
+		if readErr != nil {
+			walkErr = fmt.Errorf("read %s: %w", relPOSIX, readErr)
+			return walkErr
+		}
+		doc, parseErr := Parse(data)
+		if parseErr != nil {
+			walkErr = fmt.Errorf("%s: %w", relPOSIX, parseErr)
+			return walkErr
+		}
+		// Set workspace-relative POSIX path for module key derivation.
+		wsForRel := workspace
+		if wsForRel == "" {
+			wsForRel = "."
+		}
+		if rp, rpErr := filepath.Rel(wsForRel, p); rpErr == nil {
+			doc.Path = filepath.ToSlash(rp)
+		} else {
+			doc.Path = relPOSIX
+		}
+		modules = append(modules, doc)
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	if err != nil {
+		// WalkDir failure unrelated to an invalid nerd.md (e.g., missing walkRoot)
+		// must not surface as an error, matching Load's "absent is not an error".
+		_ = err
+	}
+
+	sort.Slice(modules, func(i, j int) bool {
+		return modules[i].Path < modules[j].Path
+	})
+	docs = append(docs, modules...)
+	return docs, nil
+}
+
 
 // Parse splits frontmatter from body and strictly decodes the frontmatter.
 func Parse(data []byte) (*Document, error) {

@@ -911,8 +911,18 @@ func initKernel(bctx *bootContext) error {
 // quietly would leave them believing a write-protection rule is in force when it
 // is not — which is the more dangerous of the two. So: boot, and say loudly
 // which directives are not being enforced.
+// loadProjectDoc reads nerd.md and asserts its frontmatter into the kernel.
+//
+// It runs after world facts so that a project rule is in place before the first
+// turn can act. nerd.md is optional; a missing file is silent.
+//
+// A malformed file is NOT silent and is NOT fatal. Refusing to boot would strand
+// the user with no way to run the agent that could fix the file, but degrading
+// quietly would leave them believing a write-protection rule is in force when it
+// is not — which is the more dangerous of the two. So: boot, and say loudly
+// which directives are not being enforced.
 func loadProjectDoc(bctx *bootContext) {
-	doc, err := projectdoc.Load(bctx.workspace)
+	docs, err := projectdoc.LoadAll(bctx.workspace)
 	if err != nil {
 		fmt.Fprintf(os.Stderr,
 			"Warning: %s is invalid and NONE of its rules are in force (including any write protection): %v\n",
@@ -920,26 +930,54 @@ func loadProjectDoc(bctx *bootContext) {
 		logging.Get(logging.CategoryBoot).Warn("%s rejected, no project rules active: %v", projectdoc.FileName, err)
 		return
 	}
-	if doc == nil {
+	if len(docs) == 0 {
 		return
 	}
 
-	facts := doc.Facts()
-	coreFacts := make([]core.Fact, 0, len(facts))
-	for _, f := range facts {
-		coreFacts = append(coreFacts, core.Fact{Predicate: f.Predicate, Args: f.Args})
+	var coreFacts []core.Fact
+	for _, doc := range docs {
+		for _, f := range doc.Facts() {
+			coreFacts = append(coreFacts, core.Fact{Predicate: f.Predicate, Args: f.Args})
+		}
 	}
 	if err := bctx.kernel.LoadFacts(coreFacts); err != nil {
 		fmt.Fprintf(os.Stderr,
-			"Warning: %s parsed but its rules could not be asserted; write protection is NOT active: %v\n",
-			doc.Path, err)
-		logging.Get(logging.CategoryBoot).Warn("%s facts rejected by kernel: %v", doc.Path, err)
+			"Warning: %d %s document(s) parsed but their rules could not be asserted; write protection is NOT active: %v\n",
+			len(docs), projectdoc.FileName, err)
+		logging.Get(logging.CategoryBoot).Warn("%d %s document(s) facts rejected by kernel: %v", len(docs), projectdoc.FileName, err)
 		return
 	}
 
-	bctx.projectDoc = doc
-	logging.Boot("Loaded %s: %d facts, %d write-protected path(s), %d command(s)",
-		doc.Path, len(coreFacts), len(doc.Spec.Forbid), doc.CommandCount())
+	// Only the workspace-root document is the project document. Module-level
+	// nerd.md files contribute facts but must not become the SYSTEM PROMPT's
+	// project instructions — otherwise one module's prose would silently become
+	// project-wide. Pre-LoadAll, a workspace with only module docs had no
+	// project doc at all (Load returned nil), so we preserve that by leaving
+	// bctx.projectDoc nil when no root doc is present. Do not assume position in
+	// the slice: identify the root by its Path being the bare file name
+	// (projectdoc.FileName) or equivalently its directory resolving to ".".
+	var rootDoc *projectdoc.Document
+	for _, doc := range docs {
+		if doc.Path == projectdoc.FileName || filepath.ToSlash(filepath.Dir(doc.Path)) == "." {
+			rootDoc = doc
+			break
+		}
+	}
+	bctx.projectDoc = rootDoc
+
+	totalForbid := 0
+	totalCommands := 0
+	for _, d := range docs {
+		totalForbid += len(d.Spec.Forbid)
+		totalCommands += d.CommandCount()
+	}
+	if rootDoc != nil {
+		logging.Boot("Loaded %d %s document(s) (%s: %d facts, %d write-protected path(s), %d command(s))",
+			len(docs), projectdoc.FileName, rootDoc.Path, len(coreFacts), totalForbid, totalCommands)
+	} else {
+		logging.Boot("Loaded %d %s document(s) (%d facts, %d write-protected path(s), %d command(s)) [no workspace root document]",
+			len(docs), projectdoc.FileName, len(coreFacts), totalForbid, totalCommands)
+	}
 }
 
 func defaultKernelShardConfigs(workspace string) []core.KernelShardConfig {
