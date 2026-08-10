@@ -136,7 +136,7 @@ func isCompoundCommand(s string) bool {
 func RunCommandTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "run_command",
-		Description: "Execute a shell command and return its output. Supports compound commands (&&, ||, |, ;, newline, <, >) via shell routing (pwsh/powershell with -NoProfile -NonInteractive -Command on Windows, sh -c elsewhere); simple commands execute directly via exec. Operators inside single or double quotes do not trigger routing. Timeout, working directory, env, output bounds, and upstream permission decisions are preserved in both paths.",
+		Description: runCommandDescription(),
 		Category:    tools.CategoryCode,
 		Priority:    70,
 		Execute:     executeRunCommand,
@@ -244,6 +244,13 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 			if execCtx.Err() == context.DeadlineExceeded {
 				return output, fmt.Errorf("command timed out after %d seconds", timeout)
 			}
+			// A search that matched nothing is a result, not a failure. This
+			// branch is the one that matters most: a model writes its searches
+			// as pipelines, so a no-match almost always arrives here.
+			if searchFoundNothing(command, exitCodeOf(runErr), stderr.String()) {
+				logging.VirtualStore("run_command: no matches: %s", command)
+				return "(no matches)", nil
+			}
 			logging.VirtualStore("run_command failed: %s (%v)", command, runErr)
 			return output, fmt.Errorf("command failed: %w\nOutput:\n%s", runErr, output)
 		}
@@ -337,6 +344,13 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 	if runErr != nil {
 		if execCtx.Err() == context.DeadlineExceeded {
 			return output, fmt.Errorf("command timed out after %d seconds", timeout)
+		}
+		// A search that matched nothing is a result, not a failure. Reporting
+		// it as an error tells the model its tooling broke, and it then spends
+		// turns re-running or routing around a search that worked.
+		if searchFoundNothing(command, exitCodeOf(runErr), stderr.String()) {
+			logging.VirtualStore("run_command: no matches: %s", command)
+			return "(no matches)", nil
 		}
 		logging.VirtualStore("run_command failed: %s (%v)", command, runErr)
 		return output, fmt.Errorf("command failed: %w\nOutput:\n%s", runErr, output)
