@@ -196,6 +196,112 @@ func TestDecomposer_ClassifyDocument_Trivial(t *testing.T) {
 	}
 }
 
+func TestSeedDocFactsScalesLayerConfidence(t *testing.T) {
+	kernel := &MockKernel{}
+	d := NewDecomposer(kernel, nil, t.TempDir())
+	d.seedDocFacts("/campaign_test", "repair campaign startup", []FileMetadata{{
+		Path:            "spec.md",
+		Type:            "/spec",
+		Layer:           "/implementation",
+		LayerConfidence: 0.82,
+		ModifiedAt:      time.Unix(1, 0),
+	}})
+
+	for _, fact := range kernel.Facts {
+		if fact.Predicate != "doc_layer" {
+			continue
+		}
+		got, ok := fact.Args[2].(int64)
+		if !ok {
+			t.Fatalf("doc_layer confidence type = %T, want int64", fact.Args[2])
+		}
+		if got != 82 {
+			t.Fatalf("doc_layer confidence = %d, want 82", got)
+		}
+		return
+	}
+	t.Fatal("doc_layer fact was not asserted")
+}
+
+func TestClassifyDocumentsDerivesBoundedStageContext(t *testing.T) {
+	docPath := filepath.Join(t.TempDir(), "architecture.md")
+	if err := os.WriteFile(docPath, []byte(strings.Repeat("architecture content ", 8)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	sawDeadline := false
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
+		completeFunc: func(ctx context.Context, _ string) (string, error) {
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				return "", errors.New("classification context has no deadline")
+			}
+			remaining := time.Until(deadline)
+			if remaining <= 0 || remaining > 5*time.Minute {
+				return "", fmt.Errorf("classification deadline remaining = %s", remaining)
+			}
+			sawDeadline = true
+			return `{"layer":"/implementation","confidence":0.82,"reasoning":"test"}`, nil
+		},
+	}, t.TempDir())
+
+	got := d.classifyDocuments(context.Background(), []FileMetadata{{Path: docPath}})
+	if !sawDeadline {
+		t.Fatal("classification LLM call did not receive the shared stage deadline")
+	}
+	if got[0].Layer != "/implementation" || got[0].LayerConfidence != 0.82 {
+		t.Fatalf("classification = %+v, want implementation at 0.82", got[0])
+	}
+}
+
+func TestClassifyDocumentsCancellationStopsBeforeNextFile(t *testing.T) {
+	dir := t.TempDir()
+	paths := []string{filepath.Join(dir, "first.md"), filepath.Join(dir, "second.md")}
+	for _, path := range paths {
+		if err := os.WriteFile(path, []byte(strings.Repeat("classification content ", 8)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	started := make(chan struct{}, len(paths))
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
+		completeFunc: func(ctx context.Context, _ string) (string, error) {
+			started <- struct{}{}
+			<-ctx.Done()
+			return "", ctx.Err()
+		},
+	}, t.TempDir())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan []FileMetadata, 1)
+	go func() {
+		done <- d.classifyDocuments(ctx, []FileMetadata{{Path: paths[0]}, {Path: paths[1]}})
+	}()
+
+	select {
+	case <-started:
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("first classification did not start")
+	}
+
+	select {
+	case got := <-done:
+		if got[1].Layer != "" {
+			t.Fatalf("second file was started after cancellation: %+v", got[1])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("classification did not return promptly after cancellation")
+	}
+
+	select {
+	case <-started:
+		t.Fatal("a subsequent classification started after cancellation")
+	default:
+	}
+}
+
 func TestDecomposer_Decompose_ValidationFailure(t *testing.T) {
 	// We cannot easily test full Decompose without a real kernel that supports LoadFacts/Validate.
 	// However, we can test that it initializes and fails gracefully if SourceDocs are missing or other prerequisites.

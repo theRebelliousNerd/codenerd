@@ -96,16 +96,26 @@ func (d *Decomposer) classifyDocuments(ctx context.Context, files []FileMetadata
 		return files
 	}
 
+	// Classification is useful enrichment, not the campaign's primary solve.
+	// Give every file one shared budget so N documents cannot consume N full
+	// provider timeouts before the actual planner is invoked. A shorter caller
+	// deadline still wins because this context is derived from ctx.
+	const classificationStageTimeout = 5 * time.Minute
+	stageCtx, cancel := context.WithTimeout(ctx, classificationStageTimeout)
+	defer cancel()
+
+	started := time.Now()
+	total := len(files)
 	classifiedCount := 0
+	logging.Campaign("Document classification started: files=%d timeout=%s", total, classificationStageTimeout)
+
 	for i := range files {
-		select {
-		case <-ctx.Done():
-			logging.CampaignDebug("Document classification cancelled after %d files", classifiedCount)
+		if err := stageCtx.Err(); err != nil {
+			logging.Campaign("Document classification stopped: classified=%d/%d duration=%s err=%v", classifiedCount, total, time.Since(started), err)
 			return files
-		default:
 		}
 
-		// Sensible defaults if classification is unavailable
+		// Sensible defaults if classification is unavailable.
 		files[i].Layer = "/scaffold"
 		files[i].LayerConfidence = 0.1
 
@@ -120,8 +130,12 @@ func (d *Decomposer) classifyDocuments(ctx context.Context, files []FileMetadata
 			continue
 		}
 
-		class, err := d.classifyDocument(ctx, files[i].Path, string(data))
+		class, err := d.classifyDocument(stageCtx, files[i].Path, string(data))
 		if err != nil {
+			if stageErr := stageCtx.Err(); stageErr != nil {
+				logging.Campaign("Document classification stopped: classified=%d/%d duration=%s err=%v", classifiedCount, total, time.Since(started), stageErr)
+				return files
+			}
 			logging.CampaignDebug("Classification failed for %s: %v", files[i].Path, err)
 			continue
 		}
@@ -136,11 +150,10 @@ func (d *Decomposer) classifyDocuments(ctx context.Context, files []FileMetadata
 			files[i].LayerReason = class.Reasoning
 		}
 		classifiedCount++
-		logging.CampaignDebug("Classified %s -> %s (confidence=%.2f)",
-			filepath.Base(files[i].Path), files[i].Layer, files[i].LayerConfidence)
+		logging.CampaignDebug("Classified %s -> %s (confidence=%.2f)", filepath.Base(files[i].Path), files[i].Layer, files[i].LayerConfidence)
 	}
 
-	logging.CampaignDebug("Classified %d/%d documents", classifiedCount, len(files))
+	logging.Campaign("Document classification completed: classified=%d/%d duration=%s", classifiedCount, total, time.Since(started))
 	return files
 }
 
@@ -322,9 +335,13 @@ func (d *Decomposer) seedDocFacts(campaignID, goal string, files []FileMetadata)
 		if confidence == 0 {
 			confidence = 0.1
 		}
+		// All numeric Mangle slots are /number (int64). The pinned fork rejects
+		// float64 constants in comparisons, aborting the entire fixpoint. Scale
+		// 0..1 ratio to 0..100 integer percent before assertion.
+		scaled := types.PercentFromRatio(confidence)
 		facts = append(facts, core.Fact{
 			Predicate: "doc_layer",
-			Args:      []any{fm.Path, layer, confidence},
+			Args:      []any{fm.Path, layer, scaled},
 		})
 		for _, tag := range fm.Tags {
 			facts = append(facts, core.Fact{

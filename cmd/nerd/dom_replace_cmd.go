@@ -222,12 +222,12 @@ func runDomReplace(cmd *cobra.Command, args []string) error {
 
 func collectReplaceFiles(ctx context.Context, ws, absRoot string) ([]string, error) {
 	if domReplaceScope == "one-hop" {
-		_, vs, scope, err := newDOMHarness(ws, domDemoDeepWorker)
+		kernel, vs, scope, err := newDOMHarness(ws, domDemoDeepWorker)
 		if err != nil {
 			return nil, err
 		}
 
-		if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"dom-open", "/open_file", absRoot}}); err != nil {
+		if _, err := routePermittedAction(ctx, vs, kernel, core.Fact{Predicate: "next_action", Args: []any{"dom-open", "/open_file", absRoot}}); err != nil {
 			return nil, fmt.Errorf("open_file failed: %w", err)
 		}
 
