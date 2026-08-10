@@ -852,3 +852,83 @@ func (c *ScheduledLLMCall) GetModel() string {
 	}
 	return ""
 }
+
+// =============================================================================
+// GroundedWebSearcher Pass-Through (scheduled, slot-accounted)
+// =============================================================================
+
+var _ types.GroundedWebSearcher = (*ScheduledLLMCall)(nil)
+
+// SupportsGroundedWebSearch forwards capability detection.
+func (c *ScheduledLLMCall) SupportsGroundedWebSearch() bool {
+	if c == nil || c.Client == nil {
+		return false
+	}
+	if gws, ok := c.Client.(types.GroundedWebSearcher); ok {
+		return gws.SupportsGroundedWebSearch()
+	}
+	return false
+}
+
+// GroundedWebSearch performs a grounded web search under scheduler slot accounting.
+// It acquires and releases a scheduler slot, reports rate limits and successes, and
+// preserves context cancellation. It never exposes reasoning traces or API keys,
+// delegating sanitization to the underlying provider.
+func (c *ScheduledLLMCall) GroundedWebSearch(ctx context.Context, query string) (*types.GroundedWebSearchResult, error) {
+	if c == nil {
+		return nil, fmt.Errorf("scheduled call is nil")
+	}
+	if c.Scheduler == nil {
+		return nil, fmt.Errorf("scheduler not configured on ScheduledLLMCall")
+	}
+	if c.Client == nil {
+		return nil, fmt.Errorf("underlying LLM client is nil")
+	}
+	gws, ok := c.Client.(types.GroundedWebSearcher)
+	if !ok {
+		return nil, fmt.Errorf("LLM client %T does not implement GroundedWebSearcher", c.Client)
+	}
+	if !gws.SupportsGroundedWebSearch() {
+		return nil, fmt.Errorf("grounded web search is not supported by the configured provider")
+	}
+
+	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
+		return nil, fmt.Errorf("failed to acquire API slot: %w", err)
+	}
+	defer c.Scheduler.ReleaseAPISlot(c.ShardID)
+
+	model := c.GetModel()
+	logging.LogLLMRequest(c.ShardID+"-grounded", "", query, nil, model, 0)
+
+	var result *types.GroundedWebSearchResult
+	var callErr error
+	start := time.Now()
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				callErr = fmt.Errorf("panic during grounded search: %v", r)
+			}
+		}()
+		result, callErr = gws.GroundedWebSearch(ctx, query)
+	}()
+	duration := time.Since(start)
+
+	if callErr != nil {
+		logging.LogLLMError(c.ShardID+"-grounded", callErr, duration)
+		if isRateLimitErr(callErr) {
+			c.Scheduler.ReportRateLimit()
+		}
+	} else if result == nil {
+		callErr = fmt.Errorf("grounded_web_search: empty result")
+		logging.LogLLMError(c.ShardID+"-grounded", callErr, duration)
+	} else {
+		summary := result.Text
+		// Keep logging bounded; never log raw provider messages beyond length.
+		if len(summary) > 500 {
+			summary = summary[:500] + "..."
+		}
+		logging.LogLLMResponse(c.ShardID+"-grounded", summary, duration, len(summary)/4)
+		c.Scheduler.ReportSuccess()
+	}
+	return result, callErr
+}

@@ -19,6 +19,15 @@ import (
 // GroundedWebSearch exists on OpenAICompatClient for all vendors but fails closed unless vendor is Meta.
 var _ types.GroundedWebSearcher = (*OpenAICompatClient)(nil)
 
+// SupportsGroundedWebSearch reports whether this client can perform Meta grounded search.
+// It is deterministic: true only when the receiver is non-nil and its vendor is Meta.
+func (c *OpenAICompatClient) SupportsGroundedWebSearch() bool {
+	if c == nil {
+		return false
+	}
+	return c.vendor == ProviderMeta
+}
+
 // metaGroundedRequest is the wire payload for POST /responses.
 type metaGroundedRequest struct {
 	Model     string                  `json:"model"`

@@ -863,6 +863,91 @@ func (tc *TracingLLMClient) IsURLContextEnabled() bool {
 	return false
 }
 
+// -- GroundedWebSearcher --
+
+var _ types.GroundedWebSearcher = (*TracingLLMClient)(nil)
+
+// SupportsGroundedWebSearch reports whether the underlying client supports grounded search.
+func (tc *TracingLLMClient) SupportsGroundedWebSearch() bool {
+	if tc == nil || tc.underlying == nil {
+		return false
+	}
+	if gws, ok := tc.underlying.(types.GroundedWebSearcher); ok {
+		return gws.SupportsGroundedWebSearch()
+	}
+	return false
+}
+
+// GroundedWebSearch forwards a grounded search to the underlying client with tracing.
+// It stores the grounded answer and usage in the trace but never fabricates or exposes hidden reasoning.
+func (tc *TracingLLMClient) GroundedWebSearch(ctx context.Context, query string) (*types.GroundedWebSearchResult, error) {
+	if tc == nil || tc.underlying == nil {
+		return nil, fmt.Errorf("tracing client has no underlying LLM client")
+	}
+	gws, ok := tc.underlying.(types.GroundedWebSearcher)
+	if !ok {
+		return nil, fmt.Errorf("underlying client does not implement GroundedWebSearcher")
+	}
+
+	tc.mu.RLock()
+	shardID := tc.shardID
+	shardType := tc.shardType
+	shardCategory := tc.shardCategory
+	sessionID := tc.sessionID
+	taskContext := tc.taskContext
+	tc.mu.RUnlock()
+
+	start := time.Now()
+	logging.API("Grounded search started: shard=%s query_len=%d", shardID, len(query))
+	result, err := gws.GroundedWebSearch(ctx, query)
+	duration := time.Since(start)
+	if err != nil {
+		logging.Get(logging.CategoryAPI).Error("Grounded search failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
+	} else if result != nil {
+		logging.API("Grounded search completed: shard=%s duration=%v text_len=%d citations=%d", shardID, duration, len(result.Text), len(result.Citations))
+	}
+
+	tokensUsed := 0
+	if result != nil {
+		tokensUsed = result.Usage.TotalTokens
+		if tokensUsed == 0 {
+			tokensUsed = result.Usage.InputTokens + result.Usage.OutputTokens
+		}
+	}
+	RecordLLMCall(shardCategory, shardType, tokensUsed, duration.Milliseconds(), err)
+
+	trace := &ReasoningTrace{
+		ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
+		ShardID:       shardID,
+		ShardType:     shardType,
+		ShardCategory: shardCategory,
+		SessionID:     sessionID,
+		TaskContext:   taskContext,
+		SystemPrompt:  "",
+		UserPrompt:    query,
+		Response:      "",
+		DurationMs:    duration.Milliseconds(),
+		Success:       err == nil,
+		Timestamp:     time.Now(),
+		TokensUsed:    tokensUsed,
+	}
+	if result != nil {
+		trace.Response = result.Text
+	}
+	trace.Model = resolveTraceModel(ctx, tc.underlying)
+	if err != nil {
+		trace.ErrorMessage = err.Error()
+	}
+	if tc.store != nil {
+		go func() {
+			if storeErr := tc.store.StoreReasoningTrace(trace); storeErr != nil {
+				logging.APIDebug("Failed to store grounded reasoning trace: %v", storeErr)
+			}
+		}()
+	}
+	return result, err
+}
+
 // -- CacheProvider --
 
 func (tc *TracingLLMClient) CreateCachedContent(ctx context.Context, files []string, ttl int) (string, error) {

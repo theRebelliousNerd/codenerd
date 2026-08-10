@@ -383,10 +383,11 @@ type TokenCounter interface {
 // that support native grounded web search (e.g., Meta /responses with web_search).
 // Use type assertion to detect capability:
 //
-//	if gws, ok := client.(types.GroundedWebSearcher); ok {
+//	if gws, ok := client.(types.GroundedWebSearcher); ok && gws.SupportsGroundedWebSearch() {
 //	    result, err := gws.GroundedWebSearch(ctx, "query")
 //	}
 type GroundedWebSearcher interface {
+	SupportsGroundedWebSearch() bool
 	GroundedWebSearch(ctx context.Context, query string) (*GroundedWebSearchResult, error)
 }
 
