@@ -350,11 +350,17 @@ CGO_CFLAGS="-I$(pwd)/sqlite_headers" go build -tags sqlite_vec -o nerd ./cmd/ner
 go test ./...
 ```
 
-`-tags sqlite_vec` is required, not optional. Vector support lives behind
-`//go:build sqlite_vec && cgo`; without the tag the binary boots fine but logs
-`sqlite-vec not available; falling back from ANN to lexical search` and the
-prompt selector's vector half silently degrades to lexical matching. Setting
-`CGO_CFLAGS` alone does not enable it.
+`-tags sqlite_vec` selects `internal/store/vec_support_enabled.go` (behind
+`//go:build sqlite_vec && cgo`), which sets `requireVec`, so the store refuses to
+open rather than silently degrading.
+
+The tag alone does **not** provide the extension. The driver is modernc SQLite,
+and `vec0` has to be compiled into it — see `internal/store/local_core.go`:
+"rebuild modernc SQLite with vec0 (set `SQLITE3_EXT=vec0` or include vec
+sources)". Without that, ANN search falls back to lexical matching and every
+query logs `sqlite-vec not available; falling back from ANN to lexical search`.
+Since the prompt selector is roughly 70% logic / 30% vector, that vector share is
+doing keyword matching instead — quietly, because the fallback is a warning.
 
 **Writing rules** — variables are `UPPERCASE`, constants are `/lowercase`, every predicate needs a `Decl`, and negation only binds over variables a positive atom already bound:
 
