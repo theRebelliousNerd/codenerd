@@ -68,3 +68,26 @@ func TestIsWriteMutationTool_NormalizesCaseAndSpace(t *testing.T) {
 		}
 	}
 }
+
+func TestRecordWrittenPaths_RecordsEveryCanonicalNestedTarget(t *testing.T) {
+	result := &ExecutionResult{WrittenPaths: []string{"existing.go"}}
+	err := recordWrittenPaths(result, map[string]any{
+		"edits": []any{
+			map[string]any{"path": "internal/a.go"},
+			map[string]any{"path": "./internal/a.go"},
+			map[string]any{"file_path": "internal/b.go"},
+		},
+	}, "")
+	if err != nil {
+		t.Fatalf("recordWrittenPaths: %v", err)
+	}
+	want := []string{"existing.go", "internal/a.go", "internal/b.go"}
+	if len(result.WrittenPaths) != len(want) {
+		t.Fatalf("WrittenPaths=%v want %v", result.WrittenPaths, want)
+	}
+	for i := range want {
+		if result.WrittenPaths[i] != want[i] {
+			t.Fatalf("WrittenPaths[%d]=%q want %q", i, result.WrittenPaths[i], want[i])
+		}
+	}
+}

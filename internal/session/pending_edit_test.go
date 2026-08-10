@@ -168,7 +168,7 @@ func TestAssertPendingEdit_CoversEveryWriteMutationTool(t *testing.T) {
 	writeTools := []string{
 		"write_file", "edit_file", "delete_file",
 		"edit_lines", "insert_lines", "delete_lines",
-		"edit_element", "fs_write",
+		"edit_element", "apply_edits", "fs_write",
 		"apply_patch", "str_replace", "create_file", "replace_in_file", "multi_edit",
 	}
 
@@ -180,6 +180,26 @@ func TestAssertPendingEdit_CoversEveryWriteMutationTool(t *testing.T) {
 			Args: map[string]any{"path": "f.go", "content": "c"},
 		}); !ok {
 			t.Errorf("%s is a write-mutation tool but did not assert pending_edit", name)
+		}
+	}
+}
+
+func TestAssertPendingEdits_CoversEveryNestedTarget(t *testing.T) {
+	k := &recordingKernel{}
+	e := &Executor{kernel: k}
+	facts := e.assertPendingEdits(ToolCall{
+		Name: "apply_edits",
+		Args: map[string]any{"edits": []any{
+			map[string]any{"path": "a.go", "new_content": "a"},
+			map[string]any{"path": "b.go", "new_content": "b"},
+		}},
+	})
+	if len(facts) != 2 || len(k.asserted) != 2 {
+		t.Fatalf("facts=%v asserted=%v, want two pending edits", facts, k.asserted)
+	}
+	for i, want := range []string{"a.go", "b.go"} {
+		if got := facts[i].Args[0]; got != want {
+			t.Fatalf("facts[%d] target=%v want %s", i, got, want)
 		}
 	}
 }

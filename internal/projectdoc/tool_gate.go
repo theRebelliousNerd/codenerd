@@ -136,7 +136,7 @@ func IsWriteMutationTool(name string) bool {
 	case // Registered VirtualStore write actions.
 		"write_file", "edit_file", "delete_file",
 		"edit_lines", "insert_lines", "delete_lines",
-		"edit_element", "fs_write",
+		"edit_element", "apply_edits", "fs_write",
 		// Defensive aliases.
 		"apply_patch", "str_replace", "create_file", "replace_in_file", "multi_edit":
 		return true

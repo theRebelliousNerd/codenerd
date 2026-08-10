@@ -675,14 +675,26 @@ func (e *Executor) executeAndRecordToolCall(
 	result.SuccessfulToolCalls++
 	if isWriteMutationTool(call.Name) {
 		result.SuccessfulWriteTools++
-		if target := projectDocTargetPath(call.Input); target != "" {
-			normalized := canonicalizeWrittenPath(target, e.workspaceForVerification())
-			if normalized != "" {
-				result.WrittenPaths = append(result.WrittenPaths, normalized)
-			}
+		if err := recordWrittenPaths(result, call.Input, e.workspaceForVerification()); err != nil {
+			logging.Get(logging.CategorySession).Warn(
+				"successful write %s returned invalid target metadata: %v", call.Name, err)
 		}
 	}
 	return out, nil
+}
+
+func recordWrittenPaths(result *ExecutionResult, args map[string]any, workspace string) error {
+	paths, err := projectdoc.TargetPaths(args)
+	if err != nil {
+		return err
+	}
+	for _, path := range paths {
+		normalized := canonicalizeWrittenPath(path, workspace)
+		if normalized != "" && !slices.Contains(result.WrittenPaths, normalized) {
+			result.WrittenPaths = append(result.WrittenPaths, normalized)
+		}
+	}
+	return nil
 }
 
 // intentRequiresToolCall asks the Mangle kernel whether the supplied intent
@@ -898,10 +910,18 @@ func projectDocTargetPath(args map[string]any) string {
 	return projectdoc.TargetPath(args)
 }
 
+func projectDocTargetLabel(args map[string]any) string {
+	paths, err := projectdoc.TargetPaths(args)
+	if err != nil || len(paths) == 0 {
+		return "unknown"
+	}
+	return strings.Join(paths, ", ")
+}
+
 // pendingEditContentKeys are argument names that may carry the file content
 // for a write-mutation tool. Different tools use different conventions
 // ("content", "new_content", "text", etc.), so we check all known variants.
-var pendingEditContentKeys = []string{"content", "new_content", "newContent", "text", "body", "data", "patch"}
+var pendingEditContentKeys = []string{"content", "new_content", "newContent", "text", "body", "data", "patch", "edits"}
 
 // pendingEditContent extracts the content payload from a tool call's arguments.
 // Returns "" when no content key is present — e.g. delete_file/delete_lines
@@ -938,41 +958,51 @@ func boundedPendingEditContent(content string) string {
 	return fmt.Sprintf("sha256:%x bytes:%d", digest, len(content))
 }
 
-// assertPendingEdit asserts pending_edit(FilePath, Content) for a write-mutation
-// tool call. FilePath and Content are derived from the tool invocation via the
+// assertPendingEdits asserts pending_edit(FilePath, Content) for every target
+// in a write-mutation tool call. Paths and content are derived via the
 // existing path/content extraction helpers, and the classification reuses
 // isWriteMutationTool so the predicate stays in sync with the write-mutation
 // registry (see isWriteMutationTool godoc). The assertion is best-effort: kernel
 // absence or assertion errors are logged and do not block the tool execution.
-// It returns the asserted fact and true when an assertion was made, so the
-// caller can defer the matching retraction. A pending_edit that is asserted and
+// It returns every asserted fact so the caller can defer matching retractions.
+// A pending_edit that is asserted and
 // never retracted is worse than one never asserted: the fact means "an edit is
 // in flight", so a stale one makes the 26 rules that read it reason about work
 // that finished long ago, and the facts accumulate without bound against the
 // kernel's fact ceiling.
-func (e *Executor) assertPendingEdit(call ToolCall) (types.Fact, bool) {
+func (e *Executor) assertPendingEdits(call ToolCall) []types.Fact {
 	if !isWriteMutationTool(call.Name) {
-		return types.Fact{}, false
+		return nil
 	}
 	if e.kernel == nil {
-		return types.Fact{}, false
+		return nil
 	}
-	filePath := projectDocTargetPath(call.Args)
-	if filePath == "" {
+	paths, err := projectdoc.TargetPaths(call.Args)
+	if err != nil || len(paths) == 0 {
 		logging.Get(logging.CategorySession).Warn(
-			"Refusing to assert pending_edit for %s without a recognized target path", call.Name)
-		return types.Fact{}, false
+			"Refusing to assert pending_edit for %s without valid target paths: %v", call.Name, err)
+		return nil
 	}
 	content := pendingEditContent(call.Args)
-	fact := types.Fact{
-		Predicate: "pending_edit",
-		Args:      []any{filePath, content},
+	facts := make([]types.Fact, 0, len(paths))
+	for _, filePath := range paths {
+		fact := types.Fact{Predicate: "pending_edit", Args: []any{filePath, content}}
+		if err := e.kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategorySession).Warn("Failed to assert pending_edit for %s (%s): %v", call.Name, filePath, err)
+			continue
+		}
+		facts = append(facts, fact)
 	}
-	if err := e.kernel.Assert(fact); err != nil {
-		logging.Get(logging.CategorySession).Warn("Failed to assert pending_edit for %s (%s): %v", call.Name, filePath, err)
+	return facts
+}
+
+// assertPendingEdit preserves the single-target test and caller seam.
+func (e *Executor) assertPendingEdit(call ToolCall) (types.Fact, bool) {
+	facts := e.assertPendingEdits(call)
+	if len(facts) == 0 {
 		return types.Fact{}, false
 	}
-	return fact, true
+	return facts[0], true
 }
 
 // retractPendingEdit removes the in-flight marker asserted by
@@ -1002,8 +1032,15 @@ func (e *Executor) projectForbidsWrite(call ToolCall) (string, bool) {
 	if !isWriteMutationTool(call.Name) {
 		return "", false
 	}
-	target := projectDocTargetPath(call.Args)
-	if target == "" {
+	paths, err := projectdoc.TargetPaths(call.Args)
+	if err != nil {
+		reason := fmt.Sprintf("invalid write targets: %v", err)
+		logging.Get(logging.CategorySession).Warn(
+			"nerd.md BLOCKED %s due to invalid targets: %v", call.Name, err)
+		logging.Audit().SafetyCheck("nerd.md_write_guard", false, reason)
+		return reason, true
+	}
+	if len(paths) == 0 {
 		return "write target is missing or uses an unrecognized path argument", true
 	}
 	if e.kernel == nil {
@@ -1013,18 +1050,25 @@ func (e *Executor) projectForbidsWrite(call ToolCall) (string, bool) {
 	// Matching lives in projectdoc.ForbiddenByKernel so this gate and the
 	// VirtualStore's cannot drift apart. They used to be one gate and one hole:
 	// shards route writes through the VirtualStore, which checked nothing.
-	reason, forbidden, err := projectdoc.ForbiddenByKernel(e.kernel, target)
-	if err != nil {
-		// Fail closed. nerd.md's machine-readable protection is an executive
-		// constraint, and a kernel failure means the executor cannot prove that
-		// this write is allowed. Reads remain available for diagnosis.
-		reason := fmt.Sprintf("write protection could not be evaluated: %v", err)
-		logging.Get(logging.CategorySession).Warn(
-			"nerd.md BLOCKED %s because protection could not be evaluated: %v", target, err)
-		logging.Audit().SafetyCheck("nerd.md_write_guard", false, reason)
-		return reason, true
+	// Evaluate every target so one protected nested path blocks the entire call.
+	// Fail closed on parser error (above) or kernel evaluation error.
+	for _, target := range paths {
+		reason, forbidden, kerr := projectdoc.ForbiddenByKernel(e.kernel, target)
+		if kerr != nil {
+			// Fail closed. nerd.md's machine-readable protection is an executive
+			// constraint, and a kernel failure means the executor cannot prove that
+			// this write is allowed. Reads remain available for diagnosis.
+			reason := fmt.Sprintf("write protection could not be evaluated: %v", kerr)
+			logging.Get(logging.CategorySession).Warn(
+				"nerd.md BLOCKED %s because protection could not be evaluated: %v", target, kerr)
+			logging.Audit().SafetyCheck("nerd.md_write_guard", false, reason)
+			return reason, true
+		}
+		if forbidden {
+			return reason, true
+		}
 	}
-	return reason, forbidden
+	return "", false
 }
 
 // checkShellEffect denies shell invocations whose effects are mutating,
@@ -1275,9 +1319,9 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	// simulate the consequences of an action that is already denied.
 	if reason, denied := e.projectForbidsWrite(call); denied {
 		logging.Get(logging.CategorySession).Warn(
-			"nerd.md BLOCKED %s on %s: %s", call.Name, projectDocTargetPath(call.Args), reason)
+			"nerd.md BLOCKED %s on %s: %s", call.Name, projectDocTargetLabel(call.Args), reason)
 		return "", fmt.Errorf("blocked by nerd.md: %s is write-protected (%s)",
-			projectDocTargetPath(call.Args), reason)
+			projectDocTargetLabel(call.Args), reason)
 	}
 
 	// PRE-execution executive gate: run the Dreamer destructive-action
@@ -1302,8 +1346,12 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	// (modular registry error, Ouroboros path, validator refusal, timeout). A
 	// fact left behind by any one of them would make every rule that reads it
 	// reason about an edit that already finished.
-	if pendingFact, asserted := e.assertPendingEdit(call); asserted {
-		defer e.retractPendingEdit(pendingFact)
+	if pendingFacts := e.assertPendingEdits(call); len(pendingFacts) > 0 {
+		defer func() {
+			for _, fact := range pendingFacts {
+				e.retractPendingEdit(fact)
+			}
+		}()
 	}
 
 	// Apply timeout to tool execution

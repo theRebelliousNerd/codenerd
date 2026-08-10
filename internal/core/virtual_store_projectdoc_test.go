@@ -137,6 +137,19 @@ func TestVirtualStore_ToolWriteGuardBlocksMissingTarget(t *testing.T) {
 	}
 }
 
+func TestVirtualStore_ToolWriteGuardBlocksProtectedNestedTarget(t *testing.T) {
+	v := &VirtualStore{kernel: &forbidKernel{match: ".nerd/config.json", reason: "live user config"}}
+	err := v.toolWriteGuard()(nil, "apply_edits", map[string]any{
+		"edits": []any{
+			map[string]any{"path": "internal/session/executor.go"},
+			map[string]any{"path": ".nerd/config.json"},
+		},
+	})
+	if err == nil {
+		t.Fatal("tool-layer write guard allowed a batch containing a protected nested target")
+	}
+}
+
 // No kernel means no policy authority. This goes through the method rather
 // than the seam so the production nil-kernel path stays fail closed.
 func TestVirtualStore_ProjectForbidsWrite_NoKernelBlocks(t *testing.T) {

@@ -41,27 +41,32 @@ func (v *VirtualStore) toolWriteGuard() tools.WriteGuard {
 		if !projectdoc.IsWriteMutationTool(toolName) {
 			return nil
 		}
-		target := projectdoc.TargetPath(args)
-		if target == "" {
+		targets, err := projectdoc.TargetPaths(args)
+		if err != nil {
+			return fmt.Errorf("blocked by nerd.md: %s has invalid target paths: %w", toolName, err)
+		}
+		if len(targets) == 0 {
 			return fmt.Errorf("blocked by nerd.md: %s has no recognized target path", toolName)
 		}
 		v.mu.RLock()
 		kernel := v.kernel
 		v.mu.RUnlock()
 		if kernel == nil {
-			return fmt.Errorf("blocked by nerd.md: write protection authority is unavailable for %s", target)
+			return fmt.Errorf("blocked by nerd.md: write protection authority is unavailable for %s", targets[0])
 		}
-		reason, forbidden, err := projectdoc.ForbiddenByKernel(kernel, target)
-		if err != nil {
-			reason := fmt.Sprintf("write protection could not be evaluated: %v", err)
-			logging.Get(logging.CategoryVirtualStore).Warn("nerd.md blocked %s on %s because protection could not be evaluated: %v", toolName, target, err)
-			logging.Audit().SafetyCheck("nerd.md_write_guard", false, reason)
-			return fmt.Errorf("blocked by nerd.md: %s (%s)", target, reason)
+		for _, target := range targets {
+			reason, forbidden, queryErr := projectdoc.ForbiddenByKernel(kernel, target)
+			if queryErr != nil {
+				reason := fmt.Sprintf("write protection could not be evaluated: %v", queryErr)
+				logging.Get(logging.CategoryVirtualStore).Warn("nerd.md blocked %s on %s because protection could not be evaluated: %v", toolName, target, queryErr)
+				logging.Audit().SafetyCheck("nerd.md_write_guard", false, reason)
+				return fmt.Errorf("blocked by nerd.md: %s (%s)", target, reason)
+			}
+			if forbidden {
+				logging.Get(logging.CategoryVirtualStore).Warn("tool-layer guard blocked %s on %s: %s", toolName, target, reason)
+				return fmt.Errorf("blocked by nerd.md: %s is write-protected (%s)", target, reason)
+			}
 		}
-		if !forbidden {
-			return nil
-		}
-		logging.Get(logging.CategoryVirtualStore).Warn("tool-layer guard blocked %s on %s: %s", toolName, target, reason)
-		return fmt.Errorf("blocked by nerd.md: %s is write-protected (%s)", target, reason)
+		return nil
 	}
 }
