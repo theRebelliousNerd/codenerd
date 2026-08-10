@@ -16,12 +16,18 @@ import (
 func runCommandDescription() string {
 	var host string
 	if runtime.GOOS == "windows" {
+		// Deliberately does not recommend Select-String or any other shell
+		// search: the tool-steering atoms tell the model to inspect code with
+		// search_code / read_file rather than shelling out at all, and two
+		// instructions pulling opposite ways is worse than either alone --
+		// a smaller model follows whichever it saw last. State the host, which
+		// is the fact nothing else in the prompt carries, and point back at the
+		// dedicated tools.
 		host = "This host is Windows. Compound commands (&&, ||, |, ;, newline, <, >) run through " +
-			"PowerShell (pwsh or powershell, -NoProfile -NonInteractive -Command). PowerShell has no " +
-			"grep, head, tail, wc, sed, awk, cut, tr, uniq or xargs. Prefer PowerShell equivalents " +
-			"(Select-String, Select-Object -First/-Last, Measure-Object). A pipeline that does use " +
-			"those POSIX utilities is routed to a POSIX shell automatically when one is installed, " +
-			"but relying on that is slower and less predictable than writing for the host shell."
+			"PowerShell (pwsh or powershell, -NoProfile -NonInteractive -Command), which has no " +
+			"grep, head, tail, wc, sed, awk, cut, tr, uniq or xargs. Do not reach for a shell " +
+			"pipeline to read or search code: use search_code, read_file and list_files, which " +
+			"behave identically on every platform and return structured results."
 	} else {
 		host = "This host is " + runtime.GOOS + ". Compound commands (&&, ||, |, ;, newline, <, >) " +
 			"run through sh -c, so ordinary POSIX pipelines work."
