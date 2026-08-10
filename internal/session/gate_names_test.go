@@ -2,6 +2,7 @@ package session
 
 import (
 	"math"
+	"sync"
 	"testing"
 )
 
@@ -175,5 +176,80 @@ func TestGateName_AllValidIndices_NeverReturnsUnknownOrEmpty(t *testing.T) {
 				t.Errorf("GateName(%d) returned empty string", i)
 			}
 		})
+	}
+}
+
+func TestGateName_OrderedSequence_MatchesExpectedOrder(t *testing.T) {
+	expectedOrder := []string{"build", "test", "coverage", "critic"}
+	if len(expectedOrder) != GateCount {
+		t.Fatalf("expectedOrder length %d != GateCount %d", len(expectedOrder), GateCount)
+	}
+	for idx, want := range expectedOrder {
+		got := GateName(idx)
+		if got != want {
+			t.Errorf("GateName(%d) = %q; want %q (ordered sequence)", idx, got, want)
+		}
+		// Also verify gateNames array directly matches.
+		if gateNames[idx] != want {
+			t.Errorf("gateNames[%d] = %q; want %q", idx, gateNames[idx], want)
+		}
+	}
+}
+
+func TestGateName_ExhaustiveSmallRange_OnlyValidAreKnown(t *testing.T) {
+	wantForValid := map[int]string{
+		GateBuild:    "build",
+		GateTest:     "test",
+		GateCoverage: "coverage",
+		GateCritic:   "critic",
+	}
+	for i := -10; i < 20; i++ {
+		got := GateName(i)
+		if want, ok := wantForValid[i]; ok {
+			if got != want {
+				t.Errorf("GateName(%d) = %q; want %q", i, got, want)
+			}
+		} else {
+			if got != "unknown" {
+				t.Errorf("GateName(%d) = %q; want %q for out-of-range", i, got, "unknown")
+			}
+		}
+	}
+}
+
+func TestGateName_Deterministic_MultipleCallsSameResult(t *testing.T) {
+	cases := []int{-100, -1, 0, 1, 2, 3, 4, 100, math.MinInt, math.MaxInt}
+	for _, idx := range cases {
+		first := GateName(idx)
+		second := GateName(idx)
+		third := GateName(idx)
+		if first != second || second != third {
+			t.Errorf("GateName(%d) not deterministic: %q, %q, %q", idx, first, second, third)
+		}
+	}
+}
+
+func TestGateName_ConcurrentAccess_DoesNotPanic(t *testing.T) {
+	const goroutines = 50
+	const iterations = 100
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for g := 0; g < goroutines; g++ {
+		go func() {
+			defer wg.Done()
+			for iter := 0; iter < iterations; iter++ {
+				for idx := -2; idx <= GateCount+2; idx++ {
+					_ = GateName(idx)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	// If we reach here without panic or race, the test passes.
+	// Verify final state still correct after concurrent reads.
+	for i := 0; i < GateCount; i++ {
+		if GateName(i) == "unknown" || GateName(i) == "" {
+			t.Errorf("GateName(%d) after concurrent access = %q; want valid name", i, GateName(i))
+		}
 	}
 }
