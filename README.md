@@ -14,7 +14,7 @@
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Kernel](https://img.shields.io/badge/Kernel-Mangle_Datalog-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://github.com/google/mangle)
 [![Architecture](https://img.shields.io/badge/Neuro--Symbolic-8B5CF6?style=for-the-badge)]()
-[![License](https://img.shields.io/badge/MIT-22C55E?style=for-the-badge)](LICENSE)
+[![License](https://img.shields.io/badge/AGPL--3.0-22C55E?style=for-the-badge)](LICENSE)
 
 **A coding agent that cannot take an action it can't prove it's allowed to take.**
 
@@ -374,3 +374,14 @@ Give each one the job it's actually good at.
 [![GitHub](https://img.shields.io/badge/theRebelliousNerd%2Fcodenerd-181717?style=for-the-badge&logo=github)](https://github.com/theRebelliousNerd/codenerd)
 
 </div>
+
+## License
+
+Copyright (C) 2026 theRebelliousNerd
+
+Licensed under the **GNU Affero General Public License v3.0** — see [LICENSE](LICENSE).
+
+If you fork codeNERD, or run a modified version as a network service, the AGPL
+requires you to publish your source and keep the attribution. Section 13 is the
+part most licenses lack: offering a modified version over a network counts as
+distribution, so a hosted derivative owes its source to its users too.
