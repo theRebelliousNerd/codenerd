@@ -509,6 +509,14 @@ func (s *LocalStore) GetDB() *sql.DB {
 }
 
 // detectVecExtension attempts to create a vec0 virtual table to see if sqlite-vec is available.
+// Constructor audit (2026-08-10): There is a single public constructor for
+// LocalStore — NewLocalStore — plus one wrapper NewKnowledgeStore that delegates
+// to it. Both run the same strict check via defaultRequireVec. No alternate
+// constructor bypasses the check, so the observed boot-success with vectorExt==false
+// is not due to an unchecked path. It means either (a) the binary was built without
+// the sqlite_vec tag so defaultRequireVec==false and the strict check is intentionally
+// lenient, or (b) the probe itself is failing for this handle. To make (b) visible,
+// this function now logs the underlying CREATE VIRTUAL TABLE error instead of discarding it.
 func (s *LocalStore) detectVecExtension() {
 	if s.db == nil {
 		return
@@ -518,6 +526,8 @@ func (s *LocalStore) detectVecExtension() {
 		s.vectorExt = true
 		_, _ = s.db.Exec("DROP TABLE IF EXISTS vec_probe")
 		return
+	} else {
+		logging.Get(logging.CategoryStore).Warn("sqlite-vec probe failed: CREATE VIRTUAL TABLE vec_probe USING vec0(embedding float[4]) failed: %v", err)
 	}
 
 	s.vectorExt = false

@@ -56,12 +56,18 @@ func (s *LocalStore) RecallTracesByEmbedding(query []float32, limit int) ([]Trac
 		}
 		logging.Get(logging.CategoryStore).Error("vec search failed for traces: %v", err)
 	} else {
-		// sqlite-vec is a build-time decision (the binary either has the
-		// extension compiled in or it doesn't). A missing extension is NOT
-		// an error — callers fall back to keyword search. Logged at Warn
-		// so triage tools don't classify it as a runtime failure (it was
-		// inflating error counts 4x per query, per data-plane log audit).
-		logging.Get(logging.CategoryStore).Warn("sqlite-vec not available; falling back from ANN to lexical search")
+		// sqlite-vec availability covers three genuinely different conditions that
+		// need different fixes (extension capability missing vs. table missing).
+		// Report which one so the operator is not sent to the wrong layer
+		// (build flags vs. DB state). Kept at Warn — fallback is recoverable.
+		vecTableExists := tableExists(s.db, "reasoning_traces_vec")
+		if !s.vectorExt && !vecTableExists {
+			logging.Get(logging.CategoryStore).Warn("sqlite-vec not available; falling back from ANN to lexical search: vectorExt=false and table %q does not exist", "reasoning_traces_vec")
+		} else if !s.vectorExt {
+			logging.Get(logging.CategoryStore).Warn("sqlite-vec not available; falling back from ANN to lexical search: vectorExt=false (extension not available; table %q exists)", "reasoning_traces_vec")
+		} else {
+			logging.Get(logging.CategoryStore).Warn("sqlite-vec not available; falling back from ANN to lexical search: table %q does not exist (vectorExt=true)", "reasoning_traces_vec")
+		}
 	}
 
 	return nil, fmt.Errorf("ANN search failed (sqlite-vec required)")
@@ -269,9 +275,10 @@ func (ls *LearningStore) recallLearningsInShard(query []float32, shardType strin
 		}
 		logging.Get(logging.CategoryStore).Error("vec search failed for learnings: %v", err)
 	} else {
-		// See RecallTracesANN above — sqlite-vec absence is a recoverable
-		// build-time condition, logged at Warn not Error.
-		logging.Get(logging.CategoryStore).Warn("sqlite-vec not available; falling back from ANN to lexical search")
+		// sqlite-vec absence is a recoverable condition; report which table
+		// was checked so the operator knows whether the miss is a table/state
+		// problem or an extension problem. Kept at Warn — fallback is recoverable.
+		logging.Get(logging.CategoryStore).Warn("sqlite-vec not available; falling back from ANN to lexical search: table %q does not exist", "learnings_vec")
 	}
 
 	return nil, fmt.Errorf("ANN search failed (sqlite-vec required)")
