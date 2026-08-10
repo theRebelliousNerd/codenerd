@@ -40,7 +40,7 @@
 - `NewSemanticClassifier`, `NewSemanticClassifierFromConfig`, `InitSharedSemanticClassifier`
 - `NewTaxonomyEngine`, package `init` → `SharedTaxonomy`
 - `NewClientFromEnv`, `NewClientFromConfig`, `NewClassificationClientFromConfig`
-- `NewWorkerClientFromUserConfig`, `NewImageClientFromUserConfig`
+- `NewWorkerClientFromUserConfig`, `NewPlannerClientFromUserConfig`, `NewImageClientFromUserConfig`
 - `NewTracingLLMClient`, `NewClaudeCodeCLIClient`, `NewCodexExecClient`
 - `xaioauth.NewClientFromUserConfig`
 
@@ -79,6 +79,9 @@
 3. Classification client may be **nil** → callers use main client.  
 4. `validate()` on Understanding vocabulary is **not** on the success hot path (comments: dead work removed).  
 5. Package README default models may lag factory code.
+6. An explicit Meta `reasoning_effort` is validated at client construction and
+   overrides unhinted/high-reasoning/balanced/high-speed contexts. The same root
+   value reaches main + classification; worker/planner use their slot values.
 
 ## Verified repair receipt
 

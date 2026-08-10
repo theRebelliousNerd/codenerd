@@ -57,6 +57,12 @@ type UserConfig struct {
 	// Optional model override (see supported models above)
 	Model string `json:"model,omitempty"`
 
+	// ReasoningEffort overrides Meta (Muse Spark) reasoning effort.
+	// Accepted values: minimal, low, medium, high, xhigh. When set, it wins
+	// for every request (including unhinted ones) and bypasses capability-tier
+	// defaults. Non-Meta vendors ignore it.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+
 	// MaxOutputTokens caps the completion length for the MAIN client. Zero means
 	// the client's own default, which for OpenAI-compatible vendors is 16384 —
 	// far below what a large model can emit, and previously unreachable from
@@ -65,7 +71,6 @@ type UserConfig struct {
 	// keeps its own gemini.max_output_tokens because thinking and visible output
 	// share that budget.
 	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
-
 	// ClassificationModel is the fast/cheap model used for perception intent
 	// classification (the transducer's Understand call). Every interactive turn
 	// pays this call before anything else happens, so it should be the
@@ -584,6 +589,11 @@ type SecondaryLLMConfig struct {
 	// differ in what they need: a bulk worker wants a small budget for cost, a
 	// planner wants a large one, so this belongs per-slot rather than global.
 	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
+	// ReasoningEffort overrides Meta (Muse Spark) reasoning effort for this
+	// slot. Accepted values: minimal, low, medium, high, xhigh. When set it
+	// wins for every request in this slot, bypassing capability-tier defaults.
+	// Non-Meta vendors ignore it.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // WorkerLLMConfig selects a secondary LLM for non-main work (shards, spawn,

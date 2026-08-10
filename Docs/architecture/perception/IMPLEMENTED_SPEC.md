@@ -371,7 +371,8 @@ Tool DTOs: package-local `ToolResult`; aliases for `ToolDefinition`, `ToolCall`,
 ```
 .nerd/config.json (config is boss)
   engine: claude-cli | codex-cli | xai-oauth | api
-  provider + api keys + model + classification_model + gemini/ollama/worker blocks
+  provider + api keys + model + classification_model + reasoning_effort
+  + gemini/ollama/worker/planner blocks
 else env (order): ANTHROPIC → OPENAI → GEMINI → XAI → ZAI → OPENROUTER
 ```
 
@@ -386,11 +387,20 @@ Explicit provider without key → **error, no silent fallback** (`LoadConfigJSON
 | Gemini | `gemini-3.1-flash-lite` |
 | OpenAI | `gpt-4o-mini` |
 | zai/xai/openrouter | only if `ClassificationModel` set; else nil → use main client |
+| Meta/DashScope/Moonshot | OpenAI-compatible client; explicit model optional |
 | CLI engines | nil (no tiering) |
 
 **Critical:** main `Model` is **not** applied to classification — historical bug put large models on every-turn critical path.
 
-`NewWorkerClientFromUserConfig`: secondary LLM for shards/spawn (ollama/xai/openai/gemini).  
+`NewWorkerClientFromUserConfig`: secondary LLM for shards/spawn.
+
+`NewPlannerClientFromUserConfig`: reasoning-intensive secondary slot.
+
+For Meta, root and per-slot `reasoning_effort` accept
+`minimal|low|medium|high|xhigh`; a nonempty explicit value wins over every
+capability hint, including classification's ordinary thinking disable. Other
+OpenAI-compatible vendors omit the field.
+
 `NewImageClientFromUserConfig`: Gemini image models (not ollama worker).
 
 ### 6.3 Provider notes
@@ -404,6 +414,7 @@ Explicit provider without key → **error, no silent fallback** (`LoadConfigJSON
 | **xAI** | `client_xai.go` | API-key path |
 | **OpenRouter** | `client_openrouter.go` | Multi-model proxy + site headers |
 | **Ollama** | `client_ollama.go` | Local OpenAI-compat `/v1` |
+| **Meta / DashScope / Moonshot** | `client_openai_compat.go` | Shared OpenAI-compatible transport; Meta model normalization, tool validation, and explicit reasoning effort |
 | **Claude CLI** | `claude_cli_client.go` | Subprocess, rate-limit typed errors, max turns |
 | **Codex CLI** | `codex_cli_client.go`, probe, exec | Health probes map login/skill/rate failures |
 | **xAI OAuth** | `xaioauth/*` | Device code, refresh, separate credential store |

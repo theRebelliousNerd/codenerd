@@ -15,6 +15,9 @@
   `adaptive_tool_budget=false` pointer value, bound extension size/count and
   repeat thresholds, and propagate the same resolved limits to chat, campaigns,
   and spawned agents.
+- Root and secondary-slot `reasoning_effort` values are strict config fields.
+  Provider factories decide support; Meta accepts only
+  `minimal|low|medium|high|xhigh`, while other providers must omit the wire field.
 - Native browser settings live under the top-level `browser` block, separate
   from `integrations.servers.browser` (an external MCP endpoint). Preserve
   pointer semantics for `multi_tab_default` so explicit isolation is not

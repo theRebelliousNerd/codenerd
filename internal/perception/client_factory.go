@@ -79,6 +79,11 @@ type ProviderConfig struct {
 	// Zero leaves the client default. Carried here so a per-slot budget from
 	// SecondaryLLMConfig survives the trip through the shared factory.
 	MaxOutputTokens int
+
+	// ReasoningEffort overrides Meta (Muse Spark) reasoning_effort.
+	// Accepted values: minimal, low, medium, high, xhigh. When set it wins
+	// for every Meta request and is preserved even for classification.
+	ReasoningEffort string
 }
 
 // LoadConfigJSON loads provider configuration from a JSON config file.
@@ -155,6 +160,7 @@ func ProviderConfigFromUserConfig(userCfg *config.UserConfig) (*ProviderConfig, 
 		Ollama:              &ollamaCfg,
 		Worker:              userCfg.GetWorkerLLMConfig(),
 		MaxOutputTokens:     userCfg.MaxOutputTokens,
+		ReasoningEffort:     userCfg.ReasoningEffort,
 	}, nil
 }
 
@@ -342,6 +348,9 @@ func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 		if cfg.BaseURL != "" {
 			compatCfg.BaseURL = cfg.BaseURL
 		}
+		if cfg.Provider == ProviderMeta && cfg.ReasoningEffort != "" {
+			compatCfg.ReasoningEffort = cfg.ReasoningEffort
+		}
 		client, err := NewOpenAICompatClient(compatCfg)
 		if err != nil {
 			// Classification is optional: fall back to the main client rather
@@ -516,6 +525,9 @@ func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 		if config.MaxOutputTokens > 0 {
 			compatCfg.MaxOutputTokens = config.MaxOutputTokens
 		}
+		if config.Provider == ProviderMeta && config.ReasoningEffort != "" {
+			compatCfg.ReasoningEffort = config.ReasoningEffort
+		}
 		return NewOpenAICompatClient(compatCfg)
 
 	case ProviderOllama:
@@ -611,6 +623,7 @@ func newSecondarySlotClient(userCfg *config.UserConfig, slot string, w *config.S
 	// budget than a bulk worker, and before this the whole tier was pinned to
 	// the client's hardcoded default.
 	pc.MaxOutputTokens = w.MaxOutputTokens
+	pc.ReasoningEffort = w.ReasoningEffort
 
 	client, err := NewClientFromConfig(pc)
 	if err != nil {

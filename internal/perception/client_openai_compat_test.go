@@ -284,3 +284,47 @@ func TestOpenAICompatClient_ImplementsInterfaces(t *testing.T) {
 		t.Error("OpenAICompatClient does not implement types.ToolResultsProvider")
 	}
 }
+
+func TestBuildRequest_MetaExplicitXHighOnUnhintedAndAllCapabilities(t *testing.T) {
+	cfg := DefaultOpenAICompatConfig(ProviderMeta, "k")
+	cfg.ReasoningEffort = "xhigh"
+	c, err := NewOpenAICompatClient(cfg)
+	if err != nil {
+		t.Fatalf("NewOpenAICompatClient: %v", err)
+	}
+	// Unhinted request must carry the explicit override.
+	req := c.buildRequest(context.Background(), nil, true)
+	if req.ReasoningEffort != "xhigh" {
+		t.Fatalf("unhinted reasoning_effort = %q, want xhigh", req.ReasoningEffort)
+	}
+	for _, cap := range []types.ModelCapability{types.CapabilityHighReasoning, types.CapabilityBalanced, types.CapabilityHighSpeed} {
+		ctx := context.WithValue(context.Background(), types.CtxKeyModelCapability, cap)
+		req = c.buildRequest(ctx, nil, true)
+		if req.ReasoningEffort != "xhigh" {
+			t.Errorf("cap %q: reasoning_effort = %q, want xhigh", cap, req.ReasoningEffort)
+		}
+	}
+	// DashScope must never emit reasoning_effort even with an explicit effort.
+	dsCfg := DefaultOpenAICompatConfig(ProviderDashScope, "k")
+	dsCfg.ReasoningEffort = "xhigh"
+	ds, err := NewOpenAICompatClient(dsCfg)
+	if err != nil {
+		t.Fatalf("dashscope NewOpenAICompatClient: %v", err)
+	}
+	dsReq := ds.buildRequest(context.Background(), nil, true)
+	if dsReq.ReasoningEffort != "" {
+		t.Errorf("dashscope reasoning_effort = %q, want empty", dsReq.ReasoningEffort)
+	}
+	encoded, _ := json.Marshal(dsReq)
+	if strings.Contains(string(encoded), "reasoning_effort") {
+		t.Error("dashscope payload must not contain reasoning_effort")
+	}
+}
+
+func TestNewOpenAICompatClient_InvalidMetaEffortRejects(t *testing.T) {
+	cfg := DefaultOpenAICompatConfig(ProviderMeta, "k")
+	cfg.ReasoningEffort = "turbo"
+	if _, err := NewOpenAICompatClient(cfg); err == nil {
+		t.Fatal("expected error for invalid reasoning_effort")
+	}
+}

@@ -65,6 +65,12 @@ if classClient == nil {
 
 Subscription engines always return nil classification client (no tiering).
 
+For Meta API mode, `UserConfig.ReasoningEffort` is copied through
+`ProviderConfig` into both main and classification clients. Classification still
+sets `EnableThinking=false`, but a nonempty explicit Meta override takes
+precedence. Worker and planner slots carry their own overrides and preserve
+their endpoint/base-URL settings.
+
 ## Semantic classifier wiring contract
 
 ```

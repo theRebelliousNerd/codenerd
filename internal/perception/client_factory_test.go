@@ -1,6 +1,7 @@
 package perception
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -143,5 +144,132 @@ func TestNewClientFromConfig_Providers(t *testing.T) {
 	_, err = NewClientFromConfig(cfg)
 	if err == nil {
 		t.Error("Expected error for unknown provider")
+	}
+}
+
+func TestNewClientFromConfig_MetaReasoningEffort_XHigh(t *testing.T) {
+	cfg := &ProviderConfig{Provider: ProviderMeta, APIKey: "k", ReasoningEffort: "xhigh"}
+	client, err := NewClientFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewClientFromConfig: %v", err)
+	}
+	compat, ok := client.(*OpenAICompatClient)
+	if !ok {
+		t.Fatalf("got %T, want *OpenAICompatClient", client)
+	}
+	req := compat.buildRequest(context.Background(), nil, true)
+	if req.ReasoningEffort != "xhigh" {
+		t.Fatalf("main request reasoning_effort = %q, want xhigh", req.ReasoningEffort)
+	}
+	class, err := NewClassificationClientFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewClassificationClientFromConfig: %v", err)
+	}
+	classCompat, ok := class.(*OpenAICompatClient)
+	if !ok {
+		t.Fatalf("classification got %T, want *OpenAICompatClient", class)
+	}
+	creq := classCompat.buildRequest(context.Background(), nil, false)
+	if creq.ReasoningEffort != "xhigh" {
+		t.Fatalf("classification reasoning_effort = %q, want xhigh", creq.ReasoningEffort)
+	}
+}
+
+func TestNewClientFromConfig_InvalidMetaEffortRejects(t *testing.T) {
+	cfg := &ProviderConfig{Provider: ProviderMeta, APIKey: "k", ReasoningEffort: "nope"}
+	if _, err := NewClientFromConfig(cfg); err == nil {
+		t.Fatal("expected error for invalid reasoning_effort")
+	}
+}
+
+func TestNewClientFromConfig_DashScopeNeverEmitsReasoningEffort(t *testing.T) {
+	cfg := &ProviderConfig{Provider: ProviderDashScope, APIKey: "k", ReasoningEffort: "xhigh"}
+	client, err := NewClientFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewClientFromConfig: %v", err)
+	}
+	compat := client.(*OpenAICompatClient)
+	req := compat.buildRequest(context.Background(), nil, true)
+	if req.ReasoningEffort != "" {
+		t.Fatalf("dashscope reasoning_effort = %q, want empty", req.ReasoningEffort)
+	}
+}
+
+func TestSecondarySlotClient_MetaPerSlotXHigh(t *testing.T) {
+	dsClient, err := newSecondarySlotClient(&config.UserConfig{
+		MetaAPIKey: "mk",
+		BaseURL:    "",
+	}, "worker", &config.SecondaryLLMConfig{Provider: "meta", Model: "muse-spark-1.2-contributor", ReasoningEffort: "xhigh"})
+	if err != nil {
+		t.Fatalf("worker newSecondarySlotClient: %v", err)
+	}
+	if got := dsClient.(*OpenAICompatClient).buildRequest(context.Background(), nil, true).ReasoningEffort; got != "xhigh" {
+		t.Fatalf("worker reasoning_effort = %q, want xhigh", got)
+	}
+	plannerClient, err := newSecondarySlotClient(&config.UserConfig{
+		DashScopeAPIKey: "dk",
+		MetaAPIKey:      "mk2",
+		BaseURL:         "",
+	}, "planner", &config.SecondaryLLMConfig{Provider: "meta", Model: "muse-spark-1.2-contributor", ReasoningEffort: "xhigh"})
+	if err != nil {
+		t.Fatalf("planner newSecondarySlotClient: %v", err)
+	}
+	if got := plannerClient.(*OpenAICompatClient).buildRequest(context.Background(), nil, true).ReasoningEffort; got != "xhigh" {
+		t.Fatalf("planner reasoning_effort = %q, want xhigh", got)
+	}
+}
+
+func TestProviderConfigFromUserConfig_MetaXHigh_FullRootRoute(t *testing.T) {
+	userCfg := &config.UserConfig{
+		Provider:            "meta",
+		MetaAPIKey:          "dummy-meta-key",
+		Model:               "muse-spark-1.2-contributor",
+		ClassificationModel: "muse-spark-1.2-contributor",
+		ReasoningEffort:     "xhigh",
+	}
+	pc, err := ProviderConfigFromUserConfig(userCfg)
+	if err != nil {
+		t.Fatalf("ProviderConfigFromUserConfig: %v", err)
+	}
+	if pc.Provider != ProviderMeta {
+		t.Fatalf("Provider = %q, want %q", pc.Provider, ProviderMeta)
+	}
+	if pc.Model != "muse-spark-1.2-contributor" {
+		t.Fatalf("Model = %q, want muse-spark-1.2-contributor", pc.Model)
+	}
+	if pc.ClassificationModel == "" {
+		t.Fatal("ClassificationModel = empty, want non-empty (classification_model set)")
+	}
+	if pc.ReasoningEffort != "xhigh" {
+		t.Fatalf("ReasoningEffort = %q, want xhigh", pc.ReasoningEffort)
+	}
+
+	client, err := NewClientFromConfig(pc)
+	if err != nil {
+		t.Fatalf("NewClientFromConfig: %v", err)
+	}
+	compat, ok := client.(*OpenAICompatClient)
+	if !ok {
+		t.Fatalf("main client got %T, want *OpenAICompatClient", client)
+	}
+	req := compat.buildRequest(context.Background(), nil, true)
+	if req.ReasoningEffort != "xhigh" {
+		t.Fatalf("main request reasoning_effort = %q, want xhigh", req.ReasoningEffort)
+	}
+
+	classClient, err := NewClassificationClientFromConfig(pc)
+	if err != nil {
+		t.Fatalf("NewClassificationClientFromConfig: %v", err)
+	}
+	if classClient == nil {
+		t.Fatal("classification client = nil, want non-nil for meta with classification_model")
+	}
+	classCompat, ok := classClient.(*OpenAICompatClient)
+	if !ok {
+		t.Fatalf("classification client got %T, want *OpenAICompatClient", classClient)
+	}
+	creq := classCompat.buildRequest(context.Background(), nil, false)
+	if creq.ReasoningEffort != "xhigh" {
+		t.Fatalf("classification request reasoning_effort = %q, want xhigh (thinking=false)", creq.ReasoningEffort)
 	}
 }

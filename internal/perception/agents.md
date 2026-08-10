@@ -7,6 +7,10 @@
 - `NewClientFromConfig` requires a non-nil config and must never silently switch
   providers after explicit configuration. Optional classification/worker clients
   may still return `(nil, nil)` where their API documents fallback.
+- Meta `reasoning_effort` is an explicit provider contract. A configured value
+  must survive root, classification, worker, and planner factories, override
+  every capability hint (including unhinted calls), and never leak into
+  non-Meta request JSON. Preserve per-slot endpoint overrides while wiring it.
 - Preserve typed cancellation, authentication, rate-limit, and transient outage
   identity through retry wrapping. Never log secrets or raw credential payloads.
 - Process globals (`SharedTaxonomy`, `SharedSemanticClassifier`) are lifecycle and

@@ -61,6 +61,12 @@ type OpenAICompatClient struct {
 	reasoningEffortBalanced      string
 	reasoningEffortHighSpeed     string
 
+	// reasoningEffortOverride is an explicit Meta reasoning_effort from config.
+	// When nonempty it wins for every Meta request (including unhinted ones and
+	// every capability tier) and is preserved even for classification where
+	// thinking is normally disabled.
+	reasoningEffortOverride string
+
 	mu          sync.Mutex
 	lastRequest time.Time
 }
@@ -77,6 +83,7 @@ type OpenAICompatConfig struct {
 	TopP            float64
 	EnableThinking  bool
 	ThinkingBudget  int
+	ReasoningEffort string
 }
 
 // vendorDefault describes a vendor's endpoint and preferred model.
@@ -120,6 +127,15 @@ func minCompletionTokensFor(vendor Provider) int {
 		return 4096
 	default:
 		return 0
+	}
+}
+
+func isValidMetaReasoningEffort(v string) bool {
+	switch strings.TrimSpace(v) {
+	case "minimal", "low", "medium", "high", "xhigh":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -178,6 +194,20 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 		cfg.Model = normalizeMetaModel(cfg.Model)
 	}
 
+	// Validate explicit Meta reasoning_effort at construction.
+	reasoningOverride := strings.TrimSpace(cfg.ReasoningEffort)
+	if reasoningOverride != "" {
+		if cfg.Vendor == ProviderMeta {
+			if !isValidMetaReasoningEffort(reasoningOverride) {
+				return nil, fmt.Errorf("invalid reasoning_effort %q for provider %q: must be one of minimal, low, medium, high, xhigh", cfg.ReasoningEffort, cfg.Vendor)
+			}
+		} else {
+			// Non-Meta vendors ignore reasoning_effort entirely; clear it so it
+			// can never be emitted.
+			reasoningOverride = ""
+		}
+	}
+
 	// Reasoning models spend the completion budget on thinking before emitting
 	// any visible content, so a small ceiling yields an EMPTY response rather
 	// than a truncated one. Verified against Muse Spark: max_completion_tokens
@@ -207,6 +237,7 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 		reasoningEffortHighReasoning: "high",
 		reasoningEffortBalanced:      "medium",
 		reasoningEffortHighSpeed:     "low",
+		reasoningEffortOverride:      reasoningOverride,
 	}
 	return c, nil
 }
@@ -278,8 +309,15 @@ func normalizeMetaModel(model string) string {
 
 // reasoningEffortForContext maps a per-shard capability tier onto the vendor's
 // effort scale. Returns "" when the context carries no hint, leaving the
-// vendor's own default in force.
+// vendor's own default in force. An explicit config override wins for every
+// request — including unhinted ones and every capability tier.
 func (c *OpenAICompatClient) reasoningEffortForContext(ctx context.Context) string {
+	if c.vendor == ProviderMeta && c.reasoningEffortOverride != "" {
+		return c.reasoningEffortOverride
+	}
+	if c.vendor != ProviderMeta {
+		return ""
+	}
 	if ctx == nil {
 		return ""
 	}
@@ -384,7 +422,9 @@ func (c *OpenAICompatClient) buildRequest(ctx context.Context, messages []OpenAI
 	case ProviderMeta:
 		// max_tokens is deprecated on the Meta Model API.
 		req.MaxCompletionTokens = c.maxOutputTokens
-		if thinking {
+		if c.reasoningEffortOverride != "" {
+			req.ReasoningEffort = c.reasoningEffortOverride
+		} else if thinking {
 			if effort := c.reasoningEffortForContext(ctx); effort != "" {
 				req.ReasoningEffort = effort
 			}
@@ -1003,4 +1043,3 @@ func (c *OpenAICompatClient) validateMetaTools(tools []ToolDefinition, messages 
 	}
 	return nil
 }
-
