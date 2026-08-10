@@ -1,6 +1,10 @@
 package projectdoc
 
-import "testing"
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
 
 func TestClassifyShellEffect_IncidentCommandsAreMutating(t *testing.T) {
 	cases := []struct {
@@ -146,5 +150,285 @@ func TestClassifyShellEffect_EmptyIsNone(t *testing.T) {
 	}
 	if got := ClassifyShellEffect("   "); got != ShellEffectNone {
 		t.Errorf("whitespace => %s, want none", got.String())
+	}
+}
+
+func TestTargetPaths(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    map[string]any
+		want    []string
+		wantErr bool
+	}{
+		{
+			name:    "nil args",
+			args:    nil,
+			want:    nil,
+			wantErr: false,
+		},
+		{
+			name:    "legacy top-level path",
+			args:    map[string]any{"path": "internal/projectdoc/gate.go"},
+			want:    []string{"internal/projectdoc/gate.go"},
+			wantErr: false,
+		},
+		{
+			name:    "legacy top-level file_path alias",
+			args:    map[string]any{"file_path": "a/b.go"},
+			want:    []string{"a/b.go"},
+			wantErr: false,
+		},
+		{
+			name:    "legacy top-level trims whitespace",
+			args:    map[string]any{"path": "  a/b.go  "},
+			want:    []string{"a/b.go"},
+			wantErr: false,
+		},
+		{
+			name: "ordered top-level plus nested extraction",
+			args: map[string]any{
+				"path": "top.go",
+				"edits": []any{
+					map[string]any{"path": "a.go"},
+					map[string]any{"file": "b.go"},
+					map[string]any{"filename": "c.go"},
+				},
+			},
+			want:    []string{"top.go", "a.go", "b.go", "c.go"},
+			wantErr: false,
+		},
+		{
+			name: "nested respects PathArgs order within edit object",
+			args: map[string]any{
+				"edits": []any{
+					map[string]any{"file": "fallback.go", "path": "preferred.go"},
+				},
+			},
+			want:    []string{"preferred.go"},
+			wantErr: false,
+		},
+		{
+			name: "stable deduplication top-level and nested",
+			args: map[string]any{
+				"path": "a.go",
+				"edits": []any{
+					map[string]any{"path": "b.go"},
+					map[string]any{"path": "a.go"},
+					map[string]any{"path": "b.go"},
+					map[string]any{"path": "c.go"},
+				},
+			},
+			want:    []string{"a.go", "b.go", "c.go"},
+			wantErr: false,
+		},
+		{
+			name: "stable deduplication trims before dedup",
+			args: map[string]any{
+				"path": "a.go",
+				"edits": []any{
+					map[string]any{"path": " a.go "},
+					map[string]any{"path": "b.go"},
+				},
+			},
+			want:    []string{"a.go", "b.go"},
+			wantErr: false,
+		},
+		{
+			name: "[]map input accepted",
+			args: map[string]any{
+				"edits": []map[string]any{
+					{"path": "x.go"},
+					{"path": "y.go"},
+				},
+			},
+			want:    []string{"x.go", "y.go"},
+			wantErr: false,
+		},
+		{
+			name:    "missing path in nested edit",
+			args:    map[string]any{"edits": []any{map[string]any{"content": "hello"}}},
+			wantErr: true,
+		},
+		{
+			name:    "malformed edits not an array",
+			args:    map[string]any{"edits": "not-an-array"},
+			wantErr: true,
+		},
+		{
+			name:    "malformed edits element not an object",
+			args:    map[string]any{"edits": []any{"string-not-object"}},
+			wantErr: true,
+		},
+		{
+			name:    "malformed edits element null",
+			args:    map[string]any{"edits": []any{nil}},
+			wantErr: true,
+		},
+		{
+			name: "malformed edits path wrong type",
+			args: map[string]any{
+				"edits": []any{map[string]any{"path": 123}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "malformed edits path empty string",
+			args: map[string]any{
+				"edits": []any{map[string]any{"path": "   "}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "malformed edits path empty string via alias",
+			args: map[string]any{
+				"edits": []any{map[string]any{"file": ""}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "more than 16 edits rejected",
+			args: func() map[string]any {
+				edits := make([]any, 17)
+				for i := range edits {
+					edits[i] = map[string]any{"path": strings.Repeat("a", 1) + strings.Repeat("b", 0) + string(rune('0'+i%10)) + ".go"}
+				}
+				// ensure unique names to avoid dedup masking count
+				for i := range edits {
+					edits[i] = map[string]any{"path": "file" + strings.TrimSpace(string(rune('A'+i))) + ".go"}
+					// simpler: file0.go .. file16.go
+					edits[i] = map[string]any{"path": "file" + itoa(i) + ".go"}
+				}
+				return map[string]any{"edits": edits}
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "exactly 16 edits accepted",
+			args: func() map[string]any {
+				edits := make([]any, 16)
+				for i := range edits {
+					edits[i] = map[string]any{"path": "file" + itoa(i) + ".go"}
+				}
+				return map[string]any{"edits": edits}
+			}(),
+			want: func() []string {
+				out := make([]string, 16)
+				for i := range out {
+					out[i] = "file" + itoa(i) + ".go"
+				}
+				return out
+			}(),
+			wantErr: false,
+		},
+		{
+			name:    "no top-level and no edits returns empty",
+			args:    map[string]any{"content": "hello"},
+			want:    nil,
+			wantErr: false,
+		},
+		{
+			name:    "edits nil is ignored",
+			args:    map[string]any{"path": "a.go", "edits": nil},
+			want:    []string{"a.go"},
+			wantErr: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := TargetPaths(tc.args)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("TargetPaths(%v) expected error, got nil with %v", tc.args, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("TargetPaths(%v) unexpected error: %v", tc.args, err)
+			}
+			if tc.want == nil {
+				if len(got) != 0 {
+					t.Fatalf("TargetPaths(%v) = %v, want nil/empty", tc.args, got)
+				}
+				return
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("TargetPaths(%v) = %v, want %v", tc.args, got, tc.want)
+			}
+		})
+	}
+}
+
+func itoa(i int) string {
+	// small helper avoids fmt import in test; handles 0-99
+	if i < 10 {
+		return string(rune('0' + i))
+	}
+	return string(rune('0'+i/10)) + string(rune('0'+i%10))
+}
+
+func TestTargetPath_CompatibilityWrapper(t *testing.T) {
+	cases := []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{
+			name: "returns first target",
+			args: map[string]any{
+				"path": "top.go",
+				"edits": []any{
+					map[string]any{"path": "a.go"},
+					map[string]any{"path": "b.go"},
+				},
+			},
+			want: "top.go",
+		},
+		{
+			name: "returns empty on malformed nested input",
+			args: map[string]any{
+				"edits": []any{map[string]any{"content": "no path"}},
+			},
+			want: "",
+		},
+		{
+			name: "returns empty on oversize edits",
+			args: func() map[string]any {
+				edits := make([]any, 17)
+				for i := range edits {
+					edits[i] = map[string]any{"path": "file" + itoa(i) + ".go"}
+				}
+				return map[string]any{"edits": edits}
+			}(),
+			want: "",
+		},
+		{
+			name: "returns empty when missing path",
+			args: map[string]any{"content": "hello"},
+			want: "",
+		},
+		{
+			name: "nil args returns empty",
+			args: nil,
+			want: "",
+		},
+		{
+			name: "deduplicated first still top",
+			args: map[string]any{
+				"path": "a.go",
+				"edits": []any{
+					map[string]any{"path": "a.go"},
+					map[string]any{"path": "b.go"},
+				},
+			},
+			want: "a.go",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := TargetPath(tc.args)
+			if got != tc.want {
+				t.Fatalf("TargetPath(%v) = %q, want %q", tc.args, got, tc.want)
+			}
+		})
 	}
 }

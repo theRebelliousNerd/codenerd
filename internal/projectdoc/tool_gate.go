@@ -16,15 +16,118 @@ var PathArgs = []string{"path", "file_path", "filepath", "file", "filename", "ta
 
 // TargetPath extracts the target path from a tool call's arguments, or "" when
 // none of the known argument names carry one.
-func TargetPath(args map[string]any) string {
+// MaxNestedEdits bounds the number of nested edit targets extracted from an
+// edits array. It is enforced as a hard limit and rejected rather than
+// silently truncated so a caller cannot believe 16 edits landed while 17
+// were dropped.
+const MaxNestedEdits = 16
+
+// TargetPaths extracts all target paths from args in a deterministic,
+// ordered-deduplicated form. It preserves the legacy single-file scalar
+// behavior (first matching PathArgs key) and additionally extracts path
+// fields from an "edits" array of objects. Each edit object is searched
+// with the same PathArgs keys used for the top-level. The extraction is
+// bounded to MaxNestedEdits entries and returns an error on malformed or
+// oversize input rather than silently dropping data.
+func TargetPaths(args map[string]any) ([]string, error) {
+	if args == nil {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, 4)
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
 	for _, key := range PathArgs {
 		if raw, ok := args[key]; ok {
 			if s, ok := raw.(string); ok && strings.TrimSpace(s) != "" {
-				return s
+				add(s)
+				break
 			}
 		}
 	}
-	return ""
+	if rawEdits, ok := args["edits"]; ok && rawEdits != nil {
+		nested, err := extractNestedPaths(rawEdits)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range nested {
+			add(p)
+		}
+	}
+	return out, nil
+}
+
+// extractNestedPaths validates and extracts path fields from the edits
+// value. It is the error-returning validation helper that enforces the
+// 16-edit bound and rejects malformed input.
+func extractNestedPaths(raw any) ([]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	var elems []any
+	switch v := raw.(type) {
+	case []any:
+		elems = v
+	case []map[string]any:
+		elems = make([]any, len(v))
+		for i, m := range v {
+			elems[i] = m
+		}
+	default:
+		return nil, fmt.Errorf("edits must be an array of objects")
+	}
+	if len(elems) > MaxNestedEdits {
+		return nil, fmt.Errorf("edits exceeds maximum of %d entries (%d)", MaxNestedEdits, len(elems))
+	}
+	var out []string
+	for i, elem := range elems {
+		if elem == nil {
+			return nil, fmt.Errorf("edits[%d] is null", i)
+		}
+		m, ok := elem.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("edits[%d] must be an object", i)
+		}
+		found := ""
+		for _, key := range PathArgs {
+			if rawPath, ok := m[key]; ok {
+				if s, ok := rawPath.(string); ok {
+					if strings.TrimSpace(s) != "" {
+						found = strings.TrimSpace(s)
+						break
+					}
+					return nil, fmt.Errorf("edits[%d].%s must be a non-empty string", i, key)
+				}
+				return nil, fmt.Errorf("edits[%d].%s must be a string", i, key)
+			}
+		}
+		if found == "" {
+			return nil, fmt.Errorf("edits[%d] is missing a target path (%s)", i, strings.Join(PathArgs, "/"))
+		}
+		out = append(out, found)
+	}
+	return out, nil
+}
+
+// TargetPath extracts the target path from a tool call's arguments, or "" when
+// none of the known argument names carry one. It is the first-target
+// compatibility wrapper over TargetPaths; malformed nested input is treated
+// as no target so callers that only understand single paths fail closed via
+// the "no targets" path.
+func TargetPath(args map[string]any) string {
+	paths, err := TargetPaths(args)
+	if err != nil || len(paths) == 0 {
+		return ""
+	}
+	return paths[0]
 }
 
 // IsWriteMutationTool reports whether a tool name durably mutates a file.
