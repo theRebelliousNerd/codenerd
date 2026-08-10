@@ -9,6 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"codenerd/internal/northstar"
 
 	"github.com/spf13/cobra"
 )
@@ -436,15 +439,52 @@ var northstarLoadCmd = &cobra.Command{
 			return fmt.Errorf("failed to create .nerd directory: %w", err)
 		}
 
+		// Prepare all representations before writing (parse and validate first, then write).
 		out, err := json.MarshalIndent(ns, "", "  ")
 		if err != nil {
 			return fmt.Errorf("failed to marshal northstar: %w", err)
 		}
+		mgContent := generateNorthstarMangleFromState(&ns)
+		vision := northstarStateToVision(&ns)
 
 		jsonPath := filepath.Join(ws, ".nerd", "northstar.json")
 		if err := os.WriteFile(jsonPath, out, 0644); err != nil {
 			return fmt.Errorf("failed to write %s: %w", jsonPath, err)
 		}
+		fmt.Printf("Wrote %s\n", jsonPath)
+
+		mgPath := filepath.Join(ws, ".nerd", "northstar.mg")
+		if err := os.WriteFile(mgPath, []byte(mgContent), 0644); err != nil {
+			return fmt.Errorf("failed to write %s: %w", mgPath, err)
+		}
+		fmt.Printf("Wrote %s\n", mgPath)
+
+		// Store representation - report clearly on failure but leave JSON and .mg in place.
+		store, err := northstar.NewStore(nerdDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to open northstar store: %v\n", err)
+			fmt.Printf("Representations succeeded: json, mangle; store failed: %v\n", err)
+			fmt.Printf("Mission: %s\n", ns.Mission)
+			fmt.Printf("User Personas:        %d\n", len(ns.Personas))
+			fmt.Printf("Capabilities:         %d\n", len(ns.Capabilities))
+			fmt.Printf("Risks:                %d\n", len(ns.Risks))
+			fmt.Printf("Requirements:         %d\n", len(ns.Requirements))
+			fmt.Printf("Constraints:          %d\n", len(ns.Constraints))
+			return fmt.Errorf("store write failed (json and mangle succeeded): %w", err)
+		}
+		defer store.Close()
+		if err := store.SaveVision(vision); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to save vision to store: %v\n", err)
+			fmt.Printf("Representations succeeded: json, mangle; store failed: %v\n", err)
+			fmt.Printf("Mission: %s\n", ns.Mission)
+			fmt.Printf("User Personas:        %d\n", len(ns.Personas))
+			fmt.Printf("Capabilities:         %d\n", len(ns.Capabilities))
+			fmt.Printf("Risks:                %d\n", len(ns.Risks))
+			fmt.Printf("Requirements:         %d\n", len(ns.Requirements))
+			fmt.Printf("Constraints:          %d\n", len(ns.Constraints))
+			return fmt.Errorf("store write failed (json and mangle succeeded): %w", err)
+		}
+		fmt.Printf("Wrote %s\n", store.Path())
 
 		fmt.Printf("Mission: %s\n", ns.Mission)
 		fmt.Printf("User Personas:        %d\n", len(ns.Personas))
@@ -452,6 +492,7 @@ var northstarLoadCmd = &cobra.Command{
 		fmt.Printf("Risks:                %d\n", len(ns.Risks))
 		fmt.Printf("Requirements:         %d\n", len(ns.Requirements))
 		fmt.Printf("Constraints:          %d\n", len(ns.Constraints))
+		fmt.Printf("Representations succeeded: json, mangle, store\n")
 
 		return nil
 	},
@@ -585,6 +626,158 @@ func generateNorthstarMarkdown(ns *NorthstarState) string {
 	}
 
 	return sb.String()
+}
+
+// generateNorthstarMangleFromState generates Mangle facts from NorthstarState.
+// Equivalent to chat.generateNorthstarMangle but operating on the CLI's NorthstarState type.
+func generateNorthstarMangleFromState(ns *NorthstarState) string {
+	var sb strings.Builder
+
+	sb.WriteString("# Northstar Vision Facts\n")
+	sb.WriteString(fmt.Sprintf("# Generated: %s\n", time.Now().Format(time.RFC3339)))
+	sb.WriteString("# This file defines the project's north star and informs kernel reasoning.\n")
+	sb.WriteString("# Schema declarations are in internal/core/defaults/schemas.mg\n\n")
+
+	// Core Vision Facts
+	sb.WriteString("# Core Vision Facts\n")
+	sb.WriteString(fmt.Sprintf("northstar_mission(/ns_mission, %q).\n", ns.Mission))
+	sb.WriteString(fmt.Sprintf("northstar_problem(/ns_problem, %q).\n", ns.Problem))
+	sb.WriteString(fmt.Sprintf("northstar_vision(/ns_vision, %q).\n", ns.Vision))
+	sb.WriteString("\n")
+
+	// Personas
+	if len(ns.Personas) > 0 {
+		sb.WriteString("# User Personas\n")
+		for i, p := range ns.Personas {
+			personaID := fmt.Sprintf("/persona_%d", i+1)
+			sb.WriteString(fmt.Sprintf("northstar_persona(%s, %q).\n", personaID, p.Name))
+			for _, pain := range p.PainPoints {
+				sb.WriteString(fmt.Sprintf("northstar_pain_point(%s, %q).\n", personaID, pain))
+			}
+			for _, need := range p.Needs {
+				sb.WriteString(fmt.Sprintf("northstar_need(%s, %q).\n", personaID, need))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// Capabilities
+	if len(ns.Capabilities) > 0 {
+		sb.WriteString("# Capabilities\n")
+		for i, c := range ns.Capabilities {
+			capID := fmt.Sprintf("/cap_%d", i+1)
+			timeline := strings.ToLower(strings.ReplaceAll(c.Timeline, " ", "_"))
+			priority := strings.ToLower(c.Priority)
+			sb.WriteString(fmt.Sprintf("northstar_capability(%s, %q, /%s, /%s).\n",
+				capID, c.Description, timeline, priority))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Risks
+	if len(ns.Risks) > 0 {
+		sb.WriteString("# Risks\n")
+		for i, r := range ns.Risks {
+			riskID := fmt.Sprintf("/risk_%d", i+1)
+			likelihood := strings.ToLower(r.Likelihood)
+			impact := strings.ToLower(r.Impact)
+			sb.WriteString(fmt.Sprintf("northstar_risk(%s, %q, /%s, /%s).\n",
+				riskID, r.Description, likelihood, impact))
+			if r.Mitigation != "" && strings.ToLower(r.Mitigation) != "none" {
+				sb.WriteString(fmt.Sprintf("northstar_mitigation(%s, %q).\n", riskID, r.Mitigation))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// Requirements
+	if len(ns.Requirements) > 0 {
+		sb.WriteString("# Requirements\n")
+		for _, r := range ns.Requirements {
+			reqID := fmt.Sprintf("/%s", strings.ToLower(r.ID))
+			reqType := strings.ToLower(r.Type)
+			priority := strings.ToLower(strings.ReplaceAll(r.Priority, "-", "_"))
+			sb.WriteString(fmt.Sprintf("northstar_requirement(%s, /%s, %q, /%s).\n",
+				reqID, reqType, r.Description, priority))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Constraints
+	if len(ns.Constraints) > 0 {
+		sb.WriteString("# Constraints\n")
+		for i, c := range ns.Constraints {
+			constraintID := fmt.Sprintf("/constraint_%d", i+1)
+			sb.WriteString(fmt.Sprintf("northstar_constraint(%s, %q).\n", constraintID, c))
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("northstar_defined().\n")
+
+	return sb.String()
+}
+
+// northstarStateToVision converts a NorthstarState into a northstar.Vision for store persistence.
+func northstarStateToVision(ns *NorthstarState) *northstar.Vision {
+	v := &northstar.Vision{
+		Mission:    ns.Mission,
+		Problem:    ns.Problem,
+		VisionStmt: ns.Vision,
+		Constraints: ns.Constraints,
+	}
+	if ns.Constraints == nil {
+		v.Constraints = []string{}
+	}
+	// Personas
+	for _, p := range ns.Personas {
+		v.Personas = append(v.Personas, northstar.Persona{
+			Name:       p.Name,
+			PainPoints: p.PainPoints,
+			Needs:      p.Needs,
+		})
+	}
+	if v.Personas == nil {
+		v.Personas = []northstar.Persona{}
+	}
+	// Capabilities with generated IDs
+	for i, c := range ns.Capabilities {
+		v.Capabilities = append(v.Capabilities, northstar.Capability{
+			ID:          fmt.Sprintf("cap_%d", i+1),
+			Description: c.Description,
+			Timeline:    c.Timeline,
+			Priority:    c.Priority,
+		})
+	}
+	if v.Capabilities == nil {
+		v.Capabilities = []northstar.Capability{}
+	}
+	// Risks with generated IDs
+	for i, r := range ns.Risks {
+		v.Risks = append(v.Risks, northstar.Risk{
+			ID:          fmt.Sprintf("risk_%d", i+1),
+			Description: r.Description,
+			Likelihood:  r.Likelihood,
+			Impact:      r.Impact,
+			Mitigation:  r.Mitigation,
+		})
+	}
+	if v.Risks == nil {
+		v.Risks = []northstar.Risk{}
+	}
+	// Requirements preserving original IDs lowercased
+	for _, r := range ns.Requirements {
+		v.Requirements = append(v.Requirements, northstar.Requirement{
+			ID:          strings.ToLower(r.ID),
+			Type:        r.Type,
+			Description: r.Description,
+			Priority:    r.Priority,
+		})
+	}
+	if v.Requirements == nil {
+		v.Requirements = []northstar.Requirement{}
+	}
+	return v
 }
 
 func init() {
