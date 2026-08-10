@@ -22,6 +22,11 @@ var gateNames = [GateCount]string{
 	GateCritic:   "critic",
 }
 
+// Compile-time assertion that GateCount matches the length of gateNames.
+// If they diverge the array length becomes negative and the build fails.
+var _ [len(gateNames) - GateCount]struct{}
+var _ [GateCount - len(gateNames)]struct{}
+
 // GateName returns the human-readable name for a verification gate index.
 // Out-of-range indices, including negatives, return "unknown".
 //
