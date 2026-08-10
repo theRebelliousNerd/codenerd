@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -33,6 +34,8 @@ type taskExecutionSnapshot struct {
 	taskResults     map[string]string
 	taskResultOrder []string
 	fileMutations   []fileMutationSnapshot
+	declaredGlobs   []string
+	globPreMatches  map[string]map[string]struct{}
 
 	// Scoped (non-structural) rollback state.
 	scopedTask   *Task
@@ -92,6 +95,9 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 	}()
 
 	result, err = run()
+	if err == nil && task != nil && task.Type == TaskTypeFileModify {
+		err = validateFileModifyOutcome(task, snapshot)
+	}
 	if err == nil {
 		return result, nil
 	}
@@ -101,6 +107,52 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 	}
 
 	return nil, err
+}
+
+func validateFileModifyOutcome(task *Task, snapshot taskExecutionSnapshot) error {
+	newMatches, err := listNewBroadGlobMatches(snapshot)
+	if err != nil {
+		return fmt.Errorf("verify file_modify broad-glob contract for %s: %w", taskIDOrUnknown(task), err)
+	}
+	if len(newMatches) > 0 {
+		return fmt.Errorf("task %s (%s) created new file(s) matching declared broad glob: %v (broad globs do not grant exact-path authority; provenance unknown)", taskIDOrUnknown(task), task.Type, newMatches)
+	}
+	modified := false
+	var deletedPath string
+	var readErr error
+	var readErrPath string
+	for _, fs := range snapshot.fileMutations {
+		if !fs.Exists {
+			continue
+		}
+		current, err := os.ReadFile(fs.Path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				if deletedPath == "" {
+					deletedPath = fs.Path
+				}
+				continue
+			}
+			if readErr == nil {
+				readErr = err
+				readErrPath = fs.Path
+			}
+			continue
+		}
+		if !bytes.Equal(current, fs.Content) {
+			modified = true
+		}
+	}
+	if deletedPath != "" {
+		return fmt.Errorf("task %s (%s) deleted pre-existing file %s (file_modify must modify, not delete)", taskIDOrUnknown(task), task.Type, deletedPath)
+	}
+	if readErr != nil {
+		return fmt.Errorf("verify file_modify outcome for %s: read %s: %w", taskIDOrUnknown(task), readErrPath, readErr)
+	}
+	if modified {
+		return nil
+	}
+	return fmt.Errorf("task %s (%s) modified no pre-existing file in its declared write set", taskIDOrUnknown(task), task.Type)
 }
 
 func requiresTaskMutationSnapshot(task *Task) bool {
@@ -145,6 +197,45 @@ func (o *Orchestrator) captureTaskExecutionSnapshot(task *Task) (taskExecutionSn
 	}
 
 	writeSet := o.resolveTaskWriteSet(task)
+	snapshot.globPreMatches = make(map[string]map[string]struct{})
+	seenGlobs := make(map[string]struct{})
+	for _, candidate := range writeSet {
+		if !containsGlobMeta(candidate) {
+			continue
+		}
+		if _, err := filepath.Match(candidate, ""); err != nil {
+			return snapshot, fmt.Errorf("invalid glob pattern %q: %w", candidate, err)
+		}
+		if _, exists := seenGlobs[candidate]; exists {
+			continue
+		}
+		matches, err := filepath.Glob(candidate)
+		if err != nil {
+			return snapshot, fmt.Errorf("invalid glob pattern %q: %w", candidate, err)
+		}
+		preMatches := make(map[string]struct{})
+		for _, match := range matches {
+			clean := filepath.Clean(match)
+			info, err := os.Stat(clean)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return snapshot, fmt.Errorf("stat glob pre-match %s for %q: %w", clean, candidate, err)
+			}
+			if info.IsDir() {
+				continue
+			}
+			if !info.Mode().IsRegular() {
+				continue
+			}
+			preMatches[clean] = struct{}{}
+		}
+		seenGlobs[candidate] = struct{}{}
+		snapshot.declaredGlobs = append(snapshot.declaredGlobs, candidate)
+		snapshot.globPreMatches[candidate] = preMatches
+	}
+	sort.Strings(snapshot.declaredGlobs)
 	expanded, err := expandSnapshotPaths(writeSet)
 	if err != nil {
 		return snapshot, err
@@ -255,6 +346,12 @@ func (o *Orchestrator) rollbackTaskExecutionSnapshot(snapshot taskExecutionSnaps
 		}
 	}
 
+	// NOTE: No broad-glob deletion here. New files matching a declared broad glob
+	// have unknown provenance (human or concurrent agent) and are left visible for
+	// operator recovery. Fail-closed detection is handled in validateFileModifyOutcome
+	// via listNewBroadGlobMatches. Exact non-glob missing-path entries remain governed
+	// by fileMutations snapshot rollback above.
+
 	// Scoped (non-structural) rollback: restore only the failing task's own status
 	// in place. This keeps o.campaign's identity and all sibling task state intact,
 	// so concurrent completions survive and runPhase's phase pointer is never
@@ -288,6 +385,77 @@ func (o *Orchestrator) rollbackTaskExecutionSnapshot(snapshot taskExecutionSnaps
 	}
 
 	return nil
+}
+
+// listNewBroadGlobMatches returns a sorted, deduplicated list of current
+// regular-file matches for each declared broad glob that were absent from
+// that glob's pre-task match set. It is detection-only: callers decide
+// whether to fail closed or keep files visible for operator recovery.
+// Exact non-glob paths are governed by fileMutations snapshot rollback.
+func listNewBroadGlobMatches(snapshot taskExecutionSnapshot) ([]string, error) {
+	if len(snapshot.declaredGlobs) == 0 {
+		return nil, nil
+	}
+	newFilesSet := make(map[string]struct{})
+	for _, glob := range snapshot.declaredGlobs {
+		if glob == "" {
+			continue
+		}
+		if !containsGlobMeta(glob) {
+			continue
+		}
+		if _, err := filepath.Match(glob, ""); err != nil {
+			return nil, fmt.Errorf("invalid glob pattern %q: %w", glob, err)
+		}
+		matches, err := filepath.Glob(glob)
+		if err != nil {
+			return nil, fmt.Errorf("glob %q failed: %w", glob, err)
+		}
+		seen := make(map[string]struct{}, len(matches))
+		for _, m := range matches {
+			clean := filepath.Clean(m)
+			if _, ok := seen[clean]; ok {
+				continue
+			}
+			seen[clean] = struct{}{}
+			if preSet, ok := snapshot.globPreMatches[glob]; ok {
+				if _, existed := preSet[clean]; existed {
+					continue
+				}
+			}
+			if _, ok := newFilesSet[clean]; ok {
+				continue
+			}
+			info, err := os.Stat(clean)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return nil, fmt.Errorf("stat %s: %w", clean, err)
+			}
+			if info.IsDir() {
+				continue
+			}
+			newFilesSet[clean] = struct{}{}
+		}
+	}
+	if len(newFilesSet) == 0 {
+		return nil, nil
+	}
+	newFiles := make([]string, 0, len(newFilesSet))
+	for p := range newFilesSet {
+		newFiles = append(newFiles, p)
+	}
+	sort.Strings(newFiles)
+	deduped := newFiles[:0]
+	var prev string
+	for i, v := range newFiles {
+		if i == 0 || v != prev {
+			deduped = append(deduped, v)
+			prev = v
+		}
+	}
+	return deduped, nil
 }
 
 // currentTaskStatus returns the status of a task (by ID) from the live campaign,

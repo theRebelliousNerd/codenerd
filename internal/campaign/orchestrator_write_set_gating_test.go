@@ -231,6 +231,9 @@ func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 				case <-releaseFirst:
 				}
 			}
+			if err := os.WriteFile(conflictPath, []byte(req.Task+"\n"), 0o644); err != nil {
+				return "", err
+			}
 			return "ok", nil
 		},
 	}

@@ -476,3 +476,246 @@ func TestExpandSnapshotPaths_InvalidGlobYieldsError(t *testing.T) {
 		t.Fatalf("unexpected error %v", err)
 	}
 }
+
+func TestWithTaskExecutionSnapshot_FileModifyCreatingOnlyGlobMatchRollsBack(t *testing.T) {
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "existing.go")
+	created := filepath.Join(dir, "orphan.go")
+	if err := os.WriteFile(existing, []byte("package sample\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{filepath.Join(dir, "*.go")}
+
+	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+		return "created orphan", os.WriteFile(created, []byte("package sample\n"), 0o644)
+	})
+	if err == nil || !strings.Contains(err.Error(), "broad glob") {
+		t.Fatalf("expected file_modify broad-glob contract error, got %v", err)
+	}
+	// Orphan has unknown provenance (could be human/concurrent agent) — rollback must NOT delete it.
+	if _, statErr := os.Stat(created); statErr != nil {
+		t.Fatalf("new broad-glob match should remain visible for operator recovery, stat err: %v", statErr)
+	}
+	if got, readErr := os.ReadFile(created); readErr != nil || string(got) != "package sample\n" {
+		t.Fatalf("orphan content not preserved: content=%q err=%v", got, readErr)
+	}
+	if got, readErr := os.ReadFile(existing); readErr != nil || string(got) != "package sample\n" {
+		t.Fatalf("pre-existing match changed: content=%q err=%v", got, readErr)
+	}
+}
+
+func TestWithTaskExecutionSnapshot_FileModifyExistingMatchSucceeds(t *testing.T) {
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "existing.go")
+	if err := os.WriteFile(existing, []byte("package before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{filepath.Join(dir, "*.go")}
+
+	result, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+		return "updated", os.WriteFile(existing, []byte("package after\n"), 0o644)
+	})
+	if err != nil {
+		t.Fatalf("expected successful existing-file modification, got %v", err)
+	}
+	if result != "updated" {
+		t.Fatalf("result = %v, want updated", result)
+	}
+	if got, readErr := os.ReadFile(existing); readErr != nil || string(got) != "package after\n" {
+		t.Fatalf("successful content not retained: content=%q err=%v", got, readErr)
+	}
+}
+
+func TestWithTaskExecutionSnapshot_FileCreateExactNewPathRemainsAllowed(t *testing.T) {
+	dir := t.TempDir()
+	created := filepath.Join(dir, "created.go")
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileCreate
+	task.WriteSet = []string{created}
+
+	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+		return "created", os.WriteFile(created, []byte("package sample\n"), 0o644)
+	})
+	if err != nil {
+		t.Fatalf("file_create unexpectedly rejected: %v", err)
+	}
+	if _, statErr := os.Stat(created); statErr != nil {
+		t.Fatalf("created file missing after success: %v", statErr)
+	}
+}
+
+func TestWithTaskExecutionSnapshot_GlobRollbackPreservesPreExistingMatches(t *testing.T) {
+	dir := t.TempDir()
+	existingA := filepath.Join(dir, "a.go")
+	existingB := filepath.Join(dir, "b.go")
+	created := filepath.Join(dir, "new.go")
+	for _, path := range []string{existingA, existingB} {
+		if err := os.WriteFile(path, []byte("original\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{filepath.Join(dir, "*.go")}
+	wantErr := errors.New("force rollback")
+
+	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+		if writeErr := os.WriteFile(created, []byte("new\n"), 0o644); writeErr != nil {
+			return nil, writeErr
+		}
+		// Mutate a pre-existing match so fileMutations rollback is exercised.
+		if writeErr := os.WriteFile(existingA, []byte("mutated\n"), 0o644); writeErr != nil {
+			return nil, writeErr
+		}
+		return nil, wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected %v, got %v", wantErr, err)
+	}
+	// New broad-glob match has unknown provenance — must remain visible, not deleted.
+	if _, statErr := os.Stat(created); statErr != nil {
+		t.Fatalf("new broad-glob match should remain visible for operator recovery, stat err: %v", statErr)
+	}
+	if got, readErr := os.ReadFile(created); readErr != nil || string(got) != "new\n" {
+		t.Fatalf("new broad-glob match content not preserved: content=%q err=%v", got, readErr)
+	}
+	// Pre-existing match must be restored by exact-path snapshot rollback.
+	if got, readErr := os.ReadFile(existingA); readErr != nil || string(got) != "original\n" {
+		t.Fatalf("pre-existing match %s not restored: content=%q err=%v", existingA, got, readErr)
+	}
+	if got, readErr := os.ReadFile(existingB); readErr != nil || string(got) != "original\n" {
+		t.Fatalf("pre-existing match %s not preserved: content=%q err=%v", existingB, got, readErr)
+	}
+}
+func TestWithTaskExecutionSnapshot_FileModifyExistingChangePlusNewGlobMatchFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "existing.go")
+	newFile := filepath.Join(dir, "new.go")
+	if err := os.WriteFile(existing, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{filepath.Join(dir, "*.go")}
+
+	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+		if writeErr := os.WriteFile(existing, []byte("after\n"), 0o644); writeErr != nil {
+			return nil, writeErr
+		}
+		return "orphan+change", os.WriteFile(newFile, []byte("new content\n"), 0o644)
+	})
+	if err == nil || !strings.Contains(err.Error(), "broad glob") {
+		t.Fatalf("expected fail-closed broad-glob contract error, got %v", err)
+	}
+	// Existing file must be restored despite the fail-closed contract error.
+	if got, readErr := os.ReadFile(existing); readErr != nil || string(got) != "before\n" {
+		t.Fatalf("existing content not restored after fail-closed: content=%q err=%v", got, readErr)
+	}
+	// New glob match must remain visible (unknown provenance).
+	if _, statErr := os.Stat(newFile); statErr != nil {
+		t.Fatalf("new broad-glob match should remain visible for operator recovery, stat err: %v", statErr)
+	}
+	if got, readErr := os.ReadFile(newFile); readErr != nil || string(got) != "new content\n" {
+		t.Fatalf("new content not preserved: content=%q err=%v", got, readErr)
+	}
+}
+
+func TestWithTaskExecutionSnapshot_FileModifyDeletesExistingViaGlobRollsBack(t *testing.T) {
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "target.go")
+	original := []byte("package sample\n// original\n")
+	if err := os.WriteFile(existing, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{filepath.Join(dir, "*.go")}
+
+	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+		if rmErr := os.Remove(existing); rmErr != nil {
+			return nil, rmErr
+		}
+		return "deleted", nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "deleted pre-existing file") {
+		t.Fatalf("expected file_modify delete contract error, got %v", err)
+	}
+	got, readErr := os.ReadFile(existing)
+	if readErr != nil {
+		t.Fatalf("expected rollback to restore deleted file, read err: %v", readErr)
+	}
+	if string(got) != string(original) {
+		t.Fatalf("rollback did not restore exact original bytes: want %q, got %q", original, got)
+	}
+}
+
+func TestWithTaskExecutionSnapshot_FileModify_ModifiedFirstDeletedSecondFailsAndRestores(t *testing.T) {
+	dir := t.TempDir()
+	aPath := filepath.Join(dir, "a.go")
+	bPath := filepath.Join(dir, "b.go")
+	originalA := []byte("package sample\n// original a\n")
+	originalB := []byte("package sample\n// original b\n")
+	if err := os.WriteFile(aPath, originalA, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bPath, originalB, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{filepath.Join(dir, "*.go")}
+
+	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+		if writeErr := os.WriteFile(aPath, []byte("package sample\n// modified a\n"), 0o644); writeErr != nil {
+			return nil, writeErr
+		}
+		if rmErr := os.Remove(bPath); rmErr != nil {
+			return nil, rmErr
+		}
+		return "modified+deleted", nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "deleted pre-existing file") {
+		t.Fatalf("expected file_modify delete contract error for mixed modify-delete, got %v", err)
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(filepath.Base(bPath))) {
+		t.Fatalf("expected error to reference deleted file %s, got %v", bPath, err)
+	}
+	gotA, readErr := os.ReadFile(aPath)
+	if readErr != nil {
+		t.Fatalf("expected rollback to restore first file, read err: %v", readErr)
+	}
+	if string(gotA) != string(originalA) {
+		t.Fatalf("first file not restored: want %q, got %q", originalA, gotA)
+	}
+	gotB, readErr := os.ReadFile(bPath)
+	if readErr != nil {
+		t.Fatalf("expected rollback to restore deleted second file, read err: %v", readErr)
+	}
+	if string(gotB) != string(originalB) {
+		t.Fatalf("second file not restored: want %q, got %q", originalB, gotB)
+	}
+}
