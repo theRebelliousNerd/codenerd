@@ -204,12 +204,13 @@ func (cr *CheckpointRunner) runManualReviewCheckpoint(ctx context.Context, phase
 // runShardValidationCheckpoint spawns a reviewer shard to validate the phase.
 func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
 	if cr.taskExecutor == nil {
-		// Warn, not Debug: this returns a PASS for a verification that never
-		// ran, and Debug is discarded at the default log level, so the false
-		// green was previously invisible. If this fires, the orchestrator was
-		// constructed without a TaskExecutor — see OrchestratorConfig.
-		logging.CampaignWarn("runShardValidationCheckpoint: no task executor for phase=%s; reporting PASS without verifying", phase.Name)
-		return true, "Shard validation SKIPPED — no task executor wired; this phase was not actually verified", nil
+		// Fail closed. This used to return PASS, which made "we did not check"
+		// indistinguishable from "we checked and it was fine" — the single most
+		// dangerous answer a verification gate can give, and one that survived
+		// precisely because it was silent. A checkpoint that cannot run has not
+		// been satisfied, so it does not pass.
+		logging.CampaignWarn("runShardValidationCheckpoint: no task executor for phase=%s; failing the checkpoint because it cannot be verified", phase.Name)
+		return false, "Shard validation could not run — no task executor is wired into this orchestrator, so the phase is unverified. Construct the orchestrator with OrchestratorConfig.TaskExecutor.", nil
 	}
 
 	logging.Campaign("runShardValidationCheckpoint: spawning reviewer shard for phase=%s", phase.Name)
@@ -260,12 +261,12 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 // This is best-effort: if Nemesis isn't available, we skip rather than fail hard.
 func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
 	if cr.taskExecutor == nil {
-		// See runShardValidationCheckpoint: this passes a check that never ran,
-		// and Debug is dropped at the default log level. An assault campaign
-		// exists to be adversarially verified, so a silent skip here is the
-		// most misleading outcome the orchestrator can produce.
-		logging.CampaignWarn("runNemesisGauntletCheckpoint: no task executor; reporting PASS without running the adversarial gauntlet")
-		return true, "Nemesis gauntlet SKIPPED — no task executor wired; no adversarial verification was performed", nil
+		// Fail closed, as in runShardValidationCheckpoint. An assault campaign
+		// exists to be adversarially verified; reporting that it survived a
+		// gauntlet that never ran is the most misleading result this
+		// orchestrator can produce.
+		logging.CampaignWarn("runNemesisGauntletCheckpoint: no task executor; failing the checkpoint because the adversarial gauntlet cannot run")
+		return false, "Nemesis gauntlet could not run — no task executor is wired into this orchestrator, so no adversarial verification was performed. Construct the orchestrator with OrchestratorConfig.TaskExecutor.", nil
 	}
 
 	phaseName := ""

@@ -22,6 +22,7 @@ import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/northstar"
+	"codenerd/internal/session"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
 	"codenerd/internal/world"
@@ -49,6 +50,14 @@ type CampaignRunnerShard struct {
 	workspace string
 	shardMgr  *coreshards.ShardManager
 
+	// taskExecutor drives the verification checkpoints. Without it, shard
+	// validation and the Nemesis gauntlet cannot run at all, so campaigns this
+	// shard supervises would be unverifiable. It is set after boot rather than
+	// at construction because the executor does not exist yet when the shard
+	// factory is registered; the factory closure runs on demand, by which time
+	// it does.
+	taskExecutor session.TaskExecutor
+
 	activeOrch        *campaign.Orchestrator
 	activeCampaignID  string
 	activeOrchDone    chan error
@@ -56,6 +65,22 @@ type CampaignRunnerShard struct {
 	restartBackoffSec int
 
 	running bool
+}
+
+// SetTaskExecutor supplies the executor the orchestrator's verification
+// checkpoints run on. Call it from the shard factory closure, which runs on
+// demand and therefore after the executor has been built.
+func (s *CampaignRunnerShard) SetTaskExecutor(exec session.TaskExecutor) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.taskExecutor = exec
+}
+
+// TaskExecutor returns the configured executor, or nil if none was wired.
+func (s *CampaignRunnerShard) TaskExecutor() session.TaskExecutor {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.taskExecutor
 }
 
 // NewCampaignRunnerShard creates a new Campaign Runner shard.
@@ -246,6 +271,7 @@ func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, wor
 		AdvisoryBoard:        advisoryBoard,
 		EdgeCaseDetector:     edgeCaseDetector,
 		NorthstarObserver:    northstar.BuildCampaignObserver(workspace, s.LLMClient, s.Kernel),
+		TaskExecutor:         s.TaskExecutor(),
 	})
 	if err != nil {
 		logging.Get(logging.CategorySystemShards).Error("[CampaignRunner] Invalid orchestrator config for %s: %v", campaignID, err)

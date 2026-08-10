@@ -1344,6 +1344,10 @@ func initShardManagement(bctx *bootContext) error {
 		}
 		shard.SetWorkspaceRoot(bctx.workspace)
 		shard.SetShardManager(bctx.shardManager)
+		// Read at spawn time, not registration time: this closure runs on
+		// demand, so the executor built later in boot is already in place.
+		// Without it the orchestrator's verification checkpoints cannot run.
+		shard.SetTaskExecutor(bctx.taskExecutor)
 		if bctx.promptAssembler != nil {
 			shard.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(bctx.promptAssembler))
 		}
