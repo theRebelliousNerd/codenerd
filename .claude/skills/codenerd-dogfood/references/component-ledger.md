@@ -1639,3 +1639,88 @@ again, which is what resolved F-QUERY-1 after static reading failed three times.
 Recording the miss rather than declaring victory on three green unit tests: the
 fixes are individually correct and verified, and the behaviour they were meant
 to produce has not appeared. Those are different claims.
+
+### F-JIT-4 ROOT CAUSE — the JIT policy and its Go producer speak different vocabularies
+
+The three fixes in `d32170b7` and `aece3df2` were each real and each verified,
+and none of them could have worked, because the problem is a layer above all of
+them: **`internal/core/defaults/policy/jit_selection.mg` is written against a
+fact vocabulary that nothing in `internal/prompt` emits.**
+
+| Policy consumes | Emitted by the Go layer? |
+|---|---|
+| `prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory)` — **15 rules** | **no** |
+| `atom_tag(AtomID, Dimension, Tag)` | **no** |
+| `compile_shard(ShardID, ShardType)` | only since `d32170b7` |
+| `vector_hit(AtomID, Score)` | yes |
+| `is_mandatory(AtomID)` | yes |
+
+`AtomSelector.buildContextFacts` emits exactly five predicates: `atom`,
+`atom_category`, `atom_priority`, `is_mandatory`, `current_context` — plus
+`compile_shard` as of today. Note `atom_category` and `atom_priority` carry
+precisely the data `prompt_atom` wants, under different names and a different
+shape. The two halves were designed against each other and drifted.
+
+There is even a third vocabulary. `PromptAtom.ToSelectorFacts`
+(`internal/prompt/atoms.go:470`) builds the per-dimension selector facts the
+policy needs — shard_type, language, framework, intent_verb and the rest — under
+the predicate name `atom_selector`. **It has zero callers.** The correct producer
+was written, named differently from both the emitter and the policy, and never
+wired to anything.
+
+### What this means in practice
+
+`mandatory_atom` has three rules. Two of them require `prompt_atom` and
+`atom_tag`, so they are dead. The third is `mandatory_atom(AtomID) :-
+is_mandatory(AtomID), !prohibited_atom(AtomID)` — and `is_mandatory` is one of
+the five predicates actually emitted, so that one works.
+
+`candidate_atom` has two rules. The symbolic one needs `prompt_atom` + `atom_tag`
++ `compile_shard`: dead. The other is `vector_hit(AtomID, Score), Score > 30`.
+
+So the entire live selection surface is: **atoms flagged mandatory, plus atoms
+that clear an embedding-similarity threshold.** Everything else in
+`jit_selection.mg` — conflict resolution, priority thresholds, shard scoping,
+skeleton-category enforcement — is inert. That is the complete explanation for
+every observation in F-JIT-3: `capability/impact_reporting` is non-mandatory, so
+its only possible route was a vector hit, and it never cleared 30.
+
+### Why this is the session's most important finding
+
+Every other defect today was two components disagreeing about the representation
+of one value — string versus atom, absolute versus relative, slashed versus bare.
+This is the same failure at the scale of an entire interface: two halves of the
+system's central mechanism, each internally coherent, sharing no vocabulary.
+
+And it lands on the project's core claim. codeNERD exists to put the logic kernel
+in the executive seat, with JIT selection as the flagship demonstration. What
+actually decides prompt contents today is a mandatory flag and a cosine
+similarity. The policy corpus that is supposed to be making those decisions
+compiles, loads, stratifies, and derives nothing.
+
+Nothing errors. `nerd jit` reports 906 atoms loaded and a healthy compiler. The
+rules are syntactically valid and reference declared predicates. Only asking
+which of those predicates hold facts reveals it — which required
+`nerd logic --all`, built earlier today for exactly this reason.
+
+### Fix shape
+
+Do **not** rename predicates in the policy to match the emitter. The policy's
+vocabulary is the better-designed one: `prompt_atom` carries category, priority,
+token count and mandatory status in a single fact, and `atom_tag` generalises
+across every selector dimension, which is why the rules can be written once
+instead of per-dimension.
+
+Wire the producer instead:
+
+1. Emit `prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory)` from
+   `buildContextFacts`, alongside or in place of the `atom_category` /
+   `atom_priority` pair. `kernel_facts.go:1133` already normalises this exact
+   arity, so the ingest path anticipates it.
+2. Emit `atom_tag` for every selector dimension. `ToSelectorFacts` already
+   computes all of them; rename its predicate to `atom_tag` and call it.
+3. Only then re-run the F-JIT-3 live check. A shard-tagged, non-mandatory atom
+   appearing without a vector hit is the proof that symbolic selection is alive.
+
+Sequence matters, as it did for the Decl and the producer: shipping any one of
+these alone leaves the rules deriving nothing and looks like a failed fix.
