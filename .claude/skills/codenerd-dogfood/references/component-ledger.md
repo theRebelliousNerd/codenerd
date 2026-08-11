@@ -2058,3 +2058,78 @@ budget.
 Filed as an improvement rather than a defect: the current behaviour is correct,
 documented, and bounded. It is just leaving capability on the table on the exact
 axis the project cares about, since a wasted consultation is four wasted calls.
+
+---
+
+## F-AUTO-6 — the autopoiesis layer runs and is invisible to the kernel
+
+### First, a correction I stated twice
+
+I reported that thunderdome and prompt evolution have "no user-reachable entry
+point and no producer", and used that to explain why they could not be
+exercised. The second half is right and the first half is wrong.
+
+- **Prompt evolution is reachable.** `/evolve` is a live TUI slash command
+  (`cmd/nerd/chat/commands.go:229`, registered in `command_categories.go:418`).
+  The package is imported by six files outside itself, including
+  `commands_evolution.go`, `delegation.go` and both session-boot paths.
+- **Thunderdome is reachable and almost certainly already ran.** It is not a
+  command; it is part of tool generation. `EnableThunderdome` defaults to true
+  (`ouroboros.go:145`) and `ouroboros.go:462` calls
+  `o.thunderdome.Battle(ctx, tool, attacks)` inside the generation path. The
+  system reports 3 generated tools, so battles have executed.
+
+I looked for CLI subcommands, found none under `nerd autopoiesis`, and concluded
+the features were unreachable. The entry points were in chat mode and inside the
+Ouroboros pipeline. Eleventh scope-of-evidence error, and the same shape as all
+the others: I searched one surface and treated its emptiness as absence.
+
+### The real finding
+
+All three autopoiesis subsystems execute, and none of them tell the kernel:
+
+| Subsystem | Runs? | Reports to kernel? |
+|---|---|---|
+| Ouroboros tool generation | yes, 3 tools | **yes** — `tool_registered`, `tool_hash`, `tool_description`, `tool_binary_path` |
+| Thunderdome | yes, inside generation | **no** — `thunderdome_result` asserted nowhere |
+| Prompt evolution | reachable via `/evolve` | **no** — `prompt_evolved` asserted nowhere |
+| Learning | yes, 3.2 MB DB written today | **no** — loaded into Go maps at `shards/system/base.go:585` |
+
+Ouroboros is the control that makes the rest legible: it does emit facts, which
+is exactly why its status line reads a real number while the other three read
+zero or nothing.
+
+So the pattern is not "these features are missing". It is that **the
+self-modification layer is doing work the executive cannot see.** A battle
+outcome, an evolved atom, and an accumulated success pattern are all invisible
+to Mangle, so no policy rule can react to them: nothing can prefer a tool that
+survived adversarial testing, decline an atom whose evolution regressed, or
+weight a shard's history. Those are precisely the decisions a logic executive
+exists to make.
+
+For a project whose thesis is that the LLM is the creative center and the kernel
+is the executive, an entire self-improvement layer operating outside the
+kernel's fact base is the deepest form of the inversion this ledger keeps
+finding — deeper than the JIT selector case, because there at least the
+mechanism was present and merely dead.
+
+### What a fix looks like
+
+Each subsystem needs to assert its outcome as a fact at the point it completes,
+using the predicates already declared for them:
+
+- `thunderdome_result` after `Battle` returns, in `ouroboros.go` around line 462.
+- `prompt_evolved` when an evolution is accepted.
+- `learned_pattern`, or the already-consumed `success_pattern`/`failure_pattern`,
+  when `loadLearnedPatterns` populates its maps — writing to the kernel instead
+  of, or in addition to, the Go map.
+
+The Decls exist. The consumers, where they exist, are waiting. This is fact
+emission, not new architecture — the same shape as the `compile_shard` gap,
+except here the consumers are the status display and any future policy rule
+rather than a dead ruleset.
+
+Not attempted in this session: each touches a different package's completion
+path, and the learning one in particular is an architectural choice about
+whether shard experience belongs in the kernel, which is one of the open
+decisions already recorded.
