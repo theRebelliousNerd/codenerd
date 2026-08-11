@@ -2133,3 +2133,167 @@ Not attempted in this session: each touches a different package's completion
 path, and the learning one in particular is an architectural choice about
 whether shard experience belongs in the kernel, which is one of the open
 decisions already recorded.
+
+---
+
+## F-JIT-5 — the JIT firewall keys on tag dimensions no producer emits
+
+Five rules across both selection rulesets form the explicit-prohibition half of
+atom selection. All five were dead, and the cause is the same in each: they join
+`atom_tag` on a dimension the fact producer never writes.
+
+`internal/prompt/selector.go` (the only `atom_tag` producer, ~line 1340-1352)
+emits exactly twelve dimensions: `mode`, `phase`, `layer`, `init_phase`,
+`northstar_phase`, `ouroboros_stage`, `intent`, `shard`, `shard_type`, `lang`,
+`framework`, `state`. Neither `/tag` nor `/category` is among them.
+
+| Rule | Keys on | Fixable? |
+|---|---|---|
+| `jit_selection.mg` `/production` + `/debug_only` | `/tag` | no — `PromptAtom` has no `Tags` field at all |
+| `jit_selection.mg` `/dream` + `/ouroboros` | `/category` | **yes** — category is `prompt_atom` arg 2 |
+| `jit_selection.mg` `/init` + `/campaign` | `/category` | **yes** — same |
+| `jit_selection.mg` `/active` + `/dream_only` | `/tag` | no — same missing field |
+| `jit_compiler.mg:137` `/active` + `/dream_only` | `/tag` | no — same missing field |
+
+The two `/category` rules are the representation-mismatch shape this ledger keeps
+recording: the data exists, in the fact base, on every compile — as argument 2 of
+`prompt_atom(ID, Category, Priority, Tokens, IsMandatory)`, in atom form. The rule
+asked for it as a tag. Fixed by reading `prompt_atom` directly.
+
+Honest scope of the fix: it derives nothing on the workload measured, because all
+7 ouroboros atoms carry `ouroboros_stages` and all 8 campaign atoms carry
+`campaign_phases` — both fail-closed `regime_dimension`s that already blocked them.
+It binds on a compile that legitimately sets `/ouroboros_stage` while in `/dream`
+mode, which is what the rule means. Correct, and not yet load-bearing; those are
+different claims.
+
+The `/tag` pair cannot be fixed from the logic side. `PromptAtom` has no tag field,
+so no producer can exist. Left in place with an `INERT` comment naming the missing
+field, because a silently dead rule is worse than a labelled one.
+
+## F-JIT-6 — wiring the second ruleset as a source saturates the token budget
+
+The open decision "delete the discarded ruleset or wire it" resolved to wire it.
+Wired the obvious way — `tentative(Atom) :- selected_atom(Atom)` — it is a defect.
+
+| | skeleton | flesh | tokens |
+|---|---|---|---|
+| baseline (`/fix`, coder shard) | 35 | 32 | 26279 / 65536 = 40.1% |
+| admissive bridge | 207 | 313 | 65036 / 65536 = **99.2%** |
+| + `!blocked_by_context`, `!prohibited` | 46 | 208 | — |
+| restrictive polarity (shipped) | 35 | 32 | 26279 / 65536 = 40.1% |
+
+Two distinct causes, and the second is the one that matters:
+
+1. `policy/jit_selection.mg` has no equivalent of `jit_compiler.mg`'s fail-closed
+   `regime_dimension` gate — the one whose comment records a live turn that
+   compiled 114 mandatory atoms carrying 25 contradictory identities. Adding
+   `!blocked_by_context` recovered the skeleton half exactly (207 → 46).
+2. Flesh stayed at 208 regardless. Each admitted atom recursively pulls its
+   `atom_requires` dependencies into `tentative`, and that recursion is unbounded.
+   No threshold on the bridge fixes this, because the inflation is not in the
+   admitted set — it is in the closure over it.
+
+So the polarity was wrong, not the threshold. `selected_atom`, `candidate_atom`
+and `mandatory_atom` are admissions, and they are looser duplicates of rules the
+live compiler already has; unioning two selectors can only inflate a prompt. What
+the policy ruleset uniquely owns is restrictive — a firewall that propagates
+through `atom_requires`, and conflict resolution that lets a mandatory atom beat a
+candidate. Wired as `prohibited` and `suppressed` instead. Atom count unchanged,
+ruleset live.
+
+**The rule this establishes: a second opinion in a selector may veto, never admit.**
+It is the constitution's default-deny applied one layer down.
+
+## F-JIT-7 — the same concept under two keys, only one of them gated
+
+`addTags` emits `atom_tag(ID, /shard, X)` and `atom_tag(ID, /shard_type, X)` from
+the same `atom.ShardTypes` values. Only `/shard` is in `regime_dimension`. So a
+rule spelled `/shard_type` reads identical data while silently bypassing the
+fail-closed identity gate — which is how `ce65c7b9`, in making a dead rule
+matchable, also made it live and ungated. That rule is what the admissive bridge
+then amplified into 99.2% saturation.
+
+`candidate_atom` now reads `/shard`. Adding `/shard_type` to `regime_dimension`
+would have been the wrong repair, and dangerously so: `current_context` is
+generated with `UseShort: true` and emits `/shard` only, so fail-closing a
+dimension that has no context value would have starved **every** shard of its own
+atoms — a capability outage wearing a safety fix's clothes.
+
+Same family, one layer up: `current_context` (short dims, `ForceAtoms: true`) and
+`compile_context` (long dims, `ForceAtoms: false`) are the same `CompilationContext`
+rendered twice under two predicate names, read by the two rulesets respectively.
+Both live. Worth collapsing; not attempted here.
+
+## F-JIT-8 — the conflict-resolution machinery rests on one declaration
+
+`beats`, `suppressed`, `conflict_loser` and the mandatory-beats-candidate
+prohibition all join `atom_conflicts`. The entire 906-atom corpus declares
+**one** conflict (`internal/prompt/atoms/knowledge/persistence.yaml`).
+
+So both rulesets carry a complete conflict-resolution subsystem that can fire on
+one pair of atoms. Not a wiring defect — the machinery is correct and reachable.
+It is a corpus gap: the metadata that would make it useful was never authored.
+Recorded rather than fixed, because deciding which atoms genuinely conflict is a
+content judgement, not a logic one.
+
+---
+
+## F-LEARN-3 — the executive shard's learning is write-only, and the store proves it
+
+A natural experiment was already sitting on disk. `.nerd/shards/`:
+
+| shard | `learnings` rows |
+|---|---|
+| `perception_firewall` | **5** (4 failure, 1 success) |
+| coder, researcher, reviewer, tester | 0 (files exist, empty) |
+| **executive** | **no database file at all** |
+
+The executive is the shard with the most decisions in the system, and it has
+never persisted a single pattern.
+
+**Root cause — Go field shadowing.** `ExecutivePolicyShard` embeds
+`*BaseSystemShard` (`executive.go:78`) and *also* declares its own
+`patternSuccess`, `patternFailure` and `learningStore` (`:99-101`). It then
+defines its own `SetLearningStore` (`:174`) which assigns the field and returns.
+The base's version (`base.go:574`) additionally calls `loadLearnedPatterns`,
+which seeds each loaded pattern so a pattern learned in an earlier session
+starts at threshold instead of zero.
+
+So the executive's counters restart at 0 every session, while `recordSuccess`
+only saves at count >= 5 and `recordFailure` at >= 3. **A pattern seen four
+times across four sessions is never learned.** The store is written only in the
+session that happens to see the same pattern five times, which is why the file
+does not exist at all.
+
+The perception firewall is the control that makes this legible: it inherits the
+base's method (`perception.go:90` says so explicitly), loads at boot, and is the
+one shard with rows.
+
+**Fix.** The shadowed maps are left alone — the executive tracks *action*
+patterns and the base tracks *task* patterns, and merging the namespaces would
+conflate two different key spaces. It gets its own load path instead, seeding
+from the stored count (`FactArgs[1]` for success, `FactArgs[2]` for failure,
+accepting int/int64/float64 since JSON round-trips make the concrete type
+unreliable) and falling back to the per-kind threshold when the count is absent.
+
+RED is behavioural, not compile-level: with `executive.go` reverted and the test
+file kept, 7 subtests fail — the seeded-count cases and both fallback cases.
+That is the strongest evidence class available, and it is available here
+precisely because `SetLearningStore` already existed and did the wrong thing.
+
+**Correction to my own F-AUTO-6 note.** I wrote there that `success_pattern` and
+`failure_pattern` were "already-consumed" kernel predicates. They are not kernel
+predicates at all — no `Decl` for either exists. They are row labels in the
+SQLite `learnings` table. The only learning Decl in the corpus is
+`learned_pattern(Category, Pattern)` (`schemas_learning.mg:21`), which nothing
+asserts. So the kernel still cannot see shard experience; this fix makes the
+SQLite half work, and the move into the kernel remains open.
+
+**Also noted, not fixed.** `learnings` is declared `UNIQUE(fact_predicate,
+fact_args)` (`internal/store/learning.go:116-131`) — the owner is not in the
+key, while `LoadByPredicate` filters *by* `shard_type`. Two shards that learn
+the same pattern collide on write, and `ON CONFLICT DO UPDATE` means the second
+writer takes the row. The loser then loads nothing, having "learned" it. Same
+family as the rest of this ledger: a key that omits the dimension the reader
+filters on.
