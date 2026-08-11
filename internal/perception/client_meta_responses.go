@@ -280,6 +280,9 @@ func metaInputFromHistory(systemPrompt string, history []types.Message, reasonin
 		input = append(input, metaInputText("developer", systemPrompt))
 	}
 
+	seenCallIDs := make(map[string]struct{})
+	seenOutputIDs := make(map[string]struct{})
+
 	for i, msg := range history {
 		switch msg.Role {
 		case "assistant":
@@ -291,6 +294,11 @@ func metaInputFromHistory(systemPrompt string, history []types.Message, reasonin
 				input = append(input, metaInputText("assistant", msg.Text))
 			}
 			for _, tc := range msg.ToolCalls {
+				if _, ok := seenCallIDs[tc.ID]; ok {
+					logging.Get(logging.CategoryAPI).Warn("meta responses: duplicate function_call call_id %s skipped", tc.ID)
+					continue
+				}
+				seenCallIDs[tc.ID] = struct{}{}
 				// ToolCall.Input is a decoded map; the wire wants the JSON
 				// text the model originally emitted. A marshal failure must
 				// not drop the call — an unpaired function_call_output on the
@@ -312,6 +320,11 @@ func metaInputFromHistory(systemPrompt string, history []types.Message, reasonin
 			// Tool results are their own item type and must not be folded into
 			// the user text, or the model cannot pair them with their calls.
 			for _, tr := range msg.ToolResults {
+				if _, ok := seenOutputIDs[tr.ToolUseID]; ok {
+					logging.Get(logging.CategoryAPI).Warn("meta responses: duplicate function_call_output call_id %s skipped", tr.ToolUseID)
+					continue
+				}
+				seenOutputIDs[tr.ToolUseID] = struct{}{}
 				input = append(input, metaFunctionOutputItem(tr.ToolUseID, tr.Content))
 			}
 			if strings.TrimSpace(msg.Text) != "" {
