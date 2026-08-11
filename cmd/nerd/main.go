@@ -267,6 +267,7 @@ func init() {
 		mangleLSPCmd,
 		authCmd,
 		logsCmd,
+		swebenchCmd,
 	)
 
 	// Direct action commands (mirror TUI verbs)
