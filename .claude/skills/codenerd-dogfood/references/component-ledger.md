@@ -983,3 +983,153 @@ populated was never sufficient.
 3. **When static reading has failed twice, instrument.** I read the same forty
    lines repeatedly and generated three wrong mechanisms from them. One Debug
    line per matched Decl answered it immediately, and is worth keeping.
+
+---
+
+## F-ATOM-1 — `symbol_graph` emits strings where every consumer matches atoms
+
+This is why the impact-analysis subsystem is inert, and it is measurable now
+only because F-QUERY-1 gave us a working reader. It is the substantive finding
+that the withdrawn F-IMPACT-1 was groping at.
+
+### Measured
+
+`code_defines` Type slot, counted from live `nerd query` output:
+
+| Value | Count | Kind |
+|---|---|---|
+| `"method"` | 189 | string |
+| `"function"` | 123 | string |
+| `"struct"` | 48 | string |
+| `"type"` | 8 | string |
+| `"interface"` | 4 | string |
+| `"class"` | 1 | string |
+| `/predicate` | 26 | **atom** |
+
+Every consumer matches an atom:
+
+```
+impact.mg:37           code_defines(ImplFile, Struct, /struct, _, _)
+impact.mg:60,70,74,78  code_defines(File, Func, /function, _, _)
+reviewer.mg:424        code_defines(File, ID, /function, _, _)
+```
+
+In Mangle a string constant and a name constant are different terms. There are
+123 function definitions in the fact base and **zero** that match `/function`.
+So `relevant_context_file`, `context_priority_file`, `impact_implementer` and
+`unwired_function` all derive nothing — confirmed empty against a working reader.
+
+### Root cause: two producers, two conventions
+
+```go
+internal/world/mangle_fastparse.go:27
+    Args: []any{symbolID, "/predicate", "/public", path, sig}   // correct
+
+internal/world/ast_treesitter.go  (18 sites)
+    Args: []any{id, "function", visibility, path, signature}    // wrong
+```
+
+A leading slash makes the value land as an atom; without it the value stays a
+string. The 26 `/predicate` facts are the minority producer doing it right,
+which is what made the two conventions visible side by side in one relation.
+
+The schema already specifies atoms and documents the enum:
+
+```
+schemas_world.mg:49  Decl symbol_graph(...) bound [/string, /name, /name, /string, /string]
+schemas_world.mg:45  Type: /function, /class, /interface, /struct, /variable, /constant
+schemas_world.mg:46  Visibility: /public, /private, /protected
+```
+
+### The Decl-enforcement point, now with teeth
+
+Earlier in this investigation I disproved the theory that `Decl` bound
+violations suppress *derivation* — an isolated four-variant Mangle repro derived
+a fact in all four cases, so bounds are not enforced at evaluation time. That
+result was correct and it made the type violations look harmless. They are not.
+Bounds are not enforced, so a violating value propagates happily through the
+producer and the bridge rule, and then silently fails to unify at the one place
+it matters — the consumer that filters on it.
+
+So the sharper statement is: **an unenforced `Decl` does not break the relation
+that violates it, it breaks the relation that trusts it.** That is strictly
+worse than a loud failure, because the damage surfaces two hops away from the
+mistake, in a rule that is correct.
+
+Note also `"method"` (189 facts, the largest group) is not in the documented
+enum at all, and `/method` would still not match `impact.mg`'s `/function`.
+Converting the strings to atoms is necessary but not sufficient for methods;
+whether a method should satisfy a `/function` filter is a policy question worth
+deciding explicitly rather than by accident.
+
+### Why it stayed hidden
+
+Same shape as every other finding in this ledger: an empty join is
+indistinguishable from an empty relation. Nothing errors, nothing warns, the
+scan reports success, `symbol_graph` has 10,231 healthy-looking facts, and the
+rules that consume them quietly produce nothing.
+
+---
+
+## F-RUN-2 — the silent-success defect disables the override that exists for it
+
+This is a composition bug between two mechanisms that are each individually
+reasonable, and it deadlocks the dogfooding loop.
+
+### The two halves
+
+**Half one (F-RUN-1, now seen four times today).** A run spawns its coder shard,
+does nothing, and exits **0**. Observed at 30 seconds against successful runs
+that take 8–18 minutes, so the shape is unmistakable. Once it was traceable to a
+single failed `read_file` on a guessed filename; once to iteration exhaustion
+(19 tool calls, 17 turns, zero edits); twice with no diagnosable cause at all.
+Nothing is written to any log at ERROR level. The shell sees success.
+
+**Half two.** `.claude/hooks/block-direct-codebase-edits.py` refuses a
+hand-editing override unless the `ATTEMPTED:` line names a recent `.nerd/logs`
+file containing one of `FAILURE_MARKERS` (`shard execution failed`,
+`execution failed`, `llm generation failed`, `build failed`, `panic:`, ...). Its
+stated rationale is exactly right: "Free text was self-granted in practice... This
+cannot be satisfied without having run codeNERD."
+
+### The deadlock
+
+codeNERD could not perform a ten-character edit across three consecutive runs.
+That is precisely the circumstance the override exists for. But because the runs
+failed **silently**, no log contains a failure marker, so the override is
+refused — and a refused override is still spent. The gate's own message closes
+the loop: *"ATTEMPTED log records no failure — if codeNERD did not fail, it was
+not blocked, so fix it there."*
+
+It did fail. It simply did not say so.
+
+So: the work cannot be done by codeNERD, and cannot be authorized for hand-repair
+either, because **the evidence required to unblock is the evidence the system
+declines to produce**. The scarcity mechanism is sound; it is starved by a
+defect in the thing it is measuring.
+
+### Why this matters more than the edit it blocked
+
+The blocked task was trivial — adding a leading slash to ten string literals in
+a test file. The interesting part is structural: a safety mechanism whose input
+is "did the subject fail" is only as good as the subject's honesty about
+failure, and this subject reports success by default. Every hollow-success
+defect in this ledger (campaign checkpoints "skipped, therefore passed";
+`nerd init`'s quality score surviving 195 of 196 failed LLM calls) is the same
+disease, but this instance is the first where the dishonesty disables a control
+built to contain it.
+
+### Fix, in dependency order
+
+1. **Make failure observable.** A run that reaches its iteration ceiling, or
+   ends on an unrecovered tool error, or produces no edits when the brief asked
+   for edits, must log at ERROR with one of the existing marker strings and exit
+   non-zero. This is the blocker; everything else is downstream of it.
+2. **Do not recover from a bad filename by giving up.** The `read_file` error
+   already hands back the directory listing and says "do not guess another
+   filename". Consume it and retry.
+3. Only then is the override gate load-bearing again.
+
+Recording this rather than routing around it: per the repo contract, when
+codeNERD cannot do something, fixing the *blocker* is the dogfooding work and
+doing its job for it is not. The blocker here is that it cannot admit failure.

@@ -512,11 +512,11 @@ func detectEntryPoints(facts []core.Fact) []core.Fact {
 
 			if ok {
 				// Go: package main
-				if kind == "package" && id == "package:main" {
+				if (kind == "/package" || kind == "package") && id == "package:main" {
 					hasMainSymbol[path] = true
 				}
 				// Go: func main
-				if kind == "function" && id == "func:main" {
+				if (kind == "/function" || kind == "function") && id == "func:main" {
 					hasMainSymbol[path] = true
 				}
 			}

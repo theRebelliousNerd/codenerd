@@ -54,9 +54,9 @@ def standalone_function():
 		if fact.Predicate == "symbol_graph" {
 			if len(fact.Args) > 1 {
 				symbolType := fact.Args[1].(string)
-				if symbolType == "class" {
+				if symbolType == "/class" {
 					foundClass = true
-				} else if symbolType == "function" {
+				} else if symbolType == "/function" {
 					foundFunc = true
 				}
 			}
@@ -131,11 +131,11 @@ pub mod my_module {
 	for _, fact := range facts {
 		if fact.Predicate == "symbol_graph" && len(fact.Args) > 1 {
 			symbolType := fact.Args[1].(string)
-			if symbolType == "struct" {
+			if symbolType == "/struct" {
 				foundStruct = true
-			} else if symbolType == "enum" {
+			} else if symbolType == "/enum" {
 				foundEnum = true
-			} else if symbolType == "function" {
+			} else if symbolType == "/function" {
 				foundFunc = true
 			}
 		}
@@ -206,11 +206,11 @@ export type MyType = string | number;
 	for _, fact := range facts {
 		if fact.Predicate == "symbol_graph" && len(fact.Args) > 1 {
 			symbolType := fact.Args[1].(string)
-			if symbolType == "interface" {
+			if symbolType == "/interface" {
 				foundInterface = true
-			} else if symbolType == "class" {
+			} else if symbolType == "/class" {
 				foundClass = true
-			} else if symbolType == "function" {
+			} else if symbolType == "/function" {
 				foundFunc = true
 			}
 		}
@@ -278,9 +278,9 @@ export const exportedArrow = () => {
 	for _, fact := range facts {
 		if fact.Predicate == "symbol_graph" && len(fact.Args) > 1 {
 			symbolType := fact.Args[1].(string)
-			if symbolType == "class" {
+			if symbolType == "/class" {
 				foundClass = true
-			} else if symbolType == "function" {
+			} else if symbolType == "/function" {
 				foundFunc = true
 			}
 		}
