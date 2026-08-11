@@ -812,3 +812,112 @@ executive can be asked a question and quietly give the wrong answer.
    cross-check whose absence produced the withdrawn F-IMPACT-1.
 4. Regression test: assert `Query(p)` and `QueryAll()[p]` agree for every
    predicate holding facts. That invariant is cheap and would have caught this.
+
+### ROOT CAUSE CONFIRMED — it is shard routing, not arity
+
+The arity theory above was a real bug but the wrong one. Fixing it (`212ecb81`)
+changed nothing about the symptom: `nerd query code_defines` still printed
+"No facts found" against a kernel holding 10,231, measured on a fresh
+`-tags sqlite_vec` build after the change. That is the second time in this
+investigation a plausible mechanism survived scrutiny and still was not the
+cause — recorded because the diff looked right and the test went RED→GREEN, and
+neither of those facts said anything about the symptom.
+
+The booted kernel is a `*CortexKernel`, not a `*RealKernel`
+(`internal/system/factory.go:855,870`). The two readers differ structurally:
+
+```go
+func (c *CortexKernel) Query(predicate string) ([]types.Fact, error) {
+    shard := c.routeToShard(predicate)      // ONE shard
+    return shard.Query(predicate)
+}
+// QueryAll iterates c.shards and merges every shard's facts
+```
+
+`routeToShard` consults `c.predicateOwner[bare]` and, on a miss, falls back to
+the cortex catch-all shard. Boot log, verbatim:
+
+```
+[cortex] registered shard 'routing'  (owned=4 predicates, router=false)
+[cortex] registered shard 'world'    (owned=4 predicates, router=false)
+[cortex] registered shard 'tools'    (owned=3 predicates, router=false)
+[cortex] registered shard 'policy'   (owned=8 predicates, router=false)
+[cortex] registered shard 'campaign' (owned=4 predicates, router=false)
+[cortex] registered shard 'prompts'  (owned=3 predicates, router=false)
+[cortex] registered shard 'cortex'   (owned=0 predicates, router=false)
+```
+
+**26 owned predicates across seven shards, against ~1,720 declared.** Everything
+else — including every predicate derived by a rule rather than loaded as a fact —
+misses the owner map and is answered by the cortex shard, which owns nothing and
+holds nothing. `code_defines` is derived from `symbol_graph`, which `world` owns,
+so its 10,231 facts live in `world`'s store and the query never looks there.
+
+`KernelShard.Query` has the correct fallback built for exactly this case: if the
+shard does not own the predicate and a router is present, fan out via
+`ShardFactRouter.QueryVia`. Note `router=false` on all seven shards. The router
+is constructed only when `features.IsPerShardFactsEnabled()` is true
+(`cortex_kernel.go:70-81`), and it is off.
+
+**So the defect is the asymmetry, not either half.** Narrowing a query to one
+shard is only safe when the router can fan out on a miss; the narrowing is
+unconditional while the fan-out is behind a flag that is off. Whoever turned the
+flag off got "behavior matches pre-Track-D code exactly" for writes, and a
+silent-empty read path for anything unowned.
+
+This is the same wiring-gap family logged six times already in this ledger, with
+one difference worth keeping: the missing collaborator here is not unset by
+oversight but **deliberately disabled**, and the code that depends on it was
+never gated to match. A feature flag that turns off a compensating mechanism
+without also turning off the behaviour that requires it is a wiring gap wearing
+a config switch.
+
+### Corrected fix shape
+
+The multi-arity fix (`212ecb81`) stands on its own merits — it is a genuine bug
+with a RED→GREEN regression test — but it is not this. The fix for the symptom:
+make `CortexKernel.Query` merge across all shards when the predicate has no
+registered owner, matching what `QueryAll` already does, and leave the owned
+path routing to its owner exactly as today. That restores correct reads without
+enabling per-shard fact routing.
+
+### Scope of the damage
+
+`Query` is the kernel read API and 26 of ~1,720 predicates have an owner. Every
+conclusion in this ledger of the form "predicate X derives nothing", where the
+evidence was `nerd query` alone, is unreliable — including F-AUTO-3's thirteen
+dead predicates, F-LEARN-1's unused `query_learned`, and the five `impact.mg`
+predicates from the withdrawn F-IMPACT-1. Re-check all of them against a merged
+reader once this lands. Note the direction of the bias: the bug can only
+manufacture *false* deaths, never hide a live one, so nothing previously
+declared alive needs revisiting.
+
+### F-RUN-1 (side finding) — one bad filename guess ends the whole run, exit 0
+
+The first attempt at this fix produced no edits and terminated after 30 seconds
+with exit status 0. The only error in the logs:
+
+```
+[ERROR] Tool call read_file failed: modular tool execution failed:
+file not found: internal/types/kernel.go. That directory contains:
+extract.go, ..., types.go, ... (pick one of those, or use glob to search
+elsewhere -- do not guess another filename)
+```
+
+The tool error message is genuinely good — it lists the directory contents and
+tells the model exactly how to recover. The run stopped anyway, and reported
+success to the shell. Re-running with the file paths pinned in the brief let it
+proceed, which confirms the guess was the blocker rather than the task.
+
+Two separate defects here, worth separating:
+
+1. **A single recoverable tool error aborts the run.** A missing file is the most
+   ordinary failure an agent hits; the correct response is to use the listing it
+   was just handed and retry, not to stop.
+2. **Aborting exits 0.** Same hollow-success family as the campaign checkpoints
+   (`skipped, therefore passed`) and `nerd init`'s quality score. A caller that
+   trusts the exit code sees a completed task with an empty diff. I only noticed
+   because I diff the touched-file list against the brief on every run.
+
+The second is the more dangerous of the two, and it is cheap to fix: a run that
+performs no edits and exits on an unrecovered tool error should be non-zero.
