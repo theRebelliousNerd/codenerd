@@ -43,15 +43,43 @@ type ParamSchema struct {
 	Default     any      `json:"default,omitempty"`
 }
 
+// enforceToolNeedContract is the choke-point that normalizes a ToolNeed to the
+// compiler's string contract. It is called at the top of GenerateTool so every
+// generation path — regardless of where the ToolNeed was constructed — inherits
+// the correct contract. ToolNeed is constructed in several packages, notably
+// cmd/nerd/cmd_advanced.go:buildCLIToolNeed for explicit `nerd tool generate`
+// requests, which previously left InputType/OutputType empty. The compiler's
+// entry point in tool_compiler.go:isExactEntryPoint plus writeWrapper admit only
+// func(context.Context, string) (string, error), so any other I/O types fail
+// compilation with "no suitable entry point...".
+func enforceToolNeedContract(need *ToolNeed) error {
+	if need == nil {
+		return errors.New("tool need is nil")
+	}
+	coerceToolNeedTypes(need)
+	return nil
+}
+
 // GenerateTool creates a new tool based on the detected need
 func (tg *ToolGenerator) GenerateTool(ctx context.Context, need *ToolNeed) (*GeneratedTool, error) {
+	// Choke-point enforcement: ToolNeed is constructed in several packages and
+	// callers can bypass the detection-site coercion. cmd/nerd/cmd_advanced.go:buildCLIToolNeed
+	// for explicit `nerd tool generate` requests left InputType/OutputType empty,
+	// so the prompt contained empty types and the model invented its own contract
+	// (e.g. struct input / int output) that tool_compiler.go:isExactEntryPoint plus
+	// writeWrapper reject — they admit only func(context.Context, string) (string, error).
+	// Coercing here guarantees every generation path inherits the correct string
+	// contract regardless of origin, including construction sites that do not exist yet.
+	if err := enforceToolNeedContract(need); err != nil {
+		return nil, err
+	}
+
 	timer := logging.StartTimer(logging.CategoryAutopoiesis, "GenerateTool")
 	defer timer.Stop()
 
 	logging.Autopoiesis("Generating tool: %s (purpose: %s)", need.Name, need.Purpose)
 	logging.AutopoiesisDebug("Tool specs: input=%s, output=%s, confidence=%.2f",
 		need.InputType, need.OutputType, need.Confidence)
-
 	// Generate the tool code using LLM
 	logging.AutopoiesisDebug("Generating tool code via LLM")
 	codeTimer := logging.StartTimer(logging.CategoryAutopoiesis, "LLMCodeGeneration")
