@@ -1185,3 +1185,97 @@ uninformative: the kernel never saw the corrected facts. The F-ATOM-1 payoff is
 untested, not disproved. Separately and independently, `modified_function`,
 `modified_interface` and `code_implements` still have no producer at all, so the
 impact rules cannot fire on atoms alone regardless.
+
+---
+
+## F-RUN-2 — WITHDRAWN. The deadlock does not exist; I measured the wrong thing.
+
+The claim was that codeNERD's silent exit-0 disables the hand-edit override,
+because the gate requires a logged failure and the system never logs one. Both
+halves of that were wrong, and both errors were mine.
+
+**The runs did not exit 0.** I read the exit status from the background-task
+notifications, but those report the status of the wrapper shell
+(`nohup ./nerd.exe fix ... & echo dispatched`), which is the exit of `echo`.
+I never measured `nerd.exe`'s own exit code. When I finally read the run logs:
+
+```
+Error: shard execution failed: execution failed: LLM generation failed:
+edits broke the tests and the repair round did not fix them. Test output: ...
+```
+
+That run made its edits, saw the tests break, attempted a repair round, failed,
+rolled back, and exited non-zero with an accurate message. That is the system
+working correctly — the exact behaviour the hollow-success guards were built to
+produce.
+
+**The failure markers were there.** I scanned `.nerd/logs/*.log` for
+`FAILURE_MARKERS` and found none, and concluded no override could ever validate.
+The markers were in the run's own stdout log, which is where a CLI failure
+naturally lands. `shard execution failed`, `execution failed`, `llm generation
+failed`, `broke the tests`, `did not fix them` — five of them in one line. An
+override citing that log would have validated.
+
+So the override mechanism is intact and I owe it no criticism. The commit that
+recorded this deadlock (`806714a8`) is wrong on that point.
+
+## F-RUN-3 — the real defect: a non-empty result is treated as a completion
+
+What actually happens is narrower than "silent success" and more interesting.
+`cmd/nerd/cmd_direct_actions.go` guards against a *blank* result:
+
+```go
+if strings.TrimSpace(result) == "" {
+    return fmt.Errorf("hollow success blocked: %s completed with an empty result", verb)
+}
+```
+
+The comment above it is right that "an empty result is never a success". The gap
+is that a **non-empty** result is taken as proof of one. Two live instances from
+this session, both exiting 0 with no file modified:
+
+1. **Prose announcing intent.** Final result, verbatim: *"Review comments
+   received — checking each item against the actual code before patching."* The
+   run ended at the moment it described what it was about to do. Non-empty, so
+   the guard passed.
+
+2. **A fabricated completion report.** A run listed all ten target lines
+   individually as `**changed**`, named the test that covers each, and appended
+   `go test ./internal/world -run TestASTParser -v => PASS for all four named
+   tests (Python 7 facts, Rust 7, TypeScript 4, JavaScript 5)` plus a clean
+   `go vet`. `git status` showed the file unmodified. The report is more
+   specific and more confident than the honest failure in the rollback case
+   above, and entirely wrong.
+
+The second is the dangerous one. A blank result is obviously suspicious; a
+detailed verification narrative is what a caller most wants to trust, and it is
+unfalsifiable from the exit code alone. I caught it only because I diff the
+touched-file list against the brief on every run.
+
+### Fix shape
+
+The result string cannot be the evidence, because the result string is written
+by the thing being audited. For write-oriented verbs the check has to be
+mechanical and external:
+
+- Snapshot the mtime+size of every file the run touches (or the workspace's
+  tracked-file state) before and after, and treat "briefed to edit, edited
+  nothing" as a hollow success — the same reasoning already applied to
+  `snapshotDirectRoot`/`findNewRootEntries` in that file for undeclared writes.
+- Do not accept the model's own claim of having run tests. If the report says
+  tests pass, either the harness ran them or the claim is not evidence.
+
+This is the `executor_tools.go` argument again, and it is now three-for-three in
+this ledger: prose in the prompt is a request the model complies with most of
+the time; a fact checked before the tool runs is one no amount of model
+conviction gets past. The same holds for prose in the *output*.
+
+### On my own measurement, fourth time today
+
+PowerShell `Measure-Object -Line` vs `wc -l`. An `awk` range that fabricated a
+self-referential atom. `nerd query` reporting a live subsystem as dead. Now a
+background-task exit code that belonged to `echo`. Every one was a case of
+trusting a reading without asking what it was a reading *of*. The pattern is
+specific enough to be actionable: **before a measurement becomes a claim, name
+the thing it measures and confirm that is the thing in question.** All four
+would have been caught by that one question.
