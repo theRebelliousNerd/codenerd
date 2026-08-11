@@ -74,6 +74,9 @@ context_atom(Fact) :- activation(Fact, Score), Score > 30.
 	start := time.Now()
 	results, err := kernel.Query("context_atom(?X)")
 	duration := time.Since(start)
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
 
 	if duration > 50*time.Millisecond {
 		t.Errorf("PERFORMANCE CONTRACT VIOLATION: Spreading Activation took %v (Budget: < 50ms)", duration)

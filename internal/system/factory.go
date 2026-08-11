@@ -1352,12 +1352,24 @@ func initShardManagement(bctx *bootContext) error {
 	}
 	shards.RegisterAllShardFactories(bctx.shardManager, regCtx)
 
-	bctx.shardManager.SetNerdDir(filepath.Join(bctx.workspace, ".nerd"))
+	nerdDir := filepath.Join(bctx.workspace, ".nerd")
+	bctx.shardManager.SetNerdDir(nerdDir)
 	bctx.shardManager.SetPromptLoader(func(ctx context.Context, agentName, nerdDir string) (int, error) {
 		return prompt.LoadAgentPrompts(ctx, agentName, nerdDir, bctx.embeddingEngine)
 	})
 	bctx.shardManager.SetJITRegistrar(prompt.CreateJITDBRegistrar(bctx.jitCompiler))
 	bctx.shardManager.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(bctx.jitCompiler))
+
+	// Sync all agent prompts.yaml -> knowledge DBs at boot (upsert semantics).
+	// This must run AFTER the agent knowledge DBs exist and AFTER the JIT
+	// registrar is wired so the freshly synced atoms are visible to the
+	// compiler in the same boot; otherwise the JIT would serve stale prompts
+	// until the next TUI/init run.
+	if promptCount, syncErr := prompt.ReloadAllPrompts(bctx.ctx, nerdDir, bctx.embeddingEngine); syncErr != nil {
+		logging.BootWarn("Failed to sync agent prompts: %v", syncErr)
+	} else if promptCount > 0 {
+		logging.Boot("Synced %d prompt atoms from YAML to knowledge DBs", promptCount)
+	}
 
 	bctx.shardManager.RegisterShard("tactile_router", func(id string, _ types.ShardConfig) types.ShardAgent {
 		shard := system.NewTactileRouterShard()
