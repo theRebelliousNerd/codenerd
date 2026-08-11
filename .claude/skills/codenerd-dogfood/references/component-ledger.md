@@ -1133,3 +1133,55 @@ built to contain it.
 Recording this rather than routing around it: per the repo contract, when
 codeNERD cannot do something, fixing the *blocker* is the dogfooding work and
 doing its job for it is not. The blocker here is that it cannot admit failure.
+
+### F-ATOM-2 — the producer fix does not reach the kernel: `nerd scan` leaves a stale cache
+
+The `symbol_graph` atom fix (`806714a8`) is correct and lands in the persisted
+scan output. It still does not change what the kernel answers with, because
+`nerd scan` does not invalidate the store the kernel actually reads.
+
+Measured after a full `nerd scan` on the fixed binary:
+
+| Source | Type-slot form | Count |
+|---|---|---|
+| `.nerd/mangle/scan.mg` (rewritten 02:31) | `/method` 4769, `/function` 2995, `/struct` 1472, `/predicate` 2549 | 12,097 facts |
+| kernel via `nerd query symbol_graph` | `"method"`, `"function"`, `"struct"` — **strings** | ~10,231 |
+| `.nerd/knowledge.db` (97 MB) | `symbol_graph("method:(i *Initializer).runPhase7cCreateCoreShardKBs", "method"` … | stale strings |
+
+Three things establish that the cache, not the loader, is at fault:
+
+1. **The fresh output is correct.** `scan.mg` holds atom form for all 12,097
+   facts, so the producer change works.
+2. **The loader preserves atoms.** `/predicate` facts — emitted by
+   `mangle_fastparse.go`, which always used atom form — arrive in the kernel
+   still as atoms. Nothing downgrades an atom to a string in transit.
+3. **The counts disagree.** 12,097 in `scan.mg` versus ~10,231 in the kernel.
+   Two different populations, so two different sources.
+
+`strings .nerd/knowledge.db` returns the old string-form facts verbatim. The
+kernel is served from there.
+
+So a full rescan on a fixed producer produced no observable change, and would
+have read as "the fix didn't work" to anyone who checked only the query. That
+is the same shape as F-QUERY-1 — a correct change hidden behind a reader that
+answers from the wrong place — and it is why the payoff measurement for
+F-ATOM-1 must stay open rather than be recorded as a win.
+
+This also reframes the long-standing "447 stale facts" backlog item. That was
+filed as a data-hygiene chore. It is the same defect: the world-model cache
+outlives the scan that is supposed to refresh it, so corrections to any producer
+are invisible until something else evicts the cache.
+
+**Not yet determined:** whether `nerd scan` is meant to invalidate
+`knowledge.db` and fails to, or whether the kernel is meant to prefer `scan.mg`
+and does not. Those need different fixes, and I did not measure which is
+intended, so I am not guessing. Deliberately not "fixed" by deleting the cache —
+that would destroy user state and prove nothing about the mechanism.
+
+**Consequence for the impact predicates.** `unwired_function`,
+`relevant_context_file`, `context_priority_file`, `impact_caller` and
+`impact_graph` are all still empty after the rescan, but that measurement is now
+uninformative: the kernel never saw the corrected facts. The F-ATOM-1 payoff is
+untested, not disproved. Separately and independently, `modified_function`,
+`modified_interface` and `code_implements` still have no producer at all, so the
+impact rules cannot fire on atoms alone regardless.
