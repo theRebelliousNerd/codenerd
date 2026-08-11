@@ -921,3 +921,65 @@ Two separate defects here, worth separating:
 
 The second is the more dangerous of the two, and it is cheap to fix: a run that
 performs no edits and exits on an unrecovered tool error should be non-zero.
+
+### RESOLVED — `f7cf1b1b`
+
+`nerd query code_defines` returns 10,231 facts. Measured zero across 9 runs
+before, 10,231 across 4 runs after, on fresh `-tags sqlite_vec` builds.
+
+The fix: `CortexKernel.Query` now fans out across every shard when a predicate
+has no registered owner, matching what `QueryAll` already did. The owned path is
+untouched and per-shard fact routing stays disabled. Two regression tests, both
+proven RED first.
+
+What finally identified it was **instrumentation, not reading**. Three static
+hypotheses each survived scrutiny and each was wrong, and I only stopped guessing
+once the kernel could report what it had actually looked at:
+
+```
+Query: decl code_defines/5 -> 0     facts
+Query: decl code_defines/5 -> 10231 facts
+Query: predicate=code_defines matchedDecls=1 totalResults=10231
+```
+
+`matchedDecls=1` also retired the multi-arity theory for good: only one Decl was
+ever involved. That bug (`212ecb81`) is real and separately tested; it had
+nothing to do with this symptom. The per-arity logging was kept, because a
+zero-result query being indistinguishable from a genuinely empty predicate is
+the property that let this hide for as long as it did.
+
+### The withdrawal was itself wrong, in an instructive direction
+
+With a working reader, the `impact.mg` predicates are still empty — every one:
+
+```
+impact_caller  impact_graph  impact_implementer
+relevant_context_file  context_priority_file  relevant_context   -> all 0
+```
+
+So the original F-IMPACT-1 **conclusion** was correct; its **evidence** was
+worthless. Withdrawing it was still the right call — a true claim resting on a
+broken instrument is not knowledge, and keeping it for being accidentally right
+would have taught exactly the wrong lesson. But the honest scorecard is: right
+answer, invalid reasoning, withdrawn, then re-derived on valid evidence.
+
+The real cause is upstream of anything to do with reads, and is now measurable:
+`modified_function`, `modified_interface` and `code_implements` have **no
+producer anywhere in the codebase**. `modified_function` appears once in Go, as
+a bare map key at `internal/session/executor.go:1158`, and no `.mg` rule derives
+it. Every `impact.mg` rule bottoms out in one of those three, so the subsystem
+cannot fire regardless of how healthy `code_defines` is. `code_defines` being
+populated was never sufficient.
+
+### Three lessons, in the order they cost time
+
+1. **Suspect the meter before the subsystem.** A measurement that makes a whole
+   subsystem look dead is more likely broken than the subsystem. This cost the
+   most and was the most avoidable.
+2. **A RED→GREEN test proves the test, not the fix.** Both intermediate fixes had
+   genuine failing-then-passing regression tests and neither moved the symptom.
+   The only thing that ever settles it is the before/after measurement of the
+   original complaint.
+3. **When static reading has failed twice, instrument.** I read the same forty
+   lines repeatedly and generated three wrong mechanisms from them. One Debug
+   line per matched Decl answered it immediately, and is worth keeping.
