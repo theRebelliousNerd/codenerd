@@ -1921,3 +1921,87 @@ tool-result follow-up path, not a code-generation failure: the client sent two
 outputs for a single `call_id`. Unlike F-META-1 (empty stream on a small
 completion budget), this one produces a hard 400 and loses the run's final
 report. Not investigated further; recorded with the call_id so it can be traced.
+
+---
+
+## F-WHATIF-1 CONFIRMED — and the fix exposed two deeper defects
+
+Exercising the modules the mission names but this session had not touched.
+
+### The original finding, confirmed by A/B against a sibling
+
+Asked to analyse deleting a specific `.mg` file, `nerd whatif` replied:
+
+> Analysis is hypothetical only - no code/content for `jit_selection.mg` was
+> supplied to verify ... would require exhaustive grep
+
+`nerd shadow`, given a comparable prompt, replied:
+
+> Verified via read_file + search_code
+
+and produced a real impact list naming the symbols that would break. Two sibling
+commands in the same file, one grounded and one speculating. Cause:
+
+    runShadow (~531)  cortex.SpawnTaskWithContext(ctx, "coder", prompt, shadowCtx, ...)
+    runWhatIf (~571)  cortex.LLMClient.Complete(analysisCtx, prompt)
+
+A bare completion cannot open a file. The only kernel fact `whatif` contributes
+is `derives_from_hypothetical(<the input string>)`.
+
+### Attempt 1 — and a documented warning I should have heeded
+
+Routing `whatif` through the shard path deleted this comment:
+
+> Optional LLM elaboration uses a short direct Complete call — **never
+> SpawnTask(researcher), which previously hung** after the first kernel line when
+> the JIT spawn path stalled.
+
+Measured: it did not hang (57s), but printed *"(analysis timed out; kernel
+implications above are complete)"*. The tool-using path needs longer than the
+45-second sub-budget at line 619, because it actually reads the repository.
+Second time today I overrode a documented intentional decision; the first was
+rung 2's framework strictness, also reverted after measurement.
+
+### Attempt 2 — removed the sub-budget, and found the real defects
+
+`runShadow` has the same 2-minute parent context and **no** inner sub-budget.
+Removing `whatif`'s 45-second cap: 93 seconds, no timeout. Stdout showed:
+
+> Analysis complete — writing the 9-point deletion impact with exact line cites now.
+
+An intent announcement, not the analysis — the F-RUN-3 pattern again. But the
+analysis was not missing. It was written to **`kernel_query_deletion_impact.md`
+in the repository root**, 10,632 bytes, and it is good:
+
+> `kernel_query.go` is the **sole read path** for the Mangle EDB/IDB. Deleting it
+> does not "remove a feature" — it severs `RealKernel` from its store, breaks the
+> `types.Kernel` contract, and collapses every subsystem that derives
+> `permitted`/`next_action`/`project_forbidden_path` via query.
+
+with citations to files it actually read, and an explicit uncertainty section for
+cross-references it could not verify. That is exactly the grounded output the
+change was meant to produce.
+
+So the fix direction is right and two other defects block it:
+
+1. **The shard writes its deliverable to disk instead of returning it.** The
+   caller receives a sentence announcing the work; the work is in a file the
+   caller was never told about.
+2. **The undeclared-root-write guard does not cover this path.**
+   `cmd_direct_actions.go` references `snapshotDirectRoot`/`findNewRootEntries`
+   four times; `cmd_advanced.go` — which holds whatif, shadow, dream, logic and
+   agents — references them **zero** times. A 10 KB file appeared in the
+   repository root and nothing warned. The guard was added at the direct-verb
+   construction site rather than at a choke point, which is the same failure the
+   Ouroboros contract fix hit earlier in this ledger.
+
+**Reverted** rather than shipped: grounded-analysis-in-a-mystery-file is worse
+for a user than generic-analysis-on-stdout, and I have now degraded this command
+twice. The change is worth redoing once output routing is fixed — the evidence
+that it works is preserved.
+
+### Also observed
+
+Both `shadow` and the `whatif` analysis independently cited
+`internal/core/current-state.md:84` as claiming `kernel_query.go` is 577 lines,
+against 494 actually read. A stale doc that two separate runs tripped over.
