@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -1070,6 +1071,338 @@ func (e *Executor) projectForbidsWrite(call ToolCall) (string, bool) {
 	}
 	return "", false
 }
+// writesPlaceholderTestFile is the mechanical guard against hollow success.
+//
+// Prose is a request the model complies with most of the time, while a fact
+// checked before the tool runs is one no amount of model conviction gets past.
+// A placeholder test is the purest form of hollow success — it makes
+// `go test` green while testing nothing.
+//
+// It mirrors projectForbidsWrite: consulted at the single chokepoint in
+// executeToolCall, after the nerd.md guard and before the Dreamer preflight,
+// so both guards live at one site rather than at call sites.
+func (e *Executor) writesPlaceholderTestFile(call ToolCall) (string, bool) {
+	if !isWriteMutationTool(call.Name) {
+		return "", false
+	}
+	paths, err := projectdoc.TargetPaths(call.Args)
+	if err != nil {
+		return "", false
+	}
+	var testPaths []string
+	for _, p := range paths {
+		if strings.HasSuffix(filepath.Base(p), "_test.go") {
+			testPaths = append(testPaths, p)
+		}
+	}
+	if len(testPaths) == 0 {
+		return "", false
+	}
+	content, present := placeholderTestContent(call.Args)
+	if !present {
+		return "", false
+	}
+	funcs := findPlaceholderTestFuncs(content)
+	if len(funcs) == 0 {
+		return "", false
+	}
+	allVacuous := true
+	var firstVacuous string
+	for _, fn := range funcs {
+		if !isVacuousTestBody(fn.body) {
+			allVacuous = false
+			break
+		}
+		if firstVacuous == "" {
+			firstVacuous = fn.name
+		}
+	}
+	if !allVacuous {
+		return "", false
+	}
+	reason := fmt.Sprintf("placeholder test %s in %s is vacuous (empty or only t.Skip/t.SkipNow/t.Skipf); write a test that fails before the fix and passes after", firstVacuous, testPaths[0])
+	return reason, true
+}
+
+// placeholderTestContent extracts the content payload from a tool call's
+// arguments using the same key set as pendingEditContent. It reports whether
+// a content argument was present at all, so a pure delete/rename with no body
+// is not misclassified as an empty placeholder.
+func placeholderTestContent(args map[string]any) (string, bool) {
+	for _, key := range pendingEditContentKeys {
+		if raw, ok := args[key]; ok {
+			if s, ok := raw.(string); ok {
+				return s, true
+			}
+			if raw != nil {
+				if b, err := json.Marshal(raw); err == nil {
+					return string(b), true
+				}
+				return fmt.Sprintf("%v", raw), true
+			}
+			return "", true
+		}
+	}
+	return "", false
+}
+
+type placeholderTestFunc struct {
+	name string
+	body string
+}
+
+var placeholderTestFuncRe = regexp.MustCompile(`func\s+(Test\w*)\s*\(\s*t\s+\*testing\.T\s*\)`)
+
+func findPlaceholderTestFuncs(content string) []placeholderTestFunc {
+	matches := placeholderTestFuncRe.FindAllStringSubmatchIndex(content, -1)
+	var out []placeholderTestFunc
+	for _, m := range matches {
+		if len(m) < 4 {
+			continue
+		}
+		nameStart, nameEnd := m[2], m[3]
+		if nameStart < 0 || nameEnd < 0 || nameStart >= len(content) || nameEnd > len(content) {
+			continue
+		}
+		name := content[nameStart:nameEnd]
+		matchEnd := m[1]
+		if matchEnd < 0 || matchEnd >= len(content) {
+			continue
+		}
+		braceIdx := strings.Index(content[matchEnd:], "{")
+		if braceIdx == -1 {
+			continue
+		}
+		openIdx := matchEnd + braceIdx
+		closeIdx := findPlaceholderMatchingBrace(content, openIdx)
+		if closeIdx == -1 {
+			continue
+		}
+		body := ""
+		if openIdx+1 <= closeIdx {
+			body = content[openIdx+1 : closeIdx]
+		}
+		out = append(out, placeholderTestFunc{name: name, body: body})
+	}
+	return out
+}
+
+func findPlaceholderMatchingBrace(s string, openIdx int) int {
+	if openIdx < 0 || openIdx >= len(s) || s[openIdx] != '{' {
+		return -1
+	}
+	depth := 1
+	i := openIdx + 1
+	inSingle := false
+	inDouble := false
+	inRaw := false
+	inLineComment := false
+	inBlockComment := false
+	for i < len(s) {
+		if inLineComment {
+			if s[i] == '\n' {
+				inLineComment = false
+			}
+			i++
+			continue
+		}
+		if inBlockComment {
+			if i+1 < len(s) && s[i] == '*' && s[i+1] == '/' {
+				inBlockComment = false
+				i += 2
+				continue
+			}
+			i++
+			continue
+		}
+		if inSingle {
+			if s[i] == '\\' && i+1 < len(s) {
+				i += 2
+				continue
+			}
+			if s[i] == '\'' {
+				inSingle = false
+			}
+			i++
+			continue
+		}
+		if inDouble {
+			if s[i] == '\\' && i+1 < len(s) {
+				i += 2
+				continue
+			}
+			if s[i] == '"' {
+				inDouble = false
+			}
+			i++
+			continue
+		}
+		if inRaw {
+			if s[i] == '`' {
+				inRaw = false
+			}
+			i++
+			continue
+		}
+		if i+1 < len(s) && s[i] == '/' && s[i+1] == '/' {
+			inLineComment = true
+			i += 2
+			continue
+		}
+		if i+1 < len(s) && s[i] == '/' && s[i+1] == '*' {
+			inBlockComment = true
+			i += 2
+			continue
+		}
+		if s[i] == '\'' {
+			inSingle = true
+			i++
+			continue
+		}
+		if s[i] == '"' {
+			inDouble = true
+			i++
+			continue
+		}
+		if s[i] == '`' {
+			inRaw = true
+			i++
+			continue
+		}
+		if s[i] == '{' {
+			depth++
+		} else if s[i] == '}' {
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+		i++
+	}
+	return -1
+}
+
+func stripPlaceholderComments(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inSingle := false
+	inDouble := false
+	inRaw := false
+	inLineComment := false
+	inBlockComment := false
+	for i := 0; i < len(s); {
+		if inLineComment {
+			if s[i] == '\n' {
+				inLineComment = false
+				b.WriteByte(s[i])
+				i++
+				continue
+			}
+			i++
+			continue
+		}
+		if inBlockComment {
+			if i+1 < len(s) && s[i] == '*' && s[i+1] == '/' {
+				inBlockComment = false
+				i += 2
+				b.WriteByte(' ')
+				continue
+			}
+			i++
+			continue
+		}
+		if inSingle {
+			b.WriteByte(s[i])
+			if s[i] == '\\' && i+1 < len(s) {
+				i++
+				b.WriteByte(s[i])
+				i++
+				continue
+			}
+			if s[i] == '\'' {
+				inSingle = false
+			}
+			i++
+			continue
+		}
+		if inDouble {
+			b.WriteByte(s[i])
+			if s[i] == '\\' && i+1 < len(s) {
+				i++
+				b.WriteByte(s[i])
+				i++
+				continue
+			}
+			if s[i] == '"' {
+				inDouble = false
+			}
+			i++
+			continue
+		}
+		if inRaw {
+			b.WriteByte(s[i])
+			if s[i] == '`' {
+				inRaw = false
+			}
+			i++
+			continue
+		}
+		if i+1 < len(s) && s[i] == '/' && s[i+1] == '/' {
+			inLineComment = true
+			i += 2
+			continue
+		}
+		if i+1 < len(s) && s[i] == '/' && s[i+1] == '*' {
+			inBlockComment = true
+			i += 2
+			continue
+		}
+		if s[i] == '\'' {
+			inSingle = true
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		if s[i] == '"' {
+			inDouble = true
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		if s[i] == '`' {
+			inRaw = true
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+func isVacuousTestBody(body string) bool {
+	cleaned := stripPlaceholderComments(body)
+	trimmed := strings.TrimSpace(cleaned)
+	if trimmed == "" {
+		return true
+	}
+	normalized := strings.ReplaceAll(trimmed, ";", "\n")
+	lines := strings.Split(normalized, "\n")
+	skipRe := regexp.MustCompile(`^\s*t\.Skip(?:Now|f)?\s*\(.*\)\s*$`)
+	for _, line := range lines {
+		cur := strings.TrimSpace(line)
+		if cur == "" {
+			continue
+		}
+		if skipRe.MatchString(cur) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 
 // checkShellEffect denies shell invocations whose effects are mutating,
 // ambiguous, or missing. Command text is only evidence about effect; it cannot
@@ -1354,7 +1687,15 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	if reason, denied := e.projectForbidsWrite(call); denied {
 		logging.Get(logging.CategorySession).Warn(
 			"nerd.md BLOCKED %s on %s: %s", call.Name, projectDocTargetLabel(call.Args), reason)
+		logging.Audit().SafetyCheck("nerd.md_write_guard", false, reason)
 		return "", fmt.Errorf("blocked by nerd.md: %s is write-protected (%s)",
+			projectDocTargetLabel(call.Args), reason)
+	}
+	if reason, denied := e.writesPlaceholderTestFile(call); denied {
+		logging.Get(logging.CategorySession).Warn(
+			"placeholder test BLOCKED %s on %s: %s", call.Name, projectDocTargetLabel(call.Args), reason)
+		logging.Audit().SafetyCheck("placeholder_test_guard", false, reason)
+		return "", fmt.Errorf("blocked by placeholder test guard: %s is placeholder (%s)",
 			projectDocTargetLabel(call.Args), reason)
 	}
 
