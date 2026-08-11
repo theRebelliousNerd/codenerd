@@ -481,6 +481,14 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			evolverConfig := prompt_evolution.DefaultEvolverConfig()
 			if pe, err := prompt_evolution.NewPromptEvolver(nerdDir, llmClient, evolverConfig); err == nil {
 				promptEvolver = pe
+				pe.SetOnAtomPromoted(func(atomID string, promotedAt time.Time) {
+					if kernel == nil {
+						return
+					}
+					if err := kernel.Assert(core.Fact{Predicate: "prompt_evolved", Args: []any{atomID, promotedAt.Unix()}}); err != nil {
+						logging.Get(logging.CategoryBoot).Warn("Failed to assert prompt_evolved for %s: %v", atomID, err)
+					}
+				})
 				logging.Boot("Prompt Evolution System initialized")
 
 				// Create and register EvolvedAtomManager with JIT compiler

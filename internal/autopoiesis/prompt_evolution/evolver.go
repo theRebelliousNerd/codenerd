@@ -91,6 +91,20 @@ func validateEvolverConfig(config *EvolverConfig) (*EvolverConfig, error) {
 	}
 
 	return &normalized, nil
+	return &normalized, nil
+}
+
+// AtomPromotedCallback is called when an evolved atom is promoted.
+// This allows the Orchestrator to propagate facts to the parent kernel,
+// mirroring ToolRegisteredCallback in internal/autopoiesis/ouroboros.go.
+type AtomPromotedCallback func(atomID string, promotedAt time.Time)
+
+// promotionEvent holds information needed to invoke the promotion callback
+// outside the evolver lock.
+type promotionEvent struct {
+	atomID     string
+	promotedAt time.Time
+	cb         AtomPromotedCallback
 }
 
 // PromptEvolver orchestrates the prompt evolution system.
@@ -120,6 +134,9 @@ type PromptEvolver struct {
 	pendingDir  string
 	promotedDir string
 	rejectedDir string
+
+	// Callback for notifying parent when an atom is promoted
+	onAtomPromoted AtomPromotedCallback
 }
 
 // NewPromptEvolver creates a new prompt evolver.
@@ -193,10 +210,17 @@ func NewPromptEvolver(
 	return pe, nil
 }
 
+// SetOnAtomPromoted sets the callback for when an atom is promoted.
+// This allows the Orchestrator to propagate facts to the parent kernel.
+func (pe *PromptEvolver) SetOnAtomPromoted(cb AtomPromotedCallback) {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	pe.onAtomPromoted = cb
+}
+
 // RecordExecution records a task execution for later analysis.
 func (pe *PromptEvolver) RecordExecution(exec *ExecutionRecord) error {
 	pe.mu.Lock()
-	defer pe.mu.Unlock()
 
 	// Classify the problem type if not set
 	if exec.ProblemType == "" {
@@ -208,8 +232,16 @@ func (pe *PromptEvolver) RecordExecution(exec *ExecutionRecord) error {
 		exec.ProblemType = string(problemType)
 	}
 
-	pe.applyExecutionOutcomeLocked(exec)
-	return pe.feedbackCollector.Record(exec)
+	pending := pe.applyExecutionOutcomeLocked(exec)
+	err := pe.feedbackCollector.Record(exec)
+	pe.mu.Unlock()
+	// Invoke promotion callbacks without holding lock to avoid deadlock.
+	for _, ev := range pending {
+		if ev.cb != nil {
+			ev.cb(ev.atomID, ev.promotedAt)
+		}
+	}
+	return err
 }
 
 // TriggerEvolution manually triggers an evolution cycle.
@@ -220,7 +252,6 @@ func (pe *PromptEvolver) TriggerEvolution(ctx context.Context) (*EvolutionResult
 // RunEvolutionCycle executes a full evolution cycle.
 func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResult, error) {
 	pe.mu.Lock()
-	defer pe.mu.Unlock()
 
 	timer := logging.StartTimer(logging.CategoryAutopoiesis, "PromptEvolver.RunEvolutionCycle")
 	defer timer.Stop()
@@ -231,6 +262,8 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 	}
 
 	logging.Autopoiesis("Starting evolution cycle")
+
+	var pendingPromotions []promotionEvent
 
 	// 1. Get recent failures that need evaluation
 	unevaluated, err := pe.feedbackCollector.GetUnevaluated(20)
@@ -249,7 +282,9 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 			if v != nil && i < len(unevaluated) {
 				pe.feedbackCollector.UpdateVerdict(unevaluated[i].TaskID, v)
 				unevaluated[i].Verdict = v
-				pe.applyExecutionOutcomeLocked(unevaluated[i])
+				if evs := pe.applyExecutionOutcomeLocked(unevaluated[i]); len(evs) > 0 {
+					pendingPromotions = append(pendingPromotions, evs...)
+				}
 			}
 		}
 	}
@@ -258,6 +293,13 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 	grouped, err := pe.feedbackCollector.GetFailuresByProblemType(pe.config.MinFailuresForEvolution)
 	if err != nil {
 		result.Errors = append(result.Errors, err.Error())
+		pe.mu.Unlock()
+		// Invoke any pending promotions without holding lock.
+		for _, ev := range pendingPromotions {
+			if ev.cb != nil {
+				ev.cb(ev.atomID, ev.promotedAt)
+			}
+		}
 		return result, err
 	}
 
@@ -316,7 +358,8 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 
 	// 8. Auto-promote eligible atoms
 	if pe.config.AutoPromote {
-		promoted := pe.autoPromoteAtoms()
+		autoPending, promoted := pe.autoPromoteAtoms()
+		pendingPromotions = append(pendingPromotions, autoPending...)
 		result.AtomsPromoted = promoted
 	}
 
@@ -327,6 +370,15 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 
 	logging.Autopoiesis("Evolution cycle complete: failures=%d, atoms=%d, promoted=%d, duration=%v",
 		result.FailuresAnalyzed, result.AtomsGenerated, result.AtomsPromoted, result.Duration)
+
+	pe.mu.Unlock()
+	// Invoke promotion callbacks without holding lock to avoid deadlock
+	// if the callback re-enters the evolver (e.g., GetPromotedAtoms).
+	for _, ev := range pendingPromotions {
+		if ev.cb != nil {
+			ev.cb(ev.atomID, ev.promotedAt)
+		}
+	}
 
 	return result, nil
 }
@@ -421,32 +473,43 @@ func (pe *PromptEvolver) updateStrategies(
 }
 
 // autoPromoteAtoms promotes atoms that meet the confidence threshold.
-func (pe *PromptEvolver) autoPromoteAtoms() int {
+func (pe *PromptEvolver) autoPromoteAtoms() ([]promotionEvent, int) {
 	promoted := 0
+	var pending []promotionEvent
 
 	for id, ga := range pe.evolvedAtoms {
 		if ga.ShouldPromote(pe.config.ConfidenceThreshold) && ga.PromotedAt.IsZero() {
-			if err := pe.promoteAtomLocked(id); err == nil {
+			cb, promotedAt, err := pe.promoteAtomLocked(id)
+			if err == nil {
 				promoted++
+				if cb != nil {
+					pending = append(pending, promotionEvent{atomID: id, promotedAt: promotedAt, cb: cb})
+				}
 			}
 		}
 	}
 
-	return promoted
+	return pending, promoted
 }
 
 // PromoteAtom moves an atom from pending to promoted.
 func (pe *PromptEvolver) PromoteAtom(atomID string) error {
 	pe.mu.Lock()
-	defer pe.mu.Unlock()
-	return pe.promoteAtomLocked(atomID)
+	cb, promotedAt, err := pe.promoteAtomLocked(atomID)
+	pe.mu.Unlock()
+	if err == nil && cb != nil {
+		// Callback invoked without pe.mu held to avoid deadlock
+		// if the callback re-enters the evolver.
+		cb(atomID, promotedAt)
+	}
+	return err
 }
 
 // promoteAtomLocked moves an atom from pending to promoted (must hold lock).
-func (pe *PromptEvolver) promoteAtomLocked(atomID string) error {
+func (pe *PromptEvolver) promoteAtomLocked(atomID string) (AtomPromotedCallback, time.Time, error) {
 	ga, exists := pe.evolvedAtoms[atomID]
 	if !exists {
-		return fmt.Errorf("atom not found: %s", atomID)
+		return nil, time.Time{}, fmt.Errorf("atom not found: %s", atomID)
 	}
 
 	filename := strings.ReplaceAll(atomID, "/", "_") + ".yaml"
@@ -458,20 +521,26 @@ func (pe *PromptEvolver) promoteAtomLocked(atomID string) error {
 		// Try copy if rename fails (cross-device)
 		data, err := os.ReadFile(srcPath)
 		if err != nil {
-			return err
+			return nil, time.Time{}, err
 		}
 		if err := os.WriteFile(dstPath, data, 0644); err != nil {
-			return err
+			return nil, time.Time{}, err
 		}
 		os.Remove(srcPath)
 	}
 
 	ga.PromotedAt = time.Now()
 	if err := pe.storeEvolvedAtom(ga); err != nil {
-		return err
+		return nil, time.Time{}, err
 	}
 	logging.Autopoiesis("Atom promoted: id=%s", atomID)
-	return nil
+	// Snapshot callback while holding lock so caller can invoke it
+	// outside the lock. Invoking outside avoids deadlock if the
+	// callback re-enters the evolver (e.g., calls GetPromotedAtoms
+	// which takes RLock) while the exclusive lock is held.
+	cb := pe.onAtomPromoted
+	promotedAt := ga.PromotedAt
+	return cb, promotedAt, nil
 }
 
 // RejectAtom marks an atom as rejected.
@@ -495,14 +564,20 @@ func (pe *PromptEvolver) RejectAtom(atomID string) error {
 // RecordAtomUsage records that an atom was used and whether it led to success.
 func (pe *PromptEvolver) RecordAtomUsage(atomID string, success bool) {
 	pe.mu.Lock()
-	defer pe.mu.Unlock()
-	pe.recordAtomUsageLocked(atomID, success)
+	pending := pe.recordAtomUsageLocked(atomID, success)
+	pe.mu.Unlock()
+	// Invoke callbacks without holding lock to avoid deadlock.
+	for _, ev := range pending {
+		if ev.cb != nil {
+			ev.cb(ev.atomID, ev.promotedAt)
+		}
+	}
 }
 
-func (pe *PromptEvolver) recordAtomUsageLocked(atomID string, success bool) {
+func (pe *PromptEvolver) recordAtomUsageLocked(atomID string, success bool) []promotionEvent {
 	ga, exists := pe.evolvedAtoms[atomID]
 	if !exists {
-		return
+		return nil
 	}
 
 	ga.UsageCount++
@@ -516,10 +591,16 @@ func (pe *PromptEvolver) recordAtomUsageLocked(atomID string, success bool) {
 		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to persist atom usage for %s: %v", atomID, err)
 	}
 	if pe.config.AutoPromote && ga.ShouldPromote(pe.config.ConfidenceThreshold) && ga.PromotedAt.IsZero() {
-		if err := pe.promoteAtomLocked(atomID); err != nil {
+		cb, promotedAt, err := pe.promoteAtomLocked(atomID)
+		if err != nil {
 			logging.Get(logging.CategoryAutopoiesis).Warn("Failed to auto-promote atom %s: %v", atomID, err)
+			return nil
+		}
+		if cb != nil {
+			return []promotionEvent{{atomID: atomID, promotedAt: promotedAt, cb: cb}}
 		}
 	}
+	return nil
 }
 
 // GetEvolvedAtoms returns all evolved atoms.
@@ -671,15 +752,19 @@ func (pe *PromptEvolver) loadAtomsFromDir(dir string, promoted bool) {
 	}
 }
 
-func (pe *PromptEvolver) applyExecutionOutcomeLocked(exec *ExecutionRecord) {
+func (pe *PromptEvolver) applyExecutionOutcomeLocked(exec *ExecutionRecord) []promotionEvent {
 	if exec == nil || exec.Verdict == nil || len(exec.AtomIDs) == 0 {
-		return
+		return nil
 	}
 
 	success := exec.Verdict.IsPass()
+	var pending []promotionEvent
 	for _, atomID := range exec.AtomIDs {
-		pe.recordAtomUsageLocked(atomID, success)
+		if evs := pe.recordAtomUsageLocked(atomID, success); len(evs) > 0 {
+			pending = append(pending, evs...)
+		}
 	}
+	return pending
 }
 
 // ShouldRunEvolution checks if enough time has passed for a new cycle.
