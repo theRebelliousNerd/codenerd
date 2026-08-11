@@ -355,7 +355,6 @@ func (c *CortexKernel) RemoveFactsByPredicateSet(predicates map[string]struct{})
 	return nil
 }
 
-// Query routes a query to the owning shard.
 // Query routes a query to the owning shard. When the predicate has no registered
 // owner, it fans out to every shard and concatenates the results, matching
 // QueryAll's merging strategy. When the predicate does have an owner, the
