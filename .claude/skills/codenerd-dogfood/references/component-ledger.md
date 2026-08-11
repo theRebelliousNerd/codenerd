@@ -1508,3 +1508,93 @@ It paid for itself immediately: `layer` reads **698 facts**, where it had been 0
 before the path fix in `c71fdaf9`, and 182 predicates hold facts. Every earlier
 "predicate X is dead" claim in this ledger can now be re-checked against a
 reader that shows the whole population.
+
+---
+
+## F-JIT-4 — the symbolic half of atom selection is inert; only the vector half works
+
+This is the most consequential finding of the session, because it is an
+inversion of the project's premise rather than a bug inside it.
+
+`internal/core/defaults/policy/jit_selection.mg` offers two independent ways for
+a non-mandatory atom to become a candidate:
+
+```
+# rule 1 -- neural
+candidate_atom(AtomID) :-
+    vector_hit(AtomID, Score), Score > 30, !prohibited_atom(AtomID).
+
+# rule 2 -- symbolic
+candidate_atom(AtomID) :-
+    prompt_atom(AtomID, _, Priority, _, _), Priority > 50,
+    !prohibited_atom(AtomID), !mandatory_atom(AtomID),
+    atom_tag(AtomID, /shard_type, ShardType),
+    compile_shard(_, ShardType).
+```
+
+Rule 2 is the one that says *"this atom belongs to this persona"* — the
+deterministic, explainable path. It cannot fire, for two independent reasons,
+each sufficient on its own.
+
+### Cause 1: `compile_shard` has no producer
+
+Declared at `schemas_prompts.mg:235`. Consumed by **four** rules —
+`jit_logic.mg:29` and `jit_selection.mg:165, 197, 255`. Asserted by nothing: a
+grep across `internal/` and `cmd/` for the predicate name returns only the Decl,
+the four consumers, and a stale crash dump. Live confirmation: it does not
+appear in `nerd logic --all`, which now lists every predicate holding facts.
+
+### Cause 2: the join is type-incompatible anyway
+
+```
+Decl compile_shard(ShardID, ShardType) bound [/string, /name].
+Decl atom_tag(AtomID, Dimension, Tag)  bound [/string, /name, /string].
+```
+
+Rule 2 binds one variable, `ShardType`, from `atom_tag`'s third slot (declared
+`/string`) and passes it to `compile_shard`'s second slot (declared `/name`).
+A string constant and a name constant never unify, so the rule would derive
+nothing even if `compile_shard` were fully populated. Producing the missing
+predicate alone would not fix this.
+
+This is the same shape as F-ATOM-3 (`reviewer.mg:423-424`), one layer up: a rule
+whose two premises demand incompatible representations of the same value. That
+is now **three** occurrences today of the identical defect, which makes it a
+pattern rather than an accident — and Mangle not enforcing `Decl` bounds at
+evaluation time is what lets every instance fail silently.
+
+### Why this matters more than the individual bugs
+
+codeNERD's stated thesis is that the LLM is the creative center and the logic
+kernel is the executive. JIT atom selection is where that thesis is cashed out:
+the kernel is supposed to decide, deterministically and explainably, which
+instructions the model sees.
+
+With rule 2 dead, **every non-mandatory atom enters the prompt only by embedding
+similarity.** The executive decision is being made by a vector search — the
+neural half doing the symbolic half's job. That is precisely the inversion the
+architecture exists to prevent, and it has been silently true for as long as
+`compile_shard` has been unproduced.
+
+It also explains F-JIT-3 completely. `capability/impact_reporting` has priority
+80 and a `shard_type` tag, so rule 2 is exactly the path it was designed to take.
+Rule 2 is dead, so the atom's only route was a vector hit above 30 against a
+task query, which it never achieved. Nothing was wrong with the atom.
+
+### Fix shape, in dependency order
+
+1. **Reconcile the types first.** Changing `compile_shard`'s ShardType slot to
+   `/string` is the smaller correction: `atom_tag` is generic across many
+   dimensions (language, framework, model, provider), so its Tag slot cannot be
+   `/name` for all of them. Doing this second would mean shipping a producer that
+   still derives nothing and looks like a failed fix.
+2. **Then assert `compile_shard(ShardID, ShardType)`** in
+   `AtomSelector.buildContextFacts`, which today asserts only `current_context`
+   and already has the compilation context in hand.
+3. **Then re-run the F-JIT-3 live test.** If rule 2 is alive,
+   `capability/impact_reporting` should appear in a coder prompt without being
+   made mandatory, which is the honest confirmation that selection is working
+   symbolically rather than by luck of embedding.
+
+Verify by counting, not by reading: the number of selected atoms per turn, and
+specifically whether a shard-tagged atom with no vector hit now appears.
