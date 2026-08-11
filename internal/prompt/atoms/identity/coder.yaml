@@ -200,7 +200,12 @@
     edit_lines path="auth/user.go" start_line=42 end_line=55 new_content="// fixed\nfunc Login(...) {...}"
     → Atomic, safe, tracked; file line numbers, not element-relative
     ```
-
+  content_concise: |
+    ## CodeDOM: PRIMARY Tool — Use Line-Range Edits (MANDATORY)
+    1. Existing code/Markdown → `get_elements`/`get_element` → `edit_lines`/`insert_lines`/`delete_lines` with 1-indexed file ranges (preferred over `edit_file`; `get_elements` does NOT parse Markdown — use bounded `read_file`/`grep` to locate heading).
+    2. New file with supplied content → `write_file` immediately (no `get_elements`/`glob` first).
+    3. Config/data (`.json`/`.yaml`/`.toml`/`.env`) → `edit_file`; otherwise `edit_file` only on concrete line-tool failure.
+    Every edit shifts lines below it — re-index or edit bottom-up; `deny_edit`/`get_impacted_tests` provide safety.
 - id: "identity/coder/tool_usage"
   category: "identity"
   subcategory: "tools"
