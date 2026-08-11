@@ -401,3 +401,35 @@ setup via the action path, proving the join; (2) patch + test + evaluate for tha
 instance; (3) batch iteration and scoring.
 
 Status: OPEN, unblocked, no policy decision needed.
+
+### F-SWEB-1 addendum — the pipeline is complete except for its entry point
+
+Correcting the first pass, which undercounted the permitted actions. The full
+SWE-bench path is already in place:
+
+- **Handlers**: `handleSWEBenchSetup`, `ApplyPatch`, `RunTests`, `Snapshot`,
+  `Restore`, `Evaluate`, `Teardown` in `internal/core/virtual_store_python.go`.
+- **Routing**: dispatched via `virtual_store_routing.go`.
+- **Permission**: `constitution.mg:193-199` marks **all seven** `/swebench_*`
+  actions `safe_action` — not four, as first reported.
+- **Intent derivation**: `capabilities.mg:45-51` derives each `next_action` from
+  `user_intent(..., /swebench, "<subcommand>", _)`.
+
+So policy, permission, routing and execution are all wired. What is missing is
+narrower and more embarrassing than "the feature is unfinished":
+
+1. **No CLI entry point.** `nerd --help` lists no `swebench` command. The verb is
+   reachable in principle through `nerd run` if perception classifies an
+   utterance as `/swebench`, but nothing exposes it directly.
+2. **No dataset reader on the live path.** `handleSWEBenchSetup` takes
+   `instance_id`, `repo`, `base_commit`, `fail_to_pass` and `pass_to_pass` out of
+   `req.Payload`. Those fields cannot come from natural language; they have to be
+   read from the benchmark dataset. `LoadInstances` does exactly that and lives in
+   `internal/tactile/swebench`, still with zero importers.
+
+`cmd/nerd/pending_action.go` is the seam a new command should use: it files the
+permission facts a CLI-driven `RouteActionResult` needs, and its own comment warns
+that a bare `RouteAction` must go through it.
+
+So the whole north-star capability is one command and one import away from being
+exercisable. That is the highest-value unblocked work outstanding.
