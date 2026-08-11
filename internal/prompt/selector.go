@@ -1211,13 +1211,16 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 	var fb factBuilder
 	if cc != nil {
 		if shardType := strings.TrimSpace(cc.ShardType); shardType != "" {
-			fb.Reset()
-			fb.WriteString("compile_shard(")
-			fb.WriteQuotedString(cc.ShardID)
-			fb.WriteString(", ")
-			fb.WriteQuotedString(shardType)
-			fb.WriteString(")")
-			facts = append(facts, fb.String())
+			shardType = strings.TrimPrefix(shardType, "/")
+			if shardType != "" {
+				fb.Reset()
+				fb.WriteString("compile_shard(")
+				fb.WriteQuotedString(cc.ShardID)
+				fb.WriteString(", ")
+				fb.WriteQuotedString(shardType)
+				fb.WriteString(")")
+				facts = append(facts, fb.String())
+			}
 		}
 	}
 

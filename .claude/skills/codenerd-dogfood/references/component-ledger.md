@@ -1598,3 +1598,44 @@ task query, which it never achieved. Nothing was wrong with the atom.
 
 Verify by counting, not by reading: the number of selected atoms per turn, and
 specifically whether a shard-tagged atom with no vector hit now appears.
+
+### F-JIT-4 status — three defects fixed, selection still not reviving
+
+Fixed and each proven RED first:
+
+1. `compile_shard` had **no producer**. Now asserted in
+   `AtomSelector.buildContextFacts` (`d32170b7`).
+2. The join was **type-incompatible**: `compile_shard.ShardType` was declared
+   `/name`, `atom_tag.Tag` is `/string`, and `jit_selection.mg:248-255` binds one
+   variable across both. Decl reconciled to `/string`.
+3. The value was **slash-asymmetric**. `cc.ShardType` arrives as `"/coder"` —
+   `prompt_assembler.go:309,468` both `TrimPrefix` it for that reason — while
+   atom selector values pass through `normalizeList` (`atoms.go:298`), which
+   strips the slash, so `atom_tag` holds `"coder"`. The producer now normalizes.
+
+That is the **fourth** slash-normalization asymmetry today, after `symbol_graph`
+Type/Visibility, `worldFactPathArg`, and `reviewer.mg:423`. Two components each
+normalize correctly for themselves and disagree at the seam.
+
+**Still not selected.** `capability/impact_reporting` remains absent from coder
+prompts across three more live runs (control `tool_thinking`: 8, 9, 5).
+
+Ruled out by measurement, so the next investigator does not repeat them:
+
+- Not corpus absence — `nerd jit` reports 906 embedded atoms including this one.
+- Not corpus-DB sync — present in `.nerd/prompts/corpus.db`, mtime later than the YAML.
+- Not `go:embed` staleness — rebuilt before every run.
+- Not the `shard_types` spelling — `normalizeList` + `matchSelector` accept both forms.
+- Not the Go fallback path — `fallbackFleshSelection` has three entry points, each
+  logging, and none fired. The Mangle selection path is genuinely running.
+
+**Next candidate, untested:** whether `atom_tag(AtomID, /shard_type, ...)` facts
+are actually asserted for flesh atoms at compile time. `ToSelectorFacts`
+(`atoms.go:489`) builds them, but I have not confirmed they reach the kernel in
+the same batch the rule is evaluated against. The cheap check is to assert the
+batch and query `atom_tag` for this atom's ID mid-compile — instrumentation
+again, which is what resolved F-QUERY-1 after static reading failed three times.
+
+Recording the miss rather than declaring victory on three green unit tests: the
+fixes are individually correct and verified, and the behaviour they were meant
+to produce has not appeared. Those are different claims.

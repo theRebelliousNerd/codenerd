@@ -69,4 +69,61 @@ func TestBuildContextFacts_CompileShard(t *testing.T) {
 			assert.NotContains(t, str, "compile_shard", "should not emit compile_shard when ShardType is whitespace")
 		}
 	}
+
+	// Slash-prefixed ShardType "/coder" should be normalized to "coder" (no slash)
+	ccSlash := NewCompilationContext()
+	ccSlash.ShardID = "test-shard-123"
+	ccSlash.ShardType = "/coder"
+	factsSlash, err := s.buildContextFacts(ccSlash, nil, nil)
+	require.NoError(t, err)
+	found = false
+	foundFact = ""
+	for _, f := range factsSlash {
+		str, ok := f.(string)
+		if !ok {
+			continue
+		}
+		if strings.Contains(str, "compile_shard") {
+			found = true
+			foundFact = str
+			break
+		}
+	}
+	require.True(t, found, "compile_shard fact should be present for slash-prefixed shard type, got facts: %v", factsSlash)
+	assert.Contains(t, foundFact, `compile_shard("test-shard-123", "coder")`, "slash-prefixed ShardType should be normalized to \"coder\", got %q", foundFact)
+	assert.NotContains(t, foundFact, `"/coder"`, "ShardType should not contain slash, got %q", foundFact)
+
+	// Idempotent: plain "coder" should still emit "coder"
+	ccPlain := NewCompilationContext()
+	ccPlain.ShardID = "test-shard-123"
+	ccPlain.ShardType = "coder"
+	factsPlain, err := s.buildContextFacts(ccPlain, nil, nil)
+	require.NoError(t, err)
+	found = false
+	foundFact = ""
+	for _, f := range factsPlain {
+		str, ok := f.(string)
+		if !ok {
+			continue
+		}
+		if strings.Contains(str, "compile_shard") {
+			found = true
+			foundFact = str
+			break
+		}
+	}
+	require.True(t, found, "compile_shard fact should be present for plain shard type, got facts: %v", factsPlain)
+	assert.Contains(t, foundFact, `compile_shard("test-shard-123", "coder")`, "plain ShardType should emit \"coder\", got %q", foundFact)
+
+	// Single slash "/" should emit no fact (after trimming slash becomes empty)
+	ccSingleSlash := NewCompilationContext()
+	ccSingleSlash.ShardID = "test-shard-123"
+	ccSingleSlash.ShardType = "/"
+	factsSingleSlash, err := s.buildContextFacts(ccSingleSlash, nil, nil)
+	require.NoError(t, err)
+	for _, f := range factsSingleSlash {
+		if str, ok := f.(string); ok {
+			assert.NotContains(t, str, "compile_shard", "should not emit compile_shard when ShardType is \"/\"")
+		}
+	}
 }
