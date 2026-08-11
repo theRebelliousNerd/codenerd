@@ -443,6 +443,8 @@ func extractRequestedSubtasks(input string) []string {
 		// and would fail the runs that complied best. Filter constraints
 		// before they reach the evidence check.
 		out = filterProhibitionClauses(out)
+		// A deliverable is imperative; a clause that describes the world is context, and context cannot be evidenced.
+		out = filterDeclarativeContextClauses(out)
 		if len(out) >= 2 {
 			return dedupSubtasks(out)
 		}
@@ -472,6 +474,8 @@ func extractRequestedSubtasks(input string) []string {
 	// the runs that complied best. Filter constraints before they reach the
 	// evidence check.
 	cleaned = filterProhibitionClauses(cleaned)
+	// A deliverable is imperative; a clause that describes the world is context, and context cannot be evidenced.
+	cleaned = filterDeclarativeContextClauses(cleaned)
 	if len(cleaned) < 2 {
 		return nil
 	}
@@ -545,6 +549,115 @@ func stripTrailingProhibition(s string) string {
 		return strings.TrimSpace(strings.Trim(s[:earliest], ".,; "))
 	}
 	return s
+}
+
+// declarativeContextStarters marks the first meaningful token of a clause that
+// describes the world rather than requesting work. A deliverable is imperative;
+// a clause that describes the world is context, and context cannot be evidenced.
+var declarativeContextStarters = map[string]bool{
+	// articles and determiners
+	"the": true, "a": true, "an": true, "this": true, "that": true, "these": true, "those": true, "its": true, "their": true, "our": true, "your": true, "my": true, "his": true, "her": true, "each": true, "every": true, "some": true, "any": true, "all": true, "both": true,
+	// pronouns
+	"it": true, "they": true, "he": true, "she": true, "we": true, "you": true, "i": true, "there": true, "here": true,
+	// prepositions and subordinators
+	"in": true, "on": true, "at": true, "for": true, "from": true, "with": true, "by": true, "of": true, "as": true, "because": true, "since": true, "when": true, "while": true, "where": true, "if": true, "although": true, "though": true,
+	// forms of to be and bare auxiliaries
+	"is": true, "are": true, "was": true, "were": true, "be": true, "been": true, "being": true, "has": true, "have": true, "had": true, "will": true, "would": true, "can": true, "could": true, "may": true, "might": true, "should": true,
+}
+
+var leadingAdverbs = map[string]bool{
+	"then": true, "also": true, "next": true, "finally": true, "first": true, "second": true,
+}
+
+func firstMeaningfulToken(s string) string {
+	toks := tokenRe.FindAllString(s, -1)
+	idx := 0
+	for idx < len(toks) {
+		low := strings.ToLower(toks[idx])
+		if leadingAdverbs[low] {
+			idx++
+			continue
+		}
+		break
+	}
+	if idx < len(toks) {
+		return strings.ToLower(toks[idx])
+	}
+	return ""
+}
+
+func isDeclarativeContextClause(s string) bool {
+	tok := firstMeaningfulToken(s)
+	if tok == "" {
+		return false
+	}
+	return declarativeContextStarters[tok]
+}
+
+func filterDeclarativeContextClauses(in []string) []string {
+	var out []string
+	for _, s := range in {
+		sentences := splitSentences(s)
+		for _, sent := range sentences {
+			sent = strings.TrimSpace(sent)
+			if sent == "" {
+				continue
+			}
+			if isDeclarativeContextClause(sent) {
+				continue
+			}
+			out = append(out, sent)
+		}
+	}
+	return out
+}
+
+func splitSentences(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '.' || s[i] == '!' || s[i] == '?' {
+			// Sentence boundary is punctuation followed by whitespace or end.
+			if i+1 < len(s) && (s[i+1] == ' ' || s[i+1] == '\n' || s[i+1] == '\t' || s[i+1] == '\r') {
+				seg := strings.TrimSpace(s[start : i+1])
+				if seg != "" {
+					trimmed := strings.Trim(seg, ".,; ")
+					if trimmed != "" {
+						out = append(out, trimmed)
+					}
+				}
+				j := i + 1
+				for j < len(s) && (s[j] == ' ' || s[j] == '\n' || s[j] == '\t' || s[j] == '\r') {
+					j++
+				}
+				start = j
+				i = j - 1
+			} else if i+1 == len(s) {
+				seg := strings.TrimSpace(s[start : i+1])
+				if seg != "" {
+					trimmed := strings.Trim(seg, ".,; ")
+					if trimmed != "" {
+						out = append(out, trimmed)
+					}
+				}
+				start = len(s)
+				break
+			}
+		}
+	}
+	if start < len(s) {
+		seg := strings.TrimSpace(s[start:])
+		if seg != "" {
+			trimmed := strings.Trim(seg, ".,; ")
+			if trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return []string{s}
+	}
+	return out
 }
 
 // mergeModifierFragments folds single-token fragments back into the fragment
