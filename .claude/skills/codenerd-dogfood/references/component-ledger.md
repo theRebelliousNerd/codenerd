@@ -1781,3 +1781,75 @@ where they disagree, that disagreement is itself the bug worth filing.
 `/name`. Left alone deliberately — correcting it touches every consumer of every
 tag dimension, which is a change with its own blast radius and deserves its own
 measurement.
+
+### F-JIT-4 FINAL — there are two selection rulesets, and I fixed the dead one
+
+The answer was written at the top of the file I spent this whole thread
+analysing. `internal/core/defaults/policy/jit_selection.mg`, lines 5-23:
+
+> **STATUS (audited 2026-08-08): THIS IS NOT THE LIVE SELECTION RULESET.**
+> The Go selector queries `selected_result/3`, which is defined in
+> `defaults/jit_compiler.mg`. Nothing in production Go queries `selected_atom`,
+> `candidate_atom`, `mandatory_atom`, `prohibited_atom`, `conflict_loser`... Both
+> files are loaded into the same program, so these rules are evaluated on every
+> prompt compile and **the results are discarded.**
+
+I began reading that file at line 236 and never read its header. Ninth
+scope-of-evidence error today, and the one that cost the most.
+
+### The live pipeline, verified
+
+`internal/prompt/selector.go` queries `selected_result(Atom, Priority, Source)`.
+In `jit_compiler.mg` that chain is:
+
+    selected_result(Atom, Prio, _)   :- final_valid(Atom), atom_priority(Atom, Prio), ...
+    final_valid(Atom)                :- tentative(Atom), !invalid(Atom).
+    tentative(Atom)                  :- mandatory_selection(Atom).
+    tentative(Atom)                  :- candidate_selection(Atom, _), !suppressed(Atom).
+    candidate_selection(Atom, Score) :- vector_hit(Atom, Score), !blocked_by_context(Atom), !prohibited(Atom).
+
+**`vector_hit` is the only route to candidacy in the live ruleset.** There is no
+priority rule, no shard-scoping rule, no conflict resolution by priority — those
+exist only in the discarded file. So the substance of the original F-JIT-4 claim
+holds after all: for a non-mandatory atom, an embedding score decides. But the
+reason is architectural — a parallel dead ruleset — not the missing predicates I
+went after.
+
+### My two fixes serve nothing
+
+`compile_shard` has exactly two consumers and both are dead:
+
+- `jit_selection.mg` — documented dead above.
+- `jit_logic.mg:27` `atom_has_shard_match`, which is **derived and consumed by
+  nothing**: `jit_compiler.mg` references it zero times. It also needs
+  `atom_selector`, produced only by `PromptAtom.ToSelectorFacts`
+  (`atoms.go:476`), which still has zero callers.
+
+So `d32170b7` (produce `compile_shard`) and `ce65c7b9` (emit `/shard_type`) add
+facts that only discarded rules can read. They are harmless — build and tests
+green — but they achieve nothing, and on a project whose north star is token
+efficiency, emitting facts per atom per turn for dead rules is a cost, not a
+neutral. **Left in place pending a decision rather than reverted unilaterally;
+reverting shipped commits is the maintainer's call.**
+
+### The real, actionable finding
+
+The dead ruleset is not free. `jit_selection.mg` and `jit_logic.mg`'s contextual
+matching are evaluated on **every prompt compile, over ~890 atoms**, and thrown
+away. That is measurable waste on the exact axis the project optimises for, and
+the 2026-08-08 audit already flagged it — "it does cost work". Nothing was done
+then. The options are to delete the dead ruleset, or to wire the live compiler to
+it. The second is the interesting one, because the dead file contains precisely
+the symbolic machinery — shard scoping, priority thresholds, conflict resolution
+— whose absence makes selection purely neural today.
+
+### The lesson, ninth iteration
+
+Every error in this thread was the same shape: a partial view of the evidence
+treated as the whole. Truncated grep patterns, `sed` windows that stopped one
+line short, a file read from the middle. Concretely, for next time:
+
+- Read a file's header before analysing its contents.
+- Grep predicate names with an open paren, because the code builds them as
+  `WriteString("pred(")`.
+- Before calling a rule live, find who queries it.
