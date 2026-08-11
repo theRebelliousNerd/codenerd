@@ -1211,13 +1211,11 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 	var fb factBuilder
 	if cc != nil {
 		if shardType := strings.TrimSpace(cc.ShardType); shardType != "" {
-			shardType = strings.TrimPrefix(shardType, "/")
-			if shardType != "" {
-				fb.Reset()
-				fb.WriteString("compile_shard(")
-				fb.WriteQuotedString(cc.ShardID)
-				fb.WriteString(", ")
-				fb.WriteQuotedString(shardType)
+			fb.Reset()
+			fb.WriteString("compile_shard(")
+			fb.WriteQuotedString(cc.ShardID)
+			fb.WriteString(", ")
+			if fb.writeAtom(shardType) {
 				fb.WriteString(")")
 				facts = append(facts, fb.String())
 			}
@@ -1339,17 +1337,19 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 				facts = append(facts, fb.String())
 			}
 		}
-		addTags("mode", atom.OperationalModes)
-		addTags("phase", atom.CampaignPhases)
-		addTags("layer", atom.BuildLayers)
-		addTags("init_phase", atom.InitPhases)
-		addTags("northstar_phase", atom.NorthstarPhases)
-		addTags("ouroboros_stage", atom.OuroborosStages)
-		addTags("intent", atom.IntentVerbs)
-		addTags("shard", atom.ShardTypes)
-		addTags("lang", atom.Languages)
-		addTags("framework", atom.Frameworks)
-		addTags("state", atom.WorldStates)
+			addTags("mode", atom.OperationalModes)
+			addTags("phase", atom.CampaignPhases)
+			addTags("layer", atom.BuildLayers)
+			addTags("init_phase", atom.InitPhases)
+			addTags("northstar_phase", atom.NorthstarPhases)
+			addTags("ouroboros_stage", atom.OuroborosStages)
+			addTags("intent", atom.IntentVerbs)
+			// Emit both /shard and /shard_type because policy uses both (jit_selection.mg:196 reads /shard, :253 reads /shard_type); remove duplication once corpus settles on one name.
+			addTags("shard", atom.ShardTypes)
+			addTags("shard_type", atom.ShardTypes)
+			addTags("lang", atom.Languages)
+			addTags("framework", atom.Frameworks)
+			addTags("state", atom.WorldStates)
 
 		// Dependencies - needed for atom_requires() in jit_compiler.mg
 		for _, dep := range atom.DependsOn {

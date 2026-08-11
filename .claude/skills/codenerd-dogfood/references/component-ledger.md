@@ -1724,3 +1724,60 @@ Wire the producer instead:
 
 Sequence matters, as it did for the Decl and the producer: shipping any one of
 these alone leaves the rules deriving nothing and looks like a failed fix.
+
+### F-JIT-4 CORRECTED — the earlier root-cause entry was largely wrong
+
+The entry committed in `c4dfaedc` claimed the JIT policy and its Go producer
+"share no vocabulary": that `prompt_atom` (15 rules) and `atom_tag` were never
+emitted, and that live selection was therefore only "mandatory flag plus cosine
+similarity". **Most of that is false.** Three separate reading errors produced it,
+all the same shape.
+
+1. I grepped for `"prompt_atom"` while the code writes
+   `fb.WriteString("prompt_atom(")` — with an open paren. The pattern could not
+   match. `prompt_atom` has been emitted all along, with a careful comment
+   documenting a past bug where `ContentHash` was placed in the numeric
+   TokenCount slot and broke fixpoint evaluation.
+2. I enumerated emitted predicates with `sed -n '1200,1330p'`, which ends before
+   the second `atom_tag` emitter at line ~1336. `atom_tag` is emitted too.
+3. I listed the `addTags` calls from a window starting at 1345 and concluded
+   shard scoping was absent. `addTags("shard", atom.ShardTypes)` was already
+   there, just above my window.
+
+Each time a truncated view was treated as the whole picture, and each time the
+conclusion grew rather than shrank — the error compounded into an architectural
+claim about the project's core thesis. That claim is withdrawn.
+
+### What is actually true
+
+Two narrow defects, both real:
+
+- **`compile_shard` had no producer.** This one stands. It is consumed by four
+  rules and was asserted nowhere. Fixed in `d32170b7`.
+- **A dimension-name mismatch.** `addTags("shard", ...)` emits
+  `atom_tag(ID, /shard, /coder)`. `mandatory_atom` (`jit_selection.mg:196`) reads
+  `/shard` and matches. But `candidate_atom` (`:253`) reads `/shard_type`, which
+  nothing emitted. One predicate, two names, one of them fed.
+
+So the symbolic path was blocked by a missing `compile_shard` on both rules, plus
+a name mismatch on the candidate rule specifically. Not a vocabulary schism.
+
+### And I made it worse before making it better
+
+Trusting `atom_tag`'s `Decl` (`Tag bound /string`) over the emitter, I changed
+`compile_shard`'s ShardType slot from `/name` to `/string` and normalised the
+emitted value to a bare `"coder"`. The emitter is the reality: `addTags` writes
+atoms (`/coder`), with an explicit comment that this is required to match
+`current_context(/shard, /coder)`. `atom_tag`'s Decl is the thing that is wrong.
+Reverted: `compile_shard` is `/name` again and emits atom form via `writeAtom`.
+
+The lesson is the sharper version of the one from F-ATOM-1. Earlier today I
+proved Mangle does not enforce `Decl` bounds at evaluation time. That cuts both
+ways: a Decl cannot be trusted as a description of what a predicate contains,
+because nothing forces it to be true. **Read the emitter, not the schema** — and
+where they disagree, that disagreement is itself the bug worth filing.
+
+`atom_tag`'s Decl is now a known-wrong schema: declared `/string`, emitted
+`/name`. Left alone deliberately — correcting it touches every consumer of every
+tag dimension, which is a change with its own blast radius and deserves its own
+measurement.
