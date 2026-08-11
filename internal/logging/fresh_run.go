@@ -21,8 +21,10 @@
 package logging
 
 import (
+	"bytes"
 	"crypto/rand"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -43,6 +45,30 @@ var (
 // belonging to older prefixes, preserving recent history for
 // transparency while bounding growth.
 const DefaultLogRetentionRuns = 10
+
+// DefaultSubstantiveRetentionRuns is the number of most recent
+// substantive run prefixes to keep on disk in addition to the ordinary
+// retention window. A run is substantive when its <prefix>_audit.log
+// contains at least one of "event":"shard_, "event":"action_,
+// "event":"tool_, "event":"safety_. The substantive budget guarantees
+// that diagnostic runs (perf_metric / kernel_query only) never evict a
+// substantive run, while growth remains bounded because the substantive
+// window itself is finite.
+const DefaultSubstantiveRetentionRuns = 10
+
+// maxSubstantiveScanBytes caps how much of any single audit log is
+// examined during classification so a single enormous log cannot stall
+// startup. Classification is streaming and stops at the first marker.
+const maxSubstantiveScanBytes int64 = 1 << 20 // 1 MiB
+
+// substantiveEventMarkers are the substrings that classify a run as
+// substantive. Must match the spec exactly.
+var substantiveEventMarkers = [][]byte{
+	[]byte(`"event":"shard_`),
+	[]byte(`"event":"action_`),
+	[]byte(`"event":"tool_`),
+	[]byte(`"event":"safety_`),
+}
 
 // generateRunPrefix returns a process-unique, lexically sortable prefix.
 // Format: 20060102_150405.000000000_<pid>_<seq>_<rand> where the timestamp
@@ -169,14 +195,73 @@ func runPrefixFromLogName(name string) string {
 	}
 	return candidate
 }
+// isSubstantiveAuditLog reports whether the audit log at path is
+// substantive. It streams the file up to maxSubstantiveScanBytes and
+// stops at the first occurrence of any substantiveEventMarkers substring.
+// A file that cannot be opened or read is treated as diagnostic (false)
+// and never causes pruning to fail — pruning is best-effort.
+func isSubstantiveAuditLog(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	limited := io.LimitReader(f, maxSubstantiveScanBytes)
+	buf := make([]byte, 32*1024)
+	const overlap = 32 // > longest marker (16)
+	var carry []byte
+	for {
+		n, err := limited.Read(buf)
+		if n > 0 {
+			var data []byte
+			if len(carry) > 0 {
+				data = make([]byte, len(carry)+n)
+				copy(data, carry)
+				copy(data[len(carry):], buf[:n])
+			} else {
+				// copy to avoid aliasing buf on next read when we retain tail
+				data = make([]byte, n)
+				copy(data, buf[:n])
+			}
+			for _, marker := range substantiveEventMarkers {
+				if bytes.Contains(data, marker) {
+					return true
+				}
+			}
+			if len(data) > overlap {
+				newCarry := make([]byte, overlap)
+				copy(newCarry, data[len(data)-overlap:])
+				carry = newCarry
+			} else {
+				newCarry := make([]byte, len(data))
+				copy(newCarry, data)
+				carry = newCarry
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return false
+		}
+		if n == 0 && err == nil {
+			// No progress, avoid infinite loop
+			break
+		}
+	}
+	return false
+}
+
 
 // clearOrdinaryLogs removes/truncates previous top-level *.log files
-// under logsDir using a retention window. Instead of deleting all prior
-// logs, it keeps the most recent DefaultLogRetentionRuns distinct run
-// prefixes (lexically newest first, which equals chronological order) and
-// deletes only files belonging to older prefixes. Legacy or unprefixed
-// *.log files that do not start with a valid run prefix are treated as
-// expired and removed.
+// under logsDir using a dual retention window: the union of
+//   - the most recent DefaultLogRetentionRuns distinct run prefixes, and
+//   - the most recent DefaultSubstantiveRetentionRuns substantive prefixes
+// (where substantive means <prefix>_audit.log contains at least one of
+// "event":"shard_, "event":"action_, "event":"tool_, "event":"safety_).
+// Only files belonging to prefixes in neither set are deleted. Legacy or
+// unprefixed *.log files that do not start with a valid run prefix are
+// treated as expired and removed.
 //
 // Invariants:
 //   - Only direct children of logsDir with suffix ".log" are considered.
@@ -185,6 +270,10 @@ func runPrefixFromLogName(name string) string {
 //   - Symlinks at the top level are preserved and never followed.
 //   - Symlinked logs directory or symlinked parent (.nerd) is rejected entirely.
 //   - Paths are verified to remain inside logsDir (workspace-contained).
+//   - Only <prefix>_audit.log files are opened, streaming up to
+//     maxSubstantiveScanBytes and stopping at first substantive marker.
+//   - A file that cannot be opened is treated as diagnostic, never as a
+//     reason to fail startup (best-effort).
 func clearOrdinaryLogs(logsDir string) {
 	if strings.TrimSpace(logsDir) == "" {
 		return
@@ -259,9 +348,11 @@ func clearOrdinaryLogs(logsDir string) {
 		}
 	}
 
-	// Determine which prefixes to keep: the newest DefaultLogRetentionRuns
-	// distinct prefixes when sorted descending (lexically descending ==
-	// chronologically newest first because the prefix itself is sortable).
+	// Determine which prefixes to keep: the union of
+	//   - the newest DefaultLogRetentionRuns distinct prefixes, and
+	//   - the newest DefaultSubstantiveRetentionRuns substantive prefixes.
+	// Lexically descending == chronologically newest first because the
+	// prefix itself is sortable.
 	if len(prefixToFiles) == 0 && len(unprefixedFiles) == 0 {
 		return
 	}
@@ -271,9 +362,35 @@ func clearOrdinaryLogs(logsDir string) {
 	}
 	// Sort descending so newest (largest lexical) comes first.
 	sort.Sort(sort.Reverse(sort.StringSlice(distinct)))
-	keep := make(map[string]struct{}, DefaultLogRetentionRuns)
+	keep := make(map[string]struct{}, DefaultLogRetentionRuns+DefaultSubstantiveRetentionRuns)
 	for i, p := range distinct {
 		if i < DefaultLogRetentionRuns {
+			keep[p] = struct{}{}
+		} else {
+			break
+		}
+	}
+	// Classify substantive prefixes. Only audit logs are opened, streaming
+	// up to maxSubstantiveScanBytes and stopping at first marker.
+	substantivePrefixes := make([]string, 0, len(distinct))
+	for _, p := range distinct {
+		auditNameLower := strings.ToLower(p + "_audit.log")
+		auditPath := ""
+		for _, fp := range prefixToFiles[p] {
+			if strings.ToLower(filepath.Base(fp)) == auditNameLower {
+				auditPath = fp
+				break
+			}
+		}
+		if auditPath == "" {
+			continue
+		}
+		if isSubstantiveAuditLog(auditPath) {
+			substantivePrefixes = append(substantivePrefixes, p)
+		}
+	}
+	for i, p := range substantivePrefixes {
+		if i < DefaultSubstantiveRetentionRuns {
 			keep[p] = struct{}{}
 		} else {
 			break
