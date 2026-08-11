@@ -277,9 +277,13 @@ var autopoiesisStatusCmd = &cobra.Command{
 		tools, _ := cortex.Kernel.Query("tool_registered")
 		fmt.Printf("%d tools generated\n", len(tools))
 
+		// prompt_evolved and thunderdome_result are declared and consumed by policy but never
+		// asserted — producer gap, not display choice. .nerd/prompts/evolution.db exists on
+		// disk and would be the real source if wired.
 		fmt.Print("Prompt Evolution:  ")
-		evolutions, _ := cortex.Kernel.Query("prompt_evolved")
-		fmt.Printf("%d evolutions\n", len(evolutions))
+		fmt.Println("not instrumented (no producer for prompt_evolved)")
+		fmt.Print("Thunderdome:       ")
+		fmt.Println("not instrumented (no producer for thunderdome_result)")
 
 		fmt.Print("Learning Store:    ")
 		successPatterns, _ := cortex.Kernel.Query("success_pattern")
@@ -291,9 +295,6 @@ var autopoiesisStatusCmd = &cobra.Command{
 		corrections, _ := cortex.Kernel.Query("correction_pattern")
 		fmt.Printf("%d patterns\n", len(corrections))
 
-		fmt.Print("Thunderdome:       ")
-		battles, _ := cortex.Kernel.Query("thunderdome_result")
-		fmt.Printf("%d battles\n", len(battles))
 
 		// Check if orchestrator is active
 		if cortex.Orchestrator != nil {
