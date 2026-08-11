@@ -175,6 +175,73 @@ func (e *ExecutivePolicyShard) SetLearningStore(ls core.LearningStore) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.learningStore = ls
+	e.loadLearnedPatterns()
+}
+
+// loadLearnedPatterns loads existing patterns from LearningStore on initialization.
+// Must be called with lock held.
+func (e *ExecutivePolicyShard) loadLearnedPatterns() {
+	if e.learningStore == nil {
+		return
+	}
+
+	// Load success patterns.
+	successLearnings, err := e.learningStore.LoadByPredicate("executive", "success_pattern")
+	if err == nil {
+		for _, learning := range successLearnings {
+			if len(learning.FactArgs) < 1 {
+				continue
+			}
+			pattern, ok := learning.FactArgs[0].(string)
+			if !ok || pattern == "" {
+				continue
+			}
+			count := 5
+			if len(learning.FactArgs) >= 2 {
+				switch v := learning.FactArgs[1].(type) {
+				case int:
+					count = v
+				case int64:
+					count = int(v)
+				case float64:
+					count = int(v)
+				}
+			}
+			e.patternSuccess[pattern] = count
+		}
+		logging.SystemShardsDebug("[%s] Loaded %d success patterns", "executive", len(successLearnings))
+	} else {
+		logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to load success patterns: %v", "executive", err)
+	}
+
+	// Load failure patterns.
+	failureLearnings, err := e.learningStore.LoadByPredicate("executive", "failure_pattern")
+	if err == nil {
+		for _, learning := range failureLearnings {
+			if len(learning.FactArgs) < 1 {
+				continue
+			}
+			pattern, ok := learning.FactArgs[0].(string)
+			if !ok || pattern == "" {
+				continue
+			}
+			count := 3
+			if len(learning.FactArgs) >= 3 {
+				switch v := learning.FactArgs[2].(type) {
+				case int:
+					count = v
+				case int64:
+					count = int(v)
+				case float64:
+					count = int(v)
+				}
+			}
+			e.patternFailure[pattern] = count
+		}
+		logging.SystemShardsDebug("[%s] Loaded %d failure patterns", "executive", len(failureLearnings))
+	} else {
+		logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to load failure patterns: %v", "executive", err)
+	}
 }
 
 // SetLearningCandidateStore wires a store for learning candidates (optional).
