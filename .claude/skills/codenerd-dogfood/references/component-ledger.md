@@ -597,3 +597,61 @@ selection. Dream should score agents against the scenario and consult the top
 few, the same way atoms are selected, rather than fanning out to everyone. Note
 it already skips 16 (9 system, 7 image aliases), so a skip mechanism exists —
 it is relevance that is missing, not the ability to exclude.
+
+---
+
+## F-JIT-2 — every JIT cache miss deep-copies the entire kernel
+
+Found by codeNERD on rung 3 of an open-ended optimization ladder, verified here.
+
+`internal/prompt/compiler.go:462` calls `acquireCompilationKernel` on every cache
+MISS, which reaches `KernelAdapter.NewCompilationScope`
+(`internal/system/factory_adapters.go:79-97`) and returns
+`NewKernelAdapter(live.Clone())`. `RealKernel.Clone` is a deep copy
+(`internal/core/kernel_eval.go:673-713`).
+
+Measured cost, which the run itself could not measure and said so:
+
+```
+file_topology     4453
+symbol_graph     10231
+dependency_link     74
+tool_registered      3
+                 -----
+                 14761 facts deep-copied per cache miss
+```
+
+The isolation is deliberate and correct in intent — prompt compilation must not
+mutate the live kernel, and a scope that shares state would let a compile perturb
+the run it is compiling for. The cost is that isolation is bought with a full O(N)
+copy of an EDB that is almost entirely world-derived and read-only during
+selection.
+
+Worth noting what it spans, since that was the question: the facts are produced in
+`internal/world` (cartographer/incremental scan), stored in `internal/core`
+(RealKernel EDB), and copied in `internal/prompt` (compilation scope). No single
+subsystem owns the redundancy, which is why it survived.
+
+Second candidate it ranked, not yet verified: dual-schema emission, legacy
+`symbol_graph`/`dependency_link` alongside newer `code_defines`/`code_calls` for
+the same symbols and calls. `symbol_graph` alone is 10231 of the 14761 facts, so
+if that duplication is real it is most of the clone.
+
+### The methodological result matters more than the finding
+
+Rungs 1 and 2 both produced confident quantified claims that were false and
+checkable in under a minute — "duplicates verbatim" (the two atoms share no
+content) and "cutting ~3200 tokens" (a controlled A/B showed byte-identical
+output, because `minScoreThreshold` is never read).
+
+Rung 3 added one sentence to the instruction: state how every number was measured
+and cite the evidence, or say plainly that you could not measure it. The answer
+then opened with an explicit inventory of what it had NOT done — no live workload,
+no bench, no pprof — and ranked qualitatively where it lacked numbers, marking
+each gap.
+
+So the unmeasured-confidence failure is closable by instruction. That makes it a
+prompt-atom fix rather than a mechanical one, which is the opposite conclusion
+from the scratch-artifact case, where 43 in-prompt impressions failed to prevent
+the behaviour. Two failure modes, two different classes of remedy: one responds to
+being told, the other does not.
