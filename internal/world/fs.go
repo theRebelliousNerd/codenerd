@@ -369,39 +369,39 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 					parseStart := time.Now()
 					switch lang {
 					case "go":
-						if facts, parseErr := parser.ParseGo(path, content); parseErr == nil {
+						if facts, parseErr := parser.ParseGo(canonical, content); parseErr == nil {
 							additionalFacts = append(additionalFacts, facts...)
 							logging.WorldDebug("Parsed Go file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
 						} else {
 							logging.Get(logging.CategoryWorld).Warn("Go parse failed: %s - %v", path, parseErr)
 						}
 					case "mangle":
-						facts := extractMangleSymbolFacts(path, string(content))
+						facts := extractMangleSymbolFacts(canonical, string(content))
 						additionalFacts = append(additionalFacts, facts...)
 						logging.WorldDebug("Parsed Mangle file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
 					case "python":
-						if facts, parseErr := parser.ParsePython(path, content); parseErr == nil {
+						if facts, parseErr := parser.ParsePython(canonical, content); parseErr == nil {
 							additionalFacts = append(additionalFacts, facts...)
 							logging.WorldDebug("Parsed Python file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
 						} else {
 							logging.Get(logging.CategoryWorld).Warn("Python parse failed: %s - %v", path, parseErr)
 						}
 					case "rust":
-						if facts, parseErr := parser.ParseRust(path, content); parseErr == nil {
+						if facts, parseErr := parser.ParseRust(canonical, content); parseErr == nil {
 							additionalFacts = append(additionalFacts, facts...)
 							logging.WorldDebug("Parsed Rust file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
 						} else {
 							logging.Get(logging.CategoryWorld).Warn("Rust parse failed: %s - %v", path, parseErr)
 						}
 					case "javascript":
-						if facts, parseErr := parser.ParseJavaScript(path, content); parseErr == nil {
+						if facts, parseErr := parser.ParseJavaScript(canonical, content); parseErr == nil {
 							additionalFacts = append(additionalFacts, facts...)
 							logging.WorldDebug("Parsed JavaScript file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
 						} else {
 							logging.Get(logging.CategoryWorld).Warn("JavaScript parse failed: %s - %v", path, parseErr)
 						}
 					case "typescript":
-						if facts, parseErr := parser.ParseTypeScript(path, content); parseErr == nil {
+						if facts, parseErr := parser.ParseTypeScript(canonical, content); parseErr == nil {
 							additionalFacts = append(additionalFacts, facts...)
 							logging.WorldDebug("Parsed TypeScript file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
 						} else {

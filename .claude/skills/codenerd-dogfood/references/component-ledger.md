@@ -1374,3 +1374,72 @@ mismatch standing between this rule and its first derived fact.
 Independently, `impact_caller` and `impact_implementer` remain blocked by
 missing producers entirely: `modified_function`, `modified_interface` and
 `code_implements` are declared, consumed by policy, and emitted by nothing.
+
+### F-PATH-1 — symbol facts were keyed differently from the file facts about the same file
+
+`file_topology` recorded `"internal/session/executor.go"`; `symbol_graph`
+recorded `"C:\\CodeProjects\\codeNERD\\internal\\session\\executor.go"` for that
+same file. Any rule joining the two unified nothing.
+
+The canonical identity was already being computed — `internal/world/fs.go:332`,
+`canonical := canonicalScanPath(root, path)` — and used for `file_topology` and
+`file_dir`. The six AST parser calls a few dozen lines below were still handed
+the raw absolute `path`, so every symbol fact was keyed differently from the file
+fact emitted beside it in the same loop iteration. `os.ReadFile` genuinely needs
+the absolute path; the parser's first argument is the *identity*, and those two
+had been conflated.
+
+Fixed by passing `canonical` to all six parsers (Go, Mangle, Python, Rust,
+JavaScript, TypeScript) while leaving `os.ReadFile(path)` alone.
+
+**First derived fact of the session.** After rebuild and rescan, `layer` returns
+facts for the first time. It had been failing on
+`:string:contains(File, "/internal/")` against a backslash path — a substring
+test that could never match. `layer` gates `architecture_violation`, so a second
+rule is now unblocked behind it.
+
+**A note on the RED check.** My first two attempts ran `go test -run
+"Canonical|Join"` against a test named
+`TestSymbolGraphDefinedAtMatchesFileTopology`. The pattern matched nothing, Go
+reported `ok ... [no tests to run]`, and I read that as GREEN and then as a
+non-discriminating test. Running the real name showed four distinct assertions
+failing before the fix. Sixth instrument error today and the most embarrassing,
+because `[no tests to run]` was printed in the output I looked at.
+
+### Still blocking `unwired_function`, measured not assumed
+
+- **`in_scope` has zero facts.** It is a required positive premise of
+  `unwired_function` (`reviewer.mg:425`), so the rule cannot fire no matter what
+  else is fixed. Another declared-and-consumed predicate with no producer, the
+  same family as `modified_function`, `modified_interface` and `code_implements`.
+- `is_called` does have facts, and `is_entry_point_file` has none (which is
+  permissive here, since it appears negated).
+
+### F-PATH-2 — changing a key format orphans every previously persisted row
+
+The fact base now holds **both** formats simultaneously:
+
+```
+symbol_graph("func:ValidateAll", /function, /public, "internal/core/action_validator.go", ...)
+symbol_graph("struct:CortexTransaction", /struct, /public, "C:\\CodeProjects\\codeNERD\\internal\\core\\cortex_kernel.go", ...)
+```
+
+Sampling 400 facts: 201 stale absolute-path rows against 215 fresh relative ones.
+Roughly half the world model is duplicate garbage describing files that are also
+described correctly.
+
+The mechanism is `ReplaceWorldFactsForFile(path, "fast", fp, inputs)`, which
+replaces rows **keyed by path**. When the path format itself changes, the new
+rows land under a new key and the old rows under the old key are never matched,
+so nothing replaces them. They are unreachable by any future scan and will
+persist indefinitely.
+
+This is exactly the long-standing "447 stale facts" backlog item, and it was
+never a hygiene chore: any correction to a path-producing scanner silently
+doubles the affected relation instead of updating it. The duplicates are worse
+than noise, because a rule joining on path now sees two rows per symbol and only
+one of them can match anything.
+
+Needs a migration or a format-versioned cache, not a manual purge — a purge
+fixes today's instance and leaves the mechanism in place for the next format
+change.
