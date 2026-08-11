@@ -301,8 +301,18 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 				zap.Strings("missing", unaccounted),
 				zap.Strings("subtasks", subtasks))
 			output = output + "\n\n" + gapMsg + "\nMissing subtasks: " + strings.Join(unaccounted, " | ")
-			actionErr = fmt.Errorf("compound instruction incomplete: %d of %d subtasks not evidenced — missing: %s",
-				len(unaccounted), len(subtasks), strings.Join(unaccounted, ", "))
+			// Hollow success is a lie about work performed; an incomplete answer
+			// is a shortfall the reader can see for themselves. The compound guard
+			// exists to stop hollow success — a shard reporting done when it changed
+			// nothing — which is a real risk for mutating intents (fix, refactor,
+			// implement) but not for read-only analysis where nothing was going to
+			// be written. For queries (category /query or a read-only verb like
+			// /read, /list) keep the PARTIAL text visible so the gap is reported,
+			// but do not fail the command so the answer remains readable.
+			if !isReadOnlyIntent(intent.Category, intent.Verb) {
+				actionErr = fmt.Errorf("compound instruction incomplete: %d of %d subtasks not evidenced — missing: %s",
+					len(unaccounted), len(subtasks), strings.Join(unaccounted, ", "))
+			}
 		}
 	}
 
@@ -791,10 +801,19 @@ func findUnaccountedSubtasks(subtasks []string, output string) []string {
 		// instruction genuinely repeats itself.
 		if len(keywords) == 0 {
 			// No distinctive keywords — fall back to raw tokens of length >=3.
+			// Respect imperative exclusion here too, so the verb never becomes required.
+			exclude := ""
+			if tok := firstMeaningfulToken(st); tok != "" && !isDeclarativeContextClause(st) {
+				exclude = tok
+			}
 			raw := tokenRe.FindAllString(st, -1)
 			for _, t := range raw {
+				low := strings.ToLower(t)
+				if low == exclude {
+					continue
+				}
 				if len(t) >= 3 {
-					keywords = append(keywords, strings.ToLower(t))
+					keywords = append(keywords, low)
 				}
 			}
 			if len(keywords) == 0 {
@@ -822,11 +841,23 @@ func findUnaccountedSubtasks(subtasks []string, output string) []string {
 }
 
 func distinctiveTokens(s string) []string {
+	// The leading imperative verb names the action, not the content, so it
+	// can never be evidence that the work was done — exactly like the
+	// reporting verbs in subtaskGenericStopWords, but general. Exclude that
+	// one token for that one subtask, not via the shared stopword list: a
+	// verb that leads one clause may be content in another.
+	exclude := ""
+	if tok := firstMeaningfulToken(s); tok != "" && !isDeclarativeContextClause(s) {
+		exclude = tok
+	}
 	toks := tokenRe.FindAllString(s, -1)
 	var out []string
 	seen := make(map[string]bool)
 	for _, t := range toks {
 		low := strings.ToLower(t)
+		if low == exclude {
+			continue
+		}
 		if len(low) < 3 {
 			continue
 		}
@@ -841,9 +872,15 @@ func distinctiveTokens(s string) []string {
 	}
 	// If filtering left us empty but there were tokens, keep the longest
 	// raw token so single-generic subtasks like "fix it" don't vanish.
+	// Respect the imperative exclusion: do not resurrect the verb as the
+	// fallback, since it was excluded for being non-evidential.
 	if len(out) == 0 && len(toks) > 0 {
 		longest := ""
 		for _, t := range toks {
+			low := strings.ToLower(t)
+			if low == exclude {
+				continue
+			}
 			if len(t) > len(longest) {
 				longest = t
 			}
@@ -853,4 +890,28 @@ func distinctiveTokens(s string) []string {
 		}
 	}
 	return out
+}
+func isReadOnlyIntent(category, verb string) bool {
+	// Query intents are read-only analysis: incomplete answers are shortfalls
+	// the reader can see, not hollow successes that lie about work performed.
+	cat := strings.ToLower(strings.TrimSpace(category))
+	cat = strings.TrimPrefix(cat, "/")
+	if cat == "query" {
+		return true
+	}
+	v := strings.ToLower(strings.TrimSpace(verb))
+	if v == "" {
+		return false
+	}
+	if !strings.HasPrefix(v, "/") {
+		v = "/" + v
+	}
+	// Taxonomy verbs whose Category is /query — no mutation, so the guard
+	// should report PARTIAL but not fail the command.
+	switch v {
+	case "/review", "/review_enhance", "/security", "/analyze", "/explain", "/explore", "/search", "/debug", "/research", "/stats", "/help", "/greet", "/knowledge", "/dream", "/shadow", "/read", "/benchmark", "/profile", "/audit", "/lint", "/list", "/query", "/why", "/whatif", "/explain_code", "/analyze_code":
+		return true
+	default:
+		return false
+	}
 }
