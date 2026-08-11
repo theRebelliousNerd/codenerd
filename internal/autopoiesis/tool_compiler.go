@@ -88,6 +88,24 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 		}
 	}
 
+	// Write generated test code if present, ensuring it lands in package main
+	// so it is compiled alongside the tool code it exercises.
+	if strings.TrimSpace(tool.TestCode) != "" {
+		testContent := tool.TestCode
+		if strings.Contains(testContent, "package tools") {
+			testContent = strings.Replace(testContent, "package tools", "package main", 1)
+		} else if !strings.Contains(testContent, "package ") {
+			testContent = "package main\n\n" + testContent
+		} else if !strings.Contains(testContent, "package main") {
+			// Normalize any other package name to main so tests compile alongside the tool.
+			re := regexp.MustCompile(`(?m)^\s*package\s+\w+`)
+			testContent = re.ReplaceAllString(testContent, "package main")
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "tool_test.go"), []byte(testContent), 0644); err != nil {
+			return result, fmt.Errorf("failed to write test source: %w", err)
+		}
+	}
+
 	// Initialize go module
 	modContent := fmt.Sprintf("module %s\n\ngo 1.26.0\n", tool.Name)
 
@@ -113,6 +131,35 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 	if out, err := tidyCmd.CombinedOutput(); err != nil {
 		result.Errors = append(result.Errors, string(out))
 		return result, fmt.Errorf("go mod tidy failed: %w", err)
+	}
+
+	// If test code was provided, run it before producing the final binary.
+	// This gates registration on the tool satisfying its own author's assertions.
+	if strings.TrimSpace(tool.TestCode) != "" {
+		testTimeout := tc.config.CompileTimeout
+		if testTimeout == 0 {
+			testTimeout = 60 * time.Second
+		}
+		testCtx, testCancel := context.WithTimeout(ctx, testTimeout)
+		defer testCancel()
+
+		testCmd := exec.CommandContext(testCtx, "go", "test", "./...")
+		testCmd.Dir = tmpDir
+		// Reuse the same environment the build uses, keeping CGO handling identical.
+		testCmd.Env = build.MergeEnv(
+			build.GetBuildEnvForCompile(nil, tmpDir, tc.config.TargetOS, tc.config.TargetArch),
+			"CGO_ENABLED=0",
+		)
+		testOutput, err := testCmd.CombinedOutput()
+		if err != nil {
+			truncated := string(testOutput)
+			const maxOutputLen = 4096
+			if len(truncated) > maxOutputLen {
+				truncated = truncated[:maxOutputLen] + "\n... (truncated)"
+			}
+			result.Errors = append(result.Errors, truncated)
+			return result, fmt.Errorf("generated tool failed its own generated tests: %w\n%s", err, truncated)
+		}
 	}
 
 	// Output path
