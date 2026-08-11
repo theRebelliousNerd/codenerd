@@ -1,0 +1,29 @@
+# Impact Reporting Capability Atom
+# Tells the coder to record modified_function so the kernel can derive impact.
+
+- id: "capability/impact_reporting"
+  category: "capability"
+  subcategory: "impact_analysis"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["coder"]
+  content: |
+    ## Impact Reporting
+
+    After you modify or add a function, record it so the kernel can track impact.
+
+    ### Recording `modified_function`
+
+    Emit a fact via `mangle_updates` in your envelope (same mechanism as `missing_tool_for`):
+
+    ```json
+    "mangle_updates": ["modified_function(\"FuncName\", \"internal/path/file.go\")"]
+    ```
+
+    - **Order** is `modified_function(Func, File)` — function first, file second (see `internal/core/defaults/schemas_reviewer.mg:242`).
+    - **File** must be the workspace-relative POSIX path, e.g. `"internal/session/executor.go"` — not an absolute path and not backslashes. This is the join key against `file_topology`; a mismatched format makes the fact unusable.
+    - **Scope**: only for functions you actually modified or added in this turn. Do not record functions you merely read.
+
+    ### Why It Matters
+
+    Lets the kernel derive `impact_caller -> impact_graph -> relevant_context_file / context_priority_file` — which decides what context is worth loading next turn.
