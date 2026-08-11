@@ -282,8 +282,14 @@ var autopoiesisStatusCmd = &cobra.Command{
 		fmt.Printf("%d evolutions\n", len(evolutions))
 
 		fmt.Print("Learning Store:    ")
-		patterns, _ := cortex.Kernel.Query("learned_pattern")
-		fmt.Printf("%d patterns\n", len(patterns))
+		successPatterns, _ := cortex.Kernel.Query("success_pattern")
+		failurePatterns, _ := cortex.Kernel.Query("failure_pattern")
+		fmt.Printf("%d success / %d failure patterns\n", len(successPatterns), len(failurePatterns))
+
+		// correction_pattern is asserted by Go but read by no policy rule, so a non-zero count means facts are being produced that nothing consumes.
+		fmt.Print("Corrections:       ")
+		corrections, _ := cortex.Kernel.Query("correction_pattern")
+		fmt.Printf("%d patterns\n", len(corrections))
 
 		fmt.Print("Thunderdome:       ")
 		battles, _ := cortex.Kernel.Query("thunderdome_result")

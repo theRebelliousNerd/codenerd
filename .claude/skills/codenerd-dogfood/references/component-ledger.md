@@ -1853,3 +1853,71 @@ line short, a file read from the middle. Concretely, for next time:
 - Grep predicate names with an open paren, because the code builds them as
   `WriteString("pred(")`.
 - Before calling a rule live, find who queries it.
+
+---
+
+## F-LEARN-2 — the learning display could only ever read zero
+
+Broadening from the JIT thread to exercise modules the mission names and this
+session had not touched — autopoiesis, ouroboros, reflection, knowledge, memory —
+`nerd autopoiesis status` reported:
+
+    Ouroboros Loop:    3 tools generated
+    Prompt Evolution:  0 evolutions
+    Learning Store:    0 patterns
+    Thunderdome:       0 battles
+
+The Ouroboros line proves the display works. The learning line was structurally
+incapable of reporting anything else:
+
+    patterns, _ := cortex.Kernel.Query("learned_pattern")
+
+`learned_pattern` is declared in `schemas_learning.mg` and **asserted nowhere** —
+zero Go call sites, and the only `.mg` file mentioning it is the one holding its
+Decl. So the count was pinned at 0 regardless of what the learning subsystem had
+recorded. `.nerd/learned_patterns.db` is 3.2 MB and was last written *today*.
+
+The predicates that are actually produced and consumed:
+
+| Predicate | Asserted in Go | Read by policy |
+|---|---|---|
+| `success_pattern` | yes | 10 files |
+| `failure_pattern` | yes | 6 files |
+| `correction_pattern` | yes | **0 files** |
+| `learned_pattern` | **no** | 0 (Decl only) |
+
+Fixed to report success and failure separately, and to surface
+`correction_pattern` — which is produced by Go and consumed by no rule, so a
+non-zero count there means facts are being manufactured for nobody.
+
+This is the same false-negative instrument class as F-QUERY-1, and the third
+time today a "0" turned out to be a broken meter rather than an empty subsystem.
+What it does **not** establish is that learning works: `success_pattern` and
+`failure_pattern` are shard-scoped, so their zero in a bare `nerd query` boot is
+expected and uninformative. The instrument is now capable of telling the truth;
+whether the truth is good has not been measured.
+
+### Learning lives in Go maps, not in the kernel
+
+Worth recording separately, because it bears on the north star.
+`BaseSystemShard.loadLearnedPatterns` (`internal/shards/system/base.go:585`)
+reads persisted learnings and stores them in **Go maps** —
+`b.patternSuccess[pattern] = 3`, `b.patternFailure[pattern] = 3` — not as kernel
+facts. So a shard's accumulated experience is not available to any Mangle rule;
+the executive cannot reason over what the system has learned. For a project whose
+premise is that logic is the executive and memory is one of the things logic is
+supposed to own, that is an inversion worth deciding about deliberately rather
+than inheriting.
+
+### F-META-2 (side finding) — duplicate tool-result envelope
+
+The run that made this fix died at the end with:
+
+    responses HTTP 400: Duplicate function_call_output for call_id 'req_vet'.
+    Each function_call must have exactly one matching function_call_output
+
+The edit had already landed correctly, so this is a protocol defect in the
+tool-result follow-up path, not a code-generation failure: the client sent two
+outputs for a single `call_id`. Unlike F-META-1 (empty stream on a small
+completion budget), this one produces a hard 400 and loses the run's final
+report. Not investigated further; recorded with the call_id so it can be traced.
