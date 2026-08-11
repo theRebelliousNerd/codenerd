@@ -28,7 +28,8 @@ missing_tool_for(/current_intent, Cap) :-
 
 # Trigger tool generation if tool is missing
 next_action(/generate_tool) :-
-    missing_tool_for(_, _).
+    missing_tool_for(_, Cap),
+    tool_generation_permitted(Cap).
 
 # SECTION 12B: OUROBOROS LOOP - TOOL SELF-GENERATION
 

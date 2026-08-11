@@ -80,7 +80,7 @@ func (o *Orchestrator) Analyze(ctx context.Context, input string, target string)
 
 	// 3. Tool need detection (only if task seems to need new capability)
 	if o.config.EnableToolGeneration && shouldCheckToolNeed(input) {
-		toolNeed, err := o.toolGen.DetectToolNeed(ctx, input, "")
+		toolNeed, err := o.DetectToolNeed(ctx, input)
 		if err == nil && toolNeed != nil && o.shouldGenerateToolNeed(toolNeed) {
 			result.ToolNeeds = append(result.ToolNeeds, *toolNeed)
 
