@@ -47,11 +47,13 @@ Example:
 var (
 	dreamMaxAgents int = 4
 	dreamAll       bool
+	logicShowAll   bool
 )
 
 func init() {
 	dreamCmd.Flags().IntVar(&dreamMaxAgents, "max-agents", 4, "Maximum number of agents to consult (ranked by relevance)")
 	dreamCmd.Flags().BoolVar(&dreamAll, "all", false, "Consult all available agents, bypassing relevance ranking")
+	logicCmd.Flags().BoolVar(&logicShowAll, "all", false, "Show every predicate, not just the top 25")
 }
 
 // shadowCmd runs shadow mode simulation
@@ -725,14 +727,38 @@ func printKernelFactSummary(cortex *coresys.Cortex) error {
 		return ordered[i].name < ordered[j].name
 	})
 
-	fmt.Printf("📊 %d facts across %d predicates:\n\n", total, len(ordered))
-	const shown = 25
-	for i, pc := range ordered {
-		if i >= shown {
-			fmt.Printf("\n... and %d more predicates\n", len(ordered)-shown)
-			break
+	// Filter zero-count predicates: QueryAll seeds an empty slice for every
+	// declared predicate (~1700), so without this --all would print mostly
+	// empty lines. Header reports both numbers.
+	filtered := make([]predCount, 0, len(ordered))
+	for _, pc := range ordered {
+		if pc.count == 0 {
+			continue
 		}
-		fmt.Printf("  %-40s %7d\n", pc.name, pc.count)
+		filtered = append(filtered, pc)
+	}
+	declared := len(ordered)
+	withFacts := len(filtered)
+	if withFacts == 0 {
+		fmt.Println("📊 The kernel holds no facts.")
+		fmt.Println("   Run 'nerd scan' to index the workspace.")
+		return nil
+	}
+
+	fmt.Printf("📊 %d facts across %d predicates with facts (%d declared):\n\n", total, withFacts, declared)
+	if logicShowAll {
+		for _, pc := range filtered {
+			fmt.Printf("  %-40s %7d\n", pc.name, pc.count)
+		}
+	} else {
+		const shown = 25
+		for i, pc := range filtered {
+			if i >= shown {
+				fmt.Printf("\n... and %d more predicates\n", withFacts-shown)
+				break
+			}
+			fmt.Printf("  %-40s %7d\n", pc.name, pc.count)
+		}
 	}
 
 	return nil

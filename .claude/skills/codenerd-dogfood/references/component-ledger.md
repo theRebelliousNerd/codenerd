@@ -1443,3 +1443,68 @@ one of them can match anything.
 Needs a migration or a format-versioned cache, not a manual purge — a purge
 fixes today's instance and leaves the mechanism in place for the next format
 change.
+
+### F-JIT-3 — a new atom is a candidate on every coder turn and is never selected
+
+`capability/impact_reporting` was added to close the last input gap in the
+impact chain: `modified_function` is permitted for the model to assert
+(`executor.go:1148-1159`) and nothing had ever asked for it. The atom builds,
+validates (346 files / 906 atoms, no issues), and syncs to the corpus DB. It has
+never appeared in a prompt.
+
+Two live coder runs, both `nerd fix`, measured by grepping the `_llm_io.log` for
+the atom's content heading:
+
+| Run | Work done | `impact_reporting` in prompt | `tool_thinking` control |
+|---|---|---|---|
+| remove a duplicate doc comment | 1 deletion | 0 | 21 |
+| add a `--all` flag | 33 insertions across functions | 0 | 29 |
+
+The second run modified functions, which is precisely the trigger the atom
+describes, so "correctly judged irrelevant" does not explain it.
+
+**Ruled out by measurement, not argument:**
+
+- **Not the corpus DB.** The atom is present in `.nerd/prompts/corpus.db` (5
+  occurrences against `tool_thinking`'s 18), and the DB's mtime is later than the
+  YAML's, so the sync ran.
+- **Not `go:embed` staleness.** The binary was rebuilt before both runs.
+- **Not the `shard_types` slash convention.** This one nearly cost a pointless
+  22-file change. The corpus overwhelmingly writes `["/coder"]` (492 slash-
+  prefixed entries against 22 without), and this atom was written `["coder"]`,
+  which looked exactly like the string-versus-atom defect fixed three times
+  elsewhere this session. It is not: `normalizeList` (`internal/prompt/atoms.go:298`)
+  strips the leading slash from every selector entry at load, and `matchSelector`
+  (`:420`) normalises the incoming value and compares against both forms. Both
+  spellings match. **The 22 slashless atoms are fine and need no change.**
+
+**What remains:** the atom is `is_mandatory: false` while the control
+(`tool_thinking`) is `is_mandatory: true`, so the live difference is that one is
+guaranteed inclusion and the other must win a scored selection. The atom is a
+candidate that consistently loses.
+
+That is the interesting question for the north star rather than a nuisance:
+JIT selection is the mechanism the whole token-efficiency thesis rests on. If an
+atom whose subject is "you just modified a function" cannot surface on a turn
+that modifies functions, then relevance scoring is not doing the job the
+architecture assigns it, and every non-mandatory atom is suspect. The cheap
+diagnostic is to record per-atom scores at selection time — the same move that
+resolved F-QUERY-1 after static reading failed three times.
+
+Deliberately not "fixed" by flipping `is_mandatory: true`. That would make the
+atom appear and prove nothing, while charging every coder turn for it forever.
+The point is to find out why scoring rejects it.
+
+### Second reader restored
+
+`nerd logic --all` now exists. `printKernelFactSummary` had `const shown = 25`
+hardcoded with no way past it, so everything below the top 25 was unreachable —
+the exact blind spot that let a whole subsystem look dead and produced the
+withdrawn F-IMPACT-1. Zero-count predicates are filtered (QueryAll seeds an empty
+slice for all ~1700 declared), so the header now separates "predicates with
+facts" from "declared".
+
+It paid for itself immediately: `layer` reads **698 facts**, where it had been 0
+before the path fix in `c71fdaf9`, and 182 predicates hold facts. Every earlier
+"predicate X is dead" claim in this ledger can now be re-checked against a
+reader that shows the whole population.
