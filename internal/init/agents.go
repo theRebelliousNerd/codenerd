@@ -2,12 +2,6 @@
 package init
 
 import (
-	// coreshards removed - was only used by tool_generator
-	"codenerd/internal/logging"
-	// Domain shards removed - JIT clean loop handles research and tool generation:
-	// "codenerd/internal/shards/researcher"
-	// "codenerd/internal/shards/tool_generator"
-
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,6 +10,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/logging"
+
+	"gopkg.in/yaml.v3"
 )
 
 // =============================================================================
@@ -52,27 +50,145 @@ const initFallbackNone = 0
 
 // generateAgentPromptsYAML generates a prompts.yaml template for a Type B (persistent) agent.
 // Creates .nerd/agents/{name}/prompts.yaml with identity, methodology, and domain knowledge atoms.
+// generateAgentPromptsYAML generates a prompts.yaml template for a Type B (persistent) agent.
+// Creates .nerd/agents/{name}/prompts.yaml with identity, methodology, and domain knowledge atoms.
+// This is a convenience wrapper that uses a background context; prefer generateAgentPromptsYAMLWithContext
+// when a caller context is available so LLM generation can be bounded and cancelled.
 func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
-	// Create agent directory
+	return i.generateAgentPromptsYAMLWithContext(context.Background(), agent)
+}
+
+// generateAgentPromptsYAMLWithContext generates prompts.yaml using LLM-generated methodology
+// and domain content when available, falling back to the static template on any failure.
+// LLM generation is bounded by a timeout derived from ctx so a slow model cannot stall init,
+// and generation is per-agent so one bad agent cannot poison the others.
+func (i *Initializer) generateAgentPromptsYAMLWithContext(ctx context.Context, agent RecommendedAgent) error {
 	agentDir := filepath.Join(i.config.Workspace, ".nerd", "agents", strings.ToLower(agent.Name))
 	if err := os.MkdirAll(agentDir, 0755); err != nil {
 		return fmt.Errorf("failed to create agent directory: %w", err)
 	}
-
-	// Generate prompts.yaml path
 	promptsPath := filepath.Join(agentDir, "prompts.yaml")
-
-	// Format topics as comma-separated string
 	topicsStr := strings.Join(agent.Topics, ", ")
-
-	// Build domain expertise from topics
 	domainExpertise := formatDomainExpertise(agent.Topics)
-
-	// Lowercase agent name for stable IDs and directory naming
 	agentNameLower := strings.ToLower(agent.Name)
 
-	// Build the YAML template
-	template := fmt.Sprintf(`# Prompt atoms for %[2]s
+	// Start with static content; replace with LLM content on success.
+	methodologyContent := staticMethodologyContent()
+	domainContent := staticDomainContent(topicsStr)
+	usingLLM := false
+
+	if i.config.LLMClient == nil {
+		logging.BootWarn("LLM client is nil for %s, using static prompts template", agent.Name)
+	} else {
+		// Methodology: per-atom bounded generation; failure of one atom does not poison the other.
+		if meth, err := i.generateMethodologyContent(ctx, agent); err != nil {
+			logging.BootWarn("Falling back to static methodology for %s: %v", agent.Name, err)
+		} else if strings.TrimSpace(meth) == "" {
+			logging.BootWarn("Falling back to static methodology for %s: empty LLM response", agent.Name)
+		} else {
+			methodologyContent = strings.TrimSpace(meth)
+			usingLLM = true
+			logging.Boot("Generated LLM methodology content for %s", agent.Name)
+		}
+		if dom, err := i.generateDomainContent(ctx, agent); err != nil {
+			logging.BootWarn("Falling back to static domain for %s: %v", agent.Name, err)
+		} else if strings.TrimSpace(dom) == "" {
+			logging.BootWarn("Falling back to static domain for %s: empty LLM response", agent.Name)
+		} else {
+			domainContent = strings.TrimSpace(dom)
+			usingLLM = true
+			logging.Boot("Generated LLM domain content for %s", agent.Name)
+		}
+		if !usingLLM {
+			logging.BootWarn("LLM generation produced no usable content for %s, using static template", agent.Name)
+		}
+	}
+
+	yamlStr := buildPromptsYAML(agentNameLower, agent.Name, agent.Description, domainExpertise, topicsStr, methodologyContent, domainContent)
+	if err := validatePromptsYAML([]byte(yamlStr), agentNameLower); err != nil {
+		logging.BootWarn("Generated YAML failed validation for %s: %v, falling back to static template", agent.Name, err)
+		yamlStr = buildPromptsYAML(agentNameLower, agent.Name, agent.Description, domainExpertise, topicsStr, staticMethodologyContent(), staticDomainContent(topicsStr))
+		if err2 := validatePromptsYAML([]byte(yamlStr), agentNameLower); err2 != nil {
+			logging.BootWarn("Static template validation failed for %s: %v", agent.Name, err2)
+		}
+		usingLLM = false
+	} else if usingLLM {
+		logging.Boot("Generated LLM-driven prompts.yaml for %s at %s", agent.Name, promptsPath)
+	}
+
+	if err := os.WriteFile(promptsPath, []byte(yamlStr), 0644); err != nil {
+		return fmt.Errorf("failed to write prompts.yaml: %w", err)
+	}
+	if !usingLLM {
+		logging.Boot("Generated prompts.yaml for %s at %s", agent.Name, promptsPath)
+	}
+	return nil
+}
+
+// staticMethodologyContent returns the static fallback methodology markdown.
+func staticMethodologyContent() string {
+	return "## Methodology\n\n### Analysis Approach\n- Understand the full context before acting\n- Consider edge cases and failure modes\n- Think through implications of changes\n\n### Implementation Standards\n- Follow language idioms and conventions\n- Write clear, maintainable code\n- Include comprehensive error handling\n- Document non-obvious decisions\n\n### Quality Assurance\n- Verify assumptions before proceeding\n- Test critical paths\n- Consider performance implications\n- Ensure backward compatibility when applicable"
+}
+
+// staticDomainContent returns the static fallback domain markdown with the agent's topics.
+func staticDomainContent(topicsStr string) string {
+	return fmt.Sprintf("## Domain-Specific Knowledge\n\n### Key Concepts\n[Add specific concepts, patterns, or frameworks relevant to this domain]\n\n### Common Pitfalls\n[Add known issues, gotchas, or anti-patterns to avoid]\n\n### Best Practices\n[Add domain-specific best practices and guidelines]\n\n### Resources\nResearch Topics: %s\n\n[Add additional references, documentation links, or learning resources]", topicsStr)
+}
+
+// indentForYAMLBlock indents every non-empty line of content with indent so the
+// text remains inside the YAML literal block scalar. Empty lines are preserved
+// as empty lines which are valid inside a literal block.
+func indentForYAMLBlock(content, indent string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	lines := strings.Split(content, "\n")
+	for j, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			lines[j] = ""
+		} else {
+			lines[j] = indent + line
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// validatePromptsYAML parses the assembled YAML and confirms it contains exactly
+// the expected atom ids. Any parse failure or missing id is treated as corruption.
+func validatePromptsYAML(data []byte, agentNameLower string) error {
+	var atoms []struct {
+		ID string `yaml:"id"`
+	}
+	if err := yaml.Unmarshal(data, &atoms); err != nil {
+		return fmt.Errorf("yaml parse failed: %w", err)
+	}
+	expected := []string{
+		agentNameLower + "/identity",
+		agentNameLower + "/methodology",
+		agentNameLower + "/domain",
+	}
+	if len(atoms) != len(expected) {
+		return fmt.Errorf("expected %d atoms, got %d", len(expected), len(atoms))
+	}
+	found := make(map[string]bool, len(atoms))
+	for _, a := range atoms {
+		found[a.ID] = true
+	}
+	for _, exp := range expected {
+		if !found[exp] {
+			return fmt.Errorf("missing expected atom %q", exp)
+		}
+	}
+	return nil
+}
+
+// buildPromptsYAML assembles the full prompts.yaml document from its pieces.
+// methodologyContent and domainContent are raw markdown; they are indented inside
+// the YAML literal block scalars before interpolation. The remaining atom fields
+// (ids, categories, priorities, is_mandatory, content_concise/min) are kept
+// exactly as in the static template.
+func buildPromptsYAML(agentNameLower, displayName, description, domainExpertise, topicsStr, methodologyContent, domainContent string) string {
+	methIndented := indentForYAMLBlock(methodologyContent, "    ")
+	domainIndented := indentForYAMLBlock(domainContent, "    ")
+	return fmt.Sprintf(`# Prompt atoms for %[2]s
 # These are loaded into the JIT prompt compiler when the agent is spawned.
 # Edit this file to customize the agent's identity, methodology, and domain knowledge.
 
@@ -125,24 +241,7 @@ func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
   content_min: |
     Be precise, verify assumptions, and preserve correctness.
   content: |
-    ## Methodology
-
-    ### Analysis Approach
-    - Understand the full context before acting
-    - Consider edge cases and failure modes
-    - Think through implications of changes
-
-    ### Implementation Standards
-    - Follow language idioms and conventions
-    - Write clear, maintainable code
-    - Include comprehensive error handling
-    - Document non-obvious decisions
-
-    ### Quality Assurance
-    - Verify assumptions before proceeding
-    - Test critical paths
-    - Consider performance implications
-    - Ensure backward compatibility when applicable
+%[6]s
 
 - id: "%[1]s/domain"
   category: "domain"
@@ -157,36 +256,56 @@ func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
   content_min: |
     Apply domain best practices for: %[5]s
   content: |
-    ## Domain-Specific Knowledge
-
-    ### Key Concepts
-    [Add specific concepts, patterns, or frameworks relevant to this domain]
-
-    ### Common Pitfalls
-    [Add known issues, gotchas, or anti-patterns to avoid]
-
-    ### Best Practices
-    [Add domain-specific best practices and guidelines]
-
-    ### Resources
-    Research Topics: %[5]s
-
-    [Add additional references, documentation links, or learning resources]
+%[7]s
 `,
-		agentNameLower,    // 1: stable id prefix
-		agent.Name,        // 2: display name
-		agent.Description, // 3: role/description
-		domainExpertise,   // 4: domain expertise bullets
-		topicsStr,         // 5: topics
+		agentNameLower,
+		displayName,
+		description,
+		domainExpertise,
+		topicsStr,
+		methIndented,
+		domainIndented,
 	)
+}
 
-	// Write the template
-	if err := os.WriteFile(promptsPath, []byte(template), 0644); err != nil {
-		return fmt.Errorf("failed to write prompts.yaml: %w", err)
+// generateMethodologyContent asks the LLM for agent-specific methodology markdown.
+// The prompt is deliberately specific to this agent's domain and forbids generic advice.
+func (i *Initializer) generateMethodologyContent(ctx context.Context, agent RecommendedAgent) (string, error) {
+	if i.config.LLMClient == nil {
+		return "", fmt.Errorf("nil LLM client")
 	}
+	topicsStr := strings.Join(agent.Topics, ", ")
+	prompt := fmt.Sprintf("You are generating the methodology prompt atom for the specialist agent %q whose role is %q and whose research topics are %q.\n\nWrite the markdown content for the methodology atom. Explain how THIS specialist approaches problems in its domain: its analysis approach, implementation standards, and quality assurance practices, tailored specifically to %s.\n\nRequirements:\n- Be specific to this agent's domain; do NOT give generic software-engineering advice.\n- The answer must be specific enough that it would be incorrect for a different specialist (for example, a Go concurrency expert vs a Cobra CLI expert vs a Mangle/Datalog logic expert).\n- Do NOT include YAML front matter or atom headers; only output the markdown body that will be placed inside the YAML 'content: |' block.\n- Keep it concise but thorough, using markdown headings and bullet points.\n- Generic software-engineering advice is not acceptable.", agent.Name, agent.Description, topicsStr, topicsStr)
+	genCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	res, err := i.config.LLMClient.Complete(genCtx, prompt)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(res) == "" {
+		return "", fmt.Errorf("empty LLM response")
+	}
+	return strings.TrimSpace(res), nil
+}
 
-	logging.Boot("Generated prompts.yaml for %s at %s", agent.Name, promptsPath)
-	return nil
+// generateDomainContent asks the LLM for agent-specific domain markdown.
+// The prompt demands concrete concepts, real pitfalls and practices for this specialist.
+func (i *Initializer) generateDomainContent(ctx context.Context, agent RecommendedAgent) (string, error) {
+	if i.config.LLMClient == nil {
+		return "", fmt.Errorf("nil LLM client")
+	}
+	topicsStr := strings.Join(agent.Topics, ", ")
+	prompt := fmt.Sprintf("You are generating the domain prompt atom for the specialist agent %q whose role is %q and whose research topics are %q.\n\nWrite the markdown content for the domain atom. Describe the concrete concepts, real pitfalls, and best practices that matter for those specific topics: %s.\n\nRequirements:\n- Cover Key Concepts (specific patterns, frameworks, or language features for this domain), Common Pitfalls (real gotchas and anti-patterns for these topics), Best Practices (domain-specific guidelines), and Resources.\n- Be specific to this agent's domain; do NOT give generic software-engineering advice.\n- The answer must be specific enough that it would be incorrect for a different specialist.\n- Do NOT include YAML front matter or atom headers; only output the markdown body for the YAML 'content: |' block.\n- Use markdown headings and bullet points.\n- Generic software-engineering advice is not acceptable.", agent.Name, agent.Description, topicsStr, topicsStr)
+	genCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	res, err := i.config.LLMClient.Complete(genCtx, prompt)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(res) == "" {
+		return "", fmt.Errorf("empty LLM response")
+	}
+	return strings.TrimSpace(res), nil
 }
 
 // formatDomainExpertise formats the topics as a bulleted list for the identity atom.
@@ -593,7 +712,7 @@ func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, age
 
 		// Generate prompts.yaml for the agent (only for new agents, not upgrades)
 		if !upgradeMode {
-			if promptErr := i.generateAgentPromptsYAML(agent); promptErr != nil {
+			if promptErr := i.generateAgentPromptsYAMLWithContext(ctx, agent); promptErr != nil {
 				logging.Boot("Warning: failed to generate prompts.yaml for %s: %v", agent.Name, promptErr)
 			}
 		}
@@ -689,7 +808,7 @@ func (i *Initializer) createAgentsParallel(ctx context.Context, shardsDir string
 
 			// Generate prompts.yaml for the agent (only for new agents, not upgrades)
 			if !upgradeMode {
-				if promptErr := i.generateAgentPromptsYAML(agent); promptErr != nil {
+				if promptErr := i.generateAgentPromptsYAMLWithContext(ctx, agent); promptErr != nil {
 					logging.Boot("Warning: failed to generate prompts.yaml for %s: %v", agent.Name, promptErr)
 				}
 			}
