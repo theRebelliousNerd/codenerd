@@ -154,6 +154,11 @@ func TestCompilationContext_AvailableTokens(t *testing.T) {
 }
 
 func TestCompilationContext_Validate(t *testing.T) {
+	// TODO: Add negative test for empty or whitespace-only OperationalMode, CampaignPhase, IntentVerb
+	// TODO: Add negative test for TokenBudget = math.MaxInt
+	// TODO: Add negative test for ReservedTokensFallbackRatio <= 0
+	// TODO: Add negative test for malformed Mangle atoms (e.g., missing leading slash)
+	// TODO: Add negative test for State Conflicts (e.g., OperationalMode = /dream, IsHighChurn = true)
 	tests := []struct {
 		name      string
 		context   *CompilationContext
