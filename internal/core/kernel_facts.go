@@ -109,7 +109,27 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 		return nil
 	}
 
-	// LoadFacts is the boot path — evaluate eagerly to ensure initialization.
+	// LoadFacts was historically eager (boot path) — evaluate immediately so
+	// the kernel is ready before any query. Bulk incremental scans now also
+	// use LoadFacts per file, so eager evaluation would pay a full fixpoint
+	// per file (O(N^2)). The lazy path is already built: ensureEvaluated()
+	// (called at the top of Query, QueryCallback, QueryAll and Explain)
+	// evaluates only when factsDirty is set, guaranteeing correct-on-read.
+	// Keep eager evaluation only when the kernel is not yet initialized
+	// (boot semantics); otherwise mark dirty and defer.
+	if k.initialized {
+		// Still invalidate cachedAtoms as the eager path did — the next
+		// evaluate will reconvert facts under the current Decls instead of
+		// reusing a stale cache. factsDirty signals ensureEvaluated to run
+		// the fixpoint before the next derived-fact read.
+		k.cachedAtoms = nil // Invalidate cache before deferred evaluation
+		k.factsDirty.Store(true)
+		timer.Stop()
+		return nil
+	}
+
+	// Boot path (not yet initialized): evaluate eagerly to ensure the
+	// kernel is fully built before the first query.
 	k.cachedAtoms = nil // Invalidate cache before full re-evaluation
 	err := k.evaluate()
 	if err != nil {
