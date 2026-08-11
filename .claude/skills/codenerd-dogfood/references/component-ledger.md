@@ -500,3 +500,42 @@ prints "✅ Tool registered" for a tool nothing has ever checked — the same
 hollow-success shape as a checkpoint reporting PASS without verifying.
 
 Status: F-AUTO-4 dispatched. F-AUTO-5 open, needs a product decision.
+
+### F-AUTO-5 addendum — Ouroboros is correct on unambiguous specs
+
+A second live generation, run to test whether the earlier wrong tool indicated a
+systematic problem or a specification problem:
+
+```
+nerd tool generate "given a file path as input, return the total number of lines
+                    in that file as a decimal number"
+```
+
+Generated, gated on its own tests, compiled, registered in 55s. Run against
+`schemas_safety.mg` it returned **194**, which is correct — `wc -l` and
+`grep -c ''` both agree.
+
+Worth recording how close this came to being logged as a second failure: the
+first ground truth used was PowerShell `Measure-Object -Line`, which returned
+136 and would have made a correct tool look broken. 136 is exactly the count of
+NON-EMPTY lines (`grep -cve '^[[:space:]]*$'`). The verifier was wrong, not the
+tool. **Cross-check ground truth with a second method before calling generated
+output incorrect** — an agent grading its own tools with a faulty oracle is the
+same failure mode as a model writing its own tests, one level up.
+
+So the two results together say something more precise than "Ouroboros produces
+wrong tools":
+
+- Unambiguous spec → correct tool. The pipeline works.
+- Ambiguous spec ("count the number of Mangle Decl statements", readable either
+  as *find the token "mangle decl"* or *count `Decl` statements in a Mangle
+  file") → a confidently wrong tool, with self-consistent tests that ratify the
+  wrong reading, registered with a ✅.
+
+That reframes F-AUTO-5. The risk is not unreliability, it is that an ambiguous
+request produces a wrong tool **indistinguishable from a right one** at every
+gate the pipeline has. The mitigation is correspondingly cheaper than a general
+correctness oracle: make the resolved interpretation visible and checkable at
+registration — echo the tool's own understanding of the request, and/or gate on
+one user-supplied `input => expected` example. Ambiguity detection at the
+detection stage would help more than test-running ever can.
