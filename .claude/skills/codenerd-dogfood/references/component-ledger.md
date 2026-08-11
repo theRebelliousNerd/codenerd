@@ -2005,3 +2005,56 @@ that it works is preserved.
 Both `shadow` and the `whatif` analysis independently cited
 `internal/core/current-state.md:84` as claiming `kernel_query.go` is 577 lines,
 against 494 actually read. A stale doc that two separate runs tripped over.
+
+---
+
+## Dream state — works, with one real limitation (and a false alarm I did not file)
+
+Exercised `nerd dream` against a live scenario. It works: 4 agents consulted,
+19 correctly skipped (9 system, 7 image-generation aliases, 3 low relevance),
+responses returned, and every agent correctly framed its answer as hypothetical
+with no actions executed. The relevance ranking added earlier (`a353c53a`) is
+live and its `--max-agents` bound is respected.
+
+### The false alarm
+
+Every agent scored 0 on my first scenario ("the JIT selector loads two rulesets
+and discards one"), and three were "skipped for low relevance" against a field
+where nothing scored above zero. That looks exactly like a scorer returning a
+constant.
+
+It is not. A discriminating run — "go concurrency and error handling across
+interfaces" — produced `goexpert (score: 3)`, correctly ranked first, matching
+three tokens against its declared Topics. `dreamRelevanceScore` works, agent
+metadata loads, and the stable-sort tie-break on equal scores is the documented
+behaviour.
+
+Recording the near-miss because it is the tenth time today an apparent defect
+was my reading rather than the system's, and the first time I caught it before
+writing it down. The check cost one command.
+
+### The real limitation
+
+`dreamRelevanceScore` (`cmd_advanced.go:413`) is **pure lexical token overlap**
+between the scenario and `meta.Role + meta.Topics`. So on my first scenario the
+score was a truthful zero — and consequently the four agents consulted were
+simply the first four in stable order, not the four best suited. `mangleexpert`
+scored 0 on a question about **rulesets and a selector**, because its Topics
+happen not to contain the words "jit", "ruleset" or "selector".
+
+That is four LLM calls spent on arbitrarily-chosen agents whenever a scenario
+does not literally reuse an agent's topic vocabulary — which is most of the
+time, since scenarios are written in the language of the problem and Topics in
+the language of the specialty.
+
+The repository already has the machinery to fix this: an embedding engine with
+47,537 vectors (`nerd embedding stats`), which is what the JIT selector uses for
+atom relevance. Dream agent selection is the one relevance decision still made
+by string matching. Scoring agents semantically — or falling back to embeddings
+only when lexical overlap is zero, which is the cheap version — would put the
+right specialists in front of the scenario without changing the consultation
+budget.
+
+Filed as an improvement rather than a defect: the current behaviour is correct,
+documented, and bounded. It is just leaving capability on the table on the exact
+axis the project cares about, since a wasted consultation is four wasted calls.
