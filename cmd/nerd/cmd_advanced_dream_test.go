@@ -102,3 +102,100 @@ func TestDreamSummary_NoAgentsIsNotSuccess(t *testing.T) {
 		t.Errorf("consulting nothing reported as success: %q", msg)
 	}
 }
+
+// Dream relevance ranking: the most topically matching agent should be first.
+//
+// Scenario about bubbletea terminal UI should rank the bubbletea expert above
+// go and rod experts, proving the overlap scorer works. This is the pure,
+// filesystem-free function required by the task.
+func TestDreamRanking_PutsTopicalFirst(t *testing.T) {
+	scenario := "implement bubbletea terminal UI with lipgloss styling and bubbles components"
+	metas := []dreamAgentMeta{
+		{Name: "goexpert", Role: "Expert in Go idioms, concurrency patterns, and standard library", Topics: []string{"go concurrency", "go error handling", "go interfaces", "go testing"}},
+		{Name: "bubbleteaexpert", Role: "Expert in Bubbletea TUI framework, Elm architecture, and terminal rendering", Topics: []string{"bubbletea", "elm architecture", "terminal UI", "lipgloss styling", "bubbles components"}},
+		{Name: "rodexpert", Role: "Expert in Rod browser automation, selectors, and CDP protocol", Topics: []string{"rod browser automation", "CDP protocol", "web scraping", "headless chrome", "page selectors"}},
+	}
+	ranked := rankDreamAgents(scenario, metas)
+	if len(ranked) != 3 {
+		t.Fatalf("ranked %d agents, want 3", len(ranked))
+	}
+	if ranked[0].Meta.Name != "bubbleteaexpert" {
+		t.Errorf("top ranked agent is %q (score %d), want bubbleteaexpert; full order: %v", ranked[0].Meta.Name, ranked[0].Score, ranked)
+	}
+	if ranked[0].Score == 0 {
+		t.Errorf("top agent scored 0, want >0 for topical match")
+	}
+	if ranked[1].Score > ranked[0].Score {
+		t.Errorf("ranking not descending: %v", ranked)
+	}
+}
+
+// --max-agents caps how many are consulted even when more are relevant.
+func TestDreamMaxAgents_CapsSelection(t *testing.T) {
+	scenario := "bubbletea terminal lipgloss bubbles"
+	metas := []dreamAgentMeta{
+		{Name: "a", Role: "bubbletea expert", Topics: []string{"bubbletea"}},
+		{Name: "b", Role: "bubbletea terminal", Topics: []string{"terminal"}},
+		{Name: "c", Role: "lipgloss styling", Topics: []string{"lipgloss"}},
+		{Name: "d", Role: "bubbles components", Topics: []string{"bubbles"}},
+		{Name: "e", Role: "elm architecture", Topics: []string{"elm"}},
+	}
+	selected := selectDreamAgents(scenario, metas, 2, false)
+	if len(selected) != 2 {
+		t.Fatalf("max-agents 2 selected %d agents, want 2", len(selected))
+	}
+	// Should be the two highest scoring.
+	ranked := rankDreamAgents(scenario, metas)
+	want := ranked[0].Meta.Name
+	if selected[0].Meta.Name != want {
+		t.Errorf("capped selection first is %q, want top ranked %q", selected[0].Meta.Name, want)
+	}
+}
+
+// All-zero scores still select up to the cap rather than none.
+func TestDreamAllZeroScores_SelectsUpToCap(t *testing.T) {
+	scenario := "quantum entanglement photon coherence"
+	metas := []dreamAgentMeta{
+		{Name: "goexpert", Role: "Expert in Go idioms, concurrency patterns", Topics: []string{"go concurrency", "go error handling"}},
+		{Name: "bubbleteaexpert", Role: "Expert in Bubbletea TUI framework", Topics: []string{"bubbletea", "lipgloss styling"}},
+		{Name: "rodexpert", Role: "Expert in Rod browser automation", Topics: []string{"rod browser automation", "CDP protocol"}},
+	}
+	for _, m := range metas {
+		if s := dreamRelevanceScore(scenario, m); s != 0 {
+			t.Fatalf("expected zero score for %q, got %d", m.Name, s)
+		}
+	}
+	selected := selectDreamAgents(scenario, metas, 2, false)
+	if len(selected) != 2 {
+		t.Fatalf("all-zero scores selected %d agents, want 2 (cap)", len(selected))
+	}
+	if selected[0].Score != 0 || selected[1].Score != 0 {
+		t.Errorf("expected zero scores in capped fallback, got %v", selected)
+	}
+}
+
+// --all bypasses ranking entirely and consults every consultable agent.
+func TestDreamAllFlag_BypassesRanking(t *testing.T) {
+	scenario := "implement bubbletea terminal UI with lipgloss styling and bubbles components"
+	metas := []dreamAgentMeta{
+		{Name: "goexpert", Role: "Expert in Go idioms, concurrency patterns", Topics: []string{"go concurrency"}},
+		{Name: "rodexpert", Role: "Expert in Rod browser automation", Topics: []string{"rod browser automation"}},
+		{Name: "bubbleteaexpert", Role: "Expert in Bubbletea TUI framework, Elm architecture, and terminal rendering", Topics: []string{"bubbletea", "elm architecture", "terminal UI", "lipgloss styling", "bubbles components"}},
+	}
+	// With max-agents 1 and all=false only the top agent would be selected.
+	capped := selectDreamAgents(scenario, metas, 1, false)
+	if len(capped) != 1 {
+		t.Fatalf("capped selection len %d, want 1", len(capped))
+	}
+	if capped[0].Meta.Name != "bubbleteaexpert" {
+		t.Errorf("capped top is %q, want bubbleteaexpert", capped[0].Meta.Name)
+	}
+	// With --all, every agent is consulted regardless of cap and ranking is bypassed (original order).
+	all := selectDreamAgents(scenario, metas, 1, true)
+	if len(all) != len(metas) {
+		t.Fatalf("--all selected %d agents, want %d (all)", len(all), len(metas))
+	}
+	if all[0].Meta.Name != metas[0].Name || all[1].Meta.Name != metas[1].Name || all[2].Meta.Name != metas[2].Name {
+		t.Errorf("--all did not preserve original order (ranking bypass): got %v, want %v", []string{all[0].Meta.Name, all[1].Meta.Name, all[2].Meta.Name}, []string{metas[0].Name, metas[1].Name, metas[2].Name})
+	}
+}

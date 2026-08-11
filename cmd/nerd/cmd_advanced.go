@@ -44,6 +44,15 @@ Example:
 	Args: cobra.MinimumNArgs(1),
 	RunE: runDreamState,
 }
+var (
+	dreamMaxAgents int = 4
+	dreamAll       bool
+)
+
+func init() {
+	dreamCmd.Flags().IntVar(&dreamMaxAgents, "max-agents", 4, "Maximum number of agents to consult (ranked by relevance)")
+	dreamCmd.Flags().BoolVar(&dreamAll, "all", false, "Consult all available agents, bypassing relevance ranking")
+}
 
 // shadowCmd runs shadow mode simulation
 var shadowCmd = &cobra.Command{
@@ -212,23 +221,98 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 		}
 		consultable = append(consultable, i)
 	}
+	// Relevance ranking: score each consultable shard by overlap between
+	// scenario's meaningful words and the agent's Role + Topics (from
+	// .nerd/agents/<lowercase name>/prompts.yaml) and consult only the
+	// highest scoring ones, bounded by --max-agents. This replaces the
+	// previous fan-out to every consultable agent which wasted one LLM
+	// round-trip per irrelevant agent.
+	selectedConsultable := consultable
+	selectedScores := make(map[int]int, len(consultable))
+	relevanceSkipped := 0
+	shouldRank := !dreamAll && len(consultable) > 0
+	if shouldRank {
+		// Resolve workspace root for prompts.yaml discovery.
+		wsRoot := workspace
+		if wsRoot == "" {
+			wsRoot = cortex.Workspace
+			if wsRoot == "" {
+				wsRoot, _ = os.Getwd()
+			}
+		}
+		metas := make([]dreamAgentMeta, len(consultable))
+		for i, shardIdx := range consultable {
+			m := loadDreamAgentMeta(wsRoot, shards[shardIdx].Name)
+			if m.Name == "" {
+				m.Name = shards[shardIdx].Name
+			}
+			metas[i] = m
+		}
+		selected := selectDreamAgents(scenario, metas, dreamMaxAgents, false)
+		selectedConsultable = make([]int, 0, len(selected))
+		for _, r := range selected {
+			shardIdx := consultable[r.Index]
+			selectedConsultable = append(selectedConsultable, shardIdx)
+			selectedScores[shardIdx] = r.Score
+		}
+		relevanceSkipped = len(consultable) - len(selectedConsultable)
+	} else if dreamAll {
+	} else if dreamAll {
+		// --all bypasses ranking entirely but still compute scores for inspectability.
+		wsRoot := workspace
+		if wsRoot == "" {
+			wsRoot = cortex.Workspace
+			if wsRoot == "" {
+				wsRoot, _ = os.Getwd()
+			}
+		}
+		for _, shardIdx := range consultable {
+			m := loadDreamAgentMeta(wsRoot, shards[shardIdx].Name)
+			selectedScores[shardIdx] = dreamRelevanceScore(scenario, m)
+		}
+	} else {
+		// No ranking needed (no consultable agents).
+	}
 	// Announce the count actually consulted, not the raw registry size. It
 	// said "Consulting 22 agents" while consulting 9, so the error tally never
 	// added up to the announced total and the gap looked like silent drops.
-	fmt.Printf("🤖 Consulting %d agents", len(consultable))
-	if skipped := len(shards) - len(consultable); skipped > 0 {
-		fmt.Printf(" (%d skipped: %d system, %d image-generation aliases)",
-			skipped, skipped-skippedImage, skippedImage)
+	// Now also report how many were skipped for low relevance, distinctly
+	// from system/image skips, and make the ranking inspectable.
+	totalConsulted := len(selectedConsultable)
+	totalSystemImageSkipped := len(shards) - len(consultable)
+	systemCount := totalSystemImageSkipped - skippedImage
+	if systemCount < 0 {
+		systemCount = 0
+	}
+	totalSkipped := len(shards) - totalConsulted
+	if relevanceSkipped > 0 {
+		fmt.Printf("🤖 Consulting %d agents (%d skipped: %d system, %d image-generation aliases, %d low relevance)", totalConsulted, totalSkipped, systemCount, skippedImage, relevanceSkipped)
+	} else {
+		fmt.Printf("🤖 Consulting %d agents", totalConsulted)
+		if totalSkipped > 0 {
+			fmt.Printf(" (%d skipped: %d system, %d image-generation aliases)", totalSkipped, systemCount, skippedImage)
+		}
 	}
 	fmt.Println("...")
+	if totalConsulted > 0 {
+		// Make the ranking inspectable: each consulted agent with its score.
+		fmt.Println("Relevance scores:")
+		for i, shardIdx := range selectedConsultable {
+			score := selectedScores[shardIdx]
+			fmt.Printf("  %d. %s (score: %d)\n", i+1, shards[shardIdx].Name, score)
+		}
+		if relevanceSkipped > 0 {
+			fmt.Printf("  (%d agents skipped for low relevance)\n", relevanceSkipped)
+		}
+	}
 	fmt.Println()
 
 	const dreamConcurrency = 6
-	results := make([]dreamResult, len(consultable))
+	results := make([]dreamResult, len(selectedConsultable))
 	sem := make(chan struct{}, dreamConcurrency)
 	var wg sync.WaitGroup
 
-	for slot, shardIdx := range consultable {
+	for slot, shardIdx := range selectedConsultable {
 		wg.Add(1)
 		go func(slot, shardIdx int) {
 			defer wg.Done()
@@ -297,6 +381,148 @@ func dreamSummary(succeeded, failed int, budget time.Duration, deadlineExpired b
 	default:
 		return fmt.Sprintf("✅ Dream state consultation complete: %d agents responded", succeeded), nil
 	}
+}
+
+// dreamAgentMeta carries the relevance signal for one agent.
+//
+// Each user or persistent agent has .nerd/agents/<lowercase name>/prompts.yaml
+// whose identity atom holds the Role line and Topics list. Those two fields
+// describe what the agent knows and are the cheapest relevance signal without
+// new dependencies or LLM calls.
+type dreamAgentMeta struct {
+	Name   string
+	Role   string
+	Topics []string
+}
+
+// scoredDreamAgent pairs metadata with its relevance score.
+type scoredDreamAgent struct {
+	Meta  dreamAgentMeta
+	Score int
+	Index int // original position in the consultable slice (stable tie-break)
+}
+
+// dreamRelevanceScore scores one agent against the scenario by token overlap.
+//
+// Both sides are tokenised with the existing tokenRe / subtaskGenericStopWords
+// pair from cmd_instruction.go (reusing that helper rather than inventing a
+// third) and compared case-insensitively. Short (<3) and generic stop-word
+// tokens are ignored. Missing metadata yields a neutral 0, not exclusion.
+func dreamRelevanceScore(scenario string, meta dreamAgentMeta) int {
+	scenarioTokens := distinctiveTokens(scenario)
+	if len(scenarioTokens) == 0 {
+		return 0
+	}
+	agentText := meta.Role + " " + strings.Join(meta.Topics, " ")
+	agentTokens := distinctiveTokens(agentText)
+	if len(agentTokens) == 0 {
+		return 0
+	}
+	set := make(map[string]struct{}, len(agentTokens))
+	for _, t := range agentTokens {
+		set[t] = struct{}{}
+	}
+	score := 0
+	for _, tok := range scenarioTokens {
+		if _, ok := set[tok]; ok {
+			score++
+		}
+	}
+	return score
+}
+
+// rankDreamAgents scores and sorts agents by descending relevance. The sort is
+// stable so equal scores preserve the original consultable order. This is the
+// pure, filesystem-free function exercised by dream ranking tests.
+func rankDreamAgents(scenario string, metas []dreamAgentMeta) []scoredDreamAgent {
+	scored := make([]scoredDreamAgent, len(metas))
+	for i, m := range metas {
+		scored[i] = scoredDreamAgent{Meta: m, Score: dreamRelevanceScore(scenario, m), Index: i}
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].Score != scored[j].Score {
+			return scored[i].Score > scored[j].Score
+		}
+		return scored[i].Index < scored[j].Index
+	})
+	return scored
+}
+
+// selectDreamAgents ranks and caps the result. If all is true the ranking is
+// bypassed entirely and every agent is returned in original order. Otherwise
+// at most maxAgents are returned (default 4). If every score is zero the
+// function still returns up to maxAgents rather than none — a dream that
+// consults nobody is worse than one that consults the wrong people.
+func selectDreamAgents(scenario string, metas []dreamAgentMeta, maxAgents int, all bool) []scoredDreamAgent {
+	if all {
+		// Bypass ranking: return all in original order with scores for inspectability.
+		scored := make([]scoredDreamAgent, len(metas))
+		for i, m := range metas {
+			scored[i] = scoredDreamAgent{Meta: m, Score: dreamRelevanceScore(scenario, m), Index: i}
+		}
+		return scored
+	}
+	ranked := rankDreamAgents(scenario, metas)
+	if maxAgents <= 0 {
+		maxAgents = 4
+	}
+	if maxAgents > len(ranked) {
+		maxAgents = len(ranked)
+	}
+	if len(ranked) == 0 {
+		return ranked
+	}
+	return ranked[:maxAgents]
+}
+
+// loadDreamAgentMeta reads .nerd/agents/<lowercase name>/prompts.yaml and
+// extracts the identity atom's Role and Topics. If the file is missing or
+// unreadable it returns a neutral meta (score 0) rather than excluding the
+// agent — absent metadata is not evidence of irrelevance.
+func loadDreamAgentMeta(workspace, agentName string) dreamAgentMeta {
+	meta := dreamAgentMeta{Name: agentName}
+	lower := strings.ToLower(agentName)
+	promptsPath := filepath.Join(workspace, ".nerd", "agents", lower, "prompts.yaml")
+	data, err := os.ReadFile(promptsPath)
+	if err != nil {
+		return meta
+	}
+	parsed := parseDreamAgentMetaContent(agentName, string(data))
+	// Preserve the exact shard name casing for display.
+	parsed.Name = agentName
+	return parsed
+}
+
+// parseDreamAgentMetaContent extracts Role and Topics from prompts.yaml content
+// without a YAML dependency. It scans for lines starting with "Role:" and
+// "Topics:" (case-insensitive, leading spaces ignored), matching the
+// content_concise block of the identity atom.
+func parseDreamAgentMetaContent(agentName, content string) dreamAgentMeta {
+	meta := dreamAgentMeta{Name: agentName}
+	var role, topicsStr string
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		low := strings.ToLower(trimmed)
+		if strings.HasPrefix(low, "role:") {
+			role = strings.TrimSpace(trimmed[len("Role:"):])
+		} else if strings.HasPrefix(low, "topics:") {
+			topicsStr = strings.TrimSpace(trimmed[len("Topics:"):])
+		}
+	}
+	meta.Role = role
+	if topicsStr != "" {
+		parts := strings.Split(topicsStr, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				meta.Topics = append(meta.Topics, p)
+			}
+		}
+	}
+	return meta
 }
 
 // runShadowSimulation runs shadow mode
