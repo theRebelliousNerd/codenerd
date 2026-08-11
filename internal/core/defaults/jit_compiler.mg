@@ -180,6 +180,19 @@ suppressed(Atom) :- beats(_, Atom).
 # Tentative Selection: Mandatory OR Candidate (if not suppressed)
 tentative(Atom) :- mandatory_selection(Atom).
 tentative(Atom) :- candidate_selection(Atom, _), !suppressed(Atom).
+# Policy veto bridge (restrictive direction only): wire policy/jit_selection.mg as
+# vetoes, not admissions. prohibited_atom and conflict_loser are the two things
+# policy/jit_selection.mg owns that this file does not have -- a firewall that
+# propagates through atom_requires, and conflict resolution that lets a mandatory
+# atom beat a candidate. Both are vetoes. Wiring them makes the ruleset live on
+# every compile while moving the atom count down or equal, never up. A second
+# opinion in a selector should be able to veto, not to admit.
+# Stratification: no cycle -- prohibited_atom derives from base_prohibited over
+# compile_context/atom_tag/atom_requires, and conflict_loser derives from
+# candidate_atom/mandatory_atom/atom_conflicts/prompt_atom. Nothing in either
+# chain reads this file's prohibited or suppressed.
+prohibited(Atom) :- prohibited_atom(Atom).
+suppressed(Atom) :- conflict_loser(Atom).
 
 # Recursive dependency inclusion: If A is selected, Dep must be selected.
 # This expands the set to include dependencies.

@@ -3,37 +3,32 @@
 # Handles ranking and final selection of prompt atoms.
 #
 # ---------------------------------------------------------------------------
-# STATUS (audited 2026-08-08): THIS IS NOT THE LIVE SELECTION RULESET.
+# STATUS (as of 2026-08-11): this ruleset is PARTIALLY LIVE.
 # ---------------------------------------------------------------------------
 #
-# The Go selector queries selected_result/3, which is defined in
-# defaults/jit_compiler.mg — see internal/prompt/selector.go,
-# loadSkeletonAtomsKernel and loadFleshAtomsKernel. Nothing in production Go
-# queries selected_atom, candidate_atom, mandatory_atom, prohibited_atom,
-# conflict_loser, has_skeleton_category or missing_skeleton_category. The only
-# non-Decl references to those predicates anywhere in the repo are a debug
-# logging allowlist (internal/core/kernel_query.go) and the world-model scan
-# graph.
+# 1. jit_compiler.mg now consumes prohibited_atom and conflict_loser as vetoes
+#    -- see the "Policy veto bridge" comment there. So the firewall and
+#    conflict-resolution rules in this file bind on every compile.
 #
-# Both files are loaded into the same program (defaults/policy/*.mg via
-# kernel_init.go, then jit_compiler.mg via defaultCorePolicyModules), so these
-# rules are evaluated on every prompt compile and the results are discarded.
-# There is no predicate-name collision between the two rulesets, so this costs
-# work rather than correctness — but it does cost work, over ~890 atoms, on
-# every turn.
+# 2. selected_atom, candidate_atom and mandatory_atom are admissions, and
+#    nothing queries them. Wiring selected_atom into tentative was measured on
+#    2026-08-11 and rejected: a /fix compile went from 67 atoms and 26279 tokens
+#    to 254 atoms and 65036 of 65536 tokens, 99.2 percent budget saturation,
+#    because each admitted atom recursively pulls its atom_requires dependencies
+#    into tentative. The Go selector still queries only selected_result/3 from
+#    jit_compiler.mg. The rule this establishes: a second opinion in a selector
+#    may veto, never admit.
 #
-# Two rules here additionally could never have fired regardless of wiring:
-# mandatory_atom's skeleton-by-shard rule and candidate_atom's non-vector rule
-# both matched atom_tag(AtomID, /shard_type, ShardType), while the fact producer
-# (selector.go, addTags("shard", atom.ShardTypes)) emits the dimension as
-# /shard. Fixed here so the rules are at least correct, since a rule that cannot
-# match is a bug whether or not anyone runs it.
+# 3. /shard_type history, corrected. The old block claimed both rules that
+#    matched /shard_type were fixed to /shard. Only mandatory_atom was; the
+#    candidate_atom rule still read /shard_type until change 1 above. Commit
+#    ce65c7b9 separately made selector.go emit /shard_type as well, so the rule
+#    became live rather than dead -- and because /shard_type is not in
+#    jit_compiler.mg's regime_dimension list, it was live and ungated. That
+#    combination is what produced the saturation measured in point 2.
 #
-# Deleting the selection half of this file is the obvious follow-up and is
-# deliberately NOT done here: it is a larger change than a name fix, and this
-# repo has a habit of "unused" code turning out to be a wiring gap rather than
-# dead weight. Whoever removes it should confirm the Decls in
-# defaults/schemas_prompts.mg go with it.
+# 4. Two base_prohibited rules in this file remain inert because no producer
+#    emits dimension /tag; the INERT comments above them carry the detail.
 
 # -----------------------------------------------------------------------------
 # Selection Algorithm (Stratified)
@@ -210,18 +205,24 @@ mandatory_atom(AtomID) :-
 # FIREWALL (Prohibited in certain contexts)
 
 # Base prohibitions: context-based blocking
+# INERT: atom_tag with /tag never matches — PromptAtom has no Tags field and
+# selector.go (1340-1352) never emits dimension /tag, so this rule derives nothing.
+# Pending a Tags field on PromptAtom; same is true of the /tag rule in jit_compiler.mg near line 137.
 base_prohibited(AtomID) :-
     compile_context(/operational_mode, /production),
     atom_tag(AtomID, /tag, /debug_only).
 
 base_prohibited(AtomID) :-
     compile_context(/operational_mode, /dream),
-    atom_tag(AtomID, /category, /ouroboros).
+    prompt_atom(AtomID, /ouroboros, _, _, _).
 
 base_prohibited(AtomID) :-
     compile_context(/operational_mode, /init),
-    atom_tag(AtomID, /category, /campaign).
+    prompt_atom(AtomID, /campaign, _, _, _).
 
+# INERT: atom_tag with /tag never matches — PromptAtom has no Tags field and
+# selector.go (1340-1352) never emits dimension /tag, so this rule derives nothing.
+# Pending a Tags field on PromptAtom; same is true of the /tag rule in jit_compiler.mg near line 137.
 base_prohibited(AtomID) :-
     compile_context(/operational_mode, /active),
     atom_tag(AtomID, /tag, /dream_only).
@@ -251,7 +252,7 @@ candidate_atom(AtomID) :-
     Priority > 50,
     !prohibited_atom(AtomID),
     !mandatory_atom(AtomID),
-    atom_tag(AtomID, /shard_type, ShardType),
+    atom_tag(AtomID, /shard, ShardType),
     compile_shard(_, ShardType).
 
 # Final Selection (with Conflict Resolution)
