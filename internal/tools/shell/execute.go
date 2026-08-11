@@ -24,6 +24,25 @@ var (
 	execLookPath       = exec.LookPath
 )
 
+// commandWaitDelay bounds how long [exec.Cmd.Wait] waits for I/O copying to
+// finish after the context is cancelled or the process exits before it closes
+// the pipes and returns. It bounds post-cancellation I/O wait, not command
+// runtime (the context timeout bounds runtime). Without it, a grandchild that
+// inherits the write end of the pipe can keep Wait blocked long after the
+// deadline, because Wait waits for the background goroutine copying from the
+// os.Pipe which waits for EOF.
+const commandWaitDelay = 5 * time.Second
+
+// newCommand creates a new exec.Cmd via execCommandContext and sets WaitDelay
+// so that Wait does not block indefinitely on a pipe held open by a grandchild.
+// All command construction in this file should go through this helper so the
+// WaitDelay cannot drift out of sync between the three execution paths.
+func newCommand(ctx context.Context, name string, arg ...string) *exec.Cmd {
+	cmd := execCommandContext(ctx, name, arg...)
+	cmd.WaitDelay = commandWaitDelay
+	return cmd
+}
+
 // coerceInt accepts any of the shapes a JSON-decoded LLM tool argument can
 // take and returns an int. LLM tool-call payloads round-trip through JSON,
 // which decodes numbers as float64 by default — so a plain
@@ -179,7 +198,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 					logging.VirtualStoreDebug(
 						"run_command: routing to %s instead of PowerShell; POSIX-only stages: %s",
 						bashPath, strings.Join(posix, ", "))
-					cmd = execCommandContext(execCtx, bashPath, "-c", command)
+					cmd = newCommand(execCtx, bashPath, "-c", command)
 				}
 			}
 			if cmd == nil {
@@ -192,10 +211,10 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 				if shellPath == "" {
 					return "", fmt.Errorf("interpreter not found: neither pwsh nor powershell is available")
 				}
-				cmd = execCommandContext(execCtx, shellPath, "-NoProfile", "-NonInteractive", "-Command", command)
+				cmd = newCommand(execCtx, shellPath, "-NoProfile", "-NonInteractive", "-Command", command)
 			}
 		} else {
-			cmd = execCommandContext(execCtx, "sh", "-c", command)
+			cmd = newCommand(execCtx, "sh", "-c", command)
 		}
 
 		if workingDir != "" {
@@ -295,9 +314,9 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 
 	var cmd *exec.Cmd
 	if len(parsedArgs) == 1 {
-		cmd = execCommandContext(execCtx, parsedArgs[0])
+		cmd = newCommand(execCtx, parsedArgs[0])
 	} else {
-		cmd = execCommandContext(execCtx, parsedArgs[0], parsedArgs[1:]...)
+		cmd = newCommand(execCtx, parsedArgs[0], parsedArgs[1:]...)
 	}
 
 	if workingDir != "" {
@@ -403,7 +422,7 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 	if runtime.GOOS == "windows" {
 		bashPath := findBashWindows()
 		if bashPath != "" {
-			cmd = execCommandContext(execCtx, bashPath)
+			cmd = newCommand(execCtx, bashPath)
 			cmd.Stdin = strings.NewReader(script)
 		} else {
 			// Fall back to cmd with basic interpretation
@@ -414,7 +433,7 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 			})
 		}
 	} else {
-		cmd = execCommandContext(execCtx, "bash")
+		cmd = newCommand(execCtx, "bash")
 		cmd.Stdin = strings.NewReader(script)
 	}
 
