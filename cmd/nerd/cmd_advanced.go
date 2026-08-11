@@ -309,6 +309,14 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
+	wsRoot := strings.TrimSpace(workspace)
+	if wsRoot == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			wsRoot = cwd
+		}
+	}
+	rootBefore := snapshotDirectRoot(wsRoot)
+
 	const dreamConcurrency = 6
 	results := make([]dreamResult, len(selectedConsultable))
 	sem := make(chan struct{}, dreamConcurrency)
@@ -328,6 +336,7 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 		}(slot, shardIdx)
 	}
 	wg.Wait()
+	rootAfter := snapshotDirectRoot(wsRoot)
 
 	succeeded, failed := 0, 0
 	for i, r := range results {
@@ -350,6 +359,9 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 	// Report the outcome the run actually had.
 	summary, err := dreamSummary(succeeded, failed, dreamTimeout, ctx.Err() != nil)
 	fmt.Println(summary)
+	if newEntries := findNewRootEntries(rootBefore, rootAfter); len(newEntries) > 0 {
+		fmt.Printf("⚠️  Created in the repository root, undeclared: %s\n", strings.Join(newEntries, ", "))
+	}
 	if err != nil {
 		return err
 	}
@@ -552,14 +564,28 @@ func runShadowSimulation(cmd *cobra.Command, args []string) error {
 	shadowCtx := &types.SessionContext{DreamMode: true}
 	prompt := fmt.Sprintf("SHADOW MODE - Describe what would happen without executing:\n\n%s\n\nList the files that would be affected, changes that would be made, and potential risks. Do NOT actually make any changes.", action)
 
+	wsRoot := strings.TrimSpace(workspace)
+	if wsRoot == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			wsRoot = cwd
+		}
+	}
+	rootBefore := snapshotDirectRoot(wsRoot)
 	// Shadow mode = normal priority (user CLI command but speculative)
 	result, err := cortex.SpawnTaskWithContext(ctx, "coder", prompt, shadowCtx, types.PriorityNormal)
+	rootAfter := snapshotDirectRoot(wsRoot)
 	if err != nil {
+		if newEntries := findNewRootEntries(rootBefore, rootAfter); len(newEntries) > 0 {
+			fmt.Printf("⚠️  Created in the repository root, undeclared: %s\n", strings.Join(newEntries, ", "))
+		}
 		return fmt.Errorf("shadow simulation failed: %w", err)
 	}
 
 	fmt.Println("📋 Simulation Result:")
 	fmt.Println(result)
+	if newEntries := findNewRootEntries(rootBefore, rootAfter); len(newEntries) > 0 {
+		fmt.Printf("⚠️  Created in the repository root, undeclared: %s\n", strings.Join(newEntries, ", "))
+	}
 
 	return nil
 }
@@ -624,17 +650,31 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 	analysisCtx, analysisCancel := context.WithTimeout(ctx, 45*time.Second)
 	defer analysisCancel()
 
+	wsRoot := strings.TrimSpace(workspace)
+	if wsRoot == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			wsRoot = cwd
+		}
+	}
+	rootBefore := snapshotDirectRoot(wsRoot)
 	fmt.Println("📋 Analysis:")
 	result, err := cortex.LLMClient.Complete(analysisCtx, prompt)
+	rootAfter := snapshotDirectRoot(wsRoot)
 	if err != nil {
 		if analysisCtx.Err() != nil {
 			fmt.Println("   (analysis timed out; kernel implications above are complete)")
 		} else {
 			fmt.Printf("   Analysis failed: %v\n", err)
 		}
+		if newEntries := findNewRootEntries(rootBefore, rootAfter); len(newEntries) > 0 {
+			fmt.Printf("⚠️  Created in the repository root, undeclared: %s\n", strings.Join(newEntries, ", "))
+		}
 		return nil
 	}
 	fmt.Println(result)
+	if newEntries := findNewRootEntries(rootBefore, rootAfter); len(newEntries) > 0 {
+		fmt.Printf("⚠️  Created in the repository root, undeclared: %s\n", strings.Join(newEntries, ", "))
+	}
 	return nil
 }
 
