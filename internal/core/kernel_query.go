@@ -92,16 +92,22 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 			})
 		}
 	} else {
+		matchedDecls := 0
 		for pred := range k.programInfo.Decls {
 			if pred.Symbol == predicateName {
 				predicateFound = true
+				matchedDecls++
+				perArityCount := 0
 				k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
 					fact := atomToFact(a)
 					results = append(results, fact)
+					perArityCount++
 					return nil
 				})
+				logging.KernelDebug("Query: decl %s/%d -> %d facts", pred.Symbol, pred.Arity, perArityCount)
 			}
 		}
+		logging.KernelDebug("Query: predicate=%s matchedDecls=%d totalResults=%d", predicateName, matchedDecls, len(results))
 	}
 
 	if !predicateFound {

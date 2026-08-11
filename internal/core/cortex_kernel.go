@@ -356,12 +356,44 @@ func (c *CortexKernel) RemoveFactsByPredicateSet(predicates map[string]struct{})
 }
 
 // Query routes a query to the owning shard.
+// Query routes a query to the owning shard. When the predicate has no registered
+// owner, it fans out to every shard and concatenates the results, matching
+// QueryAll's merging strategy. When the predicate does have an owner, the
+// original single-shard routing is preserved exactly.
 func (c *CortexKernel) Query(predicate string) ([]types.Fact, error) {
-	shard := c.routeToShard(predicate)
-	if shard == nil {
+	barePred := predicate
+	if idx := strings.Index(predicate, "("); idx > 0 {
+		barePred = strings.TrimSpace(predicate[:idx])
+	}
+	c.mu.RLock()
+	_, owned := c.predicateOwner[barePred]
+	if owned {
+		c.mu.RUnlock()
+		shard := c.routeToShard(predicate)
+		if shard == nil {
+			return nil, fmt.Errorf("[cortex] no shard available for predicate '%s'", predicate)
+		}
+		return shard.Query(predicate)
+	}
+	// Unowned predicate: fan out to every registered shard.
+	shards := make([]*KernelShard, 0, len(c.shards))
+	for _, s := range c.shards {
+		shards = append(shards, s)
+	}
+	c.mu.RUnlock()
+	if len(shards) == 0 {
 		return nil, fmt.Errorf("[cortex] no shard available for predicate '%s'", predicate)
 	}
-	return shard.Query(predicate)
+	atomic.AddInt64(&c.routeMissCount, 1)
+	var merged []types.Fact
+	for _, shard := range shards {
+		results, err := shard.Query(predicate)
+		if err != nil {
+			return nil, err
+		}
+		merged = append(merged, results...)
+	}
+	return merged, nil
 }
 
 // QueryAll returns all derived facts from ALL shards, merged.
