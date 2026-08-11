@@ -296,3 +296,108 @@ worthwhile. Three failure modes to expect and check for:
 Sizing matters: single-file, single-function tasks completed; multi-file tasks
 (hoist a function across packages, then wire three call sites, then write a test) hit
 the 24-iteration ceiling every time. Split them.
+
+---
+
+## F-PERM-1 — the five permissioned actions are unreachable by construction
+
+**Status: OPEN. Needs a human decision; deliberately not fixed by Claude or by codeNERD.**
+
+Symptom: codeNERD asked to delete two obsolete test files. It emitted
+`/delete_file` six times, then `/run_command` twice and `/bash` once trying to
+route around the refusal — nine blocked tool calls, nine LLM round trips — and
+finally degraded to truncating both files to 17-byte `package campaign` stubs.
+
+Evidence (`.nerd/logs/20260810_232614...`): the kernel received
+`pending_action("call_...", /delete_file, "internal/campaign/orchestrator_callsite_test.go",
+"{\"confirmed\":true,\"path\":\"...\"}")`. Confirmation *was* present. The
+following `permitted(/delete_file, ...)` query returned nothing.
+
+Root cause: `confirmed:true` is required by the tool schema
+(`internal/tools/core/file_ops.go:482`), enforced at `:514`, and covered by a
+passing test — and it is never translated into any kernel fact. The Go
+confirmation and the Mangle permission derivation are two systems that never
+meet. Tracing every `permitted` route in `constitution.mg`:
+
+| Route | Status |
+|---|---|
+| `safe_action(/delete_file)` | absent — it is `requires_permission` → `dangerous_action` |
+| `dangerous_action` + `signed_approval` + `admin_override` | neither fact is ever asserted outside tests |
+| `permitted_action` + `permission_check_result(/permit)` | **circular** — the gate emits these *after* deciding |
+| `has_active_override` ← `appeal_granted` | `HandleAppeal` has **zero production callers** |
+
+`escalateToUser` asserts `escalation_needed`, which nothing consumes. So the
+whole appeal-and-escalation apparatus is built and unreachable, and all five
+`requires_permission` actions are dead: `/delete_file`, `/git_push`,
+`/git_force`, `/run_arbitrary_command`, `/system_modify`.
+
+The uncomfortable part: `/write_file` **is** a `safe_action`. The agent may
+overwrite any file with any content, which is how it routed around the block.
+The gate did not prevent destruction; it forced an uglier form of it and left
+artifacts resembling the scratch-file failure mode.
+
+Proposed minimal rule, for `internal/core/defaults/policy/constitution.mg`
+(escaped-quote form has precedent at `:387`):
+
+```
+permitted(/delete_file, Target, Payload) :-
+    pending_action(_, /delete_file, Target, Payload, _),
+    :string:contains(Payload, "\"confirmed\":true"),
+    !dangerous_content(/delete_file, Target),
+    !dangerous_content(/delete_file, Payload).
+```
+
+Residual protections, all verified to still apply to `delete_file`: the tool
+layer's required `confirmed`; nerd.md `project_forbidden_path`, since
+`delete_file` is in `projectdoc.IsWriteMutationTool`; and the Dreamer
+destructive-action preflight. These are the same layers `/write_file` already
+passes through while being `safe_action`.
+
+Recommendation: adopt for `/delete_file` only; leave `/git_push` and the other
+three gated. The alternative — wiring `HandleAppeal` to a real prompt — is the
+better long-term answer but is a feature, not a fix.
+
+Not applied unilaterally: widening a safety gate is the user's call, and
+`.claude/settings.json` `permissions.deny` correctly prevents Claude from
+self-granting it.
+
+---
+
+## F-SWEB-1 — the SWE-bench harness has no way to load instances
+
+**Resolves the long-standing "adopt or delete `internal/tactile/swebench`" question: ADOPT.**
+
+The north star is 100% on SWE-bench. The execution machinery for that exists and
+is wired: `internal/core/virtual_store_python.go` implements
+`handleSWEBenchSetup`, `handleSWEBenchApplyPatch`, `handleSWEBenchRunTests`,
+`handleSWEBenchSnapshot`, `handleSWEBenchRestore` and teardown; they are routed
+through the VirtualStore and `constitution.mg:196-199` marks
+`/swebench_snapshot`, `/swebench_restore`, `/swebench_evaluate` and
+`/swebench_teardown` as `safe_action`. The design is right for this repo: the
+handlers assert `swebench_instance`, `swebench_environment`,
+`swebench_expected_fail_to_pass` and `swebench_expected_pass_to_pass` as kernel
+facts, so resolution is a logic question rather than a Go one.
+
+The gap: `handleSWEBenchSetup` reads `instance_id`, `repo`, `base_commit`,
+`problem_statement`, `fail_to_pass` and `pass_to_pass` out of `req.Payload`.
+Something has to supply them, and nothing does. A repo-wide search finds no
+dataset loading on the live path at all.
+
+The missing piece already exists, unimported: `internal/tactile/swebench` holds
+`LoadInstances(path)`, `Instance`, `Prediction` and `EvaluationResult`, with
+passing tests and **zero importers**. So the two halves of a SWE-bench run were
+built separately and never joined — the dataset reader has no caller, and the
+executor has no data source.
+
+Conclusion: do not delete the package. Adopt its instance/dataset layer and let
+it drive the existing live handlers through the action path. Do NOT adopt its
+parallel Go `Harness` (Initialize/Setup/Evaluate/EvaluateWithReset) — that
+duplicates the routed handlers imperatively and would move resolution out of the
+kernel, against the architecture the live path already implements.
+
+Suggested slicing, because multi-file tasks reliably hit the tool-iteration
+ceiling: (1) a command that loads a dataset file and drives ONE instance through
+setup via the action path, proving the join; (2) patch + test + evaluate for that
+instance; (3) batch iteration and scoring.
+
+Status: OPEN, unblocked, no policy decision needed.
