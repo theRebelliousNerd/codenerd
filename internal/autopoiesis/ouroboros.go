@@ -469,65 +469,76 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 				if battleErr != nil {
 					logging.Get(logging.CategoryAutopoiesis).Error("Thunderdome battle failed: %v", battleErr)
 					// Continue without Thunderdome result
-				} else if !battleResult.Survived {
-					// Tool was killed by PanicMaker
-					o.mu.Lock()
-					o.stats.ThunderdomeKills++
-					o.mu.Unlock()
-
-					// Record the kill in Mangle
-					_ = o.engine.AddFact("panic_maker_verdict", tool.Name, "/defeated", time.Now().Unix())
-					if battleResult.FatalAttack != nil {
-						_ = o.engine.AddFact("attack_killed",
-							battleResult.FatalAttack.Name,
-							tool.Name,
-							battleResult.Results[len(battleResult.Results)-1].Failure,
-							"")
-					}
-
-					// Check if we can retry
-					panicRetryCount := 0
-					if len(lastViolations) > 0 {
-						for _, v := range lastViolations {
-							if v.Type == ViolationPanicMakerKill {
-								panicRetryCount++
-							}
+				} else {
+					// Emit one thunderdome_result fact per attack for kernel policy consumption.
+					facts := buildThunderdomeResultFacts(battleResult)
+					if len(facts) > 0 {
+						if err := o.engine.AddFacts(facts); err != nil {
+							logging.Get(logging.CategoryAutopoiesis).Warn("Failed to emit thunderdome_result facts: %v", err)
+						} else {
+							logging.AutopoiesisDebug("Recorded %d thunderdome_result facts for tool=%s", len(facts), battleResult.ToolName)
 						}
 					}
+					if !battleResult.Survived {
+						// Tool was killed by PanicMaker
+						o.mu.Lock()
+						o.stats.ThunderdomeKills++
+						o.mu.Unlock()
 
-					if panicRetryCount < o.config.MaxPanicRetries {
-						// Create feedback for regeneration
-						lastViolations = []SafetyViolation{{
-							Type:        ViolationPanicMakerKill,
-							Description: o.thunderdome.FormatBattleResultForFeedback(battleResult),
-							Severity:    SeverityCritical,
-						}}
-						retryCount++
+						// Record the kill in Mangle
+						_ = o.engine.AddFact("panic_maker_verdict", tool.Name, "/defeated", time.Now().Unix())
+						if battleResult.FatalAttack != nil {
+							_ = o.engine.AddFact("attack_killed",
+								battleResult.FatalAttack.Name,
+								tool.Name,
+								battleResult.Results[len(battleResult.Results)-1].Failure,
+								"")
+						}
 
-						logging.Autopoiesis("Tool KILLED by PanicMaker, regenerating (attempt %d/%d)",
-							panicRetryCount+1, o.config.MaxPanicRetries)
-						continue // Retry the loop
+						// Check if we can retry
+						panicRetryCount := 0
+						if len(lastViolations) > 0 {
+							for _, v := range lastViolations {
+								if v.Type == ViolationPanicMakerKill {
+									panicRetryCount++
+								}
+							}
+						}
+
+						if panicRetryCount < o.config.MaxPanicRetries {
+							// Create feedback for regeneration
+							lastViolations = []SafetyViolation{{
+								Type:        ViolationPanicMakerKill,
+								Description: o.thunderdome.FormatBattleResultForFeedback(battleResult),
+								Severity:    SeverityCritical,
+							}}
+							retryCount++
+
+							logging.Autopoiesis("Tool KILLED by PanicMaker, regenerating (attempt %d/%d)",
+								panicRetryCount+1, o.config.MaxPanicRetries)
+							continue // Retry the loop
+						}
+
+						// Max retries exceeded
+						o.mu.Lock()
+						o.stats.ToolsRejected++
+						o.mu.Unlock()
+
+						result.Error = fmt.Sprintf("tool killed by PanicMaker after %d regeneration attempts: %s",
+							o.config.MaxPanicRetries, battleResult.FatalAttack.Name)
+						logging.Get(logging.CategoryAutopoiesis).Error("Tool %s rejected: %s", need.Name, result.Error)
+						return result
+					} else {
+						// Tool survived!
+						o.mu.Lock()
+						o.stats.ThunderdomeSurvived++
+						o.mu.Unlock()
+
+						_ = o.engine.AddFact("panic_maker_verdict", tool.Name, "/survived", time.Now().Unix())
+						_ = o.engine.AddFact("battle_hardened", tool.Name, time.Now().Unix())
+
+						logging.Autopoiesis("Tool SURVIVED The Thunderdome (%d attacks defended)", len(attacks))
 					}
-
-					// Max retries exceeded
-					o.mu.Lock()
-					o.stats.ToolsRejected++
-					o.mu.Unlock()
-
-					result.Error = fmt.Sprintf("tool killed by PanicMaker after %d regeneration attempts: %s",
-						o.config.MaxPanicRetries, battleResult.FatalAttack.Name)
-					logging.Get(logging.CategoryAutopoiesis).Error("Tool %s rejected: %s", need.Name, result.Error)
-					return result
-				} else {
-					// Tool survived!
-					o.mu.Lock()
-					o.stats.ThunderdomeSurvived++
-					o.mu.Unlock()
-
-					_ = o.engine.AddFact("panic_maker_verdict", tool.Name, "/survived", time.Now().Unix())
-					_ = o.engine.AddFact("battle_hardened", tool.Name, time.Now().Unix())
-
-					logging.Autopoiesis("Tool SURVIVED The Thunderdome (%d attacks defended)", len(attacks))
 				}
 			} else {
 				thunderdomeTimer.Stop()
@@ -1180,4 +1191,55 @@ func GenerateToolRegistrationFacts(tool *RuntimeTool) []string {
 // finer than any threshold in the corpus.
 func stabilityScore(v float64) int64 {
 	return int64(math.Round(v * 100))
+}
+
+// =============================================================================
+// THUNDERDOME RESULT EMISSION HELPERS
+// =============================================================================
+
+// sanitizeThunderdomeCategory sanitises a free-form attack Category into a valid Mangle atom.
+// It lowercases the input, replaces any character outside [a-z0-9_] with underscore,
+// and falls back to "unknown" when the result is empty. The returned value is an atom
+// string with leading slash, e.g. "/nil_pointer".
+func sanitizeThunderdomeCategory(category string) string {
+	lower := strings.ToLower(category)
+	var sb strings.Builder
+	for _, r := range lower {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			sb.WriteRune(r)
+		} else {
+			sb.WriteRune('_')
+		}
+	}
+	sanitized := sb.String()
+	if sanitized == "" {
+		sanitized = "unknown"
+	}
+	return "/" + sanitized
+}
+
+// thunderdomeOutcomeAtom returns the outcome atom for a single attack result.
+func thunderdomeOutcomeAtom(survived bool) string {
+	if survived {
+		return "/survived"
+	}
+	return "/failed"
+}
+
+// buildThunderdomeResultFacts builds one thunderdome_result fact per AttackResult.
+// It is extracted for unit-testability; production emission uses o.engine.AddFacts in a single batch.
+func buildThunderdomeResultFacts(battleResult *BattleResult) []mangle.Fact {
+	if battleResult == nil || len(battleResult.Results) == 0 {
+		return nil
+	}
+	facts := make([]mangle.Fact, 0, len(battleResult.Results))
+	for _, ar := range battleResult.Results {
+		attackType := sanitizeThunderdomeCategory(ar.Vector.Category)
+		outcome := thunderdomeOutcomeAtom(ar.Survived)
+		facts = append(facts, mangle.Fact{
+			Predicate: "thunderdome_result",
+			Args:      []any{battleResult.ToolName, attackType, outcome},
+		})
+	}
+	return facts
 }
