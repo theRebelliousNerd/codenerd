@@ -438,6 +438,11 @@ func extractRequestedSubtasks(input string) []string {
 				}
 			}
 		}
+		// A prohibition is satisfied by the ABSENCE of an action, so
+		// requiring lexical evidence of it in the output can never succeed
+		// and would fail the runs that complied best. Filter constraints
+		// before they reach the evidence check.
+		out = filterProhibitionClauses(out)
 		if len(out) >= 2 {
 			return dedupSubtasks(out)
 		}
@@ -462,10 +467,84 @@ func extractRequestedSubtasks(input string) []string {
 		}
 	}
 	cleaned = mergeModifierFragments(cleaned)
+	// A prohibition is satisfied by the ABSENCE of an action, so requiring
+	// lexical evidence of it in the output can never succeed and would fail
+	// the runs that complied best. Filter constraints before they reach the
+	// evidence check.
+	cleaned = filterProhibitionClauses(cleaned)
 	if len(cleaned) < 2 {
 		return nil
 	}
 	return dedupSubtasks(cleaned)
+}
+
+// filterProhibitionClauses removes clauses that are constraints rather than
+// deliverables. A prohibition is satisfied by the ABSENCE of an action, so
+// requiring lexical evidence of it in the output can never succeed and would
+// fail the runs that complied best. The guard must only check positive
+// deliverables.
+func filterProhibitionClauses(in []string) []string {
+	var out []string
+	for _, s := range in {
+		// Handle embedded prohibition sentences appended with a period
+		// ("do B. Do not change any files") — strip the trailing
+		// constraint so the deliverable can be evidenced without mentioning
+		// the prohibition.
+		s = stripTrailingProhibition(s)
+		if s == "" {
+			continue
+		}
+		if isProhibitionClause(s) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func isProhibitionClause(s string) bool {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return false
+	}
+	lower := strings.ToLower(t)
+	// Small, readable, explicitly listed set — not a clever regex.
+	prohibitionPrefixes := []string{
+		"do not",
+		"don't",
+		"don’t",
+		"dont",
+		"never",
+		"avoid",
+		"without",
+		"no ",
+	}
+	for _, p := range prohibitionPrefixes {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func stripTrailingProhibition(s string) string {
+	lower := strings.ToLower(s)
+	earliest := -1
+	// Look for a sentence boundary followed by a prohibition prefix.
+	for _, prefix := range []string{"do not", "don't", "don’t", "dont", "never", "avoid", "without", "no "} {
+		for _, sep := range []string{". ", "! ", "? "} {
+			needle := sep + prefix
+			if idx := strings.Index(lower, needle); idx != -1 {
+				if earliest == -1 || idx < earliest {
+					earliest = idx
+				}
+			}
+		}
+	}
+	if earliest != -1 {
+		return strings.TrimSpace(strings.Trim(s[:earliest], ".,; "))
+	}
+	return s
 }
 
 // mergeModifierFragments folds single-token fragments back into the fragment
