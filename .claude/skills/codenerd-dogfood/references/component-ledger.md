@@ -539,3 +539,61 @@ correctness oracle: make the resolved interpretation visible and checkable at
 registration — echo the tool's own understanding of the request, and/or gate on
 one user-supplied `input => expected` example. Ambiguity detection at the
 detection stage would help more than test-running ever can.
+
+---
+
+## F-WHATIF-1 — `nerd whatif` never reads the code it reasons about
+
+Exercised live on a real counterfactual from this session:
+
+```
+nerd whatif "revert LoadFacts to always evaluate eagerly instead of deferring on an initialized kernel"
+```
+
+It exits 0, asserts `derives_from_hypothetical(...)` into the kernel, and returns
+a well-structured analysis. It also says, in its own first line:
+
+> "No source code for `LoadFacts`/kernel was provided - analysis below is
+> hypothetical/general only"
+
+So the counterfactual is reasoned from the prompt string alone. Nothing retrieves
+`kernel_facts.go`, the call sites, or the fixpoint measurements — in a repo whose
+north star is that logic determines reality, the what-if tool consults no facts.
+
+The output is a fair illustration of why that matters. Its performance bullet is
+right — eager evaluation raises startup cost, which matches the measured 143
+fixpoints / 723.8s — but that is general knowledge landing luckily. Its
+"Improvement — Determinism/Correctness" bullet is **wrong for this codebase**:
+it claims eager evaluation eliminates stale reads, when `ensureEvaluated()`
+already guarantees correct-on-read and is called at the top of every Query. A
+grounded analysis would have found that in one search.
+
+Minimum fix: resolve the symbols named in the hypothetical (`LoadFacts`) via the
+existing `search_code`/`read_file` tools and include them, so the analysis is
+about this repo rather than about kernels in general.
+
+## F-DREAM-1 — dream consults every agent regardless of relevance
+
+```
+nerd dream "how should codeNERD detect that a generated tool answers a different
+            question than the one asked"
+```
+
+Works, and is genuinely useful: `requirements_interrogator` framed it as semantic
+alignment rather than a syntactic safety rule, and proposed freezing intent as a
+`requested_tool_spec(Capability, Description, ExpectedInputs, ExpectedOutputs,
+ExampleIO)` fact at request time and verifying behaviour against it. That is a
+real contribution to the open F-AUTO-5 decision.
+
+The cost side is the defect. It consults **7 agents** for every scenario —
+including `bubbleteaexpert` and `cobraexpert`, which have nothing domain-relevant
+to say about tool semantic drift and duly produced generic answers. Seven full
+LLM round trips to obtain perhaps two relevant perspectives, on a north star that
+is explicitly hyper token efficiency.
+
+The selection signal already exists and is unused: each agent carries topics and a
+role in its `prompts.yaml`, and the JIT compiler already does semantic atom
+selection. Dream should score agents against the scenario and consult the top
+few, the same way atoms are selected, rather than fanning out to everyone. Note
+it already skips 16 (9 system, 7 image aliases), so a skip mechanism exists —
+it is relevance that is missing, not the ability to exclude.
