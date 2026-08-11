@@ -1352,6 +1352,10 @@ func initShardManagement(bctx *bootContext) error {
 	}
 	shards.RegisterAllShardFactories(bctx.shardManager, regCtx)
 
+	bctx.shardManager.SetNerdDir(filepath.Join(bctx.workspace, ".nerd"))
+	bctx.shardManager.SetPromptLoader(func(ctx context.Context, agentName, nerdDir string) (int, error) {
+		return prompt.LoadAgentPrompts(ctx, agentName, nerdDir, bctx.embeddingEngine)
+	})
 	bctx.shardManager.SetJITRegistrar(prompt.CreateJITDBRegistrar(bctx.jitCompiler))
 	bctx.shardManager.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(bctx.jitCompiler))
 

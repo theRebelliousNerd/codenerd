@@ -338,6 +338,9 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 
 	// Wire JIT lifecycle callbacks
 	shardMgr.SetNerdDir(nerdDir)
+	shardMgr.SetPromptLoader(func(ctx context.Context, agentName, nerdDir string) (int, error) {
+		return prompt.LoadAgentPrompts(ctx, agentName, nerdDir, nil)
+	})
 	shardMgr.SetJITRegistrar(prompt.CreateJITDBRegistrar(jitCompiler))
 	shardMgr.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(jitCompiler))
 
