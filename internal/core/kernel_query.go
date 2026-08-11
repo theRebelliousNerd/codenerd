@@ -100,7 +100,6 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 					results = append(results, fact)
 					return nil
 				})
-				break
 			}
 		}
 	}
@@ -285,7 +284,6 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 					timer.Stop()
 					return err
 				}
-				break
 			}
 		}
 	}
@@ -329,7 +327,9 @@ func (k *RealKernel) QueryAll() (map[string][]Fact, error) {
 	totalFacts := 0
 	for pred := range k.programInfo.Decls {
 		predName := pred.Symbol
-		results[predName] = make([]Fact, 0)
+		if _, ok := results[predName]; !ok {
+			results[predName] = make([]Fact, 0)
+		}
 
 		k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
 			fact := atomToFact(a)
