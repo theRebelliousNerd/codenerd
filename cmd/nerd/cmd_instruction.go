@@ -605,6 +605,17 @@ var subtaskGenericStopWords = map[string]bool{
 	"update": true, "ensure": true, "handle": true, "handling": true,
 	"support": true, "include": true, "including": true, "remove": true,
 	"delete": true, "feature": true, "code": true, "file": true,
+	// interrogatives and pronouns — question shape, not subject; no evidence of work done
+	"which": true, "what": true, "why": true, "how": true, "where": true,
+	"who": true, "whom": true, "whose": true, "them": true, "they": true,
+	"their": true, "there": true, "here": true, "each": true, "any": true,
+	"all": true, "some": true, "both": true, "other": true, "others": true,
+	// reporting and presentation verbs — delivery, not content; answer shows rather than announces
+	"state": true, "list": true, "name": true, "explain": true, "describe": true,
+	"show": true, "tell": true, "identify": true, "report": true, "summarize": true,
+	"summarise": true, "provide": true, "give": true, "return": true, "output": true,
+	"print": true, "display": true, "mention": true, "note": true, "detail": true,
+	"specify": true,
 }
 
 // tokenRe extracts alphanumeric tokens (including underscores).
