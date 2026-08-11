@@ -655,3 +655,69 @@ prompt-atom fix rather than a mechanical one, which is the opposite conclusion
 from the scratch-artifact case, where 43 in-prompt impressions failed to prevent
 the behaviour. Two failure modes, two different classes of remedy: one responds to
 being told, the other does not.
+
+---
+
+## F-IMPACT-1 — impact analysis derives nothing, including context selection
+
+**The most consequential finding of the session for the north star.** Every
+predicate in `internal/core/defaults/policy/impact.mg` returns zero facts against
+a live kernel:
+
+```
+impact_caller           No facts found
+impact_implementer      No facts found
+impact_graph            No facts found
+relevant_context_file   No facts found
+context_priority_file   No facts found
+```
+
+The last two matter most. They exist to decide which files are worth putting in
+front of the model. A project whose stated north star is hyper token efficient
+code editing has a call-graph-driven context selector that has never selected
+anything.
+
+### Two independent causes, both verified
+
+**1. `code_defines` is never populated.** It has a producer
+(`internal/world/cartographer.go:103,129`), nine policy rules that read it, and a
+consumer in `internal/world/holographic.go:730`. A live query returns "No facts
+found". The Cartographer emits it during deep mapping, but unlike `symbol_graph`
+it is not persisted to `.nerd/mangle`, so any fresh process starts with none.
+Every rule with `code_defines` in its body is therefore dead on arrival —
+`impact_implementer`, `relevant_context_file`, `context_priority_file`.
+
+**2. `code_calls` is populated but keyed incompatibly.** Compare live output:
+
+```
+file_topology("internal/shards/system/policy_reasoning_model_test.go", ...)
+code_calls("C:\CodeProjects\codeNERD\internal\campaign\errors.go", "pkg:errors")
+```
+
+`file_topology` uses workspace-relative POSIX; `code_calls` uses absolute Windows
+paths with backslashes. The same file carries two different string keys, so any
+rule joining a call edge to file topology unifies nothing. `impact_caller` and
+`impact_graph` fail this way even though their input predicate has facts.
+
+This is the same root defect as the 447 stale absolute-path facts already in the
+backlog, but the framing there was wrong: it is not primarily a staleness problem,
+it is a key-format problem. Stale facts age out; mis-keyed facts never join at
+all, and they fail silently because an empty join is indistinguishable from an
+empty relation.
+
+### Why it stayed hidden
+
+Nothing errors. Datalog derives the empty set and reports success. The subsystem
+has a producer, a schema, a policy corpus and consumers — every structural check
+passes. Only asking the kernel for the derived facts reveals it, which is the same
+lesson as F-JIT-1, F-AUTO-3 and the campaign checkpoints: **presence of machinery
+is not evidence of derivation.** Query the output, not the wiring.
+
+### Provenance
+
+Surfaced while chasing the second, explicitly unverified candidate from rung 3 of
+the optimization ladder. The run had ranked "dual-schema emission" as a suspected
+redundancy between `symbol_graph` and `code_defines`/`code_calls` and flagged it
+as unmeasured. The redundancy hypothesis turned out to be wrong — the schemas
+overlap but each carries fields the other lacks — and checking it uncovered
+something considerably worse. A wrong hypothesis pointed at the right file.
