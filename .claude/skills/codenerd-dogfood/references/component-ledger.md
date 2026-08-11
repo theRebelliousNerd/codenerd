@@ -433,3 +433,70 @@ that a bare `RouteAction` must go through it.
 
 So the whole north-star capability is one command and one import away from being
 exercisable. That is the highest-value unblocked work outstanding.
+
+---
+
+## F-AUTO-4/5 — Ouroboros ships tools that compile, register, and answer the wrong question
+
+**Ouroboros was completely unable to generate a tool until 079bc2ab.** The
+entry-point contract was split across three files that agreed nowhere:
+`tool_compiler.go` accepts only `func(context.Context, string) (string, error)`
+(`findEntryPoint` deliberately skips `main`, because `writeWrapper` generates its
+own), `tool_generation.go` asks the model for whatever types the `ToolNeed`
+carries, and `cmd/nerd/cmd_advanced.go:buildCLIToolNeed` — the path
+`nerd tool generate` actually uses — never set those types. The prompt went out
+as `(ctx context.Context, input ) (, error)`. Given no contract, the model
+invented one and the compiler refused it.
+
+Note the shape of the first fix attempt, because it is the recurring failure of
+this codebase: coercion was added at the two construction sites that were known,
+the third was missed, the build was green, a unit test passed, and the feature
+was still 100% broken. Enforcement now lives at `GenerateTool`, the choke point
+every path crosses. **Fix at the choke point, not at the construction sites.**
+
+### The part that still is not fixed
+
+The generated tool now compiles, registers, and runs — and is wrong:
+
+```
+ground truth (grep '^\s*Decl ' schemas_safety.mg):  50
+the self-generated tool:                             0
+```
+
+Asked to "count the number of Mangle Decl statements", it searched for the
+literal phrase `(?i)\bmangle\s+decl\b` — reading the request as *find the
+two-word token "mangle decl"* rather than *count `Decl` statements in a Mangle
+file*. The rest of the code is careful: per-line context cancellation, a 10MB
+scanner buffer, comment stripping, wrapped errors. Well-engineered, confidently
+wrong.
+
+**Two distinct gaps, and only one is a wiring bug.**
+
+`F-AUTO-4` — the generated tests are never run. `GeneratedTool.TestCode` is
+filled on both generation paths, written to disk, and `thunderdome.go:231`
+compiles the package with `go test -c` so they must *build* — but the only test
+ever executed is `thunderdome.go:544`, `-test.run=TestThunderdomeArena`, the
+adversarial harness. `validateCode` is AST-only. So a tool that fails its own
+author's assertions still registers. Fixing this is in scope and dispatched.
+
+`F-AUTO-5` — **running those tests would not have caught this bug**, and this is
+the important finding. The generated test file asserts:
+
+```go
+{"single match", "mangle decl", "1"},
+{"case insensitive", "Mangle Decl\nMANGLE DECL\nmAnGlE dEcL", "3"},
+```
+
+The tests encode the *same misreading* as the implementation, because the same
+model wrote both from the same interpretation. They are self-consistent and
+therefore worthless as a correctness check. Model-authored tests verify the
+model's interpretation, never the request.
+
+Catching this class requires an oracle the generating model did not author:
+either a user-supplied example (`--expect "<input>=><output>"`, cheap and
+reliable), or a second model asked to write tests from the ORIGINAL description
+without seeing the implementation. Until one exists, `nerd tool generate`
+prints "✅ Tool registered" for a tool nothing has ever checked — the same
+hollow-success shape as a checkpoint reporting PASS without verifying.
+
+Status: F-AUTO-4 dispatched. F-AUTO-5 open, needs a product decision.
