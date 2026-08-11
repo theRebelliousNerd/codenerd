@@ -658,66 +658,157 @@ being told, the other does not.
 
 ---
 
-## F-IMPACT-1 — impact analysis derives nothing, including context selection
+## F-IMPACT-1 — WITHDRAWN. The instrument was broken, not the subsystem.
 
-**The most consequential finding of the session for the north star.** Every
-predicate in `internal/core/defaults/policy/impact.mg` returns zero facts against
-a live kernel:
+**Superseded by F-QUERY-1 below. Do not cite the original entry.**
 
-```
-impact_caller           No facts found
-impact_implementer      No facts found
-impact_graph            No facts found
-relevant_context_file   No facts found
-context_priority_file   No facts found
-```
+The original claim was that every predicate in `impact.mg` derives zero facts,
+including `relevant_context_file` and `context_priority_file`. Its sole evidence
+was `nerd query <pred>` printing "No facts found". That evidence is void:
+`nerd query` reports "No facts found" for predicates that demonstrably hold tens
+of thousands of facts.
 
-The last two matter most. They exist to decide which files are worth putting in
-front of the model. A project whose stated north star is hyper token efficient
-code editing has a call-graph-driven context selector that has never selected
-anything.
-
-### Two independent causes, both verified
-
-**1. `code_defines` is never populated.** It has a producer
-(`internal/world/cartographer.go:103,129`), nine policy rules that read it, and a
-consumer in `internal/world/holographic.go:730`. A live query returns "No facts
-found". The Cartographer emits it during deep mapping, but unlike `symbol_graph`
-it is not persisted to `.nerd/mangle`, so any fresh process starts with none.
-Every rule with `code_defines` in its body is therefore dead on arrival —
-`impact_implementer`, `relevant_context_file`, `context_priority_file`.
-
-**2. `code_calls` is populated but keyed incompatibly.** Compare live output:
+The concrete refutation. `code_defines` was the load-bearing claim — "a producer,
+nine policy consumers and zero facts at runtime":
 
 ```
-file_topology("internal/shards/system/policy_reasoning_model_test.go", ...)
-code_calls("C:\CodeProjects\codeNERD\internal\campaign\errors.go", "pkg:errors")
+nerd query code_defines   ->  No facts found          (9 runs, all identical)
+nerd logic code_defines   ->  Found 0 facts           (3 runs)
+nerd logic  (summary)     ->  code_defines    10231   (3 runs)
+                              symbol_graph    10231
 ```
 
-`file_topology` uses workspace-relative POSIX; `code_calls` uses absolute Windows
-paths with backslashes. The same file carries two different string keys, so any
-rule joining a call edge to file topology unifies nothing. `impact_caller` and
-`impact_graph` fail this way even though their input predicate has facts.
+10,231 is exactly the `symbol_graph` count, which is what the bridge rule at
+`internal/core/defaults/policy/knowledge.mg:70` should produce — one
+`code_defines` per `symbol_graph`. The derivation works. The read path does not.
 
-This is the same root defect as the 447 stale absolute-path facts already in the
-backlog, but the framing there was wrong: it is not primarily a staleness problem,
-it is a key-format problem. Stale facts age out; mis-keyed facts never join at
-all, and they fail silently because an empty join is indistinguishable from an
-empty relation.
+So the corrected finding is the inverse of the original: `code_defines` is
+**populated**, and I could not see it because the kernel's primary read API
+returned empty. Whether the `impact.mg` predicates derive anything is now
+**unknown and unmeasurable** until F-QUERY-1 is fixed — the only working reader
+(`QueryAll`) is exposed solely through a summary hardcoded to the top 25
+predicates (`cmd/nerd/cmd_advanced.go`, `const shown = 25`), and none of the
+impact predicates rank that high.
 
-### Why it stayed hidden
+### What survived from the original entry
 
-Nothing errors. Datalog derives the empty set and reports success. The subsystem
-has a producer, a schema, a policy corpus and consumers — every structural check
-passes. Only asking the kernel for the derived facts reveals it, which is the same
-lesson as F-JIT-1, F-AUTO-3 and the campaign checkpoints: **presence of machinery
-is not evidence of derivation.** Query the output, not the wiring.
+Two observations were verified independently of `nerd query` and still hold, but
+neither is "the subsystem is inert":
 
-### Provenance
+- **Two ID spaces that cannot join.** `dependency_link`'s CallerID is a file path
+  (`"C:\\...\\audit_execution.py"`) while `symbol_graph`'s SymbolID is a symbol
+  (`"method:(e *Executor).SetHistory"`). `dependency_link_exists`
+  (`reviewer.mg:451-454`) joins one to the other, so it can never unify —
+  independent of any query bug.
+- **Backslash paths defeat a substring test.** `layer` (`reviewer.mg:541-544`)
+  tests `:string:contains(File, "/internal/")` against `symbol_graph`'s
+  backslashed absolute paths. `configured_layer_pattern` has facts; the pattern
+  cannot match. `layer` gates `architecture_violation`.
 
-Surfaced while chasing the second, explicitly unverified candidate from rung 3 of
-the optimization ladder. The run had ranked "dual-schema emission" as a suspected
-redundancy between `symbol_graph` and `code_defines`/`code_calls` and flagged it
-as unmeasured. The redundancy hypothesis turned out to be wrong — the schemas
-overlap but each carries fields the other lacks — and checking it uncovered
-something considerably worse. A wrong hypothesis pointed at the right file.
+### What was disproved by experiment
+
+The first hypothesis was that Decl bound violations silently suppress derivation:
+`knowledge.mg:70` puts `""` into a slot declared `/number`, and `symbol_graph`
+carries strings in two slots declared `/name`. An isolated four-variant repro
+against the pinned Mangle (production-shaped / head fixed / source fixed / both)
+derived a fact in **all four**. Mangle does not enforce `Decl` bounds at
+evaluation time. The type violations are real contract rot but caused none of
+this. Worth keeping only as a note: a Decl is documentation here, not a check.
+
+### The lesson, which is the actual value of this entry
+
+I wrote a confident, specific, committed finding on top of an unvalidated
+instrument, having already been burned this same way twice today (PowerShell
+`Measure-Object -Line` vs `wc -l`; the `awk` range that fabricated a
+self-referential atom). The tell was present and I walked past it: `nerd query`
+was returning "No facts found" for *many* predicates at once, and I read a
+consistent story where I should have read a suspicious one. **When a measurement
+makes a whole subsystem look dead, suspect the meter before the subsystem** —
+cross-check with a second, independent reader before writing anything down.
+
+---
+
+## F-QUERY-1 — `Kernel.Query` returns empty for predicates that hold facts
+
+The kernel's primary read API is unreliable, and it fails **silently and
+plausibly**: it reports "no facts", which is a legitimate Datalog answer, so
+every caller treats a broken read as a true negative.
+
+### Evidence
+
+`code_defines` holds 10,231 facts. Two readers, same kernel, same process shape,
+9+3+3 observations, zero variance:
+
+| Reader | Path | Result |
+|---|---|---|
+| `Kernel.Query("code_defines")` | `kernel_query.go:96-105` | **0** |
+| `Kernel.QueryAll()` | `kernel_query.go:329-339` | **10,231** |
+
+Controls proving `Query` is not simply broken for everything: `symbol_graph`
+(10,231), `file_topology` (4,453), `code_calls` (74), `dependency_link` (74),
+`configured_layer_pattern`, and `is_called` all return facts through the same
+`Query` call. So the failure is predicate-specific, which is what makes it so
+dangerous — it looks like data, not like a bug.
+
+### Root cause
+
+The two functions differ in exactly one respect. `Query` scans
+`programInfo.Decls` for a matching **symbol** and `break`s at the first hit,
+then fetches facts for that one `PredicateSym`:
+
+```go
+for pred := range k.programInfo.Decls {
+    if pred.Symbol == predicateName {
+        predicateFound = true
+        k.store.GetFacts(ast.NewQuery(pred), ...)
+        break              // <-- takes the first arity it happens to see
+    }
+}
+```
+
+`QueryAll` iterates every entry and never breaks. A `PredicateSym` is
+`{Symbol, Arity}`, so when one symbol is declared at more than one arity, `Query`
+resolves to whichever arity Go's randomized map iteration yields first and
+returns that arity's facts — zero, if it picked the unpopulated one. `QueryAll`
+sees them all.
+
+`predicateFound` is set to `true` on the symbol match, so the existing
+"predicate not found in declarations" warning never fires; the fresh kernel log
+contains zero of them. The failure is invisible in logs by construction.
+
+Corroboration that multi-arity `code_defines` is a live concern, not a
+hypothetical: `internal/core/dreamer.go:548` already defends against it —
+`pred.Symbol == "code_defines" && (pred.Arity == 5 || pred.Arity == 2)`, with the
+comment "Be tolerant of older arities to avoid schema drift breakage." One
+subsystem worked around this; the shared read path did not.
+
+Unexplained and worth stating rather than papering over: the outcome was stable
+across all 15 runs, where randomized map iteration predicts variance. Either the
+second arity is reached by a different route than I have identified, or map
+ordering is effectively stable for this map. **The asymmetry is measured fact;
+the arity mechanism is the best-supported explanation, not a confirmed one.**
+Whoever fixes this should confirm by dumping the actual `PredicateSym` set for
+the symbol — which nothing currently exposes.
+
+### Why this is the highest-severity defect found today
+
+`Query` is the kernel read API. Every "predicate X derives nothing" conclusion in
+this ledger that rests on `nerd query` alone is now suspect and needs re-checking
+against `QueryAll` once it is exposed. It also means a policy author cannot trust
+a negative result, which undercuts the "logic is the executive" premise: the
+executive can be asked a question and quietly give the wrong answer.
+
+### Fix shape
+
+1. Make `Query` collect facts across **all** arities of the matched symbol —
+   delete the `break`, mirroring `QueryAll`. Preserve the explicit-arity fast
+   path for pattern queries.
+2. `QueryAll` has a milder version of the same bug: it does
+   `results[predName] = make([]Fact, 0)` per `PredicateSym`, so for a multi-arity
+   symbol each arity **resets** the accumulator and the last one iterated wins.
+   It reported the right number here by luck of ordering. Accumulate instead.
+3. Give the summary a way to show every predicate (`const shown = 25` is
+   hardcoded), so a second independent reader exists for exactly the kind of
+   cross-check whose absence produced the withdrawn F-IMPACT-1.
+4. Regression test: assert `Query(p)` and `QueryAll()[p]` agree for every
+   predicate holding facts. That invariant is cheap and would have caught this.
