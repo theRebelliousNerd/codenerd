@@ -454,6 +454,12 @@ func worldFactPathArg(arg any) string {
 	if s == globalWorldFactsPath {
 		return ""
 	}
+	if strings.HasPrefix(s, "/") {
+		rest := s[1:]
+		if !strings.Contains(rest, "/") && !strings.Contains(rest, "\\") && !strings.Contains(rest, ".") {
+			return ""
+		}
+	}
 	if strings.Contains(s, "/") || strings.Contains(s, "\\") {
 		return s
 	}

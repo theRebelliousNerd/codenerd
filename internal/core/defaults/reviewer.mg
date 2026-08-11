@@ -420,7 +420,7 @@ is_entry_point_file(File) :-
 # Exclude test files to avoid false positives on test helpers
 # Exclude entry points (main.go, etc.) as they are naturally top-level
 unwired_function(ID, File) :-
-    symbol_graph(ID, "function", "public", File, _),
+    symbol_graph(ID, /function, /public, File, _),
     code_defines(File, ID, /function, _, _),
     in_scope(File),
     !is_called(ID),

@@ -1279,3 +1279,98 @@ trusting a reading without asking what it was a reading *of*. The pattern is
 specific enough to be actionable: **before a measurement becomes a claim, name
 the thing it measures and confirm that is the thing in question.** All four
 would have been caught by that one question.
+
+### F-ATOM-2 RESOLVED — and the atom fix had introduced a second, worse defect
+
+The open question was whether `nerd scan` should invalidate `knowledge.db` or
+the kernel should prefer `scan.mg`. Answered by reading the boot path rather
+than guessing: **the DB is the source of truth and `scan.mg` is a fallback.**
+`internal/system/factory.go:879-897`:
+
+```go
+loadedWorld := false
+if bctx.localDB != nil {
+    if cached, err := bctx.localDB.LoadAllWorldFacts("fast"); err == nil && len(cached) > 0 {
+        ... loadedWorld = true
+    }
+}
+if !loadedWorld { /* only now read .nerd/mangle/scan.mg */ }
+```
+
+So the design is coherent, and the defect was that the scan was not getting its
+facts into the DB at all.
+
+**The cause was my own atom fix.** `worldFactPathArg`
+(`internal/world/incremental_scan.go:449`) decided which argument of a fact is
+its file path by a single test — does the string contain a slash:
+
+```go
+if strings.Contains(s, "/") || strings.Contains(s, "\\") { return s }
+```
+
+`symbol_graph` args are `[id, type, visibility, path, signature]`, and
+`groupFactsByPath` takes the *first* argument this accepts. Once the type slot
+became `/function`, that slot contained a slash, so every `symbol_graph` fact
+was grouped under the pseudo-path `/function` instead of its real path in
+Args[3]. `PersistFastSnapshotToDB` then called `os.Stat("/function")`, failed,
+and `continue`d — dropping the entire group before it reached the DB.
+
+Fixed by teaching `worldFactPathArg` to recognise atom form: a leading slash
+followed by an identifier containing no further separator and no dot is an atom,
+not a path. Table-driven test proven RED first.
+
+**End-to-end verification, which is the only thing that settles it.** Rebuilt,
+rescanned, queried the kernel:
+
+```
+symbol_graph Type: /method 140, /function 91, /struct 40, /predicate 22
+code_defines Type: /method 146, /function 73, /struct 48, /predicate 21
+```
+
+Atom form now flows producer -> scan.mg -> DB -> kernel.
+
+**A note on how nearly I mis-called this.** I twice counted rows by running
+`strings` over `knowledge.db` and grepping for a serialized fact pattern. It
+reported zero atom rows after a successful scan, which looked like proof the
+persistence fix had failed. The DB stores predicate and args in columns, so that
+pattern cannot match new rows at all; the 287 "string-form" hits were incidental
+text from older pages. Fifth instrument error today, same shape as the other
+four: I never asked what the reading was a reading *of*. The kernel query was
+available the whole time and answered immediately.
+
+### F-ATOM-3 — a rule that demanded the same value in two representations
+
+With atoms flowing, the impact predicates are *still* all empty
+(`unwired_function`, `relevant_context_file`, `context_priority_file`,
+`impact_caller`, `impact_graph`, `impact_implementer`, `layer`,
+`architecture_violation`). That was expected and stated in advance — atoms are
+necessary, not sufficient. But `unwired_function` turned out to carry its own
+contradiction, in adjacent lines of a single rule (`reviewer.mg:423-424`):
+
+```
+unwired_function(ID, File) :-
+    symbol_graph(ID, "function", "public", File, _),   # strings
+    code_defines(File, ID, /function, _, _),           # atoms
+```
+
+`code_defines` is derived from `symbol_graph` by a pass-through bridge
+(`knowledge.mg:70`), so both lines constrain **the same value**. One demanded a
+string constant and the other a name constant, which never unify. The rule could
+not fire under either convention: before the producer change line 424 failed;
+after it line 423 failed. It had simply never worked, and no convention choice
+could have saved it.
+
+`reviewer.mg:423` was the only string-form `symbol_graph` match in the entire
+policy corpus, and the `Decl` says `/name`, so line 423 was the wrong one.
+Fixed.
+
+**Still blocking `unwired_function`, recorded not fixed:** its
+`file_topology(File, ...)` premise joins `File` from `symbol_graph`'s DefinedAt
+slot — absolute Windows paths — against `file_topology` keys, which are
+workspace-relative POSIX. This is the same path-format defect that survived the
+withdrawn F-IMPACT-1 on independent evidence. It is now the last representation
+mismatch standing between this rule and its first derived fact.
+
+Independently, `impact_caller` and `impact_implementer` remain blocked by
+missing producers entirely: `modified_function`, `modified_interface` and
+`code_implements` are declared, consumed by policy, and emitted by nothing.
