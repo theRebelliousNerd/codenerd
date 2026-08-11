@@ -232,7 +232,7 @@ Decl compile_budget(TotalTokens) bound [/number].
 
 # compile_shard(ShardID, ShardType)
 # Target shard for this compilation
-Decl compile_shard(ShardID, ShardType) bound [/string, /name].
+Decl compile_shard(ShardID, ShardType) bound [/string, /string].
 
 # compile_query(QueryText)
 # Semantic query for vector search boosting

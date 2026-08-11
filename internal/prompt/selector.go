@@ -1209,6 +1209,17 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 	facts = append(facts, baseFacts...)
 
 	var fb factBuilder
+	if cc != nil {
+		if shardType := strings.TrimSpace(cc.ShardType); shardType != "" {
+			fb.Reset()
+			fb.WriteString("compile_shard(")
+			fb.WriteQuotedString(cc.ShardID)
+			fb.WriteString(", ")
+			fb.WriteQuotedString(shardType)
+			fb.WriteString(")")
+			facts = append(facts, fb.String())
+		}
+	}
 
 	// Candidate Facts
 	for _, atom := range atoms {
