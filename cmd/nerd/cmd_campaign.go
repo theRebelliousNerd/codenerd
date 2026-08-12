@@ -604,9 +604,10 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 			// minutes of it before a single task runs.
 			fmt.Printf("\n⏱  Operation timeout (%v) reached — campaign paused mid-run.\n", timeout)
 			fmt.Println("   Run 'nerd campaign resume' to continue, or raise it with --timeout.")
-			return nil
+			cmd.SilenceUsage = true
+			return campaignOutcome(err, ctx.Err(), timeout)
 		}
-		return fmt.Errorf("campaign failed: %w", err)
+		return campaignOutcome(err, ctx.Err(), timeout)
 	}
 
 	fmt.Println("\n✨ Campaign completed successfully!")
@@ -1015,9 +1016,10 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	if err := orchestrator.Run(ctx); err != nil {
 		if ctx.Err() != nil {
 			fmt.Println("\nCampaign paused.")
-			return nil
+			cmd.SilenceUsage = true
+			return campaignOutcome(err, ctx.Err(), timeout)
 		}
-		return fmt.Errorf("campaign failed: %w", err)
+		return campaignOutcome(err, ctx.Err(), timeout)
 	}
 
 	fmt.Println("\n✨ Campaign completed successfully!")
@@ -1090,6 +1092,20 @@ func repeatChar(c rune, n int) string {
 	}
 	return string(result)
 }
+// campaignOutcome converts the orchestrator result into the command's
+// error return. A campaign that did not finish must not exit 0: "paused
+// because time ran out" and "completed" are different outcomes and a
+// caller reading only the exit code cannot tell them apart otherwise.
+func campaignOutcome(runErr error, ctxErr error, timeout time.Duration) error {
+	if runErr == nil {
+		return nil
+	}
+	if ctxErr != nil {
+		return fmt.Errorf("operation timeout (%s) reached — campaign paused mid-run: run 'nerd campaign resume' to continue or raise --timeout: %w", timeout, runErr)
+	}
+	return fmt.Errorf("campaign failed: %w", runErr)
+}
+
 
 // findLatestPausableCampaign returns the most recently updated campaign that is
 // not terminal, plus its on-disk JSON path.
