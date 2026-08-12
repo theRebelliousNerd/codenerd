@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
+
+var shardFailWordRe = regexp.MustCompile(`(?i)\bFAIL\b`)
 
 // CheckpointRunner runs verification checkpoints for phases.
 type CheckpointRunner struct {
@@ -255,7 +258,7 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 		}
 	}
 
-	reviewPrompt.WriteString("\nProvide a brief assessment: PASS if objectives are met, FAIL with reason if not.")
+	reviewPrompt.WriteString("\nYour response MUST begin with a single line containing exactly PASS or FAIL. Put any reasoning on the following lines. PASS means objectives are met, FAIL means they are not (include reason).")
 
 	// Spawn reviewer intent
 	result, err := cr.spawnTask(ctx, "/review", reviewPrompt.String())
@@ -264,17 +267,52 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 		return false, fmt.Sprintf("Reviewer shard failed: %v", err), err
 	}
 
-	// Parse result - look for PASS/FAIL
+	// Parse result - explicit verdict rather than substring (see doc comment above and task spec).
 	resultStr := fmt.Sprintf("%v", result)
-	resultLower := strings.ToLower(resultStr)
 
-	if strings.Contains(resultLower, "fail") {
+	// 1. First non-empty line stripped of leading markdown/punctuation noise.
+	firstLine := ""
+	for _, line := range strings.Split(resultStr, "\n") {
+		if strings.TrimSpace(line) != "" {
+			firstLine = strings.TrimSpace(line)
+			break
+		}
+	}
+	stripped := ""
+	if firstLine != "" {
+		stripped = strings.TrimLeft(firstLine, "*_`# :-")
+	}
+	lowerStripped := strings.ToLower(stripped)
+	isPassVerdict := false
+	isFailVerdict := false
+	if strings.HasPrefix(lowerStripped, "pass") {
+		if len(lowerStripped) == 4 || (len(lowerStripped) > 4 && (lowerStripped[4] < 'a' || lowerStripped[4] > 'z')) {
+			isPassVerdict = true
+		}
+	} else if strings.HasPrefix(lowerStripped, "fail") {
+		if len(lowerStripped) == 4 || (len(lowerStripped) > 4 && (lowerStripped[4] < 'a' || lowerStripped[4] > 'z')) {
+			isFailVerdict = true
+		}
+	}
+	if isPassVerdict {
+		logging.Campaign("runShardValidationCheckpoint: reviewer approved phase=%s", phase.Name)
+		return true, fmt.Sprintf("Review passed: %s", resultStr), nil
+	}
+	if isFailVerdict {
 		logging.CampaignWarn("runShardValidationCheckpoint: reviewer found issues in phase=%s", phase.Name)
 		return false, fmt.Sprintf("Review failed: %s", resultStr), nil
 	}
 
-	logging.Campaign("runShardValidationCheckpoint: reviewer approved phase=%s", phase.Name)
-	return true, fmt.Sprintf("Review passed: %s", resultStr), nil
+	// 2. Fallback: FAIL as a whole word anywhere (case-insensitive, word boundaries).
+	// Use explicit word-boundary check so "failures"/"failed"/"failure" don't trigger.
+	if shardFailWordRe.MatchString(resultStr) {
+		logging.CampaignWarn("runShardValidationCheckpoint: reviewer found issues in phase=%s", phase.Name)
+		return false, fmt.Sprintf("Review failed: %s", resultStr), nil
+	}
+
+	// 3. No verdict could be determined — fail closed.
+	logging.CampaignWarn("runShardValidationCheckpoint: reviewer verdict could not be determined for phase=%s; failing closed", phase.Name)
+	return false, fmt.Sprintf("Review verdict could not be determined (response did not begin with PASS or FAIL and contained no explicit FAIL): %s", resultStr), nil
 }
 
 // runNemesisGauntletCheckpoint spawns the Nemesis shard to perform adversarial review.
