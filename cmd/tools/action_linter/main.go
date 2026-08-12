@@ -20,6 +20,11 @@ import (
 	"strings"
 
 	"codenerd/internal/shards/system"
+	"codenerd/internal/tools"
+	"codenerd/internal/tools/codedom"
+	"codenerd/internal/tools/core"
+	"codenerd/internal/tools/research"
+	"codenerd/internal/tools/shell"
 )
 
 type issueSeverity string
@@ -64,7 +69,25 @@ func main() {
 		os.Exit(2)
 	}
 
-	issues := lint(policyActions, routerRoutes, virtualActions, *warnUnusedExecutors, exemptions)
+	registeredTools, err := getRegisteredToolNames()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "action_linter: failed to get registered tools: %v\n", err)
+		os.Exit(2)
+	}
+
+	safeActions, err := extractSafeActions(*mgRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "action_linter: failed to scan safe_action: %v\n", err)
+		os.Exit(2)
+	}
+
+	requiresPermission, err := extractRequiresPermission(*mgRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "action_linter: failed to scan requires_permission: %v\n", err)
+		os.Exit(2)
+	}
+
+	issues := lint(policyActions, routerRoutes, virtualActions, *warnUnusedExecutors, exemptions, registeredTools, safeActions, requiresPermission)
 
 	sort.Slice(issues, func(i, j int) bool {
 		if issues[i].Severity != issues[j].Severity {
@@ -86,7 +109,7 @@ func main() {
 		}
 	}
 
-	fmt.Printf("Actions: policy=%d, virtual_store=%d, router_routes=%d\n", len(policyActions), len(virtualActions), len(routerRoutes))
+	fmt.Printf("Actions: policy=%d, virtual_store=%d, router_routes=%d, registered_tools=%d, safe_actions=%d, requires_permission=%d\n", len(policyActions), len(virtualActions), len(routerRoutes), len(registeredTools), len(safeActions), len(requiresPermission))
 	if errCount == 0 && warnCount == 0 {
 		fmt.Println("OK: no issues found")
 		return
@@ -289,7 +312,117 @@ func extractVirtualStoreActionTypes(path string) (map[string]struct{}, error) {
 	return out, nil
 }
 
-func lint(policyActions map[string]actionSources, routes []system.ToolRoute, virtualActions map[string]struct{}, warnUnusedExecutors bool, exemptions exemptions) []issue {
+func getRegisteredToolNames() (map[string]struct{}, error) {
+	reg := tools.NewRegistry()
+	if err := core.RegisterAll(reg); err != nil {
+		return nil, err
+	}
+	if err := shell.RegisterAll(reg); err != nil {
+		return nil, err
+	}
+	if err := codedom.RegisterAll(reg); err != nil {
+		return nil, err
+	}
+	if err := research.RegisterAll(reg); err != nil {
+		return nil, err
+	}
+	names := reg.Names()
+	out := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		out[n] = struct{}{}
+	}
+	return out, nil
+}
+
+func extractSafeActions(root string) (map[string]struct{}, error) {
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("mg-root is not a directory: %s", root)
+	}
+	re := regexp.MustCompile(`(?m)\bsafe_action\s*\(\s*/([a-zA-Z0-9_]+)\s*\)`)
+	out := make(map[string]struct{})
+	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".mg" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		matches := re.FindAllStringSubmatch(string(data), -1)
+		for _, m := range matches {
+			if len(m) < 2 {
+				continue
+			}
+			name := strings.TrimSpace(m[1])
+			if name == "" {
+				continue
+			}
+			out[name] = struct{}{}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	return out, nil
+}
+
+func extractRequiresPermission(root string) (map[string]struct{}, error) {
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("mg-root is not a directory: %s", root)
+	}
+	re := regexp.MustCompile(`(?m)\brequires_permission\s*\(\s*/([a-zA-Z0-9_]+)\s*\)`)
+	out := make(map[string]struct{})
+	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".mg" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		matches := re.FindAllStringSubmatch(string(data), -1)
+		for _, m := range matches {
+			if len(m) < 2 {
+				continue
+			}
+			name := strings.TrimSpace(m[1])
+			if name == "" {
+				continue
+			}
+			out[name] = struct{}{}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	return out, nil
+}
+
+func lint(policyActions map[string]actionSources, routes []system.ToolRoute, virtualActions map[string]struct{}, warnUnusedExecutors bool, exemptions exemptions, registeredTools map[string]struct{}, safeActions map[string]struct{}, requiresPermission map[string]struct{}) []issue {
 	issues := make([]issue, 0, 64)
 
 	// Policy -> router -> virtual store
@@ -341,6 +474,23 @@ func lint(policyActions map[string]actionSources, routes []system.ToolRoute, vir
 				Message:  "VirtualStore supports action, but policy never emits it (possible dead action or future capability)",
 			})
 		}
+	}
+
+	for toolName := range registeredTools {
+		if _, ok := safeActions[toolName]; ok {
+			continue
+		}
+		if _, ok := requiresPermission[toolName]; ok {
+			continue
+		}
+		if exemptions.isExempt(toolName) {
+			continue
+		}
+		issues = append(issues, issue{
+			Severity: severityError,
+			Action:   "/" + toolName,
+			Message:  "tool is registered but the constitution can never permit it (no safe_action entry)",
+		})
 	}
 
 	return issues
