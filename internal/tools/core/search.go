@@ -3,6 +3,7 @@ package core
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,41 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/tools"
 )
+
+// argInt extracts an integer tool argument, tolerating the numeric types that
+// actually arrive at runtime.
+//
+// LLM tool-call arguments are JSON-decoded and encoding/json without UseNumber
+// materializes every JSON number as float64, never int. Mangle-sourced arguments
+// arrive as int64. A bare args[key].(int) assertion therefore silently fails in
+// production and the caller's limit is discarded, leaving grep permanently
+// capped at 50 and glob at 100 (observed live: max_results=500 returned 50).
+//
+// This mirrors the existing prior art in this repo, which has already fixed the
+// same bug three times:
+//   - internal/tools/research/numeric_args.go argInt
+//   - internal/tools/shell/execute.go coerceInt
+//   - the inline float64 fallbacks at internal/tools/codedom/lines.go lines 66 and 76
+//
+// A fourth copy is not the right end state; these belong in one shared helper.
+func argInt(args map[string]any, key string) (int, bool) {
+	switch v := args[key].(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return int(i), true
+		}
+		if f, err := v.Float64(); err == nil {
+			return int(f), true
+		}
+	}
+	return 0, false
+}
 
 // GlobTool returns a tool for finding files matching a pattern.
 func GlobTool() *tools.Tool {
@@ -54,8 +90,8 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 	}
 
 	maxResults := 100
-	if mr, ok := args["max_results"].(int); ok && mr > 0 {
-		maxResults = mr
+	if v, ok := argInt(args, "max_results"); ok && v > 0 {
+		maxResults = v
 	}
 
 	logging.VirtualStoreDebug("glob: pattern=%s, base=%s", pattern, basePath)
@@ -205,13 +241,13 @@ func executeGrep(ctx context.Context, args map[string]any) (string, error) {
 	}
 
 	contextLines := 0
-	if cl, ok := args["context_lines"].(int); ok {
-		contextLines = cl
+	if v, ok := argInt(args, "context_lines"); ok {
+		contextLines = v
 	}
 
 	maxResults := 50
-	if mr, ok := args["max_results"].(int); ok && mr > 0 {
-		maxResults = mr
+	if v, ok := argInt(args, "max_results"); ok && v > 0 {
+		maxResults = v
 	}
 
 	ignoreCase := false
