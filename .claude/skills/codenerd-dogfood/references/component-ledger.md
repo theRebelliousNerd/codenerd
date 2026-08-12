@@ -2729,3 +2729,72 @@ The lesson worth carrying beyond this repo: the campaign did not fail loudly
 anywhere. Every individual signal said success. Only reading the deliverable and
 grepping for one cited symbol revealed that none of it was real — which is the
 one check no automated gate in the system was performing.
+
+---
+
+## F-CAMP-2 — the fabricated report had nothing to fabricate from
+
+Root cause of F-CAMP-1, found by following the task record rather than the code.
+
+`buildTaskInput(task)` appends `=== CONTEXT FROM TASK <id> ===` blocks for every
+entry in `task.ContextFrom`, pulling each dependency's result. It works. Its
+**only** caller was `buildTaskInputWithSpecialistKnowledge`, which is reached
+**only** from `executeWithExplicitShard`. So dependency context reached a task if
+and only if the decomposer happened to give it an explicit shard.
+
+Every phase-5 task in the audit campaign had an empty `shard`, so all were
+type-routed. The report task went `executeDocumentTask` → `executeFileTask`,
+which built its shard input as:
+
+    fmt.Sprintf("%s file:%s %s", action, targetPath, task.Description)
+
+The description and nothing else. The shard was asked for "summary counts,
+methodology, Decl vs Go cross-ref tables, four required columns per finding,
+dedicated section proving five known gaps rediscovered" and handed no data. It
+returned a document with exactly those headings and invented content under each.
+**The report's structure mirrors its prompt because the prompt was its only
+input.** Nothing in the system was lying; one component was asked to summarise
+work it had never been shown.
+
+Two compounding factors from the same run:
+
+- Only **13 of 40** tasks had `context_from` populated at all.
+- Phase 5's tasks are duplicated — each of its four appears twice — and the
+  duplicate that actually wrote the report has `context_from` empty. The
+  replanner inflated the phase and dropped the dependency edges on the copies.
+
+### Fix
+
+All four type-routed spawn sites now use `o.buildTaskInput(task)`: research,
+file/document, and both test handlers. That is the complete set, verified by
+grepping every `spawnTask` call in the package — the explicit-shard site already
+injects, and the two retry paths deliberately send a narrowed instruction and
+are left alone.
+
+Covering the whole family rather than the one site that failed is the point.
+This ledger records six prior defects caused by doing the opposite, and F-CAMP-1
+two commits ago was the seventh.
+
+Incidental repair: the test handlers built `generate_tests file:%s` and
+`run_tests package:%s` and did not include the task description **at all**, so a
+test task never saw what it was asked to test beyond a path.
+
+RED is behavioural: with the handler file reverted and the tests kept, all three
+new tests fail.
+
+### Still open
+
+The decomposer and replanner produce tasks with no `context_from`, and duplicate
+tasks that lose it. A synthesis task with no declared dependencies will still
+receive nothing — correctly, since nothing is declared. Making the decomposer
+wire dependencies for synthesis phases, and stopping the replanner from dropping
+them on duplicates, is the remaining half and is not attempted here.
+
+### The shape of this pair, worth keeping
+
+F-CAMP-1 and F-CAMP-2 are the same event seen from two ends. One component was
+asked to produce a document without being given the material; another was asked
+to verify it and reported PASSED without checking. Neither failed loudly. The
+run ended with "Campaign completed successfully" and a deliverable in which every
+cited symbol was invented — and the only thing that surfaced it was a human
+grepping one cited identifier and finding zero files.
