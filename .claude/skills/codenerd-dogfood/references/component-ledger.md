@@ -3328,3 +3328,81 @@ A drift test: enumerate what `core.RegisterAll`, `shell.RegisterAll`,
 fail if any name has no policy entry. Adding ten facts fixes ten construction
 sites; the test is the choke point, and without it this returns a fifth time.
 It should land together with the corpus fix so it is green on arrival.
+
+---
+
+## F-CAMP-4 — a resumed campaign could never clean up its own scratch (fixed, `4bc2571f`)
+
+The completion sweep only moves files absent when the campaign started, so it
+can never destroy something it did not create. That baseline was captured per
+process and never persisted, so on resume the snapshot happened *after* the
+earlier run had already written its scratch into the root. Those files entered
+the baseline and became permanently exempt from the sweep built to catch them.
+Silent by construction: the sweep runs, finds nothing it is allowed to move, and
+reports success. Long campaigns are both the ones that get resumed and the ones
+that leave the most scratch.
+
+Fixed by persisting the baseline on `Campaign`, following `PlanDegraded`
+directly above it, which exists for the same reason. Two details are
+load-bearing rather than incidental, and both were specified in the brief
+because they are exactly what a fast fix gets wrong:
+
+- `recordRootBaseline` holds `o.mu` and `saveCampaign` takes it too, so
+  persisting inside the critical section deadlocks the orchestrator on its first
+  action. The lock is released before the save.
+- The json tag deliberately omits `omitempty` and the restore checks `!= nil`
+  rather than length. An empty baseline is a real recorded value — a campaign
+  whose root started empty — and with `omitempty` it vanishes from the JSON and
+  reads back as never-recorded, re-snapshotting on resume and reintroducing the
+  whole defect in the one case where *every* file in the root belongs to the
+  campaign. Absent decodes to nil, explicit `[]` decodes to non-nil empty.
+
+That second point was a hole in the first version of the fix, caught in review
+before it shipped.
+
+## F-CAMP-5 — two index spaces, one undocumented schema (fixed, `8e59eb33`)
+
+The plan schema gives the model `depends_on` and `context_from` side by side as
+bare integer arrays. `depends_on` is phase-local (`taskIDMap`,
+`decomposer_planning.go:537`); `context_from` is global across all phases
+(`globalTaskIDMap`, `:552`). Both resolve correctly in Go. Neither was described
+in the schema the model actually receives.
+
+The failure mode is silent. A model assuming one convention for both emits
+phase-local indices for `context_from`, and they still *resolve* — in phase 0
+local and global coincide so it looks correct, and in every later phase it
+resolves to an unrelated earlier task whose results are injected instead. The
+index is in range, so nothing warns.
+
+**Measured before filing, which changed what got filed.** Across three completed
+campaigns in `.nerd/campaigns`, the model has never emitted `context_from` even
+once: every populated value is byte-identical to `depends_on`, the signature of
+the deterministic research-inheritance fallback at `decomposer_planning.go:571`.
+So the hazard is latent rather than active, and the backlog item this came from
+("decomposer emits tasks with no context_from") was describing the fallback's
+scope, not a defect. Tasks whose dependency is not a research task do get an
+empty `context_from` — deliberately. Research output is ephemeral text living
+only in a task result; code output is a file the next task can read. Inheriting
+only research context is a principled scope, not an oversight.
+
+## Linter noise, and why it was worth a commit of its own (`9fb39f51`)
+
+The new registry check arrived alongside 18 pre-existing warnings of which 17
+were false. Every one named a registered modular tool, and modular tools are
+invoked straight from `tools.Global()`, bypassing `RouteAction` —
+`executor.go:55` says so in a comment and `:1052` is the code. They never needed
+a policy emitter.
+
+This is the same lesson as the `/delete_file` false positive one commit earlier,
+and it is worth stating as a rule: **ten real errors sat undetected underneath
+three working checks.** A report where 17 of 18 lines are wrong is a report
+nobody reads, and an unread check is indistinguishable from an absent one. After
+the fix exactly one warning survives — `/research`, which has a routing case at
+`virtual_store_routing.go:393` and no emitter anywhere, because real research
+routes through `/delegate_researcher`. A genuinely dormant action, previously
+invisible in the noise.
+
+One more thing this stretch demonstrated, in codeNERD's favour: it verified its
+own work with `go build ./internal/campaign` and `go test`. The earlier
+F-GATE-1 block was caused by my brief specifying `-o nerd.exe`; without `-o` the
+shell-effect gate classifies the same command as verification and allows it.
