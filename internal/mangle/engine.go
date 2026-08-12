@@ -91,7 +91,17 @@ func (f Fact) String() string {
 	var args []string
 	for _, arg := range f.Args {
 		switch v := arg.(type) {
+		case types.MangleAtom:
+			args = append(args, string(v))
+		case types.MangleString:
+			args = append(args, fmt.Sprintf("%q", string(v)))
 		case string:
+			// Note: this HasPrefix check is intentionally looser than
+			// types.Fact's isValidMangleNameConstant (which validates
+			// via ast.Name and rejects "//", deep paths, etc.). The
+			// two are independent implementations of the same
+			// name-vs-string decision; leave as-is to avoid a
+			// behavioural change callers may depend on.
 			if strings.HasPrefix(v, "/") {
 				args = append(args, v)
 			} else {

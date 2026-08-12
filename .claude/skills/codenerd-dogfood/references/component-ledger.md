@@ -2588,3 +2588,45 @@ picking that choke point is a design decision worth making deliberately.
 Related: the deliverables belong in `.nerd/campaigns/<id>/artifacts/`, where the
 same campaign already wrote 17 files correctly. Two writers with two
 destinations, one of them the repo root.
+
+---
+
+## F-LEARN-5 addendum — the Decl-aware converter exists, and is deliberately not used
+
+Correcting my own note above. I wrote that the real fix is for the serializer to
+consult the `Decl` instead of guessing, and called it the direction that would
+"fit the repo's thesis better". Both halves need qualifying: it exists already,
+and there is a documented reason the kernel does not use it.
+
+`internal/mangle/engine.go:564 factToAtomLocked` is a complete Decl-driven
+conversion. It rejects undeclared predicates, checks arity against the symbol,
+reads `decl.Bounds`, maps `/name`, `/string`, `/number`, `/float64`, `/time`,
+`/duration` and `/bytes` to concrete `ast` types, and converts each argument to
+its declared type. That is the design I proposed as though it were hypothetical.
+
+The kernel does not use it, on purpose. `internal/core/kernel_eval.go:401`:
+
+> IMPORTANT: We deliberately convert facts using types.Fact.ToAtom() (the
+> kernel's own encoding) rather than letting DifferentialEngine.ApplyDelta call
+> mangle.Engine.factToAtomLocked. The two paths apply different type-coercion
+> rules [...] Using ApplyAtomDelta keeps the encoding identical to the
+> full-rebuild path so query results match bit-for-bit.
+
+So the constraint is not that nobody thought of consulting the Decl. It is that
+**two encoders exist and the incremental and full-rebuild paths must agree**, or
+identical queries return different results depending on which path last ran.
+Any adoption of the Decl-aware encoder has to happen in both paths in one
+change, with the equivalence tested, not swapped in at one call site.
+
+That is a materially different piece of advice than "the serializer should
+consult the Decl", and it is the third time this session that reading the
+comment above the code changed the recommendation. Recorded before attempting
+anything, because the two previous times I overrode a documented decision I had
+to revert it after measuring.
+
+**What stays safely in scope for F-MANGLE-1:** `internal/mangle/engine.go's
+Fact.String()` gains the `MangleAtom` and `MangleString' cases. That method
+produces persisted fact text, not the in-memory atom encoding, so it is outside
+the bit-for-bit constraint entirely -- and today both wrapper types fall through
+to `default` and render unquoted, which makes `MangleString` mean its opposite
+on that path.
