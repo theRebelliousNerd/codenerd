@@ -2906,3 +2906,60 @@ campaign's own helpers was seventeen lines below where I stopped reading. This i
 the same error as the withdrawn F-LEARN-4 — a zero observed through too narrow a
 window, reported as a property of the system. Third occurrence today, and the
 first two were also corrected in git rather than quietly edited.
+
+---
+
+## Verification — the same campaign shape, re-run with both fixes
+
+F-CAMP-1 and F-CAMP-2 were fixed on the strength of a post-mortem. This is the
+re-run that tests whether the fix holds, on a goal whose ground truth was known
+in advance so the output could be graded rather than admired.
+
+**Goal:** audit `internal/tools/` for integer tool-argument handling — every
+site that reads a numeric argument out of an args map, whether it coerces JSON
+`float64` or asserts a bare `int`, naming the helper where one exists. Ground
+truth known beforehand: `argInt` in `core/search.go` (added hours earlier),
+`argInt` in `research/numeric_args.go`, `coerceInt` in `shell/execute.go`, and
+inline fallbacks in `codedom/lines.go`.
+
+**Result: real.** Every spot-checked `file:line` citation resolves to the line it
+claims:
+
+| citation | actual source |
+|---|---|
+| `core/file_ops.go:238` | `func coerceInt(v any) (int, bool) {` |
+| `core/search.go:33` | `func argInt(args map[string]any, key string) (int, bool) {` |
+| `research/browser_progressive.go:196` | `func intArg(args map[string]any, key string, fallbac…` |
+| `research/browser_reasoning.go:943` | `func int64Arg(args map[string]any, key string, fallb…` |
+
+Contrast with the run that produced F-CAMP-1, where **every** cited identifier
+appeared in zero files.
+
+**It found more than I did.** I had recorded three prior implementations of this
+coercion in F-TOOL-1 and wrote that "a fourth copy is not the right end state".
+There are at least **six**: `argInt` twice, `coerceInt` twice — including one in
+`core/file_ops.go`, the same package I edited, which I never noticed — plus
+`intArg` and `int64Arg` in the browser tooling. The consolidation argument is
+stronger than the one I made, and the machine is the one that made it.
+
+**Both fixes observably fired:**
+
+- `Injected context from task` appears 6 times in the campaign log. That is
+  F-CAMP-2 working, and it is why the citations are real: the synthesis step was
+  handed its inputs instead of being asked to summarise nothing.
+- `escalated to shard validation` appears in place of the old silent PASS. That
+  is F-CAMP-1 working.
+
+**And the fix immediately exposed the next defect.** Routing manual review into
+shard validation ran that path for the first time, and its verdict parser
+recorded `**PASS - Discovery objectives met.**` as a failure, because it tested
+`strings.Contains(result, "fail")` against a body that mentioned failures. Fixed
+as F-CAMP-3. Making a gate actually run is how you discover the gate was broken —
+the rubber stamp had been hiding a parser that was wrong for as long as it
+existed.
+
+**What this does not prove.** One campaign, one goal, on a package small enough
+to audit in two phases. It shows the fabrication mechanism is closed on this
+shape of work; it does not show every synthesis task now receives what it needs,
+because the decomposer still emits tasks with no `context_from` and the replanner
+still drops the edges on duplicates. Those remain open.
