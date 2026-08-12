@@ -1,10 +1,15 @@
 package codedom
 
-import "testing"
+import (
+	"bufio"
+	"os"
+	"strings"
+	"testing"
+)
 
 // Synthetic fixtures can agree with a buggy implementation. This runs the real
 // extractor over a real repo file whose extents are known by hand:
-// ForbidsPath begins at nerdmd.go:281 and its body runs to the closing brace.
+// ForbidsPath's body runs to the closing brace.
 //
 // The bug this guards: EndLine was set equal to StartLine with the comment
 // "Would need block tracking for accurate end", so every element reported as
@@ -19,14 +24,41 @@ func TestExtractCodeElements_RealFileExtents(t *testing.T) {
 		t.Fatal("no elements extracted from nerdmd.go")
 	}
 
+	// Expectation is derived by reading the fixture file rather than hardcoding
+	// a literal line number: a literal couples this test to unrelated edits in
+	// a file it does not own and will break again whenever that file grows
+	// above the target function.
+	wantStart := 0
+	f, err := os.Open("../../projectdoc/nerdmd.go")
+	if err != nil {
+		t.Fatalf("open nerdmd.go to derive expected StartLine: %v", err)
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	lnum := 0
+	for scanner.Scan() {
+		lnum++
+		trimmed := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(trimmed, "func ") && strings.Contains(trimmed, "ForbidsPath(") {
+			wantStart = lnum
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scan nerdmd.go: %v", err)
+	}
+	if wantStart == 0 {
+		t.Fatalf("ForbidsPath declaration not found in ../../projectdoc/nerdmd.go — fixture moved or renamed")
+	}
+
 	var found bool
 	for _, el := range elements {
 		if el.Name != "ForbidsPath" {
 			continue
 		}
 		found = true
-		if el.StartLine != 281 {
-			t.Errorf("ForbidsPath StartLine = %d, want 281", el.StartLine)
+		if el.StartLine != wantStart {
+			t.Errorf("ForbidsPath StartLine = %d, want %d", el.StartLine, wantStart)
 		}
 		if el.EndLine <= el.StartLine {
 			t.Errorf("ForbidsPath EndLine = %d, StartLine = %d — extent tracking is not working; "+
@@ -50,3 +82,4 @@ func TestExtractCodeElements_RealFileExtents(t *testing.T) {
 		t.Error("every element reported as one line long — extent tracking is inert")
 	}
 }
+
