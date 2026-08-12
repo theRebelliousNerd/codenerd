@@ -1939,25 +1939,8 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	// It sits after checkSafety and before the Dreamer preflight on purpose:
 	// constitutional rules outrank project rules, and there is no reason to
 	// simulate the consequences of an action that is already denied.
-	if reason, denied := e.projectForbidsWrite(call); denied {
-		logging.Get(logging.CategorySession).Warn(
-			"nerd.md BLOCKED %s on %s: %s", call.Name, projectDocTargetLabel(call.Args), reason)
-		logging.Audit().SafetyCheck("nerd.md_write_guard", false, reason)
-		return "", fmt.Errorf("blocked by nerd.md: %s is write-protected (%s)",
-			projectDocTargetLabel(call.Args), reason)
-	}
-	if reason, denied := e.writesPlaceholderTestFile(call); denied {
-		logging.Get(logging.CategorySession).Warn(
-			"placeholder test BLOCKED %s on %s: %s", call.Name, projectDocTargetLabel(call.Args), reason)
-		logging.Audit().SafetyCheck("placeholder_test_guard", false, reason)
-		return "", fmt.Errorf("blocked by placeholder test guard: %s is placeholder (%s)",
-			projectDocTargetLabel(call.Args), reason)
-	}
-	if reason, blocked := e.modularityGuard(call); blocked {
-		logging.Get(logging.CategorySession).Warn(
-			"modularity guard BLOCKED %s on %s: %s", call.Name, projectDocTargetLabel(call.Args), reason)
-		logging.Audit().SafetyCheck("modularity_guard", false, reason)
-		return "", fmt.Errorf("blocked by modularity guard: %s", reason)
+	if err := e.runWriteGuards(call); err != nil {
+		return "", err
 	}
 
 	// Capture pre-existence for .go creation tracking.

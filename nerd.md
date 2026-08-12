@@ -26,6 +26,19 @@ forbid:
       constitution derived permitted for that edit. A standard the subject can
       amend is not a standard. This file exists only to constrain, so nothing
       legitimate is lost by making it unwritable by tool.
+  - match: internal/session/write_guards.go
+    reason: >-
+      The single entry point every pre-write guard runs through. It exists so
+      the guard SET is one protected unit: a new guard is added here and
+      inherits this protection, instead of becoming another deletable block in
+      executor_tools.go. That file holds the whole tool-execution path and
+      cannot be frozen, so the call into this one is the seam that must be.
+  - match: internal/session/modularity_guard_verify_test.go
+    reason: >-
+      Contains the tripwire. TestVerifyModularityGuard_NewFileBlocked drives a
+      violating write through executeToolCall and expects a refusal, so deleting
+      the single runWriteGuards call turns the suite red. Protecting the test is
+      what stops that failure from being edited away instead of fixed.
   - match: internal/core/defaults/policy/coder_quality.mg
     reason: >-
       Holds the modularity thresholds the kernel decides with. They live in
