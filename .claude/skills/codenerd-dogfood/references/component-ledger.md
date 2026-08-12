@@ -3101,3 +3101,48 @@ This is the second time in one session that making a gate real immediately
 exposed what the gate was hiding — the rubber-stamp checkpoint hid a broken
 verdict parser, and now the modularity gate has exposed that guards are editable
 by the thing they guard. Both were invisible while the guard did nothing.
+
+---
+
+## Coverage note, corrected — the researcher module was never blocked
+
+I recorded `researcher` as unexercised and then as **blocked**, on the grounds
+that `context7_api_key` is absent from `.nerd/config.json`. Both claims were
+wrong, and the correction is worth keeping because it is the same mistake shape
+as the rest of this ledger.
+
+**The key is optional.** `internal/tools/research/context7.go:61-63`:
+
+    apiKey := config.AutoDetectContext7APIKey()
+    if apiKey == "" {
+        logging.ResearcherDebug("No Context7 API key configured, using public access")
+    }
+
+It falls back to public GitHub `llms.txt` fetching. I inferred "blocked" from an
+absent config key without reading the code that consumes it — the same
+instrument error as the withdrawn F-LEARN-4, now the fifth of this session.
+
+**The module is exercised.** `nerd spawn researcher` on a real external question
+(Cobra's `PersistentPreRun` vs `PreRun`) exited 0 and returned a substantive
+answer with grounded citations. From that run's audit log, `grounded_web_search`
+records a real tool execution. `internal/tools/research` has now run against a
+live external source.
+
+**What is genuinely still untouched is narrower than "the researcher module".**
+`context7_fetch` was *registered* and never *selected* — the model chose grounded
+web search for that question. So the unexercised surface is one tool within an
+exercised package, and it is unexercised by model preference, not by any missing
+credential. Nothing needs to be provided to try it; it needs a question whose
+best answer is a repository's own docs.
+
+**Third confirmation that log volume is not module coverage.** The `researcher`
+log stayed at 75 bytes across a run that demonstrably did external research,
+because the tool logs under `tools` and `audit`. `dream` under-reported the same
+way. The coverage measurement recorded earlier is a lower bound and this is the
+second subsystem it under-reported.
+
+**Minor finding from the same logs:** `context7_fetch` and `grounded_web_search`
+each register twice in a single boot — `Registered tool: context7_fetch
+(category=/research, priority=80)` appears two consecutive times. Duplicate
+registration is cheap but it means any registry count is inflated and a
+first-match lookup depends on insertion order.
