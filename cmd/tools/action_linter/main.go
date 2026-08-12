@@ -359,7 +359,8 @@ func extractSafeActions(root string) (map[string]struct{}, error) {
 		if err != nil {
 			return err
 		}
-		matches := re.FindAllStringSubmatch(string(data), -1)
+		clean := stripMangleComments(string(data))
+		matches := re.FindAllStringSubmatch(clean, -1)
 		for _, m := range matches {
 			if len(m) < 2 {
 				continue
@@ -403,7 +404,8 @@ func extractRequiresPermission(root string) (map[string]struct{}, error) {
 		if err != nil {
 			return err
 		}
-		matches := re.FindAllStringSubmatch(string(data), -1)
+		clean := stripMangleComments(string(data))
+		matches := re.FindAllStringSubmatch(clean, -1)
 		for _, m := range matches {
 			if len(m) < 2 {
 				continue
@@ -466,6 +468,12 @@ func lint(policyActions map[string]actionSources, routes []system.ToolRoute, vir
 				continue
 			}
 			if exemptions.isExempt(action) {
+				continue
+			}
+			// Modular tools are reachable via tools.Global() and the tool loop,
+			// bypassing RouteAction (see internal/session/executor.go:55 and :1052).
+			// They never need a policy next_action emitter, so don't warn about them.
+			if _, ok := registeredTools[action]; ok {
 				continue
 			}
 			issues = append(issues, issue{
@@ -568,3 +576,14 @@ func uniqueSorted(in []string) []string {
 	sort.Strings(out)
 	return out
 }
+
+func stripMangleComments(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if idx := strings.Index(line, "#"); idx != -1 {
+			lines[i] = line[:idx]
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
