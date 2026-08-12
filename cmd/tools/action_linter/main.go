@@ -489,6 +489,14 @@ func lint(policyActions map[string]actionSources, routes []system.ToolRoute, vir
 			continue
 		}
 		if _, ok := requiresPermission[toolName]; ok {
+			if exemptions.isExempt(toolName) {
+				continue
+			}
+			issues = append(issues, issue{
+				Severity: severityWarning,
+				Action:   "/" + toolName,
+				Message:  "tool is registered but gated behind dangerous_action via requires_permission; the only permitted/3 rule consuming dangerous_action also requires signed_approval and admin_override, neither of which is ever asserted in production, so the tool is unreachable in practice (no safe_action entry)",
+			})
 			continue
 		}
 		if exemptions.isExempt(toolName) {

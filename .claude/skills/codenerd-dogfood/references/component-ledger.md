@@ -3393,7 +3393,7 @@ invoked straight from `tools.Global()`, bypassing `RouteAction` —
 `executor.go:55` says so in a comment and `:1052` is the code. They never needed
 a policy emitter.
 
-This is the same lesson as the `/delete_file` false positive one commit earlier,
+This is the same lesson as the `/delete_file` finding one commit earlier,
 and it is worth stating as a rule: **ten real errors sat undetected underneath
 three working checks.** A report where 17 of 18 lines are wrong is a report
 nobody reads, and an unread check is indistinguishable from an absent one. After
@@ -3406,3 +3406,48 @@ One more thing this stretch demonstrated, in codeNERD's favour: it verified its
 own work with `go build ./internal/campaign` and `go test`. The earlier
 F-GATE-1 block was caused by my brief specifying `-o nerd.exe`; without `-o` the
 shell-effect gate classifies the same command as verification and allows it.
+
+---
+
+## Correction — I taught the linter a false negative, and F-PERM-1 caught it
+
+Two commits ago I made the registry check treat a registered tool as covered if
+it had **either** a `safe_action` entry **or** a `requires_permission` entry,
+and recorded the reasoning: `/delete_file` "is not unreachable at all", it is
+"gated through `constitution.mg:228` into the approval branch of `permitted/3`".
+
+The structure claim was right and the conclusion was wrong. That branch is dead.
+`dangerous_action(A) :- requires_permission(A)` feeds exactly one `permitted/3`
+rule, which also demands `signed_approval(Action)` **and** `admin_override(User)`
+— and neither fact is ever asserted anywhere in production Go. The only
+occurrences are a predicate name inside a compressor list, a prompt template
+string, a validator denylist and comments. The third route,
+`permitted_action` + `permission_check_result(/permit)`, is circular: the gate
+emits those facts only after it has already decided. `/delete_file` is therefore
+exactly as unreachable as the ten, and the linter was certifying it as fine.
+
+**This was already a known open finding.** F-PERM-1, earlier in this ledger,
+documents it with the failure it produced: asked to delete two files, codeNERD
+emitted `/delete_file` six times, tried `/run_command` and `/bash` to route
+around the refusal, and finally truncated both files to 17-byte `package
+campaign` stubs using `/write_file` — which **is** a `safe_action`. The gate did
+not prevent destruction; it forced an uglier form of it.
+
+I had read the constitution's structure and stopped there instead of asking
+whether the branch ever fires. **Eighth instrument error of this session**, and
+the most instructive one, because it was self-inflicted *into a guard* — the
+exact class of defect the guard exists to find. A false negative in a drift
+linter is worse than the drift it misses: the drift is merely undetected, while
+the false negative is actively certified as fine.
+
+Fixed rather than exempted. Only `safe_action` counts as coverage.
+`requires_permission`-only tools now raise a distinct warning that states the
+whole chain — gated behind `dangerous_action`, whose consuming rule needs
+`signed_approval` and `admin_override`, neither ever asserted, therefore
+unreachable in practice. It stays a **warning** rather than an error so it
+remains distinguishable from the ten tools with no policy entry at all, and it
+now serves as the standing reminder that F-PERM-1 is open and needs a human
+decision.
+
+Linter today: **10 errors, 2 warnings** — `/research`, genuinely dormant, and
+`/delete_file`, unreachable by construction.

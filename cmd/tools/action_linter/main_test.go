@@ -226,9 +226,28 @@ func TestLintNoErrorWhenRequiresPermissionPresent(t *testing.T) {
 	safe := map[string]struct{}{}
 	requires := map[string]struct{}{"dangerous_tool": {}}
 	issues := lint(policyActions, routes, virtualActions, false, exemptions{}, registered, safe, requires)
+	foundWarning := false
 	for _, it := range issues {
-		if it.Action == "/dangerous_tool" {
-			t.Fatalf("did not expect issue for tool with requires_permission, got %+v", issues)
+		if it.Action == "/dangerous_tool" && it.Severity == severityWarning {
+			if !strings.Contains(it.Message, "dangerous_action") {
+				t.Fatalf("warning message should mention dangerous_action, got %q", it.Message)
+			}
+			if !strings.Contains(it.Message, "signed_approval") || !strings.Contains(it.Message, "admin_override") {
+				t.Fatalf("warning message should mention signed_approval and admin_override, got %q", it.Message)
+			}
+			if !strings.Contains(strings.ToLower(it.Message), "unreachable") {
+				t.Fatalf("warning message should say unreachable, got %q", it.Message)
+			}
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("expected warning for registered tool with requires_permission but no safe_action (gated behind dangerous_action, unreachable), got %+v", issues)
+	}
+	for _, it := range issues {
+		if it.Action == "/dangerous_tool" && it.Severity == severityError {
+			t.Fatalf("requires_permission tool should be warning not error, got %+v", it)
 		}
 	}
 }
@@ -337,7 +356,6 @@ func TestExtractRequiresPermissionIgnoresCommentedLine(t *testing.T) {
 	}
 }
 
-
 // TestRealCorpusProducesExpectedCounts validates the live policy corpus without
 // locking in the current defect count.
 //
@@ -347,7 +365,7 @@ func TestExtractRequiresPermissionIgnoresCommentedLine(t *testing.T) {
 // list as its safe_action fact is added is correct maintenance. This test's
 // job is to catch an ELEVENTH uncovered tool appearing, not to preserve the
 // ten. Zero errors must pass because zero is the goal state once the corpus
-// is fixed. Warning assertions (exactly one warning for /research) are stable
+// is fixed. Warning assertions (exactly two warnings for /research and /delete_file) are stable
 // and are kept exact.
 func TestRealCorpusProducesExpectedCounts(t *testing.T) {
 	// Shrinking allowlist of the currently-known uncovered tools.
@@ -446,10 +464,25 @@ func TestRealCorpusProducesExpectedCounts(t *testing.T) {
 		t.Fatalf("unexpected registry-coverage error(s) outside shrinking allowlist %v: got %v (all issues: %+v)", knownUncovered, unexpected, issues)
 	}
 	// No assertion on minimum error count; zero is the goal state.
-	if warnCount != 1 {
-		t.Fatalf("expected 1 warning, got %d: %+v", warnCount, issues)
+	expectedWarnings := map[string]struct{}{
+		"/research":    {},
+		"/delete_file": {},
 	}
-	if len(warnActions) != 1 || warnActions[0] != "/research" {
-		t.Fatalf("expected single warning for /research, got %v", warnActions)
+	if warnCount != len(expectedWarnings) {
+		t.Fatalf("expected %d warnings %v, got %d: %+v", len(expectedWarnings), expectedWarnings, warnCount, issues)
+	}
+	warnSet := make(map[string]struct{}, len(warnActions))
+	for _, a := range warnActions {
+		warnSet[a] = struct{}{}
+	}
+	for w := range expectedWarnings {
+		if _, ok := warnSet[w]; !ok {
+			t.Fatalf("expected warning for %q missing, got %v (all issues: %+v)", w, warnActions, issues)
+		}
+	}
+	for _, a := range warnActions {
+		if _, ok := expectedWarnings[a]; !ok {
+			t.Fatalf("unexpected warning %q, expected set %v (all issues: %+v)", a, expectedWarnings, issues)
+		}
 	}
 }
