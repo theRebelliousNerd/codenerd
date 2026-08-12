@@ -172,6 +172,17 @@ type Campaign struct {
 	// completed while doing something nobody asked for.
 	PlanDegraded bool `json:"plan_degraded,omitempty"`
 
+	// RootBaseline captures the workspace root filenames as they existed before
+	// the campaign first ran. Only files absent from this baseline are ever
+	// candidates for the completion sweep, so a campaign can never move
+	// something it did not create.
+	//
+	// Persisted so a resumed campaign still knows the original root: without it
+	// the baseline is re-snapshotted after earlier runs already wrote scratch
+	// into the workspace, and the sweep silently under-cleans exactly the files
+	// it exists to catch. omitempty is deliberately absent because empty-and-recorded must stay distinguishable from never-recorded.
+	RootBaseline []string `json:"root_baseline"`
+
 	// Structure
 	Phases          []Phase          `json:"phases"`
 	ContextProfiles []ContextProfile `json:"context_profiles,omitzero"`

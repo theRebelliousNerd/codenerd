@@ -718,8 +718,35 @@ func (o *Orchestrator) reportUnexpectedRootWrites(task *Task, before map[string]
 // create.
 func (o *Orchestrator) recordRootBaseline() {
 	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.rootBaseline = o.snapshotWorkspaceRoot()
+	if o.campaign != nil && o.campaign.RootBaseline != nil {
+		baseline := make(map[string]bool, len(o.campaign.RootBaseline))
+		for _, name := range o.campaign.RootBaseline {
+			baseline[name] = true
+		}
+		o.rootBaseline = baseline
+		o.mu.Unlock()
+		return
+	}
+	snap := o.snapshotWorkspaceRoot()
+	o.rootBaseline = snap
+	var campaignID string
+	var didPersist bool
+	if o.campaign != nil && snap != nil {
+		toSave := make([]string, 0, len(snap))
+		for name := range snap {
+			toSave = append(toSave, name)
+		}
+		sort.Strings(toSave)
+		o.campaign.RootBaseline = toSave
+		campaignID = o.campaign.ID
+		didPersist = true
+	}
+	o.mu.Unlock()
+	if didPersist {
+		if err := o.saveCampaign(); err != nil {
+			logging.CampaignWarn("Failed to persist root baseline for campaign %s: %v", campaignID, err)
+		}
+	}
 }
 
 // sweepUndeclaredRootWrites moves scratch the campaign left in the workspace

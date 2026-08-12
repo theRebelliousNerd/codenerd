@@ -1,8 +1,10 @@
 package campaign
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 )
 
@@ -207,3 +209,222 @@ func TestShortCampaignID(t *testing.T) {
 		}
 	}
 }
+
+func TestRecordRootBaseline_SnapshotsAndPersists(t *testing.T) {
+	ws := t.TempDir()
+	nerdDir := t.TempDir()
+	for _, name := range []string{"go.mod", "README.md", "main.go"} {
+		if err := os.WriteFile(filepath.Join(ws, name), []byte("x"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(ws, "internal"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	campaign := &Campaign{ID: "campaign_baseline_a"}
+	o := &Orchestrator{
+		config:   OrchestratorConfig{Workspace: ws},
+		campaign: campaign,
+		nerdDir:  nerdDir,
+		kernel:   &MockKernel{},
+	}
+	o.recordRootBaseline()
+	if o.rootBaseline == nil {
+		t.Fatal("rootBaseline nil after first run; expected snapshot")
+	}
+	for _, want := range []string{"go.mod", "README.md", "main.go"} {
+		if !o.rootBaseline[want] {
+			t.Errorf("baseline missing %q", want)
+		}
+	}
+	if o.rootBaseline["internal"] {
+		t.Error("directory should not be in baseline")
+	}
+	if len(campaign.RootBaseline) == 0 {
+		t.Fatal("campaign.RootBaseline not populated on first run")
+	}
+	if !sort.StringsAreSorted(campaign.RootBaseline) {
+		t.Errorf("RootBaseline not sorted: %v", campaign.RootBaseline)
+	}
+	if len(campaign.RootBaseline) != len(o.rootBaseline) {
+		t.Errorf("persisted slice len %d != baseline map len %d", len(campaign.RootBaseline), len(o.rootBaseline))
+	}
+	for _, name := range campaign.RootBaseline {
+		if !o.rootBaseline[name] {
+			t.Errorf("persisted entry %q not in in-memory baseline", name)
+		}
+	}
+	// Verify persistence to disk is stable: file exists and contains sorted baseline.
+	path := filepath.Join(nerdDir, "campaigns", campaign.ID+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read persisted campaign: %v", err)
+	}
+	var persisted Campaign
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatalf("decode persisted campaign: %v", err)
+	}
+	if len(persisted.RootBaseline) != len(campaign.RootBaseline) {
+		t.Fatalf("persisted file RootBaseline len %d, want %d", len(persisted.RootBaseline), len(campaign.RootBaseline))
+	}
+	for i := range persisted.RootBaseline {
+		if persisted.RootBaseline[i] != campaign.RootBaseline[i] {
+			t.Fatalf("persisted file mismatch at %d: %q vs %q", i, persisted.RootBaseline[i], campaign.RootBaseline[i])
+		}
+	}
+}
+
+func TestRecordRootBaseline_RestoresPersistedBaseline(t *testing.T) {
+	ws := t.TempDir()
+	nerdDir := t.TempDir()
+	// Pre-existing file that is part of the original baseline.
+	if err := os.WriteFile(filepath.Join(ws, "keep.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write keep: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, "go.mod"), []byte("module x"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	// Scratch file created by earlier run, now on disk but absent from persisted baseline.
+	if err := os.WriteFile(filepath.Join(ws, "scratch.txt"), []byte("scratch"), 0o644); err != nil {
+		t.Fatalf("write scratch: %v", err)
+	}
+	persistedBaseline := []string{"go.mod", "keep.txt"}
+	// Ensure persisted is sorted as recordRootBaseline would have stored it.
+	sort.Strings(persistedBaseline)
+	campaign := &Campaign{ID: "campaign_baseline_b", RootBaseline: persistedBaseline}
+	o := &Orchestrator{
+		config:   OrchestratorConfig{Workspace: ws},
+		campaign: campaign,
+		nerdDir:  nerdDir,
+		kernel:   &MockKernel{},
+	}
+	o.recordRootBaseline()
+	// Must restore exactly the persisted set, not re-snapshot which would include scratch.txt.
+	if !o.rootBaseline["keep.txt"] || !o.rootBaseline["go.mod"] {
+		t.Error("restored baseline missing expected entries")
+	}
+	if o.rootBaseline["scratch.txt"] {
+		t.Error("restored baseline incorrectly includes scratch.txt that was on disk but absent from persisted slice; must NOT re-snapshot")
+	}
+	if len(o.rootBaseline) != len(persistedBaseline) {
+		t.Errorf("restored baseline size %d, want %d", len(o.rootBaseline), len(persistedBaseline))
+	}
+	// Campaign field must remain unchanged (no overwrite with snapshot).
+	if len(campaign.RootBaseline) != len(persistedBaseline) {
+		t.Fatalf("campaign.RootBaseline was overwritten")
+	}
+	for i := range persistedBaseline {
+		if campaign.RootBaseline[i] != persistedBaseline[i] {
+			t.Errorf("campaign.RootBaseline[%d] = %q, want %q", i, campaign.RootBaseline[i], persistedBaseline[i])
+		}
+	}
+	// Prove sweepability: scratch.txt is absent from baseline and not declared, so sweep must move it.
+	o.campaign.Phases = []Phase{{Tasks: []Task{{ID: "/t1", WriteSet: []string{"keep.txt"}}}}}
+	// Ensure artifact dir does not yet contain scratch.
+	o.sweepUndeclaredRootWrites()
+	if _, err := os.Stat(filepath.Join(ws, "scratch.txt")); !os.IsNotExist(err) {
+		t.Error("scratch.txt should have been swept (moved) but remains in workspace root")
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".nerd", "campaigns", shortCampaignID(campaign.ID), "artifacts", "scratch.txt")); err != nil {
+		t.Errorf("scratch.txt not preserved in artifacts after sweep: %v", err)
+	}
+	// Keep file must remain.
+	if _, err := os.Stat(filepath.Join(ws, "keep.txt")); err != nil {
+		t.Error("keep.txt should not have been swept")
+	}
+}
+
+func TestRecordRootBaseline_OrderIndependent(t *testing.T) {
+	ws := t.TempDir()
+	nerdDir := t.TempDir()
+	// Persisted baseline in unsorted order.
+	unsorted := []string{"zebra.md", "alpha.md", "middle.md"}
+	campaign := &Campaign{ID: "campaign_baseline_c", RootBaseline: unsorted}
+	o := &Orchestrator{
+		config:   OrchestratorConfig{Workspace: ws},
+		campaign: campaign,
+		nerdDir:  nerdDir,
+		kernel:   &MockKernel{},
+	}
+	// Workspace contains those files plus a stray.
+	for _, name := range []string{"alpha.md", "middle.md", "zebra.md", "stray.md"} {
+		if err := os.WriteFile(filepath.Join(ws, name), []byte("x"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	o.recordRootBaseline()
+	// Baseline must contain exactly the 3 persisted files regardless of order, not the stray.
+	for _, want := range []string{"alpha.md", "middle.md", "zebra.md"} {
+		if !o.rootBaseline[want] {
+			t.Errorf("order-independent restore missing %q", want)
+		}
+	}
+	if o.rootBaseline["stray.md"] {
+		t.Error("stray.md should not be in restored baseline")
+	}
+	if len(o.rootBaseline) != 3 {
+		t.Errorf("restored baseline len %d, want 3", len(o.rootBaseline))
+	}
+	// Second orchestrator with same set in different order must yield identical map.
+	otherOrder := []string{"middle.md", "zebra.md", "alpha.md"}
+	campaign2 := &Campaign{ID: "campaign_baseline_c2", RootBaseline: otherOrder}
+	o2 := &Orchestrator{
+		config:   OrchestratorConfig{Workspace: ws},
+		campaign: campaign2,
+		nerdDir:  nerdDir,
+		kernel:   &MockKernel{},
+	}
+	o2.recordRootBaseline()
+	if len(o2.rootBaseline) != len(o.rootBaseline) {
+		t.Fatalf("order variation changed baseline size")
+	}
+	for k := range o.rootBaseline {
+		if !o2.rootBaseline[k] {
+			t.Errorf("order variation missing %q", k)
+		}
+	}
+}
+
+
+func TestRecordRootBaseline_EmptyNonNilBaselineIsRecorded(t *testing.T) {
+	ws := t.TempDir()
+	nerdDir := t.TempDir()
+	// File that appeared after the empty baseline was recorded.
+	if err := os.WriteFile(filepath.Join(ws, "scratch.txt"), []byte("scratch"), 0o644); err != nil {
+		t.Fatalf("write scratch: %v", err)
+	}
+	// Empty but non-nil: this is what JSON `[]` decodes to, distinct from absent (nil).
+	campaign := &Campaign{ID: "campaign_baseline_empty", RootBaseline: []string{}}
+	o := &Orchestrator{
+		config:   OrchestratorConfig{Workspace: ws},
+		campaign: campaign,
+		nerdDir:  nerdDir,
+		kernel:   &MockKernel{},
+	}
+	o.recordRootBaseline()
+	if o.rootBaseline == nil {
+		t.Fatal("empty non-nil persisted baseline should restore as empty map, not nil")
+	}
+	if len(o.rootBaseline) != 0 {
+		t.Errorf("restored baseline len %d, want 0; empty baseline must stay empty and not re-snapshot", len(o.rootBaseline))
+	}
+	if o.rootBaseline["scratch.txt"] {
+		t.Error("scratch.txt must not be in restored baseline; empty baseline is recorded and must NOT re-snapshot the current root")
+	}
+	if campaign.RootBaseline == nil {
+		t.Error("campaign.RootBaseline must remain non-nil (empty recorded baseline)")
+	}
+	if len(campaign.RootBaseline) != 0 {
+		t.Errorf("campaign.RootBaseline len %d, want 0; must not be overwritten by snapshot", len(campaign.RootBaseline))
+	}
+	// Prove sweepability: the scratch file is sweepable because baseline is empty.
+	o.campaign.Phases = []Phase{{Tasks: []Task{{ID: "/t1"}}}}
+	o.sweepUndeclaredRootWrites()
+	if _, err := os.Stat(filepath.Join(ws, "scratch.txt")); !os.IsNotExist(err) {
+		t.Error("scratch.txt should have been swept when baseline is empty-but-recorded; re-snapshotting would have made it baseline and unsweepable")
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".nerd", "campaigns", shortCampaignID(campaign.ID), "artifacts", "scratch.txt")); err != nil {
+		t.Errorf("scratch.txt not preserved in artifacts after sweep: %v", err)
+	}
+}
+
