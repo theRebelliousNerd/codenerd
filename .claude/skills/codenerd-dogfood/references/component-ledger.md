@@ -2798,3 +2798,52 @@ to verify it and reported PASSED without checking. Neither failed loudly. The
 run ended with "Campaign completed successfully" and a deliverable in which every
 cited symbol was invented — and the only thing that surfaced it was a human
 grepping one cited identifier and finding zero files.
+
+---
+
+## Module exercise coverage — measured, not assumed
+
+The standing goal includes "every module exercised on itself at least once".
+That was being asserted rather than measured, so here is the measurement.
+
+**Method.** Every log file written under `.nerd/logs/` by live runs against this
+repository, grouped by subsystem category and summed. 12 runs. A category with a
+file but only a few dozen bytes has been *initialised*, not exercised — the file
+is created at boot whether or not the subsystem does anything.
+
+**Exercised — 23 subsystems with real live output:**
+
+`kernel` (12 MB), `campaign` (6 MB), `performance`, `embedding`, `store`,
+`virtual_store`, `session`, `tools`, `shards`, `articulation`, `api`, `jit`,
+`problems`, `context`, `perception`, `system_shards`, `boot`, `autopoiesis`,
+`world`, `build`, `tactile`, plus `audit` (20 MB) and `llm_io` (52 MB) which are
+cross-cutting recorders rather than subsystems.
+
+**Not exercised — 3:**
+
+| subsystem | evidence |
+|---|---|
+| `browser` | 72 bytes per run across 8 runs — a header and nothing else |
+| `researcher` | 75 bytes per run across 8 runs — same |
+| `northstar` | 132 bytes across 3 runs |
+
+**Marginal:** `dream` writes 576 bytes per run. `/dream` and `/shadow` were
+exercised earlier in this session and are known to work, so this is a logging
+gap rather than an execution gap — worth noting because it means this
+measurement under-reports a subsystem that did run.
+
+**What it would take to close the three.** `browser` needs a page-driving task,
+which the browser tool suite and `internal/browser/specs` support. `researcher`
+is the Context7-backed external lookup path and needs `context7_api_key` set;
+the `/research` *shard* did run repeatedly during the campaign, but it logs under
+`shards` and `campaign`, so the empty `researcher` category is the external
+lookup tooling specifically, not research as an activity. `northstar` is the
+project-vision wizard, reachable from chat.
+
+**Caveat on the method, stated because it changes how the numbers should be
+read.** Log category does not map one-to-one onto Go package. A subsystem can
+run while logging under another category — `dream` demonstrates exactly that.
+So this is a lower bound on what has been exercised, and the three named above
+are candidates for "not exercised", not proof of it. Confirming any of them
+requires driving the feature and watching its own log grow, which is how the
+other 23 were confirmed.
