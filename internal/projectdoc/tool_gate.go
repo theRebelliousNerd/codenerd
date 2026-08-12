@@ -2,6 +2,7 @@ package projectdoc
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -129,6 +130,20 @@ func TargetPath(args map[string]any) string {
 	}
 	return paths[0]
 }
+// ReadFileForTool reads a file for tool use, returning a directory-specific
+// error that guides the model to list_files/glob instead of a raw platform
+// error ("is a directory" on Unix, "Incorrect function" on Windows).
+func ReadFileForTool(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("path is a directory, not a file: %s (use list_files or glob to enumerate directory contents)", path)
+	}
+	return os.ReadFile(path)
+}
+
 
 // IsWriteMutationTool reports whether a tool name durably mutates a file.
 func IsWriteMutationTool(name string) bool {
@@ -143,6 +158,44 @@ func IsWriteMutationTool(name string) bool {
 	default:
 		return false
 	}
+}
+
+// IsTestExecutionTool reports whether a tool call actually executes a test suite.
+func IsTestExecutionTool(name string, args map[string]any) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "run_tests", "run_impacted_tests":
+		return true
+	}
+	if !IsShellTool(name) {
+		return false
+	}
+	cmd := strings.ToLower(strings.TrimSpace(ShellCommand(args)))
+	if cmd == "" {
+		return false
+	}
+	for _, prefix := range []string{
+		"go test",
+		"gotestsum",
+		"pytest",
+		"python -m pytest",
+		"python3 -m pytest",
+		"cargo test",
+		"npm test",
+		"npm run test",
+		"yarn test",
+		"pnpm test",
+		"dotnet test",
+		"mvn test",
+		"gradle test",
+		"./gradlew test",
+		"ctest",
+		"bazel test",
+	} {
+		if hasCommandPrefix(cmd, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsShellTool reports whether a tool name can route a command to a host shell

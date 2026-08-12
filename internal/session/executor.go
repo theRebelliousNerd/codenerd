@@ -485,6 +485,11 @@ type ExecutionResult struct {
 	// intents that only produced prose or non-mutating tool calls.
 	SuccessfulWriteTools int
 
+	// SuccessfulTestTools counts tool calls that actually executed a test suite
+	// and completed without error, and it exists so a claimed test result can
+	// be checked against a real one rather than taken on trust.
+	SuccessfulTestTools int
+
 	// WrittenPaths records the target of every successful write mutation, so
 	// post-edit build verification can tell a turn that touched Go source from
 	// one that only wrote markdown and skip the compile it does not need.

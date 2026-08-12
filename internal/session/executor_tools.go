@@ -682,6 +682,9 @@ func (e *Executor) executeAndRecordToolCall(
 				"successful write %s returned invalid target metadata: %v", call.Name, err)
 		}
 	}
+	if isTestExecutionTool(call.Name, call.Input) {
+		result.SuccessfulTestTools++
+	}
 	return out, nil
 }
 
@@ -805,6 +808,10 @@ func isWriteMutationTool(name string) bool {
 	// wrapper so this package's tests and call sites are unchanged, and so the
 	// session gate and the registry-level guard cannot drift apart.
 	return projectdoc.IsWriteMutationTool(name)
+}
+
+func isTestExecutionTool(name string, args map[string]any) bool {
+	return projectdoc.IsTestExecutionTool(name, args)
 }
 
 // SetProjectDoc attaches the workspace's parsed nerd.md.

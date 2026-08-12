@@ -514,3 +514,34 @@ func TestTargetPath_CompatibilityWrapper(t *testing.T) {
 		})
 	}
 }
+
+func TestIsTestExecutionTool(t *testing.T) {
+	cases := []struct {
+		name string
+		tool string
+		args map[string]any
+		want bool
+	}{
+		{name: "run_tests with nil args", tool: "run_tests", args: nil, want: true},
+		{name: "run_impacted_tests with nil args", tool: "run_impacted_tests", args: nil, want: true},
+		{name: "run_command go test ./...", tool: "run_command", args: map[string]any{"command": "go test ./..."}, want: true},
+		{name: "run_command go test -run TestFoo ./internal/session", tool: "run_command", args: map[string]any{"command": "go test -run TestFoo ./internal/session"}, want: true},
+		{name: "run_command pytest tests/", tool: "run_command", args: map[string]any{"command": "pytest tests/"}, want: true},
+		{name: "run_command cargo test", tool: "run_command", args: map[string]any{"command": "cargo test"}, want: true},
+		{name: "bash npm test", tool: "bash", args: map[string]any{"command": "npm test"}, want: true},
+		{name: "run_command go build ./... is not test", tool: "run_command", args: map[string]any{"command": "go build ./..."}, want: false},
+		{name: "run_command cargo build is not test", tool: "run_command", args: map[string]any{"command": "cargo build"}, want: false},
+		{name: "run_command ls -la is not test", tool: "run_command", args: map[string]any{"command": "ls -la"}, want: false},
+		{name: "run_command with NO command payload", tool: "run_command", args: nil, want: false},
+		{name: "write_file with go test command is not test", tool: "write_file", args: map[string]any{"command": "go test ./..."}, want: false},
+		{name: "whitespace mixed case Run_Tests", tool: "  Run_Tests  ", args: nil, want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := IsTestExecutionTool(tc.tool, tc.args)
+			if got != tc.want {
+				t.Fatalf("IsTestExecutionTool(%q, %#v)=%v, want %v (case %q)", tc.tool, tc.args, got, tc.want, tc.name)
+			}
+		})
+	}
+}

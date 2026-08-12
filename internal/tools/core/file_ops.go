@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
 	"codenerd/internal/tactile"
 	"codenerd/internal/tools"
 )
@@ -121,7 +122,7 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 
 	logging.VirtualStoreDebug("read_file: path=%s", path)
 
-	content, err := os.ReadFile(path)
+	content, err := projectdoc.ReadFileForTool(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			auditErr := notFoundWithSuggestions(path, rawPath)
@@ -411,7 +412,7 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 
 	logging.VirtualStoreDebug("edit_file: path=%s, old_len=%d, new_len=%d", path, len(oldText), len(newText))
 
-	content, err := os.ReadFile(path)
+	content, err := projectdoc.ReadFileForTool(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
