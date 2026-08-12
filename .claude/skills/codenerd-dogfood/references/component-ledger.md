@@ -3146,3 +3146,185 @@ each register twice in a single boot — `Registered tool: context7_fetch
 (category=/research, priority=80)` appears two consecutive times. Duplicate
 registration is cheap but it means any registry count is inflated and a
 first-match lookup depends on insertion order.
+
+---
+
+## The coverage guarantee, proven live rather than by reading (2026-08-12)
+
+The modularity and coverage standards were built, unit-tested against a real
+kernel, and committed. None of that proves they fire in production. This is the
+live proof, run through the **delegated** path rather than an interactive turn,
+because that is the path most of codeNERD's own work takes.
+
+**Negative case.** `nerd spawn coder "create internal/probecov/probecov.go ...
+Do not create a test file."`
+
+    Error: spawn failed: execution failed: hollow success blocked:
+    internal/probecov/probecov.go was created without a test file;
+    a test file is required (create internal/probecov/probecov_test.go)
+    exit 1
+
+**Positive case.** The same command asked for the test file: exit 0, and
+codeNERD ran `go test ./internal/probecov -run TestAdd -v` itself and reported
+PASS. A guard that can only refuse is not a guard, it is an outage; both
+directions matter and both were run.
+
+**Why the delegated path was the one to test.** All four routes — interactive
+turn, inline task, subagent, campaign task — reach the same choke point:
+`JITExecutor.ExecuteWithContext` runs either `executeWithSubagent` or an
+isolated `CloneForTask` executor, `SubAgent.execute` calls
+`s.executor.ProcessWithIntent`, and every one lands on
+`Executor.ProcessWithIntent`, which calls `checkHollowSuccess` at
+`executor.go:705`. Writes converge the same way: `executeToolCall` has exactly
+one caller, exactly two success returns, and both record file creation. So the
+guarantee is choke-point-enforced, not per-call-site — which is the distinction
+this session has now got wrong nine times and is worth stating explicitly.
+
+## F-CLI-1 — a runtime failure printed the usage block (fixed, `3b2f29af`)
+
+The failing spawn above printed cobra's full `Usage:/Flags:/Global Flags:` block
+under a genuine execution error, which reads as "you typed it wrong" when the
+command was correct and the work failed.
+
+Cobra prints usage for any error a command returns unless `SilenceUsage` is set
+(cobra@v1.10.2 `command.go:1165`). **Two** of roughly seventy `RunE` commands
+set it — both in `cmd_campaign.go`, both mine, both added per call site earlier
+this session. Eighteen `cmd_*.go` files had it nowhere.
+
+Fixed once in the root `PersistentPreRunE`. Placement is the whole fix: cobra
+runs `ValidateArgs` (`command.go:968`) **before** the persistent hooks
+(`command.go:985`), so argument errors keep their usage block while `RunE`
+errors lose it. Setting it on the `rootCmd` struct literal instead would silence
+both and is a regression. Written by codeNERD; verified by hand in both
+directions.
+
+## F-GATE-1 — `go build -o <binary>` is refused, and my brief is what found it
+
+codeNERD reported it could not verify its own fix: `run_build` and `run_command`
+were both blocked as `unknown_mutating`.
+
+`ClassifyShellEffect` (`internal/projectdoc/tool_gate.go:399`) returns
+`UnknownMutating` for any command containing `" -o "`, and that check runs
+**before** the verification list at `:439` which already whitelists `go build`.
+The heuristic exists for git's `--output`/`--ext-diff`/`--textconv`, which invoke
+external helpers. It also catches `go build -o nerd.exe` — the canonical Go
+build, and the exact command this repo's own CLAUDE.md documents.
+
+**Honest attribution: my brief caused this block, not the tool.** I dictated
+`go build -tags sqlite_vec -o nerd.exe`. `run_build` with no command payload
+auto-detects `go build ./...`, classifies as verification, and is allowed —
+which is how codeNERD ran `go test` unaided in the positive case above. So the
+capability exists and the defect is narrow: codeNERD can compile-check but
+cannot produce a binary. **Sixth instrument error of this session**, and the
+same shape as the other five: I inferred a capability gap from one failure
+without reading the code that produced it.
+
+Not fixed unilaterally. Widening it means letting a "verification" command write
+to an arbitrary path (`go build -o /anywhere/x`), and CLAUDE.md is explicit that
+the model should not widen the rule that constrains it. It is a decision for the
+user, with the narrow fix being to scope the `" -o "` test to the git family it
+was written for.
+
+## Two smaller findings from the same logs
+
+- **"Duplicate tool registration" — WITHDRAWN, there is no defect.** Logged
+  twice this session (first for `context7_fetch`/`grounded_web_search`, then
+  widened to every tool on seeing `run_command`/`run_build` doubled). Both
+  claims were wrong. `HydrateModularTools`
+  (`internal/core/virtual_store_tools.go:46`) registers each bundle into **two
+  distinct registries** — the VirtualStore's `modularTools` and the process
+  global `tools.Global()`, which is how `session.Executor` reaches tools at
+  `executor.go:1052`. Each registry logs once, so one tool produces two lines.
+  `Registry.Register` (`registry.go:67`) rejects a real duplicate with
+  `ErrToolAlreadyRegistered` **before** it logs, so a doubled log line is proof
+  the registries are distinct, not proof of a double insert. Counts are not
+  inflated and lookup is not order-dependent. The mirroring is careful:
+  every bundle, the conditional `grounded_web_search`, and the nerd.md write
+  guard installed on both registries before any tool is registered.
+  **Seventh instrument error of this session**, same shape as the other six —
+  a defect inferred from log output without reading the code that emitted it.
+  The one latent hazard worth keeping: `VirtualStore.RegisterModularTool`
+  (`virtual_store_tools.go:32`) writes to `modularTools` only, so a tool added
+  through it would be invisible to every `tools.Global()` consumer. It has zero
+  callers today; it is a dormant integration point, not a live bug.
+- **Two build paths with different environments.** `internal/build.GetBuildEnv`
+  supplies `CGO_CFLAGS` and is used by `session/build_verify.go`,
+  `test_verify.go`, `coverage_profile.go` and autopoiesis — but the `run_build`
+  tool (`internal/tools/shell/execute.go:223`) uses bare `os.Environ()` plus
+  arg-supplied vars. Low impact today because the untagged build excludes the
+  cgo file, but the two paths can disagree about whether the project compiles.
+
+---
+
+## F-POLICY-1 — ten registered tools the constitution could never permit
+
+The largest wiring gap found this session, and it corrects a claim made earlier
+in this same ledger.
+
+**What I said before, which was wrong.** The researcher correction above states
+that `context7_fetch` "is unexercised by model preference, not by any missing
+credential" and that "nothing needs to be provided to try it." Both halves were
+wrong. It was unexercised because **the constitution never permitted it**, and
+no amount of prompting could have changed that. Asked directly to use it:
+
+    [WARN]  Safety check denied action: /context7_fetch (target: unknown)
+    [ERROR] Tool call context7_fetch failed: ... constitution derived no
+            permitted(...) fact for that action and target
+
+**The measurement.** Taking the 45 tool names the registry logs at a live boot
+and testing each against the whole policy corpus: **10 have no entry anywhere**,
+so `permitted/3` can never derive and every call is denied. Registered,
+implemented, unreachable — 22% of the tool surface.
+
+`context7_fetch`, `web_fetch`, `web_search`, `research_cache_get`,
+`research_cache_set`, `research_cache_stats`, `research_cache_clear`,
+`get_impacted_tests`, `run_impacted_tests`, `apply_edits`.
+
+**Fourth recurrence of a documented bug class.** `constitution.mg` already
+explains this failure twice in its own comments — `/edit_file` ("the
+constitutional gate silently denied every edit the agent tried and failed the
+task") and the `/glob` alias ("silently blocked every directory listing the
+agent tried to do"). The pattern is always the same: a tool is added to the
+registry and nobody adds the action atom. It is invisible because the tool
+registers cleanly, appears in the tool list the model is shown, and only fails
+at call time.
+
+**A second correction, to my own patch text.** I first proposed withholding
+`research_cache_set` on the grounds that "Go populates the cache internally
+after a real fetch." That was wrong too. `ResearchCache.Set` has exactly one
+caller — the tool handler at `internal/tools/research/cache.go:225`.
+`context7.go`, `web_fetch.go` and `web_search.go` never write through. The cache
+is **model-driven by design**, so withholding `set` would have left `get` and
+`stats` permanently empty: permitting a no-op. All four were permitted, with the
+cost stated rather than hidden — a model-written entry persists and another
+agent can read it back as though retrieved. Entries carry a source field and
+expire on TTL, which bounds it without removing it.
+
+**Applied to the overlay, not the corpus, and that is the protection working.**
+`internal/core/defaults/policy/constitution.mg` is denied to Claude by
+`.claude/settings.json` and to codeNERD by `nerd.md`'s forbid list. Neither
+agent can widen its own permissions, which is exactly the property F-SELF-1
+argued for. The obvious workaround — drop the path from `nerd.md`, have codeNERD
+write it, put it back — is the F-SELF-1 move wearing a different hat and was not
+taken; a guard the agent removes when inconvenient is not a guard. The facts went
+into `.nerd/mangle/policy_overrides.mg`, the designed extension point loaded at
+`kernel_init.go:440`. **That file is gitignored, so the repo defect is still
+open**: the same ten lines belong in `constitution.mg`, by a human.
+
+**Verified live, end to end.** The identical researcher task that was denied
+now runs: `Executing modular tool: context7_fetch with 3 args` →
+`executed successfully: 5062 chars result`, exit 0, zero safety denials. The
+shard reported a *documented absence* for `PersistentPreRunE` rather than
+inventing an answer from training data, which is the behaviour the research
+prompt asks for.
+
+**Module exercise coverage is now 26 of 26.** `context7_fetch` was the last
+unexercised surface, and it was never a matter of preference or credentials.
+
+### The follow-up that matters more than the ten facts
+
+A drift test: enumerate what `core.RegisterAll`, `shell.RegisterAll`,
+`codedom.RegisterAll` and `research.RegisterAll` put into a fresh registry, and
+fail if any name has no policy entry. Adding ten facts fixes ten construction
+sites; the test is the choke point, and without it this returns a fifth time.
+It should land together with the corpus fix so it is green on arrival.
