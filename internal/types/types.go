@@ -43,6 +43,10 @@ func GetSessionContext(ctx context.Context) *SessionContext {
 // MangleAtom represents a Mangle name constant (starting with /).
 // This explicit type avoids ambiguity between strings and atoms.
 type MangleAtom string
+// MangleString represents an explicit Mangle string constant.
+// It always produces a string constant, never a name, whatever the value looks like.
+// It is the explicit counterpart to MangleAtom.
+type MangleString string
 
 // Fact represents a single logical fact (atom) in the EDB.
 type Fact struct {
@@ -114,6 +118,8 @@ func (f Fact) String() string {
 		switch v := arg.(type) {
 		case MangleAtom:
 			args = append(args, string(v))
+		case MangleString:
+			args = append(args, fmt.Sprintf("%q", v))
 		case string:
 			// Handle valid Mangle name constants (start with /).
 			// NOTE: Many normal strings can start with "/" (e.g., Go comments "//", Unix paths),
@@ -161,6 +167,8 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 				return ast.Atom{}, err
 			}
 			terms = append(terms, c)
+		case MangleString:
+			terms = append(terms, ast.String(string(v)))
 		case string:
 			if isValidMangleNameConstant(v) {
 				// Name constant

@@ -614,7 +614,7 @@ func (b *BaseSystemShard) loadLearnedPatterns() []types.Fact {
 				b.patternSuccess[pattern] = 3
 				facts = append(facts, types.Fact{
 					Predicate: "shard_pattern",
-					Args:      []any{b.ID, types.MangleAtom("/success"), pattern, 3},
+					Args:      []any{types.MangleString(b.ID), types.MangleAtom("/success"), types.MangleString(pattern), 3},
 				})
 			}
 		}
@@ -638,7 +638,7 @@ func (b *BaseSystemShard) loadLearnedPatterns() []types.Fact {
 				b.patternFailure[key] = 3
 				facts = append(facts, types.Fact{
 					Predicate: "shard_pattern",
-					Args:      []any{b.ID, types.MangleAtom("/failure"), pattern, 3},
+					Args:      []any{types.MangleString(b.ID), types.MangleAtom("/failure"), types.MangleString(pattern), 3},
 				})
 			}
 		}
@@ -687,7 +687,7 @@ func (b *BaseSystemShard) trackSuccess(pattern string) {
 			if kernel != nil {
 				f := types.Fact{
 					Predicate: "shard_pattern",
-					Args:      []any{b.ID, types.MangleAtom("/success"), pattern, count},
+					Args:      []any{types.MangleString(b.ID), types.MangleAtom("/success"), types.MangleString(pattern), count},
 				}
 				fact = &f
 			}
@@ -725,7 +725,7 @@ func (b *BaseSystemShard) trackFailure(pattern string, reason string) {
 			if kernel != nil {
 				f := types.Fact{
 					Predicate: "shard_pattern",
-					Args:      []any{b.ID, types.MangleAtom("/failure"), pattern, count},
+					Args:      []any{types.MangleString(b.ID), types.MangleAtom("/failure"), types.MangleString(pattern), count},
 				}
 				fact = &f
 			}
