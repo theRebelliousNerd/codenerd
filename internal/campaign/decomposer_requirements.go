@@ -566,14 +566,14 @@ type RawTask struct {
 	Type        string   `json:"type"`
 	Priority    string   `json:"priority"`
 	Order       int      `json:"order,omitzero"`
-	DependsOn   []int    `json:"depends_on"` // Indices of dependent tasks in same phase
+	DependsOn   []int    `json:"depends_on"` // Indices of tasks WITHIN THE SAME PHASE, counted from 0 at the first task of that phase.
 	Artifacts   []string `json:"artifacts"`
 	WriteSet    []string `json:"write_set,omitzero"`
 
 	// Shard routing (optional - enables explicit shard selection)
 	Shard       string `json:"shard,omitzero"`        // Which shard to use (e.g., "coder", "researcher")
 	ShardInput  string `json:"shard_input,omitzero"`  // Full input to pass to shard
-	ContextFrom []int  `json:"context_from,omitzero"` // Task indices to pull results from for context
+	ContextFrom []int  `json:"context_from,omitzero"` // GLOBAL task indices counted from 0 at the very first task of the FIRST phase and continuing across phase boundaries. This is deliberately a different numbering from depends_on.
 }
 
 // planResponseSchema enforces RawPlan structure for schema-capable LLM clients.
@@ -638,12 +638,12 @@ const planResponseSchema = `{
                 },
                 "priority": { "type": "string", "enum": ["/critical", "/high", "/normal", "/low"] },
                 "order": { "type": "integer", "minimum": 0 },
-                "depends_on": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+                "depends_on": { "type": "array", "description": "Indices of tasks WITHIN THE SAME PHASE, counted from 0 at the first task of that phase.", "items": { "type": "integer", "minimum": 0 } },
                 "artifacts": { "type": "array", "items": { "type": "string" } },
                 "write_set": { "type": "array", "items": { "type": "string" } },
                 "shard": { "type": "string" },
                 "shard_input": { "type": "string" },
-                "context_from": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+                "context_from": { "type": "array", "description": "GLOBAL task indices counted from 0 at the very first task of the FIRST phase and continuing across phase boundaries. This is deliberately a different numbering from depends_on.", "items": { "type": "integer", "minimum": 0 } }
               }
             }
           }
