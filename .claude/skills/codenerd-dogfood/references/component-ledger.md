@@ -2413,3 +2413,33 @@ for an always-zero reading should have been the reader.
 operational: `nerd logic` cannot verify runtime-asserted facts, so any future
 claim of that shape needs an in-process test rather than a CLI dump. F-LEARN-5
 (the `Decl`-violating atom in a `/string` column) is unaffected and stands.
+
+---
+
+## F-LEARN-5 — RESOLVED. MangleString ships.
+
+The gap was not in the emitter, it was that no emitter could be correct:
+`MangleAtom` forces a name constant and a plain Go string is guessed by shape,
+so a `/string` column fed from intent-derived text had no correct spelling.
+`types.MangleString` is the missing counterpart, handled beside `MangleAtom`
+in both `Fact.String` and `Fact.ToAtom`.
+
+Verified live on the production value, both from a real boot with
+perception_firewall loading its 1 success and 6 failure patterns:
+
+    before  shard_pattern("perception_firewall", /success, /explain:/query, 3)
+    after   shard_pattern("perception_firewall", /success, "/explain:/query", 3)
+
+The existing shape inference is deliberately untouched — the repo depends on it
+and changing it is a behavioural change, not a fix. Two tests pin it so a later
+cleanup has to be a conscious decision: a plain "/success" still yields a name,
+"not an atom" still yields a string.
+
+**Still open, and larger than this fix.** The inference exists because the
+serializer does not consult the `Decl` it is writing against. The kernel knows
+`shard_pattern` argument 3 is `/string`; the serializer guesses from the first
+character instead. Every other `bound [/string]` column fed from user- or
+intent-derived text remains subject to the same silent split until a caller
+opts into `MangleString`. Consulting the Decl at assert time would close the
+family rather than one instance — and would fit the repo's thesis better, since
+it is the logic layer, not the Go layer, that already holds the type.
