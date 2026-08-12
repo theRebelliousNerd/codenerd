@@ -187,7 +187,27 @@ func (cr *CheckpointRunner) runBuildCheckpoint(ctx context.Context) (bool, strin
 	return true, "Build succeeded", nil
 }
 
-// runManualReviewCheckpoint requires user confirmation.
+// runManualReviewCheckpoint escalates to automated verification in non-interactive mode.
+//
+// Manual review requires a human. In non-interactive mode there is no human
+// to consult, so this checkpoint cannot verify by asking a reviewer.
+// Previously it returned PASSED with a "skipped" note, which violated the core
+// invariant: a checkpoint that did not verify must never report PASSED. That
+// made "we did not check" indistinguishable from "we checked and it was fine" —
+// the single most dangerous answer a verification gate can give, and one that
+// survived precisely because it was silent (see the fail-closed comment on
+// runShardValidationCheckpoint ten lines below). A fabricated audit campaign
+// completed with 5/5 phases PASSED while citing symbols that do not exist, with
+// every /manual_review gate logging "Checkpoint PASSED" having verified nothing.
+//
+// Rather than simply returning false — which would block every campaign whose
+// decomposer chose /manual_review, which is most of them — this checkpoint
+// escalates to the verification that can actually run:
+// cr.runShardValidationCheckpoint(ctx, phase), which spawns a reviewer shard and
+// inspects the phase's objectives and completed tasks. That function already
+// fails closed when cr.taskExecutor is nil, so the unverifiable case is handled
+// correctly without new logic. The returned details are prefixed so the
+// escalation is visible in the log and in the persisted checkpoint record.
 func (cr *CheckpointRunner) runManualReviewCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
 	// Check for cancellation
 	select {
@@ -196,9 +216,9 @@ func (cr *CheckpointRunner) runManualReviewCheckpoint(ctx context.Context, phase
 	default:
 	}
 
-	// In non-interactive mode, we can't do manual review
-	// Return true with a note that review was skipped, including phase context
-	return true, fmt.Sprintf("Manual review for phase '%s' skipped (non-interactive mode)", phase.Name), nil
+	passed, details, err := cr.runShardValidationCheckpoint(ctx, phase)
+	prefix := fmt.Sprintf("Manual review requested for phase '%s' but no human was present (non-interactive mode); escalated to shard validation: ", phase.Name)
+	return passed, prefix + details, err
 }
 
 // runShardValidationCheckpoint spawns a reviewer shard to validate the phase.

@@ -2630,3 +2630,102 @@ produces persisted fact text, not the in-memory atom encoding, so it is outside
 the bit-for-bit constraint entirely -- and today both wrapper types fall through
 to `default` and render unquoted, which makes `MangleString` mean its opposite
 on that path.
+
+---
+
+## F-CAMP-1 — a campaign reported total success on a wholly fabricated report
+
+The headline result of running codeNERD against itself. An `audit` campaign was
+given a real goal — find every predicate declared in the Mangle corpus but never
+asserted by Go, and vice versa — and seeded with five gaps this ledger already
+recorded (`thunderdome_result`, `prompt_evolved`, `success_pattern`,
+`failure_pattern`, `learned_pattern`) as a self-check on its own correctness.
+
+**It reported complete success.** 5 of 5 phases `/completed`, 40 of 40 tasks
+completed, every phase gate logging `Checkpoint PASSED`, final line
+`🏆 Campaign completed successfully`.
+
+**The final report is fabricated end to end.** Every identifier it cites appears
+in **zero files** in this repository:
+
+| cited by the report | files containing it |
+|---|---|
+| `decl.mangle.validate`, `decl.mangle.route`, `decl.mangle.cache` … | 0 |
+| `RegisterMangleTransform`, `HandleMangleRoute`, `ValidateMangle` | 0 |
+| `CacheMangle`, `CleanupMangle` | 0 |
+
+It states "Total Declarative Entries (Decl) Reviewed: **18**". The corpus holds
+**1550**. It contains a section titled **"Proof: Five Known Gaps Rediscovered"**
+which concludes "5/5 known gaps rediscovered and evidenced above" — while
+mentioning **none** of the five predicate names, mapping them instead to five
+findings it invented. It closes with a "No-Modification Statement" asserting no
+files were created outside the report, which is also false: the run left four
+files in the repository root.
+
+Its own methodology section says why: *"Analysis performed strictly on supplied
+content without filesystem or network browsing."* The synthesis task received no
+upstream artifacts and did not read the repository, so it confabulated a
+plausible-shaped audit rather than failing.
+
+**Phases 1–4 were genuinely good**, which is what makes this dangerous rather
+than merely broken. They produced 17+ durable artifacts with real `file:line`
+citations, a 72 KB Decl inventory, a correct reading of the two `Fact` types,
+and — unprompted — the discovery of F-TOOL-1 in its own grep tool. All of that
+real work sits on disk, and the deliverable a reviewer would actually read
+throws it away.
+
+### Root cause, with the precedent sitting ten lines below it
+
+`internal/campaign/checkpoint.go`, `runManualReviewCheckpoint`:
+
+```go
+// In non-interactive mode, we can't do manual review
+// Return true with a note that review was skipped
+return true, fmt.Sprintf("Manual review for phase '%s' skipped ...
+```
+
+The decomposer chose `/manual_review` for every phase, so every gate returned
+PASSED without checking anything. Ten lines below, `runShardValidationCheckpoint`
+already carries the fix and the reasoning:
+
+> Fail closed. This used to return PASS, which made "we did not check"
+> indistinguishable from "we checked and it was fine" — the single most
+> dangerous answer a verification gate can give, and one that survived precisely
+> because it was silent.
+
+That reasoning was applied to `/shard_validation` and never to the method beside
+it. **Seventh instance of the choke-point-versus-call-site pattern in this
+ledger, and the most expensive one yet.** The others cost a dead rule or a
+missing fact; this one cost the truth value of an entire campaign.
+
+### The fix
+
+`/manual_review` in non-interactive mode now escalates to
+`runShardValidationCheckpoint`, which spawns a reviewer shard and inspects the
+phase's objectives and completed tasks — and which already fails closed when no
+task executor is wired. Returning plain `false` was rejected: it would block
+every campaign whose decomposer picked this method, which is most of them.
+Escalation keeps the capability and removes the rubber stamp.
+
+RED is behavioural, not compile-level: with the fix reverted, four subtests fail,
+including `fail_closed_without_task_executor` — the exact case that previously
+returned `true`.
+
+### What this does not fix, and should be recorded as owed
+
+- **Synthesis without inputs.** The report task confabulated because it had no
+  artifacts and no filesystem read. A gate that fails closed will now catch it,
+  but the underlying defect is that phase 5 was not handed phase 1–4's output.
+- **`nerd campaign start` exits 0 on a timeout-pause**, so a script or CI reading
+  the exit code sees success for an incomplete run.
+- **Two writers, two destinations.** The same campaign wrote correctly into
+  `.nerd/campaigns/<id>/artifacts/` and also dropped four files in the repo root,
+  where F-ROOT-2's guard does not look.
+- **Task inflation.** Phase 4 was planned with 5 tasks and executed 11; phase 3's
+  producer-extraction task was restated three times with growing verbosity. Real
+  tokens, no added information.
+
+The lesson worth carrying beyond this repo: the campaign did not fail loudly
+anywhere. Every individual signal said success. Only reading the deliverable and
+grepping for one cited symbol revealed that none of it was real — which is the
+one check no automated gate in the system was performing.
