@@ -98,6 +98,7 @@ Architecture: Logic determines Reality; the Model merely describes it.
 
 Run without arguments to start the interactive chat interface.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		cmd.SilenceUsage = true
 		// Skip logger init for interactive mode (it has its own UI and logging setup)
 		if cmd.Use == "nerd" && cmd.CalledAs() == "nerd" {
 			return nil
