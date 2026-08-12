@@ -2443,3 +2443,63 @@ intent-derived text remains subject to the same silent split until a caller
 opts into `MangleString`. Consulting the Decl at assert time would close the
 family rather than one instance — and would fit the repo's thesis better, since
 it is the logic layer, not the Go layer, that already holds the type.
+
+---
+
+## F-MANGLE-1 — a second Fact serializer, and MangleString is invisible to it
+
+Surfaced by the self-audit campaign, which read `internal/mangle/engine.go` and
+noted in its own artifact that it defines a `Fact` type distinct from
+`types.Fact` — "do not conflate with types.Fact". It was right, and the
+consequence is one I created an hour earlier.
+
+There are two `Fact` types with two independent `String()` serializers:
+
+| | `internal/types/types.go` | `internal/mangle/engine.go:81` |
+|---|---|---|
+| fields | Predicate, Args | Predicate, Args, Line, Timestamp |
+| `MangleAtom` case | yes | **no** |
+| `MangleString` case | yes (new) | **no** |
+| string → name test | `isValidMangleNameConstant`: rejects `//`, >2 slashes, file extensions, whitespace, then validates with `ast.Name` | bare `strings.HasPrefix(v, "/")` |
+
+Two consequences.
+
+**The wrapper types fall through to `default:`.** `fmt.Sprintf("%v", v)` renders
+a `MangleString` **unquoted** — the exact opposite of what the type exists to
+guarantee. A caller who correctly reaches for `MangleString` and whose value
+routes through `internal/mangle.Fact` gets a name constant anyway, silently.
+This is a trap the previous commit introduced by fixing one serializer and not
+the other, and it is worth naming as such: adding a type that means "trust me,
+this is a string" without covering every serializer creates a guarantee that
+holds in one half of the codebase.
+
+**The inference is strictly cruder.** `types.Fact` refuses to treat a
+path-shaped or comment-shaped value as a name; this one accepts anything with a
+leading slash and never validates with `ast.Name`, so a malformed name reaches
+the program text rather than being quoted.
+
+### Two hypotheses this killed, recorded because the checking is the point
+
+- *"Absolute source paths break the autopoiesis checker on Linux, masked on
+  Windows by drive letters."* Wrong. `ExtractASTFacts` parses with the literal
+  name `"generated.go"` (`checker.go:131`), so `e.fileName` is never a path on
+  any platform.
+- *"`eligible_task` derives nothing, so the campaign's task selection is Go, not
+  logic."* Wrong. The log line beside it says the phase's only task is already
+  `/in_progress`, so there is correctly nothing eligible; the dependency
+  fallback then matches nothing for the same reason.
+
+Both looked like the defect family this ledger is full of, and both were
+zero-readings with an innocent explanation one line away. Same lesson as the
+withdrawn F-LEARN-4, learned twice more in one hour.
+
+### What is actually worth doing
+
+Add the `MangleAtom` and `MangleString` cases to `engine.go`'s switch, and have
+it reuse the same validation rather than `HasPrefix`. No import cost — that file
+already imports `codenerd/internal/types` (line 20), and `internal/types` does
+not import `internal/mangle`, so there is no cycle.
+
+The deeper answer remains the one recorded under F-LEARN-5: neither serializer
+should be guessing. The `Decl` already states whether an argument is `/string`
+or `/name`, and the kernel holds it at assert time.
