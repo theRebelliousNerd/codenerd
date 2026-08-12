@@ -250,7 +250,7 @@ func isAnalyticalVerifyDescription(desc string) bool {
 // executeResearchTask spawns a researcher shard.
 func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any, error) {
 	logging.CampaignDebug("Spawning researcher shard for task %s", task.ID)
-	result, err := o.spawnTask(ctx, "/research", task.Description)
+	result, err := o.spawnTask(ctx, "/research", o.buildTaskInput(task))
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Researcher shard failed for task %s: %v", task.ID, err)
 		return nil, err
@@ -350,7 +350,7 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	if task.Type == TaskTypeFileModify {
 		action = "modify"
 	}
-	shardTask := fmt.Sprintf("%s file:%s %s", action, targetPath, task.Description)
+	shardTask := fmt.Sprintf("%s file:%s %s", action, targetPath, o.buildTaskInput(task))
 	logging.CampaignDebug("Spawning coder shard: action=%s, path=%s, task=%s", action, targetPath, shardTask)
 
 	// Delegate to coder shard
@@ -477,7 +477,7 @@ func (o *Orchestrator) executeTestWriteTask(ctx context.Context, task *Task) (an
 	logging.CampaignDebug("Executing test write task %s: target=%s", task.ID, targetPath)
 
 	// Build task string for tester shard
-	shardTask := fmt.Sprintf("generate_tests file:%s", targetPath)
+	shardTask := fmt.Sprintf("generate_tests file:%s %s", targetPath, o.buildTaskInput(task))
 	logging.CampaignDebug("Spawning tester shard for test generation")
 
 	// Delegate to tester shard
@@ -502,7 +502,7 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 	logging.CampaignDebug("Executing test run task %s: target=%s", task.ID, target)
 
 	// Build task string for tester shard
-	shardTask := fmt.Sprintf("run_tests package:%s", target)
+	shardTask := fmt.Sprintf("run_tests package:%s %s", target, o.buildTaskInput(task))
 	logging.CampaignDebug("Spawning tester shard for test execution")
 
 	// Delegate to tester shard
