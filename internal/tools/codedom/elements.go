@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
 	"codenerd/internal/tools"
 )
 
@@ -131,7 +131,7 @@ func executeGetElements(ctx context.Context, args map[string]any) (string, error
 // extractCodeElements extracts code elements from a file using regex patterns.
 // This is a simplified implementation - full AST parsing is done by VirtualStore.
 func extractCodeElements(path string) ([]CodeElement, error) {
-	data, err := os.ReadFile(path)
+	data, err := projectdoc.ReadFileForTool(path)
 	if err != nil {
 		return nil, err
 	}

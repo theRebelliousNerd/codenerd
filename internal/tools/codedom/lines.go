@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
 	"codenerd/internal/tactile"
 	"codenerd/internal/tools"
 )
@@ -87,7 +88,7 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 	logging.VirtualStoreDebug("edit_lines: path=%s, start=%d, end=%d", path, startLine, endLine)
 
 	// Read the file
-	content, err := os.ReadFile(path)
+	content, err := projectdoc.ReadFileForTool(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
@@ -341,7 +342,7 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 	logging.VirtualStoreDebug("insert_lines: path=%s, after=%d", path, afterLine)
 
 	// Read the file
-	content, err := os.ReadFile(path)
+	content, err := projectdoc.ReadFileForTool(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
@@ -443,7 +444,7 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 	logging.VirtualStoreDebug("delete_lines: path=%s, start=%d, end=%d", path, startLine, endLine)
 
 	// Read the file
-	content, err := os.ReadFile(path)
+	content, err := projectdoc.ReadFileForTool(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
