@@ -2297,3 +2297,73 @@ the same pattern collide on write, and `ON CONFLICT DO UPDATE` means the second
 writer takes the row. The loser then loads nothing, having "learned" it. Same
 family as the rest of this ledger: a key that omits the dimension the reader
 filters on.
+
+---
+
+## F-LEARN-4 — shard experience now reaches the kernel, and the kernel dump cannot see it
+
+`shard_pattern(ShardID, Kind, Pattern, Count)` is declared and asserted by
+`BaseSystemShard` at the same thresholds that already trigger the SQLite save,
+plus once per pattern at load, so patterns learned in an earlier session are in
+the kernel at boot rather than only after they recur. Lock discipline follows
+the `promoteAtomLocked` precedent: decide under `b.mu`, release, then assert.
+
+**What is verified.** From one correlated run (`20260812_000945`):
+
+- `[perception_firewall] Loaded 1 success patterns` / `Loaded 6 failure patterns`
+- kernel log: `Assert: shard_pattern("perception_firewall", /success, /explain:/query, 3).`
+- audit log: `"event":"kernel_assert","target":"shard_pattern","success":true,"fields":{"arg_count":4}`
+- `[executive] Loaded 0 success patterns` — the F-LEARN-3 load path is live at
+  boot; it reads 0 because the executive has no history to load yet, which is
+  the defect it fixes, not a failure of the fix.
+
+**What is not.** `nerd logic shard_pattern` and `nerd logic "shard_pattern(S,K,P,C)"`
+both return **0 facts**, in the same process that just logged the successful
+asserts. Ruled out by measurement, not by argument:
+
+- not attachment order — `[perception_firewall] Parent kernel (unwrapped from
+  CortexKernel) attached` is logged *before* `Learning store attached`
+- not a rejected assert — the audit records `success:true`
+- not a malformed program — no `debug_program_ERROR.mg`, and the kernel log
+  shows `rebuildProgram: parsed 2812 clauses` with no parse error
+- not CLI arity — the explicit four-variable form returns 0 as well
+
+So a fact can be accepted by `RealKernel.Assert`, stored, and still be absent
+from every query surface. That is the same family as F-QUERY-1 (where `Query`
+asked one shard while `QueryAll` merged all) and deserves the same treatment:
+find which kernel instance the dump enumerates versus which one
+`ck.GetPrimaryRealKernel()` hands the shard. Left open deliberately rather than
+guessed at — the last four hypotheses above were each killed by a measurement,
+and the honest state is "emission proven at the assert layer, visibility
+unproven."
+
+## F-LEARN-5 — my own emitter violates the Decl it was written against
+
+The fact logged above reads:
+
+    shard_pattern("perception_firewall", /success, /explain:/query, 3)
+
+`Pattern` is declared `/string`. `/explain:/query` is rendered as an **atom**,
+because the fact serializer treats any Go string beginning with `/` as a Mangle
+name constant. The neighbouring failure rows render as `"ambiguous:/remember"`
+— a quoted string — because they do not start with a slash. **One column now
+holds both atoms and strings depending on the first character of the value.**
+
+Mangle does not enforce `Decl` bounds at evaluation time — established earlier
+in this ledger by isolated repro — so nothing complains. The consequence is the
+one already recorded there: the rule that breaks is not the one that violates
+the Decl, it is the rule two hops away that trusts it. Any future policy rule
+joining `Pattern` as a string silently skips every slash-prefixed row.
+
+This is the third instance of the leading-slash convention causing a defect this
+week, and the first where the offending emitter is one written *in response to*
+the earlier two. Worth stating plainly: knowing the failure mode was not
+sufficient to avoid it, because the conversion is implicit and invisible at the
+call site.
+
+The real fix is not in this emitter. The serializer has no way to express a
+string that begins with `/`, so no caller can be correct. Either the `Fact`
+type needs an explicit string wrapper to match `types.MangleAtom`, or the
+serializer must stop inferring representation from the first character. Until
+then any `bound [/string]` column fed from user- or intent-derived text is
+subject to the same silent split.

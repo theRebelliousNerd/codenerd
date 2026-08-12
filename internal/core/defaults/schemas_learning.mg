@@ -20,6 +20,9 @@ Decl valid_intent(Verb, Target) bound [/name, /string].
 # Pattern: the learned pattern description
 Decl learned_pattern(Category, Pattern) bound [/string, /string].
 
+# shard_pattern(ShardID, Kind, Pattern, Count) - Asserted by BaseSystemShard when a pattern crosses its learning threshold
+Decl shard_pattern(ShardID, Kind, Pattern, Count) bound [/string, /name, /string, /number].
+
 # Note: Conf is integer 0-100, not float 0.0-1.0
 valid_intent(Verb, Target) :-
     learned_exemplar(Pattern, Verb, Target, _, Conf),

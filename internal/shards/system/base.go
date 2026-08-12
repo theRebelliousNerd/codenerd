@@ -572,23 +572,37 @@ func (b *BaseSystemShard) TryJITPrompt(ctx context.Context, shardType string) (s
 
 // SetLearningStore sets the learning store and loads existing patterns.
 func (b *BaseSystemShard) SetLearningStore(ls core.LearningStore) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.learningStore = ls
-	logging.SystemShardsDebug("[%s] Learning store attached, loading patterns...", b.ID)
-	// Load existing patterns from store
-	b.loadLearnedPatterns()
+	var facts []types.Fact
+	var kernel *core.RealKernel
+	func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.learningStore = ls
+		logging.SystemShardsDebug("[%s] Learning store attached, loading patterns...", b.ID)
+		// Load existing patterns from store
+		facts = b.loadLearnedPatterns()
+		kernel = b.Kernel
+	}()
+	if kernel != nil {
+		for _, fact := range facts {
+			if err := kernel.Assert(fact); err != nil {
+				logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to assert shard_pattern: %v", b.ID, err)
+			}
+		}
+	}
 }
 
 // loadLearnedPatterns loads existing patterns from LearningStore on initialization.
 // Must be called with lock held.
-func (b *BaseSystemShard) loadLearnedPatterns() {
+func (b *BaseSystemShard) loadLearnedPatterns() []types.Fact {
 	if b.learningStore == nil {
-		return
+		return nil
 	}
 
 	timer := logging.StartTimer(logging.CategorySystemShards, fmt.Sprintf("[%s] Loading learned patterns", b.ID))
 	defer timer.Stop()
+
+	var facts []types.Fact
 
 	// Load success patterns
 	successLearnings, err := b.learningStore.LoadByPredicate(b.ID, "success_pattern")
@@ -598,6 +612,10 @@ func (b *BaseSystemShard) loadLearnedPatterns() {
 				pattern, _ := learning.FactArgs[0].(string)
 				// Initialize with threshold count to avoid re-learning
 				b.patternSuccess[pattern] = 3
+				facts = append(facts, types.Fact{
+					Predicate: "shard_pattern",
+					Args:      []any{b.ID, types.MangleAtom("/success"), pattern, 3},
+				})
 			}
 		}
 		logging.SystemShardsDebug("[%s] Loaded %d success patterns", b.ID, len(successLearnings))
@@ -611,7 +629,17 @@ func (b *BaseSystemShard) loadLearnedPatterns() {
 		for _, learning := range failureLearnings {
 			if len(learning.FactArgs) >= 1 {
 				pattern, _ := learning.FactArgs[0].(string)
-				b.patternFailure[pattern] = 3
+				key := pattern
+				if len(learning.FactArgs) >= 2 {
+					if reason, ok := learning.FactArgs[1].(string); ok && reason != "" {
+						key = fmt.Sprintf("%s:%s", pattern, reason)
+					}
+				}
+				b.patternFailure[key] = 3
+				facts = append(facts, types.Fact{
+					Predicate: "shard_pattern",
+					Args:      []any{b.ID, types.MangleAtom("/failure"), pattern, 3},
+				})
 			}
 		}
 		logging.SystemShardsDebug("[%s] Loaded %d failure patterns", b.ID, len(failureLearnings))
@@ -632,6 +660,7 @@ func (b *BaseSystemShard) loadLearnedPatterns() {
 	} else {
 		logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to load correction patterns: %v", b.ID, err)
 	}
+	return facts
 }
 
 // trackSuccess tracks a successful pattern for autopoiesis.
@@ -640,13 +669,34 @@ func (b *BaseSystemShard) trackSuccess(pattern string) {
 		return
 	}
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.patternSuccess[pattern]++
+	var fact *types.Fact
+	var kernel *core.RealKernel
+	var count int
+	func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.patternSuccess[pattern]++
+		count = b.patternSuccess[pattern]
 
-	// Persist to LearningStore if count exceeds threshold
-	if b.learningStore != nil && b.patternSuccess[pattern] >= 3 {
-		_ = b.learningStore.Save(b.ID, "success_pattern", []any{pattern}, "")
+		// Persist to LearningStore if count exceeds threshold
+		if b.learningStore != nil && count >= 3 {
+			_ = b.learningStore.Save(b.ID, "success_pattern", []any{pattern}, "")
+		}
+		if count >= 3 {
+			kernel = b.Kernel
+			if kernel != nil {
+				f := types.Fact{
+					Predicate: "shard_pattern",
+					Args:      []any{b.ID, types.MangleAtom("/success"), pattern, count},
+				}
+				fact = &f
+			}
+		}
+	}()
+	if fact != nil && kernel != nil {
+		if err := kernel.Assert(*fact); err != nil {
+			logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to assert shard_pattern: %v", b.ID, err)
+		}
 	}
 }
 
@@ -656,14 +706,35 @@ func (b *BaseSystemShard) trackFailure(pattern string, reason string) {
 		return
 	}
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	key := fmt.Sprintf("%s:%s", pattern, reason)
-	b.patternFailure[key]++
+	var fact *types.Fact
+	var kernel *core.RealKernel
+	var count int
+	func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		key := fmt.Sprintf("%s:%s", pattern, reason)
+		b.patternFailure[key]++
+		count = b.patternFailure[key]
 
-	// Persist to LearningStore if count exceeds threshold
-	if b.learningStore != nil && b.patternFailure[key] >= 2 {
-		_ = b.learningStore.Save(b.ID, "failure_pattern", []any{pattern, reason}, "")
+		// Persist to LearningStore if count exceeds threshold
+		if b.learningStore != nil && count >= 2 {
+			_ = b.learningStore.Save(b.ID, "failure_pattern", []any{pattern, reason}, "")
+		}
+		if count >= 2 {
+			kernel = b.Kernel
+			if kernel != nil {
+				f := types.Fact{
+					Predicate: "shard_pattern",
+					Args:      []any{b.ID, types.MangleAtom("/failure"), pattern, count},
+				}
+				fact = &f
+			}
+		}
+	}()
+	if fact != nil && kernel != nil {
+		if err := kernel.Assert(*fact); err != nil {
+			logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to assert shard_pattern: %v", b.ID, err)
+		}
 	}
 }
 
