@@ -17,6 +17,15 @@
 # and cautious is the correct direction to be wrong in for a rule that gates
 # refactors and writes.
 test_coverage(SourceFile) :- test_file_for(_, SourceFile).
+Decl created_source(File) bound [/string].
+Decl missing_test_for(File) bound [/string].
+
+# A turn that created new source owes a test for it. test_coverage is
+# derived from test_file_for, which the world scanner emits for the
+# x_test.go convention and which this turn also asserts for any test file
+# it creates, so a source and its test written in the same turn satisfy
+# this without waiting for a rescan.
+missing_test_for(File) :- created_source(File), !test_coverage(File).
 
 # Block if impacted files lack test coverage
 coder_block_write(File, "uncovered_impact") :-

@@ -1627,6 +1627,7 @@ func isHollowSuccessError(err error) bool {
 //
 // Dream mode is exempt: speculative subagents must not be forced to mutate.
 func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
+	defer e.cleanupPerTurnCoverageFacts()
 	if result == nil {
 		return nil
 	}
@@ -1658,7 +1659,126 @@ func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
 			verb, result.ToolCallsExecuted,
 		)
 	}
+	if e.kernel == nil {
+		logging.Get(logging.CategorySession).Debug("checkHollowSuccess: nil kernel, skipping missing_test_for check")
+		return nil
+	}
+	facts, err := e.kernel.Query("missing_test_for")
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("checkHollowSuccess: missing_test_for query failed: %v", err)
+		return nil
+	}
+	if len(facts) == 0 {
+		return nil
+	}
+	e.mu.RLock()
+	createdSet := make(map[string]struct{}, len(e.perTurnCreatedSourceFacts))
+	for _, f := range e.perTurnCreatedSourceFacts {
+		if len(f.Args) > 0 {
+			createdSet[types.ExtractString(f.Args[0])] = struct{}{}
+		}
+	}
+	e.mu.RUnlock()
+	for _, f := range facts {
+		if len(f.Args) == 0 {
+			continue
+		}
+		file := types.ExtractString(f.Args[0])
+		if _, ok := createdSet[file]; ok {
+			return newHollowSuccessError("%s was created without a test file; a test file is required (create %s)", file, strings.TrimSuffix(file, ".go")+"_test.go")
+		}
+	}
 	return nil
+}
+
+func (e *Executor) recordGoFileCreations(preExist map[string]bool, canonicalToPhys map[string]string) {
+	if e.kernel == nil || len(preExist) == 0 {
+		return
+	}
+	for canonical, existedBefore := range preExist {
+		if existedBefore {
+			continue
+		}
+		phys, ok := canonicalToPhys[canonical]
+		if !ok {
+			continue
+		}
+		if _, err := os.Stat(phys); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			logging.Get(logging.CategorySession).Debug("recordGoFileCreations: post-stat error for %s: %v", phys, err)
+			continue
+		}
+		if strings.HasSuffix(canonical, "_test.go") {
+			sourceCanonical := strings.TrimSuffix(canonical, "_test.go") + ".go"
+			fact := types.Fact{Predicate: "test_file_for", Args: []any{types.MangleString(canonical), types.MangleString(sourceCanonical)}}
+			if err := e.kernel.Assert(fact); err != nil {
+				logging.Get(logging.CategorySession).Warn("failed to assert test_file_for for %s: %v", canonical, err)
+				continue
+			}
+			e.mu.Lock()
+			e.perTurnTestFileForFacts = append(e.perTurnTestFileForFacts, fact)
+			e.mu.Unlock()
+			logging.Get(logging.CategorySession).Debug("asserted test_file_for(%q, %q)", canonical, sourceCanonical)
+		} else {
+			fact := types.Fact{Predicate: "created_source", Args: []any{types.MangleString(canonical)}}
+			if err := e.kernel.Assert(fact); err != nil {
+				logging.Get(logging.CategorySession).Warn("failed to assert created_source for %s: %v", canonical, err)
+				continue
+			}
+			e.mu.Lock()
+			e.perTurnCreatedSourceFacts = append(e.perTurnCreatedSourceFacts, fact)
+			e.mu.Unlock()
+			logging.Get(logging.CategorySession).Debug("asserted created_source(%q)", canonical)
+		}
+	}
+}
+
+func (e *Executor) cleanupPerTurnCoverageFacts() {
+	if e.kernel == nil {
+		e.mu.Lock()
+		e.perTurnCreatedSourceFacts = nil
+		e.perTurnTestFileForFacts = nil
+		e.mu.Unlock()
+		logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: nil kernel, cleared local state")
+		return
+	}
+	e.mu.Lock()
+	created := append([]types.Fact(nil), e.perTurnCreatedSourceFacts...)
+	testFacts := append([]types.Fact(nil), e.perTurnTestFileForFacts...)
+	e.perTurnCreatedSourceFacts = nil
+	e.perTurnTestFileForFacts = nil
+	e.mu.Unlock()
+	for _, f := range created {
+		if err := e.kernel.RetractFact(f); err != nil {
+			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract created_source %v: %v", f.Args, err)
+		}
+	}
+	for _, f := range testFacts {
+		if err := e.kernel.RetractFact(f); err != nil {
+			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract test_file_for %v: %v", f.Args, err)
+		}
+	}
+	// Direct kernel asserts (verify_created2 helpers) are not tracked in perTurn lists.
+	// Retract any remaining coverage facts so the next turn starts clean and
+	// stale facts do not leak forever.
+	if len(created) == 0 && len(testFacts) == 0 {
+		if facts, err := e.kernel.Query("created_source"); err == nil {
+			for _, f := range facts {
+				if err := e.kernel.RetractFact(f); err != nil {
+					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract direct created_source %v: %v", f.Args, err)
+				}
+			}
+		}
+		if facts, err := e.kernel.Query("test_file_for"); err == nil {
+			for _, f := range facts {
+				if err := e.kernel.RetractFact(f); err != nil {
+					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract direct test_file_for %v: %v", f.Args, err)
+				}
+			}
+		}
+	}
 }
 
 // retryWithNoToolNudge recompiles the prompt with the world_state
@@ -1840,6 +1960,46 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 		return "", fmt.Errorf("blocked by modularity guard: %s", reason)
 	}
 
+	// Capture pre-existence for .go creation tracking.
+	// For write-mutation tools targeting .go paths, note whether each file
+	// existed before the call so a successful creation can be asserted.
+	var preGoExistence map[string]bool
+	var canonicalToPhys map[string]string
+	if e.kernel != nil && isWriteMutationTool(call.Name) {
+		if paths, err := projectdoc.TargetPaths(call.Args); err == nil && len(paths) > 0 {
+			workspace := e.workspaceForVerification()
+			for _, p := range paths {
+				trimmed := strings.TrimSpace(p)
+				if trimmed == "" {
+					continue
+				}
+				if !strings.HasSuffix(strings.ToLower(trimmed), ".go") {
+					continue
+				}
+				canonical := canonicalizeWrittenPath(trimmed, workspace)
+				if canonical == "" {
+					canonical = filepath.ToSlash(filepath.Clean(trimmed))
+				}
+				phys := trimmed
+				if !filepath.IsAbs(trimmed) && workspace != "" {
+					phys = filepath.Join(workspace, trimmed)
+				}
+				existed := false
+				if _, err := os.Stat(phys); err == nil {
+					existed = true
+				} else if err != nil && !os.IsNotExist(err) {
+					logging.Get(logging.CategorySession).Debug("creation tracking: stat error for %s: %v", phys, err)
+					existed = true
+				}
+				if preGoExistence == nil {
+					preGoExistence = make(map[string]bool)
+					canonicalToPhys = make(map[string]string)
+				}
+				preGoExistence[canonical] = existed
+				canonicalToPhys[canonical] = phys
+			}
+		}
+	}
 
 	// PRE-execution executive gate: run the Dreamer destructive-action
 	// simulation before the tool mutates anything. This brings the VirtualStore
@@ -1899,6 +2059,10 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 				return "", fmt.Errorf("post-action validation failed: %w", valErr)
 			}
 		}
+		// Track creations for the turn: only on successful call that created a
+		// file that did not previously exist. Non-test .go → created_source,
+		// _test.go → test_file_for pairing exactly as the world scanner does.
+		e.recordGoFileCreations(preGoExistence, canonicalToPhys)
 		return result.Result, nil
 	}
 
@@ -1919,6 +2083,7 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 			if err != nil {
 				return "", fmt.Errorf("Ouroboros tool execution failed: %w", err)
 			}
+			e.recordGoFileCreations(preGoExistence, canonicalToPhys)
 			return result, nil
 		}
 	}

@@ -140,6 +140,13 @@ type Executor struct {
 	// to render file-targeted context into the prompt. Narrow interface so no
 	// import of internal/world is needed and no import cycle is possible.
 	fileContext FileContextProvider
+
+	// perTurnCreatedSourceFacts tracks created_source facts asserted this turn.
+	// perTurnTestFileForFacts tracks test_file_for facts asserted this turn.
+	// Both are managed under mu and cleared by checkHollowSuccess on every path
+	// to prevent stale facts from failing later turns.
+	perTurnCreatedSourceFacts []types.Fact
+	perTurnTestFileForFacts   []types.Fact
 }
 
 // ExecutorConfig holds configuration for the executor.
