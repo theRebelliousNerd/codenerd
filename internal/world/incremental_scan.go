@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"io/fs"
@@ -309,6 +310,23 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 					Predicate: "file_dir",
 					Args:      []any{canonical, dir},
 				})
+			}
+			// test_file_for(TestFile, SourceFile): pairing computed by the world
+			// scanner because Mangle has no string manipulation for the x_test.go
+			// convention. Coverage is deliberately conservative: a source file
+			// covered only by a package-level test with another name is missed,
+			// which under-reports coverage and leaves the four gating rules
+			// cautious rather than falsely permissive — cautious is the correct
+			// direction to be wrong in for a rule that gates refactors and writes.
+			if strings.HasSuffix(canonical, "_test.go") {
+				sourceCanonical := strings.TrimSuffix(canonical, "_test.go") + ".go"
+				sourceAbs := strings.TrimSuffix(path, "_test.go") + ".go"
+				if _, err := os.Stat(sourceAbs); err == nil {
+					additional = append(additional, core.Fact{
+						Predicate: "test_file_for",
+						Args:      []any{types.MangleString(canonical), types.MangleString(sourceCanonical)},
+					})
+				}
 			}
 			if !isTest && (s.config.MaxASTFileBytes <= 0 || info.Size() <= s.config.MaxASTFileBytes) {
 				parser := s.parserPool.Get().(*TreeSitterParser)

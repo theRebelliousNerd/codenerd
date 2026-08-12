@@ -9,6 +9,15 @@
 # 5.1 Block Write Conditions
 # -----------------------------------------------------------------------------
 
+# test_coverage is derived from test_file_for pairings computed by the world
+# scanner because it needs string manipulation Mangle does not do. Coverage is
+# deliberately conservative: the x_test.go convention misses a source file
+# covered only by a package-level test with another name. That under-reports
+# coverage, which leaves the four rules cautious rather than falsely permissive,
+# and cautious is the correct direction to be wrong in for a rule that gates
+# refactors and writes.
+test_coverage(SourceFile) :- test_file_for(_, SourceFile).
+
 # Block if impacted files lack test coverage
 coder_block_write(File, "uncovered_impact") :-
     pending_edit(File, _),
