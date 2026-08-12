@@ -2847,3 +2847,62 @@ So this is a lower bound on what has been exercised, and the three named above
 are candidates for "not exercised", not proof of it. Confirming any of them
 requires driving the feature and watching its own log grow, which is how the
 other 23 were confirmed.
+
+---
+
+## F-ROOT-2 — CORRECTED. The campaign has a sweep; resume defeats it.
+
+I filed this as "the undeclared-root-write guard does not cover campaign tasks"
+and called it the sixth instance of the choke-point pattern, mine. **That
+framing is wrong.** Campaigns have their own mechanism and always did:
+`recordRootBaseline` and `sweepUndeclaredRootWrites` in
+`internal/campaign/orchestrator_tasks.go`. The CLI comment at
+`cmd/nerd/cmd_direct_actions.go:350` even points at it, and I had read the
+surrounding lines without reading that far.
+
+So the guard did not fail to exist. It ran and found nothing, and the real
+question is why. Two causes, both verified:
+
+**1. The declared file was correctly ignored.** `reports/mangle_wiring_audit.md`
+appears as a declared artifact on five tasks. The sweep only touches files
+*no* task declared, so leaving it alone is right.
+
+**2. The undeclared files were baselined in by the resume — the real defect.**
+Five files were **not** declared: `decl_inventory.md`, `decl_canonical_map.md`,
+`mangle_internal_consumers.md`, `decl_inventory_raw.md`, and
+`reports/decl_inventory.md`. The sweep's first condition is "absent when the
+campaign started, so the campaign created it", and `recordRootBaseline()` runs
+at orchestrator start (`orchestrator_execution.go:63`).
+
+That campaign hit its 25-minute timeout, paused, and was resumed **in a new
+process**. The resume recorded a fresh baseline, and by then those four root
+files were already on disk from the first run. They were therefore "pre-existing"
+to the only sweep that ever ran, and permanently excluded.
+
+**The baseline is per-process; the campaign is not.** Anything a campaign writes
+before a pause is invisible to every sweep after it. The longer the campaign, the
+more likely it pauses, so the failure mode gets more likely exactly as the run
+gets big enough to need the guard.
+
+`reports/decl_inventory.md` had a second, independent reason to be missed:
+`snapshotWorkspaceRoot` lists only files directly at the root and skips
+directories, so anything inside a newly-created root subdirectory is out of scope
+by design. The CLI version of this guard already records directories as well as
+files, and its comment says why — the campaign helper "would have missed the
+research/ directory entirely". That asymmetry is still open.
+
+### The fix, not attempted here
+
+Persist the root baseline with the campaign state rather than recomputing it in
+each process, so resume inherits the original. That is a state-format change
+plus a migration path for campaigns already on disk, which is more than belongs
+at the end of this session.
+
+### The lesson, which is the same one twice in one hour
+
+I read the code around the CLI guard, saw it snapshotting, saw no campaign
+equivalent in the files I had open, and inferred absence. The comment naming the
+campaign's own helpers was seventeen lines below where I stopped reading. This is
+the same error as the withdrawn F-LEARN-4 — a zero observed through too narrow a
+window, reported as a property of the system. Third occurrence today, and the
+first two were also corrected in git rather than quietly edited.
