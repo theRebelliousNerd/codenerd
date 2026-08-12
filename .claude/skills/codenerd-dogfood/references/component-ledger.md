@@ -2367,3 +2367,49 @@ type needs an explicit string wrapper to match `types.MangleAtom`, or the
 serializer must stop inferring representation from the first character. Until
 then any `bound [/string]` column fed from user- or intent-derived text is
 subject to the same silent split.
+
+---
+
+## F-LEARN-4 — WITHDRAWN. The instrument was wrong, not the kernel.
+
+I wrote that "a fact can be accepted by `RealKernel.Assert`, stored, and still
+be absent from every query surface", and filed it as the same family as
+F-QUERY-1. That is false, and the evidence that kills it was in the log I had
+already pulled.
+
+In run `20260812_000945`, the `Assert: shard_pattern(...)` lines are at
+`20:10:00.495063` and the kernel log's **last** line is `20:10:00.551` — the
+asserts are the final kernel activity before the process exits. No
+`Query: predicate=shard_pattern` appears anywhere in that log. In the later
+arity-qualified run there are **no asserts at all**. So `nerd logic` took its
+dump *before* system shards attached their learning stores, and in the second
+run the shard was never constructed.
+
+Two structural facts I should have established before filing anything:
+
+1. `nerd logic` is a **separate process**. Runtime asserts live in that
+   process's memory, so a fact asserted by a shard in one invocation can never
+   be observed by a later one, no matter how correct the emission is.
+2. Within a single invocation the CLI queries before system-shard attachment
+   completes, so even the same process cannot see them.
+
+**The correct proof is in-process, and it now exists.**
+`TestInProcessVisibility_RealKernel` builds a real `core.NewRealKernel`,
+attaches it via `SetParentKernel`, drives `trackSuccess` past threshold, and
+asserts that `Query("shard_pattern")` returns
+`shard_pattern("visibility_test_shard", /success, "inProcessPattern", 3)`,
+cross-checked through `QueryAll`. `TestSetLearningStore_InProcessVisibility`
+does the same for the load path. Both pass. Assert-then-query works.
+
+This is the same error class as the eleven scope-of-evidence mistakes already
+recorded here, and it is now the most expensive one: I chose an instrument
+whose scope could not cover the claim, got a zero, and filed the zero as a
+defect in the thing being measured. The tell was available and I walked past
+it — an always-zero reading is the signature I have described in this very
+ledger as "the single most reliable defect signature", and the first suspect
+for an always-zero reading should have been the reader.
+
+**What survives.** Nothing about kernel visibility. The one durable point is
+operational: `nerd logic` cannot verify runtime-asserted facts, so any future
+claim of that shape needs an in-process test rather than a CLI dump. F-LEARN-5
+(the `Decl`-violating atom in a `/string` column) is unaffected and stands.
