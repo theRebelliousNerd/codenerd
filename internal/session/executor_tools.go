@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -1123,6 +1124,140 @@ func (e *Executor) writesPlaceholderTestFile(call ToolCall) (string, bool) {
 	reason := fmt.Sprintf("placeholder test %s in %s is vacuous (empty or only t.Skip/t.SkipNow/t.Skipf); write a test that fails before the fix and passes after", firstVacuous, testPaths[0])
 	return reason, true
 }
+// modularityGuard enforces the modularity standard at the single write choke point.
+//
+// Semantics: block only violations the write INTRODUCES:
+//   - If the target file does not exist yet, any violation in the proposed content blocks.
+//   - If the target already exists, block only violations present in the proposed content
+//     that were not already present for the same function+rule in the current file.
+// Compare is by function name and rule, not counting, so shrinking one violation
+// while adding another still blocks.
+//
+// Applies only to Go source the tool is writing in full: skip when not .go,
+// skip when content does not parse, do not skip _test.go. When no kernel is
+// available the guard allows the write and logs at Debug; it is a standard,
+// not a safety interlock.
+func (e *Executor) modularityGuard(call ToolCall) (string, bool) {
+	if !isWriteMutationTool(call.Name) {
+		return "", false
+	}
+	paths, err := projectdoc.TargetPaths(call.Args)
+	if err != nil || len(paths) == 0 {
+		return "", false
+	}
+	var goPaths []string
+	for _, p := range paths {
+		if strings.HasSuffix(strings.ToLower(p), ".go") {
+			goPaths = append(goPaths, p)
+		}
+	}
+	if len(goPaths) == 0 {
+		return "", false
+	}
+	if e.kernel == nil {
+		logging.Get(logging.CategorySession).Debug("modularity guard skipped: kernel is nil for %s on %s", call.Name, strings.Join(goPaths, ", "))
+		return "", false
+	}
+	proposedContent := rawModularityContent(call.Args)
+	if strings.TrimSpace(proposedContent) == "" {
+		return "", false
+	}
+	for _, goPath := range goPaths {
+		proposedViolations, err := evaluateModularity(e.kernel, goPath, proposedContent)
+		if err != nil {
+			logging.Get(logging.CategorySession).Warn("modularity guard evaluation failed for proposed %s: %v", goPath, err)
+			continue
+		}
+		if len(proposedViolations) == 0 {
+			continue
+		}
+		// Resolve on-disk path for existing-file comparison.
+		fsPath := e.resolveModularityFilePath(goPath)
+		existingBytes, readErr := os.ReadFile(fsPath)
+		if readErr != nil && fsPath != goPath {
+			if altBytes, altErr := os.ReadFile(goPath); altErr == nil {
+				existingBytes = altBytes
+				readErr = nil
+			}
+		}
+		if readErr != nil {
+			// New file: any violation blocks.
+			reason := proposedViolations[0]
+			return reason, true
+		}
+		existingContent := string(existingBytes)
+		existingViolations, err := evaluateModularity(e.kernel, goPath, existingContent)
+		if err != nil {
+			logging.Get(logging.CategorySession).Warn("modularity guard evaluation failed for existing %s: %v", goPath, err)
+			// Fail open on existing evaluation failure? Treat as no existing violations
+			// so proposed violations block — conservative for correctness.
+			reason := proposedViolations[0]
+			return reason, true
+		}
+		existingSet := make(map[string]struct{}, len(existingViolations))
+		for _, v := range existingViolations {
+			existingSet[modularityViolationKey(v)] = struct{}{}
+		}
+		for _, v := range proposedViolations {
+			key := modularityViolationKey(v)
+			if _, ok := existingSet[key]; !ok {
+				return v, true
+			}
+		}
+		// All proposed violations were already present for this file — allow.
+	}
+	return "", false
+}
+
+// rawModularityContent extracts the full file content payload without the
+// 16KB truncation applied for kernel facts. A truncated hash does not parse as
+// Go and would make the guard silently allow large violating files.
+func rawModularityContent(args map[string]any) string {
+	for _, key := range pendingEditContentKeys {
+		if raw, ok := args[key]; ok {
+			if s, ok := raw.(string); ok {
+				return s
+			}
+			if raw != nil {
+				if b, err := json.Marshal(raw); err == nil {
+					return string(b)
+				}
+				return fmt.Sprintf("%v", raw)
+			}
+		}
+	}
+	return ""
+}
+
+// modularityViolationKey extracts the function+rule identity from the
+// evaluateModularity violation string "Func: predicate in file".
+func modularityViolationKey(v string) string {
+	colon := strings.Index(v, ":")
+	if colon == -1 {
+		return strings.TrimSpace(v)
+	}
+	funcPart := strings.TrimSpace(v[:colon])
+	rest := strings.TrimSpace(v[colon+1:])
+	if idx := strings.Index(rest, " in "); idx != -1 {
+		pred := strings.TrimSpace(rest[:idx])
+		return funcPart + ":" + pred
+	}
+	return funcPart + ":" + strings.TrimSpace(rest)
+}
+
+// resolveModularityFilePath maps a tool target path to a filesystem path for
+// the pre-existing-file comparison. Absolute targets are used directly;
+// relative targets are joined with the verification workspace when available.
+func (e *Executor) resolveModularityFilePath(p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	if ws := e.workspaceForVerification(); ws != "" {
+		return filepath.Join(ws, p)
+	}
+	return p
+}
+
 
 // placeholderTestContent extracts the content payload from a tool call's
 // arguments using the same key set as pendingEditContent. It reports whether
@@ -1698,6 +1833,13 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 		return "", fmt.Errorf("blocked by placeholder test guard: %s is placeholder (%s)",
 			projectDocTargetLabel(call.Args), reason)
 	}
+	if reason, blocked := e.modularityGuard(call); blocked {
+		logging.Get(logging.CategorySession).Warn(
+			"modularity guard BLOCKED %s on %s: %s", call.Name, projectDocTargetLabel(call.Args), reason)
+		logging.Audit().SafetyCheck("modularity_guard", false, reason)
+		return "", fmt.Errorf("blocked by modularity guard: %s", reason)
+	}
+
 
 	// PRE-execution executive gate: run the Dreamer destructive-action
 	// simulation before the tool mutates anything. This brings the VirtualStore
