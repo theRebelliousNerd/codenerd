@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -269,13 +270,17 @@ JSON only:`, campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, cam
 	}
 
 	// 3. Parse and apply changes
+	// 3. Parse and apply changes
 	resp = cleanJSONResponse(resp)
 	var changes struct {
 		NewTasks []struct {
-			PhaseOrder  int    `json:"phase_order"`
-			Description string `json:"description"`
-			Type        string `json:"type"`
-			Priority    string `json:"priority"`
+			PhaseOrder   int             `json:"phase_order"`
+			Description  string          `json:"description"`
+			Type         string          `json:"type"`
+			Priority     string          `json:"priority"`
+			DependsOn    flexStringSlice `json:"depends_on"`
+			ContextFrom  flexStringSlice `json:"context_from"`
+			Dependencies flexStringSlice `json:"dependencies"`
 		} `json:"new_tasks"`
 		ModifiedTasks []struct {
 			TaskID         string `json:"task_id"`
@@ -294,28 +299,54 @@ JSON only:`, campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, cam
 		return err
 	}
 
-	// 4. Add new tasks
+	// 4. Add new tasks — with per-phase duplicate guard and dependency context
+	// Mirrors decomposer's seenTaskKeys logic: build from tasks ALREADY in phase.
+	seenByPhase := make(map[int]map[string]bool)
 	for _, newTask := range changes.NewTasks {
-		if newTask.PhaseOrder >= 0 && newTask.PhaseOrder < len(workingCampaign.Phases) {
-			phase := &workingCampaign.Phases[newTask.PhaseOrder]
-			taskID := fmt.Sprintf("/task_%s_%d_%d", campaignSlug(workingCampaign.ID), newTask.PhaseOrder, len(phase.Tasks))
-
-			task := Task{
-				ID:          taskID,
-				PhaseID:     phase.ID,
-				Description: newTask.Description,
-				Status:      TaskPending,
-				Type:        normalizeTaskType(newTask.Type, defaultTaskTypeForCategory(phase.Category)),
-				Priority:    normalizeTaskPriority(newTask.Priority),
-				Order:       len(phase.Tasks),
+		if newTask.PhaseOrder < 0 || newTask.PhaseOrder >= len(workingCampaign.Phases) {
+			continue
+		}
+		phase := &workingCampaign.Phases[newTask.PhaseOrder]
+		if strings.TrimSpace(newTask.Description) == "" {
+			continue
+		}
+		key := normalizedTaskKey(newTask.Description)
+		if key != "" {
+			seen, ok := seenByPhase[newTask.PhaseOrder]
+			if !ok {
+				seen = make(map[string]bool, len(phase.Tasks))
+				for _, t := range phase.Tasks {
+					if k := normalizedTaskKey(t.Description); k != "" {
+						seen[k] = true
+					}
+				}
+				seenByPhase[newTask.PhaseOrder] = seen
 			}
-			if strings.TrimSpace(task.Description) == "" {
+			if seen[key] {
+				logging.CampaignWarn("Planner emitted a duplicate task in phase %s; dropping it: %.80q", phase.ID, newTask.Description)
 				continue
 			}
-
-			phase.Tasks = append(phase.Tasks, task)
-			workingCampaign.TotalTasks++
+			seen[key] = true
 		}
+		taskID := fmt.Sprintf("/task_%s_%d_%d", campaignSlug(workingCampaign.ID), newTask.PhaseOrder, len(phase.Tasks))
+		var deps []string
+		deps = append(deps, []string(newTask.DependsOn)...)
+		deps = append(deps, []string(newTask.ContextFrom)...)
+		deps = append(deps, []string(newTask.Dependencies)...)
+		ctxFrom := resolveReplannerContextFrom(phase, deps)
+		task := Task{
+			ID:          taskID,
+			PhaseID:     phase.ID,
+			Description: newTask.Description,
+			Status:      TaskPending,
+			Type:        normalizeTaskType(newTask.Type, defaultTaskTypeForCategory(phase.Category)),
+			Priority:    normalizeTaskPriority(newTask.Priority),
+			Order:       len(phase.Tasks),
+			ContextFrom: ctxFrom,
+		}
+
+		phase.Tasks = append(phase.Tasks, task)
+		workingCampaign.TotalTasks++
 	}
 
 	// 5. Modify existing tasks
@@ -445,11 +476,14 @@ Return JSON only:
 	resp = cleanJSONResponse(resp)
 	var changes struct {
 		Tasks []struct {
-			TaskID      string `json:"task_id"`
-			Description string `json:"description"`
-			Type        string `json:"type"`
-			Priority    string `json:"priority"`
-			Action      string `json:"action"`
+			TaskID       string          `json:"task_id"`
+			Description  string          `json:"description"`
+			Type         string          `json:"type"`
+			Priority     string          `json:"priority"`
+			Action       string          `json:"action"`
+			DependsOn    flexStringSlice `json:"depends_on"`
+			ContextFrom  flexStringSlice `json:"context_from"`
+			Dependencies flexStringSlice `json:"dependencies"`
 		} `json:"tasks"`
 		Summary string `json:"summary"`
 	}
@@ -458,11 +492,14 @@ Return JSON only:
 	if err := json.Unmarshal([]byte(resp), &changes); err != nil {
 		// LLM might have returned just an array instead of {tasks: [], summary: ""}
 		var tasksOnly []struct {
-			TaskID      string `json:"task_id"`
-			Description string `json:"description"`
-			Type        string `json:"type"`
-			Priority    string `json:"priority"`
-			Action      string `json:"action"`
+			TaskID       string          `json:"task_id"`
+			Description  string          `json:"description"`
+			Type         string          `json:"type"`
+			Priority     string          `json:"priority"`
+			Action       string          `json:"action"`
+			DependsOn    flexStringSlice `json:"depends_on"`
+			ContextFrom  flexStringSlice `json:"context_from"`
+			Dependencies flexStringSlice `json:"dependencies"`
 		}
 		if arrErr := json.Unmarshal([]byte(resp), &tasksOnly); arrErr != nil {
 			logging.Get(logging.CategoryCampaign).Error("RefineNextPhase: failed to parse refinement response as object or array: object_err=%v, array_err=%v, response=%s", err, arrErr, resp)
@@ -472,6 +509,15 @@ Return JSON only:
 		changes.Tasks = tasksOnly
 		changes.Summary = "Rolling-wave refinement (tasks only)"
 		logging.CampaignDebug("RefineNextPhase: parsed %d tasks from array response", len(tasksOnly))
+	}
+
+	// Per-phase duplicate guard — mirror decomposer's seenTaskKeys logic.
+	// Build from tasks ALREADY in the phase as well as those added in this call.
+	seenTaskKeys := make(map[string]bool, len(workingNextPhase.Tasks))
+	for _, t := range workingNextPhase.Tasks {
+		if k := normalizedTaskKey(t.Description); k != "" {
+			seenTaskKeys[k] = true
+		}
 	}
 
 	// Apply changes
@@ -486,6 +532,16 @@ Return JSON only:
 				}
 			}
 		case "add":
+			if strings.TrimSpace(t.Description) == "" {
+				continue
+			}
+			if key := normalizedTaskKey(t.Description); key != "" {
+				if seenTaskKeys[key] {
+					logging.CampaignWarn("Planner emitted a duplicate task in phase %s; dropping it: %.80q", workingNextPhase.ID, t.Description)
+					continue
+				}
+				seenTaskKeys[key] = true
+			}
 			newID := t.TaskID
 			if newID == "" {
 				newID = fmt.Sprintf("/task_%s_%d_%d", campaignSlug(campaign.ID), workingNextPhase.Order, len(workingNextPhase.Tasks))
@@ -505,6 +561,11 @@ Return JSON only:
 					newID = fmt.Sprintf("%s_%d", t.TaskID, idIdx)
 				}
 			}
+			var deps []string
+			deps = append(deps, []string(t.DependsOn)...)
+			deps = append(deps, []string(t.ContextFrom)...)
+			deps = append(deps, []string(t.Dependencies)...)
+			ctxFrom := resolveReplannerContextFrom(workingNextPhase, deps)
 			task := Task{
 				ID:          newID,
 				PhaseID:     workingNextPhase.ID,
@@ -513,6 +574,7 @@ Return JSON only:
 				Type:        normalizeTaskType(t.Type, defaultTaskTypeForCategory(workingNextPhase.Category)),
 				Priority:    normalizeTaskPriority(t.Priority),
 				Order:       len(workingNextPhase.Tasks),
+				ContextFrom: ctxFrom,
 			}
 			workingNextPhase.Tasks = append(workingNextPhase.Tasks, task)
 		default: // update
@@ -533,6 +595,16 @@ Return JSON only:
 				}
 			}
 			if !updated && t.Description != "" {
+				if strings.TrimSpace(t.Description) == "" {
+					continue
+				}
+				if key := normalizedTaskKey(t.Description); key != "" {
+					if seenTaskKeys[key] {
+						logging.CampaignWarn("Planner emitted a duplicate task in phase %s; dropping it: %.80q", workingNextPhase.ID, t.Description)
+						continue
+					}
+					seenTaskKeys[key] = true
+				}
 				newID := t.TaskID
 				if newID == "" {
 					newID = fmt.Sprintf("/task_%s_%d_%d", campaignSlug(campaign.ID), workingNextPhase.Order, len(workingNextPhase.Tasks))
@@ -552,6 +624,11 @@ Return JSON only:
 						newID = fmt.Sprintf("%s_%d", t.TaskID, idIdx)
 					}
 				}
+				var deps []string
+				deps = append(deps, []string(t.DependsOn)...)
+				deps = append(deps, []string(t.ContextFrom)...)
+				deps = append(deps, []string(t.Dependencies)...)
+				ctxFrom := resolveReplannerContextFrom(workingNextPhase, deps)
 				workingNextPhase.Tasks = append(workingNextPhase.Tasks, Task{
 					ID:          newID,
 					PhaseID:     workingNextPhase.ID,
@@ -560,6 +637,7 @@ Return JSON only:
 					Type:        normalizeTaskType(t.Type, defaultTaskTypeForCategory(workingNextPhase.Category)),
 					Priority:    normalizeTaskPriority(t.Priority),
 					Order:       len(workingNextPhase.Tasks),
+					ContextFrom: ctxFrom,
 				})
 			}
 		}
@@ -985,6 +1063,131 @@ func checkCampaignCycles(campaign *Campaign) error {
 	}
 	return nil
 }
+
+// flexStringSlice handles dependency fields that may be encoded as []string,
+// []int, or mixed []any by the LLM. This keeps the replanner tolerant of
+// variance while still mapping to string task identifiers.
+type flexStringSlice []string
+
+func (f *flexStringSlice) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*f = nil
+		return nil
+	}
+	var s []string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*f = flexStringSlice(s)
+		return nil
+	}
+	var ints []int
+	if err := json.Unmarshal(data, &ints); err == nil {
+		out := make([]string, len(ints))
+		for i, v := range ints {
+			out[i] = strconv.Itoa(v)
+		}
+		*f = flexStringSlice(out)
+		return nil
+	}
+	var anySlice []any
+	if err := json.Unmarshal(data, &anySlice); err == nil {
+		out := make([]string, 0, len(anySlice))
+		for _, v := range anySlice {
+			switch x := v.(type) {
+			case string:
+				out = append(out, x)
+			case float64:
+				out = append(out, strconv.Itoa(int(x)))
+			case int:
+				out = append(out, strconv.Itoa(x))
+			case int64:
+				out = append(out, strconv.FormatInt(x, 10))
+			}
+		}
+		*f = flexStringSlice(out)
+		return nil
+	}
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*f = flexStringSlice([]string{single})
+		return nil
+	}
+	var singleInt int
+	if err := json.Unmarshal(data, &singleInt); err == nil {
+		*f = flexStringSlice([]string{strconv.Itoa(singleInt)})
+		return nil
+	}
+	return fmt.Errorf("cannot unmarshal flexStringSlice from %s", string(data))
+}
+
+// resolveReplannerContextFrom maps named dependencies to task IDs in the phase.
+// It mirrors the decomposer's wiring step: explicit context_from indices are
+// resolved to IDs, and here dependency strings are resolved via exact ID,
+// numeric index, or normalized description match. If no dependency names are
+// provided it returns nil rather than inventing edges. Duplicates are removed
+// while preserving stable order.
+func resolveReplannerContextFrom(phase *Phase, deps []string) []string {
+	if len(deps) == 0 {
+		return nil
+	}
+	idSet := make(map[string]struct{}, len(phase.Tasks))
+	for _, t := range phase.Tasks {
+		idSet[t.ID] = struct{}{}
+	}
+	descKeyToID := make(map[string]string)
+	for _, t := range phase.Tasks {
+		if k := normalizedTaskKey(t.Description); k != "" {
+			if _, ok := descKeyToID[k]; !ok {
+				descKeyToID[k] = t.ID
+			}
+		}
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	for _, dep := range deps {
+		dep = strings.TrimSpace(dep)
+		if dep == "" {
+			continue
+		}
+		var resolved string
+		if _, ok := idSet[dep]; ok {
+			resolved = dep
+		} else if idx, err := strconv.Atoi(dep); err == nil && idx >= 0 && idx < len(phase.Tasks) {
+			resolved = phase.Tasks[idx].ID
+		} else if k := normalizedTaskKey(dep); k != "" {
+			if id, ok := descKeyToID[k]; ok {
+				resolved = id
+			} else {
+				for _, t := range phase.Tasks {
+					if strings.EqualFold(strings.TrimSpace(t.Description), dep) {
+						resolved = t.ID
+						break
+					}
+				}
+			}
+		} else {
+			// Fallback: try exact ID without normalization (covers edge cases)
+			for _, t := range phase.Tasks {
+				if t.ID == dep {
+					resolved = t.ID
+					break
+				}
+			}
+		}
+		if resolved == "" {
+			continue
+		}
+		if _, exists := seen[resolved]; exists {
+			continue
+		}
+		seen[resolved] = struct{}{}
+		out = append(out, resolved)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 
 // ClearReplanTriggers clears all replan triggers for a campaign.
 func (r *Replanner) ClearReplanTriggers(campaignID string) error {
