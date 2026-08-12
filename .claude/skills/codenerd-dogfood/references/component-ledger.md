@@ -2556,3 +2556,35 @@ after being committed. Some fraction of those were mine reading truncated grep
 output and treating absence as evidence. It is also a token-efficiency defect:
 the correct workaround is per-file sharding, which is N calls where one would do,
 and the campaign paid that cost in real tokens to finish its inventory.
+
+---
+
+## F-ROOT-2 — the undeclared-root-write guard does not cover campaign tasks
+
+The self-audit campaign wrote 152 KB into the repository root — `decl_inventory.md`
+(72 KB), `decl_canonical_map.md` (45 KB), `mangle_internal_consumers.md` (35 KB)
+and a `reports/` directory — and **the guard did not fire once**. Verified by
+grepping every log from the run: the only "undeclared" hits are the campaign
+narrating its search for undeclared *predicates*.
+
+The guard works. It caught a stray `nerd.exe~` during a `fix` run the same hour.
+It simply is not on this path. Commit e9d9dd17 extended it from the direct verbs
+to the shadow, what-if and dream spawn sites, and campaign task execution is a
+fourth spawn path that was not in that list.
+
+**Sixth instance of the same pattern, and this one is mine.** The ledger already
+records it for the Ouroboros tool contract, the original root-write warning, the
+Meta call_id pairing, the prompt-evolution callback, and F-TOOL-1's numeric
+coercion. Each time the fix was applied per call site and a whole family stayed
+uncovered. I wrote the commit message for e9d9dd17 arguing that a guard belongs
+at a choke point rather than at call sites, and then extended it to three of the
+four call sites.
+
+The lesson is not "add campaign to the list" — that is the same mistake a fifth
+time. It is that spawn paths need one entry point, so a new one inherits the
+guard instead of having to be remembered. Recorded rather than patched, because
+picking that choke point is a design decision worth making deliberately.
+
+Related: the deliverables belong in `.nerd/campaigns/<id>/artifacts/`, where the
+same campaign already wrote 17 files correctly. Two writers with two
+destinations, one of them the repo root.
