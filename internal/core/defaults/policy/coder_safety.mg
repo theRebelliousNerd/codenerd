@@ -27,6 +27,17 @@ Decl missing_test_for(File) bound [/string].
 # this without waiting for a rescan.
 missing_test_for(File) :- created_source(File), !test_coverage(File).
 
+# F-RUN-3: verify claimed test output — Go measures, Mangle decides.
+# claimed_test_output/1 is asserted when the response presents runner output,
+# executed_test_tool/1 when a test tool actually ran. unverified_test_claim
+# fires when the former is true and the latter is not; Verb is bound by the
+# positive atom so negation is safe. Uses /string for Verb so a leading-slash
+# verb ("/fix") is stored as a string, not a Mangle name constant.
+Decl claimed_test_output(Verb) bound [/string].
+Decl executed_test_tool(Verb) bound [/string].
+Decl unverified_test_claim(Verb) bound [/string].
+unverified_test_claim(Verb) :- claimed_test_output(Verb), !executed_test_tool(Verb).
+
 # Block if impacted files lack test coverage
 coder_block_write(File, "uncovered_impact") :-
     pending_edit(File, _),

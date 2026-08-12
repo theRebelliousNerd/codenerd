@@ -1670,6 +1670,41 @@ func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
 		logging.Get(logging.CategorySession).Debug("checkHollowSuccess: nil kernel, skipping missing_test_for check")
 		return nil
 	}
+	// F-RUN-3: Go measures, Mangle decides — verify claimed test output.
+	// Assert claimed_test_output when response presents runner output,
+	// and executed_test_tool when a test tool actually ran. Both use
+	// types.MangleString so the leading-slash verb is stored as a string,
+	// not a Mangle name constant. Then query unverified_test_claim
+	// (claimed_test_output && !executed_test_tool) and fail the turn if
+	// any fact is returned. Retraction is handled by
+	// cleanupPerTurnCoverageFacts on every path.
+	if responsePresentsTestRunnerOutput(result.Response) {
+		fact := types.Fact{Predicate: "claimed_test_output", Args: []any{types.MangleString(verb)}}
+		if err := e.kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategorySession).Warn("failed to assert claimed_test_output for %s: %v", verb, err)
+		} else {
+			e.mu.Lock()
+			e.perTurnClaimedTestOutputFacts = append(e.perTurnClaimedTestOutputFacts, fact)
+			e.mu.Unlock()
+			logging.Get(logging.CategorySession).Debug("asserted claimed_test_output(%q)", verb)
+		}
+	}
+	if result.SuccessfulTestTools > 0 {
+		fact := types.Fact{Predicate: "executed_test_tool", Args: []any{types.MangleString(verb)}}
+		if err := e.kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategorySession).Warn("failed to assert executed_test_tool for %s: %v", verb, err)
+		} else {
+			e.mu.Lock()
+			e.perTurnExecutedTestToolFacts = append(e.perTurnExecutedTestToolFacts, fact)
+			e.mu.Unlock()
+			logging.Get(logging.CategorySession).Debug("asserted executed_test_tool(%q)", verb)
+		}
+	}
+	if unverified, err := e.kernel.Query("unverified_test_claim"); err != nil {
+		logging.Get(logging.CategorySession).Warn("checkHollowSuccess: unverified_test_claim query failed: %v", err)
+	} else if len(unverified) > 0 {
+		return newHollowSuccessError("response presents test-runner output but no test-execution tool ran this turn (verb %s)", verb)
+	}
 	facts, err := e.kernel.Query("missing_test_for")
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("checkHollowSuccess: missing_test_for query failed: %v", err)
@@ -1747,6 +1782,8 @@ func (e *Executor) cleanupPerTurnCoverageFacts() {
 		e.mu.Lock()
 		e.perTurnCreatedSourceFacts = nil
 		e.perTurnTestFileForFacts = nil
+		e.perTurnClaimedTestOutputFacts = nil
+		e.perTurnExecutedTestToolFacts = nil
 		e.mu.Unlock()
 		logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: nil kernel, cleared local state")
 		return
@@ -1754,8 +1791,12 @@ func (e *Executor) cleanupPerTurnCoverageFacts() {
 	e.mu.Lock()
 	created := append([]types.Fact(nil), e.perTurnCreatedSourceFacts...)
 	testFacts := append([]types.Fact(nil), e.perTurnTestFileForFacts...)
+	claimed := append([]types.Fact(nil), e.perTurnClaimedTestOutputFacts...)
+	executed := append([]types.Fact(nil), e.perTurnExecutedTestToolFacts...)
 	e.perTurnCreatedSourceFacts = nil
 	e.perTurnTestFileForFacts = nil
+	e.perTurnClaimedTestOutputFacts = nil
+	e.perTurnExecutedTestToolFacts = nil
 	e.mu.Unlock()
 	for _, f := range created {
 		if err := e.kernel.RetractFact(f); err != nil {
@@ -1767,10 +1808,20 @@ func (e *Executor) cleanupPerTurnCoverageFacts() {
 			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract test_file_for %v: %v", f.Args, err)
 		}
 	}
+	for _, f := range claimed {
+		if err := e.kernel.RetractFact(f); err != nil {
+			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract claimed_test_output %v: %v", f.Args, err)
+		}
+	}
+	for _, f := range executed {
+		if err := e.kernel.RetractFact(f); err != nil {
+			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract executed_test_tool %v: %v", f.Args, err)
+		}
+	}
 	// Direct kernel asserts (verify_created2 helpers) are not tracked in perTurn lists.
 	// Retract any remaining coverage facts so the next turn starts clean and
 	// stale facts do not leak forever.
-	if len(created) == 0 && len(testFacts) == 0 {
+	if len(created) == 0 && len(testFacts) == 0 && len(claimed) == 0 && len(executed) == 0 {
 		if facts, err := e.kernel.Query("created_source"); err == nil {
 			for _, f := range facts {
 				if err := e.kernel.RetractFact(f); err != nil {
@@ -1782,6 +1833,41 @@ func (e *Executor) cleanupPerTurnCoverageFacts() {
 			for _, f := range facts {
 				if err := e.kernel.RetractFact(f); err != nil {
 					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract direct test_file_for %v: %v", f.Args, err)
+				}
+			}
+		}
+		if facts, err := e.kernel.Query("claimed_test_output"); err == nil {
+			for _, f := range facts {
+				if err := e.kernel.RetractFact(f); err != nil {
+					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract direct claimed_test_output %v: %v", f.Args, err)
+				}
+			}
+		}
+		if facts, err := e.kernel.Query("executed_test_tool"); err == nil {
+			for _, f := range facts {
+				if err := e.kernel.RetractFact(f); err != nil {
+					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract direct executed_test_tool %v: %v", f.Args, err)
+				}
+			}
+		}
+	}
+	// A leaked claimed_test_output would fail every later turn forever, which is
+	// worse than the defect it guards. Ensure no orphan of either predicate
+	// survives even when the turn asserted coverage facts via the other predicates.
+	if len(claimed) == 0 {
+		if facts, err := e.kernel.Query("claimed_test_output"); err == nil {
+			for _, f := range facts {
+				if err := e.kernel.RetractFact(f); err != nil {
+					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract orphan claimed_test_output %v: %v", f.Args, err)
+				}
+			}
+		}
+	}
+	if len(executed) == 0 {
+		if facts, err := e.kernel.Query("executed_test_tool"); err == nil {
+			for _, f := range facts {
+				if err := e.kernel.RetractFact(f); err != nil {
+					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract orphan executed_test_tool %v: %v", f.Args, err)
 				}
 			}
 		}

@@ -147,6 +147,14 @@ type Executor struct {
 	// to prevent stale facts from failing later turns.
 	perTurnCreatedSourceFacts []types.Fact
 	perTurnTestFileForFacts   []types.Fact
+
+	// perTurnClaimedTestOutputFacts tracks claimed_test_output facts asserted this turn.
+	// perTurnExecutedTestToolFacts tracks executed_test_tool facts asserted this turn.
+	// Both are managed under mu and cleared by checkHollowSuccess (via
+	// cleanupPerTurnCoverageFacts) on every path to prevent stale facts from
+	// failing later turns — a leaked fact would fail every later turn forever.
+	perTurnClaimedTestOutputFacts []types.Fact
+	perTurnExecutedTestToolFacts  []types.Fact
 }
 
 // ExecutorConfig holds configuration for the executor.
