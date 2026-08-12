@@ -2963,3 +2963,62 @@ to audit in two phases. It shows the fabrication mechanism is closed on this
 shape of work; it does not show every synthesis task now receives what it needs,
 because the decomposer still emits tasks with no `context_from` and the replanner
 still drops the edges on duplicates. Those remain open.
+
+---
+
+## F-BROWSER-1 — the DOM snapshot could not write its own output
+
+Found by doing the thing the coverage measurement said had never been done:
+actually running the browser subsystem.
+
+The coverage note listed `browser` as unexercised on the strength of a 72-byte
+log. Driving it end to end explains the 72 bytes — **the feature could not
+complete**:
+
+    nerd browser launch              -> ok, control URL written
+    nerd browser session about:blank -> ok, session created, target attached
+    nerd browser snapshot <id>       -> "Capturing DOM for session ..."
+                                        "Captured 0 React component facts"
+                                        Error: browser output path
+                                        "...\.nerd\browser\snapshots\<id>_<ts>.mg"
+                                        is outside writable_roots
+                                        exit 1
+
+Everything worked — Chrome launched, the session attached, the DOM was captured —
+and the result was discarded at the final write.
+
+**Root cause.** `internal/browser/security/path_policy.go` defaults the writable
+roots when none are configured:
+
+    roots = []string{".nerd/browser/screenshots", ".nerd/browser/traces"}
+
+`cmd/nerd/cmd_browser.go:310` writes DOM facts to `.nerd/browser/snapshots`. The
+subsystem produces three artifact classes and its own allowlist covered two.
+
+**It is a regression, and the dates say so.** Two snapshots sit in that directory
+from 08-08. `path_policy.go` arrives on 08-09 with "establish BrowserNERD runtime
+parity foundation". A hardening change introduced an allowlist that omitted one
+of the directories the feature it was hardening writes to, and nothing failed
+loudly enough to notice for three days — because the only symptom is an error at
+the end of a command nobody was running.
+
+**Fixed** by adding the third directory to the default list. Configured roots
+still win exactly as before. Verified live rather than by unit test alone:
+the same three-command flow now ends `DOM snapshot complete: Facts captured: 6`,
+exit 0, with the `.mg` file on disk.
+
+### What this says about the coverage measurement
+
+The measurement said "browser: 72 bytes, unexercised" and treated that as a gap
+in *testing*. It was a gap in *the product*. An unexercised module and a broken
+module produce the same silence, and the only way to tell them apart is to run
+the thing. Two of the three subsystems flagged there have now been driven:
+
+- **`northstar`** — works. `stats`, `show`, `summary` and `facts` all return real
+  content. Its log stays at 132 bytes because those paths barely log, which
+  confirms the caveat in the coverage note: log volume is not a proxy for
+  exercise, and this measurement under-reports.
+- **`browser`** — was broken; now works, verified end to end.
+- **`researcher`** — still unexercised, and blocked rather than deferred:
+  `context7_api_key` is absent from `.nerd/config.json`, and that path is the
+  Context7-backed external lookup. It needs a key the environment does not have.

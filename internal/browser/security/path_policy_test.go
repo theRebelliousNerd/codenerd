@@ -25,6 +25,24 @@ func TestPathPolicyConfinesBrowserWrites(t *testing.T) {
 	}
 }
 
+func TestPathPolicyDefaultRootsIncludeSnapshots(t *testing.T) {
+	workspace := t.TempDir()
+	policy, err := NewPathPolicy(workspace, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"screenshots", "traces", "snapshots"} {
+		path := filepath.Join(workspace, ".nerd", "browser", dir, "artifact.mg")
+		if _, err := policy.ResolveForWrite(path, "", ""); err != nil {
+			t.Fatalf("default policy should allow %s (%q): %v", dir, path, err)
+		}
+	}
+	rejected := filepath.Join(workspace, ".nerd", "browser", "elsewhere", "artifact.mg")
+	if _, err := policy.ResolveForWrite(rejected, "", ""); err == nil {
+		t.Fatalf("default policy should reject path outside writable roots: %q", rejected)
+	}
+}
+
 func TestPathPolicyRejectsExistingSymlinkEscape(t *testing.T) {
 	workspace := t.TempDir()
 	root := filepath.Join(workspace, "artifacts")

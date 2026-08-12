@@ -28,7 +28,9 @@ func NewPathPolicy(baseDir string, roots []string) (*PathPolicy, error) {
 		return nil, fmt.Errorf("resolve path policy base directory: %w", err)
 	}
 	if len(roots) == 0 {
-		roots = []string{filepath.Join(".nerd", "browser", "screenshots"), filepath.Join(".nerd", "browser", "traces")}
+		// Default writable roots must cover every directory the browser subsystem writes to;
+		// snapshots was missing which made `nerd browser snapshot` fail at the final write.
+		roots = []string{filepath.Join(".nerd", "browser", "screenshots"), filepath.Join(".nerd", "browser", "traces"), filepath.Join(".nerd", "browser", "snapshots")}
 	}
 	resolved := make([]string, 0, len(roots))
 	for _, root := range roots {
