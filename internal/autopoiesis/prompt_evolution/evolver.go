@@ -91,7 +91,6 @@ func validateEvolverConfig(config *EvolverConfig) (*EvolverConfig, error) {
 	}
 
 	return &normalized, nil
-	return &normalized, nil
 }
 
 // AtomPromotedCallback is called when an evolved atom is promoted.
