@@ -2503,3 +2503,56 @@ not import `internal/mangle`, so there is no cycle.
 The deeper answer remains the one recorded under F-LEARN-5: neither serializer
 should be guessing. The `Decl` already states whether an argument is `/string`
 or `/name`, and the kernel holds it at assert time.
+
+---
+
+## F-TOOL-1 — codeNERD cannot search its own codebase past 50 matches, and it found this out itself
+
+The self-audit campaign hit this mid-run and wrote the workaround into its own
+artifact:
+
+> grep `^\s*Decl\s+\w+\(` with file_pattern, **bypasses 50-cap by per-file
+> sharding; global grep hard-capped at 50 verified even with max_results=500**
+
+It asked for 500 results, received 50, verified the cap empirically, and
+re-planned around it by sharding the query per file. Then it carried on. This is
+the agent discovering a defect in its own instrument, working around it, and
+documenting the workaround — which is exactly what the dogfood exercise is for,
+and is a better bug report than the one I would have written.
+
+**Root cause.** `internal/tools/core/search.go` reads its caller-supplied limits
+with a bare type assertion to `int`:
+
+- `:57`  `if mr, ok := args["max_results"].(int); ok && mr > 0` — glob, default 100
+- `:208` `if cl, ok := args["context_lines"].(int); ok`         — grep
+- `:213` `if mr, ok := args["max_results"].(int); ok && mr > 0` — grep, default 50
+
+LLM tool-call arguments are JSON-decoded, and `encoding/json` without
+`UseNumber()` materializes every number as `float64`. So the assertion never
+succeeds in production, the override is silently discarded, and the default is
+always used. `max_results: 500` and `max_results: 5` are the same request.
+
+**What makes this the sharpest instance of the recurring pattern.** This exact
+bug was already found and fixed three separate times in this repo, and none of
+the fixes reached the one tool that surveys the codebase:
+
+| package | mechanism | status |
+|---|---|---|
+| `internal/tools/research` | `argInt` (`numeric_args.go`) | fixed |
+| `internal/tools/shell` | `coerceInt` (`execute.go:52`) | fixed |
+| `internal/tools/codedom` | inline `float64` fallback (`lines.go:66-76`) | fixed |
+| **`internal/tools/core`** | bare `.(int)` | **broken** |
+
+`numeric_args.go`'s own comment states the consequence in the general case —
+"caller-supplied limits (max_docs / max_length / max_results) were discarded and
+the default was always used" — and names codedom and shell as prior art. The
+package it was not applied to is the one whose truncation does the most damage.
+
+**Why it matters beyond the tool.** A silent 50-match ceiling on grep is a
+machine for manufacturing exactly the error this ledger records more than any
+other: reasoning from a partial view believed to be complete. Eleven-plus
+scope-of-evidence mistakes are recorded here, at least one withdrawn in git
+after being committed. Some fraction of those were mine reading truncated grep
+output and treating absence as evidence. It is also a token-efficiency defect:
+the correct workaround is per-file sharding, which is N calls where one would do,
+and the campaign paid that cost in real tokens to finish its inventory.
