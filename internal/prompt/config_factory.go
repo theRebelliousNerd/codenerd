@@ -35,6 +35,7 @@ func (c ConfigAtom) Merge(other ConfigAtom) ConfigAtom {
 	return merged
 }
 
+// TODO: [User Request Extremes] Optimize slice capacity allocation to prevent OOM when `input` slice is extremely large, rather than allocating a slice matching `len(input)` unconditionally.
 func uniqueStrings(input []string) []string {
 	const MaxItems = 1000 // Prevent massive DoS
 
@@ -87,6 +88,7 @@ func NewConfigFactory(provider ConfigAtomProvider) *ConfigFactory {
 
 // Generate creates an EffectiveAgentRuntimeConfig based on the intents and compilation result.
 // It merges config atoms for all provided intents.
+// TODO: [Null/Undefined/Empty] Missing panic prevention when f.provider is nil.
 func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	if result == nil {
 		return nil, fmt.Errorf("compilation result cannot be nil")
@@ -152,6 +154,7 @@ func (f *ConfigFactory) GenerateFallback(ctx context.Context, intent string, fal
 	// Prevent OOM from massive fallback strings
 	const MaxFallbackLength = 1024 * 1024 // 1MB limit
 	if len(fallbackIdentity) > MaxFallbackLength {
+		// TODO: [Type Coercion] Truncating by bytes can slice a multibyte UTF-8 character in half, resulting in invalid UTF-8. It should truncate on rune boundaries.
 		fallbackIdentity = fallbackIdentity[:MaxFallbackLength]
 	}
 
