@@ -16,7 +16,7 @@ import (
 
 // routingFile is the Mangle source of truth for which modular tools an intent
 // may reach.
-const routingFile = "../mangle/intent_routing.mg"
+const routingFile = "../core/defaults/policy/intent_routing_rules.mg"
 
 // modularToolAllowedRe extracts the tool name from a modular_tool_allowed
 // head. Names are Mangle /name constants, so the leading slash is stripped to

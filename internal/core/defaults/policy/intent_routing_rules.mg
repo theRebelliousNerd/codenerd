@@ -15,15 +15,30 @@
 # =============================================================================
 # From tester.mg (not in default schemas)
 # Decl file_exists(FilePath) - Moved to schemas_world.mg (global)
-Decl file_contains(FilePath, Pattern).
+# Decl for file_contains intentionally omitted: internal/core/defaults declares it
+# identically, and a second Decl makes the whole program fail analysis with
+# "declared more than once" — which is why this file could never be loaded
+# into the kernel alongside the constitution.
 # Decl file_imports(Importer, Imported) - From schemas_codedom_polyglot.mg
-Decl file_imports(Importer, Imported) bound [/string, /string].
+# Decl for file_imports intentionally omitted: internal/core/defaults declares it
+# identically, and a second Decl makes the whole program fail analysis with
+# "declared more than once" — which is why this file could never be loaded
+# into the kernel alongside the constitution.
 
 # Internal predicates defined only in this file (or missing from defaults)
 # These declarations ensure standalone validation works correctly
-Decl same_package(File1, File2) bound [/string, /string].
-Decl diagnostic(Severity, FilePath, Line, ErrorCode, Message) bound [/name, /string, /number, /string, /string].
-Decl pytest_failure(TestName, ErrorCategory, RootFile, RootLine, Message) bound [/string, /name, /string, /number, /string].
+# Decl for same_package intentionally omitted: internal/core/defaults declares it
+# identically, and a second Decl makes the whole program fail analysis with
+# "declared more than once" — which is why this file could never be loaded
+# into the kernel alongside the constitution.
+# Decl for diagnostic intentionally omitted: internal/core/defaults declares it
+# identically, and a second Decl makes the whole program fail analysis with
+# "declared more than once" — which is why this file could never be loaded
+# into the kernel alongside the constitution.
+# Decl for pytest_failure intentionally omitted: internal/core/defaults declares it
+# identically, and a second Decl makes the whole program fail analysis with
+# "declared more than once" — which is why this file could never be loaded
+# into the kernel alongside the constitution.
 
 Decl test_scope(Scope).
 Decl review_type(Type).

@@ -674,7 +674,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		//
 		// The JIT prompt compiler assembles the appropriate persona, skills, and
 		// context based on user intent. ConfigFactory provides tool sets per intent.
-		// See: internal/mangle/intent_routing.mg for routing rules
+		// See: internal/core/defaults/policy/intent_routing_rules.mg for routing rules
 		// =========================================================================
 
 		// System Shards

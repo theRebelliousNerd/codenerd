@@ -92,7 +92,7 @@ type SpecialistTask struct {
 
 // MatchSpecialistsForReview returns specialists for the files being reviewed.
 // In the JIT architecture, specialist selection is driven by Mangle rules in
-// internal/mangle/intent_routing.mg which maps file types/patterns to personas.
+// internal/core/defaults/policy/intent_routing_rules.mg which maps file types/patterns to personas.
 // This function now serves as a fallback when JIT routing is not available.
 func matchSpecialistsForReview(ctx context.Context, files []string, registry *AgentRegistry) []SpecialistMatch {
 	if registry == nil {

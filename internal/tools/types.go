@@ -14,7 +14,7 @@ import (
 )
 
 // ToolCategory classifies tools for intent-based filtering.
-// Categories align with intent routing in internal/mangle/intent_routing.mg.
+// Categories align with intent routing in internal/core/defaults/policy/intent_routing_rules.mg.
 
 // contextKey is a distinct type for context values to avoid collisions.
 type contextKey string
