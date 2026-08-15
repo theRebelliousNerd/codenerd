@@ -43,7 +43,19 @@ import (
 // declLine matches the single-line form every Decl in defaults/ uses:
 //
 //	Decl pred(A, B) bound [/string, /name].
-var declLine = regexp.MustCompile(`^Decl\s+([a-z][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*bound\s*\[([^\]]*)\]`)
+var declLine = regexp.MustCompile(`^Decl\s+([a-z][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(bound\s*\[[^\]]*\](?:\s*bound\s*\[[^\]]*\])*)`)
+
+// boundList pulls each alternative out of a Decl's bound clause. Mangle allows
+// a UNION — several bound lists on one Decl — and exactly one predicate uses it:
+//
+//	Decl compile_context(Dimension, Value) bound [/name, /name] bound [/name, /string].
+//
+// because GenerateFacts emits a name when the value is slash-prefixed and a
+// string otherwise. Matching only the first alternative would flag the perfectly
+// legal "failing_tests" as a violation and push whoever hit it to "fix" a
+// correct literal — a false positive is worse than a miss here, because it
+// spends someone's trust in the guard.
+var boundList = regexp.MustCompile(`bound\s*\[([^\]]*)\]`)
 
 // atomStart matches any predicate application on a line — a fact, a rule head,
 // or a body literal. The capture group is the predicate name; the match ends at
@@ -83,18 +95,22 @@ func TestMangleDecls_WhenAHeadUsesALiteral_ShouldMatchTheDeclaredBoundType(t *te
 	}
 
 	// Pass 1: the declared contracts.
-	bounds := map[string][]string{}
+	bounds := map[string][][]string{}
 	for _, f := range files {
 		for _, line := range readLogicalLines(t, f) {
 			m := declLine.FindStringSubmatch(line.text)
 			if m == nil {
 				continue
 			}
-			var types []string
-			for _, b := range strings.Split(m[3], ",") {
-				types = append(types, strings.TrimSpace(b))
+			var alts [][]string
+			for _, bm := range boundList.FindAllStringSubmatch(m[3], -1) {
+				var types []string
+				for _, b := range strings.Split(bm[1], ",") {
+					types = append(types, strings.TrimSpace(b))
+				}
+				alts = append(alts, types)
 			}
-			bounds[m[1]] = types
+			bounds[m[1]] = alts
 		}
 	}
 	if len(bounds) == 0 {
@@ -122,7 +138,7 @@ func TestMangleDecls_WhenAHeadUsesALiteral_ShouldMatchTheDeclaredBoundType(t *te
 				// atom — which turned this whole guard into a test that could not
 				// fail. Caught only because a known violation kept passing.
 				args, ok := atomArgs(line.text, loc[1])
-				if !ok || len(args) != len(want) {
+				if !ok || len(args) != len(want[0]) {
 					// Arity mismatches, and atoms whose parentheses do not close
 					// on this line, are the kernel's own analysis to report — it
 					// does so loudly at boot. Guessing here would produce noise
@@ -131,13 +147,29 @@ func TestMangleDecls_WhenAHeadUsesALiteral_ShouldMatchTheDeclaredBoundType(t *te
 				}
 				for i, arg := range args {
 					got := literalKind(arg)
-					if got == "" || got == want[i] {
+					if got == "" {
+						continue
+					}
+					// A union Decl is satisfied by ANY of its alternatives.
+					permitted := false
+					var declared []string
+					for _, alt := range want {
+						if i >= len(alt) {
+							continue
+						}
+						declared = append(declared, alt[i])
+						if got == alt[i] {
+							permitted = true
+							break
+						}
+					}
+					if permitted {
 						continue
 					}
 					violations = append(violations, violation{
 						file: f,
 						detail: fmt.Sprintf("line %d: %s arg %d is %s (%s), but Decl says %s",
-							line.num, pred, i+1, got, arg, want[i]),
+							line.num, pred, i+1, got, arg, strings.Join(declared, " or ")),
 					})
 				}
 			}
