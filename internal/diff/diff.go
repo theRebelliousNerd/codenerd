@@ -4,7 +4,6 @@ package diff
 
 import (
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
@@ -77,25 +76,84 @@ type FileDiff struct {
 // Engine provides diff computation with caching
 type Engine struct {
 	dmp   *diffmatchpatch.DiffMatchPatch
-	cache sync.Map // Cache for identical input pairs
+	cache *diffCache
+	opts  Options
 }
 
 // cacheKey is used for caching LCS/diff results
 type cacheKey struct {
-	oldHash uint64
-	newHash uint64
+	oldHash      uint64
+	newHash      uint64
+	contextLines int
+}
+
+// Options tunes an Engine. The zero value is valid and selects the defaults
+// used before this struct existed, so NewEngine() and NewEngineWith(Options{})
+// behave identically.
+type Options struct {
+	// ContextLines is the number of unchanged lines kept around each change.
+	// Zero means defaultContextLines; use a negative value for genuinely zero
+	// context.
+	ContextLines int
+
+	// DisableCache turns off result caching entirely. Counters still advance so
+	// Stats remains meaningful.
+	DisableCache bool
+
+	// MaxCacheEntries bounds resident entries. Zero means defaultMaxCacheEntries.
+	MaxCacheEntries int
+
+	// MaxCacheBytes bounds approximate resident payload. Zero means
+	// defaultMaxCacheBytes.
+	MaxCacheBytes int64
+
+	// Timeout bounds a single diffmatchpatch computation. Zero means
+	// diffTimeout; use a negative value to disable the bound.
+	Timeout time.Duration
+}
+
+// contextLines resolves the configured context width to a concrete, clamped value.
+func (o Options) contextLines() int {
+	if o.ContextLines == 0 {
+		return defaultContextLines
+	}
+	return clampContextLines(o.ContextLines)
+}
+
+// timeout resolves the configured diff timeout to a concrete value.
+func (o Options) timeout() time.Duration {
+	switch {
+	case o.Timeout == 0:
+		return diffTimeout
+	case o.Timeout < 0:
+		return 0 // diffmatchpatch treats 0 as "no timeout"
+	default:
+		return o.Timeout
+	}
 }
 
 // NewEngine creates a new diff engine with optimal settings
 func NewEngine() *Engine {
+	return NewEngineWith(Options{})
+}
+
+// NewEngineWith creates a diff engine from opts. The zero Options value yields
+// the same engine as NewEngine.
+func NewEngineWith(opts Options) *Engine {
 	dmp := diffmatchpatch.New()
 	// Bound pathological inputs (e.g., massive minified single-line files)
 	// while remaining generous enough for typical code diffs.
-	dmp.DiffTimeout = diffTimeout
+	dmp.DiffTimeout = opts.timeout()
 	return &Engine{
 		dmp:   dmp,
-		cache: sync.Map{},
+		cache: newDiffCache(opts.MaxCacheEntries, opts.MaxCacheBytes),
+		opts:  opts,
 	}
+}
+
+// Stats returns cumulative cache counters for this engine.
+func (e *Engine) Stats() Stats {
+	return e.cache.stats()
 }
 
 // DefaultEngine is a singleton engine for general use
@@ -124,37 +182,42 @@ func (e *Engine) ComputeDiff(oldPath, newPath, oldContent, newContent string) *F
 	// so we flag IsBinary=true and return an empty hunk list instead.
 	if containsNullByte(oldContent) || containsNullByte(newContent) {
 		fileDiff.IsBinary = true
+		e.cache.markBinary()
 		return fileDiff
 	}
 
-	// Check cache
-	oldHash := hash(oldContent)
-	newHash := hash(newContent)
-	key := cacheKey{oldHash, newHash}
+	contextLines := e.opts.contextLines()
 
-	if cached, ok := e.cache.Load(key); ok {
-		if cachedDiff, ok := cached.(*FileDiff); ok {
-			// Clone cached result with updated paths
-			result := *cachedDiff
-			result.OldPath = oldPath
-			result.NewPath = newPath
-			return &result
+	// Check cache. The key includes contextLines because hunk grouping depends
+	// on it: two engines sharing content but not context width must not read
+	// each other's entries.
+	key := cacheKey{oldHash: hash(oldContent), newHash: hash(newContent), contextLines: contextLines}
+
+	if !e.opts.DisableCache {
+		if cached := e.cache.get(key); cached != nil {
+			// get returns a deep copy, so retargeting the paths here cannot
+			// disturb the cached entry or any diff handed to another caller.
+			cached.OldPath = oldPath
+			cached.NewPath = newPath
+			return cached
 		}
 	}
 
 	// Compute diffs using sergi/go-diff
 	// Use a line-level reduction to avoid newline boundary artifacts when converting to line ops.
+	e.cache.markCompute()
 	a, b, lineArray := e.dmp.DiffLinesToChars(oldContent, newContent)
 	diffs := e.dmp.DiffMain(a, b, false)
 	diffs = e.dmp.DiffCleanupSemantic(diffs)
 	diffs = e.dmp.DiffCharsToLines(diffs, lineArray)
 
-	// Convert to hunks (default context, clamped to safe bounds)
-	hunks := e.convertToHunks(diffs, defaultContextLines)
-	fileDiff.Hunks = hunks
+	// Convert to hunks (configured context, clamped to safe bounds)
+	fileDiff.Hunks = e.convertToHunks(diffs, contextLines)
 
-	// Cache result
-	e.cache.Store(key, fileDiff)
+	// Cache a copy; the caller keeps sole ownership of fileDiff.
+	if !e.opts.DisableCache {
+		e.cache.put(key, fileDiff)
+	}
 
 	return fileDiff
 }
@@ -364,9 +427,11 @@ func hash(s string) uint64 {
 	return hash
 }
 
-// ClearCache clears the diff cache
+// ClearCache drops every cached diff. Unlike the previous implementation it
+// does not reassign the cache field, so it is safe to call concurrently with
+// ComputeDiff. Cumulative Stats counters are preserved.
 func (e *Engine) ClearCache() {
-	e.cache = sync.Map{}
+	e.cache.clear()
 }
 
 // ComputeWordLevelDiff computes word-level differences within a line
