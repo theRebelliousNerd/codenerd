@@ -1,6 +1,6 @@
 # 02 — Current State: `internal/build`
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-08-15**  
 > Method: list dir, full read of package sources, reverse-import grep
 
 ---
@@ -39,7 +39,7 @@ Package comment (paraphrased): unifies build env so preflight, thunderdome, ouro
 
 **Exported types**
 
-- `BuildConfig` — `EnvVars map[string]string`, `GoFlags []string`, `CGOPackages []string`
+- `BuildConfig` — alias for `config.BuildConfig` (`EnvVars`, `GoFlags`, `CGOPackages`)
 
 **Exported functions**
 
@@ -51,7 +51,7 @@ Package comment (paraphrased): unifies build env so preflight, thunderdome, ouro
 
 **Unexported functions**
 
-- `getBaseGoEnv`, `deriveGOCACHE`, `loadBuildConfig`, `detectCGOFlags`, `hasEnvKey`, `setEnvKey`
+- `getBaseGoEnv`, `deriveGOCACHE`, `loadBuildConfig`, `detectCGOFlags`, `hasEnvKey`, `setEnvKey`, `envValue`, `redactEnvValue`, `isRepoBoundary`, `withCountOne`, `goFlagName`
 
 No interfaces, no constructors beyond `DefaultBuildConfig`, no init hooks, no registration.
 
@@ -99,7 +99,7 @@ If `GOCACHE` absent after copy → derived path.
 | `internal/autopoiesis/tool_compiler.go` | `GetBuildEnvForCompile` + `MergeEnv` | `nil` | `tmpDir` (temp module) | `CGO_ENABLED=0` |
 | `internal/autopoiesis/thunderdome.go` | `GetBuildEnv` + `MergeEnv` | `nil` | `arenaDir` | `CGO_ENABLED=0` |
 
-No other production importers as of 2026-07-13 (`rg "codenerd/internal/build" -g "*.go"`).
+No other production importers as of 2026-08-15 (`rg "codenerd/internal/build" -g "*.go"`).
 
 ---
 
@@ -107,7 +107,7 @@ No other production importers as of 2026-07-13 (`rg "codenerd/internal/build" -g
 
 | Location | Content |
 |----------|---------|
-| `internal/config/build.go` | `config.BuildConfig` + `DefaultBuildConfig()` value type |
+| `internal/config/build.go` | `config.BuildConfig` + `DefaultBuildConfig()` value type — the **single** definition; `build.BuildConfig` aliases it |
 | `UserConfig.Build` | Optional JSON/YAML block |
 | Sample defaults in `user_config.go` | Hardcoded example `CGO_CFLAGS=-IC:/CodeProjects/codeNERD/sqlite_headers` |
 | `ExecutionConfig.AllowedEnvVars` | Whitelist for step 2 of merge |
@@ -119,7 +119,7 @@ Note: sample path is machine-specific; auto-detect is the portable path when wor
 ## 6. Hotspots / maintenance risk
 
 1. **Duplicate key emission** across base + whitelist + config (last-wins depends on Go runtime env rules).  
-2. **Two BuildConfig types** can drift.  
+2. ~~**Two BuildConfig types** can drift.~~ Collapsed to an alias 2026-08-15.  
 3. **Package comment list of consumers** is aspirational and will mislead auditors.  
 4. **`GetBuildEnvForTest`** looks like a real specialization but is identity.  
 5. **Autopoiesis root choice** makes monorepo detection inert on those paths.
@@ -128,7 +128,7 @@ Note: sample path is machine-specific; auto-detect is the portable path when wor
 
 ## 7. Comparison to package comment claims
 
-| Claim | Reality 2026-07-13 |
+| Claim | Reality 2026-08-15 |
 |-------|--------------------|
 | Addresses preflight / thunderdome / ouroboros / attack_runner / tester bypass | thunderdome + ouroboros (tool_compiler) **yes**; others **no importers** |
 | Single source of truth; all components should use GetBuildEnv | **Library ready**; **mandate not enforced** |

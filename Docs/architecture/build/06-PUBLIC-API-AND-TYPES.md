@@ -1,6 +1,6 @@
 # 06 — Public API and Types: `internal/build`
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-08-15**  
 > Import: `"codenerd/internal/build"`
 
 ---
@@ -10,15 +10,17 @@
 ### `BuildConfig`
 
 **File:** `internal/build/env.go`  
-**Kind:** struct (JSON tags for documentation parity with config)
+**Kind:** type alias — `type BuildConfig = config.BuildConfig`
 
 | Field | Type | JSON | Meaning |
 |-------|------|------|---------|
 | `EnvVars` | `map[string]string` | `env_vars` | Extra KEY→value for build env |
-| `GoFlags` | `[]string` | `go_flags` | Intended go argv flags (**not applied** by this package today) |
+| `GoFlags` | `[]string` | `go_flags` | Go argv flags, applied by `AppendGoFlags` |
 | `CGOPackages` | `[]string` | `cgo_packages` | Packages needing CGO (metadata; auto may append `sqlite-vec`) |
 
-**Note:** Persistence for users is via **`config.BuildConfig`** on `UserConfig.Build` (`internal/config/build.go`). The build package type is the in-memory mirror used by `loadBuildConfig`.
+**Note:** the struct is declared once, in `internal/config/build.go`, and persisted
+on `UserConfig.Build`. `build.BuildConfig` is an alias for it, not a mirror — the
+two cannot drift.
 
 ---
 
@@ -41,7 +43,43 @@ Returns non-nil config with empty (non-nil) `EnvVars` map and empty slices.
 
 ### `GetBuildEnvForTest(userCfg *config.UserConfig, workspaceRoot string) []string`
 
-Documented as test-oriented. **Implementation:** returns `GetBuildEnv(...)` unchanged. Placeholder comment about race detector intentionally not forcing `-race`.
+`GetBuildEnv` plus test-only specialization, none of which overwrites a value the
+caller or config already set:
+
+| Addition | Why |
+|----------|-----|
+| `GOTRACEBACK=all` | A panic in a background goroutine otherwise prints only that goroutine, and the verification parsers cannot attribute the failure |
+| `-count=1` folded into `GOFLAGS` | The toolchain replays a cached PASS for a package whose source was just rewritten — green for code that never ran |
+| `CI`, `GORACE`, `GOMAXPROCS`, `GOTMPDIR` propagated | Suites branch on `CI`; `GORACE` configures the race detector; the base build filter drops all four |
+
+`-count` is left alone when the caller already chose one (e.g. `-count=5` for a
+benchmark sweep). Unknown flags in `GOFLAGS` are ignored by subcommands that do
+not define them, so the slice stays safe if reused for a non-test command.
+
+### `GetBuildEnvForModule(userCfg *config.UserConfig, moduleDir string) []string`
+
+`GetBuildEnv(userCfg, DetectionRootFor(moduleDir))`. Use when `cmd.Dir` is a
+nested module and the headers live at the repo root.
+
+### `DetectionRootFor(moduleDir string) string`
+
+Walks up from `moduleDir` to the first directory containing `sqlite_headers`, or
+to the repository boundary (`.git` / `go.work`), whichever comes first. Never
+escapes above the repo, so a stray `/include` cannot become a detection root.
+Returns `moduleDir` when no marker is found anywhere up the chain.
+
+### `AppendGoFlags(userCfg *config.UserConfig, workspaceRoot string, args []string) []string`
+
+Injects configured `build.go_flags` into a `go` argv (`args` is everything after
+the `go` binary). Flags go immediately after the subcommand, because package
+patterns must stay last. A flag whose name already appears in `args` is skipped,
+so an explicit argv always beats config. Subcommands that take a sub-verb
+(`go mod tidy`, `go tool …`) are returned untouched.
+
+### `SummarizeEnv(env []string) string`
+
+Sorted, comma-joined, **keys only**. Values are never rendered: build envs carry
+whatever the operator whitelisted, which in practice includes API keys.
 
 ### `GetBuildEnvForCompile(userCfg *config.UserConfig, workspaceRoot string, targetOS, targetArch string) []string`
 
@@ -94,8 +132,10 @@ Callers that already hold `*config.UserConfig` pass it through. Callers without 
 | `GetBuildEnv` | Stable; extend carefully |
 | `GetBuildEnvForCompile` | Stable |
 | `MergeEnv` | Stable |
-| `GetBuildEnvForTest` | Unstable semantics until specialization exists |
-| `BuildConfig.GoFlags` | Unstable / possibly removed or moved |
+| `GetBuildEnvForTest` | Stable; specialization implemented 2026-08-15 |
+| `GetBuildEnvForModule` / `DetectionRootFor` | Stable |
+| `AppendGoFlags` / `SummarizeEnv` | Stable |
+| `BuildConfig.GoFlags` | Stable; consumed by `AppendGoFlags` |
 | Unexported helpers | Free to refactor if tests updated |
 
 ---
@@ -113,12 +153,21 @@ cmd.Env = build.MergeEnv(
 )
 ```
 
-### Preferred workspace-aware build (recommended pattern)
+### Preferred workspace-aware test run (recommended pattern)
 
 ```go
-cmd := exec.Command("go", "test", "./...")
+args := build.AppendGoFlags(userCfg, workspaceRoot, []string{"test", "-count=1", "./..."})
+cmd := exec.CommandContext(ctx, "go", args...)
 cmd.Dir = workspaceRoot
-cmd.Env = build.GetBuildEnv(userCfg, workspaceRoot)
+cmd.Env = build.GetBuildEnvForTest(userCfg, workspaceRoot)
+```
+
+### Compiling inside a nested module of a monorepo
+
+```go
+cmd := exec.CommandContext(ctx, "go", "build", "./...")
+cmd.Dir = moduleDir                                  // where the build runs
+cmd.Env = build.GetBuildEnvForModule(userCfg, moduleDir)  // headers resolved from the repo root
 ```
 
 ### Overlay test flags without forking API

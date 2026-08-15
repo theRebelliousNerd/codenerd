@@ -1,6 +1,6 @@
 # 09 — Safety and Invariants: `internal/build`
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-08-15**
 
 ---
 
@@ -32,7 +32,27 @@ Does not start from full `os.Environ()`. Starts from an essential allowlist of G
 Additional process vars only enter when:
 
 - Named in `Execution.AllowedEnvVars` and non-empty in the process, or  
-- Explicitly set in `Build.EnvVars` config  
+- Explicitly set in `Build.EnvVars` config, or  
+- Named in the small test-only propagation list of `GetBuildEnvForTest`
+  (`CI`, `GORACE`, `GOMAXPROCS`, `GOTMPDIR`) — none of which are secret-bearing  
+
+### 2.4 Secrets never reach the debug log
+
+`Build.EnvVars` is a free-form operator map and routinely carries API keys and
+registry tokens. `GetBuildEnv` logs values only for an allowlist of toolchain
+keys (`redactEnvValue`); everything else, and anything whose key contains
+`TOKEN`/`SECRET`/`PASSWORD`/`_KEY`/`AUTH`/`CREDENTIAL`/`SESSION`/`COOKIE`, prints
+as `<redacted>`. The final-env line is keys-only via `SummarizeEnv`.
+
+**Invariant:** redaction is a logging concern only — the real value still reaches
+the subprocess, otherwise a private GOPROXY token would break builds.
+Asserted by `TestGetBuildEnv_WhenSecretInConfigEnvVars_ShouldStillBePassedToSubprocess`.
+
+### 2.5 Detection-root walk cannot escape the repository
+
+`DetectionRootFor` stops at the first `sqlite_headers` **or** at the `.git` /
+`go.work` boundary. It can never climb into `/usr` or `/` and adopt a system
+include directory as a project's header root.
 
 ### 2.3 Caller-enforced CGO disable for tools
 

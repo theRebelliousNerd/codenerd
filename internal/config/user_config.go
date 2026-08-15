@@ -405,7 +405,10 @@ func (c *UserConfig) GetToolGenerationConfig() ToolGenerationConfig {
 // GetBuildConfig returns the build configuration with defaults.
 func (c *UserConfig) GetBuildConfig() BuildConfig {
 	cfg := DefaultBuildConfig()
-	if c.Build != nil {
+	// A nil receiver is the normal case for callers that have no loaded config
+	// (autopoiesis passes nil today); the other Get*Config accessors already
+	// guard for it and this one panicked instead.
+	if c != nil && c.Build != nil {
 		if len(c.Build.EnvVars) > 0 {
 			cfg.EnvVars = c.Build.EnvVars
 		}

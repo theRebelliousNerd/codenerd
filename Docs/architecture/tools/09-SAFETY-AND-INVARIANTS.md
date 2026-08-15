@@ -90,3 +90,26 @@ Payload size cap **100 KB** before assert (session).
 3. Do not log full secrets from env maps.  
 4. Do not remove workspace_guard without replacement.  
 5. Do not register tools whose Name conflicts with Ouroboros tools without intentional override policy.
+
+## Exemption from the `internal/build` adoption mandate
+
+`internal/build` is the repo's single source of truth for the environment handed
+to `go build` / `go test` subprocesses, and
+`internal/build/go_invocation_inventory_test.go` fails when a new `go`
+invocation appears that neither uses it nor carries a written exemption.
+
+**`internal/tools/shell` is exempt.** It executes arbitrary operator- and
+agent-supplied commands, not the Go toolchain; its environment assembly is an
+allowlist decision governed by the execution policy above (rule 3: do not log
+full secrets from env maps). Narrowing it to a Go-toolchain env would break
+every non-Go command, and widening the Go env into it would leak toolchain
+paths into unrelated processes.
+
+**`internal/tools/codedom/run_impacted_tests.go` is *not* exempt** — it is
+recorded as `pending adoption` in `goSpawnExemptions`. It spawns `go test` in
+the user's project root with no `cmd.Env`, so a project needing CGO headers
+fails there with a compile error reported as a test failure. It should call
+`build.GetBuildEnvForTest(userCfg, projectRoot)` and build its argv with
+`build.AppendGoFlags`.
+
+See `Docs/architecture/build/08-WIRING-AND-INTEGRATION.md` §7.

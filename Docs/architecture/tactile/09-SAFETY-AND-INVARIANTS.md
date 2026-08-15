@@ -117,3 +117,23 @@ counts remain untruncated.
 - Secret scanning of stdout  
 
 Those belong higher (policy, tools, perception).
+
+## Exemption from the `internal/build` adoption mandate
+
+`internal/build` is the repo's single source of truth for the environment handed
+to `go build` / `go test` subprocesses, and
+`internal/build/go_invocation_inventory_test.go` fails when a new `go`
+invocation appears that neither uses it nor carries a written exemption.
+
+**tactile is exempt, permanently.** Its direct / Docker / platform executors
+build their own environments because env construction here *is* sandbox policy:
+what a command may read from the environment is the containment decision, and
+delegating it to a convenience helper that unions in `os.Environ()`-derived
+toolchain vars would widen the sandbox from below. `internal/build` is a
+*factory* with no notion of a policy boundary; tactile must keep the final say.
+
+Consequence: a `go` command run through tactile does **not** automatically get
+the monorepo `CGO_CFLAGS`. Callers that need it must pass it explicitly through
+the tactile request, the same as any other environment entry.
+
+See `Docs/architecture/build/08-WIRING-AND-INTEGRATION.md` §7.
