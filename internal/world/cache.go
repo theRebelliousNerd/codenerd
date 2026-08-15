@@ -1,6 +1,7 @@
 package world
 
 import (
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 	"encoding/json"
 	"os"
@@ -148,7 +149,7 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return atomicfile.Replace(tmp, path)
 }
 
 // Get returns the hash if the file hasn't changed.

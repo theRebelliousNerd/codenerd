@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 )
 
@@ -327,7 +328,7 @@ func (t *tracker) saveLocked() error {
 		os.Remove(tmpName)
 		return fmt.Errorf("chmod temp usage file: %w", err)
 	}
-	if err := os.Rename(tmpName, t.filePath); err != nil {
+	if err := atomicfile.Replace(tmpName, t.filePath); err != nil {
 		os.Remove(tmpName)
 		return fmt.Errorf("rename usage file into place: %w", err)
 	}
