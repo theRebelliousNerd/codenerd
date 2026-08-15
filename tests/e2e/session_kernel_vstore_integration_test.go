@@ -95,6 +95,17 @@ func (m *skvMockTransducer) ResolveFocus(ctx context.Context, reference string, 
 func (m *skvMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
 func (m *skvMockTransducer) SetStrategicContext(context string)               {}
 
+func setupTestDeps(t *testing.T) (*core.RealKernel, *session.Executor, *skvMockVirtualStore) {
+	t.Helper()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("failed to create kernel: %v", err)
+	}
+	vstore := &skvMockVirtualStore{}
+	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
+	return kernel, executor, vstore
+}
+
 // Scenario 1: Nil Config Bypass
 func TestE2E_SessionKernelVStore_NilConfig_FailsClosed(t *testing.T) {
 	t.Log("Testing graceful failure with nil config")
