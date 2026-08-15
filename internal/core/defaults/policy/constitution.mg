@@ -21,10 +21,24 @@ permitted(Action, Target, Payload) :-
     permitted_action(ActionID, Action, Target, Payload, _),
     permission_check_result(ActionID, /permit, _, _).
 
+# Bound-negation helpers. See SECTION 11C in schemas_safety.mg: a negated
+# literal containing an anonymous wildcard excludes nothing in this Mangle
+# build, so each of the three negations below projects the wildcard away first.
+admin_override_present(/yes) :-
+    admin_override(User).
+
+action_is_permitted(Action) :-
+    permitted(Action, Target, Payload).
+
+any_action_denied(/yes) :-
+    action_denied(Action, Reason).
+
 # Fix Bug #12: The "Silent Join" (Shadow Rules)
+# `!admin_override(_)` here never excluded anything, so a signed admin override
+# could not suppress the denial it was meant to authorize.
 permission_denied(Action, "Dangerous Action") :-
     dangerous_action(Action),
-    !admin_override(_).
+    !admin_override_present(/yes).
 
 permission_denied(Action, "Dangerous Action") :-
     dangerous_action(Action),
@@ -430,10 +444,12 @@ final_action(Action) :-
 safety_check(Action) :-
     permitted(Action, _, _).
 
-# Deny actions that are candidates but not permitted
+# Deny actions that are candidates but not permitted.
+# `!permitted(Action, _, _)` excluded nothing, so this fired for every candidate
+# action including the ones the constitution had just permitted.
 action_denied(Action, "Not constitutionally permitted") :-
     candidate_action(Action),
-    !permitted(Action, _, _).
+    !action_is_permitted(Action).
 
 # Expose denied actions for session context
 forbidden(Action) :-
@@ -451,9 +467,11 @@ learned_proposal(Action) :-
 #     action_denied(_, _)
 #     |> do fn:group_by(), let C = fn:count().
 
-# Default to 0 when no blocks exist
+# Default to 0 when no blocks exist.
+# `!action_denied(_, _)` excluded nothing, so this reported zero blocked actions
+# even while denials existed — a safety counter that always read clean.
 blocked_learned_action_count(0) :-
-    !action_denied(_, _).
+    !any_action_denied(/yes).
 
 # SECTION 7C: APPEAL MECHANISM
 # Suggest appeal for ambiguous blocks (not dangerous patterns)

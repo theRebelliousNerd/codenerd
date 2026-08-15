@@ -192,6 +192,11 @@ Decl api_client_function(Ref, Endpoint, Method) bound [/string, /string, /name].
 # api_handler_function(Ref, Route, Method) - function handles HTTP requests
 Decl api_handler_function(Ref, Route, Method) bound [/string, /string, /name].
 
+# Bound-negation helper. A negated literal containing an anonymous wildcard
+# excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);
+# projecting the wildcard away makes the negation actually filter.
+Decl is_api_handler_function(Ref) bound [/string].
+
 # has_external_callers(Ref) - derived: function is called from outside package
 Decl has_external_callers(Ref) bound [/string].
 

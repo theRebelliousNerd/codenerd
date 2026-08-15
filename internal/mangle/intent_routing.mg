@@ -430,8 +430,16 @@ context_priority(Path, 90) :-
 # TDD repair loop and other workflow patterns
 
 # TDD states
+#
+# any_test_failed projects the wildcard away: a negated literal containing an
+# anonymous wildcard excludes nothing in this Mangle build (proved in
+# internal/core/bound_negation_test.go), so `!test_failed(_, _, _)` derived
+# /green even with failing tests — and /red and /green held simultaneously.
+Decl any_test_failed(Flag).
+any_test_failed(/yes) :- test_failed(Path, TestName, Reason).
+
 tdd_state(/red) :- test_failed(_, _, _), !test_passed_after_fix().
-tdd_state(/green) :- !test_failed(_, _, _), code_modified_recently().
+tdd_state(/green) :- !any_test_failed(/yes), code_modified_recently().
 tdd_state(/refactor) :- tdd_state(/green), code_quality_issue(_, _).
 
 # Next action derivation for TDD

@@ -191,10 +191,15 @@ needs_self_healing(ActionID, /escalate) :-
 # =============================================================================
 
 # Block subsequent actions while validation failure is unresolved
+action_needs_self_healing(ActionID) :-
+    needs_self_healing(ActionID, Strategy).
+
+# `!needs_self_healing(ActionID, _)` excluded nothing, so the block was raised
+# even while self-healing was already underway for that action.
 block_action(/validation_pending) :-
     action_failed_validation(ActionID),
     !action_validated(ActionID),
-    !needs_self_healing(ActionID, _).
+    !action_needs_self_healing(ActionID).
 
 # Step 2/3: Surface a soft barrier while a side-effecting action is in
 # validation limbo (ran, no validator opinion, not failed). The clause above

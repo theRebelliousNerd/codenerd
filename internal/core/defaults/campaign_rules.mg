@@ -695,9 +695,16 @@ campaign_task_shard_override(TaskID, SpecialistName) :-
 final_shard_for_task(TaskID, SpecialistName) :-
     campaign_task_shard_override(TaskID, SpecialistName).
 
+task_has_shard_override(TaskID) :-
+    campaign_task_shard_override(TaskID, SpecialistName).
+
+# `!campaign_task_shard_override(TaskID, _)` excluded nothing, so a task with a
+# specialist override derived BOTH the override and the default shard, leaving
+# final_shard_for_task ambiguous for exactly the tasks that had been given an
+# explicit specialist.
 final_shard_for_task(TaskID, ShardType) :-
     campaign_task_shard(TaskID, ShardType),
-    !campaign_task_shard_override(TaskID, _).
+    !task_has_shard_override(TaskID).
 
 # =============================================================================
 # SECTION 9: CAMPAIGN INTENT HANDLING
@@ -823,11 +830,20 @@ next_action(/archive_campaign) :-
 # 11.1 Health Indicators
 # -----------------------------------------------------------------------------
 
-# Campaign is healthy (making progress)
+campaign_is_blocked(CampaignID) :-
+    campaign_blocked(CampaignID, Reason).
+
+any_phase_stuck(/yes) :-
+    phase_stuck(PhaseID).
+
+# Campaign is healthy (making progress).
+# Both `!campaign_blocked(CampaignID, _)` and `!phase_stuck(_)` excluded
+# nothing, so a blocked campaign with a stuck phase still derived healthy —
+# and campaign_has_issues, its negation, could never fire.
 campaign_healthy(CampaignID) :-
     current_campaign(CampaignID),
-    !campaign_blocked(CampaignID, _),
-    !phase_stuck(_),
+    !campaign_is_blocked(CampaignID),
+    !any_phase_stuck(/yes),
     !context_pressure_critical(CampaignID).
 
 # Campaign has issues

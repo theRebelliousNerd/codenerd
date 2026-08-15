@@ -127,6 +127,36 @@ Decl learned_proposal(ActionType) bound [/name].
 Decl blocked_learned_action_count(Count) bound [/number].
 
 # =============================================================================
+# SECTION 11C: BOUND NEGATION HELPERS
+# =============================================================================
+#
+# A negated literal containing ANY anonymous wildcard is a no-op in this Mangle
+# build: the wildcard leaves the literal unbound rather than existentially
+# quantified, so the negation excludes nothing at all. Verified on a booted
+# kernel — `!p(X, _)`, `!p(X, _, _)`, `!p(_)` and `!p(_, _)` all derive every
+# row, while `!p(X)` and `!helper(X)` exclude correctly.
+#
+# Several .mg files already carried comments warning about this (shards.mg,
+# validation.mg, codedom_safety.mg, prompt_northstar.mg), but the workaround
+# was never applied to the constitution, so three safety rules silently did
+# nothing: admin_override could not suppress a denial, every candidate action
+# was denied whether or not it was permitted, and the blocked-action counter
+# reported zero while blocks existed.
+#
+# The pattern: project the wildcard away into a helper whose every argument is
+# bound at the negation site, then negate the helper.
+
+# admin_override_present(/yes) - true when ANY admin override exists.
+Decl admin_override_present(Flag) bound [/name].
+
+# action_is_permitted(ActionType) - true when an action is permitted for any
+# target/payload pair. Projects permitted/3 down to its action.
+Decl action_is_permitted(ActionType) bound [/name].
+
+# any_action_denied(/yes) - true when ANY action has been denied.
+Decl any_action_denied(Flag) bound [/name].
+
+# =============================================================================
 # SECTION 21: GIT-AWARE SAFETY (Chesterton's Fence)
 # =============================================================================
 

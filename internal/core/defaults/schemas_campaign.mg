@@ -322,6 +322,14 @@ Decl phase_blocked(PhaseID, Reason) bound [/string, /string].
 # campaign_blocked(CampaignID, Reason) - derived: campaign cannot proceed
 Decl campaign_blocked(CampaignID, Reason) bound [/string, /string].
 
+# Bound-negation helper. A negated literal containing an anonymous wildcard
+# excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);
+# projecting the wildcard away makes the negation actually filter.
+Decl campaign_is_blocked(CampaignID) bound [/string].
+
+# Bound-negation helper for final_shard_for_task; see bound_negation_test.go.
+Decl task_has_shard_override(TaskID) bound [/string].
+
 # validation_error(EntityID, IssueType, Message) - derived: validation issues found
 Decl validation_error(EntityID, IssueType, Message) bound [/string, /name, /string].
 
@@ -330,6 +338,11 @@ Decl replan_needed(CampaignID, Reason) bound [/string, /name].
 
 # phase_stuck(PhaseID) - derived: in-progress phase with no runnable work
 Decl phase_stuck(PhaseID) bound [/string].
+
+# Bound-negation helper. A negated literal containing an anonymous wildcard
+# excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);
+# projecting the wildcard away makes the negation actually filter.
+Decl any_phase_stuck(Flag) bound [/name].
 
 # phase_waiting_for_retry(PhaseID) - derived: current phase waiting for retry window
 Decl phase_waiting_for_retry(PhaseID) bound [/string].

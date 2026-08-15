@@ -59,6 +59,11 @@ Decl has_coder_block(File) bound [/string].
 
 # Quality Gates
 Decl edit_needs_tests(File) bound [/string].
+
+# Bound-negation helper. A negated literal containing an anonymous wildcard
+# excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);
+# projecting the wildcard away makes the negation actually filter.
+Decl any_edit_needs_tests(Flag) bound [/name].
 Decl edit_needs_docs(File) bound [/string].
 # testable_language(Language) is ALREADY DECLARED in schemas_shards.mg
 # Decl testable_language(Language).

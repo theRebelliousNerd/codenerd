@@ -92,10 +92,15 @@ breaking_change_risk(Ref, /high, /interface_contract) :-
     element_parent(Ref, InterfaceRef),
     code_element(InterfaceRef, /interface, _, _, _).
 
-# Breaking change risk: MEDIUM for public functions in libraries
+is_api_handler_function(Ref) :-
+    api_handler_function(Ref, Method, Route).
+
+# Breaking change risk: MEDIUM for public functions in libraries.
+# `!api_handler_function(Ref, _, _)` excluded nothing, so API handlers were
+# also classified /public_function instead of being left to their own rule.
 breaking_change_risk(Ref, /medium, /public_function) :-
     has_external_callers(Ref),
-    !api_handler_function(Ref, _, _).
+    !is_api_handler_function(Ref).
 
 # Breaking change risk: LOW for private elements
 breaking_change_risk(Ref, /low, /private) :-
