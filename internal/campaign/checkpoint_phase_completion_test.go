@@ -82,8 +82,8 @@ func newCheckpointRegressionOrchestrator(t *testing.T, review string) (*Orchestr
 	return orch, events
 }
 
-func drainEventTypes(ch chan OrchestratorEvent) map[string]int {
-	seen := make(map[string]int)
+func drainEventTypes(ch chan OrchestratorEvent) map[OrchestratorEventType]int {
+	seen := make(map[OrchestratorEventType]int)
 	for {
 		select {
 		case ev := <-ch:

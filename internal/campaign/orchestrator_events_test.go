@@ -15,22 +15,91 @@ import (
 
 // The event type set must stay closed.
 //
-// OrchestratorEvent.Type is a plain string switched on by name in three
-// consumers. A literal written at an emit site and nowhere else produces an
-// event every consumer drops through its default branch — the campaign still
-// runs, the operator just never sees that step happen. This reads the emit
-// sites and fails if any of them names a type the constant list does not.
+// OrchestratorEvent.Type is switched on by name in three consumers. A type
+// written at an emit site and nowhere else produces an event every consumer
+// drops through its default branch — the campaign still runs, the operator just
+// never sees that step happen. This reads the emit sites and fails if any of
+// them names a type the constant list does not.
+//
+// This scan is now the SECOND line of defence, not the first. It inspects string
+// literals, and while emitEvent took a plain string that was a real hole: an
+// untyped string constant compiles fine, so naming the literal
+//
+//	const zzPhantom = "zz_phantom_event"
+//	o.emitEvent(zzPhantom, ...)
+//
+// slipped straight past it and produced exactly the defect this test exists to
+// catch. OrchestratorEventType is now a defined type, so the compiler rejects
+// that, and no regexp or AST walk has to be clever enough to see through a
+// rename.
+//
+// What this scan still owns is the reverse direction, which the type system
+// cannot express: a literal at an emit site must correspond to a declared
+// constant, so a new event type has to be added to the list — and therefore
+// considered by the UIs — before it can ship.
 func TestOrchestratorEventTypes_AreClosedSet(t *testing.T) {
 	pkgDir := filepath.Join(repoRoot(t), "internal", "campaign")
 
 	known := make(map[string]bool, len(orchestratorEventTypes))
 	for _, v := range orchestratorEventTypes {
-		known[v] = true
+		known[string(v)] = true
 	}
 
 	entries, err := os.ReadDir(pkgDir)
 	if err != nil {
 		t.Fatalf("read package dir: %v", err)
+	}
+
+	// Package-level string constants and vars, so an identifier at an emit site
+	// can be resolved to the value it actually carries.
+	//
+	// Without this the scan sees only literals, and naming the literal walks
+	// straight past it. A defined type closes half the hole — a `string`
+	// variable is now a compile error — but Go converts an UNTYPED string
+	// constant to a named string type implicitly, so
+	//
+	//	const zzPhantom = "zz_phantom_event"
+	//	o.emitEvent(zzPhantom, ...)
+	//
+	// still compiles. That is the exact shape an adversarial review used to
+	// slip a phantom event past this guard, and it is a plausible accident too:
+	// hoisting a literal into a constant is a refactor nobody would think twice
+	// about.
+	constStrings := map[string]string{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		fset := token.NewFileSet()
+		file, perr := parser.ParseFile(fset, filepath.Join(pkgDir, name), nil, 0)
+		if perr != nil {
+			t.Fatalf("parse %s: %v", name, perr)
+		}
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || (gen.Tok != token.CONST && gen.Tok != token.VAR) {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, id := range vs.Names {
+					if i >= len(vs.Values) {
+						continue
+					}
+					lit, ok := vs.Values[i].(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						continue
+					}
+					if v, uerr := strconv.Unquote(lit.Value); uerr == nil {
+						constStrings[id.Name] = v
+					}
+				}
+			}
+		}
 	}
 
 	var offenders []string
@@ -47,6 +116,27 @@ func TestOrchestratorEventTypes_AreClosedSet(t *testing.T) {
 			t.Fatalf("parse %s: %v", name, perr)
 		}
 
+		// Parameters of type OrchestratorEventType in the enclosing function.
+		// A function that forwards its own typed parameter to emitEvent — which
+		// emitRiskAudit does — is already covered by the compiler, and flagging
+		// it would only teach people to add exceptions.
+		forwarded := map[string]bool{}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Type.Params == nil {
+				continue
+			}
+			for _, field := range fn.Type.Params.List {
+				id, ok := field.Type.(*ast.Ident)
+				if !ok || id.Name != "OrchestratorEventType" {
+					continue
+				}
+				for _, pn := range field.Names {
+					forwarded[pn.Name] = true
+				}
+			}
+		}
+
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok || len(call.Args) == 0 {
@@ -61,18 +151,39 @@ func TestOrchestratorEventTypes_AreClosedSet(t *testing.T) {
 			}
 			emitSites++
 
-			lit, ok := call.Args[0].(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				// An identifier: it resolves to one of the constants below, or
-				// the compiler would have rejected it.
-				return true
-			}
-			value, uerr := strconv.Unquote(lit.Value)
-			if uerr != nil {
-				return true
-			}
-			if !known[value] {
-				offenders = append(offenders, name+": "+value)
+			switch arg := call.Args[0].(type) {
+			case *ast.BasicLit:
+				if arg.Kind != token.STRING {
+					return true
+				}
+				value, uerr := strconv.Unquote(arg.Value)
+				if uerr != nil {
+					return true
+				}
+				if !known[value] {
+					offenders = append(offenders, name+": literal "+strconv.Quote(value))
+				}
+			case *ast.Ident:
+				if forwarded[arg.Name] {
+					// A typed parameter passed straight through; the type
+					// system already vouches for it.
+					return true
+				}
+				value, resolved := constStrings[arg.Name]
+				if !resolved {
+					// A local variable, a parameter, or something computed. The
+					// scan cannot tell what it carries, and neither can a
+					// reviewer reading the call site, so it does not get the
+					// benefit of the doubt.
+					offenders = append(offenders,
+						name+": "+arg.Name+" (an event type this scan cannot resolve to a "+
+							"declared constant; pass one of the Event* constants directly)")
+					return true
+				}
+				if !known[value] {
+					offenders = append(offenders,
+						name+": "+arg.Name+" = "+strconv.Quote(value))
+				}
 			}
 			return true
 		})

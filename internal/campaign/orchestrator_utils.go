@@ -147,7 +147,7 @@ func (o *Orchestrator) emitProgress() {
 }
 
 // emitEvent sends an event to the event channel.
-func (o *Orchestrator) emitEvent(eventType, phaseID, taskID, message string, data any) {
+func (o *Orchestrator) emitEvent(eventType OrchestratorEventType, phaseID, taskID, message string, data any) {
 	if o.eventChan == nil {
 		return
 	}

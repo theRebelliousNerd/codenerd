@@ -108,12 +108,12 @@ type Orchestrator struct {
 
 // OrchestratorEvent represents an event during campaign execution.
 type OrchestratorEvent struct {
-	Type      string    `json:"type"` // task_started, task_completed, task_failed, phase_completed, checkpoint, replan, learning
-	Timestamp time.Time `json:"timestamp"`
-	PhaseID   string    `json:"phase_id,omitzero"`
-	TaskID    string    `json:"task_id,omitzero"`
-	Message   string    `json:"message"`
-	Data      any       `json:"data,omitzero"`
+	Type      OrchestratorEventType `json:"type"` // task_started, task_completed, task_failed, phase_completed, checkpoint, replan, learning
+	Timestamp time.Time             `json:"timestamp"`
+	PhaseID   string                `json:"phase_id,omitzero"`
+	TaskID    string                `json:"task_id,omitzero"`
+	Message   string                `json:"message"`
+	Data      any                   `json:"data,omitzero"`
 }
 
 // OrchestratorConfig holds configuration for the orchestrator.

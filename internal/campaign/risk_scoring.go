@@ -866,7 +866,7 @@ func gradeAdvisoryConcerns(synthesis AdvisorySynthesis) []riskConcern {
 	}
 }
 
-func (o *Orchestrator) emitRiskAudit(eventType, message string, data map[string]any) {
+func (o *Orchestrator) emitRiskAudit(eventType OrchestratorEventType, message string, data map[string]any) {
 	o.emitEvent(eventType, "", "", message, data)
 	logging.Campaign("RISK_AUDIT %s: %s", eventType, message)
 }
