@@ -71,10 +71,11 @@ func RegisterTestImpactProvider(provider TestImpactProvider) {
 // RunImpactedTestsTool returns the tool definition for running impacted tests.
 func RunImpactedTestsTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "run_impacted_tests",
-		Description: "Run only the tests affected by recent code changes. Uses dependency analysis to select tests that need to run based on edited code elements.",
-		Category:    tools.CategoryTest,
-		Priority:    60,
+		Name:          "run_impacted_tests",
+		AltCategories: []tools.ToolCategory{tools.CategoryAttack},
+		Description:   "Run only the tests affected by recent code changes. Uses dependency analysis to select tests that need to run based on edited code elements.",
+		Category:      tools.CategoryTest,
+		Priority:      60,
 		Schema: tools.ToolSchema{
 			Required: []string{},
 			Properties: map[string]tools.Property{
@@ -112,10 +113,11 @@ func RunImpactedTestsTool() *tools.Tool {
 // GetImpactedTestsTool returns a tool that only queries impacted tests without running them.
 func GetImpactedTestsTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "get_impacted_tests",
-		Description: "Query which tests would be affected by editing the specified code elements, without running them.",
-		Category:    tools.CategoryTest,
-		Priority:    55,
+		Name:          "get_impacted_tests",
+		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral},
+		Description:   "Query which tests would be affected by editing the specified code elements, without running them.",
+		Category:      tools.CategoryTest,
+		Priority:      55,
 		Schema: tools.ToolSchema{
 			Required: []string{},
 			Properties: map[string]tools.Property{

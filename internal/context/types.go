@@ -232,6 +232,59 @@ type ScoredFact struct {
 	BackReferenceScore float64 // Back-reference boost for follow-up questions
 }
 
+// SelectionMode records which of the two context-selection paths produced the
+// ACTIVE CONTEXT block for a BuildContext call.
+type SelectionMode string
+
+const (
+	// SelectionKernel means Mangle's should_include_context gate chose the facts.
+	SelectionKernel SelectionMode = "kernel"
+	// SelectionGoFallback means the Go 9-component activation engine chose them.
+	SelectionGoFallback SelectionMode = "go_fallback"
+)
+
+// Reasons a BuildContext call fell back to the Go activation engine. These are
+// the drift signals: a healthy hybrid should be dominated by SelectionKernel,
+// and a rising reasonUnresolved means the kernel is naming entities the fact
+// store cannot resolve.
+const (
+	reasonKernelSelected = "kernel_selected"
+	reasonQueryError     = "kernel_query_error"
+	reasonNoKernelFacts  = "no_should_include_context_facts"
+	reasonUnresolved     = "kernel_facts_unresolved"
+)
+
+// SelectionStats makes the kernel-vs-Go split assertable instead of leaving it
+// in a debug log nobody reads (context TODO P1: "measure frequency of Go
+// fallback vs kernel inclusion; reduce dual-path drift").
+type SelectionStats struct {
+	// KernelSelections counts BuildContext calls served by should_include_context.
+	KernelSelections int
+	// GoFallbacks counts BuildContext calls served by the Go activation engine.
+	GoFallbacks int
+	// LastMode / LastReason describe the most recent decision.
+	LastMode   SelectionMode
+	LastReason string
+	// LastKernelFacts is how many should_include_context rows the kernel returned.
+	LastKernelFacts int
+	// LastSelectedFacts is how many facts entered the ACTIVE CONTEXT block.
+	LastSelectedFacts int
+	// UnresolvedKernelFacts counts kernel-named entities that matched no fact in
+	// the store across the session. Non-zero means C1/C4 rules and the fact
+	// store disagree about identity.
+	UnresolvedKernelFacts int
+}
+
+// KernelInclusionRate returns the fraction of context builds decided by the
+// kernel. 0 when no context has been built yet.
+func (s SelectionStats) KernelInclusionRate() float64 {
+	total := s.KernelSelections + s.GoFallbacks
+	if total == 0 {
+		return 0
+	}
+	return float64(s.KernelSelections) / float64(total)
+}
+
 // ActivationState tracks the current activation state of the system.
 type ActivationState struct {
 	// Current intent being processed
@@ -308,6 +361,11 @@ type HistorySegment struct {
 	CompressedTokens int
 	CompressionRatio float64
 
+	// MaskedTurns counts turns in this segment whose observation atoms the
+	// kernel masked via should_mask_observation (C3). Persisted so an operator
+	// can tell kernel-driven masking from an empty summary.
+	MaskedTurns int
+
 	// Timestamp
 	CompressedAt time.Time
 }
@@ -322,6 +380,10 @@ type RollingSummary struct {
 
 	// Total turns compressed
 	TotalTurns int
+
+	// TotalMaskedTurns is the running count of turns whose observations were
+	// masked by the kernel's should_mask_observation decision.
+	TotalMaskedTurns int
 
 	// Compression metrics
 	TotalOriginalTokens   int

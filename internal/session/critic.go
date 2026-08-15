@@ -221,6 +221,7 @@ func findingsWorthUplift(findings []CriticFinding) []CriticFinding {
 	}
 	return out
 }
+
 // CriticSeverityRank maps a severity string to a numeric rank for ordering.
 // It returns 3 for "high", 2 for "medium", 1 for "low" and 0 for anything
 // else, case-insensitively.
@@ -236,7 +237,6 @@ func CriticSeverityRank(sev string) int {
 		return 0
 	}
 }
-
 
 // criticMaxFileBytes bounds how much of a written file is shown to the
 // reviewer. A turn that rewrites a very large file would otherwise blow the

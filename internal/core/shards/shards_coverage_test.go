@@ -115,10 +115,15 @@ func TestShardManager_SetVirtualStore(t *testing.T) {
 	}
 }
 
+// The old form of this test stored the string "mock-tm", which is exactly what
+// the `any`-typed field allowed: anything could be attached and nothing could
+// be called. The field is now types.TransparencyManager, so the test asserts
+// the manager is retrievable through the typed accessor instead.
 func TestShardManager_SetTransparencyManager(t *testing.T) {
 	sm := NewShardManager()
-	sm.SetTransparencyManager("mock-tm")
-	if sm.transparencyManager != "mock-tm" {
+	fake := &fakeTransparencyManager{}
+	sm.SetTransparencyManager(fake)
+	if sm.TransparencyManager() != types.TransparencyManager(fake) {
 		t.Error("expected transparencyManager to be set")
 	}
 }

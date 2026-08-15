@@ -117,14 +117,50 @@ Decl final_action(ActionType) bound [/name].
 # safety_check(ActionType) - Runtime validation predicate
 Decl safety_check(ActionType) bound [/name].
 
-# action_denied(ActionType, Reason) - Blocked learned actions
-Decl action_denied(ActionType, Reason) bound [/name, /name].
+# action_denied(ActionType, Reason) - Blocked learned actions.
+# Reason is a human-readable message, not a category: the only producer emits
+# "Not constitutionally permitted", and no rule ever matches on the value —
+# forbidden/1 and any_action_denied/1 both project it away. This mirrors the
+# sibling denial predicate permission_denied(Action, Reason) [/name, /string].
+# Contrast the campaign block reasons (campaign_blocked, phase_blocked,
+# replan_needed), which ARE closed-vocabulary categories and are /name.
+Decl action_denied(ActionType, Reason) bound [/name, /string].
 
 # learned_proposal(ActionType) - Audit trail for learned suggestions
 Decl learned_proposal(ActionType) bound [/name].
 
 # blocked_learned_action_count(Count) - Metrics
 Decl blocked_learned_action_count(Count) bound [/number].
+
+# =============================================================================
+# SECTION 11C: BOUND NEGATION HELPERS
+# =============================================================================
+#
+# A negated literal containing ANY anonymous wildcard is a no-op in this Mangle
+# build: the wildcard leaves the literal unbound rather than existentially
+# quantified, so the negation excludes nothing at all. Verified on a booted
+# kernel — `!p(X, _)`, `!p(X, _, _)`, `!p(_)` and `!p(_, _)` all derive every
+# row, while `!p(X)` and `!helper(X)` exclude correctly.
+#
+# Several .mg files already carried comments warning about this (shards.mg,
+# validation.mg, codedom_safety.mg, prompt_northstar.mg), but the workaround
+# was never applied to the constitution, so three safety rules silently did
+# nothing: admin_override could not suppress a denial, every candidate action
+# was denied whether or not it was permitted, and the blocked-action counter
+# reported zero while blocks existed.
+#
+# The pattern: project the wildcard away into a helper whose every argument is
+# bound at the negation site, then negate the helper.
+
+# admin_override_present(/yes) - true when ANY admin override exists.
+Decl admin_override_present(Flag) bound [/name].
+
+# action_is_permitted(ActionType) - true when an action is permitted for any
+# target/payload pair. Projects permitted/3 down to its action.
+Decl action_is_permitted(ActionType) bound [/name].
+
+# any_action_denied(/yes) - true when ANY action has been denied.
+Decl any_action_denied(Flag) bound [/name].
 
 # =============================================================================
 # SECTION 21: GIT-AWARE SAFETY (Chesterton's Fence)
@@ -192,3 +228,50 @@ Decl mutation_rejected(MutationID, RejectedBy, Reason) bound [/string, /string, 
 # requires_approval(MutationID) - derived predicate
 # True if the mutation requires user approval before execution
 Decl requires_approval(MutationID) bound [/string].
+
+# =============================================================================
+# SECTION 24: REGRESSION BATTERY GATING (internal/regression)
+# =============================================================================
+#
+# A regression battery is a YAML file of shell commands. Running one is
+# strictly more powerful than /exec_cmd, because the commands live in a file
+# the constitution cannot see: dangerous_content/2 inspects a pending_action's
+# Target and Payload, and a battery's Target is only a path. An agent that can
+# write a file (safe_action(/write_file)) could therefore author a battery
+# containing any blocked_pattern and launder it past the entire block list.
+#
+# These predicates exist so the battery's CONTENTS are visible to the kernel
+# before it runs: the host projects one regression_battery_task fact per task
+# (internal/regression.PolicyFacts) and the rules in policy/regression_battery.mg
+# decide. See that file for the trust argument.
+
+# regression_battery_declared(BatteryPath) - EDB: a host has submitted this
+# battery for a permission decision. Asserted by the host, never derived.
+Decl regression_battery_declared(BatteryPath) bound [/string].
+
+# regression_battery_task(BatteryPath, TaskID, Command) - EDB: one shell task
+# of a declared battery, with the command text the shell would receive.
+Decl regression_battery_task(BatteryPath, TaskID, Command) bound [/string, /string, /string].
+
+# regression_task_forbidden(TaskID, Pattern) - derived: this task's command
+# contains a constitutionally blocked pattern.
+Decl regression_task_forbidden(TaskID, Pattern) bound [/string, /string].
+
+# regression_battery_has_task(BatteryPath) - derived: bound-negation helper
+# (SECTION 11C) projecting regression_battery_task down to its battery.
+Decl regression_battery_has_task(BatteryPath) bound [/string].
+
+# regression_battery_has_forbidden_task(BatteryPath) - derived: bound-negation
+# helper. A negated literal with a wildcard excludes nothing, so the wildcards
+# are projected away here rather than at the negation site.
+Decl regression_battery_has_forbidden_task(BatteryPath) bound [/string].
+
+# regression_battery_permitted(BatteryPath) - derived: every task in the
+# declared battery is free of blocked patterns AND the battery has at least one
+# task. This is a NECESSARY condition for a host to run a battery, never a
+# sufficient one — permitted/3 still has to derive for the action itself.
+Decl regression_battery_permitted(BatteryPath) bound [/string].
+
+# regression_battery_refused(BatteryPath, Reason) - derived: why a declared
+# battery may not run. Exists so a refusal is reportable, not just absent.
+Decl regression_battery_refused(BatteryPath, Reason) bound [/string, /string].

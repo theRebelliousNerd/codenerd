@@ -19,6 +19,11 @@ Decl llm_suggested_mode(Mode).
 # Collected from EDB routing facts; used by perception_routing.mg to select best mode.
 Decl candidate_mode(Mode, Source, Priority).
 
+# Bound-negation helper. A negated literal containing an anonymous wildcard
+# excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);
+# projecting the wildcard away makes the negation actually filter.
+Decl any_candidate_mode(Flag) bound [/name].
+
 # best_candidate_priority(MaxPriority)
 # Aggregated maximum priority across all candidate_mode facts.
 Decl best_candidate_priority(MaxPriority).

@@ -46,10 +46,15 @@ next_coder_action(/run_tests) :-
     coder_state(/build_passed),
     edit_needs_tests(_).
 
-# Complete if build passed
+any_edit_needs_tests(/yes) :-
+    edit_needs_tests(FilePath).
+
+# Complete if build passed.
+# `!edit_needs_tests(_)` excluded nothing, so the coder was told to complete
+# even while edits were still waiting on tests.
 next_coder_action(/complete) :-
     coder_state(/build_passed),
-    !edit_needs_tests(_).
+    !any_edit_needs_tests(/yes).
 
 next_coder_action(/complete) :-
     coder_state(/tests_passed).

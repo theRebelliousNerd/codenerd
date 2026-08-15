@@ -3,6 +3,8 @@ package autopoiesis
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"codenerd/internal/logging"
@@ -30,12 +32,77 @@ func (o *Orchestrator) DetectToolNeed(ctx context.Context, input string) (*ToolN
 	return need, nil
 }
 
-// GenerateTool creates a new tool based on the detected need
+// GenerateTool creates a new tool based on the detected need.
+//
+// This is the production entry point used by chat `generate_tool` and by the
+// verification corrective-action path. It runs the full Ouroboros pipeline —
+// safety audit, Thunderdome, Mangle transition simulation, compile, register —
+// and NOT the bare LLM call it used to run. The old body called
+// toolGen.GenerateTool directly, so a tool created from chat was written to
+// disk having passed only the generator's own syntactic self-check: no
+// go_safety.mg audit, no adversarial pass, no kernel registration facts. The
+// deep path and the shallow path also drifted independently, which is exactly
+// the dual-maintenance problem OPEN-QUESTIONS Q1 describes.
+//
+// Errors are now returned for tools the pipeline rejected; callers that only
+// logged "generated tool X" will now correctly report the rejection instead.
 func (o *Orchestrator) GenerateTool(ctx context.Context, need *ToolNeed) (*GeneratedTool, error) {
-	return o.toolGen.GenerateTool(ctx, need)
+	if need == nil {
+		return nil, fmt.Errorf("tool need is nil")
+	}
+
+	result := o.ExecuteOuroborosLoop(ctx, need)
+	if result == nil {
+		return nil, fmt.Errorf("ouroboros returned no result for %q", need.Name)
+	}
+	if !result.Success {
+		reason := result.Error
+		if reason == "" {
+			reason = "no reason reported"
+		}
+		return nil, fmt.Errorf("ouroboros rejected tool %q at stage %s: %s", need.Name, result.Stage, reason)
+	}
+
+	return o.generatedToolFromResult(need, result), nil
 }
 
-// WriteAndRegisterTool writes the generated tool to disk and registers it
+// generatedToolFromResult reconstructs the GeneratedTool view callers expect
+// from a committed LoopResult. The source is read back from disk because the
+// loop commits source before compiling; a read failure is not fatal since the
+// tool is already registered and executable.
+func (o *Orchestrator) generatedToolFromResult(need *ToolNeed, result *LoopResult) *GeneratedTool {
+	name := result.ToolName
+	if name == "" {
+		name = need.Name
+	}
+
+	tool := &GeneratedTool{
+		Name:        name,
+		Description: need.Purpose,
+		FilePath:    filepath.Join(o.config.ToolsDir, name+".go"),
+		Validated:   true,
+	}
+	if handle := result.ToolHandle; handle != nil {
+		if handle.Name != "" {
+			tool.Name = handle.Name
+		}
+		if handle.Description != "" {
+			tool.Description = handle.Description
+		}
+	}
+	if src, err := os.ReadFile(tool.FilePath); err == nil {
+		tool.Code = string(src)
+	}
+	return tool
+}
+
+// WriteAndRegisterTool writes the generated tool to disk and registers it.
+//
+// UNAUDITED PATH: this bypasses go_safety.mg, the Thunderdome and compilation.
+// It exists for tests and diagnostics that need a registry entry without the
+// full pipeline; production tool creation must go through ExecuteOuroborosLoop
+// or GenerateTool. tool_creation_routing_test.go enforces that no production
+// call site uses it.
 func (o *Orchestrator) WriteAndRegisterTool(tool *GeneratedTool) error {
 	if err := o.toolGen.WriteTool(tool); err != nil {
 		return err

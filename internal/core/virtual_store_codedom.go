@@ -190,7 +190,10 @@ func (v *VirtualStore) handleEditElement(ctx context.Context, req ActionRequest)
 			Success: false,
 			Error:   fmt.Sprintf("failed to verify file hash: %v", hashErr),
 			FactsToAdd: []Fact{
-				{Predicate: "element_edit_blocked", Args: []any{ref, "hash_verification_failed"}},
+				// element_edit_blocked(Ref, Reason) declares Reason /name. A bare
+				// Go string lands as a string constant, which never unifies with
+				// the /concurrent_modification the policy rules derive.
+				{Predicate: "element_edit_blocked", Args: []any{ref, MangleAtom("/hash_verification_failed")}},
 			},
 		}, nil
 	}
@@ -201,7 +204,7 @@ func (v *VirtualStore) handleEditElement(ctx context.Context, req ActionRequest)
 				Success: false,
 				Error:   "file was modified externally and refresh failed",
 				FactsToAdd: []Fact{
-					{Predicate: "element_edit_blocked", Args: []any{ref, "concurrent_modification"}},
+					{Predicate: "element_edit_blocked", Args: []any{ref, MangleAtom("/concurrent_modification")}},
 					{Predicate: "file_modified_externally", Args: []any{elem.File}},
 				},
 			}, nil

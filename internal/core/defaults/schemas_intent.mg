@@ -10,11 +10,23 @@
 # =============================================================================
 
 # user_intent(ID, Category, Verb, Target, Constraint)
+# ID: /current_intent for the interactive turn, /task_intent_N for a SubAgent
+#     run. A NAME constant, not a string: every Go producer emits one, either
+#     explicitly (transducer.go ToFact, session/executor.go ProcessWithIntent
+#     use types.MangleAtom) or implicitly (chat/process.go, chat/process_seed.go,
+#     shards/system/perception.go and context/serializer.go pass the bare Go
+#     string "/current_intent", which Fact.ToAtom promotes to a name), and every
+#     rule body in the corpus matches the /current_intent literal. This slot is
+#     pure EDB — no .mg head asserts user_intent — so the Decl was the only place
+#     the disagreement could show, and nothing read it.
 # Category: /query, /mutation, /instruction
 # Verb: /explain, /refactor, /debug, /generate, /scaffold, /init, /test, /review, /fix, /run, /research, /explore, /implement
+# Target: /string. Usually a file path or a free-form noun phrase from the
+#     user's words; the sub-command rules in policy/capabilities.mg match it as
+#     a quoted literal ("setup", "test", "patch"), never as a name.
 # Priority: 100
 # SerializationOrder: 1
-Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, /name, /string, /string].
+Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/name, /name, /name, /string, /string].
 
 # multi_step_signal(Signal) - EDB asserted by Go.
 # Step 5: the multi-step CLASSIFICATION decision moves to policy, while the
@@ -61,8 +73,15 @@ Decl intent_unknown(INPUT, REASON) bound [/string, /name].
 Decl intent_unmapped(VERB, REASON) bound [/name, /name].
 
 # no_action_reason(IntentID, Reason)
+# IntentID: the same /name intent id user_intent carries. Both producers pass it
+#   as a bare Go string — shards/system/router.go takes it out of the pending
+#   action payload, shards/system/executive_intent.go copies intent.ID off a
+#   user_intent readback — and its value is "/current_intent", which Fact.ToAtom
+#   promotes to a name constant. Declaring it /string made this the one relation
+#   whose reader disagreed with it: clarification.mg copies IntentID straight
+#   into clarification_question/1, declared /name.
 # Reason: /unmapped_verb, /no_route, /blocked_by_constitution, /ooda_timeout, /no_action_derived
-Decl no_action_reason(INTENTID, REASON) bound [/string, /name].
+Decl no_action_reason(INTENTID, REASON) bound [/name, /name].
 
 # learning_candidate(Phrase, Verb, Target, Reason)
 # Staged for confirmation before promotion to learned_exemplar
@@ -79,10 +98,15 @@ Decl learning_confirmation_needed(PHRASE, VERB, TARGET, REASON) bound [/string, 
 Decl learning_confirmation_active(Status) bound [/name].
 
 # clarification_question(IntentID, Question)
-Decl clarification_question(INTENTID, QUESTION) bound [/string, /string].
+# IntentID is a name constant: the interactive turn owns /current_intent and
+# delegated runs get /task_intent_N (session/executor.go asserts both as
+# types.MangleAtom). Question is free-form user-facing text.
+Decl clarification_question(INTENTID, QUESTION) bound [/name, /string].
 
 # clarification_option(IntentID, OptionVerb, OptionLabel)
-Decl clarification_option(INTENTID, OPTIONVERB, OPTIONLABEL) bound [/string, /string, /string].
+# OptionVerb is drawn from the verb vocabulary (/explain, /fix, /learn_yes...);
+# OptionLabel is the free-form text shown to the user.
+Decl clarification_option(INTENTID, OPTIONVERB, OPTIONLABEL) bound [/name, /name, /string].
 
 # learning_candidate_count(Phrase, Count)
 Decl learning_candidate_count(PHRASE, COUNT) bound [/string, /number].
@@ -137,7 +161,8 @@ Decl interrogative_type(Word, SemanticType, DefaultVerb, Priority) bound [/strin
 Decl modal_type(Word, ModalMeaning, Transformation, Priority) bound [/string, /name, /name, /number].
 Decl state_adjective(Adjective, ImpliedVerb, StateCategory, Priority) bound [/string, /name, /name, /number].
 Decl negation_marker(Word, NegationType, Priority) bound [/string, /name, /number].
-Decl copular_verb(Word, Tense, Number) bound [/string, /name, /number].
+# Number here is GRAMMATICAL number (/singular, /plural, /neutral), not a count.
+Decl copular_verb(Word, Tense, Number) bound [/string, /name, /name].
 Decl existence_pattern(Pattern, QueryType, DefaultVerb, Priority) bound [/string, /name, /name, /number].
 Decl comparative_marker(Word, ComparisonType, Priority) bound [/string, /name, /number].
 Decl interrogative_state_signal(InterrogType, StateCategory, CombinedVerb, Priority) bound [/name, /name, /name, /number].
@@ -168,7 +193,9 @@ Decl intent_action_type(ActionType) bound [/name].
 Decl valid_semantic_type(Type, Description) bound [/name, /string].
 Decl valid_action_type(Action, Description) bound [/name, /string].
 Decl valid_domain(Domain, Description) bound [/name, /string].
-Decl valid_scope_level(Level, Order) bound [/number, /number].
+# Level is the scope name (/line ... /codebase); Order is its ordinal rank.
+# Same shape as valid_urgency(Urgency, Order) below.
+Decl valid_scope_level(Level, Order) bound [/name, /number].
 Decl valid_mode(Mode, Description) bound [/name, /string].
 Decl valid_urgency(Urgency, Order) bound [/name, /number].
 

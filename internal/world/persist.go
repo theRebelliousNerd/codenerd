@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 	"os"
 	"strings"
 )
@@ -12,17 +13,30 @@ const globalWorldFactsPath = "__world_global__"
 
 // PersistFastSnapshotToDB writes a full fast world snapshot into the LocalStore cache.
 // This is used by explicit full scans (e.g., `nerd scan`) to keep DB and scan.mg in sync.
+//
+// Fact paths are canonical (workspace-relative), so opening them requires the
+// workspace root. Callers that have it should use PersistFastSnapshotToDBInRoot;
+// this spelling resolves against the process working directory, which is the
+// behaviour every existing caller already depended on.
 func PersistFastSnapshotToDB(db *store.LocalStore, facts []core.Fact) error {
+	return PersistFastSnapshotToDBInRoot(db, "", facts)
+}
+
+// PersistFastSnapshotToDBInRoot is PersistFastSnapshotToDB with an explicit
+// workspace root used to resolve canonical fact paths to real files.
+func PersistFastSnapshotToDBInRoot(db *store.LocalStore, root string, facts []core.Fact) error {
 	if db == nil || len(facts) == 0 {
 		return nil
 	}
+	root = workspaceRootOrCwd(root)
 	grouped := groupFactsByPath(facts)
 	for path, fs := range grouped {
 		lang := "unknown"
 		for _, f := range fs {
 			if f.Predicate == "file_topology" && len(f.Args) >= 3 {
-				if la, ok := f.Args[2].(core.MangleAtom); ok {
-					lang = strings.TrimPrefix(string(la), "/")
+				// See detectProjectLanguage: readback gives a plain string.
+				if s := types.ExtractString(f.Args[2]); s != "" {
+					lang = strings.TrimPrefix(s, "/")
 				}
 				break
 			}
@@ -35,7 +49,7 @@ func PersistFastSnapshotToDB(db *store.LocalStore, facts []core.Fact) error {
 			Fingerprint: path,
 		}
 		if path != globalWorldFactsPath {
-			info, statErr := os.Stat(path)
+			info, statErr := os.Stat(ResolveWorkspacePath(root, path))
 			if statErr != nil {
 				continue
 			}

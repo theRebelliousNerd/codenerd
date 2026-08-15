@@ -9,6 +9,7 @@ import (
 	"context"
 	"time"
 
+	internalconfig "codenerd/internal/config"
 	"codenerd/internal/types"
 )
 
@@ -171,6 +172,12 @@ type OuroborosStats struct {
 	ThunderdomeRuns     int // Number of Thunderdome battles
 	ThunderdomeKills    int // Tools killed by PanicMaker
 	ThunderdomeSurvived int // Tools that survived
+
+	// Generation latency. Counted for every completed loop run, successful or
+	// not, so a rising rejection rate cannot hide behind a fast success path.
+	GenerationRuns      int           // Loop runs that reached a verdict
+	TotalGenerationTime time.Duration // Sum of run wall-clock time
+	LongestGeneration   time.Duration // Slowest single run
 }
 
 // =============================================================================
@@ -191,6 +198,21 @@ type Config struct {
 	TargetArch             string        // Target GOARCH for tool compilation
 	WorkspaceRoot          string        // Absolute workspace root for module replacement
 	MaxLearningFacts       int           // Maximum number of learning event facts to keep
+
+	// AllowToolExec grants generated tools the os/exec package.
+	//
+	// Default false. Autopoiesis compiles LLM-authored Go and runs the binary
+	// with the user's workspace as its working directory; granting os/exec
+	// turns every generated tool into an unrestricted shell, and go_safety.mg
+	// has no call-level rule that would narrow what it may spawn. The import
+	// allowlist is the only gate, so the gate has to be shut by default and
+	// opened deliberately per workspace. See Docs/architecture/autopoiesis/
+	// 09-SAFETY-AND-INVARIANTS.md §10 and OPEN-QUESTIONS Q6.
+	AllowToolExec bool
+
+	// UserConfig supplies the operator's build environment to tool compilation
+	// and to the Thunderdome arena. Nil is valid (process defaults only).
+	UserConfig *internalconfig.UserConfig
 }
 
 // AnalysisResult contains the complete autopoiesis analysis

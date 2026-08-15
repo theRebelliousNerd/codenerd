@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"codenerd/internal/tools"
 	"codenerd/internal/tools/shell"
 	"github.com/stretchr/testify/suite"
 )
@@ -22,7 +23,10 @@ type ShellIntegrationSuite struct {
 
 func (s *ShellIntegrationSuite) SetupTest() {
 	s.tmpDir = s.T().TempDir()
-	s.ctx = context.Background()
+	// The shell tools contain working_dir to the workspace root, so the suite
+	// has to declare its sandbox as the workspace. Without this every fixture
+	// under t.TempDir() is correctly refused as an escape.
+	s.ctx = tools.WithWorkspaceRoot(context.Background(), s.tmpDir)
 }
 
 func (s *ShellIntegrationSuite) TestRunCommandTool_Integration() {

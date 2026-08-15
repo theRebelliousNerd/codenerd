@@ -17,7 +17,10 @@
 | `SessionStore` | `session_store` | JSON path for session metadata |
 | `EventLoggingLevel` | `event_logging_level` | `minimal` \| `normal` \| `verbose` |
 | `EnableDOMIngestion` | `enable_dom_ingestion` | Default true |
-| `EnableHeaderIngestion` | `enable_header_ingestion` | Default false (zero value) |
+| `HeaderIngestionMode` | `header_ingestion_mode` | `off` \| `redacted`; `DefaultConfig` = `redacted` (research), CLI = `off` (operator) |
+| `EnableHeaderIngestion` | `enable_header_ingestion` | Legacy bool; true is read as `redacted` |
+| `HoneypotGuard` | `honeypot_guard` | `off` \| `warn` \| `block`; default `block` |
+| `MaxEpochEventFacts` | `max_epoch_event_facts` | Per-epoch event-stream fact budget; 0 = default 20000, negative = unbounded |
 | `EventThrottleMs` | `event_throttle_ms` | Default 100 |
 | `MultiTabDefault` | `multi_tab_default` | Shared tabs by default; pointer preserves explicit false |
 | `MaxTabs` / `MaxBrowsers` | … | Defaults 32 / 4 |

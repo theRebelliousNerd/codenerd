@@ -182,7 +182,13 @@ Full catalog and file map: [06-TUI-CHAT-SURFACE.md](06-TUI-CHAT-SURFACE.md).
 Notable long-horizon:
 
 - `/campaign assault …` and natural language assault intents (README + campaign docs)
-- Artifacts under `.nerd/campaigns/<campaign>/assault/`
+- Cobra equivalent since 2026-08-15: `nerd campaign assault [scope]` with flags for
+  every `AssaultConfig` field, plus `nerd campaign report` (aggregate summary) and
+  `nerd campaign journal verify|replay` (durability). Parity is enforced by a test,
+  not by convention — see
+  [Docs/architecture/campaign/IMPLEMENTED_SPEC.md](../campaign/IMPLEMENTED_SPEC.md#8-adversarial-assault).
+- Artifacts under `.nerd/campaigns/<campaign>/assault/`, aggregated into
+  `assault/summary.md` and `assault/summary.json` by `nerd campaign report`.
 
 ---
 

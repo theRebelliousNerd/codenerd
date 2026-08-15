@@ -147,4 +147,3 @@ func TestPlanResponseSchema_DocumentsIndexSpaces(t *testing.T) {
 		t.Fatal("depends_on and context_from descriptions must not be identical; they describe different index spaces")
 	}
 }
-

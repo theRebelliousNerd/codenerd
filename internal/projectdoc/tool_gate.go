@@ -130,6 +130,7 @@ func TargetPath(args map[string]any) string {
 	}
 	return paths[0]
 }
+
 // ReadFileForTool reads a file for tool use, returning a directory-specific
 // error that guides the model to list_files/glob instead of a raw platform
 // error ("is a directory" on Unix, "Incorrect function" on Windows).
@@ -143,7 +144,6 @@ func ReadFileForTool(path string) ([]byte, error) {
 	}
 	return os.ReadFile(path)
 }
-
 
 // IsWriteMutationTool reports whether a tool name durably mutates a file.
 func IsWriteMutationTool(name string) bool {

@@ -392,6 +392,10 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 			usage.TotalTokens = parsed.Usage.TotalTokens
 		}
 	}
+	// A grounded search is a billed model turn like any other; it just does not
+	// go through executeChat, so it needs its own Track.
+	trackUsage(ctx, model, c.vendor, usage.InputTokens, usage.OutputTokens, usageOpSearch)
+
 	// Ensure citations is non-nil vs nil consistency for tests; return empty slice vs nil both acceptable,
 	// but normalize to empty slice.
 	if citations == nil {

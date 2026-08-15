@@ -70,13 +70,13 @@ type RealKernel struct {
 	// "Rule auto-repaired by feedback loop sanitizer ... hot-loaded
 	// successfully" seconds later. Zero value is false, so every other kernel
 	// keeps logging these at ERROR.
-	sandbox bool
-	schemaValidator   *mangle.SchemaValidator
-	initialized       bool
-	manglePath        string      // Path to mangle files directory
-	workspaceRoot     string      // Explicit workspace root (for .nerd paths)
-	policyDirty       bool        // True when schemas/policy changed and need reparse
-	factsDirty        atomic.Bool // True when EDB facts changed and need re-evaluation (lazy eval).
+	sandbox         bool
+	schemaValidator *mangle.SchemaValidator
+	initialized     bool
+	manglePath      string      // Path to mangle files directory
+	workspaceRoot   string      // Explicit workspace root (for .nerd paths)
+	policyDirty     bool        // True when schemas/policy changed and need reparse
+	factsDirty      atomic.Bool // True when EDB facts changed and need re-evaluation (lazy eval).
 	// factsDirty is atomic so Query/QueryCallback/QueryAll can fast-path without
 	// holding the kernel mutex when no facts have changed since the last evaluate.
 	// Use ensureEvaluated() (kernel_eval.go) to drive lazy re-eval safely.

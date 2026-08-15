@@ -87,8 +87,12 @@ type TransparencyConfig struct {
 	// if both are true, Enabled wins.
 	GlassBoxDisabled bool `json:"glass_box_disabled,omitempty"`
 
-	// GlassBoxCategories filters which event categories are shown
-	// Valid values: "perception", "kernel", "jit", "shard", "control"
+	// GlassBoxCategories filters which event categories are shown.
+	// Valid values: "perception", "kernel", "jit", "shard", "control",
+	// "routing" — the full set is transparency.AllCategories(), and
+	// transparency.ValidCategory reports membership. "routing" (tool
+	// execution) was missing from this list while being the highest-volume
+	// category the bus emits.
 	// Empty means all categories are shown
 	GlassBoxCategories []string `json:"glass_box_categories,omitempty"`
 

@@ -71,6 +71,21 @@ func (p *TreeSitterParser) ParseGo(path string, content []byte) ([]Fact, error) 
 	return facts, nil
 }
 
+// childOfType returns the first named child of n with the given node type, or
+// nil. Tree-sitter distinguishes a node's TYPE from the FIELD its parent binds
+// it to, and a grammar is free to give a child a type and no field —
+// package_clause -> package_identifier is exactly that shape. Asking
+// ChildByFieldName for a type name is not an error; it is a silent nil, which
+// is how a whole extraction branch went dead without anything failing.
+func childOfType(n *sitter.Node, want string) *sitter.Node {
+	for i := 0; i < int(n.NamedChildCount()); i++ {
+		if c := n.NamedChild(i); c != nil && c.Type() == want {
+			return c
+		}
+	}
+	return nil
+}
+
 // extractGoSymbols walks the Go AST and extracts symbols
 func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content string) []Fact {
 	var facts []Fact
@@ -87,7 +102,13 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 
 		switch nodeType {
 		case "package_clause":
-			nameNode := n.ChildByFieldName("package_identifier")
+			// package_identifier is a node TYPE, not a field name, so
+			// ChildByFieldName("package_identifier") returned nil on every Go
+			// file ever parsed and this branch never emitted a single fact.
+			// The tree-sitter Go grammar gives package_clause an unnamed
+			// "package" keyword child followed by the identifier, and names
+			// neither, so the identifier has to be found by type.
+			nameNode := childOfType(n, "package_identifier")
 			if nameNode != nil {
 				name := getText(nameNode)
 				id := fmt.Sprintf("package:%s", name)
@@ -278,19 +299,30 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 			}
 
 		case "import_declaration":
-			for i := 0; i < int(n.NamedChildCount()); i++ {
-				spec := n.NamedChild(i)
-				if spec.Type() == "import_spec" {
-					pathNode := spec.ChildByFieldName("path")
-					if pathNode != nil {
-						importPath := strings.Trim(getText(pathNode), "\"")
-						facts = append(facts, Fact{
-							Predicate: "dependency_link",
-							Args:      []any{path, fmt.Sprintf("pkg:%s", importPath), importPath},
-						})
+			// A grouped `import ( ... )` nests its specs one level deeper, in an
+			// import_spec_list. Only scanning the declaration's direct children
+			// (as this did) therefore found imports solely in the rare
+			// single-line `import "x"` form, so almost every Go file in a real
+			// repo contributed no dependency_link at all.
+			var collectSpecs func(*sitter.Node)
+			collectSpecs = func(parent *sitter.Node) {
+				for i := 0; i < int(parent.NamedChildCount()); i++ {
+					child := parent.NamedChild(i)
+					switch child.Type() {
+					case "import_spec":
+						if pathNode := child.ChildByFieldName("path"); pathNode != nil {
+							importPath := strings.Trim(getText(pathNode), "\"")
+							facts = append(facts, Fact{
+								Predicate: "dependency_link",
+								Args:      []any{path, fmt.Sprintf("pkg:%s", importPath), importPath},
+							})
+						}
+					case "import_spec_list":
+						collectSpecs(child)
 					}
 				}
 			}
+			collectSpecs(n)
 		}
 
 		for i := 0; i < int(n.ChildCount()); i++ {
@@ -590,7 +622,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []any{id, "/class", visibility, path, signature},
+					Args:      []any{id, "/class", "/" + visibility, path, signature},
 				})
 			}
 		case "function_declaration":
@@ -609,7 +641,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []any{id, "/function", visibility, path, signature},
+					Args:      []any{id, "/function", "/" + visibility, path, signature},
 				})
 			}
 		case "lexical_declaration":
@@ -629,7 +661,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 							}
 							facts = append(facts, Fact{
 								Predicate: "symbol_graph",
-								Args:      []any{id, "/function", visibility, path, signature},
+								Args:      []any{id, "/function", "/" + visibility, path, signature},
 							})
 						}
 					}
@@ -703,7 +735,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []any{id, "/class", visibility, path, signature},
+					Args:      []any{id, "/class", "/" + visibility, path, signature},
 				})
 			}
 		case "function_declaration":
@@ -728,7 +760,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []any{id, "/function", visibility, path, signature},
+					Args:      []any{id, "/function", "/" + visibility, path, signature},
 				})
 			}
 		case "interface_declaration":
@@ -743,7 +775,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []any{id, "/interface", visibility, path, signature},
+					Args:      []any{id, "/interface", "/" + visibility, path, signature},
 				})
 			}
 		case "import_statement":

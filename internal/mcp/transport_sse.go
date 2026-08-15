@@ -34,10 +34,19 @@ type SSETransport struct {
 	nextID     int
 	initSignal chan struct{}
 	initOnce   sync.Once
+
+	headers map[string]string
 }
 
 // NewSSETransport creates a new SSE transport for MCP communication.
 func NewSSETransport(baseURL string, timeout time.Duration) *SSETransport {
+	return NewSSETransportWithHeaders(baseURL, timeout, nil)
+}
+
+// NewSSETransportWithHeaders creates an SSE transport that attaches static
+// headers to both the event stream request and every POST. Values are
+// environment-expanded, so tokens stay out of the workspace config.
+func NewSSETransportWithHeaders(baseURL string, timeout time.Duration, headers map[string]string) *SSETransport {
 	return &SSETransport{
 		baseURL: baseURL,
 		timeout: timeout,
@@ -47,6 +56,7 @@ func NewSSETransport(baseURL string, timeout time.Duration) *SSETransport {
 		pending:    make(map[int]chan *mcpResponse),
 		nextID:     1,
 		initSignal: make(chan struct{}),
+		headers:    ExpandHeaderValues(headers),
 	}
 }
 
@@ -66,6 +76,9 @@ func (t *SSETransport) Connect(ctx context.Context) error {
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Connection", "keep-alive")
+	for k, v := range t.headers {
+		req.Header.Set(k, v)
+	}
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -215,12 +228,12 @@ func (t *SSETransport) handleEvent(eventType, data string) {
 		t.initOnce.Do(func() {
 			close(t.initSignal)
 		})
-		logging.Get(logging.CategoryTools).Debug("Received SSE endpoint: %s", data)
+		logging.Get(logging.CategoryTools).Debug("Received SSE endpoint: %s", redactForLog(data, maxLoggedPayload))
 
 	case "message":
 		var resp mcpResponse
 		if err := json.Unmarshal([]byte(data), &resp); err != nil {
-			logging.Get(logging.CategoryTools).Warn("Failed to unmarshal SSE message: %v. Data: %s", err, data)
+			logging.Get(logging.CategoryTools).Warn("Failed to unmarshal SSE message: %v. Data: %s", err, redactForLog(data, maxLoggedPayload))
 			return
 		}
 
@@ -283,6 +296,9 @@ func (t *SSETransport) call(ctx context.Context, method string, params any) (*mc
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	for k, v := range t.headers {
+		httpReq.Header.Set(k, v)
+	}
 
 	httpResp, err := t.client.Do(httpReq)
 	if err != nil {

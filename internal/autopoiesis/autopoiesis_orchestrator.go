@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -54,6 +55,10 @@ type Orchestrator struct {
 	// Tool generation throttling (session-local)
 	toolsGenerated int
 	lastToolGen    time.Time
+
+	// Handoff to the shard runtime for persistent agents. Installed by boot;
+	// see writeAgentPromptsYAML for why this is a seam and not an import.
+	agentDefWriter AgentDefinitionWriter
 }
 
 // llmClientWrapper adapts the local LLMClient interface to types.LLMClient
@@ -159,8 +164,6 @@ func (w *llmClientWrapper) GetLastThoughtSignature() string {
 
 // DefaultConfig returns default configuration
 func DefaultConfig(workspaceRoot string) Config {
-	toolDefaults := internalconfig.DefaultToolGenerationConfig()
-
 	cfg := Config{
 		ToolsDir:               filepath.Join(workspaceRoot, ".nerd", "tools"),
 		AgentsDir:              filepath.Join(workspaceRoot, ".nerd", "agents"),
@@ -170,9 +173,17 @@ func DefaultConfig(workspaceRoot string) Config {
 		MaxToolsPerSession:     3,
 		ToolGenerationCooldown: 0,
 		EnableLLM:              true,
-		TargetOS:               toolDefaults.TargetOS,
-		TargetArch:             toolDefaults.TargetArch,
-		WorkspaceRoot:          workspaceRoot,
+		// internalconfig.DefaultToolGenerationConfig() hardcodes windows/amd64.
+		// That is a fine *cross-compilation* preference to record in a config
+		// file, but it is not a default this process can run on: Ouroboros
+		// compiles a tool and then executes the resulting binary itself
+		// (RuntimeTool.Execute), so on any non-Windows host every generated
+		// tool compiled cleanly and then died with "exec format error" the
+		// first time the agent called it. Default to the machine that will run
+		// the binary; an explicit user setting below still wins.
+		TargetOS:      runtime.GOOS,
+		TargetArch:    runtime.GOARCH,
+		WorkspaceRoot: workspaceRoot,
 		// Safety: Explicit gas limit for Ouroboros self-generated logic.
 		// Prevents infinite recursion in self-modifying autopoiesis loops.
 		// This bounds the number of learning_event facts the kernel will retain.
@@ -180,12 +191,30 @@ func DefaultConfig(workspaceRoot string) Config {
 	}
 
 	if userCfg, err := internalconfig.LoadUserConfig(internalconfig.DefaultUserConfigPath()); err == nil && userCfg != nil {
-		tg := userCfg.GetToolGenerationConfig()
-		if tg.TargetOS != "" {
-			cfg.TargetOS = tg.TargetOS
-		}
-		if tg.TargetArch != "" {
-			cfg.TargetArch = tg.TargetArch
+		// Carried so the tool compile and the Thunderdome arena run under the
+		// same build environment as the rest of the agent (CGO flags, GOFLAGS,
+		// allowlisted env). Both used to pass nil and silently compiled with a
+		// different toolchain environment than internal/session verification.
+		cfg.UserConfig = userCfg
+
+		// Read the raw section, not GetToolGenerationConfig(): that accessor
+		// fills in the windows/amd64 defaults, so it can never report "the
+		// user did not choose a target".
+		if tg := userCfg.ToolGeneration; tg != nil {
+			if tg.TargetOS != "" {
+				cfg.TargetOS = tg.TargetOS
+			}
+			if tg.TargetArch != "" {
+				cfg.TargetArch = tg.TargetArch
+			}
+			// The per-workspace exec grant the safety docs describe. Nothing
+			// set this before, so the documented opt-in could not be taken:
+			// exec was off regardless of what the operator configured. It
+			// stays off by default — an allowlisted os/exec is an
+			// unrestricted shell for LLM-authored code — but "off unless you
+			// ask" and "off, and there is no way to ask" are different
+			// promises, and only the first one was written down.
+			cfg.AllowToolExec = tg.AllowToolExec
 		}
 	}
 
@@ -211,10 +240,15 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		ExecuteTimeout:  300 * time.Second,
 		AllowNetworking: false,
 		AllowFileSystem: true,
-		AllowExec:       true,
-		TargetOS:        config.TargetOS,
-		TargetArch:      config.TargetArch,
-		WorkspaceRoot:   config.WorkspaceRoot,
+		// Exec is opt-in per workspace, not a default grant. See the audit note
+		// on Config.AllowToolExec: an allowlisted os/exec is an unrestricted
+		// shell in the user's workspace, and the import allowlist is the only
+		// thing standing in front of it.
+		AllowExec:     config.AllowToolExec,
+		TargetOS:      config.TargetOS,
+		TargetArch:    config.TargetArch,
+		WorkspaceRoot: config.WorkspaceRoot,
+		UserConfig:    config.UserConfig,
 		// Adversarial Co-Evolution (Thunderdome)
 		EnableThunderdome: true,
 		ThunderdomeConfig: DefaultThunderdomeConfig(),

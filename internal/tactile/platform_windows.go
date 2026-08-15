@@ -3,13 +3,13 @@
 package tactile
 
 import (
-	"strconv"
 	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"

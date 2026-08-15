@@ -20,6 +20,7 @@ import (
 	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/system"
+	"codenerd/internal/tools"
 	"codenerd/internal/tools/research"
 	"codenerd/internal/types"
 	"database/sql"
@@ -142,6 +143,18 @@ func resolveWorkspaceRoot(workspace string) string {
 	if abs, err := filepath.Abs(root); err == nil {
 		root = abs
 		_ = os.Setenv("CODENERD_WORKSPACE_ROOT", abs)
+		// The env variable is process-global, so two registries in one process
+		// cannot be given different roots and anything that reassigns it moves
+		// the containment boundary for every tool at once. Bind the registry's
+		// own root as well; the guard prefers it and treats the env as a
+		// fallback for callers that reach a tool outside a registry.
+		tools.SetGlobalWorkspaceRoot(abs)
+		// The research cache is otherwise memory-only and dies with the
+		// process, so every session re-fetches what the last one already had.
+		if err := research.EnableDiskCache(abs); err != nil {
+			logging.Get(logging.CategoryTools).Debug(
+				"research disk cache unavailable at %s: %v", abs, err)
+		}
 	}
 	return root
 }
@@ -455,6 +468,17 @@ const maintenanceStopWait = 2 * time.Second
 // fresh boot, including `nerd create` / `nerd spawn`. An immediate cycle
 // holds SQLite while Close tears down LocalDB and historically stalled
 // Windows process exit for many seconds after Result was printed.
+// MCPBridge returns the MCP integration bridge, or nil when no MCP servers are
+// configured. The bridge was already retained on the Cortex but had no
+// accessor, so the tool compiler it owns was unreachable from outside this
+// package and MCP tools could not be compiled into a shard's prompt.
+func (c *Cortex) MCPBridge() *mcp.MCPIntegrationBridge {
+	if c == nil {
+		return nil
+	}
+	return c.mcpBridge
+}
+
 func (c *Cortex) StartMaintenanceSchedule(ctx context.Context) context.CancelFunc {
 	if c.LocalDB == nil {
 		logging.Get(logging.CategorySession).Warn("Maintenance schedule skipped: no LocalDB")
@@ -605,16 +629,22 @@ type bootContext struct {
 }
 
 func initCoreComponents(bctx *bootContext) error {
-	bctx.workspace = bctx.cfg.Workspace
+	// resolveWorkspaceRoot, not a second copy of its logic.
+	//
+	// This used to inline the same "cfg.Workspace, else FindWorkspaceRoot, else
+	// Getwd" cascade — everything resolveWorkspaceRoot does except the part that
+	// matters: binding the containment boundary for the modular file tools. The
+	// binding therefore only happened on the GetOrBootCortex path (the one-shot
+	// CLI), and never on BootCortexWithConfig, which is the path interactive
+	// chat and every shard actually boot through. `nerd -w <dir> chat` booted
+	// Cortex against <dir> while its tools still resolved relative paths under
+	// the process CWD, so a glob in the chat session listed the wrong tree.
+	//
+	// Two copies of one resolution is how that gap opened, so there is now one.
+	// It also returns an absolute path, which keeps the boot's effective
+	// workspace identical to the string used for cortex cache keying.
+	bctx.workspace = resolveWorkspaceRoot(bctx.cfg.Workspace)
 	bctx.apiKey = bctx.cfg.APIKey
-
-	if bctx.workspace == "" {
-		if root, err := config.FindWorkspaceRoot(); err == nil && root != "" {
-			bctx.workspace = root
-		} else {
-			bctx.workspace, _ = os.Getwd()
-		}
-	}
 	if perception.SharedTaxonomy != nil {
 		perception.SharedTaxonomy.SetWorkspace(bctx.workspace)
 	}
@@ -623,7 +653,10 @@ func initCoreComponents(bctx *bootContext) error {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize logging: %v\n", err)
 	}
 
-	tracker, err := usage.NewTracker(bctx.workspace)
+	// Shared so a host that already owns a tracker for this workspace (the
+	// interactive chat model does) meters into the same one instead of racing
+	// it for the file. Each owner Closes its own handle; the last one flushes.
+	tracker, err := usage.Shared(bctx.workspace)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize usage tracker: %v\n", err)
 	}
@@ -1293,6 +1326,15 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	browserCfg.Specs = configuredBrowser.Specs
 	browserCfg.SessionStore = filepath.Join(bctx.workspace, ".nerd", "browser", "sessions.json")
 	bctx.browserMgr = browser.NewSessionManagerWithSink(browserCfg, browserKernelSink{kernel: bctx.kernel})
+
+	// Close the read loop. browserKernelSink is write-only, so the manager could
+	// assert element evidence and never read the is_honeypot verdict derived
+	// from it — the honeypot gate failed open in the Cortex path, which is the
+	// path shards actually use. The retractor is what makes epoch GC do more
+	// than publish a watermark.
+	bctx.browserMgr.SetFactQuerier(browser.NewKernelFactQuerier(bctx.kernel))
+	bctx.browserMgr.SetFactRetractor(browser.NewKernelFactRetractor(bctx.kernel))
+
 	research.SetBrowserRuntime(bctx.browserMgr, bctx.kernel)
 	return nil
 }

@@ -1,6 +1,21 @@
 # 08 — Wiring and Integration: `internal/build`
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-08-15**
+
+---
+
+## 0. The importer list is now a test, not a claim
+
+`internal/build/go_invocation_inventory_test.go` owns this document's factual
+core and fails when it drifts:
+
+| Test | Invariant |
+|------|-----------|
+| `TestBuildImporters_WhenNewConsumerAppears_ShouldBeDocumented` | The set of packages importing `codenerd/internal/build` equals the set documented in `env.go`'s package comment and in §3–§5 below. Adding or dropping an importer fails until both are updated. |
+| `TestGoInvocations_WhenSpawningGo_ShouldUseBuildEnvOrBeExempt` | Every non-test `exec.Command("go", …)` in the repo either assigns `cmd.Env` from a `build.*` call or is listed in `goSpawnExemptions` with a reason. Stale exemptions also fail. |
+
+Run `go test -v ./internal/build/ -run 'TestGoInvocations|TestBuildImporters'`
+to print the current inventory. Do not transcribe it here by hand.
 
 ---
 
@@ -57,6 +72,33 @@ Thunderdome’s **tool execution** uses `toolExecutionEnv()` (separate path), no
 
 ---
 
+## 4a. Live integration: session verification
+
+**Files:** `internal/session/build_verify.go`, `test_verify.go`, `coverage_profile.go`, `lsp_diagnostics.go`
+
+| Site | Command | Env |
+|------|---------|-----|
+| `verifyBuild` | `go build ./...` | `GetBuildEnv(userCfg, workspace)` — the only production call passing a real `*config.UserConfig` |
+| `verifyTests` | `go test …` | `GetBuildEnv(nil, workspace)` |
+| `uncoveredWrittenCode` | `go test -coverprofile …` | `GetBuildEnv(nil, workspace)` |
+| `goplsDiagnostics` | `gopls check …` | `GetBuildEnv(nil, workspace)` — not a `go` binary, but wants the same CGO flags |
+
+This is the P1 “route preflight/verification through `GetBuildEnv`” item: session
+verification is the surviving preflight surface (there is no `internal/preflight`
+package) and it is already routed. The remaining gap is `nil` user config in
+three of the four sites.
+
+## 4b. Live integration: VirtualStore actions
+
+**File:** `internal/core/virtual_store_actions.go` (`buildToolEnv`)
+
+Unions `GetBuildEnv(nil, v.workingDir)` with the execution allowlist so the
+`run_tests` / `build` actions can compile codeNERD itself. Before this, the
+default `go test ./...` action failed with `fatal error: 'sqlite3.h' file not
+found` and reported it as a test failure.
+
+---
+
 ## 5. Config wiring (latent)
 
 ```
@@ -89,13 +131,17 @@ Category defined in `internal/logging/logger.go`. Convenience wrappers: `Build`,
 
 | Claimed / expected consumer | Status |
 |-----------------------------|--------|
-| preflight | No import |
-| attack_runner | No import |
+| preflight | Package does not exist; session verification is the real surface (§4a) — **routed** |
+| attack_runner | No import; spawns no `go` binary |
 | tester (shard type) | No import; prompt/shard concept only |
-| shell execute | Uses `os.Environ()` |
-| tactile direct/docker/platform | Own env builders |
-| campaign assault go tests | Operator/docs set CGO manually |
-| cmd/nerd build helper | Human uses shell recipe |
+| shell execute (`internal/tools/shell`) | Uses `os.Environ()` — **exempt**, see [../tools/](../tools/) |
+| tactile direct/docker/platform | Own env builders — **exempt**, see [../tactile/](../tactile/) |
+| `internal/tools/codedom/run_impacted_tests.go` | **Pending adoption** — spawns `go test` in the user project root with no `cmd.Env`; recorded in `goSpawnExemptions` |
+| `cmd/nerd/dom_*.go` | **Exempt** — operator-invoked verification inherits the operator's shell environment |
+| `internal/autopoiesis/tool_compiler.go` `go mod tidy` | **Exempt** — module resolution needs the ambient credentials the build filter drops |
+
+The reason strings above live in `goSpawnExemptions`
+(`internal/build/go_invocation_inventory_test.go`); this table mirrors them.
 
 ---
 
@@ -103,7 +149,14 @@ Category defined in `internal/logging/logger.go`. Convenience wrappers: `Build`,
 
 1. Import `codenerd/internal/build`.  
 2. Prefer `GetBuildEnv(userCfg, workspaceRoot)` with real workspace root.  
+   If all you hold is the module directory, use `GetBuildEnvForModule(userCfg, moduleDir)`,
+   which resolves the detection root via `DetectionRootFor` (walks up to the
+   nearest `sqlite_headers`, bounded by the `.git` / `go.work` repo boundary).  
 3. Set `cmd.Dir` separately (module / package path).  
+3a. For `go test`, use `GetBuildEnvForTest` (adds `GOTRACEBACK=all`, folds
+   `-count=1` into `GOFLAGS`, propagates `CI`/`GORACE`/`GOMAXPROCS`/`GOTMPDIR`).  
+3b. Build argv with `AppendGoFlags(userCfg, root, args)` so configured
+   `build.go_flags` reach the command.  
 4. For sandboxed generated code, `MergeEnv(env, "CGO_ENABLED=0")`.  
 5. For host project builds needing sqlite-vec, do **not** force CGO off; ensure headers present or config sets flags.  
 6. Update this journal and [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md).  

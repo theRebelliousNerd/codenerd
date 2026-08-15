@@ -1,6 +1,6 @@
 # init — Observability
 
-> Last verified: 2026-08-09
+> Last verified: 2026-08-15
 
 ## Logging categories
 

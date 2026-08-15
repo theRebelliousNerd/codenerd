@@ -1,11 +1,11 @@
 # internal/build — Implemented Spec (Deep-Dive)
 
-> Last verified against codebase: **2026-07-13**  
+> Last verified against codebase: **2026-08-15**  
 > Status: Living Reference Document  
 > Language: Go  
 > Primary source: `internal/build/env.go`  
-> Tests: `internal/build/env_test.go`, `internal/build/env_gaps_test.go`  
-> Scale: **1** non-test Go file ≈ **312** lines; **2** test files ≈ **638** lines; **0** `.mg`
+> Tests: `internal/build/env_test.go`, `internal/build/env_gaps_test.go`, `internal/build/env_features_test.go`, `internal/build/go_invocation_inventory_test.go`  
+> Scale: **1** non-test Go file ≈ **611** lines; **4** test files ≈ **1500** lines; **0** `.mg`
 
 ---
 
@@ -57,14 +57,22 @@ That is the **intent**. Section 8 documents **adoption reality**.
 | Default `-tags=sqlite_vec` when headers present | **Implemented** | `loadBuildConfig` sets `GOFLAGS` if unset |
 | Cross-compile `GOOS`/`GOARCH` | **Implemented** | `GetBuildEnvForCompile` + `setEnvKey` |
 | `MergeEnv` override helper | **Implemented** | used by autopoiesis to force `CGO_ENABLED=0` |
-| `GetBuildEnvForTest` differentiation | **Stub / no-op extra** | race/CI branch is empty; returns same as build env |
-| Apply `BuildConfig.GoFlags` to argv | **Not implemented** | flags stored, never appended to commands (package only builds env) |
-| Use of `CGOPackages` at runtime | **Doc-only** | list mutated for detection; no consumer reads it from build API |
-| Pass real `UserConfig` from callers | **Partial / unused in prod** | autopoiesis passes `nil` |
-| Adoption by preflight / shell / tactile / attack paths | **Not adopted** | package comment aspirational; only autopoiesis imports |
-| Dual `BuildConfig` types (`build` vs `config`) | **Living duplication** | parallel structs, config is the persisted shape |
+| `GetBuildEnvForTest` differentiation | **Implemented** | `GOTRACEBACK=all`, `-count=1` folded into `GOFLAGS`, `CI`/`GORACE`/`GOMAXPROCS`/`GOTMPDIR` propagation |
+| Apply `BuildConfig.GoFlags` to argv | **Implemented** | `AppendGoFlags` inserts after the subcommand; explicit argv wins; sub-verb commands (`go mod tidy`) untouched |
+| Detection root separate from module dir | **Implemented** | `DetectionRootFor` / `GetBuildEnvForModule`, bounded by `.git` / `go.work` |
+| Duplicate-key prevention across merge stages | **Implemented** | every stage uses `setEnvKey`; config keys iterated sorted for determinism |
+| Secret redaction in debug logs | **Implemented** | `redactEnvValue` + keys-only `SummarizeEnv`; values still reach the subprocess |
+| `BuildWarn` when GOCACHE underivable | **Implemented** | `buildWarn` seam in `getBaseGoEnv` |
+| Repo-wide `go` invocation inventory | **Implemented as a test** | `go_invocation_inventory_test.go` AST scan; unmarked or stale entries fail |
+| Use of `CGOPackages` at runtime | **Doc-only (by design)** | list mutated for detection; no consumer reads it from build API |
+| Pass real `UserConfig` from callers | **Partial** | only `session.verifyBuild`; autopoiesis and three session sites pass `nil` |
+| Adoption by preflight / shell / tactile / attack paths | **Resolved** | no `preflight` package; session verification routed; shell/tactile exempt with documented reasons |
+| Dual `BuildConfig` types (`build` vs `config`) | **Collapsed** | `build.BuildConfig = config.BuildConfig` (alias) |
 
-**Overall:** production-ready **env factory** with solid unit tests; **incomplete “single source of truth” mandate** relative to the package comment and config comments.
+**Overall:** production-ready **env factory**, and the “single source of truth”
+mandate is now **enforced by test** rather than asserted in a comment. The
+remaining gap is call-site quality: `nil` user configs and temp-dir detection
+roots in `internal/autopoiesis`.
 
 ---
 
@@ -74,9 +82,12 @@ That is the **intent**. Section 8 documents **adoption reality**.
 
 ```
 internal/build/
-  env.go              # all production code (~312 lines)
-  env_test.go         # core unit tests (~211 lines)
-  env_gaps_test.go    # gap / edge coverage (~427 lines)
+  env.go                            # all production code (~611 lines)
+  env_test.go                       # core unit tests (~211 lines)
+  env_gaps_test.go                  # gap / edge coverage (~427 lines)
+  env_features_test.go              # dedup/determinism, test specialization, GoFlags,
+                                    #   detection root, redaction, toolchain integration (~460 lines)
+  go_invocation_inventory_test.go   # repo-wide `go` invocation + importer audit (~402 lines)
 ```
 
 No `README.md`, no `agents.md`, no YAML, no Mangle under this package root.
@@ -85,9 +96,11 @@ No `README.md`, no `agents.md`, no YAML, no Mangle under this package root.
 
 | Path | Lines (approx) | Role |
 |------|---------------:|------|
-| `internal/build/env.go` | 312 | Entire production surface |
+| `internal/build/env.go` | 611 | Entire production surface |
 | `internal/build/env_test.go` | 211 | `deriveGOCACHE`, key helpers, `detectCGOFlags`, `loadBuildConfig` sqlite cases |
 | `internal/build/env_gaps_test.go` | 427 | Public API paths, nil config, whitelist, cross-compile, MergeEnv edges |
+| `internal/build/env_features_test.go` | 460 | Key normalization, ordering determinism, `GetBuildEnvForTest` specialization, `AppendGoFlags`, `DetectionRootFor`, redaction, `go env` / `go test` integration |
+| `internal/build/go_invocation_inventory_test.go` | 402 | AST audit of every non-test `exec.Command("go", …)` and of the importer set |
 
 ### 3.3 Related files outside the package (not owned, but load-bearing)
 
@@ -101,6 +114,11 @@ No `README.md`, no `agents.md`, no YAML, no Mangle under this package root.
 | `sqlite_headers/sqlite3.h` | On-disk header tree auto-detected from workspace root |
 | `internal/autopoiesis/tool_compiler.go` | `GetBuildEnvForCompile` + `MergeEnv(..., "CGO_ENABLED=0")` |
 | `internal/autopoiesis/thunderdome.go` | `GetBuildEnv` + `MergeEnv(..., "CGO_ENABLED=0")` |
+| `internal/session/build_verify.go` | `GetBuildEnv(userCfg, workspace)` — the one production site passing real config |
+| `internal/session/test_verify.go` | `GetBuildEnv(nil, workspace)` for `go test` |
+| `internal/session/coverage_profile.go` | `GetBuildEnv(nil, workspace)` for `go test -coverprofile` |
+| `internal/session/lsp_diagnostics.go` | `GetBuildEnv(nil, workspace)` for `gopls check` |
+| `internal/core/virtual_store_actions.go` | `buildToolEnv` unions `GetBuildEnv` with the execution allowlist |
 
 ---
 
@@ -189,14 +207,20 @@ cmd.Env = build.MergeEnv(build.GetBuildEnv(nil, arenaDir), "CGO_ENABLED=0")
 
 ## 5. Deep dive: `BuildConfig` and sqlite-vec detection
 
-### 5.1 Two types named `BuildConfig`
+### 5.1 One type named `BuildConfig` (collapsed 2026-08-15)
 
-| Type | Package | Persistence | Used by |
-|------|---------|-------------|---------|
-| `build.BuildConfig` | `internal/build` | In-memory only | Returned by `DefaultBuildConfig` / `loadBuildConfig` |
-| `config.BuildConfig` | `internal/config` | JSON `UserConfig.Build` | User/workspace config load |
+```go
+// internal/build/env.go
+type BuildConfig = config.BuildConfig
+```
 
-Fields are isomorphic: `EnvVars`, `GoFlags`, `CGOPackages`. `loadBuildConfig` **copies** from `config.BuildConfig` into `build.BuildConfig`.
+There used to be two structs with identical fields — one per package — and
+`loadBuildConfig` copied field-by-field between them. They drifted (only the
+config one ever carried yaml tags) and every schema change had to be made twice.
+The persisted shape in `internal/config/build.go` is now the single definition;
+`internal/build` aliases it, so `build.BuildConfig` and `config.BuildConfig` are
+the same type and cannot diverge. `build.DefaultBuildConfig()` wraps
+`config.DefaultBuildConfig()` and returns a pointer, preserving its old signature.
 
 ### 5.2 `sqlite_headers` special case
 
@@ -250,14 +274,18 @@ Unit tests in `env_test.go` pin this order with `t.Setenv` isolation.
 
 | Symbol | Kind | Purpose |
 |--------|------|---------|
-| `BuildConfig` | type | In-package config struct |
+| `BuildConfig` | type alias | `= config.BuildConfig`, the persisted shape |
 | `DefaultBuildConfig` | func | Empty maps/slices, non-nil |
 | `GetBuildEnv` | func | Primary env factory |
-| `GetBuildEnvForTest` | func | Test env (currently = build) |
+| `GetBuildEnvForTest` | func | Build env + `GOTRACEBACK=all`, `-count=1`, `CI`/`GORACE`/`GOMAXPROCS`/`GOTMPDIR` |
 | `GetBuildEnvForCompile` | func | Build + GOOS/GOARCH |
+| `GetBuildEnvForModule` | func | Build env for a command whose `cmd.Dir` is a nested module |
+| `DetectionRootFor` | func | Resolve the header-detection root from a module dir |
+| `AppendGoFlags` | func | Inject configured `build.go_flags` into a `go` argv |
+| `SummarizeEnv` | func | Sorted, keys-only rendering for logs and diffs |
 | `MergeEnv` | func | Overlay KEY=value strings |
 
-Unexported but central: `getBaseGoEnv`, `deriveGOCACHE`, `loadBuildConfig`, `detectCGOFlags`, `hasEnvKey`, `setEnvKey`.
+Unexported but central: `getBaseGoEnv`, `deriveGOCACHE`, `loadBuildConfig`, `detectCGOFlags`, `hasEnvKey`, `setEnvKey`, `envValue`, `redactEnvValue`, `isRepoBoundary`, `withCountOne`.
 
 Full signatures and file anchors: [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md).
 
@@ -339,10 +367,18 @@ No metrics counters, no structured trace spans, no glass-box events. See [11-OBS
 | `loadBuildConfig` sqlite + overrides | Strong |
 | `GetBuildEnv` nil config / whitelist / headers | Strong |
 | `GetBuildEnvForCompile` GOOS/GOARCH | Strong |
-| Integration with real `go build` + CGO | **Absent** (unit only; no toolchain integration test) |
-| Caller contract (autopoiesis nil config) | **Absent** |
+| Integration with real `go` toolchain + CGO | **Strong** — `TestGetBuildEnv_WhenRealWorkspace_ShouldSurviveGoEnv` runs `go env` against the constructed env; `TestGetBuildEnvForTest_WhenRealWorkspace_ShouldCompileAndRunATest` compiles and runs a throwaway module |
+| Duplicate keys / ordering determinism | **Strong** — `env_features_test.go` |
+| Repo-wide adoption of the env factory | **Strong** — `go_invocation_inventory_test.go` (AST, fails on new unmarked sites and on stale exemptions) |
+| Caller contract (autopoiesis nil config) | **Absent** — still not asserted anywhere |
 
-Commands: `go test ./internal/build/...`
+Commands:
+
+```
+go test ./internal/build/...
+go test -v ./internal/build/ -run 'TestGoInvocations|TestBuildImporters'   # prints the inventory
+go test -short ./internal/build/...                                        # skips toolchain integration
+```
 
 ---
 
@@ -352,13 +388,14 @@ Authoritative gap matrix: [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
 
 Highest-signal gaps:
 
-1. **Adoption incomplete** vs package comment mandate.  
-2. **Production callers pass `nil` config** → sample `UserConfig.Build` unused on these paths.  
-3. **`workspaceRoot` is arena/tmp** in autopoiesis → monorepo `sqlite_headers` auto-detect usually skipped (mitigated by `CGO_ENABLED=0`).  
-4. **`GoFlags` / `CGOPackages` not consumed** by env builders for argv or package selection.  
-5. **`GetBuildEnvForTest` is a no-op specialization**.  
-6. **Duplicate env keys possible** in `GetBuildEnv` merge stages (no normalize).  
-7. **Dual `BuildConfig` types** risk field drift.
+1. **Production callers pass `nil` config** (all but `session.verifyBuild`) → sample `UserConfig.Build` unused on those paths.  
+2. **`workspaceRoot` is arena/tmp** in autopoiesis → monorepo `sqlite_headers` auto-detect skipped (mitigated by `CGO_ENABLED=0`). `GetBuildEnvForModule` exists; adoption is a call-site change.  
+3. **`CGOPackages` not consumed** at runtime — descriptive only, by design.  
+4. `internal/tools/codedom/run_impacted_tests.go` still spawns `go test` with no `cmd.Env` (recorded `pending adoption`).
+
+Closed since 2026-07-13: adoption inventory (now a test), `GoFlags` (now
+`AppendGoFlags`), `GetBuildEnvForTest` specialization, duplicate env keys, dual
+`BuildConfig` types, secret-prone debug logging, GOCACHE warning.
 
 ---
 
@@ -373,6 +410,14 @@ Highest-signal gaps:
 | User CGO_CFLAGS overrides auto | empty-check before sqlite inject |
 | Process GOFLAGS blocks default sqlite_vec tag | `os.Getenv("GOFLAGS")` check |
 | Cross-compile empty targets leave GOOS/GOARCH unset | tests |
+| No duplicate keys in any returned env | `setEnvKey` at every stage + `TestGetBuildEnv_When*_ShouldNotDuplicateKey` |
+| Env slice order is deterministic | sorted config keys + `TestGetBuildEnv_WhenCalledTwice_ShouldBeDeterministic` |
+| Debug logs never print secret-prone values | `redactEnvValue` / `SummarizeEnv` + `TestRedactEnvValue_WhenSecretProneKey_ShouldRedact` |
+| Redaction never alters the subprocess env | `TestGetBuildEnv_WhenSecretInConfigEnvVars_ShouldStillBePassedToSubprocess` |
+| Detection-root walk never escapes the repo | `.git` / `go.work` boundary + `TestDetectionRootFor_*` |
+| `GetBuildEnvForTest` never overwrites an explicit caller value | `TestGetBuildEnvForTest_WhenCallerPinnedCount_ShouldNotOverride` |
+| Every non-test `go` spawn is routed or exempted | `TestGoInvocations_WhenSpawningGo_ShouldUseBuildEnvOrBeExempt` |
+| Package-comment importer list matches reality | `TestBuildImporters_WhenNewConsumerAppears_ShouldBeDocumented` |
 
 ---
 
@@ -380,13 +425,15 @@ Highest-signal gaps:
 
 A finished “unified build env” mandate would mean:
 
-1. Every internal `exec.Command("go", "build"| "test"…)` that needs project CGO uses `GetBuildEnv*` with **real workspace root** and **non-nil user config when available**.  
-2. Documented non-adopters (shell, tactile) explicitly out of scope.  
-3. Either apply `GoFlags` at a higher layer or drop the dead field.  
-4. Collapse or generate-from-one the dual `BuildConfig` types.  
-5. Optional: normalize env keys (last-wins rewrite) before return.
+1. ~~Every internal `exec.Command("go", …)` that needs project CGO uses `GetBuildEnv*`~~ — **done for the routing half**, enforced by test. The **real workspace root** and **non-nil user config** half is still open at the autopoiesis call sites.  
+2. ~~Documented non-adopters (shell, tactile) explicitly out of scope~~ — **done**; see `Docs/architecture/tools/09-SAFETY-AND-INVARIANTS.md` and `Docs/architecture/tactile/09-SAFETY-AND-INVARIANTS.md`.  
+3. ~~Either apply `GoFlags` at a higher layer or drop the dead field~~ — **done** (`AppendGoFlags`).  
+4. ~~Collapse the dual `BuildConfig` types~~ — **done** (alias).  
+5. ~~Normalize env keys before return~~ — **done** (`setEnvKey` at every stage).
 
-Until then, treat `internal/build` as a **correct, well-tested library** whose **integration surface is narrow**.
+`internal/build` is now a **correct, well-tested library with an enforced
+integration surface**. The residual work is caller-side quality, tracked in
+[TODO.md](TODO.md) under “Still open”.
 
 ---
 

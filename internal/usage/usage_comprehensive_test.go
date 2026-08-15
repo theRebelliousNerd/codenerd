@@ -242,14 +242,31 @@ func TestWithShardContext_ShouldSetAllKeys(t *testing.T) {
 	t.Parallel()
 	ctx := WithShardContext(context.Background(), "coder-1", "coder", "sess-123")
 
-	if val := ctx.Value("shard_name"); val != "coder-1" {
+	// Shard metadata now travels under private typed keys rather than raw
+	// strings, so it cannot collide with another package's context values.
+	if val := shardMetaFromContext(ctx, shardNameKey, "shard_name"); val != "coder-1" {
 		t.Errorf("shard_name = %v, want coder-1", val)
 	}
-	if val := ctx.Value("shard_type"); val != "coder" {
+	if val := shardMetaFromContext(ctx, shardTypeKey, "shard_type"); val != "coder" {
 		t.Errorf("shard_type = %v, want coder", val)
 	}
-	if val := ctx.Value("session_id"); val != "sess-123" {
+	if val := shardMetaFromContext(ctx, sessionIDKey, "session_id"); val != "sess-123" {
 		t.Errorf("session_id = %v, want sess-123", val)
+	}
+}
+
+// TestShardMetaFromContext_ShouldAcceptLegacyStringKeys pins the compatibility
+// path: contexts built by older callers with raw string keys still resolve.
+func TestShardMetaFromContext_ShouldAcceptLegacyStringKeys(t *testing.T) {
+	t.Parallel()
+	//nolint:staticcheck // deliberately exercising the legacy raw-string key.
+	ctx := context.WithValue(context.Background(), "shard_name", "legacy-shard")
+
+	if val := shardMetaFromContext(ctx, shardNameKey, "shard_name"); val != "legacy-shard" {
+		t.Errorf("legacy shard_name = %v, want legacy-shard", val)
+	}
+	if val := shardMetaFromContext(ctx, shardTypeKey, "shard_type"); val != "unknown" {
+		t.Errorf("absent shard_type = %v, want unknown", val)
 	}
 }
 
@@ -357,7 +374,7 @@ func TestCopyTokenCountsMap_WhenNonEmpty_ShouldReturnDistinctCopy(t *testing.T) 
 func TestAddToMap_WhenNewKey_ShouldCreateEntry(t *testing.T) {
 	t.Parallel()
 	m := make(map[string]TokenCounts)
-	addToMap(m, "new", 10, 20)
+	addToMap(m, "new", 10, 20, 0)
 
 	if m["new"].Input != 10 || m["new"].Output != 20 || m["new"].Total != 30 {
 		t.Errorf("expected {10 20 30}, got %+v", m["new"])
@@ -367,8 +384,8 @@ func TestAddToMap_WhenNewKey_ShouldCreateEntry(t *testing.T) {
 func TestAddToMap_WhenExistingKey_ShouldAccumulate(t *testing.T) {
 	t.Parallel()
 	m := make(map[string]TokenCounts)
-	addToMap(m, "key", 10, 20)
-	addToMap(m, "key", 5, 3)
+	addToMap(m, "key", 10, 20, 0)
+	addToMap(m, "key", 5, 3, 0)
 
 	if m["key"].Input != 15 || m["key"].Output != 23 || m["key"].Total != 38 {
 		t.Errorf("expected {15 23 38}, got %+v", m["key"])

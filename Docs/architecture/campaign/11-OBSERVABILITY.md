@@ -1,6 +1,6 @@
 # 11 — Observability: campaign
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-08-15**
 
 ## Logging
 
@@ -33,18 +33,34 @@ Operators should enable campaign category in `.nerd/logs/` configuration (see CL
 | `ProgressChan` | `chan Progress` | Overall/phase progress, context usage, errors |
 | `EventChan` | `chan OrchestratorEvent` | typed events |
 
-### OrchestratorEvent types (string field)
+### OrchestratorEvent types — CLOSED SET
 
-Observed in code paths:
+Since 2026-08-15 the type strings are constants in
+`internal/campaign/orchestrator_events.go`, and
+`TestOrchestratorEventTypes_AreClosedSet` parses every `emitEvent` /
+`emitRiskAudit` call in the package to prove no bare literal escapes the set. A
+typo used to produce an event that every consumer dropped through its default
+branch: the campaign still ran, the operator just never saw the step.
 
-- `task_started` / `task_completed` / `task_failed`  
-- `phase_started` / `phase_completed`  
-- `checkpoint` / `checkpoint_failed`  
-- `replan` / `replan_failed`  
-- `campaign_completed`  
-- `campaign_blocked`  
-- `context_error` / `compression_error`  
-- learning-related events when wired  
+`OrchestratorEventTypes()` returns the set; `IsKnownOrchestratorEventType`
+tests membership. UIs should assert against it rather than hand-maintaining a
+switch.
+
+| Group | Types |
+|-------|-------|
+| Task | `task_started`, `task_completed`, `task_failed` |
+| Phase | `phase_started`, `phase_completed` |
+| Campaign | `campaign_completed`, `campaign_blocked` |
+| Verification | `checkpoint_failed`, `checkpoint_exhausted` |
+| Planning | `replan`, `replan_triggered`, `replan_failed`, `new_requirement_received`, `new_requirement_integrated`, `new_requirement_failed` |
+| Context | `context_error`, `compression_error` |
+| Scheduling | `task_lock_timeout`, `task_write_set_missing`, `artifact_persisted` |
+| Diagnostics | `diagnostic_task_inserted`, `logic_failure_escalated`, `generation_degraded`, `research_empty`, `shard_result_empty`, `tool_generation_requested`, `sub_campaign_referenced` |
+| Risk preflight | `risk_snapshot_pinned`, `risk_score_computed`, `risk_gate_result`, `risk_gate_skipped`, `risk_gate_passed`, `risk_gate_advisory`, `risk_gate_blocked`, `risk_intelligence_error` |
+
+`risk_gate_blocked` carries the `*RiskGateEvaluation` in `Data`;
+`risk_gate_advisory` carries the `RiskFinding`. Both are renderable with
+`campaign.FormatRiskBlock` / `Orchestrator.LastRiskEvaluation()`.
 
 `emitProgress` on heartbeat and control surfaces feeds TUI/CLI status.
 
@@ -73,12 +89,44 @@ Journal events include sequence, checksums, and snapshot checksums for forensic 
 
 When observer set, alignment checks emit campaign logs with scores; blocking returns errors on phase start.
 
+## Metrics hooks (`metrics.go`)
+
+`SetMetricsSink(MetricsSink)` accepts any implementation of a four-method,
+primitive-argument interface:
+
+| Method | Observed at |
+|--------|-------------|
+| `ObserveTaskDuration(campaign, phase, taskType, outcome, d)` | every task completion and failure |
+| `ObservePhaseDuration(campaign, phase, d)` | phase completion (start time held in memory, not in the snapshot schema) |
+| `ObserveCheckpoint(campaign, phase, method, passed, d)` | every verification run |
+| `ObserveRiskPreflight(campaign, score, allowed, hard, soft)` | once per `Run` |
+
+A nil sink observes nothing and allocates nothing, so the engine carries no
+metrics dependency and no consumer inherits a backend choice. `InMemoryMetrics`
+is provided for tests and for `status`-style summaries. The sink is guarded by
+its own mutex rather than `o.mu`: risk preflight observes while `Run` holds
+`o.mu`, and `sync.RWMutex` is not reentrant.
+
+## Journal operator tooling
+
+```text
+nerd campaign journal verify [--campaign ID] [--json]   # non-zero exit on defects
+nerd campaign journal replay [--limit N] [--json]
+nerd campaign report [--stdout|--json]                  # assault aggregate
+```
+
+`verify` checks per-event checksums, sequence continuity, campaign-id match,
+unpaired snapshot writes, and whether the snapshot on disk hashes to what the
+last commit event recorded.
+
 ## Gaps
 
-1. No first-class metrics registry (Prometheus-style) inside package — logs/channels only.  
-2. Event type strings not a closed Go enum (typo risk).  
-3. Journal replay CLI not in package.  
-4. Glass-box integration depends on CLI transparency features, not campaign-internal exporters.
+1. Glass-box integration still depends on CLI transparency features rather than
+   campaign-internal exporters.  
+2. `cmd/nerd/ui/campaign_page.go` renders a subset of the closed event set; it
+   should assert against `OrchestratorEventTypes()`.  
+3. No per-task token/cost attribution in the metrics sink (usage tracking lives
+   in `internal/usage`).
 
 ## Operator playbook
 

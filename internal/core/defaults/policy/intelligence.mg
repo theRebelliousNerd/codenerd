@@ -36,8 +36,14 @@ intelligence_requires_modularization(Path) :-
 intelligence_requires_refactor(Path) :-
     intelligence_file_action(Path, /refactor_first, _, Confidence), Confidence > 70.
 
+# Type is a /string, and its value is the kernel predicate the pattern was read
+# from: gatherCodePatterns sets CodePattern.Type to one of "design_pattern",
+# "anti_pattern" or "architecture_pattern"
+# (internal/campaign/intelligence_gathering_methods.go) and seedIntelligenceFacts
+# passes it through unmodified, so no leading slash ever reaches the kernel. The
+# old /antipattern literal was wrong in both kind and spelling.
 intelligence_requires_refactor(Path) :-
-    intelligence_code_pattern(_, /antipattern, Path, Confidence), Confidence > 80.
+    intelligence_code_pattern(_, "anti_pattern", Path, Confidence), Confidence > 80.
 
 # -----------------------------------------------------------------------------
 # CHESTERTON'S FENCE (Understanding Before Modification)

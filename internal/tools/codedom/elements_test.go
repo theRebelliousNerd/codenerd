@@ -101,7 +101,7 @@ func (m *MyStruct) Method() {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	result, err := executeGetElements(context.Background(), map[string]any{
+	result, err := executeGetElements(wsCtxFor(t, goFile), map[string]any{
 		"path": goFile,
 	})
 	if err != nil {
@@ -135,7 +135,7 @@ type Struct1 struct {}
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	result, err := executeGetElements(context.Background(), map[string]any{
+	result, err := executeGetElements(wsCtxFor(t, goFile), map[string]any{
 		"path": goFile,
 		"type": "function",
 	})
@@ -320,7 +320,7 @@ func OtherFunc() {}
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	result, err := executeGetElement(context.Background(), map[string]any{
+	result, err := executeGetElement(wsCtxFor(t, goFile), map[string]any{
 		"path": goFile,
 		"name": "TargetFunc",
 	})
@@ -346,7 +346,7 @@ func Existing() {}
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	_, err := executeGetElement(context.Background(), map[string]any{
+	_, err := executeGetElement(wsCtxFor(t, goFile), map[string]any{
 		"path": goFile,
 		"name": "NonExistent",
 	})
@@ -366,56 +366,56 @@ func TestExtractCodeElements_BlockExtent(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		filename string
-		content  string
-		wantName string
-		wantType string
+		name      string
+		filename  string
+		content   string
+		wantName  string
+		wantType  string
 		wantStart int
 		wantEnd   int
 	}{
 		{
-			name:     "multi-line Go func",
-			filename: "test.go",
-			content: "package test\n\nfunc Foo(a int, b string) error {\n    if a > 0 {\n        return nil\n    }\n    return fmt.Errorf(\"nope\")\n}\n",
-			wantName: "Foo",
-			wantType: "function",
+			name:      "multi-line Go func",
+			filename:  "test.go",
+			content:   "package test\n\nfunc Foo(a int, b string) error {\n    if a > 0 {\n        return nil\n    }\n    return fmt.Errorf(\"nope\")\n}\n",
+			wantName:  "Foo",
+			wantType:  "function",
 			wantStart: 3,
 			wantEnd:   8,
 		},
 		{
-			name:     "Go struct",
-			filename: "test.go",
-			content: "package test\n\ntype MyStruct struct {\n    Name string\n    Age  int\n}\n",
-			wantName: "MyStruct",
-			wantType: "struct",
+			name:      "Go struct",
+			filename:  "test.go",
+			content:   "package test\n\ntype MyStruct struct {\n    Name string\n    Age  int\n}\n",
+			wantName:  "MyStruct",
+			wantType:  "struct",
 			wantStart: 3,
 			wantEnd:   6,
 		},
 		{
-			name:     "nested braces",
-			filename: "test.go",
-			content: "package test\n\nfunc Nested() {\n    if true {\n        for i := 0; i < 10; i++ {\n            fmt.Println(i)\n        }\n    }\n}\n",
-			wantName: "Nested",
-			wantType: "function",
+			name:      "nested braces",
+			filename:  "test.go",
+			content:   "package test\n\nfunc Nested() {\n    if true {\n        for i := 0; i < 10; i++ {\n            fmt.Println(i)\n        }\n    }\n}\n",
+			wantName:  "Nested",
+			wantType:  "function",
 			wantStart: 3,
 			wantEnd:   9,
 		},
 		{
-			name:     "brace inside string literal",
-			filename: "test.go",
-			content: "package test\n\nfunc WithString() {\n    fmt.Println(\"{ not a block }\")\n    x := \"}\"\n    y := '{'\n}\n",
-			wantName: "WithString",
-			wantType: "function",
+			name:      "brace inside string literal",
+			filename:  "test.go",
+			content:   "package test\n\nfunc WithString() {\n    fmt.Println(\"{ not a block }\")\n    x := \"}\"\n    y := '{'\n}\n",
+			wantName:  "WithString",
+			wantType:  "function",
 			wantStart: 3,
 			wantEnd:   7,
 		},
 		{
-			name:     "python function",
-			filename: "test.py",
-			content: "def foo():\n    x = 1\n    if True:\n        y = 2\n    return x\n\ndef bar():\n    pass\n",
-			wantName: "foo",
-			wantType: "function",
+			name:      "python function",
+			filename:  "test.py",
+			content:   "def foo():\n    x = 1\n    if True:\n        y = 2\n    return x\n\ndef bar():\n    pass\n",
+			wantName:  "foo",
+			wantType:  "function",
 			wantStart: 1,
 			wantEnd:   5,
 		},

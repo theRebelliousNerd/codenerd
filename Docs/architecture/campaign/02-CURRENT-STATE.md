@@ -1,14 +1,14 @@
 # 02 — Current State: campaign
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-08-15**  
 > Source of truth: `internal/campaign/` on disk
 
 ## Package summary
 
-| Metric | Value (approx.) |
+| Metric | Value (counted 2026-08-15) |
 |--------|-----------------|
-| Non-test `.go` sources | ~45 |
-| `*_test.go` files | ~29 |
+| Non-test `.go` sources | **49** (~22,192 lines) |
+| `*_test.go` files | **59** (~18,216 lines) |
 | Local `.mg` in package | 0 production rules (debug dump may exist: `debug_program_ERROR.mg`) |
 | Policy companions | `internal/core/defaults/campaign_rules.mg` (+ policy Section 19, topology) |
 | Primary binary consumers | `cmd/nerd` campaign cmds, chat/UI |
@@ -33,6 +33,9 @@
 | `orchestrator_failure.go` | Retries, logic escalation, repro tasks |
 | `orchestrator_journal.go` | Journal + atomic snapshot |
 | `orchestrator_utils.go` | Checkpoints helper, events, concurrency limits |
+| `orchestrator_events.go` | **New** — closed enum of `OrchestratorEvent.Type` |
+| `journal_ops.go` | **New** — journal verify/replay operator API |
+| `metrics.go` | **New** — optional backend-agnostic `MetricsSink` |
 
 ### Planning
 
@@ -61,6 +64,7 @@
 | File | Role |
 |------|------|
 | `risk_scoring.go` | Deterministic score + gate evaluation |
+| `risk_gate_contract.go` | **New** — hard vs soft contract; kernel decides, Go enforces |
 | `write_set_lock_manager.go` | Parallel write locking |
 | `intelligence_gatherer.go` | Report types + gather entry |
 | `intelligence_gathering_methods.go` | Per-system gather methods |
@@ -78,6 +82,7 @@
 | `assault_campaign.go` | Deterministic campaign builder |
 | `assault_tasks.go` | Discover/batch/triage handlers |
 | `assault_prompts.go` | Assault-related prompts |
+| `assault_report.go` | **New** — aggregate results into `summary.md` / `summary.json` |
 
 ### Domain & support
 
@@ -87,7 +92,8 @@
 | `task_mutation_types.go` | Mutation classification helpers |
 | `normalization.go` / `utils.go` | Path/string helpers |
 | `errors.go` | Sentinels |
-| `README.md` | Human package overview (partially stale) |
+| `README.md` | Human package overview (**refreshed 2026-08-15**) |
+| `testdata/tofacts_predicates.golden` | Pinned predicate/arity/type set emitted into the kernel |
 
 ### Tests (representative)
 
@@ -104,13 +110,43 @@
 | `write_set_lock_manager_test.go` | Lock concurrency |
 | `mocks_test.go` / `main_test.go` | Shared fakes |
 
+## Largest units (counted 2026-08-15)
+
+| Path | Lines |
+|------|------:|
+| `replan.go` | 1201 |
+| `risk_scoring.go` | 1169 |
+| `assault_tasks.go` | 1160 |
+| `decomposer.go` | 1079 |
+| `prompts.go` | 1072 |
+| `orchestrator_task_handlers.go` | 1060 |
+| `edge_case_detector.go` | 1057 |
+| `types.go` | 949 |
+| `orchestrator_tasks.go` | 836 |
+| `decomposer_planning.go` | 794 |
+| `shard_advisory_board.go` | 671 |
+| `tool_pregenerator.go` | 656 |
+| `decomposer_requirements.go` | 654 |
+| `intelligence_gatherer.go` | 652 |
+| `intelligence_gathering_methods.go` | 586 |
+| `orchestrator_task_transaction.go` | 562 |
+| `checkpoint.go` | 544 |
+| `context_pager.go` | 536 |
+| `orchestrator_init.go` | 493 |
+| `risk_gate_contract.go` | 484 |
+
+Earlier revisions of this doc carried approximate counts from a prior
+inventory; the table above is a direct `wc -l` on 2026-08-15.
+
 ## Hotspots (behavioral)
 
 1. **`orchestrator_tasks.go` + `orchestrator_execution.go`** — live scheduler; most runtime complexity.  
 2. **`decomposer.go` + planning/requirements** — plan quality bottleneck; many soft dependencies.  
 3. **`assault_tasks.go`** — durable I/O heavy; long-running.  
 4. **`risk_scoring.go`** — gate behavior operators may not see without logs.  
-5. **`prompts.go`** — large static surface competing with JIT atoms.
+5. **`prompts.go`** — large frozen fallback surface; production planning runs on
+   the `internal/prompt/atoms/campaign/*` corpus via `CampaignJITProvider`, and
+   `StaticPromptProvider` now warns when it is used.
 
 ## On-disk runtime layout
 
@@ -138,4 +174,5 @@
 ## Currency notes
 
 - Modular orchestrator split is real; `orchestrator.go` is intentionally empty of logic.  
-- README architecture version “2.0.0 (December 2024)” is historical — code has advanced (risk, journal, assault, intelligence). Prefer this corpus for currency.
+- `internal/campaign/README.md` was rewritten on 2026-08-15 and now matches the
+  module map above. The stale “2.0.0 (December 2024)” stamp is gone.

@@ -362,12 +362,18 @@ func factToCorpusEntry(fact core.Fact, sourceFile string) (CorpusEntry, bool) {
 		}
 
 	case "verb_composition":
-		// verb_composition(/review, /fix, "sequential", 95)
+		// verb_composition(/review, /fix, /sequential, 95)
 		// Construct: "review then fix"
+		//
+		// The relation is a name constant, so cleanAtom it before switching.
+		// It used to be a quoted string; matching the bare word keeps this
+		// switch correct for either form and stops a corpus rebuild from
+		// silently regressing every entry to the default "review /sequential
+		// fix" phrasing.
 		if len(fact.Args) >= 3 {
 			verb1 := argToString(fact.Args[0])
 			verb2 := argToString(fact.Args[1])
-			relation := argToString(fact.Args[2])
+			relation := cleanAtom(argToString(fact.Args[2]))
 			var text string
 			switch relation {
 			case "sequential":

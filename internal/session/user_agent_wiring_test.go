@@ -35,9 +35,9 @@ func TestUserAgentFromIntentVerb(t *testing.T) {
 		// which is what keeps "/fix" on the coder persona.
 		{"/fix", "fix"},
 		{"", ""},
-		{"rustexpert", ""},  // not a verb: no leading slash
-		{"/a/b/c", ""},      // structured verb, not an agent name
-		{"/two words", ""},  // whitespace is never part of an agent name
+		{"rustexpert", ""}, // not a verb: no leading slash
+		{"/a/b/c", ""},     // structured verb, not an agent name
+		{"/two words", ""}, // whitespace is never part of an agent name
 		{"/", ""},
 	}
 

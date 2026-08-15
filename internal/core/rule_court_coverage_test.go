@@ -33,7 +33,6 @@ func TestRuleCourt_CoverageExtra(t *testing.T) {
 		t.Errorf("expected compiler error for undeclared predicates, got: %v", err)
 	}
 
-
 	// 6. VETO: rule causes total system deadlock (no permitted actions)
 	// Base kernel has permitted action
 	kDeadlock := setupMockKernel(t)

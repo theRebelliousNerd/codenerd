@@ -146,33 +146,19 @@ func (i *Initializer) detectDependencies() []DependencyInfo {
 		}
 	}
 
-	// Check root directory first
+	// Check root directory first so a root module's versions win the dedupe.
 	scanGoMod(filepath.Join(workspace, "go.mod"))
 	scanPackageJSON(filepath.Join(workspace, "package.json"))
 
-	// FIX(BUG-006): Check subdirectories for monorepo support
-	// Check 1 level deep
-	if goMods, err := filepath.Glob(filepath.Join(workspace, "*", "go.mod")); err == nil {
-		for _, goMod := range goMods {
-			scanGoMod(goMod)
-		}
+	// Monorepo modules. This used to be two hardcoded glob pairs limited to one
+	// and two levels below the root; findManifestFiles walks to
+	// maxManifestDepth while skipping vendor/node_modules and friends, so
+	// services/api/go.mod and packages/@scope/ui/package.json are finally seen.
+	for _, goMod := range findManifestFiles(workspace, []string{"go.mod"}, maxManifestDepth) {
+		scanGoMod(goMod)
 	}
-	if pkgJSONs, err := filepath.Glob(filepath.Join(workspace, "*", "package.json")); err == nil {
-		for _, pkg := range pkgJSONs {
-			scanPackageJSON(pkg)
-		}
-	}
-
-	// Check 2 levels deep
-	if goMods, err := filepath.Glob(filepath.Join(workspace, "*", "*", "go.mod")); err == nil {
-		for _, goMod := range goMods {
-			scanGoMod(goMod)
-		}
-	}
-	if pkgJSONs, err := filepath.Glob(filepath.Join(workspace, "*", "*", "package.json")); err == nil {
-		for _, pkg := range pkgJSONs {
-			scanPackageJSON(pkg)
-		}
+	for _, pkg := range findManifestFiles(workspace, []string{"package.json"}, maxManifestDepth) {
+		scanPackageJSON(pkg)
 	}
 
 	// Parse transitive dependencies from lock files
@@ -992,10 +978,22 @@ func (i *Initializer) createDefaultConfig(path string) error {
 			Format: "text",
 			File:   "codenerd.log",
 		},
-		ToolGeneration: &config.ToolGenerationConfig{
-			TargetOS:   "windows",
-			TargetArch: "amd64",
-		},
+		// The host, not windows/amd64 — and written by the same helper the
+		// defaults use, so there is one definition rather than two.
+		//
+		// Ouroboros compiles a generated tool and then EXECUTES the binary
+		// itself, so a target the host cannot run means every generated tool
+		// compiles cleanly and dies with "exec format error" on first call.
+		// autopoiesis.DefaultConfig was fixed to default to the host and to
+		// honour an explicit user setting — and THIS is where the explicit
+		// setting came from. `nerd init` wrote windows/amd64 into every fresh
+		// workspace's config.json, so the raw-section read that exists
+		// precisely to tell "the user chose windows" from "we wrote windows
+		// into their file" was reading a file the product itself wrote.
+		ToolGeneration: func() *config.ToolGenerationConfig {
+			tg := config.DefaultToolGenerationConfig()
+			return &tg
+		}(),
 	}
 
 	// Dynamically build the ShardProfiles mapping

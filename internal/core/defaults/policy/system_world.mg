@@ -28,27 +28,58 @@ next_action(/update_world_model) :-
 file_in_project(File) :-
     file_topology(File, _, _, _, _).
 
-# Symbol graph connectivity (uses dependency_link for edges)
-# WARNING: This unbounded version can loop forever if dependency_link has cycles.
-# Use symbol_reachable_bounded/3 with explicit depth limit for safety.
+# Symbol graph connectivity, DEMAND-DRIVEN.
+#
+# These were eager closures over dependency_link, and they took the whole kernel
+# down on any repository of realistic size. Resolved import edges are dense —
+# package-level fan-out gives codeNERD's own tree ~33k file->file edges — and an
+# unbounded transitive closure plus a depth-15 path enumeration over that
+# exhausted the 500,000 derived-fact ceiling before evaluation finished. The
+# failure is not local: once the ceiling trips, the ENTIRE program fails, so
+# every unrelated query returns zero rows. Measured on this repo, safe_action
+# went from 120 to 0 with `lazy evaluation failed: fact size limit reached
+# "path_of_length(From,To,Len)" 500020 > 500000`.
+#
+# Nothing read any of them. symbol_reachable, symbol_reachable_safe and
+# path_of_length have no Go consumer and appear in no rule body — the cost was
+# paid in full and the answer thrown away, which is this codebase's most common
+# defect wearing its most expensive hat.
+#
+# The capability is worth keeping, so it is seeded instead of removed. A caller
+# asserts reachability_query(File) for the root it actually cares about and the
+# closure expands from there only; with no seed asserted these derive nothing
+# and cost nothing. Recursion is on the accumulated result rather than the raw
+# edge relation, so the seed genuinely bounds the search instead of being a
+# filter applied after the fact.
+#
+# The dependency_links.go cap (maxResolvedDependencyLinks = 50000) does not help
+# here and its comment says why it was chosen: it guards the EDB size. What
+# broke is the DERIVED closure, and that broke at ~33k edges — comfortably under
+# the cap, so the truncation warning never fired and the first symptom was a
+# dead kernel.
+
+Decl reachability_query(From) bound [/string].
+
 symbol_reachable(From, To) :-
+    reachability_query(From),
     dependency_link(From, To, _).
 
 symbol_reachable(From, To) :-
-    dependency_link(From, Mid, _),
-    symbol_reachable(Mid, To).
+    symbol_reachable(From, Mid),
+    dependency_link(Mid, To, _).
 
-# Safe bounded reachability using bottom-up path length generation.
-# Replaces unsafe top-down budget logic.
+# Bounded variant, same seeding. The depth cap alone was never the protection —
+# depth 15 over a dense graph is exactly what exhausted the budget.
 
 Decl path_of_length(From, To, Len).
 
 path_of_length(From, To, 1) :-
+    reachability_query(From),
     dependency_link(From, To, _).
 
 path_of_length(From, To, Len) :-
-    dependency_link(From, Mid, _),
-    path_of_length(Mid, To, SubLen),
+    path_of_length(From, Mid, SubLen),
+    dependency_link(Mid, To, _),
     Len = fn:plus(SubLen, 1),
     Len <= 15.
 

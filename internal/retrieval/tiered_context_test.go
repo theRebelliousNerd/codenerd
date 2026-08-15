@@ -30,7 +30,8 @@ func TestTieredExtractMentionedFiles(t *testing.T) {
 
 	kw := &IssueKeywords{MentionedFiles: []string{"alpha.go"}}
 	added := map[string]bool{}
-	files := b.extractMentionedFiles(context.Background(), kw, added)
+	resolved := map[string]string{}
+	files := b.extractMentionedFiles(context.Background(), kw, added, resolved)
 	if len(files) != 1 {
 		t.Fatalf("expected 1 mentioned file resolved, got %d", len(files))
 	}
@@ -38,7 +39,7 @@ func TestTieredExtractMentionedFiles(t *testing.T) {
 		t.Errorf("unexpected mentioned-file entry: %+v", files[0])
 	}
 	// A second pass with the same addedFiles set must not duplicate.
-	again := b.extractMentionedFiles(context.Background(), kw, added)
+	again := b.extractMentionedFiles(context.Background(), kw, added, resolved)
 	if len(again) != 0 {
 		t.Errorf("already-added file should not be returned again, got %d", len(again))
 	}

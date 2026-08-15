@@ -1,6 +1,6 @@
 # Northstar — Implemented Spec (Deep-Dive)
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-15  
 > Status: Living Reference Document  
 > Language: Go  
 > Primary sources: `internal/northstar/`  
@@ -58,7 +58,7 @@ user_intent → kernel → next_action → VirtualStore → articulation
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Domain types + `ToFacts` | **Implemented** | Partial vs full Decl surface |
-| SQLite Store + schema | **Implemented** | `ingested_docs` unused |
+| SQLite Store + schema | **Implemented** | `ingested_docs` used by `docs.go`; `GetMetrics`/`GetDriftHistory` added |
 | Guardian init / config | **Implemented** | Warn on no vision |
 | LLM alignment pipeline | **Implemented** | Inline prompts |
 | Soft fallbacks (no vision/LLM) | **Implemented** | Availability bias |
@@ -69,13 +69,13 @@ user_intent → kernel → next_action → VirtualStore → articulation
 | Chat `/alignment` | **Implemented** | Ephemeral guardian |
 | Chat `/northstar` wizard | **Implemented** (outside pkg) | JSON/MG oriented |
 | CLI `nerd northstar` | **Implemented** (outside pkg) | Does not use this package |
-| Kernel wire on all boots | **Partial** | Shared boot yes; primary boot no |
-| JSON ↔ SQLite sync | **Missing** | Dual authority |
-| Alignment history CLI | **Missing** | Store API only |
-| Embedding relevance | **Missing** | Keyword only |
-| JIT alignment prompts | **Partial** | Atoms for wizard; not Guardian |
+| Kernel wire on all boots | **Implemented** | Both chat boots call `SetParentKernel`; pinned by `TestChatBootPaths_ShouldWireGuardianKernelIdentically` |
+| JSON ↔ SQLite sync | **Implemented** | `bridge.go` `SyncVisionAuthority`, run from `Guardian.Initialize` |
+| Alignment history CLI | **Implemented** | `nerd northstar history\|drift\|state\|sync` |
+| Embedding relevance | **Implemented** | `docs.go`: `ingested_docs` API + injectable `Embedder`, cosine similarity, keyword fallback |
+| JIT alignment prompts | **Implemented** | `atoms/northstar/guardian_alignment.yaml` + `alignment_prompt.go`, parity-tested |
 
-**Overall:** living production library (~90% of local surface) with **integration gaps** that matter for operators.
+**Overall:** living production library. The integration gaps that mattered for operators (dual vision authority, boot kernel wiring, no history surface) are closed; see [13-OPERATOR-RUNBOOK.md](13-OPERATOR-RUNBOOK.md).
 
 ---
 
@@ -288,17 +288,31 @@ Adapter in chat maps to `shards.ObserverAssessment`.
 
 See `Vision.ToFacts` and `06-PUBLIC-API-AND-TYPES.md`. Sentinel `northstar_defined()` always appended when vision non-nil.
 
-### 8.2 Declared but not emitted by package
+### 8.2 Relational facts
 
-Policy/debug dumps also Decl:
+`northstar_serves`, `northstar_supports` and `northstar_addresses` are emitted
+from `Capability.Serves`, `Requirement.Supports` and `Requirement.Addresses`.
+`unserved_persona`, `orphan_capability`, `orphan_requirement`,
+`risk_addressing_requirement`, `unaddressed_high_risk` and
+`strategic_warning(/critical_unmitigated_risk, …)` in
+`internal/core/defaults/policy/prompt_northstar.mg` depend on them and could
+never fire before.
 
-- `northstar_serves`, `northstar_supports`, `northstar_addresses`
+A link whose target does not exist in the same vision is **dropped**, not
+emitted: a dangling `northstar_serves(cap, persona_ghost)` would make
+`unserved_persona` silently wrong.
 
-`ToFacts` does not produce these. Rules that depend on them will not fire unless other writers assert them.
+### 8.3 Mitigation encoding
 
-### 8.3 Mitigation encoding loss
+The `northstar_mitigation` strategy slot is Decl'd `/name` and so cannot hold
+free text. Two facts are emitted per mitigated risk:
 
-Mitigation free text becomes constant atom `/mitigation` only.
+- `northstar_mitigation(RiskID, /mit_<slug>_<hash8>)` — readable and injective
+- `northstar_mitigation_text(RiskID, Text)` — the operator's own words
+  (Decl added to `internal/core/defaults/schemas_misc.mg`)
+
+Previously every mitigation was the same constant `/mitigation`, so two risks
+with opposite strategies unified.
 
 ### 8.4 Injectable / JIT context (consumers)
 
@@ -321,22 +335,32 @@ Core/articulation can treat northstar facts and `northstar_phase` as compile con
 
 ---
 
-## 10. Dual-store problem (must understand)
+## 10. Vision authority (resolved)
 
-| Artifact | Writer | Reader |
-|----------|--------|--------|
-| `.nerd/northstar.json` | Wizard / export | `nerd northstar *`, wizard reload |
-| `.nerd/northstar.mg` | Wizard | `nerd northstar facts/export` |
-| `.nerd/northstar_knowledge.db` | Guardian/Store | Guardian, `/alignment`, campaign observer |
+| Artifact | Role | Writer | Reader |
+|----------|------|--------|--------|
+| kernel `northstar_*` facts | **executive** | `Guardian.refreshKernelFacts` | policy, JIT context, `nerd query` |
+| `.nerd/northstar_knowledge.db` | **durable record** | `Store.SaveVision`, `Guardian.UpdateVision` | Guardian, `/alignment`, campaign observer, CLI |
+| `.nerd/northstar.json` | import + export surface | wizard, `nerd northstar load`/`sync`, exports | `LoadVisionJSON` during reconciliation |
+| `.nerd/northstar.mg` | export surface | exports (rendered from `Vision.ToFacts`) | humans |
 
-Until unified, **operator-visible vision and guardian vision can diverge**. This is the dominant product risk for the subsystem.
+`SyncVisionAuthority` (bridge.go) reconciles the JSON surface with the store and
+runs inside `Guardian.Initialize`, so every boot path converges. Direction is
+last-writer-wins on file mtime vs `updated_at`; equal content is a no-op so
+boots never churn the files. Full rules and operator recipes:
+[13-OPERATOR-RUNBOOK.md](13-OPERATOR-RUNBOOK.md).
 
 ---
 
 ## 11. Configuration surface
 
 `GuardianConfig` JSON-serializable fields (see defaults in §5 of internal architecture).  
-`AlignmentModel` is documented but **not read** by Guardian (model chosen by injected client).
+`AlignmentModel` is honoured when the injected client implements
+`ModelSelectingLLMClient` (`CompleteWithSystemModel`); otherwise the guardian
+logs once and runs on the client's default model rather than mutating a shared
+client. Threshold ordering (`block <= failure <= warning`) is repaired by
+`NormalizeGuardianConfig` in `NewGuardian` — an inverted set previously made
+whole result bands unreachable and classified failing work as passed.
 
 Campaign-side: `NorthstarGateToggle` controls whether observer is active for risk scoring (auto/enabled/disabled).
 
@@ -353,7 +377,13 @@ Campaign-side: `NorthstarGateToggle` controls whether observer is active for ris
 - Store transactions / timestamps  
 - Observer lifecycle  
 
-Weak coverage of boot wiring and dual-store.
+Boot wiring and vision authority are now covered:
+`bridge_test.go`, `guardian_wiring_test.go` (threshold repair, registry
+refcounting, model selection, prompt atoms, boot-path source parity),
+`kernel_integration_test.go` (boot with vision → `northstar_defined()` true in a
+real kernel, and stale-fact retraction), `docs_test.go` (ingested docs,
+embedding relevance, metrics), and
+`cmd/nerd/chat/northstar_adapter_test.go`.
 
 Commands:
 

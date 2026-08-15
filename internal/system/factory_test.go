@@ -115,7 +115,7 @@ func TestCortex_SpawnTask_ImageRoutesToShardManagerNotTaskExecutor(t *testing.T)
 	var gotClient types.LLMClient
 	sm.RegisterShard("image_generator", func(id string, cfg types.ShardConfig) types.ShardAgent {
 		return &imageCaptureAgent{
-			Base: NewImageCaptureBase(id, cfg),
+			Base:  NewImageCaptureBase(id, cfg),
 			onSet: func(c types.LLMClient) { gotClient = c },
 		}
 	})
@@ -165,12 +165,12 @@ func NewImageCaptureBase(id string, cfg types.ShardConfig) *coreshards.BaseShard
 	return coreshards.NewBaseShardAgent(id, cfg)
 }
 
-func (a *imageCaptureAgent) GetID() string                              { return a.Base.GetID() }
-func (a *imageCaptureAgent) GetState() types.ShardState                 { return a.Base.GetState() }
-func (a *imageCaptureAgent) GetConfig() types.ShardConfig               { return a.Base.GetConfig() }
-func (a *imageCaptureAgent) Stop() error                                { return a.Base.Stop() }
-func (a *imageCaptureAgent) SetParentKernel(k types.Kernel)             { a.Base.SetParentKernel(k) }
-func (a *imageCaptureAgent) SetSessionContext(c *types.SessionContext)  { a.Base.SetSessionContext(c) }
+func (a *imageCaptureAgent) GetID() string                             { return a.Base.GetID() }
+func (a *imageCaptureAgent) GetState() types.ShardState                { return a.Base.GetState() }
+func (a *imageCaptureAgent) GetConfig() types.ShardConfig              { return a.Base.GetConfig() }
+func (a *imageCaptureAgent) Stop() error                               { return a.Base.Stop() }
+func (a *imageCaptureAgent) SetParentKernel(k types.Kernel)            { a.Base.SetParentKernel(k) }
+func (a *imageCaptureAgent) SetSessionContext(c *types.SessionContext) { a.Base.SetSessionContext(c) }
 func (a *imageCaptureAgent) SetLLMClient(c types.LLMClient) {
 	if a.onSet != nil {
 		a.onSet(c)

@@ -9,6 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/persist/factsnap"
+	"codenerd/internal/persist/snapshot"
+
 	"github.com/spf13/cobra"
 )
 
@@ -156,6 +161,34 @@ func IsDryRun() bool {
 // ShouldDumpKernel returns true if kernel dump is requested.
 func ShouldDumpKernel() bool {
 	return dumpKernel
+}
+
+// DumpKernelSnapshot writes the kernel's base facts to .nerd/snapshots/ when
+// --dump-kernel was passed, returning the snapshot path (empty when the flag
+// is off).
+//
+// The flag and ShouldDumpKernel have existed since the debug commands were
+// added, and nothing ever called them — "Export Mangle facts after execution"
+// was a promise with no implementation behind it. internal/persist/factsnap
+// was the other half of the same gap: a serializer with no production caller.
+// This connects them.
+//
+// Base facts only. Re-importing derived conclusions would turn them into
+// premises, which is why `nerd snapshot export` makes --derived opt-in too.
+func DumpKernelSnapshot(kernel *core.RealKernel, workspace string) string {
+	if !dumpKernel || kernel == nil {
+		return ""
+	}
+
+	facts := kernel.GetBaseFacts()
+	path, err := snapshot.Export(workspace, snapshot.DefaultName("kernel"), facts, factsnap.CodecGzip)
+	if err != nil {
+		// A debug aid must not fail the command whose output it was recording.
+		logging.PersistWarn("--dump-kernel: snapshot export failed: %v", err)
+		return ""
+	}
+	logging.Persist("--dump-kernel: wrote %d facts to %s", len(facts), path)
+	return path
 }
 
 // IsTraceAPI returns true if API tracing is enabled.

@@ -528,3 +528,61 @@ func StoreWarn(format string, args ...any) {
 func StoreError(format string, args ...any) {
 	Get(CategoryStore).Error(format, args...)
 }
+
+// Persist logs to the persist category (fact snapshot write/read).
+func Persist(format string, args ...any) {
+	Get(CategoryPersist).Info(format, args...)
+}
+
+// PersistDebug logs debug to the persist category.
+func PersistDebug(format string, args ...any) {
+	Get(CategoryPersist).Debug(format, args...)
+}
+
+// PersistWarn logs warning to the persist category.
+func PersistWarn(format string, args ...any) {
+	Get(CategoryPersist).Warn(format, args...)
+}
+
+// Northstar logs to the northstar category (vision guardian).
+// CategoryNorthstar was declared but had no wrapper, so every call site had to
+// go through Get() while every neighbouring category had a one-liner — which is
+// why the category ended up with almost no callers.
+func Northstar(format string, args ...any) {
+	Get(CategoryNorthstar).Info(format, args...)
+}
+
+// NorthstarDebug logs debug to the northstar category.
+func NorthstarDebug(format string, args ...any) {
+	Get(CategoryNorthstar).Debug(format, args...)
+}
+
+// NorthstarWarn logs warning to the northstar category.
+func NorthstarWarn(format string, args ...any) {
+	Get(CategoryNorthstar).Warn(format, args...)
+}
+
+// NorthstarError logs error to the northstar category.
+func NorthstarError(format string, args ...any) {
+	Get(CategoryNorthstar).Error(format, args...)
+}
+
+// Regression logs to the regression category (regression battery runs).
+func Regression(format string, args ...any) {
+	Get(CategoryRegression).Info(format, args...)
+}
+
+// RegressionDebug logs debug to the regression category.
+func RegressionDebug(format string, args ...any) {
+	Get(CategoryRegression).Debug(format, args...)
+}
+
+// RegressionWarn logs warning to the regression category.
+func RegressionWarn(format string, args ...any) {
+	Get(CategoryRegression).Warn(format, args...)
+}
+
+// PersistError logs error to the persist category.
+func PersistError(format string, args ...any) {
+	Get(CategoryPersist).Error(format, args...)
+}

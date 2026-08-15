@@ -54,7 +54,7 @@ current_phase(PhaseID) :-
     !has_in_progress_phase().
 
 # Phase is blocked if it has incomplete hard dependencies
-phase_blocked(PhaseID, "hard_dependency_incomplete") :-
+phase_blocked(PhaseID, /hard_dependency_incomplete) :-
     campaign_phase(PhaseID, CampaignID, _, _, /pending, _),
     current_campaign(CampaignID),
     has_incomplete_hard_dep(PhaseID).
@@ -94,7 +94,7 @@ next_action(/run_phase_checkpoint) :-
     has_pending_checkpoint(PhaseID).
 
 # Block phase completion if checkpoint failed
-phase_blocked(PhaseID, "checkpoint_failed") :-
+phase_blocked(PhaseID, /checkpoint_failed) :-
     phase_checkpoint(PhaseID, _, /false, _, _).
 
 # =============================================================================
@@ -108,14 +108,14 @@ failed_campaign_task(CampaignID, TaskID) :-
     campaign_phase(PhaseID, CampaignID, PhaseName, Seq, Status, Profile).
 
 # Trigger replan on repeated failures (configurable threshold).
-replan_needed(CampaignID, "task_failure_cascade") :-
+replan_needed(CampaignID, /task_failure_cascade) :-
     current_campaign(CampaignID),
     campaign_config(CampaignID, _, Threshold, /true, _),
     failed_campaign_task_count_computed(CampaignID, Count),
     Count >= Threshold.
 
 # Trigger replan if user provides new instruction during campaign
-replan_needed(CampaignID, "user_instruction") :-
+replan_needed(CampaignID, /user_instruction) :-
     current_campaign(CampaignID),
     user_intent(/current_intent, /instruction, _, _, _).
 
@@ -150,7 +150,7 @@ next_action(/campaign_complete) :-
     campaign_complete(_).
 
 # Campaign blocked if no eligible phases and none in progress
-campaign_blocked(CampaignID, "no_eligible_phases") :-
+campaign_blocked(CampaignID, /no_eligible_phases) :-
     current_campaign(CampaignID),
     !has_eligible_phase(),
     !has_in_progress_phase(),

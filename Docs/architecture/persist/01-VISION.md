@@ -1,7 +1,8 @@
 # 01 — Vision: persist / factsnap
 
-> Last verified against codebase: **2026-07-13**  
-> Mode: target architecture (grounded in existing API)
+> Last verified against codebase: **2026-08-15**  
+> Mode: target architecture (grounded in existing API). The debug-dump and
+> cross-machine-handoff rows are now shipped; the rest remain targets.
 
 ## 1. Product role
 
@@ -14,8 +15,8 @@ Typical intended products of that capability:
 | World-model checkpoint | `code_*`, `file_*` index facts | Resume scan without full reparse |
 | Campaign phase freeze | `campaign_*`, task status facts | Assault / multi-day goals |
 | Dream / what-if branch export | Projected / hypothetical facts | Shadow evaluation |
-| Debug dump | Predicate slice from kernel query | Support / `debug_program`-adjacent tooling |
-| Cross-machine handoff | Fact bag without full workspace DB | Offline review |
+| Debug dump | Predicate slice from kernel query | **Shipped** — `nerd snapshot export [-p pred]` |
+| Cross-machine handoff | Fact bag without full workspace DB | **Shipped** — `nerd snapshot export --out`, `nerd snapshot import` |
 
 ## 2. Architectural placement
 
@@ -25,10 +26,10 @@ Typical intended products of that capability:
 │  core.Kernel / mangle.Engine / store.LocalStore          │
 │         │ export selected facts                          │
 │         ▼                                                │
-│  []types.Fact  ──►  factsnap.WriteCodec  ──►  *.sc.zst   │
+│  []types.Fact  ──►  snapshot.Export  ──►  *.sc.gz|zst    │
 │         ▲                        │                       │
-│         └──── factsnap.Read ◄────┘                       │
-│                (then Assert under policy)                │
+│         └──── snapshot.Import ◄──┘                       │
+│                (then Assert under policy, never at boot) │
 └─────────────────────────────────────────────────────────┘
 
 LLM / prompt / JIT  ── never call factsnap ──
@@ -49,15 +50,19 @@ Principles of the vision:
 - Embedding-model vector dumps (different shape; see `internal/embedding`).  
 - Any Vectryx-product-specific storage story.
 
-## 4. Success criteria (future)
+## 4. Success criteria
 
-| Criterion | Signal |
-|-----------|--------|
-| At least one production caller | Import from campaign, world, core dump, or CLI |
-| Round-trip in integration test | Export kernel query → write → read → re-assert → query equalish |
-| Operator discoverability | Documented path under `.nerd/` + optional CLI verb |
-| No silent format drift | Keep Deterministic SimpleColumn + parity tests green |
+| Criterion | Signal | Status |
+|-----------|--------|--------|
+| At least one production caller | Import from campaign, world, core dump, or CLI | **Met** — `cmd/nerd/cmd_snapshot.go` (kernel debug export) |
+| Round-trip in integration test | Export kernel query → write → read → re-assert → query equalish | **Met** — `snapshot/kernel_roundtrip_test.go` |
+| Operator discoverability | Documented path under `.nerd/` + CLI verb | **Met** — `.nerd/snapshots/`, `nerd snapshot` |
+| No silent format drift | Keep Deterministic SimpleColumn + parity tests green | Ongoing |
+| Rehydrate cannot happen by accident | No boot hook; assert requires a flag | **Met** |
 
 ## 5. Relationship to current code
 
-The vision is **already half-built**: write/read/codec/legacy/tests match the desired library. Vision work remaining is **wiring and productization**, not inventing a new format.
+The library half of the vision has been built since 2026-07-13; the wiring half
+landed on 2026-08-15 as `nerd snapshot` over `internal/persist/snapshot`. What
+remains is **more callers** (world index freeze, campaign fact bags), not a new
+format and not new codec surface.

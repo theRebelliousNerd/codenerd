@@ -24,14 +24,16 @@ import (
 func BuildCampaignObserver(cwd string, llmClient LLMClient, kern KernelClient) *CampaignObserver {
 	nerdDir := filepath.Join(cwd, ".nerd")
 
-	store, err := NewStore(nerdDir)
+	// Shared guardian: a campaign that opened its own store cached its own copy
+	// of GuardianState, so its periodic-check counter diverged from the chat
+	// session's the moment either recorded a check.
+	guardian, err := AcquireGuardian(nerdDir, DefaultGuardianConfig())
 	if err != nil {
 		logging.CampaignWarn("northstar store unavailable (%v); campaigns touching protected surfaces will be refused by the risk gate", err)
 		fmt.Println("   ⚠ Northstar observer unavailable — campaigns on protected paths will be refused")
 		return nil
 	}
 
-	guardian := NewGuardian(store, DefaultGuardianConfig())
 	if llmClient != nil {
 		guardian.SetLLMClient(llmClient)
 	}
@@ -46,6 +48,7 @@ func BuildCampaignObserver(cwd string, llmClient LLMClient, kern KernelClient) *
 		guardian.SetQuerier(q)
 	}
 	if err := guardian.Initialize(); err != nil {
+		_ = ReleaseGuardian(guardian)
 		logging.CampaignWarn("northstar guardian failed to initialize (%v); campaigns touching protected surfaces will be refused by the risk gate", err)
 		fmt.Println("   ⚠ Northstar observer failed to initialize — campaigns on protected paths will be refused")
 		return nil

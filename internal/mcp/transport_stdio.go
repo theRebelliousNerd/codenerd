@@ -194,7 +194,9 @@ func (t *StdioTransport) readStderr() {
 	defer t.wg.Done()
 	scanner := bufio.NewScanner(t.stderr)
 	for scanner.Scan() {
-		logging.Get(logging.CategoryTools).Info("[STDERR] %s", scanner.Text())
+		// Server stderr is untrusted output that regularly echoes the
+		// credentials the server was configured with.
+		logging.Get(logging.CategoryTools).Info("[STDERR] %s", redactForLog(scanner.Text(), maxLoggedPayload))
 	}
 }
 
@@ -270,13 +272,13 @@ func (t *StdioTransport) readStdout() {
 				// Common MCP notifications we might receive
 				switch notif.Method {
 				case "notifications/progress":
-					logging.Get(logging.CategoryTools).Debug("Progress update: %s", string(notif.Params))
+					logging.Get(logging.CategoryTools).Debug("Progress update: %s", redactForLog(string(notif.Params), maxLoggedPayload))
 				case "notifications/log":
-					logging.Get(logging.CategoryTools).Info("Server log: %s", string(notif.Params))
+					logging.Get(logging.CategoryTools).Info("Server log: %s", redactForLog(string(notif.Params), maxLoggedPayload))
 				case "notifications/cancelled":
-					logging.Get(logging.CategoryTools).Debug("Request cancelled: %s", string(notif.Params))
+					logging.Get(logging.CategoryTools).Debug("Request cancelled: %s", redactForLog(string(notif.Params), maxLoggedPayload))
 				default:
-					logging.Get(logging.CategoryTools).Debug("Unhandled notification '%s': %s", notif.Method, string(notif.Params))
+					logging.Get(logging.CategoryTools).Debug("Unhandled notification '%s': %s", notif.Method, redactForLog(string(notif.Params), maxLoggedPayload))
 				}
 			}
 		}

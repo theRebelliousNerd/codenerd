@@ -56,7 +56,13 @@ Decl intelligence_mcp_server(ServerID, Endpoint, Status) bound [/string, /string
 
 # intelligence_shard_advice(CampaignID, ShardName, Vote, Confidence, Advice)
 # Shard Advisory
-Decl intelligence_shard_advice(CampaignID, ShardName, Vote, Confidence, Advice) bound [/string, /string, /string, /number, /string].
+# ShardName is the advising specialist (/coder, /tester, /reviewer, /system) -
+# the same closed vocabulary as specialist_classification/3 arg 1, so /name.
+# Vote is the closed ballot vocabulary /approve, /reject, /conditional,
+# /advisory, matched as name constants by policy/intelligence.mg. Advice stays
+# /string: it is the LLM's free prose. Decomposer.seedIntelligenceFacts wraps
+# both slots with types.MangleAtom.
+Decl intelligence_shard_advice(CampaignID, ShardName, Vote, Confidence, Advice) bound [/string, /name, /name, /number, /string].
 
 # intelligence_file_action(Path, RecommendedAction, Reasoning, Confidence)
 # Edge Case Analysis
@@ -101,7 +107,8 @@ Decl intelligence_well_tested(Path) bound [/string].
 Decl intelligence_action_blocked(CampaignID, TaskID, Action) bound [/string, /string, /name].
 Decl intelligence_has_blocked_action(CampaignID) bound [/string].
 Decl intelligence_advisory_approved(CampaignID) bound [/string].
-Decl intelligence_advisory_concerns(CampaignID, ShardName) bound [/string, /string].
+# ShardName is projected straight out of intelligence_shard_advice/5 arg 2.
+Decl intelligence_advisory_concerns(CampaignID, ShardName) bound [/string, /name].
 Decl intelligence_gap_resolved(CampaignID, Capability) bound [/string, /string].
 Decl intelligence_gap_unresolved(CampaignID, Capability, Priority) bound [/string, /string, /number].
 Decl intelligence_blocking_gap(CampaignID, Capability) bound [/string, /string].

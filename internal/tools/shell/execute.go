@@ -3,12 +3,10 @@ package shell
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -44,51 +42,38 @@ func newCommand(ctx context.Context, name string, arg ...string) *exec.Cmd {
 }
 
 // coerceInt accepts any of the shapes a JSON-decoded LLM tool argument can
-// take and returns an int. LLM tool-call payloads round-trip through JSON,
-// which decodes numbers as float64 by default — so a plain
-// `args["timeout_seconds"].(int)` silently fails when the model supplies
-// `timeout_seconds: 5`. This helper accepts int, int64, float64,
-// json.Number, and decimal strings, returning (value, true) on success.
+// take and returns an int. See tools.CoerceInt — this package's copy was one
+// of four that had drifted apart on which types they accepted.
 func coerceInt(v any) (int, bool) {
-	if v == nil {
-		return 0, false
+	return tools.CoerceInt(v)
+}
+
+// resolveWorkingDir contains a caller-supplied working_dir to the workspace
+// root, and resolves an omitted one to the workspace root rather than to the
+// process working directory.
+//
+// Every tool in this file passed working_dir through to exec.Cmd.Dir unchecked,
+// so `run_command working_dir=/ command="rm -rf tmp"` ran wherever it was
+// pointed. The path guards in core/file_ops.go and codedom bounded what the
+// agent could touch through the file tools; the shell tools sat next to them
+// with no bound at all, which made the file-tool containment decorative — a
+// contained agent could not write /etc/cron.d/x with write_file, but could
+// cd there and do it with a shell one-liner.
+//
+// Defaulting an empty working_dir to the workspace root (rather than "" =
+// process cwd) matters for the same reason relative tool paths are
+// workspace-relative: -w/--workspace sets the root without chdir'ing, so cwd
+// and workspace are not the same directory.
+func resolveWorkingDir(ctx context.Context, raw string) (string, error) {
+	root, err := tools.WorkspaceRoot(ctx)
+	if err != nil {
+		return "", err
 	}
-	switch n := v.(type) {
-	case int:
-		return n, true
-	case int32:
-		return int(n), true
-	case int64:
-		return int(n), true
-	case uint:
-		return int(n), true
-	case uint32:
-		return int(n), true
-	case uint64:
-		return int(n), true
-	case float32:
-		return int(n), true
-	case float64:
-		return int(n), true
-	case json.Number:
-		if i, err := n.Int64(); err == nil {
-			return int(i), true
-		}
-		if f, err := n.Float64(); err == nil {
-			return int(f), true
-		}
-	case string:
-		if n == "" {
-			return 0, false
-		}
-		if i, err := strconv.Atoi(n); err == nil {
-			return i, true
-		}
-		if f, err := strconv.ParseFloat(n, 64); err == nil {
-			return int(f), true
-		}
+	dir, err := tools.ResolveWorkspaceDir(ctx, root, raw)
+	if err != nil {
+		return "", fmt.Errorf("working_dir rejected: %w", err)
 	}
-	return 0, false
+	return dir, nil
 }
 
 // isCompoundCommand reports whether s contains an unquoted shell operator and
@@ -120,11 +105,12 @@ func isCompoundCommand(s string) bool {
 // RunCommandTool returns a tool for executing shell commands.
 func RunCommandTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "run_command",
-		Description: runCommandDescription(),
-		Category:    tools.CategoryCode,
-		Priority:    70,
-		Execute:     executeRunCommand,
+		Name:          "run_command",
+		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryAttack},
+		Description:   runCommandDescription(),
+		Category:      tools.CategoryCode,
+		Priority:      70,
+		Execute:       executeRunCommand,
 		Schema: tools.ToolSchema{
 			Required: []string{"command"},
 			Properties: map[string]tools.Property{
@@ -156,9 +142,13 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("command is required")
 	}
 
-	workingDir := ""
+	rawWorkingDir := ""
 	if wd, ok := args["working_dir"].(string); ok {
-		workingDir = wd
+		rawWorkingDir = wd
+	}
+	workingDir, err := resolveWorkingDir(ctx, rawWorkingDir)
+	if err != nil {
+		return "", err
 	}
 
 	timeout := 60
@@ -166,7 +156,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 		timeout = t
 	}
 
-	logging.VirtualStoreDebug("run_command: cmd=%s, dir=%s, timeout=%ds", command, workingDir, timeout)
+	logging.ToolsDebug("run_command: cmd=%s, dir=%s, timeout=%ds", command, workingDir, timeout)
 
 	// Compound-command routing: if the command contains an unquoted shell
 	// operator (&&, ||, |, ;, newline, <, >), execute via shell so the
@@ -195,7 +185,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 			// command that succeeds under PowerShell today changes path.
 			if posix := posixOnlyStagesIn(command); len(posix) > 0 {
 				if bashPath := findBashWindows(); bashPath != "" {
-					logging.VirtualStoreDebug(
+					logging.ToolsDebug(
 						"run_command: routing to %s instead of PowerShell; POSIX-only stages: %s",
 						bashPath, strings.Join(posix, ", "))
 					cmd = newCommand(execCtx, bashPath, "-c", command)
@@ -217,9 +207,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 			cmd = newCommand(execCtx, "sh", "-c", command)
 		}
 
-		if workingDir != "" {
-			cmd.Dir = workingDir
-		}
+		cmd.Dir = workingDir
 		finalEnv := os.Environ()
 		if envMap, ok := args["env"].(map[string]any); ok {
 			for k, v := range envMap {
@@ -254,13 +242,13 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 			// branch is the one that matters most: a model writes its searches
 			// as pipelines, so a no-match almost always arrives here.
 			if searchFoundNothing(command, exitCodeOf(runErr), stderr.String()) {
-				logging.VirtualStore("run_command: no matches: %s", command)
+				logging.Tools("run_command: no matches: %s", command)
 				return "(no matches)", nil
 			}
-			logging.VirtualStore("run_command failed: %s (%v)", command, runErr)
+			logging.Tools("run_command failed: %s (%v)", command, runErr)
 			return output, fmt.Errorf("command failed: %w\nOutput:\n%s", runErr, output)
 		}
-		logging.VirtualStore("run_command completed: %s (%d bytes output)", command, len(output))
+		logging.Tools("run_command completed: %s (%d bytes output)", command, len(output))
 		return output, nil
 	}
 	// Parse command safely using shellquote to prevent command injection
@@ -281,7 +269,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 	// unchanged on systems that have the command.
 	if _, lookErr := execLookPath(parsedArgs[0]); lookErr != nil {
 		if out, handled := runBuiltinFallback(parsedArgs, workingDir); handled {
-			logging.VirtualStore("run_command builtin fallback served: %s", parsedArgs[0])
+			logging.Tools("run_command builtin fallback served: %s", parsedArgs[0])
 			return out, nil
 		}
 		// On Windows the model frequently emits PowerShell cmdlets
@@ -302,7 +290,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 			}
 			if shellPath != "" {
 				parsedArgs = []string{shellPath, "-NoProfile", "-NonInteractive", "-Command", command}
-				logging.VirtualStore("run_command routing via PowerShell: %s", command)
+				logging.Tools("run_command routing via PowerShell: %s", command)
 			}
 		}
 	}
@@ -319,9 +307,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 		cmd = newCommand(execCtx, parsedArgs[0], parsedArgs[1:]...)
 	}
 
-	if workingDir != "" {
-		cmd.Dir = workingDir
-	}
+	cmd.Dir = workingDir
 
 	// Prepare environment
 	finalEnv := os.Environ()
@@ -361,25 +347,26 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 		// it as an error tells the model its tooling broke, and it then spends
 		// turns re-running or routing around a search that worked.
 		if searchFoundNothing(command, exitCodeOf(runErr), stderr.String()) {
-			logging.VirtualStore("run_command: no matches: %s", command)
+			logging.Tools("run_command: no matches: %s", command)
 			return "(no matches)", nil
 		}
-		logging.VirtualStore("run_command failed: %s (%v)", command, runErr)
+		logging.Tools("run_command failed: %s (%v)", command, runErr)
 		return output, fmt.Errorf("command failed: %w\nOutput:\n%s", runErr, output)
 	}
 
-	logging.VirtualStore("run_command completed: %s (%d bytes output)", command, len(output))
+	logging.Tools("run_command completed: %s (%d bytes output)", command, len(output))
 	return output, nil
 }
 
 // BashTool returns a tool for executing bash scripts.
 func BashTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "bash",
-		Description: "Execute a bash script",
-		Category:    tools.CategoryCode,
-		Priority:    70,
-		Execute:     executeBash,
+		Name:          "bash",
+		AltCategories: []tools.ToolCategory{tools.CategoryAttack},
+		Description:   "Execute a bash script",
+		Category:      tools.CategoryCode,
+		Priority:      70,
+		Execute:       executeBash,
 		Schema: tools.ToolSchema{
 			Required: []string{"script"},
 			Properties: map[string]tools.Property{
@@ -407,6 +394,12 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("script is required")
 	}
 
+	rawWorkingDir, _ := args["working_dir"].(string)
+	workingDir, err := resolveWorkingDir(ctx, rawWorkingDir)
+	if err != nil {
+		return "", err
+	}
+
 	timeout := 60
 	if t, ok := coerceInt(args["timeout_seconds"]); ok && t > 0 {
 		timeout = t
@@ -428,7 +421,7 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 			// Fall back to cmd with basic interpretation
 			return executeRunCommand(ctx, map[string]any{
 				"command":         script,
-				"working_dir":     args["working_dir"],
+				"working_dir":     workingDir,
 				"timeout_seconds": args["timeout_seconds"],
 			})
 		}
@@ -437,17 +430,15 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 		cmd.Stdin = strings.NewReader(script)
 	}
 
-	if wd, ok := args["working_dir"].(string); ok && wd != "" {
-		cmd.Dir = wd
-	}
+	cmd.Dir = workingDir
 
-	logging.VirtualStoreDebug("bash: script_len=%d, timeout=%ds", len(script), timeout)
+	logging.ToolsDebug("bash: script_len=%d, dir=%s, timeout=%ds", len(script), workingDir, timeout)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 
 	output := stdout.String()
 	if stderr.Len() > 0 {
@@ -468,7 +459,7 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 		return output, fmt.Errorf("script failed: %w", err)
 	}
 
-	logging.VirtualStore("bash completed: (%d bytes output)", len(output))
+	logging.Tools("bash completed: (%d bytes output)", len(output))
 	return output, nil
 }
 
@@ -525,9 +516,10 @@ func RunBuildTool() *tools.Tool {
 }
 
 func executeRunBuild(ctx context.Context, args map[string]any) (string, error) {
-	workingDir := "."
-	if wd, ok := args["working_dir"].(string); ok && wd != "" {
-		workingDir = wd
+	rawWorkingDir, _ := args["working_dir"].(string)
+	workingDir, err := resolveWorkingDir(ctx, rawWorkingDir)
+	if err != nil {
+		return "", err
 	}
 
 	command, _ := args["command"].(string)
@@ -539,7 +531,7 @@ func executeRunBuild(ctx context.Context, args map[string]any) (string, error) {
 		}
 	}
 
-	logging.VirtualStoreDebug("run_build: cmd=%s, dir=%s", command, workingDir)
+	logging.ToolsDebug("run_build: cmd=%s, dir=%s", command, workingDir)
 
 	return executeRunCommand(ctx, map[string]any{
 		"command":         command,
@@ -578,11 +570,12 @@ func detectBuildCommand(dir string) string {
 // RunTestsTool returns a tool for running project tests.
 func RunTestsTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "run_tests",
-		Description: "Run the project test suite",
-		Category:    tools.CategoryTest,
-		Priority:    75,
-		Execute:     executeRunTests,
+		Name:          "run_tests",
+		AltCategories: []tools.ToolCategory{tools.CategoryAttack},
+		Description:   "Run the project test suite",
+		Category:      tools.CategoryTest,
+		Priority:      75,
+		Execute:       executeRunTests,
 		Schema: tools.ToolSchema{
 			Required: []string{},
 			Properties: map[string]tools.Property{
@@ -609,9 +602,10 @@ func RunTestsTool() *tools.Tool {
 }
 
 func executeRunTests(ctx context.Context, args map[string]any) (string, error) {
-	workingDir := "."
-	if wd, ok := args["working_dir"].(string); ok && wd != "" {
-		workingDir = wd
+	rawWorkingDir, _ := args["working_dir"].(string)
+	workingDir, err := resolveWorkingDir(ctx, rawWorkingDir)
+	if err != nil {
+		return "", err
 	}
 
 	command, _ := args["command"].(string)
@@ -630,7 +624,7 @@ func executeRunTests(ctx context.Context, args map[string]any) (string, error) {
 		command = addTestPattern(command, pattern)
 	}
 
-	logging.VirtualStoreDebug("run_tests: cmd=%s, dir=%s", command, workingDir)
+	logging.ToolsDebug("run_tests: cmd=%s, dir=%s", command, workingDir)
 
 	return executeRunCommand(ctx, map[string]any{
 		"command":         command,
@@ -684,11 +678,12 @@ func addTestPattern(command, pattern string) string {
 // GitDiffTool returns a tool for viewing git diffs.
 func GitDiffTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "git_diff",
-		Description: "Show git diff for files or commits",
-		Category:    tools.CategoryCode,
-		Priority:    70,
-		Execute:     executeGitDiff,
+		Name:          "git_diff",
+		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral},
+		Description:   "Show git diff for files or commits",
+		Category:      tools.CategoryCode,
+		Priority:      70,
+		Execute:       executeGitDiff,
 		Schema: tools.ToolSchema{
 			Required: []string{},
 			Properties: map[string]tools.Property{
@@ -727,14 +722,20 @@ func executeGitDiff(ctx context.Context, args map[string]any) (string, error) {
 		cmdArgs = append(cmdArgs, commit)
 	}
 
-	// Add path
+	// Add path. The pathspec is contained even though git would reject a path
+	// outside the repository anyway: working_dir may legitimately be a nested
+	// repo, and "outside the workspace but inside some repo" is exactly the
+	// case a pathspec can reach and the working_dir guard cannot see.
 	if path, ok := args["path"].(string); ok && path != "" {
+		if _, err := tools.ResolveWorkspacePath(ctx, "", path); err != nil {
+			return "", err
+		}
 		cmdArgs = append(cmdArgs, "--", path)
 	}
 
 	command := "git " + strings.Join(cmdArgs, " ")
 
-	logging.VirtualStoreDebug("git_diff: cmd=%s", command)
+	logging.ToolsDebug("git_diff: cmd=%s", command)
 
 	return executeRunCommand(ctx, map[string]any{
 		"command":         command,
@@ -746,11 +747,12 @@ func executeGitDiff(ctx context.Context, args map[string]any) (string, error) {
 // GitLogTool returns a tool for viewing git history.
 func GitLogTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "git_log",
-		Description: "Show git commit history",
-		Category:    tools.CategoryCode,
-		Priority:    70,
-		Execute:     executeGitLog,
+		Name:          "git_log",
+		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral},
+		Description:   "Show git commit history",
+		Category:      tools.CategoryCode,
+		Priority:      70,
+		Execute:       executeGitLog,
 		Schema: tools.ToolSchema{
 			Required: []string{},
 			Properties: map[string]tools.Property{
@@ -814,12 +816,15 @@ func executeGitLog(ctx context.Context, args map[string]any) (string, error) {
 
 	// Add path
 	if path, ok := args["path"].(string); ok && path != "" {
+		if _, err := tools.ResolveWorkspacePath(ctx, "", path); err != nil {
+			return "", err
+		}
 		cmdArgs = append(cmdArgs, "--", path)
 	}
 
 	command := "git " + strings.Join(cmdArgs, " ")
 
-	logging.VirtualStoreDebug("git_log: cmd=%s", command)
+	logging.ToolsDebug("git_log: cmd=%s", command)
 
 	return executeRunCommand(ctx, map[string]any{
 		"command":         command,
@@ -943,7 +948,7 @@ func executeGitOperation(ctx context.Context, args map[string]any) (string, erro
 
 	command := "git " + strings.Join(cmdArgs, " ")
 
-	logging.VirtualStoreDebug("git_operation: cmd=%s", command)
+	logging.ToolsDebug("git_operation: cmd=%s", command)
 
 	return executeRunCommand(ctx, map[string]any{
 		"command":         command,

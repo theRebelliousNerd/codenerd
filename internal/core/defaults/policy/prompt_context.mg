@@ -181,9 +181,12 @@ next_action(/refresh_shard_context) :-
 # --- Learning Signals from Context Usage ---
 
 # Track when injected context leads to successful task completion
+# shard_success/1 is the outcome predicate; shard_executed/4 arg 3 is the Task
+# description, so the old shard_executed(ShardID, _, /success, _) never matched
+# anything (see the same fix in policy/jit_selection.mg).
 context_injection_effective(ShardID, Atom) :-
     final_injectable(ShardID, Atom),
-    shard_executed(ShardID, _, /success, _).
+    shard_success(ShardID).
 
 # Learn from effective context injections
 learning_signal(/effective_context, Atom) :-

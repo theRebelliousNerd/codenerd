@@ -1,30 +1,30 @@
 # TODO — `internal/diff`
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-15  
 > Prioritized backlog for the package and its immediate integration. Docs-only session;
 > items are recommendations, not scheduled work.
 
 ## P0 / P1 — Correctness & resource safety
 
-- [ ] Deep-copy `Hunks`/`Lines` on cache hit (or store immutable snapshots)  
-- [ ] Bound cache size (LRU / max entries / max total bytes)  
-- [ ] Optional content verification on cache hit (lengths + secondary hash)
+- [x] Deep-copy `Hunks`/`Lines` on cache hit (or store immutable snapshots)  
+- [x] Bound cache size (LRU / max entries / max total bytes)  
+- [x] Optional content verification on cache hit. Key now carries two hashes + length per side unconditionally; `Options.VerifyCacheContent` adds exact byte comparison, with rejected hits counted in `Stats.Collisions`.
 
 ## P2 — API polish
 
-- [ ] `DiffOptions{ContextLines, DisableCache, ...}` with zero-value defaults  
-- [ ] Word-level spans as codeNERD types (stop leaking `diffmatchpatch.Diff` in public API)  
-- [ ] Document or deprecate unused `LineHeader` production gap  
-- [ ] Align `CreateDiffFromStrings` with view-local engine (avoid dual-cache surprise)
+- [x] `DiffOptions{ContextLines, DisableCache, ...}` with zero-value defaults  
+- [x] Word-level spans as codeNERD types — `WordSpan`/`SpanType`; the UI now paints them instead of ignoring an `any`.  
+- [x] `LineHeader` decided: UI-owned enum member, engine never emits it, enforced by test and documented at the declaration.  
+- [x] `CreateDiffFromStrings` and every `DiffApprovalView` share one `uiDiffEngine`; `DiffEngineStats()` exposes its counters.
 
 ## P3 — Observability & tests
 
-- [ ] `Engine.Stats()` counters (hits, misses, binary, computes)  
-- [ ] Test: shallow-cache mutation fail-closed after deep-copy fix  
-- [ ] Test: ClearCache concurrent with ComputeDiff under `-race`  
-- [ ] Test: assert DiffTimeout behavior on synthetic pathological input  
-- [ ] Test: trailing-newline-only change representation precision  
-- [ ] Benchmark CI smoke (optional)
+- [x] `Engine.Stats()` counters (hits, misses, binary, computes)  
+- [x] Test: shallow-cache mutation fail-closed after deep-copy fix  
+- [x] Test: ClearCache concurrent with ComputeDiff under `-race`  
+- [x] Test: assert DiffTimeout behavior on synthetic pathological input  
+- [x] Test: trailing-newline-only change representation precision  
+- [x] Benchmark CI smoke — `TestBenchmarks_WhenRunAsSmoke_ShouldCompleteAndDoWork` runs every benchmark in the normal test pass (skipped under `-short`).
 
 ## Explicit non-TODOs
 

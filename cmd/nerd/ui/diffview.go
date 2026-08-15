@@ -147,7 +147,7 @@ func NewDiffApprovalView(styles Styles, width, height int) DiffApprovalView {
 		SelectedHunk:     0,
 		ApprovalMode:     ModeReview,
 		WordLevelDiff:    true, // Enable word-level diffing by default
-		diffEngine:       diff.NewEngine(),
+		diffEngine:       uiDiffEngine,
 		keys:             DefaultDiffKeyMap(),
 		help:             h,
 	}
@@ -519,7 +519,7 @@ func (d *DiffApprovalView) renderHunkLines(lines []DiffLine) string {
 		}
 
 		// Regular line rendering
-		sb.WriteString(d.renderDiffLine(line, nil))
+		sb.WriteString(d.renderDiffLine(line))
 		sb.WriteString("\n")
 	}
 
@@ -611,9 +611,10 @@ func isWhitespaceOnlyChange(a, b string) bool {
 	return normalize(a) == normalize(b)
 }
 
-// renderDiffLine renders a single diff line with appropriate styling
-// wordDiffs is optional - if provided, word-level highlights will be applied
-func (d *DiffApprovalView) renderDiffLine(line DiffLine, wordDiffs any) string {
+// renderDiffLine renders a single diff line with appropriate styling.
+// Word-level highlighting is handled by renderWordDiffPair, which is the only
+// place a line has a counterpart to be compared against.
+func (d *DiffApprovalView) renderDiffLine(line DiffLine) string {
 	var style lipgloss.Style
 	var prefix string
 
@@ -636,41 +637,43 @@ func (d *DiffApprovalView) renderDiffLine(line DiffLine, wordDiffs any) string {
 		prefix = ""
 	}
 
-	// If word diffs provided, render with highlights (wordDiffs not used yet, placeholder)
-	_ = wordDiffs
 	fullLine := fmt.Sprintf("%s%s", prefix, line.Content)
 	slicedLine := sliceString(fullLine, d.XOffset, d.Viewport.Width)
 	return style.Render(slicedLine)
 }
 
-// renderWordDiffPair renders a removed/added line pair with word-level highlighting
+// renderWordDiffPair renders a removed/added line pair with word-level
+// highlighting: the runs unique to each side are painted in a stronger colour
+// so the eye lands on what actually changed rather than on two whole red/green
+// lines that differ by one identifier.
 func (d *DiffApprovalView) renderWordDiffPair(removed, added DiffLine) string {
-	// Compute word-level diffs
-	wordDiffs := d.diffEngine.ComputeWordLevelDiff(removed.Content, added.Content)
+	spans := d.diffEngine.ComputeWordLevelDiff(removed.Content, added.Content)
 
 	var sb strings.Builder
-
-	// Render removed line with highlights
-	sb.WriteString(d.renderLineWithWordHighlights(removed, wordDiffs, true))
+	sb.WriteString(d.renderLineWithWordHighlights(removed, spans, true))
 	sb.WriteString("\n")
-
-	// Render added line with highlights
-	sb.WriteString(d.renderLineWithWordHighlights(added, wordDiffs, false))
-
+	sb.WriteString(d.renderLineWithWordHighlights(added, spans, false))
 	return sb.String()
 }
 
-// renderLineWithWordHighlights renders a line with word-level change highlighting
-func (d *DiffApprovalView) renderLineWithWordHighlights(line DiffLine, wordDiffs any, isRemoved bool) string {
-	// Import the diff package types
-	// For now, we'll do basic rendering with full line styling
-	// In a full implementation, we'd parse wordDiffs and apply different colors to changed words
+// styledSegment is a run of a rendered line that shares one style.
+type styledSegment struct {
+	text      string
+	highlight bool
+}
 
+// renderLineWithWordHighlights paints one side of a changed line pair.
+//
+// The span slice covers both sides at once, so the removed line consumes
+// SpanEqual + SpanDelete and the added line consumes SpanEqual + SpanInsert.
+// When the spans do not reconstruct this line's content — the pair was filtered
+// or rewritten between compute and render — it falls back to whole-line styling
+// rather than displaying text the file does not contain.
+func (d *DiffApprovalView) renderLineWithWordHighlights(line DiffLine, spans []diff.WordSpan, isRemoved bool) string {
 	var baseStyle, highlightStyle lipgloss.Style
 	var prefix string
 
 	if isRemoved {
-		// Removed line styles
 		baseStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#ef4444")).
 			Background(lipgloss.Color("#2d0a0a"))
@@ -680,7 +683,6 @@ func (d *DiffApprovalView) renderLineWithWordHighlights(line DiffLine, wordDiffs
 			Bold(true)
 		prefix = "- "
 	} else {
-		// Added line styles
 		baseStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#22c55e")).
 			Background(lipgloss.Color("#052e16"))
@@ -691,15 +693,83 @@ func (d *DiffApprovalView) renderLineWithWordHighlights(line DiffLine, wordDiffs
 		prefix = "+ "
 	}
 
-	// For now, render with base style
-	// Full word-diff highlighting would require parsing wordDiffs and applying highlightStyle
-	// to specific character ranges
-	_ = highlightStyle // Placeholder for future enhancement
-	_ = wordDiffs
+	segments := wordDiffSegments(prefix, line.Content, spans, isRemoved)
+	segments = sliceSegments(segments, d.XOffset, d.Viewport.Width)
 
-	fullLine := fmt.Sprintf("%s%s", prefix, line.Content)
-	slicedLine := sliceString(fullLine, d.XOffset, d.Viewport.Width)
-	return baseStyle.Render(slicedLine)
+	var sb strings.Builder
+	for _, seg := range segments {
+		if seg.highlight {
+			sb.WriteString(highlightStyle.Render(seg.text))
+			continue
+		}
+		sb.WriteString(baseStyle.Render(seg.text))
+	}
+	return sb.String()
+}
+
+// wordDiffSegments turns the shared span slice into this side's segments,
+// prefixed by the +/- gutter. It returns a single unhighlighted segment when
+// the spans do not reconstruct content exactly.
+func wordDiffSegments(prefix, content string, spans []diff.WordSpan, isRemoved bool) []styledSegment {
+	unique := diff.SpanInsert
+	if isRemoved {
+		unique = diff.SpanDelete
+	}
+
+	segments := []styledSegment{{text: prefix}}
+	var rebuilt strings.Builder
+	for _, span := range spans {
+		if span.Type != diff.SpanEqual && span.Type != unique {
+			continue
+		}
+		rebuilt.WriteString(span.Text)
+		segments = append(segments, styledSegment{
+			text:      span.Text,
+			highlight: span.Type == unique,
+		})
+	}
+
+	if rebuilt.String() != content {
+		return []styledSegment{{text: prefix + content}}
+	}
+	return segments
+}
+
+// sliceSegments applies the horizontal scroll window across styled segments,
+// using the same column arithmetic as sliceString so a highlighted line scrolls
+// in step with the plain ones around it.
+func sliceSegments(segments []styledSegment, startCol, maxCols int) []styledSegment {
+	if startCol < 0 {
+		startCol = 0
+	}
+	if maxCols <= 0 {
+		return nil
+	}
+
+	var currentWidth, outputWidth int
+	out := make([]styledSegment, 0, len(segments))
+
+	for _, seg := range segments {
+		var sb strings.Builder
+		for _, r := range seg.text {
+			w := runewidth.RuneWidth(r)
+			if currentWidth >= startCol {
+				if outputWidth+w > maxCols {
+					if sb.Len() > 0 {
+						out = append(out, styledSegment{text: sb.String(), highlight: seg.highlight})
+					}
+					return out
+				}
+				sb.WriteRune(r)
+				outputWidth += w
+			}
+			currentWidth += w
+		}
+		if sb.Len() > 0 {
+			out = append(out, styledSegment{text: sb.String(), highlight: seg.highlight})
+		}
+	}
+	return out
 }
 
 // renderControls renders the approval controls
@@ -787,6 +857,25 @@ func sliceString(s string, startCol, maxCols int) string {
 
 	return sb.String()
 }
+
+// uiDiffEngine is the one diff engine the UI package uses.
+//
+// CreateDiffFromStrings used to call diff.ComputeDiff, which runs on the
+// package-global DefaultEngine, while each DiffApprovalView built a private
+// engine for its word-level path. The same file content was therefore diffed
+// and cached twice, in two caches with different lifetimes: clearing one left
+// the other stale, and the engine Stats a caller read described whichever
+// engine they happened to hold rather than the work the UI actually did. One
+// engine for the package removes the surprise; it is safe to share because
+// Engine is mutex-guarded internally.
+var uiDiffEngine = diff.NewEngine()
+
+// CreateDiffFromStrings computes a file diff on the UI's engine.
 func CreateDiffFromStrings(oldPath, newPath, oldContent, newContent string) *FileDiff {
-	return diff.ComputeDiff(oldPath, newPath, oldContent, newContent)
+	return uiDiffEngine.ComputeDiff(oldPath, newPath, oldContent, newContent)
+}
+
+// DiffEngineStats reports the UI diff engine's cumulative cache counters.
+func DiffEngineStats() diff.Stats {
+	return uiDiffEngine.Stats()
 }

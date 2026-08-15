@@ -480,11 +480,20 @@ func (s *SystemShard) Execute(ctx context.Context, task string) (string, error) 
 		case <-s.stopCh:
 			return "System Shard stopped", nil
 		case tick := <-ticker.C:
-			// Propagate a heartbeat fact to the parent kernel
+			// Propagate a heartbeat fact to the parent kernel.
+			// Arg 1 is the /name slot of system_heartbeat/2 and holds the shard
+			// TYPE name, not this agent's spawn instance id ("coder-17…-3"):
+			// policy/system_shards.mg negates it as
+			// !system_shard_healthy(/session_planner). config.Name is the
+			// registry name; fall back to the id only when it is unset.
 			if s.kernel != nil {
+				name := s.config.Name
+				if name == "" {
+					name = s.id
+				}
 				if err := s.kernel.Assert(types.Fact{
 					Predicate: "system_heartbeat",
-					Args:      []any{s.id, tick.Unix()},
+					Args:      []any{types.MangleAtom("/" + strings.TrimLeft(name, "/")), tick.Unix()},
 				}); err != nil {
 					logging.Get(logging.CategoryKernel).Warn("failed to assert system_heartbeat: %v", err)
 				}

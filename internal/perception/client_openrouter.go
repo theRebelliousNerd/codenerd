@@ -180,6 +180,9 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 			return "", fmt.Errorf("no completion returned")
 		}
 
+		trackUsage(ctx, c.model, ProviderOpenRouter,
+			orResp.Usage.PromptTokens, orResp.Usage.CompletionTokens, usageOpChat)
+
 		response := strings.TrimSpace(orResp.Choices[0].Message.Content)
 		logging.Perception("[OpenRouter] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
 		return response, nil
@@ -318,6 +321,11 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 			scanDone := make(chan struct{})
 			scanErrChan := make(chan error, 1)
 
+			// include_usage makes OpenRouter send a trailing chunk with the
+			// final billed counts and no choices; recorded once after the
+			// stream ends rather than per delta.
+			var billed struct{ input, output int }
+
 			go func() {
 				defer close(scanDone)
 				for scanner.Scan() {
@@ -341,6 +349,10 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 						scanErrChan <- fmt.Errorf("API error: %s", chunk.Error.Message)
 						return
 					}
+					if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+						billed.input = chunk.Usage.PromptTokens
+						billed.output = chunk.Usage.CompletionTokens
+					}
 					if len(chunk.Choices) > 0 && chunk.Choices[0].Delta != nil {
 						delta := chunk.Choices[0].Delta.Content
 						if delta != "" {
@@ -355,6 +367,10 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 				if err := scanner.Err(); err != nil {
 					scanErrChan <- err
 				}
+			}()
+
+			defer func() {
+				trackUsage(ctx, c.model, ProviderOpenRouter, billed.input, billed.output, usageOpChat)
 			}()
 
 			select {
@@ -412,6 +428,8 @@ func (c *OpenRouterClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 	if err != nil {
 		return nil, err
 	}
+	trackUsage(ctx, c.model, ProviderOpenRouter,
+		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, usageOpFor(len(tools)))
 
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("no choices in response")

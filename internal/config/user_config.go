@@ -398,6 +398,10 @@ func (c *UserConfig) GetToolGenerationConfig() ToolGenerationConfig {
 		if c.ToolGeneration.TargetArch != "" {
 			cfg.TargetArch = c.ToolGeneration.TargetArch
 		}
+		// No zero-check: false is a meaningful value here and the default, so
+		// copying it unconditionally is what makes an explicit `false` in a
+		// config file mean what it says.
+		cfg.AllowToolExec = c.ToolGeneration.AllowToolExec
 	}
 	return cfg
 }
@@ -405,7 +409,10 @@ func (c *UserConfig) GetToolGenerationConfig() ToolGenerationConfig {
 // GetBuildConfig returns the build configuration with defaults.
 func (c *UserConfig) GetBuildConfig() BuildConfig {
 	cfg := DefaultBuildConfig()
-	if c.Build != nil {
+	// A nil receiver is the normal case for callers that have no loaded config
+	// (autopoiesis passes nil today); the other Get*Config accessors already
+	// guard for it and this one panicked instead.
+	if c != nil && c.Build != nil {
 		if len(c.Build.EnvVars) > 0 {
 			cfg.EnvVars = c.Build.EnvVars
 		}
@@ -522,6 +529,13 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	// flags are live for this run (features.SetActive itself stays
 	// log-free to keep the leaf package dependency-free).
 	logging.Get(logging.CategoryBoot).Info("%s", features.Summary())
+	// Legacy NERD_* env vars still work but are on a removal path. Naming them
+	// at boot is the only way an operator learns a shadowed legacy var is the
+	// reason a flag is not doing what their config says — the case most likely
+	// to send someone debugging the wrong knob.
+	for _, dep := range features.Deprecations() {
+		logging.Get(logging.CategoryBoot).Warn("features: %s", dep)
+	}
 
 	// Install the timeout profile into the process-wide singleton the ~25
 	// GetLLMTimeouts() call sites read. Same install-on-load pattern as

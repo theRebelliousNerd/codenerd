@@ -47,7 +47,11 @@ type ShardManager struct {
 	imageLLMClient types.LLMClient
 	virtualStore   any
 	// tracingClient TracingClient // Optional: set when llmClient implements TracingClient
-	transparencyManager any // types.TransparencyManager to be added later
+	// transparencyManager receives shard lifecycle phases. It was stored as
+	// `any` with a "to be added later" comment, which meant the spawn path
+	// could not call it: `/transparency` rendered Active Operations from a
+	// ShardObserver that nothing fed, while Glass Box showed the same shards.
+	transparencyManager types.TransparencyManager
 	learningStore       types.LearningStore
 	reviewerFeedback    ReviewerFeedbackProvider
 
@@ -156,11 +160,21 @@ func (sm *ShardManager) SetVirtualStore(vs any) {
 	logging.ShardsDebug("VirtualStore attached to ShardManager")
 }
 
-func (sm *ShardManager) SetTransparencyManager(tm any) {
+// SetTransparencyManager attaches the operator-visibility manager. Shard
+// spawn/complete now report phases through it (see SpawnAsyncWithContext).
+// nil is safe; every call site is nil-guarded.
+func (sm *ShardManager) SetTransparencyManager(tm types.TransparencyManager) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.transparencyManager = tm
 	logging.ShardsDebug("TransparencyManager attached to ShardManager")
+}
+
+// TransparencyManager returns the attached manager, or nil.
+func (sm *ShardManager) TransparencyManager() types.TransparencyManager {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.transparencyManager
 }
 
 func (sm *ShardManager) SetLLMClient(client types.LLMClient) {

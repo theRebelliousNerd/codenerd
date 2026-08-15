@@ -1,6 +1,6 @@
 # types — Architecture Corpus (`internal/types`)
 
-> Last verified against codebase: **2026-07-13**  
+> Last verified against codebase: **2026-08-15**  
 > Status: Living Reference Document — **code-grounded full corpus**  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/types/`  
@@ -16,7 +16,12 @@
 - `ShardAgent`, `ShardConfig`, permissions, spawn priority
 - `SessionContext` blackboard payload
 - Safe fact-argument extractors
-- Atomic kernel transaction wrappers (`KernelTx`)
+- Atomic kernel transaction wrappers (`KernelTx`, `TransactorOf`)
+- Typed context keys for spawn priority and per-call model hints (`ctxkeys.go`)
+- Operator-visibility contract for long-lived subsystems (`TransparencyManager`)
+- Two **repo-wide ratchet tests** that keep fact-construction conventions and
+  `KernelTransactor` conformance from decaying (`fact_conventions_guard_test.go`,
+  `kernel_transactor_guard_test.go`)
 
 This corpus documents what the package **defines**, who **implements** it, who **consumes** it, and the invariants that keep fact poisoning and import cycles out of the runtime.
 

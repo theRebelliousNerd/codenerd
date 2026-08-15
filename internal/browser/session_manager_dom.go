@@ -45,6 +45,10 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 		if registry != nil && registry.Count() > 0 {
 			registry.Clear()
 		}
+		// A navigation retires everything the previous page asserted, so it is
+		// the natural garbage-collection boundary and the point where the
+		// per-epoch fact budget resets.
+		m.RollSessionEpoch(sessionID)
 		facts := []mangle.Fact{
 			{
 				Predicate: "navigation_event",
@@ -57,7 +61,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				Timestamp: now,
 			},
 		}
-		if err := m.addFacts(facts); err != nil {
+		if err := m.addStreamFacts(sessionID, facts); err != nil {
 			logging.BrowserError("[session:%s] navigation fact error: %v", sessionID, err)
 		}
 		m.UpdateMetadata(sessionID, func(s Session) Session {
@@ -82,7 +86,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 
 		level := strings.ToLower(m.cfg.EventLoggingLevel)
 		captureDOM := m.cfg.EnableDOMIngestion && level != "minimal"
-		captureHeaders := m.cfg.EnableHeaderIngestion && level != "minimal"
+		captureHeaders := m.cfg.ShouldIngestHeaders() && level != "minimal"
 		consoleErrorsOnly := level == "minimal"
 		throttler := newEventThrottler(m.cfg.EventThrottleMs)
 		logging.BrowserDebug("Event stream config: level=%s, captureDOM=%v, captureHeaders=%v", level, captureDOM, captureHeaders)
@@ -90,7 +94,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 		// Optionally capture initial DOM snapshot
 		if captureDOM {
 			_ = (proto.DOMEnable{}).Call(page)
-			_ = m.captureDOMFacts(ctx, sessionID, page)
+			_ = m.captureDOMFacts(ctx, sessionID, page, true)
 		}
 
 		// Install lightweight click/input/state trackers
@@ -200,7 +204,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				}
 				now := time.Now()
 				msg := stringifyConsoleArgs(ev.Args)
-				if err := m.addFacts([]mangle.Fact{{
+				if err := m.addStreamFacts(sessionID, []mangle.Fact{{
 					Predicate: "console_event",
 					Args:      []any{sessionID, string(ev.Type), msg, now.UnixMilli()},
 					Timestamp: now,
@@ -268,13 +272,13 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					})
 				}
 
-				if err := m.addFacts(facts); err != nil {
+				if err := m.addStreamFacts(sessionID, facts); err != nil {
 					logging.BrowserError("[session:%s] net_request fact error: %v", sessionID, err)
 				}
 
 				if captureHeaders && ev.Request != nil {
 					for k, v := range ev.Request.Headers {
-						if err := m.addFacts([]mangle.Fact{{
+						if err := m.addStreamFacts(sessionID, []mangle.Fact{{
 							Predicate: "net_header",
 							Args:      []any{sessionID, string(ev.RequestID), "req", strings.ToLower(k), fmt.Sprintf("%v", v)},
 							Timestamp: now,
@@ -317,13 +321,13 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					Args:      []any{sessionID, string(ev.RequestID), int64(ev.Response.Status), latency, duration},
 					Timestamp: now,
 				})
-				if err := m.addFacts(facts); err != nil {
+				if err := m.addStreamFacts(sessionID, facts); err != nil {
 					logging.BrowserError("[session:%s] net_response fact error: %v", sessionID, err)
 				}
 
 				if captureHeaders && ev.Response != nil {
 					for k, v := range ev.Response.Headers {
-						if err := m.addFacts([]mangle.Fact{{
+						if err := m.addStreamFacts(sessionID, []mangle.Fact{{
 							Predicate: "net_header",
 							Args:      []any{sessionID, string(ev.RequestID), "res", strings.ToLower(k), fmt.Sprintf("%v", v)},
 							Timestamp: now,
@@ -352,7 +356,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					Args:      []any{sessionID, string(ev.RequestID), ev.ErrorText, string(ev.BlockedReason), now.UnixMilli()},
 					Timestamp: now,
 				})
-				if err := m.addFacts(facts); err != nil {
+				if err := m.addStreamFacts(sessionID, facts); err != nil {
 					logging.BrowserError("[session:%s] net_failure fact error: %v", sessionID, err)
 				}
 			},
@@ -363,7 +367,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				if !throttler.Allow("dom_update") {
 					return
 				}
-				if err := m.captureDOMFacts(ctx, sessionID, page); err != nil {
+				if err := m.captureDOMFacts(ctx, sessionID, page, true); err != nil {
 					logging.BrowserError("[session:%s] DOM capture error: %v", sessionID, err)
 				}
 			},
@@ -462,7 +466,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 						}
 					}
 					if len(facts) > 0 {
-						if err := m.addFacts(facts); err != nil {
+						if err := m.addStreamFacts(sessionID, facts); err != nil {
 							logging.BrowserError("[session:%s] click/state fact error: %v", sessionID, err)
 						}
 					}
@@ -490,8 +494,11 @@ func stringifyConsoleArgs(args []*proto.RuntimeRemoteObject) string {
 	return strings.Join(parts, " ")
 }
 
-// captureDOMFacts snapshots a limited DOM view into facts.
-func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, page *rod.Page) error {
+// captureDOMFacts snapshots a limited DOM view into facts. budgeted marks the
+// stream-driven calls, which repeat for the life of the tab and must respect
+// the per-epoch fact budget; an explicit SnapshotDOM is caller-initiated and is
+// never silently dropped.
+func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, page *rod.Page, budgeted bool) error {
 	const maxNodes = 200
 	script := fmt.Sprintf(`
 	() => {
@@ -543,26 +550,40 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 		return err
 	}
 
-	var nodes []struct {
-		ID     string            `json:"id"`
-		Tag    string            `json:"tag"`
-		Text   string            `json:"text"`
-		Parent string            `json:"parent"`
-		Attrs  map[string]string `json:"attrs"`
-		Layout struct {
-			X       float64 `json:"x"`
-			Y       float64 `json:"y"`
-			Width   float64 `json:"width"`
-			Height  float64 `json:"height"`
-			Visible bool    `json:"visible"`
-		} `json:"layout"`
-		Styles map[string]string `json:"styles"`
-	}
+	var nodes []domSnapshotNode
 	if err := json.Unmarshal(raw, &nodes); err != nil {
 		return err
 	}
 
-	now := time.Now()
+	facts := m.buildDOMFacts(sessionID, nodes, time.Now())
+	if budgeted {
+		return m.addStreamFacts(sessionID, facts)
+	}
+	return m.addFacts(facts)
+}
+
+// domSnapshotNode is one entry of the bounded DOM view the page script returns.
+type domSnapshotNode struct {
+	ID     string            `json:"id"`
+	Tag    string            `json:"tag"`
+	Text   string            `json:"text"`
+	Parent string            `json:"parent"`
+	Attrs  map[string]string `json:"attrs"`
+	Layout struct {
+		X       float64 `json:"x"`
+		Y       float64 `json:"y"`
+		Width   float64 `json:"width"`
+		Height  float64 `json:"height"`
+		Visible bool    `json:"visible"`
+	} `json:"layout"`
+	Styles map[string]string `json:"styles"`
+}
+
+// buildDOMFacts turns a decoded DOM view into the fact batch SnapshotDOM
+// asserts. It is separated from the page evaluation so the schema contract
+// (every predicate declared, every argument matching its declared bound type)
+// can be checked without a live browser.
+func (m *SessionManager) buildDOMFacts(sessionID string, nodes []domSnapshotNode, now time.Time) []mangle.Fact {
 	facts := make([]mangle.Fact, 0, len(nodes)*6+1)
 	for _, n := range nodes {
 		n.Text = m.redactor.SanitizeString(n.Text)
@@ -579,9 +600,14 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 			}
 		}
 		// 1. Assert standard DOM predicates with session-qualified identities.
+		// The capture script reads el.tagName, which the DOM always reports
+		// upper-cased for HTML elements. element/3 below already lower-cases it,
+		// and every rule and fixture that matches a tag - target_checkbox in
+		// policy/browser.mg, testdata/honeypot.edb - writes it lower-case, so an
+		// upper-case dom_node tag unified with none of them.
 		facts = append(facts, mangle.Fact{
 			Predicate: "dom_node",
-			Args:      []any{n.ID, n.Tag, n.Text, n.Parent},
+			Args:      []any{n.ID, strings.ToLower(n.Tag), n.Text, n.Parent},
 			Timestamp: now,
 		})
 		if n.Text != "" {
@@ -683,7 +709,7 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 		Args:      []any{sessionID, now.UnixMilli()},
 		Timestamp: now,
 	})
-	return m.addFacts(facts)
+	return facts
 }
 
 func qualifyBrowserNode(sessionID, nodeID string) string {
@@ -699,7 +725,7 @@ func (m *SessionManager) SnapshotDOM(ctx context.Context, sessionID string) erro
 	if !ok {
 		return fmt.Errorf("unknown session: %s", sessionID)
 	}
-	return m.captureDOMFacts(ctx, sessionID, page)
+	return m.captureDOMFacts(ctx, sessionID, page, false)
 }
 
 func snapshotStorage(page *rod.Page, store string) string {

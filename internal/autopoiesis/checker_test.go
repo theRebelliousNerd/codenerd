@@ -16,7 +16,6 @@ func TestSafetyChecker(t *testing.T) {
 	}
 	checker := NewSafetyChecker(cfg)
 
-
 	// TODO: TEST_GAP: Null/Empty Inputs - Test checker.Check with an entirely empty string, null bytes, and whitespace-only strings.
 	// TODO: TEST_GAP: Type Coercion - Test describeViolation fallback when Mangle bindings return non-string types for 'V'.
 	// TODO: TEST_GAP: User Request Extremes - Test ExtractASTFacts with excessively deep ASTs to ensure ast.Walk does not trigger a stack overflow.
@@ -37,12 +36,16 @@ func main() { fmt.Println("Hello") }`,
 			shouldPass: true,
 		},
 		{
-			name: "Forbidden Import",
+			// os/exec is now reported as ViolationExec rather than the generic
+			// ViolationForbiddenImport: the category the enum already had for
+			// "this code shells out" was never produced by anything, so the
+			// feedback sent back to the LLM could not name the actual hazard.
+			name: "Forbidden Import (exec)",
 			code: `package main
 import "os/exec"
 func main() { exec.Command("whoami") }`,
 			shouldPass:  false,
-			violation:   ViolationForbiddenImport,
+			violation:   ViolationExec,
 			descContain: "os/exec",
 		},
 		{

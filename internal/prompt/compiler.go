@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
+	"codenerd/internal/transparency"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -1150,9 +1151,54 @@ func (c *JITPromptCompiler) buildManifest(
 	return manifest
 }
 
+// emitJITGlassBox publishes atom-selection telemetry to the Glass Box stream
+// when the operator has JIT explain on.
+//
+// The compiler is constructed at boot before the Glass Box bus exists and
+// takes no bus setter, so this goes through the process-wide transparency
+// facade rather than an injected handle. It is a no-op (one atomic load) when
+// JIT explain is off, which is the default.
+func emitJITGlassBox(stats *CompilationStats, result *CompilationResult) {
+	if stats == nil || !transparency.JITExplainEnabled() {
+		return
+	}
+
+	source := stats.ShardID
+	if source == "" {
+		source = "jit"
+	}
+	summary := fmt.Sprintf("%d atoms · %d/%d tokens", stats.AtomsSelected, stats.TokensUsed, stats.TokenBudget)
+	if stats.CacheHit {
+		summary += " (cache hit)"
+	}
+
+	var details strings.Builder
+	fmt.Fprintf(&details, "skeleton=%d flesh=%d candidates=%d dropped=%d\n",
+		stats.SkeletonAtoms, stats.FleshAtoms, stats.AtomsCandidates, stats.AtomsDropped)
+	fmt.Fprintf(&details, "sources: embedded=%d project=%d shard=%d evolved=%d\n",
+		stats.EmbeddedAtoms, stats.ProjectAtoms, stats.ShardAtoms, stats.EvolvedAtoms)
+	if stats.IntentVerb != "" {
+		fmt.Fprintf(&details, "intent=%s\n", stats.IntentVerb)
+	}
+	if result != nil && result.Manifest != nil {
+		ids := make([]string, 0, len(result.Manifest.Selected))
+		for _, entry := range result.Manifest.Selected {
+			ids = append(ids, entry.ID)
+		}
+		if len(ids) > 12 {
+			ids = append(ids[:12], "…")
+		}
+		fmt.Fprintf(&details, "selected: %s", strings.Join(ids, ", "))
+	}
+
+	transparency.EmitJIT(summary, details.String(), source, stats.Duration)
+}
+
 // logCompilationStats logs comprehensive stats at the end of compilation.
 func (c *JITPromptCompiler) logCompilationStats(stats *CompilationStats, result *CompilationResult) {
 	logger := logging.Get(logging.CategoryJIT)
+
+	emitJITGlassBox(stats, result)
 
 	// Budget breach detection: budgetMgr.Fit accounts only per-atom render-mode
 	// tokens. The final assembled prompt picks up extra tokens from headers,

@@ -17,21 +17,44 @@ import (
 	"codenerd/internal/mangle"
 )
 
-var goSafetyPolicy string
+var (
+	goSafetyPolicy string
+	// goSafetyPolicyErr records why the embedded policy is unusable. A nil
+	// value is the only thing that authorises a safety verdict.
+	goSafetyPolicyErr error
+)
 
 func init() {
-	if policy, err := core.GetDefaultContent("go_safety.mg"); err == nil {
-		goSafetyPolicy = policy
-	} else {
-		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to load embedded go_safety.mg: %v", err)
-		goSafetyPolicy = ""
+	goSafetyPolicy, goSafetyPolicyErr = loadGoSafetyPolicy()
+	if goSafetyPolicyErr != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error(
+			"go_safety.mg unusable, tool generation will fail closed: %v", goSafetyPolicyErr)
 	}
+}
+
+// loadGoSafetyPolicy reads the embedded Ouroboros safety policy.
+//
+// An empty policy is treated as a load failure, not as a permissive policy.
+// This used to swallow the error and leave goSafetyPolicy == "": the checker
+// then loaded an empty schema, `?violation(V)` matched nothing, and every
+// generated tool — including one importing os/exec or calling panic — was
+// reported Safe. A policy that cannot be read has to deny, never permit.
+func loadGoSafetyPolicy() (string, error) {
+	policy, err := core.GetDefaultContent("go_safety.mg")
+	if err != nil {
+		return "", fmt.Errorf("failed to load embedded go_safety.mg: %w", err)
+	}
+	if strings.TrimSpace(policy) == "" {
+		return "", fmt.Errorf("embedded go_safety.mg is empty; refusing to run with an empty safety policy")
+	}
+	return policy, nil
 }
 
 // SafetyChecker validates generated tool code for safety using a Mangle policy.
 type SafetyChecker struct {
 	config      OuroborosConfig
 	policy      string
+	policyErr   error
 	allowedPkgs []string
 }
 
@@ -109,20 +132,50 @@ const (
 )
 
 // NewSafetyChecker creates a new safety checker backed by the Mangle policy.
+//
+// If the embedded policy failed to load, the checker is still returned but is
+// permanently in fail-closed mode: every Check reports a blocking policy
+// violation. Returning a working-looking checker with no rules would silently
+// disable the only gate in front of compiled, executed, LLM-authored code.
 func NewSafetyChecker(config OuroborosConfig) *SafetyChecker {
+	return newSafetyCheckerWithPolicy(config, goSafetyPolicy, goSafetyPolicyErr)
+}
+
+// newSafetyCheckerWithPolicy is the injectable seam behind NewSafetyChecker so
+// the fail-closed path can be exercised without breaking the embedded policy.
+func newSafetyCheckerWithPolicy(config OuroborosConfig, policy string, policyErr error) *SafetyChecker {
 	logging.AutopoiesisDebug("Creating SafetyChecker: AllowFileSystem=%v, AllowNetworking=%v, AllowExec=%v",
 		config.AllowFileSystem, config.AllowNetworking, config.AllowExec)
 
+	if policyErr == nil && strings.TrimSpace(policy) == "" {
+		policyErr = fmt.Errorf("safety policy is empty; refusing to run with an empty safety policy")
+	}
+
 	checker := &SafetyChecker{
-		config: config,
-		policy: goSafetyPolicy,
+		config:    config,
+		policy:    policy,
+		policyErr: policyErr,
 	}
 	checker.allowedPkgs = checker.buildAllowedPackages()
+
+	if policyErr != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error(
+			"SafetyChecker is FAIL-CLOSED: no usable safety policy (%v); all tool generation will be rejected", policyErr)
+		return checker
+	}
 
 	logging.Autopoiesis("SafetyChecker initialized with %d allowed packages", len(checker.allowedPkgs))
 	logging.AutopoiesisDebug("Allowed packages: %v", checker.allowedPkgs)
 
 	return checker
+}
+
+// PolicyLoadError reports why this checker has no usable policy, or nil.
+func (sc *SafetyChecker) PolicyLoadError() error {
+	if sc == nil {
+		return fmt.Errorf("safety checker is nil")
+	}
+	return sc.policyErr
 }
 
 // ExtractASTFacts parses Go source and emits structural facts for the safety policy.
@@ -215,6 +268,15 @@ func (sc *SafetyChecker) Check(code string) *SafetyReport {
 		Safe:       true,
 		Violations: []SafetyViolation{},
 		Score:      1.0,
+	}
+
+	// Fail closed before doing any work: with no policy there is nothing that
+	// could produce a violation, so a "clean" report would mean "unaudited",
+	// not "safe".
+	if sc.policyErr != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Safety check DENIED: %v", sc.policyErr)
+		return sc.fail(report, ViolationPolicy, "go_safety.mg",
+			fmt.Sprintf("safety policy unavailable, denying by default: %v", sc.policyErr))
 	}
 
 	// AST Analysis phase
@@ -429,6 +491,30 @@ func buildFactIndex(facts []mangle.Fact) factIndex {
 	return idx
 }
 
+// classifyImportViolation names the *reason* a disallowed import is disallowed.
+//
+// go_safety.mg only derives "this import is not on the allowlist"; the
+// ViolationUnsafePointer / Reflection / CGO / Exec categories existed in the
+// enum but nothing ever produced them, so every hazard came back as the
+// undifferentiated ViolationForbiddenImport. That matters because the violation
+// text is fed straight back to the LLM for regeneration
+// (FormatViolationsForFeedback) and to the golden suite that asserts each
+// category is reachable — "you used cgo" steers a rewrite, "not on the
+// allowlist" does not.
+func classifyImportViolation(importPath string) ViolationType {
+	switch importPath {
+	case "unsafe":
+		return ViolationUnsafePointer
+	case "reflect":
+		return ViolationReflection
+	case "C", "runtime/cgo":
+		return ViolationCGO
+	case "os/exec", "syscall", "golang.org/x/sys/unix", "golang.org/x/sys/windows":
+		return ViolationExec
+	}
+	return ViolationForbiddenImport
+}
+
 func describeViolation(value any, idx factIndex) SafetyViolation {
 	switch v := value.(type) {
 	case string:
@@ -440,7 +526,8 @@ func describeViolation(value any, idx factIndex) SafetyViolation {
 
 		if _, ok := idx.imports[lookupKey]; ok {
 			return SafetyViolation{
-				Type:        ViolationForbiddenImport,
+				Type:        classifyImportViolation(lookupKey),
+				Location:    lookupKey,
 				Description: fmt.Sprintf("import %q is not on the allowlist", lookupKey),
 				Severity:    SeverityBlocking,
 			}

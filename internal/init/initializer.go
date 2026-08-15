@@ -26,6 +26,7 @@ import (
 	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/regression"
 
 	// researcher removed - JIT clean loop handles research
 	"codenerd/internal/store"
@@ -97,6 +98,17 @@ type InitConfig struct {
 	PreferenceHints []string                 // User-provided hints about preferences
 	ProgressChan    chan InitProgress        // Channel for progress updates
 	Context7APIKey  string                   // Context7 API key for LLM-optimized docs
+
+	// TypeUAgents are user-defined agents from `nerd init --define-agent`.
+	// They are merged into the recommended set in phase 6, so they receive the
+	// same knowledge base, prompts.yaml and registry entry as detected agents.
+	TypeUAgents []TypeUAgentDefinition
+
+	// InteractiveIO overrides the reader/writer used for agent curation. When
+	// nil and Interactive is set, init prompts on the process terminal (and
+	// only when there is one). Tests and non-stdin front ends inject this to
+	// drive selection deterministically.
+	InteractiveIO *InteractiveConfig
 }
 
 // DefaultInitConfig returns sensible defaults.
@@ -243,6 +255,12 @@ type Initializer struct {
 	// Concurrency
 	mu         sync.RWMutex
 	llmMetrics InitLLMMetrics
+
+	// projectAtoms carries phase 5b's generated atoms to phase 5c, which
+	// ingests them into .nerd/prompts/corpus.db where the JIT compiler can see
+	// them. Guarded by mu because the summary path reads it off the main
+	// goroutine while KB phases run.
+	projectAtoms []*store.PromptAtom
 
 	// E2: ETA tracking
 	etaTracker *ETATracker
@@ -485,7 +503,7 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	}
 
 	// Phase 6: Analyze Agents
-	recommendedAgents := i.runPhase6AnalyzeAgents(runner, result, profile)
+	recommendedAgents := i.runPhase6AnalyzeAgents(ctx, runner, result, profile)
 	if err := checkContext("agent analysis"); err != nil {
 		return result, err
 	}
@@ -691,6 +709,18 @@ func (i *Initializer) runPhase1DirectorySetup(runner *phaseRunner, result *InitR
 
 	fmt.Println("✓ Created .nerd/ directory structure")
 
+	// Seed a starter regression battery. Seed never overwrites, so this is safe
+	// under --force too — the same merge-don't-clobber rule the preferences
+	// write now follows. A failure here is not worth failing init over: the
+	// workspace is usable without a battery, and `nerd regression init` writes
+	// the same file on demand.
+	if path, created, err := regression.Seed(i.config.Workspace); err != nil {
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to seed regression battery: %v", err))
+	} else if created {
+		result.FilesCreated = append(result.FilesCreated, path)
+		fmt.Println("✓ Seeded regression battery")
+	}
+
 	dbPath := filepath.Join(nerdDir, "knowledge.db")
 	i.localDB, err = store.NewLocalStore(dbPath)
 	if err != nil {
@@ -809,17 +839,24 @@ func (i *Initializer) runPhase5cPromptDB(ctx context.Context, runner *phaseRunne
 	runner.complete("prompt_db")
 }
 
-func (i *Initializer) runPhase6AnalyzeAgents(runner *phaseRunner, result *InitResult, profile ProjectProfile) []RecommendedAgent {
+func (i *Initializer) runPhase6AnalyzeAgents(ctx context.Context, runner *phaseRunner, result *InitResult, profile ProjectProfile) []RecommendedAgent {
 	runner.start("agents", "Analyzing required agents...", 0.50)
 	fmt.Println("\n🤖 Phase 6: Determining Required Type 3 Agents")
 
 	recommendedAgents := i.determineRequiredAgents(profile)
-	result.RecommendedAgents = recommendedAgents
 	fmt.Printf("   Recommended %d Type 3 agents for this project\n", len(recommendedAgents))
 
 	for _, agent := range recommendedAgents {
 		fmt.Printf("   • %s: %s\n", agent.Name, agent.Reason)
 	}
+
+	// --define-agent definitions and interactive curation both change which
+	// agents get knowledge bases, so they have to land before phase 7a and
+	// before the result records what was recommended.
+	recommendedAgents = i.mergeTypeUAgents(recommendedAgents)
+	recommendedAgents = i.curateAgents(ctx, recommendedAgents, profile, result)
+	result.RecommendedAgents = recommendedAgents
+
 	runner.complete("agents")
 	return recommendedAgents
 }
@@ -945,9 +982,11 @@ func (i *Initializer) runPhase8Preferences(runner *phaseRunner, result *InitResu
 	result.Preferences = preferences
 
 	prefsPath := filepath.Join(nerdDir, "preferences.json")
-	if err := i.savePreferences(prefsPath, preferences); err != nil {
+	effective, err := i.savePreferences(prefsPath, preferences)
+	if err != nil {
 		result.Failures = append(result.Failures, fmt.Sprintf("Failed to save preferences: %v", err))
 	} else {
+		result.Preferences = effective
 		result.FilesCreated = append(result.FilesCreated, prefsPath)
 		fmt.Println("✓ Initialized preferences")
 	}

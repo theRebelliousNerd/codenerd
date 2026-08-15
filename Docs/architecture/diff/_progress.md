@@ -2,6 +2,7 @@
 
 | Date | Change |
 |------|--------|
+| 2026-08-15 | Backlog closeout. Cache key widened to two hashes + length per side, with opt-in exact content verification (`Options.VerifyCacheContent`) and a `Stats.Collisions` counter. Word-level API returns codeNERD `WordSpan` instead of `diffmatchpatch.Diff`, and `cmd/nerd/ui` now actually paints the highlights (segment plan + scroll-aware windowing) instead of ignoring an `any`. `LineHeader` decided as a UI-owned enum member with a test enforcing the engine never emits it. `CreateDiffFromStrings` and every `DiffApprovalView` moved onto one `ui.uiDiffEngine`, ending the dual-cache surprise. Benchmarks added plus a CI smoke test that runs them all in the normal test pass. TODO.md fully closed. |
 | 2026-07-13 | Full architecture corpus **rebuilt** to cli quality bar (SUBAGENT_INSTRUCTIONS). Replaced thin auto-inventory stubs with code-grounded docs for `internal/diff/` (1 src ≈379 LOC, 2 tests ≈949 LOC). Flagship `IMPLEMENTED_SPEC.md`; full 00–12 set; reverse-dep evidence via `cmd/nerd/ui/diffview.go`. |
 
 ## Corpus files (required set)

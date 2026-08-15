@@ -641,11 +641,16 @@ func (t *Task) ToFacts() []core.Fact {
 		})
 	}
 
-	// Inference
+	// Inference. Confidence is scaled 0.0-1.0 -> 0-100 to match its own Decl
+	// (`bound [..., /number, ...]`) and the campaign_metadata convention. It
+	// used to be emitted as a raw float64, which lands in the kernel as an
+	// ast.Float64 in an integer slot; no rule reads it today, so the mismatch
+	// was invisible, and the first rule to compare it would have been the one
+	// that discovered it.
 	if t.InferredFrom != "" {
 		facts = append(facts, core.Fact{
 			Predicate: "task_inference",
-			Args:      []any{t.ID, t.InferredFrom, t.InferenceConf, t.InferenceReason},
+			Args:      []any{t.ID, t.InferredFrom, int64(t.InferenceConf * 100), t.InferenceReason},
 		})
 	}
 

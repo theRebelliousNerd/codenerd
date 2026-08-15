@@ -8,7 +8,7 @@ The shard *implementations* for domain personas are gone; those live in `interna
 remembered. The previous version of this file described a December 2024 architecture and was wrong
 in ways that mattered — it claimed `registration.go` mapped `/coder` to intents via a
 `MapLegacyCommand` function that does not exist, and pointed at
-`internal/mangle/intent_routing.mg` and `internal/prompt/config_defaults.go` for routing rules that
+`internal/core/defaults/policy/intent_routing_rules.mg` and `internal/prompt/config_defaults.go` for routing rules that
 live elsewhere.
 
 ---

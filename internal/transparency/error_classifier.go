@@ -1,6 +1,7 @@
 package transparency
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -110,6 +111,65 @@ func (ce *ClassifiedError) Format() string {
 	return sb.String()
 }
 
+// CategorizedError is implemented by errors that know their own category.
+//
+// The substring heuristics below are genuinely ambiguous at the VirtualStore
+// boundary: "action /delete_file not permitted by kernel policy" matches both
+// the safety patterns and the filesystem patterns ("permission denied",
+// "file"), and whichever case is listed first wins. A producer that knows the
+// answer should say so instead of encoding it in prose.
+type CategorizedError interface {
+	error
+	TransparencyCategory() ErrorCategory
+}
+
+// BoundaryError is the concrete CategorizedError for subsystem boundaries.
+// Op and Target are carried so the transparency layer can report the denial
+// without re-parsing the message.
+type BoundaryError struct {
+	Category ErrorCategory
+	Op       string // Action verb, e.g. "/exec_cmd"
+	Target   string // File / resource
+	Rule     string // Policy identity that produced the verdict, if any
+	Err      error  // Wrapped cause
+}
+
+// Error implements error.
+func (e *BoundaryError) Error() string {
+	if e == nil || e.Err == nil {
+		return ""
+	}
+	return e.Err.Error()
+}
+
+// Unwrap exposes the cause for errors.Is/As.
+func (e *BoundaryError) Unwrap() error { return e.Err }
+
+// TransparencyCategory implements CategorizedError.
+func (e *BoundaryError) TransparencyCategory() ErrorCategory {
+	if e == nil {
+		return ErrorCategoryUnknown
+	}
+	return e.Category
+}
+
+// NewSafetyError tags err as a constitutional/policy refusal so ClassifyError
+// does not have to guess from wording.
+func NewSafetyError(op, target, rule string, err error) *BoundaryError {
+	return &BoundaryError{
+		Category: ErrorCategorySafety,
+		Op:       op,
+		Target:   target,
+		Rule:     rule,
+		Err:      err,
+	}
+}
+
+// NewBoundaryError tags err with an explicit category.
+func NewBoundaryError(category ErrorCategory, op, target string, err error) *BoundaryError {
+	return &BoundaryError{Category: category, Op: op, Target: target, Err: err}
+}
+
 // ClassifyError analyzes an error and returns a classified version.
 func ClassifyError(err error) *ClassifiedError {
 	if err == nil {
@@ -120,6 +180,15 @@ func ClassifyError(err error) *ClassifiedError {
 		Original: err,
 		Category: ErrorCategoryUnknown,
 		Summary:  "An unexpected error occurred",
+	}
+
+	// A declared category always beats the heuristics.
+	var typed CategorizedError
+	if errors.As(err, &typed) {
+		classified.Category = typed.TransparencyCategory()
+		classified.Summary = summaryForCategory(classified.Category)
+		classified.Remediation = GetRecoveryGuide(classified.Category)
+		return classified
 	}
 
 	errStr := strings.ToLower(err.Error())
@@ -202,6 +271,31 @@ func ClassifyError(err error) *ClassifiedError {
 	}
 
 	return classified
+}
+
+// summaryForCategory returns the one-line summary used for a declared
+// category, matching the wording the heuristic path produces.
+func summaryForCategory(c ErrorCategory) string {
+	switch c {
+	case ErrorCategorySafety:
+		return "A safety rule prevented this action"
+	case ErrorCategoryConfig:
+		return "Configuration issue detected"
+	case ErrorCategoryAPI:
+		return "LLM API issue"
+	case ErrorCategoryKernel:
+		return "Logic kernel issue"
+	case ErrorCategoryShard:
+		return "Shard execution issue"
+	case ErrorCategoryFilesystem:
+		return "Filesystem issue"
+	case ErrorCategoryNetwork:
+		return "Network connectivity issue"
+	case ErrorCategoryTimeout:
+		return "Operation timed out"
+	default:
+		return "An unexpected error occurred"
+	}
 }
 
 // containsAny returns true if s contains any of the patterns.

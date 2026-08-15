@@ -1,6 +1,6 @@
 # 09 — Mangle Surface: campaign (extra deep-dive)
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-08-15**  
 > Campaign Go package asserts/queries facts; rules live mainly under `internal/core/defaults/`.
 
 ## Layering (from `campaign_rules.mg` header)
@@ -32,11 +32,56 @@ Go types.ToFacts()      → ground facts from durable Campaign JSON
 | `task_dependency/2` | hard deps |
 | `task_soft_dependency/2` | soft deps |
 | `requires_resource/2` | resource semaphore names |
-| `task_sub_campaign/2` | nested campaign |
+| `task_soft_dependency/2` | scheduling preference (Decl added 2026-08-15) |
+| `requires_resource/2` | resource semaphores (Decl added 2026-08-15) |
+| `task_sub_campaign/2` | nested campaign (Decl added 2026-08-15) |
 | `task_artifact/...` | outputs |
 | `task_inference/...` | provenance |
 | `task_attempt/...` | try history |
 | `context_compression/...` | phase summaries |
+
+## Risk preflight contract (Section 13 of `campaign_rules.mg`)
+
+Added 2026-08-15. Go measures the preflight, the kernel decides what stops the
+campaign, Go enforces the derivation.
+
+**EDB asserted by `assertRiskContractFacts` (risk_gate_contract.go):**
+
+| Predicate | Meaning |
+|-----------|---------|
+| `campaign_risk_gate_outcome/3` | `(CampaignID, /northstar\|/edge\|/advisory\|/override, /passed\|/blocked\|/skipped)` |
+| `campaign_risk_concern/3` | `(CampaignID, Gate, /blocking\|/requires_changes\|/unapproved)` |
+| `campaign_protected_surface/2` | campaign targets a protected root |
+| `campaign_risk_posture/4` | `(CampaignID, Score, Threshold, /true\|/false)` |
+| `campaign_risk_signal/3` | `(CampaignID, /safety_warnings\|/blocked_actions\|/gathering_errors\|/tool_gaps, Count)` |
+| `campaign_risk_override/2` | `/force_block` or `/force_allow` |
+
+**IDB derived by Section 13:**
+
+| Predicate | Meaning |
+|-----------|---------|
+| `campaign_risk_classification_ready/1` | readiness canary — proves to Go that the rules loaded |
+| `campaign_risk_critical_signal/1` | safety warnings or blocked actions present |
+| `campaign_risk_block/3` | **HARD** stop, with a reason atom |
+| `campaign_risk_blocked_gate/2` | fully-bound helper for safe negation |
+| `campaign_risk_warning/3` | **SOFT** advisory |
+| `campaign_risk_preflight_blocked/1` | any hard block exists |
+
+Reason atoms: `/protected_surface`, `/vision_alignment`,
+`/critical_advisor_rejection`, `/force_block`, `/gated_with_critical_signals`
+(hard); `/advisory_only`, `/requires_changes`, `/unapproved` (soft).
+
+**Negation gotcha, recorded because it cost a debugging cycle:**
+`!campaign_risk_block(C, G, _)` did **not** exclude blocked gates — the wildcard
+slot leaves the literal unbound rather than existentially quantified, so the soft
+rules fired alongside every hard one. Section 13 negates the fully-bound
+`campaign_risk_blocked_gate/2` instead. Other `.mg` files use the wildcard form
+(e.g. `!campaign_task_shard_override(TaskID, _)`) and may be over-deriving.
+
+**Fail-safe:** when the canary does not derive, Go uses
+`mirrorRiskClassification` — a Go copy of the same contract — rather than
+reading "no blocks" out of "no rules".
+`TestRiskClassification_KernelAndMirror_ShouldAgree` pins the two together.
 
 ## Runtime asserts (orchestrator)
 
@@ -101,4 +146,16 @@ Unit tests typically mock `core.Kernel` (`mocks_test.go`, thread-safe variants).
 
 ## Gap honesty
 
-Exact arity/Decl tables for every predicate live in the defaults corpus and may drift. When Go asserts a new fact, **grep** `internal/core/defaults` for Decl before shipping. This document lists **observed** campaign usage, not a formal schema dump of the entire program.
+Exact arity/Decl tables for every predicate live in the defaults corpus and may drift.
+
+Since 2026-08-15 this is **enforced rather than remembered**:
+`internal/campaign/types_tofacts_golden_test.go` walks `internal/core/defaults`
+for `Decl` lines and fails when a predicate `ToFacts` emits has no Decl, or a
+Decl whose arity disagrees. It found three long-standing offenders on its first
+run (`task_soft_dependency`, `requires_resource`, `task_sub_campaign`), all now
+declared. `testdata/tofacts_predicates.golden` additionally pins argument kinds,
+so a slot changing from atom to string — which silently breaks `bound [/name]`
+matching — fails the build instead of quietly killing a rule.
+
+This document still lists **observed** campaign usage, not a formal schema dump
+of the entire program.

@@ -328,11 +328,11 @@ func (m *Model) ensureDeepWorldFacts() error {
 		if !ok {
 			continue
 		}
-		langAtom, ok := f.Args[2].(core.MangleAtom)
-		if !ok {
-			continue
-		}
-		if string(langAtom) == "/go" {
+		// Query readback renders a Mangle /name as a plain string, never a
+		// core.MangleAtom — so this type assertion was always false and the
+		// filter matched nothing. /scan --deep reported zero Go files in a Go
+		// repository. types.ExtractString accepts both forms.
+		if types.ExtractString(f.Args[2]) == "/go" {
 			goFiles = append(goFiles, path)
 		}
 	}

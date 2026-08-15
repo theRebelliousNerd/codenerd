@@ -151,7 +151,7 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 			logging.Campaign("Research-path retry recovered a substantive result for %s (%d bytes)", task.ID, len(result))
 		} else {
 			logging.Get(logging.CategoryCampaign).Warn("Explicit-shard task %s still returned no substantive output after research-path retry", task.ID)
-			o.emitEvent("shard_result_empty", task.PhaseID, task.ID, fmt.Sprintf("shard %s returned no substantive output after retry", shardType), nil)
+			o.emitEvent(EventShardResultEmpty, task.PhaseID, task.ID, fmt.Sprintf("shard %s returned no substantive output after retry", shardType), nil)
 		}
 	}
 
@@ -271,7 +271,7 @@ func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any
 			logging.Campaign("Research retry recovered a substantive result for %s (%d bytes)", task.ID, len(result))
 		} else {
 			logging.Get(logging.CategoryCampaign).Warn("Research task %s still returned no substantive output after retry", task.ID)
-			o.emitEvent("research_empty", task.PhaseID, task.ID, "research task returned no substantive output after retry", nil)
+			o.emitEvent(EventResearchEmpty, task.PhaseID, task.ID, "research task returned no substantive output after retry", nil)
 		}
 	}
 
@@ -330,7 +330,7 @@ func (o *Orchestrator) persistTaskOutputArtifact(task *Task, result string) {
 	}
 	task.Artifacts = append(task.Artifacts, TaskArtifact{Type: "/doc", Path: relPath})
 	logging.Campaign("Persisted durable output artifact for task %s: %s (%d bytes)", task.ID, relPath, len(trimmed))
-	o.emitEvent("artifact_persisted", task.PhaseID, task.ID, relPath, nil)
+	o.emitEvent(EventArtifactPersisted, task.PhaseID, task.ID, relPath, nil)
 }
 
 // executeFileTask creates or modifies a file using the Coder shard.
@@ -448,7 +448,7 @@ Output ONLY the file content, no explanation or markdown fences:`, task.Descript
 			content = degradedGenerationPlaceholder(task, targetPath)
 			logging.Get(logging.CategoryCampaign).Warn("Anti-repetition retry failed for %s (%v); writing honest degraded placeholder", task.ID, rerr)
 		}
-		o.emitEvent("generation_degraded", "", task.ID, "fallback document generation was degenerate", nil)
+		o.emitEvent(EventGenerationDegraded, "", task.ID, "fallback document generation was degenerate", nil)
 	}
 
 	fullPath := filepath.Join(o.workspace, targetPath)
@@ -677,7 +677,7 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 	}
 
 	// Emit event for visibility
-	o.emitEvent("tool_generation_requested", "", task.ID, capability, map[string]any{
+	o.emitEvent(EventToolGenerationRequested, "", task.ID, capability, map[string]any{
 		"intent_id":  intentID,
 		"capability": capability,
 	})
@@ -791,7 +791,7 @@ func (o *Orchestrator) executeCampaignRefTask(ctx context.Context, task *Task) (
 		envelope.Status, envelope.LearnedFacts = applyCampaignRefFailurePolicy(failurePolicy, envelope.LearnedFacts)
 		eventData["mapped_lifecycle"] = envelope.Status
 
-		o.emitEvent("sub_campaign_referenced", "", task.ID, fmt.Sprintf("Linking sub-campaign %s", task.SubCampaignID), eventData)
+		o.emitEvent(EventSubCampaignReferenced, "", task.ID, fmt.Sprintf("Linking sub-campaign %s", task.SubCampaignID), eventData)
 		if failurePolicy == CampaignRefPolicyPropagate {
 			return nil, fmt.Errorf("%s", envelope.FailureSummary)
 		}
@@ -800,7 +800,7 @@ func (o *Orchestrator) executeCampaignRefTask(ctx context.Context, task *Task) (
 		return envelope, nil
 	}
 
-	o.emitEvent("sub_campaign_referenced", "", task.ID, fmt.Sprintf("Linking sub-campaign %s", task.SubCampaignID), eventData)
+	o.emitEvent(EventSubCampaignReferenced, "", task.ID, fmt.Sprintf("Linking sub-campaign %s", task.SubCampaignID), eventData)
 	logging.Campaign("Linked sub-campaign %s with lifecycle %s", task.SubCampaignID, envelope.Status)
 	return envelope, nil
 }

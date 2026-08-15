@@ -319,6 +319,11 @@ func (m *SessionManager) InteractRef(ctx context.Context, sessionID, ref, action
 	if err != nil || !visible {
 		return nil, fmt.Errorf("element %s is not visible", ref)
 	}
+	// Visibility rules out the crudest traps but not an on-screen bait link or
+	// a pointer-events:none overlay target, so the kernel still gets a say.
+	if err := m.guardElement(sessionID, action, element); err != nil {
+		return nil, err
+	}
 
 	descriptor := strings.Join([]string{
 		fingerprint.TagName, fingerprint.ID, fingerprint.Name, fingerprint.AriaLabel,

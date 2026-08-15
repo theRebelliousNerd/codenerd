@@ -59,7 +59,9 @@ Creates `.nerd/logs/`, enables all categories (map nil ⇒ all on), level info+.
 }
 ```
 
-**Warning:** disk may grow quickly; prompts may contain secrets.
+**Warning:** disk may grow quickly (rotation bounds each segment, it does not make
+the trace small), and prompts may contain secrets — they are redacted by default,
+and `trace_llm_io_raw: true` removes that protection.
 
 ### Structured machine parse
 
@@ -67,7 +69,7 @@ Creates `.nerd/logs/`, enables all categories (map nil ⇒ all on), level info+.
 {
   "logging": {
     "debug_mode": true,
-    "json_format": true,
+    "format": "json",
     "level": "info"
   }
 }

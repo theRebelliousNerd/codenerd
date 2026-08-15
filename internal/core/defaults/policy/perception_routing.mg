@@ -35,13 +35,19 @@ derived_mode(Mode) :-
     candidate_mode(Mode, _, Priority),
     best_candidate_priority(Priority).
 
+any_candidate_mode(/yes) :-
+    candidate_mode(Mode, Score, Source).
+
 # Fallback: when no EDB routing matches, trust the LLM's own suggestion.
-# Safe negation: ~candidate_mode(_, _, _) is checked after candidate_mode is
-# fully defined (Stratum N); variables are irrelevant (wildcard), so binding
-# is not required — Mangle treats this as a closed-world negation over the
-# entire relation.
+#
+# The previous comment here asserted that Mangle "treats this as a closed-world
+# negation over the entire relation" because the arguments are wildcards. It
+# does not: a negated literal containing a wildcard excludes nothing at all
+# (internal/core/bound_negation_test.go). So this fallback fired even when EDB
+# routing HAD produced candidates, and the LLM's suggestion was always added
+# alongside them rather than only in their absence.
 derived_mode(Mode) :-
     llm_suggested_mode(Mode),
-    !candidate_mode(_, _, _).
+    !any_candidate_mode(/yes).
 
 # NERD-EVOLVE-END: perception_routing_rules

@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"os"
 
+	"codenerd/internal/features"
 	"codenerd/internal/perception"
 )
 
@@ -11,7 +11,10 @@ func main() {
 	fmt.Println("==================================================")
 	fmt.Println("   MANGLE TAXONOMY VERIFICATION PROTOCOL")
 	fmt.Println("==================================================")
-	if os.Getenv("CODENERD_TAXONOMY_FAST") == "1" {
+	// Read the flag through the registry rather than os.Getenv: the raw
+	// lookup only honoured the literal "1", so `CODENERD_TAXONOMY_FAST=true`
+	// and the features block in .nerd/config.json were both ignored here.
+	if features.IsTaxonomyFastEnabled() {
 		fmt.Println("\n==================================================")
 		fmt.Println("   VERIFICATION COMPLETE")
 		fmt.Println("==================================================")

@@ -247,18 +247,44 @@ func (o *Orchestrator) writeJournalLinesAtomic(path string, lines []string) erro
 	return syncDirIfSupported(filepath.Dir(path))
 }
 
+// osRenameFile is a seam, like osSyncFile above. The snapshot rename is the one
+// instant where a crash can leave a campaign with a written temp file, a
+// journalled write request and no commit, and that window is only reachable in
+// a test by making the rename itself fail.
+var osRenameFile = os.Rename
+
 func renameAtomicReplace(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
+	if err := osRenameFile(src, dst); err == nil {
 		return nil
 	} else {
-		if removeErr := os.Remove(dst); removeErr == nil || os.IsNotExist(removeErr) {
-			if retryErr := os.Rename(src, dst); retryErr == nil {
-				return nil
-			} else {
-				return retryErr
-			}
+		// Windows and some network filesystems refuse to rename onto an
+		// existing file, so a fallback is needed. The fallback used to be
+		// `os.Remove(dst)` followed by a retry — which DELETED the last
+		// committed snapshot before knowing whether the replacement would land.
+		// When the retry also failed (a kill at exactly this instant, a full
+		// disk, a revoked handle) the campaign was left with no snapshot at all
+		// and could not be resumed: the precise loss this whole atomic-write
+		// protocol exists to prevent. Found by
+		// TestSaveCampaign_WhenKilledDuringSnapshotRename.
+		//
+		// Move the current snapshot aside instead, and put it back if the
+		// replacement does not land.
+		backup := dst + ".prev-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+		if mvErr := osRenameFile(dst, backup); mvErr != nil {
+			// Either dst does not exist (nothing to displace, and the original
+			// rename failed for another reason) or the filesystem will not move
+			// it. Report the original failure with dst untouched.
+			return err
 		}
-		return err
+		if retryErr := osRenameFile(src, dst); retryErr != nil {
+			if restoreErr := osRenameFile(backup, dst); restoreErr != nil {
+				return fmt.Errorf("snapshot replace failed (%w) and the previous snapshot could not be restored from %s: %v",
+					retryErr, backup, restoreErr)
+			}
+			return retryErr
+		}
+		_ = os.Remove(backup)
+		return nil
 	}
 }
 

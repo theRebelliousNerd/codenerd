@@ -1079,6 +1079,7 @@ func (e *Executor) projectForbidsWrite(call ToolCall) (string, bool) {
 	}
 	return "", false
 }
+
 // writesPlaceholderTestFile is the mechanical guard against hollow success.
 //
 // Prose is a request the model complies with most of the time, while a fact
@@ -1131,12 +1132,14 @@ func (e *Executor) writesPlaceholderTestFile(call ToolCall) (string, bool) {
 	reason := fmt.Sprintf("placeholder test %s in %s is vacuous (empty or only t.Skip/t.SkipNow/t.Skipf); write a test that fails before the fix and passes after", firstVacuous, testPaths[0])
 	return reason, true
 }
+
 // modularityGuard enforces the modularity standard at the single write choke point.
 //
 // Semantics: block only violations the write INTRODUCES:
 //   - If the target file does not exist yet, any violation in the proposed content blocks.
 //   - If the target already exists, block only violations present in the proposed content
 //     that were not already present for the same function+rule in the current file.
+//
 // Compare is by function name and rule, not counting, so shrinking one violation
 // while adding another still blocks.
 //
@@ -1264,7 +1267,6 @@ func (e *Executor) resolveModularityFilePath(p string) string {
 	}
 	return p
 }
-
 
 // placeholderTestContent extracts the content payload from a tool call's
 // arguments using the same key set as pendingEditContent. It reports whether
@@ -1544,7 +1546,6 @@ func isVacuousTestBody(body string) bool {
 	}
 	return true
 }
-
 
 // checkShellEffect denies shell invocations whose effects are mutating,
 // ambiguous, or missing. Command text is only evidence about effect; it cannot
@@ -2401,3 +2402,23 @@ func (e *Executor) extractTarget(args map[string]any) string {
 	}
 	return "unknown"
 }
+
+// Why the registry allowlist is NOT set from here.
+//
+// internal/tools grew Registry.SetAllowlist so a caller reaching
+// tools.Global().Execute directly is gated the same way the executor's own
+// isToolAllowed gates this path. Applying it per-turn from the executor looks
+// like the obvious wiring and is wrong: tools.Global() is a process-wide
+// singleton, so each turn's envelope becomes every other caller's envelope.
+// Concurrent shards hold different capability grants, and last-writer-wins
+// would let one shard's envelope decide what another may run — a safety
+// control that changes under you is worse than one that is merely narrow.
+//
+// It leaked immediately when tried: six session tests passed in isolation and
+// failed in the package run, because one test's enforced envelope persisted
+// into the next.
+//
+// The envelope belongs to whoever owns a registry, not to a turn. The correct
+// wiring is a per-session registry with SetAllowlist called once at
+// construction; until the executor owns one, isToolAllowed remains the gate
+// for this path and SetAllowlist is used by callers that do own a registry.

@@ -3,6 +3,7 @@
 package transparency
 
 import (
+	"io"
 	"reflect"
 	"sort"
 	"sync"
@@ -29,20 +30,77 @@ type GlassBoxEventBus struct {
 	// Temporal ordering
 	sequence atomic.Uint64
 
+	// dropped counts events discarded because a subscriber channel was full.
+	// Drop-on-full is deliberate (never block the executive), but a silent
+	// drop is indistinguishable from a producer that never fired — which is
+	// the failure mode operators actually hit when the TUI stalls.
+	dropped atomic.Uint64
+
+	// delivered counts successful sends to subscriber channels.
+	delivered atomic.Uint64
+
 	// Filtering
 	categories map[GlassBoxCategory]bool // Empty means all allowed
 	verbose    bool
+
+	// sinks are non-channel observers (NDJSON export, etc.).
+	sinks []EventSink
+}
+
+// EventSink receives every event the bus dispatches, in addition to channel
+// subscribers. Implementations must not block.
+//
+// This is the extension point for machine-readable export. An OpenTelemetry
+// bridge would be a sink too — deliberately not built here: nothing in this
+// repo configures an otel TracerProvider, so a bridge would map categories
+// onto no-op spans and produce exactly the "looks wired, does nothing" shape
+// this package is trying to remove.
+type EventSink interface {
+	Write(event GlassBoxEvent)
 }
 
 // NewGlassBoxEventBus creates a new event bus with default settings.
 // Subscriber channels are large enough to absorb multi-shard tool storms
 // without silent drops during Glass Box full-stream mode.
 func NewGlassBoxEventBus() *GlassBoxEventBus {
-	return &GlassBoxEventBus{
+	b := &GlassBoxEventBus{
 		batchWindow: 50 * time.Millisecond,
 		batchLimit:  20,
 		buffer:      make([]GlassBoxEvent, 0, 64),
 		categories:  make(map[GlassBoxCategory]bool),
+	}
+	// Headless runs (nerd run / campaign) have no TUI subscriber; the env sink
+	// is the only way their Glass Box stream survives the process.
+	attachEnvNDJSONSink(b)
+	adoptProcessBus(b)
+	return b
+}
+
+// AddSink registers a non-channel observer. Safe to call at any time; the sink
+// receives events dispatched after registration.
+func (b *GlassBoxEventBus) AddSink(sink EventSink) {
+	if sink == nil {
+		return
+	}
+	b.mu.Lock()
+	b.sinks = append(b.sinks, sink)
+	b.mu.Unlock()
+}
+
+// dispatchLocked sends one event to every subscriber and sink.
+// Caller must hold b.mu (read lock is sufficient).
+func (b *GlassBoxEventBus) dispatchLocked(event GlassBoxEvent) {
+	for _, sub := range b.subscribers {
+		select {
+		case sub <- event:
+			b.delivered.Add(1)
+		default:
+			// Drop rather than block the producing goroutine.
+			b.dropped.Add(1)
+		}
+	}
+	for _, sink := range b.sinks {
+		sink.Write(event)
 	}
 }
 
@@ -222,12 +280,7 @@ func (b *GlassBoxEventBus) EmitImmediate(event GlassBoxEvent) {
 
 	// Dispatch directly
 	b.mu.RLock()
-	for _, sub := range b.subscribers {
-		select {
-		case sub <- event:
-		default: // Drop if channel full
-		}
-	}
+	b.dispatchLocked(event)
 	b.mu.RUnlock()
 }
 
@@ -255,13 +308,8 @@ func (b *GlassBoxEventBus) flushLocked() {
 	})
 
 	b.mu.RLock()
-	for _, sub := range b.subscribers {
-		for _, event := range b.buffer {
-			select {
-			case sub <- event:
-			default: // Drop if channel full
-			}
-		}
+	for _, event := range b.buffer {
+		b.dispatchLocked(event)
 	}
 	b.mu.RUnlock()
 
@@ -295,6 +343,15 @@ func (b *GlassBoxEventBus) Close() {
 		close(sub)
 	}
 	b.subscribers = nil
+
+	// Sinks own file handles; a headless run that never closes them loses the
+	// tail of its buffered NDJSON.
+	for _, sink := range b.sinks {
+		if closer, ok := sink.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}
+	b.sinks = nil
 }
 
 // Stats returns current event bus statistics.
@@ -311,6 +368,9 @@ func (b *GlassBoxEventBus) Stats() GlassBoxBusStats {
 		TotalEmitted:    b.sequence.Load(),
 		CategoryCount:   len(b.categories),
 		Verbose:         b.verbose,
+		Delivered:       b.delivered.Load(),
+		Dropped:         b.dropped.Load(),
+		SinkCount:       len(b.sinks),
 	}
 }
 
@@ -322,4 +382,12 @@ type GlassBoxBusStats struct {
 	TotalEmitted    uint64
 	CategoryCount   int
 	Verbose         bool
+	// Delivered counts events successfully handed to a subscriber channel
+	// (counted once per subscriber).
+	Delivered uint64
+	// Dropped counts events discarded because a subscriber channel was full.
+	// Non-zero means the TUI is behind and scrollback is incomplete.
+	Dropped uint64
+	// SinkCount is the number of registered non-channel sinks.
+	SinkCount int
 }

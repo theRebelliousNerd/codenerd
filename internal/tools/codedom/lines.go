@@ -85,7 +85,7 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 
 	newContent, _ := args["new_content"].(string)
 
-	logging.VirtualStoreDebug("edit_lines: path=%s, start=%d, end=%d", path, startLine, endLine)
+	logging.ToolsDebug("edit_lines: path=%s, start=%d, end=%d", path, startLine, endLine)
 
 	// Read the file
 	content, err := projectdoc.ReadFileForTool(path)
@@ -133,7 +133,7 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	linesReplaced := endLine - startLine + 1
-	logging.VirtualStore("edit_lines completed: %s (replaced %d lines with %d)", path, linesReplaced, len(newLines))
+	logging.Tools("edit_lines completed: %s (replaced %d lines with %d)", path, linesReplaced, len(newLines))
 	return fmt.Sprintf("Replaced lines %d-%d (%d lines) with %d new lines in %s.%s",
 		startLine, endLine, linesReplaced, len(newLines), path,
 		lineShiftNotice(startLine, len(newLines)-linesReplaced, len(result))), nil
@@ -339,7 +339,7 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 		return "", fmt.Errorf("content is required")
 	}
 
-	logging.VirtualStoreDebug("insert_lines: path=%s, after=%d", path, afterLine)
+	logging.ToolsDebug("insert_lines: path=%s, after=%d", path, afterLine)
 
 	// Read the file
 	content, err := projectdoc.ReadFileForTool(path)
@@ -370,7 +370,7 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
-	logging.VirtualStore("insert_lines completed: %s (inserted %d lines after line %d)", path, len(newLines), afterLine)
+	logging.Tools("insert_lines completed: %s (inserted %d lines after line %d)", path, len(newLines), afterLine)
 	return fmt.Sprintf("Inserted %d lines after line %d in %s.%s",
 		len(newLines), afterLine, path,
 		lineShiftNotice(afterLine+1, len(newLines), len(result))), nil
@@ -441,7 +441,7 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 		}
 	}
 
-	logging.VirtualStoreDebug("delete_lines: path=%s, start=%d, end=%d", path, startLine, endLine)
+	logging.ToolsDebug("delete_lines: path=%s, start=%d, end=%d", path, startLine, endLine)
 
 	// Read the file
 	content, err := projectdoc.ReadFileForTool(path)
@@ -476,7 +476,7 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 	}
 
 	linesDeleted := endLine - startLine + 1
-	logging.VirtualStore("delete_lines completed: %s (deleted %d lines)", path, linesDeleted)
+	logging.Tools("delete_lines completed: %s (deleted %d lines)", path, linesDeleted)
 	return fmt.Sprintf("Deleted lines %d-%d (%d lines) from %s.%s",
 		startLine, endLine, linesDeleted, path,
 		lineShiftNotice(startLine, -linesDeleted, len(result))), nil

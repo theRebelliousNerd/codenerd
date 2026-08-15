@@ -237,7 +237,7 @@ has_unverified_task(PhaseID) :-
     campaign_task(TaskID, PhaseID, _, /completed, _),
     task_unverified(TaskID).
 
-phase_blocked(PhaseID, "unverified_tasks") :-
+phase_blocked(PhaseID, /unverified_tasks) :-
     has_unverified_task(PhaseID).
 
 # -----------------------------------------------------------------------------
@@ -291,14 +291,14 @@ phase_build_failed(PhaseID) :-
     phase_checkpoint(PhaseID, /build, /false, _, _).
 
 # Block phase on build failure
-phase_blocked(PhaseID, "build_failed") :-
+phase_blocked(PhaseID, /build_failed) :-
     phase_build_failed(PhaseID).
 
 # Phase test check failed
 phase_tests_failed(PhaseID) :-
     phase_checkpoint(PhaseID, /tests, /false, _, _).
 
-phase_blocked(PhaseID, "tests_failed") :-
+phase_blocked(PhaseID, /tests_failed) :-
     phase_tests_failed(PhaseID).
 
 # =============================================================================
@@ -496,11 +496,11 @@ phase_failed_task_count(PhaseID, Count) :-
     |> do fn:group_by(PhaseID), let Count = fn:count().
 
 # Cascade triggers phase pause
-phase_blocked(PhaseID, "failure_cascade") :-
+phase_blocked(PhaseID, /failure_cascade) :-
     phase_failure_cascade(PhaseID).
 
 # Cascade triggers replan consideration
-replan_needed(CampaignID, "phase_failure_cascade") :-
+replan_needed(CampaignID, /phase_failure_cascade) :-
     current_phase(PhaseID),
     phase_failure_cascade(PhaseID),
     campaign_phase(PhaseID, CampaignID, _, _, _, _),
@@ -695,9 +695,16 @@ campaign_task_shard_override(TaskID, SpecialistName) :-
 final_shard_for_task(TaskID, SpecialistName) :-
     campaign_task_shard_override(TaskID, SpecialistName).
 
+task_has_shard_override(TaskID) :-
+    campaign_task_shard_override(TaskID, SpecialistName).
+
+# `!campaign_task_shard_override(TaskID, _)` excluded nothing, so a task with a
+# specialist override derived BOTH the override and the default shard, leaving
+# final_shard_for_task ambiguous for exactly the tasks that had been given an
+# explicit specialist.
 final_shard_for_task(TaskID, ShardType) :-
     campaign_task_shard(TaskID, ShardType),
-    !campaign_task_shard_override(TaskID, _).
+    !task_has_shard_override(TaskID).
 
 # =============================================================================
 # SECTION 9: CAMPAIGN INTENT HANDLING
@@ -731,13 +738,17 @@ next_action(/ask_campaign_interrupt) :-
 # -----------------------------------------------------------------------------
 
 # Status query during campaign
+# Target is user_intent's /string slot — it normally holds a path or a noun
+# phrase lifted from the user's words. These two rules were the only place in
+# the corpus that matched it with a name constant, so they could never fire; the
+# sub-command rules in policy/capabilities.mg use the quoted form throughout.
 next_action(/show_campaign_status) :-
-    user_intent(/current_intent, /query, _, /status, _),
+    user_intent(/current_intent, /query, _, "status", _),
     current_campaign(_).
 
 # Progress query during campaign
 next_action(/show_campaign_progress) :-
-    user_intent(/current_intent, /query, _, /progress, _),
+    user_intent(/current_intent, /query, _, "progress", _),
     current_campaign(_).
 
 # =============================================================================
@@ -823,11 +834,20 @@ next_action(/archive_campaign) :-
 # 11.1 Health Indicators
 # -----------------------------------------------------------------------------
 
-# Campaign is healthy (making progress)
+campaign_is_blocked(CampaignID) :-
+    campaign_blocked(CampaignID, Reason).
+
+any_phase_stuck(/yes) :-
+    phase_stuck(PhaseID).
+
+# Campaign is healthy (making progress).
+# Both `!campaign_blocked(CampaignID, _)` and `!phase_stuck(_)` excluded
+# nothing, so a blocked campaign with a stuck phase still derived healthy —
+# and campaign_has_issues, its negation, could never fire.
 campaign_healthy(CampaignID) :-
     current_campaign(CampaignID),
-    !campaign_blocked(CampaignID, _),
-    !phase_stuck(_),
+    !campaign_is_blocked(CampaignID),
+    !any_phase_stuck(/yes),
     !context_pressure_critical(CampaignID).
 
 # Campaign has issues
@@ -890,7 +910,7 @@ task_topology_warning(TaskID, "skips_layer") :-
     suspicious_gap(PhaseID, _).
 
 # Block campaign start if topology violations exist
-campaign_blocked(CampaignID, "topology_violations") :-
+campaign_blocked(CampaignID, /topology_violations) :-
     campaign(CampaignID, _, _, _, /validating),
     campaign_phase(PhaseID, CampaignID, _, _, _, _),
     architectural_violation(PhaseID, _, _).
@@ -916,6 +936,86 @@ layer_sequencing_warning(PhaseA, PhaseB) :-
     phase_dependency(PhaseB, PhaseA, _),
     phase_layer_priority(PhaseB, PriorityB),
     PriorityA >= PriorityB.
+
+# =============================================================================
+# SECTION 13: RISK PREFLIGHT CLASSIFICATION (hard vs soft advisory contract)
+# =============================================================================
+# Go measures; the kernel decides. internal/campaign/risk_scoring.go runs the
+# strict gates, asserts what they observed, and then asks THIS section whether
+# any of it stops the campaign. Go never decides that on its own: it enforces
+# campaign_risk_block and surfaces campaign_risk_warning.
+#
+# The distinction exists because "an advisor is unhappy" and "an advisor
+# rejected work on the logic kernel" are not the same event, and treating them
+# identically means operators learn to ignore both.
+
+# Readiness canary. A kernel booted without campaign_rules.mg derives no blocks
+# at all, which would read as "everything passed". Go checks this predicate to
+# tell "no blocks" apart from "no rules", and falls back to its own mirror of
+# this contract when the rules are absent.
+campaign_risk_classification_ready(CampaignID) :-
+    campaign_risk_gate_outcome(CampaignID, _, _).
+
+# Safety-critical evidence escalates any blocked gate to a hard stop.
+campaign_risk_critical_signal(CampaignID) :-
+    campaign_risk_signal(CampaignID, /safety_warnings, Count),
+    Count > 0.
+
+campaign_risk_critical_signal(CampaignID) :-
+    campaign_risk_signal(CampaignID, /blocked_actions, Count),
+    Count > 0.
+
+# HARD 1: any blocked gate while the campaign targets a protected surface
+# (kernel, mangle, campaign, perception, articulation). These are the surfaces
+# that can disable the safety machinery itself, so advice is not optional there.
+campaign_risk_block(CampaignID, Gate, /protected_surface) :-
+    campaign_risk_gate_outcome(CampaignID, Gate, /blocked),
+    campaign_protected_surface(CampaignID, _).
+
+# HARD 2: northstar alignment is constitutional on every surface.
+campaign_risk_block(CampaignID, /northstar, /vision_alignment) :-
+    campaign_risk_gate_outcome(CampaignID, /northstar, /blocked).
+
+# HARD 3: a critical advisor voting REJECT is a blocking concern, not a note.
+campaign_risk_block(CampaignID, Gate, /critical_advisor_rejection) :-
+    campaign_risk_concern(CampaignID, Gate, /blocking).
+
+# HARD 4: explicit operator force-block.
+campaign_risk_block(CampaignID, /override, /force_block) :-
+    campaign_risk_override(CampaignID, /force_block).
+
+# HARD 5: a blocked gate on a campaign already over the deterministic risk
+# threshold AND carrying critical safety signals.
+campaign_risk_block(CampaignID, Gate, /gated_with_critical_signals) :-
+    campaign_risk_gate_outcome(CampaignID, Gate, /blocked),
+    campaign_risk_posture(CampaignID, _, _, /true),
+    campaign_risk_critical_signal(CampaignID).
+
+# Fully-bound helper for safe negation. Negating campaign_risk_block directly
+# with a wildcard reason (`!campaign_risk_block(C, G, _)`) does not exclude the
+# blocked gate — the wildcard slot leaves the literal unbound rather than
+# existentially quantified, so the soft rules fired alongside every hard one.
+campaign_risk_blocked_gate(CampaignID, Gate) :-
+    campaign_risk_block(CampaignID, Gate, _).
+
+# SOFT: a blocked gate no hard rule claimed is advice. It is recorded and shown
+# to the operator; the campaign proceeds.
+campaign_risk_warning(CampaignID, Gate, /advisory_only) :-
+    campaign_risk_gate_outcome(CampaignID, Gate, /blocked),
+    !campaign_risk_blocked_gate(CampaignID, Gate).
+
+# SOFT: requested changes are advice unless a hard rule fired on the same gate.
+campaign_risk_warning(CampaignID, Gate, /requires_changes) :-
+    campaign_risk_concern(CampaignID, Gate, /requires_changes),
+    !campaign_risk_blocked_gate(CampaignID, Gate).
+
+# SOFT: an unapproved-but-not-rejected plan is advice on ordinary surfaces.
+campaign_risk_warning(CampaignID, Gate, /unapproved) :-
+    campaign_risk_concern(CampaignID, Gate, /unapproved),
+    !campaign_risk_blocked_gate(CampaignID, Gate).
+
+campaign_risk_preflight_blocked(CampaignID) :-
+    campaign_risk_block(CampaignID, _, _).
 
 # =============================================================================
 # END OF CAMPAIGN RULES

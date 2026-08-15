@@ -42,3 +42,39 @@ Rebuilt `Docs/architecture/autopoiesis/` to the **cli/** quality bar per `Docs/a
 ### Note on legacy filenames
 
 Older corpus used names like `01-DOMAIN-MODEL.md`, `04-INVARIANTS-AND-GATES.md`, `05-CROSS-SYSTEM-WIRING.md`, `06-TESTING-STRATEGY.md`, `08-FAILURE-MODES.md`, `09-CONSTITUTIONAL-SAFETY.md`, `09-MANGLE-SURFACE.md`. The **canonical map is README.md**; prefer the numbered set above if both exist.
+
+## 2026-08-15 — Backlog implementation pass
+
+Implemented the TODO backlog (see TODO.md for per-item detail and the enforcing test for each).
+
+### Decisions made and recorded at the point of decision
+
+| Question | Decision | Where the rationale lives |
+|----------|----------|---------------------------|
+| Light generation paths (Q1) | Deleted as production routes | `autopoiesis_tools.go` `GenerateTool` |
+| Sandbox (Q2) | Compiled binary is the product default; Yaegi is a configured alternate | `ouroboros.go` `OuroborosConfig.ExecutionMode` |
+| `AllowExec` default (Q6) | Deny; opt in per workspace via `Config.AllowToolExec` | `ouroboros.go` `DefaultOuroborosConfig`, `autopoiesis_types.go` `Config` |
+| Agent scheduling owner (Q4) | Shards. Autopoiesis authors and emits `prompts.yaml` | `autopoiesis_agents.go` `writeAgentSpec` |
+| SPL promotion authority (Q5) | Human-in-the-loop by default | `prompt_evolution/evolver.go` `AutoPromote` |
+
+### Audits encoded as tests, not prose
+
+- `tool_creation_routing_test.go` — AST inventory of every `ToolGenerator` call and every Ouroboros
+  consumer, with exemption lists that go stale loudly.
+- `kernel_listener_wiring_test.go` — chat files that wire an Orchestrator must start the delegation
+  listener, at the documented cadence.
+- `kernel_parity_test.go` — registry vs `tool_registered` parity, run automatically after boot sync.
+- `checker_failclosed_test.go` — golden sample per `ViolationType`; empty/failed policy denies.
+- `build_env_threading_test.go` — the operator's build environment reaches both compile sites.
+
+### Defects found while implementing
+
+Three production defects surfaced and were fixed; they are listed at the bottom of TODO.md (tool output
+JSON round-trip, hardcoded windows/amd64 compile target, nil `*config.UserConfig` at both compile sites).
+The second and third were only visible because the new multi-stage e2e test actually compiles and executes
+a generated tool on the host.
+
+### Not done
+
+- P3 "Reduce dual templates vs JIT prompt residual prose" — still open, needs the JIT corpus to cover every
+  Ouroboros stage before the legacy prompt strings can go.

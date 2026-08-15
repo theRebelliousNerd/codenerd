@@ -7,7 +7,7 @@ import (
 func TestMCPClientManager_BasicInitialization(t *testing.T) {
 	config := map[string]MCPServerConfig{
 		"test_server": {
-			ID: "test_server",
+			ID:      "test_server",
 			Enabled: true,
 		},
 	}

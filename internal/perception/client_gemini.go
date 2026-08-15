@@ -608,6 +608,11 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 				time.Since(startTime), len(response), len(c.lastGroundingSources), cachedTokens)
 		}
 
+		trackUsage(ctx, c.model, ProviderGemini,
+			geminiResp.UsageMetadata.PromptTokenCount,
+			geminiOutputTokens(geminiResp.UsageMetadata.CandidatesTokenCount, geminiResp.UsageMetadata.ThoughtsTokenCount),
+			usageOpChat)
+
 		logging.LogLLMResponse("gemini", response, time.Since(startTime), len(response)/4)
 		return response, nil
 	}
@@ -858,6 +863,11 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 			logging.Perception("[Gemini] CompleteWithSchema: completed in %v response_len=%d grounding_sources=%d cached_tokens=%d",
 				time.Since(startTime), len(response), len(c.lastGroundingSources), cachedTokens)
 		}
+
+		trackUsage(ctx, c.model, ProviderGemini,
+			geminiResp.UsageMetadata.PromptTokenCount,
+			geminiOutputTokens(geminiResp.UsageMetadata.CandidatesTokenCount, geminiResp.UsageMetadata.ThoughtsTokenCount),
+			usageOpChat)
 
 		logging.LogLLMResponse("gemini-schema", response, time.Since(startTime), len(response)/4)
 		return response, nil

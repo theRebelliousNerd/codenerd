@@ -674,7 +674,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		//
 		// The JIT prompt compiler assembles the appropriate persona, skills, and
 		// context based on user intent. ConfigFactory provides tool sets per intent.
-		// See: internal/mangle/intent_routing.mg for routing rules
+		// See: internal/core/defaults/policy/intent_routing_rules.mg for routing rules
 		// =========================================================================
 
 		// System Shards
@@ -1017,12 +1017,20 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			// Don't start yet - will be started on demand
 			logging.Get(logging.CategoryBoot).Info("Northstar observer registered")
 
-			// Wire Northstar Guardian for intelligent periodic checks
+			// Wire Northstar Guardian for intelligent periodic checks.
+			// AcquireGuardian (not NewStore+NewGuardian) so /alignment and the
+			// campaign risk gate share this guardian's DB handle and cached state.
 			nerdDir := filepath.Join(workspace, ".nerd")
-			if northstarStore, err := northstar.NewStore(nerdDir); err == nil {
-				guardianConfig := northstar.DefaultGuardianConfig()
-				guardian := northstar.NewGuardian(northstarStore, guardianConfig)
+			if guardian, err := northstar.AcquireGuardian(nerdDir, northstar.DefaultGuardianConfig()); err == nil {
 				guardian.SetLLMClient(shardLLMClient)
+				// Kernel wire parity with session_shared_boot.go. This call was
+				// missing here, so on the primary boot path the guardian never
+				// projected northstar_* facts: northstar_defined() stayed false
+				// in the chat kernel and every injectable_context(/northstar_*)
+				// rule silently produced nothing.
+				if kernel != nil {
+					guardian.SetParentKernel(kernel)
+				}
 				if err := guardian.Initialize(); err == nil {
 					sessionID := resolveSessionID(loadedSession)
 					handler := northstar.NewBackgroundEventHandler(guardian, sessionID)

@@ -6,31 +6,31 @@
 
 ## P0 — Honesty & split-brain
 
-- [ ] **Unify or dual-feed shard visibility:** call `TransparencyManager.StartShard` / `UpdateShardPhase` / `EndShard` from ShardManager lifecycle **or** stop advertising Active Operations from unfed Observer.  
-- [ ] **Type `SetTransparencyManager`:** replace `any` with a small interface in `internal/types` (Enable/phase methods) **or** remove dead storage.  
-- [ ] **Status honesty:** mark `StreamReasoning` / `JITExplain` / `OperationSummaries` as experimental in `GetStatus` until wired, or implement wiring.
+- [x] **Unify or dual-feed shard visibility:** `ShardManager.SpawnAsyncWithContext` now calls `StartShard` / `UpdateShardPhase(PhaseExecuting)` / `EndShard` (and the panic path ends the execution). Tracking is gated on `ShardPhases` alone so `/transparency on` mid-run sees in-flight shards; the observer's tracked set is bounded (`pruneTerminalLocked`). Evidence: `internal/core/shards/transparency_feed_test.go`.  
+- [x] **Type `SetTransparencyManager`:** `types.TransparencyManager` (+ `types.ShardPhase`, `types.OperationRecord`) replaces the `any` field. `transparency.ShardPhase` is now an alias of the types definition.  
+- [x] **Status honesty:** `JITExplain` and `OperationSummaries` are wired; `StreamReasoning` is labelled **experimental** in `GetStatus` because no producer reads it. Evidence: `TestGetStatus_WhenStreamReasoningSet_ShouldLabelItExperimental`.
 
 ## P1 — Product completeness
 
-- [ ] Auto `ReportSafetyViolation` on constitutional / `permitted` deny with rule + action + target.  
-- [ ] Emit `CategoryJIT` events from prompt compiler when JIT explain is on.  
-- [ ] Align config comments (`GlassBoxCategories`) with `CategoryRouting`.  
-- [ ] Wire `OperationSummaries` to post-turn summary using `FormatOperationSummary`.  
-- [ ] Add drop counters to `GlassBoxBusStats` and ToolEventBus.
+- [x] Auto `ReportSafetyViolation` on constitutional / `permitted` / dreamer deny with rule + action + target, via `transparency.ReportDeny` at the VirtualStore routing deny sites. Evidence: `internal/core/transparency_deny_test.go`.  
+- [x] Emit `CategoryJIT` events from the prompt compiler when JIT explain is on (`emitJITGlassBox` in `internal/prompt/compiler.go` → `transparency.EmitJIT`).  
+- [x] Align config comments (`GlassBoxCategories`) with `CategoryRouting`.  
+- [x] Wire `OperationSummaries`: `TransparencyManager.RecordOperation` + ring + `FormatLastOperation`, fed by shard completion and every routed VirtualStore action; surfaced as "Recent Operations" in `GetStatus`. (Producer is per-operation, not per-turn — the chat turn boundary lives outside this package.)  
+- [x] Add drop counters to `GlassBoxBusStats` (`Dropped`/`Delivered`/`SinkCount`) and `ToolEventBus.Stats()`.
 
 ## P2 — Hardening
 
-- [ ] Mutex (or single-owner docs + race tests) for `SafetyReporter`.  
-- [ ] Stress test: multi-goroutine Emit + Subscribe drain under `-race`.  
-- [ ] Expand `explainRule` map from real policy rule names used in `.mg` corpus.  
-- [ ] Structured error types at VirtualStore boundaries to reduce ClassifyError ambiguity.
+- [x] Mutex for `SafetyReporter` (denials now arrive from shard goroutines) + race test.  
+- [x] Stress test: multi-goroutine Emit + Subscribe drain under `-race`.  
+- [x] Expand `explainRule` map from real policy rule names. The old map was keyed by `rule_metadata` symbolic names while `DerivationNode.RuleName` is the head predicate, so no key ever matched; the new glossary is keyed by real rule heads and audited by `TestRuleGlossary_EveryEntry_ShouldExistInMangleCorpus`.  
+- [x] Structured error types at VirtualStore boundaries (`transparency.BoundaryError` / `NewSafetyError`, honored first by `ClassifyError`).
 
 ## P3 — Future surfaces
 
-- [ ] Optional JSON/NDJSON event sink for headless campaign runs.  
-- [ ] OTel bridge (optional) mapping categories → span events.  
-- [ ] Per-turn Glass Box export attached to campaign assault artifacts.  
-- [ ] Machine-checkable invariant tests that ToolEvent still flows when Glass Box disabled.
+- [x] Optional JSON/NDJSON event sink for headless campaign runs (`NDJSONSink`, auto-attached from `CODENERD_GLASSBOX_NDJSON`).  
+- [ ] OTel bridge (optional) mapping categories → span events. **Deliberately deferred:** nothing in this repo configures a `TracerProvider`, so the bridge would emit into no-op spans. `EventSink` is the extension point when a provider exists (rationale recorded at the `EventSink` declaration).  
+- [ ] Per-turn Glass Box export attached to campaign assault artifacts. **Primitive exists** (`NDJSONSink.OnlyTurn`); attaching it to assault artifacts requires `internal/campaign` to own the sink lifecycle.  
+- [x] Machine-checkable invariant tests that ToolEvent still flows when Glass Box disabled (`TestToolEventBus_WhenGlassBoxDisabled_ShouldStillDeliver`).
 
 ## Done (living — do not re-open without evidence)
 

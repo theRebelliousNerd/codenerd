@@ -66,8 +66,13 @@ func TestDefaultOuroborosConfig(t *testing.T) {
 	if !config.AllowFileSystem {
 		t.Error("AllowFileSystem should be true by default")
 	}
-	if !config.AllowExec {
-		t.Error("AllowExec should be true by default")
+	// Was "AllowExec should be true by default". That default put os/exec on
+	// the safety allowlist for every generated tool in every workspace, and
+	// go_safety.mg has no call-level rule narrowing what such a tool may
+	// spawn — so the import allowlist was the only gate and it was open.
+	// Exec is now granted per workspace through Config.AllowToolExec.
+	if config.AllowExec {
+		t.Error("AllowExec should be false by default")
 	}
 }
 
@@ -230,7 +235,14 @@ func TestSafetyChecker_Check_ForbiddenImports(t *testing.T) {
 		{"net/http disallowed by default", "net/http", true},
 		{"fmt", "fmt", false},
 		{"encoding/json", "encoding/json", false},
-		{"os/exec allowed by config", "os/exec", false},
+		// Was "os/exec allowed by config": DefaultOuroborosConfig used to set
+		// AllowExec: true, so every generated tool in every workspace could
+		// shell out. The import allowlist is the only gate in front of that
+		// (go_safety.mg has no call-level exec rule), so the default is now
+		// deny and exec is granted per workspace via Config.AllowToolExec.
+		// The grant path is covered by
+		// TestSafetyChecker_WhenExecExplicitlyGranted_ShouldAllowOsExec.
+		{"os/exec denied by default", "os/exec", true},
 	}
 
 	for _, tt := range tests {

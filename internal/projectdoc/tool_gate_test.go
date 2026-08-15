@@ -162,8 +162,6 @@ func TestValidateShellToolInvocation_VerificationTools(t *testing.T) {
 	}
 }
 
-
-
 func TestIsShellTool_RecognizesAliases(t *testing.T) {
 	positives := []string{
 		"run_command", "bash", "sh", "pwsh", "powershell", "cmd",

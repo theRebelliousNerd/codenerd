@@ -17,7 +17,7 @@ func TestTracker_Track_WhenNonStringContextValues_ShouldNotPanic(t *testing.T) {
 	tracker.dirty = true
 
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, "shard_type", 42)           // int, not string
+	ctx = context.WithValue(ctx, "shard_type", 42)            // int, not string
 	ctx = context.WithValue(ctx, "shard_name", []string{"x"}) // slice, not string
 	ctx = context.WithValue(ctx, "session_id", struct{}{})    // struct, not string
 

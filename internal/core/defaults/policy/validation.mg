@@ -140,19 +140,25 @@ unvalidated_side_effect(ActionID, ActionType) :-
 action_failed_validation(ActionID) :-
     action_validation_failed(ActionID, _, _, _, _).
 
+# action_validation_failed(ActionID, ActionType, Reason, Details, Timestamp) is
+# bound [/string, /name, /name, /string, /number]. Reason is a category atom and
+# Details is where the prose goes: ValidationResult.ToFacts derives the atom with
+# categorizeValidationError and stashes the full message in Details
+# (internal/core/action_validator.go). The rules below used to match the prose in
+# the Reason slot, so none of them could fire and every failure fell through to
+# the /escalate arm.
+
 # Hash mismatch indicates content wasn't written correctly
 validation_hash_mismatch(ActionID) :-
-    action_validation_failed(ActionID, _, "content hash mismatch", _, _).
+    action_validation_failed(ActionID, _, /hash_mismatch, _, _).
 
 # Syntax error indicates code corruption
 validation_syntax_error(ActionID) :-
-    action_validation_failed(ActionID, _, Reason, _, _),
-    Reason = "syntax validation failed".
+    action_validation_failed(ActionID, _, /syntax_error, _, _).
 
 # Element disappeared indicates structural damage
 validation_element_lost(ActionID) :-
-    action_validation_failed(ActionID, _, Reason, _, _),
-    Reason = "target element no longer exists after edit".
+    action_validation_failed(ActionID, _, /element_lost, _, _).
 
 # =============================================================================
 # SECTION 3: SELF-HEALING STRATEGY SELECTION
@@ -164,7 +170,11 @@ needs_self_healing(ActionID, /retry) :-
     !validation_max_retries_reached(ActionID).
 
 needs_self_healing(ActionID, /retry) :-
-    action_validation_failed(ActionID, _, "cannot read back file", _, _),
+    action_validation_failed(ActionID, _, /read_back_failed, _, _),
+    !validation_max_retries_reached(ActionID).
+
+needs_self_healing(ActionID, /retry) :-
+    action_validation_failed(ActionID, _, /edit_not_applied, _, _),
     !validation_max_retries_reached(ActionID).
 
 # Rollback strategy for syntax errors (code corruption)
@@ -191,10 +201,15 @@ needs_self_healing(ActionID, /escalate) :-
 # =============================================================================
 
 # Block subsequent actions while validation failure is unresolved
+action_needs_self_healing(ActionID) :-
+    needs_self_healing(ActionID, Strategy).
+
+# `!needs_self_healing(ActionID, _)` excluded nothing, so the block was raised
+# even while self-healing was already underway for that action.
 block_action(/validation_pending) :-
     action_failed_validation(ActionID),
     !action_validated(ActionID),
-    !needs_self_healing(ActionID, _).
+    !action_needs_self_healing(ActionID).
 
 # Step 2/3: Surface a soft barrier while a side-effecting action is in
 # validation limbo (ran, no validator opinion, not failed). The clause above

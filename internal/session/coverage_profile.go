@@ -371,4 +371,3 @@ func NormalizeCoverPath(p string) string {
 	p = strings.TrimPrefix(p, "./")
 	return p
 }
-

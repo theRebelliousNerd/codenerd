@@ -1,6 +1,6 @@
 # init — Testing Alignment
 
-> Last verified: 2026-08-09
+> Last verified: 2026-08-15
 
 ## Commands
 
@@ -29,6 +29,10 @@ go test ./cmd/nerd/... -count=1
 | `interactive_display_test.go` | Display + DefaultInteractiveConfig |
 | `typeu_coverage_test.go` | Type U parse/validate + directory structure |
 | `initializer_truth_test.go` | Overlay preservation, timeout, corrupt config, LLM metrics/race, success truth, phase numbering |
+| `preferences_preservation_test.go` | Merge-preserving `savePreferences`, corrupt-file refusal, hint override, force-reinit end to end |
+| `agents_curation_test.go` | Type U merge and collision replacement, scripted interactive selection, terminal gate, auto-accept, EOF degradation |
+| `strategic_knowledge_parsing_test.go` | Hermetic fake LLM: fenced/bare/brace-bearing JSON, unparseable fallback, relevance arrays, `extractJSON` table |
+| `profile_detection_test.go` | Framework ranking and determinism, monorepo manifest discovery, corpus ingestion and reconcile survival, content hash, `missing_tool_for` facts, package-tree hygiene |
 
 ## What is well covered
 
@@ -47,18 +51,18 @@ go test ./cmd/nerd/... -count=1
 |------|-----|
 | Full `Initialize` happy path | Hard to unit-test without embedding engine + temp workspace scaffolding; limited E2E |
 | Parallel agent creation races | Not stress-tested |
-| Strategic knowledge LLM path | No hermetic mock suite visible in package tests |
+| Strategic knowledge LLM path | Parsing is now hermetically covered; the prompt-construction and grounding branches are not |
 | Gemini grounding | Integration-dependent |
-| Interactive selection I/O | Display tested; full stdin decision tree lightly covered |
-| CLI `runInit` flags | Live in `cmd/nerd` tests, not `internal/init` |
+| Interactive selection I/O | y/n/EOF/auto-accept covered via `InteractiveIO`; the `c` customize toggle loop is still only display-tested |
+| CLI `runInit` flags | `cmd/nerd/cmd_init_scan_test.go` pins the help text and the curation flags; end-to-end `--define-agent` through a real `Initialize` is not exercised |
 | Validation against real migrated DBs | Partial via schema expectations |
 
 ## Recommended test additions (doc only)
 
-1. Temp-dir `createDirectoryStructure` + `IsInitialized` after fake profile write (already partially present).
-2. Fake `LLMClient` for `generateStrategicKnowledge` JSON parse success/fail.
-3. Worker-pool cancellation when ctx cancelled mid-agent-create.
-4. Golden files for `generateFactsFile` Mangle output.
+1. Worker-pool cancellation when ctx cancelled mid-agent-create.
+2. Golden files for `generateFactsFile` Mangle output.
+3. The `c` customize toggle loop driven through `InteractiveIO`.
+4. End-to-end `nerd init --define-agent` producing a shard knowledge DB.
 
 ## Alignment with principles
 

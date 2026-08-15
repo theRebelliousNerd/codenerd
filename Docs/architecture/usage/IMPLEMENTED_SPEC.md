@@ -1,10 +1,10 @@
 # usage — Implemented Spec
 
-> Last verified against codebase: **2026-07-13**  
+> Last verified against codebase: **2026-08-15**  
 > Status: Living reference — **code-grounded full corpus**  
 > Mode: 1:1 with `internal/usage/`  
-> Implementation: **2** non-test Go · **4** tests · **0** `.mg`  
-> Heuristic completeness: **~75%** of a production-grade multi-engine meter (core tracker solid; producer coverage partial)
+> Implementation: **3** non-test Go · **6** tests · **0** `.mg`  
+> Heuristic completeness: **~95%** of a production-grade multi-engine meter (core tracker solid; every HTTP LLM client meters; CLI-engine clients expose no token counts to meter)
 
 ---
 
@@ -38,25 +38,33 @@ Usage never asserts facts, never queries the kernel, never routes VirtualStore a
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Types (`UsageData`, aggregates, `TokenCounts`) | **Implemented** | `usage_types.go` |
-| `Tracker` construct/load/save | **Implemented** | Soft-fail corrupt load |
-| `Track` multi-dimension aggregates | **Implemented** | |
-| Debounced autosave | **Implemented** | Known dirty race (see gaps) |
+| `Tracker` construct/load/save | **Implemented** | Soft-fail corrupt load, logged |
+| `Track` multi-dimension aggregates | **Implemented** | incl. `ByShardName` |
+| Atomic save (temp file + fsync + rename) | **Implemented** | `saveLocked` |
+| Debounced autosave + dirty re-arm | **Implemented** | `autoSaveTimer`, re-arms if a mutation lands mid-write |
+| `Close`/`Flush` on shutdown | **Implemented** | Cortex close + chat shutdown |
+| Refcounted single owner per workspace | **Implemented** | `Shared` registry; last `Close` shuts down |
 | Context attach / retrieve | **Implemented** | Typed key for tracker |
-| Shard attribution helpers | **Implemented** | String keys |
+| Shard attribution helpers | **Implemented** | Typed keys, legacy string keys still read |
 | Stats defensive copy | **Implemented** | |
-| Cortex boot wiring | **Implemented** | `system/factory.go` |
+| Cortex boot wiring | **Implemented** | `system/factory.go` via `Shared` |
 | CLI/chat context attach | **Implemented** | Multiple cmd + chat files |
-| ZAI Track producer | **Implemented** | Sole production Track site found |
-| Other LLM engines Track | **Missing** | Silent undercount |
-| `UsageEvent` append | **Not implemented** | Type only |
-| `Cost` estimation | **Not implemented** | Field only |
-| By-shard-name aggregates | **Not implemented** | Comment only |
-| Logging integration | **Missing** | |
+| Track producers — HTTP LLM clients | **Implemented** | zai, anthropic, openai, gemini, xai, openrouter, ollama, dashscope, meta, moonshot |
+| Track producers — streaming paths | **Implemented** | once per stream, from the final billed usage chunk |
+| Track producers — CLI engines | **N/A** | `claude-cli` / `codex-cli` decoders receive no token counts |
+| Canonical provider ids | **Implemented** | `perception.canonicalProviderIDs`, checked against config engine names |
+| `UsageEvent` bounded ring | **Implemented** | opt-in via `WithEventLog` |
+| `Cost` estimation | **Implemented** | `pricing.go` price table; `UnpricedTokens` for misses |
+| By-shard-name aggregates | **Implemented** | `ByShardName` |
+| `BySession` pruning | **Implemented** | folds low-spend rows into `(pruned)` |
+| Negative-token rejection | **Implemented** | logged and dropped |
+| Logging integration | **Implemented** | `logging.CategorySession` |
+| `nerd usage` CLI | **Implemented** | `cmd/nerd/cmd_usage.go` |
 | Mangle surface | **N/A** | Correct absence |
-| Unit tests | **Strong** | 4 test files |
-| Architecture corpus | **This document set** | 2026-07-13 rebuild |
+| Unit tests | **Strong** | 6 test files + producer tests in `internal/perception` |
+| Architecture corpus | **This document set** | 2026-08-15 update |
 
-**Overall:** Living, wired package — **not** pre-implementation. Treat as **production telemetry with incomplete multi-engine coverage**.
+**Overall:** Living, wired package — **not** pre-implementation. Treat as **production telemetry with full coverage of every LLM client that reports tokens**.
 
 ---
 
@@ -66,12 +74,16 @@ Usage never asserts facts, never queries the kernel, never routes VirtualStore a
 
 ```
 internal/usage/
-  usage_types.go                 # data model + TokenCounts.Add
-  usage_tracker.go               # Tracker + persistence + context
+  usage_types.go                 # data model + TokenCounts.Add/AddCost
+  usage_tracker.go               # Tracker + persistence + context + Shared registry
+  pricing.go                     # model → list price table, EstimateCost
   usage_tracker_test.go
   usage_tracker_context_test.go
   usage_types_test.go
   usage_comprehensive_test.go
+  durability_test.go
+  pricing_test.go
+  shared_tracker_test.go
 ```
 
 ### 3.2 Production files
@@ -144,13 +156,13 @@ Under `mu`:
 5. `addToMap` for provider, model, shard type, operation, session  
 6. If `!dirty`: set dirty; `time.AfterFunc(5s, Save; dirty=false)`  
 
-No append to `Events`. No cost. No validation of non-negative tokens.
+Then: cost estimate from the price table (unpriced tokens counted separately), optional append to the bounded `Events` ring, `BySession` pruning, and `markDirtyLocked`. Negative counts are rejected before any of this; all-zero counts return early.
 
 ### 5.3 Persistence
 
-`saveLocked` → `json.MarshalIndent` → `os.WriteFile(path, data, 0644)`.
+`saveLocked` → `json.MarshalIndent` → temp file in the same directory → `Write` → `Sync` → `Chmod 0644` → `Rename` onto `usage.json`.
 
-Not atomic. No fsync. No backup file.
+Atomic: a reader sees either the old file or the new one. A failed write leaves no temp file behind and keeps the tracker dirty so the next flush retries.
 
 ### 5.4 Stats
 
@@ -164,13 +176,18 @@ Struct value copy + per-map `maps.Copy`. Nil map stays nil via helper.
 
 Uses unexported `type contextKey struct{}` — only `NewContext`/`FromContext` can use it. Safe against accidental collisions.
 
-### Attribution keys (string)
+### Attribution keys (typed)
+
+`WithShardContext` writes private `shardMetaKey` values, not raw strings, so no
+other package can collide with or read them. Track still falls back to the
+legacy raw-string key on read for contexts built before the change; nothing in
+the tree writes those any more.
 
 | Key | Set by | Read by |
 |-----|--------|---------|
-| `"shard_name"` | `WithShardContext` | Track (not aggregated) |
-| `"shard_type"` | `WithShardContext` | Track → `ByShardType` |
-| `"session_id"` | `WithShardContext` | Track → `BySession` |
+| `shardMetaKey{"shard_name"}` | `WithShardContext` | Track → `ByShardName` |
+| `shardMetaKey{"shard_type"}` | `WithShardContext` | Track → `ByShardType` |
+| `shardMetaKey{"session_id"}` | `WithShardContext` | Track → `BySession` |
 
 **Live setter:** `internal/core/shards/manager_spawn.go` before shard goroutine.
 
@@ -182,8 +199,12 @@ Uses unexported `type contextKey struct{}` — only `NewContext`/`FromContext` c
 
 | Site | Path | Notes |
 |------|------|-------|
-| Cortex boot | `internal/system/factory.go` | `initCoreComponents`; field on Cortex |
-| Chat session | `cmd/nerd/chat/session.go` | Separate construction for TUI model |
+| Cortex boot | `internal/system/factory.go` | `initCoreComponents` → `usage.Shared`; field on Cortex |
+| Chat session | `cmd/nerd/chat/session.go` | `usage.Shared` → **same** tracker as Cortex for that workspace |
+| `nerd usage` CLI | `cmd/nerd/cmd_usage.go` | `NewTracker`, read-only, separate process |
+
+`Shared` refcounts: each owner Closes its own handle and only the last Close
+flushes and shuts the tracker down.
 
 ### 7.2 Context attach sites
 
@@ -199,11 +220,38 @@ Uses unexported `type contextKey struct{}` — only `NewContext`/`FromContext` c
 
 ### 7.3 Producers (Track)
 
+All producers go through `perception.trackUsage` (`internal/perception/usage_track.go`),
+which resolves the provider id through `usageProviderID` and calls
+`usage.TrackFromContext`.
+
 | Site | Path | Operation | Provider |
 |------|------|-----------|----------|
-| ZAI HTTP client | `internal/perception/client_zai.go` | `"chat"` | `"zai"` |
+| ZAI chat / structured / tools / stream | `client_zai.go`, `client_zai_streaming.go` | `chat`, `tool_gen` | `zai` |
+| Anthropic chat / tools / tool-results / stream | `client_anthropic.go` | `chat`, `tool_gen` | `anthropic` |
+| OpenAI chat / stream / non-streaming funnel | `client_openai.go` | `chat`, `tool_gen` | `openai` |
+| Ollama (OpenAI transport, own provider id) | `client_ollama.go` | `chat`, `tool_gen` | `ollama` |
+| xAI chat / tools / tool-results | `client_xai.go` | `chat`, `tool_gen` | `xai` |
+| OpenRouter chat / stream / tools | `client_openrouter.go` | `chat`, `tool_gen` | `openrouter` |
+| OpenAI-compatible funnel (`executeChat`) + stream | `client_openai_compat.go` | `chat`, `tool_gen` | `dashscope`, `meta`, `moonshot` |
+| Meta Responses surface | `client_meta_responses.go` | `tool_gen` | `meta` |
+| Meta grounded web search | `client_openai_compat_grounding.go` | `grounded_search` | `meta` |
+| Gemini chat / schema / tools / tool-results / stream | `client_gemini*.go` | `chat`, `tool_gen` | `gemini` |
 
-No other production `Track` call sites found under `internal/` or `cmd/` at verification date.
+Notes:
+
+- **Streaming tracks once**, after the stream ends, from the final usage-bearing
+  chunk (`stream_options.include_usage`, Anthropic `message_start`/`message_delta`,
+  Gemini `usageMetadata`). Never per delta.
+- **xAI streaming** delegates to `CompleteWithSystem` and must not track again.
+- **Gemini** bills thinking tokens as output, so `geminiOutputTokens` folds
+  `thoughtsTokenCount` into the output count.
+- **Retries that reached the vendor are each billed**, so the compat funnel
+  tracks per successful HTTP response, including the empty-content thinking retry.
+- **CLI engines** (`claude-cli`, `codex-cli`) are the remaining unmetered
+  producers: their response decoders carry no token counts, so there is nothing
+  to record without inventing numbers.
+
+Enforced by `internal/perception/usage_track_test.go`.
 
 ### 7.4 Consumers (Stats)
 
@@ -262,15 +310,17 @@ flowchart TB
 | Input | `input` | Yes via Add |
 | Output | `output` | Yes via Add |
 | Total | `total` | Yes via Add |
-| Cost | `cost_est_usd` | **No** |
+| Cost | `cost_est_usd` | Yes via `AddCost` (estimate from `pricing.go`) |
 
 ### AggregatedStats maps
 
 All maps are `map[string]TokenCounts`. Keys are free-form strings from callers (provider id, model id, shard type, operation, session id). Missing metadata → `"unknown"`.
 
-### UsageEvent (schema aspirational)
+### UsageEvent (bounded ring)
 
-Fields mirror Track arguments plus `Timestamp`. Would support forensic “what happened when” if a ring buffer is added.
+Fields mirror Track arguments plus `Timestamp` and `CostUSD`. Retained only when
+the tracker is built `WithEventLog`, capped at `maxEvents` (1000) with oldest-first
+eviction. Aggregates remain the durable record; the ring is recent history only.
 
 ---
 
@@ -282,9 +332,9 @@ Fields mirror Track arguments plus `Timestamp`. Would support forensic “what h
 | Missing tracker | Silent no-op |
 | Bad attribution types | Degrade to unknown |
 | Corrupt disk | Empty start |
-| Save error in AfterFunc | Currently **ignored** |
-| Multi-process | **Unsupported** |
-| Dual Tracker same file | **Risk** in chat+Cortex |
+| Save error in AfterFunc | Logged; tracker stays dirty and the timer re-arms |
+| Multi-process | **Unsupported** (last writer wins across processes) |
+| Dual Tracker same file | **Resolved** in-process via `Shared` refcounting |
 
 Full catalog: [12-FAILURE-MODES.md](12-FAILURE-MODES.md).
 
@@ -311,10 +361,9 @@ Details: [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md).
 
 Priority summary:
 
-1. **P0** — Track from all LLM engines and stream finals  
-2. **P1** — Atomic save + dirty re-arm + shutdown flush  
-3. **P2** — Events/Cost/logging/UI session table  
-4. **P3** — Single tracker owner; prune sessions  
+All P0–P4 backlog items are closed except metering the CLI engines, which is
+blocked on those clients surfacing token counts at all. Remaining risk is
+cross-process, not in-process.
 
 Full matrix: [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) · backlog: [TODO.md](TODO.md).
 
@@ -335,10 +384,10 @@ Alignment scores: [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md)
 
 ## 13. Non-goals of this corpus revision
 
-- Implementing missing Track producers or cost tables  
-- Changing Go source under `internal/usage`  
-- Spec-doc-sprint product templates outside this folder  
-- Claiming 100% multi-engine metering when only ZAI tracks  
+- Cross-process coordination of `usage.json`  
+- Mangle predicates for hard token budgets  
+- Cloud billing reconciliation (costs here are list-price estimates)  
+- Claiming CLI-engine metering that the CLI decoders cannot support  
 
 ---
 
@@ -371,4 +420,6 @@ Interactive chat with ZAI, one coder shard:
 6. ~5s later JSON rewritten.  
 7. User opens Usage page → Stats tables show provider/model/shard type/operation.
 
-If the same turn used a non-ZAI engine with no Track site, steps 4–6 never update disk — **the primary integrity gap of the living system**.
+The same turn on any other HTTP engine now records identically, under that
+engine's config name. Only the CLI engines stay silent, and they stay silent
+because they report no tokens — not because the wiring is missing.

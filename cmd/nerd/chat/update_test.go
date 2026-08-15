@@ -606,40 +606,66 @@ func TestUpdate_Performance_Rapid(t *testing.T) {
 	t.Logf("%d updates in %v (avg: %v/update)", iterations, elapsed, avgPerUpdate)
 }
 
+// TestUpdate_Performance_WithHistory asserts that Update does not degrade
+// superlinearly as the message history grows.
+//
+// It used to assert a wall-clock bound: 100 updates over a 100-message history
+// in under 2 seconds. On an idle machine that run takes ~240ms, an 8x margin —
+// and it still failed during a parallel test sweep on a loaded box. A threshold
+// on absolute time is a threshold on how busy the machine is, which is not a
+// property of this code. The same mistake was corrected in
+// observability.TestFlightWatchdog for the same reason: CPU speed should change
+// how LONG a test takes, not WHETHER it passes.
+//
+// What the test actually cares about is that nothing in Update is quadratic in
+// history length. That is a ratio, and a ratio is load-independent: contention
+// slows both measurements together and cancels out. Linear scaling gives ~10x
+// for a 10x larger history; quadratic gives ~100x. The bound sits between them
+// with room for constant overhead on either side.
 func TestUpdate_Performance_WithHistory(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping performance test in short mode")
 	}
 	t.Parallel()
 
-	// Create model with substantial history
-	messages := make([]Message, 100)
-	for i := range messages {
-		messages[i] = Message{
-			Role:    "user",
-			Content: "Test message content that is reasonably long to simulate real usage",
-			Time:    time.Now(),
+	const iterations = 100
+
+	run := func(historySize int) time.Duration {
+		messages := make([]Message, historySize)
+		for i := range messages {
+			messages[i] = Message{
+				Role:    "user",
+				Content: "Test message content that is reasonably long to simulate real usage",
+				Time:    time.Now(),
+			}
 		}
+		m := NewTestModel(WithHistory(messages...))
+
+		start := time.Now()
+		for range iterations {
+			newModel, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
+			m = newModel.(Model)
+		}
+		return time.Since(start)
 	}
 
-	m := NewTestModel(WithHistory(messages...))
+	small := run(10)
+	large := run(100)
+	t.Logf("%d updates: 10-message history %v, 100-message history %v", iterations, small, large)
 
-	start := time.Now()
-	iterations := 100
-
-	for range iterations {
-		newModel, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
-		m = newModel.(Model)
+	// Below this the timings are dominated by scheduler noise and the ratio
+	// means nothing. Reporting that is better than asserting on it.
+	if small < time.Millisecond {
+		t.Skipf("baseline too fast to compare meaningfully (%v); nothing to assert", small)
 	}
 
-	elapsed := time.Since(start)
-
-	// With 100 messages, should still be responsive
-	if elapsed > 2*time.Second {
-		t.Errorf("100 updates with 100-message history took %v (should be <2s)", elapsed)
+	const maxRatio = 30 // linear is ~10x, quadratic ~100x
+	if ratio := float64(large) / float64(small); ratio > maxRatio {
+		t.Errorf("a 10x larger history cost %.1fx more time (%v -> %v); "+
+			"linear would be ~10x and quadratic ~100x, so something in Update is "+
+			"scanning the history more than once per update",
+			ratio, small, large)
 	}
-
-	t.Logf("100 updates with 100-message history: %v", elapsed)
 }
 
 // =============================================================================

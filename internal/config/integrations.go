@@ -18,6 +18,17 @@ type MCPServerIntegration struct {
 	Timeout           string `yaml:"timeout" json:"timeout,omitempty"` // e.g., "30s", "2m"
 	AutoConnect       bool   `yaml:"auto_connect" json:"auto_connect,omitempty"`
 	AutoDiscoverTools bool   `yaml:"auto_discover_tools" json:"auto_discover_tools,omitempty"`
+
+	// Endpoint is the command line for a stdio server. Without it a stdio
+	// server could be configured but never launched, because BaseURL only
+	// describes HTTP and SSE transports.
+	Endpoint string `yaml:"endpoint" json:"endpoint,omitempty"`
+
+	// Headers are attached to every HTTP and SSE request. Values support
+	// ${ENV_VAR} expansion so a token can live in the environment rather than
+	// in config.json; an unset variable drops the header instead of sending
+	// the literal placeholder as a credential.
+	Headers map[string]string `yaml:"headers" json:"headers,omitempty"`
 }
 
 // DefaultTimeout returns a sensible default timeout based on server ID.
@@ -63,6 +74,11 @@ func (c *IntegrationsConfig) ToMCPServerConfigs() map[string]mcp.MCPServerConfig
 			Timeout:           timeout,
 			AutoConnect:       server.AutoConnect,
 			AutoDiscoverTools: server.AutoDiscoverTools,
+			// Endpoint and Headers were absent from this mapping, so a stdio
+			// server could be configured but never launched, and per-server
+			// auth headers were unreachable from config.json entirely.
+			Endpoint: server.Endpoint,
+			Headers:  server.Headers,
 		}
 	}
 

@@ -111,7 +111,7 @@
 Additional knobs:
 
 - `EnableDOMIngestion` (default true)  
-- `EnableHeaderIngestion` (default false)  
+- `HeaderIngestionMode` (`off` | `redacted`; `DefaultConfig` = `redacted` for research, CLI forces `off` unless `--ingest-headers`). Legacy `EnableHeaderIngestion` still reads as `redacted`.  
 - `EventThrottleMs` (default 100) — reduces fact/log pressure  
 - `EvidenceEnabled` (default true)
 - `EvidenceDir` (default `.nerd/browser/traces`)

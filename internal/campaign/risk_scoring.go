@@ -124,6 +124,35 @@ type RiskGateEvaluation struct {
 	Allowed     bool                  `json:"allowed"`
 	BlockedBy   RiskGateName          `json:"blocked_by,omitzero"`
 	BlockReason string                `json:"block_reason,omitzero"`
+
+	// ProtectedRoots are the protected surfaces this campaign targets. They are
+	// what turns advice into a hard stop (campaign_rules.mg Section 13).
+	ProtectedRoots []string `json:"protected_roots,omitzero"`
+
+	// Findings are the kernel's grading of the gate results: which are hard
+	// stops and which are advisory. See risk_gate_contract.go.
+	Findings []RiskFinding `json:"findings,omitzero"`
+
+	// KernelDecided is false when campaign_rules.mg was not loaded and the Go
+	// mirror graded the findings instead. Operators should see that difference.
+	KernelDecided bool `json:"kernel_decided"`
+}
+
+// HardFindings returns the findings that stop a campaign.
+func (e *RiskGateEvaluation) HardFindings() []RiskFinding {
+	if e == nil {
+		return nil
+	}
+	return hardRiskFindings(e.Findings)
+}
+
+// SoftFindings returns the advisory findings that were surfaced but did not
+// stop the campaign.
+func (e *RiskGateEvaluation) SoftFindings() []RiskFinding {
+	if e == nil {
+		return nil
+	}
+	return softRiskFindings(e.Findings)
 }
 
 func normalizeRiskGateMode(mode RiskGateMode) RiskGateMode {
@@ -209,56 +238,47 @@ func (o *Orchestrator) runRiskPreflight(ctx context.Context) (*RiskGateEvaluatio
 	o.recomputeRiskGateStateLocked()
 	targetPaths := collectCampaignRiskPaths(o.campaign)
 	protectedRoots := detectProtectedCampaignRoots(targetPaths)
+
+	// Everything Go observes goes here; the kernel grades it at the end.
+	measured := riskContractFacts{
+		campaignID:     o.campaign.ID,
+		protectedRoots: protectedRoots,
+	}
+
 	if len(protectedRoots) > 0 {
 		if o.advisoryBoard == nil {
 			o.riskDecision = nil
 			o.northstarObserver = nil
 			reason := fmt.Sprintf("advisory board not configured for protected campaign surfaces: %s", strings.Join(protectedRoots, ", "))
-			o.emitRiskAudit("risk_gate_blocked", "Campaign blocked: mandatory advisory safety review missing", map[string]any{
-				"blocked_by":        string(RiskGateAdvisory),
-				"reason":            reason,
-				"protected_roots":   protectedRoots,
-				"target_path_count": len(targetPaths),
+			measured.gateOutcomes = append(measured.gateOutcomes, RiskGateResult{
+				Name:    RiskGateAdvisory,
+				Enabled: false,
+				Outcome: RiskGateOutcomeBlocked,
+				Reason:  reason,
+				Data:    map[string]any{"protected_roots": protectedRoots},
 			})
-			return &RiskGateEvaluation{
-				Allowed:     false,
-				BlockedBy:   RiskGateAdvisory,
-				BlockReason: reason,
-				Results: []RiskGateResult{{
-					Name:    RiskGateAdvisory,
-					Enabled: false,
-					Outcome: RiskGateOutcomeBlocked,
-					Reason:  reason,
-					Data: map[string]any{
-						"protected_roots": protectedRoots,
-					},
-				}},
-			}, fmt.Errorf("risk gate blocked campaign start (%s): %s", RiskGateAdvisory, reason)
+			// A protected surface with no reviewer at all is a rejection, not a
+			// note: there is no opinion to weigh, so nothing can downgrade it.
+			measured.concerns = append(measured.concerns, riskConcern{
+				gate: RiskGateAdvisory, severity: riskConcernBlocking, detail: reason,
+			})
+			return o.finalizeRiskPreflight(nil, measured, len(targetPaths))
 		}
 		if o.configuredNorthstarObserver == nil {
 			o.riskDecision = nil
 			o.northstarObserver = nil
 			reason := fmt.Sprintf("northstar observer not configured for protected campaign surfaces: %s", strings.Join(protectedRoots, ", "))
-			o.emitRiskAudit("risk_gate_blocked", "Campaign blocked: mandatory northstar safety review missing", map[string]any{
-				"blocked_by":        string(RiskGateNorthstar),
-				"reason":            reason,
-				"protected_roots":   protectedRoots,
-				"target_path_count": len(targetPaths),
+			measured.gateOutcomes = append(measured.gateOutcomes, RiskGateResult{
+				Name:    RiskGateNorthstar,
+				Enabled: false,
+				Outcome: RiskGateOutcomeBlocked,
+				Reason:  reason,
+				Data:    map[string]any{"protected_roots": protectedRoots},
 			})
-			return &RiskGateEvaluation{
-				Allowed:     false,
-				BlockedBy:   RiskGateNorthstar,
-				BlockReason: reason,
-				Results: []RiskGateResult{{
-					Name:    RiskGateNorthstar,
-					Enabled: false,
-					Outcome: RiskGateOutcomeBlocked,
-					Reason:  reason,
-					Data: map[string]any{
-						"protected_roots": protectedRoots,
-					},
-				}},
-			}, fmt.Errorf("risk gate blocked campaign start (%s): %s", RiskGateNorthstar, reason)
+			measured.concerns = append(measured.concerns, riskConcern{
+				gate: RiskGateNorthstar, severity: riskConcernBlocking, detail: reason,
+			})
+			return o.finalizeRiskPreflight(nil, measured, len(targetPaths))
 		}
 	}
 
@@ -268,27 +288,30 @@ func (o *Orchestrator) runRiskPreflight(ctx context.Context) (*RiskGateEvaluatio
 		o.config.CampaignRiskOverride == nil {
 		o.riskDecision = nil
 		o.northstarObserver = nil
-		o.emitRiskAudit("risk_gate_skipped", "Risk auto-wiring disabled", map[string]any{
+		o.emitRiskAudit(EventRiskGateSkipped, "Risk auto-wiring disabled", map[string]any{
 			"mode":                 string(mode),
 			"enable_auto_wiring":   false,
 			"campaign_override":    false,
 			"task_overrides_count": len(o.config.TaskRiskOverrides),
 		})
-		return &RiskGateEvaluation{
-			Allowed: true,
-			Results: []RiskGateResult{},
-		}, nil
+		eval := &RiskGateEvaluation{
+			Allowed:        true,
+			Results:        []RiskGateResult{},
+			ProtectedRoots: protectedRoots,
+		}
+		o.setLastRiskEvaluation(eval)
+		return eval, nil
 	}
 
 	intel := o.gatherRiskIntelligence(ctx, targetPaths)
 	decision := buildCampaignRiskDecision(o.campaign, o.config, o.riskGateState, targetPaths, intel)
 	o.riskDecision = decision
 
-	o.emitRiskAudit("risk_snapshot_pinned", "Pinned deterministic risk inputs", map[string]any{
+	o.emitRiskAudit(EventRiskSnapshotPinned, "Pinned deterministic risk inputs", map[string]any{
 		"snapshot_id": decision.SnapshotID,
 		"inputs":      decision.Inputs,
 	})
-	o.emitRiskAudit("risk_score_computed", "Computed deterministic risk score", map[string]any{
+	o.emitRiskAudit(EventRiskScoreComputed, "Computed deterministic risk score", map[string]any{
 		"score":          decision.Score,
 		"threshold":      decision.Threshold,
 		"gated":          decision.Gated,
@@ -303,44 +326,41 @@ func (o *Orchestrator) runRiskPreflight(ctx context.Context) (*RiskGateEvaluatio
 
 	if mode == RiskGateModeForceBlock {
 		o.northstarObserver = nil
-		o.emitRiskAudit("risk_gate_blocked", "Campaign blocked by force-block override", map[string]any{
-			"score":       decision.Score,
-			"threshold":   decision.Threshold,
-			"snapshot_id": decision.SnapshotID,
+		measured.override = string(RiskGateModeForceBlock)
+		measured.gateOutcomes = append(measured.gateOutcomes, RiskGateResult{
+			Name:    riskGateOverride,
+			Enabled: true,
+			Outcome: RiskGateOutcomeBlocked,
+			Reason:  "force_block override",
 		})
-		return &RiskGateEvaluation{
-			Decision:    decision,
-			Allowed:     false,
-			BlockedBy:   "/override",
-			BlockReason: "force_block override",
-		}, fmt.Errorf("risk gate blocked campaign start (/override): force_block override")
+		return o.finalizeRiskPreflight(decision, measured, len(targetPaths))
+	}
+	if mode == RiskGateModeForceAllow {
+		measured.override = string(RiskGateModeForceAllow)
 	}
 
 	// When strict gating is off, keep runtime observer disabled so northstar checks
 	// don't implicitly run via phase/task hooks.
 	if !decision.Gated {
 		o.northstarObserver = nil
-		o.emitRiskAudit("risk_gate_skipped", "Risk below threshold; strict gates disabled", map[string]any{
+		o.emitRiskAudit(EventRiskGateSkipped, "Risk below threshold; strict gates disabled", map[string]any{
 			"score":     decision.Score,
 			"threshold": decision.Threshold,
 		})
-		return &RiskGateEvaluation{
-			Decision: decision,
-			Allowed:  true,
-		}, nil
-	}
-
-	eval := &RiskGateEvaluation{
-		Decision: decision,
-		Allowed:  true,
-		Results:  make([]RiskGateResult, 0, 3),
+		eval := &RiskGateEvaluation{
+			Decision:       decision,
+			Allowed:        true,
+			ProtectedRoots: protectedRoots,
+		}
+		o.setLastRiskEvaluation(eval)
+		return eval, nil
 	}
 
 	if decision.NorthstarGateEnabled {
 		o.northstarObserver = o.configuredNorthstarObserver
 		res := o.runNorthstarRiskGate(ctx)
-		eval.Results = append(eval.Results, res)
-		o.emitRiskAudit("risk_gate_result", "Northstar gate evaluated", map[string]any{
+		measured.gateOutcomes = append(measured.gateOutcomes, res)
+		o.emitRiskAudit(EventRiskGateResult, "Northstar gate evaluated", map[string]any{
 			"gate":    string(res.Name),
 			"outcome": string(res.Outcome),
 			"reason":  res.Reason,
@@ -351,9 +371,10 @@ func (o *Orchestrator) runRiskPreflight(ctx context.Context) (*RiskGateEvaluatio
 	}
 
 	if decision.EdgeGateEnabled {
-		res := o.runEdgeRiskGate(ctx, targetPaths, intel)
-		eval.Results = append(eval.Results, res)
-		o.emitRiskAudit("risk_gate_result", "Edge gate evaluated", map[string]any{
+		res, concerns := o.runEdgeRiskGate(ctx, targetPaths, intel)
+		measured.gateOutcomes = append(measured.gateOutcomes, res)
+		measured.concerns = append(measured.concerns, concerns...)
+		o.emitRiskAudit(EventRiskGateResult, "Edge gate evaluated", map[string]any{
 			"gate":    string(res.Name),
 			"outcome": string(res.Outcome),
 			"reason":  res.Reason,
@@ -362,9 +383,10 @@ func (o *Orchestrator) runRiskPreflight(ctx context.Context) (*RiskGateEvaluatio
 	}
 
 	if decision.AdvisoryGateEnabled {
-		res := o.runAdvisoryRiskGate(ctx, targetPaths, intel)
-		eval.Results = append(eval.Results, res)
-		o.emitRiskAudit("risk_gate_result", "Advisory gate evaluated", map[string]any{
+		res, concerns := o.runAdvisoryRiskGate(ctx, targetPaths, intel)
+		measured.gateOutcomes = append(measured.gateOutcomes, res)
+		measured.concerns = append(measured.concerns, concerns...)
+		o.emitRiskAudit(EventRiskGateResult, "Advisory gate evaluated", map[string]any{
 			"gate":    string(res.Name),
 			"outcome": string(res.Outcome),
 			"reason":  res.Reason,
@@ -372,27 +394,99 @@ func (o *Orchestrator) runRiskPreflight(ctx context.Context) (*RiskGateEvaluatio
 		})
 	}
 
-	if blocker, ok := selectBlockingRiskGate(eval.Results); ok {
-		eval.Allowed = false
-		eval.BlockedBy = blocker.Name
-		eval.BlockReason = blocker.Reason
-		o.emitRiskAudit("risk_gate_blocked", "Campaign blocked by strict risk gate", map[string]any{
-			"blocked_by":  string(blocker.Name),
-			"reason":      blocker.Reason,
-			"score":       decision.Score,
-			"threshold":   decision.Threshold,
-			"snapshot_id": decision.SnapshotID,
-		})
-		return eval, fmt.Errorf("risk gate blocked campaign start (%s): %s", blocker.Name, blocker.Reason)
+	return o.finalizeRiskPreflight(decision, measured, len(targetPaths))
+}
+
+// finalizeRiskPreflight hands the measurements to the kernel, then enforces
+// what came back. Go does not decide here; it only acts on campaign_risk_block.
+func (o *Orchestrator) finalizeRiskPreflight(decision *CampaignRiskDecision, measured riskContractFacts, targetPathCount int) (*RiskGateEvaluation, error) {
+	measured.decision = decision
+	findings, kernelDecided := o.classifyRiskGateResults(measured)
+
+	eval := &RiskGateEvaluation{
+		Decision:       decision,
+		Results:        measured.gateOutcomes,
+		Allowed:        true,
+		ProtectedRoots: measured.protectedRoots,
+		Findings:       findings,
+		KernelDecided:  kernelDecided,
 	}
 
-	o.emitRiskAudit("risk_gate_passed", "Strict risk gates passed", map[string]any{
-		"score":       decision.Score,
-		"threshold":   decision.Threshold,
-		"snapshot_id": decision.SnapshotID,
-	})
+	for _, soft := range softRiskFindings(findings) {
+		// Soft findings are the whole point of the contract: they must be
+		// visible, or the operator only ever learns about risk when work stops.
+		o.emitRiskAudit(EventRiskGateAdvisory, "Advisory risk finding (campaign continues)", map[string]any{
+			"gate":           string(soft.Gate),
+			"reason":         soft.Reason,
+			"detail":         soft.Detail,
+			"kernel_decided": kernelDecided,
+		})
+	}
 
-	return eval, nil
+	hard := hardRiskFindings(findings)
+	if len(hard) == 0 {
+		audit := map[string]any{
+			"kernel_decided":  kernelDecided,
+			"soft_findings":   len(findings) - len(hard),
+			"protected_roots": measured.protectedRoots,
+		}
+		if decision != nil {
+			audit["score"] = decision.Score
+			audit["threshold"] = decision.Threshold
+			audit["snapshot_id"] = decision.SnapshotID
+		}
+		o.emitRiskAudit(EventRiskGatePassed, "Strict risk gates passed", audit)
+		o.setLastRiskEvaluation(eval)
+		return eval, nil
+	}
+
+	blocker := hard[0]
+	eval.Allowed = false
+	eval.BlockedBy = blocker.Gate
+	eval.BlockReason = blocker.Detail
+	if eval.BlockReason == "" {
+		eval.BlockReason = strings.TrimPrefix(blocker.Reason, "/")
+	}
+
+	audit := map[string]any{
+		"blocked_by":      string(blocker.Gate),
+		"reason":          eval.BlockReason,
+		"classification":  blocker.Reason,
+		"kernel_decided":  kernelDecided,
+		"protected_roots": measured.protectedRoots,
+		"hard_findings":   len(hard),
+	}
+	if decision != nil {
+		audit["score"] = decision.Score
+		audit["threshold"] = decision.Threshold
+		audit["snapshot_id"] = decision.SnapshotID
+	}
+	if targetPathCount > 0 {
+		audit["target_path_count"] = targetPathCount
+	}
+	o.emitRiskAudit(EventRiskGateBlocked, "Campaign blocked by hard risk finding", audit)
+
+	o.setLastRiskEvaluation(eval)
+	return eval, &RiskBlockedError{CampaignID: measured.campaignID, Evaluation: eval}
+}
+
+// setLastRiskEvaluation runs with o.mu already held by Run.
+func (o *Orchestrator) setLastRiskEvaluation(eval *RiskGateEvaluation) {
+	o.lastRiskEvaluation = eval
+	campaignID := ""
+	if o.campaign != nil {
+		campaignID = o.campaign.ID
+	}
+	o.observeRiskPreflight(campaignID, eval)
+}
+
+// LastRiskEvaluation returns the most recent preflight evaluation, including
+// advisory findings that did not stop the run. Operator surfaces use it to show
+// what the gates saw even on a campaign that started successfully.
+func (o *Orchestrator) LastRiskEvaluation() *RiskGateEvaluation {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.lastRiskEvaluation
 }
 
 func (o *Orchestrator) gatherRiskIntelligence(ctx context.Context, targetPaths []string) *IntelligenceReport {
@@ -410,7 +504,7 @@ func (o *Orchestrator) gatherRiskIntelligence(ctx context.Context, targetPaths [
 
 	report, err := o.intelligenceGatherer.Gather(sampleCtx, o.campaign.Goal, targetPaths)
 	if err != nil {
-		o.emitRiskAudit("risk_intelligence_error", "Failed to gather intelligence for risk scoring", map[string]any{
+		o.emitRiskAudit(EventRiskIntelligenceError, "Failed to gather intelligence for risk scoring", map[string]any{
 			"error": err.Error(),
 		})
 		return &IntelligenceReport{
@@ -572,35 +666,10 @@ func applyRiskThreshold(score, threshold int, inputs RiskInputSnapshot, gates ri
 	return false, "equal_threshold_no_gate_enabled"
 }
 
-func selectBlockingRiskGate(results []RiskGateResult) (RiskGateResult, bool) {
-	if len(results) == 0 {
-		return RiskGateResult{}, false
-	}
-	precedence := map[RiskGateName]int{
-		RiskGateNorthstar: 1,
-		RiskGateEdge:      2,
-		RiskGateAdvisory:  3,
-	}
-
-	found := false
-	best := RiskGateResult{}
-	bestRank := math.MaxInt
-	for _, r := range results {
-		if r.Outcome != RiskGateOutcomeBlocked {
-			continue
-		}
-		rank, ok := precedence[r.Name]
-		if !ok {
-			rank = math.MaxInt - 1
-		}
-		if !found || rank < bestRank {
-			best = r
-			bestRank = rank
-			found = true
-		}
-	}
-	return best, found
-}
+// selectBlockingRiskGate used to pick the blocker straight from the gate
+// results, which made every blocked gate equally fatal. Gate precedence now
+// lives in riskGatePrecedence (risk_gate_contract.go) and applies only AFTER
+// the kernel has separated hard findings from advisory ones.
 
 func (o *Orchestrator) runNorthstarRiskGate(ctx context.Context) RiskGateResult {
 	if o.northstarObserver == nil || o.campaign == nil {
@@ -627,24 +696,32 @@ func (o *Orchestrator) runNorthstarRiskGate(ctx context.Context) RiskGateResult 
 	}
 }
 
-func (o *Orchestrator) runEdgeRiskGate(ctx context.Context, targetPaths []string, intel *IntelligenceReport) RiskGateResult {
+// runEdgeRiskGate returns the gate outcome plus the graded concerns behind it.
+// "The detector wants prework" carries no concern of its own, so on an ordinary
+// surface the kernel grades it /advisory_only — it is a recommendation about
+// how to sequence work, not a safety verdict. A detector that could not run at
+// all is /unapproved, which is hard on protected surfaces and soft elsewhere.
+func (o *Orchestrator) runEdgeRiskGate(ctx context.Context, targetPaths []string, intel *IntelligenceReport) (RiskGateResult, []riskConcern) {
 	if o.edgeCaseDetector == nil {
 		return RiskGateResult{
 			Name:    RiskGateEdge,
 			Enabled: false,
 			Outcome: RiskGateOutcomeSkipped,
 			Reason:  "edge case detector not configured",
-		}
+		}, nil
 	}
 
 	analysis, err := o.edgeCaseDetector.AnalyzeForCampaign(ctx, targetPaths, intel)
 	if err != nil {
+		reason := fmt.Sprintf("edge analysis failed: %v", err)
 		return RiskGateResult{
-			Name:    RiskGateEdge,
-			Enabled: true,
-			Outcome: RiskGateOutcomeBlocked,
-			Reason:  fmt.Sprintf("edge analysis failed: %v", err),
-		}
+				Name:    RiskGateEdge,
+				Enabled: true,
+				Outcome: RiskGateOutcomeBlocked,
+				Reason:  reason,
+			}, []riskConcern{{
+				gate: RiskGateEdge, severity: riskConcernUnapproved, detail: reason,
+			}}
 	}
 	if analysis == nil {
 		return RiskGateResult{
@@ -652,7 +729,7 @@ func (o *Orchestrator) runEdgeRiskGate(ctx context.Context, targetPaths []string
 			Enabled: true,
 			Outcome: RiskGateOutcomeSkipped,
 			Reason:  "edge analysis returned nil",
-		}
+		}, nil
 	}
 	if analysis.HasBlockingIssues() {
 		return RiskGateResult{
@@ -665,7 +742,7 @@ func (o *Orchestrator) runEdgeRiskGate(ctx context.Context, targetPaths []string
 				"modularize_files": len(analysis.ModularizeFiles),
 				"refactor_files":   len(analysis.RefactorFiles),
 			},
-		}
+		}, nil
 	}
 	return RiskGateResult{
 		Name:    RiskGateEdge,
@@ -676,17 +753,26 @@ func (o *Orchestrator) runEdgeRiskGate(ctx context.Context, targetPaths []string
 			"requires_prework": analysis.RequiresPrework,
 			"total_files":      analysis.TotalFiles,
 		},
-	}
+	}, nil
 }
 
-func (o *Orchestrator) runAdvisoryRiskGate(ctx context.Context, targetPaths []string, intel *IntelligenceReport) RiskGateResult {
+// runAdvisoryRiskGate returns the gate outcome and the graded advisory
+// concerns. The grading is what makes the hard path credible:
+//
+//	/blocking          a critical advisor voted REJECT — hard everywhere
+//	/requires_changes  a critical advisor wants changes — advice off protected surfaces
+//	/unapproved        no consensus, or the consultation failed — advice off
+//	                   protected surfaces, hard on them (you cannot ship an
+//	                   unreviewed change to the kernel because the reviewer
+//	                   timed out)
+func (o *Orchestrator) runAdvisoryRiskGate(ctx context.Context, targetPaths []string, intel *IntelligenceReport) (RiskGateResult, []riskConcern) {
 	if o.advisoryBoard == nil || o.campaign == nil {
 		return RiskGateResult{
 			Name:    RiskGateAdvisory,
 			Enabled: false,
 			Outcome: RiskGateOutcomeSkipped,
 			Reason:  "advisory board not configured",
-		}
+		}, nil
 	}
 
 	advisoryPhases := make([]AdvisoryPhase, 0, len(o.campaign.Phases))
@@ -714,12 +800,15 @@ func (o *Orchestrator) runAdvisoryRiskGate(ctx context.Context, targetPaths []st
 	}
 	responses, err := o.advisoryBoard.ConsultAdvisors(ctx, req)
 	if err != nil {
+		reason := fmt.Sprintf("advisory consultation failed: %v", err)
 		return RiskGateResult{
-			Name:    RiskGateAdvisory,
-			Enabled: true,
-			Outcome: RiskGateOutcomeBlocked,
-			Reason:  fmt.Sprintf("advisory consultation failed: %v", err),
-		}
+				Name:    RiskGateAdvisory,
+				Enabled: true,
+				Outcome: RiskGateOutcomeBlocked,
+				Reason:  reason,
+			}, []riskConcern{{
+				gate: RiskGateAdvisory, severity: riskConcernUnapproved, detail: reason,
+			}}
 	}
 
 	synthesis := o.advisoryBoard.SynthesizeVotes(responses)
@@ -734,7 +823,7 @@ func (o *Orchestrator) runAdvisoryRiskGate(ctx context.Context, targetPaths []st
 				"blocking_concerns":  len(synthesis.BlockingConcerns),
 				"overall_confidence": synthesis.OverallConfidence,
 			},
-		}
+		}, gradeAdvisoryConcerns(synthesis)
 	}
 	return RiskGateResult{
 		Name:    RiskGateAdvisory,
@@ -745,10 +834,39 @@ func (o *Orchestrator) runAdvisoryRiskGate(ctx context.Context, targetPaths []st
 			"approval_ratio":     synthesis.ApprovalRatio,
 			"overall_confidence": synthesis.OverallConfidence,
 		},
+	}, nil
+}
+
+// gradeAdvisoryConcerns maps AdvisorySynthesis onto the severities the kernel
+// grades. Only the strongest severity present is emitted, so one REJECT is not
+// diluted by three requests-for-changes.
+func gradeAdvisoryConcerns(synthesis AdvisorySynthesis) []riskConcern {
+	rejected := false
+	changes := false
+	detail := strings.TrimSpace(synthesis.Summary)
+	for _, bc := range synthesis.BlockingConcerns {
+		switch bc.Severity {
+		case "blocking":
+			rejected = true
+			if strings.TrimSpace(bc.Concern) != "" {
+				detail = fmt.Sprintf("%s (%s): %s", bc.Advisor, bc.Severity, bc.Concern)
+			}
+		case "requires_changes":
+			changes = true
+		}
+	}
+
+	switch {
+	case rejected:
+		return []riskConcern{{gate: RiskGateAdvisory, severity: riskConcernBlocking, detail: detail}}
+	case changes:
+		return []riskConcern{{gate: RiskGateAdvisory, severity: riskConcernRequiresChanges, detail: detail}}
+	default:
+		return []riskConcern{{gate: RiskGateAdvisory, severity: riskConcernUnapproved, detail: detail}}
 	}
 }
 
-func (o *Orchestrator) emitRiskAudit(eventType, message string, data map[string]any) {
+func (o *Orchestrator) emitRiskAudit(eventType OrchestratorEventType, message string, data map[string]any) {
 	o.emitEvent(eventType, "", "", message, data)
 	logging.Campaign("RISK_AUDIT %s: %s", eventType, message)
 }

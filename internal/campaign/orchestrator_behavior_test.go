@@ -44,6 +44,7 @@ func TestOrchestrator_AssertsCampaignConfigFacts(t *testing.T) {
 		Kernel:           kernel,
 		LLMClient:        &stubLLM{},
 		ShardManager:     coreshards.NewShardManager(),
+		TaskExecutor:     &MockTaskExecutor{},
 		Executor:         tactile.NewDirectExecutor(),
 		VirtualStore:     &core.VirtualStore{},
 		MaxRetries:       5,

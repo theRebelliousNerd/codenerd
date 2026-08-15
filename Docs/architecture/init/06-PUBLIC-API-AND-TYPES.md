@@ -1,6 +1,6 @@
 # init — Public API and Types
 
-> Last verified: 2026-08-09
+> Last verified: 2026-08-15
 > Package import path: `codenerd/internal/init`
 
 ## Construction / lifecycle
@@ -16,7 +16,7 @@
 
 | Type | File | Fields of note |
 |------|------|----------------|
-| `InitConfig` | `initializer.go` | Workspace, LLMClient, LLMProvider/Model labels, ShardManager, Interactive, Timeout, skip flags, progress, Context7 key |
+| `InitConfig` | `initializer.go` | Workspace, LLMClient, LLMProvider/Model labels, ShardManager, Interactive, Timeout, skip flags, progress, Context7 key, `TypeUAgents`, `InteractiveIO` |
 | `InitProgress` | `initializer.go` | Phase, Message, Percent, AgentUpdate, ETA fields |
 | `AgentCreationUpdate` | `initializer.go` | Per-agent status/quality |
 | `InitResult` | `initializer.go` | Success, Failures, Warnings, LLMMetrics, Validation, Profile, files, agents, grounding |

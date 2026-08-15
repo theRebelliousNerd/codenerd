@@ -16,10 +16,17 @@ import (
 
 // OpenAIClient implements LLMClient for OpenAI API.
 type OpenAIClient struct {
-	apiKey      string
-	baseURL     string
-	model       string
-	httpClient  *http.Client
+	apiKey     string
+	baseURL    string
+	model      string
+	httpClient *http.Client
+
+	// provider is the id usage accounting records this client under. It is a
+	// field rather than a constant because OllamaClient reuses this transport
+	// against a local endpoint; without it every locally served token would be
+	// billed to "openai" in the by-provider breakdown.
+	provider Provider
+
 	mu          sync.Mutex
 	lastRequest time.Time
 }
@@ -53,6 +60,7 @@ func NewOpenAIClientWithConfig(config OpenAIConfig) *OpenAIClient {
 		apiKey:     config.APIKey,
 		baseURL:    config.BaseURL,
 		model:      config.Model,
+		provider:   ProviderOpenAI,
 		httpClient: NewSharedHTTPClient(config.Timeout),
 	}
 }
@@ -178,6 +186,9 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			logging.PerceptionError("[OpenAI] CompleteWithSystem: no completion returned")
 			return "", fmt.Errorf("no completion returned")
 		}
+
+		trackUsage(ctx, c.model, c.provider,
+			openaiResp.Usage.PromptTokens, openaiResp.Usage.CompletionTokens, usageOpChat)
 
 		response := strings.TrimSpace(openaiResp.Choices[0].Message.Content)
 		logging.Perception("[OpenAI] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
@@ -317,6 +328,11 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 			scanDone := make(chan struct{})
 			scanErrChan := make(chan error, 1)
 
+			// include_usage makes the vendor send one trailing chunk carrying
+			// the final billed counts and no choices. Recorded once below,
+			// after the stream ends — never per delta.
+			var billed struct{ input, output int }
+
 			go func() {
 				defer close(scanDone)
 				for scanner.Scan() {
@@ -340,6 +356,10 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 						scanErrChan <- fmt.Errorf("API error: %s", chunk.Error.Message)
 						return
 					}
+					if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+						billed.input = chunk.Usage.PromptTokens
+						billed.output = chunk.Usage.CompletionTokens
+					}
 					if len(chunk.Choices) > 0 && chunk.Choices[0].Delta != nil {
 						delta := chunk.Choices[0].Delta.Content
 						if delta != "" {
@@ -354,6 +374,10 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 				if err := scanner.Err(); err != nil {
 					scanErrChan <- err
 				}
+			}()
+
+			defer func() {
+				trackUsage(ctx, c.model, c.provider, billed.input, billed.output, usageOpChat)
 			}()
 
 			select {
@@ -499,6 +523,12 @@ func (c *OpenAIClient) completeNonStreaming(ctx context.Context, reqBody OpenAIR
 		if openAIResp.Error != nil {
 			return nil, fmt.Errorf("API error: %s", openAIResp.Error.Message)
 		}
+
+		// Tracked here rather than at each caller: this is the single
+		// non-streaming HTTP path on this client, so every billed request is
+		// counted exactly once even when a caller retries at a higher level.
+		trackUsage(ctx, reqBody.Model, c.provider,
+			openAIResp.Usage.PromptTokens, openAIResp.Usage.CompletionTokens, usageOpFor(len(reqBody.Tools)))
 
 		return &openAIResp, nil
 	}

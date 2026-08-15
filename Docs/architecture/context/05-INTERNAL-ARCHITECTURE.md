@@ -1,6 +1,6 @@
 # 05 — Internal Architecture: Context
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-15  
 > Source: `internal/context/`  
 > Status: Living Reference Document
 
@@ -81,9 +81,13 @@
 ```
 [Kernel facts]
     │
-    ├─(prefer) should_include_context → parse /pN → match facts → SelectWithinBudget
+    ├─(prefer) should_include_context → parse /pN → resolve entity → facts
+    │             → SelectWithinBudgetPreFiltered
+    │             (empty resolution falls through to the fallback)
     │
     └─(fallback) ScoreFacts → FilterByThreshold → SelectWithinBudget
+
+Which branch ran is recorded in SelectionStats (GetSelectionStats / GetMetrics).
 ```
 
 ### Turn age categories (C3)
@@ -94,6 +98,11 @@
 | ≤ 8 | `/mid` |
 | ≤ 15 | `/old` |
 | > 15 | `/ancient` |
+
+`/old` and `/ancient` derive `should_mask_observation(TurnID)`; every categorized
+turn derives `should_preserve_reasoning(TurnID)`. `maskedObservationTurns()` reads
+both back and masks only their intersection, so drifted rules fail toward keeping
+more history rather than less.
 
 ## 4. Data flow: one assistant turn
 

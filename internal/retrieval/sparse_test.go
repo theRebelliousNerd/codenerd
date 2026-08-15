@@ -111,12 +111,11 @@ func TestKeywordHitCache_TTLAndEviction(t *testing.T) {
 }
 
 func TestParseRipgrepOutput_CountsPerFile(t *testing.T) {
-	r := &SparseRetriever{}
 	output := "a.go:1:2:first\n" +
 		"a.go:3:4:second\n" +
 		"b.go:5:6:third\n"
 
-	hits := r.parseRipgrepOutput(output, "kw")
+	hits := parseRipgrepOutput(output, "kw")
 	if len(hits) != 3 {
 		t.Fatalf("parseRipgrepOutput len=%d, want 3", len(hits))
 	}
@@ -197,13 +196,12 @@ func TestExtractKeywords_EmptyString(t *testing.T) {
 }
 
 func TestParseRipgrepOutput_MalformedColons(t *testing.T) {
-	r := &SparseRetriever{}
 	output := "C:\\repo\\file.go:1:2:content\n" +
 		"a.go:bad:2:content\n" +
 		"a.go:1:bad:content\n" +
 		"missing_colon\n"
 
-	hits := r.parseRipgrepOutput(output, "kw")
+	hits := parseRipgrepOutput(output, "kw")
 	if len(hits) != 3 {
 		t.Errorf("Expected 3 hits, got %d", len(hits))
 	}
@@ -228,12 +226,11 @@ func TestKeywordHitCache_Concurrency(t *testing.T) {
 }
 
 func TestSparseRetriever_HugeOutput(t *testing.T) {
-	r := &SparseRetriever{}
 	var sb strings.Builder
 	for i := 0; i < 100000; i++ {
 		sb.WriteString("a.go:1:2:hit\n")
 	}
-	hits := r.parseRipgrepOutput(sb.String(), "kw")
+	hits := parseRipgrepOutput(sb.String(), "kw")
 	if len(hits) != 100000 {
 		t.Errorf("Expected 100000 hits, got %d", len(hits))
 	}

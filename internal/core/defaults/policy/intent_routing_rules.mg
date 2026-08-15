@@ -15,15 +15,30 @@
 # =============================================================================
 # From tester.mg (not in default schemas)
 # Decl file_exists(FilePath) - Moved to schemas_world.mg (global)
-Decl file_contains(FilePath, Pattern).
+# Decl for file_contains intentionally omitted: internal/core/defaults declares it
+# identically, and a second Decl makes the whole program fail analysis with
+# "declared more than once" — which is why this file could never be loaded
+# into the kernel alongside the constitution.
 # Decl file_imports(Importer, Imported) - From schemas_codedom_polyglot.mg
-Decl file_imports(Importer, Imported) bound [/string, /string].
+# Decl for file_imports intentionally omitted: internal/core/defaults declares it
+# identically, and a second Decl makes the whole program fail analysis with
+# "declared more than once" — which is why this file could never be loaded
+# into the kernel alongside the constitution.
 
 # Internal predicates defined only in this file (or missing from defaults)
 # These declarations ensure standalone validation works correctly
-Decl same_package(File1, File2) bound [/string, /string].
-Decl diagnostic(Severity, FilePath, Line, ErrorCode, Message) bound [/name, /string, /number, /string, /string].
-Decl pytest_failure(TestName, ErrorCategory, RootFile, RootLine, Message) bound [/string, /name, /string, /number, /string].
+# Decl for same_package intentionally omitted: internal/core/defaults declares it
+# identically, and a second Decl makes the whole program fail analysis with
+# "declared more than once" — which is why this file could never be loaded
+# into the kernel alongside the constitution.
+# Decl for diagnostic intentionally omitted: internal/core/defaults declares it
+# identically, and a second Decl makes the whole program fail analysis with
+# "declared more than once" — which is why this file could never be loaded
+# into the kernel alongside the constitution.
+# Decl for pytest_failure intentionally omitted: internal/core/defaults declares it
+# identically, and a second Decl makes the whole program fail analysis with
+# "declared more than once" — which is why this file could never be loaded
+# into the kernel alongside the constitution.
 
 Decl test_scope(Scope).
 Decl review_type(Type).
@@ -258,6 +273,28 @@ modular_tool_allowed(/get_impacted_tests, Intent) :- verb_category(Intent, /test
 modular_tool_allowed(/run_impacted_tests, Intent) :- verb_category(Intent, /code).
 modular_tool_allowed(/run_impacted_tests, Intent) :- verb_category(Intent, /test).
 
+# Transactional multi-file edit - a code mutation, same envelope as edit_lines
+modular_tool_allowed(/apply_edits, Intent) :- verb_category(Intent, /code).
+
+# Git tools. shell.RegisterAll has registered git_diff, git_log and
+# git_operation since the package was split out, and none of them appeared
+# here, so the Mangle catalog and the Go registry disagreed about what exists.
+#
+# Read-only history is available wherever reading a file is: reviewing a diff
+# is how an agent orients, and both refuse to leave the workspace.
+modular_tool_allowed(/git_diff, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/git_log, Intent) :- user_intent(_, _, Intent, _, _).
+
+# git_operation mutates the repository (add/commit/checkout/push/reset), so it
+# is scoped to the intents that are allowed to change the working tree. The
+# constitution still gates the individual operation; this only decides which
+# intents may reach the tool at all.
+modular_tool_allowed(/git_operation, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/git_operation, Intent) :- verb_category(Intent, /git).
+
+verb_category(/git, /git) :- user_intent(_, _, /git, _, _).
+verb_category(/commit, /git) :- user_intent(_, _, /commit, _, _).
+
 # Intent category mappings for code
 verb_category(/fix, /code) :- user_intent(_, _, /fix, _, _).
 verb_category(/implement, /code) :- user_intent(_, _, /implement, _, _).
@@ -291,6 +328,17 @@ modular_tool_allowed(/browser_specs, Intent) :- verb_category(Intent, /research)
 modular_tool_allowed(/browser_test, Intent) :- verb_category(Intent, /research).
 modular_tool_allowed(/research_cache_get, Intent) :- verb_category(Intent, /research).
 modular_tool_allowed(/research_cache_set, Intent) :- verb_category(Intent, /research).
+# research_cache_stats is read-only bookkeeping and belongs everywhere the
+# cache itself is reachable: an agent that can Get/Set but cannot see the hit
+# rate re-fetches pages it already has.
+modular_tool_allowed(/research_cache_stats, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/research_cache_stats, Intent) :- verb_category(Intent, /learn).
+modular_tool_allowed(/research_cache_stats, Intent) :- verb_category(Intent, /document).
+modular_tool_allowed(/research_cache_stats, Intent) :- verb_category(Intent, /verify).
+# research_cache_clear discards work every other agent in the process shares —
+# the cache is a package-level singleton — so it stays confined to /research,
+# where the agent that filled it is the agent that empties it.
+modular_tool_allowed(/research_cache_clear, Intent) :- verb_category(Intent, /research).
 # Provider-native grounded search is restricted to research and verification.
 modular_tool_allowed(/grounded_web_search, Intent) :- verb_category(Intent, /research).
 modular_tool_allowed(/grounded_web_search, Intent) :- verb_category(Intent, /verify).
@@ -397,21 +445,42 @@ context_priority(Path, 90) :-
 # TDD repair loop and other workflow patterns
 
 # TDD states
+#
+# any_test_failed projects the wildcard away: a negated literal containing an
+# anonymous wildcard excludes nothing in this Mangle build (proved in
+# internal/core/bound_negation_test.go), so `!test_failed(_, _, _)` derived
+# /green even with failing tests — and /red and /green held simultaneously.
+Decl any_test_failed(Flag).
+any_test_failed(/yes) :- test_failed(Path, TestName, Reason).
+
 tdd_state(/red) :- test_failed(_, _, _), !test_passed_after_fix().
-tdd_state(/green) :- !test_failed(_, _, _), code_modified_recently().
+tdd_state(/green) :- !any_test_failed(/yes), code_modified_recently().
 tdd_state(/refactor) :- tdd_state(/green), code_quality_issue(_, _).
 
 # Next action derivation for TDD
 next_action(/run_tests) :- tdd_state(/green), !tests_run_recently().
-next_action(/fix_code) :- tdd_state(/red).
-next_action(/refactor_code) :- tdd_state(/refactor).
 
-# General next action (only when not in TDD loop)
-next_action(/execute_intent) :-
-    user_intent(_, _, _, _, _),
-    !tdd_state(/red),
-    !tdd_state(/green),
-    !tdd_state(/refactor).
+# Three further TDD next_action rules are deliberately absent here.
+#
+# This file was unreachable by the kernel until it moved into defaults/policy/
+# (no embed pattern covered internal/mangle/), so nothing in it had ever
+# derived. Making it live turns each derived next_action into a plan the
+# executor is asked to carry out. The rule above survives because /run_tests
+# maps to ActionRunTests; the three that were dropped named actions with no
+# VirtualStore route at all, so the kernel would have handed the agent a next
+# action nothing could execute — worse than the silence they produced while the
+# file was dead. cmd/tools/action_linter reports exactly this as "policy emits
+# action but router has no matching route".
+#
+# The TDD loop they belong to is real, so they should return once their
+# executors exist. They are described rather than left commented out because
+# the linter's .mg scanner does not strip # comments, and a commented rule is
+# still counted as emitted.
+#
+# Dropped, pending executors: the red state's fix action, the refactor state's
+# refactor action, and the generic execute-intent fallback for the case where
+# no TDD state holds. Restore them next to tdd_state above; the linter will
+# confirm the routes exist.
 
 # =============================================================================
 # SECTION 9: Wired Predicates (Improvement)

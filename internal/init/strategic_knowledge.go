@@ -734,23 +734,72 @@ func extractJSON(s string) string {
 		}
 	}
 
-	// Try to find raw JSON object
-	if start := strings.Index(s, "{"); start != -1 {
-		depth := 0
-		for i := start; i < len(s); i++ {
-			switch s[i] {
-			case '{':
-				depth++
-			case '}':
-				depth--
-				if depth == 0 {
-					return s[start : i+1]
-				}
+	if value := extractBalancedJSON(s); value != "" {
+		return value
+	}
+	return s
+}
+
+// extractBalancedJSON returns the first complete JSON object or array in s.
+//
+// The previous version only looked for '{' and counted braces without regard
+// for string literals, which broke both callers of this function:
+//
+//   - analyzeDocBatch asks for a JSON *array* of relevance verdicts. An
+//     unfenced `[{...},{...}]` reply made this return just the first object,
+//     the unmarshal into []RelevanceResult failed, and the whole batch silently
+//     fell back to the priority heuristic — so on any provider that answers
+//     without a code fence, LLM document filtering never actually ran.
+//   - generateStrategicKnowledge asks for an object whose values are prose. A
+//     '}' inside any string value (a Mangle snippet, a brace in a description)
+//     closed the object early and the parse failed, discarding the analysis in
+//     favour of the profile-only fallback.
+func extractBalancedJSON(s string) string {
+	start := -1
+	var openCh, closeCh byte
+	for idx := 0; idx < len(s); idx++ {
+		if s[idx] == '{' {
+			start, openCh, closeCh = idx, '{', '}'
+			break
+		}
+		if s[idx] == '[' {
+			start, openCh, closeCh = idx, '[', ']'
+			break
+		}
+	}
+	if start == -1 {
+		return ""
+	}
+
+	depth := 0
+	inString := false
+	escaped := false
+	for idx := start; idx < len(s); idx++ {
+		c := s[idx]
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inString = true
+		case openCh:
+			depth++
+		case closeCh:
+			depth--
+			if depth == 0 {
+				return s[start : idx+1]
 			}
 		}
 	}
-
-	return s
+	return ""
 }
 
 // extractDirectoriesFromFacts extracts directory paths from file_topology facts.

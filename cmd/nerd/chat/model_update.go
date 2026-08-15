@@ -237,7 +237,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case campaignErrorMsg:
 		m.isLoading = false
-		m = m.pushAssistantMsg(fmt.Sprintf("## Campaign Error\n\n%v", msg.err))
+		// A risk gate refusal is a policy decision, not a failure, and it has a
+		// full report behind it (which gate, what score, hard vs advisory).
+		// Rendering it as a bare "Campaign Error: <sentence>" hid everything the
+		// operator needs to decide what to do about it.
+		if report, ok := campaign.FormatRiskBlock(msg.err); ok {
+			m = m.pushAssistantMsg("## Campaign Blocked by Risk Gate\n\n```\n" + report + "```")
+		} else {
+			m = m.pushAssistantMsg(fmt.Sprintf("## Campaign Error\n\n%v", msg.err))
+		}
 
 	case northstarDocsAnalyzedMsg:
 		m = m.handleNorthstarDocsAnalyzedMsg(msg)
@@ -622,6 +630,9 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 		m.emitter = c.Emitter
 		m.virtualStore = c.VirtualStore
 		m.scanner = c.Scanner
+		// Without this the boot-time retriever was unreachable and every issue
+		// seed built a throwaway one with a cold keyword cache.
+		m.retriever = c.Retriever
 		m.localDB = c.LocalDB
 		m.embeddingEngine = c.EmbeddingEngine
 		m.learningStore = c.LearningStore

@@ -154,6 +154,9 @@ func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			return "", fmt.Errorf("no completion returned")
 		}
 
+		trackUsage(ctx, c.model, ProviderXAI,
+			xaiResp.Usage.PromptTokens, xaiResp.Usage.CompletionTokens, usageOpChat)
+
 		response := strings.TrimSpace(xaiResp.Choices[0].Message.Content)
 		logging.Perception("[XAI] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
 		return response, nil
@@ -192,6 +195,8 @@ func (c *XAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 	if err != nil {
 		return nil, err
 	}
+	trackUsage(ctx, c.model, ProviderXAI,
+		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, usageOpFor(len(tools)))
 	return OpenAIToolResponseFromResponse(resp)
 }
 
@@ -218,10 +223,17 @@ func (c *XAIClient) CompleteWithToolResults(ctx context.Context, systemPrompt st
 	if err != nil {
 		return nil, err
 	}
+	trackUsage(ctx, c.model, ProviderXAI,
+		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, usageOpFor(len(tools)))
 	return OpenAIToolResponseFromResponse(resp)
 }
 
 // CompleteWithStreaming sends a prompt with streaming enabled.
+//
+// xAI has no streaming transport here: this delegates to CompleteWithSystem and
+// emits the whole answer as one chunk. Usage is therefore tracked by that call
+// and must not be tracked again here, or every xAI streaming turn would count
+// twice.
 func (c *XAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
 	contentChan := make(chan string, 1)
 	errorChan := make(chan error, 1)

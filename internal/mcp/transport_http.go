@@ -22,16 +22,26 @@ type HTTPTransport struct {
 	client     *http.Client
 	connected  bool
 	serverInfo *MCPCapabilities
+	headers    map[string]string
 }
 
 // NewHTTPTransport creates a new HTTP transport for MCP communication.
 func NewHTTPTransport(baseURL string, timeout time.Duration) *HTTPTransport {
+	return NewHTTPTransportWithHeaders(baseURL, timeout, nil)
+}
+
+// NewHTTPTransportWithHeaders creates an HTTP transport that attaches static
+// headers (auth tokens, tenant IDs) to every request. Header values are
+// environment-expanded at construction time so a secret never has to be stored
+// in the workspace config.
+func NewHTTPTransportWithHeaders(baseURL string, timeout time.Duration, headers map[string]string) *HTTPTransport {
 	return &HTTPTransport{
 		baseURL: baseURL,
 		timeout: timeout,
 		client: &http.Client{
 			Timeout: timeout,
 		},
+		headers: ExpandHeaderValues(headers),
 	}
 }
 
@@ -263,6 +273,9 @@ func (t *HTTPTransport) callLocked(ctx context.Context, method string, params an
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	for k, v := range t.headers {
+		httpReq.Header.Set(k, v)
+	}
 
 	httpResp, err := t.client.Do(httpReq)
 	if err != nil {
