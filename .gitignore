@@ -230,3 +230,8 @@ internal/campaign/.nerd/campaigns/c_test_triage/
 # Campaign test artifacts (written by internal/campaign tests)
 internal/campaign/campaigns/
 internal/campaign/log.txt
+
+# Agent-memory writes with an unresolved Windows path create a literal
+# "C:\..." directory at the repo root on Linux. It is not a real path and must
+# never be committed; the agent tooling owns the underlying bug.
+C:\\*
