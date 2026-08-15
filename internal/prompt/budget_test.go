@@ -821,3 +821,12 @@ func TestTokenBudgetManager_calculateAllocations(t *testing.T) {
 		assert.Equal(t, 100, totalAllocated)
 	})
 }
+
+// TODO: Gap (State Conflicts/Race Conditions) - TokenBudgetManager.Fit mutates the shared underlying PromptAtom instances (via truncateAtomToBudget and setting TokenCount/RenderMode). We need tests that assert concurrent calls to Fit with slices pointing to the same PromptAtom instances correctly trigger the race detector or handle data isolation properly. Currently, concurrent operations sharing these PromptAtom pointers will result in data races.
+// TODO: Gap (Null/Undefined/Empty) - Test behavior when atoms have empty Content but a manually set, non-zero TokenCount.
+// TODO: Gap (Null/Undefined/Empty) - Test Fit behavior when atoms have Content that is only whitespace or unprintable characters.
+// TODO: Gap (Null/Undefined/Empty) - Test behavior when Fit is called with an AtomCategory that is not defined in the budgets map.
+// TODO: Gap (Type Coercion/Formatting) - Test TokenCount estimation and truncation logic when Content contains invalid UTF-8 sequences.
+// TODO: Gap (User Request Extremes) - Test Fit behavior with totalBudget set to math.MaxInt (or very close to it) to check for integer overflow during allocation calculations.
+// TODO: Gap (User Request Extremes) - Test Fit with a massive string content that exceeds standard memory limits to verify truncateUTF8Safe and EstimateTokens performance and limits.
+// TODO: Gap (User Request Extremes) - Test scenario where the total tokens required by Mandatory items far exceeds the totalBudget. Validate the exact truncation behavior or error handling.
