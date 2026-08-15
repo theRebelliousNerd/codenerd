@@ -333,7 +333,7 @@ func (g *Guardian) CheckAlignment(ctx context.Context, trigger AlignmentTrigger,
 
 	startTime := time.Now()
 	check := &AlignmentCheck{
-		ID:        fmt.Sprintf("check-%d", time.Now().UnixNano()),
+		ID:        newID("check"),
 		Timestamp: startTime,
 		Trigger:   trigger,
 		Subject:   subject,

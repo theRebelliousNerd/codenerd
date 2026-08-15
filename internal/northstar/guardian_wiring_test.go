@@ -62,8 +62,9 @@ func TestNormalizeGuardianConfig_WhenIntervalNonPositive_ShouldUseDefault(t *tes
 // =============================================================================
 
 func TestAcquireGuardian_WhenCalledTwiceForSameDir_ShouldReturnSameInstance(t *testing.T) {
-	t.Cleanup(ResetGuardianRegistry)
 	nerdDir := t.TempDir()
+	// ResetGuardianRegistry must be registered after t.TempDir so LIFO closes the SQLite handle before RemoveAll runs; Windows cannot delete an open file.
+	t.Cleanup(ResetGuardianRegistry)
 
 	first, err := AcquireGuardian(nerdDir, DefaultGuardianConfig())
 	if err != nil {
@@ -82,12 +83,15 @@ func TestAcquireGuardian_WhenCalledTwiceForSameDir_ShouldReturnSameInstance(t *t
 }
 
 func TestAcquireGuardian_WhenDifferentDirs_ShouldReturnDistinctInstances(t *testing.T) {
+	nerdDirA := t.TempDir()
+	nerdDirB := t.TempDir()
+	// ResetGuardianRegistry must be registered after t.TempDir so LIFO closes the SQLite handle before RemoveAll runs; Windows cannot delete an open file.
 	t.Cleanup(ResetGuardianRegistry)
-	a, err := AcquireGuardian(t.TempDir(), DefaultGuardianConfig())
+	a, err := AcquireGuardian(nerdDirA, DefaultGuardianConfig())
 	if err != nil {
 		t.Fatalf("acquire a: %v", err)
 	}
-	b, err := AcquireGuardian(t.TempDir(), DefaultGuardianConfig())
+	b, err := AcquireGuardian(nerdDirB, DefaultGuardianConfig())
 	if err != nil {
 		t.Fatalf("acquire b: %v", err)
 	}

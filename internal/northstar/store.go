@@ -8,10 +8,24 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
+
+// idCounter disambiguates IDs minted within a single clock tick.
+//
+// time.Now().UnixNano() reports nanoseconds but does not advance with
+// nanosecond resolution. The Windows clock ticks coarsely, so records created
+// in a tight loop drew the same value and collided on the primary key. The
+// counter makes the ID unique regardless of clock granularity while keeping
+// it time-ordered and human-readable.
+var idCounter atomic.Uint64
+
+func newID(prefix string) string {
+	return fmt.Sprintf("%s-%d-%d", prefix, time.Now().UnixNano(), idCounter.Add(1))
+}
 
 // Store manages the Northstar knowledge database.
 type Store struct {
@@ -322,7 +336,7 @@ func (s *Store) RecordObservation(obs *Observation) error {
 	defer s.mu.Unlock()
 
 	if obs.ID == "" {
-		obs.ID = fmt.Sprintf("obs-%d", time.Now().UnixNano())
+		obs.ID = newID("obs")
 	}
 	if obs.Timestamp.IsZero() {
 		obs.Timestamp = time.Now()
@@ -422,7 +436,7 @@ func (s *Store) RecordAlignmentCheck(check *AlignmentCheck) error {
 	defer s.mu.Unlock()
 
 	if check.ID == "" {
-		check.ID = fmt.Sprintf("check-%d", time.Now().UnixNano())
+		check.ID = newID("check")
 	}
 	if check.Timestamp.IsZero() {
 		check.Timestamp = time.Now()
@@ -530,7 +544,7 @@ func (s *Store) RecordDriftEvent(drift *DriftEvent) error {
 	defer s.mu.Unlock()
 
 	if drift.ID == "" {
-		drift.ID = fmt.Sprintf("drift-%d", time.Now().UnixNano())
+		drift.ID = newID("drift")
 	}
 	if drift.Timestamp.IsZero() {
 		drift.Timestamp = time.Now()
