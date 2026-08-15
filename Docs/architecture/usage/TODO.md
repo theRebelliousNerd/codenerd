@@ -11,30 +11,30 @@
 
 ## P1 — Persistence correctness
 
-- [ ] Atomic save: write temp file then rename onto `usage.json`.
-- [ ] Fix dirty re-arm: under one critical section, Save then if mutations occurred while saving, keep dirty and re-arm timer.
-- [ ] Flush on Cortex close / chat shutdown (`Save` if dirty).
-- [ ] Use or remove `autoSaveTimer` field; prefer cancelable timer.
+- [x] Atomic save: write temp file then rename onto `usage.json`.
+- [x] Fix dirty re-arm: under one critical section, Save then if mutations occurred while saving, keep dirty and re-arm timer.
+- [x] Flush on Cortex close / chat shutdown (`Save` if dirty).
+- [x] Use or remove `autoSaveTimer` field; prefer cancelable timer.
 
 ## P2 — Product surface
 
-- [ ] Either implement bounded `Events` ring **or** document reserved + stop implying raw event log.
-- [ ] Cost estimation: static price table keyed by model → fill `TokenCounts.Cost`.
-- [ ] UI: render `BySession`; optional cost column (`cmd/nerd/ui/usage_page.go` TODOs align).
-- [ ] Log Load/Save failures through `internal/logging`.
+- [x] Either implement bounded `Events` ring **or** document reserved + stop implying raw event log.
+- [x] Cost estimation: static price table keyed by model → fill `TokenCounts.Cost`.
+- [x] UI: render `BySession`; optional cost column (`cmd/nerd/ui/usage_page.go` TODOs align).
+- [x] Log Load/Save failures through `internal/logging`.
 
 ## P3 — Attribution & ops
 
-- [ ] Aggregate by shard **name** (or composite name+type) if operators need specialist-level spend.
-- [ ] Optional CLI: `nerd usage` / dump JSON to stdout for scripts.
-- [ ] Cap or prune `BySession` for long-lived workspaces.
-- [ ] Reject negative token inputs in `Track`.
+- [x] Aggregate by shard **name** (or composite name+type) if operators need specialist-level spend.
+- [x] Optional CLI: `nerd usage` / dump JSON to stdout for scripts.
+- [x] Cap or prune `BySession` for long-lived workspaces.
+- [x] Reject negative token inputs in `Track`.
 
 ## P4 — Architecture hygiene
 
 - [ ] Unify chat session tracker with Cortex tracker (single owner per process).
 - [ ] Consider typed context keys for shard metadata (breaking; needs coordinated shards change).
-- [ ] Integration test: boot → NewContext → mock client Track → Save → reload.
+- [x] Integration test: boot → NewContext → mock client Track → Save → reload.
 
 ## Explicit non-todos (unless product asks)
 

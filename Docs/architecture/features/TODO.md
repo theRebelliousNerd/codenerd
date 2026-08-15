@@ -5,13 +5,13 @@
 
 ## P1 — Wiring
 
-- [ ] Wire `cmd/tools/verify_taxonomy` to `features.IsTaxonomyFastEnabled()` (and ensure SetActive/env path consistent with resolveBool, not only `== "1"`).
-- [ ] Align comments: remove “hard short-circuit” language for PerShardFacts where accessor is normal resolveBool; update `kernel_eval.go` DiffEval default claim; fix SystemShards field env comment.
+- [x] Wire `cmd/tools/verify_taxonomy` to `features.IsTaxonomyFastEnabled()` (and ensure SetActive/env path consistent with resolveBool, not only `== "1"`).
+- [x] Align comments: remove “hard short-circuit” language for PerShardFacts where accessor is normal resolveBool; update `kernel_eval.go` DiffEval default claim; fix SystemShards field env comment.
 
 ## P2 — Operability
 
-- [ ] Improve `Summary()` to print resolved booleans (dereference `*bool` or log `Is*` snapshot) so Boot logs are human-readable.
-- [ ] Optional CLI: `nerd features` or status subsection listing resolved flags (env vs active vs default source).
+- [x] Improve `Summary()` to print resolved booleans (dereference `*bool` or log `Is*` snapshot) so Boot logs are human-readable.
+- [x] Optional CLI: `nerd features` or status subsection listing resolved flags (env vs active vs default source).
 - [ ] Optional chat slash `/features` mirroring Summary.
 
 ## P3 — Consistency
@@ -21,9 +21,9 @@
 
 ## P4 — Testing
 
-- [ ] Table-driven precedence matrix for all eight boolean accessors.
-- [ ] Summary format test once Summary is fixed.
-- [ ] Optional `-race` concurrent SetActive stress.
+- [x] Table-driven precedence matrix for all eight boolean accessors.
+- [x] Summary format test once Summary is fixed.
+- [x] Optional `-race` concurrent SetActive stress.
 
 ## P5 — Product / Track D
 

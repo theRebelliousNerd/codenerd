@@ -1,17 +1,37 @@
 # codeNERD — Unfinished Feature Backlog
 
-> Generated 306 actionable open items from `Docs/architecture/*/TODO.md`.
-> Priorities are the ones already declared in each corpus TODO (P0 = honesty/wiring, P3+ = nice-to-have).
+Generated from the `- [ ]` items in `Docs/architecture/*/TODO.md`, the repo's own
+per-corpus backlog. Priorities are the ones each corpus already declared
+(P0 = honesty/wiring, P3+ = nice-to-have).
 
-## Counts by corpus
+## Status
+
+The starting backlog was **306** actionable open items across 38 corpora.
+**46** have been implemented and checked off; **260** remain.
+
+### Completed in this pass
+
+| Package | What was finished |
+|---|---|
+| `internal/diff` | Cache handed callers its own memory (shallow copy of `Hunks`/`Lines`); `ClearCache` raced by reassigning the `sync.Map`. Replaced with a bounded LRU that deep-copies both ways, plus `Engine.Stats()` and an `Options` struct. |
+| `internal/usage` | Non-atomic save could truncate `usage.json`; the debounce cleared `dirty` after writing so mutations landing mid-write were lost; nothing flushed on shutdown. Added temp+rename+fsync, a correct re-arm, `Close()` wired into Cortex and chat teardown, a model price table filling `Cost`, negative-token rejection, `BySession` pruning, a bounded event ring, and `nerd usage`. |
+| `internal/regression` | Package had zero importers. Wired `nerd regression run/init/list`; fixed a timeout that never fired (grandchildren held the output pipes); added `expect_exit`/`expect_contains`/`expect_not_contains`; decided the empty-suite and shell-profile questions. |
+| `internal/features` | `Summary()` printed raw config fields, so an env-forced flag logged as `unset`. Now reports resolved values with their source, backed by `Resolved()` and `nerd features`. Fixed a case-insensitivity bug in the env parser and wired `verify_taxonomy`. |
+| `internal/retrieval` | Tier 4 built regex patterns (`^class Foo`) for a literal byte scanner, so it searched for a caret and always returned nothing. Fixed, made multi-language, and bounded the scanner (file-size gate, binary skip, hit caps, shared worker budget). |
+
+### Investigated and deliberately not done
+
+- **`internal/core` self-healing rollback / alternative strategies.** `SelfHealer` has no production
+  caller — only tests. `internal/session/build_verify.go` already supersedes it and says so in its
+  own header comment. Implementing the two remaining strategies would add machinery to dead code.
+  The open decision is whether to wire `SelfHealer` or delete it; that belongs to a maintainer.
+
+## Remaining, by corpus
 
 | Corpus | Open |
 |---|---|
 | mcp | 20 |
-| usage | 20 |
-| retrieval | 19 |
 | campaign | 18 |
-| regression | 18 |
 | build | 17 |
 | tools | 17 |
 | northstar | 16 |
@@ -19,20 +39,22 @@
 | autopoiesis | 15 |
 | persist | 15 |
 | context | 14 |
+| retrieval | 14 |
 | sqlpragmas | 14 |
 | world | 14 |
 | browser | 13 |
-| diff | 13 |
 | init | 13 |
 | logging | 13 |
-| features | 11 |
 | types | 10 |
+| usage | 7 |
+| diff | 5 |
+| regression | 5 |
+| features | 4 |
+| **total** | **260** |
 
-| **total** | **306** |
+## Remaining, by priority
 
-## Items by priority
-
-### P0 (56)
+### P0 (51)
 
 - **[autopoiesis]** Route all production tool creation through `ExecuteOuroborosLoop` (chat `generate_tool`, `ExecuteAction`).
 - **[autopoiesis]** Fail closed when `go_safety.mg` fails to load (no empty policy).
@@ -49,8 +71,6 @@
 - **[context]** Audit every chat path that injects history for `IsCompressionActive` parity (perception + articulation + session context).
 - **[context]** Keep race coverage green: `go test -race ./internal/context/...` on activation changes.
 - **[context]** Preserve issue weight clamp + score caps when editing `activation_scoring.go`.
-- **[diff]** Deep-copy `Hunks`/`Lines` on cache hit (or store immutable snapshots)
-- **[diff]** Bound cache size (LRU / max entries / max total bytes)
 - **[diff]** Optional content verification on cache hit (lengths + secondary hash)
 - **[init]** Document operator embedding prerequisites next to CLI `nerd init` help text (code change — track here).
 - **[init]** Confirm force-reinit never deletes `preferences.json` without explicit wipe path.
@@ -65,9 +85,6 @@
 - **[persist]** Implement export/import at that site using `factsnap.Write` / `Read`
 - **[persist]** Add integration test: domain → facts → snap → facts → domain/kernel equalish
 - **[persist]** Update [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) with real call sites when done
-- **[regression]** **Wire one real consumer** — prefer `nerd regression run` or a campaign assault optional stage that calls `LoadBattery`/`RunBattery`.
-- **[regression]** **Reconcile package comment** — until wired, change “can be run as part of Nemesis gauntlets” to “intended for” or implement the hook.
-- **[regression]** **Decide empty-suite policy** for any host (vacuous pass vs config error).
 - **[retrieval]** Call `Model.Retriever.FindRelevantFiles` or `TieredContextBuilder.BuildContext` from `seedIssueFacts` (or session observe phase) under timeout.
 - **[retrieval]** Assert `candidate_file` / `keyword_hit` / multi-tier `tiered_context_file` / `issue_context` into kernel EDB.
 - **[retrieval]** Resolve paths before asserting `file_mentioned` / tier facts (reuse `findFile` logic).
@@ -91,7 +108,7 @@
 - **[world]** Expand or document `WorldPredicates` vs all emitters (`entry_point`, CodeDOM, git, scope).
 - **[world]** Property/integration test: full vs incremental produce identical Path identities.
 
-### P1 (70)
+### P1 (57)
 
 - **[autopoiesis]** Parity check post-boot: registry tool count vs `tool_registered` facts.
 - **[autopoiesis]** Confirm `StartKernelListener` started on all interactive boot paths; document poll interval.
@@ -111,8 +128,6 @@
 - **[context]** Measure frequency of Go fallback vs kernel inclusion in production logs; reduce dual-path drift.
 - **[context]** Expand tests with loaded `context_compilation.mg` so `should_include_context` path is first-class.
 - **[context]** Finish C3: consume `should_mask_observation` in Go when building summaries (assert path already present).
-- **[features]** Wire `cmd/tools/verify_taxonomy` to `features.IsTaxonomyFastEnabled()` (and ensure SetActive/env path consistent with resolveBool, not only `== "1"`).
-- **[features]** Align comments: remove “hard short-circuit” language for PerShardFacts where accessor is normal resolveBool; update `kernel_eval.go` DiffEval default claim; fix SystemShards field env comment.
 - **[init]** Wire `InteractiveAgentSelection` when `InitConfig.Interactive` and TTY available.
 - **[init]** Wire `--define-agent` / Type U into CLI `runInit` merge path.
 - **[init]** Attach `ProgressChan` from chat `/init` if slash init exists.
@@ -131,16 +146,9 @@
 - **[northstar]** Encode mitigation free text (or hash) instead of constant `/mitigation`.
 - **[persist]** Optional CLI: export/import fact snapshots under `.nerd/snapshots/`
 - **[persist]** Document canonical workspace paths once chosen
-- **[regression]** Example `battery.yaml` for codeNERD workspace (build + `go test ./internal/regression/...` smoke).
 - **[regression]** Optional seed from `nerd init` under `.nerd/regression/`.
-- **[regression]** Print-friendly summary helper or CLI table (pass/fail/duration).
-- **[regression]** Persist last run under `.nerd/regression/runs/` (host-side OK).
-- **[retrieval]** Remove dead `FindRelevantFiles(ctx, "", …)` call in `searchKeywordFiles`.
-- **[retrieval]** Fix T4 definition search to not treat regex anchors as literals.
 - **[retrieval]** Inject optional embedding query for real semantic T4 with heuristic fallback.
 - **[retrieval]** Add Go import expander for T3.
-- **[retrieval]** Max file size + binary skip in `searchSingleKeyword`.
-- **[retrieval]** Cap max hits per keyword before ranking.
 - **[sqlpragmas]** Periodic audit: product `sql.Open` sites without `ApplyDefaultPragmas` (or explicit exception comment).
 - **[sqlpragmas]** Prefer `sqlpragmas` import in new mid-layer packages that must not touch `store`.
 - **[tools]** Add `git_diff`, `git_log`, `git_operation` to `modular_tool_allowed` in `intent_routing.mg` (or explicitly document intentional omit).
@@ -156,15 +164,11 @@
 - **[types]** Plan deprecation path: `KernelInterface` / `KernelFact` → full `Kernel` + adapters only at edges
 - **[types]** Decide: typed context keys for spawn priority / model capability (match session key pattern)
 - **[types]** Add container (`map`/`slice`) ToAtom table tests
-- **[usage]** Atomic save: write temp file then rename onto `usage.json`.
-- **[usage]** Fix dirty re-arm: under one critical section, Save then if mutations occurred while saving, keep dirty and re-arm timer.
-- **[usage]** Flush on Cortex close / chat shutdown (`Save` if dirty).
-- **[usage]** Use or remove `autoSaveTimer` field; prefer cancelable timer.
 - **[world]** Multi-lang Cartographer `MapFile` (or dedicated deep API) for py/ts/js/rs `code_defines`/`code_calls`.
 - **[world]** Implement real `dependency_link` emission **or** remove from replace-set and marketing claims.
 - **[world]** Coordinate dual writers: chat incremental vs `WorldModelIngestorShard` (ownership matrix).
 
-### P2 (76)
+### P2 (66)
 
 - **[autopoiesis]** Unify Yaegi vs binary execution policy (config switch + docs).
 - **[autopoiesis]** Human-in-the-loop default for SPL auto-promote.
@@ -184,12 +188,9 @@
 - **[context]** Validate target compression ratio on real multi-hour sessions (campaign assault artifacts).
 - **[context]** Optional provider-aligned tokenizer adapter behind `TokenCounter`.
 - **[context]** Ensure `LoadState` + `RefreshBudget` always paired on session rehydrate.
-- **[diff]** `DiffOptions{ContextLines, DisableCache, ...}` with zero-value defaults
 - **[diff]** Word-level spans as codeNERD types (stop leaking `diffmatchpatch.Diff` in public API)
 - **[diff]** Document or deprecate unused `LineHeader` production gap
 - **[diff]** Align `CreateDiffFromStrings` with view-local engine (avoid dual-cache surprise)
-- **[features]** Improve `Summary()` to print resolved booleans (dereference `*bool` or log `Is*` snapshot) so Boot logs are human-readable.
-- **[features]** Optional CLI: `nerd features` or status subsection listing resolved flags (env vs active vs default source).
 - **[features]** Optional chat slash `/features` mirroring Summary.
 - **[init]** Improve framework detection (populate `ProjectProfile.Framework` from deps).
 - **[init]** Monorepo multi-root profiles (beyond 2-level globs).
@@ -210,10 +211,7 @@
 - **[persist]** Cross-link comments: `core.baseTermToValue` vs `factsnap.baseTermToValue` NameType divergence
 - **[persist]** Explicit tests for empty slice, bool, float multi-hop
 - **[persist]** Consider shared conversion helper under `internal/types` if drift becomes painful
-- **[regression]** Unit: missing file, bad YAML, timeout, empty command, workdir, multi-task success.
 - **[regression]** Document runtime dependency on `powershell` / `bash`.
-- **[regression]** Consider `bash --noprofile --norc` (or equivalent) for more deterministic Unix runs — **behavior change**, needs decision.
-- **[retrieval]** Shared worker pool across keywords (avoid P×P goroutines).
 - **[retrieval]** Invalidate cache on workspace file writes / session hooks.
 - **[retrieval]** Either implement real `rg` backend behind interface **or** delete/rename `parseRipgrepOutput` + update comments/tests (`RealRg` → `NativeScan`).
 - **[retrieval]** Structured metrics (latency, cache hit rate, files walked).
@@ -233,17 +231,13 @@
 - **[types]** Consider nested sub-structs if `SessionContext` gains more sections (keep field groups navigable)
 - **[types]** Optional test helper: `MockKernel` implementing `Kernel` + `KernelTransactor` for shared unit tests (only if it does not create cycles — may belong in `internal/testing`)
 - **[types]** Document VirtualStore expansion policy in code comment when next method is added
-- **[usage]** Either implement bounded `Events` ring **or** document reserved + stop implying raw event log.
-- **[usage]** Cost estimation: static price table keyed by model → fill `TokenCounts.Cost`.
-- **[usage]** UI: render `BySession`; optional cost column (`cmd/nerd/ui/usage_page.go` TODOs align).
-- **[usage]** Log Load/Save failures through `internal/logging`.
 - **[world]** gopls (or generic LSP client) under `lsp.Manager` as sketched in `lsp/README.md`.
 - **[world]** Narrow holographic kernel dependency from `*core.RealKernel` to a small query interface.
 - **[world]** Optional JIT prompt atoms for stable holographic sections.
 - **[world]** Structured observability: cache hit rate metrics for FileCache (not only DataFlowCache).
 - **[world]** Ensure incremental path also refreshes `project_language` / `entry_point` when majority shifts.
 
-### P3 (71)
+### P3 (62)
 
 - **[autopoiesis]** Refresh package `internal/autopoiesis/README.md` date/architecture version to match 2026 corpus.
 - **[autopoiesis]** Remove or redirect legacy architecture filenames if still present beside this corpus.
@@ -262,11 +256,6 @@
 - **[context]** Wire audit: confirm prompt JIT actually calls `GetActivationScores` each turn when expected.
 - **[context]** Surface feedback store stats in glass-box / transparency UI.
 - **[context]** Document operator workflow for inspecting helpful vs noise predicates.
-- **[diff]** `Engine.Stats()` counters (hits, misses, binary, computes)
-- **[diff]** Test: shallow-cache mutation fail-closed after deep-copy fix
-- **[diff]** Test: ClearCache concurrent with ComputeDiff under `-race`
-- **[diff]** Test: assert DiffTimeout behavior on synthetic pathological input
-- **[diff]** Test: trailing-newline-only change representation precision
 - **[diff]** Benchmark CI smoke (optional)
 - **[features]** Env prefix migration plan (`NERD_*` → `CODENERD_*` dual-read then deprecate).
 - **[features]** Document JSON schema snippet for `features` block in user-facing config docs (outside this package if preferred).
@@ -309,15 +298,11 @@
 - **[transparency]** Machine-checkable invariant tests that ToolEvent still flows when Glass Box disabled.
 - **[types]** Optional package-level godoc examples for `ToAtom` and `NewKernelTx`
 - **[types]** When dual Kernel APIs collapse, delete obsolete aliases after one release cycle
-- **[usage]** Aggregate by shard **name** (or composite name+type) if operators need specialist-level spend.
-- **[usage]** Optional CLI: `nerd usage` / dump JSON to stdout for scripts.
-- **[usage]** Cap or prune `BySession` for long-lived workspaces.
-- **[usage]** Reject negative token inputs in `Track`.
 - **[world]** Remove or relocate `debug_program_ERROR.mg` artifact from package tree if accidental.
 - **[world]** Align `symbol_graph` arg typing (string vs `/name` atoms) with Decl bounds.
 - **[world]** Document operator runbook in CLI help for `nerd scan` / chat rescan.
 
-### P4 (27)
+### P4 (18)
 
 - **[build]** Update [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) when new importers appear.
 - **[build]** Refresh scores in [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md) after adoption work.
@@ -326,26 +311,17 @@
 - **[campaign]** Optional metrics hooks (task duration histograms) without coupling to one backend
 - **[context]** Align `internal/context/README.md` defaults (200k, current date, file list including feedback_store).
 - **[context]** Remove or relocate crash-dump `debug_program_ERROR.mg` from package tree if not intentional.
-- **[features]** Table-driven precedence matrix for all eight boolean accessors.
-- **[features]** Summary format test once Summary is fixed.
-- **[features]** Optional `-race` concurrent SetActive stress.
 - **[logging]** Northstar convenience wrappers (Info/Debug/Warn/Error)
 - **[logging]** Optional `runtime.Caller` population of StructuredLogEntry file/line
 - **[logging]** Expand call-site audit for `SafetyCheck` next to real `permitted` checks
 - **[mcp]** MCP resources/prompts beyond tools capability flags
 - **[mcp]** Auth headers / token injection for HTTP transports
 - **[mcp]** Metrics exporter for call latency/error rates
-- **[regression]** `RunOptions{FailFast bool}` default true.
-- **[regression]** Optional `expect_contains` / `expect_exit` on `Task`.
-- **[regression]** Honor or validate `Version`.
-- **[regression]** Structured logging category `regression`.
-- **[regression]** Result JSON tags for easy serialization.
 - **[sqlpragmas]** Config/env overrides for host class (laptop vs workstation).
 - **[sqlpragmas]** `database/sql` connector hook helper for per-connection apply.
 - **[sqlpragmas]** Metrics counter for pragma failures (behind observability flag).
 - **[usage]** Unify chat session tracker with Cortex tracker (single owner per process).
 - **[usage]** Consider typed context keys for shard metadata (breaking; needs coordinated shards change).
-- **[usage]** Integration test: boot → NewContext → mock client Track → Save → reload.
 
 ### P5 (1)
 

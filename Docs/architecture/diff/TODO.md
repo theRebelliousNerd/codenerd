@@ -6,24 +6,24 @@
 
 ## P0 / P1 — Correctness & resource safety
 
-- [ ] Deep-copy `Hunks`/`Lines` on cache hit (or store immutable snapshots)  
-- [ ] Bound cache size (LRU / max entries / max total bytes)  
+- [x] Deep-copy `Hunks`/`Lines` on cache hit (or store immutable snapshots)  
+- [x] Bound cache size (LRU / max entries / max total bytes)  
 - [ ] Optional content verification on cache hit (lengths + secondary hash)
 
 ## P2 — API polish
 
-- [ ] `DiffOptions{ContextLines, DisableCache, ...}` with zero-value defaults  
+- [x] `DiffOptions{ContextLines, DisableCache, ...}` with zero-value defaults  
 - [ ] Word-level spans as codeNERD types (stop leaking `diffmatchpatch.Diff` in public API)  
 - [ ] Document or deprecate unused `LineHeader` production gap  
 - [ ] Align `CreateDiffFromStrings` with view-local engine (avoid dual-cache surprise)
 
 ## P3 — Observability & tests
 
-- [ ] `Engine.Stats()` counters (hits, misses, binary, computes)  
-- [ ] Test: shallow-cache mutation fail-closed after deep-copy fix  
-- [ ] Test: ClearCache concurrent with ComputeDiff under `-race`  
-- [ ] Test: assert DiffTimeout behavior on synthetic pathological input  
-- [ ] Test: trailing-newline-only change representation precision  
+- [x] `Engine.Stats()` counters (hits, misses, binary, computes)  
+- [x] Test: shallow-cache mutation fail-closed after deep-copy fix  
+- [x] Test: ClearCache concurrent with ComputeDiff under `-race`  
+- [x] Test: assert DiffTimeout behavior on synthetic pathological input  
+- [x] Test: trailing-newline-only change representation precision  
 - [ ] Benchmark CI smoke (optional)
 
 ## Explicit non-TODOs

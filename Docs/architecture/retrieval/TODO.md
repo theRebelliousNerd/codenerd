@@ -12,16 +12,16 @@
 
 ## P1 — Correctness & hybrid
 
-- [ ] Remove dead `FindRelevantFiles(ctx, "", …)` call in `searchKeywordFiles`.
-- [ ] Fix T4 definition search to not treat regex anchors as literals.
+- [x] Remove dead `FindRelevantFiles(ctx, "", …)` call in `searchKeywordFiles`.
+- [x] Fix T4 definition search to not treat regex anchors as literals.
 - [ ] Inject optional embedding query for real semantic T4 with heuristic fallback.
 - [ ] Add Go import expander for T3.
-- [ ] Max file size + binary skip in `searchSingleKeyword`.
-- [ ] Cap max hits per keyword before ranking.
+- [x] Max file size + binary skip in `searchSingleKeyword`.
+- [x] Cap max hits per keyword before ranking.
 
 ## P2 — Scale & maintainability
 
-- [ ] Shared worker pool across keywords (avoid P×P goroutines).
+- [x] Shared worker pool across keywords (avoid P×P goroutines).
 - [ ] Invalidate cache on workspace file writes / session hooks.
 - [ ] Either implement real `rg` backend behind interface **or** delete/rename `parseRipgrepOutput` + update comments/tests (`RealRg` → `NativeScan`).
 - [ ] Structured metrics (latency, cache hit rate, files walked).

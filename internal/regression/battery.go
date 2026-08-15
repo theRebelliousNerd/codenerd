@@ -1,8 +1,10 @@
 // Package regression provides a lightweight regression battery harness.
 //
 // Batteries are YAML-defined shell task suites used to continuously evaluate
-// agent behavior. They are driven by `nerd regression run`; the campaign
-// assault path may also call LoadBattery/RunBattery directly.
+// agent behavior. The one production consumer is `nerd regression run`
+// (cmd/nerd/cmd_regression.go). No campaign or gauntlet stage calls this
+// package today — the previous package comment claimed batteries "can be run
+// as part of Nemesis gauntlets" when nothing referenced the package at all.
 //
 // Determinism note: battery shells are started with the interactive profile
 // disabled (bash --noprofile --norc, powershell -NoProfile). A regression suite
