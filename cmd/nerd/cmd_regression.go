@@ -20,36 +20,6 @@ var (
 	regressionNoSave   bool
 )
 
-// exampleBattery seeds a new workspace with a battery that actually exercises
-// the project rather than a placeholder that always passes.
-const exampleBattery = `# codeNERD regression battery
-#
-# Each task runs in a non-login shell (no profile/rc) so results do not depend
-# on the operator's dotfiles. Run with: nerd regression run
-version: 1
-tasks:
-  - id: build
-    type: shell
-    command: go build ./...
-    timeout_sec: 600
-    expect_exit: 0
-
-  - id: vet
-    type: shell
-    command: go vet ./...
-    timeout_sec: 600
-    expect_exit: 0
-
-  - id: unit-tests
-    type: shell
-    command: go test ./internal/... 2>&1
-    timeout_sec: 1800
-    expect_exit: 0
-    expect_not_contains:
-      - "panic:"
-      - "DATA RACE"
-`
-
 var regressionCmd = &cobra.Command{
 	Use:   "regression",
 	Short: "Run and inspect regression batteries",
@@ -124,16 +94,16 @@ var regressionInitCmd = &cobra.Command{
 	Short: "Write a starter battery to .nerd/regression/battery.yaml",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		root := workspaceRootOrCwd()
-		path := regression.DefaultBatteryPath(root)
 
-		if _, err := os.Stat(path); err == nil {
+		path, created, err := regression.Seed(root)
+		if err != nil {
+			return err
+		}
+		if !created {
+			// Explicit command, existing file: refusing is right here even
+			// though regression.Seed treats it as a no-op for `nerd init`,
+			// which calls it unconditionally.
 			return fmt.Errorf("battery already exists at %s (delete it first to regenerate)", path)
-		}
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return fmt.Errorf("create regression dir: %w", err)
-		}
-		if err := os.WriteFile(path, []byte(exampleBattery), 0644); err != nil {
-			return fmt.Errorf("write battery: %w", err)
 		}
 
 		fmt.Printf("Wrote starter battery to %s\n", path)

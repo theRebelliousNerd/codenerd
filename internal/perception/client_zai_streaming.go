@@ -225,6 +225,14 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 			// Channel to capture scanner error (buffered to avoid goroutine leak)
 			scanErrChan := make(chan error, 1)
 
+			// Final billed usage arrives in its own trailing chunk (that is what
+			// stream_options.include_usage buys). It is recorded once after the
+			// stream ends, never per delta: tracking a delta would multiply one
+			// turn's cost by its chunk count.
+			var billed struct {
+				input, output int
+			}
+
 			go func() {
 				defer close(scanDone)
 				for scanner.Scan() {
@@ -243,6 +251,11 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 					var chunk ZAIResponse
 					if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 						continue // Skip malformed chunks
+					}
+
+					if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+						billed.input = chunk.Usage.PromptTokens
+						billed.output = chunk.Usage.CompletionTokens
 					}
 
 					if len(chunk.Choices) > 0 && chunk.Choices[0].Delta != nil {
@@ -264,6 +277,10 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 			}()
 
 			// Wait for either scanner completion or context cancellation
+			defer func() {
+				trackUsage(ctx, c.model, ProviderZAI, billed.input, billed.output, usageOpChat)
+			}()
+
 			select {
 			case <-scanDone:
 				// Normal completion - check for scanner errors

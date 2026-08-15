@@ -10,6 +10,28 @@
 // disabled (bash --noprofile --norc, powershell -NoProfile). A regression suite
 // whose result depends on the operator's dotfiles is not a regression suite.
 // Set RunOptions.LoginShell to opt back into a profile-loading shell.
+//
+// # Runtime dependency
+//
+// This package shells out. It has exactly one runtime dependency beyond the Go
+// standard library, and it is not vendorable:
+//
+//	Unix / macOS   bash, on PATH. Invoked as `bash --noprofile --norc`, or
+//	               `bash -l` when RunOptions.LoginShell is set. sh is NOT a
+//	               substitute — the seeded battery and most real suites use
+//	               bashisms, and --noprofile/--norc are bash spellings.
+//	Windows        powershell (Windows PowerShell 5.x, present on every
+//	               supported Windows). Invoked as
+//	               `powershell -NoProfile -NonInteractive -Command -`, with the
+//	               command piped on stdin. pwsh (PowerShell 7) is not looked up.
+//
+// Task commands themselves may depend on anything else — `go`, `git`, a test
+// runner — but that is the battery author's contract, not this package's.
+// RunBatteryWithOptions preflights the interpreter with RequiredShell and
+// CheckShell and fails the run with an actionable error rather than reporting
+// every task as failed, which is what a bare exec.LookPath failure looked like:
+// N identical "executable file not found in $PATH" task errors and no statement
+// of the actual cause.
 package regression
 
 import (
@@ -193,11 +215,38 @@ func RunBattery(ctx context.Context, b *Battery, workdir string) ([]Result, erro
 	return summary.Results, nil
 }
 
+// RequiredShell names the interpreter every shell task is executed with on
+// this platform. Exported so a host can state the dependency in a preflight or
+// a doctor command instead of discovering it one failed task at a time.
+func RequiredShell() string {
+	if runtime.GOOS == "windows" {
+		return "powershell"
+	}
+	return "bash"
+}
+
+// CheckShell reports whether the interpreter this platform needs is on PATH.
+// A missing shell is an environment failure, not a suite failure: without it
+// not one task can run, so the distinction matters to whoever reads the result.
+func CheckShell() error {
+	shell := RequiredShell()
+	if _, err := exec.LookPath(shell); err != nil {
+		return fmt.Errorf("regression batteries require %q on PATH (see package docs for the runtime dependency): %w", shell, err)
+	}
+	return nil
+}
+
 // RunBatteryWithOptions executes a battery and returns an aggregated Summary.
 func RunBatteryWithOptions(ctx context.Context, b *Battery, opts RunOptions) (Summary, error) {
 	summary := Summary{StartedAt: time.Now().UTC()}
 	if b == nil || len(b.Tasks) == 0 {
 		return summary, nil
+	}
+
+	// Preflight before spending a single task: a missing interpreter would
+	// otherwise surface as N identical exec failures with the real cause buried.
+	if err := CheckShell(); err != nil {
+		return summary, err
 	}
 
 	log := logging.Get(logging.CategoryRegression)

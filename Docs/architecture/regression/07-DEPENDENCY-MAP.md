@@ -1,7 +1,7 @@
 # regression — Dependency Map
 
-> Last verified against codebase: **2026-07-13**  
-> Evidence: source imports in `battery.go`; reverse grep for `codenerd/internal/regression`
+> Last verified against codebase: **2026-08-15**  
+> Evidence: source imports in `battery.go`, `policy.go`, `seed.go`; reverse grep for `codenerd/internal/regression`
 
 ---
 
@@ -28,12 +28,43 @@
 
 ### 1.3 Internal
 
-**None.** `internal/regression` does not import any other `codenerd/internal/…` package.
+| Package | Use |
+|---------|-----|
+| `internal/logging` | `CategoryRegression` run/task logging |
+| `internal/types` | `types.Fact` for `PolicyFacts` constitutional projection |
+
+Both are leaves (`internal/types` itself depends only on `internal/logging`), so
+`internal/regression` stays cheap to import and cycle-free.
 
 ```
 internal/regression
-    └── (stdlib + yaml.v3 only)
+    ├── internal/logging
+    ├── internal/types → internal/logging
+    └── (stdlib + yaml.v3)
 ```
+
+---
+
+## 1.4 Runtime (external process) dependency
+
+This package shells out. The interpreter is **not vendorable** and is the one
+dependency an operator can be missing:
+
+| Platform | Binary | Invocation | Notes |
+|----------|--------|------------|-------|
+| Linux / macOS | `bash` | `bash --noprofile --norc` | `bash -l` when `RunOptions.LoginShell` is set. `sh` is **not** a substitute: `--noprofile`/`--norc` are bash spellings, and the seeded battery uses bashisms. |
+| Windows | `powershell` | `powershell -NoProfile -NonInteractive -Command -` | Windows PowerShell 5.x, present on every supported Windows. `pwsh` (PowerShell 7) is **not** looked up. |
+
+`RequiredShell()` returns the binary name for the running platform and
+`CheckShell()` reports whether it is on `PATH`. `RunBatteryWithOptions`
+preflights with `CheckShell` and fails the **run** with an actionable error
+rather than reporting every task as failed — a bare `exec.LookPath` failure
+produced N identical "executable file not found in $PATH" task errors and never
+stated the cause. Pinned by
+`TestRunBattery_WhenTheShellIsMissing_ShouldFailTheRunNotEveryTask`.
+
+Task commands may of course depend on `go`, `git`, a test runner and so on, but
+that is the battery author's contract, not this package's.
 
 ---
 
@@ -47,11 +78,11 @@ Search:
 codenerd/internal/regression
 ```
 
-across `*.go` outside `internal/regression/`: **no matches**.
+across `*.go` outside `internal/regression/`:
 
 | Consumer class | Status |
 |----------------|--------|
-| `cmd/nerd` | does not import |
+| `cmd/nerd` | **imports** — `cmd/nerd/cmd_regression.go` (`run` / `init` / `list`) |
 | `cmd/nerd/chat` | does not import |
 | `internal/campaign` | does not import |
 | `internal/shards` / nemesis | does not import |
@@ -93,7 +124,7 @@ These systems solve related “run checks / break patches” problems but share 
 | Dependency churn | Low | Only yaml.v3 beyond stdlib |
 | Circular deps | None | Leaf-ish library (actually **unused leaf**) |
 | CGO | None | Pure Go |
-| Platform tools | Medium | Requires `powershell` or `bash` on PATH |
+| Platform tools | Medium | Requires `powershell` or `bash` on PATH — preflighted by `CheckShell`, documented in §1.4 |
 
 ---
 
@@ -101,12 +132,14 @@ These systems solve related “run checks / break patches” problems but share 
 
 | From | To | Purpose |
 |------|----|---------|
-| `cmd/nerd` | `regression` | `nerd regression run` |
 | `internal/campaign` or assault host | `regression` | Stage type |
-| VirtualStore action router | `regression` | Agent-permitted run |
-| `internal/init` or templates | files only | Seed `battery.yaml` |
+| `internal/init` | `regression.Seed` | Seed `battery.yaml` on `nerd init` — one call, see [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) §2.5 |
+| VirtualStore action router | `regression` | **Deliberately not taken** — see [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) §4 |
 
-Any edge must keep policy outside this package (P9).
+Any edge must keep policy outside this package (P9). `PolicyFacts` honours that:
+it projects the battery's tasks into EDB facts and asserts nothing about whether
+they are allowed. The decision lives in
+`internal/core/defaults/policy/regression_battery.mg`.
 
 ---
 

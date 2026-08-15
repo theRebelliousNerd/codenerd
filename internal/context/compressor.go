@@ -302,14 +302,21 @@ func (c *Compressor) refreshIssueContextLocked(getFacts func(pred string) []core
 				if kw == "" {
 					continue
 				}
+				// issue_keyword's Weight is declared /number, so a producer must
+				// scale its 0..1 ratio to integer percent (types.PercentFromRatio)
+				// — a fractional float is rejected by the kernel outright and
+				// never arrives. An integer therefore means percent and has to be
+				// divided back down; computeIssueScore clamps to 1.0, so reading
+				// 90 as a raw weight would silently flatten every keyword to the
+				// maximum boost.
 				var weight float64
 				switch v := f.Args[2].(type) {
 				case float64:
 					weight = v
 				case int64:
-					weight = float64(v)
+					weight = float64(v) / 100.0
 				case int:
-					weight = float64(v)
+					weight = float64(v) / 100.0
 				default:
 					weight = 0.5
 				}

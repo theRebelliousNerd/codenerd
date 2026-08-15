@@ -630,6 +630,9 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 		m.emitter = c.Emitter
 		m.virtualStore = c.VirtualStore
 		m.scanner = c.Scanner
+		// Without this the boot-time retriever was unreachable and every issue
+		// seed built a throwaway one with a cold keyword cache.
+		m.retriever = c.Retriever
 		m.localDB = c.LocalDB
 		m.embeddingEngine = c.EmbeddingEngine
 		m.learningStore = c.LearningStore

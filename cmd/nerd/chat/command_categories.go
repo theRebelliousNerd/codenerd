@@ -468,6 +468,13 @@ var CommandRegistry = []CommandInfo{
 		ShowInHelp:  true,
 	},
 	{
+		Name:        "/features",
+		Description: "Show resolved feature flags and what decided each one",
+		Usage:       "/features",
+		Category:    CategorySystem,
+		ShowInHelp:  true,
+	},
+	{
 		Name:        "/model",
 		Description: "Toggle/Switch active LLM model",
 		Usage:       "/model [model-name]",

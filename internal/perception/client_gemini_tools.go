@@ -143,6 +143,11 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 		CachedContentTokens: geminiResp.UsageMetadata.CachedContentTokenCount,
 	}
 
+	trackUsage(ctx, c.model, ProviderGemini,
+		geminiResp.UsageMetadata.PromptTokenCount,
+		geminiOutputTokens(geminiResp.UsageMetadata.CandidatesTokenCount, geminiResp.UsageMetadata.ThoughtsTokenCount),
+		usageOpFor(len(tools)))
+
 	if len(geminiResp.Candidates) > 0 {
 		result.StopReason = geminiResp.Candidates[0].FinishReason
 		var textBuilder strings.Builder
@@ -364,6 +369,11 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 		ThinkingTokens:      geminiResp.UsageMetadata.ThoughtsTokenCount,
 		CachedContentTokens: geminiResp.UsageMetadata.CachedContentTokenCount,
 	}
+
+	trackUsage(ctx, c.model, ProviderGemini,
+		geminiResp.UsageMetadata.PromptTokenCount,
+		geminiOutputTokens(geminiResp.UsageMetadata.CandidatesTokenCount, geminiResp.UsageMetadata.ThoughtsTokenCount),
+		usageOpFor(len(tools)))
 
 	if len(geminiResp.Candidates) > 0 {
 		result.StopReason = geminiResp.Candidates[0].FinishReason

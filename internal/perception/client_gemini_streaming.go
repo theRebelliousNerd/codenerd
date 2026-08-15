@@ -301,6 +301,16 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 			}
 		}()
 
+		// One Track per stream, from the final usage-bearing chunk that the
+		// loop above keeps overwriting. Both select arms below wait for
+		// scanDone, so lastUsage is safe to read here.
+		defer func() {
+			trackUsage(ctx, c.model, ProviderGemini,
+				lastUsage.promptTokens,
+				geminiOutputTokens(lastUsage.outputTokens, lastUsage.thoughtsTokens),
+				usageOpChat)
+		}()
+
 		select {
 		case <-scanDone:
 			resp.Body.Close()

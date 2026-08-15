@@ -647,7 +647,10 @@ func initCoreComponents(bctx *bootContext) error {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize logging: %v\n", err)
 	}
 
-	tracker, err := usage.NewTracker(bctx.workspace)
+	// Shared so a host that already owns a tracker for this workspace (the
+	// interactive chat model does) meters into the same one instead of racing
+	// it for the file. Each owner Closes its own handle; the last one flushes.
+	tracker, err := usage.Shared(bctx.workspace)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize usage tracker: %v\n", err)
 	}

@@ -1,13 +1,13 @@
 # usage — TODO
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-08-15**  
 > Docs-only backlog derived from code. No commitment that items are scheduled.
 
 ## P0 — Metering completeness
 
-- [ ] Call `usage.FromContext` + `Track` from **every** production `perception.LLMClient` that receives usage metadata (not only ZAI).
-- [ ] Confirm streaming completion paths attach the same context and Track **once** with final billed tokens.
-- [ ] Standardize provider string ids (match config engine names).
+- [x] Call `usage.FromContext` + `Track` from **every** production `perception.LLMClient` that receives usage metadata (not only ZAI). CLI engines excepted: their decoders receive no token counts.
+- [x] Confirm streaming completion paths attach the same context and Track **once** with final billed tokens.
+- [x] Standardize provider string ids (match config engine names). `perception.usageProviderID` + test against `config.SetAPIKeyForProvider`.
 
 ## P1 — Persistence correctness
 
@@ -32,9 +32,16 @@
 
 ## P4 — Architecture hygiene
 
-- [ ] Unify chat session tracker with Cortex tracker (single owner per process).
-- [ ] Consider typed context keys for shard metadata (breaking; needs coordinated shards change).
+- [x] Unify chat session tracker with Cortex tracker (single owner per process). `usage.Shared` refcounted registry.
+- [x] Consider typed context keys for shard metadata. Done non-breakingly: typed keys on write, legacy string keys still honored on read.
 - [x] Integration test: boot → NewContext → mock client Track → Save → reload.
+
+## Still open
+
+- [ ] Meter the CLI engines (`claude-cli`, `codex-cli`) — blocked until their
+  response decoders surface token counts; nothing to record today.
+- [ ] Cross-process coordination of `usage.json` (two `nerd` processes on one
+  workspace still last-writer-wins).
 
 ## Explicit non-todos (unless product asks)
 
@@ -44,5 +51,5 @@
 
 ## Doc maintenance
 
-- [ ] When Track producers expand, update [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) producer table.  
-- [ ] Keep IMPLEMENTED_SPEC status table in sync after code changes.
+- [x] When Track producers expand, update [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) producer table.  
+- [x] Keep IMPLEMENTED_SPEC status table in sync after code changes.

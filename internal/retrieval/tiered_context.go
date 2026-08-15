@@ -28,7 +28,17 @@ import (
 type TieredContextBuilder struct {
 	retriever *SparseRetriever
 	workDir   string
+
+	// mu guards findCache. findFile walks the entire workspace for every
+	// unresolved mention, and Tier 1 resolves each mention while Tier 3/4 may
+	// ask for the same names again; without the memo a five-mention issue paid
+	// five full tree walks.
 	mu        sync.RWMutex
+	findCache map[string]string
+
+	// semantic is the optional embedding backend for Tier 4. Nil falls back to
+	// the definition-scan heuristic.
+	semantic SemanticSearcher
 
 	// Budget allocation (percentages)
 	tier1Budget float64
@@ -52,6 +62,11 @@ type TieredContextConfig struct {
 	Tier3Budget float64
 	Tier4Budget float64
 	MaxTotal    int
+
+	// Semantic, when set, makes Tier 4 a real vector expansion instead of the
+	// definition-scan heuristic. Optional by design: the retriever must work in
+	// a session with no embedding backend configured.
+	Semantic SemanticSearcher
 }
 
 // DefaultTieredContextConfig returns sensible defaults.
@@ -85,6 +100,8 @@ func NewTieredContextBuilder(cfg *TieredContextConfig) *TieredContextBuilder {
 	return &TieredContextBuilder{
 		retriever:   retriever,
 		workDir:     cfg.WorkDir,
+		findCache:   make(map[string]string),
+		semantic:    cfg.Semantic,
 		tier1Budget: cfg.Tier1Budget,
 		tier2Budget: cfg.Tier2Budget,
 		tier3Budget: cfg.Tier3Budget,
@@ -117,6 +134,16 @@ type TieredContext struct {
 	Keywords  *IssueKeywords `json:"keywords"`
 	Files     []ContextFile  `json:"files"`
 
+	// Candidates is the ranked Tier 2 keyword evidence, kept alongside the
+	// selected files because candidate_file/2 and keyword_hit/3 need the scores
+	// and per-keyword counts that ContextFile discards.
+	Candidates []CandidateFile `json:"candidates,omitempty"`
+
+	// ResolvedMentions maps each mention from the issue text to the real path it
+	// resolved to, so callers can assert file_mentioned against a joinable path
+	// rather than the raw spelling.
+	ResolvedMentions map[string]string `json:"resolved_mentions,omitempty"`
+
 	// Statistics
 	Tier1Count int `json:"tier1_count"`
 	Tier2Count int `json:"tier2_count"`
@@ -134,23 +161,25 @@ func (b *TieredContextBuilder) BuildContext(ctx context.Context, issueText strin
 	keywords := ExtractKeywords(issueText)
 
 	tc := &TieredContext{
-		IssueText: issueText,
-		Keywords:  keywords,
-		Files:     make([]ContextFile, 0),
+		IssueText:        issueText,
+		Keywords:         keywords,
+		Files:            make([]ContextFile, 0),
+		ResolvedMentions: make(map[string]string, len(keywords.MentionedFiles)),
 	}
 
 	// Track files already added to avoid duplicates
 	addedFiles := make(map[string]bool)
 
 	// Tier 1: Explicitly mentioned files
-	tier1Files := b.extractMentionedFiles(ctx, keywords, addedFiles)
+	tier1Files := b.extractMentionedFiles(ctx, keywords, addedFiles, tc.ResolvedMentions)
 	tc.Files = append(tc.Files, tier1Files...)
 	tc.Tier1Count = len(tier1Files)
 
 	logging.Context("TieredContextBuilder: Tier 1 - %d explicitly mentioned files", tc.Tier1Count)
 
 	// Tier 2: Keyword match files
-	tier2Files, err := b.searchKeywordFiles(ctx, keywords, addedFiles)
+	tier2Files, candidates, err := b.searchKeywordFiles(ctx, keywords, addedFiles)
+	tc.Candidates = candidates
 	if err != nil {
 		logging.Context("TieredContextBuilder: Tier 2 search error: %v", err)
 	} else {
@@ -183,8 +212,10 @@ func (b *TieredContextBuilder) BuildContext(ctx context.Context, issueText strin
 // TIER 1: MENTIONED FILES
 // =============================================================================
 
-// extractMentionedFiles finds files explicitly mentioned in the issue.
-func (b *TieredContextBuilder) extractMentionedFiles(ctx context.Context, keywords *IssueKeywords, addedFiles map[string]bool) []ContextFile {
+// extractMentionedFiles finds files explicitly mentioned in the issue and
+// records each resolution in resolved, so the caller can assert file_mentioned
+// against a real workspace path instead of the raw spelling from the issue text.
+func (b *TieredContextBuilder) extractMentionedFiles(ctx context.Context, keywords *IssueKeywords, addedFiles map[string]bool, resolved map[string]string) []ContextFile {
 	var files []ContextFile
 
 	for _, mentioned := range keywords.MentionedFiles {
@@ -196,6 +227,9 @@ func (b *TieredContextBuilder) extractMentionedFiles(ctx context.Context, keywor
 		foundPath := b.findFile(ctx, mentioned)
 		if foundPath == "" {
 			continue
+		}
+		if resolved != nil {
+			resolved[mentioned] = foundPath
 		}
 
 		if addedFiles[foundPath] {
@@ -214,8 +248,52 @@ func (b *TieredContextBuilder) extractMentionedFiles(ctx context.Context, keywor
 	return files
 }
 
+// ResolveFile locates a workspace file from a partial path (the exported form of
+// findFile). Callers that need to resolve a mention outside a full build — the
+// issue seed path, for one — use this so both sides agree on what a mention
+// points at.
+func (b *TieredContextBuilder) ResolveFile(ctx context.Context, partial string) string {
+	return b.findFile(ctx, partial)
+}
+
 // findFile attempts to locate a file by partial path.
+//
+// Results are memoized because the walk is a full workspace traversal, and it
+// honors ctx: it used to ignore cancellation entirely, so an expired seed budget
+// still paid for every remaining tree walk before returning.
 func (b *TieredContextBuilder) findFile(ctx context.Context, partial string) string {
+	if partial == "" {
+		return ""
+	}
+	// Existing callers pass a nil context; the cancellation checks below would
+	// panic on one, and a resolver is not the place to start being strict.
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	b.mu.RLock()
+	cached, ok := b.findCache[partial]
+	b.mu.RUnlock()
+	if ok {
+		return cached
+	}
+
+	found := b.locateFile(ctx, partial)
+
+	// A miss caused by cancellation is not a real answer; caching it would make
+	// the whole session believe the file does not exist.
+	if found != "" || ctx.Err() == nil {
+		b.mu.Lock()
+		if b.findCache == nil {
+			b.findCache = make(map[string]string)
+		}
+		b.findCache[partial] = found
+		b.mu.Unlock()
+	}
+	return found
+}
+
+func (b *TieredContextBuilder) locateFile(ctx context.Context, partial string) string {
 	// Try exact path first
 	fullPath := filepath.Join(b.workDir, partial)
 	if _, err := os.Stat(fullPath); err == nil {
@@ -227,6 +305,9 @@ func (b *TieredContextBuilder) findFile(ctx context.Context, partial string) str
 	filepath.Walk(b.workDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || found != "" {
 			return err
+		}
+		if ctx.Err() != nil {
+			return filepath.SkipAll
 		}
 		if info.IsDir() {
 			// Skip common non-source directories
@@ -252,8 +333,11 @@ func (b *TieredContextBuilder) findFile(ctx context.Context, partial string) str
 // TIER 2: KEYWORD MATCHES
 // =============================================================================
 
-// searchKeywordFiles uses the SparseRetriever to find keyword matches.
-func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords *IssueKeywords, addedFiles map[string]bool) ([]ContextFile, error) {
+// searchKeywordFiles uses the SparseRetriever to find keyword matches. It
+// returns the selected Tier 2 files and the full ranked candidate list, which
+// the caller needs to assert candidate_file/2 and keyword_hit/3 — those carry
+// scores and per-keyword counts that ContextFile does not model.
+func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords *IssueKeywords, addedFiles map[string]bool) ([]ContextFile, []CandidateFile, error) {
 	// The previous revision also called FindRelevantFiles(ctx, "", …) here.
 	// With an empty issue text ExtractKeywords yields nothing, so that call
 	// ran a whole second keyword sweep of the repository that could only
@@ -261,7 +345,7 @@ func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords 
 	// below already uses the keywords the caller extracted.
 	hits, err := b.retriever.SearchKeywords(ctx, keywords)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Rank the files
@@ -287,7 +371,7 @@ func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords 
 		})
 	}
 
-	return files, nil
+	return files, ranked, nil
 }
 
 // =============================================================================
@@ -300,20 +384,13 @@ func (b *TieredContextBuilder) expandImportGraph(ctx context.Context, existingFi
 
 	// Collect imports for each existing file
 	for _, file := range existingFiles {
-		if len(newFiles) >= b.maxTier3 {
+		if len(newFiles) >= b.maxTier3 || ctx.Err() != nil {
 			break
 		}
 
-		imports := b.extractImports(file.FilePath)
-		for _, imp := range imports {
+		for _, resolvedPath := range b.importNeighbors(file.FilePath) {
 			if len(newFiles) >= b.maxTier3 {
 				break
-			}
-
-			// Try to resolve import to file path
-			resolvedPath := b.resolveImport(imp, file.FilePath)
-			if resolvedPath == "" {
-				continue
 			}
 
 			if addedFiles[resolvedPath] {
@@ -332,6 +409,23 @@ func (b *TieredContextBuilder) expandImportGraph(ctx context.Context, existingFi
 	}
 
 	return newFiles
+}
+
+// importNeighbors resolves one file's imports to workspace files, dispatching on
+// language. Tier 3 handled Python only, so on a Go repository — this one — the
+// whole import tier was empty and the builder's 20% import budget went unused.
+func (b *TieredContextBuilder) importNeighbors(filePath string) []string {
+	if strings.EqualFold(filepath.Ext(filePath), ".go") {
+		return b.goImportNeighbors(filePath)
+	}
+
+	var out []string
+	for _, imp := range b.extractImports(filePath) {
+		if resolved := b.resolveImport(imp, filePath); resolved != "" {
+			out = append(out, resolved)
+		}
+	}
+	return out
 }
 
 // extractImports extracts import statements from a Python file.
@@ -394,15 +488,22 @@ func (b *TieredContextBuilder) resolveImport(importPath, currentFile string) str
 // TIER 4: SEMANTIC EXPANSION
 // =============================================================================
 
-// semanticExpansion uses vector similarity to find related files.
-// This is a placeholder - full implementation requires embedding service.
+// semanticExpansion finds files related to the issue by meaning rather than by
+// spelling. It prefers a real embedding pass when one is configured and falls
+// back to scanning for symbol definitions otherwise — a fallback, not a
+// placeholder: the definition scan is the only thing that works in a session
+// with no embedding backend, which is the common case.
 func (b *TieredContextBuilder) semanticExpansion(ctx context.Context, issueText string, keywords *IssueKeywords, addedFiles map[string]bool) []ContextFile {
-	// Placeholder: In production, this would:
-	// 1. Generate embedding for the issue text
-	// 2. Query vector database for similar file embeddings
-	// 3. Return top matches not already in context
+	if b.semantic != nil && b.maxTier4 > 0 {
+		matches, err := b.semantic.SimilarFiles(ctx, issueText, b.maxTier4*2)
+		if err != nil {
+			logging.Context("TieredContextBuilder: Tier 4 semantic search failed, falling back to definition scan: %v", err)
+		} else if files := semanticMatchFiles(matches, b.maxTier4, addedFiles); len(files) > 0 {
+			return files
+		}
+	}
 
-	// For now, use heuristic expansion based on symbol names
+	// Heuristic expansion based on symbol names.
 	var files []ContextFile
 
 	for _, symbol := range keywords.MentionedSymbols {

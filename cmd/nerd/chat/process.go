@@ -311,7 +311,8 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 
 			// If this is an issue-driven request, seed issue facts for activation and JIT selection.
-			m.seedIssueFacts(intent, input)
+			// The turn context bounds the sparse-retrieval pass this now runs.
+			m.seedIssueFacts(ctx, intent, input)
 
 			// GAP-002 FIX: Seed campaign facts if there's an active campaign.
 			// This enables the activation engine and JIT compiler to be campaign-aware.

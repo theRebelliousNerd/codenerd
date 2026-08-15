@@ -61,9 +61,81 @@ type Tracker struct {
 	autoSaveTimer *time.Timer
 	closed        bool
 
+	// refs counts live owners. A tracker handed out by Shared is owned by every
+	// caller that asked for it (Cortex and the chat model, typically), and the
+	// first Close must not stop metering for the others. NewTracker starts at 1
+	// so a privately constructed tracker closes on its first Close.
+	refs int
+
+	// sharedKey is the registry key when this tracker came from Shared, so the
+	// final Close can unregister it. Empty for private trackers.
+	sharedKey string
+
 	// keepEvents enables the raw event ring. Off by default: most operators
 	// only want aggregates, and the ring roughly doubles usage.json size.
 	keepEvents bool
+}
+
+// sharedTrackers maps an absolute usage.json path to the one Tracker allowed to
+// own it in this process.
+//
+// Two trackers over the same file is not a cosmetic duplication: each holds its
+// own in-memory aggregates loaded at construction time, and each atomic save
+// replaces the file wholesale — so whichever flushes last silently erases every
+// token the other counted. Cortex and the interactive chat model both used to
+// call NewTracker on the same workspace, which is exactly that bug.
+var (
+	sharedMu       sync.Mutex
+	sharedTrackers = make(map[string]*Tracker)
+)
+
+// Shared returns the process-wide tracker for workspacePath, creating it on
+// first use and handing back the same instance afterwards. Every owner must
+// Close its handle; only the last Close flushes and shuts the tracker down.
+//
+// Options are honored only when the tracker is created; a later caller joins
+// the existing tracker as-is rather than reconfiguring a tracker other owners
+// are already using.
+func Shared(workspacePath string, opts ...Option) (*Tracker, error) {
+	key, err := filepath.Abs(workspacePath)
+	if err != nil {
+		key = workspacePath
+	}
+
+	sharedMu.Lock()
+	defer sharedMu.Unlock()
+
+	if t, ok := sharedTrackers[key]; ok {
+		t.mu.Lock()
+		if !t.closed {
+			t.refs++
+			t.mu.Unlock()
+			return t, nil
+		}
+		t.mu.Unlock()
+		// A fully closed tracker cannot record anything; replace it.
+		delete(sharedTrackers, key)
+	}
+
+	t, err := NewTracker(workspacePath, opts...)
+	if err != nil {
+		return nil, err
+	}
+	t.sharedKey = key
+	sharedTrackers[key] = t
+	return t, nil
+}
+
+// releaseShared drops key from the registry if it still maps to t.
+func releaseShared(key string, t *Tracker) {
+	if key == "" {
+		return
+	}
+	sharedMu.Lock()
+	if sharedTrackers[key] == t {
+		delete(sharedTrackers, key)
+	}
+	sharedMu.Unlock()
 }
 
 // Option configures a Tracker.
@@ -85,6 +157,7 @@ func NewTracker(workspacePath string, opts ...Option) (*Tracker, error) {
 	t := &Tracker{
 		filePath: filePath,
 		data:     newUsageData(),
+		refs:     1,
 	}
 	for _, opt := range opts {
 		opt(t)
@@ -398,17 +471,37 @@ func (t *Tracker) flushLocked() error {
 	return nil
 }
 
-// Close flushes any pending mutations and stops the auto-save timer. It is safe
-// to call more than once. Hosts must call this on Cortex close / chat shutdown,
-// otherwise up to autoSaveDelay of usage is lost on exit.
+// Close releases this owner's handle. It is safe to call more than once. Hosts
+// must call this on Cortex close / chat shutdown, otherwise up to autoSaveDelay
+// of usage is lost on exit.
+//
+// For a tracker obtained from Shared, only the last owner's Close shuts the
+// tracker down; earlier ones flush what is pending and leave metering running
+// for whoever still holds it.
 func (t *Tracker) Close() error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	if t.closed {
+		t.mu.Unlock()
 		return nil
 	}
+	if t.refs > 1 {
+		t.refs--
+		err := t.flushLocked()
+		t.mu.Unlock()
+		if err != nil {
+			logging.Get(logging.CategorySession).Warn("usage: flush on handle release failed: %v", err)
+		}
+		return err
+	}
+
 	err := t.flushLocked()
+	t.refs = 0
 	t.closed = true
+	key := t.sharedKey
+	t.mu.Unlock()
+
+	releaseShared(key, t)
+
 	if err != nil {
 		logging.Get(logging.CategorySession).Error("usage: final flush failed, usage data lost: %v", err)
 	}

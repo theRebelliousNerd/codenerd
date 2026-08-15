@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
-	"codenerd/internal/usage"
 	"context"
 	crand "crypto/rand"
 	"crypto/tls"
@@ -510,16 +509,8 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			return "", fmt.Errorf("no completion returned")
 		}
 
-		// Track usage if available
-		if tracker := usage.FromContext(ctx); tracker != nil {
-			tracker.Track(ctx,
-				c.model,
-				"zai",
-				zaiResp.Usage.PromptTokens,
-				zaiResp.Usage.CompletionTokens,
-				"chat",
-			)
-		}
+		trackUsage(ctx, c.model, ProviderZAI,
+			zaiResp.Usage.PromptTokens, zaiResp.Usage.CompletionTokens, usageOpChat)
 
 		totalDuration := time.Since(startTime)
 		log.StructuredLog("info", "ZAI request completed successfully", map[string]any{
@@ -893,6 +884,9 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			return "", fmt.Errorf("no choices in response")
 		}
 
+		trackUsage(ctx, c.model, ProviderZAI,
+			zaiResp.Usage.PromptTokens, zaiResp.Usage.CompletionTokens, usageOpChat)
+
 		totalDuration := time.Since(startTime)
 		log.StructuredLog("info", "ZAI structured request completed successfully", map[string]any{
 			"request_id":            reqID,
@@ -1025,6 +1019,9 @@ func (c *ZAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 		if stopReason == "tool_calls" {
 			stopReason = "tool_use"
 		}
+
+		trackUsage(ctx, c.model, ProviderZAI,
+			zaiResp.Usage.PromptTokens, zaiResp.Usage.CompletionTokens, usageOpToolGen)
 
 		return &LLMToolResponse{
 			Text:       choice.Message.Content,

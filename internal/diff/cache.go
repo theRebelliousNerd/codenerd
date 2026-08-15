@@ -33,6 +33,13 @@ type Stats struct {
 	Evicted  uint64 // entries dropped to stay within bounds
 	Entries  int    // entries currently resident
 	Bytes    int64  // approximate resident payload size
+
+	// Collisions counts hits rejected by content verification — a key match
+	// whose stored content did not equal the requested content. Always zero
+	// unless Options.VerifyCacheContent is set. A nonzero value means the key
+	// space is being hit harder than its width supports and is worth alerting
+	// on, not merely logging.
+	Collisions uint64
 }
 
 // cacheEntry is the value stored in the LRU. diff holds the canonical result;
@@ -41,6 +48,12 @@ type cacheEntry struct {
 	key  cacheKey
 	diff *FileDiff
 	size int64
+
+	// oldContent/newContent are retained only under Options.VerifyCacheContent
+	// so a hit can be proven rather than trusted.
+	verify     bool
+	oldContent string
+	newContent string
 }
 
 // diffCache is a bounded LRU keyed by content hash pairs. All access is guarded
@@ -53,11 +66,12 @@ type diffCache struct {
 	maxEntries int
 	maxBytes   int64
 
-	hits     uint64
-	misses   uint64
-	computes uint64
-	binary   uint64
-	evicted  uint64
+	hits       uint64
+	misses     uint64
+	computes   uint64
+	binary     uint64
+	evicted    uint64
+	collisions uint64
 }
 
 func newDiffCache(maxEntries int, maxBytes int64) *diffCache {
@@ -79,7 +93,7 @@ func newDiffCache(maxEntries int, maxBytes int64) *diffCache {
 // is the whole point: the previous shallow `result := *cachedDiff` shared the
 // Hunks backing array and every Hunk.Lines slice with the cache, so a caller
 // that edited a returned hunk silently corrupted what every later caller saw.
-func (c *diffCache) get(key cacheKey) *FileDiff {
+func (c *diffCache) get(key cacheKey, oldContent, newContent string) *FileDiff {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -88,20 +102,38 @@ func (c *diffCache) get(key cacheKey) *FileDiff {
 		c.misses++
 		return nil
 	}
+	entry := elem.Value.(*cacheEntry)
+
+	// A verified entry must prove itself: serving the wrong diff is worse than
+	// recomputing one. The entry is dropped so the miss below repopulates it.
+	if entry.verify && (entry.oldContent != oldContent || entry.newContent != newContent) {
+		c.collisions++
+		c.misses++
+		c.order.Remove(elem)
+		delete(c.entries, key)
+		c.bytes -= entry.size
+		return nil
+	}
+
 	c.order.MoveToFront(elem)
 	c.hits++
-	return elem.Value.(*cacheEntry).diff.Clone()
+	return entry.diff.Clone()
 }
 
 // put stores a deep copy of fd, evicting least-recently-used entries until both
 // bounds hold. Storing a copy keeps the cache immune to later caller mutation
 // of the same FileDiff value.
-func (c *diffCache) put(key cacheKey, fd *FileDiff) {
+func (c *diffCache) put(key cacheKey, fd *FileDiff, oldContent, newContent string, verify bool) {
 	if fd == nil {
 		return
 	}
 	stored := fd.Clone()
 	size := stored.approxSize()
+	if verify {
+		// Retained content is real resident memory and must be charged to the
+		// byte budget, or verification would silently double the cache.
+		size += int64(len(oldContent) + len(newContent))
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -111,6 +143,11 @@ func (c *diffCache) put(key cacheKey, fd *FileDiff) {
 		c.bytes -= entry.size
 		entry.diff = stored
 		entry.size = size
+		entry.verify = verify
+		if verify {
+			entry.oldContent = oldContent
+			entry.newContent = newContent
+		}
 		c.bytes += size
 		c.order.MoveToFront(elem)
 		c.evictLocked()
@@ -123,7 +160,12 @@ func (c *diffCache) put(key cacheKey, fd *FileDiff) {
 		return
 	}
 
-	elem := c.order.PushFront(&cacheEntry{key: key, diff: stored, size: size})
+	entry := &cacheEntry{key: key, diff: stored, size: size, verify: verify}
+	if verify {
+		entry.oldContent = oldContent
+		entry.newContent = newContent
+	}
+	elem := c.order.PushFront(entry)
 	c.entries[key] = elem
 	c.bytes += size
 	c.evictLocked()
@@ -170,13 +212,14 @@ func (c *diffCache) stats() Stats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return Stats{
-		Hits:     c.hits,
-		Misses:   c.misses,
-		Computes: c.computes,
-		Binary:   c.binary,
-		Evicted:  c.evicted,
-		Entries:  len(c.entries),
-		Bytes:    c.bytes,
+		Hits:       c.hits,
+		Misses:     c.misses,
+		Computes:   c.computes,
+		Binary:     c.binary,
+		Evicted:    c.evicted,
+		Entries:    len(c.entries),
+		Bytes:      c.bytes,
+		Collisions: c.collisions,
 	}
 }
 
