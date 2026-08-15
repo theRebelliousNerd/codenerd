@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"codenerd/internal/atomicfile"
 )
 
 // TestFileCache_WhenSaving_ShouldReplaceTheFileNotTruncateIt — the manifest is
@@ -31,7 +34,7 @@ func TestFileCache_WhenSaving_ShouldReplaceTheFileNotTruncateIt(t *testing.T) {
 
 	// Hold the old contents open: with a rename-based save this handle keeps
 	// reading a complete, consistent manifest even after the swap.
-	oldHandle, err := os.Open(cachePath)
+	oldHandle, err := atomicfile.Open(cachePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,8 +50,12 @@ func TestFileCache_WhenSaving_ShouldReplaceTheFileNotTruncateIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if os.SameFile(before, after) {
-		t.Error("save wrote through the existing file; a partial write would have destroyed the only copy")
+	// ReplaceFileW preserves file identity by design, so the inode proxy does
+	// not hold on Windows while the guarantee still does.
+	if runtime.GOOS != "windows" {
+		if os.SameFile(before, after) {
+			t.Error("save wrote through the existing file; a partial write would have destroyed the only copy")
+		}
 	}
 
 	buf := make([]byte, 4096)

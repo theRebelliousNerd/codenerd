@@ -8,9 +8,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+
+	"codenerd/internal/atomicfile"
 )
 
 func newTestTracker(t *testing.T, opts ...Option) (*Tracker, string) {
@@ -149,7 +152,7 @@ func TestSave_ShouldReplaceTheInodeRatherThanWriteThrough(t *testing.T) {
 	}
 
 	// Open the current contents and keep the handle across the save.
-	oldHandle, err := os.Open(path)
+	oldHandle, err := atomicfile.Open(path)
 	if err != nil {
 		t.Fatalf("open before: %v", err)
 	}
@@ -168,9 +171,13 @@ func TestSave_ShouldReplaceTheInodeRatherThanWriteThrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat after: %v", err)
 	}
-	if os.SameFile(before, after) {
-		t.Error("save wrote through the existing usage.json; a torn write would have " +
-			"destroyed the only copy of the accounting history")
+	// ReplaceFileW preserves file identity by design, so the inode proxy does
+	// not hold on Windows while the guarantee still does.
+	if runtime.GOOS != "windows" {
+		if os.SameFile(before, after) {
+			t.Error("save wrote through the existing usage.json; a torn write would have " +
+				"destroyed the only copy of the accounting history")
+		}
 	}
 
 	survived, err := io.ReadAll(oldHandle)
