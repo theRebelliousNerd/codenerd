@@ -554,7 +554,10 @@ func (c *ConstitutionGateShard) escalateToUser(ctx context.Context, actionType, 
 	_ = c.Kernel.Assert(types.Fact{
 		Predicate: "escalation_needed",
 		Args: []any{
-			"constitution_gate",
+			// Target is the /name slot of escalation_needed/3
+			// (schemas_shards.mg); a bare string would never unify with the
+			// name constants the policy corpus emits into the same relation.
+			types.MangleAtom("/constitution_gate"),
 			escalationSubject(actionType, target),
 			reason,
 		},

@@ -139,32 +139,42 @@ Decl has_active_coder() bound [].
 has_active_planner() :- active_shard(ShardID, _), shard_family(ShardID, /planner).
 has_active_coder() :- active_shard(ShardID, _), shard_family(ShardID, /coder).
 
+# Slot 1 of injectable_context is ShardID (/string): a shard instance id, or the
+# wildcard "*" / "/_all" meaning every shard. Both readers filter on it --
+# prompt_assembler.go binds it (injectable_context(%q, _), plus "*" and "/_all"),
+# and compiler.go's matchesShard compares it to the compiling shard, treating
+# only "*" and "/_all" as wildcards. These rules used to tag slot 1 with a
+# category name (/northstar_mission, /critical_cap, ...), which is neither a
+# shard id nor a wildcard, so no reader ever selected these rows and northstar
+# context reached no prompt. The gating already lives in the bodies below
+# (has_active_planner / has_active_coder), so the selector is the wildcard.
+
 # Inject mission when planning or deciding actions
-injectable_context(/northstar_mission, Mission) :-
+injectable_context("*", Mission) :-
     northstar_defined(),
     northstar_mission(_, Mission),
     has_active_planner().
 
-injectable_context(/northstar_mission, Mission) :-
+injectable_context("*", Mission) :-
     northstar_defined(),
     northstar_mission(_, Mission),
     has_active_coder().
 
 # Inject critical capabilities during planning
-injectable_context(/critical_cap, Desc) :-
+injectable_context("*", Desc) :-
     northstar_defined(),
     critical_capability(CapID),
     northstar_capability(CapID, Desc, _, _),
     has_active_planner().
 
 # Inject unmitigated risks as warnings
-injectable_context(/unmitigated_risk_warning, Desc) :-
+injectable_context("*", Desc) :-
     northstar_defined(),
     unmitigated_risk(RiskID),
     northstar_risk(RiskID, Desc, _, _).
 
 # Inject constraints always
-injectable_context(/constraint, Desc) :-
+injectable_context("*", Desc) :-
     northstar_defined(),
     northstar_constraint(_, Desc).
 

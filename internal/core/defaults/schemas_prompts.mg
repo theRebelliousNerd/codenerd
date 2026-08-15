@@ -118,8 +118,12 @@ Decl campaign_active(CampaignID) bound [/string].
 Decl injectable_context(ShardID, Atom) bound [/string, /string].
 
 # injectable_context_priority(ShardID, Atom, Priority) - priority-tagged context
-# Priority: /high, /medium, /low
-Decl injectable_context_priority(ShardID, Atom, Priority) bound [/string, /string, /number].
+# Priority: /high, /medium, /low - a BUCKET LABEL, not an ordinal. Nothing
+# sorts or compares on it; rules pattern-match the literal (prompt_context.mg
+# has_high_priority_context / final_injectable both bind /high). The orderable
+# quantity is shard_context_atom's Relevance (/number), from which these
+# buckets are derived by threshold.
+Decl injectable_context_priority(ShardID, Atom, Priority) bound [/string, /string, /name].
 
 # final_injectable(ShardID, Atom) - final set after budget filtering
 Decl final_injectable(ShardID, Atom) bound [/string, /string].

@@ -67,7 +67,10 @@ related_context(Content) :-
 # Section 25: Holographic Retrieval (Cartographer)
 
 # Bridge world model facts to holographic schema (Fix 15.6)
-code_defines(File, SymbolID, Type, 0, "") :-
+# symbol_graph carries no line spans, so both line slots bridge as 0 ("unknown").
+# StartLine/EndLine are /number: the previous "" here put a string in a numeric
+# slot, which the Cartographer's own code_defines facts fill with int64 lines.
+code_defines(File, SymbolID, Type, 0, 0) :-
     symbol_graph(SymbolID, Type, _, File, _).
 
 code_calls(CallerID, CalleeID) :-

@@ -125,7 +125,8 @@ Decl failing_test(TestName, ErrorMessage) bound [/string, /string].
 # -----------------------------------------------------------------------------
 
 # blocked_action(Action, Reason) - action blocked by constitutional rules
-Decl blocked_action(Action, Reason) bound [/name, /string].
+# Reason: /safety_violation (closed vocabulary, see codedom_safety.mg)
+Decl blocked_action(Action, Reason) bound [/name, /name].
 
 # safety_warning(Warning) - active safety concern/warning message
 Decl safety_warning(Warning) bound [/string].

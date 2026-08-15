@@ -31,10 +31,13 @@ Decl acceptance_count(Pattern, Count) bound [/string, /number].
 Decl coder_strategy(Strategy) bound [/name].
 # task_complexity(Complexity) CONFLICTS with schemas_shards.mg
 # We will rename it to coder_task_complexity(Complexity)
-Decl coder_task_complexity(Complexity) bound [/number].
+# Complexity: /simple, /complex, /critical (closed vocabulary, see coder_classification.mg)
+Decl coder_task_complexity(Complexity) bound [/name].
 # detected_language(File, Language) is ALREADY DECLARED in schemas_shards.mg
 # Decl detected_language(File, Language).
-Decl language_convention(Language, Convention, Rule) bound [/name, /string, /string].
+# Convention: /naming, /typing, /interfaces, /errors, ... (closed vocabulary)
+# Rule: free-form guidance text
+Decl language_convention(Language, Convention, Rule) bound [/name, /name, /string].
 Decl apply_convention(Convention, Rule) bound [/string, /string].
 Decl requires_error_handling(File) bound [/string].
 Decl requires_type_annotations(File) bound [/string].
@@ -100,7 +103,8 @@ Decl refactor_mode() bound [].
 Decl tdd_different_approach_needed() bound [].
 Decl edit_is_implementation(File) bound [/string].
 Decl edit_is_test(File) bound [/string].
-Decl tdd_violation(Violation) bound [/string].
+# Violation: /red_phase_impl, /green_phase_test (closed vocabulary, see coder_tdd.mg)
+Decl tdd_violation(Violation) bound [/name].
 
 # Code Quality Rules
 Decl go_needs_error_check(File) bound [/string].

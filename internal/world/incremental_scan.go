@@ -465,42 +465,67 @@ func (s *Scanner) deriveSnapshotGlobals(root string, currentFiles map[string]os.
 	return out
 }
 
+// groupFactsByPath buckets a scan's facts by the file each one belongs to, so
+// that file's rows can be replaced or deleted as a unit.
+//
+// Which file a fact belongs to is decided by matching its arguments against the
+// file_topology paths in the same snapshot — the authoritative list of what was
+// scanned — rather than by guessing which argument looks like a path.
+//
+// The guess used to be "a string containing a slash", and it silently excluded
+// every file at the repository root. "sub/gamma.go" matched; "alpha.go" did not,
+// so its symbol_graph, file_dir and entry_point facts were filed under the
+// global bucket instead of under the file. Nothing failed — the facts were
+// stored, just not against their file — and the cost only appeared two steps
+// later: deleting a root-level file retracted its file_topology and left every
+// symbol it defined in the kernel forever. Measured on a two-file fixture: a
+// nested file persisted 4 rows, a root-level one persisted 1.
+//
+// Matching against the known set also removes the false-positive half of the
+// heuristic, where a symbol id like "pkg/thing.Method" would have been read as a
+// path to a file that does not exist.
 func groupFactsByPath(facts []core.Fact) map[string][]core.Fact {
 	out := make(map[string][]core.Fact)
+
+	// Pass 1: file_topology is the file list. Nothing else establishes a file.
+	knownFiles := make(map[string]struct{})
 	for _, f := range facts {
-		switch f.Predicate {
-		case "file_topology":
-			if len(f.Args) > 0 {
-				if p, ok := f.Args[0].(string); ok {
-					out[p] = append(out[p], f)
-				}
-			}
-		case "symbol_graph", "dependency_link", "code_defines", "code_calls", "assigns",
-			"guards_return", "guards_block", "guard_dominates", "safe_access",
-			"uses", "call_arg", "error_checked_return", "error_checked_block", "function_scope":
-			// These world facts include a path arg somewhere; for persistence we key by file_topology path.
-			// We will attach them later when iterating grouped files.
-		default:
-			// Attach in the second pass or persist as global metadata if no file path exists.
+		if f.Predicate != "file_topology" || len(f.Args) == 0 {
+			continue
 		}
+		p, ok := f.Args[0].(string)
+		if !ok || p == "" {
+			continue
+		}
+		knownFiles[p] = struct{}{}
+		out[p] = append(out[p], f)
 	}
-	// Attach non-topology world facts to their file by scanning args for a path.
+
+	// Pass 2: every other fact goes to the first of its arguments that names a
+	// scanned file. For a fact relating two files (a dependency edge) that is
+	// the source, which is the file whose parse produced it and therefore the
+	// file it must be retracted with.
 	for _, f := range facts {
 		if f.Predicate == "file_topology" {
 			continue
 		}
-		var pathArg string
+		var owner string
 		for _, a := range f.Args {
-			if s := worldFactPathArg(a); s != "" {
-				pathArg = s
+			s, ok := a.(string)
+			if !ok || s == "" {
+				continue
+			}
+			if _, isFile := knownFiles[s]; isFile {
+				owner = s
 				break
 			}
 		}
-		if pathArg != "" {
-			out[pathArg] = append(out[pathArg], f)
-			continue
+		if owner == "" {
+			// Genuinely global: project_language, directory facts, and anything
+			// naming no scanned file.
+			owner = globalWorldFactsPath
 		}
-		out[globalWorldFactsPath] = append(out[globalWorldFactsPath], f)
+		out[owner] = append(out[owner], f)
 	}
 	return out
 }

@@ -237,7 +237,7 @@ has_unverified_task(PhaseID) :-
     campaign_task(TaskID, PhaseID, _, /completed, _),
     task_unverified(TaskID).
 
-phase_blocked(PhaseID, "unverified_tasks") :-
+phase_blocked(PhaseID, /unverified_tasks) :-
     has_unverified_task(PhaseID).
 
 # -----------------------------------------------------------------------------
@@ -291,14 +291,14 @@ phase_build_failed(PhaseID) :-
     phase_checkpoint(PhaseID, /build, /false, _, _).
 
 # Block phase on build failure
-phase_blocked(PhaseID, "build_failed") :-
+phase_blocked(PhaseID, /build_failed) :-
     phase_build_failed(PhaseID).
 
 # Phase test check failed
 phase_tests_failed(PhaseID) :-
     phase_checkpoint(PhaseID, /tests, /false, _, _).
 
-phase_blocked(PhaseID, "tests_failed") :-
+phase_blocked(PhaseID, /tests_failed) :-
     phase_tests_failed(PhaseID).
 
 # =============================================================================
@@ -496,11 +496,11 @@ phase_failed_task_count(PhaseID, Count) :-
     |> do fn:group_by(PhaseID), let Count = fn:count().
 
 # Cascade triggers phase pause
-phase_blocked(PhaseID, "failure_cascade") :-
+phase_blocked(PhaseID, /failure_cascade) :-
     phase_failure_cascade(PhaseID).
 
 # Cascade triggers replan consideration
-replan_needed(CampaignID, "phase_failure_cascade") :-
+replan_needed(CampaignID, /phase_failure_cascade) :-
     current_phase(PhaseID),
     phase_failure_cascade(PhaseID),
     campaign_phase(PhaseID, CampaignID, _, _, _, _),
@@ -906,7 +906,7 @@ task_topology_warning(TaskID, "skips_layer") :-
     suspicious_gap(PhaseID, _).
 
 # Block campaign start if topology violations exist
-campaign_blocked(CampaignID, "topology_violations") :-
+campaign_blocked(CampaignID, /topology_violations) :-
     campaign(CampaignID, _, _, _, /validating),
     campaign_phase(PhaseID, CampaignID, _, _, _, _),
     architectural_violation(PhaseID, _, _).

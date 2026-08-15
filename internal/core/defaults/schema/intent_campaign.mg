@@ -71,7 +71,7 @@ intent_category("Abort campaign.", /mutation).
 # "first X, then Y, finally Z" style requests
 # =============================================================================
 
-multistep_pattern("explicit_first_then", "sequential_explicit", "sequential", 100).
+multistep_pattern("explicit_first_then", /sequential_explicit, /sequential, 100).
 multistep_keyword("explicit_first_then", "first").
 multistep_keyword("explicit_first_then", "then").
 multistep_keyword("explicit_first_then", "finally").
@@ -81,7 +81,7 @@ multistep_example("explicit_first_then", "first review the code, then fix any is
 multistep_example("explicit_first_then", "first create the file, then add tests, finally commit").
 multistep_example("explicit_first_then", "start by analyzing the codebase, then refactor the hot spots").
 
-multistep_pattern("explicit_step_numbers", "sequential_explicit", "sequential", 95).
+multistep_pattern("explicit_step_numbers", /sequential_explicit, /sequential, 95).
 multistep_keyword("explicit_step_numbers", "step 1").
 multistep_keyword("explicit_step_numbers", "step 2").
 multistep_keyword("explicit_step_numbers", "step 3").
@@ -91,7 +91,7 @@ multistep_keyword("explicit_step_numbers", "3.").
 multistep_example("explicit_step_numbers", "1. create the handler 2. add tests 3. update the router").
 multistep_example("explicit_step_numbers", "step 1: review, step 2: fix, step 3: test").
 
-multistep_pattern("explicit_after_that", "sequential_explicit", "sequential", 90).
+multistep_pattern("explicit_after_that", /sequential_explicit, /sequential, 90).
 multistep_keyword("explicit_after_that", "after that").
 multistep_keyword("explicit_after_that", "afterward").
 multistep_keyword("explicit_after_that", "afterwards").
@@ -99,13 +99,13 @@ multistep_keyword("explicit_after_that", "following that").
 multistep_example("explicit_after_that", "fix the bug, after that run the tests").
 multistep_example("explicit_after_that", "refactor the function and afterward update the docs").
 
-multistep_pattern("explicit_next", "sequential_explicit", "sequential", 85).
+multistep_pattern("explicit_next", /sequential_explicit, /sequential, 85).
 multistep_keyword("explicit_next", "next").
 multistep_keyword("explicit_next", "subsequently").
 multistep_example("explicit_next", "create the interface, next implement it").
 multistep_example("explicit_next", "review the PR and next merge it").
 
-multistep_pattern("explicit_once_done", "sequential_explicit", "sequential", 88).
+multistep_pattern("explicit_once_done", /sequential_explicit, /sequential, 88).
 multistep_keyword("explicit_once_done", "once done").
 multistep_keyword("explicit_once_done", "when done").
 multistep_keyword("explicit_once_done", "when finished").
@@ -119,7 +119,7 @@ multistep_example("explicit_once_done", "refactor that function and when you're 
 # "review X and fix issues" - implicit sequential dependency
 # =============================================================================
 
-multistep_pattern("implicit_review_fix", "review_then_fix", "sequential", 92).
+multistep_pattern("implicit_review_fix", /review_then_fix, /sequential, 92).
 multistep_keyword("implicit_review_fix", "review and fix").
 multistep_keyword("implicit_review_fix", "check and fix").
 multistep_keyword("implicit_review_fix", "find and fix").
@@ -136,7 +136,7 @@ multistep_example("implicit_review_fix", "find and fix all security issues").
 # "create X and test it" - mutation followed by verification
 # =============================================================================
 
-multistep_pattern("implicit_create_test", "create_then_validate", "sequential", 90).
+multistep_pattern("implicit_create_test", /create_then_validate, /sequential, 90).
 multistep_keyword("implicit_create_test", "create and test").
 multistep_keyword("implicit_create_test", "implement and test").
 multistep_keyword("implicit_create_test", "add and test").
@@ -154,7 +154,7 @@ multistep_example("implicit_create_test", "add the endpoint and make sure it wor
 # "fix X and verify/run tests" - mutation followed by verification
 # =============================================================================
 
-multistep_pattern("implicit_fix_verify", "verify_after_mutation", "sequential", 88).
+multistep_pattern("implicit_fix_verify", /verify_after_mutation, /sequential, 88).
 multistep_keyword("implicit_fix_verify", "fix and verify").
 multistep_keyword("implicit_fix_verify", "change and test").
 multistep_keyword("implicit_fix_verify", "update and check").
@@ -171,7 +171,7 @@ multistep_example("implicit_fix_verify", "update the config and make sure nothin
 # "figure out X then implement" - learning followed by action
 # =============================================================================
 
-multistep_pattern("implicit_research_implement", "research_then_act", "sequential", 85).
+multistep_pattern("implicit_research_implement", /research_then_act, /sequential, 85).
 multistep_keyword("implicit_research_implement", "research and implement").
 multistep_keyword("implicit_research_implement", "figure out and").
 multistep_keyword("implicit_research_implement", "learn how to and").
@@ -188,7 +188,7 @@ multistep_example("implicit_research_implement", "understand the codebase struct
 # "analyze X and improve" - analysis followed by improvement
 # =============================================================================
 
-multistep_pattern("implicit_analyze_optimize", "analyze_then_optimize", "sequential", 85).
+multistep_pattern("implicit_analyze_optimize", /analyze_then_optimize, /sequential, 85).
 multistep_keyword("implicit_analyze_optimize", "analyze and optimize").
 multistep_keyword("implicit_analyze_optimize", "profile and improve").
 multistep_keyword("implicit_analyze_optimize", "find bottlenecks and fix").
@@ -203,7 +203,7 @@ multistep_example("implicit_analyze_optimize", "find bottlenecks in the database
 # "security scan and fix" - security analysis followed by remediation
 # =============================================================================
 
-multistep_pattern("implicit_security_fix", "security_audit_fix", "sequential", 93).
+multistep_pattern("implicit_security_fix", /security_audit_fix, /sequential, 93).
 multistep_keyword("implicit_security_fix", "security scan and fix").
 multistep_keyword("implicit_security_fix", "audit and fix").
 multistep_keyword("implicit_security_fix", "find vulnerabilities and fix").
@@ -217,7 +217,7 @@ multistep_example("implicit_security_fix", "find security issues in the input va
 # "change X and update docs" - mutation followed by documentation
 # =============================================================================
 
-multistep_pattern("implicit_change_document", "document_after_change", "sequential", 80).
+multistep_pattern("implicit_change_document", /document_after_change, /sequential, 80).
 multistep_keyword("implicit_change_document", "and update docs").
 multistep_keyword("implicit_change_document", "and document").
 multistep_keyword("implicit_change_document", "and add comments").
@@ -233,7 +233,7 @@ multistep_example("implicit_change_document", "change the algorithm and add comm
 # "write tests first then implement" - TDD style
 # =============================================================================
 
-multistep_pattern("tdd_test_first", "test_driven_flow", "sequential", 88).
+multistep_pattern("tdd_test_first", /test_driven_flow, /sequential, 88).
 multistep_keyword("tdd_test_first", "write tests first").
 multistep_keyword("tdd_test_first", "tdd").
 multistep_keyword("tdd_test_first", "test-driven").
@@ -248,7 +248,7 @@ multistep_example("tdd_test_first", "create tests and then the implementation fo
 # "X, if successful, Y" - conditional execution on success
 # =============================================================================
 
-multistep_pattern("conditional_if_success", "conditional_success", "conditional", 85).
+multistep_pattern("conditional_if_success", /conditional_success, /conditional, 85).
 multistep_keyword("conditional_if_success", "if it works").
 multistep_keyword("conditional_if_success", "if successful").
 multistep_keyword("conditional_if_success", "if it passes").
@@ -258,7 +258,7 @@ multistep_example("conditional_if_success", "run the tests, if they pass, commit
 multistep_example("conditional_if_success", "fix the bug and if it works deploy to staging").
 multistep_example("conditional_if_success", "refactor and on success merge the PR").
 
-multistep_pattern("conditional_tests_pass", "conditional_success", "conditional", 87).
+multistep_pattern("conditional_tests_pass", /conditional_success, /conditional, 87).
 multistep_keyword("conditional_tests_pass", "if tests pass").
 multistep_keyword("conditional_tests_pass", "when tests pass").
 multistep_keyword("conditional_tests_pass", "once tests are green").
@@ -270,7 +270,7 @@ multistep_example("conditional_tests_pass", "refactor and when tests are green m
 # "try X, if fails, Y" - fallback on failure
 # =============================================================================
 
-multistep_pattern("fallback_if_fails", "conditional_failure", "fallback", 83).
+multistep_pattern("fallback_if_fails", /conditional_failure, /fallback, 83).
 multistep_keyword("fallback_if_fails", "if it fails").
 multistep_keyword("fallback_if_fails", "if it doesn't work").
 multistep_keyword("fallback_if_fails", "otherwise").
@@ -280,7 +280,7 @@ multistep_example("fallback_if_fails", "try the migration, if it fails, rollback
 multistep_example("fallback_if_fails", "apply the patch, otherwise revert to the backup").
 multistep_example("fallback_if_fails", "run the deployment and on failure alert the team").
 
-multistep_pattern("fallback_try_revert", "undo_recovery", "fallback", 82).
+multistep_pattern("fallback_try_revert", /undo_recovery, /fallback, 82).
 multistep_keyword("fallback_try_revert", "revert if fails").
 multistep_keyword("fallback_try_revert", "rollback if").
 multistep_keyword("fallback_try_revert", "undo if fails").
@@ -294,14 +294,14 @@ multistep_example("fallback_try_revert", "deploy to production and rollback if s
 # "X and Y" where both can run concurrently
 # =============================================================================
 
-multistep_pattern("parallel_independent_and", "parallel_independent", "parallel", 75).
+multistep_pattern("parallel_independent_and", /parallel_independent, /parallel, 75).
 multistep_keyword("parallel_independent_and", "review X and review Y").
 multistep_keyword("parallel_independent_and", "scan X and scan Y").
 multistep_example("parallel_independent_and", "review auth.go and review handler.go").
 multistep_example("parallel_independent_and", "analyze the frontend and the backend").
 multistep_example("parallel_independent_and", "scan the API and scan the database layer").
 
-multistep_pattern("parallel_also_additionally", "parallel_independent", "parallel", 70).
+multistep_pattern("parallel_also_additionally", /parallel_independent, /parallel, 70).
 multistep_keyword("parallel_also_additionally", "also").
 multistep_keyword("parallel_also_additionally", "additionally").
 multistep_keyword("parallel_also_additionally", "at the same time").
@@ -316,7 +316,7 @@ multistep_example("parallel_also_additionally", "run lint and at the same time r
 # "X and Y it" - pronoun reference to target
 # =============================================================================
 
-multistep_pattern("compound_pronoun_ref", "compound_with_ref", "sequential", 88).
+multistep_pattern("compound_pronoun_ref", /compound_with_ref, /sequential, 88).
 multistep_keyword("compound_pronoun_ref", "and test it").
 multistep_keyword("compound_pronoun_ref", "and commit it").
 multistep_keyword("compound_pronoun_ref", "and deploy it").
@@ -332,7 +332,7 @@ multistep_example("compound_pronoun_ref", "write the tests and run them").
 # "do X to each/every/all Y"
 # =============================================================================
 
-multistep_pattern("iterative_each_every", "iterative_collection", "iterative", 80).
+multistep_pattern("iterative_each_every", /iterative_collection, /iterative, 80).
 multistep_keyword("iterative_each_every", "each").
 multistep_keyword("iterative_each_every", "every").
 multistep_keyword("iterative_each_every", "all the").
@@ -343,7 +343,7 @@ multistep_example("iterative_each_every", "fix every failing test").
 multistep_example("iterative_each_every", "refactor all the deprecated functions").
 multistep_example("iterative_each_every", "for each model, add validation").
 
-multistep_pattern("batch_all_files", "batch_operation", "iterative", 78).
+multistep_pattern("batch_all_files", /batch_operation, /iterative, 78).
 multistep_keyword("batch_all_files", "all files").
 multistep_keyword("batch_all_files", "entire codebase").
 multistep_keyword("batch_all_files", "whole project").
@@ -358,7 +358,7 @@ multistep_example("batch_all_files", "review all typescript files").
 # "X then pass results to Y"
 # =============================================================================
 
-multistep_pattern("pipeline_pass_output", "pipeline_chain", "sequential", 85).
+multistep_pattern("pipeline_pass_output", /pipeline_chain, /sequential, 85).
 multistep_keyword("pipeline_pass_output", "pass the results to").
 multistep_keyword("pipeline_pass_output", "feed output to").
 multistep_keyword("pipeline_pass_output", "use the results to").
@@ -367,7 +367,7 @@ multistep_example("pipeline_pass_output", "analyze the code and pass the results
 multistep_example("pipeline_pass_output", "review for security issues and use the findings to fix").
 multistep_example("pipeline_pass_output", "run static analysis and feed output to the report generator").
 
-multistep_pattern("pipeline_based_on", "pipeline_chain", "sequential", 86).
+multistep_pattern("pipeline_based_on", /pipeline_chain, /sequential, 86).
 multistep_keyword("pipeline_based_on", "based on the results").
 multistep_keyword("pipeline_based_on", "according to findings").
 multistep_keyword("pipeline_based_on", "based on issues").
@@ -379,7 +379,7 @@ multistep_example("pipeline_based_on", "analyze complexity and refactor accordin
 # "compare X and Y, pick best"
 # =============================================================================
 
-multistep_pattern("compare_and_choose", "compare_and_choose", "sequential", 75).
+multistep_pattern("compare_and_choose", /compare_and_choose, /sequential, 75).
 multistep_keyword("compare_and_choose", "compare and pick").
 multistep_keyword("compare_and_choose", "compare and choose").
 multistep_keyword("compare_and_choose", "evaluate and recommend").
@@ -391,7 +391,7 @@ multistep_example("compare_and_choose", "evaluate approach A vs B and recommend 
 # "do X but not Y" or "do X while keeping Y"
 # =============================================================================
 
-multistep_pattern("constraint_but_not", "refactor_preserve", "sequential", 82).
+multistep_pattern("constraint_but_not", /refactor_preserve, /sequential, 82).
 multistep_keyword("constraint_but_not", "but not").
 multistep_keyword("constraint_but_not", "but skip").
 multistep_keyword("constraint_but_not", "except").
@@ -408,7 +408,7 @@ multistep_example("constraint_but_not", "fix the auth but don't touch the sessio
 # "commit and push", "add, commit, and push"
 # =============================================================================
 
-multistep_pattern("git_commit_push", "sequential_implicit", "sequential", 85).
+multistep_pattern("git_commit_push", /sequential_implicit, /sequential, 85).
 multistep_keyword("git_commit_push", "commit and push").
 multistep_keyword("git_commit_push", "add and commit").
 multistep_keyword("git_commit_push", "stage and commit and push").
@@ -417,7 +417,7 @@ multistep_example("git_commit_push", "commit and push").
 multistep_example("git_commit_push", "add the changes, commit, and push").
 multistep_example("git_commit_push", "stage everything and commit and push to origin").
 
-multistep_pattern("git_branch_workflow", "sequential_implicit", "sequential", 80).
+multistep_pattern("git_branch_workflow", /sequential_implicit, /sequential, 80).
 multistep_keyword("git_branch_workflow", "create branch and").
 multistep_keyword("git_branch_workflow", "checkout and").
 multistep_keyword("git_branch_workflow", "switch to and").

@@ -125,7 +125,9 @@ activation(TraceID, -30) :-
 # Corrective Actions Based on Traces
 
 # Escalate if multiple shards struggling
-escalation_needed(/system_health, /shard_performance, "Multiple shards struggling") :-
+# Subject is the /string slot of escalation_needed/3 (it also carries ItemIDs,
+# PhaseIDs and "action:target" composites), so this literal is a string.
+escalation_needed(/system_health, "shard_performance", "Multiple shards struggling") :-
     shard_struggling(Shard1),
     shard_struggling(Shard2),
     Shard1 != Shard2.

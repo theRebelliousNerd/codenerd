@@ -100,7 +100,7 @@ has_next_campaign_task() :-
     phase_has_backoff_task(_).
 
 # Campaign blocked if all remaining tasks are blocked
-campaign_blocked(CampaignID, "all_tasks_blocked") :-
+campaign_blocked(CampaignID, /all_tasks_blocked) :-
     current_campaign(CampaignID),
     current_phase(PhaseID),
     !has_next_campaign_task(),

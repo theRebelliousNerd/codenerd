@@ -79,10 +79,15 @@ Decl learning_confirmation_needed(PHRASE, VERB, TARGET, REASON) bound [/string, 
 Decl learning_confirmation_active(Status) bound [/name].
 
 # clarification_question(IntentID, Question)
-Decl clarification_question(INTENTID, QUESTION) bound [/string, /string].
+# IntentID is a name constant: the interactive turn owns /current_intent and
+# delegated runs get /task_intent_N (session/executor.go asserts both as
+# types.MangleAtom). Question is free-form user-facing text.
+Decl clarification_question(INTENTID, QUESTION) bound [/name, /string].
 
 # clarification_option(IntentID, OptionVerb, OptionLabel)
-Decl clarification_option(INTENTID, OPTIONVERB, OPTIONLABEL) bound [/string, /string, /string].
+# OptionVerb is drawn from the verb vocabulary (/explain, /fix, /learn_yes...);
+# OptionLabel is the free-form text shown to the user.
+Decl clarification_option(INTENTID, OPTIONVERB, OPTIONLABEL) bound [/name, /name, /string].
 
 # learning_candidate_count(Phrase, Count)
 Decl learning_candidate_count(PHRASE, COUNT) bound [/string, /number].
@@ -137,7 +142,8 @@ Decl interrogative_type(Word, SemanticType, DefaultVerb, Priority) bound [/strin
 Decl modal_type(Word, ModalMeaning, Transformation, Priority) bound [/string, /name, /name, /number].
 Decl state_adjective(Adjective, ImpliedVerb, StateCategory, Priority) bound [/string, /name, /name, /number].
 Decl negation_marker(Word, NegationType, Priority) bound [/string, /name, /number].
-Decl copular_verb(Word, Tense, Number) bound [/string, /name, /number].
+# Number here is GRAMMATICAL number (/singular, /plural, /neutral), not a count.
+Decl copular_verb(Word, Tense, Number) bound [/string, /name, /name].
 Decl existence_pattern(Pattern, QueryType, DefaultVerb, Priority) bound [/string, /name, /name, /number].
 Decl comparative_marker(Word, ComparisonType, Priority) bound [/string, /name, /number].
 Decl interrogative_state_signal(InterrogType, StateCategory, CombinedVerb, Priority) bound [/name, /name, /name, /number].
@@ -168,7 +174,9 @@ Decl intent_action_type(ActionType) bound [/name].
 Decl valid_semantic_type(Type, Description) bound [/name, /string].
 Decl valid_action_type(Action, Description) bound [/name, /string].
 Decl valid_domain(Domain, Description) bound [/name, /string].
-Decl valid_scope_level(Level, Order) bound [/number, /number].
+# Level is the scope name (/line ... /codebase); Order is its ordinal rank.
+# Same shape as valid_urgency(Urgency, Order) below.
+Decl valid_scope_level(Level, Order) bound [/name, /number].
 Decl valid_mode(Mode, Description) bound [/name, /string].
 Decl valid_urgency(Urgency, Order) bound [/name, /number].
 

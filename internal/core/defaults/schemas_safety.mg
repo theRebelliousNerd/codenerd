@@ -117,8 +117,14 @@ Decl final_action(ActionType) bound [/name].
 # safety_check(ActionType) - Runtime validation predicate
 Decl safety_check(ActionType) bound [/name].
 
-# action_denied(ActionType, Reason) - Blocked learned actions
-Decl action_denied(ActionType, Reason) bound [/name, /name].
+# action_denied(ActionType, Reason) - Blocked learned actions.
+# Reason is a human-readable message, not a category: the only producer emits
+# "Not constitutionally permitted", and no rule ever matches on the value —
+# forbidden/1 and any_action_denied/1 both project it away. This mirrors the
+# sibling denial predicate permission_denied(Action, Reason) [/name, /string].
+# Contrast the campaign block reasons (campaign_blocked, phase_blocked,
+# replan_needed), which ARE closed-vocabulary categories and are /name.
+Decl action_denied(ActionType, Reason) bound [/name, /string].
 
 # learned_proposal(ActionType) - Audit trail for learned suggestions
 Decl learned_proposal(ActionType) bound [/name].

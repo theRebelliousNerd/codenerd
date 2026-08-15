@@ -16,11 +16,11 @@ safe_projection(ActionID) :-
     !has_projection_violation(ActionID).
 
 # Projection violation detection
-projection_violation(ActionID, "test_failure") :-
+projection_violation(ActionID, /test_failure) :-
     simulated_effect(ActionID, "diagnostic", _),
     simulated_effect(ActionID, "diagnostic_severity", /error).
 
-projection_violation(ActionID, "security_violation") :-
+projection_violation(ActionID, /security_violation) :-
     simulated_effect(ActionID, "security_violation", _).
 
 # Block action if projection fails

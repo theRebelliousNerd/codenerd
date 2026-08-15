@@ -316,11 +316,23 @@ Decl phase_failed_task_count(PhaseID, Count) bound [/string, /number].
 # shard_failure_count(ShardType, Count) - derived: shard failure count
 Decl shard_failure_count(ShardType, Count) bound [/name, /number].
 
+# Block/replan Reason slots are /name, uniformly across phase_blocked,
+# campaign_blocked and replan_needed. Every reason emitted anywhere in the
+# corpus is a closed-vocabulary token (/checkpoint_failed, /build_failed,
+# /no_eligible_phases, /task_failure_cascade), never free text; replan_trigger
+# below is already [/string, /name, /number] and unifies its Reason straight
+# into replan_needed; and the Go producers assert "/checkpoint_failed" /
+# "/new_requirement", which types.Fact.ToAtom coerces to name constants.
+# These three were previously split between /name and /string heads for the
+# SAME token, so campaign_core's /no_eligible_phases and campaign_phases'
+# "no_eligible_phases" were two different values in one relation.
+# Keep all three identical — a lone /string here is how that split regrows.
+
 # phase_blocked(PhaseID, Reason) - derived: phase cannot proceed
-Decl phase_blocked(PhaseID, Reason) bound [/string, /string].
+Decl phase_blocked(PhaseID, Reason) bound [/string, /name].
 
 # campaign_blocked(CampaignID, Reason) - derived: campaign cannot proceed
-Decl campaign_blocked(CampaignID, Reason) bound [/string, /string].
+Decl campaign_blocked(CampaignID, Reason) bound [/string, /name].
 
 # Bound-negation helper. A negated literal containing an anonymous wildcard
 # excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);

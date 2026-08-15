@@ -632,7 +632,12 @@ func (s *SessionPlannerShard) checkBlockedTasks() {
 				_ = s.Kernel.Assert(types.Fact{
 					Predicate: "escalation_needed",
 					Args: []any{
-						"session_planner",
+						// Target is the /name slot of escalation_needed/3
+						// (schemas_shards.mg). A bare "session_planner"
+						// lands as a string constant and never unifies with
+						// the /session_planner emitted by
+						// policy/system_session.mg.
+						types.MangleAtom("/session_planner"),
 						escalationSubject("task_blocked", item.ID),
 						item.Description,
 					},

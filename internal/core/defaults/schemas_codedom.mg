@@ -93,7 +93,13 @@ Decl code_contains(Parent, Child) bound [/string, /string].
 Decl safe_to_modify(Ref) bound [/string].
 
 # requires_campaign(Intent) - derived: complex refactor needs campaign
-Decl requires_campaign(Intent) bound [/string].
+# Intent is an intent ID, and every producer of one emits a name constant:
+# Executor.ProcessWithIntent asserts MangleAtom("/current_intent") for the
+# interactive turn and MangleAtom("/task_intent_N") for delegated tasks
+# (internal/session/executor.go), and the transducer asserts
+# MangleAtom("/current_intent") (internal/perception/transducer.go). The only
+# head here is requires_campaign(/current_intent), matching those.
+Decl requires_campaign(Intent) bound [/name].
 
 # code_edit_outcome(Ref, EditType, Success, Timestamp) - edit result tracking
 Decl code_edit_outcome(Ref, EditType, Success, Timestamp) bound [/string, /name, /name, /number].
@@ -174,7 +180,12 @@ Decl file_modified_externally(Path) bound [/string].
 Decl needs_scope_refresh() bound [].
 
 # element_edit_blocked(Ref, Reason) - derived: edit is blocked
-Decl element_edit_blocked(Ref, Reason) bound [/string, /string].
+# Reason is a closed vocabulary shared by two producers: policy/codedom_edit.mg
+# derives /concurrent_modification, /generated_code, /parse_error, and
+# VirtualStore.handleEditElement asserts /hash_verification_failed and
+# /concurrent_modification. Both sides must emit name constants or the two
+# producers of /concurrent_modification do not unify.
+Decl element_edit_blocked(Ref, Reason) bound [/string, /name].
 
 # -----------------------------------------------------------------------------
 # 34.8 Code Pattern Detection
@@ -202,7 +213,9 @@ Decl has_external_callers(Ref) bound [/string].
 
 # breaking_change_risk(Ref, RiskLevel, Reason) - edit may break callers
 # RiskLevel: /low, /medium, /high, /critical
-Decl breaking_change_risk(Ref, RiskLevel, Reason) bound [/string, /name, /string].
+# Reason: /public_api, /interface_contract, /public_function, /private,
+#         /generated_will_be_overwritten
+Decl breaking_change_risk(Ref, RiskLevel, Reason) bound [/string, /name, /name].
 
 # mock_file(TestFile, SourceFile) - test file mocks source file
 Decl mock_file(TestFile, SourceFile) bound [/string, /string].
@@ -224,7 +237,11 @@ Decl embed_directive(File, EmbedPath) bound [/string, /string].
 # -----------------------------------------------------------------------------
 
 # edit_unsafe(Ref, Reason) - derived: editing this element is risky
-Decl edit_unsafe(Ref, Reason) bound [/string, /string].
+# Reason is a closed vocabulary: /generated_code, /cgo_code,
+# /concurrent_modification, /stale_reference. Two producers write this
+# predicate — policy/codedom_edit.mg per code element, and world.FileScope
+# per generated file — so the reason must be a name constant on both sides.
+Decl edit_unsafe(Ref, Reason) bound [/string, /name].
 
 # suggest_update_mocks(Ref) - derived: mocks may need updating after edit
 Decl suggest_update_mocks(Ref) bound [/string].
@@ -239,4 +256,5 @@ Decl requires_integration_test(Ref) bound [/string].
 Decl requires_contract_check(Ref) bound [/string].
 
 # api_edit_warning(Ref, Reason) - derived: warning when editing API code
-Decl api_edit_warning(Ref, Reason) bound [/string, /string].
+# Reason: /no_integration_test
+Decl api_edit_warning(Ref, Reason) bound [/string, /name].

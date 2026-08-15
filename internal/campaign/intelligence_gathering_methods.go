@@ -56,7 +56,7 @@ func (g *IntelligenceGatherer) gatherWorldModel(ctx context.Context, report *Int
 				}
 				report.LanguageBreakdown[strings.TrimPrefix(lang, "/")]++
 			}
-		case "symbol_graph", "code_defines":
+		case "symbol_graph":
 			if len(fact.Args) >= 4 {
 				symbol := SymbolInfo{
 					File:     g.parseArg(fact.Args[0]),
@@ -68,6 +68,26 @@ func (g *IntelligenceGatherer) gatherWorldModel(ctx context.Context, report *Int
 					if line, ok := fact.Args[4].(int); ok {
 						symbol.Line = line
 					}
+				}
+				report.SymbolGraph = append(report.SymbolGraph, symbol)
+			}
+		case "code_defines":
+			// code_defines(File, Symbol, Type, StartLine, EndLine) has a
+			// different shape from symbol_graph and used to share its branch,
+			// which read every slot from the wrong position. In particular the
+			// line was taken from EndLine via fact.Args[4].(int); kernel numbers
+			// arrive as int64 (ast.Constant.NumValue), and the Cartographer
+			// emits int64 too, so that assertion never fired and Line stayed 0.
+			// parseIntArg accepts both widths. code_defines carries no
+			// visibility slot, so Exported is left unset rather than guessed.
+			if len(fact.Args) >= 3 {
+				symbol := SymbolInfo{
+					File: g.parseArg(fact.Args[0]),
+					Name: g.parseArg(fact.Args[1]),
+					Kind: strings.TrimPrefix(g.parseArg(fact.Args[2]), "/"),
+				}
+				if len(fact.Args) >= 4 {
+					symbol.Line = g.parseIntArg(fact.Args[3])
 				}
 				report.SymbolGraph = append(report.SymbolGraph, symbol)
 			}

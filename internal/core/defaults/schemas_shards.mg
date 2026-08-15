@@ -56,7 +56,9 @@ Decl conversational_verb(Verb) bound [/name].
 Decl workhorse_verb(Verb) bound [/name].
 
 # spawn_subagent(Persona) - derived: subagent should be spawned
-Decl spawn_subagent(Persona) bound [/string].
+# Persona is the closed persona vocabulary shared with persona/1
+# (/researcher, /tester, /nemesis) - see policy/intent_routing_rules.mg.
+Decl spawn_subagent(Persona) bound [/name].
 
 # shard_profile(AgentName, Type, KnowledgePath)
 Decl shard_profile(AgentName, Type, KnowledgePath) bound [/string, /name, /string].
@@ -73,19 +75,23 @@ Decl task_complexity(ComplexityLevel) bound [/name].
 Decl task_complexity(Task, ComplexityLevel) bound [/string, /name].
 
 # specialist_classification(Agent, AgentType, SpecialistType) - agent type classification
+# Agent: closed specialist vocabulary (/goexpert, /mangleexpert, /northstar, ...)
 # AgentType: /advisor, /executor
 # SpecialistType: /strategic, /technical
-Decl specialist_classification(Agent, AgentType, SpecialistType) bound [/string, /name, /name].
+Decl specialist_classification(Agent, AgentType, SpecialistType) bound [/name, /name, /name].
 
 # specialist_knowledge_db(Specialist, DBPath) - specialist's knowledge database
-Decl specialist_knowledge_db(Specialist, DBPath) bound [/string, /string].
+# Specialist is the same closed vocabulary as specialist_classification/3 arg 1;
+# DBPath is a filesystem path, so it stays a string.
+Decl specialist_knowledge_db(Specialist, DBPath) bound [/name, /string].
 
 # specialist_campaign_role(Specialist, Role) - specialist's role in campaigns
 # Role: /phase_executor, /plan_reviewer, /alignment_guardian
-Decl specialist_campaign_role(Specialist, Role) bound [/string, /name].
+Decl specialist_campaign_role(Specialist, Role) bound [/name, /name].
 
 # specialist_can_execute(Specialist) - derived: specialist can execute tasks
-Decl specialist_can_execute(Specialist) bound [/string].
+# Projection of specialist_classification/3 arg 1, so it carries name constants.
+Decl specialist_can_execute(Specialist) bound [/name].
 
 # consultation_request(FromSpec, ToSpec, Question, Timestamp) - specialist consultation request
 Decl consultation_request(FromSpec, ToSpec, Question, Timestamp) bound [/string, /string, /string, /number].
@@ -100,19 +106,25 @@ Decl specialist_should_advise(Specialist, Task) bound [/string, /string].
 Decl strategic_advisor_required(Task) bound [/string].
 
 # specialist_context_source(Specialist, DBPath) - derived: route to specialist knowledge DB
-Decl specialist_context_source(Specialist, DBPath) bound [/string, /string].
+# Straight projection of specialist_knowledge_db/2.
+Decl specialist_context_source(Specialist, DBPath) bound [/name, /string].
 
 # activate_specialist_for_phase(Specialist, Phase) - derived: activate specialist for campaign phase
-Decl activate_specialist_for_phase(Specialist, Phase) bound [/string, /name].
+# Specialist comes from specialist_campaign_role/2 (name constant); Phase is
+# campaign_phase/6 arg 1, which is a PhaseID string, not a name constant.
+Decl activate_specialist_for_phase(Specialist, Phase) bound [/name, /string].
 
 # specialist_assists(Advisor, Executor) - derived: advisor can assist executor
-Decl specialist_assists(Advisor, Executor) bound [/string, /string].
+# Both slots are specialist_classification/3 arg 1.
+Decl specialist_assists(Advisor, Executor) bound [/name, /name].
 
 # specialist_consultation_route(FromSpec, ToSpec, Question) - derived: consultation routing
 Decl specialist_consultation_route(FromSpec, ToSpec, Question) bound [/string, /string, /string].
 
 # specialist_allowed_tools(Specialist, Tool) - derived: tools specialist can use
-Decl specialist_allowed_tools(Specialist, Tool) bound [/string, /name].
+# Specialist is specialist_classification/3 arg 1; Tool is the /write_file,
+# /edit_file, /run_command ... tool vocabulary.
+Decl specialist_allowed_tools(Specialist, Tool) bound [/name, /name].
 
 # persona_tool_allowed(Persona, Tool) - derived: tools allowed for a persona
 Decl persona_tool_allowed(Persona, Tool) bound [/name, /name].
@@ -243,7 +255,16 @@ Decl file_line_count(FilePath, LineCount) bound [/string, /number].
 Decl finding_count(Severity, Count) bound [/name, /number].
 
 # style_rule(RuleID, RuleName, Threshold) - style rule definitions
+# Threshold is the numeric budget the rule allows (max line length, max
+# nesting depth, 0 for "none permitted"). Regex-shaped rules carry their
+# pattern in style_rule_pattern/2, NOT in this slot.
 Decl style_rule(RuleID, RuleName, Threshold) bound [/string, /string, /number].
+
+# style_rule_pattern(RuleID, Pattern) - regex a style rule matches on
+# Split out of style_rule/3 because a pattern is not a threshold: STY003 had
+# "TODO|FIXME" sitting in the /number Threshold slot, which is the exact
+# shape that aborts whole-program evaluation the moment anything compares it.
+Decl style_rule_pattern(RuleID, Pattern) bound [/string, /string].
 
 # permission_denied(Action, Reason) - derived: why permission was denied (Bug 12)
 Decl permission_denied(Action, Reason) bound [/name, /string].
@@ -306,8 +327,13 @@ Decl campaign_complete(CampaignID) bound [/string].
 Decl failed_campaign_task(CampaignID, TaskID) bound [/string, /string].
 
 # priority_higher(PriorityA, PriorityB) - priority ordering helper
-# Returns true if PriorityA is higher than PriorityB
-Decl priority_higher(PriorityA, PriorityB) bound [/number, /number].
+# Returns true if PriorityA is higher than PriorityB.
+# The six ground facts in policy/campaign_tasks.mg are name constants
+# (/critical, /high, /normal, /low) and they join task_priority/2, whose Go
+# producer emits campaign.TaskPriority values that already carry the leading
+# slash ("/critical") and therefore land as name constants. This is an
+# ordering table over an enum, not arithmetic - nothing sums or compares it.
+Decl priority_higher(PriorityA, PriorityB) bound [/name, /name].
 
 # has_blocking_task_dep(TaskID) - helper: task has incomplete blocking dependencies
 Decl has_blocking_task_dep(TaskID) bound [/string].
@@ -370,7 +396,10 @@ Decl processed_intent(IntentID) bound [/string].
 Decl executive_processed_intent(IntentID) bound [/string].
 
 # pending_intent(IntentID) - derived: intent waiting to be processed
-Decl pending_intent(IntentID) bound [/string].
+# IntentID is the singleton name constant /current_intent: the only rule head
+# is pending_intent(/current_intent) and the Go producers of user_intent/5
+# emit "/current_intent", which Fact.ToAtom turns into a name constant.
+Decl pending_intent(IntentID) bound [/name].
 
 # -----------------------------------------------------------------------------
 # 33.3 Action Flow (Executive → Constitution → Router)
@@ -409,10 +438,14 @@ Decl exec_request(ToolName, Target, Timeout, CallID, Timestamp) bound [/string, 
 Decl security_violation(ActionType, Reason, Timestamp) bound [/name, /string, /number].
 
 # escalation_needed(Target, Subject, Reason) - needs human intervention
-# Target: system component (e.g., /system_health, /session_planner, /ooda_loop)
-# Subject: entity being escalated (e.g., ShardName, ItemID)
-# Reason: why escalation is needed
-Decl escalation_needed(Target, Subject, Reason) bound [/string, /string, /string].
+# Target: system component, a closed vocabulary of name constants
+#         (/system_health, /session_planner, /ooda_loop, /campaign,
+#          /constitution_gate). Go producers must use types.MangleAtom.
+# Subject: entity being escalated - an open identifier (ItemID, PhaseID) or a
+#          composite like "write_file:/some/path.go" from escalationSubject().
+#          Open text, so /string.
+# Reason: why escalation is needed - free text
+Decl escalation_needed(Target, Subject, Reason) bound [/name, /string, /string].
 
 # rule_proposal_pending(ShardName, MangleCode, Rationale, Confidence, Timestamp)
 Decl rule_proposal_pending(ShardName, MangleCode, Rationale, Confidence, Timestamp) bound [/string, /string, /string, /number, /number].
@@ -559,7 +592,8 @@ Decl execution_diagnostic(RequestID, Severity, FilePath, Line, Column, Message) 
 # Intent processing derived predicates
 Decl intent_processed(IntentID) bound [/string].
 Decl focus_needs_resolution(Ref) bound [/string].
-Decl intent_ready_for_executive(IntentID) bound [/string].
+# IntentID matches pending_intent/1: the singleton name constant /current_intent.
+Decl intent_ready_for_executive(IntentID) bound [/name].
 
 # Action flow derived predicates
 Decl action_pending_permission(ActionID) bound [/string].
@@ -616,14 +650,23 @@ Decl agenda_item_escalate(ItemID, Reason) bound [/string, /string].
 Decl item_retry_count(ItemID, Count) bound [/string, /number].
 
 # Shard activation derived predicates
-Decl activate_shard(ShardName) bound [/string].
+# ShardName is the closed system-shard vocabulary (/perception_firewall,
+# /executive_policy, /constitution_gate, /world_model_ingestor,
+# /tactile_router, /session_planner). The Go consumer of activate_shard
+# (ShardManager.StartSystemShards) normalizes with TrimLeft("/"), so it reads
+# name constants correctly.
+Decl activate_shard(ShardName) bound [/name].
 Decl system_startup(State) bound [/name].
-Decl shard_startup(ShardName, Mode) bound [/string, /name].
+Decl shard_startup(ShardName, Mode) bound [/name, /name].
 
 # Autopoiesis derived predicates
 Decl unhandled_case_count(ShardName, Count) bound [/string, /number].
 Decl unhandled_cases(ShardName, Cases) bound [/string, /string].
-Decl propose_new_rule(ShardName) bound [/string].
+# ShardName here is a policy-module / shard identity name constant. The only
+# live producer is propose_new_rule(/verification_policy) in policy/verification.mg;
+# the system_autopoiesis.mg rule that would bind it from a variable is inert
+# because nothing (Go or .mg) ever asserts system_shard/2.
+Decl propose_new_rule(ShardName) bound [/name].
 Decl proposed_rule(RuleID, ShardName, MangleCode, Confidence) bound [/string, /string, /string, /number].
 Decl rule_needs_approval(RuleID) bound [/string].
 Decl auto_apply_rule(RuleID) bound [/string].

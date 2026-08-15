@@ -207,7 +207,7 @@ Decl should_auto_continue() bound [].
 
 # continuation_blocked(Reason) - Derived: continuation is blocked
 # Reason: /needs_clarification, /user_interrupted, /max_steps_reached
-Decl continuation_blocked(Reason) bound [/string].
+Decl continuation_blocked(Reason) bound [/name].
 
 # has_continuation_block/0 - Helper: true if any continuation block exists
 Decl has_continuation_block() bound [].
