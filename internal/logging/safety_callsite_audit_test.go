@@ -1,6 +1,9 @@
 package logging
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -94,6 +97,51 @@ var safetyGateInventory = map[string]struct {
 	},
 }
 
+// fileCallsSafetyCheck reports whether src contains a real call to
+// logging.Audit().SafetyCheck(...) — parsed, not grepped.
+//
+// It requires the full shape: a call whose function is a selector named
+// SafetyCheck, whose receiver is itself a call to Audit(). That rejects a
+// mention in a comment or a string, an unrelated method that happens to be
+// named SafetyCheck, and a bare identifier reference that never invokes
+// anything. A file that cannot be parsed is treated as NOT auditing, so a
+// syntax error fails the gate rather than silently exempting it.
+func fileCallsSafetyCheck(src string) bool {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "", src, 0)
+	if err != nil {
+		return false
+	}
+	found := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "SafetyCheck" {
+			return true
+		}
+		// The receiver must itself be a call — Audit().SafetyCheck(...), not a
+		// field or a package-level identifier that merely reads that way.
+		recv, ok := sel.X.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		switch fn := recv.Fun.(type) {
+		case *ast.Ident:
+			found = fn.Name == "Audit"
+		case *ast.SelectorExpr:
+			found = fn.Sel.Name == "Audit"
+		}
+		return true
+	})
+	return found
+}
+
 func TestSafetyCheckCallSites_WhenKernelGateExists_ShouldAuditTheVerdict(t *testing.T) {
 	root := repoRoot(t)
 
@@ -135,7 +183,13 @@ func TestSafetyCheckCallSites_WhenKernelGateExists_ShouldAuditTheVerdict(t *test
 				break
 			}
 		}
-		if strings.Contains(content, "SafetyCheck(") {
+		// A real call expression, not the text "SafetyCheck(" anywhere in the
+		// file. The substring form was fully bypassable: an adversarial pass
+		// deleted all three genuine logging.Audit().SafetyCheck calls from the
+		// gate's auditing file, left a COMMENT containing "SafetyCheck(" behind,
+		// and the test stayed green with grep counting zero real calls. A guard
+		// over a safety property that a comment can satisfy is not a guard.
+		if fileCallsSafetyCheck(content) {
 			safetyCheckFiles[rel] = true
 		}
 		return nil

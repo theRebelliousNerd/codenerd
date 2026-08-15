@@ -1,8 +1,10 @@
 package campaign
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -116,77 +118,138 @@ func TestOrchestratorEventTypes_AreClosedSet(t *testing.T) {
 			t.Fatalf("parse %s: %v", name, perr)
 		}
 
-		// Parameters of type OrchestratorEventType in the enclosing function.
-		// A function that forwards its own typed parameter to emitEvent — which
-		// emitRiskAudit does — is already covered by the compiler, and flagging
-		// it would only teach people to add exceptions.
-		forwarded := map[string]bool{}
-		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Type.Params == nil {
-				continue
-			}
-			for _, field := range fn.Type.Params.List {
-				id, ok := field.Type.(*ast.Ident)
-				if !ok || id.Name != "OrchestratorEventType" {
-					continue
-				}
-				for _, pn := range field.Names {
-					forwarded[pn.Name] = true
-				}
-			}
-		}
-
-		ast.Inspect(file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok || len(call.Args) == 0 {
-				return true
+		// Walk function by function, so an exemption belongs to the function
+		// that declares it.
+		//
+		// The forwarding exemption used to be built per FILE, keyed by
+		// parameter name, from every FuncDecl in it. Since emitRiskAudit and
+		// emitEvent both name their parameter eventType, the identifier
+		// "eventType" was exempt file-wide — so any local variable called
+		// eventType, holding anything at all, sailed through. An adversarial
+		// pass smuggled a computed fmt.Sprintf value past the scan that way,
+		// and the control (the same code with the local renamed) was correctly
+		// reported, which is what made it unmistakable.
+		inspectCall := func(call *ast.CallExpr, forwarded map[string]bool) {
+			if len(call.Args) == 0 {
+				return
 			}
 			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			if sel.Sel.Name != "emitEvent" && sel.Sel.Name != "emitRiskAudit" {
-				return true
+			if !ok || (sel.Sel.Name != "emitEvent" && sel.Sel.Name != "emitRiskAudit") {
+				return
 			}
 			emitSites++
+
+			describe := func(expr ast.Expr) string {
+				var b strings.Builder
+				if err := printer.Fprint(&b, token.NewFileSet(), expr); err != nil {
+					return fmt.Sprintf("%T", expr)
+				}
+				return b.String()
+			}
 
 			switch arg := call.Args[0].(type) {
 			case *ast.BasicLit:
 				if arg.Kind != token.STRING {
-					return true
+					offenders = append(offenders, name+": non-string literal "+arg.Value)
+					return
 				}
 				value, uerr := strconv.Unquote(arg.Value)
 				if uerr != nil {
-					return true
+					offenders = append(offenders, name+": unparseable literal "+arg.Value)
+					return
 				}
 				if !known[value] {
 					offenders = append(offenders, name+": literal "+strconv.Quote(value))
 				}
 			case *ast.Ident:
 				if forwarded[arg.Name] {
-					// A typed parameter passed straight through; the type
-					// system already vouches for it.
-					return true
+					// This function's own typed parameter, passed straight
+					// through; the type system already vouches for it.
+					return
 				}
 				value, resolved := constStrings[arg.Name]
 				if !resolved {
-					// A local variable, a parameter, or something computed. The
-					// scan cannot tell what it carries, and neither can a
-					// reviewer reading the call site, so it does not get the
-					// benefit of the doubt.
 					offenders = append(offenders,
 						name+": "+arg.Name+" (an event type this scan cannot resolve to a "+
 							"declared constant; pass one of the Event* constants directly)")
-					return true
+					return
 				}
 				if !known[value] {
-					offenders = append(offenders,
-						name+": "+arg.Name+" = "+strconv.Quote(value))
+					offenders = append(offenders, name+": "+arg.Name+" = "+strconv.Quote(value))
+				}
+			default:
+				// DEFAULT DENY. Everything that is not a literal or a resolvable
+				// identifier is an offender, including the three forms that used
+				// to fall through this switch untouched and pass:
+				//
+				//	OrchestratorEventType("zz")   a conversion  (*ast.CallExpr)
+				//	zzPhantomVars[0]              an index      (*ast.IndexExpr)
+				//	zzHolder.T                    a selector    (*ast.SelectorExpr)
+				//
+				// The last is also the shape a constant imported from another
+				// package takes, so "the compiler will have caught it" was never
+				// true for any of them. If the scan cannot see what an event
+				// type is, neither can a reviewer reading the call site.
+				offenders = append(offenders,
+					name+": "+describe(arg)+" (an event type this scan cannot evaluate; "+
+						"pass one of the Event* constants directly)")
+			}
+		}
+
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			forwarded := map[string]bool{}
+			if fn.Type.Params != nil {
+				for _, field := range fn.Type.Params.List {
+					id, ok := field.Type.(*ast.Ident)
+					if !ok || id.Name != "OrchestratorEventType" {
+						continue
+					}
+					for _, pn := range field.Names {
+						forwarded[pn.Name] = true
+					}
 				}
 			}
-			return true
-		})
+			// Two passes over the function: calls, then method VALUES.
+			//
+			// Taking the method as a value —
+			//
+			//	zzEmit := o.emitEvent
+			//	zzEmit("zz_phantom_event", ...)
+			//
+			// makes the call's Fun an *ast.Ident, so the call pass never sees
+			// it. Worse, the site is not counted either, which quietly erodes
+			// the emitSites canary that exists to notice exactly this drift.
+			// The untyped string converts implicitly at the call, so the
+			// compiler does not help. Rather than chase the alias, refuse the
+			// aliasing: there is no reason to take these methods as values, and
+			// a rule that says so is far more robust than one that tries to
+			// follow them.
+			calledFuns := map[ast.Node]bool{}
+			ast.Inspect(fn, func(n ast.Node) bool {
+				if call, ok := n.(*ast.CallExpr); ok {
+					calledFuns[call.Fun] = true
+					inspectCall(call, forwarded)
+				}
+				return true
+			})
+			ast.Inspect(fn, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok || calledFuns[ast.Node(sel)] {
+					return true
+				}
+				if sel.Sel.Name != "emitEvent" && sel.Sel.Name != "emitRiskAudit" {
+					return true
+				}
+				offenders = append(offenders,
+					name+": "+sel.Sel.Name+" taken as a method value in "+fn.Name.Name+
+						" (this hides the emit site from the scan; call it directly)")
+				return true
+			})
+		}
 	}
 
 	if emitSites < 20 {

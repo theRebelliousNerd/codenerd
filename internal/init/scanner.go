@@ -978,10 +978,22 @@ func (i *Initializer) createDefaultConfig(path string) error {
 			Format: "text",
 			File:   "codenerd.log",
 		},
-		ToolGeneration: &config.ToolGenerationConfig{
-			TargetOS:   "windows",
-			TargetArch: "amd64",
-		},
+		// The host, not windows/amd64 — and written by the same helper the
+		// defaults use, so there is one definition rather than two.
+		//
+		// Ouroboros compiles a generated tool and then EXECUTES the binary
+		// itself, so a target the host cannot run means every generated tool
+		// compiles cleanly and dies with "exec format error" on first call.
+		// autopoiesis.DefaultConfig was fixed to default to the host and to
+		// honour an explicit user setting — and THIS is where the explicit
+		// setting came from. `nerd init` wrote windows/amd64 into every fresh
+		// workspace's config.json, so the raw-section read that exists
+		// precisely to tell "the user chose windows" from "we wrote windows
+		// into their file" was reading a file the product itself wrote.
+		ToolGeneration: func() *config.ToolGenerationConfig {
+			tg := config.DefaultToolGenerationConfig()
+			return &tg
+		}(),
 	}
 
 	// Dynamically build the ShardProfiles mapping
