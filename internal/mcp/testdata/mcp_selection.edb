@@ -64,3 +64,72 @@ mcp_tool_usage("fs/proven", 10, 9).
 current_intent("intent1").
 user_intent("intent1", /mutation, /write, "main.go", "none").
 file_topology("main.go", "abc123", /go, 1700000000, /false).
+
+# --- Threshold boundary probes -----------------------------------------------
+# The render-mode cutoffs (>=70 /full, >=40 /condensed, >=20 /minimal) and the
+# base-relevance floor (>=30) were all invisible to this fixture: its scores
+# were 104/70/50/35, so nothing sat within 5 points of a cutoff and moving one
+# by ±5 changed no output. These tools land exactly ON each boundary and exactly
+# one point below it, so any drift in a threshold shows up as a golden diff.
+#
+# They are built to score their raw affinity and nothing else: category /shell +
+# capability /transform is not a skeleton and is not required by the fixture's
+# /write intent (no intent boost), and domain /rust matches neither /general nor
+# the target's /go (no domain boost).
+
+# 70 is the /full cutoff; 69 must fall to /condensed.
+mcp_tool_registered("fs/edge70", "fs", 1700000006).
+mcp_tool_category("fs/edge70", /shell).
+mcp_tool_capability("fs/edge70", /transform).
+mcp_tool_domain("fs/edge70", /rust).
+mcp_tool_shard_affinity("fs/edge70", /coder, 70).
+
+mcp_tool_registered("fs/edge69", "fs", 1700000007).
+mcp_tool_category("fs/edge69", /shell).
+mcp_tool_capability("fs/edge69", /transform).
+mcp_tool_domain("fs/edge69", /rust).
+mcp_tool_shard_affinity("fs/edge69", /coder, 69).
+
+# 40 is the /condensed cutoff; 39 must fall to /minimal.
+mcp_tool_registered("fs/edge40", "fs", 1700000008).
+mcp_tool_category("fs/edge40", /shell).
+mcp_tool_capability("fs/edge40", /transform).
+mcp_tool_domain("fs/edge40", /rust).
+mcp_tool_shard_affinity("fs/edge40", /coder, 40).
+
+mcp_tool_registered("fs/edge39", "fs", 1700000009).
+mcp_tool_category("fs/edge39", /shell).
+mcp_tool_capability("fs/edge39", /transform).
+mcp_tool_domain("fs/edge39", /rust).
+mcp_tool_shard_affinity("fs/edge39", /coder, 39).
+
+# 30 is the base-relevance floor; 29 must not be scored at all.
+mcp_tool_registered("fs/edge30", "fs", 1700000010).
+mcp_tool_category("fs/edge30", /shell).
+mcp_tool_capability("fs/edge30", /transform).
+mcp_tool_domain("fs/edge30", /rust).
+mcp_tool_shard_affinity("fs/edge30", /coder, 30).
+
+mcp_tool_registered("fs/edge29", "fs", 1700000011).
+mcp_tool_category("fs/edge29", /shell).
+mcp_tool_capability("fs/edge29", /transform).
+mcp_tool_domain("fs/edge29", /rust).
+mcp_tool_shard_affinity("fs/edge29", /coder, 29).
+
+# The /minimal LOWER bound (>=20) is unreachable from affinity alone, because
+# the base-relevance floor is 30. It is only reachable after a penalty, so it
+# needs a demoted tool to pin it: 40 affinity - 20 unreliability = exactly 20,
+# and 39 - 20 = 19 must drop out entirely.
+mcp_tool_registered("fs/edge20", "fs", 1700000012).
+mcp_tool_category("fs/edge20", /shell).
+mcp_tool_capability("fs/edge20", /transform).
+mcp_tool_domain("fs/edge20", /rust).
+mcp_tool_shard_affinity("fs/edge20", /coder, 40).
+mcp_tool_usage("fs/edge20", 10, 2).
+
+mcp_tool_registered("fs/edge19", "fs", 1700000013).
+mcp_tool_category("fs/edge19", /shell).
+mcp_tool_capability("fs/edge19", /transform).
+mcp_tool_domain("fs/edge19", /rust).
+mcp_tool_shard_affinity("fs/edge19", /coder, 39).
+mcp_tool_usage("fs/edge19", 10, 2).

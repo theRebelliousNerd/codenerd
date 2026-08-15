@@ -180,8 +180,11 @@ func TestMCPPolicy_WhenServerErrored_ShouldNotDeriveAvailability(t *testing.T) {
 			t.Fatalf("tool on an /error server must not be available: %v", f)
 		}
 	}
-	if len(facts) != 5 {
-		t.Errorf("expected 5 available tools (fs/* + web/fetch), got %d: %v", len(facts), facts)
+	// 5 scored/skeleton tools plus the 8 threshold boundary probes; only
+	// dead/thing is excluded, and only because its server is /error.
+	if want := 13; len(facts) != want {
+		t.Errorf("expected %d available tools (fs/* + web/fetch + boundary probes), got %d: %v",
+			want, len(facts), facts)
 	}
 }
 

@@ -46,33 +46,51 @@ const (
 )
 
 // safetyGateInventory is the audit result, keyed by slash-separated repo path.
+//
+// auditedIn names the file that must contain the SafetyCheck call for a gate.
+// It is usually the gate's own file, but not always: a gate function can
+// legitimately return a bool and let its sole caller record the verdict, which
+// is what CheckKernelPermitted does. Naming the file is what keeps this honest.
+// The check used to ask only whether SOME file in the gate's *directory* called
+// SafetyCheck, which credited internal/core/virtual_store.go for four unrelated
+// guards in sibling files while CheckKernelPermitted's own verdict path could
+// have gone unrecorded without the test noticing.
 var safetyGateInventory = map[string]struct {
-	class  gateClass
-	reason string
+	class     gateClass
+	reason    string
+	auditedIn string
 }{
 	"internal/session/executor_tools.go": {
 		classGate,
 		"tool executor safety gate: queries permitted/3 and refuses the call on no match",
+		"internal/session/executor_tools.go",
 	},
 	"internal/core/virtual_store.go": {
 		classGate,
-		"CheckKernelPermitted: default-deny authorization for every VirtualStore action",
+		"CheckKernelPermitted: default-deny authorization for every VirtualStore action. " +
+			"The function itself only returns the verdict; both branches are recorded by its " +
+			"sole caller, routeAction",
+		"internal/core/virtual_store_routing.go",
 	},
 	"internal/shards/system/constitution.go": {
 		classKnownGap,
 		"ConstitutionGateShard.CheckAction decides allow/deny but records no audit event; owned by internal/shards",
+		"",
 	},
 	"internal/shards/system/router.go": {
 		classNotGate,
 		"queries permitted_action, the post-verdict routing queue, not the verdict itself",
+		"",
 	},
 	"internal/core/rule_court.go": {
 		classNotGate,
 		"compares permitted derivations between a sandbox and the live kernel to score a candidate rule",
+		"",
 	},
 	"cmd/nerd/chat/model_session_context.go": {
 		classNotGate,
 		"read-only: lists permitted actions for the session context display",
+		"",
 	},
 }
 
@@ -80,7 +98,7 @@ func TestSafetyCheckCallSites_WhenKernelGateExists_ShouldAuditTheVerdict(t *test
 	root := repoRoot(t)
 
 	gateFiles := map[string]bool{}
-	safetyCheckPackages := map[string]bool{}
+	safetyCheckFiles := map[string]bool{}
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -118,7 +136,7 @@ func TestSafetyCheckCallSites_WhenKernelGateExists_ShouldAuditTheVerdict(t *test
 			}
 		}
 		if strings.Contains(content, "SafetyCheck(") {
-			safetyCheckPackages[filepath.ToSlash(filepath.Dir(rel))] = true
+			safetyCheckFiles[rel] = true
 		}
 		return nil
 	})
@@ -130,19 +148,37 @@ func TestSafetyCheckCallSites_WhenKernelGateExists_ShouldAuditTheVerdict(t *test
 		t.Fatal("found no permitted-query sites at all — the scanner has drifted from the code")
 	}
 
-	var unclassified, unaudited []string
+	var unclassified, unaudited, misdeclared []string
 	for rel := range gateFiles {
 		entry, known := safetyGateInventory[rel]
 		if !known {
 			unclassified = append(unclassified, rel)
 			continue
 		}
-		if entry.class == classGate && !safetyCheckPackages[filepath.ToSlash(filepath.Dir(rel))] {
-			unaudited = append(unaudited, rel+" ("+entry.reason+")")
+		if entry.class != classGate {
+			continue
+		}
+		// An inventory entry that names no auditing file cannot be checked, so
+		// the omission has to fail rather than pass quietly — otherwise the
+		// cheapest way to silence this test is to blank the field.
+		if entry.auditedIn == "" {
+			misdeclared = append(misdeclared, rel+" (classGate with no auditedIn)")
+			continue
+		}
+		if !safetyCheckFiles[entry.auditedIn] {
+			unaudited = append(unaudited,
+				rel+" — expected the verdict in "+entry.auditedIn+" ("+entry.reason+")")
 		}
 	}
 	sort.Strings(unclassified)
 	sort.Strings(unaudited)
+	sort.Strings(misdeclared)
+
+	if len(misdeclared) > 0 {
+		t.Errorf("gate(s) in safetyGateInventory declare no auditedIn file: %v\n"+
+			"Name the file that records this gate's verdict. It is the gate's own file unless "+
+			"the gate returns a bool and a caller records it.", misdeclared)
+	}
 
 	if len(unclassified) > 0 {
 		t.Errorf("new kernel-permission query site(s) with no classification: %v\n"+
