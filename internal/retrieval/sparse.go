@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -32,6 +33,11 @@ type SparseRetriever struct {
 	workDir string
 	cache   *KeywordHitCache
 	mu      sync.RWMutex
+
+	// activeSearches counts keyword searches currently in flight so each one
+	// can take a fair share of the shared file-worker budget instead of every
+	// search starting a full pool of its own.
+	activeSearches atomic.Int32
 
 	// Configuration
 	maxResults      int           // Max files to return
@@ -335,10 +341,65 @@ func (r *SparseRetriever) SearchKeywords(ctx context.Context, keywords *IssueKey
 	return allHits, nil
 }
 
+// Scan resource bounds.
+//
+// The scanner reads every non-excluded file in the workspace into memory, so
+// each of these is load-bearing on a real repository rather than a tidiness
+// preference.
+const (
+	// maxScanFileSize is the per-file read cutoff. Source files are far below
+	// it; anything larger is a build artifact, dataset, or media blob whose
+	// keyword matches would be noise anyway.
+	maxScanFileSize = 4 << 20 // 4 MiB
+
+	// maxHitsPerFile caps matches recorded for a single file. Minified and
+	// generated files can hold hundreds of thousands of matches, and ranking
+	// only needs to know the file matched heavily.
+	maxHitsPerFile = 500
+
+	// maxHitsPerKeyword caps total matches for one keyword across the repo.
+	// Ranking keeps only maxResults files, so scanning past this is waste.
+	maxHitsPerKeyword = 20_000
+
+	// binarySniffBytes is how much of a file is inspected for a NUL byte.
+	binarySniffBytes = 8 << 10
+)
+
+// workerBudget returns how many file-reading workers a single keyword search
+// may start, dividing the retriever's total parallelism across the keyword
+// searches currently in flight. It never returns less than one.
+func (r *SparseRetriever) workerBudget() int {
+	total := r.parallelism
+	if total < 1 {
+		total = 1
+	}
+	inFlight := int(r.activeSearches.Load())
+	if inFlight < 1 {
+		inFlight = 1
+	}
+	if w := total / inFlight; w >= 1 {
+		return w
+	}
+	return 1
+}
+
+// isBinaryContent reports whether data looks like a binary payload, using the
+// conventional NUL-byte-in-the-first-block heuristic.
+func isBinaryContent(data []byte) bool {
+	head := data
+	if len(head) > binarySniffBytes {
+		head = head[:binarySniffBytes]
+	}
+	return bytes.IndexByte(head, 0x00) >= 0
+}
+
 // searchSingleKeyword uses native Go scanning to search for a single keyword.
 func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword string) ([]KeywordHit, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.searchTimeout)
 	defer cancel()
+
+	r.activeSearches.Add(1)
+	defer r.activeSearches.Add(-1)
 
 	var hits []KeywordHit
 	hitCounts := make(map[string]int)
@@ -349,9 +410,17 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 	// Channel for files to process
 	files := make(chan string, 1000)
 
-	// Worker pool
+	// Worker pool.
+	//
+	// SearchKeywords already runs up to r.parallelism keyword searches at
+	// once, and each search used to start r.parallelism file workers of its
+	// own — so the process ran parallelism² readers, every one of them doing
+	// blocking file I/O over the same tree. The shared budget below caps the
+	// total across all concurrent searches; each search takes an equal slice
+	// of it and always gets at least one worker.
+	workers := r.workerBudget()
 	var wg sync.WaitGroup
-	for i := 0; i < r.parallelism; i++ {
+	for i := 0; i < workers; i++ {
 		wg.Go(func() {
 			for path := range files {
 				select {
@@ -360,8 +429,34 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 				default:
 				}
 
+				// Stop reading once the hit cap is reached: the ranking below
+				// only keeps maxResults files, so scanning the rest of a large
+				// repo for a common keyword is wasted work.
+				mu.Lock()
+				reachedCap := len(hits) >= maxHitsPerKeyword
+				mu.Unlock()
+				if reachedCap {
+					return
+				}
+
+				// Size gate before the read. os.ReadFile on an unbounded path
+				// pulled entire multi-gigabyte artifacts into memory, and the
+				// bytes.ToLower copy plus the per-line index below multiplied
+				// that several times over. Source files are small; anything
+				// past the cutoff is a build artifact, dataset or media blob.
+				if info, err := os.Stat(path); err != nil || info.Size() > maxScanFileSize {
+					continue
+				}
+
 				data, err := os.ReadFile(path)
 				if err != nil {
+					continue
+				}
+
+				// Skip binaries. A NUL byte in the first few KiB is the
+				// conventional signal, and matching a keyword inside a
+				// compiled object is noise regardless.
+				if isBinaryContent(data) {
 					continue
 				}
 
@@ -384,6 +479,13 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 
 				var localHits []KeywordHit
 				for _, offset := range offsets {
+					// One minified or generated file can hold hundreds of
+					// thousands of matches; ranking only cares that the file
+					// matched a lot, not about every individual position.
+					if len(localHits) >= maxHitsPerFile {
+						break
+					}
+
 					// Word boundary check
 					if !isWordBoundary(lowerData, offset, len(kwBytes)) {
 						continue
@@ -411,6 +513,9 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 				if len(localHits) > 0 {
 					mu.Lock()
 					for _, h := range localHits {
+						if len(hits) >= maxHitsPerKeyword {
+							break
+						}
 						hitCounts[h.FilePath]++
 						h.Count = hitCounts[h.FilePath]
 						hits = append(hits, h)

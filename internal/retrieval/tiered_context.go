@@ -254,13 +254,11 @@ func (b *TieredContextBuilder) findFile(ctx context.Context, partial string) str
 
 // searchKeywordFiles uses the SparseRetriever to find keyword matches.
 func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords *IssueKeywords, addedFiles map[string]bool) ([]ContextFile, error) {
-	// Get candidate files from retriever
-	candidates, err := b.retriever.FindRelevantFiles(ctx, "", b.maxTier2*2) // Request more, filter later
-	if err != nil {
-		return nil, err
-	}
-
-	// Use the pre-extracted keywords for a direct search
+	// The previous revision also called FindRelevantFiles(ctx, "", …) here.
+	// With an empty issue text ExtractKeywords yields nothing, so that call
+	// ran a whole second keyword sweep of the repository that could only
+	// return an empty ranking — pure cost, no candidates. The direct search
+	// below already uses the keywords the caller extracted.
 	hits, err := b.retriever.SearchKeywords(ctx, keywords)
 	if err != nil {
 		return nil, err
@@ -271,26 +269,6 @@ func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords 
 
 	var files []ContextFile
 	for _, candidate := range ranked {
-		if len(files) >= b.maxTier2 {
-			break
-		}
-
-		if addedFiles[candidate.FilePath] {
-			continue
-		}
-		addedFiles[candidate.FilePath] = true
-
-		files = append(files, ContextFile{
-			FilePath:        candidate.FilePath,
-			Tier:            2,
-			RelevanceScore:  candidate.RelevanceScore,
-			SelectionReason: fmt.Sprintf("Matches %d keywords: %s", candidate.UniqueKeywords, strings.Join(candidate.Keywords, ", ")),
-			Keywords:        candidate.Keywords,
-		})
-	}
-
-	// Also include candidates from the direct issue search
-	for _, candidate := range candidates {
 		if len(files) >= b.maxTier2 {
 			break
 		}
@@ -456,25 +434,51 @@ func (b *TieredContextBuilder) semanticExpansion(ctx context.Context, issueText 
 	return files
 }
 
-// findSymbolDefinitions searches for files that might define a symbol.
-func (b *TieredContextBuilder) findSymbolDefinitions(ctx context.Context, symbol string) []string {
-	// Use ripgrep to find class/function definitions
-	patterns := []string{
-		fmt.Sprintf("^class %s", symbol),
-		fmt.Sprintf("^def %s", symbol),
-		fmt.Sprintf("^    def %s", symbol), // Method definition
-	}
+// definitionKeywords are the language keywords that introduce a definition.
+// They are matched literally, not as regexes — see findSymbolDefinitions.
+var definitionKeywords = []string{
+	"class",     // Python, Java, C++, TS
+	"def",       // Python, Ruby
+	"func",      // Go, Swift
+	"function",  // JS, TS, PHP
+	"fn",        // Rust
+	"type",      // Go, TS
+	"struct",    // Go, Rust, C
+	"interface", // Go, TS, Java
+	"impl",      // Rust
+}
 
+// findSymbolDefinitions searches for files that might define a symbol.
+//
+// This used to build patterns like "^class Foo" and pass them to
+// searchSingleKeyword, which performs a literal byte scan — so it searched for
+// a caret character in the source text and matched nothing, ever. Tier 4 was
+// silently empty for every symbol.
+//
+// The patterns are now literal ("class Foo"), and the line-start intent the
+// caret was reaching for is applied afterwards against each hit's column,
+// which the scanner already reports. The keyword list also covers Go, Rust, JS
+// and TS rather than Python alone.
+func (b *TieredContextBuilder) findSymbolDefinitions(ctx context.Context, symbol string) []string {
 	var files []string
 	seen := make(map[string]bool)
 
-	for _, pattern := range patterns {
+	for _, keyword := range definitionKeywords {
+		pattern := keyword + " " + symbol
+
 		hits, err := b.retriever.searchSingleKeyword(ctx, pattern)
 		if err != nil {
 			continue
 		}
 
 		for _, hit := range hits {
+			// A definition sits at the start of its line, allowing for
+			// indentation (methods, nested types). Requiring column 1 would
+			// drop every method; not checking at all would match the symbol
+			// in the middle of an expression.
+			if !isLineLeading(hit.Context, pattern) {
+				continue
+			}
 			if !seen[hit.FilePath] {
 				seen[hit.FilePath] = true
 				files = append(files, hit.FilePath)
@@ -483,6 +487,36 @@ func (b *TieredContextBuilder) findSymbolDefinitions(ctx context.Context, symbol
 	}
 
 	return files
+}
+
+// isLineLeading reports whether pattern begins the line, ignoring leading
+// whitespace and any modifiers that legitimately precede a definition keyword
+// (pub, export, async, public, static, ...). Comparison is case-insensitive to
+// match the scanner's own case-folding.
+func isLineLeading(line, pattern string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	target := strings.ToLower(pattern)
+
+	if strings.HasPrefix(lower, target) {
+		return true
+	}
+	for _, modifier := range definitionModifiers {
+		rest := strings.TrimSpace(strings.TrimPrefix(lower, modifier+" "))
+		if rest != lower && strings.HasPrefix(rest, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// definitionModifiers may precede a definition keyword on the same line.
+var definitionModifiers = []string{
+	"pub", "export", "async", "public", "private", "protected",
+	"static", "final", "abstract", "default", "const",
 }
 
 // =============================================================================
