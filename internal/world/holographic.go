@@ -774,7 +774,8 @@ func (h *HolographicProvider) queryRelationshipsWithContext(ctx context.Context,
 			continue
 		}
 		factFile, _ := fact.Args[0].(string)
-		if strings.Contains(strings.ToLower(factFile), normalPath) || strings.Contains(normalPath, strings.ToLower(factFile)) {
+		normalFactFile := strings.ToLower(strings.ReplaceAll(factFile, "\\", "/"))
+		if strings.Contains(normalFactFile, normalPath) || strings.Contains(normalPath, normalFactFile) {
 			if sym, ok := fact.Args[1].(string); ok {
 				fileSymbols = append(fileSymbols, sym)
 			}
