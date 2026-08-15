@@ -484,6 +484,13 @@ func (s *Scanner) deriveSnapshotGlobals(root string, currentFiles map[string]os.
 // Matching against the known set also removes the false-positive half of the
 // heuristic, where a symbol id like "pkg/thing.Method" would have been read as a
 // path to a file that does not exist.
+//
+// PRECONDITION: facts is a whole snapshot. file_topology is the file list, so a
+// fact naming a file with no file_topology in the same slice is filed as global
+// — correct for project_language and directory facts, wrong for a symbol whose
+// file was omitted. Both production callers pass a full ScanWorkspaceCtx result,
+// which always carries file_topology for every file it walked. Do not call this
+// with a partial set; the failure is silent.
 func groupFactsByPath(facts []core.Fact) map[string][]core.Fact {
 	out := make(map[string][]core.Fact)
 
@@ -528,26 +535,6 @@ func groupFactsByPath(facts []core.Fact) map[string][]core.Fact {
 		out[owner] = append(out[owner], f)
 	}
 	return out
-}
-
-func worldFactPathArg(arg any) string {
-	s, ok := arg.(string)
-	if !ok || s == "" {
-		return ""
-	}
-	if s == globalWorldFactsPath {
-		return ""
-	}
-	if strings.HasPrefix(s, "/") {
-		rest := s[1:]
-		if !strings.Contains(rest, "/") && !strings.Contains(rest, "\\") && !strings.Contains(rest, ".") {
-			return ""
-		}
-	}
-	if strings.Contains(s, "/") || strings.Contains(s, "\\") {
-		return s
-	}
-	return ""
 }
 
 func extractHashFromFacts(facts []core.Fact) string {
