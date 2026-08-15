@@ -26,6 +26,7 @@ import (
 	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/regression"
 
 	// researcher removed - JIT clean loop handles research
 	"codenerd/internal/store"
@@ -707,6 +708,18 @@ func (i *Initializer) runPhase1DirectorySetup(runner *phaseRunner, result *InitR
 	}
 
 	fmt.Println("✓ Created .nerd/ directory structure")
+
+	// Seed a starter regression battery. Seed never overwrites, so this is safe
+	// under --force too — the same merge-don't-clobber rule the preferences
+	// write now follows. A failure here is not worth failing init over: the
+	// workspace is usable without a battery, and `nerd regression init` writes
+	// the same file on demand.
+	if path, created, err := regression.Seed(i.config.Workspace); err != nil {
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to seed regression battery: %v", err))
+	} else if created {
+		result.FilesCreated = append(result.FilesCreated, path)
+		fmt.Println("✓ Seeded regression battery")
+	}
 
 	dbPath := filepath.Join(nerdDir, "knowledge.db")
 	i.localDB, err = store.NewLocalStore(dbPath)
