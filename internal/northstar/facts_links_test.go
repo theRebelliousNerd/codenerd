@@ -154,3 +154,30 @@ func TestToFacts_EveryEmittedPredicate_ShouldBeInTheRetractSet(t *testing.T) {
 		}
 	}
 }
+
+func TestParsePriority_WhenSpelledWithHyphens_ShouldScoreAsMustHave(t *testing.T) {
+	// The wizard writes "must-have"; parsePriority only knew "must_have", so
+	// must_have_requirement/2 (Priority = 100) never fired for wizard visions.
+	for _, in := range []string{"must_have", "must-have", "Must Have", " MUST-HAVE "} {
+		if got := parsePriority(in); got != 100 {
+			t.Errorf("parsePriority(%q) = %d, want 100", in, got)
+		}
+	}
+	for _, in := range []string{"nice-to-have", "nice_to_have"} {
+		if got := parsePriority(in); got != 20 {
+			t.Errorf("parsePriority(%q) = %d, want 20", in, got)
+		}
+	}
+}
+
+func TestEnumAtom_ShouldNormalizeSpellingAndNeverEmitABareSlash(t *testing.T) {
+	if got := enumAtom("non-functional"); got != "/non_functional" {
+		t.Errorf("enumAtom(non-functional) = %q, want /non_functional", got)
+	}
+	if got := enumAtom("Now"); got != "/now" {
+		t.Errorf("enumAtom(Now) = %q, want /now", got)
+	}
+	if got := enumAtom(""); got != "/unspecified" {
+		t.Errorf("enumAtom(\"\") = %q, want /unspecified (a bare \"/\" is not a valid Mangle name)", got)
+	}
+}

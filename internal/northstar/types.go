@@ -86,7 +86,7 @@ func (v *Vision) ToFacts() []types.Fact {
 
 	for _, c := range v.Capabilities {
 		capIDs[c.ID] = struct{}{}
-		facts = append(facts, types.Fact{Predicate: "northstar_capability", Args: []any{c.ID, c.Description, "/" + c.Timeline, parsePriority(c.Priority)}})
+		facts = append(facts, types.Fact{Predicate: "northstar_capability", Args: []any{c.ID, c.Description, enumAtom(c.Timeline), parsePriority(c.Priority)}})
 	}
 
 	// northstar_serves(CapID, PersonaID). Declared in schemas_misc.mg and read by
@@ -104,7 +104,7 @@ func (v *Vision) ToFacts() []types.Fact {
 
 	for _, r := range v.Risks {
 		riskIDs[r.ID] = struct{}{}
-		facts = append(facts, types.Fact{Predicate: "northstar_risk", Args: []any{r.ID, r.Description, "/" + r.Likelihood, parseRiskImpact(r.Impact)}})
+		facts = append(facts, types.Fact{Predicate: "northstar_risk", Args: []any{r.ID, r.Description, enumAtom(r.Likelihood), parseRiskImpact(r.Impact)}})
 		if r.Mitigation != "" {
 			// The strategy slot is Decl'd /name, so the free text cannot go in
 			// it directly. Emitting the same constant /mitigation for every risk
@@ -117,7 +117,7 @@ func (v *Vision) ToFacts() []types.Fact {
 	}
 
 	for _, req := range v.Requirements {
-		facts = append(facts, types.Fact{Predicate: "northstar_requirement", Args: []any{req.ID, "/" + req.Type, req.Description, parsePriority(req.Priority)}})
+		facts = append(facts, types.Fact{Predicate: "northstar_requirement", Args: []any{req.ID, enumAtom(req.Type), req.Description, parsePriority(req.Priority)}})
 	}
 
 	// northstar_supports(ReqID, CapID) / northstar_addresses(ReqID, RiskID).
@@ -185,8 +185,38 @@ func MitigationStrategyAtom(text string) types.MangleAtom {
 
 const mitigationSlugMax = 40
 
+// normalizeEnumWord folds the several spellings the wizard, the CLI and
+// hand-written JSON all use for the same value ("must-have", "must have",
+// "Must_Have") onto one key.
+//
+// Without this, parsePriority scored the wizard's "must-have" as 50, so
+// must_have_requirement/2 in prompt_northstar.mg -- which matches Priority = 100
+// -- never fired for any vision the wizard produced. The CLI's own
+// northstarPriorityToNumber already normalised; ToFacts did not, and ToFacts is
+// what the kernel sees.
+func normalizeEnumWord(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ReplaceAll(s, "-", "_")
+	s = strings.ReplaceAll(s, " ", "_")
+	return s
+}
+
+// enumAtom renders an enum-valued field as the /name constant the schema
+// Decl'd for it. Values arrive spelled several ways ("non-functional",
+// "Non Functional"); the policy rules match one spelling each, so an
+// un-normalised "/non-functional" simply never unified with /non_functional.
+// An empty value becomes /unspecified rather than the bare "/", which is not a
+// valid Mangle name at all and silently degraded the slot to a string constant.
+func enumAtom(value string) types.MangleAtom {
+	normalized := normalizeEnumWord(value)
+	if normalized == "" {
+		return types.MangleAtom("/unspecified")
+	}
+	return types.MangleAtom("/" + normalized)
+}
+
 func parsePriority(p string) int {
-	switch p {
+	switch normalizeEnumWord(p) {
 	case "critical", "must_have":
 		return 100
 	case "high", "should_have":
@@ -201,7 +231,7 @@ func parsePriority(p string) int {
 }
 
 func parseRiskImpact(i string) int {
-	switch i {
+	switch normalizeEnumWord(i) {
 	case "high":
 		return 100
 	case "medium":
