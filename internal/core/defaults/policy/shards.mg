@@ -259,13 +259,20 @@ specialist_context_source(Specialist, DBPath) :-
 # (bound [/string, /name]), whose value set is normalizePhaseCategory's nine build
 # layers - /implementation and /planning are aliases it folds into /service and
 # /research, so they are not available there either.
+# So this joins phase_category/2, which is the normalized form and the only one
+# that can match. Go runs normalizePhaseCategory before any fact reaches the
+# kernel: "implementation" and "remediation" both fold to /service, "planning",
+# "discovery" and "analysis" all fold to /research. Matching the display label
+# was correct about the TYPE and still could not fire, which is the more
+# expensive half of this bug class — a rule that typechecks, derives nothing,
+# and reports nothing.
 activate_specialist_for_phase(Specialist, Phase) :-
     specialist_campaign_role(Specialist, /phase_executor),
-    campaign_phase(Phase, _, "implementation", _, _, _).
+    phase_category(Phase, /service).
 
 activate_specialist_for_phase(Specialist, Phase) :-
     specialist_campaign_role(Specialist, /plan_reviewer),
-    campaign_phase(Phase, _, "planning", _, _, _).
+    phase_category(Phase, /research).
 
 # Cross-Specialist Collaboration
 # Strategic advisors can assist technical executors

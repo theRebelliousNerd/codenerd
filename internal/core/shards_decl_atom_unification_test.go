@@ -44,7 +44,19 @@ func TestShardsDeclAtomsUnify(t *testing.T) {
 		// constants all carry a leading slash ("/pending", "/critical"), and
 		// Fact.ToAtom promotes such strings to NAME constants. That is why
 		// task_priority joins the priority_higher table at all.
-		{Predicate: "campaign_phase", Args: []any{"ph1", "camp1", MangleAtom("/implementation"), int64(1), MangleAtom("/in_progress"), "profile"}},
+		// Name is the phase's free-form display label, exactly as Phase.ToFacts
+		// passes it through — "Implementation", not an atom. The normalized
+		// build layer arrives separately as phase_category/2, which is what
+		// activate_specialist_for_phase can actually join. Seeding the label as
+		// an atom here made the fixture agree with a rule that could never have
+		// matched real campaign data.
+		{Predicate: "campaign_phase", Args: []any{"ph1", "camp1", "Implementation", int64(1), MangleAtom("/in_progress"), "profile"}},
+		{Predicate: "phase_category", Args: []any{"ph1", MangleAtom("/service")}},
+		// A second phase on the other branch, because both rules were rewritten
+		// and one passing check would not have told me the other fires.
+		// "Discovery" normalizes to /research, which is the plan_reviewer's.
+		{Predicate: "campaign_phase", Args: []any{"ph2", "camp1", "Discovery", int64(2), MangleAtom("/pending"), "profile"}},
+		{Predicate: "phase_category", Args: []any{"ph2", MangleAtom("/research")}},
 		{Predicate: "current_phase", Args: []any{"ph1"}},
 		{Predicate: "campaign_task", Args: []any{"t-low", "ph1", "low task", "/pending", "/file_create"}},
 		{Predicate: "campaign_task", Args: []any{"t-crit", "ph1", "crit task", "/pending", "/file_create"}},
@@ -158,7 +170,13 @@ func TestShardsDeclAtomsUnify(t *testing.T) {
 	check("specialist_can_execute(S)", 5)
 	check("specialist_context_source(/goexpert, DB)", 1)
 	check("specialist_campaign_role(/northstar, /alignment_guardian)", 1)
+	// 5 phase_executors on the /service phase, 2 plan_reviewers on the /research
+	// one. Asserting each branch separately is what distinguishes "the rule
+	// fires" from "one of the two rules fires".
 	check(`activate_specialist_for_phase(S, "ph1")`, 5)
+	check(`activate_specialist_for_phase(S, "ph2")`, 2)
+	check(`activate_specialist_for_phase(/securityauditor, "ph2")`, 1)
+	check(`activate_specialist_for_phase(/securityauditor, "ph1")`, 0)
 }
 
 // style_rule/3 declared Threshold as /number while STY003 carried the regex
