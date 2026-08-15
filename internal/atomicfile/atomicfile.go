@@ -67,7 +67,7 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 		os.Remove(tmpName)
 		return fmt.Errorf("chmod temp file for %s: %w", path, err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := replaceExisting(tmpName, path); err != nil {
 		os.Remove(tmpName)
 		return fmt.Errorf("rename temp file onto %s: %w", path, err)
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -34,7 +35,7 @@ func TestWriteFile_ShouldReplaceTheInodeRatherThanTruncate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat before: %v", err)
 	}
-	oldHandle, err := os.Open(path)
+	oldHandle, err := Open(path)
 	if err != nil {
 		t.Fatalf("open before: %v", err)
 	}
@@ -51,18 +52,33 @@ func TestWriteFile_ShouldReplaceTheInodeRatherThanTruncate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat after: %v", err)
 	}
-	if os.SameFile(before, after) {
-		t.Error("wrote through the existing file; a partial write would have destroyed the only copy")
+	// ReplaceFileW preserves file identity by design, so the inode proxy does
+	// not hold on Windows while the guarantee still does.
+	if runtime.GOOS != "windows" {
+		if os.SameFile(before, after) {
+			t.Error("wrote through the existing file; a partial write would have destroyed the only copy")
+		}
 	}
 
 	buf := make([]byte, 8192)
 	n, _ := oldHandle.Read(buf)
+	if string(buf[:n]) != string(original) {
+		t.Errorf("old handle did not still yield ORIGINAL bytes in full: got %d bytes want %d bytes", n, len(original))
+	}
 	var previous map[string]any
 	if err := json.Unmarshal(buf[:n], &previous); err != nil {
 		t.Errorf("previous contents were mutated mid-write: %v", err)
 	}
 	if previous["keep"] != "me" {
 		t.Errorf("previous contents lost data during the write: %v", previous)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile after: %v", err)
+	}
+	if string(data) != string(replacement) {
+		t.Errorf("destination does not hold replacement bytes in full: got %d bytes want %d bytes", len(data), len(replacement))
 	}
 }
 
@@ -127,6 +143,9 @@ func TestWriteFile_WhenWritersRaceOnOnePath_ShouldNotInterleave(t *testing.T) {
 }
 
 func TestWriteFile_ShouldApplyTheRequestedMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no POSIX mode bits; os.Chmod only toggles the read-only attribute")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "doc.json")
 	if err := WriteFile(path, []byte("x"), 0o600); err != nil {
