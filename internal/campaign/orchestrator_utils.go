@@ -86,7 +86,9 @@ func (o *Orchestrator) runPhaseCheckpoint(ctx context.Context, phase *Phase) (bo
 		}
 
 		logging.CampaignDebug("Running verification: %s", obj.VerificationMethod)
+		checkStart := time.Now()
 		passed, details, err := o.checkpoint.Run(ctx, phase, obj.VerificationMethod)
+		o.observeCheckpoint(phase.ID, string(obj.VerificationMethod), passed && err == nil, time.Since(checkStart))
 		if err != nil {
 			logging.Get(logging.CategoryCampaign).Error("Checkpoint error: %v", err)
 			return false, "", err
@@ -283,7 +285,7 @@ func (o *Orchestrator) HandleNewRequirement(ctx context.Context, requirement str
 	timer := logging.StartTimer(logging.CategoryCampaign, "HandleNewRequirement")
 	defer timer.Stop()
 
-	o.emitEvent("new_requirement_received", "", "", requirement, nil)
+	o.emitEvent(EventNewRequirementReceived, "", "", requirement, nil)
 
 	// Pause temporarily to safely modify plan.
 	// Manage both isPaused and pauseCh so the scheduler loop's select on
@@ -312,11 +314,11 @@ func (o *Orchestrator) HandleNewRequirement(ctx context.Context, requirement str
 	// Call the previously unwired Replanner method
 	if err := o.replanner.ReplanForNewRequirement(ctx, o.campaign, requirement); err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Failed to integrate new requirement: %v", err)
-		o.emitEvent("new_requirement_failed", "", "", err.Error(), nil)
+		o.emitEvent(EventNewRequirementFailed, "", "", err.Error(), nil)
 		return err
 	}
 
 	logging.Campaign("New requirement successfully integrated into plan")
-	o.emitEvent("new_requirement_integrated", "", "", "Plan updated with new requirement", nil)
+	o.emitEvent(EventNewRequirementDone, "", "", "Plan updated with new requirement", nil)
 	return nil
 }

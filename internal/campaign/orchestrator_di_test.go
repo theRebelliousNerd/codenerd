@@ -32,6 +32,7 @@ func TestOrchestrator_DependencyInjection(t *testing.T) {
 	config.Executor = tactile.NewDirectExecutor()
 	config.VirtualStore = &core.VirtualStore{}
 	config.ShardManager = coreshards.NewShardManager()
+	config.TaskExecutor = &MockTaskExecutor{}
 
 	orch, err := NewOrchestrator(config)
 	if err != nil {

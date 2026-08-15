@@ -297,6 +297,7 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 	o.mu.Unlock()
 
 	if found {
+		o.markPhaseStart(phaseID)
 		// Update kernel
 		_ = o.kernel.RetractFact(core.Fact{
 			Predicate: "campaign_phase",
@@ -326,7 +327,7 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 			}
 		}
 
-		o.emitEvent("phase_started", phaseID, "", phaseName, nil)
+		o.emitEvent(EventPhaseStarted, phaseID, "", phaseName, nil)
 		return nil
 	}
 
@@ -376,6 +377,7 @@ func (o *Orchestrator) completePhase(phase *Phase) {
 	o.mu.Unlock()
 
 	if found {
+		o.observePhaseDuration(phase.ID)
 		// Update kernel
 		_ = o.kernel.RetractFact(core.Fact{
 			Predicate: "campaign_phase",
@@ -400,7 +402,7 @@ func (o *Orchestrator) completePhase(phase *Phase) {
 			_ = o.northstarObserver.OnPhaseComplete(context.Background(), phase.ID, success, summary)
 		}
 
-		o.emitEvent("phase_completed", phase.ID, "", phase.Name, nil)
+		o.emitEvent(EventPhaseCompleted, phase.ID, "", phase.Name, nil)
 
 		o.mu.Lock()
 		_ = o.saveCampaign()

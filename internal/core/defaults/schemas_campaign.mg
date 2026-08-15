@@ -342,3 +342,71 @@ Decl has_running_tasks(PhaseID) bound [/string].
 
 # debug_why_blocked(TaskID, Dependency) - helper to explain blocking
 Decl debug_why_blocked(TaskID, Dependency) bound [/string, /string].
+
+# =============================================================================
+# CAMPAIGN RISK PREFLIGHT — hard vs soft advisory contract
+# =============================================================================
+# Go measures the preflight (gate outcomes, advisor severities, deterministic
+# score, protected surfaces) and asserts it as ground facts. The kernel decides
+# which of those results STOP a campaign. See campaign_rules.mg Section 13.
+
+# campaign_risk_gate_outcome(CampaignID, Gate, Outcome) - one strict gate result
+# Gate: /northstar | /edge | /advisory | /override
+# Outcome: /passed | /blocked | /skipped
+Decl campaign_risk_gate_outcome(CampaignID, Gate, Outcome) bound [/string, /name, /name].
+
+# campaign_risk_concern(CampaignID, Gate, Severity) - graded concern from a gate
+# Severity: /blocking | /requires_changes | /unapproved
+Decl campaign_risk_concern(CampaignID, Gate, Severity) bound [/string, /name, /name].
+
+# campaign_protected_surface(CampaignID, Root) - campaign targets a protected root
+Decl campaign_protected_surface(CampaignID, Root) bound [/string, /string].
+
+# campaign_risk_posture(CampaignID, Score, Threshold, Gated) - deterministic score
+# Gated: /true | /false
+Decl campaign_risk_posture(CampaignID, Score, Threshold, Gated) bound [/string, /number, /number, /name].
+
+# campaign_risk_signal(CampaignID, Signal, Count) - pinned intelligence signals
+# Signal: /safety_warnings | /blocked_actions | /gathering_errors | /tool_gaps
+Decl campaign_risk_signal(CampaignID, Signal, Count) bound [/string, /name, /number].
+
+# campaign_risk_override(CampaignID, Level) - /force_block | /force_allow
+Decl campaign_risk_override(CampaignID, Level) bound [/string, /name].
+
+# campaign_risk_critical_signal(CampaignID) - derived: safety-critical evidence
+Decl campaign_risk_critical_signal(CampaignID) bound [/string].
+
+# campaign_risk_block(CampaignID, Gate, Reason) - derived: HARD stop
+Decl campaign_risk_block(CampaignID, Gate, Reason) bound [/string, /name, /name].
+
+# campaign_risk_blocked_gate(CampaignID, Gate) - derived helper for safe negation
+Decl campaign_risk_blocked_gate(CampaignID, Gate) bound [/string, /name].
+
+# campaign_risk_warning(CampaignID, Gate, Reason) - derived: SOFT advisory
+Decl campaign_risk_warning(CampaignID, Gate, Reason) bound [/string, /name, /name].
+
+# campaign_risk_preflight_blocked(CampaignID) - derived: at least one hard block
+Decl campaign_risk_preflight_blocked(CampaignID) bound [/string].
+
+# campaign_risk_classification_ready(CampaignID) - derived readiness canary.
+# Go trusts kernel classification only when this derives; otherwise the rules
+# are not loaded and Go must fall back to its mirror of the same contract.
+Decl campaign_risk_classification_ready(CampaignID) bound [/string].
+
+# =============================================================================
+# TASK CONTRACT FACTS EMITTED BY Task.ToFacts WITH NO DECL UNTIL NOW
+# =============================================================================
+# internal/campaign/types.go has asserted all three of these since sub-campaign
+# support landed, and campaign_fact_sync.go retracts them on every task
+# transition — but without a Decl no rule could reference them, so soft
+# dependencies, resource semaphores and sub-campaign links were invisible to the
+# executive. Found by the ToFacts predicate/arity golden test.
+
+# task_soft_dependency(TaskID, DependsOnTaskID) - preference, not a hard edge
+Decl task_soft_dependency(TaskID, DependsOnTaskID) bound [/string, /string].
+
+# requires_resource(TaskID, Resource) - named semaphore the task needs
+Decl requires_resource(TaskID, Resource) bound [/string, /string].
+
+# task_sub_campaign(TaskID, SubCampaignID) - /campaign_ref target
+Decl task_sub_campaign(TaskID, SubCampaignID) bound [/string, /string].

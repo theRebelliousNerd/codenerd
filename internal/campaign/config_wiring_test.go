@@ -1,6 +1,8 @@
 package campaign
 
 import (
+	"codenerd/internal/core"
+	"codenerd/internal/tactile"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -139,5 +141,70 @@ func wiringRepoRoot(t *testing.T) string {
 			t.Fatal("could not locate go.mod above the test's working directory")
 		}
 		dir = parent
+	}
+}
+
+// A Cortex-shaped boot (real kernel + workspace) must get intelligence wired
+// without the caller assembling it.
+//
+// Every construction site was repeating the same scanner/holographic/gatherer
+// assembly, and the cost of forgetting is invisible: the campaign still runs,
+// it just plans without pre-planning intelligence and — because
+// resolveRiskGateEnabled keys off availability — with the edge risk gate
+// silently disabled.
+func TestNewOrchestrator_WhenKernelIsReal_ShouldDefaultWireIntelligence(t *testing.T) {
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Skipf("real kernel unavailable: %v", err)
+	}
+
+	orch, err := NewOrchestrator(OrchestratorConfig{
+		Workspace:    t.TempDir(),
+		Kernel:       kernel,
+		LLMClient:    &MockLLMClient{},
+		TaskExecutor: &MockTaskExecutor{},
+		Executor:     tactile.NewDirectExecutor(),
+		VirtualStore: &core.VirtualStore{},
+	})
+	if err != nil {
+		t.Fatalf("NewOrchestrator: %v", err)
+	}
+
+	if orch.intelligenceGatherer == nil {
+		t.Error("IntelligenceGatherer was not default-wired despite a real kernel and workspace")
+	}
+	if orch.edgeCaseDetector == nil {
+		t.Error("EdgeCaseDetector was not default-wired despite a real kernel and workspace")
+	}
+	if orch.decomposer.intelligence == nil {
+		t.Error("default-wired gatherer never reached the decomposer, so planning still runs blind")
+	}
+	if !orch.riskGateState.Edge {
+		t.Error("edge risk gate stayed disabled; auto-wiring keys off detector availability")
+	}
+}
+
+// An explicitly supplied component must win over the default.
+func TestNewOrchestrator_WhenIntelligenceSupplied_ShouldNotOverrideIt(t *testing.T) {
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Skipf("real kernel unavailable: %v", err)
+	}
+
+	supplied := NewIntelligenceGatherer(kernel, nil, nil, nil, nil, nil, nil, nil)
+	orch, err := NewOrchestrator(OrchestratorConfig{
+		Workspace:            t.TempDir(),
+		Kernel:               kernel,
+		LLMClient:            &MockLLMClient{},
+		TaskExecutor:         &MockTaskExecutor{},
+		Executor:             tactile.NewDirectExecutor(),
+		VirtualStore:         &core.VirtualStore{},
+		IntelligenceGatherer: supplied,
+	})
+	if err != nil {
+		t.Fatalf("NewOrchestrator: %v", err)
+	}
+	if orch.intelligenceGatherer != supplied {
+		t.Fatal("default wiring replaced an explicitly configured IntelligenceGatherer")
 	}
 }

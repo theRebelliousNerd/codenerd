@@ -1,0 +1,66 @@
+# Fixture EDB for the MCP tool selection golden test.
+# Mirrors what internal/mcp/facts.go emits on connect + discover + usage.
+
+# --- Servers -----------------------------------------------------------------
+mcp_server_registered("fs", "http://localhost:9000", /http, 1700000000).
+mcp_server_status("fs", /connected).
+
+# Disconnected server: its cached tools stay available for reasoning.
+mcp_server_registered("web", "http://localhost:9001", /http, 1700000000).
+mcp_server_status("web", /disconnected).
+
+# Errored server: its tools are NOT available.
+mcp_server_registered("dead", "http://localhost:9002", /http, 1700000000).
+mcp_server_status("dead", /error).
+
+# --- Skeleton tool (filesystem + read) ---------------------------------------
+mcp_tool_registered("fs/read_file", "fs", 1700000001).
+mcp_tool_category("fs/read_file", /filesystem).
+mcp_tool_capability("fs/read_file", /read).
+mcp_tool_domain("fs/read_file", /general).
+mcp_tool_shard_affinity("fs/read_file", /coder, 80).
+mcp_tool_shard_affinity("fs/read_file", /tester, 20).
+
+# --- Intent- and domain-matched tool with a vector score ---------------------
+mcp_tool_registered("fs/write_file", "fs", 1700000001).
+mcp_tool_category("fs/write_file", /filesystem).
+mcp_tool_capability("fs/write_file", /write).
+mcp_tool_domain("fs/write_file", /go).
+mcp_tool_shard_affinity("fs/write_file", /coder, 60).
+mcp_tool_shard_affinity("fs/write_file", /tester, 20).
+mcp_tool_vector_score("fs/write_file", 90).
+
+# --- Cached tool on a disconnected server ------------------------------------
+mcp_tool_registered("web/fetch", "web", 1700000002).
+mcp_tool_category("web/fetch", /web).
+mcp_tool_capability("web/fetch", /read).
+mcp_tool_domain("web/fetch", /general).
+mcp_tool_shard_affinity("web/fetch", /coder, 40).
+
+# --- Tool on an errored server: high affinity, still unavailable -------------
+mcp_tool_registered("dead/thing", "dead", 1700000003).
+mcp_tool_category("dead/thing", /shell).
+mcp_tool_capability("dead/thing", /execute).
+mcp_tool_domain("dead/thing", /general).
+mcp_tool_shard_affinity("dead/thing", /coder, 95).
+
+# --- Unreliable tool: 20% success over 10 calls ------------------------------
+mcp_tool_registered("fs/flaky", "fs", 1700000004).
+mcp_tool_category("fs/flaky", /shell).
+mcp_tool_capability("fs/flaky", /execute).
+mcp_tool_domain("fs/flaky", /general).
+mcp_tool_shard_affinity("fs/flaky", /coder, 45).
+mcp_tool_usage("fs/flaky", 10, 2).
+
+# --- Proven tool: 90% success over 10 calls ----------------------------------
+mcp_tool_registered("fs/proven", "fs", 1700000005).
+mcp_tool_category("fs/proven", /code_analysis).
+mcp_tool_capability("fs/proven", /analyze).
+mcp_tool_domain("fs/proven", /general).
+mcp_tool_shard_affinity("fs/proven", /coder, 45).
+mcp_tool_usage("fs/proven", 10, 9).
+
+# --- Current context ---------------------------------------------------------
+current_intent("intent1").
+user_intent("intent1", /mutation, /write, "main.go", "none").
+file_topology("main.go", "abc123", /go, 1700000000, /false).

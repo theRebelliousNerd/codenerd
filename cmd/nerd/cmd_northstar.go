@@ -1,6 +1,13 @@
 // Package main implements the codeNERD CLI - a high-assurance, neuro-symbolic CLI agent.
 //
 // This file provides CLI commands for the Northstar system (project vision and requirements).
+//
+// Every read command here goes through loadAuthoritativeVision, which opens the
+// Northstar knowledge store and reconciles it with .nerd/northstar.json before
+// answering (see internal/northstar/bridge.go). Before that, these commands read
+// the JSON file directly while the Guardian read SQLite, so `nerd northstar show`
+// could describe a vision that /alignment and the campaign risk gate had never
+// heard of. The CLI is now a view onto the same authority the kernel projects.
 package main
 
 import (
@@ -8,8 +15,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
-	"time"
 
 	"codenerd/internal/northstar"
 
@@ -31,13 +38,60 @@ capabilities, risks, and requirements.
 This information informs the Mangle kernel's reasoning and provides
 strategic context for campaigns and shards.
 
+The knowledge store (.nerd/northstar_knowledge.db) is the durable authority;
+.nerd/northstar.json and .nerd/northstar.mg are import/export surfaces that are
+reconciled with it on every read.
+
 Examples:
   nerd northstar show              # Display current northstar definition
   nerd northstar summary           # One-page summary
   nerd northstar query mission     # Query specific element
   nerd northstar facts             # Show Mangle facts
+  nerd northstar history           # Alignment check history
+  nerd northstar drift             # Drift events
+  nerd northstar state             # Guardian state and metrics
+  nerd northstar sync              # Reconcile JSON <-> store explicitly
   nerd northstar export            # Export to various formats`,
 	RunE: parentGroupRunE,
+}
+
+// northstarWorkspace resolves the workspace root for northstar commands.
+func northstarWorkspace() string {
+	ws := workspace
+	if ws == "" {
+		ws, _ = os.Getwd()
+	}
+	return ws
+}
+
+func northstarNerdDir() string {
+	return filepath.Join(northstarWorkspace(), ".nerd")
+}
+
+// loadAuthoritativeVision returns the reconciled vision, or an actionable error.
+//
+// It deliberately does not fall back to reading northstar.json on its own: a
+// silent JSON fallback is exactly the dual-authority behaviour this command set
+// used to have. If the store cannot be opened the operator needs to know.
+func loadAuthoritativeVision() (*northstar.Vision, error) {
+	nerdDir := northstarNerdDir()
+	store, err := northstar.NewStore(nerdDir)
+	if err != nil {
+		return nil, fmt.Errorf("open northstar store at %s: %w", nerdDir, err)
+	}
+	defer func() { _ = store.Close() }()
+
+	if _, err := northstar.SyncVisionAuthority(store, nerdDir); err != nil {
+		return nil, fmt.Errorf("reconcile vision: %w", err)
+	}
+	vision, err := store.LoadVision()
+	if err != nil {
+		return nil, fmt.Errorf("load vision: %w", err)
+	}
+	if vision == nil {
+		return nil, fmt.Errorf("northstar not defined - run '/northstar' in interactive mode or 'nerd northstar load <file.json>'")
+	}
+	return vision, nil
 }
 
 // northstarShowCmd displays the current northstar definition
@@ -46,38 +100,25 @@ var northstarShowCmd = &cobra.Command{
 	Short: "Display current northstar definition",
 	Long:  `Shows the complete northstar definition including mission, vision, personas, capabilities, risks, requirements, and constraints.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ws := workspace
-		if ws == "" {
-			ws, _ = os.Getwd()
-		}
-
-		// Try to load from JSON (more detailed)
-		jsonPath := filepath.Join(ws, ".nerd", "northstar.json")
-		data, err := os.ReadFile(jsonPath)
+		v, err := loadAuthoritativeVision()
 		if err != nil {
-			return fmt.Errorf("northstar not defined - run '/northstar' in interactive mode or 'nerd northstar wizard'")
+			return err
 		}
 
-		var ns NorthstarState
-		if err := json.Unmarshal(data, &ns); err != nil {
-			return fmt.Errorf("failed to parse northstar.json: %w", err)
-		}
-
-		// Render to stdout
 		fmt.Println("# Northstar Definition")
 		fmt.Println()
 		fmt.Println("## Mission")
-		fmt.Printf("%s\n\n", ns.Mission)
+		fmt.Printf("%s\n\n", v.Mission)
 
 		fmt.Println("## Problem Statement")
-		fmt.Printf("%s\n\n", ns.Problem)
+		fmt.Printf("%s\n\n", v.Problem)
 
 		fmt.Println("## Vision")
-		fmt.Printf("%s\n\n", ns.Vision)
+		fmt.Printf("%s\n\n", v.VisionStmt)
 
-		if len(ns.Personas) > 0 {
+		if len(v.Personas) > 0 {
 			fmt.Println("## Target Users")
-			for i, p := range ns.Personas {
+			for i, p := range v.Personas {
 				fmt.Printf("%d. **%s**\n", i+1, p.Name)
 				if len(p.PainPoints) > 0 {
 					fmt.Printf("   Pain Points: %s\n", strings.Join(p.PainPoints, ", "))
@@ -89,17 +130,20 @@ var northstarShowCmd = &cobra.Command{
 			fmt.Println()
 		}
 
-		if len(ns.Capabilities) > 0 {
+		if len(v.Capabilities) > 0 {
 			fmt.Println("## Capabilities")
-			for i, c := range ns.Capabilities {
+			for i, c := range v.Capabilities {
 				fmt.Printf("%d. [%s/%s] %s\n", i+1, c.Timeline, c.Priority, c.Description)
+				if len(c.Serves) > 0 {
+					fmt.Printf("   Serves: %s\n", strings.Join(c.Serves, ", "))
+				}
 			}
 			fmt.Println()
 		}
 
-		if len(ns.Risks) > 0 {
+		if len(v.Risks) > 0 {
 			fmt.Println("## Risks")
-			for i, r := range ns.Risks {
+			for i, r := range v.Risks {
 				fmt.Printf("%d. [%s/%s] %s\n", i+1, r.Likelihood, r.Impact, r.Description)
 				if r.Mitigation != "" && r.Mitigation != "none" {
 					fmt.Printf("   Mitigation: %s\n", r.Mitigation)
@@ -108,17 +152,23 @@ var northstarShowCmd = &cobra.Command{
 			fmt.Println()
 		}
 
-		if len(ns.Requirements) > 0 {
+		if len(v.Requirements) > 0 {
 			fmt.Println("## Requirements")
-			for _, r := range ns.Requirements {
+			for _, r := range v.Requirements {
 				fmt.Printf("- [%s] %s: %s (%s)\n", r.ID, r.Type, r.Description, r.Priority)
+				if len(r.Supports) > 0 {
+					fmt.Printf("  Supports: %s\n", strings.Join(r.Supports, ", "))
+				}
+				if len(r.Addresses) > 0 {
+					fmt.Printf("  Addresses: %s\n", strings.Join(r.Addresses, ", "))
+				}
 			}
 			fmt.Println()
 		}
 
-		if len(ns.Constraints) > 0 {
+		if len(v.Constraints) > 0 {
 			fmt.Println("## Constraints")
-			for i, c := range ns.Constraints {
+			for i, c := range v.Constraints {
 				fmt.Printf("%d. %s\n", i+1, c)
 			}
 			fmt.Println()
@@ -134,20 +184,9 @@ var northstarSummaryCmd = &cobra.Command{
 	Short: "One-page northstar summary",
 	Long:  `Displays a concise one-page summary of the northstar definition suitable for quick reference.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ws := workspace
-		if ws == "" {
-			ws, _ = os.Getwd()
-		}
-
-		jsonPath := filepath.Join(ws, ".nerd", "northstar.json")
-		data, err := os.ReadFile(jsonPath)
+		v, err := loadAuthoritativeVision()
 		if err != nil {
-			return fmt.Errorf("northstar not defined - run '/northstar' in interactive mode")
-		}
-
-		var ns NorthstarState
-		if err := json.Unmarshal(data, &ns); err != nil {
-			return fmt.Errorf("failed to parse northstar.json: %w", err)
+			return err
 		}
 
 		fmt.Println("╔══════════════════════════════════════════════════════════════════╗")
@@ -155,15 +194,14 @@ var northstarSummaryCmd = &cobra.Command{
 		fmt.Println("╚══════════════════════════════════════════════════════════════════╝")
 		fmt.Println()
 
-		fmt.Printf("Mission: %s\n", ns.Mission)
+		fmt.Printf("Mission: %s\n", v.Mission)
 		fmt.Println(strings.Repeat("─", 70))
 
 		fmt.Printf("Users: %d personas | Capabilities: %d | Risks: %d | Requirements: %d\n",
-			len(ns.Personas), len(ns.Capabilities), len(ns.Risks), len(ns.Requirements))
+			len(v.Personas), len(v.Capabilities), len(v.Risks), len(v.Requirements))
 
-		// Critical capabilities
 		criticalCaps := 0
-		for _, c := range ns.Capabilities {
+		for _, c := range v.Capabilities {
 			if c.Priority == "critical" {
 				criticalCaps++
 			}
@@ -172,9 +210,8 @@ var northstarSummaryCmd = &cobra.Command{
 			fmt.Printf("Critical Capabilities: %d\n", criticalCaps)
 		}
 
-		// High-impact risks
 		highRisks := 0
-		for _, r := range ns.Risks {
+		for _, r := range v.Risks {
 			if r.Impact == "high" {
 				highRisks++
 			}
@@ -183,10 +220,9 @@ var northstarSummaryCmd = &cobra.Command{
 			fmt.Printf("High-Impact Risks: %d\n", highRisks)
 		}
 
-		// Must-have requirements
 		mustHave := 0
-		for _, r := range ns.Requirements {
-			if r.Priority == "must-have" {
+		for _, r := range v.Requirements {
+			if r.Priority == "must-have" || r.Priority == "must_have" {
 				mustHave++
 			}
 		}
@@ -212,47 +248,36 @@ Elements: mission, vision, problem, personas, capabilities, risks, requirements,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		element := strings.ToLower(args[0])
 
-		ws := workspace
-		if ws == "" {
-			ws, _ = os.Getwd()
-		}
-
-		jsonPath := filepath.Join(ws, ".nerd", "northstar.json")
-		data, err := os.ReadFile(jsonPath)
+		v, err := loadAuthoritativeVision()
 		if err != nil {
-			return fmt.Errorf("northstar not defined")
-		}
-
-		var ns NorthstarState
-		if err := json.Unmarshal(data, &ns); err != nil {
-			return fmt.Errorf("failed to parse northstar.json: %w", err)
+			return err
 		}
 
 		switch element {
 		case "mission":
-			fmt.Println(ns.Mission)
+			fmt.Println(v.Mission)
 		case "vision":
-			fmt.Println(ns.Vision)
+			fmt.Println(v.VisionStmt)
 		case "problem":
-			fmt.Println(ns.Problem)
+			fmt.Println(v.Problem)
 		case "personas", "users":
-			for _, p := range ns.Personas {
+			for _, p := range v.Personas {
 				fmt.Printf("%s: %s\n", p.Name, strings.Join(p.Needs, ", "))
 			}
 		case "capabilities", "caps":
-			for _, c := range ns.Capabilities {
+			for _, c := range v.Capabilities {
 				fmt.Printf("[%s/%s] %s\n", c.Timeline, c.Priority, c.Description)
 			}
 		case "risks":
-			for _, r := range ns.Risks {
+			for _, r := range v.Risks {
 				fmt.Printf("[%s/%s] %s\n", r.Likelihood, r.Impact, r.Description)
 			}
 		case "requirements", "reqs":
-			for _, r := range ns.Requirements {
+			for _, r := range v.Requirements {
 				fmt.Printf("[%s] %s: %s\n", r.ID, r.Type, r.Description)
 			}
 		case "constraints":
-			for _, c := range ns.Constraints {
+			for _, c := range v.Constraints {
 				fmt.Println(c)
 			}
 		default:
@@ -267,20 +292,20 @@ Elements: mission, vision, problem, personas, capabilities, risks, requirements,
 var northstarFactsCmd = &cobra.Command{
 	Use:   "facts",
 	Short: "Show Mangle facts for northstar",
-	Long:  `Displays the Mangle facts generated from the northstar definition that are used by the kernel for reasoning.`,
+	Long: `Displays the Mangle facts generated from the northstar definition that are
+used by the kernel for reasoning.
+
+The facts are rendered from the authoritative vision via Vision.ToFacts, so this
+is exactly what the Guardian asserts into the kernel - not whatever a stale
+.nerd/northstar.mg happens to contain.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ws := workspace
-		if ws == "" {
-			ws, _ = os.Getwd()
-		}
-
-		mgPath := filepath.Join(ws, ".nerd", "northstar.mg")
-		data, err := os.ReadFile(mgPath)
+		v, err := loadAuthoritativeVision()
 		if err != nil {
-			return fmt.Errorf("northstar.mg not found - run '/northstar' in interactive mode")
+			return err
 		}
-
-		fmt.Print(string(data))
+		for _, line := range northstar.FactStrings(v) {
+			fmt.Println(line)
+		}
 		return nil
 	},
 }
@@ -302,39 +327,24 @@ Formats:
 			format = strings.ToLower(args[0])
 		}
 
-		ws := workspace
-		if ws == "" {
-			ws, _ = os.Getwd()
+		v, err := loadAuthoritativeVision()
+		if err != nil {
+			return err
 		}
 
 		switch format {
 		case "json":
-			jsonPath := filepath.Join(ws, ".nerd", "northstar.json")
-			data, err := os.ReadFile(jsonPath)
+			data, err := json.MarshalIndent(northstar.WizardDocumentFromVision(v), "", "  ")
 			if err != nil {
-				return fmt.Errorf("northstar.json not found")
+				return fmt.Errorf("marshal northstar: %w", err)
 			}
-			fmt.Print(string(data))
+			fmt.Println(string(data))
 
 		case "markdown", "md":
-			jsonPath := filepath.Join(ws, ".nerd", "northstar.json")
-			data, err := os.ReadFile(jsonPath)
-			if err != nil {
-				return fmt.Errorf("northstar.json not found")
-			}
-			var ns NorthstarState
-			if err := json.Unmarshal(data, &ns); err != nil {
-				return fmt.Errorf("failed to parse: %w", err)
-			}
-			fmt.Print(generateNorthstarMarkdown(&ns))
+			fmt.Print(generateNorthstarMarkdown(v))
 
 		case "mangle", "mg":
-			mgPath := filepath.Join(ws, ".nerd", "northstar.mg")
-			data, err := os.ReadFile(mgPath)
-			if err != nil {
-				return fmt.Errorf("northstar.mg not found")
-			}
-			fmt.Print(string(data))
+			fmt.Print(northstar.RenderVisionMangle(v))
 
 		default:
 			return fmt.Errorf("unknown format: %s (try: json, markdown, mangle)", format)
@@ -350,60 +360,262 @@ var northstarStatsCmd = &cobra.Command{
 	Short: "Show northstar statistics",
 	Long:  `Displays statistics about the northstar definition including counts and coverage.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ws := workspace
-		if ws == "" {
-			ws, _ = os.Getwd()
-		}
-
-		jsonPath := filepath.Join(ws, ".nerd", "northstar.json")
-		data, err := os.ReadFile(jsonPath)
+		v, err := loadAuthoritativeVision()
 		if err != nil {
-			return fmt.Errorf("northstar not defined")
-		}
-
-		var ns NorthstarState
-		if err := json.Unmarshal(data, &ns); err != nil {
-			return fmt.Errorf("failed to parse: %w", err)
+			return err
 		}
 
 		fmt.Println("Northstar Statistics")
 		fmt.Println(strings.Repeat("─", 40))
 
-		fmt.Printf("Mission defined:      %v\n", ns.Mission != "")
-		fmt.Printf("Vision defined:       %v\n", ns.Vision != "")
-		fmt.Printf("Problem defined:      %v\n", ns.Problem != "")
-		fmt.Printf("User Personas:        %d\n", len(ns.Personas))
-		fmt.Printf("Capabilities:         %d\n", len(ns.Capabilities))
-		fmt.Printf("Risks:                %d\n", len(ns.Risks))
-		fmt.Printf("Requirements:         %d\n", len(ns.Requirements))
-		fmt.Printf("Constraints:          %d\n", len(ns.Constraints))
-		fmt.Printf("Research Documents:   %d\n", len(ns.ResearchDocs))
-		fmt.Printf("Extracted Facts:      %d\n", len(ns.ExtractedFacts))
+		fmt.Printf("Mission defined:      %v\n", v.Mission != "")
+		fmt.Printf("Vision defined:       %v\n", v.VisionStmt != "")
+		fmt.Printf("Problem defined:      %v\n", v.Problem != "")
+		fmt.Printf("User Personas:        %d\n", len(v.Personas))
+		fmt.Printf("Capabilities:         %d\n", len(v.Capabilities))
+		fmt.Printf("Risks:                %d\n", len(v.Risks))
+		fmt.Printf("Requirements:         %d\n", len(v.Requirements))
+		fmt.Printf("Constraints:          %d\n", len(v.Constraints))
+		fmt.Printf("Mangle facts:         %d\n", len(v.ToFacts()))
 
-		// Capability breakdown by priority
-		if len(ns.Capabilities) > 0 {
+		if len(v.Capabilities) > 0 {
 			fmt.Println()
 			fmt.Println("Capabilities by Priority:")
 			capsByPriority := map[string]int{}
-			for _, c := range ns.Capabilities {
+			for _, c := range v.Capabilities {
 				capsByPriority[c.Priority]++
 			}
-			for p, count := range capsByPriority {
-				fmt.Printf("  %s: %d\n", p, count)
+			for _, p := range sortedKeys(capsByPriority) {
+				fmt.Printf("  %s: %d\n", p, capsByPriority[p])
 			}
 		}
 
-		// Requirement breakdown by type
-		if len(ns.Requirements) > 0 {
+		if len(v.Requirements) > 0 {
 			fmt.Println()
 			fmt.Println("Requirements by Type:")
 			reqsByType := map[string]int{}
-			for _, r := range ns.Requirements {
+			for _, r := range v.Requirements {
 				reqsByType[r.Type]++
 			}
-			for t, count := range reqsByType {
-				fmt.Printf("  %s: %d\n", t, count)
+			for _, t := range sortedKeys(reqsByType) {
+				fmt.Printf("  %s: %d\n", t, reqsByType[t])
 			}
+		}
+		return nil
+	},
+}
+
+// =============================================================================
+// SQLITE-BACKED OPERATOR COMMANDS
+// =============================================================================
+
+var (
+	northstarHistoryLimit int
+	northstarDriftLimit   int
+)
+
+// northstarHistoryCmd shows recorded alignment checks.
+var northstarHistoryCmd = &cobra.Command{
+	Use:   "history",
+	Short: "Show alignment check history",
+	Long: `Lists the alignment checks recorded in the Northstar knowledge store,
+newest first. These are the checks the Guardian, /alignment, and the campaign
+observer actually performed.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		nerdDir := northstarNerdDir()
+		store, err := northstar.NewStore(nerdDir)
+		if err != nil {
+			return fmt.Errorf("open northstar store at %s: %w", nerdDir, err)
+		}
+		defer func() { _ = store.Close() }()
+
+		checks, err := store.GetAlignmentHistory(northstarHistoryLimit)
+		if err != nil {
+			return fmt.Errorf("read alignment history: %w", err)
+		}
+		if len(checks) == 0 {
+			fmt.Println("No alignment checks recorded yet.")
+			fmt.Println("Run '/alignment' in interactive mode or start a campaign to generate them.")
+			return nil
+		}
+
+		fmt.Printf("Alignment history (%d most recent)\n", len(checks))
+		fmt.Println(strings.Repeat("─", 78))
+		for _, c := range checks {
+			fmt.Printf("%s  %-8s score=%.2f  %-14s %s\n",
+				c.Timestamp.Format("2006-01-02 15:04:05"),
+				c.Result, c.Score, c.Trigger, truncateForCLI(c.Subject, 30))
+			if c.Explanation != "" {
+				fmt.Printf("    %s\n", truncateForCLI(c.Explanation, 200))
+			}
+			for _, s := range c.Suggestions {
+				fmt.Printf("    → %s\n", truncateForCLI(s, 150))
+			}
+		}
+		return nil
+	},
+}
+
+var northstarDriftAll bool
+
+// northstarDriftCmd shows drift events.
+var northstarDriftCmd = &cobra.Command{
+	Use:   "drift",
+	Short: "Show vision drift events",
+	Long: `Lists drift events recorded when an alignment check came back failed or
+blocked. By default only unresolved drift is shown; --all includes resolved
+events with their resolutions.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		nerdDir := northstarNerdDir()
+		store, err := northstar.NewStore(nerdDir)
+		if err != nil {
+			return fmt.Errorf("open northstar store at %s: %w", nerdDir, err)
+		}
+		defer func() { _ = store.Close() }()
+
+		var events []northstar.DriftEvent
+		if northstarDriftAll {
+			events, err = store.GetDriftHistory(northstarDriftLimit)
+		} else {
+			events, err = store.GetActiveDriftEvents()
+		}
+		if err != nil {
+			return fmt.Errorf("read drift events: %w", err)
+		}
+
+		if len(events) == 0 {
+			if northstarDriftAll {
+				fmt.Println("No drift events recorded.")
+			} else {
+				fmt.Println("No unresolved drift. (Use --all to include resolved events.)")
+			}
+			return nil
+		}
+
+		fmt.Printf("Drift events (%d)\n", len(events))
+		fmt.Println(strings.Repeat("─", 78))
+		for _, e := range events {
+			status := "OPEN"
+			if e.Resolved {
+				status = "RESOLVED"
+			}
+			fmt.Printf("%s  [%s] %-8s %s\n",
+				e.Timestamp.Format("2006-01-02 15:04:05"), status, e.Severity, e.Category)
+			if e.Description != "" {
+				fmt.Printf("    %s\n", truncateForCLI(e.Description, 200))
+			}
+			for _, ev := range e.Evidence {
+				fmt.Printf("    evidence: %s\n", truncateForCLI(ev, 150))
+			}
+			if e.Resolved && e.Resolution != "" {
+				fmt.Printf("    resolution: %s\n", truncateForCLI(e.Resolution, 150))
+			}
+		}
+		return nil
+	},
+}
+
+// northstarStateCmd shows guardian state and alignment metrics.
+var northstarStateCmd = &cobra.Command{
+	Use:   "state",
+	Short: "Show Guardian state and alignment metrics",
+	Long: `Reports the Guardian rollup held in the knowledge store: whether a vision
+is defined, the running alignment average, open drift, and the aggregate
+metrics (total checks, blocked rate, mean score).`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		nerdDir := northstarNerdDir()
+		store, err := northstar.NewStore(nerdDir)
+		if err != nil {
+			return fmt.Errorf("open northstar store at %s: %w", nerdDir, err)
+		}
+		defer func() { _ = store.Close() }()
+
+		state, err := store.GetState()
+		if err != nil {
+			return fmt.Errorf("read guardian state: %w", err)
+		}
+		metrics, err := store.GetMetrics()
+		if err != nil {
+			return fmt.Errorf("read alignment metrics: %w", err)
+		}
+
+		fmt.Println("Northstar Guardian State")
+		fmt.Println(strings.Repeat("─", 46))
+		fmt.Printf("Store:                %s\n", store.Path())
+		fmt.Printf("Vision defined:       %v\n", state.VisionDefined)
+		if !state.LastCheck.IsZero() {
+			fmt.Printf("Last check:           %s\n", state.LastCheck.Format("2006-01-02 15:04:05"))
+		} else {
+			fmt.Printf("Last check:           never\n")
+		}
+		fmt.Printf("Tasks since check:    %d\n", state.TasksSinceCheck)
+		fmt.Printf("Session observations: %d\n", state.SessionObservations)
+		fmt.Println()
+
+		fmt.Println("Alignment metrics")
+		fmt.Println(strings.Repeat("─", 46))
+		fmt.Printf("Total checks:         %d\n", metrics.TotalChecks)
+		fmt.Printf("Mean score:           %.3f\n", metrics.MeanScore)
+		fmt.Printf("Overall alignment:    %.3f\n", metrics.OverallAlignment)
+		fmt.Printf("Blocked rate:         %.1f%%\n", metrics.BlockedRate*100)
+		fmt.Printf("Failed rate:          %.1f%%\n", metrics.FailedRate*100)
+		fmt.Printf("Active drift:         %d\n", metrics.ActiveDrift)
+		fmt.Printf("Resolved drift:       %d\n", metrics.ResolvedDrift)
+		fmt.Printf("Ingested docs:        %d\n", metrics.IngestedDocs)
+
+		if metrics.TotalChecks > 0 {
+			fmt.Println()
+			fmt.Println("Checks by result")
+			for _, r := range metrics.SortedResults() {
+				fmt.Printf("  %-8s %d\n", r, metrics.ChecksByResult[r])
+			}
+		}
+		return nil
+	},
+}
+
+// northstarSyncCmd runs the JSON <-> store reconciliation explicitly.
+var northstarSyncCmd = &cobra.Command{
+	Use:   "sync",
+	Short: "Reconcile .nerd/northstar.json with the knowledge store",
+	Long: `Runs the vision authority reconciliation that every Guardian boot performs,
+and reports which direction it moved.
+
+The store is the durable authority; northstar.json and northstar.mg are import
+and export surfaces. When both hold a vision and they differ, the newer of the
+two wins (file mtime versus the store's updated_at); ties go to the store.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		nerdDir := northstarNerdDir()
+		store, err := northstar.NewStore(nerdDir)
+		if err != nil {
+			return fmt.Errorf("open northstar store at %s: %w", nerdDir, err)
+		}
+		defer func() { _ = store.Close() }()
+
+		result, err := northstar.SyncVisionAuthority(store, nerdDir)
+		if err != nil {
+			return fmt.Errorf("reconcile vision: %w", err)
+		}
+
+		switch result.Direction {
+		case northstar.SyncImported:
+			fmt.Printf("Imported %s into %s\n", result.JSONPath, store.Path())
+		case northstar.SyncExported:
+			fmt.Printf("Exported %s to %s and %s\n", store.Path(), result.JSONPath, result.ManglePat)
+		default:
+			if result.Vision == nil {
+				fmt.Println("No vision defined in either surface - nothing to reconcile.")
+				return nil
+			}
+			fmt.Println("Already in sync.")
+		}
+		if result.Vision != nil {
+			fmt.Printf("Mission: %s\n", result.Vision.Mission)
+			fmt.Printf("Facts:   %d\n", len(result.Vision.ToFacts()))
 		}
 		return nil
 	},
@@ -420,155 +632,96 @@ var northstarLoadCmd = &cobra.Command{
 			return fmt.Errorf("failed to read %s: %w", args[0], err)
 		}
 
-		var ns NorthstarState
-		if err := json.Unmarshal(data, &ns); err != nil {
+		var doc northstar.WizardDocument
+		if err := json.Unmarshal(data, &doc); err != nil {
 			return fmt.Errorf("failed to parse %s: %w", args[0], err)
 		}
 
-		if ns.Mission == "" {
+		vision := doc.ToVision()
+		if vision == nil || vision.Mission == "" {
 			return fmt.Errorf("invalid northstar: Mission must not be empty")
 		}
 
-		ws := workspace
-		if ws == "" {
-			ws, _ = os.Getwd()
-		}
-
-		nerdDir := filepath.Join(ws, ".nerd")
+		nerdDir := northstarNerdDir()
 		if err := os.MkdirAll(nerdDir, 0755); err != nil {
 			return fmt.Errorf("failed to create .nerd directory: %w", err)
 		}
 
-		// Prepare all representations before writing (parse and validate first, then write).
-		out, err := json.MarshalIndent(ns, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal northstar: %w", err)
-		}
-		mgContent := generateNorthstarMangleFromState(&ns)
-		vision := northstarStateToVision(&ns)
-
-		jsonPath := filepath.Join(ws, ".nerd", "northstar.json")
-		if err := os.WriteFile(jsonPath, out, 0644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", jsonPath, err)
-		}
-		fmt.Printf("Wrote %s\n", jsonPath)
-
-		mgPath := filepath.Join(ws, ".nerd", "northstar.mg")
-		if err := os.WriteFile(mgPath, []byte(mgContent), 0644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", mgPath, err)
-		}
-		fmt.Printf("Wrote %s\n", mgPath)
-
-		// Store representation - report clearly on failure but leave JSON and .mg in place.
+		// Store first: it is the authority, and the JSON/.mg surfaces are
+		// derived from what it accepted. Writing the files first would leave a
+		// visible vision the kernel never received if the store write failed.
 		store, err := northstar.NewStore(nerdDir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to open northstar store: %v\n", err)
-			fmt.Printf("Representations succeeded: json, mangle; store failed: %v\n", err)
-			fmt.Printf("Mission: %s\n", ns.Mission)
-			fmt.Printf("User Personas:        %d\n", len(ns.Personas))
-			fmt.Printf("Capabilities:         %d\n", len(ns.Capabilities))
-			fmt.Printf("Risks:                %d\n", len(ns.Risks))
-			fmt.Printf("Requirements:         %d\n", len(ns.Requirements))
-			fmt.Printf("Constraints:          %d\n", len(ns.Constraints))
-			return fmt.Errorf("store write failed (json and mangle succeeded): %w", err)
+			return fmt.Errorf("open northstar store: %w", err)
 		}
-		defer store.Close()
+		defer func() { _ = store.Close() }()
+
 		if err := store.SaveVision(vision); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to save vision to store: %v\n", err)
-			fmt.Printf("Representations succeeded: json, mangle; store failed: %v\n", err)
-			fmt.Printf("Mission: %s\n", ns.Mission)
-			fmt.Printf("User Personas:        %d\n", len(ns.Personas))
-			fmt.Printf("Capabilities:         %d\n", len(ns.Capabilities))
-			fmt.Printf("Risks:                %d\n", len(ns.Risks))
-			fmt.Printf("Requirements:         %d\n", len(ns.Requirements))
-			fmt.Printf("Constraints:          %d\n", len(ns.Constraints))
-			return fmt.Errorf("store write failed (json and mangle succeeded): %w", err)
+			return fmt.Errorf("save vision to store: %w", err)
 		}
 		fmt.Printf("Wrote %s\n", store.Path())
 
-		fmt.Printf("Mission: %s\n", ns.Mission)
-		fmt.Printf("User Personas:        %d\n", len(ns.Personas))
-		fmt.Printf("Capabilities:         %d\n", len(ns.Capabilities))
-		fmt.Printf("Risks:                %d\n", len(ns.Risks))
-		fmt.Printf("Requirements:         %d\n", len(ns.Requirements))
-		fmt.Printf("Constraints:          %d\n", len(ns.Constraints))
-		fmt.Printf("Representations succeeded: json, mangle, store\n")
+		if _, err := northstar.WriteVisionJSON(nerdDir, vision); err != nil {
+			return fmt.Errorf("export vision JSON (store write succeeded): %w", err)
+		}
+		fmt.Printf("Wrote %s\n", filepath.Join(nerdDir, northstar.VisionJSONFileName))
+
+		if err := northstar.WriteVisionMangle(nerdDir, vision); err != nil {
+			return fmt.Errorf("export vision facts (store write succeeded): %w", err)
+		}
+		fmt.Printf("Wrote %s\n", filepath.Join(nerdDir, northstar.VisionMangleFileName))
+
+		fmt.Printf("Mission: %s\n", vision.Mission)
+		fmt.Printf("User Personas:        %d\n", len(vision.Personas))
+		fmt.Printf("Capabilities:         %d\n", len(vision.Capabilities))
+		fmt.Printf("Risks:                %d\n", len(vision.Risks))
+		fmt.Printf("Requirements:         %d\n", len(vision.Requirements))
+		fmt.Printf("Constraints:          %d\n", len(vision.Constraints))
+		fmt.Printf("Representations succeeded: store, json, mangle\n")
 
 		return nil
 	},
 }
 
 // =============================================================================
-// TYPE DEFINITIONS (mirror chat package types)
-// =============================================================================
-
-// NorthstarState mirrors the NorthstarWizardState from chat package
-type NorthstarState struct {
-	Mission        string                 `json:"Mission"`
-	Problem        string                 `json:"Problem"`
-	Vision         string                 `json:"Vision"`
-	Personas       []NorthstarPersona     `json:"Personas"`
-	Capabilities   []NorthstarCapability  `json:"Capabilities"`
-	Risks          []NorthstarRisk        `json:"Risks"`
-	Requirements   []NorthstarRequirement `json:"Requirements"`
-	Constraints    []string               `json:"Constraints"`
-	ResearchDocs   []string               `json:"ResearchDocs"`
-	ExtractedFacts []string               `json:"ExtractedFacts"`
-}
-
-// NorthstarPersona mirrors UserPersona
-type NorthstarPersona struct {
-	Name       string   `json:"name"`
-	PainPoints []string `json:"pain_points"`
-	Needs      []string `json:"needs"`
-}
-
-// NorthstarCapability mirrors Capability
-type NorthstarCapability struct {
-	Description string `json:"description"`
-	Timeline    string `json:"timeline"`
-	Priority    string `json:"priority"`
-}
-
-// NorthstarRisk mirrors Risk
-type NorthstarRisk struct {
-	Description string `json:"description"`
-	Likelihood  string `json:"likelihood"`
-	Impact      string `json:"impact"`
-	Mitigation  string `json:"mitigation"`
-}
-
-// NorthstarRequirement mirrors NorthstarRequirement
-type NorthstarRequirement struct {
-	ID          string `json:"id"`
-	Type        string `json:"type"`
-	Description string `json:"description"`
-	Priority    string `json:"priority"`
-	Source      string `json:"source"`
-}
-
-// =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
 
-// generateNorthstarMarkdown creates a markdown document from northstar state
-func generateNorthstarMarkdown(ns *NorthstarState) string {
+func sortedKeys(m map[string]int) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func truncateForCLI(s string, maxLen int) string {
+	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "…"
+}
+
+// generateNorthstarMarkdown creates a markdown document from the vision.
+func generateNorthstarMarkdown(v *northstar.Vision) string {
 	var sb strings.Builder
 
 	sb.WriteString("# Project Northstar\n\n")
 
 	sb.WriteString("## Mission\n\n")
-	sb.WriteString(ns.Mission + "\n\n")
+	sb.WriteString(v.Mission + "\n\n")
 
 	sb.WriteString("## Problem Statement\n\n")
-	sb.WriteString(ns.Problem + "\n\n")
+	sb.WriteString(v.Problem + "\n\n")
 
 	sb.WriteString("## Vision\n\n")
-	sb.WriteString(ns.Vision + "\n\n")
+	sb.WriteString(v.VisionStmt + "\n\n")
 
-	if len(ns.Personas) > 0 {
+	if len(v.Personas) > 0 {
 		sb.WriteString("## Target Users\n\n")
-		for _, p := range ns.Personas {
+		for _, p := range v.Personas {
 			sb.WriteString(fmt.Sprintf("### %s\n\n", p.Name))
 			if len(p.PainPoints) > 0 {
 				sb.WriteString("**Pain Points:**\n")
@@ -587,39 +740,43 @@ func generateNorthstarMarkdown(ns *NorthstarState) string {
 		}
 	}
 
-	if len(ns.Capabilities) > 0 {
+	if len(v.Capabilities) > 0 {
 		sb.WriteString("## Capabilities\n\n")
-		sb.WriteString("| Description | Timeline | Priority |\n")
-		sb.WriteString("|-------------|----------|----------|\n")
-		for _, c := range ns.Capabilities {
-			sb.WriteString(fmt.Sprintf("| %s | %s | %s |\n", c.Description, c.Timeline, c.Priority))
+		sb.WriteString("| ID | Description | Timeline | Priority | Serves |\n")
+		sb.WriteString("|----|-------------|----------|----------|--------|\n")
+		for _, c := range v.Capabilities {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n",
+				c.ID, c.Description, c.Timeline, c.Priority, strings.Join(c.Serves, ", ")))
 		}
 		sb.WriteString("\n")
 	}
 
-	if len(ns.Risks) > 0 {
+	if len(v.Risks) > 0 {
 		sb.WriteString("## Risks\n\n")
-		sb.WriteString("| Description | Likelihood | Impact | Mitigation |\n")
-		sb.WriteString("|-------------|------------|--------|------------|\n")
-		for _, r := range ns.Risks {
-			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", r.Description, r.Likelihood, r.Impact, r.Mitigation))
+		sb.WriteString("| ID | Description | Likelihood | Impact | Mitigation |\n")
+		sb.WriteString("|----|-------------|------------|--------|------------|\n")
+		for _, r := range v.Risks {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n",
+				r.ID, r.Description, r.Likelihood, r.Impact, r.Mitigation))
 		}
 		sb.WriteString("\n")
 	}
 
-	if len(ns.Requirements) > 0 {
+	if len(v.Requirements) > 0 {
 		sb.WriteString("## Requirements\n\n")
-		sb.WriteString("| ID | Type | Description | Priority |\n")
-		sb.WriteString("|----|------|-------------|----------|\n")
-		for _, r := range ns.Requirements {
-			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", r.ID, r.Type, r.Description, r.Priority))
+		sb.WriteString("| ID | Type | Description | Priority | Supports | Addresses |\n")
+		sb.WriteString("|----|------|-------------|----------|----------|-----------|\n")
+		for _, r := range v.Requirements {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s |\n",
+				r.ID, r.Type, r.Description, r.Priority,
+				strings.Join(r.Supports, ", "), strings.Join(r.Addresses, ", ")))
 		}
 		sb.WriteString("\n")
 	}
 
-	if len(ns.Constraints) > 0 {
+	if len(v.Constraints) > 0 {
 		sb.WriteString("## Constraints\n\n")
-		for _, c := range ns.Constraints {
+		for _, c := range v.Constraints {
 			sb.WriteString(fmt.Sprintf("- %s\n", c))
 		}
 		sb.WriteString("\n")
@@ -628,189 +785,11 @@ func generateNorthstarMarkdown(ns *NorthstarState) string {
 	return sb.String()
 }
 
-// generateNorthstarMangleFromState generates Mangle facts from NorthstarState.
-// Equivalent to chat.generateNorthstarMangle but operating on the CLI's NorthstarState type.
-func generateNorthstarMangleFromState(ns *NorthstarState) string {
-	var sb strings.Builder
-
-	sb.WriteString("# Northstar Vision Facts\n")
-	sb.WriteString(fmt.Sprintf("# Generated: %s\n", time.Now().Format(time.RFC3339)))
-	sb.WriteString("# This file defines the project's north star and informs kernel reasoning.\n")
-	sb.WriteString("# Schema declarations are in internal/core/defaults/schemas.mg\n\n")
-
-	// Core Vision Facts - IDs are /string per Decl, use "global" as canonical ID (see internal/northstar/types.go ToFacts)
-	sb.WriteString("# Core Vision Facts\n")
-	sb.WriteString(fmt.Sprintf("northstar_mission(%q, %q).\n", "global", ns.Mission))
-	sb.WriteString(fmt.Sprintf("northstar_problem(%q, %q).\n", "global", ns.Problem))
-	sb.WriteString(fmt.Sprintf("northstar_vision(%q, %q).\n", "global", ns.Vision))
-	sb.WriteString("\n")
-
-	// Personas
-	if len(ns.Personas) > 0 {
-		sb.WriteString("# User Personas\n")
-		for i, p := range ns.Personas {
-			personaID := fmt.Sprintf("persona_%d", i+1)
-			sb.WriteString(fmt.Sprintf("northstar_persona(%q, %q).\n", personaID, p.Name))
-			for _, pain := range p.PainPoints {
-				sb.WriteString(fmt.Sprintf("northstar_pain_point(%q, %q).\n", personaID, pain))
-			}
-			for _, need := range p.Needs {
-				sb.WriteString(fmt.Sprintf("northstar_need(%q, %q).\n", personaID, need))
-			}
-		}
-		sb.WriteString("\n")
-	}
-
-	// Capabilities - Decl bound [/string, /string, /name, /number]: ID string, Desc string, Timeline /name, Priority /number
-	if len(ns.Capabilities) > 0 {
-		sb.WriteString("# Capabilities\n")
-		for i, c := range ns.Capabilities {
-			capID := fmt.Sprintf("cap_%d", i+1)
-			timeline := strings.ToLower(strings.ReplaceAll(c.Timeline, " ", "_"))
-			priority := northstarPriorityToNumber(c.Priority)
-			sb.WriteString(fmt.Sprintf("northstar_capability(%q, %q, /%s, %d).\n",
-				capID, c.Description, timeline, priority))
-		}
-		sb.WriteString("\n")
-	}
-
-	// Risks - Decl bound [/string, /string, /name, /number]: ID string, Desc string, Likelihood /name, Impact /number
-	if len(ns.Risks) > 0 {
-		sb.WriteString("# Risks\n")
-		for i, r := range ns.Risks {
-			riskID := fmt.Sprintf("risk_%d", i+1)
-			likelihood := strings.ToLower(r.Likelihood)
-			impact := northstarRiskImpactToNumber(r.Impact)
-			sb.WriteString(fmt.Sprintf("northstar_risk(%q, %q, /%s, %d).\n",
-				riskID, r.Description, likelihood, impact))
-			if r.Mitigation != "" && strings.ToLower(r.Mitigation) != "none" {
-				// Decl northstar_mitigation(RiskID, Strategy) bound [/string, /name] - Strategy is /name atom
-				sb.WriteString(fmt.Sprintf("northstar_mitigation(%q, /mitigation).\n", riskID))
-			}
-		}
-		sb.WriteString("\n")
-	}
-
-	// Requirements - Decl bound [/string, /name, /string, /number]: ReqID string, Type /name, Description string, Priority /number
-	if len(ns.Requirements) > 0 {
-		sb.WriteString("# Requirements\n")
-		for _, r := range ns.Requirements {
-			reqID := strings.ToLower(r.ID)
-			reqType := strings.ToLower(strings.ReplaceAll(r.Type, "-", "_"))
-			reqType = strings.ReplaceAll(reqType, " ", "_")
-			priority := northstarPriorityToNumber(r.Priority)
-			sb.WriteString(fmt.Sprintf("northstar_requirement(%q, /%s, %q, %d).\n",
-				reqID, reqType, r.Description, priority))
-		}
-		sb.WriteString("\n")
-	}
-
-	// Constraints - Decl bound [/string, /string]
-	if len(ns.Constraints) > 0 {
-		sb.WriteString("# Constraints\n")
-		for i, c := range ns.Constraints {
-			constraintID := fmt.Sprintf("constraint_%d", i+1)
-			sb.WriteString(fmt.Sprintf("northstar_constraint(%q, %q).\n", constraintID, c))
-		}
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString("northstar_defined().\n")
-
-	return sb.String()
-}
-
-func northstarPriorityToNumber(p string) int {
-	switch strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(p, "-", "_"), " ", "_")) {
-	case "critical", "must_have":
-		return 100
-	case "high", "should_have":
-		return 80
-	case "medium":
-		return 50
-	case "low", "nice_to_have":
-		return 20
-	default:
-		return 50
-	}
-}
-
-func northstarRiskImpactToNumber(impact string) int {
-	switch strings.ToLower(strings.TrimSpace(impact)) {
-	case "high":
-		return 100
-	case "medium":
-		return 50
-	case "low":
-		return 20
-	default:
-		return 50
-	}
-}
-
-// northstarStateToVision converts a NorthstarState into a northstar.Vision for store persistence.
-func northstarStateToVision(ns *NorthstarState) *northstar.Vision {
-	v := &northstar.Vision{
-		Mission:    ns.Mission,
-		Problem:    ns.Problem,
-		VisionStmt: ns.Vision,
-		Constraints: ns.Constraints,
-	}
-	if ns.Constraints == nil {
-		v.Constraints = []string{}
-	}
-	// Personas
-	for _, p := range ns.Personas {
-		v.Personas = append(v.Personas, northstar.Persona{
-			Name:       p.Name,
-			PainPoints: p.PainPoints,
-			Needs:      p.Needs,
-		})
-	}
-	if v.Personas == nil {
-		v.Personas = []northstar.Persona{}
-	}
-	// Capabilities with generated IDs
-	for i, c := range ns.Capabilities {
-		v.Capabilities = append(v.Capabilities, northstar.Capability{
-			ID:          fmt.Sprintf("cap_%d", i+1),
-			Description: c.Description,
-			Timeline:    c.Timeline,
-			Priority:    c.Priority,
-		})
-	}
-	if v.Capabilities == nil {
-		v.Capabilities = []northstar.Capability{}
-	}
-	// Risks with generated IDs
-	for i, r := range ns.Risks {
-		v.Risks = append(v.Risks, northstar.Risk{
-			ID:          fmt.Sprintf("risk_%d", i+1),
-			Description: r.Description,
-			Likelihood:  r.Likelihood,
-			Impact:      r.Impact,
-			Mitigation:  r.Mitigation,
-		})
-	}
-	if v.Risks == nil {
-		v.Risks = []northstar.Risk{}
-	}
-	// Requirements preserving original IDs lowercased
-	for _, r := range ns.Requirements {
-		v.Requirements = append(v.Requirements, northstar.Requirement{
-			ID:          strings.ToLower(r.ID),
-			Type:        r.Type,
-			Description: r.Description,
-			Priority:    r.Priority,
-		})
-	}
-	if v.Requirements == nil {
-		v.Requirements = []northstar.Requirement{}
-	}
-	return v
-}
-
 func init() {
+	northstarHistoryCmd.Flags().IntVar(&northstarHistoryLimit, "limit", 20, "maximum number of records to show")
+	northstarDriftCmd.Flags().IntVar(&northstarDriftLimit, "limit", 20, "maximum number of records to show (with --all)")
+	northstarDriftCmd.Flags().BoolVar(&northstarDriftAll, "all", false, "include resolved drift events")
+
 	// Add subcommands
 	northstarCmd.AddCommand(
 		northstarShowCmd,
@@ -820,5 +799,9 @@ func init() {
 		northstarExportCmd,
 		northstarStatsCmd,
 		northstarLoadCmd,
+		northstarHistoryCmd,
+		northstarDriftCmd,
+		northstarStateCmd,
+		northstarSyncCmd,
 	)
 }

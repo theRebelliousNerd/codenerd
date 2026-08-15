@@ -1,0 +1,16 @@
+# Expected mcp_tool_selected/3 facts for ShardType = /coder.
+# This is an EXACT set: a missing line and an extra line both fail.
+#
+# Score derivation (policy_mcp.mg section 50):
+#   fs/read_file  skeleton (filesystem + read)            -> /full
+#   fs/write_file 60 base + 30 intent(/write) + 20 domain(/go) = 110 logic
+#                 (110*7)/10 + (90*3)/10 = 77 + 27 = 104   -> /full
+#   fs/proven     45 base + 10 domain(/general) + 15 usage = 70 -> /full
+#   web/fetch     40 base + 10 domain(/general) = 50        -> /condensed
+#   fs/flaky      45 base + 10 domain(/general) - 20 usage = 35 -> /minimal
+#   dead/thing    server status /error -> not available     -> absent
+mcp_tool_selected(/coder, "fs/read_file", /full).
+mcp_tool_selected(/coder, "fs/write_file", /full).
+mcp_tool_selected(/coder, "fs/proven", /full).
+mcp_tool_selected(/coder, "web/fetch", /condensed).
+mcp_tool_selected(/coder, "fs/flaky", /minimal).

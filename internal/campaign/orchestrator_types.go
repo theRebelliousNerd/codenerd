@@ -91,6 +91,17 @@ type Orchestrator struct {
 	// Resolved gate wiring (auto + overrides) used by deterministic risk gating.
 	riskGateState riskGateResolved
 
+	// Last preflight evaluation, including advisory findings that did NOT stop
+	// the run. Operator surfaces read it so soft findings are visible on a
+	// campaign that started successfully.
+	lastRiskEvaluation *RiskGateEvaluation
+
+	// Optional metrics sink. Nil = no observation (see metrics.go). Guarded by
+	// its own mutex because risk preflight observes while o.mu is held.
+	metricsMu   sync.RWMutex
+	metrics     MetricsSink
+	phaseStarts sync.Map // phaseID -> time.Time, only populated when metrics is set
+
 	// Preserves configured observer even when runtime gate disables northstar checks.
 	configuredNorthstarObserver *northstar.CampaignObserver
 }

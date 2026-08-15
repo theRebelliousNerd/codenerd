@@ -21,6 +21,11 @@ type MCPClientManager struct {
 	analyzer  ToolAnalyzerInterface
 	config    map[string]MCPServerConfig
 	selection ToolSelectionConfig
+	facts     *FactEmitter
+
+	// readiness tracks in-flight initial discovery so callers can wait for the
+	// catalog to exist instead of racing an empty store.
+	discovering sync.WaitGroup
 
 	// Callbacks
 	onToolDiscovered func(tool *MCPTool)
@@ -48,6 +53,22 @@ func NewMCPClientManager(store *MCPToolStore, analyzer ToolAnalyzerInterface, co
 		config:    config,
 		selection: DefaultToolSelectionConfig(),
 	}
+}
+
+// SetFactEmitter installs the kernel fact emitter. Server and tool state is
+// mirrored into Mangle only when this is set; without it the MCP predicates
+// stay empty and policy_mcp.mg cannot decide anything.
+func (m *MCPClientManager) SetFactEmitter(emitter *FactEmitter) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.facts = emitter
+}
+
+// factEmitter returns the emitter under the read lock.
+func (m *MCPClientManager) factEmitter() *FactEmitter {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.facts
 }
 
 // SetToolSelectionConfig sets the tool selection configuration.
@@ -92,6 +113,24 @@ func (m *MCPClientManager) ConnectAll(ctx context.Context) error {
 	return lastErr
 }
 
+// WaitForDiscovery blocks until every initial discovery goroutine started by
+// Connect has finished, or ctx is done. Discovery runs detached from Connect,
+// so without this a caller that compiles a tool set right after ConnectAll
+// races an empty catalog.
+func (m *MCPClientManager) WaitForDiscovery(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		m.discovering.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // Connect establishes connection to a specific MCP server.
 func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 	if serverID == "" {
@@ -130,11 +169,13 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 
 	switch Protocol(cfg.Protocol) {
 	case ProtocolHTTP:
-		transport = NewHTTPTransport(cfg.BaseURL, timeout)
+		transport = NewHTTPTransportWithHeaders(cfg.BaseURL, timeout, cfg.Headers)
 	case ProtocolStdio:
+		// Headers are HTTP-specific; a stdio server is configured through its
+		// command line and inherited environment instead.
 		transport = NewStdioTransport(cfg.Endpoint)
 	case ProtocolSSE:
-		transport = NewSSETransport(cfg.BaseURL, timeout)
+		transport = NewSSETransportWithHeaders(cfg.BaseURL, timeout, cfg.Headers)
 	default:
 		return fmt.Errorf("unsupported protocol: %s", cfg.Protocol)
 	}
@@ -184,6 +225,10 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 	m.servers[serverID] = conn
 	m.mu.Unlock()
 
+	// Publish the server to the kernel before status, so the availability rule
+	// in policy_mcp.mg sees a registration to join against.
+	m.factEmitter().EmitServer(server)
+
 	m.updateServerStatus(serverID, ServerStatusConnected)
 
 	// Persist server to store
@@ -195,7 +240,9 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 
 	// Discover tools if enabled
 	if cfg.AutoDiscoverTools {
+		m.discovering.Add(1)
 		go func() {
+			defer m.discovering.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					logging.Get(logging.CategoryTools).Error("Panic in DiscoverTools background goroutine: %v", r)
@@ -294,10 +341,29 @@ func (m *MCPClientManager) DiscoverTools(ctx context.Context, serverID string) e
 
 	// Update connection's tool cache
 	m.mu.Lock()
+	previous := make([]*MCPTool, 0)
 	if conn, ok := m.servers[serverID]; ok {
+		previous = append(previous, conn.Tools...)
 		conn.Tools = tools
 	}
 	m.mu.Unlock()
+
+	// A tool the server no longer advertises must lose its facts, otherwise
+	// the kernel keeps recommending a call that will fail at the transport.
+	if emitter := m.factEmitter(); emitter != nil {
+		live := make(map[string]struct{}, len(tools))
+		for _, tool := range tools {
+			live[tool.ToolID] = struct{}{}
+		}
+		for _, old := range previous {
+			if old == nil {
+				continue
+			}
+			if _, ok := live[old.ToolID]; !ok {
+				emitter.RetractTool(old.ToolID)
+			}
+		}
+	}
 
 	return nil
 }
@@ -305,13 +371,30 @@ func (m *MCPClientManager) DiscoverTools(ctx context.Context, serverID string) e
 // processToolSchema processes a tool schema, checking cache and analyzing if new.
 func (m *MCPClientManager) processToolSchema(ctx context.Context, serverID string, schema MCPToolSchema) (*MCPTool, error) {
 	toolID := fmt.Sprintf("%s/%s", serverID, schema.Name)
+	schemaHash := ToolSchemaHash(schema)
 
 	// Check if already analyzed
 	if m.store != nil {
 		existing, err := m.store.GetTool(ctx, toolID)
 		if err == nil && existing != nil && !existing.AnalyzedAt.IsZero() {
-			logging.Get(logging.CategoryTools).Debug("Tool %s already analyzed, using cached", toolID)
-			return existing, nil
+			// Cached analysis is only valid for the schema it was derived from.
+			// A server that changes a tool's parameters or description without
+			// renaming it would otherwise keep the stale categories,
+			// capabilities and embedding forever.
+			if existing.SchemaHash == "" || existing.SchemaHash == schemaHash {
+				logging.Get(logging.CategoryTools).Debug("Tool %s already analyzed, using cached", toolID)
+				if existing.SchemaHash == "" {
+					// Backfill for rows written before schema hashing existed.
+					existing.SchemaHash = schemaHash
+					if err := m.store.SaveTool(ctx, existing); err != nil {
+						logging.Get(logging.CategoryTools).Debug("Failed to backfill schema hash for %s: %v", toolID, err)
+					}
+				}
+				m.factEmitter().EmitTool(existing)
+				return existing, nil
+			}
+			logging.Get(logging.CategoryTools).Info("Tool %s schema changed, re-analyzing", toolID)
+			m.factEmitter().RetractTool(toolID)
 		}
 	}
 
@@ -323,6 +406,7 @@ func (m *MCPClientManager) processToolSchema(ctx context.Context, serverID strin
 		Description:  schema.Description,
 		InputSchema:  schema.InputSchema,
 		OutputSchema: schema.OutputSchema,
+		SchemaHash:   schemaHash,
 		RegisteredAt: time.Now(),
 	}
 
@@ -354,6 +438,8 @@ func (m *MCPClientManager) processToolSchema(ctx context.Context, serverID strin
 			logging.Get(logging.CategoryTools).Warn("Failed to persist tool %s: %v", toolID, err)
 		}
 	}
+
+	m.factEmitter().EmitTool(tool)
 
 	return tool, nil
 }
@@ -427,6 +513,14 @@ func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map
 				// visible by default. Tool-usage telemetry powers later
 				// affinity scoring; silent loss skews the model.
 				logging.Get(logging.CategoryTools).Warn("Failed to record tool usage tool=%s: %v", toolID, err)
+				return
+			}
+			// Re-publish counters so the kernel's success-rate boost and
+			// slow-tool penalty see the call that just happened.
+			if emitter := m.factEmitter(); emitter != nil {
+				if updated, err := m.store.GetTool(context.Background(), toolID); err == nil && updated != nil {
+					emitter.EmitToolUsage(updated)
+				}
 			}
 		}()
 	}
@@ -500,7 +594,12 @@ func (m *MCPClientManager) ListTools(ctx context.Context) ([]MCPToolSchema, erro
 func (m *MCPClientManager) updateServerStatus(serverID string, status ServerStatus) {
 	m.mu.RLock()
 	cb := m.onServerStatus
+	emitter := m.facts
 	m.mu.RUnlock()
+
+	// Availability in policy_mcp.mg keys off mcp_server_status, so this is the
+	// fact that has to move on every transition — including disconnect.
+	emitter.EmitServerStatus(serverID, status)
 
 	if cb != nil {
 		cb(serverID, status)

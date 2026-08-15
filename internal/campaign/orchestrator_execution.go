@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/types"
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -29,11 +30,22 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	logging.Campaign("Campaign: %s (type=%s, phases=%d, tasks=%d)",
 		o.campaign.Title, o.campaign.Type, o.campaign.TotalPhases, o.campaign.TotalTasks)
 
-	// Deterministic risk scoring and gate enforcement (once per run).
-	if _, err := o.runRiskPreflight(ctx); err != nil {
+	// Deterministic risk scoring and gate enforcement (once per run). The kernel
+	// grades the gate results; this only enforces what it derived, and the
+	// returned error carries the whole evaluation so CLI and chat can render it
+	// instead of leaving it buried in CategoryCampaign logs.
+	if eval, err := o.runRiskPreflight(ctx); err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Risk gate blocked campaign start: %v", err)
+		o.emitEvent(EventRiskGateBlocked, "", "", err.Error(), eval)
 		o.mu.Unlock()
 		return err
+	} else if soft := eval.SoftFindings(); len(soft) > 0 {
+		// Advisory findings do not stop the campaign, but silence is how they
+		// stop mattering. Emit them on the event channel the UIs already read.
+		for _, f := range soft {
+			o.emitEvent(EventRiskGateAdvisory, "", "",
+				fmt.Sprintf("Advisory: %s %s", f.Gate, strings.TrimPrefix(f.Reason, "/")), f)
+		}
 	}
 
 	// Normalize any dangling in-progress tasks/phases (e.g., after restart)
@@ -172,7 +184,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 				o.updateCampaignStatus(StatusCompleted)
 				_ = o.saveCampaign()
 				o.mu.Unlock()
-				o.emitEvent("campaign_completed", "", "", "Campaign completed successfully", nil)
+				o.emitEvent(EventCampaignCompleted, "", "", "Campaign completed successfully", nil)
 				return nil
 			}
 
@@ -205,7 +217,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			o.contextPager.ResetPhaseContext()
 			if err := o.contextPager.ActivatePhase(ctx, currentPhase); err != nil {
 				logging.Get(logging.CategoryCampaign).Warn("Context activation error: %v", err)
-				o.emitEvent("context_error", currentPhase.ID, "", err.Error(), nil)
+				o.emitEvent(EventContextError, currentPhase.ID, "", err.Error(), nil)
 			}
 			// Prefetch upcoming tasks for this phase
 			var upcoming []Task

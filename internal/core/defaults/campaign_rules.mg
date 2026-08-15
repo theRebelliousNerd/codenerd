@@ -918,5 +918,85 @@ layer_sequencing_warning(PhaseA, PhaseB) :-
     PriorityA >= PriorityB.
 
 # =============================================================================
+# SECTION 13: RISK PREFLIGHT CLASSIFICATION (hard vs soft advisory contract)
+# =============================================================================
+# Go measures; the kernel decides. internal/campaign/risk_scoring.go runs the
+# strict gates, asserts what they observed, and then asks THIS section whether
+# any of it stops the campaign. Go never decides that on its own: it enforces
+# campaign_risk_block and surfaces campaign_risk_warning.
+#
+# The distinction exists because "an advisor is unhappy" and "an advisor
+# rejected work on the logic kernel" are not the same event, and treating them
+# identically means operators learn to ignore both.
+
+# Readiness canary. A kernel booted without campaign_rules.mg derives no blocks
+# at all, which would read as "everything passed". Go checks this predicate to
+# tell "no blocks" apart from "no rules", and falls back to its own mirror of
+# this contract when the rules are absent.
+campaign_risk_classification_ready(CampaignID) :-
+    campaign_risk_gate_outcome(CampaignID, _, _).
+
+# Safety-critical evidence escalates any blocked gate to a hard stop.
+campaign_risk_critical_signal(CampaignID) :-
+    campaign_risk_signal(CampaignID, /safety_warnings, Count),
+    Count > 0.
+
+campaign_risk_critical_signal(CampaignID) :-
+    campaign_risk_signal(CampaignID, /blocked_actions, Count),
+    Count > 0.
+
+# HARD 1: any blocked gate while the campaign targets a protected surface
+# (kernel, mangle, campaign, perception, articulation). These are the surfaces
+# that can disable the safety machinery itself, so advice is not optional there.
+campaign_risk_block(CampaignID, Gate, /protected_surface) :-
+    campaign_risk_gate_outcome(CampaignID, Gate, /blocked),
+    campaign_protected_surface(CampaignID, _).
+
+# HARD 2: northstar alignment is constitutional on every surface.
+campaign_risk_block(CampaignID, /northstar, /vision_alignment) :-
+    campaign_risk_gate_outcome(CampaignID, /northstar, /blocked).
+
+# HARD 3: a critical advisor voting REJECT is a blocking concern, not a note.
+campaign_risk_block(CampaignID, Gate, /critical_advisor_rejection) :-
+    campaign_risk_concern(CampaignID, Gate, /blocking).
+
+# HARD 4: explicit operator force-block.
+campaign_risk_block(CampaignID, /override, /force_block) :-
+    campaign_risk_override(CampaignID, /force_block).
+
+# HARD 5: a blocked gate on a campaign already over the deterministic risk
+# threshold AND carrying critical safety signals.
+campaign_risk_block(CampaignID, Gate, /gated_with_critical_signals) :-
+    campaign_risk_gate_outcome(CampaignID, Gate, /blocked),
+    campaign_risk_posture(CampaignID, _, _, /true),
+    campaign_risk_critical_signal(CampaignID).
+
+# Fully-bound helper for safe negation. Negating campaign_risk_block directly
+# with a wildcard reason (`!campaign_risk_block(C, G, _)`) does not exclude the
+# blocked gate — the wildcard slot leaves the literal unbound rather than
+# existentially quantified, so the soft rules fired alongside every hard one.
+campaign_risk_blocked_gate(CampaignID, Gate) :-
+    campaign_risk_block(CampaignID, Gate, _).
+
+# SOFT: a blocked gate no hard rule claimed is advice. It is recorded and shown
+# to the operator; the campaign proceeds.
+campaign_risk_warning(CampaignID, Gate, /advisory_only) :-
+    campaign_risk_gate_outcome(CampaignID, Gate, /blocked),
+    !campaign_risk_blocked_gate(CampaignID, Gate).
+
+# SOFT: requested changes are advice unless a hard rule fired on the same gate.
+campaign_risk_warning(CampaignID, Gate, /requires_changes) :-
+    campaign_risk_concern(CampaignID, Gate, /requires_changes),
+    !campaign_risk_blocked_gate(CampaignID, Gate).
+
+# SOFT: an unapproved-but-not-rejected plan is advice on ordinary surfaces.
+campaign_risk_warning(CampaignID, Gate, /unapproved) :-
+    campaign_risk_concern(CampaignID, Gate, /unapproved),
+    !campaign_risk_blocked_gate(CampaignID, Gate).
+
+campaign_risk_preflight_blocked(CampaignID) :-
+    campaign_risk_block(CampaignID, _, _).
+
+# =============================================================================
 # END OF CAMPAIGN RULES
 # =============================================================================

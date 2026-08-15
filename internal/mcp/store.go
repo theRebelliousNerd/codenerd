@@ -121,6 +121,14 @@ func (s *MCPToolStore) initialize() error {
 		return fmt.Errorf("failed to create mcp_tools table: %w", err)
 	}
 
+	// Additive migration for databases created before schema fingerprinting.
+	// SQLite has no "ADD COLUMN IF NOT EXISTS"; a duplicate-column error here
+	// simply means the migration already ran.
+	if _, err := s.db.Exec(`ALTER TABLE mcp_tools ADD COLUMN schema_hash TEXT`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column name") {
+		logging.Get(logging.CategoryTools).Debug("schema_hash migration skipped: %v", err)
+	}
+
 	// Create indexes
 	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_mcp_tools_server ON mcp_tools(server_id)`)
 	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_mcp_tools_category ON mcp_tools(categories)`)
@@ -326,9 +334,10 @@ func (s *MCPToolStore) SaveTool(ctx context.Context, tool *MCPTool) error {
 		INSERT INTO mcp_tools (
 			tool_id, server_id, name, description, input_schema, output_schema,
 			categories, capabilities, domain, shard_affinities, use_cases, condensed,
-			embedding, embedding_model, registered_at, analyzed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			embedding, embedding_model, registered_at, analyzed_at, schema_hash
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(tool_id) DO UPDATE SET
+			schema_hash = excluded.schema_hash,
 			description = excluded.description,
 			input_schema = excluded.input_schema,
 			output_schema = excluded.output_schema,
@@ -346,7 +355,7 @@ func (s *MCPToolStore) SaveTool(ctx context.Context, tool *MCPTool) error {
 		string(tool.InputSchema), string(tool.OutputSchema),
 		string(catsJSON), string(capsJSON), tool.Domain, string(affinitiesJSON),
 		string(useCasesJSON), tool.Condensed,
-		embeddingBlob, tool.EmbeddingModel, tool.RegisteredAt, tool.AnalyzedAt,
+		embeddingBlob, tool.EmbeddingModel, tool.RegisteredAt, tool.AnalyzedAt, tool.SchemaHash,
 	)
 	if err != nil {
 		return err
@@ -388,7 +397,7 @@ func (s *MCPToolStore) GetTool(ctx context.Context, toolID string) (*MCPTool, er
 // getToolLocked retrieves a tool (caller must hold lock).
 func (s *MCPToolStore) getToolLocked(ctx context.Context, toolID string) (*MCPTool, error) {
 	var tool MCPTool
-	var inputSchema, outputSchema, catsJSON, capsJSON, affinitiesJSON, useCasesJSON sql.NullString
+	var inputSchema, outputSchema, catsJSON, capsJSON, affinitiesJSON, useCasesJSON, schemaHash sql.NullString
 	var embeddingBlob []byte
 	var registeredAt, analyzedAt, lastUsed sql.NullTime
 
@@ -396,14 +405,14 @@ func (s *MCPToolStore) getToolLocked(ctx context.Context, toolID string) (*MCPTo
 		SELECT tool_id, server_id, name, description, input_schema, output_schema,
 			categories, capabilities, domain, shard_affinities, use_cases, condensed,
 			embedding, embedding_model, usage_count, success_count, avg_latency_ms, last_used,
-			registered_at, analyzed_at
+			registered_at, analyzed_at, schema_hash
 		FROM mcp_tools WHERE tool_id = ?
 	`, toolID).Scan(
 		&tool.ToolID, &tool.ServerID, &tool.Name, &tool.Description,
 		&inputSchema, &outputSchema, &catsJSON, &capsJSON, &tool.Domain,
 		&affinitiesJSON, &useCasesJSON, &tool.Condensed,
 		&embeddingBlob, &tool.EmbeddingModel, &tool.UsageCount, &tool.SuccessCount,
-		&tool.AvgLatencyMs, &lastUsed, &registeredAt, &analyzedAt,
+		&tool.AvgLatencyMs, &lastUsed, &registeredAt, &analyzedAt, &schemaHash,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -429,6 +438,9 @@ func (s *MCPToolStore) getToolLocked(ctx context.Context, toolID string) (*MCPTo
 	}
 	if useCasesJSON.Valid {
 		_ = json.Unmarshal([]byte(useCasesJSON.String), &tool.UseCases)
+	}
+	if schemaHash.Valid {
+		tool.SchemaHash = schemaHash.String
 	}
 	if len(embeddingBlob) > 0 {
 		tool.Embedding = bytesToFloat32Slice(embeddingBlob)

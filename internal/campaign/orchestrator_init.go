@@ -1,13 +1,16 @@
 package campaign
 
 import (
+	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
+	"codenerd/internal/world"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -70,6 +73,7 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 	}
 
 	wireIntelligenceComponents(o, cfg)
+	defaultWireIntelligence(o, cfg)
 
 	if cfg.MaxParallelTasks > 0 {
 		o.maxParallelTasks = cfg.MaxParallelTasks
@@ -80,6 +84,25 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 		o.maxParallelTasks, o.config.CampaignTimeout, o.config.TaskTimeout)
 
 	return o, nil
+}
+
+// isNilTaskExecutor reports whether te is unusable. It catches the typed-nil
+// case (`var x *session.JITExecutor; cfg.TaskExecutor = x`) as well as a plain
+// nil interface: a typed nil is non-nil as an interface but panics or misbehaves
+// on first use, and it is exactly what an accessor like
+// CampaignRunnerShard.TaskExecutor() returns when a concrete pointer field was
+// never assigned.
+func isNilTaskExecutor(te session.TaskExecutor) bool {
+	if te == nil {
+		return true
+	}
+	v := reflect.ValueOf(te)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 func validateOrchestratorConfig(cfg OrchestratorConfig) error {
@@ -96,8 +119,26 @@ func validateOrchestratorConfig(cfg OrchestratorConfig) error {
 	if cfg.VirtualStore == nil {
 		missing = append(missing, "virtual_store")
 	}
-	if cfg.ShardManager == nil && cfg.TaskExecutor == nil {
-		missing = append(missing, "task_executor_or_shard_manager")
+	// TaskExecutor is required, not "TaskExecutor OR ShardManager".
+	//
+	// The OR was a lie about what the orchestrator can do. ShardManager is only
+	// used for monitoring (GetActiveShards, GetBackpressureStatus); every path
+	// that actually runs work goes through spawnTask -> session.TaskExecutor,
+	// which returns "taskExecutor not initialized" when it is nil. A campaign
+	// built shard-only therefore cannot execute a single task, and — worse —
+	// runShardValidationCheckpoint and runNemesisGauntletCheckpoint have no
+	// executor either, so before commit 20a90c79 they returned PASS for
+	// verifications that never ran.
+	//
+	// Source-level auditing was not enough on its own. All five production call
+	// sites DO write the field, but three of them write a value that can be nil
+	// at runtime: cmd/nerd/chat/campaign.go and campaign_assault.go pass
+	// m.taskExecutor, and internal/shards/system/campaign_runner.go passes
+	// s.TaskExecutor(), which is nil until the boot closure calls
+	// SetTaskExecutor. A field that is present but nil looked identical to a
+	// correct wiring. Refusing construction makes it loud at the call site.
+	if isNilTaskExecutor(cfg.TaskExecutor) {
+		missing = append(missing, "task_executor")
 	}
 	if len(missing) > 0 {
 		return errors.Join(
@@ -193,9 +234,19 @@ func (o *Orchestrator) SetPromptProvider(provider PromptProvider) {
 //	orch := campaign.NewOrchestrator(cfg)
 //	orch.SetTaskExecutor(session.NewJITExecutor(executor, spawner, transducer))
 func (o *Orchestrator) SetTaskExecutor(te session.TaskExecutor) {
+	// Refuse to un-set it. NewOrchestrator now requires a usable executor, so a
+	// nil here could only ever downgrade a working orchestrator into one whose
+	// verification checkpoints cannot run.
+	if isNilTaskExecutor(te) {
+		logging.Get(logging.CategoryCampaign).Warn("SetTaskExecutor called with nil executor; keeping existing executor")
+		return
+	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.taskExecutor = te
+	if o.checkpoint != nil {
+		o.checkpoint.taskExecutor = te
+	}
 	logging.Campaign("TaskExecutor set on orchestrator")
 }
 
@@ -350,6 +401,58 @@ func applyOrchestratorDefaults(cfg *OrchestratorConfig) {
 		cfg.RiskGateMode == RiskGateModeAuto &&
 		cfg.CampaignRiskOverride == nil {
 		cfg.GlobalRiskGate = true
+	}
+}
+
+// defaultWireIntelligence builds the intelligence components every caller was
+// hand-assembling, when the ingredients are already present.
+//
+// IntelligenceGatherer and EdgeCaseDetector need exactly two things a Cortex
+// boot always has: a *core.RealKernel and a workspace path. Everything else
+// they consume (world scanner, holographic provider) is constructed from those
+// two. Yet every construction site — cmd_campaign.go start, cmd_campaign.go
+// resume, chat campaign, chat assault, the campaign runner shard — repeated the
+// same twenty lines, and any caller that forgot silently got a campaign with no
+// pre-planning intelligence and, because resolveRiskGateEnabled keys off
+// availability, no edge risk gate either. A missing sensor is invisible: the
+// campaign runs, it is just less informed and less gated.
+//
+// Explicit config still wins; this only fills a nil. A mock kernel (tests) is
+// not a RealKernel, so unit tests keep their zero-intelligence orchestrator.
+func defaultWireIntelligence(o *Orchestrator, cfg OrchestratorConfig) {
+	realKernel, ok := cfg.Kernel.(*core.RealKernel)
+	if !ok || realKernel == nil || strings.TrimSpace(cfg.Workspace) == "" {
+		return
+	}
+
+	var scanner *world.Scanner
+	if o.intelligenceGatherer == nil || o.edgeCaseDetector == nil {
+		scanner = world.NewScanner()
+	}
+
+	if o.intelligenceGatherer == nil {
+		// Consultation stays nil: advisor consultation needs a spawner the
+		// orchestrator does not own, and the gatherer treats it as optional.
+		gatherer := NewIntelligenceGatherer(
+			realKernel,
+			scanner,
+			world.NewHolographicProvider(realKernel, cfg.Workspace),
+			nil, nil, nil, nil, nil,
+		)
+		o.intelligenceGatherer = gatherer
+		if o.decomposer != nil {
+			o.decomposer.SetIntelligenceGatherer(gatherer)
+		}
+		logging.Campaign("IntelligenceGatherer default-wired from kernel + workspace")
+	}
+
+	if o.edgeCaseDetector == nil {
+		detector := NewEdgeCaseDetector(realKernel, scanner)
+		o.edgeCaseDetector = detector
+		if o.decomposer != nil {
+			o.decomposer.SetEdgeCaseDetector(detector)
+		}
+		logging.Campaign("EdgeCaseDetector default-wired from kernel + workspace")
 	}
 }
 
