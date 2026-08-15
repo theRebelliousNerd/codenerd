@@ -27,9 +27,9 @@ type modelCapabilityKeyType struct{}
 type modelNameKeyType struct{}
 
 var (
-	spawnPriorityKey    = spawnPriorityKeyType{}
-	modelCapabilityKey  = modelCapabilityKeyType{}
-	modelNameKeyContext = modelNameKeyType{}
+	spawnPriorityKey   = spawnPriorityKeyType{}
+	modelCapabilityKey = modelCapabilityKeyType{}
+	modelNameKey       = modelNameKeyType{}
 )
 
 // WithSpawnPriority attaches a scheduling priority to ctx for the spawn/API
@@ -80,7 +80,7 @@ func ModelCapabilityFromContext(ctx context.Context) (ModelCapability, bool) {
 // WithModelName attaches a concrete model override to ctx. It wins over the
 // capability hint at the client, so set it only when a profile names a model.
 func WithModelName(ctx context.Context, name string) context.Context {
-	ctx = context.WithValue(ctx, modelNameKeyContext, name)
+	ctx = context.WithValue(ctx, modelNameKey, name)
 	return context.WithValue(ctx, CtxKeyModelName, name) //nolint:staticcheck // legacy string key, read by perception clients until they migrate
 }
 
@@ -91,7 +91,7 @@ func ModelNameFromContext(ctx context.Context) (string, bool) {
 	if ctx == nil {
 		return "", false
 	}
-	if v, ok := ctx.Value(modelNameKeyContext).(string); ok && v != "" {
+	if v, ok := ctx.Value(modelNameKey).(string); ok && v != "" {
 		return v, true
 	}
 	if v, ok := ctx.Value(CtxKeyModelName).(string); ok && v != "" { //nolint:staticcheck // back-compat with string-keyed call sites

@@ -262,15 +262,14 @@ func (m Model) renderWorkspaceSummary(fileCount, dirCount, factCount int, experi
 			if len(facts[0].Args) > 0 {
 				projectName, _ = facts[0].Args[0].(string)
 			}
+			// Readback returns a /name as a plain string, so asserting
+			// core.MangleAtom here never succeeded and the summary showed
+			// neither language nor framework.
 			if len(facts[0].Args) > 1 {
-				if atom, ok := facts[0].Args[1].(core.MangleAtom); ok {
-					mainLang = strings.TrimPrefix(string(atom), "/")
-				}
+				mainLang = strings.TrimPrefix(types.ExtractString(facts[0].Args[1]), "/")
 			}
 			if len(facts[0].Args) > 2 {
-				if atom, ok := facts[0].Args[2].(core.MangleAtom); ok {
-					framework = strings.TrimPrefix(string(atom), "/")
-				}
+				framework = strings.TrimPrefix(types.ExtractString(facts[0].Args[2]), "/")
 			}
 		}
 	}

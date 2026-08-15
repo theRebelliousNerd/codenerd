@@ -315,6 +315,7 @@ func init() {
 		snapshotCmd,
 		contextStatsCmd,
 		auditCmd,
+		worldCmd,
 	)
 
 	// Session management commands

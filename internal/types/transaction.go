@@ -20,7 +20,9 @@ type KernelTransaction interface {
 
 // KernelTransactor is an optional interface for Kernel implementations
 // that support atomic transactions. Use types.NewKernelTx() for a convenience
-// wrapper that handles the type assertion and fallback automatically.
+// wrapper that handles the type assertion (it panics when the capability is
+// missing — there is no non-atomic fallback), or TransactorOf to ask without
+// committing to the panic.
 //
 // Direct usage via type assertion:
 //

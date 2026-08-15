@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 	"os"
 	"strings"
 )
@@ -33,8 +34,9 @@ func PersistFastSnapshotToDBInRoot(db *store.LocalStore, root string, facts []co
 		lang := "unknown"
 		for _, f := range fs {
 			if f.Predicate == "file_topology" && len(f.Args) >= 3 {
-				if la, ok := f.Args[2].(core.MangleAtom); ok {
-					lang = strings.TrimPrefix(string(la), "/")
+				// See detectProjectLanguage: readback gives a plain string.
+				if s := types.ExtractString(f.Args[2]); s != "" {
+					lang = strings.TrimPrefix(s, "/")
 				}
 				break
 			}

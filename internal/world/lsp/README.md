@@ -320,18 +320,31 @@ Add LSP queries as virtual predicates in VirtualStore:
 ?lsp_references(/mangle, "next_action", Refs).
 ```
 
-### Phase 3: Multi-Language Support
+### Phase 3: Multi-Language Support — IMPLEMENTED (2026-08-15)
 
-Add gopls integration for Go code intelligence:
+`client.go` is a generic LSP client rather than a gopls-specific one: framing,
+request correlation and notification fan-in are language-agnostic, so one type
+drives gopls, rust-analyzer, pyright or anything else that speaks LSP.
 
 ```go
-// internal/world/lsp/gopls_client.go
-type GoplsClient struct {
-    // Subprocess LSP client for gopls
+// Launch a server binary and register it (a missing binary is a plain error:
+// code intelligence degrades to the AST layer, the session does not fail).
+if err := manager.StartLanguageServer(ctx, "/go", "gopls"); err != nil {
+    logging.WorldWarn("gopls unavailable, using AST intelligence: %v", err)
 }
 
-manager.AddLanguageServer("/go", NewGoplsClient())
+// Or attach an already-connected server (any io.ReadWriteCloser transport).
+manager.AddLanguageServer("/go", lsp.NewClient("/go", transport))
 ```
+
+Its diagnostics join the Mangle server's in `ProjectToFacts`, projected as
+`code_diagnostic` with **workspace-relative** paths — an absolute path from a
+`file://` URI would join no `file_topology` row.
+
+The transport is an interface, not an `*exec.Cmd`, so the client is verified
+against an in-process fake server (`client_test.go`) with no language server
+installed. A live `gopls` run has not been exercised in CI: there is no gopls
+binary in the build environment.
 
 ### Phase 4: MCP Server
 

@@ -24,8 +24,9 @@ WHICH COMMAND TO USE
                      and repersists the snapshot to .nerd/knowledge.db.
   chat /scan         incremental: only changed, added and deleted files are
                      re-parsed; the previous facts for those files are retracted
-                     first. Snapshot-global facts (project_language, entry_point,
-                     directory) are recomputed every time.
+                     first. project_language and directory are single-valued
+                     snapshot derivations and are recomputed from scratch every
+                     time; entry_point is re-derived per file.
   chat /scan --deep  incremental, then hydrate deep facts for in-scope files.
 
 OWNERSHIP (who may delete what)

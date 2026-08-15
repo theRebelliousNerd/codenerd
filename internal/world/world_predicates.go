@@ -112,14 +112,19 @@ func ScannerReplaceSet() map[string]struct{} {
 	return predicateSet(ScannerPredicates)
 }
 
-// SnapshotGlobalPredicates are whole-snapshot derivations (not per-file), so an
-// incremental scan re-derives the complete set each pass and the stale set must
-// be dropped first — asserting the new majority language beside the old one
-// leaves project_language ambiguous, and every rule reading it non-deterministic.
+// SnapshotGlobalPredicates are whole-snapshot derivations that a delta scan
+// re-derives in full and must therefore drop first: asserting the new majority
+// language beside the old one leaves project_language ambiguous and every rule
+// reading it non-deterministic.
+//
+// entry_point is deliberately NOT here even though it is snapshot-derived. It
+// is attributed per file, so a changed file's entry_point is retracted with the
+// rest of that file's facts; wiping the whole relation on every delta would
+// instead drop entry points that only AST evidence proves (a `func main` in a
+// file not named main.go) for every file the delta did not happen to re-parse.
 var SnapshotGlobalPredicates = []string{
 	"directory",
 	"project_language",
-	"entry_point",
 }
 
 func concatPredicates(groups ...[]string) []string {

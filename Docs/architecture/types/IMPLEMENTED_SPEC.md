@@ -98,6 +98,7 @@ internal/types/
   extract.go                  # Extract*/Arg* safe fact-arg decoding
   shard.go                    # ShardType/State/Permission/Config, spawn priority, legacy string ctx keys
   ctxkeys.go                  # typed context keys: spawn priority, model capability, model name
+  atom.go                     # Atom(s) -> MangleAtom, for runtime-assembled /name values
   transaction.go              # KernelTransaction, KernelTransactor, KernelTx, TransactorOf
   mangle_scale.go             # PercentFromRatio / PercentClamp (float -> /number slots)
   transparency.go             # ShardPhase, OperationRecord, TransparencyManager

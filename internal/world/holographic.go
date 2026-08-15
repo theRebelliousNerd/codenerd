@@ -410,7 +410,6 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 	return result + "\n"
 }
 
-
 // getContextInternal is the shared cancellable context generator.
 func (h *HolographicProvider) getContextInternal(ctx context.Context, filePath string) (*HolographicContext, error) {
 	if filePath == "" {

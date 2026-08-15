@@ -1,7 +1,8 @@
 # TODO — `internal/types`
 
 > Last verified: **2026-08-15**  
-> Docs-only corpus rebuild; items below are **package evolution backlog**, not incomplete documentation.
+> Items are **package evolution backlog**, not incomplete documentation. The 2026-08-15 pass cleared
+> P0–P2 and the P3 examples item in code; see `_progress.md`.
 
 ## P0 — Safety / correctness
 
@@ -11,7 +12,9 @@
       declarations in `internal/core/defaults/*.mg`, and fails on anything not in its documented baseline.
       Three rules: Decl conformance, no `%v`-rendered fact arguments, no `MangleAtom` type assertion on
       query results. **Findings are listed in the baselines with reasons; every one lives outside
-      `internal/types` and is reported to the owning package.**
+      `internal/types` and is reported to the owning package.** `types.Atom(s)` was added so the fix at
+      each `/name` site is one call rather than a remembered naming rule, and the guard's failure
+      message names the right constructor for each slot kind.
 - [x] Ensure all production kernels used with multi-op updates implement `KernelTransactor` (mocks too)  
       `internal/types/kernel_transactor_guard_test.go` finds every `types.Kernel` implementation in the
       repo (by marker method set) and requires `Transaction()`, with a baseline naming the 3 production

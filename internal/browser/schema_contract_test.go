@@ -291,6 +291,39 @@ func TestSnapshotDOMFacts_WhenAssertedIntoEngine_ShouldBeAccepted(t *testing.T) 
 	}
 }
 
+// TestManagerControlFacts_WhenBuilt_ShouldMatchDeclaredBoundTypes covers the
+// facts the manager authors itself - epoch watermarks, stream saturation, and
+// interaction refusals - which no DOM capture would exercise.
+func TestManagerControlFacts_WhenBuilt_ShouldMatchDeclaredBoundTypes(t *testing.T) {
+	decls := loadBrowserDecls(t)
+	now := time.Now()
+
+	facts := blockedInteractionFacts("sess1", "honeypot click: Hidden via display:none", now)
+	facts = append(facts,
+		mangle.Fact{Predicate: "browser_epoch", Args: []any{"sess1", int64(3), now.UnixMilli()}},
+		mangle.Fact{Predicate: "browser_stream_saturated", Args: []any{"sess1", int64(3), int64(20000), now.UnixMilli()}},
+		mangle.Fact{Predicate: "css_clip_rect", Args: []any{"e1", int64(0), int64(0), int64(0), int64(0)}},
+		mangle.Fact{Predicate: "link_url_pattern", Args: []any{"e1", "/bait_path"}},
+	)
+
+	engine := newBrowserTestEngine(t)
+	var problems []string
+	for _, fact := range facts {
+		decl, ok := decls[fact.Predicate]
+		if !ok {
+			problems = append(problems, fact.Predicate+" has no Decl")
+			continue
+		}
+		problems = append(problems, checkFactAgainstDecl(fact, decl)...)
+	}
+	if len(problems) > 0 {
+		t.Errorf("manager control fact mismatches:\n  %s", strings.Join(problems, "\n  "))
+	}
+	if err := engine.AddFacts(facts); err != nil {
+		t.Errorf("engine rejected a manager control fact: %v", err)
+	}
+}
+
 // TestCheckFactAgainstDecl_WhenTypesDrift_ShouldReportProblem pins the checker
 // itself. Without this, a checker that silently accepted everything would make
 // the two contract tests above look green forever.

@@ -100,10 +100,7 @@ func (m *SessionManager) guardElement(sessionID, action string, el *rod.Element)
 	}
 	reason := fmt.Sprintf("honeypot %s: %s", action, summary)
 	now := time.Now()
-	if factErr := m.addFacts([]mangle.Fact{
-		{Predicate: "interaction_blocked", Args: []any{sessionID, reason}, Timestamp: now},
-		{Predicate: "interaction_blocked_at", Args: []any{sessionID, reason, now.UnixMilli()}, Timestamp: now},
-	}); factErr != nil {
+	if factErr := m.addFacts(blockedInteractionFacts(sessionID, reason, now)); factErr != nil {
 		logging.BrowserDebug("interaction_blocked fact error: %v", factErr)
 	}
 
@@ -113,4 +110,13 @@ func (m *SessionManager) guardElement(sessionID, action string, el *rod.Element)
 	}
 	logging.BrowserWarn("[session:%s] %s", sessionID, reason)
 	return fmt.Errorf("%w (%s)", ErrHoneypotBlocked, summary)
+}
+
+// blockedInteractionFacts is the kernel-visible record of a refusal. Split out
+// so the schema contract test can type-check it without a live page.
+func blockedInteractionFacts(sessionID, reason string, now time.Time) []mangle.Fact {
+	return []mangle.Fact{
+		{Predicate: "interaction_blocked", Args: []any{sessionID, reason}, Timestamp: now},
+		{Predicate: "interaction_blocked_at", Args: []any{sessionID, reason, now.UnixMilli()}, Timestamp: now},
+	}
 }

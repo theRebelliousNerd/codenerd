@@ -17,6 +17,7 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 	"codenerd/internal/world"
 
 	"github.com/spf13/cobra"
@@ -352,9 +353,10 @@ func runScanWithKernelFactory(cmd *cobra.Command, args []string, newKernel func(
 			fileCount++
 			if len(f.Args) > 2 {
 				// file_topology(Path, Hash, /Lang, ...)
-				if langAtom, ok := f.Args[2].(core.MangleAtom); ok {
-					lang := strings.TrimPrefix(string(langAtom), "/")
-					langStats[lang]++
+				// A core.MangleAtom assertion here is false for any fact read
+				// back from the kernel, which renders a /name as a string.
+				if s := types.ExtractString(f.Args[2]); s != "" {
+					langStats[strings.TrimPrefix(s, "/")]++
 				}
 			}
 		case "directory":

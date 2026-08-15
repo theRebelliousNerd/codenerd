@@ -226,6 +226,19 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	// Always refresh directory facts on delta scans.
 	newFacts = append(newFacts, dirFacts...)
 
+	// Import resolution index over the WHOLE current file set, not just the
+	// delta: an edge from a changed file into an untouched package still has to
+	// resolve. Built once, read-only, shared by the workers so each file's
+	// resolved edges become part of that file's fact set — which is what makes
+	// them persist and retract with the file. Resolving after the DB write
+	// instead would leave resolved edges in the kernel that no later scan could
+	// retract, so a deleted import kept its edge forever.
+	canonicalAll := make([]string, 0, len(currentFiles))
+	for p := range currentFiles {
+		canonicalAll = append(canonicalAll, canonicalScanPath(root, p))
+	}
+	importIndex := newRepoFileIndex(root, canonicalAll)
+
 	for _, p := range pathsToParse {
 		path := p
 		info := currentFiles[p]
@@ -325,6 +338,10 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 					}
 				}
 			}
+			// Resolve this file's imports into file->file edges while its facts
+			// are still a unit, so they are stored and retracted with it.
+			additional = append(additional, resolveDependencyLinksWithIndex(importIndex, additional)...)
+
 			// Update file cache entry.
 			cache.Update(path, info, hash)
 
@@ -385,23 +402,14 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		cache.mu.Unlock()
 	}
 
-	// Import edges for the rescanned files, resolved against the WHOLE current
-	// file set (the walk above collected it) rather than just the delta, so an
-	// edge into an untouched package still resolves.
-	canonicalAll := make([]string, 0, len(currentFiles))
-	for p := range currentFiles {
-		canonicalAll = append(canonicalAll, canonicalScanPath(root, p))
-	}
-	idx := newRepoFileIndex(root, canonicalAll)
-	newFacts = append(newFacts, resolveDependencyLinksWithIndex(idx, newFacts)...)
-
-	// project_language and entry_point are majority/whole-snapshot properties,
-	// so a delta scan that only re-emitted facts for changed files left them
-	// frozen at whatever the first full scan saw: a repo that migrated from
-	// Python to Go kept claiming /python until someone deleted the cache. They
-	// are recomputed here from the CURRENT file set and re-asserted wholesale;
-	// ApplyIncrementalResult retracts both predicates before loading so the old
-	// majority cannot survive alongside the new one.
+	// project_language and entry_point are whole-snapshot properties, so a delta
+	// scan that only re-emitted facts for changed files left them frozen at
+	// whatever the first full scan saw: a repo that migrated from Python to Go
+	// kept claiming /python until someone deleted the cache. Both are recomputed
+	// here from the CURRENT file set. project_language is single-valued, so
+	// ApplyIncrementalResult retracts it before loading (see
+	// SnapshotGlobalPredicates); entry_point is per-file and retracts with its
+	// file.
 	res := &IncrementalResult{
 		NewFacts:       newFacts,
 		RetractFacts:   retractFacts,
@@ -533,11 +541,13 @@ func detectProjectLanguage(facts []core.Fact) string {
 	counts := make(map[string]int)
 	for _, f := range facts {
 		if f.Predicate == "file_topology" && len(f.Args) >= 3 {
-			if langAtom, ok := f.Args[2].(core.MangleAtom); ok {
-				lang := strings.TrimPrefix(string(langAtom), "/")
-				if lang != "unknown" && lang != "text" {
-					counts[lang]++
-				}
+			// ExtractString rather than a core.MangleAtom assertion: scan
+			// output carries the atom, but query readback renders a /name as a
+			// plain string, so the assertion silently skipped every row when
+			// these facts came back from the kernel.
+			lang := strings.TrimPrefix(types.ExtractString(f.Args[2]), "/")
+			if lang != "" && lang != "unknown" && lang != "text" {
+				counts[lang]++
 			}
 		}
 	}

@@ -1,17 +1,17 @@
 # 02 — Current State: `internal/types`
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-08-15**
 
 ## 1. Inventory summary
 
 | Class | Count | Notes |
 |-------|------:|-------|
-| Non-test `.go` | 5 | types, interfaces, extract, shard, transaction |
-| Test `.go` | 4 | comprehensive + unit suites |
-| `.mg` | 0 | N/A |
+| Non-test `.go` | 9 + 1 in `typestest/` | types, interfaces, extract, shard, ctxkeys, atom, transaction, mangle_scale, transparency (+ `typestest/mockkernel.go`) |
+| Test `.go` | 12 + 1 in `typestest/` | unit tables, executed examples, one external `types_test` package, two repo-wide ratchets |
+| `.mg` | 0 | N/A — but the package is now *checked against* `internal/core/defaults/*.mg` |
 | Package docs | package comment only | no `agents.md` / README in package |
-| Approx source LOC | ~1,287 | |
-| Approx test LOC | ~943 | strong pure-function coverage |
+| Approx source LOC | ~2,032 | |
+| Approx test LOC | ~2,556 | strong pure-function coverage + two repo-wide invariant ratchets |
 
 ## 2. File roles
 
@@ -22,7 +22,7 @@ Hotspots:
 - Context attach: `WithSessionContext` / `GetSessionContext`
 - `MangleAtom`, `Fact`, `String()`, `ToAtom()` — **primary safety surface**
 - `isValidMangleNameConstant` / `hasFileExtension` heuristics
-- `KernelFact`, `KernelInterface`
+- `KernelFact` (now `= Fact`), `KernelInterface` (deprecated, with a written 3-step removal path)
 - `StructuredIntent`, tool/shard/knowledge summaries
 - `AmbientContext`, **`SessionContext`** (largest struct)
 
@@ -41,13 +41,32 @@ Hotspots:
 
 All `Extract*` / `Arg*` / `StripAtomPrefix`. Pure, well-tested.
 
-### `shard.go` (157 lines) — shard taxonomy
+### `shard.go` (213 lines) — shard taxonomy
 
-Enums + `ShardConfig` + `SpawnPriority` + model context string keys.
+Enums + `ShardConfig` + `SpawnPriority` + the deprecated string context keys.
 
-### `transaction.go` (85 lines) — atomic EDB ops
+### `ctxkeys.go` (101 lines) — typed context keys
 
-`KernelTransaction`, `KernelTransactor`, `KernelTx`, `NewKernelTx` (panic policy).
+`WithSpawnPriority` / `WithModelCapability` / `WithModelName` and their readers. Setters dual-write the
+legacy string keys so unmigrated readers keep working.
+
+### `atom.go` (48 lines) — runtime `/name` construction
+
+`Atom(s)` normalizes an arbitrary identifier into a valid Mangle name constant, so a `/name`-declared
+slot fed from an enum or error category is a one-line fix rather than a remembered naming rule.
+
+### `transparency.go` (81 lines) — operator visibility contract
+
+`ShardPhase`, `OperationRecord`, `TransparencyManager`; lets ShardManager report into
+`internal/transparency` without importing it.
+
+### `transaction.go` (112 lines) — atomic EDB ops
+
+`KernelTransaction`, `KernelTransactor`, `KernelTx`, `TransactorOf`, `NewKernelTx` (panic policy).
+
+### `typestest/mockkernel.go` (343 lines) — shared test double
+
+`MockKernel` implements `Kernel` **and** `KernelTransactor`, with compile-time assertions for both.
 
 ## 3. Exported surface count (approx)
 
@@ -96,11 +115,11 @@ Major consumers (non-exhaustive; dozens of files):
 | Hotspot | Risk |
 |---------|------|
 | `Fact.ToAtom` | Wrong encoding poisons entire EDB |
-| Dual Kernel APIs | Adapter sprawl; confusing for new code |
+| Dual Kernel APIs | Adapter sprawl; reduced — `KernelFact` collapsed into `Fact`, removal path written |
 | `SessionContext` growth | Becomes god-struct; token budget discipline external |
-| `NewKernelTx` panic | Hard crash if mock kernel incomplete |
+| `NewKernelTx` panic | Hard crash if the kernel (or an adapter in front of it) lacks `Transaction()`; now ratcheted and the message names the type |
 | Name-constant heuristic | False positive/negative on edge path strings |
-| String context keys | Collision / type confusion vs typed session key |
+| String context keys | Resolved: typed keys in `ctxkeys.go`, legacy strings dual-written until readers migrate |
 
 ## 7. What “done” looks like for current state
 

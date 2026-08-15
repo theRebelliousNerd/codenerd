@@ -1317,6 +1317,15 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	browserCfg.Specs = configuredBrowser.Specs
 	browserCfg.SessionStore = filepath.Join(bctx.workspace, ".nerd", "browser", "sessions.json")
 	bctx.browserMgr = browser.NewSessionManagerWithSink(browserCfg, browserKernelSink{kernel: bctx.kernel})
+
+	// Close the read loop. browserKernelSink is write-only, so the manager could
+	// assert element evidence and never read the is_honeypot verdict derived
+	// from it — the honeypot gate failed open in the Cortex path, which is the
+	// path shards actually use. The retractor is what makes epoch GC do more
+	// than publish a watermark.
+	bctx.browserMgr.SetFactQuerier(browser.NewKernelFactQuerier(bctx.kernel))
+	bctx.browserMgr.SetFactRetractor(browser.NewKernelFactRetractor(bctx.kernel))
+
 	research.SetBrowserRuntime(bctx.browserMgr, bctx.kernel)
 	return nil
 }

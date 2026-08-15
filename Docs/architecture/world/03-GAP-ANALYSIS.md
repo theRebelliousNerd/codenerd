@@ -27,6 +27,11 @@
 
 ## Priority backlog (gaps only)
 
+> **Status 2026-08-15.** Items 1-6 below are closed in code; the matrix rows above are kept as the
+> historical record of what was found. See `TODO.md` for what each fix was and which test pins it.
+> Item 7 (holographic sections as JIT atoms) remains open — it needs atom files under
+> `internal/prompt/atoms/`.
+
 ### P0 — correctness
 
 1. **Canonicalize paths in incremental scan** to match full scan (`canonicalScanPath` or shared helper).  

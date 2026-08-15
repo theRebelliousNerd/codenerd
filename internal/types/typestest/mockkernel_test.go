@@ -1,6 +1,7 @@
 package typestest
 
 import (
+	"strings"
 	"testing"
 
 	"codenerd/internal/types"
@@ -84,6 +85,38 @@ func TestMockKernel_WhenCommitFails_ShouldNotApplyBufferedOps(t *testing.T) {
 	if k.FactCount("p") != 0 {
 		t.Fatal("a failed commit applied its operations")
 	}
+}
+
+// noTxKernel is a types.Kernel that cannot transact: embedding the Kernel
+// INTERFACE supplies every Kernel method while deliberately not promoting
+// Transaction(), which is exactly the shape of the three production forwarding
+// adapters that lose the capability.
+type noTxKernel struct{ types.Kernel }
+
+func TestNewKernelTx_WhenKernelCannotTransact_ShouldPanicNamingTheConcreteType(t *testing.T) {
+	t.Parallel()
+	k := noTxKernel{NewMockKernel()}
+
+	if _, ok := types.TransactorOf(k); ok {
+		t.Fatal("TransactorOf reported a transactor for a kernel that has no Transaction()")
+	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("NewKernelTx did not panic on a non-transacting kernel")
+		}
+		msg, _ := r.(string)
+		// The message has to name the wrapper, not the kernel behind it —
+		// otherwise it sends whoever reads it to the wrong type.
+		if !strings.Contains(msg, "noTxKernel") {
+			t.Fatalf("panic message does not name the concrete type: %v", r)
+		}
+		if !strings.Contains(msg, "Transaction()") {
+			t.Fatalf("panic message does not show the fix: %v", r)
+		}
+	}()
+	types.NewKernelTx(k)
 }
 
 type boomError struct{}

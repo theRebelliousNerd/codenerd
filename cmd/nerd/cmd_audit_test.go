@@ -26,12 +26,20 @@ func TestAuditFactsCmd_WhenGivenAuditLog_ShouldWriteLoadableFactsFile(t *testing
 	}
 
 	out := filepath.Join(dir, "facts.mg")
-	auditCmd.SetArgs([]string{"facts", "--log", auditLog, "--out", out})
+	// Drive the leaf command directly rather than auditCmd.Execute().
+	//
+	// Cobra's Execute() runs c.Root(), and auditCmd is registered on rootCmd —
+	// so auditCmd.Execute() actually ran the ROOT command with args
+	// ["facts", ...], which matches no root subcommand and falls through to
+	// rootCmd's RunE: the interactive chat, which then fails with "could not
+	// open a new TTY". The test only passed while auditCmd was unregistered.
+	auditFactsLog = auditLog
+	auditFactsOut = out
+	auditFactsEvents = nil
 	defer func() {
-		auditCmd.SetArgs(nil)
 		auditFactsOut, auditFactsLog, auditFactsEvents = "", "", nil
 	}()
-	if err := auditCmd.Execute(); err != nil {
+	if err := auditFactsCmd.RunE(auditFactsCmd, nil); err != nil {
 		t.Fatalf("audit facts: %v", err)
 	}
 

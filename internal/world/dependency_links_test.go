@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"codenerd/internal/store"
 )
 
 func writeWorkspaceFile(t *testing.T, root, rel, content string) string {
@@ -146,6 +148,44 @@ func TestDependencyLink_WhenIncremental_ShouldMatchFullScanEdges(t *testing.T) {
 	}
 	if !hasEdge(dependencyEdges(delta.NewFacts), "cmd/app/main.go", "internal/core/core.go") {
 		t.Errorf("incremental scan lost the in-repo import edge; edges=%v", dependencyEdges(delta.NewFacts))
+	}
+}
+
+// TestDependencyLink_WhenImportRemoved_ShouldRetractTheResolvedEdge — resolved
+// edges have to live in the same per-file fact set as the raw import fact, or
+// the store never learns about them and a deleted import keeps its edge in the
+// kernel forever, permanently over-reporting impact.
+func TestDependencyLink_WhenImportRemoved_ShouldRetractTheResolvedEdge(t *testing.T) {
+	db, err := store.NewLocalStore(filepath.Join(t.TempDir(), "knowledge.db"))
+	if err != nil {
+		t.Fatalf("NewLocalStore: %v", err)
+	}
+	defer db.Close()
+
+	root := t.TempDir()
+	writeWorkspaceFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26\n")
+	writeWorkspaceFile(t, root, "internal/core/core.go", "package core\n\nfunc Do() {}\n")
+	main := writeWorkspaceFile(t, root, "cmd/app/main.go", "package main\n\nimport \"example.com/app/internal/core\"\n\nfunc main() { core.Do() }\n")
+
+	scanner := NewScanner()
+	ctx := context.Background()
+	if _, err := scanner.ScanWorkspaceIncremental(ctx, root, db, IncrementalOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Drop the import entirely.
+	if err := os.WriteFile(main, []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	delta, err := scanner.ScanWorkspaceIncremental(ctx, root, db, IncrementalOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasEdge(dependencyEdges(delta.RetractFacts), "cmd/app/main.go", "internal/core/core.go") {
+		t.Errorf("the resolved edge was not retracted when its import was deleted; retractions=%v", dependencyEdges(delta.RetractFacts))
+	}
+	if hasEdge(dependencyEdges(delta.NewFacts), "cmd/app/main.go", "internal/core/core.go") {
+		t.Errorf("the edge was re-asserted although the import is gone")
 	}
 }
 

@@ -43,6 +43,13 @@ func TestHoneypotLogic(t *testing.T) {
 	Decl honeypot_aria_hidden(Elem).
 	Decl honeypot_no_keyboard(Elem).
 	Decl honeypot_pointer_events_none(Elem).
+	Decl honeypot_clip_hidden(Elem).
+	Decl honeypot_overflow_hidden(Elem).
+	Decl css_clip_rect(Elem, Top, Right, Bottom, Left).
+	Decl link_url_pattern(Elem, Pattern).
+	Decl honeypot_reason(Elem, Code) descr [mode("-", "-")].
+	Decl interactable(ID, ElemType).
+	Decl safe_interactable(ID) descr [mode("-")].
 	Decl is_honeypot(Elem) descr [mode("-")].
 	Decl high_confidence_honeypot(Elem) descr [mode("-")].
 	`

@@ -32,10 +32,12 @@ import (
 //      is Decl-blind — it infers the constant type from the Go value's shape —
 //      so a Go string "branch" lands in a slot declared /name as a StringType
 //      constant. Nothing errors. The rule that wanted git_state(/branch, X)
-//      simply never fires. Found this way this pass: internal/mcp querying a
-//      /name-declared predicate with a quoted string (the query never matched
-//      and the caller fell back to Go), and a float64 confidence going into a
-//      /number slot.
+//      simply never fires. Two bugs of exactly this shape were found by hand
+//      earlier in this pass — internal/mcp querying a /name-declared predicate
+//      with a quoted string, so the query never matched and the caller fell
+//      back to Go, and internal/campaign putting a float64 confidence into a
+//      /number slot — which is why the rule is mechanical now. This sweep found
+//      11 more; they are baselined below.
 //
 //   R2 No %v in fact arguments. fmt.Sprintf("%v", x) renders a pointer as
 //      "0x7ff63be770e0" and a slice as "[a b c]". That string enters the kernel
@@ -358,10 +360,10 @@ func scanFactConventions(t *testing.T, root string) (declMismatch, sprintfV, ato
 						continue
 					}
 					if boundViolated(declared[i], kind) {
-						atomAssertSafeDetail := strings.ReplaceAll(detail, "\n", " ")
+						safeDetail := strings.ReplaceAll(detail, "\n", " ")
 						declMismatch = append(declMismatch, guardHit{rel, fset.Position(a.Pos()).Line,
 							fmt.Sprintf("%s/%d arg %d is declared %s but the Go value is %s (%s)",
-								pred, len(args), i, declared[i], kind, atomAssertSafeDetail)})
+								pred, len(args), i, declared[i], kind, safeDetail)})
 					}
 				}
 			case *ast.TypeAssertExpr:
@@ -411,8 +413,12 @@ func checkAgainstBaseline(t *testing.T, rule string, hits []guardHit, baseline m
 	}
 	if len(unexpected) > 0 {
 		sort.Strings(unexpected)
-		t.Errorf("%s: %d new violation(s):\n  %s\n\nEither fix the site or, if it is genuinely correct, "+
-			"add it to the baseline in fact_conventions_guard_test.go WITH the reason.",
+		t.Errorf("%s: %d new violation(s):\n  %s\n\n"+
+			"Fixes: a /name slot wants types.Atom(v) or types.MangleAtom(\"/literal\"); a /number slot "+
+			"wants an int64 (types.PercentFromRatio for a 0..1 ratio); a /string slot that looks name-shaped "+
+			"wants types.MangleString(v); reading a name back wants types.ExtractName/ArgName.\n"+
+			"If the site is genuinely correct, add it to the baseline in fact_conventions_guard_test.go "+
+			"WITH the reason.",
 			rule, len(unexpected), strings.Join(unexpected, "\n  "))
 	}
 }

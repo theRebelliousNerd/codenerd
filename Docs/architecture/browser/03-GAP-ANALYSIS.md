@@ -21,7 +21,7 @@
 | Constitution gates | Effective allowlist plus exact pending payload permission for every registered browser spelling | **Done** (policy + tests) |
 | Fact sink = production kernel | System factory adapts browser facts into live `SystemKernel.AssertBatch`; CLI keeps an export-only engine | **Done in Cortex; CLI intentionally separate** |
 | Session reattach | Load store as `detached`; CLI snapshot re-Attach by TargetID | **Partial** — TargetID may be stale after Chrome restart |
-| Header ingestion | Config flag exists; default `EnableHeaderIngestion` false in DefaultConfig | **Optional off** |
+| Header ingestion | `HeaderIngestionMode`: redacted by default for research, off for the operator CLI | **Decided** |
 | `honeypot_suspicious_url` generation | Policy comment: assert from Go; no URL pattern analyzer found in package | **Gap** |
 | Clip / overflow honeypot reasons in Go | Reason table includes clip/overflow; policy rules incomplete vs Go list | **Partial mismatch** |
 | Multi-browser lifecycle | One manager can bound, list, select, promote, and close multiple browser processes; progressive act exposes lifecycle operations | **Package/agent done; CLI expansion pending** |

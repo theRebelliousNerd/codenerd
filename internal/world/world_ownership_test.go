@@ -87,6 +87,12 @@ func TestApplyIncremental_WhenDelta_ShouldRetractSnapshotGlobals(t *testing.T) {
 	if len(k.removedSets) != 0 {
 		t.Error("a delta scan must not wholesale-replace scanner predicates; it only knows about the files it touched")
 	}
+	// entry_point is attributed per file and retracted with its file. Wiping the
+	// whole relation on a delta would drop every AST-proven entry point in a file
+	// this delta did not re-parse.
+	if slices.Contains(k.retracted, "entry_point") {
+		t.Error("delta scan wholesale-retracted entry_point; it is per-file, not single-valued")
+	}
 }
 
 // TestWorldPredicates_WhenListed_ShouldCoverEveryOwnerGroup guards the matrix
