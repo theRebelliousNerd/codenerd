@@ -226,11 +226,20 @@ Decl source_document(CampaignID, DocPath, DocType, ParsedAt) bound [/string, /st
 
 # doc_metadata(CampaignID, Path, DocType, SizeBytes, ModifiedAt)
 Decl doc_metadata(CampaignID, Path, DocType, SizeBytes, ModifiedAt) bound [/string, /string, /name, /number, /number].
-# goal_topic(CampaignID, Topic) - topics extracted from goal text for selection
-Decl goal_topic(CampaignID, Topic) bound [/string, /string].
+# goal_topic(CampaignID, Topic) - topics extracted from goal text for selection.
+# Topic is a /name: Decomposer.seedDocFacts asserts fmt.Sprintf("/%s", topic)
+# (internal/campaign/decomposer_documents.go) over tokens that
+# extractTopicsFromGoal has already lower-cased and matched against [a-z0-9]+,
+# so types.Fact.ToAtom promotes every one of them to a name constant. The rules
+# in campaign_rules.mg match /migration, /refactor and /greenfield accordingly.
+Decl goal_topic(CampaignID, Topic) bound [/string, /name].
 
 # doc_tag(Path, Tag)
-Decl doc_tag(Path, Tag) bound [/string, /string].
+# doc_tag(Path, Tag) - Tag is a /name for the same reason goal_topic/2 is:
+# Decomposer.seedDocFacts asserts fmt.Sprintf("/%s", tag), so every tag reaches
+# the kernel as a name constant. selection_policy.mg joins Tag directly against
+# goal_topic's Topic, so the two must agree.
+Decl doc_tag(Path, Tag) bound [/string, /name].
 
 # doc_reference(FromPath, ToPath)
 Decl doc_reference(FromPath, ToPath) bound [/string, /string].

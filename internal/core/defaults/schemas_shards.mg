@@ -21,7 +21,7 @@ Decl delegate_task(ShardType, TaskDescription, Status) bound [/name, /string, /n
 # the DELEGATION DECISION (the confidence gate) can live in policy. ShardType is
 # /none when no shard maps to the verb. Confidence is a 0-100 integer (Go scales
 # the 0.0-1.0 float, matching the action_verified convention).
-Decl delegation_candidate(IntentID, ShardType, Confidence) bound [/string, /name, /number].
+Decl delegation_candidate(IntentID, ShardType, Confidence) bound [/name, /name, /number].
 
 # should_delegate(ShardType) - derived: the current intent should be delegated to
 # ShardType. Replaces the hardcoded `shardType != "" && intent.Confidence >= 0.5`
@@ -376,7 +376,12 @@ Decl system_shard(ShardName, Type) bound [/string, /name].
 Decl system_shard_state(ShardName, State) bound [/string, /name].
 
 # system_heartbeat(ShardName, Timestamp) - last heartbeat from shard
-Decl system_heartbeat(ShardName, Timestamp) bound [/string, /number].
+# ShardName is the system shard's TYPE name from the fixed registry
+# (/perception_firewall, /executive_policy, /constitution_gate, /tactile_router,
+# /session_planner, /world_model_ingestor, ...), NOT a spawn instance id. It is
+# the same closed vocabulary that activate_shard/1 and shard_startup/2 hold, so
+# it is /name. BaseSystemShard.EmitHeartbeat wraps its plain ID accordingly.
+Decl system_heartbeat(ShardName, Timestamp) bound [/name, /number].
 
 # Campaign Runner supervision facts
 Decl campaign_runner_heartbeat(Timestamp) bound [/number].
@@ -389,11 +394,18 @@ Decl campaign_runner_failure(CampaignID, Reason, Timestamp) bound [/string, /str
 # -----------------------------------------------------------------------------
 
 # processed_intent(IntentID) - intent has been processed by perception
-Decl processed_intent(IntentID) bound [/string].
+# IntentID is the same /name value user_intent/5 carries: every producer
+# (chat/process.go, chat/process_seed.go, shards/system/perception.go) asserts
+# it alongside user_intent from the same intentID variable, "/current_intent",
+# which Fact.ToAtom promotes to a name constant.
+Decl processed_intent(IntentID) bound [/name].
 
 # executive_processed_intent(IntentID) - intent has been consumed by the executive
 # (i.e., executive_policy emitted the first action envelope for it).
-Decl executive_processed_intent(IntentID) bound [/string].
+# Same /name intent id. shards/system/executive.go asserts the literal
+# "/current_intent"; the 37 negated body literals in policy/capabilities.mg all
+# match !executive_processed_intent(/current_intent).
+Decl executive_processed_intent(IntentID) bound [/name].
 
 # pending_intent(IntentID) - derived: intent waiting to be processed
 # IntentID is the singleton name constant /current_intent: the only rule head
@@ -455,7 +467,12 @@ Decl rule_proposal_pending(ShardName, MangleCode, Rationale, Confidence, Timesta
 # -----------------------------------------------------------------------------
 
 # system_shard_healthy(ShardName) - derived: shard heartbeat recent
-Decl system_shard_healthy(ShardName) bound [/string].
+# ShardName is inherited from system_heartbeat/2, so it is the /name-shaped
+# shard type. The on-demand activation rules in policy/system_shards.mg negate
+# this with literals (!system_shard_healthy(/session_planner)); while this was
+# declared /string and Go asserted a bare "session_planner", the negation could
+# never be satisfied and every activate_shard guard was permanently open.
+Decl system_shard_healthy(ShardName) bound [/name].
 
 # system_shard_unhealthy(ShardName) - derived: shard heartbeat stale
 Decl system_shard_unhealthy(ShardName) bound [/string].

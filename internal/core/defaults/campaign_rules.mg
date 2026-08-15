@@ -738,13 +738,17 @@ next_action(/ask_campaign_interrupt) :-
 # -----------------------------------------------------------------------------
 
 # Status query during campaign
+# Target is user_intent's /string slot — it normally holds a path or a noun
+# phrase lifted from the user's words. These two rules were the only place in
+# the corpus that matched it with a name constant, so they could never fire; the
+# sub-command rules in policy/capabilities.mg use the quoted form throughout.
 next_action(/show_campaign_status) :-
-    user_intent(/current_intent, /query, _, /status, _),
+    user_intent(/current_intent, /query, _, "status", _),
     current_campaign(_).
 
 # Progress query during campaign
 next_action(/show_campaign_progress) :-
-    user_intent(/current_intent, /query, _, /progress, _),
+    user_intent(/current_intent, /query, _, "progress", _),
     current_campaign(_).
 
 # =============================================================================

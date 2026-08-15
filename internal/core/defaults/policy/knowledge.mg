@@ -15,8 +15,13 @@ active_strategy(/domain_expert) :-
 
 # 1. User preferences influence tool selection
 # If user prefers a language, boost activation for related tools
+# The key is a /string, not a /name: VirtualStore.HydrateLearnings asserts
+# toAtomOrString(storedFact.Predicate) over cold_storage rows whose predicate is
+# whatever key the memory operation used ("user_preference",
+# "prefer_explicit_returns", ...). Those keys never carry a leading "/", so
+# toAtomOrString leaves them as string constants.
 activation(Tool, 85) :-
-    learned_preference(/prefer_language, _),
+    learned_preference("prefer_language", _),
     tool_capabilities(Tool, /code_generation),
     tool_language(Tool, _).
 

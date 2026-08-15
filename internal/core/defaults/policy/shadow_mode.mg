@@ -16,9 +16,14 @@ safe_projection(ActionID) :-
     !has_projection_violation(ActionID).
 
 # Projection violation detection
+# simulated_effect(ActionID, FactPredicate, FactArgs) is bound
+# [/string, /string, /string] and FactArgs is the only slot that can hold a
+# value: ShadowMode.projectEffects renders the projected fact's arguments with
+# fmt.Sprintf("%v", effect.Args) (internal/core/shadow_mode.go), which is always
+# a plain Go string. An atom in that slot never unified with anything.
 projection_violation(ActionID, /test_failure) :-
     simulated_effect(ActionID, "diagnostic", _),
-    simulated_effect(ActionID, "diagnostic_severity", /error).
+    simulated_effect(ActionID, "diagnostic_severity", "error").
 
 projection_violation(ActionID, /security_violation) :-
     simulated_effect(ActionID, "security_violation", _).

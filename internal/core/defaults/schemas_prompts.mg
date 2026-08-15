@@ -228,7 +228,16 @@ Decl atom_content(AtomID, Content) bound [/string, /string].
 # compile_context(Dimension, Value)
 # Current compilation context asserted by Go runtime
 # Dimension matches atom_selector dimensions
-Decl compile_context(Dimension, Value) bound [/name, /string].
+# Value is genuinely polymorphic, hence the two bound alternatives.
+# CompilationContext.GenerateFacts (prompt/context.go) is called here with
+# ForceAtoms:false, which emits a name constant when the value already starts
+# with "/" and a quoted string otherwise. Nine of the ten dimensions carry
+# slash-prefixed vocabularies (/active, /planning, /coder, /go, ... - see
+# AllContextDimensions), so they land as /name; only /world_state uses bare
+# values ("failing_tests", "diagnostics", ...) and lands as /string. The /name
+# alternative is listed first because it is what the policy literals in
+# jit_selection.mg match against.
+Decl compile_context(Dimension, Value) bound [/name, /name] bound [/name, /string].
 
 # compile_budget(TotalTokens)
 # Available token budget for this compilation
@@ -354,7 +363,11 @@ Decl atom_category(AtomID, Category) bound [/string, /name].
 # Functionally equivalent to atom_selector but with /mode, /phase, /layer dimensions
 # Dimension: /mode, /phase, /layer, /shard, /lang, /framework, /intent, /state, /tag
 # Tag: Context value (e.g., /active, /coder, /go, /debug_only, /dream_only)
-Decl atom_tag(AtomID, Dimension, Tag) bound [/string, /name, /string].
+# Tag is /name, not /string: prompt/selector.go addTags() forces a leading "/"
+# on every emitted value and runs it through mangleNormalizeNameConst, so the
+# fact is always atom_tag("atom-1", /shard, /coder). It has to be, because
+# jit_selection.mg joins the Tag straight into compile_shard's /name ShardType.
+Decl atom_tag(AtomID, Dimension, Tag) bound [/string, /name, /name].
 
 # vector_hit(AtomID, Score)
 # Vector search results injected by Go runtime before compilation

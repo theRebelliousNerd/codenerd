@@ -600,9 +600,14 @@ func (m *SessionManager) buildDOMFacts(sessionID string, nodes []domSnapshotNode
 			}
 		}
 		// 1. Assert standard DOM predicates with session-qualified identities.
+		// The capture script reads el.tagName, which the DOM always reports
+		// upper-cased for HTML elements. element/3 below already lower-cases it,
+		// and every rule and fixture that matches a tag - target_checkbox in
+		// policy/browser.mg, testdata/honeypot.edb - writes it lower-case, so an
+		// upper-case dom_node tag unified with none of them.
 		facts = append(facts, mangle.Fact{
 			Predicate: "dom_node",
-			Args:      []any{n.ID, n.Tag, n.Text, n.Parent},
+			Args:      []any{n.ID, strings.ToLower(n.Tag), n.Text, n.Parent},
 			Timestamp: now,
 		})
 		if n.Text != "" {

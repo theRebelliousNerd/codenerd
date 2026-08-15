@@ -3,14 +3,18 @@
 # Extracted from internal/browser/honeypot.go
 # NOTE: All Decl statements are in schemas_browser.mg - do not duplicate here
 
-# CSS-based hiding
-# Support both atom-style keys/values (used by parsed EDB fixtures and some tests)
-# and string-style facts (used by schema-bound runtime fact emission).
-honeypot_css_hidden(Elem) :- css_property(Elem, /display, /none).
+# CSS-based hiding.
+#
+# Every key and value here is a /string, never an /atom. css_property is declared
+# bound [/string, /string, /string] and that is what the page actually delivers:
+# HoneypotDetector.emitElementEvidence pushes the raw window.getComputedStyle
+# map (internal/browser/honeypot.go), and SessionManager.buildDOMFacts pushes the
+# raw n.Styles map (internal/browser/session_manager_dom.go). Those are arbitrary
+# attacker-authored declarations, not a closed vocabulary, so there is no atom
+# form to support - a duplicate `/display, /none` arm derived nothing on a live
+# page and only existed to prop up hand-written EDB fixtures.
 honeypot_css_hidden(Elem) :- css_property(Elem, "display", "none").
-honeypot_css_invisible(Elem) :- css_property(Elem, /visibility, /hidden).
 honeypot_css_invisible(Elem) :- css_property(Elem, "visibility", "hidden").
-honeypot_opacity_hidden(Elem) :- css_property(Elem, /opacity, "0").
 honeypot_opacity_hidden(Elem) :- css_property(Elem, "opacity", "0").
 
 # Position-based hiding (off-screen)
@@ -27,16 +31,14 @@ honeypot_zero_size(Elem) :-
     W < 2,
     H < 2.
 
-# ARIA hidden
+# ARIA hidden. attribute/3 is bound [/string, /string, /string] for the same
+# reason css_property is: the name and value are whatever the page's HTML says.
 honeypot_aria_hidden(Elem) :- attribute(Elem, "aria-hidden", "true").
-honeypot_aria_hidden(Elem) :- attribute(Elem, "aria-hidden", /true).
 
 # Negative tabindex (not keyboard accessible)
-honeypot_no_keyboard(Elem) :- attribute(Elem, /tabindex, "-1").
 honeypot_no_keyboard(Elem) :- attribute(Elem, "tabindex", "-1").
 
 # Pointer events disabled
-honeypot_pointer_events_none(Elem) :- css_property(Elem, /pointerEvents, /none).
 honeypot_pointer_events_none(Elem) :- css_property(Elem, "pointerEvents", "none").
 
 # Clip-based hiding. Go parses `clip: rect(t, r, b, l)` into css_clip_rect and
@@ -51,9 +53,6 @@ honeypot_clip_hidden(Elem) :-
 # overflow:hidden on its own is one of the most common declarations on the web
 # and flagging it alone would make every carousel a honeypot. It is evidence
 # only when the box it clips has already collapsed to nothing.
-honeypot_overflow_hidden(Elem) :-
-    css_property(Elem, /overflow, /hidden),
-    honeypot_zero_size(Elem).
 honeypot_overflow_hidden(Elem) :-
     css_property(Elem, "overflow", "hidden"),
     honeypot_zero_size(Elem).

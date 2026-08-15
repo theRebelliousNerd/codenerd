@@ -251,13 +251,21 @@ specialist_context_source(Specialist, DBPath) :-
 
 # Activate specialist for campaign phase based on role
 # campaign_phase(PhaseID, CampaignID, Name, Order, Status, ContextProfile) - 6 args
+#
+# Name is the phase's free-form display label (/string), not an enum: Phase.ToFacts
+# passes p.Name straight through (internal/campaign/types.go), and the plans that
+# reach it carry labels like "Discovery" or "Assault Execution". Matching it as an
+# atom could never unify. The closed phase vocabulary lives in phase_category/2
+# (bound [/string, /name]), whose value set is normalizePhaseCategory's nine build
+# layers - /implementation and /planning are aliases it folds into /service and
+# /research, so they are not available there either.
 activate_specialist_for_phase(Specialist, Phase) :-
     specialist_campaign_role(Specialist, /phase_executor),
-    campaign_phase(Phase, _, /implementation, _, _, _).
+    campaign_phase(Phase, _, "implementation", _, _, _).
 
 activate_specialist_for_phase(Specialist, Phase) :-
     specialist_campaign_role(Specialist, /plan_reviewer),
-    campaign_phase(Phase, _, /planning, _, _, _).
+    campaign_phase(Phase, _, "planning", _, _, _).
 
 # Cross-Specialist Collaboration
 # Strategic advisors can assist technical executors

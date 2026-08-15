@@ -23,71 +23,79 @@
 # Decl has_hypothetical_modal imported from schemas_intent.mg
 
 # --- Detect interrogatives from context tokens ---
-# Single-word tokens are often atomized if they are identifiers (like 'where', 'is')
+# context_token is declared bound [/string] and its only producer
+# (perception/taxonomy.go ClassifyInput) feeds it bare lowercase words split out
+# of the raw input, so every token arrives as a STRING constant — internal/mangle
+# convertValueToTypedTerm takes the ast.StringType branch and explicitly skips
+# the identifier auto-atomizer for /string slots. The multi-token rules below
+# used to match /what, /is, ... as NAME constants; a name never unifies with a
+# string, so all 15 of them derived nothing while the single-token rule beside
+# them worked. They are quoted now, which is also what interrogative_type,
+# modal_type and existence_pattern hold in their own first slot.
 detected_interrogative(Word, SemanticType, DefaultVerb, Priority) :-
     context_token(Word),
     interrogative_type(Word, SemanticType, DefaultVerb, Priority).
 
 # Two-word interrogatives (check for both tokens present)
 detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/what),
-    context_token(/is),
+    context_token("what"),
+    context_token("is"),
     interrogative_type("what is", SemanticType, DefaultVerb, Priority),
     Phrase = "what is".
 
 detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/what),
-    context_token(/if),
+    context_token("what"),
+    context_token("if"),
     interrogative_type("what if", SemanticType, DefaultVerb, Priority),
     Phrase = "what if".
 
 detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/why),
-    context_token(/is),
+    context_token("why"),
+    context_token("is"),
     interrogative_type("why is", SemanticType, DefaultVerb, Priority),
     Phrase = "why is".
 
 detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/why),
-    context_token(/does),
+    context_token("why"),
+    context_token("does"),
     interrogative_type("why does", SemanticType, DefaultVerb, Priority),
     Phrase = "why does".
 
 detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/how),
-    context_token(/do),
-    context_token(/i),
+    context_token("how"),
+    context_token("do"),
+    context_token("i"),
     interrogative_type("how do i", SemanticType, DefaultVerb, Priority),
     Phrase = "how do i".
 
 detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/how),
-    context_token(/can),
-    context_token(/i),
+    context_token("how"),
+    context_token("can"),
+    context_token("i"),
     interrogative_type("how can i", SemanticType, DefaultVerb, Priority),
     Phrase = "how can i".
 
 detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/where),
-    context_token(/is),
+    context_token("where"),
+    context_token("is"),
     interrogative_type("where is", SemanticType, DefaultVerb, Priority),
     Phrase = "where is".
 
 detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/who),
-    context_token(/wrote),
+    context_token("who"),
+    context_token("wrote"),
     interrogative_type("who wrote", SemanticType, DefaultVerb, Priority),
     Phrase = "who wrote".
 
 detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/which),
-    context_token(/file),
+    context_token("which"),
+    context_token("file"),
     interrogative_type("which file", SemanticType, DefaultVerb, Priority),
     Phrase = "which file".
 
 detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/which),
-    context_token(/files),
+    context_token("which"),
+    context_token("files"),
     interrogative_type("which files", SemanticType, DefaultVerb, Priority),
     Phrase = "which files".
 
@@ -98,32 +106,32 @@ detected_modal(Word, ModalMeaning, Transformation, Priority) :-
 
 # Two-word modals
 detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
-    context_token(/can),
-    context_token(/you),
+    context_token("can"),
+    context_token("you"),
     modal_type("can you", ModalMeaning, Transformation, Priority),
     Phrase = "can you".
 
 detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
-    context_token(/could),
-    context_token(/you),
+    context_token("could"),
+    context_token("you"),
     modal_type("could you", ModalMeaning, Transformation, Priority),
     Phrase = "could you".
 
 detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
-    context_token(/would),
-    context_token(/you),
+    context_token("would"),
+    context_token("you"),
     modal_type("would you", ModalMeaning, Transformation, Priority),
     Phrase = "would you".
 
 detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
-    context_token(/help),
-    context_token(/me),
+    context_token("help"),
+    context_token("me"),
     modal_type("help me", ModalMeaning, Transformation, Priority),
     Phrase = "help me".
 
 detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
-    context_token(/what),
-    context_token(/if),
+    context_token("what"),
+    context_token("if"),
     modal_type("what if", ModalMeaning, Transformation, Priority),
     Phrase = "what if".
 
@@ -151,21 +159,21 @@ has_hypothetical_modal(/true) :-
 
 # --- Detect existence patterns ---
 detected_existence(Pattern, DefaultVerb, Priority) :-
-    context_token(/is),
-    context_token(/there),
+    context_token("is"),
+    context_token("there"),
     existence_pattern("is there", _, DefaultVerb, Priority),
     Pattern = "is there".
 
 detected_existence(Pattern, DefaultVerb, Priority) :-
-    context_token(/are),
-    context_token(/there),
+    context_token("are"),
+    context_token("there"),
     existence_pattern("are there", _, DefaultVerb, Priority),
     Pattern = "are there".
 
 detected_existence(Pattern, DefaultVerb, Priority) :-
-    context_token(/do),
-    context_token(/we),
-    context_token(/have),
+    context_token("do"),
+    context_token("we"),
+    context_token("have"),
     existence_pattern("do we have", _, DefaultVerb, Priority),
     Pattern = "do we have".
 

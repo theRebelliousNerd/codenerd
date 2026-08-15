@@ -13,7 +13,12 @@
 Decl vector_recall(Query, Content, Score) bound [/string, /string, /number].
 
 # knowledge_link(EntityA, Relation, EntityB)
-Decl knowledge_link(EntityA, Relation, EntityB) bound [/string, /string, /string].
+# Relation is the closed edge-label vocabulary of the knowledge graph
+# (/has_file, /has_chunk, /has_source_doc from the ingest/document paths,
+# /related_to and /depends_on matched by policy/knowledge.mg), so /name.
+# The entity slots stay /string: they hold workspace-relative file paths and
+# chunk ids, which isValidMangleNameConstant deliberately refuses to promote.
+Decl knowledge_link(EntityA, Relation, EntityB) bound [/string, /name, /string].
 
 # new_fact(FactID) - marks a fact as newly added (for activation)
 Decl new_fact(FactID) bound [/string].

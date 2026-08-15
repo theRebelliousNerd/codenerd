@@ -10,11 +10,23 @@
 # =============================================================================
 
 # user_intent(ID, Category, Verb, Target, Constraint)
+# ID: /current_intent for the interactive turn, /task_intent_N for a SubAgent
+#     run. A NAME constant, not a string: every Go producer emits one, either
+#     explicitly (transducer.go ToFact, session/executor.go ProcessWithIntent
+#     use types.MangleAtom) or implicitly (chat/process.go, chat/process_seed.go,
+#     shards/system/perception.go and context/serializer.go pass the bare Go
+#     string "/current_intent", which Fact.ToAtom promotes to a name), and every
+#     rule body in the corpus matches the /current_intent literal. This slot is
+#     pure EDB — no .mg head asserts user_intent — so the Decl was the only place
+#     the disagreement could show, and nothing read it.
 # Category: /query, /mutation, /instruction
 # Verb: /explain, /refactor, /debug, /generate, /scaffold, /init, /test, /review, /fix, /run, /research, /explore, /implement
+# Target: /string. Usually a file path or a free-form noun phrase from the
+#     user's words; the sub-command rules in policy/capabilities.mg match it as
+#     a quoted literal ("setup", "test", "patch"), never as a name.
 # Priority: 100
 # SerializationOrder: 1
-Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, /name, /string, /string].
+Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/name, /name, /name, /string, /string].
 
 # multi_step_signal(Signal) - EDB asserted by Go.
 # Step 5: the multi-step CLASSIFICATION decision moves to policy, while the
@@ -61,8 +73,15 @@ Decl intent_unknown(INPUT, REASON) bound [/string, /name].
 Decl intent_unmapped(VERB, REASON) bound [/name, /name].
 
 # no_action_reason(IntentID, Reason)
+# IntentID: the same /name intent id user_intent carries. Both producers pass it
+#   as a bare Go string — shards/system/router.go takes it out of the pending
+#   action payload, shards/system/executive_intent.go copies intent.ID off a
+#   user_intent readback — and its value is "/current_intent", which Fact.ToAtom
+#   promotes to a name constant. Declaring it /string made this the one relation
+#   whose reader disagreed with it: clarification.mg copies IntentID straight
+#   into clarification_question/1, declared /name.
 # Reason: /unmapped_verb, /no_route, /blocked_by_constitution, /ooda_timeout, /no_action_derived
-Decl no_action_reason(INTENTID, REASON) bound [/string, /name].
+Decl no_action_reason(INTENTID, REASON) bound [/name, /name].
 
 # learning_candidate(Phrase, Verb, Target, Reason)
 # Staged for confirmation before promotion to learned_exemplar
