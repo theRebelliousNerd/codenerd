@@ -398,6 +398,10 @@ func (c *UserConfig) GetToolGenerationConfig() ToolGenerationConfig {
 		if c.ToolGeneration.TargetArch != "" {
 			cfg.TargetArch = c.ToolGeneration.TargetArch
 		}
+		// No zero-check: false is a meaningful value here and the default, so
+		// copying it unconditionally is what makes an explicit `false` in a
+		// config file mean what it says.
+		cfg.AllowToolExec = c.ToolGeneration.AllowToolExec
 	}
 	return cfg
 }

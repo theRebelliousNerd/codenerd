@@ -207,6 +207,14 @@ func DefaultConfig(workspaceRoot string) Config {
 			if tg.TargetArch != "" {
 				cfg.TargetArch = tg.TargetArch
 			}
+			// The per-workspace exec grant the safety docs describe. Nothing
+			// set this before, so the documented opt-in could not be taken:
+			// exec was off regardless of what the operator configured. It
+			// stays off by default — an allowlisted os/exec is an
+			// unrestricted shell for LLM-authored code — but "off unless you
+			// ask" and "off, and there is no way to ask" are different
+			// promises, and only the first one was written down.
+			cfg.AllowToolExec = tg.AllowToolExec
 		}
 	}
 
