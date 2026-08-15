@@ -503,7 +503,7 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	}
 
 	// Phase 6: Analyze Agents
-	recommendedAgents := i.runPhase6AnalyzeAgents(runner, result, profile)
+	recommendedAgents := i.runPhase6AnalyzeAgents(ctx, runner, result, profile)
 	if err := checkContext("agent analysis"); err != nil {
 		return result, err
 	}
@@ -839,7 +839,7 @@ func (i *Initializer) runPhase5cPromptDB(ctx context.Context, runner *phaseRunne
 	runner.complete("prompt_db")
 }
 
-func (i *Initializer) runPhase6AnalyzeAgents(runner *phaseRunner, result *InitResult, profile ProjectProfile) []RecommendedAgent {
+func (i *Initializer) runPhase6AnalyzeAgents(ctx context.Context, runner *phaseRunner, result *InitResult, profile ProjectProfile) []RecommendedAgent {
 	runner.start("agents", "Analyzing required agents...", 0.50)
 	fmt.Println("\n🤖 Phase 6: Determining Required Type 3 Agents")
 
@@ -854,7 +854,7 @@ func (i *Initializer) runPhase6AnalyzeAgents(runner *phaseRunner, result *InitRe
 	// agents get knowledge bases, so they have to land before phase 7a and
 	// before the result records what was recommended.
 	recommendedAgents = i.mergeTypeUAgents(recommendedAgents)
-	recommendedAgents = i.curateAgents(recommendedAgents, profile, result)
+	recommendedAgents = i.curateAgents(ctx, recommendedAgents, profile, result)
 	result.RecommendedAgents = recommendedAgents
 
 	runner.complete("agents")

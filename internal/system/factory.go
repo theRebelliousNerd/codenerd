@@ -629,16 +629,22 @@ type bootContext struct {
 }
 
 func initCoreComponents(bctx *bootContext) error {
-	bctx.workspace = bctx.cfg.Workspace
+	// resolveWorkspaceRoot, not a second copy of its logic.
+	//
+	// This used to inline the same "cfg.Workspace, else FindWorkspaceRoot, else
+	// Getwd" cascade — everything resolveWorkspaceRoot does except the part that
+	// matters: binding the containment boundary for the modular file tools. The
+	// binding therefore only happened on the GetOrBootCortex path (the one-shot
+	// CLI), and never on BootCortexWithConfig, which is the path interactive
+	// chat and every shard actually boot through. `nerd -w <dir> chat` booted
+	// Cortex against <dir> while its tools still resolved relative paths under
+	// the process CWD, so a glob in the chat session listed the wrong tree.
+	//
+	// Two copies of one resolution is how that gap opened, so there is now one.
+	// It also returns an absolute path, which keeps the boot's effective
+	// workspace identical to the string used for cortex cache keying.
+	bctx.workspace = resolveWorkspaceRoot(bctx.cfg.Workspace)
 	bctx.apiKey = bctx.cfg.APIKey
-
-	if bctx.workspace == "" {
-		if root, err := config.FindWorkspaceRoot(); err == nil && root != "" {
-			bctx.workspace = root
-		} else {
-			bctx.workspace, _ = os.Getwd()
-		}
-	}
 	if perception.SharedTaxonomy != nil {
 		perception.SharedTaxonomy.SetWorkspace(bctx.workspace)
 	}

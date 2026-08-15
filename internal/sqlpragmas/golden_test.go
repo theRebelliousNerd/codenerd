@@ -23,7 +23,7 @@ import (
 //
 // Regenerate with:
 //
-//	go test ./internal/sqlpragmas/ -run TestPragmasFor_Golden -update
+//	go test ./internal/sqlpragmas/ -run TestPragmasFor_WhenPresetsChange -update
 
 var updateGolden = flag.Bool("update", false, "rewrite testdata/pragmas.golden from the current pragmasFor output")
 
@@ -70,7 +70,7 @@ func TestPragmasFor_WhenPresetsChange_ShouldMatchGolden(t *testing.T) {
 	}
 
 	t.Errorf("pragmasFor output no longer matches %s:\n%s\n\n"+
-		"If the change is intended: regenerate with `go test ./internal/sqlpragmas/ -run TestPragmasFor_Golden -update`, "+
+		"If the change is intended: regenerate with `go test ./internal/sqlpragmas/ -run TestPragmasFor_WhenPresetsChange -update`, "+
 		"read the diff, and update the per-profile assertions in pragmas_test.go / pragma_integration_test.go and "+
 		"Docs/architecture/sqlpragmas/IMPLEMENTED_SPEC.md in the same change.",
 		goldenPath, strings.Join(diff, "\n"))

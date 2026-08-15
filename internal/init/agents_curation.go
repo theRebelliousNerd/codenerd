@@ -4,6 +4,7 @@
 package init
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -67,7 +68,7 @@ func (i *Initializer) mergeTypeUAgents(recommended []RecommendedAgent) []Recomme
 //
 // Any failure to read the user's answer degrades to the recommended set rather
 // than failing init — a broken stdin must not cost the user their workspace.
-func (i *Initializer) curateAgents(recommended []RecommendedAgent, profile ProjectProfile, result *InitResult) []RecommendedAgent {
+func (i *Initializer) curateAgents(ctx context.Context, recommended []RecommendedAgent, profile ProjectProfile, result *InitResult) []RecommendedAgent {
 	if !i.config.Interactive || len(recommended) == 0 {
 		return recommended
 	}
@@ -92,7 +93,7 @@ func (i *Initializer) curateAgents(recommended []RecommendedAgent, profile Proje
 	}
 
 	detected := ConvertToDetectedAgents(recommended, profile)
-	selected, err := InteractiveAgentSelection(detected, interactiveCfg)
+	selected, err := InteractiveAgentSelection(ctx, detected, interactiveCfg)
 	if err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Interactive agent selection failed, keeping recommended agents: %v", err))
 		return recommended
@@ -151,14 +152,25 @@ func (i *Initializer) resolveInteractiveConfig() (InteractiveConfig, bool) {
 
 // stdioIsTerminal reports whether both stdin and stdout are character devices.
 //
-// Requiring both is what makes this usable as a gate. stdin alone is not
-// enough: `go test`, cron, systemd and most CI runners attach /dev/null, which
-// is also a character device, so a stdin-only check would try to prompt in
-// every automated run and then eat an immediate EOF. Those same environments
+// Requiring both narrows it usefully — `go test`, cron and most CI runners
 // redirect stdout to a pipe or file, so the conjunction is false for them and
-// true for a human at a terminal. Pure stdlib on purpose — the alternatives are
+// true for a human at a terminal. Pure stdlib on purpose: the alternatives are
 // a new module dependency or per-OS ioctl build tags, and `nerd` ships on
 // Windows too.
+//
+// What this does NOT do, despite reading like it might: distinguish a terminal
+// from /dev/null. /dev/null is a character device on both ends, so
+// `nerd init < /dev/null > /dev/null` passes this gate. That case is harmless
+// (the read gets an immediate EOF and curation degrades to the recommended
+// set), but the gap is real and it is wider than /dev/null: `docker run -t`,
+// `docker compose run`, `script -c` and CI wrappers allocate a genuine pty and
+// then send no input, which passes the gate AND never returns EOF.
+//
+// That combination used to hang `nerd init` forever. The bound now lives where
+// it belongs — on the read itself (see readInput) — rather than in a gate that
+// cannot see the difference. This function is a heuristic for "probably worth
+// asking"; it is not a safety property, and nothing downstream may treat it as
+// one.
 func stdioIsTerminal() bool {
 	return isCharDevice(os.Stdin) && isCharDevice(os.Stdout)
 }

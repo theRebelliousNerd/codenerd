@@ -2,6 +2,7 @@ package init
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,7 +111,7 @@ func TestCurateAgents_WhenUserAcceptsRecommended_ShouldDropOptionalAgents(t *tes
 	profile := ProjectProfile{Language: "go"}
 
 	result := &InitResult{}
-	curated := ini.curateAgents(offered, profile, result)
+	curated := ini.curateAgents(context.Background(), offered, profile, result)
 
 	got := map[string]bool{}
 	for _, agent := range curated {
@@ -156,7 +157,7 @@ func TestCurateAgents_WhenUserDeclines_ShouldKeepOnlyCoreAgents(t *testing.T) {
 		InteractiveIO: scriptedInteractiveConfig(t, "n\n"),
 	}}
 
-	curated := ini.curateAgents([]RecommendedAgent{
+	curated := ini.curateAgents(context.Background(), []RecommendedAgent{
 		{Name: "SecurityAuditor"},
 		{Name: "TestArchitect"},
 		{Name: "GoExpert"},
@@ -176,7 +177,7 @@ func TestCurateAgents_WhenNotInteractive_ShouldKeepEveryRecommendedAgent(t *test
 	ini := &Initializer{config: InitConfig{Workspace: t.TempDir(), Interactive: false}}
 	offered := []RecommendedAgent{{Name: "GoExpert"}, {Name: "RedisExpert"}}
 
-	curated := ini.curateAgents(offered, ProjectProfile{Language: "go"}, &InitResult{})
+	curated := ini.curateAgents(context.Background(), offered, ProjectProfile{Language: "go"}, &InitResult{})
 	if len(curated) != 2 {
 		t.Fatalf("curated = %v, want the untouched recommended set", agentNames(curated))
 	}
@@ -190,7 +191,7 @@ func TestCurateAgents_WhenNoTerminalAvailable_ShouldSkipPromptAndKeepRecommended
 	offered := []RecommendedAgent{{Name: "GoExpert"}, {Name: "RedisExpert"}}
 
 	result := &InitResult{}
-	curated := ini.curateAgents(offered, ProjectProfile{Language: "go"}, result)
+	curated := ini.curateAgents(context.Background(), offered, ProjectProfile{Language: "go"}, result)
 	if len(curated) != 2 {
 		t.Fatalf("curated = %v, want the untouched recommended set", agentNames(curated))
 	}
@@ -225,7 +226,7 @@ func TestCurateAgents_WhenPreviousRunAutoAccepted_ShouldNotPrompt(t *testing.T) 
 	}}
 
 	result := &InitResult{}
-	curated := ini.curateAgents([]RecommendedAgent{{Name: "GoExpert"}, {Name: "RedisExpert"}}, ProjectProfile{Language: "go"}, result)
+	curated := ini.curateAgents(context.Background(), []RecommendedAgent{{Name: "GoExpert"}, {Name: "RedisExpert"}}, ProjectProfile{Language: "go"}, result)
 	if len(curated) != 2 {
 		t.Fatalf("curated = %v, want the recommended set auto-accepted", agentNames(curated))
 	}
@@ -247,7 +248,7 @@ func TestCurateAgents_WhenInputEndsImmediately_ShouldDegradeToRecommended(t *tes
 	}}
 
 	result := &InitResult{}
-	curated := ini.curateAgents([]RecommendedAgent{{Name: "GoExpert"}}, ProjectProfile{Language: "go"}, result)
+	curated := ini.curateAgents(context.Background(), []RecommendedAgent{{Name: "GoExpert"}}, ProjectProfile{Language: "go"}, result)
 	if len(curated) != 1 {
 		t.Fatalf("curated = %v, want the recommended set preserved on read failure", agentNames(curated))
 	}
