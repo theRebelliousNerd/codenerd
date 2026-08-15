@@ -73,9 +73,30 @@ func TestGoInvocations_WhenSpawningGo_ShouldUseBuildEnvOrBeExempt(t *testing.T) 
 		byFile[s.file] = append(byFile[s.file], s)
 	}
 	for _, file := range slices.Sorted(mapKeys(byFile)) {
-		status := "uses internal/build"
-		if reason, ok := goSpawnExemptions[file]; ok {
-			status = reason
+		// The status has to be read off the sites, not assumed. It used to
+		// default to "uses internal/build" and be overridden only by an
+		// exemption, so a file that spawned `go` WITHOUT the build env printed
+		// "uses internal/build" — in the very inventory this test exists to
+		// publish. The assertion below still caught it, but anyone reading the
+		// -v output was told the opposite of the truth about the one file that
+		// mattered.
+		allUseEnv := true
+		for _, s := range byFile[file] {
+			if !s.usesEnv {
+				allUseEnv = false
+				break
+			}
+		}
+		var status string
+		switch {
+		case allUseEnv:
+			status = "uses internal/build"
+		case goSpawnExemptions[file] != "":
+			// Some reasons already open with "exempt:"; do not stutter.
+			status = strings.TrimPrefix(goSpawnExemptions[file], "exempt: ")
+			status = "exempt: " + status
+		default:
+			status = "VIOLATION: spawns go without the build env and is not exempt"
 		}
 		lines := make([]string, 0, len(byFile[file]))
 		for _, s := range byFile[file] {
