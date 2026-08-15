@@ -1,0 +1,12 @@
+# Golden files are compared byte-for-byte against strings that tests build with
+# "\n". With core.autocrlf=true (the Windows default, and what this repo is
+# developed on) git rewrites them to CRLF on checkout, so the comparison fails
+# on line endings alone while every line matches. That is what broke
+# TestToFacts_EmittedPredicateArity_ShouldMatchGolden: 25 identical lines, 25
+# CRLF pairs, one failing test.
+#
+# Pinning eol=lf keeps golden files byte-stable on every platform.
+#
+# Note: .gitignore line 20 ignores all dotfiles ("(.*)"), which catches this
+# file too, so it had to be added with "git add -f".
+*.golden text eol=lf
