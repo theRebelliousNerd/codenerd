@@ -244,6 +244,7 @@ func repoRoot(t *testing.T) string {
 var skipDirs = map[string]bool{
 	".git": true, "vendor": true, "node_modules": true, "testdata": true,
 	".nerd": true, "sqlite_headers": true,
+	".claude": true, // agent worktrees — complete repo copies, so walking it duplicates every file under a non-checkout path
 }
 
 func scanGoSpawnSites(t *testing.T, root string) []goSpawnSite {

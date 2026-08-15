@@ -167,6 +167,7 @@ func TestPragmaSurface_WhenNewPackageAppliesPragmas_ShouldPreferTheLeaf(t *testi
 var auditSkipDirs = map[string]bool{
 	".git": true, "vendor": true, "node_modules": true, "testdata": true,
 	".nerd": true, "sqlite_headers": true,
+	".claude": true, // agent worktrees — complete repo copies, so walking it duplicates every file under a non-checkout path
 }
 
 func scanSQLOpenSites(t *testing.T, root string) []sqlOpenSite {

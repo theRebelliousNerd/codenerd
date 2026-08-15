@@ -95,6 +95,12 @@ var safetyGateInventory = map[string]struct {
 		"read-only: lists permitted actions for the session context display",
 		"",
 	},
+	"scripts/probe_safety/main.go": {
+		classNotGate,
+		"standalone diagnostic in package main: asserts a pending_action, queries permitted/N " +
+			"and prints the rows. Nothing branches on the verdict, so there is no decision to audit",
+		"",
+	},
 }
 
 // fileCallsSafetyCheck reports whether src contains a real call to
@@ -154,7 +160,7 @@ func TestSafetyCheckCallSites_WhenKernelGateExists_ShouldAuditTheVerdict(t *test
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "node_modules", "vendor", "testdata", ".nerd":
+			case ".git", "node_modules", "vendor", "testdata", ".nerd", ".claude": // .claude holds agent worktrees (full repo copies); walking it duplicates every file under a non-checkout path
 				return filepath.SkipDir
 			}
 			return nil

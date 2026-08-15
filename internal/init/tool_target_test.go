@@ -93,7 +93,7 @@ func TestNoHardcodedToolTarget_AnywhereInTheRepo(t *testing.T) {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "node_modules", "vendor", "testdata", ".nerd":
+			case ".git", "node_modules", "vendor", "testdata", ".nerd", ".claude": // .claude holds agent worktrees (full repo copies); walking it duplicates every file under a non-checkout path
 				return filepath.SkipDir
 			}
 			return nil
