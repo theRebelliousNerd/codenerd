@@ -138,7 +138,7 @@ func nestingForFunc(fn *ast.FuncDecl) int {
 
 type nestingVisitor struct {
 	depth int
-	max     *int
+	max   *int
 }
 
 func (v nestingVisitor) Visit(n ast.Node) ast.Visitor {

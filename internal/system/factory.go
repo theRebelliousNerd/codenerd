@@ -20,6 +20,7 @@ import (
 	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/system"
+	"codenerd/internal/tools"
 	"codenerd/internal/tools/research"
 	"codenerd/internal/types"
 	"database/sql"
@@ -142,6 +143,18 @@ func resolveWorkspaceRoot(workspace string) string {
 	if abs, err := filepath.Abs(root); err == nil {
 		root = abs
 		_ = os.Setenv("CODENERD_WORKSPACE_ROOT", abs)
+		// The env variable is process-global, so two registries in one process
+		// cannot be given different roots and anything that reassigns it moves
+		// the containment boundary for every tool at once. Bind the registry's
+		// own root as well; the guard prefers it and treats the env as a
+		// fallback for callers that reach a tool outside a registry.
+		tools.SetGlobalWorkspaceRoot(abs)
+		// The research cache is otherwise memory-only and dies with the
+		// process, so every session re-fetches what the last one already had.
+		if err := research.EnableDiskCache(abs); err != nil {
+			logging.Get(logging.CategoryTools).Debug(
+				"research disk cache unavailable at %s: %v", abs, err)
+		}
 	}
 	return root
 }
@@ -455,6 +468,17 @@ const maintenanceStopWait = 2 * time.Second
 // fresh boot, including `nerd create` / `nerd spawn`. An immediate cycle
 // holds SQLite while Close tears down LocalDB and historically stalled
 // Windows process exit for many seconds after Result was printed.
+// MCPBridge returns the MCP integration bridge, or nil when no MCP servers are
+// configured. The bridge was already retained on the Cortex but had no
+// accessor, so the tool compiler it owns was unreachable from outside this
+// package and MCP tools could not be compiled into a shard's prompt.
+func (c *Cortex) MCPBridge() *mcp.MCPIntegrationBridge {
+	if c == nil {
+		return nil
+	}
+	return c.mcpBridge
+}
+
 func (c *Cortex) StartMaintenanceSchedule(ctx context.Context) context.CancelFunc {
 	if c.LocalDB == nil {
 		logging.Get(logging.CategorySession).Warn("Maintenance schedule skipped: no LocalDB")

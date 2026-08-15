@@ -63,6 +63,10 @@ func (v *VirtualStore) HydrateModularTools(searchers ...types.GroundedWebSearche
 	// Install the nerd.md write guard on BOTH registries before any tool is
 	// registered, so no window exists where a tool is callable but unguarded.
 	v.installToolWriteGuard(registry, globalRegistry)
+	// Same both-registries treatment: a tool run through tools.Global() by the
+	// session executor must land in the kernel just like one run through the
+	// VirtualStore registry.
+	v.installToolFactSink(registry, globalRegistry)
 
 	// Register all core filesystem tools (to both registries)
 	if err := core.RegisterAll(registry); err != nil {
