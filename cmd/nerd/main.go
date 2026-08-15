@@ -310,6 +310,7 @@ func init() {
 		autopoiesisCmd,
 		memoryCmd,
 		usageCmd,
+		regressionCmd,
 	)
 
 	// Session management commands
