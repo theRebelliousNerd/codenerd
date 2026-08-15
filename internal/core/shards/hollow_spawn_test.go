@@ -18,6 +18,7 @@ type recordingDelegator struct {
 	tasks   []string
 	result  string
 	err     error
+	delay   time.Duration
 }
 
 func (d *recordingDelegator) Execute(_ context.Context, intent, task string) (string, error) {
@@ -25,6 +26,9 @@ func (d *recordingDelegator) Execute(_ context.Context, intent, task string) (st
 	defer d.mu.Unlock()
 	d.intents = append(d.intents, intent)
 	d.tasks = append(d.tasks, task)
+	if d.delay > 0 {
+		time.Sleep(d.delay)
+	}
 	return d.result, d.err
 }
 

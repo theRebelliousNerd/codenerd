@@ -74,9 +74,9 @@ func (f *fakeTransparencyManager) snapshot() ([]string, []types.ShardPhase, map[
 func TestSpawn_WhenTransparencyManagerAttached_ShouldReportShardLifecycle(t *testing.T) {
 	fake := newFakeTransparencyManager()
 	sm := NewShardManager()
-	sm.SetTaskDelegator(&recordingDelegator{result: "work done"})
+	// The monotonic clock granularity is around half a millisecond, so an instantly-returning delegator makes a correctly-measured duration read as zero.
+	sm.SetTaskDelegator(&recordingDelegator{result: "work done", delay: 2 * time.Millisecond})
 	sm.SetTransparencyManager(fake)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
