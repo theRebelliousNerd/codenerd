@@ -143,6 +143,12 @@ func ResolveWorkspacePath(ctx context.Context, root, p string) (string, error) {
 	// backslashes are normalized, so both would otherwise be joined onto the
 	// root as literal filenames and accepted.
 	slashed := normalizeSeparators(p)
+	// On Windows a leading separator means the root of the current drive and
+	// filepath.IsAbs does not report it as absolute, so without this the
+	// path would be joined onto the workspace root and silently accepted.
+	if !filepath.IsAbs(slashed) && strings.HasPrefix(slashed, "/") {
+		return "", fmt.Errorf("%w: %q is rooted at the filesystem root, not the workspace", ErrPathOutsideWorkspace, p)
+	}
 	var absPath string
 	if filepath.IsAbs(slashed) {
 		absPath = filepath.Clean(slashed)
