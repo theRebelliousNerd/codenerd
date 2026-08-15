@@ -19,6 +19,29 @@ func permissiveConfig() OuroborosConfig {
 	}
 }
 
+// What this test does and does not claim, recorded because a commit message on
+// this branch overstated it.
+//
+// Adversarial review tried to reproduce a fail-OPEN on the base branch and
+// could not: with an empty policy, every input it tried was already denied,
+// including a tool importing os/exec and one calling panic. The mechanism was
+// accidental rather than designed. Check calls engine.AddFacts before it
+// queries ?violation(V), an empty policy declares no predicates, so the first
+// fact was rejected with "predicate ast_import is not declared in schemas" and
+// the error was routed through sc.fail — Safe=false, Score=0,
+// SeverityBlocking. buildAllowedPackages always returns a non-empty base list,
+// so the fact set was never empty and the query was unreachable.
+//
+// So the branch's contribution is attribution, not safety: the denial now comes
+// from an explicit policyErr check before any work, names go_safety.mg as the
+// location, and says the policy is unavailable rather than blaming an
+// undeclared predicate the author never wrote. That is worth having — a
+// blocking violation nobody can act on is nearly as bad as none — but it is not
+// the difference between a gate that worked and one that did not.
+//
+// The assertions below describe behavior the base branch also had. Keep them:
+// they were incidental there and are load-bearing here, which is exactly when a
+// property needs a test.
 func TestSafetyChecker_WhenPolicyFailsToLoad_ShouldDenyEverything(t *testing.T) {
 	checker := newSafetyCheckerWithPolicy(permissiveConfig(), "", errors.New("embedded FS read failed"))
 
