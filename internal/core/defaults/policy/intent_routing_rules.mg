@@ -459,15 +459,28 @@ tdd_state(/refactor) :- tdd_state(/green), code_quality_issue(_, _).
 
 # Next action derivation for TDD
 next_action(/run_tests) :- tdd_state(/green), !tests_run_recently().
-next_action(/fix_code) :- tdd_state(/red).
-next_action(/refactor_code) :- tdd_state(/refactor).
 
-# General next action (only when not in TDD loop)
-next_action(/execute_intent) :-
-    user_intent(_, _, _, _, _),
-    !tdd_state(/red),
-    !tdd_state(/green),
-    !tdd_state(/refactor).
+# Three further TDD next_action rules are deliberately absent here.
+#
+# This file was unreachable by the kernel until it moved into defaults/policy/
+# (no embed pattern covered internal/mangle/), so nothing in it had ever
+# derived. Making it live turns each derived next_action into a plan the
+# executor is asked to carry out. The rule above survives because /run_tests
+# maps to ActionRunTests; the three that were dropped named actions with no
+# VirtualStore route at all, so the kernel would have handed the agent a next
+# action nothing could execute — worse than the silence they produced while the
+# file was dead. cmd/tools/action_linter reports exactly this as "policy emits
+# action but router has no matching route".
+#
+# The TDD loop they belong to is real, so they should return once their
+# executors exist. They are described rather than left commented out because
+# the linter's .mg scanner does not strip # comments, and a commented rule is
+# still counted as emitted.
+#
+# Dropped, pending executors: the red state's fix action, the refactor state's
+# refactor action, and the generic execute-intent fallback for the case where
+# no TDD state holds. Restore them next to tdd_state above; the linter will
+# confirm the routes exist.
 
 # =============================================================================
 # SECTION 9: Wired Predicates (Improvement)
