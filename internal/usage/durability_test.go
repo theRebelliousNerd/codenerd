@@ -1,9 +1,11 @@
 package usage
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,6 +108,86 @@ func TestSave_ShouldReplaceRatherThanAppend(t *testing.T) {
 	var data UsageData
 	if err := json.Unmarshal(small, &data); err != nil {
 		t.Fatalf("rewritten file has trailing garbage: %v", err)
+	}
+}
+
+// TestSave_ShouldReplaceTheInodeRatherThanWriteThrough is the guard that
+// actually holds saveLocked to its temp+rename contract.
+//
+// The three tests above do not: every one of them passes with saveLocked
+// reverted to a plain truncating os.WriteFile, because they only ever read the
+// file back *after* the write returned, when a truncating write and an atomic
+// one produce identical bytes. What separates them is what a concurrent reader
+// or a crash sees in the middle, and the only way to observe that from a test
+// is through the file's identity.
+//
+// So: stat before and after, and hold a descriptor open across the save. A
+// rename swaps the directory entry to a new inode, which leaves the old one
+// intact and still readable through the descriptor. A truncating write reuses
+// the inode, so os.SameFile reports the same file and the descriptor sees the
+// replacement contents — which in the real failure is a zero-length or
+// half-written usage.json and the whole billing history gone.
+func TestSave_ShouldReplaceTheInodeRatherThanWriteThrough(t *testing.T) {
+	tr, path := newTestTracker(t)
+	ctx := WithShardContext(context.Background(), "coder-1", "coder", "sess-1")
+
+	// A large first payload so a truncating rewrite is unambiguously shorter.
+	for i := 0; i < 50; i++ {
+		tr.Track(ctx, fmt.Sprintf("model-%d", i), "openai", 10, 5, "chat")
+	}
+	if err := tr.Save(); err != nil {
+		t.Fatalf("first Save: %v", err)
+	}
+
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat before: %v", err)
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read before: %v", err)
+	}
+
+	// Open the current contents and keep the handle across the save.
+	oldHandle, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open before: %v", err)
+	}
+	defer oldHandle.Close()
+
+	// Rewrite with a much smaller payload — the shape that makes a truncating
+	// write visibly destructive.
+	tr.mu.Lock()
+	tr.data = newUsageData()
+	tr.mu.Unlock()
+	if err := tr.Save(); err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after: %v", err)
+	}
+	if os.SameFile(before, after) {
+		t.Error("save wrote through the existing usage.json; a torn write would have " +
+			"destroyed the only copy of the accounting history")
+	}
+
+	survived, err := io.ReadAll(oldHandle)
+	if err != nil {
+		t.Fatalf("read through the pre-save handle: %v", err)
+	}
+	if !bytes.Equal(survived, original) {
+		t.Errorf("the pre-save contents were mutated underneath an open reader: "+
+			"%d bytes before, %d after", len(original), len(survived))
+	}
+	var previous UsageData
+	if err := json.Unmarshal(survived, &previous); err != nil {
+		t.Errorf("a reader holding usage.json open across a save saw unparseable JSON: %v", err)
+	}
+	if previous.Aggregate.TotalProject.Total != 50*15 {
+		t.Errorf("previous usage.json lost data during the save: Total = %d, want %d",
+			previous.Aggregate.TotalProject.Total, 50*15)
 	}
 }
 

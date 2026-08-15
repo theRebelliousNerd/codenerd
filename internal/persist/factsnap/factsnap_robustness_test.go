@@ -1,7 +1,9 @@
 package factsnap
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -203,6 +205,95 @@ func TestWrite_WhenWritersRaceOnOnePath_ShouldLeaveOneReadableSnapshot(t *testin
 		if strings.Contains(e.Name(), ".tmp") {
 			t.Fatalf("temp file left behind: %s", e.Name())
 		}
+	}
+}
+
+// TestWrite_ShouldReplaceTheInodeRatherThanWriteThrough is the guard that holds
+// writeFileAtomic to its name.
+//
+// Every other test in this file passes with writeFileAtomic replaced by a
+// plain O_TRUNC write, because they all read the snapshot back after the write
+// returned — at which point a truncating write and an atomic one have produced
+// identical bytes. The difference only exists mid-write, so the assertion has
+// to be about the file's identity rather than its contents.
+//
+// A rename swaps the directory entry to a new inode: the previous snapshot
+// stays whole and readable through a descriptor opened before the write. An
+// O_TRUNC write reuses the inode, so the reader's descriptor watches the only
+// good copy get emptied — and for a fact snapshot that means the kernel state
+// it was exported to protect is gone the moment a second export starts.
+//
+// The sidecar is checked the same way and for a sharper reason: data and
+// digest are two files that must agree. If the digest is written through in
+// place, a crash between the two leaves a sidecar describing bytes that are
+// not there, and Read then rejects a perfectly good snapshot with ErrIntegrity
+// forever.
+func TestWrite_ShouldReplaceTheInodeRatherThanWriteThrough(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "snap")
+
+	path, err := WritePath(base, sampleFacts(200), Options{})
+	if err != nil {
+		t.Fatalf("first WritePath: %v", err)
+	}
+	sidecar := path + ExtSHA256
+
+	for _, f := range []struct {
+		name string
+		path string
+	}{{"snapshot", path}, {"sidecar", sidecar}} {
+		f := f
+		t.Run(f.name, func(t *testing.T) {
+			before, err := os.Stat(f.path)
+			if err != nil {
+				t.Fatalf("stat before: %v", err)
+			}
+			original, err := os.ReadFile(f.path)
+			if err != nil {
+				t.Fatalf("read before: %v", err)
+			}
+			handle, err := os.Open(f.path)
+			if err != nil {
+				t.Fatalf("open before: %v", err)
+			}
+			defer handle.Close()
+
+			// A much smaller fact set, so a write-through is destructive in the
+			// obvious way as well as the subtle one.
+			if _, err := WritePath(base, sampleFacts(3), Options{}); err != nil {
+				t.Fatalf("second WritePath: %v", err)
+			}
+
+			after, err := os.Stat(f.path)
+			if err != nil {
+				t.Fatalf("stat after: %v", err)
+			}
+			if os.SameFile(before, after) {
+				t.Errorf("the %s was written through in place; a torn write would have "+
+					"destroyed the previous snapshot before the replacement existed", f.name)
+			}
+
+			survived, err := io.ReadAll(handle)
+			if err != nil {
+				t.Fatalf("read through the pre-write handle: %v", err)
+			}
+			if !bytes.Equal(survived, original) {
+				t.Errorf("the previous %s was mutated underneath an open reader: "+
+					"%d bytes before, %d after", f.name, len(original), len(survived))
+			}
+		})
+	}
+
+	// And the surviving pair must still verify against each other — an atomic
+	// data write paired with an in-place digest write would pass the identity
+	// check above on the data file alone while still producing a snapshot that
+	// no longer matches its sidecar.
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read after rewrite: %v", err)
+	}
+	if len(got) != 3 {
+		t.Errorf("Read returned %d facts, want the 3 from the second write", len(got))
 	}
 }
 

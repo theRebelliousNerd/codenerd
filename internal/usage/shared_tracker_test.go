@@ -22,7 +22,11 @@ func TestShared_WhenCalledTwiceForSameWorkspace_ShouldReturnSameTracker(t *testi
 	}
 	defer func() { _ = a.Close(); _ = b.Close() }()
 
-	if a != b {
+	// Distinct handles are expected and are the point of the handle type; what
+	// must be shared is the state behind them. Two *tracker values over one
+	// usage.json would each hold their own in-memory aggregates and the last
+	// flush would erase the other's.
+	if a.tracker != b.tracker {
 		t.Fatal("Shared handed out two trackers for one workspace; each would clobber the other's usage.json")
 	}
 }
@@ -39,7 +43,7 @@ func TestShared_WhenWorkspacesDiffer_ShouldReturnDistinctTrackers(t *testing.T) 
 	}
 	defer b.Close()
 
-	if a == b {
+	if a.tracker == b.tracker {
 		t.Fatal("distinct workspaces must not share a tracker")
 	}
 }
@@ -106,7 +110,7 @@ func TestShared_AfterFinalClose_ShouldCreateAFreshUsableTracker(t *testing.T) {
 	}
 	defer second.Close()
 
-	if second == first {
+	if second.tracker == first.tracker {
 		t.Fatal("Shared returned a closed tracker; it would silently drop every Track")
 	}
 	second.Track(context.Background(), "m", "zai", 1, 1, "chat")
@@ -141,7 +145,7 @@ func TestShared_WhenCalledConcurrently_ShouldStillYieldOneTracker(t *testing.T) 
 		if tr == nil {
 			t.Fatal("nil tracker")
 		}
-		if tr != trackers[0] {
+		if tr.tracker != trackers[0].tracker {
 			t.Fatal("concurrent Shared produced more than one tracker for one workspace")
 		}
 	}

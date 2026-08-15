@@ -2,6 +2,7 @@
 package init
 
 import (
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
 	"codenerd/internal/sqlpragmas"
@@ -247,7 +248,12 @@ func (i *Initializer) savePreferences(path string, prefs UserPreferences) (UserP
 	if err != nil {
 		return prefs, err
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	// Atomic, not truncating. This is a read-modify-write over a file shared
+	// with internal/ux and SaveAgentPreferences, and the merge above treats a
+	// corrupt existing file as a hard error — so a torn write here does not
+	// just lose the merge, it wedges every later `nerd init` for this
+	// workspace behind a file it refuses to parse.
+	if err := atomicfile.WriteFile(path, data, 0644); err != nil {
 		return prefs, err
 	}
 

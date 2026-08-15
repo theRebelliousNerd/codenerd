@@ -50,16 +50,19 @@ func TestFlightWatchdog_StopsRecorderOnMemoryGrowth(t *testing.T) {
 		"watchdog must auto-stop the recorder once trace memory exceeds the guard")
 }
 
-// TestFlightWatchdog_StopsUnderSustainedChurn reproduces the reported
-// failure surface without the LLM: the recorder is ON and sustained
-// trace-event generation (goroutine churn, the same pressure a campaign's
-// subprocess/goroutine storm applies) drives the tracer's memory up past a
-// realistic guard (well above the ring, so the trip reflects genuine
-// runaway growth rather than the ring's own bytes). The watchdog must stop
-// the recorder and — critically — the process must survive the whole run
-// (the test completing at all is the proof that the fatal
-// `traceRegion: out of memory` did not fire).
-func TestFlightWatchdog_StopsUnderSustainedChurn(t *testing.T) {
+// TestFlightWatchdog_UnderSustainedChurn_ShouldNotCrashTheProcess reproduces
+// the reported failure surface without the LLM: the recorder is ON and
+// sustained trace-event generation (goroutine churn, the same pressure a
+// campaign's subprocess/goroutine storm applies) runs against it.
+//
+// The name says what is actually asserted. Whether the watchdog TRIPS under
+// this load is a property of the Go toolchain's trace accounting rather than
+// of the watchdog, so that is asserted deterministically in
+// TestFlightWatchdog_TripsWhenSampledGrowthExceedsCap. What this test owns is
+// the crash: the recorder used to take the process down with the runtime's
+// unrecoverable throw("traceRegion: out of memory") under exactly this
+// pressure.
+func TestFlightWatchdog_UnderSustainedChurn_ShouldNotCrashTheProcess(t *testing.T) {
 	resetFlightRecorder(t)
 	t.Cleanup(func() { _ = StopFlightRecorder() })
 
@@ -121,12 +124,38 @@ func TestFlightWatchdog_StopsUnderSustainedChurn(t *testing.T) {
 		}
 	}
 
-	// Surviving sustained tracer pressure is the point. If the watchdog did
-	// trip along the way that is also fine — both outcomes beat a fatal throw.
+	// The assertion is that we got here at all.
+	//
+	// This test was named ..._StopsUnderSustainedChurn and asserted that the
+	// watchdog trips. It cannot: whether goroutine churn grows
+	// /memory/classes/other:bytes past a 6 MiB guard is a property of the Go
+	// toolchain's trace accounting, not of the watchdog, and at 400 rounds it
+	// never reached the guard here. When that assertion was removed the name
+	// was left behind, which is worse than either — a test advertising
+	// "Stops..." while asserting nothing reads as a clean bill of health over
+	// an untested claim. The trip decision is asserted deterministically in
+	// TestFlightWatchdog_TripsWhenSampledGrowthExceedsCap instead.
+	//
+	// What remains is the regression this test was created for: the recorder
+	// used to take the process down with the runtime's unrecoverable
+	// throw("traceRegion: out of memory") under exactly this pressure. A fatal
+	// throw is not recoverable and not reportable as a test failure — the
+	// process dies and the suite reports nothing — so reaching this line IS
+	// the result. Assert the invariants that survive with us.
+	if t.Failed() {
+		return
+	}
 	if FlightRecorderEnabled() {
-		t.Log("recorder survived sustained churn without tripping the guard")
-	} else {
-		t.Log("watchdog stopped the recorder during sustained churn")
+		// Still running: the recorder must still be usable, not wedged.
+		if _, err := DumpFlightRecord(t.TempDir()); err != nil {
+			t.Errorf("recorder survived churn but is no longer usable: %v", err)
+		}
+		return
+	}
+	// Stopped: the watchdog tripped, which must leave a clean state that a
+	// subsequent Start can take over rather than a half-torn-down recorder.
+	if err := StartFlightRecorder(1<<20, 100*time.Millisecond); err != nil {
+		t.Errorf("watchdog stopped the recorder but left it unrestartable: %v", err)
 	}
 }
 

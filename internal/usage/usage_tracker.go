@@ -44,8 +44,10 @@ const prunedSessionKey = "(pruned)"
 // operators get recent history without unbounded file growth.
 const maxEvents = 1000
 
-// Tracker manages token usage recording and persistence.
-type Tracker struct {
+// tracker is the shared recording/persistence state. It is never handed to a
+// caller directly: callers hold a *Tracker handle over it (see Tracker), which
+// is what makes one owner's Close independent of another's.
+type tracker struct {
 	mu       sync.Mutex
 	data     UsageData
 	filePath string
@@ -86,7 +88,7 @@ type Tracker struct {
 // call NewTracker on the same workspace, which is exactly that bug.
 var (
 	sharedMu       sync.Mutex
-	sharedTrackers = make(map[string]*Tracker)
+	sharedTrackers = make(map[string]*tracker)
 )
 
 // Shared returns the process-wide tracker for workspacePath, creating it on
@@ -110,24 +112,26 @@ func Shared(workspacePath string, opts ...Option) (*Tracker, error) {
 		if !t.closed {
 			t.refs++
 			t.mu.Unlock()
-			return t, nil
+			// A fresh handle, not the one the previous owner holds: each owner
+			// must be able to release exactly its own reference.
+			return &Tracker{tracker: t}, nil
 		}
 		t.mu.Unlock()
 		// A fully closed tracker cannot record anything; replace it.
 		delete(sharedTrackers, key)
 	}
 
-	t, err := NewTracker(workspacePath, opts...)
+	h, err := NewTracker(workspacePath, opts...)
 	if err != nil {
 		return nil, err
 	}
-	t.sharedKey = key
-	sharedTrackers[key] = t
-	return t, nil
+	h.sharedKey = key
+	sharedTrackers[key] = h.tracker
+	return h, nil
 }
 
 // releaseShared drops key from the registry if it still maps to t.
-func releaseShared(key string, t *Tracker) {
+func releaseShared(key string, t *tracker) {
 	if key == "" {
 		return
 	}
@@ -138,12 +142,50 @@ func releaseShared(key string, t *Tracker) {
 	sharedMu.Unlock()
 }
 
+// Tracker is one owner's handle on a usage tracker.
+//
+// It embeds the shared state, so every recording method (Track, Stats, Flush,
+// …) reads and writes the one set of aggregates — which is the whole point of
+// Shared: two trackers over one usage.json would each hold their own in-memory
+// totals and the last flush would erase the other's.
+//
+// Close is the exception, and the reason a handle exists at all. Ownership was
+// previously counted on the shared state itself, with every owner holding the
+// same pointer — so the count could not tell "owner A closing a second time"
+// from "owner B closing for the first time". A caller with the ordinary
+// `defer tracker.Close()` plus an explicit shutdown call therefore consumed a
+// reference belonging to someone else, and the next Close shut the tracker
+// down while a live owner was still metering into it: every subsequent Track
+// was silently dropped. A handle can answer that question, because releasing
+// is a property of the handle rather than of the shared state, and closeOnce
+// makes a repeat Close by the same owner the no-op the doc comment always
+// claimed it was.
+type Tracker struct {
+	*tracker
+
+	closeOnce sync.Once
+	closeErr  error
+}
+
+// Close releases this owner's handle, and only this owner's. Calling it more
+// than once is a genuine no-op: the second call returns the first call's error
+// without touching the shared reference count.
+//
+// The last handle to close flushes and shuts the tracker down; earlier ones
+// flush what is pending and leave metering running for whoever still holds it.
+// Hosts must call this on Cortex close / chat shutdown, otherwise up to
+// autoSaveDelay of usage is lost on exit.
+func (h *Tracker) Close() error {
+	h.closeOnce.Do(func() { h.closeErr = h.tracker.release() })
+	return h.closeErr
+}
+
 // Option configures a Tracker.
-type Option func(*Tracker)
+type Option func(*tracker)
 
 // WithEventLog enables retention of the most recent maxEvents raw events.
 func WithEventLog() Option {
-	return func(t *Tracker) { t.keepEvents = true }
+	return func(t *tracker) { t.keepEvents = true }
 }
 
 // NewTracker creates a new usage tracker using the specified workspace persistence path.
@@ -154,7 +196,7 @@ func NewTracker(workspacePath string, opts ...Option) (*Tracker, error) {
 	}
 
 	filePath := filepath.Join(nerdDir, "usage.json")
-	t := &Tracker{
+	t := &tracker{
 		filePath: filePath,
 		data:     newUsageData(),
 		refs:     1,
@@ -170,7 +212,7 @@ func NewTracker(workspacePath string, opts ...Option) (*Tracker, error) {
 			"usage: could not load %s, starting from empty aggregates: %v", filePath, err)
 	}
 
-	return t, nil
+	return &Tracker{tracker: t}, nil
 }
 
 func newUsageData() UsageData {
@@ -188,7 +230,7 @@ func newUsageData() UsageData {
 }
 
 // Load reads the usage data from disk.
-func (t *Tracker) Load() error {
+func (t *tracker) Load() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -212,7 +254,7 @@ func (t *Tracker) Load() error {
 }
 
 // ensureMapsLocked initializes any nil aggregate map. Caller holds mu.
-func (t *Tracker) ensureMapsLocked() {
+func (t *tracker) ensureMapsLocked() {
 	a := &t.data.Aggregate
 	if a.ByProvider == nil {
 		a.ByProvider = make(map[string]TokenCounts)
@@ -235,7 +277,7 @@ func (t *Tracker) ensureMapsLocked() {
 }
 
 // Save writes the usage data to disk.
-func (t *Tracker) Save() error {
+func (t *tracker) Save() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.saveLocked()
@@ -247,7 +289,7 @@ func (t *Tracker) Save() error {
 // crash or a full disk mid-write left a truncated, unparseable usage.json and
 // the whole history was gone. Writing a sibling temp file and renaming means a
 // reader sees either the old file or the new one, never a partial one.
-func (t *Tracker) saveLocked() error {
+func (t *tracker) saveLocked() error {
 	payload, err := json.MarshalIndent(t.data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal usage data: %w", err)
@@ -298,7 +340,7 @@ func (t *Tracker) saveLocked() error {
 // Negative token counts are rejected: they can only come from a provider bug or
 // a bad cast, and letting them through silently corrupts every aggregate they
 // touch with no way to reconstruct the truth.
-func (t *Tracker) Track(ctx context.Context, model, provider string, input, output int, operation string) {
+func (t *tracker) Track(ctx context.Context, model, provider string, input, output int, operation string) {
 	if input < 0 || output < 0 {
 		logging.Get(logging.CategorySession).Warn(
 			"usage: rejecting negative token counts for model=%q provider=%q input=%d output=%d",
@@ -358,7 +400,7 @@ func (t *Tracker) Track(ctx context.Context, model, provider string, input, outp
 }
 
 // appendEventLocked pushes onto the bounded event ring. Caller holds mu.
-func (t *Tracker) appendEventLocked(ev UsageEvent) {
+func (t *tracker) appendEventLocked(ev UsageEvent) {
 	t.data.Events = append(t.data.Events, ev)
 	if overflow := len(t.data.Events) - maxEvents; overflow > 0 {
 		// Copy down rather than reslice: reslicing keeps the whole original
@@ -369,7 +411,7 @@ func (t *Tracker) appendEventLocked(ev UsageEvent) {
 
 // pruneSessionsLocked folds the lowest-spend sessions into prunedSessionKey once
 // the map exceeds maxSessions. Totals are preserved. Caller holds mu.
-func (t *Tracker) pruneSessionsLocked() {
+func (t *tracker) pruneSessionsLocked() {
 	sessions := t.data.Aggregate.BySession
 	if len(sessions) <= maxSessions {
 		return
@@ -408,7 +450,7 @@ func (t *Tracker) pruneSessionsLocked() {
 }
 
 // markDirtyLocked arms the debounced auto-save. Caller holds mu.
-func (t *Tracker) markDirtyLocked() {
+func (t *tracker) markDirtyLocked() {
 	t.dirty = true
 	if t.autoSaveTimer != nil || t.saving {
 		// A flush is already scheduled or running; flushLocked re-arms if
@@ -421,7 +463,7 @@ func (t *Tracker) markDirtyLocked() {
 // autoSaveFlush is the timer callback. It clears dirty *before* writing and
 // re-arms if a mutation lands during the write, so no mutation is ever both
 // unwritten and unscheduled.
-func (t *Tracker) autoSaveFlush() {
+func (t *tracker) autoSaveFlush() {
 	t.mu.Lock()
 	t.autoSaveTimer = nil
 	if t.closed || !t.dirty {
@@ -450,13 +492,13 @@ func (t *Tracker) autoSaveFlush() {
 }
 
 // Flush writes pending mutations to disk immediately if there are any.
-func (t *Tracker) Flush() error {
+func (t *tracker) Flush() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.flushLocked()
 }
 
-func (t *Tracker) flushLocked() error {
+func (t *tracker) flushLocked() error {
 	if t.autoSaveTimer != nil {
 		t.autoSaveTimer.Stop()
 		t.autoSaveTimer = nil
@@ -471,14 +513,12 @@ func (t *Tracker) flushLocked() error {
 	return nil
 }
 
-// Close releases this owner's handle. It is safe to call more than once. Hosts
-// must call this on Cortex close / chat shutdown, otherwise up to autoSaveDelay
-// of usage is lost on exit.
-//
-// For a tracker obtained from Shared, only the last owner's Close shuts the
-// tracker down; earlier ones flush what is pending and leave metering running
-// for whoever still holds it.
-func (t *Tracker) Close() error {
+// release drops one reference. It is called exactly once per handle, from
+// Tracker.Close under that handle's sync.Once — which is what makes the
+// reference count trustworthy. Do not call it from anywhere else: an unbalanced
+// release here shuts the tracker down under a live owner, which is the bug the
+// handle type exists to prevent.
+func (t *tracker) release() error {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
@@ -509,7 +549,7 @@ func (t *Tracker) Close() error {
 }
 
 // Stats returns a copy of the aggregated stats.
-func (t *Tracker) Stats() AggregatedStats {
+func (t *tracker) Stats() AggregatedStats {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	stats := t.data.Aggregate
@@ -524,7 +564,7 @@ func (t *Tracker) Stats() AggregatedStats {
 
 // Events returns a copy of the retained raw event ring. It is empty unless the
 // tracker was created WithEventLog.
-func (t *Tracker) Events() []UsageEvent {
+func (t *tracker) Events() []UsageEvent {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if len(t.data.Events) == 0 {
