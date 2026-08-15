@@ -42,6 +42,7 @@ import (
 	"codeberg.org/TauCeti/mangle-go/factstore"
 	"github.com/klauspost/compress/zstd"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
@@ -265,7 +266,7 @@ func writeFileAtomic(path string, write func(io.Writer) error) (err error) {
 	if err := os.Chmod(tmpName, 0o644); err != nil {
 		return fmt.Errorf("factsnap: chmod %s: %w", tmpName, err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := atomicfile.Replace(tmpName, path); err != nil {
 		return fmt.Errorf("factsnap: rename %s -> %s: %w", tmpName, path, err)
 	}
 	committed = true

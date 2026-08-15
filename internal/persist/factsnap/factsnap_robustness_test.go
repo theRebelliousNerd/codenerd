@@ -6,10 +6,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/types"
 )
 
@@ -252,7 +254,7 @@ func TestWrite_ShouldReplaceTheInodeRatherThanWriteThrough(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read before: %v", err)
 			}
-			handle, err := os.Open(f.path)
+			handle, err := atomicfile.Open(f.path)
 			if err != nil {
 				t.Fatalf("open before: %v", err)
 			}
@@ -268,9 +270,13 @@ func TestWrite_ShouldReplaceTheInodeRatherThanWriteThrough(t *testing.T) {
 			if err != nil {
 				t.Fatalf("stat after: %v", err)
 			}
-			if os.SameFile(before, after) {
-				t.Errorf("the %s was written through in place; a torn write would have "+
-					"destroyed the previous snapshot before the replacement existed", f.name)
+			// ReplaceFileW preserves file identity by design, so the inode proxy does
+			// not hold on Windows while the guarantee still does.
+			if runtime.GOOS != "windows" {
+				if os.SameFile(before, after) {
+					t.Errorf("the %s was written through in place; a torn write would have "+
+						"destroyed the previous snapshot before the replacement existed", f.name)
+				}
 			}
 
 			survived, err := io.ReadAll(handle)

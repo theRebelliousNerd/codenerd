@@ -80,3 +80,13 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 	}
 	return nil
 }
+
+// Replace atomically moves src onto dst, replacing dst if it exists.
+//
+// Exported for callers that must stream their own bytes (a digest tee, a
+// compressor) and so cannot use WriteFile, but still need the Windows-correct
+// replace. See replaceExisting for why os.Rename is not sufficient there.
+func Replace(src, dst string) error {
+	return replaceExisting(src, dst)
+}
+
