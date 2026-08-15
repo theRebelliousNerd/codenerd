@@ -602,8 +602,16 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 
 	// Shard advice. Schema is 5-tuple
 	// (CampaignID, ShardName, Vote, Confidence, Advice). Vote is sourced
-	// from the metadata["vote"] hint if present, otherwise marked as the
-	// generic "advisory" tag so the row still satisfies /string binding.
+	// from the metadata["vote"] hint if present, otherwise the generic
+	// /advisory ballot.
+	//
+	// ShardName and Vote are the /name slots of intelligence_shard_advice/5
+	// (schemas_intelligence.mg): the advisory-board rules in
+	// policy/intelligence.mg match them as name constants
+	// (/coder, /tester, /approve, /reject, /conditional). FromSpec arrives as
+	// the bare "coder" and the vote hint as the bare "approve", and a bare
+	// token lands as a string constant that never unifies with /coder, so both
+	// have to be promoted here. Advice stays free prose, so it stays /string.
 	for _, sa := range intel.ShardAdvice {
 		vote := "advisory"
 		if v, ok := sa.Metadata["vote"]; ok && v != "" {
@@ -611,7 +619,13 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 		}
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_shard_advice",
-			Args:      []any{campaignID, sa.FromSpec, vote, types.PercentFromRatio(sa.Confidence), sa.Advice},
+			Args: []any{
+				campaignID,
+				types.MangleAtom(mangleNameConst(sa.FromSpec)),
+				types.MangleAtom(mangleNameConst(vote)),
+				types.PercentFromRatio(sa.Confidence),
+				sa.Advice,
+			},
 		})
 	}
 
@@ -659,6 +673,36 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	} else {
 		logging.CampaignDebug("Seeded %d intelligence facts into kernel", len(facts))
 	}
+}
+
+// mangleNameConst renders a short closed-vocabulary token (a specialist name, a
+// ballot) as a Mangle name constant: lower-cased, every character outside
+// [a-z0-9_] folded to "_", prefixed with "/".
+//
+// The sanitising is load-bearing, not cosmetic. types.Fact.ToAtom calls
+// ast.Name on any MangleAtom that starts with "/", and these tokens can carry
+// whatever an LLM put in Metadata["vote"] ("Not Sure", "APPROVE — with
+// caveats"). An unparseable name there fails the conversion for that fact at
+// evaluation time, so the token is normalised into a legal name rather than
+// trusted. A token with nothing usable in it becomes /unknown, never the
+// invalid bare "/".
+func mangleNameConst(s string) string {
+	s = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(s)), "/")
+	var b strings.Builder
+	b.Grow(len(s) + 1)
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return "/unknown"
+	}
+	return "/" + out
 }
 
 // formatIntelligenceContext builds LLM context from intelligence report.

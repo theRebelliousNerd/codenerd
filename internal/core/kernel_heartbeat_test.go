@@ -25,7 +25,7 @@ func TestAssertHeartbeat_DoesNotDirtyOnRefresh(t *testing.T) {
 
 	first := Fact{
 		Predicate: "system_heartbeat",
-		Args:      []any{"constitution_gate", int64(1000)},
+		Args:      []any{MangleAtom("/constitution_gate"), int64(1000)},
 	}
 	if err := k.Assert(first); err != nil {
 		t.Fatalf("first heartbeat: %v", err)
@@ -40,7 +40,7 @@ func TestAssertHeartbeat_DoesNotDirtyOnRefresh(t *testing.T) {
 	// Refresh same shard with a newer timestamp — must NOT dirty.
 	refresh := Fact{
 		Predicate: "system_heartbeat",
-		Args:      []any{"constitution_gate", time.Now().Unix()},
+		Args:      []any{MangleAtom("/constitution_gate"), time.Now().Unix()},
 	}
 	if err := k.Assert(refresh); err != nil {
 		t.Fatalf("refresh heartbeat: %v", err)
@@ -52,7 +52,7 @@ func TestAssertHeartbeat_DoesNotDirtyOnRefresh(t *testing.T) {
 	// A different shard's first heartbeat still dirties.
 	other := Fact{
 		Predicate: "system_heartbeat",
-		Args:      []any{"executive_policy", time.Now().Unix()},
+		Args:      []any{MangleAtom("/executive_policy"), time.Now().Unix()},
 	}
 	if err := k.Assert(other); err != nil {
 		t.Fatalf("other shard heartbeat: %v", err)

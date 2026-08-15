@@ -157,9 +157,19 @@ func (v *VirtualStore) QueryKnowledgeGraph(entity, direction string) ([]Fact, er
 
 	facts := make([]Fact, 0, len(links))
 	for _, link := range links {
+		// Relation is the /name slot of knowledge_link/3 (schemas_memory.mg).
+		// Stored labels may be bare ("related_to") when they came from a free
+		// text memory operation; prefix them so they reach the kernel as the
+		// /related_to and /depends_on that policy/knowledge.mg matches. A "/"
+		// prefixed string that is not a legal name still degrades to a string
+		// constant rather than failing conversion.
+		relation := link.Relation
+		if relation != "" && relation[0] != '/' {
+			relation = "/" + relation
+		}
 		facts = append(facts, Fact{
 			Predicate: "knowledge_link",
-			Args:      []any{link.EntityA, link.Relation, link.EntityB},
+			Args:      []any{link.EntityA, relation, link.EntityB},
 		})
 	}
 	return facts, nil

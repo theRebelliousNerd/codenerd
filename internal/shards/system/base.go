@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -807,14 +808,35 @@ func (b *BaseSystemShard) persistLearning() error {
 // The kernel upserts by shard ID without re-evaluating after the first
 // assert (see RealKernel.assertHeartbeat) so N shards × 5s ticks cannot
 // thrash a large world-model EDB.
+//
+// ShardName is the /name slot of system_heartbeat/2 (schemas_shards.mg), the
+// same closed vocabulary activate_shard/1 and shard_startup/2 hold. b.ID for a
+// system shard is already the bare type name ("session_planner"), and a bare
+// name lands as a string constant that never unifies with the
+// /session_planner written by policy/system_shards.mg — which left every
+// !system_shard_healthy(...) guard permanently open. Same convention as the
+// escalation_needed Target in planner.go.
 func (b *BaseSystemShard) EmitHeartbeat() error {
 	if b.Kernel == nil {
 		return nil
 	}
 	return b.Kernel.Assert(types.Fact{
 		Predicate: "system_heartbeat",
-		Args:      []any{b.ID, time.Now().Unix()},
+		Args:      []any{types.MangleAtom(shardNameConst(b.ID)), time.Now().Unix()},
 	})
+}
+
+// shardNameConst renders a system shard's registry name as a Mangle name
+// constant. Empty input yields "" so the caller degrades to a string constant
+// rather than emitting the invalid bare "/".
+func shardNameConst(id string) string {
+	if id == "" {
+		return ""
+	}
+	if strings.HasPrefix(id, "/") {
+		return id
+	}
+	return "/" + id
 }
 
 // GuardedLLMCall wraps an LLM call with cost guard checks and per-call timeout.

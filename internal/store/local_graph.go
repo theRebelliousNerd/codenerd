@@ -11,6 +11,21 @@ import (
 // KNOWLEDGE GRAPH (Shard C)
 // =============================================================================
 
+// relationNameConst renders a knowledge-graph edge label in the "/relation"
+// form that knowledge_link/3 declares for its Relation slot.
+//
+// It returns a plain string on purpose rather than a types.MangleAtom: the
+// fact-conversion layer promotes a "/"-prefixed string to a name constant only
+// when it is actually parseable as one (isValidMangleNameConstant), and
+// degrades anything else to a string constant. A MangleAtom would instead hard
+// fail conversion on a label the memory operation left with a space in it.
+func relationNameConst(relation string) string {
+	if relation == "" || relation[0] == '/' {
+		return relation
+	}
+	return "/" + relation
+}
+
 // KnowledgeLink represents a graph edge.
 type KnowledgeLink struct {
 	EntityA  string
@@ -226,7 +241,14 @@ func (s *LocalStore) HydrateKnowledgeGraph(assertFunc func(predicate string, arg
 		}
 
 		// Convert to Mangle fact: knowledge_link(entity_a, relation, entity_b)
-		if err := assertFunc("knowledge_link", []any{entityA, relation, entityB}); err == nil {
+		// Relation is the /name slot of knowledge_link/3 (schemas_memory.mg).
+		// The ingest and document paths already store "/has_file",
+		// "/has_chunk", "/has_source_doc", but a relation parsed out of a free
+		// text memory operation arrives bare ("related_to"), and a bare token
+		// lands as a string constant that never unifies with the /related_to
+		// and /depends_on matched by policy/knowledge.mg. Normalise on the way
+		// into the kernel, leaving the stored row untouched.
+		if err := assertFunc("knowledge_link", []any{entityA, relationNameConst(relation), entityB}); err == nil {
 			count++
 		} else {
 			skipped++
