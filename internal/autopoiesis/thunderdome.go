@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"codenerd/internal/build"
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 )
 
@@ -40,6 +41,12 @@ type ThunderdomeConfig struct {
 	KeepArtifacts bool
 	// ParallelAttacks is the number of attacks to run concurrently.
 	ParallelAttacks int
+	// UserConfig supplies the operator's build environment (allowed env vars,
+	// CGO flags, GOFLAGS) to the arena compile. Nil is valid and means "process
+	// defaults only" — but an arena built with a different toolchain
+	// environment than the tool's real compile can fail for reasons unrelated
+	// to the attack, which reads as a Thunderdome kill and rejects a good tool.
+	UserConfig *config.UserConfig
 }
 
 // DefaultThunderdomeConfig returns sensible defaults.
@@ -231,7 +238,7 @@ go 1.21
 	cmd := exec.CommandContext(ctx, "go", "test", "-c", "-o", binaryPath, ".")
 	cmd.Dir = arenaDir
 	// Use unified build environment but disable CGO for sandbox isolation
-	cmd.Env = build.MergeEnv(build.GetBuildEnv(nil, arenaDir), "CGO_ENABLED=0")
+	cmd.Env = build.MergeEnv(build.GetBuildEnv(t.config.UserConfig, arenaDir), "CGO_ENABLED=0")
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

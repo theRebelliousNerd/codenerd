@@ -29,10 +29,18 @@ func (c *Compressor) GetMetrics() map[string]any {
 		"recent_turns":            len(c.recentTurns),
 		"compressed_segments":     len(c.rollingSummary.Segments),
 		"total_compressed_turns":  c.rollingSummary.TotalTurns,
+		"total_masked_turns":      c.rollingSummary.TotalMaskedTurns,
 		"total_original_tokens":   c.totalOriginalTokens,
 		"total_compressed_tokens": c.totalCompressedTokens,
 		"compression_ratio":       ratio,
 		"target_ratio":            c.config.TargetCompressionRatio,
+		// Kernel/Go dual-path visibility (context TODO P1).
+		"kernel_selections":      c.selection.KernelSelections,
+		"go_fallbacks":           c.selection.GoFallbacks,
+		"kernel_inclusion_rate":  c.selection.KernelInclusionRate(),
+		"last_selection_mode":    string(c.selection.LastMode),
+		"last_selection_reason":  c.selection.LastReason,
+		"unresolved_kernel_ents": c.selection.UnresolvedKernelFacts,
 	}
 }
 
@@ -70,15 +78,19 @@ func (c *Compressor) GetBudgetUsage() (int, int) {
 }
 
 // RefreshBudget recalculates the token budget based on current state.
-// Call this after LoadState to ensure the budget reflects restored context.
+//
+// LoadState now does this itself, so rehydration cannot ship an unpaired load.
+// This stays exported and idempotent for callers that mutate state by other
+// means (e.g. a kernel reload behind the compressor's back).
+//
+// It runs under c.mu. The previous version dropped the lock first, claiming
+// deadlock risk — but recalcBudget takes no compressor lock (ProcessTurn
+// already calls it while holding c.mu), so all that comment bought was a data
+// race on recentTurns/rollingSummary/budget against a concurrent ProcessTurn.
 func (c *Compressor) RefreshBudget() {
 	c.mu.Lock()
-	turnNumber := c.turnNumber
-	c.mu.Unlock()
-
-	// recalcBudget accesses kernel/activation which have their own locks,
-	// so we call it outside our lock to avoid deadlock.
-	c.recalcBudget(turnNumber, 0)
+	defer c.mu.Unlock()
+	c.recalcBudget(c.turnNumber, 0)
 }
 
 // IsCompressionActive returns true if callers should use compressed context
@@ -102,6 +114,34 @@ func (c *Compressor) IsCompressionActive() bool {
 		logging.ContextDebug("Compression active: budget threshold reached (%.1f%%)", c.budget.Utilization()*100)
 	}
 	return shouldCompress
+}
+
+// recordSelectionLocked updates the kernel-vs-Go selection counters.
+// Caller must hold c.mu.
+func (c *Compressor) recordSelectionLocked(reason string, kernelFacts, selectedFacts int) {
+	if reason == reasonKernelSelected {
+		c.selection.KernelSelections++
+		c.selection.LastMode = SelectionKernel
+	} else {
+		c.selection.GoFallbacks++
+		c.selection.LastMode = SelectionGoFallback
+	}
+	if reason == reasonUnresolved {
+		c.selection.UnresolvedKernelFacts += kernelFacts
+	}
+	c.selection.LastReason = reason
+	c.selection.LastKernelFacts = kernelFacts
+	c.selection.LastSelectedFacts = selectedFacts
+}
+
+// GetSelectionStats reports how often the Mangle should_include_context gate
+// decided the context block versus the Go activation fallback. Use this to
+// track dual-path drift: a kernel inclusion rate that collapses means the C1/C4
+// rules stopped resolving against the fact store.
+func (c *Compressor) GetSelectionStats() SelectionStats {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.selection
 }
 
 // GetRecentTurnWindow returns the configured recent turn window size.
@@ -193,7 +233,16 @@ func (c *Compressor) LoadState(state *CompressedState) error {
 		}
 	}
 
-	logging.Context("State loaded: restored %d hot facts, %d recent turns", restoredCount, len(c.recentTurns))
+	// Rehydration must leave the budget describing what was just restored.
+	// This used to be the caller's job via RefreshBudget(); every caller that
+	// forgot rehydrated a session whose budget read 0/200000, so
+	// IsCompressionActive() answered false and the chat layer dumped the whole
+	// raw history it had just compressed away. Pairing it here makes the
+	// unpaired call impossible rather than merely discouraged.
+	c.recalcBudget(c.turnNumber, 0)
+
+	logging.Context("State loaded: restored %d hot facts, %d recent turns, budget %d/%d tokens",
+		restoredCount, len(c.recentTurns), c.budget.TotalUsed(), c.config.TotalBudget)
 	return nil
 }
 
@@ -360,15 +409,25 @@ func (c *Compressor) GetHighActivationFactKeys(threshold float64) []string {
 // buildKernelDerivedContext converts kernel-derived should_include_context facts into
 // ScoredFact slices for use by BuildContext().
 //
-// The kernel query returns should_include_context(Fact, Priority) facts where:
-//   - Fact is a string identifier (file path, predicate name, or fact string)
+// The kernel query returns should_include_context(Entity, Priority) facts where:
+//   - Entity is a string identifier (file path, symbol, intent target, or, rarely,
+//     a whole fact string)
 //   - Priority is a name atom: /p100, /p95, /p90, /p85, /p80, /p70, /p60
 //
 // Steps:
 //  1. Parses priority atoms: /pN -> N (e.g. "/p100" -> 100.0)
-//  2. Builds fact lookup from allFacts by string representation
-//  3. Sorts by priority descending
-//  4. Returns budget-limited ScoredFact slice via SelectWithinBudget
+//  2. Resolves each entity to concrete facts (exact fact string, else every
+//     fact carrying that entity as a string argument)
+//  3. Sorts by priority descending, deduplicating on max priority
+//  4. Returns budget-limited ScoredFact slice via SelectWithinBudgetPreFiltered
+//
+// Entity resolution matters: every C1/C4 rule head binds a file/symbol/target,
+// never a serialized fact, and core.Fact.String() carries a trailing "." that a
+// bare identifier can never match. Matching only on fact strings therefore
+// resolved nothing on every real session, and the caller's "fall back to Go"
+// comment was not implemented — so a live session with a user_intent shipped an
+// empty ACTIVE CONTEXT block. Resolution by argument makes the kernel's
+// decision actually reach the LLM.
 //
 // Returns nil when no matching facts are found in the kernel's fact store,
 // causing the caller to fall back to the Go activation engine.
@@ -377,10 +436,18 @@ func (c *Compressor) buildKernelDerivedContext(kernelFacts []core.Fact, allFacts
 		return nil
 	}
 
-	// Build a lookup from string representation to actual Fact object.
+	// Two lookups: exact fact string, and entity -> facts mentioning it.
 	factLookup := make(map[string]core.Fact, len(allFacts))
+	byEntity := make(map[string][]core.Fact, len(allFacts))
 	for _, f := range allFacts {
 		factLookup[f.String()] = f
+		for _, arg := range f.Args {
+			s, ok := arg.(string)
+			if !ok || s == "" {
+				continue
+			}
+			byEntity[s] = append(byEntity[s], f)
+		}
 	}
 
 	// parsePriority converts /pN atom to numeric score.
@@ -428,23 +495,41 @@ func (c *Compressor) buildKernelDerivedContext(kernelFacts []core.Fact, allFacts
 		return nil
 	}
 
-	// Sort by priority descending (highest priority facts first).
-	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].priority > pairs[j].priority
+	// Sort by priority descending (highest priority facts first). Ties break on
+	// the entity name so the same kernel state always yields the same block —
+	// an unstable order here would make the context non-reproducible across
+	// otherwise identical turns.
+	sort.SliceStable(pairs, func(i, j int) bool {
+		if pairs[i].priority != pairs[j].priority {
+			return pairs[i].priority > pairs[j].priority
+		}
+		return pairs[i].factStr < pairs[j].factStr
 	})
 
 	// Build ScoredFact list for facts that exist in the kernel's fact store.
+	// pairs is already sorted by priority descending, so the first time a fact
+	// is seen it carries its highest kernel priority.
 	scored := make([]ScoredFact, 0, len(pairs))
+	seen := make(map[string]struct{}, len(pairs))
+	addFact := func(f core.Fact, priority float64) {
+		key := f.String()
+		if _, dup := seen[key]; dup {
+			return
+		}
+		seen[key] = struct{}{}
+		scored = append(scored, ScoredFact{Fact: f, Score: priority})
+	}
 	for _, p := range pairs {
 		if f, found := factLookup[p.factStr]; found {
-			scored = append(scored, ScoredFact{
-				Fact:  f,
-				Score: p.priority,
-			})
+			addFact(f, p.priority)
+			continue
 		}
-		// File path strings (from C4 dependency traversal) may not correspond
-		// to standalone kernel facts; they are skipped here. The file's actual
-		// facts (file_topology, modified) will be included through other rules.
+		// Entity form (file path from C4 traversal, intent target, symbol):
+		// pull in every fact that names it. Deterministic because allFacts
+		// ordering is stable and pairs is sorted.
+		for _, f := range byEntity[p.factStr] {
+			addFact(f, p.priority)
+		}
 	}
 
 	if len(scored) == 0 {
@@ -488,9 +573,81 @@ func (c *Compressor) assertTurnAgeCategories(turns []CompressedTurn) {
 		default:
 			category = "/ancient"
 		}
-		// Best-effort assertion; don't fail compression if kernel is unavailable
-		_ = c.kernel.AssertString(fmt.Sprintf("turn_age_category(%q, %s).", turnID, category))
+		// core.ParseFactString appends the clause terminator itself, so the
+		// trailing "." this used to pass produced "turn_age_category(...)..",
+		// which never parsed. The error was discarded (`_ =`), so no
+		// turn_age_category fact ever reached the kernel and every C3 masking
+		// rule sat on an empty relation: masking was dead in production while
+		// looking wired.
+		if err := c.kernel.AssertString(fmt.Sprintf("turn_age_category(%q, %s)", turnID, category)); err != nil {
+			logging.Get(logging.CategoryContext).Warn("assertTurnAgeCategories: %s -> %s failed: %v", turnID, category, err)
+		}
 	}
+}
+
+// turnMaskID is the kernel-side identifier for a compressed turn. The Go and
+// Mangle sides must agree on this exact shape or masking silently no-ops.
+func turnMaskID(turnNumber int) string {
+	return fmt.Sprintf("turn_%d", turnNumber)
+}
+
+// maskedObservationTurns asks the kernel which turns' observations may be
+// dropped from the rolling summary. The decision is Mangle's
+// (should_mask_observation/1, derived from turn_age_category); Go only obeys.
+//
+// It also enforces the C3 safety net: any turn the kernel marks for masking
+// must also appear in should_preserve_reasoning, otherwise we would be
+// dropping observations on a turn whose reasoning chain the kernel never
+// promised to keep. A violation means the rules drifted apart, so we refuse to
+// mask that turn rather than lose the turn entirely.
+func (c *Compressor) maskedObservationTurns() map[string]bool {
+	if c.kernel == nil {
+		return nil
+	}
+
+	maskFacts, err := c.kernel.Query("should_mask_observation")
+	if err != nil {
+		logging.Get(logging.CategoryContext).Warn("maskedObservationTurns: should_mask_observation query failed: %v", err)
+		return nil
+	}
+	if len(maskFacts) == 0 {
+		return nil
+	}
+
+	preserve := make(map[string]bool)
+	preserveFacts, err := c.kernel.Query("should_preserve_reasoning")
+	if err != nil {
+		logging.Get(logging.CategoryContext).Warn("maskedObservationTurns: should_preserve_reasoning query failed: %v", err)
+		return nil
+	}
+	for _, f := range preserveFacts {
+		if len(f.Args) < 1 {
+			continue
+		}
+		if id, ok := f.Args[0].(string); ok {
+			preserve[id] = true
+		}
+	}
+
+	masked := make(map[string]bool, len(maskFacts))
+	for _, f := range maskFacts {
+		if len(f.Args) < 1 {
+			continue
+		}
+		id, ok := f.Args[0].(string)
+		if !ok {
+			continue
+		}
+		if !preserve[id] {
+			logging.Get(logging.CategoryContext).Warn(
+				"maskedObservationTurns: %s marked for masking but not for reasoning preservation; refusing to mask", id)
+			continue
+		}
+		masked[id] = true
+	}
+
+	logging.ContextDebug("C3 masking: kernel marked %d/%d turns for observation masking", len(masked), len(maskFacts))
+	return masked
 }
 
 // NERD-EVOLVE-END: context_compilation_pipeline

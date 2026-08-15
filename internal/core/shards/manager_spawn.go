@@ -364,6 +364,16 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	sm.emitShardEvent(fmt.Sprintf("Spawning %s", typeName), taskSummary, id, 0)
 	spawnStart := time.Now()
 
+	// Feed the ShardObserver from the same lifecycle points as Glass Box, so
+	// `/transparency` Active Operations and the Glass Box shard lines describe
+	// the same run instead of disagreeing. Captured here rather than re-read in
+	// the goroutine: sm.mu is already held for writing, and RWMutex is not
+	// reentrant.
+	transparencyMgr := sm.transparencyManager
+	if transparencyMgr != nil {
+		transparencyMgr.StartShard(id, typeName, task)
+	}
+
 	sessionID := sm.sessionID
 	if sessionID == "" {
 		sessionID = "current-session"
@@ -376,6 +386,19 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 				panicErr := fmt.Errorf("shard %s panicked: %v", id, r)
 				logging.Get(logging.CategoryShards).Error("PANIC RECOVERED in shard %s: %v", id, r)
 				logging.Audit().ShardComplete(id, task, 0, false, panicErr.Error())
+
+				// A panicking shard is the case where an operator most needs
+				// the phase list to stop claiming the shard is still running.
+				if transparencyMgr != nil {
+					transparencyMgr.EndShard(id, true)
+					transparencyMgr.RecordOperation(types.OperationRecord{
+						Operation: typeName + " shard",
+						Outcome:   "Panicked",
+						Duration:  time.Since(spawnStart),
+						Details:   panicErr.Error(),
+						Source:    id,
+					})
+				}
 
 				if sm.kernel != nil {
 					// Handle kernel retraction errors
@@ -398,6 +421,10 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		}()
 
 		logging.Audit().ShardExecute(id, task)
+
+		if transparencyMgr != nil {
+			transparencyMgr.UpdateShardPhase(id, types.PhaseExecuting, taskSummary)
+		}
 
 		execTimeout := config.Timeout
 		if execTimeout == 0 {
@@ -429,6 +456,23 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 			sm.emitShardEvent(fmt.Sprintf("%s failed", typeName), errMsg, id, dur)
 		} else {
 			sm.emitShardEvent(fmt.Sprintf("%s done", typeName), truncateForEvent(res, 120), id, dur)
+		}
+
+		if transparencyMgr != nil {
+			transparencyMgr.EndShard(id, err != nil)
+			outcome := "Success"
+			details := truncateForEvent(res, 400)
+			if err != nil {
+				outcome = "Failed"
+				details = errMsg
+			}
+			transparencyMgr.RecordOperation(types.OperationRecord{
+				Operation: typeName + " shard",
+				Outcome:   outcome,
+				Duration:  dur,
+				Details:   details,
+				Source:    id,
+			})
 		}
 
 		// Record the result before cleanup so synchronous callers don't block on kernel churn.

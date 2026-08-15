@@ -3,6 +3,7 @@ package transparency
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"codenerd/internal/mangle"
 )
@@ -128,23 +129,117 @@ func formatArg(arg any) string {
 	}
 }
 
+// ruleGlossary maps a Mangle rule name to English.
+//
+// The keys are HEAD PREDICATES, because that is what ends up in
+// DerivationNode.RuleName: mangle's ProofTreeTracer indexes rules by head
+// predicate and sets RuleSpec.Name = headPred (internal/mangle/proof_tree.go).
+// The previous glossary was keyed by the symbolic names in
+// internal/core/defaults/policy/trace_logic.mg's rule_metadata/2 facts
+// ("strategy_selector", "permission_gate", …). None of those strings is a
+// predicate, so not one key ever matched and every derived fact fell through
+// to the generic "rule 'x'" line — the explainer's whole reason to exist.
+//
+// Entries are drawn from actual rule heads in internal/core/defaults/**.mg;
+// TestRuleGlossary_EveryEntry_ShouldExistInMangleCorpus fails if one drifts
+// out of the corpus.
+var ruleGlossary = map[string]string{
+	// Executive / action selection
+	"next_action":       "action selection strategy",
+	"next_coder_action": "coder action selection",
+	"next_tester_action": "tester action selection",
+	"tester_action":     "tester workflow step",
+	"reviewer_action":   "reviewer workflow step",
+	"active_strategy":   "active execution strategy",
+	"coder_strategy":    "coder strategy selection",
+	"route_decision":    "request routing decision",
+	"delegate_task":     "shard task delegation",
+	"activate_shard":    "shard activation",
+	"should_halt":       "halt condition",
+
+	// Constitutional safety
+	"permitted":                 "safety permission gate",
+	"prohibited":                "constitutional prohibition",
+	"base_prohibited":           "base constitutional prohibition",
+	"dangerous_content":         "dangerous content detection",
+	"permission_denied":         "permission refusal",
+	"block_commit":              "commit safety barrier",
+	"block_action":              "action safety barrier",
+	"coder_block_action":        "coder action barrier",
+	"deny_edit":                 "edit denial",
+	"edit_unsafe":               "unsafe edit detection",
+	"edit_warning":              "edit risk warning",
+	"element_edit_blocked":      "code element edit barrier",
+	"panic_state":               "projected panic state",
+	"system_invariant_violated": "system invariant violation",
+	"requires_approval":         "human approval requirement",
+	"escalation_needed":         "escalation trigger",
+	"escalation_required":       "mandatory escalation",
+	"is_honeypot":               "honeypot detection",
+	"honeypot_detected":         "honeypot detection",
+	"file_has_security_sensitive": "security-sensitive file detection",
+
+	// Impact / quality
+	"impact_warning":        "impact warning",
+	"impact_graph":          "transitive dependency analysis",
+	"breaking_change_risk":  "breaking change risk analysis",
+	"quality_violation_detected": "quality rule violation",
+	"tdd_violation":         "test-driven development violation",
+	"has_test_coverage":     "test coverage check",
+	"test_framework":        "test framework detection",
+	"test_priority":         "test prioritization",
+	"impacted_test":         "impacted test selection",
+	"review_suspect":        "suspect review finding",
+	"reviewer_needs_validation": "review validation requirement",
+	"suppressed_finding":    "finding suppression",
+	"raw_finding":           "raw review finding",
+	"root_cause":            "root cause analysis",
+	"needs_self_healing":    "self-healing trigger",
+
+	// Perception / clarification
+	"detected_language":      "language detection",
+	"detected_interrogative": "question detection",
+	"detected_modal":         "modal verb detection",
+	"clarification_needed":   "focus confidence check",
+	"clarification_question": "clarification question selection",
+	"clarification_option":   "clarification option",
+
+	// Context / JIT
+	"activation":           "context spreading activation",
+	"potential_score":      "context potential scoring",
+	"boost":                "relevance boost",
+	"context_relevant":     "context relevance",
+	"include_in_context":   "context inclusion",
+	"exclude_from_context": "context exclusion",
+	"injectable_context":   "injectable context selection",
+	"context_priority":     "context prioritization",
+	"relevant_context":     "context relevance",
+	"selected_atom":        "prompt atom selection",
+	"mandatory_atom":       "mandatory prompt atom",
+	"relevant_tool":        "tool relevance",
+	"mcp_tool_selected":    "MCP tool selection",
+	"shard_context_atom":   "shard context atom selection",
+
+	// Campaign / phases
+	"campaign_blocked":     "campaign block",
+	"campaign_risk_block":  "campaign risk block",
+	"phase_blocked":        "phase block",
+	"current_phase":        "current phase derivation",
+	"current_ooda_phase":   "OODA phase derivation",
+	"ooda_phase":           "OODA phase derivation",
+	"milestone_reached":    "milestone detection",
+	"replan_needed":        "replanning trigger",
+	"goal_requires_campaign": "campaign requirement",
+
+	// Learning / memory
+	"promote_to_long_term": "long-term memory promotion",
+	"learning_signal":      "learning signal extraction",
+	"quality_signal":       "quality signal extraction",
+}
+
 // explainRule provides a human-readable explanation for a rule name.
 func explainRule(ruleName string) string {
-	explanations := map[string]string{
-		"strategy_selector":    "action selection strategy",
-		"permission_gate":      "safety permission check",
-		"commit_barrier":       "commit safety barrier",
-		"transitive_impact":    "transitive dependency analysis",
-		"focus_threshold":      "focus confidence check",
-		"refactoring_guard":    "refactoring safety check",
-		"tdd_loop":             "test-driven development loop",
-		"spreading_activation": "context spreading activation",
-		"abductive_repair":     "abductive reasoning repair",
-		"shard_delegation":     "shard task delegation",
-		"activation_rules":     "context activation",
-	}
-
-	if explanation, ok := explanations[ruleName]; ok {
+	if explanation, ok := ruleGlossary[ruleName]; ok {
 		return explanation
 	}
 	if ruleName != "" {
@@ -283,17 +378,39 @@ func QuickExplain(predicate string, args []any) string {
 
 // OperationSummary holds summary data for a completed operation.
 type OperationSummary struct {
-	Operation     string   // What operation was performed
-	Duration      string   // How long it took
-	FilesAffected []string // Files that were modified/read
-	RulesApplied  []string // Mangle rules that were triggered
-	Outcome       string   // Success/failure/partial
-	Details       string   // Additional details
-	NextSteps     []string // Suggested follow-up actions
+	Operation     string    // What operation was performed
+	Duration      string    // How long it took
+	FilesAffected []string  // Files that were modified/read
+	RulesApplied  []string  // Mangle rules that were triggered
+	Outcome       string    // Success/failure/partial
+	Details       string    // Additional details
+	NextSteps     []string  // Suggested follow-up actions
+	Source        string    // Producer identity (shard ID, action ID)
+	CompletedAt   time.Time // When the operation finished
+}
+
+// StatusLine renders a one-line form for status tables.
+func (s *OperationSummary) StatusLine() string {
+	var sb strings.Builder
+	if !s.CompletedAt.IsZero() {
+		sb.WriteString("[" + s.CompletedAt.Format("15:04:05") + "] ")
+	}
+	sb.WriteString(s.Operation)
+	if s.Outcome != "" {
+		sb.WriteString(": " + s.Outcome)
+	}
+	if s.Duration != "" {
+		sb.WriteString(" (" + s.Duration + ")")
+	}
+	return sb.String()
 }
 
 // FormatOperationSummary formats an operation summary for display.
 func FormatOperationSummary(summary *OperationSummary) string {
+	if summary == nil {
+		return ""
+	}
+
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("## %s Complete\n\n", summary.Operation))

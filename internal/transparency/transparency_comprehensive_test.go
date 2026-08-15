@@ -779,15 +779,53 @@ func TestTransparencyManager_StartShard_WhenEnabled_ShouldTrack(t *testing.T) {
 	}
 }
 
-func TestTransparencyManager_StartShard_WhenDisabled_ShouldNotTrack(t *testing.T) {
+// The old form of this test asserted that a disabled manager tracks nothing.
+// That assertion encoded the bug: transparency is off by default, so gating the
+// feed on the master toggle meant `/transparency on` mid-run showed an empty
+// Active Operations list for every shard already in flight. Tracking is now
+// gated on ShardPhases alone; the master toggle still gates notifications and
+// phase history, which is where the cost and the noise live.
+func TestTransparencyManager_StartShard_WhenDisabled_ShouldTrackButNotNotify(t *testing.T) {
 	t.Parallel()
-	tm := NewTransparencyManager(nil) // disabled by default
+	tm := NewTransparencyManager(nil) // disabled by default, ShardPhases on
+
+	obs := &capturingPhaseObserver{}
+	tm.ShardObserver().AddObserver(obs)
 
 	tm.StartShard("shard-1", "coder", "write tests")
+	tm.UpdateShardPhase("shard-1", PhaseExecuting, "running")
+
 	exec := tm.ShardObserver().GetExecution("shard-1")
-	if exec != nil {
-		t.Error("expected shard not tracked when disabled")
+	if exec == nil {
+		t.Fatal("expected shard tracked even while transparency is off")
 	}
+	if exec.Phase != PhaseExecuting {
+		t.Errorf("expected phase to advance, got %s", exec.Phase)
+	}
+	if len(obs.updates) != 0 {
+		t.Errorf("expected no notifications while disabled, got %d", len(obs.updates))
+	}
+	if len(tm.ShardObserver().GetPhaseHistory(0)) != 0 {
+		t.Error("expected no phase history while disabled")
+	}
+}
+
+func TestTransparencyManager_StartShard_WhenShardPhasesOff_ShouldNotTrack(t *testing.T) {
+	t.Parallel()
+	tm := NewTransparencyManager(&config.TransparencyConfig{Enabled: true, ShardPhases: false})
+
+	tm.StartShard("shard-1", "coder", "write tests")
+	if tm.ShardObserver().GetExecution("shard-1") != nil {
+		t.Error("expected no tracking when ShardPhases is off")
+	}
+}
+
+type capturingPhaseObserver struct {
+	updates []PhaseUpdate
+}
+
+func (c *capturingPhaseObserver) OnPhaseChange(update PhaseUpdate) {
+	c.updates = append(c.updates, update)
 }
 
 func TestTransparencyManager_UpdateShardPhase_WhenDisabled_ShouldBeNoop(t *testing.T) {

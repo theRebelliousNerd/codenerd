@@ -267,12 +267,14 @@ func (c *Compressor) compress(ctx context.Context) error {
 
 	// NERD-EVOLVE-START: c3_observation_mask
 	// C3: Use observation masking instead of LLM summarization.
-	// Assert turn age categories into kernel, then use atom-based summary (no LLM call).
-	// The kernel derives should_mask_observation(TurnID) for old/ancient turns.
-	// Masked turns keep intent/action atoms but drop verbose surface text.
+	// Assert turn age categories into kernel, then read the kernel's masking
+	// decision back out and obey it. The kernel derives
+	// should_mask_observation(TurnID) for /old and /ancient turns; masked turns
+	// keep their reasoning atoms (intent/focus/action) and drop observations.
 	c.assertTurnAgeCategories(turnsToCompress)
+	masked := c.maskedObservationTurns()
 	summaryTimer := logging.StartTimer(logging.CategoryContext, "GenerateObservationMaskedSummary")
-	summary := c.generateSimpleSummary(turnsToCompress)
+	summary, maskedCount := c.generateObservationMaskedSummary(turnsToCompress, masked)
 	summaryTimer.Stop()
 	// NERD-EVOLVE-END: c3_observation_mask
 
@@ -320,11 +322,13 @@ func (c *Compressor) compress(ctx context.Context) error {
 		CompressedTokens: compressedTokens,
 		CompressionRatio: ratio,
 		CompressedAt:     time.Now(),
+		MaskedTurns:      maskedCount,
 	}
 
 	// Update rolling summary
 	c.rollingSummary.Segments = append(c.rollingSummary.Segments, segment)
 	c.rollingSummary.TotalTurns += len(turnsToCompress)
+	c.rollingSummary.TotalMaskedTurns += maskedCount
 	c.rollingSummary.TotalOriginalTokens += originalTokens
 	c.rollingSummary.TotalCompressedTokens += compressedTokens
 	c.rollingSummary.OverallRatio = float64(c.rollingSummary.TotalOriginalTokens) / float64(max(c.rollingSummary.TotalCompressedTokens, 1))
@@ -387,6 +391,65 @@ func (c *Compressor) generateSummary(ctx context.Context, turns []CompressedTurn
 	}
 
 	return strings.TrimSpace(resp), nil
+}
+
+// generateObservationMaskedSummary builds the segment summary under the
+// kernel's C3 masking decision (masked = should_mask_observation(TurnID)).
+//
+// The split is: reasoning atoms (intent, focus, action) are ALWAYS emitted —
+// that is the should_preserve_reasoning invariant — while observation atoms
+// (results/outcomes) are emitted only for turns the kernel did not mask. With
+// an empty mask set the output is byte-identical to generateSimpleSummary, so
+// a kernel that derives nothing degrades to the old behaviour instead of
+// silently losing history.
+//
+// Returns the summary text and how many turns were actually masked, so callers
+// can record the kernel's influence instead of trusting a log line.
+func (c *Compressor) generateObservationMaskedSummary(turns []CompressedTurn, masked map[string]bool) (string, int) {
+	if len(turns) == 0 {
+		return "", 0
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# Compressed History (Turns %d-%d)\n", turns[0].TurnNumber, turns[len(turns)-1].TurnNumber))
+
+	maskedCount := 0
+	for _, turn := range turns {
+		isMasked := masked[turnMaskID(turn.TurnNumber)]
+		if isMasked {
+			maskedCount++
+		}
+
+		// Reasoning chain: never dropped, masked or not.
+		if turn.IntentAtom != nil {
+			sb.WriteString(turn.IntentAtom.String())
+			sb.WriteString("\n")
+		}
+		if isMasked {
+			for _, atom := range turn.FocusAtoms {
+				sb.WriteString(atom.String())
+				sb.WriteString("\n")
+			}
+			for _, atom := range turn.ActionAtoms {
+				sb.WriteString(atom.String())
+				sb.WriteString("\n")
+			}
+			// Observations are the only thing the mask removes; record that the
+			// kernel (not Go) made the call so the block stays auditable.
+			sb.WriteString(fmt.Sprintf("# turn %d observations masked by should_mask_observation (%d atoms)\n",
+				turn.TurnNumber, len(turn.ResultAtoms)))
+			continue
+		}
+		for _, atom := range turn.ResultAtoms[:min(3, len(turn.ResultAtoms))] {
+			sb.WriteString(atom.String())
+			sb.WriteString("\n")
+		}
+	}
+
+	if maskedCount > 0 {
+		logging.Context("C3 observation masking applied to %d/%d compressed turns", maskedCount, len(turns))
+	}
+	return sb.String(), maskedCount
 }
 
 // generateSimpleSummary creates a basic summary without LLM.

@@ -51,6 +51,15 @@ type Compressor struct {
 	// Metrics
 	totalOriginalTokens   int
 	totalCompressedTokens int
+
+	// selection tracks how often the kernel gate vs the Go activation engine
+	// decided the ACTIVE CONTEXT block. Guarded by mu.
+	selection SelectionStats
+
+	// feedbackStore is retained (not just handed to the activation engine) so
+	// the third learning loop's state is inspectable from the compressor —
+	// glass-box surfaces have no other handle on it.
+	feedbackStore *ContextFeedbackStore
 }
 
 // NewCompressor creates a new context compressor.
@@ -564,9 +573,20 @@ func (c *Compressor) GetSessionID() string {
 func (c *Compressor) SetFeedbackStore(store *ContextFeedbackStore) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.feedbackStore = store
 	if c.activation != nil {
 		c.activation.SetFeedbackStore(store)
 	}
+}
+
+// GetFeedbackStats reports the state of the context-learning loop so operators
+// (and glass-box surfaces) can see which predicates the system learned to
+// trust. Returns a zero-valued FeedbackStats when no store is wired.
+func (c *Compressor) GetFeedbackStats(topN int) FeedbackStats {
+	c.mu.RLock()
+	store := c.feedbackStore
+	c.mu.RUnlock()
+	return CollectFeedbackStats(store, topN)
 }
 
 // NewCompressorWithConfig creates a compressor with custom configuration.
@@ -682,15 +702,33 @@ func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, erro
 	// focus_resolution, modified, dependency_link, and test failure predicates.
 	activationTimer := logging.StartTimer(logging.CategoryContext, "ActivationScoring")
 	var scoredFacts []ScoredFact
-	if kernelFacts, kernelErr := c.kernel.Query("should_include_context"); kernelErr == nil && len(kernelFacts) > 0 {
+	reason := reasonKernelSelected
+	kernelFacts, kernelErr := c.kernel.Query("should_include_context")
+	switch {
+	case kernelErr != nil:
+		reason = reasonQueryError
+	case len(kernelFacts) == 0:
+		reason = reasonNoKernelFacts
+	default:
 		scoredFacts = c.buildKernelDerivedContext(kernelFacts, allFacts)
 		logging.ContextDebug("C1+C4 kernel context: %d facts selected from %d should_include_context results",
 			len(scoredFacts), len(kernelFacts))
-	} else {
+		if len(scoredFacts) == 0 {
+			// The kernel had an opinion but none of the entities it named
+			// resolved to a fact we hold. Previously this branch left
+			// scoredFacts nil and skipped the fallback entirely, so a live
+			// session (which always has user_intent, hence always non-empty
+			// should_include_context) shipped an EMPTY active-context block.
+			reason = reasonUnresolved
+		}
+	}
+	if len(scoredFacts) == 0 {
 		// Fallback: Go-side activation engine (original path)
 		scoredFacts = c.activation.GetHighActivationFacts(allFacts, currentIntent, c.config.AtomReserve)
-		logging.ContextDebug("Go activation fallback: %d facts selected (budget: %d tokens)", len(scoredFacts), c.config.AtomReserve)
+		logging.ContextDebug("Go activation fallback (%s): %d facts selected (budget: %d tokens)",
+			reason, len(scoredFacts), c.config.AtomReserve)
 	}
+	c.recordSelectionLocked(reason, len(kernelFacts), len(scoredFacts))
 	activationTimer.Stop()
 	logging.ContextDebug("Activation scoring: %d facts selected (budget: %d tokens)", len(scoredFacts), c.config.AtomReserve)
 	// NERD-EVOLVE-END: context_compilation_pipeline

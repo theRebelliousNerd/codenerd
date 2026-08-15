@@ -2,6 +2,7 @@ package autopoiesis
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -64,6 +65,103 @@ func (o *Orchestrator) syncExistingToolsToKernel() {
 		logging.Get(logging.CategoryAutopoiesis).Error("Failed to batch assert tool facts: %v", err)
 	}
 	logging.AutopoiesisDebug("Kernel sync complete: %d tools registered", len(tools))
+
+	// Post-boot parity gate. A tool the registry can execute but the kernel
+	// cannot see is invisible to every logic-driven routing decision, and a
+	// tool_registered fact with no binary behind it makes the kernel plan
+	// around a capability that will fail at call time. Both are silent.
+	if report, err := o.VerifyKernelToolParity(); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Tool parity check could not run: %v", err)
+	} else if !report.InParity() {
+		logging.Get(logging.CategoryAutopoiesis).Error("Tool parity BROKEN after kernel sync: %s", report.Describe())
+	}
+}
+
+// ToolParityReport compares the runtime tool registry against the kernel's
+// tool_registered facts.
+type ToolParityReport struct {
+	RegistryCount   int
+	KernelCount     int
+	MissingInKernel []string // executable but not visible to Mangle
+	UnknownInKernel []string // asserted to Mangle but not executable
+}
+
+// InParity reports whether both views name exactly the same tools.
+func (r ToolParityReport) InParity() bool {
+	return len(r.MissingInKernel) == 0 && len(r.UnknownInKernel) == 0
+}
+
+// Describe renders the mismatch for logs and test failures.
+func (r ToolParityReport) Describe() string {
+	if r.InParity() {
+		return fmt.Sprintf("in parity (%d tools)", r.RegistryCount)
+	}
+	return fmt.Sprintf("registry=%d kernel=%d missing_in_kernel=%v unknown_in_kernel=%v",
+		r.RegistryCount, r.KernelCount, r.MissingInKernel, r.UnknownInKernel)
+}
+
+// VerifyKernelToolParity checks that every registered runtime tool has a
+// tool_registered fact in the kernel and vice versa.
+//
+// Returns an error only when the comparison itself could not be made (no
+// kernel attached, query failed); a mismatch is reported in the returned
+// report so callers can decide how loudly to fail.
+func (o *Orchestrator) VerifyKernelToolParity() (ToolParityReport, error) {
+	o.mu.RLock()
+	kernel := o.kernel
+	synth := o.ouroboros
+	o.mu.RUnlock()
+
+	report := ToolParityReport{}
+	if kernel == nil {
+		return report, fmt.Errorf("no kernel attached")
+	}
+	if synth == nil {
+		return report, fmt.Errorf("no tool synthesizer attached")
+	}
+
+	registry := make(map[string]struct{})
+	for _, tool := range synth.ListRuntimeTools() {
+		if tool == nil || tool.Name == "" {
+			continue
+		}
+		registry[tool.Name] = struct{}{}
+	}
+	report.RegistryCount = len(registry)
+
+	facts, err := kernel.QueryPredicate("tool_registered")
+	if err != nil {
+		return report, fmt.Errorf("failed to query tool_registered: %w", err)
+	}
+
+	inKernel := make(map[string]struct{})
+	for _, fact := range facts {
+		if len(fact.Args) == 0 {
+			continue
+		}
+		name, ok := fact.Args[0].(string)
+		if !ok || name == "" {
+			continue
+		}
+		// Mangle round-trips identifier-like strings as name constants.
+		inKernel[strings.TrimPrefix(name, "/")] = struct{}{}
+	}
+	report.KernelCount = len(inKernel)
+
+	for name := range registry {
+		if _, ok := inKernel[name]; !ok {
+			report.MissingInKernel = append(report.MissingInKernel, name)
+		}
+	}
+	for name := range inKernel {
+		if _, ok := registry[name]; !ok {
+			report.UnknownInKernel = append(report.UnknownInKernel, name)
+		}
+	}
+	sort.Strings(report.MissingInKernel)
+	sort.Strings(report.UnknownInKernel)
+
+	return report, nil
 }
 
 // GetKernel returns the attached kernel (may be nil).

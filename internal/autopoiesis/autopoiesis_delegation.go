@@ -152,9 +152,26 @@ func (o *Orchestrator) generateToolFromDelegation(ctx context.Context, capabilit
 	return nil
 }
 
+// DefaultKernelPollInterval is the delegation poll cadence for interactive
+// sessions.
+//
+// The kernel signals "generate this tool" by asserting delegate_task(
+// /tool_generator, …, /pending); nothing pushes, so the only thing that turns
+// that fact into work is this poll. 2s is the interval every interactive boot
+// path uses: fast enough that a kernel-derived tool need does not visibly
+// stall a turn, slow enough that an idle session is not running a Mangle
+// predicate query twice a second. Non-interactive paths (`nerd run`,
+// campaigns) do not poll at all — they call ProcessKernelDelegations once at
+// the point in the turn where a delegation could exist.
+const DefaultKernelPollInterval = 2 * time.Second
+
 // StartKernelListener starts a background goroutine that periodically
 // checks for kernel delegations and processes them.
 // Returns a channel that will be closed when the listener stops.
+//
+// pollInterval should be DefaultKernelPollInterval unless a caller has a
+// specific reason; kernel_listener_wiring_test.go pins the interactive boot
+// paths that must start it.
 func (o *Orchestrator) StartKernelListener(ctx context.Context, pollInterval time.Duration) <-chan struct{} {
 	done := make(chan struct{})
 

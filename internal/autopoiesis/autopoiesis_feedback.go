@@ -392,33 +392,39 @@ func (o *Orchestrator) ValidateLogging(code string) *LoggingValidation {
 	return o.logInjector.ValidateLogging(code)
 }
 
-// GenerateToolWithTracing generates a tool with full reasoning trace capture
+// GenerateToolWithTracing generates a tool with full reasoning trace capture.
+//
+// Runs the audited Ouroboros pipeline, not a bare toolGen.GenerateTool. The
+// old body produced an unaudited, uncompiled tool object; anything that acted
+// on it (GenerateToolWithProfile stores a quality profile keyed on the name)
+// was reasoning about code that had never passed go_safety.mg. Logging is now
+// only *validated* here, not injected, because the returned code has already
+// been committed and compiled — mutating it afterwards changed nothing on disk
+// and produced a trace that did not match the registered binary.
 func (o *Orchestrator) GenerateToolWithTracing(ctx context.Context, need *ToolNeed, userRequest string) (*GeneratedTool, *ReasoningTrace, error) {
-	// Start trace
-	trace := o.StartToolTrace(need.Name, need, userRequest)
+	if need == nil {
+		return nil, nil, fmt.Errorf("tool need is nil")
+	}
 
-	// Generate tool (the toolgen will populate trace details)
-	tool, err := o.toolGen.GenerateTool(ctx, need)
-	if err != nil {
-		o.FinalizeTrace(trace, false, "", err.Error())
+	result, trace := o.ExecuteOuroborosLoopWithTracing(ctx, need, userRequest)
+	if result == nil {
+		err := fmt.Errorf("ouroboros returned no result for %q", need.Name)
 		return nil, trace, err
 	}
-
-	// Inject mandatory logging into generated code
-	loggedCode, logErr := o.InjectLogging(tool.Code, tool.Name)
-	if logErr == nil {
-		tool.Code = loggedCode
+	if !result.Success {
+		reason := result.Error
+		if reason == "" {
+			reason = "no reason reported"
+		}
+		return nil, trace, fmt.Errorf("ouroboros rejected tool %q at stage %s: %s", need.Name, result.Stage, reason)
 	}
 
-	// Validate logging
-	validation := o.ValidateLogging(tool.Code)
-	if !validation.Valid {
+	tool := o.generatedToolFromResult(need, result)
+
+	if validation := o.ValidateLogging(tool.Code); validation != nil && !validation.Valid {
 		trace.PostExecutionNotes = append(trace.PostExecutionNotes,
 			fmt.Sprintf("Logging validation failed: missing %v", validation.Missing))
 	}
-
-	// Finalize trace
-	o.FinalizeTrace(trace, true, tool.Code, "")
 
 	return tool, trace, nil
 }

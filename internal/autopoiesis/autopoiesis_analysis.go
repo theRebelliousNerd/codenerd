@@ -114,27 +114,29 @@ func (o *Orchestrator) ExecuteAction(ctx context.Context, action AutopoiesisActi
 	}
 }
 
-// executeToolGeneration generates and registers a new tool
+// executeToolGeneration generates, hardens and registers a new tool.
+//
+// This runs the full Ouroboros pipeline. It previously did generate → write →
+// register with no safety audit at all: an ActionGenerateTool derived from
+// Analyze() wrote LLM-authored Go into .nerd/tools and registered it as an
+// available capability without go_safety.mg ever seeing it. Tool creation has
+// exactly one production route now, and it is the audited one.
 func (o *Orchestrator) executeToolGeneration(ctx context.Context, action AutopoiesisAction) error {
 	need, ok := action.Payload.(*ToolNeed)
 	if !ok {
 		return fmt.Errorf("invalid payload for tool generation")
 	}
 
-	// Generate the tool
-	tool, err := o.toolGen.GenerateTool(ctx, need)
-	if err != nil {
-		return fmt.Errorf("failed to generate tool: %w", err)
+	result := o.ExecuteOuroborosLoop(ctx, need)
+	if result == nil {
+		return fmt.Errorf("ouroboros returned no result for %q", need.Name)
 	}
-
-	// Write to disk
-	if err := o.toolGen.WriteTool(tool); err != nil {
-		return fmt.Errorf("failed to write tool: %w", err)
-	}
-
-	// Register in memory
-	if err := o.toolGen.RegisterTool(tool); err != nil {
-		return fmt.Errorf("failed to register tool: %w", err)
+	if !result.Success {
+		reason := result.Error
+		if reason == "" {
+			reason = "no reason reported"
+		}
+		return fmt.Errorf("tool %q rejected at stage %s: %s", need.Name, result.Stage, reason)
 	}
 
 	// Update throttling counters on success.

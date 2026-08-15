@@ -65,11 +65,13 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	internalconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
@@ -116,10 +118,14 @@ type OuroborosConfig struct {
 	ExecuteTimeout  time.Duration // Timeout for tool execution
 	AllowNetworking bool          // Whether tools can use networking
 	AllowFileSystem bool          // Whether tools can access filesystem
-	AllowExec       bool          // Whether tools can execute commands
+	AllowExec       bool          // Whether tools can execute commands (see AllowToolExec audit note on Config)
 	TargetOS        string        // Target operating system (GOOS)
 	TargetArch      string        // Target architecture (GOARCH)
 	WorkspaceRoot   string        // Absolute path to the main codeNERD workspace root
+
+	// UserConfig carries the operator's build environment into the compile and
+	// arena subprocesses. Nil means "process defaults only".
+	UserConfig *internalconfig.UserConfig
 
 	// Adversarial Co-Evolution configuration
 	EnableThunderdome bool              // Whether to run adversarial tests (default: true)
@@ -137,10 +143,17 @@ func DefaultOuroborosConfig(workspaceRoot string) OuroborosConfig {
 		ExecuteTimeout:  300 * time.Second,
 		AllowNetworking: false,
 		AllowFileSystem: true, // Read-only by default
-		AllowExec:       true,
-		TargetOS:        os.Getenv("GOOS"),
-		TargetArch:      os.Getenv("GOARCH"),
-		WorkspaceRoot:   workspaceRoot,
+		// AUDIT (TODO P0 "Audit default AllowExec: true"): this defaulted to
+		// true, which put os/exec on the safety allowlist for every generated
+		// tool in every workspace. go_safety.mg gates imports and nothing else,
+		// so an allowlisted os/exec is an unrestricted shell running with the
+		// user's workspace as cwd — a strictly larger capability than anything
+		// else autopoiesis grants, handed out by default. Denied by default
+		// now; grant it per workspace via Config.AllowToolExec.
+		AllowExec:     false,
+		TargetOS:      os.Getenv("GOOS"),
+		TargetArch:    os.Getenv("GOARCH"),
+		WorkspaceRoot: workspaceRoot,
 		// Adversarial Co-Evolution defaults
 		EnableThunderdome: true,
 		ThunderdomeConfig: DefaultThunderdomeConfig(),
@@ -187,23 +200,37 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 	logging.AutopoiesisDebug("Config: ToolsDir=%s, CompiledDir=%s, WorkspaceRoot=%s",
 		config.ToolsDir, config.CompiledDir, config.WorkspaceRoot)
 
-	// Set defaults for OS/Arch if missing
+	// Set defaults for OS/Arch if missing.
+	//
+	// The fallbacks were the literals "windows" and "amd64". Generated tools
+	// are compiled AND executed by this process (RuntimeTool.Execute runs the
+	// binary), so on any host where GOOS is not exported — the normal case —
+	// every tool was cross-compiled for Windows and then failed at call time
+	// with "exec format error". runtime.GOOS/GOARCH describe the machine that
+	// will actually run the binary; an explicit cross-compile target still
+	// wins because it is only consulted when the field is empty.
 	if config.TargetOS == "" {
-		// Default to user's OS environment assumption or runtime
-		if os.Getenv("GOOS") != "" {
-			config.TargetOS = os.Getenv("GOOS")
+		if env := os.Getenv("GOOS"); env != "" {
+			config.TargetOS = env
 		} else {
-			config.TargetOS = "windows"
+			config.TargetOS = runtime.GOOS
 		}
 		logging.AutopoiesisDebug("TargetOS defaulted to: %s", config.TargetOS)
 	}
 	if config.TargetArch == "" {
-		if os.Getenv("GOARCH") != "" {
-			config.TargetArch = os.Getenv("GOARCH")
+		if env := os.Getenv("GOARCH"); env != "" {
+			config.TargetArch = env
 		} else {
-			config.TargetArch = "amd64"
+			config.TargetArch = runtime.GOARCH
 		}
 		logging.AutopoiesisDebug("TargetArch defaulted to: %s", config.TargetArch)
+	}
+
+	// The arena has to compile with the same toolchain environment as the real
+	// compile, so it inherits the operator's UserConfig unless one was set
+	// explicitly on the nested config.
+	if config.ThunderdomeConfig.UserConfig == nil {
+		config.ThunderdomeConfig.UserConfig = config.UserConfig
 	}
 
 	// Initialize Mangle Engine
