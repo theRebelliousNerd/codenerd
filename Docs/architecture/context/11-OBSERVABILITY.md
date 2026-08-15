@@ -1,6 +1,6 @@
 # 11 — Observability: Context
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-15  
 > Package: `internal/context`  
 > Status: Living Reference Document
 
@@ -28,7 +28,7 @@ Helpers used throughout package:
 | `ProcessTurn[N]` | `compressor_turns.go` |
 | `Compression` | compress path |
 | `RecalcBudget` | budget recompute |
-| `GenerateObservationMaskedSummary` | simple summary path |
+| `GenerateObservationMaskedSummary` | C3 masked summary build in `compress()` |
 
 ## 3. Key log events
 

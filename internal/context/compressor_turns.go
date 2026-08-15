@@ -496,6 +496,39 @@ func (c *Compressor) rebuildRollingSummaryText() {
 		c.mergeOldestSegments(max(2, len(c.rollingSummary.Segments)/2))
 		c.renderRollingSummaryText()
 	}
+
+	// Floor: a single segment cannot be merged with anything, so trim it in
+	// place rather than letting one oversized segment defeat the reserve.
+	if len(c.rollingSummary.Segments) != 1 {
+		return
+	}
+	seg := &c.rollingSummary.Segments[0]
+	for range 4 {
+		total := c.counter.CountString(c.rollingSummary.Text)
+		if total <= c.config.HistoryReserve {
+			break
+		}
+		// The render frame (headers, serialized key atoms) costs tokens the
+		// summary trim cannot see. Budget against the remainder instead of
+		// trimming blind, and shed key atoms only when the frame alone
+		// already exceeds the reserve.
+		overhead := total - c.counter.CountString(seg.Summary)
+		if overhead >= c.config.HistoryReserve && len(seg.KeyAtoms) > 0 {
+			seg.KeyAtoms = nil
+			c.renderRollingSummaryText()
+			continue
+		}
+		// −2 absorbs the rounding slack in the chars-per-token estimate, which
+		// is not additive across concatenation.
+		seg.Summary = c.trimToTokens(seg.Summary, max(1, c.config.HistoryReserve-overhead-2))
+		c.renderRollingSummaryText()
+	}
+
+	seg.CompressedTokens = c.counter.CountString(seg.Summary)
+	seg.CompressionRatio = float64(seg.OriginalTokens) / float64(max(seg.CompressedTokens, 1))
+	c.rollingSummary.TotalCompressedTokens = seg.CompressedTokens
+	c.rollingSummary.TotalOriginalTokens = seg.OriginalTokens
+	c.rollingSummary.OverallRatio = float64(seg.OriginalTokens) / float64(max(seg.CompressedTokens, 1))
 }
 
 // mergeOldestSegments folds the n oldest history segments into a single

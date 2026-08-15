@@ -1,6 +1,6 @@
 # 09 — Safety and Invariants: Context
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-15  
 > Package: `internal/context`  
 > Status: Living Reference Document
 
@@ -59,7 +59,7 @@ If total usage already exceeds budget, `BuildContext` returns `ErrContextWindowE
 
 ### I7 — Observation masking never drops reasoning intent
 
-C3 design: `should_preserve_reasoning` for all aged turns; only observations masked for old/ancient. Go summary path still retains intent atoms in simple summary.
+C3 design: `should_preserve_reasoning` for all aged turns; only observations masked for old/ancient. Go enforces this as an intersection — a turn the kernel marks for masking but *not* for reasoning preservation is left unmasked, because that combination means the rules drifted and the safe failure is to keep more, not less.
 
 ### I8 — Map access under lock
 

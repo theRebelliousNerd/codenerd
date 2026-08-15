@@ -1,6 +1,6 @@
 # Context Mangle Surface (pointer)
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-15  
 > Package-owned `.mg` files: **none**. (The kernel crash dump `debug_program_ERROR.mg` lands in `.nerd/debug/`, is gitignored, and is not design source.)
 
 Mangle surface for context compilation lives in core defaults:

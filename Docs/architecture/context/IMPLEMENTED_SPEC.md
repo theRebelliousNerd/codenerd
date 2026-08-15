@@ -242,8 +242,17 @@ Rules live in `internal/core/defaults/policy/context_compilation.mg` (C1 relevan
 
 ### 5.2 When compression triggers
 
-`TokenBudget.ShouldCompress()` iff `Utilization() >= CompressionThreshold`.  
-Not turn-count driven.
+Two triggers, in this order:
+
+1. **Budget pressure** (primary): `TokenBudget.ShouldCompress()` iff `Utilization() >= CompressionThreshold`.
+2. **Window overflow** (safety net): `pruneRecentTurns` compresses when `len(recentTurns) > 2 × RecentTurnWindow`.
+
+The second exists because `recalcBudget` only counts the last `RecentTurnWindow`
+turns, so utilization does **not** grow with session length. Before it was added,
+`pruneRecentTurns` resliced the window and deleted the overflow outright: a
+300-turn simulation produced **zero** segments and a 1.0:1 ratio, with 290 turns
+discarded without ever being summarized. Turns now leave the window only through
+compression; truncation remains only as a last resort if `compress()` itself fails.
 
 ### 5.3 compress()
 
@@ -252,6 +261,14 @@ Not turn-count driven.
 - Summary: **`generateSimpleSummary`** (atom-based), not the LLM path, in the current compress body (LLM `generateSummary` remains available).  
 - Enforce target ratio: prefer serialized key atoms or `trimToTokens`.  
 - Update rolling summary text; drop compressed turns; `DecayRecency(30m)`.
+
+`rebuildRollingSummaryText` bounds the rendered block to `HistoryReserve` by
+recursively merging the oldest segments (`mergeOldestSegments`, oldest half per
+pass) and recomputing the totals from the surviving segments. Without that bound
+the renderer concatenated every segment ever produced: the same 300-turn run
+pushed total window usage past 100%, at which point `BuildContext` refuses with
+`ErrContextWindowExceeded` and the session gets no context at all. Measured after
+the fix: 300 turns → 6 segments, 623:1 rolling ratio, 56% window usage.
 
 ### 5.4 Observation masking invariant (C3)
 

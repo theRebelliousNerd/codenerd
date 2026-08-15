@@ -100,3 +100,48 @@ func TestProcessTurn_OverLongSession_ShouldHoldTargetCompressionRatio(t *testing
 	t.Logf("long session: %d turns, %d segments, rolling ratio %.1f:1, window %d turns, budget %d/%d",
 		turns, segments, ratio, len(comp.recentTurns), comp.budget.TotalUsed(), cfg.TotalBudget)
 }
+
+func TestRebuildRollingSummaryText_WhenBlockOutgrowsReserve_ShouldMergeOldestSegments(t *testing.T) {
+	comp := newKernelBackedCompressor(t)
+	comp.config.HistoryReserve = 40 // tiny reserve forces merging
+
+	for i := range 12 {
+		comp.rollingSummary.Segments = append(comp.rollingSummary.Segments, HistorySegment{
+			ID:               fmt.Sprintf("seg_%d", i),
+			StartTurn:        i * 10,
+			EndTurn:          i*10 + 9,
+			Summary:          strings.Repeat("segment summary text ", 20),
+			OriginalTokens:   5000,
+			CompressedTokens: 60,
+			MaskedTurns:      2,
+		})
+	}
+
+	comp.rebuildRollingSummaryText()
+
+	if got := comp.counter.CountString(comp.rollingSummary.Text); got > comp.config.HistoryReserve {
+		t.Errorf("rolling summary %d tokens still exceeds reserve %d after rebuild", got, comp.config.HistoryReserve)
+	}
+	if len(comp.rollingSummary.Segments) >= 12 {
+		t.Errorf("expected segments to be merged, still have %d", len(comp.rollingSummary.Segments))
+	}
+
+	// Turn coverage and masked-turn accounting must survive merging: losing
+	// them would make the reported ratio and masking stats fiction.
+	first := comp.rollingSummary.Segments[0]
+	last := comp.rollingSummary.Segments[len(comp.rollingSummary.Segments)-1]
+	if first.StartTurn != 0 || last.EndTurn != 119 {
+		t.Errorf("turn coverage lost in merge: %d..%d, want 0..119", first.StartTurn, last.EndTurn)
+	}
+	totalMasked, totalOriginal := 0, 0
+	for _, s := range comp.rollingSummary.Segments {
+		totalMasked += s.MaskedTurns
+		totalOriginal += s.OriginalTokens
+	}
+	if totalMasked != 24 {
+		t.Errorf("masked-turn count = %d, want 24 preserved across merges", totalMasked)
+	}
+	if totalOriginal != 60000 {
+		t.Errorf("original token total = %d, want 60000 preserved across merges", totalOriginal)
+	}
+}

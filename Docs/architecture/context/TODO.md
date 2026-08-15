@@ -40,9 +40,20 @@
 
 ## P2 — quality of compression
 
-- [ ] Validate target compression ratio on real multi-hour sessions (campaign assault artifacts).  
-      Needs recorded long-session artifacts; not reproducible from the repo alone.
-- [ ] Optional provider-aligned tokenizer adapter behind `TokenCounter`.
+- [~] Validate target compression ratio on real multi-hour sessions (campaign assault artifacts).  
+      The assault artifacts in-repo (`.nerd/campaigns/*/assault/triage/*.json`) carry
+      no turn or window data, so the item as written is not reproducible here. A
+      deterministic 300-turn gate stands in: `long_session_test.go`. Running it found
+      two defects, now fixed: compression never engaged on long sessions (window
+      overflow was truncated, not compressed — 290 of 300 turns silently deleted),
+      and the rolling summary grew without bound past the window, which made
+      `BuildContext` refuse outright. Post-fix: 300 turns → 6 segments, 623:1, 56%
+      window usage. Validation against a genuine multi-hour session is still open.
+- [x] Optional provider-aligned tokenizer adapter behind `TokenCounter`.  
+      `TokenEstimator` interface + `NewTokenCounterWithEstimator`; the default
+      chars-per-token heuristic is exposed as `CharsPerTokenEstimator` so an adapter
+      can wrap or compare against it. No provider tokenizer is vendored — the seam
+      exists, the implementation is a caller's choice.
 - [x] Ensure `LoadState` + `RefreshBudget` always paired on session rehydrate.  
       `LoadState` now recalculates the budget itself, so the unpaired call is
       impossible rather than merely discouraged. `RefreshBudget` stays exported and

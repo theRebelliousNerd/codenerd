@@ -19,7 +19,7 @@ Chat fires `ProcessTurn` in a goroutine. Should critical paths await completion 
 
 ## Q4 — Observation masking completeness
 
-Age categories are asserted, but does any Go consumer query `should_mask_observation` today beyond documentation intent? If not, is C3 “partial by design”?
+**Resolved (2026-08-15).** `maskedObservationTurns` queries it on every compression and `generateObservationMaskedSummary` obeys it. The predicate had never fired at all: `assertTurnAgeCategories` appended a clause terminator that `ParseFactString` adds itself, so every assertion failed to parse and the error was discarded.
 
 ## Q5 — Feedback cold start
 

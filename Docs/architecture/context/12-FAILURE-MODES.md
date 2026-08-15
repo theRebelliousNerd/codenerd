@@ -1,6 +1,6 @@
 # 12 — Failure Modes: Context
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-15  
 > Package: `internal/context`  
 > Status: Living Reference Document
 
@@ -23,6 +23,10 @@
 | F13 | Token under-estimate | Provider 400/context error | Heuristic vs real tokenizer | Soft only | Increase reserve slack |
 | F14 | LoadState duplicate assert | Noisy kernel | Re-assert hot facts | Skip existing fact strings | Clear kernel if corrupt |
 | F15 | Malformed mangle_update | Missing atoms | Bad control packet strings | Skip parse errors | Fix articulation packet |
+| F16 | Silent history truncation | Old turns vanish, zero segments, ratio 1.0:1 | `pruneRecentTurns` resliced the window and deleted the overflow (historical) | Overflow now compresses before pruning; truncation only after a failed `compress()` | Check `compressed_segments` in `GetMetrics`; a long session with 0 segments is the signature |
+| F17 | Rolling summary outgrows window | `ErrContextWindowExceeded` on every build late in a session | Renderer concatenated every segment ever produced (historical) | `rebuildRollingSummaryText` merges the oldest segments until the block fits `HistoryReserve` | Compare history tokens to `HistoryReserve`; force a merge by lowering the reserve |
+| F18 | Kernel selection returns nothing | Empty ACTIVE CONTEXT despite a live intent | `should_include_context` names entities (file paths) that never match a serialized fact string (historical) | Entities resolve against fact arguments; empty resolution falls back to Go | `GetSelectionStats().LastReason == kernel_facts_unresolved` |
+| F19 | Kernel assertion silently rejected | Derived predicate never fires | Fact string passed to `AssertString` with a trailing `.` — `ParseFactString` adds it (historical, killed C3) | Assertion errors are logged, not discarded | Query the EDB predicate directly; if empty, check the assert call site |
 
 ## 2. Cascading failure: long session without compression
 
@@ -62,5 +66,6 @@ ActivationThreshold too high
 | Observation | Why OK |
 |-------------|--------|
 | Feedback score 0 early | minSamples=10 |
-| LLM generateSummary unused | C3 simple path by design |
+| LLM generateSummary unused | C3 observation-masked atom path by design |
+| Utilization flat across a long session | `recalcBudget` counts only the last `RecentTurnWindow` turns; window overflow is the compression trigger there, not budget |
 | Default 200k not 128k | Config override at boot expected |
