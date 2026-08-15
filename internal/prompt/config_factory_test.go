@@ -2,9 +2,9 @@ package prompt
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strings"
-	"fmt"
 	"sync"
 	"testing"
 )
@@ -30,6 +30,7 @@ func TestConfigFactory_NilProviderPanic(t *testing.T) {
 	ctx := context.Background()
 	_, _ = factory.Generate(ctx, &CompilationResult{Prompt: "test"}, "/fix")
 }
+
 // TODO: [Null/Undefined/Empty] Missing test for ConfigAtom.Merge behavior when Tools or Policies are explicitly nil versus empty slices, ensuring it doesn't panic and returns initialized slices if expected.
 func TestConfigAtom_MergeNilSlices(t *testing.T) {
 	atom1 := ConfigAtom{Tools: nil, Policies: nil, Priority: 10}
@@ -46,6 +47,7 @@ func TestConfigAtom_MergeNilSlices(t *testing.T) {
 		t.Errorf("Merge priority failed, expected 20, got %d", merged.Priority)
 	}
 }
+
 // TODO: [Type Coercion] Missing test for intent strings containing null bytes (\x00) or non-UTF8 sequences. Ensure GetAtom safely handles these without panicking or returning unexpected fallback atoms.
 func TestConfigFactory_NullBytesAndInvalidUTF8(t *testing.T) {
 	provider := NewDefaultConfigAtomProvider()
@@ -68,6 +70,7 @@ func TestConfigFactory_NullBytesAndInvalidUTF8(t *testing.T) {
 		}
 	}
 }
+
 // TODO: [User Request Extremes] Missing test for GenerateFallback with a massive fallbackIdentity string (e.g., 50MB) to ensure it doesn't cause OOM when constructing the EffectiveAgentRuntimeConfig.
 func TestConfigFactory_GenerateFallbackMassiveIdentity(t *testing.T) {
 	factory := NewDefaultConfigFactory()
@@ -82,6 +85,7 @@ func TestConfigFactory_GenerateFallbackMassiveIdentity(t *testing.T) {
 		t.Errorf("IdentityPrompt exceeded 1MB limit: %d bytes", len(cfg.IdentityPrompt))
 	}
 }
+
 // TODO: [User Request Extremes] Missing test for uniqueStrings performance/OOM when handling a ConfigAtom with millions of duplicated tool strings.
 func TestConfigFactory_UniqueStringsMassiveDuplicates(t *testing.T) {
 	// Generate an array of 2000 unique strings, but we repeat them to make 2 million
@@ -99,6 +103,7 @@ func TestConfigFactory_UniqueStringsMassiveDuplicates(t *testing.T) {
 		t.Errorf("Expected exactly 1000 items due to MaxItems cap, got %d", len(result))
 	}
 }
+
 // TODO: [State Conflicts] Missing test verifying that mutating a slice (e.g., Tools) of a ConfigAtom *after* passing it to RegisterAtom does not cause race conditions when Generate() concurrently reads from it.
 func TestConfigFactory_RegisterAtomMutationSafety(t *testing.T) {
 	provider := NewDefaultConfigAtomProvider()
