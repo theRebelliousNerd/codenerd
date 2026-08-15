@@ -319,8 +319,13 @@ func (b *TieredContextBuilder) locateFile(ctx context.Context, partial string) s
 			return nil
 		}
 
-		// Check if the path ends with our partial
-		if strings.HasSuffix(path, partial) {
+		// filepath.Walk yields OS-separated paths while callers write partials with
+		// forward slashes, so compare both in slash form. The leading separator
+		// keeps the match on a path boundary: a bare suffix test also accepts
+		// ".../unnested/alpha.go" for "nested/alpha.go".
+		slashPath := filepath.ToSlash(path)
+		slashPartial := filepath.ToSlash(partial)
+		if slashPath == slashPartial || strings.HasSuffix(slashPath, "/"+slashPartial) {
 			found = path
 		}
 		return nil
