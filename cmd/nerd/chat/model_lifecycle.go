@@ -79,6 +79,15 @@ func (m *Model) Shutdown() {
 		// would panic those sends. waitForStatus and ReportStatus both observe
 		// shutdownCtx (cancelled above) to exit cleanly without a close.
 
+		// Flush usage before the heavier teardown below. Track only arms a
+		// debounce timer, so without this the last turns of the session never
+		// reach .nerd/usage.json.
+		if m.usageTracker != nil {
+			if err := m.usageTracker.Close(); err != nil {
+				fmt.Printf("[Shutdown] Warning: usage flush failed: %v\n", err)
+			}
+		}
+
 		// Close local database connection
 		if m.localDB != nil {
 			m.localDB.Close()

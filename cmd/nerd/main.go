@@ -309,6 +309,7 @@ func init() {
 		mcpCmd,
 		autopoiesisCmd,
 		memoryCmd,
+		usageCmd,
 	)
 
 	// Session management commands
