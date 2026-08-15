@@ -33,6 +33,7 @@ package features
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 )
 
@@ -58,12 +59,17 @@ type FeaturesConfig struct {
 
 	// SystemShards controls whether the chat session boots its
 	// background system shards (autopoiesis, observer, etc).
-	// Env var (inverted): NERD_DISABLE_SYSTEM_SHARDS.
+	// Env var: CODENERD_SYSTEM_SHARDS (0 disables all of them).
+	// Distinct from the legacy NERD_DISABLE_SYSTEM_SHARDS, which is parsed
+	// at the call site as a comma-separated list of individual shard names.
 	SystemShards *bool `json:"system_shards,omitempty"`
 
 	// PerShardFacts gates the per-shard fact-store partition (Track D
 	// in the marathon plan). Off by default until the cross-shard join
 	// coordinator is fully wired.  Env var: CODENERD_PER_SHARD_FACTS.
+	// The accessor applies ordinary env → active → default precedence; it
+	// does not hard short-circuit, so an operator who sets the flag gets
+	// the (incomplete) router rather than a silently ignored setting.
 	PerShardFacts *bool `json:"per_shard_facts,omitempty"`
 
 	// DarkMode forces the TUI to load the dark palette regardless of
@@ -75,7 +81,10 @@ type FeaturesConfig struct {
 	SkipOnboarding *bool `json:"skip_onboarding,omitempty"`
 
 	// TaxonomyFast switches cmd/tools/verify_taxonomy to its fast
-	// codepath. Env var: CODENERD_TAXONOMY_FAST.
+	// codepath, which skips the scenario sweep. Off by default: the fast
+	// path is a test accelerator, and a verification tool whose default is
+	// "skip verification" verifies nothing.
+	// Env var: CODENERD_TAXONOMY_FAST.
 	TaxonomyFast *bool `json:"taxonomy_fast,omitempty"`
 
 	// FastScanWorkers overrides the worker count used by
@@ -116,7 +125,7 @@ func DefaultFeaturesConfig() FeaturesConfig {
 		PerShardFacts:  &f,
 		DarkMode:       &f,
 		SkipOnboarding: &f,
-		TaxonomyFast:   &t,
+		TaxonomyFast:   &f, // fast path skips the scenario sweep; opt in explicitly
 	}
 }
 
@@ -127,9 +136,13 @@ func DefaultFeaturesConfig() FeaturesConfig {
 //
 // PerShardFacts is intentionally still false even here: the cross-shard
 // join coordinator is not yet implemented, and enabling the flag without
-// the coordinator would soft-brick the kernel. The accessor `IsPerShardFactsEnabled`
-// also short-circuits to false for the same reason; this is the one
-// flag that ships off until track D lands.
+// the coordinator would soft-brick the kernel. This is the one flag that
+// ships off until track D lands.
+//
+// `IsPerShardFactsEnabled` does NOT hard short-circuit — it is an ordinary
+// resolveBool accessor, so an explicit env or config opt-in is honoured.
+// Earlier revisions of this comment claimed a short-circuit that the code
+// never had.
 func FullyEnabledFeaturesConfig() FeaturesConfig {
 	t := true
 	f := false
@@ -171,26 +184,96 @@ func SetActive(cfg *FeaturesConfig) {
 	active.Store(&c)
 }
 
-// Summary returns a short single-line description of the currently
-// active FeaturesConfig (or "defaults" if none is installed). Suitable
-// for boot-time logging by the caller of SetActive.
-//
-// Boolean pointer fields are rendered as "true"/"false"/"unset" rather
-// than raw pointer addresses: FeaturesConfig uses *bool so that a
-// missing JSON key (nil) can be distinguished from an explicit false.
-func Summary() string {
-	c := active.Load()
-	if c == nil {
-		return "features: defaults active"
+// Source describes where a resolved flag value came from.
+type Source string
+
+const (
+	// SourceEnv means an environment variable override decided the value.
+	SourceEnv Source = "env"
+	// SourceConfig means the active FeaturesConfig decided the value.
+	SourceConfig Source = "config"
+	// SourceDefault means neither env nor config specified it.
+	SourceDefault Source = "default"
+)
+
+// Flag is one resolved toggle: the value a caller of the accessor actually
+// gets, plus where it came from.
+type Flag struct {
+	Name    string // JSON/config key, e.g. "diff_eval"
+	EnvVar  string // environment variable that can override it
+	Value   bool
+	Source  Source
+	Default bool
+}
+
+// boolFlags is the single source of truth tying each flag's name, env var,
+// accessor and default together, so Summary, Resolved and the CLI cannot
+// drift from the accessors.
+var boolFlags = []struct {
+	name   string
+	envVar string
+	get    func(*FeaturesConfig) *bool
+	def    bool
+}{
+	{"diff_eval", "CODENERD_DIFF_EVAL", func(f *FeaturesConfig) *bool { return f.DiffEval }, false},
+	{"flight_recorder", "NERD_FLIGHTREC", func(f *FeaturesConfig) *bool { return f.FlightRecorder }, false},
+	{"provenance", "CODENERD_PROVENANCE", func(f *FeaturesConfig) *bool { return f.Provenance }, false},
+	{"system_shards", "CODENERD_SYSTEM_SHARDS", func(f *FeaturesConfig) *bool { return f.SystemShards }, true},
+	{"per_shard_facts", "CODENERD_PER_SHARD_FACTS", func(f *FeaturesConfig) *bool { return f.PerShardFacts }, false},
+	{"dark_mode", "CODENERD_DARK_MODE", func(f *FeaturesConfig) *bool { return f.DarkMode }, false},
+	{"skip_onboarding", "NERD_SKIP_ONBOARDING", func(f *FeaturesConfig) *bool { return f.SkipOnboarding }, false},
+	{"taxonomy_fast", "CODENERD_TAXONOMY_FAST", func(f *FeaturesConfig) *bool { return f.TaxonomyFast }, false},
+}
+
+// Resolved returns every boolean toggle as the accessors actually resolve it,
+// with the winning source. This is what an operator needs: the raw config
+// says "unset" for a key that an env var is currently forcing on.
+func Resolved() []Flag {
+	a := active.Load()
+	out := make([]Flag, 0, len(boolFlags))
+	for _, f := range boolFlags {
+		flag := Flag{Name: f.name, EnvVar: f.envVar, Default: f.def}
+		flag.Value = resolveBool(f.envVar, f.get, f.def)
+
+		switch {
+		case envBool(f.envVar) != nil:
+			flag.Source = SourceEnv
+		case a != nil && f.get(a) != nil:
+			flag.Source = SourceConfig
+		default:
+			flag.Source = SourceDefault
+		}
+		out = append(out, flag)
 	}
-	return fmt.Sprintf(
-		"features: diff_eval=%s flight_recorder=%s provenance=%s "+
-			"system_shards=%s per_shard_facts=%s dark_mode=%s skip_onboarding=%s "+
-			"taxonomy_fast=%s fast_scan_workers=%d fast_ast_max_bytes=%d",
-		boolPtrString(c.DiffEval), boolPtrString(c.FlightRecorder), boolPtrString(c.Provenance),
-		boolPtrString(c.SystemShards), boolPtrString(c.PerShardFacts), boolPtrString(c.DarkMode), boolPtrString(c.SkipOnboarding),
-		boolPtrString(c.TaxonomyFast), c.FastScanWorkers, c.FastASTMaxBytes,
+	return out
+}
+
+// Summary returns a short single-line description of the flags in effect,
+// suitable for boot-time logging by the caller of SetActive.
+//
+// It reports RESOLVED values, not raw config fields. The previous version
+// printed the active FeaturesConfig's *bool fields, so a key absent from
+// config.json logged as "unset" even when an environment variable was
+// forcing it on — precisely the case an operator reads this line to
+// diagnose. It also returned "defaults active" whenever no config had been
+// installed, hiding env overrides entirely.
+func Summary() string {
+	parts := make([]string, 0, len(boolFlags)+2)
+	for _, f := range Resolved() {
+		// Mark non-default sources so a scan of the line shows what was
+		// deliberately changed.
+		switch f.Source {
+		case SourceDefault:
+			parts = append(parts, fmt.Sprintf("%s=%t", f.Name, f.Value))
+		default:
+			parts = append(parts, fmt.Sprintf("%s=%t(%s)", f.Name, f.Value, f.Source))
+		}
+	}
+	parts = append(parts,
+		fmt.Sprintf("fast_scan_workers=%d", FastScanWorkers()),
+		fmt.Sprintf("fast_ast_max_bytes=%d", FastASTMaxBytes()),
 	)
+	return "features: " + strings.Join(parts, " ")
 }
 
 // boolPtrString renders a *bool for human-readable logs.
@@ -216,14 +299,8 @@ func Active() *FeaturesConfig { return active.Load() }
 // Any other non-empty value is treated as "no override" (we don't want
 // a stray export to silently flip a bit).
 func resolveBool(envVar string, fromActive func(*FeaturesConfig) *bool, def bool) bool {
-	if v := os.Getenv(envVar); v != "" {
-		switch v {
-		case "1", "true", "TRUE", "True":
-			return true
-		case "0", "false", "FALSE", "False":
-			return false
-		}
-		// fall through to active/default
+	if v := envBool(envVar); v != nil {
+		return *v
 	}
 	if a := active.Load(); a != nil {
 		if p := fromActive(a); p != nil {
@@ -231,6 +308,30 @@ func resolveBool(envVar string, fromActive func(*FeaturesConfig) *bool, def bool
 		}
 	}
 	return def
+}
+
+// envBool parses a boolean environment override, returning nil when the
+// variable is absent, empty, or holds an unrecognized value — a stray export
+// must not silently flip a bit.
+//
+// Matching is genuinely case-insensitive. The old switch listed only "true",
+// "TRUE" and "True", so a perfectly ordinary `CODENERD_DIFF_EVAL=True` worked
+// while `=tRue` silently fell through to the default, contradicting the
+// package doc.
+func envBool(envVar string) *bool {
+	v := strings.TrimSpace(os.Getenv(envVar))
+	if v == "" {
+		return nil
+	}
+	t, f := true, false
+	switch {
+	case v == "1", strings.EqualFold(v, "true"):
+		return &t
+	case v == "0", strings.EqualFold(v, "false"):
+		return &f
+	}
+	// Anything else ("yes", "maybe", a typo) is deliberately not an override.
+	return nil
 }
 
 // IsDiffEvalEnabled gates kernel_eval.go's DifferentialEngine path.
@@ -307,10 +408,17 @@ func IsOnboardingSkipped() bool {
 		func(f *FeaturesConfig) *bool { return f.SkipOnboarding }, false)
 }
 
-// IsTaxonomyFastEnabled selects the fast codepath in verify_taxonomy.
+// IsTaxonomyFastEnabled selects the fast codepath in verify_taxonomy, which
+// skips the scenario sweep entirely.
+//
+// Default OFF. It used to default ON, which nothing noticed because nothing
+// read the flag: verify_taxonomy checked os.Getenv("CODENERD_TAXONOMY_FAST")
+// directly and only honoured the literal "1". Wiring the tool to this accessor
+// with the old default would have made the verification tool skip verification
+// on every ordinary run.
 func IsTaxonomyFastEnabled() bool {
 	return resolveBool("CODENERD_TAXONOMY_FAST",
-		func(f *FeaturesConfig) *bool { return f.TaxonomyFast }, true)
+		func(f *FeaturesConfig) *bool { return f.TaxonomyFast }, false)
 }
 
 // FastScanWorkers returns the configured worker count, or zero when

@@ -7,13 +7,13 @@ func TestDefaultFeaturesConfig(t *testing.T) {
 	// Cheap/safe paths default on; experimental/expensive ones default off.
 	// FlightRecorder is OFF by default: it drives the execution tracer and
 	// can OOM the process under heavy load, so it is opt-in only.
-	on := map[string]*bool{"SystemShards": c.SystemShards, "TaxonomyFast": c.TaxonomyFast}
+	on := map[string]*bool{"SystemShards": c.SystemShards}
 	for name, p := range on {
 		if p == nil || !*p {
 			t.Errorf("%s should default to true", name)
 		}
 	}
-	off := map[string]*bool{"FlightRecorder": c.FlightRecorder, "DiffEval": c.DiffEval, "Provenance": c.Provenance, "PerShardFacts": c.PerShardFacts, "DarkMode": c.DarkMode, "SkipOnboarding": c.SkipOnboarding}
+	off := map[string]*bool{"FlightRecorder": c.FlightRecorder, "DiffEval": c.DiffEval, "Provenance": c.Provenance, "PerShardFacts": c.PerShardFacts, "DarkMode": c.DarkMode, "SkipOnboarding": c.SkipOnboarding, "TaxonomyFast": c.TaxonomyFast}
 	for name, p := range off {
 		if p == nil || *p {
 			t.Errorf("%s should default to false", name)

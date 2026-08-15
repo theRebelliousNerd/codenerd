@@ -311,6 +311,7 @@ func init() {
 		memoryCmd,
 		usageCmd,
 		regressionCmd,
+		featuresCmd,
 	)
 
 	// Session management commands
