@@ -1,6 +1,10 @@
 package types
 
-import "codenerd/internal/logging"
+import (
+	"fmt"
+
+	"codenerd/internal/logging"
+)
 
 // KernelTransaction defines the interface for atomic kernel fact operations.
 // Buffer retract/assert operations, then call Commit() to apply them atomically
@@ -34,14 +38,37 @@ type KernelTx struct {
 	tx KernelTransaction
 }
 
+// TransactorOf reports whether k can run atomic transactions, returning the
+// transactor when it can.
+//
+// It exists because the only other way to ask was NewKernelTx, which panics.
+// The kernels that fail this check are not exotic: the three hand-written
+// types.Kernel adapters in this repo (cmd/nerd/chat.sessionKernelAdapter,
+// cmd/nerd.campaignKernelAdapter, system.sessionKernelAdapter) each wrap a
+// *core.RealKernel — which does implement KernelTransactor — and forward
+// thirteen methods without forwarding Transaction(), so the capability is lost
+// at the adapter boundary. Code holding a Kernel of unknown provenance should
+// branch on this rather than gamble on the panic.
+func TransactorOf(k Kernel) (KernelTransactor, bool) {
+	t, ok := k.(KernelTransactor)
+	return t, ok
+}
+
 // NewKernelTx creates a new transaction wrapper. The kernel MUST support
 // KernelTransactor, allowing operations to be buffered for an atomic commit.
 // The non-atomic fallback has been removed to ensure strict transactional integrity.
 func NewKernelTx(k Kernel) *KernelTx {
-	transactor, ok := k.(KernelTransactor)
+	transactor, ok := TransactorOf(k)
 	if !ok {
-		logging.Get(logging.CategoryKernel).Warn("Kernel does not implement KernelTransactor; non-atomic fallback has been removed")
-		panic("Kernel requires KernelTransactor for atomic transactions")
+		// Name the concrete type: the failure is almost always a forwarding
+		// adapter that dropped Transaction(), and the old message ("Kernel
+		// does not implement KernelTransactor") sent readers looking at the
+		// real kernel instead of the wrapper in front of it.
+		msg := fmt.Sprintf(
+			"kernel %T does not implement KernelTransactor; if it wraps another Kernel, forward the capability: "+
+				"func (a *%T) Transaction() types.KernelTransaction { return a.kernel.Transaction() }", k, k)
+		logging.Get(logging.CategoryKernel).Warn("%s", msg)
+		panic(msg)
 	}
 	return &KernelTx{tx: transactor.Transaction()}
 }

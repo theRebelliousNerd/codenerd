@@ -3,7 +3,7 @@ package world
 import "codenerd/internal/types"
 
 // ApplyIncrementalResult updates the kernel with an incremental scan result.
-// For Full results, it replaces all world predicates.
+// For Full results, it replaces the scanner-owned world predicates.
 // For delta results, it retracts old facts (when available) and asserts new ones.
 func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 	if res == nil {
@@ -11,7 +11,13 @@ func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 	}
 
 	if res.Full {
-		_ = kernel.RemoveFactsByPredicateSet(WorldPredicateSet())
+		// Scanner-owned predicates only. This used to clear the whole
+		// WorldPredicates list, which included deep (code_defines/code_calls,
+		// data flow) and LSP-projected predicates that a fast scan never
+		// re-emits: a single rescan wiped the deep call graph and every LSP
+		// diagnostic, and nothing restored them until a deep scan happened to
+		// run. See the ownership matrix in world_predicates.go.
+		_ = kernel.RemoveFactsByPredicateSet(ScannerReplaceSet())
 		if len(res.NewFacts) == 0 {
 			return nil
 		}
@@ -25,8 +31,13 @@ func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 		_ = kernel.RetractExactFactsBatch(typeFacts)
 	}
 
-	// Refresh directory facts every scan.
-	_ = kernel.Retract("directory")
+	// Whole-snapshot derivations are recomputed in full by every delta scan, so
+	// the previous generation is dropped rather than accumulated. project_language
+	// in particular is single-valued: leaving the old atom in place next to the
+	// new one makes every rule that reads it depend on iteration order.
+	for _, pred := range SnapshotGlobalPredicates {
+		_ = kernel.Retract(pred)
+	}
 
 	if len(res.NewFacts) == 0 {
 		return nil

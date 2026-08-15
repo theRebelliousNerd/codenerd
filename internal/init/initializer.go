@@ -97,6 +97,17 @@ type InitConfig struct {
 	PreferenceHints []string                 // User-provided hints about preferences
 	ProgressChan    chan InitProgress        // Channel for progress updates
 	Context7APIKey  string                   // Context7 API key for LLM-optimized docs
+
+	// TypeUAgents are user-defined agents from `nerd init --define-agent`.
+	// They are merged into the recommended set in phase 6, so they receive the
+	// same knowledge base, prompts.yaml and registry entry as detected agents.
+	TypeUAgents []TypeUAgentDefinition
+
+	// InteractiveIO overrides the reader/writer used for agent curation. When
+	// nil and Interactive is set, init prompts on the process terminal (and
+	// only when there is one). Tests and non-stdin front ends inject this to
+	// drive selection deterministically.
+	InteractiveIO *InteractiveConfig
 }
 
 // DefaultInitConfig returns sensible defaults.
@@ -243,6 +254,12 @@ type Initializer struct {
 	// Concurrency
 	mu         sync.RWMutex
 	llmMetrics InitLLMMetrics
+
+	// projectAtoms carries phase 5b's generated atoms to phase 5c, which
+	// ingests them into .nerd/prompts/corpus.db where the JIT compiler can see
+	// them. Guarded by mu because the summary path reads it off the main
+	// goroutine while KB phases run.
+	projectAtoms []*store.PromptAtom
 
 	// E2: ETA tracking
 	etaTracker *ETATracker
@@ -814,12 +831,19 @@ func (i *Initializer) runPhase6AnalyzeAgents(runner *phaseRunner, result *InitRe
 	fmt.Println("\n🤖 Phase 6: Determining Required Type 3 Agents")
 
 	recommendedAgents := i.determineRequiredAgents(profile)
-	result.RecommendedAgents = recommendedAgents
 	fmt.Printf("   Recommended %d Type 3 agents for this project\n", len(recommendedAgents))
 
 	for _, agent := range recommendedAgents {
 		fmt.Printf("   • %s: %s\n", agent.Name, agent.Reason)
 	}
+
+	// --define-agent definitions and interactive curation both change which
+	// agents get knowledge bases, so they have to land before phase 7a and
+	// before the result records what was recommended.
+	recommendedAgents = i.mergeTypeUAgents(recommendedAgents)
+	recommendedAgents = i.curateAgents(recommendedAgents, profile, result)
+	result.RecommendedAgents = recommendedAgents
+
 	runner.complete("agents")
 	return recommendedAgents
 }
@@ -945,9 +969,11 @@ func (i *Initializer) runPhase8Preferences(runner *phaseRunner, result *InitResu
 	result.Preferences = preferences
 
 	prefsPath := filepath.Join(nerdDir, "preferences.json")
-	if err := i.savePreferences(prefsPath, preferences); err != nil {
+	effective, err := i.savePreferences(prefsPath, preferences)
+	if err != nil {
 		result.Failures = append(result.Failures, fmt.Sprintf("Failed to save preferences: %v", err))
 	} else {
+		result.Preferences = effective
 		result.FilesCreated = append(result.FilesCreated, prefsPath)
 		fmt.Println("✓ Initialized preferences")
 	}

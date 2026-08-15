@@ -146,33 +146,19 @@ func (i *Initializer) detectDependencies() []DependencyInfo {
 		}
 	}
 
-	// Check root directory first
+	// Check root directory first so a root module's versions win the dedupe.
 	scanGoMod(filepath.Join(workspace, "go.mod"))
 	scanPackageJSON(filepath.Join(workspace, "package.json"))
 
-	// FIX(BUG-006): Check subdirectories for monorepo support
-	// Check 1 level deep
-	if goMods, err := filepath.Glob(filepath.Join(workspace, "*", "go.mod")); err == nil {
-		for _, goMod := range goMods {
-			scanGoMod(goMod)
-		}
+	// Monorepo modules. This used to be two hardcoded glob pairs limited to one
+	// and two levels below the root; findManifestFiles walks to
+	// maxManifestDepth while skipping vendor/node_modules and friends, so
+	// services/api/go.mod and packages/@scope/ui/package.json are finally seen.
+	for _, goMod := range findManifestFiles(workspace, []string{"go.mod"}, maxManifestDepth) {
+		scanGoMod(goMod)
 	}
-	if pkgJSONs, err := filepath.Glob(filepath.Join(workspace, "*", "package.json")); err == nil {
-		for _, pkg := range pkgJSONs {
-			scanPackageJSON(pkg)
-		}
-	}
-
-	// Check 2 levels deep
-	if goMods, err := filepath.Glob(filepath.Join(workspace, "*", "*", "go.mod")); err == nil {
-		for _, goMod := range goMods {
-			scanGoMod(goMod)
-		}
-	}
-	if pkgJSONs, err := filepath.Glob(filepath.Join(workspace, "*", "*", "package.json")); err == nil {
-		for _, pkg := range pkgJSONs {
-			scanPackageJSON(pkg)
-		}
+	for _, pkg := range findManifestFiles(workspace, []string{"package.json"}, maxManifestDepth) {
+		scanPackageJSON(pkg)
 	}
 
 	// Parse transitive dependencies from lock files

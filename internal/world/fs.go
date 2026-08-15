@@ -26,33 +26,6 @@ func NewScanner() *Scanner {
 	return NewScannerWithConfig(DefaultScannerConfig())
 }
 
-// canonicalScanPath returns a workspace-relative, forward-slash path suitable
-// for use as a stable identity in scanner-emitted facts. Storing absolute
-// paths makes the knowledge store machine- and workspace-location dependent,
-// which breaks portability, session restore across machines, and repo moves.
-//
-// If path is not located under root (or relativization fails), the original
-// path is returned with separators normalized to forward slashes, which is
-// still strictly more portable than a backslash-laden absolute path on
-// Windows.
-// The separator rewrite is deliberately NOT filepath.ToSlash: that converts
-// os.PathSeparator, so it is a no-op off Windows and a Windows-shaped path
-// arriving on a Linux host kept its backslashes. Fact identity then differed
-// between the full and incremental scanners for the same file, so incremental
-// updates asserted a second, non-matching identity instead of replacing the
-// first.
-func canonicalScanPath(root, path string) string {
-	if rel, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(rel, "..") {
-		return toSlashAlways(rel)
-	}
-	return toSlashAlways(path)
-}
-
-// toSlashAlways normalizes path separators on every platform.
-func toSlashAlways(p string) string {
-	return strings.ReplaceAll(p, `\`, "/")
-}
-
 // NewScannerWithConfig creates a new filesystem Scanner with custom config.
 func NewScannerWithConfig(cfg ScannerConfig) *Scanner {
 	logging.WorldDebug("Creating new filesystem Scanner")
@@ -119,6 +92,10 @@ type ScanResult struct {
 	Facts          []core.Fact
 	Languages      map[string]int // language -> count
 	TestFileCount  int
+
+	// ProjectLanguage is the majority language of the scanned snapshot, also
+	// emitted as a project_language fact in Facts.
+	ProjectLanguage string
 }
 
 // ToFacts returns all facts from the scan result.
@@ -362,10 +339,7 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			// source file), which overflowed the kernel fact limit on large
 			// repos. Uses the same canonical (workspace-relative) path as the
 			// join key so the values match file_topology exactly.
-			dir := filepath.ToSlash(filepath.Dir(canonical))
-			if dir == "" {
-				dir = "."
-			}
+			dir := canonicalDir(canonical)
 			additionalFacts = append(additionalFacts, core.Fact{
 				Predicate: "file_dir",
 				Args:      []any{canonical, dir},
@@ -468,6 +442,26 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 
 	// Wait for aggregator to finish processing
 	<-aggregatorDone
+
+	// Import edges are resolved after the walk because resolution needs the
+	// whole file set: an import path only becomes a file->file edge once we
+	// know which scanned files implement it. Emitted here (rather than only on
+	// the incremental path) so `nerd scan` and chat rescan agree.
+	result.Facts = append(result.Facts, ResolveDependencyLinks(root, result.Facts)...)
+
+	// project_language and entry_point are derived from the whole snapshot, so
+	// they can only be computed once the walk has finished. They used to be
+	// added by the incremental scanner's first-run branch only, which meant
+	// `nerd scan` produced a world with no entry_point and no project_language
+	// at all — every rule keyed on them derived nothing.
+	if lang := detectProjectLanguage(result.Facts); lang != "" {
+		result.ProjectLanguage = lang
+		result.Facts = append(result.Facts, core.Fact{
+			Predicate: "project_language",
+			Args:      []any{core.MangleAtom("/" + lang)},
+		})
+	}
+	result.Facts = append(result.Facts, detectEntryPoints(result.Facts)...)
 
 	elapsed := timer.Stop()
 	logging.World("Directory scan completed: %d files, %d dirs, %d skipped dirs, cache hits=%d misses=%d, %d facts generated in %v",

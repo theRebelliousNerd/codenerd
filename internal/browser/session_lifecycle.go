@@ -439,6 +439,7 @@ func (m *SessionManager) CloseSession(_ context.Context, sessionID string) error
 		record.streamCancel()
 	}
 	closeSessionResources(record)
+	m.forgetSessionBudget(sessionID)
 	_ = m.persistSessions()
 	return nil
 }

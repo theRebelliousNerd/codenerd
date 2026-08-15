@@ -4,7 +4,10 @@ package browser
 
 import (
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
@@ -32,14 +35,35 @@ type Link struct {
 	HoneypotReasons []string `json:"honeypot_reasons,omitempty"`
 }
 
+// HoneypotStore is the fact substrate the detector needs: it asserts element
+// evidence and reads back what the kernel derived from it. Taking an interface
+// rather than *mangle.Engine lets the SessionManager route detection through
+// whatever sink it was built with.
+type HoneypotStore interface {
+	PushFact(predicate string, args ...any) error
+	QueryFacts(predicate string, args ...string) []mangle.Fact
+}
+
 // HoneypotDetector coordinates honeypot detection using Mangle rules.
 type HoneypotDetector struct {
-	engine *mangle.Engine
+	engine HoneypotStore
 }
 
 // NewHoneypotDetector creates a new honeypot detector.
-func NewHoneypotDetector(engine *mangle.Engine) *HoneypotDetector {
+func NewHoneypotDetector(engine HoneypotStore) *HoneypotDetector {
 	return &HoneypotDetector{engine: engine}
+}
+
+// honeypotScopeCounter namespaces the element IDs a single analysis asserts.
+//
+// Every previous entry point reused fixed IDs ("elem_0..N", "check_elem"). The
+// fact store is monotonic, so those IDs accumulated evidence across pages and
+// sessions: once any checked element was hidden, every later element assigned
+// the same ID inherited its honeypot verdict. Scoping each call fixes that.
+var honeypotScopeCounter atomic.Uint64
+
+func newHoneypotScope() string {
+	return fmt.Sprintf("hp%d", honeypotScopeCounter.Add(1))
 }
 
 // AnalyzePage scans a page for honeypot elements.
@@ -49,49 +73,57 @@ func (d *HoneypotDetector) AnalyzePage(page *rod.Page) ([]DetectionResult, error
 
 	logging.Browser("Analyzing page for honeypot elements")
 	// First, emit facts about page elements
-	if err := d.emitPageFacts(page); err != nil {
+	elemIDs, err := d.emitPageFacts(page)
+	if err != nil {
 		logging.BrowserError("Failed to emit page facts for honeypot detection: %v", err)
 		return nil, fmt.Errorf("failed to emit page facts: %w", err)
 	}
 
-	// Query for honeypot elements using Mangle rules
-	logging.BrowserDebug("Evaluating is_honeypot rule")
-	honeypots := d.engine.EvaluateRule("is_honeypot")
-
+	// Query the kernel's verdict for exactly the elements this call asserted.
+	// Scanning every is_honeypot fact would also return elements from earlier
+	// analyses that are still in the monotonic store.
+	logging.BrowserDebug("Evaluating is_honeypot for %d elements", len(elemIDs))
 	var results []DetectionResult
-	count := 0
-	for hp := range honeypots {
-		count++
-		if len(hp.Args) > 0 {
-			elemID := types.ExtractString(hp.Args[0])
-			result := DetectionResult{
-				ElementID:  elemID,
-				Reasons:    d.getHoneypotReasons(elemID),
-				Confidence: d.calculateConfidence(elemID),
-			}
-			logging.BrowserDebug("Honeypot detected: %s (confidence=%.2f, reasons=%v)", elemID, result.Confidence, result.Reasons)
-			results = append(results, result)
+	for _, elemID := range elemIDs {
+		if !d.isHoneypot(elemID) {
+			continue
 		}
+		result := DetectionResult{
+			ElementID:  elemID,
+			Reasons:    d.getHoneypotReasons(elemID),
+			Confidence: d.calculateConfidence(elemID),
+		}
+		logging.BrowserDebug("Honeypot detected: %s (confidence=%.2f, reasons=%v)", elemID, result.Confidence, result.Reasons)
+		results = append(results, result)
 	}
-	logging.BrowserDebug("Found %d potential honeypot elements", count)
 
 	logging.Browser("Honeypot analysis complete: %d elements detected", len(results))
 	return results, nil
 }
 
-// emitPageFacts extracts element information and pushes as Mangle facts.
-func (d *HoneypotDetector) emitPageFacts(page *rod.Page) error {
+// emitPageFacts extracts element information and pushes it as Mangle facts,
+// returning the scoped IDs it assigned in DOM order.
+func (d *HoneypotDetector) emitPageFacts(page *rod.Page) ([]string, error) {
+	return d.emitFactsFor(page, "a, button, input, [onclick], [role='button'], [role='link']")
+}
+
+// emitFactsFor asserts evidence for every element matching selector.
+func (d *HoneypotDetector) emitFactsFor(page *rod.Page, selector string) ([]string, error) {
+	if d.engine == nil {
+		return nil, fmt.Errorf("honeypot detector has no fact store")
+	}
 	logging.BrowserDebug("Extracting page facts for honeypot detection")
-	// Get all clickable/interactive elements
-	elements, err := page.Elements("a, button, input, [onclick], [role='button'], [role='link']")
+	elements, err := page.Elements(selector)
 	if err != nil {
 		logging.BrowserError("Failed to get page elements: %v", err)
-		return err
+		return nil, err
 	}
 	logging.BrowserDebug("Found %d interactive elements to analyze", len(elements))
 
+	scope := newHoneypotScope()
+	ids := make([]string, 0, len(elements))
 	for i, el := range elements {
-		elemID := fmt.Sprintf("elem_%d", i)
+		elemID := fmt.Sprintf("%s_%d", scope, i)
 
 		// Get tag name
 		tagName, err := el.Eval(`() => this.tagName.toLowerCase()`)
@@ -99,47 +131,65 @@ func (d *HoneypotDetector) emitPageFacts(page *rod.Page) error {
 			logging.BrowserDebug("Failed to get tag name for element %d: %v", i, err)
 			continue
 		}
-		d.engine.PushFact("element", elemID, tagName.Value.String(), "")
+		ids = append(ids, elemID)
+		d.pushFact("element", elemID, tagName.Value.String(), "")
+		d.emitElementEvidence(el, elemID)
+	}
 
-		// Get computed styles
-		styles, err := d.getComputedStyles(el)
-		if err == nil {
-			for prop, value := range styles {
-				d.engine.PushFact("css_property", elemID, prop, value)
-			}
+	return ids, nil
+}
+
+// emitElementEvidence asserts the styles, geometry, attributes, and link shape
+// of one element under elemID.
+func (d *HoneypotDetector) emitElementEvidence(el *rod.Element, elemID string) {
+	styles, err := d.getComputedStyles(el)
+	if err == nil {
+		for prop, value := range styles {
+			d.pushFact("css_property", elemID, prop, value)
 		}
-
-		// Get position
-		box, err := el.Shape()
-		if err == nil && box != nil && len(box.Quads) > 0 {
-			quad := box.Quads[0]
-			x := (quad[0] + quad[2] + quad[4] + quad[6]) / 4
-			y := (quad[1] + quad[3] + quad[5] + quad[7]) / 4
-			width := quad[2] - quad[0]
-			height := quad[5] - quad[1]
-			d.engine.PushFact("position", elemID,
-				fmt.Sprintf("%.0f", x),
-				fmt.Sprintf("%.0f", y),
-				fmt.Sprintf("%.0f", width),
-				fmt.Sprintf("%.0f", height))
-		}
-
-		// Get attributes
-		attrs, err := d.getAttributes(el)
-		if err == nil {
-			for name, value := range attrs {
-				d.engine.PushFact("attribute", elemID, name, value)
-			}
-		}
-
-		// Get href for links
-		href, err := el.Attribute("href")
-		if err == nil && href != nil && *href != "" {
-			d.engine.PushFact("link", elemID, *href)
+		// clip is a rectangle, not a keyword: parse it in Go and let the rule
+		// file decide what counts as collapsed.
+		if top, right, bottom, left, ok := parseClipRect(styles["clip"]); ok {
+			d.pushFact("css_clip_rect", elemID, top, right, bottom, left)
 		}
 	}
 
-	return nil
+	// position/5 is declared bound [/string, /number, /number, /number,
+	// /number]. Formatting the coordinates as strings stored ast.String terms,
+	// which never unify with the `X < -1000` and `W < 2` comparisons, so
+	// honeypot_offscreen and honeypot_zero_size could not fire on a live page.
+	if box, boxErr := el.Shape(); boxErr == nil && box != nil && len(box.Quads) > 0 {
+		quad := box.Quads[0]
+		x := (quad[0] + quad[2] + quad[4] + quad[6]) / 4
+		y := (quad[1] + quad[3] + quad[5] + quad[7]) / 4
+		width := quad[2] - quad[0]
+		height := quad[5] - quad[1]
+		d.pushFact("position", elemID, int64(x), int64(y), int64(width), int64(height))
+	}
+
+	attrs, err := d.getAttributes(el)
+	if err == nil {
+		for name, value := range attrs {
+			d.pushFact("attribute", elemID, name, value)
+		}
+	}
+
+	href, err := el.Attribute("href")
+	if err == nil && href != nil && *href != "" {
+		d.pushFact("link", elemID, *href)
+		for _, pattern := range ClassifyLinkURL(*href) {
+			d.pushFact("link_url_pattern", elemID, pattern)
+		}
+	}
+}
+
+func (d *HoneypotDetector) pushFact(predicate string, args ...any) {
+	if d.engine == nil {
+		return
+	}
+	if err := d.engine.PushFact(predicate, args...); err != nil {
+		logging.BrowserDebug("honeypot fact %s rejected: %v", predicate, err)
+	}
 }
 
 // getComputedStyles returns relevant computed styles for honeypot detection.
@@ -195,36 +245,67 @@ func (d *HoneypotDetector) getAttributes(el *rod.Element) (map[string]string, er
 	return attrs, nil
 }
 
+// honeypotReasonCode pairs a Mangle reason code with its operator-facing text.
+type honeypotReasonCode struct {
+	Code string
+	Text string
+}
+
+// honeypotReasonCodes is the presentation layer for honeypot_reason/2 in
+// internal/core/defaults/policy/browser_honeypot.mg. It is ordered so reports
+// are deterministic, and it must stay in exact sync with the rule file - see
+// TestHoneypotReasonCodes_WhenComparedToPolicy_ShouldMatchExactly. The previous
+// Go-side checklist queried predicates directly and had drifted: it named two
+// predicates (clip/overflow) that no rule derived and treated tabindex="-1"
+// alone as a honeypot even though is_honeypot never did.
+var honeypotReasonCodes = []honeypotReasonCode{
+	{"/css_hidden", "Hidden via display:none"},
+	{"/css_invisible", "Hidden via visibility:hidden"},
+	{"/opacity_hidden", "Hidden via opacity:0"},
+	{"/offscreen", "Positioned off-screen"},
+	{"/zero_size", "Zero or near-zero size"},
+	{"/aria_hidden", "Marked as aria-hidden"},
+	{"/no_keyboard", "Not keyboard accessible (negative tabindex)"},
+	{"/suspicious_url", "Suspicious URL pattern"},
+	{"/pointer_events_none", "Pointer events disabled"},
+	{"/clip_hidden", "Clipped to zero size"},
+	{"/overflow_hidden", "Content clipped via overflow"},
+}
+
 // getHoneypotReasons returns the reasons an element was flagged as a honeypot.
 func (d *HoneypotDetector) getHoneypotReasons(elemID string) []string {
-	var reasons []string
-
-	// Check each honeypot rule
-	ruleChecks := []struct {
-		predicate string
-		reason    string
-	}{
-		{"honeypot_css_hidden", "Hidden via display:none"},
-		{"honeypot_css_invisible", "Hidden via visibility:hidden"},
-		{"honeypot_opacity_hidden", "Hidden via opacity:0"},
-		{"honeypot_offscreen", "Positioned off-screen"},
-		{"honeypot_zero_size", "Zero or near-zero size"},
-		{"honeypot_aria_hidden", "Marked as aria-hidden"},
-		{"honeypot_no_keyboard", "Not keyboard accessible (negative tabindex)"},
-		{"honeypot_suspicious_url", "Suspicious URL pattern"},
-		{"honeypot_pointer_events_none", "Pointer events disabled"},
-		{"honeypot_clip_hidden", "Clipped to zero size"},
-		{"honeypot_overflow_hidden", "Content clipped via overflow"},
+	if d.engine == nil {
+		return nil
+	}
+	derived := make(map[string]bool)
+	for _, fact := range d.engine.QueryFacts("honeypot_reason", elemID) {
+		if len(fact.Args) < 2 {
+			continue
+		}
+		code := types.ExtractString(fact.Args[1])
+		if !strings.HasPrefix(code, "/") {
+			code = "/" + code
+		}
+		derived[code] = true
 	}
 
-	for _, check := range ruleChecks {
-		facts := d.engine.QueryFacts(check.predicate, elemID)
-		if len(facts) > 0 {
-			reasons = append(reasons, check.reason)
+	var reasons []string
+	for _, entry := range honeypotReasonCodes {
+		if derived[entry.Code] {
+			reasons = append(reasons, entry.Text)
 		}
 	}
-
 	return reasons
+}
+
+// isHoneypot reports the kernel's verdict for an element. It is deliberately
+// not "len(reasons) > 0": evidence codes and the verdict are different
+// questions, and is_honeypot excludes weak signals like negative tabindex.
+func (d *HoneypotDetector) isHoneypot(elemID string) bool {
+	if d.engine == nil {
+		return false
+	}
+	return len(d.engine.QueryFacts("is_honeypot", elemID)) > 0
 }
 
 // calculateConfidence calculates detection confidence based on reasons.
@@ -240,6 +321,12 @@ func (d *HoneypotDetector) calculateConfidence(elemID string) float64 {
 
 	// Add confidence per reason
 	confidence += float64(len(reasons)) * 0.15
+
+	// The rule file has its own multi-indicator verdict; honor it rather than
+	// letting arithmetic disagree with the kernel.
+	if d.engine != nil && len(d.engine.QueryFacts("high_confidence_honeypot", elemID)) > 0 && confidence < 0.9 {
+		confidence = 0.9
+	}
 
 	// Cap at 1.0
 	if confidence > 1.0 {
@@ -257,55 +344,24 @@ func (d *HoneypotDetector) IsHoneypot(page *rod.Page, selector string) (bool, []
 		logging.BrowserError("Element not found for honeypot check: %s - %v", selector, err)
 		return false, nil, fmt.Errorf("element not found: %w", err)
 	}
+	return d.checkElement(el)
+}
 
-	// Emit facts for this element
-	elemID := "check_elem"
-
-	// Get computed styles
-	styles, err := d.getComputedStyles(el)
-	if err == nil {
-		for prop, value := range styles {
-			d.engine.PushFact("css_property", elemID, prop, value)
-		}
+// checkElement asserts evidence for a resolved element under a fresh scope and
+// returns the kernel's verdict plus the derived reason list.
+func (d *HoneypotDetector) checkElement(el *rod.Element) (bool, []string, error) {
+	if d.engine == nil {
+		return false, nil, fmt.Errorf("honeypot detector has no fact store")
 	}
+	elemID := newHoneypotScope() + "_check"
+	d.emitElementEvidence(el, elemID)
 
-	// Get position
-	box, err := el.Shape()
-	if err == nil && box != nil && len(box.Quads) > 0 {
-		quad := box.Quads[0]
-		x := (quad[0] + quad[2] + quad[4] + quad[6]) / 4
-		y := (quad[1] + quad[3] + quad[5] + quad[7]) / 4
-		width := quad[2] - quad[0]
-		height := quad[5] - quad[1]
-		d.engine.PushFact("position", elemID,
-			fmt.Sprintf("%.0f", x),
-			fmt.Sprintf("%.0f", y),
-			fmt.Sprintf("%.0f", width),
-			fmt.Sprintf("%.0f", height))
-	}
-
-	// Get attributes
-	attrs, err := d.getAttributes(el)
-	if err == nil {
-		for name, value := range attrs {
-			d.engine.PushFact("attribute", elemID, name, value)
-		}
-	}
-
-	// Get href
-	href, err := el.Attribute("href")
-	if err == nil && href != nil && *href != "" {
-		d.engine.PushFact("link", elemID, *href)
-	}
-
-	// Check for honeypot
+	isHoneypot := d.isHoneypot(elemID)
 	reasons := d.getHoneypotReasons(elemID)
-	isHoneypot := len(reasons) > 0
-
 	if isHoneypot {
-		logging.BrowserDebug("Element %s IS a honeypot (reasons=%v)", selector, reasons)
+		logging.BrowserDebug("Element %s IS a honeypot (reasons=%v)", elemID, reasons)
 	} else {
-		logging.BrowserDebug("Element %s is NOT a honeypot", selector)
+		logging.BrowserDebug("Element %s is NOT a honeypot", elemID)
 	}
 	return isHoneypot, reasons, nil
 }
@@ -313,100 +369,187 @@ func (d *HoneypotDetector) IsHoneypot(page *rod.Page, selector string) (bool, []
 // GetSafeLinks returns all links that are not honeypots.
 func (d *HoneypotDetector) GetSafeLinks(page *rod.Page) ([]Link, error) {
 	logging.Browser("Getting safe links from page")
-	// First analyze the page
-	if err := d.emitPageFacts(page); err != nil {
-		logging.BrowserError("Failed to analyze page for safe links: %v", err)
-		return nil, fmt.Errorf("failed to analyze page: %w", err)
+	links, err := d.analyzeLinks(page)
+	if err != nil {
+		return nil, err
 	}
 
-	// Get all links
+	safe := make([]Link, 0, len(links))
+	honeypotCount := 0
+	for _, link := range links {
+		if link.IsHoneypot {
+			honeypotCount++
+			logging.BrowserDebug("Detected honeypot link: %s (reasons: %v)", link.Href, link.HoneypotReasons)
+			continue
+		}
+		safe = append(safe, link)
+	}
+
+	logging.Browser("Safe links analysis complete: %d safe, %d honeypots filtered", len(safe), honeypotCount)
+	return safe, nil
+}
+
+// GetAllLinksWithAnalysis returns all links with honeypot analysis.
+func (d *HoneypotDetector) GetAllLinksWithAnalysis(page *rod.Page) ([]Link, error) {
+	logging.Browser("Getting all links with honeypot analysis")
+	return d.analyzeLinks(page)
+}
+
+// analyzeLinks asserts evidence for the anchors on the page and reads back the
+// verdict for each.
+//
+// The link walk used to reuse the IDs assigned by the interactive-element walk
+// ("elem_%d"), which enumerates buttons and inputs as well. Any non-anchor
+// ahead of an anchor shifted the indices, so link N was reported using the
+// evidence of some unrelated element. Emitting under the link walk's own scope
+// keeps identity and evidence aligned.
+func (d *HoneypotDetector) analyzeLinks(page *rod.Page) ([]Link, error) {
+	if d.engine == nil {
+		return nil, fmt.Errorf("honeypot detector has no fact store")
+	}
 	elements, err := page.Elements("a[href]")
 	if err != nil {
 		logging.BrowserError("Failed to get links: %v", err)
 		return nil, fmt.Errorf("failed to get links: %w", err)
 	}
-	logging.BrowserDebug("Found %d links to analyze", len(elements))
+	logging.BrowserDebug("Analyzing %d links with honeypot detection", len(elements))
 
-	var links []Link
-	honeypotCount := 0
+	scope := newHoneypotScope()
+	links := make([]Link, 0, len(elements))
 	for i, el := range elements {
-		elemID := fmt.Sprintf("elem_%d", i)
-
-		href, err := el.Attribute("href")
-		if err != nil || href == nil || *href == "" {
+		href, hrefErr := el.Attribute("href")
+		if hrefErr != nil || href == nil || *href == "" {
 			continue
 		}
 
-		text, err := el.Text()
-		if err != nil {
+		elemID := fmt.Sprintf("%s_%d", scope, i)
+		d.emitElementEvidence(el, elemID)
+
+		text, textErr := el.Text()
+		if textErr != nil {
 			text = ""
 		}
 
-		// Check if this element is a honeypot
-		reasons := d.getHoneypotReasons(elemID)
-		isHoneypot := len(reasons) > 0
-
+		isHoneypot := d.isHoneypot(elemID)
 		link := Link{
 			Selector:   fmt.Sprintf("a[href='%s']", *href),
 			Href:       *href,
 			Text:       strings.TrimSpace(text),
 			IsHoneypot: isHoneypot,
 		}
-
 		if isHoneypot {
-			honeypotCount++
-			link.HoneypotReasons = reasons
-			logging.BrowserDebug("Detected honeypot link: %s (reasons: %v)", *href, reasons)
-		} else {
-			links = append(links, link)
+			link.HoneypotReasons = d.getHoneypotReasons(elemID)
 		}
-	}
-
-	logging.Browser("Safe links analysis complete: %d safe, %d honeypots filtered", len(links), honeypotCount)
-	return links, nil
-}
-
-// GetAllLinksWithAnalysis returns all links with honeypot analysis.
-func (d *HoneypotDetector) GetAllLinksWithAnalysis(page *rod.Page) ([]Link, error) {
-	logging.Browser("Getting all links with honeypot analysis")
-	if err := d.emitPageFacts(page); err != nil {
-		logging.BrowserError("Failed to analyze page for link analysis: %v", err)
-		return nil, fmt.Errorf("failed to analyze page: %w", err)
-	}
-
-	elements, err := page.Elements("a[href]")
-	if err != nil {
-		logging.BrowserError("Failed to get links for analysis: %v", err)
-		return nil, fmt.Errorf("failed to get links: %w", err)
-	}
-	logging.BrowserDebug("Analyzing %d links with honeypot detection", len(elements))
-
-	var links []Link
-	for i, el := range elements {
-		elemID := fmt.Sprintf("elem_%d", i)
-
-		href, err := el.Attribute("href")
-		if err != nil || href == nil || *href == "" {
-			continue
-		}
-
-		text, err := el.Text()
-		if err != nil {
-			text = ""
-		}
-
-		reasons := d.getHoneypotReasons(elemID)
-
-		link := Link{
-			Selector:        fmt.Sprintf("a[href='%s']", *href),
-			Href:            *href,
-			Text:            strings.TrimSpace(text),
-			IsHoneypot:      len(reasons) > 0,
-			HoneypotReasons: reasons,
-		}
-
 		links = append(links, link)
 	}
 
 	return links, nil
+}
+
+// honeypotBaitTokens are path/query tokens that only appear on links meant for
+// crawlers. Matching is by whole token after splitting on non-alphanumerics, so
+// "/trapani" and "/honeypot-check" are treated differently: the first has no
+// bait token, the second does.
+var honeypotBaitTokens = map[string]bool{
+	"honeypot":    true,
+	"honeypots":   true,
+	"trap":        true,
+	"traps":       true,
+	"spamtrap":    true,
+	"blackhole":   true,
+	"donotclick":  true,
+	"dontclick":   true,
+	"donotfollow": true,
+	"nofollow":    true,
+	"nocrawl":     true,
+	"badbot":      true,
+	"botcatcher":  true,
+}
+
+// ClassifyLinkURL returns the Mangle pattern names describing href's shape.
+// It measures only; browser_honeypot.mg decides which patterns are traps.
+func ClassifyLinkURL(href string) []string {
+	trimmed := strings.TrimSpace(href)
+	if trimmed == "" {
+		return nil
+	}
+
+	lower := strings.ToLower(trimmed)
+	var patterns []string
+	if lower == "#" || strings.HasPrefix(lower, "javascript:") {
+		patterns = append(patterns, "/empty_js_target")
+	}
+
+	path := lower
+	query := ""
+	if parsed, err := url.Parse(trimmed); err == nil {
+		path = strings.ToLower(parsed.Path)
+		query = strings.ToLower(parsed.RawQuery)
+		if parsed.Fragment != "" {
+			path += "/" + strings.ToLower(parsed.Fragment)
+		}
+	} else if index := strings.IndexByte(lower, '?'); index >= 0 {
+		path, query = lower[:index], lower[index+1:]
+	}
+
+	if hasBaitToken(path) {
+		patterns = append(patterns, "/bait_path")
+	}
+	if hasBaitToken(query) {
+		patterns = append(patterns, "/trap_query")
+	}
+	return patterns
+}
+
+func hasBaitToken(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, token := range strings.FieldsFunc(value, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9')
+	}) {
+		if honeypotBaitTokens[token] {
+			return true
+		}
+	}
+	return false
+}
+
+// parseClipRect parses a computed `clip` value. Chrome reports "auto" when the
+// property is unset and "rect(Xpx, Ypx, Zpx, Wpx)" otherwise; the legacy
+// space-separated form is still accepted by parsers, so handle both.
+func parseClipRect(value string) (top, right, bottom, left int64, ok bool) {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	if !strings.HasPrefix(trimmed, "rect(") || !strings.HasSuffix(trimmed, ")") {
+		return 0, 0, 0, 0, false
+	}
+	inner := trimmed[len("rect(") : len(trimmed)-1]
+	fields := strings.FieldsFunc(inner, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' })
+	if len(fields) != 4 {
+		return 0, 0, 0, 0, false
+	}
+	values := make([]int64, 4)
+	for i, field := range fields {
+		parsed, err := parseCSSLength(field)
+		if err != nil {
+			return 0, 0, 0, 0, false
+		}
+		values[i] = parsed
+	}
+	return values[0], values[1], values[2], values[3], true
+}
+
+func parseCSSLength(field string) (int64, error) {
+	trimmed := strings.TrimSpace(field)
+	trimmed = strings.TrimSuffix(trimmed, "px")
+	if trimmed == "auto" {
+		// An `auto` edge means "not clipped on this side"; report it as a large
+		// extent so the collapse rule does not fire on a partially clipped box.
+		return 1 << 20, nil
+	}
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(trimmed), 64)
+	if err != nil {
+		return 0, err
+	}
+	return int64(parsed), nil
 }

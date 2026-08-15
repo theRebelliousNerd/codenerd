@@ -21,10 +21,22 @@ type DeepResult struct {
 }
 
 // EnsureDeepFacts ensures deep world facts for the given file paths.
-// Only Go files are deep-parsed today; others are ignored.
 // Cached deep facts (depth="deep") are reused when fingerprints match.
+//
+// Paths are resolved against the process working directory. Callers that know
+// the workspace root should use EnsureDeepFactsInRoot: deep facts must carry the
+// same canonical file identity as the fast scan or code_defines/code_calls join
+// against no file_topology row at all.
 func EnsureDeepFacts(ctx context.Context, paths []string, db *store.LocalStore, workers int) (*DeepResult, error) {
+	return EnsureDeepFactsInRoot(ctx, "", paths, db, workers)
+}
+
+// EnsureDeepFactsInRoot ensures deep world facts for paths under root.
+// paths may be absolute or already canonical; both produce the same facts and
+// the same deep-cache keys.
+func EnsureDeepFactsInRoot(ctx context.Context, root string, paths []string, db *store.LocalStore, workers int) (*DeepResult, error) {
 	start := time.Now()
+	root = workspaceRootOrCwd(root)
 	if workers <= 0 {
 		workers = max(min(runtime.NumCPU(), 8), 2)
 	}
@@ -38,15 +50,16 @@ func EnsureDeepFacts(ctx context.Context, paths []string, db *store.LocalStore, 
 	parsed := 0
 
 	for _, p := range paths {
-		path := p
-		if filepath.Ext(path) != ".go" {
+		if !deepMappableExt(filepath.Ext(p)) {
 			continue
 		}
+		canonical := CanonicalPath(root, p)
+		fsPath := ResolveWorkspacePath(root, canonical)
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			info, err := os.Stat(path)
+			info, err := os.Stat(fsPath)
 			if err != nil {
 				return
 			}
@@ -56,7 +69,7 @@ func EnsureDeepFacts(ctx context.Context, paths []string, db *store.LocalStore, 
 			var cachedFacts []core.Fact
 			cachedFp := ""
 			if db != nil {
-				oldInputs, oldFp, loadErr := db.LoadWorldFactsForFile(path, "deep")
+				oldInputs, oldFp, loadErr := db.LoadWorldFactsForFile(canonical, "deep")
 				if loadErr == nil && len(oldInputs) > 0 {
 					cachedFp = oldFp
 					cachedFacts = make([]core.Fact, 0, len(oldInputs))
@@ -78,9 +91,11 @@ func EnsureDeepFacts(ctx context.Context, paths []string, db *store.LocalStore, 
 				return
 			}
 
-			// Parse deep facts.
+			// Parse deep facts. The Cartographer reads fsPath but labels every
+			// fact with the canonical identity.
 			c := NewCartographer()
-			deepFacts, parseErr := c.MapFile(path)
+			defer c.Close()
+			deepFacts, parseErr := c.MapFileAs(fsPath, canonical)
 			if parseErr != nil || len(deepFacts) == 0 {
 				return
 			}
@@ -93,7 +108,7 @@ func EnsureDeepFacts(ctx context.Context, paths []string, db *store.LocalStore, 
 				for _, f := range deepFacts {
 					inputs = append(inputs, store.WorldFactInput{Predicate: f.Predicate, Args: f.Args})
 				}
-				_ = db.ReplaceWorldFactsForFile(path, "deep", fp, inputs)
+				_ = db.ReplaceWorldFactsForFile(canonical, "deep", fp, inputs)
 			}
 
 			mu.Lock()

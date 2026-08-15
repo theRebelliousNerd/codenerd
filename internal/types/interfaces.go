@@ -185,8 +185,17 @@ type LearningStore interface {
 
 // VirtualStore defines the interface for the virtual filesystem and execution environment.
 // This is a marker interface to break import cycles; implementation is *core.VirtualStore.
+//
+// Expansion policy (OPEN-QUESTIONS Q6, settled): a method is added here only
+// when at least TWO packages outside core need it, and only in the shape they
+// need — never mirrored from *core.VirtualStore for symmetry. Every method
+// added obliges each adapter (cmd/nerd/chat.sessionVirtualStoreAdapter,
+// cmd/nerd.campaignVirtualStoreAdapter, system.sessionVirtualStoreAdapter) to
+// implement it, and an adapter that has nothing to return implements it as a
+// stub — which is how a single-consumer method becomes three silent nil paths.
+// A single consumer should type-assert the concrete store instead.
 type VirtualStore interface {
-	// Methods required by shards (expand as needed)
+	// Methods required by shards (see expansion policy above)
 	ReadFile(path string) ([]string, error)
 	WriteFile(path string, content []string) error
 	Exec(ctx context.Context, cmd string, env []string) (string, string, error)

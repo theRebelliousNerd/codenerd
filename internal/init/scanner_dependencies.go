@@ -5,8 +5,193 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
+
+// manifestSkipDirs are directories that never hold a first-party module
+// manifest. Descending into node_modules in particular turns manifest discovery
+// into a multi-minute walk over tens of thousands of third-party package.json
+// files, and every one of them would be scanned for the project's own
+// dependencies.
+var manifestSkipDirs = map[string]bool{
+	"node_modules": true, "vendor": true, ".git": true, ".nerd": true,
+	"dist": true, "build": true, "target": true, "out": true,
+	"__pycache__": true, ".next": true, ".nuxt": true, "coverage": true,
+	"testdata": true, "third_party": true, ".venv": true, "venv": true,
+	".tox": true, ".gradle": true, ".idea": true, ".vscode": true,
+}
+
+// maxManifestDepth bounds how deep below the workspace root a module manifest
+// is still considered part of this project. Real monorepo layouts put modules
+// at services/<name>/, packages/<scope>/<name>/ or apps/<team>/<name>/; past
+// four levels the hits are almost always fixtures or example projects.
+const maxManifestDepth = 4
+
+// maxManifestFiles caps discovery so a pathological tree cannot stall init.
+const maxManifestFiles = 256
+
+// findManifestFiles walks the workspace for module manifests with the given
+// base names.
+//
+// This replaces two hardcoded glob pairs (`*/go.mod` and `*/*/go.mod`, likewise
+// for package.json) that could only see modules exactly one or two directories
+// below the root. The common monorepo shapes — `services/api/go.mod`,
+// `packages/@scope/ui/package.json`, `apps/web/frontend/package.json` — sit at
+// depth three or four and were invisible, so a monorepo profiled as if it had
+// no dependencies at all: no framework, no framework agents, no
+// framework-scoped prompt atoms.
+//
+// Results are sorted so the dependency set (and therefore profile.mg and the
+// chosen framework) is identical across runs regardless of directory order.
+func findManifestFiles(workspace string, names []string, maxDepth int) []string {
+	wanted := make(map[string]bool, len(names))
+	for _, name := range names {
+		wanted[name] = true
+	}
+
+	var found []string
+	root := filepath.Clean(workspace)
+	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil // unreadable subtree: skip, never abort discovery
+		}
+		if len(found) >= maxManifestFiles {
+			return filepath.SkipAll
+		}
+		if entry.IsDir() {
+			if path == root {
+				return nil
+			}
+			name := entry.Name()
+			if manifestSkipDirs[name] || strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
+			if manifestDepth(root, path) >= maxDepth {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if wanted[entry.Name()] {
+			found = append(found, path)
+		}
+		return nil
+	})
+
+	sort.Strings(found)
+	return found
+}
+
+// manifestDepth reports how many directory levels below root path sits.
+func manifestDepth(root, path string) int {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." {
+		return 0
+	}
+	return len(strings.Split(filepath.ToSlash(rel), "/"))
+}
+
+// frameworkCandidate maps a canonical dependency name produced by
+// detectDependencies / detectTransitiveDependencies onto the framework label
+// stored in ProjectProfile.Framework.
+type frameworkCandidate struct {
+	dep       string
+	framework string
+	// rank breaks ties between co-installed dependencies. A meta-framework
+	// outranks the library it wraps (Next.js ships React, Nuxt ships Vue), and
+	// an application framework outranks a CLI/TUI or ORM library, because the
+	// framework field answers "what shape is this project?" not "what is in
+	// go.mod?".
+	rank int
+}
+
+// frameworkCandidates is ordered for determinism: equal scores resolve to the
+// earlier entry, so the same dependency set always yields the same framework.
+var frameworkCandidates = []frameworkCandidate{
+	// Meta-frameworks — they imply their underlying view library.
+	{dep: "nextjs", framework: "nextjs", rank: 100},
+	{dep: "nuxt", framework: "nuxt", rank: 100},
+	{dep: "gatsby", framework: "gatsby", rank: 95},
+	{dep: "nestjs", framework: "nestjs", rank: 95},
+
+	// Server / application frameworks.
+	{dep: "django", framework: "django", rank: 90},
+	{dep: "fastapi", framework: "fastapi", rank: 90},
+	{dep: "flask", framework: "flask", rank: 88},
+	{dep: "gin", framework: "gin", rank: 88},
+	{dep: "echo", framework: "echo", rank: 87},
+	{dep: "fiber", framework: "fiber", rank: 87},
+	{dep: "actix-web", framework: "actix-web", rank: 87},
+	{dep: "axum", framework: "axum", rank: 87},
+	{dep: "rocket", framework: "rocket", rank: 86},
+	{dep: "warp", framework: "warp", rank: 85},
+	{dep: "express", framework: "express", rank: 85},
+	{dep: "fastify", framework: "fastify", rank: 85},
+	{dep: "koa", framework: "koa", rank: 84},
+	{dep: "gorilla", framework: "gorilla", rank: 80},
+
+	// View libraries — only decisive when no meta-framework is present.
+	{dep: "react", framework: "react", rank: 70},
+	{dep: "vue", framework: "vue", rank: 70},
+	{dep: "angular", framework: "angular", rank: 70},
+	{dep: "svelte", framework: "svelte", rank: 68},
+	{dep: "solid", framework: "solid", rank: 68},
+	{dep: "htmx", framework: "htmx", rank: 60},
+
+	// Terminal UI and CLI frameworks — a TUI binary has no web framework, so
+	// these are the honest answer for that shape of project.
+	{dep: "bubbletea", framework: "bubbletea", rank: 55},
+	{dep: "cobra", framework: "cobra", rank: 40},
+}
+
+// detectFrameworkFromDependencies picks the project's primary framework.
+//
+// ProjectProfile.Framework was declared, persisted to profile.json, emitted as
+// the project_framework/1 Mangle fact, used to build the /framework JIT
+// selector, used by GenerateToolsForProject and used by categorizeAgent to mark
+// framework specialists as "recommended" — but nothing ever assigned it. Every
+// one of those consumers saw the empty string, so framework-scoped prompt atoms
+// could never be selected and framework agents were never recommended.
+//
+// Direct dependencies outscore transitive ones by a margin smaller than the gap
+// between ranks, so a directly required view library still loses to a
+// transitively detected meta-framework that wraps it.
+func detectFrameworkFromDependencies(deps []DependencyInfo) string {
+	if len(deps) == 0 {
+		return ""
+	}
+
+	directness := make(map[string]int, len(deps))
+	for _, dep := range deps {
+		name := strings.ToLower(strings.TrimSpace(dep.Name))
+		if name == "" {
+			continue
+		}
+		bonus := 0
+		if dep.Type == "direct" {
+			bonus = 2
+		} else if dep.Type == "dev" {
+			bonus = 1
+		}
+		if existing, seen := directness[name]; !seen || bonus > existing {
+			directness[name] = bonus
+		}
+	}
+
+	best := ""
+	bestScore := -1
+	for _, candidate := range frameworkCandidates {
+		bonus, present := directness[candidate.dep]
+		if !present {
+			continue
+		}
+		if score := candidate.rank + bonus; score > bestScore {
+			best = candidate.framework
+			bestScore = score
+		}
+	}
+	return best
+}
 
 // extractGoModVersion extracts the version of a dependency from go.mod content.
 func (i *Initializer) extractGoModVersion(content, pkg string) string {

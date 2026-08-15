@@ -8,7 +8,9 @@ import (
 	"codenerd/internal/store"
 	"codenerd/internal/world"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -38,6 +40,10 @@ func (i *Initializer) buildProjectProfile() ProjectProfile {
 
 	// Detect dependencies for agent recommendations
 	profile.Dependencies = i.detectDependencies()
+
+	// Framework is derived from the dependency set, which is why it has to run
+	// after detectDependencies.
+	profile.Framework = detectFrameworkFromDependencies(profile.Dependencies)
 
 	// Detect build system (B4 enhancement)
 	buildSystemInfo := i.detectBuildSystemDetails()
@@ -116,6 +122,11 @@ func (i *Initializer) generateFactsFile(path string, profile ProjectProfile) (in
 		facts = append(facts, fmt.Sprintf(`entry_point("%s").`, escapeString(entry)))
 	}
 
+	// Project tool needs. Init measures which tools this project's shape
+	// implies; the kernel decides whether and when to build them. See
+	// generateProjectTools for why init does not generate them itself.
+	facts = append(facts, projectToolNeedFacts(i.determineRequiredTools(profile))...)
+
 	// Write facts file
 	var content strings.Builder
 	content.WriteString("# codeNERD Project Profile Facts\n")
@@ -162,27 +173,130 @@ func (i *Initializer) initPreferences() UserPreferences {
 	return prefs
 }
 
-// savePreferences writes user preferences to disk.
-func (i *Initializer) savePreferences(path string, prefs UserPreferences) error {
-	data, err := json.MarshalIndent(prefs, "", "  ")
-	if err != nil {
-		return err
+// hintOverriddenPreferenceKeys returns the preferences.json keys that this run's
+// PreferenceHints set explicitly. An explicit hint is an instruction for this
+// run and therefore outranks whatever is already on disk; every other key is
+// merge-preserved.
+func (i *Initializer) hintOverriddenPreferenceKeys() map[string]bool {
+	keys := make(map[string]bool)
+	for _, hint := range i.config.PreferenceHints {
+		switch hint {
+		case "table_driven_tests":
+			keys["test_style"] = true
+		case "conventional_commits":
+			keys["commit_style"] = true
+		case "strict":
+			keys["require_tests"] = true
+			keys["require_review"] = true
+		case "beginner", "expert":
+			keys["explanation_level"] = true
+		}
 	}
-	return os.WriteFile(path, data, 0644)
+	return keys
 }
 
-// populateProjectAtoms creates project-specific prompt atoms based on detected
-// language, frameworks, and conventions.
+// savePreferences merges the init-owned preference keys into
+// .nerd/preferences.json and returns the values that ended up on disk.
 //
-// Note: These atoms are currently persisted into `.nerd/knowledge.db` (LocalStore).
-// JIT prompt compilation registers `.nerd/prompts/corpus.db` (project) and
-// `.nerd/shards/{agent}_knowledge.db` (agent-scoped) databases, so if you want
-// these atoms to participate in JIT selection, also ingest them into the corpus DB.
+// This used to be a bare MarshalIndent + WriteFile of a freshly defaulted
+// UserPreferences, which truncated the whole document. `.nerd/preferences.json`
+// is shared: internal/ux owns the v2.0 blocks (user_journey/onboarding,
+// guidance, telemetry, metrics, learned_patterns) and SaveAgentPreferences owns
+// agent_selection, which phase 6 of this very run may have just written. So
+// `nerd init --force` — whose flag help promises "preserves learned
+// preferences" — reset onboarding state, discarded the user's recorded intent
+// corrections, dropped their agent accept/reject history, and reverted every
+// autopoiesis-learned style key to its default.
+//
+// The file is now a merge target: keys already present win, missing keys are
+// seeded with the computed default, keys this run was explicitly hinted about
+// are overwritten, and unknown keys are carried through untouched. A corrupt
+// file is a hard error rather than an excuse to clobber (same rule as
+// SaveAgentPreferences).
+func (i *Initializer) savePreferences(path string, prefs UserPreferences) (UserPreferences, error) {
+	merged := make(map[string]any)
+
+	existingData, readErr := os.ReadFile(path)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return prefs, fmt.Errorf("read existing preferences: %w", readErr)
+	}
+	if len(existingData) > 0 {
+		if err := json.Unmarshal(existingData, &merged); err != nil {
+			return prefs, fmt.Errorf("existing preferences.json is corrupt (refusing to overwrite): %w", err)
+		}
+	}
+
+	defaultsJSON, err := json.Marshal(prefs)
+	if err != nil {
+		return prefs, err
+	}
+	defaults := make(map[string]any)
+	if err := json.Unmarshal(defaultsJSON, &defaults); err != nil {
+		return prefs, err
+	}
+
+	overrides := i.hintOverriddenPreferenceKeys()
+	for key, value := range defaults {
+		if _, present := merged[key]; present && !overrides[key] {
+			continue
+		}
+		merged[key] = value
+	}
+
+	data, err := json.MarshalIndent(merged, "", "  ")
+	if err != nil {
+		return prefs, err
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return prefs, err
+	}
+
+	// Report what is actually on disk, not what we would have written; the
+	// summary and InitResult must not claim defaults the merge rejected.
+	effective := prefs
+	if err := json.Unmarshal(data, &effective); err != nil {
+		return prefs, nil
+	}
+	return effective, nil
+}
+
+// populateProjectAtoms stores the project-specific prompt atoms in
+// `.nerd/knowledge.db` and keeps them for corpus ingestion.
+//
+// Storing them in knowledge.db alone made them invisible to prompt assembly:
+// the JIT compiler collects from `.nerd/prompts/corpus.db` and the per-agent
+// `.nerd/shards/{agent}_knowledge.db`, never from the LocalStore. So the
+// project's own language/framework/testing guidance was generated on every init
+// and then never selected. Phase 5c ingests the same atoms into corpus.db.
 func (i *Initializer) populateProjectAtoms(profile ProjectProfile) error {
 	if i.localDB == nil {
 		return fmt.Errorf("local database not initialized")
 	}
 
+	atomsToStore := i.buildProjectAtoms(profile)
+
+	i.mu.Lock()
+	i.projectAtoms = atomsToStore
+	i.mu.Unlock()
+
+	storedCount := 0
+	for _, atom := range atomsToStore {
+		if err := i.localDB.StorePromptAtom(atom); err != nil {
+			// Log error but continue with other atoms
+			fmt.Printf("   ⚠ Failed to store atom %s: %v\n", atom.AtomID, err)
+		} else {
+			storedCount++
+		}
+	}
+
+	fmt.Printf("   ✓ Populated %d project-specific prompt atoms\n", storedCount)
+	return nil
+}
+
+// buildProjectAtoms creates project-specific prompt atoms based on detected
+// language, frameworks, and conventions. It performs no I/O so both the
+// knowledge.db write and the corpus.db ingestion see exactly the same atoms.
+func (i *Initializer) buildProjectAtoms(profile ProjectProfile) []*store.PromptAtom {
 	var atomsToStore []*store.PromptAtom
 
 	// Helper to create an atom
@@ -521,22 +635,7 @@ This project uses %s for building.
 		atomsToStore = append(atomsToStore, archAtom)
 	}
 
-	// ========================================================================
-	// Store All Atoms
-	// ========================================================================
-
-	storedCount := 0
-	for _, atom := range atomsToStore {
-		if err := i.localDB.StorePromptAtom(atom); err != nil {
-			// Log error but continue with other atoms
-			fmt.Printf("   ⚠ Failed to store atom %s: %v\n", atom.AtomID, err)
-		} else {
-			storedCount++
-		}
-	}
-
-	fmt.Printf("   ✓ Populated %d project-specific prompt atoms\n", storedCount)
-	return nil
+	return atomsToStore
 }
 
 // estimateTokens estimates token count for content (chars/4 approximation)
@@ -547,12 +646,64 @@ func estimateTokens(content string) int {
 	return (len(content) + 3) / 4
 }
 
-// computeContentHash computes a content hash for deduplication
+// computeContentHash computes a content hash for deduplication.
+//
+// This was `fmt.Sprintf("%x", len(id+":"+content))` — a length, not a hash. Two
+// different atoms of equal length collided, and editing an atom without
+// changing its length produced an identical "hash". Now that these atoms are
+// ingested into the JIT corpus, content_hash drives cache invalidation there,
+// so a collision would serve stale prompt content.
 func computeContentHash(id, content string) string {
-	// Simple hash combining id and content
-	// In production, use crypto/sha256
-	combined := id + ":" + content
-	return fmt.Sprintf("%x", len(combined)) // Simplified for now
+	sum := sha256.Sum256([]byte(id + ":" + content))
+	return hex.EncodeToString(sum[:])
+}
+
+// projectAtomToPromptAtom converts a LocalStore prompt atom into the JIT
+// compiler's atom type. source_file is deliberately left unset by the loader:
+// ReconcilePromptCorpus only deletes rows that claim an owner, so a NULL
+// source_file is what marks these as project-owned and keeps them from being
+// swept away when the embedded corpus is reconciled.
+func projectAtomToPromptAtom(atom *store.PromptAtom) *prompt.PromptAtom {
+	return &prompt.PromptAtom{
+		ID:          atom.AtomID,
+		Version:     atom.Version,
+		Content:     atom.Content,
+		TokenCount:  atom.TokenCount,
+		ContentHash: atom.ContentHash,
+		Category:    prompt.AtomCategory(atom.Category),
+		Subcategory: atom.Subcategory,
+		Languages:   atom.Languages,
+		Frameworks:  atom.Frameworks,
+		Priority:    atom.Priority,
+		IsMandatory: atom.IsMandatory,
+	}
+}
+
+// ingestProjectAtomsIntoCorpus writes the atoms built in phase 5b into the JIT
+// prompt corpus so prompt assembly can actually select them. It runs after
+// ReconcilePromptCorpus so the reconciliation pass can never observe (and
+// therefore never delete) a partially written project atom.
+func (i *Initializer) ingestProjectAtomsIntoCorpus(ctx context.Context, db *sql.DB) (int, error) {
+	i.mu.RLock()
+	atoms := i.projectAtoms
+	i.mu.RUnlock()
+
+	if len(atoms) == 0 {
+		return 0, nil
+	}
+
+	loader := prompt.NewAtomLoader(i.embedEngine)
+	ingested := 0
+	for _, atom := range atoms {
+		if atom == nil {
+			continue
+		}
+		if err := loader.StoreAtom(ctx, db, projectAtomToPromptAtom(atom)); err != nil {
+			return ingested, fmt.Errorf("ingest project atom %s: %w", atom.AtomID, err)
+		}
+		ingested++
+	}
+	return ingested, nil
 }
 
 // initSessionState creates the initial session state file.
@@ -952,6 +1103,14 @@ func (i *Initializer) initializePromptDatabase(ctx context.Context, nerdDir stri
 		} else {
 			logging.Boot("Reconciled prompt corpus: upserted=%d deleted=%d retained_embeddings=%d cleared_embeddings=%d", counts.Upserted, counts.Deleted, counts.RetainedEmbeddings, counts.ClearedEmbeddings)
 		}
+	}
+
+	// Project atoms land after reconciliation so the sweep cannot race them.
+	if ingested, err := i.ingestProjectAtomsIntoCorpus(ctx, db); err != nil {
+		return fmt.Errorf("failed to ingest project prompt atoms: %w", err)
+	} else if ingested > 0 {
+		logging.Boot("Ingested %d project prompt atoms into corpus.db", ingested)
+		fmt.Printf("   ✓ Ingested %d project-specific atoms into the JIT corpus\n", ingested)
 	}
 
 	logging.Boot("Prompt corpus database initialized successfully")

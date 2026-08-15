@@ -11,6 +11,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -61,17 +63,37 @@ const (
 )
 
 // loggingConfig mirrors the relevant parts of config.LoggingConfig
-// to avoid circular imports
+// to avoid circular imports (config imports logging, never the reverse).
+//
+// Schema decision (TODO P1 "align json_format vs Format"): `format` is
+// canonical. config.LoggingConfig — the struct the rest of the app loads from
+// this same .nerd/config.json — carries `format: "json"|"text"` and has no
+// json_format field at all, so a config written by the app could never turn
+// this package's JSON mode on. `json_format` stays accepted as a legacy alias
+// because workspaces and the corpus README already document it; either key
+// enables structured output, and `format: "json"` wins nothing over
+// `json_format: true` — they are OR'd, not ranked, so neither loader can
+// silently disable what the other enabled.
 type loggingConfig struct {
 	DebugMode  bool            `json:"debug_mode"`
 	TraceLLMIO bool            `json:"trace_llm_io"` // Dump full LLM prompt/response to llm_io log
 	Categories map[string]bool `json:"categories"`
 	Level      string          `json:"level"`
-	JSONFormat bool            `json:"json_format"` // Output structured JSON for Mangle parsing
+	Format     string          `json:"format"`      // "json" | "text" — canonical, matches config.LoggingConfig
+	JSONFormat bool            `json:"json_format"` // Legacy alias for format: "json"
+	// TraceLLMIORaw disables secret redaction in the LLM I/O trace. Off by
+	// default: the trace is a full prompt dump and prompts carry credentials.
+	TraceLLMIORaw bool `json:"trace_llm_io_raw"`
 	// PerformanceSampling controls sampling rate for non-slow performance logs (0.0-1.0).
 	PerformanceSampling float64 `json:"performance_sampling"`
 	// PerformanceThresholdsMs sets per-system slow thresholds in milliseconds.
 	PerformanceThresholdsMs map[string]int64 `json:"performance_thresholds_ms"`
+	// MaxLogFileMB caps one log segment before rotation (0 = default 32, negative = never rotate on size).
+	MaxLogFileMB int64 `json:"max_log_file_mb"`
+	// MaxLogFileMinutes rotates a segment once it is this old (0 = age rotation off).
+	MaxLogFileMinutes int64 `json:"max_log_file_minutes"`
+	// MaxRotatedFiles is how many archived segments to keep per file (0 = default 3, negative = keep none).
+	MaxRotatedFiles int `json:"max_rotated_files"`
 }
 
 // configFile structure for reading .nerd/config.json
@@ -92,11 +114,12 @@ type StructuredLogEntry struct {
 	Fields    map[string]any `json:"fields,omitempty"` // Additional structured fields
 }
 
-// Logger wraps a standard logger with category and file output
+// Logger wraps a standard logger with category and file output.
+// sink is nil for no-op loggers and for the in-memory loggers tests build.
 type Logger struct {
 	category Category
 	logger   *log.Logger
-	file     *os.File
+	sink     *rotatingFile
 }
 
 var (
@@ -113,6 +136,16 @@ var (
 	initOnce    sync.Once
 	initErr     error
 	initialized bool
+
+	// initMu serializes Initialize so a rebind cannot interleave with a
+	// concurrent first init or a second rebind.
+	initMu sync.Mutex
+	// boundWorkspace is the absolute path the current sinks belong to. It is
+	// what makes a rebind detectable; see Initialize.
+	boundWorkspace string
+	// configInjected suppresses the on-disk config read. Set by ApplyConfig
+	// when boot hands us an already-parsed config.
+	configInjected bool
 )
 
 // Log levels
@@ -124,22 +157,135 @@ const (
 )
 
 // Initialize sets up the logging directory and loads config.
-// Should be called once at startup with the workspace path.
-// Multiple calls are safe - only the first call will take effect (idempotent).
+//
+// Calling it repeatedly with the SAME workspace is idempotent (Bug #1: Init
+// Spam) — the second call is a no-op and returns the first call's result.
+// Calling it with a DIFFERENT workspace rebinds every sink to the new one.
+//
+// The rebind is not a nicety, it is the fix for a silent misbinding. main()
+// calls Initialize(os.Getwd()) before Cobra has parsed argv, so a plain
+// sync.Once guard bound the logger to the current directory and the later
+// `nerd --workspace /elsewhere ...` init in PersistentPreRunE hit a consumed
+// Once and did nothing: every log line for that run, including the audit
+// trail, landed in the wrong workspace with no diagnostic. Binding is now
+// last-writer-wins on an absolute path, which matches the flag's semantics —
+// --workspace is an override, and an override that arrives late still has to
+// win.
 func Initialize(ws string) error {
 	if ws == "" {
 		return fmt.Errorf("workspace path required")
 	}
+	target := absWorkspace(ws)
 
-	// Use sync.Once to prevent re-initialization (Bug #1: Init Spam fix)
+	initMu.Lock()
+	defer initMu.Unlock()
+
+	// Use sync.Once for the first init so the "already initialized" fast path
+	// stays exactly as cheap as before.
 	initOnce.Do(func() {
-		initErr = initializeInternal(ws)
+		initErr = initializeInternal(target)
 		if initErr == nil {
 			initialized = true
+			boundWorkspace = target
 		}
 	})
+	if !initialized || boundWorkspace == target {
+		return initErr
+	}
 
-	return initErr
+	previous := boundWorkspace
+	closeAllSinks()
+	resetLLMIOLogger()
+	configMu.Lock()
+	configLoaded = false
+	config = loggingConfig{}
+	configMu.Unlock()
+
+	initErr = initializeInternal(target)
+	if initErr != nil {
+		initialized = false
+		boundWorkspace = ""
+		return initErr
+	}
+	initialized = true
+	boundWorkspace = target
+	// Recorded in the NEW workspace's boot log: the old one is now orphaned and
+	// nobody looking at it would otherwise know why it stops mid-run.
+	Get(CategoryBoot).Info("Logging rebound from workspace %s to %s", previous, target)
+	return nil
+}
+
+// absWorkspace normalizes a workspace path for binding comparison. Relative
+// --workspace values and os.Getwd() must compare equal when they name the same
+// directory, or every command would look like a rebind.
+func absWorkspace(ws string) string {
+	if abs, err := filepath.Abs(ws); err == nil {
+		return filepath.Clean(abs)
+	}
+	return filepath.Clean(ws)
+}
+
+// BoundWorkspace reports the workspace the sinks are currently attached to, or
+// "" before the first successful Initialize. Boot code uses it to check that
+// --workspace actually took effect.
+func BoundWorkspace() string {
+	initMu.Lock()
+	defer initMu.Unlock()
+	return boundWorkspace
+}
+
+// Config is the injectable view of the logging settings. It exists so boot can
+// hand over the config it already parsed instead of this package re-reading and
+// re-parsing .nerd/config.json — the "same file the rest of the app treats as
+// source of truth" problem. internal/config imports this package, so the flow
+// has to be config -> logging.ApplyConfig, never logging -> config.
+type Config struct {
+	DebugMode               bool
+	TraceLLMIO              bool
+	TraceLLMIORaw           bool
+	Categories              map[string]bool
+	Level                   string
+	Format                  string // "json" | "text"
+	JSONFormat              bool   // legacy alias for Format == "json"
+	PerformanceSampling     float64
+	PerformanceThresholdsMs map[string]int64
+	MaxLogFileMB            int64
+	MaxLogFileMinutes       int64
+	MaxRotatedFiles         int
+}
+
+// ApplyConfig installs an externally parsed logging config and pins it, so a
+// later Initialize (or ReloadConfig) does not overwrite it from disk. Call it
+// BEFORE Initialize when boot has already loaded the user config; calling it
+// after is also valid and takes effect for every subsequently created logger.
+func ApplyConfig(c Config) {
+	configMu.Lock()
+	config = loggingConfig{
+		DebugMode:               c.DebugMode,
+		TraceLLMIO:              c.TraceLLMIO,
+		TraceLLMIORaw:           c.TraceLLMIORaw,
+		Categories:              c.Categories,
+		Level:                   c.Level,
+		Format:                  c.Format,
+		JSONFormat:              c.JSONFormat,
+		PerformanceSampling:     c.PerformanceSampling,
+		PerformanceThresholdsMs: c.PerformanceThresholdsMs,
+		MaxLogFileMB:            c.MaxLogFileMB,
+		MaxLogFileMinutes:       c.MaxLogFileMinutes,
+		MaxRotatedFiles:         c.MaxRotatedFiles,
+	}
+	configLoaded = true
+	configInjected = true
+	applyLevelLocked(config.Level)
+	configMu.Unlock()
+}
+
+// ClearInjectedConfig releases the pin set by ApplyConfig so config is read
+// from disk again. Tests and `nerd` subcommands that switch workspaces use it.
+func ClearInjectedConfig() {
+	configMu.Lock()
+	configInjected = false
+	configMu.Unlock()
 }
 
 // initializeInternal performs the actual initialization logic.
@@ -203,10 +349,17 @@ func initializeInternal(ws string) error {
 	return nil
 }
 
-// loadConfig reads the logging config from .nerd/config.json
+// loadConfig reads the logging config from .nerd/config.json — the same file
+// config.LoadUserConfig treats as the source of truth. This package parses only
+// the `logging` object of it, and only because it sits below internal/config in
+// the import graph; ApplyConfig is the way to avoid the second parse.
 func loadConfig() error {
 	configMu.Lock()
 	defer configMu.Unlock()
+
+	if configInjected {
+		return nil // boot handed us the config; disk must not override it
+	}
 
 	configPath := filepath.Join(workspace, ".nerd", "config.json")
 	data, err := os.ReadFile(configPath)
@@ -227,9 +380,15 @@ func loadConfig() error {
 
 	config = cf.Logging
 	configLoaded = true
+	applyLevelLocked(config.Level)
 
-	// Parse log level
-	switch config.Level {
+	return nil
+}
+
+// applyLevelLocked maps the configured level name onto logLevel. Caller holds
+// configMu.
+func applyLevelLocked(level string) {
+	switch strings.ToLower(strings.TrimSpace(level)) {
 	case "debug":
 		logLevel = LevelDebug
 	case "info":
@@ -241,8 +400,6 @@ func loadConfig() error {
 	default:
 		logLevel = LevelInfo
 	}
-
-	return nil
 }
 
 // ReloadConfig reloads the config from disk.
@@ -313,7 +470,7 @@ func Get(category Category) *Logger {
 	}
 	filename := fmt.Sprintf("%s_%s.log", prefix, category)
 	logPath := filepath.Join(logsDir, filename)
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	sink, err := openRotatingFile(logPath)
 	if err != nil {
 		// Fall back to no-op logger
 		fmt.Fprintf(os.Stderr, "[logging] Warning: could not open log file %s: %v\n", logPath, err)
@@ -322,8 +479,8 @@ func Get(category Category) *Logger {
 
 	l := &Logger{
 		category: category,
-		file:     file,
-		logger:   log.New(file, "", log.Ldate|log.Ltime|log.Lmicroseconds),
+		sink:     sink,
+		logger:   log.New(sink, "", log.Ldate|log.Ltime|log.Lmicroseconds),
 	}
 	loggers[category] = l
 
@@ -338,6 +495,7 @@ func (l *Logger) logJSON(level, msg string) {
 		Level:     level,
 		Message:   msg,
 	}
+	entry.File, entry.Line = callerSite()
 	data, err := json.Marshal(entry)
 	if err != nil {
 		l.logger.Printf("[%s] %s", level, msg) // Fallback to text
@@ -346,13 +504,39 @@ func (l *Logger) logJSON(level, msg string) {
 	l.logger.Printf("%s", data)
 }
 
+// callerSite returns the first stack frame outside this package, so a JSON
+// entry points at the code that logged rather than at logger.go. Frames are
+// walked (rather than a fixed skip count) because the convenience wrappers in
+// logger_convenience.go add one frame and the Context/Request loggers add
+// another; a hardcoded depth was wrong for two of the three entry paths.
+//
+// Only called on the JSON path: runtime.Callers on every text line would tax
+// the hot path for a field the text format does not even carry.
+func callerSite() (string, int) {
+	var pcs [12]uintptr
+	n := runtime.Callers(3, pcs[:]) // skip runtime.Callers, callerSite, its caller
+	if n == 0 {
+		return "", 0
+	}
+	frames := runtime.CallersFrames(pcs[:n])
+	for {
+		frame, more := frames.Next()
+		if frame.File != "" && !strings.Contains(filepath.ToSlash(frame.File), "/internal/logging/") {
+			return filepath.Base(frame.File), frame.Line
+		}
+		if !more {
+			return "", 0
+		}
+	}
+}
+
 // Debug logs a debug message (only if level <= debug)
 func (l *Logger) Debug(format string, args ...any) {
 	if l.logger == nil || logLevel > LevelDebug {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
-	if config.JSONFormat {
+	if IsJSONFormat() {
 		l.logJSON("debug", msg)
 	} else {
 		l.logger.Printf("[DEBUG] %s", msg)
@@ -365,7 +549,7 @@ func (l *Logger) Info(format string, args ...any) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
-	if config.JSONFormat {
+	if IsJSONFormat() {
 		l.logJSON("info", msg)
 	} else {
 		l.logger.Printf("[INFO] %s", msg)
@@ -378,7 +562,7 @@ func (l *Logger) Warn(format string, args ...any) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
-	if config.JSONFormat {
+	if IsJSONFormat() {
 		l.logJSON("warn", msg)
 	} else {
 		l.logger.Printf("[WARN] %s", msg)
@@ -392,7 +576,7 @@ func (l *Logger) Error(format string, args ...any) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
-	if config.JSONFormat {
+	if IsJSONFormat() {
 		l.logJSON("error", msg)
 	} else {
 		l.logger.Printf("[ERROR] %s", msg)
@@ -413,7 +597,7 @@ func (l *Logger) Error(format string, args ...any) {
 var (
 	problemsMu     sync.Mutex
 	problemsLogger *log.Logger
-	problemsFile   *os.File
+	problemsFile   *rotatingFile
 	problemsFailed bool
 )
 
@@ -437,7 +621,7 @@ func mirrorToProblems(category Category, level, msg string) {
 			prefix = time.Now().Format("2006-01-02")
 		}
 		path := filepath.Join(dir, fmt.Sprintf("%s_problems.log", prefix))
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		f, err := openRotatingFile(path)
 		if err != nil {
 			problemsFailed = true
 			fmt.Fprintf(os.Stderr, "[logging] could not open problems log %s: %v\n", path, err)
@@ -457,6 +641,7 @@ func closeProblemsLog() {
 		_ = problemsFile.Close()
 		problemsFile = nil
 		problemsLogger = nil
+		problemsFailed = false // a fresh workspace/rebind deserves a fresh attempt
 	}
 }
 
@@ -472,7 +657,8 @@ func (l *Logger) StructuredLog(level string, msg string, fields map[string]any) 
 		Message:   msg,
 		Fields:    fields,
 	}
-	if config.JSONFormat {
+	if IsJSONFormat() {
+		entry.File, entry.Line = callerSite()
 		data, err := json.Marshal(entry)
 		if err == nil {
 			l.logger.Printf("%s", data)
@@ -483,11 +669,26 @@ func (l *Logger) StructuredLog(level string, msg string, fields map[string]any) 
 	l.logger.Printf("[%s] %s | fields=%v", level, msg, fields)
 }
 
-// IsJSONFormat returns whether JSON logging is enabled
+// IsJSONFormat returns whether structured JSON logging is enabled, honouring
+// both the canonical `format: "json"` and the legacy `json_format: true`.
 func IsJSONFormat() bool {
 	configMu.RLock()
 	defer configMu.RUnlock()
-	return config.JSONFormat
+	return jsonFormatEnabledLocked()
+}
+
+// jsonFormatEnabledLocked is the single place the two schema spellings are
+// reconciled. Caller holds configMu (read or write).
+func jsonFormatEnabledLocked() bool {
+	return config.JSONFormat || strings.EqualFold(strings.TrimSpace(config.Format), "json")
+}
+
+// rawLLMTraceEnabled reports whether the operator opted out of LLM I/O
+// redaction for this run.
+func rawLLMTraceEnabled() bool {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	return config.TraceLLMIORaw
 }
 
 // WithContext returns a context logger for structured logging
@@ -501,52 +702,102 @@ type ContextLogger struct {
 	context map[string]any
 }
 
+// emit writes one line for a Context/Request logger, honouring json_format.
+//
+// The two decorated loggers used to hardcode text output, so switching the
+// package to JSON produced a file that was *mostly* parseable — every plain
+// logger line was an object and every request-scoped or context-scoped line was
+// `[INFO] msg | ctx=map[...]`. Anything consuming the file as JSONL (the Mangle
+// fact path this format exists for) silently dropped exactly the lines that
+// carry correlation IDs. Structured mode now carries the context as fields
+// instead of stringifying it into the message.
+func emit(l *Logger, level, levelTag, msg, requestID string, fields map[string]any) string {
+	suffix := ""
+	switch {
+	case requestID != "" && len(fields) > 0:
+		suffix = fmt.Sprintf("[req:%s] %s | %v", requestID, msg, fields)
+	case requestID != "":
+		suffix = fmt.Sprintf("[req:%s] %s", requestID, msg)
+	default:
+		suffix = fmt.Sprintf("%s | ctx=%v", msg, fields)
+	}
+
+	if IsJSONFormat() {
+		entry := StructuredLogEntry{
+			Timestamp: time.Now().UnixMilli(),
+			Category:  string(l.category),
+			Level:     level,
+			Message:   msg,
+			RequestID: requestID,
+			Fields:    fields,
+		}
+		entry.File, entry.Line = callerSite()
+		if data, err := json.Marshal(entry); err == nil {
+			l.logger.Printf("%s", data)
+			return suffix
+		}
+	}
+	l.logger.Printf("[%s] %s", levelTag, suffix)
+	return suffix
+}
+
 func (c *ContextLogger) Debug(format string, args ...any) {
 	if c.logger.logger == nil || logLevel > LevelDebug {
 		return
 	}
-	msg := fmt.Sprintf(format, args...)
-	c.logger.logger.Printf("[DEBUG] %s | ctx=%v", msg, c.context)
+	emit(c.logger, "debug", "DEBUG", fmt.Sprintf(format, args...), "", c.context)
 }
 
 func (c *ContextLogger) Info(format string, args ...any) {
 	if c.logger.logger == nil || logLevel > LevelInfo {
 		return
 	}
-	msg := fmt.Sprintf(format, args...)
-	c.logger.logger.Printf("[INFO] %s | ctx=%v", msg, c.context)
+	emit(c.logger, "info", "INFO", fmt.Sprintf(format, args...), "", c.context)
 }
 
 func (c *ContextLogger) Warn(format string, args ...any) {
 	if c.logger.logger == nil || logLevel > LevelWarn {
 		return
 	}
-	msg := fmt.Sprintf(format, args...)
-	c.logger.logger.Printf("[WARN] %s | ctx=%v", msg, c.context)
-	mirrorToProblems(c.logger.category, "WARN", fmt.Sprintf("%s | ctx=%v", msg, c.context))
+	line := emit(c.logger, "warn", "WARN", fmt.Sprintf(format, args...), "", c.context)
+	mirrorToProblems(c.logger.category, "WARN", line)
 }
 
 func (c *ContextLogger) Error(format string, args ...any) {
 	if c.logger.logger == nil {
 		return
 	}
-	msg := fmt.Sprintf(format, args...)
-	c.logger.logger.Printf("[ERROR] %s | ctx=%v", msg, c.context)
-	mirrorToProblems(c.logger.category, "ERROR", fmt.Sprintf("%s | ctx=%v", msg, c.context))
+	line := emit(c.logger, "error", "ERROR", fmt.Sprintf(format, args...), "", c.context)
+	mirrorToProblems(c.logger.category, "ERROR", line)
 }
 
-// CloseAll closes all open log files (call at shutdown)
+// CloseAll closes every sink this package owns: category loggers, the
+// aggregated problems log, the audit log, and the LLM I/O trace.
+//
+// It used to close only the category loggers, so the obvious shutdown call
+// leaked two of three sinks — the audit log in particular was left with buffered
+// writes and an open handle, which on Windows also blocked the next run's
+// fresh-run cleanup from reclaiming the name. Callers that want finer control
+// still have CloseAudit and CloseLLMIOLogger; both are idempotent.
 func CloseAll() {
-	loggersMu.Lock()
-	defer loggersMu.Unlock()
+	closeAllSinks()
+}
 
+// closeAllSinks is CloseAll's body, split out so Initialize can reuse it during
+// a workspace rebind without the public function's documented semantics.
+func closeAllSinks() {
+	loggersMu.Lock()
 	for _, l := range loggers {
-		if l.file != nil {
-			l.file.Close()
+		if l.sink != nil {
+			_ = l.sink.Close()
 		}
 	}
 	loggers = make(map[Category]*Logger)
+	loggersMu.Unlock()
+
 	closeProblemsLog()
+	CloseAudit()
+	CloseLLMIOLogger()
 }
 
 // =============================================================================
@@ -587,28 +838,34 @@ func (r *RequestLogger) Debug(format string, args ...any) {
 	if r.logger.logger == nil || logLevel > LevelDebug {
 		return
 	}
-	r.logger.logger.Printf("[DEBUG] %s", r.formatMsg(format, args...))
+	emit(r.logger, "debug", "DEBUG", fmt.Sprintf(format, args...), r.requestID, r.fields)
 }
 
 func (r *RequestLogger) Info(format string, args ...any) {
 	if r.logger.logger == nil || logLevel > LevelInfo {
 		return
 	}
-	r.logger.logger.Printf("[INFO] %s", r.formatMsg(format, args...))
+	emit(r.logger, "info", "INFO", fmt.Sprintf(format, args...), r.requestID, r.fields)
 }
 
+// Warn mirrors to the problems log like every other WARN in the package. The
+// request-scoped logger was the one path that did not, which would have made a
+// correlated failure the single kind of failure invisible in the one file
+// triage actually reads.
 func (r *RequestLogger) Warn(format string, args ...any) {
 	if r.logger.logger == nil || logLevel > LevelWarn {
 		return
 	}
-	r.logger.logger.Printf("[WARN] %s", r.formatMsg(format, args...))
+	line := emit(r.logger, "warn", "WARN", fmt.Sprintf(format, args...), r.requestID, r.fields)
+	mirrorToProblems(r.logger.category, "WARN", line)
 }
 
 func (r *RequestLogger) Error(format string, args ...any) {
 	if r.logger.logger == nil {
 		return
 	}
-	r.logger.logger.Printf("[ERROR] %s", r.formatMsg(format, args...))
+	line := emit(r.logger, "error", "ERROR", fmt.Sprintf(format, args...), r.requestID, r.fields)
+	mirrorToProblems(r.logger.category, "ERROR", line)
 }
 
 // =============================================================================

@@ -254,24 +254,42 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 // KERNEL INTERFACE - Bridge to Mangle Logic Core
 // =============================================================================
 
-// KernelFact represents a fact that can be asserted to the kernel.
-// This is the interface-friendly version of Fact for the kernel bridge.
-type KernelFact struct {
-	Predicate string
-	Args      []any
-}
+// KernelFact is the fact type carried by KernelInterface.
+//
+// Deprecated: use Fact. This is now an alias, not a separate struct — step 1 of
+// the KernelInterface/KernelFact deprecation path documented on KernelInterface
+// below. It was a byte-identical copy of Fact whose only purpose was to keep the
+// autopoiesis bridge from naming Fact, which cost every bridge method a full
+// slice copy (core.AutopoiesisBridge.QueryPredicate rebuilt each result) and
+// gave callers two names for one concept — the same confusion that lets an
+// assert site pick the wrong constructor. Aliasing makes those copies identity
+// conversions and makes every Fact helper (ToAtom, ArgString, Extract*)
+// immediately available on kernel-bridge facts.
+type KernelFact = Fact
 
-// ToFact converts a KernelFact to a Fact.
-func (kf KernelFact) ToFact() Fact {
-	return Fact{
-		Predicate: kf.Predicate,
-		Args:      kf.Args,
-	}
-}
+// ToFact returns the fact unchanged.
+//
+// Deprecated: KernelFact is an alias for Fact, so this conversion is a no-op.
+// It survives only so call sites written against the old two-type world keep
+// compiling; delete it when KernelFact itself is removed.
+func (f Fact) ToFact() Fact { return f }
 
-// KernelInterface defines the interface for interacting with the Mangle kernel.
-// This allows packages to assert facts and query for derived actions without
-// importing the full kernel implementation.
+// KernelInterface is the narrow fact-assertion bridge used by autopoiesis.
+//
+// Deprecated: prefer Kernel. Deprecation path (one step per release cycle, so
+// each step is independently revertible):
+//
+//	1. DONE — KernelFact becomes an alias for Fact, so the two APIs speak one
+//	   fact type and adapters stop copying slices to cross the boundary.
+//	2. NEXT — internal/autopoiesis switches its Orchestrator field to Kernel and
+//	   calls Assert/AssertBatch/Query directly. core.AutopoiesisBridge then has
+//	   no consumer except cmd/nerd/cmd_mcp_select.go's cliMCPKernel, which is a
+//	   genuine edge adapter (mcp declares its own KernelInterface) and stays.
+//	3. THEN — delete KernelInterface, the ToFact shim, and core.AutopoiesisBridge.
+//
+// Step 2 is not taken here because it edits internal/autopoiesis; the import
+// graph already permits it (autopoiesis imports types today and Kernel adds no
+// dependency), which was the open blocker recorded in OPEN-QUESTIONS Q1.
 type KernelInterface interface {
 	// AssertFact adds a fact to the kernel's EDB
 	AssertFact(fact KernelFact) error
@@ -367,6 +385,15 @@ type AmbientContext struct {
 // SessionContext holds compressed session context for shard injection (Blackboard Pattern).
 // This enables shards to understand the full session history without token explosion.
 // Extended to include all context types specified in the codeNERD architecture.
+//
+// Layout decision (OPEN-QUESTIONS Q4): the field groups below stay FLAT.
+// Nesting them into sub-structs (Git, TDD, Campaign, …) was considered and
+// rejected: every populate* function in cmd/nerd/chat/model_session_context.go
+// and every prompt assembler reads these by direct field name, so nesting is a
+// rename of ~40 fields across packages that buys navigability only — the
+// section banners already give that. Revisit only when a section needs its own
+// behaviour (methods, zero-value semantics, or independent serialization),
+// which is the point at which a struct earns its existence.
 type SessionContext struct {
 	// ==========================================================================
 	// CORE CONTEXT (Original)

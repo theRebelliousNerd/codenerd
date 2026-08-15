@@ -236,31 +236,65 @@ type ToolGenerationRequest struct {
 	Reason     string
 }
 
-// generateProjectTools generates tools based on detected technologies during init.
-// =========================================================================
-// Tool generation via ToolGenerator shard has been removed as part of JIT refactor.
-// The Ouroboros system now handles tool generation through VirtualStore.
-// This function is stubbed to preserve the interface.
-// =========================================================================
+// generateProjectTools reports the project tool needs that phase 5 recorded as
+// Mangle facts.
+//
+// Decision (was: "complete the Ouroboros call site or delete determineRequiredTools"):
+// neither. determineRequiredTools is a real measurement — it is the only place
+// that reads a project's language, framework, ORM, container and build system
+// and names the tools that shape implies — but init is the wrong place to act
+// on it. Acting means writing LLM-authored Go, compiling it and registering the
+// binary in the user's workspace; doing that for up to eight tools during a
+// cold start would add many minutes before the user has typed anything, and
+// init holds the cheap *worker* LLM client, which is the wrong tier for
+// codegen.
+//
+// So init measures and the kernel decides, which is the split the system is
+// built on. generateFactsFile now emits one `missing_tool_for(/project_init,
+// /capability)` fact per detected need into profile.mg. That is the same
+// already-Declared predicate autopoiesis and campaign assert when they find a
+// capability gap, so the needs enter the existing Ouroboros policy chain and
+// any generation still runs through ExecuteOuroborosLoop with its full safety
+// depth (go_safety.mg audit, Thunderdome, transition simulation, compile).
+// Init adds no new path to ToolGenerator. This also answers OPEN-QUESTIONS #8.
+//
+// The returned slice names the recorded needs, not compiled tools.
 func (i *Initializer) generateProjectTools(_ context.Context, _ string, profile ProjectProfile) ([]string, error) {
-	generatedTools := make([]string, 0)
-
-	// Determine which tools to generate based on project profile
 	toolDefs := i.determineRequiredTools(profile)
-
 	if len(toolDefs) == 0 {
-		return generatedTools, nil
+		return []string{}, nil
 	}
 
-	fmt.Printf("\n[tools] Tool generation disabled (JIT refactor) - %d tools would be generated\n", len(toolDefs))
-	fmt.Println("   Tools are now generated on-demand via Ouroboros/VirtualStore")
-
-	// Log which tools would have been generated
+	recorded := make([]string, 0, len(toolDefs))
 	for _, toolDef := range toolDefs {
-		logging.Boot("Tool definition available: %s - %s", toolDef.Name, toolDef.Purpose)
+		recorded = append(recorded, toolDef.Name)
+		logging.Boot("Recorded tool need: %s - %s (%s)", toolDef.Name, toolDef.Purpose, toolDef.Reason)
 	}
 
-	return generatedTools, nil
+	fmt.Printf("   Recorded %d project tool needs as missing_tool_for facts\n", len(recorded))
+	fmt.Println("   The kernel decides when to generate them; Ouroboros builds them on demand")
+	return recorded, nil
+}
+
+// projectToolNeedFacts renders the detected tool needs as `missing_tool_for`
+// facts. The predicate is Declared in schemas_tools.mg as
+// missing_tool_for(Intent, Capability) bound [/name, /name], so both arguments
+// must be sanitized name constants.
+func projectToolNeedFacts(toolDefs []ToolGenerationRequest) []string {
+	if len(toolDefs) == 0 {
+		return nil
+	}
+	facts := make([]string, 0, len(toolDefs))
+	seen := make(map[string]bool, len(toolDefs))
+	for _, toolDef := range toolDefs {
+		capability := sanitizeForMangle(toolDef.Name)
+		if capability == "" || capability == "unknown" || seen[capability] {
+			continue
+		}
+		seen[capability] = true
+		facts = append(facts, fmt.Sprintf(`missing_tool_for(/project_init, /%s).`, capability))
+	}
+	return facts
 }
 
 // determineRequiredTools determines which tools to generate based on project technologies.

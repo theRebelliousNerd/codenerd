@@ -6,7 +6,6 @@ package logging
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -123,7 +122,7 @@ type AuditEvent struct {
 // =============================================================================
 
 var (
-	auditFile   *os.File
+	auditFile   *rotatingFile
 	auditMu     sync.Mutex
 	auditLogger *AuditLogger
 )
@@ -154,7 +153,10 @@ func InitAudit() error {
 	}
 	auditPath := filepath.Join(logsDir, fmt.Sprintf("%s_audit.log", prefix))
 
-	file, err := os.OpenFile(auditPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	// Rotating sink: audit is the fastest-growing file in the directory
+	// (perf_metric and kernel_query dominate), and run-prefix retention only
+	// bounds it across runs, not within one long campaign.
+	file, err := openRotatingFile(auditPath)
 	if err != nil {
 		return fmt.Errorf("failed to create audit log: %w", err)
 	}
