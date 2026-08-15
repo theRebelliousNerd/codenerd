@@ -297,6 +297,14 @@ func containsString(values []string, target string) bool {
 // TODO: TEST_GAP: [State Conflicts] Verify TOC/TOU (Time of Check / Time of Use) in Repro Task Dependency Assertion (Go struct mutated before Kernel fact).
 // TODO: TEST_GAP: [State Conflicts] Verify Concurrent Failure Handling for the Same Task (ensuring duplicate Repro tasks are not spawned).
 
+// TODO: Gap - Null/Undefined/Empty: Test handleTaskFailure when task.ID is an empty string. Validate kernel assertion safety.
+// TODO: Gap - User Request Extremes: Test computeRetryBackoff with RetryBackoffBase/Max set to time.Duration(math.MaxInt64) to check for integer overflow causing negative wait times.
+// TODO: Gap - User Request Extremes: Test behavior when config.MaxRetries is explicitly 0 (fail-fast vs defaulting to 3).
+// TODO: Gap - State Conflicts: Test handleTaskFailure when the kernel.Assert returns an error (e.g. read-only mode). Ensure orchestrator state doesn't desync or hang.
+// TODO: Gap - Type Coercion / Adversarial: Test handleTaskFailure where err contains unescaped Mangle syntax or adversarial payload strings to ensure they don't break kernel fact parsing.
+// TODO: Gap - State Conflicts: Pass an already canceled context.Context to handleTaskFailure and verify if o.saveCampaign() blocks or correctly handles the cancellation.
+// TODO: Gap - User Request Extremes (Performance): Test shouldEscalateLogicFailure and handleTaskFailure with a task that has 100,000 previous attempts to ensure lock contention and memory pressure are manageable.
+
 func TestOrchestratorFailure_NullEmptyPointers(t *testing.T) {
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
 
