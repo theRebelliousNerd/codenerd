@@ -1,6 +1,6 @@
 # autopoiesis — Architecture Corpus (`internal/autopoiesis`)
 
-> Last verified against codebase: **2026-07-13**  
+> Last verified against codebase: **2026-08-15**  
 > Status: Living Reference Document  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/autopoiesis/` (+ `internal/autopoiesis/prompt_evolution/`)
