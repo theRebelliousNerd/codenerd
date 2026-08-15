@@ -57,6 +57,7 @@ const (
 	CategoryBuild       Category = "build"       // Build environment and compilation
 	CategoryNorthstar   Category = "northstar"   // Northstar vision guardian
 	CategoryRegression  Category = "regression"  // Regression battery runs
+	CategoryPersist     Category = "persist"     // Fact snapshot write/read
 )
 
 // loggingConfig mirrors the relevant parts of config.LoggingConfig

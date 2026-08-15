@@ -200,7 +200,7 @@ func writeSnapshot(path string, facts []types.Fact, opts Options) (string, error
 		}); err != nil {
 			// The snapshot itself is already durable; a missing sidecar only
 			// costs verification, so do not fail the export over it.
-			logging.StoreWarn("factsnap: sidecar write failed for %s: %v", sidecar, err)
+			logging.PersistWarn("factsnap: sidecar write failed for %s: %v", sidecar, err)
 		}
 	} else {
 		// A stale sidecar from a previous write would fail every future Read
@@ -213,7 +213,7 @@ func writeSnapshot(path string, facts []types.Fact, opts Options) (string, error
 	if onDisk != nil {
 		bytesWritten = onDisk.Size()
 	}
-	logging.StoreDebug("factsnap: wrote %d facts to %s codec=%s bytes=%d sha256=%s in %s",
+	logging.PersistDebug("factsnap: wrote %d facts to %s codec=%s bytes=%d sha256=%s in %s",
 		len(facts), path, CodecName(codec), bytesWritten, sum[:12], time.Since(start).Round(time.Millisecond))
 	return path, nil
 }
@@ -330,7 +330,7 @@ func Read(path string) ([]types.Fact, error) {
 	if err != nil {
 		return nil, err
 	}
-	logging.StoreDebug("factsnap: read %d facts from %s codec=%s bytes=%d in %s",
+	logging.PersistDebug("factsnap: read %d facts from %s codec=%s bytes=%d in %s",
 		len(facts), path, CodecName(codec), len(data), time.Since(start).Round(time.Millisecond))
 	return facts, nil
 }
@@ -386,7 +386,7 @@ func resolveReadCodec(path string, data []byte) Codec {
 		return byName
 	}
 	if byName != sniffed && (byName == CodecGzip || byName == CodecZstd) {
-		logging.StoreWarn("factsnap: %s has %s suffix but %s content; trusting content",
+		logging.PersistWarn("factsnap: %s has %s suffix but %s content; trusting content",
 			path, CodecName(byName), CodecName(sniffed))
 	}
 	return sniffed

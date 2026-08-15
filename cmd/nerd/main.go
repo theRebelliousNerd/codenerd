@@ -312,6 +312,7 @@ func init() {
 		usageCmd,
 		regressionCmd,
 		featuresCmd,
+		snapshotCmd,
 	)
 
 	// Session management commands

@@ -131,8 +131,10 @@ func logsDirSymlinkRejected(logsDir string) bool {
 // runPrefixFromLogName extracts the run prefix from a log filename if it
 // begins with a valid run prefix produced by generateRunPrefix. The prefix
 // format is 20060102_150405.000000000_<pid>_<seq>_<rand> (46 chars):
-//  8 digits date, '_' , 6 digits time, '.' , 9 digits nanos, '_' ,
-//  6 digits pid, '_' , 6 digits seq, '_' , 6 hex chars. Lexical order of
+//
+//	8 digits date, '_' , 6 digits time, '.' , 9 digits nanos, '_' ,
+//	6 digits pid, '_' , 6 digits seq, '_' , 6 hex chars. Lexical order of
+//
 // this prefix equals chronological order. Returns the prefix string on
 // success or "" if the name does not start with a valid prefix.
 func runPrefixFromLogName(name string) string {
@@ -195,6 +197,7 @@ func runPrefixFromLogName(name string) string {
 	}
 	return candidate
 }
+
 // isSubstantiveAuditLog reports whether the audit log at path is
 // substantive. It streams the file up to maxSubstantiveScanBytes and
 // stops at the first occurrence of any substantiveEventMarkers substring.
@@ -252,11 +255,11 @@ func isSubstantiveAuditLog(path string) bool {
 	return false
 }
 
-
 // clearOrdinaryLogs removes/truncates previous top-level *.log files
 // under logsDir using a dual retention window: the union of
 //   - the most recent DefaultLogRetentionRuns distinct run prefixes, and
 //   - the most recent DefaultSubstantiveRetentionRuns substantive prefixes
+//
 // (where substantive means <prefix>_audit.log contains at least one of
 // "event":"shard_, "event":"action_, "event":"tool_, "event":"safety_).
 // Only files belonging to prefixes in neither set are deleted. Legacy or

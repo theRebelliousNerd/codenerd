@@ -528,3 +528,18 @@ func StoreWarn(format string, args ...any) {
 func StoreError(format string, args ...any) {
 	Get(CategoryStore).Error(format, args...)
 }
+
+// Persist logs to the persist category (fact snapshot write/read).
+func Persist(format string, args ...any) {
+	Get(CategoryPersist).Info(format, args...)
+}
+
+// PersistDebug logs debug to the persist category.
+func PersistDebug(format string, args ...any) {
+	Get(CategoryPersist).Debug(format, args...)
+}
+
+// PersistWarn logs warning to the persist category.
+func PersistWarn(format string, args ...any) {
+	Get(CategoryPersist).Warn(format, args...)
+}
