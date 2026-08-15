@@ -172,6 +172,12 @@ type OuroborosStats struct {
 	ThunderdomeRuns     int // Number of Thunderdome battles
 	ThunderdomeKills    int // Tools killed by PanicMaker
 	ThunderdomeSurvived int // Tools that survived
+
+	// Generation latency. Counted for every completed loop run, successful or
+	// not, so a rising rejection rate cannot hide behind a fast success path.
+	GenerationRuns      int           // Loop runs that reached a verdict
+	TotalGenerationTime time.Duration // Sum of run wall-clock time
+	LongestGeneration   time.Duration // Slowest single run
 }
 
 // =============================================================================

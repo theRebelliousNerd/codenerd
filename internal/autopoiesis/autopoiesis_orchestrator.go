@@ -55,6 +55,10 @@ type Orchestrator struct {
 	// Tool generation throttling (session-local)
 	toolsGenerated int
 	lastToolGen    time.Time
+
+	// Handoff to the shard runtime for persistent agents. Installed by boot;
+	// see writeAgentPromptsYAML for why this is a seam and not an import.
+	agentDefWriter AgentDefinitionWriter
 }
 
 // llmClientWrapper adapts the local LLMClient interface to types.LLMClient

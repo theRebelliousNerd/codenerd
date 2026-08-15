@@ -142,7 +142,11 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 
 	// 7. Prune old turns from sliding window
 	beforePrune := len(c.recentTurns)
-	c.pruneRecentTurns()
+	segmentsBefore := len(c.rollingSummary.Segments)
+	c.pruneRecentTurns(ctx)
+	if len(c.rollingSummary.Segments) > segmentsBefore {
+		result.CompressionTriggered = true
+	}
 	if len(c.recentTurns) < beforePrune {
 		logging.ContextDebug("Pruned %d turns from sliding window (now: %d)", beforePrune-len(c.recentTurns), len(c.recentTurns))
 	}
@@ -471,8 +475,89 @@ func (c *Compressor) generateSimpleSummary(turns []CompressedTurn) string {
 	return sb.String()
 }
 
-// rebuildRollingSummaryText rebuilds the combined summary text.
+// rebuildRollingSummaryText rebuilds the combined summary text and keeps it
+// inside HistoryReserve by recursively merging the oldest segments.
+//
+// The renderer concatenates every segment ever produced. Nothing bounded that:
+// a 300-turn session produced 240 segments and a history block large enough to
+// push total usage past 100% of the window, at which point BuildContext refuses
+// with ErrContextWindowExceeded and the session gets *no* context at all. The
+// fix is recursive compression, which is what a "rolling" summary always meant:
+// when the block outgrows its reserve, the oldest segments fold into one.
 func (c *Compressor) rebuildRollingSummaryText() {
+	c.renderRollingSummaryText()
+
+	if c.config.HistoryReserve <= 0 {
+		return
+	}
+	for c.counter.CountString(c.rollingSummary.Text) > c.config.HistoryReserve && len(c.rollingSummary.Segments) > 1 {
+		// Merge the oldest half each pass so this converges in O(log n)
+		// renders instead of one render per merge.
+		c.mergeOldestSegments(max(2, len(c.rollingSummary.Segments)/2))
+		c.renderRollingSummaryText()
+	}
+}
+
+// mergeOldestSegments folds the n oldest history segments into a single
+// segment, re-trimming their combined summary. Turn coverage, masked-turn
+// counts and original-token totals are preserved so the reported ratio stays
+// truthful across merges.
+func (c *Compressor) mergeOldestSegments(n int) {
+	segs := c.rollingSummary.Segments
+	if n < 2 || len(segs) < 2 {
+		return
+	}
+	n = min(n, len(segs))
+	head := segs[:n]
+
+	var sb strings.Builder
+	merged := HistorySegment{
+		ID:           fmt.Sprintf("seg_%d_%d", head[0].StartTurn, head[n-1].EndTurn),
+		StartTurn:    head[0].StartTurn,
+		EndTurn:      head[n-1].EndTurn,
+		CompressedAt: time.Now(),
+	}
+	seenAtoms := make(map[string]bool)
+	for _, s := range head {
+		sb.WriteString(s.Summary)
+		sb.WriteString("\n")
+		merged.OriginalTokens += s.OriginalTokens
+		merged.MaskedTurns += s.MaskedTurns
+		for _, a := range s.KeyAtoms {
+			key := a.String()
+			if seenAtoms[key] || len(merged.KeyAtoms) >= 64 {
+				continue
+			}
+			seenAtoms[key] = true
+			merged.KeyAtoms = append(merged.KeyAtoms, a)
+		}
+	}
+
+	// Halve the merged summary: merging without re-trimming would not reclaim
+	// any tokens and the loop above would never converge.
+	budget := max(1, c.counter.CountString(sb.String())/2)
+	merged.Summary = c.trimToTokens(sb.String(), budget)
+	merged.CompressedTokens = c.counter.CountString(merged.Summary)
+	merged.CompressionRatio = float64(merged.OriginalTokens) / float64(max(merged.CompressedTokens, 1))
+
+	c.rollingSummary.Segments = append([]HistorySegment{merged}, segs[n:]...)
+
+	// Recompute totals from the surviving segments; the cumulative counters
+	// would otherwise describe segments that no longer exist.
+	c.rollingSummary.TotalOriginalTokens = 0
+	c.rollingSummary.TotalCompressedTokens = 0
+	for _, s := range c.rollingSummary.Segments {
+		c.rollingSummary.TotalOriginalTokens += s.OriginalTokens
+		c.rollingSummary.TotalCompressedTokens += s.CompressedTokens
+	}
+	c.rollingSummary.OverallRatio = float64(c.rollingSummary.TotalOriginalTokens) / float64(max(c.rollingSummary.TotalCompressedTokens, 1))
+
+	logging.ContextDebug("Merged %d oldest history segments (turns %d-%d), %d segments remain",
+		n, merged.StartTurn, merged.EndTurn, len(c.rollingSummary.Segments))
+}
+
+// renderRollingSummaryText renders the current segments into the summary text.
+func (c *Compressor) renderRollingSummaryText() {
 	var sb strings.Builder
 	sb.WriteString("# Conversation History (Compressed)\n")
 	sb.WriteString(fmt.Sprintf("# Total turns: %d | Compression ratio: %.1f:1\n\n", c.rollingSummary.TotalTurns, c.rollingSummary.OverallRatio))
@@ -492,10 +577,35 @@ func (c *Compressor) rebuildRollingSummaryText() {
 	c.rollingSummary.Text = sb.String()
 }
 
-// pruneRecentTurns keeps only the most recent turns within the window.
-func (c *Compressor) pruneRecentTurns() {
+// pruneRecentTurns bounds the sliding window, compressing the overflow instead
+// of discarding it.
+//
+// It used to reslice the window and drop the oldest turns outright. Because
+// recalcBudget only counts the last RecentTurnWindow turns, utilization never
+// grew with session length, so the budget trigger did not fire on long
+// sessions — and every turn beyond 2× the window was deleted without ever
+// being folded into a segment. A 300-turn session produced zero segments and a
+// 1.0:1 ratio: "infinite context" had quietly become "forget everything older
+// than two windows". Budget pressure remains the primary trigger; window
+// overflow is the safety net that guarantees turns leave only through
+// compression.
+func (c *Compressor) pruneRecentTurns(ctx context.Context) {
 	maxTurns := c.config.RecentTurnWindow * 2 // Keep 2x window before compression
+	if len(c.recentTurns) <= maxTurns {
+		return
+	}
+
+	logging.ContextDebug("Sliding window overflow: %d turns > %d, compressing before prune", len(c.recentTurns), maxTurns)
+	if err := c.compress(ctx); err != nil {
+		logging.Get(logging.CategoryContext).Error("Overflow compression failed: %v", err)
+	}
+
+	// Last resort: if compression could not reduce the window (no kernel, or a
+	// compress() error), bound memory anyway rather than growing without limit.
 	if len(c.recentTurns) > maxTurns {
-		c.recentTurns = c.recentTurns[len(c.recentTurns)-maxTurns:]
+		dropped := len(c.recentTurns) - maxTurns
+		logging.Get(logging.CategoryContext).Warn(
+			"pruneRecentTurns: dropping %d uncompressed turns after failed compression", dropped)
+		c.recentTurns = c.recentTurns[dropped:]
 	}
 }

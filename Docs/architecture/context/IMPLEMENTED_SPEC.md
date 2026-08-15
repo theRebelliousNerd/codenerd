@@ -1,12 +1,14 @@
 # codeNERD Context — Implemented Spec (Deep-Dive)
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-15  
 > Status: Living Reference Document  
 > Language: Go  
 > Module path: `codenerd/internal/context`  
 > Primary sources: `internal/context/*.go`  
 > Scale: **9** non-test Go files ≈ **4,700** lines; **11** test files; package-owned Mangle: **none** (schemas/rules under `internal/core/defaults/`)  
-> Note: `internal/context/debug_program_ERROR.mg` is a **crash dump artifact**, not package logic.
+> Note: no `.mg` file lives in this package. The kernel's crash dump
+> (`debug_program_ERROR.mg`) is written to `.nerd/debug/` and is gitignored;
+> earlier revisions of this corpus placed it in the package tree.
 
 ## 1. Overview
 
@@ -86,8 +88,8 @@ user input → perception → user_intent → kernel next_action
 | Campaign / issue / back-ref contexts | **Implemented** | Setters + auto-refresh from kernel in compressor |
 | Token budget + hard limit | **Implemented** | `tokens.go`; `ErrContextWindowExceeded` |
 | Sliding window + rolling summary | **Implemented** | `compressor_turns.go` |
-| Observation-masked summary (C3) | **Partial** | Asserts age categories; summary is atom/simple path (LLM `generateSummary` exists but compress path uses simple) |
-| Kernel `should_include_context` path | **Implemented** | Fallback to Go if empty/error |
+| Observation-masked summary (C3) | **Implemented** | Asserts age categories, queries `should_mask_observation` + `should_preserve_reasoning`, and drops observation atoms for masked turns (`generateObservationMaskedSummary`). LLM `generateSummary` remains available but unused by `compress()` |
+| Kernel `should_include_context` path | **Implemented** | Entities resolved against fact arguments; falls back to Go when the query errors, returns nothing, or resolves to nothing. Split tracked by `SelectionStats` |
 | Fact serializer + corpus order | **Implemented** | `serializer.go` |
 | Compressed state persist/load | **Implemented** | JSON + `store.LocalStore` hooks |
 | Context feedback store | **Implemented** | SQLite; wired at chat boot |
@@ -115,7 +117,6 @@ internal/context/
   feedback_store.go          # ContextFeedbackStore (SQLite)
   types.go                   # Config + compressed context types
   README.md                  # package overview (may lag corpus)
-  debug_program_ERROR.mg     # crash dump only — ignore as design source
   *_test.go                  # unit/race/feedback/serializer tests
 ```
 
@@ -260,6 +261,27 @@ Mangle derives:
 - `should_preserve_reasoning` for any categorized turn  
 
 Age calculation uses **`c.turnNumber - turn.TurnNumber`** (fixed from a slice-length bug that kept everything “recent”).
+
+Go consumes both. `maskedObservationTurns()` reads the mask set and *intersects it
+with* `should_preserve_reasoning`: a turn the kernel marks for masking but not for
+reasoning preservation is left unmasked, because that combination means the rules
+drifted apart and the safe failure is to keep more, not less.
+
+`generateObservationMaskedSummary` then emits, per turn:
+
+| Atom class | Masked turn | Unmasked turn |
+|------------|-------------|---------------|
+| `IntentAtom`, `FocusAtoms`, `ActionAtoms` (reasoning) | kept | kept (intent) |
+| `ResultAtoms` (observations) | dropped, replaced by a one-line marker | first 3 kept |
+
+With an empty mask set the output is byte-identical to `generateSimpleSummary`, so
+a kernel that derives nothing degrades instead of losing history. Masked counts are
+persisted on `HistorySegment.MaskedTurns` / `RollingSummary.TotalMaskedTurns`.
+
+**Historical defect:** `assertTurnAgeCategories` appended a clause terminator that
+`core.ParseFactString` adds itself, so every assertion failed to parse and the error
+was discarded. No `turn_age_category` fact ever reached the kernel and C3 masking
+was dead in production while appearing wired.
 
 ### 5.5 CompressedContext layout (LLM block)
 
@@ -541,11 +563,12 @@ Session IDs:
 
 ## 19. Honesty notes
 
-1. Package `README.md` still says “December 2024 / Architecture 2.0.0” and 128k default — **code** defaults to **200k**. Prefer this corpus + `types.go`.  
-2. `generateSummary` (LLM) is **not** the path taken by `compress()` today — C3 simple/atom summary is.  
-3. Kernel path and Go path coexist; full replacement is incomplete (NERD-EVOLVE markers).  
+1. Package `README.md` is aligned with the code (200k default, current file list).  
+2. `generateSummary` (LLM) is **not** the path taken by `compress()` today — the C3 observation-masked atom summary is.  
+3. Kernel path and Go path coexist; full replacement is incomplete (NERD-EVOLVE markers). `GetSelectionStats()` measures which one actually ran.  
 4. Token counts are **estimates**, not provider tokenizer truth.  
-5. `debug_program_ERROR.mg` in this directory is **not** design documentation.
+5. No `.mg` file lives in this package; `debug_program_ERROR.mg` is a kernel crash dump under `.nerd/debug/`.  
+6. `Compressor.GetActivationScores()` is **not** called by the JIT prompt compiler — `prompt.CompilationContext.ActivatedFacts` is never populated. That edge is documented as intended but is currently dead.
 
 ---
 

@@ -258,6 +258,31 @@ func (v *VirtualStore) emitToolAndRoutingEvents(req ActionRequest, result Action
 		})
 	}
 
+	// Post-operation summary for the OperationSummaries flag. Gated inside the
+	// manager, so this is a nil check plus a flag read when the feature is off.
+	outcome := "Success"
+	details := result.Output
+	if !result.Success {
+		outcome = "Failed"
+		details = result.Error
+	}
+	if len(details) > 400 {
+		details = details[:397] + "..."
+	}
+	transparency.RecordOperation(types.OperationRecord{
+		Operation: verb,
+		Outcome:   outcome,
+		Duration:  dur,
+		Details:   details,
+		Source:    req.ActionID,
+		FilesAffected: func() []string {
+			if strings.TrimSpace(req.Target) == "" {
+				return nil
+			}
+			return []string{req.Target}
+		}(),
+	})
+
 	if gbus != nil {
 		summary := label
 		if !result.Success {

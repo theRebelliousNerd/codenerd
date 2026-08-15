@@ -1103,6 +1103,7 @@ func repeatChar(c rune, n int) string {
 	}
 	return string(result)
 }
+
 // campaignOutcome converts the orchestrator result into the command's
 // error return. A campaign that did not finish must not exit 0: "paused
 // because time ran out" and "completed" are different outcomes and a
@@ -1125,7 +1126,6 @@ func campaignOutcome(runErr error, ctxErr error, timeout time.Duration) error {
 	}
 	return fmt.Errorf("campaign failed: %w", runErr)
 }
-
 
 // findLatestPausableCampaign returns the most recently updated campaign that is
 // not terminal, plus its on-disk JSON path.

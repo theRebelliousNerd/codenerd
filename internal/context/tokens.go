@@ -15,10 +15,29 @@ import (
 // These utilities provide token estimation for context budget management.
 // The heuristic is calibrated for Claude's tokenizer (~4 characters per token).
 
+// TokenEstimator turns text into a token count. The default implementation is
+// the chars-per-token heuristic below; a provider-aligned adapter (a real BPE
+// tokenizer for the active model) can be substituted without touching any of
+// the budgeting call sites, which all funnel through CountString.
+//
+// Implementations must be safe for concurrent use: a single TokenCounter is
+// shared across the compressor, the activation engine's budget selection, and
+// the context block builder.
+type TokenEstimator interface {
+	// EstimateTokens returns the token count for s. It must never panic; a
+	// tokenizer that cannot handle the input should fall back to an estimate.
+	EstimateTokens(s string) int
+}
+
 // TokenCounter provides token counting functionality.
 type TokenCounter struct {
-	// Calibration factor (characters per token)
+	// Calibration factor (characters per token), used when estimator is nil.
 	charsPerToken float64
+
+	// estimator, when set, replaces the heuristic. Set once at construction
+	// time via NewTokenCounterWithEstimator; never mutated afterwards, so no
+	// lock is needed on the read path.
+	estimator TokenEstimator
 }
 
 // NewTokenCounter creates a new token counter with default calibration.
@@ -28,10 +47,38 @@ func NewTokenCounter() *TokenCounter {
 	}
 }
 
+// NewTokenCounterWithEstimator creates a counter backed by a provider-aligned
+// tokenizer. Fact/turn structure overheads still come from the heuristic model
+// — the estimator only replaces raw string counting, which is where the
+// heuristic's error actually lives. A nil estimator yields the default counter.
+func NewTokenCounterWithEstimator(est TokenEstimator) *TokenCounter {
+	tc := NewTokenCounter()
+	tc.estimator = est
+	return tc
+}
+
+// CharsPerTokenEstimator is the default heuristic exposed as a TokenEstimator so
+// adapters can wrap or compare against it.
+type CharsPerTokenEstimator struct {
+	CharsPerToken float64
+}
+
+// EstimateTokens implements TokenEstimator.
+func (e CharsPerTokenEstimator) EstimateTokens(s string) int {
+	ratio := e.CharsPerToken
+	if ratio <= 0 {
+		ratio = 4.0
+	}
+	return int(float64(utf8.RuneCountInString(s)) / ratio)
+}
+
 // CountString estimates tokens in a string.
 func (tc *TokenCounter) CountString(s string) int {
 	if s == "" {
 		return 0
+	}
+	if tc.estimator != nil {
+		return tc.estimator.EstimateTokens(s)
 	}
 	// Use rune count for proper unicode handling
 	runeCount := utf8.RuneCountInString(s)

@@ -295,7 +295,6 @@ var autopoiesisStatusCmd = &cobra.Command{
 		corrections, _ := cortex.Kernel.Query("correction_pattern")
 		fmt.Printf("%d patterns\n", len(corrections))
 
-
 		// Check if orchestrator is active
 		if cortex.Orchestrator != nil {
 			fmt.Println("\nOrchestrator: Active")

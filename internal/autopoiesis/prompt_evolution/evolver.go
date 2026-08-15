@@ -31,7 +31,17 @@ type EvolverConfig struct {
 	// ConfidenceThreshold is the threshold for auto-promoting atoms
 	ConfidenceThreshold float64 `json:"confidence_threshold"`
 
-	// AutoPromote enables automatic promotion of successful atoms
+	// AutoPromote enables automatic promotion of successful atoms.
+	//
+	// Default false: a promoted atom is spliced into the system prompt of
+	// every subsequent shard invocation, so promotion is an edit to the
+	// agent's own instructions made by the agent, on the evidence of a
+	// ConfidenceThreshold that a handful of samples can satisfy. The pending
+	// queue plus PromoteAtom/RejectAtom is the review surface, and the sibling
+	// learning-candidate pipeline already defaults to
+	// LearningCandidateAutoPromote=false for the same reason
+	// (internal/shards/system/perception.go). Operators who want the closed
+	// loop opt in.
 	AutoPromote bool `json:"auto_promote"`
 
 	// EnableStrategies enables the SPL strategy database
@@ -51,7 +61,7 @@ func DefaultEvolverConfig() *EvolverConfig {
 		EvolutionInterval:       10 * time.Minute,
 		MaxAtomsPerEvolution:    3,
 		ConfidenceThreshold:     0.7,
-		AutoPromote:             true,
+		AutoPromote:             false, // human-in-the-loop by default; see AutoPromote doc
 		EnableStrategies:        true,
 
 		StrategyRefineThreshold: 10,
