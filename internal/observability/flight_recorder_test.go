@@ -164,6 +164,14 @@ func TestDumpFlightRecord_WriteError(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("chmod-based write denial is not reliable on Windows")
 	}
+	// Root bypasses the permission bits entirely, so a 0500 directory is still
+	// writable and DumpFlightRecord correctly returns no error. The assertion
+	// is about the error path, not about privilege, so skip rather than assert
+	// something untrue of the environment. Containers and CI images routinely
+	// run as UID 0.
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod-based write denial does not apply")
+	}
 
 	resetFlightRecorder(t)
 	t.Cleanup(func() { _ = StopFlightRecorder() })

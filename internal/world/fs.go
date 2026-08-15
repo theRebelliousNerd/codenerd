@@ -35,11 +35,22 @@ func NewScanner() *Scanner {
 // path is returned with separators normalized to forward slashes, which is
 // still strictly more portable than a backslash-laden absolute path on
 // Windows.
+// The separator rewrite is deliberately NOT filepath.ToSlash: that converts
+// os.PathSeparator, so it is a no-op off Windows and a Windows-shaped path
+// arriving on a Linux host kept its backslashes. Fact identity then differed
+// between the full and incremental scanners for the same file, so incremental
+// updates asserted a second, non-matching identity instead of replacing the
+// first.
 func canonicalScanPath(root, path string) string {
 	if rel, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(rel, "..") {
-		return filepath.ToSlash(rel)
+		return toSlashAlways(rel)
 	}
-	return filepath.ToSlash(path)
+	return toSlashAlways(path)
+}
+
+// toSlashAlways normalizes path separators on every platform.
+func toSlashAlways(p string) string {
+	return strings.ReplaceAll(p, `\`, "/")
 }
 
 // NewScannerWithConfig creates a new filesystem Scanner with custom config.
