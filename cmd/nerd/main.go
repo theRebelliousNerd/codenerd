@@ -313,6 +313,7 @@ func init() {
 		regressionCmd,
 		featuresCmd,
 		snapshotCmd,
+		contextStatsCmd,
 	)
 
 	// Session management commands
