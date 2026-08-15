@@ -71,6 +71,21 @@ func (p *TreeSitterParser) ParseGo(path string, content []byte) ([]Fact, error) 
 	return facts, nil
 }
 
+// childOfType returns the first named child of n with the given node type, or
+// nil. Tree-sitter distinguishes a node's TYPE from the FIELD its parent binds
+// it to, and a grammar is free to give a child a type and no field —
+// package_clause -> package_identifier is exactly that shape. Asking
+// ChildByFieldName for a type name is not an error; it is a silent nil, which
+// is how a whole extraction branch went dead without anything failing.
+func childOfType(n *sitter.Node, want string) *sitter.Node {
+	for i := 0; i < int(n.NamedChildCount()); i++ {
+		if c := n.NamedChild(i); c != nil && c.Type() == want {
+			return c
+		}
+	}
+	return nil
+}
+
 // extractGoSymbols walks the Go AST and extracts symbols
 func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content string) []Fact {
 	var facts []Fact
@@ -87,7 +102,13 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 
 		switch nodeType {
 		case "package_clause":
-			nameNode := n.ChildByFieldName("package_identifier")
+			// package_identifier is a node TYPE, not a field name, so
+			// ChildByFieldName("package_identifier") returned nil on every Go
+			// file ever parsed and this branch never emitted a single fact.
+			// The tree-sitter Go grammar gives package_clause an unnamed
+			// "package" keyword child followed by the identifier, and names
+			// neither, so the identifier has to be found by type.
+			nameNode := childOfType(n, "package_identifier")
 			if nameNode != nil {
 				name := getText(nameNode)
 				id := fmt.Sprintf("package:%s", name)
