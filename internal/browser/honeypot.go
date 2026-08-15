@@ -505,11 +505,19 @@ func hasBaitToken(value string) bool {
 	if value == "" {
 		return false
 	}
-	for _, token := range strings.FieldsFunc(value, func(r rune) bool {
+	tokens := strings.FieldsFunc(value, func(r rune) bool {
 		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9')
-	}) {
-		if honeypotBaitTokens[token] {
-			return true
+	})
+	// Windows of up to three adjacent tokens are joined before matching so
+	// "/do-not-click" and "/do_not_follow" read the same as "/donotclick".
+	// Whole-token matching (rather than substring) keeps "/trapani" clean.
+	for i := range tokens {
+		joined := ""
+		for width := 0; width < 3 && i+width < len(tokens); width++ {
+			joined += tokens[i+width]
+			if honeypotBaitTokens[joined] {
+				return true
+			}
 		}
 	}
 	return false

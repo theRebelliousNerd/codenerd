@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -124,9 +125,17 @@ type CallEdge struct {
 	Callee string `json:"callee"`
 }
 
+// FactQuerier is the entire kernel surface the holographic provider needs:
+// read-only predicate queries. Depending on *core.RealKernel here forced every
+// caller (and every test) to build a full kernel to ask for context, and made
+// the provider look like it could mutate the world model when it never does.
+type FactQuerier interface {
+	Query(predicate string) ([]core.Fact, error)
+}
+
 // HolographicProvider creates rich context for code analysis.
 type HolographicProvider struct {
-	kernel  *core.RealKernel
+	kernel  FactQuerier
 	workDir string
 
 	regexCache   map[string][]*regexp.Regexp
@@ -134,12 +143,32 @@ type HolographicProvider struct {
 }
 
 // NewHolographicProvider creates a new holographic context provider.
-func NewHolographicProvider(kernel *core.RealKernel, workDir string) *HolographicProvider {
+// kernel may be nil (context degrades to filesystem-only analysis).
+func NewHolographicProvider(kernel FactQuerier, workDir string) *HolographicProvider {
 	return &HolographicProvider{
-		kernel:     kernel,
+		kernel:     normalizeQuerier(kernel),
 		workDir:    workDir,
 		regexCache: make(map[string][]*regexp.Regexp),
 	}
+}
+
+// normalizeQuerier flattens a typed-nil pointer to a nil interface. Callers
+// hold a *core.RealKernel that may be nil; stored in an interface that is a
+// NON-nil interface holding a nil pointer, so `h.kernel == nil` would be false
+// and the first Query would panic. Narrowing the dependency must not turn a
+// graceful degradation path into a crash.
+func normalizeQuerier(q FactQuerier) FactQuerier {
+	if q == nil {
+		return nil
+	}
+	v := reflect.ValueOf(q)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan:
+		if v.IsNil() {
+			return nil
+		}
+	}
+	return q
 }
 
 // GetContext generates complete holographic context for a file.

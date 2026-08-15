@@ -412,6 +412,8 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		DirectoryCount: dirCount,
 		Duration:       time.Since(start),
 	}
+	cache.LogStats("incremental")
+
 	globals := s.deriveSnapshotGlobals(root, currentFiles, newFacts)
 	res.NewFacts = append(res.NewFacts, globals.facts...)
 	res.ProjectLanguage = globals.projectLanguage

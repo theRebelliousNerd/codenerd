@@ -337,7 +337,7 @@ func allArgsEqual(a, b types.Fact) bool {
 // a mock that silently stops satisfying the interface it doubles is how test
 // suites end up exercising an obsolete contract.
 var (
-	_ types.Kernel           = (*MockKernel)(nil)
-	_ types.KernelTransactor = (*MockKernel)(nil)
+	_ types.Kernel            = (*MockKernel)(nil)
+	_ types.KernelTransactor  = (*MockKernel)(nil)
 	_ types.KernelTransaction = (*mockTx)(nil)
 )

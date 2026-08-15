@@ -24,6 +24,38 @@ type sessionFactBudget struct {
 	asserted  int
 	dropped   int
 	saturated bool
+	// tracked holds the live epoch's facts so they can be retracted when the
+	// epoch retires. It is only populated when a retractor is wired, because
+	// the retained copy costs memory proportional to the epoch budget and is
+	// pure waste to a sink that cannot remove anything.
+	tracked []mangle.Fact
+}
+
+// FactRetractor removes facts a previous epoch asserted. The plain EngineSink
+// is append-only: the browser has no authority to remove facts from a store it
+// does not own, so real collection is opt-in and supplied by the owner.
+type FactRetractor interface {
+	RetractFacts(facts []mangle.Fact) error
+}
+
+// SetFactRetractor enables real garbage collection of retired epochs.
+//
+// Without it, RollSessionEpoch only publishes the watermark and consumers are
+// expected to scope their own queries; with it, the previous page's DOM,
+// network, and interaction facts are actually removed when the page goes away.
+func (m *SessionManager) SetFactRetractor(retractor FactRetractor) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.retractor = retractor
+}
+
+func (m *SessionManager) factRetractor() FactRetractor {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.retractor
 }
 
 // SessionFactStats reports the live epoch and the event-stream volume the
@@ -78,8 +110,20 @@ func (m *SessionManager) RollSessionEpoch(sessionID string) int64 {
 	budget.asserted = 0
 	budget.dropped = 0
 	budget.saturated = false
+	retired := budget.tracked
+	budget.tracked = nil
 	epoch := budget.epoch
 	m.budgetMu.Unlock()
+
+	if len(retired) > 0 {
+		if retractor := m.factRetractor(); retractor != nil {
+			if err := retractor.RetractFacts(retired); err != nil {
+				logging.BrowserWarn("[session:%s] retiring epoch %d left %d facts behind: %v", sessionID, epoch-1, len(retired), err)
+			} else {
+				logging.BrowserDebug("[session:%s] collected %d facts from epoch %d", sessionID, len(retired), epoch-1)
+			}
+		}
+	}
 
 	now := time.Now()
 	if err := m.addFacts([]mangle.Fact{{
@@ -111,6 +155,9 @@ func (m *SessionManager) addStreamFacts(sessionID string, facts []mangle.Fact) e
 	if limit < 0 || sessionID == "" {
 		return m.addFacts(facts)
 	}
+	// Read before taking budgetMu: nothing may acquire the manager lock while
+	// holding the budget lock, or a concurrent SetFactQuerier would deadlock.
+	collecting := m.factRetractor() != nil
 
 	m.budgetMu.Lock()
 	budget := m.budgetFor(sessionID)
@@ -137,6 +184,9 @@ func (m *SessionManager) addStreamFacts(sessionID string, facts []mangle.Fact) e
 		return nil
 	}
 	budget.asserted += len(facts)
+	if collecting {
+		budget.tracked = append(budget.tracked, facts...)
+	}
 	m.budgetMu.Unlock()
 
 	return m.addFacts(facts)

@@ -550,26 +550,40 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 		return err
 	}
 
-	var nodes []struct {
-		ID     string            `json:"id"`
-		Tag    string            `json:"tag"`
-		Text   string            `json:"text"`
-		Parent string            `json:"parent"`
-		Attrs  map[string]string `json:"attrs"`
-		Layout struct {
-			X       float64 `json:"x"`
-			Y       float64 `json:"y"`
-			Width   float64 `json:"width"`
-			Height  float64 `json:"height"`
-			Visible bool    `json:"visible"`
-		} `json:"layout"`
-		Styles map[string]string `json:"styles"`
-	}
+	var nodes []domSnapshotNode
 	if err := json.Unmarshal(raw, &nodes); err != nil {
 		return err
 	}
 
-	now := time.Now()
+	facts := m.buildDOMFacts(sessionID, nodes, time.Now())
+	if budgeted {
+		return m.addStreamFacts(sessionID, facts)
+	}
+	return m.addFacts(facts)
+}
+
+// domSnapshotNode is one entry of the bounded DOM view the page script returns.
+type domSnapshotNode struct {
+	ID     string            `json:"id"`
+	Tag    string            `json:"tag"`
+	Text   string            `json:"text"`
+	Parent string            `json:"parent"`
+	Attrs  map[string]string `json:"attrs"`
+	Layout struct {
+		X       float64 `json:"x"`
+		Y       float64 `json:"y"`
+		Width   float64 `json:"width"`
+		Height  float64 `json:"height"`
+		Visible bool    `json:"visible"`
+	} `json:"layout"`
+	Styles map[string]string `json:"styles"`
+}
+
+// buildDOMFacts turns a decoded DOM view into the fact batch SnapshotDOM
+// asserts. It is separated from the page evaluation so the schema contract
+// (every predicate declared, every argument matching its declared bound type)
+// can be checked without a live browser.
+func (m *SessionManager) buildDOMFacts(sessionID string, nodes []domSnapshotNode, now time.Time) []mangle.Fact {
 	facts := make([]mangle.Fact, 0, len(nodes)*6+1)
 	for _, n := range nodes {
 		n.Text = m.redactor.SanitizeString(n.Text)
@@ -690,10 +704,7 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 		Args:      []any{sessionID, now.UnixMilli()},
 		Timestamp: now,
 	})
-	if budgeted {
-		return m.addStreamFacts(sessionID, facts)
-	}
-	return m.addFacts(facts)
+	return facts
 }
 
 func qualifyBrowserNode(sessionID, nodeID string) string {

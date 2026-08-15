@@ -499,9 +499,9 @@ var atomAssertBaseline = map[string][]string{
 	// Dead branches on kernel query results: the language/framework columns come
 	// back as plain strings, so the workspace summary renders without a language
 	// and --deep never finds a Go file.
-	"cmd/nerd/chat/helpers.go":         {atomAssertMsg, atomAssertMsg},
-	"cmd/nerd/chat/helpers_scan.go":    {atomAssertMsg},
-	"cmd/nerd/cmd_init_scan.go":        {atomAssertMsg},
+	"cmd/nerd/chat/helpers.go":           {atomAssertMsg, atomAssertMsg},
+	"cmd/nerd/chat/helpers_scan.go":      {atomAssertMsg},
+	"cmd/nerd/cmd_init_scan.go":          {atomAssertMsg},
 	"internal/world/incremental_scan.go": {atomAssertMsg, atomAssertMsg},
 	"internal/world/persist.go":          {atomAssertMsg},
 	// These two read facts built in-process by the dataflow extractor (which

@@ -43,6 +43,7 @@ func GetSessionContext(ctx context.Context) *SessionContext {
 // MangleAtom represents a Mangle name constant (starting with /).
 // This explicit type avoids ambiguity between strings and atoms.
 type MangleAtom string
+
 // MangleString represents an explicit Mangle string constant.
 // It always produces a string constant, never a name, whatever the value looks like.
 // It is the explicit counterpart to MangleAtom.
@@ -134,18 +135,65 @@ func (f Fact) String() string {
 		case int64:
 			args = append(args, fmt.Sprintf("%d", v))
 		case float64:
+			// %f, not %v or the AST renderer: mangle-go prints Float64(2.0) as
+			// "2", which re-parses as an int64. Keeping the decimal point is
+			// what makes a whole float survive a round trip through a .mg file.
 			args = append(args, fmt.Sprintf("%f", v))
+		case float32:
+			args = append(args, fmt.Sprintf("%f", float64(v)))
+		case time.Time:
+			// Quoted RFC3339Nano matches what ExtractString produces when the
+			// same argument is read back, so writer and reader agree.
+			args = append(args, fmt.Sprintf("%q", v.Format(time.RFC3339Nano)))
+		case time.Duration:
+			args = append(args, fmt.Sprintf("%q", v.String()))
 		case bool:
 			if v {
 				args = append(args, "/true")
 			} else {
 				args = append(args, "/false")
 			}
+		case map[string]any, []any, []string, []int, []int64, []float64:
+			// Containers must render the way ToAtom encodes them: as a quoted
+			// JSON string. The previous %v fallback emitted a bare `map[a:b]`,
+			// which is not merely lossy — it is not lexically valid Mangle, and
+			// this output is not display-only. northstar.RenderVisionMangle
+			// writes Fact.String() into a .mg file that the kernel loads at
+			// boot, so one container-valued fact would have made the whole
+			// generated file fail to parse.
+			args = append(args, quoteJSON(v))
 		default:
-			args = append(args, fmt.Sprintf("%v", v))
+			// Same reasoning as the container branch: whatever this is, it has
+			// to leave here as a single valid Mangle token. ToAtom rejects
+			// unknown types outright, but String cannot return an error, so it
+			// quotes instead of emitting a bare pointer address.
+			args = append(args, quoteJSONOrValue(v))
 		}
 	}
 	return fmt.Sprintf("%s(%s).", f.Predicate, strings.Join(args, ", "))
+}
+
+// quoteJSON renders a container as a quoted JSON string constant, matching what
+// ToAtom stores. A nil container encodes as "null", exactly as ToAtom does, so
+// the two renderings cannot disagree about an empty-vs-absent value.
+func quoteJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%q", fmt.Sprintf("%v", v))
+	}
+	return fmt.Sprintf("%q", string(b))
+}
+
+// quoteJSONOrValue renders an argument of unknown type as a quoted Mangle string
+// constant, preferring its JSON encoding. Values that JSON-encode to nothing
+// useful (pointers to unexported-only structs, funcs, channels) fall back to
+// their %v form — still quoted, because the one thing that must not happen is a
+// bare token that makes the whole fact unparseable.
+func quoteJSONOrValue(v any) string {
+	if b, err := json.Marshal(v); err == nil && len(b) > 0 && string(b) != "null" && string(b) != "{}" {
+		return fmt.Sprintf("%q", string(b))
+	}
+	return fmt.Sprintf("%q", fmt.Sprintf("%v", v))
 }
 
 // ToAtom converts a Fact to a Mangle AST Atom for direct store insertion.
@@ -279,13 +327,13 @@ func (f Fact) ToFact() Fact { return f }
 // Deprecated: prefer Kernel. Deprecation path (one step per release cycle, so
 // each step is independently revertible):
 //
-//	1. DONE — KernelFact becomes an alias for Fact, so the two APIs speak one
-//	   fact type and adapters stop copying slices to cross the boundary.
-//	2. NEXT — internal/autopoiesis switches its Orchestrator field to Kernel and
-//	   calls Assert/AssertBatch/Query directly. core.AutopoiesisBridge then has
-//	   no consumer except cmd/nerd/cmd_mcp_select.go's cliMCPKernel, which is a
-//	   genuine edge adapter (mcp declares its own KernelInterface) and stays.
-//	3. THEN — delete KernelInterface, the ToFact shim, and core.AutopoiesisBridge.
+//  1. DONE — KernelFact becomes an alias for Fact, so the two APIs speak one
+//     fact type and adapters stop copying slices to cross the boundary.
+//  2. NEXT — internal/autopoiesis switches its Orchestrator field to Kernel and
+//     calls Assert/AssertBatch/Query directly. core.AutopoiesisBridge then has
+//     no consumer except cmd/nerd/cmd_mcp_select.go's cliMCPKernel, which is a
+//     genuine edge adapter (mcp declares its own KernelInterface) and stays.
+//  3. THEN — delete KernelInterface, the ToFact shim, and core.AutopoiesisBridge.
 //
 // Step 2 is not taken here because it edits internal/autopoiesis; the import
 // graph already permits it (autopoiesis imports types today and Kernel adds no

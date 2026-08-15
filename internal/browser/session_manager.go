@@ -195,12 +195,19 @@ func (c Config) GetMaxEpochEventFacts() int {
 func DefaultConfig() Config {
 	sharedTabs := true
 	return Config{
-		Headless:             false,
-		ViewportWidth:        1920,
-		ViewportHeight:       1080,
-		NavigationTimeoutMs:  30000,
-		EventLoggingLevel:    "normal",
-		EnableDOMIngestion:   true,
+		Headless:            false,
+		ViewportWidth:       1920,
+		ViewportHeight:      1080,
+		NavigationTimeoutMs: 30000,
+		EventLoggingLevel:   "normal",
+		EnableDOMIngestion:  true,
+		// Research default. An agent diagnosing a page needs content-type,
+		// cache, CORS, and rate-limit headers to explain a failure, and the
+		// redactor strips credential values before anything reaches the kernel.
+		// The operator CLI overrides this to "off" (see cmd/nerd/cmd_browser.go):
+		// a human's own logged-in tabs are a credential surface an agent's
+		// diagnostic appetite does not justify touching.
+		HeaderIngestionMode:  HeaderIngestionRedacted,
 		EventThrottleMs:      100,
 		MultiTabDefault:      &sharedTabs,
 		MaxTabs:              32,
@@ -344,6 +351,7 @@ type SessionManager struct {
 	specCatalog  *browserspec.Catalog
 	pendingTabs  int
 	querier      FactQuerier
+	retractor    FactRetractor
 	budgetMu     sync.Mutex
 	budgets      map[string]*sessionFactBudget
 }

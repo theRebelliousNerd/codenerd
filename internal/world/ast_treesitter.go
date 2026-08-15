@@ -278,19 +278,30 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 			}
 
 		case "import_declaration":
-			for i := 0; i < int(n.NamedChildCount()); i++ {
-				spec := n.NamedChild(i)
-				if spec.Type() == "import_spec" {
-					pathNode := spec.ChildByFieldName("path")
-					if pathNode != nil {
-						importPath := strings.Trim(getText(pathNode), "\"")
-						facts = append(facts, Fact{
-							Predicate: "dependency_link",
-							Args:      []any{path, fmt.Sprintf("pkg:%s", importPath), importPath},
-						})
+			// A grouped `import ( ... )` nests its specs one level deeper, in an
+			// import_spec_list. Only scanning the declaration's direct children
+			// (as this did) therefore found imports solely in the rare
+			// single-line `import "x"` form, so almost every Go file in a real
+			// repo contributed no dependency_link at all.
+			var collectSpecs func(*sitter.Node)
+			collectSpecs = func(parent *sitter.Node) {
+				for i := 0; i < int(parent.NamedChildCount()); i++ {
+					child := parent.NamedChild(i)
+					switch child.Type() {
+					case "import_spec":
+						if pathNode := child.ChildByFieldName("path"); pathNode != nil {
+							importPath := strings.Trim(getText(pathNode), "\"")
+							facts = append(facts, Fact{
+								Predicate: "dependency_link",
+								Args:      []any{path, fmt.Sprintf("pkg:%s", importPath), importPath},
+							})
+						}
+					case "import_spec_list":
+						collectSpecs(child)
 					}
 				}
 			}
+			collectSpecs(n)
 		}
 
 		for i := 0; i < int(n.ChildCount()); i++ {
@@ -590,7 +601,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []any{id, "/class", visibility, path, signature},
+					Args:      []any{id, "/class", "/" + visibility, path, signature},
 				})
 			}
 		case "function_declaration":
@@ -609,7 +620,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []any{id, "/function", visibility, path, signature},
+					Args:      []any{id, "/function", "/" + visibility, path, signature},
 				})
 			}
 		case "lexical_declaration":
@@ -629,7 +640,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 							}
 							facts = append(facts, Fact{
 								Predicate: "symbol_graph",
-								Args:      []any{id, "/function", visibility, path, signature},
+								Args:      []any{id, "/function", "/" + visibility, path, signature},
 							})
 						}
 					}
@@ -703,7 +714,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []any{id, "/class", visibility, path, signature},
+					Args:      []any{id, "/class", "/" + visibility, path, signature},
 				})
 			}
 		case "function_declaration":
@@ -728,7 +739,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []any{id, "/function", visibility, path, signature},
+					Args:      []any{id, "/function", "/" + visibility, path, signature},
 				})
 			}
 		case "interface_declaration":
@@ -743,7 +754,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []any{id, "/interface", visibility, path, signature},
+					Args:      []any{id, "/interface", "/" + visibility, path, signature},
 				})
 			}
 		case "import_statement":

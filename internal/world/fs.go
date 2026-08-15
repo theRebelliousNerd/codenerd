@@ -467,6 +467,8 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 	logging.World("Directory scan completed: %d files, %d dirs, %d skipped dirs, cache hits=%d misses=%d, %d facts generated in %v",
 		result.FileCount, result.DirectoryCount, skippedDirs, cacheHits, cacheMisses, len(result.Facts), elapsed)
 
+	cache.LogStats("full-scan")
+
 	// Log language breakdown
 	if len(result.Languages) > 0 {
 		logging.WorldDebug("Language breakdown: %v", result.Languages)
