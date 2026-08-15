@@ -235,3 +235,9 @@ internal/campaign/log.txt
 # "C:\..." directory at the repo root on Linux. It is not a real path and must
 # never be committed; the agent tooling owns the underlying bug.
 C:\\*
+
+# Scratch probes. Agents and reviewers write throwaway kernel/derivation probes
+# as zz*_test.go by convention while mutation-testing; they are measurement
+# scaffolding, never a deliverable, and a stray `git add -A` should not be able
+# to land one. No tracked file has ever used this prefix.
+zz*_test.go
