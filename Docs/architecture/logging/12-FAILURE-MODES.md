@@ -60,7 +60,7 @@
 |--|--|
 | **Symptom** | Large `*_llm_io.log` or many category files |
 | **Cause** | `trace_llm_io` or broad category map at debug level |
-| **Mitigation** | Narrow categories; disable LLM I/O; delete old logs; no auto-rotation |
+| **Mitigation** | Narrow categories; disable LLM I/O; `max_log_file_mb` / `max_log_file_minutes` / `max_rotated_files` bound each sink within a run, and old run prefixes are swept at startup |
 
 ## FM8 — Secret leakage to disk
 
@@ -68,7 +68,7 @@
 |--|--|
 | **Symptom** | API keys / private code in log files |
 | **Cause** | Callers logging secrets; or `trace_llm_io` with secret-bearing prompts |
-| **Mitigation** | Code review; disable tracing; scrub files; future redaction |
+| **Mitigation** | Redaction is on by default for the LLM I/O trace (`redact.go`); category/audit lines are still the caller's responsibility, so do not pass secrets into log messages. `trace_llm_io_raw` disables redaction — treat any file produced under it as a credential |
 | **Severity** | High on shared machines |
 
 ## FM9 — Incomplete shutdown
@@ -76,8 +76,8 @@
 | | |
 |--|--|
 | **Symptom** | Rare truncated last lines; handles held until exit |
-| **Cause** | `CloseAll` without `CloseAudit` / `CloseLLMIOLogger` |
-| **Mitigation** | Process exit flushes OS buffers usually; call all three in orderly shutdown |
+| **Cause** | Historic: `CloseAll` closed only the category loggers |
+| **Mitigation** | Resolved — `CloseAll` closes categories, problems, audit and LLM I/O. `CloseAudit` / `CloseLLMIOLogger` remain for partial teardown; all are idempotent |
 
 ## FM10 — Level hides errors that are actually Debug
 
@@ -101,15 +101,15 @@
 |--|--|
 | **Symptom** | Parsers fail; greps for `[INFO]` miss |
 | **Cause** | `json_format: true` changes line shape |
-| **Mitigation** | Align tooling with format; note config.Format may not drive this package |
+| **Mitigation** | Align tooling with format. `format: "json"` and the legacy `json_format: true` both drive this package |
 
-## FM13 — Context/Request logger ignore JSON mode
+## FM13 — Context/Request logger ignore JSON mode (resolved)
 
 | | |
 |--|--|
-| **Symptom** | Mixed formats in same category file |
-| **Cause** | Context/Request paths always text |
-| **Mitigation** | Prefer `StructuredLog` when json_format on |
+| **Symptom** | Mixed formats in the same category file; a JSONL consumer silently dropped exactly the lines carrying correlation IDs |
+| **Cause** | Historic: Context/Request paths always emitted text |
+| **Mitigation** | Resolved — both emit `StructuredLogEntry` when the format is JSON (`req` + `fields`) |
 
 ## FM14 — Race on shared RequestLogger fields
 
@@ -119,13 +119,13 @@
 | **Cause** | Concurrent `WithField` on same instance |
 | **Mitigation** | One RequestLogger per goroutine or external sync |
 
-## FM15 — Stale date filename across midnight
+## FM15 — Stale filename across midnight (resolved)
 
 | | |
 |--|--|
-| **Symptom** | All events after midnight still in yesterday’s file |
-| **Cause** | Filename fixed at first `Get` for that category |
-| **Mitigation** | Restart process; or CloseAll + re-get (Once still limits re-init) |
+| **Symptom** | Historic: all events after midnight still in yesterday's file |
+| **Cause** | Filenames were date-prefixed and fixed at first `Get` |
+| **Mitigation** | Resolved — filenames use a per-run prefix, so the date boundary is meaningless; `Initialize` with a different workspace also rebinds cleanly |
 
 ## Failure mode summary table
 

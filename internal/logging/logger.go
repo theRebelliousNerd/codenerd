@@ -521,13 +521,22 @@ func callerSite() (string, int) {
 	frames := runtime.CallersFrames(pcs[:n])
 	for {
 		frame, more := frames.Next()
-		if frame.File != "" && !strings.Contains(filepath.ToSlash(frame.File), "/internal/logging/") {
+		if frame.File != "" && !isLoggingInternalFile(frame.File) {
 			return filepath.Base(frame.File), frame.Line
 		}
 		if !more {
 			return "", 0
 		}
 	}
+}
+
+// isLoggingInternalFile reports whether a frame belongs to this package's own
+// plumbing. Test files in this package are deliberately NOT plumbing: a test
+// that logs is a call site like any other, and treating it as internal would
+// walk the whole way out to testing.go.
+func isLoggingInternalFile(file string) bool {
+	slashed := filepath.ToSlash(file)
+	return strings.Contains(slashed, "/internal/logging/") && !strings.HasSuffix(slashed, "_test.go")
 }
 
 // Debug logs a debug message (only if level <= debug)

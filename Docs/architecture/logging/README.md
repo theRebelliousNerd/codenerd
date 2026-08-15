@@ -1,10 +1,10 @@
 # logging — Architecture Corpus (`internal/logging`)
 
-> Last verified against codebase: **2026-07-13**  
+> Last verified against codebase: **2026-08-15**  
 > Status: Living Reference Document  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/logging/`  
-> Scale: **4** non-test Go sources ≈ **2,034** lines; **5** test files ≈ **141** tests; **0** `.mg`
+> Scale: **9** non-test Go sources; **15** test files; **0** `.mg`
 
 ## Scope
 
@@ -52,10 +52,15 @@ Logging is **substrate telemetry**: it must never become the executive, never in
 
 ```
 internal/logging/
-  logger.go                 # Initialize, Category, Logger, Timer, RequestLogger
+  logger.go                 # Initialize/rebind, Category, Logger, Timer, RequestLogger
   logger_convenience.go     # Boot/Kernel/API/... Info/Debug/Warn/Error wrappers
   audit.go                  # AuditEvent, AuditLogger, Mangle fact generation
-  llm_io_logger.go          # Full LLM request/response dump
+  audit_reader.go           # read the audit JSONL back
+  audit_facts.go            # audit JSONL -> loadable .mg (offline forensics)
+  llm_io_logger.go          # Full LLM request/response dump (redacted)
+  redact.go                 # secret redaction at the log boundary
+  rotate.go                 # size/age rotation for every sink
+  fresh_run.go              # run prefixes + cross-run retention
   *_test.go                 # Unit + coverage-oriented tests
 ```
 
@@ -69,30 +74,56 @@ go test -race ./internal/logging/...
 Enable diagnostics in a workspace:
 
 ```json
-// .nerd/config.json
+// .nerd/config.json  — the same file config.LoadUserConfig reads
 {
   "logging": {
     "debug_mode": true,
     "level": "debug",
-    "trace_llm_io": false,
-    "json_format": false,
+    "format": "text",             // "json" for structured lines; "json_format": true is a legacy alias
+    "trace_llm_io": false,        // full prompt/response dump
+    "trace_llm_io_raw": false,    // disable secret redaction in that dump (unsafe)
     "categories": { "kernel": true, "session": true },
     "performance_sampling": 0.1,
-    "performance_thresholds_ms": { "default": 100, "kernel": 50 }
+    "performance_thresholds_ms": { "default": 100, "kernel": 50 },
+    "max_log_file_mb": 32,        // rotate a segment past this size (-1 = never)
+    "max_log_file_minutes": 0,    // rotate a segment older than this (0 = off)
+    "max_rotated_files": 3        // archived segments kept per file
   }
 }
 ```
 
-Artifacts land under:
+Boot can inject an already-parsed config with `logging.ApplyConfig(logging.Config{...})`
+instead of letting this package re-read the file.
+
+Artifacts land under `.nerd/logs/`, one set per run (`<runPrefix>_` = sortable UTC
+timestamp + pid + counter; the newest runs are kept, older ones swept at startup):
 
 ```
 .nerd/logs/
-  2026-07-13_boot.log
-  2026-07-13_kernel.log
-  2026-07-13_audit.log
-  2026-07-13_llm_io.log      # only if trace_llm_io
-  2026-07-13_performance.log
+  <run>_boot.log
+  <run>_problems.log         # every WARN and ERROR from every category — start here
+  <run>_kernel.log
+  <run>_audit.log            # JSONL, one Mangle fact per line
+  <run>_llm_io.log           # only if trace_llm_io
+  <run>_performance.log
+  <run>_kernel.<stamp>.log   # rotated segment, expires with its run
 ```
+
+## Operator playbook
+
+`nerd audit playbook` prints this from the CLI.
+
+| Want | Do |
+|------|----|
+| See what failed | `<run>_problems.log`, or `nerd logs` for a grouped view |
+| Query what happened | `nerd audit facts --out run.mg` (offline `.mg`: Decls + deduped facts) |
+| Only safety verdicts | `nerd audit facts --event safety_allow --event safety_block` |
+| Debug a prompt | `trace_llm_io: true`, read `<run>_llm_io.log` (secrets redacted) |
+| See a redacted value | `trace_llm_io_raw: true` for one run, then delete the file |
+| Machine-readable lines | `"format": "json"` — every line becomes a `StructuredLogEntry` |
+
+Audit logging is gated on `debug_mode`: an empty `.nerd/logs` almost always means
+diagnostics are off, not that nothing happened.
 
 ## Quality bar
 

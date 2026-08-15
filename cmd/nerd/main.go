@@ -314,6 +314,7 @@ func init() {
 		featuresCmd,
 		snapshotCmd,
 		contextStatsCmd,
+		auditCmd,
 	)
 
 	// Session management commands
