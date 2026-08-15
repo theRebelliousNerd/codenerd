@@ -1,6 +1,6 @@
 # init — Failure Modes
 
-> Last verified: 2026-08-09
+> Last verified: 2026-08-15
 
 ## Hard failures (abort Initialize)
 
@@ -20,6 +20,8 @@
 | Scan or LoadFacts fails | FS/kernel issue | Failure recorded; profile may be incomplete |
 | Profile/facts/prompt stores fail | I/O or DB | Failure recorded |
 | Preferences/session/tools/registry/prompt sync fail | I/O or DB | Failure recorded |
+| Existing `preferences.json` is corrupt | Hand edit / truncated write | Failure recorded; the file is **not** overwritten so the user can recover it |
+| Project atom corpus ingest fails | `prompts/corpus.db` I/O | Failure recorded; project atoms would otherwise be silently invisible to the JIT compiler |
 | Structural validation fails, is invalid, or finds zero shard DBs | Corrupt/incomplete KB output | Failure recorded; `Success=false` |
 
 ## Soft failures (warnings, continue)
@@ -30,16 +32,19 @@
 | Agent KB create fails | Per-agent | Agent status failed; others continue |
 | Strategic knowledge / LLM call fails | Provider, timeout, bad JSON | Warning plus aggregate provider/model failure counts |
 | Core/campaign KB fails | Store | Warning |
-| Tool generation | Stub always “empty” | Message, not failure |
+| Interactive agent selection | Closed/failed stdin | Warning; the recommended set is kept, init never blocks on a prompt |
+| Agent selection persistence | Corrupt `preferences.json` | Warning; the corrupt file is left intact for recovery |
 
 ## Detection failure modes
 
 | Mode | Symptom | Mitigation |
 |------|---------|------------|
 | Language `unknown` | Generic SecurityAuditor/TestArchitect only | Add known config file; fix monorepo layout |
-| Framework empty | Miss WebAPI/Frontend experts | Dep detection may still catch react/gin names |
+| Framework empty | Miss WebAPI/Frontend experts and `/framework` prompt atoms | Only when no dependency matches `frameworkCandidates`; add the dep to the table |
 | Lockfile unreadable | Miss transitive deps | Ensure lockfile present/parseable |
 | Wrong primary language in monorepo | Max config-file count wins | Reorganize or force profile edit |
+| Module deeper than `maxManifestDepth` (4) | Its dependencies never reach the profile | Hoist the module or raise the bound |
+| More than `maxManifestFiles` (256) manifests | Discovery stops early | Prune generated/example trees |
 
 ## Research / network
 

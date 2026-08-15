@@ -1,6 +1,6 @@
 # init — Implemented Spec (Deep-Dive)
 
-> Last verified against codebase: 2026-08-09
+> Last verified against codebase: 2026-08-15
 > Status: Living Reference Document  
 > Language: Go  
 > Package: `internal/init`  
@@ -75,12 +75,12 @@ user input → perception → user_intent → kernel next_action
 | Strategic knowledge | **Implemented** | Requires LLM; soft-fail |
 | Doc ingestion campaign | **Implemented** | `strategic_documents.go` helpers |
 | Static tools JSON | **Implemented** | Language/framework catalogs |
-| Dynamic tool generation | **Stub** | JIT/Ouroboros message |
+| Dynamic tool generation | **Implemented (measure-only)** | `determineRequiredTools` -> `missing_tool_for` facts in `profile.mg`; the kernel decides, Ouroboros builds on demand |
 | Preferences + session seed | **Implemented** | Hint-driven prefs |
 | Prompt reload sync | **Implemented** | `prompt.ReloadAllPrompts` |
 | Validation + backups | **Implemented** | Schema v4, RequiredTables |
-| Interactive selection | **Library** | Not wired in `runInit` |
-| Type U agents | **Library** | Parse/validate; CLI merge incomplete |
+| Interactive selection | **Implemented** | Phase 6 `curateAgents`; on by default, gated on a real terminal, `--no-interactive` opts out |
+| Type U agents | **Implemented** | `nerd init --define-agent` -> `InitConfig.TypeUAgents` -> phase 6 merge |
 | ETA / progress | **Implemented** | Channel optional |
 | Gemini grounding | **Implemented** | When client is Gemini |
 
@@ -111,7 +111,7 @@ internal/init/
   validation.go            # post-init DB validation
   eta_tracker.go           # phase ETA
   *_test.go                # unit/coverage suites
-  debug_program_ERROR.mg   # crash dump artifact (not product schema)
+  agents_curation.go       # Type U merge + interactive curation wiring
 ```
 
 ### 3.2 Largest non-test sources
@@ -133,6 +133,7 @@ internal/init/
 | `jit_integration.go` | 261 | JIT atoms |
 | `shared_kb.go` | 195 | Shared pool |
 | `typeu_agents.go` | 178 | Type U |
+| `agents_curation.go` | 170 | Type U merge + curation gate |
 | `eta_tracker.go` | 158 | ETA |
 
 ---
@@ -353,11 +354,9 @@ Authoritative gap matrix: [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
 
 Top residual issues:
 
-1. Interactive + Type U CLI wiring incomplete.
-2. Tool generation stub.
-3. Project prompt atoms may not reach JIT corpus.db.
-4. Framework field often under-populated.
-5. Legacy population scores are atom-count proxies; a semantic metric is not implemented.
+1. Session persistence types (`SessionState`, `ChatMessage`, `SessionHistory`) still live in `init` although they are chat runtime concerns.
+2. Legacy population scores are atom-count proxies; a semantic metric is not implemented.
+3. `nerd scan` still reloads `profile.mg` rather than re-running the profile detectors.
 
 ---
 

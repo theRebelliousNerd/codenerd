@@ -57,9 +57,10 @@ Operator prerequisites (embeddings):
 
   With the default ollama provider, 'ollama serve' must be reachable at the
   endpoint and the model must already be pulled ('ollama pull embeddinggemma:300m');
-  a bare "embeddinggemma" tag 404s on most installs. Embedding failure is a hard
-  error, not a degraded mode: an empty vector index would silently return no
-  knowledge for the rest of the workspace's life.
+  a bare "embeddinggemma" tag 404s on most installs.
+
+  Embedding failure is a hard error, not a degraded mode: an empty vector index
+  would silently return no knowledge for the rest of the workspace's life.
 
   The binary must also be built with CGO enabled (sqlite-vec is a C extension).
 

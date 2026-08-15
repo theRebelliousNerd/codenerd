@@ -67,7 +67,9 @@ func findManifestFiles(workspace string, names []string, maxDepth int) []string 
 			if manifestSkipDirs[name] || strings.HasPrefix(name, ".") {
 				return filepath.SkipDir
 			}
-			if manifestDepth(root, path) >= maxDepth {
+			// Manifests *inside* a directory at exactly maxDepth still count;
+			// only its subdirectories are out of range.
+			if manifestDepth(root, path) > maxDepth {
 				return filepath.SkipDir
 			}
 			return nil

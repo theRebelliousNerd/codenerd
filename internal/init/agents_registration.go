@@ -287,14 +287,46 @@ func projectToolNeedFacts(toolDefs []ToolGenerationRequest) []string {
 	facts := make([]string, 0, len(toolDefs))
 	seen := make(map[string]bool, len(toolDefs))
 	for _, toolDef := range toolDefs {
-		capability := sanitizeForMangle(toolDef.Name)
-		if capability == "" || capability == "unknown" || seen[capability] {
+		capability := sanitizeToolCapability(toolDef.Name)
+		if capability == "" || seen[capability] {
 			continue
 		}
 		seen[capability] = true
 		facts = append(facts, fmt.Sprintf(`missing_tool_for(/project_init, /%s).`, capability))
 	}
 	return facts
+}
+
+// sanitizeToolCapability renders a tool name as a Mangle name constant.
+//
+// sanitizeForMangle is not used here because it drops '_' entirely, turning
+// go_build_tool into /gobuildtool. Underscores are legal in name constants —
+// the Ouroboros schema's own examples are /exec_arbitrary and
+// /network_unconstrained — and the capability name is what an operator reads in
+// a kernel query, so it has to stay legible.
+func sanitizeToolCapability(name string) string {
+	var b strings.Builder
+	lastUnderscore := true // suppresses a leading underscore
+	for _, c := range strings.ToLower(strings.TrimSpace(name)) {
+		switch {
+		case (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'):
+			b.WriteRune(c)
+			lastUnderscore = false
+		case c == '_' || c == '-' || c == ' ' || c == '.' || c == '/':
+			if !lastUnderscore {
+				b.WriteRune('_')
+				lastUnderscore = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return ""
+	}
+	if out[0] >= '0' && out[0] <= '9' {
+		out = "n" + out
+	}
+	return out
 }
 
 // determineRequiredTools determines which tools to generate based on project technologies.
