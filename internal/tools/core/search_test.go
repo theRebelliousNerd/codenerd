@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -33,7 +32,7 @@ func TestGlobTool_Definition(t *testing.T) {
 func TestGlobTool_Execute_MissingPattern(t *testing.T) {
 	t.Parallel()
 
-	_, err := executeGlob(context.Background(), map[string]any{})
+	_, err := executeGlob(wsCtx(t.TempDir()), map[string]any{})
 	if err == nil {
 		t.Error("expected error for missing pattern")
 	}
@@ -48,7 +47,7 @@ func TestGlobTool_Execute_Success(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "file2.go"), []byte(""), 0644)
 	os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte(""), 0644)
 
-	result, err := executeGlob(context.Background(), map[string]any{
+	result, err := executeGlob(wsCtx(tmpDir), map[string]any{
 		"pattern":   "*.go",
 		"base_path": tmpDir,
 	})
@@ -74,7 +73,7 @@ func TestGlobTool_Execute_NoMatches(t *testing.T) {
 	tmpDir := t.TempDir()
 	os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte(""), 0644)
 
-	result, err := executeGlob(context.Background(), map[string]any{
+	result, err := executeGlob(wsCtx(tmpDir), map[string]any{
 		"pattern":   "*.go",
 		"base_path": tmpDir,
 	})
@@ -98,7 +97,7 @@ func TestGlobTool_Execute_Recursive(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "root.go"), []byte(""), 0644)
 	os.WriteFile(filepath.Join(subDir, "nested.go"), []byte(""), 0644)
 
-	result, err := executeGlob(context.Background(), map[string]any{
+	result, err := executeGlob(wsCtx(tmpDir), map[string]any{
 		"pattern":   "**/*.go",
 		"base_path": tmpDir,
 	})
@@ -134,7 +133,7 @@ func TestGrepTool_Definition(t *testing.T) {
 func TestGrepTool_Execute_MissingPattern(t *testing.T) {
 	t.Parallel()
 
-	_, err := executeGrep(context.Background(), map[string]any{
+	_, err := executeGrep(wsCtx(t.TempDir()), map[string]any{
 		"path": "/some/path",
 	})
 	if err == nil {
@@ -149,9 +148,16 @@ func TestGrepTool_Execute_MissingPath(t *testing.T) {
 	// A hard error propagates as a shard/task failure and can cascade to a
 	// campaign "too many failures -> replan -> pause"; the tool must degrade
 	// gracefully so the agent recovers and retargets.
-	result, err := executeGrep(context.Background(), map[string]any{
+	//
+	// The path used here is now workspace-relative. It used to be the absolute
+	// "/nonexistent/path/that/does/not/exist", which asserted that grep answers
+	// softly for a path outside the workspace — the wrong contract, and the
+	// reason the same call with path=/etc used to succeed. Containment is
+	// asserted separately in TestGrep_WhenPathEscapesWorkspace_ShouldRefuse;
+	// absence is what this test is about, so it stays inside the root.
+	result, err := executeGrep(wsCtx(t.TempDir()), map[string]any{
 		"pattern": "test",
-		"path":    "/nonexistent/path/that/does/not/exist",
+		"path":    "nonexistent/path/that/does/not/exist",
 	})
 	if err != nil {
 		t.Fatalf("nonexistent path should not error, got: %v", err)
@@ -169,7 +175,7 @@ func TestGrepTool_Execute_Success(t *testing.T) {
 	content := "line1 hello\nline2 world\nline3 hello again"
 	os.WriteFile(tmpFile, []byte(content), 0644)
 
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(tmpDir), map[string]any{
 		"pattern": "hello",
 		"path":    tmpFile,
 	})
@@ -192,7 +198,7 @@ func TestGrepTool_Execute_NoMatches(t *testing.T) {
 	tmpFile := filepath.Join(tmpDir, "test.txt")
 	os.WriteFile(tmpFile, []byte("no matching content here"), 0644)
 
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(tmpDir), map[string]any{
 		"pattern": "NOTFOUND",
 		"path":    tmpFile,
 	})
@@ -217,7 +223,7 @@ func TestGrepTool_Execute_Regex(t *testing.T) {
 	content := "func hello()\nfunc goodbye()\nvar test"
 	os.WriteFile(tmpFile, []byte(content), 0644)
 
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(tmpDir), map[string]any{
 		"pattern": "func \\w+\\(",
 		"path":    tmpFile,
 		"regex":   true,
@@ -239,7 +245,7 @@ func TestGrepTool_Execute_WithContext(t *testing.T) {
 	content := "line1\nline2\ntarget\nline4\nline5"
 	os.WriteFile(tmpFile, []byte(content), 0644)
 
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(tmpDir), map[string]any{
 		"pattern":       "target",
 		"path":          tmpFile,
 		"context_lines": float64(1),
@@ -261,7 +267,7 @@ func TestGrepTool_Execute_Directory(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "file2.txt"), []byte("hello there"), 0644)
 	os.WriteFile(filepath.Join(tmpDir, "file3.txt"), []byte("goodbye"), 0644)
 
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(tmpDir), map[string]any{
 		"pattern": "hello",
 		"path":    tmpDir,
 	})

@@ -25,14 +25,17 @@ func TestCodedomRead_DirectoryReturnsActionableError(t *testing.T) {
 	assertActionableDirectoryError(t, err)
 
 	// executeGetElements wraps extractCodeElements and should propagate the actionable error.
-	_, err = executeGetElements(context.Background(), map[string]any{"path": subdir})
+	// The element tools now contain their path argument like the line tools do,
+	// so the fixture has to declare its workspace.
+	elemCtx := context.WithValue(context.Background(), tools.CtxKeyWorkspaceRoot, dir)
+	_, err = executeGetElements(elemCtx, map[string]any{"path": subdir})
 	if err == nil {
 		t.Fatal("expected error for directory, got nil from executeGetElements")
 	}
 	assertActionableDirectoryError(t, err)
 
 	// executeGetElement also goes through extractCodeElements.
-	_, err = executeGetElement(context.Background(), map[string]any{"path": subdir, "name": "Foo"})
+	_, err = executeGetElement(elemCtx, map[string]any{"path": subdir, "name": "Foo"})
 	if err == nil {
 		t.Fatal("expected error for directory, got nil from executeGetElement")
 	}

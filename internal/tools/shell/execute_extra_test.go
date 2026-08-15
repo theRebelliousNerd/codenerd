@@ -1,7 +1,6 @@
 package shell
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -59,7 +58,7 @@ func TestExecuteRunBuild_AutoDetectGo(t *testing.T) {
 	dir := t.TempDir()
 	writeTrivialGoModule(t, dir)
 
-	out, err := executeRunBuild(context.Background(), map[string]any{"working_dir": dir})
+	out, err := executeRunBuild(shellWsCtx(dir), map[string]any{"working_dir": dir})
 	if err != nil {
 		t.Fatalf("executeRunBuild: %v (out=%s)", err, out)
 	}
@@ -73,7 +72,7 @@ func TestExecuteRunTests_AutoDetectGo(t *testing.T) {
 	dir := t.TempDir()
 	writeTrivialGoModule(t, dir)
 
-	out, err := executeRunTests(context.Background(), map[string]any{"working_dir": dir})
+	out, err := executeRunTests(shellWsCtx(dir), map[string]any{"working_dir": dir})
 	if err != nil {
 		t.Fatalf("executeRunTests: %v (out=%s)", err, out)
 	}
@@ -85,7 +84,7 @@ func TestExecuteRunTests_AutoDetectGo(t *testing.T) {
 func TestExecuteRunBuild_NoDetectableCommand(t *testing.T) {
 	// An empty directory has no recognizable build file: auto-detection fails.
 	dir := t.TempDir()
-	if _, err := executeRunBuild(context.Background(), map[string]any{"working_dir": dir}); err == nil {
+	if _, err := executeRunBuild(shellWsCtx(dir), map[string]any{"working_dir": dir}); err == nil {
 		t.Error("expected an error when no build command can be detected")
 	}
 }

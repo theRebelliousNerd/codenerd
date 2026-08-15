@@ -17,7 +17,8 @@ import (
 // ReadFileTool returns a tool for reading file contents.
 func ReadFileTool() *tools.Tool {
 	return &tools.Tool{
-		Name: "read_file",
+		Name:          "read_file",
+		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryAttack, tools.CategoryGeneral},
 		Description: "Read the contents of a file. Each line is returned prefixed with its " +
 			"1-indexed line number and a tab, so you can cite file:line accurately. " +
 			"The prefix is NOT part of the file: strip it before passing any content to " +
@@ -120,7 +121,7 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 		return "", err
 	}
 
-	logging.VirtualStoreDebug("read_file: path=%s", path)
+	logging.ToolsDebug("read_file: path=%s", path)
 
 	content, err := projectdoc.ReadFileForTool(path)
 	if err != nil {
@@ -174,7 +175,7 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 	result = numberLines(result, startLine)
 
 	logging.Audit().FileOp(logging.AuditFileRead, path, int64(len(content)), true, "")
-	logging.VirtualStore("read_file completed: %s (%d bytes)", path, len(result))
+	logging.Tools("read_file completed: %s (%d bytes)", path, len(result))
 	return result, nil
 }
 
@@ -255,11 +256,12 @@ func coerceInt(v any) (int, bool) {
 // WriteFileTool returns a tool for writing content to a file.
 func WriteFileTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "write_file",
-		Description: "Write content to a file, creating it if it doesn't exist",
-		Category:    tools.CategoryCode,
-		Priority:    80,
-		Execute:     executeWriteFile,
+		Name:          "write_file",
+		AltCategories: []tools.ToolCategory{tools.CategoryAttack},
+		Description:   "Write content to a file, creating it if it doesn't exist",
+		Category:      tools.CategoryCode,
+		Priority:      80,
+		Execute:       executeWriteFile,
 		Schema: tools.ToolSchema{
 			Required: []string{"path", "content"},
 			Properties: map[string]tools.Property{
@@ -311,7 +313,7 @@ func executeWriteFile(ctx context.Context, args map[string]any) (string, error) 
 		return "", err
 	}
 
-	logging.VirtualStoreDebug("write_file: path=%s, size=%d", path, len(content))
+	logging.ToolsDebug("write_file: path=%s, size=%d", path, len(content))
 
 	// Create parent directories if needed
 	if createDirs {
@@ -335,18 +337,19 @@ func executeWriteFile(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	logging.Audit().FileOp(logging.AuditFileWrite, path, int64(len(content)), true, "")
-	logging.VirtualStore("write_file completed: %s (%d bytes)", path, len(content))
+	logging.Tools("write_file completed: %s (%d bytes)", path, len(content))
 	return fmt.Sprintf("Wrote %d bytes to %s", len(content), path), nil
 }
 
 // EditFileTool returns a tool for editing files with search/replace.
 func EditFileTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "edit_file",
-		Description: "Edit a file by replacing text",
-		Category:    tools.CategoryCode,
-		Priority:    85,
-		Execute:     executeEditFile,
+		Name:          "edit_file",
+		AltCategories: []tools.ToolCategory{tools.CategoryAttack},
+		Description:   "Edit a file by replacing text",
+		Category:      tools.CategoryCode,
+		Priority:      85,
+		Execute:       executeEditFile,
 		Schema: tools.ToolSchema{
 			Required: []string{"path", "old_text", "new_text"},
 			Properties: map[string]tools.Property{
@@ -410,7 +413,7 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 		return "", err
 	}
 
-	logging.VirtualStoreDebug("edit_file: path=%s, old_len=%d, new_len=%d", path, len(oldText), len(newText))
+	logging.ToolsDebug("edit_file: path=%s, old_len=%d, new_len=%d", path, len(oldText), len(newText))
 
 	content, err := projectdoc.ReadFileForTool(path)
 	if err != nil {
@@ -430,7 +433,7 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 		// carries the prefix, so this cannot mangle a genuine edit whose text
 		// happens to start with digits.
 		if stripped, ok := stripLineNumberPrefixes(oldText); ok && strings.Contains(contentStr, stripped) {
-			logging.VirtualStoreWarn("edit_file: old_text carried read_file line-number prefixes; "+
+			logging.ToolsWarn("edit_file: old_text carried read_file line-number prefixes; "+
 				"stripped them and matched. path=%s", path)
 			oldText = stripped
 		} else {
@@ -467,7 +470,7 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 	}
 
 	logging.Audit().FileOp(logging.AuditFileWrite, path, int64(len(newContent)), true, "")
-	logging.VirtualStore("edit_file completed: %s (%d replacements)", path, count)
+	logging.Tools("edit_file completed: %s (%d replacements)", path, count)
 	return fmt.Sprintf("Replaced %d occurrence(s) in %s", count, path), nil
 }
 
@@ -525,7 +528,7 @@ func executeDeleteFile(ctx context.Context, args map[string]any) (string, error)
 		return "", err
 	}
 
-	logging.VirtualStoreDebug("delete_file: path=%s", path)
+	logging.ToolsDebug("delete_file: path=%s", path)
 
 	// Safety check - don't delete directories
 	info, err := os.Stat(path)
@@ -547,18 +550,19 @@ func executeDeleteFile(ctx context.Context, args map[string]any) (string, error)
 	}
 
 	logging.Audit().FileOp(logging.AuditFileDelete, path, deletedSize, true, "")
-	logging.VirtualStore("delete_file completed: %s", path)
+	logging.Tools("delete_file completed: %s", path)
 	return fmt.Sprintf("Deleted %s", path), nil
 }
 
 // ListFilesTool returns a tool for listing directory contents.
 func ListFilesTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "list_files",
-		Description: "List files in a directory",
-		Category:    tools.CategoryCode,
-		Priority:    85,
-		Execute:     executeListFiles,
+		Name:          "list_files",
+		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryAttack, tools.CategoryGeneral},
+		Description:   "List files in a directory",
+		Category:      tools.CategoryCode,
+		Priority:      85,
+		Execute:       executeListFiles,
 		Schema: tools.ToolSchema{
 			Required: []string{"path"},
 			Properties: map[string]tools.Property{
@@ -606,7 +610,7 @@ func executeListFiles(ctx context.Context, args map[string]any) (string, error) 
 		return "", err
 	}
 
-	logging.VirtualStoreDebug("list_files: path=%s, recursive=%v", path, recursive)
+	logging.ToolsDebug("list_files: path=%s, recursive=%v", path, recursive)
 
 	var files []string
 
@@ -669,6 +673,6 @@ func executeListFiles(ctx context.Context, args map[string]any) (string, error) 
 		}
 	}
 
-	logging.VirtualStore("list_files completed: %s (%d entries)", path, len(files))
+	logging.Tools("list_files completed: %s (%d entries)", path, len(files))
 	return strings.Join(files, "\n"), nil
 }

@@ -258,6 +258,28 @@ modular_tool_allowed(/get_impacted_tests, Intent) :- verb_category(Intent, /test
 modular_tool_allowed(/run_impacted_tests, Intent) :- verb_category(Intent, /code).
 modular_tool_allowed(/run_impacted_tests, Intent) :- verb_category(Intent, /test).
 
+# Transactional multi-file edit - a code mutation, same envelope as edit_lines
+modular_tool_allowed(/apply_edits, Intent) :- verb_category(Intent, /code).
+
+# Git tools. shell.RegisterAll has registered git_diff, git_log and
+# git_operation since the package was split out, and none of them appeared
+# here, so the Mangle catalog and the Go registry disagreed about what exists.
+#
+# Read-only history is available wherever reading a file is: reviewing a diff
+# is how an agent orients, and both refuse to leave the workspace.
+modular_tool_allowed(/git_diff, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/git_log, Intent) :- user_intent(_, _, Intent, _, _).
+
+# git_operation mutates the repository (add/commit/checkout/push/reset), so it
+# is scoped to the intents that are allowed to change the working tree. The
+# constitution still gates the individual operation; this only decides which
+# intents may reach the tool at all.
+modular_tool_allowed(/git_operation, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/git_operation, Intent) :- verb_category(Intent, /git).
+
+verb_category(/git, /git) :- user_intent(_, _, /git, _, _).
+verb_category(/commit, /git) :- user_intent(_, _, /commit, _, _).
+
 # Intent category mappings for code
 verb_category(/fix, /code) :- user_intent(_, _, /fix, _, _).
 verb_category(/implement, /code) :- user_intent(_, _, /implement, _, _).
@@ -291,6 +313,17 @@ modular_tool_allowed(/browser_specs, Intent) :- verb_category(Intent, /research)
 modular_tool_allowed(/browser_test, Intent) :- verb_category(Intent, /research).
 modular_tool_allowed(/research_cache_get, Intent) :- verb_category(Intent, /research).
 modular_tool_allowed(/research_cache_set, Intent) :- verb_category(Intent, /research).
+# research_cache_stats is read-only bookkeeping and belongs everywhere the
+# cache itself is reachable: an agent that can Get/Set but cannot see the hit
+# rate re-fetches pages it already has.
+modular_tool_allowed(/research_cache_stats, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/research_cache_stats, Intent) :- verb_category(Intent, /learn).
+modular_tool_allowed(/research_cache_stats, Intent) :- verb_category(Intent, /document).
+modular_tool_allowed(/research_cache_stats, Intent) :- verb_category(Intent, /verify).
+# research_cache_clear discards work every other agent in the process shares —
+# the cache is a package-level singleton — so it stays confined to /research,
+# where the agent that filled it is the agent that empties it.
+modular_tool_allowed(/research_cache_clear, Intent) :- verb_category(Intent, /research).
 # Provider-native grounded search is restricted to research and verification.
 modular_tool_allowed(/grounded_web_search, Intent) :- verb_category(Intent, /research).
 modular_tool_allowed(/grounded_web_search, Intent) :- verb_category(Intent, /verify).

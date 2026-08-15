@@ -1,36 +1,80 @@
 # tools — TODO
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-08-15**  
 > Prioritized backlog for `internal/tools` and tightly coupled contracts.
 
 ## P0 — Safety
 
-- [ ] Apply `resolveWorkspacePath` (or equivalent) to `glob`, `grep`, `search_code` base_path/path.  
-- [ ] Apply workspace containment to codedom path args (elements + line tools).  
-- [ ] Contain shell/git `working_dir` to workspace root.  
-- [ ] Contract with session: empty `AllowedTools` should not mean “all tools” when safety gate is on (document + implement).
+- [x] Apply `resolveWorkspacePath` (or equivalent) to `glob`, `grep`, `search_code` base_path/path.  
+      `core.searchBase` resolves `base_path`/`path`; the `**` pattern prefix is
+      resolved too (it was a second, unchecked path argument); both walks refuse
+      to follow symlinks. An omitted argument now means the workspace root, not
+      the process working directory.
+- [x] Apply workspace containment to codedom path args (elements + line tools).  
+      `get_elements` / `get_element` route `path` through
+      `tools.ResolveWorkspacePath`; the line tools already did.
+- [x] Contain shell/git `working_dir` to workspace root.  
+      `shell.resolveWorkingDir` guards `run_command`, `bash`, `run_build`,
+      `run_tests` and all three git tools; `git_diff` / `git_log` also contain
+      their pathspec.
+- [x] Contract with session: empty `AllowedTools` must not mean "all tools" when the safety gate is on.  
+      `Registry.SetAllowlist(*Allowlist)`: `Enforced` is a separate field from
+      the name list, so an enforced-and-empty envelope denies everything. See
+      09-SAFETY-AND-INVARIANTS.md. **Wiring pending**: `internal/session` must
+      call `SetAllowlist` whenever the effective config changes.
 
 ## P1 — Catalog & correctness
 
-- [ ] Add `git_diff`, `git_log`, `git_operation` to `modular_tool_allowed` in `intent_routing.mg` (or explicitly document intentional omit).  
-- [ ] Add `research_cache_clear`, `research_cache_stats` to Mangle routing if they should be agent-callable.  
-- [ ] Use `coerceInt` for search tool integer args (`max_results`, `context_lines`).  
-- [ ] Thread workspace root through tool context; reduce env-only coupling (TODO already in `workspace_guard.go`).  
-- [ ] Golden test: RegisterAll names ⊆ Mangle modular_tool_allowed ∪ intentional_exceptions.
+- [x] Add `git_diff`, `git_log`, `git_operation` to `modular_tool_allowed` in `intent_routing.mg`.  
+      Also added `apply_edits`, plus a `/git` verb category for the mutating one.
+- [x] Add `research_cache_clear`, `research_cache_stats` to Mangle routing.  
+      `_stats` is read-only and follows the cache wherever it is reachable;
+      `_clear` stays confined to `/research`, because the cache is a
+      process-wide singleton and clearing it discards other agents' work.
+- [x] Use `coerceInt` for search tool integer args (`max_results`, `context_lines`).  
+      All four private copies collapsed into `tools.CoerceInt` / `tools.ArgInt`.
+- [x] Thread workspace root through tool context; reduce env-only coupling.  
+      `Registry.SetWorkspaceRoot` → context → `tools.WorkspaceRoot(ctx)`;
+      `CODENERD_WORKSPACE_ROOT` demoted to a fallback. **Wiring pending**:
+      `internal/system/factory.go` should call `tools.SetGlobalWorkspaceRoot`
+      beside its existing `os.Setenv`.
+- [x] Golden test: RegisterAll names ⊆ Mangle modular_tool_allowed ∪ intentional_exceptions.  
+      `internal/tools/catalog_golden_test.go`, enforced in both directions.
 
 ## P2 — Hygiene
 
-- [ ] Rewrite `codedom/doc.go` to match registered tools.  
-- [ ] Decide CategoryReview / CategoryAttack: implement tools or stop mapping intents to empty categories.  
-- [ ] Prefer `logging.Tools*` for file/shell completions instead of VirtualStore channel (optional consistency).  
-- [ ] Consider registering tools only once into Global from VS pointer to eliminate dual-map drift risk.
+- [x] Rewrite `codedom/doc.go` to match registered tools.  
+      `codedom/doc.go` was already accurate; `core/doc.go` and `shell/doc.go`
+      were not. A golden test now pins every doc list to `RegisterAll`.
+- [x] Decide CategoryReview / CategoryAttack: implement tools or stop mapping intents to empty categories.  
+      Decision: implement. `Tool.AltCategories` lets one tool serve several
+      intent families, and the read / inspect / exec tools now declare
+      `/review`, `/attack` and `/general`. A test asserts that no intent in
+      `intentToCategory` resolves to an empty toolbox.
+- [x] Prefer `logging.Tools*` for file/shell completions instead of the VirtualStore channel.
+- [ ] Register tools only once into Global from the VS pointer to eliminate dual-map drift risk.  
+      Not fixable from `internal/tools`: the duplication lives in
+      `internal/core/virtual_store_tools.go`, where `HydrateModularTools` calls
+      each `RegisterAll` twice. Mitigated by
+      `TestCatalog_WhenHydratedTwice_ShouldProduceIdenticalRegistries`, which
+      pins the determinism and idempotence that duplication depends on.
 
 ## P3 — Product depth
 
-- [ ] Optional disk-backed research cache under `.nerd/`.  
-- [ ] Assert `tool_execution` facts from Registry.Execute for learning.  
-- [ ] Improve codedom EndLine via simple brace/indent block tracking.  
-- [ ] Metrics counters for tool success/duration.
+- [x] Optional disk-backed research cache under `.nerd/`.  
+      `research/cache_disk.go`: JSON entries under
+      `<workspace>/.nerd/cache/research`, hash-named so a caller-supplied key
+      can never become a path segment, best-effort on every disk error.
+      **Wiring pending**: call `research.EnableDiskCache(workspaceRoot)` at boot.
+- [x] Assert `tool_execution` facts from Registry.Execute for learning.  
+      `Registry.SetFactSink` fires once per completed execution, and never for a
+      refused one. **Wiring pending**: `internal/core` must install a sink that
+      asserts `tool_execution(ToolName, Success, Timestamp)`.
+- [x] Improve codedom EndLine via simple brace/indent block tracking.  
+      Already implemented (`findBraceEndLine`, `findPythonEndLine`) and covered
+      by `TestExtractCodeElements_BlockExtent*`. Audited; no change needed.
+- [x] Metrics counters for tool success/duration.  
+      `Registry.Metrics(name)` and `Registry.AllMetrics()`.
 
 ## Done / not TODO
 

@@ -10,5 +10,6 @@
 //   - list_files: List directory contents
 //   - glob: Find files matching a pattern
 //   - grep: Search file contents with regex
+//   - search_code: grep with code-focused defaults (same implementation)
 //   - delete_file: Delete a file (requires permission)
 package core

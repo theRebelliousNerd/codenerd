@@ -223,7 +223,7 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 			return "", fmt.Errorf("duplicate canonical path %q in edits[%d] and edits[%d]", rel, prev, i)
 		}
 		absSeen[abs] = i
-			data, err := projectdoc.ReadFileForTool(abs)
+		data, err := projectdoc.ReadFileForTool(abs)
 		if err != nil {
 			return "", fmt.Errorf("failed to read %q: %w", pe.rawPath, err)
 		}
@@ -294,7 +294,7 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 	planned := make(map[string][]byte, len(snaps))
 	for i, sn := range snaps {
 		stagedPath := filepath.Join(stagingRoot, filepath.FromSlash(sn.relPath))
-			data, err := projectdoc.ReadFileForTool(stagedPath)
+		data, err := projectdoc.ReadFileForTool(stagedPath)
 		if err != nil {
 			return "", fmt.Errorf("failed to read staged %s: %w", sn.relPath, err)
 		}
@@ -315,7 +315,7 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 		applyEditsBeforeCommitHook()
 	}
 	for _, sn := range snaps {
-			cur, err := projectdoc.ReadFileForTool(sn.absPath)
+		cur, err := projectdoc.ReadFileForTool(sn.absPath)
 		if err != nil {
 			return "", fmt.Errorf("optimistic conflict: failed to re-read %s: %w", sn.relPath, err)
 		}
@@ -337,7 +337,7 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 			commitErr = err
 			break
 		}
-			cur, err := projectdoc.ReadFileForTool(sn.absPath)
+		cur, err := projectdoc.ReadFileForTool(sn.absPath)
 		if err != nil {
 			commitErr = fmt.Errorf("optimistic conflict: failed to re-read %s immediately before write: %w", sn.relPath, err)
 			break
@@ -396,7 +396,7 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal result: %w", err)
 	}
-	logging.VirtualStore("apply_edits completed: %d files (%s)", len(changed), strings.Join(changed, ", "))
+	logging.Tools("apply_edits completed: %d files (%s)", len(changed), strings.Join(changed, ", "))
 	return string(b), nil
 }
 

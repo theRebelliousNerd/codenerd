@@ -29,6 +29,10 @@ type ResearchCache struct {
 	entries map[string]*CacheEntry
 	maxSize int
 	ttl     time.Duration
+
+	// disk is the optional durable tier. Zero value = memory only, which is
+	// the behavior when no workspace has been configured. See cache_disk.go.
+	disk diskStore
 }
 
 // DefaultCache is the shared research cache instance.
@@ -54,22 +58,38 @@ func NewResearchCache(maxSize int, ttl time.Duration) *ResearchCache {
 	}
 }
 
-// Get retrieves a cached entry by key.
+// Get retrieves a cached entry by key, falling back to the durable tier when
+// the in-memory one misses (a fresh process starts with an empty map but a
+// populated .nerd/cache/research).
 func (c *ResearchCache) Get(key string) (*CacheEntry, bool) {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	entry, ok := c.entries[key]
+	c.mu.RUnlock()
+
+	if ok {
+		if time.Now().After(entry.ExpiresAt) {
+			// Expired in memory means expired everywhere; drop both copies so
+			// the next Get does not resurrect it from disk.
+			c.mu.Lock()
+			delete(c.entries, key)
+			c.mu.Unlock()
+			c.disk.remove(key)
+			return nil, false
+		}
+		return entry, true
+	}
+
+	fromDisk, ok := c.disk.read(key)
 	if !ok {
 		return nil, false
 	}
-
-	// Check expiration
-	if time.Now().After(entry.ExpiresAt) {
-		return nil, false
+	c.mu.Lock()
+	if len(c.entries) >= c.maxSize {
+		c.evictOldest()
 	}
-
-	return entry, true
+	c.entries[key] = fromDisk
+	c.mu.Unlock()
+	return fromDisk, true
 }
 
 // Set stores a value in the cache.
@@ -83,27 +103,32 @@ func (c *ResearchCache) Set(key, value, source string) {
 	}
 
 	now := time.Now()
-	c.entries[key] = &CacheEntry{
+	entry := &CacheEntry{
 		Key:       key,
 		Value:     value,
 		CreatedAt: now,
 		ExpiresAt: now.Add(c.ttl),
 		Source:    source,
 	}
+	c.entries[key] = entry
+	c.disk.write(entry)
 }
 
-// Delete removes an entry from the cache.
+// Delete removes an entry from both tiers.
 func (c *ResearchCache) Delete(key string) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	delete(c.entries, key)
+	c.mu.Unlock()
+	c.disk.remove(key)
 }
 
-// Clear removes all entries from the cache.
+// Clear removes all entries from both tiers. Clearing memory alone would be a
+// lie: the next Get would restore the entry from disk.
 func (c *ResearchCache) Clear() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.entries = make(map[string]*CacheEntry)
+	c.mu.Unlock()
+	c.disk.clear()
 }
 
 // Size returns the number of entries in the cache.
@@ -294,6 +319,11 @@ func executeCacheStats(ctx context.Context, args map[string]any) (string, error)
 	result.WriteString(fmt.Sprintf("  Total size: %d bytes\n", totalSize))
 	result.WriteString(fmt.Sprintf("  Max size: %d entries\n", cache.maxSize))
 	result.WriteString(fmt.Sprintf("  TTL: %v\n", cache.ttl))
+	if dir := cache.disk.DiskDir(); dir != "" {
+		result.WriteString(fmt.Sprintf("  Persistent store: %s\n", dir))
+	} else {
+		result.WriteString("  Persistent store: disabled (in-memory only)\n")
+	}
 	result.WriteString(fmt.Sprintf("\nBy source:\n"))
 	for source, count := range sources {
 		result.WriteString(fmt.Sprintf("  %s: %d\n", source, count))

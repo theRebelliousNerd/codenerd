@@ -1,6 +1,6 @@
 # tools — Safety and Invariants
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-08-15**
 
 ## Layered safety model
 
@@ -12,8 +12,11 @@
 ├──────────────────────────────────────────┤
 │ session checkSafety + executive gate     │  pre/post interactive
 ├──────────────────────────────────────────┤
+│ Registry allowlist (SetAllowlist)        │  capability envelope
+├──────────────────────────────────────────┤
 │ Tool local invariants                    │  this package
-│  - workspace path containment (partial)  │
+│  - workspace path containment (all path  │
+│    and working-dir arguments)            │
 │  - timeouts / output caps                │
 │  - shellquote (no shell -c for run_cmd)  │
 │  - delete_file not for dirs              │
@@ -29,8 +32,13 @@ Tools alone are **not** sufficient for constitutional safety.
 | Non-empty Name + non-nil Execute | `Tool.Validate` | Enforced |
 | Required args present | `validateArgs` | Enforced |
 | Coarse arg types | `valueMatchesSchemaType` | Best-effort |
-| Path inside workspace | `core` file ops | Enforced |
-| Symlink escape rejection | `resolveWorkspacePath` | Enforced |
+| Path inside workspace | `core` file ops, `core` search, all `codedom` path args | Enforced |
+| Shell/git working_dir inside workspace | `shell.resolveWorkingDir` | Enforced |
+| git pathspec inside workspace | `git_diff`, `git_log` | Enforced |
+| Symlink escape rejection | `tools.ResolveWorkspacePath`; directory walks skip symlinks | Enforced |
+| Separator normalization before the gate | `tools.normalizeSeparators` | Enforced |
+| Boundary-aware root prefix (`/ws-evil` is not inside `/ws`) | `tools.containedIn` | Enforced |
+| Tool outside capability envelope refused | `Registry.SetAllowlist` | Enforced |
 | No directory delete via delete_file | `executeDeleteFile` | Enforced |
 | run_command argv split not via shell | shellquote | Enforced |
 | Command timeout | WithTimeout | Enforced |
@@ -45,13 +53,11 @@ Tools alone are **not** sufficient for constitutional safety.
 
 | Gap | Risk |
 |-----|------|
-| glob/grep paths unconstrained | Read outside workspace |
-| codedom line tools unconstrained | Read/write outside workspace |
-| shell working_dir unconstrained | Command runs anywhere FS allows |
 | bash fallback on Windows may re-parse loosely | Depends on run_command path |
 | research_cache no ACL | Any caller can clear/read keys |
 | browser tools share process manager | Session ID guessability / no auth |
-| FilterByIntent open fallback | Soft layer only |
+| FilterByIntent open fallback | Soft layer only. Narrowed: the fallback is intersected with the enforced allowlist, so it can never return more than the envelope permits |
+| Registry allowlist not yet wired by session | The mechanism exists and is tested; `internal/session` must call `SetAllowlist` for it to bind |
 
 ## Concurrency invariants
 
@@ -79,9 +85,24 @@ Payload size cap **100 KB** before assert (session).
 ## Constitutional interaction
 
 - Default deny is a **policy** property.  
-- tools package defaults are “if called, run.”  
+- tools package defaults are "if called, run" **unless an allowlist is enforced**.  
 - With `EnableSafetyGate=true` and nil kernel, session **fails closed**.  
-- With empty AllowedTools, session **fails open** at allowlist layer — critical contract.
+
+### The empty-AllowedTools contract
+
+`session.Executor.isToolAllowed` fails closed: `cfg == nil || len(cfg.AllowedTools) == 0` denies. The registry underneath it now states the same rule explicitly, because the registry is reachable process-globally through `tools.Execute`, and any caller that skips the session gate previously got the entire catalog.
+
+`Registry.SetAllowlist(*Allowlist)` takes:
+
+| `Enforced` | `Names` | Meaning |
+|-----------|---------|---------|
+| `false` | anything | No envelope configured. Unconstrained — the CLI / developer case. |
+| `true` | non-empty | Only those tools may execute. |
+| `true` | **empty** | The agent was granted **no** capability. **Deny everything.** |
+
+The third row is the contract. An *absent* capability envelope is not a grant of every capability, and keeping `Enforced` as its own field means "not configured" and "configured empty" can never collapse into each other. `FilterByIntent`'s open fallback for a missing or hallucinated intent is intersected with the envelope, so a bad intent can widen the *intent* but never the *capability*.
+
+Not yet bound: `internal/session` and `internal/core` must call `SetAllowlist` when the effective config changes. Until then this is a mechanism with no policy attached, and the session-layer gate remains the only enforcement point.
 
 ## Must-not rules for future edits
 
@@ -89,6 +110,14 @@ Payload size cap **100 KB** before assert (session).
 2. Do not shell-out with unsanitized full command strings when argv form is possible.  
 3. Do not log full secrets from env maps.  
 4. Do not remove workspace_guard without replacement.  
+   4b. Do not normalize a path for a security decision with `filepath.ToSlash`
+   or `filepath.Clean` alone. Both are separator-*aware*: off Windows they treat
+   a backslash as an ordinary filename character, so `..\..\etc\passwd` and
+   `.nerd\config.json` survive them unchanged and walk straight through the
+   gate. Rewrite separators unconditionally with `strings.ReplaceAll`, resolve
+   to absolute, then compare with a trailing-separator-aware prefix check so
+   `/ws-evil` does not read as inside `/ws`. Not hypothetical: this is how
+   `.nerd\config.json` passed the nerd.md write-protection gate on Linux.  
 5. Do not register tools whose Name conflicts with Ouroboros tools without intentional override policy.
 
 ## Exemption from the `internal/build` adoption mandate
