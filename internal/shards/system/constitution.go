@@ -65,7 +65,7 @@ func DefaultConstitutionConfig() ConstitutionConfig {
 		EscalateOnAmbiguity: true,
 		// 2s fallback when event bus is missing. 500ms was thrashing a dirty
 		// kernel (each poll → Query → 10–17s evaluate under large world EDBs).
-		TickInterval:        2 * time.Second,
+		TickInterval: 2 * time.Second,
 	}
 }
 

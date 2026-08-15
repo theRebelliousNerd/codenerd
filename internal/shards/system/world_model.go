@@ -602,6 +602,7 @@ func isTestFile(path string) bool {
 	}
 	return false
 }
+
 // normalizeTopologyPath returns the workspace-relative POSIX form of p.
 // If p is absolute it is made relative to workspaceRoot; backslashes are
 // converted to forward slashes, and an already-relative POSIX path is left
@@ -658,7 +659,6 @@ func normalizeTopologyPath(workspaceRoot, p string) string {
 	}
 	return pSlash
 }
-
 
 // handleAutopoiesis uses LLM for semantic interpretation.
 func (w *WorldModelIngestorShard) handleAutopoiesis(ctx context.Context) {

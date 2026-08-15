@@ -65,4 +65,3 @@ func TestCountArity(t *testing.T) {
 		}
 	}
 }
-

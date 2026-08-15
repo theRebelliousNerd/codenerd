@@ -201,6 +201,7 @@ func Load(workspace string) (*Document, error) {
 	}
 	return doc, nil
 }
+
 // LoadAll returns the root document (if any) followed by every module-level
 // nerd.md found beneath the workspace.
 func LoadAll(workspace string) ([]*Document, error) {
@@ -294,7 +295,6 @@ func LoadAll(workspace string) ([]*Document, error) {
 	docs = append(docs, modules...)
 	return docs, nil
 }
-
 
 // Parse splits frontmatter from body and strictly decodes the frontmatter.
 func Parse(data []byte) (*Document, error) {

@@ -164,10 +164,10 @@ func TestDockerExecutorBuildDockerArgs(t *testing.T) {
 	executor := NewDockerExecutorWithConfig(config)
 
 	cmd := Command{
-		Binary: "echo",
+		Binary:    "echo",
 		Arguments: []string{"hello", "world"},
 		Sandbox: &SandboxConfig{
-			Image: "custom-image:1.0",
+			Image:       "custom-image:1.0",
 			NetworkMode: "host",
 		},
 	}
@@ -225,10 +225,6 @@ func min(a, b int) int {
 	}
 	return b
 }
-
-
-
-
 
 // TODO: Null/Undefined/Empty: Test empty Image Name (should default to alpine or config default).
 // TODO: Null/Undefined/Empty: Test empty Arguments list (ensure no trailing spaces or malformed args).

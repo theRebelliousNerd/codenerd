@@ -144,4 +144,3 @@ func TestExtractPytestError(t *testing.T) {
 		})
 	}
 }
-
