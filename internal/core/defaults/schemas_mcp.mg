@@ -202,6 +202,29 @@ Decl mcp_tool_has_vector_score(ToolID) bound [/string].
 # Absence means the catalog is still filling in, not that MCP is unavailable.
 Decl mcp_integration_ready(ServerCount, ToolCount) bound [/number, /number].
 
+# -----------------------------------------------------------------------------
+# 50.9 MCP Resources and Prompts
+# -----------------------------------------------------------------------------
+# MCP servers expose three primitive kinds; tools are only one of them. These
+# make the other two visible so planning can ask "is there already a resource
+# that answers this?" before spending a tool call.
+
+# mcp_resource_registered(ServerID, URI)
+Decl mcp_resource_registered(ServerID, URI) bound [/string, /string].
+
+# mcp_resource_mime(URI, MimeType)
+Decl mcp_resource_mime(URI, MimeType) bound [/string, /string].
+
+# mcp_resource_name(URI, Name)
+Decl mcp_resource_name(URI, Name) bound [/string, /string].
+
+# mcp_prompt_registered(ServerID, PromptName)
+Decl mcp_prompt_registered(ServerID, PromptName) bound [/string, /string].
+
+# mcp_prompt_argument(PromptName, ArgumentName, Required)
+# Required: /true, /false
+Decl mcp_prompt_argument(PromptName, ArgumentName, Required) bound [/string, /string, /name].
+
 # =============================================================================
 # END SECTION 50
 # =============================================================================

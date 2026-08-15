@@ -147,6 +147,60 @@ func (e *FactEmitter) EmitReady(serverCount, toolCount int) {
 	})
 }
 
+// EmitResources publishes a server's resource catalog. The whole catalog is
+// one subject so a rediscovery that drops a resource drops its facts too.
+func (e *FactEmitter) EmitResources(serverID string, resources []MCPResource) {
+	if e == nil || serverID == "" {
+		return
+	}
+	facts := make([]string, 0, len(resources)*2)
+	for _, r := range resources {
+		if strings.TrimSpace(r.URI) == "" {
+			continue
+		}
+		facts = append(facts, fmt.Sprintf("mcp_resource_registered(%s, %s)",
+			mangleString(serverID), mangleString(r.URI)))
+		if mime := strings.TrimSpace(r.MimeType); mime != "" {
+			facts = append(facts, fmt.Sprintf("mcp_resource_mime(%s, %s)",
+				mangleString(r.URI), mangleString(mime)))
+		}
+		if name := strings.TrimSpace(r.Name); name != "" {
+			facts = append(facts, fmt.Sprintf("mcp_resource_name(%s, %s)",
+				mangleString(r.URI), mangleString(name)))
+		}
+	}
+	e.replace("resources:"+serverID, facts)
+}
+
+// EmitPrompts publishes a server's prompt-template catalog.
+func (e *FactEmitter) EmitPrompts(serverID string, prompts []MCPPrompt) {
+	if e == nil || serverID == "" {
+		return
+	}
+	facts := make([]string, 0, len(prompts)*2)
+	for _, p := range prompts {
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			continue
+		}
+		facts = append(facts, fmt.Sprintf("mcp_prompt_registered(%s, %s)",
+			mangleString(serverID), mangleString(name)))
+		for _, arg := range p.Arguments {
+			argName := strings.TrimSpace(arg.Name)
+			if argName == "" {
+				continue
+			}
+			required := "/false"
+			if arg.Required {
+				required = "/true"
+			}
+			facts = append(facts, fmt.Sprintf("mcp_prompt_argument(%s, %s, %s)",
+				mangleString(name), mangleString(argName), required))
+		}
+	}
+	e.replace("prompts:"+serverID, facts)
+}
+
 // RetractTool removes every fact for a tool. Used when a server stops
 // advertising a tool it previously exposed.
 func (e *FactEmitter) RetractTool(toolID string) {
@@ -172,12 +226,19 @@ func (e *FactEmitter) RetractServer(serverID string) {
 	e.replaceLocked(serverKey(serverID), nil)
 	e.replaceLocked(serverStatusKey(serverID), nil)
 
-	prefix := toolKey(serverID + "/")
-	usagePrefix := toolUsageKey(serverID + "/")
+	prefixes := []string{
+		toolKey(serverID + "/"),
+		toolUsageKey(serverID + "/"),
+		"resources:" + serverID,
+		"prompts:" + serverID,
+	}
 	stale := make([]string, 0)
 	for key := range e.emitted {
-		if strings.HasPrefix(key, prefix) || strings.HasPrefix(key, usagePrefix) {
-			stale = append(stale, key)
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(key, prefix) {
+				stale = append(stale, key)
+				break
+			}
 		}
 	}
 	sort.Strings(stale)

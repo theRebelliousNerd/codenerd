@@ -528,6 +528,89 @@ func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map
 	return result, nil
 }
 
+// DiscoverResources lists a server's resources and publishes them to the
+// kernel. Resource availability is a planning input — "is there a resource that
+// already answers this?" is a question the executive should be able to ask
+// before it spends a tool call.
+func (m *MCPClientManager) DiscoverResources(ctx context.Context, serverID string) ([]MCPResource, error) {
+	transport, err := m.transportFor(serverID)
+	if err != nil {
+		return nil, err
+	}
+	provider, ok := transport.(ResourceCapableTransport)
+	if !ok {
+		return nil, fmt.Errorf("transport for %s does not support resources", serverID)
+	}
+
+	resources, err := provider.ListResources(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m.factEmitter().EmitResources(serverID, resources)
+	logging.Get(logging.CategoryTools).Info("Discovered %d resources from %s", len(resources), serverID)
+	return resources, nil
+}
+
+// ReadResource fetches one resource's contents from a server.
+func (m *MCPClientManager) ReadResource(ctx context.Context, serverID, uri string) ([]MCPResourceContent, error) {
+	transport, err := m.transportFor(serverID)
+	if err != nil {
+		return nil, err
+	}
+	provider, ok := transport.(ResourceCapableTransport)
+	if !ok {
+		return nil, fmt.Errorf("transport for %s does not support resources", serverID)
+	}
+	return provider.ReadResource(ctx, uri)
+}
+
+// DiscoverPrompts lists a server's prompt templates and publishes them.
+func (m *MCPClientManager) DiscoverPrompts(ctx context.Context, serverID string) ([]MCPPrompt, error) {
+	transport, err := m.transportFor(serverID)
+	if err != nil {
+		return nil, err
+	}
+	provider, ok := transport.(PromptCapableTransport)
+	if !ok {
+		return nil, fmt.Errorf("transport for %s does not support prompts", serverID)
+	}
+
+	prompts, err := provider.ListPrompts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m.factEmitter().EmitPrompts(serverID, prompts)
+	logging.Get(logging.CategoryTools).Info("Discovered %d prompts from %s", len(prompts), serverID)
+	return prompts, nil
+}
+
+// GetPrompt renders a server-side prompt template.
+func (m *MCPClientManager) GetPrompt(ctx context.Context, serverID, name string, args map[string]string) ([]MCPPromptMessage, error) {
+	transport, err := m.transportFor(serverID)
+	if err != nil {
+		return nil, err
+	}
+	provider, ok := transport.(PromptCapableTransport)
+	if !ok {
+		return nil, fmt.Errorf("transport for %s does not support prompts", serverID)
+	}
+	return provider.GetPrompt(ctx, name, args)
+}
+
+// transportFor returns the live transport for a connected server.
+func (m *MCPClientManager) transportFor(serverID string) (MCPTransport, error) {
+	if serverID == "" {
+		return nil, fmt.Errorf("server ID cannot be empty")
+	}
+	m.mu.RLock()
+	conn, ok := m.servers[serverID]
+	m.mu.RUnlock()
+	if !ok || conn.Transport == nil || !conn.Transport.IsConnected() {
+		return nil, fmt.Errorf("server not connected: %s", serverID)
+	}
+	return conn.Transport, nil
+}
+
 // GetServer returns the connection for a specific server.
 func (m *MCPClientManager) GetServer(serverID string) (*MCPServerConnection, bool) {
 	m.mu.RLock()

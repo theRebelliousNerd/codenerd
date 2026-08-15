@@ -37,7 +37,54 @@ type PromptProvider interface {
 	GetPrompt(ctx context.Context, role CampaignRole, campaignID string) (string, error)
 }
 
-// StaticPromptProvider provides static fallback prompts.
+// CampaignRoleAtomFamily maps a campaign role to the prompt-atom family that
+// owns its content under internal/prompt/atoms/campaign/.
+//
+// Every role's real prompt lives in that corpus, where it is versioned,
+// budgeted and JIT-selected against the campaign's actual facts. prompts.go
+// holds a frozen copy for the case where no JIT compiler could be built at all.
+// The map is what keeps "which atoms serve this role" answerable from code
+// rather than by grepping YAML, and it is what
+// TestCampaignRoles_HaveAtomCoverage checks the corpus against.
+func CampaignRoleAtomFamily(role CampaignRole) string {
+	switch role {
+	case RoleLibrarian:
+		return "campaign/librarian"
+	case RoleExtractor:
+		return "campaign/extractor"
+	case RoleTaxonomy:
+		return "campaign/taxonomy"
+	case RolePlanner:
+		return "campaign/planner"
+	case RoleReplanner:
+		return "campaign/replanning"
+	case RoleAnalysis:
+		return "campaign/analysis"
+	case RoleAssault:
+		return "campaign/assault"
+	default:
+		return ""
+	}
+}
+
+// AllCampaignRoles returns every role the provider serves.
+func AllCampaignRoles() []CampaignRole {
+	return []CampaignRole{
+		RoleLibrarian, RoleExtractor, RoleTaxonomy,
+		RolePlanner, RoleReplanner, RoleAnalysis, RoleAssault,
+	}
+}
+
+// StaticPromptProvider is the LAST-RESORT fallback, not a peer of the JIT path.
+//
+// It returns a frozen ~1000-line prompt from prompts.go with no awareness of
+// the campaign it is serving: no phase, no goal, no kernel facts, no token
+// budget. Production callers wire CampaignJITProvider, which assembles the
+// atoms under internal/prompt/atoms/campaign/ against the live campaign. This
+// exists so a boot that cannot build a JIT compiler still plans something
+// instead of failing — and it says so, because a campaign silently planned from
+// a frozen prompt looks identical to one planned properly and is measurably
+// worse.
 type StaticPromptProvider struct{}
 
 // NewStaticPromptProvider creates a provider that uses only static prompts.
@@ -51,7 +98,12 @@ func (spp *StaticPromptProvider) GetPrompt(
 	role CampaignRole,
 	campaignID string,
 ) (string, error) {
-	logging.CampaignDebug("Using static prompt for role: %s", role)
+	if family := CampaignRoleAtomFamily(role); family != "" {
+		logging.Get(logging.CategoryCampaign).Warn(
+			"Campaign role %s served from the STATIC fallback prompt; the JIT provider was not wired, "+
+				"so the %s atoms were not assembled and this plan sees none of the campaign's facts",
+			role, family)
+	}
 	return getStaticPrompt(role), nil
 }
 

@@ -406,12 +406,23 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		ContextBudget: contextBudget,
 	}
 
-	fmt.Println("📋 Decomposing goal into phases and tasks...")
+	// A deterministically-built campaign (currently `nerd campaign assault`)
+	// skips decomposition but needs the identical boot below: JIT executor,
+	// intelligence wiring, risk preflight, event streaming and resume support.
+	// Duplicating ~150 lines of that in a second command is how the two paths
+	// drift; injecting the plan here keeps one implementation.
+	var result *campaign.DecomposeResult
+	if prebuilt := takeCampaignStartOverride(); prebuilt != nil {
+		fmt.Println("📋 Using deterministic campaign plan (decomposition skipped)...")
+		result = &campaign.DecomposeResult{Campaign: prebuilt, ValidationOK: true}
+	} else {
+		fmt.Println("📋 Decomposing goal into phases and tasks...")
 
-	// Decompose
-	result, err := decomposer.Decompose(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to decompose campaign: %w", err)
+		var derr error
+		result, derr = decomposer.Decompose(ctx, req)
+		if derr != nil {
+			return fmt.Errorf("failed to decompose campaign: %w", derr)
+		}
 	}
 
 	if !result.ValidationOK {
@@ -1099,6 +1110,15 @@ func repeatChar(c rune, n int) string {
 func campaignOutcome(runErr error, ctxErr error, timeout time.Duration) error {
 	if runErr == nil {
 		return nil
+	}
+	// A risk gate refusal is not a crash and it is not a timeout: no task ran,
+	// and the operator needs to see which gate stopped it, what the score was
+	// and whether the finding was hard or advisory. Until now that report
+	// existed only as CategoryCampaign log lines, so the terminal showed a
+	// single wrapped sentence and nothing actionable.
+	if report, ok := campaign.FormatRiskBlock(runErr); ok {
+		fmt.Print("\n🛑 " + report)
+		return runErr
 	}
 	if ctxErr != nil {
 		return fmt.Errorf("operation timeout (%s) reached — campaign paused mid-run: run 'nerd campaign resume' to continue or raise --timeout: %w", timeout, runErr)

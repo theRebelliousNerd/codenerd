@@ -41,6 +41,15 @@ func TestConcurrentDiscoverAndCall_WhenRacing_ShouldNotCorruptState(t *testing.T
 	}
 
 	ctx := context.Background()
+
+	// Persist the catalog before racing. RecordToolUsage is an UPDATE, so a
+	// call that lands before its tool row exists silently records nothing —
+	// real behaviour, but it would make the assertion below flaky rather than
+	// telling us anything about concurrency safety.
+	if err := manager.DiscoverTools(ctx, "srv"); err != nil {
+		t.Fatalf("initial DiscoverTools: %v", err)
+	}
+
 	var wg sync.WaitGroup
 
 	for range 4 {

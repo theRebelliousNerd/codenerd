@@ -83,6 +83,31 @@ Emission is subject-keyed and replaces rather than appends: re-analysis of a
 tool retracts its previous facts first. The kernel adapter retracts by *exact*
 fact, so the emitter remembers the exact strings it asserted.
 
+### Resources and prompts
+
+Tools are one of three MCP primitives. `resources.go` adds the other two as
+*optional* transport interfaces (`ResourceCapableTransport`,
+`PromptCapableTransport`) rather than widening `MCPTransport`, which callers'
+fakes also implement. All three built-in transports satisfy both.
+
+| Manager method | Wire method | Facts emitted |
+|----------------|-------------|---------------|
+| `DiscoverResources` | `resources/list` | `mcp_resource_registered`, `_mime`, `_name` |
+| `ReadResource` | `resources/read` | — |
+| `DiscoverPrompts` | `prompts/list` | `mcp_prompt_registered`, `mcp_prompt_argument` |
+| `GetPrompt` | `prompts/get` | — |
+
+### Auth headers
+
+`MCPServerConfig.Headers` is attached to every HTTP/SSE request. Values are
+`${ENV_VAR}`-expanded at transport construction, and a header whose variable is
+unset is dropped rather than sent as a literal `${...}`. Stdio servers are
+configured through their command line and inherited environment instead.
+
+> Wiring note: `internal/config.MCPServerIntegration` does not yet carry a
+> `headers` field, so this is currently reachable only by callers that build
+> `mcp.MCPServerConfig` directly. The same is true of `Endpoint` (stdio).
+
 ### Analysis cache invalidation
 
 `ToolSchemaHash` fingerprints the server-advertised name, description, and input
@@ -169,11 +194,24 @@ fields, bearer tokens, AWS keys, PEM blocks, long high-entropy hex strings)
 before anything reaches a log line. Call sites that log call results must route
 through it — never log a raw `MCPCallResult.Output`.
 
+## Inspecting from the CLI
+
+```bash
+nerd mcp status                                  # servers + catalog size
+nerd mcp tools                                   # discovered tools
+nerd mcp select --shard coder --verb write       # what the KERNEL picks, and why-path
+nerd mcp metrics --prometheus                    # call counts, failures, latency
+```
+
+`nerd mcp select` boots a kernel, replays the persisted catalog as EDB facts,
+and reports whether the Mangle policy or the Go fallback made the decision —
+the fastest way to tell whether the executive path is live.
+
 ## Testing
 
 ```bash
 go test ./internal/mcp/...
-go test -race ./internal/mcp/ -run 'Concurrent|Race'   # manager + store races
+go test -race ./internal/mcp/ -run 'Concurrent'   # manager + store + emitter races
 ```
 
 `policy_golden_test.go` runs the selection policy against

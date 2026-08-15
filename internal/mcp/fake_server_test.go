@@ -111,6 +111,36 @@ func (f *fakeMCPServer) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		write(map[string]any{"content": "ok:" + params.Name})
+	case "resources/list":
+		write(map[string]any{
+			"resources": []map[string]any{
+				{"uri": "file:///readme.md", "name": "README", "mimeType": "text/markdown"},
+			},
+		})
+	case "resources/read":
+		write(map[string]any{
+			"contents": []map[string]any{
+				{"uri": "file:///readme.md", "mimeType": "text/markdown", "text": "# hello"},
+			},
+		})
+	case "prompts/list":
+		write(map[string]any{
+			"prompts": []map[string]any{
+				{
+					"name":        "summarize",
+					"description": "Summarize a file",
+					"arguments": []map[string]any{
+						{"name": "path", "description": "file to summarize", "required": true},
+					},
+				},
+			},
+		})
+	case "prompts/get":
+		write(map[string]any{
+			"messages": []map[string]any{
+				{"role": "user", "content": map[string]any{"type": "text", "text": "summarize main.go"}},
+			},
+		})
 	case "ping":
 		write(map[string]any{})
 	default:
@@ -343,4 +373,95 @@ func (k *recordingKernel) retractedFacts() []string {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	return append([]string(nil), k.retracted...)
+}
+
+func TestManager_WhenServerExposesResources_ShouldDiscoverAndEmitFacts(t *testing.T) {
+	server := newFakeMCPServer(t)
+	store, err := NewMCPToolStore("file::memory:?cache=shared", nil)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	kernel := &recordingKernel{}
+	manager := NewMCPClientManager(store, nil, map[string]MCPServerConfig{
+		"fake": {
+			ID:          "fake",
+			Enabled:     true,
+			Protocol:    "http",
+			BaseURL:     server.URL,
+			Timeout:     "5s",
+			AutoConnect: true,
+		},
+	})
+	manager.SetFactEmitter(NewFactEmitter(kernel))
+
+	ctx := context.Background()
+	if err := manager.ConnectAll(ctx); err != nil {
+		t.Fatalf("ConnectAll: %v", err)
+	}
+
+	resources, err := manager.DiscoverResources(ctx, "fake")
+	if err != nil {
+		t.Fatalf("DiscoverResources: %v", err)
+	}
+	if len(resources) != 1 || resources[0].URI != "file:///readme.md" {
+		t.Fatalf("unexpected resources: %+v", resources)
+	}
+
+	contents, err := manager.ReadResource(ctx, "fake", resources[0].URI)
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if len(contents) != 1 || contents[0].Text != "# hello" {
+		t.Fatalf("unexpected contents: %+v", contents)
+	}
+
+	prompts, err := manager.DiscoverPrompts(ctx, "fake")
+	if err != nil {
+		t.Fatalf("DiscoverPrompts: %v", err)
+	}
+	if len(prompts) != 1 || prompts[0].Name != "summarize" {
+		t.Fatalf("unexpected prompts: %+v", prompts)
+	}
+	if len(prompts[0].Arguments) != 1 || !prompts[0].Arguments[0].Required {
+		t.Errorf("prompt arguments lost: %+v", prompts[0].Arguments)
+	}
+
+	// The wire format allows string or typed-block content; both must
+	// normalize to text.
+	messages, err := manager.GetPrompt(ctx, "fake", "summarize", map[string]string{"path": "main.go"})
+	if err != nil {
+		t.Fatalf("GetPrompt: %v", err)
+	}
+	if len(messages) != 1 || messages[0].Content != "summarize main.go" {
+		t.Fatalf("unexpected messages: %+v", messages)
+	}
+
+	asserted := kernel.assertedFacts()
+	for _, want := range []string{
+		`mcp_resource_registered("fake", "file:///readme.md")`,
+		`mcp_resource_mime("file:///readme.md", "text/markdown")`,
+		`mcp_prompt_registered("fake", "summarize")`,
+		`mcp_prompt_argument("summarize", "path", /true)`,
+	} {
+		if !containsPrefix(asserted, want) {
+			t.Errorf("missing fact %q; asserted: %v", want, asserted)
+		}
+	}
+}
+
+func TestManager_WhenTransportLacksResources_ShouldReportUnsupported(t *testing.T) {
+	manager := NewMCPClientManager(nil, nil, map[string]MCPServerConfig{})
+	manager.servers["srv"] = &MCPServerConnection{
+		Server:    &MCPServer{ID: "srv"},
+		Transport: &mockTransport{connected: true},
+	}
+
+	if _, err := manager.DiscoverResources(context.Background(), "srv"); err == nil {
+		t.Error("expected an unsupported-capability error for a transport without resources")
+	}
+	if _, err := manager.DiscoverPrompts(context.Background(), "srv"); err == nil {
+		t.Error("expected an unsupported-capability error for a transport without prompts")
+	}
 }
