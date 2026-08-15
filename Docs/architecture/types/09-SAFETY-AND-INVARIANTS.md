@@ -1,6 +1,6 @@
 # 09 — Safety and Invariants: `internal/types`
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-08-15**
 
 ## 1. Package safety role
 
@@ -40,6 +40,22 @@ Strings resembling Unix paths or files are **not** name constants. Prefer explic
 
 Go `true`/`false` map to Mangle true/false constants (`/true` `/false` in String form).
 
+### I-FACT-06 — Fact.String output must re-parse as Mangle
+
+Every branch of `Fact.String` has to emit a valid Mangle token, because the output is loaded back:
+`northstar.RenderVisionMangle` writes it into a `.mg` file the kernel parses at boot, and
+`world/scope.go` keys a dedup map on it. Containers therefore render as quoted JSON (matching
+`ToAtom`), floats keep `%f` (mangle-go renders `Float64(2.0)` as `2`, which re-parses as `int64`),
+and an unsupported type is quoted rather than emitted bare. Anchored by
+`TestFactString_WhenAnySupportedArgType_ShouldParseBackAsMangle`.
+
+### I-FACT-07 — Declared argument types are the authority
+
+`internal/core/defaults/*.mg` `bound [...]` declarations decide an argument's Mangle type; the Go
+call site conforms to them, not the reverse. `ToAtom` cannot enforce this (it never sees the Decl),
+so the enforcement is the repo-wide ratchet in `fact_conventions_guard_test.go`, whose baseline
+records every current violation and why it survives.
+
 ### I-TX-01 — Atomic commit or panic
 
 `NewKernelTx` requires `KernelTransactor`. Non-atomic multi-op fallback is **removed**. Incomplete kernels must not silently multi-rebuild.
@@ -76,7 +92,7 @@ Buffered ops on `KernelTransaction` apply only on `Commit()`.
 | `NewKernelTx` | **Yes** if kernel not `KernelTransactor` | Fail closed on non-atomic multi-mutation |
 | Extract helpers | **No** | Return zero / false / empty |
 | `ToAtom` | **No** | Return error |
-| `String` | **No** | Best-effort debug text |
+| `String` | **No** | Always emits a parseable token; worst case it quotes |
 
 ## 5. Mangle Decl relationship
 
@@ -84,7 +100,9 @@ This package does **not** declare Mangle predicates. When adding new fact shapes
 
 1. Ensure `Decl` exists in `internal/core/defaults` / policy corpus
 2. Ensure arity matches `Fact.Args`
-3. Prefer atoms for enums (`/passing`, `/coder`) via `MangleAtom`
+3. Prefer atoms for enums (`/passing`, `/coder`) via `MangleAtom` for literals, or `types.Atom(v)`
+   for a value assembled at runtime
+4. The Decl-conformance ratchet will fail the build if a literal argument contradicts the Decl
 
 ## 6. Security-adjacent notes
 
@@ -96,5 +114,10 @@ This package does **not** declare Mangle predicates. When adding new fact shapes
 
 - `TestToAtom_WhenNilArg_ShouldReturnError`
 - `TestToAtom_WhenUnknownType_ShouldReturnError`
+- `TestToAtom_WhenContainerHoldsUnencodableValue_ShouldReturnNamedError`
+- `TestFactString_WhenAnySupportedArgType_ShouldParseBackAsMangle`
+- `TestFactConventions_WhenNewBareAssertOrPercentVAppears_ShouldFail` (repo-wide)
+- `TestKernelTransactor_WhenKernelImplementationLacksTransaction_ShouldBeBaselined` (repo-wide)
+- `TestNewKernelTx_WhenKernelCannotTransact_ShouldPanicNamingTheConcreteType`
 - Name-constant negative cases (`//`, file paths, extensions)
 - Extract bool atom conventions

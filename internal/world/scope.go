@@ -478,9 +478,15 @@ func (s *FileScope) loadFile(path string) error {
 		// Warn if editing generated code
 		if patterns.IsGenerated {
 			logging.Get(logging.CategoryWorld).Warn("Generated code detected: %s (generator: %s)", filepath.Base(path), patterns.Generator)
+			// edit_unsafe(Ref, Reason) declares Reason /name, and
+			// policy/codedom_edit.mg derives edit_unsafe(Ref, /generated_code)
+			// per code element from the same generated_code/3 facts emitted
+			// just above. Emitting the reason as a bare Go string made it a
+			// string constant that shared no vocabulary with those rules, so a
+			// consumer matching /generated_code saw only half the relation.
 			s.emitFact(core.Fact{
 				Predicate: "edit_unsafe",
-				Args:      []any{path, "generated_code_will_be_overwritten"},
+				Args:      []any{path, core.MangleAtom("/generated_code")},
 			})
 		}
 	}

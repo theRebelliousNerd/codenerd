@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 )
 
 // CacheEntry represents cached metadata for a single file.
@@ -16,11 +17,26 @@ type CacheEntry struct {
 }
 
 // FileCache manages file metadata caching to avoid re-hashing unchanged files.
+//
+// Keys are absolute filesystem paths, deliberately unlike the facts, whose
+// identities are workspace-relative. This file is a machine-local artifact
+// under .nerd/cache and never travels; keying it by the path the walker
+// actually visits keeps lookup allocation-free on the hot path. Moving the
+// checkout invalidates the whole cache, which costs one rehash pass and is
+// self-healing.
 type FileCache struct {
 	mu      sync.RWMutex
 	path    string
 	Entries map[string]CacheEntry `json:"entries"`
 	Dirty   bool                  `json:"-"`
+
+	// Hit/miss counters. The data-flow cache has reported its hit rate for a
+	// while; the file cache — the one that decides whether the scanner rehashes
+	// every file in the repo — reported nothing, so a cache that had silently
+	// stopped working (a mtime granularity change, a key format change, a
+	// cache file that never saved) was invisible.
+	hits   atomic.Int64
+	misses atomic.Int64
 }
 
 // NewFileCache creates or loads a file cache.
@@ -58,6 +74,13 @@ func (c *FileCache) load() {
 }
 
 // Save writes the cache to disk if dirty.
+//
+// The write is atomic: unique temp file in the destination directory, fsync,
+// rename. A plain os.WriteFile truncates the existing manifest before writing
+// the new bytes, so a crash, a full disk, or two scans racing left a truncated
+// or interleaved manifest — the only copy of the hash cache — and the next scan
+// rehashed the entire repository (or, worse, read a half-written entry as
+// truth).
 func (c *FileCache) Save() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -69,7 +92,6 @@ func (c *FileCache) Save() error {
 
 	logging.WorldDebug("FileCache: saving %d entries to disk", len(c.Entries))
 
-	// Ensure directory exists
 	dir := filepath.Dir(c.path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		logging.Get(logging.CategoryWorld).Error("FileCache: failed to create cache directory: %v", err)
@@ -82,14 +104,51 @@ func (c *FileCache) Save() error {
 		return err
 	}
 
-	if err := os.WriteFile(c.path, data, 0644); err != nil {
+	if err := writeFileAtomic(c.path, data, 0644); err != nil {
 		logging.Get(logging.CategoryWorld).Error("FileCache: failed to write cache file: %v", err)
 		return err
 	}
 
 	c.Dirty = false
-	logging.World("FileCache saved: %d entries", len(c.Entries))
+	logging.World("FileCache saved: %d entries (%s)", len(c.Entries), c.statsLocked())
 	return nil
+}
+
+// writeFileAtomic writes data to path via a unique temp file + fsync + rename,
+// so a reader never observes a partial file and a failed write never destroys
+// the previous contents.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	// Unique name: two scanners saving concurrently must not write the same
+	// temp file and rename each other's partial bytes into place.
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer func() {
+		// Best effort: on the success path the file is already renamed away.
+		_ = os.Remove(tmp)
+	}()
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Chmod(perm); err != nil {
+		f.Close()
+		return err
+	}
+	// fsync before rename: rename is atomic in the directory entry, but without
+	// the sync the renamed inode can still be empty after a power loss.
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // Get returns the hash if the file hasn't changed.
@@ -107,14 +166,17 @@ func (c *FileCache) Get(path string, info os.FileInfo) (string, bool) {
 
 	entry, ok := c.Entries[path]
 	if !ok {
+		c.misses.Add(1)
 		return "", false
 	}
 
 	// Check if file matches cache
 	if entry.ModTime == info.ModTime().UnixNano() && entry.Size == info.Size() {
+		c.hits.Add(1)
 		return entry.Hash, true
 	}
 
+	c.misses.Add(1)
 	return "", false
 }
 
@@ -129,4 +191,31 @@ func (c *FileCache) Update(path string, info os.FileInfo, hash string) {
 		Size:    info.Size(),
 	}
 	c.Dirty = true
+}
+
+// Stats reports lookup effectiveness, in the same shape the data-flow cache
+// reports, so both caches can be logged and compared.
+func (c *FileCache) Stats() CacheStats {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.statsLocked()
+}
+
+func (c *FileCache) statsLocked() CacheStats {
+	dirty := 0
+	if c.Dirty {
+		dirty = len(c.Entries)
+	}
+	return CacheStats{
+		Hits:    c.hits.Load(),
+		Misses:  c.misses.Load(),
+		Entries: len(c.Entries),
+		Dirty:   dirty,
+	}
+}
+
+// LogStats emits the cache effectiveness line for a completed scan.
+func (c *FileCache) LogStats(scope string) {
+	s := c.Stats()
+	logging.World("FileCache[%s]: %s", scope, s)
 }

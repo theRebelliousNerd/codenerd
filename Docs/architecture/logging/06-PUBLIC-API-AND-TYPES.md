@@ -79,13 +79,16 @@ Constants listed in [02-CURRENT-STATE.md](02-CURRENT-STATE.md) / `logger.go` (~l
 
 | Func | Signature | Notes |
 |------|-----------|-------|
-| `Initialize` | `(ws string) error` | Once; empty ws errors |
-| `ReloadConfig` | `() error` | Re-read config.json |
+| `Initialize` | `(ws string) error` | Idempotent per workspace; a different absolute workspace rebinds; empty ws errors |
+| `BoundWorkspace` | `() string` | Workspace the sinks are attached to ("" before first init) |
+| `ApplyConfig` | `(Config)` | Install a boot-parsed config and pin it against disk reads |
+| `ClearInjectedConfig` | `()` | Release that pin |
+| `ReloadConfig` | `() error` | Re-read config.json (no-op while a config is pinned) |
 | `IsDebugMode` | `() bool` | |
 | `IsCategoryEnabled` | `(Category) bool` | |
 | `IsJSONFormat` | `() bool` | |
 | `Get` | `(Category) *Logger` | May be no-op |
-| `CloseAll` | `()` | Category files only |
+| `CloseAll` | `()` | Categories, problems log, audit and LLM I/O |
 | `InitAudit` | `() error` | Called from init |
 | `CloseAudit` | `()` | |
 | `Audit` | `() *AuditLogger` | Global singleton lazy |
@@ -98,6 +101,12 @@ Constants listed in [02-CURRENT-STATE.md](02-CURRENT-STATE.md) / `logger.go` (~l
 | `LogLLMRequest` | `(callsite, system, user string, history []LLMMessage, model string, temp float64)` | |
 | `LogLLMResponse` | `(callsite, response string, duration time.Duration, tokenEstimate int)` | |
 | `LogLLMError` | `(callsite string, err error, duration time.Duration)` | |
+| `RedactSecrets` | `(string) string` | Shape-based credential redaction; applied to all LLM I/O writes |
+| `RedactForLog` | `(payload string, maxLen int) string` | Redact + bound one log line |
+| `ExportAuditFacts` | `(auditPath string, w io.Writer, []AuditEventType) (AuditFactExport, error)` | Offline audit JSONL → `.mg` |
+| `LatestAuditLogPath` | `() (string, error)` | Newest audit log; `ErrNoAuditLog` when absent |
+| `ReadRecentAuditEvents` | `(path string, []AuditEventType, limit int) ([]AuditEvent, error)` | |
+| `CountAuditEventTypes` | `(path string) (map[AuditEventType]int, error)` | |
 | `CloseLLMIOLogger` | `()` | |
 
 ---
@@ -130,7 +139,7 @@ Pattern: `X` → Info, `XDebug` → Debug; many also have `XWarn` / `XError`.
 
 Covered families: Boot, Session, Kernel, API, Perception, Articulation, Routing, Tools, VirtualStore, Shards, Coder, Tester, Reviewer, Researcher, SystemShards, Dream, Autopoiesis, Campaign, Context, World, Embedding, Store, Browser, Tactile, JIT, Build.
 
-**Missing convenience:** dedicated Northstar Info/Debug/Warn/Error (category constant exists — use `Get(CategoryNorthstar)`).
+**Convenience coverage:** Northstar and Regression now have wrappers alongside every other category; Persist has Info/Debug/Warn/Error.
 
 **File:** `logger_convenience.go`
 
@@ -199,6 +208,6 @@ if logging.IsLLMIOTracingEnabled() {
 
 1. Always safe to call convenience functions before init — they no-op.  
 2. After `Initialize` with debug off, still safe — no-op.  
-3. Do not rely on `CloseAll` to flush audit/LLM I/O.  
+3. `CloseAll` flushes and closes every sink, including audit and LLM I/O.  
 4. Do not pass secrets into Info strings when debug is on in shared workspaces.  
 5. Prefer typed categories over inventing string filenames.

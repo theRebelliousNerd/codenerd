@@ -13,19 +13,25 @@ import (
 	"codenerd/internal/types"
 )
 
-var northstarPredicatesMap = map[string]struct{}{
-	"northstar_mission": {}, "northstar_problem": {}, "northstar_vision": {},
-	"northstar_persona": {}, "northstar_pain_point": {}, "northstar_need": {},
-	"northstar_capability": {}, "northstar_risk": {}, "northstar_mitigation": {},
-	"northstar_requirement": {}, "northstar_constraint": {}, "northstar_defined": {},
-}
-
+// northstarPredicatesList is every predicate Vision.ToFacts can emit. It is the
+// retract set for refreshKernelFacts: a predicate missing here survives a vision
+// change and leaves the kernel asserting a fact the vision no longer contains.
 var northstarPredicatesList = []string{
 	"northstar_mission", "northstar_problem", "northstar_vision",
 	"northstar_persona", "northstar_pain_point", "northstar_need",
-	"northstar_capability", "northstar_risk", "northstar_mitigation",
-	"northstar_requirement", "northstar_constraint", "northstar_defined",
+	"northstar_capability", "northstar_serves",
+	"northstar_risk", "northstar_mitigation", "northstar_mitigation_text",
+	"northstar_requirement", "northstar_supports", "northstar_addresses",
+	"northstar_constraint", "northstar_defined",
 }
+
+var northstarPredicatesMap = func() map[string]struct{} {
+	m := make(map[string]struct{}, len(northstarPredicatesList))
+	for _, p := range northstarPredicatesList {
+		m[p] = struct{}{}
+	}
+	return m
+}()
 
 // KernelClient provides an interface for asserting facts into the Mangle kernel.
 type KernelClient interface {
@@ -38,16 +44,23 @@ type KernelClient interface {
 // Guardian is the Northstar vision guardian.
 // It monitors project activity and ensures alignment with the defined vision.
 type Guardian struct {
-	store   *Store
-	config  GuardianConfig
-	llm     LLMClient
-	kernel  KernelClient
-	querier FactQuerier
-	mu      sync.RWMutex
+	store    *Store
+	config   GuardianConfig
+	llm      LLMClient
+	kernel   KernelClient
+	querier  FactQuerier
+	embedder Embedder
+	mu       sync.RWMutex
 
 	// Runtime state
 	state  *GuardianState
 	vision *Vision
+
+	warnAlignmentModelIgnored sync.Once
+
+	// registryKey is set when this Guardian is owned by the process-wide
+	// registry (see registry.go); it is "" for directly constructed guardians.
+	registryKey string
 }
 
 // LLMClient interface for alignment checks.
@@ -55,13 +68,79 @@ type LLMClient interface {
 	CompleteWithSystem(ctx context.Context, system, user string) (string, error)
 }
 
+// ModelSelectingLLMClient is the optional capability a client advertises when it
+// can answer one completion with an explicitly chosen model without mutating
+// shared client state.
+//
+// GuardianConfig.AlignmentModel exists so an operator can run alignment on a
+// stronger (or cheaper) model than the session's default. It was previously
+// declared, documented, serialized -- and read by nothing, so setting it did
+// nothing at all. It is now honoured through this interface. Clients that
+// cannot do per-call model selection are detected and warned about once, rather
+// than having the guardian silently mutate a client other subsystems share.
+type ModelSelectingLLMClient interface {
+	CompleteWithSystemModel(ctx context.Context, model, system, user string) (string, error)
+}
+
 // NewGuardian creates a new Northstar Guardian.
 func NewGuardian(store *Store, config GuardianConfig) *Guardian {
 	return &Guardian{
 		store:  store,
-		config: config,
+		config: NormalizeGuardianConfig(config),
 		state:  &GuardianState{OverallAlignment: 1.0},
 	}
+}
+
+// NormalizeGuardianConfig repairs a threshold set that does not satisfy
+// block <= failure <= warning, and clamps every threshold into [0,1].
+//
+// classifyScore walks the thresholds in order warning -> failure -> block and
+// returns on the first match. An out-of-order set therefore does not error, it
+// silently makes a band unreachable: with warning=0.3 and failure=0.7 every
+// score >= 0.3 classifies as passed and nothing is ever marked failed. That is
+// a guardian that reports "aligned" for work it was configured to block, which
+// is the worst possible failure direction for this subsystem. Repair loudly
+// rather than reject, so a bad config degrades to the defaults' ordering
+// instead of taking the whole boot down.
+func NormalizeGuardianConfig(config GuardianConfig) GuardianConfig {
+	clamp := func(v, fallback float64) float64 {
+		if v < 0 || v > 1 {
+			return fallback
+		}
+		return v
+	}
+	defaults := GuardianConfig{WarningThreshold: 0.7, FailureThreshold: 0.5, BlockThreshold: 0.3}
+	original := config
+
+	config.WarningThreshold = clamp(config.WarningThreshold, defaults.WarningThreshold)
+	config.FailureThreshold = clamp(config.FailureThreshold, defaults.FailureThreshold)
+	config.BlockThreshold = clamp(config.BlockThreshold, defaults.BlockThreshold)
+
+	// Sort into the only ordering classifyScore can act on.
+	if config.FailureThreshold > config.WarningThreshold {
+		config.FailureThreshold, config.WarningThreshold = config.WarningThreshold, config.FailureThreshold
+	}
+	if config.BlockThreshold > config.FailureThreshold {
+		config.BlockThreshold, config.FailureThreshold = config.FailureThreshold, config.BlockThreshold
+	}
+	if config.FailureThreshold > config.WarningThreshold {
+		config.FailureThreshold, config.WarningThreshold = config.WarningThreshold, config.FailureThreshold
+	}
+
+	if config.PeriodicCheckInterval <= 0 {
+		config.PeriodicCheckInterval = 5
+	}
+
+	if original.WarningThreshold != config.WarningThreshold ||
+		original.FailureThreshold != config.FailureThreshold ||
+		original.BlockThreshold != config.BlockThreshold {
+		logging.Get(logging.CategoryNorthstar).Warn(
+			"Guardian thresholds were invalid (block=%.2f failure=%.2f warning=%.2f); repaired to block=%.2f failure=%.2f warning=%.2f",
+			original.BlockThreshold, original.FailureThreshold, original.WarningThreshold,
+			config.BlockThreshold, config.FailureThreshold, config.WarningThreshold)
+	}
+
+	return config
 }
 
 // SetLLMClient sets the LLM client for alignment checks.
@@ -86,7 +165,21 @@ func (g *Guardian) SetQuerier(q FactQuerier) {
 }
 
 // Initialize loads the vision and state from the store.
+//
+// It first reconciles the store with .nerd/northstar.json (see bridge.go). That
+// happens here rather than at each call site because every consumer of a vision
+// -- chat boot, shared boot, /alignment, the campaign risk gate, the CLI --
+// goes through Initialize, and the dual-store divergence bug was precisely that
+// each of them remembered a different half of the truth.
 func (g *Guardian) Initialize() error {
+	if g.store != nil {
+		if _, err := SyncVisionAuthority(g.store, filepath.Dir(g.store.Path())); err != nil {
+			// Reconciliation failure must not block the guardian: the store is
+			// still a usable authority on its own.
+			logging.Get(logging.CategoryNorthstar).Warn("Vision reconciliation failed: %v", err)
+		}
+	}
+
 	vision, err := g.store.LoadVision()
 	if err != nil {
 		return fmt.Errorf("failed to load vision: %w", err)
@@ -207,6 +300,20 @@ func (g *Guardian) UpdateVision(vision *Vision) error {
 	g.state = cloneGuardianState(state)
 	g.mu.Unlock()
 
+	// Push the new vision back out to the operator-visible surfaces in the same
+	// call. Without this the store and .nerd/northstar.json diverge the instant
+	// anything updates the vision programmatically, and the next boot's
+	// reconciliation has to guess by mtime which half is real.
+	if g.store != nil {
+		nerdDir := filepath.Dir(g.store.Path())
+		if _, err := WriteVisionJSON(nerdDir, vision); err != nil {
+			logging.Get(logging.CategoryNorthstar).Warn("Failed to export vision JSON: %v", err)
+		}
+		if err := WriteVisionMangle(nerdDir, vision); err != nil {
+			logging.Get(logging.CategoryNorthstar).Warn("Failed to export vision facts: %v", err)
+		}
+	}
+
 	g.refreshKernelFacts()
 
 	logging.Get(logging.CategoryNorthstar).Info("Vision updated: %s", truncate(vision.Mission, 50))
@@ -257,13 +364,14 @@ func (g *Guardian) CheckAlignment(ctx context.Context, trigger AlignmentTrigger,
 	systemPrompt := g.buildAlignmentSystemPrompt(vision, subject)
 	userPrompt := g.buildAlignmentUserPrompt(subject, context)
 
-	response, err := llm.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	response, err := g.complete(ctx, llm, systemPrompt, userPrompt)
 	if err != nil {
 		check.Result = AlignmentWarning
 		check.Score = 0.7
 		check.Explanation = fmt.Sprintf("Failed to complete alignment check: %v", err)
 		check.Duration = time.Since(startTime)
 		g.persistAlignmentOutcome(check, subject)
+		g.logCheck(check, "alignment check failed")
 		return check, nil
 	}
 
@@ -272,16 +380,59 @@ func (g *Guardian) CheckAlignment(ctx context.Context, trigger AlignmentTrigger,
 	check.Duration = time.Since(startTime)
 
 	g.persistAlignmentOutcome(check, subject)
-
-	logging.Get(logging.CategoryNorthstar).Info("Alignment check: %s [%s] score=%.2f",
-		subject, check.Result, check.Score)
+	g.logCheck(check, "alignment check")
 
 	return check, nil
 }
 
+// complete routes the alignment completion through the configured
+// AlignmentModel when the injected client can select a model per call.
+func (g *Guardian) complete(ctx context.Context, llm LLMClient, systemPrompt, userPrompt string) (string, error) {
+	g.mu.RLock()
+	model := strings.TrimSpace(g.config.AlignmentModel)
+	g.mu.RUnlock()
+
+	if model == "" {
+		return llm.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	}
+	if selector, ok := llm.(ModelSelectingLLMClient); ok {
+		return selector.CompleteWithSystemModel(ctx, model, systemPrompt, userPrompt)
+	}
+	g.warnAlignmentModelIgnored.Do(func() {
+		logging.Get(logging.CategoryNorthstar).Warn(
+			"GuardianConfig.AlignmentModel=%q is set but the injected LLM client cannot select a model per call; alignment checks run on the client's default model",
+			model)
+	})
+	return llm.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+}
+
+// logCheck emits the alignment outcome with structured fields.
+//
+// The previous single Info line interpolated subject/result/score into prose,
+// so nothing downstream could filter on "blocked" or aggregate scores without
+// parsing English. Fields make the guardian's decisions queryable in the log
+// pipeline; the human-readable line is kept as the message.
+func (g *Guardian) logCheck(check *AlignmentCheck, msg string) {
+	if check == nil {
+		return
+	}
+	logging.Get(logging.CategoryNorthstar).StructuredLog("INFO", msg, map[string]any{
+		"check_id":    check.ID,
+		"subject":     check.Subject,
+		"trigger":     string(check.Trigger),
+		"result":      string(check.Result),
+		"score":       check.Score,
+		"duration_ms": check.Duration.Milliseconds(),
+		"suggestions": len(check.Suggestions),
+		"has_vision":  g.HasVision(),
+		"explanation": truncate(check.Explanation, 200),
+	})
+}
+
 func (g *Guardian) buildAlignmentSystemPrompt(vision *Vision, subject ...string) string {
 	var sb strings.Builder
-	sb.WriteString("You are the Northstar Alignment Guardian for a software project.\n\n")
+	sb.WriteString(AlignmentAtom(atomGuardianRole))
+	sb.WriteString("\n\n")
 	sb.WriteString("## Project Vision\n")
 	sb.WriteString(fmt.Sprintf("**Mission:** %s\n", vision.Mission))
 	sb.WriteString(fmt.Sprintf("**Problem:** %s\n", vision.Problem))
@@ -351,6 +502,8 @@ func (g *Guardian) buildAlignmentSystemPrompt(vision *Vision, subject ...string)
 			if err == nil && purpose != "" {
 				sb.WriteString(fmt.Sprintf("## Module Northstar (%s)\n", mod))
 				sb.WriteString(fmt.Sprintf("**Purpose:** %s\n\n", purpose))
+				sb.WriteString(AlignmentAtom(atomGuardianModuleRefinement))
+				sb.WriteString("\n\n")
 				reqs, err := ModuleRequirementsFor(q, mod)
 				if err == nil && len(reqs) > 0 {
 					sb.WriteString("### Module Requirements\n")
@@ -369,13 +522,10 @@ func (g *Guardian) buildAlignmentSystemPrompt(vision *Vision, subject ...string)
 		}
 	}
 
-	sb.WriteString("## Your Task\n")
-	sb.WriteString("Evaluate whether the given subject/change aligns with this vision.\n")
-	sb.WriteString("Respond in this EXACT format:\n")
-	sb.WriteString("SCORE: <0.0-1.0>\n")
-	sb.WriteString("RESULT: <passed|warning|failed|blocked>\n")
-	sb.WriteString("EXPLANATION: <one sentence explanation>\n")
-	sb.WriteString("SUGGESTIONS: <comma-separated suggestions, or 'none'>\n")
+	sb.WriteString(AlignmentAtom(atomGuardianTask))
+	sb.WriteString("\n\n")
+	sb.WriteString(AlignmentAtom(atomGuardianOutputContract))
+	sb.WriteString("\n")
 
 	return sb.String()
 }
@@ -390,7 +540,7 @@ func (g *Guardian) buildAlignmentUserPrompt(subject, context string) string {
 		sb.WriteString(context)
 		sb.WriteString("\n\n")
 	}
-	sb.WriteString("Evaluate alignment with the project vision.")
+	sb.WriteString(AlignmentAtom(atomGuardianUserInstruction))
 	return sb.String()
 }
 
@@ -541,10 +691,21 @@ func (g *Guardian) calculateRelevance(text string) float64 {
 	checkKeywords(vision.Problem)
 	checkKeywords(vision.VisionStmt)
 
-	if total == 0 {
-		return 0.5
+	visionScore := 0.5
+	if total > 0 {
+		visionScore = float64(matches) / float64(total)
 	}
-	return float64(matches) / float64(total)
+
+	// Ingested project documents are a second, independent opinion on
+	// relevance. Three vision sentences are a very small vocabulary: work that
+	// is obviously on-mission but phrased differently scores near zero against
+	// them. Take the stronger of the two signals rather than averaging, because
+	// a miss on one channel is evidence of nothing, while a hit on either is
+	// evidence of relevance.
+	if docScore, ok := g.DocumentRelevance(text); ok && docScore > visionScore {
+		return docScore
+	}
+	return visionScore
 }
 
 func (g *Guardian) calculatePathRelevance(path string) float64 {

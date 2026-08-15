@@ -1,6 +1,6 @@
 # 10 — Testing Alignment: `internal/build`
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-08-15**
 
 ---
 
@@ -10,6 +10,8 @@
 |------|-------------:|------|
 | `internal/build/env_test.go` | 211 | Core helpers + loadBuildConfig sqlite matrix |
 | `internal/build/env_gaps_test.go` | 427 | Public API + edge cases (“gaps” coverage) |
+| `internal/build/env_features_test.go` | 460 | Key normalization + ordering determinism, `GetBuildEnvForTest` specialization, `AppendGoFlags`, `DetectionRootFor`, GOCACHE warning, redaction, real-toolchain integration |
+| `internal/build/go_invocation_inventory_test.go` | 402 | Repo-wide AST audit: every non-test `exec.Command("go", …)`, and the importer set |
 
 **Total tests:** package tests only; no external suite owns this package.
 
@@ -34,6 +36,18 @@
 | GetBuildEnv nil / headers / whitelist / config | `TestGetBuildEnv_*` |
 | GetBuildEnvForTest length | `TestGetBuildEnvForTest_ShouldIncludeBuildEnv` |
 | Cross-compile set / empty | `TestGetBuildEnvForCompile_*` |
+| No duplicate env keys across merge stages | `TestGetBuildEnv_WhenWhitelistRepeatsEssentialVar_ShouldNotDuplicateKey`, `_WhenConfigOverridesEssentialVar_` |
+| Env slice ordering determinism | `TestGetBuildEnv_WhenCalledTwice_ShouldBeDeterministic` |
+| Test specialization (GOTRACEBACK, -count=1, CI/GORACE) | `TestGetBuildEnvForTest_When*` |
+| Explicit caller values survive specialization | `TestGetBuildEnvForTest_WhenCallerPinnedCount_ShouldNotOverride` |
+| `GoFlags` → argv | `TestAppendGoFlags_*` |
+| Detection root vs module dir | `TestDetectionRootFor_*` |
+| GOCACHE warning fires / does not fire | `TestGetBaseGoEnv_WhenGOCACHEUnderivable_ShouldWarn`, `_WhenGOCACHEDerivable_ShouldNotWarn` |
+| Secret redaction in logs, values still passed through | `TestRedactEnvValue_WhenSecretProneKey_ShouldRedact`, `TestGetBuildEnv_WhenSecretInConfigEnvVars_ShouldStillBePassedToSubprocess` |
+| Keys-only summary | `TestSummarizeEnv_ShouldReturnSortedKeysOnly` |
+| Real toolchain accepts the env | `TestGetBuildEnv_WhenRealWorkspace_ShouldSurviveGoEnv`, `TestGetBuildEnvForTest_WhenRealWorkspace_ShouldCompileAndRunATest` |
+| Repo-wide adoption of the env factory | `TestGoInvocations_WhenSpawningGo_ShouldUseBuildEnvOrBeExempt` |
+| Package-comment importer list accuracy | `TestBuildImporters_WhenNewConsumerAppears_ShouldBeDocumented` |
 
 ---
 
@@ -43,6 +57,8 @@
 go test ./internal/build/...
 go test -race ./internal/build/...
 go test ./internal/build/... -count=1 -v
+go test -short ./internal/build/...                                      # skip toolchain integration
+go test -v ./internal/build/ -run 'TestGoInvocations|TestBuildImporters' # print the inventory
 ```
 
 No CGO required for these unit tests (they do not invoke the Go toolchain with CGO compile).

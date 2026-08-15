@@ -6,7 +6,6 @@ package logging
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -123,7 +122,7 @@ type AuditEvent struct {
 // =============================================================================
 
 var (
-	auditFile   *os.File
+	auditFile   *rotatingFile
 	auditMu     sync.Mutex
 	auditLogger *AuditLogger
 )
@@ -154,7 +153,10 @@ func InitAudit() error {
 	}
 	auditPath := filepath.Join(logsDir, fmt.Sprintf("%s_audit.log", prefix))
 
-	file, err := os.OpenFile(auditPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	// Rotating sink: audit is the fastest-growing file in the directory
+	// (perf_metric and kernel_query dominate), and run-prefix retention only
+	// bounds it across runs, not within one long campaign.
+	file, err := openRotatingFile(auditPath)
 	if err != nil {
 		return fmt.Errorf("failed to create audit log: %w", err)
 	}
@@ -245,84 +247,110 @@ func (a *AuditLogger) Log(event AuditEvent) {
 	}
 }
 
+// mangleBool renders a Go bool as a Mangle name constant.
+//
+// These facts used to interpolate booleans with %v, producing a bare `true`.
+// Mangle has no bare boolean literal — the convention everywhere else in this
+// repo (see internal/core/defaults/*.mg) is /true and /false — so every fact
+// carrying a success flag was a syntax error, which is most of them. Nothing
+// noticed because nothing ever loaded the file back; `nerd audit facts` does.
+func mangleBool(b bool) string {
+	if b {
+		return "/true"
+	}
+	return "/false"
+}
+
+// mangleString renders a value as an escaped, quoted Mangle string. Targets and
+// actions are attacker-adjacent data (file paths, shell commands, LLM-proposed
+// arguments); interpolating them raw let a single embedded quote corrupt the
+// fact and everything after it on the line.
+func mangleString(v any) string {
+	return "\"" + escapeString(fmt.Sprint(v)) + "\""
+}
+
 // generateMangleFact creates a Mangle-compatible fact string from an event
 func generateMangleFact(e AuditEvent) string {
 	switch e.EventType {
 	case AuditShardSpawn, AuditShardExecute, AuditShardComplete, AuditShardError, AuditShardDestroy:
-		return fmt.Sprintf("shard_lifecycle(%d, /%s, \"%s\", \"%s\", %v).",
-			e.Timestamp, e.EventType, e.ShardID, e.Target, e.Success)
+		return fmt.Sprintf("shard_lifecycle(%d, /%s, %s, %s, %s).",
+			e.Timestamp, e.EventType, mangleString(e.ShardID), mangleString(e.Target), mangleBool(e.Success))
 
 	case AuditActionRoute, AuditActionExecute, AuditActionComplete, AuditActionError:
-		return fmt.Sprintf("action_event(%d, /%s, \"%s\", \"%s\", %v, %d).",
-			e.Timestamp, e.EventType, e.Action, e.Target, e.Success, e.DurationMs)
+		return fmt.Sprintf("action_event(%d, /%s, %s, %s, %s, %d).",
+			e.Timestamp, e.EventType, mangleString(e.Action), mangleString(e.Target), mangleBool(e.Success), e.DurationMs)
 
 	case AuditKernelAssert, AuditKernelRetract, AuditKernelQuery, AuditKernelDerive:
-		return fmt.Sprintf("kernel_op(%d, /%s, \"%s\", %v).",
-			e.Timestamp, e.EventType, e.Target, e.Success)
+		return fmt.Sprintf("kernel_op(%d, /%s, %s, %s).",
+			e.Timestamp, e.EventType, mangleString(e.Target), mangleBool(e.Success))
 
 	case AuditLLMRequest, AuditLLMResponse, AuditLLMError:
 		tokens := 0
 		if t, ok := e.Fields["tokens"].(int); ok {
 			tokens = t
 		}
-		return fmt.Sprintf("llm_call(%d, /%s, \"%s\", %v, %d, %d).",
-			e.Timestamp, e.EventType, e.ShardID, e.Success, e.DurationMs, tokens)
+		return fmt.Sprintf("llm_call(%d, /%s, %s, %s, %d, %d).",
+			e.Timestamp, e.EventType, mangleString(e.ShardID), mangleBool(e.Success), e.DurationMs, tokens)
 
 	case AuditFileRead, AuditFileWrite, AuditFileDelete, AuditFileError:
 		size := int64(0)
 		if s, ok := e.Fields["size"].(int64); ok {
 			size = s
 		}
-		return fmt.Sprintf("file_op(%d, /%s, \"%s\", %v, %d).",
-			e.Timestamp, e.EventType, e.Target, e.Success, size)
+		return fmt.Sprintf("file_op(%d, /%s, %s, %s, %d).",
+			e.Timestamp, e.EventType, mangleString(e.Target), mangleBool(e.Success), size)
 
 	case AuditIntentParsed:
 		verb := ""
 		if v, ok := e.Fields["verb"].(string); ok {
 			verb = v
 		}
+		category := ""
+		if c, ok := e.Fields["category"].(string); ok {
+			category = c
+		}
 		confidence := 0.0
 		if c, ok := e.Fields["confidence"].(float64); ok {
 			confidence = c
 		}
-		return fmt.Sprintf("intent_parsed(%d, \"%s\", \"%s\", \"%s\", %.2f).",
-			e.Timestamp, e.Fields["category"], verb, e.Target, confidence)
+		return fmt.Sprintf("intent_parsed(%d, %s, %s, %s, %.2f).",
+			e.Timestamp, mangleString(category), mangleString(verb), mangleString(e.Target), confidence)
 
 	case AuditSafetyCheck, AuditSafetyBlock, AuditSafetyAllow:
-		return fmt.Sprintf("safety_check(%d, /%s, \"%s\", %v).",
-			e.Timestamp, e.EventType, e.Action, e.Success)
+		return fmt.Sprintf("safety_check(%d, /%s, %s, %s).",
+			e.Timestamp, e.EventType, mangleString(e.Action), mangleBool(e.Success))
 
 	case AuditPerfMetric, AuditPerfSlow:
-		return fmt.Sprintf("perf_metric(%d, \"%s\", \"%s\", %d).",
-			e.Timestamp, e.Category, e.Action, e.DurationMs)
+		return fmt.Sprintf("perf_metric(%d, %s, %s, %d).",
+			e.Timestamp, mangleString(e.Category), mangleString(e.Action), e.DurationMs)
 
 	case AuditErrorGeneric, AuditErrorCritical, AuditErrorRecovery:
-		return fmt.Sprintf("error_event(%d, /%s, \"%s\", \"%s\").",
-			e.Timestamp, e.EventType, e.Category, escapeString(e.Error))
+		return fmt.Sprintf("error_event(%d, /%s, %s, %s).",
+			e.Timestamp, e.EventType, mangleString(e.Category), mangleString(e.Error))
 
 	case AuditSessionStart, AuditSessionEnd, AuditTurnStart, AuditTurnEnd:
-		return fmt.Sprintf("session_event(%d, /%s, \"%s\").",
-			e.Timestamp, e.EventType, e.SessionID)
+		return fmt.Sprintf("session_event(%d, /%s, %s).",
+			e.Timestamp, e.EventType, mangleString(e.SessionID))
 
 	case AuditToolInvoke, AuditToolComplete, AuditToolError:
-		return fmt.Sprintf("tool_exec(%d, /%s, \"%s\", \"%s\", %v, %d).",
-			e.Timestamp, e.EventType, e.Target, e.Action, e.Success, e.DurationMs)
+		return fmt.Sprintf("tool_exec(%d, /%s, %s, %s, %s, %d).",
+			e.Timestamp, e.EventType, mangleString(e.Target), mangleString(e.Action), mangleBool(e.Success), e.DurationMs)
 
 	case AuditCampaignStart, AuditCampaignPhase, AuditCampaignComplete, AuditCampaignAbort:
 		phase := ""
 		if p, ok := e.Fields["phase"].(string); ok {
 			phase = p
 		}
-		return fmt.Sprintf("campaign_event(%d, /%s, \"%s\", \"%s\", %v).",
-			e.Timestamp, e.EventType, e.SessionID, phase, e.Success)
+		return fmt.Sprintf("campaign_event(%d, /%s, %s, %s, %s).",
+			e.Timestamp, e.EventType, mangleString(e.SessionID), mangleString(phase), mangleBool(e.Success))
 
 	case AuditLearningStart, AuditLearningComplete, AuditToolGenerated:
-		return fmt.Sprintf("learning_event(%d, /%s, \"%s\", \"%s\", %v).",
-			e.Timestamp, e.EventType, e.ShardID, e.Target, e.Success)
+		return fmt.Sprintf("learning_event(%d, /%s, %s, %s, %s).",
+			e.Timestamp, e.EventType, mangleString(e.ShardID), mangleString(e.Target), mangleBool(e.Success))
 
 	default:
-		return fmt.Sprintf("audit_event(%d, /%s, \"%s\", \"%s\", %v).",
-			e.Timestamp, e.EventType, e.Category, escapeString(e.Message), e.Success)
+		return fmt.Sprintf("audit_event(%d, /%s, %s, %s, %s).",
+			e.Timestamp, e.EventType, mangleString(e.Category), mangleString(e.Message), mangleBool(e.Success))
 	}
 }
 

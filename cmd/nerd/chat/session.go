@@ -116,8 +116,13 @@ func InitChat(cfg Config) Model {
 	// The perception package supports multiple providers (zai, anthropic, openai, gemini, xai, openrouter)
 	// and reads configuration from .nerd/config.json or environment variables
 
-	// Initialize Usage Tracker (lightweight)
-	tracker, err := usage.NewTracker(workspace)
+	// Initialize Usage Tracker (lightweight).
+	//
+	// Shared, not NewTracker: chat and the Cortex it boots meter the same
+	// workspace, and two trackers over one usage.json each hold their own
+	// aggregates and overwrite the file on flush — whichever saved last erased
+	// the other's tokens.
+	tracker, err := usage.Shared(workspace)
 	if err != nil {
 		fmt.Printf("⚠ Usage tracking init failed: %v\n", err)
 	}

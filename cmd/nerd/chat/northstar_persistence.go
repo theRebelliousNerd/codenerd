@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/northstar"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -57,6 +59,20 @@ func (m Model) saveNorthstar(startCampaign bool) (tea.Model, tea.Cmd) {
 		if err := os.WriteFile(jsonPath, jsonData, 0644); err != nil {
 			warnings = append(warnings, fmt.Sprintf("Failed to save JSON backup: %v", err))
 		}
+	}
+
+	// Persist through the Guardian so the Northstar knowledge store -- the
+	// authority /alignment and the campaign risk gate read -- holds this vision
+	// immediately. Writing only the JSON left those two reporting "no vision
+	// defined" for the rest of the session, even though the wizard had just run.
+	// m.kernel is a typed pointer: pass a nil INTERFACE when it is unset, or
+	// refreshKernelFacts would call Retract on a nil *core.RealKernel.
+	var visionKernel northstar.KernelClient
+	if m.kernel != nil {
+		visionKernel = m.kernel
+	}
+	if err := persistWizardVision(m.workspace, w, visionKernel); err != nil {
+		warnings = append(warnings, fmt.Sprintf("Guardian store: %v", err))
 	}
 
 	// Exit wizard mode
@@ -122,6 +138,45 @@ _The Campaign Planner will decompose your vision into actionable phases._`,
 	m.viewport.GotoBottom()
 	m.textarea.Reset()
 	return m, nil
+}
+
+// persistWizardVision writes the completed wizard state into the Northstar
+// knowledge store via Guardian.UpdateVision, which also re-projects the
+// northstar_* facts into the kernel and refreshes the JSON/.mg export surfaces.
+//
+// The wizard state is routed through JSON rather than field-by-field so this
+// stays correct if the wizard grows a field: northstar.WizardDocument is the
+// declared shape of .nerd/northstar.json, and that is exactly what w marshals to.
+func persistWizardVision(workspace string, w *NorthstarWizardState, kernel northstar.KernelClient) error {
+	raw, err := json.Marshal(w)
+	if err != nil {
+		return fmt.Errorf("encode wizard state: %w", err)
+	}
+	var doc northstar.WizardDocument
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return fmt.Errorf("decode wizard state: %w", err)
+	}
+	vision := doc.ToVision()
+	if vision == nil || vision.Mission == "" {
+		return fmt.Errorf("wizard produced no mission; nothing persisted")
+	}
+
+	nerdDir := filepath.Join(workspace, ".nerd")
+	guardian, err := northstar.AcquireGuardian(nerdDir, northstar.DefaultGuardianConfig())
+	if err != nil {
+		return fmt.Errorf("open guardian: %w", err)
+	}
+	defer func() { _ = northstar.ReleaseGuardian(guardian) }()
+
+	// Wire the kernel so UpdateVision's retract-then-assert replaces the ad-hoc
+	// facts assertNorthstarFacts wrote above with the canonical projection.
+	// The two encoders disagree on persona IDs (persona_1 vs persona_<Name>),
+	// so without this the kernel would hold both until the next boot.
+	if kernel != nil {
+		guardian.SetParentKernel(kernel)
+	}
+
+	return guardian.UpdateVision(vision)
 }
 
 // =============================================================================
@@ -242,6 +297,7 @@ func riskImpactToNumber(impact string) int {
 		return 50
 	}
 }
+
 // saveNorthstarToKnowledgeBase stores northstar data in the knowledge database
 // Returns a slice of errors encountered during storage (empty if all succeeded)
 func saveNorthstarToKnowledgeBase(db interface {

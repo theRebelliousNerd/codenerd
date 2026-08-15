@@ -1,10 +1,10 @@
 # build — Architecture Corpus (`internal/build`)
 
-> Last verified against codebase: **2026-07-13**  
+> Last verified against codebase: **2026-08-15**  
 > Status: Living Reference Document  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/build/`  
-> Scale: **1** non-test Go file (~312 lines); **2** test files (~638 lines); **0** Mangle sources
+> Scale: **1** non-test Go file (~611 lines); **4** test files (~1500 lines); **0** Mangle sources
 
 ## Scope
 
@@ -22,7 +22,17 @@ It is **not**:
 
 Package comment in `internal/build/env.go` states the problem: multiple components historically spawned `exec.Command("go", …)` with raw or incomplete env, missing **`CGO_CFLAGS`** for `sqlite_headers` and related flags. `GetBuildEnv` is intended as the **single source of truth** for those subprocess environments.
 
-**Today’s wiring reality:** only **`internal/autopoiesis`** (Ouroboros tool compiler + Thunderdome arena compile) imports this package. Call sites pass **`userCfg=nil`**, so config-driven `build` / `execution.allowed_env_vars` paths are tested but not exercised in production callers. See [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md).
+**Today’s wiring reality:** three packages import it — **`internal/autopoiesis`**
+(Ouroboros tool compiler, Thunderdome arena), **`internal/session`** (build /
+test / coverage / gopls verification) and **`internal/core`** (VirtualStore
+`run_tests` and `build` actions). Every other `exec.Command("go", …)` in the repo
+carries a written exemption. Both facts are enforced by
+`internal/build/go_invocation_inventory_test.go`, not by this paragraph.
+
+Remaining honesty gap: all call sites except `session.verifyBuild` still pass
+**`userCfg=nil`**, so config-driven `build` / `execution.allowed_env_vars` paths
+are tested but under-exercised in production. See
+[08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md).
 
 ## Document map
 
@@ -56,6 +66,12 @@ go test ./internal/build/...
 
 # With race detector
 go test -race ./internal/build/...
+
+# Print the live repo-wide `go` invocation + importer inventory
+go test -v ./internal/build/ -run 'TestGoInvocations|TestBuildImporters'
+
+# Skip the tests that spawn the real toolchain
+go test -short ./internal/build/...
 
 # Manual: observe auto-detect when workspace has sqlite_headers/
 # (codeNERD root includes sqlite_headers/sqlite3.h)

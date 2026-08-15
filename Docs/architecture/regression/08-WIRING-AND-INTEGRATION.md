@@ -1,7 +1,7 @@
 # regression — Wiring and Integration
 
-> Last verified against codebase: **2026-07-13**  
-> Honest status: **library implemented; product wiring absent**
+> Last verified against codebase: **2026-08-15**  
+> Honest status: **library implemented; CLI wired; agent path deliberately closed**
 
 ---
 
@@ -10,16 +10,16 @@
 | Surface | Wired? | Evidence |
 |---------|--------|----------|
 | `go` package build | Yes | `internal/regression` compiles |
-| CLI Cobra command | **No** | No `cmd/nerd` references |
-| Chat slash command | **No** | — |
-| Session boot / Cortex | **No** | Not in boot assembly |
-| Shard registration | **No** | Not in `internal/shards/registration.go` |
-| VirtualStore route | **No** | No action handler |
-| Mangle policy corpus | **No** | No predicates |
-| Prompt atoms | **No** | N/A |
-| Campaign assault stages | **No** | Own runner in `cmd/nerd/chat/campaign_assault.go` |
-| Nemesis gauntlet | **No** | Comment-only intent in package docs |
-| `nerd init` template | **No** | No `.nerd/regression` seed |
+| CLI Cobra command | **Yes** | `cmd/nerd/cmd_regression.go` — `nerd regression run\|init\|list` |
+| Chat slash command | No | — |
+| Session boot / Cortex | No | Not in boot assembly |
+| Shard registration | No | Not in `internal/shards/registration.go` |
+| VirtualStore route | **No, by decision** | See [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) §4.1 |
+| Mangle policy corpus | **Yes** | `defaults/policy/regression_battery.mg`, `defaults/schemas_safety.mg` SECTION 24 |
+| Prompt atoms | No | N/A |
+| Campaign assault stages | No | Own runner in `cmd/nerd/chat/campaign_assault.go` |
+| Nemesis gauntlet | No | Comment-only intent in package docs |
+| `nerd init` template | **Partial** | `regression.Seed` implemented and tested; `internal/init` call site pending — §2.5 |
 
 ---
 
@@ -47,18 +47,48 @@ Assault already runs staged shell/`go test` work. A stage could:
 2. Persist `[]Result` under `.nerd/campaigns/<id>/assault/`.  
 3. Fail the stage on first battery failure (aligns with fail-fast).
 
-### 2.3 Agent action (constitutional path)
+### 2.3 Agent action (constitutional path) — CLOSED
+
+This path is **not** taken, and the reasoning is recorded in
+[09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) §4.1 and at the
+decision point in `internal/core/defaults/policy/regression_battery.mg`. In
+short: the constitution's content gate reads an action's target and payload, a
+battery's target is a path, and writing files is already permitted — so an
+allowlisted battery action is a laundering channel around every
+`blocked_pattern`.
+
+`/run_regression_battery` is registered `requires_permission` (→
+`dangerous_action`, default deny) and no handler routes it. A host that ever
+adds one must satisfy **both** gates:
 
 ```
-user asks to run battery
-  → perception → user_intent
-  → kernel derives next_action(run_regression_battery, …)
-  → permitted(run_regression_battery, …) required
-  → VirtualStore executes → regression.RunBattery
-  → assert structured results / feed articulation
+host loads battery
+  → regression.PolicyFacts(path, battery)     # tasks first, declaration last
+  → kernel.Assert(...)
+  → query regression_battery_permitted(Path)  # content gate
+  → AND permitted(/run_regression_battery, …) # constitutional gate
+  → only then regression.RunBatteryWithOptions
 ```
 
-**Do not** let the model shell out by writing YAML and calling RunBattery without policy.
+### 2.5 `nerd init` seed
+
+`regression.Seed(workspace)` writes the starter battery to
+`.nerd/regression/battery.yaml` when the workspace has none, returns
+`(path, created, err)`, and never overwrites an existing file — so it is safe to
+call unconditionally, including under `nerd init --force`. `nerd regression init`
+already uses it (and turns `created == false` into an explicit error, which is
+right for a command the operator typed by name).
+
+Remaining wire, one call in `internal/init`'s
+`runPhase1DirectorySetup` after `createDirectoryStructure`:
+
+```go
+if path, created, err := regression.Seed(i.config.Workspace); err != nil {
+    result.Failures = append(result.Failures, fmt.Sprintf("seed regression battery: %v", err))
+} else if created {
+    result.FilesCreated = append(result.FilesCreated, path)
+}
+```
 
 ### 2.4 Nemesis gauntlet preflight
 
@@ -70,13 +100,25 @@ Package comment’s intended use:
 
 ---
 
-## 3. Fact-flow non-integration (current)
+## 3. Fact-flow integration (current)
 
 ```
 user_intent → kernel → next_action → VirtualStore → articulation
                          ▲
+                         │  /run_regression_battery is dangerous_action;
+                         │  no handler routes it. Closed by decision.
                          │
-              internal/regression does NOT enter here
+             regression.PolicyFacts ──► regression_battery_task/declared
+                                            │
+                                            ▼
+                             regression_battery_permitted / _refused
+                             (a gate for a future host, not a route)
+```
+
+The operator path is the live one:
+
+```
+nerd regression run → LoadBattery → RunBatteryWithOptions → SaveRun → FormatSummary
 ```
 
 ---
@@ -85,10 +127,8 @@ user_intent → kernel → next_action → VirtualStore → articulation
 
 | Path | Role | Created by package? |
 |------|------|---------------------|
-| `{ws}/.nerd/regression/battery.yaml` | Canonical suite | **No** — path helper only |
-| `{ws}/.nerd/regression/runs/` | Potential artifacts | **Not defined in code** |
-
-Hosts must create directories if they want persistence.
+| `{ws}/.nerd/regression/battery.yaml` | Canonical suite | **Yes** — `Seed` writes it when absent |
+| `{ws}/.nerd/regression/runs/` | Run records (`<UTC timestamp>.json`) | **Yes** — `SaveRun` / `RunsDir` |
 
 ---
 
@@ -98,33 +138,32 @@ Per repo discipline (“wiring before deletion”):
 
 | Classification | Rationale |
 |----------------|-----------|
-| **Dormant integration** | Implementation complete enough to call; no callers |
-| Risk | Bit-rot, comment drift, false “feature exists” signals |
-| Preferred fix | Add one caller (CLI preferred for observability) |
-| Acceptable alt | Deprecate + delete after explicit decision |
+| **Wired** | `cmd/nerd/cmd_regression.go` is a real production caller |
+| Residual risk | Only one host; the assault-stage and `nerd init` edges remain open |
 
-`AUDIT.md` marks `internal/regression` as **clean** (no known defects in isolation). Clean ≠ wired.
+`AUDIT.md` marks `internal/regression` as **clean** (no known defects in isolation).
 
 ---
 
-## 6. Integration test gap
+## 6. Integration test coverage
 
-There is no cross-package test that:
+| Test | What it proves |
+|------|----------------|
+| `internal/regression/policy_test.go` | The constitutional gate, against the real corpus files: clean battery permitted, laundered battery refused, empty/undeclared battery denied, action is `dangerous_action` and absent from `safe_action`, seeded template passes its own policy |
+| `internal/regression/seed_test.go` | Seed writes a loadable battery, never overwrites, and the shell preflight fails the run rather than every task |
+| `cmd/nerd/cmd_regression_test.go` | The CLI leaf commands end to end in a temp workspace |
 
-- boots CLI and runs a battery, or  
-- runs assault with a battery stage, or  
-- asserts VirtualStore routing.
-
-Only package-local unit tests exist.
+Still absent: an assault stage with a battery, and a VirtualStore routing test
+(there is nothing to route — see §2.3).
 
 ---
 
 ## 7. Checklist for the first wire
 
-1. Choose host (CLI vs assault).  
-2. Define exit/pass semantics for empty suite and missing file.  
-3. Log results (see [11-OBSERVABILITY.md](11-OBSERVABILITY.md)).  
-4. If agent-facing: Mangle `Decl` + `permitted` rules.  
-5. Update package comment to match reality.  
-6. Add integration test with temp `battery.yaml`.  
-7. Refresh this document’s wiring table.
+1. ~~Choose host (CLI vs assault).~~ CLI.
+2. ~~Define exit/pass semantics for empty suite and missing file.~~ Config error; `run` points at `init`.
+3. ~~Log results~~ — `logging.CategoryRegression`, see [11-OBSERVABILITY.md](11-OBSERVABILITY.md).
+4. ~~If agent-facing: Mangle `Decl` + `permitted` rules.~~ Declared and gated; the action itself stays closed (§2.3).
+5. ~~Update package comment to match reality.~~
+6. ~~Add integration test with temp `battery.yaml`.~~
+7. ~~Refresh this document's wiring table.~~

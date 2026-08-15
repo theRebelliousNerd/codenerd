@@ -137,12 +137,93 @@ Decl mcp_tool_last_used(ToolID, Timestamp) bound [/string, /number].
 # Success rate (0-100) derived from usage statistics.
 Decl mcp_tool_success_rate(ToolID, Rate) bound [/string, /number].
 
+# mcp_tool_avg_latency(ToolID, LatencyMs)
+# Rolling average call latency in milliseconds.
+Decl mcp_tool_avg_latency(ToolID, LatencyMs) bound [/string, /number].
+
 # -----------------------------------------------------------------------------
 # 50.6 Intent-Capability Mapping (for tool selection)
 # -----------------------------------------------------------------------------
 
 # NOTE: intent_requires_capability/3 is declared in schemas_tools.mg
 # We use it here for MCP tool selection but don't re-declare it.
+
+# mcp_intent_requires_capability(Verb, Capability)
+# MCP-local verb -> tool-capability mapping. Deliberately NOT folded into the
+# shared intent_requires_capability/3 table: that table is keyed on coarse
+# capability *categories* (/generation, /validation, ...) consumed by static
+# tool routing in policy/tool_routing.mg, whereas MCP capabilities are fine
+# grained verbs (/read, /write, ...). Adding MCP rows to the shared table would
+# silently widen static tool relevance for every shard.
+Decl mcp_intent_requires_capability(Verb, Capability) bound [/name, /name].
+
+# -----------------------------------------------------------------------------
+# 50.7 Selection Support Predicates (IDB scaffolding)
+# -----------------------------------------------------------------------------
+
+# mcp_shard_type(ShardType)
+# The universe of shard types tool selection may be asked about. Needed because
+# a rule head may not contain an unbound wildcard: skeleton tools are selected
+# for every shard, which requires enumerating shards positively.
+Decl mcp_shard_type(ShardType) bound [/name].
+
+# mcp_tool_intent_boost_candidate(ToolID, Score)
+# Per-match intent boost candidates; the winning boost is the max (see policy).
+Decl mcp_tool_intent_boost_candidate(ToolID, Score) bound [/string, /number].
+
+# mcp_tool_domain_boost_candidate(ToolID, Score)
+# Per-match domain boost candidates; the winning boost is the max.
+Decl mcp_tool_domain_boost_candidate(ToolID, Score) bound [/string, /number].
+
+# mcp_tool_usage_boost(ToolID, Score) / _candidate
+# Reward for tools with a proven success record.
+Decl mcp_tool_usage_boost(ToolID, Score) bound [/string, /number].
+Decl mcp_tool_usage_boost_candidate(ToolID, Score) bound [/string, /number].
+
+# mcp_tool_usage_penalty(ToolID, Score) / _candidate
+# Penalty for tools that fail often or are consistently slow.
+Decl mcp_tool_usage_penalty(ToolID, Score) bound [/string, /number].
+Decl mcp_tool_usage_penalty_candidate(ToolID, Score) bound [/string, /number].
+
+# mcp_tool_logic_score(ShardType, ToolID, Score)
+# Pure-logic score before vector blending: base + boosts - penalties.
+Decl mcp_tool_logic_score(ShardType, ToolID, Score) bound [/name, /string, /number].
+
+# mcp_tool_has_vector_score(ToolID)
+# Positive guard so the vector-free relevance rule can use safe negation.
+Decl mcp_tool_has_vector_score(ToolID) bound [/string].
+
+# -----------------------------------------------------------------------------
+# 50.8 MCP Lifecycle
+# -----------------------------------------------------------------------------
+
+# mcp_integration_ready(ServerCount, ToolCount)
+# Asserted once boot-time ConnectAll and the initial tool discovery finish.
+# Absence means the catalog is still filling in, not that MCP is unavailable.
+Decl mcp_integration_ready(ServerCount, ToolCount) bound [/number, /number].
+
+# -----------------------------------------------------------------------------
+# 50.9 MCP Resources and Prompts
+# -----------------------------------------------------------------------------
+# MCP servers expose three primitive kinds; tools are only one of them. These
+# make the other two visible so planning can ask "is there already a resource
+# that answers this?" before spending a tool call.
+
+# mcp_resource_registered(ServerID, URI)
+Decl mcp_resource_registered(ServerID, URI) bound [/string, /string].
+
+# mcp_resource_mime(URI, MimeType)
+Decl mcp_resource_mime(URI, MimeType) bound [/string, /string].
+
+# mcp_resource_name(URI, Name)
+Decl mcp_resource_name(URI, Name) bound [/string, /string].
+
+# mcp_prompt_registered(ServerID, PromptName)
+Decl mcp_prompt_registered(ServerID, PromptName) bound [/string, /string].
+
+# mcp_prompt_argument(PromptName, ArgumentName, Required)
+# Required: /true, /false
+Decl mcp_prompt_argument(PromptName, ArgumentName, Required) bound [/string, /string, /name].
 
 # =============================================================================
 # END SECTION 50

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +25,75 @@ type Registry struct {
 	// writeGuard, when set, runs before every tool execution and can refuse
 	// it. See SetWriteGuard.
 	writeGuard WriteGuard
+
+	// workspaceRoot is the containment boundary handed to every tool this
+	// registry executes. See SetWorkspaceRoot.
+	workspaceRoot string
+
+	// allowlist is the capability envelope. See SetAllowlist.
+	allowlist *Allowlist
+
+	// factSink, when set, receives one record per completed execution. See
+	// SetFactSink.
+	factSink FactSink
+
+	// metrics accumulates per-tool success/failure/duration counters.
+	metrics map[string]*ToolMetrics
+}
+
+// Allowlist is the runtime capability envelope for a registry: the set of tool
+// names execution is permitted to reach.
+//
+// Enforced is deliberately separate from a nil/empty Names slice, because the
+// two must not be confused. "No allowlist configured" (Enforced=false) is the
+// unconstrained developer/CLI case. "An allowlist is configured and it is
+// empty" (Enforced=true, len(Names)==0) means the agent was granted no
+// capability at all, and it must deny everything — an absent capability
+// envelope is not a grant of all capabilities.
+//
+// This mirrors the contract session.Executor.isToolAllowed already implements
+// for the JIT config layer, and closes the hole underneath it: the registry is
+// reachable process-globally through tools.Execute, so any caller that skips
+// the session gate previously got the whole catalog.
+type Allowlist struct {
+	// Enforced turns the envelope on. When false the registry does not gate.
+	Enforced bool
+
+	// Names are the permitted tool names. Empty with Enforced=true denies all.
+	Names []string
+}
+
+// FactSink receives one record per completed tool execution so the kernel can
+// learn from it (schemas_tools.mg: tool_execution(ToolName, Success, Timestamp)).
+//
+// It is injected as a function for the same reason WriteGuard is: internal
+// /tools must not import internal/core, and the kernel lives there.
+type FactSink func(ctx context.Context, toolName string, success bool, durationMs int64, unixSeconds int64)
+
+// ToolMetrics accumulates outcome counters for one tool.
+type ToolMetrics struct {
+	Calls        int64
+	Successes    int64
+	Failures     int64
+	TotalMs      int64
+	MaxMs        int64
+	LastDuration int64
+}
+
+// SuccessRate returns successes/calls in [0,1]; zero when never called.
+func (m ToolMetrics) SuccessRate() float64 {
+	if m.Calls == 0 {
+		return 0
+	}
+	return float64(m.Successes) / float64(m.Calls)
+}
+
+// AvgMs returns the mean duration in milliseconds; zero when never called.
+func (m ToolMetrics) AvgMs() float64 {
+	if m.Calls == 0 {
+		return 0
+	}
+	return float64(m.TotalMs) / float64(m.Calls)
 }
 
 // WriteGuard vets a tool invocation before it runs. A non-nil error refuses
@@ -47,6 +118,7 @@ func NewRegistry() *Registry {
 	return &Registry{
 		tools:      make(map[string]*Tool),
 		byCategory: make(map[ToolCategory][]*Tool),
+		metrics:    make(map[string]*ToolMetrics),
 	}
 }
 
@@ -74,6 +146,16 @@ func (r *Registry) Register(tool *Tool) error {
 
 	r.tools[tool.Name] = tool
 	r.byCategory[tool.Category] = append(r.byCategory[tool.Category], tool)
+	// Secondary categories share the same index, so GetByCategory/FilterByIntent
+	// see a tool under every intent family it genuinely serves. Without them
+	// /review and /audit resolved to a category with zero registered tools and
+	// the reviewer got an empty toolbox.
+	for _, alt := range tool.AltCategories {
+		if alt == "" || alt == tool.Category {
+			continue
+		}
+		r.byCategory[alt] = append(r.byCategory[alt], tool)
+	}
 
 	logging.ToolsDebug("Registered tool: %s (category=%s, priority=%d)", tool.Name, tool.Category, tool.Priority)
 	return nil
@@ -209,12 +291,28 @@ func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]
 		}, err
 	}
 
+	r.mu.RLock()
+	guard := r.writeGuard
+	allowlist := r.allowlist
+	wsRoot := r.workspaceRoot
+	sink := r.factSink
+	r.mu.RUnlock()
+
+	// Capability envelope first: a tool outside it must not even reach the
+	// write guard, and an enforced-but-empty envelope denies everything.
+	if err := allowlist.check(tool.Name); err != nil {
+		refused := time.Since(start)
+		logging.Audit().ToolExec(tool.Name, "allowlist", refused.Milliseconds(), false, err.Error())
+		return &ToolResult{
+			ToolName:   tool.Name,
+			Error:      err,
+			DurationMs: refused.Milliseconds(),
+		}, err
+	}
+
 	// Consult the write guard before the tool can touch anything. This is the
 	// chokepoint every execution path reaches, including the process-global
 	// tools.Execute that bypassed the caller-side nerd.md gates entirely.
-	r.mu.RLock()
-	guard := r.writeGuard
-	r.mu.RUnlock()
 	if guard != nil {
 		if err := guard(ctx, tool.Name, args); err != nil {
 			refused := time.Since(start)
@@ -224,6 +322,16 @@ func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]
 				Error:      err,
 				DurationMs: refused.Milliseconds(),
 			}, err
+		}
+	}
+
+	// Hand the tool its containment boundary. Tools receive only (ctx, args),
+	// so the context is the only channel; an explicit value already on the
+	// context wins so a caller can narrow the root for a single call (codedom
+	// apply_edits does exactly that to stage edits under a temp root).
+	if wsRoot != "" {
+		if existing, ok := ctx.Value(CtxKeyWorkspaceRoot).(string); !ok || existing == "" {
+			ctx = context.WithValue(ctx, CtxKeyWorkspaceRoot, wsRoot)
 		}
 	}
 
@@ -249,6 +357,16 @@ func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]
 		errMsg = err.Error()
 	}
 	logging.Audit().ToolExec(tool.Name, "execute", duration.Milliseconds(), err == nil, errMsg)
+
+	r.recordMetrics(tool.Name, err == nil, duration.Milliseconds())
+
+	// Feed the kernel's learning loop. tool_execution/3 has been declared in
+	// schemas_tools.mg since Section 40.5 with no producer anywhere in the
+	// repo, so every tool_usage_stats and tool_success_relevance derivation
+	// downstream of it evaluated over an empty relation.
+	if sink != nil {
+		sink(ctx, tool.Name, err == nil, duration.Milliseconds(), start.Unix())
+	}
 
 	return &ToolResult{
 		ToolName:   tool.Name,
@@ -336,15 +454,38 @@ func valueMatchesSchemaType(v any, schemaType string) bool {
 // This maps intents to categories for tool selection. An empty or unknown
 // intent returns all registered tools as a safe fallback so callers never get
 // an empty toolbox just because an intent was missing or hallucinated.
+//
+// "All registered tools" is bounded by the capability envelope when one is
+// enforced: the fallback exists to survive a missing intent, not to hand a
+// caller capabilities the envelope withheld.
 func (r *Registry) FilterByIntent(intent string) []*Tool {
-	if intent == "" {
-		return r.All()
+	var candidates []*Tool
+	switch {
+	case intent == "":
+		candidates = r.All()
+	default:
+		category := intentToCategory(intent)
+		if category == "" {
+			candidates = r.All()
+		} else {
+			candidates = r.GetByCategory(category)
+		}
 	}
-	category := intentToCategory(intent)
-	if category == "" {
-		return r.All()
+
+	r.mu.RLock()
+	allowlist := r.allowlist
+	r.mu.RUnlock()
+	if allowlist == nil || !allowlist.Enforced {
+		return candidates
 	}
-	return r.GetByCategory(category)
+
+	permitted := make([]*Tool, 0, len(candidates))
+	for _, t := range candidates {
+		if allowlist.check(t.Name) == nil {
+			permitted = append(permitted, t)
+		}
+	}
+	return permitted
 }
 
 // intentToCategory maps intent verbs to tool categories. Returns the empty
@@ -389,6 +530,144 @@ func (r *Registry) SetWriteGuard(g WriteGuard) {
 // the one reachable via tools.Execute.
 func SetGlobalWriteGuard(g WriteGuard) {
 	globalRegistry.SetWriteGuard(g)
+}
+
+// check returns nil when name may execute under this envelope.
+//
+// A nil *Allowlist means "no envelope configured" and permits everything; that
+// is the receiver-on-nil case and is why this is a method rather than a free
+// function. An envelope that IS configured and lists nothing denies
+// everything, which is the whole point of the type.
+func (a *Allowlist) check(name string) error {
+	if a == nil || !a.Enforced {
+		return nil
+	}
+	if slices.Contains(a.Names, name) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s (allowlist has %d entries)", ErrToolNotAllowed, name, len(a.Names))
+}
+
+// SetAllowlist installs the capability envelope for this registry. Passing nil
+// removes it (unconstrained).
+//
+// Contract with internal/session: session.Executor.isToolAllowed already fails
+// closed on an empty EffectiveAgentRuntimeConfig.AllowedTools. This is the same
+// rule enforced one layer down, at the registry every execution path funnels
+// through, so a caller that reaches tools.Global().Execute without the session
+// gate does not silently get the full catalog. The session should call
+// SetAllowlist(&Allowlist{Enforced: cfg.EnableSafetyGate, Names: cfg.AllowedTools})
+// whenever the effective config changes.
+func (r *Registry) SetAllowlist(a *Allowlist) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if a == nil {
+		r.allowlist = nil
+		return
+	}
+	clone := &Allowlist{Enforced: a.Enforced, Names: slices.Clone(a.Names)}
+	r.allowlist = clone
+}
+
+// AllowlistEnforced reports whether a capability envelope is currently active.
+func (r *Registry) AllowlistEnforced() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.allowlist != nil && r.allowlist.Enforced
+}
+
+// IsAllowed reports whether name may execute under the current envelope.
+func (r *Registry) IsAllowed(name string) bool {
+	r.mu.RLock()
+	a := r.allowlist
+	r.mu.RUnlock()
+	return a.check(name) == nil
+}
+
+// SetGlobalAllowlist installs the capability envelope on the global registry.
+func SetGlobalAllowlist(a *Allowlist) {
+	globalRegistry.SetAllowlist(a)
+}
+
+// SetWorkspaceRoot sets the containment boundary handed to every tool this
+// registry executes, replacing reliance on the process-global
+// CODENERD_WORKSPACE_ROOT environment variable. An empty string clears it and
+// restores the env/cwd fallback in WorkspaceRoot.
+func (r *Registry) SetWorkspaceRoot(root string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.workspaceRoot = strings.TrimSpace(root)
+}
+
+// WorkspaceRoot returns the registry's configured containment boundary, or ""
+// when none is set.
+func (r *Registry) WorkspaceRoot() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.workspaceRoot
+}
+
+// SetGlobalWorkspaceRoot sets the containment boundary on the global registry.
+func SetGlobalWorkspaceRoot(root string) {
+	globalRegistry.SetWorkspaceRoot(root)
+}
+
+// SetFactSink installs a callback invoked once per completed execution so the
+// kernel can assert tool_execution facts. Passing nil removes it.
+func (r *Registry) SetFactSink(s FactSink) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.factSink = s
+}
+
+// SetGlobalFactSink installs the execution fact sink on the global registry.
+func SetGlobalFactSink(s FactSink) {
+	globalRegistry.SetFactSink(s)
+}
+
+func (r *Registry) recordMetrics(name string, success bool, durationMs int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.metrics == nil {
+		r.metrics = make(map[string]*ToolMetrics)
+	}
+	m, ok := r.metrics[name]
+	if !ok {
+		m = &ToolMetrics{}
+		r.metrics[name] = m
+	}
+	m.Calls++
+	if success {
+		m.Successes++
+	} else {
+		m.Failures++
+	}
+	m.TotalMs += durationMs
+	m.LastDuration = durationMs
+	if durationMs > m.MaxMs {
+		m.MaxMs = durationMs
+	}
+}
+
+// Metrics returns a snapshot of the counters for one tool.
+func (r *Registry) Metrics(name string) ToolMetrics {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if m, ok := r.metrics[name]; ok {
+		return *m
+	}
+	return ToolMetrics{}
+}
+
+// AllMetrics returns a snapshot of every tool's counters, keyed by tool name.
+func (r *Registry) AllMetrics() map[string]ToolMetrics {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[string]ToolMetrics, len(r.metrics))
+	for name, m := range r.metrics {
+		out[name] = *m
+	}
+	return out
 }
 
 // Global returns the global tool registry.

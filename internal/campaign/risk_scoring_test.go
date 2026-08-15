@@ -411,8 +411,8 @@ func newTestNorthstarObserver(t *testing.T) *northstar.CampaignObserver {
 	return northstar.NewCampaignObserver(guardian)
 }
 
-func drainRiskEvents(ch <-chan OrchestratorEvent) map[string]bool {
-	out := map[string]bool{}
+func drainRiskEvents(ch <-chan OrchestratorEvent) map[OrchestratorEventType]bool {
+	out := map[OrchestratorEventType]bool{}
 	for {
 		select {
 		case evt := <-ch:

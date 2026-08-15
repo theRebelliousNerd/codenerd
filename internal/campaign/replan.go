@@ -1188,7 +1188,6 @@ func resolveReplannerContextFrom(phase *Phase, deps []string) []string {
 	return out
 }
 
-
 // ClearReplanTriggers clears all replan triggers for a campaign.
 func (r *Replanner) ClearReplanTriggers(campaignID string) error {
 	if r.kernel == nil {

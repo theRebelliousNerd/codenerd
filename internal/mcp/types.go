@@ -4,6 +4,8 @@ package mcp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"time"
 )
@@ -48,6 +50,11 @@ type MCPServerConfig struct {
 	Timeout           string `json:"timeout"`
 	AutoConnect       bool   `json:"auto_connect"`
 	AutoDiscoverTools bool   `json:"auto_discover_tools"`
+
+	// Headers are sent with every HTTP/SSE request. Values support
+	// ${ENV_VAR} and $ENV_VAR expansion so tokens live in the environment
+	// rather than in a checked-in config file. Ignored for stdio.
+	Headers map[string]string `json:"headers,omitzero"`
 }
 
 // MCPServer represents a connected MCP server.
@@ -95,6 +102,10 @@ type MCPTool struct {
 	SuccessCount int64     `json:"success_count"`
 	AvgLatencyMs int       `json:"avg_latency_ms"`
 	LastUsed     time.Time `json:"last_used"`
+
+	// SchemaHash fingerprints the server-advertised schema the analysis was
+	// derived from. A mismatch on rediscovery invalidates the cached analysis.
+	SchemaHash string `json:"schema_hash,omitzero"`
 
 	// Timestamps
 	RegisteredAt time.Time `json:"registered_at"`
@@ -158,18 +169,29 @@ type ToolSummary struct {
 	ServerID  string `json:"server_id"`
 }
 
+// Selection path values reported in ToolCompilationStats.SelectionPath.
+const (
+	SelectionPathMangle   = "mangle"
+	SelectionPathFallback = "fallback"
+)
+
 // ToolCompilationStats tracks JIT compilation performance.
 type ToolCompilationStats struct {
-	Duration      time.Duration `json:"duration"`
-	TotalTools    int           `json:"total_tools"`
-	SelectedTools int           `json:"selected_tools"`
-	SkeletonTools int           `json:"skeleton_tools"`
-	FleshTools    int           `json:"flesh_tools"`
-	VectorQueryMs int64         `json:"vector_query_ms"`
-	MangleQueryMs int64         `json:"mangle_query_ms"`
-	TokensUsed    int           `json:"tokens_used"`
-	TokenBudget   int           `json:"token_budget"`
-	CacheHit      bool          `json:"cache_hit"`
+	Duration time.Duration `json:"duration"`
+	// SelectionPath records whether the kernel decided the tool set
+	// ("mangle") or the Go heuristic did ("fallback").
+	SelectionPath string `json:"selection_path,omitzero"`
+	TotalTools    int    `json:"total_tools"`
+	SelectedTools int    `json:"selected_tools"`
+	// SkeletonTools counts policy-mandatory tools; FleshTools counts
+	// context-selected ones. These are policy classes, not render tiers.
+	SkeletonTools int   `json:"skeleton_tools"`
+	FleshTools    int   `json:"flesh_tools"`
+	VectorQueryMs int64 `json:"vector_query_ms"`
+	MangleQueryMs int64 `json:"mangle_query_ms"`
+	TokensUsed    int   `json:"tokens_used"`
+	TokenBudget   int   `json:"token_budget"`
+	CacheHit      bool  `json:"cache_hit"`
 }
 
 // ToolSelectionConfig holds thresholds and weights for tool selection.
@@ -207,6 +229,9 @@ type SelectedTool struct {
 	LogicScore  int        `json:"logic_score"`
 	VectorScore int        `json:"vector_score"`
 	FinalScore  int        `json:"final_score"`
+	// Skeleton marks a policy-mandatory tool (mcp_tool_skeleton), as opposed
+	// to one that merely scored well for this context.
+	Skeleton bool `json:"skeleton,omitzero"`
 }
 
 // MCPCallResult represents the result of calling an MCP tool.
@@ -264,4 +289,20 @@ type ToolAvailableEntry struct {
 // IsMCPTool returns true if this is an MCP tool entry.
 func (t *ToolAvailableEntry) IsMCPTool() bool {
 	return t.Type == "mcp"
+}
+
+// ToolSchemaHash fingerprints the parts of a server-advertised tool schema that
+// analysis depends on. Analysis is expensive (an LLM call plus an embedding),
+// so it is cached; the hash is what makes that cache safe to invalidate when a
+// server silently changes a tool's parameters or description.
+func ToolSchemaHash(schema MCPToolSchema) string {
+	h := sha256.New()
+	h.Write([]byte(schema.Name))
+	h.Write([]byte{0})
+	h.Write([]byte(schema.Description))
+	h.Write([]byte{0})
+	h.Write(schema.InputSchema)
+	h.Write([]byte{0})
+	h.Write(schema.OutputSchema)
+	return hex.EncodeToString(h.Sum(nil))
 }

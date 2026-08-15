@@ -104,17 +104,27 @@ func TestEnsureEOF_Valid(t *testing.T) {
 
 func TestPiggybackEmpty(t *testing.T) {
 	_, ok := extractPiggybackSurface(`{bad json}`)
-	if ok { t.Fatal("expected false") }
+	if ok {
+		t.Fatal("expected false")
+	}
 
-    _, ok = extractPiggybackSurface(`{}`)
-    if ok { t.Fatal("expected false") }
+	_, ok = extractPiggybackSurface(`{}`)
+	if ok {
+		t.Fatal("expected false")
+	}
 
-    _, ok = extractPiggybackSurface(`{"surface_response": "    "}`)
-    if ok { t.Fatal("expected false") }
+	_, ok = extractPiggybackSurface(`{"surface_response": "    "}`)
+	if ok {
+		t.Fatal("expected false")
+	}
 
-    surfaceRaw, ok := extractPiggybackSurface(`{"surface_response": {"a":"b"}}`)
-    if !ok { t.Fatal("expected true") }
-    if !strings.Contains(surfaceRaw, "a") { t.Fatal("expected a in surface Raw") }
+	surfaceRaw, ok := extractPiggybackSurface(`{"surface_response": {"a":"b"}}`)
+	if !ok {
+		t.Fatal("expected true")
+	}
+	if !strings.Contains(surfaceRaw, "a") {
+		t.Fatal("expected a in surface Raw")
+	}
 }
 
 func TestExtractJSONPayload_Prefix(t *testing.T) {
@@ -128,13 +138,13 @@ func TestExtractJSONPayload_Prefix(t *testing.T) {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
-    res, err := extractJSONPayload("```json\n{\"format\":\"mangle_synth_v1\",\"program\":{}}")
+	res, err := extractJSONPayload("```json\n{\"format\":\"mangle_synth_v1\",\"program\":{}}")
 	if err != nil {
 		t.Fatalf("expected no error because fallback will catch it, got: %v", err)
 	}
-    if !strings.Contains(res, "mangle_synth_v1") {
-        t.Fatalf("expected to extract the json")
-    }
+	if !strings.Contains(res, "mangle_synth_v1") {
+		t.Fatalf("expected to extract the json")
+	}
 }
 
 func TestExtractJSONPayload_CodeBlock(t *testing.T) {

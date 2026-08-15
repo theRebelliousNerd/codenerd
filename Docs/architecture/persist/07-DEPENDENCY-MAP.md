@@ -1,16 +1,23 @@
 # 07 — Dependency Map: persist
 
-> Last verified against codebase: **2026-07-13**
+> Last verified against codebase: **2026-08-15**
 
-## 1. Upstream (what factsnap imports)
+## 1. Upstream (what the packages import)
 
 ```
 factsnap
   ├── codenerd/internal/types          # Fact, MangleAtom, ToAtom
+  ├── codenerd/internal/logging        # CategoryStore debug/warn lines
   ├── codeberg.org/TauCeti/mangle-go/ast
   ├── codeberg.org/TauCeti/mangle-go/factstore
   ├── github.com/klauspost/compress/zstd
-  └── stdlib (bytes, compress/gzip, encoding/json, errors, fmt, io, os, path/filepath, strings)
+  └── stdlib (bytes, compress/gzip, crypto/sha256, encoding/hex, encoding/json,
+              errors, fmt, io, os, path/filepath, strings, sync, time)
+
+snapshot
+  ├── codenerd/internal/persist/factsnap
+  ├── codenerd/internal/types
+  └── stdlib (fmt, os, path/filepath, sort, strings, time)
 ```
 
 | Dependency | Why | Risk |
@@ -25,8 +32,7 @@ factsnap
 
 | Package | Reason |
 |---------|--------|
-| `internal/core` | Import cycle risk; atom conversion duplicated |
-| `internal/logging` | Library kept silent (gap, not dependency) |
+| `internal/core` | Import cycle risk; atom conversion duplicated (see OPEN-QUESTIONS Q5). The CLI holds the core dependency instead |
 | `internal/store` | Different durability model |
 | `internal/config` | No runtime config |
 
@@ -35,14 +41,21 @@ factsnap
 ### Production
 
 ```
-(none)
+cmd/nerd/cmd_snapshot.go      ──► persist/snapshot, persist/factsnap
+internal/persist/snapshot     ──► persist/factsnap
 ```
 
-Evidence: repository-wide search for `codenerd/internal/persist` and `persist/factsnap` under `*.go` returns **only** files inside `internal/persist/factsnap/` itself.
+`cmd_snapshot.go` is the first production caller (kernel debug export; see
+[08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md)). Nothing else
+imports either package as of 2026-08-15.
 
 ### Tests
 
-Package-internal tests only (`package factsnap`).
+- `internal/persist/factsnap/*_test.go` — package-internal codec tests
+- `internal/persist/snapshot/snapshot_test.go` — workspace store
+- `internal/persist/snapshot/kernel_roundtrip_test.go` — `package snapshot_test`,
+  imports `internal/core`; the only place persist code meets a real kernel
+- `cmd/nerd/cmd_snapshot_test.go` — command behaviour end to end
 
 ### Docs / audit
 
@@ -54,7 +67,7 @@ Package-internal tests only (`package factsnap`).
 | System | Path | Relationship |
 |--------|------|--------------|
 | SQLite cold store | `internal/store` | Parallel durability; not shared code |
-| Campaign JSON/JSONL | `internal/campaign` | Ad-hoc JSON files; candidate future factsnap user |
+| Campaign JSON/JSONL | `internal/campaign` | Ad-hoc JSON files; candidate future snapshot user |
 | Browser session JSON | `internal/browser` | Unrelated session metadata |
 | Config files | `internal/config` | Unrelated |
 
@@ -73,24 +86,25 @@ Mitigation: keep `go test ./internal/persist/...` in CI; treat format breakage a
 ```powershell
 rg "codenerd/internal/persist" -g "*.go"
 rg "persist/factsnap" -g "*.go"
+rg "persist/snapshot" -g "*.go"
 ```
 
-If either shows a new importer, update [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) and this map.
+If a new importer appears, update [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) and this map.
 
 ## 6. Diagram (as-is vs intended)
 
 ```
-AS-IS:
-  [types] ──► [factsnap] ──► (disk)
-                 ▲
-                 └── tests only
+AS-IS (2026-08-15):
+  [cmd/nerd/cmd_snapshot.go] ──► [core kernel]  (booted locally, no LLM)
+           │                          │
+           │                          ▼
+           └────► [snapshot] ──► [factsnap] ──► .nerd/snapshots/*.sc.gz(+.sha256)
+                       ▲
+                       └── operator: import / --assert / --to-mangle
 
-INTENDED:
-  [campaign|world|core dump|cli]
+STILL INTENDED:
+  [campaign artifacts | world index freeze]
            │
            ▼
-        [factsnap] ──► .nerd/**/*.sc.gz
-           │
-           ▼
-     [core assert] (policy)
+       [snapshot]
 ```

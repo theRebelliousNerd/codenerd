@@ -77,9 +77,11 @@ It is the package every major subsystem can import without dragging in `core`, `
 | Extract helpers | **Implemented** | Well-tested |
 | GraphQuery / VirtualStore | **Implemented** (markers) | Methods expanded only as consumers need |
 | LearningStore | **Implemented** (contract) | Used by autopoiesis / store |
-| Single unified Kernel API | **Partial** | Dual `Kernel` + `KernelInterface` remains |
+| Single unified Kernel API | **Partial** | `KernelFact` collapsed to `= Fact` (step 1/3); `KernelInterface` remains |
 | Container JSON in `ToAtom` | **Implemented** | maps/slices → JSON string |
-| Transaction unit tests in-package | **Partial** | Coverage lives more in `core` |
+| Transaction unit tests in-package | **Implemented** | `typestest` + examples exercise buffer/commit/rollback |
+| Typed context keys | **Implemented** | `ctxkeys.go`, dual-writing the legacy string keys |
+| Fact-convention enforcement | **Implemented** | Two repo-wide ratchet tests with documented baselines |
 
 **Overall:** production foundational package — **~90%** for its intended role (contracts + conversion). Remaining work is API consolidation and a few untested edge contracts, not greenfield implementation.
 
@@ -91,37 +93,59 @@ It is the package every major subsystem can import without dragging in `core`, `
 
 ```
 internal/types/
-  types.go                    # Fact, SessionContext, KernelFact, KernelInterface, intent/tool summaries
+  types.go                    # Fact, SessionContext, KernelFact (alias), KernelInterface, intent/tool summaries
   interfaces.go               # Kernel, LLMClient, ShardAgent, VirtualStore, optional LLM capabilities
   extract.go                  # Extract*/Arg* safe fact-arg decoding
-  shard.go                    # ShardType/State/Permission/Config, spawn priority, model capability keys
-  transaction.go              # KernelTransaction, KernelTransactor, KernelTx
+  shard.go                    # ShardType/State/Permission/Config, spawn priority, legacy string ctx keys
+  ctxkeys.go                  # typed context keys: spawn priority, model capability, model name
+  atom.go                     # Atom(s) -> MangleAtom, for runtime-assembled /name values
+  transaction.go              # KernelTransaction, KernelTransactor, KernelTx, TransactorOf
+  mangle_scale.go             # PercentFromRatio / PercentClamp (float -> /number slots)
+  transparency.go             # ShardPhase, OperationRecord, TransparencyManager
+  typestest/mockkernel.go     # shared MockKernel (Kernel + KernelTransactor) for other packages' tests
   types_test.go               # Fact.String / ToAtom basics
   types_comprehensive_test.go # ToAtom matrix, session context helpers, edge cases
+  container_toatom_test.go    # map/slice encoding tables + float round-trip asymmetry
+  ctxkeys_test.go             # typed/legacy context key dual-read
+  example_test.go             # godoc examples for ToAtom, NewKernelTx, TransactorOf
   extract_test.go             # Extract* / Arg* / StripAtomPrefix
   shard_test.go               # SpawnPriority.String
+  fact_conventions_guard_test.go     # repo-wide Decl-conformance / %v / MangleAtom-assert ratchet
+  kernel_transactor_guard_test.go    # repo-wide KernelTransactor conformance ratchet
 ```
 
 ### 3.2 Non-test sources (line counts)
 
 | Path | Lines | Role |
 |------|------:|------|
-| `internal/types/types.go` | 455 | Facts, session blackboard, intent, summaries, `KernelInterface` |
-| `internal/types/interfaces.go` | 380 | Kernel, LLM, shards, VirtualStore, capability interfaces |
+| `internal/types/types.go` | 491 | Facts, session blackboard, intent, summaries, `KernelInterface` |
+| `internal/types/interfaces.go` | 423 | Kernel, LLM, shards, VirtualStore, capability interfaces |
+| `internal/types/typestest/mockkernel.go` | 343 | Shared `MockKernel` (`Kernel` + `KernelTransactor`) |
+| `internal/types/shard.go` | 213 | Shard enums/config, priority, legacy string context keys |
 | `internal/types/extract.go` | 210 | Type-safe fact argument extraction |
-| `internal/types/shard.go` | 157 | Shard enums/config, priority, context keys |
-| `internal/types/transaction.go` | 85 | Atomic transaction wrapper |
-| **Total source** | **~1,287** | |
+| `internal/types/transaction.go` | 112 | Atomic transaction wrapper, `TransactorOf` |
+| `internal/types/ctxkeys.go` | 101 | Typed context keys (priority, capability, model name) |
+| `internal/types/transparency.go` | 81 | `ShardPhase`, `OperationRecord`, `TransparencyManager` |
+| `internal/types/mangle_scale.go` | 58 | Ratio/percent → `/number` scaling |
+| **Total source** | **~2,032** | |
 
 ### 3.3 Test sources
 
 | Path | Lines | Focus |
 |------|------:|-------|
-| `types_comprehensive_test.go` | ~529 | ToAtom type matrix, nil/unknown rejection, session helpers |
+| `fact_conventions_guard_test.go` | ~549 | **Repo-wide** Decl conformance / `%v` / `MangleAtom`-assert ratchet |
+| `types_comprehensive_test.go` | ~528 | ToAtom type matrix, nil/unknown rejection, session helpers |
+| `kernel_transactor_guard_test.go` | ~241 | **Repo-wide** `KernelTransactor` conformance ratchet |
 | `extract_test.go` | ~221 | Extract/Arg helpers |
+| `container_toatom_test.go` | ~218 | map/slice JSON encoding tables, float round-trip asymmetry |
+| `mangle_string_test.go` | ~205 | `MangleString` vs `MangleAtom` vs shape inference |
 | `types_test.go` | ~174 | String/ToAtom core + name validation |
+| `ctxkeys_test.go` | ~107 | Typed + legacy context key reads |
+| `mangle_scale_test.go` | ~104 | Percent scaling boundaries |
+| `example_test.go` | ~97 | Godoc examples (also executed) |
+| `typestest/mockkernel_test.go` | ~93 | MockKernel transaction atomicity |
 | `shard_test.go` | ~19 | Priority string names |
-| **Total tests** | **~943** | High ratio vs source (good) |
+| **Total tests** | **~2,556** | High ratio vs source (good) |
 
 ---
 
@@ -196,7 +220,7 @@ RetractExactFactsBatch, RemoveFactsByPredicateSet
 
 Aliases: `core.Kernel = types.Kernel` (`internal/core/kernel_types.go`).
 
-### 5.2 `types.KernelInterface` + `KernelFact` (`types.go`)
+### 5.2 `types.KernelInterface` + `KernelFact` (`types.go`) — deprecated
 
 Narrower bridge for packages that must not import full kernel wiring:
 
@@ -209,6 +233,15 @@ Adapters:
 - `core.AutopoiesisBridge` implements `types.KernelInterface` (`kernel_utils.go`)
 - `RealKernel` also exposes matching methods for the same shape
 
+**`KernelFact` is now `= Fact`** (an alias, step 1 of the deprecation path written on
+`KernelInterface`). The bridge's per-result slice rebuilds are therefore identity conversions, and every
+`Fact` helper — `ToAtom`, `ArgString`, `Extract*` — applies to bridge facts. `Fact.ToFact()` survives as
+a deprecated identity method so pre-alias call sites keep compiling.
+
+Remaining steps: (2) `internal/autopoiesis` switches `Orchestrator.kernel` to `Kernel`; (3) delete
+`KernelInterface`, `Fact.ToFact` and `core.AutopoiesisBridge`. `cmd/nerd/cmd_mcp_select.go`'s
+`cliMCPKernel` satisfies `mcp`'s own interface and remains as a genuine edge adapter.
+
 ### 5.3 Transactions
 
 ```
@@ -220,9 +253,18 @@ KernelTransactor.Transaction() → KernelTransaction
 `NewKernelTx(k Kernel)` type-asserts `KernelTransactor`. If missing:
 
 1. Logs warn on `logging.CategoryKernel`
-2. **Panics** — non-atomic fallback was deliberately removed
+2. **Panics** — non-atomic fallback was deliberately removed. The message names the concrete type and
+   prints the one-line forwarding fix, because the observed failure is always an adapter, not an
+   exotic kernel.
 
-Implementations: `CortexKernel` / `RealKernel` transaction types in `internal/core`.
+`TransactorOf(k) (KernelTransactor, bool)` is the non-panicking probe for code holding a Kernel of
+unknown provenance.
+
+Implementations: `CortexKernel` / `RealKernel` transaction types in `internal/core`, plus
+`typestest.MockKernel` for tests. Conformance across the repo is enforced by
+`kernel_transactor_guard_test.go`, whose baseline records the 3 production forwarding adapters
+(`cmd/nerd/chat.sessionKernelAdapter`, `cmd/nerd.campaignKernelAdapter`,
+`system.sessionKernelAdapter`) that wrap a transacting `*core.RealKernel` and drop the capability.
 
 ---
 
@@ -323,11 +365,23 @@ JIT hooks: `PromptLoaderFunc`, `JITDBRegistrar`, `JITDBUnregistrar`.
 
 ### 8.4 Model hints via context keys
 
-String keys (not typed context keys — historical):
+Typed keys (`ctxkeys.go`), matching the `WithSessionContext` pattern:
 
-- `CtxKeyPriority` = `"spawn_priority"`
-- `CtxKeyModelCapability` = `"model_capability"`
-- `CtxKeyModelName` = `"model_name"`
+| Setter | Reader | Carries |
+|---|---|---|
+| `WithSpawnPriority` | `SpawnPriorityFromContext` | `SpawnPriority` |
+| `WithModelCapability` | `ModelCapabilityFromContext` | `ModelCapability` |
+| `WithModelName` | `ModelNameFromContext` | `string` |
+
+The setters **dual-write** the legacy string keys and the readers fall back to them, so the migration
+is safe in either order while `internal/core/api_scheduler.go`, `internal/session` and the perception
+clients still read the raw key:
+
+- `CtxKeyPriority` = `"spawn_priority"` (deprecated)
+- `CtxKeyModelCapability` = `"model_capability"` (deprecated)
+- `CtxKeyModelName` = `"model_name"` (deprecated)
+
+`CtxKeyStructuredOutputOnly` keeps its own private `ctxKey` string type in `shard.go`.
 
 ---
 
@@ -398,4 +452,7 @@ See [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) for dual-interface debt, untested t
 ```powershell
 go test ./internal/types/...
 go test ./internal/core/ -run 'Transaction|CortexKernel|ToAtom' -count=1
+
+# the two repo-wide ratchets (they walk the whole tree, not just this package)
+go test ./internal/types/ -run 'TestFactConventions|TestKernelTransactor' -v
 ```

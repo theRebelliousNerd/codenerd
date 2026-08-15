@@ -8,7 +8,10 @@
 package northstar
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"codenerd/internal/types"
@@ -32,6 +35,21 @@ type Vision struct {
 	UpdatedAt    time.Time     `json:"updated_at"`
 }
 
+// PersonaFactID returns the Mangle ID used for a persona in northstar_persona
+// and every predicate that references a persona. Link fields accept either the
+// human-readable persona name or this ID, so a hand-edited northstar.json does
+// not have to know the encoding.
+func PersonaFactID(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if strings.HasPrefix(name, "persona_") {
+		return name
+	}
+	return "persona_" + name
+}
+
 // ToFacts converts the Vision into a slice of Mangle facts.
 func (v *Vision) ToFacts() []types.Fact {
 	var facts []types.Fact
@@ -46,8 +64,17 @@ func (v *Vision) ToFacts() []types.Fact {
 		facts = append(facts, types.Fact{Predicate: "northstar_vision", Args: []any{"global", v.VisionStmt}})
 	}
 
+	// Referential integrity sets. Link facts (serves/supports/addresses) are
+	// only emitted for targets that actually exist in this vision: a dangling
+	// northstar_serves("cap_1", "persona_ghost") would make unserved_persona
+	// and orphan_capability silently wrong, which is worse than no link at all.
+	personaIDs := make(map[string]struct{}, len(v.Personas))
+	capIDs := make(map[string]struct{}, len(v.Capabilities))
+	riskIDs := make(map[string]struct{}, len(v.Risks))
+
 	for _, p := range v.Personas {
-		id := fmt.Sprintf("persona_%s", p.Name)
+		id := PersonaFactID(p.Name)
+		personaIDs[id] = struct{}{}
 		facts = append(facts, types.Fact{Predicate: "northstar_persona", Args: []any{id, p.Name}})
 		for _, pp := range p.PainPoints {
 			facts = append(facts, types.Fact{Predicate: "northstar_pain_point", Args: []any{id, pp}})
@@ -58,20 +85,57 @@ func (v *Vision) ToFacts() []types.Fact {
 	}
 
 	for _, c := range v.Capabilities {
-		facts = append(facts, types.Fact{Predicate: "northstar_capability", Args: []any{c.ID, c.Description, "/" + c.Timeline, parsePriority(c.Priority)}})
+		capIDs[c.ID] = struct{}{}
+		facts = append(facts, types.Fact{Predicate: "northstar_capability", Args: []any{c.ID, c.Description, enumAtom(c.Timeline), parsePriority(c.Priority)}})
+	}
+
+	// northstar_serves(CapID, PersonaID). Declared in schemas_misc.mg and read by
+	// unserved_persona / orphan_capability / capability_addresses_need, none of
+	// which could ever fire while nothing emitted this predicate.
+	for _, c := range v.Capabilities {
+		for _, target := range c.Serves {
+			pid := PersonaFactID(target)
+			if _, ok := personaIDs[pid]; !ok {
+				continue
+			}
+			facts = append(facts, types.Fact{Predicate: "northstar_serves", Args: []any{c.ID, pid}})
+		}
 	}
 
 	for _, r := range v.Risks {
-		facts = append(facts, types.Fact{Predicate: "northstar_risk", Args: []any{r.ID, r.Description, "/" + r.Likelihood, parseRiskImpact(r.Impact)}})
+		riskIDs[r.ID] = struct{}{}
+		facts = append(facts, types.Fact{Predicate: "northstar_risk", Args: []any{r.ID, r.Description, enumAtom(r.Likelihood), parseRiskImpact(r.Impact)}})
 		if r.Mitigation != "" {
-			// Convert strategy to a valid Mangle /name atom
-			strategyName := fmt.Sprintf("/%s", "mitigation")
-			facts = append(facts, types.Fact{Predicate: "northstar_mitigation", Args: []any{r.ID, strategyName}})
+			// The strategy slot is Decl'd /name, so the free text cannot go in
+			// it directly. Emitting the same constant /mitigation for every risk
+			// made has_mitigation/1 work but made every mitigation
+			// indistinguishable: two risks with opposite strategies unified.
+			// Emit a text-derived name here and the free text alongside it.
+			facts = append(facts, types.Fact{Predicate: "northstar_mitigation", Args: []any{r.ID, MitigationStrategyAtom(r.Mitigation)}})
+			facts = append(facts, types.Fact{Predicate: "northstar_mitigation_text", Args: []any{r.ID, types.MangleString(r.Mitigation)}})
 		}
 	}
 
 	for _, req := range v.Requirements {
-		facts = append(facts, types.Fact{Predicate: "northstar_requirement", Args: []any{req.ID, "/" + req.Type, req.Description, parsePriority(req.Priority)}})
+		facts = append(facts, types.Fact{Predicate: "northstar_requirement", Args: []any{req.ID, enumAtom(req.Type), req.Description, parsePriority(req.Priority)}})
+	}
+
+	// northstar_supports(ReqID, CapID) / northstar_addresses(ReqID, RiskID).
+	// orphan_requirement, risk_addressing_requirement, unaddressed_high_risk and
+	// strategic_warning(/critical_unmitigated_risk, ...) all depend on these.
+	for _, req := range v.Requirements {
+		for _, capID := range req.Supports {
+			if _, ok := capIDs[strings.TrimSpace(capID)]; !ok {
+				continue
+			}
+			facts = append(facts, types.Fact{Predicate: "northstar_supports", Args: []any{req.ID, strings.TrimSpace(capID)}})
+		}
+		for _, riskID := range req.Addresses {
+			if _, ok := riskIDs[strings.TrimSpace(riskID)]; !ok {
+				continue
+			}
+			facts = append(facts, types.Fact{Predicate: "northstar_addresses", Args: []any{req.ID, strings.TrimSpace(riskID)}})
+		}
 	}
 
 	for i, c := range v.Constraints {
@@ -83,8 +147,76 @@ func (v *Vision) ToFacts() []types.Fact {
 	return facts
 }
 
+// MitigationStrategyAtom encodes mitigation free text as a stable Mangle name
+// constant of the form /mit_<slug>_<hash8>.
+//
+// The slug keeps the atom readable in `nerd query` output; the hash suffix keeps
+// it injective, so two mitigations that slug identically (or slug to nothing,
+// e.g. non-latin text) still produce distinct atoms. Mangle name constants
+// reject whitespace, more than two slashes and anything ending in a known file
+// extension, so the slug is restricted to [a-z0-9_].
+func MitigationStrategyAtom(text string) types.MangleAtom {
+	sum := sha256.Sum256([]byte(text))
+	digest := hex.EncodeToString(sum[:])[:8]
+
+	var sb strings.Builder
+	lastUnderscore := true // suppress a leading underscore
+	for _, r := range strings.ToLower(strings.TrimSpace(text)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			sb.WriteRune(r)
+			lastUnderscore = false
+		default:
+			if !lastUnderscore && sb.Len() < mitigationSlugMax {
+				sb.WriteByte('_')
+				lastUnderscore = true
+			}
+		}
+		if sb.Len() >= mitigationSlugMax {
+			break
+		}
+	}
+	slug := strings.Trim(sb.String(), "_")
+	if slug == "" {
+		return types.MangleAtom("/mit_" + digest)
+	}
+	return types.MangleAtom("/mit_" + slug + "_" + digest)
+}
+
+const mitigationSlugMax = 40
+
+// normalizeEnumWord folds the several spellings the wizard, the CLI and
+// hand-written JSON all use for the same value ("must-have", "must have",
+// "Must_Have") onto one key.
+//
+// Without this, parsePriority scored the wizard's "must-have" as 50, so
+// must_have_requirement/2 in prompt_northstar.mg -- which matches Priority = 100
+// -- never fired for any vision the wizard produced. The CLI's own
+// northstarPriorityToNumber already normalised; ToFacts did not, and ToFacts is
+// what the kernel sees.
+func normalizeEnumWord(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ReplaceAll(s, "-", "_")
+	s = strings.ReplaceAll(s, " ", "_")
+	return s
+}
+
+// enumAtom renders an enum-valued field as the /name constant the schema
+// Decl'd for it. Values arrive spelled several ways ("non-functional",
+// "Non Functional"); the policy rules match one spelling each, so an
+// un-normalised "/non-functional" simply never unified with /non_functional.
+// An empty value becomes /unspecified rather than the bare "/", which is not a
+// valid Mangle name at all and silently degraded the slot to a string constant.
+func enumAtom(value string) types.MangleAtom {
+	normalized := normalizeEnumWord(value)
+	if normalized == "" {
+		return types.MangleAtom("/unspecified")
+	}
+	return types.MangleAtom("/" + normalized)
+}
+
 func parsePriority(p string) int {
-	switch p {
+	switch normalizeEnumWord(p) {
 	case "critical", "must_have":
 		return 100
 	case "high", "should_have":
@@ -99,7 +231,7 @@ func parsePriority(p string) int {
 }
 
 func parseRiskImpact(i string) int {
-	switch i {
+	switch normalizeEnumWord(i) {
 	case "high":
 		return 100
 	case "medium":
@@ -124,6 +256,9 @@ type Capability struct {
 	Description string `json:"description"`
 	Timeline    string `json:"timeline"` // "now", "next", "later"
 	Priority    string `json:"priority"` // "critical", "high", "medium", "low"
+	// Serves lists the personas this capability exists for, by persona name or
+	// by persona_<Name> ID. Projected as northstar_serves(CapID, PersonaID).
+	Serves []string `json:"serves,omitempty"`
 }
 
 // Risk represents an identified risk with likelihood, impact, and mitigation.
@@ -141,6 +276,12 @@ type Requirement struct {
 	Type        string `json:"type"` // "functional", "non_functional", "constraint"
 	Description string `json:"description"`
 	Priority    string `json:"priority"` // "must_have", "should_have", "nice_to_have"
+	// Supports lists capability IDs this requirement realizes.
+	// Projected as northstar_supports(ReqID, CapID).
+	Supports []string `json:"supports,omitempty"`
+	// Addresses lists risk IDs this requirement mitigates.
+	// Projected as northstar_addresses(ReqID, RiskID).
+	Addresses []string `json:"addresses,omitempty"`
 }
 
 // =============================================================================

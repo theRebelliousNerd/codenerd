@@ -1,6 +1,6 @@
 # 08 — Wiring and Integration: Context
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-15  
 > Status: Living wiring journal — evidence-based
 
 ## 1. Boot wiring (interactive chat)
@@ -84,13 +84,20 @@ Not registered by context package. Loaded with core defaults:
 | Schemas | `internal/core/defaults/schemas_context.mg` |
 | Rules | `internal/core/defaults/policy/context_compilation.mg` |
 
-Consumed when `BuildContext` does `kernel.Query("should_include_context")` and when compress asserts `turn_age_category`.
+Consumed when `BuildContext` does `kernel.Query("should_include_context")`, when compress asserts `turn_age_category`, and when `maskedObservationTurns` reads `should_mask_observation` / `should_preserve_reasoning` back out.
 
 ## 10. Prompt / JIT soft wiring
 
 `GetActivationScores` / `GetHighActivationFactKeys` exist for JIT boosts.  
-`internal/prompt/context.go` documents population by compression system.  
-**Wiring audit required** before claiming all JIT paths live-call these methods every turn.
+`internal/prompt/context.go` documents population by the compression system.
+
+**Audit performed 2026-08-15: the wire does not exist.** No caller of
+`GetActivationScores` or `GetHighActivationFactKeys` exists anywhere in the tree,
+and `prompt.CompilationContext.ActivatedFacts` is neither populated nor read
+(only the context test harness builds its own unrelated `ActivatedFacts`). The
+activation→JIT edge is documented intent, not behaviour. Closing it requires
+changes in `internal/prompt` (consume `ActivatedFacts` during atom selection) and
+in `cmd/nerd/chat` (populate it from the compressor each turn).
 
 ## 11. Memory ops bridge
 

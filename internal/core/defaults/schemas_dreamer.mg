@@ -105,7 +105,7 @@ Decl effective_prompt_atom(AtomID) bound [/string].
 # InvariantID: Identifier for the invariant (/http_500_rate, /deadlock_detected, etc.)
 # Timestamp: When the violation was detected
 # Used by NemesisShard and Thunderdome for chaos engineering
-Decl system_invariant_violated(InvariantID, Timestamp) bound [/string, /number].
+Decl system_invariant_violated(InvariantID, Timestamp) bound [/name, /number].
 
 # patch_diff(PatchID, DiffContent) - Stores patch diffs for analysis
 # PatchID: Identifier for the patch

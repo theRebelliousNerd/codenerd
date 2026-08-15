@@ -1,6 +1,6 @@
 # init — Wiring and Integration
 
-> Last verified: 2026-08-09
+> Last verified: 2026-08-15
 
 ## CLI wiring (`cmd/nerd/cmd_init_scan.go`)
 
@@ -13,6 +13,8 @@ runInit
   if --cleanup-backups → CleanupBackups; return
   if IsInitialized && !force → message; return
   DefaultInitConfig(cwd)
+  ParseTypeUAgentFlags(--define-agent) → config.TypeUAgents (invalid ⇒ hard error)
+  --no-interactive → config.Interactive = false
   load workspace UserConfig
   worker client → configured main client fallback → core.NewScheduledLLMCall
   pass provider/model labels for machine-readable enrichment metrics
@@ -20,7 +22,8 @@ runInit
   NewInitializer → Initialize-owned timeout → Success/failure check → Close
 ```
 
-Flags relevant (defined on root/init command tree elsewhere in `cmd/nerd`): `force`, `cleanup-backups`, `api-key`, `timeout`, `workspace`.
+Flags owned by `cmd_init_scan.go`'s own `init()`: `define-agent` (repeatable), `no-interactive`.
+Flags defined on the root/init command tree elsewhere in `cmd/nerd`: `force`, `cleanup-backups`, `api-key`, `timeout`, `workspace`.
 
 ### `nerd scan`
 
@@ -68,8 +71,8 @@ Agents registered as **persistent researcher-based profiles** with read_file + c
 | Step | Wire |
 |------|------|
 | Init-time compile | `assembleJITPrompt` / `withJITPrompt` → embedded corpus atoms with `InitPhases` |
-| Project atoms | `populateProjectAtoms` → store PromptAtom rows |
-| Corpus DB | `initializePromptDatabase` under `.nerd/prompts/` |
+| Project atoms | `buildProjectAtoms` → `knowledge.db` rows (phase 5b) |
+| Corpus DB | `initializePromptDatabase` seeds/reconciles `.nerd/prompts/corpus.db`, then `ingestProjectAtomsIntoCorpus` adds the project atoms with a NULL `source_file` so reconciliation preserves them (phase 5c) |
 | YAML agents | `generateAgentPromptsYAML` |
 | Sync | `prompt.ReloadAllPrompts(ctx, nerdDir, embedEngine)` |
 
@@ -100,9 +103,32 @@ user_intent → kernel → next_action → VirtualStore → articulation
 
 Without init, many commands print “run nerd init first”; chat may still run with degraded world model.
 
+## Agent curation wiring (phase 6)
+
+```
+determineRequiredAgents(profile)
+  → mergeTypeUAgents        (config.TypeUAgents; name collision replaces the built-in)
+  → curateAgents            (config.Interactive AND a real terminal, or an injected InteractiveIO)
+       LoadAgentPreferences → auto_accept_recommended short-circuit
+       ConvertToDetectedAgents → InteractiveAgentSelection → ConvertToRecommendedAgents
+       SaveAgentPreferences(accepted, rejected)
+  → result.RecommendedAgents → phase 7a knowledge bases
+```
+
+The terminal probe requires **both** stdin and stdout to be character devices.
+stdin alone is not a gate: `go test`, cron and most CI runners attach
+`/dev/null`, which is a character device, while redirecting stdout to a pipe.
+
+## Tool needs wiring
+
+`determineRequiredTools` runs in `generateFactsFile`, emitting
+`missing_tool_for(/project_init, /capability)` — the same already-Declared
+predicate autopoiesis and campaign assert on a capability gap. Init never calls
+`ToolGenerator`; generation stays behind `ExecuteOuroborosLoop`.
+
 ## Wiring gaps (honest)
 
-1. `InitConfig.Interactive` default true, but `runInit` does not call `InteractiveAgentSelection`.
-2. Type U parse APIs not wired into `runInit` flag set (no merge into recommended agents in CLI path).
-3. `generateProjectTools` intentionally not calling VirtualStore/Ouroboros yet.
-4. ProgressChan unused by default CLI path (no channel attached in `runInit`).
+1. `nerd scan` reloads `profile.mg` rather than re-running init's detectors, so
+   a changed dependency set does not refresh `project_framework` without a full
+   `nerd init --force`.
+2. Session persistence types still live in `init` rather than `internal/session`.

@@ -1,6 +1,6 @@
 # 01 — Vision: Context Package
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-15  
 > Package: `internal/context`  
 > Status: Living vision document (target + realized trajectory)
 
@@ -54,7 +54,7 @@ codeNERD’s answer is **semantic compression with logic-directed activation**: 
 | Spreading activation | 9-component Go engine + graph rebuild | Primary scores from Mangle `context_score` / inclusion rules |
 | Budgeted windows | TokenBudget + threshold compression | Provider-accurate tokenizers optional |
 | Kernel inclusion | Wired with Go fallback | Fallback rare; rules cover edge cases |
-| Observation masking | Age assert + simple summary path | Go always respects `should_mask_observation` |
+| Observation masking | Kernel decides, Go obeys (`maskedObservationTurns` → `generateObservationMaskedSummary`) | Reached |
 | Feedback loop | SQLite store + score component | Continuous UI/manifest correlation |
 | Multi-context | Campaign, issue, back-ref auto-refresh | Stronger SWE-bench / multi-issue isolation |
 

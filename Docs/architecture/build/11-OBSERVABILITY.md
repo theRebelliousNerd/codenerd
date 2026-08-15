@@ -1,6 +1,6 @@
 # 11 — Observability: `internal/build`
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-08-15**
 
 ---
 
@@ -83,3 +83,27 @@ Whitelist path logs **keys only** — safer.
 3. Glass-box event `build_env_prepared{var_count, has_cgo_cflags, has_gocache}` for compile actuators.  
 
 None of these exist today.
+
+
+## Redaction and summarization (2026-08-15)
+
+`GetBuildEnv` used to log `Added build config env: %s=%s` at debug. `build.env_vars`
+is a free-form operator map that routinely carries API keys, registry tokens and
+proxy credentials, so that line wrote secrets to disk.
+
+Two changes:
+
+- **`redactEnvValue(key, value)`** — values are printed only for an allowlist of
+  toolchain keys (`CGO_*`, `GO*`, `CC`, `CXX`, `PATH`, `HOME`, temp dirs, `CI`, …).
+  Everything else prints `<redacted>` / `<empty>`. A key containing `TOKEN`,
+  `SECRET`, `PASSWORD`, `_KEY`, `AUTH`, `CREDENTIAL`, `SESSION` or `COOKIE` is
+  redacted even if it would otherwise be allowlisted.
+- **`SummarizeEnv(env)`** — sorted, keys-only rendering, used for the final
+  "environment has N vars" line and available to callers for env diffs.
+
+Redaction is a **logging** concern only: the real values still reach the
+subprocess (`TestGetBuildEnv_WhenSecretInConfigEnvVars_ShouldStillBePassedToSubprocess`).
+
+`logging.BuildWarn` is now used (previously debug-only): when every GOCACHE
+fallback is empty, the package says so by name instead of letting the subprocess
+die with an opaque "GOCACHE is not defined".

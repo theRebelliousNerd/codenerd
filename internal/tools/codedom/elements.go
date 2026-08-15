@@ -72,11 +72,12 @@ var (
 // GetElementsTool returns a tool for listing code elements in a file.
 func GetElementsTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "get_elements",
-		Description: "List code elements (functions, classes, methods) in a file",
-		Category:    tools.CategoryCode,
-		Priority:    80,
-		Execute:     executeGetElements,
+		Name:          "get_elements",
+		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral},
+		Description:   "List code elements (functions, classes, methods) in a file",
+		Category:      tools.CategoryCode,
+		Priority:      80,
+		Execute:       executeGetElements,
 		Schema: tools.ToolSchema{
 			Required: []string{"path"},
 			Properties: map[string]tools.Property{
@@ -94,14 +95,22 @@ func GetElementsTool() *tools.Tool {
 }
 
 func executeGetElements(ctx context.Context, args map[string]any) (string, error) {
-	path, _ := args["path"].(string)
-	if path == "" {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
 		return "", fmt.Errorf("path is required")
+	}
+	// get_elements/get_element read whatever path they are handed. The line
+	// tools next door in lines.go were contained; these two were not, and they
+	// return file contents (the Content field of every element), so an
+	// uncontained read here is an arbitrary file disclosure with extra steps.
+	path, err := tools.ResolveWorkspacePath(ctx, "", rawPath)
+	if err != nil {
+		return "", err
 	}
 
 	filterType, _ := args["type"].(string)
 
-	logging.VirtualStoreDebug("get_elements: path=%s, type=%s", path, filterType)
+	logging.ToolsDebug("get_elements: path=%s, type=%s", path, filterType)
 
 	elements, err := extractCodeElements(path)
 	if err != nil {
@@ -124,7 +133,7 @@ func executeGetElements(ctx context.Context, args map[string]any) (string, error
 	}
 
 	output, _ := json.MarshalIndent(elements, "", "  ")
-	logging.VirtualStore("get_elements completed: %s (%d elements)", path, len(elements))
+	logging.Tools("get_elements completed: %s (%d elements)", path, len(elements))
 	return string(output), nil
 }
 
@@ -357,11 +366,12 @@ func findPythonEndLine(lines []string, startIdx int) int {
 // GetElementTool returns a tool for getting a specific code element.
 func GetElementTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "get_element",
-		Description: "Get a specific code element by name",
-		Category:    tools.CategoryCode,
-		Priority:    80,
-		Execute:     executeGetElement,
+		Name:          "get_element",
+		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral},
+		Description:   "Get a specific code element by name",
+		Category:      tools.CategoryCode,
+		Priority:      80,
+		Execute:       executeGetElement,
 		Schema: tools.ToolSchema{
 			Required: []string{"path", "name"},
 			Properties: map[string]tools.Property{
@@ -379,9 +389,13 @@ func GetElementTool() *tools.Tool {
 }
 
 func executeGetElement(ctx context.Context, args map[string]any) (string, error) {
-	path, _ := args["path"].(string)
-	if path == "" {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
 		return "", fmt.Errorf("path is required")
+	}
+	path, err := tools.ResolveWorkspacePath(ctx, "", rawPath)
+	if err != nil {
+		return "", err
 	}
 
 	name, _ := args["name"].(string)
@@ -389,7 +403,7 @@ func executeGetElement(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("name is required")
 	}
 
-	logging.VirtualStoreDebug("get_element: path=%s, name=%s", path, name)
+	logging.ToolsDebug("get_element: path=%s, name=%s", path, name)
 
 	elements, err := extractCodeElements(path)
 	if err != nil {

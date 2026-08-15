@@ -178,7 +178,7 @@ def test_none_comp(x, y):
 	}
 
 	// We expect 2 guards_block facts because only the `is not None` and `!= None` generate guards_block
-    // Since `is None` and `== None` generate early return check but `pass` has no early return, they won't emit anything
+	// Since `is None` and `== None` generate early return check but `pass` has no early return, they won't emit anything
 	if guardBlockFacts != 2 {
 		t.Errorf("Expected 2 guards_block facts, got %d", guardBlockFacts)
 	}

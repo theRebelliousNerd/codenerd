@@ -1,6 +1,6 @@
 # 06 — Public API and Types: `internal/types`
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-08-15**
 > All paths under `internal/types/`.
 
 ## 1. Fact conversion
@@ -90,9 +90,17 @@
 | `ShardResult` | `shard.go` |
 | `ShardInfo` | `shard.go` |
 | `SpawnPriority` + consts + `String` | `shard.go` |
-| `CtxKeyPriority` | `shard.go` |
-| `CtxKeyModelCapability` | `shard.go` |
-| `CtxKeyModelName` | `shard.go` |
+| `CtxKeyPriority` (deprecated string key) | `shard.go` |
+| `CtxKeyModelCapability` (deprecated string key) | `shard.go` |
+| `CtxKeyModelName` (deprecated string key) | `shard.go` |
+| `WithSpawnPriority` / `SpawnPriorityFromContext` | `ctxkeys.go` |
+| `WithModelCapability` / `ModelCapabilityFromContext` | `ctxkeys.go` |
+| `WithModelName` / `ModelNameFromContext` | `ctxkeys.go` |
+| `TransactorOf` | `transaction.go` |
+| `Atom(string) MangleAtom` | `atom.go` |
+| `ShardPhase` + phase consts, `OperationRecord`, `TransparencyManager` | `transparency.go` |
+| `PercentFromRatio`, `PercentClamp` | `mangle_scale.go` |
+| `typestest.MockKernel` (test-only sibling package) | `typestest/mockkernel.go` |
 
 ### Permission constants
 

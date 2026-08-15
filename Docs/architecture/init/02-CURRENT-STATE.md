@@ -1,6 +1,6 @@
 # init — Current State
 
-> Last verified: 2026-08-09
+> Last verified: 2026-08-15
 > Package: `internal/init/`
 
 ## Inventory summary
@@ -9,7 +9,7 @@
 |------|------:|-------|
 | Non-test `.go` | **16** | Core implementation |
 | Test `.go` | **8** | Unit + coverage suites, including initializer truth coverage |
-| `.mg` in package | **1** | `debug_program_ERROR.mg` — crash dump artifact, **not** product schema |
+| `.mg` in package | **0** | Kernel fault dumps go to `.nerd/debug/` and are gitignored; a test pins that the package tree stays free of them |
 | Package docs (`README.md` / `agents.md`) | **1** | `internal/init/agents.md` carries scoped implementation invariants |
 
 ### Non-test sources (approx line counts)
@@ -31,6 +31,7 @@
 | `jit_integration.go` | 261 | Init-phase JIT compiler + fallback prompts |
 | `shared_kb.go` | 195 | Shared `core_concepts.db` pool + inherit |
 | `typeu_agents.go` | 178 | `--define-agent` parse/validate (Type U) |
+| `agents_curation.go` | 170 | Type U merge, interactive curation gate, selection persistence |
 | `eta_tracker.go` | 158 | Phase ETA tracking + progress helpers |
 
 ### Tests
@@ -70,8 +71,8 @@
 | Phase 3 “analysis” | Stubbed: message that JIT session handles research |
 | Researcher domain shard | Removed; comments point to JIT clean loop |
 | `generateProjectTools` | Stub: logs would-be tools, returns empty |
-| Interactive selection | Library complete; not always invoked from CLI `runInit` |
-| Type U agents | Parse/validate APIs; not clearly merged into default `runInit` |
+| Interactive selection | Wired: phase 6 `curateAgents`, terminal-gated, `--no-interactive` opts out |
+| Type U agents | Wired: `nerd init --define-agent` parses into `InitConfig.TypeUAgents`, merged in phase 6 |
 | Deep research semantics | Legacy scores are labeled atom-count population proxies, not formal evaluation |
 
 ## Artifacts written under `.nerd/`
@@ -81,7 +82,7 @@
 | `config.json` | `createDefaultConfig` if missing |
 | `profile.json` | `saveProfile` |
 | `profile.mg` | `generateFactsFile` |
-| `preferences.json` | `savePreferences` |
+| `preferences.json` | `savePreferences` (merge-preserving; never truncates ux/agent-selection blocks) |
 | `session.json` | `initSessionState` / chat updates |
 | `sessions/*.json` | session history APIs |
 | `knowledge.db` | LocalStore + strategic atoms |

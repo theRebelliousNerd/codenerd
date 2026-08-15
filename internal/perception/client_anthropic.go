@@ -237,6 +237,9 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 			}
 		}
 
+		trackUsage(ctx, c.model, ProviderAnthropic,
+			anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpChat)
+
 		response := strings.TrimSpace(result.String())
 		logging.Perception("[Anthropic] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
 		return response, nil
@@ -320,6 +323,9 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 		scanDone := make(chan struct{})
 		scanErrChan := make(chan error, 1)
 
+		// Written only by the scanner goroutine, read only after scanDone.
+		var billed struct{ input, output int }
+
 		go func() {
 			defer close(scanDone)
 			for scanner.Scan() {
@@ -341,6 +347,20 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 						Type string `json:"type"`
 						Text string `json:"text,omitzero"`
 					} `json:"delta,omitzero"`
+					// Anthropic splits billed usage across the stream:
+					// message_start carries input_tokens, message_delta carries
+					// the running output_tokens. Both are captured and recorded
+					// once at the end rather than per event.
+					Message *struct {
+						Usage struct {
+							InputTokens  int `json:"input_tokens"`
+							OutputTokens int `json:"output_tokens"`
+						} `json:"usage"`
+					} `json:"message,omitzero"`
+					Usage *struct {
+						InputTokens  int `json:"input_tokens"`
+						OutputTokens int `json:"output_tokens"`
+					} `json:"usage,omitzero"`
 					Error *struct {
 						Type    string `json:"type"`
 						Message string `json:"message"`
@@ -353,6 +373,22 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 					scanErrChan <- fmt.Errorf("API error: %s", evt.Error.Message)
 					return
 				}
+				if evt.Message != nil {
+					if evt.Message.Usage.InputTokens > 0 {
+						billed.input = evt.Message.Usage.InputTokens
+					}
+					if evt.Message.Usage.OutputTokens > 0 {
+						billed.output = evt.Message.Usage.OutputTokens
+					}
+				}
+				if evt.Usage != nil {
+					if evt.Usage.InputTokens > 0 {
+						billed.input = evt.Usage.InputTokens
+					}
+					if evt.Usage.OutputTokens > 0 {
+						billed.output = evt.Usage.OutputTokens
+					}
+				}
 				if evt.Type == "content_block_delta" && evt.Delta != nil && evt.Delta.Text != "" {
 					select {
 					case contentChan <- evt.Delta.Text:
@@ -364,6 +400,10 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 			if err := scanner.Err(); err != nil {
 				scanErrChan <- err
 			}
+		}()
+
+		defer func() {
+			trackUsage(ctx, c.model, ProviderAnthropic, billed.input, billed.output, usageOpChat)
 		}()
 
 		select {
@@ -480,6 +520,9 @@ func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 			})
 		}
 	}
+	trackUsage(ctx, c.model, ProviderAnthropic,
+		anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
+
 	return &LLMToolResponse{
 		Text:       strings.TrimSpace(textBuilder.String()),
 		ToolCalls:  result.ToolCalls,
@@ -591,6 +634,9 @@ func (c *AnthropicClient) CompleteWithToolResults(ctx context.Context, systemPro
 			})
 		}
 	}
+
+	trackUsage(ctx, c.model, ProviderAnthropic,
+		anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
 
 	return &types.LLMToolResponse{
 		Text:       strings.TrimSpace(textBuilder.String()),

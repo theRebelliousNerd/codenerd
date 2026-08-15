@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,7 @@ import (
 // Supports: Go, Python, TypeScript, JavaScript, Rust
 type Cartographer struct {
 	dataFlowExtractor *MultiLangDataFlowExtractor
+	parsers           tsParserSet
 }
 
 // NewCartographer creates a new Cartographer for holographic code graph projection.
@@ -41,25 +43,38 @@ func NewCartographer() *Cartographer {
 }
 
 // MapFile parses a single file and returns holographic facts.
-// Currently supports Go with deep AST analysis.
+// Go is mapped with go/ast; Python, TypeScript, JavaScript and Rust with
+// tree-sitter (see cartographer_multilang.go).
 func (c *Cartographer) MapFile(path string) ([]core.Fact, error) {
-	logging.WorldDebug("Cartographer mapping file: %s", filepath.Base(path))
-	ext := filepath.Ext(path)
+	return c.MapFileAs(path, path)
+}
+
+// MapFileAs maps the file at fsPath but labels every emitted fact with
+// factPath. Deep facts must carry the same canonical (workspace-relative)
+// identity as file_topology, while the parser needs a path it can actually
+// open — before this split, deep scans run from outside the workspace either
+// failed to open the file or stamped absolute paths into the fact store.
+func (c *Cartographer) MapFileAs(fsPath, factPath string) ([]core.Fact, error) {
+	logging.WorldDebug("Cartographer mapping file: %s", filepath.Base(fsPath))
+	ext := strings.ToLower(filepath.Ext(fsPath))
 	if ext == ".go" {
-		return c.mapGoFile(path)
+		return c.mapGoFile(fsPath, factPath)
 	}
-	logging.WorldDebug("Cartographer: unsupported file type %s for %s", ext, filepath.Base(path))
+	if lang := DetectLanguage(fsPath); lang != "" && deepMappableExt(ext) {
+		return c.mapNonGoFile(fsPath, factPath, lang)
+	}
+	logging.WorldDebug("Cartographer: unsupported file type %s for %s", ext, filepath.Base(fsPath))
 	return nil, nil
 }
 
-func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
+func (c *Cartographer) mapGoFile(fsPath, path string) ([]core.Fact, error) {
 	start := time.Now()
-	logging.WorldDebug("Cartographer: mapping Go file: %s", filepath.Base(path))
+	logging.WorldDebug("Cartographer: mapping Go file: %s", filepath.Base(fsPath))
 
 	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	node, err := parser.ParseFile(fset, fsPath, nil, parser.ParseComments)
 	if err != nil {
-		logging.Get(logging.CategoryWorld).Error("Cartographer: Go parse failed: %s - %v", path, err)
+		logging.Get(logging.CategoryWorld).Error("Cartographer: Go parse failed: %s - %v", fsPath, err)
 		return nil, err
 	}
 
@@ -174,13 +189,13 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 
 	// Extract data flow facts (enhancement, not critical - errors don't break symbol extraction)
 	if c.dataFlowExtractor != nil {
-		dataFlowFacts, err := c.dataFlowExtractor.ExtractDataFlow(path)
+		dataFlowFacts, err := c.dataFlowExtractor.ExtractDataFlow(fsPath)
 		if err != nil {
 			logging.WorldDebug("Cartographer: data flow extraction failed for %s: %v (continuing with symbol facts only)", filepath.Base(path), err)
 			// Continue - data flow is an enhancement, not critical
 		} else {
-			facts = append(facts, dataFlowFacts...)
-			logging.WorldDebug("Cartographer: extracted %d data flow facts from %s", len(dataFlowFacts), filepath.Base(path))
+			facts = append(facts, relabelPathArgs(dataFlowFacts, fsPath, path)...)
+			logging.WorldDebug("Cartographer: extracted %d data flow facts from %s", len(dataFlowFacts), filepath.Base(fsPath))
 		}
 	}
 
@@ -194,6 +209,29 @@ func (c *Cartographer) Close() {
 	if c.dataFlowExtractor != nil {
 		c.dataFlowExtractor.Close()
 	}
+	c.parsers.close()
+}
+
+// relabelPathArgs rewrites the filesystem path the data-flow extractor stamped
+// into its facts to the canonical fact identity. The extractor is given a
+// readable path and has no notion of workspace-relative identity, so without
+// this its facts key a different file than the code_defines emitted beside them.
+func relabelPathArgs(facts []core.Fact, from, to string) []core.Fact {
+	if from == to || len(facts) == 0 {
+		return facts
+	}
+	out := make([]core.Fact, 0, len(facts))
+	for _, f := range facts {
+		args := make([]any, len(f.Args))
+		copy(args, f.Args)
+		for i, a := range args {
+			if s, ok := a.(string); ok && s == from {
+				args[i] = to
+			}
+		}
+		out = append(out, core.Fact{Predicate: f.Predicate, Args: args})
+	}
+	return out
 }
 
 // SupportedLanguages returns the list of languages supported for data flow extraction.

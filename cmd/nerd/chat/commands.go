@@ -14,7 +14,7 @@
 //	Session:    /quit, /exit, /continue, /usage, /clear, /reset, /new-session, /sessions
 //	Help:       /help, /status
 //	Init:       /init, /scan, /refresh-docs, /scan-path, /scan-dir
-//	Config:     /config, /embedding
+//	Config:     /config, /embedding, /features
 //	Files:      /read, /mkdir, /write, /search, /patch, /edit, /append, /pick
 //	Agents:     /define-agent, /northstar, /learn, /agents, /spawn, /ingest
 //	Analysis:   /review, /security, /analyze, /test, /fix, /refactor
@@ -113,6 +113,9 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 
 	case "/scan-dir":
 		return m.handleCmdScanDir(input, parts)
+
+	case "/features":
+		return m.handleCmdFeatures(input, parts)
 
 	case "/config":
 		return m.handleConfigCommand(input, parts)

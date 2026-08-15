@@ -419,15 +419,40 @@ func sanitizeAtomTail(s string) string {
 	return mapped
 }
 
+// validationReasonPrefixes maps the validation error messages the validators
+// actually emit onto the reason atoms policy/validation.mg branches on. It is a
+// prefix table because validator_paranoid.go qualifies the same failure with
+// "(first read)" / "(second read)".
+//
+// It exists because the first-token fallback below is not a vocabulary. On
+// "content hash mismatch" it yields /content, and on "cannot read back file"
+// /cannot - categories no rule author would ever write, and ones that change
+// silently the moment somebody rewords a message. Every entry here has a
+// matching rule in policy/validation.mg; adding a message without adding its
+// rule just routes the failure to the /escalate arm, which is the safe default.
+var validationReasonPrefixes = []struct{ prefix, reason string }{
+	{"content hash mismatch", "hash_mismatch"},
+	{"file hash unchanged after edit", "edit_not_applied"},
+	{"cannot read back file", "read_back_failed"},
+	{"syntax validation failed", "syntax_error"},
+	{"Go syntax error after CodeDOM edit", "syntax_error"},
+	{"target element no longer exists after edit", "element_lost"},
+}
+
 // categorizeValidationError extracts a /name-friendly category from a
-// free-form validation error message (e.g. "hash mismatch" → "hash",
-// "regex: invalid pattern" → "regex"). Falls back to "generic" for
-// empty or non-classifiable errors. Keeps the /name slot bounded to a
-// small enum so policy rules can branch on it without exploding the
-// stratum count.
+// free-form validation error message. Known validator messages map to the
+// stable vocabulary in validationReasonPrefixes; anything else falls back to
+// the leading token (e.g. "regex: invalid pattern" → "regex"), and an empty
+// error to "generic". Keeps the /name slot bounded to a small enum so policy
+// rules can branch on it without exploding the stratum count.
 func categorizeValidationError(msg string) string {
 	if msg == "" {
 		return "generic"
+	}
+	for _, m := range validationReasonPrefixes {
+		if strings.HasPrefix(msg, m.prefix) {
+			return m.reason
+		}
 	}
 	first := msg
 	if i := strings.IndexAny(msg, ": \t"); i > 0 {

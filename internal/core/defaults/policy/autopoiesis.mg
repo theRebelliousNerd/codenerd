@@ -54,9 +54,13 @@ capability_available(Cap) :-
 explicit_tool_request(Cap) :-
     user_intent(/current_intent, /mutation, /generate_tool, Cap, _).
 
-# Need new tool when repeated failures suggest capability gap
+# Need new tool when repeated failures suggest capability gap.
+# ReasonType is a closed category (/name per schemas_tools.mg), not prose - the
+# prose belongs in the third slot, Detail. Cap flows straight into
+# task_failure_count(Capability, Count) bound [/name, /number], so it is a /name
+# on both sides of that join.
 capability_gap_detected(Cap) :-
-    task_failure_reason(_, "missing_capability", Cap),
+    task_failure_reason(_, /missing_capability, Cap),
     task_failure_count(Cap, N),
     N >= 2.
 

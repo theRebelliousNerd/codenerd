@@ -39,10 +39,15 @@ safe_interactable(ID) :-
     interactable(ID, _),
     !honeypot_detected(ID).
 
-# Target checkbox to the left of label text
+# Target checkbox to the left of label text.
+#
+# Tag names, attribute names and attribute values are /string, not atoms:
+# dom_node and attribute are both bound [/string, ...] and are fed straight from
+# the page by SessionManager.buildDOMFacts. The atom form these three literals
+# used to carry could never unify with a live fact.
 target_checkbox(CheckID, LabelText) :-
-    dom_node(CheckID, /input, _, _),
-    attribute(CheckID, /type, /checkbox),
+    dom_node(CheckID, "input", _, _),
+    attribute(CheckID, "type", "checkbox"),
     dom_text(TextID, LabelText),
     left_of(CheckID, TextID).
 

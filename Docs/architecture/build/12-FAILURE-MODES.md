@@ -1,6 +1,6 @@
 # 12 — Failure Modes: `internal/build`
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-08-15**  
 > Concrete failures tied to this package’s behavior and its callers.
 
 ---
@@ -123,7 +123,7 @@
 | | |
 |--|--|
 | **Symptom** | Config `go_flags: ["-race"]` has no effect |
-| **Cause** | Package never applies GoFlags to argv; only stores in BuildConfig |
+| **Cause** | ~~Package never applies GoFlags to argv~~ — **fixed 2026-08-15**: `AppendGoFlags(userCfg, root, args)` injects them after the subcommand. Still a failure mode for any caller that builds argv by hand instead of calling it. |
 | **Mitigation** | Put flags on command line at caller, or use GOFLAGS env via EnvVars |
 
 ---

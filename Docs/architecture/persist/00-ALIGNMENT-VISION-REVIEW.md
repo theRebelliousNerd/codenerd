@@ -1,8 +1,8 @@
 # 00 — Alignment & Vision Review: persist
 
-> Last verified against codebase: **2026-07-13**  
+> Last verified against codebase: **2026-08-15**  
 > Status: Living Reference Document — code-grounded  
-> Source: `internal/persist/factsnap/` (1 source file, 4 tests)
+> Source: `internal/persist/` (`factsnap`, `snapshot`, `doc.go`; 6 test files) plus `cmd/nerd/cmd_snapshot.go`
 
 ## 1. North-star statement
 
@@ -15,15 +15,18 @@ codeNERD separates **LLM creativity** from **Mangle executive control**. Persist
 | Dimension | Score (0–5) | Evidence |
 |-----------|-------------|----------|
 | Creative/executive split | **5** | Pure codec library; no model I/O (`factsnap.go` package doc, imports) |
-| Fact-flow fidelity | **3** | Correct `types.Fact` ↔ SimpleColumn round-trip *when used*; not on OODA hot path; **zero importers** |
-| Constitutional safety | **2** | No `permitted(...)` (correct for a serializer); risk is *unreviewed re-assert* if a future caller loads snapshots into EDB without policy |
+| Fact-flow fidelity | **4** | `types.Fact` ↔ SimpleColumn round trip proven against a real kernel on both ends (`kernel_roundtrip_test.go`); still off the OODA hot path by design |
+| Constitutional safety | **4** | No `permitted(...)` inside the codec (correct), and the caller refuses to assert without an explicit flag; no boot-time load exists to smuggle facts in |
 | JIT / atom discipline | **5** | N/A positively: no LLM-facing surface to corrupt with ad-hoc prompts |
-| Deterministic durability | **5** | `SimpleColumn{Deterministic: true}`; atomic rename; codec parity tests |
-| Observability | **1** | No `internal/logging` categories; errors via wrapped `fmt.Errorf` only |
-| Test grounding | **5** | Round-trip, parity @ 10k, size regression, unknown-codec cleanup |
-| Integration / wiring honesty | **2** | Package is clean but **dormant** — classic half-integrated utility |
+| Deterministic durability | **5** | `SimpleColumn{Deterministic: true}`; unique-temp + fsync + rename + dir fsync; sha256 sidecar; codec parity tests |
+| Observability | **3** | `logging.CategoryStore` debug lines with codec, bytes, digest and duration; `nerd snapshot list` answers "what is on disk" |
+| Test grounding | **5** | Round-trip, parity @ 10k, size regression, contention, integrity, multi-hop type contracts, command tests |
+| Integration / wiring honesty | **4** | One deliberate caller with a documented rationale; campaign and world still open, and the docs say so |
 
-**Overall alignment: 3.5 / 5** — excellent *library* alignment with the north star; weak *platform* alignment until something actually writes/reads snapshots in production flows.
+**Overall alignment: 4.3 / 5** — the library was always well aligned; it now has a
+production path that respects the executive/creative split (the kernel decides
+what is true, the CLI only projects it to disk) and refuses to become a silent
+boot-time fact source.
 
 ## 3. What “good” looks like (persist-specific)
 

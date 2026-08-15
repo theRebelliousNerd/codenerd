@@ -238,7 +238,7 @@ func TestRenderDiffLine_WithoutWordDiffs(t *testing.T) {
 		Type:    diff.LineAdded,
 	}
 
-	result := view.renderDiffLine(line, nil)
+	result := view.renderDiffLine(line)
 
 	if !strings.Contains(result, "test content") {
 		t.Error("Expected result to contain line content")

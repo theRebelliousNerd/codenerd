@@ -73,14 +73,23 @@ func TestRunBatteryUnsupportedTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunBattery failed: %v", err)
 	}
-	if len(results) != 1 {
-		t.Fatalf("expected fail-fast after first task, got %d", len(results))
+	// Fail-fast still stops execution, but the remaining tasks are now recorded
+	// as explicit skips rather than dropped from the result set. A truncated
+	// list reads as "that was the whole suite".
+	if len(results) != 2 {
+		t.Fatalf("expected every task represented, got %d", len(results))
 	}
 	if results[0].Success {
 		t.Fatalf("expected unsupported task to fail")
 	}
 	if !strings.Contains(results[0].Error, "unsupported task type") {
 		t.Fatalf("unexpected error: %s", results[0].Error)
+	}
+	if !results[1].Skipped {
+		t.Fatalf("expected task after a failure to be marked skipped, got %+v", results[1])
+	}
+	if results[1].Success {
+		t.Fatalf("a skipped task must not report success")
 	}
 }
 

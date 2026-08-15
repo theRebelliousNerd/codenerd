@@ -24,4 +24,8 @@ var (
 
 	// ErrToolNil is returned when a nil *Tool is passed to Register.
 	ErrToolNil = errors.New("tool cannot be nil")
+
+	// ErrToolNotAllowed is returned when an enforced capability envelope does
+	// not list the requested tool. See Registry.SetAllowlist.
+	ErrToolNotAllowed = errors.New("tool not permitted by allowlist")
 )

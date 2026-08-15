@@ -176,15 +176,11 @@ func checkFile(path string) error {
 		}
 	}
 
-	// Also load MCP schemas if available
-	mcpSchemaPath := "internal/mcp/schemas_mcp.mg"
-	if _, err := os.Stat(mcpSchemaPath); err == nil {
-		if data, err := os.ReadFile(mcpSchemaPath); err == nil {
-			if err := tmpEngine.LoadSchemaString(string(data)); err == nil {
-				schemasLoaded++
-			}
-		}
-	}
+	// MCP Decls are not special-cased any more: they live in
+	// internal/core/defaults/schemas_mcp.mg alongside every other schema
+	// module, so the schemas*.mg glob above already loads them. The previous
+	// explicit load pointed at internal/mcp/schemas_mcp.mg, a path that has
+	// never existed, so it silently did nothing.
 
 	data, err := os.ReadFile(path)
 	if err != nil {

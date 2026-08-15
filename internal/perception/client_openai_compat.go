@@ -620,6 +620,13 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 		if parsed.Error != nil {
 			return nil, fmt.Errorf("%s API error: %s", c.vendor, parsed.Error.Message)
 		}
+
+		// Metering lives on the funnel, not on its callers: CompleteWithSystem's
+		// thinking-retry and CompleteWithTools both come through here, and each
+		// pass that reached the vendor was billed.
+		trackUsage(ctx, reqBody.Model, c.vendor,
+			parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens, usageOpFor(len(reqBody.Tools)))
+
 		return &parsed, nil
 	}
 
@@ -853,6 +860,10 @@ func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Respo
 	// than rendering blank in the chat surface.
 	var forwarded atomic.Int64
 
+	// Final billed counts ride a trailing usage-only chunk (include_usage).
+	// Written by the scanner goroutine, read only after scanDone.
+	var billed struct{ input, output int }
+
 	go func() {
 		defer close(scanDone)
 		for scanner.Scan() {
@@ -876,6 +887,10 @@ func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Respo
 				scanErrChan <- fmt.Errorf("%s API error: %s", c.vendor, chunk.Error.Message)
 				return
 			}
+			if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+				billed.input = chunk.Usage.PromptTokens
+				billed.output = chunk.Usage.CompletionTokens
+			}
 			if len(chunk.Choices) == 0 || chunk.Choices[0].Delta == nil {
 				continue
 			}
@@ -891,6 +906,10 @@ func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Respo
 		if err := scanner.Err(); err != nil {
 			scanErrChan <- err
 		}
+	}()
+
+	defer func() {
+		trackUsage(ctx, c.model, c.vendor, billed.input, billed.output, usageOpChat)
 	}()
 
 	select {

@@ -17,7 +17,7 @@ func TestFallbackSelectTiersAndOrdering(t *testing.T) {
 	}
 	tcc := ToolCompilationContext{ShardType: "coder"}
 
-	selected := c.selectTools(context.Background(), tcc, tools, nil)
+	selected := c.selectTools(context.Background(), tcc, tools, nil, nil)
 	if len(selected) != 3 {
 		t.Fatalf("expected 3 selected (out excluded), got %d: %+v", len(selected), selected)
 	}
@@ -46,7 +46,7 @@ func TestFallbackSelectStripsShardSlash(t *testing.T) {
 	c := NewJITToolCompiler(nil, nil, nil)
 	tools := []*MCPTool{{ToolID: "t", ShardAffinities: map[string]int{"coder": 100}}}
 	// Leading-slash shard verbs ("/coder") must match the "coder" affinity key.
-	selected := c.selectTools(context.Background(), ToolCompilationContext{ShardType: "/coder"}, tools, nil)
+	selected := c.selectTools(context.Background(), ToolCompilationContext{ShardType: "/coder"}, tools, nil, nil)
 	if len(selected) != 1 || selected[0].RenderMode != RenderModeFull {
 		t.Fatalf("expected the /coder verb to resolve to a full-render tool, got %+v", selected)
 	}

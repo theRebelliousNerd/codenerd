@@ -3,6 +3,7 @@ package lsp
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"codenerd/internal/core"
@@ -23,6 +24,10 @@ type Manager struct {
 	mangleEngine  *mangle.Engine
 	workspaceRoot string
 	indexed       bool
+
+	// External language servers (gopls, rust-analyzer, ...) keyed by language
+	// atom. The Mangle server stays a special case because it runs in-process.
+	servers map[string]*Client
 }
 
 // NewManager creates a new LSP manager.
@@ -31,6 +36,73 @@ func NewManager(workspaceRoot string) *Manager {
 	return &Manager{
 		workspaceRoot: workspaceRoot,
 		indexed:       false,
+		servers:       make(map[string]*Client),
+	}
+}
+
+// AddLanguageServer registers an already-connected language server under a
+// language atom ("/go", "/rust"). Its diagnostics join the Mangle server's in
+// ProjectToFacts, so policy sees one code_diagnostic relation regardless of
+// which server produced a row.
+func (m *Manager) AddLanguageServer(lang string, client *Client) {
+	if client == nil {
+		return
+	}
+	if !strings.HasPrefix(lang, "/") {
+		lang = "/" + lang
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.servers == nil {
+		m.servers = make(map[string]*Client)
+	}
+	if prev, ok := m.servers[lang]; ok && prev != client {
+		// Replacing a live server without closing it leaks the subprocess and
+		// leaves a reader goroutine parked on its stdout forever.
+		_ = prev.Close()
+	}
+	m.servers[lang] = client
+	logging.World("LSP Manager: registered language server for %s", lang)
+}
+
+// StartLanguageServer launches a language server binary and registers it.
+// A missing binary is not an error state for the session: code intelligence
+// degrades to the AST/tree-sitter layer, so the caller gets a plain error it
+// can log and continue past.
+func (m *Manager) StartLanguageServer(ctx context.Context, lang, binary string, args ...string) error {
+	client, err := StartServer(ctx, lang, binary, args...)
+	if err != nil {
+		return err
+	}
+	if err := client.Initialize(ctx, m.workspaceRoot); err != nil {
+		_ = client.Close()
+		return fmt.Errorf("initialize %s: %w", binary, err)
+	}
+	m.AddLanguageServer(lang, client)
+	return nil
+}
+
+// LanguageServer returns a registered server, if any.
+func (m *Manager) LanguageServer(lang string) (*Client, bool) {
+	if !strings.HasPrefix(lang, "/") {
+		lang = "/" + lang
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	c, ok := m.servers[lang]
+	return c, ok
+}
+
+// CloseLanguageServers shuts every registered external server down.
+func (m *Manager) CloseLanguageServers(ctx context.Context) {
+	m.mu.Lock()
+	servers := m.servers
+	m.servers = make(map[string]*Client)
+	m.mu.Unlock()
+	for lang, c := range servers {
+		if err := c.Shutdown(ctx); err != nil {
+			logging.WorldWarn("LSP Manager: shutting down %s server: %v", lang, err)
+		}
 	}
 }
 
@@ -90,6 +162,11 @@ func (m *Manager) ProjectToFacts() ([]core.Fact, error) {
 	// Project diagnostics
 	diagnosticFacts := m.projectDiagnostics()
 	facts = append(facts, diagnosticFacts...)
+
+	// External servers contribute to the same relations.
+	for _, c := range m.servers {
+		facts = append(facts, c.DiagnosticFacts(m.workspaceRoot)...)
+	}
 
 	logging.WorldDebug("LSP projected %d facts (%d definitions, %d references, %d diagnostics)",
 		len(facts),

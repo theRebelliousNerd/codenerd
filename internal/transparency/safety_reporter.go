@@ -3,6 +3,7 @@ package transparency
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -50,7 +51,14 @@ type SafetyViolation struct {
 }
 
 // SafetyReporter tracks and explains safety gate blocks.
+//
+// Guarded by mu: denials are now reported automatically from the VirtualStore
+// routing path, which runs on every shard goroutine, while the TUI reads the
+// history from the render goroutine. That is a genuine multi-writer /
+// concurrent-reader path, so the previously unsynchronized slice was a real
+// data race, not a theoretical one.
 type SafetyReporter struct {
+	mu         sync.RWMutex
 	violations []SafetyViolation
 	maxHistory int
 	enabled    bool
@@ -66,16 +74,30 @@ func NewSafetyReporter() *SafetyReporter {
 
 // Enable enables safety reporting.
 func (r *SafetyReporter) Enable() {
+	r.mu.Lock()
 	r.enabled = true
+	r.mu.Unlock()
 }
 
 // Disable disables safety reporting.
 func (r *SafetyReporter) Disable() {
+	r.mu.Lock()
 	r.enabled = false
+	r.mu.Unlock()
+}
+
+// IsEnabled reports whether violations are being recorded.
+func (r *SafetyReporter) IsEnabled() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.enabled
 }
 
 // ReportViolation records a safety violation.
 func (r *SafetyReporter) ReportViolation(action, target, rule string) *SafetyViolation {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if !r.enabled {
 		return nil
 	}
@@ -169,6 +191,9 @@ func (r *SafetyReporter) classifyViolation(action, target, rule string) SafetyVi
 
 // GetRecentViolations returns recent violations.
 func (r *SafetyReporter) GetRecentViolations(limit int) []SafetyViolation {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	if limit <= 0 || limit > len(r.violations) {
 		limit = len(r.violations)
 	}
@@ -179,11 +204,17 @@ func (r *SafetyReporter) GetRecentViolations(limit int) []SafetyViolation {
 	return result
 }
 
-// GetViolation returns a specific violation by ID.
+// GetViolation returns a copy of a specific violation by ID.
+// A copy, not a pointer into the history slice: the slice is re-sliced when the
+// ring wraps, so a leaked pointer could alias a different violation.
 func (r *SafetyReporter) GetViolation(id string) *SafetyViolation {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	for i := range r.violations {
 		if r.violations[i].ID == id {
-			return &r.violations[i]
+			found := r.violations[i]
+			return &found
 		}
 	}
 	return nil
@@ -224,7 +255,9 @@ func (r *SafetyReporter) FormatViolation(v *SafetyViolation) string {
 
 // ClearHistory clears violation history.
 func (r *SafetyReporter) ClearHistory() {
+	r.mu.Lock()
 	r.violations = nil
+	r.mu.Unlock()
 }
 
 // ExplainSafetyAction generates a safety explanation for a hypothetical action.

@@ -261,10 +261,18 @@ review_blocked(Files) :-
 Decl style_violation(File, Line, Rule, Message).
 
 # Common style rules
+# Threshold is the numeric budget the rule permits. STY003 previously carried
+# the regex "TODO|FIXME" in this slot, which is a string in a /number slot: it
+# would abort whole-program evaluation the first time any rule compared it.
+# The threshold is 0 (no unreferenced TODOs permitted) and the pattern moved to
+# style_rule_pattern/2.
 style_rule("STY001", "line_length", 120).
 style_rule("STY002", "trailing_whitespace", 0).
-style_rule("STY003", "todo_without_issue", "TODO|FIXME").
+style_rule("STY003", "todo_without_issue", 0).
 style_rule("STY005", "max_nesting", 5).
+
+# Regex patterns for the pattern-shaped style rules.
+style_rule_pattern("STY003", "TODO|FIXME").
 
 # Style violation from rule
 has_style_violation(File) :-

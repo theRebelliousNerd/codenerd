@@ -1,10 +1,11 @@
 # retrieval — Architecture Corpus (`internal/retrieval`)
 
-> Last verified against codebase: **2026-07-13**  
+> Last verified against codebase: **2026-08-15**  
 > Status: Living reference (code-grounded rewrite)  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/retrieval/`  
-> Scale: **4** non-test Go sources (~1,488 lines) · **6** test files · **0** Mangle sources
+> Scale: **9** non-test Go sources · **8** test files · **0** Mangle sources
+> (the package consumes the Decls in `internal/core/defaults/schemas_knowledge.mg` §52)
 
 ## Scope
 
@@ -21,13 +22,26 @@ It is **not**:
 
 ```
 user input → perception Intent
-  → chat.seedIssueFacts → retrieval.ExtractKeywords
-  → kernel LoadFacts(issue_text | issue_keyword | file_mentioned | tiered_context_file)
+  → chat.seedIssueFacts → retrieval.SeedIssueFacts (bounded budget)
+      → ExtractKeywords → SparseRetriever.SearchKeywords → RankFiles
+      → TieredContextBuilder.BuildContext (T1 mentions, T2 keywords,
+        T3 imports, T4 semantic)
+  → kernel LoadFacts(issue_text | issue_keyword | keyword_weight |
+      file_mentioned | candidate_file | keyword_hit | context_tier |
+      tiered_context_file | issue_context)
   → context compressor / activation / prompt atoms
   → next_action → VirtualStore → articulation
 ```
 
-The package itself does **not** assert facts or call the kernel. Callers (today: chat seed path) own transduction into Mangle EDB.
+`internal/retrieval/facts.go` owns the transduction into Mangle EDB; it takes a
+narrow `FactSink` interface (`LoadFacts([]types.Fact) error`) rather than
+importing `internal/core`. Callers supply the kernel and a glass-box bus.
+
+Fact arguments are typed against their Decl bounds, not against what is natural
+in Go: ratios go through `types.PercentFromRatio` because a `/number` slot is
+int64 and the kernel rejects a fractional float outright, tier constants are
+`types.MangleAtom`, and name-shaped strings in `/string` slots are wrapped in
+`types.MangleString`.
 
 ## Document map
 
@@ -54,6 +68,9 @@ The package itself does **not** assert facts or call the kernel. Callers (today:
 ## Verify
 
 ```powershell
+# One retrieval pass from the CLI, with the exact facts it asserts
+nerd retrieve --facts --stats "panic in internal/core/kernel.go calling Evaluate()"
+
 # Unit + package tests (default tags; excludes //go:build integration)
 go test ./internal/retrieval/...
 
@@ -71,4 +88,12 @@ No sqlite-vec / CGO flags required for this package alone.
 
 ## Honest one-liner
 
-**Keyword extraction is production-wired into chat issue seeding; full sparse search + tiered context builder are implemented and tested but largely unwired from the live OODA loop** (`Model.Retriever` is constructed at boot and never invoked for search).
+**Sparse search and the four-tier context builder are production-wired into the
+chat issue seed under a bounded budget, and every tier now lands in the kernel
+EDB as section-52 facts** — verified by querying them back out of a real kernel
+in `facts_test.go`, which is the only proof that survives Decl-bound rejection.
+
+Known gaps: Tier 3 resolves Go and Python imports only; Tier 4 uses the
+definition-scan fallback unless a `SemanticSearcher` is injected (nothing wires
+one yet); there is no VirtualStore `search_code` action, so an agent cannot ask
+for a retrieval pass mid-turn — only the seed path triggers one.

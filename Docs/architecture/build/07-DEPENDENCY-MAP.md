@@ -1,6 +1,6 @@
 # 07 — Dependency Map: `internal/build`
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-08-15**  
 > Method: import inspection of `env.go` + reverse `rg "codenerd/internal/build"`
 
 ---
@@ -58,7 +58,12 @@ None found that import `internal/build` solely for fixtures (as of verify date).
 rg "codenerd/internal/build" -g "*.go" --glob "!*_test.go"
 ```
 
-Expected (current): `tool_compiler.go`, `thunderdome.go`, and `env.go` package itself does not self-import.
+Expected (current): `internal/autopoiesis/{tool_compiler,thunderdome}.go`,
+`internal/session/{build_verify,test_verify,coverage_profile,lsp_diagnostics}.go`,
+`internal/core/virtual_store_actions.go`. `env.go` does not self-import.
+
+The authoritative check is `TestBuildImporters_WhenNewConsumerAppears_ShouldBeDocumented`,
+which fails when this list stops matching reality.
 
 ---
 
@@ -67,12 +72,12 @@ Expected (current): `tool_compiler.go`, `thunderdome.go`, and `env.go` package i
 ```
 internal/config/build.go     config.BuildConfig  ──json──► UserConfig.Build
         │
-        │ copied field-wise by
+        │ type BuildConfig = config.BuildConfig   (alias, since 2026-08-15)
         ▼
 internal/build/env.go        build.BuildConfig   ──► env slice
 ```
 
-Not a Go import cycle; **conceptual dual type**.
+One type, two names. The field-wise copy and the drift risk it carried are gone.
 
 ---
 

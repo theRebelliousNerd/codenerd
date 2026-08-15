@@ -132,69 +132,26 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		if err != nil {
 			return nil, err
 		}
-		// Persist full snapshot into DB for future incrementals.
-		if db != nil {
-			grouped := groupFactsByPath(fullFacts)
-			for path, facts := range grouped {
-				info, statErr := os.Stat(path)
-				if statErr != nil {
-					continue
-				}
-				lang := "unknown"
-				if len(facts) > 0 {
-					for _, f := range facts {
-						if f.Predicate == "file_topology" && len(f.Args) >= 3 {
-							if la, ok := f.Args[2].(core.MangleAtom); ok {
-								lang = strings.TrimPrefix(string(la), "/")
-							}
-							break
-						}
-					}
-				}
-				fp := fileFingerprint(info)
-				if err := db.UpsertWorldFile(store.WorldFileMeta{
-					Path:        path,
-					Lang:        lang,
-					Size:        info.Size(),
-					ModTime:     info.ModTime().UnixNano(),
-					Hash:        extractHashFromFacts(facts),
-					Fingerprint: fp,
-				}); err != nil {
-					logging.WorldWarn("ScanWorkspaceIncremental: failed to upsert world file %s (full scan): %v", path, err)
-				}
-				inputs := make([]store.WorldFactInput, 0, len(facts))
-				for _, f := range facts {
-					inputs = append(inputs, store.WorldFactInput{Predicate: f.Predicate, Args: f.Args})
-				}
-				if err := db.ReplaceWorldFactsForFile(path, "fast", fp, inputs); err != nil {
-					logging.WorldWarn("ScanWorkspaceIncremental: failed to replace world facts for file %s (full scan): %v", path, err)
-				}
-			}
-		}
 
 		res := &IncrementalResult{
-			Full:           true,
-			NewFacts:       fullFacts,
-			FileCount:      fileCount,
-			DirectoryCount: dirCount,
-			Duration:       time.Since(start),
+			Full:            true,
+			NewFacts:        fullFacts,
+			FileCount:       fileCount,
+			DirectoryCount:  dirCount,
+			Duration:        time.Since(start),
+			ProjectLanguage: detectProjectLanguage(fullFacts),
 		}
 
-		// Calculate project language from full set
-		if lang := detectProjectLanguage(fullFacts); lang != "" {
-			res.ProjectLanguage = lang
-			res.NewFacts = append(res.NewFacts, core.Fact{
-				Predicate: "project_language",
-				Args:      []any{core.MangleAtom("/" + lang)},
-			})
-		}
-
-		// Entry point detection for full scan
-		entryPointFacts := detectEntryPoints(fullFacts)
-		res.NewFacts = append(res.NewFacts, entryPointFacts...)
-
+		// project_language / entry_point are emitted by ScanDirectory itself
+		// now. They used to be appended here, which meant `nerd scan` (which
+		// calls ScanWorkspaceCtx directly) produced neither.
 		if db != nil {
-			if err := PersistFastSnapshotToDB(db, res.NewFacts); err != nil {
+			// One persistence pass, root-aware. There used to be a second,
+			// near-identical loop above this one that stat'ed canonical paths
+			// as if they were openable: it only worked when the process
+			// happened to be chdir'd into the workspace, and silently persisted
+			// nothing otherwise.
+			if err := PersistFastSnapshotToDBInRoot(db, root, res.NewFacts); err != nil {
 				logging.WorldWarn("ScanWorkspaceIncremental: failed to persist full world snapshot: %v", err)
 			}
 		}
@@ -235,10 +192,14 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	}
 
 	// Gather old facts for retraction (fast depth) before mutating cache/DB.
+	// Keyed by CANONICAL path: the store rows are written under the canonical
+	// identity, and looking them up by the absolute walk path (as this did)
+	// missed every row, so no scan ever retracted anything and superseded facts
+	// piled up in the kernel forever.
 	retractFacts := make([]core.Fact, 0)
 	if db != nil {
 		for _, p := range append(changed, deleted...) {
-			oldInputs, _, err := db.LoadWorldFactsForFile(p, "fast")
+			oldInputs, _, err := db.LoadWorldFactsForFile(canonicalScanPath(root, p), "fast")
 			if err != nil || len(oldInputs) == 0 {
 				continue
 			}
@@ -264,6 +225,19 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 
 	// Always refresh directory facts on delta scans.
 	newFacts = append(newFacts, dirFacts...)
+
+	// Import resolution index over the WHOLE current file set, not just the
+	// delta: an edge from a changed file into an untouched package still has to
+	// resolve. Built once, read-only, shared by the workers so each file's
+	// resolved edges become part of that file's fact set — which is what makes
+	// them persist and retract with the file. Resolving after the DB write
+	// instead would leave resolved edges in the kernel that no later scan could
+	// retract, so a deleted import kept its edge forever.
+	canonicalAll := make([]string, 0, len(currentFiles))
+	for p := range currentFiles {
+		canonicalAll = append(canonicalAll, canonicalScanPath(root, p))
+	}
+	importIndex := newRepoFileIndex(root, canonicalAll)
 
 	for _, p := range pathsToParse {
 		path := p
@@ -305,12 +279,10 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			// files within one package directory instead of Cartesian-joining the
 			// whole repo. Emitted here too so incrementally re-scanned files keep
 			// their directory key.
-			if dir := filepath.ToSlash(filepath.Dir(canonical)); dir != "" {
-				additional = append(additional, core.Fact{
-					Predicate: "file_dir",
-					Args:      []any{canonical, dir},
-				})
-			}
+			additional = append(additional, core.Fact{
+				Predicate: "file_dir",
+				Args:      []any{canonical, canonicalDir(canonical)},
+			})
 			// test_file_for(TestFile, SourceFile): pairing computed by the world
 			// scanner because Mangle has no string manipulation for the x_test.go
 			// convention. Coverage is deliberately conservative: a source file
@@ -334,32 +306,42 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 
 				content, readErr := os.ReadFile(path)
 				if readErr == nil {
+					// The parsers are handed the CANONICAL path, not the walk
+					// path: every fact they emit carries it as the file
+					// identity. Passing the absolute walk path here (as this
+					// did) gave symbol_graph and dependency_link an identity no
+					// file_topology row shared, so every rule joining symbols to
+					// files derived nothing after an incremental scan.
 					switch lang {
 					case "go":
-						if facts, parseErr := parser.ParseGo(path, content); parseErr == nil {
+						if facts, parseErr := parser.ParseGo(canonical, content); parseErr == nil {
 							additional = append(additional, facts...)
 						}
 					case "mangle":
-						additional = append(additional, extractMangleSymbolFacts(path, string(content))...)
+						additional = append(additional, extractMangleSymbolFacts(canonical, string(content))...)
 					case "python":
-						if facts, parseErr := parser.ParsePython(path, content); parseErr == nil {
+						if facts, parseErr := parser.ParsePython(canonical, content); parseErr == nil {
 							additional = append(additional, facts...)
 						}
 					case "rust":
-						if facts, parseErr := parser.ParseRust(path, content); parseErr == nil {
+						if facts, parseErr := parser.ParseRust(canonical, content); parseErr == nil {
 							additional = append(additional, facts...)
 						}
 					case "javascript":
-						if facts, parseErr := parser.ParseJavaScript(path, content); parseErr == nil {
+						if facts, parseErr := parser.ParseJavaScript(canonical, content); parseErr == nil {
 							additional = append(additional, facts...)
 						}
 					case "typescript":
-						if facts, parseErr := parser.ParseTypeScript(path, content); parseErr == nil {
+						if facts, parseErr := parser.ParseTypeScript(canonical, content); parseErr == nil {
 							additional = append(additional, facts...)
 						}
 					}
 				}
 			}
+			// Resolve this file's imports into file->file edges while its facts
+			// are still a unit, so they are stored and retracted with it.
+			additional = append(additional, resolveDependencyLinksWithIndex(importIndex, additional)...)
+
 			// Update file cache entry.
 			cache.Update(path, info, hash)
 
@@ -369,7 +351,10 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			if db != nil {
 				fp := fileFingerprint(info)
 				meta := store.WorldFileMeta{
-					Path:        path,
+					// Canonical, matching PersistFastSnapshotToDB and the
+					// retraction lookup above. Absolute keys here made full and
+					// incremental scans write two rows per file.
+					Path:        canonical,
 					Lang:        lang,
 					Size:        info.Size(),
 					ModTime:     info.ModTime().UnixNano(),
@@ -399,9 +384,14 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		}
 	}
 
-	// Handle deletions: drop from DB and cache.
+	// Handle deletions: drop from DB and cache. DB rows are keyed canonically,
+	// the cache by walk path.
 	if db != nil && len(deleted) > 0 {
-		if err := db.DeleteWorldFiles(deleted); err != nil {
+		canonicalDeleted := make([]string, 0, len(deleted))
+		for _, p := range deleted {
+			canonicalDeleted = append(canonicalDeleted, canonicalScanPath(root, p))
+		}
+		if err := db.DeleteWorldFiles(canonicalDeleted); err != nil {
 			logging.WorldWarn("ScanWorkspaceIncremental: failed to batch delete world files: %v", err)
 		}
 	}
@@ -412,7 +402,15 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		cache.mu.Unlock()
 	}
 
-	return &IncrementalResult{
+	// project_language and entry_point are whole-snapshot properties, so a delta
+	// scan that only re-emitted facts for changed files left them frozen at
+	// whatever the first full scan saw: a repo that migrated from Python to Go
+	// kept claiming /python until someone deleted the cache. Both are recomputed
+	// here from the CURRENT file set. project_language is single-valued, so
+	// ApplyIncrementalResult retracts it before loading (see
+	// SnapshotGlobalPredicates); entry_point is per-file and retracts with its
+	// file.
+	res := &IncrementalResult{
 		NewFacts:       newFacts,
 		RetractFacts:   retractFacts,
 		ChangedFiles:   changed,
@@ -421,67 +419,122 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		FileCount:      fileCount,
 		DirectoryCount: dirCount,
 		Duration:       time.Since(start),
-	}, nil
+	}
+	cache.LogStats("incremental")
+
+	globals := s.deriveSnapshotGlobals(root, currentFiles, newFacts)
+	res.NewFacts = append(res.NewFacts, globals.facts...)
+	res.ProjectLanguage = globals.projectLanguage
+
+	return res, nil
 }
 
+// snapshotGlobals holds the whole-snapshot derivations that cannot be computed
+// from a single file: the majority language and the entry-point set.
+type snapshotGlobals struct {
+	projectLanguage string
+	facts           []core.Fact
+}
+
+// deriveSnapshotGlobals recomputes project_language and entry_point from the
+// current file set. Language detection is extension-based (no hashing, no
+// parsing) so this stays cheap on a delta scan; entry points combine the same
+// path heuristics the full scan uses with the AST evidence available for the
+// files this scan actually parsed.
+func (s *Scanner) deriveSnapshotGlobals(root string, currentFiles map[string]os.FileInfo, deltaFacts []core.Fact) snapshotGlobals {
+	topology := make([]core.Fact, 0, len(currentFiles))
+	for p := range currentFiles {
+		lang := detectLanguage(filepath.Ext(p), p)
+		topology = append(topology, core.Fact{
+			Predicate: "file_topology",
+			Args:      []any{canonicalScanPath(root, p), "", core.MangleAtom("/" + lang), int64(0), core.MangleAtom("/false")},
+		})
+	}
+
+	var out snapshotGlobals
+	if lang := detectProjectLanguage(topology); lang != "" {
+		out.projectLanguage = lang
+		out.facts = append(out.facts, core.Fact{
+			Predicate: "project_language",
+			Args:      []any{core.MangleAtom("/" + lang)},
+		})
+	}
+	// AST-derived entry points (func main / package main) are only available
+	// for files this delta parsed; path heuristics cover the rest.
+	out.facts = append(out.facts, detectEntryPoints(append(topology, deltaFacts...))...)
+	return out
+}
+
+// groupFactsByPath buckets a scan's facts by the file each one belongs to, so
+// that file's rows can be replaced or deleted as a unit.
+//
+// Which file a fact belongs to is decided by matching its arguments against the
+// file_topology paths in the same snapshot — the authoritative list of what was
+// scanned — rather than by guessing which argument looks like a path.
+//
+// The guess used to be "a string containing a slash", and it silently excluded
+// every file at the repository root. "sub/gamma.go" matched; "alpha.go" did not,
+// so its symbol_graph, file_dir and entry_point facts were filed under the
+// global bucket instead of under the file. Nothing failed — the facts were
+// stored, just not against their file — and the cost only appeared two steps
+// later: deleting a root-level file retracted its file_topology and left every
+// symbol it defined in the kernel forever. Measured on a two-file fixture: a
+// nested file persisted 4 rows, a root-level one persisted 1.
+//
+// Matching against the known set also removes the false-positive half of the
+// heuristic, where a symbol id like "pkg/thing.Method" would have been read as a
+// path to a file that does not exist.
+//
+// PRECONDITION: facts is a whole snapshot. file_topology is the file list, so a
+// fact naming a file with no file_topology in the same slice is filed as global
+// — correct for project_language and directory facts, wrong for a symbol whose
+// file was omitted. Both production callers pass a full ScanWorkspaceCtx result,
+// which always carries file_topology for every file it walked. Do not call this
+// with a partial set; the failure is silent.
 func groupFactsByPath(facts []core.Fact) map[string][]core.Fact {
 	out := make(map[string][]core.Fact)
+
+	// Pass 1: file_topology is the file list. Nothing else establishes a file.
+	knownFiles := make(map[string]struct{})
 	for _, f := range facts {
-		switch f.Predicate {
-		case "file_topology":
-			if len(f.Args) > 0 {
-				if p, ok := f.Args[0].(string); ok {
-					out[p] = append(out[p], f)
-				}
-			}
-		case "symbol_graph", "dependency_link", "code_defines", "code_calls", "assigns",
-			"guards_return", "guards_block", "guard_dominates", "safe_access",
-			"uses", "call_arg", "error_checked_return", "error_checked_block", "function_scope":
-			// These world facts include a path arg somewhere; for persistence we key by file_topology path.
-			// We will attach them later when iterating grouped files.
-		default:
-			// Attach in the second pass or persist as global metadata if no file path exists.
+		if f.Predicate != "file_topology" || len(f.Args) == 0 {
+			continue
 		}
+		p, ok := f.Args[0].(string)
+		if !ok || p == "" {
+			continue
+		}
+		knownFiles[p] = struct{}{}
+		out[p] = append(out[p], f)
 	}
-	// Attach non-topology world facts to their file by scanning args for a path.
+
+	// Pass 2: every other fact goes to the first of its arguments that names a
+	// scanned file. For a fact relating two files (a dependency edge) that is
+	// the source, which is the file whose parse produced it and therefore the
+	// file it must be retracted with.
 	for _, f := range facts {
 		if f.Predicate == "file_topology" {
 			continue
 		}
-		var pathArg string
+		var owner string
 		for _, a := range f.Args {
-			if s := worldFactPathArg(a); s != "" {
-				pathArg = s
+			s, ok := a.(string)
+			if !ok || s == "" {
+				continue
+			}
+			if _, isFile := knownFiles[s]; isFile {
+				owner = s
 				break
 			}
 		}
-		if pathArg != "" {
-			out[pathArg] = append(out[pathArg], f)
-			continue
+		if owner == "" {
+			// Genuinely global: project_language, directory facts, and anything
+			// naming no scanned file.
+			owner = globalWorldFactsPath
 		}
-		out[globalWorldFactsPath] = append(out[globalWorldFactsPath], f)
+		out[owner] = append(out[owner], f)
 	}
 	return out
-}
-
-func worldFactPathArg(arg any) string {
-	s, ok := arg.(string)
-	if !ok || s == "" {
-		return ""
-	}
-	if s == globalWorldFactsPath {
-		return ""
-	}
-	if strings.HasPrefix(s, "/") {
-		rest := s[1:]
-		if !strings.Contains(rest, "/") && !strings.Contains(rest, "\\") && !strings.Contains(rest, ".") {
-			return ""
-		}
-	}
-	if strings.Contains(s, "/") || strings.Contains(s, "\\") {
-		return s
-	}
-	return ""
 }
 
 func extractHashFromFacts(facts []core.Fact) string {
@@ -500,11 +553,13 @@ func detectProjectLanguage(facts []core.Fact) string {
 	counts := make(map[string]int)
 	for _, f := range facts {
 		if f.Predicate == "file_topology" && len(f.Args) >= 3 {
-			if langAtom, ok := f.Args[2].(core.MangleAtom); ok {
-				lang := strings.TrimPrefix(string(langAtom), "/")
-				if lang != "unknown" && lang != "text" {
-					counts[lang]++
-				}
+			// ExtractString rather than a core.MangleAtom assertion: scan
+			// output carries the atom, but query readback renders a /name as a
+			// plain string, so the assertion silently skipped every row when
+			// these facts came back from the kernel.
+			lang := strings.TrimPrefix(types.ExtractString(f.Args[2]), "/")
+			if lang != "" && lang != "unknown" && lang != "text" {
+				counts[lang]++
 			}
 		}
 	}
@@ -548,10 +603,17 @@ func detectEntryPoints(facts []core.Fact) []core.Fact {
 	}
 
 	// Pass 2: Identify files and apply heuristics
+	emitted := make(map[string]struct{})
 	for _, f := range facts {
 		if f.Predicate == "file_topology" && len(f.Args) > 0 {
 			path, ok := f.Args[0].(string)
 			if !ok {
+				continue
+			}
+			// The incremental path feeds this both a synthetic topology row per
+			// current file and the delta's real rows, so the same file appears
+			// twice; a duplicate entry_point is a duplicate EDB fact.
+			if _, dup := emitted[path]; dup {
 				continue
 			}
 
@@ -571,6 +633,7 @@ func detectEntryPoints(facts []core.Fact) []core.Fact {
 			}
 
 			if isEntry {
+				emitted[path] = struct{}{}
 				entryPoints = append(entryPoints, core.Fact{
 					Predicate: "entry_point",
 					Args:      []any{path},

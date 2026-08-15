@@ -1,6 +1,6 @@
 # init — Internal Architecture
 
-> Last verified: 2026-08-09
+> Last verified: 2026-08-15
 
 ## Component map
 
@@ -47,17 +47,17 @@ setup → migration → directory → scanning → analysis → profile
 | **scanning** | `scanner.ScanDirectory` → `ToFacts` → `kernel.LoadFacts` |
 | **analysis** | Stub messaging (JIT owns deep analysis) |
 | **profile** | `buildProjectProfile` + `profile.json` |
-| **facts** | `generateFactsFile` → `profile.mg` |
-| **prompt_atoms** | `populateProjectAtoms` into local DB |
-| **prompt_db** | `initializePromptDatabase` → `prompts/corpus.db` |
-| **agents** | `determineRequiredAgents(profile)` |
+| **facts** | `generateFactsFile` → `profile.mg` (identity, language/framework, patterns, entry points, `missing_tool_for` needs) |
+| **prompt_atoms** | `buildProjectAtoms` → `knowledge.db`, held for corpus ingest |
+| **prompt_db** | `initializePromptDatabase` → seed + reconcile `prompts/corpus.db`, then `ingestProjectAtomsIntoCorpus` |
+| **agents** | `determineRequiredAgents` → `mergeTypeUAgents` → `curateAgents` |
 | **shared_kb** | `CreateSharedKnowledgePool` |
 | **kb_creation** | Parallel Type-3 KBs + `registerAgentsWithShardManager` |
 | **codebase_kb** | Codebase KB + optional strategic knowledge |
 | **core_shards_kb** | coder/reviewer/tester KBs |
 | **campaign_kb** | Campaign-oriented knowledge atoms |
-| **tool_generation** | Stub (would-be tools logged) |
-| **preferences** | `initPreferences` + `preferences.json` |
+| **tool_generation** | Reports the tool needs recorded as facts in the **facts** phase; no generation here |
+| **preferences** | `initPreferences` + merge-preserving write to `preferences.json` |
 | **session** | `session.json` |
 | **tools** | Static `available_tools.json` |
 | **registry** | `agents.json` |

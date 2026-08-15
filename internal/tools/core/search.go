@@ -3,7 +3,6 @@ package core
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,46 +16,47 @@ import (
 // argInt extracts an integer tool argument, tolerating the numeric types that
 // actually arrive at runtime.
 //
-// LLM tool-call arguments are JSON-decoded and encoding/json without UseNumber
-// materializes every JSON number as float64, never int. Mangle-sourced arguments
-// arrive as int64. A bare args[key].(int) assertion therefore silently fails in
-// production and the caller's limit is discarded, leaving grep permanently
-// capped at 50 and glob at 100 (observed live: max_results=500 returned 50).
-//
-// This mirrors the existing prior art in this repo, which has already fixed the
-// same bug three times:
-//   - internal/tools/research/numeric_args.go argInt
-//   - internal/tools/shell/execute.go coerceInt
-//   - the inline float64 fallbacks at internal/tools/codedom/lines.go lines 66 and 76
-//
-// A fourth copy is not the right end state; these belong in one shared helper.
+// The four private copies this used to be one of are now a single shared
+// helper; see tools.CoerceInt for why the bare args[key].(int) assertion this
+// replaced silently discarded every caller-supplied limit.
 func argInt(args map[string]any, key string) (int, bool) {
-	switch v := args[key].(type) {
-	case int:
-		return v, true
-	case int64:
-		return int(v), true
-	case float64:
-		return int(v), true
-	case json.Number:
-		if i, err := v.Int64(); err == nil {
-			return int(i), true
-		}
-		if f, err := v.Float64(); err == nil {
-			return int(f), true
-		}
+	return tools.ArgInt(args, key)
+}
+
+// searchBase resolves a search root argument to an absolute path inside the
+// workspace.
+//
+// glob and grep took base_path/path straight from the caller and handed it to
+// filepath.Walk, so `grep pattern=. path=/etc` read outside the workspace and
+// `base_path=../../` walked the parent tree — while the file_ops family next
+// door routed every path through the containment guard. The asymmetry is the
+// gap: an agent that cannot read /etc/shadow with read_file could still find
+// and print its contents with grep.
+func searchBase(ctx context.Context, raw string) (string, error) {
+	root, err := tools.WorkspaceRoot(ctx)
+	if err != nil {
+		return "", err
 	}
-	return 0, false
+	return tools.ResolveWorkspaceDir(ctx, root, raw)
+}
+
+// skipUncontained reports whether a walk entry must not be visited: symlinks
+// are never followed, because filepath.Walk reports them via Lstat and opening
+// one reads whatever it points at — which is how a link planted inside the
+// workspace turns a contained walk into an arbitrary read.
+func skipUncontained(info os.FileInfo) bool {
+	return info != nil && info.Mode()&os.ModeSymlink != 0
 }
 
 // GlobTool returns a tool for finding files matching a pattern.
 func GlobTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "glob",
-		Description: "Find files matching a glob pattern",
-		Category:    tools.CategoryCode,
-		Priority:    85,
-		Execute:     executeGlob,
+		Name:          "glob",
+		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryAttack, tools.CategoryGeneral},
+		Description:   "Find files matching a glob pattern",
+		Category:      tools.CategoryCode,
+		Priority:      85,
+		Execute:       executeGlob,
 		Schema: tools.ToolSchema{
 			Required: []string{"pattern"},
 			Properties: map[string]tools.Property{
@@ -66,7 +66,7 @@ func GlobTool() *tools.Tool {
 				},
 				"base_path": {
 					Type:        "string",
-					Description: "Base directory for search (default: current directory)",
+					Description: "Base directory for search, relative to the workspace root (default: workspace root)",
 				},
 				"max_results": {
 					Type:        "integer",
@@ -84,9 +84,13 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("pattern is required")
 	}
 
-	basePath := "."
-	if bp, ok := args["base_path"].(string); ok && bp != "" {
-		basePath = bp
+	rawBase := ""
+	if bp, ok := args["base_path"].(string); ok {
+		rawBase = bp
+	}
+	basePath, err := searchBase(ctx, rawBase)
+	if err != nil {
+		return "", err
 	}
 
 	maxResults := 100
@@ -94,7 +98,7 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 		maxResults = v
 	}
 
-	logging.VirtualStoreDebug("glob: pattern=%s, base=%s", pattern, basePath)
+	logging.ToolsDebug("glob: pattern=%s, base=%s", pattern, basePath)
 
 	var matches []string
 
@@ -109,7 +113,14 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 
 		searchPath := basePath
 		if prefix != "" {
-			searchPath = filepath.Join(basePath, prefix)
+			// The prefix comes out of the caller's pattern, so it is just as
+			// untrusted as base_path: "../../**/*.pem" put the walk root above
+			// the workspace before this check existed.
+			resolved, err := tools.ResolveWorkspacePath(ctx, basePath, prefix)
+			if err != nil {
+				return "", err
+			}
+			searchPath = resolved
 		}
 
 		err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
@@ -119,6 +130,13 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 
 			if len(matches) >= maxResults {
 				return filepath.SkipAll
+			}
+
+			if skipUncontained(info) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
 			}
 
 			if info.IsDir() {
@@ -155,16 +173,23 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 			return "", fmt.Errorf("invalid glob pattern: %w", err)
 		}
 
-		for i, m := range globMatches {
-			if i >= maxResults {
+		for _, m := range globMatches {
+			if len(matches) >= maxResults {
 				break
+			}
+			// filepath.Join collapsed any ".." in the pattern before Glob ran,
+			// so a match can legitimately sit outside basePath. Drop those
+			// instead of failing the whole call: a wildcard that happens to
+			// straddle the boundary should return what it may return.
+			if _, err := tools.ResolveWorkspacePath(ctx, basePath, m); err != nil {
+				continue
 			}
 			relPath, _ := filepath.Rel(basePath, m)
 			matches = append(matches, relPath)
 		}
 	}
 
-	logging.VirtualStore("glob completed: %s (%d matches)", pattern, len(matches))
+	logging.Tools("glob completed: %s (%d matches)", pattern, len(matches))
 
 	if len(matches) == 0 {
 		return "No files found matching pattern: " + pattern, nil
@@ -176,11 +201,12 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 // GrepTool returns a tool for searching file contents.
 func GrepTool() *tools.Tool {
 	return &tools.Tool{
-		Name:        "grep",
-		Description: "Search for a pattern in file contents",
-		Category:    tools.CategoryCode,
-		Priority:    85,
-		Execute:     executeGrep,
+		Name:          "grep",
+		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryAttack, tools.CategoryGeneral},
+		Description:   "Search for a pattern in file contents",
+		Category:      tools.CategoryCode,
+		Priority:      85,
+		Execute:       executeGrep,
 		Schema: tools.ToolSchema{
 			Required: []string{"pattern"},
 			Properties: map[string]tools.Property{
@@ -190,7 +216,7 @@ func GrepTool() *tools.Tool {
 				},
 				"path": {
 					Type:        "string",
-					Description: "File or directory to search (default: current directory)",
+					Description: "File or directory to search, relative to the workspace root (default: workspace root)",
 				},
 				"file_pattern": {
 					Type:        "string",
@@ -230,9 +256,13 @@ func executeGrep(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("pattern is required")
 	}
 
-	path := "."
-	if p, ok := args["path"].(string); ok && p != "" {
-		path = p
+	rawPath := ""
+	if p, ok := args["path"].(string); ok {
+		rawPath = p
+	}
+	path, err := searchBase(ctx, rawPath)
+	if err != nil {
+		return "", err
 	}
 
 	filePattern := ""
@@ -255,7 +285,7 @@ func executeGrep(ctx context.Context, args map[string]any) (string, error) {
 		ignoreCase = ic
 	}
 
-	logging.VirtualStoreDebug("grep: pattern=%s, path=%s", pattern, path)
+	logging.ToolsDebug("grep: pattern=%s, path=%s", pattern, path)
 
 	// Compile regex
 	if ignoreCase {
@@ -279,7 +309,7 @@ func executeGrep(ctx context.Context, args map[string]any) (string, error) {
 		// vendor/github.com/smacker/go-tree-sitter, which the module-based build
 		// does not vendor). Report no matches so the agent recovers and retargets.
 		if os.IsNotExist(err) {
-			logging.VirtualStore("grep: path does not exist: %s (0 matches)", path)
+			logging.Tools("grep: path does not exist: %s (0 matches)", path)
 			return fmt.Sprintf("No matches found for pattern: %s (path does not exist: %s)", pattern, path), nil
 		}
 		return "", fmt.Errorf("path not found: %w", err)
@@ -288,6 +318,13 @@ func executeGrep(ctx context.Context, args map[string]any) (string, error) {
 	if info.IsDir() {
 		err := filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
 			if err != nil {
+				return nil
+			}
+
+			if skipUncontained(info) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 
@@ -336,16 +373,33 @@ func executeGrep(ctx context.Context, args map[string]any) (string, error) {
 		matches = append(matches, fileMatches...)
 	}
 
-	logging.VirtualStore("grep completed: %s (%d matches)", pattern, len(matches))
+	logging.Tools("grep completed: %s (%d matches)", pattern, len(matches))
 
 	if len(matches) == 0 {
 		return "No matches found for pattern: " + pattern, nil
 	}
 
-	// Format output
+	// Format output. Paths are reported relative to the workspace root:
+	// containment resolves every search root to an absolute path, and echoing
+	// those back would fill the model's context with the same long prefix on
+	// every line and teach it to cite files by absolute path.
+	// ResolveWorkspaceDir("") yields the symlink-resolved root, which is the
+	// form every match path is already in — filepath.Rel against an
+	// unresolved root fails wherever the root traverses a link (/tmp on
+	// macOS), and the display would silently fall back to absolute.
+	root, rootErr := tools.ResolveWorkspaceDir(ctx, "", "")
 	var sb strings.Builder
 	for _, m := range matches {
-		sb.WriteString(fmt.Sprintf("%s:%d: %s\n", m.File, m.LineNumber, m.Line))
+		display := m.File
+		if rootErr == nil {
+			// ToSlash here is cosmetic — this is display text, not a
+			// containment decision. Containment was decided above, by
+			// searchBase, before any file was opened.
+			if rel, err := filepath.Rel(root, m.File); err == nil && !strings.HasPrefix(rel, "..") {
+				display = filepath.ToSlash(rel)
+			}
+		}
+		sb.WriteString(fmt.Sprintf("%s:%d: %s\n", display, m.LineNumber, m.Line))
 		for _, ctx := range m.Context {
 			sb.WriteString(fmt.Sprintf("  %s\n", ctx))
 		}

@@ -34,6 +34,20 @@ func NewToolCompiler(config OuroborosConfig) *ToolCompiler {
 	return &ToolCompiler{config: config}
 }
 
+// buildEnvRoot is the header/GOFLAGS *detection* root for a generated tool's
+// compile. It is deliberately not the throwaway temp module: a tool that pulls
+// in codenerd via the `replace` directive below has to be built with the same
+// tags and CGO include paths as the main module, and those live at the
+// workspace root. Passing the temp dir found no sqlite_headers and no
+// -tags=sqlite_vec, so such a tool failed to compile for a reason that had
+// nothing to do with the code the LLM wrote.
+func (tc *ToolCompiler) buildEnvRoot(tmpDir string) string {
+	if root := strings.TrimSpace(tc.config.WorkspaceRoot); root != "" {
+		return root
+	}
+	return tmpDir
+}
+
 // Compile compiles a generated tool
 func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*CompileResult, error) {
 	start := time.Now()
@@ -147,7 +161,7 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 		testCmd.Dir = tmpDir
 		// Reuse the same environment the build uses, keeping CGO handling identical.
 		testCmd.Env = build.MergeEnv(
-			build.GetBuildEnvForCompile(nil, tmpDir, tc.config.TargetOS, tc.config.TargetArch),
+			build.GetBuildEnvForCompile(tc.config.UserConfig, tc.buildEnvRoot(tmpDir), tc.config.TargetOS, tc.config.TargetArch),
 			"CGO_ENABLED=0",
 		)
 		testOutput, err := testCmd.CombinedOutput()
@@ -184,7 +198,7 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 	// Use unified build environment with cross-compilation support
 	// CGO_ENABLED=0 for portable binaries
 	cmd.Env = build.MergeEnv(
-		build.GetBuildEnvForCompile(nil, tmpDir, tc.config.TargetOS, tc.config.TargetArch),
+		build.GetBuildEnvForCompile(tc.config.UserConfig, tc.buildEnvRoot(tmpDir), tc.config.TargetOS, tc.config.TargetArch),
 		"CGO_ENABLED=0",
 	)
 

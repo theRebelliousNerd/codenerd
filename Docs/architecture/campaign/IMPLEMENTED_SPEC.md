@@ -1,11 +1,11 @@
 # campaign — Implemented Spec (Deep-Dive)
 
-> Last verified against codebase: **2026-07-13**  
+> Last verified against codebase: **2026-08-15**  
 > Status: Living Reference Document  
 > Language: Go  
 > Primary sources: `internal/campaign/`  
 > Policy companions: `internal/core/defaults/campaign_rules.mg`, policy Section 19 (base campaign SM), `build_topology.mg`  
-> Scale (approx.): **~45** non-test Go sources, **~29** `*_test.go` files; largest units 500–1200 LOC each  
+> Scale (counted 2026-08-15): **49** non-test Go sources (~22.2k lines), **59** `*_test.go` files (~18.2k lines); largest units 480–1200 LOC each  
 
 ## 1. Overview
 
@@ -85,10 +85,14 @@ Campaigns **do not** replace constitutional safety. Mutating tools and shards st
 | Northstar observer hooks | **Implemented** | Phase start/end; risk-gated |
 | TaskExecutor migration path | **Implemented** | Prefer TE over direct shard spawn |
 | Sub-campaign `/campaign_ref` | **Implemented** | Lifecycle + failure policies in types |
-| Full CLI↔chat parity | **Partial** | Assault stronger in chat docs; Cobra tree is start/status/pause/resume/list |
-| Intelligence always wired at boot | **Partial** | Optional DI; nil = skip steps |
-| Advisory blocking hard-stop | **Partial** | Logs concerns; synthesis may not always abort plan |
-| Package README currency | **Stale** | Still says Dec 2024 in places |
+| Full CLI↔chat parity | **Implemented** | `campaign assault/report/journal` added; flag coverage enforced by test |
+| Intelligence always wired at boot | **Implemented** | `defaultWireIntelligence` fills nil gatherer/edge detector from kernel + workspace |
+| Advisory blocking hard-stop | **Implemented** | Kernel-derived hard/soft contract (§10.1); Go enforces `campaign_risk_block` |
+| Package README currency | **Current** | Rewritten 2026-08-15 to match the module map |
+| Journal verify/replay tooling | **Implemented** | `journal_ops.go` + `nerd campaign journal` |
+| Assault summary export | **Implemented** | `assault_report.go` + `nerd campaign report` |
+| Closed event-type set | **Implemented** | `orchestrator_events.go`, AST-enforced |
+| Metrics hooks | **Implemented** | `MetricsSink`, backend-agnostic, nil-safe |
 
 **Overall:** production-grade long-horizon engine — **not** pre-implementation.
 
@@ -267,8 +271,18 @@ Gemini-specific: `GroundingHelper` / `ThinkingHelper` from `internal/tools/resea
 **Required:**
 
 - `Kernel`, `LLMClient`, `Executor` (tactile), `VirtualStore`
-- `TaskExecutor` **or** `ShardManager` (monitoring; TE preferred for execution)
+- **`TaskExecutor`** — required outright since 2026-08-15. The old
+  `TaskExecutor OR ShardManager` guard described a configuration that
+  constructs, not one that works: `ShardManager` is consulted only for
+  monitoring, `spawnTask` returns "taskExecutor not initialized" without a task
+  executor, and both verification checkpoints have nothing to run on. Typed nils
+  are rejected via reflection, because three of the five production call sites
+  pass an accessor or a field that can be nil at runtime.
 - non-empty `Workspace`
+
+**Default-wired when absent** (`defaultWireIntelligence`): with a
+`*core.RealKernel` and a workspace, `IntelligenceGatherer` and
+`EdgeCaseDetector` are built rather than left nil. Explicit config wins.
 
 **Defaults (unless `DisableTimeouts`):**
 
@@ -435,7 +449,26 @@ Hard phase dependencies chain 0→1→2→3.
 - **Batch:** read batch artifact, run stages per target, persist results/logs  
 - **Triage:** summarize failures, optional LLM remediation plan, append remediation tasks to phase 3  
 
-Operator docs (root Agents.md): chat `/campaign assault …` for long-horizon validation.
+### 8.5 Operator surface
+
+| Surface | Command |
+|---------|---------|
+| Chat | `/campaign assault …` |
+| Cobra | `nerd campaign assault [repo\|module\|subsystem\|package]` with flags for every `AssaultConfig` field, plus `--dry-run` |
+| Report | `nerd campaign report` → `assault/summary.md` + `assault/summary.json` |
+
+The Cobra path reuses `runCampaignStart` verbatim through a consumed-once plan
+override, so the two entry points cannot drift in their boot, risk preflight or
+resume behaviour. `TestCampaignAssaultFlags_CoverEveryAssaultConfigField` fails
+if a new config field ships without a flag.
+
+### 8.6 Summary export (`assault_report.go`)
+
+`BuildAssaultSummary` joins `targets.json`, `batches/`, `results/*.jsonl` and
+`triage/latest.json` into per-stage and per-target aggregates, worst offenders
+first, with capped failure samples that carry their log paths. A run where some
+batches produced no results is flagged `Incomplete` — "0 failures" from work
+that never executed reads exactly like a clean sweep.
 
 ---
 
@@ -483,6 +516,43 @@ Reasons: `/task_failed`, `/new_requirement`, `/user_feedback`, `/dependency_chan
 
 Gates are **deterministic policy**, not LLM vibes — aligns with logic-as-executive.
 
+### 10.1 Hard vs soft contract (kernel-decided)
+
+Go **measures** the preflight and asserts what it saw
+(`campaign_risk_gate_outcome`, `campaign_risk_concern`,
+`campaign_protected_surface`, `campaign_risk_posture`, `campaign_risk_signal`,
+`campaign_risk_override`). `campaign_rules.mg` **Section 13** decides which
+findings stop the campaign, deriving `campaign_risk_block` (hard) and
+`campaign_risk_warning` (soft). Go then enforces only what the kernel derived —
+it never classifies on its own.
+
+| Finding | Grade |
+|---------|-------|
+| Any blocked gate while the campaign targets a protected root | **hard** (`/protected_surface`) |
+| Northstar alignment blocked, on any surface | **hard** (`/vision_alignment`) |
+| Critical advisor voted REJECT | **hard** (`/critical_advisor_rejection`) |
+| `RiskGateModeForceBlock` | **hard** (`/force_block`) |
+| Blocked gate while over threshold **and** carrying safety warnings / blocked actions | **hard** (`/gated_with_critical_signals`) |
+| Edge prework wanted, changes requested, no consensus, consultation failed | **soft** — recorded, emitted, campaign proceeds |
+
+Before this, every blocked gate aborted identically, so "the edge detector would
+prefer some prework on a leaf file" and "a critical advisor rejected a rewrite of
+the logic kernel" produced the same refusal — which is how operators learn to
+disable gates.
+
+**Fail-safe:** if `campaign_rules.mg` is not loaded, `campaign_risk_classification_ready`
+does not derive and Go falls back to `mirrorRiskClassification`, a Go copy of the
+same contract. Treating "no rules" as "no blocks" would turn a missing policy
+file into a green light. `TestRiskClassification_KernelAndMirror_ShouldAgree`
+keeps the two implementations identical.
+
+**Operator surface:** a hard finding aborts `Run` with `*RiskBlockedError`
+(wrapping `ErrRiskGateBlocked`) carrying the full `RiskGateEvaluation`.
+`campaign.FormatRiskBlock(err)` renders it; the Cobra path prints it from
+`campaignOutcome` and chat renders it in the `campaignErrorMsg` branch. Soft
+findings are emitted as `risk_gate_advisory` events and readable afterwards via
+`Orchestrator.LastRiskEvaluation()`.
+
 ---
 
 ## 11. Intelligence & pre-plan enrichment
@@ -502,12 +572,33 @@ These are **optional DI**. Zero-config orchestrator still runs; enrichment appea
 
 ## 12. Durability: journal & write-set locks
 
+### 12.0 Operator tooling (`journal_ops.go`)
+
+| Function | Purpose |
+|----------|---------|
+| `VerifyCampaignJournal` | checksum + sequence + campaign-id validation, snapshot checksum cross-check, unpaired write detection |
+| `ReplayCampaignJournal` | reconstructed progress timeline with per-point commit status |
+| `ListCampaignJournals` | campaigns with journals, newest first |
+| `RenderJournalVerification` / `RenderJournalReplay` | terminal rendering |
+
+CLI: `nerd campaign journal verify` (non-zero exit on defects, so it works as a
+CI gate) and `nerd campaign journal replay --limit N`.
+
+Deliberately **read-only**: `recoverJournalSequence` already repairs a corrupt
+tail at load time, and a second repair tool would be a second, subtly different
+truncation policy.
+
 ### 12.1 Journal (`orchestrator_journal.go`)
 
 - Append-only JSONL: seq, timestamp, event_type, campaign_id, payload, snapshot_checksum, event checksum (SHA-256)  
 - `saveCampaign`: `snapshot_write_requested` → atomic temp write + verify checksum + rename → `snapshot_write_committed`  
 - `recoverJournalSequence` on load to avoid seq reuse  
 - fsync file (+ dir when supported)
+- the rename **never deletes the committed snapshot before the replacement
+  lands**. It used to `os.Remove(dst)` and retry, so a kill at that instant left
+  the campaign with no snapshot at all — the exact loss the protocol exists to
+  prevent. The old file is now moved aside and restored if the replacement
+  fails. Found by `TestSaveCampaign_WhenKilledDuringSnapshotRename`.
 
 ### 12.2 Write-set locks (`write_set_lock_manager.go`)
 
@@ -555,15 +646,42 @@ Plus `ErrWriteSetLockTimeout` in lock manager.
 
 ---
 
+## 15.1 Observability
+
+- `OrchestratorEvent.Type` is a **closed set** (`orchestrator_events.go`).
+  `TestOrchestratorEventTypes_AreClosedSet` parses every `emitEvent` /
+  `emitRiskAudit` call in the package and fails on a literal outside the set: a
+  typo used to produce an event every UI dropped through its default branch,
+  which is invisible because the campaign still runs.
+- `MetricsSink` (`metrics.go`) is a four-method, primitive-argument interface:
+  task duration by type and outcome, phase wall time, checkpoint results, risk
+  preflight outcome. Nil sink = no observation and no allocation, so the engine
+  carries no metrics dependency. `InMemoryMetrics` ships for tests and summaries.
+
+## 15.2 Fact-shape golden
+
+`testdata/tofacts_predicates.golden` pins the predicate/arity/argument-kind set
+`ToFacts` emits, and a companion test cross-checks every predicate against its
+`Decl` under `internal/core/defaults`. Mangle matches positionally, so arity or
+type drift does not fail — the rule simply stops deriving and the campaign
+quietly loses a capability. The golden immediately found:
+
+- `task_soft_dependency`, `requires_resource` and `task_sub_campaign` asserted
+  (and retracted) with **no Decl at all**, so no rule could reference them — soft
+  dependencies, resource semaphores and sub-campaign links were invisible to the
+  executive. Declared in `schemas_campaign.mg`.
+- `task_inference` confidence emitted as a raw `float64` into a `/number` slot;
+  now scaled 0–100 like `campaign_metadata`.
+
 ## 16. Gaps pointer
 
-See [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) and [TODO.md](TODO.md). High-signal partials:
+See [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) and [TODO.md](TODO.md). Remaining
+high-signal notes:
 
-1. Optional intelligence/advisory may log but not hard-block weak plans  
-2. CLI assault flags vs chat assault entry asymmetry  
-3. Direct LLM file fallbacks can bypass preferred shard path (by design for resilience — audit for safety)  
-4. Mangle policy lives **outside** this package — wiring depends on kernel program load  
-5. Package README version stamp lag  
+1. Direct LLM file fallbacks can bypass preferred shard path (by design for resilience — audit for safety)  
+2. Mangle policy lives **outside** this package — wiring depends on kernel program load; the readiness canary in §10.1 makes a missing load visible rather than silent  
+3. `internal/shards/system/campaign_runner.go` now fails construction (correctly) when its executor was never wired, but retries on a timer rather than reporting once  
+4. `!pred(X, _)` does not exclude matching rows in this Mangle build; §13 uses a fully-bound helper. Other `.mg` sites using the wildcard form may be over-deriving  
 
 ---
 
@@ -592,4 +710,4 @@ go test ./tests/e2e/ -run Campaign -count=1
 
 ---
 
-*This document is the authoritative living architecture for `internal/campaign` as of 2026-07-13. Prefer code over narrative when they diverge; open a gap note rather than inventing APIs.*
+*This document is the authoritative living architecture for `internal/campaign` as of 2026-08-15. Prefer code over narrative when they diverge; open a gap note rather than inventing APIs.*

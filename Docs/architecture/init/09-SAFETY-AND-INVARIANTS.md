@@ -1,6 +1,6 @@
 # init — Safety and Invariants
 
-> Last verified: 2026-08-09
+> Last verified: 2026-08-15
 
 ## Scope of safety
 
@@ -27,6 +27,13 @@ Agent KB upgrade uses content-hash sets (`buildAtomHashSet` / `appendKnowledgeAt
 User Mangle overlays are stronger than best-effort: `extensions.mg` and
 `policy_overrides.mg` use atomic create-if-absent and are never replaced by
 force init. The same rule protects the user-customizable `.nerd/.gitignore`.
+
+`preferences.json` is stronger still. It is shared with `internal/ux` and with
+`SaveAgentPreferences`, so `savePreferences` merges rather than writes: existing
+values win for every init-owned key, absent keys are seeded, foreign keys are
+carried through untouched, and a corrupt file is a hard error instead of an
+excuse to clobber. There is deliberately **no** wipe path — nothing in init
+deletes `preferences.json`.
 
 ### I5 — Shared-before-specialist
 
@@ -91,7 +98,9 @@ Init must **not** inject broad `permitted(...)` facts that weaken default deny.
 | Malicious workspace files confuse detectors | Heuristic only; no remote code exec from profile.json |
 | Research tool network fetch | Requires registry + keys; SkipResearch available |
 | Prompt injection via README into strategic knowledge | LLM-filtered docs; still untrusted content → atoms; downstream retrieval should not treat as policy |
-| Path traversal in agent names | Type U alphanumeric validation; generated paths use `strings.ToLower(agent.Name)` |
+| Path traversal in agent names | Type U alphanumeric validation runs before `mergeTypeUAgents`, so a CLI-supplied name can never reach `.nerd/shards/{name}_knowledge.db` unvalidated |
+| Init prompting in an unattended run | Curation requires stdin **and** stdout to be character devices, so CI/cron/`go test` never block on a prompt; a failed read degrades to the recommended set |
+| Init generating and executing tool code at cold start | Init only records `missing_tool_for` needs; it never calls `ToolGenerator`, so all generation keeps the Ouroboros safety depth |
 
 ## Mangle Decl note
 

@@ -594,4 +594,3 @@ func stripMangleComments(s string) string {
 	}
 	return strings.Join(lines, "\n")
 }
-

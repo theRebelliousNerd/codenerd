@@ -17,6 +17,7 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 	"codenerd/internal/world"
 
 	"github.com/spf13/cobra"
@@ -39,9 +40,53 @@ This command:
   4. Initializes the knowledge database
   5. Sets up user preferences
 
-Run this once when starting to use codeNERD with a new project.`,
+Run this once when starting to use codeNERD with a new project.
+
+Operator prerequisites (embeddings):
+  Knowledge bases and the JIT prompt corpus are vector-searched via sqlite-vec,
+  so init needs a working embedding engine. It is configured ONLY from
+  .nerd/config.json (or the global config) under "embedding" — never from the
+  --api-key flag or the chat provider setting:
+
+    "embedding": {
+      "provider":        "ollama",                  // or "genai"
+      "ollama_endpoint": "http://localhost:11434",
+      "ollama_model":    "embeddinggemma:300m",     // must be pulled first
+      "genai_api_key":   "",                        // required when provider=genai
+      "genai_model":     "gemini-embedding-001"
+    }
+
+  With the default ollama provider, 'ollama serve' must be reachable at the
+  endpoint and the model must already be pulled ('ollama pull embeddinggemma:300m');
+  a bare "embeddinggemma" tag 404s on most installs.
+
+  Embedding failure is a hard error, not a degraded mode: an empty vector index
+  would silently return no knowledge for the rest of the workspace's life.
+
+  The binary must also be built with CGO enabled (sqlite-vec is a C extension).
+
+Agent curation:
+  In a terminal, init asks which specialist agents to keep. Use --no-interactive
+  for scripted or CI runs, and --define-agent to add your own specialists.`,
 	RunE: runInit,
 }
+
+// init registers the flags owned by the init command itself. Flags shared with
+// other commands (--force, --workspace, --timeout, --api-key) are declared with
+// the root command tree in main.go.
+func init() {
+	initCmd.Flags().StringArrayVar(&defineAgentFlags, "define-agent", nil,
+		"Define a custom specialist agent as 'Name:role:topic1,topic2' (repeatable, max 10 topics)")
+	initCmd.Flags().BoolVar(&noInteractiveInit, "no-interactive", false,
+		"Never prompt for agent selection (implied when stdin/stdout is not a terminal)")
+}
+
+var (
+	// defineAgentFlags collects --define-agent values for Type U agents.
+	defineAgentFlags []string
+	// noInteractiveInit forces the non-prompting path even on a terminal.
+	noInteractiveInit bool
+)
 
 // scanCmd refreshes the codebase index without full reinitialization
 var scanCmd = &cobra.Command{
@@ -108,6 +153,22 @@ func runInitWithLLMConfigurer(cmd *cobra.Command, args []string, configureLLM fu
 	config.Timeout = timeout
 	appCfg := loadCampaignConfig(filepath.Join(cwd, ".nerd"))
 	config.Context7APIKey = appCfg.GetContext7APIKey()
+
+	// Type U agents. A malformed definition is rejected outright rather than
+	// skipped: the user typed it expecting an agent, and quietly initializing a
+	// workspace without it is how --define-agent stayed invisible for so long.
+	typeUAgents, parseErrs := nerdinit.ParseTypeUAgentFlags(defineAgentFlags)
+	if len(parseErrs) > 0 {
+		for _, parseErr := range parseErrs {
+			fmt.Fprintf(os.Stderr, "%v\n", parseErr)
+		}
+		return fmt.Errorf("%d invalid --define-agent value(s)", len(parseErrs))
+	}
+	config.TypeUAgents = typeUAgents
+
+	if noInteractiveInit {
+		config.Interactive = false
+	}
 
 	// Set up the LLM client from .nerd/config.json (wrapped with the scheduler
 	// for concurrency control).
@@ -292,9 +353,10 @@ func runScanWithKernelFactory(cmd *cobra.Command, args []string, newKernel func(
 			fileCount++
 			if len(f.Args) > 2 {
 				// file_topology(Path, Hash, /Lang, ...)
-				if langAtom, ok := f.Args[2].(core.MangleAtom); ok {
-					lang := strings.TrimPrefix(string(langAtom), "/")
-					langStats[lang]++
+				// A core.MangleAtom assertion here is false for any fact read
+				// back from the kernel, which renders a /name as a string.
+				if s := types.ExtractString(f.Args[2]); s != "" {
+					langStats[strings.TrimPrefix(s, "/")]++
 				}
 			}
 		case "directory":

@@ -2,8 +2,8 @@ package session
 
 import (
 	"context"
-	"regexp"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 

@@ -64,6 +64,9 @@ func NewOllamaClientWithConfig(cfg OllamaLLMConfig) *OllamaClient {
 		Model:   cfg.Model,
 		Timeout: cfg.Timeout,
 	})
+	// Ollama borrows the OpenAI transport but is its own provider for billing
+	// purposes: local tokens cost nothing and must not inflate the openai row.
+	openai.provider = ProviderOllama
 	logging.Perception("Ollama chat client: endpoint=%s model=%s", endpoint, cfg.Model)
 	return &OllamaClient{openai: openai, model: cfg.Model}
 }
@@ -111,6 +114,8 @@ func (c *OllamaClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 	if err != nil {
 		return nil, fmt.Errorf("ollama tool-results: %w", err)
 	}
+	trackUsage(ctx, c.model, ProviderOllama,
+		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, usageOpFor(len(tools)))
 	return OpenAIToolResponseFromResponse(resp)
 }
 

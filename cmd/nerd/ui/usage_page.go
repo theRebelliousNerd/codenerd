@@ -41,7 +41,6 @@ func (m *UsagePageModel) SetSize(w, h int) {
 
 // UpdateContent refreshes the viewport content from the tracker data.
 // TODO: IMPROVEMENT: Add visual charts (bar/pie) using termui or similar for better data visualization.
-// TODO: Show cost estimates based on token counts.
 func (m *UsagePageModel) UpdateContent() {
 	if m.tracker == nil {
 		m.viewport.SetContent("Usage tracking not available.")
@@ -61,22 +60,33 @@ func (m *UsagePageModel) UpdateContent() {
 	sb.WriteString(fmt.Sprintf("Total Input:  %d\n", total.Input))
 	sb.WriteString(fmt.Sprintf("Total Output: %d\n", total.Output))
 	sb.WriteString(fmt.Sprintf("Grand Total:  %d\n", total.Total))
+	sb.WriteString(fmt.Sprintf("Est. Cost:    %s\n", formatCost(total.Cost)))
+	// A small cost total is ambiguous unless we say how much spend was on
+	// models we have no price for.
+	if stats.UnpricedTokens > 0 {
+		sb.WriteString(fmt.Sprintf("              (%d tokens on unpriced models are excluded)\n", stats.UnpricedTokens))
+	}
 	sb.WriteString("\n")
 
-	// Helper to render map tables
+	// Helper to render map tables, ordered by spend so the expensive rows are
+	// visible without scrolling.
 	renderTable := func(title string, data map[string]usage.TokenCounts) {
 		if len(data) == 0 {
 			return
 		}
 
-		// Sort keys
 		keys := make([]string, 0, len(data))
 		for k := range data {
 			keys = append(keys, k)
 		}
-		sort.Strings(keys)
+		sort.Slice(keys, func(i, j int) bool {
+			if data[keys[i]].Total != data[keys[j]].Total {
+				return data[keys[i]].Total > data[keys[j]].Total
+			}
+			return keys[i] < keys[j]
+		})
 
-		t := NewSimpleTable(title, []string{"Name", "Input", "Output", "Total"})
+		t := NewSimpleTable(title, []string{"Name", "Input", "Output", "Total", "Cost"})
 		for _, k := range keys {
 			c := data[k]
 			t.AddRow(
@@ -84,6 +94,7 @@ func (m *UsagePageModel) UpdateContent() {
 				fmt.Sprintf("%d", c.Input),
 				fmt.Sprintf("%d", c.Output),
 				fmt.Sprintf("%d", c.Total),
+				formatCost(c.Cost),
 			)
 		}
 		sb.WriteString(t.View(m.styles))
@@ -92,9 +103,24 @@ func (m *UsagePageModel) UpdateContent() {
 	renderTable("By Provider", stats.ByProvider)
 	renderTable("By Model", stats.ByModel)
 	renderTable("By Shard Type", stats.ByShardType)
+	renderTable("By Shard Name", stats.ByShardName)
 	renderTable("By Operation", stats.ByOperation)
+	renderTable("By Session", stats.BySession)
 
 	m.viewport.SetContent(sb.String())
+}
+
+// formatCost renders an estimated USD cost. Sub-cent amounts get four decimals
+// so a cheap-but-nonzero row does not read as free.
+func formatCost(cost float64) string {
+	switch {
+	case cost == 0:
+		return "—"
+	case cost < 0.01:
+		return fmt.Sprintf("$%.4f", cost)
+	default:
+		return fmt.Sprintf("$%.2f", cost)
+	}
 }
 
 func truncate(s string, l int) string {

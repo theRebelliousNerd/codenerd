@@ -82,4 +82,3 @@ func TestExtractCodeElements_RealFileExtents(t *testing.T) {
 		t.Error("every element reported as one line long — extent tracking is inert")
 	}
 }
-

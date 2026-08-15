@@ -66,12 +66,17 @@ Logging never produces `user_intent`, never derives `next_action`, and never rou
 | Typed audit helpers (shard/action/kernel/LLM/…) | **Implemented** | `AuditLogger` methods |
 | LLM I/O full dump (`trace_llm_io`) | **Implemented** | `llm_io_logger.go` |
 | `CloseAll` / `CloseAudit` / `CloseLLMIOLogger` | **Implemented** | separate closers |
-| Unified shutdown that closes all three streams | **Partial** | CLI `CloseAll` only; audit + LLM I/O need explicit close |
-| Config field parity with `config.LoggingConfig` | **Partial** | package uses `json_format`; config type uses `Format` string |
-| Feed audit Mangle facts into kernel | **Not implemented** | facts are written as strings for offline/query use |
-| Northstar convenience Info/Debug/Warn/Error | **Partial** | `CategoryNorthstar` exists; no dedicated convenience wrappers |
-| Log rotation beyond date prefix | **Not implemented** | daily file name only |
-| Redaction of secrets in LLM I/O | **Not implemented** | full prompt dump by design when enabled |
+| Unified shutdown that closes all three streams | **Implemented** | `CloseAll` → `closeAllSinks` (categories + problems + audit + LLM I/O) |
+| Config field parity with `config.LoggingConfig` | **Implemented** | `format` canonical, `json_format` legacy alias; `config_schema_test.go` pins both |
+| Feed audit Mangle facts into kernel | **Not implemented (by design)** | offline only; `ExportAuditFacts` writes a standalone `.mg` |
+| Audit facts parse as Mangle | **Implemented** | `mangleBool` / `mangleString`; parser-backed test in `cmd/nerd/cmd_audit_test.go` |
+| Northstar convenience Info/Debug/Warn/Error | **Implemented** | `logger_convenience.go` (also Regression, PersistError) |
+| Log rotation beyond date prefix | **Implemented** | `rotate.go` size + age rotation, bounded archive count |
+| Redaction of secrets in LLM I/O | **Implemented** | `redact.go`, on by default, `trace_llm_io_raw` opts out |
+| Workspace rebind after first `Initialize` | **Implemented** | last-writer-wins on absolute path; `init_rebind_test.go` |
+| Injected config from boot (no double parse) | **Implemented** | `ApplyConfig` / `ClearInjectedConfig` (caller-side wiring still open) |
+| Structured `ContextLogger` / `RequestLogger` | **Implemented** | `emit(...)` honours `json_format` |
+| Offline audit → `.mg` CLI | **Implemented** | `nerd audit facts` (`cmd/nerd/cmd_audit.go`) |
 
 **Overall:** production-ready diagnostic substrate with high test density — **not** pre-implementation.
 
@@ -86,7 +91,12 @@ internal/logging/
   logger.go                   # core runtime
   logger_convenience.go       # thin wrappers per category
   audit.go                    # structured audit + Mangle facts
+  audit_reader.go             # read audit JSONL back (transparency/glassbox)
+  audit_facts.go              # audit JSONL → loadable .mg facts (offline)
   llm_io_logger.go            # LLM prompt/response tracing
+  redact.go                   # secret redaction at the log boundary
+  rotate.go                   # size/age rotation for every sink
+  fresh_run.go                # run prefixes + cross-run retention
   logger_test.go              # category/debug/timer integration-style tests
   logging_comprehensive_test.go
   audit_coverage_test.go
@@ -207,7 +217,14 @@ initializeInternal(ws)
         └─ InitAudit()                  opens <date>_audit.log
 ```
 
-**Idempotency:** second `Initialize` is a no-op for setup; returns the first `initErr`. Empty workspace returns error **before** `sync.Once` work is recorded only when `ws == ""` (error path outside Once? — actually empty check is before Once, so empty always errors without consuming Once success path).
+**Idempotency and rebind:** `Initialize` normalizes the path with `filepath.Abs` and compares it to `boundWorkspace`.
+
+- same workspace → no-op, returns the first `initErr` (the original Init-Spam guard)
+- different workspace → **rebind**: close every sink, rearm the LLM I/O `sync.Once`, drop the loaded config, re-run `initializeInternal`, and note the move in the new workspace's boot log
+
+The rebind exists because `main()` calls `Initialize(cwd)` before Cobra parses argv, so under a bare `sync.Once` the later `--workspace` init in `PersistentPreRunE` silently did nothing and the entire run — audit trail included — logged into the wrong tree. Binding is last-writer-wins, matching the flag's override semantics.
+
+Empty workspace errors before the `Once` is consumed.
 
 **Interactive vs CLI:**  
 - `main()` eagerly `Initialize(cwd)` before metrics  
@@ -257,12 +274,14 @@ Optional fields: `file`, `line`, `req`, `fields`.
 
 ### 6.4 Context and request loggers
 
-- `Logger.WithContext(map)` → `ContextLogger` appends `| ctx=%v` (text only; does not use `logJSON`)
-- `WithRequestID(cat, id)` → `RequestLogger` prefixes `[req:<id>]`; `WithField` mutates shared map (not copy-on-write)
+- `Logger.WithContext(map)` → `ContextLogger`. Text mode appends `| ctx=%v`; JSON mode emits a `StructuredLogEntry` carrying the context as `fields`.
+- `WithRequestID(cat, id)` → `RequestLogger`. Text mode prefixes `[req:<id>]`; JSON mode sets `req` and `fields`. `WithField` still mutates a shared map (not copy-on-write) — single-goroutine ownership assumed.
+- Both mirror WARN/ERROR into `<run>_problems.log`.
+- In JSON mode `file`/`line` are filled by `callerSite()`, which walks past this package's own frames so the site is the caller, not `logger.go`.
 
 ### 6.5 Convenience API
 
-`logger_convenience.go` exposes `Boot`, `BootDebug`, `Kernel`, … plus Warn/Error variants for most categories. These always call `Get(...).Info/Debug/Warn/Error` — safe no-ops when disabled. Browser/Tactile/JIT/Build have full Debug/Warn/Error convenience; Northstar does not.
+`logger_convenience.go` exposes `Boot`, `BootDebug`, `Kernel`, … plus Warn/Error variants for most categories. These always call `Get(...).Info/Debug/Warn/Error` — safe no-ops when disabled. Browser/Tactile/JIT/Build/Northstar have full Debug/Warn/Error convenience; Regression and Persist have Info/Debug/Warn(/Error).
 
 ---
 
@@ -343,14 +362,20 @@ Enabled by `trace_llm_io: true` in the **same** config blob loaded by `loadConfi
 Lazy init via `sync.Once` on first `IsLLMIOTracingEnabled` / `LogLLM*`:
 
 - Requires `TraceLLMIO && logsDir != ""`
-- File: `<date>_llm_io.log`, custom formatted multi-line blocks (not JSON)
+- File: `<run>_llm_io.log`, custom formatted multi-line blocks (not JSON), rotating
 - History messages truncated at **2000** chars in request dump; system/user prompts and responses are **full**
 - Token estimate heuristic: `len(chars)/4`
 - Thread-safe via `llmIO.mu`
 
 Callsite strings (documented examples): `"perception-transducer"`, `"articulation-emitter"`, `"coder-shard"`.
 
-**Privacy:** enabling this dumps prompts that may contain code, secrets, and user content. It is a deliberate debug tool, not a production default.
+**Privacy:** every system prompt, user prompt, history turn, response, and error string passes through `RedactSecrets` (`redact.go`) before it reaches disk. The patterns are shape-based — credential-ish key names, `Authorization`/bearer, `sk-`/`ghp_`/`AKIA`/`xox` prefixes, PEM blocks, URL credentials — and deliberately duplicate `internal/mcp`'s redactor, because `internal/mcp` imports this package and the dependency can only run one way.
+
+Char/token counts are computed on the **original** text so redaction cannot misreport context usage.
+
+`trace_llm_io_raw: true` disables redaction for the run (answering OPEN-QUESTIONS Q4: redaction is the default because a leaked key in a file that gets pasted into an issue is unrecoverable, while a masked value during JIT debugging is recoverable by one config flag). The boot log states which mode is active.
+
+Enabling the trace at all still dumps code and user content: a deliberate debug tool, not a production default.
 
 ---
 
@@ -366,9 +391,14 @@ Local struct `loggingConfig` in `logger.go`:
 | `trace_llm_io` | bool | LLM I/O file |
 | `categories` | map[string]bool | Per-category filter |
 | `level` | string | Min level |
-| `json_format` | bool | Structured JSON lines |
+| `format` | string | `json` \| `text` — **canonical**, matches `config.LoggingConfig` |
+| `json_format` | bool | Legacy alias for `format: "json"` (OR'd, never ranked) |
+| `trace_llm_io_raw` | bool | Disable secret redaction in the LLM I/O trace |
 | `performance_sampling` | float64 | Sample rate for non-slow perf |
 | `performance_thresholds_ms` | map[string]int64 | Slow thresholds |
+| `max_log_file_mb` | int64 | Rotate a segment past this size (0 = 32 MiB default, <0 = never) |
+| `max_log_file_minutes` | int64 | Rotate a segment older than this (0 = off) |
+| `max_rotated_files` | int | Archived segments kept per file (0 = 3 default, <0 = none) |
 
 Path: **only** `<workspace>/.nerd/config.json` (not `config.yaml`).
 
@@ -376,15 +406,17 @@ Path: **only** `<workspace>/.nerd/config.json` (not `config.yaml`).
 
 `config.LoggingConfig` has `Level`, `Format`, `File`, `DebugMode`, `TraceLLMIO`, `Categories`, `PerformanceSampling`, `PerformanceThresholdsMs`.
 
-**Divergence:**
+**Resolved divergence:**
 
 | Concern | `config.LoggingConfig` | `logging.loggingConfig` |
 |---------|------------------------|-------------------------|
-| Structure format | `format` string (`json`/`text`) | `json_format` bool |
-| Legacy single file | `file` | unused |
-| Mutual import | n/a | intentionally none |
+| Structure format | `format` string (`json`/`text`) | `format` (canonical) **and** `json_format` (legacy alias) |
+| Legacy single file | `file` | unused — this package writes one file per category |
+| Mutual import | n/a | intentionally none (`config` imports `logging`) |
 
-Operators editing only YAML format fields may not flip JSON mode for this package unless `json_format` is present in the JSON file this package actually loads.
+Either spelling turns structured output on; `IsJSONFormat()` ORs them, so neither loader can silently disable what the other enabled. `config_schema_test.go` parses a literal `config.LoggingConfig`-shaped JSON blob and asserts every key lands, so a rename on that side fails here.
+
+**Avoiding the double parse:** `ApplyConfig(logging.Config{...})` installs an already-parsed config and pins it against disk reads; `ClearInjectedConfig()` releases the pin. Boot (`internal/config`) can call it because the import direction allows it — the wiring is not yet in place, so today both sides still parse `.nerd/config.json` independently. That is the same file, so they cannot disagree about content, only about schema — which the alias above closes.
 
 ### 10.3 Reload
 
@@ -417,7 +449,9 @@ High-fan-in package. Representative import sites (non-exhaustive):
 | `configMu` | `config`, `configLoaded` (RW) |
 | `auditMu` | `auditFile` writes |
 | `llmIO.mu` | LLM I/O file writes |
-| `initOnce` / `llmIOOnce` | One-shot init |
+| `initOnce` / `llmIOOnce` | One-shot init (both rearmable on workspace rebind) |
+| `initMu` | Serializes `Initialize`, including rebind |
+| `rotatingFile.mu` | One sink's file handle, size, and rotation |
 
 `Logger` methods assume single `*log.Logger` writer; standard library logger is safe for concurrent use. Category enablement races with `ReloadConfig` are bounded by RWMutex.
 
@@ -427,11 +461,11 @@ High-fan-in package. Representative import sites (non-exhaustive):
 
 | Function | Closes |
 |----------|--------|
-| `CloseAll()` | All category log files; clears map |
-| `CloseAudit()` | Audit file |
-| `CloseLLMIOLogger()` | LLM I/O file |
+| `CloseAll()` | **Everything**: category loggers, `<run>_problems.log`, audit, LLM I/O |
+| `CloseAudit()` | Audit file only |
+| `CloseLLMIOLogger()` | LLM I/O file only |
 
-CLI `PersistentPostRun` only calls `CloseAll()`. Audit and LLM I/O may remain open until process exit (OS closes FDs). Tests call multiple closers explicitly.
+`CloseAll` previously closed only the category loggers, so the CLI's `PersistentPostRun` leaked two of three sinks — including the audit log, whose open handle also blocked the next run's fresh-run cleanup from reclaiming the name on Windows. All closers are idempotent and safe to call after shutdown; a `Logger` handle captured before close degrades to a no-op instead of panicking.
 
 ---
 
@@ -439,12 +473,13 @@ CLI `PersistentPostRun` only calls `CloseAll()`. Audit and LLM I/O may remain op
 
 See [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) for prioritized matrix. Headline gaps:
 
-1. Split shutdown (audit / LLM I/O not in `CloseAll`)  
-2. Config schema drift (`json_format` vs `Format`)  
-3. Audit facts not kernel-ingested  
-4. `ContextLogger`/`RequestLogger` ignore JSON format path  
-5. No secret redaction for LLM I/O  
-6. `sync.Once` init makes process-level re-bind to another workspace impossible after first success  
+1. ~~Split shutdown~~ — `CloseAll` now closes all four sinks  
+2. ~~Config schema drift~~ — `format` canonical, `json_format` aliased, pinned by test  
+3. Audit facts not kernel-ingested — **intentional**; `nerd audit facts` exports an offline `.mg` instead  
+4. ~~`ContextLogger`/`RequestLogger` ignore JSON~~ — both emit structured entries  
+5. ~~No secret redaction for LLM I/O~~ — redaction on by default, `trace_llm_io_raw` opts out  
+6. ~~`sync.Once` blocks workspace rebind~~ — rebind implemented  
+7. Remaining: `internal/config` does not yet call `ApplyConfig`, so the config file is parsed twice; `ConstitutionGateShard.CheckAction` (internal/shards/system) still decides allow/deny without an audit event (tracked by `safety_callsite_audit_test.go`)  
 
 ---
 

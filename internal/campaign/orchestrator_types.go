@@ -91,18 +91,29 @@ type Orchestrator struct {
 	// Resolved gate wiring (auto + overrides) used by deterministic risk gating.
 	riskGateState riskGateResolved
 
+	// Last preflight evaluation, including advisory findings that did NOT stop
+	// the run. Operator surfaces read it so soft findings are visible on a
+	// campaign that started successfully.
+	lastRiskEvaluation *RiskGateEvaluation
+
+	// Optional metrics sink. Nil = no observation (see metrics.go). Guarded by
+	// its own mutex because risk preflight observes while o.mu is held.
+	metricsMu   sync.RWMutex
+	metrics     MetricsSink
+	phaseStarts sync.Map // phaseID -> time.Time, only populated when metrics is set
+
 	// Preserves configured observer even when runtime gate disables northstar checks.
 	configuredNorthstarObserver *northstar.CampaignObserver
 }
 
 // OrchestratorEvent represents an event during campaign execution.
 type OrchestratorEvent struct {
-	Type      string    `json:"type"` // task_started, task_completed, task_failed, phase_completed, checkpoint, replan, learning
-	Timestamp time.Time `json:"timestamp"`
-	PhaseID   string    `json:"phase_id,omitzero"`
-	TaskID    string    `json:"task_id,omitzero"`
-	Message   string    `json:"message"`
-	Data      any       `json:"data,omitzero"`
+	Type      OrchestratorEventType `json:"type"` // task_started, task_completed, task_failed, phase_completed, checkpoint, replan, learning
+	Timestamp time.Time             `json:"timestamp"`
+	PhaseID   string                `json:"phase_id,omitzero"`
+	TaskID    string                `json:"task_id,omitzero"`
+	Message   string                `json:"message"`
+	Data      any                   `json:"data,omitzero"`
 }
 
 // OrchestratorConfig holds configuration for the orchestrator.

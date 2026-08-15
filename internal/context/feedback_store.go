@@ -409,8 +409,11 @@ func (s *ContextFeedbackStore) GetTopNoisePredicates(limit int) ([]PredicateFeed
 
 // GetOverallStats returns aggregate statistics about context feedback.
 func (s *ContextFeedbackStore) GetOverallStats() (totalFeedback int, avgUsefulness float64, err error) {
+	// COALESCE because AVG over an empty table is NULL, which fails to scan
+	// into float64 — a fresh workspace reported an error instead of "no data
+	// yet", so any caller that surfaced stats gave up on the first run.
 	row := s.db.QueryRow(`
-		SELECT COUNT(*), AVG(overall_usefulness)
+		SELECT COUNT(*), COALESCE(AVG(overall_usefulness), 0)
 		FROM context_feedback
 	`)
 	err = row.Scan(&totalFeedback, &avgUsefulness)
@@ -420,4 +423,69 @@ func (s *ContextFeedbackStore) GetOverallStats() (totalFeedback int, avgUsefulne
 // Close closes the database connection.
 func (s *ContextFeedbackStore) Close() error {
 	return s.db.Close()
+}
+
+// MinSamples reports how many observations a predicate needs before its
+// learned usefulness is allowed to move activation scores. Operators need this
+// to read the helpful/noise tables correctly: a predicate below the floor is
+// not "neutral", it is "not yet trusted".
+func (s *ContextFeedbackStore) MinSamples() int {
+	return s.minSamples
+}
+
+// FeedbackStats is a snapshot of the context-learning loop, shaped for
+// glass-box display and for the `nerd context-stats` operator command.
+type FeedbackStats struct {
+	// Available is false when no feedback store is wired; every other field is
+	// then zero. Callers must not read "0 feedback entries" as "learning ran
+	// and found nothing".
+	Available bool
+	// Err carries the first query failure, if any. Partial stats are still returned.
+	Err error
+
+	TotalFeedback int
+	AvgUsefulness float64
+	MinSamples    int
+
+	Helpful []PredicateFeedback
+	Noise   []PredicateFeedback
+}
+
+// CollectFeedbackStats gathers a FeedbackStats snapshot from a store, tolerating
+// a nil store so callers do not need to branch.
+func CollectFeedbackStats(s *ContextFeedbackStore, topN int) FeedbackStats {
+	if s == nil {
+		return FeedbackStats{}
+	}
+	if topN <= 0 {
+		topN = 10
+	}
+
+	stats := FeedbackStats{Available: true, MinSamples: s.minSamples}
+
+	total, avg, err := s.GetOverallStats()
+	if err != nil {
+		stats.Err = err
+	} else {
+		stats.TotalFeedback = total
+		stats.AvgUsefulness = avg
+	}
+
+	if helpful, err := s.GetTopHelpfulPredicates(topN); err != nil {
+		if stats.Err == nil {
+			stats.Err = err
+		}
+	} else {
+		stats.Helpful = helpful
+	}
+
+	if noise, err := s.GetTopNoisePredicates(topN); err != nil {
+		if stats.Err == nil {
+			stats.Err = err
+		}
+	} else {
+		stats.Noise = noise
+	}
+
+	return stats
 }

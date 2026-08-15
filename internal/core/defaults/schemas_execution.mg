@@ -154,6 +154,11 @@ Decl validation_max_retries_reached(ActionID) bound [/string].
 # HealingType: /retry, /rollback, /escalate, /alternative_approach
 Decl needs_self_healing(ActionID, HealingType) bound [/string, /name].
 
+# Bound-negation helper. A negated literal containing an anonymous wildcard
+# excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);
+# projecting the wildcard away makes the negation actually filter.
+Decl action_needs_self_healing(ActionID) bound [/string].
+
 # healing_attempt(ActionID, HealingType, Success, ErrorMsg, Timestamp)
 # Records a self-healing attempt and its outcome.
 Decl healing_attempt(ActionID, HealingType, Success, ErrorMsg, Timestamp) bound [/string, /name, /name, /string, /number].

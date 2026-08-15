@@ -181,22 +181,50 @@ func (rt *RuntimeTool) Execute(ctx context.Context, input string) (string, error
 	}
 	output := stdoutBuf.Bytes()
 
-	// Parse output
+	// Parse output.
+	//
+	// The wrapper this pipeline generates (tool_compiler.writeWrapper) declares
+	// Output as json.RawMessage and passes the tool's return value through
+	// verbatim whenever it is already valid JSON. Reading it back as a Go
+	// string therefore failed for every tool whose output happened to parse as
+	// JSON — a number, a bool, an object, an array — with "cannot unmarshal
+	// number into Go struct field .output of type string". A tool that counts
+	// something and returns "3" compiled, passed safety, survived the
+	// Thunderdome, registered, and then could never be called successfully.
 	var result struct {
-		Output string `json:"output"`
-		Error  string `json:"error,omitempty"`
+		Output json.RawMessage `json:"output"`
+		Error  string          `json:"error,omitempty"`
 	}
 
 	if err := json.Unmarshal(output, &result); err != nil {
 		return "", fmt.Errorf("failed to parse tool output: %w", err)
 	}
 
+	text := decodeToolOutput(result.Output)
+
 	if result.Error != "" {
-		return result.Output, fmt.Errorf("tool error: %s", result.Error)
+		return text, fmt.Errorf("tool error: %s", result.Error)
 	}
 
 	atomic.AddInt64(&rt.ExecuteCount, 1)
-	return result.Output, nil
+	return text, nil
+}
+
+// decodeToolOutput renders the wrapper's raw output field as text.
+//
+// A JSON string is unquoted (the wrapper marshals non-JSON returns, so this is
+// the common case); anything else — object, array, number, bool — is returned
+// as its JSON source, which is what the tool produced in the first place.
+func decodeToolOutput(raw json.RawMessage) string {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return ""
+	}
+	var asString string
+	if err := json.Unmarshal(raw, &asString); err == nil {
+		return asString
+	}
+	return trimmed
 }
 
 // toolExecutionEnv returns a minimal runtime environment for executing generated tools.

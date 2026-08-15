@@ -201,6 +201,7 @@ func Load(workspace string) (*Document, error) {
 	}
 	return doc, nil
 }
+
 // LoadAll returns the root document (if any) followed by every module-level
 // nerd.md found beneath the workspace.
 func LoadAll(workspace string) ([]*Document, error) {
@@ -294,7 +295,6 @@ func LoadAll(workspace string) ([]*Document, error) {
 	docs = append(docs, modules...)
 	return docs, nil
 }
-
 
 // Parse splits frontmatter from body and strictly decodes the frontmatter.
 func Parse(data []byte) (*Document, error) {
@@ -431,9 +431,16 @@ func (d *Document) ForbidsPath(target string) (reason string, forbidden bool) {
 	if d == nil || strings.TrimSpace(target) == "" {
 		return "", false
 	}
-	normalized := strings.ToLower(filepath.ToSlash(target))
+	// Route through the shared normalizer rather than repeating it: this used
+	// its own filepath.ToSlash pair, which left backslashes untouched off
+	// Windows and let `.nerd\config.json` past the gate on Linux and macOS.
+	normalized := normalizeForMatch(target)
 	for _, rule := range d.Spec.Forbid {
-		if strings.Contains(normalized, strings.ToLower(filepath.ToSlash(rule.Match))) {
+		match := normalizeForMatch(rule.Match)
+		if match == "" {
+			continue
+		}
+		if strings.Contains(normalized, match) {
 			return rule.Reason, true
 		}
 	}

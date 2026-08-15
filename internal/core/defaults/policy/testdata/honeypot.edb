@@ -1,7 +1,8 @@
 # Inputs for Browser Honeypot detection
 dom_node("1", "div", "Login", "0").
 dom_node("2", "input", "", "1").
-# CSS properties using Atoms as expected by browser_honeypot.mg rules
-css_property("2", /display, /none).
-css_property("2", /visibility, /hidden).
-css_property("2", /opacity, "0").
+# CSS keys/values are /string, matching the declared bound types in
+# schemas_browser.mg and what internal/browser pushes from a live page.
+css_property("2", "display", "none").
+css_property("2", "visibility", "hidden").
+css_property("2", "opacity", "0").

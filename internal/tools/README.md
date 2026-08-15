@@ -69,7 +69,7 @@ result, err := registry.Execute(ctx, "read_file", map[string]any{
 
 ## Mangle Routing
 
-Tools are routed via intent in `internal/mangle/intent_routing.mg`:
+Tools are routed via intent in `internal/core/defaults/policy/intent_routing_rules.mg`:
 
 ```mangle
 modular_tool_allowed(/read_file, Intent) :- user_intent(_, _, Intent, _, _).

@@ -133,14 +133,14 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 			allPassed, failedSummary, err := o.runPhaseCheckpoint(ctx, phase)
 			if err != nil {
 				logging.Get(logging.CategoryCampaign).Error("Checkpoint errored for phase %s: %v", phase.ID, err)
-				o.emitEvent("checkpoint_failed", phase.ID, "", err.Error(), nil)
+				o.emitEvent(EventCheckpointFailed, phase.ID, "", err.Error(), nil)
 			}
 
 			// If any verification failed, trigger a replan and keep the phase open.
 			if !allPassed {
 				attempts := o.incrementCheckpointFailures(phase.ID)
 				logging.Get(logging.CategoryCampaign).Warn("Phase %s checkpoint failure %d/%d: %s", phase.ID, attempts, maxPhaseCheckpointAttempts, failedSummary)
-				o.emitEvent("checkpoint_failed", phase.ID, "", failedSummary, nil)
+				o.emitEvent(EventCheckpointFailed, phase.ID, "", failedSummary, nil)
 
 				// Bounded retry (F-CKPT-2): a checkpoint that keeps failing — a tool
 				// error, or a review that a replan cannot fix — must not spin the
@@ -150,7 +150,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 				// still reaches a coherent terminal state and produces its output.
 				if attempts >= maxPhaseCheckpointAttempts {
 					logging.Get(logging.CategoryCampaign).Warn("Phase %s exhausted %d checkpoint attempts; advancing with UNVERIFIED checkpoint", phase.ID, maxPhaseCheckpointAttempts)
-					o.emitEvent("checkpoint_exhausted", phase.ID, "", failedSummary, map[string]any{
+					o.emitEvent(EventCheckpointExhausted, phase.ID, "", failedSummary, map[string]any{
 						"attempts": attempts,
 						"max":      maxPhaseCheckpointAttempts,
 					})
@@ -170,7 +170,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 				if o.replanner != nil {
 					if repErr := o.replanner.Replan(ctx, o.campaign, ""); repErr != nil {
 						logging.Get(logging.CategoryCampaign).Error("Replan after checkpoint failure failed: %v", repErr)
-						o.emitEvent("replan_failed", phase.ID, "", repErr.Error(), nil)
+						o.emitEvent(EventReplanFailed, phase.ID, "", repErr.Error(), nil)
 					} else {
 						o.mu.Lock()
 						if err := o.saveCampaign(); err != nil {
@@ -187,7 +187,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 			logging.CampaignDebug("Compressing phase context: %s", phase.ID)
 			if summary, count, compressedAt, err := o.contextPager.CompressPhase(ctx, phase); err != nil {
 				logging.Get(logging.CategoryCampaign).Warn("Context compression error: %v", err)
-				o.emitEvent("compression_error", phase.ID, "", err.Error(), nil)
+				o.emitEvent(EventCompressionError, phase.ID, "", err.Error(), nil)
 			} else {
 				logging.CampaignDebug("Phase compressed: atoms=%d, summary_len=%d", count, len(summary))
 				o.mu.Lock()
@@ -250,7 +250,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 			if len(runnable) == 0 {
 				if reason := o.getCampaignBlockReason(); reason != "" {
 					logging.Get(logging.CategoryCampaign).Error("Phase blocked: %s", reason)
-					o.emitEvent("campaign_blocked", phase.ID, "", reason, nil)
+					o.emitEvent(EventCampaignBlocked, phase.ID, "", reason, nil)
 					o.mu.Lock()
 					o.updateCampaignStatus(StatusFailed)
 					o.lastError = fmt.Errorf("phase blocked: %s", reason)
@@ -298,7 +298,7 @@ func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *P
 		logging.CampaignDebug("Refining next phase based on completed phase: %s", completedPhase.ID)
 		if err := o.replanner.RefineNextPhase(ctx, o.campaign, completedPhase); err != nil {
 			logging.Get(logging.CategoryCampaign).Warn("Rolling-wave refinement failed: %v", err)
-			o.emitEvent("replan_failed", completedPhase.ID, "", err.Error(), nil)
+			o.emitEvent(EventReplanFailed, completedPhase.ID, "", err.Error(), nil)
 			return
 		}
 
@@ -311,7 +311,7 @@ func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *P
 		}
 
 		logging.Campaign("Rolling-wave refinement applied (revision=%d)", o.campaign.RevisionNumber)
-		o.emitEvent("replan", completedPhase.ID, "", "Rolling-wave refinement applied", map[string]any{
+		o.emitEvent(EventReplan, completedPhase.ID, "", "Rolling-wave refinement applied", map[string]any{
 			"revision": o.campaign.RevisionNumber,
 		})
 	}
@@ -335,7 +335,7 @@ func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Ta
 	logging.Campaign("Task started: %s (type=%s, phase=%s)", task.ID, task.Type, phase.Name)
 	logging.CampaignDebug("Task description: %s", task.Description)
 
-	o.emitEvent("task_started", phase.ID, task.ID, task.Description, nil)
+	o.emitEvent(EventTaskStarted, phase.ID, task.ID, task.Description, nil)
 
 	// Snapshot the workspace root so out-of-scope writes become visible.
 	//
@@ -358,10 +358,13 @@ func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Ta
 	// trustworthy.
 	rootBefore := o.snapshotWorkspaceRoot()
 
+	startedAt := time.Now()
 	result, err := o.executeTaskWithRollback(ctx, task)
+	elapsed := time.Since(startedAt)
 
 	o.reportUnexpectedRootWrites(task, rootBefore)
 	if err != nil {
+		o.observeTaskDuration(phase.ID, task, "failed", elapsed)
 		logging.Get(logging.CategoryCampaign).Error("Task failed: %s - %v", task.ID, err)
 		taskTimer.Stop()
 		o.handleTaskFailure(ctx, phase, task, err)
@@ -371,9 +374,10 @@ func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Ta
 
 	taskTimer.StopWithInfo()
 	logging.Campaign("Task completed: %s", task.ID)
+	o.observeTaskDuration(phase.ID, task, "completed", elapsed)
 
 	o.completeTask(task, result)
-	o.emitEvent("task_completed", phase.ID, task.ID, "Task completed", result)
+	o.emitEvent(EventTaskCompleted, phase.ID, task.ID, "Task completed", result)
 	o.applyLearnings(ctx, task, result)
 	o.emitProgress()
 
@@ -399,7 +403,7 @@ func (o *Orchestrator) acquireWriteSetLease(ctx context.Context, phaseID string,
 				"task %s (type=%s) missing write_set; proceeding without write-set lease",
 				task.ID, task.Type,
 			)
-			o.emitEvent("task_write_set_missing", phaseID, task.ID,
+			o.emitEvent(EventTaskWriteSetMissing, phaseID, task.ID,
 				"missing write_set; executing without lease", nil)
 			return nil, nil
 		}
@@ -429,7 +433,7 @@ func (o *Orchestrator) acquireWriteSetLease(ctx context.Context, phaseID string,
 		}
 		nextRetryAt := time.Now().Add(retryDelay)
 		o.setTaskRetryAt(task.ID, nextRetryAt)
-		o.emitEvent("task_lock_timeout", phaseID, task.ID, "write_set lock timeout", map[string]any{
+		o.emitEvent(EventTaskLockTimeout, phaseID, task.ID, "write_set lock timeout", map[string]any{
 			"write_set":       writeSet,
 			"timeout_ms":      timeout.Milliseconds(),
 			"next_retry_unix": nextRetryAt.Unix(),

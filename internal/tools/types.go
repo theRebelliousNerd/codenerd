@@ -14,7 +14,7 @@ import (
 )
 
 // ToolCategory classifies tools for intent-based filtering.
-// Categories align with intent routing in internal/mangle/intent_routing.mg.
+// Categories align with intent routing in internal/core/defaults/policy/intent_routing_rules.mg.
 
 // contextKey is a distinct type for context values to avoid collisions.
 type contextKey string
@@ -90,6 +90,15 @@ type Tool struct {
 
 	// Category classifies the tool for intent filtering.
 	Category ToolCategory
+
+	// AltCategories lists further categories the tool also belongs to.
+	//
+	// A tool has one home category but often serves several intent families:
+	// read_file is a /code tool that a reviewer and an attacker need just as
+	// much. Without this, intentToCategory mapped /review and /attack onto
+	// categories no tool had ever declared, and FilterByIntent handed those
+	// intents an empty slice.
+	AltCategories []ToolCategory
 
 	// Execute runs the tool with the given arguments.
 	Execute ExecuteFunc

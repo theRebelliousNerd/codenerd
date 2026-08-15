@@ -164,22 +164,27 @@ func TestSummaryRendersBoolPointersAsValues(t *testing.T) {
 	t.Run("nil active reports defaults", func(t *testing.T) {
 		SetActive(nil)
 		got := Summary()
-		if got != "features: defaults active" {
+		// Summary now reports resolved values rather than the phrase
+		// "defaults active", which said nothing about env overrides.
+		if !strings.Contains(got, "diff_eval=false") {
 			t.Fatalf("nil active: got %q", got)
+		}
+		if strings.Contains(got, "(config)") || strings.Contains(got, "(env)") {
+			t.Fatalf("nil active should report every flag as a default: %q", got)
 		}
 	})
 
 	t.Run("explicit true and false", func(t *testing.T) {
 		tr, fa := true, false
 		SetActive(&FeaturesConfig{
-			DiffEval:       &tr,
-			FlightRecorder: &fa,
-			Provenance:     &tr,
-			SystemShards:   &fa,
-			PerShardFacts:  &tr,
-			DarkMode:       &fa,
-			SkipOnboarding: &tr,
-			TaxonomyFast:   &fa,
+			DiffEval:        &tr,
+			FlightRecorder:  &fa,
+			Provenance:      &tr,
+			SystemShards:    &fa,
+			PerShardFacts:   &tr,
+			DarkMode:        &fa,
+			SkipOnboarding:  &tr,
+			TaxonomyFast:    &fa,
 			FastScanWorkers: 4,
 			FastASTMaxBytes: 2048,
 		})
@@ -188,34 +193,53 @@ func TestSummaryRendersBoolPointersAsValues(t *testing.T) {
 		if strings.Contains(got, "0x") {
 			t.Fatalf("Summary leaked pointer address: %q", got)
 		}
-		want := "features: diff_eval=true flight_recorder=false provenance=true " +
-			"system_shards=false per_shard_facts=true dark_mode=false skip_onboarding=true " +
-			"taxonomy_fast=false fast_scan_workers=4 fast_ast_max_bytes=2048"
+		// Values set explicitly in config are tagged with their source so an
+		// operator can see at a glance what was deliberately changed.
+		want := "features: diff_eval=true(config) flight_recorder=false(config) provenance=true(config) " +
+			"system_shards=false(config) per_shard_facts=true(config) dark_mode=false(config) " +
+			"skip_onboarding=true(config) taxonomy_fast=false(config) " +
+			"fast_scan_workers=4 fast_ast_max_bytes=2048"
 		if got != want {
 			t.Fatalf("Summary mismatch\n got: %q\nwant: %q", got, want)
 		}
 	})
 
-	t.Run("nil bool fields render as unset", func(t *testing.T) {
-		// Zero-value FeaturesConfig has all *bool fields nil.
+	t.Run("nil bool fields resolve to their defaults", func(t *testing.T) {
+		// Zero-value FeaturesConfig has all *bool fields nil. Summary reports
+		// what the accessors actually return, not "unset": an operator reading
+		// this line wants the value in force, and "unset" is not one.
 		SetActive(&FeaturesConfig{})
 		got := Summary()
 		if strings.Contains(got, "0x") {
 			t.Fatalf("Summary leaked pointer address for nil fields: %q", got)
 		}
+		if strings.Contains(got, "unset") {
+			t.Fatalf("Summary should resolve nil fields, not print unset: %q", got)
+		}
 		for _, key := range []string{
-			"diff_eval=unset",
-			"flight_recorder=unset",
-			"provenance=unset",
-			"system_shards=unset",
-			"per_shard_facts=unset",
-			"dark_mode=unset",
-			"skip_onboarding=unset",
-			"taxonomy_fast=unset",
+			"diff_eval=false",
+			"flight_recorder=false",
+			"provenance=false",
+			"system_shards=true", // default ON
+			"per_shard_facts=false",
+			"dark_mode=false",
+			"skip_onboarding=false",
+			"taxonomy_fast=false",
 		} {
 			if !strings.Contains(got, key) {
 				t.Errorf("Summary missing %q in %q", key, got)
 			}
+		}
+	})
+
+	t.Run("env override is reported as env-sourced", func(t *testing.T) {
+		// The whole point of the rewrite: a key absent from config used to log
+		// as "unset" even while an env var forced it on.
+		SetActive(&FeaturesConfig{})
+		t.Setenv("CODENERD_DIFF_EVAL", "1")
+		got := Summary()
+		if !strings.Contains(got, "diff_eval=true(env)") {
+			t.Errorf("Summary did not attribute the env override: %q", got)
 		}
 	})
 }
@@ -233,4 +257,3 @@ func TestBoolPtrString(t *testing.T) {
 		t.Errorf("false → false, got %q", got)
 	}
 }
-

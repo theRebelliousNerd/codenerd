@@ -153,12 +153,19 @@ activation(AtomID, 60) :-
 # -----------------------------------------------------------------------------
 
 # Signal: atom was selected and shard execution succeeded
-# compile_shard+shard_executed is an existential check (ShardID unused in head)
+# compile_shard+shard_success is an existential check (ShardID unused in head)
 # Extract existence helper to avoid cross-product with atom_selected
+# This used to read shard_executed(ShardID, _, /success, _), but arg 3 of
+# shard_executed/4 is the Task ("fix the auth bug"), not an outcome -
+# ShardManager.ResultToFacts fills it from the task description and records the
+# outcome separately as shard_success(ShardID) / shard_error(ShardID, Msg). No
+# task is ever literally /success, so the rule could never fire. shard_success
+# is the outcome predicate, and it implies shard_executed for the same ShardID
+# because ResultToFacts emits both from the same result.
 Decl has_successful_shard() bound [].
 has_successful_shard() :-
     compile_shard(ShardID, _),
-    shard_executed(ShardID, _, /success, _).
+    shard_success(ShardID).
 
 effective_prompt_atom(AtomID) :-
     atom_selected(AtomID),

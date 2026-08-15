@@ -60,6 +60,13 @@ Decl northstar_risk(RiskID, Description, Likelihood, Impact) bound [/string, /st
 # northstar_mitigation(RiskID, Strategy) - Risk mitigation strategy
 Decl northstar_mitigation(RiskID, Strategy) bound [/string, /name].
 
+# northstar_mitigation_text(RiskID, Text) - the mitigation in the operator's own words.
+# Strategy above is Decl'd /name and therefore cannot carry free text; it is a
+# /mit_<slug>_<hash> atom derived from this text (see MitigationStrategyAtom).
+# Rules that only need existence use northstar_mitigation; rules and prompt
+# context that need to SHOW the mitigation read this.
+Decl northstar_mitigation_text(RiskID, Text) bound [/string, /string].
+
 # -----------------------------------------------------------------------------
 # 43.5 Requirements
 # -----------------------------------------------------------------------------
@@ -200,7 +207,7 @@ Decl should_auto_continue() bound [].
 
 # continuation_blocked(Reason) - Derived: continuation is blocked
 # Reason: /needs_clarification, /user_interrupted, /max_steps_reached
-Decl continuation_blocked(Reason) bound [/string].
+Decl continuation_blocked(Reason) bound [/name].
 
 # has_continuation_block/0 - Helper: true if any continuation block exists
 Decl has_continuation_block() bound [].

@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,12 +47,27 @@ type AgentSelectionPreferences struct {
 	AutoAcceptRecommended bool      `json:"auto_accept_recommended"`
 }
 
+// defaultPromptTimeout bounds how long a prompt waits for an answer.
+//
+// It is generous on purpose: the first prompt follows a list of a dozen
+// specialist agents, and a human deserves time to read it. What the bound buys
+// is not responsiveness but termination — an unattended run under an allocated
+// pty proceeds with the recommended set instead of blocking the pipeline
+// forever.
+const defaultPromptTimeout = 2 * time.Minute
+
 // InteractiveConfig holds configuration for interactive agent selection.
 type InteractiveConfig struct {
 	Reader           *bufio.Reader
 	Writer           *os.File
 	SkipConfirmation bool
 	PreviousPrefs    *AgentSelectionPreferences
+
+	// PromptTimeout bounds each individual prompt. Zero means
+	// defaultPromptTimeout. Tests set it small to assert the fallback without
+	// waiting; nothing in production should set it short enough to lose a
+	// human's answer.
+	PromptTimeout time.Duration
 }
 
 // DefaultInteractiveConfig returns a default interactive configuration.
@@ -64,7 +80,7 @@ func DefaultInteractiveConfig() InteractiveConfig {
 }
 
 // InteractiveAgentSelection prompts the user to select agents interactively.
-func InteractiveAgentSelection(agents []DetectedAgent, config InteractiveConfig) ([]DetectedAgent, error) {
+func InteractiveAgentSelection(ctx context.Context, agents []DetectedAgent, config InteractiveConfig) ([]DetectedAgent, error) {
 	if len(agents) == 0 {
 		return agents, nil
 	}
@@ -80,7 +96,7 @@ func InteractiveAgentSelection(agents []DetectedAgent, config InteractiveConfig)
 	fmt.Fprintln(config.Writer, "")
 	fmt.Fprint(config.Writer, "Keep all recommended? (y/n/c for customize): ")
 
-	choice, err := readInput(config.Reader)
+	choice, err := readInput(ctx, config.Reader, config.PromptTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read input: %w", err)
 	}
@@ -111,7 +127,7 @@ func InteractiveAgentSelection(agents []DetectedAgent, config InteractiveConfig)
 		return filterSelectedAgents(agents), nil
 
 	case "c", "customize":
-		return customizeAgentSelection(agents, config)
+		return customizeAgentSelection(ctx, agents, config)
 
 	default:
 		fmt.Fprintf(config.Writer, "\nUnrecognized input '%s'. Accepting recommended agents.\n", choice)
@@ -125,7 +141,7 @@ func InteractiveAgentSelection(agents []DetectedAgent, config InteractiveConfig)
 }
 
 // customizeAgentSelection allows the user to toggle individual agents.
-func customizeAgentSelection(agents []DetectedAgent, config InteractiveConfig) ([]DetectedAgent, error) {
+func customizeAgentSelection(ctx context.Context, agents []DetectedAgent, config InteractiveConfig) ([]DetectedAgent, error) {
 	fmt.Fprintln(config.Writer, "\nCustomize agent selection:")
 	fmt.Fprintln(config.Writer, "Enter agent numbers to toggle (comma-separated), or 'done' to finish.")
 
@@ -142,7 +158,7 @@ func customizeAgentSelection(agents []DetectedAgent, config InteractiveConfig) (
 	fmt.Fprint(config.Writer, "\nToggle (e.g., '1,3,5') or 'done': ")
 
 	for {
-		input, err := readInput(config.Reader)
+		input, err := readInput(ctx, config.Reader, config.PromptTimeout)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read input: %w", err)
 		}
@@ -246,13 +262,63 @@ func filterSelectedAgents(agents []DetectedAgent) []DetectedAgent {
 	return selected
 }
 
-// readInput reads a line of input from the reader.
-func readInput(reader *bufio.Reader) (string, error) {
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		return "", err
+// errPromptUnanswered is returned when nobody answered a prompt before the
+// deadline or the run was cancelled. Callers treat it like any other read
+// failure — degrade to the recommended set — so it needs no special handling,
+// only a distinct message in the log.
+var errPromptUnanswered = errors.New("no answer before the prompt deadline")
+
+// readInput reads one line, but never waits forever.
+//
+// The unbounded version of this function was a hang, not a stall. `nerd init`
+// gates its prompts on stdin AND stdout both being character devices, which is
+// meant to mean "a human is watching" — but `docker run -t`, `docker compose
+// run`, `script -c` and several CI wrappers allocate a pty and then supply no
+// input at all. Every one of those satisfied the gate, reached this read, and
+// blocked on it forever. The surrounding 25-minute operation timeout could not
+// help: the phase loop only re-checks ctx after the read returns, so a
+// cancelled context sat unnoticed behind a blocked syscall.
+//
+// A deadline plus ctx is what makes the gate's promise true rather than
+// approximately true. Not answering is not an error condition for the user —
+// curateAgents degrades to the recommended agent set, which is exactly what a
+// non-interactive run would have installed.
+//
+// The read runs in its own goroutine because there is no portable way to
+// interrupt a blocking read on os.Stdin. On timeout that goroutine stays parked
+// until the process exits, holding the reader; the caller must therefore stop
+// using this reader after a failure rather than retry on it. That is what
+// happens today — every caller returns the error up to curateAgents, which
+// abandons interactive selection for the rest of the run.
+func readInput(ctx context.Context, reader *bufio.Reader, timeout time.Duration) (string, error) {
+	type result struct {
+		line string
+		err  error
 	}
-	return strings.TrimSpace(input), nil
+	ch := make(chan result, 1) // buffered: the goroutine must never block on a receiver that left
+
+	go func() {
+		line, err := reader.ReadString('\n')
+		ch <- result{line: line, err: err}
+	}()
+
+	if timeout <= 0 {
+		timeout = defaultPromptTimeout
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			return "", r.err
+		}
+		return strings.TrimSpace(r.line), nil
+	case <-ctx.Done():
+		return "", fmt.Errorf("%w: %w", errPromptUnanswered, ctx.Err())
+	case <-timer.C:
+		return "", fmt.Errorf("%w after %s", errPromptUnanswered, timeout)
+	}
 }
 
 // ConvertToDetectedAgents converts RecommendedAgent slice to DetectedAgent slice.

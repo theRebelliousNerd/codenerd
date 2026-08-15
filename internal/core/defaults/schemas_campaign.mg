@@ -226,11 +226,20 @@ Decl source_document(CampaignID, DocPath, DocType, ParsedAt) bound [/string, /st
 
 # doc_metadata(CampaignID, Path, DocType, SizeBytes, ModifiedAt)
 Decl doc_metadata(CampaignID, Path, DocType, SizeBytes, ModifiedAt) bound [/string, /string, /name, /number, /number].
-# goal_topic(CampaignID, Topic) - topics extracted from goal text for selection
-Decl goal_topic(CampaignID, Topic) bound [/string, /string].
+# goal_topic(CampaignID, Topic) - topics extracted from goal text for selection.
+# Topic is a /name: Decomposer.seedDocFacts asserts fmt.Sprintf("/%s", topic)
+# (internal/campaign/decomposer_documents.go) over tokens that
+# extractTopicsFromGoal has already lower-cased and matched against [a-z0-9]+,
+# so types.Fact.ToAtom promotes every one of them to a name constant. The rules
+# in campaign_rules.mg match /migration, /refactor and /greenfield accordingly.
+Decl goal_topic(CampaignID, Topic) bound [/string, /name].
 
 # doc_tag(Path, Tag)
-Decl doc_tag(Path, Tag) bound [/string, /string].
+# doc_tag(Path, Tag) - Tag is a /name for the same reason goal_topic/2 is:
+# Decomposer.seedDocFacts asserts fmt.Sprintf("/%s", tag), so every tag reaches
+# the kernel as a name constant. selection_policy.mg joins Tag directly against
+# goal_topic's Topic, so the two must agree.
+Decl doc_tag(Path, Tag) bound [/string, /name].
 
 # doc_reference(FromPath, ToPath)
 Decl doc_reference(FromPath, ToPath) bound [/string, /string].
@@ -316,11 +325,31 @@ Decl phase_failed_task_count(PhaseID, Count) bound [/string, /number].
 # shard_failure_count(ShardType, Count) - derived: shard failure count
 Decl shard_failure_count(ShardType, Count) bound [/name, /number].
 
+# Block/replan Reason slots are /name, uniformly across phase_blocked,
+# campaign_blocked and replan_needed. Every reason emitted anywhere in the
+# corpus is a closed-vocabulary token (/checkpoint_failed, /build_failed,
+# /no_eligible_phases, /task_failure_cascade), never free text; replan_trigger
+# below is already [/string, /name, /number] and unifies its Reason straight
+# into replan_needed; and the Go producers assert "/checkpoint_failed" /
+# "/new_requirement", which types.Fact.ToAtom coerces to name constants.
+# These three were previously split between /name and /string heads for the
+# SAME token, so campaign_core's /no_eligible_phases and campaign_phases'
+# "no_eligible_phases" were two different values in one relation.
+# Keep all three identical — a lone /string here is how that split regrows.
+
 # phase_blocked(PhaseID, Reason) - derived: phase cannot proceed
-Decl phase_blocked(PhaseID, Reason) bound [/string, /string].
+Decl phase_blocked(PhaseID, Reason) bound [/string, /name].
 
 # campaign_blocked(CampaignID, Reason) - derived: campaign cannot proceed
-Decl campaign_blocked(CampaignID, Reason) bound [/string, /string].
+Decl campaign_blocked(CampaignID, Reason) bound [/string, /name].
+
+# Bound-negation helper. A negated literal containing an anonymous wildcard
+# excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);
+# projecting the wildcard away makes the negation actually filter.
+Decl campaign_is_blocked(CampaignID) bound [/string].
+
+# Bound-negation helper for final_shard_for_task; see bound_negation_test.go.
+Decl task_has_shard_override(TaskID) bound [/string].
 
 # validation_error(EntityID, IssueType, Message) - derived: validation issues found
 Decl validation_error(EntityID, IssueType, Message) bound [/string, /name, /string].
@@ -330,6 +359,11 @@ Decl replan_needed(CampaignID, Reason) bound [/string, /name].
 
 # phase_stuck(PhaseID) - derived: in-progress phase with no runnable work
 Decl phase_stuck(PhaseID) bound [/string].
+
+# Bound-negation helper. A negated literal containing an anonymous wildcard
+# excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);
+# projecting the wildcard away makes the negation actually filter.
+Decl any_phase_stuck(Flag) bound [/name].
 
 # phase_waiting_for_retry(PhaseID) - derived: current phase waiting for retry window
 Decl phase_waiting_for_retry(PhaseID) bound [/string].
@@ -342,3 +376,71 @@ Decl has_running_tasks(PhaseID) bound [/string].
 
 # debug_why_blocked(TaskID, Dependency) - helper to explain blocking
 Decl debug_why_blocked(TaskID, Dependency) bound [/string, /string].
+
+# =============================================================================
+# CAMPAIGN RISK PREFLIGHT — hard vs soft advisory contract
+# =============================================================================
+# Go measures the preflight (gate outcomes, advisor severities, deterministic
+# score, protected surfaces) and asserts it as ground facts. The kernel decides
+# which of those results STOP a campaign. See campaign_rules.mg Section 13.
+
+# campaign_risk_gate_outcome(CampaignID, Gate, Outcome) - one strict gate result
+# Gate: /northstar | /edge | /advisory | /override
+# Outcome: /passed | /blocked | /skipped
+Decl campaign_risk_gate_outcome(CampaignID, Gate, Outcome) bound [/string, /name, /name].
+
+# campaign_risk_concern(CampaignID, Gate, Severity) - graded concern from a gate
+# Severity: /blocking | /requires_changes | /unapproved
+Decl campaign_risk_concern(CampaignID, Gate, Severity) bound [/string, /name, /name].
+
+# campaign_protected_surface(CampaignID, Root) - campaign targets a protected root
+Decl campaign_protected_surface(CampaignID, Root) bound [/string, /string].
+
+# campaign_risk_posture(CampaignID, Score, Threshold, Gated) - deterministic score
+# Gated: /true | /false
+Decl campaign_risk_posture(CampaignID, Score, Threshold, Gated) bound [/string, /number, /number, /name].
+
+# campaign_risk_signal(CampaignID, Signal, Count) - pinned intelligence signals
+# Signal: /safety_warnings | /blocked_actions | /gathering_errors | /tool_gaps
+Decl campaign_risk_signal(CampaignID, Signal, Count) bound [/string, /name, /number].
+
+# campaign_risk_override(CampaignID, Level) - /force_block | /force_allow
+Decl campaign_risk_override(CampaignID, Level) bound [/string, /name].
+
+# campaign_risk_critical_signal(CampaignID) - derived: safety-critical evidence
+Decl campaign_risk_critical_signal(CampaignID) bound [/string].
+
+# campaign_risk_block(CampaignID, Gate, Reason) - derived: HARD stop
+Decl campaign_risk_block(CampaignID, Gate, Reason) bound [/string, /name, /name].
+
+# campaign_risk_blocked_gate(CampaignID, Gate) - derived helper for safe negation
+Decl campaign_risk_blocked_gate(CampaignID, Gate) bound [/string, /name].
+
+# campaign_risk_warning(CampaignID, Gate, Reason) - derived: SOFT advisory
+Decl campaign_risk_warning(CampaignID, Gate, Reason) bound [/string, /name, /name].
+
+# campaign_risk_preflight_blocked(CampaignID) - derived: at least one hard block
+Decl campaign_risk_preflight_blocked(CampaignID) bound [/string].
+
+# campaign_risk_classification_ready(CampaignID) - derived readiness canary.
+# Go trusts kernel classification only when this derives; otherwise the rules
+# are not loaded and Go must fall back to its mirror of the same contract.
+Decl campaign_risk_classification_ready(CampaignID) bound [/string].
+
+# =============================================================================
+# TASK CONTRACT FACTS EMITTED BY Task.ToFacts WITH NO DECL UNTIL NOW
+# =============================================================================
+# internal/campaign/types.go has asserted all three of these since sub-campaign
+# support landed, and campaign_fact_sync.go retracts them on every task
+# transition — but without a Decl no rule could reference them, so soft
+# dependencies, resource semaphores and sub-campaign links were invisible to the
+# executive. Found by the ToFacts predicate/arity golden test.
+
+# task_soft_dependency(TaskID, DependsOnTaskID) - preference, not a hard edge
+Decl task_soft_dependency(TaskID, DependsOnTaskID) bound [/string, /string].
+
+# requires_resource(TaskID, Resource) - named semaphore the task needs
+Decl requires_resource(TaskID, Resource) bound [/string, /string].
+
+# task_sub_campaign(TaskID, SubCampaignID) - /campaign_ref target
+Decl task_sub_campaign(TaskID, SubCampaignID) bound [/string, /string].

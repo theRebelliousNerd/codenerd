@@ -25,19 +25,19 @@ func (m *mockKernel) LoadFacts(facts []types.Fact) error {
 	return nil
 }
 func (m *mockKernel) Query(predicate string) ([]types.Fact, error) { return nil, nil }
-func (m *mockKernel) QueryAll() (map[string][]types.Fact, error) { return nil, nil }
-func (m *mockKernel) Assert(fact types.Fact) error { return nil }
-func (m *mockKernel) AssertBatch(facts []types.Fact) error { return nil }
+func (m *mockKernel) QueryAll() (map[string][]types.Fact, error)   { return nil, nil }
+func (m *mockKernel) Assert(fact types.Fact) error                 { return nil }
+func (m *mockKernel) AssertBatch(facts []types.Fact) error         { return nil }
 func (m *mockKernel) Retract(predicate string) error {
 	m.retractCalled = true
 	m.retractedPredicates = append(m.retractedPredicates, predicate)
 	return nil
 }
-func (m *mockKernel) RetractFact(fact types.Fact) error { return nil }
-func (m *mockKernel) UpdateSystemFacts() error { return nil }
+func (m *mockKernel) RetractFact(fact types.Fact) error     { return nil }
+func (m *mockKernel) UpdateSystemFacts() error              { return nil }
 func (m *mockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
-func (m *mockKernel) Reset() {}
-func (m *mockKernel) AppendPolicy(policy string) {}
+func (m *mockKernel) Reset()                                {}
+func (m *mockKernel) AppendPolicy(policy string)            {}
 func (m *mockKernel) RetractExactFactsBatch(facts []types.Fact) error {
 	m.retractExactCalled = true
 	m.retractedExactFacts = append(m.retractedExactFacts, facts...)

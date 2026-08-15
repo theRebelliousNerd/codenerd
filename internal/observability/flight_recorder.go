@@ -109,7 +109,7 @@ func startFlightRecorder(sizeBytes int, period time.Duration, growthCap uint64, 
 	// Baseline BEFORE Start so the delta the watchdog measures is
 	// dominated by the tracer's own allocations rather than whatever the
 	// process was already using.
-	baseline := otherMemoryBytes()
+	baseline := flightMemSample()
 
 	fr := trace.NewFlightRecorder(cfg)
 	if err := fr.Start(); err != nil {
@@ -143,6 +143,16 @@ func otherMemoryBytes() uint64 {
 	return 0
 }
 
+// flightMemSample is the watchdog's memory source, indirected through a
+// package var so tests can drive the trip decision deterministically.
+//
+// Whether real goroutine churn grows this metric past a given guard depends on
+// the Go toolchain's trace accounting, so a test that churns and waits is
+// asserting a property of the runtime, not of the watchdog. Substituting the
+// sampler lets the trip logic be tested for what it actually promises: stop the
+// recorder once observed growth exceeds the cap.
+var flightMemSample = otherMemoryBytes
+
 // flightMemWatchdog stops the recorder once trace-attributed memory grows
 // more than capBytes past its baseline. It samples on a ticker and exits
 // when (a) its generation's stop channel is closed by StopFlightRecorder,
@@ -154,17 +164,12 @@ func flightMemWatchdog(stopCh chan struct{}, baseline, capBytes uint64, interval
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	sample := []metrics.Sample{{Name: memClassOther}}
 	for {
 		select {
 		case <-stopCh:
 			return
 		case <-ticker.C:
-			metrics.Read(sample)
-			if sample[0].Value.Kind() != metrics.KindUint64 {
-				continue
-			}
-			cur := sample[0].Value.Uint64()
+			cur := flightMemSample()
 			var grew uint64
 			if cur > baseline {
 				grew = cur - baseline

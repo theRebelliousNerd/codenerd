@@ -15,6 +15,7 @@ import (
 //   - 'PASS' as a standalone token on its own line or after '=>'
 //   - 'FAIL' likewise
 //   - 'N passed' / 'N failed' forms from pytest and jest
+//
 // Deliberately does NOT match ordinary prose such as 'tests should pass',
 // 'make sure tests pass', 'I did not run the tests', or 'the tests will pass'.
 func responsePresentsTestRunnerOutput(text string) bool {

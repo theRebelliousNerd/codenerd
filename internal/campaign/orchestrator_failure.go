@@ -155,9 +155,9 @@ taskSearch:
 		})
 	}
 
-	o.emitEvent("task_failed", phaseID, task.ID, errStr, nil)
+	o.emitEvent(EventTaskFailed, phaseID, task.ID, errStr, nil)
 	if logicEscalated {
-		o.emitEvent("logic_failure_escalated", phaseID, task.ID, "Deterministic logic escalation triggered", map[string]any{
+		o.emitEvent(EventLogicFailureEscalated, phaseID, task.ID, "Deterministic logic escalation triggered", map[string]any{
 			"reason":                logicEscalationReason,
 			"repro_task_id":         reproTaskID,
 			"repro_task_inserted":   reproTaskInserted,
@@ -167,7 +167,7 @@ taskSearch:
 		})
 	}
 	if reproTaskInserted {
-		o.emitEvent("diagnostic_task_inserted", phaseID, reproTaskID, "Inserted repro-test-first diagnostic task", map[string]any{
+		o.emitEvent(EventDiagnosticTaskInserted, phaseID, reproTaskID, "Inserted repro-test-first diagnostic task", map[string]any{
 			"failed_task_id": task.ID,
 			"reason":         logicEscalationReason,
 		})
@@ -180,7 +180,7 @@ taskSearch:
 	if markedFailed && o.config.CheckpointOnFail {
 		if _, _, chkErr := o.runPhaseCheckpoint(ctx, phase); chkErr != nil {
 			logging.Get(logging.CategoryCampaign).Warn("Checkpoint-on-fail error: %v", chkErr)
-			o.emitEvent("checkpoint_failed", phaseID, "", chkErr.Error(), nil)
+			o.emitEvent(EventCheckpointFailed, phaseID, "", chkErr.Error(), nil)
 		}
 	}
 
@@ -195,12 +195,12 @@ taskSearch:
 		facts, _ := o.kernel.Query("replan_needed")
 		if len(facts) > 0 {
 			logging.Campaign("Replan triggered due to task failures")
-			o.emitEvent("replan_triggered", "", "", "Too many failures, triggering replan", nil)
+			o.emitEvent(EventReplanTriggered, "", "", "Too many failures, triggering replan", nil)
 			if o.replanner == nil {
 				logging.Get(logging.CategoryCampaign).Warn("Replan needed but no replanner configured for task %s", task.ID)
 			} else if repErr := o.replanner.Replan(ctx, o.campaign, task.ID); repErr != nil {
 				logging.Get(logging.CategoryCampaign).Error("Replan failed: %v", repErr)
-				o.emitEvent("replan_failed", "", "", repErr.Error(), nil)
+				o.emitEvent(EventReplanFailed, "", "", repErr.Error(), nil)
 			} else {
 				o.mu.Lock()
 				logging.Campaign("Campaign replanned, new revision: %d", o.campaign.RevisionNumber)

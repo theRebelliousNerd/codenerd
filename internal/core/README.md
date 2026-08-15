@@ -18,7 +18,7 @@ As of **December 2024**, the `ShardManager` has been **removed** and replaced by
 - **Replaced By:** `internal/session/executor.go` + `spawner.go` + `subagent.go` (~1,115 lines)
 
 **Shard orchestration is now handled by:**
-- **Intent Routing** (`internal/mangle/intent_routing.mg`) - Declarative persona selection
+- **Intent Routing** (`internal/core/defaults/policy/intent_routing_rules.mg`) - Declarative persona selection
 - **ConfigFactory** (`internal/prompt/config_factory.go`) - AgentConfig generation
 - **Session Executor** (`internal/session/executor.go`) - Universal execution loop
 - **Spawner** (`internal/session/spawner.go`) - Dynamic subagent creation
@@ -141,7 +141,7 @@ k.Query("why(persona(/coder))")
 
 ### Intent Routing Integration
 
-The kernel now loads `internal/mangle/intent_routing.mg` which contains declarative persona selection rules:
+The kernel now loads `internal/core/defaults/policy/intent_routing_rules.mg` which contains declarative persona selection rules:
 
 ```mangle
 # Loaded automatically by kernel initialization

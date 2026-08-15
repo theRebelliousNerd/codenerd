@@ -1,7 +1,6 @@
 package projectdoc
 
 import (
-	"path/filepath"
 	"strings"
 
 	"codenerd/internal/types"
@@ -71,6 +70,14 @@ func ForbiddenByKernel(q FactQuerier, target string) (reason string, forbidden b
 // file whether the tool names it relatively, absolutely, or with Windows
 // separators. Both the Go gates and the Mangle path_contains helper have to
 // agree on this, so there is exactly one place to change it.
+//
+// The separator rewrite is deliberately NOT filepath.ToSlash. That function is
+// a no-op everywhere except Windows, because it converts os.PathSeparator — so
+// on Linux and macOS `.nerd\config.json` reached the comparison with its
+// backslashes intact, failed to match the `.nerd/config.json` rule, and walked
+// straight through the write gate. The separator a path is written with is an
+// attacker-controlled detail of the string, not a property of the host, so it
+// is normalized unconditionally.
 func normalizeForMatch(p string) string {
-	return strings.ToLower(filepath.ToSlash(strings.TrimSpace(p)))
+	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(p), `\`, "/"))
 }

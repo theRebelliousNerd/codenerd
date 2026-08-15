@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -31,12 +32,27 @@ import (
 type SparseRetriever struct {
 	workDir string
 	cache   *KeywordHitCache
-	mu      sync.RWMutex
+
+	// mu guards lastWriteCursor. Invalidation is driven off the kernel's
+	// file_written timestamps, and two concurrent seeds must not both replay
+	// (or both skip) the same window of writes.
+	mu              sync.RWMutex
+	lastWriteCursor int64
+
+	// activeSearches counts keyword searches currently in flight so each one
+	// can take a fair share of the shared file-worker budget instead of every
+	// search starting a full pool of its own.
+	activeSearches atomic.Int32
+
+	// backend, when set, replaces the in-process scan with an external one.
+	backend ScanBackend
+
+	metrics retrieverMetrics
 
 	// Configuration
 	maxResults      int           // Max files to return
 	searchTimeout   time.Duration // Per-search timeout
-	parallelism     int           // Number of parallel ripgrep processes
+	parallelism     int           // Number of concurrent keyword searches
 	excludePatterns []string      // Patterns to exclude from search
 }
 
@@ -49,6 +65,11 @@ type SparseRetrieverConfig struct {
 	ExcludePatterns []string
 	CacheSize       int
 	CacheTTL        time.Duration
+
+	// Backend selects the scanning engine. Nil means the native in-process
+	// scan; see backend.go for the ripgrep alternative and why native is the
+	// default.
+	Backend ScanBackend
 }
 
 // DefaultSparseRetrieverConfig returns sensible defaults.
@@ -82,6 +103,7 @@ func NewSparseRetriever(cfg *SparseRetrieverConfig) *SparseRetriever {
 	return &SparseRetriever{
 		workDir:         cfg.WorkDir,
 		cache:           NewKeywordHitCache(cfg.CacheSize, cfg.CacheTTL),
+		backend:         cfg.Backend,
 		maxResults:      cfg.MaxResults,
 		searchTimeout:   cfg.SearchTimeout,
 		parallelism:     parallelism,
@@ -114,9 +136,26 @@ type IssueKeywords struct {
 	MentionedSymbols []string
 }
 
+// filePathExtensions is the alternation used by filePathPattern.
+//
+// Order is load-bearing: Go's regexp prefers the leftmost alternative that
+// allows an overall match, so every extension that is a prefix of another
+// ("ts" of "tsx", "c" of "cc"/"cpp", "m" of "mm") must come after the longer
+// one. With the old ordering a mention of "Button.tsx" was not merely missed —
+// nothing matched at all, because "ts" left a stray "x" where the delimiter had
+// to be.
+const filePathExtensions = `pyi|py|go|jsx|js|mjs|cjs|tsx|ts|rs|java|kts|kt|rb|swift|` +
+	`cs|php|scala|vue|svelte|dart|ex|exs|cpp|cc|hpp|hh|c|h|mm|m|sh|sql|proto|mg`
+
 var (
-	// Patterns for extraction
-	filePathPattern     = regexp.MustCompile(`(?:^|\s)([a-zA-Z_][a-zA-Z0-9_\\/]*\.(?:py|go|js|ts|rs|java|rb|cpp|c|h))(?:\s|$|:)`)
+	// Patterns for extraction.
+	//
+	// The path body accepts '-' and '.' because real repositories are full of
+	// "my-pkg/foo.test.ts", and the trailing set accepts ordinary sentence
+	// punctuation so a file named at the end of a clause ("see main.go.") is
+	// still extracted.
+	filePathPattern = regexp.MustCompile(
+		`(?:^|\s)([a-zA-Z_][a-zA-Z0-9_.\-\\/]*\.(?:` + filePathExtensions + `))(?:[\s:,;)\]}."'\x60]|$)`)
 	pythonSymbolPattern = regexp.MustCompile(`\b([A-Z][a-zA-Z0-9_]*(?:Error|Exception|Warning)?)\b`)
 	functionPattern     = regexp.MustCompile(`\b([a-z_][a-z0-9_]*)\s*\(`)
 	methodPattern       = regexp.MustCompile(`\.([a-z_][a-z0-9_]*)\s*\(`)
@@ -291,9 +330,11 @@ func (r *SparseRetriever) SearchKeywords(ctx context.Context, keywords *IssueKey
 	for _, keyword := range allKeywords {
 		// Check cache first
 		if cached, ok := r.cache.Get(keyword); ok {
+			r.metrics.cacheHits.Add(1)
 			results <- cached
 			continue
 		}
+		r.metrics.cacheMisses.Add(1)
 
 		kw := keyword
 		wg.Go(func() {
@@ -335,10 +376,79 @@ func (r *SparseRetriever) SearchKeywords(ctx context.Context, keywords *IssueKey
 	return allHits, nil
 }
 
+// Scan resource bounds.
+//
+// The scanner reads every non-excluded file in the workspace into memory, so
+// each of these is load-bearing on a real repository rather than a tidiness
+// preference.
+const (
+	// maxScanFileSize is the per-file read cutoff. Source files are far below
+	// it; anything larger is a build artifact, dataset, or media blob whose
+	// keyword matches would be noise anyway.
+	maxScanFileSize = 4 << 20 // 4 MiB
+
+	// maxHitsPerFile caps matches recorded for a single file. Minified and
+	// generated files can hold hundreds of thousands of matches, and ranking
+	// only needs to know the file matched heavily.
+	maxHitsPerFile = 500
+
+	// maxHitsPerKeyword caps total matches for one keyword across the repo.
+	// Ranking keeps only maxResults files, so scanning past this is waste.
+	maxHitsPerKeyword = 20_000
+
+	// binarySniffBytes is how much of a file is inspected for a NUL byte.
+	binarySniffBytes = 8 << 10
+)
+
+// workerBudget returns how many file-reading workers a single keyword search
+// may start, dividing the retriever's total parallelism across the keyword
+// searches currently in flight. It never returns less than one.
+func (r *SparseRetriever) workerBudget() int {
+	total := r.parallelism
+	if total < 1 {
+		total = 1
+	}
+	inFlight := int(r.activeSearches.Load())
+	if inFlight < 1 {
+		inFlight = 1
+	}
+	if w := total / inFlight; w >= 1 {
+		return w
+	}
+	return 1
+}
+
+// isBinaryContent reports whether data looks like a binary payload, using the
+// conventional NUL-byte-in-the-first-block heuristic.
+func isBinaryContent(data []byte) bool {
+	head := data
+	if len(head) > binarySniffBytes {
+		head = head[:binarySniffBytes]
+	}
+	return bytes.IndexByte(head, 0x00) >= 0
+}
+
 // searchSingleKeyword uses native Go scanning to search for a single keyword.
 func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword string) ([]KeywordHit, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.searchTimeout)
 	defer cancel()
+
+	searchStart := time.Now()
+	r.metrics.searches.Add(1)
+	r.activeSearches.Add(1)
+	defer r.activeSearches.Add(-1)
+
+	// An external backend (ripgrep) replaces the native scan entirely when one
+	// is configured; the bounds below only apply to the in-process walk.
+	if backend := r.backend; backend != nil {
+		hits, berr := backend.Search(ctx, r.workDir, keyword, r.excludePatterns)
+		r.metrics.hits.Add(int64(len(hits)))
+		r.metrics.searchNanos.Add(int64(time.Since(searchStart)))
+		if berr != nil {
+			r.metrics.errors.Add(1)
+		}
+		return hits, berr
+	}
 
 	var hits []KeywordHit
 	hitCounts := make(map[string]int)
@@ -349,9 +459,17 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 	// Channel for files to process
 	files := make(chan string, 1000)
 
-	// Worker pool
+	// Worker pool.
+	//
+	// SearchKeywords already runs up to r.parallelism keyword searches at
+	// once, and each search used to start r.parallelism file workers of its
+	// own — so the process ran parallelism² readers, every one of them doing
+	// blocking file I/O over the same tree. The shared budget below caps the
+	// total across all concurrent searches; each search takes an equal slice
+	// of it and always gets at least one worker.
+	workers := r.workerBudget()
 	var wg sync.WaitGroup
-	for i := 0; i < r.parallelism; i++ {
+	for i := 0; i < workers; i++ {
 		wg.Go(func() {
 			for path := range files {
 				select {
@@ -360,10 +478,40 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 				default:
 				}
 
-				data, err := os.ReadFile(path)
-				if err != nil {
+				// Stop reading once the hit cap is reached: the ranking below
+				// only keeps maxResults files, so scanning the rest of a large
+				// repo for a common keyword is wasted work.
+				mu.Lock()
+				reachedCap := len(hits) >= maxHitsPerKeyword
+				mu.Unlock()
+				if reachedCap {
+					return
+				}
+
+				// Size gate before the read. os.ReadFile on an unbounded path
+				// pulled entire multi-gigabyte artifacts into memory, and the
+				// bytes.ToLower copy plus the per-line index below multiplied
+				// that several times over. Source files are small; anything
+				// past the cutoff is a build artifact, dataset or media blob.
+				if info, err := os.Stat(path); err != nil || info.Size() > maxScanFileSize {
+					r.metrics.filesSkipped.Add(1)
 					continue
 				}
+
+				data, err := os.ReadFile(path)
+				if err != nil {
+					r.metrics.filesSkipped.Add(1)
+					continue
+				}
+
+				// Skip binaries. A NUL byte in the first few KiB is the
+				// conventional signal, and matching a keyword inside a
+				// compiled object is noise regardless.
+				if isBinaryContent(data) {
+					r.metrics.filesSkipped.Add(1)
+					continue
+				}
+				r.metrics.filesScanned.Add(1)
 
 				// Convert to lower for case-insensitive search
 				lowerData := bytes.ToLower(data)
@@ -384,6 +532,13 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 
 				var localHits []KeywordHit
 				for _, offset := range offsets {
+					// One minified or generated file can hold hundreds of
+					// thousands of matches; ranking only cares that the file
+					// matched a lot, not about every individual position.
+					if len(localHits) >= maxHitsPerFile {
+						break
+					}
+
 					// Word boundary check
 					if !isWordBoundary(lowerData, offset, len(kwBytes)) {
 						continue
@@ -411,6 +566,9 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 				if len(localHits) > 0 {
 					mu.Lock()
 					for _, h := range localHits {
+						if len(hits) >= maxHitsPerKeyword {
+							break
+						}
 						hitCounts[h.FilePath]++
 						h.Count = hitCounts[h.FilePath]
 						hits = append(hits, h)
@@ -421,10 +579,20 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 		})
 	}
 
-	// Walk directory
+	// Walk directory.
+	//
+	// Both the cancellation check and the select on the send are required. The
+	// workers return as soon as ctx is done; the walk then filled the 1000-slot
+	// channel and blocked on the next send forever, so close(files) was never
+	// reached, wg.Wait() never returned, and a timed-out search hung its caller
+	// and leaked its goroutines instead of coming back with partial results.
+	var walked int64
 	err := filepath.WalkDir(r.workDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
+		}
+		if ctx.Err() != nil {
+			return filepath.SkipAll
 		}
 
 		// Check exclusions
@@ -439,21 +607,34 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 		}
 
 		if !d.IsDir() {
-			files <- path
+			walked++
+			select {
+			case files <- path:
+			case <-ctx.Done():
+				return filepath.SkipAll
+			}
 		}
 		return nil
 	})
 
 	close(files)
 	wg.Wait()
+	r.metrics.filesWalked.Add(walked)
+
+	r.metrics.hits.Add(int64(len(hits)))
+	r.metrics.searchNanos.Add(int64(time.Since(searchStart)))
 
 	// Surface context cancellation/timeout as an error so callers can
 	// distinguish an interrupted search from a genuinely empty result set.
 	if cerr := ctx.Err(); cerr != nil {
+		r.metrics.timeouts.Add(1)
 		if cerr == context.DeadlineExceeded {
 			return hits, fmt.Errorf("search timeout for keyword %q", keyword)
 		}
 		return hits, fmt.Errorf("search for keyword %q canceled: %w", keyword, cerr)
+	}
+	if err != nil {
+		r.metrics.errors.Add(1)
 	}
 
 	return hits, err
@@ -470,7 +651,10 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 // Note: Windows drive-letter paths (e.g. "C:\\repo\\file.go:1:2:text") are
 // counted as matches but the drive letter is treated as the leading field;
 // callers that need exact Windows path fidelity should normalize upstream.
-func (r *SparseRetriever) parseRipgrepOutput(output, keyword string) []KeywordHit {
+//
+// It is a package function rather than a method because RipgrepBackend, not the
+// retriever, is what actually produces this output — see backend.go.
+func parseRipgrepOutput(output, keyword string) []KeywordHit {
 	var hits []KeywordHit
 	counts := make(map[string]int)
 	for _, line := range strings.Split(output, "\n") {

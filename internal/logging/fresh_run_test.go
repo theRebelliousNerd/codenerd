@@ -236,7 +236,6 @@ func TestInitialize_DebugFalse_ClearsStaleLogAndSetsPrefix(t *testing.T) {
 	}
 }
 
-
 func TestClearOrdinaryLogs_RetentionWindow_KeepsNewest10(t *testing.T) {
 	if DefaultLogRetentionRuns != 10 {
 		t.Fatalf("DefaultLogRetentionRuns = %d, want 10", DefaultLogRetentionRuns)

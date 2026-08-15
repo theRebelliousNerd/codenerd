@@ -2,42 +2,31 @@ package transparency
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/types"
 )
 
-// ShardPhase represents the current execution phase of a shard.
-type ShardPhase int
+// ShardPhase aliases types.ShardPhase. The canonical definition moved to
+// internal/types so ShardManager can report phases through
+// types.TransparencyManager without importing this package (which would be a
+// cycle: transparency → config → … ). Existing references to
+// transparency.PhaseExecuting keep working unchanged.
+type ShardPhase = types.ShardPhase
 
 const (
-	PhaseIdle ShardPhase = iota
-	PhaseInitializing
-	PhaseLoading
-	PhaseAnalyzing
-	PhaseGenerating
-	PhaseExecuting
-	PhaseComplete
-	PhaseFailed
+	PhaseIdle         = types.PhaseIdle
+	PhaseInitializing = types.PhaseInitializing
+	PhaseLoading      = types.PhaseLoading
+	PhaseAnalyzing    = types.PhaseAnalyzing
+	PhaseGenerating   = types.PhaseGenerating
+	PhaseExecuting    = types.PhaseExecuting
+	PhaseComplete     = types.PhaseComplete
+	PhaseFailed       = types.PhaseFailed
 )
-
-// String returns the display name for a phase.
-func (p ShardPhase) String() string {
-	names := []string{
-		"Idle",
-		"Initializing",
-		"Loading context",
-		"Analyzing",
-		"Generating",
-		"Executing",
-		"Complete",
-		"Failed",
-	}
-	if int(p) < len(names) {
-		return names[p]
-	}
-	return "Unknown"
-}
 
 // ShardExecution represents the state of a shard's execution.
 type ShardExecution struct {
@@ -92,6 +81,7 @@ type ShardObserver struct {
 	enabled      bool
 	phaseHistory []PhaseUpdate
 	maxHistory   int
+	maxTracked   int
 }
 
 // NewShardObserver creates a new shard observer.
@@ -100,6 +90,33 @@ func NewShardObserver() *ShardObserver {
 		executions: make(map[string]*ShardExecution),
 		enabled:    false, // Disabled by default
 		maxHistory: 100,
+		maxTracked: 200,
+	}
+}
+
+// pruneTerminalLocked drops the oldest finished executions once the tracked set
+// exceeds maxTracked. EndExecution deliberately keeps terminal entries so a
+// caller can read the final phase, but the ShardManager now feeds every spawn
+// in a session — without pruning the map would grow for the life of the
+// process. Active executions are never pruned. Caller must hold mu.
+func (o *ShardObserver) pruneTerminalLocked() {
+	if o.maxTracked <= 0 || len(o.executions) <= o.maxTracked {
+		return
+	}
+
+	terminal := make([]*ShardExecution, 0, len(o.executions))
+	for _, exec := range o.executions {
+		if exec.Phase == PhaseComplete || exec.Phase == PhaseFailed {
+			terminal = append(terminal, exec)
+		}
+	}
+	sort.Slice(terminal, func(i, j int) bool {
+		return terminal[i].PhaseTime.Before(terminal[j].PhaseTime)
+	})
+
+	excess := len(o.executions) - o.maxTracked
+	for i := 0; i < excess && i < len(terminal); i++ {
+		delete(o.executions, terminal[i].ShardID)
 	}
 }
 
@@ -145,6 +162,7 @@ func (o *ShardObserver) StartExecution(shardID, shardType, task string) {
 		StartTime: now,
 		PhaseTime: now,
 	}
+	o.pruneTerminalLocked()
 
 	if o.enabled {
 		o.notifyObservers(PhaseUpdate{

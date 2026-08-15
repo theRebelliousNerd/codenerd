@@ -233,7 +233,12 @@ func TestScanDirectory_BlindSpotFix(t *testing.T) {
 	foundGit := false
 
 	for _, f := range res.Facts {
-		path := f.Args[0].(string)
+		// Not every scanner fact is path-first: project_language carries a
+		// language atom, so an unconditional string assertion panics.
+		path, ok := f.Args[0].(string)
+		if !ok {
+			continue
+		}
 		if filepath.Base(path) == "ci.yml" {
 			foundGithub = true
 		}

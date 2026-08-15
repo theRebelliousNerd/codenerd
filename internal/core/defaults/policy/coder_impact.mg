@@ -57,11 +57,12 @@ cross_package_impact(File) :-
 # -----------------------------------------------------------------------------
 
 # Warn about high-impact edits
-impact_warning(File, "high_dependent_count") :-
+# WarningType is a closed 3-value vocabulary (schemas_coder.mg declares /name).
+impact_warning(File, /high_dependent_count) :-
     high_impact_edit(File).
 
-impact_warning(File, "critical_file") :-
+impact_warning(File, /critical_file) :-
     critical_impact_edit(File).
 
-impact_warning(File, "cross_package") :-
+impact_warning(File, /cross_package) :-
     cross_package_impact(File).

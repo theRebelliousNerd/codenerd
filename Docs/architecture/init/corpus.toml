@@ -4,4 +4,4 @@ kind = "realized"
 source_roots = ["internal/init"]
 entrypoint = "README.md"
 implemented_spec = "IMPLEMENTED_SPEC.md"
-verified_on = "2026-07-13"
+verified_on = "2026-08-15"

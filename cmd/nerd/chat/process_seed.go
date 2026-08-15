@@ -7,15 +7,27 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/retrieval"
+	"codenerd/internal/transparency"
 	"context"
 	"fmt"
 	"strings"
-	"time"
 )
 
-// seedIssueFacts extracts issue text + keywords from user input and asserts issue_* facts.
-// This drives issue-aware spreading activation and prompt atom selection.
-func (m *Model) seedIssueFacts(intent perception.Intent, rawInput string) {
+// seedIssueFacts runs a bounded sparse-retrieval pass over the workspace and
+// asserts the issue_* / candidate_file / keyword_hit / tiered_context_file /
+// issue_context EDB surface. This drives issue-aware spreading activation and
+// prompt atom selection.
+//
+// It used to extract keywords and stop there, so the SparseRetriever that boot
+// builds into SystemComponents.Retriever was never called — it was not even
+// copied onto the model — and the kernel only ever learned about files the user
+// had named by hand. Two of the facts it did assert were
+// silently dropped by the kernel besides: issue_keyword's weight and
+// tiered_context_file's relevance are declared /number, and a fractional float
+// in a /number slot is rejected outright, which took out every keyword weight
+// except the 1.0 on mentioned files. Both scales now go through
+// types.PercentFromRatio inside the retrieval transducer.
+func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, rawInput string) {
 	if m.kernel == nil {
 		return
 	}
@@ -38,55 +50,29 @@ func (m *Model) seedIssueFacts(intent perception.Intent, rawInput string) {
 		issueText = issueText[:maxIssueChars]
 	}
 
-	issueID := fmt.Sprintf("/issue_%d", time.Now().UnixNano())
-	keywords := retrieval.ExtractKeywords(issueText)
-
-	facts := make([]core.Fact, 0, 1+len(keywords.Weights)+len(keywords.MentionedFiles))
-	facts = append(facts, core.Fact{
-		Predicate: "issue_text",
-		Args:      []any{issueID, issueText},
-	})
-
-	for kw, weight := range keywords.Weights {
-		if strings.TrimSpace(kw) == "" {
-			continue
-		}
-		facts = append(facts, core.Fact{
-			Predicate: "issue_keyword",
-			Args:      []any{issueID, kw, weight},
-		})
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
-	for _, file := range keywords.MentionedFiles {
-		if strings.TrimSpace(file) == "" {
-			continue
-		}
-		facts = append(facts, core.Fact{
-			Predicate: "file_mentioned",
-			Args:      []any{file, issueID},
-		})
+	// The budget is deliberately separate from the LLM timeouts: this is
+	// filesystem work on the user's turn, and a repository too large to finish
+	// inside it must yield the tiers that completed rather than stall the loop.
+	var bus *transparency.GlassBoxEventBus
+	if m.glassBoxEnabled {
+		bus = m.glassBoxEventBus
 	}
 
-	// GAP-017 FIX: Assert tiered_context_file facts for issue-driven file relevance
-	// Tier 1: Directly mentioned files (highest relevance)
-	// This enables the activation engine to boost these files in context selection
-	for i, file := range keywords.MentionedFiles {
-		if strings.TrimSpace(file) == "" {
-			continue
-		}
-		// tiered_context_file(IssueID, File, Tier, Relevance, TokenCount)
-		// Tier 1 for directly mentioned, relevance decreases by position
-		relevance := 1.0 - (float64(i) * 0.1)
-		if relevance < 0.5 {
-			relevance = 0.5
-		}
-		facts = append(facts, core.Fact{
-			Predicate: "tiered_context_file",
-			Args:      []any{issueID, file, "/tier1", relevance, 0},
-		})
+	if _, err := retrieval.SeedIssueFacts(ctx, m.kernel, retrieval.SeedRequest{
+		IssueID:   retrieval.NewIssueID(),
+		IssueText: issueText,
+		WorkDir:   m.workspace,
+		Retriever: m.retriever,
+		Timeout:   retrieval.DefaultSeedTimeout,
+		GlassBox:  bus,
+		TurnID:    m.turnCount,
+	}); err != nil {
+		logging.Context("[seedIssueFacts] retrieval seed failed: %v", err)
 	}
-
-	_ = m.kernel.LoadFacts(facts)
 }
 
 // seedCampaignFacts asserts campaign context facts for spreading activation and JIT selection.

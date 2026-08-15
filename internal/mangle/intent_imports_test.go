@@ -8,7 +8,7 @@ import (
 // TestIntentImports reproduces the missing wiring for imported files in intent_routing.mg.
 func TestIntentImports(t *testing.T) {
 	// Load the intent routing rules
-	intentRoutingPath := findMangleFile(t, "intent_routing.mg")
+	intentRoutingPath := findMangleFile(t, "intent_routing_rules.mg")
 	data, err := os.ReadFile(intentRoutingPath)
 	if err != nil {
 		t.Fatalf("Failed to read intent_routing.mg: %v", err)
@@ -17,20 +17,29 @@ func TestIntentImports(t *testing.T) {
 	// Mock schema declarations to support the test.
 	// We include file_imports here, which is normally in schemas_codedom_polyglot.mg
 	mockSchema := `
+# Declarations the routing file no longer carries.
+#
+# intent_routing_rules.mg moved into internal/core/defaults/policy/, where the
+# constitution already declares these five predicates. A duplicate Decl fails
+# the whole program analysis with "declared more than once", so the file had to
+# drop them — which means a standalone harness like this one has to supply what
+# the corpus supplies in production.
+Decl file_contains(FilePath, Pattern).
+Decl file_imports(Importer, Imported).
+Decl same_package(File1, File2).
+Decl diagnostic(Severity, FilePath, Line, ErrorCode, Message).
+Decl pytest_failure(TestName, ErrorCategory, RootFile, RootLine, Message).
 # Mock Schema Declarations
 Decl user_intent(ID, Category, Verb, Target, Constraint).
 Decl file_topology(Path, Hash, Language, LastModified, IsTestFile).
 Decl file_exists(Path).
 Decl file_edited(Path).
 Decl action_verified(ID, Type, Method, Confidence, Timestamp).
-# Decl diagnostic(Severity, FilePath, Line, Code, Message). - In intent_routing.mg
 Decl test_state(State).
 Decl tdd_state(State).
 Decl next_action(Action).
-# Decl same_package(File1, File2). - In intent_routing.mg
 
 # The predicate we want to wire:
-# Decl file_imports(Importer, Imported). - In intent_routing.mg
 `
 
 	program := mockSchema + "\n" + string(data)

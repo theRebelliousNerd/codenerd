@@ -75,3 +75,25 @@ Decl interaction_blocked_at(SessionID, Reason, Timestamp) bound [/string, /strin
 # Interactive elements
 Decl interactable(ID, ElemType) bound [/string, /name].
 Decl geometry(ID, X, Y, Width, Height) bound [/string, /number, /number, /number, /number].
+
+# Honeypot evidence measured in Go so the verdict stays in Mangle.
+# css_clip_rect carries the parsed `clip: rect(t,r,b,l)` window; link_url_pattern
+# carries the shape of an href. Go never decides whether either is a trap - the
+# collapse threshold and the suspicious pattern set live in browser_honeypot.mg.
+Decl css_clip_rect(Elem, Top, Right, Bottom, Left) bound [/string, /number, /number, /number, /number].
+Decl link_url_pattern(Elem, Pattern) bound [/string, /name].
+Decl honeypot_clip_hidden(Elem) bound [/string].
+Decl honeypot_overflow_hidden(Elem) bound [/string].
+
+# Reason vocabulary. Go used to keep a private predicate->prose checklist that
+# silently drifted from the rule file; honeypot_reason makes the rule file the
+# single source of which evidence codes exist.
+Decl honeypot_reason(Elem, Code) bound [/string, /name].
+
+# Event-stream epoch watermarks. Every navigation retires an epoch: the prior
+# epoch's DOM, network, and interaction facts describe a page that no longer
+# exists, so a consumer may scope queries to the live epoch and collect older
+# ones. browser_stream_saturated records that the manager stopped asserting
+# because the per-epoch fact budget was exhausted.
+Decl browser_epoch(SessionID, Epoch, StartedMS) bound [/string, /number, /number].
+Decl browser_stream_saturated(SessionID, Epoch, Budget, Timestamp) bound [/string, /number, /number, /number].

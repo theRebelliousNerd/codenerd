@@ -1,6 +1,6 @@
 # campaign — Architecture Corpus (`internal/campaign`)
 
-> Last verified against codebase: **2026-07-13**  
+> Last verified against codebase: **2026-08-15**  
 > Status: Living Reference Document  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/campaign/`  

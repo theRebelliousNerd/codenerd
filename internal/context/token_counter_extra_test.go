@@ -106,3 +106,38 @@ func TestNewConfigWithBudget(t *testing.T) {
 		t.Errorf("non-positive budget should fall back to 200000, got %d", def.TotalBudget)
 	}
 }
+
+// stubEstimator stands in for a provider-aligned tokenizer adapter.
+type stubEstimator struct{ perString int }
+
+func (s stubEstimator) EstimateTokens(string) int { return s.perString }
+
+func TestTokenCounter_WhenEstimatorProvided_ShouldReplaceHeuristic(t *testing.T) {
+	heuristic := NewTokenCounter()
+	adapted := NewTokenCounterWithEstimator(stubEstimator{perString: 7})
+
+	const s = "the quick brown fox jumps over the lazy dog"
+	if got := adapted.CountString(s); got != 7 {
+		t.Errorf("estimator ignored: CountString = %d, want 7", got)
+	}
+	if heuristic.CountString(s) == 7 {
+		t.Error("test is vacuous: the heuristic happens to agree with the stub")
+	}
+	// Empty input must short-circuit before the estimator so callers cannot be
+	// charged tokens for nothing.
+	if got := adapted.CountString(""); got != 0 {
+		t.Errorf("CountString(\"\") = %d, want 0", got)
+	}
+}
+
+func TestTokenCounter_WhenEstimatorNil_ShouldKeepDefaultHeuristic(t *testing.T) {
+	if NewTokenCounterWithEstimator(nil).CountString("abcdefgh") != NewTokenCounter().CountString("abcdefgh") {
+		t.Error("nil estimator must degrade to the default heuristic")
+	}
+}
+
+func TestCharsPerTokenEstimator_WhenRatioInvalid_ShouldFallBackToFour(t *testing.T) {
+	if got := (CharsPerTokenEstimator{CharsPerToken: 0}).EstimateTokens("abcdefgh"); got != 2 {
+		t.Errorf("zero ratio must fall back to 4 chars/token, got %d", got)
+	}
+}

@@ -114,18 +114,100 @@ type Config struct {
 	MaxEvidenceFiles      int                `json:"max_evidence_files,omitempty"`
 	MaxEvidenceFileBytes  int64              `json:"max_evidence_file_bytes,omitempty"`
 	Specs                 browserspec.Config `json:"specs,omitempty"`
+	HeaderIngestionMode   string             `json:"header_ingestion_mode,omitempty"`
+	HoneypotGuard         string             `json:"honeypot_guard,omitempty"`
+	MaxEpochEventFacts    int                `json:"max_epoch_event_facts,omitempty"`
+}
+
+// Header ingestion modes. Request and response headers carry session cookies,
+// bearer tokens, and CSRF secrets, so the operator default is off.
+const (
+	// HeaderIngestionOff asserts no net_header facts. This is the default for
+	// operator sessions: a human's own logged-in tabs are the highest-value
+	// credential surface in the process and network headers are rarely what
+	// they are debugging.
+	HeaderIngestionOff = "off"
+	// HeaderIngestionRedacted asserts request and response headers with
+	// sensitive values replaced by the redactor. This is the research default:
+	// an agent diagnosing a failing page needs content-type, cache, and CORS
+	// headers, and never needs the credential values.
+	HeaderIngestionRedacted = "redacted"
+)
+
+// Honeypot interaction guard modes.
+const (
+	// HoneypotGuardOff performs no honeypot check before interacting.
+	HoneypotGuardOff = "off"
+	// HoneypotGuardWarn records the verdict as an interaction_blocked fact and
+	// logs it, but performs the interaction anyway.
+	HoneypotGuardWarn = "warn"
+	// HoneypotGuardBlock refuses the interaction. This is the default: a
+	// detector that gates nothing is advisory decoration.
+	HoneypotGuardBlock = "block"
+)
+
+// GetHeaderIngestionMode resolves the effective header policy.
+//
+// The legacy EnableHeaderIngestion bool is honored as "redacted" so existing
+// configs keep working; HeaderIngestionMode wins when both are set because it
+// is the more specific statement.
+func (c Config) GetHeaderIngestionMode() string {
+	switch strings.ToLower(strings.TrimSpace(c.HeaderIngestionMode)) {
+	case HeaderIngestionOff:
+		return HeaderIngestionOff
+	case HeaderIngestionRedacted, "research", "on":
+		return HeaderIngestionRedacted
+	}
+	if c.EnableHeaderIngestion {
+		return HeaderIngestionRedacted
+	}
+	return HeaderIngestionOff
+}
+
+// ShouldIngestHeaders reports whether the event stream may assert net_header.
+func (c Config) ShouldIngestHeaders() bool {
+	return c.GetHeaderIngestionMode() != HeaderIngestionOff
+}
+
+// GetHoneypotGuard resolves the effective interaction guard mode.
+func (c Config) GetHoneypotGuard() string {
+	switch strings.ToLower(strings.TrimSpace(c.HoneypotGuard)) {
+	case HoneypotGuardOff:
+		return HoneypotGuardOff
+	case HoneypotGuardWarn:
+		return HoneypotGuardWarn
+	case HoneypotGuardBlock:
+		return HoneypotGuardBlock
+	}
+	return HoneypotGuardBlock
+}
+
+// GetMaxEpochEventFacts returns the per-epoch event-stream fact budget.
+// Zero in config means "use the default"; a negative value disables the budget.
+func (c Config) GetMaxEpochEventFacts() int {
+	if c.MaxEpochEventFacts == 0 {
+		return defaultMaxEpochEventFacts
+	}
+	return c.MaxEpochEventFacts
 }
 
 // DefaultConfig returns sensible defaults.
 func DefaultConfig() Config {
 	sharedTabs := true
 	return Config{
-		Headless:             false,
-		ViewportWidth:        1920,
-		ViewportHeight:       1080,
-		NavigationTimeoutMs:  30000,
-		EventLoggingLevel:    "normal",
-		EnableDOMIngestion:   true,
+		Headless:            false,
+		ViewportWidth:       1920,
+		ViewportHeight:      1080,
+		NavigationTimeoutMs: 30000,
+		EventLoggingLevel:   "normal",
+		EnableDOMIngestion:  true,
+		// Research default. An agent diagnosing a page needs content-type,
+		// cache, CORS, and rate-limit headers to explain a failure, and the
+		// redactor strips credential values before anything reaches the kernel.
+		// The operator CLI overrides this to "off" (see cmd/nerd/cmd_browser.go):
+		// a human's own logged-in tabs are a credential surface an agent's
+		// diagnostic appetite does not justify touching.
+		HeaderIngestionMode:  HeaderIngestionRedacted,
 		EventThrottleMs:      100,
 		MultiTabDefault:      &sharedTabs,
 		MaxTabs:              32,
@@ -229,13 +311,26 @@ type EngineSink interface {
 	AddFacts(facts []mangle.Fact) error
 }
 
-// engineAdapter wraps a mangle.Engine to satisfy EngineSink.
+// FactQuerier is the read side of the fact substrate. The manager needs it to
+// consult verdicts the kernel derived (is_honeypot) instead of re-deriving
+// policy in Go. A sink that also implements it is wired automatically; sinks
+// that cannot read back (a write-only kernel adapter, for instance) can be
+// paired with SetFactQuerier.
+type FactQuerier interface {
+	QueryFacts(predicate string, args ...string) []mangle.Fact
+}
+
+// engineAdapter wraps a mangle.Engine to satisfy EngineSink and FactQuerier.
 type engineAdapter struct {
 	engine *mangle.Engine
 }
 
 func (a *engineAdapter) AddFacts(facts []mangle.Fact) error {
 	return a.engine.AddFacts(facts)
+}
+
+func (a *engineAdapter) QueryFacts(predicate string, args ...string) []mangle.Fact {
+	return a.engine.QueryFacts(predicate, args...)
 }
 
 // SessionManager owns the detached Chrome instance and tracks active sessions.
@@ -255,6 +350,10 @@ type SessionManager struct {
 	recorder     *FlightRecorder
 	specCatalog  *browserspec.Catalog
 	pendingTabs  int
+	querier      FactQuerier
+	retractor    FactRetractor
+	budgetMu     sync.Mutex
+	budgets      map[string]*sessionFactBudget
 }
 
 // NewSessionManager creates a new session manager.
@@ -283,6 +382,10 @@ func newSessionManager(cfg Config, sink EngineSink) *SessionManager {
 		browsers:   make(map[string]*browserRecord),
 		redactor:   browsersecurity.NewRedactor(cfg.ExtraSensitiveKeys),
 		pathPolicy: policy,
+		budgets:    make(map[string]*sessionFactBudget),
+	}
+	if querier, ok := sink.(FactQuerier); ok {
+		manager.querier = querier
 	}
 	if cfg.IsEvidenceEnabled() && strings.TrimSpace(cfg.WorkspaceRoot) != "" && policy != nil {
 		recorder, recorderErr := NewFlightRecorder(cfg, policy, manager.redactor)
@@ -746,6 +849,11 @@ func (m *SessionManager) Click(ctx context.Context, sessionID, selector string) 
 		logging.BrowserError("Element not found for click: %s - %v", selector, err)
 		return fmt.Errorf("element not found: %w", err)
 	}
+	// Selector-driven clicks have no visibility precondition (unlike
+	// InteractRef), so this is the path most likely to walk into a trap.
+	if err := m.guardElement(sessionID, "click", el); err != nil {
+		return err
+	}
 	logging.BrowserDebug("Element found, performing click")
 	err = el.Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
@@ -773,6 +881,9 @@ func (m *SessionManager) Type(ctx context.Context, sessionID, selector, text str
 	if err != nil {
 		logging.BrowserError("Element not found for type: %s - %v", selector, err)
 		return fmt.Errorf("element not found: %w", err)
+	}
+	if err := m.guardElement(sessionID, "type", el); err != nil {
+		return err
 	}
 	logging.BrowserDebug("Element found, typing %d characters", len(text))
 	err = el.Input(text)

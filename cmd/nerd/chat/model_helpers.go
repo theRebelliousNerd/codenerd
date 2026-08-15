@@ -295,8 +295,11 @@ func (m *Model) runAlignmentCheck(subject string) tea.Cmd {
 		// Get nerd directory
 		nerdDir := filepath.Join(m.workspace, ".nerd")
 
-		// Load the Northstar store
-		store, err := northstar.NewStore(nerdDir)
+		// Share the session's guardian instead of opening a second SQLite handle
+		// per /alignment invocation. Each ephemeral guardian used to cache its
+		// own GuardianState, so the checks it recorded left the boot guardian's
+		// TasksSinceCheck and drift count stale.
+		guardian, err := northstar.AcquireGuardian(nerdDir, northstar.DefaultGuardianConfig())
 		if err != nil {
 			return alignmentCheckMsg{
 				Subject: subject,
@@ -304,11 +307,7 @@ func (m *Model) runAlignmentCheck(subject string) tea.Cmd {
 				Err:     err,
 			}
 		}
-		defer store.Close()
-
-		// Create guardian with default config
-		config := northstar.DefaultGuardianConfig()
-		guardian := northstar.NewGuardian(store, config)
+		defer func() { _ = northstar.ReleaseGuardian(guardian) }()
 
 		// Set LLM client if available
 		if m.client != nil {

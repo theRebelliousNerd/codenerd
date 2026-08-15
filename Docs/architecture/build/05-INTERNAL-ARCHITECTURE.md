@@ -1,6 +1,6 @@
 # 05 — Internal Architecture: `internal/build`
 
-> Last verified: **2026-07-13**  
+> Last verified: **2026-08-15**  
 > Source of truth: `internal/build/env.go`
 
 ---
@@ -17,7 +17,8 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                    Public API surface                        │
 │  GetBuildEnv | GetBuildEnvForTest | GetBuildEnvForCompile    │
-│  MergeEnv | DefaultBuildConfig | BuildConfig                 │
+│  GetBuildEnvForModule | DetectionRootFor | AppendGoFlags     │
+│  SummarizeEnv | MergeEnv | DefaultBuildConfig | BuildConfig  │
 └────────────────────────────┬────────────────────────────────┘
                              │
           ┌──────────────────┼──────────────────┐
@@ -44,16 +45,19 @@ There is **no state machine**, **no long-lived object**, and **no package-level 
 
 ## 2. Data structures
 
-### 2.1 `BuildConfig` (package-local)
+### 2.1 `BuildConfig` (alias for `config.BuildConfig`)
 
 ```text
-BuildConfig
-  EnvVars     map[string]string   // injected as KEY=value
-  GoFlags     []string            // currently unused by env pipeline
+BuildConfig = config.BuildConfig
+  EnvVars     map[string]string   // injected as KEY=value (sorted, via setEnvKey)
+  GoFlags     []string            // injected into argv by AppendGoFlags
   CGOPackages []string            // documentation / detection side list
 ```
 
-Produced by `DefaultBuildConfig` / `loadBuildConfig`. Not returned from `GetBuildEnv*` (only influences the env slice).
+Produced by `DefaultBuildConfig` / `loadBuildConfig`. Not returned from
+`GetBuildEnv*` (only influences the env slice). The struct itself is declared in
+`internal/config/build.go`; this package aliases it so the persisted and
+in-memory shapes cannot drift.
 
 ### 2.2 Environment representation
 

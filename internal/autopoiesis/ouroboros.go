@@ -65,11 +65,13 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	internalconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
@@ -100,6 +102,10 @@ type OuroborosLoop struct {
 	panicMaker  *PanicMaker  // Tool-level adversarial testing
 	thunderdome *Thunderdome // Arena for running adversarial tests
 
+	// Alternate execution backend, used when config.ExecutionMode is
+	// ExecuteInterpreted. Built from the SafetyChecker's allowlist.
+	interpreter *YaegiExecutor
+
 	config OuroborosConfig
 	stats  OuroborosStats
 
@@ -116,10 +122,29 @@ type OuroborosConfig struct {
 	ExecuteTimeout  time.Duration // Timeout for tool execution
 	AllowNetworking bool          // Whether tools can use networking
 	AllowFileSystem bool          // Whether tools can access filesystem
-	AllowExec       bool          // Whether tools can execute commands
+	AllowExec       bool          // Whether tools can execute commands (see AllowToolExec audit note on Config)
 	TargetOS        string        // Target operating system (GOOS)
 	TargetArch      string        // Target architecture (GOARCH)
 	WorkspaceRoot   string        // Absolute path to the main codeNERD workspace root
+
+	// UserConfig carries the operator's build environment into the compile and
+	// arena subprocesses. Nil means "process defaults only".
+	UserConfig *internalconfig.UserConfig
+
+	// Execution policy for registered tools.
+	//
+	// DECISION (TODO P2 "Unify Yaegi vs binary execution policy"): compiled
+	// binaries stay the product default. The binary path is the only one with
+	// a process boundary, a scrubbed environment (toolExecutionEnv), a hard
+	// context kill and an adversarial pre-flight in the Thunderdome; Yaegi
+	// runs the tool's goroutines inside this process, where a context timeout
+	// abandons the goroutine rather than stopping it. ExecuteInterpreted
+	// exists for hosts with no Go toolchain and for diagnostics, and now
+	// shares the SafetyChecker's import allowlist instead of maintaining a
+	// second one. AllowCompilationFallback lets interpreted mode fall back to
+	// the registered binary when the interpreter cannot run a tool.
+	ExecutionMode            ToolExecutionMode
+	AllowCompilationFallback bool
 
 	// Adversarial Co-Evolution configuration
 	EnableThunderdome bool              // Whether to run adversarial tests (default: true)
@@ -137,10 +162,17 @@ func DefaultOuroborosConfig(workspaceRoot string) OuroborosConfig {
 		ExecuteTimeout:  300 * time.Second,
 		AllowNetworking: false,
 		AllowFileSystem: true, // Read-only by default
-		AllowExec:       true,
-		TargetOS:        os.Getenv("GOOS"),
-		TargetArch:      os.Getenv("GOARCH"),
-		WorkspaceRoot:   workspaceRoot,
+		// AUDIT (TODO P0 "Audit default AllowExec: true"): this defaulted to
+		// true, which put os/exec on the safety allowlist for every generated
+		// tool in every workspace. go_safety.mg gates imports and nothing else,
+		// so an allowlisted os/exec is an unrestricted shell running with the
+		// user's workspace as cwd — a strictly larger capability than anything
+		// else autopoiesis grants, handed out by default. Denied by default
+		// now; grant it per workspace via Config.AllowToolExec.
+		AllowExec:     false,
+		TargetOS:      os.Getenv("GOOS"),
+		TargetArch:    os.Getenv("GOARCH"),
+		WorkspaceRoot: workspaceRoot,
 		// Adversarial Co-Evolution defaults
 		EnableThunderdome: true,
 		ThunderdomeConfig: DefaultThunderdomeConfig(),
@@ -187,23 +219,37 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 	logging.AutopoiesisDebug("Config: ToolsDir=%s, CompiledDir=%s, WorkspaceRoot=%s",
 		config.ToolsDir, config.CompiledDir, config.WorkspaceRoot)
 
-	// Set defaults for OS/Arch if missing
+	// Set defaults for OS/Arch if missing.
+	//
+	// The fallbacks were the literals "windows" and "amd64". Generated tools
+	// are compiled AND executed by this process (RuntimeTool.Execute runs the
+	// binary), so on any host where GOOS is not exported — the normal case —
+	// every tool was cross-compiled for Windows and then failed at call time
+	// with "exec format error". runtime.GOOS/GOARCH describe the machine that
+	// will actually run the binary; an explicit cross-compile target still
+	// wins because it is only consulted when the field is empty.
 	if config.TargetOS == "" {
-		// Default to user's OS environment assumption or runtime
-		if os.Getenv("GOOS") != "" {
-			config.TargetOS = os.Getenv("GOOS")
+		if env := os.Getenv("GOOS"); env != "" {
+			config.TargetOS = env
 		} else {
-			config.TargetOS = "windows"
+			config.TargetOS = runtime.GOOS
 		}
 		logging.AutopoiesisDebug("TargetOS defaulted to: %s", config.TargetOS)
 	}
 	if config.TargetArch == "" {
-		if os.Getenv("GOARCH") != "" {
-			config.TargetArch = os.Getenv("GOARCH")
+		if env := os.Getenv("GOARCH"); env != "" {
+			config.TargetArch = env
 		} else {
-			config.TargetArch = "amd64"
+			config.TargetArch = runtime.GOARCH
 		}
 		logging.AutopoiesisDebug("TargetArch defaulted to: %s", config.TargetArch)
+	}
+
+	// The arena has to compile with the same toolchain environment as the real
+	// compile, so it inherits the operator's UserConfig unless one was set
+	// explicitly on the nested config.
+	if config.ThunderdomeConfig.UserConfig == nil {
+		config.ThunderdomeConfig.UserConfig = config.UserConfig
 	}
 
 	// Initialize Mangle Engine
@@ -231,6 +277,10 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 		engine:        engine,
 		config:        config,
 	}
+
+	// One import policy, two executors: the interpreter inherits the allowlist
+	// the SafetyChecker just built from this config.
+	loop.interpreter = NewYaegiExecutorForPolicy(loop.safetyChecker.allowedPkgs)
 
 	// Initialize Adversarial Co-Evolution components
 	if config.EnableThunderdome {
@@ -338,6 +388,14 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 			logging.Get(logging.CategoryAutopoiesis).Error("PANIC in Ouroboros Loop: %v", r)
 			o.handlePanic(stepID, r, result)
 		}
+		// Latency is recorded for rejected and panicked runs too. Measuring
+		// only the success path makes generation look faster the worse it
+		// gets, since the expensive retry/regenerate cycles all end in
+		// rejection.
+		if result.Duration == 0 {
+			result.Duration = time.Since(start)
+		}
+		o.recordGenerationLatency(result.Duration)
 		timer.Stop()
 		logging.Autopoiesis("=== OUROBOROS LOOP END: tool=%s, success=%v, stage=%s, duration=%v ===",
 			need.Name, result.Success, result.Stage, result.Duration)
@@ -963,10 +1021,10 @@ func (o *OuroborosLoop) ExecuteTool(ctx context.Context, toolName string, input 
 	execCount := o.stats.ExecutionCount
 	o.mu.Unlock()
 
-	logging.AutopoiesisDebug("Starting tool execution #%d: %s (timeout=%v)",
-		execCount, toolName, o.config.ExecuteTimeout)
+	logging.AutopoiesisDebug("Starting tool execution #%d: %s (timeout=%v, mode=%s)",
+		execCount, toolName, o.config.ExecuteTimeout, o.config.ExecutionMode)
 
-	output, err := handle.Execute(execCtx, input)
+	output, err := o.executeByPolicy(execCtx, handle, input)
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Error("Tool execution failed: %s: %v", toolName, err)
 		return output, err
@@ -974,6 +1032,64 @@ func (o *OuroborosLoop) ExecuteTool(ctx context.Context, toolName string, input 
 
 	logging.Autopoiesis("Tool execution successful: %s (output=%d bytes)", toolName, len(output))
 	return output, nil
+}
+
+// recordGenerationLatency accumulates the wall-clock cost of one loop run.
+func (o *OuroborosLoop) recordGenerationLatency(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.stats.GenerationRuns++
+	o.stats.TotalGenerationTime += d
+	if d > o.stats.LongestGeneration {
+		o.stats.LongestGeneration = d
+	}
+}
+
+// executeByPolicy runs a registered tool through the configured backend.
+//
+// ExecuteCompiled (default) runs the registered binary. ExecuteInterpreted
+// reads the committed source back and runs it in the Yaegi sandbox, which is
+// the only mode available on a host with no Go toolchain — and falls back to
+// the binary when AllowCompilationFallback is set, because an interpreter that
+// cannot load a tool should not look like a broken tool.
+func (o *OuroborosLoop) executeByPolicy(ctx context.Context, handle *RuntimeTool, input string) (string, error) {
+	if o.config.ExecutionMode != ExecuteInterpreted || o.interpreter == nil {
+		return handle.Execute(ctx, input)
+	}
+
+	srcPath := filepath.Join(o.config.ToolsDir, handle.Name+".go")
+	src, err := os.ReadFile(srcPath)
+	if err == nil {
+		out, execErr := o.interpreter.ExecuteToolCode(ctx, string(src), input)
+		if execErr == nil {
+			return out, nil
+		}
+		err = fmt.Errorf("interpreted execution failed: %w", execErr)
+	} else {
+		err = fmt.Errorf("interpreted execution needs the tool source at %s: %w", srcPath, err)
+	}
+
+	if o.config.AllowCompilationFallback && handle.BinaryPath != "" {
+		logging.Get(logging.CategoryAutopoiesis).Warn(
+			"Falling back to compiled binary for %s: %v", handle.Name, err)
+		return handle.Execute(ctx, input)
+	}
+	return "", err
+}
+
+// String names the execution mode for logs and status output.
+func (m ToolExecutionMode) String() string {
+	switch m {
+	case ExecuteCompiled:
+		return "compiled"
+	case ExecuteInterpreted:
+		return "interpreted"
+	default:
+		return "unknown"
+	}
 }
 
 // GetStats returns current loop statistics

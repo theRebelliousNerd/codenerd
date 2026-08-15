@@ -1,41 +1,58 @@
 # persist — TODO
 
-> Last verified: **2026-07-13**  
-> Docs-only backlog; items are recommendations, not scheduled work.
+> Last verified: **2026-08-15**  
+> Items marked done carry the commit-visible evidence in parentheses.
 
 ## P0 — Product wiring
 
-- [ ] Choose first production caller (campaign fact bag **or** world code-index freeze **or** kernel debug export)
-- [ ] Implement export/import at that site using `factsnap.Write` / `Read`
-- [ ] Add integration test: domain → facts → snap → facts → domain/kernel equalish
-- [ ] Update [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) with real call sites when done
+- [x] Choose first production caller — **kernel debug export** via `nerd snapshot`
+      (`cmd/nerd/cmd_snapshot.go`; rationale in [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) §2)
+- [x] Implement export/import at that site using `factsnap.Write` / `Read`
+      (through `internal/persist/snapshot`, which owns the workspace layout)
+- [x] Add integration test: domain → facts → snap → facts → kernel equalish
+      (`internal/persist/snapshot/kernel_roundtrip_test.go`)
+- [x] Update [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) with real call sites
 
 ## P1 — Operator surface
 
-- [ ] Optional CLI: export/import fact snapshots under `.nerd/snapshots/`
-- [ ] Document canonical workspace paths once chosen
+- [x] CLI: `nerd snapshot export | import | list` under `.nerd/snapshots/`
+- [x] Document canonical workspace paths ([08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) §4)
 
 ## P2 — Hardening
 
-- [ ] Optional content sniff when suffix missing (gzip `1f 8b`, zstd magic)
-- [ ] Cross-link comments: `core.baseTermToValue` vs `factsnap.baseTermToValue` NameType divergence
-- [ ] Explicit tests for empty slice, bool, float multi-hop
-- [ ] Consider shared conversion helper under `internal/types` if drift becomes painful
+- [x] Content sniff when the suffix is missing or wrong (gzip `1f 8b`, zstd `28 b5 2f fd`);
+      content beats the filename, since magic bytes cannot be wrong about the container
+- [x] Cross-link comments for the `core.baseTermToValue` vs `factsnap.baseTermToValue`
+      NameType divergence — documented at the point of divergence and pinned by
+      `TestNameConstant_WhenRoundTripped_ShouldStayMangleAtom`
+- [x] Explicit tests for empty slice, bool, float multi-hop
+      (`factsnap_robustness_test.go`)
+- [ ] Shared conversion helper under `internal/types` — still open; see
+      [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) Q5. Unification is a consumer
+      migration in `internal/core`, not a file move, so it did not belong in
+      this pass.
 
 ## P3 — Polish
 
-- [ ] Logging (size, duration, codec) on write/read
-- [ ] Optional integrity hash sidecar
-- [ ] Package-level doc file or root re-export if more subpackages appear
-- [ ] Streaming writer only if multi-million fact dumps appear in practice
+- [x] Logging (size, duration, codec, digest) on write/read — `logging.CategoryStore`
+      for now; a dedicated `CategoryPersist` is the right home once the logger
+      gains one
+- [x] Integrity hash sidecar — `<snapshot>.sha256`, sha256sum(1)-compatible,
+      verified by `Read`, surfaced by `snapshot.List` and `nerd snapshot list`
+- [x] Package-level doc file — `internal/persist/doc.go` now that there are two
+      subpackages
+- [ ] Streaming writer — still not justified; the whole snapshot is buffered in
+      memory before compression. Revisit if an export exceeds ~1M facts.
 
 ## Documentation
 
 - [x] Full architecture corpus rebuild (2026-07-13)
-- [ ] Refresh reverse-deps after first real importer lands
+- [x] Refresh reverse-deps after first real importer landed (2026-08-15,
+      [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md))
 
 ## Non-goals (do not queue)
 
 - Replacing `internal/store` sqlite cold path
 - Embedding / blob storage inside factsnap
 - Policy enforcement inside the codec
+- Automatic load of snapshots at boot (see [08](08-WIRING-AND-INTEGRATION.md) §3)

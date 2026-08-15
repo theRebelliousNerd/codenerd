@@ -1,10 +1,10 @@
 # codeNERD `internal/diff` — Implemented Spec (Deep-Dive)
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-15  
 > Status: Living Reference Document  
 > Language: Go  
-> Primary sources: `internal/diff/diff.go`  
-> Scale: **1** non-test Go file ≈ **379** lines; **2** test files ≈ **949** lines; **0** Mangle  
+> Primary sources: `internal/diff/diff.go`, `internal/diff/cache.go`  
+> Scale: **2** non-test Go files; **5** test files; **0** Mangle  
 > External engine: `github.com/sergi/go-diff` v1.4.0 (`diffmatchpatch`)
 
 ## 1. Overview
@@ -30,9 +30,9 @@ data model:
 | Default context | 3 lines (`defaultContextLines`) |
 | Pathological timeout | 5s (`diffTimeout` on `dmp.DiffTimeout`) |
 | Binary gate | NUL byte (`0x00`) → `IsBinary`, empty hunks |
-| Cache | FNV-1a content pair → `sync.Map` of `*FileDiff` |
+| Cache | Bounded LRU keyed by two hashes + length per side; deep-copied `*FileDiff` |
 | Singleton | `DefaultEngine` + package-level `ComputeDiff` |
-| Concurrency | `sync.Map` for cache; concurrent `ComputeDiff` tested |
+| Concurrency | Mutex-guarded LRU; concurrent `ComputeDiff` and `ClearCache` tested under `-race` |
 | Mangle / kernel | **None** — pure Go library |
 | Primary consumer | `cmd/nerd/ui/diffview.go` (DiffApprovalView) |
 
@@ -82,18 +82,19 @@ ComputeDiff(oldPath, newPath, oldContent, newContent)
 | Hunk grouping + context | **Implemented** | Default 3; clamp [0, 1000] |
 | New / delete flags | **Implemented** | Empty-string content |
 | Binary short-circuit | **Implemented** | NUL detection |
-| Word-level diffs | **Implemented** | Returns raw `[]diffmatchpatch.Diff` |
+| Word-level diffs | **Implemented** | Returns `[]WordSpan` — no third-party type in the public API |
 | Cache + `ClearCache` | **Implemented** | Path rewrite on hit |
-| Concurrent safety | **Partial** | `sync.Map` OK; shallow cache clone shares `Hunks` slice |
-| Cache size bound / eviction | **Missing** | Unbounded `sync.Map` growth |
-| Content collision defense | **Missing** | Hash-only keys; no length/content verify |
+| Concurrent safety | **Implemented** | Mutex-guarded LRU; `get` returns a deep `Clone` |
+| Cache size bound / eviction | **Implemented** | LRU on entry count **and** approximate bytes |
+| Content collision defense | **Implemented** | Two independent hashes + both lengths in the key; opt-in exact content verify via `Options.VerifyCacheContent`, rejected hits counted in `Stats.Collisions` |
 | Unified-diff emit/parse | **Out of scope** | Consumers format themselves |
 | Side-by-side model | **Out of scope** | UI concern |
 | Kernel / `permitted` | **N/A** | Not an effectful surface |
-| Logging / metrics | **Missing** | Silent library |
+| Logging / metrics | **Implemented (metrics)** | `Engine.Stats()` — hits, misses, computes, binary, evicted, collisions, entries, bytes. No logging by design |
 
-**Overall:** living production utility — **not** pre-implementation. Mature for its role;
-residual risk is cache hygiene and a few edge-case TODOs still listed in tests.
+**Overall:** living production utility — **not** pre-implementation. Cache hygiene
+(deep copy, bounds, collision defense) and the public-API type leak are closed;
+the package's public surface no longer mentions `diffmatchpatch`.
 
 ---
 
@@ -103,9 +104,13 @@ residual risk is cache hygiene and a few edge-case TODOs still listed in tests.
 
 ```
 internal/diff/
-  diff.go                      # Entire production surface (~379 lines)
-  diff_test.go                 # Core + boundary tests + benchmarks (~484 lines)
-  diff_comprehensive_test.go   # Parallel/comprehensive suite (~466 lines)
+  diff.go                      # Public model, Options, Engine, hunk conversion, word spans
+  cache.go                     # Bounded LRU, Stats, FileDiff.Clone/approxSize
+  diff_test.go                 # Core + boundary tests + benchmarks
+  diff_comprehensive_test.go   # Parallel/comprehensive suite
+  cache_test.go                # Deep-copy, eviction, ClearCache race, Stats
+  word_span_test.go            # WordSpan contract, LineHeader invariant, collision verify
+  benchmark_test.go            # Realistic-source + verified-hit benchmarks and CI smoke
 ```
 
 No subpackages, no `.mg`, no config YAML, no README inside the package.
@@ -144,11 +149,17 @@ shallow cache mutation, OOM under mass unique diffs, minified monolith timeout, 
 LineContext = 0   // unchanged
 LineAdded   = 1
 LineRemoved = 2
-LineHeader  = 3   // reserved; engine never emits today
+LineHeader  = 3   // UI-owned: the engine never emits it, by decision
 ```
 
-`LineHeader` exists for UI aliasing (`cmd/nerd/ui` maps `DiffLineHeader`) but
-`diffsToOperations` only produces Context / Added / Removed.
+**`LineHeader` decision (2026-08-15).** Kept, not deprecated, and not deleted.
+Hunk framing lives in the `Hunk` counters, so a renderer composes its own
+`@@ -a,b +c,d @@` row rather than receiving one as a `Line` — but the row it
+composes still needs a `LineType`, and `cmd/nerd/ui` uses `DiffLineHeader` for
+exactly that. So `LineHeader` is a **UI-owned member of the enum**: legal to
+construct, never produced by `ComputeDiff`. The invariant is enforced by
+`TestComputeDiff_WhenAnyInput_ShouldNeverEmitLineHeader`, so it cannot rot back
+into ambiguity.
 
 ### 4.2 `Line`
 
@@ -244,7 +255,7 @@ Public `ComputeDiff` always uses `defaultContextLines = 3` (no public override p
 | Hit | Shallow struct copy; `OldPath`/`NewPath` replaced; **Hunks slice shared** |
 | Miss | Compute, `cache.Store`, return original pointer |
 | Binary | Not cached |
-| Clear | `ClearCache` replaces `sync.Map` with a new empty one |
+| Clear | `ClearCache` empties the LRU in place (safe against concurrent `ComputeDiff`) and preserves cumulative `Stats` |
 
 **Shallow-copy trap:** mutating `result.Hunks` or nested `Line` values after a cache hit
 mutates the shared cached structure for future callers. Documented as TEST_GAP; not yet
@@ -257,12 +268,13 @@ step exists.
 ### 5.6 Word-level API
 
 ```
-func (e *Engine) ComputeWordLevelDiff(oldLine, newLine string) []diffmatchpatch.Diff
+func (e *Engine) ComputeWordLevelDiff(oldLine, newLine string) []WordSpan
+func ComputeWordLevelDiff(oldLine, newLine string) []WordSpan  // uiDiffEngine-independent; DefaultEngine
 ```
 
 - Runs `DiffMain` + `DiffCleanupSemantic` **without** line reduction.  
 - Returns sergi’s own `Diff` slice (not `[]Line`).  
-- Used by `DiffApprovalView.renderWordDiffPair` — UI currently under-utilizes highlight
+- Used by `DiffApprovalView.renderWordDiffPair`, which now paints the spans: the runs unique to each side are highlighted, unchanged runs stay in the base style
   ranges (styles prepared, full char-range painting still partial).
 
 ---
@@ -339,15 +351,15 @@ editing `diff.go` (or extending the API).
 ```
 Engine
   ├── dmp  *DiffMatchPatch   // not mutex-guarded; DiffMain is per-call stateful on dmp?
-  └── cache sync.Map         // concurrent Load/Store safe
+  └── cache *diffCache       // mutex-guarded LRU
 ```
 
 - Concurrent `ComputeDiff` on one `Engine` is exercised by
   `TestComputeDiff_WhenConcurrent_ShouldNotRace` (20 goroutines).  
-- `ClearCache` assigns a new `sync.Map` — races with in-flight `Store` can leave entries
+- `ClearCache` empties in place under the cache mutex — no reassignment, no race
   on the abandoned map (benign) or mix maps depending on timing; not formally proven free
   of subtle races under `-race` for clear-during-compute (listed as TEST_GAP).  
-- `DefaultEngine` is global; all package-level `ComputeDiff` callers share one cache.
+- `DefaultEngine` is global; package-level `ComputeDiff` callers share one cache. `cmd/nerd/ui` no longer uses it: the UI has a single package engine (`uiDiffEngine`) shared by `CreateDiffFromStrings` and every `DiffApprovalView`, so file diffs and word diffs hit one cache instead of two.
 
 ---
 
@@ -359,9 +371,9 @@ and [TODO.md](TODO.md) for:
 - Unbounded cache growth  
 - Shallow cache clone / shared hunks  
 - Hash-only keys  
-- `LineHeader` unused by engine  
+- `LineHeader` deliberately UI-owned and test-enforced  
 - No public `contextLines` parameter on `ComputeDiff`  
-- Word-diff return type couples UI to sergi types  
+- Word-diff returns codeNERD `WordSpan`; sergi types no longer escape the package  
 - No structured logging on timeout / binary short-circuit  
 
 Non-gaps: “needs Mangle Decl”, “needs VirtualStore route”, “pre-implementation 0%” —

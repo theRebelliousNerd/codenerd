@@ -42,6 +42,18 @@ func helperCreateDetectorWithSchemas(t *testing.T) *HoneypotDetector {
 	return NewHoneypotDetector(engine)
 }
 
+// mangleEngine unwraps the detector's HoneypotStore for tests that need to
+// assert facts and force re-evaluation directly. The detector itself only needs
+// the narrow push/query surface.
+func (d *HoneypotDetector) mangleEngine(t *testing.T) *mangle.Engine {
+	t.Helper()
+	engine, ok := d.engine.(*mangle.Engine)
+	if !ok {
+		t.Fatalf("detector store is %T, want *mangle.Engine", d.engine)
+	}
+	return engine
+}
+
 func TestCalculateConfidence_WhenNoReasons_ShouldReturnZero(t *testing.T) {
 	detector := helperCreateDetectorWithSchemas(t)
 
@@ -56,12 +68,12 @@ func TestCalculateConfidence_WhenOneReason_ShouldReturnBaseConfidence(t *testing
 	detector := helperCreateDetectorWithSchemas(t)
 
 	// Add facts to make exactly one reason match
-	if err := detector.engine.AddFacts([]mangle.Fact{
+	if err := detector.mangleEngine(t).AddFacts([]mangle.Fact{
 		{Predicate: "css_property", Args: []any{"conf_elem1", "display", "none"}},
 	}); err != nil {
 		t.Fatalf("Failed to add facts: %v", err)
 	}
-	if err := detector.engine.RecomputeRules(); err != nil {
+	if err := detector.mangleEngine(t).RecomputeRules(); err != nil {
 		t.Fatalf("Failed to recompute: %v", err)
 	}
 
@@ -76,13 +88,13 @@ func TestCalculateConfidence_WhenOneReason_ShouldReturnBaseConfidence(t *testing
 func TestCalculateConfidence_WhenMultipleReasons_ShouldIncrease(t *testing.T) {
 	detector := helperCreateDetectorWithSchemas(t)
 
-	if err := detector.engine.AddFacts([]mangle.Fact{
+	if err := detector.mangleEngine(t).AddFacts([]mangle.Fact{
 		{Predicate: "css_property", Args: []any{"conf_elem2", "display", "none"}},
 		{Predicate: "css_property", Args: []any{"conf_elem2", "visibility", "hidden"}},
 	}); err != nil {
 		t.Fatalf("Failed to add facts: %v", err)
 	}
-	if err := detector.engine.RecomputeRules(); err != nil {
+	if err := detector.mangleEngine(t).RecomputeRules(); err != nil {
 		t.Fatalf("Failed to recompute: %v", err)
 	}
 
@@ -98,7 +110,7 @@ func TestCalculateConfidence_WhenManyReasons_ShouldCapAtOne(t *testing.T) {
 	detector := helperCreateDetectorWithSchemas(t)
 
 	// Push many different honeypot signals to exceed cap
-	if err := detector.engine.AddFacts([]mangle.Fact{
+	if err := detector.mangleEngine(t).AddFacts([]mangle.Fact{
 		{Predicate: "css_property", Args: []any{"conf_elem3", "display", "none"}},
 		{Predicate: "css_property", Args: []any{"conf_elem3", "visibility", "hidden"}},
 		{Predicate: "css_property", Args: []any{"conf_elem3", "opacity", "0"}},
@@ -109,7 +121,7 @@ func TestCalculateConfidence_WhenManyReasons_ShouldCapAtOne(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Failed to add facts: %v", err)
 	}
-	if err := detector.engine.RecomputeRules(); err != nil {
+	if err := detector.mangleEngine(t).RecomputeRules(); err != nil {
 		t.Fatalf("Failed to recompute: %v", err)
 	}
 
@@ -132,12 +144,12 @@ func TestGetHoneypotReasons_WhenNoFacts_ShouldReturnEmpty(t *testing.T) {
 func TestGetHoneypotReasons_WhenOpacityZero_ShouldDetect(t *testing.T) {
 	detector := helperCreateDetectorWithSchemas(t)
 
-	if err := detector.engine.AddFacts([]mangle.Fact{
+	if err := detector.mangleEngine(t).AddFacts([]mangle.Fact{
 		{Predicate: "css_property", Args: []any{"opacity_elem", "opacity", "0"}},
 	}); err != nil {
 		t.Fatalf("Failed to add facts: %v", err)
 	}
-	if err := detector.engine.RecomputeRules(); err != nil {
+	if err := detector.mangleEngine(t).RecomputeRules(); err != nil {
 		t.Fatalf("Failed to recompute: %v", err)
 	}
 
@@ -154,12 +166,12 @@ func TestGetHoneypotReasons_WhenOpacityZero_ShouldDetect(t *testing.T) {
 func TestGetHoneypotReasons_WhenAriaHidden_ShouldDetect(t *testing.T) {
 	detector := helperCreateDetectorWithSchemas(t)
 
-	if err := detector.engine.AddFacts([]mangle.Fact{
+	if err := detector.mangleEngine(t).AddFacts([]mangle.Fact{
 		{Predicate: "attribute", Args: []any{"aria_elem", "aria-hidden", "true"}},
 	}); err != nil {
 		t.Fatalf("Failed to add facts: %v", err)
 	}
-	if err := detector.engine.RecomputeRules(); err != nil {
+	if err := detector.mangleEngine(t).RecomputeRules(); err != nil {
 		t.Fatalf("Failed to recompute: %v", err)
 	}
 
@@ -173,12 +185,12 @@ func TestGetHoneypotReasons_WhenAriaHidden_ShouldDetect(t *testing.T) {
 func TestGetHoneypotReasons_WhenNegativeTabindex_ShouldDetect(t *testing.T) {
 	detector := helperCreateDetectorWithSchemas(t)
 
-	if err := detector.engine.AddFacts([]mangle.Fact{
+	if err := detector.mangleEngine(t).AddFacts([]mangle.Fact{
 		{Predicate: "attribute", Args: []any{"tabidx_elem", "tabindex", "-1"}},
 	}); err != nil {
 		t.Fatalf("Failed to add facts: %v", err)
 	}
-	if err := detector.engine.RecomputeRules(); err != nil {
+	if err := detector.mangleEngine(t).RecomputeRules(); err != nil {
 		t.Fatalf("Failed to recompute: %v", err)
 	}
 

@@ -385,7 +385,6 @@ func TestRecordRootBaseline_OrderIndependent(t *testing.T) {
 	}
 }
 
-
 func TestRecordRootBaseline_EmptyNonNilBaselineIsRecorded(t *testing.T) {
 	ws := t.TempDir()
 	nerdDir := t.TempDir()
@@ -427,4 +426,3 @@ func TestRecordRootBaseline_EmptyNonNilBaselineIsRecorded(t *testing.T) {
 		t.Errorf("scratch.txt not preserved in artifacts after sweep: %v", err)
 	}
 }
-

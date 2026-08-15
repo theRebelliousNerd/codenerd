@@ -66,7 +66,9 @@ func (v *VirtualStore) RouteActionResult(ctx context.Context, action Fact) (Acti
 			logging.Get(logging.CategoryVirtualStore).Error(
 				"Dreamer unavailable; BLOCKED action: %s on %s", req.Type, req.Target)
 			v.injectFact(newSecurityViolationFact(req, reason))
-			return ActionResult{}, fmt.Errorf("action %s blocked: %s", req.Type, reason)
+			transparency.ReportDeny(string(req.Type), req.Target, "dreamer_unavailable")
+			return ActionResult{}, transparency.NewSafetyError(string(req.Type), req.Target,
+				"dreamer_unavailable", fmt.Errorf("action %s blocked: %s", req.Type, reason))
 		}
 
 		dreamResult := dreamer.SimulateAction(ctx, req)
@@ -79,7 +81,9 @@ func (v *VirtualStore) RouteActionResult(ctx context.Context, action Fact) (Acti
 				Predicate: "dream_blocked_action",
 				Args:      []any{dreamResult.ActionID, string(req.Type), req.Target, dreamResult.Reason},
 			})
-			return ActionResult{}, fmt.Errorf("action %s blocked by dreamer safety gate: %s", req.Type, dreamResult.Reason)
+			transparency.ReportDeny(string(req.Type), req.Target, "dreamer:"+dreamResult.Reason)
+			return ActionResult{}, transparency.NewSafetyError(string(req.Type), req.Target, "dreamer",
+				fmt.Errorf("action %s blocked by dreamer safety gate: %s", req.Type, dreamResult.Reason))
 		}
 		logging.VirtualStoreDebug("Dreamer approved action: %s on %s", req.Type, req.Target)
 	}
@@ -94,7 +98,10 @@ func (v *VirtualStore) RouteActionResult(ctx context.Context, action Fact) (Acti
 		// could be audited against afterwards.
 		logging.Audit().SafetyCheck(string(req.Type)+" "+req.Target, false, err.Error())
 		v.injectFact(newSecurityViolationFact(req, err.Error()))
-		return ActionResult{}, err
+		// Operator surface: without this the refusal reached the audit file and
+		// nothing else, so `/transparency` could never list a safety block.
+		transparency.ReportDeny(string(req.Type), req.Target, "constitution")
+		return ActionResult{}, transparency.NewSafetyError(string(req.Type), req.Target, "constitution", err)
 	}
 
 	// Kernel-level permission gate (default deny if kernel says not permitted)
@@ -117,7 +124,10 @@ func (v *VirtualStore) RouteActionResult(ctx context.Context, action Fact) (Acti
 		logging.Audit().SafetyCheck(string(req.Type)+" "+req.Target, false,
 			fmt.Sprintf("kernel policy derived no permitted/3 fact (payload_keys=%v)", payloadKeys))
 		v.injectFact(newSecurityViolationFact(req, err.Error()))
-		return ActionResult{}, err
+		// "permitted" is the rule identity the operator can act on: it points
+		// at /query permitted and /why rather than at this Go file.
+		transparency.ReportDeny(string(req.Type), req.Target, "permitted")
+		return ActionResult{}, transparency.NewSafetyError(string(req.Type), req.Target, "permitted", err)
 	}
 
 	// The allow verdict matters as much as the denial: an audit that records
@@ -247,6 +257,31 @@ func (v *VirtualStore) emitToolAndRoutingEvents(req ActionRequest, result Action
 			Timestamp: time.Now(),
 		})
 	}
+
+	// Post-operation summary for the OperationSummaries flag. Gated inside the
+	// manager, so this is a nil check plus a flag read when the feature is off.
+	outcome := "Success"
+	details := result.Output
+	if !result.Success {
+		outcome = "Failed"
+		details = result.Error
+	}
+	if len(details) > 400 {
+		details = details[:397] + "..."
+	}
+	transparency.RecordOperation(types.OperationRecord{
+		Operation: verb,
+		Outcome:   outcome,
+		Duration:  dur,
+		Details:   details,
+		Source:    req.ActionID,
+		FilesAffected: func() []string {
+			if strings.TrimSpace(req.Target) == "" {
+				return nil
+			}
+			return []string{req.Target}
+		}(),
+	})
 
 	if gbus != nil {
 		summary := label

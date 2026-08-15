@@ -1,6 +1,6 @@
 # 08 — Wiring and Integration: Autopoiesis
 
-> Last verified against codebase: **2026-07-13**  
+> Last verified against codebase: **2026-08-15**  
 > Honest wiring journal — only paths found in source
 
 ## 1. Boot wiring (Cortex)
@@ -76,14 +76,30 @@ user_intent (perception)
 
 | Item | Status |
 |------|--------|
-| `StartKernelListener` | Implemented; chat lifecycle supports cancel — confirm always started in all boot paths |
+| `StartKernelListener` | **Confirmed** on both interactive boot paths (`session_boot.go:912`, `session_shared_boot.go:160`) at `DefaultKernelPollInterval` (2s). `kernel_listener_wiring_test.go` fails if a chat file wires an Orchestrator into a session without starting it. |
 | `SetPromptAssembler` | Implemented; depends on chat attaching after Cortex boot |
-| Light `GenerateTool` in process.go | Live but shallower than Ouroboros |
+| Light `GenerateTool` in process.go | **Closed.** `Orchestrator.GenerateTool` now runs the full loop, so the chat call site is audited without a chat-side change. |
 | CLI campaign + Ouroboros | Comment in `cmd_campaign.go` indicates incomplete CLI-mode Ouroboros wiring |
-| YaegiExecutor | Implemented; not primary commit path of Ouroboros |
+| YaegiExecutor | Wired behind `OuroborosConfig.ExecutionMode`; compiled binaries remain the default |
+| `SetAgentDefinitionWriter` | **Pending boot wiring.** Autopoiesis writes a minimal `prompts.yaml` fallback; boot should install `system.WriteAgentDefinition` so agents get the canonical template. |
 | `ActionDelegateToShard` | Enum exists; primary delegation is kernel `delegate_task` |
 
 Before deleting “unused” methods: grep chat, factory, campaign, e2e, and VirtualStore.
+
+## 8b. Post-boot parity gate
+
+`SetKernel` → `syncExistingToolsToKernel` → `VerifyKernelToolParity`. The registry (what can actually be
+executed) and the kernel's `tool_registered` facts (what routing can see) must name the same tools; a
+mismatch is logged as an error with both sides named. `kernel_parity_test.go` covers agreement, tools
+missing from the kernel, kernel facts with no binary, and the `/name`-constant form the kernel round-trips.
+
+## 8c. Persistent-agent handoff
+
+Autopoiesis authors; shards schedule. `writeAgentSpec` emits `prompts.yaml` alongside `agent.json`, because
+`system.DiscoverAgentsOnDisk` skips any agent directory without one — previously every autopoiesis-created
+agent was invisible to the shard manager that was supposed to run it. Boot may install the canonical
+template writer via `Orchestrator.SetAgentDefinitionWriter(system.WriteAgentDefinition)`; a direct import
+would close a cycle (`system/factory.go` imports autopoiesis).
 
 ## 9. UI surface
 

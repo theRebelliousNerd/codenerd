@@ -1,6 +1,6 @@
 # northstar — Architecture Corpus (`internal/northstar`)
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-08-15  
 > Status: Living Reference Document  
 > Language: Go (module `codenerd`)  
 > Primary package: `internal/northstar/`  
@@ -34,6 +34,7 @@ It is **not**:
 | [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md) | Tests, gaps, commands |
 | [11-OBSERVABILITY.md](11-OBSERVABILITY.md) | Logging category and debug hooks |
 | [12-FAILURE-MODES.md](12-FAILURE-MODES.md) | Concrete failure modes |
+| [13-OPERATOR-RUNBOOK.md](13-OPERATOR-RUNBOOK.md) | Vision authority + operator recipes (wizard → kernel facts) |
 | [TODO.md](TODO.md) / [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) / [_progress.md](_progress.md) | Governance |
 
 ## Quick facts
@@ -42,9 +43,9 @@ It is **not**:
 |----------|-------|
 | Role in fact-flow | Side-channel guardian: asserts vision facts into kernel; alignment is **not** the primary OODA path |
 | Durable store | `.nerd/northstar_knowledge.db` (SQLite via `NewStore`) |
-| Wizard/CLI artifact | `.nerd/northstar.json` / `.nerd/northstar.mg` (chat + `cmd_northstar.go`; **parallel** to DB) |
+| Wizard/CLI artifact | `.nerd/northstar.json` / `.nerd/northstar.mg` — **import/export surfaces**, reconciled with the DB by `SyncVisionAuthority` on every guardian boot (see [13-OPERATOR-RUNBOOK.md](13-OPERATOR-RUNBOOK.md)) |
 | Logging | `logging.CategoryNorthstar` (`"northstar"`) |
-| Kernel predicates | `northstar_mission`, `northstar_problem`, `northstar_vision`, personas/needs, capabilities, risks, requirements, constraints, `northstar_defined` |
+| Kernel predicates | `northstar_mission`, `northstar_problem`, `northstar_vision`, personas/needs, capabilities, `northstar_serves`, risks, `northstar_mitigation` + `northstar_mitigation_text`, requirements, `northstar_supports`, `northstar_addresses`, constraints, `northstar_defined` |
 
 ## Verify
 

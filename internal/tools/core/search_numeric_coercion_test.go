@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -48,7 +47,6 @@ func countGrepMatches(result string) int {
 	return n
 }
 
-
 func itoa(n int) string {
 	// minimal itoa without fmt to keep helper pure; handles 0-999
 	if n == 0 {
@@ -93,7 +91,16 @@ func TestArgInt_AcceptsExpectedTypes(t *testing.T) {
 		{"json.Number", json.Number("7"), 7, true},
 		{"json.Number float string", json.Number("7.9"), 7, true},
 		{"missing", nil, 0, false},
-		{"wrong type string", "7", 0, false},
+		// A decimal string is now accepted. The old assertion pinned this
+		// package's private copy of the coercion, which rejected strings while
+		// the shell package's copy accepted them — so `timeout_seconds: "30"`
+		// worked for run_command and `max_results: "500"` was silently dropped
+		// by grep. The four copies are now one (tools.CoerceInt), unified on
+		// the permissive superset: the whole point of the helper is that no
+		// caller-supplied limit is discarded because of its wire type.
+		{"decimal string", "7", 7, true},
+		{"non-numeric string", "abc", 0, false},
+		{"empty string", "", 0, false},
 		{"bool", true, 0, false},
 	}
 	for _, tc := range cases {
@@ -122,7 +129,7 @@ func TestGlob_MaxResults_Float64OverridesDefault_SmallLimit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	result, err := executeGlob(context.Background(), map[string]any{
+	result, err := executeGlob(wsCtx(dir), map[string]any{
 		"pattern":     "*.go",
 		"base_path":   dir,
 		"max_results": float64(2),
@@ -141,7 +148,7 @@ func TestGlob_MaxResults_IntOverrides(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		os.WriteFile(filepath.Join(dir, "file_"+itoa(i)+".go"), []byte(""), 0644)
 	}
-	result, err := executeGlob(context.Background(), map[string]any{
+	result, err := executeGlob(wsCtx(dir), map[string]any{
 		"pattern":     "*.go",
 		"base_path":   dir,
 		"max_results": int(2),
@@ -160,7 +167,7 @@ func TestGlob_MaxResults_Int64Overrides(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		os.WriteFile(filepath.Join(dir, "file_"+itoa(i)+".go"), []byte(""), 0644)
 	}
-	result, err := executeGlob(context.Background(), map[string]any{
+	result, err := executeGlob(wsCtx(dir), map[string]any{
 		"pattern":     "*.go",
 		"base_path":   dir,
 		"max_results": int64(2),
@@ -179,7 +186,7 @@ func TestGlob_MaxResults_JsonNumberOverrides(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		os.WriteFile(filepath.Join(dir, "file_"+itoa(i)+".go"), []byte(""), 0644)
 	}
-	result, err := executeGlob(context.Background(), map[string]any{
+	result, err := executeGlob(wsCtx(dir), map[string]any{
 		"pattern":     "*.go",
 		"base_path":   dir,
 		"max_results": json.Number("2"),
@@ -199,7 +206,7 @@ func TestGlob_MaxResults_Float64OverridesDefault_LargeLimit(t *testing.T) {
 	for i := 0; i < total; i++ {
 		os.WriteFile(filepath.Join(dir, "file_"+itoa(i)+".go"), []byte(""), 0644)
 	}
-	result, err := executeGlob(context.Background(), map[string]any{
+	result, err := executeGlob(wsCtx(dir), map[string]any{
 		"pattern":     "*.go",
 		"base_path":   dir,
 		"max_results": float64(500),
@@ -219,7 +226,7 @@ func TestGlob_MaxResults_ZeroDoesNotOverride(t *testing.T) {
 	for i := 0; i < total; i++ {
 		os.WriteFile(filepath.Join(dir, "file_"+itoa(i)+".go"), []byte(""), 0644)
 	}
-	result, err := executeGlob(context.Background(), map[string]any{
+	result, err := executeGlob(wsCtx(dir), map[string]any{
 		"pattern":     "*.go",
 		"base_path":   dir,
 		"max_results": float64(0),
@@ -231,7 +238,7 @@ func TestGlob_MaxResults_ZeroDoesNotOverride(t *testing.T) {
 		t.Fatalf("zero max_results should not override default 100, expected 100 got %d", got)
 	}
 	// also int zero
-	result, _ = executeGlob(context.Background(), map[string]any{
+	result, _ = executeGlob(wsCtx(dir), map[string]any{
 		"pattern":     "*.go",
 		"base_path":   dir,
 		"max_results": int(0),
@@ -248,7 +255,7 @@ func TestGlob_MaxResults_NegativeDoesNotOverride(t *testing.T) {
 	for i := 0; i < total; i++ {
 		os.WriteFile(filepath.Join(dir, "file_"+itoa(i)+".go"), []byte(""), 0644)
 	}
-	result, err := executeGlob(context.Background(), map[string]any{
+	result, err := executeGlob(wsCtx(dir), map[string]any{
 		"pattern":     "*.go",
 		"base_path":   dir,
 		"max_results": float64(-5),
@@ -259,7 +266,7 @@ func TestGlob_MaxResults_NegativeDoesNotOverride(t *testing.T) {
 	if got := countGlobResults(result); got != 100 {
 		t.Fatalf("negative max_results should not override default 100, got %d", got)
 	}
-	result, _ = executeGlob(context.Background(), map[string]any{
+	result, _ = executeGlob(wsCtx(dir), map[string]any{
 		"pattern":     "*.go",
 		"base_path":   dir,
 		"max_results": int(-10),
@@ -276,7 +283,7 @@ func TestGlob_MaxResults_AbsentLeavesDefault(t *testing.T) {
 	for i := 0; i < total; i++ {
 		os.WriteFile(filepath.Join(dir, "file_"+itoa(i)+".go"), []byte(""), 0644)
 	}
-	result, err := executeGlob(context.Background(), map[string]any{
+	result, err := executeGlob(wsCtx(dir), map[string]any{
 		"pattern":   "*.go",
 		"base_path": dir,
 	})
@@ -296,7 +303,7 @@ func TestGrep_MaxResults_Float64OverridesDefault_SmallLimit(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := createGrepFileWithMatches(t, dir, 10)
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(dir), map[string]any{
 		"pattern":     "hello",
 		"path":        path,
 		"max_results": float64(2),
@@ -313,7 +320,7 @@ func TestGrep_MaxResults_IntOverrides(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := createGrepFileWithMatches(t, dir, 10)
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(dir), map[string]any{
 		"pattern":     "hello",
 		"path":        path,
 		"max_results": int(2),
@@ -330,7 +337,7 @@ func TestGrep_MaxResults_Int64Overrides(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := createGrepFileWithMatches(t, dir, 10)
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(dir), map[string]any{
 		"pattern":     "hello",
 		"path":        path,
 		"max_results": int64(2),
@@ -347,7 +354,7 @@ func TestGrep_MaxResults_JsonNumberOverrides(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := createGrepFileWithMatches(t, dir, 10)
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(dir), map[string]any{
 		"pattern":     "hello",
 		"path":        path,
 		"max_results": json.Number("3"),
@@ -365,7 +372,7 @@ func TestGrep_MaxResults_Float64OverridesDefault_LargeLimit(t *testing.T) {
 	dir := t.TempDir()
 	const total = 60
 	path := createGrepFileWithMatches(t, dir, total)
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(dir), map[string]any{
 		"pattern":     "hello",
 		"path":        path,
 		"max_results": float64(500),
@@ -382,7 +389,7 @@ func TestGrep_MaxResults_ZeroDoesNotOverride(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := createGrepFileWithMatches(t, dir, 60)
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(dir), map[string]any{
 		"pattern":     "hello",
 		"path":        path,
 		"max_results": float64(0),
@@ -393,7 +400,7 @@ func TestGrep_MaxResults_ZeroDoesNotOverride(t *testing.T) {
 	if got := countGrepMatches(result); got != 50 {
 		t.Fatalf("zero max_results should not override default 50, got %d", got)
 	}
-	result, _ = executeGrep(context.Background(), map[string]any{
+	result, _ = executeGrep(wsCtx(dir), map[string]any{
 		"pattern":     "hello",
 		"path":        path,
 		"max_results": int(0),
@@ -407,7 +414,7 @@ func TestGrep_MaxResults_NegativeDoesNotOverride(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := createGrepFileWithMatches(t, dir, 60)
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(dir), map[string]any{
 		"pattern":     "hello",
 		"path":        path,
 		"max_results": float64(-5),
@@ -418,7 +425,7 @@ func TestGrep_MaxResults_NegativeDoesNotOverride(t *testing.T) {
 	if got := countGrepMatches(result); got != 50 {
 		t.Fatalf("negative max_results should not override default 50, got %d", got)
 	}
-	result, _ = executeGrep(context.Background(), map[string]any{
+	result, _ = executeGrep(wsCtx(dir), map[string]any{
 		"pattern":     "hello",
 		"path":        path,
 		"max_results": int(-10),
@@ -432,7 +439,7 @@ func TestGrep_MaxResults_AbsentLeavesDefault(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := createGrepFileWithMatches(t, dir, 60)
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(dir), map[string]any{
 		"pattern": "hello",
 		"path":    path,
 	})
@@ -457,7 +464,7 @@ func TestGrep_ContextLines_Float64Accepted(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Without context, result should not contain line2's content beyond the match line itself
-	resultNoCtx, err := executeGrep(context.Background(), map[string]any{
+	resultNoCtx, err := executeGrep(wsCtx(dir), map[string]any{
 		"pattern": "target",
 		"path":    path,
 	})
@@ -468,7 +475,7 @@ func TestGrep_ContextLines_Float64Accepted(t *testing.T) {
 		t.Fatalf("expected target in result")
 	}
 	// With float64 context_lines=1, preceding line should appear as context (indented)
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(dir), map[string]any{
 		"pattern":       "target",
 		"path":          path,
 		"context_lines": float64(1),
@@ -486,7 +493,7 @@ func TestGrep_ContextLines_IntAccepted(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ctx.txt")
 	os.WriteFile(path, []byte("a\nb\ntarget\nc\nd\n"), 0644)
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(dir), map[string]any{
 		"pattern":       "target",
 		"path":          path,
 		"context_lines": int(1),
@@ -504,7 +511,7 @@ func TestGrep_ContextLines_Int64Accepted(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ctx.txt")
 	os.WriteFile(path, []byte("a\nb\ntarget\nc\nd\n"), 0644)
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(dir), map[string]any{
 		"pattern":       "target",
 		"path":          path,
 		"context_lines": int64(1),
@@ -522,7 +529,7 @@ func TestGrep_ContextLines_JsonNumberAccepted(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ctx.txt")
 	os.WriteFile(path, []byte("a\nb\ntarget\nc\nd\n"), 0644)
-	result, err := executeGrep(context.Background(), map[string]any{
+	result, err := executeGrep(wsCtx(dir), map[string]any{
 		"pattern":       "target",
 		"path":          path,
 		"context_lines": json.Number("1"),

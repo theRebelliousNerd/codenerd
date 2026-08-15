@@ -237,59 +237,59 @@ Decl constraint_marker(Marker, ConstraintType).
 # =========================================================================
 
 # --- Review-Then-Fix Compositions (highest priority) ---
-verb_composition(/review, /fix, "sequential", 95).
-verb_composition(/analyze, /fix, "sequential", 93).
-verb_composition(/security, /fix, "sequential", 97).
-verb_composition(/debug, /fix, "sequential", 94).
-verb_composition(/review, /refactor, "sequential", 90).
-verb_composition(/analyze, /refactor, "sequential", 88).
+verb_composition(/review, /fix, /sequential, 95).
+verb_composition(/analyze, /fix, /sequential, 93).
+verb_composition(/security, /fix, /sequential, 97).
+verb_composition(/debug, /fix, /sequential, 94).
+verb_composition(/review, /refactor, /sequential, 90).
+verb_composition(/analyze, /refactor, /sequential, 88).
 
 # --- Create-Then-Validate Compositions ---
-verb_composition(/create, /test, "sequential", 92).
-verb_composition(/fix, /test, "sequential", 94).
-verb_composition(/refactor, /test, "sequential", 91).
-verb_composition(/create, /review, "sequential", 85).
-verb_composition(/fix, /review, "sequential", 86).
+verb_composition(/create, /test, /sequential, 92).
+verb_composition(/fix, /test, /sequential, 94).
+verb_composition(/refactor, /test, /sequential, 91).
+verb_composition(/create, /review, /sequential, 85).
+verb_composition(/fix, /review, /sequential, 86).
 
 # --- Research-Then-Act Compositions ---
-verb_composition(/research, /create, "sequential", 88).
-verb_composition(/research, /fix, "sequential", 87).
-verb_composition(/research, /refactor, "sequential", 86).
-verb_composition(/explore, /create, "sequential", 85).
-verb_composition(/explore, /refactor, "sequential", 84).
+verb_composition(/research, /create, /sequential, 88).
+verb_composition(/research, /fix, /sequential, 87).
+verb_composition(/research, /refactor, /sequential, 86).
+verb_composition(/explore, /create, /sequential, 85).
+verb_composition(/explore, /refactor, /sequential, 84).
 
 # --- Analysis-Then-Optimize Compositions ---
-verb_composition(/analyze, /refactor, "sequential", 89).
-verb_composition(/analyze, /fix, "sequential", 88).
-verb_composition(/review, /optimize, "sequential", 87).
+verb_composition(/analyze, /refactor, /sequential, 89).
+verb_composition(/analyze, /fix, /sequential, 88).
+verb_composition(/review, /optimize, /sequential, 87).
 
 # --- Documentation Compositions ---
-verb_composition(/create, /document, "sequential", 80).
-verb_composition(/refactor, /document, "sequential", 79).
-verb_composition(/fix, /document, "sequential", 78).
+verb_composition(/create, /document, /sequential, 80).
+verb_composition(/refactor, /document, /sequential, 79).
+verb_composition(/fix, /document, /sequential, 78).
 
 # --- Git Workflow Compositions ---
-verb_composition(/fix, /commit, "sequential", 85).
-verb_composition(/create, /commit, "sequential", 84).
-verb_composition(/refactor, /commit, "sequential", 83).
-verb_composition(/commit, /push, "sequential", 90).
-verb_composition(/fix, /push, "sequential", 82).
+verb_composition(/fix, /commit, /sequential, 85).
+verb_composition(/create, /commit, /sequential, 84).
+verb_composition(/refactor, /commit, /sequential, 83).
+verb_composition(/commit, /push, /sequential, 90).
+verb_composition(/fix, /push, /sequential, 82).
 
 # --- Parallel Analysis Compositions ---
-verb_composition(/review, /security, "parallel", 75).
-verb_composition(/review, /analyze, "parallel", 74).
-verb_composition(/test, /lint, "parallel", 76).
+verb_composition(/review, /security, /parallel, 75).
+verb_composition(/review, /analyze, /parallel, 74).
+verb_composition(/test, /lint, /parallel, 76).
 
 # --- Conditional Compositions ---
-verb_composition(/test, /commit, "conditional", 88).
-verb_composition(/test, /push, "conditional", 87).
-verb_composition(/test, /deploy, "conditional", 90).
-verb_composition(/fix, /deploy, "conditional", 85).
+verb_composition(/test, /commit, /conditional, 88).
+verb_composition(/test, /push, /conditional, 87).
+verb_composition(/test, /deploy, /conditional, 90).
+verb_composition(/fix, /deploy, /conditional, 85).
 
 # --- Fallback Compositions ---
-verb_composition(/migrate, /rollback, "fallback", 85).
-verb_composition(/deploy, /rollback, "fallback", 88).
-verb_composition(/refactor, /revert, "fallback", 80).
+verb_composition(/migrate, /rollback, /fallback, 85).
+verb_composition(/deploy, /rollback, /fallback, 88).
+verb_composition(/refactor, /revert, /fallback, 80).
 
 # =========================================================================
 # STEP CONNECTORS - Words that signal step boundaries

@@ -1,7 +1,7 @@
 # 06 — Public API and Types: `internal/diff`
 
-> Last verified against codebase: 2026-07-13  
-> All symbols live in `internal/diff/diff.go` unless noted.
+> Last verified against codebase: 2026-08-15  
+> All symbols live in `internal/diff/diff.go` unless noted (`Stats` and the cache live in `internal/diff/cache.go`).
 
 ## 1. Import
 
@@ -18,7 +18,7 @@ import "codenerd/internal/diff"
 | `LineContext` | 0 | Yes | `  content` |
 | `LineAdded` | 1 | Yes | `+ content` |
 | `LineRemoved` | 2 | Yes | `- content` |
-| `LineHeader` | 3 | **No** | reserved for UI |
+| `LineHeader` | 3 | **No, by decision** | synthesized by the renderer for its own `@@` row |
 
 ## 3. Structs
 
@@ -51,12 +51,48 @@ import "codenerd/internal/diff"
 | `IsDelete` | `bool` | `newContent == ""` |
 | `IsBinary` | `bool` | NUL in either content |
 
+### `SpanType` / `WordSpan`
+
+| Constant | Meaning |
+|----------|---------|
+| `SpanEqual` | run present on both sides |
+| `SpanDelete` | run present only on the old side |
+| `SpanInsert` | run present only on the new side |
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `Type` | `SpanType` | |
+| `Text` | `string` | never empty |
+
+Equal + delete spans concatenate to the old line exactly; equal + insert spans
+concatenate to the new line exactly. Renderers rely on that to paint one side
+without re-splitting text.
+
+### `Options`
+
+| Field | Zero value means | Notes |
+|-------|------------------|-------|
+| `ContextLines` | `defaultContextLines` (3) | negative for genuinely zero context |
+| `DisableCache` | caching on | counters still advance |
+| `MaxCacheEntries` | 512 | LRU bound |
+| `MaxCacheBytes` | 32 MiB | approximate resident payload bound |
+| `Timeout` | 5s | negative disables the bound |
+| `VerifyCacheContent` | off | retains exact inputs and byte-compares on hit |
+
+### `Stats`
+
+`Hits`, `Misses`, `Computes`, `Binary`, `Evicted`, `Entries`, `Bytes`,
+`Collisions`. Cumulative since engine construction; `ClearCache` does not reset
+them. `Collisions` is nonzero only under `VerifyCacheContent` and means a key
+match failed content verification.
+
 ### `Engine`
 
 | Field | Visibility | Type | Notes |
 |-------|------------|------|-------|
-| `dmp` | unexported | `*diffmatchpatch.DiffMatchPatch` | Timeout set in `NewEngine` |
-| `cache` | unexported | `sync.Map` | Keys `cacheKey`, values `*FileDiff` |
+| `dmp` | unexported | `*diffmatchpatch.DiffMatchPatch` | Timeout set in `NewEngineWith` |
+| `cache` | unexported | `*diffCache` | Mutex-guarded LRU of deep-copied `*FileDiff` |
+| `opts` | unexported | `Options` | |
 
 Callers must not assume struct layout stability for unexported fields.
 
@@ -68,7 +104,11 @@ Creates a fresh engine:
 
 - `diffmatchpatch.New()`
 - `DiffTimeout = 5s`
-- empty `sync.Map`
+- empty bounded LRU
+
+### `func NewEngineWith(opts Options) *Engine`
+
+Same, tuned by `opts`. `NewEngineWith(Options{})` is identical to `NewEngine()`.
 
 ### `var DefaultEngine = NewEngine()`
 
@@ -94,24 +134,32 @@ Delegates to `DefaultEngine.ComputeDiff`.
 
 ## 6. Word-level compute
 
-### `func (e *Engine) ComputeWordLevelDiff(oldLine, newLine string) []diffmatchpatch.Diff`
+### `func (e *Engine) ComputeWordLevelDiff(oldLine, newLine string) []WordSpan`
 
 | Arg | Role |
 |-----|------|
 | `oldLine` / `newLine` | Single-line (or arbitrary string) pair |
 
-**Returns:** sergi `[]Diff` after semantic cleanup.  
+**Returns:** `[]WordSpan` after semantic cleanup, in old-then-new reading order.  
 **Does not** use the content cache.  
-**Coupling:** callers import `github.com/sergi/go-diff/diffmatchpatch` only if they inspect
-`Diff.Type` / `Diff.Text` beyond opaque use — UI currently treats the slice as opaque-ish
-with incomplete highlighting.
+**Coupling:** none — `diffmatchpatch` no longer appears in this package's public
+API, so a consumer never imports sergi to read a result.
+
+### `func ComputeWordLevelDiff(oldLine, newLine string) []WordSpan`
+
+Delegates to `DefaultEngine`.
 
 ## 7. Cache control
 
 ### `func (e *Engine) ClearCache()`
 
-Replaces `e.cache` with a new empty `sync.Map`. Does not clear other engines or
-`DefaultEngine` unless called on that instance.
+Empties this engine's LRU in place (safe against a concurrent `ComputeDiff`) and
+preserves cumulative `Stats`. Does not clear other engines or `DefaultEngine`
+unless called on that instance.
+
+### `func (e *Engine) Stats() Stats`
+
+Snapshot of this engine's counters.
 
 ## 8. Convenience usage examples
 
@@ -153,12 +201,12 @@ func CreateDiffFromStrings(oldPath, newPath, oldContent, newContent string) *Fil
 }
 ```
 
-Note: bridge uses **DefaultEngine**, while the view’s word-level path uses a private
-`diff.NewEngine()` — two caches.
+The bridge and every `DiffApprovalView` now share `ui.uiDiffEngine`, so file
+diffs and word diffs land in one cache. `ui.DiffEngineStats()` reports it.
 
 ## 9. Not exported (do not depend on from other packages)
 
-- `hash`, `operation`, `cacheKey`
+- `hash`, `fingerprint`, `contentFingerprint`, `operation`, `cacheKey`, `diffCache`
 - `convertToHunks`, `diffsToOperations`, `groupIntoHunks`, `computeHunkCounts`
 - `containsNullByte`, `clampContextLines`
 - Constants `diffTimeout`, `defaultContextLines`, `maxContextLines` (unexported)

@@ -48,8 +48,28 @@ func decodeFactArgs(data string) ([]any, error) {
 		return nil, nil
 	}
 
+	// UseNumber, not plain Unmarshal.
+	//
+	// encoding/json decodes every JSON number into an `any` as float64, and
+	// float64 holds integers exactly only up to 2^53 (~9.0e15). A Unix
+	// nanosecond timestamp is ~1.79e18, so the int64 case below was rounding
+	// every one of them: file_topology's ModTime went in as
+	// 1786773933859876776 and came back as 1786773933859876864.
+	//
+	// That is not a cosmetic drift. These rows are read back to build RETRACTION
+	// facts for changed and deleted files, and a retraction only removes a fact
+	// that matches argument-for-argument. A rounded timestamp produces a fact
+	// that matches nothing, so the retraction silently does nothing and the
+	// superseded row stays in the kernel forever — which looks exactly like "the
+	// scanner does not retract", with no error anywhere to say otherwise.
+	//
+	// json.Number keeps the literal digits, so Int64() returns the value that
+	// was written. Old rows decode identically; nothing needs migrating.
+	dec := json.NewDecoder(strings.NewReader(data))
+	dec.UseNumber()
+
 	var tagged []encodedFactArg
-	if err := json.Unmarshal([]byte(data), &tagged); err == nil && isTaggedFactArgs(tagged) {
+	if err := dec.Decode(&tagged); err == nil && isTaggedFactArgs(tagged) {
 		args := make([]any, 0, len(tagged))
 		for _, arg := range tagged {
 			switch arg.Type {
@@ -69,6 +89,17 @@ func decodeFactArgs(data string) ([]any, error) {
 				}
 			case "int64":
 				switch v := arg.Value.(type) {
+				case json.Number:
+					if n, err := v.Int64(); err == nil {
+						args = append(args, n)
+					} else if f, ferr := v.Float64(); ferr == nil {
+						// A value that will not fit an int64 is corrupt data
+						// rather than a number; keep the old lossy behavior
+						// rather than dropping the argument entirely.
+						args = append(args, int64(f))
+					} else {
+						args = append(args, int64(0))
+					}
 				case float64:
 					args = append(args, int64(v))
 				case int64:
@@ -78,6 +109,12 @@ func decodeFactArgs(data string) ([]any, error) {
 				}
 			case "float64":
 				switch v := arg.Value.(type) {
+				case json.Number:
+					if f, err := v.Float64(); err == nil {
+						args = append(args, f)
+					} else {
+						args = append(args, 0.0)
+					}
 				case float64:
 					args = append(args, v)
 				case int64:

@@ -52,13 +52,16 @@ func (s *testEngineSinkLocal) findFactsByPredicate(pred string) []mangle.Fact {
 // in a single test function with a shared Chrome instance to avoid spawning
 // multiple browser processes and keep test execution fast.
 func TestBrowserLifecycle_WhenChromeAvailable(t *testing.T) {
-	// Try to find and launch Chrome
-	path, found := launcher.LookPath()
-	if !found || path == "" {
+	// launcher.LookPath only knows the standard OS install locations, so this
+	// suite skipped on every image that ships Chromium under
+	// PLAYWRIGHT_BROWSERS_PATH. findChromeBinary covers both.
+	bin, found := findChromeBinary()
+	if !found {
 		t.Skip("Chrome not found, skipping all lifecycle tests")
 	}
 
-	controlURL, err := launcher.New().Headless(true).Launch()
+	controlURL, err := launcher.New().Bin(bin).Headless(true).
+		Set("no-sandbox").Set("disable-dev-shm-usage").Launch()
 	if err != nil {
 		t.Skipf("Failed to launch Chrome: %v", err)
 	}

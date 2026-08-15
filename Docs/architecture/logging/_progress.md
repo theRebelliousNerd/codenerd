@@ -31,3 +31,32 @@
 
 - **Earlier thin stubs** (DOMAIN-MODEL, CROSS-SYSTEM-WIRING naming, etc.) may still exist as orphans; authoritative set is the table above linked from `README.md`.  
 - **No code changes.**
+
+## 2026-08-15 — Backlog pass (code + docs)
+
+Implemented the open TODO items; corpus reconciled against the code, not the other
+way round.
+
+| Item | Where |
+|------|-------|
+| Config schema alignment (`format` canonical, `json_format` alias) | `logger.go`, `config_schema_test.go` |
+| Injectable config from boot (`ApplyConfig`) | `logger.go`, `init_rebind_test.go` |
+| LLM I/O secret redaction + `trace_llm_io_raw` | `redact.go`, `llm_io_logger.go`, `llm_io_trace_test.go` |
+| `CloseAll` closes all four sinks | `logger.go`, `sink_lifecycle_test.go` |
+| Workspace rebind (`sync.Once` + `--workspace` race) | `logger.go`, `init_rebind_test.go` |
+| Enabled-path `trace_llm_io` marker tests | `llm_io_trace_test.go` |
+| Structured `ContextLogger` / `RequestLogger` | `logger.go`, `structured_decorators_test.go` |
+| Operator playbook | `nerd audit playbook`, README |
+| Audit JSONL → `.mg` | `audit_facts.go`, `cmd/nerd/cmd_audit.go` |
+| Size/age rotation | `rotate.go`, `rotate_test.go` |
+| Northstar/Regression convenience wrappers | `logger_convenience.go` |
+| `runtime.Caller` file/line on JSON entries | `logger.go` |
+| SafetyCheck call-site audit as a ratchet test | `safety_callsite_audit_test.go` |
+
+Incidental defect found by the new parser-backed test: generated Mangle facts used
+`%v` booleans (bare `true`, which Mangle has no literal for) and interpolated
+targets unescaped, so no audit fact was ever loadable. Fixed with `mangleBool` /
+`mangleString`.
+
+Still open: wiring `internal/config` to call `ApplyConfig`, and the unaudited
+constitutional gate in `internal/shards/system/constitution.go`.

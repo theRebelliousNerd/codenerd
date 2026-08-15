@@ -149,7 +149,7 @@ Interactive direct actions may enter `runInteractiveAction` (`cmd_interactive.go
 |---------|-------|------------|-------|
 | Multistep corpus UX | limited | deep | chat-owned |
 | Config wizard | partial | `/config` wizard | TUI-first |
-| Assault campaigns | campaign cmd | `/campaign assault …` | chat docs emphasize assault |
+| Assault campaigns | `campaign assault` | `/campaign assault …` | **parity reached 2026-08-15** — every `AssaultConfig` field has a Cobra flag; see [campaign corpus](../campaign/IMPLEMENTED_SPEC.md#8-adversarial-assault) |
 | File ops patch/edit | limited | `/patch` `/edit` `/write` | chat handlers |
 
 ## 5. Extension guide

@@ -49,8 +49,8 @@ func TestScanWorkspace_FileDirGroupsByPackage(t *testing.T) {
 		t.Fatalf("ScanWorkspace() error = %v", err)
 	}
 
-	fileDir := map[string]string{}   // path -> dir
-	topoPaths := map[string]bool{}   // file_topology paths
+	fileDir := map[string]string{} // path -> dir
+	topoPaths := map[string]bool{} // file_topology paths
 	for _, f := range facts {
 		switch f.Predicate {
 		case "file_dir":

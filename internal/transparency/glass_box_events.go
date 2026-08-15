@@ -5,6 +5,7 @@ package transparency
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -107,7 +108,21 @@ type ToolEvent struct {
 // ToolEventBus provides a simple channel for tool execution notifications.
 // Unlike GlassBoxEventBus, this is always active - tool events always show in chat.
 type ToolEventBus struct {
-	ch chan ToolEvent
+	ch        chan ToolEvent
+	emitted   atomic.Uint64
+	delivered atomic.Uint64
+	dropped   atomic.Uint64
+}
+
+// ToolBusStats holds tool event bus counters. Dropped > 0 means the chat model
+// stopped draining and tool lines are missing from scrollback — the one thing
+// that must never be silently true for an always-on surface.
+type ToolBusStats struct {
+	Emitted   uint64
+	Delivered uint64
+	Dropped   uint64
+	Buffered  int
+	Capacity  int
 }
 
 // NewToolEventBus creates a new tool event bus.
@@ -122,10 +137,24 @@ func (b *ToolEventBus) Emit(event ToolEvent) {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
 	}
+	b.emitted.Add(1)
 	select {
 	case b.ch <- event:
+		b.delivered.Add(1)
 	default:
 		// Drop if channel full (shouldn't happen with buffer)
+		b.dropped.Add(1)
+	}
+}
+
+// Stats returns current counters.
+func (b *ToolEventBus) Stats() ToolBusStats {
+	return ToolBusStats{
+		Emitted:   b.emitted.Load(),
+		Delivered: b.delivered.Load(),
+		Dropped:   b.dropped.Load(),
+		Buffered:  len(b.ch),
+		Capacity:  cap(b.ch),
 	}
 }
 

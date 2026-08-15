@@ -38,6 +38,16 @@ func (c *Cortex) Close() error {
 	// before LocalDB.Close; cancel alone is not enough on Windows SQLite.
 	c.stopMaintenanceSchedule(maintenanceStopWait)
 
+	// Flush usage before anything heavier can fail or time out. Track only arms
+	// a debounce timer, so without this the last few turns of every session were
+	// dropped on exit.
+	if c.UsageTracker != nil {
+		if err := runCloseStep("UsageTracker.Close", closeStepTimeout, c.UsageTracker.Close); err != nil {
+			errs = append(errs, err)
+		}
+		c.UsageTracker = nil
+	}
+
 	if c.ShardManager != nil {
 		shardManager := c.ShardManager
 		// Stop admission before workers so the queue cannot start another shard
