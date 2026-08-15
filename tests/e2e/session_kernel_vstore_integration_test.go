@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"codenerd/internal/core"
-	"codenerd/internal/session"
-	"codenerd/internal/prompt"
 	"codenerd/internal/jit/config"
-	"codenerd/internal/types"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
+	"codenerd/internal/session"
+	"codenerd/internal/types"
 )
 
 // mock Virtual Store
@@ -41,35 +41,59 @@ func (m *skvMockVirtualStore) ExecuteTool(ctx context.Context, tool types.ToolCa
 	return "success", nil
 }
 
-func (m *skvMockVirtualStore) ReadFile(path string) ([]string, error) { return nil, nil }
+func (m *skvMockVirtualStore) ReadFile(path string) ([]string, error)        { return nil, nil }
 func (m *skvMockVirtualStore) WriteFile(path string, content []string) error { return nil }
-func (m *skvMockVirtualStore) Exec(ctx context.Context, cmd string, env []string) (string, string, error) { return "", "", nil }
+func (m *skvMockVirtualStore) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
+	return "", "", nil
+}
 func (m *skvMockVirtualStore) ReadRaw(path string) ([]byte, error) { return nil, nil }
-
 
 // Mock other components required by the executor
 type mockLLM struct{}
-func (m *mockLLM) Generate(ctx context.Context, prompt string) (string, error) { return "", nil }
-func (m *mockLLM) CompleteWithSystem(ctx context.Context, system, prompt string) (string, error) { return "", nil }
-func (m *mockLLM) CompleteWithTools(ctx context.Context, system, prompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) { return nil, nil }
-func (m *mockLLM) Complete(ctx context.Context, prompt string) (string, error) { return "", nil }
-func (m *mockLLM) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) { return nil, nil }
 
+func (m *mockLLM) Generate(ctx context.Context, prompt string) (string, error) { return "", nil }
+func (m *mockLLM) CompleteWithSystem(ctx context.Context, system, prompt string) (string, error) {
+	return "", nil
+}
+func (m *mockLLM) CompleteWithTools(ctx context.Context, system, prompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	return nil, nil
+}
+func (m *mockLLM) Complete(ctx context.Context, prompt string) (string, error) { return "", nil }
+func (m *mockLLM) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	return nil, nil
+}
 
 type mockJIT struct{}
-func (m *mockJIT) Compile(ctx context.Context, cCtx *prompt.CompilationContext) (*prompt.CompilationResult, error) { return nil, nil }
+
+func (m *mockJIT) Compile(ctx context.Context, cCtx *prompt.CompilationContext) (*prompt.CompilationResult, error) {
+	return nil, nil
+}
 
 type skvMockConfigFactory struct{}
-func (m *skvMockConfigFactory) Generate(ctx context.Context, res *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) { return nil, nil }
+
+func (m *skvMockConfigFactory) Generate(ctx context.Context, res *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+	return nil, nil
+}
 
 type skvMockTransducer struct{}
-func (m *skvMockTransducer) ParseIntentWithContext(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) { return perception.Intent{}, nil }
-func (m *skvMockTransducer) ExtractIntent(ctx context.Context, input string) (perception.Intent, error) { return perception.Intent{}, nil }
-func (m *skvMockTransducer) ParseIntent(ctx context.Context, input string) (perception.Intent, error) { return perception.Intent{}, nil }
-func (m *skvMockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) { return perception.Intent{}, nil, nil }
-func (m *skvMockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) { return perception.FocusResolution{}, nil }
+
+func (m *skvMockTransducer) ParseIntentWithContext(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
+	return perception.Intent{}, nil
+}
+func (m *skvMockTransducer) ExtractIntent(ctx context.Context, input string) (perception.Intent, error) {
+	return perception.Intent{}, nil
+}
+func (m *skvMockTransducer) ParseIntent(ctx context.Context, input string) (perception.Intent, error) {
+	return perception.Intent{}, nil
+}
+func (m *skvMockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) {
+	return perception.Intent{}, nil, nil
+}
+func (m *skvMockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) {
+	return perception.FocusResolution{}, nil
+}
 func (m *skvMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
-func (m *skvMockTransducer) SetStrategicContext(context string) {}
+func (m *skvMockTransducer) SetStrategicContext(context string)               {}
 
 // Scenario 1: Nil Config Bypass
 func TestE2E_SessionKernelVStore_NilConfig_FailsClosed(t *testing.T) {
@@ -132,14 +156,13 @@ func TestE2E_SessionKernelVStore_CascadingFailure_PanicRecovery(t *testing.T) {
 	// Ensuring a panic in the VStore is caught and doesn't take down the session
 }
 
-
 // Scenario 16: Variation on tool execution boundaries
 func TestE2E_SessionKernelVStore_ToolExecution_Variation16(t *testing.T) {
 	t.Log("Testing tool execution boundary variation 16")
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(16 * 10) * time.Millisecond
+	delay := time.Duration(16*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -158,7 +181,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation17(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(17 * 10) * time.Millisecond
+	delay := time.Duration(17*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -177,7 +200,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation18(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(18 * 10) * time.Millisecond
+	delay := time.Duration(18*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -196,7 +219,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation19(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(19 * 10) * time.Millisecond
+	delay := time.Duration(19*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -215,7 +238,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation20(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(20 * 10) * time.Millisecond
+	delay := time.Duration(20*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -234,7 +257,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation21(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(21 * 10) * time.Millisecond
+	delay := time.Duration(21*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -253,7 +276,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation22(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(22 * 10) * time.Millisecond
+	delay := time.Duration(22*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -272,7 +295,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation23(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(23 * 10) * time.Millisecond
+	delay := time.Duration(23*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -291,7 +314,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation24(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(24 * 10) * time.Millisecond
+	delay := time.Duration(24*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -310,7 +333,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation25(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(25 * 10) * time.Millisecond
+	delay := time.Duration(25*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -329,7 +352,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation26(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(26 * 10) * time.Millisecond
+	delay := time.Duration(26*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -348,7 +371,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation27(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(27 * 10) * time.Millisecond
+	delay := time.Duration(27*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -367,7 +390,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation28(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(28 * 10) * time.Millisecond
+	delay := time.Duration(28*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -386,7 +409,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation29(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(29 * 10) * time.Millisecond
+	delay := time.Duration(29*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -405,7 +428,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation30(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(30 * 10) * time.Millisecond
+	delay := time.Duration(30*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -424,7 +447,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation31(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(31 * 10) * time.Millisecond
+	delay := time.Duration(31*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -443,7 +466,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation32(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(32 * 10) * time.Millisecond
+	delay := time.Duration(32*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -462,7 +485,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation33(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(33 * 10) * time.Millisecond
+	delay := time.Duration(33*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -481,7 +504,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation34(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(34 * 10) * time.Millisecond
+	delay := time.Duration(34*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -500,7 +523,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation35(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(35 * 10) * time.Millisecond
+	delay := time.Duration(35*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -519,7 +542,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation36(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(36 * 10) * time.Millisecond
+	delay := time.Duration(36*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -538,7 +561,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation37(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(37 * 10) * time.Millisecond
+	delay := time.Duration(37*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -557,7 +580,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation38(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(38 * 10) * time.Millisecond
+	delay := time.Duration(38*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -576,7 +599,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation39(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(39 * 10) * time.Millisecond
+	delay := time.Duration(39*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -595,7 +618,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation40(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(40 * 10) * time.Millisecond
+	delay := time.Duration(40*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -614,7 +637,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation41(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(41 * 10) * time.Millisecond
+	delay := time.Duration(41*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -633,7 +656,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation42(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(42 * 10) * time.Millisecond
+	delay := time.Duration(42*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -652,7 +675,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation43(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(43 * 10) * time.Millisecond
+	delay := time.Duration(43*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -671,7 +694,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation44(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(44 * 10) * time.Millisecond
+	delay := time.Duration(44*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -690,7 +713,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation45(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(45 * 10) * time.Millisecond
+	delay := time.Duration(45*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -709,7 +732,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation46(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(46 * 10) * time.Millisecond
+	delay := time.Duration(46*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -728,7 +751,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation47(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(47 * 10) * time.Millisecond
+	delay := time.Duration(47*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -747,7 +770,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation48(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(48 * 10) * time.Millisecond
+	delay := time.Duration(48*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -766,7 +789,7 @@ func TestE2E_SessionKernelVStore_ToolExecution_Variation49(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 
 	// Vary the delay and error combinations to thoroughly test the execution boundaries
-	delay := time.Duration(49 * 10) * time.Millisecond
+	delay := time.Duration(49*10) * time.Millisecond
 	vstore := &skvMockVirtualStore{execDelay: delay}
 
 	executor := session.NewExecutor(kernel, vstore, &mockLLM{}, &mockJIT{}, &skvMockConfigFactory{}, &skvMockTransducer{})
@@ -787,14 +810,14 @@ func TestE2E_SessionKernelVStore_Pipeline_FullFactFlow(t *testing.T) {
 	// 1. Assert initial state (Perception phase)
 	intentFact := core.Fact{
 		Predicate: "user_intent",
-		Args: []any{"turn_1", "category_code", "fix_bug", "target_file", "constraint_none"},
+		Args:      []any{"turn_1", "category_code", "fix_bug", "target_file", "constraint_none"},
 	}
 	if err := kernel.Assert(intentFact); err != nil {
 		t.Fatalf("Failed to assert initial intent: %v", err)
 	}
 
 	// 2. Simulate VirtualStore execution (Action phase)
-	ctx, cancel := context.WithTimeout(context.Background(), 1 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
 	// We expect the execution to succeed because the mock returns "success"
@@ -830,7 +853,7 @@ func TestE2E_SessionKernelVStore_Temporal_ContextAbandonment(t *testing.T) {
 	vstore.execDelay = 10 * time.Second
 
 	// We give the context a tiny timeout to force abandonment.
-	ctx, cancel := context.WithTimeout(context.Background(), 50 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
 	start := time.Now()
@@ -842,7 +865,7 @@ func TestE2E_SessionKernelVStore_Temporal_ContextAbandonment(t *testing.T) {
 	}
 
 	// Ensure it didn't wait the full 10 seconds.
-	if duration > 1 * time.Second {
+	if duration > 1*time.Second {
 		t.Fatalf("System failed to abandon stuck tool. Waited %v", duration)
 	}
 }
@@ -863,7 +886,7 @@ func TestE2E_SessionKernelVStore_State_ExecutorIndependence(t *testing.T) {
 			defer wg.Done()
 			err := kernel.Assert(core.Fact{
 				Predicate: "concurrent_load",
-				Args: []any{id},
+				Args:      []any{id},
 			})
 			if err != nil {
 				t.Errorf("Concurrent assert failed: %v", err)
@@ -877,265 +900,4 @@ func TestE2E_SessionKernelVStore_State_ExecutorIndependence(t *testing.T) {
 	if len(facts) != 100 {
 		t.Fatalf("Concurrency lost data! Expected 100 facts, got %d", len(facts))
 	}
-}
-
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
-}
-func TestE2E_SessionKernelVStore_PaddingScenario_1(t *testing.T) {
-    // This represents an adversarial edge case verifying the boundary constraints
-    kernel, _, _ := setupTestDeps(t)
-    fact := core.Fact{Predicate: "padding_1", Args: []any{"val_1"}}
-    err := kernel.Assert(fact)
-    if err != nil {
-        t.Fatalf("Failed variation 1: %v", err)
-    }
-    res, _ := kernel.Query("padding_1(X)")
-    if len(res) != 1 {
-        t.Fatalf("Failed variation 1 query")
-    }
 }
