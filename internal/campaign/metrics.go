@@ -225,11 +225,11 @@ func (m *InMemoryMetrics) Snapshot() map[string]any {
 		"phases_ms":   phases,
 		"checkpoints": checkpoints,
 		"risk": map[string]any{
-			"preflights":     m.RiskPreflights,
-			"blocked":        m.RiskBlocked,
-			"hard_findings":  m.RiskHard,
-			"soft_findings":  m.RiskSoft,
-			"last_score":     m.LastRiskScore,
+			"preflights":    m.RiskPreflights,
+			"blocked":       m.RiskBlocked,
+			"hard_findings": m.RiskHard,
+			"soft_findings": m.RiskSoft,
+			"last_score":    m.LastRiskScore,
 		},
 	}
 }
