@@ -125,6 +125,7 @@ func DefaultInitConfig(workspace string) InitConfig {
 }
 
 // ProjectProfile represents the persisted project identity.
+// ProjectProfile represents the persisted project identity.
 type ProjectProfile struct {
 	// Identity
 	ProjectID   string    `json:"project_id"`
@@ -146,6 +147,9 @@ type ProjectProfile struct {
 
 	// Dependencies
 	Dependencies []DependencyInfo `json:"dependencies,omitzero"`
+	// Modules is the per-module breakdown for multi-module workspaces.
+	// The flat Dependencies field remains the merged view every existing consumer already reads.
+	Modules []ModuleProfile `json:"modules,omitempty"`
 
 	// Paths
 	EntryPoints     []string `json:"entry_points,omitzero"`
@@ -155,6 +159,27 @@ type ProjectProfile struct {
 	// Stats
 	FileCount      int `json:"file_count"`
 	DirectoryCount int `json:"directory_count"`
+}
+
+// ModuleProfile describes one module in a multi-module workspace. A single
+// module repository produces exactly one, rooted at ".".
+type ModuleProfile struct {
+	// Path is the module root relative to the workspace, slash-separated,
+	// with "." for the workspace root itself.
+	Path string `json:"path"`
+	// Name is the module's declared name: the go.mod module path or the
+	// package.json "name". Empty when the manifest does not declare one.
+	Name string `json:"name,omitempty"`
+	// Manifest is the manifest file this module was discovered from,
+	// relative to the workspace (for example "services/api/go.mod").
+	Manifest string `json:"manifest"`
+	// Language is inferred from the manifest kind: go.mod -> "go",
+	// package.json -> "javascript".
+	Language string `json:"language,omitempty"`
+	// Dependencies are the direct dependencies declared by THIS module only.
+	Dependencies []DependencyInfo `json:"dependencies,omitempty"`
+	// EntryPoints are entry points found under this module's root.
+	EntryPoints []string `json:"entry_points,omitempty"`
 }
 
 // DependencyInfo represents a project dependency.

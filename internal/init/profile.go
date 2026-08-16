@@ -42,6 +42,7 @@ func (i *Initializer) buildProjectProfile() ProjectProfile {
 
 	// Detect dependencies for agent recommendations
 	profile.Dependencies = i.detectDependencies()
+	profile.Modules = i.detectModules()
 
 	// Framework is derived from the dependency set, which is why it has to run
 	// after detectDependencies.

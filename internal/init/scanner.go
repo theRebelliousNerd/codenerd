@@ -11,8 +11,35 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 )
+// goKeyDeps lists the Go import substrings that detectDependencies treats as
+// notable dependencies. It is shared between detectDependencies and the
+// per-module parser so both see the same canonical names.
+var goKeyDeps = map[string]string{
+	"github.com/go-rod/rod":              "rod",
+	"github.com/chromedp/chromedp":       "chromedp",
+	"github.com/playwright-community":    "playwright",
+	"google/mangle":                      "mangle",
+	"codeberg.org/TauCeti/mangle-go":     "mangle",
+	"github.com/sashabaranov/go-openai":  "openai",
+	"github.com/anthropics/anthropic":    "anthropic",
+	"github.com/charmbracelet/bubbletea": "bubbletea",
+	"github.com/spf13/cobra":             "cobra",
+	"github.com/gin-gonic/gin":           "gin",
+	"github.com/labstack/echo":           "echo",
+	"github.com/gofiber/fiber":           "fiber",
+	"gorm.io/gorm":                       "gorm",
+	"github.com/jmoiron/sqlx":            "sqlx",
+	"database/sql":                       "sql",
+	"github.com/gorilla/mux":             "gorilla",
+	"net/http":                           "http",
+	"github.com/arangodb/go-driver":      "arangodb",
+	"google.golang.org/adk":              "adk",
+	"github.com/a2aserver/a2a-go":        "a2a",
+}
+
 
 // detectLanguageFromFiles detects the primary language by looking for config files.
 // FIX(BUG-006): Searches subdirectories (2 levels deep) for monorepo support.
@@ -89,59 +116,24 @@ func (i *Initializer) detectDependencies() []DependencyInfo {
 	workspace := i.config.Workspace
 	seen := make(map[string]bool) // Dedupe dependencies
 
-	// Key Go dependencies to detect
-	goDeps := map[string]string{
-		"github.com/go-rod/rod":              "rod",
-		"github.com/chromedp/chromedp":       "chromedp",
-		"github.com/playwright-community":    "playwright",
-		"google/mangle":                      "mangle",
-		"codeberg.org/TauCeti/mangle-go":     "mangle",
-		"github.com/sashabaranov/go-openai":  "openai",
-		"github.com/anthropics/anthropic":    "anthropic",
-		"github.com/charmbracelet/bubbletea": "bubbletea",
-		"github.com/spf13/cobra":             "cobra",
-		"github.com/gin-gonic/gin":           "gin",
-		"github.com/labstack/echo":           "echo",
-		"github.com/gofiber/fiber":           "fiber",
-		"gorm.io/gorm":                       "gorm",
-		"github.com/jmoiron/sqlx":            "sqlx",
-		"database/sql":                       "sql",
-		"github.com/gorilla/mux":             "gorilla",
-		"net/http":                           "http",
-		"github.com/arangodb/go-driver":      "arangodb",
-		"google.golang.org/adk":              "adk",
-		"github.com/a2aserver/a2a-go":        "a2a",
-	}
-
-	// Helper to scan a go.mod file
+	// Use helpers that parse a single manifest; the global seen map still
+	// ensures the merged flat Dependencies view is deduplicated with root winning.
 	scanGoMod := func(path string) {
-		if data, err := os.ReadFile(path); err == nil {
-			content := string(data)
-			for pkg, name := range goDeps {
-				if strings.Contains(content, pkg) && !seen[name] {
-					version := i.extractGoModVersion(content, pkg)
-					majorVersion := extractMajorVersion(version)
-					deps = append(deps, DependencyInfo{
-						Name:         name,
-						Version:      version,
-						MajorVersion: majorVersion,
-						Type:         "direct",
-					})
-					seen[name] = true
-				}
+		goDepsForFile, _ := i.parseGoModManifest(path)
+		for _, dep := range goDepsForFile {
+			if !seen[dep.Name] {
+				deps = append(deps, dep)
+				seen[dep.Name] = true
 			}
 		}
 	}
 
-	// Helper to scan a package.json file
 	scanPackageJSON := func(path string) {
-		if data, err := os.ReadFile(path); err == nil {
-			nodeDeps := i.parsePackageJSONDependencies(data)
-			for _, dep := range nodeDeps {
-				if !seen[dep.Name] {
-					deps = append(deps, dep)
-					seen[dep.Name] = true
-				}
+		nodeDepsForFile, _ := i.parsePackageJSONManifest(path)
+		for _, dep := range nodeDepsForFile {
+			if !seen[dep.Name] {
+				deps = append(deps, dep)
+				seen[dep.Name] = true
 			}
 		}
 	}
@@ -168,20 +160,104 @@ func (i *Initializer) detectDependencies() []DependencyInfo {
 	return deps
 }
 
+// parseGoModManifest parses a single go.mod file and returns its direct
+// dependencies and its module name. It reuses the same goKeyDeps table that
+// detectDependencies uses, so the per-module view and the merged flat view
+// agree.
+func (i *Initializer) parseGoModManifest(path string) ([]DependencyInfo, string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, ""
+	}
+	content := string(data)
+	name := parseGoModName(content)
+	seenLocal := make(map[string]bool)
+	var deps []DependencyInfo
+	for pkg, canonical := range goKeyDeps {
+		if strings.Contains(content, pkg) && !seenLocal[canonical] {
+			version := i.extractGoModVersion(content, pkg)
+			majorVersion := extractMajorVersion(version)
+			deps = append(deps, DependencyInfo{
+				Name:         canonical,
+				Version:      version,
+				MajorVersion: majorVersion,
+				Type:         "direct",
+			})
+			seenLocal[canonical] = true
+		}
+	}
+	return deps, name
+}
+
+// parseGoModName extracts the module path from go.mod content.
+// Returns empty string when the manifest does not declare a module path.
+func parseGoModName(content string) string {
+	for line := range strings.SplitSeq(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if after, ok := strings.CutPrefix(trimmed, "module "); ok {
+			after = strings.TrimSpace(after)
+			if after == "" {
+				return ""
+			}
+			fields := strings.Fields(after)
+			if len(fields) > 0 {
+				return fields[0]
+			}
+			return after
+		}
+	}
+	return ""
+}
+
+// parsePackageJSONManifest parses a single package.json file and returns its
+// direct dependencies (filtered to the same key set as detectDependencies) and
+// its "name" field. The name is empty when the manifest does not declare one.
+func (i *Initializer) parsePackageJSONManifest(path string) ([]DependencyInfo, string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, ""
+	}
+	var holder struct {
+		Name string `json:"name"`
+	}
+	name := ""
+	if err := json.Unmarshal(data, &holder); err == nil {
+		name = strings.TrimSpace(holder.Name)
+	}
+	deps := i.parsePackageJSONDependencies(data)
+	// Deduplicate within this single manifest (e.g. "prisma" and "@prisma/client"
+	// both map to "prisma"). The merged flat view deduplicates globally, but a
+	// per-module view should also not contain duplicates.
+	seenLocal := make(map[string]bool)
+	uniq := make([]DependencyInfo, 0, len(deps))
+	for _, d := range deps {
+		if !seenLocal[d.Name] {
+			uniq = append(uniq, d)
+			seenLocal[d.Name] = true
+		}
+	}
+	return uniq, name
+}
+
 // detectEntryPoints identifies the application entry points based on language patterns.
 func (i *Initializer) detectEntryPoints() []string {
-	workspace := i.config.Workspace
+	return i.detectEntryPointsForRoot(i.config.Workspace)
+}
+
+// detectEntryPointsForRoot is the scoped helper that scans a specific root
+// directory for entry points. detectEntryPoints delegates to it with the
+// workspace root so the existing workspace-level behaviour is unchanged for the
+// root module; detectModules calls it per module root.
+func (i *Initializer) detectEntryPointsForRoot(root string) []string {
 	entryPoints := []string{}
 
-	// Helper to check for file existence
 	exists := func(path string) bool {
-		_, err := os.Stat(filepath.Join(workspace, path))
+		_, err := os.Stat(filepath.Join(root, path))
 		return err == nil
 	}
 
-	// Helper to check file content pattern
 	hasContent := func(path, pattern string) bool {
-		content, err := os.ReadFile(filepath.Join(workspace, path))
+		content, err := os.ReadFile(filepath.Join(root, path))
 		if err != nil {
 			return false
 		}
@@ -189,21 +265,16 @@ func (i *Initializer) detectEntryPoints() []string {
 	}
 
 	// 1. Go Detection
-	// Standard main.go
 	if exists("main.go") {
 		entryPoints = append(entryPoints, "main.go")
 	}
-	// cmd/ directory pattern
-	if info, err := os.Stat(filepath.Join(workspace, "cmd")); err == nil && info.IsDir() {
-		_ = filepath.Walk(filepath.Join(workspace, "cmd"), func(path string, info os.FileInfo, err error) error {
+	if info, err := os.Stat(filepath.Join(root, "cmd")); err == nil && info.IsDir() {
+		_ = filepath.Walk(filepath.Join(root, "cmd"), func(path string, info os.FileInfo, err error) error {
 			if err == nil && !info.IsDir() && strings.HasSuffix(path, ".go") {
-				// Calculate relative path first
-				rel, err := filepath.Rel(workspace, path)
+				rel, err := filepath.Rel(root, path)
 				if err != nil {
 					return nil
 				}
-
-				// Check for package main
 				if hasContent(rel, "package main") && hasContent(rel, "func main()") {
 					entryPoints = append(entryPoints, rel)
 				}
@@ -219,15 +290,12 @@ func (i *Initializer) detectEntryPoints() []string {
 			entryPoints = append(entryPoints, f)
 		}
 	}
-	// Check for files with if __name__ == "__main__":
-	// Limit scan to root and src directories to avoid scanning venv
 	scanDirs := []string{".", "src"}
 	for _, dir := range scanDirs {
-		dirPath := filepath.Join(workspace, dir)
+		dirPath := filepath.Join(root, dir)
 		if _, err := os.Stat(dirPath); err != nil {
 			continue
 		}
-
 		entries, _ := os.ReadDir(dirPath)
 		for _, entry := range entries {
 			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".py") {
@@ -235,10 +303,7 @@ func (i *Initializer) detectEntryPoints() []string {
 				if dir == "." {
 					relPath = entry.Name()
 				}
-
-				// Avoid duplicates if already added by candidate list
 				alreadyAdded := slices.Contains(entryPoints, relPath)
-
 				if !alreadyAdded && hasContent(relPath, `if __name__ == "__main__":`) {
 					entryPoints = append(entryPoints, relPath)
 				}
@@ -248,18 +313,17 @@ func (i *Initializer) detectEntryPoints() []string {
 
 	// 3. Node/TypeScript Detection
 	if exists("package.json") {
-		data, err := os.ReadFile(filepath.Join(workspace, "package.json"))
+		data, err := os.ReadFile(filepath.Join(root, "package.json"))
 		if err == nil {
 			var pkg struct {
 				Main    string            `json:"main"`
-				Bin     any               `json:"bin"` // Can be string or map
+				Bin     any               `json:"bin"`
 				Scripts map[string]string `json:"scripts"`
 			}
 			if json.Unmarshal(data, &pkg) == nil {
 				if pkg.Main != "" {
 					entryPoints = append(entryPoints, pkg.Main)
 				}
-				// Handle 'bin' field
 				switch v := pkg.Bin.(type) {
 				case string:
 					entryPoints = append(entryPoints, v)
@@ -270,9 +334,7 @@ func (i *Initializer) detectEntryPoints() []string {
 						}
 					}
 				}
-				// Heuristic: check start script
 				if start, ok := pkg.Scripts["start"]; ok {
-					// Extract filename from "node dist/index.js" or "ts-node src/index.ts"
 					parts := strings.FieldsSeq(start)
 					for part := range parts {
 						if strings.HasSuffix(part, ".js") || strings.HasSuffix(part, ".ts") {
@@ -284,11 +346,9 @@ func (i *Initializer) detectEntryPoints() []string {
 			}
 		}
 	}
-	// Common Node files if not in package.json
 	nodeCandidates := []string{"index.js", "index.ts", "server.js", "server.ts", "app.js", "app.ts"}
 	for _, f := range nodeCandidates {
 		if exists(f) {
-			// Only add if not already covered (avoid duplicates)
 			found := slices.Contains(entryPoints, f)
 			if !found {
 				entryPoints = append(entryPoints, f)
@@ -297,6 +357,85 @@ func (i *Initializer) detectEntryPoints() []string {
 	}
 
 	return entryPoints
+}
+
+// detectModules discovers one ModuleProfile per manifest, mirroring the
+// discovery that detectDependencies already does: the root go.mod and
+// package.json plus findManifestFiles for each kind. Reusing those helpers
+// guarantees both views agree on which files are modules.
+func (i *Initializer) detectModules() []ModuleProfile {
+	workspace := i.config.Workspace
+	// Deduplicate manifest paths: a single file discovered both via the explicit
+	// root check and via findManifestFiles should only appear once. If one
+	// directory has both go.mod and package.json, emit two ModuleProfiles (one
+	// per manifest kind) rather than merging them, since their dependency sets
+	// and languages differ.
+	seen := make(map[string]bool)
+	var modules []ModuleProfile
+
+	addModule := func(absPath, kind string) {
+		if seen[absPath] {
+			return
+		}
+		seen[absPath] = true
+		relManifest, err := filepath.Rel(workspace, absPath)
+		if err != nil {
+			return
+		}
+		relManifest = filepath.ToSlash(relManifest)
+		dir := filepath.Dir(absPath)
+		relDir, err := filepath.Rel(workspace, dir)
+		if err != nil {
+			return
+		}
+		if relDir != "." {
+			relDir = filepath.ToSlash(relDir)
+		}
+		path := relDir
+		if path == "" {
+			path = "."
+		}
+		var deps []DependencyInfo
+		var name string
+		var language string
+		if kind == "go.mod" {
+			language = "go"
+			deps, name = i.parseGoModManifest(absPath)
+		} else {
+			language = "javascript"
+			deps, name = i.parsePackageJSONManifest(absPath)
+		}
+		entryPoints := i.detectEntryPointsForRoot(dir)
+		modules = append(modules, ModuleProfile{
+			Path:         path,
+			Name:         name,
+			Manifest:     relManifest,
+			Language:     language,
+			Dependencies: deps,
+			EntryPoints:  entryPoints,
+		})
+	}
+
+	if _, err := os.Stat(filepath.Join(workspace, "go.mod")); err == nil {
+		addModule(filepath.Join(workspace, "go.mod"), "go.mod")
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "package.json")); err == nil {
+		addModule(filepath.Join(workspace, "package.json"), "package.json")
+	}
+	for _, p := range findManifestFiles(workspace, []string{"go.mod"}, maxManifestDepth) {
+		addModule(p, "go.mod")
+	}
+	for _, p := range findManifestFiles(workspace, []string{"package.json"}, maxManifestDepth) {
+		addModule(p, "package.json")
+	}
+
+	sort.Slice(modules, func(a, b int) bool {
+		if modules[a].Path != modules[b].Path {
+			return modules[a].Path < modules[b].Path
+		}
+		return modules[a].Manifest < modules[b].Manifest
+	})
+	return modules
 }
 
 // detectBuildSystem identifies the primary build system used by the project.
