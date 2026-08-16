@@ -10,15 +10,14 @@
 - [x] Align `env.go` package comment consumer list with real importers (or adopt the missing consumers).  
       Comment now names `internal/autopoiesis`, `internal/session`, `internal/core`;
       `TestBuildImporters_WhenNewConsumerAppears_ShouldBeDocumented` fails when that set changes.
-- [ ] Thread `*config.UserConfig` into autopoiesis `ToolCompiler` / `Thunderdome` compile paths when available.  
-      Call-site change inside `internal/autopoiesis`. `session.verifyBuild` already
-      shows the shape (`GetBuildEnv(userCfg, workspace)`); the other session sites
-      and both autopoiesis sites still pass `nil`.
+- [x] Thread `*config.UserConfig` into autopoiesis `ToolCompiler` / `Thunderdome` compile paths when available.
+      ToolCompiler threads it through GetBuildEnvForCompile at tool_compiler.go:164 and :201, and Thunderdome carries it as a config field used at thunderdome.go:241, so both compile paths inherit the operator's allowed env vars and CGO flags rather than a bare environment.
 - [x] Split **detection root** (workspace) from **module dir** (`cmd.Dir`) in call sites that need monorepo CGO.  
       `DetectionRootFor(moduleDir)` and `GetBuildEnvForModule` resolve the header
       root by walking up to the nearest `sqlite_headers`, bounded by the
       `.git` / `go.work` repo boundary. Adopting it in autopoiesis is a one-line
       change and remains open there.
+All P0 items are now checked — no open items remain.
 
 ## P1 — Adoption mandate
 
