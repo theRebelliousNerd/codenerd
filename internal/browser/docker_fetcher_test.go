@@ -206,3 +206,56 @@ func TestNewDockerLogFetcher_WhenContainerNameInvalid_ShouldError(t *testing.T) 
 		t.Fatalf("expected error naming container on exec failure, got %v", err)
 	}
 }
+
+ // TestParseDockerLogLines_ShouldParseRealDockerTimestampFormat pins the real
+// Docker wire format. Docker emits a fixed nine-digit nanosecond field (e.g.
+// .100000000Z) while time.RFC3339Nano elides trailing zeros (e.g. .1Z), so a
+// round trip through Go's formatter cannot prove compatibility with the real
+// docker logs stream. This test therefore uses string literals copied verbatim
+// from Docker 29.6.1 output rather than time.Format.
+func TestParseDockerLogLines_ShouldParseRealDockerTimestampFormat(t *testing.T) {
+	container := "myapp"
+	// String literals copied verbatim from real Docker output — never time.Format —
+	// so the test pins the wire format rather than Go's formatting of it.
+	raw := []byte("2026-08-16T18:45:07.175445217Z seaweed volume server started\n" +
+		"2026-08-16T18:45:12.175925082Z heartbeat ok\n" +
+		"2026-08-16T18:45:20.100000000Z tick")
+	lines := parseDockerLogLines(container, raw)
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d: %+v", len(lines), lines)
+	}
+	tests := []struct {
+		wantMsg  string
+		wantTime time.Time
+	}{
+		{
+			wantMsg:  "seaweed volume server started",
+			wantTime: time.Date(2026, time.August, 16, 18, 45, 7, 175445217, time.UTC),
+		},
+		{
+			wantMsg:  "heartbeat ok",
+			wantTime: time.Date(2026, time.August, 16, 18, 45, 12, 175925082, time.UTC),
+		},
+		{
+			wantMsg:  "tick",
+			wantTime: time.Date(2026, time.August, 16, 18, 45, 20, 100000000, time.UTC),
+		},
+	}
+	for i, tc := range tests {
+		if lines[i].Container != container {
+			t.Fatalf("line %d: expected container %q, got %q", i, container, lines[i].Container)
+		}
+		if lines[i].Message != tc.wantMsg {
+			t.Fatalf("line %d: expected message %q, got %q", i, tc.wantMsg, lines[i].Message)
+		}
+		if !lines[i].Timestamp.Equal(tc.wantTime) {
+			t.Fatalf("line %d: expected timestamp %v, got %v", i, tc.wantTime, lines[i].Timestamp)
+		}
+	}
+	// Specifically assert the trailing-zero line's nanosecond field so a parser
+	// that mishandled a fixed-width fraction would fail rather than silently round.
+	if got := lines[2].Timestamp.Nanosecond(); got != 100000000 {
+		t.Fatalf("trailing-zero line: expected Nanosecond() == 100000000, got %d (timestamp %v)", got, lines[2].Timestamp)
+	}
+}
+
