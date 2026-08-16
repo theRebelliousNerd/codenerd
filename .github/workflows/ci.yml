@@ -1,0 +1,75 @@
+name: CI
+
+# Runs on Windows because that is the platform this repo is developed and
+# tested on, and several tests are genuinely platform-specific: atomic replace
+# goes through ReplaceFileW, path containment has Windows-only cases, and the
+# monotonic clock granularity here is ~0.5ms. A Linux-only pipeline would pass
+# while leaving exactly the class of defect this repo keeps finding.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  # internal/store/vec_support_enabled.go is behind `sqlite_vec && cgo`.
+  # Without the tag the binary silently falls back from ANN to lexical search,
+  # so every job here builds with it. The headers are vendored in-repo.
+  CGO_CFLAGS: -I${{ github.workspace }}/sqlite_headers
+
+jobs:
+  build-and-test:
+    name: build + test
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build
+        run: go build -tags sqlite_vec ./...
+      - name: Vet
+        run: go vet -tags sqlite_vec ./...
+      - name: Test
+        run: go test -tags sqlite_vec ./...
+
+  race:
+    # Closes the mcp backlog item "-race CI for manager+store". Scoped to those
+    # two packages rather than the whole tree: -race is slow, and these are the
+    # ones with concurrent manager state worth pinning.
+    name: race (mcp + store)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Race detector
+        run: go test -race -tags sqlite_vec ./internal/mcp/... ./internal/store/...
+
+  # NO simd JOB - deliberately.
+  #
+  # The retrieval backlog asked for a SIMD-tagged job. Adding one was attempted
+  # here and it cannot pass: the `simd`-tagged build does not compile.
+  #
+  #   go test -tags "sqlite_vec simd" ./internal/retrieval/...
+  #     -> imports simd/archsimd: build constraints exclude all Go files
+  #   and with GOEXPERIMENT=simd set, so archsimd is available:
+  #     internal/mangle/simd_intersect_amd64.go:18: cannot index vA
+  #       (variable of struct type archsimd.Uint64x4)
+  #
+  # Go 1.26's archsimd exposes vector types as opaque structs, not indexable
+  # arrays, so this code has never compiled against the toolchain in go.mod.
+  # Three subsystems carry `simd`-tagged files - internal/embedding,
+  # internal/mangle and internal/retrieval - and each falls back to a generic
+  # implementation, which is what actually ships and what the jobs above cover.
+  #
+  # Adding a job that is red on every run would train people to ignore CI.
+  # Fixing the intrinsics against the current archsimd API is the prerequisite;
+  # once the tagged build compiles, add the job here.
