@@ -1,6 +1,6 @@
 # TODO — browser architecture backlog
 
-> Last verified: 2026-08-15 · BrowserNERD parity is tracked in [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md)
+> Last verified: 2026-08-16 · BrowserNERD parity is tracked in [BROWSERNERD-PARITY.md](BROWSERNERD-PARITY.md)
 
 ## P0
 
@@ -25,14 +25,16 @@
 - [x] Ship bounded redacted flight evidence with current-user-only JSONL export
 - [x] Ship bounded workspace browser spec delivery and conformance
 - [x] Ship browser test create/inspect/run/generate with live execution proof
-- [ ] TUI browser status / session list slash command
-- [ ] VS `handleBrowse` thin delegate to shared manager (if design accepts)
+- [x] TUI browser status / session list slash command
+  - Closed 2026-08-16. internal/browser gained ListSessions() (a newest-first snapshot of session metadata, tie-broken by ID, returning value copies so a render path cannot mutate live session state) and DefaultSessionID(). cmd/nerd/chat gained a /browser command (commands.go dispatch plus handleCmdBrowser in commands_handlers_misc.go) that reports the session count and, per session, its ID, status, URL, title, relative last-active age, the isolated marker, and which session is current. It only reports and never starts a browser. browserMgr stays nil until browser automation is first used, so that is treated as the ordinary case rather than an error, and it is the path the test pins.
+- Decided NO - VS `handleBrowse` thin delegate to shared manager (if design accepts) — internal/core/virtual_store_actions.go:657 handleBrowse deliberately refuses and returns "browser operations must be executed via TactileRouterShard", asserting browser_routing(Operation, /requires_shard). The comment at :672-674 states why: TactileRouterShard is the component with the SessionManager wired, and routing through it is what preserves session management, sandboxing and audit trails. VirtualStore holds no SessionManager. Making handleBrowse a thin delegate would require plumbing one into VirtualStore and would bypass the very boundary the current refusal exists to enforce. The refusal is the design, not a gap in it.
 - [x] Session close API that stops event-stream ctx per session
 - [x] Contract tests: SnapshotDOM predicates ⊆ Decl in schemas_browser.mg (plus bound-type checking; caught `position/5` coordinates asserted as strings)
 
 ## P3
 
 - [ ] Complete BPAR-5 contract audit, repo trace, Docker correlation, and final live parity gate
+  - this is a live-environment verification task, not code to write. It requires a running Docker environment and live Chromium to correlate container behaviour against the contract and run the parity gate, so it cannot be closed from a static pass. Note that the related CI job entry in this file is separately blocked because the repository has no CI configuration to add a workflow to.
 - [x] Redact secrets from browser logs, fact sink, results, and session store
 - [x] Fact GC / epoch for long event streams — per-epoch budget, `browser_epoch` watermark, navigation rollover, and real retraction when a `FactRetractor` is wired
 - [x] Header ingestion default policy for research vs operator modes — `HeaderIngestionMode` redacted for research, off for the CLI
