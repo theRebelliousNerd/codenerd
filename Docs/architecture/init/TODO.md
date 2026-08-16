@@ -1,6 +1,6 @@
 # init — TODO
 
-> Last verified: 2026-08-15
+> Last verified: 2026-08-16
 > Docs-only backlog; no code claims of completion.
 
 ## P0
@@ -37,11 +37,15 @@
       (`detectFrameworkFromDependencies`, ranked so meta-frameworks outrank the
       view libraries they wrap and direct deps outrank transitive ones).
 - [x] Label legacy KB quality fields in operator UX as atom-count population proxies (semantic replacement remains optional future work).
-- [ ] Monorepo multi-root profiles. **Partially done**: manifest discovery is now
+- [x] Monorepo multi-root profiles. **Partially done**: manifest discovery is now
       a bounded walk (`findManifestFiles`, depth 4, vendor/node_modules skipped)
       instead of two hardcoded glob levels, so nested modules contribute their
-      dependencies. Still open: emitting one `ProjectProfile` *per module* rather
-      than one merged dependency set, and per-module entry points.
+      dependencies.
+      - ProjectProfile gained Modules []ModuleProfile (internal/init/initializer.go), populated at internal/init/profile.go:45 from Initializer.detectModules (internal/init/scanner.go:366).
+      - Each ModuleProfile carries the module's path relative to the workspace ("." for the root), its declared name, the manifest it came from, the inferred language, its OWN direct dependencies rather than the merged set, and entry points detected under that module's root rather than the workspace root.
+      - The change is additive: the flat Dependencies field keeps the merged view every existing consumer reads, and Modules is omitempty, so nothing that parses .nerd/profile.json breaks.
+      - A directory holding both go.mod and package.json yields two ModuleProfiles rather than one merged entry, because their dependency sets and languages differ. Modules are sorted by path so profile.json is stable across runs.
+      - Covered by internal/init/modules_test.go: single module, a three-module monorepo, both-manifests-in-one-directory, and sort stability.
 - [x] Hermetic tests for strategic knowledge JSON parsing with fake LLM
       (`strategic_knowledge_parsing_test.go`; found and fixed two real parse bugs
       — unfenced JSON *arrays* truncated to their first object, and a `}` inside
