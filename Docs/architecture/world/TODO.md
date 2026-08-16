@@ -1,6 +1,6 @@
 # world — TODO
 
-> Last verified: **2026-08-15**  
+> Last verified: **2026-08-16**  
 > Docs-only backlog derived from code gaps. Not a commitment schedule.
 
 ## P0
@@ -41,8 +41,11 @@
 - [x] Narrow holographic kernel dependency from `*core.RealKernel` to a small query interface.
       `world.FactQuerier` (single `Query` method), with typed-nil flattening so the existing
       graceful-degradation path cannot become a panic.
-- [ ] Optional JIT prompt atoms for stable holographic sections.
-      Requires atom files under `internal/prompt/atoms/`; not attempted from the world package.
+- Decided NO - Optional JIT prompt atoms for stable holographic sections. Requires atom files under `internal/prompt/atoms/`; not attempted from the world package. Investigated 2026-08-16:
+  - The "stable sections" in question live in HolographicContext.FormatForPrompt (internal/world/holographic_formatting.go:99). Measured, the genuinely stable prose is about five lines: the "## Package Context" header, the "### Functions Available in Package Scope" header and its one explanatory sentence "These are defined in sibling files and can be called without import:", and the "### Types Defined in Package" header. Everything else in that function is per-file data.
+  - Extracting those into JIT atoms would separate each label from the data it labels. Atoms are budgeted and selectable, so a tight budget could drop the header while the renderer still emits the signature or type block beneath it, producing an unlabelled wall of code in the prompt. The headers are structurally coupled to their payload and must travel with it.
+  - The budget saving is negligible - roughly twenty tokens - so the change trades a real new failure mode for no measurable gain.
+  - Note the revisit condition: this becomes worth doing only if the holographic renderer grows substantial instructional prose that is genuinely independent of the data it accompanies. It has not.
 - [x] Structured observability: cache hit rate metrics for FileCache (not only DataFlowCache).
       `FileCache.Stats()/LogStats()`; both scanners log a hit-rate line. The manifest is now
       written atomically (unique temp + fsync + rename).
