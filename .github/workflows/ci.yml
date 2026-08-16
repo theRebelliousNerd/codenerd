@@ -53,23 +53,34 @@ jobs:
       - name: Race detector
         run: go test -race -tags sqlite_vec ./internal/mcp/... ./internal/store/...
 
-  # NO simd JOB - deliberately.
-  #
-  # The retrieval backlog asked for a SIMD-tagged job. Adding one was attempted
-  # here and it cannot pass: the `simd`-tagged build does not compile.
-  #
-  #   go test -tags "sqlite_vec simd" ./internal/retrieval/...
-  #     -> imports simd/archsimd: build constraints exclude all Go files
-  #   and with GOEXPERIMENT=simd set, so archsimd is available:
-  #     internal/mangle/simd_intersect_amd64.go:18: cannot index vA
-  #       (variable of struct type archsimd.Uint64x4)
-  #
-  # Go 1.26's archsimd exposes vector types as opaque structs, not indexable
-  # arrays, so this code has never compiled against the toolchain in go.mod.
-  # Three subsystems carry `simd`-tagged files - internal/embedding,
-  # internal/mangle and internal/retrieval - and each falls back to a generic
-  # implementation, which is what actually ships and what the jobs above cover.
-  #
-  # Adding a job that is red on every run would train people to ignore CI.
-  # Fixing the intrinsics against the current archsimd API is the prerequisite;
-  # once the tagged build compiles, add the job here.
+  simd:
+    # Closes the retrieval backlog item "SIMD-tagged CI job".
+    #
+    # This job is the reason the tag works at all. Adding it first proved the
+    # `simd` build had never compiled against the toolchain in go.mod:
+    # internal/mangle and internal/retrieval each built an archsimd vector and
+    # then read it back element by element - scalar comparisons wearing a SIMD
+    # costume - which Go 1.26 rejects because those vectors are opaque structs.
+    # Both were deleted; their generic implementations are now unconditional.
+    #
+    # What remains behind the tag is internal/embedding, which uses the real
+    # API (LoadFloat32x8Slice + horizontal reduction). Without this job that
+    # path is never compiled, which is exactly how the other two rotted.
+    #
+    # GOEXPERIMENT=simd is required: simd/archsimd is gated behind it, and
+    # without it the import fails with "build constraints exclude all Go files".
+    name: simd (experiment)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      GOEXPERIMENT: simd
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build with the simd tag
+        run: go build -tags "sqlite_vec simd" ./...
+      - name: Test the SIMD-selected packages
+        run: go test -tags "sqlite_vec simd" ./internal/embedding/... ./internal/mangle/... ./internal/retrieval/...
