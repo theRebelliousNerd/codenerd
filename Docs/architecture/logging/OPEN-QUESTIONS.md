@@ -67,13 +67,33 @@ before redaction so context accounting stays truthful.
 
 **Context:** Timers already emit structured duration fields.
 
-**Open:** Bridge to `internal/observability` spans, or keep file-only forever?
+**RESOLVED (2026-08-16): keep file-only; `EventSink` is the answer to machine-readable export.** The question as posed had no referent. `internal/observability` contains no OpenTelemetry spans to bridge to — it is `flight_recorder.go` (a Go `runtime/trace.FlightRecorder` singleton with a memory watchdog) and `runtime_metrics.go`. Go execution traces and OTel spans are different artifacts with different consumers, so "Bridge to `internal/observability` spans" named a thing that does not exist, which is why the item never had an actionable shape.
+
+`go.mod` carries `go.opentelemetry.io/otel`, `otel/trace` and `otel/metric` only as `// indirect`, pulled in transitively, and there are zero `go.opentelemetry.io` imports anywhere in the repository. `otel/sdk` — the module that actually implements a `TracerProvider` — is absent entirely. A bridge is therefore not one file but a new direct dependency, an exporter choice, and a provider lifecycle (shutdown and flush) to own.
+
+The thing a bridge would have bought — machine-readable export of the event stream — already ships and is wired. `internal/transparency/event_bus.go:74` calls `attachEnvNDJSONSink(b)` inside `NewGlassBoxEventBus`, so every bus gets the env-configured sink; `NDJSONEventEnvVar` names the file; `internal/transparency/ndjson_sink.go` writes one JSON object per event. It is covered by `TestNewGlassBoxEventBus_WhenNDJSONEnvSet_ShouldAttachSink`, `TestNDJSONSink_ShouldWriteOneJSONObjectPerEvent` and `TestNDJSONSink_WhenTurnFiltered_ShouldExportOnlyThatTurn` in `internal/transparency/observability_test.go`.
+
+The reversal is cheap. `EventSink` (`internal/transparency/event_bus.go:58`) is a one-method interface — `Write(event GlassBoxEvent)` — and a future OTel sink would be about thirty lines registered through `AddSink`, not a refactor. The decision is therefore low-regret in both directions.
+
+The reason not to build it now is already argued in the code at `internal/transparency/event_bus.go:53-57`: nothing in this repository configures an OTel `TracerProvider`, so a bridge "would map categories onto no-op spans and produce exactly the 'looks wired, does nothing' shape this package is trying to remove." Building it would violate the stated purpose of the very package it lives in.
+
+This resolution should be revisited rather than treated as permanent. An OTel bridge becomes worth building the day something in the repository configures a real `TracerProvider` and `otel/sdk` becomes a direct dependency — at which point it is one `EventSink` implementation.
 
 ## Q7 — Category proliferation
 
-**Context:** 29 categories; new subsystems keep adding.
+**PARTIALLY RESOLVED (2026-08-16): the cap half is done; the hierarchy half remains open.** The count in the original question was wrong: there are 30 categories, not 29. The cap half is DONE. `internal/logging/category_inventory_test.go` is the cap.
 
-**Open:** Cap taxonomy; introduce hierarchical categories (`shard.coder`) vs flat list?
+It declares `categoryInventory`, a map from each Category's string value to the subsystem that owns it, one row per category. Adding a category means adding a row — which is the point: the taxonomy now grows by decision rather than by drift.
+
+`TestCategoryInventory_WhenCategoryAdded_ShouldBeDeclared` discovers the categories from the SOURCE rather than from a hand-maintained duplicate: it parses `internal/logging/logger.go` with `go/parser` and `go/ast` and collects every constant declared with type `Category`. It then asserts in BOTH directions — a new constant with no inventory row fails, and a stale row whose constant was deleted also fails.
+
+The two-direction check is what keeps the guard honest. If AST discovery ever silently returned nothing, every row would read as stale and the test would fail, rather than passing vacuously.
+
+`TestCategoryInventory_ShouldNotExceedTheCap` makes the ceiling numeric: `const categoryCap = 30`, the exact count at the time of writing, so the guard starts satisfied and bites on the 31st. Raising the cap is permitted but must be a deliberate edit with a reason in the commit message; the alternative is folding the new subsystem into an existing category.
+
+This is the inventory-plus-guard idiom the repo already uses for the same purpose in `internal/logging/safety_callsite_audit_test.go`, `internal/build/go_invocation_inventory_test.go` and `internal/sqlpragmas/open_site_audit_test.go`.
+
+**Open:** Whether the taxonomy should become hierarchical (`shard.coder`) instead of a flat list. This is a redesign of the taxonomy rather than a guard on its size, and it was deliberately left untouched. It would have to decide how a hierarchical name maps onto the per-category log file set and onto the `categories` map in the logging config, and whether enabling a parent implies enabling its children. The cap is not a substitute for this answer — it bounds growth, it does not organize it.
 
 ## Q8 — Who is responsible for closing audit/LLM I/O in interactive chat?
 

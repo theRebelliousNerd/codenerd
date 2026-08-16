@@ -1,6 +1,6 @@
 # TODO — `internal/logging`
 
-> Last verified: **2026-08-15**
+> Last verified: **2026-08-16**
 > Backlog. Items marked done carry the test that keeps them done.
 
 ## P1
@@ -61,8 +61,9 @@
       → Closed. Both verdict branches now call `logging.Audit().SafetyCheck` in `internal/shards/system/constitution.go` (allow at line 331, deny at 339), in the style of `internal/core/virtual_store_routing.go`. The `safety_callsite_audit_test.go` inventory entry moved from `classKnownGap` to `classGate` with `auditedIn` set to that file, so removing the call is now a test failure rather than a silent regression.
 - [x] `RequestLogger.WithField` still mutates a shared map (OPEN-QUESTIONS Q5).
       → Closed. `WithField` is copy-on-write: it returns a newly derived `RequestLogger` with a copied field map instead of mutating the receiver and returning it. That fixes both the aliasing (sibling derivations previously saw each other's fields) and the data race on a plain map. New tests in `request_logger_fields_test.go` cover non-mutation and 50 concurrent derivations, and pass under `-race`. `TestRequestLogger_WithField_ShouldChain` previously asserted pointer identity, which was asserting the defect; it now verifies chaining by accumulated fields. `WithField` had zero production callers, so nothing depended on the old side effect.
-- [ ] Bridge to `internal/observability` spans (Q6) and category taxonomy cap (Q7).
-      → Blocked, not deferred: nothing in this repository configures an OpenTelemetry `TracerProvider`, so a bridge would emit into no-op spans. `internal/transparency/event_bus.go:55` records the same rationale for the same reason. The category taxonomy cap (Q7) remains an open design question and is not blocked.
+- [x] Category taxonomy cap (Q7) -> `internal/logging/category_inventory_test.go` declares a 30-row inventory with an owner per category and a numeric `categoryCap`, and its guard AST-parses `internal/logging/logger.go` and fails on drift in either direction — a new constant with no row, or a stale row whose constant is gone. This closes only the cap half of Q7; the flat-versus-hierarchical redesign stays open in OPEN-QUESTIONS.md.
+- [x] Bridge to `internal/observability` spans (Q6).
+      → resolved 2026-08-16 as keep-file-only. `internal/observability` has no OTel spans to bridge to - it is `runtime/trace` flight recording plus runtime metrics - so the item's premise had no referent. `otel/sdk` is not a dependency (the API is present only as `// indirect`, with zero imports repo-wide). Machine-readable export already ships as `EventSink` plus the env-attached NDJSON sink wired in `NewGlassBoxEventBus`. Full reasoning in OPEN-QUESTIONS.md Q6.
 
 ## Done (already in code before this pass)
 
