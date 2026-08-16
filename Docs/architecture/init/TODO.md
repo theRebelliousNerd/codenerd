@@ -52,10 +52,12 @@
 - [x] Split `Initialize` into phase methods without behavior change — verified
       already done: `runPhase0Migrations` … `runPhase12PromptSync` plus
       `finalizeInitialization`, driven by `phaseRunner`.
-- [ ] Relocate session persistence types to `internal/session` (breaking API care).
-      `SessionState`, `ChatMessage` and `SessionHistory` still live in
-      `internal/init`; consumers are `cmd/nerd/chat/session_persistence.go` and
-      its tests.
+- [x] Relocate session persistence types to `internal/session` (breaking API care).
+      - The three types plus LoadSessionState, SaveSessionState, LoadSessionHistory and SaveSessionHistory now live in internal/session/persistence.go.
+      - internal/init keeps its own unexported initSessionState seeding helper, which now builds a session.SessionState.
+      - The resulting init -> session dependency was verified cycle-free before the move: internal/session does not import internal/init.
+      - ListSessionHistories did not move and stays in internal/init.
+      - It was a pure relocation: file paths (.nerd/session.json and the sessions/ folder), JSON field names, exported signatures and behaviour are unchanged, and the round-trip tests were repointed rather than rewritten.
 - [x] Remove accidental `debug_program_ERROR.mg` from package tree / ignore dumps
       — verified already resolved: kernel fault dumps are written to
       `.nerd/debug/` (`kernel_eval.go`) and `.gitignore` line 132 ignores
