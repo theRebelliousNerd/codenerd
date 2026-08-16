@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/session"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -267,7 +269,7 @@ func TestLoadSessionState_WhenValidFile_ShouldUnmarshal(t *testing.T) {
 	nerdDir := filepath.Join(tmpDir, ".nerd")
 	require.NoError(t, os.MkdirAll(nerdDir, 0755))
 
-	state := SessionState{
+	state := session.SessionState{
 		SessionID:    "sess_123",
 		TurnCount:    5,
 		Suspended:    false,
@@ -278,7 +280,7 @@ func TestLoadSessionState_WhenValidFile_ShouldUnmarshal(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(nerdDir, "session.json"), data, 0644))
 
-	loaded, err := LoadSessionState(tmpDir)
+	loaded, err := session.LoadSessionState(tmpDir)
 	require.NoError(t, err)
 	assert.Equal(t, "sess_123", loaded.SessionID)
 	assert.Equal(t, 5, loaded.TurnCount)
@@ -287,7 +289,7 @@ func TestLoadSessionState_WhenValidFile_ShouldUnmarshal(t *testing.T) {
 
 func TestLoadSessionState_WhenMissing_ShouldReturnError(t *testing.T) {
 	tmpDir := t.TempDir()
-	_, err := LoadSessionState(tmpDir)
+	_, err := session.LoadSessionState(tmpDir)
 	assert.Error(t, err)
 }
 
@@ -296,7 +298,7 @@ func TestSaveSessionState_WhenValid_ShouldPersist(t *testing.T) {
 	nerdDir := filepath.Join(tmpDir, ".nerd")
 	require.NoError(t, os.MkdirAll(nerdDir, 0755))
 
-	state := &SessionState{
+	state := &session.SessionState{
 		SessionID:    "sess_456",
 		TurnCount:    10,
 		Suspended:    true,
@@ -304,10 +306,10 @@ func TestSaveSessionState_WhenValid_ShouldPersist(t *testing.T) {
 		LastActiveAt: time.Now().Truncate(time.Second),
 	}
 
-	err := SaveSessionState(tmpDir, state)
+	err := session.SaveSessionState(tmpDir, state)
 	require.NoError(t, err)
 
-	loaded, err := LoadSessionState(tmpDir)
+	loaded, err := session.LoadSessionState(tmpDir)
 	require.NoError(t, err)
 	assert.Equal(t, "sess_456", loaded.SessionID)
 	assert.Equal(t, 10, loaded.TurnCount)
@@ -319,7 +321,7 @@ func TestGetLatestSession_WhenStateExists_ShouldReturnID(t *testing.T) {
 	nerdDir := filepath.Join(tmpDir, ".nerd")
 	require.NoError(t, os.MkdirAll(nerdDir, 0755))
 
-	state := &SessionState{SessionID: "sess_latest"}
+	state := &session.SessionState{SessionID: "sess_latest"}
 	data, err := json.MarshalIndent(state, "", "  ")
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(nerdDir, "session.json"), data, 0644))
@@ -344,15 +346,15 @@ func TestSaveAndLoadSessionHistory_WhenRoundTripped_ShouldPreserveMessages(t *te
 	nerdDir := filepath.Join(tmpDir, ".nerd")
 	require.NoError(t, os.MkdirAll(filepath.Join(nerdDir, "sessions"), 0755))
 
-	messages := []ChatMessage{
+	messages := []session.ChatMessage{
 		{Role: "user", Content: "hello", Time: time.Now().Truncate(time.Second)},
 		{Role: "assistant", Content: "hi", Time: time.Now().Truncate(time.Second)},
 	}
 
-	err := SaveSessionHistory(tmpDir, "sess_hist_1", messages)
+	err := session.SaveSessionHistory(tmpDir, "sess_hist_1", messages)
 	require.NoError(t, err)
 
-	loaded, err := LoadSessionHistory(tmpDir, "sess_hist_1")
+	loaded, err := session.LoadSessionHistory(tmpDir, "sess_hist_1")
 	require.NoError(t, err)
 	assert.Equal(t, "sess_hist_1", loaded.SessionID)
 	assert.Len(t, loaded.Messages, 2)
@@ -362,7 +364,7 @@ func TestSaveAndLoadSessionHistory_WhenRoundTripped_ShouldPreserveMessages(t *te
 
 func TestLoadSessionHistory_WhenMissing_ShouldReturnError(t *testing.T) {
 	tmpDir := t.TempDir()
-	_, err := LoadSessionHistory(tmpDir, "nonexistent")
+	_, err := session.LoadSessionHistory(tmpDir, "nonexistent")
 	assert.Error(t, err)
 }
 

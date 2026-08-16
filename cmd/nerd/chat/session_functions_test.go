@@ -11,6 +11,7 @@ import (
 
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
+	"codenerd/internal/session"
 	"codenerd/internal/store"
 )
 
@@ -104,9 +105,9 @@ func TestMigrateOldSessionsToSQLite(t *testing.T) {
 
 	// Session 1: valid
 	session1 := "session-1"
-	hist1 := nerdinit.SessionHistory{
+	hist1 := session.SessionHistory{
 		SessionID: session1,
-		Messages: []nerdinit.ChatMessage{
+		Messages: []session.ChatMessage{
 			{Role: "user", Content: "Hello"},
 			{Role: "assistant", Content: "Hi there"},
 			{Role: "user", Content: "How are you?"},
@@ -117,9 +118,9 @@ func TestMigrateOldSessionsToSQLite(t *testing.T) {
 
 	// Session 2: incomplete pair (should be skipped or partially migrated)
 	session2 := "session-2"
-	hist2 := nerdinit.SessionHistory{
+	hist2 := session.SessionHistory{
 		SessionID: session2,
-		Messages: []nerdinit.ChatMessage{
+		Messages: []session.ChatMessage{
 			{Role: "user", Content: "Only me"},
 		},
 	}
@@ -174,10 +175,10 @@ func TestLoadSelectedSession(t *testing.T) {
 
 	// Setup existing session
 	sessionID := "target-session"
-	hist := nerdinit.SessionHistory{
+	hist := session.SessionHistory{
 		SessionID: sessionID,
 		CreatedAt: time.Now(),
-		Messages: []nerdinit.ChatMessage{
+		Messages: []session.ChatMessage{
 			{Role: "user", Content: "History 1"},
 			{Role: "assistant", Content: "History 2"},
 		},
@@ -318,9 +319,9 @@ func TestHydrateAllTools(t *testing.T) {
 }
 
 // Helper to save session history in the format expected by nerdinit
-func saveSessionHistory(t *testing.T, workspace, sessionID string, history nerdinit.SessionHistory) {
+func saveSessionHistory(t *testing.T, workspace, sessionID string, history session.SessionHistory) {
 	nerdDir := filepath.Join(workspace, ".nerd")
-	// Note: loadSelectedSession uses nerdinit.LoadSessionHistory which looks in sessions dir
+	// Note: loadSelectedSession uses session.LoadSessionHistory which looks in sessions dir
 	sessionsDir := filepath.Join(nerdDir, "sessions")
 	os.MkdirAll(sessionsDir, 0755)
 

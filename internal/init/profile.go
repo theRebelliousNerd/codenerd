@@ -5,6 +5,7 @@ import (
 	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
+	"codenerd/internal/session"
 	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
 	"codenerd/internal/world"
@@ -714,7 +715,7 @@ func (i *Initializer) ingestProjectAtomsIntoCorpus(ctx context.Context, db *sql.
 
 // initSessionState creates the initial session state file.
 func (i *Initializer) initSessionState(path string) error {
-	state := SessionState{
+	state := session.SessionState{
 		SessionID:    generateSessionID(),
 		StartedAt:    time.Now(),
 		LastActiveAt: time.Now(),
@@ -722,11 +723,11 @@ func (i *Initializer) initSessionState(path string) error {
 		Suspended:    false,
 	}
 
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
+	workspace := i.config.Workspace
+	if workspace == "" {
+		workspace = filepath.Dir(filepath.Dir(path))
 	}
-	return os.WriteFile(path, data, 0644)
+	return session.SaveSessionState(workspace, &state)
 }
 
 // LoadProjectProfile loads the project profile from .nerd/profile.json
@@ -761,73 +762,6 @@ func LoadPreferences(workspace string) (*UserPreferences, error) {
 	return &prefs, nil
 }
 
-// LoadSessionState loads the session state from .nerd/session.json
-func LoadSessionState(workspace string) (*SessionState, error) {
-	path := filepath.Join(workspace, ".nerd", "session.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var state SessionState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, err
-	}
-
-	return &state, nil
-}
-
-// SaveSessionState saves the session state to disk.
-func SaveSessionState(workspace string, state *SessionState) error {
-	path := filepath.Join(workspace, ".nerd", "session.json")
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0644)
-}
-
-// SaveSessionHistory saves the conversation history to the sessions folder.
-func SaveSessionHistory(workspace string, sessionID string, messages []ChatMessage) error {
-	sessionsDir := filepath.Join(workspace, ".nerd", "sessions")
-	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
-		return fmt.Errorf("failed to create sessions directory: %w", err)
-	}
-
-	historyFile := filepath.Join(sessionsDir, sessionID+".json")
-	history := SessionHistory{
-		SessionID: sessionID,
-		Messages:  messages,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	// If file exists, preserve CreatedAt
-	if existing, err := LoadSessionHistory(workspace, sessionID); err == nil {
-		history.CreatedAt = existing.CreatedAt
-	}
-
-	data, err := json.MarshalIndent(history, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(historyFile, data, 0644)
-}
-
-// LoadSessionHistory loads the conversation history for a session.
-func LoadSessionHistory(workspace string, sessionID string) (*SessionHistory, error) {
-	historyFile := filepath.Join(workspace, ".nerd", "sessions", sessionID+".json")
-	data, err := os.ReadFile(historyFile)
-	if err != nil {
-		return nil, err
-	}
-
-	var history SessionHistory
-	if err := json.Unmarshal(data, &history); err != nil {
-		return nil, err
-	}
-	return &history, nil
-}
 
 // ListSessionHistories returns all available session histories.
 func ListSessionHistories(workspace string) ([]string, error) {
@@ -851,7 +785,7 @@ func ListSessionHistories(workspace string) ([]string, error) {
 
 // GetLatestSession returns the most recent session ID.
 func GetLatestSession(workspace string) (string, error) {
-	state, err := LoadSessionState(workspace)
+	state, err := session.LoadSessionState(workspace)
 	if err != nil {
 		return "", err
 	}

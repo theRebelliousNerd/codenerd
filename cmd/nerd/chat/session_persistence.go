@@ -4,6 +4,7 @@ import (
 	ctxcompress "codenerd/internal/context"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/logging"
+	"codenerd/internal/session"
 
 	// Domain shards removed - JIT clean loop handles these via prompt atoms:
 	// "codenerd/internal/shards/coder"
@@ -44,7 +45,7 @@ func (m *Model) saveSessionState() {
 	logging.Session("saveSessionState: saving session %s with %d messages, turnCount=%d", m.sessionID, len(m.history), m.turnCount)
 
 	// Update session state
-	state := &nerdinit.SessionState{
+	state := &session.SessionState{
 		SessionID:    m.sessionID,
 		StartedAt:    time.Now(), // Will be overwritten if exists
 		LastActiveAt: time.Now(),
@@ -53,30 +54,29 @@ func (m *Model) saveSessionState() {
 	}
 
 	// Preserve original StartedAt if session exists
-	if existing, err := nerdinit.LoadSessionState(m.workspace); err == nil {
+	if existing, err := session.LoadSessionState(m.workspace); err == nil {
 		state.StartedAt = existing.StartedAt
 	}
 
 	// Save session state (JSON)
-	if err := nerdinit.SaveSessionState(m.workspace, state); err != nil {
+	if err := session.SaveSessionState(m.workspace, state); err != nil {
 		logging.Get(logging.CategorySession).Error("Failed to save session state: %v", err)
 	}
 
 	// Convert and save conversation history (JSON)
-	messages := make([]nerdinit.ChatMessage, len(m.history))
+	messages := make([]session.ChatMessage, len(m.history))
 	for i, msg := range m.history {
-		messages[i] = nerdinit.ChatMessage{
+		messages[i] = session.ChatMessage{
 			Role:    msg.Role,
 			Content: msg.Content,
 			Time:    msg.Time,
 		}
 	}
-	if err := nerdinit.SaveSessionHistory(m.workspace, m.sessionID, messages); err != nil {
+	if err := session.SaveSessionHistory(m.workspace, m.sessionID, messages); err != nil {
 		logging.Get(logging.CategorySession).Error("Failed to save session history: %v", err)
 	} else {
 		logging.Session("Successfully saved %d messages to %s.json", len(messages), m.sessionID)
 	}
-
 	// Persist semantic compression state (best-effort) so we can rehydrate
 	// infinite context. Errors at this stage previously vanished into the
 	// blank assignment; log them at Warn so triage knows when rehydrate
@@ -191,7 +191,7 @@ func (m Model) loadSelectedSession(sessionID string) (tea.Model, tea.Cmd) {
 	m.saveSessionState()
 
 	// Load the selected session's history
-	history, err := nerdinit.LoadSessionHistory(m.workspace, sessionID)
+	history, err := session.LoadSessionHistory(m.workspace, sessionID)
 	if err != nil {
 		m.history = append(m.history, Message{
 			Role:    "assistant",
@@ -220,14 +220,14 @@ func (m Model) loadSelectedSession(sessionID string) (tea.Model, tea.Cmd) {
 	m.hydrateCompressorForSession(sessionID)
 
 	// Update session.json to point to this session
-	state := &nerdinit.SessionState{
+	state := &session.SessionState{
 		SessionID:    sessionID,
 		StartedAt:    history.CreatedAt,
 		LastActiveAt: time.Now(),
 		TurnCount:    m.turnCount,
 		HistoryFile:  sessionID + ".json",
 	}
-	_ = nerdinit.SaveSessionState(m.workspace, state)
+	_ = session.SaveSessionState(m.workspace, state)
 
 	// Add a system message indicating session switch
 	m.history = append(m.history, Message{
@@ -262,7 +262,7 @@ func MigrateOldSessionsToSQLite(workspace string, localDB *store.LocalStore) (in
 	migratedTurns := 0
 
 	for _, sessionID := range sessionIDs {
-		history, err := nerdinit.LoadSessionHistory(workspace, sessionID)
+		history, err := session.LoadSessionHistory(workspace, sessionID)
 		if err != nil {
 			continue // Skip corrupted sessions
 		}

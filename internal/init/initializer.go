@@ -1189,10 +1189,6 @@ func (i *Initializer) sendProgress(phase, message string, percent float64) {
 // createCampaignKnowledgeBase - see profile.go
 // LoadProjectProfile - see profile.go
 // LoadPreferences - see profile.go
-// LoadSessionState - see profile.go
-// SaveSessionState - see profile.go
-// SaveSessionHistory - see profile.go
-// LoadSessionHistory - see profile.go
 // ListSessionHistories - see profile.go
 // GetLatestSession - see profile.go
 // IsInitialized - see profile.go
@@ -1458,39 +1454,3 @@ func hasAgent(agents []CreatedAgent, name string) bool {
 	return false
 }
 
-// SessionState represents the current session state.
-type SessionState struct {
-	SessionID    string    `json:"session_id"`
-	StartedAt    time.Time `json:"started_at"`
-	LastActiveAt time.Time `json:"last_active_at"`
-	TurnCount    int       `json:"turn_count"`
-
-	// Suspension state (for pause/resume)
-	Suspended       bool       `json:"suspended"`
-	SuspendedAt     *time.Time `json:"suspended_at,omitzero"`
-	PendingQuestion string     `json:"pending_question,omitzero"`
-	PendingOptions  []string   `json:"pending_options,omitzero"`
-
-	// Context state
-	ActiveStrategy string   `json:"active_strategy,omitzero"`
-	ActiveGoals    []string `json:"active_goals,omitzero"`
-	WorkingFacts   []string `json:"working_facts,omitzero"`
-
-	// Conversation history (stored separately in sessions/ folder)
-	HistoryFile string `json:"history_file,omitzero"`
-}
-
-// ChatMessage represents a single message in the conversation.
-type ChatMessage struct {
-	Role    string    `json:"role"` // "user" or "assistant"
-	Content string    `json:"content"`
-	Time    time.Time `json:"time"`
-}
-
-// SessionHistory represents the full conversation history for a session.
-type SessionHistory struct {
-	SessionID string        `json:"session_id"`
-	Messages  []ChatMessage `json:"messages"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
-}
