@@ -373,11 +373,16 @@ func executeBrowserReason(ctx context.Context, args map[string]any) (string, err
 	correlations := correlateBrowserFailures(failed, visibleErrors, 5*time.Second)
 	contradictions := detectBrowserContradictions(failed, sections["toast_notification"])
 	recommendations := browserRecommendations(status, len(failed), len(blocked), len(slow), len(netFailures))
+	containerEvents := adaptRuntimeErrorEvents(failed, visibleErrors)
+	containerResult := getBrowserManager().CorrelateContainerErrors(ctx, containerEvents, 5*time.Second)
 	counts := map[string]int{
 		"root_causes": len(rootCauses), "failed_requests": len(failed), "network_failures": len(netFailures),
 		"slow_apis": len(slow), "blocking_issues": len(blocked), "console_errors": len(errorConsole),
 		"console_warnings": len(warningConsole), "error_toasts": len(errorToasts), "warning_toasts": len(warningToasts),
 		"correlations": len(correlations), "contradictions": len(contradictions),
+	}
+	if len(containerResult.Correlations) > 0 || len(containerResult.Notes) > 0 {
+		counts["container_correlations"] = len(containerResult.Correlations)
 	}
 	data := map[string]any{
 		"root_causes":         publicBrowserFacts(getBrowserManager(), rootCauses, true),
@@ -392,6 +397,12 @@ func executeBrowserReason(ctx context.Context, args map[string]any) (string, err
 		"warning_toasts":      publicBrowserFacts(getBrowserManager(), warningToasts, true),
 		"correlations":        correlations, "contradictions": contradictions, "recommendations": recommendations,
 	}
+	if len(containerResult.Correlations) > 0 || len(containerResult.Notes) > 0 {
+		data["container_correlations"] = containerResult.Correlations
+		if len(containerResult.Notes) > 0 {
+			data["container_correlation_notes"] = containerResult.Notes
+		}
+	}
 	if topic == "what_changed_since" {
 		data["changes"] = mergeReasonChanges(rootCauses, failed, netFailures, slow, visibleErrors)
 	}
@@ -401,18 +412,22 @@ func executeBrowserReason(ctx context.Context, args map[string]any) (string, err
 		data = truncateReasonSections(data, maxItems)
 	}
 
+	evidenceHandles := []string{
+		"reason:" + sessionID + ":root_causes", "reason:" + sessionID + ":failed_requests",
+		"reason:" + sessionID + ":network_failures", "reason:" + sessionID + ":slow_apis",
+		"reason:" + sessionID + ":blocking_issues", "reason:" + sessionID + ":user_visible_errors",
+		"reason:" + sessionID + ":correlations", "reason:" + sessionID + ":recommendations",
+	}
+	if len(containerResult.Correlations) > 0 || len(containerResult.Notes) > 0 {
+		evidenceHandles = append(evidenceHandles, "reason:"+sessionID+":container_correlations")
+	}
 	output := map[string]any{
 		"success": true, "session_id": sessionID, "topic": topic, "view": view, "status": status,
 		"evidence_scope": "bounded_live_kernel", "counts": counts,
 		"summary":    fmt.Sprintf("status=%s root_causes=%d failed_requests=%d network_failures=%d slow_apis=%d blocking_issues=%d", status, len(rootCauses), len(failed), len(netFailures), len(slow), len(blocked)),
 		"page_state": stateObservation.Data["state"], "time_window_ms": windowMs,
 		"since_navigation": sinceNavigation, "navigation_since_ms": navigationSince, "effective_since_ms": since,
-		"evidence_handles": []string{
-			"reason:" + sessionID + ":root_causes", "reason:" + sessionID + ":failed_requests",
-			"reason:" + sessionID + ":network_failures", "reason:" + sessionID + ":slow_apis",
-			"reason:" + sessionID + ":blocking_issues", "reason:" + sessionID + ":user_visible_errors",
-			"reason:" + sessionID + ":correlations", "reason:" + sessionID + ":recommendations",
-		},
+		"evidence_handles": evidenceHandles,
 	}
 	if view != "summary" {
 		output["data"] = data
@@ -828,6 +843,93 @@ func correlateBrowserFailures(failed, visible []types.Fact, window time.Duration
 	}
 	return result
 }
+// maxAdaptedContainerEvents caps how many browser facts are adapted into
+// RuntimeErrorEvents for container correlation. A storm of failures must not
+// turn one diagnosis into a huge correlation pass. The most recent events are
+// kept.
+const maxAdaptedContainerEvents = 32
+
+// adaptRuntimeErrorEvents converts browser facts into RuntimeErrorEvents for
+// container log correlation. It builds events from the same slices the
+// diagnosis already has — failed (Kind "failed_request") and visibleErrors
+// (Kind "console_error") — reusing factTimestamp with the same predicate specs
+// correlateBrowserFailures uses so the two correlations agree about when a
+// fact happened. Facts with undeterminable timestamps (factTimestamp == 0)
+// are skipped rather than producing a zero time that would correlate against
+// the epoch. The most recent events are kept up to maxAdaptedContainerEvents.
+func adaptRuntimeErrorEvents(failed, visible []types.Fact) []browser.RuntimeErrorEvent {
+	type candidate struct {
+		ts     int64
+		kind   string
+		detail string
+	}
+	candidates := make([]candidate, 0, len(failed)+len(visible))
+	for _, f := range failed {
+		ts := factTimestamp(f, browserPredicateSpecs[f.Predicate])
+		if ts == 0 {
+			continue
+		}
+		detail := ""
+		if len(f.Args) >= 4 {
+			// failed_request_at(SessionID, ReqID, URL, Status, Timestamp)
+			url := fmt.Sprint(f.Args[2])
+			status := fmt.Sprint(f.Args[3])
+			if url != "" && status != "" {
+				detail = fmt.Sprintf("%s status=%s", url, status)
+			} else if url != "" {
+				detail = url
+			} else {
+				detail = status
+			}
+		} else if len(f.Args) >= 3 {
+			detail = fmt.Sprint(f.Args[2])
+		} else {
+			detail = f.Predicate
+		}
+		candidates = append(candidates, candidate{ts: ts, kind: "failed_request", detail: detail})
+	}
+	for _, f := range visible {
+		ts := factTimestamp(f, browserPredicateSpecs[f.Predicate])
+		if ts == 0 {
+			continue
+		}
+		detail := ""
+		if len(f.Args) >= 3 {
+			// user_visible_error(SessionID, Source, Message, Timestamp)
+			msg := fmt.Sprint(f.Args[2])
+			src := ""
+			if len(f.Args) >= 2 {
+				src = fmt.Sprint(f.Args[1])
+			}
+			if src != "" && msg != "" {
+				detail = fmt.Sprintf("%s: %s", src, msg)
+			} else if msg != "" {
+				detail = msg
+			} else {
+				detail = src
+			}
+		} else if len(f.Args) >= 2 {
+			detail = fmt.Sprint(f.Args[1])
+		} else {
+			detail = f.Predicate
+		}
+		candidates = append(candidates, candidate{ts: ts, kind: "console_error", detail: detail})
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ts > candidates[j].ts })
+	if len(candidates) > maxAdaptedContainerEvents {
+		candidates = candidates[:maxAdaptedContainerEvents]
+	}
+	events := make([]browser.RuntimeErrorEvent, 0, len(candidates))
+	for _, c := range candidates {
+		events = append(events, browser.RuntimeErrorEvent{
+			Kind:      c.kind,
+			Detail:    c.detail,
+			Timestamp: time.UnixMilli(c.ts),
+		})
+	}
+	return events
+}
+
 
 func detectBrowserContradictions(failed, toasts []types.Fact) []map[string]any {
 	if len(failed) == 0 {
