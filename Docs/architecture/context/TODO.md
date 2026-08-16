@@ -1,6 +1,6 @@
 # TODO — Context package backlog
 
-> Last verified against codebase: 2026-08-15  
+> Last verified against codebase: 2026-08-16  
 > Prioritized engineering backlog for `internal/context` and its wires  
 > Docs-only corpus does not implement these items.
 
@@ -61,12 +61,8 @@
 
 ## P3 — learning & JIT
 
-- [ ] Wire audit: confirm prompt JIT actually calls `GetActivationScores` each turn when expected.  
-      **Audit result: it does not.** Nothing in the tree calls
-      `Compressor.GetActivationScores` or `GetHighActivationFactKeys`, and
-      `prompt.CompilationContext.ActivatedFacts` is never populated or read. The
-      activation→JIT feedback edge is dead. Wiring it requires changes in
-      `internal/prompt` and `cmd/nerd/chat`.
+- [ ] Wire audit: confirm prompt JIT actually calls `GetActivationScores` each turn when expected.
+      **Audit result: it does not.** Re-audit 2026-08-16 re-confirms the original finding and adds why the wiring has never been done. (1) The audit itself is complete and re-confirmed: `Compressor.GetActivationScores` and `GetHighActivationFactKeys` are defined in `internal/context/compressor_metrics.go:356` and `:395` and have no callers outside that package — `GetHighActivationFactKeys` is the only caller of `GetActivationScores`; `prompt.CompilationContext.ActivatedFacts` (`internal/prompt/context.go:194`) is never populated or read in production; the identically named `ActivatedFacts` in `internal/testing/context_harness` is a different type and unrelated. (2) `ActivationThreshold` IS threaded, but only into the cache key: `internal/prompt/context.go:576` folds it into the sha256 canonical-content hash, so the field affects cache identity while the scores it thresholds affect nothing. (3) Blocker — no atom-to-fact relation exists to boost along: the documented intent at `context.go:191-193` is to "boost atoms related to highly-activated facts", but `PromptAtom` (`internal/prompt/atoms.go:135`) carries contextual selectors only — `OperationalModes`, `CampaignPhases`, `BuildLayers`, `InitPhases`, `NorthstarPhases`, `OuroborosStages`, `IntentVerbs`, `ShardTypes`, `Languages`, `Frameworks` — and no predicate or fact linkage; `ScoredAtom` (`internal/prompt/selector.go:459`) carries only `LogicScore`, `VectorScore` and `Combined`. (4) Consequence: this is not mechanical wiring. Closing it first requires DESIGNING the atom-to-fact relation — for example a `RelatedPredicates` field on `PromptAtom` that would then have to be populated across the whole atom library under `internal/prompt/atoms/`, or a derived relatedness via embeddings — and then deciding how much a hot fact should move an atom's `Combined` score. Both are architecture decisions that belong in an arch-propose pass, not an incremental fix, and guessing at them would silently change prompt selection quality on every turn.
 - [x] Surface feedback store stats in glass-box / transparency UI.  
       `Compressor.GetFeedbackStats` / `context.CollectFeedbackStats` expose the
       snapshot, and `nerd context-stats` renders helpful vs noise predicates.
