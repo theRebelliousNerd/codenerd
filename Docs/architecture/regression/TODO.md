@@ -1,7 +1,7 @@
 # regression — TODO
 
 > Last verified against codebase: **2026-08-15**  
-> Prioritized backlog for `internal/regression` and its hosts. **Docs-only rebuild did not implement these.**
+> Prioritized backlog for `internal/regression` and its hosts. **Every prioritized item is now implemented; the section below records only explicit non-goals.**
 
 ---
 
@@ -16,7 +16,7 @@
 ## P1 — Operator usefulness
 
 - [x] Example `battery.yaml` for codeNERD workspace (build + `go test ./internal/regression/...` smoke).
-- [~] Optional seed from `nerd init` under `.nerd/regression/`. `regression.Seed` is implemented, tested and used by `nerd regression init`; the one-line call from `internal/init.runPhase1DirectorySetup` is still open (see 08-WIRING §2.5).
+- [x] Optional seed from `nerd init` under `.nerd/regression/`. `regression.Seed` is implemented, tested and used by `nerd regression init`; the call now lives at internal/init/initializer.go:717 inside runPhase1DirectorySetup, appends the created path to result.FilesCreated, prints a confirmation, Seed never overwrites so it is safe under --force, and a seed failure is recorded as a non-fatal failure into result.Failures rather than aborting init.
 - [x] Print-friendly summary helper or CLI table (pass/fail/duration).
 - [x] Persist last run under `.nerd/regression/runs/` (host-side OK).
 
@@ -61,10 +61,12 @@
 
 ## Explicit non-goals (near term)
 
-- [ ] ~~Parallel task scheduler~~  
-- [ ] ~~LLM failure interpretation inside package~~  
-- [ ] ~~Merging Nemesis armory into this package~~  
-- [ ] ~~Deleting package solely for zero importers~~ (wire first)
+These are recorded as plain bullets, not checkboxes, because a checkbox reads as unfinished work and these are decisions not to act.
+
+- ~~Parallel task scheduler~~
+- ~~LLM failure interpretation inside package~~
+- ~~Merging Nemesis armory into this package~~
+- ~~Deleting package solely for zero importers~~ (wire first)
 
 ---
 

@@ -493,12 +493,17 @@ func TestRequestLogger_WithField_ShouldChain(t *testing.T) {
 	defer resetLoggingState(t)
 
 	rl := WithRequestID(CategoryKernel, "req-1")
-	result := rl.WithField("key", "value")
-	if result != rl {
-		t.Error("WithField should return the same RequestLogger for chaining")
+	// WithField returns a derived logger (copy-on-write), so chaining is
+	// verified by the accumulated fields rather than by pointer equality.
+	result := rl.WithField("key", "value").WithField("second", 2)
+	if result.fields["key"] != "value" {
+		t.Errorf("expected field 'key'='value', got %v", result.fields["key"])
 	}
-	if rl.fields["key"] != "value" {
-		t.Errorf("expected field 'key'='value', got %v", rl.fields["key"])
+	if result.fields["second"] != 2 {
+		t.Errorf("expected field 'second'=2, got %v", result.fields["second"])
+	}
+	if len(rl.fields) != 0 {
+		t.Errorf("expected receiver not to be mutated, got %d fields: %v", len(rl.fields), rl.fields)
 	}
 }
 

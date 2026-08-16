@@ -829,10 +829,23 @@ func WithRequestID(category Category, requestID string) *RequestLogger {
 	}
 }
 
-// WithField adds a field to the request logger
+// WithField returns a NEW RequestLogger carrying the extra field.
+//
+// It deliberately does not mutate the receiver. The With* shape promises a
+// derived logger, and returning the receiver made every derivation alias
+// its parent - sibling calls saw each other's fields, and concurrent ones
+// raced on a plain map.
 func (r *RequestLogger) WithField(key string, value any) *RequestLogger {
-	r.fields[key] = value
-	return r
+	fields := make(map[string]any, len(r.fields)+1)
+	for k, v := range r.fields {
+		fields[k] = v
+	}
+	fields[key] = value
+	return &RequestLogger{
+		logger:    r.logger,
+		requestID: r.requestID,
+		fields:    fields,
+	}
 }
 
 func (r *RequestLogger) formatMsg(format string, args ...any) string {
