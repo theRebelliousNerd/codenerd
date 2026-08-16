@@ -234,8 +234,8 @@ func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, s
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if ctx.Value(types.CtxKeyPriority) == nil {
-		ctx = context.WithValue(ctx, types.CtxKeyPriority, priority)
+	if _, ok := types.SpawnPriorityFromContext(ctx); !ok {
+		ctx = types.WithSpawnPriority(ctx, priority)
 	}
 
 	// Dream mode tasks are speculative and should always use a subagent

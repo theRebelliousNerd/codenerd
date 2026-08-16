@@ -254,15 +254,7 @@ func (c *CodexCLIClient) buildPrompt(systemPrompt, userPrompt string) string {
 }
 
 func (c *CodexCLIClient) reasoningEffortForContext(ctx context.Context) string {
-	var capHint types.ModelCapability
-	if v := ctx.Value(types.CtxKeyModelCapability); v != nil {
-		switch vv := v.(type) {
-		case types.ModelCapability:
-			capHint = vv
-		case string:
-			capHint = types.ModelCapability(strings.TrimSpace(vv))
-		}
-	}
+	capHint, _ := types.ModelCapabilityFromContext(ctx)
 
 	switch capHint {
 	case types.CapabilityHighReasoning:
@@ -288,12 +280,8 @@ func (c *CodexCLIClient) reasoningEffortForContext(ctx context.Context) string {
 // ModelForContext resolves the effective model for this request, preferring any
 // per-shard override carried in the context over the client's default model.
 func (c *CodexCLIClient) ModelForContext(ctx context.Context) string {
-	if ctx != nil {
-		if v := ctx.Value(types.CtxKeyModelName); v != nil {
-			if model, ok := v.(string); ok && strings.TrimSpace(model) != "" {
-				return strings.TrimSpace(model)
-			}
-		}
+	if model, ok := types.ModelNameFromContext(ctx); ok && strings.TrimSpace(model) != "" {
+		return strings.TrimSpace(model)
 	}
 	return c.model
 }

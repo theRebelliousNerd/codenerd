@@ -311,10 +311,8 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 	// the priority the shard registered with (interactive clients register
 	// high), defaulting to Normal.
 	initialPriority := state.DefaultPriority
-	if prioVal := ctx.Value(types.CtxKeyPriority); prioVal != nil {
-		if p, ok := prioVal.(types.SpawnPriority); ok {
-			initialPriority = p
-		}
+	if p, ok := types.SpawnPriorityFromContext(ctx); ok {
+		initialPriority = p
 	}
 
 	// Visibility queue

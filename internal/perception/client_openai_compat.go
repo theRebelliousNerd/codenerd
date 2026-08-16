@@ -272,12 +272,8 @@ func (c *OpenAICompatClient) GetModel() string { return c.model }
 // ModelForContext resolves the effective model, preferring a per-shard override
 // carried in the context over the client's configured default.
 func (c *OpenAICompatClient) ModelForContext(ctx context.Context) string {
-	if ctx != nil {
-		if v := ctx.Value(types.CtxKeyModelName); v != nil {
-			if model, ok := v.(string); ok && strings.TrimSpace(model) != "" {
-				return c.normalizeModel(strings.TrimSpace(model))
-			}
-		}
+	if model, ok := types.ModelNameFromContext(ctx); ok && strings.TrimSpace(model) != "" {
+		return c.normalizeModel(strings.TrimSpace(model))
 	}
 	return c.normalizeModel(c.model)
 }
@@ -337,18 +333,7 @@ func (c *OpenAICompatClient) reasoningEffortForContext(ctx context.Context) stri
 	if c.vendor != ProviderMeta {
 		return ""
 	}
-	if ctx == nil {
-		return ""
-	}
-	var capHint types.ModelCapability
-	if v := ctx.Value(types.CtxKeyModelCapability); v != nil {
-		switch vv := v.(type) {
-		case types.ModelCapability:
-			capHint = vv
-		case string:
-			capHint = types.ModelCapability(strings.TrimSpace(vv))
-		}
-	}
+	capHint, _ := types.ModelCapabilityFromContext(ctx)
 
 	switch capHint {
 	case types.CapabilityHighReasoning:

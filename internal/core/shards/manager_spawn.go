@@ -435,9 +435,9 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 
 		// Hint to shared LLM clients (e.g. Codex CLI) what capability tier this shard expects,
 		// enabling per-shard reasoning multiplexing without changing the LLMClient interface.
-		execCtx = context.WithValue(execCtx, types.CtxKeyModelCapability, config.Model.Capability)
+		execCtx = types.WithModelCapability(execCtx, config.Model.Capability)
 		if strings.TrimSpace(config.Model.Name) != "" {
-			execCtx = context.WithValue(execCtx, types.CtxKeyModelName, strings.TrimSpace(config.Model.Name))
+			execCtx = types.WithModelName(execCtx, strings.TrimSpace(config.Model.Name))
 		}
 
 		res, err := agent.Execute(execCtx, task)

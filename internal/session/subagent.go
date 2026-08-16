@@ -232,8 +232,8 @@ func (s *SubAgent) Run(ctx context.Context, task string) {
 	go func() {
 		// Per-agent capability hint for shared LLM clients (e.g. Codex CLI reasoning multiplexing).
 		// Only set if the caller didn't provide an explicit hint.
-		if ctx.Value(types.CtxKeyModelCapability) == nil {
-			ctx = context.WithValue(ctx, types.CtxKeyModelCapability, capabilityHintForAgentName(s.config.Name))
+		if _, ok := types.ModelCapabilityFromContext(ctx); !ok {
+			ctx = types.WithModelCapability(ctx, capabilityHintForAgentName(s.config.Name))
 		}
 
 		// Apply timeout

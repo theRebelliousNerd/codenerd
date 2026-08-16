@@ -331,5 +331,5 @@ func (m *Model) withShardModelContext(ctx context.Context, shardType string) con
 	if strings.TrimSpace(profile.Model) == "" {
 		return ctx
 	}
-	return context.WithValue(ctx, types.CtxKeyModelName, strings.TrimSpace(profile.Model))
+	return types.WithModelName(ctx, strings.TrimSpace(profile.Model))
 }
