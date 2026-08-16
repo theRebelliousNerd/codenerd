@@ -327,6 +327,8 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 				Predicate: "permission_check_result",
 				Args:      []any{actionID, types.MangleAtom("/permit"), reason, ts},
 			})
+				// Constitutional gate verdict: recorded in the cross-package audit log every other gate writes to; the Mangle facts alongside serve policy rather than the audit trail.
+				logging.Audit().SafetyCheck(actionType+" "+target, true, reason)
 			c.mu.Lock()
 			c.permitted = append(c.permitted, actionType)
 			c.mu.Unlock()
@@ -334,6 +336,7 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			logging.Get(logging.CategorySystemShards).Warn("[ConstitutionGate] Action BLOCKED: type=%s, reason=%s", actionType, reason)
 			// Record violation and get action ID for appeals
 			actionID = c.recordViolation(actionType, target, reason, nil, actionID)
+			logging.Audit().SafetyCheck(actionType+" "+target, false, reason)
 
 			// Emit canonical permission result for policy observability.
 			ts := time.Now().Unix()
