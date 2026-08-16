@@ -38,11 +38,13 @@
 
 ## Still open
 
-- [ ] Meter the CLI engines (`claude-cli`, `codex-cli`) — blocked until their
-  response decoders surface token counts; nothing to record today.
-  > Blocked upstream rather than deferred by preference: the CLI engine clients
-  > do not surface token counts in their responses, so there is no number to
-  > meter. The box cannot close until those decoders report usage.
+- [x] Meter the `claude-cli` engine.
+  Closed 2026-08-16. The blocker was not that the CLI withholds token counts - it reports them and always has. A probe of `claude -p --output-format json` returns a result object carrying "usage": {"input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"} plus "total_cost_usd" and a per-model "modelUsage" breakdown. internal/perception/claude_cli_client.go's claudeCLIResponse simply never declared the field, so the decoder discarded them, which is why the CLI engine showed no spend while the API engines did.
+  parseResponse now takes a context and calls trackUsage on a successful turn only, so an errored turn is not metered as a good one. Provider is recorded as Anthropic, which usageProviderID already treats as canonical.
+  Only input_tokens and output_tokens are metered. The cache counters are parsed but deliberately not folded into the input total, because internal/perception/client_anthropic.go:240 meters the API path with the plain input/output pair - folding them in on one path only would make the two engines' rows unreconcilable in the same breakdown.
+- [ ] Meter the `codex-cli` engine.
+  Not blocked by the decoder in the way the original note assumed, but not yet confirmed either. The client already runs `codex exec - --json`, so it receives a JSONL event stream; internal/perception/codex_cli_client.go handles only `item.completed` events (line 543) and its codexExecJSONLEvent struct (line 514) declares no usage field. Whether codex emits a usage-bearing event - and under which event type - can only be established by running the CLI and inspecting the stream.
+  That probe has not been run because the operator's standing instruction records Codex as down and directs that the codex CLI not be invoked. When Codex is back, the work is: probe `codex exec - --json` on a trivial prompt, add the usage-bearing event to codexExecJSONLEvent, and call trackUsage with ProviderOpenAI on turn completion, mirroring what claude_cli_client.go now does.
 - [x] Cross-process coordination of `usage.json` (two `nerd` processes on one
   workspace still last-writer-wins).
   > Closed. Save is now a cross-process read-merge-write. A platform-split
