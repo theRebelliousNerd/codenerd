@@ -81,8 +81,18 @@ func TestSave_ShouldProduceParseableFile(t *testing.T) {
 // TestSave_ShouldReplaceRatherThanAppend guards against a shorter payload
 // leaving trailing bytes from a previous longer one — the classic in-place
 // truncation bug.
+//
+// Under the current cross-process read-merge-write Save, aggregates on disk
+// are merged with this process's contribution (onDisk + (current - baseline)),
+// so a process that blanks its in-memory aggregates must NOT erase another
+// process's totals and the file legitimately stays large. That is merge
+// working, not truncation failing. Events, by contrast, are documented as a
+// non-exhaustive ring with aggregates as the durable record and saveLocked
+// writes only this process's Events without merging, so dropping the retained
+// ring shrinks the payload while merged aggregates must stay intact — the
+// property that actually exercises truncation.
 func TestSave_ShouldReplaceRatherThanAppend(t *testing.T) {
-	tr, path := newTestTracker(t)
+	tr, path := newTestTracker(t, WithEventLog())
 	ctx := WithShardContext(context.Background(), "c", "coder", "sess-1")
 
 	for i := 0; i < 50; i++ {
@@ -91,11 +101,19 @@ func TestSave_ShouldReplaceRatherThanAppend(t *testing.T) {
 	if err := tr.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	big, _ := os.ReadFile(path)
+	big, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var bigData UsageData
+	if err := json.Unmarshal(big, &bigData); err != nil {
+		t.Fatalf("big payload does not parse: %v", err)
+	}
+	bigTotal := bigData.Aggregate.TotalProject.Total
 
-	// Reset to a much smaller payload and save over the top.
+	// Clear only the retained events, leaving aggregates and baseline untouched.
 	tr.mu.Lock()
-	tr.data = newUsageData()
+	tr.data.Events = nil
 	tr.mu.Unlock()
 	if err := tr.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -111,6 +129,12 @@ func TestSave_ShouldReplaceRatherThanAppend(t *testing.T) {
 	var data UsageData
 	if err := json.Unmarshal(small, &data); err != nil {
 		t.Fatalf("rewritten file has trailing garbage: %v", err)
+	}
+	if data.Aggregate.TotalProject.Total == 0 {
+		t.Fatalf("rewritten file lost aggregates: TotalProject.Total is 0, want %d", bigTotal)
+	}
+	if data.Aggregate.TotalProject.Total != bigTotal {
+		t.Fatalf("rewritten file lost aggregates: TotalProject.Total = %d, want %d", data.Aggregate.TotalProject.Total, bigTotal)
 	}
 }
 

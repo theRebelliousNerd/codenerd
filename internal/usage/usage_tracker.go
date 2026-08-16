@@ -53,6 +53,8 @@ type tracker struct {
 	data     UsageData
 	filePath string
 
+	baseline AggregatedStats // aggregates as of the last successful sync with disk; see saveLocked. It is the snapshot used to compute this process's own contribution, so a concurrent writer's totals are merged rather than overwritten.
+
 	// dirty means "there are mutations not yet on disk". saving means "a flush
 	// is in flight". Both are needed: the old code cleared dirty after Save
 	// returned, so any Track that landed during the write saw dirty==true,
@@ -231,12 +233,14 @@ func newUsageData() UsageData {
 }
 
 // Load reads the usage data from disk.
+// Load reads the usage data from disk.
 func (t *tracker) Load() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	data, err := os.ReadFile(t.filePath)
 	if os.IsNotExist(err) {
+		t.baseline = cloneAggregates(t.data.Aggregate)
 		return nil
 	}
 	if err != nil {
@@ -247,10 +251,12 @@ func (t *tracker) Load() error {
 		// Leave the tracker on fresh aggregates rather than a half-populated
 		// struct from a partial unmarshal.
 		t.data = newUsageData()
+		t.baseline = cloneAggregates(t.data.Aggregate)
 		return fmt.Errorf("parse %s: %w", t.filePath, err)
 	}
 
 	t.ensureMapsLocked()
+	t.baseline = cloneAggregates(t.data.Aggregate)
 	return nil
 }
 
@@ -277,6 +283,193 @@ func (t *tracker) ensureMapsLocked() {
 	}
 }
 
+func cloneAggregates(a AggregatedStats) AggregatedStats {
+	out := AggregatedStats{
+		TotalProject:   a.TotalProject,
+		UnpricedTokens: a.UnpricedTokens,
+		ByProvider:     copyTokenCountsMap(a.ByProvider),
+		ByModel:        copyTokenCountsMap(a.ByModel),
+		ByShardType:    copyTokenCountsMap(a.ByShardType),
+		ByOperation:    copyTokenCountsMap(a.ByOperation),
+		BySession:      copyTokenCountsMap(a.BySession),
+		ByShardName:    copyTokenCountsMap(a.ByShardName),
+	}
+	if out.ByProvider == nil {
+		out.ByProvider = make(map[string]TokenCounts)
+	}
+	if out.ByModel == nil {
+		out.ByModel = make(map[string]TokenCounts)
+	}
+	if out.ByShardType == nil {
+		out.ByShardType = make(map[string]TokenCounts)
+	}
+	if out.ByOperation == nil {
+		out.ByOperation = make(map[string]TokenCounts)
+	}
+	if out.BySession == nil {
+		out.BySession = make(map[string]TokenCounts)
+	}
+	if out.ByShardName == nil {
+		out.ByShardName = make(map[string]TokenCounts)
+	}
+	return out
+}
+
+func addTokenCounts(dst *TokenCounts, delta TokenCounts) {
+	dst.Input += delta.Input
+	dst.Output += delta.Output
+	dst.Total += delta.Total
+	dst.Cost += delta.Cost
+}
+
+func contributionSince(current, baseline AggregatedStats) AggregatedStats {
+	diff := func(cur, base TokenCounts) TokenCounts {
+		var d TokenCounts
+		// Never emit negative values: if a subtraction would go below zero
+		// (which can only happen if the file was truncated or reset underneath
+		// us), clamp that component to zero and treat current as the
+		// contribution so we don't discard the tokens this process just
+		// counted.
+		if cur.Input >= base.Input {
+			d.Input = cur.Input - base.Input
+		} else {
+			d.Input = cur.Input
+		}
+		if cur.Output >= base.Output {
+			d.Output = cur.Output - base.Output
+		} else {
+			d.Output = cur.Output
+		}
+		if cur.Total >= base.Total {
+			d.Total = cur.Total - base.Total
+		} else {
+			d.Total = cur.Total
+		}
+		if cur.Cost >= base.Cost {
+			d.Cost = cur.Cost - base.Cost
+		} else {
+			d.Cost = cur.Cost
+		}
+		return d
+	}
+
+	out := AggregatedStats{
+		ByProvider:  make(map[string]TokenCounts, len(current.ByProvider)),
+		ByModel:     make(map[string]TokenCounts, len(current.ByModel)),
+		ByShardType: make(map[string]TokenCounts, len(current.ByShardType)),
+		ByOperation: make(map[string]TokenCounts, len(current.ByOperation)),
+		BySession:   make(map[string]TokenCounts, len(current.BySession)),
+		ByShardName: make(map[string]TokenCounts, len(current.ByShardName)),
+	}
+	out.TotalProject = diff(current.TotalProject, baseline.TotalProject)
+	if current.UnpricedTokens >= baseline.UnpricedTokens {
+		out.UnpricedTokens = current.UnpricedTokens - baseline.UnpricedTokens
+	} else {
+		// Same clamp as above: file truncated, treat current as contribution.
+		out.UnpricedTokens = current.UnpricedTokens
+	}
+
+	for k, curVal := range current.ByProvider {
+		if baseVal, ok := baseline.ByProvider[k]; ok {
+			out.ByProvider[k] = diff(curVal, baseVal)
+		} else {
+			out.ByProvider[k] = curVal
+		}
+	}
+	for k, curVal := range current.ByModel {
+		if baseVal, ok := baseline.ByModel[k]; ok {
+			out.ByModel[k] = diff(curVal, baseVal)
+		} else {
+			out.ByModel[k] = curVal
+		}
+	}
+	for k, curVal := range current.ByShardType {
+		if baseVal, ok := baseline.ByShardType[k]; ok {
+			out.ByShardType[k] = diff(curVal, baseVal)
+		} else {
+			out.ByShardType[k] = curVal
+		}
+	}
+	for k, curVal := range current.ByOperation {
+		if baseVal, ok := baseline.ByOperation[k]; ok {
+			out.ByOperation[k] = diff(curVal, baseVal)
+		} else {
+			out.ByOperation[k] = curVal
+		}
+	}
+	for k, curVal := range current.BySession {
+		if baseVal, ok := baseline.BySession[k]; ok {
+			out.BySession[k] = diff(curVal, baseVal)
+		} else {
+			out.BySession[k] = curVal
+		}
+	}
+	for k, curVal := range current.ByShardName {
+		if baseVal, ok := baseline.ByShardName[k]; ok {
+			out.ByShardName[k] = diff(curVal, baseVal)
+		} else {
+			out.ByShardName[k] = curVal
+		}
+	}
+	return out
+}
+
+func mergeAggregates(base, delta AggregatedStats) AggregatedStats {
+	out := cloneAggregates(base)
+	addTokenCounts(&out.TotalProject, delta.TotalProject)
+	out.UnpricedTokens += delta.UnpricedTokens
+
+	if out.ByProvider == nil {
+		out.ByProvider = make(map[string]TokenCounts)
+	}
+	for k, v := range delta.ByProvider {
+		cur := out.ByProvider[k]
+		addTokenCounts(&cur, v)
+		out.ByProvider[k] = cur
+	}
+	if out.ByModel == nil {
+		out.ByModel = make(map[string]TokenCounts)
+	}
+	for k, v := range delta.ByModel {
+		cur := out.ByModel[k]
+		addTokenCounts(&cur, v)
+		out.ByModel[k] = cur
+	}
+	if out.ByShardType == nil {
+		out.ByShardType = make(map[string]TokenCounts)
+	}
+	for k, v := range delta.ByShardType {
+		cur := out.ByShardType[k]
+		addTokenCounts(&cur, v)
+		out.ByShardType[k] = cur
+	}
+	if out.ByOperation == nil {
+		out.ByOperation = make(map[string]TokenCounts)
+	}
+	for k, v := range delta.ByOperation {
+		cur := out.ByOperation[k]
+		addTokenCounts(&cur, v)
+		out.ByOperation[k] = cur
+	}
+	if out.BySession == nil {
+		out.BySession = make(map[string]TokenCounts)
+	}
+	for k, v := range delta.BySession {
+		cur := out.BySession[k]
+		addTokenCounts(&cur, v)
+		out.BySession[k] = cur
+	}
+	if out.ByShardName == nil {
+		out.ByShardName = make(map[string]TokenCounts)
+	}
+	for k, v := range delta.ByShardName {
+		cur := out.ByShardName[k]
+		addTokenCounts(&cur, v)
+		out.ByShardName[k] = cur
+	}
+	return out
+}
+
 // Save writes the usage data to disk.
 func (t *tracker) Save() error {
 	t.mu.Lock()
@@ -290,7 +483,64 @@ func (t *tracker) Save() error {
 // crash or a full disk mid-write left a truncated, unparseable usage.json and
 // the whole history was gone. Writing a sibling temp file and renaming means a
 // reader sees either the old file or the new one, never a partial one.
+// saveLocked serializes and atomically replaces usage.json. Caller holds mu.
+//
+// The previous implementation used os.WriteFile, which truncates in place: a
+// crash or a full disk mid-write left a truncated, unparseable usage.json and
+// the whole history was gone. Writing a sibling temp file and renaming means a
+// reader sees either the old file or the new one, never a partial one.
 func (t *tracker) saveLocked() error {
+	// Cross-process coordination: read-merge-write under an advisory file lock.
+	// Each process keeps a full UsageData in memory and saveLocked previously
+	// wrote that whole struct, so two processes on one workspace overwrote each
+	// other (last-writer-wins). A lock alone does not fix this because each
+	// process would still write its own complete copy; the write must become
+	// read-merge-write. Every aggregate is an additive counter, so onDisk +
+	// (current - baseline) is exactly the right answer. Track a baseline
+	// snapshot so a concurrent writer's totals are merged rather than overwritten.
+	lockPath := t.filePath + ".lock"
+	var lk *fileLock
+	if l, err := acquireFileLock(lockPath); err != nil {
+		logging.Get(logging.CategorySession).Debug("usage: could not acquire cross-process lock %s: %v", lockPath, err)
+	} else {
+		lk = l
+		defer func() {
+			if err := lk.release(); err != nil {
+				logging.Get(logging.CategorySession).Debug("usage: failed to release cross-process lock %s: %v", lockPath, err)
+			}
+		}()
+		// With the lock held, read the current on-disk aggregates.
+		// The Events ring is explicitly documented as non-exhaustive with
+		// aggregates as the durable record, so do NOT attempt to merge event
+		// rings across processes. Keep writing this process's own Events
+		// exactly as today.
+		var onDiskAgg AggregatedStats
+		haveOnDisk := false
+		parseFailed := false
+		if raw, err := os.ReadFile(t.filePath); err == nil {
+			var onDisk UsageData
+			if err := json.Unmarshal(raw, &onDisk); err != nil {
+				logging.Get(logging.CategorySession).Warn("usage: could not parse %s, writing own data without merge: %v", t.filePath, err)
+				parseFailed = true
+			} else {
+				onDiskAgg = onDisk.Aggregate
+				haveOnDisk = true
+			}
+		} else if os.IsNotExist(err) {
+			// No file yet; treat on-disk aggregates as empty. mergeAggregates
+			// handles nil maps in base.
+			haveOnDisk = true
+		} else {
+			logging.Get(logging.CategorySession).Warn("usage: could not read %s for merge, writing own data without merge: %v", t.filePath, err)
+			parseFailed = true
+		}
+		if haveOnDisk && !parseFailed {
+			contribution := contributionSince(t.data.Aggregate, t.baseline)
+			merged := mergeAggregates(onDiskAgg, contribution)
+			t.data.Aggregate = merged
+		}
+	}
+
 	payload, err := json.MarshalIndent(t.data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal usage data: %w", err)
@@ -333,6 +583,7 @@ func (t *tracker) saveLocked() error {
 		return fmt.Errorf("rename usage file into place: %w", err)
 	}
 
+	t.baseline = cloneAggregates(t.data.Aggregate)
 	return nil
 }
 
