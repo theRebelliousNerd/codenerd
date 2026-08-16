@@ -1,6 +1,6 @@
 # tools — TODO
 
-> Last verified: **2026-08-15**  
+> Last verified: **2026-08-16**  
 > Prioritized backlog for `internal/tools` and tightly coupled contracts.
 
 ## P0 — Safety
@@ -52,12 +52,12 @@
       `/review`, `/attack` and `/general`. A test asserts that no intent in
       `intentToCategory` resolves to an empty toolbox.
 - [x] Prefer `logging.Tools*` for file/shell completions instead of the VirtualStore channel.
-- [ ] Register tools only once into Global from the VS pointer to eliminate dual-map drift risk.  
-      Not fixable from `internal/tools`: the duplication lives in
-      `internal/core/virtual_store_tools.go`, where `HydrateModularTools` calls
-      each `RegisterAll` twice. Mitigated by
-      `TestCatalog_WhenHydratedTwice_ShouldProduceIdenticalRegistries`, which
-      pins the determinism and idempotence that duplication depends on.
+- Decided NO - Register tools only once into Global from the VS pointer to eliminate dual-map drift risk.
+      The duplication is real: internal/core/virtual_store_tools.go HydrateModularTools calls RegisterAll twice for each tool family, once into the VirtualStore's own modularTools registry and once into tools.Global(), and installs the write guard and fact sink on both.
+      The proposed fix is to register once "from the VS pointer", which means making the VirtualStore registry and the global registry the same object.
+      That is not available as written: internal/tools/registry.go:514 declares `var globalRegistry = NewRegistry()` as a package-level singleton with accessors (Global, SetGlobalWriteGuard, SetGlobalAllowlist, SetGlobalWorkspaceRoot, SetGlobalFactSink) but no setter for the registry itself. Aliasing would require introducing one.
+      Introducing one would be worse than the problem. Every VirtualStore in the process would then share one mutable registry, so tests that construct more than one VirtualStore would contaminate each other, and a tool registered by one workspace would be visible to another. The current duplication is bounded and deterministic, and TestCatalog_WhenHydratedTwice_ShouldProduceIdenticalRegistries already pins the property that makes it safe - that hydrating twice produces identical registries.
+      Conclusion: the drift risk is mitigated by an existing test, and the proposed remedy trades it for a worse cross-contamination risk. Revisit only if the two registries ever diverge in practice, which that test would catch.
 
 ## P3 — Product depth
 
