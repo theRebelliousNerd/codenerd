@@ -35,7 +35,7 @@
 
 - [ ] Complete BPAR-5 contract audit, repo trace, Docker correlation, and final live parity gate
   - Docker correlation (BP-25): core, fetcher, manager wiring and `browser_reason` surfacing landed with unit coverage; live container proof remains.
-  - Contract audit and repository trace (BP-24): not started.
+  - Contract audit and repository trace (BP-24): discovery half landed with unit coverage — read-side path confinement, the bounded repository tracer, and the passive discover phase with its six-way finding classification; the execute/report/resume phases, Mangle representation, tool surfacing and live proof remain.
   - Unsafe JavaScript gate (BP-19): NOT started, and deliberately so - it remains an open design question in OPEN-QUESTIONS.md item 11 ("should unsafe JavaScript remain absent, or ship disabled-by-default...?"), where "remain absent" is still a legitimate answer. It adds an arbitrary-code-execution surface, so it needs an explicit decision before it is built, not a default-yes from a backlog sweep.
   - Delivery evaluation (BP-26): competitor evaluation remains.
 - [x] Redact secrets from browser logs, fact sink, results, and session store

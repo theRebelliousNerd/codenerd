@@ -402,7 +402,7 @@ Full matrix: [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
 Top three:
 
 1. No safe caller-supplied rule sandbox; `browser_mangle` is intentionally read-only.
-2. No progressive `browser_audit`, repository-trace, or Docker-correlation surface; BPAR-4 evidence/spec/test slices are shipped.
+2. No progressive `browser_audit` tool surface; repository tracing and Docker correlation now exist as bounded package-level capabilities with unit coverage, with Docker correlation surfaced through `browser_reason` — `browser_audit` remains absent as a tool; BPAR-4 evidence/spec/test slices are shipped.
 3. No bounded fact retention/GC for accumulated long-lived event history.
 
 ---
