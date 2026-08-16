@@ -7,11 +7,16 @@ import (
 	"codeberg.org/TauCeti/mangle-go/analysis"
 
 	"codenerd/internal/types"
+	"codenerd/internal/types/typestest"
 )
 
 // --- MockKernelInterface ---
 
 type MockKernelInterface struct {
+	// typestest.MockKernel supplies Transaction() (and the rest of types.Kernel) so this mock cannot panic when code under test starts batching updates.
+	// Methods declared directly on MockKernelInterface still take precedence over the promoted ones for the behaviour the tests drive.
+	typestest.MockKernel
+
 	AssertFactFunc      func(fact types.KernelFact) error
 	AssertFactBatchFunc func(facts []types.KernelFact) error
 	QueryPredicateFunc  func(predicate string) ([]types.KernelFact, error)
@@ -29,6 +34,7 @@ type MockKernelInterface struct {
 }
 
 var _ types.Kernel = (*MockKernelInterface)(nil)
+var _ types.KernelTransactor = (*MockKernelInterface)(nil)
 
 func (m *MockKernelInterface) AssertFact(fact types.KernelFact) error {
 	m.AssertedFacts = append(m.AssertedFacts, fact)
@@ -150,6 +156,11 @@ func (m *MockKernelInterface) RetractExactFactsBatch(facts []types.Fact) error {
 func (m *MockKernelInterface) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
 	return nil
 }
+// Transaction exists to satisfy types.KernelTransactor via the embedded typestest.MockKernel.
+// Declared explicitly so the KernelTransactor guard's AST scan sees the method; the body
+// delegates to the promoted implementation so behaviour is identical to embedding alone.
+func (m *MockKernelInterface) Transaction() types.KernelTransaction { return m.MockKernel.Transaction() }
+
 
 // --- MockLLMClient ---
 
