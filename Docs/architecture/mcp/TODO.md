@@ -1,9 +1,9 @@
 # mcp — TODO
 
-> Last verified: 2026-08-15 (previous pass: 2026-07-13)  
+> Last verified: 2026-08-16 (previous pass: 2026-07-13)  
 > Docs-only backlog derived from code audit (not a commitment schedule)
 
-> Re-audited on 2026-08-15 — nearly all of the backlog was already implemented and each closed box cites its evidence so the next audit can re-check rather than re-trust.
+> Re-audited on 2026-08-16 — nearly all of the backlog was already implemented and each closed box cites its evidence so the next audit can re-check rather than re-trust.
 
 ## P0 — Make Mangle selection real
 
@@ -22,8 +22,7 @@
   built at internal/system/factory.go:1146, stored on Cortex.mcpBridge, exposed by Cortex.MCPBridge() at factory.go:475
 - [x] Readiness signal after ConnectAll + initial discover
   FactEmitter.EmitReady(serverCount, toolCount) in facts.go
-- [ ] Wire `CompileToolsForShard` (or equivalent) into shard/articulation JIT prompt path if product requires MCP tools in LLM context — genuinely open, gated on the "if"
-  CompileToolsForShard exists at integration.go:257 and the bridge is retained, but Cortex.MCPBridge() has no consumers and the only non-test caller of the compile path is the nerd mcp select CLI at cmd/nerd/cmd_mcp_select.go, so MCP tools never reach an LLM prompt; closing it is a product decision, not a wiring oversight.
+- Needs design - Wire `CompileToolsForShard` (or equivalent) into shard/articulation JIT prompt path if product requires MCP tools in LLM context — genuinely open, gated on the "if product requires" condition which has never been decided. CompileToolsForShard exists at integration.go:257 and the bridge is retained, but Cortex.MCPBridge() has no consumers and the only non-test caller of the compile path is the `nerd mcp select` CLI at cmd/nerd/cmd_mcp_select.go, so MCP tools never reach an LLM prompt; closing it is a product decision, not a wiring oversight. CompileToolsForShard returns a RENDERED string (a tool block for LLM context), not a list of names, so it cannot ride the existing AvailableTools path: internal/core/shards/manager_spawn.go sets config.SessionContext.AvailableTools to a []string of tool names. SessionContext.ExtraContext is not a free-text channel either — internal/articulation/prompt_assembler.go:205-233 reads it only for specific selector keys — build_layer, init_phase, northstar_phase, ouroboros_stage, frameworks, framework, language, reflection_hits — so an arbitrary key would be silently ignored. Therefore wiring this means adding a NEW rendering path in prompt assembly for a rendered MCP block, which is the part that spends prompt budget on every turn. That is precisely the "if product requires" condition the item has always carried, and it has never been decided. Open question: should MCP tools appear in LLM prompts at all, given the whole selection stack (EDB emission, Mangle policy, vector scores, render modes, budget accounting) is built and tested but its only consumer today is a CLI command.
 - [x] Fix `cmd_mangle_check` path: `internal/core/defaults/schemas_mcp.mg` (not missing `internal/mcp/schemas_mcp.mg`)
   cmd/nerd/cmd_mangle_check.go lines 180-182 load the internal/core/defaults/ path and record why the package-local path was wrong
 - [x] Align package README structure section with on-disk files

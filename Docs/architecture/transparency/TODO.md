@@ -1,6 +1,6 @@
 # transparency — TODO
 
-> Last verified: 2026-07-13  
+> Last verified: 2026-08-16  
 > Prioritized backlog for `internal/transparency` and **required** consumer wiring.  
 > DOCS ONLY rebuild does not implement these.
 
@@ -29,7 +29,7 @@
 
 - [x] Optional JSON/NDJSON event sink for headless campaign runs (`NDJSONSink`, auto-attached from `CODENERD_GLASSBOX_NDJSON`).  
 - [ ] OTel bridge (optional) mapping categories → span events. **Deliberately deferred:** nothing in this repo configures a `TracerProvider`, so the bridge would emit into no-op spans. `EventSink` is the extension point when a provider exists (rationale recorded at the `EventSink` declaration).  
-- [ ] Per-turn Glass Box export attached to campaign assault artifacts. **Primitive exists** (`NDJSONSink.OnlyTurn`); attaching it to assault artifacts requires `internal/campaign` to own the sink lifecycle.  
+- Needs design - Per-turn Glass Box export attached to campaign assault artifacts. **Primitive exists** (`NDJSONSink.OnlyTurn`); attaching it to assault artifacts requires `internal/campaign` to own the sink lifecycle. The primitives are all present: NewNDJSONFileSink creates parent directories and appends, NDJSONSink.OnlyTurn scopes a sink to one turn, and assault artifacts already live under .nerd/campaigns/<slug>/assault/. Three concrete blockers stand in the way, all of them design rather than typing: (1) GlassBoxEventBus has AddSink (event_bus.go:81) but NO RemoveSink, so a per-turn sink attached today would accumulate for the life of the process - a leak, not an export. (2) internal/campaign has no transparency dependency at all; nothing in that package imports internal/transparency, so the orchestrator cannot reach a bus. (3) The bus is constructed only in the TUI boot paths (cmd/nerd/chat/session_boot.go:553 and session_shared_boot.go:226). An assault launched from the CLI has no bus at all, so "attach a sink" is undefined on that path unless a bus is also constructed there. The design decision is who owns the bus reference across the two launch paths, and what the sink's lifetime is bound to. Note that an env-var opt-in already exists (attachEnvNDJSONSink, keyed on NDJSONEventEnvVar) and is the cheaper alternative worth weighing before adding campaign-owned lifecycle.
 - [x] Machine-checkable invariant tests that ToolEvent still flows when Glass Box disabled (`TestToolEventBus_WhenGlassBoxDisabled_ShouldStillDeliver`).
 
 ## Done (living — do not re-open without evidence)
