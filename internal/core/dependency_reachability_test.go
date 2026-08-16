@@ -10,12 +10,12 @@ import (
 // denseImportGraph builds a layered file->file import graph of the shape real
 // resolution produces: package-level fan-out, every file of a layer importing
 // every file of the next. layers*width*width edges.
-func denseImportGraph(layers, width int) []types.KernelFact {
-	facts := make([]types.KernelFact, 0, layers*width*width)
+func denseImportGraph(layers, width int) []types.Fact {
+	facts := make([]types.Fact, 0, layers*width*width)
 	for p := range layers {
 		for a := range width {
 			for b := range width {
-				facts = append(facts, types.KernelFact{
+				facts = append(facts, types.Fact{
 					Predicate: "dependency_link",
 					Args: []any{
 						fmt.Sprintf("p%d/f%d.go", p, a),
@@ -104,7 +104,7 @@ func TestDependencyReachability_WhenSeeded_ShouldAnswer(t *testing.T) {
 	}
 
 	// A simple chain: a.go -> b.go -> c.go -> d.go.
-	chain := []types.KernelFact{
+	chain := []types.Fact{
 		{Predicate: "dependency_link", Args: []any{"a.go", "b.go", types.MangleAtom("/import")}},
 		{Predicate: "dependency_link", Args: []any{"b.go", "c.go", types.MangleAtom("/import")}},
 		{Predicate: "dependency_link", Args: []any{"c.go", "d.go", types.MangleAtom("/import")}},
@@ -113,7 +113,7 @@ func TestDependencyReachability_WhenSeeded_ShouldAnswer(t *testing.T) {
 	if err := k.AssertFactBatch(chain); err != nil {
 		t.Fatalf("assert chain: %v", err)
 	}
-	if err := k.AssertFact(types.KernelFact{Predicate: "reachability_query", Args: []any{"a.go"}}); err != nil {
+	if err := k.AssertFact(types.Fact{Predicate: "reachability_query", Args: []any{"a.go"}}); err != nil {
 		t.Fatalf("assert seed: %v", err)
 	}
 

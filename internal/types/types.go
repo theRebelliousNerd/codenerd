@@ -299,30 +299,6 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 }
 
 // =============================================================================
-// KERNEL INTERFACE - Bridge to Mangle Logic Core
-// =============================================================================
-
-// KernelFact is the fact type historically carried by the deprecated kernel bridge.
-//
-// Deprecated: use Fact. This is now an alias, not a separate struct — step 1 of
-// the KernelFact deprecation path. It was a byte-identical copy of Fact whose only purpose was to keep the
-// autopoiesis bridge from naming Fact, which cost every bridge method a full
-// slice copy (core.AutopoiesisBridge.QueryPredicate rebuilt each result) and
-// gave callers two names for one concept — the same confusion that lets an
-// assert site pick the wrong constructor. Aliasing makes those copies identity
-// conversions and makes every Fact helper (ToAtom, ArgString, Extract*)
-// immediately available on kernel-bridge facts.
-type KernelFact = Fact
-
-// ToFact returns the fact unchanged.
-//
-// Deprecated: KernelFact is an alias for Fact, so this conversion is a no-op.
-// It survives only so call sites written against the old two-type world keep
-// compiling; delete it when KernelFact itself is removed.
-func (f Fact) ToFact() Fact { return f }
-
-
-// =============================================================================
 // STRUCTURED INTENT - Parsed User Intent
 // =============================================================================
 

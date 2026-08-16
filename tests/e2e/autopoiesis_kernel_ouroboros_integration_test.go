@@ -21,7 +21,7 @@ import (
 
 type mockPoisonKernel struct {
 	mu           sync.RWMutex
-	facts        []types.KernelFact
+	facts        []types.Fact
 	assertDelay  time.Duration
 	rejectAssert bool
 	queries      map[string]bool
@@ -44,7 +44,7 @@ func (m *mockPoisonKernel) RemoveFactsByPredicateSet(predicates map[string]struc
 }
 
 // The below methods fulfill the expected KernelInterface used by Autopoiesis
-func (m *mockPoisonKernel) AssertFact(fact types.KernelFact) error {
+func (m *mockPoisonKernel) AssertFact(fact types.Fact) error {
 	if m.rejectAssert {
 		return fmt.Errorf("forced kernel rejection error") // Fake error
 	}
@@ -56,13 +56,13 @@ func (m *mockPoisonKernel) AssertFact(fact types.KernelFact) error {
 	m.facts = append(m.facts, fact)
 	return nil
 }
-func (m *mockPoisonKernel) AssertFactBatch(facts []types.KernelFact) error { return nil }
+func (m *mockPoisonKernel) AssertFactBatch(facts []types.Fact) error { return nil }
 
-func (m *mockPoisonKernel) RetractFact(fact types.KernelFact) error {
+func (m *mockPoisonKernel) RetractFact(fact types.Fact) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	// simple mock logic: remove matching predicate
-	var updated []types.KernelFact
+	var updated []types.Fact
 	for _, f := range m.facts {
 		if f.Predicate != fact.Predicate {
 			updated = append(updated, f)
@@ -71,10 +71,10 @@ func (m *mockPoisonKernel) RetractFact(fact types.KernelFact) error {
 	m.facts = updated
 	return nil
 }
-func (m *mockPoisonKernel) QueryPredicate(predicate string) ([]types.KernelFact, error) {
+func (m *mockPoisonKernel) QueryPredicate(predicate string) ([]types.Fact, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	var res []types.KernelFact
+	var res []types.Fact
 	for _, f := range m.facts {
 		if f.Predicate == predicate {
 			res = append(res, f)

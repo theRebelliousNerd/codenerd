@@ -429,51 +429,6 @@ func TestWithSessionContext_WhenNilSessionContext_ShouldReturnNilOnGet(t *testin
 	}
 }
 
-// =============================================================================
-// KernelFact.ToFact Tests
-// =============================================================================
-
-func TestKernelFactToFact_WhenMultipleArgs_ShouldPreserveAll(t *testing.T) {
-	t.Parallel()
-	kf := KernelFact{
-		Predicate: "multi",
-		Args:      []any{"a", int64(1), true},
-	}
-	fact := kf.ToFact()
-	if fact.Predicate != "multi" {
-		t.Errorf("expected predicate 'multi', got %q", fact.Predicate)
-	}
-	if len(fact.Args) != 3 {
-		t.Fatalf("expected 3 args, got %d", len(fact.Args))
-	}
-	if fact.Args[0] != "a" {
-		t.Errorf("arg[0] = %v, want 'a'", fact.Args[0])
-	}
-	if fact.Args[1] != int64(1) {
-		t.Errorf("arg[1] = %v, want 1", fact.Args[1])
-	}
-	if fact.Args[2] != true {
-		t.Errorf("arg[2] = %v, want true", fact.Args[2])
-	}
-}
-
-func TestKernelFactToFact_WhenNilArgs_ShouldReturnNilArgs(t *testing.T) {
-	t.Parallel()
-	kf := KernelFact{Predicate: "empty"}
-	fact := kf.ToFact()
-	if fact.Args != nil {
-		t.Errorf("expected nil args, got %v", fact.Args)
-	}
-}
-
-func TestKernelFactToFact_WhenEmptyArgs_ShouldReturnEmptySlice(t *testing.T) {
-	t.Parallel()
-	kf := KernelFact{Predicate: "empty", Args: []any{}}
-	fact := kf.ToFact()
-	if len(fact.Args) != 0 {
-		t.Errorf("expected 0 args, got %d", len(fact.Args))
-	}
-}
 
 // =============================================================================
 // ArgName Tests

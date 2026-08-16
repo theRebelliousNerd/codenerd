@@ -17,11 +17,11 @@ type MockKernelInterface struct {
 	// Methods declared directly on MockKernelInterface still take precedence over the promoted ones for the behaviour the tests drive.
 	typestest.MockKernel
 
-	AssertFactFunc      func(fact types.KernelFact) error
-	AssertFactBatchFunc func(facts []types.KernelFact) error
-	QueryPredicateFunc  func(predicate string) ([]types.KernelFact, error)
+	AssertFactFunc      func(fact types.Fact) error
+	AssertFactBatchFunc func(facts []types.Fact) error
+	QueryPredicateFunc  func(predicate string) ([]types.Fact, error)
 	QueryBoolFunc       func(predicate string) bool
-	RetractFactFunc     func(fact types.KernelFact) error
+	RetractFactFunc     func(fact types.Fact) error
 
 	QueryFunc       func(predicate string) ([]types.Fact, error)
 	AssertFunc      func(fact types.Fact) error
@@ -29,14 +29,14 @@ type MockKernelInterface struct {
 	RetractFunc     func(predicate string) error
 
 	// State for verification
-	AssertedFacts  []types.KernelFact
-	RetractedFacts []types.KernelFact
+	AssertedFacts  []types.Fact
+	RetractedFacts []types.Fact
 }
 
 var _ types.Kernel = (*MockKernelInterface)(nil)
 var _ types.KernelTransactor = (*MockKernelInterface)(nil)
 
-func (m *MockKernelInterface) AssertFact(fact types.KernelFact) error {
+func (m *MockKernelInterface) AssertFact(fact types.Fact) error {
 	m.AssertedFacts = append(m.AssertedFacts, fact)
 	if m.AssertFactFunc != nil {
 		return m.AssertFactFunc(fact)
@@ -44,7 +44,7 @@ func (m *MockKernelInterface) AssertFact(fact types.KernelFact) error {
 	return nil
 }
 
-func (m *MockKernelInterface) AssertFactBatch(facts []types.KernelFact) error {
+func (m *MockKernelInterface) AssertFactBatch(facts []types.Fact) error {
 	m.AssertedFacts = append(m.AssertedFacts, facts...)
 	if m.AssertFactBatchFunc != nil {
 		return m.AssertFactBatchFunc(facts)
@@ -52,7 +52,7 @@ func (m *MockKernelInterface) AssertFactBatch(facts []types.KernelFact) error {
 	return nil
 }
 
-func (m *MockKernelInterface) QueryPredicate(predicate string) ([]types.KernelFact, error) {
+func (m *MockKernelInterface) QueryPredicate(predicate string) ([]types.Fact, error) {
 	if m.QueryPredicateFunc != nil {
 		return m.QueryPredicateFunc(predicate)
 	}
@@ -66,7 +66,7 @@ func (m *MockKernelInterface) QueryBool(predicate string) bool {
 	return false
 }
 
-func (m *MockKernelInterface) RetractFact(fact types.KernelFact) error {
+func (m *MockKernelInterface) RetractFact(fact types.Fact) error {
 	m.RetractedFacts = append(m.RetractedFacts, fact)
 	if m.RetractFactFunc != nil {
 		return m.RetractFactFunc(fact)

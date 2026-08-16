@@ -102,16 +102,6 @@ func TestFactToAtomInvalidMangleAtom(t *testing.T) {
 	}
 }
 
-func TestKernelFactToFact(t *testing.T) {
-	kf := KernelFact{
-		Predicate: "pred",
-		Args:      []any{"arg"},
-	}
-	fact := kf.ToFact()
-	if fact.Predicate != "pred" || len(fact.Args) != 1 || fact.Args[0] != "arg" {
-		t.Fatalf("unexpected ToFact conversion")
-	}
-}
 
 func assertNameConstant(t *testing.T, term ast.BaseTerm, want string) {
 	t.Helper()

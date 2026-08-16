@@ -35,7 +35,7 @@ func runtimeToolFixture(name string) *RuntimeTool {
 
 func kernelWithRegisteredTools(names ...string) *MockKernelInterface {
 	kernel := &MockKernelInterface{}
-	kernel.QueryPredicateFunc = func(predicate string) ([]types.KernelFact, error) {
+	kernel.QueryPredicateFunc = func(predicate string) ([]types.Fact, error) {
 		if predicate != "tool_registered" {
 			return nil, nil
 		}
