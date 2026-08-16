@@ -491,6 +491,34 @@ func (m *SessionManager) List() []Session {
 	})
 	return results
 }
+// ListSessions returns a snapshot of every live session's metadata, newest
+// first. The returned slice and its elements are copies: callers such as the
+// TUI render them outside the manager's lock and must not be able to mutate
+// live session state.
+func (m *SessionManager) ListSessions() []Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]Session, 0, len(m.sessions))
+	for _, rec := range m.sessions {
+		out = append(out, rec.meta)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	return out
+}
+
+// DefaultSessionID returns the session the manager treats as current, or ""
+// when none is set. The TUI marks this session in its list.
+func (m *SessionManager) DefaultSessionID() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.defaultID
+}
+
 
 // CreateSession opens a new page and tracks it.
 func (m *SessionManager) CreateSession(ctx context.Context, url string) (*Session, error) {
