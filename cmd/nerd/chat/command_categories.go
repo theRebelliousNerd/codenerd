@@ -334,6 +334,13 @@ var CommandRegistry = []CommandInfo{
 		ShowInHelp:  true,
 	},
 	{
+		Name:        "/browser",
+		Description: "Show browser automation status and open sessions",
+		Usage:       "/browser",
+		Category:    CategoryAdvanced,
+		ShowInHelp:  true,
+	},
+	{
 		Name:        "/transparency",
 		Description: "Toggle transparency mode (phases, safety explanations, verbose errors)",
 		Usage:       "/transparency [on|off]",

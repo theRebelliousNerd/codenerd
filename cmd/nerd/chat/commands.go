@@ -205,6 +205,9 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 	case "/whatif":
 		return m.handleCmdWhatif(input, parts)
 
+	case "/browser":
+		return m.handleCmdBrowser(input, parts)
+
 	case "/approve":
 		return m.handleCmdApprove(input, parts)
 

@@ -362,4 +362,65 @@ func (m Model) handleCmdClear(input string, parts []string) (tea.Model, tea.Cmd)
 	return m, nil
 }
 
-// handleCmdReset handles the corresponding chat slash-command.
+// handleCmdBrowser handles the /browser slash command — a plain status report, not a picker.
+func (m Model) handleCmdBrowser(input string, parts []string) (tea.Model, tea.Cmd) {
+	var content string
+	if m.browserMgr == nil {
+		content = "Browser automation is not running in this session — it starts on first use."
+	} else {
+		sessions := m.browserMgr.ListSessions()
+		if len(sessions) == 0 {
+			content = "Browser is running — no open sessions."
+		} else {
+			var sb strings.Builder
+			defaultID := m.browserMgr.DefaultSessionID()
+			sb.WriteString(fmt.Sprintf("Browser sessions (%d):\n", len(sessions)))
+			for _, s := range sessions {
+				markers := ""
+				if s.ID == defaultID && defaultID != "" {
+					markers += " [default]"
+				}
+				if s.Isolated {
+					markers += " [isolated]"
+				}
+				status := s.Status
+				if strings.TrimSpace(status) == "" {
+					status = "unknown"
+				}
+				url := s.URL
+				if url == "" {
+					url = "-"
+				} else {
+					url = browserTruncate(url, 60)
+				}
+				title := s.Title
+				if title == "" {
+					title = "-"
+				} else {
+					title = browserTruncate(title, 40)
+				}
+				age := "unknown"
+				if !s.LastActive.IsZero() {
+					age = time.Since(s.LastActive).Truncate(time.Second).String() + " ago"
+				}
+				sb.WriteString(fmt.Sprintf("- %s%s status=%s url=%s title=\"%s\" %s\n", s.ID, markers, status, url, title, age))
+			}
+			content = strings.TrimSuffix(sb.String(), "\n")
+		}
+	}
+	m = m.addMessage(Message{Role: "assistant", Content: content, Time: time.Now()})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, nil
+}
+
+func browserTruncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
+}
