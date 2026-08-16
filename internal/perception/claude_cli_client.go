@@ -82,6 +82,15 @@ type claudeCLIResponse struct {
 	IsRateLimited bool `json:"is_rate_limited,omitzero"`
 	// JSON Schema output - present when --json-schema flag is used
 	StructuredOutput json.RawMessage `json:"structured_output,omitzero"`
+	// Usage carries the CLI's own token accounting. `claude --output-format json`
+	// has always reported it; it was simply never parsed, which is why the
+	// CLI engines showed no spend.
+	Usage *struct {
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitzero"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens,omitzero"`
+	} `json:"usage,omitzero"`
 }
 
 // claudeCLIResultObject is the structured result when tools are enabled.
@@ -271,7 +280,7 @@ func (c *ClaudeCodeCLIClient) executeCLI(ctx context.Context, prompt, model stri
 	}
 
 	// Parse the JSON response
-	response, err := c.parseResponse(stdout.Bytes())
+	response, err := c.parseResponse(ctx, stdout.Bytes())
 	if err != nil {
 		return "", fmt.Errorf("failed to parse claude CLI response: %w", err)
 	}
@@ -409,7 +418,7 @@ func (c *ClaudeCodeCLIClient) buildArgs(model string, opts *ExecutionOptions) []
 // Handles two formats:
 // - String result (when tools disabled): {"result": "text here"}
 // - Object result (when tools enabled): {"result": {"content": [{"type": "text", "text": "..."}]}}
-func (c *ClaudeCodeCLIClient) parseResponse(data []byte) (string, error) {
+func (c *ClaudeCodeCLIClient) parseResponse(ctx context.Context, data []byte) (string, error) {
 	if len(data) == 0 {
 		return "", errors.New("empty response from claude CLI")
 	}
@@ -443,6 +452,16 @@ func (c *ClaudeCodeCLIClient) parseResponse(data []byte) (string, error) {
 	// Check if response indicates error via is_error field
 	if resp.IsError {
 		return "", fmt.Errorf("claude CLI returned error (type: %s, subtype: %s)", resp.Type, resp.Subtype)
+	}
+
+	// Record CLI token usage. Only InputTokens/OutputTokens are metered — do not
+	// fold the cache counters into the input total: internal/perception/client_anthropic.go:240
+	// meters the API path with the plain input/output pair, and the CLI path must match
+	// it or the two engines' rows become unreconcilable. The cache fields are parsed
+	// for future use rather than metered today.
+	if resp.Usage != nil {
+		trackUsage(ctx, c.model, ProviderAnthropic,
+			resp.Usage.InputTokens, resp.Usage.OutputTokens, usageOpChat)
 	}
 
 	// Priority 1: Check for structured_output (JSON Schema mode)
