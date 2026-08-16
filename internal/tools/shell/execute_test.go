@@ -69,6 +69,9 @@ func TestRunCommandTool_Definition(t *testing.T) {
 }
 
 func TestRunCommandTool_Execute_MissingCommand(t *testing.T) {
+	// TODO: Edge Case - Null/Undefined/Empty: Test with explicitly nil map arguments.
+	// TODO: Edge Case - Type Coercion: Test with non-string types for command (e.g., args["command"] = 123).
+	// TODO: Edge Case - Null/Undefined/Empty: Test with empty command string.
 	t.Parallel()
 
 	_, err := executeRunCommand(context.Background(), map[string]any{})
@@ -78,6 +81,9 @@ func TestRunCommandTool_Execute_MissingCommand(t *testing.T) {
 }
 
 func TestRunCommandTool_Execute_Success(t *testing.T) {
+	// TODO: Edge Case - State Conflict: Test concurrent executions of compound commands to ensure no race conditions on shared temporary files or environment variables.
+	// TODO: Edge Case - Extreme: Test with an extremely large command string to verify ARG_MAX limits and buffer handling.
+	// TODO: Edge Case - State Conflict: Test execution when the shell binary (pwsh) is suddenly removed or permissions altered.
 	// Mock exec
 	oldExec := execCommandContext
 	execCommandContext = fakeExecCommandContext
@@ -313,6 +319,11 @@ func TestGitTools_Definitions(t *testing.T) {
 }
 
 func TestGitOperationTool_Execute_Success(t *testing.T) {
+	// TODO: Edge Case - Null/Undefined/Empty: Test with explicitly nil map arguments.
+	// TODO: Edge Case - Null/Undefined/Empty: Test with empty string for operation (e.g., args["operation"] = "").
+	// TODO: Edge Case - Type Coercion: Test with non-string types for operation (e.g., args["operation"] = 123).
+	// TODO: Edge Case - Extreme: Test with extremely large operation name string.
+	// TODO: Edge Case - State Conflict: Test execution when the working directory has been deleted concurrently.
 	oldExec := execCommandContext
 	execCommandContext = fakeExecCommandContext
 	defer func() { execCommandContext = oldExec }()
