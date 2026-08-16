@@ -76,9 +76,9 @@ var safetyGateInventory = map[string]struct {
 		"internal/core/virtual_store_routing.go",
 	},
 	"internal/shards/system/constitution.go": {
-		classKnownGap,
-		"ConstitutionGateShard.CheckAction decides allow/deny but records no audit event; owned by internal/shards",
-		"",
+		classGate,
+		"ConstitutionGateShard gates every pending action; both branches of the verdict are recorded by SafetyCheck in this file, alongside the Mangle facts that serve policy",
+		"internal/shards/system/constitution.go",
 	},
 	"internal/shards/system/router.go": {
 		classNotGate,
