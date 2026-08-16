@@ -31,11 +31,15 @@ internal/mcp/
 ├── transport_http.go    # HTTP JSON-RPC transport
 ├── transport_stdio.go   # Subprocess JSON-RPC transport
 ├── transport_sse.go     # Server-sent-events transport
+├── headers.go           # ExpandHeaderValues: ${VAR} / $VAR from env for HTTP/SSE auth
 ├── store.go             # SQLite storage with embeddings (sqlite-vec optional)
 ├── analyzer.go          # LLM + heuristic tool analysis
 ├── facts.go             # FactEmitter: MCP state -> kernel EDB
+├── resources.go         # MCP resources and prompts support beyond tools
 ├── compiler.go          # JITToolCompiler: vector + Mangle selection
 ├── renderer.go          # Tool set rendering for LLM context
+├── metrics.go           # MCP call metrics (latency / error counters)
+├── redact.go            # Secret redaction for tool outputs before logs
 ├── integration.go       # MCPIntegrationBridge + IntegrationAdapter
 └── testdata/            # Golden fixtures for the selection policy
 ```
