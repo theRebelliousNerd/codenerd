@@ -34,7 +34,10 @@
 ## P3
 
 - [ ] Complete BPAR-5 contract audit, repo trace, Docker correlation, and final live parity gate
-  - this is a live-environment verification task, not code to write. It requires a running Docker environment and live Chromium to correlate container behaviour against the contract and run the parity gate, so it cannot be closed from a static pass. CI now exists (.github/workflows/ci.yml — build, vet and full test suite on windows-latest, plus a -race job), so the CI half of this is no longer blocked by the absence of a pipeline.
+  - Docker correlation (BP-25): core, fetcher, manager wiring and `browser_reason` surfacing landed with unit coverage; live container proof remains.
+  - Contract audit and repository trace (BP-24): not started.
+  - Unsafe JavaScript gate (BP-19): NOT started, and deliberately so - it remains an open design question in OPEN-QUESTIONS.md item 11 ("should unsafe JavaScript remain absent, or ship disabled-by-default...?"), where "remain absent" is still a legitimate answer. It adds an arbitrary-code-execution surface, so it needs an explicit decision before it is built, not a default-yes from a backlog sweep.
+  - Delivery evaluation (BP-26): competitor evaluation remains.
 - [x] Redact secrets from browser logs, fact sink, results, and session store
 - [x] Fact GC / epoch for long event streams — per-epoch budget, `browser_epoch` watermark, navigation rollover, and real retraction when a `FactRetractor` is wired
 - [x] Header ingestion default policy for research vs operator modes — `HeaderIngestionMode` redacted for research, off for the CLI
