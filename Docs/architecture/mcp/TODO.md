@@ -43,8 +43,7 @@
 
 - [x] Fake MCP server tests for HTTP list/call
   fake_server_test.go plus transport_http_test.go
-- [ ] `-race` CI for manager+store — blocked rather than deferred by choice
-  this repository has no CI configuration at all so there is no pipeline to add a -race job to; go test -race ./internal/mcp/... runs locally today, and the box cannot close until CI exists
+- [x] `-race` CI for manager+store — closed 2026-08-16. `.github/workflows/ci.yml` adds a `race` job running `go test -race -tags sqlite_vec ./internal/mcp/... ./internal/store/...` on windows-latest. Verified locally before it was committed: both packages pass under the race detector. Scoped to those two packages deliberately rather than the whole tree, because -race is slow and these are the ones carrying concurrent manager state worth pinning.
 - [x] Document/configure stdio sandbox expectations
   internal/mcp/README.md:179 section "stdio sandbox expectations" states a stdio server runs as a subprocess with the user privileges and that there is no sandbox
 - [x] Secret redaction strategy for tool outputs in logs

@@ -1,6 +1,6 @@
 # retrieval — TODO
 
-> Last verified: **2026-08-15**  
+> Last verified: **2026-08-16**  
 > Priority: P0 must ship for north-star integration; P1 quality; P2 scale/polish.
 
 ## P0 — Wiring *(landed 2026-08-15)*
@@ -51,9 +51,8 @@
 
 - [x] Cross-package test: seed fact arity vs `schemas_knowledge.mg`
       (`TestSeedFacts_ShouldMatchSchemaDeclArity`).
-- [ ] SIMD-tagged CI job optional — **blocked**: the repository has no CI
-      configuration at all (no `.github/workflows`, Makefile, or equivalent), so
-      there is nothing to add a job to.
+- [ ] SIMD-tagged CI job optional — **blocked**: CI now exists (.github/workflows/ci.yml), so "no pipeline" is no longer the blocker. Adding the SIMD job was attempted and it cannot pass, because the `simd`-tagged build does not compile. Without GOEXPERIMENT=simd, `go test -tags "sqlite_vec simd" ./internal/retrieval/...` fails with `imports simd/archsimd: build constraints exclude all Go files`. With GOEXPERIMENT=simd set so archsimd resolves, it fails with `internal/mangle/simd_intersect_amd64.go:18: cannot index vA (variable of struct type archsimd.Uint64x4)`.
+      The cause: Go 1.26's archsimd exposes vector types as opaque structs rather than indexable arrays, so this code has never compiled against the toolchain pinned in go.mod. The scope: three subsystems carry `simd`-tagged files - internal/embedding (math_amd64.go), internal/mangle (simd_intersect_amd64.go) and internal/retrieval (scanner_amd64.go) - and each has a generic fallback, which is what actually ships and what CI covers today. The real prerequisite is now fixing those intrinsics against the current archsimd API; the CI job is a one-line addition once the tagged build compiles. Note that a permanently red job was deliberately not added, because it would train people to ignore CI, and that this reasoning is recorded in the workflow file itself.
 - [x] Keep this corpus updated when wire lands (date stamp).
 
 ## Open follow-ups

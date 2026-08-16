@@ -1,6 +1,6 @@
 # TODO — `internal/types`
 
-> Last verified: **2026-08-15**  
+> Last verified: **2026-08-16**  
 > Items are **package evolution backlog**, not incomplete documentation. The 2026-08-15 pass cleared
 > P0–P2 and the P3 examples item in code; see `_progress.md`.
 
@@ -51,10 +51,9 @@
 ## P3 — DX
 
 - [x] Optional package-level godoc examples for `ToAtom` and `NewKernelTx` — `internal/types/example_test.go`
-- [ ] When dual Kernel APIs collapse, delete obsolete aliases after one release cycle  
-      Blocked on step 3 of the `KernelInterface` plan. The shims awaiting deletion are: `KernelFact`
-      (alias), `Fact.ToFact` (identity), `KernelInterface`, `core.AutopoiesisBridge`, and the legacy
-      `CtxKey*` string constants once their readers move to the accessors.
+- [ ] When dual Kernel APIs collapse, delete obsolete aliases after one release cycle
+      Step 2 of the `KernelInterface` plan is now DONE. `internal/autopoiesis`'s `Orchestrator` field, `SetKernel` and `GetKernel` take `types.Kernel`, the package calls `Assert` / `AssertBatch` / `Query` / `RetractFact` directly, and the two production sites that wrapped the kernel in `core.AutopoiesisBridge` (`internal/system/factory.go` and `cmd/nerd/chat/session_boot.go`) now pass it straight through. `core.AutopoiesisBridge`'s only remaining consumers are `internal/core` tests and `cmd/nerd/cmd_mcp_select.go`'s `cliMCPKernel`, which is a genuine edge adapter that stays.
+      Step 3 (deleting `KernelInterface`, `Fact.ToFact` and `core.AutopoiesisBridge`) is unblocked technically, but the plan on `types.KernelInterface` deliberately stages "one step per release cycle, so each step is independently revertible". Taking step 3 in the same pass as step 2 would collapse that revertibility, so this waits for the next cycle by design rather than by obstacle.
 
 ## Done (recent, evidenced in code)
 
