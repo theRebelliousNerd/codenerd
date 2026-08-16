@@ -675,6 +675,11 @@ func initCoreComponents(bctx *bootContext) error {
 	if appCfg == nil {
 		appCfg = config.DefaultUserConfig()
 	}
+	// Boot has already parsed .nerd/config.json into appCfg, so hand those
+	// logging settings to internal/logging instead of letting it re-read and
+	// re-parse the same file. The injected config is pinned so a later
+	// ReloadConfig cannot silently revert to disk.
+	config.ApplyLoggingConfig(appCfg)
 	bctx.appCfg = appCfg
 	bctx.jitCfg = appCfg.GetEffectiveJITConfig()
 

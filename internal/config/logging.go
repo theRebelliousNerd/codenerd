@@ -1,5 +1,7 @@
 package config
 
+import "codenerd/internal/logging"
+
 // LoggingConfig configures logging.
 type LoggingConfig struct {
 	Level      string          `yaml:"level" json:"level,omitempty"`               // debug, info, warn, error
@@ -12,6 +14,24 @@ type LoggingConfig struct {
 	PerformanceSampling float64 `yaml:"performance_sampling" json:"performance_sampling,omitempty"`
 	// PerformanceThresholdsMs sets per-system slow thresholds in milliseconds.
 	PerformanceThresholdsMs map[string]int64 `yaml:"performance_thresholds_ms" json:"performance_thresholds_ms,omitempty"`
+}
+
+// ToLoggingConfig converts these settings into the injectable view
+// internal/logging accepts, so boot can hand over the config it already
+// parsed instead of internal/logging re-reading .nerd/config.json.
+func (c *LoggingConfig) ToLoggingConfig() logging.Config {
+	// TraceLLMIORaw, MaxLogFileMB, MaxLogFileMinutes and MaxRotatedFiles have
+	// no source on this side and remain at their zero values.
+	return logging.Config{
+		DebugMode:               c.DebugMode,
+		TraceLLMIO:              c.TraceLLMIO,
+		Categories:              c.Categories,
+		Level:                   c.Level,
+		Format:                  c.Format,
+		JSONFormat:              c.Format == "json",
+		PerformanceSampling:     c.PerformanceSampling,
+		PerformanceThresholdsMs: c.PerformanceThresholdsMs,
+	}
 }
 
 // IsCategoryEnabled returns whether logging is enabled for a category.

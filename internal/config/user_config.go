@@ -1385,6 +1385,17 @@ func (c *UserConfig) GetLogging() LoggingConfig {
 	}
 }
 
+// ApplyLoggingConfig hands the already-parsed logging settings to
+// internal/logging, so the on-disk config is parsed once per boot instead of
+// once by logging.Initialize and again by LoadUserConfig.
+func ApplyLoggingConfig(cfg *UserConfig) {
+	if cfg == nil {
+		return
+	}
+	lc := cfg.GetLogging()
+	logging.ApplyConfig(lc.ToLoggingConfig())
+}
+
 // GetLearningCandidateThreshold returns the candidate threshold with defaults applied.
 func (c *UserConfig) GetLearningCandidateThreshold() int {
 	if c != nil && c.LearningCandidateThreshold > 0 {
