@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"codeberg.org/TauCeti/mangle-go/analysis"
+
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/types"
 )
@@ -24,6 +26,7 @@ type mockPoisonKernel struct {
 	rejectAssert bool
 	queries      map[string]bool
 }
+var _ types.Kernel = (*mockPoisonKernel)(nil)
 
 func (m *mockPoisonKernel) LoadFacts(facts []types.Fact) error              { return nil }
 func (m *mockPoisonKernel) Query(predicate string) ([]types.Fact, error)    { return nil, nil }
@@ -32,7 +35,7 @@ func (m *mockPoisonKernel) Assert(fact types.Fact) error                    { re
 func (m *mockPoisonKernel) AssertBatch(facts []types.Fact) error            { return nil }
 func (m *mockPoisonKernel) Retract(predicate string) error                  { return nil }
 func (m *mockPoisonKernel) UpdateSystemFacts() error                        { return nil }
-func (m *mockPoisonKernel) GetProgramInfo() interface{}                     { return nil } // simplified for mock
+func (m *mockPoisonKernel) GetProgramInfo() *analysis.ProgramInfo           { return nil } // not exercised; satisfies types.Kernel
 func (m *mockPoisonKernel) Reset()                                          {}
 func (m *mockPoisonKernel) AppendPolicy(policy string)                      {}
 func (m *mockPoisonKernel) RetractExactFactsBatch(facts []types.Fact) error { return nil }

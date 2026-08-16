@@ -545,8 +545,7 @@ func TestE2E_Executor_ExecutesTask_Successfully(t *testing.T) {
     env := setupRealIntegrationEnv(t, `{"message": "I fixed it"}`)
 
     req := session.TaskRequest{
-        IntentVerb: "/fix",
-        Persona: "coder",
+        IntentVerb: "/fix", // persona is expressed through IntentVerb; TaskRequest has no Persona field
         Task: "fix the bug",
     }
 
@@ -576,8 +575,7 @@ func TestE2E_Executor_HandlesMalformedPiggyback_FromLLM(t *testing.T) {
     env := setupRealIntegrationEnv(t, `{"tool_call": { unclosed bracket...`)
 
     req := session.TaskRequest{
-        IntentVerb: "/review",
-        Persona: "reviewer",
+        IntentVerb: "/review", // persona is expressed through IntentVerb; TaskRequest has no Persona field
         Task: "review the PR",
     }
 
@@ -696,15 +694,13 @@ func TestE2E_Session_CampaignExecution_PhaseAwarePaging_Isolation(t *testing.T) 
 
     // Simulate a high-memory footprint task in Phase 1
     req1 := session.TaskRequest{
-        IntentVerb: "/research",
-        Persona: "researcher",
+        IntentVerb: "/research", // persona is expressed through IntentVerb; TaskRequest has no Persona field
         Task: "Ingest and compress 500 pages of technical documentation regarding the VirtualStore",
     }
 
     // Simulate a precise constraint task in Phase 2
     req2 := session.TaskRequest{
-        IntentVerb: "/review",
-        Persona: "reviewer",
+        IntentVerb: "/review", // persona is expressed through IntentVerb; TaskRequest has no Persona field
         Task: "Audit the VirtualStore modifications against security policy",
     }
 
