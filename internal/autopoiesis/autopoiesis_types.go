@@ -17,9 +17,7 @@ import (
 // KERNEL INTERFACE - Bridge to Mangle Logic Core
 // =============================================================================
 
-// KernelFact is an alias to types.KernelFact.
-// This represents a fact that can be asserted to the kernel.
-type KernelFact = types.KernelFact
+
 
 // =============================================================================
 // JIT INTERFACES - Avoid Import Cycles

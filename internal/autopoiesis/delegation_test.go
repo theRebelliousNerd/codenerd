@@ -12,9 +12,9 @@ func TestProcessKernelDelegations_Success(t *testing.T) {
 	mockToolSynth := replaceOuroborosWithMock(orch)
 
 	// Setup: Kernel returns pending delegation facts
-	kernel.QueryPredicateFunc = func(predicate string) ([]types.KernelFact, error) {
+	kernel.QueryPredicateFunc = func(predicate string) ([]types.Fact, error) {
 		if predicate == "delegate_task" {
-			return []types.KernelFact{
+			return []types.Fact{
 				{Predicate: "delegate_task", Args: []any{"/tool_generator", "my_new_tool", "/pending"}},
 			}, nil
 		}
@@ -75,9 +75,9 @@ func TestProcessKernelDelegations_GenerationFailure(t *testing.T) {
 	orch, kernel, _ := createTestOrchestrator(t)
 	mockToolSynth := replaceOuroborosWithMock(orch)
 
-	kernel.QueryPredicateFunc = func(predicate string) ([]types.KernelFact, error) {
+	kernel.QueryPredicateFunc = func(predicate string) ([]types.Fact, error) {
 		if predicate == "delegate_task" {
-			return []types.KernelFact{
+			return []types.Fact{
 				{Predicate: "delegate_task", Args: []any{"/tool_generator", "fail_tool", "/pending"}},
 			}, nil
 		}

@@ -39,9 +39,9 @@ func kernelWithRegisteredTools(names ...string) *MockKernelInterface {
 		if predicate != "tool_registered" {
 			return nil, nil
 		}
-		facts := make([]types.KernelFact, 0, len(names))
+		facts := make([]types.Fact, 0, len(names))
 		for _, n := range names {
-			facts = append(facts, types.KernelFact{Predicate: "tool_registered", Args: []any{n, int64(1)}})
+			facts = append(facts, types.Fact{Predicate: "tool_registered", Args: []any{n, int64(1)}})
 		}
 		return facts, nil
 	}
@@ -146,8 +146,8 @@ func TestSetKernel_WhenRestoredToolsAreSynced_ShouldEndInParity(t *testing.T) {
 	mock.ListRuntimeToolsFunc = func() []*RuntimeTool { return restored }
 
 	kernel := &MockKernelInterface{}
-	kernel.QueryPredicateFunc = func(predicate string) ([]types.KernelFact, error) {
-		var out []types.KernelFact
+	kernel.QueryPredicateFunc = func(predicate string) ([]types.Fact, error) {
+		var out []types.Fact
 		for _, f := range kernel.AssertedFacts {
 			if f.Predicate == predicate {
 				out = append(out, f)

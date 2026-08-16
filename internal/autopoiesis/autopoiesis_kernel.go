@@ -43,21 +43,21 @@ func (o *Orchestrator) syncExistingToolsToKernel() {
 	logging.Autopoiesis("Syncing %d existing tools to kernel", len(tools))
 
 	// Collect all facts for batch assertion (avoids O(n) evaluate() calls)
-	var allFacts []KernelFact
+	var allFacts []types.Fact
 	for _, tool := range tools {
 		if tool == nil {
 			continue
 		}
 		timestamp := tool.RegisteredAt.Unix()
 
-		allFacts = append(allFacts, KernelFact{Predicate: "tool_registered", Args: []any{tool.Name, timestamp}})
-		allFacts = append(allFacts, KernelFact{Predicate: "tool_hash", Args: []any{tool.Name, tool.Hash}})
-		allFacts = append(allFacts, KernelFact{Predicate: "tool_capability", Args: []any{tool.Name, normalizeCapabilityName(tool.Name)}})
+		allFacts = append(allFacts, types.Fact{Predicate: "tool_registered", Args: []any{tool.Name, timestamp}})
+		allFacts = append(allFacts, types.Fact{Predicate: "tool_hash", Args: []any{tool.Name, tool.Hash}})
+		allFacts = append(allFacts, types.Fact{Predicate: "tool_capability", Args: []any{tool.Name, normalizeCapabilityName(tool.Name)}})
 		if tool.Description != "" {
-			allFacts = append(allFacts, KernelFact{Predicate: "tool_description", Args: []any{tool.Name, tool.Description}})
+			allFacts = append(allFacts, types.Fact{Predicate: "tool_description", Args: []any{tool.Name, tool.Description}})
 		}
 		if tool.BinaryPath != "" {
-			allFacts = append(allFacts, KernelFact{Predicate: "tool_binary_path", Args: []any{tool.Name, tool.BinaryPath}})
+			allFacts = append(allFacts, types.Fact{Predicate: "tool_binary_path", Args: []any{tool.Name, tool.BinaryPath}})
 		}
 	}
 
@@ -186,7 +186,7 @@ func (o *Orchestrator) assertToKernel(predicate string, args ...any) error {
 		return nil // No kernel attached, silently skip
 	}
 
-	return kernel.Assert(KernelFact{
+	return kernel.Assert(types.Fact{
 		Predicate: predicate,
 		Args:      args,
 	})
@@ -296,7 +296,7 @@ func (o *Orchestrator) SyncLearningsToKernel() {
 	learnings := o.learnings.GetAllLearnings()
 	for _, learning := range learnings {
 		// Prune old learnings for this tool (functional update)
-		_ = o.kernel.RetractFact(KernelFact{
+		_ = o.kernel.RetractFact(types.Fact{
 			Predicate: "tool_learning",
 			Args:      []any{learning.ToolName}, // Match by ToolName
 		})
@@ -310,7 +310,7 @@ func (o *Orchestrator) SyncLearningsToKernel() {
 		)
 
 		// Prune known issues
-		_ = o.kernel.RetractFact(KernelFact{
+		_ = o.kernel.RetractFact(types.Fact{
 			Predicate: "tool_known_issue",
 			Args:      []any{learning.ToolName},
 		})
@@ -464,7 +464,7 @@ func (o *Orchestrator) RecordCodeEditOutcome(elementRef string, editType string,
 	if err == nil && len(facts) >= o.config.MaxLearningFacts {
 		// Find oldest fact to retract
 		// Note: This assumes all facts are 4-arity and 4th arg is timestamp (int/int64/float64)
-		var oldestFact *KernelFact
+		var oldestFact *types.Fact
 		var oldestTime int64 = -1
 
 		for _, f := range facts {

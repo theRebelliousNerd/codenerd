@@ -166,11 +166,11 @@ func TestStartKernelListener_WhenDelegationPending_ShouldProcessIt(t *testing.T)
 	}
 
 	kernel := &MockKernelInterface{}
-	kernel.QueryPredicateFunc = func(predicate string) ([]types.KernelFact, error) {
+	kernel.QueryPredicateFunc = func(predicate string) ([]types.Fact, error) {
 		if predicate != "delegate_task" {
 			return nil, nil
 		}
-		return []types.KernelFact{{
+		return []types.Fact{{
 			Predicate: "delegate_task",
 			Args:      []any{"/tool_generator", "csv_summarizer", "/pending"},
 		}}, nil
