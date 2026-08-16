@@ -99,6 +99,41 @@ func (p *PathPolicy) ResolveForWrite(requested, defaultRoot, defaultName string)
 	}
 	return "", fmt.Errorf("browser output path %q is outside writable_roots", target)
 }
+// ConfineToRoot resolves candidate and reports the resolved absolute path
+// only when it lies inside root. It is the read-side counterpart to
+// ResolveForWrite: repository tracing must never read a file outside the
+// root the operator named, and a symlink is the ordinary way that happens
+// by accident.
+func ConfineToRoot(root, candidate string) (string, error) {
+	if strings.TrimSpace(root) == "" {
+		return "", errors.New("root must not be empty")
+	}
+	if strings.TrimSpace(candidate) == "" {
+		return "", errors.New("candidate must not be empty")
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve root: %w", err)
+	}
+	absRoot = filepath.Clean(absRoot)
+	absCandidate, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", fmt.Errorf("resolve candidate: %w", err)
+	}
+	absCandidate = filepath.Clean(absCandidate)
+	resolvedRoot, err := resolveExistingPrefix(absRoot)
+	if err != nil {
+		return "", err
+	}
+	resolvedCandidate, err := resolveExistingPrefix(absCandidate)
+	if err != nil {
+		return "", err
+	}
+	if pathWithin(resolvedRoot, resolvedCandidate) {
+		return resolvedCandidate, nil
+	}
+	return "", errors.New("path escapes root")
+}
 
 // EnsurePrivateDir creates an owner-only directory where supported.
 func EnsurePrivateDir(path string) error {
@@ -156,6 +191,10 @@ func IsPrivatePath(path string, directory bool) (bool, error) {
 	return isPrivatePath(path, directory)
 }
 
+// pathWithin reports whether target lies inside root, including root itself.
+// It uses filepath.Rel so a trailing separator does not change the result:
+// filepath.Clean normalises "/a/b" and "/a/b/" to the same path, and Rel
+// then yields "." for equality rather than requiring an exact string match.
 func pathWithin(root, target string) bool {
 	relative, err := filepath.Rel(root, target)
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
