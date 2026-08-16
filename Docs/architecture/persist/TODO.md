@@ -1,6 +1,6 @@
 # persist — TODO
 
-> Last verified: **2026-08-15**  
+> Last verified: **2026-08-16**  
 > Items marked done carry the commit-visible evidence in parentheses.
 
 ## P0 — Product wiring
@@ -27,10 +27,12 @@
       `TestNameConstant_WhenRoundTripped_ShouldStayMangleAtom`
 - [x] Explicit tests for empty slice, bool, float multi-hop
       (`factsnap_robustness_test.go`)
-- [ ] Shared conversion helper under `internal/types` — still open; see
+- Deferred - Shared conversion helper under `internal/types` — still open; see
       [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) Q5. Unification is a consumer
       migration in `internal/core`, not a file move, so it did not belong in
-      this pass.
+      this pass. Deferred by choice rather than blocked: the helper itself is trivial, but unifying it means migrating consumers inside `internal/core`, which is a separate change with its own risk, and doing it opportunistically inside an unrelated pass is how half-migrations happen. Should be picked up as its own scoped change.
+
+  These are recorded as plain bullets rather than checkboxes because a checkbox reads as unfinished work, and these are decisions and standing directions.
 
 ## P3 — Polish
 
@@ -41,8 +43,10 @@
       verified by `Read`, surfaced by `snapshot.List` and `nerd snapshot list`
 - [x] Package-level doc file — `internal/persist/doc.go` now that there are two
       subpackages
-- [ ] Streaming writer — still not justified; the whole snapshot is buffered in
-      memory before compression. Revisit if an export exceeds ~1M facts.
+- Decided NO (for now) - Streaming writer — still not justified; the whole snapshot is buffered in
+      memory before compression. Revisit if an export exceeds ~1M facts. This is a decision not to build until a real export exceeds roughly 1M facts, since buffering is simpler and no observed workload has reached that size. The revisit condition is the measurement, not a date.
+
+  These are recorded as plain bullets rather than checkboxes because a checkbox reads as unfinished work, and these are decisions and standing directions.
 
 ## Documentation
 

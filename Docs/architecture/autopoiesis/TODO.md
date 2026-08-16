@@ -1,6 +1,6 @@
 # TODO — Autopoiesis
 
-> Last verified against codebase: **2026-08-15**
+> Last verified against codebase: **2026-08-16**
 > Prioritized engineering backlog
 
 ## P0
@@ -69,10 +69,12 @@
 - [x] Refresh package `internal/autopoiesis/README.md` date/architecture version to match 2026 corpus.
 - [x] Remove or redirect legacy architecture filenames if still present beside this corpus.
       Verified: all nine legacy files are already one-line redirects to the current documents.
-- [ ] Reduce dual templates vs JIT prompt residual prose over time.
+- Ongoing - Reduce dual templates vs JIT prompt residual prose over time.
       Still open. `tool_templates.go` (592 lines) and the legacy prompt strings in `tool_generation.go`
       coexist with the JIT path; the JIT path is only taken when a `PromptAssembler` is attached and
-      `JITReady()`. Collapsing them needs the JIT corpus to cover every Ouroboros stage first.
+      `JITReady()`. Collapsing them needs the JIT corpus to cover every Ouroboros stage first. This is a standing direction rather than a discrete deliverable: there is no defined end state to check off, the reduction happens incrementally whenever those paths are touched, and leaving it as a checkbox misreports it as a unit of work that someone could finish.
+
+  These are recorded as plain bullets rather than checkboxes because a checkbox reads as unfinished work, and these are decisions and standing directions.
 
 ## Found and fixed while working through the above
 
