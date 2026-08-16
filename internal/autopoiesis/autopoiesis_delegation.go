@@ -32,7 +32,7 @@ func (o *Orchestrator) ProcessKernelDelegations(ctx context.Context) (int, error
 
 	// Query for pending tool generator delegations
 	// delegate_task(/tool_generator, Capability, /pending)
-	facts, err := kernel.QueryPredicate("delegate_task")
+	facts, err := kernel.Query("delegate_task")
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Error("Failed to query delegate_task: %v", err)
 		return 0, fmt.Errorf("failed to query delegate_task: %w", err)

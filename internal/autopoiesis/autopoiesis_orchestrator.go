@@ -32,7 +32,7 @@ type Orchestrator struct {
 	client      LLMClient
 
 	// Kernel Integration - Bridge to Mangle Logic Core
-	kernel KernelInterface // The Mangle kernel for fact assertion/query
+	kernel types.Kernel // The Mangle kernel for fact assertion/query
 
 	// Feedback and Learning System
 	evaluator *QualityEvaluator // Assess tool output quality

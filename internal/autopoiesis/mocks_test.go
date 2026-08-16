@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"codeberg.org/TauCeti/mangle-go/analysis"
+
 	"codenerd/internal/types"
 )
 
@@ -16,10 +18,17 @@ type MockKernelInterface struct {
 	QueryBoolFunc       func(predicate string) bool
 	RetractFactFunc     func(fact types.KernelFact) error
 
+	QueryFunc       func(predicate string) ([]types.Fact, error)
+	AssertFunc      func(fact types.Fact) error
+	AssertBatchFunc func(facts []types.Fact) error
+	RetractFunc     func(predicate string) error
+
 	// State for verification
 	AssertedFacts  []types.KernelFact
 	RetractedFacts []types.KernelFact
 }
+
+var _ types.Kernel = (*MockKernelInterface)(nil)
 
 func (m *MockKernelInterface) AssertFact(fact types.KernelFact) error {
 	m.AssertedFacts = append(m.AssertedFacts, fact)
@@ -56,6 +65,89 @@ func (m *MockKernelInterface) RetractFact(fact types.KernelFact) error {
 	if m.RetractFactFunc != nil {
 		return m.RetractFactFunc(fact)
 	}
+	return nil
+}
+
+func (m *MockKernelInterface) Assert(fact types.Fact) error {
+	m.AssertedFacts = append(m.AssertedFacts, fact)
+	if m.AssertFunc != nil {
+		return m.AssertFunc(fact)
+	}
+	if m.AssertFactFunc != nil {
+		return m.AssertFactFunc(fact)
+	}
+	return nil
+}
+
+func (m *MockKernelInterface) AssertBatch(facts []types.Fact) error {
+	m.AssertedFacts = append(m.AssertedFacts, facts...)
+	if m.AssertBatchFunc != nil {
+		return m.AssertBatchFunc(facts)
+	}
+	if m.AssertFactBatchFunc != nil {
+		return m.AssertFactBatchFunc(facts)
+	}
+	return nil
+}
+
+func (m *MockKernelInterface) Query(predicate string) ([]types.Fact, error) {
+	if m.QueryFunc != nil {
+		return m.QueryFunc(predicate)
+	}
+	if m.QueryPredicateFunc != nil {
+		return m.QueryPredicateFunc(predicate)
+	}
+	if m.QueryBoolFunc != nil {
+		if m.QueryBoolFunc(predicate) {
+			return []types.Fact{{Predicate: predicate}}, nil
+		}
+		return nil, nil
+	}
+	return nil, nil
+}
+
+func (m *MockKernelInterface) Retract(predicate string) error {
+	if m.RetractFunc != nil {
+		return m.RetractFunc(predicate)
+	}
+	return nil
+}
+
+// LoadFacts exists to satisfy types.Kernel and is not exercised.
+func (m *MockKernelInterface) LoadFacts(facts []types.Fact) error {
+	return nil
+}
+
+// QueryAll exists to satisfy types.Kernel and is not exercised.
+func (m *MockKernelInterface) QueryAll() (map[string][]types.Fact, error) {
+	return nil, nil
+}
+
+// UpdateSystemFacts exists to satisfy types.Kernel and is not exercised.
+func (m *MockKernelInterface) UpdateSystemFacts() error {
+	return nil
+}
+
+// GetProgramInfo exists to satisfy types.Kernel and is not exercised.
+func (m *MockKernelInterface) GetProgramInfo() *analysis.ProgramInfo {
+	return nil
+}
+
+// Reset exists to satisfy types.Kernel and is not exercised.
+func (m *MockKernelInterface) Reset() {
+}
+
+// AppendPolicy exists to satisfy types.Kernel and is not exercised.
+func (m *MockKernelInterface) AppendPolicy(policy string) {
+}
+
+// RetractExactFactsBatch exists to satisfy types.Kernel and is not exercised.
+func (m *MockKernelInterface) RetractExactFactsBatch(facts []types.Fact) error {
+	return nil
+}
+
+// RemoveFactsByPredicateSet exists to satisfy types.Kernel and is not exercised.
+func (m *MockKernelInterface) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
 	return nil
 }
 

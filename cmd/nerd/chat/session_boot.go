@@ -899,8 +899,8 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		logStep("Starting autopoiesis orchestrator...")
 		autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
 		autopoiesisOrch := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
-		autopoiesisKernelAdapter := core.NewAutopoiesisBridge(kernel)
-		autopoiesisOrch.SetKernel(autopoiesisKernelAdapter)
+		// Orchestrator now takes types.Kernel directly, so the AutopoiesisBridge adapter is no longer needed here - step 2 of the KernelInterface deprecation plan documented on types.KernelInterface.
+		autopoiesisOrch.SetKernel(kernel)
 		if promptAssembler != nil {
 			// Wire JIT-capable prompt assembly into autopoiesis tool generation/refinement.
 			// jitCompiler is intentionally nil here: autopoiesis currently consumes the

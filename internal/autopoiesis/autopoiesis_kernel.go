@@ -18,7 +18,7 @@ import (
 // This enables the full neuro-symbolic loop where autopoiesis
 // events are reflected as Mangle facts for logic-driven orchestration.
 // Also syncs any existing tools from the registry to the kernel.
-func (o *Orchestrator) SetKernel(kernel KernelInterface) {
+func (o *Orchestrator) SetKernel(kernel types.Kernel) {
 	o.mu.Lock()
 	o.kernel = kernel
 	o.mu.Unlock()
@@ -61,9 +61,10 @@ func (o *Orchestrator) syncExistingToolsToKernel() {
 		}
 	}
 
-	if err := o.kernel.AssertFactBatch(allFacts); err != nil {
+	if err := o.kernel.AssertBatch(allFacts); err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Error("Failed to batch assert tool facts: %v", err)
 	}
+	logging.AutopoiesisDebug("Kernel sync complete: %d tools registered", len(tools))
 	logging.AutopoiesisDebug("Kernel sync complete: %d tools registered", len(tools))
 
 	// Post-boot parity gate. A tool the registry can execute but the kernel
@@ -129,7 +130,7 @@ func (o *Orchestrator) VerifyKernelToolParity() (ToolParityReport, error) {
 	}
 	report.RegistryCount = len(registry)
 
-	facts, err := kernel.QueryPredicate("tool_registered")
+	facts, err := kernel.Query("tool_registered")
 	if err != nil {
 		return report, fmt.Errorf("failed to query tool_registered: %w", err)
 	}
@@ -165,7 +166,7 @@ func (o *Orchestrator) VerifyKernelToolParity() (ToolParityReport, error) {
 }
 
 // GetKernel returns the attached kernel (may be nil).
-func (o *Orchestrator) GetKernel() KernelInterface {
+func (o *Orchestrator) GetKernel() types.Kernel {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.kernel
@@ -185,7 +186,7 @@ func (o *Orchestrator) assertToKernel(predicate string, args ...any) error {
 		return nil // No kernel attached, silently skip
 	}
 
-	return kernel.AssertFact(KernelFact{
+	return kernel.Assert(KernelFact{
 		Predicate: predicate,
 		Args:      args,
 	})
@@ -366,7 +367,7 @@ func (o *Orchestrator) QueryCodeElementCount() int {
 		return 0
 	}
 
-	facts, err := kernel.QueryPredicate("code_element")
+	facts, err := kernel.Query("code_element")
 	if err != nil {
 		return 0
 	}
@@ -383,7 +384,7 @@ func (o *Orchestrator) QueryElementsByType(elemType string) int {
 		return 0
 	}
 
-	facts, err := kernel.QueryPredicate("code_element")
+	facts, err := kernel.Query("code_element")
 	if err != nil {
 		return 0
 	}
@@ -411,7 +412,7 @@ func (o *Orchestrator) QueryActiveFile() string {
 		return ""
 	}
 
-	facts, err := kernel.QueryPredicate("active_file")
+	facts, err := kernel.Query("active_file")
 	if err != nil || len(facts) == 0 {
 		return ""
 	}
@@ -434,7 +435,7 @@ func (o *Orchestrator) QueryFilesInScope() int {
 		return 0
 	}
 
-	facts, err := kernel.QueryPredicate("file_in_scope")
+	facts, err := kernel.Query("file_in_scope")
 	if err != nil {
 		return 0
 	}
@@ -459,7 +460,7 @@ func (o *Orchestrator) RecordCodeEditOutcome(elementRef string, editType string,
 
 	// Prune old events if we exceed the limit
 	// We use the 4-arity predicate code_edit_outcome(Ref, Type, Success, Timestamp)
-	facts, err := kernel.QueryPredicate("code_edit_outcome")
+	facts, err := kernel.Query("code_edit_outcome")
 	if err == nil && len(facts) >= o.config.MaxLearningFacts {
 		// Find oldest fact to retract
 		// Note: This assumes all facts are 4-arity and 4th arg is timestamp (int/int64/float64)
@@ -519,7 +520,7 @@ func (o *Orchestrator) QueryNextAction() string {
 	}
 
 	for _, action := range actions {
-		if kernel.QueryBool(action) {
+		if facts, err := kernel.Query(action); err == nil && len(facts) > 0 {
 			// Extract the action name from the query
 			return action
 		}
@@ -528,7 +529,6 @@ func (o *Orchestrator) QueryNextAction() string {
 	return ""
 }
 
-// ShouldGenerateTool queries the kernel to check if tool generation is needed.
 // This provides logic-driven triggering instead of just heuristics.
 func (o *Orchestrator) ShouldGenerateTool() bool {
 	o.mu.RLock()
@@ -539,9 +539,11 @@ func (o *Orchestrator) ShouldGenerateTool() bool {
 		return false
 	}
 
-	return kernel.QueryBool("next_action(/generate_tool)")
+	facts, err := kernel.Query("next_action(/generate_tool)")
+	return err == nil && len(facts) > 0
 }
 
+// ShouldRefineToolByKernel queries the kernel to check if a tool needs refinement.
 // ShouldRefineToolByKernel queries the kernel to check if a tool needs refinement.
 func (o *Orchestrator) ShouldRefineToolByKernel(toolName string) bool {
 	o.mu.RLock()
@@ -553,5 +555,6 @@ func (o *Orchestrator) ShouldRefineToolByKernel(toolName string) bool {
 	}
 
 	// Query for tool_needs_refinement(toolName)
-	return kernel.QueryBool(fmt.Sprintf("tool_needs_refinement(%q)", toolName))
+	facts, err := kernel.Query(fmt.Sprintf("tool_needs_refinement(%q)", toolName))
+	return err == nil && len(facts) > 0
 }

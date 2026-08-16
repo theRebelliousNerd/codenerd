@@ -1301,8 +1301,8 @@ func initIntelligenceLayer(bctx *bootContext) error {
 func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	autopoiesisConfig := autopoiesis.DefaultConfig(bctx.workspace)
 	bctx.poiesis = autopoiesis.NewOrchestrator(bctx.llmClient, autopoiesisConfig)
-	bridge := core.NewAutopoiesisBridge(bctx.kernel)
-	bctx.poiesis.SetKernel(bridge)
+	// Orchestrator now takes types.Kernel directly, so the AutopoiesisBridge adapter is no longer needed here - step 2 of the KernelInterface deprecation plan documented on types.KernelInterface.
+	bctx.poiesis.SetKernel(bctx.kernel)
 
 	if ouroborosLoop := bctx.poiesis.GetOuroborosLoop(); ouroborosLoop != nil {
 		bctx.virtualStore.SetToolGenerator(ouroborosLoop)
