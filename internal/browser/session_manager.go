@@ -90,6 +90,7 @@ func (t *eventThrottler) Allow(key string) bool {
 }
 
 // Config holds browser configuration.
+// Config holds browser configuration.
 type Config struct {
 	DebuggerURL           string             `json:"debugger_url"`
 	Launch                []string           `json:"launch"`
@@ -117,6 +118,15 @@ type Config struct {
 	HeaderIngestionMode   string             `json:"header_ingestion_mode,omitempty"`
 	HoneypotGuard         string             `json:"honeypot_guard,omitempty"`
 	MaxEpochEventFacts    int                `json:"max_epoch_event_facts,omitempty"`
+	// CorrelationContainers names the containers consulted when correlating
+	// browser runtime errors with container logs (BP-25). Empty disables
+	// correlation entirely.
+	CorrelationContainers []string `json:"correlation_containers,omitempty"`
+	// DockerPath is the resolved docker executable, or "" when Docker is not
+	// authorized or not present. Resolve it with LookupDockerBinary so the
+	// operator's execution.allowed_binaries stays the authority; an empty
+	// path disables correlation without failing anything.
+	DockerPath string `json:"docker_path,omitempty"`
 }
 
 // Header ingestion modes. Request and response headers carry session cookies,
@@ -334,26 +344,29 @@ func (a *engineAdapter) QueryFacts(predicate string, args ...string) []mangle.Fa
 }
 
 // SessionManager owns the detached Chrome instance and tracks active sessions.
+// SessionManager owns the detached Chrome instance and tracks active sessions.
 type SessionManager struct {
-	cfg          Config
-	engine       EngineSink
-	startMu      sync.Mutex
-	mu           sync.RWMutex
-	browser      *rod.Browser
-	sessions     map[string]*sessionRecord
-	controlURL   string // WebSocket URL for DevTools
-	browsers     map[string]*browserRecord
-	defaultID    string
-	reaperCancel context.CancelFunc
-	redactor     *browsersecurity.Redactor
-	pathPolicy   *browsersecurity.PathPolicy
-	recorder     *FlightRecorder
-	specCatalog  *browserspec.Catalog
-	pendingTabs  int
-	querier      FactQuerier
-	retractor    FactRetractor
-	budgetMu     sync.Mutex
-	budgets      map[string]*sessionFactBudget
+	cfg                   Config
+	engine                EngineSink
+	startMu               sync.Mutex
+	mu                    sync.RWMutex
+	browser               *rod.Browser
+	sessions              map[string]*sessionRecord
+	controlURL            string // WebSocket URL for DevTools
+	browsers              map[string]*browserRecord
+	defaultID             string
+	reaperCancel          context.CancelFunc
+	redactor              *browsersecurity.Redactor
+	pathPolicy            *browsersecurity.PathPolicy
+	recorder              *FlightRecorder
+	specCatalog           *browserspec.Catalog
+	pendingTabs           int
+	querier               FactQuerier
+	retractor             FactRetractor
+	budgetMu              sync.Mutex
+	budgets               map[string]*sessionFactBudget
+	correlationContainers []string
+	containerFetcher      ContainerLogFetcher
 }
 
 // NewSessionManager creates a new session manager.
@@ -376,13 +389,15 @@ func newSessionManager(cfg Config, sink EngineSink) *SessionManager {
 		logging.BrowserWarn("Browser output path policy unavailable: %v", err)
 	}
 	manager := &SessionManager{
-		cfg:        cfg,
-		engine:     sink,
-		sessions:   make(map[string]*sessionRecord),
-		browsers:   make(map[string]*browserRecord),
-		redactor:   browsersecurity.NewRedactor(cfg.ExtraSensitiveKeys),
-		pathPolicy: policy,
-		budgets:    make(map[string]*sessionFactBudget),
+		cfg:                     cfg,
+		engine:                  sink,
+		sessions:                make(map[string]*sessionRecord),
+		browsers:                make(map[string]*browserRecord),
+		redactor:                browsersecurity.NewRedactor(cfg.ExtraSensitiveKeys),
+		pathPolicy:              policy,
+		budgets:                 make(map[string]*sessionFactBudget),
+		correlationContainers:   cfg.CorrelationContainers,
+		containerFetcher:        NewDockerLogFetcher(cfg.DockerPath),
 	}
 	if querier, ok := sink.(FactQuerier); ok {
 		manager.querier = querier
@@ -405,6 +420,32 @@ func newSessionManager(cfg Config, sink EngineSink) *SessionManager {
 	}
 	return manager
 }
+// CorrelateContainerErrors correlates recent browser runtime errors with
+// logs from the configured containers. It is a diagnosis aid: it never
+// returns an error, because a correlation failure must not fail the
+// diagnosis that asked for it.
+func (m *SessionManager) CorrelateContainerErrors(ctx context.Context, events []RuntimeErrorEvent, window time.Duration) ContainerCorrelationResult {
+	if m == nil {
+		return ContainerCorrelationResult{}
+	}
+	m.mu.RLock()
+	if len(m.correlationContainers) == 0 {
+		m.mu.RUnlock()
+		return ContainerCorrelationResult{}
+	}
+	containers := m.correlationContainers
+	fetcher := m.containerFetcher
+	redactor := m.redactor
+	m.mu.RUnlock()
+	return CorrelateContainerLogs(ctx, ContainerCorrelationRequest{
+		Fetcher:    fetcher,
+		Containers: containers,
+		Events:     events,
+		Window:     window,
+		Redactor:   redactor,
+	})
+}
+
 
 // LoadSpecs loads the bounded workspace browser specification catalog.
 func (m *SessionManager) LoadSpecs(ctx context.Context) (browserspec.LoadResult, error) {
