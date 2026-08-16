@@ -34,11 +34,15 @@
 ## P3
 
 - [ ] Complete BPAR-5 contract audit, repo trace, Docker correlation, and final live parity gate
-  - this is a live-environment verification task, not code to write. It requires a running Docker environment and live Chromium to correlate container behaviour against the contract and run the parity gate, so it cannot be closed from a static pass. Note that the related CI job entry in this file is separately blocked because the repository has no CI configuration to add a workflow to.
+  - this is a live-environment verification task, not code to write. It requires a running Docker environment and live Chromium to correlate container behaviour against the contract and run the parity gate, so it cannot be closed from a static pass. CI now exists (.github/workflows/ci.yml — build, vet and full test suite on windows-latest, plus a -race job), so the CI half of this is no longer blocked by the absence of a pipeline.
 - [x] Redact secrets from browser logs, fact sink, results, and session store
 - [x] Fact GC / epoch for long event streams — per-epoch budget, `browser_epoch` watermark, navigation rollover, and real retraction when a `FactRetractor` is wired
 - [x] Header ingestion default policy for research vs operator modes — `HeaderIngestionMode` redacted for research, off for the CLI
-- [~] CI job: integration tag with headless Chrome — live tests now discover Chromium under `PLAYWRIGHT_BROWSERS_PATH`/`NERD_TEST_CHROME_BIN` and run by default; the workflow file itself is still unwritten
+- [~] CI job: integration tag with headless Chrome — live tests now discover Chromium under `PLAYWRIGHT_BROWSERS_PATH`/`NERD_TEST_CHROME_BIN` and run by default; .github/workflows/ci.yml now exists (build, vet, full default test suite and a -race job on windows-latest) but the integration-tagged job is not yet wired into it
+  - .github/workflows/ci.yml exists and covers build, vet, the full default test suite and a -race job.
+  - An integration-tagged job is not in it yet because the integration build was broken until 2026-08-16 and has only just been repaired: tests/e2e carried a mockPoisonKernel whose GetProgramInfo returned interface{} instead of *analysis.ProgramInfo, and session_spawner_config_integration_test.go set a Persona field that session.TaskRequest does not have (persona is carried by the intent verb). Both are fixed.
+  - What remains before the job can be added: confirming the integration suite actually passes end to end on a runner, and provisioning Chromium there. The suite is slow to compile (it pulls the browser dependency graph), so the job needs its own timeout and probably its own cache.
+  - Live tests discover Chromium under `PLAYWRIGHT_BROWSERS_PATH` / `NERD_TEST_CHROME_BIN`, which is what a runner would need to set.
 
 ## Done (baseline — do not re-open without evidence)
 
