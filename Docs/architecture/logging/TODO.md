@@ -53,13 +53,16 @@
 
 ## Still open
 
-- [ ] `internal/config` should call `logging.ApplyConfig` at boot so the config
+- [x] `internal/config` should call `logging.ApplyConfig` at boot so the config
       file is parsed once. Needs an edit outside this package.
-- [ ] `internal/shards/system/constitution.go` (`ConstitutionGateShard.CheckAction`)
-      decides allow/deny without an audit event. Listed as a known gap in
-      `safety_callsite_audit_test.go`; the fix belongs to `internal/shards`.
-- [ ] `RequestLogger.WithField` still mutates a shared map (OPEN-QUESTIONS Q5).
+      → Closed. `internal/config/logging.go` adds `LoggingConfig.ToLoggingConfig()`, `internal/config/user_config.go` adds `ApplyLoggingConfig()`, and `internal/system/factory.go` calls it once `appCfg` is resolved (covering the `UserConfigOverride` branch too). `logging.Initialize` no longer re-parses `.nerd/config.json`, and the injected config is pinned so a later `ReloadConfig` cannot revert to disk. Note that only fields present on both structs are mapped: `LoggingConfig` has no `TraceLLMIORaw`, `MaxLogFileMB`, `MaxLogFileMinutes` or `MaxRotatedFiles`.
+- [x] `internal/shards/system/constitution.go` (`ConstitutionGateShard.CheckAction`)
+      decides allow/deny without an audit event.
+      → Closed. Both verdict branches now call `logging.Audit().SafetyCheck` in `internal/shards/system/constitution.go` (allow at line 331, deny at 339), in the style of `internal/core/virtual_store_routing.go`. The `safety_callsite_audit_test.go` inventory entry moved from `classKnownGap` to `classGate` with `auditedIn` set to that file, so removing the call is now a test failure rather than a silent regression.
+- [x] `RequestLogger.WithField` still mutates a shared map (OPEN-QUESTIONS Q5).
+      → Closed. `WithField` is copy-on-write: it returns a newly derived `RequestLogger` with a copied field map instead of mutating the receiver and returning it. That fixes both the aliasing (sibling derivations previously saw each other's fields) and the data race on a plain map. New tests in `request_logger_fields_test.go` cover non-mutation and 50 concurrent derivations, and pass under `-race`. `TestRequestLogger_WithField_ShouldChain` previously asserted pointer identity, which was asserting the defect; it now verifies chaining by accumulated fields. `WithField` had zero production callers, so nothing depended on the old side effect.
 - [ ] Bridge to `internal/observability` spans (Q6) and category taxonomy cap (Q7).
+      → Blocked, not deferred: nothing in this repository configures an OpenTelemetry `TracerProvider`, so a bridge would emit into no-op spans. `internal/transparency/event_bus.go:55` records the same rationale for the same reason. The category taxonomy cap (Q7) remains an open design question and is not blocked.
 
 ## Done (already in code before this pass)
 
