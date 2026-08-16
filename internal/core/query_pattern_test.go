@@ -65,11 +65,10 @@ Decl name_probe(A).
 		t.Fatalf("Query(name_probe(/foo)) got %d facts, want %d", len(nameMatch), 1)
 	}
 
-	bridge := NewAutopoiesisBridge(k)
-	if !bridge.QueryBool(`probe("beta", "two")`) {
+	if !k.QueryBool(`probe("beta", "two")`) {
 		t.Fatalf("QueryBool(probe(\"beta\", \"two\")) got false, want true")
 	}
-	if bridge.QueryBool(`probe("missing", _)`) {
+	if k.QueryBool(`probe("missing", _)`) {
 		t.Fatalf("QueryBool(probe(\"missing\", _)) got true, want false")
 	}
 }

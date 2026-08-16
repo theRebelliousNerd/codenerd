@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"codenerd/internal/mangle"
-	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -696,65 +695,7 @@ func TestValidatorRegistry_Register_WhenNil_ShouldBeNoOp(t *testing.T) {
 	r.Register(nil) // Should not panic
 }
 
-// =============================================================================
-// kernel_utils.go - AutopoiesisBridge
-// =============================================================================
 
-func TestAutopoiesisBridge_WhenCreated_ShouldNotBeNil(t *testing.T) {
-	k := setupMockKernel(t)
-	bridge := NewAutopoiesisBridge(k)
-	if bridge == nil {
-		t.Fatal("expected non-nil bridge")
-	}
-}
-
-func TestAutopoiesisBridge_AssertFact_WhenValid_ShouldSucceed(t *testing.T) {
-	k := setupMockKernel(t)
-	bridge := NewAutopoiesisBridge(k)
-
-	err := bridge.AssertFact(types.KernelFact{
-		Predicate: "test_bridge_fact",
-		Args:      []any{"value1"},
-	})
-	if err != nil {
-		t.Errorf("AssertFact failed: %v", err)
-	}
-}
-
-func TestAutopoiesisBridge_AssertFactBatch_WhenEmpty_ShouldReturnNil(t *testing.T) {
-	k := setupMockKernel(t)
-	bridge := NewAutopoiesisBridge(k)
-
-	err := bridge.AssertFactBatch(nil)
-	if err != nil {
-		t.Errorf("AssertFactBatch(nil) returned error: %v", err)
-	}
-}
-
-func TestAutopoiesisBridge_QueryBool_WhenNoFacts_ShouldReturnFalse(t *testing.T) {
-	k := setupMockKernel(t)
-	bridge := NewAutopoiesisBridge(k)
-
-	if bridge.QueryBool("nonexistent_pred_xyz") {
-		t.Error("expected false for nonexistent predicate")
-	}
-}
-
-func TestAutopoiesisBridge_RetractFact_WhenNotPresent_ShouldNotError(t *testing.T) {
-	k := setupMockKernel(t)
-	bridge := NewAutopoiesisBridge(k)
-
-	err := bridge.RetractFact(types.KernelFact{
-		Predicate: "nonexistent_retract",
-		Args:      []any{"x"},
-	})
-	// Should not error even if fact doesn't exist
-	if err != nil {
-		t.Logf("RetractFact returned: %v (may be expected)", err)
-	}
-}
-
-// =============================================================================
 // kernel_virtual.go
 // =============================================================================
 

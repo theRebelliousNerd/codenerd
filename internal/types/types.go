@@ -302,11 +302,10 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 // KERNEL INTERFACE - Bridge to Mangle Logic Core
 // =============================================================================
 
-// KernelFact is the fact type carried by KernelInterface.
+// KernelFact is the fact type historically carried by the deprecated kernel bridge.
 //
 // Deprecated: use Fact. This is now an alias, not a separate struct — step 1 of
-// the KernelInterface/KernelFact deprecation path documented on KernelInterface
-// below. It was a byte-identical copy of Fact whose only purpose was to keep the
+// the KernelFact deprecation path. It was a byte-identical copy of Fact whose only purpose was to keep the
 // autopoiesis bridge from naming Fact, which cost every bridge method a full
 // slice copy (core.AutopoiesisBridge.QueryPredicate rebuilt each result) and
 // gave callers two names for one concept — the same confusion that lets an
@@ -322,34 +321,6 @@ type KernelFact = Fact
 // compiling; delete it when KernelFact itself is removed.
 func (f Fact) ToFact() Fact { return f }
 
-// KernelInterface is the narrow fact-assertion bridge used by autopoiesis.
-//
-// Deprecated: prefer Kernel. Deprecation path (one step per release cycle, so
-// each step is independently revertible):
-//
-//  1. DONE — KernelFact becomes an alias for Fact, so the two APIs speak one
-//     fact type and adapters stop copying slices to cross the boundary.
-//  2. NEXT — internal/autopoiesis switches its Orchestrator field to Kernel and
-//     calls Assert/AssertBatch/Query directly. core.AutopoiesisBridge then has
-//     no consumer except cmd/nerd/cmd_mcp_select.go's cliMCPKernel, which is a
-//     genuine edge adapter (mcp declares its own KernelInterface) and stays.
-//  3. THEN — delete KernelInterface, the ToFact shim, and core.AutopoiesisBridge.
-//
-// Step 2 is not taken here because it edits internal/autopoiesis; the import
-// graph already permits it (autopoiesis imports types today and Kernel adds no
-// dependency), which was the open blocker recorded in OPEN-QUESTIONS Q1.
-type KernelInterface interface {
-	// AssertFact adds a fact to the kernel's EDB
-	AssertFact(fact KernelFact) error
-	// AssertFactBatch adds multiple facts and evaluates once (much faster than multiple AssertFact calls)
-	AssertFactBatch(facts []KernelFact) error
-	// QueryPredicate queries for facts matching a predicate
-	QueryPredicate(predicate string) ([]KernelFact, error)
-	// QueryBool returns true if any facts match the predicate
-	QueryBool(predicate string) bool
-	// RetractFact removes a fact from the kernel (matching predicate and first arg)
-	RetractFact(fact KernelFact) error
-}
 
 // =============================================================================
 // STRUCTURED INTENT - Parsed User Intent

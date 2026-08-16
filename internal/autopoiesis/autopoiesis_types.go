@@ -21,11 +21,6 @@ import (
 // This represents a fact that can be asserted to the kernel.
 type KernelFact = types.KernelFact
 
-// KernelInterface is an alias to types.KernelInterface.
-// This defines the interface for interacting with the Mangle kernel,
-// allowing autopoiesis to assert facts and query for derived actions.
-type KernelInterface = types.KernelInterface
-
 // =============================================================================
 // JIT INTERFACES - Avoid Import Cycles
 // =============================================================================
