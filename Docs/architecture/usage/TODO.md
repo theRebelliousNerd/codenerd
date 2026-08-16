@@ -1,6 +1,6 @@
 # usage — TODO
 
-> Last verified: **2026-08-15**  
+> Last verified: **2026-08-16**  
 > Docs-only backlog derived from code. No commitment that items are scheduled.
 
 ## P0 — Metering completeness
@@ -40,8 +40,24 @@
 
 - [ ] Meter the CLI engines (`claude-cli`, `codex-cli`) — blocked until their
   response decoders surface token counts; nothing to record today.
-- [ ] Cross-process coordination of `usage.json` (two `nerd` processes on one
+  > Blocked upstream rather than deferred by preference: the CLI engine clients
+  > do not surface token counts in their responses, so there is no number to
+  > meter. The box cannot close until those decoders report usage.
+- [x] Cross-process coordination of `usage.json` (two `nerd` processes on one
   workspace still last-writer-wins).
+  > Closed. Save is now a cross-process read-merge-write. A platform-split
+  > advisory lock (`internal/usage/filelock_windows.go` using `LockFileEx`,
+  > `filelock_other.go` using `flock`) serialises writers across processes, since
+  > `sync.Mutex` only covers goroutines inside one. Under that lock the tracker
+  > re-reads `usage.json` and merges rather than overwriting: it keeps a
+  > deep-copied baseline of the aggregates as of its last sync, so its own
+  > contribution is `(current - baseline)` and the write is `(onDisk + contribution)`.
+  > This works because every aggregate is an additive counter. Events are
+  > deliberately not merged; they are a non-exhaustive ring with aggregates as the
+  > durable record. A lock that cannot be acquired, or an unparseable `usage.json`,
+  > degrades to the previous behaviour and still writes, because losing the merge
+  > is survivable and losing the save is not. Covered by `crossprocess_test.go`,
+  > including a double-count test that catches a shallow baseline copy.
 
 ## Explicit non-todos (unless product asks)
 
