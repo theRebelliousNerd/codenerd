@@ -88,7 +88,7 @@ type Fact struct {
 
 // String returns the Datalog representation of the fact.
 func (f Fact) String() string {
-	var args []string
+	args := make([]string, 0, len(f.Args))
 	for _, arg := range f.Args {
 		switch v := arg.(type) {
 		case types.MangleAtom:
