@@ -96,6 +96,9 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 	if len(intents) == 0 {
 		return nil, fmt.Errorf("no intents provided")
 	}
+	if f.provider == nil {
+		return nil, fmt.Errorf("config provider cannot be nil")
+	}
 	var finalAtom ConfigAtom
 	found := false
 
@@ -160,10 +163,12 @@ func (f *ConfigFactory) GenerateFallback(ctx context.Context, intent string, fal
 
 	intent = strings.TrimSpace(intent)
 	var finalAtom ConfigAtom
-	if atom, ok := f.provider.GetAtom(intent); ok {
-		finalAtom = atom
-	} else if atom, ok := f.provider.GetAtom("/general"); ok {
-		finalAtom = atom
+	if f.provider != nil {
+		if atom, ok := f.provider.GetAtom(intent); ok {
+			finalAtom = atom
+		} else if atom, ok := f.provider.GetAtom("/general"); ok {
+			finalAtom = atom
+		}
 	}
 
 	return &config.EffectiveAgentRuntimeConfig{
