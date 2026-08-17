@@ -51,3 +51,29 @@ func TestFromContext(t *testing.T) {
 		t.Errorf("FromContext(populated ctx) = %v, want %v", got, tracker)
 	}
 }
+
+func TestTrackFromContext(t *testing.T) {
+	// 1. Context without a tracker: should be a no-op, shouldn't panic.
+	ctx := context.Background()
+	TrackFromContext(ctx, "gpt-4", "openai", 10, 20, "chat")
+
+	// 2. Context with a tracker: should record the usage.
+	tracker, err := NewTracker(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	ctxWithTracker := NewContext(ctx, tracker)
+	TrackFromContext(ctxWithTracker, "gpt-4", "openai", 10, 20, "chat")
+
+	stats := tracker.Stats()
+	if stats.TotalProject.Input != 10 {
+		t.Errorf("expected input to be 10, got %d", stats.TotalProject.Input)
+	}
+	if stats.TotalProject.Output != 20 {
+		t.Errorf("expected output to be 20, got %d", stats.TotalProject.Output)
+	}
+	if stats.TotalProject.Total != 30 {
+		t.Errorf("expected total to be 30, got %d", stats.TotalProject.Total)
+	}
+}
