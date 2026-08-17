@@ -114,6 +114,9 @@ func TestWriteFileTool_Execute_MissingPath(t *testing.T) {
 	}
 }
 
+
+// TODO: Gap 1.1: write_file - The Null / Empty Content Boundary - What happens if content is exactly "" or null vs missing? (Null/Undefined/Empty)
+// func TestWriteFileTool_Execute_EmptyContent(t *testing.T) { ... }
 func TestWriteFileTool_Execute_Success(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
@@ -178,6 +181,12 @@ func TestWriteFileTool_Execute_OutsideWorkspace(t *testing.T) {
 }
 
 // =============================================================================
+
+// TODO: Gap 3.3: Extreme Path Lengths (Windows Limitations) - MAX_PATH violation (User request Extremes)
+// func TestWriteFileTool_Execute_MaxPathLength_Violation(t *testing.T) { ... }
+
+// TODO: Gap 4.1: write_file - The Symlink / Hardlink Overwrite TOCTOU race (State Conflicts)
+// func TestWriteFileTool_Execute_Symlink_TOCTOU(t *testing.T) { ... }
 // EDIT FILE TOOL TESTS
 // =============================================================================
 
@@ -215,6 +224,18 @@ func TestEditFileTool_Execute_MissingSearch(t *testing.T) {
 	}
 }
 
+
+// TODO: Gap 1.3: edit_file - Empty old_text - What if old_text is whitespace or zero-width? (Null/Undefined/Empty)
+// func TestEditFileTool_Execute_WhitespaceOldText_Ambiguity(t *testing.T) { ... }
+
+// TODO: Gap 3.2: edit_file - Multi-Megabyte Files & ReplaceAll - 500MB OOM protection (User request Extremes)
+// func TestEditFileTool_Execute_LargeFileOOM_Protection(t *testing.T) { ... }
+
+// TODO: Gap 4.2: edit_file - The Concurrent Modification Race (State Conflicts)
+// func TestEditFileTool_Execute_ConcurrentModification_RaceCondition(t *testing.T) { ... }
+
+// TODO: Gap 4.4: edit_file - Line Ending Corruption - Mixed CRLF vs LF (State Conflicts)
+// func TestEditFileTool_Execute_MixedLineEndings_Boundary(t *testing.T) { ... }
 func TestEditFileTool_Execute_Success(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
@@ -425,6 +446,12 @@ func TestDeleteFileTool_Execute_MissingPath(t *testing.T) {
 	}
 }
 
+
+// TODO: Gap 2.2: delete_file - Confirmed Coercion - Confirmed as string "yes" or int 1? (Type Coercion)
+// func TestDeleteFileTool_Execute_ConfirmedTypeMismatch(t *testing.T) { ... }
+
+// TODO: Gap 4.3: delete_file - Deleting an Open/Locked File (State Conflicts)
+// func TestDeleteFileTool_Execute_LockedFile_Behavior(t *testing.T) { ... }
 func TestDeleteFileTool_Execute_Success(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
@@ -485,6 +512,15 @@ func TestListFilesTool_Execute_MissingPath(t *testing.T) {
 	_ = result // result depends on current directory
 }
 
+
+// TODO: Gap 1.2: list_files - The Empty Path Boundary - Implicit fallback to . on null vs empty string? (Null/Undefined/Empty)
+// func TestListFilesTool_Execute_NullPath_ImplicitDefault(t *testing.T) { ... }
+
+// TODO: Gap 2.1: list_files - Boolean Coercion from Strings - What if recursive="true" instead of bool? (Type Coercion)
+// func TestListFilesTool_Execute_StringBoolean_CoercionFailure(t *testing.T) { ... }
+
+// TODO: Gap 3.1: list_files - The Node Modules / Deep Tree Attack - Massive directory token budget DoS (User request Extremes)
+// func TestListFilesTool_Execute_MassiveDirectory_TokenBudgetDoS(t *testing.T) { ... }
 func TestListFilesTool_Execute_Success(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
