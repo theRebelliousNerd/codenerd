@@ -193,6 +193,73 @@ func TestLegacyJSONFallback(t *testing.T) {
 	}
 }
 
+func TestCanonicalPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		codec    Codec
+		expected string
+	}{
+		{
+			name:     "gzip exact match",
+			path:     "snapshot" + ExtGzip,
+			codec:    CodecGzip,
+			expected: "snapshot" + ExtGzip,
+		},
+		{
+			name:     "gzip append missing",
+			path:     "snapshot",
+			codec:    CodecGzip,
+			expected: "snapshot" + ExtGzip,
+		},
+		{
+			name:     "gzip replace .json",
+			path:     "snapshot" + ExtJSON,
+			codec:    CodecGzip,
+			expected: "snapshot" + ExtGzip,
+		},
+		{
+			name:     "zstd exact match",
+			path:     "snapshot" + ExtZstd,
+			codec:    CodecZstd,
+			expected: "snapshot" + ExtZstd,
+		},
+		{
+			name:     "zstd append missing",
+			path:     "snapshot",
+			codec:    CodecZstd,
+			expected: "snapshot" + ExtZstd,
+		},
+		{
+			name:     "zstd replace .json",
+			path:     "snapshot" + ExtJSON,
+			codec:    CodecZstd,
+			expected: "snapshot" + ExtZstd,
+		},
+		{
+			name:     "default codec leaves path untouched",
+			path:     "snapshot.foo",
+			codec:    CodecAuto,
+			expected: "snapshot.foo",
+		},
+		{
+			name:     "unknown codec leaves path untouched",
+			path:     "snapshot.foo",
+			codec:    Codec(999),
+			expected: "snapshot.foo",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CanonicalPath(tt.path, tt.codec)
+			if got != tt.expected {
+				t.Errorf("CanonicalPath(%q, %v) = %q; want %q", tt.path, tt.codec, got, tt.expected)
+			}
+		})
+	}
+}
+
 // TestSizeComparison writes the same 1000-fact corpus as JSON, SimpleColumn+gzip,
 // and SimpleColumn+zstd, then prints all three sizes. This is informational so
 // the maintainer can see the compression win at a glance.
