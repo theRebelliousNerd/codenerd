@@ -51,3 +51,18 @@ func TestFromContext(t *testing.T) {
 		t.Errorf("FromContext(populated ctx) = %v, want %v", got, tracker)
 	}
 }
+
+func TestWithShardContext(t *testing.T) {
+	ctx := context.Background()
+	ctx = WithShardContext(ctx, "test-shard", "test-type", "test-session")
+
+	if got := ctx.Value(shardNameKey); got != "test-shard" {
+		t.Errorf("shardNameKey = %v, want %v", got, "test-shard")
+	}
+	if got := ctx.Value(shardTypeKey); got != "test-type" {
+		t.Errorf("shardTypeKey = %v, want %v", got, "test-type")
+	}
+	if got := ctx.Value(sessionIDKey); got != "test-session" {
+		t.Errorf("sessionIDKey = %v, want %v", got, "test-session")
+	}
+}
