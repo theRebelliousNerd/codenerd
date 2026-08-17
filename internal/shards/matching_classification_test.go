@@ -1,6 +1,9 @@
 package shards
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestCanSpecialistExecute(t *testing.T) {
 	// goexpert is an executor and can execute; case/space-insensitive lookup.
@@ -66,8 +69,10 @@ func TestGetSpecialistClassification(t *testing.T) {
 	}{
 		{"existing specialist lowercase", "goexpert", DefaultSpecialistClassifications["goexpert"], true},
 		{"existing specialist mixed case", " GoExpert ", DefaultSpecialistClassifications["goexpert"], true},
+		{"existing specialist different", "cobraexpert", DefaultSpecialistClassifications["cobraexpert"], true},
 		{"unknown specialist", "unknown", SpecialistClassification{}, false},
 		{"empty string", "", SpecialistClassification{}, false},
+		{"only spaces", "   ", SpecialistClassification{}, false},
 	}
 
 	for _, tt := range tests {
@@ -76,8 +81,8 @@ func TestGetSpecialistClassification(t *testing.T) {
 			if ok != tt.expectedOk {
 				t.Errorf("GetSpecialistClassification(%q) ok = %v, want %v", tt.nameInput, ok, tt.expectedOk)
 			}
-			if ok && got.CanExecute != tt.expected.CanExecute {
-				t.Errorf("GetSpecialistClassification(%q) got CanExecute = %v, want CanExecute %v", tt.nameInput, got.CanExecute, tt.expected.CanExecute)
+			if ok && !reflect.DeepEqual(got, tt.expected) {
+				t.Errorf("GetSpecialistClassification(%q) got = %+v, want %+v", tt.nameInput, got, tt.expected)
 			}
 		})
 	}
