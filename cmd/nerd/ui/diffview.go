@@ -44,6 +44,7 @@ type DiffKeyMap struct {
 	ToggleWarnings   key.Binding
 	ToggleWhitespace key.Binding
 	ToggleWordDiff   key.Binding
+	ToggleSideBySide key.Binding
 	ScrollLeft       key.Binding
 	ScrollRight      key.Binding
 	ScrollToStart    key.Binding
@@ -60,7 +61,7 @@ func (k DiffKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Approve, k.Reject, k.ApproveAll},
 		{k.NextMutation, k.PrevMutation, k.NextHunk, k.PrevHunk},
-		{k.ToggleWarnings, k.ToggleWhitespace, k.ToggleWordDiff},
+		{k.ToggleWarnings, k.ToggleWhitespace, k.ToggleWordDiff, k.ToggleSideBySide},
 		{k.ScrollLeft, k.ScrollRight, k.ScrollToStart, k.Quit},
 	}
 }
@@ -78,6 +79,7 @@ func DefaultDiffKeyMap() DiffKeyMap {
 		ToggleWarnings:   key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "Warnings")),
 		ToggleWhitespace: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "Whitespace")),
 		ToggleWordDiff:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "Word Diff")),
+		ToggleSideBySide: key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "Side-by-Side")),
 		ScrollLeft:       key.NewBinding(key.WithKeys("ctrl+left"), key.WithHelp("ctrl+←", "Scroll Left")),
 		ScrollRight:      key.NewBinding(key.WithKeys("ctrl+right"), key.WithHelp("ctrl+→", "Scroll Right")),
 		ScrollToStart:    key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "Scroll to Start")),
@@ -112,6 +114,7 @@ type DiffApprovalView struct {
 	SelectedHunk     int
 	ApprovalMode     ApprovalMode
 	WordLevelDiff    bool // Enable word-level diffing for changed lines
+	SideBySide       bool // Enable side-by-side diff view
 	diffEngine       *diff.Engine
 	XOffset          int // Horizontal scroll offset (columns)
 	keys             DiffKeyMap
@@ -129,7 +132,6 @@ const (
 )
 
 // NewDiffApprovalView creates a new diff approval view
-// TODO: IMPROVEMENT: Implement a side-by-side diff view mode for better comparison of complex changes.
 func NewDiffApprovalView(styles Styles, width, height int) DiffApprovalView {
 	vp := viewport.New(ViewportWidth(width), ViewportHeight(height))
 	vp.SetContent("")
@@ -194,6 +196,8 @@ func (d *DiffApprovalView) Update(msg tea.Msg) (DiffApprovalView, tea.Cmd) {
 			d.ToggleIgnoreWhitespace()
 		case key.Matches(msg, d.keys.ToggleWordDiff):
 			d.ToggleWordLevelDiff()
+		case key.Matches(msg, d.keys.ToggleSideBySide):
+			d.ToggleSideBySide()
 		case key.Matches(msg, d.keys.ScrollLeft):
 			d.ScrollLeft()
 		case key.Matches(msg, d.keys.ScrollRight):
@@ -336,6 +340,12 @@ func (d *DiffApprovalView) ToggleWordLevelDiff() {
 // ToggleIgnoreWhitespace toggles whitespace-only change filtering.
 func (d *DiffApprovalView) ToggleIgnoreWhitespace() {
 	d.IgnoreWhitespace = !d.IgnoreWhitespace
+	d.updateContent()
+}
+
+// ToggleSideBySide toggles side-by-side view mode
+func (d *DiffApprovalView) ToggleSideBySide() {
+	d.SideBySide = !d.SideBySide
 	d.updateContent()
 }
 
@@ -491,7 +501,11 @@ func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 		sb.WriteString("\n")
 
 		// Render lines with word-level diffing for adjacent changed lines
-		sb.WriteString(d.renderHunkLines(filteredLines))
+		if d.SideBySide {
+			sb.WriteString(d.renderSideBySideHunkLines(filteredLines))
+		} else {
+			sb.WriteString(d.renderHunkLines(filteredLines))
+		}
 		sb.WriteString("\n")
 	}
 
@@ -786,9 +800,14 @@ func (d *DiffApprovalView) renderControls() string {
 		wsStatus = "ON"
 	}
 
-	// Prepend whitespace status to the help view dynamically, or you can just show it.
+	sbsStatus := "OFF"
+	if d.SideBySide {
+		sbsStatus = "ON"
+	}
+
+	// Prepend status to the help view dynamically, or you can just show it.
 	helpView := d.help.View(d.keys)
-	controls := fmt.Sprintf("Whitespace: %s | %s", wsStatus, helpView)
+	controls := fmt.Sprintf("Whitespace: %s | SideBySide: %s | %s", wsStatus, sbsStatus, helpView)
 
 	return controlStyle.Render(controls)
 }
@@ -878,4 +897,95 @@ func CreateDiffFromStrings(oldPath, newPath, oldContent, newContent string) *Fil
 // DiffEngineStats reports the UI diff engine's cumulative cache counters.
 func DiffEngineStats() diff.Stats {
 	return uiDiffEngine.Stats()
+}
+
+// renderSideBySideHunkLines renders hunk lines in a side-by-side format
+func (d *DiffApprovalView) renderSideBySideHunkLines(lines []DiffLine) string {
+	var sb strings.Builder
+
+	// Calculate panel width (half of the viewport width, minus the separator)
+	// Make sure we have at least some minimum width
+	totalWidth := d.Viewport.Width
+	if totalWidth < 10 {
+		totalWidth = 80 // fallback
+	}
+	panelWidth := (totalWidth - 3) / 2 // -3 for separator " | "
+	if panelWidth < 10 {
+		panelWidth = 10
+	}
+
+	// Temporarily override the XOffset calculation width for the inner rendering
+	originalWidth := d.Viewport.Width
+	d.Viewport.Width = panelWidth
+	defer func() {
+		d.Viewport.Width = originalWidth
+	}()
+
+	separator := lipgloss.NewStyle().Foreground(d.Styles.Theme.Outline).Render(" | ")
+
+	// Process lines mapping removes to the left side and adds to the right side
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+
+		var left, right string
+
+		switch line.Type {
+		case DiffLineContext:
+			// Context goes on both sides
+			renderedLine := d.renderDiffLine(line)
+			left = renderedLine
+			right = renderedLine
+
+		case DiffLineRemoved:
+			// Removed goes on left side
+			left = d.renderDiffLine(line)
+
+			// Try to pair with an added line
+			right = d.renderEmptyDiffLine()
+
+			// Look ahead for an added line to pair with
+			if i+1 < len(lines) && lines[i+1].Type == DiffLineAdded {
+				// We have an added line next, pair them up!
+				nextLine := lines[i+1]
+
+				// Optional: Do word-level diffing if enabled
+				if d.WordLevelDiff {
+					spans := d.diffEngine.ComputeWordLevelDiff(line.Content, nextLine.Content)
+					left = d.renderLineWithWordHighlights(line, spans, true)
+					right = d.renderLineWithWordHighlights(nextLine, spans, false)
+				} else {
+					right = d.renderDiffLine(nextLine)
+				}
+
+				i++ // Skip the next line since we handled it
+			}
+
+		case DiffLineAdded:
+			// Unpaired added line goes on right side
+			left = d.renderEmptyDiffLine()
+			right = d.renderDiffLine(line)
+
+		case DiffLineHeader:
+			left = d.renderDiffLine(line)
+			right = "" // Or replicate to right side, but usually single line is fine
+			// Let's span it across by not using side-by-side format for headers
+			sb.WriteString(left)
+			sb.WriteString("\n")
+			continue
+		}
+
+		// Join the two panels horizontally
+		row := lipgloss.JoinHorizontal(lipgloss.Top, left, separator, right)
+		sb.WriteString(row)
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+// renderEmptyDiffLine renders an empty line for side-by-side padding
+func (d *DiffApprovalView) renderEmptyDiffLine() string {
+	// Use lipgloss to ensure exact width padding
+	style := d.Styles.Body.Copy().Width(d.Viewport.Width)
+	return style.Render("")
 }
