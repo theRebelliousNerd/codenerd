@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 	"sync"
 
 	"codenerd/internal/core"
@@ -154,8 +155,13 @@ func (f *ConfigFactory) GenerateFallback(ctx context.Context, intent string, fal
 	// Prevent OOM from massive fallback strings
 	const MaxFallbackLength = 1024 * 1024 // 1MB limit
 	if len(fallbackIdentity) > MaxFallbackLength {
-		// TODO: [Type Coercion] Truncating by bytes can slice a multibyte UTF-8 character in half, resulting in invalid UTF-8. It should truncate on rune boundaries.
-		fallbackIdentity = fallbackIdentity[:MaxFallbackLength]
+		// Truncating by bytes can slice a multibyte UTF-8 character in half, resulting in invalid UTF-8.
+		// It should truncate on rune boundaries.
+		truncateIdx := MaxFallbackLength
+		for truncateIdx > 0 && !utf8.RuneStart(fallbackIdentity[truncateIdx]) {
+			truncateIdx--
+		}
+		fallbackIdentity = fallbackIdentity[:truncateIdx]
 	}
 
 	intent = strings.TrimSpace(intent)

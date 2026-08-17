@@ -71,7 +71,6 @@ func TestConfigFactory_NullBytesAndInvalidUTF8(t *testing.T) {
 	}
 }
 
-// TODO: [User Request Extremes] Missing test for GenerateFallback with a massive fallbackIdentity string (e.g., 50MB) to ensure it doesn't cause OOM when constructing the EffectiveAgentRuntimeConfig.
 func TestConfigFactory_GenerateFallbackMassiveIdentity(t *testing.T) {
 	factory := NewDefaultConfigFactory()
 	ctx := context.Background()
@@ -478,7 +477,6 @@ func TestConfigFactory_EmptySpacesIntent(t *testing.T) {
 	}
 }
 
-// TODO: [User Request Extremes] Missing test for GenerateFallback with a massive fallbackIdentity string (e.g., 50MB) to ensure it doesn't cause OOM.
 func TestConfigFactory_MassiveFallbackIdentity(t *testing.T) {
 	factory := NewDefaultConfigFactory()
 	ctx := context.Background()
