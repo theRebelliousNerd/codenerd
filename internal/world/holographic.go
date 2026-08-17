@@ -9,9 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"strings"
-	"sync"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -137,18 +135,14 @@ type FactQuerier interface {
 type HolographicProvider struct {
 	kernel  FactQuerier
 	workDir string
-
-	regexCache   map[string][]*regexp.Regexp
-	regexCacheMu sync.RWMutex
 }
 
 // NewHolographicProvider creates a new holographic context provider.
 // kernel may be nil (context degrades to filesystem-only analysis).
 func NewHolographicProvider(kernel FactQuerier, workDir string) *HolographicProvider {
 	return &HolographicProvider{
-		kernel:     normalizeQuerier(kernel),
-		workDir:    workDir,
-		regexCache: make(map[string][]*regexp.Regexp),
+		kernel:  normalizeQuerier(kernel),
+		workDir: workDir,
 	}
 }
 
