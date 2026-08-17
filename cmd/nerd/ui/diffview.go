@@ -17,6 +17,26 @@ import (
 )
 
 // Type aliases for backward compatibility with UI code
+var (
+	diffAddedStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#22c55e")).
+		Background(lipgloss.Color("#052e16"))
+
+	diffRemovedStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#ef4444")).
+		Background(lipgloss.Color("#2d0a0a"))
+
+	diffAddedHighlightStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#ffffff")).
+		Background(lipgloss.Color("#166534")).
+		Bold(true)
+
+	diffRemovedHighlightStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#ffffff")).
+		Background(lipgloss.Color("#991b1b")).
+		Bold(true)
+)
+
 type (
 	DiffLine     = diff.Line
 	DiffLineType = diff.LineType
@@ -98,6 +118,14 @@ type PendingMutation struct {
 	Comment     string // User's comment
 }
 
+type diffCachedStyles struct {
+	selectedHunk lipgloss.Style
+	warningBase  lipgloss.Style
+	emptyBase    lipgloss.Style
+	headerBase   lipgloss.Style
+	controlBase  lipgloss.Style
+}
+
 // DiffApprovalView handles interactive diff approval
 type DiffApprovalView struct {
 	Styles       Styles
@@ -116,6 +144,7 @@ type DiffApprovalView struct {
 	XOffset          int // Horizontal scroll offset (columns)
 	keys             DiffKeyMap
 	help             help.Model
+	cachedStyles     diffCachedStyles
 }
 
 // ApprovalMode represents the current approval state
@@ -150,6 +179,33 @@ func NewDiffApprovalView(styles Styles, width, height int) DiffApprovalView {
 		diffEngine:       uiDiffEngine,
 		keys:             DefaultDiffKeyMap(),
 		help:             h,
+		cachedStyles: diffCachedStyles{
+			selectedHunk: lipgloss.NewStyle().
+				Background(styles.Theme.Container).
+				Foreground(styles.Theme.OnContainer),
+			warningBase: lipgloss.NewStyle().
+				Foreground(styles.Theme.Warning).
+				Bold(true).
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(styles.Theme.Warning).
+				Padding(0, 1),
+			emptyBase: lipgloss.NewStyle().
+				Foreground(styles.Theme.OnSurfaceMuted).
+				Italic(true).
+				Padding(2).
+				Align(lipgloss.Center),
+			headerBase: lipgloss.NewStyle().
+				Bold(true).
+				Foreground(styles.Theme.Primary).
+				Border(lipgloss.NormalBorder(), false, false, true, false).
+				BorderForeground(styles.Theme.Outline).
+				Padding(0, 1),
+			controlBase: lipgloss.NewStyle().
+				Foreground(styles.Theme.OnSurfaceMuted).
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(styles.Theme.Outline).
+				Padding(0, 1),
+		},
 	}
 }
 
@@ -350,12 +406,7 @@ func (d *DiffApprovalView) updateContent() {
 
 // renderEmpty renders the empty state
 func (d *DiffApprovalView) renderEmpty() string {
-	emptyStyle := lipgloss.NewStyle().
-		Foreground(d.Styles.Theme.OnSurfaceMuted).
-		Italic(true).
-		Padding(2).
-		Width(ViewportWidth(d.Width)).
-		Align(lipgloss.Center)
+	emptyStyle := d.cachedStyles.emptyBase.Width(ViewportWidth(d.Width))
 
 	return emptyStyle.Render("No pending mutations to review.")
 }
@@ -395,13 +446,7 @@ func (d *DiffApprovalView) renderCurrentMutation() string {
 
 // renderHeader renders the mutation header
 func (d *DiffApprovalView) renderHeader(m *PendingMutation) string {
-	headerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(d.Styles.Theme.Primary).
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(d.Styles.Theme.Outline).
-		Width(ViewportWidth(d.Width)).
-		Padding(0, 1)
+	headerStyle := d.cachedStyles.headerBase.Width(ViewportWidth(d.Width))
 
 	// Status indicator
 	status := "⏳ PENDING"
@@ -429,13 +474,7 @@ func (d *DiffApprovalView) renderHeader(m *PendingMutation) string {
 
 // renderWarnings renders safety warnings
 func (d *DiffApprovalView) renderWarnings(warnings []string) string {
-	warningStyle := lipgloss.NewStyle().
-		Foreground(d.Styles.Theme.Warning).
-		Bold(true).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(d.Styles.Theme.Warning).
-		Padding(0, 1).
-		Width(WarningBoxWidth(d.Width))
+	warningStyle := d.cachedStyles.warningBase.Width(WarningBoxWidth(d.Width))
 
 	var sb strings.Builder
 	sb.WriteString("⚠️ Warnings:\n")
@@ -447,7 +486,6 @@ func (d *DiffApprovalView) renderWarnings(warnings []string) string {
 }
 
 // renderDiff renders the diff content with word-level highlighting
-// TODO: IMPROVEMENT: Optimize rendering by caching styles or using a renderer that doesn't recreate styles per line.
 func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 	var sb strings.Builder
 
@@ -483,9 +521,7 @@ func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 
 		hunkStyle := d.Styles.Muted
 		if i == d.SelectedHunk {
-			hunkStyle = lipgloss.NewStyle().
-				Background(d.Styles.Theme.Container).
-				Foreground(d.Styles.Theme.OnContainer)
+			hunkStyle = d.cachedStyles.selectedHunk
 		}
 		sb.WriteString(hunkStyle.Render(hunkHeader))
 		sb.WriteString("\n")
@@ -620,14 +656,10 @@ func (d *DiffApprovalView) renderDiffLine(line DiffLine) string {
 
 	switch line.Type {
 	case DiffLineAdded:
-		style = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#22c55e")).
-			Background(lipgloss.Color("#052e16"))
+		style = diffAddedStyle
 		prefix = "+ "
 	case DiffLineRemoved:
-		style = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ef4444")).
-			Background(lipgloss.Color("#2d0a0a"))
+		style = diffRemovedStyle
 		prefix = "- "
 	case DiffLineContext:
 		style = d.Styles.Body
@@ -674,22 +706,12 @@ func (d *DiffApprovalView) renderLineWithWordHighlights(line DiffLine, spans []d
 	var prefix string
 
 	if isRemoved {
-		baseStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ef4444")).
-			Background(lipgloss.Color("#2d0a0a"))
-		highlightStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ffffff")).
-			Background(lipgloss.Color("#991b1b")).
-			Bold(true)
+		baseStyle = diffRemovedStyle
+		highlightStyle = diffRemovedHighlightStyle
 		prefix = "- "
 	} else {
-		baseStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#22c55e")).
-			Background(lipgloss.Color("#052e16"))
-		highlightStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ffffff")).
-			Background(lipgloss.Color("#166534")).
-			Bold(true)
+		baseStyle = diffAddedStyle
+		highlightStyle = diffAddedHighlightStyle
 		prefix = "+ "
 	}
 
@@ -774,12 +796,7 @@ func sliceSegments(segments []styledSegment, startCol, maxCols int) []styledSegm
 
 // renderControls renders the approval controls
 func (d *DiffApprovalView) renderControls() string {
-	controlStyle := lipgloss.NewStyle().
-		Foreground(d.Styles.Theme.OnSurfaceMuted).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(d.Styles.Theme.Outline).
-		Padding(0, 1).
-		Width(ViewportWidth(d.Width))
+	controlStyle := d.cachedStyles.controlBase.Width(ViewportWidth(d.Width))
 
 	wsStatus := "OFF"
 	if d.IgnoreWhitespace {
