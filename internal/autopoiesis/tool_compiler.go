@@ -187,12 +187,16 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 	compileCtx, cancel := context.WithTimeout(ctx, tc.config.CompileTimeout)
 	defer cancel()
 
+	buildArgs := []string{"build"}
+
 	ldflags := "-s -w"
 	if tc.config.TargetOS == "linux" {
 		ldflags += " -extldflags '-static'"
 	}
+	buildArgs = append(buildArgs, "-ldflags", ldflags, "-o", outputPath, "--", ".")
 
-	cmd := exec.CommandContext(compileCtx, "go", "build", "-ldflags", ldflags, "-o", outputPath, ".")
+	/* #nosec G204 */
+	cmd := exec.CommandContext(compileCtx, "go", buildArgs...)
 	cmd.Dir = tmpDir
 
 	// Use unified build environment with cross-compilation support
