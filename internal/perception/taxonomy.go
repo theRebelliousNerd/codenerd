@@ -31,6 +31,7 @@ type TaxonomyEngine struct {
 	// baked in via go:embed and cannot change at runtime within a single process,
 	// so a one-shot load is correct.
 	schemasLoaded bool
+	regexCache    map[string]*regexp.Regexp
 }
 
 // taxonomySchemaFiles returns the ordered list of embedded schema/logic files
@@ -97,7 +98,7 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to init taxonomy engine: %w", err)
 	}
-	t := &TaxonomyEngine{engine: eng}
+	t := &TaxonomyEngine{engine: eng, regexCache: make(map[string]*regexp.Regexp)}
 	t.worker = NewConsolidationWorker(t)
 	t.worker.Start()
 
@@ -296,8 +297,13 @@ func (t *TaxonomyEngine) getVerbsLocked() ([]VerbEntry, error) {
 
 		patterns, _ := t.getPatterns(v.Verb)
 		for _, p := range patterns {
-			if re, err := regexp.Compile(p); err == nil {
+			if re, ok := t.regexCache[p]; ok {
 				v.Patterns = append(v.Patterns, re)
+			} else {
+				if re, err := regexp.Compile(p); err == nil {
+					t.regexCache[p] = re
+					v.Patterns = append(v.Patterns, re)
+				}
 			}
 		}
 
