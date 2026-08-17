@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -11,11 +12,14 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	nerdconfig "codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/embedding"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt/marathon"
 	"codenerd/internal/store"
 	"codenerd/internal/types"
 	"codenerd/internal/world"
@@ -79,6 +83,13 @@ func init() {
 		"Define a custom specialist agent as 'Name:role:topic1,topic2' (repeatable, max 10 topics)")
 	initCmd.Flags().BoolVar(&noInteractiveInit, "no-interactive", false,
 		"Never prompt for agent selection (implied when stdin/stdout is not a terminal)")
+	initCmd.Flags().BoolVar(&marathonInit, "marathon", false,
+		"After init, research this model's own prompting documentation and optimize the whole "+
+			"atom corpus into a model-pinned overlay (long-running; requires grounded web search)")
+	initCmd.Flags().IntVar(&marathonMaxAtoms, "marathon-max-atoms", 0,
+		"Cap how many atoms one --marathon run processes (0 = whole corpus; progress is checkpointed either way)")
+	initCmd.Flags().BoolVar(&marathonRestart, "marathon-restart", false,
+		"Discard the --marathon checkpoint and re-optimize every atom from scratch")
 }
 
 var (
@@ -86,6 +97,12 @@ var (
 	defineAgentFlags []string
 	// noInteractiveInit forces the non-prompting path even on a terminal.
 	noInteractiveInit bool
+	// marathonInit runs the corpus optimization pass after standard init.
+	marathonInit bool
+	// marathonMaxAtoms bounds one marathon run; 0 means the whole corpus.
+	marathonMaxAtoms int
+	// marathonRestart discards the checkpoint instead of resuming it.
+	marathonRestart bool
 )
 
 // scanCmd refreshes the codebase index without full reinitialization
@@ -210,7 +227,115 @@ func runInitWithLLMConfigurer(cmd *cobra.Command, args []string, configureLLM fu
 		return fmt.Errorf("initialization completed with errors")
 	}
 
+	// The marathon runs AFTER standard init, never instead of it. It writes its
+	// overlay into .nerd/prompts/corpus.db, which init is what creates and
+	// reconciles -- running it first would emit variants into a database that
+	// init then rebuilds from the shipped YAML, silently discarding the whole
+	// pass.
+	if marathonInit {
+		return runMarathon(ctx, cwd, config.LLMClient)
+	}
+
 	return nil
+}
+
+// runMarathon performs the corpus optimization pass behind `nerd init --marathon`.
+//
+// Every failure here is fatal and reported as such. The marathon's value comes
+// entirely from being written against real documentation for the serving model;
+// a version that degrades to "optimize from the model's own priors" would emit
+// hundreds of unsourced rewrites into the agent's own instructions, which is
+// worse than not running at all.
+func runMarathon(ctx context.Context, workspace string, client perception.LLMClient) error {
+	if client == nil {
+		return fmt.Errorf("--marathon requires a configured LLM client")
+	}
+
+	fmt.Println()
+	fmt.Println("🏃 Marathon: optimizing the prompt corpus for this model")
+
+	embedEngine, err := buildMarathonEmbedder(workspace)
+	if err != nil {
+		return err
+	}
+
+	var lastLine int
+	res, err := marathon.Run(ctx, marathon.Config{
+		Workspace:   workspace,
+		Client:      client,
+		EmbedEngine: embedEngine,
+		MaxAtoms:    marathonMaxAtoms,
+		Resume:      !marathonRestart,
+		Progress: func(p marathon.Progress) {
+			// One line per 10 atoms; a per-atom line for a 347-file corpus is
+			// scrollback, not progress.
+			if p.Index-lastLine < 10 && p.Index != p.Total {
+				return
+			}
+			lastLine = p.Index
+			fmt.Printf("   %d/%d atoms considered\n", p.Index, p.Total)
+		},
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, marathon.ErrNoModelIdentity):
+			return fmt.Errorf("--marathon cannot run: the configured client does not report "+
+				"which model it serves, and every optimization is pinned to that model: %w", err)
+		case errors.Is(err, marathon.ErrNoGroundedSearch):
+			return fmt.Errorf("--marathon cannot run: it needs grounded web search to read the "+
+				"serving model's own prompting documentation, and this provider does not offer it. "+
+				"grounded_web_search is the only web route the constitution permits: %w", err)
+		case errors.Is(err, marathon.ErrNoModelDocs):
+			return fmt.Errorf("--marathon found no prompting documentation for this model, so there "+
+				"is nothing to optimize against. Optimizing anyway would write unsourced rewrites "+
+				"into the corpus: %w", err)
+		default:
+			return fmt.Errorf("marathon failed: %w", err)
+		}
+	}
+
+	fmt.Printf("   ✓ %d optimized, %d unchanged, %d already done, %d failed (%s)\n",
+		res.AtomsOptimized, res.AtomsUnchanged, res.AtomsResumed, res.AtomsFailed,
+		res.Duration.Round(time.Second))
+	fmt.Printf("   ✓ pinned to %s/%s from %d cited sources\n",
+		res.Provider, res.Model, len(res.Citations))
+	fmt.Println("   The shipped corpus is untouched; re-run 'nerd init --force' to discard the overlay.")
+
+	for _, e := range res.Errors {
+		fmt.Printf("   ⚠ %s\n", e)
+	}
+
+	return nil
+}
+
+// buildMarathonEmbedder constructs the embedding engine the overlay needs so
+// emitted variants are vector-searchable like the shipped corpus. Without it the
+// variants would be selectable only by the deterministic skeleton path.
+func buildMarathonEmbedder(workspace string) (embedding.EmbeddingEngine, error) {
+	appCfg, err := nerdconfig.LoadUserConfig(workspace)
+	if err != nil {
+		return nil, fmt.Errorf("--marathon: load config: %w", err)
+	}
+	if appCfg == nil {
+		appCfg = nerdconfig.DefaultUserConfig()
+	}
+
+	// Mirrors internal/init's own construction so the overlay is embedded with
+	// exactly the engine and task type the shipped corpus was.
+	emb := appCfg.GetEmbeddingConfig()
+	engine, err := embedding.NewEngine(embedding.Config{
+		Provider:       emb.Provider,
+		OllamaEndpoint: emb.OllamaEndpoint,
+		OllamaModel:    emb.OllamaModel,
+		GenAIAPIKey:    emb.GenAIAPIKey,
+		GenAIModel:     emb.GenAIModel,
+		TaskType:       emb.TaskType,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("--marathon: the overlay must be embedded to be retrievable, "+
+			"and the embedding engine is unavailable: %w", err)
+	}
+	return engine, nil
 }
 
 func configureInitLLM(config *nerdinit.InitConfig, appCfg *nerdconfig.UserConfig) {

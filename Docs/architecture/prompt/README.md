@@ -147,4 +147,5 @@ The machine-readable backlog and rollback contracts are in [TODO](TODO.md).
 | 10 minutes | [Vision](01-VISION.md), [Internal Architecture](05-INTERNAL-ARCHITECTURE.md), [Wiring](08-WIRING-AND-INTEGRATION.md), and [Safety](09-SAFETY-AND-INVARIANTS.md). |
 | Deep implementation | [Implemented Spec](IMPLEMENTED_SPEC.md), [Prompt JIT Deep Dive](13-PROMPT-JIT-DEEP-DIVE.md), [Testing](10-TESTING-ALIGNMENT.md), and [Failure Modes](12-FAILURE-MODES.md). |
 | Why an atom is scoped to one LLM | [Provider and Model Pinning](14-PROVIDER-MODEL-PINNING.md) — the fail-closed `providers:`/`models:` selectors, canonical token derivation, and how evolved atoms inherit the model whose failures produced them. |
+| Optimizing the whole corpus for one model | [Marathon Init](15-MARATHON-INIT.md) — `nerd init --marathon`: grounded research of the serving model's own docs (or it refuses to run), per-atom rewrite, and a pinned overlay that supersedes the shipped atoms without touching them. |
 | Build or review an uplift | [Gap Analysis](03-GAP-ANALYSIS.md), [TODO](TODO.md), [Open Questions](OPEN-QUESTIONS.md), then [_progress](_progress.md). |

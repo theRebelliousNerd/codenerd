@@ -13,6 +13,7 @@ Decl regime_dimension(Dim) bound [/name].
 
 # Selection predicates
 Decl mandatory_selection(Atom).
+Decl mandatory_superseded(Atom).
 Decl prohibited(Atom).
 Decl candidate_selection(Atom, Score).
 
@@ -144,10 +145,53 @@ blocked_by_context(Atom) :-
     has_constraint(Atom, Dim),
     !satisfied_constraint(Atom, Dim).
 
-# Safe Skeleton: Mandatory atoms that are NOT blocked.
+# Supersession: a mandatory atom that another LIVE mandatory atom declares a
+# conflict against steps aside for it.
+#
+# This exists because `prohibited` cannot do it. Read the consumers of that
+# predicate below: it is joined only in candidate_selection (the vector/flesh
+# path) and in the atom_requires pull-in. Nothing consults it for a mandatory
+# atom. So the rule further down --
+#
+#     prohibited(B) :- atom_conflicts(A, B), mandatory_selection(A).
+#
+# -- derives B as prohibited and then has no effect on B whatsoever, because B
+# reaches the output through mandatory_selection -> tentative -> final_valid,
+# and no step on that path reads prohibited. Measured against a real kernel: a
+# mandatory atom and a mandatory atom conflicting with it were BOTH returned in
+# selected_result. The conflict was computed and discarded.
+#
+# The direct fix (adding !prohibited(Atom) to mandatory_selection) is not
+# available: prohibited already depends on mandatory_selection, so that closes a
+# cycle through negation and the program stops being stratifiable. Hence a
+# separate predicate that derives only from EDB plus blocked_by_context, none of
+# which reads mandatory_selection.
+#
+# The relation is DIRECTIONAL on purpose. atom_conflicts(A, B) means "A
+# supersedes B", not "A and B are incompatible". A mutual pair would otherwise
+# cancel both atoms and silently delete the guidance entirely -- the worst
+# outcome available. The producer is responsible for emitting one direction.
+#
+# `is_mandatory(A)` rather than `mandatory_selection(A)` keeps the stratum
+# clean, and `!blocked_by_context(A)` is what makes supersession conditional: a
+# superseding atom that is itself blocked this compile (for example a
+# model-pinned variant on the wrong model) does not take its base down with it.
+# That is the property the marathon overlay depends on -- the optimized variant
+# replaces the shipped atom on the model it was written for, and on every other
+# model the shipped atom is still there, untouched.
+#
+# Inert on the shipped corpus: no atom under internal/prompt/atoms declares
+# conflicts_with, so this derives nothing until a producer opts in.
+mandatory_superseded(B) :-
+    atom_conflicts(A, B),
+    is_mandatory(A),
+    !blocked_by_context(A).
+
+# Safe Skeleton: Mandatory atoms that are NOT blocked and NOT superseded.
 mandatory_selection(Atom) :-
     is_mandatory(Atom),
-    !blocked_by_context(Atom).
+    !blocked_by_context(Atom),
+    !mandatory_superseded(Atom).
 
 # --- 2. EXCLUSION (The Firewall) ---
 
