@@ -186,3 +186,84 @@ func TestCodecFor_WhenAliasGiven_ShouldMapOrReject(t *testing.T) {
 		t.Fatal("expected unknown codec to be rejected")
 	}
 }
+
+func TestResolve_EmptyReference(t *testing.T) {
+	_, err := Resolve("irrelevant", "   ")
+	if err == nil {
+		t.Fatal("expected error for empty reference")
+	}
+}
+
+func TestResolve_ExplicitPath(t *testing.T) {
+	root := t.TempDir()
+
+	// Create an explicit dummy file (with an extension)
+	explicitFile := filepath.Join(root, "explicit_file" + factsnap.ExtGzip)
+	if err := os.WriteFile(explicitFile, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Resolve exact explicit file
+	got, err := Resolve(root, explicitFile)
+	if err != nil {
+		t.Fatalf("Resolve exact explicit path failed: %v", err)
+	}
+	if got != explicitFile {
+		t.Fatalf("Resolve explicit path mismatch: got %q, want %q", got, explicitFile)
+	}
+
+	// Resolve bare name (missing extension, but containing a slash)
+	bareExplicit := filepath.Join(root, "explicit_file")
+	gotBare, err := Resolve(root, bareExplicit)
+	if err != nil {
+		t.Fatalf("Resolve bare explicit path failed: %v", err)
+	}
+	if gotBare != explicitFile {
+		t.Fatalf("Resolve bare explicit path mismatch: got %q, want %q", gotBare, explicitFile)
+	}
+}
+
+func TestResolve_BareName(t *testing.T) {
+	root := t.TempDir()
+
+	if err := os.MkdirAll(Dir(root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	snapFile := filepath.Join(Dir(root), "snap1" + factsnap.ExtZstd)
+	if err := os.WriteFile(snapFile, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Resolve bare name (missing extension) in standard Dir(root)
+	got, err := Resolve(root, "snap1")
+	if err != nil {
+		t.Fatalf("Resolve bare name failed: %v", err)
+	}
+	if got != snapFile {
+		t.Fatalf("Resolve bare name mismatch: got %q, want %q", got, snapFile)
+	}
+
+    // Exact bare filename in standard dir
+    exactFile := filepath.Join(Dir(root), "snap3.custom")
+    if err := os.WriteFile(exactFile, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+    // Fallback to exact filename
+	gotExact, err := Resolve(root, "snap3.custom")
+	if err != nil {
+		t.Fatalf("Resolve exact name failed: %v", err)
+	}
+	if gotExact != exactFile {
+		t.Fatalf("Resolve exact name mismatch: got %q, want %q", gotExact, exactFile)
+	}
+}
+
+func TestResolve_NoMatch(t *testing.T) {
+	root := t.TempDir()
+	_, err := Resolve(root, "non_existent_file")
+	if err == nil {
+		t.Fatal("expected error for non-existent file")
+	}
+}
