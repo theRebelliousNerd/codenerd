@@ -129,7 +129,6 @@ func (c *JITPromptCompiler) appendTag(atom *PromptAtom, dim, tag string) {
 	}
 }
 
-// TODO: Memory Leak: Evaluate and implement strict cache size limit (LRU or TTL) in clearPromptCache or via a background goroutine to prevent memory explosion during long sessions.
 func (c *JITPromptCompiler) clearPromptCache(reason string) {
 	c.cacheMu.Lock()
 	c.cache = make(map[string]*list.Element)
