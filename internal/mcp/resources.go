@@ -1,8 +1,10 @@
+
 package mcp
 
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"fmt"
 )
 
@@ -169,11 +171,11 @@ func promptContentText(raw json.RawMessage) string {
 		Text string `json:"text"`
 	}
 	if err := json.Unmarshal(raw, &blocks); err == nil {
-		var joined string
+		var sb strings.Builder
 		for _, b := range blocks {
-			joined += b.Text
+			sb.WriteString(b.Text)
 		}
-		return joined
+		return sb.String()
 	}
 	return string(raw)
 }
