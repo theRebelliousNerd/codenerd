@@ -537,3 +537,35 @@ func TestScanWorkspaceWithTestFile(t *testing.T) {
 		t.Errorf("IsTest = %q, want '/true' for test file", isTestStr)
 	}
 }
+
+func TestNewScannerWithConfig(t *testing.T) {
+	t.Run("ValidConfig", func(t *testing.T) {
+		cfg := ScannerConfig{MaxConcurrency: 10}
+		scanner := NewScannerWithConfig(cfg)
+		if scanner == nil {
+			t.Fatal("NewScannerWithConfig() returned nil")
+		}
+		if scanner.config.MaxConcurrency != 10 {
+			t.Errorf("Expected MaxConcurrency 10, got %d", scanner.config.MaxConcurrency)
+		}
+		// Test that parserPool is properly initialized
+		parser := scanner.parserPool.Get()
+		if parser == nil {
+			t.Fatal("parserPool.Get() returned nil")
+		}
+		_, ok := parser.(*TreeSitterParser)
+		if !ok {
+			t.Errorf("parserPool.Get() returned %T, expected *TreeSitterParser", parser)
+		}
+		scanner.parserPool.Put(parser)
+	})
+
+	t.Run("DefaultConfigFallback", func(t *testing.T) {
+		cfg := ScannerConfig{MaxConcurrency: 0}
+		scanner := NewScannerWithConfig(cfg)
+		defaultCfg := DefaultScannerConfig()
+		if scanner.config.MaxConcurrency != defaultCfg.MaxConcurrency {
+			t.Errorf("Expected MaxConcurrency %d, got %d", defaultCfg.MaxConcurrency, scanner.config.MaxConcurrency)
+		}
+	})
+}
