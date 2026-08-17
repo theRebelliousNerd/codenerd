@@ -42,6 +42,22 @@ type ConstitutionConfig struct {
 }
 
 // DefaultConstitutionConfig returns sensible defaults.
+var (
+	regexCache sync.Map
+)
+
+func getCompiledRegex(pattern string) (*regexp.Regexp, error) {
+	if cached, ok := regexCache.Load(pattern); ok {
+		return cached.(*regexp.Regexp), nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+	regexCache.Store(pattern, re)
+	return re, nil
+}
+
 func DefaultConstitutionConfig() ConstitutionConfig {
 	return ConstitutionConfig{
 		StrictMode: true,
@@ -161,7 +177,7 @@ func NewConstitutionGateShardWithConfig(cfg ConstitutionConfig) *ConstitutionGat
 	// Compile dangerous patterns
 	shard.dangerousPatterns = make([]*regexp.Regexp, 0, len(cfg.DangerousPatterns))
 	for _, pattern := range cfg.DangerousPatterns {
-		if re, err := regexp.Compile(pattern); err == nil {
+		if re, err := getCompiledRegex(pattern); err == nil {
 			shard.dangerousPatterns = append(shard.dangerousPatterns, re)
 		}
 	}
@@ -836,7 +852,7 @@ func (c *ConstitutionGateShard) AddAllowedDomain(domain string) {
 
 // AddDangerousPattern adds a pattern to the dangerous action list.
 func (c *ConstitutionGateShard) AddDangerousPattern(pattern string) error {
-	re, err := regexp.Compile(pattern)
+	re, err := getCompiledRegex(pattern)
 	if err != nil {
 		return err
 	}
