@@ -82,3 +82,26 @@ func TestGetSpecialistClassification(t *testing.T) {
 		})
 	}
 }
+
+func TestShouldSpecialistExecuteTask(t *testing.T) {
+	tests := []struct {
+		name       string
+		specialist string
+		confidence float64
+		expected   bool
+	}{
+		{"unknown specialist", "unknown", 0.9, false},
+		{"specialist cannot execute", "securityauditor", 0.9, false},
+		{"specialist can execute, low confidence", "goexpert", 0.8, false},
+		{"specialist can execute, high confidence", "goexpert", 0.81, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ShouldSpecialistExecuteTask(tt.specialist, tt.confidence)
+			if got != tt.expected {
+				t.Errorf("ShouldSpecialistExecuteTask(%q, %v) = %v, want %v", tt.specialist, tt.confidence, got, tt.expected)
+			}
+		})
+	}
+}
