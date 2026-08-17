@@ -186,3 +186,30 @@ func TestCodecFor_WhenAliasGiven_ShouldMapOrReject(t *testing.T) {
 		t.Fatal("expected unknown codec to be rejected")
 	}
 }
+
+func TestDir_WhenVariousRoots_ShouldReturnCanonicalPath(t *testing.T) {
+	cases := []struct {
+		root     string
+		expected string
+	}{
+		{"", filepath.Join(".", ".nerd", "snapshots")},
+		{".", filepath.Join(".", ".nerd", "snapshots")},
+		{"/custom/root", filepath.Join("/custom/root", ".nerd", "snapshots")},
+		{"myworkspace", filepath.Join("myworkspace", ".nerd", "snapshots")},
+	}
+
+	for _, tc := range cases {
+		name := strings.ReplaceAll(tc.root, "/", "_")
+		if name == "" {
+			name = "empty"
+		} else if name == "." {
+			name = "dot"
+		}
+		t.Run(name, func(t *testing.T) {
+			actual := Dir(tc.root)
+			if actual != tc.expected {
+				t.Fatalf("Dir(%q) = %q, want %q", tc.root, actual, tc.expected)
+			}
+		})
+	}
+}
