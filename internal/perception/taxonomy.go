@@ -15,6 +15,12 @@ import (
 	"sync"
 )
 
+var (
+	taxonomyRegexCache   = make(map[string]*regexp.Regexp)
+	taxonomyRegexCacheMu sync.RWMutex
+)
+
+
 type TaxonomyEngine struct {
 	mu            sync.Mutex
 	engine        *mangle.Engine
@@ -296,7 +302,17 @@ func (t *TaxonomyEngine) getVerbsLocked() ([]VerbEntry, error) {
 
 		patterns, _ := t.getPatterns(v.Verb)
 		for _, p := range patterns {
-			if re, err := regexp.Compile(p); err == nil {
+			taxonomyRegexCacheMu.RLock()
+			re, ok := taxonomyRegexCache[p]
+			taxonomyRegexCacheMu.RUnlock()
+			if !ok {
+				if compiled, err := regexp.Compile(p); err == nil {
+					taxonomyRegexCacheMu.Lock()
+					taxonomyRegexCache[p] = compiled
+					taxonomyRegexCacheMu.Unlock()
+					v.Patterns = append(v.Patterns, compiled)
+				}
+			} else {
 				v.Patterns = append(v.Patterns, re)
 			}
 		}
