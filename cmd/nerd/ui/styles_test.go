@@ -10,21 +10,31 @@ func TestDetectTheme(t *testing.T) {
 	// NO_COLOR short-circuits DetectTheme before any other signal is read, and
 	// it is commonly set in CI and agent shells. Without clearing it the first
 	// two assertions test nothing but the ambient environment.
+	resetCache := func() {
+		themeMutex.Lock()
+		cachedTheme = nil
+		themeMutex.Unlock()
+	}
+	t.Cleanup(resetCache)
+
 	t.Setenv("NO_COLOR", "")
 	t.Setenv("COLORFGBG", "")
 
+	resetCache()
 	t.Setenv("CODENERD_DARK_MODE", "1")
 	dark := DetectTheme()
 	if !dark.IsDark {
 		t.Fatalf("expected dark theme when CODENERD_DARK_MODE=1")
 	}
 
+	resetCache()
 	t.Setenv("CODENERD_DARK_MODE", "")
 	light := DetectTheme()
 	if light.IsDark {
 		t.Fatalf("expected light theme when CODENERD_DARK_MODE is unset")
 	}
 
+	resetCache()
 	t.Setenv("NO_COLOR", "1")
 	nocolor := DetectTheme()
 	empty := Theme{}
