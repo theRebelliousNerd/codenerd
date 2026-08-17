@@ -125,11 +125,29 @@ func (s *LocalStore) LoadFacts(predicate string) ([]StoredFact, error) {
 	}
 
 	// Update access tracking for retrieved facts
-	for _, id := range factIDs {
-		s.db.Exec(
-			"UPDATE cold_storage SET last_accessed = CURRENT_TIMESTAMP, access_count = access_count + 1 WHERE id = ?",
-			id,
-		)
+	if len(factIDs) > 0 {
+		// Group in chunks to avoid SQLite limits (max parameters is usually 999 or 32766 depending on version)
+		chunkSize := 999
+		for i := 0; i < len(factIDs); i += chunkSize {
+			end := i + chunkSize
+			if end > len(factIDs) {
+				end = len(factIDs)
+			}
+			chunk := factIDs[i:end]
+
+			query := "UPDATE cold_storage SET last_accessed = CURRENT_TIMESTAMP, access_count = access_count + 1 WHERE id IN ("
+			args := make([]any, len(chunk))
+			for j, id := range chunk {
+				if j > 0 {
+					query += ","
+				}
+				query += "?"
+				args[j] = id
+			}
+			query += ")"
+
+			s.db.Exec(query, args...)
+		}
 	}
 
 	logging.StoreDebug("Loaded %d facts for predicate=%s (access tracking updated)", len(facts), predicate)
