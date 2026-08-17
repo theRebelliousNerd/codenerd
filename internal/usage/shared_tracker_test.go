@@ -202,3 +202,41 @@ func TestWithShardContext_ShouldUseTypedKeysInvisibleToStringLookups(t *testing.
 		t.Errorf("BySession=%v, want sess-1=5", stats.BySession)
 	}
 }
+
+func TestShared_WhenCalledTwice_ShouldIgnoreOptionsOnSecondCall(t *testing.T) {
+	t.Run("without_then_with", func(t *testing.T) {
+		ws := t.TempDir()
+		a, err := Shared(ws)
+		if err != nil {
+			t.Fatalf("Shared: %v", err)
+		}
+		b, err := Shared(ws, WithEventLog())
+		if err != nil {
+			t.Fatalf("Shared: %v", err)
+		}
+		defer func() { _ = a.Close(); _ = b.Close() }()
+
+		a.Track(context.Background(), "m", "zai", 10, 5, "chat")
+		if b.Events() != nil {
+			t.Fatalf("Expected no events, as WithEventLog on the second call should be ignored")
+		}
+	})
+
+	t.Run("with_then_without", func(t *testing.T) {
+		ws := t.TempDir()
+		a, err := Shared(ws, WithEventLog())
+		if err != nil {
+			t.Fatalf("Shared: %v", err)
+		}
+		b, err := Shared(ws)
+		if err != nil {
+			t.Fatalf("Shared: %v", err)
+		}
+		defer func() { _ = a.Close(); _ = b.Close() }()
+
+		b.Track(context.Background(), "m", "zai", 10, 5, "chat")
+		if len(b.Events()) == 0 {
+			t.Fatalf("Expected events, as first call configured WithEventLog")
+		}
+	})
+}
