@@ -1,6 +1,8 @@
 package factsnap
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"bytes"
 	"errors"
 	"io"
@@ -409,5 +411,73 @@ func TestNameConstant_WhenRoundTripped_ShouldStayMangleAtom(t *testing.T) {
 		if _, ok := f.Args[0].(types.MangleAtom); !ok {
 			t.Fatalf("hop 2 lost the name constant: %#v (%T)", f.Args[0], f.Args[0])
 		}
+	}
+}
+
+func TestVerify_WhenNoSidecar_ShouldReturnNil(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "snap.gz")
+
+	// Create dummy snapshot without sidecar
+	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	err := Verify(path)
+	if err != nil {
+		t.Errorf("Expected nil, got %v", err)
+	}
+}
+
+func TestVerify_WhenSidecarMatches_ShouldReturnNil(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "snap.gz")
+	data := []byte("test data")
+
+	// Create snapshot
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Create matching sidecar
+	sum := sha256.Sum256(data)
+	hashStr := hex.EncodeToString(sum[:])
+	if err := os.WriteFile(path+ExtSHA256, []byte(hashStr), 0o644); err != nil {
+		t.Fatalf("WriteFile sidecar: %v", err)
+	}
+
+	err := Verify(path)
+	if err != nil {
+		t.Errorf("Expected nil, got %v", err)
+	}
+}
+
+func TestVerify_WhenSidecarMismatch_ShouldReturnErrIntegrity(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "snap.gz")
+
+	// Create snapshot
+	if err := os.WriteFile(path, []byte("actual data"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Create mismatched sidecar
+	if err := os.WriteFile(path+ExtSHA256, []byte("badhash"), 0o644); err != nil {
+		t.Fatalf("WriteFile sidecar: %v", err)
+	}
+
+	err := Verify(path)
+	if !errors.Is(err, ErrIntegrity) {
+		t.Errorf("Expected ErrIntegrity, got %v", err)
+	}
+}
+
+func TestVerify_WhenFileMissing_ShouldReturnError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "missing.gz")
+
+	err := Verify(path)
+	if err == nil {
+		t.Errorf("Expected error for missing file, got nil")
 	}
 }
