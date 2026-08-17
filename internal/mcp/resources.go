@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // MCP servers expose three primitive kinds: tools, resources, and prompts.
@@ -169,11 +170,16 @@ func promptContentText(raw json.RawMessage) string {
 		Text string `json:"text"`
 	}
 	if err := json.Unmarshal(raw, &blocks); err == nil {
-		var joined string
+		var sb strings.Builder
+		var length int
 		for _, b := range blocks {
-			joined += b.Text
+			length += len(b.Text)
 		}
-		return joined
+		sb.Grow(length)
+		for _, b := range blocks {
+			sb.WriteString(b.Text)
+		}
+		return sb.String()
 	}
 	return string(raw)
 }
