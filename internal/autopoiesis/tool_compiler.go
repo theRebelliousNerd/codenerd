@@ -192,7 +192,25 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 		ldflags += " -extldflags '-static'"
 	}
 
-	cmd := exec.CommandContext(compileCtx, "go", "build", "-ldflags", ldflags, "-o", outputPath, ".")
+	// Validate ldflags using a strict allowlist. Only standard stripping and static linking flags are allowed.
+	// We parse the string to ensure no dangerous flags (like -extld) can be injected via whitespace manipulation.
+	allowedFlags := map[string]bool{
+		"-s": true,
+		"-w": true,
+		"-extldflags": true,
+		"'-static'": true,
+	}
+
+	// Split by whitespace
+	flags := strings.Fields(ldflags)
+	for _, flag := range flags {
+		if !allowedFlags[flag] {
+			return result, fmt.Errorf("security violation: ldflag '%s' is not in the allowlist", flag)
+		}
+	}
+
+	/* #nosec G204 */
+	cmd := exec.CommandContext(compileCtx, "go", "build", "-ldflags", ldflags, "-o", outputPath, "--", ".")
 	cmd.Dir = tmpDir
 
 	// Use unified build environment with cross-compilation support
