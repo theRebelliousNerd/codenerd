@@ -453,7 +453,7 @@ func (b *TestDependencyBuilder) GetTestFiles() []string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var files []string
+	files := make([]string, 0, len(b.testFiles))
 	for f := range b.testFiles {
 		files = append(files, f)
 	}
@@ -465,7 +465,7 @@ func (b *TestDependencyBuilder) GetTestFunctions() []string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var refs []string
+	refs := make([]string, 0, len(b.testFuncs))
 	for r := range b.testFuncs {
 		refs = append(refs, r)
 	}
