@@ -19,6 +19,8 @@ Decl atom_has_init_match(AtomID).
 Decl atom_has_ouroboros_match(AtomID).
 Decl atom_has_northstar_match(AtomID).
 Decl atom_has_layer_match(AtomID).
+Decl atom_has_provider_match(AtomID).
+Decl atom_has_model_match(AtomID).
 
 # -----------------------------------------------------------------------------
 # Contextual Matching Rules
@@ -67,6 +69,22 @@ atom_has_northstar_match(AtomID) :-
 atom_has_layer_match(AtomID) :-
     atom_selector(AtomID, /build_layer, Layer),
     compile_context(/build_layer, Layer).
+
+# Pin dimensions. Positive-match parity only -- the enforcement that makes a
+# pin binding is the fail-closed regime_dimension block in jit_compiler.mg,
+# which is the live path. These exist so a pinned atom is scored as matching
+# the dimension it was pinned to, rather than looking like an atom that matched
+# on nothing.
+#
+# /model is satisfied by either the exact token or the family token, because
+# CompilationContext.GenerateFacts emits both (pinning.go: ModelPinTokens).
+atom_has_provider_match(AtomID) :-
+    atom_selector(AtomID, /provider, Provider),
+    compile_context(/provider, Provider).
+
+atom_has_model_match(AtomID) :-
+    atom_selector(AtomID, /model, Model),
+    compile_context(/model, Model).
 
 # Final atom score from Go-computed boost (virtual predicate)
 atom_matches_context(AtomID, FinalScore) :-

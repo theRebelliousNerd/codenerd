@@ -52,6 +52,15 @@ type EvolverConfig struct {
 
 	// JudgeModel is the model name used for the judge (default: gemini-3-pro)
 	JudgeModel string `json:"judge_model"`
+
+	// AtomPinScope controls how tightly evolved atoms are bound to the
+	// provider/model whose failures produced them. It governs both the pins
+	// stamped onto generated atoms and the granularity at which failures are
+	// grouped, which must agree -- see GetFailuresByProblemType.
+	//
+	// Default PinScopeModelFamily. Set PinScopeNone to restore the pre-pinning
+	// behavior where every evolved atom is served to every model.
+	AtomPinScope PinScope `json:"atom_pin_scope"`
 }
 
 // DefaultEvolverConfig returns the default configuration.
@@ -66,6 +75,7 @@ func DefaultEvolverConfig() *EvolverConfig {
 
 		StrategyRefineThreshold: 10,
 		JudgeModel:              "gemini-3-pro",
+		AtomPinScope:            PinScopeModelFamily,
 	}
 }
 
@@ -94,6 +104,18 @@ func validateEvolverConfig(config *EvolverConfig) (*EvolverConfig, error) {
 	}
 	if strings.TrimSpace(normalized.JudgeModel) == "" {
 		normalized.JudgeModel = "gemini-3-pro"
+	}
+
+	// An omitted scope means "unset", not "none": a config written before
+	// pinning existed must not silently opt out of it. An explicitly wrong
+	// value is a config error, because the alternative is generating a corpus
+	// pinned differently than the operator asked for.
+	switch {
+	case strings.TrimSpace(string(normalized.AtomPinScope)) == "":
+		normalized.AtomPinScope = PinScopeModelFamily
+	case !normalized.AtomPinScope.Valid():
+		errs = append(errs, fmt.Sprintf("atom_pin_scope %q is not one of %v",
+			normalized.AtomPinScope, AllPinScopes()))
 	}
 
 	if len(errs) > 0 {
@@ -194,7 +216,7 @@ func NewPromptEvolver(
 
 	judgeModel := config.JudgeModel
 	judge := NewTaskJudge(llmClient, judgeModel)
-	atomGenerator := NewAtomGenerator(llmClient, strategyStore)
+	atomGenerator := NewAtomGeneratorWithPinScope(llmClient, strategyStore, config.AtomPinScope)
 	classifier := NewProblemClassifier()
 
 	pe := &PromptEvolver{
@@ -298,8 +320,9 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 		}
 	}
 
-	// 3. Get failures grouped by problem type and shard
-	grouped, err := pe.feedbackCollector.GetFailuresByProblemType(pe.config.MinFailuresForEvolution)
+	// 3. Get failures grouped by problem type, shard, and serving LLM
+	grouped, err := pe.feedbackCollector.GetFailuresByProblemType(
+		pe.config.MinFailuresForEvolution, pe.config.AtomPinScope)
 	if err != nil {
 		result.Errors = append(result.Errors, err.Error())
 		pe.mu.Unlock()
@@ -317,12 +340,7 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 
 	// 4. Process each group
 	for groupKey, failures := range grouped {
-		// Parse group key (format: "problem_type:shard_type")
-		parts := strings.SplitN(groupKey, ":", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		problemType, shardType := parts[0], parts[1]
+		problemType, shardType := groupKey.ProblemType, groupKey.ShardType
 
 		// Extract verdicts from failures
 		verdicts := make([]*JudgeVerdict, 0, len(failures))
@@ -337,8 +355,13 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 			continue
 		}
 
+		// The serving pin comes from a representative record. Every record in
+		// the group shares a pin at this scope by construction (GroupKeyFor),
+		// so any of them yields the same selectors.
+		pin := servingPinFor(failures)
+
 		// 5. Generate new atoms from failures
-		atoms, err := pe.atomGenerator.GenerateFromFailures(ctx, verdicts, shardType, problemType)
+		atoms, err := pe.atomGenerator.GenerateFromFailures(ctx, verdicts, shardType, problemType, pin)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("atom generation failed for %s: %v", groupKey, err))
 			continue
@@ -392,6 +415,22 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 	return result, nil
 }
 
+// servingPinFor returns the provider/model a failure group was observed on,
+// taking the first record that actually carries provenance. Records predating
+// the provenance columns have neither, so a group made entirely of them yields
+// the zero pin and its atoms are generated unpinned.
+func servingPinFor(failures []*ExecutionRecord) ServingPin {
+	for _, f := range failures {
+		if f == nil {
+			continue
+		}
+		if strings.TrimSpace(f.Provider) != "" || strings.TrimSpace(f.Model) != "" {
+			return ServingPin{Provider: f.Provider, Model: f.Model}
+		}
+	}
+	return ServingPin{}
+}
+
 // storeEvolvedAtom saves an evolved atom to the pending directory.
 func (pe *PromptEvolver) storeEvolvedAtom(ga *GeneratedAtom) error {
 	path := pe.atomStoragePathLocked(ga.Atom.ID, !ga.PromotedAt.IsZero())
@@ -426,6 +465,9 @@ func (pe *PromptEvolver) marshalGeneratedAtom(ga *GeneratedAtom) ([]byte, error)
 		SourceIDs    []string           `yaml:"source_ids"`
 		ShardType    string             `yaml:"shard_type"`
 		ProblemType  string             `yaml:"problem_type"`
+		Provider     string             `yaml:"provider,omitempty"`
+		Model        string             `yaml:"model,omitempty"`
+		PinScope     PinScope           `yaml:"pin_scope,omitempty"`
 		Confidence   float64            `yaml:"confidence"`
 		UsageCount   int                `yaml:"usage_count"`
 		SuccessCount int                `yaml:"success_count"`
@@ -437,6 +479,9 @@ func (pe *PromptEvolver) marshalGeneratedAtom(ga *GeneratedAtom) ([]byte, error)
 		SourceIDs:    ga.SourceIDs,
 		ShardType:    ga.ShardType,
 		ProblemType:  ga.ProblemType,
+		Provider:     ga.Provider,
+		Model:        ga.Model,
+		PinScope:     ga.PinScope,
 		Confidence:   ga.Confidence,
 		UsageCount:   ga.UsageCount,
 		SuccessCount: ga.SuccessCount,
@@ -720,6 +765,9 @@ func (pe *PromptEvolver) loadAtomsFromDir(dir string, promoted bool) {
 			SourceIDs    []string           `yaml:"source_ids"`
 			ShardType    string             `yaml:"shard_type"`
 			ProblemType  string             `yaml:"problem_type"`
+			Provider     string             `yaml:"provider,omitempty"`
+			Model        string             `yaml:"model,omitempty"`
+			PinScope     PinScope           `yaml:"pin_scope,omitempty"`
 			Confidence   float64            `yaml:"confidence"`
 			UsageCount   int                `yaml:"usage_count"`
 			SuccessCount int                `yaml:"success_count"`
@@ -741,6 +789,9 @@ func (pe *PromptEvolver) loadAtomsFromDir(dir string, promoted bool) {
 			SourceIDs:    wrapper.SourceIDs,
 			ShardType:    wrapper.ShardType,
 			ProblemType:  wrapper.ProblemType,
+			Provider:     wrapper.Provider,
+			Model:        wrapper.Model,
+			PinScope:     wrapper.PinScope,
 			Confidence:   wrapper.Confidence,
 			UsageCount:   wrapper.UsageCount,
 			SuccessCount: wrapper.SuccessCount,

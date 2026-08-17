@@ -139,6 +139,28 @@ type CompilationContext struct {
 	Frameworks []string
 
 	// =========================================================================
+	// Tier 11: Provider & Model Pinning
+	// Which LLM is about to consume this prompt.
+	// =========================================================================
+
+	// Provider is the LLM vendor serving this compile, as configured in
+	// LLMConfig.Provider ("anthropic", "openai", "zai", ...). It is normalized
+	// through NormalizeProviderToken before reaching the kernel.
+	//
+	// An atom carrying a `providers:` selector is admitted only when this
+	// matches. Leave empty only when the serving vendor is genuinely unknown:
+	// the dimension is fail-closed, so an empty Provider blocks every
+	// provider-pinned atom rather than admitting them all.
+	Provider string
+
+	// Model is the model identifier serving this compile, in whatever spelling
+	// the provider uses ("claude-opus-4-20260501", "anthropic/claude-opus-4",
+	// "gpt-4o"). ModelPinTokens normalizes it to an exact token plus a
+	// release-independent family token, and an atom pinned at either
+	// granularity matches.
+	Model string
+
+	// =========================================================================
 	// Budget Configuration
 	// =========================================================================
 
@@ -316,6 +338,33 @@ func (cc *CompilationContext) WithShard(shardType, shardID, shardName string) *C
 	return cc
 }
 
+// WithProviderModel sets the serving provider and model and returns the
+// context. Both are stored verbatim; normalization happens at fact-generation
+// and matching time so the raw values stay available for logging.
+func (cc *CompilationContext) WithProviderModel(provider, model string) *CompilationContext {
+	cc.Provider = provider
+	cc.Model = model
+	return cc
+}
+
+// ProviderToken returns the canonical provider token for pin matching, or ""
+// when no provider is set.
+func (cc *CompilationContext) ProviderToken() string {
+	if cc == nil {
+		return ""
+	}
+	return NormalizeProviderToken(cc.Provider)
+}
+
+// ModelTokens returns the canonical model tokens this compile satisfies (exact
+// and, when distinct, family), or nil when no model is set.
+func (cc *CompilationContext) ModelTokens() []string {
+	if cc == nil {
+		return nil
+	}
+	return ModelPinTokens(cc.Model)
+}
+
 // WithLanguage sets language context and returns the context.
 func (cc *CompilationContext) WithLanguage(language string, frameworks ...string) *CompilationContext {
 	cc.Language = language
@@ -478,6 +527,19 @@ func AllContextDimensions() []ContextDimension {
 			Values:      []string{"/go", "/python", "/typescript", "/rust", "/java", "/javascript", "/mangle"},
 		},
 		{
+			Name:        "provider",
+			Description: "LLM vendor serving this compile (pin dimension, fail-closed)",
+			Values:      []string{"/anthropic", "/openai", "/google", "/zai", "/meta", "/mistral", "/ollama"},
+		},
+		{
+			Name: "model",
+			Description: "Model serving this compile, exact or family token " +
+				"(pin dimension, fail-closed). Open vocabulary: values are " +
+				"whatever NormalizeModelToken/ModelFamilyToken derive from the " +
+				"configured model id, so the list below is illustrative only.",
+			Values: []string{"/claude_opus_4", "/claude_sonnet_4", "/gpt_4o", "/gemini_3_pro"},
+		},
+		{
 			Name:        "world_state",
 			Description: "World model state indicators",
 			Values:      []string{"failing_tests", "diagnostics", "large_refactor", "security_issues", "new_files", "high_churn", "reflection_hits", "no_tool_call_retry"},
@@ -538,7 +600,7 @@ func (cc *CompilationContext) Hash() string {
 		}
 	}
 
-	write("schema", "compilation-context-v2")
+	write("schema", "compilation-context-v3")
 	write("operational_mode", cc.OperationalMode)
 	write("campaign_phase", cc.CampaignPhase)
 	write("campaign_id", cc.CampaignID)
@@ -555,6 +617,12 @@ func (cc *CompilationContext) Hash() string {
 	write("shard_name", cc.ShardName)
 	write("language", cc.Language)
 	writeSet("framework", cc.Frameworks)
+
+	// Canonical tokens, not the raw strings: two spellings of one model
+	// ("gpt-4o" and "openai/gpt-4o") select identically, so they must share a
+	// cache entry. Schema bumped to v3 for these two keys.
+	write("provider", cc.ProviderToken())
+	writeSet("model", cc.ModelTokens())
 
 	writeInt("failing_test_count", cc.FailingTestCount)
 	writeInt("diagnostic_count", cc.DiagnosticCount)
@@ -607,7 +675,8 @@ type FactStyle struct {
 }
 
 func (cc *CompilationContext) GenerateFacts(style FactStyle) []any {
-	capacity := 9 + len(cc.Frameworks) + 7
+	// 9 scalar dimensions + frameworks + 8 world states + provider + up to 2 model tokens.
+	capacity := 9 + len(cc.Frameworks) + 8 + 3
 	facts := make([]any, 0, capacity)
 
 	var fb factBuilder
@@ -668,6 +737,20 @@ func (cc *CompilationContext) GenerateFacts(style FactStyle) []any {
 
 	for _, fw := range cc.Frameworks {
 		add("framework", "framework", fw)
+	}
+
+	// Provider/model pins. Emitted as canonical tokens rather than the raw
+	// config spelling so that atom selectors and context land on the same
+	// Mangle name constant -- see internal/prompt/pinning.go. The leading
+	// slash is explicit because these vocabularies are open-ended (any model
+	// id a provider ships) rather than a fixed list like /go or /coder, so
+	// without it the ForceAtoms:false style would quote them into /string and
+	// they would never unify with the /name side of the rule.
+	if tok := cc.ProviderToken(); tok != "" {
+		add("provider", "provider", "/"+tok)
+	}
+	for _, tok := range cc.ModelTokens() {
+		add("model", "model", "/"+tok)
 	}
 
 	if cc.FailingTestCount > 0 {

@@ -535,3 +535,16 @@ func (c *OpenAIClient) completeNonStreaming(ctx context.Context, reqBody OpenAIR
 
 	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
 }
+
+// ModelIdentity reports the provider and model this client serves, satisfying
+// types.ModelIdentifier. The provider is the recorded one rather than a
+// hardcoded "openai": this client also fronts OpenAI-compatible vendors, and
+// pinning an atom to the wrong vendor is exactly the leak pinning exists to
+// stop.
+func (c *OpenAIClient) ModelIdentity() (string, string) {
+	provider := string(c.provider)
+	if provider == "" {
+		provider = string(ProviderOpenAI)
+	}
+	return provider, c.model
+}

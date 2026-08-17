@@ -146,4 +146,5 @@ The machine-readable backlog and rollback contracts are in [TODO](TODO.md).
 | 90 seconds | This README, then [Current State](02-CURRENT-STATE.md#executive-summary) and [Gap Analysis](03-GAP-ANALYSIS.md#priority-order). |
 | 10 minutes | [Vision](01-VISION.md), [Internal Architecture](05-INTERNAL-ARCHITECTURE.md), [Wiring](08-WIRING-AND-INTEGRATION.md), and [Safety](09-SAFETY-AND-INVARIANTS.md). |
 | Deep implementation | [Implemented Spec](IMPLEMENTED_SPEC.md), [Prompt JIT Deep Dive](13-PROMPT-JIT-DEEP-DIVE.md), [Testing](10-TESTING-ALIGNMENT.md), and [Failure Modes](12-FAILURE-MODES.md). |
+| Why an atom is scoped to one LLM | [Provider and Model Pinning](14-PROVIDER-MODEL-PINNING.md) — the fail-closed `providers:`/`models:` selectors, canonical token derivation, and how evolved atoms inherit the model whose failures produced them. |
 | Build or review an uplift | [Gap Analysis](03-GAP-ANALYSIS.md), [TODO](TODO.md), [Open Questions](OPEN-QUESTIONS.md), then [_progress](_progress.md). |

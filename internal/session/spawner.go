@@ -507,6 +507,32 @@ func (s *Spawner) countActive() int {
 	return count
 }
 
+// servingIdentity reports the provider and model the spawned subagent will run
+// on, for prompt-atom pinning.
+//
+// This reads the main client rather than routing per verb the way the executor
+// does: generateConfig compiles one config for the subagent as a whole, before
+// any particular verb is in hand, and the subagent resolves its own tier per
+// turn afterwards. The main client is the right approximation because it is the
+// tier a subagent stays on unless a verb pulls it to the planner.
+func (s *Spawner) servingIdentity() (provider, model string) {
+	s.mu.RLock()
+	client := s.llmClient
+	s.mu.RUnlock()
+
+	if client == nil {
+		return "", ""
+	}
+	identifier, ok := client.(types.ModelIdentifier)
+	if !ok {
+		logging.SessionDebug(
+			"LLM client %T does not report a model identity; provider/model-pinned prompt atoms will be skipped for spawned subagents",
+			client)
+		return "", ""
+	}
+	return identifier.ModelIdentity()
+}
+
 // generateConfig creates a JIT config for the subagent.
 func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config.EffectiveAgentRuntimeConfig, error) {
 	if s.configFactory == nil {
@@ -532,6 +558,11 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 		TokenBudget:     budget,
 	}
 
+	// Name the serving LLM so provider/model-pinned atoms can match. Both are
+	// fail-closed regime dimensions, so omitting them blocks every pinned atom
+	// rather than admitting them all.
+	compilationCtx.Provider, compilationCtx.Model = s.servingIdentity()
+
 	// If dream mode, pass it to compilation context to potentially select different persona/skills
 	if req.SessionContext != nil && req.SessionContext.DreamMode {
 		compilationCtx.OperationalMode = "/dream"
@@ -554,6 +585,7 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 			OperationalMode: "/active",
 			TokenBudget:     4096, // Reduced budget for fallback
 		}
+		baselineCtx.Provider, baselineCtx.Model = s.servingIdentity()
 		compileResult, err = s.jitCompiler.Compile(ctx, baselineCtx)
 		if err != nil {
 			// Final fallback: return empty config, subagent will use defaults

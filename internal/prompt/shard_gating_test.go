@@ -110,6 +110,13 @@ func TestShardGating_SituationalDimensionsStayPermissive(t *testing.T) {
 // intent_verbs and languages are deliberately absent. They are permissive by
 // design, so "this atom has intents: [/fix]" is NOT sufficient to keep a persona
 // out of an unrelated compile.
+//
+// The pin dimensions (/provider, /model) are also deliberately absent, even
+// though jit_compiler.mg does declare them as regime dimensions. They are
+// fail-closed, but they gate on WHICH MODEL is serving, not on which persona is
+// speaking: a persona atom pinned only to /anthropic still reaches every shard
+// on that provider. Counting a pin as a persona gate would let one leak through
+// this test. TestShardGating_RegimeDimensionsMatchKernelPolicy covers them.
 func hasRegimeSelector(a *PromptAtom) bool {
 	return len(a.ShardTypes) > 0 ||
 		len(a.OperationalModes) > 0 ||
@@ -171,6 +178,12 @@ func TestShardGating_RegimeDimensionsMatchKernelPolicy(t *testing.T) {
 	for _, dim := range []string{
 		"/shard", "/mode", "/phase", "/layer",
 		"/init_phase", "/northstar_phase", "/ouroboros_stage",
+		// Pin dimensions. If either stops being fail-closed, an atom learned
+		// against one vendor's failure modes silently reaches every other
+		// vendor -- the exact leak MatchesContext's pin checks exist to stop,
+		// and the Go tests would keep passing because they cover the fallback
+		// path only.
+		"/provider", "/model",
 	} {
 		if !strings.Contains(string(src), "regime_dimension("+dim+").") {
 			t.Errorf("jit_compiler.mg no longer declares regime_dimension(%s); that dimension "+

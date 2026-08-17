@@ -342,6 +342,38 @@ func (e *Executor) llmForVerb(verb string) types.LLMClient {
 	return planner
 }
 
+// servingIdentity reports the provider and model that will serve this verb's
+// turn, for prompt-atom pinning.
+//
+// It routes through llmForVerb rather than reading the main client directly,
+// because a verb the kernel derives as reasoning-intensive is served by the
+// planner slot -- frequently a different vendor entirely. Compiling the prompt
+// against the main client's identity would pin-match atoms for a model that
+// never sees them, and block the ones the planner actually needs.
+//
+// A client that does not implement types.ModelIdentifier yields empty strings,
+// which leaves every pinned atom blocked (the dimensions are fail-closed) while
+// unpinned atoms are unaffected. That is logged, because the symptom otherwise
+// is a quietly smaller prompt.
+func (e *Executor) servingIdentity(verb string) (provider, model string) {
+	client := e.llmForVerb(verb)
+	if client == nil {
+		return "", ""
+	}
+
+	identifier, ok := client.(types.ModelIdentifier)
+	if !ok {
+		logging.SessionDebug(
+			"LLM client %T does not report a model identity; provider/model-pinned prompt atoms will be skipped this turn",
+			client)
+		return "", ""
+	}
+
+	provider, model = identifier.ModelIdentity()
+	logging.SessionDebug("Compiling prompt for provider=%q model=%q", provider, model)
+	return provider, model
+}
+
 // intentRequiresReasoningModel asks the kernel whether this verb's turn should
 // be served by the reasoning tier. The decision lives in the policy corpus
 // (delegation.mg → intent_requires_reasoning_model/1); this helper only asks.
@@ -775,6 +807,14 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 		OperationalMode: "/active",
 		TokenBudget:     budget,
 	}
+
+	// Name the LLM that will consume this prompt, so provider/model-pinned
+	// atoms can be matched against it. This is not optional bookkeeping: both
+	// dimensions are fail-closed regime dimensions in jit_compiler.mg, so a
+	// context that leaves them empty blocks every pinned atom rather than
+	// admitting them all. Leaving this unset would silently retire the entire
+	// evolved corpus.
+	cc.Provider, cc.Model = e.servingIdentity(intent.Verb)
 
 	// Drive vector atom selection.
 	//

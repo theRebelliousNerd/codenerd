@@ -1350,6 +1350,12 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 			addTags("lang", atom.Languages)
 			addTags("framework", atom.Frameworks)
 			addTags("state", atom.WorldStates)
+			// Pin dimensions. Both are regime dimensions in jit_compiler.mg, so
+			// emitting the tag is what arms the fail-closed block: an atom with
+			// a /provider or /model tag is admitted only on a compile whose
+			// current_context carries a matching one.
+			addTags("provider", atom.Providers)
+			addTags("model", atom.Models)
 
 		// Dependencies - needed for atom_requires() in jit_compiler.mg
 		for _, dep := range atom.DependsOn {

@@ -135,6 +135,21 @@ type ExecutionRecord struct {
 	ShardID   string `json:"shard_id"`
 	ShardType string `json:"shard_type"` // e.g., "/coder", "/tester"
 
+	// Serving Context - which LLM actually produced this execution.
+	//
+	// This is the provenance that makes an evolved atom attributable. A failure
+	// is evidence about the model that produced it, not about coding in
+	// general: a tool-call format one vendor gets wrong, a refusal pattern, a
+	// context-window behavior. Without these fields the evolution loop groups
+	// failures from every vendor together and generates atoms that are served
+	// to all of them.
+	//
+	// Raw vendor spellings ("anthropic", "claude-opus-4-20260501"); the
+	// canonical tokens are derived on demand via prompt.NormalizeProviderToken
+	// and prompt.ModelPinTokens.
+	Provider string `json:"provider,omitzero"`
+	Model    string `json:"model,omitzero"`
+
 	// Task Details
 	TaskRequest string `json:"task_request"` // Original user request
 	ProblemType string `json:"problem_type"` // Classified problem type
@@ -178,6 +193,14 @@ type JudgeVerdict struct {
 	ShardType string    `json:"shard_type"`
 	AtomIDs   []string  `json:"atom_ids,omitzero"` // Which atoms were active
 	Timestamp time.Time `json:"timestamp"`
+
+	// Serving provenance, carried over from the ExecutionRecord being judged.
+	// Distinct from EvaluatedBy: these name the model that produced the work,
+	// EvaluatedBy names the model that graded it. Atoms are pinned to the
+	// former, since that is the model whose behavior the failure is evidence
+	// about.
+	Provider string `json:"provider,omitzero"`
+	Model    string `json:"model,omitzero"`
 
 	// Tracking
 	EvaluatedBy string `json:"evaluated_by"` // Model that did the evaluation
@@ -223,6 +246,59 @@ func (s *Strategy) TotalUses() int {
 }
 
 // =============================================================================
+// PIN SCOPE - How tightly an evolved atom is bound to its serving LLM
+// =============================================================================
+
+// PinScope selects the granularity at which a generated atom is pinned to the
+// provider and model whose failures produced it.
+//
+// The tradeoff is transfer versus attribution. A failure is evidence about the
+// model that produced it; how far that evidence generalizes is not something
+// the evolution loop can determine from the failure alone, so it is a policy
+// choice rather than an inference.
+type PinScope string
+
+const (
+	// PinScopeModelFamily pins to the provider and the model FAMILY, so an atom
+	// learned on claude-opus-4-20260501 still applies to a later snapshot of
+	// claude-opus-4 but not to a different model. This is the default: model
+	// behavior is stable across dated snapshots far more often than it is
+	// stable across models, and pinning to an exact snapshot means every
+	// provider release silently retires the corpus learned against it.
+	PinScopeModelFamily PinScope = "model_family"
+
+	// PinScopeModel pins to the provider and the EXACT model token. Choose this
+	// when snapshots are known to differ behaviorally, at the cost of dropping
+	// the atom on the next release.
+	PinScopeModel PinScope = "model"
+
+	// PinScopeProvider pins to the provider only, letting an atom apply across
+	// that vendor's whole lineup. Appropriate for vendor-level traits (API
+	// envelope, tool-call encoding, refusal style) rather than model-level ones.
+	PinScopeProvider PinScope = "provider"
+
+	// PinScopeNone generates unpinned atoms, restoring the pre-pinning
+	// behavior where every evolved atom is served to every model. Provenance is
+	// still recorded on the GeneratedAtom for review.
+	PinScopeNone PinScope = "none"
+)
+
+// Valid reports whether s is a recognized pin scope.
+func (s PinScope) Valid() bool {
+	switch s {
+	case PinScopeModelFamily, PinScopeModel, PinScopeProvider, PinScopeNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// AllPinScopes returns every defined pin scope.
+func AllPinScopes() []PinScope {
+	return []PinScope{PinScopeModelFamily, PinScopeModel, PinScopeProvider, PinScopeNone}
+}
+
+// =============================================================================
 // GENERATED ATOM - Result of automatic atom generation
 // =============================================================================
 
@@ -235,6 +311,16 @@ type GeneratedAtom struct {
 	SourceIDs   []string `json:"source_ids"`   // Which failures/strategies triggered this
 	ShardType   string   `json:"shard_type"`   // Which shard type it's for
 	ProblemType string   `json:"problem_type"` // Which problem type it addresses
+
+	// Serving provenance of the failures this atom was generated from, in raw
+	// vendor spelling. Recorded even when PinScope is PinScopeNone, so an
+	// operator reviewing the pending queue can always see which model's
+	// failures produced the atom.
+	Provider string `json:"provider,omitzero"`
+	Model    string `json:"model,omitzero"`
+
+	// PinScope records the granularity the atom's selectors were pinned at.
+	PinScope PinScope `json:"pin_scope,omitzero"`
 
 	// Confidence
 	Confidence float64 `json:"confidence"` // 0.0-1.0

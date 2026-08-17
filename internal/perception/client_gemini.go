@@ -952,3 +952,11 @@ func (c *GeminiClient) CountTokens(ctx context.Context, systemPrompt, userPrompt
 
 	return countResp.TotalTokens, nil
 }
+
+// ModelIdentity reports the provider and model this client serves, satisfying
+// types.ModelIdentifier. The model is the resolved one -- the vendor default
+// when config supplied no override -- which is what prompt-atom pinning must
+// key on.
+func (c *GeminiClient) ModelIdentity() (string, string) {
+	return string(ProviderGemini), c.model
+}

@@ -107,6 +107,24 @@ blocked_by_context(Atom) :-
 # /intent gates the bulk of useful flesh -- an atom that mentions `/fix` is
 # still worth reading on a turn whose verb has not been resolved.
 #
+# /provider and /model are the pin dimensions, and they are the strictest case
+# of "not situational" in the list. An atom acquires a pin one of two ways:
+# an author writes `providers:`/`models:` in its YAML, or the prompt evolution
+# loop generates it from failures observed on one specific vendor and stamps
+# the provenance onto it (internal/autopoiesis/prompt_evolution). In both cases
+# the atom encodes a claim about how ONE model behaves -- a workaround for a
+# tokenizer quirk, a refusal pattern, a tool-call format that only one vendor
+# gets wrong. Serving that to a different model is not a weaker prompt, it is a
+# wrong one: it spends budget teaching Claude to route around a Gemini defect.
+#
+# Fail-closed is therefore the only defensible default. A compile that never
+# named its provider cannot show that the pinned atom's claim holds, so the
+# atom does not run. The cost of the strict reading is bounded and visible (a
+# pinned atom sits out a compile that forgot to set Provider); the cost of the
+# permissive reading is silent and unbounded (every vendor-specific workaround
+# in the corpus lands in every prompt). Unpinned atoms -- the overwhelming
+# majority -- declare no tag on these dimensions and are untouched.
+#
 # Go's matchSelector already implements exactly this (a constraint with no
 # context value returns false), but it only runs in fallbackFleshSelection --
 # the path used when Mangle is unavailable. This makes the live kernel path
@@ -118,6 +136,8 @@ regime_dimension(/layer).
 regime_dimension(/init_phase).
 regime_dimension(/northstar_phase).
 regime_dimension(/ouroboros_stage).
+regime_dimension(/provider).
+regime_dimension(/model).
 
 blocked_by_context(Atom) :-
     regime_dimension(Dim),
