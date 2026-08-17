@@ -151,15 +151,15 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 func (m CampaignPageModel) View() string {
 	if m.campaignData == nil {
 		var sb strings.Builder
-		sb.WriteString(m.styles.Header.Render(" No Active Campaign ") + "\n\n")
-		sb.WriteString(m.styles.Body.Render("Campaigns allow you to orchestrate multi-phase goals and automated tasks.") + "\n\n")
-		sb.WriteString(m.styles.Bold.Render("Getting Started:") + "\n")
-		sb.WriteString("  " + m.styles.InlineCode.Render("/campaign start <goal>") + m.styles.Muted.Render("   Begin a new multi-phase campaign") + "\n")
-		sb.WriteString("  " + m.styles.InlineCode.Render("/campaign assault <target>") + m.styles.Muted.Render(" Run an adversarial soak/stress test") + "\n")
-		sb.WriteString("  " + m.styles.InlineCode.Render("/campaign resume") + m.styles.Muted.Render("           Resume a paused campaign") + "\n\n")
-		sb.WriteString(m.styles.Bold.Render("Available Controls:") + "\n")
-		sb.WriteString(m.styles.Muted.Render("  [Space] Pause/Resume  [r] Replan  [c] Checkpoint  [Esc] Back"))
-		return m.styles.Content.Render(sb.String())
+		sb.WriteString(m.styles.Layout.Header.Render(" No Active Campaign ") + "\n\n")
+		sb.WriteString(m.styles.Text.Body.Render("Campaigns allow you to orchestrate multi-phase goals and automated tasks.") + "\n\n")
+		sb.WriteString(m.styles.Text.Bold.Render("Getting Started:") + "\n")
+		sb.WriteString("  " + m.styles.Code.InlineCode.Render("/campaign start <goal>") + m.styles.Text.Muted.Render("   Begin a new multi-phase campaign") + "\n")
+		sb.WriteString("  " + m.styles.Code.InlineCode.Render("/campaign assault <target>") + m.styles.Text.Muted.Render(" Run an adversarial soak/stress test") + "\n")
+		sb.WriteString("  " + m.styles.Code.InlineCode.Render("/campaign resume") + m.styles.Text.Muted.Render("           Resume a paused campaign") + "\n\n")
+		sb.WriteString(m.styles.Text.Bold.Render("Available Controls:") + "\n")
+		sb.WriteString(m.styles.Text.Muted.Render("  [Space] Pause/Resume  [r] Replan  [c] Checkpoint  [Esc] Back"))
+		return m.styles.Layout.Content.Render(sb.String())
 	}
 	return m.viewport.View()
 }
@@ -218,11 +218,11 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 		sb.WriteString(m.renderHeader(camp))
 
 		if prog != nil {
-			sb.WriteString(m.styles.Bold.Render("Overall Progress") + "\n")
+			sb.WriteString(m.styles.Text.Bold.Render("Overall Progress") + "\n")
 			sb.WriteString(m.progress.ViewAs(prog.OverallProgress) + "\n\n")
 		}
 
-		hints := m.styles.Muted.Render("Controls: [Space] Pause/Resume  [r] Replan  [c] Checkpoint  [v] Toggle View  [Esc] Back")
+		hints := m.styles.Text.Muted.Render("Controls: [Space] Pause/Resume  [r] Replan  [c] Checkpoint  [v] Toggle View  [Esc] Back")
 		sb.WriteString(hints + "\n\n")
 
 		sb.WriteString(m.renderMetrics(camp))
@@ -280,16 +280,16 @@ func (m *CampaignPageModel) calculateVisibleRange() {
 func (m *CampaignPageModel) renderHeader(camp *campaign.Campaign) string {
 	var sb strings.Builder
 
-	statusColor := m.styles.Info
+	statusColor := m.styles.Status.Info
 	if camp.Status == campaign.StatusFailed {
-		statusColor = m.styles.Error
+		statusColor = m.styles.Status.Error
 	} else if camp.Status == campaign.StatusCompleted {
-		statusColor = m.styles.Success
+		statusColor = m.styles.Status.Success
 	} else if camp.Status == campaign.StatusPaused {
-		statusColor = m.styles.Warning
+		statusColor = m.styles.Status.Warning
 	}
 
-	title := m.styles.Header.Render(fmt.Sprintf(" %s ", camp.Title))
+	title := m.styles.Layout.Header.Render(fmt.Sprintf(" %s ", camp.Title))
 	status := statusColor.Render(strings.ToUpper(string(camp.Status)))
 	header := lipgloss.JoinHorizontal(lipgloss.Center, title, "  ", status)
 	sb.WriteString(header + "\n\n")
@@ -314,18 +314,18 @@ func (m *CampaignPageModel) renderMetrics(camp *campaign.Campaign) string {
 			camp.RevisionNumber,
 		)
 	}
-	return m.styles.Info.Render(metrics) + "\n\n"
+	return m.styles.Status.Info.Render(metrics) + "\n\n"
 }
 
 // renderVirtualizedPhases renders only the visible phases for performance
 func (m *CampaignPageModel) renderVirtualizedPhases(camp *campaign.Campaign) string {
 	var sb strings.Builder
 
-	sb.WriteString(m.styles.Header.Render(" Phases ") + "\n")
+	sb.WriteString(m.styles.Layout.Header.Render(" Phases ") + "\n")
 
 	// Show indicator if we're not at the start
 	if m.visibleStartIdx > 0 {
-		sb.WriteString(m.styles.Muted.Render(fmt.Sprintf("  ... %d phases above ...\n", m.visibleStartIdx)))
+		sb.WriteString(m.styles.Text.Muted.Render(fmt.Sprintf("  ... %d phases above ...\n", m.visibleStartIdx)))
 	}
 
 	// Render only visible phases
@@ -336,11 +336,11 @@ func (m *CampaignPageModel) renderVirtualizedPhases(camp *campaign.Campaign) str
 	// Show indicator if there are more phases below
 	if m.visibleEndIdx < m.totalPhases {
 		remaining := m.totalPhases - m.visibleEndIdx
-		sb.WriteString(m.styles.Muted.Render(fmt.Sprintf("  ... %d phases below ...\n", remaining)))
+		sb.WriteString(m.styles.Text.Muted.Render(fmt.Sprintf("  ... %d phases below ...\n", remaining)))
 	}
 
 	// Show total count
-	sb.WriteString(m.styles.Muted.Render(fmt.Sprintf("\nTotal: %d phases", m.totalPhases)))
+	sb.WriteString(m.styles.Text.Muted.Render(fmt.Sprintf("\nTotal: %d phases", m.totalPhases)))
 
 	return sb.String()
 }
@@ -350,16 +350,16 @@ func (m *CampaignPageModel) renderPhase(p *campaign.Phase, index int) string {
 	var sb strings.Builder
 
 	icon := "○" // Pending
-	style := m.styles.Muted
+	style := m.styles.Text.Muted
 	if p.Status == campaign.PhaseInProgress {
 		icon = "▶"
-		style = m.styles.Info
+		style = m.styles.Status.Info
 	} else if p.Status == campaign.PhaseCompleted {
 		icon = "✓"
-		style = m.styles.Success
+		style = m.styles.Status.Success
 	} else if p.Status == campaign.PhaseFailed {
 		icon = "✗"
-		style = m.styles.Error
+		style = m.styles.Status.Error
 	}
 
 	line := fmt.Sprintf(" %s %s", icon, p.Name)
@@ -371,7 +371,7 @@ func (m *CampaignPageModel) renderPhase(p *campaign.Phase, index int) string {
 		for j := range p.Tasks {
 			if j >= maxTasks {
 				remaining := len(p.Tasks) - maxTasks
-				sb.WriteString(m.styles.Muted.Render(fmt.Sprintf("     ... %d more tasks ...\n", remaining)))
+				sb.WriteString(m.styles.Text.Muted.Render(fmt.Sprintf("     ... %d more tasks ...\n", remaining)))
 				break
 			}
 			sb.WriteString(m.renderTask(&p.Tasks[j]))
@@ -385,16 +385,16 @@ func (m *CampaignPageModel) renderPhase(p *campaign.Phase, index int) string {
 // renderTask renders a single task line
 func (m *CampaignPageModel) renderTask(t *campaign.Task) string {
 	taskIcon := "  •"
-	taskStyle := m.styles.Muted
+	taskStyle := m.styles.Text.Muted
 	if t.Status == campaign.TaskInProgress {
 		taskIcon = "  ➜"
-		taskStyle = m.styles.Info
+		taskStyle = m.styles.Status.Info
 	} else if t.Status == campaign.TaskCompleted {
 		taskIcon = "  ✓"
-		taskStyle = m.styles.Success
+		taskStyle = m.styles.Status.Success
 	} else if t.Status == campaign.TaskFailed {
 		taskIcon = "  ✗"
-		taskStyle = m.styles.Error
+		taskStyle = m.styles.Status.Error
 	}
 
 	// Truncate long descriptions
@@ -420,11 +420,11 @@ func (m *CampaignPageModel) renderTask(t *campaign.Task) string {
 func (m *CampaignPageModel) renderSummary(camp *campaign.Campaign, prog *campaign.Progress) string {
 	var sb strings.Builder
 
-	sb.WriteString(m.styles.Header.Render(" Campaign Summary ") + "\n\n")
+	sb.WriteString(m.styles.Layout.Header.Render(" Campaign Summary ") + "\n\n")
 
 	// Goal
 	if camp.Goal != "" {
-		sb.WriteString(m.styles.Bold.Render("Goal:") + "\n")
+		sb.WriteString(m.styles.Text.Bold.Render("Goal:") + "\n")
 		// Simple word wrap for goal
 		words := strings.Fields(camp.Goal)
 		lineLen := 0
@@ -446,18 +446,18 @@ func (m *CampaignPageModel) renderSummary(camp *campaign.Campaign, prog *campaig
 
 	// Active Phase Details
 	if prog != nil && prog.CurrentPhase != "" {
-		sb.WriteString(m.styles.Bold.Render("Current Phase:") + "\n")
+		sb.WriteString(m.styles.Text.Bold.Render("Current Phase:") + "\n")
 		sb.WriteString(fmt.Sprintf("  %s (%d/%d)\n", prog.CurrentPhase, prog.CompletedPhases, prog.TotalPhases))
 
 		if prog.CurrentTask != "" {
-			sb.WriteString(m.styles.Bold.Render("Current Task:") + "\n")
+			sb.WriteString(m.styles.Text.Bold.Render("Current Task:") + "\n")
 			sb.WriteString(fmt.Sprintf("  %s\n", prog.CurrentTask))
 		}
 		sb.WriteString("\n")
 	}
 
 	// Stats Grid
-	sb.WriteString(m.styles.Bold.Render("Statistics:") + "\n")
+	sb.WriteString(m.styles.Text.Bold.Render("Statistics:") + "\n")
 	stats := []string{
 		fmt.Sprintf("Phases:     %d/%d Completed", camp.CompletedPhases, camp.TotalPhases),
 		fmt.Sprintf("Tasks:      %d/%d Completed", camp.CompletedTasks, camp.TotalTasks),
@@ -471,7 +471,7 @@ func (m *CampaignPageModel) renderSummary(camp *campaign.Campaign, prog *campaig
 
 	// Knowledge/Learnings
 	if len(camp.Learnings) > 0 {
-		sb.WriteString(m.styles.Bold.Render(fmt.Sprintf("Learnings (%d):", len(camp.Learnings))) + "\n")
+		sb.WriteString(m.styles.Text.Bold.Render(fmt.Sprintf("Learnings (%d):", len(camp.Learnings))) + "\n")
 		limit := 3
 		if len(camp.Learnings) < limit {
 			limit = len(camp.Learnings)

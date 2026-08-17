@@ -164,47 +164,59 @@ func DetectTheme() Theme {
 	return LightTheme()
 }
 
-// Styles holds all the styled components
-// TODO: Group related styles into sub-structs (e.g. TextStyles, LayoutStyles) for better API organization.
-// TODO: IMPROVEMENT: Add a method to serialize/deserialize theme to JSON for user customization.
-type Styles struct {
-	Theme Theme
-
-	// Layout
+type LayoutStyles struct {
 	App     lipgloss.Style
 	Header  lipgloss.Style
 	Footer  lipgloss.Style
 	Content lipgloss.Style
 	Sidebar lipgloss.Style
+}
 
-	// Text
+type TextStyles struct {
 	Title    lipgloss.Style
 	Subtitle lipgloss.Style
 	Body     lipgloss.Style
 	Muted    lipgloss.Style
 	Bold     lipgloss.Style
+}
 
-	// Interactive
+type InteractiveStyles struct {
 	Prompt        lipgloss.Style
 	PromptCursor  lipgloss.Style
 	UserInput     lipgloss.Style
 	AgentResponse lipgloss.Style
+}
 
-	// Status
+type StatusStyles struct {
 	Success lipgloss.Style
 	Error   lipgloss.Style
 	Warning lipgloss.Style
 	Info    lipgloss.Style
+}
 
-	// Code
+type CodeStyles struct {
 	CodeBlock  lipgloss.Style
 	InlineCode lipgloss.Style
+}
 
-	// Components
+type ComponentStyles struct {
 	Spinner     lipgloss.Style
 	ProgressBar lipgloss.Style
 	Divider     lipgloss.Style
 	Badge       lipgloss.Style
+}
+
+// Styles holds all the styled components
+// TODO: IMPROVEMENT: Add a method to serialize/deserialize theme to JSON for user customization.
+type Styles struct {
+	Theme Theme
+
+	Layout      LayoutStyles
+	Text        TextStyles
+	Interactive InteractiveStyles
+	Status      StatusStyles
+	Code        CodeStyles
+	Components  ComponentStyles
 }
 
 // NewStyles creates a new Styles instance with the given theme
@@ -214,107 +226,113 @@ func NewStyles(theme Theme) Styles {
 	return Styles{
 		Theme: theme,
 
-		// Layout styles
-		App: lipgloss.NewStyle().
-			Background(theme.Background).
-			Foreground(theme.OnBackground),
+		Layout: LayoutStyles{
+			App: lipgloss.NewStyle().
+				Background(theme.Background).
+				Foreground(theme.OnBackground),
 
-		Header: lipgloss.NewStyle().
-			Background(theme.Primary).
-			Foreground(theme.OnPrimary).
-			Padding(0, 2).
-			Bold(true),
+			Header: lipgloss.NewStyle().
+				Background(theme.Primary).
+				Foreground(theme.OnPrimary).
+				Padding(0, 2).
+				Bold(true),
 
-		Footer: lipgloss.NewStyle().
-			Foreground(theme.OnSurfaceMuted).
-			Padding(0, 2),
+			Footer: lipgloss.NewStyle().
+				Foreground(theme.OnSurfaceMuted).
+				Padding(0, 2),
 
-		Content: lipgloss.NewStyle().
-			Padding(1, 2),
+			Content: lipgloss.NewStyle().
+				Padding(1, 2),
+		},
 
-		// Text styles
-		Title: lipgloss.NewStyle().
-			Foreground(theme.Primary).
-			Bold(true).
-			MarginBottom(1),
+		Text: TextStyles{
+			Title: lipgloss.NewStyle().
+				Foreground(theme.Primary).
+				Bold(true).
+				MarginBottom(1),
 
-		Subtitle: lipgloss.NewStyle().
-			Foreground(theme.OnSurfaceMuted).
-			Italic(true),
+			Subtitle: lipgloss.NewStyle().
+				Foreground(theme.OnSurfaceMuted).
+				Italic(true),
 
-		Body: lipgloss.NewStyle().
-			Foreground(theme.OnSurface),
+			Body: lipgloss.NewStyle().
+				Foreground(theme.OnSurface),
 
-		Muted: lipgloss.NewStyle().
-			Foreground(theme.OnSurfaceMuted),
+			Muted: lipgloss.NewStyle().
+				Foreground(theme.OnSurfaceMuted),
 
-		Bold: lipgloss.NewStyle().
-			Foreground(theme.OnSurface).
-			Bold(true),
+			Bold: lipgloss.NewStyle().
+				Foreground(theme.OnSurface).
+				Bold(true),
+		},
 
-		// Interactive styles
-		Prompt: lipgloss.NewStyle().
-			Foreground(theme.Secondary).
-			Bold(true),
+		Interactive: InteractiveStyles{
+			Prompt: lipgloss.NewStyle().
+				Foreground(theme.Secondary).
+				Bold(true),
 
-		PromptCursor: lipgloss.NewStyle().
-			Foreground(theme.Secondary).
-			Background(theme.Secondary),
+			PromptCursor: lipgloss.NewStyle().
+				Foreground(theme.Secondary).
+				Background(theme.Secondary),
 
-		UserInput: lipgloss.NewStyle().
-			Foreground(theme.OnSurface),
+			UserInput: lipgloss.NewStyle().
+				Foreground(theme.OnSurface),
 
-		AgentResponse: lipgloss.NewStyle().
-			Foreground(theme.OnSurface).
-			PaddingLeft(2).
-			BorderLeft(true).
-			BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(theme.Secondary),
+			AgentResponse: lipgloss.NewStyle().
+				Foreground(theme.OnSurface).
+				PaddingLeft(2).
+				BorderLeft(true).
+				BorderStyle(lipgloss.ThickBorder()).
+				BorderForeground(theme.Secondary),
+		},
 
-		// Status styles
-		Success: lipgloss.NewStyle().
-			Foreground(theme.Success).
-			Bold(true),
+		Status: StatusStyles{
+			Success: lipgloss.NewStyle().
+				Foreground(theme.Success).
+				Bold(true),
 
-		Error: lipgloss.NewStyle().
-			Foreground(theme.Destructive).
-			Bold(true),
+			Error: lipgloss.NewStyle().
+				Foreground(theme.Destructive).
+				Bold(true),
 
-		Warning: lipgloss.NewStyle().
-			Foreground(theme.Warning).
-			Bold(true),
+			Warning: lipgloss.NewStyle().
+				Foreground(theme.Warning).
+				Bold(true),
 
-		Info: lipgloss.NewStyle().
-			Foreground(theme.Info),
+			Info: lipgloss.NewStyle().
+				Foreground(theme.Info),
+		},
 
-		// Code styles
-		CodeBlock: lipgloss.NewStyle().
-			Background(theme.Surface).
-			Foreground(theme.OnSurface).
-			Padding(1, 2).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(theme.Outline),
+		Code: CodeStyles{
+			CodeBlock: lipgloss.NewStyle().
+				Background(theme.Surface).
+				Foreground(theme.OnSurface).
+				Padding(1, 2).
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(theme.Outline),
 
-		InlineCode: lipgloss.NewStyle().
-			Background(theme.Container).
-			Foreground(theme.OnContainer).
-			Padding(0, 1),
+			InlineCode: lipgloss.NewStyle().
+				Background(theme.Container).
+				Foreground(theme.OnContainer).
+				Padding(0, 1),
+		},
 
-		// Component styles
-		Spinner: lipgloss.NewStyle().
-			Foreground(theme.Secondary),
+		Components: ComponentStyles{
+			Spinner: lipgloss.NewStyle().
+				Foreground(theme.Secondary),
 
-		ProgressBar: lipgloss.NewStyle().
-			Foreground(theme.Secondary),
+			ProgressBar: lipgloss.NewStyle().
+				Foreground(theme.Secondary),
 
-		Divider: lipgloss.NewStyle().
-			Foreground(theme.Outline),
+			Divider: lipgloss.NewStyle().
+				Foreground(theme.Outline),
 
-		Badge: lipgloss.NewStyle().
-			Background(theme.Secondary).
-			Foreground(theme.OnSecondary).
-			Padding(0, 1).
-			Bold(true),
+			Badge: lipgloss.NewStyle().
+				Background(theme.Secondary).
+				Foreground(theme.OnSecondary).
+				Padding(0, 1).
+				Bold(true),
+		},
 	}
 }
 
@@ -328,12 +346,12 @@ var logoArt string
 
 // Logo returns the codeNERD ASCII logo
 func Logo(s Styles) string {
-	return s.Title.Foreground(s.Theme.Primary).Render(logoArt)
+	return s.Text.Title.Foreground(s.Theme.Primary).Render(logoArt)
 }
 
 // Divider returns a horizontal divider
 func (s Styles) RenderDivider(width int) string {
-	return s.Divider.Render(strings.Repeat("─", width))
+	return s.Components.Divider.Render(strings.Repeat("─", width))
 }
 
 // AdjustColor modifies the brightness and saturation of a lipgloss.Color.

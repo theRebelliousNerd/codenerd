@@ -383,7 +383,7 @@ func (d *DiffApprovalView) renderCurrentMutation() string {
 	if m.Diff != nil {
 		sb.WriteString(d.renderDiff(m.Diff))
 	} else {
-		sb.WriteString(d.Styles.Muted.Render("(No diff available)"))
+		sb.WriteString(d.Styles.Text.Muted.Render("(No diff available)"))
 	}
 
 	// Footer with controls
@@ -424,7 +424,7 @@ func (d *DiffApprovalView) renderHeader(m *PendingMutation) string {
 
 	subheader := fmt.Sprintf("File: %s\nReason: %s", m.FilePath, m.Reason)
 
-	return headerStyle.Render(header) + "\n" + d.Styles.Muted.Render(subheader)
+	return headerStyle.Render(header) + "\n" + d.Styles.Text.Muted.Render(subheader)
 }
 
 // renderWarnings renders safety warnings
@@ -453,17 +453,17 @@ func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 
 	// File header
 	fileHeader := fmt.Sprintf("--- %s\n+++ %s", diff.OldPath, diff.NewPath)
-	sb.WriteString(d.Styles.Muted.Render(fileHeader))
+	sb.WriteString(d.Styles.Text.Muted.Render(fileHeader))
 	sb.WriteString("\n\n")
 
 	// Show whitespace mode indicator
 	if d.IgnoreWhitespace {
-		sb.WriteString(d.Styles.Info.Render("(Ignoring whitespace changes)"))
+		sb.WriteString(d.Styles.Status.Info.Render("(Ignoring whitespace changes)"))
 		sb.WriteString("\n\n")
 	}
 
 	if diff.IsBinary {
-		sb.WriteString(d.Styles.Warning.Render("Binary file - diff not shown"))
+		sb.WriteString(d.Styles.Status.Warning.Render("Binary file - diff not shown"))
 		return sb.String()
 	}
 
@@ -481,7 +481,7 @@ func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 			hunk.OldStart, hunk.OldCount,
 			hunk.NewStart, hunk.NewCount)
 
-		hunkStyle := d.Styles.Muted
+		hunkStyle := d.Styles.Text.Muted
 		if i == d.SelectedHunk {
 			hunkStyle = lipgloss.NewStyle().
 				Background(d.Styles.Theme.Container).
@@ -630,10 +630,10 @@ func (d *DiffApprovalView) renderDiffLine(line DiffLine) string {
 			Background(lipgloss.Color("#2d0a0a"))
 		prefix = "- "
 	case DiffLineContext:
-		style = d.Styles.Body
+		style = d.Styles.Text.Body
 		prefix = "  "
 	case DiffLineHeader:
-		style = d.Styles.Bold
+		style = d.Styles.Text.Bold
 		prefix = ""
 	}
 

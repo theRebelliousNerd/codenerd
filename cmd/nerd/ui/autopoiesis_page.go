@@ -83,7 +83,7 @@ func (p *PatternsTab) Update(msg tea.Msg) (TabComponent, tea.Cmd) {
 
 func (p *PatternsTab) View() string {
 	var sb strings.Builder
-	sb.WriteString(p.styles.Content.Render(p.list.View()))
+	sb.WriteString(p.styles.Layout.Content.Render(p.list.View()))
 
 	// Detail View (if selected)
 	sb.WriteString("\n\n")
@@ -92,7 +92,7 @@ func (p *PatternsTab) View() string {
 		if pItem, ok := item.(patternItem); ok {
 			pat := pItem.DetectedPattern
 			if len(pat.Examples) > 0 {
-				sb.WriteString(p.styles.Bold.Render("Example Trace:") + "\n")
+				sb.WriteString(p.styles.Text.Bold.Render("Example Trace:") + "\n")
 
 				example := pat.Examples[0]
 				formatted, isJSON := formatJSON(example)
@@ -109,7 +109,7 @@ func (p *PatternsTab) View() string {
 					sb.WriteString(example + "\n")
 				}
 			} else {
-				sb.WriteString(p.styles.Muted.Render("No examples available.") + "\n")
+				sb.WriteString(p.styles.Text.Muted.Render("No examples available.") + "\n")
 			}
 		}
 	}
@@ -195,7 +195,7 @@ func (l *LearningsTab) Update(msg tea.Msg) (TabComponent, tea.Cmd) {
 }
 
 func (l *LearningsTab) View() string {
-	return l.styles.Content.Render(l.list.View())
+	return l.styles.Layout.Content.Render(l.list.View())
 }
 
 func (l *LearningsTab) SetSize(w, h int) {
@@ -323,10 +323,10 @@ func (m AutopoiesisPageModel) View() string {
 	// Header / Tabs
 	var tabViews []string
 	for i, tab := range m.tabs {
-		style := m.styles.Muted
+		style := m.styles.Text.Muted
 		label := fmt.Sprintf("[ %s ]", tab.Title())
 		if i == m.activeTabIndex {
-			style = m.styles.Info.Copy().Bold(true)
+			style = m.styles.Status.Info.Copy().Bold(true)
 		}
 		tabViews = append(tabViews, style.Render(label))
 		tabViews = append(tabViews, "  ")
@@ -334,7 +334,7 @@ func (m AutopoiesisPageModel) View() string {
 
 	// Join tabs
 	tabsHeader := lipgloss.JoinHorizontal(lipgloss.Top, tabViews...)
-	tabsHeader = lipgloss.JoinHorizontal(lipgloss.Top, tabsHeader, m.styles.Muted.Render("(Press Tab to switch)"))
+	tabsHeader = lipgloss.JoinHorizontal(lipgloss.Top, tabsHeader, m.styles.Text.Muted.Render("(Press Tab to switch)"))
 
 	sb.WriteString(tabsHeader + "\n\n")
 

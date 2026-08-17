@@ -662,7 +662,7 @@ func (p *LogicPane) renderTree() string {
 	if len(p.Nodes) == 0 {
 		// Show different message if filters are active
 		if p.HasActiveFilters() {
-			return p.Styles.Muted.Render("No nodes match the current filters.")
+			return p.Styles.Text.Muted.Render("No nodes match the current filters.")
 		}
 		return ""
 	}

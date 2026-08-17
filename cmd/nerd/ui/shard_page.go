@@ -271,17 +271,17 @@ func (m *ShardPageModel) renderShardDetails(s types.ShardAgent) string {
 	var sb strings.Builder
 
 	// Header
-	sb.WriteString(m.styles.Bold.Render("Shard ID: ") + s.GetID() + "\n")
-	sb.WriteString(m.styles.Bold.Render("Type:     ") + string(cfg.Type) + "\n")
-	sb.WriteString(m.styles.Bold.Render("Status:   ") + string(state) + "\n\n")
+	sb.WriteString(m.styles.Text.Bold.Render("Shard ID: ") + s.GetID() + "\n")
+	sb.WriteString(m.styles.Text.Bold.Render("Type:     ") + string(cfg.Type) + "\n")
+	sb.WriteString(m.styles.Text.Bold.Render("Status:   ") + string(state) + "\n\n")
 
 	// Model Info
-	sb.WriteString(m.styles.Header.Render(" Model Config ") + "\n")
+	sb.WriteString(m.styles.Layout.Header.Render(" Model Config ") + "\n")
 	sb.WriteString(fmt.Sprintf("Name:       %s\n", cfg.Model.Name))
 	sb.WriteString(fmt.Sprintf("Capability: %s\n\n", cfg.Model.Capability))
 
 	// Permissions
-	sb.WriteString(m.styles.Header.Render(" Permissions ") + "\n")
+	sb.WriteString(m.styles.Layout.Header.Render(" Permissions ") + "\n")
 	if len(cfg.Permissions) == 0 {
 		sb.WriteString("None\n")
 	} else {
@@ -292,7 +292,7 @@ func (m *ShardPageModel) renderShardDetails(s types.ShardAgent) string {
 	sb.WriteString("\n")
 
 	// Tools
-	sb.WriteString(m.styles.Header.Render(" Tools ") + "\n")
+	sb.WriteString(m.styles.Layout.Header.Render(" Tools ") + "\n")
 	if len(cfg.Tools) == 0 {
 		sb.WriteString("None\n")
 	} else {
@@ -309,7 +309,7 @@ func (m ShardPageModel) View() string {
 	var sb strings.Builder
 
 	// Header / Queue Status
-	title := m.styles.Header.Render(" Active Shards ")
+	title := m.styles.Layout.Header.Render(" Active Shards ")
 	sb.WriteString(title + "\n\n")
 
 	if m.backpressure != nil {
@@ -317,7 +317,7 @@ func (m ShardPageModel) View() string {
 			m.backpressure.QueueDepth,
 			m.backpressure.AvailableSlots,
 		)
-		sb.WriteString(m.styles.Info.Render(stats) + "\n\n")
+		sb.WriteString(m.styles.Status.Info.Render(stats) + "\n\n")
 	}
 
 	// Filter bar
@@ -361,7 +361,7 @@ func (m ShardPageModel) View() string {
 	// Filter count
 	if len(m.filteredShards) != len(m.activeShards) {
 		countInfo := fmt.Sprintf("\nShowing %d of %d shards", len(m.filteredShards), len(m.activeShards))
-		sb.WriteString(m.styles.Muted.Render(countInfo))
+		sb.WriteString(m.styles.Text.Muted.Render(countInfo))
 	}
 
 	return sb.String()
@@ -396,7 +396,7 @@ func (m ShardPageModel) renderFilterBar() string {
 	}
 
 	for _, mode := range modes {
-		style := m.styles.Muted
+		style := m.styles.Text.Muted
 		if m.filterMode == mode.mode {
 			style = lipgloss.NewStyle().
 				Foreground(m.styles.Theme.Primary).
@@ -408,7 +408,7 @@ func (m ShardPageModel) renderFilterBar() string {
 	}
 
 	// Help hint
-	hint := m.styles.Muted.Render("[/] Filter  [Tab] Focus  [m] Mode")
+	hint := m.styles.Text.Muted.Render("[/] Filter  [Tab] Focus  [m] Mode")
 	sb.WriteString("  ")
 	sb.WriteString(hint)
 

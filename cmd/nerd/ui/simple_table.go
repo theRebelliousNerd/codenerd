@@ -37,7 +37,7 @@ func (t *SimpleTable) View(styles Styles) string {
 
 	// Title
 	if t.Title != "" {
-		sb.WriteString(styles.Title.Render(t.Title))
+		sb.WriteString(styles.Text.Title.Render(t.Title))
 		sb.WriteString("\n")
 	}
 
@@ -64,9 +64,9 @@ func (t *SimpleTable) View(styles Styles) string {
 	}
 
 	// Define styles
-	headerStyle := styles.Bold.Copy().Padding(0, 1)
-	rowStyle := styles.Body.Copy().Padding(0, 1)
-	sepStyle := styles.Muted
+	headerStyle := styles.Text.Bold.Copy().Padding(0, 1)
+	rowStyle := styles.Text.Body.Copy().Padding(0, 1)
+	sepStyle := styles.Text.Muted
 
 	// Render Header
 	for i, h := range t.Headers {
