@@ -118,9 +118,7 @@ func (m *Model) Shutdown() {
 		// without this call the worker goroutine leaks past chat shutdown.
 		// StopWorker is nil-guarded and idempotent (sync.Once), so multiple
 		// callers (e.g. chat + tests) can invoke it safely.
-		if perception.SharedTaxonomy != nil {
-			perception.SharedTaxonomy.StopWorker()
-		}
+		perception.ShutdownSharedTaxonomy()
 	})
 }
 
