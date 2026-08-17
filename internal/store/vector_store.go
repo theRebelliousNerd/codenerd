@@ -765,7 +765,18 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 			continue
 		}
 
-		stmt, err := tx.Prepare("INSERT OR REPLACE INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)")
+		var queryBuilder strings.Builder
+		queryBuilder.WriteString("INSERT OR REPLACE INTO vec_index (rowid, embedding, content, metadata) VALUES ")
+		args := make([]any, 0, len(batch)*4)
+		for j, row := range batch {
+			if j > 0 {
+				queryBuilder.WriteString(", ")
+			}
+			queryBuilder.WriteString("(?, ?, ?, ?)")
+			args = append(args, row.id, row.vecBlob, row.content, row.metaJSON)
+		}
+
+		stmt, err := tx.Prepare(queryBuilder.String())
 		if err != nil {
 			tx.Rollback()
 			logging.Get(logging.CategoryStore).Warn("Failed to prepare statement for backfill: %v", err)
@@ -773,11 +784,10 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 		}
 
 		batchSuccess := 0
-		for _, row := range batch {
-			_, err := stmt.Exec(row.id, row.vecBlob, row.content, row.metaJSON)
-			if err == nil {
-				batchSuccess++
-			}
+		if _, err := stmt.Exec(args...); err == nil {
+			batchSuccess = len(batch)
+		} else {
+			logging.Get(logging.CategoryStore).Warn("Failed to execute batch statement for backfill: %v", err)
 		}
 		stmt.Close()
 
