@@ -365,7 +365,7 @@ func (t *ProofTreeTracer) premiseString(node *DerivationNode) string {
 		return ""
 	}
 
-	var parts []string
+	parts := make([]string, 0, len(node.Children))
 	for _, child := range node.Children {
 		parts = append(parts, child.Fact.String())
 	}
