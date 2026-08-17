@@ -1858,6 +1858,7 @@ func TestRegisterAll_WhenValidRegistry_ShouldRegisterAllTools(t *testing.T) {
 		"browser_mangle",
 		"browser_wait",
 		"browser_reason",
+		"browser_audit",
 		"browser_evidence",
 		"browser_specs",
 		"browser_test",

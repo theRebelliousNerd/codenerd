@@ -475,6 +475,14 @@ func (m *SessionManager) ResolveOutputPath(requested, defaultRoot, defaultName s
 func (m *SessionManager) SanitizeForEvidence(value string) string {
 	return m.redactor.SanitizeString(value)
 }
+// WorkspaceRoot returns the configured workspace root without modification. It is read-only and does not resolve or clean the path.
+func (m *SessionManager) WorkspaceRoot() string {
+	if m == nil {
+		return ""
+	}
+	return m.cfg.WorkspaceRoot
+}
+
 
 // Start connects to an existing Chrome or launches a new one.
 func (m *SessionManager) Start(ctx context.Context) error {
