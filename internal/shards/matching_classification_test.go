@@ -21,14 +21,25 @@ func TestCanSpecialistExecute(t *testing.T) {
 }
 
 func TestIsExecutorSpecialist(t *testing.T) {
-	if !IsExecutorSpecialist("mangleexpert") {
-		t.Error("mangleexpert should be an executor specialist")
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{"existing executor lowercase", "mangleexpert", true},
+		{"existing executor mixed case", " GoExpert ", true},
+		{"existing non-executor", "northstar", false},
+		{"unknown specialist", "unknown", false},
+		{"empty string", "", false},
 	}
-	if IsExecutorSpecialist("northstar") {
-		t.Error("northstar is an observer, not an executor")
-	}
-	if IsExecutorSpecialist("unknown") {
-		t.Error("unknown specialist should not be an executor")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsExecutorSpecialist(tt.input)
+			if got != tt.expected {
+				t.Errorf("IsExecutorSpecialist(%q) = %v, want %v", tt.input, got, tt.expected)
+			}
+		})
 	}
 }
 
