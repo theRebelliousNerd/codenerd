@@ -32,6 +32,26 @@ const (
 	DiffLineHeader  = diff.LineHeader
 )
 
+var (
+	diffStyleAdded = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#22c55e")).
+		Background(lipgloss.Color("#052e16"))
+
+	diffStyleRemoved = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#ef4444")).
+		Background(lipgloss.Color("#2d0a0a"))
+
+	diffStyleRemovedHighlight = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#ffffff")).
+		Background(lipgloss.Color("#991b1b")).
+		Bold(true)
+
+	diffStyleAddedHighlight = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#ffffff")).
+		Background(lipgloss.Color("#166534")).
+		Bold(true)
+)
+
 // DiffKeyMap defines the key bindings for the DiffApprovalView
 type DiffKeyMap struct {
 	Approve          key.Binding
@@ -447,7 +467,6 @@ func (d *DiffApprovalView) renderWarnings(warnings []string) string {
 }
 
 // renderDiff renders the diff content with word-level highlighting
-// TODO: IMPROVEMENT: Optimize rendering by caching styles or using a renderer that doesn't recreate styles per line.
 func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 	var sb strings.Builder
 
@@ -620,14 +639,10 @@ func (d *DiffApprovalView) renderDiffLine(line DiffLine) string {
 
 	switch line.Type {
 	case DiffLineAdded:
-		style = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#22c55e")).
-			Background(lipgloss.Color("#052e16"))
+		style = diffStyleAdded
 		prefix = "+ "
 	case DiffLineRemoved:
-		style = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ef4444")).
-			Background(lipgloss.Color("#2d0a0a"))
+		style = diffStyleRemoved
 		prefix = "- "
 	case DiffLineContext:
 		style = d.Styles.Body
@@ -674,22 +689,12 @@ func (d *DiffApprovalView) renderLineWithWordHighlights(line DiffLine, spans []d
 	var prefix string
 
 	if isRemoved {
-		baseStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ef4444")).
-			Background(lipgloss.Color("#2d0a0a"))
-		highlightStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ffffff")).
-			Background(lipgloss.Color("#991b1b")).
-			Bold(true)
+		baseStyle = diffStyleRemoved
+		highlightStyle = diffStyleRemovedHighlight
 		prefix = "- "
 	} else {
-		baseStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#22c55e")).
-			Background(lipgloss.Color("#052e16"))
-		highlightStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ffffff")).
-			Background(lipgloss.Color("#166534")).
-			Bold(true)
+		baseStyle = diffStyleAdded
+		highlightStyle = diffStyleAddedHighlight
 		prefix = "+ "
 	}
 
