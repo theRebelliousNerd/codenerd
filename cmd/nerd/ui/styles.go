@@ -208,10 +208,10 @@ type Styles struct {
 }
 
 // NewStyles creates a new Styles instance with the given theme
-// TODO: Consider using a builder pattern or functional options for Styles configuration if complexity grows.
-// TODO: IMPROVEMENT: Use functional options for Styles configuration.
-func NewStyles(theme Theme) Styles {
-	return Styles{
+type StyleOption func(*Styles)
+
+func NewStyles(theme Theme, opts ...StyleOption) Styles {
+	s := Styles{
 		Theme: theme,
 
 		// Layout styles
@@ -316,6 +316,11 @@ func NewStyles(theme Theme) Styles {
 			Padding(0, 1).
 			Bold(true),
 	}
+
+	for _, opt := range opts {
+		opt(&s)
+	}
+	return s
 }
 
 // DefaultStyles returns styles with the default (light) theme
