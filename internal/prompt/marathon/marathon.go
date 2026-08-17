@@ -15,6 +15,7 @@ import (
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
+	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/types"
 )
 
@@ -252,6 +253,12 @@ func openCorpusDB(workspace string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marathon: open corpus db: %w", err)
 	}
+	// ProfileBulkBuild, matching internal/init's own open of this same database
+	// (initializePromptDatabase). The access pattern is the same shape: many
+	// atom upserts, no concurrent readers, durability that only has to survive
+	// to the end of the run -- and the checkpoint makes an interrupted run
+	// resumable rather than lost.
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileBulkBuild)
 	return db, nil
 }
 
