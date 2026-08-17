@@ -96,3 +96,9 @@ interaction_blocked(SessionID, "modal_or_dialog") :-
     browser_page_state(SessionID, _, _, /true, _).
 interaction_blocked_at(SessionID, "modal_or_dialog", Timestamp) :-
     browser_page_state(SessionID, _, _, /true, Timestamp).
+
+# A control that needs constitutional approval is a hazard by derivation:
+# Go asserts what it found, logic decides what that means.
+audit_hazard(S, Subject) :-
+    audit_finding(S, "approval_required", Subject, _, _).
+

@@ -97,3 +97,13 @@ Decl honeypot_reason(Elem, Code) bound [/string, /name].
 # because the per-epoch fact budget was exhausted.
 Decl browser_epoch(SessionID, Epoch, StartedMS) bound [/string, /number, /number].
 Decl browser_stream_saturated(SessionID, Epoch, Budget, Timestamp) bound [/string, /number, /number, /number].
+
+# Audit (session-scoped so concurrent audits cannot contaminate diagnosis)
+# Kind carries the finding classification so logic can distinguish an
+# observation from an inference, and Path is repository-relative so no
+# absolute path enters the kernel.
+Decl audit_finding(SessionID, Kind, Subject, Detail, Timestamp) bound [/string, /string, /string, /string, /number].
+Decl audit_needle(SessionID, Needle) bound [/string, /string].
+Decl audit_source(SessionID, Subject, Path, Line) bound [/string, /string, /string, /number].
+Decl audit_hazard(SessionID, Subject) bound [/string, /string].
+
