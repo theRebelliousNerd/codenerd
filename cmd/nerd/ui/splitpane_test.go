@@ -106,3 +106,20 @@ func TestSplitPaneViewRenderModes(t *testing.T) {
 		t.Fatalf("expected split pane with nil right pane to return left content")
 	}
 }
+
+
+func TestLogicPaneCustomRenderLink(t *testing.T) {
+	pane := NewLogicPane(DefaultStyles(), 80, 20)
+	node := &DerivationNode{
+		Predicate: "link",
+		Args:      []string{`"https://example.com"`, `"Example Web"`},
+		Depth:     0,
+	}
+	var sb strings.Builder
+	pane.writeNode(&sb, node, false)
+	output := sb.String()
+	expectedLink := "\x1b]8;;https://example.com\x1b\\Example Web\x1b]8;;\x1b\\"
+	if !strings.Contains(output, expectedLink) {
+		t.Errorf("Expected output to contain custom link formatting.\nExpected: %q\nGot: %q", expectedLink, output)
+	}
+}

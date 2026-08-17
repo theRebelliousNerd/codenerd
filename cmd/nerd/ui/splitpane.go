@@ -683,7 +683,16 @@ func (p *LogicPane) renderTree() string {
 
 // writeNode writes a single derivation node to the provided builder
 // TODO: IMPROVEMENT: Improve tree visualization accessibility (e.g., consider screen reader friendly alternatives to ASCII art).
-// TODO: IMPROVEMENT: Implement custom rendering for specific predicates (e.g., clickable links).
+
+func formatHyperlink(url, text string) string {
+	cleanURL := strings.Trim(url, `"'`)
+	cleanText := strings.Trim(text, `"'`)
+	if !strings.HasPrefix(cleanURL, "http://") && !strings.HasPrefix(cleanURL, "https://") && strings.Contains(cleanURL, ".") {
+		cleanURL = "https://" + cleanURL
+	}
+	return fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", cleanURL, cleanText)
+}
+
 func (p *LogicPane) writeNode(sb *strings.Builder, node *DerivationNode, selected bool) {
 	// Indentation
 	indent := getIndent(node.Depth)
@@ -742,8 +751,14 @@ func (p *LogicPane) writeNode(sb *strings.Builder, node *DerivationNode, selecte
 	sb.WriteString(" ")
 	sb.WriteString(sourceIndicator)
 	sb.WriteString(" ")
-	sb.WriteString(predStyle.Render(node.Predicate))
-	sb.WriteString(argsStyle.Render(argsStr))
+	// Custom rendering for specific predicates (e.g., clickable links)
+	if node.Predicate == "link" && len(node.Args) == 2 {
+		hyperlink := formatHyperlink(node.Args[0], node.Args[1])
+		sb.WriteString(hyperlink)
+	} else {
+		sb.WriteString(predStyle.Render(node.Predicate))
+		sb.WriteString(argsStyle.Render(argsStr))
+	}
 
 	if p.ShowActivation && activationBar != "" {
 		sb.WriteString(p.activStyle.Render(activationBar))
