@@ -90,6 +90,9 @@ func NewConfigFactory(provider ConfigAtomProvider) *ConfigFactory {
 // It merges config atoms for all provided intents.
 // TODO: [Null/Undefined/Empty] Missing panic prevention when f.provider is nil.
 func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+	if f.provider == nil {
+		return nil, fmt.Errorf("config provider cannot be nil")
+	}
 	if result == nil {
 		return nil, fmt.Errorf("compilation result cannot be nil")
 	}
@@ -160,10 +163,12 @@ func (f *ConfigFactory) GenerateFallback(ctx context.Context, intent string, fal
 
 	intent = strings.TrimSpace(intent)
 	var finalAtom ConfigAtom
-	if atom, ok := f.provider.GetAtom(intent); ok {
-		finalAtom = atom
-	} else if atom, ok := f.provider.GetAtom("/general"); ok {
-		finalAtom = atom
+	if f.provider != nil {
+		if atom, ok := f.provider.GetAtom(intent); ok {
+			finalAtom = atom
+		} else if atom, ok := f.provider.GetAtom("/general"); ok {
+			finalAtom = atom
+		}
 	}
 
 	return &config.EffectiveAgentRuntimeConfig{

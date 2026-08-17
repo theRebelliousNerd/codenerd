@@ -21,14 +21,19 @@ func (m *MockConfigAtomProvider) GetAtom(intent string) (ConfigAtom, bool) {
 
 // TODO: [Null/Undefined/Empty] Missing test for NewConfigFactory(nil) which would panic when Generate() is called.
 func TestConfigFactory_NilProviderPanic(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("The code did not panic on nil provider in Generate")
-		}
-	}()
 	factory := NewConfigFactory(nil)
 	ctx := context.Background()
-	_, _ = factory.Generate(ctx, &CompilationResult{Prompt: "test"}, "/fix")
+	compilationResult := &CompilationResult{Prompt: "test"}
+
+	_, err := factory.Generate(ctx, compilationResult, "/fix")
+	if err == nil {
+		t.Errorf("Expected error for nil provider in Generate, got nil")
+	}
+
+	cfg := factory.GenerateFallback(ctx, "/fix", "fallback")
+	if cfg == nil {
+		t.Errorf("Expected config for nil provider in GenerateFallback, got nil")
+	}
 }
 
 // TODO: [Null/Undefined/Empty] Missing test for ConfigAtom.Merge behavior when Tools or Policies are explicitly nil versus empty slices, ensuring it doesn't panic and returns initialized slices if expected.
