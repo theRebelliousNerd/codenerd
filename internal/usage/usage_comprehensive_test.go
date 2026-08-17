@@ -214,6 +214,11 @@ func TestFromContext_WhenNoTracker_ShouldReturnNil(t *testing.T) {
 	if FromContext(ctx) != nil {
 		t.Error("expected nil from context without tracker")
 	}
+
+	// Test nil context
+	if FromContext(nil) != nil {
+		t.Error("expected nil from nil context")
+	}
 }
 
 func TestFromContext_WhenTrackerExists_ShouldReturnTracker(t *testing.T) {
