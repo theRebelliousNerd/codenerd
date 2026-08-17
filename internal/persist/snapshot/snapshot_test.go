@@ -3,11 +3,17 @@ package snapshot
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"codenerd/internal/persist/factsnap"
 	"codenerd/internal/types"
+)
+
+var (
+	defaultNamePattern = regexp.MustCompile(`^snapshot-\d{8}-\d{6}$`)
+	kernelNamePattern  = regexp.MustCompile(`^kernel-\d{8}-\d{6}$`)
 )
 
 func facts(n int) []types.Fact {
@@ -184,5 +190,33 @@ func TestCodecFor_WhenAliasGiven_ShouldMapOrReject(t *testing.T) {
 	}
 	if _, err := CodecFor("brotli"); err == nil {
 		t.Fatal("expected unknown codec to be rejected")
+	}
+}
+
+func TestDefaultName(t *testing.T) {
+	tests := []struct {
+		name   string
+		prefix string
+		regex  *regexp.Regexp
+	}{
+		{
+			name:   "empty prefix defaults to snapshot",
+			prefix: "",
+			regex:  defaultNamePattern,
+		},
+		{
+			name:   "custom prefix",
+			prefix: "kernel",
+			regex:  kernelNamePattern,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DefaultName(tt.prefix)
+			if !tt.regex.MatchString(got) {
+				t.Errorf("DefaultName(%q) = %v, want matching %v", tt.prefix, got, tt.regex)
+			}
+		})
 	}
 }
