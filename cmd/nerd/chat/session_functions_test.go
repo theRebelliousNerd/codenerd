@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"codenerd/cmd/nerd/ui"
 	"time"
 
 	"codenerd/internal/core"
@@ -187,6 +188,7 @@ func TestLoadSelectedSession(t *testing.T) {
 
 	// Create model
 	m := Model{
+		styles: ui.DefaultStyles(),
 		workspace: tmpDir,
 		sessionID: "current-session",
 		history:   []Message{},
@@ -235,6 +237,7 @@ func TestLoadSelectedSession_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	m := Model{
+		styles: ui.DefaultStyles(),
 		workspace: tmpDir,
 		sessionID: "current",
 		textarea:  NewTestModel().textarea,

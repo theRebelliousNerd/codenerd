@@ -351,7 +351,7 @@ func (d *DiffApprovalView) updateContent() {
 // renderEmpty renders the empty state
 func (d *DiffApprovalView) renderEmpty() string {
 	emptyStyle := lipgloss.NewStyle().
-		Foreground(d.Styles.Theme.OnSurfaceMuted).
+		Foreground(d.Styles.Theme.OnSurfaceMuted()).
 		Italic(true).
 		Padding(2).
 		Width(ViewportWidth(d.Width)).
@@ -397,21 +397,21 @@ func (d *DiffApprovalView) renderCurrentMutation() string {
 func (d *DiffApprovalView) renderHeader(m *PendingMutation) string {
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(d.Styles.Theme.Primary).
+		Foreground(d.Styles.Theme.Primary()).
 		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(d.Styles.Theme.Outline).
+		BorderForeground(d.Styles.Theme.Outline()).
 		Width(ViewportWidth(d.Width)).
 		Padding(0, 1)
 
 	// Status indicator
 	status := "⏳ PENDING"
-	statusColor := d.Styles.Theme.OnSurfaceMuted
+	statusColor := d.Styles.Theme.OnSurfaceMuted()
 	if m.Approved {
 		status = "✅ APPROVED"
-		statusColor = d.Styles.Theme.Success
+		statusColor = d.Styles.Theme.Success()
 	} else if m.Rejected {
 		status = "❌ REJECTED"
-		statusColor = d.Styles.Theme.Destructive
+		statusColor = d.Styles.Theme.Destructive()
 	}
 
 	statusStyle := lipgloss.NewStyle().Foreground(statusColor).Bold(true)
@@ -430,10 +430,10 @@ func (d *DiffApprovalView) renderHeader(m *PendingMutation) string {
 // renderWarnings renders safety warnings
 func (d *DiffApprovalView) renderWarnings(warnings []string) string {
 	warningStyle := lipgloss.NewStyle().
-		Foreground(d.Styles.Theme.Warning).
+		Foreground(d.Styles.Theme.Warning()).
 		Bold(true).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(d.Styles.Theme.Warning).
+		BorderForeground(d.Styles.Theme.Warning()).
 		Padding(0, 1).
 		Width(WarningBoxWidth(d.Width))
 
@@ -484,8 +484,8 @@ func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 		hunkStyle := d.Styles.Muted
 		if i == d.SelectedHunk {
 			hunkStyle = lipgloss.NewStyle().
-				Background(d.Styles.Theme.Container).
-				Foreground(d.Styles.Theme.OnContainer)
+				Background(d.Styles.Theme.Container()).
+				Foreground(d.Styles.Theme.OnContainer())
 		}
 		sb.WriteString(hunkStyle.Render(hunkHeader))
 		sb.WriteString("\n")
@@ -775,9 +775,9 @@ func sliceSegments(segments []styledSegment, startCol, maxCols int) []styledSegm
 // renderControls renders the approval controls
 func (d *DiffApprovalView) renderControls() string {
 	controlStyle := lipgloss.NewStyle().
-		Foreground(d.Styles.Theme.OnSurfaceMuted).
+		Foreground(d.Styles.Theme.OnSurfaceMuted()).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(d.Styles.Theme.Outline).
+		BorderForeground(d.Styles.Theme.Outline()).
 		Padding(0, 1).
 		Width(ViewportWidth(d.Width))
 

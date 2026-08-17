@@ -8,7 +8,7 @@ import (
 
 func TestDiffApprovalView_HorizontalOffset_Logic(t *testing.T) {
 	// This test focuses on the state changes of XOffset
-	view := NewDiffApprovalView(Styles{}, 10, 10)
+	view := NewDiffApprovalView(Styles{Theme: LightTheme()}, 10, 10)
 
 	assert.Equal(t, 0, view.XOffset)
 
@@ -38,7 +38,7 @@ func TestDiffApprovalView_HorizontalOffset_Logic(t *testing.T) {
 }
 
 func TestDiffApprovalView_Rendering_Truncation(t *testing.T) {
-	view := NewDiffApprovalView(Styles{Theme: Theme{}}, 20, 20)
+	view := NewDiffApprovalView(Styles{Theme: BasicTheme{}}, 20, 20)
 	longLine := "0123456789abcdefghijklmnopqrstuvwxyz"
 	line := DiffLine{LineNum: 1, Content: longLine, Type: DiffLineContext}
 	initialRendered := view.renderDiffLine(line)

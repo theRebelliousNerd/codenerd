@@ -249,12 +249,12 @@ func (m JITPageModel) View() string {
 	// Render filter bar
 	filterStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(m.styles.Theme.Outline).
+		BorderForeground(m.styles.Theme.Outline()).
 		Padding(0, 1).
 		MarginBottom(1)
 
 	if m.filterFocused {
-		filterStyle = filterStyle.BorderForeground(m.styles.Theme.Primary)
+		filterStyle = filterStyle.BorderForeground(m.styles.Theme.Primary())
 	}
 	sb.WriteString(filterStyle.Render(m.filterInput.View()))
 	sb.WriteString("\n")
@@ -267,8 +267,8 @@ func (m JITPageModel) View() string {
 		Padding(0, 1).
 		Border(lipgloss.RoundedBorder())
 
-	focusedBorder := m.styles.Theme.Secondary
-	blurredBorder := m.styles.Theme.OnSurfaceMuted
+	focusedBorder := m.styles.Theme.Secondary()
+	blurredBorder := m.styles.Theme.OnSurfaceMuted()
 
 	var listStyle, viewStyle lipgloss.Style
 	if !m.focusViewport && !m.filterFocused {

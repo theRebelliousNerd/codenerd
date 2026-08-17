@@ -305,7 +305,10 @@ func (m *ShardPageModel) renderShardDetails(s types.ShardAgent) string {
 }
 
 // View renders the page.
-func (m ShardPageModel) View() string {
+func (m *ShardPageModel) View() string {
+	if m.styles.Theme == nil {
+		m.styles = DefaultStyles()
+	}
 	var sb strings.Builder
 
 	// Header / Queue Status
@@ -333,9 +336,9 @@ func (m ShardPageModel) View() string {
 		Border(tableBorder).
 		BorderForeground(func() lipgloss.Color {
 			if !m.detailsFocused && !m.filterFocused {
-				return m.styles.Theme.Primary
+				return m.styles.Theme.Primary()
 			}
-			return m.styles.Theme.Outline
+			return m.styles.Theme.Outline()
 		}()).
 		Render(m.table.View())
 
@@ -347,9 +350,9 @@ func (m ShardPageModel) View() string {
 		Border(detailsBorder).
 		BorderForeground(func() lipgloss.Color {
 			if m.detailsFocused {
-				return m.styles.Theme.Primary
+				return m.styles.Theme.Primary()
 			}
-			return m.styles.Theme.Outline
+			return m.styles.Theme.Outline()
 		}()).
 		Width(m.detailsViewport.Width).
 		Height(m.detailsViewport.Height).
@@ -374,11 +377,11 @@ func (m ShardPageModel) renderFilterBar() string {
 	// Filter input
 	filterStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(m.styles.Theme.Outline).
+		BorderForeground(m.styles.Theme.Outline()).
 		Padding(0, 1)
 
 	if m.filterFocused {
-		filterStyle = filterStyle.BorderForeground(m.styles.Theme.Primary)
+		filterStyle = filterStyle.BorderForeground(m.styles.Theme.Primary())
 	}
 
 	sb.WriteString(filterStyle.Render(m.filterInput.View()))
@@ -399,7 +402,7 @@ func (m ShardPageModel) renderFilterBar() string {
 		style := m.styles.Muted
 		if m.filterMode == mode.mode {
 			style = lipgloss.NewStyle().
-				Foreground(m.styles.Theme.Primary).
+				Foreground(m.styles.Theme.Primary()).
 				Bold(true).
 				Underline(true)
 		}
