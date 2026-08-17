@@ -91,3 +91,23 @@ func TestMixedSanitization(t *testing.T) {
 		t.Errorf("Pipe missing")
 	}
 }
+
+func BenchmarkAggregationRepair(b *testing.B) {
+	s := NewSanitizer()
+	input := `count_topics(Agent, C) :- research_topic(Agent, _, _), C = count(Agent).`
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = s.Sanitize(input)
+	}
+}
+
+func BenchmarkAggregationRepairLarge(b *testing.B) {
+	s := NewSanitizer()
+	input := `stats(A, B, C, D, E, F, G, H, I, J, K) :- data(A, B, C, D, E, F, G, H, I, J, _, _), K = count(A).`
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = s.Sanitize(input)
+	}
+}
