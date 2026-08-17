@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"slices"
 )
 
 // =============================================================================
@@ -688,7 +689,7 @@ func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, erro
 	}
 
 	// 1. Get all facts from kernel
-	allFacts := c.kernel.GetAllFacts()
+	allFacts := slices.Collect(c.kernel.GetAllFactsSeq())
 	logging.ContextDebug("Building context: %d total facts in kernel", len(allFacts))
 
 	// 2. Find current intent (for activation scoring)

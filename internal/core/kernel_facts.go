@@ -1255,16 +1255,6 @@ func (k *RealKernel) FactCount() int {
 	return len(k.facts)
 }
 
-// GetAllFacts returns all facts in the EDB (thread-safe snapshot).
-// Deprecated: use GetAllFactsSeq for memory efficiency.
-func (k *RealKernel) GetAllFacts() []Fact {
-	k.mu.RLock()
-	defer k.mu.RUnlock()
-	result := make([]Fact, len(k.facts))
-	copy(result, k.facts)
-	return result
-}
-
 // GetAllFactsSeq returns all facts in the EDB as an iterator (thread-safe snapshot).
 func (k *RealKernel) GetAllFactsSeq() iter.Seq[Fact] {
 	return k.GetFactsSnapshotSeq()

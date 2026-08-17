@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"slices"
 )
 
 // =============================================================================
@@ -216,7 +217,7 @@ func (c *Compressor) recalcBudget(turnNumber int, workingTokens int) {
 
 	// Gather context components
 	coreFacts := c.getCoreFacts()
-	allFacts := c.kernel.GetAllFacts()
+	allFacts := slices.Collect(c.kernel.GetAllFactsSeq())
 
 	var currentIntent *core.Fact
 	// OPTIMIZATION: Use QueryAll for single predicate lookups too (more consistent)

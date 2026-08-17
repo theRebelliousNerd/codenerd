@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"slices"
 )
 
 // =============================================================================
@@ -472,8 +473,8 @@ func TestGetFactsSnapshot_ShouldReturnCopy(t *testing.T) {
 func TestGetAllFacts_ShouldReturnCopy(t *testing.T) {
 	k := setupMockKernel(t)
 
-	facts1 := k.GetAllFacts()
-	facts2 := k.GetAllFacts()
+	facts1 := slices.Collect(k.GetAllFactsSeq())
+	facts2 := slices.Collect(k.GetAllFactsSeq())
 
 	if len(facts1) != len(facts2) {
 		t.Errorf("GetAllFacts returned inconsistent lengths: %d vs %d", len(facts1), len(facts2))

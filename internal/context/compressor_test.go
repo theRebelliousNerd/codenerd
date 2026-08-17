@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
+	"slices"
 )
 
 func createTestCompressor(t *testing.T, llm *MockLLMClient) *Compressor {
@@ -238,7 +239,7 @@ func TestAtomExtractionAndKernel(t *testing.T) {
 
 	if !found {
 		// Log all facts to debug
-		allFacts := comp.kernel.GetAllFacts()
+		allFacts := slices.Collect(comp.kernel.GetAllFactsSeq())
 		t.Logf("All facts in kernel: %d", len(allFacts))
 		for _, f := range allFacts {
 			t.Logf("  %s %v", f.Predicate, f.Args)

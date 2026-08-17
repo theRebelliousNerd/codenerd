@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"slices"
 )
 
 func TestVirtualStore_CompilationDelegation(t *testing.T) {
@@ -47,7 +48,7 @@ func TestVirtualStore_CompilationDelegation(t *testing.T) {
 	}
 
 	// Verify: Check if 'delegation_result' exists in kernel
-	allFacts := kernel.GetAllFacts()
+	allFacts := slices.Collect(kernel.GetAllFactsSeq())
 	found := false
 	for _, f := range allFacts {
 		// Use string matching to be safe with Mangle Name constants vs strings
