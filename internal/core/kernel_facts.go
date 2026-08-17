@@ -1225,16 +1225,6 @@ func parsePriorityString(atom string, original any) any {
 	}
 }
 
-// GetFactsSnapshot returns a copy of the current facts (thread-safe).
-// Deprecated: use GetFactsSnapshotSeq for memory efficiency.
-func (k *RealKernel) GetFactsSnapshot() []Fact {
-	k.mu.RLock()
-	defer k.mu.RUnlock()
-	snapshot := make([]Fact, len(k.facts))
-	copy(snapshot, k.facts)
-	return snapshot
-}
-
 // GetFactsSnapshotSeq returns an iterator of the current facts (thread-safe).
 func (k *RealKernel) GetFactsSnapshotSeq() iter.Seq[Fact] {
 	return func(yield func(Fact) bool) {
