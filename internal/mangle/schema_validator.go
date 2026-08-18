@@ -291,11 +291,17 @@ func (sv *SchemaValidator) extractHeadPredicate(line string) string {
 
 // ValidateRules validates multiple rules at once.
 func (sv *SchemaValidator) ValidateRules(rules []string) []error {
-	errors := make([]error, 0, len(rules))
+	var errors []error
+	if len(rules) > 0 {
+		errors = make([]error, 0, len(rules))
+	}
 	for i, rule := range rules {
 		if err := sv.ValidateRule(rule); err != nil {
 			errors = append(errors, fmt.Errorf("rule %d: %w", i+1, err))
 		}
+	}
+	if len(errors) == 0 {
+		return nil
 	}
 	return errors
 }
