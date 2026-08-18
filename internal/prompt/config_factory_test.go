@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 )
 
 // MockConfigAtomProvider simulates the retrieval of config atoms.
@@ -601,3 +602,35 @@ func TestConfigFactory_NilProviderError(t *testing.T) {
 }
 
 // TODO: [Null/Undefined/Empty] Missing test for ConfigAtom.Merge behavior when Tools or Policies are explicitly nil versus empty slices, ensuring it doesn't panic and returns initialized slices if expected.
+
+func TestConfigFactory_GenerateFallbackRuneTruncation(t *testing.T) {
+	ctx := context.Background()
+	provider := NewDefaultConfigAtomProvider()
+	factory := NewConfigFactory(provider)
+
+	// Build a string that is exactly 1MB + some multi-byte characters
+	// The 1MB limit is 1024 * 1024 = 1048576 bytes
+	// We'll pad with ASCII up to 1048574, then add a 3-byte character ("世")
+	// so the 1MB boundary falls right in the middle of the character.
+	limit := 1024 * 1024
+	padLen := limit - 2
+	padding := strings.Repeat("A", padLen)
+
+	// '世' is 3 bytes (E4 B8 96).
+	// With padLen of limit-2, the first two bytes of '世' will fall within the 1MB limit.
+	massiveStr := padding + "世界"
+
+	cfg := factory.GenerateFallback(ctx, "/general", massiveStr)
+
+	if !utf8.ValidString(cfg.IdentityPrompt) {
+		t.Errorf("GenerateFallback produced invalid UTF-8 string")
+	}
+
+	if len(cfg.IdentityPrompt) > limit {
+		t.Errorf("GenerateFallback failed to truncate string to limit. Got len %d, want <= %d", len(cfg.IdentityPrompt), limit)
+	}
+
+	if len(cfg.IdentityPrompt) != padLen {
+		t.Errorf("GenerateFallback truncated incorrectly. Expected length %d, got %d", padLen, len(cfg.IdentityPrompt))
+	}
+}
