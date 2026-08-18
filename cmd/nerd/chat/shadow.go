@@ -244,7 +244,7 @@ func (m Model) renderLogicPane() string {
 	var sb strings.Builder
 
 	// Header
-	sb.WriteString(m.styles.Header.Render("Logic State"))
+	sb.WriteString(m.styles.Layout.Header.Render("Logic State"))
 	sb.WriteString("\n")
 	sb.WriteString(m.styles.RenderDivider(30))
 	sb.WriteString("\n\n")
@@ -252,7 +252,7 @@ func (m Model) renderLogicPane() string {
 	// Recent facts
 	facts, _ := m.kernel.Query("*")
 	if len(facts) > 0 {
-		sb.WriteString(m.styles.Bold.Render("Recent Facts"))
+		sb.WriteString(m.styles.Text.Bold.Render("Recent Facts"))
 		sb.WriteString("\n")
 		count := min(len(facts), 10)
 		for i := 0; i < count; i++ {
@@ -267,7 +267,7 @@ func (m Model) renderLogicPane() string {
 	intents, _ := m.kernel.Query("user_intent")
 	if len(intents) > 0 {
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.Bold.Render("Current Intent"))
+		sb.WriteString(m.styles.Text.Bold.Render("Current Intent"))
 		sb.WriteString("\n")
 		sb.WriteString(fmt.Sprintf("  %s\n", intents[len(intents)-1].String()))
 	}
@@ -276,7 +276,7 @@ func (m Model) renderLogicPane() string {
 	actions, _ := m.kernel.Query("next_action")
 	if len(actions) > 0 {
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.Bold.Render("Pending Actions"))
+		sb.WriteString(m.styles.Text.Bold.Render("Pending Actions"))
 		sb.WriteString("\n")
 		for _, a := range actions {
 			sb.WriteString(fmt.Sprintf("  %s\n", a.String()))

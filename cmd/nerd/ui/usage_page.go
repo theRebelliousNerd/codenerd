@@ -52,7 +52,7 @@ func (m *UsagePageModel) UpdateContent() {
 	var sb strings.Builder
 
 	// Title
-	sb.WriteString(m.styles.Header.Render("Token Usage Statistics"))
+	sb.WriteString(m.styles.Layout.Header.Render("Token Usage Statistics"))
 	sb.WriteString("\n\n")
 
 	// Total Project Usage

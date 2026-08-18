@@ -82,11 +82,11 @@ func (m Model) renderSingleMessage(msg Message) string {
 	switch msg.Role {
 	case RoleUser:
 		// Render user message
-		userStyle := m.styles.Bold.
+		userStyle := m.styles.Text.Bold.
 			Foreground(m.styles.Theme.Primary).
 			MarginTop(1)
 		rendered.WriteString(userStyle.Render(LabelUser) + "\n")
-		rendered.WriteString(m.styles.UserInput.Render(msg.Content))
+		rendered.WriteString(m.styles.Interactive.UserInput.Render(msg.Content))
 		rendered.WriteString("\n\n")
 
 	case RoleSystem:
@@ -99,7 +99,7 @@ func (m Model) renderSingleMessage(msg Message) string {
 	case RoleTool:
 		// Render tool execution notification (ALWAYS shown, not gated by Glass Box)
 		// Inline styles used here for specific tool highlight
-		toolStyle := m.styles.Bold.
+		toolStyle := m.styles.Text.Bold.
 			Foreground(lipgloss.Color("214")). // Orange for tool execution
 			MarginTop(1)
 		rendered.WriteString(toolStyle.Render(LabelToolExecution) + "\n")
@@ -110,14 +110,14 @@ func (m Model) renderSingleMessage(msg Message) string {
 
 	default: // RoleAssistant
 		// Render assistant message with markdown
-		assistantStyle := m.styles.Bold.
+		assistantStyle := m.styles.Text.Bold.
 			Foreground(m.styles.Theme.Secondary).
 			MarginTop(1)
 		rendered.WriteString(assistantStyle.Render(LabelAssistant) + "\n")
 
 		// Render reasoning trace if present
 		if msg.ThoughtSummary != "" {
-			thoughtStyle := m.styles.Muted.Italic(true)
+			thoughtStyle := m.styles.Text.Muted.Italic(true)
 			// Prefix with a thinking indicator, e.g., 🤔
 			rendered.WriteString(thoughtStyle.Render("🤔 "+msg.ThoughtSummary) + "\n\n")
 		}
@@ -139,7 +139,7 @@ func (m Model) renderSingleMessage(msg Message) string {
 	// Either layer alone (or both together) is rendered when present.
 	if m.isStreaming {
 		if strings.TrimSpace(m.currentThought) != "" {
-			thoughtStyle := m.styles.Muted.Italic(true)
+			thoughtStyle := m.styles.Text.Muted.Italic(true)
 			// While streaming, append the same █ cursor we use on
 			// surface output, so users can see thoughts are still
 			// arriving even before any visible answer text begins.
@@ -186,19 +186,19 @@ func glassBoxIcon(c transparency.GlassBoxCategory) string {
 func (m Model) glassBoxLabelStyle(c transparency.GlassBoxCategory) lipgloss.Style {
 	switch c {
 	case transparency.CategoryPerception:
-		return m.styles.Success
+		return m.styles.Status.Success
 	case transparency.CategoryKernel:
-		return m.styles.Warning
+		return m.styles.Status.Warning
 	case transparency.CategoryShard:
-		return m.styles.Title
+		return m.styles.Text.Title
 	case transparency.CategoryJIT:
-		return m.styles.Info
+		return m.styles.Status.Info
 	case transparency.CategoryRouting:
-		return m.styles.Success
+		return m.styles.Status.Success
 	case transparency.CategoryControl:
-		return m.styles.Info
+		return m.styles.Status.Info
 	default:
-		return m.styles.Muted
+		return m.styles.Text.Muted
 	}
 }
 
@@ -224,12 +224,12 @@ func (m Model) renderGlassBoxMessage(msg Message) string {
 	// Timestamp chip for temporal feel.
 	ts := ""
 	if !msg.Time.IsZero() {
-		ts = m.styles.Muted.Render(msg.Time.Format("15:04:05"))
+		ts = m.styles.Text.Muted.Render(msg.Time.Format("15:04:05"))
 	}
 
-	rail := m.styles.Muted.Render("│")
+	rail := m.styles.Text.Muted.Render("│")
 	pill := labelStyle.Bold(true).Render(fmt.Sprintf("%s %s", icon, label))
-	body := m.styles.Muted.Render(summary)
+	body := m.styles.Text.Muted.Render(summary)
 
 	var b strings.Builder
 	if ts != "" {
@@ -246,14 +246,14 @@ func (m Model) renderGlassBoxMessage(msg Message) string {
 				continue
 			}
 			b.WriteString(fmt.Sprintf("  %s   %s\n",
-				m.styles.Muted.Render("│"),
-				m.styles.Muted.Italic(true).Render(dl),
+				m.styles.Text.Muted.Render("│"),
+				m.styles.Text.Muted.Italic(true).Render(dl),
 			))
 		}
 	} else if details != "" && msg.IsCollapsed {
 		b.WriteString(fmt.Sprintf("  %s   %s\n",
-			m.styles.Muted.Render("│"),
-			m.styles.Muted.Render("··· details collapsed"),
+			m.styles.Text.Muted.Render("│"),
+			m.styles.Text.Muted.Render("··· details collapsed"),
 		))
 	}
 
@@ -324,7 +324,7 @@ func (m Model) renderErrorPanel() string {
 		Bold(true).
 		Foreground(m.styles.Theme.Destructive).
 		Render("Error") +
-		m.styles.Muted.Render("  Alt+E: scroll  Alt+Shift+E: hide")
+		m.styles.Text.Muted.Render("  Alt+E: scroll  Alt+Shift+E: hide")
 
 	panelStyle := lipgloss.NewStyle().
 		Border(border).
@@ -338,9 +338,9 @@ func (m Model) renderErrorPanel() string {
 
 func (m Model) renderHeader() string {
 	// Logo and title
-	title := m.styles.Header.Render(" codeNERD ")
-	version := m.styles.Badge.Render("v1.0")
-	workspace := m.styles.Muted.Render(fmt.Sprintf(" %s", m.workspace))
+	title := m.styles.Layout.Header.Render(" codeNERD ")
+	version := m.styles.Components.Badge.Render("v1.0")
+	workspace := m.styles.Text.Muted.Render(fmt.Sprintf(" %s", m.workspace))
 
 	// Status indicators — live elapsed + latest beat so the header never
 	// freezes on a static "Thinking..." while the system works.
@@ -367,10 +367,10 @@ func (m Model) renderHeader() string {
 		}
 		status = lipgloss.JoinHorizontal(lipgloss.Center,
 			spin, " ",
-			m.styles.Badge.Render(msg+elapsed),
+			m.styles.Components.Badge.Render(msg+elapsed),
 		)
 	} else {
-		status = m.styles.Success.Render("● Ready")
+		status = m.styles.Status.Success.Render("● Ready")
 	}
 
 	headerLine := lipgloss.JoinHorizontal(
@@ -468,7 +468,7 @@ func (m Model) renderFooter() string {
 	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+G: glass | Alt+D: debug | Alt+P: jit | Alt+A: auto | Alt+S: shards | /help"
 
 	timestamp := time.Now().Format("15:04")
-	help := m.styles.Muted.Render(fmt.Sprintf("%s | %s%s%s%s%s%s%s | %s | %s",
+	help := m.styles.Text.Muted.Render(fmt.Sprintf("%s | %s%s%s%s%s%s%s | %s | %s",
 		continuationModeStr, paneModeStr, campaignIndicator, continuationIndicator, contextIndicator, memoryIndicator, mouseIndicator, glassIndicator, timestamp, hotkeys))
 	maxW := max(m.width, 1)
 	return lipgloss.NewStyle().
@@ -479,7 +479,7 @@ func (m Model) renderFooter() string {
 
 func (m Model) renderBootScreen() string {
 	spin := m.spinner.View()
-	title := m.styles.Header.Render(" codeNERD ")
+	title := m.styles.Layout.Header.Render(" codeNERD ")
 
 	subtitleText := "System Booting"
 	detailText := "Initializing Kernel, Shards, and Knowledge Base..."
@@ -491,7 +491,7 @@ func (m Model) renderBootScreen() string {
 			detailText = "Scanning workspace for fresh facts..."
 		}
 	}
-	subtitle := m.styles.Badge.Render(subtitleText)
+	subtitle := m.styles.Components.Badge.Render(subtitleText)
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Center,
@@ -500,7 +500,7 @@ func (m Model) renderBootScreen() string {
 		spin,
 		"\n",
 		subtitle,
-		m.styles.Muted.Render(detailText),
+		m.styles.Text.Muted.Render(detailText),
 	)
 
 	return lipgloss.Place(
@@ -513,33 +513,33 @@ func (m Model) renderBootScreen() string {
 }
 
 func (m Model) renderListView() string {
-	return m.styles.Content.Render(m.list.View())
+	return m.styles.Layout.Content.Render(m.list.View())
 }
 
 func (m Model) renderFilePickerView() string {
-	title := m.styles.Header.Render(" Select a file ")
-	content := m.styles.Content.Render(m.filepicker.View())
+	title := m.styles.Layout.Header.Render(" Select a file ")
+	content := m.styles.Layout.Content.Render(m.filepicker.View())
 	return lipgloss.JoinVertical(lipgloss.Left, title, content)
 }
 
 func (m Model) renderUsageView() string {
-	return m.styles.Content.Render(m.usagePage.View())
+	return m.styles.Layout.Content.Render(m.usagePage.View())
 }
 
 func (m Model) renderCampaignView() string {
-	return m.styles.Content.Render(m.campaignPage.View())
+	return m.styles.Layout.Content.Render(m.campaignPage.View())
 }
 
 func (m Model) renderJITView() string {
-	return m.styles.Content.Render(m.jitPage.View())
+	return m.styles.Layout.Content.Render(m.jitPage.View())
 }
 
 func (m Model) renderAutopoiesisView() string {
-	return m.styles.Content.Render(m.autoPage.View())
+	return m.styles.Layout.Content.Render(m.autoPage.View())
 }
 
 func (m Model) renderShardView() string {
-	return m.styles.Content.Render(m.shardPage.View())
+	return m.styles.Layout.Content.Render(m.shardPage.View())
 }
 
 func (m Model) renderChatView() string {
@@ -551,7 +551,7 @@ func (m Model) renderChatView() string {
 	if m.err != nil && m.showError {
 		content = lipgloss.JoinVertical(lipgloss.Left, content, m.renderErrorPanel())
 	}
-	chatView := m.styles.Content.Render(content)
+	chatView := m.styles.Layout.Content.Render(content)
 
 	// Apply split-pane view if enabled (Glass Box Interface)
 	if m.showLogic && m.splitPane != nil {
@@ -622,9 +622,9 @@ func (m Model) renderActivityLine() string {
 	for i, p := range trail {
 		prefix := "  "
 		if i == 0 {
-			prefix = m.styles.Success.Render("  ▸ ")
+			prefix = m.styles.Status.Success.Render("  ▸ ")
 		} else {
-			prefix = m.styles.Muted.Render("  · ")
+			prefix = m.styles.Text.Muted.Render("  · ")
 		}
 		icon := glassBoxIcon(p.Category)
 		catStyle := m.glassBoxLabelStyle(p.Category)
@@ -634,8 +634,8 @@ func (m Model) renderActivityLine() string {
 		}
 		age := formatActivityAge(p.At)
 		line := prefix + catStyle.Render(icon) + " " +
-			m.styles.Muted.Render(summary) +
-			m.styles.Muted.Italic(true).Render("  · "+age)
+			m.styles.Text.Muted.Render(summary) +
+			m.styles.Text.Muted.Italic(true).Render("  · "+age)
 		lines = append(lines, line)
 	}
 
@@ -648,12 +648,12 @@ func (m Model) renderLivePulseHeader() string {
 
 	if m.isLoading {
 		spin := m.spinner.View()
-		live := m.styles.Success.Bold(true).Render("LIVE")
+		live := m.styles.Status.Success.Bold(true).Render("LIVE")
 		parts = append(parts, "  "+spin+" "+live)
 
 		if !m.turnStartedAt.IsZero() {
 			elapsed := formatElapsedShort(time.Since(m.turnStartedAt))
-			parts = append(parts, m.styles.Badge.Render(elapsed))
+			parts = append(parts, m.styles.Components.Badge.Render(elapsed))
 		}
 
 		// Traveling energy bar — pure visual "still working" cue.
@@ -667,17 +667,17 @@ func (m Model) renderLivePulseHeader() string {
 		} else if !m.activityAt.IsZero() {
 			elapsed = time.Since(m.activityAt)
 		}
-		bar := m.styles.Info.Render(livePulseBar(elapsed, barW))
+		bar := m.styles.Status.Info.Render(livePulseBar(elapsed, barW))
 		parts = append(parts, bar)
 
 		if n := len(m.activityTrail); n > 0 {
-			parts = append(parts, m.styles.Muted.Render(fmt.Sprintf("%d beats", n)))
+			parts = append(parts, m.styles.Text.Muted.Render(fmt.Sprintf("%d beats", n)))
 		}
 	} else {
 		// Afterglow header once the turn settles.
-		parts = append(parts, m.styles.Muted.Render("  ◈ recent"))
+		parts = append(parts, m.styles.Text.Muted.Render("  ◈ recent"))
 		if !m.activityAt.IsZero() {
-			parts = append(parts, m.styles.Muted.Italic(true).Render(formatActivityAge(m.activityAt)))
+			parts = append(parts, m.styles.Text.Muted.Italic(true).Render(formatActivityAge(m.activityAt)))
 		}
 	}
 

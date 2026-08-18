@@ -125,18 +125,18 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 			case "c", "y":
 				if m.selected != nil {
 					if err := clipboardWriteAll(m.selected.Content); err != nil {
-						cmd = m.list.NewStatusMessage(m.styles.Error.Render("Failed to copy atom content"))
+						cmd = m.list.NewStatusMessage(m.styles.Status.Error.Render("Failed to copy atom content"))
 					} else {
-						cmd = m.list.NewStatusMessage(m.styles.Success.Render(fmt.Sprintf("Copied atom content for [%s] to clipboard", m.selected.ID)))
+						cmd = m.list.NewStatusMessage(m.styles.Status.Success.Render(fmt.Sprintf("Copied atom content for [%s] to clipboard", m.selected.ID)))
 					}
 					cmds = append(cmds, cmd)
 				}
 			case "p":
 				if m.lastResult != nil {
 					if err := clipboardWriteAll(m.lastResult.Prompt); err != nil {
-						cmd = m.list.NewStatusMessage(m.styles.Error.Render("Failed to copy full prompt"))
+						cmd = m.list.NewStatusMessage(m.styles.Status.Error.Render("Failed to copy full prompt"))
 					} else {
-						cmd = m.list.NewStatusMessage(m.styles.Success.Render("Copied full prompt to clipboard"))
+						cmd = m.list.NewStatusMessage(m.styles.Status.Success.Render("Copied full prompt to clipboard"))
 					}
 					cmds = append(cmds, cmd)
 				}
@@ -204,18 +204,18 @@ func (m *JITPageModel) applyFilter() {
 
 // renderAtomContent formats the atom for display using strings.Builder
 func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
-	headerStyle := m.styles.Header
-	infoStyle := m.styles.Info
-	mutedStyle := m.styles.Muted
+	headerStyle := m.styles.Layout.Header
+	infoStyle := m.styles.Status.Info
+	mutedStyle := m.styles.Text.Muted
 
 	header := headerStyle.Render(atom.ID)
 	info := infoStyle.Render(fmt.Sprintf("Category: %s | Priority: %d | Tokens: %d", atom.Category, atom.Priority, atom.TokenCount))
 
 	mandatoryStatus := ""
 	if atom.IsMandatory {
-		mandatoryStatus = m.styles.Error.Render("MANDATORY (Skeleton)")
+		mandatoryStatus = m.styles.Status.Error.Render("MANDATORY (Skeleton)")
 	} else {
-		mandatoryStatus = m.styles.Success.Render("OPTIONAL (Flesh)")
+		mandatoryStatus = m.styles.Status.Success.Render("OPTIONAL (Flesh)")
 	}
 
 	separator := mutedStyle.Render("--- Content ---")
@@ -241,7 +241,7 @@ func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 // View renders the page.
 func (m JITPageModel) View() string {
 	if m.lastResult == nil {
-		return m.styles.Content.Render("No JIT compilation result available yet.")
+		return m.styles.Layout.Content.Render("No JIT compilation result available yet.")
 	}
 
 	var sb strings.Builder
@@ -263,7 +263,7 @@ func (m JITPageModel) View() string {
 	listPaneWidth := int(float64(totalWidth) * 0.35)
 	viewPaneWidth := totalWidth - listPaneWidth
 
-	baseStyle := m.styles.Content.Copy().
+	baseStyle := m.styles.Layout.Content.Copy().
 		Padding(0, 1).
 		Border(lipgloss.RoundedBorder())
 
@@ -288,7 +288,7 @@ func (m JITPageModel) View() string {
 	mainView := lipgloss.JoinHorizontal(lipgloss.Top, listView, contentView)
 	sb.WriteString(mainView)
 
-	help := m.styles.Muted.Render("\n • c/y: copy atom • p: copy full prompt • tab: focus switch • /: filter • esc: clear filter")
+	help := m.styles.Text.Muted.Render("\n • c/y: copy atom • p: copy full prompt • tab: focus switch • /: filter • esc: clear filter")
 	sb.WriteString(help)
 
 	return sb.String()

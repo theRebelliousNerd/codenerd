@@ -65,7 +65,7 @@ func InitChat(cfg Config) Model {
 	// a single blinking cursor, which sells the "still working" feel.
 	sp := spinner.New()
 	sp.Spinner = spinner.MiniDot
-	sp.Style = styles.Spinner
+	sp.Style = styles.Components.Spinner
 
 	// Initialize viewport for chat history
 	vp := viewport.New(80, 20)
