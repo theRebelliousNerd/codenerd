@@ -195,7 +195,20 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 	}
 	buildArgs = append(buildArgs, "-ldflags", ldflags, "-o", outputPath, "--", ".")
 
-	/* #nosec G204 */
+	// Validate ldflags using a strict allowlist. Only standard stripping and static linking flags are allowed.
+	allowedFlags := map[string]bool{
+		"-s":          true,
+		"-w":          true,
+		"-extldflags": true,
+		"'-static'":   true,
+	}
+	for _, flag := range strings.Fields(ldflags) {
+		if !allowedFlags[flag] {
+			return result, fmt.Errorf("security violation: ldflag %q is not in the allowlist", flag)
+		}
+	}
+
+	/* #nosec G204 -- argv is a fixed allowlisted go build invocation, not a shell. */
 	cmd := exec.CommandContext(compileCtx, "go", buildArgs...)
 	cmd.Dir = tmpDir
 
