@@ -27,6 +27,7 @@ func TestDetectTheme(t *testing.T) {
 		t.Fatalf("expected dark theme when CODENERD_DARK_MODE=1")
 	}
 
+	resetCache()
 	t.Setenv("NO_COLOR", "1")
 	nocolor := DetectTheme()
 	got, ok := nocolor.(BasicTheme)

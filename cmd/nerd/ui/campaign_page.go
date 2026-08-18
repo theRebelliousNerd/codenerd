@@ -491,10 +491,10 @@ func (m *CampaignPageModel) renderSummary(camp *campaign.Campaign, prog *campaig
 func (m *CampaignPageModel) renderDashboard(camp *campaign.Campaign, prog *campaign.Progress) string {
 	var sb strings.Builder
 
-	sb.WriteString(m.styles.Header.Render(" Metrics Dashboard ") + "\n\n")
+	sb.WriteString(m.styles.Layout.Header.Render(" Metrics Dashboard ") + "\n\n")
 
 	// 1. Progress Metrics
-	sb.WriteString(m.styles.Bold.Render("Progress & Execution:") + "\n")
+	sb.WriteString(m.styles.Text.Bold.Render("Progress & Execution:") + "\n")
 	sb.WriteString(fmt.Sprintf("  • Phases Completed: %d / %d\n", camp.CompletedPhases, camp.TotalPhases))
 	sb.WriteString(fmt.Sprintf("  • Tasks Completed:  %d / %d\n", camp.CompletedTasks, camp.TotalTasks))
 	if prog != nil {
@@ -503,14 +503,14 @@ func (m *CampaignPageModel) renderDashboard(camp *campaign.Campaign, prog *campa
 	sb.WriteString("\n")
 
 	// 2. Resource Metrics
-	sb.WriteString(m.styles.Bold.Render("Resources & Context:") + "\n")
+	sb.WriteString(m.styles.Text.Bold.Render("Resources & Context:") + "\n")
 	sb.WriteString(fmt.Sprintf("  • Context Budget: %d tokens\n", camp.ContextBudget))
 	sb.WriteString(fmt.Sprintf("  • Context Used:   %d tokens\n", camp.ContextUsed))
 	sb.WriteString(fmt.Sprintf("  • Utilization:    %.1f%%\n", camp.ContextUtilization*100))
 	sb.WriteString("\n")
 
 	// 3. Quality Metrics
-	sb.WriteString(m.styles.Bold.Render("Quality & Stability:") + "\n")
+	sb.WriteString(m.styles.Text.Bold.Render("Quality & Stability:") + "\n")
 	sb.WriteString(fmt.Sprintf("  • Confidence:     %.1f%%\n", camp.Confidence*100))
 	sb.WriteString(fmt.Sprintf("  • Replans:        %d\n", camp.RevisionNumber))
 	if camp.LastRevision != "" {

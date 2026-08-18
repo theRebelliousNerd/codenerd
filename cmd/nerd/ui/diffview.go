@@ -183,29 +183,29 @@ func NewDiffApprovalView(styles Styles, width, height int) DiffApprovalView {
 		help:             h,
 		cachedStyles: diffCachedStyles{
 			selectedHunk: lipgloss.NewStyle().
-				Background(styles.Theme.Container).
-				Foreground(styles.Theme.OnContainer),
+				Background(styles.Theme.Container()).
+				Foreground(styles.Theme.OnContainer()),
 			warningBase: lipgloss.NewStyle().
-				Foreground(styles.Theme.Warning).
+				Foreground(styles.Theme.Warning()).
 				Bold(true).
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(styles.Theme.Warning).
+				BorderForeground(styles.Theme.Warning()).
 				Padding(0, 1),
 			emptyBase: lipgloss.NewStyle().
-				Foreground(styles.Theme.OnSurfaceMuted).
+				Foreground(styles.Theme.OnSurfaceMuted()).
 				Italic(true).
 				Padding(2).
 				Align(lipgloss.Center),
 			headerBase: lipgloss.NewStyle().
 				Bold(true).
-				Foreground(styles.Theme.Primary).
+				Foreground(styles.Theme.Primary()).
 				Border(lipgloss.NormalBorder(), false, false, true, false).
-				BorderForeground(styles.Theme.Outline).
+				BorderForeground(styles.Theme.Outline()).
 				Padding(0, 1),
 			controlBase: lipgloss.NewStyle().
-				Foreground(styles.Theme.OnSurfaceMuted).
+				Foreground(styles.Theme.OnSurfaceMuted()).
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(styles.Theme.Outline).
+				BorderForeground(styles.Theme.Outline()).
 				Padding(0, 1),
 		},
 	}
@@ -938,7 +938,7 @@ func (d *DiffApprovalView) renderSideBySideHunkLines(lines []DiffLine) string {
 		d.Viewport.Width = originalWidth
 	}()
 
-	separator := lipgloss.NewStyle().Foreground(d.Styles.Theme.Outline).Render(" | ")
+	separator := lipgloss.NewStyle().Foreground(d.Styles.Theme.Outline()).Render(" | ")
 
 	// Process lines mapping removes to the left side and adds to the right side
 	for i := 0; i < len(lines); i++ {
@@ -1003,6 +1003,6 @@ func (d *DiffApprovalView) renderSideBySideHunkLines(lines []DiffLine) string {
 // renderEmptyDiffLine renders an empty line for side-by-side padding
 func (d *DiffApprovalView) renderEmptyDiffLine() string {
 	// Use lipgloss to ensure exact width padding
-	style := d.Styles.Body.Copy().Width(d.Viewport.Width)
+	style := d.Styles.Text.Body.Copy().Width(d.Viewport.Width)
 	return style.Render("")
 }
