@@ -71,7 +71,7 @@ type CampaignPageModel struct {
 	totalPhases     int // Total number of phases
 
 	// View Mode
-	isSummaryView bool
+	viewMode int
 
 	// Styles
 	styles Styles
@@ -128,8 +128,8 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.PageDown):
 			m.viewport.HalfViewDown()
 		case msg.String() == "v":
-			// Toggle summary/detail view (key.Matches switch uses bool cases).
-			m.isSummaryView = !m.isSummaryView
+			// Cycle detail/summary/dashboard view.
+			m.viewMode = (m.viewMode + 1) % 3
 			if m.renderCache != nil {
 				m.renderCache.Invalidate()
 			}
@@ -145,7 +145,6 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 }
 
 // View renders the page.
-// TODO: IMPROVEMENT: Add a summary/dashboard view mode for high-level metrics.
 // TODO: Add timeline view of campaign phases.
 func (m CampaignPageModel) View() string {
 	if m.campaignData == nil {
@@ -209,7 +208,7 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 		m.width,
 		m.height,
 		m.layout.IsCompact,
-		m.isSummaryView,
+		m.viewMode,
 	}
 
 	render := func() string {
@@ -221,12 +220,14 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 			sb.WriteString(m.progress.ViewAs(prog.OverallProgress) + "\n\n")
 		}
 
-		hints := m.styles.Muted.Render("Controls: [Space] Pause/Resume  [r] Replan  [c] Checkpoint  [v] Toggle View  [Esc] Back")
+		hints := m.styles.Muted.Render("Controls: [Space] Pause/Resume  [r] Replan  [c] Checkpoint  [v] Cycle View  [Esc] Back")
 		sb.WriteString(hints + "\n\n")
 
 		sb.WriteString(m.renderMetrics(camp))
-		if m.isSummaryView {
+		if m.viewMode == 1 {
 			sb.WriteString(m.renderSummary(camp, prog))
+		} else if m.viewMode == 2 {
+			sb.WriteString(m.renderDashboard(camp, prog))
 		} else {
 			sb.WriteString(m.renderVirtualizedPhases(camp))
 		}
@@ -482,6 +483,41 @@ func (m *CampaignPageModel) renderSummary(camp *campaign.Campaign, prog *campaig
 			sb.WriteString(fmt.Sprintf("  ... and %d more\n", len(camp.Learnings)-limit))
 		}
 	}
+
+	return sb.String()
+}
+
+// renderDashboard renders a high-level metrics dashboard
+func (m *CampaignPageModel) renderDashboard(camp *campaign.Campaign, prog *campaign.Progress) string {
+	var sb strings.Builder
+
+	sb.WriteString(m.styles.Header.Render(" Metrics Dashboard ") + "\n\n")
+
+	// 1. Progress Metrics
+	sb.WriteString(m.styles.Bold.Render("Progress & Execution:") + "\n")
+	sb.WriteString(fmt.Sprintf("  • Phases Completed: %d / %d\n", camp.CompletedPhases, camp.TotalPhases))
+	sb.WriteString(fmt.Sprintf("  • Tasks Completed:  %d / %d\n", camp.CompletedTasks, camp.TotalTasks))
+	if prog != nil {
+		sb.WriteString(fmt.Sprintf("  • Overall Progress: %.1f%%\n", prog.OverallProgress*100))
+	}
+	sb.WriteString("\n")
+
+	// 2. Resource Metrics
+	sb.WriteString(m.styles.Bold.Render("Resources & Context:") + "\n")
+	sb.WriteString(fmt.Sprintf("  • Context Budget: %d tokens\n", camp.ContextBudget))
+	sb.WriteString(fmt.Sprintf("  • Context Used:   %d tokens\n", camp.ContextUsed))
+	sb.WriteString(fmt.Sprintf("  • Utilization:    %.1f%%\n", camp.ContextUtilization*100))
+	sb.WriteString("\n")
+
+	// 3. Quality Metrics
+	sb.WriteString(m.styles.Bold.Render("Quality & Stability:") + "\n")
+	sb.WriteString(fmt.Sprintf("  • Confidence:     %.1f%%\n", camp.Confidence*100))
+	sb.WriteString(fmt.Sprintf("  • Replans:        %d\n", camp.RevisionNumber))
+	if camp.LastRevision != "" {
+		sb.WriteString(fmt.Sprintf("  • Last Replan:    %s\n", camp.LastRevision))
+	}
+	sb.WriteString(fmt.Sprintf("  • Learnings:      %d acquired\n", len(camp.Learnings)))
+	sb.WriteString("\n")
 
 	return sb.String()
 }
