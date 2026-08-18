@@ -209,3 +209,34 @@ func TestConfineToRoot_ShouldNotLeakOutsidePathInError(t *testing.T) {
 		t.Fatalf("error leaks outside candidate %q in %q", candidate, err.Error())
 	}
 }
+
+func TestProtectPrivateFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "protect_me.txt")
+
+	// Create a file with open permissions.
+	if err := os.WriteFile(path, []byte("content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ProtectPrivateFile(path); err != nil {
+		t.Fatalf("ProtectPrivateFile failed: %v", err)
+	}
+
+	isPrivate, err := IsPrivatePath(path, false)
+	if err != nil {
+		t.Fatalf("IsPrivatePath failed: %v", err)
+	}
+	if !isPrivate {
+		t.Fatal("File is not private after ProtectPrivateFile")
+	}
+}
+
+func TestProtectPrivateFile_NonExistent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nonexistent.txt")
+
+	if err := ProtectPrivateFile(path); err == nil {
+		t.Fatal("ProtectPrivateFile on nonexistent file should return an error")
+	}
+}
