@@ -241,3 +241,31 @@ func mustSize(t *testing.T, path string) int64 {
 	}
 	return fi.Size()
 }
+
+func TestHasSidecar(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "snap")
+	sidecarPath := path + ExtSHA256
+
+	if HasSidecar(path) {
+		t.Errorf("expected HasSidecar(path) to be false when no sidecar exists")
+	}
+
+	if err := os.Mkdir(sidecarPath, 0o755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+	if HasSidecar(path) {
+		t.Errorf("expected HasSidecar(path) to be false when sidecar is a directory")
+	}
+
+	if err := os.Remove(sidecarPath); err != nil {
+		t.Fatalf("failed to remove directory: %v", err)
+	}
+
+	if err := os.WriteFile(sidecarPath, []byte("fake sha256 data"), 0o644); err != nil {
+		t.Fatalf("failed to write sidecar file: %v", err)
+	}
+	if !HasSidecar(path) {
+		t.Errorf("expected HasSidecar(path) to be true when sidecar is a file")
+	}
+}
