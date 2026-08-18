@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"io"
 	"os"
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -18,42 +19,52 @@ import (
 // Theme holds the current color scheme
 // TODO: Create Theme interface for easier testing and swapping of themes.
 type Theme struct {
-	IsDark bool
+	IsDark bool `json:"is_dark"`
 
 	// Backgrounds
-	Background   lipgloss.Color
-	OnBackground lipgloss.Color
+	Background   lipgloss.Color `json:"background"`
+	OnBackground lipgloss.Color `json:"on_background"`
 
 	// Surfaces (Cards, etc)
-	Surface   lipgloss.Color
-	OnSurface lipgloss.Color
+	Surface   lipgloss.Color `json:"surface"`
+	OnSurface lipgloss.Color `json:"on_surface"`
 
 	// Brand Colors
-	Primary   lipgloss.Color
-	OnPrimary lipgloss.Color
+	Primary   lipgloss.Color `json:"primary"`
+	OnPrimary lipgloss.Color `json:"on_primary"`
 
-	Secondary   lipgloss.Color
-	OnSecondary lipgloss.Color
+	Secondary   lipgloss.Color `json:"secondary"`
+	OnSecondary lipgloss.Color `json:"on_secondary"`
 
 	// Containers
-	Container   lipgloss.Color
-	OnContainer lipgloss.Color
+	Container   lipgloss.Color `json:"container"`
+	OnContainer lipgloss.Color `json:"on_container"`
 
 	// Outlines/Borders
-	Outline        lipgloss.Color
-	OnSurfaceMuted lipgloss.Color
+	Outline        lipgloss.Color `json:"outline"`
+	OnSurfaceMuted lipgloss.Color `json:"on_surface_muted"`
 	// Semantic Colors
-	Destructive lipgloss.Color
-	Success     lipgloss.Color
-	Warning     lipgloss.Color
-	Info        lipgloss.Color
+	Destructive lipgloss.Color `json:"destructive"`
+	Success     lipgloss.Color `json:"success"`
+	Warning     lipgloss.Color `json:"warning"`
+	Info        lipgloss.Color `json:"info"`
 
 	// Chart Colors
-	Chart1 lipgloss.Color
-	Chart2 lipgloss.Color
-	Chart3 lipgloss.Color
-	Chart4 lipgloss.Color
-	Chart5 lipgloss.Color
+	Chart1 lipgloss.Color `json:"chart_1"`
+	Chart2 lipgloss.Color `json:"chart_2"`
+	Chart3 lipgloss.Color `json:"chart_3"`
+	Chart4 lipgloss.Color `json:"chart_4"`
+	Chart5 lipgloss.Color `json:"chart_5"`
+}
+
+// ToJSON serializes the theme to JSON.
+func (t *Theme) ToJSON() ([]byte, error) {
+	return json.MarshalIndent(t, "", "  ")
+}
+
+// FromJSON deserializes the theme from JSON.
+func (t *Theme) FromJSON(data []byte) error {
+	return json.Unmarshal(data, t)
 }
 
 // Renderer returns a lipgloss.Renderer initialized with the theme's settings.
@@ -166,7 +177,6 @@ func DetectTheme() Theme {
 
 // Styles holds all the styled components
 // TODO: Group related styles into sub-structs (e.g. TextStyles, LayoutStyles) for better API organization.
-// TODO: IMPROVEMENT: Add a method to serialize/deserialize theme to JSON for user customization.
 type Styles struct {
 	Theme Theme
 
