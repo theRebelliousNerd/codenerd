@@ -404,7 +404,7 @@ func (b *TestDependencyBuilder) GetImpactedTestPackages(editedRefs []string) []s
 		}
 	}
 
-	var packages []string
+	packages := make([]string, 0, len(pkgSet))
 	for pkg := range pkgSet {
 		packages = append(packages, pkg)
 	}
