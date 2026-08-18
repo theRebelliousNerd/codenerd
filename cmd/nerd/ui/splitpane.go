@@ -759,25 +759,45 @@ func (p *LogicPane) writeNode(sb *strings.Builder, node *DerivationNode, selecte
 }
 
 // renderLegend renders the legend explaining the symbols
-// TODO: IMPROVEMENT: Make legend responsive or collapsible on smaller screens.
 func (p *LogicPane) renderLegend() string {
+	vpWidth := ViewportWidth(p.Width)
+
 	legendStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(p.Styles.Theme.Outline).
 		Padding(0, 1).
-		Width(ViewportWidth(p.Width))
+		Width(vpWidth)
 
-	legend := "📊 Base Fact (EDB)  │  ⚡ Derived (IDB)  │  ▶ Expand  │  ▼ Collapse"
+	var legend string
+	if vpWidth < 60 {
+		legend = "📊 EDB │ ⚡ IDB │ ▶/▼ Exp/Col"
+	} else if vpWidth < 90 {
+		legend = "📊 EDB │ ⚡ IDB │ ▶ Exp │ ▼ Col"
+	} else {
+		legend = "📊 Base Fact (EDB)  │  ⚡ Derived (IDB)  │  ▶ Expand  │  ▼ Collapse"
+	}
 
 	if p.ShowActivation {
-		legend += "\n█ Activation Score (Spreading Activation)"
+		if vpWidth < 60 {
+			legend += "\n█ Activ. Score"
+		} else {
+			legend += "\n█ Activation Score (Spreading Activation)"
+		}
 	}
 
 	// Show activation threshold if filtering is active
 	if p.ActivationThreshold > 0 {
-		legend += fmt.Sprintf("\n🔍 Threshold: %.1f (Press +/- to adjust, 0 to reset)", p.ActivationThreshold)
+		if vpWidth < 60 {
+			legend += fmt.Sprintf("\n🔍 Thresh: %.1f (+/- adj, 0 rst)", p.ActivationThreshold)
+		} else {
+			legend += fmt.Sprintf("\n🔍 Threshold: %.1f (Press +/- to adjust, 0 to reset)", p.ActivationThreshold)
+		}
 	} else {
-		legend += "\n🔍 Threshold: OFF (Press + to filter low-activation nodes)"
+		if vpWidth < 60 {
+			legend += "\n🔍 Thresh: OFF (+ filter)"
+		} else {
+			legend += "\n🔍 Threshold: OFF (Press + to filter low-activation nodes)"
+		}
 	}
 
 	return legendStyle.Render(legend)
