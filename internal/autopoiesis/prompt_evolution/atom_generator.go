@@ -18,22 +18,71 @@ import (
 type AtomGenerator struct {
 	llmClient     LLMClient
 	strategyStore *StrategyStore
+
+	// pinScope is the granularity at which generated atoms are bound to the
+	// provider/model whose failures produced them.
+	pinScope PinScope
 }
 
-// NewAtomGenerator creates a new atom generator.
+// NewAtomGenerator creates a new atom generator pinning at the default scope.
 func NewAtomGenerator(llmClient LLMClient, strategyStore *StrategyStore) *AtomGenerator {
+	return NewAtomGeneratorWithPinScope(llmClient, strategyStore, PinScopeModelFamily)
+}
+
+// NewAtomGeneratorWithPinScope creates a new atom generator with an explicit
+// pin scope. An unrecognized scope falls back to PinScopeModelFamily rather
+// than silently generating unpinned atoms.
+func NewAtomGeneratorWithPinScope(llmClient LLMClient, strategyStore *StrategyStore, scope PinScope) *AtomGenerator {
+	if !scope.Valid() {
+		logging.Get(logging.CategoryAutopoiesis).Warn(
+			"Unknown atom pin scope %q; falling back to %q", scope, PinScopeModelFamily)
+		scope = PinScopeModelFamily
+	}
 	return &AtomGenerator{
 		llmClient:     llmClient,
 		strategyStore: strategyStore,
+		pinScope:      scope,
 	}
 }
 
-// GenerateFromFailures creates new atoms based on failure patterns.
+// ServingPin identifies the LLM a set of failures was observed on. It travels
+// with a failure group so generated atoms can be pinned to their origin.
+type ServingPin struct {
+	// Provider and Model are raw vendor spellings, exactly as recorded on the
+	// ExecutionRecord ("anthropic", "claude-opus-4-20260501").
+	Provider string
+	Model    string
+}
+
+// IsZero reports whether the pin carries no serving information at all.
+func (p ServingPin) IsZero() bool {
+	return strings.TrimSpace(p.Provider) == "" && strings.TrimSpace(p.Model) == ""
+}
+
+// String renders the pin for logging and meta-prompt context.
+func (p ServingPin) String() string {
+	switch {
+	case p.IsZero():
+		return "unknown"
+	case p.Model == "":
+		return p.Provider
+	case p.Provider == "":
+		return p.Model
+	default:
+		return p.Provider + "/" + p.Model
+	}
+}
+
+// GenerateFromFailures creates new atoms based on failure patterns observed on
+// one provider/model. The pin is stamped onto every generated atom according to
+// the generator's PinScope, so an atom learned from one model's failures is not
+// served to a different one.
 func (ag *AtomGenerator) GenerateFromFailures(
 	ctx context.Context,
 	failures []*JudgeVerdict,
 	shardType string,
 	problemType string,
+	pin ServingPin,
 ) ([]*GeneratedAtom, error) {
 	timer := logging.StartTimer(logging.CategoryAutopoiesis, "AtomGenerator.GenerateFromFailures")
 	defer timer.Stop()
@@ -42,11 +91,11 @@ func (ag *AtomGenerator) GenerateFromFailures(
 		return nil, nil
 	}
 
-	logging.Autopoiesis("Generating atoms from %d failures for shard=%s, problem=%s",
-		len(failures), shardType, problemType)
+	logging.Autopoiesis("Generating atoms from %d failures for shard=%s, problem=%s, serving=%s, pin_scope=%s",
+		len(failures), shardType, problemType, pin, ag.pinScope)
 
 	// Build the meta-prompt
-	userPrompt := ag.buildMetaPrompt(failures, shardType, problemType)
+	userPrompt := ag.buildMetaPrompt(failures, shardType, problemType, pin)
 
 	// Call LLM
 	llmTimer := logging.StartTimer(logging.CategoryAutopoiesis, "LLMAtomGeneration")
@@ -59,7 +108,7 @@ func (ag *AtomGenerator) GenerateFromFailures(
 	}
 
 	// Parse the generated atoms
-	atoms, err := ag.parseGeneratedAtoms(response, shardType, problemType, failures)
+	atoms, err := ag.parseGeneratedAtoms(response, shardType, problemType, failures, pin)
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Error("Failed to parse generated atoms: %v", err)
 		return nil, fmt.Errorf("failed to parse atoms: %w", err)
@@ -70,13 +119,25 @@ func (ag *AtomGenerator) GenerateFromFailures(
 }
 
 // buildMetaPrompt constructs the prompt for atom generation.
-func (ag *AtomGenerator) buildMetaPrompt(failures []*JudgeVerdict, shardType, problemType string) string {
+func (ag *AtomGenerator) buildMetaPrompt(failures []*JudgeVerdict, shardType, problemType string, pin ServingPin) string {
 	var sb strings.Builder
 
 	sb.WriteString("## Current Context\n")
 	sb.WriteString(fmt.Sprintf("- **Shard Type**: %s\n", shardType))
 	sb.WriteString(fmt.Sprintf("- **Problem Type**: %s\n", problemType))
-	sb.WriteString(fmt.Sprintf("- **Description**: %s\n\n", GetProblemTypeDescription(ProblemType(problemType))))
+	sb.WriteString(fmt.Sprintf("- **Description**: %s\n", GetProblemTypeDescription(ProblemType(problemType))))
+
+	// Naming the serving model matters for content, not just bookkeeping: these
+	// atoms will only ever be served back to this model, so the generator is
+	// free to write guidance specific to it instead of hedging for a general
+	// audience.
+	if !pin.IsZero() {
+		sb.WriteString(fmt.Sprintf("- **Observed On**: %s\n", pin))
+		sb.WriteString("\nAll failures below were produced by that model, and any atom you generate\n")
+		sb.WriteString("will be served only to that model. Guidance specific to its known behavior\n")
+		sb.WriteString("is therefore in scope and preferred over vendor-neutral advice.\n")
+	}
+	sb.WriteString("\n")
 
 	sb.WriteString("## Failure Analysis\n\n")
 
@@ -115,6 +176,7 @@ func (ag *AtomGenerator) parseGeneratedAtoms(
 	response string,
 	shardType, problemType string,
 	sourceFailures []*JudgeVerdict,
+	pin ServingPin,
 ) ([]*GeneratedAtom, error) {
 	// Extract YAML content
 	yamlContent := extractYAMLBlock(response)
@@ -141,7 +203,7 @@ func (ag *AtomGenerator) parseGeneratedAtoms(
 	}
 
 	for _, def := range atomDefs {
-		atom := ag.convertToPromptAtom(def, shardType)
+		atom := ag.convertToPromptAtom(def, shardType, pin)
 		if atom == nil {
 			continue
 		}
@@ -152,6 +214,9 @@ func (ag *AtomGenerator) parseGeneratedAtoms(
 			SourceIDs:   sourceIDs,
 			ShardType:   shardType,
 			ProblemType: problemType,
+			Provider:    pin.Provider,
+			Model:       pin.Model,
+			PinScope:    ag.pinScope,
 			Confidence:  0.5, // Start with neutral confidence
 			CreatedAt:   time.Now(),
 		}
@@ -173,8 +238,9 @@ type atomDefinition struct {
 	Content     string   `yaml:"content"`
 }
 
-// convertToPromptAtom converts a definition to a PromptAtom.
-func (ag *AtomGenerator) convertToPromptAtom(def atomDefinition, shardType string) *prompt.PromptAtom {
+// convertToPromptAtom converts a definition to a PromptAtom, applying the
+// serving pin.
+func (ag *AtomGenerator) convertToPromptAtom(def atomDefinition, shardType string, pin ServingPin) *prompt.PromptAtom {
 	if def.Content == "" {
 		return nil
 	}
@@ -200,6 +266,8 @@ func (ag *AtomGenerator) convertToPromptAtom(def atomDefinition, shardType strin
 		shardTypes = []string{shardType}
 	}
 
+	providers, models := ag.pinSelectors(pin)
+
 	atom := &prompt.PromptAtom{
 		ID:          id,
 		Category:    category,
@@ -208,6 +276,8 @@ func (ag *AtomGenerator) convertToPromptAtom(def atomDefinition, shardType strin
 		Content:     def.Content,
 		ShardTypes:  shardTypes,
 		Languages:   def.Languages,
+		Providers:   providers,
+		Models:      models,
 		TokenCount:  estimateTokens(def.Content),
 	}
 
@@ -215,6 +285,50 @@ func (ag *AtomGenerator) convertToPromptAtom(def atomDefinition, shardType strin
 	atom.ContentHash = computeHash(def.Content)
 
 	return atom
+}
+
+// pinSelectors derives the atom's provider/model selectors from the serving pin
+// under the generator's scope.
+//
+// The selectors are canonical tokens (prompt.NormalizeProviderToken /
+// NormalizeModelToken), because that is the vocabulary the JIT compiler matches
+// on. Emitting the raw vendor spelling here would produce an atom that looks
+// pinned but never matches -- the failure mode this whole mechanism exists to
+// prevent, and a silent one.
+//
+// A scope that asks for more specificity than the pin carries degrades rather
+// than fabricating: model scope with no model recorded yields a provider-only
+// pin, and a pin with nothing recorded yields no selectors at all. That last
+// case leaves the atom unpinned, so it is logged.
+func (ag *AtomGenerator) pinSelectors(pin ServingPin) (providers, models []string) {
+	if ag.pinScope == PinScopeNone {
+		return nil, nil
+	}
+
+	if token := prompt.NormalizeProviderToken(pin.Provider); token != "" {
+		providers = []string{token}
+	}
+
+	if ag.pinScope != PinScopeProvider {
+		if exact := prompt.NormalizeModelToken(pin.Model); exact != "" {
+			token := exact
+			if ag.pinScope == PinScopeModelFamily {
+				if family := prompt.ModelFamilyToken(exact); family != "" {
+					token = family
+				}
+			}
+			models = []string{token}
+		}
+	}
+
+	if len(providers) == 0 && len(models) == 0 {
+		logging.Get(logging.CategoryAutopoiesis).Warn(
+			"Evolved atom generated with pin_scope=%s but no serving provider/model was recorded; "+
+				"atom will be unpinned and served to every model. Ensure ExecutionRecord.Provider/Model are populated.",
+			ag.pinScope)
+	}
+
+	return providers, models
 }
 
 // RefineStrategy generates an improved version of a strategy.

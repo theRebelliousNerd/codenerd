@@ -348,10 +348,33 @@ Execute → Evaluate (TaskJudge) → Evolve (meta-prompt / AtomGenerator)
   → Integrate (JIT / strategy store)
 ```
 
-Key types (`types.go`): `ErrorCategory`, `ProblemType`, `ExecutionRecord`, `AgentAction`.  
-`PromptEvolver` (`evolver.go`) config: min failures, interval, max atoms, confidence threshold, auto-promote, strategy refine threshold, judge model default `gemini-3-pro`.
+Key types (`types.go`): `ErrorCategory`, `ProblemType`, `ExecutionRecord`, `AgentAction`, `PinScope`.  
+`PromptEvolver` (`evolver.go`) config: min failures, interval, max atoms, confidence threshold, auto-promote, strategy refine threshold, judge model default `gemini-3-pro`, atom pin scope default `model_family`.
 
 Wired from chat: `cmd/nerd/chat/delegation.go`, `commands_evolution.go`, session boot (`session_boot.go` / `session_shared_boot.go`).
+
+### 8.1 Serving-model provenance and pinning
+
+A failure is evidence about **the model that produced it**, not about coding in
+general. `ExecutionRecord` and `JudgeVerdict` therefore carry `Provider`/`Model`
+(raw vendor spelling, captured in `delegation.go` via `types.ModelIdentifier`),
+and `GeneratedAtom` carries `Provider`, `Model`, and `PinScope`.
+
+`AtomGenerator` stamps `PromptAtom.Providers`/`Models` on every atom it generates,
+so an atom learned from one vendor's failure modes is served only back to that
+vendor. Without this the loop grouped every vendor's failures together and
+delivered the resulting atom to all of them.
+
+`PinScope` (`model_family` default, plus `model`, `provider`, `none`) sets the
+granularity. It governs both the stamped pins **and** the grouping granularity in
+`FeedbackCollector.GetFailuresByProblemType(minCount, scope)`, which must agree:
+one atom generalizes exactly one group, so a coarser group than pin would
+attribute one model's failures to another under an enforced pin.
+`execution_records` gains `provider`/`model` via `ensureExecutionRecordColumns`;
+pre-existing rows are NULL, group unpinned, and behave as before.
+
+Enforcement lives in the prompt corpus — see
+`Docs/architecture/prompt/14-PROVIDER-MODEL-PINNING.md`.
 
 ---
 

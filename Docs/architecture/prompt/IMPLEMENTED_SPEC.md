@@ -296,11 +296,18 @@ Canonical constants include: identity, protocol, safety, methodology, capability
 **Selectors (empty = match any for that dimension):**  
 `OperationalModes`, `CampaignPhases`, `BuildLayers`, `InitPhases`, `NorthstarPhases`, `OuroborosStages`, `IntentVerbs`, `ShardTypes`, `Languages`, `Frameworks`, `WorldStates`.
 
+**Pin selectors (empty = unpinned; non-empty = fail-closed):**  
+`Providers`, `Models`. An atom declaring either is served **only** to a matching
+provider/model, and is blocked on a compile that names none. Values are canonical
+tokens from `pinning.go`, normalized on both the atom and the context side so a
+YAML `claude-opus-4` and a runtime `anthropic/claude-opus-4-20260501` reach the
+same Mangle constant. See `14-PROVIDER-MODEL-PINNING.md`.
+
 **Composition:** `Priority`, `IsMandatory`, `IsExclusive`, `DependsOn`, `ConflictsWith`.
 
 **Polymorphism / retrieval:** `Description`, `ContentConcise`, `ContentMin`, `Embedding`, `EmbeddingTask`.
 
-`MatchesContext` requires **all non-empty selector dimensions** to match (AND across dimensions; frameworks/world_states use ANY within dimension).
+`MatchesContext` requires **all non-empty selector dimensions** to match (AND across dimensions; frameworks/world_states/models use ANY within dimension).
 
 ### 5.3 Mangle fact projection
 

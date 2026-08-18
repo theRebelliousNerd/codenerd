@@ -14,6 +14,15 @@ import (
 	"codenerd/internal/sqlpragmas"
 )
 
+// executionRecordColumns is the column list every ExecutionRecord query
+// selects, in the exact order scanRecords expects. Kept in one place so that
+// adding a column cannot leave one of the four call sites behind -- a mismatch
+// here is a runtime scan error, not a compile error.
+const executionRecordColumns = `task_id, session_id, shard_id, shard_type, task_request, problem_type,
+		       actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
+		       thought_summary, thinking_tokens, grounding_sources_json, verdict_json,
+		       provider, model, created_at`
+
 // FeedbackCollector records and manages execution feedback.
 // It buffers executions and persists them to SQLite for analysis.
 type FeedbackCollector struct {
@@ -88,12 +97,15 @@ func (fc *FeedbackCollector) ensureSchema() error {
 		thinking_tokens INTEGER DEFAULT 0,
 		grounding_sources_json TEXT,
 		verdict_json TEXT,
+		provider TEXT,
+		model TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_records_shard ON execution_records(shard_type);
 	CREATE INDEX IF NOT EXISTS idx_records_problem ON execution_records(problem_type);
 	CREATE INDEX IF NOT EXISTS idx_records_created ON execution_records(created_at);
+	CREATE INDEX IF NOT EXISTS idx_records_serving ON execution_records(provider, model);
 
 	CREATE TABLE IF NOT EXISTS evolution_stats (
 		key TEXT PRIMARY KEY,
@@ -119,6 +131,11 @@ func (fc *FeedbackCollector) ensureExecutionRecordColumns() error {
 		{name: "thought_summary", definition: "TEXT"},
 		{name: "thinking_tokens", definition: "INTEGER DEFAULT 0"},
 		{name: "grounding_sources_json", definition: "TEXT"},
+		// Serving provenance. Rows written before pinning existed keep NULL
+		// here, which groups them under the empty pin and yields unpinned
+		// atoms -- the pre-pinning behavior, applied only to pre-pinning data.
+		{name: "provider", definition: "TEXT"},
+		{name: "model", definition: "TEXT"},
 	}
 
 	existing := make(map[string]struct{})
@@ -196,14 +213,15 @@ func (fc *FeedbackCollector) Record(exec *ExecutionRecord) error {
 		INSERT OR REPLACE INTO execution_records
 		(task_id, session_id, shard_id, shard_type, task_request, problem_type,
 		 actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
-		 thought_summary, thinking_tokens, grounding_sources_json, verdict_json, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 thought_summary, thinking_tokens, grounding_sources_json, verdict_json,
+		 provider, model, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		exec.TaskID, exec.SessionID, exec.ShardID, exec.ShardType,
 		exec.TaskRequest, exec.ProblemType,
 		string(actionsJSON), string(resultJSON), exec.Duration.Milliseconds(),
 		string(manifestJSON), string(atomIDsJSON),
 		exec.ThoughtSummary, exec.ThinkingTokens, string(groundingJSON),
-		string(verdictJSON), exec.Timestamp,
+		string(verdictJSON), exec.Provider, exec.Model, exec.Timestamp,
 	)
 
 	if err != nil {
@@ -234,9 +252,7 @@ func (fc *FeedbackCollector) GetRecentFailures(limit int) ([]*ExecutionRecord, e
 	logging.AutopoiesisDebug("Fetching recent failures: limit=%d", limit)
 
 	rows, err := fc.db.Query(`
-		SELECT task_id, session_id, shard_id, shard_type, task_request, problem_type,
-		       actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
-		       thought_summary, thinking_tokens, grounding_sources_json, verdict_json, created_at
+		SELECT `+executionRecordColumns+`
 		FROM execution_records
 		WHERE verdict_json LIKE '%"verdict":"FAIL"%'
 		   OR (verdict_json IS NULL AND result_json LIKE '%"success":false%')
@@ -257,9 +273,7 @@ func (fc *FeedbackCollector) GetRecentByShardType(shardType string, limit int) (
 	defer fc.mu.RUnlock()
 
 	rows, err := fc.db.Query(`
-		SELECT task_id, session_id, shard_id, shard_type, task_request, problem_type,
-		       actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
-		       thought_summary, thinking_tokens, grounding_sources_json, verdict_json, created_at
+		SELECT `+executionRecordColumns+`
 		FROM execution_records
 		WHERE shard_type = ?
 		ORDER BY created_at DESC
@@ -279,9 +293,7 @@ func (fc *FeedbackCollector) GetUnevaluated(limit int) ([]*ExecutionRecord, erro
 	defer fc.mu.RUnlock()
 
 	rows, err := fc.db.Query(`
-		SELECT task_id, session_id, shard_id, shard_type, task_request, problem_type,
-		       actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
-		       thought_summary, thinking_tokens, grounding_sources_json, verdict_json, created_at
+		SELECT `+executionRecordColumns+`
 		FROM execution_records
 		WHERE verdict_json IS NULL OR verdict_json = ''
 		ORDER BY created_at DESC
@@ -295,18 +307,62 @@ func (fc *FeedbackCollector) GetUnevaluated(limit int) ([]*ExecutionRecord, erro
 	return fc.scanRecords(rows)
 }
 
-// GetFailuresByProblemType returns failures grouped by problem type and shard.
-func (fc *FeedbackCollector) GetFailuresByProblemType(minCount int) (map[string][]*ExecutionRecord, error) {
+// FailureGroupKey identifies a set of failures that may be generalized into a
+// single atom. Comparable, so it is used directly as a map key rather than a
+// formatted string that has to be parsed back apart.
+//
+// Provider and Model hold canonical tokens (empty when the scope does not
+// discriminate on them or the records carry no provenance), not raw vendor
+// spellings, so that two spellings of one model group together.
+type FailureGroupKey struct {
+	ProblemType string
+	ShardType   string
+	Provider    string
+	Model       string
+}
+
+// String renders the key for logging.
+func (k FailureGroupKey) String() string {
+	serving := k.Provider
+	if k.Model != "" {
+		if serving != "" {
+			serving += "/"
+		}
+		serving += k.Model
+	}
+	if serving == "" {
+		serving = "unpinned"
+	}
+	return fmt.Sprintf("%s:%s@%s", k.ProblemType, k.ShardType, serving)
+}
+
+// GetFailuresByProblemType returns failures grouped by problem type, shard, and
+// serving LLM.
+//
+// scope controls how finely the serving dimension partitions the groups, and it
+// must be the same scope the AtomGenerator will pin with. That coupling is the
+// point: an atom generalizes exactly one group, so if groups were coarser than
+// pins, one atom would be generated from failures spanning two different models
+// and then pinned to whichever happened to come first. Grouping and pinning
+// share prompt.NormalizeProviderToken / NormalizeModelToken / ModelFamilyToken
+// so the group's token and the generated atom's selector are equal by
+// construction.
+//
+// Records predating the provenance columns carry no provider/model and collect
+// under the empty pin, producing unpinned atoms as before.
+func (fc *FeedbackCollector) GetFailuresByProblemType(minCount int, scope PinScope) (map[FailureGroupKey][]*ExecutionRecord, error) {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
 
+	if !scope.Valid() {
+		return nil, fmt.Errorf("invalid pin scope %q", scope)
+	}
+
 	rows, err := fc.db.Query(`
-		SELECT task_id, session_id, shard_id, shard_type, task_request, problem_type,
-		       actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
-		       thought_summary, thinking_tokens, grounding_sources_json, verdict_json, created_at
+		SELECT ` + executionRecordColumns + `
 		FROM execution_records
 		WHERE verdict_json LIKE '%"verdict":"FAIL"%'
-		ORDER BY problem_type, shard_type, created_at DESC`)
+		ORDER BY problem_type, shard_type, provider, model, created_at DESC`)
 
 	if err != nil {
 		return nil, err
@@ -318,15 +374,13 @@ func (fc *FeedbackCollector) GetFailuresByProblemType(minCount int) (map[string]
 		return nil, err
 	}
 
-	// Group by problem_type:shard_type
-	grouped := make(map[string][]*ExecutionRecord)
+	grouped := make(map[FailureGroupKey][]*ExecutionRecord)
 	for _, rec := range records {
-		key := fmt.Sprintf("%s:%s", rec.ProblemType, rec.ShardType)
-		grouped[key] = append(grouped[key], rec)
+		grouped[GroupKeyFor(rec, scope)] = append(grouped[GroupKeyFor(rec, scope)], rec)
 	}
 
 	// Filter by minimum count
-	result := make(map[string][]*ExecutionRecord)
+	result := make(map[FailureGroupKey][]*ExecutionRecord)
 	for key, recs := range grouped {
 		if len(recs) >= minCount {
 			result[key] = recs
@@ -334,6 +388,33 @@ func (fc *FeedbackCollector) GetFailuresByProblemType(minCount int) (map[string]
 	}
 
 	return result, nil
+}
+
+// GroupKeyFor derives the failure group a record belongs to under scope.
+func GroupKeyFor(rec *ExecutionRecord, scope PinScope) FailureGroupKey {
+	key := FailureGroupKey{
+		ProblemType: rec.ProblemType,
+		ShardType:   rec.ShardType,
+	}
+
+	if scope == PinScopeNone {
+		return key
+	}
+
+	key.Provider = prompt.NormalizeProviderToken(rec.Provider)
+
+	if scope != PinScopeProvider {
+		if exact := prompt.NormalizeModelToken(rec.Model); exact != "" {
+			key.Model = exact
+			if scope == PinScopeModelFamily {
+				if family := prompt.ModelFamilyToken(exact); family != "" {
+					key.Model = family
+				}
+			}
+		}
+	}
+
+	return key
 }
 
 // UpdateVerdict updates the verdict for an execution record.
@@ -381,13 +462,15 @@ func (fc *FeedbackCollector) scanRecords(rows *sql.Rows) ([]*ExecutionRecord, er
 		var durationMs int64
 		var thoughtSummary sql.NullString
 		var thinkingTokens sql.NullInt64
+		var provider, model sql.NullString
 		var createdAt time.Time
 
 		err := rows.Scan(
 			&rec.TaskID, &rec.SessionID, &rec.ShardID, &rec.ShardType,
 			&rec.TaskRequest, &rec.ProblemType,
 			&actionsJSON, &resultJSON, &durationMs, &manifestJSON, &atomIDsJSON,
-			&thoughtSummary, &thinkingTokens, &groundingJSON, &verdictJSON, &createdAt,
+			&thoughtSummary, &thinkingTokens, &groundingJSON, &verdictJSON,
+			&provider, &model, &createdAt,
 		)
 		if err != nil {
 			logging.Get(logging.CategoryAutopoiesis).Warn("Failed to scan record: %v", err)
@@ -418,6 +501,12 @@ func (fc *FeedbackCollector) scanRecords(rows *sql.Rows) ([]*ExecutionRecord, er
 		}
 		if thinkingTokens.Valid {
 			rec.ThinkingTokens = int(thinkingTokens.Int64)
+		}
+		if provider.Valid {
+			rec.Provider = provider.String
+		}
+		if model.Valid {
+			rec.Model = model.String
 		}
 		if groundingJSON != "" && groundingJSON != "null" {
 			json.Unmarshal([]byte(groundingJSON), &rec.GroundingSources)

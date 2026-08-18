@@ -137,3 +137,11 @@ func (c *OllamaClient) GetModel() string {
 func (c *OllamaClient) Name() string {
 	return fmt.Sprintf("ollama:%s", c.model)
 }
+
+// ModelIdentity reports the provider and model this client serves, satisfying
+// types.ModelIdentifier. The model is the resolved one -- the vendor default
+// when config supplied no override -- which is what prompt-atom pinning must
+// key on.
+func (c *OllamaClient) ModelIdentity() (string, string) {
+	return string(ProviderOllama), c.model
+}

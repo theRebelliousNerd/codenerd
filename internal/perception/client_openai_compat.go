@@ -1074,3 +1074,13 @@ func (c *OpenAICompatClient) validateMetaTools(tools []ToolDefinition, messages 
 	}
 	return nil
 }
+
+// ModelIdentity reports the vendor and model this client serves, satisfying
+// types.ModelIdentifier. The vendor is the specific OpenAI-compatible provider
+// (dashscope, meta, moonshot, ...), not "openai", and the model is the
+// normalized one actually sent on the wire -- normalizeModel can rewrite it
+// (see normalizeMetaModel), so reading the config value here would pin atoms to
+// a model this client never calls.
+func (c *OpenAICompatClient) ModelIdentity() (string, string) {
+	return string(c.vendor), c.model
+}

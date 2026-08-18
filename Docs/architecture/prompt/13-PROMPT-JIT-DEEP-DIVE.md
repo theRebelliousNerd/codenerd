@@ -32,8 +32,15 @@ for each non-empty selector dimension:
   context value must be ∈ selector list (normalized)
 frameworks: ∃ overlap
 world_states: ∃ active world flag matching
+models:      ∃ overlap with {exact token, family token}
+providers:   context token ∈ selector list
 empty dimension ⇒ wildcard
 ```
+
+`providers`/`models` are the **pin** dimensions and are fail-closed: a non-empty
+selector with no context value blocks the atom rather than admitting it, so an
+atom carrying one vendor's workaround never reaches another vendor. Empty stays a
+wildcard, so unpinned atoms are unaffected. See `14-PROVIDER-MODEL-PINNING.md`.
 
 YAML authors control fan-out by leaving selectors empty (always candidate) vs tight tags (`shard_types: [coder]`, `languages: [go]`).
 
@@ -64,6 +71,7 @@ Think of `CompilationContext` as the **query plan** for prompts.
 | Shard | Type, ID, Instance, Name | Persona + DB selection + inject match |
 | World | counts/flags + tool_nudge | world_state atoms |
 | Stack | Language, Frameworks | language/framework flesh |
+| Serving LLM | Provider, Model | Pin match (fail-closed); set from `types.ModelIdentifier` |
 | Budget | TokenBudget, Reserved | AvailableTokens for Fit |
 | Semantic | Query, TopK | Vector flesh |
 | Dynamic | Specialists, Tools, Activation | Templates + future boosts |

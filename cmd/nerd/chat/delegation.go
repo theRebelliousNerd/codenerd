@@ -370,6 +370,15 @@ func (m Model) recordShardExecution(shardType, task, result string, err error, d
 
 	exec.PromptManifest, exec.AtomIDs = m.promptContextForExecution(shardType)
 
+	// Record which LLM produced this execution. The evolution loop groups
+	// failures by serving model and pins the atoms it generates to that model,
+	// so without this the atom learned from one vendor's failure modes is
+	// served to every other vendor. A client that cannot report its identity
+	// leaves both empty, which groups the record under the unpinned bucket.
+	if mi, ok := m.client.(types.ModelIdentifier); ok {
+		exec.Provider, exec.Model = mi.ModelIdentity()
+	}
+
 	// Extract thinking metadata if client supports it (Gemini 3 with Thinking Mode)
 	// This allows the LLM-as-Judge to evaluate the model's reasoning process
 	if tp, ok := m.client.(types.ThinkingProvider); ok {

@@ -291,8 +291,37 @@ func (a *PromptAtom) NormalizeSelectors() {
 	normalizeList(a.ShardTypes)
 	normalizeList(a.Languages)
 	normalizeList(a.Frameworks)
-	normalizeList(a.Models)
-	normalizeList(a.Providers)
+
+	// Pin dimensions get canonical tokens rather than a bare slash strip: an
+	// author writing `models: [claude-opus-4]` and a runtime reporting
+	// "anthropic/claude-opus-4-20260501" have to reach the same Mangle name
+	// constant, and '-' vs '_' alone is enough to make them disjoint. Entries
+	// that sanitize to nothing are dropped so they cannot become an empty
+	// selector that silently matches everything.
+	a.Models = normalizePinList(a.Models, NormalizeModelToken)
+	a.Providers = normalizePinList(a.Providers, NormalizeProviderToken)
+}
+
+// normalizePinList canonicalizes every entry through normalize, dropping empties
+// and duplicates while preserving order.
+func normalizePinList(list []string, normalize func(string) string) []string {
+	if len(list) == 0 {
+		return list
+	}
+	seen := make(map[string]struct{}, len(list))
+	out := list[:0]
+	for _, v := range list {
+		token := normalize(v)
+		if token == "" {
+			continue
+		}
+		if _, dup := seen[token]; dup {
+			continue
+		}
+		seen[token] = struct{}{}
+		out = append(out, token)
+	}
+	return out
 }
 
 func normalizeList(list []string) {
@@ -365,6 +394,34 @@ func (a *PromptAtom) MatchesContext(cc *CompilationContext) bool {
 				}
 			}
 			if found {
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	// Provider/model pins. Fail-closed like every other constrained dimension:
+	// matchSelector returns false when the atom carries a constraint and the
+	// context has no value, so an atom pinned to a vendor never leaks onto a
+	// compile whose serving vendor is unknown. Both sides are canonicalized
+	// through pinning.go so "gpt-4o" and "openai/gpt-4o" compare equal.
+	if !matchSelector(a.Providers, cc.ProviderToken()) {
+		return false
+	}
+
+	// Models: the context satisfies a pin at either exact or family
+	// granularity, so this matches if ANY context token is in the atom's list.
+	if len(a.Models) > 0 {
+		tokens := cc.ModelTokens()
+		if len(tokens) == 0 {
+			return false
+		}
+		found := false
+		for _, tok := range tokens {
+			if matchSelector(a.Models, tok) {
+				found = true
 				break
 			}
 		}

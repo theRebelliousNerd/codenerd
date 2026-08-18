@@ -1032,3 +1032,11 @@ func (c *ZAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 
 	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
 }
+
+// ModelIdentity reports the provider and model this client serves, satisfying
+// types.ModelIdentifier. The model is the resolved one -- the vendor default
+// when config supplied no override -- which is what prompt-atom pinning must
+// key on.
+func (c *ZAIClient) ModelIdentity() (string, string) {
+	return string(ProviderZAI), c.model
+}

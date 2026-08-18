@@ -201,8 +201,16 @@ Decl prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory) bound [/st
 # Multi-value selectors for dimensional filtering
 # Dimension: /operational_mode, /campaign_phase, /build_layer, /init_phase,
 #            /northstar_phase, /ouroboros_stage, /intent_verb, /shard_type,
-#            /language, /framework, /world_state
+#            /language, /framework, /world_state, /provider, /model
 # Value: Name constant matching the dimension (e.g., /active, /coder, /go)
+#
+# /provider and /model are the PIN dimensions: an atom that declares either is
+# admitted only on a compile whose provider/model matches, fail-closed (see
+# regime_dimension in jit_compiler.mg). Their values are canonical tokens from
+# internal/prompt/pinning.go -- lowercase [a-z0-9_] only -- because the vendor
+# spellings they come from ("anthropic/claude-opus-4-20260501") are not stable
+# Mangle name constants. /model accepts an exact token or a release-independent
+# family token; the compile context asserts both.
 Decl atom_selector(AtomID, Dimension, Value) bound [/string, /name, /string].
 
 # atom_dependency(AtomID, DependsOnID, DepType)
@@ -231,12 +239,17 @@ Decl atom_content(AtomID, Content) bound [/string, /string].
 # Value is genuinely polymorphic, hence the two bound alternatives.
 # CompilationContext.GenerateFacts (prompt/context.go) is called here with
 # ForceAtoms:false, which emits a name constant when the value already starts
-# with "/" and a quoted string otherwise. Nine of the ten dimensions carry
-# slash-prefixed vocabularies (/active, /planning, /coder, /go, ... - see
+# with "/" and a quoted string otherwise. All but one dimension carries a
+# slash-prefixed vocabulary (/active, /planning, /coder, /go, ... - see
 # AllContextDimensions), so they land as /name; only /world_state uses bare
 # values ("failing_tests", "diagnostics", ...) and lands as /string. The /name
 # alternative is listed first because it is what the policy literals in
 # jit_selection.mg match against.
+#
+# /provider and /model are open-vocabulary (any model id a vendor ships), so
+# GenerateFacts prefixes their canonical tokens with "/" explicitly rather than
+# relying on a fixed slash-prefixed vocabulary. Without that they would land as
+# /string and never unify with the /name side of the pin rules.
 Decl compile_context(Dimension, Value) bound [/name, /name] bound [/name, /string].
 
 # compile_budget(TotalTokens)
@@ -361,7 +374,8 @@ Decl atom_category(AtomID, Category) bound [/string, /name].
 # atom_tag(AtomID, Dimension, Tag)
 # Alternative tagging predicate used by jit_compiler.mg
 # Functionally equivalent to atom_selector but with /mode, /phase, /layer dimensions
-# Dimension: /mode, /phase, /layer, /shard, /lang, /framework, /intent, /state, /tag
+# Dimension: /mode, /phase, /layer, /shard, /lang, /framework, /intent, /state,
+#            /tag, /provider, /model
 # Tag: Context value (e.g., /active, /coder, /go, /debug_only, /dream_only)
 # Tag is /name, not /string: prompt/selector.go addTags() forces a leading "/"
 # on every emitted value and runs it through mangleNormalizeNameConst, so the

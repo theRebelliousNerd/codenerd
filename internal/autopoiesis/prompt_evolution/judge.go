@@ -255,6 +255,12 @@ func (tj *TaskJudge) parseVerdict(response string, exec *ExecutionRecord) (*Judg
 		TaskID:          exec.TaskID,
 		ShardType:       exec.ShardType,
 		AtomIDs:         exec.AtomIDs,
+		// Carry serving provenance onto the verdict so a failure stays
+		// attributable to the model that produced it once it is separated from
+		// its ExecutionRecord -- which is exactly what happens on the way into
+		// the atom generator, which sees only []*JudgeVerdict.
+		Provider: exec.Provider,
+		Model:    exec.Model,
 	}, nil
 }
 

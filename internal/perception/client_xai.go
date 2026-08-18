@@ -252,3 +252,11 @@ func (c *XAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 
 	return contentChan, errorChan
 }
+
+// ModelIdentity reports the provider and model this client serves, satisfying
+// types.ModelIdentifier. The model is the resolved one -- the vendor default
+// when config supplied no override -- which is what prompt-atom pinning must
+// key on.
+func (c *XAIClient) ModelIdentity() (string, string) {
+	return string(ProviderXAI), c.model
+}

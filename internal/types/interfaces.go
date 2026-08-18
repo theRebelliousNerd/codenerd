@@ -286,6 +286,28 @@ type PiggybackToolProvider interface {
 // 1. Evaluate WHY a task succeeded or failed (reasoning quality)
 // 2. Learn from the model's decision-making process
 // 3. Generate better prompt atoms based on reasoning patterns
+// ModelIdentifier is an optional interface for LLM clients that can report
+// which provider and model they actually serve. Use a type assertion:
+//
+//	if mi, ok := client.(types.ModelIdentifier); ok {
+//	    provider, model := mi.ModelIdentity()
+//	}
+//
+// This is the authoritative source for prompt-atom pinning. Config is not:
+// UserConfig.Model is an optional override, and each client fills a
+// vendor-specific default when it is empty, so the model that actually served a
+// turn is known only to the client. Pinning on the config value would attach an
+// atom to "" on every setup that takes the vendor default -- the majority --
+// and a pin that names the wrong model is worse than no pin, because the JIT
+// compiler enforces it fail-closed.
+//
+// The returned strings are raw vendor spellings ("anthropic",
+// "claude-opus-4-20260501"); canonicalization into pin tokens happens in
+// internal/prompt/pinning.go.
+type ModelIdentifier interface {
+	ModelIdentity() (provider, model string)
+}
+
 type ThinkingProvider interface {
 	// GetLastThoughtSummary returns the model's reasoning process from the last call.
 	// Returns empty string if thinking mode is disabled or client doesn't support it.

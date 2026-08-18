@@ -491,6 +491,10 @@ func TestAllContextDimensions(t *testing.T) {
 			"shard_type",
 			"language",
 			"world_state",
+			// Pin dimensions: an atom declaring either is served only to the
+			// provider/model it was pinned to.
+			"provider",
+			"model",
 		}
 
 		actualNames := make([]string, len(dimensions))

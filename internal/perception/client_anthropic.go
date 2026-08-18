@@ -730,3 +730,11 @@ func (c *AnthropicClient) SchemaCapable() bool {
 func (c *AnthropicClient) ShouldUsePiggybackTools() bool {
 	return false
 }
+
+// ModelIdentity reports the provider and model this client serves, satisfying
+// types.ModelIdentifier. The model is the resolved one -- the vendor default
+// when config supplied no override -- which is what prompt-atom pinning must
+// key on.
+func (c *AnthropicClient) ModelIdentity() (string, string) {
+	return string(ProviderAnthropic), c.model
+}

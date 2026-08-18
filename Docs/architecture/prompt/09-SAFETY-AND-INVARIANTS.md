@@ -50,11 +50,32 @@ Mandatory atoms larger than total budget are **rejected**, not force-included. C
 
 ### I8 — Versioned cache identity is field-complete
 
-`VERIFIED CURRENT` — concurrent identical `compilation-context-v2` hashes share
+`VERIFIED CURRENT` — concurrent identical `compilation-context-v3` hashes share
 one compilation. Every prompt-affecting context field is encoded; set-like slices
 are sorted/deduplicated without mutation, and the retry/tool surface changes the
 key. `PARTIAL` — cache hits return the same result pointer, so immutability remains
 a caller convention rather than a type-enforced ownership rule.
+
+### I8b — Pinned atoms are fail-closed on provider and model
+
+`VERIFIED CURRENT` — an atom declaring `providers:` or `models:` is admitted only
+on a compile whose `CompilationContext` names a matching provider/model, and is
+blocked when the compile names none. Enforced on the live path by
+`regime_dimension(/provider)` and `regime_dimension(/model)` in
+`internal/core/defaults/jit_compiler.mg`, and on the fallback path by
+`PromptAtom.MatchesContext`.
+
+This is a **containment** invariant, not a relevance hint. An evolved atom encodes
+one model's failure modes; serving it to another model is not a weaker prompt but
+a wrong one. The permissive direction fails silently and unboundedly (every
+vendor-specific workaround in the corpus reaches every prompt), so the strict
+direction is the only safe default.
+
+Atoms declaring neither selector are unpinned and unaffected — the invariant must
+never narrow the shared corpus. Receipts: `internal/core/jit_pinning_test.go`
+(real kernel, all four cases), `internal/prompt/atom_pinning_test.go`,
+`internal/prompt/shard_gating_test.go#TestShardGating_RegimeDimensionsMatchKernelPolicy`.
+Full rationale in `14-PROVIDER-MODEL-PINNING.md`.
 
 ### I9 — Input caps
 
