@@ -1,4 +1,5 @@
 package shards
+
 import "testing"
 
 func TestIsExecutorSpecialist(t *testing.T) {
@@ -51,22 +52,47 @@ func TestIsStrategicAdvisor(t *testing.T) {
 func TestShouldSpecialistExecuteTask(t *testing.T) {
 	tests := []struct {
 		name       string
-		agentName  string
+		specialist string
 		confidence float64
-		expected   bool
+		want       bool
 	}{
-		{"executor with high confidence", "goexpert", 0.9, true},
-		{"executor with exact threshold confidence", "goexpert", 0.8, false},
-		{"executor with low confidence", "goexpert", 0.7, false},
-		{"advisor with high confidence", "securityauditor", 0.9, false},
-		{"unknown agent", "unknown", 0.9, false},
+		{
+			name:       "Executor specialist with high confidence",
+			specialist: "goexpert",
+			confidence: 0.9,
+			want:       true,
+		},
+		{
+			name:       "Executor specialist with exact threshold confidence",
+			specialist: "goexpert",
+			confidence: 0.8,
+			want:       false,
+		},
+		{
+			name:       "Executor specialist with low confidence",
+			specialist: "goexpert",
+			confidence: 0.7,
+			want:       false,
+		},
+		{
+			name:       "Non-executor specialist with high confidence",
+			specialist: "securityauditor",
+			confidence: 0.9,
+			want:       false,
+		},
+		{
+			name:       "Unknown specialist",
+			specialist: "unknown",
+			confidence: 0.9,
+			want:       false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ShouldSpecialistExecuteTask(tt.agentName, tt.confidence)
-			if result != tt.expected {
-				t.Errorf("ShouldSpecialistExecuteTask(%q, %v) = %v, want %v", tt.agentName, tt.confidence, result, tt.expected)
+			got := ShouldSpecialistExecuteTask(tt.specialist, tt.confidence)
+			if got != tt.want {
+				t.Errorf("ShouldSpecialistExecuteTask(%q, %v) = %v, want %v", tt.specialist, tt.confidence, got, tt.want)
 			}
 		})
 	}
