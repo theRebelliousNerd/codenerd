@@ -512,11 +512,22 @@ func hasBaitToken(value string) bool {
 	// "/do-not-click" and "/do_not_follow" read the same as "/donotclick".
 	// Whole-token matching (rather than substring) keeps "/trapani" clean.
 	for i := range tokens {
-		joined := ""
-		for width := 0; width < 3 && i+width < len(tokens); width++ {
-			joined += tokens[i+width]
-			if honeypotBaitTokens[joined] {
+		t0 := tokens[i]
+		if honeypotBaitTokens[t0] {
+			return true
+		}
+
+		if i+1 < len(tokens) {
+			t1 := t0 + tokens[i+1]
+			if honeypotBaitTokens[t1] {
 				return true
+			}
+
+			if i+2 < len(tokens) {
+				t2 := t1 + tokens[i+2]
+				if honeypotBaitTokens[t2] {
+					return true
+				}
 			}
 		}
 	}
