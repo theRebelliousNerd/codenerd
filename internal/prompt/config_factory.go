@@ -40,7 +40,11 @@ func uniqueStrings(input []string) []string {
 	const MaxItems = 1000 // Prevent massive DoS
 
 	keys := make(map[string]bool)
-	list := make([]string, 0, len(input)) // pre-allocate capacity
+	capacity := len(input)
+	if capacity > MaxItems {
+		capacity = MaxItems
+	}
+	list := make([]string, 0, capacity) // pre-allocate capacity
 
 	for _, entry := range input {
 		if len(list) >= MaxItems {
