@@ -40,6 +40,11 @@ func TestFromContext(t *testing.T) {
 		t.Errorf("FromContext(empty ctx) = %v, want nil", got)
 	}
 
+	// Test nil context
+	if got := FromContext(nil); got != nil {
+		t.Errorf("FromContext(nil) = %v, want nil", got)
+	}
+
 	// Test populated context
 	tracker, err := NewTracker(t.TempDir())
 	if err != nil {
