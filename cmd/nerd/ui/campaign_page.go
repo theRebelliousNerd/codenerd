@@ -145,7 +145,6 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 }
 
 // View renders the page.
-// TODO: Add accessibility considerations (ARIA roles/attributes) if supported by the target TUI environment.
 // TODO: IMPROVEMENT: Add a summary/dashboard view mode for high-level metrics.
 // TODO: Add timeline view of campaign phases.
 func (m CampaignPageModel) View() string {
