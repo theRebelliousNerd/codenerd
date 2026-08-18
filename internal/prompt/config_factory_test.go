@@ -20,6 +20,7 @@ func (m *MockConfigAtomProvider) GetAtom(intent string) (ConfigAtom, bool) {
 }
 
 // TODO: [Null/Undefined/Empty] Missing test for NewConfigFactory(nil) which would panic when Generate() is called.
+
 func TestConfigFactory_NilProviderPanic(t *testing.T) {
 	factory := NewConfigFactory(nil)
 	ctx := context.Background()
@@ -41,6 +42,7 @@ func TestConfigFactory_NilProviderPanic(t *testing.T) {
 }
 
 // TODO: [Null/Undefined/Empty] Missing test for ConfigAtom.Merge behavior when Tools or Policies are explicitly nil versus empty slices, ensuring it doesn't panic and returns initialized slices if expected.
+
 func TestConfigAtom_MergeNilSlices(t *testing.T) {
 	atom1 := ConfigAtom{Tools: nil, Policies: nil, Priority: 10}
 	atom2 := ConfigAtom{Tools: []string{"tool1"}, Policies: nil, Priority: 20}
@@ -58,6 +60,7 @@ func TestConfigAtom_MergeNilSlices(t *testing.T) {
 }
 
 // TODO: [Type Coercion] Missing test for intent strings containing null bytes (\x00) or non-UTF8 sequences. Ensure GetAtom safely handles these without panicking or returning unexpected fallback atoms.
+
 func TestConfigFactory_NullBytesAndInvalidUTF8(t *testing.T) {
 	provider := NewDefaultConfigAtomProvider()
 	factory := NewConfigFactory(provider)
@@ -80,6 +83,8 @@ func TestConfigFactory_NullBytesAndInvalidUTF8(t *testing.T) {
 	}
 }
 
+// TODO: [User Request Extremes] Missing test for GenerateFallback with a massive fallbackIdentity string (e.g., 50MB) to ensure it doesn't cause OOM when constructing the EffectiveAgentRuntimeConfig.
+
 func TestConfigFactory_GenerateFallbackMassiveIdentity(t *testing.T) {
 	factory := NewDefaultConfigFactory()
 	ctx := context.Background()
@@ -95,6 +100,7 @@ func TestConfigFactory_GenerateFallbackMassiveIdentity(t *testing.T) {
 }
 
 // TODO: [User Request Extremes] Missing test for uniqueStrings performance/OOM when handling a ConfigAtom with millions of duplicated tool strings.
+
 func TestConfigFactory_UniqueStringsMassiveDuplicates(t *testing.T) {
 	// Generate an array of 2000 unique strings, but we repeat them to make 2 million
 	var massiveInput []string
@@ -113,6 +119,7 @@ func TestConfigFactory_UniqueStringsMassiveDuplicates(t *testing.T) {
 }
 
 // TODO: [State Conflicts] Missing test verifying that mutating a slice (e.g., Tools) of a ConfigAtom *after* passing it to RegisterAtom does not cause race conditions when Generate() concurrently reads from it.
+
 func TestConfigFactory_RegisterAtomMutationSafety(t *testing.T) {
 	provider := NewDefaultConfigAtomProvider()
 
@@ -369,6 +376,7 @@ func TestConfigFactory_UserExtremes(t *testing.T) {
 // This is the regression guard for bug #13: the default provider previously
 // produced configs with empty Policies, which would fail validation once
 // Validate started enforcing the policy requirement.
+
 func TestDefaultConfigFactory_OutputPassesValidate(t *testing.T) {
 	factory := NewDefaultConfigFactory()
 	ctx := context.Background()
@@ -410,6 +418,7 @@ func TestDefaultConfigFactory_OutputPassesValidate(t *testing.T) {
 
 // TestDefaultConfigFactory_FallbackPassesValidate asserts that GenerateFallback
 // also produces a config that satisfies Validate when given a known intent.
+
 func TestDefaultConfigFactory_FallbackPassesValidate(t *testing.T) {
 	factory := NewDefaultConfigFactory()
 	ctx := context.Background()
@@ -461,6 +470,7 @@ func TestConfigFactory_StateConflicts(t *testing.T) {
 }
 
 // TODO: [Null/Undefined/Empty] Missing test for Generate fallback with strings of only spaces ("   ").
+
 func TestConfigFactory_EmptySpacesIntent(t *testing.T) {
 	provider := &MockConfigAtomProvider{
 		atoms: map[string]ConfigAtom{
@@ -486,6 +496,8 @@ func TestConfigFactory_EmptySpacesIntent(t *testing.T) {
 	}
 }
 
+// TODO: [User Request Extremes] Missing test for GenerateFallback with a massive fallbackIdentity string (e.g., 50MB) to ensure it doesn't cause OOM.
+
 func TestConfigFactory_MassiveFallbackIdentity(t *testing.T) {
 	factory := NewDefaultConfigFactory()
 	ctx := context.Background()
@@ -503,6 +515,7 @@ func TestConfigFactory_MassiveFallbackIdentity(t *testing.T) {
 }
 
 // TODO: [User Request Extremes] Missing test for uniqueStrings performance/OOM when handling a ConfigAtom with millions of duplicated tool strings.
+
 func TestConfigFactory_MassiveUniqueStrings(t *testing.T) {
 	provider := &MockConfigAtomProvider{
 		atoms: map[string]ConfigAtom{
@@ -533,6 +546,7 @@ func TestConfigFactory_MassiveUniqueStrings(t *testing.T) {
 }
 
 // TODO: [State Conflicts] Missing test verifying that mutating a slice (e.g., Tools) of a ConfigAtom *after* passing it to RegisterAtom does not cause race conditions.
+
 func TestConfigFactory_SliceMutationRace(t *testing.T) {
 	provider := NewDefaultConfigAtomProvider()
 
