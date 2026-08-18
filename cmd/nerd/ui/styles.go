@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lucasb-eyer/go-colorful"
@@ -134,11 +135,33 @@ func DarkTheme() Theme {
 	}
 }
 
+var (
+	cachedTheme *Theme
+	themeMutex  sync.RWMutex
+)
+
 // DetectTheme auto-detects based on terminal or returns light mode
 // TODO: Add support for a configuration file (e.g., config.yaml) in addition to environment variables.
 // TODO: Consider using a dedicated library like 'termenv' for more robust background color detection.
-// TODO: IMPROVEMENT: Cache the detected theme to avoid repeated environment lookups.
 func DetectTheme() Theme {
+	themeMutex.RLock()
+	if cachedTheme != nil {
+		t := *cachedTheme
+		themeMutex.RUnlock()
+		return t
+	}
+	themeMutex.RUnlock()
+
+	theme := detectTheme()
+
+	themeMutex.Lock()
+	cachedTheme = &theme
+	themeMutex.Unlock()
+
+	return theme
+}
+
+func detectTheme() Theme {
 	// Support NO_COLOR standard (https://no-color.org/)
 	if os.Getenv("NO_COLOR") != "" {
 		return Theme{}
