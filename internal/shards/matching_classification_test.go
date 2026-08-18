@@ -4,26 +4,73 @@ import "testing"
 
 
 func TestIsExecutorSpecialist(t *testing.T) {
-	if !IsExecutorSpecialist("mangleexpert") {
-		t.Error("mangleexpert should be an executor specialist")
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{"executor specialist (lowercase)", "mangleexpert", true},
+		{"executor specialist (mixed case)", " MangleExpert ", true},
+		{"observer specialist", "northstar", false},
+		{"advisor specialist", "securityauditor", false},
+		{"unknown specialist", "unknown", false},
+		{"empty string", "", false},
 	}
-	if IsExecutorSpecialist("northstar") {
-		t.Error("northstar is an observer, not an executor")
-	}
-	if IsExecutorSpecialist("unknown") {
-		t.Error("unknown specialist should not be an executor")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsExecutorSpecialist(tt.input)
+			if result != tt.expected {
+				t.Errorf("IsExecutorSpecialist(%q) = %v, want %v", tt.input, result, tt.expected)
+			}
+		})
 	}
 }
 
 func TestIsStrategicAdvisor(t *testing.T) {
-	if !IsStrategicAdvisor("securityauditor") {
-		t.Error("securityauditor is a strategic advisor")
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{"strategic advisor (lowercase)", "securityauditor", true},
+		{"strategic advisor (mixed case)", " SecurityAuditor ", true},
+		{"technical expert", "goexpert", false},
+		{"unknown specialist", "unknown", false},
+		{"empty string", "", false},
 	}
-	if IsStrategicAdvisor("goexpert") {
-		t.Error("goexpert is technical-tier, not strategic")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsStrategicAdvisor(tt.input)
+			if result != tt.expected {
+				t.Errorf("IsStrategicAdvisor(%q) = %v, want %v", tt.input, result, tt.expected)
+			}
+		})
 	}
-	if IsStrategicAdvisor("unknown") {
-		t.Error("unknown specialist should not be a strategic advisor")
+}
+
+func TestShouldSpecialistExecuteTask(t *testing.T) {
+	tests := []struct {
+		name       string
+		agentName  string
+		confidence float64
+		expected   bool
+	}{
+		{"executor with high confidence", "goexpert", 0.9, true},
+		{"executor with exact threshold confidence", "goexpert", 0.8, false},
+		{"executor with low confidence", "goexpert", 0.7, false},
+		{"advisor with high confidence", "securityauditor", 0.9, false},
+		{"unknown agent", "unknown", 0.9, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ShouldSpecialistExecuteTask(tt.agentName, tt.confidence)
+			if result != tt.expected {
+				t.Errorf("ShouldSpecialistExecuteTask(%q, %v) = %v, want %v", tt.agentName, tt.confidence, result, tt.expected)
+			}
+		})
 	}
 }
 
