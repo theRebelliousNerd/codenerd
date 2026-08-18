@@ -1,8 +1,6 @@
 package shards
 import "testing"
 
-
-
 func TestIsExecutorSpecialist(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -113,26 +111,20 @@ func TestGetSpecialistClassification(t *testing.T) {
 	}
 }
 
-
 func TestCanSpecialistExecute(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected bool
-	}{
-		{"executor_specialist", "goexpert", true},
-		{"advisor_specialist", "securityauditor", false},
-		{"unknown_specialist", "unknown_agent", false},
-		{"case_insensitive", "GoExpert", true},
-		{"whitespace_trimming", "  goexpert  ", true},
+	// goexpert is an executor and can execute; case/space-insensitive lookup.
+	if !CanSpecialistExecute("goexpert") {
+		t.Error("goexpert should be able to execute")
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := CanSpecialistExecute(tc.input)
-			if result != tc.expected {
-				t.Errorf("CanSpecialistExecute(%q) = %v, want %v", tc.input, result, tc.expected)
-			}
-		})
+	if !CanSpecialistExecute("  GoExpert  ") {
+		t.Error("specialist lookup should normalize case and whitespace")
+	}
+	// securityauditor is advisory and cannot execute.
+	if CanSpecialistExecute("securityauditor") {
+		t.Error("securityauditor is advisory and should not execute")
+	}
+	// Unknown specialists default to advisory (no execution).
+	if CanSpecialistExecute("totally-unknown") {
+		t.Error("unknown specialists should default to non-executing")
 	}
 }
