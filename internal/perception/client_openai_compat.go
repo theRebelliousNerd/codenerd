@@ -633,6 +633,21 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
+type allowEmptyCompletionKey struct{}
+
+// WithAllowEmptyCompletion lets a caller treat a zero-length assistant
+// body as success. Used by the taxonomy critic, which is instructed to
+// emit nothing when it finds no learning pattern. Chat must not use this:
+// an empty user-facing completion is still a vendor failure.
+func WithAllowEmptyCompletion(ctx context.Context) context.Context {
+	return context.WithValue(ctx, allowEmptyCompletionKey{}, true)
+}
+
+func allowEmptyCompletion(ctx context.Context) bool {
+	ok, _ := ctx.Value(allowEmptyCompletionKey{}).(bool)
+	return ok
+}
+
 // Complete sends a prompt and returns the completion.
 func (c *OpenAICompatClient) Complete(ctx context.Context, prompt string) (string, error) {
 	return c.CompleteWithSystem(ctx, "", prompt)
@@ -715,6 +730,11 @@ func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPromp
 	}
 
 	if out == "" {
+		if allowEmptyCompletion(ctx) {
+			logging.PerceptionDebug("[%s] empty completion allowed by caller (model=%s finish_reason=%q output_tokens=%d)",
+				c.vendor, reqBody.Model, resp.Choices[0].FinishReason, resp.Usage.CompletionTokens)
+			return "", nil
+		}
 		finish := resp.Choices[0].FinishReason
 		return "", fmt.Errorf("%s returned an empty completion (model=%s finish_reason=%q reasoning_chars=%d output_tokens=%d); "+
 			"if finish_reason is \"stop\" with 0 content the completion budget was likely consumed by reasoning",

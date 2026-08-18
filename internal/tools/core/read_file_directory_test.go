@@ -53,3 +53,28 @@ func TestReadFile_DirectoryErrorNotRawPlatform(t *testing.T) {
 		t.Fatalf("directory error not actionable, got: %v", err)
 	}
 }
+
+func TestReadFile_DirectoryListsContents(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
+	dir := filepath.Join(tmpDir, "pkg")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "alpha.go"), []byte("package pkg\n"), 0644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "nest"), 0755); err != nil {
+		t.Fatalf("seed nest: %v", err)
+	}
+	_, err := executeReadFile(context.Background(), map[string]any{"path": dir})
+	if err == nil {
+		t.Fatal("expected error for directory")
+	}
+	msg := err.Error()
+	for _, want := range []string{"directory", "alpha.go", "nest/"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("directory listing missing %q in %q", want, msg)
+		}
+	}
+}

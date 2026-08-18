@@ -713,7 +713,10 @@ func (e *Executor) intentRequiresToolCall(verb string) bool {
 	verb = strings.TrimSpace(verb)
 	validVerb := validMangleVerb(verb)
 	if e.kernel == nil || !validVerb {
-		if verb != "" && !validVerb {
+		// /consult/<specialist> is a routing verb, not a Mangle atom. It is
+		// rejected by validMangleVerb on purpose (second slash) so it is never
+		// interpolated into a query. That is not malformed user state.
+		if verb != "" && !validVerb && !isConsultIntentVerb(verb) {
 			logging.Get(logging.CategorySession).Warn(
 				"intentRequiresToolCall rejected malformed verb %q", verb)
 		}
@@ -737,6 +740,20 @@ func (e *Executor) intentRequiresToolCall(verb string) bool {
 // the policy corpus. Query helpers interpolate this value into Mangle source,
 // so accepting whitespace, delimiters, or a second slash would turn malformed
 // user state into a query-language fragment.
+func isConsultIntentVerb(verb string) bool {
+	after, ok := strings.CutPrefix(verb, "/consult/")
+	if !ok || after == "" {
+		return false
+	}
+	for i := 0; i < len(after); i++ {
+		c := after[i]
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return true
+}
+
 func validMangleVerb(verb string) bool {
 	if len(verb) < 2 || verb[0] != '/' {
 		return false

@@ -634,3 +634,16 @@ func TestConfigFactory_GenerateFallbackRuneTruncation(t *testing.T) {
 		t.Errorf("GenerateFallback truncated incorrectly. Expected length %d, got %d", padLen, len(cfg.IdentityPrompt))
 	}
 }
+
+func TestDefaultConfigAtomProvider_ConsultRequirementsInterrogator(t *testing.T) {
+	provider := NewDefaultConfigAtomProvider()
+	for _, verb := range []string{"/requirements_interrogator", "/consult/requirements_interrogator"} {
+		atom, ok := provider.GetAtom(verb)
+		if !ok {
+			t.Fatalf("missing config atom for %s", verb)
+		}
+		if len(atom.Tools) == 0 {
+			t.Fatalf("%s has no tools", verb)
+		}
+	}
+}

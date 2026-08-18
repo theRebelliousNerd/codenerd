@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 	"sync"
+	"unicode/utf8"
 
 	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
@@ -456,6 +456,10 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	for _, intent := range []string{
 		"/explain", "/read", "/stats", "/knowledge", "/help", "/greet",
 		"/configure", "/dream", "/shadow", "/assault",
+		// Built-in consultable system shards. User agents get the same pair
+		// from registerUserAgentConfigAtoms; without these, /consult/<name>
+		// falls back to /general and logs a warning on every /clarify.
+		"/requirements_interrogator", "/consult/requirements_interrogator",
 	} {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    coreTools,
@@ -474,6 +478,12 @@ func (p *DefaultConfigAtomProvider) GetAtom(intent string) (ConfigAtom, bool) {
 	atom, ok := p.atoms[intent]
 	if ok {
 		return atom.Clone(), true
+	}
+	// Chat delegation uses /consult/<name> while spawn uses /<name>.
+	if after, found := strings.CutPrefix(intent, "/consult/"); found {
+		if atom, ok = p.atoms["/"+strings.ToLower(strings.TrimSpace(after))]; ok {
+			return atom.Clone(), true
+		}
 	}
 	return atom, false
 }

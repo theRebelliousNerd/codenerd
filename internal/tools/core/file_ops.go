@@ -106,6 +106,34 @@ func notFoundWithSuggestions(absPath, rawPath string) error {
 		rawPath, strings.Join(all, ", "))
 }
 
+func directoryReadWithListing(absPath, rawPath string) error {
+	entries, err := os.ReadDir(absPath)
+	if err != nil {
+		return fmt.Errorf("path is a directory, not a file: %s (use list_files or glob to enumerate directory contents)", rawPath)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() {
+			name += "/"
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	const maxList = 40
+	if len(names) == 0 {
+		return fmt.Errorf("path is a directory, not a file: %s (directory is empty; use list_files or glob to enumerate directory contents)", rawPath)
+	}
+	if len(names) > maxList {
+		return fmt.Errorf("path is a directory, not a file: %s. Contents (%d): %s ... "+
+			"(read one of those files; use list_files or glob only if you need a wider search)",
+			rawPath, len(names), strings.Join(names[:maxList], ", "))
+	}
+	return fmt.Errorf("path is a directory, not a file: %s. Contents: %s. "+
+		"Read one of those files; use list_files or glob only if you need a wider search",
+		rawPath, strings.Join(names, ", "))
+}
+
 func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 	rawPath, _ := args["path"].(string)
 	if rawPath == "" {
@@ -129,6 +157,11 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 			auditErr := notFoundWithSuggestions(path, rawPath)
 			logging.Audit().FileOp(logging.AuditFileRead, path, 0, false, auditErr.Error())
 			return "", auditErr
+		}
+		if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+			dirErr := directoryReadWithListing(path, rawPath)
+			logging.Audit().FileOp(logging.AuditFileRead, path, 0, false, dirErr.Error())
+			return "", dirErr
 		}
 		logging.Audit().FileOp(logging.AuditFileRead, path, 0, false, err.Error())
 		return "", fmt.Errorf("failed to read file: %w", err)

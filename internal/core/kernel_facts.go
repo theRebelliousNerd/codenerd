@@ -444,8 +444,18 @@ func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 		return false
 	}
 
+	cacheInSync := !k.atomCacheStale && k.cachedAtoms != nil && len(k.cachedAtoms) == len(k.facts)
 	k.facts = append(k.facts, f)
-	k.cachedAtoms = append(k.cachedAtoms, atom)
+	// cachedAtoms == nil means "invalid, evaluate must rebuild". Appending onto
+	// a nil cache after rebuild()/LoadFacts created a short slice of only the
+	// facts asserted since invalidation (live: atoms=25 facts=8529 after
+	// AssertBatch of 25). Keep the cache invalid so evaluate hits the empty
+	// rebuild, not a false desync WARN and a full ToAtom pass.
+	if cacheInSync {
+		k.cachedAtoms = append(k.cachedAtoms, atom)
+	} else {
+		k.cachedAtoms = nil
+	}
 	k.factIndex[key] = struct{}{}
 
 	// Track per-fact delta for the differential-eval fast path.

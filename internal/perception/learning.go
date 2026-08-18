@@ -180,7 +180,11 @@ func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []Rea
 	logging.PerceptionDebug("LearnFromInteraction: calling Critic LLM (input: %d chars)", len(criticInput))
 
 	llmTimer := logging.StartTimer(logging.CategoryPerception, "LearnFromInteraction-Critic-LLM")
-	resp, err := t.client.CompleteWithSystem(ctx, CriticSystemPrompt, criticInput)
+	// The critic is instructed to emit an empty body when no pattern exists.
+	// CompleteWithSystem treats empty as a vendor failure for chat, so this
+	// call must opt in or every successful "nothing to learn" turn logs
+	// ERROR and skips consolidation (live: Meta muse-spark empty critic).
+	resp, err := t.client.CompleteWithSystem(WithAllowEmptyCompletion(ctx), CriticSystemPrompt, criticInput)
 	llmTimer.Stop()
 
 	if err != nil {
