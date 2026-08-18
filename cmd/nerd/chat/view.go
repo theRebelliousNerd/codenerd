@@ -82,13 +82,8 @@ func (m *Model) renderSingleMessage(msg Message) string {
 	switch msg.Role {
 	case RoleUser:
 		// Render user message
-<<<<<<< HEAD
 		userStyle := m.styles.Text.Bold.
-			Foreground(m.styles.Theme.Primary).
-=======
-		userStyle := m.styles.Bold.
 			Foreground(m.styles.Theme.Primary()).
->>>>>>> origin/theme-interface-7438776495084234529
 			MarginTop(1)
 		rendered.WriteString(userStyle.Render(LabelUser) + "\n")
 		rendered.WriteString(m.styles.Interactive.UserInput.Render(msg.Content))
@@ -115,13 +110,8 @@ func (m *Model) renderSingleMessage(msg Message) string {
 
 	default: // RoleAssistant
 		// Render assistant message with markdown
-<<<<<<< HEAD
 		assistantStyle := m.styles.Text.Bold.
-			Foreground(m.styles.Theme.Secondary).
-=======
-		assistantStyle := m.styles.Bold.
 			Foreground(m.styles.Theme.Secondary()).
->>>>>>> origin/theme-interface-7438776495084234529
 			MarginTop(1)
 		rendered.WriteString(assistantStyle.Render(LabelAssistant) + "\n")
 
