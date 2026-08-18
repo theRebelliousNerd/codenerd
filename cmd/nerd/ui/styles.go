@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"encoding/json"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/lucasb-eyer/go-colorful"
 
 	"codenerd/internal/features"
+	"github.com/muesli/termenv"
 )
 
 // Theme holds the current color scheme
@@ -142,7 +142,6 @@ var (
 
 // DetectTheme auto-detects based on terminal or returns light mode
 // TODO: Add support for a configuration file (e.g., config.yaml) in addition to environment variables.
-// TODO: Consider using a dedicated library like 'termenv' for more robust background color detection.
 func DetectTheme() Theme {
 	themeMutex.RLock()
 	if cachedTheme != nil {
@@ -167,26 +166,6 @@ func detectTheme() Theme {
 		return Theme{}
 	}
 
-	// Check for common dark mode indicators
-	colorTerm := os.Getenv("COLORFGBG")
-	if colorTerm != "" {
-		// Format is usually "foreground;background"
-		// If background is dark (0-8), use dark theme.
-		// If background is light (7-15), use light theme.
-		parts := strings.Split(colorTerm, ";")
-		if len(parts) == 2 {
-			bgStr := parts[1]
-			// Try to parse background color index
-			// Standard ANSI colors: 0-7 are widely used for dark backgrounds
-			if bgIdx, err := strconv.Atoi(bgStr); err == nil {
-				// Simple heuristic: 0-6 and 8 (dark grey) are likely dark backgrounds
-				if (bgIdx >= 0 && bgIdx <= 6) || bgIdx == 8 {
-					return DarkTheme()
-				}
-			}
-		}
-	}
-
 	// Check for explicit dark mode preference. Resolved via internal/features
 	// so .nerd/config.json's `features.dark_mode` and the legacy
 	// CODENERD_DARK_MODE env var both work (env wins).
@@ -194,6 +173,10 @@ func detectTheme() Theme {
 		return DarkTheme()
 	}
 
+	// Use termenv for robust background color detection
+	if termenv.HasDarkBackground() {
+		return DarkTheme()
+	}
 	// Default to light mode as specified
 	return LightTheme()
 }
