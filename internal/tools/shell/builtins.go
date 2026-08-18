@@ -2,6 +2,7 @@ package shell
 
 import (
 	"bufio"
+	"container/list"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,11 +10,61 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // psVerbs is the set of PowerShell approved-verb prefixes we recognize, used to
 // decide whether a not-found "Verb-Noun" command is a PowerShell cmdlet worth
 // re-routing through PowerShell (rather than a hyphenated unix binary).
+
+type grepLruEntry struct {
+	key string
+	re  *regexp.Regexp
+}
+
+var (
+	grepRegexCacheMu sync.Mutex
+	grepRegexCache   = make(map[string]*list.Element)
+	grepRegexCacheLL = list.New()
+	grepRegexMax     = 512
+)
+
+func getGrepRegex(pattern string) (*regexp.Regexp, error) {
+	grepRegexCacheMu.Lock()
+	if elem, ok := grepRegexCache[pattern]; ok {
+		grepRegexCacheLL.MoveToFront(elem)
+		re := elem.Value.(*grepLruEntry).re
+		grepRegexCacheMu.Unlock()
+		return re, nil
+	}
+	grepRegexCacheMu.Unlock()
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	grepRegexCacheMu.Lock()
+	defer grepRegexCacheMu.Unlock()
+
+	if elem, ok := grepRegexCache[pattern]; ok {
+		grepRegexCacheLL.MoveToFront(elem)
+		return elem.Value.(*grepLruEntry).re, nil
+	}
+
+	elem := grepRegexCacheLL.PushFront(&grepLruEntry{key: pattern, re: re})
+	grepRegexCache[pattern] = elem
+	if grepRegexCacheLL.Len() > grepRegexMax {
+		back := grepRegexCacheLL.Back()
+		if back != nil {
+			grepRegexCacheLL.Remove(back)
+			delete(grepRegexCache, back.Value.(*grepLruEntry).key)
+		}
+	}
+
+	return re, nil
+}
+
 var psVerbs = map[string]bool{
 	"get": true, "set": true, "new": true, "remove": true, "select": true,
 	"where": true, "foreach": true, "sort": true, "measure": true, "test": true,
@@ -353,14 +404,14 @@ func builtinGrep(name string, args []string, workingDir string) string {
 	if ignoreCase {
 		reStr = "(?i)" + reStr
 	}
-	re, err := regexp.Compile(reStr)
+	re, err := getGrepRegex(reStr)
 	if err != nil {
 		// Fall back to a literal match if the pattern isn't a valid regex.
 		lit := regexp.QuoteMeta(patternStr)
 		if ignoreCase {
 			lit = "(?i)" + lit
 		}
-		re, err = regexp.Compile(lit)
+		re, err = getGrepRegex(lit)
 		if err != nil {
 			return fmt.Sprintf("%s: invalid pattern: %v", name, patternStr)
 		}
