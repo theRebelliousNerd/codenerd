@@ -37,7 +37,7 @@ const (
 // =============================================================================
 // These functions render the TUI components: history, header, footer, etc.
 
-func (m Model) renderHistory() string {
+func (m *Model) renderHistory() string {
 	var sb strings.Builder
 
 	// Optimization: Only render messages visible in viewport (with some buffer)
@@ -76,14 +76,19 @@ func (m Model) renderHistory() string {
 }
 
 // renderSingleMessage renders a single message without caching
-func (m Model) renderSingleMessage(msg Message) string {
+func (m *Model) renderSingleMessage(msg Message) string {
 	var rendered strings.Builder
 
 	switch msg.Role {
 	case RoleUser:
 		// Render user message
+<<<<<<< HEAD
 		userStyle := m.styles.Text.Bold.
 			Foreground(m.styles.Theme.Primary).
+=======
+		userStyle := m.styles.Bold.
+			Foreground(m.styles.Theme.Primary()).
+>>>>>>> origin/theme-interface-7438776495084234529
 			MarginTop(1)
 		rendered.WriteString(userStyle.Render(LabelUser) + "\n")
 		rendered.WriteString(m.styles.Interactive.UserInput.Render(msg.Content))
@@ -110,8 +115,13 @@ func (m Model) renderSingleMessage(msg Message) string {
 
 	default: // RoleAssistant
 		// Render assistant message with markdown
+<<<<<<< HEAD
 		assistantStyle := m.styles.Text.Bold.
 			Foreground(m.styles.Theme.Secondary).
+=======
+		assistantStyle := m.styles.Bold.
+			Foreground(m.styles.Theme.Secondary()).
+>>>>>>> origin/theme-interface-7438776495084234529
 			MarginTop(1)
 		rendered.WriteString(assistantStyle.Render(LabelAssistant) + "\n")
 
@@ -322,13 +332,13 @@ func (m Model) renderErrorPanel() string {
 
 	header := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(m.styles.Theme.Destructive).
+		Foreground(m.styles.Theme.Destructive()).
 		Render("Error") +
 		m.styles.Text.Muted.Render("  Alt+E: scroll  Alt+Shift+E: hide")
 
 	panelStyle := lipgloss.NewStyle().
 		Border(border).
-		BorderForeground(m.styles.Theme.Destructive).
+		BorderForeground(m.styles.Theme.Destructive()).
 		Padding(0, 1).
 		Width(m.viewport.Width).
 		MaxWidth(m.viewport.Width)
@@ -567,7 +577,7 @@ func (m Model) renderChatView() string {
 	// Input area
 	inputStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(m.styles.Theme.Secondary).
+		BorderForeground(m.styles.Theme.Secondary()).
 		Padding(0, 1)
 
 	inputArea := inputStyle.Render(m.textarea.View())

@@ -173,10 +173,10 @@ func NewLogicPane(styles Styles, width, height int) LogicPane {
 		Nodes:               make([]*DerivationNode, 0),
 		ActivationThreshold: DefaultActivationThreshold,
 		// Pre-compile styles for performance
-		predStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Primary).Bold(true),
-		argsStyle:  lipgloss.NewStyle().Foreground(styles.Theme.OnSurface),
-		ruleStyle:  lipgloss.NewStyle().Foreground(styles.Theme.OnSurfaceMuted).Italic(true),
-		activStyle: lipgloss.NewStyle().Foreground(styles.Theme.Success),
+		predStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Primary()).Bold(true),
+		argsStyle:  lipgloss.NewStyle().Foreground(styles.Theme.OnSurface()),
+		ruleStyle:  lipgloss.NewStyle().Foreground(styles.Theme.OnSurfaceMuted()).Italic(true),
+		activStyle: lipgloss.NewStyle().Foreground(styles.Theme.Success()),
 		// Initialize render cache
 		renderCache:  NewCachedRender(DefaultRenderCache),
 		traceVersion: 0,
@@ -475,9 +475,9 @@ func (p *LogicPane) renderContentUncached() string {
 	// Header
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(p.Styles.Theme.Primary).
+		Foreground(p.Styles.Theme.Primary()).
 		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(p.Styles.Theme.Outline).
+		BorderForeground(p.Styles.Theme.Outline()).
 		Width(ViewportWidth(p.Width)).
 		Padding(0, 1)
 
@@ -485,13 +485,13 @@ func (p *LogicPane) renderContentUncached() string {
 
 	// Query info
 	queryStyle := lipgloss.NewStyle().
-		Foreground(p.Styles.Theme.Secondary).
+		Foreground(p.Styles.Theme.Secondary()).
 		Italic(true)
 
 	query := queryStyle.Render(fmt.Sprintf("Query: %s", p.CurrentTrace.Query))
 
 	infoStyle := lipgloss.NewStyle().
-		Foreground(p.Styles.Theme.OnSurfaceMuted)
+		Foreground(p.Styles.Theme.OnSurfaceMuted())
 
 	info := infoStyle.Render(fmt.Sprintf("Facts: %d │ Time: %v",
 		p.CurrentTrace.TotalFacts,
@@ -508,7 +508,7 @@ func (p *LogicPane) renderContentUncached() string {
 	// Add filter status if filters are active
 	if p.HasActiveFilters() {
 		filterStyle := lipgloss.NewStyle().
-			Foreground(p.Styles.Theme.Warning).
+			Foreground(p.Styles.Theme.Warning()).
 			Bold(true)
 		sections = append(sections, "", filterStyle.Render("🔍 "+p.GetFilterStatus()))
 	}
@@ -528,7 +528,7 @@ func (p *LogicPane) renderContentUncached() string {
 // renderEmptyState renders the empty state message
 func (p *LogicPane) renderEmptyState() string {
 	emptyStyle := lipgloss.NewStyle().
-		Foreground(p.Styles.Theme.OnSurfaceMuted).
+		Foreground(p.Styles.Theme.OnSurfaceMuted()).
 		Italic(true).
 		Padding(2).
 		Width(ViewportWidth(p.Width)).
@@ -734,8 +734,8 @@ func (p *LogicPane) writeNode(sb *strings.Builder, node *DerivationNode, selecte
 
 	// Selection highlight
 	if selected {
-		predStyle = predStyle.Background(p.Styles.Theme.Container)
-		argsStyle = argsStyle.Background(p.Styles.Theme.Container)
+		predStyle = predStyle.Background(p.Styles.Theme.Container())
+		argsStyle = argsStyle.Background(p.Styles.Theme.Container())
 	}
 
 	// Format predicate with args
@@ -779,7 +779,7 @@ func (p *LogicPane) renderLegend() string {
 
 	legendStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(p.Styles.Theme.Outline).
+		BorderForeground(p.Styles.Theme.Outline()).
 		Padding(0, 1).
 		Width(vpWidth)
 
@@ -1005,8 +1005,8 @@ func (s *SplitPaneView) renderSplit(leftContent string) string {
 	dividerStyle := lipgloss.NewStyle().
 		Width(SplitPaneDivider).
 		Height(s.Height).
-		Background(s.Styles.Theme.Outline).
-		Foreground(s.Styles.Theme.OnSurfaceMuted)
+		Background(s.Styles.Theme.Outline()).
+		Foreground(s.Styles.Theme.OnSurfaceMuted())
 
 	// Style for right pane
 	rightBorder := lipgloss.NormalBorder()
@@ -1020,9 +1020,9 @@ func (s *SplitPaneView) renderSplit(leftContent string) string {
 		Border(rightBorder).
 		BorderForeground(func() lipgloss.Color {
 			if s.FocusRight {
-				return s.Styles.Theme.Secondary
+				return s.Styles.Theme.Secondary()
 			}
-			return s.Styles.Theme.Outline
+			return s.Styles.Theme.Outline()
 		}())
 
 	// Build divider

@@ -87,7 +87,7 @@ func InitChat(cfg Config) Model {
 
 	// Initialize markdown renderer
 	var renderer *glamour.TermRenderer
-	if styles.Theme.IsDark {
+	if styles.Theme.IsDark() {
 		renderer, _ = glamour.NewTermRenderer(
 			glamour.WithStandardStyle("dark"),
 			glamour.WithWordWrap(80),
