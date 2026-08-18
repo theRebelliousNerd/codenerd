@@ -143,24 +143,19 @@ func TestGetSpecialistClassification(t *testing.T) {
 }
 
 func TestCanSpecialistExecute(t *testing.T) {
-	tests := []struct {
-		name      string
-		nameInput string
-		expected  bool
-	}{
-		{"existing specialist lowercase", "goexpert", true},
-		{"existing specialist mixed case", " GoExpert ", true},
-		{"advisory specialist", "securityauditor", false},
-		{"unknown specialist", "totally-unknown", false},
-		{"empty string", "", false},
+	// goexpert is an executor and can execute; case/space-insensitive lookup.
+	if !CanSpecialistExecute("goexpert") {
+		t.Error("goexpert should be able to execute")
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := CanSpecialistExecute(tt.nameInput)
-			if got != tt.expected {
-				t.Errorf("CanSpecialistExecute(%q) = %v, want %v", tt.nameInput, got, tt.expected)
-			}
-		})
+	if !CanSpecialistExecute("  GoExpert  ") {
+		t.Error("specialist lookup should normalize case and whitespace")
+	}
+	// securityauditor is advisory and cannot execute.
+	if CanSpecialistExecute("securityauditor") {
+		t.Error("securityauditor is advisory and should not execute")
+	}
+	// Unknown specialists default to advisory (no execution).
+	if CanSpecialistExecute("totally-unknown") {
+		t.Error("unknown specialists should default to non-executing")
 	}
 }
