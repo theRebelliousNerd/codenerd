@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"slices"
 )
 
 // =============================================================================
@@ -152,7 +153,7 @@ func (c *Compressor) GetRecentTurnWindow() int {
 // buildStateLocked constructs a CompressedState assuming c.mu is already held.
 func (c *Compressor) buildStateLocked() *CompressedState {
 	// Get hot facts
-	allFacts := c.kernel.GetAllFacts()
+	allFacts := slices.Collect(c.kernel.GetAllFactsSeq())
 	var currentIntent *core.Fact
 	intentFacts, _ := c.kernel.Query("user_intent")
 	if len(intentFacts) > 0 {
@@ -207,7 +208,7 @@ func (c *Compressor) LoadState(state *CompressedState) error {
 	restoredCount := 0
 	if c.kernel != nil {
 		existing := make(map[string]struct{})
-		for _, f := range c.kernel.GetAllFacts() {
+		for f := range c.kernel.GetAllFactsSeq() {
 			existing[f.String()] = struct{}{}
 		}
 		missing := make([]core.Fact, 0, len(state.HotFacts))
@@ -364,7 +365,7 @@ func (c *Compressor) GetActivationScores() map[string]float64 {
 	}
 
 	// Get all facts and their activation scores
-	allFacts := c.kernel.GetAllFacts()
+	allFacts := slices.Collect(c.kernel.GetAllFactsSeq())
 	if len(allFacts) == 0 {
 		return scores
 	}
