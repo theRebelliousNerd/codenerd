@@ -22,23 +22,70 @@ func TestFromResponse(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	// FromResponse should decode the embedded spec and compile it end-to-end.
-	res, err := FromResponse(string(payload), DefaultOptions())
-	if err != nil {
-		t.Fatalf("FromResponse: %v", err)
-	}
-	if len(res.Clauses) != 1 {
-		t.Fatalf("expected 1 compiled clause, got %d (%v)", len(res.Clauses), res.Clauses)
-	}
-	if !strings.Contains(res.Clauses[0], "next_action") || !strings.Contains(res.Clauses[0], "/run") {
-		t.Errorf("compiled clause missing expected atom: %q", res.Clauses[0])
-	}
-	if strings.TrimSpace(res.Source) == "" {
-		t.Error("expected non-empty compiled Source")
+	tests := []struct {
+		name        string
+		input       string
+		expectError bool
+		errContains string
+		checkResult func(*testing.T, Result)
+	}{
+		{
+			name:        "Piggyback Envelope",
+			input:       string(payload),
+			expectError: false,
+			checkResult: func(t *testing.T, res Result) {
+				if len(res.Clauses) != 1 {
+					t.Fatalf("expected 1 compiled clause, got %d (%v)", len(res.Clauses), res.Clauses)
+				}
+				if !strings.Contains(res.Clauses[0], "next_action") || !strings.Contains(res.Clauses[0], "/run") {
+					t.Errorf("compiled clause missing expected atom: %q", res.Clauses[0])
+				}
+				if strings.TrimSpace(res.Source) == "" {
+					t.Error("expected non-empty compiled Source")
+				}
+			},
+		},
+		{
+			name:        "Basic JSON Decoding",
+			input:       specJSON,
+			expectError: false,
+			checkResult: func(t *testing.T, res Result) {
+				if len(res.Clauses) != 1 {
+					t.Fatalf("expected 1 compiled clause, got %d (%v)", len(res.Clauses), res.Clauses)
+				}
+			},
+		},
+		{
+			name:        "Decoding Error Delegation",
+			input:       "not json",
+			expectError: true,
+			errContains: ErrMissingJSON.Error(),
+		},
+		{
+			name:        "Rule Compilation Delegation Error",
+			input:       `{"format":"mangle_synth_v1","program":{"package":{"name":"   "}}}`,
+			expectError: true,
+			errContains: "package name is required",
+		},
 	}
 
-	// Invalid JSON surfaces a decode error rather than panicking.
-	if _, err := FromResponse("not json", DefaultOptions()); err == nil {
-		t.Error("expected an error for non-JSON input")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := FromResponse(tt.input, DefaultOptions())
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected an error, got nil")
+				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("expected error to contain %q, got %q", tt.errContains, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("expected no error, got: %v", err)
+				}
+				if tt.checkResult != nil {
+					tt.checkResult(t, res)
+				}
+			}
+		})
 	}
 }
