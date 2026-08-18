@@ -299,11 +299,9 @@ func (t *TaxonomyEngine) getVerbsLocked() ([]VerbEntry, error) {
 		for _, p := range patterns {
 			if re, ok := t.regexCache[p]; ok {
 				v.Patterns = append(v.Patterns, re)
-			} else {
-				if re, err := regexp.Compile(p); err == nil {
-					t.regexCache[p] = re
-					v.Patterns = append(v.Patterns, re)
-				}
+			} else if re, err := regexp.Compile(p); err == nil {
+				t.regexCache[p] = re
+				v.Patterns = append(v.Patterns, re)
 			}
 		}
 
