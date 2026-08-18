@@ -240,3 +240,78 @@ func TestProtectPrivateFile_NonExistent(t *testing.T) {
 		t.Fatal("ProtectPrivateFile on nonexistent file should return an error")
 	}
 }
+
+func TestIsPrivatePath(t *testing.T) {
+	t.Run("NonExistent", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "nonexistent")
+		if _, err := IsPrivatePath(path, false); err == nil {
+			t.Fatal("expected error for non-existent path")
+		}
+	})
+
+	t.Run("PublicDirectory", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "public")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// Mock file permissions logic on Unix to avoid umask flakiness
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		isPrivate, err := IsPrivatePath(dir, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if isPrivate {
+			t.Fatal("expected directory to not be private")
+		}
+	})
+
+	t.Run("PublicFile", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "public.txt")
+		if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// Mock file permissions logic on Unix to avoid umask flakiness
+		if err := os.Chmod(path, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		isPrivate, err := IsPrivatePath(path, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if isPrivate {
+			t.Fatal("expected file to not be private")
+		}
+	})
+
+	t.Run("PrivateDirectory", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "private")
+		if err := EnsurePrivateDir(dir); err != nil {
+			t.Fatal(err)
+		}
+		isPrivate, err := IsPrivatePath(dir, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !isPrivate {
+			t.Fatal("expected directory to be private")
+		}
+	})
+
+	t.Run("PrivateFile", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "private.txt")
+		if err := WritePrivateFile(path, []byte("data")); err != nil {
+			t.Fatal(err)
+		}
+		isPrivate, err := IsPrivatePath(path, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !isPrivate {
+			t.Fatal("expected file to be private")
+		}
+	})
+}
