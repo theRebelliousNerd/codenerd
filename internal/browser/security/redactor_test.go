@@ -49,3 +49,24 @@ func TestRedactorRecursivelySanitizesSensitiveInput(t *testing.T) {
 		t.Fatalf("unexpected recursive sanitization: %#v", got)
 	}
 }
+
+func TestNewRedactor(t *testing.T) {
+	extra := []string{"MY_CUSTOM_SECRET", "  spaces key  "}
+	r := NewRedactor(extra)
+
+	// Verify default keys
+	defaults := []string{"password", "authorization", "api-key", "token", "cvv"}
+	for _, d := range defaults {
+		if !r.IsSensitiveKey(d) {
+			t.Errorf("Expected default key %q to be sensitive", d)
+		}
+	}
+
+	// Verify extra keys (and normalization via IsSensitiveKey)
+	if !r.IsSensitiveKey("my-custom-secret") {
+		t.Errorf("Expected extra key 'my-custom-secret' to be sensitive")
+	}
+	if !r.IsSensitiveKey("spaces-key") {
+		t.Errorf("Expected extra key 'spaces-key' to be sensitive")
+	}
+}
