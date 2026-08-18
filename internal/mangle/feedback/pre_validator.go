@@ -35,139 +35,7 @@ func init() {
 			word:    word,
 		})
 	}
-}
 
-// PreValidator performs fast regex-based validation of LLM-generated Mangle code
-// BEFORE expensive Mangle compilation. It catches common AI errors with specific
-// feedback for retry attempts.
-type PreValidator struct {
-	patterns []compiledPattern
-}
-
-type compiledPattern struct {
-	ErrorPattern
-	regex *regexp.Regexp
-}
-
-// NewPreValidator creates a validator with all error detection patterns.
-func NewPreValidator() *PreValidator {
-	pv := &PreValidator{}
-	pv.compilePatterns()
-	return pv
-}
-
-// Validate checks code for common AI errors and returns any found.
-func (pv *PreValidator) Validate(code string) []ValidationError {
-	var errors []ValidationError
-
-	lines := strings.Split(code, "\n")
-
-	for lineNum, line := range lines {
-		lineErrors := pv.validateLine(line, lineNum+1)
-		errors = append(errors, lineErrors...)
-	}
-
-	// Global checks
-	globalErrors := pv.validateGlobal(code)
-	errors = append(errors, globalErrors...)
-
-	return errors
-}
-
-func (pv *PreValidator) validateLine(line string, lineNum int) []ValidationError {
-	var errors []ValidationError
-
-	// Skip comments and empty lines
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-		return nil
-	}
-
-	for _, p := range pv.patterns {
-		if p.regex == nil {
-			continue
-		}
-
-		matches := p.regex.FindStringSubmatch(line)
-		if len(matches) > 0 {
-			wrong := matches[0]
-			if len(matches) > 1 {
-				wrong = matches[1] // Use first capture group if available
-			}
-
-			errors = append(errors, ValidationError{
-				Category:   p.Category,
-				Line:       lineNum,
-				Message:    p.Message,
-				Wrong:      wrong,
-				Correct:    p.CorrectFix,
-				Suggestion: p.Suggestion,
-				AutoFixed:  p.AutoRepairable,
-			})
-		}
-	}
-
-	return errors
-}
-
-func (pv *PreValidator) validateGlobal(code string) []ValidationError {
-	var errors []ValidationError
-
-	lines := strings.Split(code, "\n")
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-
-		// Check if line looks like a rule but doesn't end with period
-		if strings.Contains(trimmed, ":-") && !strings.HasSuffix(trimmed, ".") {
-			// Could be multi-line - check next lines
-			isComplete := false
-			for j := i + 1; j < len(lines) && j < i+5; j++ {
-				nextTrimmed := strings.TrimSpace(lines[j])
-				if strings.HasSuffix(nextTrimmed, ".") {
-					isComplete = true
-					break
-				}
-				if nextTrimmed == "" || strings.HasPrefix(nextTrimmed, "#") {
-					break
-				}
-			}
-
-			if !isComplete && ruleMissingPeriodRegex.MatchString(trimmed) {
-				errors = append(errors, ValidationError{
-					Category:   CategoryMissingPeriod,
-					Line:       i + 1,
-					Message:    "Rule must end with period",
-					Wrong:      trimmed,
-					Correct:    trimmed + ".",
-					Suggestion: "Add a period (.) at the end of the rule",
-					AutoFixed:  true,
-				})
-			}
-		}
-	}
-
-	// Check for unbalanced parentheses
-	openCount := strings.Count(code, "(")
-	closeCount := strings.Count(code, ")")
-	if openCount != closeCount {
-		errors = append(errors, ValidationError{
-			Category:   CategorySyntax,
-			Line:       0,
-			Message:    "Unbalanced parentheses",
-			Wrong:      "",
-			Correct:    "",
-			Suggestion: "Check for missing or extra parentheses",
-			AutoFixed:  false,
-		})
-	}
-
-	return errors
-}
-
-func (pv *PreValidator) compilePatterns() {
 	patterns := []ErrorPattern{
 		// Atom vs String confusion - quoted lowercase identifiers
 		{
@@ -351,13 +219,142 @@ func (pv *PreValidator) compilePatterns() {
 	for _, p := range patterns {
 		compiled := compiledPattern{ErrorPattern: p}
 		if p.Pattern != "" {
-			regex, err := regexp.Compile(p.Pattern)
-			if err == nil {
-				compiled.regex = regex
+			compiled.regex = regexp.MustCompile(p.Pattern)
+		}
+		globalPrecompiledPatterns = append(globalPrecompiledPatterns, compiled)
+	}
+}
+
+var globalPrecompiledPatterns []compiledPattern
+
+// PreValidator performs fast regex-based validation of LLM-generated Mangle code
+// BEFORE expensive Mangle compilation. It catches common AI errors with specific
+// feedback for retry attempts.
+type PreValidator struct {
+	patterns []compiledPattern
+}
+
+type compiledPattern struct {
+	ErrorPattern
+	regex *regexp.Regexp
+}
+
+// NewPreValidator creates a validator with all error detection patterns.
+func NewPreValidator() *PreValidator {
+	pv := &PreValidator{}
+	pv.patterns = globalPrecompiledPatterns
+	return pv
+}
+
+// Validate checks code for common AI errors and returns any found.
+func (pv *PreValidator) Validate(code string) []ValidationError {
+	var errors []ValidationError
+
+	lines := strings.Split(code, "\n")
+
+	for lineNum, line := range lines {
+		lineErrors := pv.validateLine(line, lineNum+1)
+		errors = append(errors, lineErrors...)
+	}
+
+	// Global checks
+	globalErrors := pv.validateGlobal(code)
+	errors = append(errors, globalErrors...)
+
+	return errors
+}
+
+func (pv *PreValidator) validateLine(line string, lineNum int) []ValidationError {
+	var errors []ValidationError
+
+	// Skip comments and empty lines
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return nil
+	}
+
+	for _, p := range pv.patterns {
+		if p.regex == nil {
+			continue
+		}
+
+		matches := p.regex.FindStringSubmatch(line)
+		if len(matches) > 0 {
+			wrong := matches[0]
+			if len(matches) > 1 {
+				wrong = matches[1] // Use first capture group if available
+			}
+
+			errors = append(errors, ValidationError{
+				Category:   p.Category,
+				Line:       lineNum,
+				Message:    p.Message,
+				Wrong:      wrong,
+				Correct:    p.CorrectFix,
+				Suggestion: p.Suggestion,
+				AutoFixed:  p.AutoRepairable,
+			})
+		}
+	}
+
+	return errors
+}
+
+func (pv *PreValidator) validateGlobal(code string) []ValidationError {
+	var errors []ValidationError
+
+	lines := strings.Split(code, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		// Check if line looks like a rule but doesn't end with period
+		if strings.Contains(trimmed, ":-") && !strings.HasSuffix(trimmed, ".") {
+			// Could be multi-line - check next lines
+			isComplete := false
+			for j := i + 1; j < len(lines) && j < i+5; j++ {
+				nextTrimmed := strings.TrimSpace(lines[j])
+				if strings.HasSuffix(nextTrimmed, ".") {
+					isComplete = true
+					break
+				}
+				if nextTrimmed == "" || strings.HasPrefix(nextTrimmed, "#") {
+					break
+				}
+			}
+
+			if !isComplete && ruleMissingPeriodRegex.MatchString(trimmed) {
+				errors = append(errors, ValidationError{
+					Category:   CategoryMissingPeriod,
+					Line:       i + 1,
+					Message:    "Rule must end with period",
+					Wrong:      trimmed,
+					Correct:    trimmed + ".",
+					Suggestion: "Add a period (.) at the end of the rule",
+					AutoFixed:  true,
+				})
 			}
 		}
-		pv.patterns = append(pv.patterns, compiled)
 	}
+
+	// Check for unbalanced parentheses
+	openCount := strings.Count(code, "(")
+	closeCount := strings.Count(code, ")")
+	if openCount != closeCount {
+		errors = append(errors, ValidationError{
+			Category:   CategorySyntax,
+			Line:       0,
+			Message:    "Unbalanced parentheses",
+			Wrong:      "",
+			Correct:    "",
+			Suggestion: "Check for missing or extra parentheses",
+			AutoFixed:  false,
+		})
+	}
+
+	return errors
 }
 
 // QuickFix attempts to auto-fix simple errors and returns the fixed code.
