@@ -15,10 +15,8 @@ func TestNewStylesFunctionalOptions(t *testing.T) {
 
 	styles := ui.NewStyles(theme, ui.WithApp(customStyle))
 
-	// Should have the custom style for App
-	assert.Equal(t, customStyle, styles.App)
+	assert.Equal(t, customStyle, styles.Layout.App)
 
-	// Other styles should be default
 	defaultStyles := ui.NewStyles(theme)
-	assert.Equal(t, defaultStyles.Header, styles.Header)
+	assert.Equal(t, defaultStyles.Layout.Header, styles.Layout.Header)
 }
