@@ -394,7 +394,7 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 		assembler:  NewFinalAssembler(),
 		cache:      make(map[string]*list.Element),
 		cacheList:  list.New(),
-		cacheLimit: 100, // Hard size limit for LRU cache
+		cacheLimit: 1000, // Hard size limit for LRU cache
 	}
 
 	// Apply options
@@ -686,12 +686,14 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 			elem := c.cacheList.PushFront(entry)
 			c.cache[cacheKey] = elem
 
-			if c.cacheList.Len() > c.cacheLimit {
+			for c.cacheList.Len() > c.cacheLimit {
 				oldElem := c.cacheList.Back()
 				if oldElem != nil {
 					c.cacheList.Remove(oldElem)
 					oldEntry := oldElem.Value.(*promptCacheEntry)
 					delete(c.cache, oldEntry.key)
+				} else {
+					break
 				}
 			}
 		}
