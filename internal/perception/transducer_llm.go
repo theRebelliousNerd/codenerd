@@ -771,10 +771,7 @@ func (k *MangleRoutingKernel) QueryRouting(ctx context.Context, predicate string
 	}
 
 	// Sort by weight descending.
-	// TODO(qa-boundary): consider sort.SliceStable for deterministic tie-breaks
-	// when two RoutingMatch entries share a weight. Current call sites do not
-	// depend on tie order, so sort.Slice is sufficient.
-	sort.Slice(matches, func(i, j int) bool {
+	sort.SliceStable(matches, func(i, j int) bool {
 		return matches[i].Weight > matches[j].Weight
 	})
 
