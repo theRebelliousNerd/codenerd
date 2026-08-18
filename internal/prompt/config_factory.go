@@ -36,7 +36,6 @@ func (c ConfigAtom) Merge(other ConfigAtom) ConfigAtom {
 	return merged
 }
 
-// TODO: [User Request Extremes] Optimize slice capacity allocation to prevent OOM when `input` slice is extremely large, rather than allocating a slice matching `len(input)` unconditionally.
 func uniqueStrings(input []string) []string {
 	const MaxItems = 1000 // Prevent massive DoS
 
