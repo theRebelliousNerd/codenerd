@@ -207,11 +207,12 @@ type Styles struct {
 	Badge       lipgloss.Style
 }
 
-// NewStyles creates a new Styles instance with the given theme
-// TODO: Consider using a builder pattern or functional options for Styles configuration if complexity grows.
-// TODO: IMPROVEMENT: Use functional options for Styles configuration.
-func NewStyles(theme Theme) Styles {
-	return Styles{
+// StyleOption represents a functional option for configuring Styles.
+type StyleOption func(*Styles)
+
+// NewStyles creates a new Styles instance with the given theme.
+func NewStyles(theme Theme, opts ...StyleOption) Styles {
+	s := Styles{
 		Theme: theme,
 
 		// Layout styles
@@ -316,6 +317,12 @@ func NewStyles(theme Theme) Styles {
 			Padding(0, 1).
 			Bold(true),
 	}
+
+	for _, opt := range opts {
+		opt(&s)
+	}
+
+	return s
 }
 
 // DefaultStyles returns styles with the default (light) theme
@@ -369,4 +376,39 @@ func AdjustColor(c lipgloss.Color, lightnessFactor float64, saturationFactor flo
 
 	newC := colorful.Hsl(h, s, l)
 	return lipgloss.Color(newC.Hex())
+}
+
+// WithApp configures the App style
+func WithApp(style lipgloss.Style) StyleOption {
+	return func(s *Styles) {
+		s.App = style
+	}
+}
+
+// WithHeader configures the Header style
+func WithHeader(style lipgloss.Style) StyleOption {
+	return func(s *Styles) {
+		s.Header = style
+	}
+}
+
+// WithFooter configures the Footer style
+func WithFooter(style lipgloss.Style) StyleOption {
+	return func(s *Styles) {
+		s.Footer = style
+	}
+}
+
+// WithContent configures the Content style
+func WithContent(style lipgloss.Style) StyleOption {
+	return func(s *Styles) {
+		s.Content = style
+	}
+}
+
+// WithSidebar configures the Sidebar style
+func WithSidebar(style lipgloss.Style) StyleOption {
+	return func(s *Styles) {
+		s.Sidebar = style
+	}
 }
