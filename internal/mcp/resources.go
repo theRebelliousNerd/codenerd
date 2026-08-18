@@ -43,7 +43,7 @@ type MCPPromptArgument struct {
 // MCPPrompt is a prompt template advertised by an MCP server.
 type MCPPrompt struct {
 	Name        string              `json:"name"`
-	Description string              `json:"description,omitzero"`
+	Description string `json:"description,omitzero"`
 	Arguments   []MCPPromptArgument `json:"arguments,omitzero"`
 }
 
