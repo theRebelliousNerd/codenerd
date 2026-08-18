@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 )
@@ -452,10 +453,10 @@ func TestConcurrentRetract_ShouldNotPanic(t *testing.T) {
 // FACT SNAPSHOT & COUNT TESTS
 // =============================================================================
 
-func TestGetFactsSnapshot_ShouldReturnCopy(t *testing.T) {
+func TestGetFactsSnapshotSeq_ShouldReturnCopy(t *testing.T) {
 	k := setupMockKernel(t)
 
-	snapshot := k.GetFactsSnapshot()
+	snapshot := slices.Collect(k.GetFactsSnapshotSeq())
 	originalLen := len(snapshot)
 
 	// Modify the snapshot (should not affect kernel)
@@ -463,7 +464,7 @@ func TestGetFactsSnapshot_ShouldReturnCopy(t *testing.T) {
 		snapshot[0] = Fact{Predicate: "tampered"}
 	}
 
-	snapshot2 := k.GetFactsSnapshot()
+	snapshot2 := slices.Collect(k.GetFactsSnapshotSeq())
 	if len(snapshot2) != originalLen {
 		t.Errorf("Modifying snapshot affected kernel facts")
 	}
