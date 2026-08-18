@@ -803,3 +803,11 @@ var DefaultTaxonomyData = []TaxonomyDef{
 		Patterns: []string{"(?i)\\bformat\\b", "(?i)\\bfmt\\b", "(?i)gofmt", "(?i)prettier", "(?i)fix.*format"},
 	},
 }
+
+// ShutdownSharedTaxonomy cleanly stops the global SharedTaxonomy worker goroutine.
+// Safe to invoke multiple times (idempotent).
+func ShutdownSharedTaxonomy() {
+	if SharedTaxonomy != nil {
+		SharedTaxonomy.StopWorker()
+	}
+}
