@@ -92,7 +92,6 @@ func NewConfigFactory(provider ConfigAtomProvider) *ConfigFactory {
 
 // Generate creates an EffectiveAgentRuntimeConfig based on the intents and compilation result.
 // It merges config atoms for all provided intents.
-// TODO: [Null/Undefined/Empty] Missing panic prevention when f.provider is nil.
 func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	if f.provider == nil {
 		return nil, fmt.Errorf("config provider cannot be nil")

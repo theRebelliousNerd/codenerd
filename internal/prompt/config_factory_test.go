@@ -588,3 +588,16 @@ func TestConfigFactory_SliceMutationRace(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestConfigFactory_NilProviderError(t *testing.T) {
+	factory := NewConfigFactory(nil)
+	ctx := context.Background()
+	_, err := factory.Generate(ctx, &CompilationResult{Prompt: "test"}, "/fix")
+	if err == nil {
+		t.Errorf("Expected error when provider is nil, got nil")
+	} else if !strings.Contains(err.Error(), "provider") {
+		t.Errorf("Expected provider error, got: %v", err)
+	}
+}
+
+// TODO: [Null/Undefined/Empty] Missing test for ConfigAtom.Merge behavior when Tools or Policies are explicitly nil versus empty slices, ensuring it doesn't panic and returns initialized slices if expected.
