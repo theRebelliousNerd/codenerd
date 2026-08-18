@@ -121,6 +121,7 @@ safe_action(/browser_reason).
 safe_action(/browser_evidence).
 safe_action(/browser_specs).
 safe_action(/browser_test).
+safe_action(/browser_audit).
 # Provider-mediated, read-only research; JIT routing still limits availability.
 safe_action(/grounded_web_search).
 

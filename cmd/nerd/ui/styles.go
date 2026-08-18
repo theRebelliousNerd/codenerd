@@ -361,6 +361,9 @@ type StyleOption func(*Styles)
 
 // NewStyles creates a new Styles instance with the given theme.
 func NewStyles(theme Theme, opts ...StyleOption) Styles {
+	if theme == nil {
+		theme = LightTheme()
+	}
 	s := Styles{
 		Theme: theme,
 

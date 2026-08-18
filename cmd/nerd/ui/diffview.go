@@ -19,22 +19,22 @@ import (
 // Type aliases for backward compatibility with UI code
 var (
 	diffAddedStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#22c55e")).
-		Background(lipgloss.Color("#052e16"))
+			Foreground(lipgloss.Color("#22c55e")).
+			Background(lipgloss.Color("#052e16"))
 
 	diffRemovedStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#ef4444")).
-		Background(lipgloss.Color("#2d0a0a"))
+				Foreground(lipgloss.Color("#ef4444")).
+				Background(lipgloss.Color("#2d0a0a"))
 
 	diffAddedHighlightStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#ffffff")).
-		Background(lipgloss.Color("#166534")).
-		Bold(true)
+				Foreground(lipgloss.Color("#ffffff")).
+				Background(lipgloss.Color("#166534")).
+				Bold(true)
 
 	diffRemovedHighlightStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#ffffff")).
-		Background(lipgloss.Color("#991b1b")).
-		Bold(true)
+					Foreground(lipgloss.Color("#ffffff")).
+					Background(lipgloss.Color("#991b1b")).
+					Bold(true)
 )
 
 type (
