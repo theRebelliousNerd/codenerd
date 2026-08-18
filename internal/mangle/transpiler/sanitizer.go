@@ -229,7 +229,7 @@ func (s *Sanitizer) repairAggregations(clause ast.Clause) (ast.Clause, error) {
 	}
 	delete(headVars, aggInfo.Result.Symbol)
 
-	var groupByKeys []string
+	groupByKeys := make([]string, 0, len(headVars))
 	for k := range headVars {
 		groupByKeys = append(groupByKeys, k)
 	}
