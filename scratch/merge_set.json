@@ -1,0 +1,115 @@
+[
+  {
+    "name": "origin/e2e/mcp-virtualstore-integration-tests-6170905071868790559",
+    "hash": "5412c0780df6916a448644d1f6c3db03f447d692",
+    "date": "2026-05-21T10:38:04Z",
+    "author": "google-labs-jules[bot]",
+    "subject": "test(e2e): implement mcp and virtualstore boundary tests",
+    "mergeable": false,
+    "conflict_err": "exit status 1",
+    "files": [
+      ".e2e_quality_assurance/2026-05-21_10-00-EST_mcp_virtualstore_integration_analysis.md",
+      ".e2e_quality_assurance/2026-05-21_10-32-EST_mcp_virtualstore_integration_analysis.md",
+      ".jules/siege.md",
+      "fix_tests.py",
+      "generate_journal.py",
+      "tests/e2e/mcp_virtualstore_integration_test.go"
+    ]
+  },
+  {
+    "name": "origin/add-schema-tests-2229224083311234865",
+    "hash": "91405f3bd09cc60d0aa6df162b16313f7211b3c0",
+    "date": "2026-05-25T16:50:25Z",
+    "author": "google-labs-jules[bot]",
+    "subject": "🧪 Testing Improvement: Add schema.go tests",
+    "mergeable": false,
+    "conflict_err": "exit status 1",
+    "files": [
+      "cmd/nerd/chat/.nerd/session.json",
+      "cmd/nerd/chat/.nerd/sessions/sess_1779727275370968146.json",
+      "internal/campaign/.nerd/campaigns/c_test_triage/assault/triage/latest.json",
+      "internal/campaign/.nerd/campaigns/c_test_triage/assault/triage/triage_20260525T164144.json",
+      "internal/mangle/synth/schema_test.go"
+    ]
+  },
+  {
+    "name": "origin/fix/autopoiesis-normalize-package-30453992948152846",
+    "hash": "48a5fdaddbf8d9c44c3b48e8e48e6c64746a06a8",
+    "date": "2026-05-25T16:55:34Z",
+    "author": "google-labs-jules[bot]",
+    "subject": "fix(autopoiesis): use FindStringSubmatchIndex for safe package normalization",
+    "mergeable": false,
+    "conflict_err": "exit status 1",
+    "files": [
+      "cmd/nerd/chat/.nerd/session.json",
+      "cmd/nerd/chat/.nerd/sessions/sess_1779727491293045798.json",
+      "cmd/nerd/chat/.nerd/sessions/sess_1779727744236809556.json",
+      "internal/autopoiesis/thunderdome.go",
+      "internal/autopoiesis/thunderdome_normalize_test.go",
+      "internal/campaign/.nerd/campaigns/c_test_triage/assault/triage/latest.json",
+      "internal/campaign/.nerd/campaigns/c_test_triage/assault/triage/triage_20260525T164545.json"
+    ]
+  },
+  {
+    "name": "origin/test/parser-factory-coverage-10864216086330859588",
+    "hash": "8d6df10f907d8a25cf5fee28c70187895ac03770",
+    "date": "2026-05-25T16:59:41Z",
+    "author": "google-labs-jules[bot]",
+    "subject": "🧪 Add tests for parser_factory.go",
+    "mergeable": false,
+    "conflict_err": "exit status 1",
+    "files": [
+      "internal/world/parser_factory_test.go"
+    ]
+  },
+  {
+    "name": "origin/perf-autopoiesis-regex-opt-7087076374542034879",
+    "hash": "f0f80f6d9dce63d069592d0a74dfe677c12418da",
+    "date": "2026-05-25T17:00:04Z",
+    "author": "google-labs-jules[bot]",
+    "subject": "⚡ perf(autopoiesis): optimize regexp compilations in traces",
+    "mergeable": false,
+    "conflict_err": "exit status 1",
+    "files": [
+      "internal/autopoiesis/traces.go"
+    ]
+  },
+  {
+    "name": "origin/regex-optimization-432968043412870180",
+    "hash": "1c2b6d33258fcd9bd2ec37c7696e8d72627e699a",
+    "date": "2026-05-25T17:00:14Z",
+    "author": "google-labs-jules[bot]",
+    "subject": "⚡ Optimize regex compilation in error_classifier.go",
+    "mergeable": false,
+    "conflict_err": "exit status 1",
+    "files": [
+      "internal/mangle/feedback/error_classifier.go",
+      "pr_description.md"
+    ]
+  },
+  {
+    "name": "origin/e2e/SessionExecutor_VirtualStore_Kernel-integration-tests-4306407066015672063",
+    "hash": "ea6f8b8d9ccba5ecf03f2b354dc533a2d0920097",
+    "date": "2026-05-26T15:18:53Z",
+    "author": "google-labs-jules[bot]",
+    "subject": "test: SessionExecutor and VirtualStore boundary integration",
+    "mergeable": true,
+    "files": [
+      ".e2e_quality_assurance/20240526_1015EST_SessionExecutor_VirtualStore_Kernel_integration_analysis.md",
+      ".jules/siege.md",
+      "tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go"
+    ]
+  },
+  {
+    "name": "origin/qa/token-budget-manager-boundary-analysis-5910538928217229399",
+    "hash": "bd817d3cedba17e816d466e51a9eaf34ad720518",
+    "date": "2026-05-27T04:44:18Z",
+    "author": "google-labs-jules[bot]",
+    "subject": "QA: Boundary analysis and testing gaps for TokenBudgetManager",
+    "mergeable": true,
+    "files": [
+      ".quality_assurance/2026-05-27_00-09-54-EST_token_budget_manager_boundary_analysis.md",
+      "internal/prompt/budget_test.go"
+    ]
+  }
+]

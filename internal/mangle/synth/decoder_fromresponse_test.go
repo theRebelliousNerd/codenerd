@@ -22,18 +22,22 @@ func TestFromResponse(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
+	invalidSpecJSON := `{"format":"mangle_synth_v2","program":{"clauses":[{"head":{"pred":"next_action","args":[{"kind":"name","value":"/run"}]}}]}}`
+
 	tests := []struct {
 		name        string
 		input       string
+		options     Options
 		expectError bool
 		errContains string
-		checkResult func(*testing.T, Result)
+		verifyRes   func(*testing.T, Result)
 	}{
 		{
-			name:        "Piggyback Envelope",
+			name:        "Piggyback Envelope Success",
 			input:       string(payload),
+			options:     DefaultOptions(),
 			expectError: false,
-			checkResult: func(t *testing.T, res Result) {
+			verifyRes: func(t *testing.T, res Result) {
 				if len(res.Clauses) != 1 {
 					t.Fatalf("expected 1 compiled clause, got %d (%v)", len(res.Clauses), res.Clauses)
 				}
@@ -46,24 +50,37 @@ func TestFromResponse(t *testing.T) {
 			},
 		},
 		{
-			name:        "Basic JSON Decoding",
+			name:        "Raw Valid JSON Success",
 			input:       specJSON,
+			options:     DefaultOptions(),
 			expectError: false,
-			checkResult: func(t *testing.T, res Result) {
+			verifyRes: func(t *testing.T, res Result) {
 				if len(res.Clauses) != 1 {
 					t.Fatalf("expected 1 compiled clause, got %d (%v)", len(res.Clauses), res.Clauses)
+				}
+				if !strings.Contains(res.Clauses[0], "next_action") || !strings.Contains(res.Clauses[0], "/run") {
+					t.Errorf("compiled clause missing expected atom: %q", res.Clauses[0])
 				}
 			},
 		},
 		{
-			name:        "Decoding Error Delegation",
+			name:        "Invalid JSON",
 			input:       "not json",
+			options:     DefaultOptions(),
 			expectError: true,
 			errContains: ErrMissingJSON.Error(),
 		},
 		{
+			name:        "Compile Failure Unknown Format",
+			input:       invalidSpecJSON,
+			options:     DefaultOptions(),
+			expectError: true,
+			errContains: "format: expected \"mangle_synth_v1\"",
+		},
+		{
 			name:        "Rule Compilation Delegation Error",
 			input:       `{"format":"mangle_synth_v1","program":{"package":{"name":"   "}}}`,
+			options:     DefaultOptions(),
 			expectError: true,
 			errContains: "package name is required",
 		},
@@ -71,19 +88,19 @@ func TestFromResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			res, err := FromResponse(tt.input, DefaultOptions())
+			res, err := FromResponse(tt.input, tt.options)
 			if tt.expectError {
 				if err == nil {
-					t.Errorf("expected an error, got nil")
+					t.Errorf("expected an error but got none")
 				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
-					t.Errorf("expected error to contain %q, got %q", tt.errContains, err)
+					t.Errorf("expected error containing %q, got: %v", tt.errContains, err)
 				}
 			} else {
 				if err != nil {
-					t.Errorf("expected no error, got: %v", err)
+					t.Fatalf("did not expect error, got: %v", err)
 				}
-				if tt.checkResult != nil {
-					tt.checkResult(t, res)
+				if tt.verifyRes != nil {
+					tt.verifyRes(t, res)
 				}
 			}
 		})
