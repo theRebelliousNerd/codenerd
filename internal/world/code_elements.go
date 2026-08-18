@@ -456,7 +456,7 @@ func (p *CodePatterns) ToPatternFacts(file string, elements []CodeElement) []cor
 
 // ElementsToFacts converts a slice of CodeElements to Mangle facts.
 func ElementsToFacts(elements []CodeElement) []core.Fact {
-	var facts []core.Fact
+	facts := make([]core.Fact, 0, len(elements)*5)
 	for _, e := range elements {
 		facts = append(facts, e.ToFacts()...)
 	}
