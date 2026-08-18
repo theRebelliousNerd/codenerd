@@ -65,6 +65,58 @@ func TestRepairLoop_ValidateAndRepair(t *testing.T) {
 			wantValid: nil,
 			wantErr:   false,
 		},
+		// TODO: Negative Testing - Null/Undefined/Empty - Test with whitespace-only atoms
+		{
+			name:      "Whitespace Only Atoms",
+			atoms:     []string{"   ", "\t\n"},
+			wantValid: nil,
+			wantErr:   true,
+			wantPromptIn: []string{"MANGLE SYNTAX ERROR"},
+		},
+		// TODO: Negative Testing - Null/Undefined/Empty - Test with missing/empty arguments between commas
+		{
+			name:      "Missing Arguments",
+			atoms:     []string{"user_intent(/intent_1, , /create, \"target\", \"constraint\")."},
+			wantValid: nil,
+			wantErr:   true,
+			wantPromptIn: []string{"argument 2 is empty"},
+		},
+		// TODO: Negative Testing - State Conflicts - Test with parentheses embedded inside string literals (parser confusion)
+		{
+			name:      "Parentheses Inside Strings",
+			atoms:     []string{"user_intent(/intent_1, /code, /create, \"string with ( and ) inside\", \"constraint\")."},
+			wantValid: []string{"user_intent(/intent_1, /code, /create, \"string with ( and ) inside\", \"constraint\")."},
+			wantErr:   false,
+		},
+		// TODO: Negative Testing - State Conflicts - Test with escaped quotes inside strings
+		{
+			name:      "Escaped Quotes Inside Strings",
+			atoms:     []string{"user_intent(/intent_1, /code, /create, \"escaped \\\"quote\\\"\", \"constraint\")."},
+			wantValid: []string{"user_intent(/intent_1, /code, /create, \"escaped \\\"quote\\\"\", \"constraint\")."},
+			wantErr:   false,
+		},
+		// TODO: Negative Testing - Type Coercion - Pass wrong type (number) where Name constant is expected
+		{
+			name:      "Type Coercion Mismatch",
+			atoms:     []string{"user_intent(123, /code, /create, \"target\", \"constraint\")."},
+			wantValid: []string{"user_intent(123, /code, /create, \"target\", \"constraint\")."},
+			wantErr:   false, // Currently warnings don't set result.Valid = false
+		},
+		// TODO: Negative Testing - Boundary/Format - Missing trailing period
+		{
+			name:      "Missing Trailing Period",
+			atoms:     []string{"user_intent(/intent_1, /code, /create, \"target\", \"constraint\")"},
+			wantValid: []string{"user_intent(/intent_1, /code, /create, \"target\", \"constraint\")"},
+			wantErr:   false, // BUG/GAP: Mangle requires trailing periods but ValidateAndRepair doesn't enforce it!
+		},
+		// TODO: Negative Testing - Boundary - Malformed predicate name (starts with number)
+		{
+			name:      "Malformed Predicate",
+			atoms:     []string{"123invalid(/intent_1, /code, /create, \"target\", \"constraint\")."},
+			wantValid: nil,
+			wantErr:   true,
+			wantPromptIn: []string{"invalid predicate name"},
+		},
 	}
 
 	for _, tt := range tests {
