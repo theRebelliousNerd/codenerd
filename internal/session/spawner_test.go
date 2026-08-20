@@ -263,21 +263,17 @@ func TestSpawner_StateConflicts_ShutdownConcurrentSpawn(t *testing.T) {
 	wg.Wait()
 }
 
-// TODO: TEST_GAP: Null/Undefined/Empty - Nil context in Spawn operations causes context.WithCancel(nil) panic in SubAgent.Run()
-// TODO: TEST_GAP: Null/Undefined/Empty - Empty Task string ("") behavior should be validated
-// TODO: TEST_GAP: Null/Undefined/Empty - Empty/Nil configuration files for specialists
-// TODO: TEST_GAP: Null/Undefined/Empty - Null JIT Compiler & Config Factory Interplay
-// TODO: TEST_GAP: Type Coercion - Invalid YAML Types in Specialist Config (e.g. string for Timeout, arrays for objects)
-// TODO: TEST_GAP: Type Coercion - Intent Category/Verb with unexpected characters (e.g. control chars, null bytes, emojis)
-// TODO: TEST_GAP: User Request Extremes - Massive Task payloads (e.g. 50MB string)
-// TODO: TEST_GAP: User Request Extremes - Sub-zero or zero Max Active Subagents behavior
-// TODO: TEST_GAP: User Request Extremes - Max Config Size Boundary (1048576 vs 1048577 bytes)
-// TODO: TEST_GAP: User Request Extremes - Frontier Coding Benchmark with 10,000+ concurrent agents causing lock contention
-// TODO: TEST_GAP: State Conflicts - Rapid spawn and immediate context cancellation
-// TODO: TEST_GAP: State Conflicts - Concurrent Cleanup() and Stop()
-// TODO: TEST_GAP: State Conflicts - Zombie Agents (Leaked memory/goroutines after completion if Cleanup() is never called)
-
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify Spawner handles a Nil Context gracefully in Spawn operations without context.WithCancel(nil) panic in SubAgent.Run().
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Spawner handles Empty Task string ("") behavior.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Spawner handles Empty/Nil configuration files for specialists.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Spawner handles Null JIT Compiler & Config Factory Interplay.
 // TODO: TEST_GAP: [Type Coercion] Verify Spawner handles invalid YAML Types in Specialist Config (e.g. string for Timeout, arrays for objects).
+// TODO: TEST_GAP: [Type Coercion] Verify Spawner handles Intent Category/Verb with unexpected characters (e.g. control chars, null bytes, emojis).
+// TODO: TEST_GAP: [User Request Extremes] Verify Spawner handles Massive Task payloads (e.g. 50MB string).
+// TODO: TEST_GAP: [User Request Extremes] Verify Spawner handles Sub-zero or zero Max Active Subagents behavior.
+// TODO: TEST_GAP: [User Request Extremes] Verify Spawner handles Max Config Size Boundary (1048576 vs 1048577 bytes).
 // TODO: TEST_GAP: [User Request Extremes] Verify Spawner handles 10,000+ concurrent spawn requests gracefully rejecting with capacity errors.
 // TODO: TEST_GAP: [State Conflicts] Verify that rapid spawn and immediate shutdown calls don't result in zombie goroutines due to race conditions.
+// TODO: TEST_GAP: [State Conflicts] Verify Spawner handles Concurrent Cleanup() and Stop().
+// TODO: TEST_GAP: [Type Coercion] Verify Spawner handles Type Coercion in Spawner Configuration limits.
+// TODO: TEST_GAP: [State Conflicts] Verify Spawner handles Spawner Shutdown Concurrent with Spawn.
