@@ -46,6 +46,45 @@ func TestGoCodeParser_ImplementsInterface(t *testing.T) {
 // Boundary Value Analysis & Negative Testing Gaps (QA Audit)
 // ============================================================================
 
+// TODO: Implement TestGoParser_Parse_TruncatedAST_NoGhostFacts
+// Vector: State Conflicts. Ensure that if parser.ParseFile returns an error alongside an incomplete AST, the Parse function does not emit ghost facts from the partial tree.
+
+// TODO: Implement TestGoParser_Parse_MemoryLimit_MassiveFile
+// Vector: User Extremes. Generate a 50MB source file in memory. Ensure runtime.MemStats does not show unbounded growth > 500MB and no OOM panics occur.
+
+// TODO: Implement TestGoParser_Parse_Fuzzing_Strategy
+// Vector: Type Coercion / Extremes. Introduce go test -fuzz targets that specifically test the Parse function with mutated byte streams to discover panics.
+
+// TODO: Implement TestGoParser_Parse_PropertyBased_Testing
+// Vector: Logical Bounds. Ensure Parse never returns a nil slice if err == nil, lengths are non-negative, and Ref URIs strictly follow go:// schema.
+
+// TODO: Implement TestGoParser_Parse_Mangle_Integration
+// Vector: Dissonance. Parse edge-case Go files and verify emitted facts evaluate correctly in a test Mangle environment without stratification errors.
+
+// TODO: Implement TestGoParser_Parse_Chaos_Testing
+// Vector: State Conflicts. Simulate file system read errors or truncated data during parsing to test resilience against I/O failures.
+
+// TODO: Implement TestGoParser_Parse_Mutation_Testing
+// Vector: Validation. Introduce deliberate bugs into the parser code and verify tests catch the mutated branches.
+
+// TODO: Implement TestGoParser_Parse_Performance_Benchmarking
+// Vector: User Extremes. Establish baseline performance metrics for typical Go files to detect regressions in future commits.
+
+// TODO: Implement TestGoParser_Parse_MemoryLeak_Detection
+// Vector: User Extremes. Run the parser suite under memory leak detection tools (like goleak) to ensure CodeElement and AST nodes are garbage collected.
+
+// TODO: Implement TestGoParser_Parse_MaxDepthExceeded_Error
+// Vector: User Extremes. Introduce a maximum traversal depth into goAstVisitor and assert Parse aborts with Max Depth Exceeded.
+
+// TODO: Implement TestGoParser_Parse_CanonicalURI_Validation
+// Vector: Type Coercion. Test buildRef handles edge cases of file paths, package names, and identifier names (Unicode, reserved keywords) properly.
+
+// TODO: Implement TestGoParser_Parse_Timeout_Mechanisms
+// Vector: User Extremes. Wrap Parse in context.WithTimeout and assert it aborts gracefully on adversarial inputs that cause hanging.
+
+// TODO: Implement TestGoParser_Parse_FactEmission_Validation
+// Vector: Type Dissonance. Ensure EmitLanguageFacts maps every CodeElement property to Mangle atom types, avoiding Atom/String Dissonance.
+
 // TODO: Implement TestGoParser_Parse_NilContent
 // Vector: Null/Undefined/Empty. Simulate nil slice. Prevent panic.
 
