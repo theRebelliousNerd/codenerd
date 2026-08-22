@@ -27,6 +27,10 @@ func TestResolveWorkspacePath(t *testing.T) {
 		input   string
 		wantErr bool
 	}{
+		// TODO: Null/Undefined/Empty: Test behavior with strings containing only spaces or tabs (e.g., "   ").
+		// TODO: Type Coercion: Test mixed backslashes, forward slashes, and traversal characters (e.g., "..\\../foo").
+		// TODO: User request Extremes: Test deeply nested traversal (e.g., "../../../../../../etc/passwd") and max path length.
+		// TODO: State Conflicts: Test symlink edge cases (symlink pointing outside workspace, circular symlinks) and TOCTOU vulnerabilities.
 		{
 			name:  "plain relative path inside root",
 			input: filepath.Join(root, "file.txt"),
@@ -90,6 +94,7 @@ func TestResolveWorkspacePath(t *testing.T) {
 	}
 }
 
+// TODO: Null/Undefined/Empty: Test CtxKeyWorkspaceRoot with only spaces.
 func TestWorkspaceRoot_PrefersCodenerdEnv(t *testing.T) {
 	root := t.TempDir()
 	abs, err := filepath.Abs(root)
