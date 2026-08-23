@@ -18,6 +18,7 @@ func TestNewSchemaValidator(t *testing.T) {
 		t.Error("Expected predicateArities map to be initialized")
 	}
 	// TODO: TEST_GAP - Concurrent map access for declaredPredicates
+	// TODO: Missing Test: Concurrent Map Reads and Writes. Test rapidly reading (ValidateRule) and writing (SetPredicateArity) simultaneously across multiple goroutines to expose race conditions in Go maps.
 }
 
 // TestLoadDeclaredPredicates tests predicate extraction from schemas.
@@ -45,6 +46,7 @@ Decl next_action(Action.Type<name>).
 		t.Error("Expected next_action to be declared")
 	}
 
+	// TODO: Missing Test: Nil/Missing learned text. Verify behavior when learnedText is empty but schemasText is populated.
 	// TODO: Missing Test: Nil/Missing learned text. Verify behavior when learnedText is empty but schemasText is populated.
 	// Check that undeclared predicate returns false
 	if sv.IsDeclared("nonexistent_predicate") {
@@ -81,6 +83,9 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 	}
 
 	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
+	// TODO: Missing Test: Type declaration comma vulnerability. E.g., `Decl generic_map(Map.Type<string, string>)`. `extractDeclsFromText` counts commas directly and will miscount generics.
+	// TODO: Missing Test: Whitespace/multiline coercion bypass. E.g., `  permitted(/dangerous) :- user_intent(_, _, _, _, _).`. The regex `(?m)^([a-z_][a-z0-9_]*)\s*\(` requires line start and misses indented forbidden heads.
+	// TODO: Missing Test: Unbalanced parentheses coercion. E.g., `user_intent(A, B, C`. The `validateHeadArity` depth loop might break early and silently allow it to pass.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			arity := sv.GetArity(tt.predicate)
@@ -371,6 +376,7 @@ Decl next_action(Action.Type<name>).
 // TODO: Missing Test: Concurrent Map Reads and Writes. Go maps are not thread-safe. Test rapidly reading (ValidateRule) and writing (SetPredicateArity) simultaneously to expose race conditions.
 
 // TODO: Missing Test: Phantom State Across Evaluations. Test calling LoadDeclaredPredicates multiple times with different/contradictory schemas to verify if stale map state persists.
+// TODO: Missing Test: Phantom State Re-Entrancy. Test calling LoadDeclaredPredicates sequentially with completely disjoint schemas to ensure the validator map doesn\'t leak old schemas across evaluations.
 
 // TestLearnedRulesExtractHeads tests that rule heads from learned.mg are extracted.
 func TestLearnedRulesExtractHeads(t *testing.T) {
