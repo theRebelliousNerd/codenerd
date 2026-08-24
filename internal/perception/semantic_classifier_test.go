@@ -15,6 +15,23 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// TODO: Add tests for Null/Undefined/Empty scenarios:
+// - Empty embedding vectors in search.
+// - Empty intents/facts returned from the kernel.
+// - Null embedding engine in classifier operations.
+
+// TODO: Add tests for Type Coercion:
+// - Verifying behavior when Mangle atoms are expected but raw strings are returned/provided.
+
+// TODO: Add tests for User Request Extremes:
+// - Provide an extremely long input string that exceeds typical context limits to ensure graceful handling or truncation without panic.
+// - Query with very high topK (e.g. 1000) when the database has fewer entries.
+
+// TODO: Add tests for State Conflicts/Race Conditions:
+// - Test concurrent updates and searches in LearnedCorpusStore to verify thread safety.
+// - Test searching the store while LoadFromKernel is in progress.
+
+
 // mockKernel implements core.Kernel for testing.
 type mockKernel struct {
 	mu                  sync.Mutex
