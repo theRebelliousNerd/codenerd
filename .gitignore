@@ -241,3 +241,5 @@ C:\\*
 # scaffolding, never a deliverable, and a stray `git add -A` should not be able
 # to land one. No tracked file has ever used this prefix.
 zz*_test.go
+
+.nerd/

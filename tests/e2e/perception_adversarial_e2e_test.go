@@ -285,3 +285,25 @@ func TestE2E_Perception_Adversarial_InputTruncation(t *testing.T) {
 
 	t.Logf("Prompt length: %d, Target length: %d", len(prompt), len(intent.Target))
 }
+
+// =============================================================================
+// TODO: NEGATIVE TESTING & BVA GAPS IDENTIFIED
+// =============================================================================
+//
+// 1. Null/Undefined/Empty:
+//    - TODO: Add test for empty string input ("") and whitespace-only input ("   ").
+//    - TODO: Add test for missing/null top-level JSON fields (e.g., `{"understanding": null}`).
+//    - TODO: Add test for empty history context vs. deeply nested/extremely long history context.
+//
+// 2. Type Coercion:
+//    - TODO: Add test for JSON type coercion errors (e.g., passing string "true" for a boolean, int for string).
+//    - TODO: Add test for malformed Mangle atoms (e.g., verbs with spaces or invalid characters like "mutat!on").
+//
+// 3. User Request Extremes:
+//    - TODO: Add test for conceptual extremes (e.g., deeply convoluted double-negative prompts).
+//    - TODO: Add test for target string boundaries (e.g., 10,000 comma-separated filenames).
+//
+// 4. State Conflicts:
+//    - TODO: Add test to verify that rapid concurrent context cancellations do not leave the transducer in a corrupted state.
+//    - TODO: Add test to confirm that temporal inconsistencies (e.g., "Ghost Facts") are explicitly rolled back on error.
+// =============================================================================
