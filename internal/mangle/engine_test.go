@@ -1263,6 +1263,14 @@ func TestLargeStringHandling(t *testing.T) {
 }
 
 func TestEngine_WarmFromPersistence(t *testing.T) {
+	// TODO: Null/Undefined/Empty: Test what happens when the facts slice returned by persistence is nil, not just empty.
+	// TODO: Null/Undefined/Empty: Test with a persistence layer that returns facts with empty/nil arguments or empty predicate strings.
+	// TODO: Type Coercion: Test if facts retrieved from persistence have invalid types (e.g. an array where a string is expected by the schema) and how WarmFromPersistence handles it.
+	// TODO: Extremes: Test loading 1,000,000+ facts from persistence in one go. Does the context deadline get respected? Does memory balloon?
+	// TODO: Extremes: Test a persistence layer that returns facts with extremely long predicate names or string arguments (e.g., 100MB string).
+	// TODO: State Conflicts: Test concurrent execution of WarmFromPersistence on the same Engine instance.
+	// TODO: State Conflicts: What happens if WarmFromPersistence is called while facts are actively being added via AddFact? Race conditions?
+
 	ctx := context.Background()
 	cfg := DefaultConfig()
 
