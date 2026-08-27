@@ -318,6 +318,7 @@ func TestLearnedCorpusStore_Add_DimensionMismatch(t *testing.T) {
 // =============================================================================
 
 // TEST_GAP: Null/Undefined/Empty: Classify with empty string
+// TODO: Null/Undefined/Empty: Test extreme whitespace arrays/strings, and missing configuration objects (nil config handling).
 func TestSemanticClassifier_EmptyInput(t *testing.T) {
 	sc := NewSemanticClassifier(&mockKernel{}, nil, nil, nil)
 	matches, err := sc.Classify(context.Background(), "   ")
@@ -330,6 +331,7 @@ func TestSemanticClassifier_EmptyInput(t *testing.T) {
 }
 
 // TEST_GAP: Type Coercion: mergeResults negative cfg.TopK
+// TODO: Type Coercion: Test corrupted embedding vectors (zeroed or NaN vectors) causing math.IsNaN during cosine similarity calculations.
 func TestSemanticClassifier_NegativeTopK(t *testing.T) {
 	sc := NewSemanticClassifier(&mockKernel{}, nil, nil, nil)
 	cfg := DefaultSemanticConfig()
@@ -360,6 +362,7 @@ func (m *mockEmbedEngine) EmbedBatch(ctx context.Context, texts []string) ([][]f
 }
 
 // TEST_GAP: User Request Extremes: Massive Input Exhaustion
+// TODO: User Request Extremes: Test extreme number of learned intents (e.g., 1,000,000 items) and very high-dimensionality vectors (e.g., 8192 dims).
 func TestSemanticClassifier_MassiveInput(t *testing.T) {
 	engine := &mockEmbedEngine{}
 	sc := NewSemanticClassifier(&mockKernel{}, nil, nil, engine)
@@ -413,6 +416,7 @@ func TestSemanticClassifier_TargetMangleAtom(t *testing.T) {
 }
 
 // TEST_GAP: State Conflicts: Semantic Match Accumulation
+// TODO: State Conflicts: Test concurrent Add and Search on LearnedCorpusStore mimicking race conditions.
 func TestSemanticClassifier_StatePollution(t *testing.T) {
 	kernel := &mockKernel{}
 	sc := NewSemanticClassifier(kernel, nil, nil, nil)
