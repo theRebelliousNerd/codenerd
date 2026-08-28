@@ -85,6 +85,8 @@ func TestE2E_Boundary_Session_Kernel_BasicRetraction(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // CATEGORY 2: STATE CORRUPTION (5)
+// TODO: Add tests for Massive Arity facts to ensure the Kernel rejects them gracefully.
+// TODO: Add tests for Extreme String Lengths (e.g., 50MB strings) to check for OOM vs boundary length enforcement.
 // -----------------------------------------------------------------------------
 
 // TestE2E_Boundary_Session_Kernel_ConcurrentStateCorruption tests concurrent assertions.
@@ -207,6 +209,9 @@ func TestE2E_Boundary_Session_Kernel_HighContention(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // CATEGORY 3: CONTRACT VIOLATION (7)
+// TODO: Add tests for Nil Intent pointers being passed to ProcessWithIntent.
+// TODO: Add tests for Empty string targets and empty category fields.
+// TODO: Add tests for Type coercion attacks (passing raw Go structs instead of Mangle AST to Fact.Args).
 // -----------------------------------------------------------------------------
 
 // TestE2E_Boundary_Session_Kernel_MangleInjection tests injection via target.
@@ -316,6 +321,7 @@ func TestE2E_Boundary_Session_Kernel_NullTarget(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // CATEGORY 4: RESOURCE EXHAUSTION (3)
+// TODO: Add concurrent Assert/Retract race condition tests (e.g., 100 goroutines asserting and retracting the same fact simultaneously).
 // -----------------------------------------------------------------------------
 
 // TestE2E_Boundary_Session_Kernel_WidthExhaustion floods the EDB.
@@ -381,6 +387,7 @@ func TestE2E_Boundary_Session_Kernel_ContinuousAssertionLoop(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // CATEGORY 5: TEMPORAL FAILURE (4)
+// TODO: Add tests for Context Cancellation during active Kernel locks (simulating concurrent query/write interrupted).
 // -----------------------------------------------------------------------------
 
 // TestE2E_Boundary_Session_Kernel_ContextCancel_Process verifies Executor honors cancellation.
