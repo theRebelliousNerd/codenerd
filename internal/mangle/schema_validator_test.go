@@ -17,7 +17,7 @@ func TestNewSchemaValidator(t *testing.T) {
 	if sv.predicateArities == nil {
 		t.Error("Expected predicateArities map to be initialized")
 	}
-	// TODO: TEST_GAP - Concurrent map access for declaredPredicates
+	// TODO: TEST_GAP - State Conflicts: Test concurrent map access (read/write) for declaredPredicates and predicateArities using 100+ goroutines to trigger race conditions.
 }
 
 // TestLoadDeclaredPredicates tests predicate extraction from schemas.
@@ -46,16 +46,18 @@ Decl next_action(Action.Type<name>).
 	}
 
 	// TODO: Missing Test: Nil/Missing learned text. Verify behavior when learnedText is empty but schemasText is populated.
+	// TODO: TEST_GAP - Null/Empty strings: Verify behavior when schemasText is empty but learnedText is populated.
 	// Check that undeclared predicate returns false
 	if sv.IsDeclared("nonexistent_predicate") {
 		t.Error("Expected nonexistent_predicate to not be declared")
 	}
 
-	// TODO: TEST_GAP - Conflicting schema declarations (multiple arities)
+	// TODO: TEST_GAP - State Conflicts: Conflicting schema declarations (multiple arities for the same predicate). Which one wins? Should it error?
 }
 
 // TestGetArity tests arity extraction from declarations.
 func TestGetArity(t *testing.T) {
+	// TODO: TEST_GAP - User request Extremes: Test extreme bounds like 10,000 arguments (arity bounds overflow) or a 10MB predicate name string.
 	schemas := `
 Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
 Decl file_topology(Path.Type<string>).
@@ -77,7 +79,8 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 		{"next_action has 1 arg", "next_action", 1},
 		{"diagnostic has 5 args", "diagnostic", 5},
 		{"unknown predicate returns -1", "unknown_pred", -1},
-		// TODO: Missing Test: Type declaration comma vulnerability. E.g., `Decl generic_map(Map.Type<string, string>)`. `extractDeclsFromText` counts commas directly and will miscount generics.
+		// TODO: TEST_GAP - Null/Empty strings: Test zero argument declarations e.g. `Decl zero_args().` to ensure arity 0 is registered.
+	// TODO: TEST_GAP - Type Coercion: Type declaration comma vulnerability. e.g. `Decl generic_map(Map.Type<string, string>)` - comma counting logic will fail.
 	}
 
 	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
@@ -221,6 +224,7 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 
 // TestValidateRules tests validation of multiple rules at once.
 func TestValidateRules(t *testing.T) {
+	// TODO: TEST_GAP - Null/Empty strings: Test ValidateRules with empty string, whitespace only, and comments only.
 	schemas := `
 Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
 Decl file_topology(Path.Type<string>).
