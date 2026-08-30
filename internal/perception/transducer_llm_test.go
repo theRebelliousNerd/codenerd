@@ -350,6 +350,45 @@ func TestSanitizeFactArg_Unicode(t *testing.T) {
 // TODO: TEST_GAP: [Type Coercion] Verify that ExtractCleanJSON successfully parses and type coerces mixed string/numeric constraint configurations nested inside a stringified JSON property without panicking.
 // TODO: TEST_GAP: [User Request Extremes] Verify the NewLLMTransducer handles a prompt parameter exceeding 10MB without causing OOM or massive performance degradation during processing.
 // TODO: TEST_GAP: [State Conflicts] Verify concurrent read/write behavior during kernel schema validation and routing derivation using 1,000 parallel goroutines checking different action and semantic types.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Missing tests for missing kernel/router.
+// TODO: TEST_GAP: [User Request Extremes] Missing tests for deeply nested JSON output from adversarial prompt.
+// TODO: TEST_GAP: [User Request Extremes] Missing tests for thousands of routing ties.
+// TODO: TEST_GAP: [State Conflicts] Missing tests for concurrent prompt updates.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Missing tests for empty conversation history.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Missing tests for empty system prompt.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Missing tests for null configuration pointers.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Missing tests for empty user constraints array.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Missing tests for empty suggested approach fields.
+// TODO: TEST_GAP: [Type Coercion] Missing tests for JSON schema violations in LLM response.
+// TODO: TEST_GAP: [Type Coercion] Missing tests for kernel weight coercion.
+// TODO: TEST_GAP: [Type Coercion] Missing tests for boolean field coercion.
+// TODO: TEST_GAP: [Type Coercion] Missing tests for floating point precision issues.
+// TODO: TEST_GAP: [Type Coercion] Missing tests for unexpected array wrapping.
+// TODO: TEST_GAP: [User Request Extremes] Missing tests for extremely long variable names / identifiers.
+// TODO: TEST_GAP: [User Request Extremes] Missing tests for high frequency of ambiguous requests.
+// TODO: TEST_GAP: [User Request Extremes] Missing tests for invented coding languages / brownfield monorepos.
+// TODO: TEST_GAP: [State Conflicts] Missing tests for concurrent routing derivation.
+// TODO: TEST_GAP: [State Conflicts] Missing tests for shared slice mutation.
+// TODO: TEST_GAP: [State Conflicts] Missing tests for race conditions on Mangle Engine reloads.
+// TODO: TEST_GAP: [Security] Missing tests for prompt injection via Mangle syntax.
+// TODO: TEST_GAP: [Security] Missing tests for control character injection.
+// TODO: TEST_GAP: [Security] Missing tests for path traversal in targets.
+// TODO: TEST_GAP: [Security] Missing tests for JSON escape sequence manipulation.
+// TODO: TEST_GAP: [Performance] Missing tests for JSON extraction complexity.
+// TODO: TEST_GAP: [Performance] Missing tests for Mangle query latency.
+// TODO: TEST_GAP: [Performance] Missing tests for garbage collection overhead.
+// TODO: TEST_GAP: [Usability] Missing tests for Markdown-wrapped JSON.
+// TODO: TEST_GAP: [Usability] Missing tests for incomplete JSON repair.
+// TODO: TEST_GAP: [Usability] Missing tests for non-UTF8 input handling.
+// TODO: TEST_GAP: [Subsystem Dependencies] Missing tests for interaction with ClientFactory.
+// TODO: TEST_GAP: [Subsystem Dependencies] Missing tests for integration with VirtualStore.
+// TODO: TEST_GAP: [Subsystem Dependencies] Missing tests for logging subsystem overhead.
+// TODO: TEST_GAP: [Environment Constraints] Missing tests for memory starvation.
+// TODO: TEST_GAP: [Environment Constraints] Missing tests for CPU starvation.
+// TODO: TEST_GAP: [Environment Constraints] Missing tests for I/O latency spikes.
+// TODO: TEST_GAP: [Configuration] Missing tests for malformed system prompts.
+// TODO: TEST_GAP: [Configuration] Missing tests for missing or invalid tool definitions.
+// TODO: TEST_GAP: [Configuration] Missing tests for dynamic configuration reloads.
 func TestExtractJSON_EmptyAndWhitespace(t *testing.T) {
 	// Test empty input
 	if got := ExtractCleanJSON(""); got != "" {
