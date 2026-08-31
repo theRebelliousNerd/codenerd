@@ -9,6 +9,12 @@ import (
 )
 
 func TestTracker_TrackAggregatesAndPersists(t *testing.T) {
+	// TODO: What happens if model or provider is an empty string?
+	// TODO: What happens if inputs cause integer overflow?
+	// TODO: What happens if we provide extremely long string inputs for model or provider?
+	// TODO: What happens if we have unbounded map growth for models or providers (unlike sessions)?
+	// TODO: What happens if context cancellation occurs precisely during saveLocked()?
+	// TODO: What happens if context keys are corrupted into non-string types causing panic?
 	ws := t.TempDir()
 	tracker, err := NewTracker(ws)
 	if err != nil {
