@@ -18,6 +18,7 @@ func TestNewSchemaValidator(t *testing.T) {
 		t.Error("Expected predicateArities map to be initialized")
 	}
 	// TODO: TEST_GAP - Concurrent map access for declaredPredicates
+	// TODO: TEST_GAP - Null/Empty inputs for schemasText and learnedText
 }
 
 // TestLoadDeclaredPredicates tests predicate extraction from schemas.
@@ -45,13 +46,14 @@ Decl next_action(Action.Type<name>).
 		t.Error("Expected next_action to be declared")
 	}
 
-	// TODO: Missing Test: Nil/Missing learned text. Verify behavior when learnedText is empty but schemasText is populated.
+	// TODO: TEST_GAP - Nil/Missing learned text. Verify behavior when learnedText is empty but schemasText is populated.
 	// Check that undeclared predicate returns false
 	if sv.IsDeclared("nonexistent_predicate") {
 		t.Error("Expected nonexistent_predicate to not be declared")
 	}
 
 	// TODO: TEST_GAP - Conflicting schema declarations (multiple arities)
+	// TODO: TEST_GAP - Zero-arity implicit declarations in learned.mg (e.g. "is_active." without parens)
 }
 
 // TestGetArity tests arity extraction from declarations.
@@ -78,9 +80,11 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 		{"diagnostic has 5 args", "diagnostic", 5},
 		{"unknown predicate returns -1", "unknown_pred", -1},
 		// TODO: Missing Test: Type declaration comma vulnerability. E.g., `Decl generic_map(Map.Type<string, string>)`. `extractDeclsFromText` counts commas directly and will miscount generics.
+		// TODO: TEST_GAP - Extremely long predicate names (e.g. 100,000+ characters)
 	}
 
 	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
+	// TODO: TEST_GAP - Extreme inputs (millions of lines) causing memory bloat due to FindAllStringSubmatch
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			arity := sv.GetArity(tt.predicate)
@@ -120,6 +124,7 @@ Decl file_topology(Path.Type<string>).
 	}
 
 	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
+	// TODO: TEST_GAP - Extreme inputs (millions of lines) causing memory bloat due to FindAllStringSubmatch
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := sv.CheckArity(tt.predicate, tt.actualArity)
@@ -206,6 +211,7 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 	}
 
 	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
+	// TODO: TEST_GAP - Extreme inputs (millions of lines) causing memory bloat due to FindAllStringSubmatch
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := sv.ValidateRule(tt.rule)
@@ -325,6 +331,7 @@ Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.T
 	}
 
 	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
+	// TODO: TEST_GAP - Extreme inputs (millions of lines) causing memory bloat due to FindAllStringSubmatch
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := sv.ValidateLearnedRule(tt.rule)
