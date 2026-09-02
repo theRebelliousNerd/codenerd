@@ -145,3 +145,25 @@ func TestNormalizeModelName(t *testing.T) {
 		}
 	}
 }
+
+// TODO: Vector 1 - Null/Undefined/Empty and Near-Empty Inputs
+// Implement tests for:
+// - Whitespace-only strings (\t, \n, \r, zero-width space) in LookupPrice.
+// - Null-byte injection ("model\x00name") in LookupPrice.
+// - Negative and asymmetric token counts in EstimateCost.
+
+// TODO: Vector 2 - Type Coercion, Numeric Boundaries, and Max Int
+// Implement tests for:
+// - integer overflow (math.MaxInt64, math.MinInt64) passed to Cost().
+// - Extreme fractional token calculations (underflow) in Cost().
+
+// TODO: Vector 3 - User Request Extremes and Malformed Input
+// Implement tests for:
+// - Extreme length model strings (e.g., 100MB string) to verify memory bounds.
+// - Deep path traversal / spoofing ("////////gpt-4o").
+// - Complex Unicode and casing variations ("\u017F").
+
+// TODO: Vector 4 - State Conflicts, Race Conditions, and Concurrency
+// Implement tests for:
+// - Concurrent execution of RegisterPrice and LookupPrice to verify lock safety.
+// - Run the test with -race flag to catch memoization race conditions.
