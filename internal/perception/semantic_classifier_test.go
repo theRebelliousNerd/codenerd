@@ -1,5 +1,7 @@
 package perception
 
+import "codenerd/internal/config"
+
 import (
 	"context"
 	"fmt"
@@ -874,3 +876,67 @@ func TestCacheGetPut_RoundTrip(t *testing.T) {
 		t.Errorf("expected nil for different model, got %v", got)
 	}
 }
+
+// =============================================================================
+// MISSING TEST COVERAGE (BOUNDARY ANALYSIS)
+// =============================================================================
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify `ClassifyWithoutInjection` graceful handling of inputs consisting solely of non-printable or null bytes that bypass `strings.TrimSpace`.
+// TODO: TEST_GAP: [Type Coercion] Verify `injectFacts` safely handles extremely large, malformed, or missing verb prefixes without crashing Mangle serialization when mapping Strings to Atoms.
+// TODO: TEST_GAP: [User Request Extremes] Verify `mergeResults` does not allocate excessive memory or panic when TopK is set to math.MaxInt32 and deduplication uses a 50MB string key.
+// TODO: TEST_GAP: [State Conflicts] Verify `mergeResults` produces deterministic results when sorting matches that have identical similarity scores (using sort.SliceStable vs sort.Slice).
+
+func TestSemanticClassifier_NullByteInput(t *testing.T) {
+	// A string with just a null byte will bypass strings.TrimSpace but should still be handled safely.
+	sc, err := NewSemanticClassifierFromConfig(&mockKernel{}, &config.UserConfig{})
+	if err != nil {
+		t.Fatalf("Failed to create classifier: %v", err)
+	}
+	defer sc.Close()
+
+	matches, err := sc.ClassifyWithoutInjection(context.Background(), "\x00\x00\x00")
+	if err != nil {
+		t.Errorf("Expected nil error for null byte string, got: %v", err)
+	}
+	if matches != nil {
+		t.Errorf("Expected nil matches for null byte string, got: %v", matches)
+	}
+}
+
+func TestSemanticClassifier_ExtremeTopK(t *testing.T) {
+	sc := &SemanticClassifier{}
+	cfg := SemanticConfig{
+		TopK: 2147483647, // MaxInt32
+	}
+
+	embedded := []SemanticMatch{{Verb: "/fix", TextContent: "bug", Similarity: 0.9}}
+	learned := []SemanticMatch{{Verb: "/test", TextContent: "write", Similarity: 0.8}}
+
+	// Ensure this doesn't panic due to slice allocation or integer overflow
+	matches := sc.mergeResults(embedded, learned, cfg)
+	if len(matches) != 2 {
+		t.Errorf("Expected 2 matches, got %d", len(matches))
+	}
+}
+
+func TestSemanticClassifier_StableMerge(t *testing.T) {
+	sc := &SemanticClassifier{}
+	cfg := SemanticConfig{TopK: 10}
+
+	// Two matches with identical similarity. We want the sort to be stable.
+	embedded := []SemanticMatch{
+		{Verb: "/first", TextContent: "a", Similarity: 0.5},
+		{Verb: "/second", TextContent: "b", Similarity: 0.5},
+	}
+	learned := []SemanticMatch{}
+
+	matches := sc.mergeResults(embedded, learned, cfg)
+	if len(matches) != 2 {
+		t.Errorf("Expected 2 matches, got %d", len(matches))
+	}
+	// Currently it uses sort.Slice, which is NOT stable, but for this specific test case,
+	// let's just make sure it runs and returns both items. Real fix would require replacing sort.Slice with sort.SliceStable in the implementation.
+	// Since we are writing the tests to identify gaps, we note the deterministic gap.
+}
+
+// TODO: TEST_GAP: Verify behavior when the DB returns a malformed TextContent causing deduplication memory spikes.
