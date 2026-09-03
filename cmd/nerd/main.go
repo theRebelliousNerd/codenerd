@@ -255,6 +255,7 @@ func init() {
 	// Add commands to root
 	rootCmd.AddCommand(
 		runCmd,
+		chatCmd,
 		defineAgentCmd,
 		spawnCmd,
 		browserCmd,
