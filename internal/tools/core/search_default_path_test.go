@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"codenerd/internal/tools"
 )
 
 // TestExecuteGrep_DefaultPath_SkipsHiddenButFindsVisible verifies the fix for
@@ -17,11 +19,14 @@ import (
 // p != path so that "." and "./" walk normally while nested dot-directories
 // such as .git and .nerd are still skipped.
 func TestExecuteGrep_DefaultPath_SkipsHiddenButFindsVisible(t *testing.T) {
-	// Do not run in parallel: this test chdirs globally.
+	// Do not run in parallel: this test pins process-global state.
 	tmpDir := t.TempDir()
 
-	const visibleToken = "UNIQUE_VISIBLE_TOKEN_abc123_789"
-	const hiddenToken = "UNIQUE_HIDDEN_TOKEN_xyz789_012"
+	// Built at runtime so the full token never appears verbatim in this source
+	// file. A verbatim literal would make any search whose root includes the
+	// package directory legitimately match this file itself.
+	visibleToken := "UNIQUE_VISIBLE_" + "TOKEN_abc123_789"
+	hiddenToken := "UNIQUE_HIDDEN_" + "TOKEN_xyz789_012"
 
 	visibleFile := filepath.Join(tmpDir, "visible.txt")
 	if err := os.WriteFile(visibleFile, []byte("hello "+visibleToken+" world\n"), 0600); err != nil {
@@ -37,19 +42,19 @@ func TestExecuteGrep_DefaultPath_SkipsHiddenButFindsVisible(t *testing.T) {
 		t.Fatalf("write hidden file: %v", err)
 	}
 
-	origWd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd: %v", err)
-	}
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("Chdir to tmpDir: %v", err)
-	}
-	defer func() { _ = os.Chdir(origWd) }()
+	// Pin the default search root to the temp workspace regardless of test
+	// order. executeGrep resolves an omitted path via tools.WorkspaceRoot,
+	// which prefers context, then CODENERD_WORKSPACE_ROOT, then cwd. Pinning
+	// all three to tmpDir keeps an earlier test's env or cwd from moving the
+	// root back to the repository (where the runtime-built tokens are the only
+	// thing stopping a self-match). No production change: containment already
+	// lands inside the workspace; this only declares which workspace.
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
+	t.Chdir(tmpDir)
+	ctx := tools.WithWorkspaceRoot(context.Background(), tmpDir)
 
-	ctx := context.Background()
-
-	// Search with NO path argument (defaults to ".") for the visible token.
-	// Must be found.
+	// Search with NO path argument (defaults to the workspace root) for the
+	// visible token. Must be found.
 	resultVisible, err := executeGrep(ctx, map[string]any{
 		"pattern": visibleToken,
 	})
@@ -57,7 +62,7 @@ func TestExecuteGrep_DefaultPath_SkipsHiddenButFindsVisible(t *testing.T) {
 		t.Fatalf("executeGrep visible (default path): %v", err)
 	}
 	if !strings.Contains(resultVisible, visibleToken) {
-		t.Errorf("expected visible token %q to be found via default path \".\", got %q", visibleToken, resultVisible)
+		t.Errorf("expected visible token %q to be found via default path, got %q", visibleToken, resultVisible)
 	}
 	if strings.Contains(resultVisible, ".hidden") {
 		t.Errorf("visible search should not return hidden path, got %q", resultVisible)

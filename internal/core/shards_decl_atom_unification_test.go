@@ -29,14 +29,16 @@ func TestShardsDeclAtomsUnify(t *testing.T) {
 		t.Fatalf("NewRealKernel() error = %v (a Decl bound-type change broke analysis)", err)
 	}
 
-	// Canary: a healthy kernel derives safe_action = 120. Zero means analysis
-	// broke and every downstream query is dead regardless of what follows.
+	// Canary: a healthy kernel derives safe_action at the baseline count. Zero
+	// means analysis broke and every downstream query is dead regardless of
+	// what follows.
 	sa, err := k.Query("safe_action(A)")
 	if err != nil {
 		t.Fatalf("Query(safe_action) error = %v", err)
 	}
-	if len(sa) != 120 {
-		t.Errorf("safe_action = %d rows, want 120 — constitution analysis is degraded", len(sa))
+	baseline := safeActionCanaryBaseline(t)
+	if len(sa) != baseline {
+		t.Errorf("safe_action = %d rows, want %d — constitution analysis is degraded", len(sa), baseline)
 	}
 
 	facts := []Fact{

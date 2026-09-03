@@ -40,9 +40,9 @@ func denseImportGraph(layers, width int) []types.Fact {
 //
 // The failure is not confined to the predicate that overflows. Once the ceiling
 // trips, evaluation of the ENTIRE program fails, so every unrelated query
-// returns zero rows. On this repo, `nerd query safe_action` went from 120 rows
-// to an error. That makes it a whole-product outage triggered by nothing worse
-// than opening a normal-sized codebase.
+// returns zero rows. On this repo, `nerd query safe_action` went from the
+// canary baseline rows to an error. That makes it a whole-product outage
+// triggered by nothing worse than opening a normal-sized codebase.
 //
 // safe_action is the canary on purpose: it has nothing to do with dependency
 // links, which is exactly why its collapse is the thing worth asserting.
@@ -63,9 +63,12 @@ func TestDependencyReachability_WhenGraphIsDense_ShouldNotKillTheKernel(t *testi
 			"Every query in the kernel fails when the derived-fact ceiling trips, "+
 			"not just the one that overflowed.", err)
 	}
-	if len(rows) != 120 {
-		t.Errorf("safe_action = %d rows, want 120 — the constitution stopped deriving "+
-			"under an unrelated fact load", len(rows))
+	// The canary baseline is the pristine safe_action count; the dense-graph
+	// load must not change it.
+	baseline := safeActionCanaryBaseline(t)
+	if len(rows) != baseline {
+		t.Errorf("safe_action = %d rows, want %d — the constitution stopped deriving "+
+			"under an unrelated fact load", len(rows), baseline)
 	}
 }
 

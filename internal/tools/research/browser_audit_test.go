@@ -73,6 +73,70 @@ func (k *auditTestKernel) RemoveFactsByPredicateSet(map[string]struct{}) error {
 	return nil
 }
 
+// Transaction returns a buffering transaction that applies to the same backing
+// store on Commit, satisfying types.KernelTransactor so types.NewKernelTx does
+// not panic on this test double. Buffered asserts become visible only after
+// Commit; retracts delegate to the same no-op/filtering helpers as the
+// non-transactional methods.
+func (k *auditTestKernel) Transaction() types.KernelTransaction {
+	return &auditTestTx{k: k}
+}
+
+type auditTestOp struct {
+	kind      string
+	fact      types.Fact
+	predicate string
+	set       map[string]struct{}
+}
+
+type auditTestTx struct {
+	k   *auditTestKernel
+	ops []auditTestOp
+}
+
+func (tx *auditTestTx) Assert(fact types.Fact) {
+	tx.ops = append(tx.ops, auditTestOp{kind: "assert", fact: fact})
+}
+
+func (tx *auditTestTx) Retract(predicate string) {
+	tx.ops = append(tx.ops, auditTestOp{kind: "retract", predicate: predicate})
+}
+
+func (tx *auditTestTx) RetractFact(fact types.Fact) {
+	tx.ops = append(tx.ops, auditTestOp{kind: "retract_fact", fact: fact})
+}
+
+func (tx *auditTestTx) RetractExactFact(fact types.Fact) {
+	tx.ops = append(tx.ops, auditTestOp{kind: "retract_exact", fact: fact})
+}
+
+func (tx *auditTestTx) RetractPredicateSet(predicates map[string]struct{}) {
+	tx.ops = append(tx.ops, auditTestOp{kind: "retract_set", set: predicates})
+}
+
+func (tx *auditTestTx) Commit() error {
+	for _, op := range tx.ops {
+		var err error
+		switch op.kind {
+		case "assert":
+			err = tx.k.Assert(op.fact)
+		case "retract":
+			err = tx.k.Retract(op.predicate)
+		case "retract_fact":
+			err = tx.k.RetractFact(op.fact)
+		case "retract_exact":
+			err = tx.k.RetractExactFactsBatch([]types.Fact{op.fact})
+		case "retract_set":
+			err = tx.k.RemoveFactsByPredicateSet(op.set)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	tx.ops = nil
+	return nil
+}
+
 func writeAuditFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	full := filepath.Join(root, rel)
