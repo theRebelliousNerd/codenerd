@@ -58,7 +58,7 @@ func (m *groundedSchedMock) CompleteWithStreaming(_ context.Context, _, _ string
 func (m *groundedSchedMock) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return &types.LLMToolResponse{Text: m.text}, nil
 }
-func (m *groundedSchedMock) GetModel() string { return "muse-spark-1.2-contributor" }
+func (m *groundedSchedMock) GetModel() string { return "muse-spark-1.3-contributor" }
 
 var _ types.GroundedWebSearcher = (*groundedSchedMock)(nil)
 

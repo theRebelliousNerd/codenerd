@@ -25,11 +25,13 @@ import (
 
 func TestNormalizeMetaModel_ForcesContributorTier(t *testing.T) {
 	cases := map[string]string{
+		"muse-spark-1.3":             metaContributorModel,
 		"muse-spark-1.2":             metaContributorModel,
 		"muse-spark-1.1":             metaContributorModel,
+		"muse-spark-1.3-contributor": metaContributorModel,
 		"muse-spark-1.2-contributor": "muse-spark-1.2-contributor",
 		"":                           metaContributorModel,
-		"  muse-spark-1.2  ":         metaContributorModel,
+		"  muse-spark-1.3  ":         metaContributorModel,
 	}
 	for in, want := range cases {
 		if got := normalizeMetaModel(in); got != want {

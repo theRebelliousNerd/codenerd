@@ -154,7 +154,7 @@ var ProviderModels = map[string][]string{
 	// noticed, because both names work and only the bill differs. The client
 	// normalizes anyway (normalizeMetaModel), but a picker that offers a value
 	// the client will silently override is a picker that lies.
-	"meta":     {"muse-spark-1.2-contributor"},
+	"meta":     {"muse-spark-1.3-contributor"},
 	"moonshot": {"kimi-k3", "kimi-latest"},
 }
 

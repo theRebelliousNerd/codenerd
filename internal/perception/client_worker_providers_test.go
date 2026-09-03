@@ -18,7 +18,7 @@ func TestNewWorkerClientFromUserConfig_SupportsAllProviders(t *testing.T) {
 		model    string
 		apply    func(*config.UserConfig)
 	}{
-		{"meta", "muse-spark-1.2-contributor", func(c *config.UserConfig) { c.MetaAPIKey = "k" }},
+		{"meta", "muse-spark-1.3-contributor", func(c *config.UserConfig) { c.MetaAPIKey = "k" }},
 		{"dashscope", "qwen3.8-max", func(c *config.UserConfig) { c.DashScopeAPIKey = "k" }},
 		{"moonshot", "kimi-k3", func(c *config.UserConfig) { c.MoonshotAPIKey = "k" }},
 		{"anthropic", "claude-haiku-4-5", func(c *config.UserConfig) { c.AnthropicAPIKey = "k" }},
@@ -49,7 +49,7 @@ func TestNewWorkerClientFromUserConfig_SupportsAllProviders(t *testing.T) {
 
 func TestNewWorkerClientFromUserConfig_MissingKeyFailsLoudly(t *testing.T) {
 	cfg := &config.UserConfig{
-		Worker: &config.WorkerLLMConfig{Provider: "meta", Model: "muse-spark-1.2-contributor"},
+		Worker: &config.WorkerLLMConfig{Provider: "meta", Model: "muse-spark-1.3-contributor"},
 	}
 	_, err := NewWorkerClientFromUserConfig(cfg)
 	if err == nil {
@@ -78,7 +78,7 @@ func TestNewWorkerClientFromUserConfig_EndpointOverridesBaseURL(t *testing.T) {
 		MetaAPIKey: "k",
 		Worker: &config.WorkerLLMConfig{
 			Provider: "meta",
-			Model:    "muse-spark-1.2-contributor",
+			Model:    "muse-spark-1.3-contributor",
 			Endpoint: "https://proxy.internal/v1",
 		},
 	}

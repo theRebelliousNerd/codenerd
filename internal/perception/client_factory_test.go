@@ -199,7 +199,7 @@ func TestSecondarySlotClient_MetaPerSlotXHigh(t *testing.T) {
 	dsClient, err := newSecondarySlotClient(&config.UserConfig{
 		MetaAPIKey: "mk",
 		BaseURL:    "",
-	}, "worker", &config.SecondaryLLMConfig{Provider: "meta", Model: "muse-spark-1.2-contributor", ReasoningEffort: "xhigh"})
+	}, "worker", &config.SecondaryLLMConfig{Provider: "meta", Model: "muse-spark-1.3-contributor", ReasoningEffort: "xhigh"})
 	if err != nil {
 		t.Fatalf("worker newSecondarySlotClient: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestSecondarySlotClient_MetaPerSlotXHigh(t *testing.T) {
 		DashScopeAPIKey: "dk",
 		MetaAPIKey:      "mk2",
 		BaseURL:         "",
-	}, "planner", &config.SecondaryLLMConfig{Provider: "meta", Model: "muse-spark-1.2-contributor", ReasoningEffort: "xhigh"})
+	}, "planner", &config.SecondaryLLMConfig{Provider: "meta", Model: "muse-spark-1.3-contributor", ReasoningEffort: "xhigh"})
 	if err != nil {
 		t.Fatalf("planner newSecondarySlotClient: %v", err)
 	}
@@ -223,8 +223,8 @@ func TestProviderConfigFromUserConfig_MetaXHigh_FullRootRoute(t *testing.T) {
 	userCfg := &config.UserConfig{
 		Provider:            "meta",
 		MetaAPIKey:          "dummy-meta-key",
-		Model:               "muse-spark-1.2-contributor",
-		ClassificationModel: "muse-spark-1.2-contributor",
+		Model:               "muse-spark-1.3-contributor",
+		ClassificationModel: "muse-spark-1.3-contributor",
 		ReasoningEffort:     "xhigh",
 	}
 	pc, err := ProviderConfigFromUserConfig(userCfg)
@@ -234,8 +234,8 @@ func TestProviderConfigFromUserConfig_MetaXHigh_FullRootRoute(t *testing.T) {
 	if pc.Provider != ProviderMeta {
 		t.Fatalf("Provider = %q, want %q", pc.Provider, ProviderMeta)
 	}
-	if pc.Model != "muse-spark-1.2-contributor" {
-		t.Fatalf("Model = %q, want muse-spark-1.2-contributor", pc.Model)
+	if pc.Model != "muse-spark-1.3-contributor" {
+		t.Fatalf("Model = %q, want muse-spark-1.3-contributor", pc.Model)
 	}
 	if pc.ClassificationModel == "" {
 		t.Fatal("ClassificationModel = empty, want non-empty (classification_model set)")

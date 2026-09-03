@@ -278,9 +278,10 @@ func (c *OpenAICompatClient) ModelForContext(ctx context.Context) string {
 	return c.normalizeModel(c.model)
 }
 
-// metaContributorModel is the only Meta model this project is permitted to
-// use.
-const metaContributorModel = "muse-spark-1.2-contributor"
+// metaContributorModel is the contributor-tier Muse Spark this project
+// defaults to. Muse Spark 1.3 (2026-09-02) is the current checkpoint;
+// contributor is the only commercial tier this project is permitted to use.
+const metaContributorModel = "muse-spark-1.3-contributor"
 
 // normalizeModel applies vendor-level model constraints to whatever the
 // config, the wizard, or a per-shard override asked for.
