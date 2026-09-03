@@ -34,47 +34,83 @@ articulation, and turn persistence) without requiring a TTY.`,
 	RunE: runChat,
 }
 
-// collectChatTurns resolves the ordered list of turns for a headless chat
-// session. Positional args take precedence over stdin: when args is
-// non-empty stdin is never read. Otherwise turns are read from r one per
-// line, trimmed, with blank lines skipped, stopping at EOF or a line that
-// is exactly /quit or /exit.
-func collectChatTurns(args []string, r io.Reader) []string {
+// chatTurnSource yields headless chat turns lazily, one at a time.
+// Positional args take precedence over stdin: when args is non-empty Next
+// yields the args in order and never touches the reader. Otherwise turns are
+// read from r one line at a time, trimmed, with blank lines skipped,
+// stopping at EOF or a line that is exactly /quit or /exit.
+type chatTurnSource struct {
+	args        []string
+	scanner     *bufio.Scanner
+	done        bool
+	errReported bool
+}
+
+// newChatTurnSource builds a chatTurnSource. When args is non-empty the
+// reader is never touched; otherwise r is wrapped in a bufio.Scanner with a
+// 1 MiB max line. A nil reader with no args yields nothing.
+func newChatTurnSource(args []string, r io.Reader) *chatTurnSource {
 	if len(args) > 0 {
 		turns := make([]string, len(args))
 		copy(turns, args)
-		return turns
+		return &chatTurnSource{args: turns}
 	}
-	turns := []string{}
 	if r == nil {
-		return turns
+		return &chatTurnSource{}
 	}
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	return &chatTurnSource{scanner: scanner}
+}
+
+// Next returns the next turn, or ok=false at EOF, on a line that is exactly
+// /quit or /exit, or on a read error. After Scan returns false the scanner
+// error is checked: on a non-nil, non-EOF error, "error: reading turns: %v"
+// is printed to stderr once before reporting ok=false.
+func (s *chatTurnSource) Next() (turn string, ok bool) {
+	if s == nil || s.done {
+		return "", false
+	}
+	if len(s.args) > 0 {
+		turn := s.args[0]
+		s.args = s.args[1:]
+		return turn, true
+	}
+	if s.scanner == nil {
+		s.done = true
+		return "", false
+	}
+	for s.scanner.Scan() {
+		line := strings.TrimSpace(s.scanner.Text())
 		if line == "" {
 			continue
 		}
 		if line == "/quit" || line == "/exit" {
-			break
+			s.done = true
+			return "", false
 		}
-		turns = append(turns, line)
+		return line, true
 	}
-	return turns
+	if err := s.scanner.Err(); err != nil && err != io.EOF {
+		if !s.errReported {
+			fmt.Fprintf(os.Stderr, "error: reading turns: %v\n", err)
+			s.errReported = true
+		}
+	}
+	s.done = true
+	s.scanner = nil
+	return "", false
 }
 
 // runChat boots the Cortex once and feeds successive turns to
 // cortex.SessionExecutor.Process, mirroring the TUI main-agent path.
 func runChat(cmd *cobra.Command, args []string) error {
-	turns := collectChatTurns(args, os.Stdin)
-	if len(turns) == 0 {
-		return nil
-	}
-
 	// A conversation has no natural total length, so the session itself is
 	// not wrapped in the global --timeout. Each turn gets its own deadline
 	// below. Cancellation comes from SIGINT/SIGTERM, same as runInstruction.
+	// The Cortex is booted first, before any turn is pulled, so a driver
+	// holding the stdin pipe can decide turn N+1 after seeing turn N's
+	// result instead of having to close the pipe before any turn runs.
 	processCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sigCh := make(chan os.Signal, 1)
@@ -106,8 +142,12 @@ func runChat(cmd *cobra.Command, args []string) error {
 	}
 	cortex.SessionExecutor.SetSessionID(fmt.Sprintf("session-%d", time.Now().UnixNano()))
 
-	for i, turn := range turns {
-		fmt.Printf("── turn %d ──\n%s\n", i+1, turn)
+	fmt.Println("ready")
+	src := newChatTurnSource(args, os.Stdin)
+	turnNum := 0
+	for turn, ok := src.Next(); ok; turn, ok = src.Next() {
+		turnNum++
+		fmt.Printf("── turn %d ──\n%s\n", turnNum, turn)
 		turnCtx, turnCancel := context.WithTimeout(processCtx, config.GetLLMTimeouts().OODALoopTimeout)
 		stopHeartbeat := startHeartbeat(os.Stdout, heartbeatInterval)
 		start := time.Now()
@@ -120,7 +160,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 			continue
 		}
 		if result == nil {
-			fmt.Fprintf(os.Stderr, "error: nil result for turn %d\n", i+1)
+			fmt.Fprintf(os.Stderr, "error: nil result for turn %d\n", turnNum)
 			continue
 		}
 		fmt.Println(result.Response)
