@@ -364,6 +364,17 @@ func TestDecompose_EmptyGoal_ReturnsError(t *testing.T) {
 func TestBuildCampaign_NormalizesEnumsAndJailsPaths(t *testing.T) {
 	kernel := &MockKernel{}
 	workspace := t.TempDir()
+	// Materialize the safe write-set path: plan-time retype
+	// (reconcileTaskTypeWithWriteSet) converts /file_modify with no existing
+	// write-set path to /file_create, so this normalization test must have a
+	// file on disk to keep asserting the /file_modify normalization.
+	safePath := filepath.Join(workspace, "internal", "campaign", "safe.go")
+	if err := os.MkdirAll(filepath.Dir(safePath), 0o755); err != nil {
+		t.Fatalf("setup: mkdir %s: %v", filepath.Dir(safePath), err)
+	}
+	if err := os.WriteFile(safePath, []byte("package campaign\n"), 0o644); err != nil {
+		t.Fatalf("setup: write %s: %v", safePath, err)
+	}
 	d := NewDecomposer(kernel, &mockLLMClient{}, workspace)
 
 	campaign := d.buildCampaign("/campaign_test", DecomposeRequest{

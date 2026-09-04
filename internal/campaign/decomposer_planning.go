@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -628,6 +630,24 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 				task.WriteSet = normalizeWriteSetPaths(d.workspace, inferredWriteSet)
 			}
 
+			// Reconcile a mistyped file task with its write set so a planning
+			// error cannot block a whole campaign at run time.
+			//
+			// Observed live 2026-09-04 on campaign a36d036c: the decomposer
+			// emitted "Add turn_cost/6 Decl to schemas" as /file_modify with a
+			// write set containing only a path that did not exist. The coder
+			// correctly created the file, and validateFileModifyOutcome
+			// correctly refused it ("modified no pre-existing file in its
+			// declared write set"); the diagnostic-repro retries re-ran the
+			// identical mistyped task until the phase blocked with
+			// /all_tasks_blocked. Check the type against the filesystem here,
+			// at plan time, when the fix is a retype instead of a failure.
+			oldTaskType := task.Type
+			if changed, reason := reconcileTaskTypeWithWriteSet(d.workspace, &task); changed {
+				logging.CampaignWarn("Retyped task %s from %s to %s: %s",
+					taskID, oldTaskType, task.Type, reason)
+			}
+
 			// Drop tasks the planner emitted twice within one phase.
 			//
 			// Observed live 2026-08-08 on campaign fc6472c2: phase 1 came back
@@ -791,4 +811,61 @@ func normalizedTaskKey(desc string) string {
 		return ""
 	}
 	return key
+}
+
+
+// reconcileTaskTypeWithWriteSet corrects a mistyped file task against the
+// filesystem at plan time. It mutates task.Type in place and reports whether
+// a retype happened and why.
+//
+// A /file_modify whose write set contains no existing file is invalid by the
+// orchestrator's own transaction rules (validateFileModifyOutcome refuses it
+// with "modified no pre-existing file in its declared write set"), so retype
+// it to /file_create. Symmetrically, a /file_create whose write set already
+// exists on disk is really a modification, so retype it to /file_modify.
+//
+// Only exact paths participate: if any write-set entry contains glob
+// metacharacters (see containsGlobMeta), or the write set is empty, the task
+// is left unchanged. Relative paths resolve against workspace; absolute paths
+// are stated directly. Pure: no logging here — the caller logs the retype.
+func reconcileTaskTypeWithWriteSet(workspace string, task *Task) (changed bool, reason string) {
+	if task == nil {
+		return false, ""
+	}
+	if len(task.WriteSet) == 0 {
+		return false, ""
+	}
+	for _, p := range task.WriteSet {
+		if containsGlobMeta(p) {
+			return false, ""
+		}
+	}
+	pathExists := func(p string) bool {
+		q := p
+		if !filepath.IsAbs(q) && workspace != "" {
+			q = filepath.Join(workspace, q)
+		}
+		_, err := os.Stat(q)
+		return err == nil
+	}
+	switch task.Type {
+	case TaskTypeFileModify:
+		for _, p := range task.WriteSet {
+			if pathExists(p) {
+				return false, ""
+			}
+		}
+		task.Type = TaskTypeFileCreate
+		return true, "no write-set path exists"
+	case TaskTypeFileCreate:
+		for _, p := range task.WriteSet {
+			if !pathExists(p) {
+				return false, ""
+			}
+		}
+		task.Type = TaskTypeFileModify
+		return true, "every write-set path already exists"
+	default:
+		return false, ""
+	}
 }
