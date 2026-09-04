@@ -305,6 +305,16 @@ func (sm *ShardManager) RegisterShard(typeName string, factory types.ShardFactor
 	logging.Shards("Registered shard factory: %s", typeName)
 }
 
+// HasShardFactory reports whether a factory is registered for typeName.
+// It distinguishes factory registration from profile definition: profiles
+// alone (DefineProfile/GetProfile) do not create shards.
+func (sm *ShardManager) HasShardFactory(typeName string) bool {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	_, ok := sm.factories[typeName]
+	return ok
+}
+
 // SetTaskDelegator attaches the JIT clean-loop executor used for shard types
 // with no registered factory. Without it, spawning such a type is a hard error
 // rather than a silent no-op — see SpawnAsyncWithContext.

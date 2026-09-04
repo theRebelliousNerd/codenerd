@@ -99,6 +99,36 @@ func TestRegisterAllShardFactories(t *testing.T) {
 	}
 }
 
+func TestRegisterPlanningShards_FactoryOwnership(t *testing.T) {
+	sm := coreshards.NewShardManager()
+	ctx := RegistryContext{
+		Kernel:    &mockKernel{},
+		LLMClient: &mockLLMClient{},
+		Workspace: "/tmp/workspace",
+	}
+
+	RegisterAllShardFactories(sm, ctx)
+
+	// session_planner is owned here.
+	if !sm.HasShardFactory("session_planner") {
+		t.Error("expected factory for session_planner to be registered by RegisterAllShardFactories")
+	}
+	// tactile_router and campaign_runner are owned by internal/system/factory.go
+	// (they need boot-time collaborators RegistryContext does not carry).
+	// RegisterAllShardFactories must not register shadow factories for them:
+	// ShardManager.RegisterShard replaces by name, so any registration here
+	// would be dead code overwritten at boot.
+	for _, name := range []string{"tactile_router", "campaign_runner"} {
+		if sm.HasShardFactory(name) {
+			t.Errorf("expected no factory for %q from RegisterAllShardFactories (owned by internal/system/factory.go)", name)
+		}
+		// Profiles stay: spawning still resolves config after boot wires the factory.
+		if _, ok := sm.GetProfile(name); !ok {
+			t.Errorf("expected profile for %q to remain defined", name)
+		}
+	}
+}
+
 func TestRegisterSystemShardProfiles(t *testing.T) {
 	t.Parallel()
 	sm := coreshards.NewShardManager()

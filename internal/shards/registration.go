@@ -299,25 +299,9 @@ func (r *shardFactoryRegistrar) registerLogicShards() {
 }
 
 func (r *shardFactoryRegistrar) registerPlanningShards() {
-	r.sm.RegisterShard("tactile_router", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := system.NewTactileRouterShard()
-		shard.SetParentKernel(r.ctx.Kernel)
-		shard.SetVirtualStore(r.ctx.VirtualStore)
-		shard.SetLLMClient(r.ctx.LLMClient)
-		shard.SetPromptAssembler(r.createAssembler())
-		return r.withJITConfig(shard)
-	})
-
-	r.sm.RegisterShard("campaign_runner", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := system.NewCampaignRunnerShard()
-		shard.SetParentKernel(r.ctx.Kernel)
-		shard.SetVirtualStore(r.ctx.VirtualStore)
-		shard.SetLLMClient(r.ctx.LLMClient)
-		shard.SetWorkspaceRoot(r.ctx.Workspace)
-		shard.SetPromptAssembler(r.createAssembler())
-		return r.withJITConfig(shard)
-	})
-
+	// NOTE: "tactile_router" and "campaign_runner" are registered in
+	// internal/system/factory.go because they need boot-time collaborators
+	// (task executor, browser manager, JIT config) that RegistryContext does not carry.
 	r.sm.RegisterShard("session_planner", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewSessionPlannerShard()
 		shard.SetParentKernel(r.ctx.Kernel)
