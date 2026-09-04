@@ -135,6 +135,15 @@ safe_action(/context7_fetch).
 safe_action(/get_impacted_tests).
 safe_action(/run_impacted_tests).
 safe_action(/apply_edits).
+# The research cache is an in-process map with no external side effect;
+# get/set/stats are granted to /research verbs by the ConfigFactory and were
+# likewise hard-denied here. research_cache_clear is deliberately NOT listed:
+# it discards work every agent in the process shares, and the registry-to-
+# policy parity test (internal/tools/catalog_policy_parity_test.go) records
+# that exclusion with its reason.
+safe_action(/research_cache_get).
+safe_action(/research_cache_set).
+safe_action(/research_cache_stats).
 
 # System lifecycle
 safe_action(/initialize).
