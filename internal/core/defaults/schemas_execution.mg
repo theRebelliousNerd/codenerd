@@ -244,6 +244,13 @@ Decl execution_tag(RequestID, Key, Value) bound [/string, /string, /string].
 # the other per-turn facts so a leaked created_source cannot fail later turns.
 Decl turn_created_source(File) bound [/string].
 
+# turn_cost(SessionID, TurnNum, PromptTokens, CompletionTokens, ToolCalls, VerifiedOutcome)
+# Per-turn cost denominator for tokens-per-verified-work. Asserted once per
+# turn by the session executor in persistTurn. VerifiedOutcome is /done when
+# the kernel derived turn_done, /hollow when hollow_success fired, /failed
+# when the turn errored, and /unverified otherwise.
+Decl turn_cost(SessionID, TurnNum, PromptTokens, CompletionTokens, ToolCalls, VerifiedOutcome) bound [/string, /number, /number, /number, /number, /atom].
+
 # checkpoint_verdict(Phase, Verdict, Reason, Confidence)
 # Structured reviewer/nemesis verdict for campaign checkpoints.
 # Phase: exact phase name (/string). Verdict: /pass or /fail (/name).

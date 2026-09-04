@@ -24,14 +24,24 @@ punch list; items are marked as they land. Ledger context:
 | 12 | Registry↔policy parity test (`internal/tools/catalog_policy_parity_test.go`, built by codeNERD, run 22). It immediately found four more granted-but-ungated tools: `research_cache_get/set/stats/clear`. get/set/stats gained `safe_action`; `clear` stays denied on purpose and is the test's one listed exception | (this batch) |
 | 13 | Campaign file tasks: target from `Artifacts[0]`, else the first exact write-set entry (relativized), else the description; empty target is an error before any shard call; a directory or missing file never counts as written; pathless mutating tasks retyped to `/research` at plan time (codeNERD, run 24) | (this batch) |
 
+| 14 | `-i` mode: per-turn `--timeout`, EOF exits, spawn by verb with the shared hollow guard and root-write sweep (run 25; spawn argument order corrected by hand) | b4374849 |
+| 15 | One session identity minted at boot (`Cortex.SessionID`, honors `BootConfig.SessionID`), propagated to executor, spawner and clones; Ouroboros registry wired on every path, nil-safe (run 26) | 4171060f |
+| 16 | `ConfigFactory.Generate` validates; inert `ToolLoop`, `Model`, `Safety`, `Workspace` deleted; fixtures moved to canonical policy names (run 27) | dd807334 |
+| 17 | CLI flags: one `--verbose`, `--dry-run`/`--trace-api` deleted, `--dump-kernel` wired, `--disable-system-shard` persistent, dead `config.yaml` block removed (run 28; tests by hand) | a3ff2192 |
+| 18 | `TaskVerifier` fails closed: verifier outage → stored as failed, retries stop, `ErrVerificationUnavailable` (run 29) | d7d2695a |
+| 19 | Shadowed `tactile_router`/`campaign_runner` factories deleted from `registration.go`; `ShardManager.HasShardFactory` (run 30) | 3e7940ff |
+
 ## In flight (briefs written)
 
-- `-i` mode (`cmd/nerd`): run 23 was refused every write by item 10; re-dispatch after the rebuild.
-- Campaign resume: accept failed/blocked campaigns, reset tasks with a cap, resume boots the same system as start (`cmd/nerd`, `internal/campaign`).
-- Factory wiring: `SetSessionID` + `SetOuroborosRegistry` (`internal/system`, `internal/session`).
-- ConfigFactory: `Validate()` on every generated config, inert `ToolLoop` and unread fields removed (`internal/prompt`, `internal/jit/config`).
-- TUI state: value-receiver writes, continuation context parented on shutdown (`cmd/nerd/chat`).
+- Memory read-back on the executor path + `atomsJSON` + `turn_cost/6` (`internal/session`, one Decl) — run 31.
+- Dead `performSystemBootLegacy` and its two private helpers (`cmd/nerd/chat`) — run 32.
+- Legacy YAML `Config`/`Load` surface deletion (`internal/config`) — run 33.
+- Campaign start/resume boot through the Cortex; ToolPregenerator constructed (`cmd/nerd`, `internal/system`) — `brief_campaign_boot.txt`.
+- Campaign resume acceptance/reset semantics (`cmd/nerd`, `internal/campaign`) — `brief_resume.txt`, after campaign boot.
+- TUI state: value-receiver writes, continuation context parented on shutdown (`cmd/nerd/chat`) — after run 32.
 - Retrieval semantic tier wired through `nerd retrieve` and the TUI seed (`internal/retrieval`).
+
+Unconfirmed: run 30 reported "shell gate blocked go vet/go test"; no gate refusal appears in its logs. Watch for a repeat.
 
 ## Open, ranked (one concern each)
 

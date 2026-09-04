@@ -206,6 +206,11 @@ type Executor struct {
 	// matter how many turns hit the fail-open fallback. The flag gates the
 	// log, not the behavior: ungated calls still proceed unsimulated.
 	gateUnavailableWarned atomic.Bool
+
+	// learningsOnce ensures HydrateLearnings runs exactly once per executor
+	// lifetime (first Process call); per-turn session context hydrates on
+	// every turn via hydrateMemory.
+	learningsOnce sync.Once
 }
 
 // ExecutorConfig holds configuration for the executor.
@@ -660,6 +665,11 @@ type ExecutionResult struct {
 
 	// Error is set if execution failed.
 	Error error
+
+	// TurnOutcome is the kernel's verdict for this turn (/done, /hollow,
+	// /failed, /unverified), captured by checkHollowSuccess before per-turn
+	// facts are retracted so turn_cost can record it. Empty until determined.
+	TurnOutcome types.MangleAtom
 }
 
 // Process handles user input through the clean loop.
@@ -738,6 +748,14 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		// hollow-success and tool-error cases already surface via result.Error
 		logging.Audit().TurnEnd(auditSessionID, auditTurnNum, time.Since(start).Milliseconds(), success)
 	}()
+
+	// Memory is read back on the executor path, not just persisted: learned
+	// facts and prior-session context hydrate the kernel before prompt
+	// compilation so logic can use persisted context. Best-effort — hydration
+	// failures are logged and never fail the turn — and skipped entirely when
+	// the store does not implement the hydration interface (stub adapters).
+	e.hydrateMemory(ctx, input)
+	usageBefore := snapshotTurnUsage(ctx)
 
 	// 1. OBSERVE: Transducer converts NL → Intent (skipped for preset intents)
 	var intent perception.Intent
@@ -890,7 +908,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	}
 
 	// Persist session turn for cross-session continuity
-	e.persistTurn(input, intent, result)
+	e.persistTurn(ctx, input, intent, result, turnTelemetry{compileResult: compileResult, usageBefore: usageBefore})
 
 	logging.Session("Execution complete: %d tool calls, %v duration", result.ToolCallsExecuted, result.Duration)
 
@@ -1614,23 +1632,41 @@ func renderHistoryTranscript(prior []types.Message, currentInput string) string 
 	return sb.String()
 }
 
-// persistTurn stores the session turn for cross-session continuity.
+// persistTurn stores the session turn for cross-session continuity and records
+// the turn's cost denominator for tokens-per-verified-work.
 // Best-effort: failures are logged but do not interrupt execution.
-func (e *Executor) persistTurn(input string, intent perception.Intent, result *ExecutionResult) {
+func (e *Executor) persistTurn(ctx context.Context, input string, intent perception.Intent, result *ExecutionResult, telemetry turnTelemetry) {
+	if result == nil {
+		return
+	}
 	e.mu.RLock()
 	persister := e.sessionPersister
 	sid := e.sessionID
 	historyLen := len(e.conversationHistory)
 	e.mu.RUnlock()
 
-	if persister == nil {
-		return
-	}
-
 	// Determine session ID
 	sessionID := sid
 	if sessionID == "" {
 		sessionID = "default"
+	}
+
+	// Turn number based on conversation history length (each turn = user + assistant = 2 entries)
+	turnNumber := historyLen / 2
+
+	// Cost denominator: usage delta across this turn plus the kernel verdict.
+	promptTokens, completionTokens := telemetry.usageBefore.delta(snapshotTurnUsage(ctx))
+	e.assertTurnCost(turnCost{
+		sessionID:        sessionID,
+		turnNumber:       turnNumber,
+		promptTokens:     promptTokens,
+		completionTokens: completionTokens,
+		toolCalls:        result.ToolCallsExecuted,
+		outcome:          e.resolveTurnOutcome(result),
+	})
+
+	if persister == nil {
+		return
 	}
 
 	// Serialize intent for storage
@@ -1640,8 +1676,7 @@ func (e *Executor) persistTurn(input string, intent perception.Intent, result *E
 		intentJSON = []byte("{}")
 	}
 
-	// Turn number based on conversation history length (each turn = user + assistant = 2 entries)
-	turnNumber := historyLen / 2
+	atomsJSON := compilationAtomsJSON(telemetry.compileResult)
 
 	// Store asynchronously to avoid blocking the response
 	go func() {
@@ -1651,7 +1686,7 @@ func (e *Executor) persistTurn(input string, intent perception.Intent, result *E
 			input,
 			string(intentJSON),
 			result.Response,
-			"", // atomsJSON — populated by piggyback integration
+			atomsJSON,
 		); storeErr != nil {
 			logging.Get(logging.CategorySession).Warn("Failed to persist session turn %d: %v", turnNumber, storeErr)
 		} else {

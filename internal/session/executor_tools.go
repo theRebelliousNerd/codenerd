@@ -1684,8 +1684,13 @@ func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
 	// these predicates — they must not short-circuit before the assert or
 	// policy never decides and turn_done is never single.
 	e.assertTurnEvidence(verb, result)
-	if err := e.consumeHollowSuccessVerdict(verb, result); err != nil {
-		return err
+	hollowErr := e.consumeHollowSuccessVerdict(verb, result)
+	// Capture the kernel's verdict (turn_done/hollow_success) BEFORE the
+	// deferred cleanup retracts turn_evidence — after that the derivation is
+	// gone and turn_cost could never record /done.
+	e.captureTurnOutcome(result, hollowErr)
+	if hollowErr != nil {
+		return hollowErr
 	}
 	// Single turn_done completion signal: exactly one is expected per
 	// turn_evidence. The consumer logs any deviation for diagnosis without
