@@ -425,9 +425,11 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 	// Control packet caps (defensive)
 	const maxMangleUpdates = 2000
 	if len(result.Control.MangleUpdates) > maxMangleUpdates {
+		dropped := len(result.Control.MangleUpdates) - maxMangleUpdates
 		result.Control.MangleUpdates = result.Control.MangleUpdates[:maxMangleUpdates]
 		result.Warnings = append(result.Warnings,
 			fmt.Sprintf("Mangle updates truncated to %d atoms", maxMangleUpdates))
+		logging.ArticulationWarn("mangle updates truncated to %d atoms (dropped %d)", maxMangleUpdates, dropped)
 	}
 
 	// Content-level validation for MangleUpdates: reject oversized or syntactically
@@ -437,21 +439,31 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 	for _, update := range result.Control.MangleUpdates {
 		trimmed := strings.TrimSpace(update)
 		if trimmed == "" {
+			logging.ArticulationWarn("mangle_update skipped (empty update)")
 			continue
 		}
 		if len(trimmed) > maxSingleUpdateLen {
 			result.Warnings = append(result.Warnings, "Mangle update too long, skipped")
+			logging.ArticulationWarn("mangle_update skipped (too long, len=%d): %s", len(trimmed), truncateUTF8Bytes(trimmed, 120))
 			continue
 		}
 		// Basic Mangle atom syntax: must contain '(' and end with '.'
 		if !strings.Contains(trimmed, "(") || !strings.HasSuffix(trimmed, ".") {
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("Invalid Mangle update syntax skipped: %.40s...", trimmed))
+			reason := "invalid syntax"
+			if !strings.Contains(trimmed, "(") {
+				reason = "missing '('"
+			} else if !strings.HasSuffix(trimmed, ".") {
+				reason = "no trailing period"
+			}
+			logging.ArticulationWarn("mangle_update skipped (%s): %s", reason, truncateUTF8Bytes(trimmed, 120))
 			continue
 		}
 		// Reject shell metacharacters that could escape from Mangle into exec
 		if strings.ContainsAny(trimmed, "`$;|") {
 			result.Warnings = append(result.Warnings, "Mangle update with shell metacharacters skipped")
+			logging.ArticulationWarn("mangle_update skipped (shell metacharacters): %s", truncateUTF8Bytes(trimmed, 120))
 			continue
 		}
 		validUpdates = append(validUpdates, update)
@@ -460,9 +472,11 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 
 	const maxMemoryOps = 500
 	if len(result.Control.MemoryOperations) > maxMemoryOps {
+		dropped := len(result.Control.MemoryOperations) - maxMemoryOps
 		result.Control.MemoryOperations = result.Control.MemoryOperations[:maxMemoryOps]
 		result.Warnings = append(result.Warnings,
 			fmt.Sprintf("Memory operations truncated to %d items", maxMemoryOps))
+		logging.ArticulationWarn("memory operations truncated to %d items (dropped %d)", maxMemoryOps, dropped)
 	}
 
 	// Reasoning traces are useful for debugging but must be capped to avoid OOMs.
@@ -1053,6 +1067,7 @@ type ProcessedLLMResponse struct {
 	Control     *ControlPacket // Control packet (route to kernel)
 	ParseMethod string         // How the response was parsed
 	Confidence  float64        // Parsing confidence
+	Warnings    []string       // Non-fatal notes from parsing/caps (e.g. skipped mangle updates)
 }
 
 // ProcessLLMResponse is a convenience function for shards to process LLM responses.
@@ -1090,6 +1105,7 @@ func ProcessLLMResponse(rawResponse string) *ProcessedLLMResponse {
 		Surface:     result.Surface,
 		ParseMethod: result.ParseMethod,
 		Confidence:  result.Confidence,
+		Warnings:    result.Warnings,
 	}
 
 	// Only include control packet if we actually parsed it
@@ -1127,6 +1143,7 @@ func ProcessLLMResponseAllowPlain(rawResponse string) *ProcessedLLMResponse {
 		Surface:     result.Surface,
 		ParseMethod: result.ParseMethod,
 		Confidence:  result.Confidence,
+		Warnings:    result.Warnings,
 	}
 
 	if result.ParseMethod != "fallback" {
