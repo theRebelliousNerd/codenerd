@@ -329,6 +329,10 @@ func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 		// Classification runs on every interactive turn, so reasoning is turned
 		// off here regardless of the tier's normal setting — a thinking trace in
 		// front of every prompt is pure latency for a labelling task.
+		// Meta ignores EnableThinking: it is controlled by reasoning_effort, so
+		// the classification client defaults to "minimal" unless the caller set
+		// an explicit override. Probed live 2026-09-03: minimal keeps the same
+		// label at ~1/3 of the wall time (6.1s vs 19.3s default).
 		compatCfg := DefaultOpenAICompatConfig(cfg.Provider, cfg.APIKey)
 		compatCfg.EnableThinking = false
 		// A classification reply is a short label, so a small ceiling is right —
@@ -348,8 +352,12 @@ func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 		if cfg.BaseURL != "" {
 			compatCfg.BaseURL = cfg.BaseURL
 		}
-		if cfg.Provider == ProviderMeta && cfg.ReasoningEffort != "" {
-			compatCfg.ReasoningEffort = cfg.ReasoningEffort
+		if cfg.Provider == ProviderMeta {
+			if strings.TrimSpace(cfg.ReasoningEffort) != "" {
+				compatCfg.ReasoningEffort = cfg.ReasoningEffort
+			} else {
+				compatCfg.ReasoningEffort = "minimal"
+			}
 		}
 		client, err := NewOpenAICompatClient(compatCfg)
 		if err != nil {
@@ -358,7 +366,7 @@ func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 			logging.Get(logging.CategoryPerception).Warn("Classification client unavailable for %s: %v", cfg.Provider, err)
 			return nil, nil
 		}
-		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=%s model=%s (configured=%v)", cfg.Provider, compatCfg.Model, model != "")
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=%s model=%s reasoning_effort=%s (configured=%v)", cfg.Provider, compatCfg.Model, compatCfg.ReasoningEffort, model != "")
 		return client, nil
 
 	default:

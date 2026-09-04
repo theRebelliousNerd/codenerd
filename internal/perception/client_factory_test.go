@@ -273,3 +273,51 @@ func TestProviderConfigFromUserConfig_MetaXHigh_FullRootRoute(t *testing.T) {
 		t.Fatalf("classification request reasoning_effort = %q, want xhigh (thinking=false)", creq.ReasoningEffort)
 	}
 }
+
+func TestNewClassificationClientFromConfig_MetaDefaultsMinimal(t *testing.T) {
+	cfg := &ProviderConfig{Provider: ProviderMeta, APIKey: "k"}
+	class, err := NewClassificationClientFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewClassificationClientFromConfig: %v", err)
+	}
+	compat, ok := class.(*OpenAICompatClient)
+	if !ok {
+		t.Fatalf("classification got %T, want *OpenAICompatClient", class)
+	}
+	creq := compat.buildRequest(context.Background(), nil, false)
+	if creq.ReasoningEffort != "minimal" {
+		t.Fatalf("classification reasoning_effort = %q, want minimal", creq.ReasoningEffort)
+	}
+}
+
+func TestNewClassificationClientFromConfig_MetaHonorsExplicitLow(t *testing.T) {
+	cfg := &ProviderConfig{Provider: ProviderMeta, APIKey: "k", ReasoningEffort: "low"}
+	class, err := NewClassificationClientFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewClassificationClientFromConfig: %v", err)
+	}
+	compat, ok := class.(*OpenAICompatClient)
+	if !ok {
+		t.Fatalf("classification got %T, want *OpenAICompatClient", class)
+	}
+	creq := compat.buildRequest(context.Background(), nil, false)
+	if creq.ReasoningEffort != "low" {
+		t.Fatalf("classification reasoning_effort = %q, want low", creq.ReasoningEffort)
+	}
+}
+
+func TestNewClassificationClientFromConfig_DashScopeNoReasoningEffort(t *testing.T) {
+	cfg := &ProviderConfig{Provider: ProviderDashScope, APIKey: "k"}
+	class, err := NewClassificationClientFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewClassificationClientFromConfig: %v", err)
+	}
+	compat, ok := class.(*OpenAICompatClient)
+	if !ok {
+		t.Fatalf("classification got %T, want *OpenAICompatClient", class)
+	}
+	creq := compat.buildRequest(context.Background(), nil, false)
+	if creq.ReasoningEffort != "" {
+		t.Fatalf("dashscope classification reasoning_effort = %q, want empty", creq.ReasoningEffort)
+	}
+}
