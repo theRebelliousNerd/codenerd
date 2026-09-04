@@ -633,6 +633,9 @@ type (
 		ClarifyUpdate     *ClarifyUpdate
 		DreamHypothetical string
 		ThoughtSummary    string
+		// AwaitingKnowledge latches the knowledge-gathering re-entrancy guard
+		// on the Update thread (see process.go); set by the processInput result.
+		AwaitingKnowledge bool
 	}
 
 	// streamKind tags a streaming chunk so the TUI can render thought
@@ -759,6 +762,9 @@ type (
 		Results         []KnowledgeResult // Results from all consulted specialists
 		OriginalInput   string            // The user input that triggered knowledge gathering
 		InterimResponse string            // The initial LLM response (may include "let me look that up")
+		// AwaitingKnowledge latches the re-entrancy guard on the Update thread.
+		// True while gathering was requested; cleared after synthesis.
+		AwaitingKnowledge bool
 	}
 
 	// alignmentCheckMsg carries the result of a Northstar alignment check

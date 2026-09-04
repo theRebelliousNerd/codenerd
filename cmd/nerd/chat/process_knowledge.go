@@ -41,7 +41,9 @@ func (m *Model) handleKnowledgeRequests(
 	originalInput string,
 	interimResponse string,
 ) knowledgeGatheredMsg {
-	m.awaitingKnowledge = true
+	// NOTE: do not set m.awaitingKnowledge here — m is a copy (processInput has a
+	// value receiver), so the write would be discarded. The flag is carried on
+	// the returned message and applied on the Update thread.
 
 	if len(requests) > maxKnowledgeRequestsPerTurn {
 		logging.Get(logging.CategoryContext).Info(
@@ -128,9 +130,10 @@ If you need to search documentation or the web, do so to provide accurate inform
 	}
 
 	return knowledgeGatheredMsg{
-		Results:         results,
-		OriginalInput:   originalInput,
-		InterimResponse: interimResponse,
+		Results:           results,
+		OriginalInput:     originalInput,
+		InterimResponse:   interimResponse,
+		AwaitingKnowledge: true,
 	}
 }
 

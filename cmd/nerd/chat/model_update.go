@@ -137,6 +137,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.launchClarifyGoal = msg.ClarifyUpdate.LaunchClarifyGoal
 			m.launchClarifyAnswers = msg.ClarifyUpdate.LaunchClarifyAnswers
 		}
+		m.awaitingKnowledge = msg.AwaitingKnowledge
 		if msg.DreamHypothetical != "" {
 			m.lastDreamHypothetical = msg.DreamHypothetical
 		}
@@ -849,7 +850,7 @@ func (m Model) handleKnowledgeGatheredMsg(msg knowledgeGatheredMsg) (tea.Model, 
 	// waterfall again, articulation again — doubling turn cost and
 	// re-rolling routing mid-turn. The synthesis call is bounded and
 	// deterministic.)
-	m.awaitingKnowledge = false
+	m.awaitingKnowledge = msg.AwaitingKnowledge
 
 	// Store gathered knowledge for this turn and for history
 	m.pendingKnowledge = msg.Results

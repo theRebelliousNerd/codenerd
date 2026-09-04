@@ -90,14 +90,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		logging.Routing("[processInput] OODA START input=%q len=%d | transducer=%s client=%s historyLen=%d hasKernel=%v hasCampaign=%v turnCount=%d",
 			truncateSummary(trimmed, 80), len(trimmed), transducerType, clientType, historyLen, hasKernel, hasCampaign, m.turnCount)
 
-		// If we are waiting for clarifier answers for a future launch, just accumulate the answers.
-		if m.launchClarifyPending && trimmed != "" && !strings.HasPrefix(trimmed, "/") {
-			if m.launchClarifyAnswers != "" {
-				m.launchClarifyAnswers += "\n"
-			}
-			m.launchClarifyAnswers += input
-			// Continue normal processing (do not auto-start)
-		}
+		// Clarifier answers are accumulated on the Update thread; see model_handlers.go.
 
 		var warnings []string
 		workspaceScanned := false

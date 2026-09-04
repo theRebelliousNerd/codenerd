@@ -73,7 +73,15 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 		// Log start of subtask execution
 		logging.Get(logging.CategoryRouting).Info("Executing subtask %s (%s) with shard %s", subtaskID, description, shardType)
 
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		// Parent on the session's shutdown context so Ctrl+X cancels the
+		// in-flight shard call, not just the next step's pre-flight check.
+		// processInput does the same; a bare Background here made
+		// continuation steps uncancellable once started.
+		parent := m.shutdownCtx
+		if parent == nil {
+			parent = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(parent, timeout)
 		defer cancel()
 
 		if m.isInterrupted {
