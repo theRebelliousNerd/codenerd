@@ -11,6 +11,7 @@ import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
 	"codenerd/internal/features"
+	nerdinit "codenerd/internal/init"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"codenerd/internal/mcp"
@@ -313,6 +314,7 @@ type Cortex struct {
 	UsageTracker    *usage.Tracker
 	LocalDB         *store.LocalStore
 	LearningStore   *store.LearningStore
+	ToolStore       *store.ToolStore
 	EmbeddingEngine embedding.EmbeddingEngine
 	Workspace       string
 	JITCompiler     *prompt.JITPromptCompiler
@@ -329,6 +331,8 @@ type Cortex struct {
 	mcpBridge             *mcp.MCPIntegrationBridge
 	mcpCancel             context.CancelFunc
 	mcpDone               <-chan struct{}
+	ouroborosCancel       context.CancelFunc
+	ouroborosDone         <-chan struct{}
 	perceptionInitialized bool
 	closeMu               sync.Mutex
 	closed                bool
@@ -685,6 +689,9 @@ type bootContext struct {
 	mcpBridge                    *mcp.MCPIntegrationBridge
 	mcpCancel                    context.CancelFunc
 	mcpDone                      <-chan struct{}
+	toolStore                    *store.ToolStore
+	ouroborosCancel              context.CancelFunc
+	ouroborosDone                <-chan struct{}
 	projectDB                    *sql.DB
 	atomLoader                   *prompt.AtomLoader
 	jitCompiler                  *prompt.JITPromptCompiler
@@ -1176,6 +1183,31 @@ func initExecutionLayer(bctx *bootContext) error {
 	}
 	if err := bctx.virtualStore.HydrateModularTools(groundedSearcher); err != nil {
 		logging.Get(logging.CategorySession).Warn("Failed to hydrate modular tools: %v", err)
+	}
+
+	// Mirror the TUI's hydrateAllTools (cmd/nerd/chat/session_boot_helpers.go):
+	// static tools from available_tools.json plus generated tools from disk.
+	// Warnings are logged, not fatal, so a corrupt tools dir never fails boot.
+	nerdDir := filepath.Join(bctx.workspace, ".nerd")
+	if toolDefs, err := nerdinit.LoadToolsFromFile(nerdDir); err != nil {
+		logging.Get(logging.CategorySession).Warn("Failed to load available_tools.json: %v", err)
+	} else if len(toolDefs) > 0 {
+		staticDefs := make([]core.StaticToolDef, len(toolDefs))
+		for i, td := range toolDefs {
+			staticDefs[i] = core.StaticToolDef{
+				Name:          td.Name,
+				Category:      td.Category,
+				Description:   td.Description,
+				Command:       td.Command,
+				ShardAffinity: td.ShardAffinity,
+			}
+		}
+		if err := bctx.virtualStore.HydrateStaticTools(staticDefs); err != nil {
+			logging.Get(logging.CategorySession).Warn("Failed to hydrate static tools: %v", err)
+		}
+	}
+	if err := bctx.virtualStore.HydrateToolsFromDisk(nerdDir); err != nil {
+		logging.Get(logging.CategorySession).Warn("Failed to hydrate tools from disk: %v", err)
 	}
 
 	worldCfg := bctx.appCfg.GetWorldConfig()
@@ -1788,7 +1820,89 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.shardManager.SetTaskDelegator(&taskDelegatorAdapter{executor: bctx.taskExecutor})
 	}
 	logging.Get(logging.CategorySession).Info("JITExecutor wired in BootCortex")
+	initFactoryToolStore(bctx)
+	initFactoryOuroborosWiring(bctx)
 	return nil
+}
+
+// initFactoryToolStore opens the ToolStore and wires it into every shard.
+// It mirrors the TUI boot (cmd/nerd/chat/session_shared_boot.go lines 217-289)
+// for the SetToolStore setter only; glass-box and tool-event-bus setters belong
+// to a later run.
+func initFactoryToolStore(bctx *bootContext) {
+	if bctx == nil {
+		return
+	}
+	nerdDir := filepath.Join(bctx.workspace, ".nerd")
+	toolsDBPath := filepath.Join(nerdDir, "tools.db")
+	ts, err := store.NewToolStore(toolsDBPath)
+	if err != nil {
+		logging.Get(logging.CategoryBoot).Warn("Failed to initialize ToolStore: %v", err)
+		return
+	}
+	bctx.toolStore = ts
+	if bctx.shardManager == nil {
+		return
+	}
+	for _, agent := range bctx.shardManager.GetActiveShards() {
+		if setter, ok := agent.(interface{ SetToolStore(*store.ToolStore) }); ok {
+			setter.SetToolStore(ts)
+		}
+	}
+	toolStore := ts
+	bctx.shardManager.SetPostSpawnHook(func(agent types.ShardAgent) {
+		if setter, ok := agent.(interface{ SetToolStore(*store.ToolStore) }); ok {
+			setter.SetToolStore(toolStore)
+		}
+	})
+}
+
+// initFactoryOuroborosWiring starts the kernel listener that reacts to
+// missing_tool_for facts and connects the DreamRouter to the Ouroboros tool
+// generation pipeline. It mirrors the TUI boot
+// (cmd/nerd/chat/session_shared_boot.go lines 153-206) so every path (nerd
+// chat, fix runs, campaigns, spawned shards) gets it.
+func initFactoryOuroborosWiring(bctx *bootContext) {
+	if bctx == nil || bctx.poiesis == nil {
+		return
+	}
+	autoCtx, cancel := context.WithCancel(context.Background())
+	bctx.ouroborosCancel = cancel
+	bctx.ouroborosDone = bctx.poiesis.StartKernelListener(autoCtx, 2*time.Second)
+
+	dreamToolCh := make(chan core.ToolNeed, 16)
+	if bctx.virtualStore != nil {
+		if dreamer := bctx.virtualStore.GetDreamer(); dreamer != nil {
+			if dreamRouter := dreamer.GetDreamRouter(); dreamRouter != nil {
+				dreamRouter.SetOuroborosQueue(dreamToolCh)
+			}
+		}
+	}
+
+	poiesis := bctx.poiesis
+	go func() {
+		// Bound goroutine lifetime to autoCtx. dreamToolCh is fed by the
+		// DreamRouter; we don't own its close. Without a ctx.Done arm this
+		// goroutine would block forever on the receive after Close.
+		for {
+			select {
+			case <-autoCtx.Done():
+				return
+			case need, ok := <-dreamToolCh:
+				if !ok {
+					return
+				}
+				ctx, timeoutCancel := context.WithTimeout(autoCtx, 5*time.Minute)
+				autoNeed := &autopoiesis.ToolNeed{
+					Name:     need.Name,
+					Purpose:  need.Description,
+					Priority: need.Priority,
+				}
+				poiesis.ExecuteOuroborosLoop(ctx, autoNeed)
+				timeoutCancel()
+			}
+		}
+	}()
 }
 
 // BootCortexWithConfig initializes the system with a configuration object.
@@ -1896,9 +2010,12 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		PromptAssembler:       bctx.promptAssembler,
 		WorkerLLMClient:       bctx.shardLLMClient,
 		PlannerLLMClient:      bctx.plannerLLMClient,
+		ToolStore:             bctx.toolStore,
 		mcpBridge:             bctx.mcpBridge,
 		mcpCancel:             bctx.mcpCancel,
 		mcpDone:               bctx.mcpDone,
+		ouroborosCancel:       bctx.ouroborosCancel,
+		ouroborosDone:         bctx.ouroborosDone,
 		perceptionInitialized: bctx.perceptionInitialized,
 		sessionID:             bctx.sessionID,
 	}

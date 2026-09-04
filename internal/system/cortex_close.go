@@ -88,6 +88,26 @@ func (c *Cortex) Close() error {
 		c.mcpDone = nil
 	}
 
+	if c.ouroborosCancel != nil {
+		c.ouroborosCancel()
+		c.ouroborosCancel = nil
+	}
+	if c.ouroborosDone != nil {
+		select {
+		case <-c.ouroborosDone:
+		case <-time.After(closeStepTimeout):
+			logging.Get(logging.CategorySession).Warn("Cortex.Close: Ouroboros listener timed out; continuing shutdown")
+		}
+		c.ouroborosDone = nil
+	}
+
+	if c.ToolStore != nil {
+		if err := runCloseStep("ToolStore.Close", closeStepTimeout, c.ToolStore.Close); err != nil {
+			errs = append(errs, err)
+		}
+		c.ToolStore = nil
+	}
+
 	if c.BrowserManager != nil {
 		browserManager := c.BrowserManager
 		research.ClearBrowserManager(browserManager)
