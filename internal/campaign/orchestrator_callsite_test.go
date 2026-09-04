@@ -92,8 +92,10 @@ func TestOrchestratorConfigLiterals_AllSetNorthstarObserver(t *testing.T) {
 
 	// If the literals move or get renamed, silently checking nothing would let
 	// this test "pass" forever.
-	if checked < 5 {
-		t.Fatalf("found only %d OrchestratorConfig literals; expected at least 5. "+
+	// Four since 2026-09-04: nerd campaign start and resume build their config
+	// through one function (cmd/nerd/cmd_campaign.go buildCampaignOrchestratorConfig).
+	if checked < 4 {
+		t.Fatalf("found only %d OrchestratorConfig literals; expected at least 4. "+
 			"If construction moved, update this test rather than deleting it", checked)
 	}
 

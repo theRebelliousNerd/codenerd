@@ -31,13 +31,13 @@ func TestConfigWiring(t *testing.T) {
 		{
 			TypeName:  "OrchestratorConfig",
 			FieldName: "NorthstarObserver",
-			MinSites:  5,
+			MinSites:  4, // start and resume share one builder since 2026-09-04 (cmd/nerd/cmd_campaign.go)
 			Why:       "campaigns on protected roots refused when NorthstarObserver is nil (protectedCampaignRiskRoots in risk_scoring.go) - one campaign was refused 850 times in a day",
 		},
 		{
 			TypeName:  "OrchestratorConfig",
 			FieldName: "TaskExecutor",
-			MinSites:  5,
+			MinSites:  4, // start and resume share one builder since 2026-09-04 (cmd/nerd/cmd_campaign.go)
 			Why:       "checkpoints reporting PASS without verifying when TaskExecutor is nil (runShardValidationCheckpoint and runNemesisGauntletCheckpoint in checkpoint.go cannot run and returned PASS for verifications that never ran)",
 		},
 	}
