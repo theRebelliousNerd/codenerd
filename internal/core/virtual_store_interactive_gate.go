@@ -53,6 +53,10 @@ var interactiveToolActionType = map[string]ActionType{
 	"edit_lines":   ActionEditLines,
 	"insert_lines": ActionInsertLines,
 	"delete_lines": ActionDeleteLines,
+	// codedom element edits share the line tools' destructive posture and
+	// already have CodeDOM/syntax validators and a constitution case wired.
+	"edit_element": ActionEditElement,
+	// NOTE: "apply_edits" is a known unmapped write tool with no ActionType in VirtualStore routing.
 }
 
 // actionTypeForToolName resolves a modular tool name to its ActionType.
