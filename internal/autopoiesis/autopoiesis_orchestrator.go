@@ -343,6 +343,37 @@ func (o *Orchestrator) GetOuroborosLoop() ToolSynthesizer {
 	return o.ouroboros
 }
 
+// GetToolGenerator returns the ToolGenerator for campaign tool pregeneration.
+// Nil-safe: returns nil when the orchestrator or its generator is absent,
+// which is how the campaign path detects "autopoiesis disabled".
+func (o *Orchestrator) GetToolGenerator() *ToolGenerator {
+	if o == nil {
+		return nil
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.toolGen
+}
+
+// GetConcreteOuroborosLoop returns the Ouroboros loop as its concrete type for
+// campaign tool pregeneration, which requires *OuroborosLoop rather than the
+// ToolSynthesizer interface. Nil-safe: returns nil when the orchestrator holds
+// no loop or the loop is not a *OuroborosLoop.
+func (o *Orchestrator) GetConcreteOuroborosLoop() *OuroborosLoop {
+	if o == nil {
+		return nil
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.ouroboros == nil {
+		return nil
+	}
+	if loop, ok := o.ouroboros.(*OuroborosLoop); ok {
+		return loop
+	}
+	return nil
+}
+
 // CompileTool compiles an existing tool source file.
 // It reads the file from disk, runs it through safety checks, and compiles/registers it.
 func (o *Orchestrator) CompileTool(ctx context.Context, toolName string) (*RuntimeTool, error) {
