@@ -643,9 +643,9 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		cwd, _ = os.Getwd()
 	}
 
-	// Prefer StatusPaused; fall back to Active (legacy interrupted runs).
+	// Prefer newest paused; fall back to active, then blocked/failed.
 	campaignsDir := filepath.Join(cwd, ".nerd", "campaigns")
-	pausedCampaign, campPath, err := findCampaignByStatuses(campaignsDir, campaign.StatusPaused)
+	candidates, err := loadResumeCandidates(campaignsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			fmt.Println("No campaigns found.")
@@ -653,19 +653,18 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		}
 		return err
 	}
-	if pausedCampaign == nil {
-		pausedCampaign, campPath, err = findCampaignByStatuses(campaignsDir, campaign.StatusActive)
-		if err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-
-	if pausedCampaign == nil {
-		fmt.Println("No paused campaigns found.")
+	sel := selectResumeCampaign(candidates, campaignRetryFailed)
+	if sel == nil {
+		fmt.Println("No paused, active, or blocked campaigns found.")
 		return nil
 	}
+	pausedCampaign := sel.Campaign
+	campPath := sel.Path
+	resumeWasFailed := pausedCampaign.Status == campaign.StatusFailed
 
 	// Flip to active on disk so status/list stay consistent during resume.
+	// Paused campaigns only: a failed campaign must still read StatusFailed
+	// when PrepareResume runs, which is what re-arms it.
 	if pausedCampaign.Status == campaign.StatusPaused {
 		pausedCampaign.Status = campaign.StatusActive
 		pausedCampaign.UpdatedAt = time.Now()
@@ -676,7 +675,11 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("Resuming campaign: %s\n", pausedCampaign.Title)
+	if pausedCampaign.BlockReason != "" {
+		fmt.Printf("Resuming campaign %s (%s, status %s, block reason %s)\n", pausedCampaign.Title, pausedCampaign.ID, pausedCampaign.Status, pausedCampaign.BlockReason)
+	} else {
+		fmt.Printf("Resuming campaign: %s (status %s)\n", pausedCampaign.Title, pausedCampaign.Status)
+	}
 
 	// (Legacy fallback key resolution removed)
 
@@ -710,6 +713,14 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 
 	if err := orchestrator.SetCampaign(pausedCampaign); err != nil {
 		return fmt.Errorf("failed to load campaign: %w", err)
+	}
+	if err := orchestrator.PrepareResume(); err != nil {
+		return fmt.Errorf("cannot resume campaign %s: %w", pausedCampaign.ID, err)
+	}
+	if resumeWasFailed && campPath != "" {
+		if werr := writeCampaignJSON(campPath, pausedCampaign); werr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to persist resumed status: %v\n", werr)
+		}
 	}
 
 	// Start event listener
@@ -880,21 +891,69 @@ func findLatestPausableCampaign(workspaceRoot string) (*campaign.Campaign, strin
 	return latest, latestPath, nil
 }
 
-// findCampaignByStatuses returns the first campaign matching any of the given
-// statuses (most recent UpdatedAt wins).
-func findCampaignByStatuses(campaignsDir string, statuses ...campaign.CampaignStatus) (*campaign.Campaign, string, error) {
+// resumeCandidate pairs a persisted campaign with its on-disk JSON path.
+type resumeCandidate struct {
+	Campaign *campaign.Campaign
+	Path     string
+}
+
+// selectResumeCampaign picks which persisted campaign to resume.
+// Order of preference: the newest (by UpdatedAt) StatusPaused campaign;
+// else the newest StatusActive; else the newest StatusFailed campaign whose
+// BlockReason is non-empty; else, only when retryFailed is true, the newest
+// StatusFailed campaign regardless of BlockReason; else nil.
+// It is pure (no disk, no Cortex) for testability.
+func selectResumeCampaign(candidates []resumeCandidate, retryFailed bool) *resumeCandidate {
+	var bestPaused, bestActive, bestBlocked, bestFailed *resumeCandidate
+	for i := range candidates {
+		c := &candidates[i]
+		if c.Campaign == nil {
+			continue
+		}
+		switch c.Campaign.Status {
+		case campaign.StatusPaused:
+			if bestPaused == nil || c.Campaign.UpdatedAt.After(bestPaused.Campaign.UpdatedAt) {
+				bestPaused = c
+			}
+		case campaign.StatusActive:
+			if bestActive == nil || c.Campaign.UpdatedAt.After(bestActive.Campaign.UpdatedAt) {
+				bestActive = c
+			}
+		case campaign.StatusFailed:
+			if bestFailed == nil || c.Campaign.UpdatedAt.After(bestFailed.Campaign.UpdatedAt) {
+				bestFailed = c
+			}
+			if c.Campaign.BlockReason != "" {
+				if bestBlocked == nil || c.Campaign.UpdatedAt.After(bestBlocked.Campaign.UpdatedAt) {
+					bestBlocked = c
+				}
+			}
+		}
+	}
+	if bestPaused != nil {
+		return bestPaused
+	}
+	if bestActive != nil {
+		return bestActive
+	}
+	if bestBlocked != nil {
+		return bestBlocked
+	}
+	if retryFailed && bestFailed != nil {
+		return bestFailed
+	}
+	return nil
+}
+
+// loadResumeCandidates reads every non-journal *.json campaign in campaignsDir,
+// skipping unreadable or unparseable files the same way the previous
+// status-filtered lookup did.
+func loadResumeCandidates(campaignsDir string) ([]resumeCandidate, error) {
 	entries, err := os.ReadDir(campaignsDir)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	want := make(map[campaign.CampaignStatus]bool, len(statuses))
-	for _, s := range statuses {
-		want[s] = true
-	}
-
-	var best *campaign.Campaign
-	var bestPath string
-	var bestTime time.Time
+	var out []resumeCandidate
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
@@ -911,17 +970,10 @@ func findCampaignByStatuses(campaignsDir string, statuses ...campaign.CampaignSt
 		if err := json.Unmarshal(data, &c); err != nil {
 			continue
 		}
-		if !want[c.Status] {
-			continue
-		}
-		if best == nil || c.UpdatedAt.After(bestTime) {
-			cp := c
-			best = &cp
-			bestPath = path
-			bestTime = c.UpdatedAt
-		}
+		cp := c
+		out = append(out, resumeCandidate{Campaign: &cp, Path: path})
 	}
-	return best, bestPath, nil
+	return out, nil
 }
 
 func writeCampaignJSON(path string, c *campaign.Campaign) error {

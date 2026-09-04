@@ -85,6 +85,9 @@ var (
 	logger *zap.Logger
 )
 
+// campaignRetryFailed backs --retry-failed on `nerd campaign resume`.
+var campaignRetryFailed bool
+
 // rootCmd represents the base command
 var rootCmd = &cobra.Command{
 	Use:   "nerd",
@@ -212,6 +215,7 @@ func init() {
 	var campaignType string
 	campaignStartCmd.Flags().StringArrayVar(&campaignDocs, "docs", nil, "Paths to spec/requirement documents")
 	campaignStartCmd.Flags().StringVar(&campaignType, "type", "feature", "Campaign type (greenfield, feature, audit, migration, remediation)")
+	campaignResumeCmd.Flags().BoolVar(&campaignRetryFailed, "retry-failed", false, "Also resume a failed campaign that has no recorded block reason")
 	campaignCmd.AddCommand(
 		campaignStartCmd,
 		campaignStatusCmd,
