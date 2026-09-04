@@ -1642,7 +1642,7 @@ func initFinalExecutors(bctx *bootContext) error {
 	if bctx.shardLLMClient != nil {
 		taskLLM = bctx.shardLLMClient
 	}
-	sessionLLM := &sessionLLMAdapter{client: taskLLM}
+	sessionLLM := &sessionLLMAdapter{client: taskLLM, tracker: bctx.tracker}
 
 	// Config atoms decide which tools an intent verb may call. The built-in
 	// verbs are registered by NewDefaultConfigAtomProvider; user-defined agents
@@ -1766,7 +1766,7 @@ func initFinalExecutors(bctx *bootContext) error {
 	// worker tier onto the planner client. The kernel decides which those are
 	// via intent_requires_reasoning_model/1; this only supplies the client.
 	if bctx.plannerLLMClient != nil {
-		plannerSessionLLM := &sessionLLMAdapter{client: bctx.plannerLLMClient}
+		plannerSessionLLM := &sessionLLMAdapter{client: bctx.plannerLLMClient, tracker: bctx.tracker}
 		bctx.sessionExecutor.SetPlannerClient(plannerSessionLLM)
 		bctx.sessionSpawner.SetPlannerClient(plannerSessionLLM)
 	}

@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
 	"codenerd/internal/types"
+	"codenerd/internal/usage"
 	"strings"
 
 	"codenerd/internal/store"
@@ -528,20 +529,44 @@ func (a *sessionVirtualStoreAdapter) HydrateSessionContext(ctx context.Context, 
 }
 
 // sessionLLMAdapter adapts perception.LLMClient to types.LLMClient.
+//
+// It also carries the process usage tracker so every LLM call made through the
+// session executor is metered even when the incoming ctx was never tagged by a
+// CLI entry point. The ten cmd/nerd call sites that attach the tracker by hand
+// (cmd_chat.go, cmd_instruction.go, cmd_direct_actions.go, cmd_advanced.go,
+// cmd_interactive.go, chat/process.go, chat/campaign.go, chat/campaign_assault.go)
+// become redundant once this seam is proven live, but they are left alone here:
+// redundant tagging is harmless because meteredContext never overrides a ctx
+// that already carries a tracker.
 type sessionLLMAdapter struct {
-	client perception.LLMClient
+	client  perception.LLMClient
+	tracker *usage.Tracker
+}
+
+// meteredContext returns ctx unchanged when it already carries a tracker or
+// when the adapter has none (tracker init failed at boot); otherwise it tags
+// ctx with the adapter's tracker. Session IDs and shard metadata already on
+// the ctx are left untouched.
+func (a *sessionLLMAdapter) meteredContext(ctx context.Context) context.Context {
+	if a == nil || a.tracker == nil {
+		return ctx
+	}
+	if usage.FromContext(ctx) != nil {
+		return ctx
+	}
+	return usage.NewContext(ctx, a.tracker)
 }
 
 func (a *sessionLLMAdapter) Complete(ctx context.Context, prompt string) (string, error) {
-	return a.client.Complete(ctx, prompt)
+	return a.client.Complete(a.meteredContext(ctx), prompt)
 }
 
 func (a *sessionLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	return a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	return a.client.CompleteWithSystem(a.meteredContext(ctx), systemPrompt, userPrompt)
 }
 
 func (a *sessionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	return a.client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+	return a.client.CompleteWithTools(a.meteredContext(ctx), systemPrompt, userPrompt, tools)
 }
 
 // CompleteWithToolResults forwards multi-turn tool results when the underlying
@@ -549,6 +574,7 @@ func (a *sessionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt,
 // Without this, the session executor always falls back to single-turn tools
 // and coding agents stop after the first tool_use batch.
 func (a *sessionLLMAdapter) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	ctx = a.meteredContext(ctx)
 	if trp, ok := a.client.(types.ToolResultsProvider); ok {
 		return trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
 	}
@@ -569,6 +595,7 @@ func (a *sessionKernelAdapter) GetProgramInfo() *analysis.ProgramInfo {
 // missingLLMClient.CompleteWithStreaming is defined on the type in factory.go.
 
 func (s *sessionLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+	ctx = s.meteredContext(ctx)
 	contentChan := make(chan string, 1)
 	errorChan := make(chan error, 1)
 	go func() {
