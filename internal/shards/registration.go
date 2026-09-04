@@ -64,8 +64,60 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			},
 		},
 		{
-			Domain:          "campaign",
-			OwnedPredicates: []string{"campaign", "campaign_phase", "campaign_task", "campaign_dependency"},
+			Domain: "campaign",
+			// Complete campaign fact family. Rules evaluate per shard, so every
+			// predicate campaign rules join must live on the campaign shard or
+			// per-shard routing splits the join (e.g. campaign_phase in the
+			// campaign shard with phase_category in the catch-all makes
+			// build_topology.mg derive missing_category for every phase).
+			// Sources: Campaign/Phase/Task/ContextProfile ToFacts emits
+			// (pinned by TestToFacts_GoldenFixture_ShouldExerciseEveryEmitBranch),
+			// campaign_fact_sync retracts, and runtime facts asserted by the
+			// campaign package (orchestrator, decomposer, checkpoint, pager).
+			OwnedPredicates: []string{
+				"campaign",
+				"campaign_config",
+				"campaign_dependency",
+				"campaign_goal",
+				"campaign_heartbeat",
+				"campaign_metadata",
+				"campaign_phase",
+				"campaign_progress",
+				"campaign_task",
+				"checkpoint_verdict",
+				"context_compression",
+				"context_profile",
+				"current_phase",
+				"doc_layer",
+				"doc_metadata",
+				"doc_tag",
+				"failed_campaign_task_count_computed",
+				"goal_topic",
+				"phase_category",
+				"phase_checkpoint",
+				"phase_context_atom",
+				"phase_dependency",
+				"phase_estimate",
+				"phase_objective",
+				"plan_revision",
+				"replan_trigger",
+				"requirement_coverage",
+				"requires_resource",
+				"source_document",
+				"task_artifact",
+				"task_attempt",
+				"task_dependency",
+				"task_error",
+				"task_inference",
+				"task_order",
+				"task_priority",
+				"task_result",
+				"task_retry_at",
+				"task_soft_dependency",
+				"task_sub_campaign",
+				"task_verification",
+				"task_write_target",
+			},
 		},
 		{
 			Domain:          "prompts",
