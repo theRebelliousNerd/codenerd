@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/build"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/tactile"
@@ -33,6 +34,10 @@ func executionLayerConfigs(appCfg *config.UserConfig, workspace string) (tactile
 		executorCfg.MaxTimeout = timeout
 	}
 	executorCfg.AllowedEnvironment = append([]string(nil), execution.AllowedEnvVars...)
+	// Project build environment (CGO_CFLAGS/GOFLAGS/GOCACHE, ...) for every
+	// command run through the tactile executor, regardless of the parent
+	// shell. Mirrors the VirtualStore run_command path (buildToolEnv).
+	executorCfg.BaseEnvironment = build.GetBuildEnv(nil, workingDir)
 	if executorCfg.DefaultLimits != nil {
 		limits := *executorCfg.DefaultLimits
 		limits.TimeoutMs = timeout.Milliseconds()

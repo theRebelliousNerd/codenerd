@@ -339,6 +339,13 @@ type ExecutorConfig struct {
 	// AllowedEnvironment lists environment variables to pass through.
 	AllowedEnvironment []string `json:"allowed_environment"`
 
+	// BaseEnvironment holds KEY=VALUE entries appended to every child
+	// environment after the allowlisted parent variables and before the
+	// command's own Environment. It is set by the boot factory from the
+	// project build environment so toolchain commands see
+	// CGO_CFLAGS/GOFLAGS/GOCACHE regardless of the parent shell.
+	BaseEnvironment []string `json:"base_environment,omitempty"`
+
 	// DefaultSandbox is applied when Command.Sandbox is nil.
 	DefaultSandbox *SandboxConfig `json:"default_sandbox,omitempty"`
 

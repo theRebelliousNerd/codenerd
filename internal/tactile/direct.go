@@ -275,6 +275,12 @@ func (e *DirectExecutor) buildEnvironment(cmdEnv []string) []string {
 		}
 	}
 
+	// Base project build environment (CGO_CFLAGS/GOFLAGS/GOCACHE, ...).
+	// Appended after the allowlisted parent variables and before the
+	// command's own Environment. Later entries win in Go's exec env for
+	// duplicate keys, so a command's own Environment still overrides.
+	env = append(env, e.config.BaseEnvironment...)
+
 	// Add command-specific environment variables
 	env = append(env, cmdEnv...)
 
