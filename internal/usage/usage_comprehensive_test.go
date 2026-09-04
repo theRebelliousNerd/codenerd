@@ -249,29 +249,14 @@ func TestWithShardContext_ShouldSetAllKeys(t *testing.T) {
 
 	// Shard metadata now travels under private typed keys rather than raw
 	// strings, so it cannot collide with another package's context values.
-	if val := shardMetaFromContext(ctx, shardNameKey, "shard_name"); val != "coder-1" {
+	if val := shardMetaFromContext(ctx, shardNameKey); val != "coder-1" {
 		t.Errorf("shard_name = %v, want coder-1", val)
 	}
-	if val := shardMetaFromContext(ctx, shardTypeKey, "shard_type"); val != "coder" {
+	if val := shardMetaFromContext(ctx, shardTypeKey); val != "coder" {
 		t.Errorf("shard_type = %v, want coder", val)
 	}
-	if val := shardMetaFromContext(ctx, sessionIDKey, "session_id"); val != "sess-123" {
+	if val := shardMetaFromContext(ctx, sessionIDKey); val != "sess-123" {
 		t.Errorf("session_id = %v, want sess-123", val)
-	}
-}
-
-// TestShardMetaFromContext_ShouldAcceptLegacyStringKeys pins the compatibility
-// path: contexts built by older callers with raw string keys still resolve.
-func TestShardMetaFromContext_ShouldAcceptLegacyStringKeys(t *testing.T) {
-	t.Parallel()
-	//nolint:staticcheck // deliberately exercising the legacy raw-string key.
-	ctx := context.WithValue(context.Background(), "shard_name", "legacy-shard")
-
-	if val := shardMetaFromContext(ctx, shardNameKey, "shard_name"); val != "legacy-shard" {
-		t.Errorf("legacy shard_name = %v, want legacy-shard", val)
-	}
-	if val := shardMetaFromContext(ctx, shardTypeKey, "shard_type"); val != "unknown" {
-		t.Errorf("absent shard_type = %v, want unknown", val)
 	}
 }
 

@@ -603,9 +603,9 @@ func (t *tracker) Track(ctx context.Context, model, provider string, input, outp
 		return
 	}
 
-	shardName := shardMetaFromContext(ctx, shardNameKey, "shard_name")
-	shardType := shardMetaFromContext(ctx, shardTypeKey, "shard_type")
-	sessionID := shardMetaFromContext(ctx, sessionIDKey, "session_id")
+	shardName := shardMetaFromContext(ctx, shardNameKey)
+	shardType := shardMetaFromContext(ctx, shardTypeKey)
+	sessionID := shardMetaFromContext(ctx, sessionIDKey)
 
 	cost, priced := EstimateCost(model, int64(input), int64(output))
 
@@ -848,15 +848,11 @@ func addToMap(m map[string]TokenCounts, key string, input, output int, cost floa
 // shardMetaFromContext reads shard metadata, preferring the typed key and
 // falling back to the legacy raw string key so contexts built by older callers
 // still resolve.
-func shardMetaFromContext(ctx context.Context, key shardMetaKey, legacy string) string {
+func shardMetaFromContext(ctx context.Context, key shardMetaKey) string {
 	if ctx == nil {
 		return "unknown"
 	}
 	if val, ok := ctx.Value(key).(string); ok && val != "" {
-		return val
-	}
-	//nolint:staticcheck // legacy raw-string key kept for one release for compatibility.
-	if val, ok := ctx.Value(legacy).(string); ok && val != "" {
 		return val
 	}
 	return "unknown"
