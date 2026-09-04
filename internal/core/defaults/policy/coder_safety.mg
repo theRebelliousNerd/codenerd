@@ -101,6 +101,7 @@ hollow_success("response presents test-runner output but no test-execution tool 
     !has_turn_test(Verb).
 hollow_success("new source was created without a test file") :-
     turn_evidence(Verb, _, _, _, _, /false),
+    turn_created_source(File),
     missing_test_for(File).
 # turn_done is the single completion signal. It must never derive alongside
 # hollow_success (a no-write / no-tool / unverified turn is not done) nor

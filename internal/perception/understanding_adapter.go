@@ -60,8 +60,21 @@ func (t *UnderstandingTransducer) SetPromptAssembler(pa PromptAssembler) {
 
 // SetStrategicContext injects strategic knowledge about the codebase.
 // This context is included in prompts to help answer conceptual questions.
+// It takes the write lock: the setter runs live from session boot while
+// in-flight Transduce/Understand calls read the field.
 func (t *UnderstandingTransducer) SetStrategicContext(context string) {
+	t.mu.Lock()
 	t.strategicContext = context
+	t.mu.Unlock()
+}
+
+// getStrategicContext returns the injected strategic context under the read
+// lock, so a concurrent SetStrategicContext cannot race an in-flight
+// Transduce/Understand that reads it.
+func (t *UnderstandingTransducer) getStrategicContext() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.strategicContext
 }
 
 // SetKernel sets the Mangle kernel for routing queries.
@@ -238,11 +251,12 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 
 	// Get Understanding from LLM
 	llmStart := time.Now()
-	hasStrategicCtx := len(t.strategicContext) > 0
+	strategicContext := t.getStrategicContext()
+	hasStrategicCtx := len(strategicContext) > 0
 	logging.Perception("[ParseIntentWithContext] calling LLMTransducer.Understand (hasStrategicContext=%v, strategicLen=%d)...",
-		hasStrategicCtx, len(t.strategicContext))
+		hasStrategicCtx, len(strategicContext))
 	sessionCtx := types.GetSessionContext(ctx)
-	understanding, err := t.llmTransducer.Understand(ctx, input, history, semanticMatches, sessionCtx, t.strategicContext)
+	understanding, err := t.llmTransducer.Understand(ctx, input, history, semanticMatches, sessionCtx, strategicContext)
 	if err != nil {
 		logging.Perception("[ParseIntentWithContext] LLM understanding FAILED after %dms: %v",
 			time.Since(llmStart).Milliseconds(), err)

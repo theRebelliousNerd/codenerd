@@ -10,10 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
 	"codenerd/internal/tools"
+	"codenerd/internal/types"
 )
 
 
@@ -22,15 +24,35 @@ type CheckpointRunner struct {
 	executor     tactile.Executor
 	taskExecutor session.TaskExecutor
 	workspace    string
+	kernel       core.Kernel
 }
 
 // NewCheckpointRunner creates a new checkpoint runner.
-func NewCheckpointRunner(executor tactile.Executor, taskExecutor session.TaskExecutor, workspace string) *CheckpointRunner {
+// The kernel is optional for backward compatibility: production callers pass
+// o.kernel so structured checkpoint_verdict/4 facts asserted by the session
+// executor (control_packet.mangle_updates) can be read on the live path,
+// where TaskExecutor.Execute returns only the surface_response. Callers that
+// omit it get a runner that falls back to parsing a raw envelope string.
+func NewCheckpointRunner(executor tactile.Executor, taskExecutor session.TaskExecutor, workspace string, kernels ...core.Kernel) *CheckpointRunner {
+	var k core.Kernel
+	if len(kernels) > 0 {
+		k = kernels[0]
+	}
 	return &CheckpointRunner{
 		executor:     executor,
 		taskExecutor: taskExecutor,
 		workspace:    workspace,
+		kernel:       k,
 	}
+}
+
+// SetKernel wires the kernel used for structured verdict lookup after
+// construction. Prefer passing the kernel to NewCheckpointRunner.
+func (cr *CheckpointRunner) SetKernel(k core.Kernel) {
+	if cr == nil {
+		return
+	}
+	cr.kernel = k
 }
 
 // spawnTask is the unified entry point for task execution.
@@ -262,7 +284,7 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 	reviewPrompt.WriteString("\nYour response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:\n")
 	reviewPrompt.WriteString("checkpoint_verdict(\"PhaseName\", Verdict, \"reason\", Confidence).\n")
 	reviewPrompt.WriteString(fmt.Sprintf("PhaseName must be exactly %q. ", phase.Name))
-	reviewPrompt.WriteString("Verdict must be /pass (objectives met) or /fail (objectives not met). Reason is a short human-readable justification. Confidence is 0-100.\n")
+	reviewPrompt.WriteString("Verdict must be /pass (objectives met) or /fail (objectives not met). Reason is a short human-readable justification. Confidence is an integer percent 0-100.\n")
 	reviewPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"all objectives met\\\", 95)\"]}, \"surface_response\": \"...\"}.\n")
 	reviewPrompt.WriteString("Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.")
 
@@ -273,9 +295,20 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 		return false, fmt.Sprintf("Reviewer shard failed: %v", err), err
 	}
 
-	// Structured verdict: the reviewer speaks through control_packet
-	// mangle_updates, not through prose. Anything without a well-formed
-	// checkpoint_verdict/4 for this phase fails closed.
+	// Structured verdict: the reviewer's control packet reaches the KERNEL
+	// (mangle_updates are asserted by the session executor), not the returned
+	// string. Query the kernel first; fall back to parsing the returned
+	// string as a raw envelope for executors that return it verbatim.
+	// Anything without a well-formed checkpoint_verdict/4 for this phase
+	// fails closed.
+	if passed, reason, ok := cr.lookupKernelVerdict(phase.Name); ok {
+		if passed {
+			logging.Campaign("runShardValidationCheckpoint: reviewer approved phase=%s", phase.Name)
+			return true, fmt.Sprintf("Review passed: %s", reason), nil
+		}
+		logging.CampaignWarn("runShardValidationCheckpoint: reviewer found issues in phase=%s", phase.Name)
+		return false, fmt.Sprintf("Review failed: %s", reason), nil
+	}
 	resultStr := fmt.Sprintf("%v", result)
 
 	passed, reason, ok := parseCheckpointVerdict(resultStr, phase.Name)
@@ -351,7 +384,7 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 	nemesisPrompt.WriteString("\nYour response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:\n")
 	nemesisPrompt.WriteString("checkpoint_verdict(\"PhaseName\", Verdict, \"reason\", Confidence).\n")
 	nemesisPrompt.WriteString(fmt.Sprintf("PhaseName must be exactly %q. ", phaseName))
-	nemesisPrompt.WriteString("Verdict must be /pass (survived the gauntlet, no exploitable weaknesses found) or /fail (gauntlet broke the implementation). Reason is a short human-readable justification. Confidence is 0-100.\n")
+	nemesisPrompt.WriteString("Verdict must be /pass (survived the gauntlet, no exploitable weaknesses found) or /fail (gauntlet broke the implementation). Reason is a short human-readable justification. Confidence is an integer percent 0-100.\n")
 	nemesisPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"no weaknesses found\\\", 95)\"]}, \"surface_response\": \"...\"}.\n")
 	nemesisPrompt.WriteString("Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.")
 
@@ -362,9 +395,20 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 		return false, fmt.Sprintf("Nemesis shard failed: %v", err), err
 	}
 
-	// Structured verdict: the nemesis speaks through control_packet
-	// mangle_updates, not through prose. Anything without a well-formed
-	// checkpoint_verdict/4 for this phase fails closed.
+	// Structured verdict: the reviewer's control packet reaches the KERNEL
+	// (mangle_updates are asserted by the session executor), not the returned
+	// string. Query the kernel first; fall back to parsing the returned
+	// string as a raw envelope for executors that return it verbatim.
+	// Anything without a well-formed checkpoint_verdict/4 for this phase
+	// fails closed.
+	if passed, reason, ok := cr.lookupKernelVerdict(phaseName); ok {
+		if passed {
+			logging.Campaign("runNemesisGauntletCheckpoint: phase=%s survived nemesis gauntlet", phaseName)
+			return true, fmt.Sprintf("Nemesis gauntlet passed: %s", reason), nil
+		}
+		logging.CampaignWarn("runNemesisGauntletCheckpoint: nemesis found vulnerabilities in phase=%s", phaseName)
+		return false, fmt.Sprintf("Nemesis gauntlet failed: %s", reason), nil
+	}
 	resultStr := fmt.Sprintf("%v", result)
 
 	passed, reason, ok := parseCheckpointVerdict(resultStr, phaseName)
@@ -648,4 +692,77 @@ func splitTopLevelCommas(s string) []string {
 	}
 	parts = append(parts, cur.String())
 	return parts
+}
+
+
+// lookupKernelVerdict returns the structured reviewer verdict for phaseName
+// from the kernel, where the live session executor asserts control-packet
+// mangle_updates (see internal/session/executor.go processMangleUpdatesFromEnvelope).
+// The TaskExecutor.Execute string is only the surface_response, so parsing it
+// can never see the verdict on the live path.
+//
+// Returns (passed, reason, ok): ok is false when no well-formed
+// checkpoint_verdict/4 for this phase exists in the kernel, in which case the
+// caller falls back to parseCheckpointVerdict for raw-envelope executors and
+// otherwise fails closed. A matching fact is retracted after reading so a
+// later phase cannot inherit a stale verdict.
+func (cr *CheckpointRunner) lookupKernelVerdict(phaseName string) (bool, string, bool) {
+	if cr == nil || cr.kernel == nil {
+		return false, "", false
+	}
+	return lookupCheckpointVerdictInKernel(cr.kernel, phaseName)
+}
+
+// lookupCheckpointVerdictInKernel is the shared kernel lookup used by the
+// CheckpointRunner checkpoints and the assault nemesis stage (which reaches
+// the kernel via o.kernel rather than a runner).
+func lookupCheckpointVerdictInKernel(kernel core.Kernel, phaseName string) (bool, string, bool) {
+	if kernel == nil {
+		return false, "", false
+	}
+	facts, err := kernel.Query("checkpoint_verdict")
+	if err != nil {
+		return false, "", false
+	}
+	matched := false
+	for _, f := range facts {
+		if f.Predicate != "checkpoint_verdict" || len(f.Args) != 4 {
+			continue
+		}
+		if types.ExtractString(f.Args[0]) != phaseName {
+			continue
+		}
+		matched = true
+	}
+	if !matched {
+		return false, "", false
+	}
+	// Retract all facts for this phase so a later phase cannot inherit a
+	// stale verdict. Best effort: a retraction failure must not fail the
+	// checkpoint itself. RetractFact matches predicate + first arg, which is
+	// exactly the per-phase scope needed here.
+	_ = kernel.RetractFact(core.Fact{Predicate: "checkpoint_verdict", Args: []any{phaseName}})
+	for _, f := range facts {
+		if f.Predicate != "checkpoint_verdict" || len(f.Args) != 4 {
+			continue
+		}
+		if types.ExtractString(f.Args[0]) != phaseName {
+			continue
+		}
+		verdictRaw := types.ExtractString(f.Args[1])
+		verdict := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(verdictRaw), "/")))
+		verdict = strings.Trim(verdict, `"'`)
+		verdict = strings.TrimSpace(verdict)
+		if verdict != "pass" && verdict != "fail" {
+			continue
+		}
+		reason := types.ExtractString(f.Args[2])
+		// Confidence (Args[3]) is an integer percent 0-100 per the Decl.
+		// The Decl already enforces /number; the verdict alone decides here.
+		if verdict == "pass" {
+			return true, reason, true
+		}
+		return false, reason, true
+	}
+	return false, "", false
 }

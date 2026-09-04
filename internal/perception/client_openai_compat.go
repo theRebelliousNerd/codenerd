@@ -69,11 +69,19 @@ type OpenAICompatClient struct {
 
 	// reasoningCache holds Muse Spark's encrypted reasoning blocks so the
 	// Responses surface can replay them on the next tool-loop turn. Keyed by
-	// the assistant turn's position in history. In-memory only: a reasoning
-	// block belongs to one conversation, and replaying a stale one into an
-	// unrelated turn would be worse than replaying nothing.
+	// conversation discriminator plus turn index (see metaCacheKey in
+	// client_meta_responses.go): this client is shared across the executor,
+	// the spawner and every concurrent sub-agent, so a bare turn index would
+	// replay one conversation's reasoning into another's. In-memory only: a
+	// reasoning block belongs to one conversation, and replaying a stale one
+	// into an unrelated turn would be worse than replaying nothing.
 	reasoningMu    sync.Mutex
 	reasoningCache map[string][]metaResponsesItem
+	// reasoningConvSeen tracks each cached conversation's last-use sequence
+	// number for oldest-first eviction, bounding the cache to
+	// metaReasoningMaxConversations conversations. Guarded by reasoningMu.
+	reasoningConvSeen map[string]int64
+	reasoningConvSeq   int64
 
 	mu          sync.Mutex
 	lastRequest time.Time

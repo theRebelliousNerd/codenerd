@@ -38,6 +38,7 @@ func TestPendingActionPipelineProducesRoutingResult(t *testing.T) {
 
 	constitution := NewConstitutionGateShard()
 	constitution.Kernel = kernel
+	constitution.SetShardManager(routerRunningManager())
 
 	router := NewTactileRouterShard()
 	router.Kernel = kernel

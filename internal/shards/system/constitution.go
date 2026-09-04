@@ -145,6 +145,72 @@ type ConstitutionGateShard struct {
 	// State
 	running      bool
 	lastLogPrune time.Time
+
+	// shardManager reports which shards are running by config name.
+	// Nil means unknown — treated as dormant (no proven consumer).
+	shardManager shardLivenessChecker
+	// dormantLogged ensures the dormant-pipeline debug log fires once.
+	dormantLogged bool
+}
+
+// shardLivenessChecker reports whether a shard is running by config name.
+// *coreshards.ShardManager satisfies it; tests use a stub. It mirrors the
+// perception firewall lookup (cmd/nerd/chat/process.go via
+// GetRunningShardByConfigName) without importing the manager package here.
+type shardLivenessChecker interface {
+	GetRunningShardByConfigName(name string) (types.ShardAgent, bool)
+}
+
+// ownsPendingAction reports whether a pending_action ID was filed by the
+// ExecutivePolicyShard (or this gate) and is therefore owned by this gate.
+//
+// Provenance convention (single place of definition):
+//   - ExecutivePolicyShard mints "action-<nanotime>" (queryNextActions) and
+//     "delegate-<nanotime>" (queryDelegateActions); pre-seeded action_id
+//     payloads must follow the same prefixes to be owned.
+//   - The interactive session executor (internal/session/executor_tools.go
+//     checkSafetyWithGate) asserts pending_action with "exec-<toolUseID>"
+//     (LLM tool_use IDs such as "toolu_..."/"call_..." prefixed at assertion
+//     time) and queries permitted/3 synchronously before retracting itself.
+//
+// The gate skips (never processes, never retracts) any pending_action whose
+// ID does not carry an executive prefix, so it cannot race the executor's
+// assert→query→retract sequence on the interactive path.
+func ownsPendingAction(id string) bool {
+	return strings.HasPrefix(id, "action-") || strings.HasPrefix(id, "delegate-")
+}
+
+// SetShardManager injects the running-shard lookup used to gate the
+// permitted_action stream. Pass nil to mark the consumer as unknown/dormant.
+func (c *ConstitutionGateShard) SetShardManager(sm shardLivenessChecker) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.shardManager = sm
+}
+
+// isTactileRouterRunning reports whether the permitted_action consumer exists.
+// Nil manager means unknown — treated as dormant so no orphan stream accrues.
+func (c *ConstitutionGateShard) isTactileRouterRunning() bool {
+	c.mu.RLock()
+	mgr := c.shardManager
+	c.mu.RUnlock()
+	if mgr == nil {
+		return false
+	}
+	_, ok := mgr.GetRunningShardByConfigName("tactile_router")
+	return ok
+}
+
+// logRouterDormantOnce notes at Debug, once per shard, that the second
+// pipeline is dormant and permitted_action emission was skipped.
+func (c *ConstitutionGateShard) logRouterDormantOnce() {
+	c.mu.Lock()
+	already := c.dormantLogged
+	c.dormantLogged = true
+	c.mu.Unlock()
+	if !already {
+		logging.SystemShardsDebug("[ConstitutionGate] tactile_router dormant: skipping permitted_action emission")
+	}
 }
 
 // NewConstitutionGateShard creates a new Constitution Gate shard.
@@ -298,6 +364,13 @@ func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (strin
 }
 
 // processPendingActions checks all pending actions against constitutional rules.
+// processPendingActions checks all pending actions against constitutional rules.
+//
+// Ownership: this gate only processes pending_action facts filed by the
+// ExecutivePolicyShard (see ownsPendingAction). Facts filed by the interactive
+// session executor are skipped entirely — never processed, never retracted —
+// so this shard cannot race the executor's synchronous assert→query→retract
+// sequence on the interactive path.
 func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error {
 	if c.Kernel == nil {
 		return nil
@@ -314,10 +387,14 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 		if len(fact.Args) < 3 {
 			continue
 		}
-		didWork = true
 
 		// pending_action(ActionID, ActionType, Target, Payload, Timestamp)
 		actionID := types.ExtractString(fact.Args[0])
+		if !ownsPendingAction(actionID) {
+			continue
+		}
+		didWork = true
+
 		actionType := types.ExtractString(fact.Args[1])
 		target := types.ExtractString(fact.Args[2])
 		payload := map[string]any{}
@@ -333,12 +410,23 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 		if permitted {
 			logging.SystemShards("[ConstitutionGate] Action PERMITTED: type=%s", actionType)
 			ts := time.Now().Unix()
-			// Primary permitted stream for tactile router
-			_ = c.Kernel.Assert(types.Fact{
-				Predicate: "permitted_action",
-				Args:      []any{actionID, actionType, target, encodeActionPayload(payload), ts},
-			})
+			// Primary permitted stream for tactile router. Its only consumer is
+			// TactileRouterShard.processPermittedActions, and tactile_router is
+			// StartupOnDemand (never spawned in production), so emitting while
+			// dormant only grows an orphan stream nobody retracts. Gate it.
+			if c.isTactileRouterRunning() {
+				_ = c.Kernel.Assert(types.Fact{
+					Predicate: "permitted_action",
+					Args:      []any{actionID, actionType, target, encodeActionPayload(payload), ts},
+				})
+			} else {
+				c.logRouterDormantOnce()
+			}
 			// Emit canonical permission result for policy observability.
+			// Verified consumers: system_core.mg derives action_permitted,
+			// action_blocked, and ready_for_routing from this predicate, so it
+			// is retained even while the router pipeline is dormant. The
+			// transparency explainer bus does not consume it.
 			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "permission_check_result",
 				Args:      []any{actionID, types.MangleAtom("/permit"), reason, ts},
@@ -386,7 +474,8 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			}
 		}
 
-		// Clear the pending action regardless of result (exact match)
+		// Clear the owned pending action regardless of result (exact match).
+		// Unowned facts are never retracted here; their owner retracts them.
 		if c.Kernel != nil {
 			_ = c.Kernel.RetractExactFact(fact)
 		}
@@ -417,25 +506,47 @@ func (c *ConstitutionGateShard) prunePermissionCheckResults() {
 	cutoff := now.Add(-retention).Unix()
 
 	results, err := c.Kernel.Query("permission_check_result")
-	if err != nil || len(results) == 0 {
+	if err == nil && len(results) > 0 {
+		toRemove := make([]types.Fact, 0, len(results)/4)
+		for _, f := range results {
+			ts, ok := unixSecondsArg(f, 3)
+			if !ok {
+				continue
+			}
+			if ts < cutoff {
+				toRemove = append(toRemove, f)
+			}
+		}
+
+		if len(toRemove) > 0 {
+			_ = c.Kernel.RetractExactFactsBatch(toRemove)
+		}
+	}
+
+	// Same 15-minute schedule for the permitted_action stream so it can never
+	// grow unbounded when a consumer was running at emission time but later
+	// went dormant. permitted_action(ActionID, ActionType, Target, Payload, Timestamp)
+	// carries its timestamp at arg index 4.
+	permitted, err := c.Kernel.Query("permitted_action")
+	if err != nil || len(permitted) == 0 {
 		return
 	}
 
-	toRemove := make([]types.Fact, 0, len(results)/4)
-	for _, f := range results {
-		ts, ok := unixSecondsArg(f, 3)
+	toRemovePermitted := make([]types.Fact, 0, len(permitted)/4)
+	for _, f := range permitted {
+		ts, ok := unixSecondsArg(f, 4)
 		if !ok {
 			continue
 		}
 		if ts < cutoff {
-			toRemove = append(toRemove, f)
+			toRemovePermitted = append(toRemovePermitted, f)
 		}
 	}
 
-	if len(toRemove) == 0 {
+	if len(toRemovePermitted) == 0 {
 		return
 	}
-	_ = c.Kernel.RetractExactFactsBatch(toRemove)
+	_ = c.Kernel.RetractExactFactsBatch(toRemovePermitted)
 }
 
 // checkPermitted determines if an action is permitted under constitutional rules.

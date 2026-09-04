@@ -105,7 +105,7 @@ IMPORTANT: You are a model with "Thinking" capabilities enabled.
 	// changing the struct, we will reimplement the 'Understand' logic here using the client directly.
 
 	// 5. Build Final Prompt
-	userPrompt := t.llmTransducer.BuildPrompt(input, history, semanticMatches, types.GetSessionContext(ctx), t.strategicContext)
+	userPrompt := t.llmTransducer.BuildPrompt(input, history, semanticMatches, types.GetSessionContext(ctx), t.getStrategicContext())
 
 	// 5a. Try structured output first (most reliable for JSON)
 	var envelope UnderstandingEnvelope

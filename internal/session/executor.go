@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,6 +70,39 @@ type InteractiveExecutiveGate interface {
 	// executes and asserts validation facts to the kernel. A non-nil error means
 	// a validator failed with high confidence (the side effect did not land).
 	ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) error
+}
+
+// warnInteractiveGateUnavailable logs the missing-gate fallback exactly once
+// per executor lifetime. The flag gates the log, not the behavior: ungated
+// calls still proceed unsimulated (fail-open), but the single warning makes
+// the bypass visible instead of silent. Returns true when this call emitted
+// the warning.
+func (e *Executor) warnInteractiveGateUnavailable() bool {
+	if e == nil {
+		return false
+	}
+	if e.gateUnavailableWarned.CompareAndSwap(false, true) {
+		logging.Get(logging.CategorySession).Warn("interactive executive gate unavailable: adapter %T does not implement it; destructive calls are unsimulated", e.virtualStore)
+		return true
+	}
+	return false
+}
+
+// interactiveGate returns the VirtualStore's executive gate when available.
+// On the fail-open fallback (store nil or adapter without the interface) it
+// logs the one-time warning and reports unavailable. Both the pre-execution
+// Dreamer preflight and the post-execution validation seams go through here
+// so the warning fires once no matter which seam is hit first.
+func (e *Executor) interactiveGate() (InteractiveExecutiveGate, bool) {
+	if e == nil || e.virtualStore == nil {
+		e.warnInteractiveGateUnavailable()
+		return nil, false
+	}
+	if gate, ok := e.virtualStore.(InteractiveExecutiveGate); ok && gate != nil {
+		return gate, true
+	}
+	e.warnInteractiveGateUnavailable()
+	return nil, false
 }
 
 // MangleAtom wraps a string as a Mangle name constant (avoids core import).
@@ -148,6 +182,11 @@ type Executor struct {
 	perTurnCreatedSourceFacts []types.Fact
 	perTurnTestFileForFacts   []types.Fact
 
+	// perTurnTurnCreatedSourceFacts tracks turn_created_source facts asserted
+	// this turn for per-turn scoping of the new-source obligation. Managed
+	// under mu and cleared with the other per-turn facts.
+	perTurnTurnCreatedSourceFacts []types.Fact
+
 	// perTurnClaimedTestOutputFacts tracks claimed_test_output facts asserted this turn.
 	// perTurnExecutedTestToolFacts tracks executed_test_tool facts asserted this turn.
 	// Both are managed under mu and cleared by checkHollowSuccess (via
@@ -155,7 +194,18 @@ type Executor struct {
 	// failing later turns — a leaked fact would fail every later turn forever.
 	perTurnClaimedTestOutputFacts []types.Fact
 	perTurnExecutedTestToolFacts  []types.Fact
-	perTurnEvidenceFacts        []types.Fact
+	perTurnEvidenceFacts          []types.Fact
+
+	// perTurnBuildStateFacts tracks build_state facts asserted this turn via
+	// recordBuildState. Retracted with the other per-turn facts so a red build
+	// cannot block later turns forever.
+	perTurnBuildStateFacts []types.Fact
+
+	// gateUnavailableWarned ensures the "interactive executive gate
+	// unavailable" warning is logged exactly once per executor lifetime, no
+	// matter how many turns hit the fail-open fallback. The flag gates the
+	// log, not the behavior: ungated calls still proceed unsimulated.
+	gateUnavailableWarned atomic.Bool
 }
 
 // ExecutorConfig holds configuration for the executor.
@@ -1739,6 +1789,37 @@ func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
 			logging.Get(logging.CategorySession).Debug("asserted executed_test_tool(%q)", verb)
 		}
 	}
+	// Per-turn scoping for the new-source obligation: mirror every
+	// created_source tracked this turn into turn_created_source so the policy
+	// rule joins only files created this turn. Leaked or scanner-derived
+	// created_source facts (untracked) never gain a turn_created_source peer
+	// and cannot fail later turns.
+	e.mu.RLock()
+	created := append([]types.Fact(nil), e.perTurnCreatedSourceFacts...)
+	scoped := make(map[string]struct{}, len(e.perTurnTurnCreatedSourceFacts))
+	for _, f := range e.perTurnTurnCreatedSourceFacts {
+		if len(f.Args) > 0 {
+			scoped[types.ExtractString(f.Args[0])] = struct{}{}
+		}
+	}
+	e.mu.RUnlock()
+	for _, f := range created {
+		if len(f.Args) == 0 {
+			continue
+		}
+		file := types.ExtractString(f.Args[0])
+		if _, ok := scoped[file]; ok {
+			continue
+		}
+		tf := types.Fact{Predicate: "turn_created_source", Args: []any{types.MangleString(file)}}
+		if err := e.kernel.Assert(tf); err != nil {
+			logging.Get(logging.CategorySession).Debug("assertTurnEvidence: failed to assert turn_created_source %q: %v", file, err)
+			continue
+		}
+		e.mu.Lock()
+		e.perTurnTurnCreatedSourceFacts = append(e.perTurnTurnCreatedSourceFacts, tf)
+		e.mu.Unlock()
+	}
 }
 
 // consumeHollowSuccessVerdict is the Go consumer of the policy-derived
@@ -1754,29 +1835,66 @@ func (e *Executor) consumeHollowSuccessVerdict(verb string, result *ExecutionRes
 	if hollowFacts, qerr := e.kernel.Query("hollow_success"); qerr != nil {
 		logging.Get(logging.CategorySession).Debug("checkHollowSuccess: hollow_success query failed: %v", qerr)
 	} else if len(hollowFacts) > 0 {
-		reason := ""
-		if len(hollowFacts[0].Args) > 0 {
-			reason = types.ExtractString(hollowFacts[0].Args[0])
+		reasons := make([]string, 0, len(hollowFacts))
+		for _, hf := range hollowFacts {
+			r := ""
+			if len(hf.Args) > 0 {
+				r = types.ExtractString(hf.Args[0])
+			}
+			reasons = append(reasons, r)
 		}
+		sort.Strings(reasons)
+		reason := reasons[0]
 		switch reason {
-		case "requires side effects but no tool call succeeded", "/no_successful_tools":
+		case "requires side effects but no tool call succeeded":
+			attempted := 0
+			if result != nil {
+				attempted = result.ToolCallsExecuted
+			}
 			return newHollowSuccessError(
 				"intent %s requires side effects but no tool calls completed successfully (attempted=%d)",
-				verb, result.ToolCallsExecuted,
+				verb, attempted,
 			)
-		case "write-oriented intent completed without a recognized write-mutation tool", "/no_write_tool":
+		case "write-oriented intent completed without a recognized write-mutation tool":
+			calls := 0
+			if result != nil {
+				calls = result.ToolCallsExecuted
+			}
 			return newHollowSuccessError(
 				"write-oriented intent %s completed without a recognized write-mutation tool (tool_calls=%d)",
-				verb, result.ToolCallsExecuted,
+				verb, calls,
 			)
-		case "response presents test-runner output but no test-execution tool ran", "/unverified_test_claim":
+		case "response presents test-runner output but no test-execution tool ran":
 			return newHollowSuccessError("response presents test-runner output but no test-execution tool ran this turn (verb %s)", verb)
-		case "new source was created without a test file", "/missing_test_file":
-			if missingFacts, merr := e.kernel.Query("missing_test_for"); merr == nil && len(missingFacts) > 0 && len(missingFacts[0].Args) > 0 {
-				missingFile := types.ExtractString(missingFacts[0].Args[0])
-				return newHollowSuccessError("turn created Go source %s without a test file (verb %s)", missingFile, verb)
+		case "new source was created without a test file":
+			if missingFacts, merr := e.kernel.Query("missing_test_for"); merr == nil && len(missingFacts) > 0 {
+				e.mu.RLock()
+				createdSet := make(map[string]struct{}, len(e.perTurnCreatedSourceFacts))
+				for _, f := range e.perTurnCreatedSourceFacts {
+					if len(f.Args) > 0 {
+						createdSet[types.ExtractString(f.Args[0])] = struct{}{}
+					}
+				}
+				e.mu.RUnlock()
+				var matched []string
+				for _, f := range missingFacts {
+					if len(f.Args) == 0 {
+						continue
+					}
+					file := types.ExtractString(f.Args[0])
+					if _, ok := createdSet[file]; ok {
+						matched = append(matched, file)
+					}
+				}
+				if len(matched) > 0 {
+					sort.Strings(matched)
+					return newHollowSuccessError("turn created Go source %s without a test file (verb %s)", matched[0], verb)
+				}
 			}
-			return newHollowSuccessError("turn created Go source without a test file (verb %s)", verb)
+			// No per-turn creation matched (stale or scanner-derived fact):
+			// fall through so a leaked fact cannot fail later turns forever.
+			// Cleanup retracts per-turn facts on every path via defer.
+			break
 		default:
 			return newHollowSuccessError("policy blocked hollow completion for intent %s (reason %s)", verb, reason)
 		}

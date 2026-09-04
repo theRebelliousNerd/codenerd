@@ -35,7 +35,10 @@ func TestExecutor_CheckSafety_ConstitutionalGate(t *testing.T) {
 	for _, f := range mockKernel.asserts {
 		if f.Predicate == "pending_action" {
 			// Check args: ActionID, ActionType, Target, Payload, Timestamp
-			if len(f.Args) == 5 && f.Args[0] == "call_1" {
+			// The executor prefixes its own pending_action IDs with "exec-"
+			// so the ConstitutionGateShard can tell them from the ones the
+			// ExecutivePolicyShard files and never retract them mid-query.
+			if len(f.Args) == 5 && f.Args[0] == "exec-call_1" {
 				foundPending = true
 				break
 			}

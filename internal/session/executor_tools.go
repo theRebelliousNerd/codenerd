@@ -2054,9 +2054,10 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	// PRE-execution executive gate: run the Dreamer destructive-action
 	// simulation before the tool mutates anything. This brings the VirtualStore
 	// safety gate (otherwise reachable only via RouteAction) onto the
-	// interactive coding path. Skipped gracefully when the store doesn't
-	// implement InteractiveExecutiveGate.
-	if gate, ok := e.virtualStore.(InteractiveExecutiveGate); ok && gate != nil {
+	// interactive coding path. On the fail-open fallback (store without the
+	// gate interface) interactiveGate logs a one-time warning; behavior is
+	// otherwise unchanged.
+	if gate, ok := e.interactiveGate(); ok {
 		if blockErr := gate.PreflightDestructiveToolCall(ctx, call.ID, call.Name, call.Args); blockErr != nil {
 			logging.Get(logging.CategorySession).Warn("Interactive executive gate BLOCKED tool %s: %v", call.Name, blockErr)
 			return "", fmt.Errorf("tool call blocked by executive gate: %w", blockErr)
@@ -2102,9 +2103,10 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 		// (file written, build passed, etc.) and assert validation facts to the
 		// kernel so policy (e.g. task_complete/1) can reason over them. A
 		// high-confidence validator failure is surfaced as an error so the model
-		// sees the work did not take and can retry. Skipped gracefully when the
-		// store doesn't implement InteractiveExecutiveGate.
-		if gate, ok := e.virtualStore.(InteractiveExecutiveGate); ok && gate != nil {
+		// sees the work did not take and can retry. On the fail-open fallback
+		// (store without the gate interface) interactiveGate logs a one-time
+		// warning; behavior is otherwise unchanged.
+		if gate, ok := e.interactiveGate(); ok {
 			if valErr := gate.ValidateInteractiveToolResult(toolCtx, call.ID, call.Name, call.Args, result.Result, true); valErr != nil {
 				return "", fmt.Errorf("post-action validation failed: %w", valErr)
 			}
@@ -2261,7 +2263,7 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (b
 	pendingFact := types.Fact{
 		Predicate: "pending_action",
 		Args: []any{
-			call.ID,
+			"exec-" + call.ID,
 			actionAtom,
 			target,
 			payload,

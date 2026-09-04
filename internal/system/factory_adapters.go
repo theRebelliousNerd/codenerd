@@ -8,6 +8,7 @@ import (
 	manglepkg "codenerd/internal/mangle"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/session"
 	"codenerd/internal/types"
 	"strings"
 
@@ -446,6 +447,59 @@ func (a *sessionVirtualStoreAdapter) ReadRaw(path string) ([]byte, error) {
 		return a.vs.ReadRaw(path)
 	}
 	return os.ReadFile(path)
+}
+
+// Compile-time assertion that the production adapter exposes the Dreamer
+// preflight and post-action validator seam. Without this, the session
+// executor's type assertion silently skips both gates on every non-TUI path.
+var _ session.InteractiveExecutiveGate = (*sessionVirtualStoreAdapter)(nil)
+
+// isSessionAdapterDestructiveTool mirrors the core gate's destructive
+// classification for interactive tool names (see
+// internal/core/virtual_store_interactive_gate.go interactiveToolActionType
+// filtered by isDestructiveAction). Only read_file is non-destructive; every
+// other mapped tool mutates files or executes code.
+func isSessionAdapterDestructiveTool(toolName string) bool {
+	switch toolName {
+	case "write_file", "edit_file", "delete_file",
+		"run_command", "bash", "run_build",
+		"edit_lines", "insert_lines", "delete_lines",
+		"edit_element", "apply_edits":
+		return true
+	default:
+		return false
+	}
+}
+
+// PreflightDestructiveToolCall delegates to the wrapped VirtualStore's Dreamer
+// gate, satisfying session.InteractiveExecutiveGate so the session executor's
+// tool loop runs the safety simulation before destructive tool calls.
+//
+// Nil handling is deliberately fail-CLOSED for destructive tools, matching the
+// core gate's documented policy (every mapped destructive tool requires a
+// usable Dreamer): a nil store blocks destructive tools instead of allowing
+// them. This differs from the TUI chat adapter
+// (cmd/nerd/chat/session_adapters.go), which is fail-OPEN on a nil store to
+// preserve its prior behavior.
+func (a *sessionVirtualStoreAdapter) PreflightDestructiveToolCall(ctx context.Context, actionID, toolName string, args map[string]any) error {
+	if a == nil || a.vs == nil {
+		if isSessionAdapterDestructiveTool(toolName) {
+			return &core.InteractiveGateError{Reason: "interactive executive gate unavailable: VirtualStore is nil; blocked destructive tool " + toolName}
+		}
+		return nil
+	}
+	return a.vs.PreflightDestructiveToolCall(ctx, actionID, toolName, args)
+}
+
+// ValidateInteractiveToolResult delegates to the wrapped VirtualStore's
+// post-action validator registry, satisfying session.InteractiveExecutiveGate.
+// Nil store => no validation (a post-action check cannot fail closed without a
+// side effect to verify).
+func (a *sessionVirtualStoreAdapter) ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) error {
+	if a == nil || a.vs == nil {
+		return nil
+	}
+	return a.vs.ValidateInteractiveToolResult(ctx, actionID, toolName, args, output, success)
 }
 
 // sessionLLMAdapter adapts perception.LLMClient to types.LLMClient.

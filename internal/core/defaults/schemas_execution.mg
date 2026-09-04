@@ -238,3 +238,15 @@ Decl execution_tag(RequestID, Key, Value) bound [/string, /string, /string].
 
 # Turn evidence is owned by policy/coder_safety.mg (Decls + derived
 # hollow_success/turn_done); the session executor asserts it per turn.
+
+# turn_created_source(File) - per-turn scoping for the new-source test obligation.
+# Asserted alongside created_source for files created this turn; retracted with
+# the other per-turn facts so a leaked created_source cannot fail later turns.
+Decl turn_created_source(File) bound [/string].
+
+# checkpoint_verdict(Phase, Verdict, Reason, Confidence)
+# Structured reviewer/nemesis verdict for campaign checkpoints.
+# Phase: exact phase name (/string). Verdict: /pass or /fail (/name).
+# Reason: short human-readable justification (/string).
+# Confidence: integer percent 0-100 (/number, int64 in this fork).
+Decl checkpoint_verdict(Phase, Verdict, Reason, Confidence) bound [/string, /name, /string, /number].

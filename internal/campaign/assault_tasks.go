@@ -341,7 +341,7 @@ func (o *Orchestrator) runAssaultStage(
 		nemesisPrompt.WriteString("\nYour response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:\n")
 		nemesisPrompt.WriteString("checkpoint_verdict(\"PhaseName\", Verdict, \"reason\", Confidence).\n")
 		nemesisPrompt.WriteString(fmt.Sprintf("PhaseName must be exactly %q. ", verdictPhase))
-		nemesisPrompt.WriteString("Verdict must be /pass (survived the gauntlet, no exploitable weaknesses found) or /fail (gauntlet broke the implementation). Reason is a short human-readable justification. Confidence is 0-100.\n")
+		nemesisPrompt.WriteString("Verdict must be /pass (survived the gauntlet, no exploitable weaknesses found) or /fail (gauntlet broke the implementation). Reason is a short human-readable justification. Confidence is an integer percent 0-100.\n")
 		nemesisPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"no weaknesses found\\\", 95)\"]}, \"surface_response\": \"...\"}.\n")
 		nemesisPrompt.WriteString("Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.")
 		taskStr := nemesisPrompt.String()
@@ -353,6 +353,17 @@ func (o *Orchestrator) runAssaultStage(
 			return false, stageOutcome{ExitCode: 1, Error: err.Error()}
 		}
 		writeTextFileBestEffort(logPath, content)
+		// Structured verdict: the nemesis control packet reaches the KERNEL
+		// (mangle_updates are asserted by the session executor), not the
+		// returned string. Query the kernel first; fall back to parsing the
+		// returned string as a raw envelope for executors that return it
+		// verbatim. Missing or malformed verdict fails closed.
+		if passed, reason, ok := lookupCheckpointVerdictInKernel(o.kernel, verdictPhase); ok {
+			if !passed {
+				return false, stageOutcome{ExitCode: 1, Error: fmt.Sprintf("nemesis found weaknesses: %s", reason)}
+			}
+			return true, stageOutcome{ExitCode: 0}
+		}
 		passed, reason, ok := parseCheckpointVerdict(result, verdictPhase)
 		if !ok {
 			return false, stageOutcome{ExitCode: 1, Error: fmt.Sprintf("nemesis verdict could not be determined (missing or malformed checkpoint_verdict/4 for %q): %s", verdictPhase, result)}
