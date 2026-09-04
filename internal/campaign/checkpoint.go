@@ -285,8 +285,16 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 	reviewPrompt.WriteString("checkpoint_verdict(\"PhaseName\", Verdict, \"reason\", Confidence).\n")
 	reviewPrompt.WriteString(fmt.Sprintf("PhaseName must be exactly %q. ", phase.Name))
 	reviewPrompt.WriteString("Verdict must be /pass (objectives met) or /fail (objectives not met). Reason is a short human-readable justification. Confidence is an integer percent 0-100.\n")
-	reviewPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"all objectives met\\\", 95)\"]}, \"surface_response\": \"...\"}.\n")
+	reviewPrompt.WriteString("The atom must end with a period; it is asserted into the kernel as a fact.\n")
+	reviewPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"all objectives met\\\", 95).\"]}, \"surface_response\": \"...\"}.\n")
 	reviewPrompt.WriteString("Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.")
+
+	// Retract any pre-existing verdict for this phase before spawning the
+	// reviewer so a task shard cannot pre-approve its own phase. Best effort.
+	if cr != nil && cr.kernel != nil && phase != nil {
+		_ = cr.kernel.RetractFact(core.Fact{Predicate: "checkpoint_verdict", Args: []any{phase.Name}})
+		logging.CampaignDebug("runShardValidationCheckpoint: retracted stale checkpoint_verdict for phase=%s before spawn", phase.Name)
+	}
 
 	// Spawn reviewer intent
 	result, err := cr.spawnTask(ctx, "/review", reviewPrompt.String())
@@ -314,7 +322,7 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 	passed, reason, ok := parseCheckpointVerdict(resultStr, phase.Name)
 	if !ok {
 		logging.CampaignWarn("runShardValidationCheckpoint: reviewer verdict could not be determined for phase=%s; failing closed", phase.Name)
-		return false, fmt.Sprintf("Review verdict could not be determined (missing or malformed checkpoint_verdict/4 for phase %q): %s", phase.Name, resultStr), nil
+		return false, fmt.Sprintf("Review verdict could not be determined (missing or malformed checkpoint_verdict/4 for phase %q): reviewer control packet carried no checkpoint_verdict/4 for this phase: %s", phase.Name, truncateForLog(resultStr, 200)), nil
 	}
 	if passed {
 		logging.Campaign("runShardValidationCheckpoint: reviewer approved phase=%s", phase.Name)
@@ -385,8 +393,16 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 	nemesisPrompt.WriteString("checkpoint_verdict(\"PhaseName\", Verdict, \"reason\", Confidence).\n")
 	nemesisPrompt.WriteString(fmt.Sprintf("PhaseName must be exactly %q. ", phaseName))
 	nemesisPrompt.WriteString("Verdict must be /pass (survived the gauntlet, no exploitable weaknesses found) or /fail (gauntlet broke the implementation). Reason is a short human-readable justification. Confidence is an integer percent 0-100.\n")
-	nemesisPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"no weaknesses found\\\", 95)\"]}, \"surface_response\": \"...\"}.\n")
+	nemesisPrompt.WriteString("The atom must end with a period; it is asserted into the kernel as a fact.\n")
+	nemesisPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"no weaknesses found\\\", 95).\"]}, \"surface_response\": \"...\"}.\n")
 	nemesisPrompt.WriteString("Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.")
+
+	// Retract any pre-existing verdict for this phase before spawning the
+	// nemesis so a task shard cannot pre-approve its own phase. Best effort.
+	if cr != nil && cr.kernel != nil {
+		_ = cr.kernel.RetractFact(core.Fact{Predicate: "checkpoint_verdict", Args: []any{phaseName}})
+		logging.CampaignDebug("runNemesisGauntletCheckpoint: retracted stale checkpoint_verdict for phase=%s before spawn", phaseName)
+	}
 
 	logging.CampaignDebug("runNemesisGauntletCheckpoint: target=%s", target)
 	result, err := cr.spawnTask(ctx, "/nemesis", nemesisPrompt.String())
@@ -414,7 +430,7 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 	passed, reason, ok := parseCheckpointVerdict(resultStr, phaseName)
 	if !ok {
 		logging.CampaignWarn("runNemesisGauntletCheckpoint: nemesis verdict could not be determined for phase=%s; failing closed", phaseName)
-		return false, fmt.Sprintf("Nemesis verdict could not be determined (missing or malformed checkpoint_verdict/4 for phase %q): %s", phaseName, resultStr), nil
+		return false, fmt.Sprintf("Nemesis verdict could not be determined (missing or malformed checkpoint_verdict/4 for phase %q): reviewer control packet carried no checkpoint_verdict/4 for this phase: %s", phaseName, truncateForLog(resultStr, 200)), nil
 	}
 	if passed {
 		logging.Campaign("runNemesisGauntletCheckpoint: phase=%s survived nemesis gauntlet", phaseName)
@@ -621,6 +637,8 @@ func parseCheckpointVerdict(resultStr, phaseName string) (bool, string, bool) {
 // checkpoint's phase name.
 func parseCheckpointVerdictAtom(atom string) (phase, verdict, reason string, ok bool) {
 	trimmed := strings.TrimSpace(atom)
+	trimmed = strings.TrimSuffix(trimmed, ".")
+	trimmed = strings.TrimSpace(trimmed)
 	const prefix = "checkpoint_verdict("
 	if !strings.HasPrefix(trimmed, prefix) || !strings.HasSuffix(trimmed, ")") {
 		return "", "", "", false
@@ -692,6 +710,20 @@ func splitTopLevelCommas(s string) []string {
 	}
 	parts = append(parts, cur.String())
 	return parts
+}
+
+// truncateForLog returns the first max runes of s for fail-closed details so
+// the log distinguishes "model ignored the contract" from "kernel never
+// received it" without dumping unbounded surface text.
+func truncateForLog(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max])
 }
 
 

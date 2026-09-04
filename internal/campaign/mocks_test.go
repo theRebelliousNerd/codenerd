@@ -126,6 +126,27 @@ func (m *MockKernel) RetractFact(fact core.Fact) error {
 	if m.RetractFactErr != nil {
 		return m.RetractFactErr
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(fact.Args) == 0 {
+		return nil
+	}
+	want := types.ExtractString(fact.Args[0])
+	kept := make([]core.Fact, 0, len(m.Facts))
+	for _, f := range m.Facts {
+		if f.Predicate != fact.Predicate {
+			kept = append(kept, f)
+			continue
+		}
+		if len(f.Args) == 0 {
+			kept = append(kept, f)
+			continue
+		}
+		if types.ExtractString(f.Args[0]) != want {
+			kept = append(kept, f)
+		}
+	}
+	m.Facts = kept
 	return nil
 }
 

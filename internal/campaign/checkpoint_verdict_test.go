@@ -126,10 +126,13 @@ func TestRunShardValidationCheckpoint_VerdictParsing(t *testing.T) {
 			}
 			executor := &MockTaskExecutor{
 				ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
-					// Like the real JITExecutor, return surface text only.
-					// The verdict arrives via the kernel double, except in
-					// the raw-envelope compat cases which return the
-					// envelope verbatim.
+					// Live path: the reviewer asserts its verdict DURING execution,
+					// i.e. after the runner's retract-before-spawn. Seeded Facts
+					// represent pre-existing state (which must be retracted), so
+					// re-assert them here to simulate the reviewer's live assertion.
+					for _, f := range tc.kernelFacts {
+						_ = kernel.Assert(f)
+					}
 					return reviewText, nil
 				},
 			}
