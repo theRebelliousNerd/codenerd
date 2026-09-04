@@ -23,6 +23,7 @@ type Replanner struct {
 	kernel         core.Kernel
 	llmClient      perception.LLMClient
 	promptProvider PromptProvider // Optional JIT prompt provider
+	workspace      string         // Campaign workspace for filesystem-backed type defenses (see applyTaskTypeDefenses)
 
 	// Gemini advanced features (nil if not Gemini or features unavailable)
 	grounding *research.GroundingHelper // Google Search / URL Context grounding
@@ -37,11 +38,21 @@ const (
 )
 
 // NewReplanner creates a new replanner.
-func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient) *Replanner {
+//
+// The optional workspace scopes filesystem-backed type defenses (see
+// applyTaskTypeDefenses) to the campaign workspace, the same way NewDecomposer
+// carries its workspace. When omitted, relative paths resolve against the
+// process working directory; the pathless-file retype needs no filesystem
+// access and still applies. The parameter is variadic so existing two-argument
+// call sites keep compiling.
+func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient, workspace ...string) *Replanner {
 	r := &Replanner{
 		kernel:         kernel,
 		llmClient:      llmClient,
 		promptProvider: NewStaticPromptProvider(), // Default to static prompts
+	}
+	if len(workspace) > 0 {
+		r.workspace = workspace[0]
 	}
 
 	// Initialize Gemini advanced features helpers
@@ -520,6 +531,20 @@ Return JSON only:
 		}
 	}
 
+	// Near-duplicate guard (campaign 5a2f4c8d, 2026-09-04): the refinement
+	// restated an existing task with its target path appended, which the
+	// exact-match guard above cannot see. Maps the suffix-insensitive
+	// replanDedupeKey to the task ID that claimed it so the drop can name
+	// both tasks. Scoped to this phase only, like the exact-match guard.
+	seenReplanKeys := make(map[string]string, len(workingNextPhase.Tasks))
+	for _, t := range workingNextPhase.Tasks {
+		if k := replanDedupeKey(t.Description); k != "" {
+			if _, ok := seenReplanKeys[k]; !ok {
+				seenReplanKeys[k] = t.ID
+			}
+		}
+	}
+
 	// Apply changes
 	for _, t := range changes.Tasks {
 		action := strings.ToLower(strings.TrimSpace(t.Action))
@@ -561,6 +586,13 @@ Return JSON only:
 					newID = fmt.Sprintf("%s_%d", t.TaskID, idIdx)
 				}
 			}
+			if rkey := replanDedupeKey(t.Description); rkey != "" {
+				if existingID, ok := seenReplanKeys[rkey]; ok {
+					logging.CampaignWarn("Planner emitted a near-duplicate task %s of %s in phase %s; dropping it: %.80q", newID, existingID, workingNextPhase.ID, t.Description)
+					continue
+				}
+				seenReplanKeys[rkey] = newID
+			}
 			var deps []string
 			deps = append(deps, []string(t.DependsOn)...)
 			deps = append(deps, []string(t.ContextFrom)...)
@@ -575,6 +607,11 @@ Return JSON only:
 				Priority:    normalizeTaskPriority(t.Priority),
 				Order:       len(workingNextPhase.Tasks),
 				ContextFrom: ctxFrom,
+			}
+			oldTaskType := task.Type
+			if changed, reason := applyTaskTypeDefenses(r.workspace, &task); changed {
+				logging.CampaignWarn("Retyped task %s from %s to %s: %s",
+					task.ID, oldTaskType, task.Type, reason)
 			}
 			workingNextPhase.Tasks = append(workingNextPhase.Tasks, task)
 		default: // update
@@ -624,12 +661,19 @@ Return JSON only:
 						newID = fmt.Sprintf("%s_%d", t.TaskID, idIdx)
 					}
 				}
+				if rkey := replanDedupeKey(t.Description); rkey != "" {
+					if existingID, ok := seenReplanKeys[rkey]; ok {
+						logging.CampaignWarn("Planner emitted a near-duplicate task %s of %s in phase %s; dropping it: %.80q", newID, existingID, workingNextPhase.ID, t.Description)
+						continue
+					}
+					seenReplanKeys[rkey] = newID
+				}
 				var deps []string
 				deps = append(deps, []string(t.DependsOn)...)
 				deps = append(deps, []string(t.ContextFrom)...)
 				deps = append(deps, []string(t.Dependencies)...)
 				ctxFrom := resolveReplannerContextFrom(workingNextPhase, deps)
-				workingNextPhase.Tasks = append(workingNextPhase.Tasks, Task{
+				task := Task{
 					ID:          newID,
 					PhaseID:     workingNextPhase.ID,
 					Description: t.Description,
@@ -638,7 +682,13 @@ Return JSON only:
 					Priority:    normalizeTaskPriority(t.Priority),
 					Order:       len(workingNextPhase.Tasks),
 					ContextFrom: ctxFrom,
-				})
+				}
+				oldTaskType := task.Type
+				if changed, reason := applyTaskTypeDefenses(r.workspace, &task); changed {
+					logging.CampaignWarn("Retyped task %s from %s to %s: %s",
+						task.ID, oldTaskType, task.Type, reason)
+				}
+				workingNextPhase.Tasks = append(workingNextPhase.Tasks, task)
 			}
 		}
 	}
@@ -1117,6 +1167,41 @@ func (f *flexStringSlice) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	return fmt.Errorf("cannot unmarshal flexStringSlice from %s", string(data))
+}
+
+// replanDedupeKey normalizes a task description for the rolling-wave
+// near-duplicate guard: the exact-match normalizedTaskKey with a trailing
+// " in <path>" suffix removed.
+//
+// Observed live 2026-09-04 on campaign 5a2f4c8d: the refinement restated an
+// existing task with its target path appended ("Research correctness in
+// internal/retrieval" for an existing "Research correctness"). The
+// exact-match dedupe saw different strings, the duplicate ran, and the phase
+// burned its budget re-proving work already done. Comparing with the location
+// suffix stripped catches the restatement.
+//
+// Conservative: the suffix is only stripped when it is a single token
+// containing a path separator or dot, so "Research in depth" keeps its ending
+// while "Research correctness in internal/retrieval" compares as "research
+// correctness". Pure: no logging here — the caller logs the drop.
+func replanDedupeKey(desc string) string {
+	key := normalizedTaskKey(desc)
+	if key == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(key, " in "); idx > 0 {
+		suffix := strings.TrimSpace(key[idx+len(" in "):])
+		if suffix != "" && !strings.Contains(suffix, " ") &&
+			(strings.Contains(suffix, "/") || strings.Contains(suffix, ".")) {
+			key = strings.TrimSpace(key[:idx])
+		}
+	}
+	if !strings.ContainsFunc(key, func(r rune) bool {
+		return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+	}) {
+		return ""
+	}
+	return key
 }
 
 // resolveReplannerContextFrom maps named dependencies to task IDs in the phase.

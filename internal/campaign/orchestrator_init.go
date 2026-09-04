@@ -61,7 +61,7 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 	// Initialize sub-components
 	o.contextPager = NewContextPager(cfg.Kernel, cfg.LLMClient, cfg.ContextBudget)
 	o.checkpoint = NewCheckpointRunner(cfg.Executor, cfg.TaskExecutor, cfg.Workspace, cfg.Kernel)
-	o.replanner = NewReplanner(cfg.Kernel, cfg.LLMClient)
+	o.replanner = NewReplanner(cfg.Kernel, cfg.LLMClient, cfg.Workspace)
 	o.decomposer = NewDecomposer(cfg.Kernel, cfg.LLMClient, cfg.Workspace)
 	if cfg.ShardManager != nil {
 		o.decomposer.SetShardLister(cfg.ShardManager) // Enable shard-aware planning
