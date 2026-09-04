@@ -91,8 +91,11 @@ func runSessionsLoad(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("✅ Session '%s' exists.\n", sessionID)
-	fmt.Println("To load this session, start the TUI with:")
-	fmt.Printf("  nerd --load-session %s\n", sessionID)
+	// There is no --load-session flag on the root command; loading a saved
+	// session is a TUI slash command. The old hint pointed at a flag that
+	// fails with "unknown flag".
+	fmt.Println("To load this session, start the TUI with `nerd` and run:")
+	fmt.Printf("  /load-session %s\n", sessionID)
 
 	return nil
 }
