@@ -60,15 +60,18 @@ type turnUsage struct {
 	completion int64
 }
 
-// snapshotTurnUsage reads the usage tracker's project totals carried by ctx.
-// It returns zeros when no tracker is present.
-func snapshotTurnUsage(ctx context.Context) turnUsage {
+// snapshotTurnUsage reads the usage tracker's counts for this session only.
+// Project totals are merged across processes, so a delta over them counts
+// every other nerd process's spend during the turn (observed live: 455K
+// "prompt tokens" for a turn whose own calls totaled ~20K while three fix runs
+// were active). It returns zeros when no tracker is present.
+func snapshotTurnUsage(ctx context.Context, sessionID string) turnUsage {
 	tracker := usage.FromContext(ctx)
 	if tracker == nil {
 		return turnUsage{}
 	}
-	stats := tracker.Stats()
-	return turnUsage{prompt: stats.TotalProject.Input, completion: stats.TotalProject.Output}
+	counts := tracker.SessionTokens(sessionID)
+	return turnUsage{prompt: counts.Input, completion: counts.Output}
 }
 
 // delta returns the token growth between two snapshots, clamped at zero so a

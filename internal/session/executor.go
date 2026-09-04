@@ -32,6 +32,7 @@ import (
 	"codenerd/internal/prompt"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
+	"codenerd/internal/usage"
 )
 
 // JITCompiler compiles prompt atoms for the current context.
@@ -754,8 +755,12 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// compilation so logic can use persisted context. Best-effort — hydration
 	// failures are logged and never fail the turn — and skipped entirely when
 	// the store does not implement the hydration interface (stub adapters).
+	// Tag the turn with its session identity so LLM clients record spend under
+	// this session (BySession) rather than "unknown"; turn_cost reads that
+	// entry, never the cross-process project total.
+	ctx = usage.WithSessionID(ctx, e.SessionID())
 	e.hydrateMemory(ctx, input)
-	usageBefore := snapshotTurnUsage(ctx)
+	usageBefore := snapshotTurnUsage(ctx, e.SessionID())
 
 	// 1. OBSERVE: Transducer converts NL → Intent (skipped for preset intents)
 	var intent perception.Intent
@@ -1655,7 +1660,7 @@ func (e *Executor) persistTurn(ctx context.Context, input string, intent percept
 	turnNumber := historyLen / 2
 
 	// Cost denominator: usage delta across this turn plus the kernel verdict.
-	promptTokens, completionTokens := telemetry.usageBefore.delta(snapshotTurnUsage(ctx))
+	promptTokens, completionTokens := telemetry.usageBefore.delta(snapshotTurnUsage(ctx, sessionID))
 	e.assertTurnCost(turnCost{
 		sessionID:        sessionID,
 		turnNumber:       turnNumber,

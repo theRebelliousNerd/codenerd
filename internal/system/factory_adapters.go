@@ -502,6 +502,31 @@ func (a *sessionVirtualStoreAdapter) ValidateInteractiveToolResult(ctx context.C
 	return a.vs.ValidateInteractiveToolResult(ctx, actionID, toolName, args, output, success)
 }
 
+// Compile-time assertion that the production adapter exposes memory read-back.
+// The session executor type-asserts its store against session.MemoryHydrator;
+// without these delegations the assertion fails silently and every non-TUI
+// turn starts with no learned facts and no prior-session context (observed
+// live 2026-09-04: no HydrateLearnings line in the chat process's logs).
+var _ session.MemoryHydrator = (*sessionVirtualStoreAdapter)(nil)
+
+// HydrateLearnings delegates to the wrapped VirtualStore. A nil store hydrates
+// nothing and reports zero facts, never an error.
+func (a *sessionVirtualStoreAdapter) HydrateLearnings(ctx context.Context) (int, error) {
+	if a == nil || a.vs == nil {
+		return 0, nil
+	}
+	return a.vs.HydrateLearnings(ctx)
+}
+
+// HydrateSessionContext delegates to the wrapped VirtualStore; see
+// HydrateLearnings for the nil policy.
+func (a *sessionVirtualStoreAdapter) HydrateSessionContext(ctx context.Context, sessionID, query string, shardTypes []string) (int, error) {
+	if a == nil || a.vs == nil {
+		return 0, nil
+	}
+	return a.vs.HydrateSessionContext(ctx, sessionID, query, shardTypes)
+}
+
 // sessionLLMAdapter adapts perception.LLMClient to types.LLMClient.
 type sessionLLMAdapter struct {
 	client perception.LLMClient

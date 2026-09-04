@@ -886,6 +886,33 @@ func WithShardContext(ctx context.Context, name, typeName, sessionID string) con
 	return ctx
 }
 
+// WithSessionID tags ctx with the session identity only, leaving any shard
+// name/type already on the context untouched. The session executor uses it so
+// a turn's spend lands in BySession under its own ID instead of "unknown",
+// which is what a per-turn cost delta must read: TotalProject is merged across
+// processes and moves whenever another nerd process spends tokens.
+func WithSessionID(ctx context.Context, sessionID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if sessionID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, sessionIDKey, sessionID)
+}
+
+// SessionTokens returns the accumulated counts recorded under sessionID, or
+// zero counts when the session has no entry yet.
+func (h *Tracker) SessionTokens(sessionID string) TokenCounts {
+	if h == nil || h.tracker == nil {
+		return TokenCounts{}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.ensureMapsLocked()
+	return h.data.Aggregate.BySession[sessionID]
+}
+
 // TrackFromContext records usage against the tracker carried by ctx, if any.
 // Every LLM client should call this rather than reaching for a tracker field,
 // so a client used outside a tracked session simply records nothing.
