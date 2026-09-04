@@ -126,6 +126,30 @@ func TestClassifyShellEffect_UnsafePipesRemainMutating(t *testing.T) {
 	}
 }
 
+func TestClassifyShellEffect_QuotedMetacharsMasked(t *testing.T) {
+	cases := []struct {
+		name string
+		cmd  string
+		want ShellEffectKind
+	}{
+		{"single-quoted alternation is verification", "go test ./internal/core/ -run 'A|B|C' -count=1", ShellEffectVerification},
+		{"double-quoted alternation is verification", "go test ./pkg -run \"A|B\"", ShellEffectVerification},
+		{"unquoted pipe stays unknown_mutating", "go test ./... | tee out.txt", ShellEffectUnknownMutating},
+		{"command substitution stays unknown_mutating", "go test -run \"$(cat x)\"", ShellEffectUnknownMutating},
+		{"unbalanced quote stays unknown_mutating", "go test -run 'A|B", ShellEffectUnknownMutating},
+		{"quoted semicolon stays read_only", "grep -n 'a;b' file.go", ShellEffectReadOnly},
+		{"redirect outside quotes stays unknown_mutating", "echo \"x\" > out.txt", ShellEffectUnknownMutating},
+		{"benign tail still stripped with quoted alternation", "go test ./pkg -run 'A|B' 2>&1", ShellEffectVerification},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ClassifyShellEffect(tc.cmd); got != tc.want {
+				t.Errorf("ClassifyShellEffect(%q)=%s, want %s", tc.cmd, got.String(), tc.want.String())
+			}
+		})
+	}
+}
+
 func TestValidateShellToolInvocation_VerificationTools(t *testing.T) {
 	if _, _, err := ValidateShellToolInvocation("run_build", map[string]any{"command": "go build ./..."}); err != nil {
 		t.Errorf("run_build normal build denied: %v", err)

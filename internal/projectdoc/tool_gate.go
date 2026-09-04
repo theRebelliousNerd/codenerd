@@ -422,6 +422,57 @@ func stripBenignOutputTail(command string) string {
 	return s
 }
 
+// maskQuotedSegments replaces every character inside a balanced pair of
+// single quotes or double quotes with '_' (keeping the quotes themselves)
+// so quoted metacharacters (e.g. '|' in a -run regex) do not trip the
+// compound-syntax check. Backslash-escaped quotes inside double quotes do
+// not terminate the segment. Unbalanced quotes return balanced=false so the
+// caller fails closed.
+func maskQuotedSegments(cmd string) (masked string, balanced bool) {
+	rs := []rune(cmd)
+	out := make([]rune, len(rs))
+	copy(out, rs)
+	inSingle := false
+	inDouble := false
+	for i := 0; i < len(rs); {
+		c := rs[i]
+		if inSingle {
+			if c == '\'' {
+				inSingle = false
+			} else {
+				out[i] = '_'
+			}
+			i++
+			continue
+		}
+		if inDouble {
+			if c == '\\' && i+1 < len(rs) {
+				out[i] = '_'
+				out[i+1] = '_'
+				i += 2
+				continue
+			}
+			if c == '"' {
+				inDouble = false
+			} else {
+				out[i] = '_'
+			}
+			i++
+			continue
+		}
+		if c == '\'' {
+			inSingle = true
+		} else if c == '"' {
+			inDouble = true
+		}
+		i++
+	}
+	if inSingle || inDouble {
+		return string(out), false
+	}
+	return string(out), true
+}
+
 // ClassifyShellEffect applies a deliberately small allowlist. Compound syntax,
 // output flags, known mutation verbs, and every unrecognized command fail
 // closed. The exact incident commands are classified as mutating before any
@@ -437,7 +488,14 @@ func ClassifyShellEffect(command string) ShellEffectKind {
 	stripped := stripBenignOutputTail(raw)
 	lower := strings.ToLower(stripped)
 
-	if strings.ContainsAny(stripped, "\r\n;|&><`") || strings.Contains(lower, "$(") {
+	masked, balanced := maskQuotedSegments(stripped)
+	if !balanced {
+		return ShellEffectUnknownMutating
+	}
+	if strings.ContainsAny(masked, "\r\n;|&><") {
+		return ShellEffectUnknownMutating
+	}
+	if strings.ContainsAny(stripped, "`") || strings.Contains(lower, "$(") {
 		return ShellEffectUnknownMutating
 	}
 
