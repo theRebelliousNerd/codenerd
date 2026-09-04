@@ -40,11 +40,23 @@ punch list; items are marked as they land. Ledger context:
 | 26 | `run_command` default timeout is toolchain-aware (600 s for go/cargo/npm/make/pytest build+test) — the flat 60 s was why runs 22, 24, 31, 36 "timed out with no output" on `go test`. Cancellation kills the process tree (`taskkill /T` / process group); 17 orphaned greps, some 3 days old, were found | 2c132b51 |
 | 27 | Autopoiesis accessors for the tool generator and concrete Ouroboros loop (groundwork for item 28) | 7318e86b |
 
+| 28 | Read-only turns earn a turn verdict (`checkHollowSuccess` returned before asserting evidence for non-tool verbs, so every `/explain` was `/unverified`); measured, never failed for hollowness | 30094744 |
+| 29 | Test-only chat adapters and migration helper deleted, 1,012 lines (run 38) | (see log) |
+| 30 | Cortex accessors: worker/planner clients, tool generator, Ouroboros loop, MCP store (run 37's surviving half) | 202bf809 |
+| 31 | `core_limits` validated at load, presence-aware; dead `EnforceCoreLimits` deleted (run 40 — first run to complete its own `go test` verification unaided since item 26) | 60e13933 |
+| 32 | `nerd campaign start` boots through the Cortex; `buildCampaignOrchestratorConfig` is one pure construction site; ToolPregenerator always built (run 39) | 6b6eefa3 |
+
 ## In flight (briefs written)
 
-- Campaign start/resume boot through the Cortex; ToolPregenerator constructed (`cmd/nerd`, `internal/system`) — run 37 (run 34 died on a concurrent build break of mine).
-- Test-only chat adapters and migration helper deleted (`cmd/nerd/chat`) — run 38.
-- Campaign resume acceptance/reset semantics (`cmd/nerd`, `internal/campaign`) — `brief_resume.txt`, after run 37.
+- Factory honors `per_shard_facts` (single catch-all shard when off) — run 42 (`internal/system`).
+- Campaign shard manifest owns the whole campaign fact family + contract test — run 43 (`internal/shards`, `internal/campaign`).
+- Campaign resume through the Cortex + failed/blocked resume semantics — run 41 lost its core logic to a revert of mine; re-dispatch after run 43 (same package).
+
+**Live end-to-end proof (08:11, `nerd campaign start "Audit internal/retrieval …" --type audit --timeout 20m`, binary 6b6eefa3):** booted through the Cortex ("Tool pregenerator initialized" replaced "pending (requires Ouroboros)"), planned 4 phases / 12 tasks, completed phases 1–2 and 5 of phase 3's tasks (11/12) with per-task artifacts under `.nerd/campaigns/a19dd99f/artifacts/`, then paused cleanly at the ceiling with the resume hint. Exit 1 by design.
+
+Final state: `/paused`, 11/14 tasks complete; phase 3 grew from 3 to 5 tasks because a corrective re-plan re-emitted two audits with "in internal/retrieval" appended and the duplicate filter compares normalized descriptions exactly (`decomposer_planning.go` ~701) — near-duplicates cost two full task runs. Open, low.
+
+**Routing root cause found by that run (item 33, open):** the plan carried four bogus `missing_category` topology warnings. Not the policy, not the fact shapes (a reproduction with real `/phase_…` IDs on a fresh kernel derives precedence fine — `internal/core/campaign_phase_category_test.go`). The Cortex kernel routes facts by predicate owner, the `campaign` shard owns `campaign_phase` but not `phase_category`, so the topology rule evaluates in a shard that never sees the category. The private campaign boot's single kernel had masked it; `per_shard_facts` (`false` in config) is read only by its own tests, so routing is always on. Runs 42/43 fix both halves.
 
 Unconfirmed: run 30 reported "shell gate blocked go vet/go test"; no gate refusal appears in its logs. Most likely the 60 s timeout (item 26).
 
