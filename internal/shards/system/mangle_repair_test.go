@@ -38,6 +38,17 @@ func (m *schemaCapableLLMMock) CompleteWithTools(ctx context.Context, systemProm
 	return &types.LLMToolResponse{Text: ""}, nil
 }
 
+// TODO: Implement boundary test for Null/Undefined/Empty rules (e.g., "", "   \n").
+// TODO: Implement boundary test for empty errors slice passed to ValidateAndRepair.
+// TODO: Implement negative test for LLM returning empty or degenerate JSON responses.
+// TODO: Implement negative test for LLM returning Markdown-wrapped JSON (Code blocks).
+// TODO: Implement negative test for JSON type coercion failure (e.g. program is string instead of object).
+// TODO: Implement negative test for LLM returning string literals instead of Mangle Atoms, requiring analysis.Analyze().
+// TODO: Implement boundary test for extremely large rule inputs to test OOM/context window limits.
+// TODO: Implement boundary test for massive number of parse errors (e.g., 10,000 cascading errors) to ensure extraction caps.
+// TODO: Implement boundary test for maxRetries exhaustion (deep recursion / infinite loop).
+// TODO: Implement state conflict test for concurrent calls to ValidateAndRepair and SetPredicateSelector (Race condition).
+// TODO: Implement state conflict test for Context Cancellation (goroutine leak prevention).
 func TestMangleRepairShard_PredicateSelectorWiring(t *testing.T) {
 	// Create a repair shard
 	shard := NewMangleRepairShard()
