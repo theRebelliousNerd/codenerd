@@ -319,6 +319,13 @@ func (o *Orchestrator) persistTaskOutputArtifact(task *Task, result string) {
 	}
 	relPath := o.defaultTaskArtifactPath(task)
 	fullPath := filepath.Join(o.workspace, relPath)
+	// This is the one direct write the orchestrator keeps, and only because it
+	// targets the campaign's own artifacts directory. Refuse anything that
+	// resolves outside it: repository files go through the VirtualStore.
+	if !o.insideCampaignArtifacts(fullPath) {
+		logging.Get(logging.CategoryCampaign).Warn("Refusing durable-output write outside the campaign artifacts dir: %s", fullPath)
+		return
+	}
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Failed to create artifact dir for task %s: %v", task.ID, err)
 		return
@@ -480,6 +487,24 @@ func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, 
 	}
 	targetPath = cleanPath
 
+	// The fallback is a creator, never an editor. Refuse to overwrite an
+	// existing file before generating anything: a hollow coder result must fail
+	// the task (retry -> attempt-cap re-plan), never truncate real work through
+	// this back door.
+	statPath := filepath.Join(o.workspace, targetPath)
+	if info, statErr := os.Stat(statPath); statErr == nil && info.Mode().IsRegular() {
+		logging.Get(logging.CategoryCampaign).Warn("Fallback refused for task %s: target %s already exists; modify tasks need the coder path", task.ID, targetPath)
+		return nil, fmt.Errorf("fallback refused for %s: target %s exists (%d bytes); modify tasks need the coder path", task.ID, targetPath, info.Size())
+	}
+
+	// Front door only: repository writes go through the VirtualStore so
+	// permitted/3, the Dreamer gate and the FileWriteValidator apply. Never
+	// fall back to a direct write around them.
+	if o.virtualStore == nil {
+		logging.Get(logging.CategoryCampaign).Warn("Fallback refused for task %s: no VirtualStore attached; refusing to write %s around the front door", task.ID, targetPath)
+		return nil, fmt.Errorf("fallback refused for %s: virtualStore is nil, cannot write %s through the VirtualStore", task.ID, targetPath)
+	}
+
 	// Holographic context: the fallback prompt carries upstream durable
 	// findings after the description and before the file target, so a direct-LLM
 	// document still sees what to write from. Prompt-only; the written file is
@@ -529,18 +554,38 @@ Output ONLY the file content, no explanation or markdown fences:`, taskBlock, ta
 	}
 
 	fullPath := filepath.Join(o.workspace, targetPath)
-	logging.CampaignDebug("Writing generated file: %s (%d bytes)", fullPath, len(content))
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-		logging.Get(logging.CategoryCampaign).Error("Failed to create directory for %s: %v", fullPath, err)
+	logging.CampaignDebug("Writing generated file via VirtualStore: %s (%d bytes)", fullPath, len(content))
+	// Front door only: the write goes through the VirtualStore so permitted/3,
+	// the Dreamer gate and the FileWriteValidator apply. A direct os.WriteFile
+	// here bypassed every one of them (observed live: a 251-line policy file
+	// truncated to a 9-line stub).
+	// The router executes only what the kernel has permitted, and permission
+	// derives from a pending_action fact the caller asserts first — the same
+	// contract the session executor follows. Assert it so the constitution
+	// decides (a critical path or an unsafe target is denied there, not here).
+	actionID := fmt.Sprintf("campaign-fallback-%s", task.ID)
+	if o.kernel != nil {
+		if err := o.kernel.Assert(core.Fact{
+			Predicate: "pending_action",
+			Args:      []any{actionID, core.MangleAtom("/write_file"), fullPath, `{"content_bytes":` + fmt.Sprint(len(content)) + `}`, time.Now().Unix()},
+		}); err != nil {
+			logging.Get(logging.CategoryCampaign).Warn("Failed to assert pending_action for fallback write %s: %v", fullPath, err)
+		}
+	}
+	writeResult, err := o.virtualStore.RouteActionResult(ctx, core.Fact{
+		Predicate: "next_action",
+		Args:      []any{actionID, "write_file", fullPath, map[string]any{"content": content}},
+	})
+	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("VirtualStore write failed for fallback file %s: %v", fullPath, err)
 		return nil, err
 	}
-
-	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
-		logging.Get(logging.CategoryCampaign).Error("Failed to write file %s: %v", fullPath, err)
-		return nil, err
+	if !writeResult.Success {
+		logging.Get(logging.CategoryCampaign).Warn("VirtualStore refused fallback write for %s: %s", fullPath, writeResult.Error)
+		return nil, fmt.Errorf("fallback write for %s refused by VirtualStore: %s", targetPath, writeResult.Error)
 	}
 
-	logging.CampaignDebug("File fallback completed: %s", fullPath)
+	logging.CampaignDebug("File fallback completed via VirtualStore: %s", fullPath)
 	return map[string]any{"path": fullPath, "size": len(content)}, nil
 }
 
@@ -663,14 +708,14 @@ func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, 
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Verify task %s failed: %v", task.ID, err)
 		return map[string]any{
-			"task_id": task.ID,
+			"task_id":  task.ID,
 			"output":   output,
 			"verified": false,
 		}, err
 	}
 	logging.Campaign("Verify task %s passed", task.ID)
 	return map[string]any{
-		"task_id": task.ID,
+		"task_id":  task.ID,
 		"output":   output,
 		"verified": true,
 	}, nil
@@ -1129,6 +1174,23 @@ func (o *Orchestrator) defaultTaskArtifactPath(task *Task) string {
 		campID = campaignSlug(o.campaign.ID)
 	}
 	return filepath.ToSlash(filepath.Join(".nerd", "campaigns", campID, "artifacts", id+".md"))
+}
+
+// insideCampaignArtifacts reports whether an absolute path resolves inside
+// this campaign's artifacts directory (`.nerd/campaigns/<slug>/artifacts`).
+// The durable-output writer is the orchestrator's one direct file write and
+// is allowed only there; every repository write goes through the VirtualStore.
+func (o *Orchestrator) insideCampaignArtifacts(fullPath string) bool {
+	campID := "campaign"
+	if o.campaign != nil {
+		campID = campaignSlug(o.campaign.ID)
+	}
+	root := filepath.Clean(filepath.Join(o.workspace, ".nerd", "campaigns", campID, "artifacts"))
+	rel, err := filepath.Rel(root, filepath.Clean(fullPath))
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 // extractPathFromDescription attempts to extract a file path from a task description.

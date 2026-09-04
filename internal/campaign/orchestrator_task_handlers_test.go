@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -557,16 +559,15 @@ func TestExecuteFileTask_ShardFailure_Fallback(t *testing.T) {
 		},
 	}
 
-	// Shard fails -> fallback invoked
-	res, err := o.executeFileTask(ctx, &Task{ID: "1", Description: "do it", Artifacts: []TaskArtifact{{Path: "test.go"}}})
-	if err != nil {
-		t.Errorf("Expected fallback success, got %v", err)
+	// Shard fails -> fallback invoked. With no VirtualStore attached the
+	// fallback must refuse rather than write around the front door (it used to
+	// os.WriteFile here; campaign 149c512d lost a 251-line schema that way).
+	_, err := o.executeFileTask(ctx, &Task{ID: "1", Description: "do it", Artifacts: []TaskArtifact{{Path: "test.go"}}})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "virtualstore") {
+		t.Fatalf("expected the fallback to refuse without a VirtualStore, got %v", err)
 	}
-
-	if resMap, ok := res.(map[string]any); ok {
-		if _, exists := resMap["size"]; !exists {
-			t.Errorf("Expected fallback result (size), got %v", resMap)
-		}
+	if _, statErr := os.Stat(filepath.Join(o.workspace, "test.go")); statErr == nil {
+		t.Fatal("fallback wrote a file around the VirtualStore")
 	}
 }
 
@@ -587,14 +588,14 @@ func TestExecuteFileTask_VerificationFailure(t *testing.T) {
 		},
 	}
 
-	res, err := o.executeFileTask(ctx, &Task{ID: "1", Description: "do it", Artifacts: []TaskArtifact{{Path: "test.go"}}})
-	if err != nil {
-		t.Errorf("Expected fallback success, got %v", err)
+	// Verification fails -> fallback invoked; with no VirtualStore attached it
+	// must refuse rather than write around the front door.
+	_, err := o.executeFileTask(ctx, &Task{ID: "1", Description: "do it", Artifacts: []TaskArtifact{{Path: "test.go"}}})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "virtualstore") {
+		t.Fatalf("expected the fallback to refuse without a VirtualStore, got %v", err)
 	}
-	if resMap, ok := res.(map[string]any); ok {
-		if _, exists := resMap["size"]; !exists {
-			t.Errorf("Expected fallback result due to verification failure, got %v", resMap)
-		}
+	if _, statErr := os.Stat(filepath.Join(o.workspace, "test.go")); statErr == nil {
+		t.Fatal("fallback wrote a file around the VirtualStore")
 	}
 }
 

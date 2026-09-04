@@ -257,3 +257,32 @@ Decl turn_cost(SessionID, TurnNum, PromptTokens, CompletionTokens, ToolCalls, Ve
 # Reason: short human-readable justification (/string).
 # Confidence: integer percent 0-100 (/number, int64 in this fork).
 Decl checkpoint_verdict(Phase, Verdict, Reason, Confidence) bound [/string, /name, /string, /number].
+
+# Section 14 — Context Feedback (Phase-0 wiring)
+# Producer: session executor in processPiggybackControlPacket, mirroring memory_operation sibling. Protocol source: articulation ContextFeedback.
+# Consumer: context/feedback_store (StoreFeedback) + activation_scoring computeFeedbackScore for spreading-activation tuning.
+# Aggregation: one context_feedback per turn; zero or more helpful/noise/missing facts per turn. Query by SessionID + TurnNum.
+
+# context_feedback(SessionID, TurnNum, OverallUsefulness) — one fact per turn
+# SessionID: session identifier, quoted string
+# TurnNum: turn number, int
+# OverallUsefulness: int percent 0-100 (protocol float 0..1 x 100)
+Decl context_feedback(SessionID, TurnNum, OverallUsefulness) bound [/string, /number, /number].
+
+# context_fact_helpful(SessionID, TurnNum, Atom) — injected atom rated helpful
+# SessionID: session identifier, quoted string
+# TurnNum: turn number, int
+# Atom: injected context atom string, matches injectable_context Atom domain
+Decl context_fact_helpful(SessionID, TurnNum, Atom) bound [/string, /number, /string].
+
+# context_fact_noise(SessionID, TurnNum, Atom) — injected atom rated noise
+# SessionID: session identifier, quoted string
+# TurnNum: turn number, int
+# Atom: injected context atom string, matches injectable_context Atom domain
+Decl context_fact_noise(SessionID, TurnNum, Atom) bound [/string, /number, /string].
+
+# context_missing(SessionID, TurnNum, MissingContext) — missing context needed next turn
+# SessionID: session identifier, quoted string
+# TurnNum: turn number, int
+# MissingContext: free-form description, named files/symbols to resolve next turn
+Decl context_missing(SessionID, TurnNum, MissingContext) bound [/string, /number, /string].
