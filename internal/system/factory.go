@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
+	"codenerd/internal/features"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"codenerd/internal/mcp"
@@ -969,7 +970,20 @@ func initKernel(bctx *bootContext) error {
 	} else {
 		cortex := core.NewCortexKernel("cortex")
 
-		for _, scfg := range defaultKernelShardConfigs(bctx.workspace) {
+		var shardConfigs []core.KernelShardConfig
+		if features.IsPerShardFactsEnabled() {
+			shardConfigs = defaultKernelShardConfigs(bctx.workspace)
+		} else {
+			// Single-store mode (default): one catch-all shard owns nothing,
+			// so every fact and every rule lives in one RealKernel — identical
+			// semantics to a single RealKernel. Per-shard routing stays opt-in
+			// until the cross-shard join coordinator exists.
+			shardConfigs = []core.KernelShardConfig{
+				{Domain: "cortex", WorkspaceRoot: bctx.workspace},
+			}
+		}
+
+		for _, scfg := range shardConfigs {
 			shard, err := core.NewKernelShard(scfg)
 			if err != nil {
 				return fmt.Errorf("failed to create shard %s: %w", scfg.Domain, err)
@@ -977,6 +991,12 @@ func initKernel(bctx *bootContext) error {
 			if err := cortex.RegisterShard(shard); err != nil {
 				return fmt.Errorf("failed to register shard %s: %w", scfg.Domain, err)
 			}
+		}
+
+		if features.IsPerShardFactsEnabled() {
+			logging.Boot("kernel: %d domain shards (per_shard_facts on)", len(shardConfigs))
+		} else {
+			logging.Boot("kernel: single shard (per_shard_facts off)")
 		}
 
 		if err := cortex.Evaluate(); err != nil {

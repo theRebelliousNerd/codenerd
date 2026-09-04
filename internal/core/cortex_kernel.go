@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -171,6 +172,19 @@ func (c *CortexKernel) GetShard(domain string) (*KernelShard, bool) {
 	defer c.mu.RUnlock()
 	shard, ok := c.shards[domain]
 	return shard, ok
+}
+
+// ShardDomains returns the sorted domain names of all registered shards.
+// Observability accessor for boot-mode tests (single-shard vs domain shards).
+func (c *CortexKernel) ShardDomains() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	domains := make([]string, 0, len(c.shards))
+	for domain := range c.shards {
+		domains = append(domains, domain)
+	}
+	sort.Strings(domains)
+	return domains
 }
 
 // GetPrimaryRealKernel returns the underlying RealKernel from the cortex (catch-all) shard.
