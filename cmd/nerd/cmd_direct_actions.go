@@ -380,9 +380,7 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 				fmt.Println("📋 Partial result (failed):")
 				fmt.Println(result)
 			}
-			if newEntries := findNewRootEntries(rootBefore, rootAfter); len(newEntries) > 0 {
-				fmt.Printf("⚠️  Created in the repository root, undeclared: %s\n", strings.Join(newEntries, ", "))
-			}
+			reportUndeclaredRootWrites(findNewRootEntries(rootBefore, rootAfter))
 			return fmt.Errorf("shard execution failed: %w", err)
 		}
 		tracer.TraceShard("completed in %v, result length: %d chars", shardDuration.Round(time.Millisecond), len(result))
@@ -396,16 +394,17 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		// followed by a blank line — exit code 0. The executor now forces a
 		// final tool-free answer in that case (see forceFinalAnswer), so this
 		// is the backstop for whatever produces the next empty string.
-		if strings.TrimSpace(result) == "" {
-			return fmt.Errorf("hollow success blocked: %s completed with an empty result", verb)
+		// Shared with the interactive per-turn loop via checkDirectSpawnResult.
+		newEntries, hollowErr := checkDirectSpawnResult(verb, result, rootBefore, rootAfter)
+		if hollowErr != nil {
+			reportUndeclaredRootWrites(newEntries)
+			return hollowErr
 		}
 
 		fmt.Println(strings.Repeat("─", 50))
 		fmt.Println("📋 Result:")
 		fmt.Println(result)
-		if newEntries := findNewRootEntries(rootBefore, rootAfter); len(newEntries) > 0 {
-			fmt.Printf("⚠️  Created in the repository root, undeclared: %s\n", strings.Join(newEntries, ", "))
-		}
+		reportUndeclaredRootWrites(newEntries)
 
 		tracer.TracePhase("COMPLETE")
 		return nil
@@ -451,6 +450,29 @@ func findNewRootEntries(before, after map[string]bool) []string {
 	}
 	sort.Strings(added)
 	return added
+}
+
+// checkDirectSpawnResult applies the shared post-spawn guards for direct CLI
+// verbs: the hollow-success guard (an empty result is never a success) and the
+// undeclared-root-write sweep. It returns the sorted list of new root entries
+// (nil when none) plus an error when the result is hollow. Both the one-shot
+// path above and the interactive per-turn loop call this so the guards cannot
+// drift apart again.
+func checkDirectSpawnResult(verb, result string, rootBefore, rootAfter map[string]bool) ([]string, error) {
+	newEntries := findNewRootEntries(rootBefore, rootAfter)
+	if strings.TrimSpace(result) == "" {
+		return newEntries, fmt.Errorf("hollow success blocked: %s completed with an empty result", verb)
+	}
+	return newEntries, nil
+}
+
+// reportUndeclaredRootWrites prints the shared undeclared-write warning for
+// entries the sweep found. Extracted so one-shot and interactive turns render
+// the verdict identically.
+func reportUndeclaredRootWrites(newEntries []string) {
+	if len(newEntries) > 0 {
+		fmt.Printf("⚠️  Created in the repository root, undeclared: %s\n", strings.Join(newEntries, ", "))
+	}
 }
 
 // isWriteOrientedDirectVerb used to live here, gating the hollow-success check

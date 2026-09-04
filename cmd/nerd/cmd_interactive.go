@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
 	coresys "codenerd/internal/system"
 	"codenerd/internal/usage"
@@ -34,8 +33,13 @@ const (
 // It keeps the Cortex alive across multiple turns, allowing the user to
 // refine, redo, or approve results.
 func runInteractiveAction(shardType, verb, initialTarget string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
+	// A multi-turn session has no natural total length: the process context
+	// lives until SIGINT/SIGTERM, and each shard turn gets its own timeout
+	// from the global --timeout flag (package-level timeout). A single review
+	// turn can take 10 minutes, so a hidden 30m total ceiling breaks every
+	// later SpawnTask with "context deadline exceeded".
+	processCtx, processCancel := context.WithCancel(context.Background())
+	defer processCancel()
 
 	// Handle graceful shutdown
 	sigCh := make(chan os.Signal, 1)
@@ -43,7 +47,7 @@ func runInteractiveAction(shardType, verb, initialTarget string) error {
 	go func() {
 		<-sigCh
 		fmt.Println("\n⏹️  Interrupted")
-		cancel()
+		processCancel()
 	}()
 
 	// Resolve API key
@@ -51,16 +55,15 @@ func runInteractiveAction(shardType, verb, initialTarget string) error {
 
 	// Boot Cortex once for entire session
 	fmt.Println("🔄 Booting Cortex for interactive session...")
-	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
+	cortex, err := coresys.GetOrBootCortex(processCtx, workspace, key, nil)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
 	defer cortex.Close()
 
-	// Add usage tracker
-	if cortex.UsageTracker != nil {
-		ctx = usage.NewContext(ctx, cortex.UsageTracker)
-	}
+	// Captured once; applied to each per-turn context below so usage tracking
+	// survives the move from one long-lived ctx to per-turn timeouts.
+	usageTracker := cortex.UsageTracker
 
 	fmt.Println(strings.Repeat("─", 60))
 	fmt.Println("🎮 Interactive Mode - Commands: refine, redo, approve, quit, help")
@@ -73,20 +76,52 @@ func runInteractiveAction(shardType, verb, initialTarget string) error {
 
 	reader := bufio.NewReader(os.Stdin)
 
+	wsRoot := strings.TrimSpace(workspace)
+	if wsRoot == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			wsRoot = cwd
+		}
+	}
+
 	for {
 		turnCount++
 		fmt.Printf("\n📋 Turn %d | Task: %s\n", turnCount, currentTask)
 		fmt.Println(strings.Repeat("─", 60))
 
-		// Spawn shard
+		// Each turn gets its own timeout from --timeout. Explicit cancel:
+		// defer in a loop would leak until the session ends.
+		turnCtx, turnCancel := context.WithTimeout(processCtx, timeout)
+		if usageTracker != nil {
+			turnCtx = usage.NewContext(turnCtx, usageTracker)
+		}
+		// Spawn shard via the same call as the one-shot path: the intent verb
+		// (e.g. /create), not the persona shard name (coder), with the
+		// original target and the evolving task.
 		fmt.Printf("⏳ Spawning %s shard...\n", shardType)
-		result, err := cortex.SpawnTask(ctx, shardType, currentTask)
+		rootBefore := snapshotDirectRoot(wsRoot)
+		result, err := cortex.SpawnTaskWithTarget(turnCtx, verb, currentTask, initialTarget)
+		turnCancel()
+		rootAfter := snapshotDirectRoot(wsRoot)
 		if err != nil {
 			fmt.Printf("❌ Shard error: %v\n", err)
+			reportUndeclaredRootWrites(findNewRootEntries(rootBefore, rootAfter))
 			fmt.Print("\n> ")
-			input, _ := reader.ReadString('\n')
-			input = strings.TrimSpace(input)
-			if input == "quit" || input == "q" {
+			_, _, shouldExit := nextInteractiveCommand(reader, true)
+			if shouldExit {
+				break
+			}
+			continue
+		}
+
+		// Same guards as the one-shot path: hollow-success plus the
+		// undeclared-root-write sweep, via the shared helper.
+		newEntries, hollowErr := checkDirectSpawnResult(verb, result, rootBefore, rootAfter)
+		if hollowErr != nil {
+			fmt.Printf("❌ %v\n", hollowErr)
+			reportUndeclaredRootWrites(newEntries)
+			fmt.Print("\n> ")
+			_, _, shouldExit := nextInteractiveCommand(reader, true)
+			if shouldExit {
 				break
 			}
 			continue
@@ -96,20 +131,17 @@ func runInteractiveAction(shardType, verb, initialTarget string) error {
 		fmt.Println("\n📋 Result:")
 		fmt.Println(strings.Repeat("─", 40))
 		fmt.Println(result)
+		reportUndeclaredRootWrites(newEntries)
 		fmt.Println(strings.Repeat("─", 40))
 
 		// Prompt for next action
 		fmt.Println("\n💡 Options: refine <feedback>, redo, approve, quit")
 		fmt.Print("> ")
 
-		input, err := reader.ReadString('\n')
-		if err != nil {
+		cmd, arg, shouldExit := nextInteractiveCommand(reader, false)
+		if shouldExit && cmd != MetaQuit {
 			break
 		}
-		input = strings.TrimSpace(input)
-
-		// Parse meta-command
-		cmd, arg := parseMetaCommand(input)
 
 		switch cmd {
 		case MetaApprove:
@@ -143,6 +175,9 @@ func runInteractiveAction(shardType, verb, initialTarget string) error {
 			continue
 
 		default:
+			// nextInteractiveCommand returns ("", rawInput) for non-meta
+			// input, so arg carries the trimmed raw line here.
+			input := arg
 			// Treat as new task if it looks like one
 			if strings.HasPrefix(input, "/") || len(input) > 20 {
 				currentTask = fmt.Sprintf("%s %s", strings.TrimPrefix(verb, "/"), input)
@@ -160,6 +195,28 @@ func runInteractiveAction(shardType, verb, initialTarget string) error {
 	}
 
 	return nil
+}
+
+// nextInteractiveCommand reads one stdin line and decides whether the
+// interactive loop should exit. It returns the parsed meta-command, its arg
+// (feedback for refine; trimmed raw input for the default case), and
+// shouldExit. A read error (including io.EOF) always means exit — matching the
+// success branch's `if err != nil { break }` — so exhausted stdin cannot spin
+// the shard-error branch forever. Quit variants (quit/q/exit) are routed
+// through parseMetaCommand so they are honored consistently on both the error
+// and success paths. lastTurnErrored identifies the call site for tests; exit
+// semantics are identical on both paths.
+func nextInteractiveCommand(reader *bufio.Reader, lastTurnErrored bool) (InteractiveMetaCommand, string, bool) {
+	_ = lastTurnErrored
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return "", strings.TrimSpace(line), true
+	}
+	cmd, arg := parseMetaCommand(line)
+	if cmd == MetaQuit {
+		return cmd, arg, true
+	}
+	return cmd, arg, false
 }
 
 // parseMetaCommand extracts the meta-command and optional argument.
