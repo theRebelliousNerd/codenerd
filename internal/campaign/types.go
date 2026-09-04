@@ -157,6 +157,16 @@ type Campaign struct {
 	SourceDocs     []SourceDocument `json:"source_docs,omitzero"`
 	KnowledgeBase  string           `json:"knowledge_base,omitzero"` // Path to campaign knowledge DB
 	Status         CampaignStatus   `json:"status"`
+
+	// BlockReason records why the campaign was marked failed when the
+	// execution loop stopped on a block (e.g. /all_tasks_blocked). Persisted
+	// so a resumed run can report it instead of relying on in-memory lastError.
+	BlockReason string `json:"block_reason,omitzero"`
+
+	// ResumeCount counts how many times PrepareResume re-activated this
+	// campaign after a failed/blocked stop.
+	ResumeCount int `json:"resume_count,omitzero"`
+
 	CreatedAt      time.Time        `json:"created_at"`
 	UpdatedAt      time.Time        `json:"updated_at"`
 	Confidence     float64          `json:"confidence"` // LLM's confidence in the plan (0.0-1.0)

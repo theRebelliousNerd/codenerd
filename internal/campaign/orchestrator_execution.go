@@ -194,6 +194,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 				logging.Get(logging.CategoryCampaign).Error("Campaign blocked: %s", blockReason)
 				o.mu.Lock()
 				o.updateCampaignStatus(StatusFailed)
+				o.campaign.BlockReason = blockReason
 				o.lastError = fmt.Errorf("campaign blocked: %s", blockReason)
 				_ = o.saveCampaign()
 				o.mu.Unlock()
