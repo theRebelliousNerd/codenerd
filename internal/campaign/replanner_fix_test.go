@@ -64,7 +64,7 @@ func TestReplanForNewRequirement_DuplicateSuppression(t *testing.T) {
 				CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 					return `{"new_tasks": [{"phase_order": 0, "description": "` + tc.newDesc + `", "type": "/file_create", "priority": "/high"}], "modified_tasks": [], "summary": "ok"}`, nil
 				},
-			})
+			}, "")
 			if err := r.ReplanForNewRequirement(context.Background(), campaign, "new requirement"); err != nil {
 				t.Fatalf("ReplanForNewRequirement failed: %v", err)
 			}
@@ -108,7 +108,7 @@ func TestReplanForNewRequirement_ContextFromMapping(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"new_tasks": [{"phase_order": 0, "description": "Synthesize auth report", "type": "/document", "priority": "/high", "depends_on": ["Research auth design"]}], "modified_tasks": [], "summary": "ok"}`, nil
 		},
-	})
+	}, "")
 	if err := r.ReplanForNewRequirement(context.Background(), campaign, "need synthesis"); err != nil {
 		t.Fatalf("ReplanForNewRequirement failed: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestReplanForNewRequirement_ContextFromMapping(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"new_tasks": [{"phase_order": 0, "description": "Implement auth", "type": "/file_create", "priority": "/high"}], "modified_tasks": [], "summary": "ok"}`, nil
 		},
-	})
+	}, "")
 	if err := r2.ReplanForNewRequirement(context.Background(), campaign2, "need impl"); err != nil {
 		t.Fatalf("ReplanForNewRequirement failed: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestReplanForNewRequirement_ContextFromViaID(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"new_tasks": [{"phase_order": 0, "description": "Synthesize report", "type": "/document", "priority": "/high", "context_from": ["/task_test_0_0"]}], "modified_tasks": [], "summary": "ok"}`, nil
 		},
-	})
+	}, "")
 	if err := r.ReplanForNewRequirement(context.Background(), campaign, "need synthesis"); err != nil {
 		t.Fatalf("ReplanForNewRequirement failed: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestRefineNextPhase_DuplicateSuppression(t *testing.T) {
 				CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 					return `{"tasks": [{"task_id": "", "description": "` + tc.newDesc + `", "type": "/file_create", "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
 				},
-			})
+			}, "")
 			if err := r.RefineNextPhase(context.Background(), campaign, completed); err != nil {
 				t.Fatalf("RefineNextPhase failed: %v", err)
 			}
@@ -274,7 +274,7 @@ func TestRefineNextPhase_DuplicateViaUpdateFallback(t *testing.T) {
 			// No explicit action "add", so defaults to update path; t.TaskID does not match existing, so it falls through to add.
 			return `{"tasks": [{"task_id": "nonexistent", "description": "Implement payment flow", "type": "/file_create", "priority": "/high", "action": "update"}], "summary": "ok"}`, nil
 		},
-	})
+	}, "")
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestRefineNextPhase_ContextFromMapping(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"tasks": [{"task_id": "", "description": "Synthesize payment report", "type": "/document", "priority": "/high", "action": "add", "depends_on": ["Research payment design"]}], "summary": "ok"}`, nil
 		},
-	})
+	}, "")
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestRefineNextPhase_ContextFromMapping(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"tasks": [{"task_id": "", "description": "Implement payment flow", "type": "/file_create", "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
 		},
-	})
+	}, "")
 	if err := r2.RefineNextPhase(context.Background(), campaign2, &campaign2.Phases[0]); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestRefineNextPhase_PerPhaseDuplicateIsolation(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"tasks": [{"task_id": "", "description": "Implement payment flow", "type": "/file_create", "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
 		},
-	})
+	}, "")
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}

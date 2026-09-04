@@ -39,20 +39,17 @@ const (
 
 // NewReplanner creates a new replanner.
 //
-// The optional workspace scopes filesystem-backed type defenses (see
+// The workspace scopes filesystem-backed type defenses (see
 // applyTaskTypeDefenses) to the campaign workspace, the same way NewDecomposer
-// carries its workspace. When omitted, relative paths resolve against the
+// carries its workspace. When empty, relative paths resolve against the
 // process working directory; the pathless-file retype needs no filesystem
-// access and still applies. The parameter is variadic so existing two-argument
-// call sites keep compiling.
-func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient, workspace ...string) *Replanner {
+// access and still applies.
+func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient, workspace string) *Replanner {
 	r := &Replanner{
 		kernel:         kernel,
 		llmClient:      llmClient,
 		promptProvider: NewStaticPromptProvider(), // Default to static prompts
-	}
-	if len(workspace) > 0 {
-		r.workspace = workspace[0]
+		workspace:      workspace,
 	}
 
 	// Initialize Gemini advanced features helpers

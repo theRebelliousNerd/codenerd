@@ -34,7 +34,7 @@ func TestHandleTaskFailure_RetryableDoesNotReplanNorDuplicate(t *testing.T) {
 			// Would add a semantically duplicate file_modify if called.
 			return `{"success": true, "change_summary": "duplicate", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "phase_failure_lane", "description": "Modify source file", "type": "/file_modify", "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
 		},
-	})
+	}, "")
 	// Ensure campaign and kernel are consistent for the test phase ID.
 	orch.campaign.ID = "campaign_retry_guard"
 	phase := &orch.campaign.Phases[0]
@@ -92,7 +92,7 @@ func TestHandleTaskFailure_TerminalCanStillReplan(t *testing.T) {
 			replanCalls.Add(1)
 			return `{"success": true, "change_summary": "terminal replan ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "phase_failure_lane", "description": "Add follow-up fix for terminal failure", "type": "/file_modify", "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
 		},
-	})
+	}, "")
 	orch.campaign.ID = "campaign_terminal_replan"
 	// Seed current_phase and campaign_phase facts so livePhaseByID etc. are coherent
 	// (not strictly needed for handleTaskFailure but mirrors production wiring).

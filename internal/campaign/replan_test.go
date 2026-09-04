@@ -15,7 +15,7 @@ import (
 // -----------------------------------------------------------------------------
 
 func TestReplanner_NilDependencies(t *testing.T) {
-	r := NewReplanner(nil, nil)
+	r := NewReplanner(nil, nil, "")
 
 	// Replan
 	err := r.Replan(context.Background(), &Campaign{ID: "c1"}, "t1")
@@ -37,7 +37,7 @@ func TestReplanner_NilDependencies(t *testing.T) {
 }
 
 func TestReplan_EmptyCampaignID(t *testing.T) {
-	r := NewReplanner(&MockKernel{}, &MockLLMClient{})
+	r := NewReplanner(&MockKernel{}, &MockLLMClient{}, "")
 	err := r.Replan(context.Background(), &Campaign{ID: ""}, "t1")
 	if err == nil || !strings.Contains(err.Error(), "invalid campaign ID") {
 		t.Errorf("Expected invalid campaign ID error, got %v", err)
@@ -49,7 +49,7 @@ func TestReplan_WhitespaceFailedTaskID(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"success": true, "change_summary": "ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [], "modify_dependencies": []}`, nil
 		},
-	})
+	}, "")
 	campaign := &Campaign{
 		ID: "/c1",
 		Phases: []Phase{{
@@ -77,7 +77,7 @@ func TestReplan_EmptyLLMResponse(t *testing.T) {
 			CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 				return resp, nil
 			},
-		})
+		}, "")
 
 		err := r.Replan(context.Background(), campaign, "/t1")
 		// Should not panic, should return unmarshal error or false success
@@ -90,7 +90,7 @@ func TestReplan_EmptyLLMResponse(t *testing.T) {
 }
 
 func TestReplan_EmptyTaskAttemptError(t *testing.T) {
-	r := NewReplanner(&MockKernel{}, &MockLLMClient{})
+	r := NewReplanner(&MockKernel{}, &MockLLMClient{}, "")
 	campaign := &Campaign{
 		ID: "/c1",
 		Phases: []Phase{{
@@ -122,7 +122,7 @@ func TestReplan_InvalidEnumCoercionToMangle(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"success": true, "change_summary": "ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "/p1", "description": "d", "type": "UNKNOWN_TYPE", "priority": "URGENT", "before_task": ""}], "modify_dependencies": []}`, nil
 		},
-	})
+	}, "")
 	campaign := &Campaign{
 		ID:     "/c1",
 		Phases: []Phase{{ID: "/p1", Category: "implementation", Tasks: []Task{{ID: "/t1", Status: TaskFailed}}}},
@@ -151,7 +151,7 @@ func TestReplan_MalformedTaskActionStrings(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"tasks": [{"task_id": "/t1", "description": "d", "type": "/file_modify", "priority": "/high", "action": "DELETE_IT"}], "summary": "ok"}`, nil
 		},
-	})
+	}, "")
 	campaign := &Campaign{
 		ID: "/c1",
 		Phases: []Phase{
@@ -181,7 +181,7 @@ func TestReplan_DuplicateTaskIDsInAddedTasks(t *testing.T) {
 				{"task_id": "/t1", "description": "d2", "type": "/file_modify", "action": "add"}
 			], "summary": "ok"}`, nil
 		},
-	})
+	}, "")
 	campaign := &Campaign{
 		ID: "/c1",
 		Phases: []Phase{
@@ -213,7 +213,7 @@ func TestReplan_CircularDependencyInjection(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"success": true, "change_summary": "ok", "modify_dependencies": [{"task_id": "/t1", "remove_deps": [], "add_deps": ["/t2"]}, {"task_id": "/t2", "remove_deps": [], "add_deps": ["/t1"]}]}`, nil
 		},
-	})
+	}, "")
 
 	campaign := &Campaign{
 		ID: "/c1",
@@ -258,7 +258,7 @@ func TestReplan_PromptInjectionInErrors(t *testing.T) {
 			// Let's verify buildReplanContext doesn't crash on weird XML.
 			return `{"success": true, "change_summary": "ok"}`, nil
 		},
-	})
+	}, "")
 
 	campaign := &Campaign{
 		ID: "/c1",
@@ -288,7 +288,7 @@ func TestReplan_MassiveTaskGeneration(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return massiveJSON, nil
 		},
-	})
+	}, "")
 
 	campaign := &Campaign{
 		ID:     "/c1",
@@ -314,7 +314,7 @@ func TestReplan_ConcurrentReplans(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"success": true, "change_summary": "ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "/p1", "description": "d", "type": "/file_modify", "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
 		},
-	})
+	}, "")
 
 	campaign := &Campaign{
 		ID:     "/c1",
@@ -352,7 +352,7 @@ func TestReplanForNewRequirement_KernelFailureRollback(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"new_tasks": [{"phase_order": 0, "description": "d", "type": "/file_modify", "priority": "/high"}], "modified_tasks": [], "summary": "ok"}`, nil
 		},
-	})
+	}, "")
 
 	campaign := &Campaign{
 		ID:     "/c1",
@@ -385,7 +385,7 @@ func TestReplan_KernelTransactionFailureStateReversibility(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"success": true, "change_summary": "ok", "retry_tasks": [{"task_id": "/t1", "new_approach": "new approach"}]}`, nil
 		},
-	})
+	}, "")
 
 	campaign := &Campaign{
 		ID:     "/c1",
@@ -410,7 +410,7 @@ func TestReplan_GhostFactsInKernel(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"success": true, "change_summary": "ok", "retry_tasks": [{"task_id": "/t1", "new_approach": "new approach"}]}`, nil
 		},
-	})
+	}, "")
 
 	campaign := &Campaign{
 		ID:     "/c1",
@@ -448,7 +448,7 @@ func TestReplanner_RecursionFix(t *testing.T) {
 
 	// Create replanner with nil kernel (not needed for this test)
 	// We pass the mock as the LLMClient
-	r := NewReplanner(nil, mockLLM)
+	r := NewReplanner(nil, mockLLM, "")
 
 	// Context
 	ctx := context.Background()
@@ -475,7 +475,7 @@ func TestReplanner_RecursionFix_ErrorPropagates(t *testing.T) {
 		},
 	}
 
-	r := NewReplanner(nil, mockLLM)
+	r := NewReplanner(nil, mockLLM, "")
 	ctx := context.Background()
 
 	// Execution
@@ -488,7 +488,7 @@ func TestReplanner_RecursionFix_ErrorPropagates(t *testing.T) {
 }
 
 func TestReplan_NilCampaign(t *testing.T) {
-	r := NewReplanner(&MockKernel{}, &MockLLMClient{})
+	r := NewReplanner(&MockKernel{}, &MockLLMClient{}, "")
 
 	err := r.Replan(context.Background(), nil, "")
 	if !errors.Is(err, ErrNilCampaign) {
@@ -497,7 +497,7 @@ func TestReplan_NilCampaign(t *testing.T) {
 }
 
 func TestReplanForNewRequirement_EmptyRequirement(t *testing.T) {
-	r := NewReplanner(&MockKernel{}, &MockLLMClient{})
+	r := NewReplanner(&MockKernel{}, &MockLLMClient{}, "")
 
 	err := r.ReplanForNewRequirement(context.Background(), &Campaign{ID: "/campaign_test"}, "   ")
 	if !errors.Is(err, ErrEmptyRequirement) {
@@ -522,7 +522,7 @@ func TestReplanForNewRequirement_InvalidEnumsNormalized(t *testing.T) {
 				"summary": "Added safer test work"
 			}`, nil
 		},
-	})
+	}, "")
 
 	campaign := &Campaign{
 		ID:              "/campaign_test",
@@ -574,7 +574,7 @@ func TestReplan_RollsBackOnKernelLoadFailure(t *testing.T) {
 				"modify_dependencies": []
 			}`, nil
 		},
-	})
+	}, "")
 
 	campaign := &Campaign{
 		ID:             "/campaign_test",
@@ -616,7 +616,7 @@ func TestReplan_RollsBackOnKernelLoadFailure(t *testing.T) {
 }
 
 func TestBuildReplanContext_TruncatesLargeHistory(t *testing.T) {
-	r := NewReplanner(&MockKernel{}, &MockLLMClient{})
+	r := NewReplanner(&MockKernel{}, &MockLLMClient{}, "")
 	campaign := &Campaign{
 		ID:              "/campaign_test",
 		Title:           "Very Large Campaign",

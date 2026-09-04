@@ -81,7 +81,7 @@ func TestReplanRefineRetypesPathlessDocument(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"tasks": [{"task_id": "", "description": "Assemble short ranked risk report from Phase 3 correctness and safety findings", "type": "/document", "priority": "/high", "action": "add"}], "summary": "refine"}`, nil
 		},
-	})
+	}, t.TempDir())
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestReplanDedupeDropsSuffixedRestatement(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"tasks": [{"task_id": "", "description": "Research correctness in internal/retrieval", "type": "/research", "priority": "/high", "action": "add"}], "summary": "refine"}`, nil
 		},
-	})
+	}, t.TempDir())
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestReplanDedupeKeepsDistinctTasks(t *testing.T) {
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"tasks": [{"task_id": "", "description": "Draft release notes in docs/notes.md", "type": "/document", "priority": "/high", "action": "add"}], "summary": "refine"}`, nil
 		},
-	})
+	}, t.TempDir())
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
