@@ -46,11 +46,14 @@ punch list; items are marked as they land. Ledger context:
 **Kernel / shards**
 - `tactile_router` never spawned in production; the second pipeline is dormant by construction — decide: spawn it or delete the emission.
 - `ExecutivePolicyShard` retracts `user_intent`/`pending_action` on every start (destructive on mid-session restart).
-- `diff_eval` defaults false while `kernel_eval.go:26-38` claims true; incremental eval dead; evals cost 14–24 s. `per_shard_facts` defaults false, so the 7-shard manifest is inert data.
+- ~~`diff_eval` incremental eval dead; evals cost 14–24 s~~ — wrong for production. `.nerd/config.json` sets `diff_eval: true`; the 04:23 kernel log shows 105 evaluations via the differential path, 0 full, ~60–70 ms wall each (912 strata). The 14–24 s figure is the test-time full path (compile-time default off). Only the stale comment in `kernel_eval.go:26-38` was real; corrected. `per_shard_facts` is still off by config (deliberate, pinned by test), so the 7-shard manifest is inert data.
 - Shadowed `tactile_router`/`campaign_runner` factories in `registration.go:302-319`.
 
 **Campaign / autopoiesis**
-- `ToolPregenerator` nil in production (~650 lines dead).
+- `nerd campaign start` and `resume` each hand-assemble their own kernel, shard manager and VirtualStore (`cmd_campaign.go` ~242 and ~830) instead of booting the Cortex like every other command — a fourth and fifth boot path. This is *why* `ToolPregenerator` is nil (~650 lines dead), the intelligence gatherer gets no tool generator or MCP store, and every factory fix has to be mirrored by hand. Brief written: `brief_campaign_boot.txt`.
+- `TaskVerifier` fails open: a verifier error is recorded as success at confidence 0.3 and a nil client as 0.5 (`internal/verification/verifier.go` ~224-232, ~283). Brief written: `brief_verifier_failopen.txt`. The TUI compares the max-retries error by string (`process.go:515`).
+- `ExecutivePolicyShard` retract of `user_intent`/`pending_action` happens in Start (`executive.go:427-434`) and is correct at boot; it is destructive only if the shard restarts mid-session. Leave until a restart path exists.
+- MCP `JITToolCompiler`/`CompileToolsForShard` orphan is inert here: `.nerd/config.json` has `integrations.servers: {}`. Low priority.
 - `next_action(/campaign_*)` derived, never consumed (orchestrator dispatches through Go).
 - Verifier (`VerifyWithRetry`) reachable only from the TUI.
 - `prompt_evolved`/`thunderdome_result` have no producer; `correction_pattern` has no consumer.

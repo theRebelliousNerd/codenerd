@@ -14,11 +14,14 @@ import (
 
 func TestConfigFactory_NilToolsAndPolicies(t *testing.T) {
 	// GAP: Verify behavior when tools or policies in a returned ConfigAtom are nil.
+	// Nil tools are fine (an empty allowlist fails closed at execution); nil
+	// policies are rejected by Generate's validation because a turn with no
+	// policy anchor would run unconstrained.
 	provider := &MockConfigAtomProvider{
 		atoms: map[string]ConfigAtom{
 			"/nil_tools": {
 				Tools:    nil,
-				Policies: []string{"p.mg"},
+				Policies: []string{"policy/constitution.mg"},
 			},
 			"/nil_policies": {
 				Tools:    []string{"t1"},
@@ -35,21 +38,27 @@ func TestConfigFactory_NilToolsAndPolicies(t *testing.T) {
 	cr := &CompilationResult{Prompt: "test"}
 
 	tests := []struct {
-		name   string
-		intent string
+		name    string
+		intent  string
+		wantErr bool
 	}{
-		{"nil_tools", "/nil_tools"},
-		{"nil_policies", "/nil_policies"},
-		{"both_nil", "/both_nil"},
+		{"nil_tools", "/nil_tools", false},
+		{"nil_policies", "/nil_policies", true},
+		{"both_nil", "/both_nil", true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg, err := factory.Generate(ctx, cr, tc.intent)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("Generate(%q) succeeded with nil policies, want validation error", tc.intent)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("Generate failed: %v", err)
 			}
-			// Should not panic; cfg should have valid (possibly empty) slices
 			if cfg == nil {
 				t.Fatal("Expected non-nil config")
 			}
@@ -61,8 +70,8 @@ func TestConfigFactory_DeterministicOrdering(t *testing.T) {
 	// GAP: Verify deterministic ordering of tools/policies when deduplicating from multiple intents.
 	provider := &MockConfigAtomProvider{
 		atoms: map[string]ConfigAtom{
-			"/a": {Tools: []string{"t3", "t1", "t2"}, Policies: []string{"p2.mg", "p1.mg"}},
-			"/b": {Tools: []string{"t2", "t4", "t1"}, Policies: []string{"p3.mg", "p1.mg"}},
+			"/a": {Tools: []string{"t3", "t1", "t2"}, Policies: []string{"policy/validation.mg", "policy/constitution.mg"}},
+			"/b": {Tools: []string{"t2", "t4", "t1"}, Policies: []string{"policy/dreamer.mg", "policy/constitution.mg"}},
 		},
 	}
 	factory := NewConfigFactory(provider)
@@ -97,7 +106,7 @@ func TestConfigFactory_SliceCopySafety(t *testing.T) {
 		atoms: map[string]ConfigAtom{
 			"/coder": {
 				Tools:    []string{"write_file", "read_file"},
-				Policies: []string{"coder.mg"},
+				Policies: []string{"policy/coder_safety.mg"},
 			},
 		},
 	}
@@ -130,7 +139,7 @@ func TestConfigFactory_RecursiveGeneration(t *testing.T) {
 		atoms: map[string]ConfigAtom{
 			"/coder": {
 				Tools:    []string{"write_file", "read_file"},
-				Policies: []string{"coder.mg"},
+				Policies: []string{"policy/coder_safety.mg"},
 			},
 		},
 	}

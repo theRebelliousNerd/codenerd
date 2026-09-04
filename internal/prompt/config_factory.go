@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -102,9 +103,6 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 	if len(intents) == 0 {
 		return nil, fmt.Errorf("no intents provided")
 	}
-	if f.provider == nil {
-		return nil, fmt.Errorf("config provider cannot be nil")
-	}
 	var finalAtom ConfigAtom
 	found := false
 
@@ -145,14 +143,17 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 		IntentVerb:     primaryIntent,
 		AllowedTools:   finalAtom.Tools,
 		Policies:       finalAtom.Policies,
-		ToolLoop: config.ToolLoopConfig{
-			MaxIterations:   5,
-			MaxTotalCalls:   50,
-			FailOnToolError: false,
-		},
-		Safety: config.SafetyConfig{
-			RequirePolicyEnforcement: true,
-		},
+	}
+
+	// The factory is the main-turn producer of runtime configs and was the one
+	// path that never validated: an empty Policies slice passed silently while
+	// specialist YAML is rejected for the same defect. The single tool budget
+	// lives on the session ExecutorConfig (fed from core_limits in factory.go),
+	// so this config carries no loop limits of its own.
+	if err := cfg.Validate(); err != nil {
+		logging.Get(logging.CategoryContext).Warn(
+			"Generated config for intent %q failed validation: %v", primaryIntent, err)
+		return nil, err
 	}
 
 	return cfg, nil
@@ -187,14 +188,6 @@ func (f *ConfigFactory) GenerateFallback(ctx context.Context, intent string, fal
 		IntentVerb:     intent,
 		AllowedTools:   finalAtom.Tools,
 		Policies:       finalAtom.Policies,
-		ToolLoop: config.ToolLoopConfig{
-			MaxIterations:   5,
-			MaxTotalCalls:   50,
-			FailOnToolError: false,
-		},
-		Safety: config.SafetyConfig{
-			RequirePolicyEnforcement: true,
-		},
 	}
 }
 
@@ -493,6 +486,20 @@ func (p *DefaultConfigAtomProvider) RegisterAtom(intent string, atom ConfigAtom)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.atoms[intent] = atom.Clone()
+}
+
+// RegisteredIntents returns the sorted list of intent verbs the provider knows.
+// Tests iterate this so every registered verb — not a hardcoded subset — is
+// proven to generate a config that passes Validate.
+func (p *DefaultConfigAtomProvider) RegisteredIntents() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	intents := make([]string, 0, len(p.atoms))
+	for intent := range p.atoms {
+		intents = append(intents, intent)
+	}
+	sort.Strings(intents)
+	return intents
 }
 
 // NewDefaultConfigFactory creates a ConfigFactory with the default provider.

@@ -23,18 +23,11 @@ import (
 // is on. Resolution precedence (highest first): CODENERD_DIFF_EVAL env var,
 // .nerd/config.json features.diff_eval, compile-time default in internal/features.
 //
-// SPEC DEVIATION: Task #10 prescribed `os.Getenv("CODENERD_DIFF_EVAL") == "1"`
-// with default OFF. A concurrent session landed internal/features (out of
-// my scope to modify) whose IsDiffEvalEnabled() defaults TRUE and is the
-// canonical config path; an existing test (kernel_features_test.go) asserts
-// the kernel routes through that gate. Using features.IsDiffEvalEnabled here
-// keeps both paths working: env var still wins (so CODENERD_DIFF_EVAL=0
-// disables it deterministically), and the in-tree gating test passes.
+// The compile-time default (internal/features.DefaultFeaturesConfig) is OFF,
+// so unit tests and ad-hoc kernels take the full-evaluation path; production
+// turns it on through .nerd/config.json (this workspace sets it true). The
+// env var still wins, so CODENERD_DIFF_EVAL=0 disables it deterministically.
 // Re-read on every evaluate() so t.Setenv toggles take effect between passes.
-//
-// Operational guidance until the diff engine's known gaps are closed (see
-// ApplyAtomDelta missing-options caveat and benchmark below), recommend
-// users set CODENERD_DIFF_EVAL=0 in .nerd/config.json features.diff_eval.
 func diffEvalEnabled() bool { return features.IsDiffEvalEnabled() }
 
 // =============================================================================

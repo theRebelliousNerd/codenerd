@@ -125,7 +125,7 @@ func TestConfigFactory_RegisterAtomMutationSafety(t *testing.T) {
 	provider := NewDefaultConfigAtomProvider()
 
 	sharedSlice := []string{"tool1", "tool2"}
-	atom := ConfigAtom{Tools: sharedSlice, Policies: []string{"policy1"}}
+	atom := ConfigAtom{Tools: sharedSlice, Policies: []string{"policy/constitution.mg"}}
 
 	provider.RegisterAtom("/custom_intent", atom)
 
@@ -155,7 +155,7 @@ func TestConfigFactory_Generate(t *testing.T) {
 		atoms: map[string]ConfigAtom{
 			"/coder": {
 				Tools:    []string{"write_file", "read_file"},
-				Policies: []string{"coder.mg"},
+				Policies: []string{"policy/coder_safety.mg"},
 			},
 			"/tester": {
 				Tools:    []string{"run_test", "read_file"},
@@ -179,7 +179,7 @@ func TestConfigFactory_Generate(t *testing.T) {
 			intent:         "/coder",
 			identityPrompt: "You are a coder.",
 			wantTools:      []string{"write_file", "read_file"},
-			wantPolicies:   []string{"coder.mg"},
+			wantPolicies:   []string{"policy/coder_safety.mg"},
 			wantErr:        false,
 		},
 		{
@@ -239,7 +239,7 @@ func TestConfigFactory_NullUndefinedEmpty(t *testing.T) {
 		atoms: map[string]ConfigAtom{
 			"": {
 				Tools:    []string{"fallback_tool"},
-				Policies: []string{"fallback.mg"},
+				Policies: []string{"policy/constitution.mg"},
 			},
 		},
 	}
@@ -258,7 +258,7 @@ func TestConfigFactory_NullUndefinedEmpty_2(t *testing.T) {
 		atoms: map[string]ConfigAtom{
 			"": {
 				Tools:    []string{"fallback_tool"},
-				Policies: []string{"fallback.mg"},
+				Policies: []string{"policy/constitution.mg"},
 			},
 		},
 	}
@@ -292,17 +292,17 @@ func TestConfigFactory_TypeCoercion(t *testing.T) {
 		atoms: map[string]ConfigAtom{
 			"/mixed_case": {
 				Tools:    []string{"ToolA", "toolA "},
-				Policies: []string{" Policy.mg", "policy.mg"},
+				Policies: []string{"policy/validation.mg", "policy/constitution.mg"},
 				Priority: 10,
 			},
 			"/priority_min": {
 				Tools:    []string{"tool"},
-				Policies: []string{"policy.mg"},
+				Policies: []string{"policy/constitution.mg"},
 				Priority: math.MinInt,
 			},
 			"/priority_max": {
 				Tools:    []string{"tool2"},
-				Policies: []string{"policy2.mg"},
+				Policies: []string{"policy/validation.mg"},
 				Priority: math.MaxInt,
 			},
 		},
@@ -320,7 +320,7 @@ func TestConfigFactory_TypeCoercion(t *testing.T) {
 		t.Errorf("Expected 2 tools due to mixed casing and trailing spaces, got %v", len(cfg.AllowedTools))
 	}
 	if len(cfg.Policies) != 2 {
-		t.Errorf("Expected 2 policies due to trailing spaces, got %v", len(cfg.Policies))
+		t.Errorf("Expected 2 distinct canonical policies, got %v", len(cfg.Policies))
 	}
 
 	atomMin, _ := provider.GetAtom("/priority_min")
@@ -340,14 +340,14 @@ func TestConfigFactory_UserExtremes(t *testing.T) {
 		atoms: map[string]ConfigAtom{
 			"/base": {
 				Tools:    []string{"t1"},
-				Policies: []string{"p1.mg"},
+				Policies: []string{"policy/constitution.mg"},
 			},
 		},
 	}
 	for range 10000 {
 		provider.atoms["/base"] = ConfigAtom{
 			Tools:    []string{"t1", "t2"},
-			Policies: []string{"p1.mg", "p2.mg"},
+			Policies: []string{"policy/constitution.mg", "policy/validation.mg"},
 		}
 	}
 	factory := NewConfigFactory(provider)
@@ -463,7 +463,7 @@ func TestConfigFactory_StateConflicts(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range 1000 {
-			provider.RegisterAtom("/new_intent", ConfigAtom{Tools: []string{"tool"}, Policies: []string{"policy.mg"}})
+			provider.RegisterAtom("/new_intent", ConfigAtom{Tools: []string{"tool"}, Policies: []string{"policy/constitution.mg"}})
 		}
 	}()
 
@@ -476,10 +476,12 @@ func TestConfigFactory_EmptySpacesIntent(t *testing.T) {
 	provider := &MockConfigAtomProvider{
 		atoms: map[string]ConfigAtom{
 			"": {
-				Tools: []string{"fallback"},
+				Tools:    []string{"fallback"},
+				Policies: []string{"policy/constitution.mg"},
 			},
 			"/general": {
-				Tools: []string{"general"},
+				Tools:    []string{"general"},
+				Policies: []string{"policy/constitution.mg"},
 			},
 		},
 	}
@@ -522,7 +524,7 @@ func TestConfigFactory_MassiveUniqueStrings(t *testing.T) {
 		atoms: map[string]ConfigAtom{
 			"/base": {
 				Tools:    []string{"t1"},
-				Policies: []string{"p1.mg"},
+				Policies: []string{"policy/constitution.mg"},
 			},
 		},
 	}
@@ -552,7 +554,7 @@ func TestConfigFactory_SliceMutationRace(t *testing.T) {
 	provider := NewDefaultConfigAtomProvider()
 
 	toolsSlice := []string{"initial_tool"}
-	atom := ConfigAtom{Tools: toolsSlice, Policies: []string{"policy.mg"}}
+	atom := ConfigAtom{Tools: toolsSlice, Policies: []string{"policy/constitution.mg"}}
 
 	provider.RegisterAtom("/race_intent", atom)
 

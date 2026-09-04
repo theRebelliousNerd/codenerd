@@ -12,29 +12,11 @@ import (
 // YAML tags use snake_case so specialist config files at
 // .nerd/agents/<name>/config.yaml can use the natural YAML convention.
 type EffectiveAgentRuntimeConfig struct {
-	IdentityPrompt string          `yaml:"identity_prompt" json:"identity_prompt"`
-	IntentVerb     string          `yaml:"intent_verb" json:"intent_verb"`
-	Persona        string          `yaml:"persona" json:"persona"`
-	AllowedTools   []string        `yaml:"allowed_tools" json:"allowed_tools"`
-	Policies       []string        `yaml:"policies" json:"policies"`
-	Model          string          `yaml:"model" json:"model"`
-	ToolLoop       ToolLoopConfig  `yaml:"tool_loop" json:"tool_loop"`
-	Safety         SafetyConfig    `yaml:"safety" json:"safety"`
-	Workspace      WorkspaceConfig `yaml:"workspace" json:"workspace"`
-}
-
-type ToolLoopConfig struct {
-	MaxIterations   int  `yaml:"max_iterations" json:"max_iterations"`
-	MaxTotalCalls   int  `yaml:"max_total_calls" json:"max_total_calls"`
-	FailOnToolError bool `yaml:"fail_on_tool_error" json:"fail_on_tool_error"`
-}
-
-type SafetyConfig struct {
-	RequirePolicyEnforcement bool `yaml:"require_policy_enforcement" json:"require_policy_enforcement"`
-}
-
-type WorkspaceConfig struct {
-	RootPath string `yaml:"root_path" json:"root_path"`
+	IdentityPrompt string   `yaml:"identity_prompt" json:"identity_prompt"`
+	IntentVerb     string   `yaml:"intent_verb" json:"intent_verb"`
+	Persona        string   `yaml:"persona" json:"persona"`
+	AllowedTools   []string `yaml:"allowed_tools" json:"allowed_tools"`
+	Policies       []string `yaml:"policies" json:"policies"`
 }
 
 // Validate ensures the configuration is complete and usable.
@@ -46,9 +28,9 @@ type WorkspaceConfig struct {
 //     Mangle kernel's executive layer; aliases, traversal, missing modules, and
 //     duplicates are rejected against core's live policy inventory.
 //
-// AllowedTools, Model, ToolLoop, Safety, and Workspace are intentionally
-// NOT validated here. They have safe zero values or are populated by
-// downstream layers (e.g. session executor defaults, ConfigFactory).
+// AllowedTools and Persona are intentionally NOT validated here. They have
+// safe zero values: an empty allowlist fails closed at execution, and Persona
+// is descriptive metadata resolved from the intent verb.
 func (c EffectiveAgentRuntimeConfig) Validate() error {
 	if strings.TrimSpace(c.IdentityPrompt) == "" {
 		return fmt.Errorf("config validation failed: identity_prompt is required")
