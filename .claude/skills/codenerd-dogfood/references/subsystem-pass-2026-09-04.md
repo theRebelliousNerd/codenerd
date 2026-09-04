@@ -18,14 +18,20 @@ punch list; items are marked as they land. Ledger context:
 | 6 | Six granted tools had no `safe_action` (web_search, web_fetch, context7_fetch, get_impacted_tests, run_impacted_tests, apply_edits); `apply_edits` mapped in the gate | 72990135 |
 | 7 | Decomposer retypes file tasks against the filesystem | d21bc4ce |
 | 8 | Campaign phase 0–1 output (turn evidence, safe-action projection, one project-shape source) | 755c5732 |
-| 9 | `nerd sessions load` printed a flag that does not exist | (this batch) |
+| 9 | `nerd sessions load` printed a flag that does not exist | 5479bdcf |
+| 10 | Dreamer projected `/critical_path_hit` for *edits* under `internal/core`, `internal/mangle`, `cmd/nerd`, `.nerd`, `.git`, so `panic_state(_, "critical_path_missing")` blocked every write there. Surfaced the moment item 3 put the Dreamer on the executor path (run 23: 38 tool calls, every edit refused, hollow-success guard caught it). The schema defines critical paths as "never removed recursively"; modification now hits only for `.git`, and the prefix match is segment-aware (`internal/corex` no longer matches) | (this batch) |
+| 11 | `TestAddFactsContext_HonorsDeadline` waited a fixed 2 ms for a 1 ns timer; on Windows the timer fires at ~15 ms resolution. Now waits on `ctx.Done()` | (this batch) |
+| 12 | Registry↔policy parity test (`internal/tools/catalog_policy_parity_test.go`, built by codeNERD, run 22). It immediately found four more granted-but-ungated tools: `research_cache_get/set/stats/clear`. get/set/stats gained `safe_action`; `clear` stays denied on purpose and is the test's one listed exception | (this batch) |
+| 13 | Campaign file tasks: target from `Artifacts[0]`, else the first exact write-set entry (relativized), else the description; empty target is an error before any shard call; a directory or missing file never counts as written; pathless mutating tasks retyped to `/research` at plan time (codeNERD, run 24) | (this batch) |
 
 ## In flight (briefs written)
 
-- Registry↔policy golden test (`internal/tools`).
-- `-i` mode: honor `--timeout`, EOF loop, spawn by verb not persona, hollow guard and root-write sweep shared with the one-shot path (`cmd/nerd`).
-- Campaign file tasks: target path from write set, empty path is an error before spawn, pathless mutating tasks retyped at plan time (`internal/campaign`).
+- `-i` mode (`cmd/nerd`): run 23 was refused every write by item 10; re-dispatch after the rebuild.
 - Campaign resume: accept failed/blocked campaigns, reset tasks with a cap, resume boots the same system as start (`cmd/nerd`, `internal/campaign`).
+- Factory wiring: `SetSessionID` + `SetOuroborosRegistry` (`internal/system`, `internal/session`).
+- ConfigFactory: `Validate()` on every generated config, inert `ToolLoop` and unread fields removed (`internal/prompt`, `internal/jit/config`).
+- TUI state: value-receiver writes, continuation context parented on shutdown (`cmd/nerd/chat`).
+- Retrieval semantic tier wired through `nerd retrieve` and the TUI seed (`internal/retrieval`).
 
 ## Open, ranked (one concern each)
 
@@ -42,7 +48,6 @@ punch list; items are marked as they land. Ledger context:
 - `ExecutivePolicyShard` retracts `user_intent`/`pending_action` on every start (destructive on mid-session restart).
 - `diff_eval` defaults false while `kernel_eval.go:26-38` claims true; incremental eval dead; evals cost 14–24 s. `per_shard_facts` defaults false, so the 7-shard manifest is inert data.
 - Shadowed `tactile_router`/`campaign_runner` factories in `registration.go:302-319`.
-- Flaky `TestAddFactsContext_HonorsDeadline` (1 ns timeout).
 
 **Campaign / autopoiesis**
 - `ToolPregenerator` nil in production (~650 lines dead).
