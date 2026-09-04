@@ -389,7 +389,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_ = m.kernel.Retract("interrupt_requested")
 			_ = m.kernel.Retract("continuation_step")
 		}
-		m = m.pushAssistantMsg(fmt.Sprintf("✅ All %d steps complete.\n\n%s", msg.stepCount, msg.summary))
+		switch msg.outcome {
+		case continuationFailed:
+			m = m.pushAssistantMsg(fmt.Sprintf("❌ Stopped after %d step(s): %s", msg.stepCount, msg.summary))
+		case continuationInterrupted:
+			m = m.pushAssistantMsg(fmt.Sprintf("⏹️ Stopped by user after %d step(s).\n\n%s", msg.stepCount, msg.summary))
+		default:
+			m = m.pushAssistantMsg(fmt.Sprintf("✅ All %d steps complete.\n\n%s", msg.stepCount, msg.summary))
+		}
 
 	case initCompleteMsg:
 		m.isLoading = false

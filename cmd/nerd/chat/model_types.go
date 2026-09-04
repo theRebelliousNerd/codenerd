@@ -591,6 +591,17 @@ type OnboardingWizardState struct {
 	SkipRequested   bool
 }
 
+// continuationOutcome distinguishes how a multi-step continuation ended.
+// The zero value is continuationCompleted so producers that do not set an
+// outcome keep today's success rendering.
+type continuationOutcome int
+
+const (
+	continuationCompleted continuationOutcome = iota
+	continuationFailed
+	continuationInterrupted
+)
+
 // Messages for tea updates
 type (
 	responseMsg        string
@@ -690,6 +701,10 @@ type (
 		summary   string
 		// Result of the final completed subtask (optional)
 		completedShardResult *ShardResultPayload
+		// outcome distinguishes completion, failure, and user interrupt.
+		// Zero value (continuationCompleted) preserves today's behaviour
+		// for any producer that does not set it.
+		outcome continuationOutcome
 	}
 
 	// Northstar document analysis message

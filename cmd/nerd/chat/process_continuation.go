@@ -76,11 +76,11 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
-		// Check for interrupt before starting
 		if m.isInterrupted {
 			return continuationDoneMsg{
 				stepCount: m.continuationStep,
 				summary:   "Stopped by user (Ctrl+X)",
+				outcome:   continuationInterrupted,
 			}
 		}
 
@@ -105,6 +105,7 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 				stepCount:            m.continuationStep,
 				summary:              fmt.Sprintf("Step %d failed: %v", m.continuationStep, err),
 				completedShardResult: payload,
+				outcome:              continuationFailed,
 			}
 		}
 
@@ -148,6 +149,7 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 			stepCount:            m.continuationStep,
 			summary:              fmt.Sprintf("Completed %d steps successfully.", m.continuationStep),
 			completedShardResult: payload,
+			outcome:              continuationCompleted,
 		}
 	}
 }
