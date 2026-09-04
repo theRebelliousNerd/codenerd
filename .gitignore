@@ -57,6 +57,7 @@ internal/campaign/.nerd/
 !.claude/skills/codenerd-builder/references/skill-registry.md
 !.claude/skills/codenerd-dogfood/
 .claude/skills/codenerd-dogfood/*
+!.claude/skills/codenerd-dogfood/scripts/
 !.claude/skills/codenerd-dogfood/SKILL.md
 !.claude/skills/codenerd-dogfood/references/
 !.claude/skills/codenerd-dogfood/references/**
