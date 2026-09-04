@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/session"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/usage"
 
@@ -163,9 +164,29 @@ func runChat(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "error: nil result for turn %d\n", turnNum)
 			continue
 		}
-		fmt.Println(result.Response)
-		fmt.Printf("[tools executed=%d ok=%d writes=%d elapsed=%s]\n",
-			result.ToolCallsExecuted, result.SuccessfulToolCalls, result.SuccessfulWriteTools, elapsed)
+		renderChatTurn(os.Stdout, os.Stderr, turnNum, result, elapsed)
 	}
 	return nil
+}
+
+// renderChatTurn renders one completed chat turn to w (stdout) and surfaces
+// any soft execution error to errW (stderr). It is pure — no Cortex, no clock,
+// no globals — so it is unit-testable without booting anything.
+//
+// A soft failure (result.Error set with a nil Process error) still prints the
+// response text, which may hold partial diagnostics, and always prints the
+// closing footer so a driver watching the stream sees both the error line and
+// the counters. The footer carries err=<yes|no> for stdout-only drivers.
+func renderChatTurn(w io.Writer, errW io.Writer, turnNum int, result *session.ExecutionResult, elapsed time.Duration) {
+	_ = turnNum
+	if result.Error != nil {
+		fmt.Fprintf(errW, "error: %v\n", result.Error)
+	}
+	fmt.Fprintln(w, result.Response)
+	errFlag := "no"
+	if result.Error != nil {
+		errFlag = "yes"
+	}
+	fmt.Fprintf(w, "[tools executed=%d ok=%d writes=%d err=%s elapsed=%s]\n",
+		result.ToolCallsExecuted, result.SuccessfulToolCalls, result.SuccessfulWriteTools, errFlag, elapsed)
 }

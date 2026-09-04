@@ -10,6 +10,8 @@ import (
 	"testing"
 	"testing/iotest"
 	"time"
+
+	"codenerd/internal/session"
 )
 
 func drainChatTurns(src *chatTurnSource) []string {
@@ -227,4 +229,53 @@ func TestChatCommandRegistered(t *testing.T) {
 		}
 	}
 	t.Fatal(`rootCmd has no subcommand named "chat"`)
+}
+
+func TestRenderChatTurn(t *testing.T) {
+	t.Run("success writes response and err=no with silent stderr", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		result := &session.ExecutionResult{
+			Response:            "hello world",
+			ToolCallsExecuted:   3,
+			SuccessfulToolCalls: 3,
+		}
+		renderChatTurn(&out, &errOut, 1, result, time.Second)
+
+		got := out.String()
+		if !strings.Contains(got, "hello world") {
+			t.Fatalf("stdout = %q, want it to contain the response", got)
+		}
+		if !strings.Contains(got, "err=no") {
+			t.Fatalf("stdout = %q, want footer to contain %q", got, "err=no")
+		}
+		if errOut.Len() != 0 {
+			t.Fatalf("stderr = %q, want it empty on success", errOut.String())
+		}
+	})
+
+	t.Run("soft error surfaces on stderr and still writes response with err=yes", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		result := &session.ExecutionResult{
+			Response:            "partial diagnostics",
+			ToolCallsExecuted:   3,
+			SuccessfulToolCalls: 0,
+			Error:               errors.New("tool execution failed: boom"),
+		}
+		renderChatTurn(&out, &errOut, 2, result, 2*time.Second)
+
+		got := out.String()
+		if !strings.Contains(got, "partial diagnostics") {
+			t.Fatalf("stdout = %q, want it to still contain the response", got)
+		}
+		if !strings.Contains(got, "err=yes") {
+			t.Fatalf("stdout = %q, want footer to contain %q", got, "err=yes")
+		}
+		errGot := errOut.String()
+		if !strings.Contains(errGot, "error: ") {
+			t.Fatalf("stderr = %q, want it to contain an %q line", errGot, "error: ")
+		}
+		if !strings.Contains(errGot, "tool execution failed: boom") {
+			t.Fatalf("stderr = %q, want it to contain the soft error", errGot)
+		}
+	})
 }
