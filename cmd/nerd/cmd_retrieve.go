@@ -8,11 +8,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/embedding"
 	"codenerd/internal/retrieval"
 	"codenerd/internal/types"
 
@@ -110,8 +113,11 @@ func runRetrieve(cmd *cobra.Command, args []string) error {
 		IssueText: issueText,
 		WorkDir:   workspace,
 		Retriever: retriever,
-		Timeout:   retrieveTimeout,
-		MaxFiles:  retrieveMaxFiles,
+		// resolveRetrieveEmbeddingEngine mirrors the cortex boot: nil when
+		// Ollama is unavailable, and the seed then keeps the heuristic Tier 4.
+		EmbeddingEngine: resolveRetrieveEmbeddingEngine(ctx, workspace),
+		Timeout:         retrieveTimeout,
+		MaxFiles:        retrieveMaxFiles,
 	})
 	if err != nil {
 		return err
@@ -131,6 +137,11 @@ func runRetrieve(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(out, "tiers:      T1=%d  T2=%d  T3=%d  T4=%d\n",
 		report.TierCounts[0], report.TierCounts[1], report.TierCounts[2], report.TierCounts[3])
+	if report.SemanticTier == "embeddings" {
+		fmt.Fprintln(out, "semantic:   embeddings tier (vector similarity)")
+	} else {
+		fmt.Fprintln(out, "semantic:   heuristic fallback (embeddings unavailable)")
+	}
 	fmt.Fprintf(out, "candidates: %d ranked files, %d keyword hits\n", report.Candidates, report.KeywordHits)
 	fmt.Fprintf(out, "facts:      %d asserted, ~%d tokens of context\n\n", report.Facts, report.TotalTokens)
 
@@ -198,4 +209,42 @@ func printRetrievalFacts(cmd *cobra.Command, kernel *core.RealKernel) {
 			fmt.Fprintf(out, "  %s\n", f.String())
 		}
 	}
+}
+
+// resolveRetrieveEmbeddingEngine builds the optional vector backend for Tier 4
+// from .nerd/config.json, mirroring how the cortex factory initializes
+// cortex.EmbeddingEngine. It returns nil when Ollama is unavailable — the
+// factory leaves the engine nil deliberately in that case, and the seed then
+// keeps the heuristic Tier 4 fallback — so `nerd retrieve` never fails for
+// want of embeddings.
+func resolveRetrieveEmbeddingEngine(ctx context.Context, workspace string) embedding.EmbeddingEngine {
+	cfg, _ := config.LoadUserConfig(filepath.Join(workspace, ".nerd", "config.json"))
+	if cfg == nil {
+		cfg = config.DefaultUserConfig()
+	}
+	ucEmb := cfg.GetEmbeddingConfig()
+	engine, err := embedding.NewEngine(embedding.Config{
+		Provider:       ucEmb.Provider,
+		OllamaEndpoint: ucEmb.OllamaEndpoint,
+		OllamaModel:    ucEmb.OllamaModel,
+		GenAIAPIKey:    ucEmb.GenAIAPIKey,
+		GenAIModel:     ucEmb.GenAIModel,
+		TaskType:       ucEmb.TaskType,
+	})
+	if err != nil || engine == nil {
+		return nil
+	}
+	// Same health gate the factory applies at boot: an engine that survives
+	// construction but answers no query must not poison the pass.
+	if checker, ok := engine.(embedding.HealthChecker); ok {
+		hctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if herr := checker.HealthCheck(hctx); herr != nil {
+			if closer, ok := engine.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+			return nil
+		}
+	}
+	return engine
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/transparency"
 	"codenerd/internal/types"
@@ -79,6 +80,12 @@ type SeedRequest struct {
 	// cache; otherwise one is constructed for WorkDir.
 	Retriever *SparseRetriever
 
+	// EmbeddingEngine is the optional vector backend for Tier 4. It is the
+	// interface internal/embedding exposes — the same one internal/store and
+	// internal/prompt accept — so embedding.EmbeddingEngine satisfies it
+	// directly. Nil keeps the definition-scan heuristic fallback.
+	EmbeddingEngine embedding.EmbeddingEngine
+
 	// Timeout bounds the whole pass. DefaultSeedTimeout when zero.
 	Timeout time.Duration
 
@@ -111,6 +118,11 @@ type SeedReport struct {
 	TimedOut bool
 	// Metrics is the retriever's cumulative counter snapshot after the pass.
 	Metrics RetrieverMetrics
+	// SemanticTier records which Tier 4 backend the pass used: "embeddings"
+	// when an engine was supplied, "heuristic fallback" otherwise. It exists
+	// so the degradation is visible in the seed summary line itself rather
+	// than only in a boot warning nobody reads on the turn.
+	SemanticTier string
 }
 
 // Summary renders the report as the one line the glass box and the context log
@@ -124,6 +136,9 @@ func (r *SeedReport) Summary() string {
 		r.Candidates, r.KeywordHits)
 	if r.TimedOut {
 		s += " (budget expired)"
+	}
+	if r.SemanticTier == "heuristic fallback" {
+		s += " [semantic tier: heuristic fallback]"
 	}
 	return s
 }
@@ -189,6 +204,23 @@ func SeedIssueFacts(ctx context.Context, sink FactSink, req SeedRequest) (*SeedR
 	cfg.Retriever = retriever
 	if req.MaxFiles > 0 {
 		cfg.MaxTotal = req.MaxFiles
+	}
+	// Tier 4 was dead code: nothing ever populated cfg.Semantic, so every pass
+	// silently used the definition-scan fallback even with a healthy embedding
+	// backend. Wire the optional engine through; a nil engine keeps today's
+	// heuristic path byte-identical.
+	if req.EmbeddingEngine != nil {
+		if searcher := NewEmbeddingSemanticSearcher(req.EmbeddingEngine, workDir); searcher != nil {
+			cfg.Semantic = searcher
+			report.SemanticTier = "embeddings"
+			logging.ContextDebug("semantic tier: embeddings")
+		} else {
+			report.SemanticTier = "heuristic fallback"
+			logging.ContextDebug("semantic tier: heuristic fallback (no usable engine)")
+		}
+	} else {
+		report.SemanticTier = "heuristic fallback"
+		logging.ContextDebug("semantic tier: heuristic fallback (embeddings unavailable)")
 	}
 	builder := NewTieredContextBuilder(cfg)
 

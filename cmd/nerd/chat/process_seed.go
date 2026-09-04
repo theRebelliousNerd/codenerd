@@ -67,9 +67,13 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 		IssueText: issueText,
 		WorkDir:   m.workspace,
 		Retriever: m.retriever,
-		Timeout:   retrieval.DefaultSeedTimeout,
-		GlassBox:  bus,
-		TurnID:    m.turnCount,
+		// m.embeddingEngine is cortex.EmbeddingEngine: nil when Ollama was
+		// unavailable at boot (the factory leaves it nil deliberately), in
+		// which case the seed keeps the heuristic Tier 4 fallback.
+		EmbeddingEngine: m.embeddingEngine,
+		Timeout:         retrieval.DefaultSeedTimeout,
+		GlassBox:        bus,
+		TurnID:          m.turnCount,
 	}); err != nil {
 		logging.Context("[seedIssueFacts] retrieval seed failed: %v", err)
 	}
