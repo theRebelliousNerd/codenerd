@@ -255,9 +255,13 @@ func (v *LineEditValidator) Validate(ctx context.Context, req ActionRequest, res
 	// For insert_lines, verify the new content is present
 	if req.Type == ActionInsertLines {
 		if newContent, ok := req.Payload["content"].(string); ok && newContent != "" {
-			// Normalize whitespace for comparison
-			normalizedNew := strings.TrimSpace(newContent)
-			if !strings.Contains(string(content), normalizedNew) {
+			// Compare with line endings normalized on both sides. Working
+			// copies on Windows are CRLF while the model inserts LF text; a raw
+			// Contains failed every multi-line insert on this repo, the write
+			// was discounted, the turn read as hollow and the campaign
+			// fallback overwrote the coder's correct work (2026-09-04).
+			normalizedNew := strings.TrimSpace(normalizeLineEndings(newContent))
+			if !strings.Contains(normalizeLineEndings(string(content)), normalizedNew) {
 				return ValidationResult{
 					Verified:   false,
 					Confidence: 0.9,
@@ -311,6 +315,13 @@ func (v *LineEditValidator) Validate(ctx context.Context, req ActionRequest, res
 			"line_count": strings.Count(string(content), "\n") + 1,
 		},
 	}
+}
+
+// normalizeLineEndings folds CRLF and lone CR to LF so content checks compare
+// text, not the platform's newline convention.
+func normalizeLineEndings(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.ReplaceAll(s, "\r", "\n")
 }
 
 // Name returns the validator name.
