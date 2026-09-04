@@ -37,6 +37,9 @@ const commandWaitDelay = 5 * time.Second
 func newCommand(ctx context.Context, name string, arg ...string) *exec.Cmd {
 	cmd := execCommandContext(ctx, name, arg...)
 	cmd.WaitDelay = commandWaitDelay
+	// WaitDelay only bounds how long Wait blocks on a pipe a grandchild holds;
+	// it does not stop the grandchild. Cancellation must kill the tree.
+	configureTreeKill(cmd)
 	return cmd
 }
 
@@ -123,7 +126,7 @@ func RunCommandTool() *tools.Tool {
 				},
 				"timeout_seconds": {
 					Type:        "integer",
-					Description: "Timeout in seconds (default: 60)",
+					Description: "Timeout in seconds (default: 60; 600 when the command is a build or test toolchain invocation such as go test, go build, cargo test, npm test, make)",
 					Default:     60,
 				},
 				"env": {
@@ -150,7 +153,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 		return "", err
 	}
 
-	timeout := 60
+	timeout := defaultCommandTimeout(command)
 	if t, ok := coerceInt(args["timeout_seconds"]); ok && t > 0 {
 		timeout = t
 	}
@@ -379,7 +382,7 @@ func BashTool() *tools.Tool {
 				},
 				"timeout_seconds": {
 					Type:        "integer",
-					Description: "Timeout in seconds (default: 60)",
+					Description: "Timeout in seconds (default: 60; 600 when the command is a build or test toolchain invocation such as go test, go build, cargo test, npm test, make)",
 					Default:     60,
 				},
 			},
@@ -399,7 +402,9 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 		return "", err
 	}
 
-	timeout := 60
+	// A bash script's first line is the best available signal of what it
+	// runs; a script that starts with `go test` deserves the toolchain default.
+	timeout := defaultCommandTimeout(strings.SplitN(strings.TrimSpace(script), "\n", 2)[0])
 	if t, ok := coerceInt(args["timeout_seconds"]); ok && t > 0 {
 		timeout = t
 	}
