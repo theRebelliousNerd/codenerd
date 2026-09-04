@@ -60,6 +60,12 @@ type BootConfig struct {
 	APIKey              string
 	DisableSystemShards []string
 
+	// SessionID optionally fixes the process-unique session identity minted
+	// at boot. Empty means the factory mints `session-<unixnano>`. The TUI
+	// passes its loaded (resumed) session ID here so a resumed session keeps
+	// its identity instead of starting a forked one.
+	SessionID string
+
 	// Overrides for testing
 	UserConfigOverride *config.UserConfig
 	LLMClientOverride  perception.LLMClient
@@ -333,6 +339,21 @@ type Cortex struct {
 	// Close waits on it (briefly) so LocalDB.Close does not race an in-flight
 	// MaintenanceCleanup against open SQLite statements on Windows.
 	maintenanceDone <-chan struct{}
+
+	// sessionID is the process-unique session identity minted at boot (or
+	// supplied via BootConfig.SessionID). It is the single source of truth
+	// for the session executor's turn-persistence identity.
+	sessionID string
+}
+
+// SessionID returns the process-unique session identity minted at boot.
+// Headless surfaces (e.g. `nerd chat`) reuse this instead of minting their
+// own so all turns persist under one identity.
+func (c *Cortex) SessionID() string {
+	if c == nil {
+		return ""
+	}
+	return c.sessionID
 }
 
 type missingLLMClient struct {
@@ -626,6 +647,11 @@ type bootContext struct {
 	scanner                      *world.Scanner
 	tracker                      *usage.Tracker
 	projectDoc                   *projectdoc.Document // nerd.md, nil when absent or invalid
+	// sessionID is the process-unique session identity minted in
+	// initFinalExecutors (or taken from BootConfig.SessionID). It is the
+	// single source of truth propagated to the session executor, the
+	// spawner, and the Cortex accessor.
+	sessionID string
 }
 
 func initCoreComponents(bctx *bootContext) error {
@@ -1606,6 +1632,28 @@ func initFinalExecutors(bctx *bootContext) error {
 		execCfg.MaxToolIterationExtensions, execCfg.ToolIterationExtensionSize,
 		execCfg.ToolLoopRepeatThreshold, execCfg.VerifyBuildAfterEdits, execCfg.WorkspaceRoot)
 
+	// Every boot mints one process-unique session identity in the same form
+	// the headless chat path uses (`session-<unixnano>`), unless the caller
+	// supplied one via BootConfig (the TUI passes its loaded session ID so a
+	// resumed session keeps its identity). Previously only cmd_chat set an ID,
+	// so every campaign task, run/fix/create/review turn, and sub-agent
+	// persisted under "default", interleaving unrelated runs.
+	if sid := strings.TrimSpace(bctx.cfg.SessionID); sid != "" {
+		bctx.sessionID = sid
+	} else {
+		bctx.sessionID = fmt.Sprintf("session-%d", time.Now().UnixNano())
+	}
+	bctx.sessionExecutor.SetSessionID(bctx.sessionID)
+	// Wire the VirtualStore's generated-tool registry into the session
+	// executor so non-TUI paths see the same Ouroboros tools the TUI wires in
+	// session_shared_boot/session_boot. SetOuroborosRegistry is nil-safe: a
+	// nil store or registry clears the slot instead of panicking.
+	if bctx.virtualStore != nil {
+		bctx.sessionExecutor.SetOuroborosRegistry(bctx.virtualStore.GetToolRegistry())
+	} else {
+		bctx.sessionExecutor.SetOuroborosRegistry(nil)
+	}
+
 	if bctx.localDB != nil {
 		bctx.sessionExecutor.SetSessionPersister(bctx.localDB)
 	}
@@ -1638,6 +1686,14 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.sessionSpawner.SetFileContextProvider(fileContextProvider)
 	}
 	bctx.sessionSpawner.SetExecutorConfig(&execCfg)
+	bctx.sessionSpawner.SetSessionID(bctx.sessionID)
+	// Mirror the executor wiring so subagent executors see the same
+	// generated tools. Nil-safe on both ends.
+	if bctx.virtualStore != nil {
+		bctx.sessionSpawner.SetOuroborosRegistry(bctx.virtualStore.GetToolRegistry())
+	} else {
+		bctx.sessionSpawner.SetOuroborosRegistry(nil)
+	}
 
 	// Reasoning-intensive intents (/review, /audit, /campaign, ...) escape the
 	// worker tier onto the planner client. The kernel decides which those are
@@ -1768,6 +1824,7 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		mcpCancel:             bctx.mcpCancel,
 		mcpDone:               bctx.mcpDone,
 		perceptionInitialized: bctx.perceptionInitialized,
+		sessionID:             bctx.sessionID,
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	appconfig "codenerd/internal/config"
+	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -63,6 +64,16 @@ type Spawner struct {
 	// pattern for plannerClient/projectDoc/fileContext and ensuring the 24/120
 	// limits from .nerd/config.json reach the code that actually loops.
 	executorConfig *ExecutorConfig
+
+	// sessionID is the parent session identifier forwarded to every spawned
+	// subagent's executor via Executor.SetSessionID. Subagent executors have
+	// no persister, so this only correlates audit boundaries.
+	sessionID string
+
+	// ouroborosRegistry is the generated-tool registry forwarded to every
+	// spawned subagent's executor via Executor.SetOuroborosRegistry. Nil
+	// means subagents run without generated tools.
+	ouroborosRegistry *core.ToolRegistry
 
 	// Active subagents
 	subagents map[string]*SubAgent
@@ -191,6 +202,40 @@ func (s *Spawner) currentExecutorConfig() *ExecutorConfig {
 	return s.executorConfig
 }
 
+// SetSessionID installs the session identifier every subagent spawned from
+// here on will inherit on its executor. Already-spawned subagents keep the ID
+// they were built with. Subagent executors have no persister, so the ID only
+// correlates audit boundaries and never records task turns as session turns.
+func (s *Spawner) SetSessionID(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessionID = id
+}
+
+// currentSessionID reads the session ID slot under the read lock.
+func (s *Spawner) currentSessionID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sessionID
+}
+
+// SetOuroborosRegistry installs the generated-tool registry every subagent
+// spawned from here on will inherit on its executor. Already-spawned
+// subagents keep the registry they were built with. A nil registry clears
+// the slot instead of panicking.
+func (s *Spawner) SetOuroborosRegistry(registry *core.ToolRegistry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ouroborosRegistry = registry
+}
+
+// currentOuroborosRegistry reads the registry slot under the read lock.
+func (s *Spawner) currentOuroborosRegistry() *core.ToolRegistry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ouroborosRegistry
+}
+
 // SpawnRequest describes the parameters for spawning a subagent.
 type SpawnRequest struct {
 	// Name is the subagent name (e.g., "coder", "my-specialist")
@@ -293,6 +338,15 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	if cfg := s.currentExecutorConfig(); cfg != nil {
 		agent.executor.SetConfig(*cfg)
 	}
+	// Forward session identity and generated-tool registry. The subagent
+	// executor has no persister, so the inherited session ID only correlates
+	// audit boundaries and never records task turns as session turns.
+	if sid := s.currentSessionID(); sid != "" {
+		agent.executor.SetSessionID(sid)
+	}
+	if reg := s.currentOuroborosRegistry(); reg != nil {
+		agent.executor.SetOuroborosRegistry(reg)
+	}
 
 	// Phase 5: Register subagent (lock held briefly)
 	s.mu.Lock()
@@ -384,6 +438,16 @@ func (s *Spawner) SpawnSpecialist(ctx context.Context, name string, task string)
 	// set MaxToolIterations to 0.
 	if s.executorConfig != nil {
 		agent.executor.SetConfig(*s.executorConfig)
+	}
+	// Forward session identity and generated-tool registry. s.mu is already
+	// held for writing, so read the slots directly. The subagent executor has
+	// no persister, so the inherited session ID only correlates audit
+	// boundaries and never records specialist turns as session turns.
+	if s.sessionID != "" {
+		agent.executor.SetSessionID(s.sessionID)
+	}
+	if s.ouroborosRegistry != nil {
+		agent.executor.SetOuroborosRegistry(s.ouroborosRegistry)
 	}
 
 	s.subagents[agent.GetID()] = agent

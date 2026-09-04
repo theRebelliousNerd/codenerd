@@ -511,12 +511,15 @@ func (e *Executor) CloneForTask() *Executor {
 	clone := NewExecutor(e.kernel, e.virtualStore, e.llmClient, e.jitCompiler, e.configFactory, e.transducer)
 	clone.config = e.config
 	clone.ouroborosRegistry = e.ouroborosRegistry
+	clone.sessionID = e.sessionID
 	clone.plannerClient = e.plannerClient
 	clone.projectDoc = e.projectDoc
 	clone.fileContext = e.fileContext
 	// Deliberately NOT copied: conversationHistory, sessionContext,
-	// sessionPersister/sessionID (task runs must not be recorded as session
-	// turns), EffectiveAgentRuntimeConfig (set per task by the caller).
+	// sessionPersister (task runs must not be recorded as session turns),
+	// EffectiveAgentRuntimeConfig (set per task by the caller).
+	// sessionID IS inherited so audit boundaries correlate the task with its
+	// parent session; without a persister the clone still records nothing.
 	// Per-workspace context (projectDoc, fileContext) IS inherited because a
 	// delegated task acts on the same workspace as the session that spawned it.
 	return clone
@@ -556,11 +559,24 @@ func (e *Executor) SetHistory(history []perception.ConversationTurn) {
 
 // SetOuroborosRegistry sets the Ouroboros tool registry for generated tools.
 // This enables Piggyback++ to include Ouroboros-generated tools in the catalog.
+// A nil registry clears the slot instead of panicking so non-TUI boot paths
+// that have no generated tools yet can still call this unconditionally.
 func (e *Executor) SetOuroborosRegistry(registry *core.ToolRegistry) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.ouroborosRegistry = registry
+	if registry == nil {
+		return
+	}
 	logging.Session("Ouroboros registry configured with %d tools", len(registry.ListTools()))
+}
+
+// OuroborosRegistry returns the configured Ouroboros tool registry, or nil
+// when no generated-tool registry has been wired (e.g. before boot).
+func (e *Executor) OuroborosRegistry() *core.ToolRegistry {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.ouroborosRegistry
 }
 
 // SetSessionPersister sets the store for persisting session turns.
@@ -576,6 +592,14 @@ func (e *Executor) SetSessionID(id string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.sessionID = id
+}
+
+// SessionID returns the session identifier used for turn persistence and
+// audit boundaries. Empty means the executor falls back to "default".
+func (e *Executor) SessionID() string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.sessionID
 }
 
 // ExecutionResult holds the result of processing user input.

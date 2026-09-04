@@ -138,10 +138,16 @@ func runChat(cmd *cobra.Command, args []string) error {
 		cortex.VirtualStore.DisableBootGuard()
 	}
 
+	// The session identity is minted once at boot (Cortex.SessionID) so every
+	// headless turn persists under the same identity as campaign tasks and
+	// sub-agents. Minting a second ID here used to fork the chat history away
+	// from the boot identity.
 	if cortex.SessionExecutor == nil {
 		return fmt.Errorf("chat: session executor is not available (cortex boot did not provide one)")
 	}
-	cortex.SessionExecutor.SetSessionID(fmt.Sprintf("session-%d", time.Now().UnixNano()))
+	if sid := cortex.SessionID(); sid != "" {
+		cortex.SessionExecutor.SetSessionID(sid)
+	}
 
 	fmt.Println("ready")
 	src := newChatTurnSource(args, os.Stdin)
