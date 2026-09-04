@@ -80,9 +80,9 @@
     - Making network requests without explicit authorization
 
     ### WHAT TO DO IF BLOCKED
-    If the Kernel blocks your action, explain to the user:
+    If the Kernel blocks your action, explain which kernel rule blocked the action and what the user can do about it:
     ```json
     {
-      "surface_response": "I cannot delete that directory because it's protected by the kernel's safety rules. If you need to delete it, you'll need to do so manually or grant explicit permission with /override."
+      "surface_response": "<explain which kernel rule blocked the action and what the user can do about it>"
     }
     ```

@@ -3,6 +3,7 @@ package articulation
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -973,7 +974,7 @@ You MUST include a "reasoning_trace" field in your output with your step-by-step
 
 Format your response as JSON with:
 {
-  "reasoning_trace": "Step-by-step reasoning...",
+  "reasoning_trace": "<REASONING_TRACE: your actual step-by-step reasoning>",
   "result": <your actual output>
 }
 
@@ -1070,6 +1071,48 @@ type ProcessedLLMResponse struct {
 	Warnings    []string       // Non-fatal notes from parsing/caps (e.g. skipped mangle updates)
 }
 
+// placeholderSurfacePattern matches angle-bracket placeholders such as
+// <SURFACE_RESPONSE...> or <REASONING_TRACE...>. Schema examples use
+// angle-bracket instructions that must never be emitted verbatim.
+var placeholderSurfacePattern = regexp.MustCompile(`^<[A-Z_]+(:[^>]*)?>$`)
+
+const historicalPlaceholderSurface = "Human-readable response to the user"
+
+const historicalPlaceholderRefusal = "I cannot delete that directory because it's protected by the kernel's safety rules. If you need to delete it, you'll need to do so manually or grant explicit permission with /override."
+
+// isPlaceholderSurface reports whether s is parroted schema example text
+// rather than a real reply. It is true when the trimmed surface equals one
+// of the historical placeholders, matches ^<[A-Z_]+(:[^>]*)?>$, or starts
+// with <SURFACE_RESPONSE.
+func isPlaceholderSurface(s string) bool {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == historicalPlaceholderSurface || trimmed == historicalPlaceholderRefusal {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "<SURFACE_RESPONSE") {
+		return true
+	}
+	return placeholderSurfacePattern.MatchString(trimmed)
+}
+
+// isPlaceholderFeedback reports whether fb carries the schema's example
+// feedback values rather than a real assessment. It is true when
+// helpful_facts equals the historical example set exactly or when
+// missing_context starts with "<MISSING_CONTEXT".
+func isPlaceholderFeedback(fb *ContextFeedback) bool {
+	if fb == nil {
+		return false
+	}
+	if len(fb.HelpfulFacts) == 2 && fb.HelpfulFacts[0] == "file_topology" && fb.HelpfulFacts[1] == "test_state" {
+		return true
+	}
+	if strings.HasPrefix(fb.MissingContext, "<MISSING_CONTEXT") {
+		return true
+	}
+	return false
+}
+
+
 // ProcessLLMResponse is a convenience function for shards to process LLM responses.
 // It extracts the surface_response and control_packet from a Piggyback-formatted
 // LLM response. The surface is safe for user display; the control should be
@@ -1100,6 +1143,18 @@ func ProcessLLMResponse(rawResponse string) *ProcessedLLMResponse {
 
 	logging.Articulation("ProcessLLMResponse: method=%s, confidence=%.2f, surface_len=%d",
 		result.ParseMethod, result.Confidence, len(result.Surface))
+
+	// Drop parroted schema placeholders so example text is never shown or learned from.
+	if isPlaceholderSurface(result.Surface) {
+		logging.Get(logging.CategoryArticulation).Warn("placeholder surface_response dropped")
+		result.Surface = ""
+		result.Warnings = append(result.Warnings, "placeholder surface_response dropped")
+	}
+	if isPlaceholderFeedback(result.Control.ContextFeedback) {
+		logging.Get(logging.CategoryArticulation).Warn("placeholder context_feedback dropped")
+		result.Control.ContextFeedback = nil
+		result.Warnings = append(result.Warnings, "placeholder context_feedback dropped")
+	}
 
 	processed := &ProcessedLLMResponse{
 		Surface:     result.Surface,
@@ -1138,6 +1193,18 @@ func ProcessLLMResponseAllowPlain(rawResponse string) *ProcessedLLMResponse {
 
 	logging.Articulation("ProcessLLMResponseAllowPlain: method=%s, confidence=%.2f, surface_len=%d",
 		result.ParseMethod, result.Confidence, len(result.Surface))
+
+	// Drop parroted schema placeholders so example text is never shown or learned from.
+	if isPlaceholderSurface(result.Surface) {
+		logging.Get(logging.CategoryArticulation).Warn("placeholder surface_response dropped")
+		result.Surface = ""
+		result.Warnings = append(result.Warnings, "placeholder surface_response dropped")
+	}
+	if isPlaceholderFeedback(result.Control.ContextFeedback) {
+		logging.Get(logging.CategoryArticulation).Warn("placeholder context_feedback dropped")
+		result.Control.ContextFeedback = nil
+		result.Warnings = append(result.Warnings, "placeholder context_feedback dropped")
+	}
 
 	processed := &ProcessedLLMResponse{
 		Surface:     result.Surface,

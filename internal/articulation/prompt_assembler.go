@@ -872,12 +872,12 @@ You MUST output a JSON object with this exact structure. No exceptions.
         "priority": "required|optional"
       }
     ],
-    "reasoning_trace": "Step-by-step reasoning...",
+    "reasoning_trace": "<REASONING_TRACE: your actual step-by-step reasoning>",
     "context_feedback": {
-      "overall_usefulness": 0.8,
-      "helpful_facts": ["file_topology", "test_state"],
-      "noise_facts": ["dom_node"],
-      "missing_context": ""
+      "overall_usefulness": 0.0,
+      "helpful_facts": [],
+      "noise_facts": [],
+      "missing_context": "<MISSING_CONTEXT: what would have helped, or empty string>"
     },
     "tool_requests": [
       {
@@ -889,8 +889,10 @@ You MUST output a JSON object with this exact structure. No exceptions.
       }
     ]
   },
-  "surface_response": "Human-readable response to the user"
+  "surface_response": "<SURFACE_RESPONSE: your reply to the user, plain language, never this placeholder>"
 }
+
+Angle-bracket text in this example is a placeholder describing what to write; never emit it verbatim. "helpful_facts" and "noise_facts" list the injected predicate names that helped or hurt; leave them empty when none did.
 
 ## CRITICAL: THOUGHT-FIRST ORDERING
 
