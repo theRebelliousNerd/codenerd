@@ -14,6 +14,7 @@
 //	internal/autopoiesis — tool_compiler.go, thunderdome.go
 //	internal/session     — build_verify.go, test_verify.go, coverage_profile.go, lsp_diagnostics.go
 //	internal/core        — virtual_store_actions.go
+//	internal/system      — factory_execution.go (tactile ExecutorConfig.BaseEnvironment)
 //
 // The historical list in this comment named preflight, attack_runner and tester,
 // none of which ever imported the package; that fiction is what the inventory

@@ -97,6 +97,17 @@ Unions `GetBuildEnv(nil, v.workingDir)` with the execution allowlist so the
 default `go test ./...` action failed with `fatal error: 'sqlite3.h' file not
 found` and reported it as a test failure.
 
+## 4c. Live integration: tactile executor base environment
+
+**File:** `internal/system/factory_execution.go` (`executionLayerConfigs`)
+
+Sets `tactile.ExecutorConfig.BaseEnvironment = GetBuildEnv(nil, workingDir)` at
+boot, so every command the tactile `DirectExecutor` runs (campaign
+checkpoints, shard build/test verification) sees `CGO_CFLAGS`/`GOFLAGS`/
+`GOCACHE` regardless of the parent shell. Before this the executor passed
+only allowlisted parent variables and the `/tests_pass` checkpoint reported
+37 package build failures on `sqlite3.h` (campaign 5a2f4c8d, 2026-09-04).
+
 ---
 
 ## 5. Config wiring (latent)

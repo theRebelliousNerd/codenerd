@@ -146,6 +146,7 @@ func TestBuildImporters_WhenNewConsumerAppears_ShouldBeDocumented(t *testing.T) 
 		"internal/autopoiesis": true, // tool_compiler.go, thunderdome.go
 		"internal/session":     true, // build_verify.go, test_verify.go, coverage_profile.go, lsp_diagnostics.go
 		"internal/core":        true, // virtual_store_actions.go (shell-run go test/build)
+		"internal/system":      true, // factory_execution.go (tactile ExecutorConfig.BaseEnvironment)
 	}
 
 	seen := map[string][]string{}
