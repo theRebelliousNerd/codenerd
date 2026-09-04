@@ -62,19 +62,57 @@ func (o *Orchestrator) findUpstreamPhase(task *Task) *Phase {
 	return nil
 }
 
+func transitiveUpstreamPhases(cur *Phase, byID map[string]*Phase) []*Phase {
+	if cur == nil {
+		return nil
+	}
+	visited := map[string]struct{}{cur.ID: {}}
+	queue := make([]string, 0, len(cur.Dependencies))
+	for _, dep := range cur.Dependencies {
+		if dep.Type != DepHard && dep.Type != DepArtifact {
+			continue
+		}
+		if dep.DependsOnPhaseID == "" {
+			continue
+		}
+		if _, seen := visited[dep.DependsOnPhaseID]; seen {
+			continue
+		}
+		visited[dep.DependsOnPhaseID] = struct{}{}
+		queue = append(queue, dep.DependsOnPhaseID)
+	}
+	var out []*Phase
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		dp, ok := byID[id]
+		if !ok || dp == nil {
+			continue
+		}
+		out = append(out, dp)
+		for _, dep := range dp.Dependencies {
+			if dep.Type != DepHard && dep.Type != DepArtifact {
+				continue
+			}
+			if dep.DependsOnPhaseID == "" {
+				continue
+			}
+			if _, seen := visited[dep.DependsOnPhaseID]; seen {
+				continue
+			}
+			visited[dep.DependsOnPhaseID] = struct{}{}
+			queue = append(queue, dep.DependsOnPhaseID)
+		}
+	}
+	return out
+}
+
 func collectDepCandidates(cur *Phase, byID map[string]*Phase) []upstreamCandidate {
 	var out []upstreamCandidate
 	if cur == nil {
 		return out
 	}
-	for _, dep := range cur.Dependencies {
-		if dep.Type != DepHard && dep.Type != DepArtifact {
-			continue
-		}
-		dp, ok := byID[dep.DependsOnPhaseID]
-		if !ok {
-			continue
-		}
+	for _, dp := range transitiveUpstreamPhases(cur, byID) {
 		for _, t := range dp.Tasks {
 			if t.Status != TaskCompleted {
 				continue
@@ -208,6 +246,18 @@ func truncateUpstreamBody(content string, totalLen int, perCap int, path string)
 	return head + fmt.Sprintf("\n[truncated, %d bytes total; read the file at %s for the rest]", totalLen, path)
 }
 
+func countReachableUpstreamPhases(o *Orchestrator, task *Task) int {
+	if o == nil || task == nil || o.campaign == nil {
+		return 0
+	}
+	cur := o.findUpstreamPhase(task)
+	if cur == nil {
+		return 0
+	}
+	byID, _ := snapshotPhaseMap(o)
+	return len(transitiveUpstreamPhases(cur, byID))
+}
+
 func (o *Orchestrator) upstreamArtifactContext(task *Task) string {
 	if o == nil || task == nil {
 		return ""
@@ -222,8 +272,10 @@ func (o *Orchestrator) upstreamArtifactContext(task *Task) string {
 		perCap = 12 * 1024
 	}
 	entries := o.collectUpstreamDocs(task)
+	considered := len(entries)
+	reachable := countReachableUpstreamPhases(o, task)
 	if len(entries) == 0 {
-		logging.Campaign("task %s: injected 0 upstream artifacts (0 bytes, budget %d)", taskID, totalBudget)
+		logging.Campaign("task %s: injected %d of %d upstream artifacts from %d phases (%d bytes, budget %d)", taskID, 0, considered, reachable, 0, totalBudget)
 		return ""
 	}
 	var sb strings.Builder
@@ -257,11 +309,11 @@ func (o *Orchestrator) upstreamArtifactContext(task *Task) string {
 		}
 	}
 	if included == 0 {
-		logging.Campaign("task %s: injected 0 upstream artifacts (0 bytes, budget %d)", taskID, totalBudget)
+		logging.Campaign("task %s: injected %d of %d upstream artifacts from %d phases (%d bytes, budget %d)", taskID, 0, considered, reachable, 0, totalBudget)
 		return ""
 	}
 	section := sb.String()
-	logging.Campaign("task %s: injected %d upstream artifacts (%d bytes, budget %d)", taskID, included, len(section), totalBudget)
+	logging.Campaign("task %s: injected %d of %d upstream artifacts from %d phases (%d bytes, budget %d)", taskID, included, considered, reachable, len(section), totalBudget)
 	return section
 }
 

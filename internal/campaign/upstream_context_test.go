@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"codenerd/internal/tactile"
 )
@@ -175,3 +176,120 @@ func TestUpstreamVerifyTask_NoUpstreamKeepsBehavior(t *testing.T) {
 		t.Fatalf("expected verified=true, got %#v", m)
 	}
 }
+
+func upstreamTransitiveChainFixture(t *testing.T) (*Orchestrator, *Task, string, string, string) {
+	t.Helper()
+	ws := t.TempDir()
+	bodyA := "TRANSITIVE-MARKER-A " + strings.Repeat("a", 100)
+	bodyB := "TRANSITIVE-MARKER-B " + strings.Repeat("b", 100)
+	bodyC := "TRANSITIVE-MARKER-C " + strings.Repeat("c", 100)
+	relA := writeUpstreamDoc(t, ws, ".nerd/campaigns/trans/artifacts/a.md", bodyA)
+	relB := writeUpstreamDoc(t, ws, ".nerd/campaigns/trans/artifacts/b.md", bodyB)
+	relC := writeUpstreamDoc(t, ws, ".nerd/campaigns/trans/artifacts/c.md", bodyC)
+	o := &Orchestrator{
+		workspace: ws,
+		campaign: &Campaign{
+			ID: "/campaign_trans",
+			Phases: []Phase{
+				{ID: "phase_a", Order: 0, Tasks: []Task{
+					{ID: "task_a1", PhaseID: "phase_a", Type: TaskTypeResearch, Status: TaskCompleted, Order: 0, Description: "Research A findings", Artifacts: []TaskArtifact{{Type: "/doc", Path: relA}}},
+				}},
+				{ID: "phase_b", Order: 1,
+					Dependencies: []PhaseDependency{{DependsOnPhaseID: "phase_a", Type: DepHard}},
+					Tasks: []Task{
+						{ID: "task_b1", PhaseID: "phase_b", Type: TaskTypeResearch, Status: TaskCompleted, Order: 0, Description: "Research B findings", Artifacts: []TaskArtifact{{Type: "/doc", Path: relB}}},
+					}},
+				{ID: "phase_c", Order: 2,
+					Dependencies: []PhaseDependency{{DependsOnPhaseID: "phase_b", Type: DepHard}},
+					Tasks: []Task{
+						{ID: "task_c1", PhaseID: "phase_c", Type: TaskTypeResearch, Status: TaskCompleted, Order: 0, Description: "Research C findings", Artifacts: []TaskArtifact{{Type: "/doc", Path: relC}}},
+					}},
+				{ID: "phase_d", Order: 3,
+					Dependencies: []PhaseDependency{{DependsOnPhaseID: "phase_c", Type: DepHard}},
+					Tasks: []Task{
+						{ID: "task_d1", PhaseID: "phase_d", Type: TaskTypeDocument, Status: TaskPending, Order: 0, Description: "Document ranked risk report with severity evidence impact and next checks"},
+					}},
+			},
+		},
+	}
+	return o, &o.campaign.Phases[3].Tasks[0], bodyA, bodyB, bodyC
+}
+
+func TestUpstreamArtifactContext_TransitiveChain(t *testing.T) {
+	o, task, _, _, _ := upstreamTransitiveChainFixture(t)
+	section := o.upstreamArtifactContext(task)
+	for _, want := range []string{"TRANSITIVE-MARKER-A", "TRANSITIVE-MARKER-B", "TRANSITIVE-MARKER-C"} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("section missing %q: %q", want, section)
+		}
+	}
+	idxA := strings.Index(section, "TRANSITIVE-MARKER-A")
+	idxC := strings.Index(section, "TRANSITIVE-MARKER-C")
+	if idxC > idxA {
+		t.Fatalf("newest phase first: C (%d) should appear before A (%d): %q", idxC, idxA, section)
+	}
+}
+
+func TestUpstreamArtifactContext_TransitiveBudgetKeepsNearest(t *testing.T) {
+	o, task, _, bodyB, bodyC := upstreamTransitiveChainFixture(t)
+	old := upstreamTotalBudgetBytes
+	defer func() { upstreamTotalBudgetBytes = old }()
+	upstreamTotalBudgetBytes = len(bodyC) + len(bodyB) + 10
+	section := o.upstreamArtifactContext(task)
+	if !strings.Contains(section, "TRANSITIVE-MARKER-C") {
+		t.Fatalf("expected nearest artifact C, got %q", section)
+	}
+	if !strings.Contains(section, "TRANSITIVE-MARKER-B") {
+		t.Fatalf("expected artifact B, got %q", section)
+	}
+	if strings.Contains(section, "TRANSITIVE-MARKER-A") {
+		t.Fatalf("farthest artifact A should have been cut by budget: %q", section)
+	}
+}
+
+func TestUpstreamArtifactContext_CycleSafe(t *testing.T) {
+	ws := t.TempDir()
+	relA := writeUpstreamDoc(t, ws, ".nerd/campaigns/cyc/artifacts/a.md", "CYCLE-MARKER-A "+strings.Repeat("a", 64))
+	relB := writeUpstreamDoc(t, ws, ".nerd/campaigns/cyc/artifacts/b.md", "CYCLE-MARKER-B "+strings.Repeat("b", 64))
+	o := &Orchestrator{
+		workspace: ws,
+		campaign: &Campaign{
+			ID: "/campaign_cycle",
+			Phases: []Phase{
+				{ID: "phase_a", Order: 0,
+					Dependencies: []PhaseDependency{{DependsOnPhaseID: "phase_b", Type: DepHard}},
+					Tasks: []Task{
+						{ID: "task_a1", PhaseID: "phase_a", Type: TaskTypeResearch, Status: TaskCompleted, Order: 0, Description: "Research A", Artifacts: []TaskArtifact{{Type: "/doc", Path: relA}}},
+					}},
+				{ID: "phase_b", Order: 1,
+					Dependencies: []PhaseDependency{{DependsOnPhaseID: "phase_a", Type: DepHard}},
+					Tasks: []Task{
+						{ID: "task_b1", PhaseID: "phase_b", Type: TaskTypeResearch, Status: TaskCompleted, Order: 0, Description: "Research B", Artifacts: []TaskArtifact{{Type: "/doc", Path: relB}}},
+						{ID: "task_b2", PhaseID: "phase_b", Type: TaskTypeDocument, Status: TaskPending, Order: 1, Description: "Document follow-up"},
+					}},
+			},
+		},
+	}
+	done := make(chan string, 1)
+	go func() {
+		done <- o.upstreamArtifactContext(&o.campaign.Phases[1].Tasks[1])
+	}()
+	var section string
+	select {
+	case section = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstreamArtifactContext hung on cyclic phase dependencies")
+	}
+	for _, want := range []string{"CYCLE-MARKER-A", "CYCLE-MARKER-B"} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("section missing %q: %q", want, section)
+		}
+	}
+	if n := strings.Count(section, "CYCLE-MARKER-A"); n != 1 {
+		t.Fatalf("expected CYCLE-MARKER-A exactly once, got %d: %q", n, section)
+	}
+	if n := strings.Count(section, "CYCLE-MARKER-B"); n != 1 {
+		t.Fatalf("expected CYCLE-MARKER-B exactly once, got %d: %q", n, section)
+	}
+}
+
