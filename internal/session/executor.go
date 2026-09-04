@@ -603,6 +603,21 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 // taskIntentCounter feeds unique task-scoped intent IDs (see ProcessWithIntent).
 var taskIntentCounter uint64
 
+// wrapToolLoopError separates two error classes sharing one return path.
+// runToolLoop returns genuine LLM failures and post-edit verification gate
+// failures (build/test/critic re-verification, marked with
+// ErrVerificationFailed). Only the former is an LLM failure; a turn whose
+// edits do not compile must not tell the user "LLM generation failed".
+func wrapToolLoopError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, ErrVerificationFailed) {
+		return err
+	}
+	return fmt.Errorf("LLM generation failed: %w", err)
+}
+
 // ProcessWithIntent runs the clean loop with an optional pre-classified
 // intent. When preset is non-nil the OBSERVE phase is skipped entirely:
 //
@@ -745,7 +760,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// final answer with no tool calls, or we hit the iteration cap.
 	llmResponse, toolErrs, err := e.runToolLoop(ctx, systemPrompt, input, EffectiveAgentRuntimeConfig, compilationCtx, result)
 	if err != nil {
-		return nil, fmt.Errorf("LLM generation failed: %w", err)
+		return nil, wrapToolLoopError(err)
 	}
 
 	// 7. Articulate response — process Piggyback control packet (best-effort)

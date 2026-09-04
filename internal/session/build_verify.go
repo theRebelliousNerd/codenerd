@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -13,6 +14,13 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
+
+// ErrVerificationFailed marks post-edit verification failures (build, test,
+// or critic uplift re-verification) so callers can distinguish broken edits
+// from LLM generation failures. Wrap every verification-gate error with it
+// via fmt.Errorf("%w: ...", ErrVerificationFailed, ...) so errors.Is reports
+// true while the compiler/test output detail is preserved in the message.
+var ErrVerificationFailed = errors.New("post-edit verification failed")
 
 // Post-edit build verification.
 //
@@ -196,8 +204,8 @@ func (e *Executor) verifyAndRepairBuild(
 
 	if trp == nil {
 		return nil, nil, fmt.Errorf(
-			"edits broke the build and no repair is possible (client cannot accept tool results):\n%s",
-			verification.Output)
+			"%w: edits broke the build and no repair is possible (client cannot accept tool results):\n%s",
+			ErrVerificationFailed, verification.Output)
 	}
 
 	history = append(history, types.Message{Role: "user", Text: buildRepairPrompt(verification.Output)})
@@ -205,7 +213,8 @@ func (e *Executor) verifyAndRepairBuild(
 	repaired, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, toolDefs)
 	if err != nil {
 		return nil, nil, fmt.Errorf(
-			"edits broke the build and the repair round failed (%v). Compiler output:\n%s", err, verification.Output)
+			"%w: edits broke the build and the repair round failed (%v). Compiler output:\n%s",
+			ErrVerificationFailed, err, verification.Output)
 	}
 
 	var repairErrs []string
@@ -217,7 +226,8 @@ func (e *Executor) verifyAndRepairBuild(
 	recheck := verifyBuild(ctx, workspace, nil)
 	if recheck.Ran && !recheck.OK {
 		return nil, repairErrs, fmt.Errorf(
-			"edits broke the build and the repair round did not fix it. Compiler output:\n%s", recheck.Output)
+			"%w: edits broke the build and the repair round did not fix it. Compiler output:\n%s",
+			ErrVerificationFailed, recheck.Output)
 	}
 
 	logging.Get(logging.CategorySession).Info("Build repaired successfully after one round")
@@ -282,8 +292,8 @@ func (e *Executor) verifyAndRepairTests(
 
 	if trp == nil {
 		return nil, nil, fmt.Errorf(
-			"edits broke the tests and no repair is possible (client cannot accept tool results):\n%s",
-			verification.Output)
+			"%w: edits broke the tests and no repair is possible (client cannot accept tool results):\n%s",
+			ErrVerificationFailed, verification.Output)
 	}
 
 	history = append(history, types.Message{Role: "user", Text: testRepairPrompt(verification.Output)})
@@ -291,7 +301,8 @@ func (e *Executor) verifyAndRepairTests(
 	repaired, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, toolDefs)
 	if err != nil {
 		return nil, nil, fmt.Errorf(
-			"edits broke the tests and the repair round failed (%v). Test output:\n%s", err, verification.Output)
+			"%w: edits broke the tests and the repair round failed (%v). Test output:\n%s",
+			ErrVerificationFailed, err, verification.Output)
 	}
 
 	var repairErrs []string
@@ -303,12 +314,14 @@ func (e *Executor) verifyAndRepairTests(
 	// A test repair can break the build, so re-check both, cheapest first.
 	if recheckBuild := verifyBuild(ctx, workspace, nil); recheckBuild.Ran && !recheckBuild.OK {
 		return nil, repairErrs, fmt.Errorf(
-			"the test repair round broke the build. Compiler output:\n%s", recheckBuild.Output)
+			"%w: the test repair round broke the build. Compiler output:\n%s",
+			ErrVerificationFailed, recheckBuild.Output)
 	}
 	recheck := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))
 	if recheck.Ran && !recheck.OK {
 		return nil, repairErrs, fmt.Errorf(
-			"edits broke the tests and the repair round did not fix them. Test output:\n%s", recheck.Output)
+			"%w: edits broke the tests and the repair round did not fix them. Test output:\n%s",
+			ErrVerificationFailed, recheck.Output)
 	}
 
 	logging.Get(logging.CategorySession).Info("Tests repaired successfully after one round")
@@ -492,12 +505,13 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		// and breaking the build is a real break, whoever suggested it.
 		if verification := verifyBuild(ctx, workspace, nil); verification.Ran && !verification.OK {
 			return uplifted, upliftErrs, fmt.Errorf(
-				"the adversarial review's uplift round broke the build. Compiler output:\n%s",
-				verification.Output)
+				"%w: the adversarial review's uplift round broke the build. Compiler output:\n%s",
+				ErrVerificationFailed, verification.Output)
 		}
 		if tv := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths)); tv.Ran && !tv.OK {
 			return uplifted, upliftErrs, fmt.Errorf(
-				"the adversarial review's uplift round broke the tests. Test output:\n%s", tv.Output)
+				"%w: the adversarial review's uplift round broke the tests. Test output:\n%s",
+				ErrVerificationFailed, tv.Output)
 		}
 	}
 	return uplifted, upliftErrs, nil
