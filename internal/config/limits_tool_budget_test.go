@@ -32,7 +32,7 @@ func TestValidateCoreLimits_RejectsUnboundedAdaptiveSettings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			limits := valid
 			tt.mutate(&limits)
-			if err := (&Config{CoreLimits: limits}).ValidateCoreLimits(); err == nil {
+			if err := (&limits).ValidateCoreLimits(); err == nil {
 				t.Fatal("ValidateCoreLimits accepted unsafe adaptive setting")
 			}
 		})

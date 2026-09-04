@@ -103,32 +103,32 @@ const (
 )
 
 // ValidateCoreLimits checks that core limits are within acceptable ranges.
-func (c *Config) ValidateCoreLimits() error {
-	if c.CoreLimits.MaxTotalMemoryMB < 512 {
+func (c *CoreLimits) ValidateCoreLimits() error {
+	if c.MaxTotalMemoryMB < 512 {
 		return fmt.Errorf("max_total_memory_mb must be >= 512 MB")
 	}
-	if c.CoreLimits.MaxConcurrentShards < 1 {
+	if c.MaxConcurrentShards < 1 {
 		return fmt.Errorf("max_concurrent_shards must be >= 1")
 	}
-	if c.CoreLimits.MaxFactsInKernel < 1000 {
+	if c.MaxFactsInKernel < 1000 {
 		return fmt.Errorf("max_facts_in_kernel must be >= 1000")
 	}
-	if c.CoreLimits.MaxDerivedFactsLimit < 1000 {
+	if c.MaxDerivedFactsLimit < 1000 {
 		return fmt.Errorf("max_derived_facts_limit must be >= 1000")
 	}
-	if c.CoreLimits.MaxToolCalls < 0 {
+	if c.MaxToolCalls < 0 {
 		return fmt.Errorf("max_tool_calls must be >= 0")
 	}
-	if c.CoreLimits.MaxToolIterations < 0 {
+	if c.MaxToolIterations < 0 {
 		return fmt.Errorf("max_tool_iterations must be >= 0")
 	}
-	if c.CoreLimits.ToolIterationExtensionSize < 0 || c.CoreLimits.ToolIterationExtensionSize > 64 {
+	if c.ToolIterationExtensionSize < 0 || c.ToolIterationExtensionSize > 64 {
 		return fmt.Errorf("tool_iteration_extension_size must be between 0 and 64")
 	}
-	if c.CoreLimits.MaxToolIterationExtensions < 0 || c.CoreLimits.MaxToolIterationExtensions > 8 {
+	if c.MaxToolIterationExtensions < 0 || c.MaxToolIterationExtensions > 8 {
 		return fmt.Errorf("max_tool_iteration_extensions must be between 0 and 8")
 	}
-	if threshold := c.CoreLimits.ToolLoopRepeatThreshold; threshold != 0 && (threshold < 2 || threshold > 8) {
+	if threshold := c.ToolLoopRepeatThreshold; threshold != 0 && (threshold < 2 || threshold > 8) {
 		return fmt.Errorf("tool_loop_repeat_threshold must be 0 or between 2 and 8")
 	}
 	return nil
@@ -136,13 +136,13 @@ func (c *Config) ValidateCoreLimits() error {
 
 // EnforceCoreLimits returns enforcement parameters for the kernel.
 // This ensures config values are actually used, not just stored.
-func (c *Config) EnforceCoreLimits() map[string]int {
+func (c *CoreLimits) EnforceCoreLimits() map[string]int {
 	return map[string]int{
-		"max_facts":        c.CoreLimits.MaxFactsInKernel,
-		"max_derived":      c.CoreLimits.MaxDerivedFactsLimit,
-		"max_shards":       c.CoreLimits.MaxConcurrentShards,
-		"max_memory_mb":    c.CoreLimits.MaxTotalMemoryMB,
-		"session_duration": c.CoreLimits.MaxSessionDurationMin,
+		"max_facts":        c.MaxFactsInKernel,
+		"max_derived":      c.MaxDerivedFactsLimit,
+		"max_shards":       c.MaxConcurrentShards,
+		"max_memory_mb":    c.MaxTotalMemoryMB,
+		"session_duration": c.MaxSessionDurationMin,
 	}
 }
 
