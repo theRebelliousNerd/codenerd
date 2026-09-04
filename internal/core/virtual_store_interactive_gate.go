@@ -56,7 +56,11 @@ var interactiveToolActionType = map[string]ActionType{
 	// codedom element edits share the line tools' destructive posture and
 	// already have CodeDOM/syntax validators and a constitution case wired.
 	"edit_element": ActionEditElement,
-	// NOTE: "apply_edits" is a known unmapped write tool with no ActionType in VirtualStore routing.
+	// apply_edits is the multi-file transactional editor. It has no dedicated
+	// ActionType in VirtualStore routing, but it mutates files exactly like
+	// edit_file, so it takes the same Dreamer preflight and post-write
+	// validators. It was unmapped until 2026-09-04, which skipped both.
+	"apply_edits": ActionEditFile,
 }
 
 // actionTypeForToolName resolves a modular tool name to its ActionType.

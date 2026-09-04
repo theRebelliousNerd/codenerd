@@ -124,6 +124,17 @@ safe_action(/browser_test).
 safe_action(/browser_audit).
 # Provider-mediated, read-only research; JIT routing still limits availability.
 safe_action(/grounded_web_search).
+# Registered and granted by the JIT ConfigFactory, but absent here until
+# 2026-09-04, so every call was hard-denied ("action not permitted") while
+# the model was still offered the tool — the drift class documented above
+# for /edit_file. Added by hand during the subsystem pass; the catalog
+# golden test in internal/tools pins registry↔policy parity from now on.
+safe_action(/web_search).
+safe_action(/web_fetch).
+safe_action(/context7_fetch).
+safe_action(/get_impacted_tests).
+safe_action(/run_impacted_tests).
+safe_action(/apply_edits).
 
 # System lifecycle
 safe_action(/initialize).
