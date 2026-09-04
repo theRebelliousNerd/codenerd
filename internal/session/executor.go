@@ -161,6 +161,12 @@ type Executor struct {
 	sessionPersister SessionPersister
 	sessionID        string
 
+	// usageTracker is the process-wide usage meter (shared handle over
+	// usage.json). SnapshotTurnUsage reads per-session spend through the
+	// context, so ProcessWithIntent tags its ctx with this tracker via
+	// meteredContext; without it every turn_cost delta reads zero.
+	usageTracker *usage.Tracker
+
 	// Configuration
 	config ExecutorConfig
 
@@ -518,6 +524,7 @@ func (e *Executor) CloneForTask() *Executor {
 	clone.config = e.config
 	clone.ouroborosRegistry = e.ouroborosRegistry
 	clone.sessionID = e.sessionID
+	clone.usageTracker = e.usageTracker
 	clone.plannerClient = e.plannerClient
 	clone.projectDoc = e.projectDoc
 	clone.fileContext = e.fileContext
@@ -606,6 +613,38 @@ func (e *Executor) SessionID() string {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.sessionID
+}
+
+// SetUsageTracker installs the process-wide usage meter this executor's turns
+// read through meteredContext. Nil-safe: a nil tracker clears the slot so
+// boot paths without metering keep the previous zero-cost behaviour instead
+// of panicking.
+func (e *Executor) SetUsageTracker(t *usage.Tracker) {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.usageTracker = t
+}
+
+// meteredContext returns ctx carrying this executor's usage tracker so
+// snapshotTurnUsage can read the session's spend. A tracker already present
+// on ctx wins (callers that tag their own context keep it); a nil executor
+// or a nil owned tracker leaves ctx unchanged.
+func (e *Executor) meteredContext(ctx context.Context) context.Context {
+	if usage.FromContext(ctx) != nil {
+		return ctx
+	}
+	if e == nil {
+		return ctx
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.usageTracker == nil {
+		return ctx
+	}
+	return usage.NewContext(ctx, e.usageTracker)
 }
 
 // ExecutionResult holds the result of processing user input.
@@ -759,6 +798,10 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// this session (BySession) rather than "unknown"; turn_cost reads that
 	// entry, never the cross-process project total.
 	ctx = usage.WithSessionID(ctx, e.SessionID())
+	// Carry the owned usage meter on the turn context so snapshotTurnUsage
+	// below (and every sub-agent/clone turn derived from this executor) reads
+	// this session's spend instead of zeros. A tracker already on ctx wins.
+	ctx = e.meteredContext(ctx)
 	e.hydrateMemory(ctx, input)
 	usageBefore := snapshotTurnUsage(ctx, e.SessionID())
 

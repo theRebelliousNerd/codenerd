@@ -19,6 +19,7 @@ import (
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
+	"codenerd/internal/usage"
 
 	"gopkg.in/yaml.v3"
 )
@@ -69,6 +70,11 @@ type Spawner struct {
 	// subagent's executor via Executor.SetSessionID. Subagent executors have
 	// no persister, so this only correlates audit boundaries.
 	sessionID string
+
+	// usageTracker is the process-wide usage meter forwarded to every spawned
+	// subagent's executor via Executor.SetUsageTracker, so subagent turns
+	// read spend instead of zeros. Nil means subagents run untracked.
+	usageTracker *usage.Tracker
 
 	// ouroborosRegistry is the generated-tool registry forwarded to every
 	// spawned subagent's executor via Executor.SetOuroborosRegistry. Nil
@@ -219,6 +225,26 @@ func (s *Spawner) currentSessionID() string {
 	return s.sessionID
 }
 
+// SetUsageTracker installs the usage meter every subagent spawned from here
+// on will inherit on its executor, so subagent turns read spend instead of
+// zeros. Already-spawned subagents keep the tracker they were built with.
+// Nil-safe: a nil tracker clears the slot instead of panicking.
+func (s *Spawner) SetUsageTracker(t *usage.Tracker) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.usageTracker = t
+}
+
+// currentUsageTracker reads the usage tracker slot under the read lock.
+func (s *Spawner) currentUsageTracker() *usage.Tracker {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.usageTracker
+}
+
 // SetOuroborosRegistry installs the generated-tool registry every subagent
 // spawned from here on will inherit on its executor. Already-spawned
 // subagents keep the registry they were built with. A nil registry clears
@@ -344,6 +370,10 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	if sid := s.currentSessionID(); sid != "" {
 		agent.executor.SetSessionID(sid)
 	}
+	// Forward the usage meter so subagent turns read spend instead of zeros.
+	if tr := s.currentUsageTracker(); tr != nil {
+		agent.executor.SetUsageTracker(tr)
+	}
 	if reg := s.currentOuroborosRegistry(); reg != nil {
 		agent.executor.SetOuroborosRegistry(reg)
 	}
@@ -445,6 +475,11 @@ func (s *Spawner) SpawnSpecialist(ctx context.Context, name string, task string)
 	// boundaries and never records specialist turns as session turns.
 	if s.sessionID != "" {
 		agent.executor.SetSessionID(s.sessionID)
+	}
+	// Forward the usage meter so specialist turns read spend instead of
+	// zeros. s.mu is already held for writing, so read the slot directly.
+	if s.usageTracker != nil {
+		agent.executor.SetUsageTracker(s.usageTracker)
 	}
 	if s.ouroborosRegistry != nil {
 		agent.executor.SetOuroborosRegistry(s.ouroborosRegistry)

@@ -1711,6 +1711,10 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.sessionID = fmt.Sprintf("session-%d", time.Now().UnixNano())
 	}
 	bctx.sessionExecutor.SetSessionID(bctx.sessionID)
+	// Hand the executor its usage meter so ProcessWithIntent tags the turn
+	// context and snapshotTurnUsage reads spend instead of zeros. Nil-safe:
+	// when metering failed to boot, turns keep the previous behaviour.
+	bctx.sessionExecutor.SetUsageTracker(bctx.tracker)
 	// Wire the VirtualStore's generated-tool registry into the session
 	// executor so non-TUI paths see the same Ouroboros tools the TUI wires in
 	// session_shared_boot/session_boot. SetOuroborosRegistry is nil-safe: a
@@ -1754,6 +1758,9 @@ func initFinalExecutors(bctx *bootContext) error {
 	}
 	bctx.sessionSpawner.SetExecutorConfig(&execCfg)
 	bctx.sessionSpawner.SetSessionID(bctx.sessionID)
+	// Same meter for spawned subagents: their executors are fresh builds, not
+	// clones, so without this their turn_cost deltas read zero. Nil-safe.
+	bctx.sessionSpawner.SetUsageTracker(bctx.tracker)
 	// Mirror the executor wiring so subagent executors see the same
 	// generated tools. Nil-safe on both ends.
 	if bctx.virtualStore != nil {
