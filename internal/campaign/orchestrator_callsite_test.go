@@ -94,8 +94,8 @@ func TestOrchestratorConfigLiterals_AllSetNorthstarObserver(t *testing.T) {
 	// this test "pass" forever.
 	// Four since 2026-09-04: nerd campaign start and resume build their config
 	// through one function (cmd/nerd/cmd_campaign.go buildCampaignOrchestratorConfig).
-	if checked < 4 {
-		t.Fatalf("found only %d OrchestratorConfig literals; expected at least 4. "+
+	if checked < 3 {
+		t.Fatalf("found only %d OrchestratorConfig literals; expected at least 3. "+
 			"If construction moved, update this test rather than deleting it", checked)
 	}
 

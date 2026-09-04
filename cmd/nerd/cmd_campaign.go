@@ -7,15 +7,12 @@ import (
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
-	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
-	"codenerd/internal/prompt"
 	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	"codenerd/internal/store"
 	coresys "codenerd/internal/system"
-	"codenerd/internal/tactile"
 	"codenerd/internal/types"
 	"codenerd/internal/world"
 	"context"
@@ -39,28 +36,6 @@ func loadCampaignConfig(nerdDir string) *config.UserConfig {
 		appCfg = config.DefaultUserConfig()
 	}
 	return appCfg
-}
-
-// newCampaignLLMClients builds the main and worker LLM clients for a campaign
-// run from the user's config.
-//
-// The campaign CLI previously called perception.NewClientFromEnv(), which reads
-// ONLY environment variables — and it ran before the config was even loaded. So
-// `nerd campaign start` silently ignored the configured provider, model and
-// worker, and picked whichever key happened to be exported. Resolving from
-// UserConfig first (env remains the fallback when the config expresses no
-// choice) makes the CLI agree with the chat path and with `config is boss`.
-//
-// The returned worker is nil when none is configured; callers should fall back
-// to the main client in that case.
-// campaignLLMClients holds the model slots a campaign run needs. Main plans,
-// worker executes bulk tasks, planner (when configured) serves the delegated
-// turns the kernel derives as reasoning-intensive. A nil slot means "fall back
-// to the next one up".
-type campaignLLMClients struct {
-	main    perception.LLMClient
-	worker  perception.LLMClient
-	planner perception.LLMClient
 }
 
 // newConfiguredLLMClient builds the main CLI LLM client from .nerd/config.json,
@@ -88,30 +63,6 @@ func newConfiguredLLMClient(appCfg *config.UserConfig, label string) (perception
 		return nil, fmt.Errorf("failed to initialize LLM client: %w", eerr)
 	}
 	return core.NewScheduledLLMCall(label, envClient), nil
-}
-
-func newCampaignLLMClients(appCfg *config.UserConfig, label string) (campaignLLMClients, error) {
-	var out campaignLLMClients
-
-	main, err := newConfiguredLLMClient(appCfg, label)
-	if err != nil {
-		return out, err
-	}
-	out.main = main
-
-	if worker, werr := perception.NewWorkerClientFromUserConfig(appCfg); werr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: worker LLM init failed: %v (shards share main client)\n", werr)
-	} else if worker != nil {
-		out.worker = core.NewScheduledLLMCall(label+"-worker", worker)
-	}
-
-	if planner, perr := perception.NewPlannerClientFromUserConfig(appCfg); perr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: planner LLM init failed: %v (reasoning tasks stay on the worker client)\n", perr)
-	} else if planner != nil {
-		out.planner = core.NewScheduledLLMCall(label+"-planner", planner)
-	}
-
-	return out, nil
 }
 
 // campaignCmd is the parent command for campaign operations
@@ -729,200 +680,32 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 
 	// (Legacy fallback key resolution removed)
 
-	// Load user config BEFORE building the LLM client, so the client honors the
-	// configured provider/model/worker and the VirtualStore honors the user's
-	// allowed_binaries / allowed_env_vars whitelist (see runCampaignStart).
-	appCfg := loadCampaignConfig(filepath.Dir(config.DefaultUserConfigPath()))
-
-	llmSlots, clientErr := newCampaignLLMClients(appCfg, "campaign-resume")
-	if clientErr != nil {
-		return clientErr
-	}
-	llmClient, workerLLMClient := llmSlots.main, llmSlots.worker
-	exec := appCfg.GetExecution()
-	vsCfg := core.DefaultVirtualStoreConfig()
-	if len(exec.AllowedBinaries) > 0 {
-		vsCfg.AllowedBinaries = exec.AllowedBinaries
-	}
-	if len(exec.AllowedEnvVars) > 0 {
-		vsCfg.AllowedEnvVars = exec.AllowedEnvVars
-	}
-	if exec.WorkingDirectory != "" {
-		vsCfg.WorkingDir = exec.WorkingDirectory
-	}
-
-	kern, err := core.NewRealKernel()
+	// Boot through the Cortex factory, exactly like runCampaignStart, so resume
+	// inherits every factory improvement (session identity, Ouroboros registry,
+	// hydration, Dreamer gate adapter, worker/planner routing) and the JIT
+	// prompt provider instead of hand-assembling a parallel stack with nil
+	// stores and no ToolPregenerator.
+	key := resolveAPIKey(apiKey, workspace)
+	cortex, err := coresys.GetOrBootCortex(ctx, cwd, key, disableSystemShards)
 	if err != nil {
-		return fmt.Errorf("failed to create kernel: %w", err)
+		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
-	executor := tactile.NewDirectExecutor()
-	virtualStore := core.NewVirtualStoreWithConfig(executor, vsCfg)
-	virtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
-
-	// FIX(BUG-005): Hydrate modular tools so JITExecutor can use them
-	var groundedSearcherResume types.GroundedWebSearcher
-	if gws, ok := llmClient.(types.GroundedWebSearcher); ok {
-		groundedSearcherResume = gws
+	defer cortex.Close()
+	if cortex.VirtualStore != nil {
+		cortex.VirtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 	}
-	if err := virtualStore.HydrateModularTools(groundedSearcherResume); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to hydrate modular tools: %v\n", err)
-	}
-
-	shardMgr := coreshards.NewShardManager()
-	shardMgr.SetParentKernel(kern)
-
-	// Initialize limits enforcer and spawn queue (appCfg loaded above)
-	coreLimits := appCfg.GetCoreLimits()
-	jitCfg := appCfg.GetEffectiveJITConfig()
-
-	// Configure global LLM API concurrency
-	schedulerCfg := core.DefaultAPISchedulerConfig()
-	schedulerCfg.MaxConcurrentAPICalls = appCfg.GetEffectiveMaxConcurrentAPICalls()
-	schedulerCfg.SlotAcquireTimeout = config.GetLLMTimeouts().SlotAcquisitionTimeout
-	core.ConfigureGlobalAPIScheduler(schedulerCfg)
-
-	limitsEnforcer := core.NewLimitsEnforcer(core.LimitsConfig{
-		MaxTotalMemoryMB:      coreLimits.MaxTotalMemoryMB,
-		MaxConcurrentShards:   coreLimits.MaxConcurrentShards,
-		MaxSessionDurationMin: coreLimits.MaxSessionDurationMin,
-		MaxFactsInKernel:      coreLimits.MaxFactsInKernel,
-		MaxDerivedFactsLimit:  coreLimits.MaxDerivedFactsLimit,
-	})
-	shardMgr.SetLimitsEnforcer(limitsEnforcer)
-	spawnQueue := coreshards.NewSpawnQueue(shardMgr, limitsEnforcer, coreshards.DefaultSpawnQueueConfig())
-	shardMgr.SetSpawnQueue(spawnQueue)
-	_ = spawnQueue.Start()
-
-	// Initialize JIT Prompt Compiler
-	compilerCfg := prompt.DefaultCompilerConfig()
-	if jitCfg.TokenBudget > 0 {
-		compilerCfg.DefaultTokenBudget = jitCfg.TokenBudget
-	}
-
-	// FIX(BUG-004): Load embedded corpus - required for JIT atoms to be available
-	embeddedCorpus, embeddedErr := prompt.LoadEmbeddedCorpus()
-	if embeddedErr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to load embedded corpus: %v\n", embeddedErr)
-	}
-
-	compilerOpts := []prompt.CompilerOption{
-		prompt.WithKernel(coresys.NewKernelAdapter(kern)),
-		prompt.WithConfig(compilerCfg),
-	}
-	if embeddedCorpus != nil {
-		compilerOpts = append(compilerOpts, prompt.WithEmbeddedCorpus(embeddedCorpus))
-	}
-
-	jitCompiler, err := prompt.NewJITPromptCompiler(compilerOpts...)
-	if err != nil {
-		return fmt.Errorf("failed to init JIT compiler: %w", err)
-	}
-
-	// Worker client for shard/task execution; planning stays on main.
-	shardLLM := llmClient
-	if workerLLMClient != nil {
-		shardLLM = workerLLMClient
-	}
-
-	// Register shard factories
-	shardMgr.SetLLMClient(shardLLM)
-	// Image generation (Nano Banana 2) stays off the campaign worker/main client.
-	if imgClient, ierr := perception.NewImageClientFromUserConfig(appCfg); ierr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Image LLM (Nano Banana 2) unavailable: %v\n", ierr)
-	} else if imgClient != nil {
-		shardMgr.SetImageLLMClient(core.NewScheduledLLMCall("image_generator", imgClient))
-	}
-	shards.RegisterAllShardFactories(shardMgr, shards.RegistryContext{
-		Kernel:       kern,
-		LLMClient:    llmClient,
-		VirtualStore: virtualStore,
-		Workspace:    cwd,
-		JITCompiler:  jitCompiler,
-		JITConfig:    jitCfg,
-	})
 
 	progressChan := make(chan campaign.Progress, 10)
 	eventChan := make(chan campaign.OrchestratorEvent, 100)
 
-	// Create JITExecutor for campaign task execution (replaces deleted domain shards)
-	transducer := perception.NewUnderstandingTransducer(llmClient)
-	configFactory := prompt.NewDefaultConfigFactory()
-	resumeKernelAdapter := &campaignKernelAdapter{kernel: kern}
-	resumeVSAdapter := &campaignVirtualStoreAdapter{vs: virtualStore}
-	// Task execution rides the worker client; the Orchestrator keeps the main
-	// client for planning.
-	resumeLLMAdapter := &campaignLLMAdapter{client: shardLLM}
+	orchCfg, campaignPromptProvider := buildCampaignOrchestratorConfig(cortex, cwd, progressChan, eventChan)
 
-	sessionExecutor := session.NewExecutor(
-		resumeKernelAdapter,
-		resumeVSAdapter,
-		resumeLLMAdapter,
-		jitCompiler,
-		configFactory,
-		transducer,
-	)
-
-	sessionSpawner := session.NewSpawner(
-		resumeKernelAdapter,
-		resumeVSAdapter,
-		resumeLLMAdapter,
-		jitCompiler,
-		configFactory,
-		transducer,
-		session.DefaultSpawnerConfig(),
-	)
-
-	applyCampaignExecutorBudget(appCfg, cwd, sessionExecutor, sessionSpawner)
-
-	if llmSlots.planner != nil {
-		plannerAdapter := newCampaignLLMAdapter(llmSlots.planner)
-		sessionExecutor.SetPlannerClient(plannerAdapter)
-		sessionSpawner.SetPlannerClient(plannerAdapter)
-	}
-
-	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
-	virtualStore.SetTaskExecutor(&campaignTaskDelegatorAdapter{executor: taskExecutor})
-	// ShardManager has no factory for the domain personas or user-defined
-	// agents a campaign consults; route those through the clean loop instead of
-	// the BaseShardAgent placeholder that reported success without doing work.
-	shardMgr.SetTaskDelegator(&campaignTaskDelegatorAdapter{executor: taskExecutor})
-	consultationMgr := shards.NewConsultationManager(&campaignTaskExecutorConsultationSpawner{executor: taskExecutor})
-	consultationProvider := newCampaignConsultationProvider(consultationMgr)
-
-	// Initialize campaign intelligence components for deterministic gating during resume.
-	worldScanner := world.NewScanner()
-	holographic := world.NewHolographicProvider(kern, cwd)
-	intelligenceGatherer := campaign.NewIntelligenceGatherer(
-		kern,
-		worldScanner,
-		holographic,
-		nil,
-		nil,
-		nil,
-		nil,
-		consultationProvider,
-	)
-	advisoryBoard := campaign.NewShardAdvisoryBoard(consultationProvider)
-	northstarObserver := buildNorthstarObserver(cwd, llmClient, kern)
-	edgeCaseDetector := campaign.NewEdgeCaseDetector(kern, worldScanner)
-
-	orchestrator, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
-		Workspace:            cwd,
-		Kernel:               kern,
-		LLMClient:            llmClient,
-		ShardManager:         shardMgr,
-		TaskExecutor:         taskExecutor,
-		Executor:             executor,
-		VirtualStore:         virtualStore,
-		ProgressChan:         progressChan,
-		EventChan:            eventChan,
-		IntelligenceGatherer: intelligenceGatherer,
-		AdvisoryBoard:        advisoryBoard,
-		NorthstarObserver:    northstarObserver,
-		EdgeCaseDetector:     edgeCaseDetector,
-	})
+	orchestrator, err := campaign.NewOrchestrator(orchCfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize campaign orchestrator: %w", err)
+	}
+	if campaignPromptProvider != nil {
+		orchestrator.SetPromptProvider(campaignPromptProvider)
 	}
 
 	if err := orchestrator.SetCampaign(pausedCampaign); err != nil {
