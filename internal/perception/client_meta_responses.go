@@ -359,29 +359,70 @@ func (c *OpenAICompatClient) executeResponses(ctx context.Context, reqBody metaR
 	c.throttle()
 
 	url := strings.TrimSuffix(c.baseURL, "/") + metaResponsesPath
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("build responses request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
+	// Bounded retry, mirroring executeChat. The Responses surface carries every
+	// tool-result follow-up on Meta and had no retry at all, so one transient
+	// `503 service_overloaded` ("Please retry", in Meta's own words) killed the
+	// whole turn. Observed live 2026-09-03: two consecutive `nerd fix` runs and
+	// four `nerd chat` turns died on it while a direct probe of the same
+	// endpoint succeeded seconds later. Other 4xx still surface immediately:
+	// Meta's errors name the offending field, and losing that turns a one-line
+	// fix into a guessing game.
+	const maxRetries = 3
 	start := time.Now()
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("responses request failed after %v: %w", time.Since(start).Round(time.Millisecond), err)
-	}
-	defer resp.Body.Close()
+	var (
+		body    []byte
+		lastErr error
+	)
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+		if err != nil {
+			return nil, fmt.Errorf("build responses request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read responses body: %w", err)
-	}
+		attemptStart := time.Now()
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("responses request failed after %v: %w", time.Since(attemptStart).Round(time.Millisecond), err)
+			logging.PerceptionWarn("[%s] responses attempt %d/%d failed after %v (%v); retrying",
+				c.vendor, attempt+1, maxRetries+1, time.Since(attemptStart).Round(time.Second), err)
+			if sleepErr := sleepCtx(ctx, retryDelay(nil, attempt)); sleepErr != nil {
+				return nil, sleepErr
+			}
+			continue
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		// Surface the body: Meta's errors name the offending field, and losing
-		// that turns a one-line fix into a guessing game.
-		return nil, fmt.Errorf("responses HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		body, err = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read responses body: %w", err)
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			lastErr = nil
+			break
+		}
+
+		bodyStr := strings.TrimSpace(string(body))
+		lastErr = fmt.Errorf("responses HTTP %d: %s", resp.StatusCode, bodyStr)
+		if resp.StatusCode == http.StatusTooManyRequests ||
+			isRetryableServerStatus(resp.StatusCode) ||
+			isTransientModelNotFound(resp.StatusCode, bodyStr) {
+			wait := retryDelay(resp, attempt)
+			logging.PerceptionWarn("[%s] responses attempt %d/%d got HTTP %d; retrying in %v",
+				c.vendor, attempt+1, maxRetries+1, resp.StatusCode, wait)
+			if sleepErr := sleepCtx(ctx, wait); sleepErr != nil {
+				return nil, sleepErr
+			}
+			continue
+		}
+		// Any other 4xx is the request being wrong, not the vendor failing.
+		return nil, lastErr
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("%w (after %d attempts)", lastErr, maxRetries+1)
 	}
 
 	var reply metaResponsesReply
