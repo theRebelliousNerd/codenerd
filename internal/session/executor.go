@@ -1383,6 +1383,13 @@ func (e *Executor) processMangleUpdatesFromEnvelope(envelope *articulation.Piggy
 			"review_finding":    {},
 			"modified":          {},
 			"modified_function": {},
+			// checkpoint_verdict/4 is the campaign checkpoint's structured
+			// reviewer verdict. internal/campaign/checkpoint.go queries the
+			// kernel for it after the reviewer spawn and retracts it once
+			// read, so it decides one checkpoint and nothing else. Without
+			// this entry the verdict was blocked here and every checkpoint
+			// failed closed (audit campaign 5a2f4c8d, 2026-09-04).
+			"checkpoint_verdict": {},
 		},
 		MaxUpdates: 100,
 	}
