@@ -295,6 +295,10 @@ func TestDreamerGap_PathTraversalBypass(t *testing.T) {
 		{".git direct", ".git/config", true},
 		{"unicode safe", "internalⓐcore/kernel.go", false}, // not a real path
 		{"case variant", "Internal/Core/kernel.go", false}, // case-sensitive
+		{"absolute path", "C:/repo/internal/core/kernel.go", true},
+		{"sibling directory", "internal/corex/kernel.go", false},
+		{"suffix directory", "pkg/internal/mangle_old/x.go", false},
+		{"dotfile sibling", ".nerdfoo/state.json", false},
 	}
 
 	for _, tt := range tests {
@@ -304,6 +308,50 @@ func TestDreamerGap_PathTraversalBypass(t *testing.T) {
 			if gotHit != tt.wantHit {
 				t.Errorf("criticalPrefix(%q) = %q, wantHit=%v, gotHit=%v",
 					tt.path, got, tt.wantHit, gotHit)
+			}
+		})
+	}
+}
+
+// TestDreamer_CriticalPathIsAboutRemoval pins the meaning of critical paths:
+// deleting under internal/core is a panic state, editing a file there is
+// ordinary work (codeNERD must be able to modify its own kernel and CLI), and
+// writing into .git is still blocked.
+func TestDreamer_CriticalPathIsAboutRemoval(t *testing.T) {
+	d, _ := setupTestDreamer(t)
+	ctx := context.Background()
+
+	hasCriticalHit := func(r DreamResult) bool {
+		for _, f := range r.ProjectedFacts {
+			if f.Predicate == "projected_fact" && len(f.Args) > 1 {
+				if atom, ok := f.Args[1].(MangleAtom); ok && atom == "/critical_path_hit" {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	cases := []struct {
+		name     string
+		req      ActionRequest
+		wantHit  bool
+		wantSafe bool
+	}{
+		{"edit kernel source", ActionRequest{Type: ActionEditFile, Target: "internal/core/kernel.go"}, false, true},
+		{"write cli source", ActionRequest{Type: ActionWriteFile, Target: "cmd/nerd/cmd_chat.go"}, false, true},
+		{"edit lines in mangle engine", ActionRequest{Type: ActionEditLines, Target: "internal/mangle/engine.go"}, false, true},
+		{"delete kernel source", ActionRequest{Type: ActionDeleteFile, Target: "internal/core/kernel.go"}, true, false},
+		{"write into .git", ActionRequest{Type: ActionWriteFile, Target: ".git/config"}, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := d.SimulateAction(ctx, tc.req)
+			if got := hasCriticalHit(r); got != tc.wantHit {
+				t.Errorf("critical_path_hit projected=%v, want %v (facts=%v)", got, tc.wantHit, r.ProjectedFacts)
+			}
+			if safe := !r.Unsafe; safe != tc.wantSafe {
+				t.Errorf("safe=%v, want %v (reason=%q)", safe, tc.wantSafe, r.Reason)
 			}
 		})
 	}

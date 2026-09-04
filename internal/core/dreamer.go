@@ -476,7 +476,12 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 				path,
 			},
 		})
-		if prefix := criticalPrefix(path); prefix != "" {
+		// Critical prefixes guard against *removal* (schemas_dreamer.mg:
+		// "paths that should never be removed recursively"). Editing a source
+		// file under internal/core or cmd/nerd is ordinary work — codeNERD must
+		// be able to modify its own kernel and CLI — so a modification only
+		// projects a critical hit for the repository's own metadata.
+		if prefix := criticalPrefix(path); prefix != "" && criticalForModification(prefix) {
 			logging.DreamDebug("projectEffects: critical path detected: %s", prefix)
 			projected = append(projected, Fact{
 				Predicate: "projected_fact",
@@ -722,15 +727,26 @@ func isDangerousCommand(cmd string) bool {
 	return false
 }
 
-// criticalPrefix returns a critical prefix if the path falls under it.
+// criticalPrefix returns a critical prefix if the path falls under it. The
+// match is segment-aware: "internal/core/kernel.go" and
+// "C:/repo/internal/core/kernel.go" hit, "internal/corex/a.go" does not.
 func criticalPrefix(path string) string {
-	normalizedPath := filepath.ToSlash(filepath.Clean(path))
+	normalizedPath := "/" + strings.Trim(filepath.ToSlash(filepath.Clean(path)), "/") + "/"
 	for _, p := range criticalPathPrefixes {
-		if strings.Contains(normalizedPath, p) {
+		if strings.Contains(normalizedPath, "/"+p+"/") {
 			return p
 		}
 	}
 	return ""
+}
+
+// criticalForModification reports whether writing or editing under a critical
+// prefix is itself catastrophic. Only the repository's own metadata qualifies:
+// a write into .git corrupts history. Source trees and .nerd are protected
+// against removal by criticalPrefix, and .nerd's sensitive files by the
+// session write guards — a modification there is legitimate work.
+func criticalForModification(prefix string) bool {
+	return prefix == ".git"
 }
 
 // toString converts a fact argument to string, handling MangleAtom.
