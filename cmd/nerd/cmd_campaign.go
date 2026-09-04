@@ -185,6 +185,142 @@ var campaignListCmd = &cobra.Command{
 // The full implementations follow. The campaign_jit_provider.go file contains the JIT adapter.
 
 // runCampaignStart starts a new campaign
+// buildCampaignOrchestratorConfig assembles the campaign OrchestratorConfig from
+// a booted Cortex so the start path (and later the resume path) share one
+// construction site.
+//
+// It is pure construction: no boot, no LLM calls. All factory-owned objects
+// (kernel, store, shards, executors, scanner, persistence, transducer) come
+// from the Cortex; only campaign-specific pieces (intelligence gatherer,
+// advisory board, northstar observer, edge-case detector, tool pregenerator,
+// JIT prompt provider) are built here. Optional Cortex pieces (Orchestrator,
+// MCP bridge, scanner, JIT compiler, planner/worker tiers) may be nil — the
+// accessors ToolGenerator/OuroborosLoop/MCPStore are nil-safe and every other
+// nil is degraded gracefully, never panicked.
+func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progressChan chan campaign.Progress, eventChan chan campaign.OrchestratorEvent) (campaign.OrchestratorConfig, campaign.PromptProvider) {
+	var cfg campaign.OrchestratorConfig
+	cfg.Workspace = cwd
+	cfg.ProgressChan = progressChan
+	cfg.EventChan = eventChan
+	if cortex == nil {
+		cfg.ToolPregenerator = campaign.NewToolPregenerator(nil, nil, nil)
+		return cfg, nil
+	}
+	cfg.Kernel = cortex.Kernel
+	cfg.LLMClient = cortex.LLMClient
+	cfg.ShardManager = cortex.ShardManager
+	cfg.TaskExecutor = cortex.TaskExecutor
+	cfg.Executor = cortex.Executor
+	cfg.VirtualStore = cortex.VirtualStore
+	cfg.Transducer = cortex.Transducer
+
+	worldScanner := cortex.Scanner
+	if worldScanner == nil {
+		worldScanner = world.NewScanner()
+	}
+
+	var realKern *core.RealKernel
+	if cortex.RealKernel != nil {
+		realKern = cortex.RealKernel
+	} else if cortex.Kernel != nil {
+		if rk, ok := any(cortex.Kernel).(*core.RealKernel); ok {
+			realKern = rk
+		}
+	}
+
+	// Keep the store import live and make the persistence wiring explicit:
+	// the gatherer reads historical patterns (learning) and the knowledge
+	// graph (local) that the factory already opened.
+	var learningStore *store.LearningStore
+	var localStore *store.LocalStore
+	learningStore = cortex.LearningStore
+	localStore = cortex.LocalDB
+
+	var consultationProvider campaign.ConsultationProvider
+	if cortex.TaskExecutor != nil {
+		consultationMgr := shards.NewConsultationManager(&campaignTaskExecutorConsultationSpawner{executor: cortex.TaskExecutor})
+		consultationProvider = newCampaignConsultationProvider(consultationMgr)
+	}
+
+	var holographic *world.HolographicProvider
+	if realKern != nil {
+		holographic = world.NewHolographicProvider(realKern, cwd)
+	} else if cortex.Kernel != nil {
+		if q, ok := any(cortex.Kernel).(world.FactQuerier); ok {
+			holographic = world.NewHolographicProvider(q, cwd)
+		} else {
+			holographic = world.NewHolographicProvider(nil, cwd)
+		}
+	} else {
+		holographic = world.NewHolographicProvider(nil, cwd)
+	}
+
+	intelligenceGatherer := campaign.NewIntelligenceGatherer(
+		realKern,
+		worldScanner,
+		holographic,
+		learningStore,
+		localStore,
+		cortex.ToolGenerator(),
+		cortex.MCPStore(),
+		consultationProvider,
+	)
+
+	advisoryBoard := campaign.NewShardAdvisoryBoard(consultationProvider)
+
+	var kernForNorthstar types.Kernel
+	if realKern != nil {
+		kernForNorthstar = realKern
+	} else if cortex.Kernel != nil {
+		if tk, ok := any(cortex.Kernel).(types.Kernel); ok {
+			kernForNorthstar = tk
+		}
+	}
+	northstarObserver := buildNorthstarObserver(cwd, cortex.LLMClient, kernForNorthstar)
+
+	edgeCaseDetector := campaign.NewEdgeCaseDetector(realKern, worldScanner)
+
+	// Always constructed: its methods are nil-safe per tool_pregenerator.go,
+	// so a nil Ouroboros loop degrades to gap detection instead of a nil
+	// ToolPregenerator that the orchestrator would have to nil-check.
+	toolPregenerator := campaign.NewToolPregenerator(
+		cortex.ToolGenerator(),
+		cortex.OuroborosLoop(),
+		cortex.MCPStore(),
+	)
+
+	cfg.IntelligenceGatherer = intelligenceGatherer
+	cfg.AdvisoryBoard = advisoryBoard
+	cfg.NorthstarObserver = northstarObserver
+	cfg.EdgeCaseDetector = edgeCaseDetector
+	cfg.ToolPregenerator = toolPregenerator
+
+	var promptProvider campaign.PromptProvider
+	if cortex.PromptAssembler != nil {
+		promptProvider = &CampaignJITProvider{assembler: cortex.PromptAssembler}
+	} else if cortex.JITCompiler != nil {
+		var querier articulation.KernelQuerier
+		if realKern != nil {
+			if q, ok := any(realKern).(articulation.KernelQuerier); ok {
+				querier = q
+			}
+		}
+		if querier == nil && cortex.Kernel != nil {
+			if q, ok := any(cortex.Kernel).(articulation.KernelQuerier); ok {
+				querier = q
+			}
+		}
+		if querier != nil {
+			if pa, err := articulation.NewPromptAssemblerWithJIT(querier, cortex.JITCompiler); err == nil && pa != nil {
+				promptProvider = &CampaignJITProvider{assembler: pa}
+			}
+		}
+	}
+
+	return cfg, promptProvider
+}
+
+// runCampaignStart starts a new campaign
 func runCampaignStart(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -210,165 +346,42 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	docs, _ := cmd.Flags().GetStringArray("docs")
 	campaignType, _ := cmd.Flags().GetString("type")
 
-	// Resolve .nerd directory for JIT prompt system
-	nerdDir := filepath.Join(cwd, ".nerd")
-
-	// Load user config BEFORE building the LLM client, so the client honors the
-	// configured provider/model/worker, and so the VirtualStore honors the
-	// user's allowed_binaries / allowed_env_vars whitelist. Previously the store
-	// was built from DefaultVirtualStoreConfig (which re-adds bash/sh/cmd
-	// regardless of the user's policy).
-	appCfg := loadCampaignConfig(nerdDir)
-
-	llmSlots, clientErr := newCampaignLLMClients(appCfg, "campaign-cli")
-	if clientErr != nil {
-		return clientErr
-	}
-	llmClient, workerLLMClient := llmSlots.main, llmSlots.worker
-
-	exec := appCfg.GetExecution()
-	vsCfg := core.DefaultVirtualStoreConfig()
-	if len(exec.AllowedBinaries) > 0 {
-		vsCfg.AllowedBinaries = exec.AllowedBinaries
-	}
-	if len(exec.AllowedEnvVars) > 0 {
-		vsCfg.AllowedEnvVars = exec.AllowedEnvVars
-	}
-	if exec.WorkingDirectory != "" {
-		vsCfg.WorkingDir = exec.WorkingDirectory
-	}
-
-	// Initialize components
-	kern, err := core.NewRealKernel()
+	// Boot through the Cortex factory so campaigns inherit every factory
+	// improvement (session identity, Ouroboros registry, hydration, Dreamer
+	// gate adapter, worker/planner routing) instead of mirroring it by hand.
+	key := resolveAPIKey(apiKey, workspace)
+	cortex, err := coresys.GetOrBootCortex(ctx, cwd, key, disableSystemShards)
 	if err != nil {
-		return fmt.Errorf("failed to create kernel: %w", err)
+		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
-	executor := tactile.NewDirectExecutor()
-	virtualStore := core.NewVirtualStoreWithConfig(executor, vsCfg)
-	virtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
-
-	// FIX: Wire persistence layers
-	var localDB *store.LocalStore
-	var learningStore *store.LearningStore
-
-	knowledgeDBPath := filepath.Join(nerdDir, "knowledge.db")
-	if db, err := store.NewLocalStore(knowledgeDBPath); err == nil {
-		localDB = db
-		defer localDB.Close()
-		virtualStore.SetLocalDB(localDB)
-		virtualStore.SetKernel(kern)
-		// Wire knowledge graph query bridge for Mangle query_graph virtual predicate.
-		if gqAdapter := store.NewLocalStoreGraphAdapter(localDB); gqAdapter != nil {
-			virtualStore.SetGraphQuery(gqAdapter)
-		}
-	} else {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to open knowledge DB: %v\n", err)
+	defer cortex.Close()
+	if cortex.VirtualStore != nil {
+		cortex.VirtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 	}
 
-	learningStorePath := filepath.Join(nerdDir, "shards")
-	if ls, err := store.NewLearningStore(learningStorePath); err == nil {
-		learningStore = ls
-		defer learningStore.Close()
-		virtualStore.SetLearningStore(learningStore)
-	} else {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to open learning store: %v\n", err)
+	llmClient := cortex.LLMClient
+	if llmClient == nil {
+		return fmt.Errorf("campaign start: cortex boot did not provide an LLM client")
 	}
-
-	// FIX(BUG-005): Hydrate modular tools so JITExecutor can use them
-	var groundedSearcher types.GroundedWebSearcher
-	if gws, ok := llmClient.(types.GroundedWebSearcher); ok {
-		groundedSearcher = gws
+	kern := cortex.Kernel
+	if kern == nil && cortex.RealKernel != nil {
+		kern = cortex.RealKernel
 	}
-	if err := virtualStore.HydrateModularTools(groundedSearcher); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to hydrate modular tools: %v\n", err)
+	if kern == nil {
+		return fmt.Errorf("campaign start: cortex boot did not provide a kernel")
 	}
-
-	shardMgr := coreshards.NewShardManager()
-	shardMgr.SetParentKernel(kern)
-
-	// Initialize limits enforcer and spawn queue (appCfg loaded above)
-	coreLimits := appCfg.GetCoreLimits()
-	jitCfg := appCfg.GetEffectiveJITConfig()
-	// Configure global LLM API concurrency
-
-	// Configure global LLM API concurrency
-	schedulerCfg := core.DefaultAPISchedulerConfig()
-	schedulerCfg.MaxConcurrentAPICalls = appCfg.GetEffectiveMaxConcurrentAPICalls()
-	schedulerCfg.SlotAcquireTimeout = config.GetLLMTimeouts().SlotAcquisitionTimeout
-	core.ConfigureGlobalAPIScheduler(schedulerCfg)
-
-	limitsEnforcer := core.NewLimitsEnforcer(core.LimitsConfig{
-		MaxTotalMemoryMB:      coreLimits.MaxTotalMemoryMB,
-		MaxConcurrentShards:   coreLimits.MaxConcurrentShards,
-		MaxSessionDurationMin: coreLimits.MaxSessionDurationMin,
-		MaxFactsInKernel:      coreLimits.MaxFactsInKernel,
-		MaxDerivedFactsLimit:  coreLimits.MaxDerivedFactsLimit,
-	})
-	shardMgr.SetLimitsEnforcer(limitsEnforcer)
-	spawnQueue := coreshards.NewSpawnQueue(shardMgr, limitsEnforcer, coreshards.DefaultSpawnQueueConfig())
-	shardMgr.SetSpawnQueue(spawnQueue)
-	_ = spawnQueue.Start()
-
-	// Initialize JIT Prompt Compiler
-	compilerCfg := prompt.DefaultCompilerConfig()
-	if jitCfg.TokenBudget > 0 {
-		compilerCfg.DefaultTokenBudget = jitCfg.TokenBudget
-	}
-
-	// FIX(BUG-004): Load embedded corpus - required for JIT atoms to be available
-	// Without this, the campaign planner gets an empty system prompt
-	embeddedCorpus, embeddedErr := prompt.LoadEmbeddedCorpus()
-	if embeddedErr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to load embedded corpus: %v\n", embeddedErr)
-	}
-
-	// Build compiler options with embedded corpus
-	compilerOpts := []prompt.CompilerOption{
-		prompt.WithKernel(coresys.NewKernelAdapter(kern)),
-		prompt.WithConfig(compilerCfg),
-	}
-	if embeddedCorpus != nil {
-		compilerOpts = append(compilerOpts, prompt.WithEmbeddedCorpus(embeddedCorpus))
-	}
-
-	jitCompiler, err := prompt.NewJITPromptCompiler(compilerOpts...)
-	if err != nil {
-		return fmt.Errorf("failed to init JIT compiler: %w", err)
-	}
-
-	// Wire JIT lifecycle callbacks
-	shardMgr.SetNerdDir(nerdDir)
-	shardMgr.SetPromptLoader(func(ctx context.Context, agentName, nerdDir string) (int, error) {
-		return prompt.LoadAgentPrompts(ctx, agentName, nerdDir, nil)
-	})
-	shardMgr.SetJITRegistrar(prompt.CreateJITDBRegistrar(jitCompiler))
-	shardMgr.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(jitCompiler))
-
-	// Shard and task execution use the worker client when one is configured;
-	// campaign planning (Decomposer / Replanner, wired below) deliberately stays
-	// on the main client. That is the point of the two-slot split: reason about
-	// the plan with the strong model, execute the bulk work with the cheap one.
+	// Worker/planner routing lives in the factory: cortex.TaskExecutor already
+	// runs bulk work on the worker tier and reasoning turns on the planner
+	// tier. The locals below document the fallback (nil means share the main
+	// client, same as the old two-slot split) for the planning pieces kept in
+	// this command.
 	shardLLM := llmClient
-	if workerLLMClient != nil {
-		shardLLM = workerLLMClient
+	if w := cortex.WorkerLLM(); w != nil {
+		shardLLM = w
 	}
-
-	// Register shard factories
-	shardMgr.SetLLMClient(shardLLM)
-	// Image generation (Nano Banana 2) stays off the campaign worker/main client.
-	if imgClient, ierr := perception.NewImageClientFromUserConfig(appCfg); ierr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Image LLM (Nano Banana 2) unavailable: %v\n", ierr)
-	} else if imgClient != nil {
-		shardMgr.SetImageLLMClient(core.NewScheduledLLMCall("image_generator", imgClient))
-	}
-	shards.RegisterAllShardFactories(shardMgr, shards.RegistryContext{
-		Kernel:       kern,
-		LLMClient:    llmClient,
-		VirtualStore: virtualStore,
-		Workspace:    cwd,
-		JITCompiler:  jitCompiler,
-		JITConfig:    jitCfg,
-	})
+	_ = shardLLM
+	plannerLLM := cortex.PlannerLLM()
+	_ = plannerLLM
 
 	fmt.Println("╔═══════════════════════════════════════════════════════════╗")
 	fmt.Println("║          CAMPAIGN ORCHESTRATOR - INITIALIZING             ║")
@@ -379,22 +392,39 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("Campaign Type: %s\n\n", campaignType)
 
-	// Create a PromptAssembler-backed provider
-	var campaignPromptProvider campaign.PromptProvider
-	if pa, err := articulation.NewPromptAssemblerWithJIT(kern, jitCompiler); err == nil {
-		pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK, jitCfg.ReservedTokensFallbackRatio)
-		pa.EnableJIT(jitCfg.Enabled)
-		campaignPromptProvider = &CampaignJITProvider{assembler: pa}
-	}
+	// Campaign-specific wiring (advisory board, northstar observer,
+	// edge-case detector, prompt provider, progress/event channels, tool
+	// pregenerator) built from the Cortex-provided objects.
+	progressChan := make(chan campaign.Progress, 10)
+	eventChan := make(chan campaign.OrchestratorEvent, 100)
 
-	// Create decomposer
+	fmt.Println("🧠 Initializing intelligence gathering systems...")
+	orchCfg, campaignPromptProvider := buildCampaignOrchestratorConfig(cortex, cwd, progressChan, eventChan)
+	fmt.Println("   ✓ World scanner initialized")
+	fmt.Println("   ✓ Intelligence gatherer initialized")
+	fmt.Println("   ✓ Advisory board initialized")
+	// The northstar observer prints its own ✓/⚠ inside BuildCampaignObserver.
+	fmt.Println("   ✓ Edge case detector initialized")
+	if cortex.OuroborosLoop() == nil {
+		fmt.Println("   Tool pregenerator: autopoiesis disabled, gap detection only")
+	} else {
+		fmt.Println("   ✓ Tool pregenerator initialized")
+	}
+	fmt.Println("   ✓ Intelligence systems initialized")
+
+	// Create decomposer (planning stays on the main client; task execution
+	// rides the worker tier inside cortex.TaskExecutor).
 	decomposer := campaign.NewDecomposer(kern, llmClient, cwd)
-	decomposer.SetShardLister(shardMgr)
+	if cortex.ShardManager != nil {
+		decomposer.SetShardLister(cortex.ShardManager)
+	}
 	if campaignPromptProvider != nil {
 		decomposer.SetPromptProvider(campaignPromptProvider)
 	}
 
-	// Build request with context budget from config
+	// Build request with context budget from config (request param, not boot).
+	nerdDir := filepath.Join(cwd, ".nerd")
+	appCfg := loadCampaignConfig(nerdDir)
 	contextBudget := 200000 // Default 200k tokens
 	if appCfg != nil && appCfg.ContextWindow != nil && appCfg.ContextWindow.MaxTokens > 0 {
 		contextBudget = appCfg.ContextWindow.MaxTokens
@@ -463,113 +493,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create and start orchestrator
-	progressChan := make(chan campaign.Progress, 10)
-	eventChan := make(chan campaign.OrchestratorEvent, 100)
-
-	// Create JITExecutor for campaign task execution (replaces deleted domain shards)
-	transducer := perception.NewUnderstandingTransducer(llmClient)
-	configFactory := prompt.NewDefaultConfigFactory()
-	campaignKernelAdapter := &campaignKernelAdapter{kernel: kern}
-	campaignVSAdapter := &campaignVirtualStoreAdapter{vs: virtualStore}
-	// Task execution rides the worker client (see shardLLM above); the campaign
-	// Orchestrator is still constructed with the main client for planning.
-	campaignLLMAdapter := &campaignLLMAdapter{client: shardLLM}
-
-	sessionExecutor := session.NewExecutor(
-		campaignKernelAdapter,
-		campaignVSAdapter,
-		campaignLLMAdapter,
-		jitCompiler,
-		configFactory,
-		transducer,
-	)
-
-	sessionSpawner := session.NewSpawner(
-		campaignKernelAdapter,
-		campaignVSAdapter,
-		campaignLLMAdapter,
-		jitCompiler,
-		configFactory,
-		transducer,
-		session.DefaultSpawnerConfig(),
-	)
-
-	applyCampaignExecutorBudget(appCfg, cwd, sessionExecutor, sessionSpawner)
-
-	if llmSlots.planner != nil {
-		plannerAdapter := newCampaignLLMAdapter(llmSlots.planner)
-		sessionExecutor.SetPlannerClient(plannerAdapter)
-		sessionSpawner.SetPlannerClient(plannerAdapter)
-	}
-
-	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
-	virtualStore.SetTaskExecutor(&campaignTaskDelegatorAdapter{executor: taskExecutor})
-	// ShardManager has no factory for the domain personas or user-defined
-	// agents a campaign consults; route those through the clean loop instead of
-	// the BaseShardAgent placeholder that reported success without doing work.
-	shardMgr.SetTaskDelegator(&campaignTaskDelegatorAdapter{executor: taskExecutor})
-	consultationMgr := shards.NewConsultationManager(&campaignTaskExecutorConsultationSpawner{executor: taskExecutor})
-	consultationProvider := newCampaignConsultationProvider(consultationMgr)
-
-	// Initialize Intelligence Integration components (Campaign Intelligence Plan)
-	fmt.Println("🧠 Initializing intelligence gathering systems...")
-
-	// Create world.Scanner for codebase analysis
-	worldScanner := world.NewScanner()
-	fmt.Println("   ✓ World scanner initialized")
-
-	// Create IntelligenceGatherer - orchestrates pre-planning intelligence from 12 systems
-	holographic := world.NewHolographicProvider(kern, cwd)
-	intelligenceGatherer := campaign.NewIntelligenceGatherer(
-		kern,          // kernel
-		worldScanner,  // worldScanner - codebase analysis
-		holographic,   // holographic - rich codebase context
-		learningStore, // learningStore - historical patterns
-		localDB,       // localStore - knowledge graph + cold storage
-		nil,           // toolGenerator - not yet wired in CLI mode
-		nil,           // mcpStore - not yet wired in CLI mode
-		consultationProvider,
-	)
-	fmt.Println("   ✓ Intelligence gatherer initialized")
-
-	// Create ShardAdvisoryBoard - domain experts review plans
-	advisoryBoard := campaign.NewShardAdvisoryBoard(consultationProvider)
-	fmt.Println("   ✓ Advisory board initialized")
-
-	// Create the Northstar observer - the risk gate REQUIRES this for any
-	// campaign touching a protected surface (see risk_scoring.go). Without it
-	// every such campaign is refused at start, which is how this path behaved
-	// until now: the setter existed and nothing ever called it.
-	northstarObserver := buildNorthstarObserver(cwd, llmClient, kern)
-
-	// Create EdgeCaseDetector - file action decisions (create/extend/modularize)
-	edgeCaseDetector := campaign.NewEdgeCaseDetector(kern, worldScanner)
-	fmt.Println("   ✓ Edge case detector initialized")
-
-	// Create ToolPregenerator - pre-generate tools via Ouroboros
-	var toolPregenerator *campaign.ToolPregenerator
-	// Note: Requires autopoiesis.OuroborosLoop which isn't wired in CLI mode yet
-	fmt.Println("   ⚠ Tool pregenerator pending (requires Ouroboros)")
-
-	fmt.Println("   ✓ Intelligence systems initialized")
-
-	orchestrator, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
-		Workspace:            cwd,
-		Kernel:               kern,
-		LLMClient:            llmClient,
-		ShardManager:         shardMgr,
-		TaskExecutor:         taskExecutor,
-		Executor:             executor,
-		VirtualStore:         virtualStore,
-		ProgressChan:         progressChan,
-		EventChan:            eventChan,
-		IntelligenceGatherer: intelligenceGatherer,
-		AdvisoryBoard:        advisoryBoard,
-		NorthstarObserver:    northstarObserver,
-		EdgeCaseDetector:     edgeCaseDetector,
-		ToolPregenerator:     toolPregenerator,
-	})
+	orchestrator, err := campaign.NewOrchestrator(orchCfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize campaign orchestrator: %w", err)
 	}
