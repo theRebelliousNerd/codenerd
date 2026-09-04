@@ -333,12 +333,65 @@ func (o *Orchestrator) persistTaskOutputArtifact(task *Task, result string) {
 	o.emitEvent(EventArtifactPersisted, task.PhaseID, task.ID, relPath, nil)
 }
 
+// resolveFileTaskTargetPath resolves the file-task target path from the task's
+// declared outputs: Artifacts[0].Path, else the first exact (non-glob)
+// WriteSet entry, else a path extracted from the description. WriteSet entries
+// are stored absolute (see normalizeWriteSetPaths); relativize them against the
+// orchestrator workspace so the result stays suitable for filepath.Join and for
+// the "file:<path>" shard string.
+func (o *Orchestrator) resolveFileTaskTargetPath(task *Task) string {
+	if task == nil {
+		return ""
+	}
+	if len(task.Artifacts) > 0 {
+		if p := strings.TrimSpace(task.Artifacts[0].Path); p != "" {
+			return p
+		}
+	}
+	for _, raw := range task.WriteSet {
+		p := strings.TrimSpace(raw)
+		if p == "" {
+			continue
+		}
+		if containsGlobMeta(p) {
+			continue
+		}
+		if filepath.IsAbs(filepath.FromSlash(p)) {
+			ws := ""
+			if o != nil {
+				ws = o.workspace
+			}
+			if ws != "" {
+				rel, err := filepath.Rel(ws, filepath.FromSlash(p))
+				if err != nil {
+					continue
+				}
+				rel = filepath.ToSlash(filepath.Clean(rel))
+				if rel == "" || rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+					continue
+				}
+				return rel
+			}
+		}
+		return filepath.ToSlash(filepath.Clean(filepath.FromSlash(p)))
+	}
+	if task.Description != "" {
+		if inferred := extractPathFromDescription(task.Description); inferred != "" {
+			return inferred
+		}
+	}
+	return ""
+}
+
 // executeFileTask creates or modifies a file using the Coder shard.
 func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, error) {
-	// Get target path from artifacts
-	var targetPath string
-	if len(task.Artifacts) > 0 {
-		targetPath = task.Artifacts[0].Path
+	targetPath := o.resolveFileTaskTargetPath(task)
+	if targetPath == "" {
+		taskID := ""
+		if task != nil {
+			taskID = task.ID
+		}
+		return nil, fmt.Errorf("file task %s has no target path (no artifact, no write set, none in description)", taskID)
 	}
 	logging.CampaignDebug("Executing file task %s: path=%s", task.ID, targetPath)
 
@@ -364,10 +417,26 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	logging.CampaignDebug("Coder shard completed for task %s, result_len=%d", task.ID, len(result))
 
 	// CRITICAL: Verify file was actually written
-	// Shards may return successfully without calling write_file tool
-	fullPath := filepath.Join(o.workspace, targetPath)
-	if _, statErr := os.Stat(fullPath); os.IsNotExist(statErr) {
-		logging.Get(logging.CategoryCampaign).Warn("Coder shard returned but file not created: %s, using fallback", fullPath)
+	// Shards may return successfully without calling write_file tool.
+	// An empty target or a directory must never count as success: an empty
+	// target joins to the workspace root itself, which always stats.
+	verified := false
+	var fullPath string
+	if targetPath != "" {
+		if filepath.IsAbs(targetPath) {
+			fullPath = filepath.Clean(targetPath)
+		} else {
+			fullPath = filepath.Join(o.workspace, targetPath)
+		}
+		if info, statErr := os.Stat(fullPath); statErr == nil && !info.IsDir() && info.Mode().IsRegular() {
+			verified = true
+		}
+	}
+	if !verified {
+		if fullPath == "" {
+			fullPath = filepath.Join(o.workspace, targetPath)
+		}
+		logging.Get(logging.CategoryCampaign).Warn("Coder shard returned but file not created or not a regular file: %s, using fallback", fullPath)
 		// Shard didn't write file - fall back to direct LLM
 		return o.executeFileTaskFallback(ctx, task, targetPath)
 	}

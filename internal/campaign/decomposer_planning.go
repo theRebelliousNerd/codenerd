@@ -648,6 +648,37 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 					taskID, oldTaskType, task.Type, reason)
 			}
 
+			// Pathless file-task defense (campaign 855d7bcf, 2026-09-04): a
+			// mutating file task with no artifact path, no write-set entry, and
+			// no extractable description path has nowhere to write. Dispatched
+			// as a file task it either hollow-succeeds (empty target stats the
+			// workspace directory) or fails forever in the fallback until
+			// /all_tasks_blocked. Retype it to /research so it runs as
+			// analytical work with a durable artifact instead of blocking the
+			// phase. Recorded the same way as reconcileTaskTypeWithWriteSet.
+			if isMutatingTaskType(task.Type) {
+				hasArtifactPath := false
+				for _, a := range task.Artifacts {
+					if strings.TrimSpace(a.Path) != "" {
+						hasArtifactPath = true
+						break
+					}
+				}
+				hasWriteSetPath := false
+				for _, p := range task.WriteSet {
+					if strings.TrimSpace(p) != "" {
+						hasWriteSetPath = true
+						break
+					}
+				}
+				if !hasArtifactPath && !hasWriteSetPath && extractPathFromDescription(task.Description) == "" {
+					prevType := task.Type
+					task.Type = TaskTypeResearch
+					logging.CampaignWarn("Retyped task %s from %s to %s: %s",
+						taskID, prevType, task.Type, "no artifact, write set, or extractable path")
+				}
+			}
+
 			// Drop tasks the planner emitted twice within one phase.
 			//
 			// Observed live 2026-08-08 on campaign fc6472c2: phase 1 came back
