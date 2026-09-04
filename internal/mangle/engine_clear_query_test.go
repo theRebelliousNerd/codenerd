@@ -153,9 +153,11 @@ func TestAddFactsContext_HonorsCancellation(t *testing.T) {
 func TestAddFactsContext_HonorsDeadline(t *testing.T) {
 	e := newClearProbeEngine(t)
 
+	// Wait for the deadline to actually fire: a fixed sleep is not enough on
+	// Windows, where the timer that expires the context has ~15ms resolution.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 	defer cancel()
-	time.Sleep(2 * time.Millisecond)
+	<-ctx.Done()
 
 	if err := e.AddFactsContext(ctx, []Fact{{Predicate: "clearprobe", Args: []any{"x"}}}); err == nil {
 		t.Fatal("AddFactsContext ignored an expired deadline")
