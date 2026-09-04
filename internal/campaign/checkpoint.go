@@ -18,7 +18,6 @@ import (
 	"codenerd/internal/types"
 )
 
-
 // CheckpointRunner runs verification checkpoints for phases.
 type CheckpointRunner struct {
 	executor     tactile.Executor
@@ -494,36 +493,75 @@ func (cr *CheckpointRunner) parseTestOutput(output string) (passed, failed int) 
 }
 
 // parseGoTestJSON parses go test -json output for pass/fail counts.
+// parseGoTestJSON counts `go test -json` results line by line.
+//
+// The stream is not pure JSON: the toolchain interleaves plain-text lines
+// (`# pkg` build headers, `FAIL\tpkg [build failed]`, vet output). The old
+// decoder abandoned JSON at the first such line and fed the whole stream to
+// the text heuristic, whose "failed"/"error" substring rule then counted
+// every test whose name contains "Error" — campaign 149c512d saw
+// "3,584 failed (0.00s)" from a stream holding two real failures, and the
+// phase advanced UNVERIFIED on that number. Now: skip non-JSON lines, count
+// test-level results, count a package-level fail only when that package
+// reported no failing test (build/setup failures), take duration from the
+// package events (their Elapsed is the package wall time), and use the
+// heuristic only when the stream carried no JSON at all.
 func (cr *CheckpointRunner) parseGoTestJSON(output string) (passed, failed int, duration time.Duration) {
 	type goTestEvent struct {
 		Action  string  `json:"Action"`
+		Package string  `json:"Package"`
 		Test    string  `json:"Test"`
 		Elapsed float64 `json:"Elapsed"`
 	}
 
-	dec := json.NewDecoder(strings.NewReader(output))
-	for dec.More() {
-		var evt goTestEvent
-		if err := dec.Decode(&evt); err != nil {
-			// Fall back to heuristic if JSON framing breaks
-			p, f := cr.parseTestOutput(output)
-			return p, f, 0
+	sawJSON := false
+	pkgHadTestFailure := map[string]bool{}
+	pkgFailed := map[string]bool{}
+	var pkgDuration, testDuration time.Duration
+	for line := range strings.SplitSeq(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "{") {
+			continue
 		}
+		var evt goTestEvent
+		if err := json.Unmarshal([]byte(trimmed), &evt); err != nil {
+			continue
+		}
+		sawJSON = true
+		elapsed := time.Duration(evt.Elapsed * float64(time.Second))
 		switch evt.Action {
 		case "pass":
 			if evt.Test != "" {
 				passed++
-				duration += time.Duration(evt.Elapsed * float64(time.Second))
+				testDuration += elapsed
+			} else {
+				pkgDuration += elapsed
 			}
 		case "fail":
 			if evt.Test != "" {
 				failed++
-				duration += time.Duration(evt.Elapsed * float64(time.Second))
+				testDuration += elapsed
+				pkgHadTestFailure[evt.Package] = true
 			} else {
-				// package-level failure
-				failed++
+				pkgFailed[evt.Package] = true
+				pkgDuration += elapsed
 			}
 		}
+	}
+	if !sawJSON {
+		p, f := cr.parseTestOutput(output)
+		return p, f, 0
+	}
+	for pkg := range pkgFailed {
+		if !pkgHadTestFailure[pkg] {
+			failed++ // build or setup failure: the package failed without running a test
+		}
+	}
+	// Package events carry wall time; a stream with only test events (older
+	// callers, partial captures) still reports the summed test time.
+	duration = pkgDuration
+	if duration == 0 {
+		duration = testDuration
 	}
 	return passed, failed, duration
 }
@@ -725,7 +763,6 @@ func truncateForLog(s string, max int) string {
 	}
 	return string(runes[:max])
 }
-
 
 // lookupKernelVerdict returns the structured reviewer verdict for phaseName
 // from the kernel, where the live session executor asserts control-packet
