@@ -127,12 +127,17 @@ func (e *Executor) runToolLoop(
 	toolDefs := e.buildToolDefinitions(cfg)
 	executorCfg := e.configSnapshot()
 
-	// Seed the history with the initial user turn and the assistant's
-	// first response (which contains the tool_use blocks).
-	history := []types.Message{
-		{Role: "user", Text: userInput},
-		{Role: "assistant", Text: llmResponse.Text, ToolCalls: llmResponse.ToolCalls},
-	}
+	// Seed the history with prior turns (so every follow-up round carries
+	// multi-turn memory) followed by the initial user turn and the
+	// assistant's first response (which contains the tool_use blocks).
+	// Seed order: prior..., user input, assistant first response.
+	prior := e.priorTurnMessages()
+	history := make([]types.Message, 0, len(prior)+2)
+	history = append(history, prior...)
+	history = append(history,
+		types.Message{Role: "user", Text: userInput},
+		types.Message{Role: "assistant", Text: llmResponse.Text, ToolCalls: llmResponse.ToolCalls},
+	)
 
 	budget := newToolBudgetController(executorCfg)
 	finalizationCutoff, finalizationReserve, hasFinalizationCutoff :=

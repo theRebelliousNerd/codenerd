@@ -244,6 +244,18 @@ type ExecutorConfig struct {
 	// the Executor resolves the workspace itself rather than silently skipping
 	// verification — see workspaceForVerification.
 	WorkspaceRoot string
+
+	// HistoryTurnWindow caps how many prior conversation messages reach the
+	// generating model. 6 messages = 3 user/assistant exchanges. 0 disables
+	// multi-turn memory (prior turns reach perception only, the pre-fix
+	// behaviour). Negative is treated as disabled.
+	HistoryTurnWindow int
+
+	// HistoryCharBudget caps the total characters of prior-turn text sent to
+	// the generating model. Oldest turns are dropped first, never splitting a
+	// pair, so a trimmed window always ends on a complete exchange. Zero or
+	// negative falls back to DefaultHistoryCharBudget.
+	HistoryCharBudget int
 }
 
 // DefaultTokenBudget is the prompt-compilation budget used when no
@@ -261,6 +273,16 @@ const (
 	defaultToolTimeout                = 5 * time.Minute
 	defaultFinalAnswerReserve         = 5 * time.Minute
 )
+
+// DefaultHistoryTurnWindow is the number of prior conversation messages that
+// reach the generating model when ExecutorConfig leaves HistoryTurnWindow
+// unset via DefaultExecutorConfig. 6 messages = 3 user/assistant exchanges.
+const DefaultHistoryTurnWindow = 6
+
+// DefaultHistoryCharBudget caps prior-turn text sent to the generating model
+// when ExecutorConfig leaves HistoryCharBudget unset. 24000 characters holds
+// several substantive exchanges without crowding the prompt budget.
+const DefaultHistoryCharBudget = 24000
 
 // defaultSemanticTopK matches the value NewCompilationContext applies. This
 // path builds the CompilationContext as a literal, so it gets no defaults from
@@ -281,6 +303,8 @@ func DefaultExecutorConfig() ExecutorConfig {
 		FinalAnswerReserve:         defaultFinalAnswerReserve,
 		EnableSafetyGate:           true,
 		TokenBudget:                DefaultTokenBudget,
+		HistoryTurnWindow:          DefaultHistoryTurnWindow,
+		HistoryCharBudget:          DefaultHistoryCharBudget,
 		// On by default: the failure this prevents (confident, non-compiling
 		// edits reported as complete) is silent, and a default-off guard against
 		// a silent failure protects nobody.
@@ -960,16 +984,37 @@ func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient,
 		return e.generateResponseWithPiggybackTools(ctx, client, systemPrompt, userInput, cfg)
 	}
 
+	prior := e.priorTurnMessages()
+	logging.SessionDebug("history window: %d prior messages (%d chars)", len(prior), historyMessageChars(prior))
+
 	// Convert EffectiveAgentRuntimeConfig tool names to ToolDefinition structs
 	toolDefs := e.buildToolDefinitions(cfg)
 
 	// If we have tools, use native function calling; otherwise fall back to simple completion
 	if len(toolDefs) > 0 {
+		// When prior turns exist and the client speaks native multi-turn
+		// tool calling, send them as messages so the model sees the
+		// conversation instead of only the current input.
+		if len(prior) > 0 {
+			if trp, ok := client.(types.ToolResultsProvider); ok {
+				history := make([]types.Message, 0, len(prior)+1)
+				history = append(history, prior...)
+				history = append(history, types.Message{Role: "user", Text: userInput})
+				logging.Session("Calling LLM with %d tools via CompleteWithToolResults (%d prior messages)", len(toolDefs), len(prior))
+				return trp.CompleteWithToolResults(ctx, systemPrompt, history, toolDefs)
+			}
+			// No native history channel: degrade to a compact transcript
+			// prepended to the user prompt.
+			userInput = renderHistoryTranscript(prior, userInput)
+		}
 		logging.Session("Calling LLM with %d tools via CompleteWithTools", len(toolDefs))
 		return client.CompleteWithTools(ctx, systemPrompt, userInput, toolDefs)
 	}
 	logging.Session("No tools configured, using CompleteWithSystem")
 
+	if len(prior) > 0 {
+		userInput = renderHistoryTranscript(prior, userInput)
+	}
 	// No tools configured - use simple completion
 	text, err := client.CompleteWithSystem(ctx, systemPrompt, userInput)
 	if err != nil {
@@ -1025,6 +1070,15 @@ func (e *Executor) warnOnDroppedToolRequests(text string, cfg *config.EffectiveA
 // This enables tool use to coexist with Gemini's built-in grounding tools
 // (Google Search, URL Context) which cannot be combined with native function calling.
 func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, client types.LLMClient, systemPrompt, userInput string, cfg *config.EffectiveAgentRuntimeConfig) (*types.LLMToolResponse, error) {
+	// Piggyback path keeps its structured-output envelope contract: history
+	// arrives only as a rendered transcript in the user prompt, never as
+	// native messages.
+	prior := e.priorTurnMessages()
+	logging.SessionDebug("history window: %d prior messages (%d chars)", len(prior), historyMessageChars(prior))
+	effectiveInput := userInput
+	if len(prior) > 0 {
+		effectiveInput = renderHistoryTranscript(prior, userInput)
+	}
 	// Build tool catalog for injection into system prompt
 	toolCatalog := e.buildToolCatalogForPiggyback(cfg)
 	if toolCatalog != "" {
@@ -1036,7 +1090,7 @@ func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, clien
 	// The Piggyback envelope will contain tool_requests
 	schemaLen := len(articulation.GetPiggybackSchema(false))
 	logging.Session("Using Piggyback++ for tool invocation (grounding-compatible mode, schema_len=%d)", schemaLen)
-	text, err := client.CompleteWithSystem(ctx, systemPrompt, userInput)
+	text, err := client.CompleteWithSystem(ctx, systemPrompt, effectiveInput)
 	if err != nil {
 		return nil, err
 	}
@@ -1384,6 +1438,90 @@ func (e *Executor) GetHistory() []perception.ConversationTurn {
 	history := make([]perception.ConversationTurn, len(e.conversationHistory))
 	copy(history, e.conversationHistory)
 	return history
+}
+
+// priorTurnMessages converts the most recent conversation turns into LLM
+// messages for the generating model. Perception keeps the full history; this
+// is the bounded window generation is allowed to see.
+//
+// Bounds: HistoryTurnWindow messages (0 disables, negative treated as
+// disabled) and HistoryCharBudget total characters (non-positive falls back
+// to DefaultHistoryCharBudget). The window keeps the most recent messages;
+// the character cap then drops the oldest first, two at a time, so a trimmed
+// window never splits a user/assistant pair. Turns with empty Content are
+// skipped. Role mapping is "user" -> "user", anything else -> "assistant".
+func (e *Executor) priorTurnMessages() []types.Message {
+	cfg := e.configSnapshot()
+	window := cfg.HistoryTurnWindow
+	if window <= 0 {
+		return nil
+	}
+	budget := cfg.HistoryCharBudget
+	if budget <= 0 {
+		budget = DefaultHistoryCharBudget
+	}
+
+	turns := e.GetHistory()
+	if len(turns) == 0 {
+		return nil
+	}
+	msgs := make([]types.Message, 0, len(turns))
+	for _, turn := range turns {
+		if turn.Content == "" {
+			continue
+		}
+		role := "assistant"
+		if turn.Role == "user" {
+			role = "user"
+		}
+		msgs = append(msgs, types.Message{Role: role, Text: turn.Content})
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+	if len(msgs) > window {
+		msgs = msgs[len(msgs)-window:]
+	}
+	total := historyMessageChars(msgs)
+	for total > budget && len(msgs) > 0 {
+		if len(msgs) >= 2 {
+			total -= len(msgs[0].Text) + len(msgs[1].Text)
+			msgs = msgs[2:]
+		} else {
+			total -= len(msgs[0].Text)
+			msgs = msgs[1:]
+		}
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+	return msgs
+}
+
+// historyMessageChars totals the text carried by prior messages.
+func historyMessageChars(msgs []types.Message) int {
+	total := 0
+	for _, m := range msgs {
+		total += len(m.Text)
+	}
+	return total
+}
+
+// renderHistoryTranscript degrades prior messages to plain text for clients
+// without a native history channel (no ToolResultsProvider, no tools, or the
+// Piggyback envelope path whose contract is unchanged).
+func renderHistoryTranscript(prior []types.Message, currentInput string) string {
+	var sb strings.Builder
+	sb.WriteString("Conversation so far:\n")
+	for _, m := range prior {
+		sb.WriteString(m.Role)
+		sb.WriteString(": ")
+		sb.WriteString(m.Text)
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\nCurrent request:\n")
+	sb.WriteString(currentInput)
+	return sb.String()
 }
 
 // persistTurn stores the session turn for cross-session continuity.
