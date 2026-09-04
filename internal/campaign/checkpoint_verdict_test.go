@@ -7,14 +7,12 @@ import (
 	"testing"
 )
 
-// TestRunShardValidationCheckpoint_VerdictParsing verifies the explicit
-// verdict parser added to runShardValidationCheckpoint. The parser:
-//  1. Takes the first non-empty line, strips leading markdown/punctuation
-//     noise (*_`# :-) and accepts a leading PASS or FAIL token (case-
-//     insensitive, word-boundary terminated) as the verdict.
-//  2. If the first line has no verdict, looks for FAIL as a whole word
-//     anywhere (case-insensitive, \bFAIL\b) as a fallback.
-//  3. If neither, fails closed with "verdict could not be determined".
+// TestRunShardValidationCheckpoint_VerdictParsing verifies the structured
+// reviewer verdict: runShardValidationCheckpoint accepts only a
+// checkpoint_verdict/4 fact carried in the reviewer's control-packet
+// mangle_updates and fails closed on anything else. Free-text PASS/FAIL —
+// including the old substring shapes — and bare atoms outside the envelope
+// must never satisfy the checkpoint.
 //
 // Each case drives the checkpoint through a fake task executor that returns
 // the given review text, following the MockTaskExecutor setup used by
@@ -27,54 +25,68 @@ func TestRunShardValidationCheckpoint_VerdictParsing(t *testing.T) {
 		wantFailClosed bool // if true, also assert details says verdict could not be determined
 	}{
 		{
-			name: "regression_PASS_with_failures_word_later_old_substring_parser_false_positive",
-			// Exact live response that the old substring parser ("fail" substring)
-			// recorded as a failure. The first line is an explicit PASS (with
-			// markdown) and the second paragraph contains "failures". The new
-			// explicit-verdict parser must honour the leading PASS and must not
-			// be confused by the later "failures" substring.
-			reviewText: "**PASS - Discovery objectives met.**\n\nNo failures found in the audit.",
+			name: "pass_via_json_envelope",
+			reviewText: `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"test-phase\", /pass, \"all objectives met\", 95)"]}, "surface_response": "done"}`,
 			wantPass:   true,
 		},
 		{
-			name:       "FAIL_leading_verdict",
-			reviewText: "FAIL: objectives not met, three sites unverified",
+			name: "fail_via_json_envelope",
+			reviewText: `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"test-phase\", /fail, \"three sites unverified\", 80)"]}, "surface_response": "done"}`,
 			wantPass:   false,
 		},
 		{
-			name: "pass_lowercase_no_markdown",
-			// Lowercase, no markdown noise — parser is case-insensitive.
-			reviewText: "pass\nminor notes follow",
-			wantPass:   true,
+			name: "bare_atom_outside_envelope_is_not_a_verdict",
+			// A bare atom outside a JSON control-packet envelope is inert:
+			// only control_packet.mangle_updates entries decide.
+			reviewText:     `checkpoint_verdict("test-phase", /pass, "all objectives met", 95)`,
+			wantPass:       false,
+			wantFailClosed: true,
 		},
 		{
-			name: "fallback_FAIL_whole_word_on_later_line",
-			// First line has no verdict; later line contains whole-word FAIL.
-			// Must fail via the whole-word fallback (case 2 of the parser).
-			reviewText: "Reviewed the phase.\nFAIL: coverage incomplete",
-			wantPass:   false,
+			name:           "bare_fail_atom_outside_envelope_is_not_a_verdict",
+			reviewText:     `checkpoint_verdict("test-phase", /fail, "objectives not met", 80)`,
+			wantPass:       false,
+			wantFailClosed: true,
 		},
 		{
-			name: "no_false_positive_on_failures_and_failure_substrings",
-			// Contains "failures" and "failure" but not the whole word FAIL.
-			// Old substring parser treated any "fail" as failure (false
-			// positive). New parser requires \bFAIL\b, so this must NOT be
-			// treated as FAIL via the fallback. Per the task spec this
-			// shape MUST pass (no whole-word FAIL => no failure).
-			reviewText: "Reviewed the phase. Two failures were already fixed and no failure remains.",
-			wantPass:   true,
+			name: "old_substring_shapes_no_longer_satisfy",
+			// Exact live response that the old substring parser recorded as
+			// a failure and the interim first-line parser recorded as a
+			// pass. Under the structured contract prose is not a verdict:
+			// no checkpoint_verdict/4 means fail closed, never pass.
+			reviewText:     "**PASS - Discovery objectives met.**\n\nNo failures found in the audit.",
+			wantPass:       false,
+			wantFailClosed: true,
 		},
 		{
-			name: "fail_closed_no_verdict_anywhere",
-			// No leading PASS/FAIL and no whole-word FAIL anywhere. Must fail
-			// closed and explain that the verdict could not be determined.
+			name: "prose_fail_is_not_a_verdict",
+			// A leading prose FAIL is equally inert without the atom.
+			reviewText:     "FAIL: objectives not met, three sites unverified",
+			wantPass:       false,
+			wantFailClosed: true,
+		},
+		{
+			name: "fail_closed_verdict_for_wrong_phase",
+			// A well-formed atom for another phase cannot satisfy this one.
+			reviewText:     `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"other-phase\", /pass, \"all objectives met\", 95)"]}, "surface_response": "done"}`,
+			wantPass:       false,
+			wantFailClosed: true,
+		},
+		{
+			name: "fail_closed_malformed_verdict_token",
+			// Verdict must be /pass or /fail; anything else is malformed.
+			reviewText:     `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"test-phase\", /maybe, \"unsure\", 50)"]}, "surface_response": "done"}`,
+			wantPass:       false,
+			wantFailClosed: true,
+		},
+		{
+			name:           "fail_closed_no_verdict_anywhere",
 			reviewText:     "The phase looks reasonable.",
 			wantPass:       false,
 			wantFailClosed: true,
 		},
 		{
-			name: "fail_closed_empty_response",
-			// Empty response — no verdict can be determined. Must fail closed.
+			name:           "fail_closed_empty_response",
 			reviewText:     "",
 			wantPass:       false,
 			wantFailClosed: true,
@@ -98,38 +110,6 @@ func TestRunShardValidationCheckpoint_VerdictParsing(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			// Special handling for the "failures"/"failure" substring case.
-			// Per the task spec this shape MUST pass (no whole-word FAIL
-			// => no failure) — it is the false-positive the old substring
-			// parser produced. The parser description says "if neither
-			// [no leading verdict and no whole-word FAIL], fails closed",
-			// which would make this fail-closed. The critical property
-			// this case proves is that the whole-word fallback does NOT
-			// trigger on "failures"/"failure". Accept either PASS (spec
-			// ideal) or fail-closed (current spec wording), but never
-			// "Review failed" via the \bFAIL\b fallback.
-			if tc.name == "no_false_positive_on_failures_and_failure_substrings" {
-				if strings.Contains(details, "Review failed:") {
-					t.Errorf("case %q should not be flagged as whole-word FAIL; got details %q", tc.name, details)
-				}
-				// The spec says MUST pass; current parser per "if neither,
-				// fails closed" would be fail-closed. Accept both, but
-				// verify the details match the outcome.
-				if passed {
-					if !strings.Contains(details, "Review passed") {
-						t.Errorf("pass case %q: details should contain 'Review passed'; got %q", tc.name, details)
-					}
-				} else {
-					// Fail-closed is acceptable given the "if neither,
-					// fails closed" wording — the key is it is NOT a
-					// whole-word FAIL failure.
-					if !strings.Contains(strings.ToLower(details), "could not be determined") {
-						t.Errorf("case %q fail-closed details should say verdict could not be determined; got %q", tc.name, details)
-					}
-					t.Logf("NOTE: spec expects PASS for %q, current parser fails closed (no verdict/no FAIL) — whole-word FAIL correctly not triggered", tc.name)
-				}
-				return
-			}
 			if passed != tc.wantPass {
 				t.Errorf("runShardValidationCheckpoint with review %q: passed=%v, want %v (details=%q)", tc.reviewText, passed, tc.wantPass, details)
 			}
@@ -143,8 +123,8 @@ func TestRunShardValidationCheckpoint_VerdictParsing(t *testing.T) {
 					t.Errorf("pass case %q: details should contain 'Review passed'; got %q", tc.name, details)
 				}
 			} else {
-				// Expected fail via explicit verdict or fallback — details
-				// should say "Review failed".
+				// Expected fail via explicit verdict — details should say
+				// "Review failed".
 				if !strings.Contains(details, "Review failed") {
 					t.Errorf("fail case %q: details should contain 'Review failed'; got %q", tc.name, details)
 				}

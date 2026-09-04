@@ -1,10 +1,6 @@
 package campaign
 
 import (
-	"codenerd/internal/types"
-
-	"github.com/kballard/go-shellquote"
-
 	"bufio"
 	"context"
 	"crypto/sha256"
@@ -20,6 +16,9 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/tactile"
+	"codenerd/internal/types"
+
+	"github.com/kballard/go-shellquote"
 )
 
 type assaultTargetsFile struct {
@@ -331,7 +330,21 @@ func (o *Orchestrator) runAssaultStage(
 		}
 
 		dir := targetToDir(target)
-		taskStr := fmt.Sprintf("review:%s", filepath.Join(o.workspace, filepath.FromSlash(dir)))
+		// Structured verdict only: the nemesis speaks through a JSON
+		// control-packet carrying exactly one checkpoint_verdict/4 fact.
+		// Parsing lives in checkpoint.go (parseCheckpointVerdict); no
+		// substring matching here. Missing or malformed verdict fails closed.
+		verdictPhase := target
+		var nemesisPrompt strings.Builder
+		nemesisPrompt.WriteString(fmt.Sprintf("review:%s\n\n", filepath.Join(o.workspace, filepath.FromSlash(dir))))
+		nemesisPrompt.WriteString("Attempt to break the implementation: find vulnerabilities, logic errors, and unhandled edge cases.\n")
+		nemesisPrompt.WriteString("\nYour response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:\n")
+		nemesisPrompt.WriteString("checkpoint_verdict(\"PhaseName\", Verdict, \"reason\", Confidence).\n")
+		nemesisPrompt.WriteString(fmt.Sprintf("PhaseName must be exactly %q. ", verdictPhase))
+		nemesisPrompt.WriteString("Verdict must be /pass (survived the gauntlet, no exploitable weaknesses found) or /fail (gauntlet broke the implementation). Reason is a short human-readable justification. Confidence is 0-100.\n")
+		nemesisPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"no weaknesses found\\\", 95)\"]}, \"surface_response\": \"...\"}.\n")
+		nemesisPrompt.WriteString("Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.")
+		taskStr := nemesisPrompt.String()
 		result, err := o.spawnTask(ctx, "nemesis", taskStr)
 		content := "nemesis review\n\n" + taskStr + "\n\n" + result
 		if err != nil {
@@ -340,10 +353,12 @@ func (o *Orchestrator) runAssaultStage(
 			return false, stageOutcome{ExitCode: 1, Error: err.Error()}
 		}
 		writeTextFileBestEffort(logPath, content)
-		lower := strings.ToLower(result)
-		if strings.Contains(lower, "defeated") || strings.Contains(lower, "attack succeeded") ||
-			(strings.Contains(lower, "verdict") && strings.Contains(lower, "fail")) {
-			return false, stageOutcome{ExitCode: 1, Error: "nemesis found weaknesses"}
+		passed, reason, ok := parseCheckpointVerdict(result, verdictPhase)
+		if !ok {
+			return false, stageOutcome{ExitCode: 1, Error: fmt.Sprintf("nemesis verdict could not be determined (missing or malformed checkpoint_verdict/4 for %q): %s", verdictPhase, result)}
+		}
+		if !passed {
+			return false, stageOutcome{ExitCode: 1, Error: fmt.Sprintf("nemesis found weaknesses: %s", reason)}
 		}
 		return true, stageOutcome{ExitCode: 0}
 

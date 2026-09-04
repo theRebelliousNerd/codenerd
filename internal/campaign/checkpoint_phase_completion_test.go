@@ -125,7 +125,7 @@ func TestRunPhase_WhenCheckpointFails_ShouldNotCompletePhase(t *testing.T) {
 }
 
 func TestRunPhase_WhenCheckpointPasses_ShouldCompletePhase(t *testing.T) {
-	orch, _ := newCheckpointRegressionOrchestrator(t, "PASS: everything verified")
+	orch, _ := newCheckpointRegressionOrchestrator(t, `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"verified phase\", /pass, \"everything verified\", 95)"]}, "surface_response": "done"}`)
 
 	if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
 		t.Fatalf("runPhase returned error: %v", err)

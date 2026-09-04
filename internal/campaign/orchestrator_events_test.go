@@ -297,7 +297,7 @@ func TestOrchestratorEventTypes_ReturnsCopy(t *testing.T) {
 // Metrics hooks must observe real work without the engine depending on any
 // particular backend.
 func TestMetricsSink_ShouldObserveTaskAndCheckpointDurations(t *testing.T) {
-	orch, _ := newCheckpointRegressionOrchestrator(t, "PASS: verified")
+	orch, _ := newCheckpointRegressionOrchestrator(t, `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"verified phase\", /pass, \"verified\", 95)"]}, "surface_response": "done"}`)
 	metrics := NewInMemoryMetrics()
 	orch.SetMetricsSink(metrics)
 
@@ -338,7 +338,7 @@ func TestMetricsSink_ShouldObserveTaskAndCheckpointDurations(t *testing.T) {
 // A nil sink must cost nothing and never panic — that is the whole reason the
 // hooks are optional rather than a hard dependency.
 func TestMetricsSink_WhenUnset_ShouldBeInert(t *testing.T) {
-	orch, _ := newCheckpointRegressionOrchestrator(t, "PASS: verified")
+	orch, _ := newCheckpointRegressionOrchestrator(t, `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"verified phase\", /pass, \"verified\", 95)"]}, "surface_response": "done"}`)
 
 	orch.markPhaseStart("/phase_ckpt_0")
 	orch.observePhaseDuration("/phase_ckpt_0")

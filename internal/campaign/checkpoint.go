@@ -1,20 +1,21 @@
 package campaign
 
 import (
-	"codenerd/internal/logging"
-	"codenerd/internal/session"
-	"codenerd/internal/tactile"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
+	"strconv"
 	"strings"
 	"time"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/session"
+	"codenerd/internal/tactile"
+	"codenerd/internal/tools"
 )
 
-var shardFailWordRe = regexp.MustCompile(`(?i)\bFAIL\b`)
 
 // CheckpointRunner runs verification checkpoints for phases.
 type CheckpointRunner struct {
@@ -258,7 +259,12 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 		}
 	}
 
-	reviewPrompt.WriteString("\nYour response MUST begin with a single line containing exactly PASS or FAIL. Put any reasoning on the following lines. PASS means objectives are met, FAIL means they are not (include reason).")
+	reviewPrompt.WriteString("\nYour response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:\n")
+	reviewPrompt.WriteString("checkpoint_verdict(\"PhaseName\", Verdict, \"reason\", Confidence).\n")
+	reviewPrompt.WriteString(fmt.Sprintf("PhaseName must be exactly %q. ", phase.Name))
+	reviewPrompt.WriteString("Verdict must be /pass (objectives met) or /fail (objectives not met). Reason is a short human-readable justification. Confidence is 0-100.\n")
+	reviewPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"all objectives met\\\", 95)\"]}, \"surface_response\": \"...\"}.\n")
+	reviewPrompt.WriteString("Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.")
 
 	// Spawn reviewer intent
 	result, err := cr.spawnTask(ctx, "/review", reviewPrompt.String())
@@ -267,56 +273,28 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 		return false, fmt.Sprintf("Reviewer shard failed: %v", err), err
 	}
 
-	// Parse result - explicit verdict rather than substring (see doc comment above and task spec).
+	// Structured verdict: the reviewer speaks through control_packet
+	// mangle_updates, not through prose. Anything without a well-formed
+	// checkpoint_verdict/4 for this phase fails closed.
 	resultStr := fmt.Sprintf("%v", result)
 
-	// 1. First non-empty line stripped of leading markdown/punctuation noise.
-	firstLine := ""
-	for _, line := range strings.Split(resultStr, "\n") {
-		if strings.TrimSpace(line) != "" {
-			firstLine = strings.TrimSpace(line)
-			break
-		}
+	passed, reason, ok := parseCheckpointVerdict(resultStr, phase.Name)
+	if !ok {
+		logging.CampaignWarn("runShardValidationCheckpoint: reviewer verdict could not be determined for phase=%s; failing closed", phase.Name)
+		return false, fmt.Sprintf("Review verdict could not be determined (missing or malformed checkpoint_verdict/4 for phase %q): %s", phase.Name, resultStr), nil
 	}
-	stripped := ""
-	if firstLine != "" {
-		stripped = strings.TrimLeft(firstLine, "*_`# :-")
-	}
-	lowerStripped := strings.ToLower(stripped)
-	isPassVerdict := false
-	isFailVerdict := false
-	if strings.HasPrefix(lowerStripped, "pass") {
-		if len(lowerStripped) == 4 || (len(lowerStripped) > 4 && (lowerStripped[4] < 'a' || lowerStripped[4] > 'z')) {
-			isPassVerdict = true
-		}
-	} else if strings.HasPrefix(lowerStripped, "fail") {
-		if len(lowerStripped) == 4 || (len(lowerStripped) > 4 && (lowerStripped[4] < 'a' || lowerStripped[4] > 'z')) {
-			isFailVerdict = true
-		}
-	}
-	if isPassVerdict {
+	if passed {
 		logging.Campaign("runShardValidationCheckpoint: reviewer approved phase=%s", phase.Name)
-		return true, fmt.Sprintf("Review passed: %s", resultStr), nil
+		return true, fmt.Sprintf("Review passed: %s", reason), nil
 	}
-	if isFailVerdict {
-		logging.CampaignWarn("runShardValidationCheckpoint: reviewer found issues in phase=%s", phase.Name)
-		return false, fmt.Sprintf("Review failed: %s", resultStr), nil
-	}
-
-	// 2. Fallback: FAIL as a whole word anywhere (case-insensitive, word boundaries).
-	// Use explicit word-boundary check so "failures"/"failed"/"failure" don't trigger.
-	if shardFailWordRe.MatchString(resultStr) {
-		logging.CampaignWarn("runShardValidationCheckpoint: reviewer found issues in phase=%s", phase.Name)
-		return false, fmt.Sprintf("Review failed: %s", resultStr), nil
-	}
-
-	// 3. No verdict could be determined — fail closed.
-	logging.CampaignWarn("runShardValidationCheckpoint: reviewer verdict could not be determined for phase=%s; failing closed", phase.Name)
-	return false, fmt.Sprintf("Review verdict could not be determined (response did not begin with PASS or FAIL and contained no explicit FAIL): %s", resultStr), nil
+	logging.CampaignWarn("runShardValidationCheckpoint: reviewer found issues in phase=%s", phase.Name)
+	return false, fmt.Sprintf("Review failed: %s", reason), nil
 }
 
 // runNemesisGauntletCheckpoint spawns the Nemesis shard to perform adversarial review.
-// This is best-effort: if Nemesis isn't available, we skip rather than fail hard.
+// The verdict is structured: only a well-formed checkpoint_verdict/4 for this
+// phase in control_packet.mangle_updates decides; prose is inert and a
+// missing or malformed verdict fails closed.
 func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
 	if cr.taskExecutor == nil {
 		// Fail closed, as in runShardValidationCheckpoint. An assault campaign
@@ -349,80 +327,78 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 		}
 	}
 
-	taskStr := fmt.Sprintf("review:%s", target)
-	logging.CampaignDebug("runNemesisGauntletCheckpoint: target=%s task=%s", target, taskStr)
-	result, err := cr.spawnTask(ctx, "/nemesis", taskStr)
+	var nemesisPrompt strings.Builder
+	nemesisPrompt.WriteString("Perform an adversarial review of the following phase and target:\n\n")
+	nemesisPrompt.WriteString(fmt.Sprintf("Phase: %s\n", phaseName))
+	nemesisPrompt.WriteString(fmt.Sprintf("Target: %s\n\n", target))
+	if phase != nil {
+		nemesisPrompt.WriteString("Objectives:\n")
+		for _, obj := range phase.Objectives {
+			nemesisPrompt.WriteString(fmt.Sprintf("- %s\n", obj.Description))
+		}
+		nemesisPrompt.WriteString("\nCompleted Tasks:\n")
+		for _, task := range phase.Tasks {
+			if task.Status == TaskCompleted {
+				nemesisPrompt.WriteString(fmt.Sprintf("- [DONE] %s\n", task.Description))
+				if len(task.Artifacts) > 0 {
+					nemesisPrompt.WriteString(fmt.Sprintf("  Artifacts: %v\n", task.Artifacts))
+				}
+			}
+		}
+		nemesisPrompt.WriteString("\n")
+	}
+	nemesisPrompt.WriteString("Attempt to break the implementation: find vulnerabilities, logic errors, and unhandled edge cases.\n")
+	nemesisPrompt.WriteString("\nYour response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:\n")
+	nemesisPrompt.WriteString("checkpoint_verdict(\"PhaseName\", Verdict, \"reason\", Confidence).\n")
+	nemesisPrompt.WriteString(fmt.Sprintf("PhaseName must be exactly %q. ", phaseName))
+	nemesisPrompt.WriteString("Verdict must be /pass (survived the gauntlet, no exploitable weaknesses found) or /fail (gauntlet broke the implementation). Reason is a short human-readable justification. Confidence is 0-100.\n")
+	nemesisPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"no weaknesses found\\\", 95)\"]}, \"surface_response\": \"...\"}.\n")
+	nemesisPrompt.WriteString("Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.")
+
+	logging.CampaignDebug("runNemesisGauntletCheckpoint: target=%s", target)
+	result, err := cr.spawnTask(ctx, "/nemesis", nemesisPrompt.String())
 	if err != nil {
 		logging.CampaignError("runNemesisGauntletCheckpoint: nemesis shard failed for phase=%s: %v", phaseName, err)
 		return false, fmt.Sprintf("Nemesis shard failed: %v", err), err
 	}
 
+	// Structured verdict: the nemesis speaks through control_packet
+	// mangle_updates, not through prose. Anything without a well-formed
+	// checkpoint_verdict/4 for this phase fails closed.
 	resultStr := fmt.Sprintf("%v", result)
-	lower := strings.ToLower(resultStr)
 
-	// Heuristic verdict: Nemesis uses "failed/defeated" language when it breaks a patch.
-	if strings.Contains(lower, "verdict") && strings.Contains(lower, "fail") {
-		logging.CampaignWarn("runNemesisGauntletCheckpoint: nemesis found vulnerabilities in phase=%s", phaseName)
-		return false, fmt.Sprintf("Nemesis gauntlet failed: %s", resultStr), nil
+	passed, reason, ok := parseCheckpointVerdict(resultStr, phaseName)
+	if !ok {
+		logging.CampaignWarn("runNemesisGauntletCheckpoint: nemesis verdict could not be determined for phase=%s; failing closed", phaseName)
+		return false, fmt.Sprintf("Nemesis verdict could not be determined (missing or malformed checkpoint_verdict/4 for phase %q): %s", phaseName, resultStr), nil
 	}
-	if strings.Contains(lower, "defeated") || strings.Contains(lower, "attack succeeded") {
-		logging.CampaignWarn("runNemesisGauntletCheckpoint: nemesis defeated phase=%s defenses", phaseName)
-		return false, fmt.Sprintf("Nemesis gauntlet found weaknesses: %s", resultStr), nil
+	if passed {
+		logging.Campaign("runNemesisGauntletCheckpoint: phase=%s survived nemesis gauntlet", phaseName)
+		return true, fmt.Sprintf("Nemesis gauntlet passed: %s", reason), nil
 	}
-
-	logging.Campaign("runNemesisGauntletCheckpoint: phase=%s survived nemesis gauntlet", phaseName)
-	return true, fmt.Sprintf("Nemesis gauntlet passed: %s", resultStr), nil
+	logging.CampaignWarn("runNemesisGauntletCheckpoint: nemesis found vulnerabilities in phase=%s", phaseName)
+	return false, fmt.Sprintf("Nemesis gauntlet failed: %s", reason), nil
 }
 
-// detectTestCommand determines the appropriate test command for the project.
-func (cr *CheckpointRunner) detectTestCommand() string {
-	// Check for various project types
-	checks := []struct {
-		file    string
-		command string
-	}{
-		{"go.mod", "go test ./..."},
-		{"package.json", "npm test"},
-		{"Cargo.toml", "cargo test"},
-		{"requirements.txt", "pytest"},
-		{"setup.py", "python -m pytest"},
-		{"pom.xml", "mvn test"},
-		{"build.gradle", "gradle test"},
-		{"Makefile", "make test"},
+// detectTestCommand delegates to the canonical tools.TestCommandForDir
+// projection (internal/tools/framework.go, mirroring the policy
+// test_framework/1 + test_command/1 facts) and falls back to the Go default
+// on unknown workspaces.
+func (r *CheckpointRunner) detectTestCommand() string {
+	if cmd, ok := tools.TestCommandForDir(r.workspace); ok {
+		return cmd
 	}
-
-	for _, check := range checks {
-		if fileExists(cr.workspace, check.file) {
-			return check.command
-		}
-	}
-
-	// Default to go test
-	return "go test ./..."
+	return tools.DefaultTestCommand
 }
 
-// detectBuildCommand determines the appropriate build command for the project.
-func (cr *CheckpointRunner) detectBuildCommand() string {
-	checks := []struct {
-		file    string
-		command string
-	}{
-		{"go.mod", "go build ./..."},
-		{"package.json", "npm run build"},
-		{"Cargo.toml", "cargo build"},
-		{"pom.xml", "mvn compile"},
-		{"build.gradle", "gradle build"},
-		{"Makefile", "make build"},
+// detectBuildCommand delegates to the canonical tools.BuildCommandForDir
+// projection (mirroring the policy build_command/1 facts) and falls back to
+// the Go default on unknown workspaces.
+func (r *CheckpointRunner) detectBuildCommand() string {
+	if cmd, ok := tools.BuildCommandForDir(r.workspace); ok {
+		return cmd
 	}
-
-	for _, check := range checks {
-		if fileExists(cr.workspace, check.file) {
-			return check.command
-		}
-	}
-
-	// Default to go build
-	return "go build ./..."
+	return tools.DefaultBuildCommand
 }
 
 // parseTestOutput parses test output to count passed/failed tests.
@@ -541,4 +517,135 @@ func fileExists(workspace, file string) bool {
 		return true
 	}
 	return false
+}
+
+// checkpointEnvelope is the minimal subset of the reviewer control-packet
+// needed here: the mangle_updates list that carries checkpoint_verdict/4.
+// A local struct avoids importing articulation (and any import cycle) for
+// what is deliberately a tiny, stable contract.
+type checkpointEnvelope struct {
+	Control struct {
+		MangleUpdates []string `json:"mangle_updates"`
+	} `json:"control_packet"`
+	Surface string `json:"surface_response"`
+}
+
+// parseCheckpointVerdict extracts the structured reviewer verdict for the
+// given phase from a JSON control-packet envelope. Only
+// control_packet.mangle_updates entries that are well-formed
+// checkpoint_verdict/4 facts decide; free text, bare atoms outside the
+// envelope, and prose PASS/FAIL are inert.
+//
+// Returns (passed, reason, ok): ok is false when no well-formed verdict for
+// this phase is present, in which case the caller must fail closed.
+func parseCheckpointVerdict(resultStr, phaseName string) (bool, string, bool) {
+	var env checkpointEnvelope
+	if err := json.Unmarshal([]byte(resultStr), &env); err != nil {
+		return false, "", false
+	}
+
+	for _, update := range env.Control.MangleUpdates {
+		gotPhase, verdict, reason, ok := parseCheckpointVerdictAtom(update)
+		if !ok {
+			continue
+		}
+		if gotPhase != phaseName {
+			continue
+		}
+		switch verdict {
+		case "pass":
+			return true, reason, true
+		case "fail":
+			return false, reason, true
+		default:
+			continue
+		}
+	}
+	return false, "", false
+}
+
+// parseCheckpointVerdictAtom parses a single mangle_updates entry as a
+// structured checkpoint_verdict/4 fact:
+//
+//	checkpoint_verdict("Phase", /pass|/fail, "details", confidence)
+//
+// The entry must be exactly the atom (modulo surrounding whitespace); the
+// atom is never searched for inside a larger string. Verdict accepts /pass,
+// "pass" or 'pass' spellings so JSON-quoted atoms still parse. Confidence
+// must be numeric but is otherwise ignored; the verdict atom alone decides.
+// Phase is returned verbatim so the caller can require it to match the
+// checkpoint's phase name.
+func parseCheckpointVerdictAtom(atom string) (phase, verdict, reason string, ok bool) {
+	trimmed := strings.TrimSpace(atom)
+	const prefix = "checkpoint_verdict("
+	if !strings.HasPrefix(trimmed, prefix) || !strings.HasSuffix(trimmed, ")") {
+		return "", "", "", false
+	}
+	inner := trimmed[len(prefix) : len(trimmed)-1]
+	parts := splitTopLevelCommas(inner)
+	if len(parts) != 4 {
+		return "", "", "", false
+	}
+
+	phasePart := strings.TrimSpace(parts[0])
+	phaseUnquoted, err := strconv.Unquote(phasePart)
+	if err != nil {
+		return "", "", "", false
+	}
+
+	verdictPart := strings.TrimSpace(parts[1])
+	verdictPart = strings.Trim(verdictPart, `"'`)
+	verdictPart = strings.TrimSpace(verdictPart)
+	verdictPart = strings.TrimPrefix(verdictPart, "/")
+	verdictNorm := strings.ToLower(strings.TrimSpace(verdictPart))
+	if verdictNorm != "pass" && verdictNorm != "fail" {
+		return "", "", "", false
+	}
+
+	reasonPart := strings.TrimSpace(parts[2])
+	reasonUnquoted, err := strconv.Unquote(reasonPart)
+	if err != nil {
+		return "", "", "", false
+	}
+
+	confidencePart := strings.TrimSpace(parts[3])
+	if _, err := strconv.ParseFloat(confidencePart, 64); err != nil {
+		return "", "", "", false
+	}
+
+	return phaseUnquoted, verdictNorm, reasonUnquoted, true
+}
+
+// splitTopLevelCommas splits s on commas that are not inside single or
+// double quotes and honors backslash escapes so a quoted reason may contain
+// commas and escaped quotes.
+func splitTopLevelCommas(s string) []string {
+	var parts []string
+	var cur strings.Builder
+	var inSingle, inDouble, escaped bool
+	for _, r := range s {
+		switch {
+		case escaped:
+			cur.WriteRune(r)
+			escaped = false
+		case r == '\\':
+			cur.WriteRune(r)
+			if inSingle || inDouble {
+				escaped = true
+			}
+		case r == '"' && !inSingle:
+			cur.WriteRune(r)
+			inDouble = !inDouble
+		case r == '\'' && !inDouble:
+			cur.WriteRune(r)
+			inSingle = !inSingle
+		case r == ',' && !inSingle && !inDouble:
+			parts = append(parts, cur.String())
+			cur.Reset()
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	parts = append(parts, cur.String())
+	return parts
 }

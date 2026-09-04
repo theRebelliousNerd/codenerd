@@ -1674,85 +1674,23 @@ func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
 		return nil
 	}
 
-	if result.SuccessfulToolCalls == 0 {
-		return newHollowSuccessError(
-			"intent %s requires side effects but no tool calls completed successfully (attempted=%d)",
-			verb, result.ToolCallsExecuted,
-		)
+	// Turn evidence: Go measures, Mangle decides. Assert exactly one
+	// turn_evidence fact per turn BEFORE any verdict so the policy corpus
+	// derives hollow_success/turn_done for Go consumers. The canonical
+	// assert and consume helpers live in executor.go so the turn verdict
+	// has one home; this stays as the thin turn gate that sequences them.
+	// Imperative checks are fallback only inside consumeHollowSuccessVerdict
+	// for nil/degraded kernels and MockKernel unit tests whose policy lacks
+	// these predicates — they must not short-circuit before the assert or
+	// policy never decides and turn_done is never single.
+	e.assertTurnEvidence(verb, result)
+	if err := e.consumeHollowSuccessVerdict(verb, result); err != nil {
+		return err
 	}
-
-	// Write-oriented work that only ran read/search tools still claims success
-	// in live matrices (prose "Created backend/main.go" with no write_file).
-	if e.writeOrientedIntent(verb) && result.SuccessfulWriteTools == 0 {
-		return newHollowSuccessError(
-			"write-oriented intent %s completed without a recognized write-mutation tool (tool_calls=%d)",
-			verb, result.ToolCallsExecuted,
-		)
-	}
-	if e.kernel == nil {
-		logging.Get(logging.CategorySession).Debug("checkHollowSuccess: nil kernel, skipping missing_test_for check")
-		return nil
-	}
-	// F-RUN-3: Go measures, Mangle decides — verify claimed test output.
-	// Assert claimed_test_output when response presents runner output,
-	// and executed_test_tool when a test tool actually ran. Both use
-	// types.MangleString so the leading-slash verb is stored as a string,
-	// not a Mangle name constant. Then query unverified_test_claim
-	// (claimed_test_output && !executed_test_tool) and fail the turn if
-	// any fact is returned. Retraction is handled by
-	// cleanupPerTurnCoverageFacts on every path.
-	if responsePresentsTestRunnerOutput(result.Response) {
-		fact := types.Fact{Predicate: "claimed_test_output", Args: []any{types.MangleString(verb)}}
-		if err := e.kernel.Assert(fact); err != nil {
-			logging.Get(logging.CategorySession).Warn("failed to assert claimed_test_output for %s: %v", verb, err)
-		} else {
-			e.mu.Lock()
-			e.perTurnClaimedTestOutputFacts = append(e.perTurnClaimedTestOutputFacts, fact)
-			e.mu.Unlock()
-			logging.Get(logging.CategorySession).Debug("asserted claimed_test_output(%q)", verb)
-		}
-	}
-	if result.SuccessfulTestTools > 0 {
-		fact := types.Fact{Predicate: "executed_test_tool", Args: []any{types.MangleString(verb)}}
-		if err := e.kernel.Assert(fact); err != nil {
-			logging.Get(logging.CategorySession).Warn("failed to assert executed_test_tool for %s: %v", verb, err)
-		} else {
-			e.mu.Lock()
-			e.perTurnExecutedTestToolFacts = append(e.perTurnExecutedTestToolFacts, fact)
-			e.mu.Unlock()
-			logging.Get(logging.CategorySession).Debug("asserted executed_test_tool(%q)", verb)
-		}
-	}
-	if unverified, err := e.kernel.Query("unverified_test_claim"); err != nil {
-		logging.Get(logging.CategorySession).Warn("checkHollowSuccess: unverified_test_claim query failed: %v", err)
-	} else if len(unverified) > 0 {
-		return newHollowSuccessError("response presents test-runner output but no test-execution tool ran this turn (verb %s)", verb)
-	}
-	facts, err := e.kernel.Query("missing_test_for")
-	if err != nil {
-		logging.Get(logging.CategorySession).Warn("checkHollowSuccess: missing_test_for query failed: %v", err)
-		return nil
-	}
-	if len(facts) == 0 {
-		return nil
-	}
-	e.mu.RLock()
-	createdSet := make(map[string]struct{}, len(e.perTurnCreatedSourceFacts))
-	for _, f := range e.perTurnCreatedSourceFacts {
-		if len(f.Args) > 0 {
-			createdSet[types.ExtractString(f.Args[0])] = struct{}{}
-		}
-	}
-	e.mu.RUnlock()
-	for _, f := range facts {
-		if len(f.Args) == 0 {
-			continue
-		}
-		file := types.ExtractString(f.Args[0])
-		if _, ok := createdSet[file]; ok {
-			return newHollowSuccessError("%s was created without a test file; a test file is required (create %s)", file, strings.TrimSuffix(file, ".go")+"_test.go")
-		}
-	}
+	// Single turn_done completion signal: exactly one is expected per
+	// turn_evidence. The consumer logs any deviation for diagnosis without
+	// changing the verdict hollow_success already determined.
+	e.consumeTurnDoneSignal(verb)
 	return nil
 }
 
@@ -1760,36 +1698,34 @@ func (e *Executor) recordGoFileCreations(preExist map[string]bool, canonicalToPh
 	if e.kernel == nil || len(preExist) == 0 {
 		return
 	}
-	for canonical, existedBefore := range preExist {
-		if existedBefore {
+	for canonical, existed := range preExist {
+		if existed {
 			continue
 		}
-		phys, ok := canonicalToPhys[canonical]
-		if !ok {
-			continue
-		}
-		if _, err := os.Stat(phys); err != nil {
-			if os.IsNotExist(err) {
+		if phys, ok := canonicalToPhys[canonical]; ok && phys != "" {
+			if _, err := os.Stat(phys); err != nil {
 				continue
 			}
-			logging.Get(logging.CategorySession).Debug("recordGoFileCreations: post-stat error for %s: %v", phys, err)
-			continue
 		}
-		if strings.HasSuffix(canonical, "_test.go") {
-			sourceCanonical := strings.TrimSuffix(canonical, "_test.go") + ".go"
-			fact := types.Fact{Predicate: "test_file_for", Args: []any{types.MangleString(canonical), types.MangleString(sourceCanonical)}}
+		lower := strings.ToLower(canonical)
+		if strings.HasSuffix(lower, "_test.go") {
+			base := canonical[:len(canonical)-len("_test.go")]
+			source := base + ".go"
+			fact := types.Fact{Predicate: "test_file_for", Args: []any{types.MangleString(canonical), types.MangleString(source)}}
 			if err := e.kernel.Assert(fact); err != nil {
-				logging.Get(logging.CategorySession).Warn("failed to assert test_file_for for %s: %v", canonical, err)
+				logging.Get(logging.CategorySession).Debug("recordGoFileCreations: failed to assert test_file_for %q: %v", canonical, err)
 				continue
 			}
 			e.mu.Lock()
 			e.perTurnTestFileForFacts = append(e.perTurnTestFileForFacts, fact)
 			e.mu.Unlock()
-			logging.Get(logging.CategorySession).Debug("asserted test_file_for(%q, %q)", canonical, sourceCanonical)
-		} else {
+			logging.Get(logging.CategorySession).Debug("asserted test_file_for(%q, %q)", canonical, source)
+			continue
+		}
+		if strings.HasSuffix(lower, ".go") {
 			fact := types.Fact{Predicate: "created_source", Args: []any{types.MangleString(canonical)}}
 			if err := e.kernel.Assert(fact); err != nil {
-				logging.Get(logging.CategorySession).Warn("failed to assert created_source for %s: %v", canonical, err)
+				logging.Get(logging.CategorySession).Debug("recordGoFileCreations: failed to assert created_source %q: %v", canonical, err)
 				continue
 			}
 			e.mu.Lock()
@@ -1799,16 +1735,8 @@ func (e *Executor) recordGoFileCreations(preExist map[string]bool, canonicalToPh
 		}
 	}
 }
-
 func (e *Executor) cleanupPerTurnCoverageFacts() {
 	if e.kernel == nil {
-		e.mu.Lock()
-		e.perTurnCreatedSourceFacts = nil
-		e.perTurnTestFileForFacts = nil
-		e.perTurnClaimedTestOutputFacts = nil
-		e.perTurnExecutedTestToolFacts = nil
-		e.mu.Unlock()
-		logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: nil kernel, cleared local state")
 		return
 	}
 	e.mu.Lock()
@@ -1816,10 +1744,12 @@ func (e *Executor) cleanupPerTurnCoverageFacts() {
 	testFacts := append([]types.Fact(nil), e.perTurnTestFileForFacts...)
 	claimed := append([]types.Fact(nil), e.perTurnClaimedTestOutputFacts...)
 	executed := append([]types.Fact(nil), e.perTurnExecutedTestToolFacts...)
+	turnEvidence := append([]types.Fact(nil), e.perTurnEvidenceFacts...)
 	e.perTurnCreatedSourceFacts = nil
 	e.perTurnTestFileForFacts = nil
 	e.perTurnClaimedTestOutputFacts = nil
 	e.perTurnExecutedTestToolFacts = nil
+	e.perTurnEvidenceFacts = nil
 	e.mu.Unlock()
 	for _, f := range created {
 		if err := e.kernel.RetractFact(f); err != nil {
@@ -1841,10 +1771,15 @@ func (e *Executor) cleanupPerTurnCoverageFacts() {
 			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract executed_test_tool %v: %v", f.Args, err)
 		}
 	}
+	for _, f := range turnEvidence {
+		if err := e.kernel.RetractFact(f); err != nil {
+			logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract turn_evidence %v: %v", f.Args, err)
+		}
+	}
 	// Direct kernel asserts (verify_created2 helpers) are not tracked in perTurn lists.
 	// Retract any remaining coverage facts so the next turn starts clean and
 	// stale facts do not leak forever.
-	if len(created) == 0 && len(testFacts) == 0 && len(claimed) == 0 && len(executed) == 0 {
+	if len(created) == 0 && len(testFacts) == 0 && len(claimed) == 0 && len(executed) == 0 && len(turnEvidence) == 0 {
 		if facts, err := e.kernel.Query("created_source"); err == nil {
 			for _, f := range facts {
 				if err := e.kernel.RetractFact(f); err != nil {
@@ -1873,6 +1808,13 @@ func (e *Executor) cleanupPerTurnCoverageFacts() {
 				}
 			}
 		}
+		if facts, err := e.kernel.Query("turn_evidence"); err == nil {
+			for _, f := range facts {
+				if err := e.kernel.RetractFact(f); err != nil {
+					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract direct turn_evidence %v: %v", f.Args, err)
+				}
+			}
+		}
 	}
 	// A leaked claimed_test_output would fail every later turn forever, which is
 	// worse than the defect it guards. Ensure no orphan of either predicate
@@ -1891,6 +1833,15 @@ func (e *Executor) cleanupPerTurnCoverageFacts() {
 			for _, f := range facts {
 				if err := e.kernel.RetractFact(f); err != nil {
 					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract orphan executed_test_tool %v: %v", f.Args, err)
+				}
+			}
+		}
+	}
+	if len(turnEvidence) == 0 {
+		if facts, err := e.kernel.Query("turn_evidence"); err == nil {
+			for _, f := range facts {
+				if err := e.kernel.RetractFact(f); err != nil {
+					logging.Get(logging.CategorySession).Debug("cleanupPerTurnCoverageFacts: failed to retract orphan turn_evidence %v: %v", f.Args, err)
 				}
 			}
 		}

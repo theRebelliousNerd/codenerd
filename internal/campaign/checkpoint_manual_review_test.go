@@ -116,11 +116,11 @@ func TestManualReviewCheckpoint_EscalatesToShardValidation(t *testing.T) {
 	// shard validation and the prefix should remain visible even on success.
 	executor := &MockTaskExecutor{
 		ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
-			// Simulate a reviewer shard that approves.
+			// Simulate a reviewer shard that approves with a structured verdict.
 			if req.IntentVerb != "/review" {
 				t.Errorf("expected /review intent, got %q", req.IntentVerb)
 			}
-			return "PASS: objectives met, all tasks reviewed", nil
+			return `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"escalated-phase\", /pass, \"objectives met, all tasks reviewed\", 95)"]}, "surface_response": "done"}`, nil
 		},
 	}
 	cr := NewCheckpointRunner(nil, executor, t.TempDir())

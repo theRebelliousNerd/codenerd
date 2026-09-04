@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"codenerd/internal/tools"
 	"context"
 	"fmt"
 	"os"
@@ -228,9 +229,12 @@ func TestDetectBuildCommand_Go(t *testing.T) {
 	goMod := filepath.Join(tmpDir, "go.mod")
 	os.WriteFile(goMod, []byte("module test"), 0644)
 
-	cmd := detectBuildCommand(tmpDir)
-	if !strings.Contains(cmd, "go build") {
-		t.Errorf("expected 'go build' for Go project, got: %s", cmd)
+	// The shell-local detectBuildCommand detector was removed in the
+	// framework-detection unification; the canonical mapping lives in
+	// internal/tools/framework.go, so pin it through BuildCommandForDir.
+	cmd, ok := tools.BuildCommandForDir(tmpDir)
+	if !ok || !strings.Contains(cmd, "go build") {
+		t.Errorf("expected 'go build' for Go project, got: %q (ok=%v)", cmd, ok)
 	}
 }
 
@@ -241,9 +245,10 @@ func TestDetectBuildCommand_Node(t *testing.T) {
 	pkg := filepath.Join(tmpDir, "package.json")
 	os.WriteFile(pkg, []byte("{}"), 0644)
 
-	cmd := detectBuildCommand(tmpDir)
-	if !strings.Contains(cmd, "npm") {
-		t.Errorf("expected 'npm' for Node project, got: %s", cmd)
+	// Unified into the canonical tools projection (see TestDetectBuildCommand_Go).
+	cmd, ok := tools.BuildCommandForDir(tmpDir)
+	if !ok || !strings.Contains(cmd, "npm") {
+		t.Errorf("expected 'npm' for Node project, got: %q (ok=%v)", cmd, ok)
 	}
 }
 
@@ -268,9 +273,11 @@ func TestDetectTestCommand_Go(t *testing.T) {
 	goMod := filepath.Join(tmpDir, "go.mod")
 	os.WriteFile(goMod, []byte("module test"), 0644)
 
-	cmd := detectTestCommand(tmpDir)
-	if !strings.Contains(cmd, "go test") {
-		t.Errorf("expected 'go test' for Go project, got: %s", cmd)
+	// detectTestCommand was unified into the canonical tools projection;
+	// exercise TestCommandForDir so the go marker mapping stays pinned.
+	cmd, ok := tools.TestCommandForDir(tmpDir)
+	if !ok || !strings.Contains(cmd, "go test") {
+		t.Errorf("expected 'go test' for Go project, got: %q (ok=%v)", cmd, ok)
 	}
 }
 

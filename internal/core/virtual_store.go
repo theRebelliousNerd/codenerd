@@ -553,8 +553,10 @@ func (vs *VirtualStore) Get(query ast.Atom) ([]ast.Atom, error) {
 	}
 }
 
-// rebuildPermissionCache queries the kernel for all safe_action/1 facts
-// and builds a O(1) lookup cache.
+// rebuildPermissionCache projects the kernel's safe_action/1 facts into an
+// O(1) lookup cache via the canonical ProjectSafeActions projection
+// (see kernel_safe_action.go). Policy consumers must not hand-roll this
+// query loop; the projection owns slash-variant normalization.
 //
 // DEADLOCK FIX: This method does NOT hold v.mu while querying the kernel.
 // The previous implementation held v.mu (write lock) during kernel.Query(),
@@ -568,8 +570,8 @@ func (v *VirtualStore) rebuildPermissionCache() {
 		return
 	}
 
-	// Query kernel WITHOUT holding v.mu to prevent deadlock
-	results, err := v.kernel.Query("safe_action")
+	// Query kernel WITHOUT holding v.mu to prevent deadlock.
+	cache, err := ProjectSafeActions(v.kernel)
 	if err != nil {
 		logging.VirtualStoreDebug("Failed to query safe_action facts for cache: %v", err)
 		v.mu.Lock()
@@ -578,26 +580,11 @@ func (v *VirtualStore) rebuildPermissionCache() {
 		return
 	}
 
-	cache := make(map[string]bool, len(results))
-	for _, f := range results {
-		if len(f.Args) == 0 {
-			continue
-		}
-		action := types.ExtractString(f.Args[0])
-		// Store both with and without leading slash for fast lookup
-		cache[action] = true
-		if after, ok := strings.CutPrefix(action, "/"); ok {
-			cache[after] = true
-		} else {
-			cache["/"+action] = true
-		}
-	}
-
 	// Lock only to write the cache
 	v.mu.Lock()
 	v.permittedCache = cache
 	v.mu.Unlock()
-	logging.VirtualStore("Permission cache built: %d safe_action entries", len(results))
+	logging.VirtualStore("Permission cache built: %d safe_action entries", len(cache))
 }
 
 // SetShardManager sets the shard manager for delegation.

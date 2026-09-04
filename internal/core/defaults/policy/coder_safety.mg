@@ -65,6 +65,48 @@ coder_block_action(/edit, "vendor_file") :-
     pending_edit(Path, _),
     is_vendor_file(Path).
 
+# Turn verdict — the executor asserts one turn_evidence fact per turn (Go
+# measures: tool/write/test counts, claimed-output flag, dream flag) and
+# Mangle derives the verdict (Mangle decides). Go consumers query
+# hollow_success/1 for the failure reason and turn_done/1 for the single
+# completion signal instead of reimplementing these checks imperatively.
+# The Go fallback in checkHollowSuccess stays for nil/degraded kernels.
+# Verb uses /name (not /string) so it unifies with the /name-typed
+# write_oriented_intent/1 and intent_requires_tool_call/1 facts in
+# delegation.mg; Go asserts it via MangleAtom ("/create" -> /create). A
+# /string verb would never unify with those atoms and the hollow rules
+# below would silently never fire.
+Decl turn_evidence(Verb, ToolCount, WriteCount, TestCount, ClaimedOutput, DreamMode) bound [/name, /number, /number, /number, /name, /name].
+Decl hollow_success(Reason) bound [/string].
+Decl turn_done(Verb) bound [/name].
+Decl has_turn_tools(Verb) bound [/name].
+Decl has_turn_write(Verb) bound [/name].
+Decl has_turn_test(Verb) bound [/name].
+Decl has_hollow_success() bound [].
+has_turn_tools(Verb) :- turn_evidence(Verb, ToolCount, _, _, _, _), ToolCount > 0.
+has_turn_write(Verb) :- turn_evidence(Verb, _, WriteCount, _, _, _), WriteCount > 0.
+has_turn_test(Verb) :- turn_evidence(Verb, _, _, TestCount, _, _), TestCount > 0.
+has_hollow_success() :- hollow_success(_).
+hollow_success("requires side effects but no tool call succeeded") :-
+    turn_evidence(Verb, _, _, _, _, /false),
+    intent_requires_tool_call(Verb),
+    !has_turn_tools(Verb).
+hollow_success("write-oriented intent completed without a recognized write-mutation tool") :-
+    turn_evidence(Verb, _, _, _, _, /false),
+    write_oriented_intent(Verb),
+    has_turn_tools(Verb),
+    !has_turn_write(Verb).
+hollow_success("response presents test-runner output but no test-execution tool ran") :-
+    turn_evidence(Verb, _, _, _, /true, /false),
+    !has_turn_test(Verb).
+hollow_success("new source was created without a test file") :-
+    turn_evidence(Verb, _, _, _, _, /false),
+    missing_test_for(File).
+# turn_done is the single completion signal. It must never derive alongside
+# hollow_success (a no-write / no-tool / unverified turn is not done) nor
+# while the build is red (a failed build is not done). Deriving done in
+# either case is hollow success with a policy stamp on it.
+turn_done(Verb) :- turn_evidence(Verb, _, _, _, _, _), !has_hollow_success(), !build_state(/failing).
 # Helper: any pending edit is implementation
 Decl has_implementation_edit() bound [].
 has_implementation_edit() :-

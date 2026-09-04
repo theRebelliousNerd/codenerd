@@ -234,3 +234,7 @@ Decl file_deleted(Path) bound [/string].
 
 Decl execution_sandboxed(RequestID, SandboxMode) bound [/string, /name].
 Decl execution_tag(RequestID, Key, Value) bound [/string, /string, /string].
+
+
+# Turn evidence is owned by policy/coder_safety.mg (Decls + derived
+# hollow_success/turn_done); the session executor asserts it per turn.

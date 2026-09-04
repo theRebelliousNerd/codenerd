@@ -178,6 +178,43 @@ test_framework(/cargo_test) :- file_exists("Cargo.toml").
 test_framework(/rspec) :- file_exists(".rspec").
 test_framework(/minitest) :- file_exists("Gemfile"), file_contains("Gemfile", "minitest").
 
+# ---------------------------------------------------------------------------
+# Build/test command derivation — single projection from test_framework.
+# The canonical derivation lives once in the leaf Go helper
+# internal/tools/framework.go (TestFrameworkForDir/TestCommandForDir/
+# BuildCommandForDir); both Go call sites (campaign checkpoints, shell
+# run_tests/run_build) delegate to it instead of keeping their own tables.
+# The test_framework facts above and the test_command/build_command rules
+# below mirror that same mapping in policy. Do NOT add per-framework
+# file_exists checks here and do NOT reintroduce Go detector tables.
+# ---------------------------------------------------------------------------
+Decl test_command(Command) bound [/string].
+Decl build_command(Command) bound [/string].
+
+test_command("go test ./...") :- test_framework(/go_test).
+build_command("go build ./...") :- test_framework(/go_test).
+test_command("cargo test") :- test_framework(/cargo_test).
+build_command("cargo build") :- test_framework(/cargo_test).
+test_command("pytest") :- test_framework(/pytest).
+test_command("npm test") :- test_framework(/jest).
+build_command("npm run build") :- test_framework(/jest).
+test_command("npm test") :- test_framework(/vitest).
+build_command("npm run build") :- test_framework(/vitest).
+test_command("npm test") :- test_framework(/mocha).
+
+# ---------------------------------------------------------------------------
+# safe_action projection — permit test/build execution when a framework is
+# detected. The constitution already lists /run_tests and /run_build
+# unconditionally; re-deriving them here keeps intent_routing as the single
+# routing source so a future allowlist prune cannot silently block the
+# tester/coder loop. No Decl for safe_action exists (constitution.mg holds
+# only facts), so deriving here cannot trigger a "declared more than once"
+# analysis failure.
+# ---------------------------------------------------------------------------
+safe_action(/run_tests) :- test_framework(_).
+safe_action(/run_build) :- test_framework(_).
+
+
 # =============================================================================
 # SECTION 4: Tool Selection
 # =============================================================================

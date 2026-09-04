@@ -155,6 +155,7 @@ type Executor struct {
 	// failing later turns — a leaked fact would fail every later turn forever.
 	perTurnClaimedTestOutputFacts []types.Fact
 	perTurnExecutedTestToolFacts  []types.Fact
+	perTurnEvidenceFacts        []types.Fact
 }
 
 // ExecutorConfig holds configuration for the executor.
@@ -1681,4 +1682,170 @@ func (e *Executor) processPiggybackControlPacket(rawText string) string {
 
 	// Return only the surface response (control data has been routed to kernel)
 	return processed.Surface
+}
+
+// assertTurnEvidence records one turn_evidence fact capturing this turn's
+// observable outcome (Go measures) so the policy corpus can derive the
+// verdict (Mangle decides). Exactly one fact is asserted per turn; cleanup
+// retracts it on every checkHollowSuccess path so a later turn never sees
+// stale evidence. Also asserts claimed_test_output/executed_test_tool so the
+// legacy unverified_test_claim rule keeps working alongside the new verdict.
+func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
+	if e.kernel == nil || result == nil {
+		return
+	}
+	claimedOutput := types.MangleAtom("/false")
+	if responsePresentsTestRunnerOutput(result.Response) {
+		claimedOutput = types.MangleAtom("/true")
+	}
+	dreamMode := types.MangleAtom("/false")
+	if e.sessionContext != nil && e.sessionContext.DreamMode {
+		dreamMode = types.MangleAtom("/true")
+	}
+	evidence := types.Fact{Predicate: "turn_evidence", Args: []any{
+		types.MangleAtom(verb),
+		result.SuccessfulToolCalls,
+		result.SuccessfulWriteTools,
+		result.SuccessfulTestTools,
+		claimedOutput,
+		dreamMode,
+	}}
+	if err := e.kernel.Assert(evidence); err != nil {
+		logging.Get(logging.CategorySession).Warn("failed to assert turn_evidence for %s: %v", verb, err)
+	} else {
+		e.mu.Lock()
+		e.perTurnEvidenceFacts = append(e.perTurnEvidenceFacts, evidence)
+		e.mu.Unlock()
+	}
+	if responsePresentsTestRunnerOutput(result.Response) {
+		fact := types.Fact{Predicate: "claimed_test_output", Args: []any{types.MangleString(verb)}}
+		if err := e.kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategorySession).Warn("failed to assert claimed_test_output for %s: %v", verb, err)
+		} else {
+			e.mu.Lock()
+			e.perTurnClaimedTestOutputFacts = append(e.perTurnClaimedTestOutputFacts, fact)
+			e.mu.Unlock()
+			logging.Get(logging.CategorySession).Debug("asserted claimed_test_output(%q)", verb)
+		}
+	}
+	if result.SuccessfulTestTools > 0 {
+		fact := types.Fact{Predicate: "executed_test_tool", Args: []any{types.MangleString(verb)}}
+		if err := e.kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategorySession).Warn("failed to assert executed_test_tool for %s: %v", verb, err)
+		} else {
+			e.mu.Lock()
+			e.perTurnExecutedTestToolFacts = append(e.perTurnExecutedTestToolFacts, fact)
+			e.mu.Unlock()
+			logging.Get(logging.CategorySession).Debug("asserted executed_test_tool(%q)", verb)
+		}
+	}
+}
+
+// consumeHollowSuccessVerdict is the Go consumer of the policy-derived
+// hollow_success verdict. hollow_success carries the failure reason; a
+// present fact fails the turn with the matching hollow-success error.
+// Query failures degrade to the imperative legacy fallbacks below so
+// MockKernel unit tests and degraded kernels still gate.
+func (e *Executor) consumeHollowSuccessVerdict(verb string, result *ExecutionResult) error {
+	if e.kernel == nil {
+		logging.Get(logging.CategorySession).Debug("checkHollowSuccess: nil kernel, using Go fallback checks (verb %s)", verb)
+		return nil
+	}
+	if hollowFacts, qerr := e.kernel.Query("hollow_success"); qerr != nil {
+		logging.Get(logging.CategorySession).Debug("checkHollowSuccess: hollow_success query failed: %v", qerr)
+	} else if len(hollowFacts) > 0 {
+		reason := ""
+		if len(hollowFacts[0].Args) > 0 {
+			reason = types.ExtractString(hollowFacts[0].Args[0])
+		}
+		switch reason {
+		case "requires side effects but no tool call succeeded", "/no_successful_tools":
+			return newHollowSuccessError(
+				"intent %s requires side effects but no tool calls completed successfully (attempted=%d)",
+				verb, result.ToolCallsExecuted,
+			)
+		case "write-oriented intent completed without a recognized write-mutation tool", "/no_write_tool":
+			return newHollowSuccessError(
+				"write-oriented intent %s completed without a recognized write-mutation tool (tool_calls=%d)",
+				verb, result.ToolCallsExecuted,
+			)
+		case "response presents test-runner output but no test-execution tool ran", "/unverified_test_claim":
+			return newHollowSuccessError("response presents test-runner output but no test-execution tool ran this turn (verb %s)", verb)
+		case "new source was created without a test file", "/missing_test_file":
+			if missingFacts, merr := e.kernel.Query("missing_test_for"); merr == nil && len(missingFacts) > 0 && len(missingFacts[0].Args) > 0 {
+				missingFile := types.ExtractString(missingFacts[0].Args[0])
+				return newHollowSuccessError("turn created Go source %s without a test file (verb %s)", missingFile, verb)
+			}
+			return newHollowSuccessError("turn created Go source without a test file (verb %s)", verb)
+		default:
+			return newHollowSuccessError("policy blocked hollow completion for intent %s (reason %s)", verb, reason)
+		}
+	}
+	// Fallback for kernels without the new turn_evidence rules (unit-test
+	// mocks, older snapshots): imperative checks mirror the policy verdict
+	// so MockKernel turns still gate. Policy decides when available; this
+	// only runs when no hollow_success fact was derived.
+	if result != nil {
+		if e.intentRequiresToolCall(verb) || e.writeOrientedIntent(verb) {
+			if result.SuccessfulToolCalls == 0 {
+				return newHollowSuccessError(
+					"intent %s requires side effects but no tool calls completed successfully (attempted=%d)",
+					verb, result.ToolCallsExecuted,
+				)
+			}
+		}
+		if e.writeOrientedIntent(verb) && result.SuccessfulWriteTools == 0 {
+			return newHollowSuccessError(
+				"write-oriented intent %s completed without a recognized write-mutation tool (tool_calls=%d)",
+				verb, result.ToolCallsExecuted,
+			)
+		}
+	}
+	// Fallback for kernels without the new turn_evidence rules (unit-test
+	// mocks, older snapshots): consult the legacy derived predicates.
+	if unverified, err := e.kernel.Query("unverified_test_claim"); err != nil {
+		logging.Get(logging.CategorySession).Warn("checkHollowSuccess: unverified_test_claim query failed: %v", err)
+	} else if len(unverified) > 0 {
+		return newHollowSuccessError("response presents test-runner output but no test-execution tool ran this turn (verb %s)", verb)
+	}
+	if facts, err := e.kernel.Query("missing_test_for"); err != nil {
+		logging.Get(logging.CategorySession).Warn("checkHollowSuccess: missing_test_for query failed: %v", err)
+	} else if len(facts) > 0 {
+		e.mu.RLock()
+		createdSet := make(map[string]struct{}, len(e.perTurnCreatedSourceFacts))
+		for _, f := range e.perTurnCreatedSourceFacts {
+			if len(f.Args) > 0 {
+				createdSet[types.ExtractString(f.Args[0])] = struct{}{}
+			}
+		}
+		e.mu.RUnlock()
+		for _, f := range facts {
+			if len(f.Args) == 0 {
+				continue
+			}
+			file := types.ExtractString(f.Args[0])
+			if _, ok := createdSet[file]; ok {
+				return newHollowSuccessError("turn created Go source %s without a test file (verb %s)", file, verb)
+			}
+		}
+		// No per-turn creation matched (stale or scanner-derived fact):
+		// fall through so a leaked fact cannot fail later turns forever.
+		// Cleanup retracts per-turn facts on every path via defer.
+	}
+	return nil
+}
+
+// consumeTurnDoneSignal is the Go consumer of the single turn_done
+// completion signal. Exactly one turn_done is expected per turn_evidence;
+// any deviation is logged for diagnosis without changing the verdict
+// hollow_success already determined.
+func (e *Executor) consumeTurnDoneSignal(verb string) {
+	if e.kernel == nil {
+		return
+	}
+	if doneFacts, derr := e.kernel.Query("turn_done"); derr != nil {
+		logging.Get(logging.CategorySession).Debug("checkHollowSuccess: turn_done query failed: %v", derr)
+	} else if len(doneFacts) != 1 {
+		logging.Get(logging.CategorySession).Debug("checkHollowSuccess: turn_done count=%d for verb %s (expected exactly one per turn_evidence)", len(doneFacts), verb)
+	}
 }

@@ -113,8 +113,13 @@ var DerivedPredicates = map[string]bool{
 	"learning_confirmation_needed": true,
 	"learning_confirmation_active": true,
 
-	// Test framework detection
+	// Test framework detection — derived once in the kernel policy
+	// (intent_routing_rules.mg test_framework/1 -> test_command/1 +
+	// build_command/1 projection, backed by the single Go projection in
+	// internal/tools/framework.go). Never persisted.
 	"test_framework":     true,
+	"test_command":       true,
+	"build_command":      true,
 	"detected_framework": true,
 
 	// Policy decisions

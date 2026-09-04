@@ -15,7 +15,6 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/tools"
 )
-
 // Variables for mocking in tests
 var (
 	execCommandContext = exec.CommandContext
@@ -525,7 +524,7 @@ func executeRunBuild(ctx context.Context, args map[string]any) (string, error) {
 	command, _ := args["command"].(string)
 	if command == "" {
 		// Auto-detect build command
-		command = detectBuildCommand(workingDir)
+		command, _ = tools.BuildCommandForDir(workingDir)
 		if command == "" {
 			return "", fmt.Errorf("could not detect build command, please specify one")
 		}
@@ -538,33 +537,6 @@ func executeRunBuild(ctx context.Context, args map[string]any) (string, error) {
 		"working_dir":     workingDir,
 		"timeout_seconds": args["timeout_seconds"],
 	})
-}
-
-// detectBuildCommand detects the appropriate build command for a project.
-func detectBuildCommand(dir string) string {
-	// Check for various build files
-	checks := []struct {
-		file    string
-		command string
-	}{
-		{"go.mod", "go build ./..."},
-		{"Cargo.toml", "cargo build"},
-		{"package.json", "npm run build"},
-		{"Makefile", "make"},
-		{"build.gradle", "./gradlew build"},
-		{"pom.xml", "mvn package"},
-		{"CMakeLists.txt", "cmake --build ."},
-		{"setup.py", "python setup.py build"},
-		{"pyproject.toml", "python -m build"},
-	}
-
-	for _, check := range checks {
-		if _, err := os.Stat(dir + "/" + check.file); err == nil {
-			return check.command
-		}
-	}
-
-	return ""
 }
 
 // RunTestsTool returns a tool for running project tests.
@@ -613,7 +585,7 @@ func executeRunTests(ctx context.Context, args map[string]any) (string, error) {
 
 	if command == "" {
 		// Auto-detect test command
-		command = detectTestCommand(workingDir)
+		command, _ = tools.TestCommandForDir(workingDir)
 		if command == "" {
 			return "", fmt.Errorf("could not detect test command, please specify one")
 		}
@@ -631,31 +603,6 @@ func executeRunTests(ctx context.Context, args map[string]any) (string, error) {
 		"working_dir":     workingDir,
 		"timeout_seconds": args["timeout_seconds"],
 	})
-}
-
-// detectTestCommand detects the appropriate test command for a project.
-func detectTestCommand(dir string) string {
-	checks := []struct {
-		file    string
-		command string
-	}{
-		{"go.mod", "go test ./..."},
-		{"Cargo.toml", "cargo test"},
-		{"package.json", "npm test"},
-		{"pytest.ini", "pytest"},
-		{"setup.py", "python -m pytest"},
-		{"pyproject.toml", "pytest"},
-		{"build.gradle", "./gradlew test"},
-		{"pom.xml", "mvn test"},
-	}
-
-	for _, check := range checks {
-		if _, err := os.Stat(dir + "/" + check.file); err == nil {
-			return check.command
-		}
-	}
-
-	return ""
 }
 
 // addTestPattern adds a test pattern to the command.
