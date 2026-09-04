@@ -416,6 +416,17 @@ func isPiggybackPrompt(ctx context.Context, systemPrompt, userPrompt string) boo
 		strings.Contains(userPrompt, "control_packet")
 }
 
+// piggybackResponseFormat selects the structured-output format for piggyback
+// (envelope) requests on this client. Meta cannot accept the strict json_schema
+// form (see BuildMetaPiggybackResponseFormat), so it gets plain JSON mode;
+// every other vendor keeps the strict schema.
+func (c *OpenAICompatClient) piggybackResponseFormat() *ZAIResponseFormat {
+	if c.vendor == ProviderMeta {
+		return BuildMetaPiggybackResponseFormat()
+	}
+	return BuildOpenRouterPiggybackEnvelopeSchema()
+}
+
 // buildRequest assembles a vendor-correct request body.
 func (c *OpenAICompatClient) buildRequest(ctx context.Context, messages []OpenAIMessage, thinking bool) OpenAIRequest {
 	req := OpenAIRequest{
@@ -578,7 +589,11 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 			// Some models reject json_schema output; drop it and retry once.
 			if allowSchemaFallback && reqBody.ResponseFormat != nil && resp.StatusCode == http.StatusBadRequest &&
 				isSchemaRejection(bodyStr) {
-				logging.PerceptionWarn("[%s] structured output rejected, retrying without response_format", c.vendor)
+				snippet := bodyStr
+				if len(snippet) > 200 {
+					snippet = snippet[:200]
+				}
+				logging.PerceptionWarn("[%s] structured output rejected, retrying without response_format: %s", c.vendor, snippet)
 				reqBody.ResponseFormat = nil
 				lastErr = fmt.Errorf("structured output rejected: %s", bodyStr)
 				continue
@@ -669,7 +684,7 @@ func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPromp
 	}, c.enableThinking)
 
 	if piggyback {
-		reqBody.ResponseFormat = BuildOpenRouterPiggybackEnvelopeSchema()
+		reqBody.ResponseFormat = c.piggybackResponseFormat()
 	}
 
 	resp, err := c.executeChat(ctx, reqBody, piggyback)
@@ -719,7 +734,7 @@ func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPromp
 			{Role: "user", Content: userPrompt},
 		}, false)
 		if piggyback {
-			retryBody.ResponseFormat = BuildOpenRouterPiggybackEnvelopeSchema()
+			retryBody.ResponseFormat = c.piggybackResponseFormat()
 		}
 		if retryResp, retryErr := c.executeChat(ctx, retryBody, piggyback); retryErr == nil &&
 			len(retryResp.Choices) > 0 {
@@ -781,7 +796,7 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 		reqBody.Stream = true
 		reqBody.StreamOptions = &OpenAIStreamOptions{IncludeUsage: true}
 		if piggyback {
-			reqBody.ResponseFormat = BuildOpenRouterPiggybackEnvelopeSchema()
+			reqBody.ResponseFormat = c.piggybackResponseFormat()
 		}
 
 		c.throttle()

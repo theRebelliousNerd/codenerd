@@ -128,3 +128,22 @@ func BuildOpenRouterPiggybackEnvelopeSchema() *ZAIResponseFormat {
 		},
 	}
 }
+
+// BuildMetaPiggybackResponseFormat returns JSON mode without a schema for Meta.
+//
+// Meta's strict mode cannot express the canonical envelope: the single free-form
+// object node control_packet.tool_requests.items.properties.tool_args
+// ({"type":"object"} with no properties) is deliberately left without
+// additionalProperties:false by strictObjectSchema — stamping it would forbid
+// every tool argument — and Meta rejects any object without
+// additionalProperties:false with HTTP 400
+// {"error":{"message":"'additionalProperties' is required to be supplied and to
+// be false.","param":"schema"}} (measured live 2026-09-03, `nerd chat`: every
+// perception call burned one rejected request before the retry). JSON mode keeps
+// the reply parseable as the envelope — the prompt already specifies it —
+// without sending a schema Meta can never accept.
+func BuildMetaPiggybackResponseFormat() *ZAIResponseFormat {
+	return &ZAIResponseFormat{
+		Type: "json_object",
+	}
+}
