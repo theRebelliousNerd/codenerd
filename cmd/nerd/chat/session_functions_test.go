@@ -85,60 +85,6 @@ func TestPersistAgentProfile(t *testing.T) {
 	}
 }
 
-func TestMigrateOldSessionsToSQLite(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping migration test in short mode")
-	}
-
-	tmpDir := t.TempDir()
-
-	// Setup: Create a local store
-	// Must pass full path to DB file
-	dbPath := filepath.Join(tmpDir, ".nerd", "knowledge.db")
-	localDB, err := store.NewLocalStore(dbPath)
-	if err != nil {
-		t.Skipf("Failed to create LocalStore: %v", err)
-	}
-	defer localDB.Close()
-
-	// Setup: Create some dummy session JSON files
-	// saveSessionHistory handles directory creation
-
-	// Session 1: valid
-	session1 := "session-1"
-	hist1 := session.SessionHistory{
-		SessionID: session1,
-		Messages: []session.ChatMessage{
-			{Role: "user", Content: "Hello"},
-			{Role: "assistant", Content: "Hi there"},
-			{Role: "user", Content: "How are you?"},
-			{Role: "assistant", Content: "I am good"},
-		},
-	}
-	saveSessionHistory(t, tmpDir, session1, hist1)
-
-	// Session 2: incomplete pair (should be skipped or partially migrated)
-	session2 := "session-2"
-	hist2 := session.SessionHistory{
-		SessionID: session2,
-		Messages: []session.ChatMessage{
-			{Role: "user", Content: "Only me"},
-		},
-	}
-	saveSessionHistory(t, tmpDir, session2, hist2)
-
-	// Run migration
-	count, err := MigrateOldSessionsToSQLite(tmpDir, localDB)
-	if err != nil {
-		t.Fatalf("Migration failed: %v", err)
-	}
-
-	// Should have migrated 2 turns from session 1
-	if count != 2 {
-		t.Errorf("Expected 2 migrated turns, got %d", count)
-	}
-}
-
 func TestSyncSessionToSQLite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping sync test in short mode")

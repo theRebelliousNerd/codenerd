@@ -2,7 +2,6 @@ package chat
 
 import (
 	ctxcompress "codenerd/internal/context"
-	nerdinit "codenerd/internal/init"
 	"codenerd/internal/logging"
 	"codenerd/internal/session"
 
@@ -14,7 +13,6 @@ import (
 	// "codenerd/internal/shards/tester"
 	// "codenerd/internal/shards/tool_generator"
 
-	"codenerd/internal/store"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -245,55 +243,6 @@ func (m Model) loadSelectedSession(sessionID string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// MigrateOldSessionsToSQLite migrates all existing JSON session files to SQLite.
-// This enables querying historical sessions via virtual predicates.
-// Safe to call multiple times - uses INSERT OR IGNORE for idempotency.
-func MigrateOldSessionsToSQLite(workspace string, localDB *store.LocalStore) (int, error) {
-	if localDB == nil {
-		return 0, nil
-	}
-
-	// List all session JSON files
-	sessionIDs, err := nerdinit.ListSessionHistories(workspace)
-	if err != nil {
-		return 0, err
-	}
-
-	migratedTurns := 0
-
-	for _, sessionID := range sessionIDs {
-		history, err := session.LoadSessionHistory(workspace, sessionID)
-		if err != nil {
-			continue // Skip corrupted sessions
-		}
-
-		// Process message pairs
-		for i := 0; i < len(history.Messages)-1; i += 2 {
-			userMsg := history.Messages[i]
-			asstMsg := history.Messages[i+1]
-
-			if userMsg.Role != "user" || asstMsg.Role != "assistant" {
-				continue
-			}
-
-			turnNumber := i / 2
-
-			err := localDB.StoreSessionTurn(
-				sessionID,
-				turnNumber,
-				userMsg.Content,
-				"{}",
-				asstMsg.Content,
-				"[]",
-			)
-			if err == nil {
-				migratedTurns++
-			}
-		}
-	}
-
-	return migratedTurns, nil
-}
 
 func persistAgentProfile(workspace, name, agentType, knowledgePath string, kbSize int, status string) error {
 	nerdDir := filepath.Join(workspace, ".nerd")
