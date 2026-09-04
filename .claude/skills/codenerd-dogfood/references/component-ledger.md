@@ -3534,6 +3534,52 @@ double gained a buffering `Transaction()`; tokens are built at runtime and the
 search root is pinned. codeNERD ran `go test ./...` (4–5 min) on nearly every
 run despite briefs asking for targeted tests — worth a coder-atom steer.
 
+### Landed the same evening (all via `nerd fix` unless noted)
+
+| Finding | Commit | Live proof |
+|---|---|---|
+| F-HIST-1 generation memory | 4733f133 | turn 3 summarizes; history window 0→2→4 |
+| F-CLASS-2 Meta classification `minimal` | cbe74edf | classification 5.9 / 7.1 / 7.6 s (was 15.6–27.8 s) |
+| F-SCHEMA-2 Meta JSON mode | 1c4f455f | 0 rejected requests per session (was 1 per perception call) |
+| F-DONE-1 SubAgent drops result.Error | 7f56ba8c | unit test |
+| F-DONE-2 green check on failure | 3bb9441f | unit test |
+| F-DONE-3 verification wrap | 67fa0b14 | unit test |
+| F-DONE-4 edit_element gated | 366c72b3 | unit test (run died on 503 after writing a complete edit) |
+| F-GATE-2 quoted `\|` false positive | 3b65abd5 | 8-case table; session A2 turn 1 rediscovered the bug on its own |
+| **F-5XX-2** Meta Responses path had no retry | 51444370 (**hand-edited**) | Meta returned `503 service_overloaded` on every large tool-loop request for ~20 min; two `nerd fix` runs on the fix itself and all four session-A turns died. codeNERD could not build the fix through the failing path — the exception CLAUDE.md reserves. After it: 4 retries observed, every turn completed. |
+
+Steve removed the hand-edit hook and the settings deny during this stretch
+("that was for your dumber predecessor"). The codeNERD-first rule now stands
+on judgment; the commit says so when a hand-edit happens.
+
+### Hard-engineering probes (session A2, after the retry fix)
+
+Four rare-but-realistic asks, one after another, all completed:
+
+| Ask | Wall | Tools | Quality |
+|---|---|---|---|
+| Trace `run_command` model→OS, every gate with file:line, which gate refuses a quoted `-run 'A\|B'` | 5m15s | 30 | Correct nine-stage chain; found F-GATE-2 independently and noted the executor's own `isCompoundCommand` is already quote-aware |
+| Every goroutine in internal/session the turn cannot cancel, ranked | 3m52s | 19 | Four sites, credible ranking (`subagent.go:232` highest; `spawner.go:390` no reaper) — worth a follow-up brief |
+| Adjacent repo-wide scans in policy vs. the intermediate fact limit | 2m26s | 9 | Recognized `mock_file` as already fixed; proposed reordering `activation/3` in `codedom_edit.mg:193` (unverified) |
+| Config fields decoded but never read | 7m37s | 62 | `LoggingConfig.File`, onboarding tour fields, `GuidanceConfig` hints, with search evidence; budget extended past the 50-call base as designed |
+
+Tool rounds still run 3–27 s each at the worker's `xhigh` reasoning effort;
+that is the dominant per-turn cost now that perception is ~6 s.
+
+### Mutation chain (session B): write → run → delete → prove
+
+| Turn | Wall | Tools | What happened |
+|---|---|---|---|
+| Add a benchmark file, run it with `-run '^$' -bench`, report ns/op | 9m47s | 9 (1 write) | Real file, real run, real numbers (9.5 / 7.4 ns/op). The quoted `'^$'` passed the gate after F-GATE-2. Slow because it ran `go test ./...` again as self-verification. |
+| Delete that file and confirm the package compiles | 3m20s | 4 (3 ok) | **`delete_file` refused by the constitution** (F-PERM-1, still open: the only `permitted/3` route needs `signed_approval` + `admin_override`, never asserted). codeNERD did not route around it this time — it read the file, ran `go vet`, and told the user to delete it or `/override`. Footer: `ok=3 of 4, err=no`, which is right: the turn is honest, not failed. |
+| Prove the tree is clean with `git status --short internal/core` | 28s | 1 | Reported the untracked file truthfully: "The tree is **not** clean." |
+
+Conclusion for "know the job was done": on this chain every claim matched
+the filesystem. The one thing it could not do, it said it could not do.
+**Open, needs a human decision:** whether `/delete_file` should be reachable
+on the interactive path at all (F-PERM-1). The benchmark file was removed by
+hand afterwards.
+
 ### Routing findings not yet acted on (from the turn-path map)
 
 - Kernel decides *whether* to delegate (`route_decision`); Go decides *where*
