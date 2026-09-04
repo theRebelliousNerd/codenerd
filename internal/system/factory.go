@@ -316,6 +316,12 @@ type Cortex struct {
 	Workspace       string
 	JITCompiler     *prompt.JITPromptCompiler
 	PromptAssembler *articulation.PromptAssembler
+	// WorkerLLMClient serves bulk shard/task execution when a worker tier is
+	// configured; nil means shards share LLMClient. PlannerLLMClient serves
+	// reasoning-intensive turns when a planner tier is configured; nil means
+	// those turns stay on the worker/main client.
+	WorkerLLMClient  perception.LLMClient
+	PlannerLLMClient perception.LLMClient
 
 	// Boot-owned integration resources. These stay private because callers
 	// should release the aggregate Cortex, not individual motherboard parts.
@@ -498,6 +504,51 @@ func (c *Cortex) MCPBridge() *mcp.MCPIntegrationBridge {
 		return nil
 	}
 	return c.mcpBridge
+}
+
+// WorkerLLM returns the worker-tier LLM client for bulk shard/task execution,
+// or nil when no worker tier is configured (callers fall back to LLMClient).
+func (c *Cortex) WorkerLLM() perception.LLMClient {
+	if c == nil {
+		return nil
+	}
+	return c.WorkerLLMClient
+}
+
+// PlannerLLM returns the planner-tier LLM client for reasoning-intensive
+// turns, or nil when no planner tier is configured.
+func (c *Cortex) PlannerLLM() perception.LLMClient {
+	if c == nil {
+		return nil
+	}
+	return c.PlannerLLMClient
+}
+
+// ToolGenerator returns the autopoiesis tool generator held by the boot
+// orchestrator, or nil when autopoiesis is disabled/absent.
+func (c *Cortex) ToolGenerator() *autopoiesis.ToolGenerator {
+	if c == nil || c.Orchestrator == nil {
+		return nil
+	}
+	return c.Orchestrator.GetToolGenerator()
+}
+
+// OuroborosLoop returns the concrete autopoiesis loop for campaign tool
+// pregeneration, or nil when autopoiesis is disabled or the loop is absent.
+func (c *Cortex) OuroborosLoop() *autopoiesis.OuroborosLoop {
+	if c == nil || c.Orchestrator == nil {
+		return nil
+	}
+	return c.Orchestrator.GetConcreteOuroborosLoop()
+}
+
+// MCPStore returns the MCP tool store owned by the integration bridge, or nil
+// when no bridge is wired or the bridge holds no store.
+func (c *Cortex) MCPStore() *mcp.MCPToolStore {
+	if c == nil || c.mcpBridge == nil {
+		return nil
+	}
+	return c.mcpBridge.GetStore()
 }
 
 func (c *Cortex) StartMaintenanceSchedule(ctx context.Context) context.CancelFunc {
@@ -1820,6 +1871,8 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		Workspace:             bctx.workspace,
 		JITCompiler:           bctx.jitCompiler,
 		PromptAssembler:       bctx.promptAssembler,
+		WorkerLLMClient:       bctx.shardLLMClient,
+		PlannerLLMClient:      bctx.plannerLLMClient,
 		mcpBridge:             bctx.mcpBridge,
 		mcpCancel:             bctx.mcpCancel,
 		mcpDone:               bctx.mcpDone,
