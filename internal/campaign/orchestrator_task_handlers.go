@@ -480,11 +480,19 @@ func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, 
 	}
 	targetPath = cleanPath
 
+	// Holographic context: the fallback prompt carries upstream durable
+	// findings after the description and before the file target, so a direct-LLM
+	// document still sees what to write from. Prompt-only; the written file is
+	// the shard result, never this input section.
+	taskBlock := task.Description
+	if upstream := o.upstreamArtifactContext(task); upstream != "" {
+		taskBlock = taskBlock + "\n\n" + upstream
+	}
 	prompt := fmt.Sprintf(`Generate the following file:
 Task: %s
 Target Path: %s
 
-Output ONLY the file content, no explanation or markdown fences:`, task.Description, targetPath)
+Output ONLY the file content, no explanation or markdown fences:`, taskBlock, targetPath)
 
 	content, err := o.llmClient.Complete(ctx, prompt)
 	if err != nil {
@@ -610,7 +618,19 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 }
 
 // executeVerifyTask runs verification (build, lint, etc.).
+// executeVerifyTask runs verification (build, lint, etc.).
 func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, error) {
+	if task == nil {
+		return nil, fmt.Errorf("task cannot be nil")
+	}
+	// Holographic context + honesty: log the upstream injection even on the
+	// build path (which otherwise has no shard input), then fail a hollow
+	// report target while upstream holds real findings.
+	_ = o.upstreamArtifactContext(task)
+	if herr := o.checkVerifyHollowReport(task); herr != nil {
+		logging.Get(logging.CategoryCampaign).Error("Verify task %s rejected hollow report: %v", task.ID, herr)
+		return nil, herr
+	}
 	// F-VERIFY-1: /verify historically meant "go build ./...". But decomposers of
 	// audit/remediation campaigns emit the phase's actual analytical work (inspect
 	// logic defects, error-handling mistakes, API-contract drift) as /verify tasks.
@@ -643,25 +663,27 @@ func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, 
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Verify task %s failed: %v", task.ID, err)
 		return map[string]any{
-			"task_id":  task.ID,
+			"task_id": task.ID,
 			"output":   output,
 			"verified": false,
 		}, err
 	}
 	logging.Campaign("Verify task %s passed", task.ID)
 	return map[string]any{
-		"task_id":  task.ID,
+		"task_id": task.ID,
 		"output":   output,
 		"verified": true,
 	}, nil
 }
 
 // executeShardSpawnTask spawns a specialized shard.
+// executeShardSpawnTask spawns a specialized shard.
 func (o *Orchestrator) executeShardSpawnTask(ctx context.Context, task *Task) (any, error) {
 	// Extract shard type from description
 	intent := "/fix" // Default
 	logging.CampaignDebug("Executing shard spawn task %s: intent=%s", task.ID, intent)
-	result, err := o.spawnTask(ctx, intent, task.Description)
+	// Holographic context: shard-spawn inputs carry upstream durable findings.
+	result, err := o.spawnTask(ctx, intent, o.buildTaskInput(task))
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Shard spawn task %s failed: %v", task.ID, err)
 		return nil, err
@@ -671,6 +693,7 @@ func (o *Orchestrator) executeShardSpawnTask(ctx context.Context, task *Task) (a
 }
 
 // executeRefactorTask refactors existing code using the Coder shard.
+// executeRefactorTask refactors existing code using the Coder shard.
 func (o *Orchestrator) executeRefactorTask(ctx context.Context, task *Task) (any, error) {
 	// Get target files from artifacts
 	var targetPath string
@@ -679,8 +702,9 @@ func (o *Orchestrator) executeRefactorTask(ctx context.Context, task *Task) (any
 	}
 	logging.CampaignDebug("Executing refactor task %s: path=%s", task.ID, targetPath)
 
-	// Build task string for coder shard
-	shardTask := fmt.Sprintf("refactor file:%s instruction:%s", targetPath, task.Description)
+	// Build task string for coder shard. Holographic context: the instruction
+	// carries upstream durable findings via buildTaskInput.
+	shardTask := fmt.Sprintf("refactor file:%s instruction:%s", targetPath, o.buildTaskInput(task))
 	logging.CampaignDebug("Spawning coder shard for refactoring")
 
 	// Delegate to coder shard
@@ -948,11 +972,12 @@ func applyCampaignRefFailurePolicy(policy CampaignRefFailurePolicy, learnedFacts
 
 // executeGenericTask runs a generic task via shard delegation.
 func (o *Orchestrator) executeGenericTask(ctx context.Context, task *Task) (any, error) {
-	if task.Description == "" {
+	if task == nil || (task.Description == "" && task.ShardInput == "") {
 		return nil, fmt.Errorf("task description cannot be empty")
 	}
 	logging.CampaignDebug("Executing generic task %s via coder shard", task.ID)
-	result, err := o.spawnTask(ctx, "/fix", task.Description)
+	// Holographic context: generic inputs carry upstream durable findings.
+	result, err := o.spawnTask(ctx, "/fix", o.buildTaskInput(task))
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Generic task %s failed: %v", task.ID, err)
 		return nil, err

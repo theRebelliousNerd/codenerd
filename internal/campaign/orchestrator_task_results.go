@@ -89,6 +89,9 @@ func (o *Orchestrator) getTaskResult(taskID string) (string, bool) {
 // buildTaskInput constructs the input for a shard by combining the task's
 // ShardInput/Description with context from dependent tasks.
 func (o *Orchestrator) buildTaskInput(task *Task) string {
+	if task == nil {
+		return ""
+	}
 	// Start with explicit shard input if provided, otherwise use description
 	input := task.ShardInput
 	if input == "" {
@@ -124,8 +127,20 @@ func (o *Orchestrator) buildTaskInput(task *Task) string {
 				builder.WriteString(" ===\n")
 				builder.WriteString(ctx.result)
 			}
-			return builder.String()
+			input = builder.String()
 		}
+	}
+
+	// Holographic context: every shard input carries the durable upstream
+	// findings (phase dependencies + earlier same-phase tasks), bounded so a
+	// long campaign cannot blow the prompt. Prompt-only: persistTaskOutputArtifact
+	// stores the shard's result, never this input, so the section is not
+	// re-persisted as the task's own artifact.
+	if upstream := o.upstreamArtifactContext(task); upstream != "" {
+		if input != "" {
+			input += "\n\n"
+		}
+		input += upstream
 	}
 
 	return input
