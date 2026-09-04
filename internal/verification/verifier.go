@@ -25,6 +25,12 @@ import (
 // ErrMaxRetriesExceeded is returned when verification fails after max retries.
 var ErrMaxRetriesExceeded = errors.New("max retries exceeded - escalating to user")
 
+// ErrVerificationUnavailable is returned when verification itself could not
+// run (LLM failure, timeout, malformed judgment, missing client). It is a
+// fail-closed signal: the shard result is NOT verified and must not be
+// treated as a success. Callers should use errors.Is to detect it.
+var ErrVerificationUnavailable = errors.New("verification unavailable")
+
 // QualityViolation represents a type of corner-cutting detected in code.
 type QualityViolation string
 
@@ -221,14 +227,22 @@ func (v *TaskVerifier) VerifyWithRetry(
 		lastResult = result
 
 		// 2. Verify quality
+		// Fail closed: if verification itself could not run (LLM failure,
+		// timeout, malformed judgment, missing client), do NOT fabricate a
+		// success. Record the outage as a failed verification and stop
+		// retrying — re-running the shard cannot fix a broken verifier.
+		// The shard's actual output is still returned so the caller can
+		// show it with a warning.
 		verification, verifyErr := v.verifyTask(ctx, currentTask, result)
 		if verifyErr != nil {
-			// Verification itself failed (e.g., LLM error) - continue with default
 			verification = &VerificationResult{
-				Success:    true, // Assume success if we can't verify
-				Confidence: 0.3,
-				Reason:     fmt.Sprintf("Verification skipped: %v", verifyErr),
+				Success:    false,
+				Confidence: 0,
+				Reason:     fmt.Sprintf("verification unavailable: %v", verifyErr),
 			}
+			lastVerification = verification
+			v.storeVerification(currentTask, currentShardType, verification, attempt, false)
+			return lastResult, verification, fmt.Errorf("shard result could not be verified (%v): %w", verifyErr, ErrVerificationUnavailable)
 		}
 		lastVerification = verification
 
@@ -281,7 +295,7 @@ func isReviewTask(task string) bool {
 // verifyTask uses LLM to assess if the task was completed properly.
 func (v *TaskVerifier) verifyTask(ctx context.Context, task, result string) (*VerificationResult, error) {
 	if v.client == nil {
-		return &VerificationResult{Success: true, Confidence: 0.5, Reason: "No LLM client for verification"}, nil
+		return nil, ErrVerificationUnavailable
 	}
 
 	// Use different verification criteria for review vs implementation tasks

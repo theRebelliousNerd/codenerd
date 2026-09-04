@@ -2,6 +2,7 @@ package verification
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -728,21 +729,18 @@ func TestErrMaxRetriesExceeded_ShouldBeDescriptive(t *testing.T) {
 // verifyTask edge case TESTS
 // =============================================================================
 
-func TestVerifyTask_WhenNilClient_ShouldReturnDefaultSuccess(t *testing.T) {
+func TestVerifyTask_WhenNilClient_ShouldReturnUnavailable(t *testing.T) {
 	v := NewTaskVerifier(nil, nil, nil, nil)
 
 	result, err := v.verifyTask(context.Background(), "task", "result")
-	if err != nil {
-		t.Fatalf("verifyTask error: %v", err)
+	if err == nil {
+		t.Fatal("verifyTask with nil client should error fail-closed")
 	}
-	if result == nil {
-		t.Fatal("result should not be nil")
+	if !errors.Is(err, ErrVerificationUnavailable) {
+		t.Fatalf("verifyTask error = %v, want it to wrap ErrVerificationUnavailable", err)
 	}
-	if !result.Success {
-		t.Error("Should default to success when no client")
-	}
-	if result.Confidence != 0.5 {
-		t.Errorf("Confidence = %f, want 0.5", result.Confidence)
+	if result != nil {
+		t.Fatalf("verifyTask result = %#v, want nil when verification could not run", result)
 	}
 }
 
