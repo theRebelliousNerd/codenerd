@@ -520,6 +520,14 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 		return nil, fmt.Errorf("failed to parse user config: %w", err)
 	}
 
+	if err := validateExplicitCoreLimits(data, cfg); err != nil {
+		return nil, fmt.Errorf("config %s: %w", path, err)
+	}
+	limits := cfg.GetCoreLimits()
+	if err := (&limits).ValidateCoreLimits(); err != nil {
+		return nil, fmt.Errorf("config %s: core_limits invalid: %w", path, err)
+	}
+
 	// Make feature toggles visible to leaf packages (internal/core,
 	// internal/observability, internal/world, ...) that cannot import
 	// internal/config. Nil is fine: SetActive(nil) resets the registry
@@ -556,6 +564,57 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+// coreLimitsKeysPresent reports which core_limits keys were explicitly set in
+// the raw config JSON, so validation can tell "user wrote 0" (invalid) from
+// "key omitted" (take the default). LoadUserConfig already rejected malformed
+// JSON strictly before this runs, so an unmarshal failure here just means no
+// presence information is available.
+func coreLimitsKeysPresent(data []byte) map[string]bool {
+	var envelope struct {
+		CoreLimits map[string]json.RawMessage `json:"core_limits"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return nil
+	}
+	present := make(map[string]bool, len(envelope.CoreLimits))
+	for k := range envelope.CoreLimits {
+		present[k] = true
+	}
+	return present
+}
+
+// validateExplicitCoreLimits rejects explicitly-set invalid core_limits
+// values while still allowing omitted keys to take defaults. The resolved
+// check in LoadUserConfig cannot see an explicit zero because GetCoreLimits
+// fills zeros with defaults; validating the raw struct instead would reject
+// partial blocks whose omitted fields decode to zero. Omitted required keys
+// are filled from defaults before validating, so only values the user
+// actually wrote can fail here.
+func validateExplicitCoreLimits(data []byte, cfg *UserConfig) error {
+	if cfg.CoreLimits == nil {
+		return nil
+	}
+	merged := *cfg.CoreLimits
+	def := DefaultCoreLimits()
+	present := coreLimitsKeysPresent(data)
+	if !present["max_total_memory_mb"] {
+		merged.MaxTotalMemoryMB = def.MaxTotalMemoryMB
+	}
+	if !present["max_concurrent_shards"] {
+		merged.MaxConcurrentShards = def.MaxConcurrentShards
+	}
+	if !present["max_facts_in_kernel"] {
+		merged.MaxFactsInKernel = def.MaxFactsInKernel
+	}
+	if !present["max_derived_facts_limit"] {
+		merged.MaxDerivedFactsLimit = def.MaxDerivedFactsLimit
+	}
+	if err := (&merged).ValidateCoreLimits(); err != nil {
+		return fmt.Errorf("core_limits invalid: %w", err)
+	}
+	return nil
 }
 
 // SaveUserConfig saves configuration to .nerd/config.json.

@@ -47,21 +47,6 @@ func TestValidateCoreLimits(t *testing.T) {
 	}
 }
 
-func TestEnforceCoreLimits(t *testing.T) {
-	c := &CoreLimits{
-		MaxTotalMemoryMB:      2048,
-		MaxConcurrentShards:   8,
-		MaxSessionDurationMin: 15,
-		MaxFactsInKernel:      5000,
-		MaxDerivedFactsLimit:  6000,
-	}
-	m := c.EnforceCoreLimits()
-	if m["max_facts"] != 5000 || m["max_derived"] != 6000 || m["max_shards"] != 8 ||
-		m["max_memory_mb"] != 2048 || m["session_duration"] != 15 {
-		t.Errorf("EnforceCoreLimits returned wrong mapping: %v", m)
-	}
-}
-
 func TestContextWindowBudget(t *testing.T) {
 	// Explicit reserves are summed verbatim.
 	explicit := ContextWindowConfig{MaxTokens: 1000, OutputReserve: 200, ThinkingReserve: 50, ToolUseBuffer: 100}

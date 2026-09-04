@@ -134,18 +134,6 @@ func (c *CoreLimits) ValidateCoreLimits() error {
 	return nil
 }
 
-// EnforceCoreLimits returns enforcement parameters for the kernel.
-// This ensures config values are actually used, not just stored.
-func (c *CoreLimits) EnforceCoreLimits() map[string]int {
-	return map[string]int{
-		"max_facts":        c.MaxFactsInKernel,
-		"max_derived":      c.MaxDerivedFactsLimit,
-		"max_shards":       c.MaxConcurrentShards,
-		"max_memory_mb":    c.MaxTotalMemoryMB,
-		"session_duration": c.MaxSessionDurationMin,
-	}
-}
-
 // DefaultCoreLimits returns a CoreLimits with sensible defaults.
 func DefaultCoreLimits() *CoreLimits {
 	adaptiveToolBudget := true
