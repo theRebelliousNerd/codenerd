@@ -60,17 +60,24 @@ type turnUsage struct {
 	completion int64
 }
 
-// snapshotTurnUsage reads the usage tracker's counts for this session only.
-// Project totals are merged across processes, so a delta over them counts
-// every other nerd process's spend during the turn (observed live: 455K
-// "prompt tokens" for a turn whose own calls totaled ~20K while three fix runs
-// were active). It returns zeros when no tracker is present.
+// snapshotTurnUsage reads the usage tracker's counts for this turn when the
+// context carries a turn id (ProcessWithIntent tags one), else for this
+// session. Project totals are merged across processes and session totals are
+// shared by every concurrent executor in a campaign, so deltas over either
+// count other work (observed live: 455K "prompt tokens" from three fix runs;
+// 4.9 M from sibling shards). Per-turn counts are exact and local. It returns
+// zeros when no tracker is present.
 func snapshotTurnUsage(ctx context.Context, sessionID string) turnUsage {
 	tracker := usage.FromContext(ctx)
 	if tracker == nil {
 		return turnUsage{}
 	}
-	counts := tracker.SessionTokens(sessionID)
+	var counts usage.TokenCounts
+	if turnID := usage.TurnIDFromContext(ctx); turnID != "" {
+		counts = tracker.TurnTokens(turnID)
+	} else {
+		counts = tracker.SessionTokens(sessionID)
+	}
 	return turnUsage{prompt: counts.Input, completion: counts.Output}
 }
 

@@ -26,6 +26,7 @@ var (
 	shardNameKey = shardMetaKey{"shard_name"}
 	shardTypeKey = shardMetaKey{"shard_type"}
 	sessionIDKey = shardMetaKey{"session_id"}
+	turnIDKey    = shardMetaKey{"turn_id"}
 )
 
 // autoSaveDelay is how long Track waits before flushing a batch of mutations.
@@ -52,6 +53,14 @@ type tracker struct {
 	mu       sync.Mutex
 	data     UsageData
 	filePath string
+
+	// turns holds in-memory, per-turn counts keyed by the turn id carried on
+	// the context (WithTurnID). It is never persisted or merged: BySession is
+	// shared by every concurrent executor in a campaign, so a turn's
+	// before/after delta on it absorbed its sibling shards' tokens
+	// (2026-09-04: one coder turn "cost" 4.9 M). turnOrder bounds the map.
+	turns     map[string]TokenCounts
+	turnOrder []string
 
 	baseline AggregatedStats // aggregates as of the last successful sync with disk; see saveLocked. It is the snapshot used to compute this process's own contribution, so a concurrent writer's totals are merged rather than overwritten.
 
@@ -627,6 +636,10 @@ func (t *tracker) Track(ctx context.Context, model, provider string, input, outp
 	addToMap(a.ByOperation, operation, input, output, cost)
 	addToMap(a.BySession, sessionID, input, output, cost)
 
+	if turnID := shardMetaFromContext(ctx, turnIDKey); turnID != "unknown" {
+		t.recordTurnLocked(turnID, input, output, cost)
+	}
+
 	if !priced {
 		a.UnpricedTokens += int64(input + output)
 	}
@@ -895,6 +908,60 @@ func WithSessionID(ctx context.Context, sessionID string) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, sessionIDKey, sessionID)
+}
+
+// maxTurns bounds the in-memory per-turn map; older turns are dropped first.
+const maxTurns = 1024
+
+// recordTurnLocked accumulates a turn's counts. Caller holds t.mu.
+func (t *tracker) recordTurnLocked(turnID string, input, output int, cost float64) {
+	if t.turns == nil {
+		t.turns = make(map[string]TokenCounts)
+	}
+	if _, seen := t.turns[turnID]; !seen {
+		t.turnOrder = append(t.turnOrder, turnID)
+		for len(t.turnOrder) > maxTurns {
+			delete(t.turns, t.turnOrder[0])
+			t.turnOrder = t.turnOrder[1:]
+		}
+	}
+	tc := t.turns[turnID]
+	tc.AddCost(input, output, cost)
+	t.turns[turnID] = tc
+}
+
+// WithTurnID tags ctx with a per-turn identity. Tokens tracked under it are
+// kept in memory only and read back with TurnTokens, so a turn's cost is its
+// own even when sibling executors share the session.
+func WithTurnID(ctx context.Context, turnID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if turnID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, turnIDKey, turnID)
+}
+
+// TurnIDFromContext returns the turn id carried by ctx, or "".
+func TurnIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(turnIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// TurnTokens returns the counts recorded under turnID, or zero counts.
+func (h *Tracker) TurnTokens(turnID string) TokenCounts {
+	if h == nil || h.tracker == nil || turnID == "" {
+		return TokenCounts{}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.turns[turnID]
 }
 
 // SessionTokens returns the accumulated counts recorded under sessionID, or

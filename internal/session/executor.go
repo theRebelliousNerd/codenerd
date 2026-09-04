@@ -802,6 +802,10 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// below (and every sub-agent/clone turn derived from this executor) reads
 	// this session's spend instead of zeros. A tracker already on ctx wins.
 	ctx = e.meteredContext(ctx)
+	// A per-turn identity for cost attribution: every executor in a campaign
+	// shares the session id, so a session-level delta absorbed sibling shards'
+	// tokens (one coder turn read 4.9 M). Per-turn counts are exact and local.
+	ctx = usage.WithTurnID(ctx, fmt.Sprintf("%s#%d#%d", e.SessionID(), auditTurnNum, time.Now().UnixNano()))
 	e.hydrateMemory(ctx, input)
 	usageBefore := snapshotTurnUsage(ctx, e.SessionID())
 
