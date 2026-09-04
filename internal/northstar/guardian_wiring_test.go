@@ -282,16 +282,16 @@ func TestBuildAlignmentUserPrompt_ShouldEndWithAtomInstruction(t *testing.T) {
 // BOOT WIRE PARITY
 // =============================================================================
 
-// The two chat boot paths must wire the Guardian into the kernel identically.
-// session_boot.go was missing SetParentKernel entirely, so on the primary boot
-// path northstar_defined() was never asserted and every
-// injectable_context(/northstar_*) rule produced nothing. A unit test cannot
-// boot the TUI, so this asserts the wiring at the source level -- which is
-// exactly the invariant that broke.
+// The chat boot path must wire the Guardian into the kernel. The legacy
+// session_boot.go was missing SetParentKernel entirely, so on that boot path
+// northstar_defined() was never asserted and every
+// injectable_context(/northstar_*) rule produced nothing. That file was deleted
+// in 5bcd12f8 (the shared boot is the only path now). A unit test cannot boot
+// the TUI, so this asserts the wiring at the source level -- which is exactly
+// the invariant that broke.
 func TestChatBootPaths_ShouldWireGuardianKernelIdentically(t *testing.T) {
 	repoRoot := findRepoRoot(t)
 	paths := []string{
-		filepath.Join(repoRoot, "cmd", "nerd", "chat", "session_boot.go"),
 		filepath.Join(repoRoot, "cmd", "nerd", "chat", "session_shared_boot.go"),
 	}
 

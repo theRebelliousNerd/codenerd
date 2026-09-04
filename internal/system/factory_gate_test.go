@@ -5,44 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"codeberg.org/TauCeti/mangle-go/analysis"
-
 	"codenerd/internal/core"
 	"codenerd/internal/session"
-	"codenerd/internal/types"
+	"codenerd/internal/types/typestest"
 )
-
-// gateStubKernel is a minimal kernel double with no Dreamer backing. Any
-// destructive preflight against a VirtualStore using it must fail closed with
-// a "dreamer unavailable" verdict, which is exactly the verdict the adapter
-// is required to surface.
-type gateStubKernel struct {
-	asserted []types.Fact
-}
-
-func (k *gateStubKernel) LoadFacts([]types.Fact) error { return nil }
-func (k *gateStubKernel) Query(string) ([]types.Fact, error) {
-	return nil, nil
-}
-func (k *gateStubKernel) QueryAll() (map[string][]types.Fact, error) { return nil, nil }
-func (k *gateStubKernel) Assert(f types.Fact) error {
-	k.asserted = append(k.asserted, f)
-	return nil
-}
-func (k *gateStubKernel) AssertBatch(facts []types.Fact) error {
-	k.asserted = append(k.asserted, facts...)
-	return nil
-}
-func (k *gateStubKernel) Retract(string) error                     { return nil }
-func (k *gateStubKernel) RetractFact(types.Fact) error              { return nil }
-func (k *gateStubKernel) UpdateSystemFacts() error                  { return nil }
-func (k *gateStubKernel) GetProgramInfo() *analysis.ProgramInfo     { return nil }
-func (k *gateStubKernel) Reset()                                    {}
-func (k *gateStubKernel) AppendPolicy(string)                       {}
-func (k *gateStubKernel) RetractExactFactsBatch([]types.Fact) error { return nil }
-func (k *gateStubKernel) RemoveFactsByPredicateSet(map[string]struct{}) error {
-	return nil
-}
 
 func TestSessionVirtualStoreAdapterGate(t *testing.T) {
 	ctx := context.Background()
@@ -52,7 +18,10 @@ func TestSessionVirtualStoreAdapterGate(t *testing.T) {
 	// the runtime check guards against a future method-signature drift that
 	// still compiles but breaks the executor's type assertion.
 	vs := core.NewVirtualStoreWithConfig(nil, core.DefaultVirtualStoreConfig())
-	vs.SetKernel(&gateStubKernel{})
+	// A bare mock kernel has no Dreamer backing, so any destructive preflight
+	// against this VirtualStore must fail closed with a "dreamer unavailable"
+	// verdict, which is exactly the verdict the adapter is required to surface.
+	vs.SetKernel(typestest.NewMockKernel())
 	adapter := &sessionVirtualStoreAdapter{vs: vs}
 	if _, ok := any(adapter).(session.InteractiveExecutiveGate); !ok {
 		t.Fatal("sessionVirtualStoreAdapter does not implement session.InteractiveExecutiveGate")
