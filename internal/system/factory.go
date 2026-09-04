@@ -970,18 +970,17 @@ func initKernel(bctx *bootContext) error {
 	} else {
 		cortex := core.NewCortexKernel("cortex")
 
-		var shardConfigs []core.KernelShardConfig
-		if features.IsPerShardFactsEnabled() {
-			shardConfigs = defaultKernelShardConfigs(bctx.workspace)
-		} else {
-			// Single-store mode (default): one catch-all shard owns nothing,
-			// so every fact and every rule lives in one RealKernel — identical
-			// semantics to a single RealKernel. Per-shard routing stays opt-in
-			// until the cross-shard join coordinator exists.
-			shardConfigs = []core.KernelShardConfig{
-				{Domain: "cortex", WorkspaceRoot: bctx.workspace},
-			}
-		}
+		// Always the domain manifests. per_shard_facts=false was honored for
+		// one build on 2026-09-04 (a single catch-all shard) and measured live:
+		// every kernel evaluation went from ~0.25 s to 33–40 s and hydrating
+		// the 9.4K learned facts from 1.2 s to 70 s, because one store puts
+		// every large fact family under every rule that joins it. The domain
+		// split is what keeps evaluation fast, so it stays on regardless of the
+		// flag; the flag is logged, not honored, until single-store evaluation
+		// is made affordable. Correctness under the split is guaranteed by the
+		// manifests owning every predicate their rules join (see
+		// internal/shards/registration.go and the campaign contract test).
+		shardConfigs := defaultKernelShardConfigs(bctx.workspace)
 
 		for _, scfg := range shardConfigs {
 			shard, err := core.NewKernelShard(scfg)
@@ -993,11 +992,8 @@ func initKernel(bctx *bootContext) error {
 			}
 		}
 
-		if features.IsPerShardFactsEnabled() {
-			logging.Boot("kernel: %d domain shards (per_shard_facts on)", len(shardConfigs))
-		} else {
-			logging.Boot("kernel: single shard (per_shard_facts off)")
-		}
+		logging.Boot("kernel: %d domain shards (per_shard_facts=%v recorded, not honored: single-store evaluation measured 35 s/eval vs 0.25 s)",
+			len(shardConfigs), features.IsPerShardFactsEnabled())
 
 		if err := cortex.Evaluate(); err != nil {
 			return fmt.Errorf("failed to boot cortex kernel: %w", err)

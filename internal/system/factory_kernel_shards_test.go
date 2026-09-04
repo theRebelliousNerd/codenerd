@@ -80,33 +80,34 @@ func bootKernelForShardModeTest(t *testing.T, perShardFacts bool) *Cortex {
 	return cortex
 }
 
-func TestBootKernelSingleShardWhenPerShardFactsOff(t *testing.T) {
-	cortex := bootKernelForShardModeTest(t, false)
-	defer cortex.Close()
-
-	ck, ok := cortex.Kernel.(*core.CortexKernel)
-	if !ok {
-		t.Fatalf("expected *core.CortexKernel, got %T", cortex.Kernel)
-	}
-	domains := ck.ShardDomains()
-	if len(domains) != 1 {
-		t.Fatalf("expected exactly one shard with per_shard_facts off, got %d (%v)", len(domains), domains)
-	}
-	if domains[0] != "cortex" {
-		t.Fatalf("expected single catch-all shard %q, got %q", "cortex", domains[0])
-	}
+// The domain split stays on regardless of per_shard_facts. Honoring "off" with
+// one catch-all shard was measured live on 2026-09-04: every kernel evaluation
+// went from ~0.25 s to 33–40 s and hydrating learned facts from 1.2 s to 70 s,
+// because a single store puts every large fact family under every rule that
+// joins it. Until single-store evaluation is affordable, the flag is recorded
+// in the boot log and nothing else; this pins that both settings boot the
+// manifests, so a future change to honor the flag has to come with numbers.
+func TestBootKernelDomainShardsWhenPerShardFactsOff(t *testing.T) {
+	assertDomainShardsBooted(t, false)
 }
 
 func TestBootKernelDomainShardsWhenPerShardFactsOn(t *testing.T) {
-	cortex := bootKernelForShardModeTest(t, true)
-	defer cortex.Close()
+	assertDomainShardsBooted(t, true)
+}
 
+// One boot per test: two BootCortexWithConfig calls inside one test function
+// hung the package on 2026-09-04 (boot after an explicit Close in the same
+// process), which is itself worth a look but is not what this test pins.
+func assertDomainShardsBooted(t *testing.T, flag bool) {
+	t.Helper()
+	cortex := bootKernelForShardModeTest(t, flag)
+	t.Cleanup(func() { _ = cortex.Close() })
 	ck, ok := cortex.Kernel.(*core.CortexKernel)
 	if !ok {
 		t.Fatalf("expected *core.CortexKernel, got %T", cortex.Kernel)
 	}
 	want := len(shards.DefaultShardPredicateManifests())
-	if got := len(ck.ShardDomains()); got != want {
-		t.Fatalf("expected %d domain shards with per_shard_facts on, got %d (%v)", want, got, ck.ShardDomains())
+	if got := ck.ShardDomains(); len(got) != want {
+		t.Fatalf("per_shard_facts=%v: expected %d domain shards, got %d (%v)", flag, want, len(got), got)
 	}
 }
