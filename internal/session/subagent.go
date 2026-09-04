@@ -298,6 +298,12 @@ func (s *SubAgent) execute(ctx context.Context, task string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if result != nil && result.Error != nil {
+		return result.Response, result.Error
+	}
+	if result == nil {
+		return "", nil
+	}
 
 	return result.Response, nil
 }

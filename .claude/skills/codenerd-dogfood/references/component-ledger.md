@@ -3451,3 +3451,99 @@ decision.
 
 Linter today: **10 errors, 2 warnings** — `/research`, genuinely dormant, and
 `/delete_file`, unreachable by construction.
+
+---
+
+## 2026-09-03 — turn-by-turn dogfood on Muse Spark 1.3: routing, multi-turn memory, completion
+
+Direction from Steve: stop driving codeNERD only through campaigns and direct
+shard verbs; use it the way he does — one turn after another through the main
+agent — and smooth the path from front agent → task → multi-turn → "the job is
+verifiably done". Every change below was built by codeNERD against itself via
+`nerd fix "<brief>"`; briefs are one file/one concern, with the verify command
+spelled out.
+
+### New surface: `nerd chat` (commits 21f9b2a2, 4e77e60f, b88a9556)
+
+There was no CLI path through the main agent. `nerd run` hand-rolls
+perception → kernel query → `SpawnTask`; `nerd fix -i` spawns a coder shard
+directly. Only the TUI reached `cortex.SessionExecutor`, and Bubble Tea needs
+a TTY. `nerd chat` boots the Cortex once, prints `ready`, then pulls stdin one
+line at a time (lazily — a driver can choose turn N+1 after seeing turn N's
+`[tools executed=… err=… elapsed=…]` footer) and runs each through
+`SessionExecutor.Process`. Driver: `scripts/chat_driver.py`.
+
+What `nerd chat` is NOT: the TUI's `processInput` Go layer (routing
+arbitration `decideRoute`, continuation protocol, `VerifyWithRetry`, dream /
+campaign hooks). It is the clean loop only. That turned out to be the useful
+half to measure first.
+
+### Measured on 1.3 (three read-only turns, session `83516f` → `5f6ff0`)
+
+| Cost | Before | After | Cause / fix |
+|---|---|---|---|
+| Turn 3 "summarize our conversation" | "This conversation has just begun" | correct two-sentence summary | **F-HIST-1** (4733f133): generation never saw prior turns — history went to perception only. Now native messages via `CompleteWithToolResults`, bounded by `HistoryTurnWindow`=6 / `HistoryCharBudget`=24k. |
+| Turn 2 tool calls (follow-up question) | 21 | 15 | same |
+| Classification per turn | 15.6–27.8 s | see F-CLASS-2 | Meta classification client sent **no** `reasoning_effort`; vendor default ≈ 1.5k reasoning tokens. Probed: minimal 6.1 s / low 11.6 s / medium 13.4 s / default 19.3 s / xhigh 29.0 s, same label. |
+| Rejected request per perception call | 1 (400) | see F-SCHEMA-2 | strict envelope schema has one free-form node, `tool_requests[].tool_args`; Meta demands `additionalProperties:false` everywhere. Meta accepts `{"type":"json_object"}` (probe 200). |
+| Boot (headless) | 36.1 s | 13.7 s | Ollama was down (configured embedding provider) — started it; warm caches. |
+| Tool round | 2–27 s | — | worker at `reasoning_effort: xhigh`; final answers 26–42 s. User's config choice, reported not changed. |
+| Post-turn `[main]` call | 5–11 s async | — | Meta-Cognitive Supervisor (`LearnFromInteraction`) at xhigh on main; contends for API slots. Candidate: worker tier / batch. |
+
+### Completion-guarantee holes verified at the cited lines (all `nerd fix` briefs)
+
+- **F-DONE-1** `SubAgent.Execute` returns `(result.Response, nil)` and drops
+  `result.Error` — the "tool execution failed" case that `ProcessWithIntent`
+  deliberately returns with a nil error. Inline path honours it
+  (`task_executor.go:284`); sub-agent path (/implement, /refactor, /research,
+  /campaign) did not.
+- **F-DONE-2** `model_update.go:392` prints `✅ All N steps complete.` for
+  every `continuationDoneMsg`, including "Step N failed" and "Stopped by user".
+- **F-DONE-3** every `runToolLoop` error is wrapped `LLM generation failed:` —
+  including build/test verification gate failures. The code failed, not the
+  model; campaign reviewers read these strings.
+- **F-DONE-4** `edit_element` / `apply_edits` count as write mutations for
+  hollow-success and build-verify but are absent from
+  `interactiveToolActionType`, so they skip the Dreamer preflight and the
+  post-action validators.
+- **F-GATE-2** `ClassifyShellEffect` treats `|` inside a quoted `-run 'A|B'`
+  as a shell pipe → `unknown_mutating` → codeNERD could not run the exact
+  verification its brief asked for and handed it back to the human.
+- `nerd chat` itself had the F-DONE-1 blind spot (checked only the returned
+  error); fixed in b88a9556 (`err=yes|no` in the footer).
+
+### Refuted on inspection (agents' claims that did not survive the cited line)
+
+- "continuation facts are never retracted and bleed into later turns" —
+  `clearStaleKernelFacts` retracts `shard_result`/`pending_test`/`pending_review`
+  at the next turn's start. Growth is within one continuation loop only.
+- "build verification silently dead in three ways" — no-toolchain and timeout
+  paths log WARN; only the empty-workspace path is silent.
+- "JIT perception prompt compiled and discarded every turn" — once per
+  process (932 ms), not per turn. Still a wiring gap: perception has an
+  embedded prompt AND a JIT atom set whose contract is rejected.
+
+### Suite hygiene (b3709c58)
+
+`go test ./...` had been red since 850799f4 (browser_audit permission): three
+`internal/core` canaries pinned `safe_action` at 120 rows (now 121), the
+`KernelTransactor` guard rejected a research-package double, and a grep test
+flaked under the full suite because its own source contained the "hidden"
+token. Baseline is now measured from a pristine kernel once per process; the
+double gained a buffering `Transaction()`; tokens are built at runtime and the
+search root is pinned. codeNERD ran `go test ./...` (4–5 min) on nearly every
+run despite briefs asking for targeted tests — worth a coder-atom steer.
+
+### Routing findings not yet acted on (from the turn-path map)
+
+- Kernel decides *whether* to delegate (`route_decision`); Go decides *where*
+  (`resolveShardTypeForIntent`, `process.go:448`); `route.Shard` is only logged.
+- `RouteClarify` is derived and has no consumer — falls through to the legacy
+  clarify gates.
+- Four verb↔persona tables disagree (`nemesis` → `/attack` in the TUI,
+  `/review` in the executor).
+- Value-receiver writes that never land: `process.go:94-100`
+  (`launchClarifyAnswers`), `process_knowledge.go:44` (`awaitingKnowledge`).
+- `executeSubtask` reads `isInterrupted`/`continuationStep` from a snapshot
+  taken when the command was created; Ctrl+X cannot abort an in-flight step.
+- `handleSystemDelegations` blocks up to 1.2 s per turn polling.

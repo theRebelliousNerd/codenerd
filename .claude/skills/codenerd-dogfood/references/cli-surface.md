@@ -13,6 +13,24 @@ in the environment; rebuild after any Go/`.mg` change.
 | `nerd commit "<msg>"` | raw `git add -A` + commit | No LLM. Tests the git action path only. |
 | `nerd campaign start ... --type greenfield\|feature\|migration\|remediation` | decomposer variants; build/verify (`/verify` = `go build`) vs analytical paths | Type changes objective inference and checkpoint mix. |
 | `nerd -w <dir> ...` | workspace isolation / `CODENERD_WORKSPACE_ROOT` containment | Write-set containment, `-w` vs CWD. |
+| `nerd chat [turn...]` | the main agent, turn by turn: `cortex.SessionExecutor.Process` per input (perception → JIT prompt → gated tool loop → articulation → persistence), history carried across turns | Headless twin of the TUI's executor path (not its Go routing layer). Args are turns; with no args it reads stdin lazily, prints `ready` after boot, then `── turn N ──`, the response, and `[tools executed=… ok=… writes=… err=yes\|no elapsed=…]`. `/quit` ends it. |
+
+## Turn-by-turn driving (the way Steve uses it)
+
+`python .claude/skills/codenerd-dogfood/scripts/chat_driver.py <log> "turn 1" "turn 2" ...`
+from the repo root. It starts `./nerd.exe chat`, waits for `ready`, and sends
+each turn only after the previous footer (or an `error:` line) — so every turn
+is a genuine follow-up. Per-turn wall time is written to the log. Measure
+perception and generation from the process's own log prefix:
+
+```
+grep -o 'LLM RESPONSE \[[a-z-]*\] @ [0-9:.]* ([0-9]*ms)' .nerd/logs/<prefix>_llm_io.log
+grep 'history window' .nerd/logs/<prefix>_session.log
+grep 'COMPLETE: [0-9]*ms' .nerd/logs/<prefix>_perception.log
+```
+
+Logs are per process (`<date>_<time>_<pid>_..._<hash>_<category>.log`), so
+runs never need clearing — identify the newest prefix and read that one.
 
 ## Campaign flags that matter
 
