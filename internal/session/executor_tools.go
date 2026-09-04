@@ -1670,9 +1670,6 @@ func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
 	}
 
 	requiresTools := e.intentRequiresToolCall(verb) || e.writeOrientedIntent(verb)
-	if !requiresTools {
-		return nil
-	}
 
 	// Turn evidence: Go measures, Mangle decides. Assert exactly one
 	// turn_evidence fact per turn BEFORE any verdict so the policy corpus
@@ -1683,12 +1680,28 @@ func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
 	// for nil/degraded kernels and MockKernel unit tests whose policy lacks
 	// these predicates — they must not short-circuit before the assert or
 	// policy never decides and turn_done is never single.
+	//
+	// Evidence is asserted for EVERY turn, read-only verbs included. Until
+	// 2026-09-04 read-only turns returned before this point, so they never
+	// earned turn_done and every /explain or /review turn was recorded as
+	// /unverified in turn_cost — the denominator could not count read-only
+	// work as verified at all (seen live on both chat probes).
 	e.assertTurnEvidence(verb, result)
 	hollowErr := e.consumeHollowSuccessVerdict(verb, result)
 	// Capture the kernel's verdict (turn_done/hollow_success) BEFORE the
 	// deferred cleanup retracts turn_evidence — after that the derivation is
 	// gone and turn_cost could never record /done.
 	e.captureTurnOutcome(result, hollowErr)
+	if !requiresTools {
+		// A read-only intent is measured but never failed for hollowness: an
+		// explain or review turn may legitimately quote test output it read.
+		// The verdict still lands in turn_cost so the denominator sees it.
+		if hollowErr != nil {
+			logging.Get(logging.CategorySession).Debug(
+				"checkHollowSuccess: read-only intent %s recorded hollow verdict without failing the turn: %v", verb, hollowErr)
+		}
+		return nil
+	}
 	if hollowErr != nil {
 		return hollowErr
 	}

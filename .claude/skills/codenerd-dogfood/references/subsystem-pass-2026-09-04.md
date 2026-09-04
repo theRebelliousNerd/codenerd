@@ -31,17 +31,28 @@ punch list; items are marked as they land. Ledger context:
 | 18 | `TaskVerifier` fails closed: verifier outage → stored as failed, retries stop, `ErrVerificationUnavailable` (run 29) | d7d2695a |
 | 19 | Shadowed `tactile_router`/`campaign_runner` factories deleted from `registration.go`; `ShardManager.HasShardFactory` (run 30) | 3e7940ff |
 
+| 20 | Memory read-back on the executor path (`MemoryHydrator` capability), `atomsJSON` populated, `turn_cost/6` declared and asserted per turn (run 31) | 5aaaf96c |
+| 21 | Dead `performSystemBootLegacy` (~1,045 lines) and its two private helpers deleted (run 32; file removal by hand, `delete_file` is human-gated) | 5bcd12f8 |
+| 22 | Legacy YAML `Config`/`Load` surface deleted; `ValidateCoreLimits`/`EnforceCoreLimits` moved onto `CoreLimits` (run 33; stubs removed by hand) | 990d3e39 |
+| 23 | **Live probe found item 20 inert in production:** the executor's store is the factory adapter, which did not implement the hydrator capability (unit test used a fake). `turn_cost` read cross-process project totals: 455K "prompt tokens" for a ~20K turn while three fix runs were active. Adapter delegates; per-session counts via `usage.WithSessionID`/`Tracker.SessionTokens` | 37ee811b |
+| 24 | TUI: dead clarifier accumulation on a value receiver removed; knowledge guard latches on the Update thread; continuation steps parented on the shutdown context (run 35 + hand) | c10f6ea0 |
+| 25 | Retrieval embedding tier wired through `nerd retrieve` and the TUI seed; seed summary names the tier (run 36) | f57ec806 |
+| 26 | `run_command` default timeout is toolchain-aware (600 s for go/cargo/npm/make/pytest build+test) — the flat 60 s was why runs 22, 24, 31, 36 "timed out with no output" on `go test`. Cancellation kills the process tree (`taskkill /T` / process group); 17 orphaned greps, some 3 days old, were found | 2c132b51 |
+| 27 | Autopoiesis accessors for the tool generator and concrete Ouroboros loop (groundwork for item 28) | 7318e86b |
+
 ## In flight (briefs written)
 
-- Memory read-back on the executor path + `atomsJSON` + `turn_cost/6` (`internal/session`, one Decl) — run 31.
-- Dead `performSystemBootLegacy` and its two private helpers (`cmd/nerd/chat`) — run 32.
-- Legacy YAML `Config`/`Load` surface deletion (`internal/config`) — run 33.
-- Campaign start/resume boot through the Cortex; ToolPregenerator constructed (`cmd/nerd`, `internal/system`) — `brief_campaign_boot.txt`.
-- Campaign resume acceptance/reset semantics (`cmd/nerd`, `internal/campaign`) — `brief_resume.txt`, after campaign boot.
-- TUI state: value-receiver writes, continuation context parented on shutdown (`cmd/nerd/chat`) — after run 32.
-- Retrieval semantic tier wired through `nerd retrieve` and the TUI seed (`internal/retrieval`).
+- Campaign start/resume boot through the Cortex; ToolPregenerator constructed (`cmd/nerd`, `internal/system`) — run 37 (run 34 died on a concurrent build break of mine).
+- Test-only chat adapters and migration helper deleted (`cmd/nerd/chat`) — run 38.
+- Campaign resume acceptance/reset semantics (`cmd/nerd`, `internal/campaign`) — `brief_resume.txt`, after run 37.
 
-Unconfirmed: run 30 reported "shell gate blocked go vet/go test"; no gate refusal appears in its logs. Watch for a repeat.
+Unconfirmed: run 30 reported "shell gate blocked go vet/go test"; no gate refusal appears in its logs. Most likely the 60 s timeout (item 26).
+
+**Live probe 1 (05:58, `nerd chat`, two turns):** both turns correct (file read + one-sentence answer 33 s; recall of the prior turn 35 s). Real API cost of turn 1 was ~13K in / 1.4K out on the tool-results call, i.e. the harness is cheap; the reported 455K was the cross-process accounting bug (item 23).
+
+**Live probe 2 (07:45, same two turns, binary 2c132b51):** hydration runs on every process now — `HydrateLearnings completed: 9424 facts` once (1.2 s), `HydrateSessionContext` 5–6 facts per turn (3–30 ms) — and `turn_cost` reads `prompt=26497 completion=3631 tools=1` for the tool-using turn and `prompt=12662 completion=2073 tools=0` for the recall turn, matching the API calls. Both answers correct; turn 1 took 60 s with two fix runs sharing the provider, turn 2 24 s. **Open:** `outcome=/unverified` on both — `turn_done` is derived only for write verbs, so a read-only turn with successful tool evidence has no positive verdict; the denominator cannot yet count read-only work as verified.
+
+**Machine note:** another session works in `C:\CodeProjects\neurolog` on this box (foreman runner adapters, hook scripts, a Grok run with a 3 h budget). Under that load a bash spawn takes 4–9 s, so the shell tool's test package (dozens of spawns) exceeds a 4 min `go test` timeout while passing in 17 s when quiet. Not a hang.
 
 ## Open, ranked (one concern each)
 

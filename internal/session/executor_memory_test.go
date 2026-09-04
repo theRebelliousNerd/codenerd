@@ -237,6 +237,40 @@ func TestExecutorTurnCost_AssertedPerTurn(t *testing.T) {
 	requireTurnCostOutcome(t, fact, "/done", "/hollow", "/failed", "/unverified")
 }
 
+// A read-only turn earns turn_done like any other (it used to return before
+// asserting evidence, so every /explain landed as /unverified), and is never
+// failed for hollowness even when a verb-agnostic hollow rule fires.
+func TestExecutorTurnCost_ReadOnlyTurnIsVerifiedNotFailed(t *testing.T) {
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	executor := NewExecutor(kernel, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+	executor.SetSessionID("cost-readonly-sess")
+
+	clean := &ExecutionResult{Response: "the file asserts one fact per turn", ToolCallsExecuted: 1, SuccessfulToolCalls: 1}
+	clean.Intent.Verb = "/explain"
+	clean.Intent.Category = "/query"
+	if err := executor.checkHollowSuccess(clean); err != nil {
+		t.Fatalf("read-only turn must never fail hollow checks: %v", err)
+	}
+	if clean.TurnOutcome != types.MangleAtom("/done") {
+		t.Fatalf("clean read-only TurnOutcome = %q, want /done", clean.TurnOutcome)
+	}
+
+	// Claimed test-runner output with no test tool: the verb-agnostic rule
+	// fires, the outcome records it, the turn still does not fail.
+	claimed := &ExecutionResult{Response: "--- PASS: TestX (0.00s)\nok  \tcodenerd/internal/x\t0.1s", ToolCallsExecuted: 1, SuccessfulToolCalls: 1}
+	claimed.Intent.Verb = "/explain"
+	claimed.Intent.Category = "/query"
+	if err := executor.checkHollowSuccess(claimed); err != nil {
+		t.Fatalf("read-only turn must never fail hollow checks even with a claimed test output: %v", err)
+	}
+	if claimed.TurnOutcome == types.MangleAtom("/unverified") || claimed.TurnOutcome == "" {
+		t.Fatalf("claimed-output read-only TurnOutcome = %q, want a kernel verdict (/done or /hollow)", claimed.TurnOutcome)
+	}
+}
+
 func TestExecutorTurnCost_DoneOutcomeOnVerifiedTurn(t *testing.T) {
 	kernel, err := core.NewRealKernel()
 	if err != nil {
