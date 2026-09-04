@@ -48,6 +48,8 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 	reproTaskInserted := false
 	exceededMaxRetries := false
 	actualMaxRetries := 0
+	capTaskID := ""
+	capNeedsReplan := false
 
 	// Record attempt and update retry/backoff state
 taskSearch:
@@ -89,6 +91,11 @@ taskSearch:
 
 				exceededMaxRetries = true
 				actualMaxRetries = maxRetries
+				capTaskID = o.campaign.Phases[i].Tasks[j].ID
+				if !o.campaign.Phases[i].Tasks[j].ReplannedAtCap {
+					o.campaign.Phases[i].Tasks[j].ReplannedAtCap = true
+					capNeedsReplan = true
+				}
 			} else {
 				// Backoff before retrying to avoid tight failure loops.
 				backoff := o.computeRetryBackoff(errorType, attemptNum)
@@ -191,23 +198,30 @@ taskSearch:
 	// competing files. Gate replanning until terminal failure.
 	if !markedFailed {
 		logging.CampaignDebug("Skipping failure-driven replan for %s: still retryable (status=%s, nextRetryAt=%v)", task.ID, newStatus, nextRetryAt)
-	} else {
-		facts, _ := o.kernel.Query("replan_needed")
-		if len(facts) > 0 {
-			logging.Campaign("Replan triggered due to task failures")
-			o.emitEvent(EventReplanTriggered, "", "", "Too many failures, triggering replan", nil)
-			if o.replanner == nil {
-				logging.Get(logging.CategoryCampaign).Warn("Replan needed but no replanner configured for task %s", task.ID)
-			} else if repErr := o.replanner.Replan(ctx, o.campaign, task.ID); repErr != nil {
-				logging.Get(logging.CategoryCampaign).Error("Replan failed: %v", repErr)
-				o.emitEvent(EventReplanFailed, "", "", repErr.Error(), nil)
-			} else {
-				o.mu.Lock()
-				logging.Campaign("Campaign replanned, new revision: %d", o.campaign.RevisionNumber)
-				_ = o.saveCampaign()
-				o.mu.Unlock()
-			}
+	} else if capNeedsReplan {
+		// Attempt-cap replan: the task just reached its attempt cap. Invoke the
+		// failure-driven replanner once for this task before the runPhase block
+		// check can fire, so the planner can drop or retype a poison task (e.g.
+		// pathless duplicate) and let the phase proceed. Bounded to one attempt
+		// per task via ReplannedAtCap; if unavailable or failing, fall through
+		// to today's block.
+		replanID := capTaskID
+		if replanID == "" {
+			replanID = task.ID
 		}
+		if o.replanner == nil {
+			logging.Get(logging.CategoryCampaign).Warn("Replan needed but no replanner configured for task %s", replanID)
+		} else if repErr := o.replanner.Replan(ctx, o.campaign, replanID); repErr != nil {
+			logging.Get(logging.CategoryCampaign).Error("Attempt-cap replan failed for task %s: %v", replanID, repErr)
+			o.emitEvent(EventReplanFailed, "", "", repErr.Error(), nil)
+		} else {
+			o.mu.Lock()
+			logging.Campaign("Campaign replanned at attempt cap for task %s, new revision: %d", replanID, o.campaign.RevisionNumber)
+			_ = o.saveCampaign()
+			o.mu.Unlock()
+		}
+	} else {
+		logging.CampaignDebug("Skipping failure-driven replan for %s: already replanned at attempt cap", task.ID)
 	}
 
 	// Persist failure updates for durability.

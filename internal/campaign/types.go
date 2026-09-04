@@ -311,6 +311,11 @@ type Task struct {
 	LastError string        `json:"last_error,omitzero"`
 	// Backoff control (persisted for long-horizon durability)
 	NextRetryAt time.Time `json:"next_retry_at"`
+	// ReplannedAtCap records that the failure-driven replanner already ran
+	// once for this task when it reached the attempt cap. Bounds the
+	// attempt-cap replan to one invocation per task per campaign so a second
+	// failure of the same task falls through to today's block.
+	ReplannedAtCap bool `json:"replanned_at_cap,omitzero"`
 }
 
 // CampaignRefFailurePolicy controls how parent task status reacts to child status.

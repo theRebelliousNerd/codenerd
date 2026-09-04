@@ -252,11 +252,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 					logging.Get(logging.CategoryCampaign).Error("Phase blocked: %s", reason)
 					o.emitEvent(EventCampaignBlocked, phase.ID, "", reason, nil)
 					o.mu.Lock()
-					o.updateCampaignStatus(StatusFailed)
-					o.lastError = fmt.Errorf("phase blocked: %s", reason)
-					if err := o.saveCampaign(); err != nil {
-						logging.CampaignWarn("failed to save campaign after block: %v", err)
-					}
+					o.failCampaign(reason)
 					o.mu.Unlock()
 					return fmt.Errorf("phase blocked: %s", reason)
 				}

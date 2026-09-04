@@ -193,6 +193,23 @@ func (o *Orchestrator) updateCampaignStatus(status CampaignStatus) {
 	})
 }
 
+// failCampaign centralizes every path that marks a campaign failed on a block.
+// Caller holds o.mu, matching updateCampaignStatus (which assumes the lock is
+// held and performs kernel fact updates plus a locked save). It records the
+// block reason on the persisted campaign so resume can report it, sets the
+// in-memory lastError to the canonical "campaign blocked:" text, and saves.
+func (o *Orchestrator) failCampaign(reason string) {
+	if o.campaign == nil {
+		return
+	}
+	o.updateCampaignStatus(StatusFailed)
+	o.campaign.BlockReason = reason
+	o.lastError = fmt.Errorf("campaign blocked: %s", reason)
+	if err := o.saveCampaign(); err != nil {
+		logging.CampaignWarn("failed to save campaign after block: %v", err)
+	}
+}
+
 // determineConcurrencyLimit calculates the dynamic parallelism limit based on active workload.
 func (o *Orchestrator) determineConcurrencyLimit(active map[string]bool, phase *Phase) int {
 	// Base limit from config
