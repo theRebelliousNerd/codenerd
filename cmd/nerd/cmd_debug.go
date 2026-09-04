@@ -19,10 +19,7 @@ import (
 
 // Debug mode flags (defined here, registered in init())
 var (
-	verboseMode bool // --verbose: Show detailed shard execution trace
-	dryRunMode  bool // --dry-run: Simulate tool calls without side effects
-	dumpKernel  bool // --dump-kernel: Export Mangle facts after execution
-	traceAPI    bool // --trace-api: Log API request/response bodies
+	dumpKernel bool // --dump-kernel: Export Mangle facts after execution
 )
 
 // DebugTracer provides verbose execution tracing for CLI debugging.
@@ -38,10 +35,10 @@ type traceEvent struct {
 	message   string
 }
 
-// NewDebugTracer creates a new tracer, enabled only if verboseMode is true.
+// NewDebugTracer creates a new tracer, enabled only if verbose is true.
 func NewDebugTracer() *DebugTracer {
 	return &DebugTracer{
-		enabled:   verboseMode,
+		enabled:   verbose,
 		startTime: time.Now(),
 		events:    make([]traceEvent, 0, 100),
 	}
@@ -124,10 +121,7 @@ func (t *DebugTracer) Summary() {
 // Called from init() in main.go for relevant commands.
 func registerDebugFlags(cmds ...*cobra.Command) {
 	for _, cmd := range cmds {
-		cmd.Flags().BoolVar(&verboseMode, "verbose", false, "Enable verbose execution tracing")
-		cmd.Flags().BoolVar(&dryRunMode, "dry-run", false, "Simulate without side effects")
 		cmd.Flags().BoolVar(&dumpKernel, "dump-kernel", false, "Export Mangle facts after execution")
-		cmd.Flags().BoolVar(&traceAPI, "trace-api", false, "Log API request/response bodies")
 	}
 }
 
@@ -144,18 +138,13 @@ func VerboseContextDeadlineLogger(ctx context.Context, tracer *DebugTracer, name
 
 // PrintVerboseHeader prints debug header if verbose mode is enabled.
 func PrintVerboseHeader() {
-	if !verboseMode {
+	if !verbose {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("═", 60))
 	fmt.Fprintf(os.Stderr, "🔬 VERBOSE MODE ENABLED\n")
 	fmt.Fprintf(os.Stderr, "   Showing detailed execution trace to stderr\n")
 	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("═", 60))
-}
-
-// IsDryRun returns true if dry-run mode is enabled.
-func IsDryRun() bool {
-	return dryRunMode
 }
 
 // ShouldDumpKernel returns true if kernel dump is requested.
@@ -175,12 +164,16 @@ func ShouldDumpKernel() bool {
 //
 // Base facts only. Re-importing derived conclusions would turn them into
 // premises, which is why `nerd snapshot export` makes --derived opt-in too.
-func DumpKernelSnapshot(kernel *core.RealKernel, workspace string) string {
+func DumpKernelSnapshot(kernel core.Kernel, workspace string) string {
 	if !dumpKernel || kernel == nil {
 		return ""
 	}
+	rk, ok := kernel.(*core.RealKernel)
+	if !ok || rk == nil {
+		return ""
+	}
 
-	facts := kernel.GetBaseFacts()
+	facts := rk.GetBaseFacts()
 	path, err := snapshot.Export(workspace, snapshot.DefaultName("kernel"), facts, factsnap.CodecGzip)
 	if err != nil {
 		// A debug aid must not fail the command whose output it was recording.
@@ -191,7 +184,3 @@ func DumpKernelSnapshot(kernel *core.RealKernel, workspace string) string {
 	return path
 }
 
-// IsTraceAPI returns true if API tracing is enabled.
-func IsTraceAPI() bool {
-	return traceAPI
-}

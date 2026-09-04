@@ -372,6 +372,12 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		rootAfter := snapshotDirectRoot(wsRoot)
 		shardDuration := time.Since(shardStart)
 
+		// --dump-kernel: export base facts after the spawn, on success or failure.
+		// A debug aid must not fail the command, so an empty return is ignored.
+		if dumpPath := DumpKernelSnapshot(cortex.Kernel, workspace); dumpPath != "" {
+			fmt.Fprintf(os.Stderr, "Kernel snapshot dumped to %s\n", dumpPath)
+		}
+
 		if err != nil {
 			tracer.TraceError("shard failed after %v: %v", shardDuration.Round(time.Millisecond), err)
 			// Print partial result if any (diagnostics) before non-zero exit.

@@ -127,30 +127,6 @@ Run without arguments to start the interactive chat interface.`,
 			fmt.Fprintf(os.Stderr, "Warning: Failed to initialize file logging (telemetry disabled): %v\n", err)
 		}
 
-		// Load configuration to respect user defaults (e.g. timeout).
-		// We do this after logging init so we can log config loading errors/success.
-		//
-		// The Stat is load-bearing. config.Load returns (defaults, nil) for a
-		// file that does not exist, and .nerd/config.yaml does not exist in any
-		// workspace this project has — the real config is .nerd/config.json.
-		// So every run silently took the YAML defaults' 10m execution timeout
-		// while --timeout advertised "default 25m0s". Campaigns died mid-flight
-		// at ten minutes with "context deadline exceeded" and no indication
-		// that a ceiling nobody configured had been applied.
-		configPath := filepath.Join(ws, ".nerd", "config.yaml")
-		if _, statErr := os.Stat(configPath); statErr != nil {
-			logging.BootDebug("No %s; keeping the --timeout default of %v", configPath, timeout)
-		} else if cfg, err := config.Load(configPath); err == nil {
-			// If timeout flag wasn't set by user, use config default
-			if !cmd.Flags().Changed("timeout") {
-				timeout = cfg.GetExecutionTimeout()
-				logging.BootDebug("Using configured timeout: %v", timeout)
-			}
-		} else {
-			// Just log debug, as defaults are fine if config missing
-			logging.BootDebug("No config loaded from %s (using defaults): %v", configPath, err)
-		}
-
 		return nil
 	},
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
@@ -196,7 +172,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "",
 		"API key override for the configured provider (default: .nerd/config.json, then that provider's env var)")
 	rootCmd.PersistentFlags().StringVarP(&workspace, "workspace", "w", "", "Workspace directory (default: current)")
-	// Default timeout is 25m, but can be overridden by config.yaml or --timeout flag
+	// --timeout is the only source for the operation timeout (default 25m).
 	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 25*time.Minute, "Operation timeout")
 
 	// Define-agent flags
@@ -207,7 +183,7 @@ func init() {
 	defineAgentCmd.MarkFlagRequired("topic")
 
 	// System shard controls
-	runCmd.Flags().StringSliceVar(&disableSystemShards, "disable-system-shard", nil, "Disable a Type 1 system shard by name")
+	rootCmd.PersistentFlags().StringSliceVar(&disableSystemShards, "disable-system-shard", nil, "Disable a Type 1 system shard by name")
 
 	// Interactive mode flag for direct action commands
 	// Enables multi-turn feedback loops with refine/redo/approve meta-commands
@@ -217,7 +193,7 @@ func init() {
 	}
 
 	// Debug flags for direct action commands
-	// Enables verbose tracing, dry-run mode, kernel dump, and API tracing
+	// Enables kernel dump for post-execution inspection
 	registerDebugFlags(directActionCmds...)
 
 	// Init flags
