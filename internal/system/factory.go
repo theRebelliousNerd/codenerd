@@ -1007,6 +1007,18 @@ func initKernel(bctx *bootContext) error {
 		logging.Boot("kernel: %d domain shards (per_shard_facts=%v recorded, not honored: single-store evaluation measured 35 s/eval vs 0.25 s)",
 			len(shardConfigs), features.IsPerShardFactsEnabled())
 
+		// The static derivation map narrows shared replication to the shards
+		// whose rules read each per-turn fact and fan-out queries to the
+		// shards that can derive the predicate (item 56: without it every
+		// intent change dirtied all seven shards and every fan-out query
+		// evaluated all of them). A build failure is logged and leaves the
+		// kernel on the replicate-everywhere path, which is correct but slow.
+		if dm, err := buildKernelDerivationMap(shardConfigs); err != nil {
+			logging.Get(logging.CategoryBoot).Warn("kernel: derivation map unavailable, replicating shared facts everywhere: %v", err)
+		} else {
+			cortex.SetDerivationMap(dm)
+		}
+
 		if err := cortex.Evaluate(); err != nil {
 			return fmt.Errorf("failed to boot cortex kernel: %w", err)
 		}
@@ -1121,6 +1133,27 @@ func loadProjectDoc(bctx *bootContext) {
 		logging.Boot("Loaded %d %s document(s) (%d facts, %d write-protected path(s), %d command(s)) [no workspace root document]",
 			len(docs), projectdoc.FileName, len(coreFacts), totalForbid, totalCommands)
 	}
+}
+
+// buildKernelDerivationMap runs the static cross-shard analysis over the
+// embedded corpus with the manifests' ownership and the shared per-turn set.
+// The same analysis gates the test suite (internal/shards/shard_join_audit_test.go).
+func buildKernelDerivationMap(shardConfigs []core.KernelShardConfig) (*core.DerivationMap, error) {
+	schemas, policy, err := core.DefaultCorpusText()
+	if err != nil {
+		return nil, err
+	}
+	owners := make(map[string]string)
+	for _, scfg := range shardConfigs {
+		for _, p := range scfg.OwnedPredicates {
+			owners[p] = scfg.Domain
+		}
+	}
+	shared := make(map[string]struct{})
+	for _, p := range shards.SharedPredicates() {
+		shared[p] = struct{}{}
+	}
+	return core.BuildDerivationMap(schemas+"\n"+policy, nil, owners, shared, "cortex")
 }
 
 func defaultKernelShardConfigs(workspace string) []core.KernelShardConfig {

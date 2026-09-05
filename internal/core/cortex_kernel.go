@@ -60,6 +60,12 @@ type CortexKernel struct {
 	// cross-domain rules can join them locally. Must be disjoint from owned.
 	sharedPredicates map[string]struct{}
 
+	// derivationMap, when non-nil, narrows shared replication to the shards
+	// whose rules consume the predicate (plus the catch-all, which answers
+	// shared reads) and restricts unowned query fan-out to ShardsFor. Nil
+	// preserves today's behaviour (replicate everywhere, fan out everywhere).
+	derivationMap *DerivationMap
+
 	// The "cortex" shard handles unowned predicates and cross-domain rules.
 	cortexDomain string
 
@@ -131,6 +137,33 @@ func (c *CortexKernel) SharedPredicateList() []string {
 	return out
 }
 
+// SetDerivationMap installs the static derivation analysis. With a map,
+// shared facts replicate only to the shards whose rules consume them (plus
+// the catch-all, which answers shared reads) and unowned queries fan out
+// only to ShardsFor. A nil map restores today's behaviour: replicate
+// everywhere, fan out everywhere.
+func (c *CortexKernel) SetDerivationMap(m *DerivationMap) {
+	c.mu.Lock()
+	c.derivationMap = m
+	predCount := 0
+	if m != nil && m.Presence != nil {
+		predCount = len(m.Presence)
+	}
+	narrowed := 0
+	total := len(c.shards)
+	sharedCount := len(c.sharedPredicates)
+	if m != nil {
+		for domain := range c.shards {
+			if len(m.Consumes[domain]) < sharedCount {
+				narrowed++
+			}
+		}
+	}
+	c.mu.Unlock()
+	logging.Kernel("[cortex] derivation map: %d predicates, shared replication narrowed for %d of %d shards",
+		predCount, narrowed, total)
+}
+
 // isShared reports whether a predicate (or a query pattern on it) is shared.
 func (c *CortexKernel) isShared(predicate string) bool {
 	c.mu.RLock()
@@ -139,22 +172,51 @@ func (c *CortexKernel) isShared(predicate string) bool {
 	return ok
 }
 
-// targetShards returns every shard a mutation of predicate must reach: all
-// shards for a shared predicate, else the single shard routeToShard picks.
+// targetShards returns every shard a mutation of predicate must reach: the
+// consuming shards plus the catch-all for a shared predicate with a
+// derivation map, all shards for a shared predicate without one, else the
+// single shard routeToShard picks.
 func (c *CortexKernel) targetShards(predicate string) []*KernelShard {
-	if c.isShared(predicate) {
-		c.mu.RLock()
-		defer c.mu.RUnlock()
+	bare := barePredicate(predicate)
+	c.mu.RLock()
+	_, shared := c.sharedPredicates[bare]
+	dm := c.derivationMap
+	catchAll := c.cortexDomain
+	if !shared {
+		c.mu.RUnlock()
+		if s := c.routeToShard(predicate); s != nil {
+			return []*KernelShard{s}
+		}
+		return nil
+	}
+	// Shared without a map: every shard (today's behaviour).
+	if dm == nil {
 		out := make([]*KernelShard, 0, len(c.shards))
 		for _, s := range c.shards {
 			out = append(out, s)
 		}
+		c.mu.RUnlock()
+		sort.Slice(out, func(i, j int) bool { return out[i].Domain() < out[j].Domain() })
 		return out
 	}
-	if s := c.routeToShard(predicate); s != nil {
-		return []*KernelShard{s}
+	// Shared with a map: the shards whose rules consume the predicate, plus
+	// the catch-all always (a shared predicate is read from the catch-all,
+	// so the invariant that every shared fact is readable there must hold).
+	wanted := map[string]struct{}{catchAll: {}}
+	for s, preds := range dm.Consumes {
+		if _, ok := preds[bare]; ok {
+			wanted[s] = struct{}{}
+		}
 	}
-	return nil
+	out := make([]*KernelShard, 0, len(wanted))
+	for domain := range wanted {
+		if s, ok := c.shards[domain]; ok {
+			out = append(out, s)
+		}
+	}
+	c.mu.RUnlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].Domain() < out[j].Domain() })
+	return out
 }
 
 // groupByTarget buckets facts by every shard they must reach.
@@ -511,16 +573,32 @@ func (c *CortexKernel) Query(predicate string) ([]types.Fact, error) {
 		}
 		return shard.Query(predicate)
 	}
-	// Unowned predicate: fan out to every registered shard. A derived
-	// predicate whose rule fires in more than one shard (its inputs are
-	// shared or program-level) comes back once per shard, so dedupe.
-	shards := make([]*KernelShard, 0, len(c.shards))
-	for _, s := range c.shards {
-		shards = append(shards, s)
+	// Unowned predicate: fan out to the shards where the derivation map says
+	// the predicate's facts may exist. Unknown predicates (absent from the
+	// map) still fan out everywhere. A derived predicate whose rule fires
+	// in more than one shard (its inputs are shared or program-level) comes
+	// back once per shard, so dedupe.
+	dm := c.derivationMap
+	allDomains := make([]string, 0, len(c.shards))
+	byDomain := make(map[string]*KernelShard, len(c.shards))
+	for domain, s := range c.shards {
+		allDomains = append(allDomains, domain)
+		byDomain[domain] = s
+	}
+	sort.Strings(allDomains)
+	wanted := dm.ShardsFor(barePred, allDomains)
+	shards := make([]*KernelShard, 0, len(wanted))
+	for _, domain := range wanted {
+		if s, ok := byDomain[domain]; ok {
+			shards = append(shards, s)
+		}
 	}
 	c.mu.RUnlock()
-	if len(shards) == 0 {
+	if len(byDomain) == 0 {
 		return nil, fmt.Errorf("[cortex] no shard available for predicate '%s'", predicate)
+	}
+	if len(shards) == 0 {
+		return nil, nil
 	}
 	atomic.AddInt64(&c.routeMissCount, 1)
 	// Each shard is an independent kernel with its own store and lock, and a
