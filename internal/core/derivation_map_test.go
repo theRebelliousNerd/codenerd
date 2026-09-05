@@ -76,8 +76,13 @@ func TestDerivationMap_ToyProgram(t *testing.T) {
 	if len(got) != 1 || got[0] != "alpha" {
 		t.Errorf("ShardsFor(local_head) = %v, want [alpha]", got)
 	}
-	if got := m.ShardsFor("table", []string{"alpha", "beta", "cortex"}); len(got) != 3 {
-		t.Errorf("ShardsFor(table) must be every shard, got %v", got)
+	// A program table is identical in every shard: the catch-all answers.
+	if got := m.ShardsFor("table", []string{"alpha", "beta", "cortex"}); len(got) != 1 || got[0] != "cortex" {
+		t.Errorf("ShardsFor(table) = %v, want [cortex]", got)
+	}
+	// An unknown predicate still fans out everywhere.
+	if got := m.ShardsFor("never_declared", []string{"alpha", "beta", "cortex"}); len(got) != 3 {
+		t.Errorf("ShardsFor(unknown) must be every shard, got %v", got)
 	}
 	// mixed_head can exist everywhere (its first rule needs only shared and
 	// program facts) but a query need only visit the catch-all for that rule
