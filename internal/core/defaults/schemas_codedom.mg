@@ -217,8 +217,11 @@ Decl has_external_callers(Ref) bound [/string].
 #         /generated_will_be_overwritten
 Decl breaking_change_risk(Ref, RiskLevel, Reason) bound [/string, /name, /name].
 
-# mock_file(TestFile, SourceFile) - test file mocks source file
-Decl mock_file(TestFile, SourceFile) bound [/string, /string].
+# dir_has_go_test(Dir) - a Go _test.go lives in Dir
+Decl dir_has_go_test(Dir) bound [/string].
+
+# source_has_test_in_dir(SourceFile) - a non-test Go file whose directory holds a test
+Decl source_has_test_in_dir(SourceFile) bound [/string].
 
 # interface_impl(StructRef, InterfaceRef) - struct implements interface
 Decl interface_impl(StructRef, InterfaceRef) bound [/string, /string].

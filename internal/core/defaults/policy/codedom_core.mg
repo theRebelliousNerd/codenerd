@@ -53,43 +53,36 @@ code_contains(Ancestor, Descendant) :-
 # Real interface satisfaction needs method-set comparison, which belongs in
 # the Go analyzer (assert code_implements facts from go/types), not Mangle.
 
-# Test file mocks source file if it's a _test.go in the SAME package directory.
-# Cartesian-explosion fix: the previous rule paired every test file with every
-# non-test .go file across the whole repo (T x S ~ 500K facts on this codebase,
-# overflowing the kernel fact limit). A Go _test.go only exercises source in its
-# own package, so we now join on file_dir (the file's directory), bounding the
-# derivation to the small per-directory product instead of the repo-wide one.
-# PREMISE ORDER IS LOAD-BEARING. Mangle evaluates premises strictly
-# left-to-right (engine/seminaivebottomup.go:oneStepEvalClause) and enforces the
-# fact limit against the INTERMEDIATE solution set, not the final one
-# (seminaivebottomup.go:645, `len(newsolutions) > createdFactLimit`). With the
-# two file_topology scans adjacent, the full tests x sources product (~500 x 940
-# = 470k here) materialises before either file_dir premise can filter it, and
-# the whole scan-fact load aborts with "fact size limit reached
-# mock_file(TestFile,SourceFile) 500423 > 500000" -- leaving the kernel with
-# ZERO world facts. Binding Dir from TestFile FIRST, then joining SourceFile
-# through the same Dir, keeps the peak intermediate set at per-directory scale
-# (~40k) instead of repo-wide. Final derivation is ~20k either way; only the
-# ordering keeps the engine from blowing up on the way there.
-mock_file(TestFile, SourceFile) :-
-    file_topology(TestFile, _, /go, _, /true),    # TestFile must be a test file
-    file_dir(TestFile, Dir),                      # bind Dir from the test file...
-    file_dir(SourceFile, Dir),                    # ...and restrict SourceFile to that directory
-    file_topology(SourceFile, _, /go, _, /false), # only then check SourceFile is NOT a test
-    TestFile != SourceFile.
+# A source file is covered by a mock/test when a Go _test.go lives in its
+# package directory. Two linear derivations replace the former
+# mock_file(TestFile, SourceFile) pair table. History: the first version
+# paired every test with every source across the repo (~500K facts, kernel
+# fact-limit overflow); the second bounded it per directory (~31K facts on
+# this codebase) but still materialised every pair, and once the world shard
+# began evaluating on every turn (item 55, 2026-09-04) that join alone cost
+# 17 s of a 24.5 s evaluation. The only consumer, suggest_update_mocks, needs
+# "does File's directory hold a test", never the pairs, so the pairs are gone.
+dir_has_go_test(Dir) :-
+    file_topology(TestFile, _, /go, _, /true),
+    file_dir(TestFile, Dir).
+
+source_has_test_in_dir(SourceFile) :-
+    file_topology(SourceFile, _, /go, _, /false),
+    file_dir(SourceFile, Dir),
+    dir_has_go_test(Dir).
 
 # Suggest updating mocks when source function signature changes
 suggest_update_mocks(Ref) :-
     code_element(Ref, /function, File, _, _),
     element_visibility(Ref, /public),
     element_modified(Ref, _, _),
-    mock_file(_, File).
+    source_has_test_in_dir(File).
 
 suggest_update_mocks(Ref) :-
     code_element(Ref, /method, File, _, _),
     element_visibility(Ref, /public),
     element_modified(Ref, _, _),
-    mock_file(_, File).
+    source_has_test_in_dir(File).
 
 # --- Scope Staleness Detection ---
 

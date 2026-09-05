@@ -3,36 +3,28 @@ package system
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"codenerd/internal/core"
 )
 
-// TestPolicyMockFile_SurvivesRepoScaleScan is the regression for the world-scan
-// abort that left the kernel with zero facts:
+// TestPolicyMockCoverage_IsLinearAtRepoScale pins the shape of the test-
+// coverage derivation in codedom_core.mg.
 //
-//	Failed to load scan facts: failed to evaluate program:
-//	fact size limit reached "mock_file(TestFile,SourceFile)" 500423 > 500000
-//
-// The cause was premise ORDER, not the rule's logic. Mangle evaluates premises
-// strictly left-to-right and checks the fact limit against the intermediate
-// solution set (engine/seminaivebottomup.go:645). With the two file_topology
-// scans adjacent, every test file paired with every source file repo-wide
-// before the file_dir premises could bound it.
-//
-// This fixture mirrors codeNERD's own shape closely enough to reproduce that:
-// ~500 test files and ~940 source files spread over 40 directories. Misordered,
-// the intermediate join is ~470k and evaluation aborts; correctly ordered, the
-// peak stays at per-directory scale and the final relation is small.
-func TestPolicyMockFile_SurvivesRepoScaleScan(t *testing.T) {
-	// Sized so the MISORDERED join (all tests x all sources, repo-wide) exceeds
-	// the engine's 500,000 intermediate-solution limit: 520 x 1200 = 624,000.
-	// The correctly ordered join never leaves per-directory scale
-	// (40 dirs x 13 tests x 43 files-in-dir = ~22k), so it stays far under.
+// History: the first mock_file rule paired every test file with every source
+// file repo-wide (~500K facts, "fact size limit reached ... 500423 > 500000",
+// kernel left with zero world facts). The second bounded it per directory,
+// but still materialised every (test, source) pair — ~31K facts on this
+// codebase — and once the world shard began evaluating on every turn (item
+// 55, 2026-09-04) that join alone cost 17 s of a 24.5 s evaluation. The
+// only consumer needs "does this source file's directory hold a test", so
+// the pairs are gone: dir_has_go_test/1 is one fact per directory and
+// source_has_test_in_dir/1 one per source file, both linear in the scan.
+func TestPolicyMockCoverage_IsLinearAtRepoScale(t *testing.T) {
 	const (
-		dirs           = 40
-		testsPerDir    = 13 // 520 test files
-		sourcesPerDir  = 30 // 1200 source files
-		wantPerDirPair = testsPerDir * sourcesPerDir
+		dirs          = 40
+		testsPerDir   = 13 // 520 test files
+		sourcesPerDir = 30 // 1200 source files
 	)
 
 	kernel, err := core.NewRealKernel()
@@ -65,23 +57,40 @@ func TestPolicyMockFile_SurvivesRepoScaleScan(t *testing.T) {
 			addFile(fmt.Sprintf("%s/file%02d.go", dir, i), dir, false)
 		}
 	}
+	// One directory with sources and no test: its sources must not be covered.
+	for i := range sourcesPerDir {
+		addFile(fmt.Sprintf("internal/untested/file%02d.go", i), "internal/untested", false)
+	}
 
-	// A single batch, the way a world scan loads: this is where the abort hit.
+	start := time.Now()
 	if err := kernel.AssertBatch(facts); err != nil {
-		t.Fatalf("loading %d scan facts failed (this is the regression): %v", len(facts), err)
+		t.Fatalf("loading %d scan facts failed: %v", len(facts), err)
 	}
-
-	derived, err := kernel.Query("mock_file")
+	dirsWithTests, err := kernel.Query("dir_has_go_test")
 	if err != nil {
-		t.Fatalf("Query mock_file: %v", err)
+		t.Fatalf("Query dir_has_go_test: %v", err)
 	}
+	covered, err := kernel.Query("source_has_test_in_dir")
+	if err != nil {
+		t.Fatalf("Query source_has_test_in_dir: %v", err)
+	}
+	elapsed := time.Since(start)
 
-	// Every pair must be same-directory, and the total must be the per-directory
-	// product -- not the repo-wide one. If a future edit drops the file_dir join
-	// entirely the count balloons to dirs^2 times this, which this pins.
-	want := dirs * wantPerDirPair
-	if len(derived) != want {
-		t.Errorf("mock_file derived %d pairs, want %d (per-directory product); "+
-			"a much larger number means the file_dir join was lost", len(derived), want)
+	if len(dirsWithTests) != dirs {
+		t.Errorf("dir_has_go_test derived %d, want %d (one per directory holding a test)", len(dirsWithTests), dirs)
+	}
+	if want := dirs * sourcesPerDir; len(covered) != want {
+		t.Errorf("source_has_test_in_dir derived %d, want %d (one per source file in a tested directory; "+
+			"the untested directory contributes none)", len(covered), want)
+	}
+	for _, f := range covered {
+		if len(f.Args) == 1 {
+			if s, _ := f.Args[0].(string); len(s) > 17 && s[:17] == "internal/untested" {
+				t.Fatalf("source in an untested directory reported covered: %s", s)
+			}
+		}
+	}
+	if elapsed > 20*time.Second {
+		t.Errorf("load+derive took %v; the coverage derivation must stay linear in the scan", elapsed)
 	}
 }
