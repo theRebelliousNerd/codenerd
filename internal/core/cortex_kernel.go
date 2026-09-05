@@ -523,14 +523,33 @@ func (c *CortexKernel) Query(predicate string) ([]types.Fact, error) {
 		return nil, fmt.Errorf("[cortex] no shard available for predicate '%s'", predicate)
 	}
 	atomic.AddInt64(&c.routeMissCount, 1)
+	// Each shard is an independent kernel with its own store and lock, and a
+	// query lazily evaluates a dirty shard. Run the fan-out concurrently so a
+	// query costs the slowest shard's evaluation, not the sum of all seven
+	// (measured 2026-09-04: the world shard alone takes seconds per
+	// evaluation once the shared per-turn facts dirty it every step).
+	type shardResult struct {
+		facts []types.Fact
+		err   error
+	}
+	results := make([]shardResult, len(shards))
+	var wg sync.WaitGroup
+	for i, shard := range shards {
+		wg.Add(1)
+		go func(i int, shard *KernelShard) {
+			defer wg.Done()
+			facts, err := shard.Query(predicate)
+			results[i] = shardResult{facts: facts, err: err}
+		}(i, shard)
+	}
+	wg.Wait()
 	var merged []types.Fact
 	seen := make(map[string]struct{})
-	for _, shard := range shards {
-		results, err := shard.Query(predicate)
-		if err != nil {
-			return nil, err
+	for _, r := range results {
+		if r.err != nil {
+			return nil, r.err
 		}
-		for _, f := range results {
+		for _, f := range r.facts {
 			key := factKey(f)
 			if _, dup := seen[key]; dup {
 				continue
@@ -857,15 +876,36 @@ func (c *CortexKernel) EvaluateAll() (time.Duration, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	var totalTime time.Duration
-	for _, shard := range c.shards {
-		start := time.Now()
-		if err := shard.kernel.Evaluate(); err != nil {
-			return totalTime, fmt.Errorf("shard %s evaluate failed: %w", shard.Domain(), err)
-		}
-		totalTime += time.Since(start)
+	// Shards evaluate concurrently (independent kernels); the returned
+	// duration is the wall time of the slowest shard.
+	type evalResult struct {
+		domain  string
+		elapsed time.Duration
+		err     error
 	}
-	return totalTime, nil
+	results := make(chan evalResult, len(c.shards))
+	var wg sync.WaitGroup
+	for _, shard := range c.shards {
+		wg.Add(1)
+		go func(shard *KernelShard) {
+			defer wg.Done()
+			start := time.Now()
+			err := shard.kernel.Evaluate()
+			results <- evalResult{domain: shard.Domain(), elapsed: time.Since(start), err: err}
+		}(shard)
+	}
+	wg.Wait()
+	close(results)
+	var slowest time.Duration
+	for r := range results {
+		if r.err != nil {
+			return slowest, fmt.Errorf("shard %s evaluate failed: %w", r.domain, r.err)
+		}
+		if r.elapsed > slowest {
+			slowest = r.elapsed
+		}
+	}
+	return slowest, nil
 }
 
 // =============================================================================
