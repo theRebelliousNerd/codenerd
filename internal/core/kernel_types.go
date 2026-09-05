@@ -3,6 +3,9 @@ package core
 import (
 	"context"
 	"embed"
+	"fmt"
+	"path"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -13,7 +16,7 @@ import (
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/factstore"
 	"codeberg.org/TauCeti/mangle-go/provenance"
-) // =============================================================================
+)
 // TYPE ALIASES - Import from internal/types to break import cycles
 // =============================================================================
 // These types are defined in internal/types and aliased here for backward compatibility.
@@ -154,4 +157,90 @@ func GetDefaultContent(path string) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// defaultSchemaFiles lists the modular schema files loaded after
+// defaults/schemas.mg, in load order. It is shared by loadMangleFiles
+// (kernel_init.go) and DefaultCorpusText so the schema inventory cannot drift
+// between kernel boot and static analysis.
+var defaultSchemaFiles = []string{
+	"schemas_intent.mg",           // Intent & Focus Resolution
+	"schemas_world.mg",            // File Topology, Symbol Graph, Diagnostics
+	"schemas_execution.mg",        // TDD Loop & Action Execution
+	"schemas_browser.mg",          // Browser Physics & Spatial Reasoning
+	"schemas_project.mg",          // Project Profile, User Preferences, Session State
+	"schemas_dreamer.mg",          // Speculative Dreamer & Cross-Module Support
+	"schemas_memory.mg",           // Memory Tiers & Knowledge
+	"schemas_knowledge.mg",        // Knowledge Atoms, LSP, Semantic Matching
+	"schemas_learning.mg",         // Learned exemplars + intent overrides
+	"schemas_state.mg",            // Ouroboros State Machine
+	"chaos.mg",                    // Adversarial Testing (PanicMaker, Nemesis)
+	"schemas_safety.mg",           // Constitution, Git Safety, Shadow Mode
+	"schemas_analysis.mg",         // Spreading Activation, Strategy, Impact
+	"schemas_misc.mg",             // Northstar, Continuation Protocol, Benchmarks
+	"schemas_codedom.mg",          // Code DOM & Interactive Elements
+	"schemas_codedom_polyglot.mg", // Polyglot Language Facts (Go, Python, TS, Rust)
+	"schemas_testing.mg",          // Verification, Reasoning Traces, Pytest
+	"schemas_campaign.mg",         // Campaign Orchestration
+	"schemas_intelligence.mg",     // Campaign Intelligence & Context
+	"schemas_tools.mg",            // Ouroboros, Tool Learning, Routing
+	"schemas_mcp.mg",              // MCP integration schema
+	"schemas_prompts.mg",          // Dynamic Prompt Composition & JIT
+	"schemas_reviewer.mg",         // Static Analysis & Data Flow
+	"schemas_shards.mg",           // Shard Delegation & Coordination
+	"schemas_coder.mg",            // Coder Shard Declarations
+	"schemas_projectdoc.mg",       // nerd.md project instructions (see internal/projectdoc)
+	// NERD-EVOLVE-START: context_compilation_schemas_c1_c4
+	"schemas_context.mg", // Context Compilation Pipeline (C1+C4)
+	// NERD-EVOLVE-END: context_compilation_schemas_c1_c4
+}
+
+// DefaultCorpusText returns the concatenated embedded default corpus: the
+// schema index plus every file in defaultSchemaFiles (the same list and order
+// loadMangleFiles boots from), and the policy inventory from
+// DefaultPolicyFiles (defaults/policy/*.mg in sorted order followed by
+// DefaultCorePolicyModules).
+//
+// Sections are separated by "# Schema Module: <name>" / "# Policy Module:
+// <name>" markers mirroring loadMangleFiles, plus markers for the root policy
+// modules (which loadMangleFiles appends unmarked) so static analysis in
+// BuildDerivationMap can attribute every clause to its file. Markers are
+// Mangle comments, so the text stays semantically identical to the boot
+// corpus. User extensions, northstar vision, and learned rules are excluded:
+// they are runtime data, not the static default corpus.
+//
+// An error is returned only when the embedded policy inventory is empty,
+// which indicates a corrupt binary.
+func DefaultCorpusText() (schemas string, policy string, err error) {
+	var schemasBuilder strings.Builder
+	if data, rerr := coreLogic.ReadFile("defaults/schemas.mg"); rerr == nil {
+		schemasBuilder.Write(data)
+	}
+	for _, schemaFile := range defaultSchemaFiles {
+		data, rerr := coreLogic.ReadFile("defaults/" + schemaFile)
+		if rerr != nil {
+			continue
+		}
+		schemasBuilder.WriteString("\n\n# Schema Module: ")
+		schemasBuilder.WriteString(schemaFile)
+		schemasBuilder.WriteString("\n")
+		schemasBuilder.Write(data)
+	}
+
+	policyFiles := DefaultPolicyFiles()
+	if len(policyFiles) == 0 {
+		return "", "", fmt.Errorf("default corpus: embedded policy inventory is empty")
+	}
+	var policyBuilder strings.Builder
+	for _, file := range policyFiles {
+		data, rerr := coreLogic.ReadFile("defaults/" + file)
+		if rerr != nil {
+			continue
+		}
+		policyBuilder.WriteString("\n\n# Policy Module: ")
+		policyBuilder.WriteString(path.Base(file))
+		policyBuilder.WriteString("\n")
+		policyBuilder.Write(data)
+	}
+	return schemasBuilder.String(), policyBuilder.String(), nil
 }
