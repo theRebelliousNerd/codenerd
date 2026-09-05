@@ -2,16 +2,14 @@
 package chat
 
 import (
+	"codenerd/cmd/nerd/ui"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"codenerd/cmd/nerd/ui"
 	"time"
 
-	"codenerd/internal/core"
-	nerdinit "codenerd/internal/init"
 	"codenerd/internal/session"
 	"codenerd/internal/store"
 )
@@ -134,7 +132,7 @@ func TestLoadSelectedSession(t *testing.T) {
 
 	// Create model
 	m := Model{
-		styles: ui.DefaultStyles(),
+		styles:    ui.DefaultStyles(),
 		workspace: tmpDir,
 		sessionID: "current-session",
 		history:   []Message{},
@@ -183,7 +181,7 @@ func TestLoadSelectedSession_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	m := Model{
-		styles: ui.DefaultStyles(),
+		styles:    ui.DefaultStyles(),
 		workspace: tmpDir,
 		sessionID: "current",
 		textarea:  NewTestModel().textarea,
@@ -211,76 +209,19 @@ func TestLoadSelectedSession_NotFound(t *testing.T) {
 	}
 }
 
-func TestHydrateAllTools(t *testing.T) {
-	// This tests the flow of tool hydration
-	if testing.Short() {
-		t.Skip("Skipping tool hydration test in short mode")
-	}
-
-	tmpDir := t.TempDir()
-
-	// Create mock executor
-	mockExec := &MockExecutor{}
-	vs := core.NewVirtualStore(mockExec)
-
-	// 1. Create available_tools.json
-	tools := []nerdinit.ToolDefinition{
-		{
-			Name:        "test_tool",
-			Description: "A test tool",
-			Command:     "echo test",
-			Category:    "test",
-		},
-	}
-	toolsData, _ := json.Marshal(tools)
-	nerdDir := filepath.Join(tmpDir, ".nerd")
-
-	// LoadToolsFromFile expects tools under .nerd/tools/available_tools.json
-	toolsDir := filepath.Join(nerdDir, "tools")
-	os.MkdirAll(toolsDir, 0755)
-	os.WriteFile(filepath.Join(toolsDir, "available_tools.json"), toolsData, 0644)
-
-	// 2. Create .compiled directory with a dummy tool
-	compiledDir := filepath.Join(nerdDir, ".compiled")
-	os.MkdirAll(compiledDir, 0755)
-
-	// Run hydration
-	// hydrateAllTools expects the path to the .nerd directory
-	err := hydrateAllTools(vs, nerdDir)
-	if err != nil {
-		// It might fail on modular tools if they need specific environment,
-		// or compiled tools if empty.
-		// We just want to ensure it runs without panic and tries to load.
-		t.Logf("hydrateAllTools returned: %v", err)
-	}
-
-	// Verify static tool was loaded
-	reg := vs.GetToolRegistry()
-	tool, found := reg.GetTool("test_tool")
-	if !found {
-		t.Error("Static tool 'test_tool' was not loaded")
-	} else {
-		// Note: The description might not be directly available on Tool struct if it's not exported or different field
-		// Check what Tool struct looks like if needed.
-		// For now just checking existence is good.
-		_ = tool
-	}
-}
-
-// Helper to save session history in the format expected by nerdinit
+// saveSessionHistory writes a session history where loadSelectedSession
+// (session.LoadSessionHistory) reads it: .nerd/sessions/<id>.json.
 func saveSessionHistory(t *testing.T, workspace, sessionID string, history session.SessionHistory) {
-	nerdDir := filepath.Join(workspace, ".nerd")
-	// Note: loadSelectedSession uses session.LoadSessionHistory which looks in sessions dir
-	sessionsDir := filepath.Join(nerdDir, "sessions")
-	os.MkdirAll(sessionsDir, 0755)
-
-	path := filepath.Join(sessionsDir, sessionID+".json")
+	t.Helper()
+	sessionsDir := filepath.Join(workspace, ".nerd", "sessions")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
 	data, err := json.Marshal(history)
 	if err != nil {
 		t.Fatalf("Failed to marshal history: %v", err)
 	}
-
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(sessionsDir, sessionID+".json"), data, 0644); err != nil {
 		t.Fatalf("Failed to write history file: %v", err)
 	}
 }

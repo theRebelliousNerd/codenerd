@@ -25,29 +25,9 @@ func (m *Model) Shutdown() {
 			m.shutdownCancel()
 		}
 
-		// Cancel autopoiesis listener goroutine
-		if m.autopoiesisCancel != nil {
-			m.autopoiesisCancel()
-			// Wait for listener to stop (with timeout)
-			if m.autopoiesisListenerCh != nil {
-				select {
-				case <-m.autopoiesisListenerCh:
-					// Listener stopped cleanly
-				case <-time.After(2 * time.Second):
-					// Timeout - listener may be stuck, proceed anyway
-				}
-			}
-		}
-
-		// Stop browser manager goroutine
+		// Stop browser manager goroutine (the Cortex shuts the manager itself down)
 		if m.browserCtxCancel != nil {
 			m.browserCtxCancel()
-		}
-		if m.browserMgr != nil {
-			// Give it a moment to stop gracefully
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			_ = m.browserMgr.Shutdown(ctx)
 		}
 
 		// Stop campaign orchestrator if running
@@ -79,25 +59,6 @@ func (m *Model) Shutdown() {
 		// would panic those sends. waitForStatus and ReportStatus both observe
 		// shutdownCtx (cancelled above) to exit cleanly without a close.
 
-		// Flush usage before the heavier teardown below. Track only arms a
-		// debounce timer, so without this the last turns of the session never
-		// reach .nerd/usage.json.
-		if m.usageTracker != nil {
-			if err := m.usageTracker.Close(); err != nil {
-				fmt.Printf("[Shutdown] Warning: usage flush failed: %v\n", err)
-			}
-		}
-
-		// Close local database connection
-		if m.localDB != nil {
-			m.localDB.Close()
-		}
-
-		// Close tool store database connection
-		if m.toolStore != nil {
-			m.toolStore.Close()
-		}
-
 		// Stop Background Observer Manager
 		if m.observerMgr != nil {
 			m.observerMgr.Stop()
@@ -108,8 +69,16 @@ func (m *Model) Shutdown() {
 			m.mangleWatcher.Stop()
 		}
 
-		// Stop all active shards
-		if m.shardMgr != nil {
+		// The Cortex owns the usage tracker (its Close flushes .nerd/usage.json),
+		// the shard manager, the ToolStore, the Ouroboros listener, the
+		// browser manager and the local DB; one Close covers all of them.
+		// Only the legacy boot path leaves it nil, in which case the shard
+		// manager is the one thing left to stop here.
+		if m.cortex != nil {
+			if err := m.cortex.Close(); err != nil {
+				fmt.Printf("[Shutdown] Warning: cortex close: %v\n", err)
+			}
+		} else if m.shardMgr != nil {
 			m.shardMgr.StopAll()
 		}
 

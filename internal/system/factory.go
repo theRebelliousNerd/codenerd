@@ -315,6 +315,7 @@ type Cortex struct {
 	LocalDB         *store.LocalStore
 	LearningStore   *store.LearningStore
 	ToolStore       *store.ToolStore
+	OuroborosQueue  chan<- core.ToolNeed
 	EmbeddingEngine embedding.EmbeddingEngine
 	Workspace       string
 	JITCompiler     *prompt.JITPromptCompiler
@@ -692,6 +693,7 @@ type bootContext struct {
 	toolStore                    *store.ToolStore
 	ouroborosCancel              context.CancelFunc
 	ouroborosDone                <-chan struct{}
+	ouroborosQueue               chan core.ToolNeed
 	projectDB                    *sql.DB
 	atomLoader                   *prompt.AtomLoader
 	jitCompiler                  *prompt.JITPromptCompiler
@@ -1188,8 +1190,7 @@ func initExecutionLayer(bctx *bootContext) error {
 		logging.Get(logging.CategorySession).Warn("Failed to hydrate modular tools: %v", err)
 	}
 
-	// Mirror the TUI's hydrateAllTools (cmd/nerd/chat/session_boot_helpers.go):
-	// static tools from available_tools.json plus generated tools from disk.
+	// Static tools from available_tools.json plus generated tools from disk.
 	// Warnings are logged, not fatal, so a corrupt tools dir never fails boot.
 	nerdDir := filepath.Join(bctx.workspace, ".nerd")
 	if toolDefs, err := nerdinit.LoadToolsFromFile(nerdDir); err != nil {
@@ -1434,8 +1435,10 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 
 	if ouroborosLoop := bctx.poiesis.GetOuroborosLoop(); ouroborosLoop != nil {
 		bctx.virtualStore.SetToolGenerator(ouroborosLoop)
-		bctx.virtualStore.SetToolExecutor(ouroborosLoop)
 	}
+	// Executions go through the orchestrator's evaluate-and-refine path, not
+	// the bare loop, so tool quality is learned on every boot path.
+	bctx.virtualStore.SetToolExecutor(newOrchestratorToolExecutor(bctx.poiesis))
 
 	browserCfg := browser.DefaultConfig()
 	configuredBrowser := bctx.appCfg.GetBrowserConfig()
@@ -1874,6 +1877,7 @@ func initFactoryOuroborosWiring(bctx *bootContext) {
 	bctx.ouroborosDone = bctx.poiesis.StartKernelListener(autoCtx, 2*time.Second)
 
 	dreamToolCh := make(chan core.ToolNeed, 16)
+	bctx.ouroborosQueue = dreamToolCh
 	if bctx.virtualStore != nil {
 		if dreamer := bctx.virtualStore.GetDreamer(); dreamer != nil {
 			if dreamRouter := dreamer.GetDreamRouter(); dreamRouter != nil {
@@ -2014,6 +2018,7 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		WorkerLLMClient:       bctx.shardLLMClient,
 		PlannerLLMClient:      bctx.plannerLLMClient,
 		ToolStore:             bctx.toolStore,
+		OuroborosQueue:        bctx.ouroborosQueue,
 		mcpBridge:             bctx.mcpBridge,
 		mcpCancel:             bctx.mcpCancel,
 		mcpDone:               bctx.mcpDone,

@@ -646,9 +646,8 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 		m.learningStore = c.LearningStore
 		m.compressor = c.Compressor
 		m.feedbackStore = c.FeedbackStore
+		m.cortex = c.Cortex
 		m.autopoiesis = c.Autopoiesis
-		m.autopoiesisCancel = c.AutopoiesisCancel
-		m.autopoiesisListenerCh = c.AutopoiesisListenerCh
 		m.verifier = c.Verifier
 		m.client = c.Client
 

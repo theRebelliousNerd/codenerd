@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"codenerd/internal/autopoiesis"
 	prompt_evolution "codenerd/internal/autopoiesis/prompt_evolution"
 	"codenerd/internal/config"
 	ctxcompress "codenerd/internal/context"
@@ -150,61 +149,6 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		compressor.SetFeedbackStore(feedbackStore)
 	}
 
-	var autopoiesisCancel context.CancelFunc
-	var autopoiesisListenerCh <-chan struct{}
-	var dreamToolQ chan<- core.ToolNeed
-	if autopoiesisOrch != nil {
-		logStep("Starting autopoiesis listener...")
-		autoCtx, cancel := context.WithCancel(context.Background())
-		autopoiesisCancel = cancel
-		autopoiesisListenerCh = autopoiesisOrch.StartKernelListener(autoCtx, 2*time.Second)
-
-		toolExecutor := NewToolExecutorAdapter(autopoiesisOrch)
-		if virtualStore != nil {
-			virtualStore.SetToolExecutor(toolExecutor)
-			if ouroborosLoop := autopoiesisOrch.GetOuroborosLoop(); ouroborosLoop != nil {
-				virtualStore.SetToolGenerator(ouroborosLoop)
-			}
-		}
-
-		dreamToolCh := make(chan core.ToolNeed, 16)
-		dreamToolQ = dreamToolCh
-
-		// Connect DreamRouter to Ouroboros tool generation pipeline
-		if virtualStore != nil {
-			if dreamer := virtualStore.GetDreamer(); dreamer != nil {
-				if dreamRouter := dreamer.GetDreamRouter(); dreamRouter != nil {
-					dreamRouter.SetOuroborosQueue(dreamToolCh)
-				}
-			}
-		}
-
-		go func() {
-			// Bug #16 fix: bound goroutine lifetime to autoCtx.
-			// dreamToolCh is fed by the DreamRouter (set via SetOuroborosQueue);
-			// we don't own its close. Without a ctx.Done arm this goroutine
-			// would block forever on the receive after autopoiesis cancels.
-			for {
-				select {
-				case <-autoCtx.Done():
-					return
-				case need, ok := <-dreamToolCh:
-					if !ok {
-						return
-					}
-					ctx, cancel := context.WithTimeout(autoCtx, 5*time.Minute)
-					autoNeed := &autopoiesis.ToolNeed{
-						Name:     need.Name,
-						Purpose:  need.Description,
-						Priority: need.Priority,
-					}
-					autopoiesisOrch.ExecuteOuroborosLoop(ctx, autoNeed)
-					cancel()
-				}
-			}
-		}()
-	}
-
 	logStep("Initializing task verifier...")
 	taskVerifier := verification.NewTaskVerifier(
 		llmClient,
@@ -213,15 +157,6 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		autopoiesisOrch,
 	)
 	taskVerifier.SetTaskExecutor(taskExecutor)
-
-	logStep("Initializing ToolStore...")
-	var toolStore *store.ToolStore
-	toolsDBPath := filepath.Join(workspace, ".nerd", "tools.db")
-	if ts, err := store.NewToolStore(toolsDBPath); err == nil {
-		toolStore = ts
-	} else {
-		logging.Get(logging.CategoryBoot).Warn("Failed to initialize ToolStore: %v", err)
-	}
 
 	glassBoxEventBus := transparency.NewGlassBoxEventBus()
 	glassBoxEventBus.Enable()
@@ -243,7 +178,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 			shard.SetLLMClient(llmClient)
 			shard.SetGlassBox(glassBoxEventBus)
 			shard.SetToolEventBus(toolEventBus)
-			shard.SetToolStore(toolStore)
+			shard.SetToolStore(cortex.ToolStore)
 			if browserMgr != nil {
 				shard.SetBrowserManager(browserMgr)
 			}
@@ -265,7 +200,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 				setter.SetToolEventBus(toolEventBus)
 			}
 			if setter, ok := agent.(interface{ SetToolStore(*store.ToolStore) }); ok {
-				setter.SetToolStore(toolStore)
+				setter.SetToolStore(cortex.ToolStore)
 			}
 		}
 
@@ -283,7 +218,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 				setter.SetToolEventBus(toolEventBus)
 			}
 			if setter, ok := agent.(interface{ SetToolStore(*store.ToolStore) }); ok {
-				setter.SetToolStore(toolStore)
+				setter.SetToolStore(cortex.ToolStore)
 			}
 		})
 	}
@@ -308,15 +243,6 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		} else {
 			logging.Get(logging.CategoryBoot).Warn("Failed to initialize Prompt Evolution: %v", err)
 		}
-	}
-
-	logStep("Hydrating tools from .nerd/tools/...")
-	if err := hydrateAllTools(virtualStore, filepath.Join(workspace, ".nerd")); err != nil {
-		initialMessages = append(initialMessages, Message{
-			Role:    "assistant",
-			Content: fmt.Sprintf("⚠ Tool hydration warning: %v", err),
-			Time:    time.Now(),
-		})
 	}
 
 	logStep("Hydrating session state...")
@@ -358,45 +284,44 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 	fmt.Printf("\r\033[K[boot] Complete! (%.1fs)\n", time.Since(bootStart).Seconds())
 	return bootCompleteMsg{
 		components: &SystemComponents{
-			Kernel:                kernel,
-			ShardMgr:              shardMgr,
-			TaskExecutor:          taskExecutor,
-			ShadowMode:            shadowMode,
-			Transducer:            transducer,
-			Executor:              executor,
-			Emitter:               nil,
-			VirtualStore:          virtualStore,
-			Scanner:               scanner,
-			Workspace:             workspace,
-			SessionID:             resolveSessionID(loadedSession),
-			TurnCount:             resolveTurnCount(loadedSession),
-			LocalDB:               localDB,
-			Compressor:            compressor,
-			FeedbackStore:         feedbackStore,
-			Autopoiesis:           autopoiesisOrch,
-			AutopoiesisCancel:     autopoiesisCancel,
-			AutopoiesisListenerCh: autopoiesisListenerCh,
-			Verifier:              taskVerifier,
-			InitialMessages:       initialMessages,
-			Client:                llmClient,
-			BrowserManager:        browserMgr,
-			BrowserCtxCancel:      nil,
-			JITCompiler:           jitCompiler,
-			MangleWatcher:         mangleWatcher,
-			TransparencyMgr:       transparencyMgr,
-			PreferencesMgr:        prefsMgr,
-			Retriever:             retriever,
-			GlassBoxEventBus:      glassBoxEventBus,
-			ToolEventBus:          toolEventBus,
-			ToolStore:             toolStore,
-			PromptEvolver:         promptEvolver,
-			EmbeddingEngine:       embeddingEngine,
-			LearningStore:         learningStore,
-			SessionExecutor:       sessionExecutor,
-			SessionSpawner:        sessionSpawner,
-			ObserverMgr:           observerMgr,
-			ConsultationMgr:       consultationMgr,
-			DreamToolQ:            dreamToolQ,
+			Kernel:           kernel,
+			ShardMgr:         shardMgr,
+			TaskExecutor:     taskExecutor,
+			ShadowMode:       shadowMode,
+			Transducer:       transducer,
+			Executor:         executor,
+			Emitter:          nil,
+			VirtualStore:     virtualStore,
+			Scanner:          scanner,
+			Workspace:        workspace,
+			SessionID:        resolveSessionID(loadedSession),
+			TurnCount:        resolveTurnCount(loadedSession),
+			LocalDB:          localDB,
+			Compressor:       compressor,
+			FeedbackStore:    feedbackStore,
+			Cortex:           cortex,
+			Autopoiesis:      autopoiesisOrch,
+			Verifier:         taskVerifier,
+			InitialMessages:  initialMessages,
+			Client:           llmClient,
+			BrowserManager:   browserMgr,
+			BrowserCtxCancel: nil,
+			JITCompiler:      jitCompiler,
+			MangleWatcher:    mangleWatcher,
+			TransparencyMgr:  transparencyMgr,
+			PreferencesMgr:   prefsMgr,
+			Retriever:        retriever,
+			GlassBoxEventBus: glassBoxEventBus,
+			ToolEventBus:     toolEventBus,
+			ToolStore:        cortex.ToolStore,
+			PromptEvolver:    promptEvolver,
+			EmbeddingEngine:  embeddingEngine,
+			LearningStore:    learningStore,
+			SessionExecutor:  sessionExecutor,
+			SessionSpawner:   sessionSpawner,
+			ObserverMgr:      observerMgr,
+			ConsultationMgr:  consultationMgr,
+			DreamToolQ:       cortex.OuroborosQueue,
 		},
 	}
 }

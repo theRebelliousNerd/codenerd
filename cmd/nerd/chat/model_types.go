@@ -24,6 +24,7 @@ import (
 	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	"codenerd/internal/store"
+	nerdsystem "codenerd/internal/system"
 	"codenerd/internal/tactile"
 	"codenerd/internal/transparency"
 	"codenerd/internal/usage"
@@ -344,10 +345,13 @@ type Model struct {
 	// Context Feedback Store (§8.4) - Third feedback loop: learns which context facts are useful
 	feedbackStore *ctxcompress.ContextFeedbackStore
 
+	// The booted Cortex. Owns the kernel-side subsystems (usage tracker,
+	// local DB, shard manager, ToolStore, Ouroboros listener, browser) and
+	// closes them in Shutdown; the Model closes only what it created itself.
+	cortex *nerdsystem.Cortex
+
 	// Autopoiesis (§8.3) - Self-Modification
-	autopoiesis           *autopoiesis.Orchestrator
-	autopoiesisCancel     context.CancelFunc // Cancels kernel listener goroutine
-	autopoiesisListenerCh <-chan struct{}    // Closed when listener stops
+	autopoiesis *autopoiesis.Orchestrator
 
 	// Prompt Evolution (SPL - System Prompt Learning)
 	promptEvolver *prompt_evolution.PromptEvolver
@@ -525,41 +529,40 @@ type Session struct {
 
 // SystemComponents holds the initialized backend services
 type SystemComponents struct {
-	Kernel                *core.RealKernel
-	ShardMgr              *coreshards.ShardManager // For shard management (profiles, monitoring). Use TaskExecutor for task execution.
-	TaskExecutor          session.TaskExecutor     // For task execution (replaces direct ShardMgr.Spawn calls)
-	VirtualStore          *core.VirtualStore
-	LLMClient             perception.LLMClient
-	LocalDB               *store.LocalStore
-	LearningStore         *store.LearningStore
-	EmbeddingEngine       embedding.EmbeddingEngine
-	Transducer            perception.Transducer
-	Executor              tactile.Executor
-	Scanner               *world.Scanner
-	Autopoiesis           *autopoiesis.Orchestrator
-	Verifier              *verification.TaskVerifier
-	Compressor            *ctxcompress.Compressor
-	FeedbackStore         *ctxcompress.ContextFeedbackStore // Third feedback loop: context usefulness learning
-	ShadowMode            *core.ShadowMode
-	InitialMessages       []Message
-	Client                perception.LLMClient
-	Emitter               *articulation.Emitter
-	AutopoiesisCancel     context.CancelFunc
-	AutopoiesisListenerCh <-chan struct{}
-	SessionID             string
-	TurnCount             int
-	BrowserManager        *browser.SessionManager
-	BrowserCtxCancel      context.CancelFunc // Cancels browser manager goroutine
-	Workspace             string
-	JITCompiler           *prompt.JITPromptCompiler
-	MangleWatcher         *core.MangleWatcher // Monitors .nerd/mangle/*.mg for changes
-	TransparencyMgr       *transparency.TransparencyManager
-	PreferencesMgr        *ux.PreferencesManager
-	Retriever             *retrieval.SparseRetriever
-	GlassBoxEventBus      *transparency.GlassBoxEventBus  // Glass Box debug mode event bus
-	ToolEventBus          *transparency.ToolEventBus      // Always-visible tool execution event bus
-	ToolStore             *store.ToolStore                // Tool execution persistence store
-	PromptEvolver         *prompt_evolution.PromptEvolver // System Prompt Learning evolver
+	Kernel           *core.RealKernel
+	ShardMgr         *coreshards.ShardManager // For shard management (profiles, monitoring). Use TaskExecutor for task execution.
+	TaskExecutor     session.TaskExecutor     // For task execution (replaces direct ShardMgr.Spawn calls)
+	VirtualStore     *core.VirtualStore
+	LLMClient        perception.LLMClient
+	LocalDB          *store.LocalStore
+	LearningStore    *store.LearningStore
+	EmbeddingEngine  embedding.EmbeddingEngine
+	Transducer       perception.Transducer
+	Executor         tactile.Executor
+	Scanner          *world.Scanner
+	Cortex           *nerdsystem.Cortex
+	Autopoiesis      *autopoiesis.Orchestrator
+	Verifier         *verification.TaskVerifier
+	Compressor       *ctxcompress.Compressor
+	FeedbackStore    *ctxcompress.ContextFeedbackStore // Third feedback loop: context usefulness learning
+	ShadowMode       *core.ShadowMode
+	InitialMessages  []Message
+	Client           perception.LLMClient
+	Emitter          *articulation.Emitter
+	SessionID        string
+	TurnCount        int
+	BrowserManager   *browser.SessionManager
+	BrowserCtxCancel context.CancelFunc // Cancels browser manager goroutine
+	Workspace        string
+	JITCompiler      *prompt.JITPromptCompiler
+	MangleWatcher    *core.MangleWatcher // Monitors .nerd/mangle/*.mg for changes
+	TransparencyMgr  *transparency.TransparencyManager
+	PreferencesMgr   *ux.PreferencesManager
+	Retriever        *retrieval.SparseRetriever
+	GlassBoxEventBus *transparency.GlassBoxEventBus  // Glass Box debug mode event bus
+	ToolEventBus     *transparency.ToolEventBus      // Always-visible tool execution event bus
+	ToolStore        *store.ToolStore                // Tool execution persistence store
+	PromptEvolver    *prompt_evolution.PromptEvolver // System Prompt Learning evolver
 	// Clean Loop Architecture (replaces hardcoded shard logic)
 	SessionExecutor *session.Executor // Clean execution loop (JIT-driven)
 	SessionSpawner  *session.Spawner  // JIT-driven subagent spawning
