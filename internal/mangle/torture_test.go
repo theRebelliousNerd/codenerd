@@ -1393,6 +1393,12 @@ func TestTorture_TypeSystem_BoolValues(t *testing.T) {
 // TODO: Add tests for passing nil schema strings to LoadSchemaString.
 // TODO: Add tests to verify strict rejection of mismatched types (e.g., passing a struct/pointer to AddFact).
 // TODO: Add tests for Atom vs String dissonance (asserting a string where an atom is expected and vice versa).
+// TODO: Add tests for extreme string lengths.
+// TODO: Add tests for hallucinated predicate floods.
+// TODO: Add tests for recursive type aliasing.
+// TODO: Add tests for retract/query races.
+// TODO: Add tests for ghost facts in reused stores.
+// TODO: Add tests for huge floating-point numbers or scientific notation strings.
 func TestTorture_TypeSystem_IntCoercion(t *testing.T) {
 	// Go int (not int64) should be handled via value conversion
 	cfg := DefaultConfig()
