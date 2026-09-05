@@ -157,10 +157,17 @@ func unionShards(a, b map[string]struct{}) Presence {
 
 // DerivationMap is the static cross-shard derivation analysis.
 type DerivationMap struct {
-	Presence       map[string]Presence
+	// Presence: where a predicate's facts can exist.
+	Presence map[string]Presence
+	// QueryTargets: where a query for a derived predicate must look (rules
+	// that fire everywhere contribute only the catch-all).
+	QueryTargets map[string]Presence
+	// Consumes: shard -> shared predicates referenced by a rule that can
+	// fire there.
 	Consumes       map[string]map[string]struct{}
 	SplitJoins     []RuleFinding
 	BlindNegations []RuleFinding
+	CatchAll       string
 }
 
 // RuleFinding describes one split join or blind negation rule.
@@ -278,6 +285,7 @@ type derivationBuilder struct {
 	rules      []parsedRule
 	derived    map[string]struct{}
 	presence   map[string]Presence
+	leafMemo   map[string]map[string]struct{}
 }
 
 func newDerivationBuilder(owners map[string]string, shared map[string]struct{}, catchAll string) *derivationBuilder {
@@ -297,6 +305,7 @@ func newDerivationBuilder(owners map[string]string, shared map[string]struct{}, 
 		programEDB: make(map[string]struct{}),
 		declSet:    make(map[string]struct{}),
 		presence:   make(map[string]Presence),
+		leafMemo:   make(map[string]map[string]struct{}),
 	}
 }
 
@@ -518,10 +527,16 @@ func (b *derivationBuilder) consumeRule(out map[string]map[string]struct{}, allS
 	}
 	cur := positiveIntersection(b, r.pos)
 	if cur.All {
-		for s := range allShards {
-			for q := range sharedInRule {
-				out[s][q] = struct{}{}
-			}
+		// A rule that fires everywhere derives the same facts in every
+		// shard, and queries read those from the catch-all (queryTargets),
+		// so only the catch-all needs this rule's shared inputs.
+		m, ok := out[b.catchAll]
+		if !ok {
+			m = make(map[string]struct{})
+			out[b.catchAll] = m
+		}
+		for q := range sharedInRule {
+			m[q] = struct{}{}
 		}
 		return
 	}
@@ -537,19 +552,58 @@ func (b *derivationBuilder) consumeRule(out map[string]map[string]struct{}, allS
 	}
 }
 
+// sharedInRule returns every shared predicate the rule depends on, directly
+// or through the derived predicates in its body (positive or negated): a
+// shard that fires the rule must hold all of them for the derivation chain
+// to exist there.
 func (b *derivationBuilder) sharedInRule(r parsedRule) map[string]struct{} {
 	found := make(map[string]struct{})
 	for _, p := range r.pos {
-		if _, ok := b.shared[p]; ok {
-			found[p] = struct{}{}
-		}
+		b.sharedLeaves(p, found, map[string]struct{}{})
 	}
 	for _, p := range r.neg {
-		if _, ok := b.shared[p]; ok {
-			found[p] = struct{}{}
-		}
+		b.sharedLeaves(p, found, map[string]struct{}{})
 	}
 	return found
+}
+
+// sharedLeaves adds to out the shared predicates reachable from p through
+// rule bodies. Memoised per builder; cycles are cut by the stack.
+func (b *derivationBuilder) sharedLeaves(p string, out map[string]struct{}, stack map[string]struct{}) {
+	if _, ok := b.shared[p]; ok {
+		out[p] = struct{}{}
+		return
+	}
+	if _, isDerived := b.derived[p]; !isDerived {
+		return
+	}
+	if _, cycling := stack[p]; cycling {
+		return
+	}
+	if cached, ok := b.leafMemo[p]; ok {
+		for q := range cached {
+			out[q] = struct{}{}
+		}
+		return
+	}
+	stack[p] = struct{}{}
+	local := make(map[string]struct{})
+	for _, r := range b.rules {
+		if r.head != p {
+			continue
+		}
+		for _, q := range r.pos {
+			b.sharedLeaves(q, local, stack)
+		}
+		for _, q := range r.neg {
+			b.sharedLeaves(q, local, stack)
+		}
+	}
+	delete(stack, p)
+	b.leafMemo[p] = local
+	for q := range local {
+		out[q] = struct{}{}
+	}
 }
 
 // BuildDerivationMap analyzes concatenated policy text with the real Mangle
@@ -564,31 +618,73 @@ func BuildDerivationMap(policyText string, programFacts map[string]struct{}, own
 	splits, blinds := b.findings()
 	return &DerivationMap{
 		Presence:       b.presence,
+		QueryTargets:   b.queryTargets(),
 		Consumes:       b.consumes(),
 		SplitJoins:     splits,
 		BlindNegations: blinds,
+		CatchAll:       b.catchAll,
 	}, nil
 }
 
-// ShardsFor returns the shards where a predicate's facts may exist,
-// preserving allShards order. ALL or unknown predicates yield all shards.
+// queryTargets computes, per derived predicate, the smallest shard set a
+// query must visit to see every fact: the union over its rules of each
+// rule's firing set, where a rule that fires everywhere (only shared and
+// program facts in its body) derives the same facts in every shard and so
+// contributes the catch-all alone. Presence answers "where can it exist";
+// QueryTargets answers "where must I look". delegate_task is the live case:
+// one rule needs only user_intent, so Presence is All and a fan-out paid a
+// world-shard evaluation on every step for facts the catch-all already had.
+func (b *derivationBuilder) queryTargets() map[string]Presence {
+	out := make(map[string]Presence, len(b.derived))
+	for _, r := range b.rules {
+		cur := positiveIntersection(b, r.pos)
+		var contrib Presence
+		if cur.All {
+			contrib = SingleShardPresence(b.catchAll)
+		} else {
+			contrib = cur
+		}
+		if prev, ok := out[r.head]; ok {
+			out[r.head] = unionShards(prev.Shards, contrib.Shards)
+		} else {
+			out[r.head] = contrib.Clone()
+		}
+	}
+	// A derived predicate that is also a program fact exists everywhere as
+	// EDB; the catch-all sees that copy too, so no change is needed.
+	return out
+}
+
+// ShardsFor returns the shards a query for pred must visit, preserving
+// allShards order: the QueryTargets set for a derived predicate, the owner
+// for an owned one, the catch-all for a shared one; unknown predicates and
+// a nil map yield all shards.
 func (m *DerivationMap) ShardsFor(pred string, allShards []string) []string {
-	if m == nil || m.Presence == nil {
+	all := func() []string {
 		out := make([]string, len(allShards))
 		copy(out, allShards)
 		return out
+	}
+	if m == nil || m.Presence == nil {
+		return all()
+	}
+	pick := func(set map[string]struct{}) []string {
+		var out []string
+		for _, s := range allShards {
+			if _, ok := set[s]; ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	if qt, ok := m.QueryTargets[pred]; ok && !qt.All && len(qt.Shards) > 0 {
+		if got := pick(qt.Shards); len(got) > 0 {
+			return got
+		}
 	}
 	pr, ok := m.Presence[pred]
 	if !ok || pr.All {
-		out := make([]string, len(allShards))
-		copy(out, allShards)
-		return out
+		return all()
 	}
-	var out []string
-	for _, s := range allShards {
-		if _, ok := pr.Shards[s]; ok {
-			out = append(out, s)
-		}
-	}
-	return out
+	return pick(pr.Shards)
 }

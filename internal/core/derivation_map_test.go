@@ -18,6 +18,7 @@ Decl local_head(X).
 Decl split_head(X).
 Decl blind_head(X).
 Decl shared_head(X).
+Decl mixed_head(X).
 
 table(/a).
 table(/b).
@@ -26,6 +27,10 @@ local_head(X) :- alpha_fact(X), table(X).
 split_head(X) :- alpha_fact(X), beta_fact(X).
 blind_head(X) :- alpha_fact(X), !beta_fact(X).
 shared_head(X) :- shared_sig(X), loose_fact(X).
+mixed_head(X) :- shared_sig(X), table(X).
+mixed_head(X) :- alpha_fact(X), shared_sig(X).
+Decl via_head(X).
+via_head(X) :- beta_fact(X), mixed_head(X).
 `
 
 func TestDerivationMap_ToyProgram(t *testing.T) {
@@ -56,8 +61,16 @@ func TestDerivationMap_ToyProgram(t *testing.T) {
 	if _, ok := m.Consumes["cortex"]["shared_sig"]; !ok {
 		t.Errorf("the catch-all consumes shared_sig through shared_head: %+v", m.Consumes)
 	}
-	if _, ok := m.Consumes["alpha"]["shared_sig"]; ok {
-		t.Errorf("alpha has no rule reading shared_sig: %+v", m.Consumes["alpha"])
+	if _, ok := m.Consumes["alpha"]["shared_sig"]; !ok {
+		t.Errorf("alpha reads shared_sig through mixed_head's second rule: %+v", m.Consumes["alpha"])
+	}
+	// beta fires via_head, whose body needs mixed_head, whose rules need
+	// shared_sig: the replica must reach beta transitively.
+	if _, ok := m.Consumes["beta"]["shared_sig"]; !ok {
+		t.Errorf("beta needs shared_sig through via_head -> mixed_head: %+v", m.Consumes["beta"])
+	}
+	if got := m.ShardsFor("via_head", []string{"alpha", "beta", "cortex"}); len(got) != 1 || got[0] != "beta" {
+		t.Errorf("ShardsFor(via_head) = %v, want [beta]", got)
 	}
 	got := m.ShardsFor("local_head", []string{"alpha", "beta", "cortex"})
 	if len(got) != 1 || got[0] != "alpha" {
@@ -65,6 +78,16 @@ func TestDerivationMap_ToyProgram(t *testing.T) {
 	}
 	if got := m.ShardsFor("table", []string{"alpha", "beta", "cortex"}); len(got) != 3 {
 		t.Errorf("ShardsFor(table) must be every shard, got %v", got)
+	}
+	// mixed_head can exist everywhere (its first rule needs only shared and
+	// program facts) but a query need only visit the catch-all for that rule
+	// and alpha for the second: never beta.
+	if !m.Presence["mixed_head"].All {
+		t.Errorf("mixed_head presence must be All: %+v", m.Presence["mixed_head"])
+	}
+	got = m.ShardsFor("mixed_head", []string{"alpha", "beta", "cortex"})
+	if len(got) != 2 || got[0] != "alpha" || got[1] != "cortex" {
+		t.Errorf("ShardsFor(mixed_head) = %v, want [alpha cortex]", got)
 	}
 }
 
