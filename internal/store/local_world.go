@@ -311,3 +311,31 @@ func (s *LocalStore) DeleteWorldFiles(paths []string) error {
 
 	return tx.Commit()
 }
+
+// ListWorldFilePaths returns every cached world file path.
+// Used by the incremental scanner to retire rows written by
+// pre-canonicalisation scanners (absolute or backslash-laden keys)
+// that SkipWhenUnchanged would otherwise never touch.
+func (s *LocalStore) ListWorldFilePaths() ([]string, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "ListWorldFilePaths")
+	defer timer.Stop()
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query("SELECT path FROM world_files")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}

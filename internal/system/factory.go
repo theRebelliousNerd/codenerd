@@ -1056,6 +1056,47 @@ func initKernel(bctx *bootContext) error {
 	return nil
 }
 
+// refreshWorldModelAtBoot runs an incremental world scan after the cache is
+// loaded and applies the delta, exactly as the TUI post-boot scan does
+// (cmd/nerd/chat/helpers_scan.go), minus the KG-link persistence block which
+// is TUI-only bookkeeping. It runs on every boot path — nerd chat, nerd fix,
+// campaigns, spawned shards — not just the TUI and `nerd run`, which were the
+// only callers that rescanned. When the cache is empty the scan.mg fallback in
+// initKernel stays as is; this scan still runs so a fresh workspace gets a
+// world model without `nerd init`. A scan error is logged at Warn and never
+// fails boot. Bound by the boot context.
+func refreshWorldModelAtBoot(bctx *bootContext) {
+	if bctx == nil || bctx.scanner == nil || bctx.kernel == nil {
+		return
+	}
+	if bctx.workspace == "" {
+		return
+	}
+	ctx := bctx.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	res, err := bctx.scanner.ScanWorkspaceIncremental(ctx, bctx.workspace, bctx.localDB, world.IncrementalOptions{SkipWhenUnchanged: true})
+	if err != nil {
+		logging.Get(logging.CategoryBoot).Warn("world model refresh at boot failed: %v", err)
+		return
+	}
+	if res == nil || res.Unchanged {
+		if res != nil {
+			logging.World("world model unchanged at boot: files=%d in %v", res.FileCount, res.Duration)
+		} else {
+			logging.World("world model unchanged at boot")
+		}
+		return
+	}
+	if applyErr := world.ApplyIncrementalResult(bctx.kernel, res); applyErr != nil {
+		logging.Get(logging.CategoryBoot).Warn("world model refresh at boot: apply failed: %v", applyErr)
+		return
+	}
+	changed := len(res.ChangedFiles) + len(res.NewFiles) + len(res.DeletedFiles)
+	logging.World("world model refreshed at boot: files=%d changed=%d facts=%d in %v", res.FileCount, changed, len(res.NewFacts), res.Duration)
+}
+
 // loadProjectDoc reads nerd.md and asserts its frontmatter into the kernel.
 //
 // It runs after world facts so that a project rule is in place before the first
@@ -1704,6 +1745,12 @@ func initFinalExecutors(bctx *bootContext) error {
 		IgnorePatterns:  worldCfg.IgnorePatterns,
 		MaxASTFileBytes: worldCfg.MaxFastASTBytes,
 	})
+
+	// Every boot path refreshes the world model: the cache may hold facts from
+	// weeks ago (only the TUI and `nerd run` rescanned), so loading it without
+	// a delta leaves every CodeDOM/world rule joining stale, half mis-keyed
+	// facts. A scan error is logged and never fails boot.
+	refreshWorldModelAtBoot(bctx)
 
 	sessionKernel := &sessionKernelAdapter{kernel: bctx.kernel}
 	sessionVS := &sessionVirtualStoreAdapter{vs: bctx.virtualStore}

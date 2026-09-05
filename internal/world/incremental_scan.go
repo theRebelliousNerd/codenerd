@@ -49,11 +49,61 @@ func fileFingerprint(info os.FileInfo) string {
 	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
 }
 
+// isNonCanonicalWorldPath reports whether a cached world file path was written
+// by a pre-canonicalisation scanner: it contains a backslash, is absolute
+// (filepath.IsAbs or a Windows drive-letter prefix, which IsAbs misses on
+// Linux), or differs from cleanSlash(toSlashAlways(path)).
+func isNonCanonicalWorldPath(p string) bool {
+	if p == "" {
+		return true
+	}
+	if strings.Contains(p, "\\") {
+		return true
+	}
+	if filepath.IsAbs(p) {
+		return true
+	}
+	if len(p) >= 2 && p[1] == ':' && ((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')) {
+		return true
+	}
+	if cleanSlash(toSlashAlways(p)) != p {
+		return true
+	}
+	return false
+}
+
 // ScanWorkspaceIncremental performs a fast, cache-aware scan.
 // It uses FileCache for change detection and LocalStore (if provided) for per-file fact caching.
 func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db *store.LocalStore, opts IncrementalOptions) (*IncrementalResult, error) {
 	start := time.Now()
 	logging.World("Starting incremental workspace scan: %s", root)
+
+	// Retire rows written by pre-canonicalisation scanners: absolute Windows
+	// paths (C:\...), backslash-laden keys, or anything that is not already
+	// cleanSlash(toSlashAlways(path)). An incremental scan with
+	// SkipWhenUnchanged keys by canonical path, so it would never touch these
+	// rows: they are immortal duplicates next to the canonical rows for the
+	// same files. Deleting them here lets this pass re-scan their canonical
+	// keys as new (no fingerprint yet) — the intended migration.
+	if db != nil {
+		if cachedPaths, listErr := db.ListWorldFilePaths(); listErr != nil {
+			logging.WorldWarn("world cache: failed to list cached paths for canonicalisation: %v", listErr)
+		} else {
+			nonCanonical := make([]string, 0)
+			for _, p := range cachedPaths {
+				if isNonCanonicalWorldPath(p) {
+					nonCanonical = append(nonCanonical, p)
+				}
+			}
+			if len(nonCanonical) > 0 {
+				if delErr := db.DeleteWorldFiles(nonCanonical); delErr != nil {
+					logging.WorldWarn("world cache: failed to retire %d non-canonical rows: %v", len(nonCanonical), delErr)
+				} else {
+					logging.World("world cache: retired %d non-canonical rows", len(nonCanonical))
+				}
+			}
+		}
+	}
 
 	cache := NewFileCache(root)
 	defer func() {
