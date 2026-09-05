@@ -36,12 +36,98 @@ type ShardPredicateManifest struct {
 func DefaultShardPredicateManifests() []ShardPredicateManifest {
 	return []ShardPredicateManifest{
 		{
-			Domain:          "routing",
-			OwnedPredicates: []string{"user_intent", "next_action", "routing_result", "derived_mode"},
+			Domain: "routing",
+			// user_intent and next_action are deliberately NOT owned here.
+			// user_intent is shared (SharedPredicates) because rules in
+			// every domain join it; next_action is derived wherever its
+			// rule's other facts live, so a query must fan out.
+			// routing_result is asserted by the constitution and router
+			// system shards and joined against ready_for_routing (policy),
+			// so it lives in the policy shard.
+			OwnedPredicates: []string{"derived_mode"},
 		},
 		{
-			Domain:          "world",
-			OwnedPredicates: []string{"file_topology", "symbol_graph", "diagnostic", "project_profile"},
+			Domain: "world",
+			// The whole world-model family. Reviewer, CodeDOM, impact and
+			// context-priority rules join these against file_topology and
+			// symbol_graph; a split (dependency_link in the catch-all,
+			// symbol_graph here) silently killed every such rule.
+			OwnedPredicates: []string{
+				"file_topology", "symbol_graph", "diagnostic", "project_profile",
+				"code_element", "element_visibility", "element_modified",
+				"code_implements", "code_calls", "dependency_link",
+				"file_dir", "modified", "active_file", "in_scope",
+				"churn_rate", "same_package", "imports", "file_contains",
+				"file_has_public_api", "package_has_dep", "test_coverage",
+				"test_failed", "modified_interface", "impact_graph",
+				"recent_change_by_other", "coder_context_priority",
+				// CodeDOM element facts and the per-language surface
+				// (codedom_*.mg, coder_*.mg, reviewer.mg, tester.mg).
+				"element_parent", "element_signature", "code_interactable",
+				"generated_code", "cgo_code", "parse_error", "file_hash_mismatch",
+				"file_modified_externally", "is_test_function", "test_file_for",
+				"file_imports", "file_package", "file_in_scope", "type_embeds",
+				"is_interface_file", "type_definition_file",
+				"api_handler_function", "api_client_function", "api_dependency",
+				"go_struct", "py_class", "py_decorator", "py_typed_function",
+				"has_pydantic_base", "rs_struct", "rs_derive", "rs_serde_rename",
+				"rs_unsafe_block", "ts_interface", "ts_interface_prop", "ts_class",
+				"mg_negation_rule", "mg_recursive_rule",
+				"cyclomatic_complexity", "git_history", "review_finding",
+				"pytest_failure", "reachability_query",
+				// Edit plans and pending mutations are judged against the
+				// dependency graph (coder_impact.mg, coder_safety.mg,
+				// commit_gate.mg).
+				"coder_target", "plan_edit", "pending_edit", "pending_mutation",
+				"modified_function", "modified_file",
+				// Tool domain facts are joined only against file_topology
+				// (tool_routing.mg, policy_mcp.mg).
+				"tool_domain", "mcp_tool_domain", "mcp_tool_registered", "mcp_server_status",
+				"mcp_tool_capability", "mcp_tool_shard_affinity", "mcp_tool_avg_latency",
+				"mcp_tool_usage", "mcp_tool_vector_score", "mcp_tool_category",
+				// Coder-shard working state judged against the world model
+				// (coder_*.mg): the file under edit, its diagnostics, tests.
+				"coder_state", "coder_task", "active_review", "diagnostic_count",
+				"file_extension", "path_contains", "dependent_count", "edit_analysis",
+				"edit_operation", "file_edited", "failing_test", "pytest_root_cause",
+				"is_core_file", "is_test_file", "is_binary_file", "project_forbidden_path",
+				"high_element_count_flag", "interface_definition", "retry_count",
+				"symbol_verified_exists", "traceback_frame", "assertion_mismatch",
+				"is_public_api",
+				// Facts negated by coder/commit rules whose positive side is
+				// world-model data; a negation evaluated in a shard that never
+				// holds the fact always succeeds (blind negation).
+				"path_in_workspace", "doc_exists_for", "created_source",
+				"suppression", "file_content", "entry_point",
+				// The tool registry (tool_registry.go) is joined against
+				// file_topology by tool_routing.mg and against the shared
+				// per-turn facts by stage_context.mg.
+				"tool_registered", "tool_capability", "tool_hash", "tool_source",
+				"tool_exists", "tool_usage_stats", "tool_description",
+				"tool_available", "tool_binary_path", "tool_source_ready",
+				"tool_safety_verified", "tool_compiled",
+				"tool_generation_blocked", "tool_lifecycle", "tool_known_issue",
+				"capability_similar_to", "tool_refined", "refinement_count",
+				"tool_learning", "tool_executed", "tool_exec_success",
+				"tool_exec_failed", "tool_not_found", "tool_execution_count",
+				"tool_last_execution", "tool_execution", "tool_compilation_failed",
+				"tool_generated", "tool_trace", "tool_generation_failed",
+				"tool_issue_pattern", "tool_hot_loaded", "tool_version",
+				"task_failure_reason", "task_failure_count",
+				"issue_occurrence_count", "version_quality", "active_refinement",
+				// Hypotheses are about files (prioritization.mg joins them
+				// against test_coverage).
+				"active_hypothesis", "unsafe_deref", "unchecked_error",
+				"refinement_state",
+				// Data-flow facts (data_flow.mg): assignments, uses, guards.
+				"assigns", "uses", "guards_block", "guards_return",
+				"error_checked_block", "error_checked_return", "same_scope",
+				"suppressed_rule", "suppression_confidence", "bug_history",
+				// Turn verdict inputs (coder_safety.mg turn_evidence /
+				// hollow_success / turn_done) sit beside the diagnostics and
+				// build state their negations read.
+				"turn_evidence", "turn_created_source", "build_state",
+			},
 		},
 		{
 			Domain:          "tools",
@@ -61,6 +147,19 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"constitution",
 				"commit_barrier",
 				"dangerous_action",
+				// Routing consults the action type and the tool allowlist
+				// against the pending action (system_routing.mg).
+				"action_type",
+				"tool_allowlist",
+				"routing_result",
+				// NOT moved here, deliberately: signed_approval, admin_override,
+				// appeal_granted, temporary_override and candidate_action feed
+				// the constitution's override rules (permitted :- ...
+				// admin_override ...). Those rules have never fired on the
+				// production kernel because the override facts land in the
+				// catch-all while pending_action lives here. Homing them would
+				// make a dormant permission path live; that is the
+				// architect's call, not a routing fix.
 			},
 		},
 		{
@@ -117,16 +216,142 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"task_sub_campaign",
 				"task_verification",
 				"task_write_target",
+				// Runtime facts campaign rules join against the family above:
+				// shard profiles (delegate_task, specialist preference),
+				// context pressure, milestones, remediation, document
+				// references, phase tool lists and the decomposer's
+				// intelligence_* facts.
+				"shard_profile",
+				"shard_can_handle",
+				"shard_performing_well",
+				"shard_campaign_reliable",
+				"campaign_milestone",
+				"campaign_progress_over_50",
+				"context_pressure_high",
+				"context_pressure_critical",
+				"task_remediation_target",
+				"quality_violation",
+				"doc_reference",
+				"tool_in_list",
+				"intelligence_world_fact",
+				"intelligence_churn_hotspot",
+				"intelligence_learning_pattern",
+				"intelligence_safety_warning",
+				"intelligence_tool_gap",
+				"intelligence_mcp_tool",
+				"intelligence_shard_advice",
+				"intelligence_test_coverage",
+				"intelligence_code_pattern",
+				"intelligence_previous_campaign",
+				"intelligence_strategic_knowledge",
+				"intelligence_file_action",
+				"intelligence_high_impact",
+				"intelligence_missing_tests",
+				"intelligence_high_priority_file",
+				"intelligence_file_depends",
+				"intelligence_file_topology",
+				"context_pressure_level",
+				"knowledge_ingested",
+				// Traces and verification attempts are scored against the
+				// campaign task that produced them (trace_logic.mg,
+				// campaign_autopoiesis.mg).
+				"reasoning_trace", "trace_quality", "trace_task_type",
+				"verification_attempt", "campaign_shard",
+				"corrective_action_taken", "session_state", "shard_error",
+				"trace_error", "trace_pattern",
 			},
 		},
 		{
-			Domain:          "prompts",
-			OwnedPredicates: []string{"prompt_atom", "atom_selection_score", "shard_prompt_base"},
+			Domain: "prompts",
+			// The JIT selection facts join prompt_atom (jit_selection.mg,
+			// jit_logic.mg), so they live with it.
+			OwnedPredicates: []string{
+				"prompt_atom", "atom_selection_score", "shard_prompt_base",
+				"atom_tag", "atom_conflict", "atom_conflicts", "atom_exclusion_group",
+				"atom_dependency", "atom_context_boost", "atom_final_order",
+				"prompt_exemplar", "atom_requires", "is_mandatory", "vector_hit",
+				"current_context", "atom_priority",
+			},
 		},
 		{
 			Domain:          "cortex",
 			OwnedPredicates: nil, // Catch-all for unowned predicates
 		},
+	}
+}
+
+// SharedPredicates names the per-turn context facts replicated into every
+// kernel shard. Each shard evaluates the policy program over its own facts
+// only, so a rule joining user_intent (one fact per turn) with file_topology
+// (world shard) or campaign_task (campaign shard) can fire only if the intent
+// is present in that shard too. Everything here is tiny and turn-scoped;
+// never add a large fact family (world model, campaign tasks) to this list —
+// replication multiplies its cost by the shard count.
+//
+// Owned and shared are disjoint by construction: CortexKernel rejects a
+// shard that owns a shared predicate, and the manifest test pins the rule.
+func SharedPredicates() []string {
+	return []string{
+		// The turn
+		"user_intent",
+		"current_intent",
+		"executive_processed_intent",
+		"intent_signal",
+		"delegation_candidate",
+		"is_multi_step",
+		"focus_needs_resolution",
+		"active_goal",
+		// The moment
+		"current_time",
+		"ooda_timeout",
+		// The shards and their compile context
+		"active_shard",
+		"context_budget",
+		"compile_context",
+		"compile_shard",
+		"system_shard_healthy",
+		"generation_state",
+		"validation_max_retries_reached",
+		// Small runtime state joined by routing rules
+		"test_state",
+		"test_scope",
+		"review_type",
+		// Per-turn task and focus markers joined by both campaign and
+		// prompt rules (current_task, shard_success) or by world rules
+		// (focus_resolution); one or a handful of facts each.
+		"current_task",
+		"shard_success",
+		"focus_resolution",
+		"system_heartbeat",
+		"current_user",
+		// The instruction itself and the coder loop's counters
+		"instruction_contains",
+		"instruction_contains_write",
+		"previous_coder_state",
+		"state_unchanged_count",
+		"tdd_retry_count",
+		"max_retries",
+		"corrective_query",
+		"focus_clarification",
+		"awaiting_user_input",
+		"awaiting_clarification",
+		// Small gate facts read under negation by rules whose positive side
+		// is shared. A negation over a fact that lives in one shard is
+		// vacuous in every other shard the rule fires in, so the negated
+		// side must be visible everywhere the positive side is.
+		"gauntlet_result",
+		"mutation_approved",
+		"action_verified",
+		"shard_context_refreshed",
+		"shadow_state",
+		"simulated_effect",
+		"current_shard_type",
+		// Per-action validation outcomes (validation.mg): one fact per
+		// action, negated by the unvalidated_side_effect verdict.
+		"action_validation_failed",
+		"action_escalated",
+		"action_validated",
+		"critical_action_resolved",
 	}
 }
 

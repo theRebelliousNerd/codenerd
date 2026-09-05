@@ -29,12 +29,24 @@ var _ types.KernelTransaction = (*CortexTransaction)(nil)
 //
 // Routing logic:
 //   - Mutations (Assert/Retract) are routed to the shard that owns the predicate.
-//   - Queries are routed to the authoritative shard for that predicate.
+//   - Shared predicates (SetSharedPredicates) are replicated to every shard.
+//   - Queries are routed to the authoritative shard for that predicate; a
+//     shared predicate is read from the catch-all (every replica is equal);
+//     an unowned predicate fans out to every shard and is deduplicated.
 //   - If no shard owns a predicate, it goes to the "cortex" shard (catch-all).
 //
-// Cross-domain predicates are bridged via ExternalPredicateCallbacks — each
-// child exports selected predicates that the cortex shard can query during
-// its own fixpoint evaluation.
+// Every shard evaluates the full policy program over its own facts only, and
+// no shard can see another's store during evaluation. A rule therefore fires
+// only in a shard that holds every fact its body joins. Facts written in the
+// .mg files exist in every shard; runtime facts exist in exactly one shard —
+// unless the predicate is shared. The shared set is the small family of
+// per-turn context facts (user_intent, active_shard, current_time, ...) that
+// rules in every domain join against; replicating them is what lets a rule
+// like "next_action(/open_file) :- user_intent(...), file_topology(...)"
+// derive in the world shard where file_topology lives. Measured 2026-09-04
+// (item 55): before sharing, 147 of 2,142 rules could never fire and 65
+// negations were blind on the production kernel while passing on the
+// single-store kernel every unit test boots.
 
 // CortexKernel is the top-level kernel that manages domain shards.
 type CortexKernel struct {
@@ -43,6 +55,10 @@ type CortexKernel struct {
 
 	// Routing tables (predicate -> domain name)
 	predicateOwner map[string]string // predicate -> domain that owns it
+
+	// sharedPredicates are replicated to every shard on every mutation so
+	// cross-domain rules can join them locally. Must be disjoint from owned.
+	sharedPredicates map[string]struct{}
 
 	// The "cortex" shard handles unowned predicates and cross-domain rules.
 	cortexDomain string
@@ -70,15 +86,90 @@ type CortexKernel struct {
 // on their inner kernel and behavior matches pre-Track-D code exactly.
 func NewCortexKernel(cortexDomain string) *CortexKernel {
 	c := &CortexKernel{
-		shards:         make(map[string]*KernelShard),
-		predicateOwner: make(map[string]string),
-		cortexDomain:   cortexDomain,
-		eventBus:       NewFactEventBus(),
+		shards:           make(map[string]*KernelShard),
+		predicateOwner:   make(map[string]string),
+		sharedPredicates: make(map[string]struct{}),
+		cortexDomain:     cortexDomain,
+		eventBus:         NewFactEventBus(),
 	}
 	if features.IsPerShardFactsEnabled() {
 		c.factRouter = NewShardFactRouter()
 	}
 	return c
+}
+
+// SetSharedPredicates declares the predicates whose facts are replicated to
+// every shard. Call before the first mutation; facts asserted earlier are not
+// back-filled. A predicate that is also owned by a shard is rejected — a
+// fact cannot be both authoritative in one store and replicated to all.
+func (c *CortexKernel) SetSharedPredicates(preds []string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	shared := make(map[string]struct{}, len(preds))
+	for _, p := range preds {
+		if p == "" {
+			continue
+		}
+		if owner, owned := c.predicateOwner[p]; owned {
+			return fmt.Errorf("[cortex] predicate '%s' cannot be shared: owned by '%s'", p, owner)
+		}
+		shared[p] = struct{}{}
+	}
+	c.sharedPredicates = shared
+	return nil
+}
+
+// SharedPredicateList returns the sorted shared predicate names.
+func (c *CortexKernel) SharedPredicateList() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]string, 0, len(c.sharedPredicates))
+	for p := range c.sharedPredicates {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// isShared reports whether a predicate (or a query pattern on it) is shared.
+func (c *CortexKernel) isShared(predicate string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	_, ok := c.sharedPredicates[barePredicate(predicate)]
+	return ok
+}
+
+// targetShards returns every shard a mutation of predicate must reach: all
+// shards for a shared predicate, else the single shard routeToShard picks.
+func (c *CortexKernel) targetShards(predicate string) []*KernelShard {
+	if c.isShared(predicate) {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+		out := make([]*KernelShard, 0, len(c.shards))
+		for _, s := range c.shards {
+			out = append(out, s)
+		}
+		return out
+	}
+	if s := c.routeToShard(predicate); s != nil {
+		return []*KernelShard{s}
+	}
+	return nil
+}
+
+// groupByTarget buckets facts by every shard they must reach.
+func (c *CortexKernel) groupByTarget(facts []types.Fact) (map[string][]types.Fact, error) {
+	batches := make(map[string][]types.Fact)
+	for _, fact := range facts {
+		targets := c.targetShards(fact.Predicate)
+		if len(targets) == 0 {
+			return nil, fmt.Errorf("[cortex] no shard available for predicate '%s'", fact.Predicate)
+		}
+		for _, s := range targets {
+			batches[s.Domain()] = append(batches[s.Domain()], fact)
+		}
+	}
+	return batches, nil
 }
 
 // FactRouter returns the per-shard fact router, or nil when the per-shard
@@ -141,6 +232,11 @@ func (c *CortexKernel) RegisterShard(shard *KernelShard) error {
 
 	// Index owned predicates for routing
 	for pred := range shard.ownedPredicates {
+		if _, shared := c.sharedPredicates[pred]; shared {
+			delete(c.shards, domain)
+			c.mu.Unlock()
+			return fmt.Errorf("[cortex] shard '%s' cannot own shared predicate '%s'", domain, pred)
+		}
 		if existingDomain, conflict := c.predicateOwner[pred]; conflict {
 			logging.Get(logging.CategoryKernel).Warn(
 				"[cortex] predicate '%s' claimed by both '%s' and '%s' — last wins",
@@ -248,14 +344,23 @@ func (c *CortexKernel) routeToShard(predicate string) *KernelShard {
 // types.Kernel INTERFACE IMPLEMENTATION
 // =============================================================================
 
-// Assert routes a fact to the owning shard based on predicate.
+// Assert routes a fact to the owning shard based on predicate; a shared
+// predicate lands in every shard.
 func (c *CortexKernel) Assert(fact types.Fact) error {
-	shard := c.routeToShard(fact.Predicate)
-	if shard == nil {
+	targets := c.targetShards(fact.Predicate)
+	if len(targets) == 0 {
 		return fmt.Errorf("[cortex] no shard available for predicate '%s'", fact.Predicate)
 	}
-	if err := shard.Assert(fact); err != nil {
-		return err
+	for _, shard := range targets {
+		var err error
+		if len(targets) > 1 {
+			err = shard.assertLocal(fact) // replicas bypass owner routing
+		} else {
+			err = shard.Assert(fact)
+		}
+		if err != nil {
+			return err
+		}
 	}
 	// Publish at cortex level so system shards subscribing here get notified
 	if c.eventBus != nil {
@@ -266,14 +371,9 @@ func (c *CortexKernel) Assert(fact types.Fact) error {
 
 // AssertBatch routes facts to their respective shards, batching per-shard.
 func (c *CortexKernel) AssertBatch(facts []types.Fact) error {
-	// Group facts by destination shard
-	batches := make(map[string][]types.Fact)
-	for _, fact := range facts {
-		shard := c.routeToShard(fact.Predicate)
-		if shard == nil {
-			return fmt.Errorf("[cortex] no shard available for predicate '%s'", fact.Predicate)
-		}
-		batches[shard.Domain()] = append(batches[shard.Domain()], fact)
+	batches, err := c.groupByTarget(facts)
+	if err != nil {
+		return err
 	}
 
 	// Assert each batch to its shard
@@ -283,7 +383,7 @@ func (c *CortexKernel) AssertBatch(facts []types.Fact) error {
 		if shard == nil {
 			continue
 		}
-		if err := shard.AssertBatch(batch); err != nil {
+		if err := shard.assertBatchLocal(batch); err != nil {
 			return fmt.Errorf("[cortex] shard '%s' AssertBatch failed: %w", domain, err)
 		}
 		for _, f := range batch {
@@ -299,34 +399,53 @@ func (c *CortexKernel) AssertBatch(facts []types.Fact) error {
 	return nil
 }
 
-// Retract removes all facts of a predicate from the owning shard.
+// Retract removes all facts of a predicate from the owning shard, or from
+// every shard for a shared predicate.
 func (c *CortexKernel) Retract(predicate string) error {
-	shard := c.routeToShard(predicate)
-	if shard == nil {
+	targets := c.targetShards(predicate)
+	if len(targets) == 0 {
 		return fmt.Errorf("[cortex] no shard available for predicate '%s'", predicate)
 	}
-	return shard.Retract(predicate)
+	for _, shard := range targets {
+		var err error
+		if len(targets) > 1 {
+			err = shard.retractLocal(predicate)
+		} else {
+			err = shard.Retract(predicate)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-// RetractFact removes a specific fact from the owning shard.
+// RetractFact removes a specific fact from the owning shard, or from every
+// shard for a shared predicate.
 func (c *CortexKernel) RetractFact(fact types.Fact) error {
-	shard := c.routeToShard(fact.Predicate)
-	if shard == nil {
+	targets := c.targetShards(fact.Predicate)
+	if len(targets) == 0 {
 		return fmt.Errorf("[cortex] no shard available for predicate '%s'", fact.Predicate)
 	}
-	return shard.RetractFact(fact)
+	for _, shard := range targets {
+		var err error
+		if len(targets) > 1 {
+			err = shard.retractFactLocal(fact)
+		} else {
+			err = shard.RetractFact(fact)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RetractExactFactsBatch removes exact facts, routing each to the correct shard.
 func (c *CortexKernel) RetractExactFactsBatch(facts []types.Fact) error {
-	// Group by shard
-	batches := make(map[string][]types.Fact)
-	for _, fact := range facts {
-		shard := c.routeToShard(fact.Predicate)
-		if shard == nil {
-			continue
-		}
-		batches[shard.Domain()] = append(batches[shard.Domain()], fact)
+	batches, err := c.groupByTarget(facts)
+	if err != nil {
+		return err
 	}
 
 	for domain, batch := range batches {
@@ -343,18 +462,16 @@ func (c *CortexKernel) RetractExactFactsBatch(facts []types.Fact) error {
 
 // RemoveFactsByPredicateSet removes all facts with predicates in the set, routing to correct shards.
 func (c *CortexKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
-	// Group predicates by owning shard
+	// Group predicates by every shard holding them
 	shardPreds := make(map[string]map[string]struct{})
 	for pred := range predicates {
-		shard := c.routeToShard(pred)
-		if shard == nil {
-			continue
+		for _, shard := range c.targetShards(pred) {
+			domain := shard.Domain()
+			if shardPreds[domain] == nil {
+				shardPreds[domain] = make(map[string]struct{})
+			}
+			shardPreds[domain][pred] = struct{}{}
 		}
-		domain := shard.Domain()
-		if shardPreds[domain] == nil {
-			shardPreds[domain] = make(map[string]struct{})
-		}
-		shardPreds[domain][pred] = struct{}{}
 	}
 
 	for domain, preds := range shardPreds {
@@ -380,15 +497,23 @@ func (c *CortexKernel) Query(predicate string) ([]types.Fact, error) {
 	}
 	c.mu.RLock()
 	_, owned := c.predicateOwner[barePred]
-	if owned {
+	_, shared := c.sharedPredicates[barePred]
+	if owned || shared {
 		c.mu.RUnlock()
+		// Owned: the authoritative shard. Shared: every replica is identical,
+		// so the catch-all answers for all of them.
 		shard := c.routeToShard(predicate)
 		if shard == nil {
 			return nil, fmt.Errorf("[cortex] no shard available for predicate '%s'", predicate)
 		}
+		if shared {
+			return shard.queryLocal(predicate)
+		}
 		return shard.Query(predicate)
 	}
-	// Unowned predicate: fan out to every registered shard.
+	// Unowned predicate: fan out to every registered shard. A derived
+	// predicate whose rule fires in more than one shard (its inputs are
+	// shared or program-level) comes back once per shard, so dedupe.
 	shards := make([]*KernelShard, 0, len(c.shards))
 	for _, s := range c.shards {
 		shards = append(shards, s)
@@ -399,14 +524,33 @@ func (c *CortexKernel) Query(predicate string) ([]types.Fact, error) {
 	}
 	atomic.AddInt64(&c.routeMissCount, 1)
 	var merged []types.Fact
+	seen := make(map[string]struct{})
 	for _, shard := range shards {
 		results, err := shard.Query(predicate)
 		if err != nil {
 			return nil, err
 		}
-		merged = append(merged, results...)
+		for _, f := range results {
+			key := factKey(f)
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged = append(merged, f)
+		}
 	}
 	return merged, nil
+}
+
+// factKey renders a fact as a stable string for deduplication across shards.
+func factKey(f types.Fact) string {
+	var b strings.Builder
+	b.WriteString(f.Predicate)
+	for _, a := range f.Args {
+		b.WriteByte('\x1f')
+		fmt.Fprintf(&b, "%T=%v", a, a)
+	}
+	return b.String()
 }
 
 // QueryAll returns all derived facts from ALL shards, merged.
@@ -429,14 +573,9 @@ func (c *CortexKernel) QueryAll() (map[string][]types.Fact, error) {
 
 // LoadFacts distributes facts to their respective shards.
 func (c *CortexKernel) LoadFacts(facts []types.Fact) error {
-	// Group by destination shard
-	batches := make(map[string][]types.Fact)
-	for _, fact := range facts {
-		shard := c.routeToShard(fact.Predicate)
-		if shard == nil {
-			return fmt.Errorf("[cortex] no shard available for predicate '%s'", fact.Predicate)
-		}
-		batches[shard.Domain()] = append(batches[shard.Domain()], fact)
+	batches, err := c.groupByTarget(facts)
+	if err != nil {
+		return err
 	}
 
 	for domain, batch := range batches {
@@ -571,25 +710,27 @@ func (t *CortexTransaction) Commit() error {
 	}
 	perShard := make(map[string]*shardOps)
 
-	getOps := func(pred string) *shardOps {
-		shard := t.cortex.routeToShard(pred)
-		if shard == nil {
-			return nil
+	// opsFor returns the per-shard op buckets a predicate must reach: one
+	// for an owned or unowned predicate, every shard for a shared one.
+	opsFor := func(pred string) []*shardOps {
+		targets := t.cortex.targetShards(pred)
+		out := make([]*shardOps, 0, len(targets))
+		for _, shard := range targets {
+			domain := shard.Domain()
+			if perShard[domain] == nil {
+				perShard[domain] = &shardOps{}
+			}
+			out = append(out, perShard[domain])
 		}
-		domain := shard.Domain()
-		if perShard[domain] == nil {
-			perShard[domain] = &shardOps{}
-		}
-		return perShard[domain]
+		return out
 	}
 
 	for _, r := range t.retracts {
 		if r.opType == retractPredSet {
-			// Find all shards that own any predicate in this set
+			// Find all shards holding any predicate in this set
 			shardsToRoute := make(map[string]struct{})
 			for pred := range r.predSet {
-				shard := t.cortex.routeToShard(pred)
-				if shard != nil {
+				for _, shard := range t.cortex.targetShards(pred) {
 					shardsToRoute[shard.Domain()] = struct{}{}
 				}
 			}
@@ -600,15 +741,13 @@ func (t *CortexTransaction) Commit() error {
 				perShard[domain].retracts = append(perShard[domain].retracts, r)
 			}
 		} else {
-			ops := getOps(r.predicate)
-			if ops != nil {
+			for _, ops := range opsFor(r.predicate) {
 				ops.retracts = append(ops.retracts, r)
 			}
 		}
 	}
 	for _, a := range t.asserts {
-		ops := getOps(a.Predicate)
-		if ops != nil {
+		for _, ops := range opsFor(a.Predicate) {
 			ops.asserts = append(ops.asserts, a)
 		}
 	}
@@ -630,12 +769,13 @@ func (t *CortexTransaction) Commit() error {
 			case retractExact:
 				tx.RetractExactFact(r.fact)
 			case retractPredSet:
-				// Filter the predicate set to only include predicates owned by this shard
+				// Filter the predicate set to the predicates this shard holds
 				subSet := make(map[string]struct{})
 				for pred := range r.predSet {
-					s := t.cortex.routeToShard(pred)
-					if s != nil && s.Domain() == domain {
-						subSet[pred] = struct{}{}
+					for _, s := range t.cortex.targetShards(pred) {
+						if s.Domain() == domain {
+							subSet[pred] = struct{}{}
+						}
 					}
 				}
 				if len(subSet) > 0 {

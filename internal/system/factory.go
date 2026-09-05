@@ -988,6 +988,9 @@ func initKernel(bctx *bootContext) error {
 		// manifests owning every predicate their rules join (see
 		// internal/shards/registration.go and the campaign contract test).
 		shardConfigs := defaultKernelShardConfigs(bctx.workspace)
+		if err := cortex.SetSharedPredicates(shards.SharedPredicates()); err != nil {
+			return fmt.Errorf("configure shared kernel predicates: %w", err)
+		}
 
 		for _, scfg := range shardConfigs {
 			shard, err := core.NewKernelShard(scfg)
