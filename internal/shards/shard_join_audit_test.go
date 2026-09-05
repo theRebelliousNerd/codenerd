@@ -62,6 +62,18 @@ func buildProductionDerivationMap(t *testing.T, shared []string) *core.Derivatio
 	return dm
 }
 
+func shardList(p core.Presence) []string {
+	if p.All {
+		return []string{"ALL"}
+	}
+	var s []string
+	for sh := range p.Shards {
+		s = append(s, sh)
+	}
+	sort.Strings(s)
+	return s
+}
+
 func describe(f core.RuleFinding) string {
 	var homes []string
 	for p, pr := range f.Homes {
@@ -106,6 +118,18 @@ func TestShardJoin_EveryRuleCanFireOnTheShardedKernel(t *testing.T) {
 	}
 	t.Logf("corpus: %d predicates, %d split joins and %d blind negations (accepted residue included)",
 		len(dm.Presence), len(dm.SplitJoins), len(dm.BlindNegations))
+	all := []string{"routing", "world", "tools", "policy", "campaign", "prompts", "cortex"}
+	for _, p := range []string{"delegate_task", "next_action", "hollow_success", "turn_done", "injectable_context", "relevant_tool", "write_oriented_intent", "safe_action"} {
+		t.Logf("query targets %-24s %v", p, dm.ShardsFor(p, all))
+	}
+	for _, s := range all {
+		t.Logf("shared consumed by %-9s %d of %d", s, len(dm.Consumes[s]), len(SharedPredicates()))
+	}
+	for _, r := range dm.Rules {
+		if r.Head == "delegate_task" && !r.Fires.All {
+			t.Logf("delegate_task rule in %s fires in %v (pos %v)", r.File, shardList(r.Fires), r.Pos)
+		}
+	}
 	if len(bad) > 0 {
 		sort.Strings(bad)
 		for _, b := range bad {

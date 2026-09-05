@@ -168,6 +168,18 @@ type DerivationMap struct {
 	SplitJoins     []RuleFinding
 	BlindNegations []RuleFinding
 	CatchAll       string
+	// Rules: every analysed rule with the shard set it fires in, for
+	// diagnostics ("why does a query for X visit shard Y").
+	Rules []RuleSummary
+}
+
+// RuleSummary is one rule's static firing set.
+type RuleSummary struct {
+	File  string
+	Head  string
+	Pos   []string
+	Neg   []string
+	Fires Presence
 }
 
 // RuleFinding describes one split join or blind negation rule.
@@ -616,6 +628,13 @@ func BuildDerivationMap(policyText string, programFacts map[string]struct{}, own
 	b.seed()
 	b.fixpoint()
 	splits, blinds := b.findings()
+	summaries := make([]RuleSummary, 0, len(b.rules))
+	for _, r := range b.rules {
+		summaries = append(summaries, RuleSummary{
+			File: r.file, Head: r.head, Pos: r.pos, Neg: r.neg,
+			Fires: positiveIntersection(b, r.pos),
+		})
+	}
 	return &DerivationMap{
 		Presence:       b.presence,
 		QueryTargets:   b.queryTargets(),
@@ -623,6 +642,7 @@ func BuildDerivationMap(policyText string, programFacts map[string]struct{}, own
 		SplitJoins:     splits,
 		BlindNegations: blinds,
 		CatchAll:       b.catchAll,
+		Rules:          summaries,
 	}, nil
 }
 
@@ -683,7 +703,17 @@ func (m *DerivationMap) ShardsFor(pred string, allShards []string) []string {
 		}
 	}
 	pr, ok := m.Presence[pred]
-	if !ok || pr.All {
+	if !ok {
+		return all()
+	}
+	if pr.All {
+		// Present everywhere and identical everywhere (a program table or a
+		// shared fact): the catch-all answers for all of them.
+		if m.CatchAll != "" {
+			if got := pick(map[string]struct{}{m.CatchAll: {}}); len(got) == 1 {
+				return got
+			}
+		}
 		return all()
 	}
 	return pick(pr.Shards)
