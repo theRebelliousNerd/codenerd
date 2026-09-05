@@ -649,6 +649,9 @@ func (tc *TieredContext) GetTopFiles(n int) []ContextFile {
 		return sorted[i].RelevanceScore > sorted[j].RelevanceScore
 	})
 
+	if n < 0 {
+		n = 0
+	}
 	if n > len(sorted) {
 		n = len(sorted)
 	}

@@ -1,0 +1,160 @@
+# Brainstorm Intent Verb Atoms
+# Ideation that builds on what exists instead of re-deriving it.
+# Lifecycle Phase 1.3: north star, architecture map, capabilities inventory,
+# standing constraints (nerd.md, CLAUDE rules), prior decisions from memory.
+
+- id: "intent/brainstorm/core"
+  category: "intent"
+  subcategory: "brainstorm"
+  priority: 95
+  is_mandatory: true
+  intent_verbs: ["/brainstorm"]
+  content: |
+    ## BRAINSTORM INTENT PROTOCOL (Encyclopedic)
+
+    Your intent is to **BRAINSTORM** — diverge across solution options, then
+    converge on a recommendation. Ideation builds on what exists instead of
+    re-deriving it.
+
+    ### Prime Directive
+    **GROUND BEFORE YOU IDEATE.** Every option must trace to something that
+    already exists: the north star, the architecture map, the capabilities
+    inventory, standing constraints, or a prior decision. An option with no
+    anchor is a guess, not a proposal.
+
+    ### Hard Boundary
+    Brainstorming produces **options and a recommendation, never code**.
+    Do not write files, do not edit code, do not sketch patches. When the
+    recommendation is accepted, a later `/design` or `/implement` turn acts
+    on it. One concern per turn; ideation is the concern here.
+
+    ### Required Context (consult BEFORE proposing)
+    1. **North star** — mission, capabilities, constraints, risks. These reach
+       your prompt as `injectable_context("*", ...)` rows derived in
+       `internal/core/defaults/policy/prompt_northstar.mg` (mission for
+       planner/coder, critical capabilities for planner, unmitigated risks
+       and constraints always). If no north star rows are injected, say so
+       and brainstorm against the user-stated goal only.
+    2. **Architecture map** — system boundaries, data flows, layer placement
+       per `internal/prompt/atoms/northstar/architecture_roadmap_validation.yaml`
+       (`/architecture` phase). Name the layers each option touches
+       (`/domain_core`, `/data_layer`, `/service`, `/transport`,
+       `/integration`).
+    3. **Capabilities inventory** — what the system already does. Mirror the
+       discovery checklist in `domain/project/discovery` (README, CLAUDE.md,
+       structure, patterns) and name the closest existing capability per
+       option, or state explicitly that none exists.
+    4. **Standing constraints** — `internal/projectdoc/nerd.md` forbidden
+       paths (`constitution.mg`, `coder_quality.mg`, `modularity.go`,
+       `write_guards.go`, the tripwire test, `.nerd/config.json`,
+       `.nerd/mangle/learned`) plus CLAUDE rules. Every option must respect
+       them; flag any option that would need a forbidden touch as blocked
+       with the exact seam, do not plan around it.
+    5. **Prior decisions** — session continuity and decision records per
+       `context/session/continuity` and `context/session/decisions`
+       (Decision / Context / Options / Rationale / Consequences). Query
+       memory (`HydrateLearnings`, `HydrateSessionContext`) first; follow a
+       prior decision consistently or name the changed context that reopens
+       it.
+
+    ### Encyclopedic Brainstorm Workflow
+    1. **Restate the goal** in one sentence, tied to a north star capability
+       or the user-stated problem.
+    2. **Gather anchors** — list the 5 context sources above with one line
+       each on what they contribute to this decision.
+    3. **Diverge** — produce 2-4 distinct options (see grounding atom for
+       per-source extraction).
+    4. **Converge** — score options against goal fit, constraint fit,
+       layer fit, and reversibility; recommend exactly one.
+    5. **Hand off** — state what the `/design` turn must resolve (open
+       questions, facts still missing).
+
+    ### Brainstorm Checklist (must satisfy)
+    - [ ] All 5 context sources consulted or explicitly absent
+    - [ ] Each option names its anchors (capability, layer, constraint,
+          prior decision)
+    - [ ] Prior decisions followed or explicitly reopened with reason
+    - [ ] No code written, no file writes proposed as done work
+    - [ ] Exactly one recommendation with rationale and hand-off questions
+
+- id: "intent/brainstorm/grounding"
+  category: "intent"
+  subcategory: "brainstorm"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/brainstorm"]
+  depends_on: ["intent/brainstorm/core"]
+  content: |
+    ## BRAINSTORM GROUNDING EXTRACTION
+
+    How to turn each required source into usable anchors. Separate
+    **observations** (file + symbol anchors) from **hypotheses**.
+
+    ### 1. North star extraction
+    - Mission: one sentence — what problem does this project solve, for whom?
+    - Capabilities: which declared capability does each option advance?
+      Flag orphan options (no capability link) as scope-suspect per
+      `northstar/guardian/task` (serve mission, persona need, capability,
+      respect constraints, in that order).
+    - Risks: which declared risk does each option raise or mitigate?
+    - Constraints: which `northstar_constraint` rows bound the option?
+
+    ### 2. Architecture map extraction
+    - Name the layers and components each option touches.
+    - State where new logic would live (EDB facts vs IDB rules vs prompt
+      atoms) without designing it — placement only.
+    - Note coupling introduced: new cross-layer edges are a cost.
+
+    ### 3. Capabilities inventory extraction
+    - Per option, cite 1-2 closest existing patterns (file + symbol).
+    - If truly nothing similar exists, state the search performed
+      (`glob` + `grep` evidence) per `intent/create/core` pre-creation
+      exploration — the same bar applies to claiming novelty in ideation.
+
+    ### 4. Standing constraints extraction
+    - Check every option against the forbidden-path list; a blocked option
+      stays listed as blocked with the exact file, never silently dropped.
+    - Check Mangle hygiene for any option proposing new predicates: `Decl`
+      before use, never the same predicate at the same arity twice, bound
+      variables before negation.
+
+    ### 5. Prior decisions extraction
+    - Use the decision record format (Decision / Context / Options /
+      Rationale / Consequences).
+    - An option that contradicts a prior decision must quote the decision
+      and name the changed context; otherwise the prior decision wins.
+
+- id: "intent/brainstorm/output"
+  category: "intent"
+  subcategory: "brainstorm"
+  priority: 85
+  is_mandatory: false
+  intent_verbs: ["/brainstorm"]
+  depends_on: ["intent/brainstorm/core"]
+  content: |
+    ## BRAINSTORM OUTPUT CONTRACT
+
+    ### Option format (per option)
+    ```
+    ### Option N: <name>
+    Anchors: <capability | layer | constraint | prior decision, with anchors>
+    Sketch: <2-4 sentences, no code>
+    Cost: <layers touched, new edges, new predicates if any>
+    Risk: <which north star risk it raises or mitigates>
+    ```
+
+    ### Convergence format
+    ```
+    Recommendation: Option N
+    Why: <goal fit + constraint fit + layer fit + reversibility, 2-4 lines>
+    Rejected: <one line per rejected option with reason>
+    Hand-off to /design: <open questions, missing facts>
+    ```
+
+    ### Rules
+    - Diverge with 2-4 options; fewer is not brainstorming, more is noise.
+    - Recommend exactly one option. Ties go back to the user with the
+      deciding question stated, not to a vague "either works".
+    - Every claim about the codebase carries a file/symbol anchor or is
+      labeled HYPOTHESIS with the single next step that would verify it.
+    - End with the hand-off: what the design turn must pin down first.
