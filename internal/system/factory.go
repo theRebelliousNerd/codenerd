@@ -936,6 +936,10 @@ func classificationClientFor(bctx *bootContext) perception.LLMClient {
 					Model:               w.Model,
 					ClassificationModel: bctx.appCfg.ClassificationModel,
 					Gemini:              bctx.appCfg.GetGeminiConfig(),
+					// The configured effort wins over the classifier's "minimal"
+					// fallback (perception/client_factory.go); without this the
+					// worker-tier classifier ignored reasoning_effort entirely.
+					ReasoningEffort: firstNonEmpty(w.ReasoningEffort, bctx.appCfg.ReasoningEffort),
 				}
 				if client, err := perception.NewClassificationClientFromConfig(workerCfg); err == nil && client != nil {
 					logging.Get(logging.CategoryPerception).Info(
@@ -1174,6 +1178,16 @@ func loadProjectDoc(bctx *bootContext) {
 		logging.Boot("Loaded %d %s document(s) (%d facts, %d write-protected path(s), %d command(s)) [no workspace root document]",
 			len(docs), projectdoc.FileName, len(coreFacts), totalForbid, totalCommands)
 	}
+}
+
+// firstNonEmpty returns the first argument that is not blank.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // buildKernelDerivationMap runs the static cross-shard analysis over the

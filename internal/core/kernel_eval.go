@@ -196,7 +196,7 @@ func (k *RealKernel) evaluate() error {
 	//     Until external-option parity lands, fall back to the full path
 	//     whenever externals are in play.)
 	//   - diff engine was invalidated by a retract/clear/policy change
-	if diffEvalEnabled() && k.proofRecorder == nil && !k.hasExternalPredicatesLocked() {
+	if diffEvalEnabled() && !k.diffPathDemoted && k.proofRecorder == nil && !k.hasExternalPredicatesLocked() {
 		if done, err := k.evaluateDiffLocked(); err != nil {
 			return err
 		} else if done {
@@ -464,6 +464,16 @@ func (k *RealKernel) evaluateDiffLocked() (bool, error) {
 		logging.Get(logging.CategoryKernel).Warn("evaluate: diff store copy failed, falling back: %v", err)
 		k.invalidateDiffEngineLocked("copy failed")
 		return false, nil
+	}
+	if evalDuration > diffDemoteThreshold {
+		// The delta was applied (results are valid), but at this store size the
+		// differential path costs more than a full fixpoint. Drop the engine
+		// and stay on the full path for the rest of the process.
+		logging.Get(logging.CategoryKernel).Warn(
+			"evaluate: differential path took %v for %d facts on a %d-fact store; using the full fixpoint for this kernel from now on",
+			evalDuration, len(deltaAtoms), len(k.facts))
+		k.diffPathDemoted = true
+		k.invalidateDiffEngineLocked("differential path slower than a full fixpoint")
 	}
 	return true, nil
 }

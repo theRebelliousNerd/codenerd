@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"codenerd/internal/mangle"
 	"codenerd/internal/types"
@@ -126,7 +127,23 @@ type RealKernel struct {
 	diffMangleEngine   *mangle.Engine // base engine the DifferentialEngine wraps
 	dirtyStrata        map[int]bool
 	factsSinceLastEval []Fact
+
+	// diffPathDemoted is set once a differential evaluation on this kernel
+	// exceeds diffDemoteThreshold. Measured 2026-09-05 on the world shard
+	// (48K facts): ApplyDelta took 91 s where the full fixpoint takes a
+	// fraction of that, because a one-fact delta marks every stratum dirty
+	// and replays the whole program through the delta machinery. The flag is
+	// per kernel and per process: a small store keeps its 60 ms fast path,
+	// a large one stops paying for a "fast path" that is slower than the
+	// rebuild.
+	diffPathDemoted bool
 }
+
+// diffDemoteThreshold is the differential-evaluation duration above which a
+// kernel abandons the differential path for the rest of the process. Full
+// fixpoints on 20K-fact shards measure under half a second, so a delta
+// application that takes longer than this cannot be the cheaper option.
+var diffDemoteThreshold = 2 * time.Second
 
 // StartupValidationResult contains statistics from startup learned rule validation.
 type StartupValidationResult struct {
