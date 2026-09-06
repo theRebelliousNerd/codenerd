@@ -63,3 +63,11 @@ func TestLoadExistingNorthstar(t *testing.T) {
 		t.Fatalf("expected slices to be initialized")
 	}
 }
+
+// TODO: TestEmptyResponse: Verify parsing an empty string or whitespace-only string returns an empty slice without panicking.
+// TODO: TestMalformedTypeMarkers: Verify that unrecognized markers (e.g., [SEC]) or malformed markers (e.g., [ F ], missing closing bracket) are handled gracefully.
+// TODO: TestRequirementLimitEnforcement: Provide an input with 20 valid requirements and assert that exactly 15 are returned, validating the circuit breaker.
+// TODO: TestAlternativeListMarkers: Test inputs using 1. , + , or no list marker at all, to ensure the regex/trimming logic is robust.
+// TODO: TestMissingDescriptions: Test lines like - [F] where there is no text after the marker. The system should ideally discard these or flag them as invalid.
+// TODO: TestCorruptJSONLoad: Create a file with invalid JSON syntax and ensure loadExistingNorthstar returns false without panicking.
+// TODO: TestPartialJSONLoad: Create a valid JSON file that is missing array fields (like Personas) and ensure the loading logic correctly initializes them to empty slices rather than leaving them nil.
