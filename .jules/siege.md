@@ -87,3 +87,10 @@
 ## 2026-07-25 - VirtualStore Interactive Gate vs Dreamer Cache Collision
 **Learning:** The Dreamer's cache implementation uses `string(req.Type) + ":" + req.Target` as the cache key, completely ignoring the `req.Payload`. Two concurrent interactive tool calls (e.g. `write_file`) modifying the same file with different content will collide, potentially allowing a malicious payload to bypass safety checks by reusing the cache entry of a benign payload.
 **Action:** When testing the VirtualStore ↔ Dreamer boundary, always construct concurrent races that exploit cache key collisions (same type + target, different payload).
+## 2026-09-06 - [Context Activation Pipeline Atom Type Dissonance]
+**Learning:** The `ActivationEngine` relies on type casting `f.Args[0].(string)` when parsing `dependency_link/3` and `symbol_graph/2` facts from the Mangle EDB. However, if the Kernel returns `ast.Name` (Atoms) instead of `ast.String` (Mangle Strings), the cast fails silently, resulting in an empty dependency graph. This empty context cascades to the Session Orchestrator, starving the JIT compiler and causing the LLM to hallucinate.
+**Action:** When testing fact routing boundaries, always test both string and atom type representations from the VirtualStore/Kernel to prove the consumer handles type dissonance safely.
+
+## 2026-09-06 - [Context Engine Panic Cascades to Campaign Stop]
+**Learning:** The Context Pager relies on `ScoreFacts` completing successfully. If `buildSymbolGraphLocked` panics (e.g. from an out-of-bounds array access on a malformed virtual fact), it crashes the entire Session Executor goroutine because the boundary lacks a defensive `recover()` block, taking down the Campaign Orchestrator.
+**Action:** Integration tests must inject intentionally malformed facts (missing arity, nil types) directly from a mock VirtualStore to prove the pipeline fails gracefully without a process crash.
