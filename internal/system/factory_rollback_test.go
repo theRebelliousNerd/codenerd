@@ -87,6 +87,9 @@ func TestBootCortexWithConfigLateFailureRollsBackAcquiredResources(t *testing.T)
 	if !errors.Is(err, forcedErr) || !strings.Contains(err.Error(), "late rollback probe") {
 		t.Fatalf("boot error = %v, want named step wrapping forced error", err)
 	}
+	if want := "boot late rollback probe: " + forcedErr.Error(); err.Error() != want {
+		t.Fatalf("rollback added an unexpected cleanup failure: %v", err)
+	}
 	if localDB == nil || localDB.GetDB() == nil {
 		t.Fatal("local DB was not acquired before late failure")
 	}
