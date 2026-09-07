@@ -175,13 +175,23 @@ func TestBootOuroborosToolStoreWiring(t *testing.T) {
 	}
 	releaseQueue()
 	select {
+	case <-serviceDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not join the released queue consumer within 5s")
+	}
+	// The five-second service lifecycle contract above is independent of disk
+	// flush latency. Windows runners can spend more than five seconds inside
+	// sqlite3_close_v2 after both service goroutines have exited. Still require
+	// successful, joined resource cleanup; TempDir cleanup detects open handles.
+	const resourceCleanupWait = 4 * closeStepTimeout
+	select {
 	case err := <-done:
 		if err != nil {
 			t.Fatalf("Close: %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(resourceCleanupWait):
 		stacks := make([]byte, 1<<20)
 		n := runtime.Stack(stacks, true)
-		t.Fatalf("Cortex.Close() did not return within 5s; shutdown stacks:\n%s", stacks[:n])
+		t.Fatalf("Cortex.Close() did not release resources within %v; shutdown stacks:\n%s", resourceCleanupWait, stacks[:n])
 	}
 }
