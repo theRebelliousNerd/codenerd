@@ -151,6 +151,11 @@ func (c *JITPromptCompiler) clearPromptCache(reason string) {
 // The method opens the database file and registers it. The caller is responsible
 // for ensuring the file exists. Call Close() to release all DB connections.
 func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+	if c.closed {
+		return fmt.Errorf("prompt compiler is closed")
+	}
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database %s: %w", dbPath, err)
@@ -176,7 +181,12 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 		logging.Get(logging.CategoryContext).Info("Registered corpus database: %s", dbPath)
 	default:
 		// Treat unknown names as shard IDs for flexibility
+		c.shardMu.Lock()
+		if previous := c.shardDBs[shardDBKey(name)]; previous != nil && previous != db {
+			_ = previous.Close()
+		}
 		c.shardDBs[shardDBKey(name)] = db
+		c.shardMu.Unlock()
 		logging.Get(logging.CategoryContext).Info("Registered database %s: %s", name, dbPath)
 	}
 
@@ -202,7 +212,18 @@ func shardDBKey(shardID string) string {
 // The DB should be the agent's unified knowledge database (.nerd/shards/{name}_knowledge.db)
 // which contains both knowledge_atoms and prompt_atoms tables.
 func (c *JITPromptCompiler) RegisterShardDB(shardID string, db *sql.DB) {
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+	if c.closed {
+		if db != nil {
+			_ = db.Close()
+		}
+		return
+	}
 	c.shardMu.Lock()
+	if previous := c.shardDBs[shardDBKey(shardID)]; previous != nil && previous != db {
+		_ = previous.Close()
+	}
 	c.shardDBs[shardDBKey(shardID)] = db
 	c.shardMu.Unlock()
 	c.clearPromptCache(fmt.Sprintf("shard database registered: %s", shardID))

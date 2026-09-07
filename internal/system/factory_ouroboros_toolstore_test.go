@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +18,12 @@ type factoryDelegationProbeKernel struct {
 	*core.RealKernel
 	armed     atomic.Bool
 	processed chan struct{}
+}
+
+type factoryShutdownLLM struct{ *MockLLMClient }
+
+func (m *factoryShutdownLLM) CompleteWithSystem(ctx context.Context, system, user string) (string, error) {
+	return m.Complete(ctx, system+user)
 }
 
 func (k *factoryDelegationProbeKernel) Query(predicate string) ([]core.Fact, error) {
@@ -66,8 +74,20 @@ func TestBootOuroborosToolStoreWiring(t *testing.T) {
 		t.Fatal(err)
 	}
 	mockKernel := &factoryDelegationProbeKernel{RealKernel: realKernel, processed: make(chan struct{}, 1)}
+	var queueProbe atomic.Bool
+	queueStarted, queueCanceled, queueRelease := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	releaseQueue := func() { releaseOnce.Do(func() { close(queueRelease) }) }
+	defer releaseQueue()
 	mockLLM := &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
+			if queueProbe.CompareAndSwap(true, false) {
+				close(queueStarted)
+				<-ctx.Done()
+				close(queueCanceled)
+				<-queueRelease
+				return "", ctx.Err()
+			}
 			return "OK", nil
 		},
 	}
@@ -89,12 +109,16 @@ func TestBootOuroborosToolStoreWiring(t *testing.T) {
 			"legislator",
 		},
 		UserConfigOverride: mockUserConfig,
-		LLMClientOverride:  mockLLM,
+		LLMClientOverride:  &factoryShutdownLLM{mockLLM},
 		KernelOverride:     mockKernel,
 	})
 	if err != nil {
 		t.Fatalf("BootCortexWithConfig failed: %v", err)
 	}
+	t.Cleanup(func() {
+		releaseQueue()
+		_ = cortex.Close()
+	})
 
 	if cortex.ToolStore == nil {
 		t.Error("Cortex.ToolStore should be non-nil after boot")
@@ -121,16 +145,43 @@ func TestBootOuroborosToolStoreWiring(t *testing.T) {
 
 	// The listener and consumer goroutines must exit on Close: assert Close
 	// returns without hanging.
+	queueProbe.Store(true)
+	cortex.OuroborosQueue <- core.ToolNeed{Name: "shutdown_queue_probe", Description: "Generate a tool for the shutdown queue probe"}
+	select {
+	case <-queueStarted:
+	case <-time.After(15 * time.Second):
+		t.Fatal("factory queue never entered tool generation")
+	}
+	serviceDone := cortex.ouroborosDone
+	listenerDone := cortex.Orchestrator.StartKernelListener(t.Context(), 2*time.Second)
 	done := make(chan error, 1)
 	go func() {
 		done <- cortex.Close()
 	}()
+	select {
+	case <-queueCanceled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not cancel the active queue consumer")
+	}
+	select {
+	case <-listenerDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not join the kernel listener")
+	}
+	select {
+	case <-serviceDone:
+		t.Fatal("shutdown signaled completion before the queue consumer exited")
+	default:
+	}
+	releaseQueue()
 	select {
 	case err := <-done:
 		if err != nil {
 			t.Fatalf("Close: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("Cortex.Close() did not return within 5s; Ouroboros listener/consumer goroutines may be leaking")
+		stacks := make([]byte, 1<<20)
+		n := runtime.Stack(stacks, true)
+		t.Fatalf("Cortex.Close() did not return within 5s; shutdown stacks:\n%s", stacks[:n])
 	}
 }

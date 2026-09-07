@@ -10,9 +10,10 @@ import (
 	"time"
 )
 
-// closeStepTimeout bounds each Close step so one-shot CLI (create/spawn)
+// closeStepTimeout bounds legacy Close steps so one-shot CLI (create/spawn)
 // cannot hang forever after printing Result. Windows SQLite + system-shard
 // shutdown has historically blocked process exit for minutes.
+// The prompt compiler has cooperative cancellation and is joined explicitly.
 const closeStepTimeout = 8 * time.Second
 
 // Close releases resources held by a Cortex instance.
@@ -96,7 +97,9 @@ func (c *Cortex) Close() error {
 		select {
 		case <-c.ouroborosDone:
 		case <-time.After(closeStepTimeout):
-			logging.Get(logging.CategorySession).Warn("Cortex.Close: Ouroboros listener timed out; continuing shutdown")
+			err := fmt.Errorf("Ouroboros listener and queue shutdown timed out after %v", closeStepTimeout)
+			logging.Get(logging.CategorySession).Warn("Cortex.Close: %v; continuing shutdown", err)
+			errs = append(errs, err)
 		}
 		c.ouroborosDone = nil
 	}
@@ -122,7 +125,10 @@ func (c *Cortex) Close() error {
 	}
 
 	if c.JITCompiler != nil {
-		if err := runCloseStep("JITCompiler.Close", closeStepTimeout, c.JITCompiler.Close); err != nil {
+		// Close cancels and joins compilation before closing its databases.
+		// A timer cannot cancel SQLite cleanup: abandoning it leaves the corpus
+		// locked on Windows and races teardown of the stores used by compilation.
+		if err := c.JITCompiler.Close(); err != nil {
 			errs = append(errs, err)
 		}
 		c.JITCompiler = nil

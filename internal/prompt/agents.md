@@ -1,6 +1,9 @@
 # Prompt subsystem guidance
 
 - JIT atoms are the source of truth for new model-facing behavior; do not add a parallel hardcoded prompt path.
+- Compiler shutdown must stop admission, cancel active compilation, join it, and
+  close owned databases. Do not race WaitGroup admission against shutdown or
+  replace joined cleanup with a timer that abandons live database handles.
 - `atom_schema.go#AtomDefinition` and `ParsePromptAtomYAML` own the YAML contract for filesystem loading, embedding, synchronization, and validation.
 - Canonical agent selectors use `shard_types`. `agent_types`, legacy metadata, and nested `selectors` exist only as bounded, observable compatibility migrations scheduled for removal on 2027-01-01.
 - Built-in atoms under `atoms/` must parse without migrations. Unknown fields and invalid records fail the complete document; never log-and-skip a bad atom.

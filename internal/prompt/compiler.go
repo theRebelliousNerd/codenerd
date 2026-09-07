@@ -319,6 +319,12 @@ type JITPromptCompiler struct {
 	shardMu      sync.RWMutex
 	compileGroup singleflight.Group
 	wg           sync.WaitGroup
+	lifecycleMu  sync.Mutex
+	closed       bool
+	stopContext  context.Context
+	stop         context.CancelFunc
+	closeOnce    sync.Once
+	closeErr     error
 
 	// Configuration
 	config CompilerConfig
@@ -396,6 +402,7 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 		cacheList:  list.New(),
 		cacheLimit: 1000, // Hard size limit for LRU cache
 	}
+	compiler.stopContext, compiler.stop = context.WithCancel(context.Background())
 
 	// Apply options
 	for _, opt := range opts {
@@ -416,9 +423,21 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 
 // This is the main entry point for prompt compilation.
 func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext) (*CompilationResult, error) {
-
+	c.lifecycleMu.Lock()
+	if c.closed {
+		c.lifecycleMu.Unlock()
+		return nil, fmt.Errorf("prompt compiler is closed")
+	}
 	c.wg.Add(1)
+	c.lifecycleMu.Unlock()
 	defer c.wg.Done()
+	ctx, cancel := context.WithCancel(ctx)
+	stopCancellation := context.AfterFunc(c.stopContext, cancel)
+	defer stopCancellation()
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	// Legacy timer for backward compatibility
 	timer := logging.StartTimer(logging.CategoryJIT, "JITPromptCompiler.Compile")
@@ -1334,6 +1353,17 @@ func (c *JITPromptCompiler) AssertFacts(facts []string) error {
 
 // Close releases all resources held by the compiler.
 func (c *JITPromptCompiler) Close() error {
+	c.closeOnce.Do(func() {
+		c.lifecycleMu.Lock()
+		c.closed = true
+		c.stop()
+		c.lifecycleMu.Unlock()
+		c.closeErr = c.closeResources()
+	})
+	return c.closeErr
+}
+
+func (c *JITPromptCompiler) closeResources() error {
 	c.wg.Wait()
 
 	func() {

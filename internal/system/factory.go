@@ -1970,7 +1970,9 @@ func initFactoryOuroborosWiring(bctx *bootContext) {
 	}
 	autoCtx, cancel := context.WithCancel(context.Background())
 	bctx.ouroborosCancel = cancel
-	bctx.ouroborosDone = bctx.poiesis.StartKernelListener(autoCtx, 2*time.Second)
+	listenerDone := bctx.poiesis.StartKernelListener(autoCtx, 2*time.Second)
+	ouroborosDone := make(chan struct{})
+	bctx.ouroborosDone = ouroborosDone
 
 	dreamToolCh := make(chan core.ToolNeed, 16)
 	bctx.ouroborosQueue = dreamToolCh
@@ -1984,6 +1986,10 @@ func initFactoryOuroborosWiring(bctx *bootContext) {
 
 	poiesis := bctx.poiesis
 	go func() {
+		defer func() {
+			<-listenerDone
+			close(ouroborosDone)
+		}()
 		// Bound goroutine lifetime to autoCtx. dreamToolCh is fed by the
 		// DreamRouter; we don't own its close. Without a ctx.Done arm this
 		// goroutine would block forever on the receive after Close.

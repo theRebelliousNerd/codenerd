@@ -12,6 +12,8 @@
 - Treat Cortex boot as a resource transaction. New boot steps must put acquired
   handles on `bootContext`, transfer ownership in `cortexFromBootContext`, and
   remain safe under the shared rollback/`Cortex.Close` path.
+- Join the prompt compiler's cooperative shutdown before closing its dependent
+  stores; an elapsed cleanup timer does not mean SQLite has released its files.
 - Cortex cache identity must include every boot option that changes live wiring.
   Normalize set-like options before both hashing and applying them; never place
   credentials or raw option material in the cache key.
