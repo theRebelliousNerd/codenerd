@@ -102,6 +102,7 @@ func TestExecutor_Process_NilJITCompilerUsesBaselinePrompt(t *testing.T) {
 func TestExecutor_Process_ToolExecution(t *testing.T) {
 	// Register mock tool
 	tool := &tools.Tool{
+		Effect:      tools.EffectRead,
 		Name:        "readFile",
 		Description: "Reads a file",
 		Category:    tools.CategoryGeneral,
@@ -192,6 +193,7 @@ func TestExecutor_Process_SafetyGate(t *testing.T) {
 	// Register mock tool
 	toolExecuted := false
 	tool := &tools.Tool{
+		Effect:      tools.EffectRead,
 		Name:        "deleteFile",
 		Description: "Deletes a file",
 		Category:    tools.CategoryGeneral,
@@ -395,7 +397,8 @@ func TestExecutor_Process_EmptyToolCallArgs(t *testing.T) {
 
 	// Register dummy tool
 	tools.Global().Register(&tools.Tool{
-		Name: "valid_name",
+		Effect: tools.EffectRead,
+		Name:   "valid_name",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			if args == nil {
 				return "nil args ok", nil
@@ -509,7 +512,8 @@ func TestExecutor_Process_MaxToolCallsExceeded(t *testing.T) {
 	executor.config.MaxToolCalls = 5 // low limit for testing
 
 	tools.Global().Register(&tools.Tool{
-		Name: "valid_name",
+		Effect: tools.EffectRead,
+		Name:   "valid_name",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			return "ok", nil
 		},
@@ -550,7 +554,8 @@ func TestExecutor_Process_ToolTimeout(t *testing.T) {
 	executor.config.ToolTimeout = 10 * time.Millisecond // very short timeout
 
 	tools.Global().Register(&tools.Tool{
-		Name: "sleep_tool",
+		Effect: tools.EffectRead,
+		Name:   "sleep_tool",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			time.Sleep(100 * time.Millisecond) // sleep longer than timeout
 			return "done", nil
@@ -650,7 +655,8 @@ func TestExecutor_StateConflicts_PanicRecovery(t *testing.T) {
 	)
 
 	tools.Global().Register(&tools.Tool{
-		Name: "panic_tool",
+		Effect: tools.EffectRead,
+		Name:   "panic_tool",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			panic("intentional panic inside tool")
 		},
@@ -805,7 +811,8 @@ func TestExecutor_SafetyGateFailClosed(t *testing.T) {
 	executor.config.EnableSafetyGate = true
 
 	tools.Global().Register(&tools.Tool{
-		Name: "any_tool",
+		Effect: tools.EffectRead,
+		Name:   "any_tool",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			t.Fatal("Tool executed even though safety gate is enabled and kernel is nil!")
 			return "done", nil

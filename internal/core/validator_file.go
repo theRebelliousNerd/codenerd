@@ -2,6 +2,7 @@
 package core
 
 import (
+	"codenerd/internal/tactile"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -98,6 +99,9 @@ func (v *FileWriteValidator) Validate(ctx context.Context, req ActionRequest, re
 	}
 
 	// 4. Hash comparison
+	// File writers preserve the destination newline convention. Compare the
+	// content they were instructed to write after that documented conversion.
+	expectedContent = tactile.NormalizeLineEnding(expectedContent, tactile.DetectLineEnding(actualContent))
 	expectedHash := sha256.Sum256([]byte(expectedContent))
 	actualHash := sha256.Sum256(actualContent)
 
@@ -180,11 +184,19 @@ func (v *FileEditValidator) Validate(ctx context.Context, req ActionRequest, res
 		}
 	}
 
-	actualStr := string(actualContent)
+	actualStr := tactile.NormalizeLineEnding(string(actualContent), "\n")
 
 	// Get old and new content from payload
 	oldContent, hasOld := req.Payload["old"].(string)
 	newContent, hasNew := req.Payload["new"].(string)
+	if !hasOld {
+		oldContent, hasOld = req.Payload["old_text"].(string)
+	}
+	if !hasNew {
+		newContent, hasNew = req.Payload["new_text"].(string)
+	}
+	oldContent = tactile.NormalizeLineEnding(oldContent, "\n")
+	newContent = tactile.NormalizeLineEnding(newContent, "\n")
 
 	if !hasOld && !hasNew {
 		// No expected patterns - just verify file exists and is readable
@@ -197,7 +209,7 @@ func (v *FileEditValidator) Validate(ctx context.Context, req ActionRequest, res
 	}
 
 	// Verify old content is NOT present (was replaced)
-	if hasOld && oldContent != "" && strings.Contains(actualStr, oldContent) {
+	if hasOld && oldContent != "" && !strings.Contains(newContent, oldContent) && strings.Contains(actualStr, oldContent) {
 		return ValidationResult{
 			Verified:   false,
 			Confidence: 0.95,

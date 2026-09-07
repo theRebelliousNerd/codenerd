@@ -202,9 +202,13 @@ func TestParseRipgrepOutput_MalformedColons(t *testing.T) {
 		"missing_colon\n"
 
 	hits := parseRipgrepOutput(output, "kw")
-	if len(hits) != 3 {
-		t.Errorf("Expected 3 hits, got %d", len(hits))
+	if len(hits) != 1 {
+		t.Fatalf("Expected only the well-formed Windows hit, got %d", len(hits))
 	}
+	if hits[0].FilePath != `C:\repo\file.go` || hits[0].Line != 1 || hits[0].Column != 2 {
+		t.Fatalf("Windows hit lost identity: %+v", hits[0])
+	}
+
 }
 
 func TestKeywordHitCache_Concurrency(t *testing.T) {

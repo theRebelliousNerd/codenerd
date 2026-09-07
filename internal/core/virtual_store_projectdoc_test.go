@@ -170,12 +170,13 @@ func TestVirtualStore_ToolWriteGuardBlocksWithoutKernel(t *testing.T) {
 }
 
 func TestVirtualStore_ToolWriteGuardStopsShellIncidentAtRegistry(t *testing.T) {
-	v := &VirtualStore{}
+	v := &VirtualStore{dreamer: NewDreamer(setupMockKernel(t))}
 	registry := tools.NewRegistry()
 	v.installToolWriteGuard(registry)
 
 	executed := false
 	if err := registry.Register(&tools.Tool{
+		Effect:   tools.EffectRead,
 		Name:     "run_command",
 		Category: tools.CategoryCode,
 		Schema: tools.ToolSchema{
@@ -214,6 +215,7 @@ func TestVirtualStore_ToolWriteGuardStopsShellIncidentAtRegistry(t *testing.T) {
 
 	gitExecuted := false
 	if err := registry.Register(&tools.Tool{
+		Effect:   tools.EffectRead,
 		Name:     "git_operation",
 		Category: tools.CategoryCode,
 		Schema: tools.ToolSchema{

@@ -22,14 +22,15 @@ import (
 
 // Orchestrator coordinates all autopoiesis capabilities
 type Orchestrator struct {
-	mu          sync.RWMutex
-	config      Config
-	complexity  *ComplexityAnalyzer
-	toolGen     *ToolGenerator
-	persistence *PersistenceAnalyzer
-	agentCreate *AgentCreator
-	ouroboros   ToolSynthesizer // The Ouroboros Loop for tool self-generation
-	client      LLMClient
+	mu                 sync.RWMutex
+	kernelListenerDone <-chan struct{}
+	config             Config
+	complexity         *ComplexityAnalyzer
+	toolGen            *ToolGenerator
+	persistence        *PersistenceAnalyzer
+	agentCreate        *AgentCreator
+	ouroboros          ToolSynthesizer // The Ouroboros Loop for tool self-generation
+	client             LLMClient
 
 	// Kernel Integration - Bridge to Mangle Logic Core
 	kernel types.Kernel // The Mangle kernel for fact assertion/query

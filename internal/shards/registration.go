@@ -126,7 +126,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// Turn verdict inputs (coder_safety.mg turn_evidence /
 				// hollow_success / turn_done) sit beside the diagnostics and
 				// build state their negations read.
-				"turn_evidence", "turn_created_source", "build_state",
+				"turn_evidence", "turn_acceptance", "turn_created_source", "build_state",
 			},
 		},
 		{

@@ -38,36 +38,13 @@ SCOPE_EVALUATED = {"jit_compiler.mg", "jit_selection.mg", "jit_logic.mg"}
 # Known residue, each with a reason. A finding is (file basename, head).
 # Anything not listed here fails the audit. Remove an entry when the rule
 # is restructured or the architect decides its facts should move.
-ACCEPTED = {
-    # Constitution override paths: signed_approval / admin_override /
-    # has_active_override / candidate_action live in the catch-all while
-    # pending_action lives in the policy shard. These rules have never
-    # fired on the production kernel; homing the override facts would make
-    # a dormant permission path live. Architect's decision, not a routing
-    # fix. Deny-side effects (permission_denied, action_denied,
-    # blocked_learned_action_count) only over-deny.
-    ("constitution.mg", "permitted"),
-    ("constitution.mg", "final_action"),
-    ("constitution.mg", "permission_denied"),
-    ("constitution.mg", "action_denied"),
-    ("constitution.mg", "blocked_learned_action_count"),
-    # Campaign quality check joins campaign_task with file_topology and
-    # negates test_coverage (both world). Needs restructuring (world-side
-    # helper predicate), not sharing of a large family. Dormant Path B.
-    ("campaign_rules.mg", "quality_violation_detected"),
-    # coder_quality_mode(/normal) :- !in_campaign_context() has no positive
-    # atom, so it fires in every shard; the campaign shard also derives
-    # /strict when a campaign is active and the fan-out returns both.
-    # Needs a positive anchor in the rule. No Go reader today.
-    ("coder_campaign.mg", "coder_quality_mode"),
-    ("coder_workflow.mg", "coder_quality_mode"),
-    # selection_policy.mg derives include_in_context for campaign
-    # documents; final_context_include then negates exclude_from_context
-    # (world file facts) in the campaign shard. Documents are never
-    # generated/vendor/binary files, so the vacuous negation is harmless.
-    ("coder_context.mg", "final_context_include"),
-    ("coder_workflow.mg", "final_context_include"),
-}
+def normalize_clause(text: str) -> str:
+    return re.sub(r'"(?:\\.|[^"\\])*"|\s+', lambda m: m.group(0) if m.group(0).startswith('"') else '', text)
+
+with open(os.path.join(ROOT, "internal", "shards", "testdata", "accepted_seams.json"), encoding="utf-8") as pins_file:
+    import json
+    ACCEPTED = {(p["file"], normalize_clause(p["clause"])) for p in json.load(pins_file)}
+
 
 
 def mg_files() -> list[str]:
@@ -238,15 +215,15 @@ def main() -> int:
             # The rule fires in every shard of `cur`; in any of them where
             # the negated fact cannot exist, the negation is vacuous.
             if "ALL" in cur or not (cur <= pr):
-                blind_neg.append((rel, head, p, "/".join(sorted(pr)), "every shard" if "ALL" in cur else "/".join(sorted(cur))))
+                blind_neg.append((rel, head, p, "/".join(sorted(pr)), "every shard" if "ALL" in cur else "/".join(sorted(cur)), clause))
 
-    def accepted(rel: str, head: str) -> bool:
-        return (os.path.basename(rel), head) in ACCEPTED
+    def accepted(rel: str, clause: str) -> bool:
+        return (os.path.basename(rel), normalize_clause(clause)) in ACCEPTED
 
-    accepted_split = [s for s in split if accepted(s[0], s[1])]
-    accepted_neg = [b for b in blind_neg if accepted(b[0], b[1])]
-    split = [s for s in split if not accepted(s[0], s[1])]
-    blind_neg = [b for b in blind_neg if not accepted(b[0], b[1])]
+    accepted_split = [s for s in split if accepted(s[0], s[3])]
+    accepted_neg = [b for b in blind_neg if accepted(b[0], b[5])]
+    split = [s for s in split if not accepted(s[0], s[3])]
+    blind_neg = [b for b in blind_neg if not accepted(b[0], b[5])]
 
     print(f"policy corpus: {len(rules)} rules, {len(derived)} derived predicates, "
           f"{len(program_edb)} program-EDB predicates, {len(owners)} owned predicates, {len(shared_preds)} shared predicates")
@@ -262,7 +239,7 @@ def main() -> int:
         print()
     if blind_neg:
         print(f"BLIND NEGATIONS ({len(blind_neg)}): negated fact is owned by a shard the rule never evaluates in, so the negation always succeeds")
-        for rel, head, p, pr, cur in blind_neg:
+        for rel, head, p, pr, cur, clause in blind_neg:
             print(f"- {rel}: {head}  !{p} lives in {pr}, rule evaluates in {cur}")
         print()
     if split or blind_neg:

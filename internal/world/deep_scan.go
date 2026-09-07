@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
+	"codenerd/internal/tools"
 	"context"
 	"os"
 	"path/filepath"
@@ -37,6 +38,23 @@ func EnsureDeepFacts(ctx context.Context, paths []string, db *store.LocalStore, 
 func EnsureDeepFactsInRoot(ctx context.Context, root string, paths []string, db *store.LocalStore, workers int) (*DeepResult, error) {
 	start := time.Now()
 	root = workspaceRootOrCwd(root)
+	canonical, canonicalErr := tools.CanonicalWorkspaceRoot(root)
+	if canonicalErr != nil {
+		return nil, canonicalErr
+	}
+	root = canonical
+	// Resolve every supplied identity before launching workers. An absolute
+	// symlink/Windows short-name alias must label facts like the fast scan.
+	resolved := make([]string, 0, len(paths))
+	for _, path := range paths {
+		abs, err := tools.ResolveWorkspacePath(ctx, root, path)
+		if err != nil {
+			return nil, err
+		}
+		resolved = append(resolved, abs)
+	}
+	paths = resolved
+
 	if workers <= 0 {
 		workers = max(min(runtime.NumCPU(), 8), 2)
 	}

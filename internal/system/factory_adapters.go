@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
 	"strings"
@@ -461,15 +462,8 @@ var _ session.InteractiveExecutiveGate = (*sessionVirtualStoreAdapter)(nil)
 // filtered by isDestructiveAction). Only read_file is non-destructive; every
 // other mapped tool mutates files or executes code.
 func isSessionAdapterDestructiveTool(toolName string) bool {
-	switch toolName {
-	case "write_file", "edit_file", "delete_file",
-		"run_command", "bash", "run_build",
-		"edit_lines", "insert_lines", "delete_lines",
-		"edit_element", "apply_edits":
-		return true
-	default:
-		return false
-	}
+	effect, err := tools.LookupEffect(toolName)
+	return err != nil || effect != tools.EffectRead
 }
 
 // PreflightDestructiveToolCall delegates to the wrapped VirtualStore's Dreamer

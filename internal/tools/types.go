@@ -84,6 +84,9 @@ type Tool struct {
 	// Must match the AllowedTools entries in ConfigAtoms.
 	Name string
 
+	// Effect is mandatory for dynamic tools; built-ins use the reviewed manifest.
+	Effect Effect
+
 	// Description explains what the tool does.
 	// Used for LLM tool calling and documentation.
 	Description string

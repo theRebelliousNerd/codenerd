@@ -2,9 +2,12 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
+	"codenerd/internal/tools"
 )
 
 // This file wires the VirtualStore executive (Dreamer destructive-action gate
@@ -37,8 +40,8 @@ import (
 //     validator (FileWriteValidator, etc.) by ActionType; a mismatch yields a
 //     "skipped" (no-op) validation.
 //
-// Tools absent from this map are treated as non-destructive and unvalidated
-// (the same posture as before this wiring existed) — see the ok checks below.
+// Other registered tools use their explicit effect declaration. Unknown
+// effects are rejected, and executable/external effects take the generic gate.
 var interactiveToolActionType = map[string]ActionType{
 	// core filesystem tools (internal/tools/core/file_ops.go)
 	"read_file":   ActionReadFile,
@@ -46,9 +49,12 @@ var interactiveToolActionType = map[string]ActionType{
 	"edit_file":   ActionEditFile,
 	"delete_file": ActionDeleteFile,
 	// shell execution tools (internal/tools/shell/execute.go)
-	"run_command": ActionRunCommand,
-	"bash":        ActionBash,
-	"run_build":   ActionRunBuild,
+	"run_command":        ActionRunCommand,
+	"bash":               ActionBash,
+	"run_build":          ActionRunBuild,
+	"run_tests":          ActionRunTests,
+	"run_impacted_tests": ActionRunTests,
+	"git_operation":      ActionGitOperation,
 	// codedom line-edit tools (internal/tools/codedom/lines.go)
 	"edit_lines":   ActionEditLines,
 	"insert_lines": ActionInsertLines,
@@ -64,10 +70,20 @@ var interactiveToolActionType = map[string]ActionType{
 }
 
 // actionTypeForToolName resolves a modular tool name to its ActionType.
-// The bool is false when the tool is unmapped (treat as non-gated/unvalidated).
+// The bool is false when the tool lacks an effect declaration (fail closed).
 func actionTypeForToolName(toolName string) (ActionType, bool) {
 	at, ok := interactiveToolActionType[toolName]
-	return at, ok
+	if ok {
+		return at, true
+	}
+	effect, err := tools.LookupEffect(toolName)
+	if err != nil {
+		return "", false
+	}
+	if effect == tools.EffectRead {
+		return ActionReadFile, true
+	}
+	return ActionExecTool, true
 }
 
 // buildInteractiveActionRequest constructs the ActionRequest that the Dreamer
@@ -95,7 +111,7 @@ func buildInteractiveActionRequest(actionID string, at ActionType, args map[stri
 // extractActionTarget mirrors session/executor.go:extractTarget so the Target
 // passed to the Dreamer/validators matches what the tool acted on.
 func extractActionTarget(args map[string]any) string {
-	for _, key := range []string{"path", "filename", "filepath", "file", "url", "target", "query"} {
+	for _, key := range []string{"path", "file_path", "filename", "filepath", "file", "command", "url", "target", "query"} {
 		if val, ok := args[key]; ok {
 			if s := extractStringArg(val); s != "" {
 				return s
@@ -120,9 +136,48 @@ func extractStringArg(v any) string {
 // Permission and speculative safety are independent gates; an allow decision
 // from checkSafety must never compensate for a missing simulation engine.
 func (v *VirtualStore) PreflightDestructiveToolCall(ctx context.Context, actionID, toolName string, args map[string]any) error {
+	if ctx == nil {
+		return &InteractiveGateError{Reason: "nil context"}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	at, ok := actionTypeForToolName(toolName)
-	if !ok || !isDestructiveAction(at) {
-		return nil // non-destructive or unmapped: nothing to simulate
+	if !ok && v != nil {
+		if registry := v.GetToolRegistry(); registry != nil {
+			if _, exists := registry.GetTool(toolName); exists {
+				at, ok = ActionExecTool, true
+			}
+		}
+	}
+	if !ok {
+		return &InteractiveGateError{Reason: "missing effect declaration for tool " + toolName}
+	}
+	if !isDestructiveAction(at) {
+		return nil
+	}
+	if v == nil {
+		return &InteractiveGateError{Reason: "dreamer unavailable: VirtualStore is nil"}
+	}
+	if toolName == "apply_edits" {
+		paths, err := projectdoc.TargetPaths(args)
+		if err != nil {
+			return err
+		}
+		if len(paths) == 0 {
+			return &InteractiveGateError{Reason: "apply_edits has no targets"}
+		}
+		for i, path := range paths {
+			payload := make(map[string]any, len(args)+1)
+			for k, val := range args {
+				payload[k] = val
+			}
+			payload["path"] = path
+			if err := v.PreflightDestructiveToolCall(ctx, fmt.Sprintf("%s:%d", actionID, i), "edit_file", payload); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
 	req := buildInteractiveActionRequest(actionID, at, args)
@@ -164,7 +219,24 @@ func (v *VirtualStore) PreflightDestructiveToolCall(ctx context.Context, actionI
 // success reflects whether the tool itself reported success; validators only
 // run on success (a tool that already errored needs no side-effect check).
 func (v *VirtualStore) ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) error {
+	if v == nil {
+		return &InteractiveGateError{Reason: "validator store unavailable"}
+	}
 	if !success || v.validators == nil {
+		return nil
+	}
+	if toolName == "apply_edits" {
+		paths, err := projectdoc.TargetPaths(args)
+		if err != nil || len(paths) == 0 {
+			return &InteractiveGateError{Reason: "invalid apply_edits validation targets"}
+		}
+		for i, path := range paths {
+			// apply_edits verifies staged replacements internally. Apply the
+			// post-write existence/syntax validators to every resulting file.
+			if err := v.ValidateInteractiveToolResult(ctx, fmt.Sprintf("%s:%d", actionID, i), "edit_file", map[string]any{"path": path}, output, true); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	at, ok := actionTypeForToolName(toolName)

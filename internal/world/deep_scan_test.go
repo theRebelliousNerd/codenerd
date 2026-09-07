@@ -20,7 +20,7 @@ func TestEnsureDeepFacts_NoGoFiles(t *testing.T) {
 		t.Fatalf("Failed to write txt file: %v", err)
 	}
 
-	result, err := EnsureDeepFacts(ctx, []string{txtFile}, nil, 1)
+	result, err := EnsureDeepFactsInRoot(ctx, tmpDir, []string{txtFile}, nil, 1)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -48,7 +48,7 @@ func main() {
 		t.Fatalf("Failed to write go file: %v", err)
 	}
 
-	result, err := EnsureDeepFacts(ctx, []string{goFile}, nil, 1)
+	result, err := EnsureDeepFactsInRoot(ctx, tmpDir, []string{goFile}, nil, 1)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -65,11 +65,12 @@ func main() {
 }
 
 func TestEnsureDeepFacts_MissingFile(t *testing.T) {
+	tmpDir := t.TempDir()
 	ctx := context.Background()
 
 	missingFile := "does_not_exist.go"
 
-	result, err := EnsureDeepFacts(ctx, []string{missingFile}, nil, 1)
+	result, err := EnsureDeepFactsInRoot(ctx, tmpDir, []string{missingFile}, nil, 1)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -94,7 +95,7 @@ func main() {}
 	}
 
 	// Pass 0 or negative for workers to test fallback
-	result, err := EnsureDeepFacts(ctx, []string{goFile}, nil, -1)
+	result, err := EnsureDeepFactsInRoot(ctx, tmpDir, []string{goFile}, nil, -1)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -125,7 +126,7 @@ func first() {}
 	}
 
 	// First pass
-	res1, err := EnsureDeepFacts(ctx, []string{goFile}, db, 1)
+	res1, err := EnsureDeepFactsInRoot(ctx, tmpDir, []string{goFile}, db, 1)
 	if err != nil {
 		t.Fatalf("Pass 1 error: %v", err)
 	}
@@ -139,7 +140,7 @@ func first() {}
 	factsCount1 := len(res1.NewFacts)
 
 	// Second pass: file unchanged. It should hit the cache.
-	res2, err := EnsureDeepFacts(ctx, []string{goFile}, db, 1)
+	res2, err := EnsureDeepFactsInRoot(ctx, tmpDir, []string{goFile}, db, 1)
 	if err != nil {
 		t.Fatalf("Pass 2 error: %v", err)
 	}
@@ -166,7 +167,7 @@ func second() {}
 		t.Fatalf("Failed to rewrite go file: %v", err)
 	}
 
-	res3, err := EnsureDeepFacts(ctx, []string{goFile}, db, 1)
+	res3, err := EnsureDeepFactsInRoot(ctx, tmpDir, []string{goFile}, db, 1)
 	if err != nil {
 		t.Fatalf("Pass 3 error: %v", err)
 	}
@@ -208,7 +209,7 @@ func test() {}
 
 	// 3. Test New Parse
 	t.Run("NewParse", func(t *testing.T) {
-		res, err := EnsureDeepFacts(context.Background(), []string{goFile, nonGoFile}, db, 1)
+		res, err := EnsureDeepFactsInRoot(context.Background(), tmpDir, []string{goFile, nonGoFile}, db, 1)
 		if err != nil {
 			t.Fatalf("EnsureDeepFacts failed: %v", err)
 		}
@@ -225,7 +226,7 @@ func test() {}
 
 	// 4. Test Cached Parse (Reuse)
 	t.Run("CachedParse", func(t *testing.T) {
-		res, err := EnsureDeepFacts(context.Background(), []string{goFile}, db, 1)
+		res, err := EnsureDeepFactsInRoot(context.Background(), tmpDir, []string{goFile}, db, 1)
 		if err != nil {
 			t.Fatalf("EnsureDeepFacts failed: %v", err)
 		}
@@ -256,7 +257,7 @@ func test2() {}
 		info, _ := os.Stat(goFile)
 		_ = info
 
-		res, err := EnsureDeepFacts(context.Background(), []string{goFile}, db, 1)
+		res, err := EnsureDeepFactsInRoot(context.Background(), tmpDir, []string{goFile}, db, 1)
 		if err != nil {
 			t.Fatalf("EnsureDeepFacts failed: %v", err)
 		}
@@ -273,7 +274,7 @@ func test2() {}
 
 	// 6. Test File Not Found
 	t.Run("FileNotFound", func(t *testing.T) {
-		res, err := EnsureDeepFacts(context.Background(), []string{"does_not_exist.go"}, db, 1)
+		res, err := EnsureDeepFactsInRoot(context.Background(), tmpDir, []string{"does_not_exist.go"}, db, 1)
 		if err != nil {
 			t.Fatalf("EnsureDeepFacts failed: %v", err)
 		}
@@ -284,7 +285,7 @@ func test2() {}
 
 	// 7. Test Nil DB
 	t.Run("NilDB", func(t *testing.T) {
-		res, err := EnsureDeepFacts(context.Background(), []string{goFile}, nil, 1)
+		res, err := EnsureDeepFactsInRoot(context.Background(), tmpDir, []string{goFile}, nil, 1)
 		if err != nil {
 			t.Fatalf("EnsureDeepFacts failed: %v", err)
 		}
@@ -300,7 +301,7 @@ func test2() {}
 		if err := os.WriteFile(invalidGoFile, []byte("invalid go syntax {}{}"), 0644); err != nil {
 			t.Fatalf("Failed to create invalid test file: %v", err)
 		}
-		res, err := EnsureDeepFacts(context.Background(), []string{invalidGoFile}, db, 1)
+		res, err := EnsureDeepFactsInRoot(context.Background(), tmpDir, []string{invalidGoFile}, db, 1)
 		if err != nil {
 			t.Fatalf("EnsureDeepFacts failed: %v", err)
 		}

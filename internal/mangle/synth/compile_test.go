@@ -672,13 +672,9 @@ func TestCompile_AnalysisError(t *testing.T) {
 	}
 }
 
-func TestCompile_ParseError(t *testing.T) {
-	// Provide a valid spec for compiler but that parses to an invalid Mangle string
-	// It's hard to make compiler emit invalid string since the compiler uses Mangle AST stringification
-	// But let's trigger the parse error by passing a bad struct argument that is valid synth but not valid syntax in Mangle if injected raw
-	// wait, buildBaseTerm converts correctly...
-	// Let's rely on testing the error branch in Compile using analysis error instead
-}
+// Parser failures from arbitrary source are covered at the serialized parser
+// boundary. Compile's structured AST output is covered by roundtrip and
+// analysis-error tests above; an empty ParseError test supplied no evidence.
 
 func TestRenderAtomList_Empty(t *testing.T) {
 	str, err := renderAtomList([]AtomSpec{})

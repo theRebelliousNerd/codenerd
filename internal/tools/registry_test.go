@@ -31,6 +31,7 @@ func TestRegisterAndGet(t *testing.T) {
 	reg := NewRegistry()
 
 	tool := &Tool{
+		Effect:      EffectRead,
 		Name:        "test_tool",
 		Description: "A test tool",
 		Category:    CategoryGeneral,
@@ -59,6 +60,7 @@ func TestRegisterDuplicate(t *testing.T) {
 	reg := NewRegistry()
 
 	tool := &Tool{
+		Effect:   EffectRead,
 		Name:     "dupe",
 		Category: CategoryGeneral,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -134,6 +136,7 @@ func TestExecute(t *testing.T) {
 	reg := NewRegistry()
 
 	tool := &Tool{
+		Effect:   EffectRead,
 		Name:     "echo",
 		Category: CategoryGeneral,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -201,6 +204,7 @@ func TestGlobalRegistry(t *testing.T) {
 	globalRegistry = NewRegistry()
 
 	tool := &Tool{
+		Effect:   EffectRead,
 		Name:     "global_test",
 		Category: CategoryGeneral,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {

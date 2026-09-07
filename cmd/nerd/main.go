@@ -191,6 +191,7 @@ func init() {
 	// Interactive mode flag for direct action commands
 	// Enables multi-turn feedback loops with refine/redo/approve meta-commands
 	directActionCmds := []*cobra.Command{reviewCmd, fixCmd, testCmd, explainCmd, createCmd, refactorCmd}
+	fixCmd.Flags().String("acceptance", "", "Caller-authored Go bug-fix acceptance contract JSON (requires pre-existing failing regression tests)")
 	for _, cmd := range directActionCmds {
 		cmd.Flags().BoolVarP(&interactiveMode, "interactive", "i", false, "Enable interactive mode with feedback loop")
 	}

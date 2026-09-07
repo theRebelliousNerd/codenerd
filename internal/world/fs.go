@@ -3,6 +3,7 @@ package world
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 	"context"
 	"crypto/sha256"
@@ -121,6 +122,12 @@ type dirScanResult struct {
 // ScanDirectory performs a comprehensive scan of a directory with context support.
 // OPTIMIZATION: Uses channel-based result aggregation to eliminate mutex convoy (2-4x speedup).
 func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, error) {
+	canonical, canonicalErr := tools.CanonicalWorkspaceRoot(root)
+	if canonicalErr != nil {
+		return nil, canonicalErr
+	}
+	root = canonical
+
 	logging.World("Starting directory scan: %s", root)
 	timer := logging.StartTimer(logging.CategoryWorld, "ScanDirectory")
 

@@ -157,6 +157,9 @@ func unionShards(a, b map[string]struct{}) Presence {
 
 // DerivationMap is the static cross-shard derivation analysis.
 type DerivationMap struct {
+	// Arities comes from loaded declarations, so an unloaded policy module
+	// cannot satisfy a runtime integration contract by merely existing on disk.
+	Arities map[string]int
 	// Presence: where a predicate's facts can exist.
 	Presence map[string]Presence
 	// QueryTargets: where a query for a derived predicate must look (rules
@@ -289,6 +292,7 @@ func clauseBodyPreds(clause ast.Clause) (pos []string, neg []string) {
 }
 
 type derivationBuilder struct {
+	arities    map[string]int
 	owners     map[string]string
 	shared     map[string]struct{}
 	catchAll   string
@@ -311,6 +315,7 @@ func newDerivationBuilder(owners map[string]string, shared map[string]struct{}, 
 		catchAll = "cortex"
 	}
 	return &derivationBuilder{
+		arities:    make(map[string]int),
 		owners:     owners,
 		shared:     shared,
 		catchAll:   catchAll,
@@ -379,6 +384,7 @@ func (b *derivationBuilder) parseError(file string, err error) error {
 func (b *derivationBuilder) collectUnit(file string, unit parse.SourceUnit) {
 	for _, decl := range unit.Decls {
 		b.declSet[decl.DeclaredAtom.Predicate.Symbol] = struct{}{}
+		b.arities[decl.DeclaredAtom.Predicate.Symbol] = decl.DeclaredAtom.Predicate.Arity
 	}
 	_, scopeEvaluated := scopeEvaluatedFiles[file]
 	for _, clause := range unit.Clauses {
@@ -636,6 +642,7 @@ func BuildDerivationMap(policyText string, programFacts map[string]struct{}, own
 		})
 	}
 	return &DerivationMap{
+		Arities:        b.arities,
 		Presence:       b.presence,
 		QueryTargets:   b.queryTargets(),
 		Consumes:       b.consumes(),

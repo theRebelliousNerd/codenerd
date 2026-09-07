@@ -18,6 +18,7 @@ import (
 	"codeberg.org/TauCeti/mangle-go/factstore"
 	"codeberg.org/TauCeti/mangle-go/provenance"
 )
+
 // TYPE ALIASES - Import from internal/types to break import cycles
 // =============================================================================
 // These types are defined in internal/types and aliased here for backward compatibility.
@@ -137,6 +138,27 @@ type RealKernel struct {
 	// a large one stops paying for a "fast path" that is slower than the
 	// rebuild.
 	diffPathDemoted bool
+	lastEvaluation  EvaluationStats
+}
+
+// EvaluationStats describes the actual selected evaluator and its cost.
+type EvaluationStats struct {
+	Mode           string
+	InputFacts     int
+	DeltaFacts     int
+	Duration       time.Duration
+	DemotionReason string
+}
+
+// Avoid paying the first pathological delta before adaptive demotion can fire.
+// Large worlds use the full evaluator until the differential engine has a
+// demonstrated bound for them. This is a routing limit, not a fact limit.
+const differentialFactCeiling = 10000
+
+func (k *RealKernel) LastEvaluation() EvaluationStats {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.lastEvaluation
 }
 
 // diffDemoteThreshold is the differential-evaluation duration above which a

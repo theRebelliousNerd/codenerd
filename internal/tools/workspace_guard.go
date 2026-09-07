@@ -36,7 +36,7 @@ func WorkspaceRoot(ctx context.Context) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("workspace root %q from context is not a valid path: %w", val, err)
 			}
-			return abs, nil
+			return CanonicalWorkspaceRoot(abs)
 		}
 	}
 
@@ -45,13 +45,46 @@ func WorkspaceRoot(ctx context.Context) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("workspace root %q is not a valid path: %w", root, err)
 		}
-		return abs, nil
+		return CanonicalWorkspaceRoot(abs)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("failed to determine workspace root: %w", err)
 	}
-	return cwd, nil
+	return CanonicalWorkspaceRoot(cwd)
+}
+
+// CanonicalWorkspaceRoot supplies one filesystem identity to containment,
+// editing and verification callers, including Windows short-name aliases.
+// A not-yet-created root is resolved through its closest existing ancestor.
+func CanonicalWorkspaceRoot(root string) (string, error) {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	parent := abs
+	var suffix []string
+	for {
+		resolved, evalErr := filepath.EvalSymlinks(parent)
+		if evalErr == nil {
+			for i := len(suffix) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, suffix[i])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !os.IsNotExist(evalErr) {
+			return "", fmt.Errorf("resolve workspace root %q: %w", root, evalErr)
+		}
+		if info, statErr := os.Lstat(parent); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("workspace root contains dangling symlink %q", parent)
+		}
+		next := filepath.Dir(parent)
+		if next == parent {
+			return "", evalErr
+		}
+		suffix = append(suffix, filepath.Base(parent))
+		parent = next
+	}
 }
 
 // WithWorkspaceRoot returns a context carrying root as the workspace root for
@@ -119,13 +152,9 @@ func ResolveWorkspacePath(ctx context.Context, root, p string) (string, error) {
 		}
 	}
 
-	absRoot, err := filepath.Abs(root)
+	absRoot, err := CanonicalWorkspaceRoot(root)
 	if err != nil {
 		return "", fmt.Errorf("invalid workspace root %q: %w", root, err)
-	}
-	// Resolve symlinks on the root when possible so comparisons are stable.
-	if resolved, err := filepath.EvalSymlinks(absRoot); err == nil {
-		absRoot = resolved
 	}
 
 	// A relative tool path is workspace-relative, not CWD-relative.
@@ -216,14 +245,7 @@ func ResolveWorkspaceDir(ctx context.Context, root, p string) (string, error) {
 		}
 	}
 	if trimmed := strings.TrimSpace(normalizeSeparators(p)); trimmed == "" || trimmed == "." || trimmed == "./" {
-		abs, err := filepath.Abs(root)
-		if err != nil {
-			return "", fmt.Errorf("invalid workspace root %q: %w", root, err)
-		}
-		if evaluated, evalErr := filepath.EvalSymlinks(abs); evalErr == nil {
-			abs = evaluated
-		}
-		return abs, nil
+		return CanonicalWorkspaceRoot(root)
 	}
 	return ResolveWorkspacePath(ctx, root, p)
 }

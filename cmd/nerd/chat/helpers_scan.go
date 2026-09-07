@@ -345,7 +345,7 @@ func (m *Model) ensureDeepWorldFacts() error {
 		deepWorkers = m.Config.GetWorldConfig().DeepWorkers
 	}
 
-	res, err := world.EnsureDeepFacts(context.Background(), goFiles, m.localDB, deepWorkers)
+	res, err := world.EnsureDeepFactsInRoot(context.Background(), m.workspace, goFiles, m.localDB, deepWorkers)
 	if err != nil || res == nil || len(res.NewFacts) == 0 {
 		return err
 	}

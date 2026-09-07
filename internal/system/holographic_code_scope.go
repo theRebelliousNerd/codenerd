@@ -113,7 +113,7 @@ func (h *HolographicCodeScope) ensureDeepFacts(ctx context.Context, paths []stri
 	}
 
 	if h.localDB != nil {
-		res, err := world.EnsureDeepFacts(ctx, paths, h.localDB, h.deepWorkers)
+		res, err := world.EnsureDeepFactsInRoot(ctx, h.scope.ProjectRoot, paths, h.localDB, h.deepWorkers)
 		if err != nil || res == nil {
 			if err != nil {
 				logging.Get(logging.CategoryWorld).Warn("Deep scan failed: %v", err)

@@ -20,6 +20,7 @@ import (
 
 func guardTestTool(name string, ran *bool) *Tool {
 	return &Tool{
+		Effect:      EffectRead,
 		Name:        name,
 		Description: "test tool",
 		Category:    CategoryCode,

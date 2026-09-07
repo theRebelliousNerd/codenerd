@@ -4,6 +4,7 @@ package processutil
 import (
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // NonInteractive gives cmd a finite empty stdin unless the caller already
@@ -13,6 +14,17 @@ import (
 func NonInteractive(cmd *exec.Cmd) *exec.Cmd {
 	if cmd != nil && cmd.Stdin == nil {
 		cmd.Stdin = strings.NewReader("")
+	}
+	return cmd
+}
+
+// Cancellable configures a CommandContext for bounded, noninteractive waits
+// and process-tree cancellation. Call it before Start or Run.
+func Cancellable(cmd *exec.Cmd) *exec.Cmd {
+	NonInteractive(cmd)
+	if cmd != nil {
+		cmd.WaitDelay = 5 * time.Second
+		configureTreeKill(cmd)
 	}
 	return cmd
 }

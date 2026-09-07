@@ -26,7 +26,7 @@ func (v *VirtualStore) installToolWriteGuard(registries ...*tools.Registry) {
 // this pass, so shell mutations are fail-closed denied. Remaining gap:
 // immutable pre-task baseline + deterministic scope check for in-scope shell writes.
 func (v *VirtualStore) toolWriteGuard() tools.WriteGuard {
-	return func(_ context.Context, toolName string, args map[string]any) error {
+	return func(ctx context.Context, toolName string, args map[string]any) error {
 		// Shell gate: lowest registry/VirtualStore chokepoint so direct
 		// tools.Global().Execute without the session executor cannot bypass.
 		if projectdoc.IsShellTool(toolName) {
@@ -39,7 +39,7 @@ func (v *VirtualStore) toolWriteGuard() tools.WriteGuard {
 			}
 		}
 		if !projectdoc.IsWriteMutationTool(toolName) {
-			return nil
+			return v.PreflightDestructiveToolCall(ctx, "registry-preflight", toolName, args)
 		}
 		targets, err := projectdoc.TargetPaths(args)
 		if err != nil {
@@ -67,6 +67,6 @@ func (v *VirtualStore) toolWriteGuard() tools.WriteGuard {
 				return fmt.Errorf("blocked by nerd.md: %s is write-protected (%s)", target, reason)
 			}
 		}
-		return nil
+		return v.PreflightDestructiveToolCall(ctx, "registry-preflight", toolName, args)
 	}
 }

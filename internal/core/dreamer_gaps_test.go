@@ -387,52 +387,6 @@ func TestDreamerGap_SecurityShellFeatures(t *testing.T) {
 		"Indirect execution (eval, python -c, base64) can bypass detection.")
 }
 
-// ---------- Resource Exhaustion ----------
-
-// TestDreamerGap_BoundedDreamCache verifies the DreamCache eviction policy.
-func TestDreamerGap_BoundedDreamCache(t *testing.T) {
-	cache := NewDreamCache()
-
-	// Store more than the max to trigger eviction
-	const count = dreamCacheMaxSize + 100
-	for i := range count {
-		key := fmt.Sprintf("action_%d:target_%d", i, i)
-		cache.Store(key, DreamResult{
-			ActionID: fmt.Sprintf("action_%d", i),
-			Unsafe:   i%2 == 0,
-			Reason:   fmt.Sprintf("reason_%d", i),
-		})
-	}
-
-	// Verify cache didn't grow beyond max
-	cache.mu.RLock()
-	cacheSize := len(cache.results)
-	cache.mu.RUnlock()
-
-	if cacheSize > dreamCacheMaxSize {
-		t.Errorf("Cache size %d exceeds max %d after eviction", cacheSize, dreamCacheMaxSize)
-	}
-
-	// Verify recent entries are still accessible
-	recentKey := fmt.Sprintf("action_%d:target_%d", count-1, count-1)
-	result, ok := cache.Get(recentKey)
-	if !ok {
-		t.Error("Expected cache hit for most recent entry")
-	}
-	if result.ActionID != fmt.Sprintf("action_%d", count-1) {
-		t.Errorf("Wrong result for recent entry: %s", result.ActionID)
-	}
-
-	// Verify Invalidate clears everything
-	cache.Invalidate()
-	_, ok = cache.Get(recentKey)
-	if ok {
-		t.Error("Expected cache miss after Invalidate()")
-	}
-
-	t.Logf("DreamCache bounded: stored %d, final size %d (max %d)", count, cacheSize, dreamCacheMaxSize)
-}
-
 // ---------- Fragile Defaults ----------
 
 // TestDreamerGap_UnknownActionTypes verifies projectEffects behavior with unknown types.

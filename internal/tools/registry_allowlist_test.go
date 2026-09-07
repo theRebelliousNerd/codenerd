@@ -9,6 +9,7 @@ import (
 
 func probeTool(name string, ran *bool) *Tool {
 	return &Tool{
+		Effect:      EffectRead,
 		Name:        name,
 		Description: "probe",
 		Category:    CategoryCode,
@@ -138,6 +139,7 @@ func TestRegistry_WhenWorkspaceRootSet_ShouldReachToolViaContext(t *testing.T) {
 
 	var seen string
 	r.MustRegister(&Tool{
+		Effect:   EffectRead,
 		Name:     "root_probe",
 		Category: CategoryGeneral,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -169,6 +171,7 @@ func TestRegistry_WhenContextCarriesRoot_ShouldNotOverrideIt(t *testing.T) {
 
 	var seen string
 	r.MustRegister(&Tool{
+		Effect:   EffectRead,
 		Name:     "root_probe",
 		Category: CategoryGeneral,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -192,6 +195,7 @@ func TestRegistry_Metrics_ShouldCountSuccessesAndFailures(t *testing.T) {
 	r := NewRegistry()
 	fail := false
 	r.MustRegister(&Tool{
+		Effect:   EffectRead,
 		Name:     "flaky",
 		Category: CategoryGeneral,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -223,6 +227,7 @@ func TestRegistry_FactSink_ShouldReceiveOneRecordPerExecution(t *testing.T) {
 	t.Parallel()
 	r := NewRegistry()
 	r.MustRegister(&Tool{
+		Effect:   EffectRead,
 		Name:     "recorded",
 		Category: CategoryGeneral,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {

@@ -27,6 +27,7 @@ func TestSubAgent_Execute_SurfacesToolExecutionError(t *testing.T) {
 	// so skip registration when a prior run already added it.
 	if !tools.Global().Has(toolName) {
 		if err := tools.Global().Register(&tools.Tool{
+			Effect:      tools.EffectRead,
 			Name:        toolName,
 			Description: "Probe tool that always fails for sub-agent error propagation test",
 			Category:    tools.CategoryGeneral,

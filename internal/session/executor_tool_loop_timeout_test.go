@@ -190,6 +190,7 @@ func TestRunToolLoop_ReservesTimeForFinalVerdict(t *testing.T) {
 	const toolName = "deadline_reserve_probe"
 	var executions atomic.Int32
 	tools.Global().Register(&tools.Tool{
+		Effect:   tools.EffectRead,
 		Name:     toolName,
 		Category: tools.CategoryGeneral,
 		Execute: func(context.Context, map[string]any) (string, error) {

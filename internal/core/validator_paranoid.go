@@ -3,6 +3,7 @@
 package core
 
 import (
+	"codenerd/internal/tactile"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -188,6 +189,17 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 		}
 	}
 
+	// Writers preserve LF/CRLF convention. Size selects a possible normalized
+	// representation; the following independent hashes still verify every byte.
+	if _, hasContent := req.Payload["content"]; hasContent && fileSize != int64(len(expectedBytes)) {
+		for _, ending := range []string{"\n", "\r\n"} {
+			candidate := []byte(tactile.NormalizeLineEnding(expectedContent, ending))
+			if int64(len(candidate)) == fileSize {
+				expectedBytes = candidate
+				break
+			}
+		}
+	}
 	expectedSize := int64(len(expectedBytes))
 	if fileSize != expectedSize {
 		return ValidationResult{

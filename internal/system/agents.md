@@ -23,3 +23,8 @@
 - The Cortex owns the process browser manager. Bind modular research tools to
   that manager and adapt browser facts into `SystemKernel.AssertBatch`; a
   private browser-only Mangle engine makes runtime evidence invisible.
+- Apply the effective logging configuration before initializing workspace sinks,
+  including override-config boot. A directory selected by disabled defaults must
+  not become a stream of failed log opens after enabling logging.
+- The shared factory owns one Ouroboros listener. Test actual delegation and
+  cancellation/join through boot; do not require a duplicate chat-owned listener.

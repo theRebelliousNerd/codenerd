@@ -173,7 +173,23 @@ const DefaultKernelPollInterval = 2 * time.Second
 // specific reason; kernel_listener_wiring_test.go pins the interactive boot
 // paths that must start it.
 func (o *Orchestrator) StartKernelListener(ctx context.Context, pollInterval time.Duration) <-chan struct{} {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.kernelListenerDone != nil {
+		select {
+		case <-o.kernelListenerDone:
+		default:
+			return o.kernelListenerDone
+		}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if pollInterval <= 0 {
+		pollInterval = DefaultKernelPollInterval
+	}
 	done := make(chan struct{})
+	o.kernelListenerDone = done
 
 	logging.Autopoiesis("Starting kernel delegation listener (poll interval: %v)", pollInterval)
 
@@ -191,7 +207,7 @@ func (o *Orchestrator) StartKernelListener(ctx context.Context, pollInterval tim
 				return
 			case <-ticker.C:
 				// Process any pending delegations
-				if n, err := o.ProcessKernelDelegations(ctx); err != nil {
+				if n, err := o.processDelegationsSafely(ctx); err != nil {
 					logging.Get(logging.CategoryAutopoiesis).Error("Kernel delegation error: %v", err)
 				} else if n > 0 {
 					logging.Autopoiesis("Kernel listener processed %d delegations", n)
@@ -201,4 +217,16 @@ func (o *Orchestrator) StartKernelListener(ctx context.Context, pollInterval tim
 	}()
 
 	return done
+}
+
+func (o *Orchestrator) processDelegationsSafely(ctx context.Context) (n int, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("delegation panic: %v", recovered)
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return o.ProcessKernelDelegations(ctx)
 }

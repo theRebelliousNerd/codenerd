@@ -662,13 +662,21 @@ func parseRipgrepOutput(output, keyword string) []KeywordHit {
 			continue
 		}
 		// path:line:col:content — keep content intact even if it embeds colons.
+		// A Windows volume contains a colon before the vimgrep fields.
+		prefix := ""
+		if len(line) >= 3 && line[1] == ':' && (line[2] == '\\' || line[2] == '/') {
+			prefix, line = line[:2], line[2:]
+		}
 		parts := strings.SplitN(line, ":", 4)
 		if len(parts) < 4 {
 			continue
 		}
-		filePath := parts[0]
-		lineNum, _ := strconv.Atoi(parts[1])
-		colNum, _ := strconv.Atoi(parts[2])
+		filePath := prefix + parts[0]
+		lineNum, lineErr := strconv.Atoi(parts[1])
+		colNum, colErr := strconv.Atoi(parts[2])
+		if lineErr != nil || colErr != nil || lineNum < 1 || colNum < 1 {
+			continue
+		}
 		counts[filePath]++
 		hits = append(hits, KeywordHit{
 			FilePath: filePath,

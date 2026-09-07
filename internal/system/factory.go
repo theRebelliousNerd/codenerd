@@ -148,7 +148,7 @@ func resolveWorkspaceRoot(workspace string) string {
 	if root == "" {
 		return root
 	}
-	if abs, err := filepath.Abs(root); err == nil {
+	if abs, err := tools.CanonicalWorkspaceRoot(root); err == nil {
 		root = abs
 		_ = os.Setenv("CODENERD_WORKSPACE_ROOT", abs)
 		// The env variable is process-global, so two registries in one process
@@ -731,13 +731,12 @@ func initCoreComponents(bctx *bootContext) error {
 	// It also returns an absolute path, which keeps the boot's effective
 	// workspace identical to the string used for cortex cache keying.
 	bctx.workspace = resolveWorkspaceRoot(bctx.cfg.Workspace)
+	if _, err := tools.CanonicalWorkspaceRoot(bctx.workspace); err != nil {
+		return fmt.Errorf("canonical workspace identity: %w", err)
+	}
 	bctx.apiKey = bctx.cfg.APIKey
 	if perception.SharedTaxonomy != nil {
 		perception.SharedTaxonomy.SetWorkspace(bctx.workspace)
-	}
-
-	if err := logging.Initialize(bctx.workspace); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize logging: %v\n", err)
 	}
 
 	// Shared so a host that already owns a tracker for this workspace (the
@@ -767,6 +766,9 @@ func initCoreComponents(bctx *bootContext) error {
 	// re-parse the same file. The injected config is pinned so a later
 	// ReloadConfig cannot silently revert to disk.
 	config.ApplyLoggingConfig(appCfg)
+	if err := logging.Initialize(bctx.workspace); err != nil {
+		return fmt.Errorf("initialize workspace logging: %w", err)
+	}
 	bctx.appCfg = appCfg
 	bctx.jitCfg = appCfg.GetEffectiveJITConfig()
 

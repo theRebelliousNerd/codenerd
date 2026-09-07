@@ -153,6 +153,11 @@ func SetupTDDLoop(t *testing.T) (*TDDLoop, *MockExecutor, *MockKernel, *MockLLM)
 
 	vs := NewVirtualStore(mockExec)
 	vs.SetKernel(mockKernel)
+	safetyKernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vs.dreamer = NewDreamer(safetyKernel)
 	vs.DisableBootGuard() // Allow actions
 
 	tdd := NewTDDLoop(vs, mockKernel, mockLLM)

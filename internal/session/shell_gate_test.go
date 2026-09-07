@@ -13,6 +13,7 @@ func TestExecuteToolCall_ShellEffectGateStopsIncidentBeforeExecution(t *testing.
 	executed := false
 	toolName := "run_shell"
 	if err := tools.Global().Register(&tools.Tool{
+		Effect:   tools.EffectRead,
 		Name:     toolName,
 		Category: tools.CategoryCode,
 		Schema: tools.ToolSchema{

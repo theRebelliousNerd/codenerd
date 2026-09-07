@@ -1,0 +1,80 @@
+[
+  {
+    "clause": "permitted(Action,Target,Payload) :- dangerous_action(Action), signed_approval(Action), pending_action(_,Action,Target,Payload,_), admin_override(User).",
+    "file": "constitution.mg",
+    "head": "permitted",
+    "reason": "override path, architect's call"
+  },
+  {
+    "clause": "final_action(Action) :- candidate_action(Action), permitted(Action,_,_).",
+    "file": "constitution.mg",
+    "head": "final_action",
+    "reason": "override path, architect's call"
+  },
+  {
+    "clause": "permitted(ActionType,Target,Payload) :- has_active_override(ActionType), pending_action(_,ActionType,Target,Payload,_).",
+    "file": "constitution.mg",
+    "head": "permitted",
+    "reason": "override path, architect's call"
+  },
+  {
+    "clause": "quality_violation_detected(TaskID,/no_error_handling) :- campaign_task(TaskID,_,_,/completed,/file_create), quality_violation(TaskID,/missing_errors), task_artifact(TaskID,/source_file,Path,_), file_topology(Path,_,/go,_,_).",
+    "file": "campaign_rules.mg",
+    "head": "quality_violation_detected",
+    "reason": "needs restructure"
+  },
+  {
+    "clause": "coder_quality_mode(/normal) :- !in_campaign_context().",
+    "file": "coder_campaign.mg",
+    "head": "coder_quality_mode",
+    "reason": "no positive anchor"
+  },
+  {
+    "clause": "final_context_include(File) :- include_in_context(File), !exclude_from_context(File).",
+    "file": "coder_context.mg",
+    "head": "final_context_include",
+    "reason": "documents never excluded"
+  },
+  {
+    "clause": "final_context_include(File) :- include_in_context(File), !exclude_from_context(File).",
+    "file": "coder_workflow.mg",
+    "head": "final_context_include",
+    "reason": "documents never excluded"
+  },
+  {
+    "clause": "coder_quality_mode(/normal) :- !in_campaign_context().",
+    "file": "coder_workflow.mg",
+    "head": "coder_quality_mode",
+    "reason": "no positive anchor"
+  },
+  {
+    "clause": "permission_denied(Action,\"Dangerous Action\") :- dangerous_action(Action), !admin_override_present(/yes).",
+    "file": "constitution.mg",
+    "head": "permission_denied",
+    "reason": "over-denies only"
+  },
+  {
+    "clause": "permission_denied(Action,\"Dangerous Action\") :- dangerous_action(Action), !signed_approval(Action).",
+    "file": "constitution.mg",
+    "head": "permission_denied",
+    "reason": "over-denies only"
+  },
+  {
+    "clause": "action_denied(Action,\"Not constitutionally permitted\") :- candidate_action(Action), !action_is_permitted(Action).",
+    "file": "constitution.mg",
+    "head": "action_denied",
+    "reason": "over-denies only"
+  },
+  {
+    "clause": "blocked_learned_action_count(0) :- !any_action_denied(/yes).",
+    "file": "constitution.mg",
+    "head": "blocked_learned_action_count",
+    "reason": "reporting only"
+  },
+  {
+    "clause": "quality_violation_detected(TaskID,/no_tests) :- campaign_task(TaskID,_,_,/completed,/file_create), task_artifact(TaskID,/source_file,Path,_), !test_coverage(Path).",
+    "file": "campaign_rules.mg",
+    "head": "quality_violation_detected",
+    "reason": "needs restructure"
+  }
+]

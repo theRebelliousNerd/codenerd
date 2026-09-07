@@ -70,6 +70,7 @@ func ensureGeneralProbe(t *testing.T, name string, execFn tools.ExecuteFunc) {
 		return
 	}
 	if err := tools.Global().Register(&tools.Tool{
+		Effect:   tools.EffectRead,
 		Name:     name,
 		Category: tools.CategoryGeneral,
 		Execute:  execFn,
@@ -252,6 +253,7 @@ func TestForceFinalAnswer_PiggybackOfferedWriteExecutes(t *testing.T) {
 		defer func() { existing.Execute = origExec }()
 	} else {
 		if err := tools.Global().Register(&tools.Tool{
+			Effect:   tools.EffectRead,
 			Name:     toolName,
 			Category: tools.CategoryCode,
 			Execute: func(context.Context, map[string]any) (string, error) {

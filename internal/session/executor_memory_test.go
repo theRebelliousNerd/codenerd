@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/evidence"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/store"
@@ -240,7 +241,7 @@ func TestExecutorTurnCost_AssertedPerTurn(t *testing.T) {
 // A read-only turn earns turn_done like any other (it used to return before
 // asserting evidence, so every /explain landed as /unverified), and is never
 // failed for hollowness even when a verb-agnostic hollow rule fires.
-func TestExecutorTurnCost_ReadOnlyTurnIsVerifiedNotFailed(t *testing.T) {
+func TestExecutorTurnCost_ReadOnlyTurnIsUnverifiedNotFailed(t *testing.T) {
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -254,8 +255,8 @@ func TestExecutorTurnCost_ReadOnlyTurnIsVerifiedNotFailed(t *testing.T) {
 	if err := executor.checkHollowSuccess(clean); err != nil {
 		t.Fatalf("read-only turn must never fail hollow checks: %v", err)
 	}
-	if clean.TurnOutcome != types.MangleAtom("/done") {
-		t.Fatalf("clean read-only TurnOutcome = %q, want /done", clean.TurnOutcome)
+	if clean.TurnOutcome != types.MangleAtom("/unverified") {
+		t.Fatalf("clean read-only TurnOutcome = %q, want /unverified", clean.TurnOutcome)
 	}
 
 	// Claimed test-runner output with no test tool: the verb-agnostic rule
@@ -278,7 +279,7 @@ func TestExecutorTurnCost_DoneOutcomeOnVerifiedTurn(t *testing.T) {
 	}
 	executor := NewExecutor(kernel, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 	executor.SetSessionID("cost-done-sess")
-	result := &ExecutionResult{Response: "done", ToolCallsExecuted: 1, SuccessfulToolCalls: 1}
+	result := &ExecutionResult{Response: "done", ToolCallsExecuted: 1, SuccessfulToolCalls: 1, Acceptance: &evidence.Report{Status: "verified", ContractID: "contract", After: "snapshot"}}
 	result.Intent.Verb = "/run"
 	result.Intent.Category = "/action"
 	if err := executor.checkHollowSuccess(result); err != nil {

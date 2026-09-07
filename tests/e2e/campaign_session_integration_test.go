@@ -511,9 +511,8 @@ func TestE2E_CampaignSession_StateCorruption_GhostFacts(t *testing.T) {
 
 // TestE2E_CampaignSession_StateCorruption_SharedResourceOverwrite (P1)
 // Tests if VirtualStore modifies the wrong file due to corrupted context.
-func TestE2E_CampaignSession_StateCorruption_SharedResourceOverwrite(t *testing.T) {
-	t.Log("KNOWN: Verifies that context overwriting causes VirtualStore to execute tools on incorrect targets.")
-}
+// TODO: TestE2E_CampaignSession_StateCorruption_SharedResourceOverwrite needs a behavioral witness; removed its log-only placeholder.
+
 
 // =============================================================================
 // 4. RESOURCE EXHAUSTION TESTS
@@ -593,9 +592,8 @@ func TestE2E_CampaignSession_Temporal_TaskRetryLogicOnTimeout(t *testing.T) {
 }
 
 // TestE2E_CampaignSession_Temporal_HeartbeatMaintainedDuringHeavyLLMLoad (P2)
-func TestE2E_CampaignSession_Temporal_HeartbeatMaintainedDuringHeavyLLMLoad(t *testing.T) {
-	t.Log("KNOWN: Ensures the heartbeat goroutine continues uninterrupted while LLM blocks")
-}
+// TODO: TestE2E_CampaignSession_Temporal_HeartbeatMaintainedDuringHeavyLLMLoad needs a behavioral witness; removed its log-only placeholder.
+
 
 // TestE2E_CampaignSession_Temporal_ContextCancellationLeaksGoroutines (P2)
 func TestE2E_CampaignSession_Temporal_ContextCancellationLeaksGoroutines(t *testing.T) {

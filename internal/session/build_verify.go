@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/config"
 	jitconfig "codenerd/internal/jit/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
 
@@ -97,10 +98,12 @@ func touchedGoFiles(paths []string) bool {
 // every future construction site to remember a field.
 func (e *Executor) workspaceForVerification() string {
 	if ws := strings.TrimSpace(e.configSnapshot().WorkspaceRoot); ws != "" {
-		return ws
+		root, _ := tools.CanonicalWorkspaceRoot(ws)
+		return root
 	}
 	if root, err := config.FindWorkspaceRoot(); err == nil && strings.TrimSpace(root) != "" {
-		return root
+		canonical, _ := tools.CanonicalWorkspaceRoot(root)
+		return canonical
 	}
 	return ""
 }
@@ -195,6 +198,7 @@ func (e *Executor) verifyAndRepairBuild(
 
 	workspace := e.workspaceForVerification()
 	verification := verifyBuild(ctx, workspace, nil)
+	result.BuildCheck = verification
 	if !verification.Ran || verification.OK {
 		return nil, nil, nil
 	}
@@ -224,6 +228,7 @@ func (e *Executor) verifyAndRepairBuild(
 	}
 
 	recheck := verifyBuild(ctx, workspace, nil)
+	result.BuildCheck = recheck
 	if recheck.Ran && !recheck.OK {
 		return nil, repairErrs, fmt.Errorf(
 			"%w: edits broke the build and the repair round did not fix it. Compiler output:\n%s",
@@ -271,6 +276,7 @@ func (e *Executor) verifyAndRepairTests(
 	}
 
 	verification, uncovered := verifyTestsWithCoverage(ctx, workspace, packages, result.WrittenPaths)
+	result.TestCheck = verification
 
 	// Coverage is reported whether or not the tests passed. Green tests over
 	// code that was never executed is the precise false success this signal
@@ -318,6 +324,7 @@ func (e *Executor) verifyAndRepairTests(
 			ErrVerificationFailed, recheckBuild.Output)
 	}
 	recheck := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))
+	result.TestCheck = recheck
 	if recheck.Ran && !recheck.OK {
 		return nil, repairErrs, fmt.Errorf(
 			"%w: edits broke the tests and the repair round did not fix them. Test output:\n%s",

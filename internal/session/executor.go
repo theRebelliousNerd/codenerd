@@ -25,6 +25,7 @@ import (
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	"codenerd/internal/evidence"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -51,7 +52,7 @@ type SessionPersister interface {
 	StoreCompressedState(sessionID string, turnNumber int, stateJSON string, ratio float64) error
 }
 
-// InteractiveExecutiveGate is the optional capability a VirtualStore can expose
+// InteractiveExecutiveGate is the mandatory capability for effectful tools a VirtualStore can expose
 // to bring the Dreamer destructive-action gate and the post-action validator
 // registry onto the interactive tool-execution path. The clean executor runs
 // modular tools directly via tools.Global(), bypassing RouteAction, so without
@@ -83,7 +84,7 @@ func (e *Executor) warnInteractiveGateUnavailable() bool {
 		return false
 	}
 	if e.gateUnavailableWarned.CompareAndSwap(false, true) {
-		logging.Get(logging.CategorySession).Warn("interactive executive gate unavailable: adapter %T does not implement it; destructive calls are unsimulated", e.virtualStore)
+		logging.Get(logging.CategorySession).Warn("interactive executive gate unavailable: adapter %T does not implement it; effectful calls will be blocked", e.virtualStore)
 		return true
 	}
 	return false
@@ -649,6 +650,13 @@ func (e *Executor) meteredContext(ctx context.Context) context.Context {
 
 // ExecutionResult holds the result of processing user input.
 type ExecutionResult struct {
+	// Acceptance is populated only by caller-authorized, revision-bound checks.
+	Acceptance            *evidence.Report
+	BuildCheck            BuildVerification
+	TestCheck             TestVerification
+	ChecksSnapshot        string
+	ChangeStage           string
+	acceptanceTransaction *evidence.Transaction
 	// Response is the text response to show the user.
 	Response string
 
@@ -771,6 +779,13 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	}
 
 	result := &ExecutionResult{}
+	if contract, ok := evidence.ContractFromContext(ctx); ok {
+		tx, err := evidence.Begin(ctx, e.workspaceForVerification(), contract)
+		if err != nil {
+			return nil, fmt.Errorf("acceptance baseline: %w", err)
+		}
+		result.acceptanceTransaction = tx
+	}
 	// Audit: turn boundaries (sessionID/turnNum derived from executor state).
 	e.mu.RLock()
 	auditSessionID := e.sessionID
@@ -930,6 +945,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// non-zero. Other soft tool failures stay on result.Error with a nil
 	// return for interactive chat compatibility; TaskExecutor still surfaces
 	// result.Error for SpawnTask callers.
+	e.appendEvidenceReport(ctx, result)
 	if result.Error == nil {
 		if hollowErr := e.checkHollowSuccess(result); hollowErr != nil {
 			result.Error = hollowErr
@@ -1861,6 +1877,14 @@ func (e *Executor) processPiggybackControlPacket(rawText string) string {
 func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
 	if e.kernel == nil || result == nil {
 		return
+	}
+	if result.Acceptance != nil && result.Acceptance.Status == "verified" {
+		fact := types.Fact{Predicate: "turn_acceptance", Args: []any{types.MangleAtom(verb), result.Acceptance.ContractID, result.Acceptance.After}}
+		if err := e.kernel.Assert(fact); err == nil {
+			e.mu.Lock()
+			e.perTurnEvidenceFacts = append(e.perTurnEvidenceFacts, fact)
+			e.mu.Unlock()
+		}
 	}
 	claimedOutput := types.MangleAtom("/false")
 	if responsePresentsTestRunnerOutput(result.Response) {

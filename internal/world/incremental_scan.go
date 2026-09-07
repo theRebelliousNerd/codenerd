@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 	"context"
 	"fmt"
@@ -75,6 +76,12 @@ func isNonCanonicalWorldPath(p string) bool {
 // ScanWorkspaceIncremental performs a fast, cache-aware scan.
 // It uses FileCache for change detection and LocalStore (if provided) for per-file fact caching.
 func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db *store.LocalStore, opts IncrementalOptions) (*IncrementalResult, error) {
+	canonical, canonicalErr := tools.CanonicalWorkspaceRoot(root)
+	if canonicalErr != nil {
+		return nil, canonicalErr
+	}
+	root = canonical
+
 	start := time.Now()
 	logging.World("Starting incremental workspace scan: %s", root)
 

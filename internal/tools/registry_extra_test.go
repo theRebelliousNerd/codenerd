@@ -8,6 +8,7 @@ import (
 
 func noopTool(name string) *Tool {
 	return &Tool{
+		Effect:  EffectRead,
 		Name:    name,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil },
 	}

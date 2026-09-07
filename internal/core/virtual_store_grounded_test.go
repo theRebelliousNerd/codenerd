@@ -67,6 +67,7 @@ func TestHydrateModularTools_UnsupportedSearcherSkipsLocalRegistration(t *testin
 
 func TestHydrateModularTools_SupportedSearcherRegistersAndForwardsExactQuery(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
+	vs.dreamer = NewDreamer(setupMockKernel(t))
 	wantQuery := "exact query 42 with  spaces "
 	var captured string
 	fake := &fakeGroundedSearcher{

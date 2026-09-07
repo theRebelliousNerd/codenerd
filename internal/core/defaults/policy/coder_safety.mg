@@ -79,6 +79,8 @@ coder_block_action(/edit, "vendor_file") :-
 Decl turn_evidence(Verb, ToolCount, WriteCount, TestCount, ClaimedOutput, DreamMode) bound [/name, /number, /number, /number, /name, /name].
 Decl hollow_success(Reason) bound [/string].
 Decl turn_done(Verb) bound [/name].
+Decl turn_executed(Verb) bound [/name].
+Decl turn_acceptance(Verb, Contract, Snapshot) bound [/name, /string, /string].
 Decl has_turn_tools(Verb) bound [/name].
 Decl has_turn_write(Verb) bound [/name].
 Decl has_turn_test(Verb) bound [/name].
@@ -107,7 +109,10 @@ hollow_success("new source was created without a test file") :-
 # hollow_success (a no-write / no-tool / unverified turn is not done) nor
 # while the build is red (a failed build is not done). Deriving done in
 # either case is hollow success with a policy stamp on it.
-turn_done(Verb) :- turn_evidence(Verb, _, _, _, _, _), !has_hollow_success(), !build_state(/failing).
+# Execution is weaker than completion. Only the host verifier emits acceptance
+# for an immutable caller contract with current, executed behavioral witnesses.
+turn_executed(Verb) :- turn_evidence(Verb, _, _, _, _, _), !has_hollow_success(), !build_state(/failing).
+turn_done(Verb) :- turn_executed(Verb), turn_acceptance(Verb, _, _).
 # Helper: any pending edit is implementation
 Decl has_implementation_edit() bound [].
 has_implementation_edit() :-

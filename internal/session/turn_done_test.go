@@ -6,21 +6,9 @@ import (
 	"codenerd/internal/types"
 )
 
-// These tests pin the turn_done completion signal for create-file turns:
-//
-//	turn_done(Verb) :- turn_evidence(Verb, _, _, _, _, _),
-//	    !has_hollow_success(), !build_state(/failing).
-//
-// declared in internal/core/defaults/policy/coder_safety.mg, against a real
-// kernel loading the real policy corpus, so what fires here is what ships.
-//
-// A /create turn with no recognized write-mutation tool derives
-// hollow_success and must NOT derive turn_done. A /create turn whose writes
-// landed but whose build is red (build_state(/failing)) must NOT derive
-// turn_done either. Deriving done in either case is hollow success with a
-// policy stamp on it. A clean /create (writes landed, build not red) DOES
-// derive turn_done, proving the negative tests fail for the right reason and
-// not because turn_done never fires at all.
+// These tests exercise the loaded production completion rules. Executed tools
+// and an absence of hollow success establish turn_executed. turn_done also
+// needs a host-issued acceptance witness; a clean write alone is insufficient.
 type turnCounts struct {
 	tools  int
 	writes int
@@ -94,11 +82,15 @@ func TestTurnDone_FailedBuildCannotDeriveDone(t *testing.T) {
 	}
 }
 
-// A clean /create (write landed, build not red) derives done, proving the
+// A clean /create with explicit acceptance derives done, proving the
 // two gates above block for the right reason rather than turn_done never
 // firing at all.
 func TestTurnDone_CleanCreateDerivesDone(t *testing.T) {
 	e := newObligationExec(t)
+	if err := e.kernel.Assert(types.Fact{Predicate: "turn_acceptance", Args: []any{types.MangleAtom("/create"), "caller-contract", "current-snapshot"}}); err != nil {
+		t.Fatal(err)
+	}
+
 	assertTurnEvidence(t, e, "/create", turnCounts{tools: 1, writes: 1})
 
 	if got := queryCount(t, e, "hollow_success"); got != 0 {
@@ -110,5 +102,16 @@ func TestTurnDone_CleanCreateDerivesDone(t *testing.T) {
 	}
 	if len(facts) != 1 {
 		t.Fatalf("clean /create must derive exactly one turn_done, got %v", facts)
+	}
+}
+
+func TestTurnDone_ExecutedIsNotVerified(t *testing.T) {
+	e := newObligationExec(t)
+	assertTurnEvidence(t, e, "/create", turnCounts{tools: 1, writes: 1})
+	if queryCount(t, e, "turn_executed") != 1 {
+		t.Fatal("expected executed action")
+	}
+	if queryCount(t, e, "turn_done") != 0 {
+		t.Fatal("missing acceptance must not derive done")
 	}
 }

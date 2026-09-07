@@ -108,6 +108,12 @@ func FilterMangleUpdates(kernel Kernel, updates []string, policy MangleUpdatePol
 }
 
 func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
+	// These are host witnesses and conclusions, never model observations.
+	// Even a permissive caller allowlist cannot delegate their authority.
+	switch predicate {
+	case "turn_acceptance", "turn_evidence", "turn_executed", "turn_done", "turn_cost":
+		return false
+	}
 	if len(policy.AllowedPredicates) == 0 && len(policy.AllowedPrefixes) == 0 {
 		return true
 	}

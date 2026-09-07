@@ -6,6 +6,10 @@
 - Per-shard trace statistics must come from one exact shard-filtered aggregate. Do not reconstruct them from global averages, top-N maps, success rates, or minimum-sample reports.
 - `HydrateSessionContext` requires `types.KernelTransactor`. Query failures commit the fresh partial snapshot to clear stale context and return a warning with the committed count; commit failures return count zero.
 - Keep dynamic context replacement atomic and fail closed at constitutional action boundaries.
+- Dreamer evaluates each exact request against current state. Do not restore authorization caching without a complete policy, fact, payload, and external-state identity; cancellation precedes evaluation.
+- Every executable tool declares an effect in `../tools/effects.go` or its registered `Tool`. Unknown effects and absent mandatory executive gates fail closed, including registry entry paths.
+- `turn_executed` means an action passed mechanical hollow-success guards. Only host-issued, current `turn_acceptance` evidence permits `turn_done`; control packets cannot assert either conclusion or its witnesses.
+- Keep large-world delta routing bounded before evaluation (`differentialFactCeiling`), expose `LastEvaluation`, and check semantic equivalence against full fixpoint evaluation.
 
 Focused verification:
 

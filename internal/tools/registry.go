@@ -275,8 +275,14 @@ func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]
 	if tool == nil {
 		return nil, ErrToolNil
 	}
+	if _, err := tool.DeclaredEffect(); err != nil {
+		return nil, err
+	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	start := time.Now()
 

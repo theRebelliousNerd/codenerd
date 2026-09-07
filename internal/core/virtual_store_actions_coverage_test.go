@@ -1125,6 +1125,7 @@ func TestHandleResearch(t *testing.T) {
 	}
 
 	err := vs.modularTools.Register(&tools.Tool{
+		Effect:   tools.EffectRead,
 		Name:     "context7_fetch",
 		Category: tools.CategoryResearch,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -1188,6 +1189,7 @@ func TestHandleModularTool(t *testing.T) {
 
 	// 3. Register tool and call successfully
 	err = vs.modularTools.Register(&tools.Tool{
+		Effect:   tools.EffectRead,
 		Name:     "context7_fetch",
 		Category: tools.CategoryResearch,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {

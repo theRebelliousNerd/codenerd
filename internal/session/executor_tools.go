@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"codenerd/internal/evidence"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/projectdoc"
@@ -337,6 +338,10 @@ func (e *Executor) verifyCompletedToolTurn(
 		return nil, nil, errors.New("cannot verify a nil completed response")
 	}
 
+	before := ""
+	if result != nil && result.SuccessfulWriteTools > 0 && touchedGoFiles(result.WrittenPaths) {
+		before, _ = evidence.Snapshot(ctx, e.workspaceForVerification())
+	}
 	var toolErrs []string
 	repaired, repairErrs, repairErr := e.verifyAndRepairBuild(
 		ctx, trp, systemPrompt, history, current, toolDefs, cfg, result)
@@ -371,7 +376,7 @@ func (e *Executor) verifyCompletedToolTurn(
 	if upliftErr != nil {
 		return current, toolErrs, upliftErr
 	}
-	return current, toolErrs, nil
+	return current, toolErrs, e.closeChangeEvidence(ctx, result, before)
 }
 
 // toolExplorationCutoff divides a deadline-bound turn into exploration and
@@ -2072,14 +2077,29 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	// PRE-execution executive gate: run the Dreamer destructive-action
 	// simulation before the tool mutates anything. This brings the VirtualStore
 	// safety gate (otherwise reachable only via RouteAction) onto the
-	// interactive coding path. On the fail-open fallback (store without the
-	// gate interface) interactiveGate logs a one-time warning; behavior is
-	// otherwise unchanged.
+	// interactive coding path. Effectful tools require the gate interface.
+	effect, effectErr := tools.LookupEffect(call.Name)
+	if effectErr != nil {
+		e.mu.RLock()
+		registry := e.ouroborosRegistry
+		e.mu.RUnlock()
+		if registry != nil {
+			if _, exists := registry.GetTool(call.Name); exists {
+				// Every generated binary explicitly has arbitrary-code effects.
+				effect, effectErr = tools.EffectExecute, nil
+			}
+		}
+	}
+	if effectErr != nil {
+		return "", effectErr
+	}
 	if gate, ok := e.interactiveGate(); ok {
 		if blockErr := gate.PreflightDestructiveToolCall(ctx, call.ID, call.Name, call.Args); blockErr != nil {
 			logging.Get(logging.CategorySession).Warn("Interactive executive gate BLOCKED tool %s: %v", call.Name, blockErr)
 			return "", fmt.Errorf("tool call blocked by executive gate: %w", blockErr)
 		}
+	} else if effect != tools.EffectRead {
+		return "", fmt.Errorf("tool call blocked: mandatory executive gate unavailable for %s (%s)", call.Name, effect)
 	}
 
 	// Assert pending_edit(FilePath, Content) immediately before any write-mutation
@@ -2103,6 +2123,7 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	// Apply timeout to tool execution
 	toolCtx, cancel := context.WithTimeout(ctx, effectiveToolTimeout(executorCfg.ToolTimeout))
 	defer cancel()
+	toolCtx = tools.WithWorkspaceRoot(toolCtx, e.workspaceForVerification())
 
 	// Route to appropriate registry
 	// 1. Try modular tool registry first (Go function handlers)
@@ -2121,9 +2142,7 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 		// (file written, build passed, etc.) and assert validation facts to the
 		// kernel so policy (e.g. task_complete/1) can reason over them. A
 		// high-confidence validator failure is surfaced as an error so the model
-		// sees the work did not take and can retry. On the fail-open fallback
-		// (store without the gate interface) interactiveGate logs a one-time
-		// warning; behavior is otherwise unchanged.
+		// sees the validation failure and can inspect the actual artifact.
 		if gate, ok := e.interactiveGate(); ok {
 			if valErr := gate.ValidateInteractiveToolResult(toolCtx, call.ID, call.Name, call.Args, result.Result, true); valErr != nil {
 				return "", fmt.Errorf("post-action validation failed: %w", valErr)

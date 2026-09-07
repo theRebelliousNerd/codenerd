@@ -170,6 +170,9 @@ func (k *RealKernel) rebuildProgram() error {
 // evaluateDiff(), which uses DifferentialEngine.ApplyDelta on the facts
 // asserted since the last evaluate(). Otherwise the full-rebuild path runs.
 func (k *RealKernel) evaluate() error {
+	started := time.Now()
+	stats := EvaluationStats{Mode: "full", InputFacts: len(k.facts), DeltaFacts: len(k.factsSinceLastEval)}
+	defer func() { stats.Duration = time.Since(started); k.lastEvaluation = stats }()
 	timer := logging.StartTimer(logging.CategoryKernel, "evaluate")
 	defer timer.Stop()
 
@@ -196,10 +199,19 @@ func (k *RealKernel) evaluate() error {
 	//     Until external-option parity lands, fall back to the full path
 	//     whenever externals are in play.)
 	//   - diff engine was invalidated by a retract/clear/policy change
+	if diffEvalEnabled() && !k.diffPathDemoted && len(k.facts) > differentialFactCeiling {
+		k.diffPathDemoted = true
+		stats.DemotionReason = "large fact set"
+		k.invalidateDiffEngineLocked("large fact set")
+	}
 	if diffEvalEnabled() && !k.diffPathDemoted && k.proofRecorder == nil && !k.hasExternalPredicatesLocked() {
 		if done, err := k.evaluateDiffLocked(); err != nil {
 			return err
 		} else if done {
+			stats.Mode = "differential"
+			if k.diffPathDemoted {
+				stats.DemotionReason = "slow differential evaluation"
+			}
 			k.initialized = true
 			logging.KernelDebug("evaluate: complete via differential path")
 			return nil

@@ -1,8 +1,44 @@
 package session
 
 import (
+	"codenerd/internal/tools"
+	"context"
+	"fmt"
+	"strings"
 	"testing"
 )
+
+type testExecutiveStore struct{ MockVirtualStore }
+
+func (*testExecutiveStore) PreflightDestructiveToolCall(context.Context, string, string, map[string]any) error {
+	return nil
+}
+func (*testExecutiveStore) ValidateInteractiveToolResult(context.Context, string, string, map[string]any, string, bool) error {
+	return nil
+}
+
+func TestEffectfulExecutionRequiresExecutiveAdapter(t *testing.T) {
+	name := fmt.Sprintf("mandatory_gate_probe_%d", capabilityTestToolCounter.Add(1))
+	ran := false
+	if err := tools.Global().Register(&tools.Tool{Name: name, Effect: tools.EffectExecute, Execute: func(context.Context, map[string]any) (string, error) { ran = true; return "ok", nil }}); err != nil {
+		t.Fatal(err)
+	}
+	e := &Executor{config: DefaultExecutorConfig(), virtualStore: &MockVirtualStore{}}
+	e.config.EnableSafetyGate = false // Isolate the independent executive gate.
+	if _, err := e.executeToolCall(t.Context(), ToolCall{Name: name}, validCapabilityTestConfig(name)); err == nil || !strings.Contains(err.Error(), "mandatory executive gate") {
+		t.Fatalf("missing gate: %v", err)
+	}
+	if ran {
+		t.Fatal("effect executed without adapter")
+	}
+	e.virtualStore = &testExecutiveStore{}
+	if _, err := e.executeToolCall(t.Context(), ToolCall{Name: name}, validCapabilityTestConfig(name)); err != nil {
+		t.Fatal(err)
+	}
+	if !ran {
+		t.Fatal("explicit adapter did not reach effect")
+	}
+}
 
 // TestInteractiveGateWarningOnce verifies that an executor whose VirtualStore
 // lacks the InteractiveExecutiveGate interface logs the fallback warning

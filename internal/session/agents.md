@@ -27,6 +27,12 @@
   live calls/rounds nudge short and attach it to a paired tool result.
 - New LLM-facing behavior is a prompt atom first. `AvailableTools` describes the
   effective envelope; it is not authority.
+- Completion is revision-bound. Preserve `artifact_changed`, `checks_passed`,
+  and `behavior_verified` as distinct stages. Missing acceptance or stale checks
+  mean unverified. Final repair edits invalidate earlier witnesses.
+- Caller contracts enter through `evidence.WithContract`; never create or weaken
+  acceptance from model prose. Keep headless `fix --acceptance` and session
+  execution on the same transaction and persisted report path.
 - Maintain explicit ownership for executor history, Spawner reservations, SubAgent
   state, coherent config snapshots, shared kernel use, persistence, and teardown.
   Add race tests for changes.

@@ -62,6 +62,7 @@ func TestExecutorExecuteToolCallRequiresEffectiveCapability(t *testing.T) {
 	toolName := fmt.Sprintf("jit_capability_test_%d", capabilityTestToolCounter.Add(1))
 	var executions atomic.Int64
 	if err := modulartools.Global().Register(&modulartools.Tool{
+		Effect:      modulartools.EffectRead,
 		Name:        toolName,
 		Description: "capability boundary regression tool",
 		Execute: func(context.Context, map[string]any) (string, error) {
@@ -118,6 +119,7 @@ func TestExecutorOuroborosRegistryDoesNotGrantCapability(t *testing.T) {
 	executor := &Executor{config: DefaultExecutorConfig()}
 	executor.config.EnableSafetyGate = false
 	executor.SetOuroborosRegistry(registry)
+	executor.virtualStore = &testExecutiveStore{}
 	effective := validCapabilityTestConfig(allowedName)
 
 	out, err := executor.executeToolCall(context.Background(), ToolCall{Name: deniedName}, effective)

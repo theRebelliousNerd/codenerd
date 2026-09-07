@@ -114,7 +114,7 @@ func (v *VirtualStore) checkConstitution(req ActionRequest) error {
 func isDestructiveAction(t ActionType) bool {
 	switch t {
 	// Shell execution — arbitrary code
-	case ActionExecCmd, ActionRunCommand, ActionBash, ActionRunBuild, ActionExecTool:
+	case ActionExecCmd, ActionRunCommand, ActionBash, ActionRunBuild, ActionRunTests, ActionExecTool:
 		return true
 	// File mutations
 	case ActionWriteFile, ActionEditFile, ActionDeleteFile, ActionFSWrite:

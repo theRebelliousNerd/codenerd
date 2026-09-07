@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"codenerd/internal/evidence"
 	"codenerd/internal/perception"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/usage"
@@ -42,7 +43,7 @@ Example:
 
 // fixCmd runs code fix directly
 var fixCmd = &cobra.Command{
-	Use:   "fix <target>",
+	Use:   "fix [target]",
 	Short: "Fix bugs or issues in code",
 	Long: `Spawns CoderShard to fix bugs in the specified target.
 Equivalent to typing "fix <target>" in the TUI.
@@ -50,8 +51,19 @@ Equivalent to typing "fix <target>" in the TUI.
 Example:
   nerd fix "the null pointer in auth.go"
   nerd fix internal/core/kernel.go`,
-	Args: cobra.MinimumNArgs(1),
+	Args: validateFixArgs,
 	RunE: runDirectAction("coder", "/fix"),
+}
+
+func validateFixArgs(cmd *cobra.Command, args []string) error {
+	path, _ := cmd.Flags().GetString("acceptance")
+	if strings.TrimSpace(path) != "" {
+		if len(args) != 0 {
+			return fmt.Errorf("--acceptance takes its task from the contract; omit the positional target")
+		}
+		return nil
+	}
+	return cobra.MinimumNArgs(1)(cmd, args)
 }
 
 // testCmd runs tests directly
@@ -264,6 +276,21 @@ func startHeartbeat(out io.Writer, interval time.Duration) func() {
 func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		target := strings.Join(args, " ")
+		var acceptance *evidence.Contract
+		if cmd.Flags().Lookup("acceptance") != nil {
+			path, _ := cmd.Flags().GetString("acceptance")
+			if path != "" {
+				contract, err := evidence.LoadContract(path)
+				if err != nil {
+					return fmt.Errorf("acceptance contract: %w", err)
+				}
+				if interactiveMode {
+					return fmt.Errorf("--acceptance currently requires a one-shot Go fix")
+				}
+				acceptance = &contract
+				target = contract.Task
+			}
+		}
 
 		// Interactive mode: use multi-turn feedback loop
 		if interactiveMode {
@@ -282,17 +309,14 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		// One-shot mode (original behavior)
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
+		if acceptance != nil {
+			ctx = evidence.WithContract(ctx, *acceptance)
+		}
 		tracer.TraceContext("created with timeout %v", timeout)
 
-		// Handle graceful shutdown
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		go func() {
-			<-sigCh
-			fmt.Println("\n⏹️  Interrupted")
-			tracer.Trace("SIGNAL", "received interrupt signal")
-			cancel()
-		}()
+		// Join signal handling when the one-shot action returns.
+		ctx, stopSignals := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+		defer stopSignals()
 
 		fmt.Printf("🔧 Action: %s\n", verb)
 		fmt.Printf("🎯 Target: %s\n", target)

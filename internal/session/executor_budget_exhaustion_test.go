@@ -96,6 +96,7 @@ func TestExecuteToolBatchPiggyback_ReportsEverySkippedCall(t *testing.T) {
 func TestExecuteToolBatch_ZeroConfigUsesSafeDefaults(t *testing.T) {
 	const toolName = "zero_config_probe"
 	tools.Global().Register(&tools.Tool{
+		Effect:   tools.EffectRead,
 		Name:     toolName,
 		Category: tools.CategoryGeneral,
 		Execute: func(ctx context.Context, _ map[string]any) (string, error) {
@@ -178,7 +179,8 @@ func TestRunToolLoop_PiggybackRunsPostEditBuildGate(t *testing.T) {
 
 	const toolName = "multi_edit"
 	tools.Global().Register(&tools.Tool{
-		Name: toolName, Category: tools.CategoryCode,
+		Effect: tools.EffectRead,
+		Name:   toolName, Category: tools.CategoryCode,
 		Execute: func(context.Context, map[string]any) (string, error) { return "written", nil },
 	})
 
@@ -222,7 +224,8 @@ func TestRunToolLoop_ForcedFinalRunsPostEditBuildGate(t *testing.T) {
 
 	const toolName = "multi_edit"
 	tools.Global().Register(&tools.Tool{
-		Name: toolName, Category: tools.CategoryCode,
+		Effect: tools.EffectRead,
+		Name:   toolName, Category: tools.CategoryCode,
 		Execute: func(context.Context, map[string]any) (string, error) { return "written", nil },
 	})
 	base := &MockLLMClient{CompleteWithToolsFunc: func(
@@ -269,6 +272,7 @@ func TestForceFinalAnswer_RefusesUnofferedToolCalls(t *testing.T) {
 	const toolName = "forced_final_probe"
 	executions := 0
 	tools.Global().Register(&tools.Tool{
+		Effect:   tools.EffectRead,
 		Name:     toolName,
 		Category: tools.CategoryGeneral,
 		Execute: func(context.Context, map[string]any) (string, error) {
@@ -312,6 +316,7 @@ func TestForceFinalAnswer_ExecutesOfferedWriteThenClearsIt(t *testing.T) {
 	const toolName = "create_file"
 	executions := 0
 	tools.Global().Register(&tools.Tool{
+		Effect:   tools.EffectRead,
 		Name:     toolName,
 		Category: tools.CategoryCode,
 		Execute: func(context.Context, map[string]any) (string, error) {
@@ -358,6 +363,7 @@ func TestForceFinalAnswer_PendingCallPairedBeforeNudge(t *testing.T) {
 	const toolName = "pending_write_tool"
 	executions := 0
 	tools.Global().Register(&tools.Tool{
+		Effect:   tools.EffectRead,
 		Name:     toolName,
 		Category: tools.CategoryCode,
 		Execute: func(context.Context, map[string]any) (string, error) {

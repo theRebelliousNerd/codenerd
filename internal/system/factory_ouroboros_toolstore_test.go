@@ -4,11 +4,36 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/core"
 )
+
+type factoryDelegationProbeKernel struct {
+	*core.RealKernel
+	armed     atomic.Bool
+	processed chan struct{}
+}
+
+func (k *factoryDelegationProbeKernel) Query(predicate string) ([]core.Fact, error) {
+	if predicate == "delegate_task" && k.armed.CompareAndSwap(true, false) {
+		return []core.Fact{{Predicate: predicate, Args: []any{"/tool_generator", "factory_listener_probe", "/pending"}}}, nil
+	}
+	return k.RealKernel.Query(predicate)
+}
+
+func (k *factoryDelegationProbeKernel) Assert(f core.Fact) error {
+	if f.Predicate == "tool_generation_failed" || f.Predicate == "tool_delegation_complete" {
+		select {
+		case k.processed <- struct{}{}:
+		default:
+		}
+	}
+	return k.RealKernel.Assert(f)
+}
 
 // TestBootOuroborosToolStoreWiring pins the Cortex-factory Ouroboros/tool
 // wiring that used to live only in the TUI boot
@@ -36,7 +61,11 @@ func TestBootOuroborosToolStoreWiring(t *testing.T) {
 		t.Fatalf("Failed to write generated tool fixture: %v", err)
 	}
 
-	mockKernel := &MockSystemKernel{}
+	realKernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mockKernel := &factoryDelegationProbeKernel{RealKernel: realKernel, processed: make(chan struct{}, 1)}
 	mockLLM := &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return "OK", nil
@@ -80,6 +109,15 @@ func TestBootOuroborosToolStoreWiring(t *testing.T) {
 	if _, ok := registry.GetTool(genToolName); !ok {
 		t.Errorf("generated tool %q should be present in the tool registry after boot", genToolName)
 	}
+	// Exercise the factory-owned listener through a real delegation. The fake
+	// model cannot synthesize a tool, so an explicit failure is the expected
+	// processed outcome; a dormant listener emits neither success nor failure.
+	mockKernel.armed.Store(true)
+	select {
+	case <-mockKernel.processed:
+	case <-time.After(15 * time.Second):
+		t.Fatal("factory listener never processed delegation")
+	}
 
 	// The listener and consumer goroutines must exit on Close: assert Close
 	// returns without hanging.
@@ -90,7 +128,7 @@ func TestBootOuroborosToolStoreWiring(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Logf("Close returned error (non-fatal for this test): %v", err)
+			t.Fatalf("Close: %v", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Cortex.Close() did not return within 5s; Ouroboros listener/consumer goroutines may be leaking")

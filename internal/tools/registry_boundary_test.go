@@ -44,6 +44,7 @@ func TestRegistry_ExecuteNilContext(t *testing.T) {
 	// Record the ctx the Execute function actually receives.
 	var seenCtx context.Context
 	tool := &Tool{
+		Effect:   EffectRead,
 		Name:     "ctx_probe",
 		Category: CategoryGeneral,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -119,6 +120,7 @@ func TestRegistry_FilterByIntent_Empty(t *testing.T) {
 func TestRegistry_Execute_TypeMismatch(t *testing.T) {
 	reg := NewRegistry()
 	tool := &Tool{
+		Effect:   EffectRead,
 		Name:     "echo",
 		Category: CategoryGeneral,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -179,6 +181,7 @@ func TestRegistry_PrioritySorting_Extremes(t *testing.T) {
 func TestRegistry_Execute_NilArgs(t *testing.T) {
 	reg := NewRegistry()
 	tool := &Tool{
+		Effect:   EffectRead,
 		Name:     "noargs",
 		Category: CategoryGeneral,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {

@@ -1,10 +1,13 @@
 package shards
 
 import (
+	_ "embed"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"testing"
+	"unicode"
 
 	"codenerd/internal/core"
 )
@@ -13,29 +16,55 @@ import (
 // different shards on purpose or for the architect to decide. Everything
 // else must join within one shard. Keep this list in step with ACCEPTED in
 // .claude/skills/codenerd-dogfood/scripts/shard_join_audit.py.
-var acceptedSeams = map[[2]string]string{
-	// The constitution's override paths: signed_approval / admin_override /
-	// has_active_override / candidate_action land in the catch-all while
-	// pending_action lives in policy. They have never fired in production;
-	// homing them would make a dormant permission path live (architect's
-	// decision). The deny-side rules only over-deny.
-	{"constitution.mg", "permitted"}:                    "override path, architect's call",
-	{"constitution.mg", "final_action"}:                 "override path, architect's call",
-	{"constitution.mg", "permission_denied"}:            "over-denies only",
-	{"constitution.mg", "action_denied"}:                "over-denies only",
-	{"constitution.mg", "blocked_learned_action_count"}: "reporting only",
-	// Campaign quality check joins campaign_task with file_topology and
-	// negates test_coverage; needs a world-side helper, dormant Path B.
-	{"campaign_rules.mg", "quality_violation_detected"}: "needs restructure",
-	// coder_quality_mode(/normal) :- !in_campaign_context() has no positive
-	// anchor, so it fires everywhere; no Go reader today.
-	{"coder_campaign.mg", "coder_quality_mode"}: "no positive anchor",
-	{"coder_workflow.mg", "coder_quality_mode"}: "no positive anchor",
-	// selection_policy.mg admits campaign documents into include_in_context;
-	// the exclusion facts are world file facts. Documents are never
-	// generated/vendor/binary, so the vacuous negation is harmless.
-	{"coder_context.mg", "final_context_include"}:  "documents never excluded",
-	{"coder_workflow.mg", "final_context_include"}: "documents never excluded",
+// Each exception pins the entire parsed clause, never just its head.
+func acceptedSeam(f core.RuleFinding) bool {
+	for _, pin := range seamPins {
+		if pin.File == f.File && normalizedClause(pin.Clause) == normalizedClause(f.Clause) {
+			return true
+		}
+	}
+	return false
+}
+
+type seamPin struct {
+	File   string
+	Head   string
+	Clause string
+	Reason string
+}
+
+//go:embed testdata/accepted_seams.json
+var seamPinJSON []byte
+var seamPins = func() []seamPin {
+	var pins []seamPin
+	if err := json.Unmarshal(seamPinJSON, &pins); err != nil {
+		panic(err)
+	}
+	return pins
+}()
+
+// Ignore formatting outside quoted literals, preserving string identity.
+func normalizedClause(s string) string {
+	var b strings.Builder
+	quoted, escaped := false, false
+	for _, r := range s {
+		if !quoted && unicode.IsSpace(r) {
+			continue
+		}
+		b.WriteRune(r)
+		if escaped {
+			escaped = false
+			continue
+		}
+		if quoted && r == '\\' {
+			escaped = true
+			continue
+		}
+		if r == '"' {
+			quoted = !quoted
+		}
+	}
+	return b.String()
 }
 
 func buildProductionDerivationMap(t *testing.T, shared []string) *core.DerivationMap {
@@ -105,13 +134,13 @@ func TestShardJoin_EveryRuleCanFireOnTheShardedKernel(t *testing.T) {
 	dm := buildProductionDerivationMap(t, SharedPredicates())
 	var bad []string
 	for _, f := range dm.SplitJoins {
-		if _, ok := acceptedSeams[[2]string{f.File, f.Head}]; ok {
+		if acceptedSeam(f) {
 			continue
 		}
 		bad = append(bad, "split join   "+describe(f))
 	}
 	for _, f := range dm.BlindNegations {
-		if _, ok := acceptedSeams[[2]string{f.File, f.Head}]; ok {
+		if acceptedSeam(f) {
 			continue
 		}
 		bad = append(bad, "blind negate "+describe(f))
@@ -151,11 +180,21 @@ func TestShardJoin_DetectsTheOriginalDefect(t *testing.T) {
 	dm := buildProductionDerivationMap(t, withoutIntent)
 	extra := 0
 	for _, f := range dm.SplitJoins {
-		if _, ok := acceptedSeams[[2]string{f.File, f.Head}]; !ok {
+		if !acceptedSeam(f) {
 			extra++
 		}
 	}
 	if extra < 20 {
 		t.Fatalf("unsharing user_intent must split many rules; the analysis found only %d", extra)
+	}
+}
+
+func TestShardJoin_ExceptionDoesNotExemptAnotherClauseWithSameHead(t *testing.T) {
+	pin := seamPins[0]
+	if !acceptedSeam(core.RuleFinding{File: pin.File, Head: pin.Head, Clause: pin.Clause}) {
+		t.Fatal("pin failed positive control")
+	}
+	if acceptedSeam(core.RuleFinding{File: pin.File, Head: pin.Head, Clause: pin.Clause + " defective(X)."}) {
+		t.Fatal("new clause inherited exemption")
 	}
 }

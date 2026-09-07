@@ -42,10 +42,6 @@ import (
 // TODO: TEST_GAP: [State Conflicts] Verify that concurrent ctx.Done() and autosaveTicker firing do not corrupt the campaign.json file if saveCampaign lacks atomic rename guarantees.
 // TODO: TEST_GAP: [State Conflicts] Verify state desynchronization handling when tx.Commit() in runHeartbeatLoop fails (e.g. SQLite database is locked), as the error is currently ignored.
 
-func TestOrchestratorExecution_Placeholder(t *testing.T) {
-	// Satisfy the build
-}
-
 func TestFinalizeCancellationPersistsPausedCampaign(t *testing.T) {
 	nerdDir := filepath.Join(t.TempDir(), ".nerd")
 	o := &Orchestrator{

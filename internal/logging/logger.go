@@ -189,7 +189,21 @@ func Initialize(ws string) error {
 			boundWorkspace = target
 		}
 	})
-	if !initialized || boundWorkspace == target {
+	if !initialized {
+		return initErr
+	}
+	if boundWorkspace == target {
+		// Boot can inject enabled logging after an earlier disabled init.
+		// Do not consume the workspace binding without provisioning its sinks.
+		if IsDebugMode() {
+			if logsDirSymlinkRejected(logsDir) {
+				return fmt.Errorf("refusing symlinked logs directory: %s", logsDir)
+			}
+			if err := os.MkdirAll(logsDir, 0700); err != nil {
+				return err
+			}
+			return InitAudit()
+		}
 		return initErr
 	}
 

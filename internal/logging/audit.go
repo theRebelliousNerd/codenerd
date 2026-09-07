@@ -182,6 +182,8 @@ func CloseAudit() {
 
 // Audit returns the global audit logger
 func Audit() *AuditLogger {
+	auditMu.Lock()
+	defer auditMu.Unlock()
 	if auditLogger == nil {
 		auditLogger = &AuditLogger{}
 	}
@@ -213,7 +215,7 @@ func AuditWithContext(sessionID, shardID string, category Category) *AuditLogger
 
 // Log writes an audit event
 func (a *AuditLogger) Log(event AuditEvent) {
-	if !IsDebugMode() || auditFile == nil {
+	if !IsDebugMode() {
 		return
 	}
 
@@ -241,6 +243,9 @@ func (a *AuditLogger) Log(event AuditEvent) {
 	defer auditMu.Unlock()
 
 	// Write JSON line
+	if auditFile == nil {
+		return
+	}
 	data, err := json.Marshal(event)
 	if err == nil {
 		auditFile.WriteString(string(data) + "\n")

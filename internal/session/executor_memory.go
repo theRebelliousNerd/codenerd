@@ -137,7 +137,7 @@ func (e *Executor) captureTurnOutcome(result *ExecutionResult, hollowErr error) 
 		result.TurnOutcome = types.MangleAtom("/failed")
 	default:
 		outcome := types.MangleAtom("/unverified")
-		if e.kernel != nil {
+		if e.kernel != nil && result.Acceptance != nil && result.Acceptance.Status == "verified" {
 			doneFacts, err := e.kernel.Query("turn_done")
 			if err == nil && len(doneFacts) > 0 {
 				outcome = types.MangleAtom("/done")
@@ -154,7 +154,7 @@ func (e *Executor) resolveTurnOutcome(result *ExecutionResult) types.MangleAtom 
 	if result != nil && result.TurnOutcome != "" {
 		return result.TurnOutcome
 	}
-	if e.kernel != nil {
+	if e.kernel != nil && result != nil && result.Acceptance != nil && result.Acceptance.Status == "verified" {
 		doneFacts, err := e.kernel.Query("turn_done")
 		if err == nil && len(doneFacts) > 0 {
 			return types.MangleAtom("/done")

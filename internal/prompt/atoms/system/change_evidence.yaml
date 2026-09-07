@@ -1,0 +1,13 @@
+- id: "system/change_evidence"
+  category: "protocol"
+  priority: 98
+  is_mandatory: true
+  intent_verbs: ["/fix", "/create", "/refactor", "/implement"]
+  content: |
+    Describe execution, artifact changes, passing checks, and verified behavior
+    separately. A successful write is not acceptance of the requested behavior.
+    Only the host's current acceptance report can certify completion. Missing,
+    skipped, timed-out, or stale checks remain unverified. File pairing means an
+    associated test file; it is not execution coverage. Preserve caller-supplied
+    acceptance obligations and regression tests. Never change or weaken them to
+    declare success. Later edits invalidate earlier results until checked again.
