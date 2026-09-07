@@ -183,7 +183,7 @@ func TestWorkspaceRoot_WhenContextSet_ShouldOutrankEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WorkspaceRoot: %v", err)
 	}
-	if got != ctxRoot {
+	if got != mustEval(t, ctxRoot) {
 		t.Fatalf("context root ignored: got %q want %q", got, ctxRoot)
 	}
 }
@@ -192,7 +192,7 @@ func mustEval(t *testing.T, p string) string {
 	t.Helper()
 	resolved, err := filepath.EvalSymlinks(p)
 	if err != nil {
-		return filepath.Clean(p)
+		t.Fatal(err)
 	}
 	return resolved
 }

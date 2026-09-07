@@ -70,18 +70,13 @@ func TestResolveWorkspacePath(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			// EvalSymlinks may rewrite root on macOS/Windows; compare via Rel.
-			rel, relErr := filepath.Rel(root, got)
+			resolvedRoot, evalErr := filepath.EvalSymlinks(root)
+			if evalErr != nil {
+				t.Fatal(evalErr)
+			}
+			rel, relErr := filepath.Rel(resolvedRoot, got)
 			if relErr != nil {
-				// Fall back to symlink-resolved root before declaring failure.
-				resolvedRoot, evalErr := filepath.EvalSymlinks(root)
-				if evalErr != nil {
-					t.Fatalf("rel(%q, %q): %v", root, got, relErr)
-				}
-				rel, relErr = filepath.Rel(resolvedRoot, got)
-				if relErr != nil {
-					t.Fatalf("rel(%q, %q): %v", resolvedRoot, got, relErr)
-				}
+				t.Fatal(relErr)
 			}
 			if strings.HasPrefix(rel, "..") {
 				t.Fatalf("resolved path %q is outside root %q (rel=%q)", got, root, rel)
@@ -141,17 +136,13 @@ func TestResolveWorkspacePath_UsesEnvWhenRootEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveWorkspacePath: %v", err)
 	}
-	rel, err := filepath.Rel(root, got)
+	resolvedRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		// symlink-resolved root
-		resolved, evalErr := filepath.EvalSymlinks(root)
-		if evalErr != nil {
-			t.Fatal(err)
-		}
-		rel, err = filepath.Rel(resolved, got)
-		if err != nil {
-			t.Fatal(err)
-		}
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(resolvedRoot, got)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		t.Fatalf("resolved outside root: got=%q root=%q", got, root)

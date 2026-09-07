@@ -90,6 +90,11 @@ func TestScanWorkspace_CacheBehavior(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	filePath, err = filepath.EvalSymlinks(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// Set a fixed mtime
 	fixedTime := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)
 	if err := os.Chtimes(filePath, fixedTime, fixedTime); err != nil {

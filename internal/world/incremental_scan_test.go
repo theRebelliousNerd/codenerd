@@ -25,6 +25,11 @@ func TestIncrementalScan_Basics(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
+	f1Path, err = filepath.EvalSymlinks(f1Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// Make sure cache dir is correctly formed and permissions are good
 	if err := os.MkdirAll(filepath.Join(tmpDir, ".nerd", "cache"), 0755); err != nil {
 		t.Fatalf("Failed to create cache dir: %v", err)
@@ -77,6 +82,11 @@ func TestIncrementalScan_Basics(t *testing.T) {
 	f2Path := filepath.Join(tmpDir, "test2.js")
 	if err := os.WriteFile(f2Path, []byte("console.log('hi');\n"), 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	f2Path, err = filepath.EvalSymlinks(f2Path)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	res4, err := scanner.ScanWorkspaceIncremental(ctx, tmpDir, nil, opts)

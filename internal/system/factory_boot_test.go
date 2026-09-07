@@ -91,8 +91,12 @@ func TestBootCortexWithConfig_Overrides(t *testing.T) {
 	// We can't unwrap easily.
 	// But validation passed, so init worked.
 
-	if cortex.Workspace != workspace {
-		t.Errorf("Expected workspace '%s', got '%s'", workspace, cortex.Workspace)
+	expectedWorkspace, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cortex.Workspace != expectedWorkspace {
+		t.Errorf("Expected workspace '%s', got '%s'", expectedWorkspace, cortex.Workspace)
 	}
 }
 

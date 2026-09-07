@@ -44,7 +44,7 @@ func TestInitCoreComponents_ShouldBindTheToolContainmentRoot(t *testing.T) {
 	ws := t.TempDir()
 	// t.TempDir can hand back a symlinked path (/var -> /private/var on macOS);
 	// compare against the same normalization the binding applies.
-	wantAbs, err := filepath.Abs(ws)
+	wantAbs, err := filepath.EvalSymlinks(ws)
 	if err != nil {
 		t.Fatalf("abs: %v", err)
 	}

@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 )
 
@@ -156,7 +155,7 @@ func TestRegistry_WhenWorkspaceRootSet_ShouldReachToolViaContext(t *testing.T) {
 	if _, err := r.Execute(context.Background(), "root_probe", map[string]any{}); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if seen != filepath.Clean(root) {
+	if seen != mustEval(t, root) {
 		t.Fatalf("tool saw workspace root %q, want %q", seen, root)
 	}
 }
@@ -185,7 +184,7 @@ func TestRegistry_WhenContextCarriesRoot_ShouldNotOverrideIt(t *testing.T) {
 	if _, err := r.Execute(WithWorkspaceRoot(context.Background(), callRoot), "root_probe", nil); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if seen != filepath.Clean(callRoot) {
+	if seen != mustEval(t, callRoot) {
 		t.Fatalf("registry overrode a per-call workspace root: got %q want %q", seen, callRoot)
 	}
 }

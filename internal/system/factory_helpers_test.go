@@ -53,7 +53,7 @@ func TestResolveWorkspaceRoot(t *testing.T) {
 
 	// Use a real temp dir so filepath.Abs is stable across Windows/Unix.
 	dir := t.TempDir()
-	want, err := filepath.Abs(dir)
+	want, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -123,8 +123,12 @@ func TestConfineToRoot_WhenInsideRoot_ShouldResolve(t *testing.T) {
 	if !filepath.IsAbs(got) {
 		t.Fatalf("ConfineToRoot returned non-absolute path %q", got)
 	}
-	// Verify containment using the same helper semantics (via Rel check).
-	if rel, _ := filepath.Rel(root, got); rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+	// The input may be a Windows short name; compare physical identities.
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel, err := filepath.Rel(resolvedRoot, got); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		t.Fatalf("ConfineToRoot returned path outside root: %q", got)
 	}
 }

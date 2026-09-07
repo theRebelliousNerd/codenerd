@@ -10,7 +10,7 @@ func TestResolveWorkspaceRoot_SetsCodenerdWorkspaceEnv(t *testing.T) {
 	t.Setenv("CODENERD_WORKSPACE_ROOT", "")
 	dir := t.TempDir()
 	got := resolveWorkspaceRoot(dir)
-	abs, err := filepath.Abs(dir)
+	abs, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -128,6 +128,10 @@ func TestWorkspaceForVerification_PrefersExplicitConfig(t *testing.T) {
 	cfg.WorkspaceRoot = want
 	e := &Executor{config: cfg}
 
+	want, err := filepath.EvalSymlinks(want)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := e.workspaceForVerification(); got != want {
 		t.Errorf("workspaceForVerification() = %q; want the explicitly configured %q", got, want)
 	}

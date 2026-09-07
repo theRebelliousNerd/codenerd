@@ -1,5 +1,9 @@
 # Browser subsystem guidance
 
+- Catalogs and path policies compare resolved filesystem identities. Resolve
+  both sides before containment; a Windows short name is not a separate root.
+  Keep alias acceptance and actual outside-root rejection covered together.
+
 - Match BrowserNERD's observable behavior through codeNERD-native managers,
   tools, prompt atoms, and the live Cortex kernel. Do not embed its standalone
   MCP server or create a second reasoning engine.

@@ -22,9 +22,8 @@ var (
 
 // Catalog loads configured Markdown sources without escaping the workspace.
 type Catalog struct {
-	workspace     string
-	realWorkspace string
-	config        Config
+	workspace string // one resolved filesystem identity for every catalog path
+	config    Config
 }
 
 // NewCatalog creates a read-only, workspace-confined catalog.
@@ -41,7 +40,7 @@ func NewCatalog(workspace string, config Config) (*Catalog, error) {
 		return nil, fmt.Errorf("resolve browser spec workspace symlinks: %w", err)
 	}
 	normalized := cloneConfig(config.Normalize())
-	return &Catalog{workspace: filepath.Clean(absolute), realWorkspace: filepath.Clean(realWorkspace), config: normalized}, nil
+	return &Catalog{workspace: filepath.Clean(realWorkspace), config: normalized}, nil
 }
 
 // Config returns the normalized catalog configuration.
@@ -277,18 +276,15 @@ func (c *Catalog) resolveReadPath(configured string) (string, string, error) {
 		return "", "", fmt.Errorf("resolve browser spec path %q: %w", configured, err)
 	}
 	absolute = filepath.Clean(absolute)
-	if !pathWithin(c.workspace, absolute) {
-		return "", "", fmt.Errorf("browser spec path %q is outside workspace", configured)
-	}
 	realPath, err := filepath.EvalSymlinks(absolute)
 	if err != nil {
 		return "", "", fmt.Errorf("resolve browser spec path %q: %w", configured, err)
 	}
 	realPath = filepath.Clean(realPath)
-	if !pathWithin(c.realWorkspace, realPath) {
-		return "", "", fmt.Errorf("browser spec path %q escapes workspace through a symlink", configured)
+	if !pathWithin(c.workspace, realPath) {
+		return "", "", fmt.Errorf("browser spec path %q is outside workspace after resolving filesystem identity", configured)
 	}
-	relative, err := filepath.Rel(c.realWorkspace, realPath)
+	relative, err := filepath.Rel(c.workspace, realPath)
 	if err != nil {
 		return "", "", fmt.Errorf("relativize browser spec path %q: %w", configured, err)
 	}
