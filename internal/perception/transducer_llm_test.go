@@ -9,6 +9,12 @@ import (
 	"testing"
 )
 
+// TODO: Null/Undefined/Empty: Verify the Understand method behaves gracefully and rejects inputs when the history array contains malformed turns (e.g. empty role or content).
+// TODO: Type Coercion: Verify that ExtractCleanJSON successfully parses and type coerces mixed string/numeric constraint configurations nested inside a stringified JSON property without panicking.
+// TODO: User Request Extremes: Verify the NewLLMTransducer handles a prompt parameter exceeding 10MB without causing OOM or massive performance degradation during processing.
+// TODO: State Conflicts: Verify concurrent read/write behavior during kernel schema validation and routing derivation using 1,000 parallel goroutines checking different action and semantic types.
+
+
 func TestExtractJSON(t *testing.T) {
 	tests := []struct {
 		name     string
