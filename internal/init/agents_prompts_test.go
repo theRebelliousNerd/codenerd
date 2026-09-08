@@ -49,7 +49,7 @@ func (s *stubDistinctLLM) Complete(_ context.Context, prompt string) (string, er
 }
 
 func (s *stubDistinctLLM) CompleteWithSystem(_ context.Context, systemPrompt string, userPrompt string) (string, error) {
-	return s.Complete(context.Background(), userPrompt+systemPrompt)
+	return s.Complete(context.Background(), userPrompt)
 }
 
 func (s *stubDistinctLLM) CompleteWithStreaming(_ context.Context, _ string, _ string, _ bool) (<-chan string, <-chan error) {

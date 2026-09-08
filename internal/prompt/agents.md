@@ -32,3 +32,5 @@
   `atoms/capability/grounded_web_search.yaml`; select it only when
   `grounded_web_search` is in the effective JIT catalog, never for ordinary
   `/test`, `/benchmark`, or `/profile` intents.
+
+- `ReloadAllPrompts` aggregates discovered-agent failures for its caller; a partial atom count must not hide a missing or invalid expert database.
