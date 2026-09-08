@@ -40,3 +40,35 @@ Remaining uncertainty: broader/private task distributions, false-completion and
 human-rescue rates, noisy-machine latency, and task-specific test relevance need
 more observations. The tests witness the requested parsing behavior; they do
 not prove every new branch correct.
+
+## Self-upgrade marathon checkpoint, 2026-09-07
+
+Persistent token-efficiency specialists were created through init, consulted on
+local source guides, and exercised in fresh processes after their own methodology
+was persisted. This establishes reuse of prompt knowledge, not automatic success
+of proposed optimizations. The broader 54-task campaign remains in progress.
+
+A production-state CPU profile found predicate scans dominating kernel evaluation.
+Large full-fixpoint evaluations now use argument-indexed storage. The comparison
+in [kernel observations](token_efficiency_kernel_observations.json) ran indexed
+first and the scan baseline afterward against the same workspace:
+
+| Observation | Scan | Indexed |
+|---|---:|---:|
+| Boot | 232.60 s | 15.50 s |
+| First next_action query | 32.51 s | 1.36 s |
+| Heap allocated at boot sample | 292.33 MB | 330.04 MB |
+| Cumulative allocation through boot | 4.58 GB | 5.25 GB |
+
+Both returned identical hashes for all 4,167 file-topology and file-existence
+facts. Total EDB counts were about 55,500 and differed by 19 transient facts.
+A separate regression compares the entire production-corpus closure with scan
+storage before and after retraction. A bound-lookup microbenchmark measured
+361,376 ns/op versus 378 ns/op, with 24 B/op in both cases; index construction is
+outside that microbenchmark and its memory cost is included in boot observations.
+
+These are shared-workstation observations, with sampled heap rather than peak
+RSS. They establish neither a token-saving result nor a 10M-LOC scale result.
+Campaign host checks, native Windows verification, and TDD now distinguish actual
+execution outcomes from model prose. The full marathon and matched coding-task
+comparisons remain open; completed-turn counts are not acceptance evidence.

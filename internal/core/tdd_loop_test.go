@@ -29,8 +29,8 @@ func (m *MockExecutor) Execute(ctx context.Context, cmd tactile.Command) (*tacti
 	}
 	// Default success
 	return &tactile.ExecutionResult{
-		ExitCode: 0,
-		Stdout:   "MOCK SUCCESS",
+		Success: true, ExitCode: 0,
+		Stdout: "MOCK SUCCESS",
 	}, nil
 }
 
@@ -175,8 +175,8 @@ func TestTDDLoop_RunTests_Success(t *testing.T) {
 	tdd, mockExec, _, _ := SetupTDDLoop(t)
 	mockExec.ExecuteFunc = func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
 		return &tactile.ExecutionResult{
-			ExitCode: 0,
-			Stdout:   "ok  	pkg/example	0.001s",
+			Success: true, ExitCode: 0,
+			Stdout: "ok  	pkg/example	0.001s",
 		}, nil
 	}
 
@@ -193,8 +193,8 @@ func TestTDDLoop_RunTests_Failure(t *testing.T) {
 	tdd, mockExec, _, _ := SetupTDDLoop(t)
 	mockExec.ExecuteFunc = func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
 		return &tactile.ExecutionResult{
-			ExitCode: 1,
-			Stdout:   "--- FAIL: TestExample (0.00s)\n    example_test.go:10: expected 1, got 2\nFAIL",
+			Success: true, ExitCode: 1,
+			Stdout: "--- FAIL: TestExample (0.00s)\n    example_test.go:10: expected 1, got 2\nFAIL",
 		}, nil
 	}
 
@@ -218,10 +218,10 @@ func TestTDDLoop_FullRepairCycle(t *testing.T) {
 
 	// 1. Run Tests -> Fail
 	mockExec.ExecuteFunc = func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
-		if strings.Contains(cmd.Arguments[1], "go test") {
+		if strings.Contains(strings.Join(cmd.Arguments, " "), "go test") {
 			return &tactile.ExecutionResult{
-				ExitCode: 1,
-				Stdout:   "--- FAIL: TestFoo (0.00s)\n    foo_test.go:42: failure message\nFAIL",
+				Success: true, ExitCode: 1,
+				Stdout: "--- FAIL: TestFoo (0.00s)\n    foo_test.go:42: failure message\nFAIL",
 			}, nil
 		}
 		// Build succeeds
@@ -276,8 +276,8 @@ func TestTDDLoop_Escalation(t *testing.T) {
 	// Fail 3 times
 	mockExec.ExecuteFunc = func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
 		return &tactile.ExecutionResult{
-			ExitCode: 1,
-			Stdout:   "FAIL",
+			Success: true, ExitCode: 1,
+			Stdout: "FAIL",
 		}, nil
 	}
 
@@ -433,7 +433,7 @@ func TestTDDLoop_Concurrent_Locks(t *testing.T) {
 	tdd, mockExec, _, _ := SetupTDDLoop(t)
 
 	mockExec.ExecuteFunc = func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
-		return &tactile.ExecutionResult{ExitCode: 0, Stdout: "OK"}, nil
+		return &tactile.ExecutionResult{Success: true, ExitCode: 0, Stdout: "OK"}, nil
 	}
 
 	var wg sync.WaitGroup
@@ -514,4 +514,31 @@ func (m *MockLLM) CompleteWithStreaming(ctx context.Context, systemPrompt, userP
 		contentChan <- res
 	}()
 	return contentChan, errorChan
+}
+
+func TestTDDLoopUsesExecutionStatusNotOutputWords(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		result tactile.ExecutionResult
+		want   TDDState
+	}{
+		{"infrastructure failure with green prose", tactile.ExecutionResult{Success: false, ExitCode: 0, Stdout: "PASS", Error: "could not start"}, TDDStateFailing},
+		{"failed exit without failure prose", tactile.ExecutionResult{Success: true, ExitCode: 1, Stdout: "looks fine"}, TDDStateFailing},
+		{"success mentioning errors in test names", tactile.ExecutionResult{Success: true, ExitCode: 0, Stdout: "ok example/TestHandlesFAILEDAnderror 0.01s"}, TDDStatePassing},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			loop, ex, _, _ := SetupTDDLoop(t)
+			calls := 0
+			ex.ExecuteFunc = func(context.Context, tactile.Command) (*tactile.ExecutionResult, error) {
+				calls++
+				return &tc.result, nil
+			}
+			if err := loop.Run(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if calls != 1 || loop.GetState() != tc.want {
+				t.Fatalf("calls=%d state=%s want=%s", calls, loop.GetState(), tc.want)
+			}
+		})
+	}
 }

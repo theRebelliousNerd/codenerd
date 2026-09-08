@@ -248,7 +248,7 @@ func (k *RealKernel) evaluateFullLocked() error {
 	// Create fresh store and populate with EDB facts
 	// OPTIMIZATION: Use cached atoms instead of converting every time
 	logging.KernelDebug("evaluate: populating store with %d EDB facts", len(k.facts))
-	baseStore := factstore.NewSimpleInMemoryStore()
+	baseStore := newEvaluationFactStore(len(k.facts))
 
 	// Defensive sync check: ensure cache is valid
 	if k.cachedAtoms == nil || len(k.cachedAtoms) != len(k.facts) || k.atomCacheStale {
@@ -811,4 +811,14 @@ func writeFailedProgramDump(programStr string) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+// Large bound joins must not scan every row of a predicate on each premise.
+// Keep the small-store allocation profile for small kernels. The indexed array
+// implementation also checks equality within hash buckets, including collisions.
+func newEvaluationFactStore(facts int) factstore.FactStore {
+	if facts >= 1024 {
+		return factstore.NewMultiIndexedArrayInMemoryStore()
+	}
+	return factstore.NewSimpleInMemoryStore()
 }

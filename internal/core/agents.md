@@ -18,3 +18,7 @@ go test ./internal/store ./internal/core -count=1
 go test -race ./internal/store ./internal/core -count=1
 go vet ./internal/store ./internal/core
 ```
+
+- Build/test action handlers must preserve the host OS and toolchain. Windows `bash` can launch WSL; use the native verification shell and assert host identity plus nonzero exit propagation in live tests.
+
+- Large full-fixpoint evaluations use argument-indexed fact storage. Preserve complete production-corpus closure and retraction equivalence to the scan store; report lookup speed together with allocation and real persisted-state profiles. Indexing must not alter policy, provenance, external callbacks, or derivation limits.

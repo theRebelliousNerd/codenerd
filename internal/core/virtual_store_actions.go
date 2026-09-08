@@ -8,6 +8,7 @@ import (
 	"maps"
 	"math"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -396,9 +397,10 @@ func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (A
 
 	logging.VirtualStore("Running tests: %s", testCmd)
 
+	hostBinary, hostArgs := verificationShell(testCmd)
 	cmd := tactile.Command{
-		Binary:           "bash",
-		Arguments:        []string{"-c", testCmd},
+		Binary:           hostBinary,
+		Arguments:        hostArgs,
 		WorkingDirectory: v.workingDir,
 		Environment:      v.buildToolEnv(),
 		Limits: &tactile.ResourceLimits{
@@ -445,9 +447,10 @@ func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest
 
 	logging.VirtualStore("Building project: %s", buildCmd)
 
+	hostBinary, hostArgs := verificationShell(buildCmd)
 	cmd := tactile.Command{
-		Binary:           "bash",
-		Arguments:        []string{"-c", buildCmd},
+		Binary:           hostBinary,
+		Arguments:        hostArgs,
 		WorkingDirectory: v.workingDir,
 		Environment:      v.buildToolEnv(),
 		Limits: &tactile.ResourceLimits{
@@ -1191,4 +1194,13 @@ func extToLang(ext string) string {
 func (v *VirtualStore) buildToolEnv() []string {
 	env := build.GetBuildEnv(nil, v.workingDir)
 	return append(env, v.getAllowedEnv()...)
+}
+
+// Keep verification in the host workspace and toolchain. On Windows, bash may
+// be the WSL launcher, which silently changes OS, paths, and environment.
+func verificationShell(command string) (string, []string) {
+	if runtime.GOOS == "windows" {
+		return "cmd.exe", []string{"/D", "/S", "/C", command}
+	}
+	return "bash", []string{"-c", command}
 }

@@ -360,10 +360,19 @@ func (t *TDDLoop) runTests(ctx context.Context) error {
 		},
 	}
 
-	output, err := t.virtualStore.RouteAction(ctx, action)
+	if t.kernel == nil {
+		return fmt.Errorf("test execution requires a kernel")
+	}
+	pending := Fact{Predicate: "pending_action", Args: []any{action.Args[0], MangleAtom("/run_tests"), t.config.TestCommand, "{}", time.Now().Unix()}}
+	if err := t.kernel.Assert(pending); err != nil {
+		return err
+	}
+	defer t.kernel.RetractFact(pending)
+	result, err := t.virtualStore.RouteActionResult(ctx, action)
+	output := result.Output
 	t.lastOutput = output
 
-	if err != nil || strings.Contains(output, "FAIL") || strings.Contains(output, "error") || strings.Contains(output, "FAILED") {
+	if err != nil || !result.Success || ctx.Err() != nil {
 		t.retryCount++
 		t.diagnostics = t.parseTestOutput(output)
 		t.transition(TDDStateFailing, TDDActionRunTests, map[string]any{
