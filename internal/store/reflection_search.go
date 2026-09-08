@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -32,6 +34,8 @@ type LearningRecallHit struct {
 	Summary          string
 	ShardType        string
 	LearnedAt        time.Time
+	SourceCampaign   string
+	Confidence       float64
 	EmbeddingModelID string
 	EmbeddingDim     int
 	EmbeddingTask    string
@@ -137,6 +141,14 @@ func (s *LocalStore) RecallTracesLexical(query string, limit int) ([]TraceRecall
 
 // RecallLearningsByEmbedding returns top learning hits for a query embedding across shards.
 func (ls *LearningStore) RecallLearningsByEmbedding(query []float32, limit int) ([]LearningRecallHit, error) {
+	return ls.RecallLearningsByEmbeddingContext(context.Background(), query, limit)
+}
+
+// RecallLearningsByEmbeddingContext bounds database work by the caller's deadline.
+func (ls *LearningStore) RecallLearningsByEmbeddingContext(ctx context.Context, query []float32, limit int) ([]LearningRecallHit, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	timer := logging.StartTimer(logging.CategoryStore, "RecallLearningsByEmbedding")
 	defer timer.Stop()
 
@@ -150,8 +162,14 @@ func (ls *LearningStore) RecallLearningsByEmbedding(query []float32, limit int) 
 	shards := ls.listShardTypes()
 	var all []LearningRecallHit
 	for _, shardType := range shards {
-		hits, err := ls.recallLearningsInShard(query, shardType, limit)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		hits, err := ls.recallLearningsInShard(ctx, query, shardType, limit)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			continue
 		}
 		all = append(all, hits...)
@@ -170,6 +188,14 @@ func (ls *LearningStore) RecallLearningsByEmbedding(query []float32, limit int) 
 
 // RecallLearningsLexical falls back to keyword search on semantic handles.
 func (ls *LearningStore) RecallLearningsLexical(query string, limit int) ([]LearningRecallHit, error) {
+	return ls.RecallLearningsLexicalContext(context.Background(), query, limit)
+}
+
+// RecallLearningsLexicalContext recalls saved facts without requiring embeddings.
+func (ls *LearningStore) RecallLearningsLexicalContext(ctx context.Context, query string, limit int) ([]LearningRecallHit, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if ls == nil {
 		return nil, nil
 	}
@@ -184,8 +210,14 @@ func (ls *LearningStore) RecallLearningsLexical(query string, limit int) ([]Lear
 	shards := ls.listShardTypes()
 	var all []LearningRecallHit
 	for _, shardType := range shards {
-		hits, err := ls.recallLearningsLexicalInShard(shardType, keywords, limit)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		hits, err := ls.recallLearningsLexicalInShard(ctx, shardType, keywords, limit)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			continue
 		}
 		all = append(all, hits...)
@@ -241,18 +273,23 @@ func (s *LocalStore) recallTraceVec(query []float32, limit int) ([]TraceRecallHi
 	return hits, nil
 }
 
-func (ls *LearningStore) recallLearningsInShard(query []float32, shardType string, limit int) ([]LearningRecallHit, error) {
+func (ls *LearningStore) recallLearningsInShard(ctx context.Context, query []float32, shardType string, limit int) ([]LearningRecallHit, error) {
 	db, err := ls.getDB(shardType)
 	if err != nil {
 		return nil, err
 	}
 
-	if tableExists(db, "learnings_vec") {
+	var hasIndex bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='learnings_vec')`).Scan(&hasIndex); err != nil {
+		return nil, err
+	}
+	if hasIndex {
 		queryBlob := encodeFloat32Slice(query)
-		rows, err := db.Query(`
+		rows, err := db.QueryContext(ctx, `
 			SELECT l.id, COALESCE(l.semantic_handle, ''), l.fact_predicate, l.shard_type, l.learned_at,
 			       COALESCE(l.embedding_model_id, ''), COALESCE(l.embedding_dim, 0), COALESCE(l.embedding_task, ''),
-			       vec_distance_cosine(v.embedding, ?) AS distance
+			       vec_distance_cosine(v.embedding, ?) AS distance,
+			       COALESCE(l.source_campaign, ''), COALESCE(l.confidence, 0)
 			FROM learnings_vec v
 			JOIN learnings l ON l.id = v.learning_id
 			ORDER BY distance ASC
@@ -263,7 +300,7 @@ func (ls *LearningStore) recallLearningsInShard(query []float32, shardType strin
 			for rows.Next() {
 				var hit LearningRecallHit
 				var distance sql.NullFloat64
-				if err := rows.Scan(&hit.LearningID, &hit.Summary, &hit.Predicate, &hit.ShardType, &hit.LearnedAt, &hit.EmbeddingModelID, &hit.EmbeddingDim, &hit.EmbeddingTask, &distance); err != nil {
+				if err := rows.Scan(&hit.LearningID, &hit.Summary, &hit.Predicate, &hit.ShardType, &hit.LearnedAt, &hit.EmbeddingModelID, &hit.EmbeddingDim, &hit.EmbeddingTask, &distance, &hit.SourceCampaign, &hit.Confidence); err != nil {
 					continue
 				}
 				if distance.Valid {
@@ -271,7 +308,7 @@ func (ls *LearningStore) recallLearningsInShard(query []float32, shardType strin
 				}
 				hits = append(hits, hit)
 			}
-			return hits, nil
+			return hits, rows.Err()
 		}
 		logging.Get(logging.CategoryStore).Error("vec search failed for learnings: %v", err)
 	} else {
@@ -280,7 +317,12 @@ func (ls *LearningStore) recallLearningsInShard(query []float32, shardType strin
 		// severity. Blaming sqlite-vec for a cold index sends the operator to
 		// build flags when the real answer is "the reflection worker has not
 		// embedded anything for this shard yet", which resolves on its own.
-		if vecExtensionAvailable(db) {
+		var vecVersion string
+		vecErr := db.QueryRowContext(ctx, "SELECT vec_version()").Scan(&vecVersion)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if vecErr == nil {
 			// Extension is present; syncLearningVectorIndex simply has not run
 			// for this shard yet (no embedded learnings => no table). Expected
 			// on a cold or low-learning store, so this is not a warning.
@@ -295,28 +337,34 @@ func (ls *LearningStore) recallLearningsInShard(query []float32, shardType strin
 	return nil, fmt.Errorf("ANN search failed (sqlite-vec required)")
 }
 
-func (ls *LearningStore) recallLearningsLexicalInShard(shardType string, keywords []string, limit int) ([]LearningRecallHit, error) {
+func (ls *LearningStore) recallLearningsLexicalInShard(ctx context.Context, shardType string, keywords []string, limit int) ([]LearningRecallHit, error) {
 	db, err := ls.getDB(shardType)
 	if err != nil {
 		return nil, err
 	}
 
+	// Match keywords against the semantic handle AND the raw predicate/args so
+	// newly saved rows and legacy rows with NULL or
+	// empty handles remain lexically discoverable without any embedding.
 	var conditions []string
 	var args []any
+	escape := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
 	for _, kw := range keywords {
-		conditions = append(conditions, "LOWER(semantic_handle) LIKE ?")
-		args = append(args, "%"+strings.ToLower(kw)+"%")
+		pat := "%" + escape.Replace(strings.ToLower(kw)) + "%"
+		conditions = append(conditions, `(LOWER(COALESCE(semantic_handle, '')) LIKE ? ESCAPE '\' OR LOWER(fact_predicate) LIKE ? ESCAPE '\' OR LOWER(fact_args) LIKE ? ESCAPE '\')`)
+		args = append(args, pat, pat, pat)
 	}
 	querySQL := fmt.Sprintf(`
-			SELECT id, shard_type, fact_predicate, COALESCE(semantic_handle, ''), learned_at,
-			       COALESCE(embedding_model_id, ''), COALESCE(embedding_dim, 0), COALESCE(embedding_task, '')
+			SELECT id, shard_type, fact_predicate, COALESCE(semantic_handle, ''), fact_args, learned_at,
+			       COALESCE(embedding_model_id, ''), COALESCE(embedding_dim, 0), COALESCE(embedding_task, ''),
+			       COALESCE(source_campaign, ''), COALESCE(confidence, 0)
 			FROM learnings
 			WHERE %s
 			ORDER BY learned_at DESC
 			LIMIT ?`, strings.Join(conditions, " OR "))
 	args = append(args, limit*3)
 
-	rows, err := db.Query(querySQL, args...)
+	rows, err := db.QueryContext(ctx, querySQL, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -325,13 +373,30 @@ func (ls *LearningStore) recallLearningsLexicalInShard(shardType string, keyword
 	var hits []LearningRecallHit
 	for rows.Next() {
 		var hit LearningRecallHit
-		if err := rows.Scan(&hit.LearningID, &hit.ShardType, &hit.Predicate, &hit.Summary, &hit.LearnedAt, &hit.EmbeddingModelID, &hit.EmbeddingDim, &hit.EmbeddingTask); err != nil {
-			continue
+		var argsJSON string
+		if err := rows.Scan(&hit.LearningID, &hit.ShardType, &hit.Predicate, &hit.Summary, &argsJSON, &hit.LearnedAt, &hit.EmbeddingModelID, &hit.EmbeddingDim, &hit.EmbeddingTask, &hit.SourceCampaign, &hit.Confidence); err != nil {
+			return nil, err
 		}
-		hit.Score = lexicalScore(hit.Summary, keywords)
+		// Reuse the canonical handle builder for rows that predate handles
+		// instead of inventing a summary; this mirrors what Save now stores.
+		effective := strings.TrimSpace(hit.Summary)
+		if effective == "" {
+			var factArgs []any
+			if argsJSON != "" {
+				if err := json.Unmarshal([]byte(argsJSON), &factArgs); err != nil {
+					return nil, fmt.Errorf("decode learning %d: %w", hit.LearningID, err)
+				}
+			}
+			effective = buildLearningHandle(hit.ShardType, hit.Predicate, factArgs)
+			hit.Summary = effective
+		}
+		// Score against handle plus predicate/args so legacy NULL-handle rows
+		// rank on their actual saved content.
+		combined := effective + " " + hit.Predicate + " " + argsJSON
+		hit.Score = lexicalScore(combined, keywords)
 		hits = append(hits, hit)
 	}
-	return hits, nil
+	return hits, rows.Err()
 }
 
 func (ls *LearningStore) listShardTypes() []string {

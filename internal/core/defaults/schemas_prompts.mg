@@ -389,6 +389,9 @@ Decl atom_tag(AtomID, Dimension, Tag) bound [/string, /name, /name].
 # Score: Cosine similarity score (0.0-1.0)
 Decl vector_hit(AtomID, Score) bound [/string, /number].
 
+# Ephemeral knowledge matched by a bounded runtime lookup, not a vector score.
+Decl retrieved_context(AtomID) bound [/string].
+
 # current_context(Dimension, Tag)
 # Runtime context state injected by Go (alternative to compile_context)
 # Used by jit_compiler.mg for context matching

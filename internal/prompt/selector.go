@@ -1005,6 +1005,15 @@ func (s *AtomSelector) loadFleshAtomsKernel(
 	for id, score := range vectorScores {
 		facts = append(facts, "vector_hit("+mangleQuoteString(id)+", "+strconv.FormatInt(vectorScoreToPercent(score), 10)+")")
 	}
+	// Runtime retrieval has already matched these ephemeral records to the
+	// task. They cannot appear in the persistent prompt-vector index. Emit a
+	// distinct witness so Mangle still applies context, conflict and dependency
+	// rules without pretending this was a cosine similarity or mandatory atom.
+	for _, atom := range fleshAtoms {
+		if atom.RetrievedContext {
+			facts = append(facts, "retrieved_context("+mangleQuoteString(atom.ID)+")")
+		}
+	}
 
 	// Step 3: Query Mangle (if kernel available)
 	if kernel == nil {
@@ -1337,25 +1346,25 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 				facts = append(facts, fb.String())
 			}
 		}
-			addTags("mode", atom.OperationalModes)
-			addTags("phase", atom.CampaignPhases)
-			addTags("layer", atom.BuildLayers)
-			addTags("init_phase", atom.InitPhases)
-			addTags("northstar_phase", atom.NorthstarPhases)
-			addTags("ouroboros_stage", atom.OuroborosStages)
-			addTags("intent", atom.IntentVerbs)
-			// Emit both /shard and /shard_type because policy uses both (jit_selection.mg:196 reads /shard, :253 reads /shard_type); remove duplication once corpus settles on one name.
-			addTags("shard", atom.ShardTypes)
-			addTags("shard_type", atom.ShardTypes)
-			addTags("lang", atom.Languages)
-			addTags("framework", atom.Frameworks)
-			addTags("state", atom.WorldStates)
-			// Pin dimensions. Both are regime dimensions in jit_compiler.mg, so
-			// emitting the tag is what arms the fail-closed block: an atom with
-			// a /provider or /model tag is admitted only on a compile whose
-			// current_context carries a matching one.
-			addTags("provider", atom.Providers)
-			addTags("model", atom.Models)
+		addTags("mode", atom.OperationalModes)
+		addTags("phase", atom.CampaignPhases)
+		addTags("layer", atom.BuildLayers)
+		addTags("init_phase", atom.InitPhases)
+		addTags("northstar_phase", atom.NorthstarPhases)
+		addTags("ouroboros_stage", atom.OuroborosStages)
+		addTags("intent", atom.IntentVerbs)
+		// Emit both /shard and /shard_type because policy uses both (jit_selection.mg:196 reads /shard, :253 reads /shard_type); remove duplication once corpus settles on one name.
+		addTags("shard", atom.ShardTypes)
+		addTags("shard_type", atom.ShardTypes)
+		addTags("lang", atom.Languages)
+		addTags("framework", atom.Frameworks)
+		addTags("state", atom.WorldStates)
+		// Pin dimensions. Both are regime dimensions in jit_compiler.mg, so
+		// emitting the tag is what arms the fail-closed block: an atom with
+		// a /provider or /model tag is admitted only on a compile whose
+		// current_context carries a matching one.
+		addTags("provider", atom.Providers)
+		addTags("model", atom.Models)
 
 		// Dependencies - needed for atom_requires() in jit_compiler.mg
 		for _, dep := range atom.DependsOn {

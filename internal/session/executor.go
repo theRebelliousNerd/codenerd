@@ -875,6 +875,17 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 
 	// 2. ORIENT: Build compilation context from intent + world state
 	compilationCtx := e.buildCompilationContext(ctx, intent)
+	// Delegation frequently supplies only a verb in its structured intent.
+	// The actual task must reach retrieval; searching for the expert's name
+	// instead made every task share a cache key and discard task-specific memory.
+	if query := strings.TrimSpace(input); query != "" {
+		const maxRetrievalQueryRunes = 4096
+		runes := []rune(query)
+		if len(runes) > maxRetrievalQueryRunes {
+			query = string(runes[:maxRetrievalQueryRunes])
+		}
+		compilationCtx.SemanticQuery = query
+	}
 
 	// 3. JIT: Compile prompt with persona, skills, context
 	var compileResult *prompt.CompilationResult

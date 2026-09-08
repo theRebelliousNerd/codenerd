@@ -27,6 +27,9 @@
   live calls/rounds nudge short and attach it to a paired tool result.
 - New LLM-facing behavior is a prompt atom first. `AvailableTools` describes the
   effective envelope; it is not authority.
+- Pass bounded task text into JIT retrieval even when delegation supplies only
+  an intent verb. Distinct tasks must have distinct retrieval/cache identities;
+  an expert's name is not a substitute for its actual task.
 - Completion is revision-bound. Preserve `artifact_changed`, `checks_passed`,
   and `behavior_verified` as distinct stages. Missing acceptance or stale checks
   mean unverified. Final repair edits invalidate earlier witnesses.

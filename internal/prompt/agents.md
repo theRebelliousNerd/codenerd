@@ -34,3 +34,11 @@
   `/test`, `/benchmark`, or `/profile` intents.
 
 - `ReloadAllPrompts` aggregates discovered-agent failures for its caller; a partial atom count must not hide a missing or invalid expert database.
+- Knowledge retrieval combines project knowledge with only the selected expert's
+  registered database. Keep queries bounded and cancellable, preserve source and
+  confidence in compiled context, and never close a borrowed handle. Test both
+  missing-source controls and actual compiled inclusion; a stored row alone is
+  not evidence that an expert consumed it.
+- Ephemeral lookup results emit `retrieved_context` for Mangle selection. Keep
+  that witness distinct from vector similarity and mandatory atoms; context,
+  conflict, dependency, and token-budget rules still apply.

@@ -220,6 +220,15 @@ candidate_selection(Atom, Score) :-
     !blocked_by_context(Atom),
     !prohibited(Atom).
 
+# Runtime knowledge and learnings do not live in the prompt-vector index.
+# Their retrieval witness admits a candidate, while the same executive
+# context, conflict, dependency, and final budget checks still apply.
+candidate_selection(Atom, Priority) :-
+    retrieved_context(Atom),
+    atom_priority(Atom, Priority),
+    !blocked_by_context(Atom),
+    !prohibited(Atom).
+
 # --- 4. CONFLICT RESOLUTION (Score-Based) ---
 
 # Conflict: A beats B if they conflict and A has higher score.

@@ -155,15 +155,28 @@ func (ls *LearningStore) Save(shardType string, factPredicate string, factArgs [
 		return fmt.Errorf("failed to marshal fact args: %w", err)
 	}
 
-	// Upsert - if exists, just update confidence (reinforce learning)
+	// Build lexical handle immediately so fresh-process JIT recall works
+	// without waiting for the embedding worker. Reuses the canonical
+	// reflection helper so Save and the worker agree on handle text.
+	handle := buildLearningHandle(shardType, factPredicate, factArgs)
+	handleVersion := 0
+	handleHash := ""
+	if handle != "" {
+		handleVersion = learningHandleVersion
+		handleHash = computeDescriptorHash(handle)
+	}
+
+	// Reinforcement preserves existing descriptor and embedding identity. Legacy
+	// missing handles remain readable through the lexical fallback; the reflection
+	// worker owns migration and re-embedding of older descriptors.
 	_, err = db.Exec(`
-		INSERT INTO learnings (shard_type, fact_predicate, fact_args, source_campaign, confidence)
-		VALUES (?, ?, ?, ?, 1.0)
+		INSERT INTO learnings (shard_type, fact_predicate, fact_args, source_campaign, confidence, semantic_handle, handle_version, handle_hash)
+		VALUES (?, ?, ?, ?, 1.0, ?, ?, ?)
 		ON CONFLICT(fact_predicate, fact_args) DO UPDATE SET
 			confidence = MIN(1.0, confidence + 0.1),
 			learned_at = CURRENT_TIMESTAMP,
 			source_campaign = excluded.source_campaign
-	`, shardType, factPredicate, string(argsJSON), sourceCampaign)
+	`, shardType, factPredicate, string(argsJSON), sourceCampaign, handle, handleVersion, handleHash)
 
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to save learning %s: %v", factPredicate, err)
@@ -197,8 +210,8 @@ func (ls *LearningStore) SaveBatch(shardType string, learnings []types.ShardLear
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO learnings (shard_type, fact_predicate, fact_args, source_campaign, confidence)
-		VALUES (?, ?, ?, ?, 1.0)
+		INSERT INTO learnings (shard_type, fact_predicate, fact_args, source_campaign, confidence, semantic_handle, handle_version, handle_hash)
+		VALUES (?, ?, ?, ?, 1.0, ?, ?, ?)
 		ON CONFLICT(fact_predicate, fact_args) DO UPDATE SET
 			confidence = MIN(1.0, confidence + 0.1),
 			learned_at = CURRENT_TIMESTAMP,
@@ -216,7 +229,16 @@ func (ls *LearningStore) SaveBatch(shardType string, learnings []types.ShardLear
 			return fmt.Errorf("failed to marshal fact args: %w", err)
 		}
 
-		_, err = stmt.Exec(shardType, learning.FactPredicate, string(argsJSON), sourceCampaign)
+		// Build lexical handle immediately so fresh-process recall works without embedding.
+		handle := buildLearningHandle(shardType, learning.FactPredicate, learning.FactArgs)
+		handleVersion := 0
+		handleHash := ""
+		if handle != "" {
+			handleVersion = learningHandleVersion
+			handleHash = computeDescriptorHash(handle)
+		}
+
+		_, err = stmt.Exec(shardType, learning.FactPredicate, string(argsJSON), sourceCampaign, handle, handleVersion, handleHash)
 		if err != nil {
 			logging.Get(logging.CategoryStore).Error("Failed to save learning in batch %s: %v", learning.FactPredicate, err)
 			return err

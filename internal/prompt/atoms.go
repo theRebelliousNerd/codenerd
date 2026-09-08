@@ -233,6 +233,11 @@ type PromptAtom struct {
 	// Description used for semantic search (embedded instead of Content)
 	Description string `json:"description"`
 
+	// RetrievedContext marks ephemeral knowledge or learning that a bounded
+	// runtime lookup already matched to this compilation. It is not authorable
+	// through YAML and is not a vector similarity or mandatory-safety override.
+	RetrievedContext bool `json:"-"`
+
 	// Concise version for tight token budgets
 	ContentConcise string `json:"content_concise,omitempty"`
 

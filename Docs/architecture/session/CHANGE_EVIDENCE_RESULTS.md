@@ -72,3 +72,49 @@ RSS. They establish neither a token-saving result nor a 10M-LOC scale result.
 Campaign host checks, native Windows verification, and TDD now distinguish actual
 execution outcomes from model prose. The full marathon and matched coding-task
 comparisons remain open; completed-turn counts are not acceptance evidence.
+
+### Persistent knowledge and measured learning
+
+A subsequent force-init live run preserved all 11 curated expert prompt files
+byte-for-byte and all 398 grounded knowledge records; 116 enrichment calls
+succeeded. Five token-efficiency experts were consulted and their methodology
+reused in fresh processes.
+
+Live probes then exposed three retrieval gaps: expert databases were absent from
+knowledge lookup, delegated task text was absent from the retrieval query, and
+ephemeral lookup results were discarded unless present in the prompt-vector
+index. The repair carries bounded expert/project lookups through a distinct
+`retrieved_context` witness into Mangle selection, preserving context, conflict,
+dependency and budget checks. A production-factory test fails against the prior
+source and passes with the repair, including a sibling-isolation control.
+
+New learnings now receive sanitized lexical handles immediately; legacy records
+remain recallable before embedding. Recall preserves source, confidence and
+timestamp, honors cancellation, and reinforcement preserves descriptor/embedding
+identity. Fresh live experts retrieved a source-only control with its exact
+concept and confidence, then reused measured kernel latency and memory costs.
+An initially overlong learning lost its trailing limitations at the existing
+600-character descriptor boundary; replacing it with a bounded capsule preserved
+both measurements and uncertainty. Raw records and earlier failed probes remain
+in the local marathon artifacts.
+
+### Matched coding trials: overhead remains substantial
+
+[Twelve trial results](token_efficiency_prompt_trials.json) use three small Go
+regressions, the same model and call limits, fresh workspaces, and caller-owned
+acceptance tests whose contents must remain unchanged.
+
+| Condition | Accepted | Total tokens, including failed attempts |
+|---|---:|---:|
+| Minimal tool loop | 3/3 | 114,630 |
+| Earlier production executor | 2/3 | 512,743 |
+| Updated production executor | 3/3 | 597,110 |
+| Updated executor with acceptance contract | 2/3 | 547,540 |
+
+No false completion was observed in these twelve runs. This is one invocation
+per task/condition, with provider and host variability; it does not establish
+causal token savings. Setup, expert consultation and earlier repair costs are
+separate and must enter whole-marathon totals. One successful tiny-task prompt
+contained 78 atoms and about 30,000 tokens, including guidance for tools absent
+from its five-tool catalog. The experts identified capability-aware prompt
+selection as the next controlled improvement. The broader campaign remains open.

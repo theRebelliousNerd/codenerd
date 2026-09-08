@@ -205,7 +205,7 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 // silent miss: the agent's own prompt atoms were loaded, indexed, and never
 // selected. Normalizing both ends removes the whole class.
 func shardDBKey(shardID string) string {
-	return strings.ToLower(strings.TrimSpace(strings.TrimPrefix(shardID, "/")))
+	return strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(shardID), "/")))
 }
 
 // RegisterShardDB registers a shard-specific atom database.
@@ -284,11 +284,17 @@ func (c *JITPromptCompiler) SetLearningStore(ls *store.LearningStore) {
 	c.learningStore = ls
 }
 
-// collectKnowledgeAtoms queries the LocalStore for semantically relevant knowledge atoms
-// and converts them to ephemeral PromptAtoms for JIT compilation.
-// This is the core of the Semantic Knowledge Bridge - connecting stored documentation
-// knowledge to runtime prompt assembly.
+// collectKnowledgeAtoms queries project knowledge plus the selected expert's
+// registered knowledge DB and converts hits to ephemeral PromptAtoms.
+// This is the Semantic Knowledge Bridge with a bounded expert extension:
+// the project LocalStore is searched semantically (with a lexical fallback
+// when no embedding engine is configured) and the single selected expert DB
+// is searched lexically through the shared handle. Sibling experts are never
+// consulted. Missing knowledge reads as missing (nil); nothing is fabricated.
 func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
+	if cc == nil {
+		return nil
+	}
 	c.dbMu.RLock()
 	db := c.localDB
 	c.dbMu.RUnlock()
@@ -296,86 +302,139 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 	c.configMu.RLock()
 	timeout := c.config.KnowledgeSearchTimeout
 	c.configMu.RUnlock()
-
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
 
-	if db == nil || cc == nil {
+	var shardDB *sql.DB
+	var hasShard bool
+	if cc.ShardID != "" {
+		shardDB, hasShard = c.LookupShardDB(cc.ShardID)
+		if hasShard && shardDB == nil {
+			hasShard = false
+		}
+	}
+	if db == nil && !hasShard {
 		return nil
 	}
 
-	// Generate a comprehensive semantic query by applying keyword extraction
-	// (removing stop words) and query expansion (adding synonyms).
-	// This strategy optimizes retrieval quality for our vector embedding search
-	// and is superior to the prior heuristic string duplication logic.
 	query := buildExpandedQuery(cc)
 	if query == "" {
 		return nil
 	}
 
-	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
-	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
 	searchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Search for semantically relevant knowledge atoms
-	atoms, err := db.SearchKnowledgeAtomsSemantic(searchCtx, query, 5)
-	if err != nil {
-		if searchCtx.Err() != nil {
-			logging.Get(logging.CategoryJIT).Warn("Knowledge atom search timed out (%v limit), skipping", timeout)
-		} else {
-			logging.Get(logging.CategoryJIT).Debug("Knowledge atom search failed: %v", err)
-		}
+	// Explicit task terms precede expanded routing terms in bounded lexical
+	// retrieval. Search the selected expert first so a slow project embedding
+	// cannot consume its entire deadline before the expert is consulted.
+	expertQuery := strings.TrimSpace(cc.SemanticQuery + " " + query)
+	expertAtoms := collectExpertKnowledgeAtoms(searchCtx, cc, shardDB, hasShard, expertQuery)
+	projectAtoms := c.collectProjectKnowledgeAtoms(searchCtx, db, query)
+	if len(projectAtoms) == 0 && len(expertAtoms) == 0 {
+		return nil
+	}
+	if ctx.Err() != nil {
 		return nil
 	}
 
-	if len(atoms) == 0 {
+	seen := make(map[string]struct{}, len(projectAtoms)+len(expertAtoms))
+	result := make([]*PromptAtom, 0, len(projectAtoms)+len(expertAtoms))
+	result = appendKnowledgePromptAtoms(result, seen, projectAtoms, cc.ShardID, "project")
+	result = appendKnowledgePromptAtoms(result, seen, expertAtoms, cc.ShardID, "expert:"+shardDBKey(cc.ShardID))
+	if len(result) == 0 {
 		return nil
-	}
-
-	// Convert to ephemeral PromptAtoms
-	result := make([]*PromptAtom, 0, len(atoms))
-	for _, atom := range atoms {
-		// Format content with concept context
-		content := atom.Content
-		if atom.Concept != "" {
-			// Extract meaningful category from concept (e.g., "doc/path/architecture/patterns" -> "architecture/patterns")
-			// Optimized to avoid strings.Split/Join allocation
-			idx1 := strings.IndexByte(atom.Concept, '/')
-			if idx1 != -1 {
-				idx2 := strings.IndexByte(atom.Concept[idx1+1:], '/')
-				if idx2 != -1 {
-					// The second slash is at idx1 + 1 + idx2
-					realIdx2 := idx1 + 1 + idx2
-					if realIdx2+1 < len(atom.Concept) {
-						category := atom.Concept[realIdx2+1:]
-						// Optimized formatting to avoid fmt.Sprintf reflection
-						content = "[" + category + "] " + atom.Content
-					}
-				}
-			}
-		}
-
-		// Create prompt atom with appropriate priority
-		// Priority 85 = below specialist_knowledge (90) but above regular context
-		// Optimized to avoid fmt.Sprintf
-		atomID := "knowledge/" + HashContent(content)[:8]
-		pa := NewPromptAtom(atomID, CategoryKnowledge, content)
-		pa.Priority = 85
-		pa.IsMandatory = false // Knowledge is contextual, not mandatory
-		if cc.ShardID != "" {
-			pa.ShardTypes = []string{cc.ShardID}
-		}
-
-		result = append(result, pa)
 	}
 
 	logging.Get(logging.CategoryJIT).Debug(
-		"Collected %d knowledge atoms for query: %s",
-		len(result), truncateQuery(query, 50))
+		"Collected %d knowledge atoms (project=%d expert=%d) for query: %s",
+		len(result), len(projectAtoms), len(expertAtoms), truncateQuery(query, 50))
 
 	return result
+}
+
+// collectProjectKnowledgeAtoms searches existing project knowledge.
+// Semantic search runs first; when it yields nothing (for example no
+// embedding engine) a bounded lexical search covers the same table.
+func (c *JITPromptCompiler) collectProjectKnowledgeAtoms(ctx context.Context, db *store.LocalStore, query string) []store.KnowledgeAtom {
+	if db == nil {
+		return nil
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	atoms, err := db.SearchKnowledgeAtomsSemantic(ctx, query, 5)
+	if err == nil && len(atoms) > 0 {
+		return atoms
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	lex, lerr := db.SearchKnowledgeAtomsLexical(ctx, query, 5)
+	if lerr != nil || len(lex) == 0 {
+		if lerr != nil {
+			logging.Get(logging.CategoryJIT).Debug("Project knowledge lookup failed: %v", lerr)
+		}
+		return nil
+	}
+	return lex
+}
+
+// collectExpertKnowledgeAtoms searches only the selected expert's registered
+// DB via its shared handle. It never iterates sibling experts, never opens a
+// new store, and never closes a DB owned by the shard registry.
+func collectExpertKnowledgeAtoms(ctx context.Context, cc *CompilationContext, shardDB *sql.DB, hasShard bool, query string) []store.KnowledgeAtom {
+	if !hasShard || shardDB == nil || cc == nil {
+		return nil
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	atoms, err := store.SearchKnowledgeAtomsLexicalDB(ctx, shardDB, query, 5)
+	if err != nil || len(atoms) == 0 {
+		if err != nil {
+			logging.Get(logging.CategoryJIT).Debug("Expert knowledge lookup failed for %s: %v", cc.ShardID, err)
+		}
+		return nil
+	}
+	return atoms
+}
+
+// knowledgeAtomToPromptAtom retains source identity and stored confidence in
+// the actual context, so a tentative advisory is not rendered as an unqualified
+// fact. Confidence describes the stored claim, not behavioral verification.
+func knowledgeAtomToPromptAtom(atom store.KnowledgeAtom, shardID, source string) *PromptAtom {
+	content := fmt.Sprintf("[knowledge source=%q concept=%q confidence=%g]\n%s", source, atom.Concept, atom.Confidence, atom.Content)
+	atomID := "knowledge/" + HashContent(content)[:8]
+	pa := NewPromptAtom(atomID, CategoryKnowledge, content)
+	pa.RetrievedContext = true
+	pa.Priority = 85
+	pa.IsMandatory = false
+	if shardID != "" {
+		pa.ShardTypes = []string{shardDBKey(shardID)}
+	}
+	return pa
+}
+
+// appendKnowledgePromptAtoms converts hits, dedupes by ephemeral atom ID, and
+// caps the merged project-plus-expert set so one compile stays bounded.
+func appendKnowledgePromptAtoms(dst []*PromptAtom, seen map[string]struct{}, atoms []store.KnowledgeAtom, shardID, source string) []*PromptAtom {
+	for _, atom := range atoms {
+		if len(dst) >= 10 {
+			break
+		}
+		pa := knowledgeAtomToPromptAtom(atom, shardID, source)
+		if _, dup := seen[pa.ID]; dup {
+			continue
+		}
+		seen[pa.ID] = struct{}{}
+		dst = append(dst, pa)
+		if len(dst) >= 10 {
+			break
+		}
+	}
+	return dst
 }
 
 // collectLearningAtoms queries the LearningStore for relevant past learnings.
@@ -404,14 +463,10 @@ func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *Compil
 	searchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Wait for the context or do search
-	// Currently LearningStore lexical search doesn't take context, so we just run it
-	_ = searchCtx
-
 	var hits []store.LearningRecallHit
 	if c.vectorSearcher != nil {
 		if queryEmbedding, err := c.vectorSearcher.EmbedQuery(searchCtx, query); err == nil {
-			hits, err = ls.RecallLearningsByEmbedding(queryEmbedding, 5)
+			hits, err = ls.RecallLearningsByEmbeddingContext(searchCtx, queryEmbedding, 5)
 			if err != nil {
 				logging.Get(logging.CategoryJIT).Debug("Semantic learning atom search failed, falling back to lexical: %v", err)
 			}
@@ -423,7 +478,7 @@ func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *Compil
 	// Fallback to lexical if no semantic hits or vector searcher missing
 	if len(hits) == 0 {
 		var err error
-		hits, err = ls.RecallLearningsLexical(query, 5)
+		hits, err = ls.RecallLearningsLexicalContext(searchCtx, query, 5)
 		if err != nil {
 			logging.Get(logging.CategoryJIT).Debug("Lexical learning atom search failed: %v", err)
 			return nil
@@ -436,9 +491,11 @@ func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *Compil
 
 	result := make([]*PromptAtom, 0, len(hits))
 	for _, hit := range hits {
-		content := fmt.Sprintf("[%s] %s: %s", hit.ShardType, hit.Predicate, hit.Summary)
+		content := fmt.Sprintf("[learning shard=%q source_campaign=%q learned_at=%q confidence=%g]\n%s: %s",
+			hit.ShardType, hit.SourceCampaign, hit.LearnedAt.Format(time.RFC3339), hit.Confidence, hit.Predicate, hit.Summary)
 		atomID := "learning/" + HashContent(content)[:8]
 		pa := NewPromptAtom(atomID, CategoryKnowledge, content)
+		pa.RetrievedContext = true
 		pa.Priority = 88 // slightly above regular knowledge
 		pa.IsMandatory = false
 		if cc.ShardID != "" {
