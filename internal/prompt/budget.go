@@ -949,6 +949,12 @@ func tokenCountForMode(atom *PromptAtom, mode string) int {
 }
 
 func truncateAtomToBudget(atom *PromptAtom, maxTokens int) {
+	// Retrieved evidence is indivisible: truncating its tail can remove the
+	// qualification that makes a measurement safe to interpret. Fit it whole
+	// in the second pass or omit it; never spend tokens on a partial witness.
+	if atom.RetrievedContext {
+		return
+	}
 	if maxTokens <= 0 {
 		atom.Content = ""
 		atom.TokenCount = 0

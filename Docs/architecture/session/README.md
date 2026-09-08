@@ -2,6 +2,17 @@
 
 > Corpus: `session` | Live owner: `internal/session` | Verified: 2026-07-13
 
+September 8 measured update: capability-aware JIT at `72c08292` accepted 9/9
+private Go fixes versus 8/9 for `049c424d`, using 20.1% fewer total tokens across
+18 runs, including failures. See [the frozen trial evidence](token_efficiency_capability_trials.json).
+There was no latency improvement; three codeNERD authoring turns consumed
+16.58M tokens and required root review and integration. This is a narrow runtime
+improvement, not net development savings, unattended autonomy, or 10M-LOC evidence.
+A subsequent live recall failure exposed truncated learning descriptors and
+budget fragments; bounded hybrid retrieval now hydrates complete saved facts,
+and retrieved evidence fits whole or is omitted. A fresh expert recalled the
+measurements and qualifications with zero tools after that separate repair.
+
 ## In one minute
 
 Session is where codeNERD turns one structured request into a bounded interaction

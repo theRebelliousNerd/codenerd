@@ -9,3 +9,6 @@
   query limits, provenance, cancellation, and missing-result behavior explicit.
 - Test fresh reopen, unembedded and legacy records, and negative queries. A row
   count or an embedding-worker test alone does not establish runtime recall.
+- `RecallLearningContentContext` hydrates one ranked fact with a bounded,
+  cancellable query and existing secret redaction. Preserve its qualifications;
+  reject oversized content instead of treating the short handle as a full fact.

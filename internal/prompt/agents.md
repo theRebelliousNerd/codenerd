@@ -42,6 +42,10 @@
 - Ephemeral lookup results emit `retrieved_context` for Mangle selection. Keep
   that witness distinct from vector similarity and mandatory atoms; context,
   conflict, dependency, and token-budget rules still apply.
+- Learning recall merges bounded lexical and semantic results, with explicit
+  task terms first and `(shard, learning ID)` identity. Hydrate saved facts;
+  search handles are truncated descriptors, not evidence. Retrieved context
+  must fit whole or be omitted, including in the budget manager's second pass.
 
 - Capability gating is envelope-first: `requires_tools` on an atom declares
   the executable tools its guidance is valid for; `CompilationContext.AvailableTools`

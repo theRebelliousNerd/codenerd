@@ -465,10 +465,17 @@ func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *Compil
 	searchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	var hits []store.LearningRecallHit
+	// Search the explicit target before expanded routing terms. Always include
+	// lexical retrieval: an older vector hit must not hide an unembedded fact.
+	lexicalQuery := strings.TrimSpace(cc.IntentTarget + " " + cc.SemanticQuery + " " + query)
+	lexical, lexErr := ls.RecallLearningsLexicalContext(searchCtx, lexicalQuery, 5)
+	if lexErr != nil {
+		logging.Get(logging.CategoryJIT).Debug("Lexical learning atom search failed: %v", lexErr)
+	}
+	var semantic []store.LearningRecallHit
 	if c.vectorSearcher != nil {
 		if queryEmbedding, err := c.vectorSearcher.EmbedQuery(searchCtx, query); err == nil {
-			hits, err = ls.RecallLearningsByEmbeddingContext(searchCtx, queryEmbedding, 5)
+			semantic, err = ls.RecallLearningsByEmbeddingContext(searchCtx, queryEmbedding, 5)
 			if err != nil {
 				logging.Get(logging.CategoryJIT).Debug("Semantic learning atom search failed, falling back to lexical: %v", err)
 			}
@@ -477,15 +484,7 @@ func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *Compil
 		}
 	}
 
-	// Fallback to lexical if no semantic hits or vector searcher missing
-	if len(hits) == 0 {
-		var err error
-		hits, err = ls.RecallLearningsLexicalContext(searchCtx, query, 5)
-		if err != nil {
-			logging.Get(logging.CategoryJIT).Debug("Lexical learning atom search failed: %v", err)
-			return nil
-		}
-	}
+	hits := mergeLearningRecallHits(lexical, semantic, 5)
 
 	if len(hits) == 0 {
 		return nil
@@ -493,8 +492,13 @@ func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *Compil
 
 	result := make([]*PromptAtom, 0, len(hits))
 	for _, hit := range hits {
+		body, err := ls.RecallLearningContentContext(searchCtx, hit)
+		if err != nil {
+			logging.Get(logging.CategoryJIT).Debug("Learning content unavailable: %v", err)
+			continue
+		}
 		content := fmt.Sprintf("[learning shard=%q source_campaign=%q learned_at=%q confidence=%g]\n%s: %s",
-			hit.ShardType, hit.SourceCampaign, hit.LearnedAt.Format(time.RFC3339), hit.Confidence, hit.Predicate, hit.Summary)
+			hit.ShardType, hit.SourceCampaign, hit.LearnedAt.Format(time.RFC3339), hit.Confidence, hit.Predicate, body)
 		atomID := "learning/" + HashContent(content)[:8]
 		pa := NewPromptAtom(atomID, CategoryKnowledge, content)
 		pa.RetrievedContext = true
@@ -510,6 +514,31 @@ func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *Compil
 		"Collected %d learning atoms for query: %s",
 		len(result), truncateQuery(query, 50))
 
+	return result
+}
+
+// Interleave ranked sources without comparing incomparable vector and lexical
+// scores. Identity includes the shard because learning IDs are database-local.
+func mergeLearningRecallHits(lexical, semantic []store.LearningRecallHit, limit int) []store.LearningRecallHit {
+	type key struct {
+		shard string
+		id    int64
+	}
+	seen := make(map[key]bool)
+	var result []store.LearningRecallHit
+	for i := 0; i < max(len(lexical), len(semantic)) && len(result) < limit; i++ {
+		for _, source := range [][]store.LearningRecallHit{lexical, semantic} {
+			if i >= len(source) || len(result) >= limit {
+				continue
+			}
+			hit := source[i]
+			k := key{hit.ShardType, hit.LearningID}
+			if !seen[k] {
+				seen[k] = true
+				result = append(result, hit)
+			}
+		}
+	}
 	return result
 }
 

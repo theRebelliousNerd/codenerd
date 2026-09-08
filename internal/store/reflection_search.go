@@ -41,6 +41,34 @@ type LearningRecallHit struct {
 	EmbeddingTask    string
 }
 
+// RecallLearningContentContext hydrates one ranked hit from its saved fact.
+// Semantic handles are short search descriptors, not complete evidence. Keep
+// this read bounded and redacted; oversized facts remain explicitly unknown.
+func (ls *LearningStore) RecallLearningContentContext(ctx context.Context, hit LearningRecallHit) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	db, err := ls.getDB(hit.ShardType)
+	if err != nil {
+		return "", err
+	}
+	var raw string
+	err = db.QueryRowContext(ctx, `SELECT CASE WHEN length(fact_args) <= 16384 THEN fact_args ELSE '' END
+		FROM learnings WHERE id = ? AND shard_type = ?`, hit.LearningID, hit.ShardType).Scan(&raw)
+	if err != nil {
+		return "", err
+	}
+	if raw == "" {
+		return "", fmt.Errorf("learning %d exceeds recall content limit", hit.LearningID)
+	}
+	var args []any
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return "", err
+	}
+	content := combinedKeyPattern.ReplaceAllString(joinArgs(args), "${1}[redacted]")
+	return combinedSecretPattern.ReplaceAllString(content, "[redacted]"), nil
+}
+
 // RecallTracesByEmbedding returns top trace hits for a query embedding.
 func (s *LocalStore) RecallTracesByEmbedding(query []float32, limit int) ([]TraceRecallHit, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "RecallTracesByEmbedding")
