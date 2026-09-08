@@ -4,6 +4,7 @@ package init
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 
 	"gopkg.in/yaml.v3"
@@ -48,6 +50,17 @@ type initResearchResult struct {
 
 const initFallbackNone = 0
 
+// agentPromptGenerationTimeout bounds each per-atom LLM generation for
+// prompts.yaml so a slow model cannot stall init. On timeout or cancellation
+// the caller falls back to the static (generic) template.
+func agentPromptGenerationTimeout() time.Duration {
+	timeout := config.GetLLMTimeouts().PerCallTimeout
+	if timeout <= 0 {
+		timeout = config.DefaultLLMTimeouts().PerCallTimeout
+	}
+	return timeout
+}
+
 // generateAgentPromptsYAML generates a prompts.yaml template for a Type B (persistent) agent.
 // Creates .nerd/agents/{name}/prompts.yaml with identity, methodology, and domain knowledge atoms.
 // generateAgentPromptsYAML generates a prompts.yaml template for a Type B (persistent) agent.
@@ -68,6 +81,15 @@ func (i *Initializer) generateAgentPromptsYAMLWithContext(ctx context.Context, a
 		return fmt.Errorf("failed to create agent directory: %w", err)
 	}
 	promptsPath := filepath.Join(agentDir, "prompts.yaml")
+	// A missing research DB does not authorize replacing curated prompt atoms.
+	if existing, err := os.ReadFile(promptsPath); err == nil {
+		if err := validatePromptsYAML(existing, strings.ToLower(agent.Name)); err != nil {
+			return fmt.Errorf("existing agent prompts: %w", err)
+		}
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	topicsStr := strings.Join(agent.Topics, ", ")
 	domainExpertise := formatDomainExpertise(agent.Topics)
 	agentNameLower := strings.ToLower(agent.Name)
@@ -268,44 +290,57 @@ func buildPromptsYAML(agentNameLower, displayName, description, domainExpertise,
 	)
 }
 
-// generateMethodologyContent asks the LLM for agent-specific methodology markdown.
-// The prompt is deliberately specific to this agent's domain and forbids generic advice.
-func (i *Initializer) generateMethodologyContent(ctx context.Context, agent RecommendedAgent) (string, error) {
+// generateAgentAtomContent runs a single per-atom LLM generation bounded by
+// agentPromptGenerationTimeout and routed through withJITPrompt so
+// InitLLMMetrics accounts for every provider attempt (retry accounting).
+// Timeout and cancellation are wrapped distinctly so callers fall back to the
+// generic (static) template with a clear reason while preserving
+// errors.Is(err, context.DeadlineExceeded) and errors.Is(err, context.Canceled).
+func (i *Initializer) generateAgentAtomContent(ctx context.Context, agent RecommendedAgent, kind, task string) (string, error) {
 	if i.config.LLMClient == nil {
 		return "", fmt.Errorf("nil LLM client")
 	}
-	topicsStr := strings.Join(agent.Topics, ", ")
-	prompt := fmt.Sprintf("You are generating the methodology prompt atom for the specialist agent %q whose role is %q and whose research topics are %q.\n\nWrite the markdown content for the methodology atom. Explain how THIS specialist approaches problems in its domain: its analysis approach, implementation standards, and quality assurance practices, tailored specifically to %s.\n\nRequirements:\n- Be specific to this agent's domain; do NOT give generic software-engineering advice.\n- The answer must be specific enough that it would be incorrect for a different specialist (for example, a Go concurrency expert vs a Cobra CLI expert vs a Mangle/Datalog logic expert).\n- Do NOT include YAML front matter or atom headers; only output the markdown body that will be placed inside the YAML 'content: |' block.\n- Keep it concise but thorough, using markdown headings and bullet points.\n- Generic software-engineering advice is not acceptable.", agent.Name, agent.Description, topicsStr, topicsStr)
-	genCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("%s generation for %q skipped, parent context done, falling back to generic template: %w", kind, agent.Name, err)
+	}
+	genCtx, cancel := context.WithTimeout(ctx, agentPromptGenerationTimeout())
 	defer cancel()
-	res, err := i.config.LLMClient.Complete(genCtx, prompt)
+	res, err := i.withJITPrompt(genCtx, "kb_agent", task, nil, func(callCtx context.Context, compiledPrompt string) (string, error) {
+		systemPrompt := strings.TrimSuffix(compiledPrompt, "\n\nTask: "+task)
+		if systemPrompt == compiledPrompt {
+			systemPrompt = strings.TrimSuffix(compiledPrompt, "\nTask: "+task)
+		}
+		return i.config.LLMClient.CompleteWithSystem(callCtx, systemPrompt, task)
+	})
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(genCtx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("%s generation for %q timed out after %s, falling back to generic template: %w", kind, agent.Name, agentPromptGenerationTimeout(), err)
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(genCtx.Err(), context.Canceled) {
+			return "", fmt.Errorf("%s generation for %q canceled, falling back to generic template: %w", kind, agent.Name, err)
+		}
 		return "", err
 	}
 	if strings.TrimSpace(res) == "" {
-		return "", fmt.Errorf("empty LLM response")
+		return "", fmt.Errorf("empty LLM response for %s generation for %q, falling back to generic template", kind, agent.Name)
 	}
 	return strings.TrimSpace(res), nil
+}
+
+// generateMethodologyContent asks the LLM for agent-specific methodology markdown.
+// The prompt is deliberately specific to this agent's domain and forbids generic advice.
+func (i *Initializer) generateMethodologyContent(ctx context.Context, agent RecommendedAgent) (string, error) {
+	topicsStr := strings.Join(agent.Topics, ", ")
+	task := fmt.Sprintf("You are generating the methodology prompt atom for the specialist agent %q whose role is %q and whose research topics are %q.\n\nWrite the markdown content for the methodology atom. Explain how THIS specialist approaches problems in its domain: its analysis approach, implementation standards, and quality assurance practices, tailored specifically to %s.\n\nRequirements:\n- Be specific to this agent's domain; do NOT give generic software-engineering advice.\n- The answer must be specific enough that it would be incorrect for a different specialist (for example, a Go concurrency expert vs a Cobra CLI expert vs a Mangle/Datalog logic expert).\n- Do NOT include YAML front matter or atom headers; only output the markdown body that will be placed inside the YAML 'content: |' block.\n- Keep it concise but thorough, using markdown headings and bullet points.\n- Generic software-engineering advice is not acceptable.", agent.Name, agent.Description, topicsStr, topicsStr)
+	return i.generateAgentAtomContent(ctx, agent, "methodology", task)
 }
 
 // generateDomainContent asks the LLM for agent-specific domain markdown.
 // The prompt demands concrete concepts, real pitfalls and practices for this specialist.
 func (i *Initializer) generateDomainContent(ctx context.Context, agent RecommendedAgent) (string, error) {
-	if i.config.LLMClient == nil {
-		return "", fmt.Errorf("nil LLM client")
-	}
 	topicsStr := strings.Join(agent.Topics, ", ")
-	prompt := fmt.Sprintf("You are generating the domain prompt atom for the specialist agent %q whose role is %q and whose research topics are %q.\n\nWrite the markdown content for the domain atom. Describe the concrete concepts, real pitfalls, and best practices that matter for those specific topics: %s.\n\nRequirements:\n- Cover Key Concepts (specific patterns, frameworks, or language features for this domain), Common Pitfalls (real gotchas and anti-patterns for these topics), Best Practices (domain-specific guidelines), and Resources.\n- Be specific to this agent's domain; do NOT give generic software-engineering advice.\n- The answer must be specific enough that it would be incorrect for a different specialist.\n- Do NOT include YAML front matter or atom headers; only output the markdown body for the YAML 'content: |' block.\n- Use markdown headings and bullet points.\n- Generic software-engineering advice is not acceptable.", agent.Name, agent.Description, topicsStr, topicsStr)
-	genCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	res, err := i.config.LLMClient.Complete(genCtx, prompt)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(res) == "" {
-		return "", fmt.Errorf("empty LLM response")
-	}
-	return strings.TrimSpace(res), nil
+	task := fmt.Sprintf("You are generating the domain prompt atom for the specialist agent %q whose role is %q and whose research topics are %q.\n\nWrite the markdown content for the domain atom. Describe the concrete concepts, real pitfalls, and best practices that matter for those specific topics: %s.\n\nRequirements:\n- Cover Key Concepts (specific patterns, frameworks, or language features for this domain), Common Pitfalls (real gotchas and anti-patterns for these topics), Best Practices (domain-specific guidelines), and Resources.\n- Be specific to this agent's domain; do NOT give generic software-engineering advice.\n- The answer must be specific enough that it would be incorrect for a different specialist.\n- Do NOT include YAML front matter or atom headers; only output the markdown body for the YAML 'content: |' block.\n- Use markdown headings and bullet points.\n- Generic software-engineering advice is not acceptable.", agent.Name, agent.Description, topicsStr, topicsStr)
+	return i.generateAgentAtomContent(ctx, agent, "domain", task)
 }
 
 // formatDomainExpertise formats the topics as a bulleted list for the identity atom.

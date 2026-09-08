@@ -93,10 +93,11 @@ func executeContext7(ctx context.Context, args map[string]any) (string, error) {
 		}
 	}
 
-	// If still no results, return a helpful message
+	// If still no results, return an error so callers do not ingest the
+	// "no documentation" message as researched knowledge.
 	if len(results) == 0 {
-		return fmt.Sprintf("No LLM-optimized documentation found for '%s'. "+
-			"Consider checking if the repository has a llms.txt file or README.md.", topic), nil
+		return "", fmt.Errorf("No LLM-optimized documentation found for '%s'. "+
+			"Consider checking if the repository has a llms.txt file or README.md.", topic)
 	}
 
 	// Combine results with headers

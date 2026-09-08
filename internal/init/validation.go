@@ -3,6 +3,7 @@
 package init
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -12,9 +13,55 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
+	"codenerd/internal/tools"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite driver
 )
+
+// initializeDiscoveredAgentStores gives disk-discovered specialists the same
+// unified schema as init-recommended specialists. Prompt synchronization alone
+// can create a prompt-only database; it cannot initialize durable knowledge.
+// Existing atoms are retained and an empty KB stays empty, with validation's
+// low-population warning, rather than manufacturing research to fill it.
+func initializeDiscoveredAgentStores(ctx context.Context, workspace string) error {
+	agentsDir, err := tools.ResolveWorkspacePath(ctx, workspace, ".nerd/agents")
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(agentsDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(agentsDir, entry.Name(), "prompts.yaml")); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		path, err := tools.ResolveWorkspacePath(ctx, workspace, filepath.Join(".nerd", "shards", strings.ToLower(entry.Name())+"_knowledge.db"))
+		if err != nil {
+			return err
+		}
+		db, err := store.NewLocalStore(path)
+		if err != nil {
+			return fmt.Errorf("initialize discovered specialist %s: %w", entry.Name(), err)
+		}
+		if err := db.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // ValidationResult holds the result of validating a single agent database.
 type ValidationResult struct {

@@ -162,11 +162,14 @@ func TestExecuteContext7_WhenNoDocsFound_ShouldReturnHelpfulMessage(t *testing.T
 		"topic": "nonexistent-lib-xyz",
 		"repo":  "owner/repo",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatalf("expected non-nil error for no docs, got result: %s", result)
 	}
-	if !strings.Contains(result, "No LLM-optimized documentation found") {
-		t.Errorf("expected 'no docs found' message, got: %s", result)
+	if result != "" {
+		t.Errorf("expected empty result on no-docs error, got: %s", result)
+	}
+	if !strings.Contains(err.Error(), "No LLM-optimized documentation found") {
+		t.Errorf("expected 'no docs found' error, got: %v", err)
 	}
 }
 

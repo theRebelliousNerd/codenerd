@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -613,11 +614,13 @@ func ReloadAllPrompts(ctx context.Context, nerdDir string, embeddingEngine embed
 	logging.Get(logging.CategoryStore).Info("Reloading all prompt atoms")
 
 	totalCount := 0
+	var failures []error
 
 	// Load project-level prompts
 	count, err := LoadProjectPrompts(ctx, nerdDir, embeddingEngine)
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to load project prompts: %v", err)
+		failures = append(failures, err)
 	} else {
 		totalCount += count
 	}
@@ -628,6 +631,7 @@ func ReloadAllPrompts(ctx context.Context, nerdDir string, embeddingEngine embed
 		entries, err := os.ReadDir(agentsDir)
 		if err != nil {
 			logging.Get(logging.CategoryStore).Warn("Failed to read agents directory: %v", err)
+			failures = append(failures, err)
 		} else {
 			for _, entry := range entries {
 				if !entry.IsDir() {
@@ -638,6 +642,7 @@ func ReloadAllPrompts(ctx context.Context, nerdDir string, embeddingEngine embed
 				count, err := LoadAgentPrompts(ctx, agentName, nerdDir, embeddingEngine)
 				if err != nil {
 					logging.Get(logging.CategoryStore).Error("Failed to load prompts for agent %s: %v", agentName, err)
+					failures = append(failures, fmt.Errorf("agent %s: %w", agentName, err))
 				} else {
 					totalCount += count
 				}
@@ -646,7 +651,7 @@ func ReloadAllPrompts(ctx context.Context, nerdDir string, embeddingEngine embed
 	}
 
 	logging.Get(logging.CategoryStore).Info("Reloaded total of %d prompt atoms", totalCount)
-	return totalCount, nil
+	return totalCount, errors.Join(failures...)
 }
 
 // ============================================================================

@@ -278,8 +278,11 @@ type Initializer struct {
 	groundingSources []string // Accumulated grounding sources from all LLM calls
 
 	// Concurrency
-	mu         sync.RWMutex
-	llmMetrics InitLLMMetrics
+	mu          sync.RWMutex
+	llmMetrics  InitLLMMetrics
+	jitMu       sync.Mutex
+	jitCompiler *prompt.JITPromptCompiler
+	jitClosed   bool
 
 	// projectAtoms carries phase 5b's generated atoms to phase 5c, which
 	// ingests them into .nerd/prompts/corpus.db where the JIT compiler can see
@@ -367,6 +370,16 @@ func NewInitializer(initConfig InitConfig) (*Initializer, error) {
 
 // Close releases resources held by the initializer.
 func (i *Initializer) Close() error {
+	i.jitMu.Lock()
+	i.jitClosed = true
+	compiler := i.jitCompiler
+	i.jitCompiler = nil
+	i.jitMu.Unlock()
+	if compiler != nil {
+		if err := compiler.Close(); err != nil {
+			return err
+		}
+	}
 	if i.localDB != nil {
 		return i.localDB.Close()
 	}
@@ -1073,6 +1086,11 @@ func (i *Initializer) runPhase11Registry(runner *phaseRunner, result *InitResult
 func (i *Initializer) runPhase12PromptSync(ctx context.Context, runner *phaseRunner, result *InitResult, nerdDir string) {
 	runner.start("prompt_sync", "Syncing agent prompts to knowledge DBs...", 0.97)
 	fmt.Println("\n📝 Phase 12: Syncing Agent Prompts")
+	if err := initializeDiscoveredAgentStores(ctx, i.config.Workspace); err != nil {
+		result.Failures = append(result.Failures, fmt.Sprintf("Failed to initialize discovered expert knowledge: %v", err))
+		runner.complete("prompt_sync")
+		return
+	}
 
 	promptCount, syncErr := prompt.ReloadAllPrompts(ctx, nerdDir, i.embedEngine)
 	if syncErr != nil {
@@ -1478,4 +1496,3 @@ func hasAgent(agents []CreatedAgent, name string) bool {
 	}
 	return false
 }
-
