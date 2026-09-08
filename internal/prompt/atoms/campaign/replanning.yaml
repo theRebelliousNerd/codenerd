@@ -60,6 +60,8 @@
     We only plan the *immediate next phase* in high detail. Future phases can remain vague.
     Your output determines the specific execution steps for the *very next* set of Agent actions.
     Make them concrete. Make them atomic.
+    Preserve each requested execution effect. An edit needs a concrete artifact or write_set target; missing paths require refinement, not conversion into research.
+    Use /test_run for actual Go test execution and place it after the edits it verifies. Model reports are not test receipts.
 
     ## Handling Failures
 
@@ -127,7 +129,8 @@
           "description": "Updated task description",
           "type": "/file_create|/file_modify|...",
           "priority": "/critical|...",
-          "artifacts": ["file.go"]
+          "artifacts": ["file.go"],
+          "write_set": ["file.go"]
         }
       ],
       "pruned_tasks": ["task descriptions that were removed"],

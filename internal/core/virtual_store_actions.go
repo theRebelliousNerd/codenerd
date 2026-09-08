@@ -411,7 +411,7 @@ func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (A
 	var success bool
 	if result != nil {
 		output = result.Output()
-		success = err == nil && result.ExitCode == 0
+		success = err == nil && result.Success && result.ExitCode == 0 && result.Error == ""
 	} else if err != nil {
 		output = err.Error()
 	}
@@ -460,7 +460,7 @@ func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest
 	var success bool
 	if result != nil {
 		output = result.Output()
-		success = err == nil && result.ExitCode == 0
+		success = err == nil && result.Success && result.ExitCode == 0 && result.Error == ""
 	} else if err != nil {
 		output = err.Error()
 	}
@@ -534,7 +534,7 @@ func (v *VirtualStore) handleGitOperation(ctx context.Context, req ActionRequest
 		// err alone reported those failures as success and injected
 		// git_result(op, true, ...), so the kernel proceeded on a false premise.
 		// Check the exit code too, mirroring handleRunTests/handleBuildProject.
-		success = err == nil && result.ExitCode == 0
+		success = err == nil && result.Success && result.ExitCode == 0 && result.Error == ""
 	} else if err != nil {
 		output = err.Error()
 	}

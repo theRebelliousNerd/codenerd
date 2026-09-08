@@ -54,23 +54,18 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 
 	// drainActive joins in-flight task goroutines after context cancellation.
 	// Deterministic contract: on cancellation, stop scheduling and drain results
-	// without blocking forever (observed live: Ctrl+C canceled parent but workers stayed alive).
+	// and join worker owners before another process can reuse the checkpoint.
 	drainActive := func() {
 		if len(active) == 0 {
 			return
 		}
-		const drainTimeout = 5 * time.Second
-		timer := time.NewTimer(drainTimeout)
-		defer timer.Stop()
+		// Cancellation must join task owners before returning a reusable checkpoint.
+		// Returning after a timer leaves ghost writers racing the next process.
 		for len(active) > 0 {
-			select {
-			case res := <-results:
-				delete(active, res.taskID)
-			case <-timer.C:
-				logging.Get(logging.CategoryCampaign).Warn("runPhase cancellation drain timed out with %d active tasks still running", len(active))
-				return
-			}
+			res := <-results
+			delete(active, res.taskID)
 		}
+
 	}
 
 	for {

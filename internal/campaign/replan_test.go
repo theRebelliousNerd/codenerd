@@ -149,7 +149,7 @@ func TestReplan_InvalidEnumCoercionToMangle(t *testing.T) {
 func TestReplan_MalformedTaskActionStrings(t *testing.T) {
 	r := NewReplanner(&MockKernel{}, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
-			return `{"tasks": [{"task_id": "/t1", "description": "d", "type": "/file_modify", "priority": "/high", "action": "DELETE_IT"}], "summary": "ok"}`, nil
+			return `{"tasks": [{"task_id": "/t1", "description": "d", "type": "/file_modify", "artifacts": ["sample.go"], "priority": "/high", "action": "DELETE_IT"}], "summary": "ok"}`, nil
 		},
 	}, "")
 	campaign := &Campaign{
@@ -177,8 +177,8 @@ func TestReplan_DuplicateTaskIDsInAddedTasks(t *testing.T) {
 	r := NewReplanner(&MockKernel{}, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"tasks": [
-				{"task_id": "/t1", "description": "d1", "type": "/file_modify", "action": "add"},
-				{"task_id": "/t1", "description": "d2", "type": "/file_modify", "action": "add"}
+				{"task_id": "/t1", "description": "d1", "type": "/file_modify", "artifacts": ["sample.go"], "action": "add"},
+				{"task_id": "/t1", "description": "d2", "type": "/file_modify", "artifacts": ["sample.go"], "action": "add"}
 			], "summary": "ok"}`, nil
 		},
 	}, "")
@@ -312,7 +312,7 @@ func TestReplan_MassiveTaskGeneration(t *testing.T) {
 func TestReplan_ConcurrentReplans(t *testing.T) {
 	r := NewReplanner(&ThreadSafeMockKernel{}, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
-			return `{"success": true, "change_summary": "ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "/p1", "description": "d", "type": "/file_modify", "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
+			return `{"success": true, "change_summary": "ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "/p1", "description": "d", "type": "/file_modify", "artifacts": ["sample.go"], "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
 		},
 	}, "")
 
@@ -350,7 +350,7 @@ func TestReplanForNewRequirement_KernelFailureRollback(t *testing.T) {
 	}
 	r := NewReplanner(mockKernel, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
-			return `{"new_tasks": [{"phase_order": 0, "description": "d", "type": "/file_modify", "priority": "/high"}], "modified_tasks": [], "summary": "ok"}`, nil
+			return `{"new_tasks": [{"phase_order": 0, "description": "d", "type": "/file_modify", "artifacts": ["sample.go"], "priority": "/high"}], "modified_tasks": [], "summary": "ok"}`, nil
 		},
 	}, "")
 

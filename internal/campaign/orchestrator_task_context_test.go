@@ -308,7 +308,7 @@ func TestTypeRoutedContextInjection_TestHandlers(t *testing.T) {
 		}
 	})
 
-	t.Run("test_run receives context", func(t *testing.T) {
+	t.Run("test_run cannot substitute context for execution", func(t *testing.T) {
 		var captured session.TaskRequest
 		executor := &MockTaskExecutor{
 			ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
@@ -338,17 +338,11 @@ func TestTypeRoutedContextInjection_TestHandlers(t *testing.T) {
 			ContextFrom: []string{depID},
 		}
 		_, err := o.executeTask(context.Background(), task)
-		if err != nil {
-			t.Fatalf("executeTask() error = %v", err)
+		if err == nil {
+			t.Fatal("test task without host execution must fail despite prior context and model PASS prose")
 		}
-		if !strings.Contains(captured.Task, "=== CONTEXT FROM TASK "+depID+" ===") {
-			t.Errorf("test_run shard input should contain context header; got %q", captured.Task)
-		}
-		if !strings.Contains(captured.Task, depResult) {
-			t.Errorf("test_run shard input should contain dep result; got %q", captured.Task)
-		}
-		if !strings.Contains(captured.Task, "run_tests") {
-			t.Errorf("test_run shard input should preserve tester prefix; got %q", captured.Task)
+		if captured.Task != "" {
+			t.Fatal("test execution must not ask model to report whether checks passed")
 		}
 	})
 

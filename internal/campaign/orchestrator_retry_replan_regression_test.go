@@ -160,6 +160,8 @@ func TestRunPhase_CancellationDrainsWorkers(t *testing.T) {
 		}
 		select {
 		case <-ctx.Done():
+			// Simulate cooperative teardown longer than the former five-second drain escape.
+			time.Sleep(5200 * time.Millisecond)
 			return "", ctx.Err()
 		case <-time.After(10 * time.Second):
 			return "ok", nil
@@ -234,11 +236,14 @@ func TestRunPhase_CancellationDrainsWorkers(t *testing.T) {
 				t.Logf("runPhase returned %v (want cancellation)", err)
 			}
 		}
-		// Must not block forever: drain timeout is 5s, so should return well under 6s.
-		if elapsed > 6*time.Second {
+		if activeWorkers.Load() != 0 {
+			t.Fatal("checkpoint returned while task owners were still tearing down")
+		}
+		// Cooperative teardown must finish and still return promptly.
+		if elapsed > 7*time.Second {
 			t.Fatalf("runPhase cancellation took too long: %v (should drain within 5s)", elapsed)
 		}
-	case <-time.After(7 * time.Second):
+	case <-time.After(8 * time.Second):
 		t.Fatalf("runPhase did not return after cancellation (leaked or blocked forever)")
 	}
 

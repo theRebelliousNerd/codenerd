@@ -239,7 +239,7 @@ func TestRefineNextPhase_DuplicateSuppression(t *testing.T) {
 			completed := &campaign.Phases[0]
 			r := NewReplanner(&MockKernel{}, &MockLLMClient{
 				CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
-					return `{"tasks": [{"task_id": "", "description": "` + tc.newDesc + `", "type": "/file_create", "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
+					return `{"tasks": [{"task_id": "", "description": "` + tc.newDesc + `", "type": "/file_create", "artifacts": ["payment.go"], "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
 				},
 			}, "")
 			if err := r.RefineNextPhase(context.Background(), campaign, completed); err != nil {
@@ -272,7 +272,7 @@ func TestRefineNextPhase_DuplicateViaUpdateFallback(t *testing.T) {
 	r := NewReplanner(&MockKernel{}, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			// No explicit action "add", so defaults to update path; t.TaskID does not match existing, so it falls through to add.
-			return `{"tasks": [{"task_id": "nonexistent", "description": "Implement payment flow", "type": "/file_create", "priority": "/high", "action": "update"}], "summary": "ok"}`, nil
+			return `{"tasks": [{"task_id": "nonexistent", "description": "Implement payment flow", "type": "/file_create", "artifacts": ["payment.go"], "priority": "/high", "action": "update"}], "summary": "ok"}`, nil
 		},
 	}, "")
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
@@ -307,7 +307,7 @@ func TestRefineNextPhase_ContextFromMapping(t *testing.T) {
 	}
 	r := NewReplanner(&MockKernel{}, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
-			return `{"tasks": [{"task_id": "", "description": "Synthesize payment report", "type": "/document", "priority": "/high", "action": "add", "depends_on": ["Research payment design"]}], "summary": "ok"}`, nil
+			return `{"tasks": [{"task_id": "", "description": "Synthesize payment report", "type": "/document", "artifacts": ["report.md"], "priority": "/high", "action": "add", "depends_on": ["Research payment design"]}], "summary": "ok"}`, nil
 		},
 	}, "")
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
@@ -337,7 +337,7 @@ func TestRefineNextPhase_ContextFromMapping(t *testing.T) {
 	}
 	r2 := NewReplanner(&MockKernel{}, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
-			return `{"tasks": [{"task_id": "", "description": "Implement payment flow", "type": "/file_create", "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
+			return `{"tasks": [{"task_id": "", "description": "Implement payment flow", "type": "/file_create", "artifacts": ["payment.go"], "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
 		},
 	}, "")
 	if err := r2.RefineNextPhase(context.Background(), campaign2, &campaign2.Phases[0]); err != nil {
@@ -366,7 +366,7 @@ func TestRefineNextPhase_PerPhaseDuplicateIsolation(t *testing.T) {
 	}
 	r := NewReplanner(&MockKernel{}, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
-			return `{"tasks": [{"task_id": "", "description": "Implement payment flow", "type": "/file_create", "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
+			return `{"tasks": [{"task_id": "", "description": "Implement payment flow", "type": "/file_create", "artifacts": ["payment.go"], "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
 		},
 	}, "")
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {

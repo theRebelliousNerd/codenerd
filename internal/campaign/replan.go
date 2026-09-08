@@ -485,6 +485,8 @@ Return JSON only:
 	var changes struct {
 		Tasks []struct {
 			TaskID       string          `json:"task_id"`
+			Artifacts    flexStringSlice `json:"artifacts"`
+			WriteSet     flexStringSlice `json:"write_set"`
 			Description  string          `json:"description"`
 			Type         string          `json:"type"`
 			Priority     string          `json:"priority"`
@@ -501,6 +503,8 @@ Return JSON only:
 		// LLM might have returned just an array instead of {tasks: [], summary: ""}
 		var tasksOnly []struct {
 			TaskID       string          `json:"task_id"`
+			Artifacts    flexStringSlice `json:"artifacts"`
+			WriteSet     flexStringSlice `json:"write_set"`
 			Description  string          `json:"description"`
 			Type         string          `json:"type"`
 			Priority     string          `json:"priority"`
@@ -605,6 +609,7 @@ Return JSON only:
 				Order:       len(workingNextPhase.Tasks),
 				ContextFrom: ctxFrom,
 			}
+			applyRefinedTargets(r.workspace, &task, t.Artifacts, t.WriteSet)
 			oldTaskType := task.Type
 			if changed, reason := applyTaskTypeDefenses(r.workspace, &task); changed {
 				logging.CampaignWarn("Retyped task %s from %s to %s: %s",
@@ -618,6 +623,10 @@ Return JSON only:
 					if t.Description != "" {
 						workingNextPhase.Tasks[i].Description = t.Description
 					}
+					if workingNextPhase.Tasks[i].PlannedType == "" {
+						workingNextPhase.Tasks[i].PlannedType = workingNextPhase.Tasks[i].Type
+					}
+					applyRefinedTargets(r.workspace, &workingNextPhase.Tasks[i], t.Artifacts, t.WriteSet)
 					if t.Type != "" {
 						workingNextPhase.Tasks[i].Type = normalizeTaskType(t.Type, workingNextPhase.Tasks[i].Type)
 					}
@@ -680,6 +689,7 @@ Return JSON only:
 					Order:       len(workingNextPhase.Tasks),
 					ContextFrom: ctxFrom,
 				}
+				applyRefinedTargets(r.workspace, &task, t.Artifacts, t.WriteSet)
 				oldTaskType := task.Type
 				if changed, reason := applyTaskTypeDefenses(r.workspace, &task); changed {
 					logging.CampaignWarn("Retyped task %s from %s to %s: %s",
@@ -689,6 +699,13 @@ Return JSON only:
 			}
 		}
 	}
+
+	for n := range workingNextPhase.Tasks {
+		if err := validateTaskEffect(&workingNextPhase.Tasks[n]); err != nil {
+			return err
+		}
+	}
+	orderVerificationAfterEdits(workingNextPhase)
 
 	// Recompute totals
 	var totalTasks, completedTasks int

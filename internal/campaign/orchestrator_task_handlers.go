@@ -13,10 +13,12 @@ import (
 	"unicode"
 
 	"codenerd/internal/core"
+	"codenerd/internal/evidence"
 	"codenerd/internal/logging"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
 	internaltypes "codenerd/internal/types"
+	"crypto/sha256"
 )
 
 // spawnTask is the unified entry point for task execution.
@@ -41,10 +43,17 @@ func (o *Orchestrator) executeTask(ctx context.Context, task *Task) (any, error)
 	if task == nil {
 		return nil, fmt.Errorf("task cannot be nil")
 	}
+	if err := validateTaskEffect(task); err != nil {
+		return nil, err
+	}
 	logging.CampaignDebug("Executing task %s with type %s, shard=%s", task.ID, task.Type, task.Shard)
 
 	// Update task status
 	o.updateTaskStatus(task, TaskInProgress)
+
+	if task.Type == TaskTypeTestRun {
+		return o.executeTestRunTask(ctx, task)
+	}
 
 	// If task has explicit shard specified, use generic shard routing with context injection
 	if task.Shard != "" {
@@ -614,52 +623,62 @@ func (o *Orchestrator) executeTestWriteTask(ctx context.Context, task *Task) (an
 	return map[string]any{"tester_result": result, "target": targetPath}, nil
 }
 
-// executeTestRunTask runs tests using the Tester shard.
+// executeTestRunTask executes the declared check through the gated VirtualStore.
+// Model prose is never an execution receipt. Test-writing and expert consultation
+// remain separate tasks; running an already identified test needs no model call.
 func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any, error) {
-	// Get target from artifacts or use default
+	if task == nil {
+		return nil, fmt.Errorf("task cannot be nil")
+	}
+	o.mu.Lock()
+	task.TestWitness = nil
+	o.mu.Unlock()
+	if o.virtualStore == nil {
+		return nil, fmt.Errorf("test execution requires VirtualStore")
+	}
 	target := "./..."
 	if len(task.Artifacts) > 0 {
 		target = task.Artifacts[0].Path
 	}
-	logging.CampaignDebug("Executing test run task %s: target=%s", task.ID, target)
-
-	// Build task string for tester shard
-	shardTask := fmt.Sprintf("run_tests package:%s %s", target, o.buildTaskInput(task))
-	logging.CampaignDebug("Spawning tester shard for test execution")
-
-	// Delegate to tester shard
-	result, err := o.spawnTask(ctx, "/test", shardTask)
-	if err != nil {
-		logging.Get(logging.CategoryCampaign).Warn("Tester shard failed for test run task %s, using direct execution: %v", task.ID, err)
-		// Fallback to direct execution
-		cmd := tactile.Command{
-			Binary:           "go",
-			Arguments:        []string{"test", target},
-			WorkingDirectory: o.workspace,
-			Limits: &tactile.ResourceLimits{
-				TimeoutMs: 300 * 1000,
-			},
-		}
-		logging.CampaignDebug("Executing tests directly via tactile: go test %s", target)
-		res, execErr := o.executor.Execute(ctx, cmd)
-		output := ""
-		if res != nil {
-			output = res.Output()
-			// Truncate massive output to avoid OOM
-			if len(output) > 1024*1024 { // 1MB limit
-				output = output[:1024*1024] + "\n... (output truncated)"
-			}
-		}
-		if execErr != nil {
-			logging.Get(logging.CategoryCampaign).Error("Test execution failed: %v", execErr)
-			return map[string]any{"output": output, "passed": false}, execErr
-		}
-		logging.Campaign("Tests passed via direct execution")
-		return map[string]any{"output": output, "passed": true}, nil
+	if target == "" || strings.HasPrefix(target, "-") || strings.ContainsAny(target, "\\ :;|&$`\"'\n\r\t(){}[]<>") {
+		return nil, fmt.Errorf("invalid test package target %q", target)
 	}
-
-	logging.CampaignDebug("Test run task completed: %s", task.ID)
-	return map[string]any{"tester_result": result, "target": target}, nil
+	if o.kernel == nil {
+		return nil, fmt.Errorf("test execution requires kernel authorization")
+	}
+	before, err := evidence.Snapshot(ctx, o.workspace)
+	if err != nil {
+		return nil, err
+	}
+	command := "go test -count=1 " + target
+	actionID := "campaign-check-" + task.ID
+	pending := core.Fact{Predicate: "pending_action", Args: []any{actionID, core.MangleAtom("/run_tests"), command, `{"timeout":900}`, time.Now().Unix()}}
+	if err := o.kernel.Assert(pending); err != nil {
+		return nil, err
+	}
+	defer o.kernel.RetractFact(pending)
+	result, err := o.virtualStore.RouteActionResult(ctx, core.Fact{Predicate: "next_action", Args: []any{actionID, "run_tests", command, map[string]any{"timeout": 900}}})
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if !result.Success {
+		return nil, fmt.Errorf("test execution failed: %s\n%s", result.Error, result.Output)
+	}
+	after, err := evidence.Snapshot(ctx, o.workspace)
+	if err != nil {
+		return nil, err
+	}
+	if before != after {
+		return nil, fmt.Errorf("workspace changed during test execution; witness invalidated")
+	}
+	witness := &TestExecutionWitness{Snapshot: after, Command: command, OutputHash: fmt.Sprintf("%x", sha256.Sum256([]byte(result.Output))), RecordedAt: time.Now().UTC()}
+	o.mu.Lock()
+	task.TestWitness = witness
+	o.mu.Unlock()
+	return map[string]any{"target": target, "passed": true, "output": result.Output, "witness": witness, "witness_source": "virtual_store/run_tests"}, nil
 }
 
 // executeVerifyTask runs verification (build, lint, etc.).

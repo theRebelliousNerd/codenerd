@@ -411,7 +411,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		for _, issue := range result.Issues {
 			fmt.Printf("  - [%s] %s\n", issue.IssueType, issue.Description)
 		}
-		fmt.Println("\nAttempting to proceed anyway...")
+		return fmt.Errorf("campaign plan remains invalid after refinement; execution refused")
 	}
 
 	// A degraded plan is not a plan. Say so before printing anything that looks
@@ -601,7 +601,7 @@ func runCampaignPause(cmd *cobra.Command, args []string) error {
 		cwd, _ = os.Getwd()
 	}
 
-	c, path, err := findLatestPausableCampaign(cwd)
+	c, _, err := findLatestPausableCampaign(cwd)
 	if err != nil {
 		return err
 	}
@@ -619,16 +619,12 @@ func runCampaignPause(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	prev := c.Status
-	c.Status = campaign.StatusPaused
-	c.UpdatedAt = time.Now()
-	if err := writeCampaignJSON(path, c); err != nil {
-		return fmt.Errorf("failed to persist paused status: %w", err)
+	if err := campaign.RequestPause(cwd, c.ID); err != nil {
+		return err
 	}
+	fmt.Printf("Pause requested: %s\n", c.Title)
+	fmt.Println("The owner will cancel active work, join it and persist its checkpoint.")
 
-	fmt.Printf("Campaign paused: %s\n", c.Title)
-	fmt.Printf("   ID: %s (was %s → %s)\n", c.ID, prev, c.Status)
-	fmt.Println("Run 'nerd campaign resume' to continue.")
 	return nil
 }
 
@@ -659,6 +655,9 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	pausedCampaign := sel.Campaign
+	if err := campaign.ClearPauseRequest(cwd, pausedCampaign.ID); err != nil {
+		return err
+	}
 	campPath := sel.Path
 	resumeWasFailed := pausedCampaign.Status == campaign.StatusFailed
 

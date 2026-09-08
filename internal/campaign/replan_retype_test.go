@@ -7,26 +7,14 @@ import (
 	"testing"
 )
 
-// TestRetypePathlessDocumentToResearch pins the shared pathless-file-task
-// defense directly: a /document task with no artifact path, no write-set
-// entry, and no extractable description path (campaign 5a2f4c8d's
-// "/task_5a2f4c8d_4_2" shape) becomes /research with the recorded reason.
-func TestRetypePathlessDocumentToResearch(t *testing.T) {
-	workspace := t.TempDir()
-	task := &Task{
-		ID:          "/task_5a2f4c8d_4_2",
-		Description: "Assemble short ranked risk report from Phase 3 correctness and safety findings",
-		Type:        TaskTypeDocument,
+func TestPathlessDocumentPreservesRequiredEffect(t *testing.T) {
+	task := &Task{ID: "/task", Type: TaskTypeDocument, Description: "Assemble ranked risk report"}
+	changed, _ := applyTaskTypeDefenses(t.TempDir(), task)
+	if changed || task.Type != TaskTypeDocument || task.PlannedType != TaskTypeDocument {
+		t.Fatalf("lost effect: %+v", task)
 	}
-	changed, reason := applyTaskTypeDefenses(workspace, task)
-	if !changed {
-		t.Fatalf("expected pathless /document to be retyped, type now %s", task.Type)
-	}
-	if task.Type != TaskTypeResearch {
-		t.Fatalf("type = %s, want %s", task.Type, TaskTypeResearch)
-	}
-	if reason != "no artifact, write set, or extractable path" {
-		t.Fatalf("reason = %q, want %q", reason, "no artifact, write set, or extractable path")
+	if validateTaskEffect(task) == nil {
+		t.Fatal("missing target must require refinement")
 	}
 }
 
@@ -82,15 +70,13 @@ func TestReplanRefineRetypesPathlessDocument(t *testing.T) {
 			return `{"tasks": [{"task_id": "", "description": "Assemble short ranked risk report from Phase 3 correctness and safety findings", "type": "/document", "priority": "/high", "action": "add"}], "summary": "refine"}`, nil
 		},
 	}, t.TempDir())
-	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err != nil {
-		t.Fatalf("RefineNextPhase failed: %v", err)
+	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0]); err == nil {
+		t.Fatal("pathless document refinement must fail")
 	}
-	if got := len(campaign.Phases[1].Tasks); got != 1 {
-		t.Fatalf("next phase task count = %d, want 1; tasks=%v", got, campaign.Phases[1].Tasks)
+	if len(campaign.Phases[1].Tasks) != 0 {
+		t.Fatal("invalid refinement changed live plan")
 	}
-	if got := campaign.Phases[1].Tasks[0].Type; got != TaskTypeResearch {
-		t.Fatalf("re-plan /document type = %s, want %s", got, TaskTypeResearch)
-	}
+
 }
 
 // TestReplanDedupeDropsSuffixedRestatement pins the rolling-wave
@@ -192,8 +178,8 @@ func TestDefenseDecomposerPlanTimeRetypeStillApplies(t *testing.T) {
 	if len(tasks) != 2 {
 		t.Fatalf("task count = %d, want 2; tasks=%v", len(tasks), tasks)
 	}
-	if tasks[0].Type != TaskTypeResearch {
-		t.Fatalf("pathless /document type = %s, want %s", tasks[0].Type, TaskTypeResearch)
+	if tasks[0].Type != TaskTypeDocument || validateTaskEffect(&tasks[0]) == nil {
+		t.Fatalf("pathless /document type = %s, want %s", tasks[0].Type, TaskTypeDocument)
 	}
 	if tasks[1].Type != TaskTypeDocument {
 		t.Fatalf("pathed /document type = %s, want %s", tasks[1].Type, TaskTypeDocument)

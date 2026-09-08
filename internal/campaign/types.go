@@ -167,9 +167,9 @@ type Campaign struct {
 	// campaign after a failed/blocked stop.
 	ResumeCount int `json:"resume_count,omitzero"`
 
-	CreatedAt      time.Time        `json:"created_at"`
-	UpdatedAt      time.Time        `json:"updated_at"`
-	Confidence     float64          `json:"confidence"` // LLM's confidence in the plan (0.0-1.0)
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	Confidence float64   `json:"confidence"` // LLM's confidence in the plan (0.0-1.0)
 
 	// PlanDegraded marks a campaign whose plan the decomposer synthesized
 	// because the model returned no phases. It is a generic three-task scaffold
@@ -271,14 +271,23 @@ type PhaseDependency struct {
 }
 
 // Task represents an atomic unit of work within a phase.
+type TestExecutionWitness struct {
+	Snapshot   string    `json:"snapshot"`
+	Command    string    `json:"command"`
+	OutputHash string    `json:"output_sha256"`
+	RecordedAt time.Time `json:"recorded_at"`
+}
+
 type Task struct {
-	ID          string       `json:"id"`
-	PhaseID     string       `json:"phase_id"`
-	Description string       `json:"description"`
-	Status      TaskStatus   `json:"status"`
-	Type        TaskType     `json:"type"`
-	Priority    TaskPriority `json:"priority"`
-	Order       int          `json:"order"`
+	TestWitness *TestExecutionWitness `json:"test_witness,omitempty"`
+	ID          string                `json:"id"`
+	PhaseID     string                `json:"phase_id"`
+	Description string                `json:"description"`
+	Status      TaskStatus            `json:"status"`
+	Type        TaskType              `json:"type"`
+	PlannedType TaskType              `json:"planned_type,omitempty"` // Original execution obligation before reconciliation.
+	Priority    TaskPriority          `json:"priority"`
+	Order       int                   `json:"order"`
 
 	// Dependencies
 	DependsOn []string `json:"depends_on,omitzero"` // Task IDs this depends on

@@ -53,6 +53,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 	// Set up cancellation
 	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	o.cancelFunc = cancel
 	o.isRunning = true
 	// Reset pause state at run-start: ensure pauseCh is closed (resumed).
@@ -67,6 +68,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		close(o.pauseCh)
 	}
 	o.updateCampaignStatus(StatusActive)
+	runCampaignID := o.campaign.ID
 	o.mu.Unlock()
 
 	// Record the repository root before any task runs. The completion sweep
@@ -84,10 +86,15 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 	// Start heartbeat/autosave loop for long-running durability.
 	heartbeatCtx, heartbeatCancel := context.WithCancel(ctx)
-	defer heartbeatCancel()
-	go o.runHeartbeatLoop(heartbeatCtx)
+	heartbeatDone := make(chan struct{})
+	go func() { defer close(heartbeatDone); o.runHeartbeatLoop(heartbeatCtx) }()
+	pauseDone := make(chan struct{})
+	go func() { defer close(pauseDone); watchPauseRequest(heartbeatCtx, o.workspace, runCampaignID, cancel) }()
 
 	defer func() {
+		heartbeatCancel()
+		<-heartbeatDone
+		<-pauseDone
 		o.mu.Lock()
 		o.isRunning = false
 		o.cancelFunc = nil

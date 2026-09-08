@@ -630,32 +630,8 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 				task.WriteSet = normalizeWriteSetPaths(d.workspace, inferredWriteSet)
 			}
 
-			// Reconcile a mistyped file task with its write set so a planning
-			// error cannot block a whole campaign at run time, and retype a
-			// pathless mutating task to /research.
-			//
-			// Observed live 2026-09-04 on campaign a36d036c: the decomposer
-			// emitted "Add turn_cost/6 Decl to schemas" as /file_modify with a
-			// write set containing only a path that did not exist. The coder
-			// correctly created the file, and validateFileModifyOutcome
-			// correctly refused it ("modified no pre-existing file in its
-			// declared write set"); the diagnostic-repro retries re-ran the
-			// identical mistyped task until the phase blocked with
-			// /all_tasks_blocked. Check the type against the filesystem here,
-			// at plan time, when the fix is a retype instead of a failure.
-			//
-			// Pathless file-task defense (campaign 855d7bcf, 2026-09-04): a
-			// mutating file task with no artifact path, no write-set entry, and
-			// no extractable description path has nowhere to write. Dispatched
-			// as a file task it either hollow-succeeds (empty target stats the
-			// workspace directory) or fails forever in the fallback until
-			// /all_tasks_blocked. Retype it to /research so it runs as
-			// analytical work with a durable artifact instead of blocking the
-			// phase. Recorded the same way as reconcileTaskTypeWithWriteSet.
-			//
-			// Shared with the rolling-wave replanner via
-			// applyTaskTypeDefenses so plan-time and re-plan-time behavior
-			// stay identical.
+			// Preserve execution obligations; only reconcile create versus modify.
+			// Missing targets require plan refinement, never a downgrade to research.
 			oldTaskType := task.Type
 			if changed, reason := applyTaskTypeDefenses(d.workspace, &task); changed {
 				logging.CampaignWarn("Retyped task %s from %s to %s: %s",
@@ -695,6 +671,7 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 			campaign.TotalTasks++
 		}
 
+		orderVerificationAfterEdits(&phase)
 		campaign.Phases = append(campaign.Phases, phase)
 		campaign.TotalPhases++
 		logging.CampaignDebug("Added phase %s with %d tasks", phase.ID, len(phase.Tasks))
@@ -827,52 +804,17 @@ func normalizedTaskKey(desc string) string {
 	return key
 }
 
-// applyTaskTypeDefenses performs the plan-time task-type defenses shared by
-// the decomposer (buildCampaign) and the rolling-wave replanner
-// (RefineNextPhase): first the write-set reconciliation, then the pathless
-// file-task retype. It mutates task.Type in place and reports whether a
-// retype happened and why.
-//
-// At most one retype fires per call in practice: the reconciliation only
-// fires on a non-empty write set, while the pathless retype requires an
-// empty one, so a single changed/reason pair describes the outcome. Pure:
-// no logging here — the caller logs the retype.
-func applyTaskTypeDefenses(workspace string, task *Task) (changed bool, reason string) {
+// applyTaskTypeDefenses preserves the planner's execution obligation. Filesystem
+// reconciliation may distinguish creation from modification; absence of a path
+// must never turn requested changes into completed research.
+func applyTaskTypeDefenses(workspace string, task *Task) (bool, string) {
 	if task == nil {
 		return false, ""
 	}
-	if c, r := reconcileTaskTypeWithWriteSet(workspace, task); c {
-		changed, reason = true, r
+	if task.PlannedType == "" {
+		task.PlannedType = task.Type
 	}
-	// Pathless file-task defense (campaign 855d7bcf, 2026-09-04): a
-	// mutating file task with no artifact path, no write-set entry, and
-	// no extractable description path has nowhere to write. Dispatched
-	// as a file task it either hollow-succeeds (empty target stats the
-	// workspace directory) or fails forever in the fallback until
-	// /all_tasks_blocked. Retype it to /research so it runs as
-	// analytical work with a durable artifact instead of blocking the
-	// phase. Recorded the same way as reconcileTaskTypeWithWriteSet.
-	if isMutatingTaskType(task.Type) {
-		hasArtifactPath := false
-		for _, a := range task.Artifacts {
-			if strings.TrimSpace(a.Path) != "" {
-				hasArtifactPath = true
-				break
-			}
-		}
-		hasWriteSetPath := false
-		for _, p := range task.WriteSet {
-			if strings.TrimSpace(p) != "" {
-				hasWriteSetPath = true
-				break
-			}
-		}
-		if !hasArtifactPath && !hasWriteSetPath && extractPathFromDescription(task.Description) == "" {
-			task.Type = TaskTypeResearch
-			return true, "no artifact, write set, or extractable path"
-		}
-	}
-	return changed, reason
+	return reconcileTaskTypeWithWriteSet(workspace, task)
 }
 
 // reconcileTaskTypeWithWriteSet corrects a mistyped file task against the

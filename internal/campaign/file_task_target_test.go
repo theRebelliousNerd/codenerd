@@ -206,8 +206,8 @@ func TestRetype_PathlessFileModifyToResearch(t *testing.T) {
 		t.Fatalf("expected 1 task, got %#v", campaign.Phases)
 	}
 	got := campaign.Phases[0].Tasks[0].Type
-	if got != TaskTypeResearch && got != TaskTypeVerify {
-		t.Fatalf("pathless /file_modify was not retyped to analytical type, got %s", got)
+	if got != TaskTypeFileModify || validateTaskEffect(&campaign.Phases[0].Tasks[0]) == nil {
+		t.Fatalf("pathless /file_modify must retain its effect and fail validation, got %s", got)
 	}
 }
 

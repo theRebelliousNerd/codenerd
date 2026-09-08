@@ -433,7 +433,7 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 
 	// Step 6: Mangle validates (circular deps, unreachable tasks, etc.)
 	logging.Campaign("Step 6: Mangle validation")
-	issues := d.validatePlan(campaignID)
+	issues := append(d.validatePlan(campaignID), taskEffectIssues(campaign)...)
 	if len(issues) > 0 {
 		logging.Get(logging.CategoryCampaign).Warn("Validation found %d issues", len(issues))
 		for i, issue := range issues {
@@ -468,7 +468,7 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 				logging.Get(logging.CategoryCampaign).Error("decomposer: failed to commit campaign facts: %v", err)
 				return nil, fmt.Errorf("failed to commit refined campaign facts: %w", err)
 			}
-			issues = d.validatePlan(campaignID)
+			issues = append(d.validatePlan(campaignID), taskEffectIssues(campaign)...)
 			logging.Campaign("After refinement: %d issues remaining", len(issues))
 		} else if err != nil {
 			logging.Get(logging.CategoryCampaign).Warn("Refinement failed: %v", err)
