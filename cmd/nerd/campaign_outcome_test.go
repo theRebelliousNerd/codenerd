@@ -21,6 +21,8 @@ func TestCampaignOutcome(t *testing.T) {
 		wantContains []string
 		wantErrIs    error
 	}{
+		{name: "external pause is an incomplete paused outcome", runErr: context.Canceled, timeout: 12 * time.Hour, wantContains: []string{"campaign paused", "resume"}, wantErrIs: context.Canceled},
+		{name: "interrupt is cancellation not a deadline", runErr: context.Canceled, ctxErr: context.Canceled, timeout: 12 * time.Hour, wantContains: []string{"campaign paused", "resume"}, wantErrIs: context.Canceled},
 		{
 			name:    "completed run returns nil",
 			runErr:  nil,

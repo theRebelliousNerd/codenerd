@@ -173,6 +173,9 @@ func (rt *RuntimeTool) Execute(ctx context.Context, input string) (string, error
 
 	err = cmd.Run()
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("tool execution canceled: %w (process: %v)", ctx.Err(), err)
+		}
 		stderrStr := strings.TrimSpace(stderrBuf.String())
 		if stderrStr != "" {
 			return "", fmt.Errorf("tool execution failed (stderr: %s): %w", stderrStr, err)

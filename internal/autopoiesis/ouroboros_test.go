@@ -4,6 +4,7 @@ package autopoiesis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -692,7 +693,9 @@ func main() {
 }`
 
 	cfg := DefaultOuroborosConfig(t.TempDir())
-	cfg.ExecuteTimeout = 3 * time.Second
+	// This checks concurrent result isolation, not scheduler latency under a full-suite build.
+	// Deadline enforcement is independently pinned by InfiniteLoopTimeout.
+	cfg.ExecuteTimeout = 15 * time.Second
 	loop := NewOuroborosLoop(&MockLLMClient{}, cfg)
 
 	bin := compileRuntimeTool(t, source, "concurrent_echo_tool")
@@ -763,8 +766,8 @@ func main() {
 	registerRuntimeToolForLoop(t, loop, "infinite_loop_tool", bin)
 
 	_, err := loop.ExecuteTool(context.Background(), "infinite_loop_tool", "x")
-	if err == nil {
-		t.Fatal("expected timeout error for infinite loop tool")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected identifiable deadline for infinite loop, got %v", err)
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"codenerd/internal/world"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -837,6 +838,9 @@ func campaignOutcome(runErr error, ctxErr error, timeout time.Duration) error {
 	if report, ok := campaign.FormatRiskBlock(runErr); ok {
 		fmt.Print("\n🛑 " + report)
 		return runErr
+	}
+	if errors.Is(runErr, context.Canceled) && !errors.Is(ctxErr, context.DeadlineExceeded) {
+		return fmt.Errorf("campaign paused; run nerd campaign resume to continue: %w", runErr)
 	}
 	if ctxErr != nil {
 		return fmt.Errorf("operation timeout (%s) reached — campaign paused mid-run: run 'nerd campaign resume' to continue or raise --timeout: %w", timeout, runErr)
