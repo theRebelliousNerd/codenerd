@@ -19,7 +19,7 @@ import (
 
 func newRootWatchOrchestrator(t *testing.T, ws string) *Orchestrator {
 	t.Helper()
-	return &Orchestrator{config: OrchestratorConfig{Workspace: ws}}
+	return &Orchestrator{config: OrchestratorConfig{Workspace: ws}, nerdDir: t.TempDir()}
 }
 
 func TestSnapshotWorkspaceRoot(t *testing.T) {
@@ -129,7 +129,8 @@ func TestSweepUndeclaredRootWrites(t *testing.T) {
 	touch("README.md")
 
 	o := &Orchestrator{
-		config: OrchestratorConfig{Workspace: ws},
+		config:  OrchestratorConfig{Workspace: ws},
+		nerdDir: t.TempDir(),
 		campaign: &Campaign{
 			ID: "/campaign_fc6472c2",
 			Phases: []Phase{{

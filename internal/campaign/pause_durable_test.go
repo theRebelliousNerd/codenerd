@@ -14,6 +14,11 @@ import (
 
 func TestDurablePauseSurvivesSnapshotSaveAndStopsRun(t *testing.T) {
 	root := t.TempDir()
+	caller := t.TempDir()
+	t.Chdir(caller)
+	if err := os.WriteFile(filepath.Join(root, "marker.go"), []byte("package fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -48,6 +53,12 @@ func TestDurablePauseSurvivesSnapshotSaveAndStopsRun(t *testing.T) {
 	}
 	if saved.Status != StatusPaused || o.isRunning {
 		t.Fatalf("owner not joined and paused: %s", saved.Status)
+	}
+	if _, err := os.Stat(filepath.Join(caller, ".nerd", "cache", "manifest.json")); !os.IsNotExist(err) {
+		t.Fatalf("pathless campaign scanned the caller instead of its configured workspace: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".nerd", "cache", "manifest.json")); err != nil {
+		t.Fatalf("configured workspace was not scanned by risk intelligence: %v", err)
 	}
 	if err := ClearPauseRequest(root, o.campaign.ID); err != nil {
 		t.Fatal(err)

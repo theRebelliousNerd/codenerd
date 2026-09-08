@@ -121,7 +121,7 @@ func (k *RealKernel) rebuildProgram() error {
 			return fmt.Errorf("failed to analyze program: %w", err)
 		}
 		logging.Get(logging.CategoryKernel).Error("rebuildProgram: analysis failed: %v", err)
-		if dumpPath, writeErr := writeFailedProgramDump(programStr); writeErr != nil {
+		if dumpPath, writeErr := k.writeFailedProgramDump(programStr); writeErr != nil {
 			logging.Get(logging.CategoryKernel).Warn("Failed to write debug dump: %v", writeErr)
 		} else {
 			logging.KernelDebug("Dumped failed program to %s", dumpPath)
@@ -801,8 +801,8 @@ func (k *RealKernel) ClearSchemas() {
 // duplicate predicate definitions. .nerd/ is excluded from scans, so putting it
 // there fixes every ingestion path at once instead of adding a skip list to
 // each one.
-func writeFailedProgramDump(programStr string) (string, error) {
-	dir := filepath.Join(".nerd", "debug")
+func (k *RealKernel) writeFailedProgramDump(programStr string) (string, error) {
+	dir := k.nerdPath("debug")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create debug dir: %w", err)
 	}

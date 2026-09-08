@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sync"
+	"time"
+	"unicode/utf8"
 
 	"codenerd/internal/browser"
 	"codenerd/internal/logging"
@@ -152,11 +154,18 @@ func executeBrowserNavigate(ctx context.Context, args map[string]any) (string, e
 		safeURL, session.ID, session.Status), nil
 }
 
+// BrowserExtract limits for bounded evidence reads.
+const (
+	defaultBrowserExtractMaxChars = 8000
+	maxBrowserExtractMaxChars     = 32000
+	defaultBrowserExtractTimeout  = 10 * time.Second
+)
+
 // BrowserExtractTool returns a tool for extracting content from a browser page.
 func BrowserExtractTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "browser_extract",
-		Description: "Extract text content from the current browser page",
+		Description: "Extract bounded, redacted text from the current browser page. Extraction honors caller cancellation and a 10s maximum duration. Combined text and optional HTML are capped by max_chars, followed by a truncation notice when needed.",
 		Category:    tools.CategoryResearch,
 		Priority:    55,
 		Execute:     executeBrowserExtract,
@@ -174,8 +183,13 @@ func BrowserExtractTool() *tools.Tool {
 				},
 				"include_html": {
 					Type:        "boolean",
-					Description: "Include raw HTML in output (default: false)",
+					Description: "Include bounded, redacted outer HTML after the text section (default: false)",
 					Default:     false,
+				},
+				"max_chars": {
+					Type:        "integer",
+					Description: "Maximum combined text/HTML runes, excluding the truncation notice (default: 8000, hard cap: 32000)",
+					Default:     defaultBrowserExtractMaxChars,
 				},
 			},
 		},
@@ -192,29 +206,100 @@ func executeBrowserExtract(ctx context.Context, args map[string]any) (string, er
 	if sel, ok := args["selector"].(string); ok && sel != "" {
 		selector = sel
 	}
+	includeHTML := boolArg(args, "include_html", false)
+	maxChars := resolveBrowserExtractMaxChars(args)
+
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("browser extract cancelled: %w", err)
+	}
 
 	logging.BrowserDebug("Browser extract: session=%s, selector=%s", sessionID, selector)
 
 	mgr := getBrowserManager()
 
 	page, ok := mgr.Page(sessionID)
-	if !ok {
+	if !ok || page == nil {
 		return "", fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	// Get text content
-	el, err := page.Element(selector)
+	lookupCtx, cancel := withBrowserExtractDeadline(ctx)
+	defer cancel()
+
+	// Propagate caller cancellation to the blocking lookup. Rod honors the
+	// page context. The child deadline also bounds a missing selector when the
+	// enclosing campaign has hours left to run.
+	el, err := page.Context(lookupCtx).Element(selector)
 	if err != nil {
-		return "", fmt.Errorf("element not found: %s", selector)
+		if lookupErr := lookupCtx.Err(); lookupErr != nil {
+			return "", fmt.Errorf("browser extract lookup for %q: %w", selector, lookupErr)
+		}
+		return "", fmt.Errorf("browser extract lookup for %q: %w", selector, err)
 	}
 
-	text, err := el.Text()
+	text, err := el.Context(lookupCtx).Text()
 	if err != nil {
-		return "", fmt.Errorf("failed to get text: %w", err)
+		if lookupErr := lookupCtx.Err(); lookupErr != nil {
+			return "", fmt.Errorf("browser extract text for %q: %w", selector, lookupErr)
+		}
+		return "", fmt.Errorf("browser extract text for %q: %w", selector, err)
 	}
 
-	logging.Browser("Browser extract completed: %d chars", len(text))
-	return mgr.SanitizeForEvidence(text), nil
+	if includeHTML {
+		html, htmlErr := el.Context(lookupCtx).HTML()
+		if htmlErr != nil {
+			if lookupErr := lookupCtx.Err(); lookupErr != nil {
+				return "", fmt.Errorf("browser extract html for %q: %w", selector, lookupErr)
+			}
+			return "", fmt.Errorf("browser extract html for %q: %w", selector, htmlErr)
+		}
+		text += "\n\n--- html ---\n" + html
+	}
+
+	sanitized := mgr.SanitizeForEvidence(text)
+	result, truncated, totalRunes := boundBrowserExtractChars(sanitized, maxChars)
+	if truncated {
+		result += fmt.Sprintf("\n...[truncated: showing %d of %d chars; max_chars=%d, hard cap=%d]", maxChars, totalRunes, maxChars, maxBrowserExtractMaxChars)
+	}
+
+	logging.Browser("Browser extract completed: %d chars (truncated=%v)", len(result), truncated)
+	return result, nil
+}
+
+// resolveBrowserExtractMaxChars clamps caller max_chars to the conservative
+// default and hard cap. Non-positive or missing values select the default.
+func resolveBrowserExtractMaxChars(args map[string]any) int {
+	maxChars := intArg(args, "max_chars", defaultBrowserExtractMaxChars)
+	if maxChars <= 0 {
+		return defaultBrowserExtractMaxChars
+	}
+	if maxChars > maxBrowserExtractMaxChars {
+		return maxBrowserExtractMaxChars
+	}
+	return maxChars
+}
+
+// withBrowserExtractDeadline caps the whole extraction while preserving any
+// earlier caller cancellation/deadline. It does not alter manager-owned pages.
+func withBrowserExtractDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, defaultBrowserExtractTimeout)
+}
+
+// boundBrowserExtractChars truncates by rune count so multi-byte UTF-8 is never
+// split. An input exactly at the limit is returned unmarked; only a strictly
+// longer input reports truncation.
+func boundBrowserExtractChars(value string, maxChars int) (string, bool, int) {
+	total := utf8.RuneCountInString(value)
+	if total <= maxChars {
+		return value, false, total
+	}
+	count := 0
+	for idx := range value {
+		if count == maxChars {
+			return value[:idx], true, total
+		}
+		count++
+	}
+	return value, false, total
 }
 
 // BrowserScreenshotTool returns a tool for capturing screenshots.

@@ -386,11 +386,15 @@ func (g *IntelligenceGatherer) Gather(ctx context.Context, goal string, targetPa
 	eg, egCtx := errgroup.WithContext(ctx)
 
 	// 1. World Model (codebase structure)
+	worldReady := make(chan struct{})
 	if g.config.EnableWorldModel && g.worldScanner != nil {
 		eg.Go(func() error {
+			defer close(worldReady)
 			g.gatherWorldModel(egCtx, report, targetPaths, addError)
 			return nil
 		})
+	} else {
+		close(worldReady)
 	}
 
 	// 2. Git History (Chesterton's Fence)
@@ -452,6 +456,9 @@ func (g *IntelligenceGatherer) Gather(ctx context.Context, goal string, targetPa
 	// 9. Test Coverage
 	if g.config.EnableTestCoverage && g.kernel != nil {
 		eg.Go(func() error {
+			// FileTopology is populated by the scanner. Join that producer
+			// before reading the map or absence can become a false finding.
+			<-worldReady
 			g.gatherTestCoverage(egCtx, report, targetPaths, addError)
 			return nil
 		})
@@ -460,6 +467,7 @@ func (g *IntelligenceGatherer) Gather(ctx context.Context, goal string, targetPa
 	// 10. Code Patterns
 	if g.config.EnableCodePatterns && g.kernel != nil {
 		eg.Go(func() error {
+			<-worldReady
 			g.gatherCodePatterns(egCtx, report, targetPaths, addError)
 			return nil
 		})

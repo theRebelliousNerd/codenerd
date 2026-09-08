@@ -1,6 +1,8 @@
 package core
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +10,7 @@ import (
 
 // REMEDIATED: TEST_GAP: [Type Coercion] Verify RatifyRule rejects rules that reference undeclared schemas or types, propagating the error from sandbox.Evaluate().
 func TestRuleCourt_UndeclaredSchemas(t *testing.T) {
+	t.Chdir(t.TempDir())
 	k := setupMockKernel(t)
 	court := NewRuleCourt(k)
 
@@ -18,6 +21,9 @@ func TestRuleCourt_UndeclaredSchemas(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "rule rejected by sandbox compiler") {
 		t.Errorf("Expected sandbox compiler rejection error, got: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(".nerd", "debug", "debug_program_ERROR.mg")); !os.IsNotExist(err) {
+		t.Fatalf("candidate rejection must not overwrite a production crash dump: %v", err)
 	}
 }
 

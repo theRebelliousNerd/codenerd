@@ -72,6 +72,9 @@ func RatifyRule(kernel *RealKernel, newRule string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create sandbox kernel for ratification: %w", err)
 	}
+	// Rejected candidates are expected sandbox outcomes, not failures of the
+	// production corpus. Keep their analysis errors out of the crash dump.
+	sandbox.sandbox = true
 	sandbox.SetSchemas(kernel.GetSchemas())
 	sandbox.SetPolicy(kernel.GetPolicy() + "\n\n# Proposed Rule (Legislator)\n" + newRule)
 	sandbox.SetLearned(kernel.GetLearned())

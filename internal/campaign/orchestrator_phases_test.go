@@ -525,6 +525,7 @@ func TestOrchestrator_CompletePhase_KernelAssertFailure(t *testing.T) {
 	orch := &Orchestrator{
 		kernel:   mockKernel,
 		campaign: camp,
+		nerdDir:  t.TempDir(),
 	}
 
 	orch.completePhase(phase)

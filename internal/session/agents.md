@@ -33,6 +33,10 @@
 - Completion is revision-bound. Preserve `artifact_changed`, `checks_passed`,
   and `behavior_verified` as distinct stages. Missing acceptance or stale checks
   mean unverified. Final repair edits invalidate earlier witnesses.
+- Test-output detection must distinguish runner summaries from other tool
+  counters. Browser operation failures, including deliberate stale-ref probes,
+  are not pytest results; mixed responses containing actual runner signatures
+  still require execution evidence.
 - Caller contracts enter through `evidence.WithContract`; never create or weaken
   acceptance from model prose. Keep headless `fix --acceptance` and session
   execution on the same transaction and persisted report path.

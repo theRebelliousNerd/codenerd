@@ -14,7 +14,8 @@ import (
 //   - '=== RUN'
 //   - 'PASS' as a standalone token on its own line or after '=>'
 //   - 'FAIL' likewise
-//   - 'N passed' / 'N failed' forms from pytest and jest
+//   - pytest count summaries (standalone, timed, or delimited)
+//   - Jest counts following Tests:, Test Suites:, or Snapshots:
 //
 // Deliberately does NOT match ordinary prose such as 'tests should pass',
 // 'make sure tests pass', 'I did not run the tests', or 'the tests will pass'.
@@ -43,10 +44,10 @@ func responsePresentsTestRunnerOutput(text string) bool {
 	if failArrowRe.MatchString(text) {
 		return true
 	}
-	if nPassedRe.MatchString(text) {
+	if pytestSummaryRe.MatchString(text) || pytestTimedRe.MatchString(text) {
 		return true
 	}
-	if nFailedRe.MatchString(text) {
+	if jestSummaryRe.MatchString(text) {
 		return true
 	}
 	return false
@@ -63,6 +64,10 @@ var (
 	failOnlyLineRe = regexp.MustCompile(`(?m)^\s*FAIL\s*$`)
 	passArrowRe    = regexp.MustCompile(`=>\s*PASS\b`)
 	failArrowRe    = regexp.MustCompile(`=>\s*FAIL\b`)
-	nPassedRe      = regexp.MustCompile(`\b\d+ passed\b`)
-	nFailedRe      = regexp.MustCompile(`\b\d+ failed\b`)
+	// A bare count anywhere in prose is not a test-runner signature. Browser
+	// actions also report "0 succeeded, 1 failed", including expected stale-ref
+	// rejections. Require the count grammar or a runner-specific context.
+	pytestSummaryRe = regexp.MustCompile(`(?m)^[\t =]*\d+ (?:passed|failed)(?:, \d+ (?:passed|failed|skipped|deselected|xfailed|xpassed|warnings?|errors?))*[\t =]*$`)
+	pytestTimedRe   = regexp.MustCompile(`\b\d+ (?:passed|failed)(?:, \d+ (?:passed|failed|skipped|deselected|xfailed|xpassed|warnings?|errors?))* in \d+(?:\.\d+)?s\b`)
+	jestSummaryRe   = regexp.MustCompile(`(?m)\b(?:Tests|Test Suites|Snapshots):[^\r\n]*\b\d+ (?:passed|failed)\b`)
 )

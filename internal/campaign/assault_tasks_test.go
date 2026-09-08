@@ -209,7 +209,7 @@ func TestRunCommandStage_EmptyCommand_FailsGracefully(t *testing.T) {
 	}
 	stage := AssaultStage{Command: ""}
 	ctx := context.Background()
-	_, outcome := orch.runCommandStage(ctx, nil, stage, "", nil, "test.log")
+	_, outcome := orch.runCommandStage(ctx, nil, stage, "", nil, filepath.Join(t.TempDir(), "test.log"))
 	if outcome.Error == "" {
 		t.Errorf("expected error for empty command, got success")
 	}
@@ -305,7 +305,7 @@ func TestNewAssaultExecutor_NegativeTimeout_ClampsToDefault(t *testing.T) {
 func TestRunAssaultStage_InvalidStageKind_ReturnsError(t *testing.T) {
 	orch := &Orchestrator{}
 	stage := AssaultStage{Kind: "/invalid_kind"}
-	ok, out := orch.runAssaultStage(context.Background(), nil, AssaultConfig{}, stage, "pkg", "log.txt")
+	ok, out := orch.runAssaultStage(context.Background(), nil, AssaultConfig{}, stage, "pkg", filepath.Join(t.TempDir(), "log.txt"))
 	if ok || out.Error != "unknown stage kind" {
 		t.Errorf("expected false and 'unknown stage kind', got %v, %v", ok, out)
 	}
@@ -363,7 +363,7 @@ func TestRunCommandStage_InfiniteStdout_TruncatesCleanly(t *testing.T) {
 		},
 	}
 
-	tmpLog := filepath.Join(os.TempDir(), "infinite_stdout_test.log")
+	tmpLog := filepath.Join(t.TempDir(), "infinite_stdout_test.log")
 	defer os.Remove(tmpLog)
 
 	ok, out := orch.runCommandStage(context.Background(), exec, stage, "echo", []string{"infinite"}, tmpLog)

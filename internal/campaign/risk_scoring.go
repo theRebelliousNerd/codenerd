@@ -502,6 +502,12 @@ func (o *Orchestrator) gatherRiskIntelligence(ctx context.Context, targetPaths [
 	sampleCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// A pathless campaign still belongs to its configured workspace. Falling
+	// through to Gather's legacy "." default scans the caller's directory,
+	// writes its cache there, and evaluates risk for the wrong project.
+	if len(targetPaths) == 0 && strings.TrimSpace(o.workspace) != "" {
+		targetPaths = []string{o.workspace}
+	}
 	report, err := o.intelligenceGatherer.Gather(sampleCtx, o.campaign.Goal, targetPaths)
 	if err != nil {
 		o.emitRiskAudit(EventRiskIntelligenceError, "Failed to gather intelligence for risk scoring", map[string]any{

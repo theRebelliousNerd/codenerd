@@ -338,7 +338,7 @@ func runReflection(cmd *cobra.Command, args []string) error {
 	fmt.Printf("BacklogWatermark:  %d\n", reflectionCfg.BacklogWatermark)
 
 	fmt.Println(strings.Repeat("─", 40))
-	fmt.Println("Use 'nerd run /reflect' to trigger manual reflection")
+	fmt.Println("System 2 recall runs automatically during chat; /reflection shows the last recall status.")
 	fmt.Println(strings.Repeat("═", 60))
 
 	return nil

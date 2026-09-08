@@ -464,7 +464,8 @@ func TestExecuteTask_NilTask(t *testing.T) {
 func TestExecuteTask_Dispatch(t *testing.T) {
 	called := ""
 	o := &Orchestrator{
-		kernel: &MockKernel{},
+		workspace: t.TempDir(),
+		kernel:    &MockKernel{},
 		campaign: &Campaign{
 			Phases: []Phase{
 				{Tasks: []Task{{ID: "t1"}}},
