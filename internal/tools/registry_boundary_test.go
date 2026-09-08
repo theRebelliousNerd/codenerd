@@ -204,3 +204,12 @@ func TestRegistry_Execute_NilArgs(t *testing.T) {
 		t.Errorf("expected ok result, got %+v", result)
 	}
 }
+
+// TODO: Gap 1.1: Null/Undefined/Empty - Execute with empty tool name ("").
+// TODO: Gap 1.2: Null/Undefined/Empty - Execute with explicit nil value in args (e.g., map[string]any{"message": nil}).
+// TODO: Gap 2.1: Type Coercion - Execute with float64 provided for int schema.
+// TODO: Gap 2.2: Type Coercion - Execute with []string provided for string schema.
+// TODO: Gap 3.1: User Request Extremes - Execute with 1GB string payload in args to test OOM/buffer limits.
+// TODO: Gap 3.2: User Request Extremes - Massive Tool Registration (e.g., 10,000 tools) performance test.
+// TODO: Gap 4.1: State Conflicts - Concurrent mutation (Register + Execute + SetAllowlist) deadlock/race test.
+// TODO: Gap 4.2: State Conflicts - Double Registration of same tool name rejection test.
