@@ -995,3 +995,12 @@ func TestE2E_CampaignSession_MultiTurnAccumulation_Variant3(t *testing.T) {
 
 	_ = orch.Run(ctx)
 }
+
+// ResolveAllowedTools projects the same fixture envelope before JIT selection.
+func (m *campaignMockConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
+	resolved, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
+	if err != nil || resolved == nil {
+		return nil, err
+	}
+	return append([]string(nil), resolved.AllowedTools...), nil
+}

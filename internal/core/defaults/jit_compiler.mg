@@ -145,6 +145,11 @@ blocked_by_context(Atom) :-
     has_constraint(Atom, Dim),
     !satisfied_constraint(Atom, Dim).
 
+# Pure policy exclusions must bind mandatory selection and supersession too.
+# base_prohibited depends only on input facts and dependency closure; using
+# prohibited here would introduce a negative cycle through mandatory_selection.
+blocked_by_context(Atom) :- base_prohibited(Atom).
+
 # Supersession: a mandatory atom that another LIVE mandatory atom declares a
 # conflict against steps aside for it.
 #

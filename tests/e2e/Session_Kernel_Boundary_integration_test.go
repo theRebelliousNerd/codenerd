@@ -672,3 +672,12 @@ func TestE2E_Boundary_Session_Kernel_MultiTurnFactPruning(t *testing.T) {
 		t.Fatalf("Multi-turn fact pruning failed, ephemeral facts leaked.")
 	}
 }
+
+// ResolveAllowedTools projects the same fixture envelope before JIT selection.
+func (m *mockSiegeConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
+	resolved, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
+	if err != nil || resolved == nil {
+		return nil, err
+	}
+	return append([]string(nil), resolved.AllowedTools...), nil
+}

@@ -159,6 +159,46 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 	return cfg, nil
 }
 
+// ResolveAllowedTools returns the effective executable tool catalog for the
+// given intents without requiring a compiled prompt. It merges the same
+// config atoms Generate uses (including the /general fallback) so the prompt
+// compiler and the session executor agree on the envelope BEFORE selection.
+// It never widens authority: the result is exactly what Generate would grant
+// for the same intents, and callers must omit tool-gated atoms rather than
+// add tools to make the prompt work.
+func (f *ConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
+	if f.provider == nil {
+		return nil, fmt.Errorf("config provider cannot be nil")
+	}
+	if len(intents) == 0 {
+		return nil, fmt.Errorf("no intents provided")
+	}
+	var finalAtom ConfigAtom
+	found := false
+	for _, rawIntent := range intents {
+		intent := strings.TrimSpace(rawIntent)
+		if intent == "" {
+			continue
+		}
+		if atom, ok := f.provider.GetAtom(intent); ok {
+			finalAtom = finalAtom.Merge(atom)
+			found = true
+			continue
+		}
+		if atom, ok := f.provider.GetAtom("/general"); ok {
+			logging.Get(logging.CategoryContext).Warn(
+				"No config atom for intent %q; falling back to /general read-only tools.",
+				intent)
+			finalAtom = finalAtom.Merge(atom)
+			found = true
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("no config atoms found for intents: %v", intents)
+	}
+	return append([]string(nil), finalAtom.Tools...), nil
+}
+
 // GenerateFallback creates a minimal config for when JIT compilation fails.
 func (f *ConfigFactory) GenerateFallback(ctx context.Context, intent string, fallbackIdentity string) *config.EffectiveAgentRuntimeConfig {
 	// Prevent OOM from massive fallback strings

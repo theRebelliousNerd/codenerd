@@ -8,6 +8,7 @@
   priority: 95
   is_mandatory: true
   shard_types: []  # Applies to all personas
+  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
   content: |
     ## Semantic Code Editing: The Code DOM Paradigm
 

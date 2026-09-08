@@ -825,10 +825,15 @@ func (s *AtomSelector) loadSkeletonAtomsKernel(
 		return nil, fmt.Errorf("CRITICAL: Mangle kernel not configured for skeleton selection")
 	}
 
-	// Filter to skeleton atoms only
+	// Filter to skeleton atoms only. An explicit requires_tools entry means
+	// the same thing here as in flesh: the atom is omitted when the
+	// effective catalog lacks any required tool. Tool-agnostic
+	// constitutional, evidence and general identity atoms carry no
+	// requires_tools and are always retained.
+	available := availableToolSet(cc)
 	var skeletonAtoms []*PromptAtom
 	for _, atom := range atoms {
-		if atom != nil && isSkeletonCategory(atom.Category) && atomMatchesActiveWorldState(atom, cc) {
+		if atom != nil && isSkeletonCategory(atom.Category) && atomMatchesActiveWorldState(atom, cc) && atomToolSatisfied(atom, available) {
 			skeletonAtoms = append(skeletonAtoms, atom)
 		}
 	}
@@ -953,10 +958,13 @@ func (s *AtomSelector) loadFleshAtomsKernel(
 	timer := logging.StartTimer(logging.CategoryContext, "AtomSelector.loadFleshAtoms")
 	defer timer.Stop()
 
-	// Filter to flesh atoms only
+	// Filter to flesh atoms only. An explicit requires_tools entry omits
+	// the atom when the effective catalog lacks any required tool, the
+	// same rule skeleton selection enforces.
+	available := availableToolSet(cc)
 	var fleshAtoms []*PromptAtom
 	for _, atom := range atoms {
-		if atom != nil && !isSkeletonCategory(atom.Category) && atomMatchesActiveWorldState(atom, cc) {
+		if atom != nil && !isSkeletonCategory(atom.Category) && atomMatchesActiveWorldState(atom, cc) && atomToolSatisfied(atom, available) {
 			fleshAtoms = append(fleshAtoms, atom)
 		}
 	}
@@ -1115,13 +1123,17 @@ func (s *AtomSelector) fallbackFleshSelection(
 	forcedMandatory map[string]struct{},
 ) []*ScoredAtom {
 	var selected []*ScoredAtom
+	available := availableToolSet(cc)
 
 	for _, atom := range atoms {
 		// Check context match
 		if !atom.MatchesContext(cc) {
 			continue
 		}
-		atom = applyMandatoryOverride(atom, forcedMandatory)
+		// Capability gating: omit tool-gated atoms whose tools are absent.
+		if !atomToolSatisfied(atom, available) {
+			continue
+		}
 
 		// Calculate score
 		vScore := vectorScores[atom.ID]
@@ -1130,6 +1142,7 @@ func (s *AtomSelector) fallbackFleshSelection(
 			weight = cc.VectorWeight
 		}
 		combined := (1.0 - weight) + weight*vScore // Base logic score is implicitly 1.0 for the multiplier before vector weight
+		atom = applyMandatoryOverride(atom, forcedMandatory)
 
 		selected = append(selected, &ScoredAtom{
 			Atom:            atom,
@@ -1390,6 +1403,37 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 				fb.WriteString(")")
 				facts = append(facts, fb.String())
 			}
+		}
+
+		// Capability requirements - needed for blocked_by_missing_tool in
+		// jit_selection.mg. Emitted as quoted strings (tool names, not Mangle
+		// atoms). Never widen authority here; the policy omits the atom when
+		// any required tool is absent.
+		for _, tool := range atom.RequiresTools {
+			if strings.TrimSpace(tool) == "" {
+				continue
+			}
+			fb.Reset()
+			fb.WriteString("atom_requires_tool(")
+			fb.WriteQuotedString(id)
+			fb.WriteString(", ")
+			fb.WriteQuotedString(tool)
+			fb.WriteString(")")
+			facts = append(facts, fb.String())
+		}
+	}
+
+	// Effective executable catalog for this compile. Empty means fail-closed.
+	if cc != nil {
+		for _, tool := range cc.AvailableTools {
+			if strings.TrimSpace(tool) == "" {
+				continue
+			}
+			fb.Reset()
+			fb.WriteString("available_tool(")
+			fb.WriteQuotedString(tool)
+			fb.WriteString(")")
+			facts = append(facts, fb.String())
 		}
 	}
 

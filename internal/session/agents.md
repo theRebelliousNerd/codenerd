@@ -45,3 +45,12 @@
   Add race tests for changes.
 - Run session/JIT config tests, focused `-race`, relevant integration tests, and
   reconcile `Docs/architecture/session/` when contracts or wiring change.
+
+- Resolve the tool envelope BEFORE prompt compilation: `resolveAvailableTools`
+  populates `CompilationContext.AvailableTools` from the precompiled config when
+  present, else from `ConfigFactory.ResolveAllowedTools` for the turn verb
+  (including the `/general` fallback). Fail closed on resolution error (empty
+  catalog, capability atoms omitted); never add tools to make a prompt compile.
+  `compileConfig` must grant exactly what resolution promised for the same
+  intent. The no-tool retry path clones the catalog into its retry context so
+  the nudge sees the real allowed set.

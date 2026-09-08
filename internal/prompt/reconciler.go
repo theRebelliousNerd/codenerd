@@ -227,6 +227,7 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 		add("state", atom.WorldStates)
 		add("depends_on", atom.DependsOn)
 		add("conflicts_with", atom.ConflictsWith)
+		add("requires_tool", atom.RequiresTools)
 
 		if len(rows) > 0 {
 			const chunkSize = 300

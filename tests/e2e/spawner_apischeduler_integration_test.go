@@ -673,3 +673,12 @@ func TestE2E_SpawnerAPIScheduler_OODALoop_LatencyBudget(t *testing.T) {
 
 	wg.Wait()
 }
+
+// ResolveAllowedTools projects the same fixture envelope before JIT selection.
+func (m *sasMockConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
+	resolved, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
+	if err != nil || resolved == nil {
+		return nil, err
+	}
+	return append([]string(nil), resolved.AllowedTools...), nil
+}

@@ -217,6 +217,14 @@ type PromptAtom struct {
 	// ConflictsWith lists atom IDs that cannot be present with this atom
 	ConflictsWith []string `json:"conflicts_with,omitempty"`
 
+	// RequiresTools lists executable tool names that must be present in the
+	// effective tool catalog for this atom's guidance to be valid. Empty means
+	// tool-agnostic (safety/protocol/methodology/identity and generic editing
+	// guidance) and is never gated. Non-empty gates selection via Mangle
+	// blocked_by_missing_tool against CompilationContext.AvailableTools.
+	// Never widen execution authority to satisfy this; omit the atom instead.
+	RequiresTools []string `json:"requires_tools,omitempty"`
+
 	// =========================================================================
 	// Embedding for Vector Search
 	// =========================================================================
@@ -654,6 +662,7 @@ func (a *PromptAtom) Clone() *PromptAtom {
 	clone.WorldStates = copyStringSlice(a.WorldStates)
 	clone.DependsOn = copyStringSlice(a.DependsOn)
 	clone.ConflictsWith = copyStringSlice(a.ConflictsWith)
+	clone.RequiresTools = copyStringSlice(a.RequiresTools)
 
 	// Deep copy embedding if present
 	if a.Embedding != nil {
@@ -672,6 +681,40 @@ func copyStringSlice(s []string) []string {
 	c := make([]string, len(s))
 	copy(c, s)
 	return c
+}
+
+// availableToolSet normalizes CompilationContext.AvailableTools into a lookup
+// set. Nil/empty means fail-closed: every tool-gated atom is blocked.
+func availableToolSet(cc *CompilationContext) map[string]struct{} {
+	if cc == nil || len(cc.AvailableTools) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(cc.AvailableTools))
+	for _, t := range cc.AvailableTools {
+		if t == "" {
+			continue
+		}
+		set[t] = struct{}{}
+	}
+	return set
+}
+
+// atomToolSatisfied reports whether the effective catalog satisfies the atom's
+// RequiresTools. Tool-agnostic atoms (empty RequiresTools) always pass, so
+// constitutional, evidence and general identity guidance is retained on every
+// catalog. An explicit requires_tools entry means the same thing in every
+// selection path (skeleton and flesh): the atom is omitted when any required
+// tool is absent. Never widen execution authority to satisfy this.
+func atomToolSatisfied(atom *PromptAtom, available map[string]struct{}) bool {
+	if atom == nil || len(atom.RequiresTools) == 0 {
+		return true
+	}
+	for _, tool := range atom.RequiresTools {
+		if _, ok := available[tool]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // EmbeddedCorpus holds the embedded (baked-in) prompt atoms.

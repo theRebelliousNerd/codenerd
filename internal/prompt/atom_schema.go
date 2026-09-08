@@ -46,6 +46,7 @@ type AtomDefinition struct {
 	IsExclusive   string   `yaml:"is_exclusive,omitempty"`
 	DependsOn     []string `yaml:"depends_on,omitempty"`
 	ConflictsWith []string `yaml:"conflicts_with,omitempty"`
+	RequiresTools []string `yaml:"requires_tools,omitempty"`
 
 	OperationalModes []string `yaml:"operational_modes,omitempty"`
 	CampaignPhases   []string `yaml:"campaign_phases,omitempty"`
@@ -560,6 +561,7 @@ func (definition AtomDefinition) toPromptAtom(sourcePath string, readContent Ato
 		IsExclusive:      definition.IsExclusive,
 		DependsOn:        append([]string(nil), definition.DependsOn...),
 		ConflictsWith:    append([]string(nil), definition.ConflictsWith...),
+		RequiresTools:    append([]string(nil), definition.RequiresTools...),
 		OperationalModes: append([]string(nil), definition.OperationalModes...),
 		CampaignPhases:   append([]string(nil), definition.CampaignPhases...),
 		BuildLayers:      append([]string(nil), definition.BuildLayers...),
@@ -601,6 +603,9 @@ func (definition AtomDefinition) toPromptAtom(sourcePath string, readContent Ato
 			return nil, fmt.Errorf("atom %s: %w", atom.ID, err)
 		}
 	}
+	if err := validateRequiresTools(atom.ID, atom.RequiresTools); err != nil {
+		return nil, err
+	}
 	if err := validateWorldStateSelectors(atom.WorldStates); err != nil {
 		return nil, fmt.Errorf("atom %s: %w", atom.ID, err)
 	}
@@ -633,6 +638,34 @@ func validateAtomStringList(name string, values []string, normalizeSlash bool) e
 			return fmt.Errorf("%s contains duplicate value %q", name, value)
 		}
 		seen[value] = struct{}{}
+	}
+	return nil
+}
+
+func validateRequiresTools(atomID string, tools []string) error {
+	seen := make(map[string]struct{}, len(tools))
+	for _, raw := range tools {
+		tool := raw
+		if tool == "" {
+			return fmt.Errorf("atom %s: requires_tools contains an empty value", atomID)
+		}
+		if tool != strings.TrimSpace(tool) {
+			return fmt.Errorf("atom %s: requires_tools value %q has surrounding whitespace", atomID, raw)
+		}
+		if strings.HasPrefix(tool, "/") {
+			return fmt.Errorf("atom %s: requires_tools value %q must not be slash-prefixed (tool names, not Mangle atoms)", atomID, raw)
+		}
+		for _, r := range tool {
+			isLower := r >= 'a' && r <= 'z'
+			isDigit := r >= '0' && r <= '9'
+			if !isLower && !isDigit && r != '_' {
+				return fmt.Errorf("atom %s: requires_tools value %q must match [a-z0-9_]+ (executable tool name)", atomID, raw)
+			}
+		}
+		if _, dup := seen[tool]; dup {
+			return fmt.Errorf("atom %s: requires_tools contains duplicate value %q", atomID, raw)
+		}
+		seen[tool] = struct{}{}
 	}
 	return nil
 }

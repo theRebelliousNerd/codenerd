@@ -129,6 +129,7 @@
   shard_types: ["/coder"]
   intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"]
   depends_on: ["identity/coder/mission"]
+  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
   content: |
     ## CodeDOM: Your PRIMARY Tool for Code Editing (MANDATORY)
 

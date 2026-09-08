@@ -53,9 +53,9 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 		t.Fatal("validator and embedded runtime atom order differ")
 	}
 
-	const wantCount = 918
-	// Includes the mandatory change-evidence contract atom.
-	const wantDigest = "f9c582046d3a7a634cc0545606ada468bfa05d900290bd8eaa5801a51ac1440e"
+	const wantCount = 919
+	// Includes tool-agnostic editing discipline alongside change evidence.
+	const wantDigest = "6e7c47028b7334f16bf770641e4f6d78bb7a4a8a40f17a553d244d34171c79fe"
 	if len(stats.AtomIDs) != wantCount {
 		t.Fatalf("atom count = %d, want golden %d", len(stats.AtomIDs), wantCount)
 	}

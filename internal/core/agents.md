@@ -31,3 +31,6 @@ go vet ./internal/store ./internal/core
   It must not bypass context blocking, conflict resolution, or dependencies.
   Verify selection against the production kernel and run both standing shard
   audits whenever changing its declarations or rules.
+- JIT capability prohibitions must constrain mandatory selection and its
+  dependency closure, not only vector candidates. Exercise raw kernel selection
+  without Go pre-filtering, and keep capability facts private to each compile.

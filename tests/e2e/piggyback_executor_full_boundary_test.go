@@ -565,3 +565,12 @@ func TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary(t *testing.T)
 		}
 	})
 }
+
+// ResolveAllowedTools projects the same fixture envelope before JIT selection.
+func (m *pbMockConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
+	resolved, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
+	if err != nil || resolved == nil {
+		return nil, err
+	}
+	return append([]string(nil), resolved.AllowedTools...), nil
+}

@@ -68,8 +68,49 @@ func (r *DependencyResolver) Resolve(atoms []*ScoredAtom) ([]*OrderedAtom, error
 		return nil, nil
 	}
 
+	// Prune atoms with missing dependencies transitively (fail-closed unless
+	// allowMissingDeps). This propagates capability gating: dependents of an
+	// omitted tool-gated atom are omitted rather than rendered dangling.
+	if !r.allowMissingDeps {
+		for {
+			present := make(map[string]struct{}, len(valid))
+			for _, sa := range valid {
+				present[sa.Atom.ID] = struct{}{}
+			}
+			kept := make([]*ScoredAtom, 0, len(valid))
+			changed := false
+			for _, sa := range valid {
+				missing := false
+				for _, depID := range sa.Atom.DependsOn {
+					if depID == "" {
+						continue
+					}
+					if _, ok := present[depID]; !ok {
+						missing = true
+						break
+					}
+				}
+				if missing {
+					changed = true
+					continue
+				}
+				kept = append(kept, sa)
+			}
+			valid = kept
+			atomMap = make(map[string]*ScoredAtom, len(valid))
+			for _, sa := range valid {
+				atomMap[sa.Atom.ID] = sa
+			}
+			if !changed || len(valid) == 0 {
+				break
+			}
+		}
+		if len(valid) == 0 {
+			return nil, nil
+		}
+	}
+
 	// Step 1: Topological sort
-	// We rely on Mangle to have already filtered out prohibited/conflicting/missing-dep atoms.
 	sorted, err := r.topologicalSort(valid, atomMap)
 	if err != nil {
 		return nil, err

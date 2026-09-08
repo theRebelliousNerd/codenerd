@@ -848,3 +848,12 @@ func TestE2E_Session_LLMClient_NetworkDisconnect_MidStream(t *testing.T) {
         t.Fatalf("Expected error due to short context, got nil")
     }
 }
+
+// ResolveAllowedTools projects the same fixture envelope before JIT selection.
+func (m *spawnerMockConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
+	resolved, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
+	if err != nil || resolved == nil {
+		return nil, err
+	}
+	return append([]string(nil), resolved.AllowedTools...), nil
+}

@@ -634,3 +634,12 @@ func TestE2E_SessionExecutor_LoggingPanic_Recovery(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 }
+
+// ResolveAllowedTools projects the same fixture envelope before JIT selection.
+func (m *sclMockConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
+	resolved, err := m.configToReturn, m.errToReturn
+	if err != nil || resolved == nil {
+		return nil, err
+	}
+	return append([]string(nil), resolved.AllowedTools...), nil
+}

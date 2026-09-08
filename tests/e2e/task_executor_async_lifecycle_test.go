@@ -577,3 +577,12 @@ func TestE2E_TaskExecutor_ExecuteAsync_Concurrent(t *testing.T) {
 		t.Errorf("Suspiciously high LLM call count: %d calls for %d tasks (possible double-run)", calls, successes)
 	}
 }
+
+// ResolveAllowedTools projects the same fixture envelope before JIT selection.
+func (m *talMockConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
+	resolved, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
+	if err != nil || resolved == nil {
+		return nil, err
+	}
+	return append([]string(nil), resolved.AllowedTools...), nil
+}

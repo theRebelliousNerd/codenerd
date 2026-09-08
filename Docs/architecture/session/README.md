@@ -30,8 +30,9 @@ that creativity. Mangle is still the executive: session asserts the exact
 ```text
 perception Intent / delegated task
   -> assert user_intent
-  -> JIT prompt + EffectiveAgentRuntimeConfig
-  -> resolve only AllowedTools
+  -> resolve permitted tool envelope
+  -> JIT prompt (capability requirements + dependency closure)
+  -> EffectiveAgentRuntimeConfig with the same AllowedTools
   -> LLM proposes tool call
   -> effective capability check
   -> pending_action exact envelope -> Mangle permitted/3
@@ -50,7 +51,9 @@ the focused test.”
 
 1. Perception supplies an intent; `ProcessWithIntent` asserts it and constructs a
    `prompt.CompilationContext` from target, mode, diagnostics, session state, and
-   runtime capabilities.
+   runtime capabilities. The injected specialist config or
+   `ConfigFactory.ResolveAllowedTools` supplies the permitted catalog before JIT
+   selection. A resolver error leaves an empty prompt capability catalog.
 2. JIT returns a prompt; `ConfigFactory` returns identity, allowed tools, policies,
    loop bounds, and safety settings. Nil or empty allowed tools means no tools.
 3. The model proposes `read_file`, then `edit_file`, then `run_tests`. Session
@@ -69,6 +72,15 @@ the focused test.”
 `internal/session/executor_test.go#TestExecutor_CheckSafety_SafeActionWithoutPermittedDenies`;
 capability failure is covered by
 `internal/session/executor_capability_test.go#TestExecutorToolCapabilityEnvelopeFailsClosed`.
+
+Capability selection was verified on 2026-09-08: atom `requires_tools` metadata
+survives YAML, database synchronization and loading; missing requirements block
+mandatory and optional instructions and their dependents. Applicable safety and
+evidence guidance remains selected. The production tests in
+`internal/system/prompt_capability_production_test.go` exercise factory boot,
+expert database round trips, changing catalogs and raw Mangle selection without
+Go pre-filtering. `TestCompilationContextUsesPermittedToolEnvelope` covers the
+executor's specialist, fallback, error and request-context paths.
 
 ## What exists today
 

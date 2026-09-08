@@ -72,6 +72,10 @@ func (m *mockConfigFactory) Generate(ctx context.Context, result *prompt.Compila
 	return &config.EffectiveAgentRuntimeConfig{}, nil
 }
 
+func (m *mockConfigFactory) ResolveAllowedTools(ctx context.Context, intentVerbs ...string) ([]string, error) {
+	return nil, nil
+}
+
 type mockTransducerUT struct{}
 
 func (m *mockTransducerUT) ParseIntent(ctx context.Context, p string) (perception.Intent, error) {

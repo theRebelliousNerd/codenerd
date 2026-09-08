@@ -435,6 +435,9 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 		if err := addTags("conflicts_with", atom.ConflictsWith); err != nil {
 			return err
 		}
+		if err := addTags("requires_tool", atom.RequiresTools); err != nil {
+			return err
+		}
 	}
 
 	if err := flushTags(); err != nil {

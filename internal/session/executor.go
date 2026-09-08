@@ -44,6 +44,12 @@ type JITCompiler interface {
 // ConfigFactory creates EffectiveAgentRuntimeConfig from compilation results.
 type ConfigFactory interface {
 	Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error)
+	// ResolveAllowedTools reports the effective executable tool catalog for
+	// intents without compiling a prompt. The executor resolves this BEFORE
+	// prompt selection so capability atoms can be gated on the same envelope
+	// the tool loop will enforce. Implementations must return exactly what
+	// Generate would grant for the same intents (including /general fallback).
+	ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error)
 }
 
 // SessionPersister stores session turn data for cross-session continuity.
@@ -1120,6 +1126,7 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 		if sCtx.DreamMode {
 			cc.OperationalMode = "/dream"
 		}
+		e.resolveAvailableTools(ctx, cc, intent)
 		return cc
 	}
 
@@ -1132,8 +1139,42 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 		}
 	}
 	e.mu.RUnlock()
-
+	e.resolveAvailableTools(ctx, cc, intent)
 	return cc
+}
+
+// resolveAvailableTools populates cc.AvailableTools with the effective
+// executable tool catalog BEFORE prompt compilation so Mangle can gate
+// tool-specific atoms on the same envelope the tool loop will enforce.
+// Precompiled EffectiveAgentRuntimeConfig (SubAgent injection) wins; otherwise
+// the factory resolves [verb] exactly as compileConfig will. It never widens
+// authority: failures leave the catalog empty (fail-closed, no tools).
+func (e *Executor) resolveAvailableTools(ctx context.Context, cc *prompt.CompilationContext, intent perception.Intent) {
+	if cc == nil {
+		return
+	}
+	e.mu.RLock()
+	precompiled := e.EffectiveAgentRuntimeConfig
+	e.mu.RUnlock()
+	if precompiled != nil {
+		cc.AvailableTools = append([]string(nil), precompiled.AllowedTools...)
+		return
+	}
+	if e.configFactory == nil {
+		cc.AvailableTools = nil
+		return
+	}
+	verb := intent.Verb
+	if verb == "" {
+		verb = "/general"
+	}
+	tools, err := e.configFactory.ResolveAllowedTools(ctx, verb)
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("Tool envelope resolution failed for %q: %v (compiling with empty catalog)", verb, err)
+		cc.AvailableTools = nil
+		return
+	}
+	cc.AvailableTools = tools
 }
 
 // compileConfig creates an EffectiveAgentRuntimeConfig from the compilation result and intent.

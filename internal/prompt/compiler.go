@@ -69,6 +69,10 @@ var promptEphemeralPredicates = []string{
 	"vector_hit",
 	"atom_requires",
 	"atom_conflicts",
+	"atom_requires_tool",
+	"available_tool",
+	"compile_shard",
+	"retrieved_context",
 }
 
 // VectorSearcher defines the interface for semantic search.

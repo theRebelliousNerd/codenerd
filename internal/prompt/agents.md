@@ -42,3 +42,29 @@
 - Ephemeral lookup results emit `retrieved_context` for Mangle selection. Keep
   that witness distinct from vector similarity and mandatory atoms; context,
   conflict, dependency, and token-budget rules still apply.
+
+- Capability gating is envelope-first: `requires_tools` on an atom declares
+  the executable tools its guidance is valid for; `CompilationContext.AvailableTools`
+  carries the effective catalog resolved BEFORE selection. An explicit
+  requirement means the same thing in every selection path (skeleton and
+  flesh) via Mangle `blocked_by_missing_tool` plus the Go
+  `atomToolSatisfied` filter; never widen execution authority to satisfy a
+  requirement — omit the atom instead. Tool-agnostic constitutional,
+  evidence, general identity (`mission`, `investigate_first`,
+  `constraints`, `quality_principles`, `tool_usage`) and generic editing
+  (`methodology/editing_discipline`) atoms carry no `requires_tools` and are
+  retained on every catalog. CodeDOM tool-specific guidance
+  (`identity/coder/codedom_premier`, `capability/codedom_core`,
+  `capability/codedom_selection`, `capability/codedom_impact`,
+  `capability/codedom_workflow`, `capability/codedom_first`,
+  `capability/codedom_tools`, `exemplar/codedom_*`) requires the CodeDOM
+  line-range bundle and is omitted on restricted envelopes. Dependents of a
+  blocked atom are pruned transitively by the resolver (`DependsOn` closure).
+  `AvailableTools` participates in the compilation cache hash, so a catalog
+  change is a different compile; empty/available/empty sequences must gate
+  identically with no lingering facts (`atom_requires_tool`,
+  `available_tool` are ephemeral and retracted/scoped per compile).
+  Validate atoms after edits with the commands above; `requires_tools`
+  values are bare `[a-z0-9_]+` tool names, never slash-prefixed, never
+  empty, never duplicated. Do not present CodeDOM capability instructions
+  as generic to leave them ungated.

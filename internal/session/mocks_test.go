@@ -192,6 +192,7 @@ func (m *MockJITCompiler) Compile(ctx context.Context, cc *prompt.CompilationCon
 
 type MockConfigFactory struct {
 	GenerateFunc func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error)
+	ResolveAllowedToolsFunc func(ctx context.Context, intents ...string) ([]string, error)
 }
 
 func (m *MockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
@@ -199,6 +200,24 @@ func (m *MockConfigFactory) Generate(ctx context.Context, result *prompt.Compila
 		return m.GenerateFunc(ctx, result, intents...)
 	}
 	return &config.EffectiveAgentRuntimeConfig{}, nil
+}
+
+// ResolveAllowedTools mirrors prompt.ConfigFactory.ResolveAllowedTools so the
+// mock satisfies session.ConfigFactory. When ResolveAllowedToolsFunc is nil it
+// derives the catalog from Generate (same /general fallback contract) and
+// fails closed on error, never widening authority to make a prompt compile.
+func (m *MockConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
+	if m.ResolveAllowedToolsFunc != nil {
+		return m.ResolveAllowedToolsFunc(ctx, intents...)
+	}
+	cfg, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
+	if err != nil {
+		return nil, err
+	}
+	if cfg == nil {
+		return nil, nil
+	}
+	return append([]string(nil), cfg.AllowedTools...), nil
 }
 
 // --- MockVirtualStore ---

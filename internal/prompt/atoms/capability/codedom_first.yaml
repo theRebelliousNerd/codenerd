@@ -5,6 +5,7 @@
   priority: 88
   is_mandatory: true
   shard_types: [coder, reviewer, tester]
+  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
   description: "Prefer Code DOM line-range tools over whole-file reads and text-match edits"
   content: |
     ## CodeDOM First: Use Semantic Tools Before Text Tools

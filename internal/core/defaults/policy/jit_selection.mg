@@ -127,6 +127,7 @@ compilation_valid() :-
 # Error: missing mandatory atom (mandatory atom not selected)
 compilation_error(/missing_mandatory, AtomID) :-
     prompt_atom(AtomID, _, _, _, /true),
+    !prohibited_atom(AtomID),
     !atom_selected(AtomID).
 
 # Error: circular dependency
@@ -316,3 +317,17 @@ missing_skeleton_category(Category) :-
 # Report missing skeleton as compilation error
 compilation_error(/missing_skeleton, Category) :-
     missing_skeleton_category(Category).
+
+
+# Capability gating: tool-specific instructions are admitted only when the
+# effective catalog contains every required tool. Empty catalog blocks all
+# tool-gated atoms (fail-closed). Skeleton safety/evidence atoms carry no
+# requires_tools and are never affected. Dependents of a blocked atom are
+# blocked transitively through the existing base_prohibited(atom_requires)
+# propagation above rather than rendered dangling.
+blocked_by_missing_tool(AtomID) :-
+    atom_requires_tool(AtomID, Tool),
+    !available_tool(Tool).
+
+base_prohibited(AtomID) :-
+    blocked_by_missing_tool(AtomID).

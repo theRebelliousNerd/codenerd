@@ -457,3 +457,18 @@ Decl has_skeleton_category(Category) bound [/name].
 # Helper: skeleton category with no selected atoms (compilation error)
 Decl missing_skeleton_category(Category) bound [/name].
 
+
+
+# atom_requires_tool(AtomID, Tool)
+# Capability requirement: AtomID's guidance is valid only when Tool is in the
+# effective executable catalog. Tool is a bare executable name (string).
+Decl atom_requires_tool(AtomID, Tool) bound [/string, /string].
+
+# available_tool(Tool)
+# Effective executable catalog for this compile, resolved BEFORE selection.
+# Empty means fail-closed (no tools).
+Decl available_tool(Tool) bound [/string].
+
+# blocked_by_missing_tool(AtomID)
+# Atom is omitted because at least one required tool is absent.
+Decl blocked_by_missing_tool(AtomID) bound [/string].

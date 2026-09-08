@@ -8,6 +8,7 @@
   priority: 92
   is_mandatory: true
   depends_on: ["capability/codedom_core"]
+  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
   shard_types: []  # Applies to all personas
   content: |
     ## Impact Analysis: Query Before You Edit

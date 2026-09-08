@@ -13,6 +13,7 @@
   priority: 80
   is_mandatory: false
   depends_on: ["capability/codedom_impact"]
+  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
   content: |
     ## Exemplar: Cross-Language Field Rename
 
@@ -131,6 +132,7 @@
   priority: 78
   is_mandatory: false
   depends_on: ["capability/codedom_safety"]
+  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
   content: |
     ## Exemplar: Safety Rule Blocking an Edit
 
@@ -210,6 +212,7 @@
   priority: 76
   is_mandatory: false
   depends_on: ["capability/codedom_polyglot"]
+  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
   content: |
     ## Exemplar: Async Code Refactoring with Safety
 
@@ -295,6 +298,7 @@
   priority: 74
   is_mandatory: false
   depends_on: ["capability/codedom_test_tools"]
+  requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
   content: |
     ## Exemplar: Using Test Impact Analysis
 

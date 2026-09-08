@@ -126,6 +126,8 @@ func (c *JITPromptCompiler) appendTag(atom *PromptAtom, dim, tag string) {
 		atom.DependsOn = append(atom.DependsOn, tag)
 	case "conflicts_with":
 		atom.ConflictsWith = append(atom.ConflictsWith, tag)
+	case "requires_tool":
+		atom.RequiresTools = append(atom.RequiresTools, tag)
 	}
 }
 

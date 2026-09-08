@@ -798,3 +798,12 @@ func TestE2E_OrchestratorExecutor_AsyncExecution_WaitForResult(t *testing.T) {
 		t.Fatalf("WaitForResult returned empty string")
 	}
 }
+
+// ResolveAllowedTools projects the same fixture envelope before JIT selection.
+func (m *oeMockConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
+	resolved, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
+	if err != nil || resolved == nil {
+		return nil, err
+	}
+	return append([]string(nil), resolved.AllowedTools...), nil
+}

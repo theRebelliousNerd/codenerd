@@ -115,6 +115,7 @@ func HydrateAtomContextTags(ctx context.Context, db *sql.DB, atoms []*PromptAtom
 		insertTags(atom.ID, "state", atom.WorldStates)
 		insertTags(atom.ID, "depends_on", atom.DependsOn)
 		insertTags(atom.ID, "conflicts_with", atom.ConflictsWith)
+		insertTags(atom.ID, "requires_tool", atom.RequiresTools)
 	}
 
 	if len(allTags) > 0 {

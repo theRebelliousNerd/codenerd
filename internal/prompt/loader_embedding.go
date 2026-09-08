@@ -319,6 +319,7 @@ func insertContextTagsBatch(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom
 		addDim("state", atom.WorldStates)
 		addDim("depends_on", atom.DependsOn)
 		addDim("conflicts_with", atom.ConflictsWith)
+		addDim("requires_tool", atom.RequiresTools)
 	}
 
 	if len(allTags) == 0 {

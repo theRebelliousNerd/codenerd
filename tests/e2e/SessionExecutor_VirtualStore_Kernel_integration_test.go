@@ -791,3 +791,12 @@ func TestE2E_ContractViolation_ZeroResultQueryHandling(t *testing.T) {
 		t.Fatalf("unconfigured_tool is not in AllowedTools and must not execute")
 	}
 }
+
+// ResolveAllowedTools projects the same fixture envelope before JIT selection.
+func (m *mockConfigFactory) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {
+	resolved, err := m.Generate(ctx, &prompt.CompilationResult{}, intents...)
+	if err != nil || resolved == nil {
+		return nil, err
+	}
+	return append([]string(nil), resolved.AllowedTools...), nil
+}
