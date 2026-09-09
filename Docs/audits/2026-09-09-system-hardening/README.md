@@ -11,11 +11,38 @@ one defect here is a compile defect.
 
 | Document | What it holds |
 |---|---|
-| [00-FINDINGS.md](00-FINDINGS.md) | Every defect, with file:line evidence and measurements. |
+| [00-FINDINGS.md](00-FINDINGS.md) | Round 1: wiring, context, safety gates, the three budgets. |
 | [01-CONTEXT-PIPELINE.md](01-CONTEXT-PIPELINE.md) | What reaches the model on a file-targeted turn, and why each section earns its place. |
 | [02-PROMPT-BUDGET.md](02-PROMPT-BUDGET.md) | Every source of text that can reach the prompt, with its cap. |
 | [03-STUBS-AND-SWALLOWED-ERRORS.md](03-STUBS-AND-SWALLOWED-ERRORS.md) | Live stubs reporting success they did not earn, and failures that were invisible. |
 | [05-OPEN-ITEMS.md](05-OPEN-ITEMS.md) | Found, verified, deliberately not fixed — with the reason for each. |
+
+## The deepest one
+
+`core.Kernel.Assert` returned `nil` for a fact the kernel had **thrown away**.
+
+`addFactIfNewLocked` answered one bool for two opposite outcomes — "already
+present" (a no-op, fine) and "rejected, and never will be present" — and
+`Assert` read it as the former. So a rejected fact reported success to its
+caller and simply was not there afterwards, and **every**
+`if err := kernel.Assert(f); err != nil` guard in the tree was ornamental,
+including the ones added earlier in this same pass.
+
+Confirmed on the pre-fix code:
+
+```
+Assert(dream_preference("likes tabs", 0.85))  ->  err = <nil>, rows after = 0
+```
+
+Not a corner case. `coerceAtomToDeclLocked` *has* to refuse a fractional float
+in a `/number` slot, because this Mangle fork compares int64 only and one such
+fact aborts the whole fixpoint. `DreamRouter` asserted exactly that shape for
+all three Dream State learning predicates, then set `Success: true` and marked
+the learning `Persisted` so it was never retried. Three predicates with a
+`Decl`, a Go producer, and no rows, since the day they were added.
+
+This is why round 2 had to happen before its own targets could be fixed: you
+cannot handle an error that is never returned.
 
 ## The one pattern
 
@@ -58,6 +85,18 @@ And a fourth, found only by an end-to-end test after the first three were fixed:
 the producer emitted a bare `Target` where the call graph holds
 `impactdemo.Target`. Every fact correct, the join silently empty. No unit test
 could catch it — each side was internally consistent.
+
+## Round 2: success that was not earned
+
+| Defect | What it reported | What happened |
+|---|---|---|
+| `Kernel.Assert` | success | fact rejected and dropped |
+| `swebench_evaluate` | `Success: true`, environment `/evaluating` | no tests run, no verdict fact produced, ever |
+| `delete_lines` validator | `Verified: true` | branch unreachable (`.(int)` against JSON `float64`), and vacuous when reached |
+| `ValidateProgram` | validated | real analysis computed and discarded; a line split stood in |
+| `matchSpecialistsForReview` | a review | always empty; and the formatter dropped Files and Knowledge anyway |
+| Shadow Mode effect asserts | `IsSafe` | the evidence against the action was lost, so nothing objected |
+| `DreamRouter` learnings | `Persisted` | rejected by the kernel, never retried |
 
 ## Measured
 
