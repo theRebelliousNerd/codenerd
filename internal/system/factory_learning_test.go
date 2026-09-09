@@ -183,4 +183,20 @@ func TestBootWiresTheLearningLoop(t *testing.T) {
 	if !cortex.SessionExecutor.HasTurnRecorder() {
 		t.Fatal("the session executor has no turn recorder: turns run on this path are never learned from")
 	}
+	if cortex.ContextFeedback == nil {
+		t.Fatal("Cortex.ContextFeedback is nil: the model's rating of its own context is discarded on this path")
+	}
+	if !cortex.SessionExecutor.HasContextFeedbackRecorder() {
+		t.Fatal("the session executor has no context feedback recorder")
+	}
+}
+
+var _ session.ContextFeedbackRecorder = (*contextFeedbackRecorder)(nil)
+
+func TestContextFeedbackRecorder_NilStoreIsSafe(t *testing.T) {
+	// Boot may fail to open the store (read-only .nerd/, corrupt database) and
+	// the session must still run.
+	var r *contextFeedbackRecorder
+	r.RecordContextFeedback(session.ContextFeedbackRecord{})
+	(&contextFeedbackRecorder{}).RecordContextFeedback(session.ContextFeedbackRecord{})
 }

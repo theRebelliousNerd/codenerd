@@ -8,6 +8,7 @@ import (
 	promptevolution "codenerd/internal/autopoiesis/prompt_evolution"
 	"codenerd/internal/browser"
 	"codenerd/internal/config"
+	ctxlearn "codenerd/internal/context"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
@@ -325,6 +326,10 @@ type Cortex struct {
 	// that has a JIT compiler; see factory_learning.go for why it is owned
 	// here rather than by the chat TUI that used to build it.
 	PromptEvolver *promptevolution.PromptEvolver
+
+	// ContextFeedback stores the model's per-turn rating of the context it was
+	// given, which tunes spreading activation. Owned here for the same reason.
+	ContextFeedback *ctxlearn.ContextFeedbackStore
 	// WorkerLLMClient serves bulk shard/task execution when a worker tier is
 	// configured; nil means shards share LLMClient. PlannerLLMClient serves
 	// reasoning-intensive turns when a planner tier is configured; nil means
@@ -711,6 +716,7 @@ type bootContext struct {
 	taskExecutor                 session.TaskExecutor
 	poiesis                      *autopoiesis.Orchestrator
 	promptEvolver                *promptevolution.PromptEvolver
+	contextFeedback              *ctxlearn.ContextFeedbackStore
 	browserMgr                   *browser.SessionManager
 	scanner                      *world.Scanner
 	tracker                      *usage.Tracker
@@ -2151,6 +2157,7 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		JITCompiler:           bctx.jitCompiler,
 		PromptAssembler:       bctx.promptAssembler,
 		PromptEvolver:         bctx.promptEvolver,
+		ContextFeedback:       bctx.contextFeedback,
 		WorkerLLMClient:       bctx.shardLLMClient,
 		PlannerLLMClient:      bctx.plannerLLMClient,
 		ToolStore:             bctx.toolStore,

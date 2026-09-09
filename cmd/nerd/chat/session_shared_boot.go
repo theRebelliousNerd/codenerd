@@ -137,13 +137,14 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		}
 	}
 
-	logStep("Initializing context feedback store...")
-	feedbackDBPath := filepath.Join(workspace, ".nerd", "context_feedback.db")
-	var feedbackStore *ctxcompress.ContextFeedbackStore
-	if fs, err := ctxcompress.NewContextFeedbackStore(feedbackDBPath); err != nil {
-		logging.Get(logging.CategoryContext).Warn("Failed to create context feedback store: %v", err)
+	// The context feedback store is opened by the Cortex boot, which now feeds
+	// it from every path rather than only from this one. Opening a second
+	// handle here would put two writers on one SQLite file.
+	feedbackStore := cortex.ContextFeedback
+	if feedbackStore == nil {
+		logging.Get(logging.CategoryContext).Warn(
+			"Context feedback store unavailable; spreading activation will not use learned predicate usefulness")
 	} else {
-		feedbackStore = fs
 		compressor.SetFeedbackStore(feedbackStore)
 	}
 

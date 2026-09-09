@@ -134,6 +134,13 @@ func (c *Cortex) Close() error {
 		c.PromptEvolver = nil
 	}
 
+	if c.ContextFeedback != nil {
+		if err := runCloseStep("ContextFeedback.Close", closeStepTimeout, c.ContextFeedback.Close); err != nil {
+			errs = append(errs, err)
+		}
+		c.ContextFeedback = nil
+	}
+
 	if c.JITCompiler != nil {
 		// Close cancels and joins compilation before closing its databases.
 		// A timer cannot cancel SQLite cleanup: abandoning it leaves the corpus

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	pe "codenerd/internal/autopoiesis/prompt_evolution"
+	ctxlearn "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/features"
 	"codenerd/internal/logging"
@@ -87,6 +88,8 @@ func initLearningLoop(bctx *bootContext) error {
 	if bctx.sessionExecutor != nil {
 		bctx.sessionExecutor.SetTurnRecorder(newTurnEvolutionRecorder(evolver))
 	}
+
+	initContextFeedback(bctx)
 
 	logging.Get(logging.CategoryBoot).Info(
 		"Learning loop wired: recording=on automatic-evolution=%t (CODENERD_PROMPT_EVOLUTION)",
@@ -299,4 +302,72 @@ func (c *Cortex) runEvolutionCycle(ctx context.Context) {
 				"Failed to reload evolved atoms into the compiler: %v", err)
 		}
 	}
+}
+
+// initContextFeedback opens the context-usefulness store and points the
+// session executor at it.
+//
+// The store is the third learning loop, and it was in the same shape as the
+// other two: built in the chat TUI, and on every other path the model's rating
+// of the context it had just been given was written to a log line and dropped.
+// The ratings tune spreading activation (ActivationEngine.computeFeedbackScore)
+// on a per-predicate, per-verb basis, so a headless campaign's ratings improve
+// what the next session retrieves.
+//
+// A store that cannot be opened is not fatal: the session runs, it just does
+// not learn what context was worth its tokens.
+func initContextFeedback(bctx *bootContext) {
+	if bctx == nil || bctx.sessionExecutor == nil {
+		return
+	}
+
+	dbPath := filepath.Join(bctx.workspace, ".nerd", "context_feedback.db")
+	store, err := ctxlearn.NewContextFeedbackStore(dbPath)
+	if err != nil {
+		logging.Get(logging.CategoryContext).Warn(
+			"Context feedback store unavailable at %s: %v; context ratings will be discarded", dbPath, err)
+		return
+	}
+	bctx.contextFeedback = store
+	bctx.sessionExecutor.SetContextFeedbackRecorder(&contextFeedbackRecorder{store: store})
+}
+
+// contextFeedbackRecorder adapts a session turn's rating onto the store.
+type contextFeedbackRecorder struct {
+	store *ctxlearn.ContextFeedbackStore
+}
+
+// RecordContextFeedback implements session.ContextFeedbackRecorder. The write
+// is asynchronous because it happens at the end of every turn, on the turn's
+// own goroutine.
+func (r *contextFeedbackRecorder) RecordContextFeedback(rec session.ContextFeedbackRecord) {
+	if r == nil || r.store == nil {
+		return
+	}
+	go func() {
+		if err := r.store.StoreFeedback(
+			rec.TurnNumber,
+			rec.ManifestHash,
+			rec.OverallUsefulness,
+			rec.IntentVerb,
+			// The kernel's verdict, not the turn's return value: a rating from
+			// a turn that only claimed to succeed should not be weighted as
+			// evidence that the context was what made it succeed.
+			rec.Verified,
+			rec.HelpfulPredicates,
+			rec.NoisePredicates,
+		); err != nil {
+			logging.Get(logging.CategoryContext).Warn(
+				"Failed to store context feedback for session %s turn %d: %v",
+				rec.SessionID, rec.TurnNumber, err)
+		}
+		if rec.MissingContext != "" {
+			// Not stored: the store keys on predicate names and this is free
+			// text. Logged so the gap is at least visible to whoever tunes
+			// retrieval, rather than silently discarded.
+			logging.Get(logging.CategoryContext).Info(
+				"Context gap reported by the model (session %s turn %d): %s",
+				rec.SessionID, rec.TurnNumber, rec.MissingContext)
+		}
+	}()
 }
