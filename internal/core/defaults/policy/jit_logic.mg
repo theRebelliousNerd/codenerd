@@ -7,84 +7,38 @@
 # Internal Helper Declarations (IDB)
 # -----------------------------------------------------------------------------
 
-# Context match indicators
-Decl atom_has_shard_match(AtomID).
-Decl atom_has_mode_match(AtomID).
-Decl atom_has_phase_match(AtomID).
-Decl atom_has_verb_match(AtomID).
-Decl atom_has_lang_match(AtomID).
-Decl atom_has_framework_match(AtomID).
-Decl atom_has_state_match(AtomID).
-Decl atom_has_init_match(AtomID).
-Decl atom_has_ouroboros_match(AtomID).
-Decl atom_has_northstar_match(AtomID).
-Decl atom_has_layer_match(AtomID).
-Decl atom_has_provider_match(AtomID).
-Decl atom_has_model_match(AtomID).
-
-# -----------------------------------------------------------------------------
-# Contextual Matching Rules
-# -----------------------------------------------------------------------------
-
-atom_has_shard_match(AtomID) :-
-    atom_selector(AtomID, /shard_type, ShardType),
-    compile_shard(_, ShardType).
-
-atom_has_mode_match(AtomID) :-
-    atom_selector(AtomID, /operational_mode, Mode),
-    compile_context(/operational_mode, Mode).
-
-atom_has_phase_match(AtomID) :-
-    atom_selector(AtomID, /campaign_phase, Phase),
-    compile_context(/campaign_phase, Phase).
-
-atom_has_verb_match(AtomID) :-
-    atom_selector(AtomID, /intent_verb, Verb),
-    compile_context(/intent_verb, Verb).
-
-atom_has_lang_match(AtomID) :-
-    atom_selector(AtomID, /language, Lang),
-    compile_context(/language, Lang).
-
-atom_has_framework_match(AtomID) :-
-    atom_selector(AtomID, /framework, Framework),
-    compile_context(/framework, Framework).
-
-atom_has_state_match(AtomID) :-
-    atom_selector(AtomID, /world_state, State),
-    compile_context(/world_state, State).
-
-atom_has_init_match(AtomID) :-
-    atom_selector(AtomID, /init_phase, Phase),
-    compile_context(/init_phase, Phase).
-
-atom_has_ouroboros_match(AtomID) :-
-    atom_selector(AtomID, /ouroboros_stage, Stage),
-    compile_context(/ouroboros_stage, Stage).
-
-atom_has_northstar_match(AtomID) :-
-    atom_selector(AtomID, /northstar_phase, Phase),
-    compile_context(/northstar_phase, Phase).
-
-atom_has_layer_match(AtomID) :-
-    atom_selector(AtomID, /build_layer, Layer),
-    compile_context(/build_layer, Layer).
-
-# Pin dimensions. Positive-match parity only -- the enforcement that makes a
-# pin binding is the fail-closed regime_dimension block in jit_compiler.mg,
-# which is the live path. These exist so a pinned atom is scored as matching
-# the dimension it was pinned to, rather than looking like an atom that matched
-# on nothing.
+# REMOVED 2026-09-09: the atom_has_*_match dimension rules.
 #
-# /model is satisfied by either the exact token or the family token, because
-# CompilationContext.GenerateFacts emits both (pinning.go: ModelPinTokens).
-atom_has_provider_match(AtomID) :-
-    atom_selector(AtomID, /provider, Provider),
-    compile_context(/provider, Provider).
-
-atom_has_model_match(AtomID) :-
-    atom_selector(AtomID, /model, Model),
-    compile_context(/model, Model).
+# Thirteen Decls and thirteen rules used to live here, one per selector
+# dimension (shard, mode, phase, verb, language, framework, world state, init
+# phase, ouroboros stage, northstar phase, build layer, provider, model). All
+# thirteen joined on atom_selector/3, and all thirteen were inert at both ends:
+#
+#   - No production producer. The only Go emitter of atom_selector is
+#     PromptAtom.ToSelectorFacts (internal/prompt/atoms.go:540), called from
+#     atoms_test.go and atom_pinning_test.go and nowhere else. The live
+#     selector emits a different vocabulary entirely — atom, prompt_atom,
+#     atom_category, atom_priority, atom_tag, is_mandatory, atom_requires,
+#     atom_conflicts, atom_requires_tool, available_tool, compile_shard — which
+#     is what promptEphemeralPredicates (internal/prompt/compiler.go:60-75)
+#     retracts per compile. atom_selector is not in that list.
+#   - No consumer. Nothing in any .mg file or any Go file referenced
+#     atom_has_*_match. atom_matches_context below joins prompt_atom and
+#     atom_context_boost; it never mentions them.
+#
+# So they derived nothing from nothing, at N x M join cost per compile.
+#
+# The dimensional matching itself is NOT missing. It happens on the live path:
+# jit_compiler.mg joins atom_tag against current_context to derive
+# blocked_by_context, and selected_result/3 is what selector.go actually
+# queries (selector.go:877 and :1044). The fail-closed regime_dimension block
+# in jit_compiler.mg is what makes a dimension binding. This file's version was
+# a second, parallel design that was superseded and never removed.
+#
+# Recorded rather than silently dropped so the idea is not rediscovered and
+# re-added. If dimension scoring is ever wanted as a score rather than a veto,
+# the producer to write is in selector.go, and it should extend the live
+# vocabulary rather than revive this one.
 
 # Final atom score from Go-computed boost (virtual predicate)
 atom_matches_context(AtomID, FinalScore) :-

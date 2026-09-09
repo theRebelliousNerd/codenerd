@@ -47,7 +47,7 @@ Features does not import logging. The loader (`LoadUserConfig`) emits Boot-level
 
 ## P8 — Master switches ≠ granular disable lists
 
-`IsSystemShardsEnabled` is process-wide. Per-shard disable lists (`NERD_DISABLE_SYSTEM_SHARDS`, CLI flags) live at call sites. Never overload one env to mean both.
+`IsSystemShardsEnabled` is process-wide and is read in `internal/system/factory.go` immediately before `StartSystemShards`. The per-shard disable is the `--disable-system-shard` CLI flag, applied at the same call site. Never overload one env to mean both.
 
 ## P9 — Incomplete subsystems stay opt-in
 

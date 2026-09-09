@@ -357,37 +357,43 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		return ""
 	}
 
+	// substantive tracks whether any block said something the model could not
+	// have worked out from the filename. Architecture facets are inferred from
+	// path patterns, so they are present even for a file that does not exist;
+	// emitting a header, an inferred Role and "**Tests**: no" for a missing
+	// file is prompt tokens spent to say nothing.
+	substantive := false
+
 	var b strings.Builder
 	b.WriteString("## Holographic Context (")
 	b.WriteString(filePath)
 	b.WriteString(")\n\n")
 
 	// Architecture / package summary (one compact line).
-	if hc.TargetPkg != "" || hc.Layer != "" || hc.Module != "" || hc.Role != "" || hc.SystemPurpose != "" {
-		if hc.TargetPkg != "" {
-			b.WriteString("**Package**: `")
-			b.WriteString(hc.TargetPkg)
-			b.WriteString("`")
+	//
+	// Built by joining the non-empty parts rather than by chaining conditional
+	// separators. The old form emitted the separator whenever the *first* field
+	// was present, so a file with no package clause but an inferred Role
+	// rendered as a leading " · **Role**: …" — a line that looks like something
+	// was dropped.
+	var facets []string
+	if hc.TargetPkg != "" {
+		facets = append(facets, "**Package**: `"+hc.TargetPkg+"`")
+	}
+	if hc.Layer != "" {
+		facets = append(facets, "**Layer**: `"+hc.Layer+"`")
+	}
+	if hc.Module != "" {
+		facets = append(facets, "**Module**: `"+hc.Module+"`")
+	}
+	if hc.Role != "" {
+		facets = append(facets, "**Role**: `"+hc.Role+"`")
+	}
+	if len(facets) > 0 || hc.SystemPurpose != "" {
+		if len(facets) > 0 {
+			b.WriteString(strings.Join(facets, " · "))
+			b.WriteString("\n")
 		}
-		if hc.Layer != "" {
-			if hc.TargetPkg != "" {
-				b.WriteString(" · ")
-			}
-			b.WriteString("**Layer**: `")
-			b.WriteString(hc.Layer)
-			b.WriteString("`")
-		}
-		if hc.Module != "" {
-			b.WriteString(" · **Module**: `")
-			b.WriteString(hc.Module)
-			b.WriteString("`")
-		}
-		if hc.Role != "" {
-			b.WriteString(" · **Role**: `")
-			b.WriteString(hc.Role)
-			b.WriteString("`")
-		}
-		b.WriteString("\n")
 		if hc.SystemPurpose != "" {
 			b.WriteString(hc.SystemPurpose)
 			b.WriteString("\n")
@@ -411,6 +417,7 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 	base := filepath.Base(filePath)
 	sigs, sigPool := rankSignaturesForTarget(hc.PackageSignatures, base, hc.ReferencedSymbols, hc.SymbolRefCount)
 	if len(sigs) > 0 {
+		substantive = true
 		b.WriteString("### Exported signatures\n\n")
 		shown := sigs
 		truncated := 0
@@ -457,6 +464,7 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 	const maxTypes = 8
 	types, typePool := rankTypesForTarget(hc.PackageTypes, base, hc.ReferencedSymbols, hc.SymbolRefCount)
 	if len(types) > 0 {
+		substantive = true
 		b.WriteString("### Type definitions\n\n")
 		shown := types
 		truncated := 0
@@ -488,6 +496,7 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 	// Callers — who calls this file (impact-aware if available).
 	const maxCallers = 8
 	if len(hc.PrioritizedCallers) > 0 {
+		substantive = true
 		b.WriteString("### Callers (impact-prioritized)\n\n")
 		shown := hc.PrioritizedCallers
 		truncated := 0
@@ -515,6 +524,7 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		}
 		b.WriteString("\n")
 	} else if len(hc.CallGraph) > 0 {
+		substantive = true
 		b.WriteString("### Callers\n\n")
 		seen := make(map[string]struct{}, len(hc.CallGraph))
 		var callers []string
@@ -541,6 +551,9 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		b.WriteString("\n")
 	}
 
+	if !substantive {
+		return ""
+	}
 	result := strings.TrimSpace(b.String())
 	if result == "" {
 		return ""

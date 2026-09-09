@@ -54,9 +54,16 @@ surfaces. Chat adds dependencies that a headless Cortex may not have:
 | post-spawn hook | on-demand shard enrichment |
 | observer and consultation managers | Northstar and specialist advice |
 
-The system-shards master feature and per-name disable lists are applied by chat
-surfaces. `NERD_DISABLE_SYSTEM_SHARDS` is a per-name compatibility input; it is
-not the same as the master system-shards flag.
+The system-shards master feature and the per-name disable flag are both applied
+in `internal/system/factory.go`, immediately before `StartSystemShards`:
+`features.IsSystemShardsEnabled()` (env `CODENERD_SYSTEM_SHARDS`) gates the
+whole set, and the repeatable `--disable-system-shard` CLI flag skips shards by
+name. They are not the same switch.
+
+Corrected 2026-09-09: this section previously described a
+`NERD_DISABLE_SYSTEM_SHARDS` env var. No such string appears in any `.go` file
+in the repo. The master switch also had no production caller at all until the
+same date, so `CODENERD_SYSTEM_SHARDS=0` did nothing.
 
 ## Other live consumers
 

@@ -1644,8 +1644,183 @@ func (e *Executor) buildToolDefinitions(cfg *config.EffectiveAgentRuntimeConfig)
 	return defs
 }
 
-// appendToHistory adds a turn to conversation history.
+// Bounds on the in-turn tool-result transcript.
+//
+// Each individual tool result is already capped at 16 KiB
+// (truncateToolResult), but the tool loop's `history` slice is append-only and
+// is re-sent WHOLE on every CompleteWithToolResults call. The worst case is
+// arithmetic, not hypothetical: defaultMaxToolCalls is 50 and the iteration
+// budget can be extended past 20, so 50 results x 16 KiB = 800 KB of tool
+// output can be replayed on each of ~24 provider round-trips. The per-result
+// cap bounds one result; nothing bounded their sum.
+//
+// Eviction REWRITES the oldest tool results in place rather than deleting the
+// messages that carry them. Anthropic-style APIs reject a request in which a
+// tool_use block has no matching tool_result, so dropping a message is a hard
+// 400 mid-turn; replacing its content with a marker keeps the pairing valid and
+// tells the model, in the exact slot where the output used to be, that the
+// output existed and is gone. The most recent results — the ones the next
+// decision actually depends on — are never touched.
+const (
+	// maxToolLoopHistoryBytes caps the replayed tool-loop transcript
+	// (~64k tokens). Sized to hold roughly 16 full-size tool results, which
+	// covers the working set of a normal multi-step turn while refusing to
+	// resend a whole exploration session on every round-trip.
+	maxToolLoopHistoryBytes = 256 * 1024
+
+	// evictedToolResultNotice replaces an evicted result's content. It names
+	// what happened so the model re-reads the file rather than inventing what
+	// the result said.
+	evictedToolResultNotice = "[codenerd: this tool result was evicted from the transcript to stay inside the context budget. " +
+		"Re-run the tool if you still need its output.]"
+
+	// toolResultMarkerBudget reserves bytes for a clamped result's truncation
+	// marker inside that result's share of the ceiling.
+	toolResultMarkerBudget = 160
+
+	// minClampedToolResultBytes is the floor a clamped current result keeps.
+	// A batch of 50 pathological results would otherwise divide the ceiling
+	// into slices too small to say anything, and a result trimmed to nothing
+	// is indistinguishable from a tool that returned nothing.
+	minClampedToolResultBytes = 2048
+)
+
+// boundToolLoopHistory caps the total bytes of a tool-loop transcript by
+// blanking the oldest tool-result payloads, oldest-first, until the transcript
+// fits. Message structure, ordering, and every ToolUseID are preserved.
+//
+// It is a no-op for a transcript already inside the ceiling, which is every
+// ordinary turn.
+func boundToolLoopHistory(history []types.Message) []types.Message {
+	total := toolLoopHistoryBytes(history)
+	if total <= maxToolLoopHistoryBytes {
+		return history
+	}
+
+	// Copy-on-write: the caller's slice is shared with the provider call in
+	// flight on the deadline path, and mutating a ToolResult in place would
+	// change a message that has already been serialized.
+	bounded := make([]types.Message, len(history))
+	copy(bounded, history)
+
+	// The newest tool-result message is the one the next decision is made
+	// from; it is clamped, never blanked. Everything older is expendable in
+	// full — if the model still needs it, re-running the tool is cheaper than
+	// carrying the payload through every remaining round-trip.
+	newest := -1
+	for i := len(bounded) - 1; i >= 0; i-- {
+		if len(bounded[i].ToolResults) > 0 {
+			newest = i
+			break
+		}
+	}
+
+	evicted := 0
+	for i := 0; i < len(bounded) && total > maxToolLoopHistoryBytes; i++ {
+		if i == newest || len(bounded[i].ToolResults) == 0 {
+			continue
+		}
+		results := make([]types.ToolResult, len(bounded[i].ToolResults))
+		copy(results, bounded[i].ToolResults)
+		for j := range results {
+			if results[j].Content == evictedToolResultNotice {
+				continue
+			}
+			total -= len(results[j].Content)
+			total += len(evictedToolResultNotice)
+			results[j].Content = evictedToolResultNotice
+			evicted++
+		}
+		bounded[i].ToolResults = results
+	}
+
+	// Every older result is gone and the transcript is still over: the newest
+	// batch alone exceeds the ceiling. Clamp it head+tail rather than blanking
+	// it — a tool result's tail carries the error or the last hunk.
+	clamped := 0
+	if total > maxToolLoopHistoryBytes && newest >= 0 {
+		results := make([]types.ToolResult, len(bounded[newest].ToolResults))
+		copy(results, bounded[newest].ToolResults)
+
+		// Budget the newest batch against what the rest of the transcript
+		// already costs, then reserve each result's marker inside its share.
+		// Reserving after the split is what keeps the marker from pushing the
+		// transcript back over the ceiling it was added to respect.
+		newestBytes := 0
+		for _, r := range results {
+			newestBytes += len(r.Content)
+		}
+		share := (maxToolLoopHistoryBytes - (total - newestBytes)) / max(1, len(results))
+		share -= toolResultMarkerBudget
+		if share < minClampedToolResultBytes {
+			share = minClampedToolResultBytes
+		}
+
+		for j := range results {
+			if len(results[j].Content) <= share {
+				continue
+			}
+			total -= len(results[j].Content)
+			results[j].Content = prompt.ClampText(results[j].Content, share, "tool result")
+			total += len(results[j].Content)
+			clamped++
+		}
+		bounded[newest].ToolResults = results
+	}
+
+	if evicted > 0 || clamped > 0 {
+		logging.Get(logging.CategorySession).Warn(
+			"Tool-loop transcript exceeded %d bytes; evicted %d stale tool result(s) and clamped %d current one(s)",
+			maxToolLoopHistoryBytes, evicted, clamped)
+	}
+	return bounded
+}
+
+// toolLoopHistoryBytes totals the text a transcript will put on the wire.
+func toolLoopHistoryBytes(history []types.Message) int {
+	total := 0
+	for _, m := range history {
+		total += len(m.Text)
+		for _, tc := range m.ToolCalls {
+			total += len(tc.Name)
+		}
+		for _, tr := range m.ToolResults {
+			total += len(tr.Content)
+		}
+	}
+	return total
+}
+
+// maxHistoryTurnChars caps a single stored conversation turn.
+//
+// The turn count was capped at 50 but each turn's Content never was, and both
+// ends of a turn are unbounded input: the user side is whatever was typed or
+// piped (`nerd run "$(cat build.log)"`), the assistant side is whatever the
+// model returned. One oversized turn used to do two things, both bad.
+//
+// It poisoned the replay window: priorTurnMessages drops whole messages
+// oldest-first until the 24000-char budget is met, so a single 200 KB turn
+// evicted EVERY prior turn and the model started the next turn with no memory
+// at all — a context loss that looked like amnesia rather than truncation.
+// And perception replays the last five turns into every classification call,
+// so the same blob was re-sent on every turn until it aged out of a 50-slot
+// window.
+//
+// 8000 chars is a third of DefaultHistoryCharBudget: three capped turns still
+// fit the replay window, so the cap bounds a pathological turn without
+// shrinking a normal conversation.
+const maxHistoryTurnChars = 8000
+
+// maxHistoryThoughtChars caps a stored reasoning summary. Thinking models emit
+// these at arbitrary length and nothing downstream depends on their full text.
+const maxHistoryThoughtChars = 2000
+
+// appendToHistory adds a turn to conversation history, bounding the turn's text
+// so one oversized turn cannot evict the rest of the window.
 func (e *Executor) appendToHistory(turn perception.ConversationTurn) {
+	turn.Content = prompt.ClampText(turn.Content, maxHistoryTurnChars, "conversation turn")
+	turn.ThoughtSummary = prompt.ClampHead(turn.ThoughtSummary, maxHistoryThoughtChars, "thought summary")
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 

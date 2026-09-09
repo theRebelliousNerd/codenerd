@@ -69,8 +69,15 @@ type CategoryBudget struct {
 	// Priority determines allocation order
 	Priority BudgetPriority
 
-	// CanExceedMax allows this category to exceed MaxTokens if budget remains
-	CanExceedMax bool
+	// NOTE: there was a CanExceedMax bool here, documented as "allows this
+	// category to exceed MaxTokens if budget remains". It was set true on six
+	// categories and read by nothing. It was removed rather than implemented
+	// because Fit's second pass ALREADY provides exactly that behaviour, and
+	// provides it for every category: any atom rejected in pass 1 is retried
+	// against the global remaining budget with no reference to its category
+	// ceiling. Implementing the flag would have NARROWED that to six
+	// categories — a prompt-shrinking behaviour change wearing the costume of
+	// a bug fix.
 }
 
 // TokenBudgetManager allocates tokens across categories.
@@ -173,21 +180,19 @@ func (m *TokenBudgetManager) setDefaultBudgets() {
 
 	// Language and framework are medium priority (context-dependent)
 	m.budgets[CategoryLanguage] = CategoryBudget{
-		Category:     CategoryLanguage,
-		BasePercent:  0.15,
-		MinTokens:    1000,
-		MaxTokens:    15000,
-		Priority:     PriorityMedium,
-		CanExceedMax: true,
+		Category:    CategoryLanguage,
+		BasePercent: 0.15,
+		MinTokens:   1000,
+		MaxTokens:   15000,
+		Priority:    PriorityMedium,
 	}
 
 	m.budgets[CategoryFramework] = CategoryBudget{
-		Category:     CategoryFramework,
-		BasePercent:  0.10,
-		MinTokens:    500,
-		MaxTokens:    10000,
-		Priority:     PriorityMedium,
-		CanExceedMax: true,
+		Category:    CategoryFramework,
+		BasePercent: 0.10,
+		MinTokens:   500,
+		MaxTokens:   10000,
+		Priority:    PriorityMedium,
 	}
 
 	// Domain and context are medium priority
@@ -200,23 +205,21 @@ func (m *TokenBudgetManager) setDefaultBudgets() {
 	}
 
 	m.budgets[CategoryContext] = CategoryBudget{
-		Category:     CategoryContext,
-		BasePercent:  0.15,
-		MinTokens:    500,
-		MaxTokens:    15000,
-		Priority:     PriorityMedium,
-		CanExceedMax: true,
+		Category:    CategoryContext,
+		BasePercent: 0.15,
+		MinTokens:   500,
+		MaxTokens:   15000,
+		Priority:    PriorityMedium,
 	}
 
 	// Knowledge and build-layer/intent/world-state are medium/conditional priorities.
 	// These categories carry encyclopedic but selector-gated atoms.
 	m.budgets[CategoryKnowledge] = CategoryBudget{
-		Category:     CategoryKnowledge,
-		BasePercent:  0.05,
-		MinTokens:    300,
-		MaxTokens:    8000,
-		Priority:     PriorityMedium,
-		CanExceedMax: true,
+		Category:    CategoryKnowledge,
+		BasePercent: 0.05,
+		MinTokens:   300,
+		MaxTokens:   8000,
+		Priority:    PriorityMedium,
 	}
 
 	m.budgets[CategoryBuildLayer] = CategoryBudget{
@@ -245,12 +248,11 @@ func (m *TokenBudgetManager) setDefaultBudgets() {
 
 	// Reviewer-specific atoms are low priority; include if budget remains.
 	m.budgets[CategoryReviewer] = CategoryBudget{
-		Category:     CategoryReviewer,
-		BasePercent:  0.02,
-		MinTokens:    0,
-		MaxTokens:    2000,
-		Priority:     PriorityLow,
-		CanExceedMax: true,
+		Category:    CategoryReviewer,
+		BasePercent: 0.02,
+		MinTokens:   0,
+		MaxTokens:   2000,
+		Priority:    PriorityLow,
 	}
 
 	// Campaign and specialized phases are conditional
@@ -304,12 +306,11 @@ func (m *TokenBudgetManager) setDefaultBudgets() {
 
 	// Exemplars are low priority (only if space)
 	m.budgets[CategoryExemplar] = CategoryBudget{
-		Category:     CategoryExemplar,
-		BasePercent:  0.05,
-		MinTokens:    0,
-		MaxTokens:    5000,
-		Priority:     PriorityLow,
-		CanExceedMax: true,
+		Category:    CategoryExemplar,
+		BasePercent: 0.05,
+		MinTokens:   0,
+		MaxTokens:   5000,
+		Priority:    PriorityLow,
 	}
 }
 
@@ -528,7 +529,22 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 
 			// Try Standard. Guard against int64 overflow on catTokens/usedTokens
 			// before performing the inclusion check.
+			//
+			// The global usedTokens check is not redundant with the per-category
+			// one. calculateAllocations clamps every category to its MinTokens
+			// floor without consulting what is left (StrategyPriorityFirst's
+			// PriorityMandatory branch never decrements below zero, and the
+			// Medium branch clamps to Min before capping at remaining), so on a
+			// small budget the allocations SUM to more than the budget. Live
+			// case: subagents compile at a 4096-token budget (session/spawner.go)
+			// while the default category floors total ~6100. Without this guard
+			// pass 1 spends every category's floor and overruns the window; pass
+			// 2 has always checked availableBudget, so only pass 1 leaked.
 			remainingAlloc := int64(allocation) - catTokens
+			globalRemaining := int64(availableBudget) - usedTokens
+			if remainingAlloc > globalRemaining {
+				remainingAlloc = globalRemaining
+			}
 			if remainingAlloc > 0 && tokens > remainingAlloc {
 				truncateAtomToBudget(oa.Atom, int(remainingAlloc))
 				tokens = int64(getTokenCount(oa.Atom, mode))
@@ -536,6 +552,7 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 			if tokens >= 0 &&
 				catTokens <= math.MaxInt64-tokens &&
 				usedTokens <= math.MaxInt64-tokens &&
+				usedTokens+tokens <= int64(availableBudget) &&
 				catTokens+tokens <= int64(allocation) {
 				oa.RenderMode = mode
 				result = append(result, oa)
@@ -552,6 +569,7 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 				if tokens >= 0 &&
 					catTokens <= math.MaxInt64-tokens &&
 					usedTokens <= math.MaxInt64-tokens &&
+					usedTokens+tokens <= int64(availableBudget) &&
 					catTokens+tokens <= int64(allocation) {
 					oa.RenderMode = mode
 					result = append(result, oa)
@@ -569,6 +587,7 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 				if tokens >= 0 &&
 					catTokens <= math.MaxInt64-tokens &&
 					usedTokens <= math.MaxInt64-tokens &&
+					usedTokens+tokens <= int64(availableBudget) &&
 					catTokens+tokens <= int64(allocation) {
 					oa.RenderMode = mode
 					result = append(result, oa)
@@ -960,12 +979,32 @@ func truncateAtomToBudget(atom *PromptAtom, maxTokens int) {
 		atom.TokenCount = 0
 		return
 	}
+	// maxTokens*2 is deliberately pessimistic (2 chars/token against the
+	// 4-chars/token estimate) so the truncated atom provably fits the
+	// remaining category allocation even on token-dense code.
 	maxChars := maxTokens * 2
-	if len(atom.Content) > maxChars {
-		atom.Content = truncateUTF8Safe(atom.Content, maxChars)
-		atom.TokenCount = EstimateTokens(atom.Content)
+	if len(atom.Content) <= maxChars {
+		return
 	}
+	// Reserve room for the marker inside the same allocation. Truncating and
+	// then appending would push the atom back over the ceiling Fit is about
+	// to check, and the atom would be rejected for the marker that exists to
+	// explain the rejection.
+	body := maxChars
+	if body > atomTruncationMarkerBudget {
+		body -= atomTruncationMarkerBudget
+	}
+	dropped := len(atom.Content) - body
+	atom.Content = truncateUTF8Safe(atom.Content, body) +
+		fmt.Sprintf("\n%s %d of %d chars from atom %s] …", clampMarkerPrefix, dropped, len(atom.Content), atom.ID)
+	atom.TokenCount = EstimateTokens(atom.Content)
 }
+
+// atomTruncationMarkerBudget reserves bytes for the truncation marker inside
+// an atom's remaining allocation. Sized for the longest realistic marker
+// (prefix + two counts + an atom ID); over-reserving costs a few characters of
+// content, under-reserving costs the whole atom.
+const atomTruncationMarkerBudget = 120
 
 func truncateUTF8Safe(content string, maxChars int) string {
 	if maxChars <= 0 {
@@ -982,4 +1021,135 @@ func truncateUTF8Safe(content string, maxChars int) string {
 		slice = slice[:len(slice)-1]
 	}
 	return slice
+}
+
+// CategoryPriority returns the configured priority for a category, or
+// PriorityConditional for a category with no budget entry (the same fallback
+// Fit's internal getPriority uses — an unbudgeted category is shed first).
+func (m *TokenBudgetManager) CategoryPriority(cat AtomCategory) BudgetPriority {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if b, ok := m.budgets[cat]; ok {
+		return b.Priority
+	}
+	return PriorityConditional
+}
+
+// maxShedPasses bounds the assemble/measure/shed loop. Each pass removes at
+// least the measured overshoot's worth of atoms, so convergence is normally
+// immediate; the cap exists so a pathological template expansion (one that
+// grows faster than the atoms we remove) cannot spin. After the last pass the
+// caller falls back to truncatePrompt.
+const maxShedPasses = 4
+
+// ShedToFit enforces the token budget on the ASSEMBLED prompt rather than on
+// the sum of per-atom counts.
+//
+// Fit charges each atom the token count of its render-mode content, then the
+// assembler expands {{...}} placeholders and joins with separators. Both add
+// tokens Fit never saw: {{available_specialists}} interpolates the entire agent
+// registry in place of a 25-character placeholder. The compiler used to detect
+// the resulting overshoot (logCompilationStats, "budget breach") and ship the
+// over-budget prompt anyway, so the only consequence of blowing the context
+// window was a WARN line nobody read and a provider-side error later.
+//
+// Enforcement sheds whole atoms, lowest category priority first and lowest
+// score first within a priority, and re-assembles. Whole-atom eviction is
+// deliberate: half an exemplar or half a methodology is worse than none of it,
+// because the model cannot tell which half it is missing. Mandatory atoms
+// (identity, safety, the kernel-injected blocks) are never shed here — if the
+// mandatory skeleton alone overflows, that is a configuration fault and the
+// caller's final truncation makes it visible instead of silently dropping
+// safety text.
+//
+// Returns the surviving atoms and the re-assembled prompt. On any assembly
+// error it returns the inputs unchanged: a budget overshoot is a degradation,
+// a failed compile is an outage.
+func (m *TokenBudgetManager) ShedToFit(
+	atoms []*OrderedAtom,
+	prompt string,
+	budget int,
+	assemble func([]*OrderedAtom) (string, error),
+) ([]*OrderedAtom, string, int) {
+	used := EstimateTokens(prompt)
+	if budget <= 0 || used <= budget || assemble == nil {
+		return atoms, prompt, used
+	}
+
+	// Shed order: least important first. Higher BudgetPriority value means
+	// lower importance (PriorityMandatory is 0), so descending priority value
+	// with ascending score puts the most expendable atom at index 0.
+	shed := make([]*OrderedAtom, 0, len(atoms))
+	// Resolve each category's priority once. CategoryPriority takes the
+	// manager's read lock, and a comparator calling it would take it
+	// O(n log n) times per shed.
+	prio := make(map[AtomCategory]BudgetPriority, 8)
+	for _, oa := range atoms {
+		if oa == nil || oa.Atom == nil || oa.Atom.IsMandatory {
+			continue
+		}
+		if _, ok := prio[oa.Atom.Category]; !ok {
+			prio[oa.Atom.Category] = m.CategoryPriority(oa.Atom.Category)
+		}
+		shed = append(shed, oa)
+	}
+	sort.SliceStable(shed, func(i, j int) bool {
+		pi, pj := prio[shed[i].Atom.Category], prio[shed[j].Atom.Category]
+		if pi != pj {
+			return pi > pj
+		}
+		return shed[i].Score < shed[j].Score
+	})
+
+	dropped := make(map[*OrderedAtom]struct{}, len(shed))
+	kept := atoms
+	next := 0
+
+	for pass := 0; pass < maxShedPasses && used > budget && next < len(shed); pass++ {
+		// Remove at least the measured overshoot. Per-atom counts understate
+		// the true cost (separators, expansion), so this converges downward.
+		freed := 0
+		overshoot := used - budget
+		// On the final allowed pass, drain every remaining optional atom.
+		// Reaching it means the per-atom estimate is badly wrong, and the
+		// alternative — falling through to whole-prompt truncation while
+		// low-priority atoms are still in the prompt — would shred a
+		// high-priority section to keep an exemplar. Drop the cheap text
+		// wholesale first; that is the ordering the budget contract promises.
+		if pass == maxShedPasses-1 {
+			overshoot = math.MaxInt32
+		}
+		for next < len(shed) && freed < overshoot {
+			victim := shed[next]
+			next++
+			dropped[victim] = struct{}{}
+			freed += tokenCountForMode(victim.Atom, victim.RenderMode)
+		}
+
+		survivors := make([]*OrderedAtom, 0, len(atoms))
+		for _, oa := range atoms {
+			if _, gone := dropped[oa]; gone {
+				continue
+			}
+			survivors = append(survivors, oa)
+		}
+
+		reassembled, err := assemble(survivors)
+		if err != nil {
+			logging.Get(logging.CategoryContext).Warn(
+				"ShedToFit: re-assembly failed after dropping %d atoms, keeping over-budget prompt: %v",
+				len(dropped), err)
+			return atoms, prompt, used
+		}
+		kept = survivors
+		prompt = reassembled
+		used = EstimateTokens(prompt)
+	}
+
+	if len(dropped) > 0 {
+		logging.Get(logging.CategoryContext).Warn(
+			"ShedToFit: dropped %d optional atom(s) to fit assembled prompt into %d tokens (now %d)",
+			len(dropped), budget, used)
+	}
+	return kept, prompt, used
 }

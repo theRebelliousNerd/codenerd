@@ -1,8 +1,10 @@
 package projectdoc
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"codenerd/internal/types"
 )
@@ -230,42 +232,130 @@ func (d *Document) PromptSection() string {
 		b.WriteString("### Write-protected paths (ENFORCED)\n\n")
 		b.WriteString("These are denied by the kernel before the tool runs, not by your judgement. " +
 			"Attempting one costs a turn and changes nothing.\n\n")
-		for _, rule := range d.Spec.Forbid {
+		shown := min(len(d.Spec.Forbid), maxPromptListEntries)
+		for _, rule := range d.Spec.Forbid[:shown] {
 			b.WriteString("- any path containing `")
 			b.WriteString(rule.Match)
 			b.WriteString("` — ")
 			b.WriteString(rule.Reason)
 			b.WriteString("\n")
 		}
+		b.WriteString(listTruncationNotice(shown, len(d.Spec.Forbid), "forbidden paths (still ENFORCED by the kernel)"))
 		b.WriteString("\n")
 	}
 
 	if len(d.Spec.Require) > 0 {
 		b.WriteString("### Required steps\n\n")
-		for _, req := range d.Spec.Require {
+		shownReq := min(len(d.Spec.Require), maxPromptListEntries)
+		for _, req := range d.Spec.Require[:shownReq] {
 			b.WriteString("- ")
 			b.WriteString(req)
 			b.WriteString("\n")
 		}
+		b.WriteString(listTruncationNotice(shownReq, len(d.Spec.Require), "required steps"))
 		b.WriteString("\n")
 	}
 
 	if len(d.Spec.Conventions) > 0 {
 		b.WriteString("### Conventions\n\n")
-		for _, c := range d.Spec.Conventions {
+		shownConv := min(len(d.Spec.Conventions), maxPromptListEntries)
+		for _, c := range d.Spec.Conventions[:shownConv] {
 			b.WriteString("- **")
 			b.WriteString(c.ID)
 			b.WriteString("**: ")
 			b.WriteString(c.Rule)
 			b.WriteString("\n")
 		}
+		b.WriteString(listTruncationNotice(shownConv, len(d.Spec.Conventions), "conventions"))
 		b.WriteString("\n")
 	}
 
 	if body := strings.TrimSpace(d.Body); body != "" {
-		b.WriteString(body)
+		b.WriteString(clampDocText(body, maxPromptBodyChars, "nerd.md body"))
 		b.WriteString("\n")
 	}
 
-	return b.String()
+	return clampDocText(b.String(), maxPromptSectionChars, "nerd.md")
+}
+
+// Bounds on the rendered project-instruction section.
+//
+// nerd.md is user content read with an unbounded os.ReadFile and appended to
+// the system prompt AFTER the JIT compiler has already fitted and reported its
+// budget (session executor, withProjectInstructions). Nothing downstream
+// re-measures it, so a 2 MB nerd.md — a generated one, a pasted design doc, a
+// vendored style guide — went to the provider whole, on every single turn, and
+// the compiler's "42% of budget used" line was simply false.
+//
+// The cap is generous on purpose. nerd.md is the project's own rules and is
+// the LAST thing that should be shed; the point here is a ceiling that stops a
+// pathological file, not a budget that shapes a normal one. A well-formed
+// nerd.md is a few KB (this repo's is 4.7 KB), so the caps below are ~8x
+// typical and will never fire in practice.
+const (
+	// maxPromptBodyChars caps the advisory Markdown prose (~8k tokens).
+	// Head+tail: the top of a project doc states the rules and the bottom is
+	// where "one more thing, never touch X" lives.
+	maxPromptBodyChars = 32 * 1024
+
+	// maxPromptSectionChars caps the whole rendered section (~12k tokens),
+	// including the restated frontmatter, so a nerd.md with thousands of
+	// forbid rules cannot route around the body cap.
+	maxPromptSectionChars = 48 * 1024
+
+	// maxPromptListEntries caps any one restated frontmatter list. The
+	// frontmatter is ENFORCED by the kernel regardless of what is rendered
+	// here, so a truncated list costs the model foreknowledge, never
+	// protection — the tool call is still denied.
+	maxPromptListEntries = 50
+)
+
+// clampDocText bounds text keeping head and tail, leaving a visible marker.
+//
+// Duplicated from internal/prompt rather than imported: internal/prompt
+// already imports this package, so the dependency cannot run the other way.
+func clampDocText(text string, maxChars int, label string) string {
+	if maxChars <= 0 {
+		return ""
+	}
+	if len(text) <= maxChars {
+		return text
+	}
+	tail := maxChars / 3
+	head := maxChars - tail
+	marker := fmt.Sprintf("\n\n[codenerd: truncated %d of %d chars from %s] …\n\n",
+		len(text)-maxChars, len(text), label)
+	return trimPartialRuneSuffix(text[:head]) + marker + trimPartialRunePrefix(text[len(text)-tail:])
+}
+
+// listTruncationNotice renders the marker for a capped frontmatter list.
+func listTruncationNotice(shown, total int, unit string) string {
+	if total <= shown {
+		return ""
+	}
+	return fmt.Sprintf("- [codenerd: truncated %d of %d %s] …\n", total-shown, total, unit)
+}
+
+func trimPartialRuneSuffix(s string) string {
+	for len(s) > 0 {
+		r, size := utf8.DecodeLastRuneInString(s)
+		if r == utf8.RuneError && size <= 1 {
+			s = s[:len(s)-1]
+			continue
+		}
+		break
+	}
+	return s
+}
+
+func trimPartialRunePrefix(s string) string {
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		if r == utf8.RuneError && size <= 1 {
+			s = s[1:]
+			continue
+		}
+		break
+	}
+	return s
 }

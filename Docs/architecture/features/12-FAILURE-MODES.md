@@ -52,7 +52,7 @@
 | | |
 |--|--|
 | **Symptom** | Autopoiesis/observer never start, or only one disabled |
-| **Cause** | Confusing `CODENERD_SYSTEM_SHARDS=0` (master) with `NERD_DISABLE_SYSTEM_SHARDS=name` (list) |
+| **Cause** | Confusing `CODENERD_SYSTEM_SHARDS=0` (master) with `--disable-system-shard name` (per-shard flag) |
 | **Mitigation** | Read session_boot dual control; use features master for all-off |
 | **Tests** | `TestSystemShardsLegacyEnvIgnored` |
 

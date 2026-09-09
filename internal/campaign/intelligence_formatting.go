@@ -10,6 +10,15 @@ import (
 // FORMATTING FOR LLM CONTEXT
 // =============================================================================
 
+// maxHolographicSectionChars bounds one rendered holographic section inside the
+// report.
+//
+// HolographicProvider.PromptSection is already internally capped (8 signatures,
+// 8 types, 8 callers), so this is a backstop against a future change there
+// silently widening a prompt that is assembled here, not a limit the current
+// renderer approaches.
+const maxHolographicSectionChars = 4096
+
 // FormatForContext formats the intelligence report for LLM context injection.
 func (r *IntelligenceReport) FormatForContext() string {
 	var sb strings.Builder
@@ -30,6 +39,17 @@ func (r *IntelligenceReport) FormatForContext() string {
 		sb.WriteString(strings.Join(langs, ", ") + "\n")
 	}
 	sb.WriteString("\n")
+
+	// Holographic context for the campaign's targets. Placed high because it is
+	// the most decision-relevant section a decomposer reads: it says what the
+	// target file offers, what its package holds, and who calls into it.
+	if len(r.HolographicSections) > 0 {
+		sb.WriteString("## Target Architecture\n\n")
+		for _, hs := range r.HolographicSections {
+			sb.WriteString(truncateField(hs.Section, maxHolographicSectionChars))
+			sb.WriteString("\n")
+		}
+	}
 
 	// High Churn Files (Chesterton's Fence)
 	if len(r.GitChurnHotspots) > 0 {

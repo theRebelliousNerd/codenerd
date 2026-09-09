@@ -199,3 +199,49 @@ func contains(haystack []string, needle string) bool {
 	}
 	return false
 }
+
+// TestPromptSection_EmptyWhenNothingToSay pins the "and nothing more" half of
+// the contract.
+//
+// The architecture facets are inferred from path patterns, so they are produced
+// even for a file that does not exist. Without a substance check, a missing or
+// undescribable target rendered a header, an inferred Role and "**Tests**: no"
+// — prompt tokens spent to tell the model nothing, on the turn where it is
+// already looking at a path that is not there.
+func TestPromptSection_EmptyWhenNothingToSay(t *testing.T) {
+	dir := t.TempDir()
+	h := NewHolographicProvider(nil, dir)
+
+	cases := map[string]string{
+		"missing file":     filepath.Join(dir, "does_not_exist.go"),
+		"missing non-Go":   filepath.Join(dir, "does_not_exist.txt"),
+		"empty target":     "",
+		"directory target": dir,
+	}
+	for name, target := range cases {
+		if got := h.PromptSection(context.Background(), target); got != "" {
+			t.Errorf("%s produced a content-free section:\n%s", name, got)
+		}
+	}
+}
+
+// TestPromptSection_HeaderHasNoDanglingSeparator covers the malformed line the
+// substance check was found through: the facet separator used to be emitted
+// whenever the first field was present, so a file with no package clause but an
+// inferred Role rendered as " · **Role**: …", which reads like content was lost.
+func TestPromptSection_HeaderHasNoDanglingSeparator(t *testing.T) {
+	dir := t.TempDir()
+	// No package clause, but real declarations so the section is substantive.
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package p\n\nfunc Exported() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHolographicProvider(nil, dir)
+	section := h.PromptSection(context.Background(), filepath.Join(dir, "a.go"))
+
+	for _, line := range strings.Split(section, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "·") || strings.HasSuffix(trimmed, "·") {
+			t.Errorf("dangling facet separator in %q\nfull section:\n%s", line, section)
+		}
+	}
+}

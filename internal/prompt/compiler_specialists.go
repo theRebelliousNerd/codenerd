@@ -71,6 +71,26 @@ func loadAgentRegistry(registryPath string) agentRegistry {
 	return registry
 }
 
+// The specialist roster is interpolated into {{available_specialists}} AFTER
+// budget.Fit has already charged tokens for the 25-character placeholder, so
+// every byte of it is unaccounted. It is also read from .nerd/agents.json,
+// which grows monotonically as the user creates agents and which nothing
+// prunes — one registry entry per agent, each with a free-text description the
+// agent's own author wrote. Left uncapped, a workspace with a hundred learned
+// agents silently pushes tens of kilobytes past the budget the compiler
+// reported as satisfied.
+const (
+	// maxSpecialistEntries caps the roster. The list exists so the model knows
+	// who it can consult; past a few dozen it is a directory, not a menu, and
+	// the model picks by name recall rather than by reading it.
+	maxSpecialistEntries = 40
+
+	// maxSpecialistEntryChars caps one roster line. A specialist description
+	// is a one-liner by convention; a longer one is an agent author pasting a
+	// README into the registry.
+	maxSpecialistEntryChars = 240
+)
+
 func formatSpecialists(registry agentRegistry) string {
 	var specialists []string
 	for _, agent := range registry.Agents {
@@ -83,17 +103,25 @@ func formatSpecialists(registry agentRegistry) string {
 		} else if desc == "" {
 			desc = fmt.Sprintf("%s domain specialist", agent.Type)
 		}
-		specialists = append(specialists, fmt.Sprintf("- **%s**: %s", agent.Name, desc))
+		specialists = append(specialists,
+			ClampHead(fmt.Sprintf("- **%s**: %s", agent.Name, desc), maxSpecialistEntryChars, "specialist entry"))
 	}
 
 	for name, desc := range shards.CoreShardDescriptions {
-		specialists = append(specialists, fmt.Sprintf("- **%s**: %s", name, desc))
+		specialists = append(specialists,
+			ClampHead(fmt.Sprintf("- **%s**: %s", name, desc), maxSpecialistEntryChars, "specialist entry"))
 	}
 
 	if len(specialists) == 0 {
 		return "No specialists available. Use **researcher** for general knowledge gathering."
 	}
 	sort.Strings(specialists)
+	// Core shards sort into the same list as user agents, so a truncated
+	// roster still names the built-ins the routing layer depends on.
+	if len(specialists) > maxSpecialistEntries {
+		notice := TruncationNotice(maxSpecialistEntries, len(specialists), "specialists")
+		specialists = append(specialists[:maxSpecialistEntries], notice)
+	}
 	return strings.Join(specialists, "\n")
 }
 

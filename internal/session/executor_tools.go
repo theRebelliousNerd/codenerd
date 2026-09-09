@@ -212,6 +212,16 @@ func (e *Executor) runToolLoop(
 			Role:        "user",
 			ToolResults: toolResults,
 		})
+		// Each individual result is capped at 16 KiB by truncateToolResult, but
+		// `history` is append-only and is re-sent WHOLE on every round-trip:
+		// defaultMaxToolCalls is 50 and the loop runs up to 24 iterations, so
+		// the worst case replays ~800 KB of tool output on every one of them.
+		// This blanks the oldest payloads and keeps the newest, which is the
+		// half the model is still reasoning about. It is a no-op below the
+		// ceiling, preserves message count, ordering and every ToolUseID — an
+		// unpaired tool_use is a hard 400 from the provider — and is
+		// idempotent, so calling it at more sites is safe.
+		history = boundToolLoopHistory(history)
 
 		// A tool can itself reach the exploration cutoff. Its result (including
 		// any cancellation error) is already paired in history, so do not run
@@ -519,6 +529,10 @@ func (e *Executor) forceFinalAnswer(
 	}
 
 	*history = append(*history, types.Message{Role: "user", Text: nudge})
+	// The forced-final call resends the whole transcript, including every tool
+	// result accumulated before the deadline fired. Bounding here covers every
+	// append this function makes.
+	*history = boundToolLoopHistory(*history)
 
 	final, err := trp.CompleteWithToolResults(ctx, systemPrompt, *history, finalTools)
 	if err != nil {
@@ -1909,7 +1923,16 @@ func (e *Executor) retryWithNoToolNudge(
 		return nil, errors.New("no-tool-retry: JIT recompile produced empty prompt")
 	}
 
-	return e.generateResponse(ctx, client, compileResult.Prompt, userInput, cfg)
+	// The retry must carry the SAME system prompt the first attempt did.
+	// compileResult.Prompt is raw JIT output; the live prompt is that plus
+	// nerd.md's rendered instructions and the target's holographic context
+	// (executor.go, after the JIT compile). Reissuing without them dropped the
+	// project's write-protection rules from the retry — on precisely the turn
+	// where the model has already shown it is confused about what it may do.
+	// That is a safety regression, not just a context one.
+	retryPrompt := e.withProjectInstructions(compileResult.Prompt)
+	retryPrompt = e.withFileContext(ctx, retryPrompt, retryCtx.IntentTarget)
+	return e.generateResponse(ctx, client, retryPrompt, userInput, cfg)
 }
 
 // executeToolBatchPiggyback handles the single-turn Piggyback path. Tools are

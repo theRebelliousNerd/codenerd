@@ -227,3 +227,99 @@ retracted.
 | Thunderdome gate | always passed | passes only on a real surviving battle |
 | Shadow safety queries | fail open | fail closed with a named reason |
 | CodeDOM predicates retracted on scope change | 20 of 52 | 52 of 52, pinned by a conformance test |
+
+---
+
+## F10 — The reviewer self-correction loop was starved
+
+`internal/core/defaults/reviewer.mg` Section 11 is a complete learning loop:
+`user_rejected_finding/5` → `review_rejection_count/2` and
+`review_suspect(ReviewID, "multiple_rejections")` → `reviewer_needs_validation/1`,
+which `cmd/nerd/chat/process.go:596` reads back through
+`ShardManager.CheckReviewNeedsValidation`.
+
+Nothing produced `user_rejected_finding` or `user_accepted_finding`. Both are
+declared (`schemas_tools.mg:339,343`) and joined by rules; the Go side had
+`AcceptReviewFinding` / `RejectReviewFinding` guarded on a
+`ReviewerFeedbackProvider` that **no type in the repo implements** and that
+nothing calls `SetReviewerFeedbackProvider` for.
+
+So the chat commands where a person says "this finding was a false positive"
+(`cmd/nerd/chat/commands_handlers_misc.go:205`, `:255`) dropped that judgement
+into a nil check. `GetReviewAccuracyReport` returned the fixed string
+`"Review feedback provider not available"` in every production process.
+
+Same shape as F1: a complete Mangle loop with no Go producer.
+
+Note the asymmetry that hid it — `CheckReviewNeedsValidation` and
+`GetReviewSuspectReasons` already *read* from the kernel when the provider is
+nil. Only the write half was missing.
+
+## F11 — A feature flag an operator could set with no effect
+
+`features.IsSystemShardsEnabled()` is documented as "the master switch for
+booting the autopoiesis/observer background shards" and is reported by
+`nerd features`. It had **zero non-test callers**: `CODENERD_SYSTEM_SHARDS=0`
+did nothing.
+
+Its doc comment also described a legacy `NERD_DISABLE_SYSTEM_SHARDS` env var
+"parsed at the call site". That string appears in **no `.go` file in the repo**.
+Nine documents under `Docs/architecture/` repeat the claim, sourced from this
+comment. The real per-shard mechanism is the `--disable-system-shard` CLI flag
+(`cmd/nerd/main.go:189`).
+
+A flag an operator can see, read a description of, and set with no result is
+worse than an absent one: it makes them believe they have turned something off.
+
+## F12 — Thirteen Mangle rules that could never fire
+
+`jit_logic.mg` held thirteen `atom_has_*_match(AtomID)` rules, one per selector
+dimension, all joining `atom_selector/3`. Inert at both ends:
+
+- **No production producer.** The only Go emitter of `atom_selector` is
+  `PromptAtom.ToSelectorFacts` (`internal/prompt/atoms.go:540`), called from
+  `atoms_test.go` and `atom_pinning_test.go` only. The live selector emits a
+  different vocabulary entirely, matching `promptEphemeralPredicates`
+  (`internal/prompt/compiler.go:60-75`). `atom_selector` is not in it.
+- **No consumer.** Nothing in any `.mg` or `.go` file referenced
+  `atom_has_*_match`. `atom_matches_context` joins `prompt_atom` and
+  `atom_context_boost`; it never mentions them.
+
+They derived nothing from nothing at N×M join cost per compile. What kept them
+looking alive was a golden test (`testdata/jit_logic.edb`) that seeded
+`atom_selector` facts by hand.
+
+**Dimensional matching is not missing.** It happens on the live path:
+`jit_compiler.mg` joins `atom_tag` against `current_context` to derive
+`blocked_by_context`, and `selected_result/3` is what `selector.go:877` and
+`:1044` query.
+
+### Related, recorded and deliberately not fixed
+
+`atom_context_boost` is declared as a virtual predicate ("Go-computed boost")
+and has no producer either — `RegisterVirtualPredicate`
+(`internal/mangle/differential.go:847`) has **no call site anywhere in the
+repo**, so the virtual-predicate mechanism is entirely unused. The
+non-mandatory branch of `atom_matches_context` therefore does not fire in
+production. Whether to implement the boost or drop the branch is a design
+decision, not a wiring fix, so it is recorded here rather than acted on.
+
+## F13 — A content-free holographic section for undescribable targets
+
+`PromptSection`'s architecture facets are inferred from path patterns, so they
+are produced even for a file that does not exist. A missing or non-Go target
+rendered a header, an inferred `**Role**`, and `**Tests**: no` — prompt tokens
+spent to say nothing, on the turn where the model is already looking at a path
+that is not there. The facet separator also had a dangling-` · ` bug when the
+package clause was absent, which reads like content was dropped.
+
+Found by a test written for the campaign wiring in F14.
+
+## F14 — The campaign's holographic provider was stored and never read
+
+`IntelligenceGatherer` is handed a `*world.HolographicProvider` at every one of
+its six construction sites. The only three occurrences of the field were its
+declaration (`intelligence_gatherer.go:71`), the constructor parameter (`:325`)
+and the assignment (`:335`). The campaign's most decision-relevant context —
+what the target file offers, what its package holds, who calls into it — was
+gathered nowhere.

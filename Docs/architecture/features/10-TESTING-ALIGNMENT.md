@@ -41,7 +41,7 @@ No CGO required for `internal/features` itself.
 | Invalid env (`yes`) falls through | `.../invalid_env_value...` |
 | env=0 forces off over active true | `.../env_0_forces_off...` |
 | PerShardFacts default off; active true; env 0 | `TestPerShardFactsPrecedence` |
-| Legacy `NERD_DISABLE_SYSTEM_SHARDS` ≠ master | `TestSystemShardsLegacyEnvIgnored` |
+| Master switch is actually read in production | `TestSystemShardsSwitch_HasAProductionCaller` (internal/system) |
 | SetActive snapshots | `TestSetActiveCopySemantics` |
 | Numeric env > config > 0 | `TestNumericAccessors` / `TestNumericOverrides` |
 | DefaultFeaturesConfig matrix | `TestDefaultFeaturesConfig` |

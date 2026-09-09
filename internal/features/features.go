@@ -85,8 +85,8 @@ type FeaturesConfig struct {
 	// SystemShards controls whether the chat session boots its
 	// background system shards (autopoiesis, observer, etc).
 	// Env var: CODENERD_SYSTEM_SHARDS (0 disables all of them).
-	// Distinct from the legacy NERD_DISABLE_SYSTEM_SHARDS, which is parsed
-	// at the call site as a comma-separated list of individual shard names.
+	// The per-shard disable is the --disable-system-shard CLI flag, not an
+	// env var; see IsSystemShardsEnabled.
 	SystemShards *bool `json:"system_shards,omitempty"`
 
 	// PerShardFacts gates the per-shard fact-store partition (Track D
@@ -486,11 +486,19 @@ func IsProvenanceEnabled() bool {
 }
 
 // IsSystemShardsEnabled is the master switch for booting the
-// autopoiesis/observer background shards. Note: this is independent of
-// the legacy NERD_DISABLE_SYSTEM_SHARDS env var (which is parsed at the
-// call site as a comma-separated list of per-shard names to disable).
-// Setting CODENERD_SYSTEM_SHARDS=0 turns off ALL system shards
-// regardless of which ones are in the legacy list. Default ON.
+// autopoiesis/observer background shards. Setting CODENERD_SYSTEM_SHARDS=0
+// turns off ALL system shards regardless of which ones the per-shard flag
+// names. Default ON.
+//
+// Read at internal/system/factory.go, immediately before StartSystemShards.
+// It had no caller at all until 2026-09-09, so the switch this comment
+// described did nothing.
+//
+// The per-shard disable is the `--disable-system-shard` CLI flag
+// (cmd/nerd/main.go:189), a repeatable shard name. This comment used to say
+// the mechanism was a legacy NERD_DISABLE_SYSTEM_SHARDS env var "parsed at the
+// call site"; no such string appears in any .go file in the repo, and six
+// documents under Docs/architecture/ repeat the claim from here.
 func IsSystemShardsEnabled() bool {
 	return resolveBool("CODENERD_SYSTEM_SHARDS", "",
 		func(f *FeaturesConfig) *bool { return f.SystemShards }, true)

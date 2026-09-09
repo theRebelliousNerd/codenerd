@@ -3,6 +3,7 @@ package context
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -94,13 +95,28 @@ func (fs *FactSerializer) SerializeFacts(facts []core.Fact) string {
 }
 
 // serializeFlat serializes facts in order without grouping.
+//
+// The maxLineLength cut used to live only in serializeGrouped, so flipping
+// WithGrouping(false) silently removed the only per-fact length bound in the
+// context block. A fact's arguments are arbitrary strings written by whatever
+// asserted them — a tool result, a file path, an error message — so the bound
+// belongs on both paths.
 func (fs *FactSerializer) serializeFlat(facts []core.Fact) string {
 	var sb strings.Builder
 	for _, f := range facts {
-		sb.WriteString(f.String())
+		sb.WriteString(fs.renderFact(f))
 		sb.WriteString("\n")
 	}
 	return sb.String()
+}
+
+// renderFact renders one fact, collapsing over-long arguments.
+func (fs *FactSerializer) renderFact(f core.Fact) string {
+	factStr := f.String()
+	if fs.maxLineLength > 0 && len(factStr) > fs.maxLineLength {
+		return fs.truncateFact(f)
+	}
+	return factStr
 }
 
 // serializeGrouped serializes facts grouped by predicate.
@@ -132,12 +148,7 @@ func (fs *FactSerializer) serializeGrouped(facts []core.Fact) string {
 		}
 
 		for _, f := range predFacts {
-			factStr := f.String()
-			if len(factStr) > fs.maxLineLength && fs.maxLineLength > 0 {
-				// Truncate long strings in arguments
-				factStr = fs.truncateFact(f)
-			}
-			sb.WriteString(factStr)
+			sb.WriteString(fs.renderFact(f))
 			sb.WriteString("\n")
 		}
 
@@ -170,7 +181,7 @@ func (fs *FactSerializer) SerializeScoredFacts(facts []ScoredFact, includeScores
 		if includeScores && fs.includeComments {
 			sb.WriteString(fmt.Sprintf("# score: %.1f\n", sf.Score))
 		}
-		sb.WriteString(sf.Fact.String())
+		sb.WriteString(fs.renderFact(sf.Fact))
 		sb.WriteString("\n")
 	}
 
@@ -253,8 +264,25 @@ func (fs *FactSerializer) SerializeCompressedContext(ctx *CompressedContext) str
 
 	sb.WriteString("# ═══════════════════════════════════════════════════════════\n")
 
-	return sb.String()
+	return prompt.ClampText(sb.String(), maxContextBlockChars, "mangle context block")
 }
+
+// Bounds on the injected context block.
+//
+// Nothing downstream re-checks this. ContextBlockBuilder.Build MEASURES the
+// block (TokenUsage) but never enforces anything, and TokenBudget.Allocate —
+// the API that would have rejected an over-budget category — has no production
+// caller; recalcBudget writes tb.used.* directly, so the budget is a report,
+// not a gate. CheckTotalBudget then runs at the START of the next BuildContext,
+// which means an over-budget block is always shipped once before anything
+// notices.
+const (
+	// maxContextBlockChars caps the serialized Mangle context block
+	// (~16k tokens). Core facts alone are unbounded: getCoreFacts collects
+	// every `permitted` row the kernel holds, and a long session accumulates
+	// one per (action, resource) pair it has evaluated.
+	maxContextBlockChars = 64 * 1024
+)
 
 // =============================================================================
 // Control Packet Extraction
