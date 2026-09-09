@@ -34,12 +34,63 @@ cd "$(dirname "$0")/.."
 BASELINE="scripts/testdata/deadcode-baseline.txt"
 TOOL="golang.org/x/tools/cmd/deadcode@latest"
 
+# The baseline is GOOS-specific, and this gate runs on Linux for that reason.
+#
+# Reachability is computed per build configuration, so a file excluded by build
+# tag is not analysed and its functions are simply absent from the report — not
+# "reachable", just invisible. This job first ran on windows-latest against a
+# Linux-recorded baseline and reported 38 entries as "no longer unreachable":
+# every function in platform_linux.go, platform_unix.go and open_other.go. None
+# of them had changed. The reverse would report Windows-only code as newly dead.
+#
+# Pinning GOOS here is a guard, not a portability fix. It cannot make the gate
+# run anywhere, because cross-compiling turns cgo off and this module depends on
+# go-tree-sitter, which needs it — so a cross-GOOS analysis fails to typecheck
+# rather than producing a different answer. The pin makes the mismatch loud and
+# immediate instead of silently comparing two different build configurations.
+# GOARCH is pinned with it because build tags select on both.
+ANALYSIS_GOOS="${DEADCODE_GOOS:-linux}"
+ANALYSIS_GOARCH="${DEADCODE_GOARCH:-amd64}"
+
+TOOLBIN=""
+ensure_tool() {
+    [[ -n "$TOOLBIN" ]] && return
+    local dir
+    dir="$(mktemp -d)"
+    # Built for the host: GOOS/GOARCH here decide what binary we get, so they
+    # must stay native even though the analysis below targets another platform.
+    GOBIN="$dir" go install "$TOOL" >&2
+    TOOLBIN="$dir/deadcode"
+    [[ -x "$TOOLBIN" ]] || TOOLBIN="$dir/deadcode.exe"
+}
+
 report() {
     # Strip line:col so the baseline survives edits that only move code, and
     # normalise separators and line endings: CI runs on Windows, where the tool
     # emits backslash paths and the shell may add CR. Without both, every entry
     # in a Linux-generated baseline reads as new.
-    go run "$TOOL" ./cmd/... 2>/dev/null \
+    ensure_tool
+    local raw err
+    err="$(mktemp)"
+    # Report analysis failure instead of dying silently. set -e plus pipefail
+    # turns a failed analysis into a bare exit 1 with no output, which is the
+    # worst thing a gate can do: it looks identical to a real finding and
+    # teaches everyone to ignore the job.
+    if ! raw="$(GOOS="$ANALYSIS_GOOS" GOARCH="$ANALYSIS_GOARCH" "$TOOLBIN" ./cmd/... 2>"$err")"; then
+        echo "deadcode analysis failed for GOOS=$ANALYSIS_GOOS GOARCH=$ANALYSIS_GOARCH (host $(go env GOOS)):" >&2
+        sed 's/^/  /' "$err" >&2
+        if [[ "$ANALYSIS_GOOS" != "$(go env GOOS)" ]]; then
+            echo >&2
+            echo "The analysis target does not match the host, which disables cgo; this module" >&2
+            echo "needs it (go-tree-sitter). Run this gate on $ANALYSIS_GOOS, or regenerate the" >&2
+            echo "baseline for your platform with DEADCODE_GOOS=$(go env GOOS) $0 --update -- but" >&2
+            echo "note the committed baseline is Linux's and the two are not interchangeable." >&2
+        fi
+        rm -f "$err"
+        return 1
+    fi
+    rm -f "$err"
+    printf '%s\n' "$raw" \
         | tr -d '\r' \
         | tr '\\' '/' \
         | sed -E 's/^([^:]+):[0-9]+:[0-9]+: unreachable func: /\1\t/' \

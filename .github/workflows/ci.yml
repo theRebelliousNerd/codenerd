@@ -83,7 +83,16 @@ jobs:
     # bash is Git Bash on the Windows runner; the script normalises separators
     # and line endings for exactly that reason.
     name: dead-code budget
-    runs-on: windows-latest
+    # Linux, while every other job here is Windows.
+    #
+    # The baseline is a per-GOOS measurement: a file excluded by build tag is
+    # not analysed at all, so checking a Linux-recorded baseline on Windows
+    # reported 38 platform_linux/platform_unix functions as "no longer
+    # unreachable" when nothing had changed. Pinning GOOS inside the script
+    # cannot fix that from a Windows host, because cross-compiling disables cgo
+    # and this module needs it (go-tree-sitter). So the gate runs where its
+    # baseline was taken.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
