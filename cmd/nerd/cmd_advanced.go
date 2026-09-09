@@ -195,14 +195,6 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 	// against a 25-minute timeout). The pool is deliberately modest — the
 	// APIScheduler is global, so a wider fan-out just queues behind the same
 	// rate limit.
-	type dreamResult struct {
-		index    int
-		name     string
-		shardTyp types.ShardType
-		response string
-		err      error
-	}
-
 	// Indices into shards, so the concrete ShardInfo type stays unnamed here.
 	consultable := make([]int, 0, len(shards))
 	skippedImage := 0
@@ -355,6 +347,8 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println(strings.Repeat("─", 60))
+
+	printDreamLearnings(scenario, results)
 
 	// Report the outcome the run actually had.
 	summary, err := dreamSummary(succeeded, failed, dreamTimeout, ctx.Err() != nil)
@@ -1228,4 +1222,66 @@ func embeddedCount(cortex *coresys.Cortex) int {
 		return 0
 	}
 	return int(cortex.JITCompiler.GetStats().EmbeddedAtomCount)
+}
+
+// dreamResult is one agent's answer in a dream consultation. Package-level
+// rather than local to runDreamState so the learning extraction can read the
+// same records the printout does.
+type dreamResult struct {
+	index    int
+	name     string
+	shardTyp types.ShardType
+	response string
+	err      error
+}
+
+// printDreamLearnings surfaces the learnable insights a dream run produced.
+//
+// The extraction itself already existed and the chat TUI already ran it; this
+// command consulted up to four agents over as many LLM round-trips, printed
+// their prose, and dropped every insight on the floor. Extraction is pure
+// computation over consultations already in memory, so the only reason it was
+// not here is that nobody wired it.
+//
+// It reports rather than persists on purpose. DreamRouter refuses to route an
+// unconfirmed learning, and confirmation means a person saying "yes, that is
+// right" — which a one-shot CLI has nobody to ask. Marking these confirmed to
+// get them stored would invent an authority the design deliberately withholds.
+// Printing them makes the run's value visible to the person who can confirm it.
+func printDreamLearnings(scenario string, results []dreamResult) {
+	consultations := dreamConsultationsFor(results)
+	if len(consultations) == 0 {
+		return
+	}
+
+	learnings := core.NewDreamLearningCollector().ExtractLearnings(scenario, consultations)
+	if len(learnings) == 0 {
+		return
+	}
+
+	fmt.Printf("\n💡 %d learnable insight(s) from this dream:\n", len(learnings))
+	for _, l := range learnings {
+		fmt.Printf("  [%s] %s\n", l.Type, truncateResponse(l.Content, 240))
+	}
+	fmt.Println("\n   Not persisted: a learning is stored only once a person confirms it.")
+	fmt.Println("   Run the same scenario in chat (/dream) to confirm and keep these.")
+}
+
+// dreamConsultationsFor converts the run's per-agent results into the form the
+// learning extractor reads, dropping agents that errored: a failed
+// consultation has no perspective, and its zero-valued response would be
+// mined as if it were one.
+func dreamConsultationsFor(results []dreamResult) []core.DreamConsultation {
+	consultations := make([]core.DreamConsultation, 0, len(results))
+	for _, r := range results {
+		if r.err != nil || strings.TrimSpace(r.response) == "" {
+			continue
+		}
+		consultations = append(consultations, core.DreamConsultation{
+			ShardName:   r.name,
+			ShardType:   string(r.shardTyp),
+			Perspective: r.response,
+		})
+	}
+	return consultations
 }
