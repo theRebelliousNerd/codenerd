@@ -490,3 +490,38 @@ producer that emits the **wrong shape** into a predicate whose Decl and
 consumers agree on a different one. Three instances on this branch —
 `modified_function` twice, `plan_edit` once. Both sides are internally
 consistent, so the join is simply empty. That one is on the reader.
+
+---
+
+## Negative results
+
+Worth recording, so the next audit does not re-derive them.
+
+**No package-level dead weight.** Every package under `internal/` has a path
+into a binary. Three report no importers and all three are benign:
+`internal/persist` and `internal/testing` are doc-only anchors whose real code
+lives in subpackages (`factsnap`, `snapshot`, `context_harness` — the last
+reached from `cmd/nerd/cmd_test_context.go`), and
+`internal/core/defaults/policy` is a test-only package holding the `.mg` corpus
+and its golden tests.
+
+**Registries are clean in both directions**, verified during the mapping pass:
+
+- All 122 `cobra.Command` declarations in `cmd/` are reachable from `rootCmd`.
+- All 111 `ActionType` constants have a dispatch case in `executeAction`, and
+  every `handle*` method on `*VirtualStore` is dispatched.
+- Every `*Tool()` constructor in `internal/tools/{core,shell,codedom}` is in its
+  package's `RegisterAll`. The single exception, `GroundedWebSearchTool`, is
+  registered conditionally by design because it needs an injected searcher.
+- Every non-test `DefineProfile` name has a matching `RegisterShard` factory;
+  missing factories fall through to the JIT task delegator with an explicit hard
+  error rather than a silent success.
+
+**Test quality holds.** The repo's own `cmd/tools/audit_test_bodies` gate —
+"reject empty and log-only tests" — passes, including every test added by this
+pass.
+
+**Only 14 TODO comments exist in non-test Go**, and there are zero `FIXME`,
+`XXX` or `HACK` comments. Nine are cosmetic UI feature requests in
+`cmd/nerd/ui`. The rot in this codebase was never in its comments; it was in the
+gap between what the code says it does and what runs.
