@@ -237,38 +237,86 @@ validator racing a concurrent writer sees an empty file and fails the call. That
 single detail was the difference between a suite that varied run to run and one
 that does not.
 
-**Result: 29 → 5, identical across consecutive runs.** Twenty-four tests fixed,
-none broken.
+**Result: 29 → 2.** Twenty-seven fixed, none broken, stable across runs.
 
-### Still failing — 5
+Three of those came from outside the shared fixture, and each was a test
+asserting something the code deliberately does not do:
+
+- `StringAllocationPressure` built a hundred one-megabyte targets distinguished
+  by an appended `_%d`. `Intent.ToFact` runs Target through `sanitizeFactArg`,
+  which truncates at 2048 bytes, so all hundred truncated to the same 2048 "A"s
+  and the kernel correctly stored one fact. The truncation is a deliberate
+  injection-and-size guard on a field carrying user input; the test had put its
+  only distinguishing information past the cut. Prefixing the index fixes it and
+  keeps what the test is for.
+- `State_ExecutorIndependence` asserted a hundred `concurrent_load` facts
+  concurrently and read back zero, reporting `"Concurrency lost data"`.
+  `concurrent_load` is declared nowhere in the policy corpus. The concurrency
+  was never the problem — see the finding below. Switched to `critical_file`,
+  which is declared, and to a membership check rather than a raw count, since
+  the corpus asserts `critical_file` facts of its own at boot.
+- `VirtualStore_Unavailable_AgentGracefulFail` asserted that
+  `SpawnSpecialist` errors for a name with no on-disk config. It does not, by
+  design: `loadSpecialistConfig` falls back to JIT generation with a documented
+  reason. The test pinned the opposite of the intended behaviour, which costs
+  more than a red bar — it would have blocked anyone relying on the fallback. It
+  now asserts the degradation *and* that a path-traversing name is still
+  rejected.
+
+### A new finding: `Assert` accepts undeclared predicates and drops them
+
+Measured directly against a fresh `RealKernel`:
+
+| Predicate | `Assert` returns | `Query` returns |
+|---|---|---|
+| `critical_file` (declared) | `nil` | the facts |
+| `concurrent_load` (undeclared) | **`nil`** | **nothing** |
+
+A caller cannot tell the two apart. This is the same shape as the `Assert` bug
+fixed earlier in this pass — that one returned `nil` for facts the kernel
+*rejected*; this one returns `nil` for facts whose predicate was never
+declared, and the fact is simply not there afterwards. A typo in a predicate
+name is therefore invisible at the call site and shows up much later as an
+empty query, which is exactly how kernel wiring rots unnoticed.
+
+Not fixed here: making `Assert` reject an undeclared predicate is a production
+change whose blast radius is every caller that asserts speculatively, and it
+deserves its own measured pass rather than being folded into a test-repair
+commit.
+
+### Still failing — 2
 
 | Test | File | Error |
 |---|---|---|
 | `TestE2E_CrossBoundary_Executor_MultiTurn_ConversationDrift` | `cross_boundary_integration_test.go:507` | `/fix ... attempted=0` |
 | `TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary` | `piggyback_executor_full_boundary_test.go:312` | `write-oriented intent /fix completed without a recognized write-mutation tool (tool_calls=2)` |
-| `TestE2E_Boundary_Session_Kernel_StringAllocationPressure` | `Session_Kernel_Boundary_integration_test.go:358` | `Failed large string allocation test` |
-| `TestE2E_SessionKernelVStore_State_ExecutorIndependence` | `session_kernel_vstore_integration_test.go:912` | `Expected 100 facts, got 0` |
-| `TestE2E_Session_VirtualStore_Unavailable_AgentGracefulFail` | `session_spawner_config_integration_test.go:414` | expected an error loading a non-existent specialist; also panics on a nil `spawnerMockKernel` receiver via `executor.go:871` |
 
-Each needs bespoke work rather than the shared fixture:
+Neither takes the shared fixture as-is:
 
 - **ConversationDrift** cycles `/explain`, `/fix`, `/test`, `/review` across 20
   turns and passes a **nil** VirtualStore, so there is no executive gate at all.
   It needs a real store plus a `/test`-satisfying tool (`run_tests`,
-  `EffectExecute`), which is a second fixture, not a reuse of this one. The verb
-  mix is deliberate — it is what "conversation drift" means here — so it should
-  not be narrowed.
+  `EffectExecute`) — a second fixture, not a reuse of this one. The verb mix is
+  deliberate; it is what "conversation drift" means here, so it should not be
+  narrowed to make the bar green.
 - **Piggyback ControlPacket** now reaches `tool_calls=2`: its tools run, but
   `e2e_safe_tool` is not a write-mutation tool. Its subject is an adversarial
-  piggyback envelope, so the right fix is a write-mutation tool in *that*
-  fixture, not a verb change.
-- The last three are unrelated to hollow success and are each their own
-  investigation. The spawner one panics on a nil mock receiver, which is a
-  defect in the mock rather than in production code.
+  piggyback envelope, so the fix belongs in that fixture's own tool set.
 
-**Recommendation.** Add the `-tags integration` CI job only once these five are
-green: a job that fails on its first run is worse than no job, because it
-teaches everyone to ignore it.
+**Recommendation.** Add the `-tags integration` CI job once these two are green:
+a job that fails on its first run is worse than no job, because it teaches
+everyone to ignore it.
+
+### One thing that was tried and reverted
+
+Swapping `spawnerMockKernel` — which is `struct{ types.Kernel }`, an embedded
+nil interface whose every un-overridden method panics — for a real kernel in
+`setupRealIntegrationEnv` took the package from 5 failures to about 128. The
+mock is a genuine landmine (a spawned agent panics on it at the first `Assert`),
+but `setupRealIntegrationEnv` is shared by a large part of the suite and a real
+kernel there changes far more than the mock's nil methods. Left alone. The
+lesson is the same one below: measure the whole package, and revert on a
+regression rather than reasoning about why it "should" be fine.
 
 ### A measurement trap worth recording
 
