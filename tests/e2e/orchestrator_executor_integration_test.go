@@ -71,10 +71,25 @@ func (m *oeMockConfigFactory) Generate(ctx context.Context, result *prompt.Compi
 
 type oeMockLLMClient struct {
 	responseToReturn *types.LLMToolResponse
+	// writeDir, when set, makes every call return a FRESH response whose
+	// write targets a new path. Concurrent turns must not share one
+	// pending_edit fact — see writeTurnCallIn.
+	writeDir         string
 	errToReturn      error
 	delay            time.Duration
 	mu               sync.Mutex
 	lastSystemPrompt string
+}
+
+// response returns the configured response, or a freshly minted one when
+// writeDir is set so concurrent callers never share a write path.
+func (m *oeMockLLMClient) response() *types.LLMToolResponse {
+	if m.writeDir == "" || m.responseToReturn == nil {
+		return m.responseToReturn
+	}
+	fresh := *m.responseToReturn
+	fresh.ToolCalls = []types.ToolCall{writeTurnCallIn(m.writeDir)}
+	return &fresh
 }
 
 func (m *oeMockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
@@ -107,11 +122,11 @@ func (m *oeMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 			return nil, ctx.Err()
 		}
 	}
-	return m.responseToReturn, m.errToReturn
+	return m.response(), m.errToReturn
 }
 
 func (m *oeMockLLMClient) ToolCall(ctx context.Context, prompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	return m.responseToReturn, m.errToReturn
+	return m.response(), m.errToReturn
 }
 func (m *oeMockLLMClient) ToolCallWithSystem(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	m.mu.Lock()
@@ -125,7 +140,7 @@ func (m *oeMockLLMClient) ToolCallWithSystem(ctx context.Context, systemPrompt, 
 			return nil, ctx.Err()
 		}
 	}
-	return m.responseToReturn, m.errToReturn
+	return m.response(), m.errToReturn
 }
 
 func (m *oeMockLLMClient) CountTokens(text string) int { return len(text) }
@@ -150,6 +165,7 @@ func setupTestEnvironment(t *testing.T) (*session.Executor, *session.JITExecutor
 			Text:      "default success",
 			ToolCalls: []types.ToolCall{writeTurnCall(t)},
 		},
+		writeDir: t.TempDir(),
 	}
 	transducer := &oeMockTransducer{intentToReturn: "/fix"}
 	compiler := &oeMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
@@ -450,6 +466,7 @@ func TestE2E_OrchestratorExecutor_PartialFailure_JITCompilationFails(t *testing.
 			Text:      "default success",
 			ToolCalls: []types.ToolCall{writeTurnCall(t)},
 		},
+		writeDir: t.TempDir(),
 	}
 	transducer := &oeMockTransducer{intentToReturn: "/fix"}
 	compiler := &oeMockJITCompiler{errToReturn: fmt.Errorf("JIT failed")}
@@ -641,6 +658,7 @@ func TestE2E_OrchestratorExecutor_TransducerFailure_GracefulHandling(t *testing.
 			Text:      "default success",
 			ToolCalls: []types.ToolCall{writeTurnCall(t)},
 		},
+		writeDir: t.TempDir(),
 	}
 
 	transducer := &oeMockTransducer{intentToReturn: "", delay: 1 * time.Millisecond}

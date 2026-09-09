@@ -133,7 +133,7 @@ replay side now, so it can affect at most one turn.
 learns their input was shortened rather than the model quietly working from
 half of it.
 
-## O7 — `tests/e2e`: ten failures, one shared shape
+## O7 — `tests/e2e`: from not compiling to green (RESOLVED)
 
 The integration suite had not compiled since `8e9507d`. Once it compiled it did
 not finish: it hung for the full 12-minute package timeout, so the run reported
@@ -194,9 +194,9 @@ nothing else changed.
   cheaper fix was the wrong one.
 
 Result: the suite completes instead of hanging at 720s, and the failure list is
-visible and precise — 29 failures at that point, 5 after the fixture below.
+visible and precise — 29 failures at that point, zero after the work below.
 
-### The rest of the suite: 29 failures down to 5
+### The rest of the suite: 29 failures down to zero
 
 `8e9507d` added `checkHollowSuccess`: a write-oriented intent that finishes with
 no successful write-mutation tool call is refused. The guard is right. Every
@@ -237,9 +237,13 @@ validator racing a concurrent writer sees an empty file and fails the call. That
 single detail was the difference between a suite that varied run to run and one
 that does not.
 
-**Result: 29 → 2.** Twenty-seven fixed, none broken, stable across runs.
+**Result: 29 → 0**, stable across three consecutive whole-package runs. The
+`-tags integration` CI job is added in the same commit, and not one commit
+earlier: a job that fails on its first run teaches everyone to ignore it, which
+is worse than no job because it also hides the day it starts failing for a real
+reason.
 
-Three of those came from outside the shared fixture, and each was a test
+Five of those came from outside the shared fixture, and each was a test
 asserting something the code deliberately does not do:
 
 - `StringAllocationPressure` built a hundred one-megabyte targets distinguished
@@ -247,76 +251,88 @@ asserting something the code deliberately does not do:
   which truncates at 2048 bytes, so all hundred truncated to the same 2048 "A"s
   and the kernel correctly stored one fact. The truncation is a deliberate
   injection-and-size guard on a field carrying user input; the test had put its
-  only distinguishing information past the cut. Prefixing the index fixes it and
-  keeps what the test is for.
+  only distinguishing information past the cut. Prefixing the index fixes it.
 - `State_ExecutorIndependence` asserted a hundred `concurrent_load` facts
   concurrently and read back zero, reporting `"Concurrency lost data"`.
-  `concurrent_load` is declared nowhere in the policy corpus. The concurrency
-  was never the problem — see the finding below. Switched to `critical_file`,
-  which is declared, and to a membership check rather than a raw count, since
-  the corpus asserts `critical_file` facts of its own at boot.
-- `VirtualStore_Unavailable_AgentGracefulFail` asserted that
-  `SpawnSpecialist` errors for a name with no on-disk config. It does not, by
-  design: `loadSpecialistConfig` falls back to JIT generation with a documented
-  reason. The test pinned the opposite of the intended behaviour, which costs
-  more than a red bar — it would have blocked anyone relying on the fallback. It
-  now asserts the degradation *and* that a path-traversing name is still
-  rejected.
+  `concurrent_load` is declared nowhere — see the finding below. Switched to
+  `critical_file`, and to a membership check rather than a raw count, since the
+  corpus asserts `critical_file` facts of its own at boot.
+- `VirtualStore_Unavailable_AgentGracefulFail` asserted that `SpawnSpecialist`
+  errors for a name with no on-disk config. It does not, by design:
+  `loadSpecialistConfig` falls back to JIT generation with a documented reason.
+  The test pinned the opposite of the intended behaviour, which costs more than
+  a red bar — it would have blocked anyone relying on the fallback. It now
+  asserts the degradation *and* that a path-traversing name is still rejected.
+- `MultiTurn_ConversationDrift` cycles `/explain`, `/fix`, `/test`, `/review`
+  across twenty turns against a **nil** VirtualStore, so there was no executive
+  gate at all. A real store plus the write fixture fixes it without narrowing
+  the verb mix, which is what "conversation drift" means here.
+- `PiggybackExecutor_ControlPacket` needed a legitimate write beside its
+  adversarial requests. Its JIT allowlist now admits `e2e_safe_tool` and
+  `write_file` and still refuses `e2e_forbidden_tool`, so the boundary under
+  test is unchanged; the scenario is simply realistic, since a real `/fix` turn
+  writes something. It got a real `core.VirtualStore` rather than a no-op gate,
+  because a rubber-stamped gate in the one test whose premise is
+  `EnableSafetyGate = true` would have been worse than the red bar.
+
+### Concurrency: it was never the file
+
+Two orchestrator tests stayed intermittently red after all of the above, one or
+the other failing per run with `attempted=1`. Both drive ten or fifty goroutines
+through a single executor.
+
+The first cause was the file write: `os.WriteFile` truncates before it writes,
+so a post-action validator racing a concurrent writer sees an empty file and
+judges the side effect absent. Writing to a temp file and renaming fixed that —
+rename is atomic, so every observer sees a complete file.
+
+The second was subtler and is the interesting one. `executeToolCall` asserts
+`pending_edit(FilePath, Content)` before a write-mutation tool and retracts it
+on every exit path. Ten goroutines writing the *same* path with the *same*
+content assert an identical fact; the kernel dedupes it to one; the first
+goroutine to finish retracts it out from under the nine still running. The
+fixture now mints a distinct path per call, which is both what the lifecycle
+assumes and what a real turn looks like — nothing writes one file from ten
+goroutines.
+
+Worth stating plainly, because two tests spent this whole audit claiming
+otherwise: neither failure was a concurrency defect in the executor. One was a
+non-atomic write in a test stub, the other a shared-fact lifetime in a fixture.
 
 ### A new finding: `Assert` accepts undeclared predicates and drops them
 
-Measured directly against a fresh `RealKernel`:
+Measured directly against a fresh `RealKernel` with 1839 Decls loaded:
 
 | Predicate | `Assert` returns | `Query` returns |
 |---|---|---|
 | `critical_file` (declared) | `nil` | the facts |
 | `concurrent_load` (undeclared) | **`nil`** | **nothing** |
 
-A caller cannot tell the two apart. This is the same shape as the `Assert` bug
-fixed earlier in this pass — that one returned `nil` for facts the kernel
-*rejected*; this one returns `nil` for facts whose predicate was never
-declared, and the fact is simply not there afterwards. A typo in a predicate
-name is therefore invisible at the call site and shows up much later as an
-empty query, which is exactly how kernel wiring rots unnoticed.
+`Fact.ToAtom` is Decl-blind, so a fact whose predicate was never declared
+converts cleanly, lands in the EDB, and returns `nil` — every signal the caller
+has says it worked. The fixpoint only derives what the program declares, so the
+fact is written into a space nothing reads.
 
-Not fixed here: making `Assert` reject an undeclared predicate is a production
-change whose blast radius is every caller that asserts speculatively, and it
-deserves its own measured pass rather than being folded into a test-repair
-commit.
+A static scan of non-test Go against the corpus found **82 distinct predicates
+asserted from production code with no declaration anywhere**, including whole
+state machines — `campaign_paused`, `tdd_phase`, `ouroboros_phase`,
+`python_snapshot` — whose facts have never been visible to a rule.
 
-### Still failing — 2
+**What was done.** `RealKernel.warnIfUndeclaredLocked` now names the predicate
+and its arity, once per predicate per process, so the silence is gone. Arity is
+part of the identity on purpose: a fact asserted at an arity the `Decl` does not
+declare is invisible for exactly the same reason and reads as a far more
+confusing bug. `TestUndeclaredAssertBudget` pins the count at 82 and fails in
+either direction, the mirror of `TestStarvedPredicateBudget` — starved is
+*declared and read, produced by nothing*; undeclared is *produced by Go,
+declared by nothing*.
 
-| Test | File | Error |
-|---|---|---|
-| `TestE2E_CrossBoundary_Executor_MultiTurn_ConversationDrift` | `cross_boundary_integration_test.go:507` | `/fix ... attempted=0` |
-| `TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary` | `piggyback_executor_full_boundary_test.go:312` | `write-oriented intent /fix completed without a recognized write-mutation tool (tool_calls=2)` |
-
-Neither takes the shared fixture as-is:
-
-- **ConversationDrift** cycles `/explain`, `/fix`, `/test`, `/review` across 20
-  turns and passes a **nil** VirtualStore, so there is no executive gate at all.
-  It needs a real store plus a `/test`-satisfying tool (`run_tests`,
-  `EffectExecute`) — a second fixture, not a reuse of this one. The verb mix is
-  deliberate; it is what "conversation drift" means here, so it should not be
-  narrowed to make the bar green.
-- **Piggyback ControlPacket** now reaches `tool_calls=2`: its tools run, but
-  `e2e_safe_tool` is not a write-mutation tool. Its subject is an adversarial
-  piggyback envelope, so the fix belongs in that fixture's own tool set.
-
-**Recommendation.** Add the `-tags integration` CI job once these two are green:
-a job that fails on its first run is worse than no job, because it teaches
-everyone to ignore it.
-
-### One thing that was tried and reverted
-
-Swapping `spawnerMockKernel` — which is `struct{ types.Kernel }`, an embedded
-nil interface whose every un-overridden method panics — for a real kernel in
-`setupRealIntegrationEnv` took the package from 5 failures to about 128. The
-mock is a genuine landmine (a spawned agent panics on it at the first `Assert`),
-but `setupRealIntegrationEnv` is shared by a large part of the suite and a real
-kernel there changes far more than the mock's nil methods. Left alone. The
-lesson is the same one below: measure the whole package, and revert on a
-regression rather than reasoning about why it "should" be fine.
+**What was deliberately not done.** `Assert` does not start returning an error.
+Eighty-two live call sites would begin failing at once, and the honest fix for
+each is a per-predicate decision — declare it and wire a consumer, or drop the
+assert. Declaring all 82 without consumers would only move them onto the
+starved list, trading one silent failure for another. That is a program of work
+with a measurement attached to it now, which is the point.
 
 ### A measurement trap worth recording
 
@@ -325,7 +341,7 @@ and the recorded conclusion drawn from them ("the write fixture is net negative:
 −7 here, +12 there") was exactly backwards. The cause was mundane: both runs
 were piped through `tail -40` / `tail -50`, so the counts were *the tail of the
 output*, not the number of failures. The fixture that reading rejected is the
-one that took the suite from 29 to 5.
+one that took the suite from 29 to 5, on the way to zero.
 
 Two habits follow. Count failures with `grep -c '^--- FAIL'` over the whole
 output, never a tail. And compare only whole-package runs: `tools.Global()` is
@@ -334,6 +350,35 @@ different global state than a full run — `TestE2E_OrchestratorExecutor_Smoke`
 failed alone and passed in a full run for exactly that reason. Per-test registry
 isolation (a `t.Cleanup`-scoped registry, or `tools.NewRegistry()` injected
 instead of the global) would remove the hazard.
+
+### The gates themselves were the defect, twice
+
+Both new CI gates failed on their first real run, and both failed in the exact
+way this whole branch is about — a check that looks like it is running and is
+not.
+
+The dead-code budget compared a Linux-recorded baseline against a Windows run.
+Reachability is computed per build configuration, so a file excluded by build
+tag is not analysed at all and its functions are absent from the report — not
+"reachable", just invisible. Thirty-eight `platform_linux` / `platform_unix`
+functions read as "no longer unreachable" with nothing changed. Pinning GOOS
+inside the script cannot fix it from a Windows host, because cross-compiling
+disables cgo and this module needs it (go-tree-sitter), so the analysis fails to
+typecheck instead of answering differently. The job moved to `ubuntu-latest`,
+where its baseline was taken, and the pin stays as a guard that makes any future
+mismatch loud.
+
+The gofmt gate expanded 2049 paths into one argv, died with `Argument list too
+long` at exit 126 before checking a single file, and then — once that was fixed
+with `xargs -0` — flagged the entire tree, because `.gitattributes` leaves `.go`
+files CRLF on Windows while gofmt normalises to LF. Pinning `*.go text eol=lf`
+would fix the gate and also change what every Windows contributor gets on
+checkout, which is not a formatting gate's call to make, so it moved to Linux
+too.
+
+Each of these failed loudly enough to look like a real finding. That is the most
+expensive way for a gate to be wrong: it costs a reviewer a full investigation
+and then teaches them to skip the job.
 
 ### Related: O5 is only half-closed
 

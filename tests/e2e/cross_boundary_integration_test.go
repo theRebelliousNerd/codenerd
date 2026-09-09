@@ -490,10 +490,28 @@ func TestE2E_CrossBoundary_Executor_MultiTurn_ConversationDrift(t *testing.T) {
 
 	tr := &cbMockTransducer{intents: allIntents}
 	jc := &cbMockJITCompiler{result: &prompt.CompilationResult{Prompt: "test prompt"}}
-	cf := &cbMockConfigFactory{cfg: &config.EffectiveAgentRuntimeConfig{}}
-	lc := &cbMockLLMClient{}
 
-	exec := session.NewExecutor(kernel, nil, lc, jc, cf, tr)
+	// A real VirtualStore, a write tool, and a tool call in every response.
+	//
+	// The intent cycle here is the point of the test — /explain, /fix, /test,
+	// /review is what "conversation drift" means — and checkHollowSuccess
+	// (8e9507d) refuses /fix and /test turns that complete no tool call. This
+	// executor was built with a nil VirtualStore, so there was no executive
+	// gate at all and a write tool could never have run even if one were
+	// offered. See write_turn_fixture_test.go for why the fix is a real write
+	// turn rather than narrowing the verbs.
+	vs := core.NewVirtualStore(nil)
+	wireDreamer(vs, kernel)
+	cf := &cbMockConfigFactory{cfg: &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: writeTurnAllowedTools(),
+	}}
+	lc := &cbMockLLMClient{toolResponse: &types.LLMToolResponse{
+		Text:      "working",
+		ToolCalls: []types.ToolCall{writeTurnCall(t)},
+	}}
+
+	exec := session.NewExecutor(kernel, vs, lc, jc, cf, tr)
+	exec.SetConfig(writeTurnExecutorConfig())
 
 	var durations []time.Duration
 

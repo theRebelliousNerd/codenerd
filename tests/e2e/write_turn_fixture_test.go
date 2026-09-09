@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"codenerd/internal/core"
@@ -104,17 +105,40 @@ func registerWriteTurnTool(t *testing.T) {
 	}
 }
 
+// writeTurnSeq makes every fixture write target a distinct file.
+var writeTurnSeq atomic.Int64
+
 // writeTurnCall returns a tool call that will satisfy checkHollowSuccess for a
 // write-oriented intent, targeting a path unique to this test.
 func writeTurnCall(t *testing.T) types.ToolCall {
 	t.Helper()
 	registerWriteTurnTool(t)
+	return writeTurnCallIn(t.TempDir())
+}
+
+// writeTurnCallIn is writeTurnCall for a directory the caller already owns, and
+// it returns a DIFFERENT path on every call.
+//
+// Several tests here drive ten or fifty goroutines through one executor. When
+// they all wrote one shared path, the turn intermittently failed with
+// "attempted=1" and nothing successful — not from the file write, which is
+// atomic, but from the pending_edit lifecycle around it. executeToolCall
+// asserts pending_edit(FilePath, Content) before a write-mutation tool and
+// retracts it on every exit path. Ten goroutines writing identical path and
+// content assert an identical fact, the kernel dedupes it to one, and the first
+// goroutine to finish retracts it out from under the nine still running.
+//
+// A distinct path per call gives each concurrent turn its own fact, which is
+// what the lifecycle assumes. It also keeps the fixture honest: a real turn
+// does not write the same file from ten goroutines.
+func writeTurnCallIn(dir string) types.ToolCall {
+	n := writeTurnSeq.Add(1)
 	return types.ToolCall{
-		ID:   "fixture_write",
+		ID:   fmt.Sprintf("fixture_write_%d", n),
 		Name: "write_file",
 		Input: map[string]any{
-			"path":    filepath.Join(t.TempDir(), "fixture_write.txt"),
-			"content": "write-turn fixture",
+			"path":    filepath.Join(dir, fmt.Sprintf("fixture_write_%d.txt", n)),
+			"content": fmt.Sprintf("write-turn fixture %d", n),
 		},
 	}
 }

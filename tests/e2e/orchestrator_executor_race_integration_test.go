@@ -67,9 +67,24 @@ func (m *oerMockConfigFactory) Generate(ctx context.Context, result *prompt.Comp
 
 type oerMockLLMClient struct {
 	responseToReturn *types.LLMToolResponse
+	// writeDir, when set, makes every call return a FRESH response whose
+	// write targets a new path. Concurrent turns must not share one
+	// pending_edit fact — see writeTurnCallIn.
+	writeDir         string
 	delay            time.Duration
 	mu               sync.Mutex
 	lastSystemPrompt string
+}
+
+// response returns the configured response, or a freshly minted one when
+// writeDir is set so concurrent callers never share a write path.
+func (m *oerMockLLMClient) response() *types.LLMToolResponse {
+	if m.writeDir == "" || m.responseToReturn == nil {
+		return m.responseToReturn
+	}
+	fresh := *m.responseToReturn
+	fresh.ToolCalls = []types.ToolCall{writeTurnCallIn(m.writeDir)}
+	return &fresh
 }
 
 func (m *oerMockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
@@ -102,20 +117,20 @@ func (m *oerMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 			return nil, ctx.Err()
 		}
 	}
-	return m.responseToReturn, nil
+	return m.response(), nil
 }
 
 func (m *oerMockLLMClient) ToolCall(ctx context.Context, prompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	return m.responseToReturn, nil
+	return m.response(), nil
 }
 func (m *oerMockLLMClient) ToolCallWithSystem(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	m.mu.Lock()
 	m.lastSystemPrompt = systemPrompt
 	m.mu.Unlock()
-	return m.responseToReturn, nil
+	return m.response(), nil
 }
 func (m *oerMockLLMClient) ToolCallWithSystemStreaming(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition, chunkHandler func(string)) (*types.LLMToolResponse, error) {
-	return m.responseToReturn, nil
+	return m.response(), nil
 }
 func (m *oerMockLLMClient) CompleteWithStreaming(ctx context.Context, prompt string, model string, stream bool) (<-chan string, <-chan error) {
 	ch := make(chan string)
@@ -138,13 +153,16 @@ func setupRaceEnvironment(t *testing.T, llmDelay time.Duration) (*session.Execut
 	kernel, _ := core.NewRealKernel()
 	virtualStore := core.NewVirtualStore(nil)
 	wireDreamer(virtualStore, kernel)
+	registerWriteTurnTool(t)
 
+	writeDir := t.TempDir()
 	llm := &oerMockLLMClient{
 		responseToReturn: &types.LLMToolResponse{
 			Text:      "default success",
-			ToolCalls: []types.ToolCall{writeTurnCall(t)},
+			ToolCalls: []types.ToolCall{writeTurnCallIn(writeDir)},
 		},
-		delay: llmDelay,
+		writeDir: writeDir,
+		delay:    llmDelay,
 	}
 
 	transducer := &oerMockTransducer{intentToReturn: "/fix"}
