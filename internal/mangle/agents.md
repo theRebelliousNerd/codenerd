@@ -49,3 +49,61 @@ go test -race ./internal/mangle -run '^Test(CodeUsesSerializedMangleParser|Produ
 go test -race ./internal/core -run 'Concurrent|DreamerSingleton|DreamRouterSingleton' -count=1
 go vet ./internal/mangle/... ./internal/core
 ```
+
+## A quoted string starting with `/` does not match a stored string
+
+Measured against a booted kernel, all four rules below run against one stored
+fact whose third argument is the Go string `"/etc/passwd"`:
+
+```
+projected_fact(A, /modified, "/etc/passwd")  ->  0 rows
+projected_fact(A, /modified, "etc/passwd")   ->  1 row
+projected_fact(A, /modified, "passwd")       ->  1 row
+projected_fact(A, /modified, _)              ->  1 row
+```
+
+The slot is declared `/string`. The leading slash makes the literal read as
+something other than that string, and the join goes quietly empty — no parse
+error, no type error, no warning. It is the Decl-contract trap above wearing a
+different hat: both halves internally consistent, nothing to fail.
+
+Absolute paths are everywhere in this system — targets, workspace roots,
+protected paths — so this is easy to hit and hard to see. It cost an entire
+e2e file: a Dreamer policy rule that was supposed to block writes to
+`/etc/passwd` matched nothing, and the tests around it reported "expected error,
+got nil" as though the safety gate were broken.
+
+**Write the join on a variable, and put the path in a fact.**
+
+```
+Decl protected_path(Path) bound [/string].
+
+panic_state(A, "writes_protected_path") :-
+    projected_fact(A, /modified, Path),
+    protected_path(Path).
+```
+
+A variable binds whatever is stored, so the comparison is between values rather
+than between a value and however a literal happens to lex. Seed
+`protected_path("/etc/passwd")` as a fact from Go, where it is an ordinary
+string.
+
+## `HotLoadRule` validates; it does not load
+
+`RealKernel.HotLoadRule` compiles a candidate against a sandbox kernel and
+returns whether it is acceptable. It does not install it, and until 2026-09 its
+doc comment said the opposite ("dynamically loads a single Mangle rule at
+runtime... used by Autopoiesis to add new rules without restarting" — that is
+`HotLoadLearnedRule`, immediately below it).
+
+Both production callers are correct and use it as a validator:
+`feedback/loop.go` as "Phase 3: Sandbox compilation",
+`shards/system/mangle_repair.go` as "Phase 1: Syntax check via kernel".
+
+- To make the kernel evaluate a rule now: `AppendPolicy`.
+- To make it evaluate the rule and survive a restart: `HotLoadLearnedRule`,
+  which persists to `learned.mg`.
+- To ask only whether a rule compiles: `HotLoadRule`.
+
+A test that hot-loaded a rule, got `nil`, and asserted on the derivation it
+expected is how this surfaced. Every signal the caller had said the rule was in.

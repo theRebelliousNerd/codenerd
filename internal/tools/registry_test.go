@@ -200,8 +200,10 @@ func TestFilterByIntent(t *testing.T) {
 }
 
 func TestGlobalRegistry(t *testing.T) {
-	// Reset global registry for test
-	globalRegistry = NewRegistry()
+	// Reset global registry for test. SwapGlobal restores it afterwards so this
+	// test cannot leave the package's global in a state a later test observes —
+	// which is the whole hazard SwapGlobal exists to remove.
+	t.Cleanup(SwapGlobal(NewRegistry()))
 
 	tool := &Tool{
 		Effect:   EffectRead,

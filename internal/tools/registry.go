@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codenerd/internal/logging"
@@ -538,7 +539,48 @@ func intentToCategory(intent string) ToolCategory {
 }
 
 // Global registry instance for convenience.
-var globalRegistry = NewRegistry()
+//
+// Held in an atomic.Pointer rather than a plain var so SwapGlobal can replace it
+// without racing Global(). Every read below goes through Global() for the same
+// reason: a plain var read alongside a swap is a data race even when the swap
+// only ever happens in a test.
+var globalRegistry atomic.Pointer[Registry]
+
+func init() {
+	globalRegistry.Store(NewRegistry())
+}
+
+// SwapGlobal installs r as the global registry and returns a function that puts
+// the previous one back. It exists for tests, and the reason is specific enough
+// to be worth stating.
+//
+// The global registry is process-wide, so every test in a package shares one
+// mutable object. In tests/e2e that produced a suite where 78 tests depended on
+// each other's side effects rather than on their own logic: two of them passed
+// only inside a full-package run and failed when run alone, and renaming two
+// unrelated tests changed 78 results. A suite in that state cannot distinguish
+// a real regression from a reordering, which makes its green meaningless and
+// makes gating on it worse than not gating.
+//
+// Isolation is the fix, and it has to be available from outside this package
+// (tests/e2e is package e2e_test), which is why this is exported. Pair it with
+// t.Cleanup:
+//
+//	restore := tools.SwapGlobal(tools.NewRegistry())
+//	t.Cleanup(restore)
+//
+// Not safe to call while another goroutine is mid-Execute against the old
+// registry: the swap itself is atomic, but a caller that already holds the old
+// pointer keeps using it. Call it at the top of a test, before anything spawns.
+func SwapGlobal(r *Registry) (restore func()) {
+	if r == nil {
+		r = NewRegistry()
+	}
+	prev := globalRegistry.Swap(r)
+	return func() {
+		globalRegistry.Store(prev)
+	}
+}
 
 // SetWriteGuard installs a guard consulted before every tool execution on this
 // registry. Passing nil removes it.
@@ -556,7 +598,7 @@ func (r *Registry) SetWriteGuard(g WriteGuard) {
 // SetGlobalWriteGuard installs a write guard on the global registry, which is
 // the one reachable via tools.Execute.
 func SetGlobalWriteGuard(g WriteGuard) {
-	globalRegistry.SetWriteGuard(g)
+	Global().SetWriteGuard(g)
 }
 
 // check returns nil when name may execute under this envelope.
@@ -613,7 +655,7 @@ func (r *Registry) IsAllowed(name string) bool {
 
 // SetGlobalAllowlist installs the capability envelope on the global registry.
 func SetGlobalAllowlist(a *Allowlist) {
-	globalRegistry.SetAllowlist(a)
+	Global().SetAllowlist(a)
 }
 
 // SetWorkspaceRoot sets the containment boundary handed to every tool this
@@ -636,7 +678,7 @@ func (r *Registry) WorkspaceRoot() string {
 
 // SetGlobalWorkspaceRoot sets the containment boundary on the global registry.
 func SetGlobalWorkspaceRoot(root string) {
-	globalRegistry.SetWorkspaceRoot(root)
+	Global().SetWorkspaceRoot(root)
 }
 
 // SetFactSink installs a callback invoked once per completed execution so the
@@ -649,7 +691,7 @@ func (r *Registry) SetFactSink(s FactSink) {
 
 // SetGlobalFactSink installs the execution fact sink on the global registry.
 func SetGlobalFactSink(s FactSink) {
-	globalRegistry.SetFactSink(s)
+	Global().SetFactSink(s)
 }
 
 func (r *Registry) recordMetrics(name string, success bool, durationMs int64) {
@@ -699,25 +741,25 @@ func (r *Registry) AllMetrics() map[string]ToolMetrics {
 
 // Global returns the global tool registry.
 func Global() *Registry {
-	return globalRegistry
+	return globalRegistry.Load()
 }
 
 // Register adds a tool to the global registry.
 func Register(tool *Tool) error {
-	return globalRegistry.Register(tool)
+	return Global().Register(tool)
 }
 
 // MustRegisterGlobal registers a tool in the global registry, panicking on error.
 func MustRegisterGlobal(tool *Tool) {
-	globalRegistry.MustRegister(tool)
+	Global().MustRegister(tool)
 }
 
 // Get retrieves a tool from the global registry.
 func Get(name string) *Tool {
-	return globalRegistry.Get(name)
+	return Global().Get(name)
 }
 
 // Execute runs a tool from the global registry.
 func Execute(ctx context.Context, name string, args map[string]any) (*ToolResult, error) {
-	return globalRegistry.Execute(ctx, name, args)
+	return Global().Execute(ctx, name, args)
 }
