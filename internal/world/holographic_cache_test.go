@@ -2,9 +2,11 @@ package world
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -343,4 +345,104 @@ func TestPackageParse_FrozenMapsAreNotMutated(t *testing.T) {
 			t.Fatal("mutating one context's ReferencedSymbols leaked into the cache")
 		}
 	}
+}
+
+// TestPackageParseCache_ConcurrentAccess pins the cache under the access
+// pattern it actually sees.
+//
+// internal/system/factory.go installs ONE HolographicProvider on both the
+// session executor and the spawner, and the spawner hands the same pointer to
+// every subagent it builds. So concurrent subagent turns hit one cache at once,
+// on the prompt path, every turn.
+//
+// This package has been bitten by exactly this before: internal/diff's cache
+// raced by reassigning a sync.Map, and handed callers its own memory. Run with
+// -race; without it this test proves only that nothing panics.
+func TestPackageParseCache_ConcurrentAccess(t *testing.T) {
+	dir := t.TempDir()
+	writeTempPkg(t, dir, map[string]string{
+		"a.go": "package p\n\n// A does a.\nfunc A() error { return nil }\n",
+		"b.go": "package p\n\ntype T struct{ X int }\n\nfunc B() T { return T{} }\n",
+		"c.go": "package p\n\nfunc C() { _ = B() }\n",
+	})
+	h := NewHolographicProvider(nil, dir)
+	targets := []string{
+		filepath.Join(dir, "a.go"),
+		filepath.Join(dir, "b.go"),
+		filepath.Join(dir, "c.go"),
+	}
+
+	const workers = 8
+	const iterations = 25
+	var wg sync.WaitGroup
+	errs := make(chan error, workers*iterations)
+
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			ctx := context.Background()
+			for i := 0; i < iterations; i++ {
+				target := targets[(w+i)%len(targets)]
+				section := h.PromptSection(ctx, target)
+				if section == "" {
+					errs <- fmt.Errorf("worker %d: empty section for %s", w, target)
+					return
+				}
+				// Mutate what we were handed. A cache that shares memory with
+				// its callers turns this into corruption every later reader
+				// sees, far from here.
+				hc, err := h.GetContext(target)
+				if err != nil {
+					errs <- fmt.Errorf("worker %d: %w", w, err)
+					return
+				}
+				hc.PackageSignatures = append(hc.PackageSignatures, SymbolSignature{Name: "INJECTED"})
+				hc.PackageSiblings = append(hc.PackageSiblings, "INJECTED")
+				for j := range hc.PackageTypes {
+					hc.PackageTypes[j].Fields = append(hc.PackageTypes[j].Fields, "INJECTED")
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	// Read the counters before the verification call below, which is itself a
+	// cache access.
+	hits, misses := h.CacheStats()
+	if hits+misses != int64(workers*iterations*2) {
+		t.Errorf("accounting lost calls: %d hits + %d misses, want %d",
+			hits, misses, workers*iterations*2)
+	}
+	if hits == 0 {
+		t.Error("no cache hits under concurrent load; the cache is not being shared")
+	}
+
+	// After all that mutation the cache must still describe the package.
+	hc, err := h.GetContext(targets[0])
+	if err != nil {
+		t.Fatalf("GetContext: %v", err)
+	}
+	for _, sig := range hc.PackageSignatures {
+		if sig.Name == "INJECTED" {
+			t.Fatal("a caller's append reached the cache")
+		}
+	}
+	for _, sib := range hc.PackageSiblings {
+		if sib == "INJECTED" {
+			t.Fatal("a caller's append reached the cached sibling roster")
+		}
+	}
+	for _, td := range hc.PackageTypes {
+		for _, f := range td.Fields {
+			if f == "INJECTED" {
+				t.Fatal("a caller's append reached a cached type's Fields slice")
+			}
+		}
+	}
+
 }
