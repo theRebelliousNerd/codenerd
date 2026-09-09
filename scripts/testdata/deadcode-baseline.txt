@@ -758,6 +758,7 @@ internal/tools/registry.go	Register
 internal/tools/registry.go	SetGlobalAllowlist
 internal/tools/registry.go	SetGlobalFactSink
 internal/tools/registry.go	SetGlobalWriteGuard
+internal/tools/registry.go	SwapGlobal
 internal/tools/research/browser.go	SetBrowserManager
 internal/tools/research/cache.go	ResearchCache.Delete
 internal/tools/research/cache_disk.go	EnableDiskCacheFromContext
