@@ -88,9 +88,26 @@ type mockVirtualStore struct {
 	executeFunc func(ctx context.Context, call types.ToolCall) (string, error)
 }
 
+// ExecuteTool dispatches to the globally registered tool when one exists.
+//
+// It used to return "success" unconditionally, which made two tests in this
+// file unpassable by construction: TestE2E_StateCorruption_VirtualStoreFFIRace
+// registers race_tool in tools.Global() and asserts it ran 50 times, and
+// TestE2E_ResourceExhaustion_ConcurrentToolExecutions does the same for
+// heavy_tool. The executor routes every call through this method, so the
+// registered Execute was never reached and both counters stayed at zero. A mock
+// that answers "success" without doing the work it is standing in for tests
+// nothing.
+//
+// executeFunc still wins when a test sets it, and an unregistered tool still
+// answers "success" so the tests that only care about the call reaching the
+// store are unaffected.
 func (m *mockVirtualStore) ExecuteTool(ctx context.Context, call types.ToolCall) (string, error) {
 	if m.executeFunc != nil {
 		return m.executeFunc(ctx, call)
+	}
+	if tool := tools.Global().Get(call.Name); tool != nil && tool.Execute != nil {
+		return tool.Execute(ctx, call.Input)
 	}
 	return "success", nil
 }
@@ -161,9 +178,24 @@ func setupTestExecutor(t *testing.T) (*session.Executor, *mockKernel, *mockLLMCl
 	llm := &mockLLMClient{}
 	jit := &mockJITCompiler{}
 	cf := &mockConfigFactory{}
+	// /explain, not /fix.
+	//
+	// Every test in this file exercises pipeline mechanics — piggyback parsing,
+	// tool spamming, races, resource caps, Mangle type safety. None is about
+	// write semantics; the verb here was incidental. Commit 8e9507d added
+	// checkHollowSuccess, which refuses a write-oriented intent that finishes
+	// with no tool call completed, so all eight of those tests began failing
+	// with "hollow success blocked" against mocks that return prose and call
+	// nothing. The guard is right; the verb was wrong.
+	//
+	// checkHollowSuccess measures read-only intents and never fails them
+	// (executor_tools.go, "a read-only intent is measured but never failed for
+	// hollowness"), so /explain lets these tests observe the mechanics they were
+	// written for. A test that genuinely needs write semantics should build its
+	// own transducer with a write verb rather than change this helper back.
 	trans := &mockTransducer{
 		intent: perception.Intent{
-			Verb:   "/fix",
+			Verb:   "/explain",
 			Target: "test.go",
 		},
 	}
