@@ -177,12 +177,28 @@ func (fc *FeedbackCollector) ensureExecutionRecordColumns() error {
 }
 
 // loadStats loads statistics from the database.
+//
+// Both Scans were unchecked, so a missing or unreadable execution_records table
+// left totalRecorded and totalFailures at their zero values — indistinguishable
+// from a collector that has genuinely recorded nothing. GetStats then reported
+// 0/0 and the prompt-evolution trigger, which fires on accumulated failures,
+// simply never fired. loadStats has no error to return (it runs from the
+// constructor and after a prune), so a failure is logged and the counters are
+// left alone rather than being zeroed by a failed Scan.
 func (fc *FeedbackCollector) loadStats() {
-	row := fc.db.QueryRow("SELECT COUNT(*) FROM execution_records")
-	row.Scan(&fc.totalRecorded)
-
-	row = fc.db.QueryRow("SELECT COUNT(*) FROM execution_records WHERE verdict_json LIKE '%\"verdict\":\"FAIL\"%'")
-	row.Scan(&fc.totalFailures)
+	var recorded, failures int
+	if err := fc.db.QueryRow("SELECT COUNT(*) FROM execution_records").Scan(&recorded); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error(
+			"Feedback collector could not count execution records; stats are stale, not zero: %v", err)
+		return
+	}
+	if err := fc.db.QueryRow("SELECT COUNT(*) FROM execution_records WHERE verdict_json LIKE '%\"verdict\":\"FAIL\"%'").Scan(&failures); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error(
+			"Feedback collector could not count failed executions; failure-driven prompt evolution will not trigger: %v", err)
+		return
+	}
+	fc.totalRecorded = recorded
+	fc.totalFailures = failures
 }
 
 // Record stores an execution record.
@@ -451,6 +467,14 @@ func (fc *FeedbackCollector) UpdateVerdict(taskID string, verdict *JudgeVerdict)
 	return nil
 }
 
+// logExecutionRecordDecodeFailure names the record and column whose stored JSON
+// could not be read back, so a corrupt row is traceable instead of presenting as
+// an execution that did nothing.
+func logExecutionRecordDecodeFailure(taskID, column string, err error) {
+	logging.Get(logging.CategoryAutopoiesis).Warn(
+		"Execution record %s: column %s could not be decoded, that field is missing from the record: %v", taskID, column, err)
+}
+
 // scanRecords scans rows into ExecutionRecords.
 func (fc *FeedbackCollector) scanRecords(rows *sql.Rows) ([]*ExecutionRecord, error) {
 	var records []*ExecutionRecord
@@ -480,21 +504,36 @@ func (fc *FeedbackCollector) scanRecords(rows *sql.Rows) ([]*ExecutionRecord, er
 		rec.Duration = time.Duration(durationMs) * time.Millisecond
 		rec.Timestamp = createdAt
 
-		// Parse JSON fields
+		// Parse JSON fields.
+		//
+		// These were bare unmarshals. A corrupt column produced a record with no
+		// actions, no result or no atom ids, which is not a parse failure to
+		// anything downstream — it is a task that apparently did nothing, and
+		// prompt evolution scores atoms on exactly these fields. Each failure is
+		// now named with the record it came from; the record is still returned,
+		// because a partially-readable history beats a dropped one, but the gap
+		// is on the record.
 		if actionsJSON != "" {
-			json.Unmarshal([]byte(actionsJSON), &rec.AgentActions)
+			if err := json.Unmarshal([]byte(actionsJSON), &rec.AgentActions); err != nil {
+				logExecutionRecordDecodeFailure(rec.TaskID, "agent_actions", err)
+			}
 		}
 		if resultJSON != "" {
-			json.Unmarshal([]byte(resultJSON), &rec.ExecutionResult)
+			if err := json.Unmarshal([]byte(resultJSON), &rec.ExecutionResult); err != nil {
+				logExecutionRecordDecodeFailure(rec.TaskID, "execution_result", err)
+			}
 		}
 		if manifestJSON != "" && manifestJSON != "null" {
 			rec.PromptManifest = &prompt.PromptManifest{}
 			if err := json.Unmarshal([]byte(manifestJSON), rec.PromptManifest); err != nil {
 				rec.PromptManifest = nil
+				logExecutionRecordDecodeFailure(rec.TaskID, "prompt_manifest", err)
 			}
 		}
 		if atomIDsJSON != "" {
-			json.Unmarshal([]byte(atomIDsJSON), &rec.AtomIDs)
+			if err := json.Unmarshal([]byte(atomIDsJSON), &rec.AtomIDs); err != nil {
+				logExecutionRecordDecodeFailure(rec.TaskID, "atom_ids", err)
+			}
 		}
 		if thoughtSummary.Valid {
 			rec.ThoughtSummary = thoughtSummary.String
@@ -509,11 +548,19 @@ func (fc *FeedbackCollector) scanRecords(rows *sql.Rows) ([]*ExecutionRecord, er
 			rec.Model = model.String
 		}
 		if groundingJSON != "" && groundingJSON != "null" {
-			json.Unmarshal([]byte(groundingJSON), &rec.GroundingSources)
+			if err := json.Unmarshal([]byte(groundingJSON), &rec.GroundingSources); err != nil {
+				logExecutionRecordDecodeFailure(rec.TaskID, "grounding_sources", err)
+			}
 		}
 		if verdictJSON.Valid && verdictJSON.String != "" {
 			rec.Verdict = &JudgeVerdict{}
-			json.Unmarshal([]byte(verdictJSON.String), rec.Verdict)
+			if err := json.Unmarshal([]byte(verdictJSON.String), rec.Verdict); err != nil {
+				// A half-decoded verdict is worse than none: it would count as a
+				// judged execution with an empty verdict string, which reads as
+				// neither PASS nor FAIL everywhere it is consumed.
+				rec.Verdict = nil
+				logExecutionRecordDecodeFailure(rec.TaskID, "verdict", err)
+			}
 		}
 
 		records = append(records, &rec)

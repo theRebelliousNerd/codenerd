@@ -138,6 +138,32 @@ func (o *Orchestrator) saveCampaign() error {
 	return nil
 }
 
+// persistCampaign writes the campaign snapshot and makes a failed write visible.
+//
+// Nine call sites used to spell this `_ = o.saveCampaign()`. saveCampaign logs
+// its own cause, but the caller dropped the outcome entirely, so nothing
+// recorded WHICH checkpoint was lost and no operator-facing surface heard about
+// it at all: a campaign kept running with completed phases, replans and
+// autosaves that existed only in memory, and a crash then rolled it back to the
+// last snapshot that happened to succeed. Persistence failure is not
+// recoverable in place — the in-memory campaign is still correct — so this
+// logs at Error and emits EventSnapshotWriteFailed, which is the only way the
+// CLI and TUI can tell the operator their progress is not on disk.
+//
+// Callers hold o.mu, as saveCampaign requires; emitEvent takes no lock.
+func (o *Orchestrator) persistCampaign(checkpoint string) {
+	if err := o.saveCampaign(); err != nil {
+		campaignID := ""
+		if o.campaign != nil {
+			campaignID = o.campaign.ID
+		}
+		logging.Get(logging.CategoryCampaign).Error(
+			"Campaign snapshot at %q failed; campaign %s is running from memory only: %v",
+			checkpoint, campaignID, err)
+		o.emitEvent(EventSnapshotWriteFailed, "", "", checkpoint+": "+err.Error(), nil)
+	}
+}
+
 // resetInProgress clears in-flight task/phase states after restarts so work can resume.
 func (o *Orchestrator) resetInProgress() {
 	logging.Campaign("Resetting in-progress states after restart")
@@ -170,7 +196,16 @@ func (o *Orchestrator) resetInProgress() {
 		}
 	}
 
-	_ = tx.Commit()
+	// The batch holds every campaign_task row this restart moved back to
+	// pending. A dropped commit discards all of them at once, leaving the
+	// kernel believing those tasks are still in flight while the in-memory
+	// campaign has them pending: nothing schedules them and nothing completes
+	// them, and the campaign stalls with no recorded cause.
+	if err := tx.Commit(); err != nil {
+		logging.Get(logging.CategoryCampaign).Error(
+			"Restart reset %d in-progress items in memory but the kernel batch was rejected; those tasks are still /in_progress to the logic layer: %v",
+			resetCount, err)
+	}
 	logging.Campaign("Reset %d in-progress items", resetCount)
-	_ = o.saveCampaign()
+	o.persistCampaign("restart reset")
 }

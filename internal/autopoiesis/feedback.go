@@ -534,7 +534,19 @@ func (ls *LearningStore) GenerateMangleFacts() []string {
 	return facts
 }
 
-// load reads learnings from disk
+// load reads learnings from disk.
+//
+// The unmarshal used to be a bare call. A truncated or half-written
+// tool_learnings.json therefore loaded as an empty store — every tool's success
+// rate, known issues and anti-patterns gone — with no error, no log line and no
+// difference from a first run. Worse, the next saveBytes then overwrote the
+// damaged file with that empty map, so the corruption became permanent and the
+// evidence was destroyed.
+//
+// Now a parse failure is logged at Error and the file is set aside with a
+// .corrupt-<unix> suffix, which both preserves it for recovery and stops the
+// next save from silently overwriting it. Decoding into a temporary map keeps a
+// partial parse from merging half a file into a live store.
 func (ls *LearningStore) load() {
 	path := filepath.Join(ls.storePath, "tool_learnings.json")
 	data, err := os.ReadFile(path)
@@ -542,7 +554,22 @@ func (ls *LearningStore) load() {
 		return // File doesn't exist yet
 	}
 
-	json.Unmarshal(data, &ls.learnings)
+	loaded := make(map[string]*ToolLearning)
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		quarantine := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
+		logging.Get(logging.CategoryAutopoiesis).Error(
+			"Tool learning store %s is corrupt (%d bytes); everything learned about every tool would be silently forgotten, so it is preserved at %s: %v",
+			path, len(data), quarantine, err)
+		if renameErr := os.Rename(path, quarantine); renameErr != nil {
+			logging.Get(logging.CategoryAutopoiesis).Error(
+				"Could not preserve the corrupt learning store %s; the next save will overwrite it: %v", path, renameErr)
+		}
+		return
+	}
+
+	for name, learning := range loaded {
+		ls.learnings[name] = learning
+	}
 }
 
 // saveBytes writes the pre-marshaled learnings to disk

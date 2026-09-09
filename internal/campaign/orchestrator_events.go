@@ -64,6 +64,10 @@ const (
 	EventTaskLockTimeout     OrchestratorEventType = "task_lock_timeout"
 	EventTaskWriteSetMissing OrchestratorEventType = "task_write_set_missing"
 	EventArtifactPersisted   OrchestratorEventType = "artifact_persisted"
+	// EventSnapshotWriteFailed says the campaign is running from memory only:
+	// its on-disk snapshot is older than its state, so a crash loses work the
+	// operator was told was done.
+	EventSnapshotWriteFailed OrchestratorEventType = "snapshot_write_failed"
 
 	// Diagnostics and self-repair.
 	EventDiagnosticTaskInserted  OrchestratorEventType = "diagnostic_task_inserted"
@@ -116,6 +120,7 @@ var orchestratorEventTypes = []OrchestratorEventType{
 	EventRiskScoreComputed,
 	EventRiskSnapshotPinned,
 	EventShardResultEmpty,
+	EventSnapshotWriteFailed,
 	EventSubCampaignReferenced,
 	EventTaskCompleted,
 	EventTaskFailed,

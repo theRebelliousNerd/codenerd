@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -307,20 +308,29 @@ func (s *LocalStore) scanPromptAtoms(rows *sql.Rows) ([]*PromptAtom, error) {
 		}
 		atom.Embedding = embedding
 
-		// Deserialize JSON arrays
-		json.Unmarshal([]byte(operationalModesJSON), &atom.OperationalModes)
-		json.Unmarshal([]byte(campaignPhasesJSON), &atom.CampaignPhases)
-		json.Unmarshal([]byte(buildLayersJSON), &atom.BuildLayers)
-		json.Unmarshal([]byte(initPhasesJSON), &atom.InitPhases)
-		json.Unmarshal([]byte(northstarPhasesJSON), &atom.NorthstarPhases)
-		json.Unmarshal([]byte(ouroborosStagesJSON), &atom.OuroborosStages)
-		json.Unmarshal([]byte(intentVerbsJSON), &atom.IntentVerbs)
-		json.Unmarshal([]byte(shardTypesJSON), &atom.ShardTypes)
-		json.Unmarshal([]byte(languagesJSON), &atom.Languages)
-		json.Unmarshal([]byte(frameworksJSON), &atom.Frameworks)
-		json.Unmarshal([]byte(worldStatesJSON), &atom.WorldStates)
-		json.Unmarshal([]byte(dependsOnJSON), &atom.DependsOn)
-		json.Unmarshal([]byte(conflictsWithJSON), &atom.ConflictsWith)
+		// Deserialize JSON arrays.
+		//
+		// These thirteen columns ARE the atom's selector: they decide whether
+		// the JIT compiler includes it for a given mode, phase, verb, language
+		// or shard. Every unmarshal here was a bare call with the error dropped,
+		// so a malformed column produced an atom with no dimensions at all —
+		// which does not error, does not warn, and does not vanish: it stays in
+		// the pool and quietly matches nothing (or, for an empty-means-any
+		// selector, matches everything). decodeAtomSelector names the atom and
+		// the column instead.
+		decodeAtomSelector(atom.AtomID, "operational_modes", operationalModesJSON, &atom.OperationalModes)
+		decodeAtomSelector(atom.AtomID, "campaign_phases", campaignPhasesJSON, &atom.CampaignPhases)
+		decodeAtomSelector(atom.AtomID, "build_layers", buildLayersJSON, &atom.BuildLayers)
+		decodeAtomSelector(atom.AtomID, "init_phases", initPhasesJSON, &atom.InitPhases)
+		decodeAtomSelector(atom.AtomID, "northstar_phases", northstarPhasesJSON, &atom.NorthstarPhases)
+		decodeAtomSelector(atom.AtomID, "ouroboros_stages", ouroborosStagesJSON, &atom.OuroborosStages)
+		decodeAtomSelector(atom.AtomID, "intent_verbs", intentVerbsJSON, &atom.IntentVerbs)
+		decodeAtomSelector(atom.AtomID, "shard_types", shardTypesJSON, &atom.ShardTypes)
+		decodeAtomSelector(atom.AtomID, "languages", languagesJSON, &atom.Languages)
+		decodeAtomSelector(atom.AtomID, "frameworks", frameworksJSON, &atom.Frameworks)
+		decodeAtomSelector(atom.AtomID, "world_states", worldStatesJSON, &atom.WorldStates)
+		decodeAtomSelector(atom.AtomID, "depends_on", dependsOnJSON, &atom.DependsOn)
+		decodeAtomSelector(atom.AtomID, "conflicts_with", conflictsWithJSON, &atom.ConflictsWith)
 
 		atoms = append(atoms, atom)
 	}
@@ -331,4 +341,25 @@ func (s *LocalStore) scanPromptAtoms(rows *sql.Rows) ([]*PromptAtom, error) {
 	}
 
 	return atoms, nil
+}
+
+// decodeAtomSelector fills one selector dimension of a prompt atom from its
+// stored JSON column.
+//
+// An empty or NULL column is normal — most atoms constrain only a few
+// dimensions — and leaves the slice nil. A column that is present but does not
+// parse is a corrupt row, and the atom that carries it will select wrongly for
+// the rest of the process's life; it is logged at Warn with the atom id and the
+// column name so the offending row can be found, and the dimension is left nil
+// so the atom behaves like an unconstrained one rather than a half-decoded one.
+func decodeAtomSelector(atomID, column, raw string, dst *[]string) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "null" {
+		return
+	}
+	if err := json.Unmarshal([]byte(trimmed), dst); err != nil {
+		*dst = nil
+		logging.Get(logging.CategoryStore).Warn(
+			"Prompt atom %s: column %s is not valid JSON, selector dimension dropped: %v", atomID, column, err)
+	}
 }

@@ -298,12 +298,20 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 
 	if found {
 		o.markPhaseStart(phaseID)
-		// Update kernel
+		// Update kernel.
+		//
+		// The retract removes the phase's old campaign_phase row, so if the
+		// re-assert is dropped the kernel is left with NO row for the phase at
+		// all: phase_eligible, task gating and every phase-scoped rule go blind
+		// while the orchestrator's in-memory copy says /in_progress. This used
+		// to be a bare Assert with the error discarded, which made that state
+		// unreportable. The phase has not started as far as the kernel is
+		// concerned, so say so — the run loop records lastError and retries.
 		_ = o.kernel.RetractFact(core.Fact{
 			Predicate: "campaign_phase",
 			Args:      []any{phaseID},
 		})
-		o.kernel.Assert(core.Fact{
+		if err := o.kernel.Assert(core.Fact{
 			Predicate: "campaign_phase",
 			Args: []any{
 				phaseID,
@@ -313,7 +321,11 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 				"/in_progress",
 				phaseContextProfile,
 			},
-		})
+		}); err != nil {
+			logging.Get(logging.CategoryCampaign).Error(
+				"Phase %s started in memory but its campaign_phase fact was rejected: %v", phaseID, err)
+			return fmt.Errorf("assert campaign_phase for %s: %w", phaseID, err)
+		}
 
 		// Northstar alignment check at phase transition
 		if o.northstarObserver != nil {
@@ -383,7 +395,13 @@ func (o *Orchestrator) completePhase(phase *Phase) {
 			Predicate: "campaign_phase",
 			Args:      []any{phase.ID},
 		})
-		o.kernel.Assert(core.Fact{
+		// Same retract-then-assert hazard as startNextPhase: a dropped assert
+		// leaves the kernel with no row for a phase the orchestrator considers
+		// finished, so the next phase may never become eligible. completePhase
+		// has no error to return and the in-memory campaign is already correct,
+		// so this is logged at Error rather than escalated — but it is no
+		// longer invisible.
+		if err := o.kernel.Assert(core.Fact{
 			Predicate: "campaign_phase",
 			Args: []any{
 				phase.ID,
@@ -393,7 +411,11 @@ func (o *Orchestrator) completePhase(phase *Phase) {
 				"/completed",
 				phase.ContextProfile,
 			},
-		})
+		}); err != nil {
+			logging.Get(logging.CategoryCampaign).Error(
+				"Phase %s completed but its /completed campaign_phase fact was rejected; the kernel now has no row for it: %v",
+				phase.ID, err)
+		}
 
 		// Northstar observation on phase completion
 		if o.northstarObserver != nil {
@@ -405,7 +427,7 @@ func (o *Orchestrator) completePhase(phase *Phase) {
 		o.emitEvent(EventPhaseCompleted, phase.ID, "", phase.Name, nil)
 
 		o.mu.Lock()
-		_ = o.saveCampaign()
+		o.persistCampaign("phase completion")
 		o.mu.Unlock()
 	}
 }

@@ -381,6 +381,28 @@ func (e *ExecutivePolicyShard) trackFailure(pattern string, reason string) {
 	}
 }
 
+// recordExecutiveError writes the executive_error fact that tells the rest of
+// the system this shard's policy evaluation failed.
+//
+// The commit used to be `_ = tx.Commit()` at both call sites. A failed commit
+// discards the whole buffered batch, so the one fact that records a policy
+// evaluation failure vanished — and the log line above it is the only other
+// trace, which no Mangle rule and no UI can see. That turned a broken executive
+// into a quiet one. The loop must keep running either way, so this logs rather
+// than returning.
+func (e *ExecutivePolicyShard) recordExecutiveError(cause error) {
+	tx := types.NewKernelTx(e.Kernel)
+	tx.Assert(types.Fact{
+		Predicate: "executive_error",
+		Args:      []any{cause.Error(), time.Now().Unix()},
+	})
+	if err := tx.Commit(); err != nil {
+		logging.Get(logging.CategorySystemShards).Error(
+			"[ExecutivePolicy] executive_error fact for %q was not committed; the failure is invisible to the kernel: %v",
+			cause, err)
+	}
+}
+
 // Execute runs the Executive Policy's continuous decision loop.
 // This shard is AUTO-START and runs for the entire session.
 func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string, error) {
@@ -467,23 +489,13 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 			// Event-driven: a relevant fact was asserted — evaluate policy
 			if err := e.evaluatePolicy(ctx); err != nil {
 				logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Policy evaluation error: %v", err)
-				tx := types.NewKernelTx(e.Kernel)
-				tx.Assert(types.Fact{
-					Predicate: "executive_error",
-					Args:      []any{err.Error(), time.Now().Unix()},
-				})
-				_ = tx.Commit()
+				e.recordExecutiveError(err)
 			}
 		case <-fallbackCh:
 			// Polling fallback when no event bus available
 			if err := e.evaluatePolicy(ctx); err != nil {
 				logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Policy evaluation error: %v", err)
-				tx := types.NewKernelTx(e.Kernel)
-				tx.Assert(types.Fact{
-					Predicate: "executive_error",
-					Args:      []any{err.Error(), time.Now().Unix()},
-				})
-				_ = tx.Commit()
+				e.recordExecutiveError(err)
 			}
 		case <-heartbeat.C:
 			// Heartbeat + periodic checks (runs every 5s regardless)

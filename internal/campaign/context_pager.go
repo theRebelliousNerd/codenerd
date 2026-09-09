@@ -142,13 +142,7 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 			Args:      []any{fmt.Sprintf("file_pattern(%q)", pattern), 120},
 		})
 	}
-	if len(patternFacts) > 0 {
-		if err := cp.kernel.AssertBatch(patternFacts); err != nil {
-			for _, f := range patternFacts {
-				cp.kernel.Assert(f)
-			}
-		}
-	}
+	assertFactsWithFallback(cp.kernel, patternFacts, "phase focus-pattern activation boosts")
 
 	// 2b. Boost docs scoped for this phase via topology planner
 	if scoped := cp.scopedDocsForPhase(phase.Name); len(scoped) > 0 {
@@ -160,11 +154,7 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 				Args:      []any{phase.ID, fmt.Sprintf("file_topology(%q, _, _, _, _)", doc), 120},
 			})
 		}
-		if err := cp.kernel.AssertBatch(facts); err != nil {
-			for _, f := range facts {
-				cp.kernel.Assert(f)
-			}
-		}
+		assertFactsWithFallback(cp.kernel, facts, "phase-scoped document boosts")
 	}
 
 	// 3. Load phase context atoms
@@ -180,13 +170,7 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 			artifactCount++
 		}
 	}
-	if len(artifactFacts) > 0 {
-		if err := cp.kernel.AssertBatch(artifactFacts); err != nil {
-			for _, f := range artifactFacts {
-				cp.kernel.Assert(f)
-			}
-		}
-	}
+	assertFactsWithFallback(cp.kernel, artifactFacts, "phase artifact context atoms")
 	logging.CampaignDebug("Loaded %d artifact context atoms", artifactCount)
 
 	// 4. Suppress irrelevant schemas (negative activation)
@@ -205,13 +189,7 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 			suppressedCount++
 		}
 	}
-	if len(suppressFacts) > 0 {
-		if err := cp.kernel.AssertBatch(suppressFacts); err != nil {
-			for _, f := range suppressFacts {
-				cp.kernel.Assert(f)
-			}
-		}
-	}
+	assertFactsWithFallback(cp.kernel, suppressFacts, "irrelevant-schema suppression")
 	logging.CampaignDebug("Suppressed %d irrelevant schemas", suppressedCount)
 
 	// 5. Update usage estimate
@@ -319,11 +297,7 @@ Summary:`, phase.Name, strings.Join(accomplishments, "\n"))
 			})
 		}
 	}
-	if err := cp.kernel.AssertBatch(postFacts); err != nil {
-		for _, f := range postFacts {
-			cp.kernel.Assert(f)
-		}
-	}
+	assertFactsWithFallback(cp.kernel, postFacts, "phase compression summary and decay")
 
 	// 6. Update compressed summary in the phase struct
 	// (This should be done by the orchestrator, not here)
@@ -356,13 +330,7 @@ func (cp *ContextPager) PrefetchNextTasks(ctx context.Context, tasks []Task, lim
 			prefetchedCount++
 		}
 	}
-	if len(facts) > 0 {
-		if err := cp.kernel.AssertBatch(facts); err != nil {
-			for _, f := range facts {
-				cp.kernel.Assert(f)
-			}
-		}
-	}
+	assertFactsWithFallback(cp.kernel, facts, "next-task artifact prefetch hints")
 
 	logging.CampaignDebug("Prefetched %d artifact hints", prefetchedCount)
 	return nil
@@ -402,13 +370,7 @@ func (cp *ContextPager) PruneIrrelevant(profile *ContextProfile) error {
 			suppressedCount++
 		}
 	}
-	if len(facts) > 0 {
-		if err := cp.kernel.AssertBatch(facts); err != nil {
-			for _, f := range facts {
-				cp.kernel.Assert(f)
-			}
-		}
-	}
+	assertFactsWithFallback(cp.kernel, facts, "irrelevant-predicate pruning")
 
 	logging.CampaignDebug("Pruned %d irrelevant facts", suppressedCount)
 	return nil
@@ -433,26 +395,6 @@ func (cp *ContextPager) getContextProfile(profileID string) (*ContextProfile, er
 	}
 
 	return nil, fmt.Errorf("context profile %s not found", profileID)
-}
-
-// boostPattern boosts activation for files matching a pattern.
-func (cp *ContextPager) boostPattern(pattern string, boost int) {
-	logging.CampaignDebug("Boosting pattern %q with activation=%d", pattern, boost)
-	// Assert activation boost for the pattern
-	// The actual file matching is done by the kernel's spreading activation
-	cp.kernel.Assert(core.Fact{
-		Predicate: "activation",
-		Args:      []any{fmt.Sprintf("file_pattern(%q)", pattern), boost},
-	})
-}
-
-// suppressSchema reduces activation for an entire schema.
-func (cp *ContextPager) suppressSchema(schema string) {
-	logging.CampaignDebug("Suppressing schema %q with activation=-100", schema)
-	cp.kernel.Assert(core.Fact{
-		Predicate: "activation",
-		Args:      []any{schema, -100},
-	})
 }
 
 // estimatePhaseTokens estimates token usage for a phase.

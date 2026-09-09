@@ -114,7 +114,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			logging.Campaign("Campaign execution cancelled: %v", ctx.Err())
 			o.mu.Lock()
 			o.updateCampaignStatus(StatusPaused)
-			_ = o.saveCampaign()
+			o.persistCampaign("cancellation pause")
 			o.mu.Unlock()
 			return ctx.Err()
 		default:
@@ -189,7 +189,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 				o.mu.Lock()
 				o.updateCampaignStatus(StatusCompleted)
-				_ = o.saveCampaign()
+				o.persistCampaign("campaign completion")
 				o.mu.Unlock()
 				o.emitEvent(EventCampaignCompleted, "", "", "Campaign completed successfully", nil)
 				return nil
@@ -269,7 +269,7 @@ func (o *Orchestrator) finalizeCancellation(ctx context.Context) {
 	if o.campaign.Status != StatusPaused {
 		o.updateCampaignStatus(StatusPaused)
 	}
-	_ = o.saveCampaign()
+	o.persistCampaign("pause")
 }
 
 // runHeartbeatLoop periodically emits progress, updates kernel heartbeat facts,
@@ -293,7 +293,13 @@ func (o *Orchestrator) runHeartbeatLoop(ctx context.Context) {
 			}
 			o.mu.RUnlock()
 			if campaignID != "" && o.kernel != nil {
-				// Only use atomic transactions if the kernel supports it
+				// A dropped commit discards the WHOLE buffered batch, and this
+				// batch is the retract-plus-assert that refreshes
+				// campaign_heartbeat. Losing it silently leaves the kernel with
+				// a stale timestamp — or, if the retract had already applied,
+				// none at all — and the health rules read that as a campaign
+				// that stopped breathing. The next tick retries, so this is a
+				// Warn rather than a hard failure, but it must be sayable.
 				if kt, ok := o.kernel.(types.KernelTransactor); ok {
 					tx := kt.Transaction()
 					tx.RetractFact(core.Fact{
@@ -304,22 +310,28 @@ func (o *Orchestrator) runHeartbeatLoop(ctx context.Context) {
 						Predicate: "campaign_heartbeat",
 						Args:      []any{campaignID, time.Now().Unix()},
 					})
-					_ = tx.Commit()
+					if err := tx.Commit(); err != nil {
+						logging.CampaignWarn("Heartbeat for campaign %s was not committed to the kernel (retrying next tick): %v",
+							campaignID, err)
+					}
 				} else {
 					_ = o.kernel.RetractFact(core.Fact{
 						Predicate: "campaign_heartbeat",
 						Args:      []any{campaignID},
 					})
-					_ = o.kernel.Assert(core.Fact{
+					if err := o.kernel.Assert(core.Fact{
 						Predicate: "campaign_heartbeat",
 						Args:      []any{campaignID, time.Now().Unix()},
-					})
+					}); err != nil {
+						logging.CampaignWarn("Heartbeat for campaign %s was not asserted (retrying next tick): %v",
+							campaignID, err)
+					}
 				}
 			}
 		case <-autosaveTicker.C:
 			o.mu.Lock()
 			if o.campaign != nil {
-				_ = o.saveCampaign()
+				o.persistCampaign("autosave")
 			}
 			o.mu.Unlock()
 		}

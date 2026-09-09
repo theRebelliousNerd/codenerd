@@ -422,29 +422,48 @@ func (ls *LearningStore) GetStats(shardType string) (map[string]any, error) {
 
 	stats := make(map[string]any)
 
+	// Every Scan and the Query below used to be unchecked. A shard whose
+	// learnings table was missing, locked or schema-drifted reported
+	// total_learnings 0, avg_confidence 0 and an empty by_predicate map — the
+	// exact numbers a healthy shard that has learned nothing reports. "The agent
+	// has learned nothing yet" and "the learning store is broken" are opposite
+	// conclusions and this function could not tell them apart.
 	var total int64
-	db.QueryRow(`SELECT COUNT(*) FROM learnings`).Scan(&total)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM learnings`).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count learnings for shard %s: %w", shardType, err)
+	}
 	stats["total_learnings"] = total
 
-	var avgConfidence float64
-	db.QueryRow(`SELECT AVG(confidence) FROM learnings`).Scan(&avgConfidence)
-	stats["avg_confidence"] = avgConfidence
+	// AVG over an empty table is NULL, which is not an error — it is the honest
+	// answer for a shard with no learnings, so it scans through NullFloat64 and
+	// reports 0 with total_learnings 0 alongside it to say why.
+	var avgConfidence sql.NullFloat64
+	if err := db.QueryRow(`SELECT AVG(confidence) FROM learnings`).Scan(&avgConfidence); err != nil {
+		return nil, fmt.Errorf("average learning confidence for shard %s: %w", shardType, err)
+	}
+	stats["avg_confidence"] = avgConfidence.Float64
 
 	// Count by predicate
 	predicateCounts := make(map[string]int64)
-	rows, _ := db.Query(`SELECT fact_predicate, COUNT(*) FROM learnings GROUP BY fact_predicate`)
-	if rows != nil {
-		defer rows.Close()
-		for rows.Next() {
-			var pred string
-			var count int64
-			rows.Scan(&pred, &count)
-			predicateCounts[pred] = count
+	rows, err := db.Query(`SELECT fact_predicate, COUNT(*) FROM learnings GROUP BY fact_predicate`)
+	if err != nil {
+		return nil, fmt.Errorf("group learnings by predicate for shard %s: %w", shardType, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var pred string
+		var count int64
+		if err := rows.Scan(&pred, &count); err != nil {
+			return nil, fmt.Errorf("scan learning predicate counts for shard %s: %w", shardType, err)
 		}
+		predicateCounts[pred] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate learning predicate counts for shard %s: %w", shardType, err)
 	}
 	stats["by_predicate"] = predicateCounts
 
-	logging.StoreDebug("Learning stats for shard=%s: total=%d, avg_confidence=%.2f", shardType, total, avgConfidence)
+	logging.StoreDebug("Learning stats for shard=%s: total=%d, avg_confidence=%.2f", shardType, total, avgConfidence.Float64)
 	return stats, nil
 }
 

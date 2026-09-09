@@ -4,6 +4,7 @@ package chat
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/shards"
+	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -53,10 +56,17 @@ type AgentRegistry struct {
 }
 
 // RegisteredAgent represents an agent in the registry.
+//
+// KBSize and Status are read from the same .nerd/agents.json the rest of the
+// system uses. Status in particular is load-bearing: shards.MatchSpecialistsForTask
+// only considers agents marked "ready", so decoding the registry without it
+// silently made every agent unavailable for matching.
 type RegisteredAgent struct {
 	Name          string   `json:"name"`
 	Type          string   `json:"type"`
 	KnowledgePath string   `json:"knowledge_path"`
+	KBSize        int      `json:"kb_size"`
+	Status        string   `json:"status"`
 	Topics        []string `json:"topics"`
 }
 
@@ -84,59 +94,200 @@ type SpecialistTask struct {
 }
 
 // =============================================================================
-// SPECIALIST MATCHING (JIT Architecture)
+// SPECIALIST MATCHING
 // =============================================================================
-// Specialist matching is now handled via JIT intent routing.
-// The flow is: User intent -> Mangle routing rules -> JIT ConfigFactory -> Persona atoms
-// This replaces the old registry-based approach with deterministic logic-driven dispatch.
 
-// MatchSpecialistsForReview returns specialists for the files being reviewed.
-// In the JIT architecture, specialist selection is driven by Mangle rules in
-// internal/core/defaults/policy/intent_routing_rules.mg which maps file types/patterns to personas.
-// This function now serves as a fallback when JIT routing is not available.
+// matchSpecialistsForReview returns the registered specialists whose expertise
+// the files under review actually touch.
+//
+// This used to `return nil` unconditionally, under a comment saying the JIT
+// executor dispatches specialists directly. It does not. spawnMultiShardReview
+// calls this, ranges over the result and spawns one shard per match, so an empty
+// return meant /review ran the generic reviewer alone on every project — while
+// logging "Matched 0 specialists for review", which reads as "none applied"
+// rather than "the matcher is a stub". The matcher it deferred to is
+// shards.MatchSpecialistsForTask: real, tested, and already driving /fix,
+// /refactor and /create through spawnShardWithSpecialists. /review now uses the
+// same one, with the "/review" verb config (min confidence 0.3, at most 3
+// specialists, parallel).
 func matchSpecialistsForReview(ctx context.Context, files []string, registry *AgentRegistry) []SpecialistMatch {
-	if registry == nil {
+	if registry == nil || len(registry.Agents) == 0 || len(files) == 0 {
 		return nil
 	}
-	// Logging for wiring-over-deletion compliance (legacy stub)
-	logging.Shards("matchSpecialistsForReview: checking %d files", len(files))
 	if ctx.Err() != nil {
 		return nil
 	}
 
-	// JIT-based flow: The executor calls ConfigFactory.GetConfig() with the intent,
-	// which queries Mangle rules like:
-	//   persona_for_file(File, /security_reviewer) :- file_extension(File, ".go"), contains_crypto(File).
-	//   persona_for_file(File, /performance_reviewer) :- file_extension(File, ".go"), has_benchmark(File).
-	//
-	// For now, return empty - the JIT executor handles specialist dispatch directly
-	// via SubAgent spawning with appropriate persona atoms.
+	matches := shards.MatchSpecialistsForTask(ctx, "/review", files, toShardsAgentRegistry(registry))
+	logging.Shards("matchSpecialistsForReview: %d agents, %d files -> %d specialists",
+		len(registry.Agents), len(files), len(matches))
 
-	return nil
+	out := make([]SpecialistMatch, 0, len(matches))
+	for _, m := range matches {
+		out = append(out, SpecialistMatch{
+			AgentName:     m.AgentName,
+			KnowledgePath: m.KnowledgePath,
+			Files:         m.Files,
+			Score:         m.Score,
+		})
+	}
+	return out
 }
 
-// LoadAndQueryKnowledgeBase loads knowledge for a specialist.
+// toShardsAgentRegistry adapts the chat-local registry shape to the one
+// internal/shards matches against. Both are decoded from the same
+// .nerd/agents.json; only the field set differs.
+func toShardsAgentRegistry(registry *AgentRegistry) *shards.AgentRegistry {
+	agents := make([]shards.RegisteredAgent, 0, len(registry.Agents))
+	for _, a := range registry.Agents {
+		agents = append(agents, shards.RegisteredAgent{
+			Name:          a.Name,
+			Type:          a.Type,
+			KnowledgePath: a.KnowledgePath,
+			KBSize:        a.KBSize,
+			Status:        a.Status,
+		})
+	}
+	return &shards.AgentRegistry{
+		Version:   registry.Version,
+		CreatedAt: registry.CreatedAt.Format(time.RFC3339),
+		Agents:    agents,
+	}
+}
+
+// specialistKnowledgeAtomLimit bounds how much of an agent's knowledge base is
+// pasted into its review task. The knowledge is free text ingested from user
+// documents; it rides into a prompt, so it is capped in both count and length.
+const (
+	specialistKnowledgeAtomLimit  = 5
+	specialistKnowledgeAtomLength = 400
+)
+
+// loadAndQueryKnowledgeBase returns the passages in a specialist's knowledge
+// base most relevant to the files it is about to review.
+//
+// This used to be `// Stub: return empty knowledge` returning "", so every
+// specialist review task was built with an empty Knowledge field: the whole
+// ingest pipeline (/ingest writes knowledge_atoms and prompt_atoms into the
+// agent's own SQLite DB) fed nothing back into review. The lexical search over
+// knowledge_atoms already exists — store.SearchKnowledgeAtomsLexicalDB, which
+// reads a shared handle, tolerates a missing table and honours cancellation —
+// so this opens the agent DB and queries it with the review's file names.
+//
+// A missing or unreadable KB is not an error: the caller logs a warning and
+// spawns the specialist anyway, which is the right behaviour for an agent that
+// has never been fed documents. A query that fails IS returned, so a corrupt DB
+// is visible rather than indistinguishable from an empty one.
 func loadAndQueryKnowledgeBase(ctx context.Context, kbPath string, files []string) (string, error) {
-	// Stub: return empty knowledge
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	logging.Shards("loadAndQueryKnowledgeBase: loading KB %s for %d files", kbPath, len(files))
-	return "", nil
+	if strings.TrimSpace(kbPath) == "" || len(files) == 0 {
+		return "", nil
+	}
+	if _, err := os.Stat(kbPath); err != nil {
+		// sql.Open would create an empty database here; a specialist with no
+		// ingested documents should leave no file behind.
+		logging.Shards("loadAndQueryKnowledgeBase: no knowledge base at %s", kbPath)
+		return "", nil
+	}
+
+	// Plain path, as every other sqlite3 caller in this repo uses: the driver
+	// strips a "?mode=ro" suffix for non-URI DSNs and opens READWRITE|CREATE
+	// anyway, and file: URI form does not survive a Windows path. The handle
+	// below only ever runs SELECTs.
+	db, err := sql.Open("sqlite3", kbPath)
+	if err != nil {
+		return "", fmt.Errorf("open knowledge base %s: %w", kbPath, err)
+	}
+	defer db.Close()
+	// Short-lived, read-mostly open against an agent DB another process may be
+	// ingesting into; ProfileQuery keeps the WAL pragmas so a concurrent writer
+	// does not block this read.
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileQuery)
+
+	atoms, err := store.SearchKnowledgeAtomsLexicalDB(ctx, db, knowledgeQueryForFiles(files), specialistKnowledgeAtomLimit)
+	if err != nil {
+		return "", fmt.Errorf("query knowledge base %s: %w", kbPath, err)
+	}
+	if len(atoms) == 0 {
+		logging.Shards("loadAndQueryKnowledgeBase: %s had no atoms matching %d files", kbPath, len(files))
+		return "", nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## Relevant knowledge\n\n")
+	for _, atom := range atoms {
+		content := strings.TrimSpace(atom.Content)
+		if len(content) > specialistKnowledgeAtomLength {
+			content = content[:specialistKnowledgeAtomLength] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("- **%s**: %s\n", atom.Concept, content))
+	}
+
+	logging.Shards("loadAndQueryKnowledgeBase: %s returned %d atoms for %d files", kbPath, len(atoms), len(files))
+	return sb.String(), nil
 }
 
-// BuildSpecialistTask builds a task for a specialist.
+// knowledgeQueryForFiles turns the review's file list into search terms: base
+// names without extension, plus the extensions themselves. The lexical search
+// keeps the first handful of keywords, so distinct names come first and the
+// (few, repeated) extensions last.
+func knowledgeQueryForFiles(files []string) string {
+	var terms []string
+	seen := make(map[string]bool)
+	var exts []string
+	seenExt := make(map[string]bool)
+
+	for _, f := range files {
+		base := filepath.Base(f)
+		ext := strings.TrimPrefix(filepath.Ext(base), ".")
+		name := strings.TrimSuffix(base, filepath.Ext(base))
+		if name != "" && !seen[name] {
+			seen[name] = true
+			terms = append(terms, name)
+		}
+		if ext != "" && !seenExt[ext] {
+			seenExt[ext] = true
+			exts = append(exts, ext)
+		}
+	}
+	return strings.Join(append(terms, exts...), " ")
+}
+
+// BuildSpecialistTask builds a task for a specialist. The specialist's own
+// matched files win over the full review set when it has any: those are the
+// files its expertise was scored against.
 func buildSpecialistTask(match SpecialistMatch, files []string, knowledge string) SpecialistTask {
+	targetFiles := match.Files
+	if len(targetFiles) == 0 {
+		targetFiles = files
+	}
 	return SpecialistTask{
 		AgentName: match.AgentName,
-		Files:     files,
+		Files:     targetFiles,
 		Knowledge: knowledge,
 	}
 }
 
-// FormatSpecialistReviewTask formats a specialist task as string.
+// formatSpecialistReviewTask renders a specialist task as the task string
+// spawnTask receives.
+//
+// It used to return "review files for <agent>" and nothing else, dropping both
+// Files and Knowledge on the floor — so a specialist was told to review "files"
+// with no list and no knowledge, and the SpecialistTask struct's two data
+// fields were write-only. The shape here matches the multi-shard reviewer's own
+// baseTask and the parallel-mode specialist task in delegation_modes.go
+// ("<verb> files:<comma list>"), so the same shard-side parsing applies.
 func formatSpecialistReviewTask(task SpecialistTask) string {
-	return fmt.Sprintf("review files for %s", task.AgentName)
+	var sb strings.Builder
+	sb.WriteString("review files:")
+	sb.WriteString(strings.Join(task.Files, ","))
+	if knowledge := strings.TrimSpace(task.Knowledge); knowledge != "" {
+		sb.WriteString("\n\n")
+		sb.WriteString(knowledge)
+	}
+	return sb.String()
 }
 
 // ParseShardOutput parses shard output into findings.

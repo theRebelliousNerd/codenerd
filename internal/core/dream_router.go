@@ -154,7 +154,17 @@ func (r *DreamRouter) routeProcedural(l *DreamLearning) RouteResult {
 		shardType = "general"
 	}
 
-	// Build predicate based on content analysis
+	// "approach_learned" is a LearningStore row label, not a Mangle predicate.
+	//
+	// It has no Decl anywhere and must not get one. The only consumer is
+	// campaign/intelligence_gathering_methods.go, which loads these rows into a
+	// LearningPattern struct for the intelligence report's prose — nothing
+	// asserts them into the kernel. Declaring it would create a predicate no
+	// producer fills, which is the exact shape TestStarvedPredicateBudget
+	// exists to catch.
+	//
+	// The field it feeds is called FactPredicate, which is what invites the
+	// mistake; the name is load-bearing in the store schema and is left alone.
 	predicate := "approach_learned"
 	args := []any{
 		l.Hypothetical,
@@ -182,19 +192,30 @@ func (r *DreamRouter) routeToolNeed(l *DreamLearning) RouteResult {
 		toolName = inferToolName(l.Content)
 	}
 
-	// Record as kernel fact for query
+	// Record as kernel fact for query.
+	//
+	// Confidence is scaled to integer percent. schemas_dreamer.mg bounds this
+	// slot /number, and this Mangle fork's comparison builtins are int64-only,
+	// so the raw 0..1 ratio was refused by the kernel's Decl coercion — every
+	// dream_tool_need fact this router ever produced was thrown away, and the
+	// result below still reported "Kernel:dream_tool_need" as a destination.
+	kernelStored := false
+	var kernelErr error
 	if r.kernel != nil {
 		fact := Fact{
 			Predicate: "dream_tool_need",
 			Args: []any{
 				toolName,
 				l.Content,
-				l.Confidence,
+				types.PercentFromRatio(l.Confidence),
 				l.Hypothetical,
 			},
 		}
 		if err := r.kernel.Assert(fact); err != nil {
-			logging.DreamDebug("routeToolNeed: failed to assert kernel fact: %v", err)
+			kernelErr = err
+			logging.Get(logging.CategoryDream).Error("routeToolNeed: dream_tool_need fact for %q rejected: %v", toolName, err)
+		} else {
+			kernelStored = true
 		}
 	}
 
@@ -215,17 +236,33 @@ func (r *DreamRouter) routeToolNeed(l *DreamLearning) RouteResult {
 			result.Success = true
 			result.Destination = "OuroborosQueue"
 		default:
-			// Queue full, just persist to kernel
-			result.Success = true
+			// Queue full, so the kernel fact is the ONLY record. If that was
+			// rejected there is nothing left to claim success for.
+			result.Success = kernelStored
 			result.Destination = "Kernel:dream_tool_need"
-			logging.DreamDebug("routeToolNeed: Ouroboros queue full, persisted to kernel only")
+			if !kernelStored {
+				result.ErrorMessage = toolNeedKernelError(kernelErr)
+			}
+			logging.DreamDebug("routeToolNeed: Ouroboros queue full, kernel-only persist (stored=%v)", kernelStored)
 		}
 	} else {
-		result.Success = true
+		result.Success = kernelStored
 		result.Destination = "Kernel:dream_tool_need"
+		if !kernelStored {
+			result.ErrorMessage = toolNeedKernelError(kernelErr)
+		}
 	}
 
 	return result
+}
+
+// toolNeedKernelError names why the kernel was the only destination and still
+// holds nothing.
+func toolNeedKernelError(err error) string {
+	if err != nil {
+		return "kernel rejected dream_tool_need: " + err.Error()
+	}
+	return "no storage backend available"
 }
 
 // routeRiskPattern persists safety/risk awareness to kernel and cold storage.
@@ -237,18 +274,24 @@ func (r *DreamRouter) routeRiskPattern(l *DreamLearning) RouteResult {
 		riskType = "general"
 	}
 
-	// Assert to kernel for immediate availability
+	// Assert to kernel for immediate availability. Integer percent, for the
+	// same /number reason as dream_tool_need above.
+	kernelStored := false
+	var kernelErr error
 	if r.kernel != nil {
 		fact := Fact{
 			Predicate: "dream_risk_pattern",
 			Args: []any{
 				riskType,
 				l.Content,
-				l.Confidence,
+				types.PercentFromRatio(l.Confidence),
 			},
 		}
 		if err := r.kernel.Assert(fact); err != nil {
-			logging.DreamDebug("routeRiskPattern: failed to assert kernel fact: %v", err)
+			kernelErr = err
+			logging.Get(logging.CategoryDream).Error("routeRiskPattern: dream_risk_pattern fact for %q rejected: %v", riskType, err)
+		} else {
+			kernelStored = true
 		}
 	}
 
@@ -267,8 +310,16 @@ func (r *DreamRouter) routeRiskPattern(l *DreamLearning) RouteResult {
 		result.Success = true
 		result.Destination = "ColdStorage:learned_risk"
 	} else {
-		result.Success = true
+		// Kernel is the only destination on this branch.
+		result.Success = kernelStored
 		result.Destination = "Kernel:dream_risk_pattern"
+		if !kernelStored {
+			if kernelErr != nil {
+				result.ErrorMessage = "kernel rejected dream_risk_pattern: " + kernelErr.Error()
+			} else {
+				result.ErrorMessage = "no storage backend available"
+			}
+		}
 	}
 
 	return result
@@ -279,16 +330,23 @@ func (r *DreamRouter) routePreference(l *DreamLearning) RouteResult {
 	result := RouteResult{LearningID: l.ID}
 
 	if r.coldStore == nil {
-		// Fallback to kernel
+		// Fallback to kernel. This was a bare Assert followed by an
+		// unconditional Success = true, over a float that the /number Decl
+		// coercion rejected every time: the preference was never stored and the
+		// learning was marked Persisted anyway, so it was never retried either.
 		if r.kernel != nil {
 			fact := Fact{
 				Predicate: "dream_preference",
 				Args: []any{
 					l.Content,
-					l.Confidence,
+					types.PercentFromRatio(l.Confidence),
 				},
 			}
-			r.kernel.Assert(fact)
+			if err := r.kernel.Assert(fact); err != nil {
+				logging.Get(logging.CategoryDream).Error("routePreference: dream_preference fact rejected: %v", err)
+				result.ErrorMessage = "kernel rejected dream_preference: " + err.Error()
+				return result
+			}
 			result.Success = true
 			result.Destination = "Kernel:dream_preference"
 		} else {
