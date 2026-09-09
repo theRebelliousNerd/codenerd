@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"codenerd/internal/core"
 	"codenerd/internal/evidence"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
@@ -1036,7 +1037,29 @@ func (e *Executor) assertPendingEdits(call ToolCall) []types.Fact {
 	content := pendingEditContent(call.Args)
 	facts := make([]types.Fact, 0, len(paths))
 	for _, filePath := range paths {
-		fact := types.Fact{Predicate: "pending_edit", Args: []any{filePath, content}}
+		// Validate the path shape before it becomes a fact.
+		//
+		// core.ValidatePendingEditFilePath rejects absolute paths, ".."
+		// traversal and backslash separators — exactly the shapes
+		// VirtualStore.resolvePath and the policy rules that read pending_edit
+		// assume they will never see. It had no production caller; this path
+		// was writing the fact without any shape check at all, so a tool
+		// argument like "/etc/passwd" or "a/../../b" became a fact the rules
+		// then reasoned over.
+		//
+		// The fact itself is still built here rather than through
+		// core.NewPendingEditFact: that helper previews Content at 200
+		// characters, while boundedPendingEditContent above keeps up to 16 KiB
+		// and falls back to a sha256 digest plus byte count. The digest
+		// preserves identity for a large file, which a truncated prefix does
+		// not — two files sharing their first 200 characters would look
+		// identical in the EDB.
+		if err := core.ValidatePendingEditFilePath(filePath); err != nil {
+			logging.Get(logging.CategorySession).Warn(
+				"Refusing to assert pending_edit for %s: %v", call.Name, err)
+			continue
+		}
+		fact := types.Fact{Predicate: core.PendingEditFactName, Args: []any{filePath, content}}
 		if err := e.kernel.Assert(fact); err != nil {
 			logging.Get(logging.CategorySession).Warn("Failed to assert pending_edit for %s (%s): %v", call.Name, filePath, err)
 			continue

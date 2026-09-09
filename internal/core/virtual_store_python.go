@@ -521,22 +521,41 @@ func (v *VirtualStore) handleSWEBenchEvaluate(ctx context.Context, req ActionReq
 
 	logging.VirtualStore("SWE-bench evaluate: instance=%s, model=%s", instanceID, modelName)
 
-	// Evaluation result will be populated by actual test execution
-	// For now, record the evaluation attempt
-	facts := []Fact{
-		{Predicate: "swebench_evaluation_started", Args: []any{instanceID, modelName, time.Now().Unix()}},
-		{Predicate: "swebench_environment", Args: []any{instanceID, "", "/evaluating", time.Now().Unix()}},
-	}
+	// This handler ran no tests. It asserted swebench_evaluation_started plus
+	// swebench_environment(.../evaluating) and returned Success: true, so a
+	// benchmark harness reading the action result saw every prediction
+	// "evaluate" cleanly while nothing was executed and the one fact that
+	// carries a verdict — swebench_evaluation_result, which benchmarks.mg
+	// declares and swebench_resolved/1 consumes — was never produced by any Go
+	// code in this repo. An evaluator that always succeeds is worse than an
+	// absent one: it converts "we cannot score this" into "it scored".
+	//
+	// Scoring needs a live container: swebench.Harness.Evaluate applies the
+	// patch, runs FAIL_TO_PASS and PASS_TO_PASS in the instance's image and
+	// computes the verdict. VirtualStore holds no harness and no
+	// PersistentDockerExecutor, and setup/apply_patch/run_tests never create a
+	// container either (swebench_environment.ContainerID is "" on every path).
+	// Until that harness is wired in, refuse honestly and park the environment
+	// in /error, the state benchmarks.mg already models, instead of the
+	// /evaluating state nothing will ever advance.
+	err := fmt.Errorf(
+		"swebench evaluation is not wired: VirtualStore has no swebench.Harness "+
+			"(instance=%s, model=%s, patch_bytes=%d); no tests were run and no "+
+			"swebench_evaluation_result was produced",
+		instanceID, modelName, len(patch))
+	logging.Get(logging.CategoryVirtualStore).Error("SWE-bench evaluate refused: %v", err)
 
 	return ActionResult{
-		Success: true,
-		Output:  fmt.Sprintf("Evaluation started for instance %s with model %s", instanceID, modelName),
+		Success: false,
+		Error:   err.Error(),
 		Metadata: map[string]any{
 			"instance_id": instanceID,
 			"model_name":  modelName,
 			"patch_size":  len(patch),
 		},
-		FactsToAdd: facts,
+		FactsToAdd: []Fact{
+			{Predicate: "swebench_environment", Args: []any{instanceID, "", "/error", time.Now().Unix()}},
+		},
 	}, nil
 }
 

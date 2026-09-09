@@ -597,7 +597,10 @@ func TestVirtualStorePython_SWEBenchEvaluate(t *testing.T) {
 		t.Errorf("expected validation failure, got: %+v", res)
 	}
 
-	// 2. Success path with model_name empty (defaults to codenerd)
+	// 2. No harness is wired, so no tests can run. The handler used to return
+	//    Success: true here with swebench_evaluation_started, which reported a
+	//    benchmark evaluation that never happened. It must refuse instead, and
+	//    it must still report which instance and model were asked for.
 	req.Payload = map[string]any{
 		"instance_id": "inst-1",
 		"patch":       "diff...",
@@ -606,11 +609,26 @@ func TestVirtualStorePython_SWEBenchEvaluate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !res.Success || res.Metadata["model_name"] != "codenerd" {
-		t.Errorf("expected default model name codenerd, got: %+v", res)
+	if res.Success {
+		t.Errorf("evaluate reported success without running any tests: %+v", res)
+	}
+	if res.Metadata["model_name"] != "codenerd" {
+		t.Errorf("expected default model name codenerd, got: %+v", res.Metadata)
+	}
+	if !strings.Contains(res.Error, "not wired") {
+		t.Errorf("refusal should say why evaluation is impossible, got: %q", res.Error)
+	}
+	for _, f := range res.FactsToAdd {
+		if f.Predicate == "swebench_evaluation_started" {
+			t.Error("evaluate asserted swebench_evaluation_started for an evaluation that never started")
+		}
+	}
+	if len(res.FactsToAdd) != 1 || res.FactsToAdd[0].Predicate != "swebench_environment" ||
+		res.FactsToAdd[0].Args[2] != "/error" {
+		t.Errorf("expected the environment parked in /error, got: %+v", res.FactsToAdd)
 	}
 
-	// 3. Success path with model_name specified
+	// 3. Same refusal with an explicit model name.
 	req.Payload = map[string]any{
 		"instance_id": "inst-1",
 		"patch":       "diff...",
@@ -620,8 +638,8 @@ func TestVirtualStorePython_SWEBenchEvaluate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !res.Success || res.Metadata["model_name"] != "custom-model" {
-		t.Errorf("expected model name custom-model, got: %+v", res)
+	if res.Success || res.Metadata["model_name"] != "custom-model" {
+		t.Errorf("expected honest refusal naming custom-model, got: %+v", res)
 	}
 
 	// 4. Context canceled
