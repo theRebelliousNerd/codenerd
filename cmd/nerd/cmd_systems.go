@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/features"
 	"codenerd/internal/mcp"
 	coresys "codenerd/internal/system"
 
@@ -277,11 +278,28 @@ var autopoiesisStatusCmd = &cobra.Command{
 		tools, _ := cortex.Kernel.Query("tool_registered")
 		fmt.Printf("%d tools generated\n", len(tools))
 
-		// prompt_evolved and thunderdome_result are declared and consumed by policy but never
-		// asserted — producer gap, not display choice. .nerd/prompts/evolution.db exists on
-		// disk and would be the real source if wired.
+		// The producer gap this used to report is closed: the Cortex owns the
+		// evolver (internal/system/factory_learning.go), records every turn's
+		// outcome, and asserts prompt_evolved on promotion. Read the evolver
+		// directly rather than the fact, because the fact only exists after a
+		// promotion and the interesting state is what is accumulating before
+		// one.
 		fmt.Print("Prompt Evolution:  ")
-		fmt.Println("not instrumented (no producer for prompt_evolved)")
+		if cortex.PromptEvolver == nil {
+			fmt.Println("unavailable (no evolver on this boot)")
+		} else {
+			stats := cortex.PromptEvolver.GetStats()
+			fmt.Printf("%d executions recorded, %d atoms pending / %d promoted, %d cycles\n",
+				stats.TotalExecutionsRecorded, stats.AtomsPending, stats.AtomsPromoted, stats.TotalCycles)
+			fmt.Print("  Auto-evolution:  ")
+			if features.IsPromptEvolutionEnabled() {
+				fmt.Println("on")
+			} else {
+				fmt.Println("off (set features.prompt_evolution or CODENERD_PROMPT_EVOLUTION=1)")
+			}
+		}
+		// thunderdome_result is still declared and consumed by policy but never
+		// asserted — a producer gap, not a display choice.
 		fmt.Print("Thunderdome:       ")
 		fmt.Println("not instrumented (no producer for thunderdome_result)")
 

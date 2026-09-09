@@ -124,6 +124,16 @@ func (c *Cortex) Close() error {
 		c.BrowserManager = nil
 	}
 
+	// Before the JIT compiler: the evolver holds two SQLite handles under
+	// .nerd/ and a cycle may still be draining after stopMaintenanceSchedule
+	// returned on its timeout, which would keep those files locked on Windows.
+	if c.PromptEvolver != nil {
+		if err := runCloseStep("PromptEvolver.Close", closeStepTimeout, c.PromptEvolver.Close); err != nil {
+			errs = append(errs, err)
+		}
+		c.PromptEvolver = nil
+	}
+
 	if c.JITCompiler != nil {
 		// Close cancels and joins compilation before closing its databases.
 		// A timer cannot cancel SQLite cleanup: abandoning it leaves the corpus

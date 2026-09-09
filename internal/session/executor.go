@@ -225,6 +225,11 @@ type Executor struct {
 	// lifetime (first Process call); per-turn session context hydrates on
 	// every turn via hydrateMemory.
 	learningsOnce sync.Once
+
+	// turnRecorder is the optional learning sink every finished turn is
+	// reported to (see executor_learning.go). Nil by default, so an executor
+	// with nothing wired in behaves as it did before the seam existed.
+	turnRecorder TurnRecorder
 }
 
 // ExecutorConfig holds configuration for the executor.
@@ -535,6 +540,14 @@ func (e *Executor) CloneForTask() *Executor {
 	clone.plannerClient = e.plannerClient
 	clone.projectDoc = e.projectDoc
 	clone.fileContext = e.fileContext
+	// turnRecorder IS inherited, and it is the one place where inheriting
+	// differs from sessionPersister on purpose. Persistence is session
+	// bookkeeping, which a delegated task has no business writing into. The
+	// learning sink is the opposite: delegated tasks ARE the work — a campaign
+	// is thousands of them and a chat turn is a handful — so an executor clone
+	// that dropped the recorder would leave the system learning only from the
+	// paths a human happens to be watching.
+	clone.turnRecorder = e.turnRecorder
 	// Deliberately NOT copied: conversationHistory, sessionContext,
 	// sessionPersister (task runs must not be recorded as session turns),
 	// EffectiveAgentRuntimeConfig (set per task by the caller).
@@ -1958,13 +1971,36 @@ func (e *Executor) persistTurn(ctx context.Context, input string, intent percept
 
 	// Cost denominator: usage delta across this turn plus the kernel verdict.
 	promptTokens, completionTokens := telemetry.usageBefore.delta(snapshotTurnUsage(ctx, sessionID))
+	outcome := e.resolveTurnOutcome(result)
 	e.assertTurnCost(turnCost{
 		sessionID:        sessionID,
 		turnNumber:       turnNumber,
 		promptTokens:     promptTokens,
 		completionTokens: completionTokens,
 		toolCalls:        result.ToolCallsExecuted,
-		outcome:          e.resolveTurnOutcome(result),
+		outcome:          outcome,
+	})
+
+	// Report the turn to the learning sink with the same verdict turn_cost
+	// records. This runs before the persister check on purpose: a delegated
+	// task clone has no persister (see CloneForTask) and returning early would
+	// have skipped exactly the executions worth learning from.
+	provider, model := e.servingIdentity(intent.Verb)
+	e.recordTurn(TurnRecord{
+		SessionID:        sessionID,
+		TurnNumber:       turnNumber,
+		IntentVerb:       intent.Verb,
+		Task:             input,
+		Response:         result.Response,
+		Outcome:          outcome,
+		Err:              result.Error,
+		AtomIDs:          turnAtomIDs(telemetry),
+		Duration:         result.Duration,
+		ToolCalls:        result.ToolCallsExecuted,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		Provider:         provider,
+		Model:            model,
 	})
 
 	if persister == nil {
