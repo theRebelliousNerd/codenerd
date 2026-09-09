@@ -46,7 +46,7 @@ See: `config_factory.go` and `internal/jit/config/types.go`
 
 ## Atom sources (where prompt text comes from)
 
-The compiler draws candidate atoms from five places, in this precedence order —
+The compiler draws candidate atoms from five places, in this precedence order --
 earlier sources win a duplicate ID, so a built-in can never be shadowed by
 something generated at runtime (`collectAtomsWithStats` in `compiler.go`):
 
@@ -76,15 +76,15 @@ something generated at runtime (`collectAtomsWithStats` in `compiler.go`):
      boot (`internal/system/factory_learning.go`).
    - Written by the evolution cycle from real failures; only *promoted* atoms
      are served. `RefreshEvolvedAtoms()` reloads them and clears the prompt
-     cache — without that reload the atoms sit on disk and are never served.
+     cache -- without that reload the atoms sit on disk and are never served.
 
 5. **Learned strategies**
    - Convention: `.nerd/prompts/strategies.db` (the SPL strategy store)
    - Registered via: `compiler.RegisterStrategyProvider(...)`, implemented by
      `prompt_evolution.StrategyAtomProvider`.
-   - Selected per compilation by (problem type × shard type), rendered as
+   - Selected per compilation by (problem type x shard type), rendered as
      `methodology` atoms under the `strategy/` ID prefix, and ranked by measured
-     success rate — capped below the hand-written methodology corpus so a
+     success rate -- capped below the hand-written methodology corpus so a
      machine-refined heuristic cannot displace a curated instruction.
    - Fitted to the token budget by the same scoring as every other source: a
      strategy earns its place or is dropped.

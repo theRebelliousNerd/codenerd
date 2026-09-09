@@ -43,6 +43,9 @@ func (tj *TaskJudge) Evaluate(ctx context.Context, exec *ExecutionRecord) (*Judg
 	if exec == nil {
 		return nil, fmt.Errorf("execution record is nil")
 	}
+	if tj == nil || tj.llmClient == nil {
+		return nil, fmt.Errorf("task judge has no LLM client configured")
+	}
 
 	logging.AutopoiesisDebug("Evaluating execution: task=%s, shard=%s, success=%v",
 		exec.TaskID, exec.ShardType, exec.ExecutionResult.Success)
@@ -100,6 +103,18 @@ func (tj *TaskJudge) EvaluateBatch(ctx context.Context, execs []*ExecutionRecord
 		wg.Go(func() {
 			sem <- struct{}{}        // acquire token
 			defer func() { <-sem }() // release token
+
+			// A panic in a goroutine is unrecoverable from the caller's frame,
+			// so it has to be contained here. The batch now runs unattended on
+			// the Cortex maintenance schedule, where one malformed record
+			// taking the whole process down would be a very expensive way to
+			// learn nothing.
+			defer func() {
+				if r := recover(); r != nil {
+					logging.Get(logging.CategoryAutopoiesis).Error(
+						"Judge panicked evaluating execution %d/%d: %v", idx+1, len(execs), r)
+				}
+			}()
 
 			verdict, err := tj.Evaluate(ctx, ex)
 			if err != nil {

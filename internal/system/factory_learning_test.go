@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	pe "codenerd/internal/autopoiesis/prompt_evolution"
 	"codenerd/internal/session"
 	"codenerd/internal/types"
 )
@@ -159,7 +158,6 @@ func TestRunEvolutionCycle_IsOptIn(t *testing.T) {
 }
 
 var _ session.TurnRecorder = (*turnEvolutionRecorder)(nil)
-var _ pe.LLMClient = (perceptionClient)(nil)
 
 type errFake string
 

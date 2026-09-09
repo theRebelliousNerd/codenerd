@@ -53,8 +53,20 @@ func initLearningLoop(bctx *bootContext) error {
 		return nil
 	}
 
+	judge := bctx.judgeClient()
+	if judge == nil {
+		// A boot with no LLM client is a degraded one — Cortex.WorkerLLM hands
+		// out missingLLMClient, so every turn fails on "no LLM configured".
+		// Recording those is not learning, it is filling the corpus with one
+		// error, and the judge would nil-panic on the maintenance goroutine
+		// the first time a cycle ran.
+		logging.Get(logging.CategoryBoot).Info(
+			"Learning loop skipped: no LLM client configured for this boot")
+		return nil
+	}
+
 	nerdDir := filepath.Join(bctx.workspace, ".nerd")
-	evolver, err := pe.NewPromptEvolver(nerdDir, bctx.judgeClient(), pe.DefaultEvolverConfig())
+	evolver, err := pe.NewPromptEvolver(nerdDir, judge, pe.DefaultEvolverConfig())
 	if err != nil {
 		logging.Get(logging.CategoryBoot).Warn(
 			"Prompt evolution unavailable in %s: %v; this session will not learn from its turns", nerdDir, err)
@@ -103,17 +115,19 @@ func initLearningLoop(bctx *bootContext) error {
 // classification over text that is already written, and the cycle issues one
 // call per record. Routing that volume to the expensive reasoning tier would
 // make the learning loop cost more than the work it is learning from.
-func (bctx *bootContext) judgeClient() perceptionClient {
+//
+// Returns nil when the boot has no LLM at all, which the caller treats as
+// "this boot does not learn" rather than constructing an evolver whose judge
+// would nil-panic the first time a cycle ran.
+func (bctx *bootContext) judgeClient() pe.LLMClient {
 	if bctx.shardLLMClient != nil {
 		return bctx.shardLLMClient
 	}
+	if bctx.llmClient == nil {
+		return nil
+	}
 	return bctx.llmClient
 }
-
-// perceptionClient is the subset of the LLM interface the evolver needs. It is
-// named here so judgeClient's signature does not have to spell out
-// perception.LLMClient and invite a wider dependency than the evolver takes.
-type perceptionClient = pe.LLMClient
 
 // turnEvolutionRecorder translates a finished session turn into the execution
 // record the SPL loop consumes.
@@ -279,6 +293,15 @@ func (c *Cortex) runEvolutionCycle(ctx context.Context) {
 
 	cycleCtx, cancel := context.WithTimeout(ctx, evolutionCycleTimeout)
 	defer cancel()
+
+	// The cycle runs on the maintenance goroutine, so an unrecovered panic in
+	// it takes the whole process down mid-session. Background self-improvement
+	// is never worth that.
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Get(logging.CategoryAutopoiesis).Error("Evolution cycle panicked: %v", r)
+		}
+	}()
 
 	result, err := c.PromptEvolver.RunEvolutionCycle(cycleCtx)
 	if err != nil {

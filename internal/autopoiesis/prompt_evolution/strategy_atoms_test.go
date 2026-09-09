@@ -172,3 +172,27 @@ func newTestStrategyStore(t *testing.T) *StrategyStore {
 	t.Cleanup(func() { _ = store.Close() })
 	return store
 }
+
+// TestJudge_NilClientIsAnErrorNotAPanic: a boot with no LLM configured is a
+// configuration state. Now that the cycle runs unattended on the maintenance
+// schedule, a nil-deref there would take the process down mid-session.
+func TestJudge_NilClientIsAnErrorNotAPanic(t *testing.T) {
+	judge := NewTaskJudge(nil, "test-model")
+
+	verdict, err := judge.Evaluate(t.Context(), &ExecutionRecord{TaskID: "t1"})
+	if err == nil {
+		t.Fatal("a judge with no client must report an error, not evaluate")
+	}
+	if verdict != nil {
+		t.Errorf("verdict = %+v, want nil", verdict)
+	}
+
+	// The batch path must survive it too: EvaluateBatch runs each record in
+	// its own goroutine, where a panic is unrecoverable from the caller.
+	verdicts, _ := judge.EvaluateBatch(t.Context(), []*ExecutionRecord{{TaskID: "t1"}, {TaskID: "t2"}})
+	for i, v := range verdicts {
+		if v != nil {
+			t.Errorf("verdicts[%d] = %+v, want nil", i, v)
+		}
+	}
+}
