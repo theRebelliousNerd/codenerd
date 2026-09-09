@@ -883,6 +883,102 @@ func unixSecondsArgAt(args []any, idx int) (int64, bool) {
 	}
 }
 
+// codeDOMScopePredicates is every predicate a CodeDOM scope asserts, and
+// therefore every predicate that must be retracted when the scope is replaced.
+//
+// It is the whole set on purpose. The list used to hold only the element and
+// diagnostic predicates, and omitted all 32 per-language Stratum-0 predicates
+// that world.FileScope.safeParseFile emits through the parser factory
+// (scope.go:525) and returns in ScopeFacts. Those facts were added on every
+// open_file, edit_element and refresh_scope and never removed, so the EDB grew
+// without bound across a session and — worse than the memory — kept deriving
+// from files that had left scope entirely: a go_struct for a type the user
+// stopped looking at half an hour ago still satisfied every rule that joins on
+// it.
+//
+// world.ScopeEmittedPredicates is the same set seen from the emitting side, and
+// TestCodeDOMScopePredicates_CoverEveryEmittedPredicate in internal/world fails
+// if a new parser predicate is added here without being added there. The two
+// packages cannot import each other's direction freely — world imports core —
+// so the list lives here, where the retraction happens, and is pinned from
+// there, where the emission happens.
+var codeDOMScopePredicates = map[string]struct{}{
+	// Scope state
+	"active_file":        {},
+	"file_in_scope":      {},
+	"code_element":       {},
+	"element_signature":  {},
+	"element_visibility": {},
+	"element_parent":     {},
+	"code_interactable":  {},
+
+	// Scope diagnostics/meta (emitted by world.FileScope)
+	"parse_error":          {},
+	"file_not_found":       {},
+	"scope_refresh_failed": {},
+	"file_hash_mismatch":   {},
+	"element_stale":        {},
+	"encoding_issue":       {},
+	"large_file_warning":   {},
+	"generated_code":       {},
+	"cgo_code":             {},
+	"build_tag":            {},
+	"embed_directive":      {},
+	"api_client_function":  {},
+	"api_handler_function": {},
+	"edit_unsafe":          {},
+
+	// Per-language Stratum-0 facts (world/{go,python,typescript,rust,mangle}_parser.go).
+	"go_goroutine":        {},
+	"go_interface":        {},
+	"go_returns_error":    {},
+	"go_struct":           {},
+	"go_tag":              {},
+	"go_uses_context":     {},
+	"method_of":           {},
+	"py_async_def":        {},
+	"py_class":            {},
+	"py_decorator":        {},
+	"py_typed_function":   {},
+	"has_pydantic_base":   {},
+	"ts_async_function":   {},
+	"ts_class":            {},
+	"ts_component":        {},
+	"ts_extends":          {},
+	"ts_hook":             {},
+	"ts_implements":       {},
+	"ts_interface":        {},
+	"ts_interface_prop":   {},
+	"ts_type_alias":       {},
+	"rs_async_fn":         {},
+	"rs_derive":           {},
+	"rs_returns_result":   {},
+	"rs_serde_rename":     {},
+	"rs_struct":           {},
+	"rs_trait":            {},
+	"rs_unsafe_block":     {},
+	"rs_uses_unwrap":      {},
+	"mg_aggregation_rule": {},
+	"mg_decl":             {},
+	"mg_fact":             {},
+	"mg_negation_rule":    {},
+	"mg_query":            {},
+	"mg_recursive_rule":   {},
+	"mg_rule":             {},
+}
+
+// CodeDOMScopePredicates returns a copy of the CodeDOM scope replace-set.
+//
+// A copy, because the caller is internal/world's conformance test and a shared
+// map is one careless write away from a retraction list with a hole in it.
+func CodeDOMScopePredicates() map[string]struct{} {
+	out := make(map[string]struct{}, len(codeDOMScopePredicates))
+	for p := range codeDOMScopePredicates {
+		out[p] = struct{}{}
+	}
+	return out
+}
+
 func (v *VirtualStore) clearCodeDOMFacts() {
 	v.mu.RLock()
 	kernel := v.kernel
@@ -892,32 +988,7 @@ func (v *VirtualStore) clearCodeDOMFacts() {
 		return
 	}
 
-	preds := map[string]struct{}{
-		// Scope state
-		"active_file":        {},
-		"file_in_scope":      {},
-		"code_element":       {},
-		"element_signature":  {},
-		"element_visibility": {},
-		"element_parent":     {},
-		"code_interactable":  {},
-
-		// Scope diagnostics/meta (emitted by world.FileScope)
-		"parse_error":          {},
-		"file_not_found":       {},
-		"scope_refresh_failed": {},
-		"file_hash_mismatch":   {},
-		"element_stale":        {},
-		"encoding_issue":       {},
-		"large_file_warning":   {},
-		"generated_code":       {},
-		"cgo_code":             {},
-		"build_tag":            {},
-		"embed_directive":      {},
-		"api_client_function":  {},
-		"api_handler_function": {},
-		"edit_unsafe":          {},
-	}
+	preds := codeDOMScopePredicates
 
 	// Fast path: RealKernel can remove a predicate set with a single rebuild pass.
 	if realKernel, ok := kernel.(*RealKernel); ok {

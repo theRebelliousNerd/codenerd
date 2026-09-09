@@ -473,6 +473,12 @@ func (h *HolographicProvider) getContextInternal(ctx context.Context, filePath s
 	// Query knowledge graph for relationships
 	h.queryRelationshipsWithContext(ctx, hc, filePath)
 
+	// Attach the kernel's impact ranking. This is what makes PromptSection's
+	// "Callers (impact-prioritized)" branch reachable; without it the model got
+	// an unordered list of caller names on every turn. Costs one kernel query
+	// and no file I/O — see queryImpactPriorities.
+	h.applyImpactPriorities(ctx, hc)
+
 	// Check for test file existence
 	h.checkTestCoverage(hc, filePath)
 

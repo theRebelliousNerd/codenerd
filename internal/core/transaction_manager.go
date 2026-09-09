@@ -294,8 +294,23 @@ func (tm *TransactionManager) Prepare(ctx context.Context) (*ShadowValidationRes
 		}
 	}
 
-	// Check for deny_edit rules in the shadow kernel
-	denyEdits, _ := tm.shadowMode.GetShadowKernel().Query("deny_edit")
+	// Check for deny_edit rules in the shadow kernel.
+	//
+	// The error used to be dropped with `_`, so a shadow kernel that could not
+	// evaluate produced zero deny_edit facts and the transaction stayed
+	// IsValid — the one outcome a default-deny constitution must never reach
+	// by accident. A failed check is now itself a block: the transaction is
+	// refused and the operator is told which query could not run.
+	denyEdits, denyErr := tm.shadowMode.GetShadowKernel().Query("deny_edit")
+	if denyErr != nil {
+		logging.Get(logging.CategoryKernel).Error("deny_edit query failed during transaction validation: %v", denyErr)
+		result.IsValid = false
+		result.SafetyBlocks = append(result.SafetyBlocks, SafetyBlock{
+			Ref:    txn.ID,
+			Reason: fmt.Sprintf("shadow kernel could not evaluate deny_edit: %v", denyErr),
+			Rule:   "safety_check_failed",
+		})
+	}
 	for _, de := range denyEdits {
 		ref := ""
 		reason := ""

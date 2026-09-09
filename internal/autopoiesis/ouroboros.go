@@ -543,6 +543,10 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 						o.stats.ThunderdomeKills++
 						o.mu.Unlock()
 
+						result.ThunderdomeRan = true
+						result.ThunderdomeSurvived = false
+						result.ThunderdomeAttacks = len(attacks)
+
 						// Record the kill in Mangle
 						_ = o.engine.AddFact("panic_maker_verdict", tool.Name, "/defeated", time.Now().Unix())
 						if battleResult.FatalAttack != nil {
@@ -591,6 +595,13 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 						o.mu.Lock()
 						o.stats.ThunderdomeSurvived++
 						o.mu.Unlock()
+
+						// Carry the verdict out of the loop. Callers that gate
+						// on adversarial testing read this instead of assuming
+						// a pass from Success.
+						result.ThunderdomeRan = true
+						result.ThunderdomeSurvived = true
+						result.ThunderdomeAttacks = len(attacks)
 
 						_ = o.engine.AddFact("panic_maker_verdict", tool.Name, "/survived", time.Now().Unix())
 						_ = o.engine.AddFact("battle_hardened", tool.Name, time.Now().Unix())

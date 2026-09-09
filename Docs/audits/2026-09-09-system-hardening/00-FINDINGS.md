@@ -140,3 +140,90 @@ producer half is also unwired. The fix is to connect them, not delete them.
 ## Remediation program
 
 See [01-PLAN.md](01-PLAN.md).
+
+---
+
+## F6 — Two registered tools failed on every call
+
+`run_impacted_tests` and `get_impacted_tests` (`internal/tools/codedom/run_impacted_tests.go:72`,
+`:114`) are registered into both the VirtualStore registry and the global
+registry (`internal/core/virtual_store_tools.go:91`, `:95`) and advertised to the
+model in `internal/prompt/atoms/capability/codedom_tools.yaml`. Both open with a
+nil check on a package-level provider set only by `RegisterTestImpactProvider`,
+which had **no non-test caller anywhere in the repo**.
+
+Every invocation returned `test impact provider not initialized`. The model was
+told it could scope its test runs, spent a turn and a tool-budget slot asking,
+and learned the capability does not exist.
+
+Underneath that, a second defect that would have kept the tools silent even once
+wired: `goTestFuncPattern` was `:Test[A-Z]` matched against the raw ref, while
+the Go parser builds refs as `fn:<pkg>.<Name>` (`go_parser.go:174-178`). A real
+test function is `fn:world.TestFoo`; the character after the colon is `w`. The
+pattern only ever matched the unqualified `fn:<name>` form the tree-sitter path
+emits (`ast_treesitter.go:487`). `testFuncs` stayed empty, so
+`buildDependencyEdges` added no edges, so `GetImpactedTests` returned nothing for
+every input. The Python and Rust checks had the same defect.
+
+## F7 — The adversarial tool gate could not fail
+
+`internal/campaign/tool_pregenerator.go:544` `runThunderdomeForTool` was a stub
+returning `(true, nil)` unconditionally. It was called under
+`RequireThunderdome`, which **defaults to true**
+(`DefaultPregeneratorConfig`, `:65`). Every pregenerated tool was recorded
+`PassedThunderdome` without a single attack vector being fired.
+
+The Ouroboros loop does run a real Thunderdome (`internal/autopoiesis/ouroboros.go:507`,
+`EnableThunderdome` default true), but `LoopResult` carried no verdict, so the
+campaign had nothing to read and invented a pass.
+
+## F8 — Safety queries failed open
+
+`Kernel.Query` returns `([]Fact, error)`. Dropping the error makes "the kernel
+could not evaluate" indistinguishable from "the kernel found nothing wrong".
+
+- `internal/core/shadow_mode.go:325,341,357,377` — `block_commit`,
+  `unsafe_to_refactor`, `chesterton_fence_warning`, `projection_violation`.
+  A stratification error, parse failure or cancelled fixpoint returned zero
+  violations and the caller read `IsSafe`.
+- `internal/core/transaction_manager.go:298` — `deny_edit`. A failed query
+  produced zero `SafetyBlock`s and left `IsValid` true.
+
+In a system whose constitution is default-deny, these inverted the default for
+exactly the cases where the kernel is least healthy.
+
+Found while fixing it: `RealKernel.Query` **panicked on a nil receiver**. Query
+is reached through several interfaces (`core.Kernel`, `world.FactQuerier`, the
+shadow querier), and a nil `*RealKernel` in an interface is a non-nil interface,
+so a caller's `if k == nil` does not fire. `ShadowMode.shadowKernel` is nil until
+`StartSimulation` clones the parent.
+
+## F9 — CodeDOM facts leaked for the lifetime of a session
+
+`clearCodeDOMFacts` (`internal/core/virtual_store.go`) listed 20 element and
+diagnostic predicates and **none of the 32 per-language Stratum-0 predicates**
+the parsers emit through `world.FileScope.safeParseFile` (`scope.go:525`) and
+return in `ScopeFacts`.
+
+Those facts were added on every `open_file`, `edit_element` and `refresh_scope`
+and never removed. Worse than the EDB growth: the kernel kept deriving from
+files that had left scope entirely — a `go_struct` for a type the user stopped
+looking at half an hour ago still satisfied every rule that joins on it.
+
+Verified empirically by parsing fixtures through the real parser factory: 23
+language predicates emitted by the fixture set, 32 across all parsers, zero
+retracted.
+
+---
+
+## Measured results
+
+| Change | Before | After |
+|---|---|---|
+| `PromptSection` on `internal/core` (per LLM turn) | 49.4 ms, 12.6 MB, 296,445 allocs | **1.2 ms, 532 KB, 1,165 allocs** |
+| Impact-prioritized callers in the prompt | never (branch unreachable) | derived from `modified_function` on every CodeDOM edit |
+| Direct-caller priority as rendered | `MINIMAL` (raw 3 vs 80/50/25 buckets) | `CRITICAL` (100) |
+| `run_impacted_tests` / `get_impacted_tests` | error on every call | return real impacted tests |
+| Thunderdome gate | always passed | passes only on a real surviving battle |
+| Shadow safety queries | fail open | fail closed with a named reason |
+| CodeDOM predicates retracted on scope change | 20 of 52 | 52 of 52, pinned by a conformance test |
