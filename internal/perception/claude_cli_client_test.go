@@ -451,7 +451,6 @@ func TestClaudeCodeCLIClient_parseResponse_Usage(t *testing.T) {
 	}
 }
 
-
 // TestClaudeCodeCLIClient_LLMClientInterface verifies the client implements LLMClient.
 func TestClaudeCodeCLIClient_LLMClientInterface(t *testing.T) {
 	var _ LLMClient = (*ClaudeCodeCLIClient)(nil)

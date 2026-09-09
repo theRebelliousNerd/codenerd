@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 )
+
 // goKeyDeps lists the Go import substrings that detectDependencies treats as
 // notable dependencies. It is shared between detectDependencies and the
 // per-module parser so both see the same canonical names.
@@ -39,7 +40,6 @@ var goKeyDeps = map[string]string{
 	"google.golang.org/adk":              "adk",
 	"github.com/a2aserver/a2a-go":        "a2a",
 }
-
 
 // detectLanguageFromFiles detects the primary language by looking for config files.
 // FIX(BUG-006): Searches subdirectories (2 levels deep) for monorepo support.

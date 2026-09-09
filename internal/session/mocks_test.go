@@ -191,7 +191,7 @@ func (m *MockJITCompiler) Compile(ctx context.Context, cc *prompt.CompilationCon
 // --- MockConfigFactory ---
 
 type MockConfigFactory struct {
-	GenerateFunc func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error)
+	GenerateFunc            func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error)
 	ResolveAllowedToolsFunc func(ctx context.Context, intents ...string) ([]string, error)
 }
 

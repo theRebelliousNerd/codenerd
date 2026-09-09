@@ -5,9 +5,9 @@ import (
 	"codenerd/internal/tactile"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
-	"slices"
 )
 
 func TestVirtualStore_CompilationDelegation(t *testing.T) {

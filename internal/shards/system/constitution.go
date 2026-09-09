@@ -431,8 +431,8 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 				Predicate: "permission_check_result",
 				Args:      []any{actionID, types.MangleAtom("/permit"), reason, ts},
 			})
-				// Constitutional gate verdict: recorded in the cross-package audit log every other gate writes to; the Mangle facts alongside serve policy rather than the audit trail.
-				logging.Audit().SafetyCheck(actionType+" "+target, true, reason)
+			// Constitutional gate verdict: recorded in the cross-package audit log every other gate writes to; the Mangle facts alongside serve policy rather than the audit trail.
+			logging.Audit().SafetyCheck(actionType+" "+target, true, reason)
 			c.mu.Lock()
 			c.permitted = append(c.permitted, actionType)
 			c.mu.Unlock()

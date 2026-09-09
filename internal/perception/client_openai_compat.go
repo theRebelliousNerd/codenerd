@@ -81,7 +81,7 @@ type OpenAICompatClient struct {
 	// number for oldest-first eviction, bounding the cache to
 	// metaReasoningMaxConversations conversations. Guarded by reasoningMu.
 	reasoningConvSeen map[string]int64
-	reasoningConvSeq   int64
+	reasoningConvSeq  int64
 
 	mu          sync.Mutex
 	lastRequest time.Time

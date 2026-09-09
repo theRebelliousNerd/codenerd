@@ -99,6 +99,7 @@ func (p *PathPolicy) ResolveForWrite(requested, defaultRoot, defaultName string)
 	}
 	return "", fmt.Errorf("browser output path %q is outside writable_roots", target)
 }
+
 // ConfineToRoot resolves candidate and reports the resolved absolute path
 // only when it lies inside root. It is the read-side counterpart to
 // ResolveForWrite: repository tracing must never read a file outside the

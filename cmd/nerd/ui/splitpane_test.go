@@ -107,7 +107,6 @@ func TestSplitPaneViewRenderModes(t *testing.T) {
 	}
 }
 
-
 func TestLogicPaneCustomRenderLink(t *testing.T) {
 	pane := NewLogicPane(DefaultStyles(), 80, 20)
 	node := &DerivationNode{

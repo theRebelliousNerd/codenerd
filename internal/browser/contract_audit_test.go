@@ -184,10 +184,10 @@ func TestDiscoverContract_WhenNoNeedles_ShouldEmitSkippedNotSilence(t *testing.T
 	root := t.TempDir()
 	writeTraceFile(t, root, "a.txt", "hello")
 	in := ContractAuditInput{
-		RepoRoot:     root,
-		Routes:       []string{"/a/b", "/api/v1"},
-		FormFields:   []string{"ab", "12"},
-		RequestURLs:  []string{"https://example.com/api/v1?token=secret"},
+		RepoRoot:         root,
+		Routes:           []string{"/a/b", "/api/v1"},
+		FormFields:       []string{"ab", "12"},
+		RequestURLs:      []string{"https://example.com/api/v1?token=secret"},
 		MutatingControls: nil,
 	}
 	disc, err := DiscoverContract(context.Background(), in)

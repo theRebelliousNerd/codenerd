@@ -763,7 +763,6 @@ func LoadPreferences(workspace string) (*UserPreferences, error) {
 	return &prefs, nil
 }
 
-
 // ListSessionHistories returns all available session histories.
 func ListSessionHistories(workspace string) ([]string, error) {
 	sessionsDir := filepath.Join(workspace, ".nerd", "sessions")

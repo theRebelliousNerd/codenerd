@@ -34,6 +34,23 @@ jobs:
         run: go build -tags sqlite_vec ./...
       - name: Vet
         run: go vet -tags sqlite_vec ./...
+      # 53 files had drifted out of gofmt by 2026-09. Formatting drift is
+      # cheap to fix and expensive to leave: it grows silently, and once it is
+      # large enough that nobody runs gofmt on the whole tree, every real diff
+      # carries formatting noise. Fixed in one mechanical commit and gated here
+      # so it cannot come back.
+      - name: Formatting
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l internal cmd)"
+          if [[ -n "$unformatted" ]]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            echo
+            echo "Fix with: gofmt -w internal cmd"
+            exit 1
+          fi
+          echo "gofmt clean."
       - name: Reject empty and log-only tests
         run: go run ./cmd/tools/audit_test_bodies .
       # predicate_corpus.db is generated from the .mg corpus and embedded into

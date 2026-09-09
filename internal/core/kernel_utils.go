@@ -46,6 +46,5 @@ func (k *RealKernel) QueryBool(predicate string) bool {
 	return len(facts) > 0
 }
 
-
 // Ensure RealKernel implements feedback.RuleValidator at compile time.
 var _ feedback.RuleValidator = (*RealKernel)(nil)

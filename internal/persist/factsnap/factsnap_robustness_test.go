@@ -1,9 +1,9 @@
 package factsnap
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"bytes"
 	"errors"
 	"io"
 	"os"

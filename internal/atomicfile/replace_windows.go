@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	modkernel32     = syscall.NewLazyDLL("kernel32.dll")
+	modkernel32      = syscall.NewLazyDLL("kernel32.dll")
 	procReplaceFileW = modkernel32.NewProc("ReplaceFileW")
 )
 

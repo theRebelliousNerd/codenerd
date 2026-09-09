@@ -243,7 +243,6 @@ func (m Model) loadSelectedSession(sessionID string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-
 func persistAgentProfile(workspace, name, agentType, knowledgePath string, kbSize int, status string) error {
 	nerdDir := filepath.Join(workspace, ".nerd")
 	if err := os.MkdirAll(filepath.Join(nerdDir, "shards"), 0755); err != nil {

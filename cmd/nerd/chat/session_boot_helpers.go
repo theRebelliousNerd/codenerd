@@ -182,4 +182,3 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *cores
 
 	return session, prefs
 }
-

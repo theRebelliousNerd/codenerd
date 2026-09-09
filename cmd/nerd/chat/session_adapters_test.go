@@ -44,7 +44,6 @@ func (s *shardManagerConsultationSpawner) SpawnConsultation(ctx context.Context,
 	return "", errors.New("consultation spawner not implemented")
 }
 
-
 // =============================================================================
 // CORE LEARNING STORE ADAPTER TESTS
 // =============================================================================
@@ -272,4 +271,3 @@ func TestResolveTurnCount_NilSession(t *testing.T) {
 		t.Errorf("Expected 0 for nil session, got %d", result)
 	}
 }
-

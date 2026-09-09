@@ -22,8 +22,8 @@ func TestFailCampaign_PersistsBlockReasonFromTaskLoop(t *testing.T) {
 
 	tmp := t.TempDir()
 	o := &Orchestrator{
-		kernel:           kernel,
-		campaign:         &Campaign{
+		kernel: kernel,
+		campaign: &Campaign{
 			ID:     "campaign_block_taskloop",
 			Type:   CampaignTypeCustom,
 			Title:  "Block Taskloop",

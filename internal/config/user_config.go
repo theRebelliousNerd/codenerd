@@ -1305,28 +1305,28 @@ func (c *UserConfig) GetIntegrations() IntegrationsConfig {
 
 // BrowserAutomationConfig controls codeNERD's native Rod browser manager.
 type BrowserAutomationConfig struct {
-	DebuggerURL          string             `json:"debugger_url,omitempty"`
-	Launch               []string           `json:"launch,omitempty"`
-	Headless             bool               `json:"headless,omitempty"`
-	ViewportWidth        int                `json:"viewport_width,omitempty"`
-	ViewportHeight       int                `json:"viewport_height,omitempty"`
-	NavigationTimeoutMs  int                `json:"navigation_timeout_ms,omitempty"`
-	MultiTabDefault      *bool              `json:"multi_tab_default,omitempty"`
-	MaxTabs              int                `json:"max_tabs,omitempty"`
-	MaxBrowsers          int                `json:"max_browsers,omitempty"`
-	IdleTabTimeoutMs     int                `json:"idle_tab_timeout_ms,omitempty"`
-	ExtraSensitiveKeys   []string           `json:"extra_sensitive_keys,omitempty"`
-	WritableRoots        []string           `json:"writable_roots,omitempty"`
+	DebuggerURL         string   `json:"debugger_url,omitempty"`
+	Launch              []string `json:"launch,omitempty"`
+	Headless            bool     `json:"headless,omitempty"`
+	ViewportWidth       int      `json:"viewport_width,omitempty"`
+	ViewportHeight      int      `json:"viewport_height,omitempty"`
+	NavigationTimeoutMs int      `json:"navigation_timeout_ms,omitempty"`
+	MultiTabDefault     *bool    `json:"multi_tab_default,omitempty"`
+	MaxTabs             int      `json:"max_tabs,omitempty"`
+	MaxBrowsers         int      `json:"max_browsers,omitempty"`
+	IdleTabTimeoutMs    int      `json:"idle_tab_timeout_ms,omitempty"`
+	ExtraSensitiveKeys  []string `json:"extra_sensitive_keys,omitempty"`
+	WritableRoots       []string `json:"writable_roots,omitempty"`
 	// CorrelationContainers names Docker containers whose logs are correlated
 	// with browser runtime errors during diagnosis (BP-25). Empty disables
 	// correlation. Correlation additionally requires "docker" in
 	// execution.allowed_binaries; listing containers alone is not sufficient.
-	CorrelationContainers []string `json:"correlation_containers,omitempty"`
-	EvidenceEnabled      *bool              `json:"evidence_enabled,omitempty"`
-	EvidenceDir          string             `json:"evidence_dir,omitempty"`
-	MaxEvidenceFiles     int                `json:"max_evidence_files,omitempty"`
-	MaxEvidenceFileBytes int64              `json:"max_evidence_file_bytes,omitempty"`
-	Specs                browserspec.Config `json:"specs,omitempty"`
+	CorrelationContainers []string           `json:"correlation_containers,omitempty"`
+	EvidenceEnabled       *bool              `json:"evidence_enabled,omitempty"`
+	EvidenceDir           string             `json:"evidence_dir,omitempty"`
+	MaxEvidenceFiles      int                `json:"max_evidence_files,omitempty"`
+	MaxEvidenceFileBytes  int64              `json:"max_evidence_file_bytes,omitempty"`
+	Specs                 browserspec.Config `json:"specs,omitempty"`
 }
 
 // DefaultBrowserAutomationConfig returns BrowserNERD-compatible lifecycle defaults.

@@ -53,8 +53,8 @@ func (fakeTierEmbedder) Name() string    { return "fake-tier-embedder" }
 // the engine interface SeedRequest accepts (the one internal/embedding
 // exposes, as internal/store and internal/prompt accept it).
 var (
-	_ Embedder                   = fakeTierEmbedder{}
-	_ embedding.EmbeddingEngine  = fakeTierEmbedder{}
+	_ Embedder                  = fakeTierEmbedder{}
+	_ embedding.EmbeddingEngine = fakeTierEmbedder{}
 )
 
 func semanticTierWorkspace(t *testing.T) string {

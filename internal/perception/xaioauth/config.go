@@ -127,12 +127,12 @@ func DefaultGrokAuthPath() string {
 
 // DiscoveryDocument is the OIDC discovery payload we care about.
 type DiscoveryDocument struct {
-	Issuer                            string `json:"issuer"`
-	AuthorizationEndpoint             string `json:"authorization_endpoint"`
-	DeviceAuthorizationEndpoint       string `json:"device_authorization_endpoint"`
-	TokenEndpoint                     string `json:"token_endpoint"`
-	UserinfoEndpoint                  string `json:"userinfo_endpoint"`
-	RevocationEndpoint                string `json:"revocation_endpoint"`
+	Issuer                            string   `json:"issuer"`
+	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
+	DeviceAuthorizationEndpoint       string   `json:"device_authorization_endpoint"`
+	TokenEndpoint                     string   `json:"token_endpoint"`
+	UserinfoEndpoint                  string   `json:"userinfo_endpoint"`
+	RevocationEndpoint                string   `json:"revocation_endpoint"`
 	GrantTypesSupported               []string `json:"grant_types_supported"`
 	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
 }
@@ -149,6 +149,6 @@ type Credentials struct {
 	Source       string    `json:"source,omitempty"` // "device_code" | "grok_cli_import" | "refresh"
 	UpdatedAt    time.Time `json:"updated_at,omitempty"`
 	// Quarantined is set when refresh fails with a terminal error.
-	Quarantined bool   `json:"quarantined,omitempty"`
+	Quarantined      bool   `json:"quarantined,omitempty"`
 	QuarantineReason string `json:"quarantine_reason,omitempty"`
 }

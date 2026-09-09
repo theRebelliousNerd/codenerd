@@ -389,15 +389,15 @@ func newSessionManager(cfg Config, sink EngineSink) *SessionManager {
 		logging.BrowserWarn("Browser output path policy unavailable: %v", err)
 	}
 	manager := &SessionManager{
-		cfg:                     cfg,
-		engine:                  sink,
-		sessions:                make(map[string]*sessionRecord),
-		browsers:                make(map[string]*browserRecord),
-		redactor:                browsersecurity.NewRedactor(cfg.ExtraSensitiveKeys),
-		pathPolicy:              policy,
-		budgets:                 make(map[string]*sessionFactBudget),
-		correlationContainers:   cfg.CorrelationContainers,
-		containerFetcher:        NewDockerLogFetcher(cfg.DockerPath),
+		cfg:                   cfg,
+		engine:                sink,
+		sessions:              make(map[string]*sessionRecord),
+		browsers:              make(map[string]*browserRecord),
+		redactor:              browsersecurity.NewRedactor(cfg.ExtraSensitiveKeys),
+		pathPolicy:            policy,
+		budgets:               make(map[string]*sessionFactBudget),
+		correlationContainers: cfg.CorrelationContainers,
+		containerFetcher:      NewDockerLogFetcher(cfg.DockerPath),
 	}
 	if querier, ok := sink.(FactQuerier); ok {
 		manager.querier = querier
@@ -420,6 +420,7 @@ func newSessionManager(cfg Config, sink EngineSink) *SessionManager {
 	}
 	return manager
 }
+
 // CorrelateContainerErrors correlates recent browser runtime errors with
 // logs from the configured containers. It is a diagnosis aid: it never
 // returns an error, because a correlation failure must not fail the
@@ -445,7 +446,6 @@ func (m *SessionManager) CorrelateContainerErrors(ctx context.Context, events []
 		Redactor:   redactor,
 	})
 }
-
 
 // LoadSpecs loads the bounded workspace browser specification catalog.
 func (m *SessionManager) LoadSpecs(ctx context.Context) (browserspec.LoadResult, error) {
@@ -475,6 +475,7 @@ func (m *SessionManager) ResolveOutputPath(requested, defaultRoot, defaultName s
 func (m *SessionManager) SanitizeForEvidence(value string) string {
 	return m.redactor.SanitizeString(value)
 }
+
 // WorkspaceRoot returns the configured workspace root without modification. It is read-only and does not resolve or clean the path.
 func (m *SessionManager) WorkspaceRoot() string {
 	if m == nil {
@@ -482,7 +483,6 @@ func (m *SessionManager) WorkspaceRoot() string {
 	}
 	return m.cfg.WorkspaceRoot
 }
-
 
 // Start connects to an existing Chrome or launches a new one.
 func (m *SessionManager) Start(ctx context.Context) error {
@@ -540,6 +540,7 @@ func (m *SessionManager) List() []Session {
 	})
 	return results
 }
+
 // ListSessions returns a snapshot of every live session's metadata, newest
 // first. The returned slice and its elements are copies: callers such as the
 // TUI render them outside the manager's lock and must not be able to mutate
@@ -567,7 +568,6 @@ func (m *SessionManager) DefaultSessionID() string {
 	defer m.mu.RUnlock()
 	return m.defaultID
 }
-
 
 // CreateSession opens a new page and tracks it.
 func (m *SessionManager) CreateSession(ctx context.Context, url string) (*Session, error) {
