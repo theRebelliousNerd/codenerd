@@ -176,7 +176,15 @@ func (v *VirtualStore) RouteActionResult(ctx context.Context, action Fact) (Acti
 	factsToInject = append(factsToInject, result.FactsToAdd...)
 	factsToInject = append(factsToInject, Fact{
 		Predicate: "execution_result",
-		Args:      []any{req.ActionID, string(req.Type), req.Target, result.Success, result.Output, completedAt.Unix()},
+		// Output is bounded before it becomes a fact argument. It used to be
+		// stored whole: a read_file of a large source file, or the combined
+		// output of `go test ./...`, went into the EDB verbatim and was
+		// hashed, indexed and compared on every fixpoint pass afterwards. No
+		// rule in the policy corpus reads this argument — execution_result is
+		// declared in schemas_reviewer.mg and never joined on Output — so the
+		// bound costs nothing and the excerpt still serves `nerd query` and
+		// the glass box. The caller keeps the full result.
+		Args: []any{req.ActionID, string(req.Type), req.Target, result.Success, types.TruncateFactText(result.Output), completedAt.Unix()},
 	})
 	v.injectFacts(factsToInject)
 	v.maybePruneActionLogs(completedAt)
