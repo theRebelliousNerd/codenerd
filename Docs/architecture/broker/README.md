@@ -133,3 +133,15 @@ New to this corpus: [01-VISION.md](01-VISION.md) for the whole idea set, then
 [05-INTERNAL-ARCHITECTURE.md](05-INTERNAL-ARCHITECTURE.md) for how the built part
 works, then [13-ROADMAP-AND-GATES.md](13-ROADMAP-AND-GATES.md) for what is
 deliberately not built yet and what evidence would unlock it.
+
+## External reference
+
+[`reference/2026-09-09-evidence-first-context-compiler.md`](reference/2026-09-09-evidence-first-context-compiler.md)
+is a transcript of an independent engineering report on the same problem, written
+against repo snapshot `7fd2762d` without knowledge of this work.
+
+[`reference/2026-09-09-report-vs-shipped.md`](reference/2026-09-09-report-vs-shipped.md)
+compares the two. Short version: they converge on the same first move, the report
+independently found both halves of the `ActivatedFacts` defect, and its executed
+simulations put numbers on the roadmap — including a sign flip that turns epoch
+scheduling from a tuning risk into a correctness risk.

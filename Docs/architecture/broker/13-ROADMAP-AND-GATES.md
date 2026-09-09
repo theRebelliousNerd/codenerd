@@ -169,7 +169,7 @@ projected append at a 0.10 cached-read multiplier, and **+2.6%** — a loss — 
 0.025. Same policy, same traces, opposite conclusion. A hard-coded rebuild
 schedule is therefore a correctness risk rather than a tuning risk. The
 report's own twelve-decision schedule is explicitly arbitrary and must not be
-copied. See `Docs/research/2026-09-09-report-vs-shipped.md`.
+copied. See `Docs/architecture/broker/reference/2026-09-09-report-vs-shipped.md`.
 
 That work also measured the cost of churn directly: an every-step reordering
 policy cost **61.5% more** than projected append, and the cheaper epoch policy
