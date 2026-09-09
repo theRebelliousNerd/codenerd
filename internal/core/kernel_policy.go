@@ -152,10 +152,26 @@ func (k *RealKernel) GetPolicy() string {
 // LEARNED RULES & AUTOPOIESIS
 // =============================================================================
 
-// HotLoadRule dynamically loads a single Mangle rule at runtime.
-// This is used by Autopoiesis to add new rules without restarting.
-// FIX for Bug #8 (Suicide Rule): Uses a "Sandbox Compiler" to validate the rule
-// before accepting it, preventing invalid rules from bricking the kernel.
+// HotLoadRule VALIDATES a single Mangle rule. It does not load it.
+//
+// The name and the comment that used to sit here both said otherwise — "loads a
+// single Mangle rule at runtime... used by Autopoiesis to add new rules without
+// restarting" — which describes HotLoadLearnedRule, the function below that
+// really does install a rule and persist it to learned.mg. This one compiles the
+// candidate against a sandbox kernel and returns whether it is acceptable. Both
+// production callers use it exactly that way and are correct:
+// feedback/loop.go calls it as "Phase 3: Sandbox compilation" and
+// shards/system/mangle_repair.go as "Phase 1: Syntax check via kernel".
+//
+// The comment was not harmless. A test in tests/e2e hot-loaded a panic_state
+// rule, got nil back, and then asserted on a derivation that could never
+// happen — the rule had been validated and discarded. It took a kernel probe to
+// see it, because every signal available to the caller said the rule was in.
+// Use AppendPolicy for a rule the kernel should actually evaluate, or
+// HotLoadLearnedRule for one that should also survive a restart.
+//
+// FIX for Bug #8 (Suicide Rule): the sandbox compile is what keeps an invalid
+// candidate from bricking the kernel, and it stays.
 func (k *RealKernel) HotLoadRule(rule string) error {
 	timer := logging.StartTimer(logging.CategoryKernel, "HotLoadRule")
 

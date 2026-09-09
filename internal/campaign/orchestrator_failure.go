@@ -217,7 +217,7 @@ taskSearch:
 		} else {
 			o.mu.Lock()
 			logging.Campaign("Campaign replanned at attempt cap for task %s, new revision: %d", replanID, o.campaign.RevisionNumber)
-			_ = o.saveCampaign()
+			o.persistCampaign("attempt-cap replan")
 			o.mu.Unlock()
 		}
 	} else {
@@ -226,7 +226,7 @@ taskSearch:
 
 	// Persist failure updates for durability.
 	o.mu.Lock()
-	_ = o.saveCampaign()
+	o.persistCampaign("task failure")
 	o.mu.Unlock()
 }
 

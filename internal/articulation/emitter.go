@@ -1112,7 +1112,6 @@ func isPlaceholderFeedback(fb *ContextFeedback) bool {
 	return false
 }
 
-
 // ProcessLLMResponse is a convenience function for shards to process LLM responses.
 // It extracts the surface_response and control_packet from a Piggyback-formatted
 // LLM response. The surface is safe for user display; the control should be

@@ -12,10 +12,10 @@ import (
 	// NERD-EVOLVE-START: context_compilation_pipeline
 
 	// NERD-EVOLVE-END: context_compilation_pipeline
+	"slices"
 	"strings"
 	"sync"
 	"time"
-	"slices"
 )
 
 // =============================================================================

@@ -14,7 +14,7 @@
 | FullyEnabled for init seed | `DefaultUserConfig` uses FullyEnabled | **Non-gap** |
 | PerShardFacts stays off until Track D ready | FullyEnabled sets false; env/active can still enable | **Partial** — product intent “off until ready” is seed-level, not hard lock in accessor |
 | Every accessor has a consumer | Most yes; TaxonomyFast no tool usage of accessor | **Gap** |
-| Field comment env for SystemShards | Comment cites inverted `NERD_DISABLE_SYSTEM_SHARDS`; code uses `CODENERD_SYSTEM_SHARDS` | **Doc gap** |
+| Field comment env for SystemShards | ~~Comment cited a `NERD_DISABLE_SYSTEM_SHARDS` env var that appears in no `.go` file~~ Corrected 2026-09-09: the per-shard mechanism is the `--disable-system-shard` CLI flag | **Closed** |
 | kernel_eval comment on DiffEval default TRUE | Actual default false | **Doc gap (external)** |
 | config_roundtrip “short-circuit” PerShardFacts | FullyEnabled false; accessor is normal resolveBool | **Doc gap in test comment** |
 | Boot logging of flags | LoadUserConfig logs Summary | **Non-gap** |

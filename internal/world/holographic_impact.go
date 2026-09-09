@@ -29,16 +29,84 @@ const maxPrioritizedCallers = 10
 // maxCallerBodyLines limits individual caller body size.
 const maxCallerBodyLines = 50
 
-// BuildWithImpactPriorities builds holographic context enhanced with impact analysis from the kernel.
-// It queries for context_priority facts to prioritize which callers to include,
-// then fetches their bodies for targeted review context.
+// queryImpactPriorities returns the kernel's impact-ranked callers, without
+// fetching any function bodies.
 //
-// The method:
-// 1. Builds standard holographic context via GetContext
-// 2. Queries kernel for context_priority_file facts
-// 3. Fetches caller bodies for prioritized functions
-// 4. Sorts by priority and limits to top N callers
-// 5. Returns enhanced context ready for LLM injection
+// This is the half of the impact analysis the prompt path needs.
+// PromptSection renders caller names, files, priorities and depths — never
+// bodies — so making it pay for up to ten file reads and AST parses would put
+// I/O on the turn's critical path for text that is discarded.
+//
+// Returns nil when there is no kernel, when neither impact predicate is
+// derivable, or when the analysis found nothing. All three are ordinary: the
+// chain only produces facts after something has actually been modified.
+func (h *HolographicProvider) queryImpactPriorities(ctx context.Context) []PrioritizedCaller {
+	if h == nil || h.kernel == nil {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil
+	}
+
+	// context_priority_file carries the depth-derived ranking;
+	// relevant_context_file is the unranked fallback the same rules derive.
+	priorityFacts, err := h.kernel.Query("context_priority_file")
+	if err != nil {
+		logging.WorldDebug("queryImpactPriorities: context_priority_file query failed: %v", err)
+		priorityFacts, err = h.kernel.Query("relevant_context_file")
+		if err != nil {
+			logging.WorldDebug("queryImpactPriorities: relevant_context_file query also failed: %v", err)
+			return nil
+		}
+	}
+	if len(priorityFacts) == 0 {
+		return nil
+	}
+
+	callers := h.parsePriorityFacts(priorityFacts)
+	if len(callers) == 0 {
+		return nil
+	}
+	return rankPrioritizedCallers(callers)
+}
+
+// applyImpactPriorities attaches ranked callers and the overall impact priority
+// to a holographic context.
+//
+// Called from getContextInternal so that every consumer of holographic context
+// — above all PromptSection — sees the ranking. Before 2026-09-09 nothing
+// populated PrioritizedCallers on the path that feeds the prompt, so
+// PromptSection's "### Callers (impact-prioritized)" branch was unreachable and
+// every turn fell through to an unordered list of caller names.
+func (h *HolographicProvider) applyImpactPriorities(ctx context.Context, hc *HolographicContext) {
+	if hc == nil {
+		return
+	}
+	callers := h.queryImpactPriorities(ctx)
+	if len(callers) == 0 {
+		return
+	}
+
+	maxPriority := 0
+	for _, c := range callers {
+		if c.Priority > maxPriority {
+			maxPriority = c.Priority
+		}
+	}
+	hc.PrioritizedCallers = callers
+	hc.ImpactPriority = maxPriority
+
+	logging.WorldDebug("applyImpactPriorities: %d prioritized callers (max priority: %d)",
+		len(callers), maxPriority)
+}
+
+// BuildWithImpactPriorities builds holographic context enhanced with impact
+// analysis from the kernel, including the body of each prioritized caller.
+//
+// The ranking itself now comes from GetContextWithContext, which every caller
+// gets. What this adds is the bodies: it is for consumers that want to show or
+// reason over the calling code, not just name it. PromptSection deliberately
+// does not use it — see queryImpactPriorities.
 func (h *HolographicProvider) BuildWithImpactPriorities(ctx context.Context, file string) (*HolographicContext, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("context cannot be nil")
@@ -46,84 +114,90 @@ func (h *HolographicProvider) BuildWithImpactPriorities(ctx context.Context, fil
 
 	logging.WorldDebug("BuildWithImpactPriorities: starting for %s", filepath.Base(file))
 
-	// 1. Build standard holographic context
-	hc, err := h.GetContext(file)
+	// Cancellable: this used to call the non-cancellable GetContext, so a
+	// cancelled caller still paid for a full package parse.
+	hc, err := h.GetContextWithContext(ctx, file)
 	if err != nil {
+		// Report cancellation as itself. A caller that cancelled wants
+		// context.Canceled, not a build failure that happens to wrap it —
+		// distinguishing "we gave up" from "the package would not parse" is
+		// the difference between a retry and a bug report.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, fmt.Errorf("failed to build base context: %w", err)
 	}
-
-	// 2. If no kernel, return standard context (graceful degradation)
-	if h.kernel == nil {
-		logging.WorldDebug("BuildWithImpactPriorities: no kernel available, returning standard context")
+	if len(hc.PrioritizedCallers) == 0 {
 		return hc, nil
 	}
 
-	// 3. Query kernel for context_priority_file facts
-	// Format: context_priority_file(File, Func, Priority)
-	priorityFacts, err := h.kernel.Query("context_priority_file")
-	if err != nil {
-		logging.WorldDebug("BuildWithImpactPriorities: context_priority_file query failed: %v", err)
-		// Fall back to relevant_context_file
-		priorityFacts, err = h.kernel.Query("relevant_context_file")
-		if err != nil {
-			logging.WorldDebug("BuildWithImpactPriorities: relevant_context_file query also failed: %v", err)
-			return hc, nil // Return standard context
-		}
-	}
-
-	if len(priorityFacts) == 0 {
-		logging.WorldDebug("BuildWithImpactPriorities: no priority facts found, returning standard context")
-		return hc, nil
-	}
-
-	// 4. Parse facts and build prioritized callers
-	callers := h.parsePriorityFacts(priorityFacts)
-	if len(callers) == 0 {
-		return hc, nil
-	}
-
-	// 5. Resolve callers (sort, limit, and fetch bodies)
-	callers, err = h.ResolvePrioritizedCallers(ctx, callers)
+	callers, err := h.ResolvePrioritizedCallers(ctx, hc.PrioritizedCallers)
 	if err != nil {
 		return hc, err
 	}
-
-	// 8. Calculate overall impact priority (max of all callers)
-	maxPriority := 0
-	for _, c := range callers {
-		if c.Priority > maxPriority {
-			maxPriority = c.Priority
-		}
-	}
-
 	hc.PrioritizedCallers = callers
-	hc.ImpactPriority = maxPriority
-
-	logging.WorldDebug("BuildWithImpactPriorities: found %d prioritized callers (max priority: %d)",
-		len(callers), maxPriority)
 
 	return hc, nil
+}
+
+// impactPriorityToScale converts impact.mg's depth-encoded priority into the
+// 0-100 scale the renderers bucket on, and returns the depth it encodes.
+//
+// impact.mg derives Priority = 4 - Depth over a bounded 3-level walk, so the
+// only values it emits are 3 (direct caller), 2 and 1. A value outside that
+// range is passed through unchanged with an unknown depth: other producers
+// (context_priority/2 via priorityAtomToInt) already speak the 0-100 scale, and
+// silently rescaling those would be the same class of bug in the other
+// direction.
+func impactPriorityToScale(raw int) (priority, depth int) {
+	switch raw {
+	case 3:
+		return 100, 1
+	case 2:
+		return 70, 2
+	case 1:
+		return 40, 3
+	case 0:
+		// No priority argument parsed. Medium, unknown depth.
+		return 50, 1
+	default:
+		return raw, 1
+	}
+}
+
+// rankPrioritizedCallers sorts by priority then depth and caps the list.
+//
+// Split out from ResolvePrioritizedCallers because the prompt path wants the
+// ranking and not the bodies: PromptSection renders names, files and priorities
+// only, so fetching up to ten function bodies to build it would be file I/O on
+// the turn's critical path for text that is never emitted.
+func rankPrioritizedCallers(callers []PrioritizedCaller) []PrioritizedCaller {
+	sort.SliceStable(callers, func(i, j int) bool {
+		if callers[i].Priority != callers[j].Priority {
+			return callers[i].Priority > callers[j].Priority
+		}
+		if callers[i].Depth != callers[j].Depth {
+			return callers[i].Depth < callers[j].Depth
+		}
+		// Stable tiebreak so the same kernel state renders the same section
+		// every turn; an order that shuffles costs prompt-cache hits.
+		return callers[i].Name < callers[j].Name
+	})
+
+	if len(callers) > maxPrioritizedCallers {
+		logging.WorldDebug("rankPrioritizedCallers: limiting callers from %d to %d",
+			len(callers), maxPrioritizedCallers)
+		callers = callers[:maxPrioritizedCallers]
+	}
+	return callers
 }
 
 // ResolvePrioritizedCallers sorts, limits, and fetches bodies for prioritized callers.
 // It optimizes by sorting and limiting *before* fetching bodies to avoid unnecessary I/O.
 func (h *HolographicProvider) ResolvePrioritizedCallers(ctx context.Context, callers []PrioritizedCaller) ([]PrioritizedCaller, error) {
-	// 1. Sort by priority (descending) then by depth (ascending)
-	sort.Slice(callers, func(i, j int) bool {
-		if callers[i].Priority != callers[j].Priority {
-			return callers[i].Priority > callers[j].Priority
-		}
-		return callers[i].Depth < callers[j].Depth
-	})
+	callers = rankPrioritizedCallers(callers)
 
-	// 2. Limit to prevent context explosion
-	if len(callers) > maxPrioritizedCallers {
-		logging.WorldDebug("ResolvePrioritizedCallers: limiting callers from %d to %d",
-			len(callers), maxPrioritizedCallers)
-		callers = callers[:maxPrioritizedCallers]
-	}
-
-	// 3. Fetch function bodies for prioritized callers with caching
+	// Fetch function bodies for prioritized callers with caching
 	cache := newFileContentCache()
 
 	for i := range callers {
@@ -162,12 +236,22 @@ func (h *HolographicProvider) parsePriorityFacts(facts []core.Fact) []Prioritize
 		switch fact.Predicate {
 		case "context_priority_file":
 			// Format: context_priority_file(File, Func, Priority)
+			//
+			// impact.mg emits Priority as 4 - Depth, so the values are 3, 2, 1
+			// for a direct caller, a grandcaller and a great-grandcaller
+			// (impact.mg:68-78). Every Go consumer here buckets on 80/50/25
+			// (priorityLevelString, FormatWithPriorities), so an unconverted 3
+			// rendered as MINIMAL and a direct caller looked less important
+			// than the default 50 assigned to facts carrying no priority at
+			// all. Convert into the 0-100 scale the renderers speak, and
+			// recover the depth the priority encodes rather than leaving the
+			// hardcoded 1.
 			if len(fact.Args) < 3 {
 				continue
 			}
 			caller.File = h.stringArg(fact.Args[0])
 			caller.Name = h.stringArg(fact.Args[1])
-			caller.Priority = h.intArg(fact.Args[2], 50)
+			caller.Priority, caller.Depth = impactPriorityToScale(h.intArg(fact.Args[2], 0))
 
 		case "relevant_context_file":
 			// Format: relevant_context_file(File)

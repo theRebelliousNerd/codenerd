@@ -604,3 +604,49 @@ func (g *IntelligenceGatherer) gatherShardAdvice(ctx context.Context, report *In
 
 	logging.CampaignDebug("Shard advice gathered: %d responses", len(report.ShardAdvice))
 }
+
+// maxHolographicTargets bounds how many target paths contribute a holographic
+// section to the intelligence report.
+//
+// Each rendered section is roughly 1-2 KB, and this report is injected into the
+// decomposer's planning prompt. Five targets is the practical span of a
+// campaign's real focus; beyond that the marginal section describes a file the
+// plan will not touch this phase, and the tokens are better left to the plan.
+const maxHolographicTargets = 5
+
+// gatherHolographicContext renders per-target architectural context.
+//
+// The provider is nil-safe and returns "" for anything it cannot describe — a
+// missing file, a non-Go extension, a cancelled context — so a target that
+// yields nothing is skipped rather than reported as an error. Only a total
+// absence of sections is worth telling the operator about, and even that is
+// ordinary when the campaign targets a directory rather than files.
+func (g *IntelligenceGatherer) gatherHolographicContext(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
+	if g.holographic == nil {
+		return
+	}
+
+	targets := paths
+	if len(targets) > maxHolographicTargets {
+		targets = targets[:maxHolographicTargets]
+	}
+
+	sections := make([]HolographicSection, 0, len(targets))
+	for _, path := range targets {
+		if err := ctx.Err(); err != nil {
+			addError(fmt.Sprintf("holographic context cancelled after %d/%d targets: %v", len(sections), len(targets), err))
+			break
+		}
+		section := g.holographic.PromptSection(ctx, path)
+		if strings.TrimSpace(section) == "" {
+			continue
+		}
+		sections = append(sections, HolographicSection{Path: path, Section: section})
+	}
+
+	if len(sections) == 0 {
+		return
+	}
+	report.HolographicSections = sections
+	logging.CampaignDebug("Holographic context gathered for %d/%d target(s)", len(sections), len(targets))
+}

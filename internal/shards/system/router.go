@@ -424,7 +424,11 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				logging.Get(logging.CategoryTools).Error("Tool execution failed: %s (call_id=%s, duration=%v, error=%s)", route.ToolName, call.ID, duration, err.Error())
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_result",
-					Args:      []any{call.ID, types.MangleAtom("/failure"), err.Error(), call.CompletedAt.Unix()},
+					// Bounded: routing_failed/2 (system_core.mg:100) reads this
+					// argument, so it must stay informative, but an error
+					// carrying a whole subprocess transcript would sit in the
+					// EDB and be compared on every pass.
+					Args: []any{call.ID, types.MangleAtom("/failure"), types.TruncateFactText(err.Error()), call.CompletedAt.Unix()},
 				})
 			} else {
 				call.Status = "completed"
@@ -432,7 +436,13 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				logging.Tools("Tool execution completed: %s (call_id=%s, duration=%v, result_len=%d)", route.ToolName, call.ID, duration, len(result))
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_result",
-					Args:      []any{call.ID, types.MangleAtom("/success"), result, call.CompletedAt.Unix()},
+					// The whole tool result used to land here. No rule reads it
+					// on the success path — routing_succeeded/1
+					// (system_core.mg:96) discards Details with `_` — while the
+					// ToolEventBus emission a few lines below already truncated
+					// to 500 characters for display. The fact store was the
+					// only place keeping megabytes nobody asked for.
+					Args: []any{call.ID, types.MangleAtom("/success"), types.TruncateFactText(result), call.CompletedAt.Unix()},
 				})
 			}
 

@@ -170,6 +170,10 @@ type IntelligenceReport struct {
 	// Cold Storage: Long-term context
 	ColdStorageFacts []store.StoredFact `json:"cold_storage_facts"`
 
+	// Holographic: per-target architectural context (package surface, type
+	// definitions, impact-ranked callers) for the campaign's target paths.
+	HolographicSections []HolographicSection `json:"holographic_sections,omitempty"`
+
 	// Safety: Constitutional pre-check
 	SafetyWarnings []SafetyWarning `json:"safety_warnings"`
 	BlockedActions []string        `json:"blocked_actions"`
@@ -206,6 +210,12 @@ type IntelligenceReport struct {
 }
 
 // IsEmpty returns true if the intelligence report has no meaningful data.
+// HolographicSection is one target path's rendered holographic context.
+type HolographicSection struct {
+	Path    string `json:"path"`
+	Section string `json:"section"`
+}
+
 func (i *IntelligenceReport) IsEmpty() bool {
 	if i == nil {
 		return true
@@ -441,6 +451,21 @@ func (g *IntelligenceGatherer) Gather(ctx context.Context, goal string, targetPa
 	if g.config.EnableMCPTools && g.mcpStore != nil {
 		eg.Go(func() error {
 			g.gatherMCPTools(egCtx, report, goal, addError)
+			return nil
+		})
+	}
+
+	// 7b. Holographic context for the campaign's targets.
+	//
+	// The gatherer has been handed a *world.HolographicProvider at every one of
+	// its six construction sites since it was written, and stored it in a field
+	// nothing read. This is the read: for the paths the campaign is actually
+	// aiming at, the package surface, the type definitions and the
+	// impact-ranked callers are the highest-signal context a decomposer can
+	// have, and the provider already renders exactly that, already bounded.
+	if len(targetPaths) > 0 && g.holographic != nil {
+		eg.Go(func() error {
+			g.gatherHolographicContext(egCtx, report, targetPaths, addError)
 			return nil
 		})
 	}

@@ -67,9 +67,24 @@ func (m *oerMockConfigFactory) Generate(ctx context.Context, result *prompt.Comp
 
 type oerMockLLMClient struct {
 	responseToReturn *types.LLMToolResponse
+	// writeDir, when set, makes every call return a FRESH response whose
+	// write targets a new path. Concurrent turns must not share one
+	// pending_edit fact — see writeTurnCallIn.
+	writeDir         string
 	delay            time.Duration
 	mu               sync.Mutex
 	lastSystemPrompt string
+}
+
+// response returns the configured response, or a freshly minted one when
+// writeDir is set so concurrent callers never share a write path.
+func (m *oerMockLLMClient) response() *types.LLMToolResponse {
+	if m.writeDir == "" || m.responseToReturn == nil {
+		return m.responseToReturn
+	}
+	fresh := *m.responseToReturn
+	fresh.ToolCalls = []types.ToolCall{writeTurnCallIn(m.writeDir)}
+	return &fresh
 }
 
 func (m *oerMockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
@@ -102,20 +117,20 @@ func (m *oerMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 			return nil, ctx.Err()
 		}
 	}
-	return m.responseToReturn, nil
+	return m.response(), nil
 }
 
 func (m *oerMockLLMClient) ToolCall(ctx context.Context, prompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	return m.responseToReturn, nil
+	return m.response(), nil
 }
 func (m *oerMockLLMClient) ToolCallWithSystem(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	m.mu.Lock()
 	m.lastSystemPrompt = systemPrompt
 	m.mu.Unlock()
-	return m.responseToReturn, nil
+	return m.response(), nil
 }
 func (m *oerMockLLMClient) ToolCallWithSystemStreaming(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition, chunkHandler func(string)) (*types.LLMToolResponse, error) {
-	return m.responseToReturn, nil
+	return m.response(), nil
 }
 func (m *oerMockLLMClient) CompleteWithStreaming(ctx context.Context, prompt string, model string, stream bool) (<-chan string, <-chan error) {
 	ch := make(chan string)
@@ -128,21 +143,37 @@ func (m *oerMockLLMClient) CompleteWithStreaming(ctx context.Context, prompt str
 	return ch, errCh
 }
 
+// setupRaceEnvironment builds an environment whose turns can actually complete.
+// See write_turn_fixture_test.go for why a real write turn, rather than a
+// read-only verb, is the correct fix here: in this file the verb is the
+// mechanism under test ("/fix" routes inline, "/research" forces subagent
+// isolation), so swapping it would change what each test exercises.
 func setupRaceEnvironment(t *testing.T, llmDelay time.Duration) (*session.Executor, *session.JITExecutor) {
 	t.Helper()
 	kernel, _ := core.NewRealKernel()
 	virtualStore := core.NewVirtualStore(nil)
+	wireDreamer(virtualStore, kernel)
+	registerWriteTurnTool(t)
 
+	writeDir := t.TempDir()
 	llm := &oerMockLLMClient{
-		responseToReturn: &types.LLMToolResponse{Text: "default success"},
-		delay:            llmDelay,
+		responseToReturn: &types.LLMToolResponse{
+			Text:      "default success",
+			ToolCalls: []types.ToolCall{writeTurnCallIn(writeDir)},
+		},
+		writeDir: writeDir,
+		delay:    llmDelay,
 	}
 
 	transducer := &oerMockTransducer{intentToReturn: "/fix"}
 	compiler := &oerMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
-	configFactory := &oerMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
+	configFactory := &oerMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: writeTurnAllowedTools(),
+	}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
+	executor.SetConfig(writeTurnExecutorConfig())
+
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 

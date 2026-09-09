@@ -478,6 +478,10 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 				fmt.Printf("\n🏆 %s\n", event.Message)
 			case "replan_triggered":
 				fmt.Printf("🔄 Replanning: %s\n", event.Message)
+			case "snapshot_write_failed":
+				// The campaign is running from memory only. Silence here is how
+				// an operator ends up believing finished phases were saved.
+				fmt.Printf("⚠️  Campaign snapshot NOT written — progress is not on disk: %s\n", event.Message)
 			}
 		}
 	}()
@@ -737,6 +741,8 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 				fmt.Printf("🎉 Phase completed: %s\n", event.Message)
 			case "campaign_completed":
 				fmt.Printf("\n🏆 %s\n", event.Message)
+			case "snapshot_write_failed":
+				fmt.Printf("⚠️  Campaign snapshot NOT written — progress is not on disk: %s\n", event.Message)
 			}
 		}
 	}()

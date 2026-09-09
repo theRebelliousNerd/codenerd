@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
+	"sync"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -42,23 +44,37 @@ type HolographicContext struct {
 	SystemPurpose string `json:"system_purpose"` // High-level purpose deduced from patterns
 
 	// Dependency Context (import/export relationships)
+	//
+	// DirectImporters is the one dimension here a model cannot get by reading
+	// the file: which other files in the workspace depend on this package. It
+	// comes from the world model's dependency_link facts, so it is only
+	// populated when a kernel is attached and a scan has run.
 	DirectImports   []ImportInfo `json:"direct_imports"`   // What this file imports
 	DirectImporters []string     `json:"direct_importers"` // Files that import this package
 	ExternalDeps    []string     `json:"external_deps"`    // Third-party dependencies
 
 	// Semantic Relationships (from knowledge graph)
-	RelatedEntities []RelatedEntity `json:"related_entities"` // Semantically related code
-	CallGraph       []CallEdge      `json:"call_graph"`       // Who calls what
+	CallGraph []CallEdge `json:"call_graph"` // Who calls what
 
 	// Code Quality Signals
-	TestCoverage    float64  `json:"test_coverage"`    // If known from facts
-	HasTests        bool     `json:"has_tests"`        // Does a _test.go file exist?
-	TODOCount       int      `json:"todo_count"`       // Number of TODO/FIXME comments
-	ComplexityHints []string `json:"complexity_hints"` // High complexity warnings
+	TestCoverage float64 `json:"test_coverage"` // If known from facts
+	HasTests     bool    `json:"has_tests"`     // Does a _test.go file exist?
+	TODOCount    int     `json:"todo_count"`    // Number of TODO/FIXME comments
 
 	// Impact-Aware Priority Context (from Mangle impact analysis)
 	ImpactPriority     int                 `json:"impact_priority"`     // Overall priority from Mangle analysis
 	PrioritizedCallers []PrioritizedCaller `json:"prioritized_callers"` // Callers sorted by impact priority
+
+	// ReferencedSymbols are the package-level symbols the target file uses but
+	// does not define. Used to rank which sibling signatures are worth prompt
+	// tokens; see rankSignaturesForTarget.
+	ReferencedSymbols []string `json:"referenced_symbols,omitempty"`
+
+	// SymbolRefCount maps a package-level symbol to how many other files in the
+	// package reference it — in-package centrality, used as the last ranking
+	// tier so a file with no relevance signal of its own still gets the
+	// package's load-bearing API rather than its alphabetically first one.
+	SymbolRefCount map[string]int `json:"symbol_ref_count,omitempty"`
 }
 
 // PrioritizedCaller represents a caller function with impact analysis metadata.
@@ -110,13 +126,6 @@ type ImportInfo struct {
 	Alias string `json:"alias,omitempty"`
 }
 
-// RelatedEntity represents a semantically related code entity.
-type RelatedEntity struct {
-	EntityID string `json:"entity_id"`
-	Relation string `json:"relation"` // "calls", "implements", "extends", "uses"
-	File     string `json:"file"`
-}
-
 // CallEdge represents a caller->callee relationship.
 type CallEdge struct {
 	Caller string `json:"caller"`
@@ -135,6 +144,31 @@ type FactQuerier interface {
 type HolographicProvider struct {
 	kernel  FactQuerier
 	workDir string
+
+	// pkgCache memoises the filesystem-derived package parse. It is created
+	// lazily so a zero-value &HolographicProvider{} — which the tests build
+	// directly — still caches rather than silently falling back to the
+	// re-parse-everything path the cache exists to remove.
+	cacheOnce sync.Once
+	pkgCache  *packageParseCache
+}
+
+// packageCache returns the lazily-created package-parse cache.
+func (h *HolographicProvider) packageCache() *packageParseCache {
+	h.cacheOnce.Do(func() {
+		h.pkgCache = newPackageParseCache()
+	})
+	return h.pkgCache
+}
+
+// CacheStats reports package-parse cache hits and misses for this provider.
+// Exposed so `nerd world` and the world cache metrics can show whether the
+// per-turn holographic path is actually being served from cache.
+func (h *HolographicProvider) CacheStats() (hits, misses int64) {
+	if h == nil {
+		return 0, 0
+	}
+	return h.packageCache().stats()
 }
 
 // NewHolographicProvider creates a new holographic context provider.
@@ -175,6 +209,131 @@ func (h *HolographicProvider) GetContextWithContext(ctx context.Context, filePat
 	return h.getContextInternal(ctx, filePath)
 }
 
+// packageLabel names the package for the truncation lines, falling back to the
+// module when the package clause could not be read.
+func packageLabel(hc *HolographicContext) string {
+	if hc == nil {
+		return "?"
+	}
+	if hc.TargetPkg != "" {
+		return hc.TargetPkg
+	}
+	if hc.Module != "" {
+		return hc.Module
+	}
+	return "?"
+}
+
+// relevanceRank orders a package symbol against one target file.
+//
+// Lower is better. The order encodes what a model editing this file actually
+// needs to know:
+//
+//	0  defined in the target file      — what this file offers
+//	1  referenced by the target file   — what this file depends on
+//	2  everything else in the package  — background
+//
+// Before this ranking existed the fallback was directory order, so a target
+// file that exports nothing of its own — a package-marker file, a main.go, a
+// thin wrapper — spent all eight signature slots on whichever sibling sorted
+// first. On internal/core/kernel.go that was eight symbols from
+// action_validator.go followed by "… and 592 more".
+func relevanceRank(definedIn, name, targetBase string, referenced map[string]struct{}) int {
+	if definedIn == targetBase {
+		return 0
+	}
+	if _, ok := referenced[name]; ok {
+		return 1
+	}
+	return 2
+}
+
+// referencedSet turns the context's sorted slice back into a lookup set.
+func referencedSet(referenced []string) map[string]struct{} {
+	if len(referenced) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(referenced))
+	for _, name := range referenced {
+		set[name] = struct{}{}
+	}
+	return set
+}
+
+// rankSignaturesForTarget returns the package's exported signatures ordered by
+// relevance to targetBase, and the size of the pool they were drawn from.
+//
+// The pool size is returned separately so the "… and N more" line counts what
+// was left out of the whole candidate set, not out of the ranked prefix.
+func rankSignaturesForTarget(all []SymbolSignature, targetBase string, referenced []string, centrality map[string]int) ([]SymbolSignature, int) {
+	refs := referencedSet(referenced)
+
+	exported := make([]SymbolSignature, 0, len(all))
+	for _, sig := range all {
+		if sig.Exported {
+			exported = append(exported, sig)
+		}
+	}
+	if len(exported) == 0 {
+		return nil, 0
+	}
+
+	sort.SliceStable(exported, func(i, j int) bool {
+		ri := relevanceRank(exported[i].File, exported[i].Name, targetBase, refs)
+		rj := relevanceRank(exported[j].File, exported[j].Name, targetBase, refs)
+		if ri != rj {
+			return ri < rj
+		}
+		// Within a tier, prefer what the rest of the package actually leans on.
+		if ci, cj := centrality[exported[i].Name], centrality[exported[j].Name]; ci != cj {
+			return ci > cj
+		}
+		// Then a documented symbol over an undocumented one, then name order so
+		// the section is byte-stable between turns.
+		di, dj := exported[i].DocComment != "", exported[j].DocComment != ""
+		if di != dj {
+			return di
+		}
+		if exported[i].File != exported[j].File {
+			return exported[i].File < exported[j].File
+		}
+		return exported[i].Name < exported[j].Name
+	})
+	return exported, len(exported)
+}
+
+// rankTypesForTarget is rankSignaturesForTarget for type definitions.
+//
+// Unexported types are kept: inside a package the model edits the unexported
+// types too, and a struct's field count is the cheapest useful thing that can
+// be said about it.
+func rankTypesForTarget(all []TypeDefinition, targetBase string, referenced []string, centrality map[string]int) ([]TypeDefinition, int) {
+	if len(all) == 0 {
+		return nil, 0
+	}
+	refs := referencedSet(referenced)
+
+	ranked := append([]TypeDefinition(nil), all...)
+	sort.SliceStable(ranked, func(i, j int) bool {
+		ri := relevanceRank(ranked[i].File, ranked[i].Name, targetBase, refs)
+		rj := relevanceRank(ranked[j].File, ranked[j].Name, targetBase, refs)
+		if ri != rj {
+			return ri < rj
+		}
+		if ci, cj := centrality[ranked[i].Name], centrality[ranked[j].Name]; ci != cj {
+			return ci > cj
+		}
+		if ranked[i].Exported != ranked[j].Exported {
+			return ranked[i].Exported
+		}
+		if ranked[i].File != ranked[j].File {
+			return ranked[i].File < ranked[j].File
+		}
+		return ranked[i].Name < ranked[j].Name
+	})
+	return ranked, len(ranked)
+}
+
 // PromptSection renders holographic context for prompt injection.
 //
 // Mirrors the style of internal/projectdoc/facts.go:Document.PromptSection —
@@ -194,37 +353,43 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		return ""
 	}
 
+	// substantive tracks whether any block said something the model could not
+	// have worked out from the filename. Architecture facets are inferred from
+	// path patterns, so they are present even for a file that does not exist;
+	// emitting a header, an inferred Role and "**Tests**: no" for a missing
+	// file is prompt tokens spent to say nothing.
+	substantive := false
+
 	var b strings.Builder
 	b.WriteString("## Holographic Context (")
 	b.WriteString(filePath)
 	b.WriteString(")\n\n")
 
 	// Architecture / package summary (one compact line).
-	if hc.TargetPkg != "" || hc.Layer != "" || hc.Module != "" || hc.Role != "" || hc.SystemPurpose != "" {
-		if hc.TargetPkg != "" {
-			b.WriteString("**Package**: `")
-			b.WriteString(hc.TargetPkg)
-			b.WriteString("`")
+	//
+	// Built by joining the non-empty parts rather than by chaining conditional
+	// separators. The old form emitted the separator whenever the *first* field
+	// was present, so a file with no package clause but an inferred Role
+	// rendered as a leading " · **Role**: …" — a line that looks like something
+	// was dropped.
+	var facets []string
+	if hc.TargetPkg != "" {
+		facets = append(facets, "**Package**: `"+hc.TargetPkg+"`")
+	}
+	if hc.Layer != "" {
+		facets = append(facets, "**Layer**: `"+hc.Layer+"`")
+	}
+	if hc.Module != "" {
+		facets = append(facets, "**Module**: `"+hc.Module+"`")
+	}
+	if hc.Role != "" {
+		facets = append(facets, "**Role**: `"+hc.Role+"`")
+	}
+	if len(facets) > 0 || hc.SystemPurpose != "" {
+		if len(facets) > 0 {
+			b.WriteString(strings.Join(facets, " · "))
+			b.WriteString("\n")
 		}
-		if hc.Layer != "" {
-			if hc.TargetPkg != "" {
-				b.WriteString(" · ")
-			}
-			b.WriteString("**Layer**: `")
-			b.WriteString(hc.Layer)
-			b.WriteString("`")
-		}
-		if hc.Module != "" {
-			b.WriteString(" · **Module**: `")
-			b.WriteString(hc.Module)
-			b.WriteString("`")
-		}
-		if hc.Role != "" {
-			b.WriteString(" · **Role**: `")
-			b.WriteString(hc.Role)
-			b.WriteString("`")
-		}
-		b.WriteString("\n")
 		if hc.SystemPurpose != "" {
 			b.WriteString(hc.SystemPurpose)
 			b.WriteString("\n")
@@ -243,31 +408,17 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		b.WriteString("**Tests**: no\n\n")
 	}
 
-	// Exported signatures — prefer those defined in the target file, fall back to package.
+	// Exported signatures, ranked by relevance to the target file.
 	const maxSigs = 8
 	base := filepath.Base(filePath)
-	var exported []SymbolSignature
-	for _, sig := range hc.PackageSignatures {
-		if sig.Exported {
-			exported = append(exported, sig)
-		}
-	}
-	var fileExported []SymbolSignature
-	for _, sig := range exported {
-		if sig.File == base {
-			fileExported = append(fileExported, sig)
-		}
-	}
-	sigs := exported
-	if len(fileExported) > 0 {
-		sigs = fileExported
-	}
+	sigs, sigPool := rankSignaturesForTarget(hc.PackageSignatures, base, hc.ReferencedSymbols, hc.SymbolRefCount)
 	if len(sigs) > 0 {
+		substantive = true
 		b.WriteString("### Exported signatures\n\n")
 		shown := sigs
 		truncated := 0
 		if len(shown) > maxSigs {
-			truncated = len(shown) - maxSigs
+			truncated = sigPool - maxSigs
 			shown = shown[:maxSigs]
 		}
 		for _, sig := range shown {
@@ -295,29 +446,26 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 			b.WriteString("\n")
 		}
 		if truncated > 0 {
-			fmt.Fprintf(&b, "- … and %d more\n", truncated)
+			// Name the pool. "and 593 more" next to eight symbols from the
+			// target's own file reads like the file has 601 exports; saying
+			// "in package core" makes it clear the rest is the package's
+			// surface, which is what the model needs to know before it goes
+			// looking for something.
+			fmt.Fprintf(&b, "- … and %d more exported in package `%s`\n", truncated, packageLabel(hc))
 		}
 		b.WriteString("\n")
 	}
 
-	// Type definitions — prefer file-local, cap.
+	// Type definitions, ranked by relevance to the target file.
 	const maxTypes = 8
-	var fileTypes []TypeDefinition
-	for _, td := range hc.PackageTypes {
-		if td.File == base {
-			fileTypes = append(fileTypes, td)
-		}
-	}
-	types := fileTypes
-	if len(types) == 0 {
-		types = hc.PackageTypes
-	}
+	types, typePool := rankTypesForTarget(hc.PackageTypes, base, hc.ReferencedSymbols, hc.SymbolRefCount)
 	if len(types) > 0 {
+		substantive = true
 		b.WriteString("### Type definitions\n\n")
 		shown := types
 		truncated := 0
 		if len(shown) > maxTypes {
-			truncated = len(shown) - maxTypes
+			truncated = typePool - maxTypes
 			shown = shown[:maxTypes]
 		}
 		for _, td := range shown {
@@ -336,7 +484,34 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 			b.WriteString("\n")
 		}
 		if truncated > 0 {
-			fmt.Fprintf(&b, "- … and %d more\n", truncated)
+			fmt.Fprintf(&b, "- … and %d more in package `%s`\n", truncated, packageLabel(hc))
+		}
+		b.WriteString("\n")
+	}
+
+	// Dependents — which files outside this package import it.
+	//
+	// Rendered because it is the one dimension in the context that is invisible
+	// from the file itself, and the first thing worth knowing before changing
+	// an exported symbol. Bounded to a handful plus a count: the question is
+	// "is this load-bearing, and for whom", which six examples answer as well
+	// as fifty.
+	if len(hc.DirectImporters) > 0 {
+		substantive = true
+		b.WriteString("### Imported by\n\n")
+		shown := hc.DirectImporters
+		truncated := 0
+		if len(shown) > maxRenderedImporters {
+			truncated = len(shown) - maxRenderedImporters
+			shown = shown[:maxRenderedImporters]
+		}
+		for _, importer := range shown {
+			b.WriteString("- `")
+			b.WriteString(importer)
+			b.WriteString("`\n")
+		}
+		if truncated > 0 {
+			fmt.Fprintf(&b, "- … and %d more file(s)\n", truncated)
 		}
 		b.WriteString("\n")
 	}
@@ -344,6 +519,7 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 	// Callers — who calls this file (impact-aware if available).
 	const maxCallers = 8
 	if len(hc.PrioritizedCallers) > 0 {
+		substantive = true
 		b.WriteString("### Callers (impact-prioritized)\n\n")
 		shown := hc.PrioritizedCallers
 		truncated := 0
@@ -371,6 +547,7 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		}
 		b.WriteString("\n")
 	} else if len(hc.CallGraph) > 0 {
+		substantive = true
 		b.WriteString("### Callers\n\n")
 		seen := make(map[string]struct{}, len(hc.CallGraph))
 		var callers []string
@@ -397,6 +574,9 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		b.WriteString("\n")
 	}
 
+	if !substantive {
+		return ""
+	}
 	result := strings.TrimSpace(b.String())
 	if result == "" {
 		return ""
@@ -447,6 +627,18 @@ func (h *HolographicProvider) getContextInternal(ctx context.Context, filePath s
 	// Query knowledge graph for relationships
 	h.queryRelationshipsWithContext(ctx, hc, filePath)
 
+	// Attach the kernel's impact ranking. This is what makes PromptSection's
+	// "Callers (impact-prioritized)" branch reachable; without it the model got
+	// an unordered list of caller names on every turn. Costs one kernel query
+	// and no file I/O — see queryImpactPriorities.
+	h.applyImpactPriorities(ctx, hc)
+
+	// Dependency dimensions. DirectImporters is the reverse edge — who depends
+	// on this package — which is the one thing here a model cannot get by
+	// reading the file.
+	h.applyImportDimensions(hc, filePath)
+	h.applyDirectImporters(hc, filePath)
+
 	// Check for test file existence
 	h.checkTestCoverage(hc, filePath)
 
@@ -461,71 +653,113 @@ func (h *HolographicProvider) buildGoContext(ctx *HolographicContext, filePath s
 	return h.buildGoContextWithContext(context.Background(), ctx, filePath)
 }
 
-// buildGoContextWithContext builds package-level context for Go files with cancellation and limit protections.
+// maxPackageFilesToParse caps how many sibling files one directory contributes
+// to a holographic context. A package with more files than this is already past
+// the point where listing its symbols helps the model, and parsing all of them
+// costs real time on the turn's critical path.
+const maxPackageFilesToParse = 100
+
+// maxSiblingFileBytes skips generated monsters. A 5 MB .go file is a generated
+// table, not something whose signatures the model needs, and parsing it can
+// dominate the whole package.
+const maxSiblingFileBytes = 5 * 1024 * 1024
+
+// buildGoContextWithContext builds package-level context for Go files with
+// cancellation and limit protections, served from the package-parse cache when
+// no file in the directory has changed.
 func (h *HolographicProvider) buildGoContextWithContext(ctx context.Context, hc *HolographicContext, filePath string) error {
-	// Get the directory containing this file
 	dir := filepath.Dir(filePath)
 
-	// Find all Go files in the same package
-	entries, err := os.ReadDir(dir)
+	fingerprint, entries, err := directoryFingerprint(dir)
 	if err != nil {
 		return fmt.Errorf("failed to read directory: %w", err)
 	}
 
-	var goFiles []string
-	const maxPackageFilesToParse = 100 // Cap to prevent memory/CPU starvation
+	cache := h.packageCache()
+	parse, hit := cache.get(dir, fingerprint)
+	if !hit {
+		// A cancelled or failed parse is never cached: a partial answer that
+		// looks fresh is worse than paying the parse again.
+		parse, err = h.parsePackage(ctx, dir, entries)
+		if err != nil {
+			return err
+		}
+		cache.put(dir, fingerprint, parse)
+	}
+
+	parse.applyTo(hc, filePath)
+	if hc.TargetPkg == "" {
+		h.readPackageClause(hc, filePath)
+	}
+	return nil
+}
+
+// parsePackage parses every non-test .go file in dir into a cacheable
+// packageParse. entries is the already-read directory listing, so the caller's
+// fingerprint pass and this one share a single ReadDir.
+func (h *HolographicProvider) parsePackage(ctx context.Context, dir string, entries []os.DirEntry) (*packageParse, error) {
+	p := &packageParse{
+		imports: make(map[string][]string),
+		pkgName: make(map[string]string),
+	}
 
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		// Include .go files but skip test files for signature extraction
-		if strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
-			fullPath := filepath.Join(dir, name)
-			if fullPath != filePath {
-				hc.PackageSiblings = append(hc.PackageSiblings, fullPath)
-			}
-			goFiles = append(goFiles, fullPath)
+		// Test files are excluded from signature extraction: the model asks
+		// what the package offers, not what its tests happen to define.
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
 		}
+		p.allGoFiles = append(p.allGoFiles, filepath.Join(dir, name))
 	}
 
-	// Cap the sibling files parsed to protect resource usage
-	if len(goFiles) > maxPackageFilesToParse {
-		logging.Get(logging.CategoryWorld).Warn("buildGoContext: package too large (%d files), limiting parsing to first %d", len(goFiles), maxPackageFilesToParse)
-		goFiles = goFiles[:maxPackageFilesToParse]
+	p.goFiles = p.allGoFiles
+	if len(p.goFiles) > maxPackageFilesToParse {
+		logging.Get(logging.CategoryWorld).Warn("buildGoContext: package too large (%d files), limiting parsing to first %d", len(p.goFiles), maxPackageFilesToParse)
+		p.goFiles = p.goFiles[:maxPackageFilesToParse]
 	}
 
-	// Parse all files in the package to extract signatures
 	fset := token.NewFileSet()
-	for _, goFile := range goFiles {
+	for _, goFile := range p.goFiles {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil, ctx.Err()
 		default:
 		}
 
-		// Skip huge sibling files to prevent OOM/memory starvation
-		if info, statErr := os.Stat(goFile); statErr == nil && info.Size() > 5*1024*1024 { // 5MB limit
+		if info, statErr := os.Stat(goFile); statErr == nil && info.Size() > maxSiblingFileBytes {
 			logging.Get(logging.CategoryWorld).Warn("buildGoContext: skipping huge sibling file: %s (%d bytes)", goFile, info.Size())
 			continue
 		}
-		if err := h.extractGoSignatures(hc, fset, goFile); err != nil {
+		if err := h.parseGoFileInto(p, fset, goFile); err != nil {
 			logging.WorldDebug("HolographicProvider: failed to parse %s: %v", goFile, err)
 			// Continue with other files
 		}
 	}
 
-	// Extract package name from target file
-	if node, err := parser.ParseFile(fset, filePath, nil, parser.PackageClauseOnly); err == nil {
-		hc.TargetPkg = node.Name.Name
-	}
+	narrowLocalRefs(p)
 
-	return nil
+	return p, nil
 }
 
-// extractGoSignatures parses a Go file and extracts function/type/const signatures.
-func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset *token.FileSet, filePath string) error {
+// readPackageClause fills TargetPkg for a file the package parse did not cover
+// — a _test.go target, or one past maxPackageFilesToParse.
+func (h *HolographicProvider) readPackageClause(hc *HolographicContext, filePath string) {
+	fset := token.NewFileSet()
+	if node, err := parser.ParseFile(fset, filePath, nil, parser.PackageClauseOnly); err == nil && node.Name != nil {
+		hc.TargetPkg = node.Name.Name
+	}
+}
+
+// parseGoFileInto extracts one file's signatures, types, constants, imports and
+// package clause into a packageParse.
+//
+// This is the cacheable unit: it reads only the file's bytes and writes only
+// into p, so a directory's parse is a pure function of that directory.
+func (h *HolographicProvider) parseGoFileInto(p *packageParse, fset *token.FileSet, filePath string) error {
 	node, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
 	if err != nil {
 		// Handle entirely empty .go files (0 bytes and whitespace only)
@@ -536,6 +770,13 @@ func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset 
 	}
 
 	fileName := filepath.Base(filePath)
+	if node.Name != nil {
+		p.pkgName[fileName] = node.Name.Name
+	}
+	// Record every identifier this file mentions. parsePackage narrows the set
+	// to package-level names once every file has been seen; keeping raw
+	// identifiers past that point would cost more memory than the parse itself.
+	rawRefs := make(map[string]struct{}, 64)
 
 	// Extract imports
 	var imports []string
@@ -543,14 +784,17 @@ func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset 
 		importPath := strings.Trim(imp.Path.Value, "\"")
 		imports = append(imports, importPath)
 	}
-	ctx.PackageImports[fileName] = imports
+	p.imports[fileName] = imports
 
 	// Walk AST for definitions
 	ast.Inspect(node, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok {
+			rawRefs[id.Name] = struct{}{}
+		}
 		switch x := n.(type) {
 		case *ast.FuncDecl:
 			sig := h.extractFuncSignature(fset, x, fileName)
-			ctx.PackageSignatures = append(ctx.PackageSignatures, sig)
+			p.signatures = append(p.signatures, sig)
 
 		case *ast.GenDecl:
 			switch x.Tok {
@@ -558,7 +802,7 @@ func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset 
 				for _, spec := range x.Specs {
 					if ts, ok := spec.(*ast.TypeSpec); ok {
 						typeDef := h.extractTypeDefinition(fset, ts, x, fileName)
-						ctx.PackageTypes = append(ctx.PackageTypes, typeDef)
+						p.types = append(p.types, typeDef)
 					}
 				}
 			case token.CONST, token.VAR:
@@ -574,7 +818,7 @@ func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset 
 							if vs.Type != nil {
 								constDef.Type = formatNode(fset, vs.Type)
 							}
-							ctx.PackageConstants = append(ctx.PackageConstants, constDef)
+							p.constants = append(p.constants, constDef)
 						}
 					}
 				}
@@ -583,6 +827,79 @@ func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset 
 		return true
 	})
 
+	if p.localRefs == nil {
+		p.localRefs = make(map[string]map[string]struct{}, 8)
+	}
+	p.localRefs[fileName] = rawRefs
+
+	return nil
+}
+
+// narrowLocalRefs reduces each file's raw identifier set to the package-level
+// symbols it uses but does not define.
+//
+// Run once after the whole package is parsed, because "is this name defined in
+// this package" is only answerable then. Dropping the rest is what keeps the
+// cached parse bounded by the package's symbol count instead of by every
+// identifier in every file — the difference between a few kilobytes per package
+// and a few megabytes.
+func narrowLocalRefs(p *packageParse) {
+	if p == nil || len(p.localRefs) == 0 {
+		return
+	}
+
+	// owner maps a package-level symbol to the file that defines it.
+	owner := make(map[string]string, len(p.signatures)+len(p.types)+len(p.constants))
+	for _, sig := range p.signatures {
+		// Methods are addressed through their receiver, not by bare name, so
+		// indexing them here would make every file that mentions a common verb
+		// like Close or String look like it depends on all of them.
+		if sig.Receiver == "" {
+			owner[sig.Name] = sig.File
+		}
+	}
+	for _, td := range p.types {
+		owner[td.Name] = td.File
+	}
+	for _, cd := range p.constants {
+		owner[cd.Name] = cd.File
+	}
+
+	p.refCount = make(map[string]int, len(owner))
+	for file, raw := range p.localRefs {
+		narrowed := make(map[string]struct{}, len(raw)/8+1)
+		for name := range raw {
+			if definedIn, ok := owner[name]; ok && definedIn != file {
+				narrowed[name] = struct{}{}
+				p.refCount[name]++
+			}
+		}
+		p.localRefs[file] = narrowed
+	}
+}
+
+// extractGoSignatures parses one Go file directly into a HolographicContext.
+//
+// Kept as the single-file entry point for callers that hold a context rather
+// than a package parse; it is a thin adapter over parseGoFileInto so the two
+// paths cannot drift in what they extract.
+func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset *token.FileSet, filePath string) error {
+	p := &packageParse{
+		imports: make(map[string][]string, 1),
+		pkgName: make(map[string]string, 1),
+	}
+	if err := h.parseGoFileInto(p, fset, filePath); err != nil {
+		return err
+	}
+	ctx.PackageSignatures = append(ctx.PackageSignatures, p.signatures...)
+	ctx.PackageTypes = append(ctx.PackageTypes, p.types...)
+	ctx.PackageConstants = append(ctx.PackageConstants, p.constants...)
+	if ctx.PackageImports == nil {
+		ctx.PackageImports = make(map[string][]string, len(p.imports))
+	}
+	for k, v := range p.imports {
+		ctx.PackageImports[k] = v
+	}
 	return nil
 }
 

@@ -1,0 +1,448 @@
+package world
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+func writeTempPkg(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+}
+
+// TestPackageParseCache_HitsOnSecondCall pins the reason the cache exists:
+// PromptSection runs once per LLM turn with a file target and used to re-parse
+// up to 100 sibling files each time to produce text that is byte-identical
+// until a file changes. Measured on internal/core before the cache: 61 ms and
+// 12 MB of garbage per turn.
+func TestPackageParseCache_HitsOnSecondCall(t *testing.T) {
+	dir := t.TempDir()
+	writeTempPkg(t, dir, map[string]string{
+		"a.go": "package p\n\n// A does a.\nfunc A() error { return nil }\n",
+		"b.go": "package p\n\ntype T struct{ X int }\n",
+	})
+	target := filepath.Join(dir, "a.go")
+
+	h := NewHolographicProvider(nil, dir)
+	first := h.PromptSection(context.Background(), target)
+	if first == "" {
+		t.Fatal("first PromptSection returned nothing")
+	}
+	hits, misses := h.CacheStats()
+	if misses != 1 || hits != 0 {
+		t.Fatalf("after first call: hits=%d misses=%d, want 0/1", hits, misses)
+	}
+
+	second := h.PromptSection(context.Background(), target)
+	hits, misses = h.CacheStats()
+	if hits != 1 || misses != 1 {
+		t.Fatalf("after second call: hits=%d misses=%d, want 1/1", hits, misses)
+	}
+	if first != second {
+		t.Fatalf("cached render differs from the fresh one:\n--- first ---\n%s\n--- second ---\n%s", first, second)
+	}
+}
+
+// TestPackageParseCache_InvalidatesOnFileChange is the correctness half. A cache
+// that keeps answering after the package changed would feed the model a
+// description of code that no longer exists.
+func TestPackageParseCache_InvalidatesOnFileChange(t *testing.T) {
+	dir := t.TempDir()
+	writeTempPkg(t, dir, map[string]string{
+		"a.go": "package p\n\nfunc Original() error { return nil }\n",
+	})
+	target := filepath.Join(dir, "a.go")
+
+	h := NewHolographicProvider(nil, dir)
+	first := h.PromptSection(context.Background(), target)
+	if !strings.Contains(first, "Original") {
+		t.Fatalf("first render missing Original:\n%s", first)
+	}
+
+	// Distinct mtime: the fingerprint is (name, size, mtime) and the rename is
+	// same-length, so without the sleep the two states could be
+	// indistinguishable on a coarse-grained clock.
+	time.Sleep(10 * time.Millisecond)
+	writeTempPkg(t, dir, map[string]string{
+		"a.go": "package p\n\nfunc Replaced() error { return nil }\n",
+	})
+
+	second := h.PromptSection(context.Background(), target)
+	if strings.Contains(second, "Original") {
+		t.Fatalf("stale cache served a symbol that no longer exists:\n%s", second)
+	}
+	if !strings.Contains(second, "Replaced") {
+		t.Fatalf("second render missing Replaced:\n%s", second)
+	}
+}
+
+// TestPackageParseCache_InvalidatesOnNewFile covers the other change shape: a
+// sibling appearing changes the package's surface without touching any existing
+// file, so the directory fingerprint must move even though every byte that was
+// already there is unchanged.
+//
+// It asserts on the miss counter and the sibling roster rather than on the
+// rendered section: PromptSection prefers symbols defined in the target file
+// and only falls back to package-wide ones when the target defines none, so a
+// new sibling is correctly invisible in the render here.
+func TestPackageParseCache_InvalidatesOnNewFile(t *testing.T) {
+	dir := t.TempDir()
+	writeTempPkg(t, dir, map[string]string{"a.go": "package p\n\nfunc A() {}\n"})
+	target := filepath.Join(dir, "a.go")
+
+	h := NewHolographicProvider(nil, dir)
+	if _, err := h.GetContext(target); err != nil {
+		t.Fatalf("GetContext: %v", err)
+	}
+	if _, misses := h.CacheStats(); misses != 1 {
+		t.Fatalf("first call misses = %d, want 1", misses)
+	}
+	if _, err := h.GetContext(target); err != nil {
+		t.Fatalf("GetContext: %v", err)
+	}
+	if hits, _ := h.CacheStats(); hits != 1 {
+		t.Fatalf("second call did not hit the cache")
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	writeTempPkg(t, dir, map[string]string{"b.go": "package p\n\nfunc Sibling() {}\n"})
+
+	hc, err := h.GetContext(target)
+	if err != nil {
+		t.Fatalf("GetContext: %v", err)
+	}
+	if _, misses := h.CacheStats(); misses != 2 {
+		t.Fatalf("a new sibling did not invalidate the cache (misses = %d, want 2)", misses)
+	}
+	if len(hc.PackageSiblings) != 1 || !strings.HasSuffix(hc.PackageSiblings[0], "b.go") {
+		t.Fatalf("sibling roster did not pick up the new file: %v", hc.PackageSiblings)
+	}
+	var found bool
+	for _, sig := range hc.PackageSignatures {
+		if sig.Name == "Sibling" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("re-parse did not pick up the new sibling's signatures: %+v", hc.PackageSignatures)
+	}
+}
+
+// TestPackageParseCache_DeepCopiesBothWays pins the lesson internal/diff learned
+// the hard way: a cache that hands a caller its own memory turns any downstream
+// append into silent corruption of every later reader.
+func TestPackageParseCache_DeepCopiesBothWays(t *testing.T) {
+	src := &packageParse{
+		goFiles:    []string{"a.go"},
+		allGoFiles: []string{"a.go"},
+		signatures: []SymbolSignature{{Name: "A"}},
+		types:      []TypeDefinition{{Name: "T", Kind: "struct", Fields: []string{"X int"}}},
+		constants:  []ConstDefinition{{Name: "C"}},
+		imports:    map[string][]string{"a.go": {"context"}},
+		pkgName:    map[string]string{"a.go": "p"},
+	}
+
+	c := newPackageParseCache()
+	c.put("/dir", "fp", src)
+
+	// Mutating the source after put must not reach the cache.
+	src.signatures[0].Name = "MUTATED"
+	src.types[0].Fields[0] = "MUTATED"
+	src.imports["a.go"][0] = "MUTATED"
+
+	got, ok := c.get("/dir", "fp")
+	if !ok {
+		t.Fatal("expected a cache hit")
+	}
+	if got.signatures[0].Name != "A" {
+		t.Errorf("signature aliased the caller's slice: %q", got.signatures[0].Name)
+	}
+	if got.types[0].Fields[0] != "X int" {
+		t.Errorf("nested Fields slice aliased the caller's memory: %q", got.types[0].Fields[0])
+	}
+	if got.imports["a.go"][0] != "context" {
+		t.Errorf("imports map aliased the caller's slice: %q", got.imports["a.go"][0])
+	}
+
+	// Mutating what get returned must not reach the cache either.
+	got.signatures[0].Name = "ALSO_MUTATED"
+	again, _ := c.get("/dir", "fp")
+	if again.signatures[0].Name != "A" {
+		t.Errorf("get handed out shared memory: %q", again.signatures[0].Name)
+	}
+}
+
+// TestPackageParseCache_EvictsLeastRecentlyUsed keeps retention bounded to the
+// parse of maxCachedPackages directories rather than of the whole workspace.
+func TestPackageParseCache_EvictsLeastRecentlyUsed(t *testing.T) {
+	c := newPackageParseCache()
+	mk := func() *packageParse {
+		return &packageParse{imports: map[string][]string{}, pkgName: map[string]string{}}
+	}
+	for i := 0; i < maxCachedPackages; i++ {
+		c.put(dirName(i), "fp", mk())
+	}
+	// Touch the oldest so it is no longer the eviction candidate.
+	if _, ok := c.get(dirName(0), "fp"); !ok {
+		t.Fatal("expected dir 0 to still be cached")
+	}
+	c.put(dirName(maxCachedPackages), "fp", mk())
+
+	if _, ok := c.get(dirName(0), "fp"); !ok {
+		t.Error("recently used entry was evicted")
+	}
+	if _, ok := c.get(dirName(1), "fp"); ok {
+		t.Error("least recently used entry survived eviction")
+	}
+	if c.order.Len() > maxCachedPackages {
+		t.Errorf("cache grew past its bound: %d", c.order.Len())
+	}
+}
+
+func dirName(i int) string { return "/dir/" + string(rune('a'+i/26)) + string(rune('a'+i%26)) }
+
+// TestPackageParseCache_StaleFingerprintDropsEntry proves a fingerprint miss
+// removes the entry rather than leaving a wrong answer behind it.
+func TestPackageParseCache_StaleFingerprintDropsEntry(t *testing.T) {
+	c := newPackageParseCache()
+	c.put("/dir", "old", &packageParse{imports: map[string][]string{}, pkgName: map[string]string{}})
+
+	if _, ok := c.get("/dir", "new"); ok {
+		t.Fatal("a changed fingerprint must miss")
+	}
+	if _, ok := c.entries["/dir"]; ok {
+		t.Fatal("stale entry was kept after a fingerprint miss")
+	}
+}
+
+// TestDirectoryFingerprint_IgnoresTestFiles matches what parsePackage parses:
+// test files are excluded from signature extraction, so a change to one must
+// not invalidate the package parse and pay for a full re-parse.
+func TestDirectoryFingerprint_IgnoresTestFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeTempPkg(t, dir, map[string]string{"a.go": "package p\n\nfunc A() {}\n"})
+
+	before, _, err := directoryFingerprint(dir)
+	if err != nil {
+		t.Fatalf("fingerprint: %v", err)
+	}
+	writeTempPkg(t, dir, map[string]string{"a_test.go": "package p\n\nimport \"testing\"\n\nfunc TestA(t *testing.T) {}\n"})
+	after, _, err := directoryFingerprint(dir)
+	if err != nil {
+		t.Fatalf("fingerprint: %v", err)
+	}
+	if before != after {
+		t.Error("adding a test file changed the package-parse fingerprint")
+	}
+}
+
+// TestPackageParseCache_NilSafe covers the zero-value provider the tests build
+// directly and the nil cache receiver.
+func TestPackageParseCache_NilSafe(t *testing.T) {
+	var c *packageParseCache
+	if _, ok := c.get("/dir", "fp"); ok {
+		t.Error("nil cache reported a hit")
+	}
+	c.put("/dir", "fp", &packageParse{})
+	if h, m := c.stats(); h != 0 || m != 0 {
+		t.Errorf("nil cache stats = %d/%d, want 0/0", h, m)
+	}
+
+	h := &HolographicProvider{}
+	if hits, misses := h.CacheStats(); hits != 0 || misses != 0 {
+		t.Errorf("fresh provider stats = %d/%d, want 0/0", hits, misses)
+	}
+	var nilProvider *HolographicProvider
+	if hits, misses := nilProvider.CacheStats(); hits != 0 || misses != 0 {
+		t.Errorf("nil provider stats = %d/%d, want 0/0", hits, misses)
+	}
+}
+
+// BenchmarkHolographicPromptSection measures the per-turn cost the cache
+// removes. Run with -benchtime=Nx against a large package to compare.
+func BenchmarkHolographicPromptSection(b *testing.B) {
+	dir := b.TempDir()
+	for i := 0; i < 60; i++ {
+		name := filepath.Join(dir, "f"+string(rune('a'+i/26))+string(rune('a'+i%26))+".go")
+		src := "package p\n\n// Doc.\nfunc F" + string(rune('A'+i%26)) + string(rune('a'+i/26)) + "() error { return nil }\n"
+		if err := os.WriteFile(name, []byte(src), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+	target := filepath.Join(dir, "faa.go")
+	h := NewHolographicProvider(nil, dir)
+	ctx := context.Background()
+	h.PromptSection(ctx, target) // warm
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = h.PromptSection(ctx, target)
+	}
+}
+
+// TestPackageParse_FrozenMapsAreNotMutated pins the invariant that lets clone
+// share localRefs and refCount by reference instead of deep-copying them on
+// every cache hit.
+//
+// Both are written once, by narrowLocalRefs at the end of parsePackage, and
+// only read afterwards. If a future change starts writing to either through a
+// cloned parse, every later reader of that directory sees the write — the same
+// class of bug the deep copies elsewhere in this file exist to prevent. This
+// test drives two full contexts through one cache and checks the shared maps
+// came out untouched.
+func TestPackageParse_FrozenMapsAreNotMutated(t *testing.T) {
+	dir := t.TempDir()
+	writeTempPkg(t, dir, map[string]string{
+		"helper.go": "package p\n\nfunc Helper() int { return 1 }\n",
+		"target.go": "package p\n\nfunc Target() int { return Helper() }\n",
+	})
+
+	h := NewHolographicProvider(nil, dir)
+	target := filepath.Join(dir, "target.go")
+
+	first, err := h.GetContext(target)
+	if err != nil {
+		t.Fatalf("GetContext: %v", err)
+	}
+	wantRefs := len(first.SymbolRefCount)
+	if wantRefs == 0 {
+		t.Fatal("no reference counts recorded; the fixture does not exercise the path")
+	}
+
+	// A second context over the same directory must observe the same maps.
+	second, err := h.GetContext(target)
+	if err != nil {
+		t.Fatalf("GetContext: %v", err)
+	}
+	if len(second.SymbolRefCount) != wantRefs {
+		t.Fatalf("refCount changed between calls: %d then %d", wantRefs, len(second.SymbolRefCount))
+	}
+	if second.SymbolRefCount["Helper"] != first.SymbolRefCount["Helper"] {
+		t.Fatalf("Helper reference count drifted: %d then %d",
+			first.SymbolRefCount["Helper"], second.SymbolRefCount["Helper"])
+	}
+
+	// ReferencedSymbols is a per-call slice and IS safe to mutate; prove the
+	// shared maps behind it survive that.
+	first.ReferencedSymbols = append(first.ReferencedSymbols, "INJECTED")
+	third, err := h.GetContext(target)
+	if err != nil {
+		t.Fatalf("GetContext: %v", err)
+	}
+	for _, name := range third.ReferencedSymbols {
+		if name == "INJECTED" {
+			t.Fatal("mutating one context's ReferencedSymbols leaked into the cache")
+		}
+	}
+}
+
+// TestPackageParseCache_ConcurrentAccess pins the cache under the access
+// pattern it actually sees.
+//
+// internal/system/factory.go installs ONE HolographicProvider on both the
+// session executor and the spawner, and the spawner hands the same pointer to
+// every subagent it builds. So concurrent subagent turns hit one cache at once,
+// on the prompt path, every turn.
+//
+// This package has been bitten by exactly this before: internal/diff's cache
+// raced by reassigning a sync.Map, and handed callers its own memory. Run with
+// -race; without it this test proves only that nothing panics.
+func TestPackageParseCache_ConcurrentAccess(t *testing.T) {
+	dir := t.TempDir()
+	writeTempPkg(t, dir, map[string]string{
+		"a.go": "package p\n\n// A does a.\nfunc A() error { return nil }\n",
+		"b.go": "package p\n\ntype T struct{ X int }\n\nfunc B() T { return T{} }\n",
+		"c.go": "package p\n\nfunc C() { _ = B() }\n",
+	})
+	h := NewHolographicProvider(nil, dir)
+	targets := []string{
+		filepath.Join(dir, "a.go"),
+		filepath.Join(dir, "b.go"),
+		filepath.Join(dir, "c.go"),
+	}
+
+	const workers = 8
+	const iterations = 25
+	var wg sync.WaitGroup
+	errs := make(chan error, workers*iterations)
+
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			ctx := context.Background()
+			for i := 0; i < iterations; i++ {
+				target := targets[(w+i)%len(targets)]
+				section := h.PromptSection(ctx, target)
+				if section == "" {
+					errs <- fmt.Errorf("worker %d: empty section for %s", w, target)
+					return
+				}
+				// Mutate what we were handed. A cache that shares memory with
+				// its callers turns this into corruption every later reader
+				// sees, far from here.
+				hc, err := h.GetContext(target)
+				if err != nil {
+					errs <- fmt.Errorf("worker %d: %w", w, err)
+					return
+				}
+				hc.PackageSignatures = append(hc.PackageSignatures, SymbolSignature{Name: "INJECTED"})
+				hc.PackageSiblings = append(hc.PackageSiblings, "INJECTED")
+				for j := range hc.PackageTypes {
+					hc.PackageTypes[j].Fields = append(hc.PackageTypes[j].Fields, "INJECTED")
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	// Read the counters before the verification call below, which is itself a
+	// cache access.
+	hits, misses := h.CacheStats()
+	if hits+misses != int64(workers*iterations*2) {
+		t.Errorf("accounting lost calls: %d hits + %d misses, want %d",
+			hits, misses, workers*iterations*2)
+	}
+	if hits == 0 {
+		t.Error("no cache hits under concurrent load; the cache is not being shared")
+	}
+
+	// After all that mutation the cache must still describe the package.
+	hc, err := h.GetContext(targets[0])
+	if err != nil {
+		t.Fatalf("GetContext: %v", err)
+	}
+	for _, sig := range hc.PackageSignatures {
+		if sig.Name == "INJECTED" {
+			t.Fatal("a caller's append reached the cache")
+		}
+	}
+	for _, sib := range hc.PackageSiblings {
+		if sib == "INJECTED" {
+			t.Fatal("a caller's append reached the cached sibling roster")
+		}
+	}
+	for _, td := range hc.PackageTypes {
+		for _, f := range td.Fields {
+			if f == "INJECTED" {
+				t.Fatal("a caller's append reached a cached type's Fields slice")
+			}
+		}
+	}
+
+}

@@ -577,10 +577,19 @@ func (o *Orchestrator) completeTask(task *Task, result any) {
 			}
 		}
 	}
-	o.kernel.Assert(core.Fact{
+	// task_result is what the kernel derives task completion, dependency
+	// unblocking and campaign progress from. Dropped, the task looks in-flight
+	// forever to the logic layer while the in-memory campaign counts it done —
+	// which is exactly the split that stalls a campaign with no visible cause.
+	// completeTask has no error to return, so this is logged at Error.
+	if err := o.kernel.Assert(core.Fact{
 		Predicate: "task_result",
 		Args:      []any{task.ID, "/success", resultSummary},
-	})
+	}); err != nil {
+		logging.Get(logging.CategoryCampaign).Error(
+			"Task %s completed but its task_result fact was rejected; the kernel still sees it unfinished: %v",
+			task.ID, err)
+	}
 
 	// Store result for context injection into dependent tasks
 	o.storeTaskResult(task.ID, resultSummary)

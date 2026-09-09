@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -103,7 +104,11 @@ func showStatus(cmd *cobra.Command, args []string) error {
 	fmt.Println("======================")
 	fmt.Printf("Version: Cortex 1.5.0\n")
 	fmt.Printf("Kernel:  Google Mangle (Datalog)\n")
-	fmt.Printf("Runtime: Go %s\n", "1.24")
+	// Read from the runtime rather than a literal. The literal said "1.24"
+	// while go.mod required 1.26, so `nerd status` reported a toolchain two
+	// releases stale to the one operator who went looking. A status line that
+	// is wrong about something this checkable is worse than an absent one.
+	fmt.Printf("Runtime: %s\n", runtime.Version())
 	fmt.Println()
 
 	// Report the provider the run will actually use. This used to read

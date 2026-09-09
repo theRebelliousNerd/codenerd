@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"go/parser"
 	"go/token"
 	"os"
@@ -273,37 +274,9 @@ func (v *LineEditValidator) Validate(ctx context.Context, req ActionRequest, res
 		}
 	}
 
-	// For delete_lines, count lines and verify reduction
+	// For delete_lines, verify the deletion against what was asked for.
 	if req.Type == ActionDeleteLines {
-		startLine, hasStart := req.Payload["start_line"].(int)
-		endLine, hasEnd := req.Payload["end_line"].(int)
-
-		if hasStart && hasEnd {
-			expectedDeleted := endLine - startLine + 1
-			lines := strings.Split(string(content), "\n")
-
-			// We can't verify the exact deletion without knowing the previous line count
-			// But we can verify the file has fewer lines than before (if we tracked that)
-			// For now, just verify file is readable and has content
-			if len(lines) == 0 {
-				return ValidationResult{
-					Verified:   false,
-					Confidence: 0.8,
-					Method:     ValidationMethodContentCheck,
-					Error:      "file appears empty after line deletion",
-				}
-			}
-
-			return ValidationResult{
-				Verified:   true,
-				Confidence: 0.8,
-				Method:     ValidationMethodContentCheck,
-				Details: map[string]any{
-					"expected_deleted": expectedDeleted,
-					"current_lines":    len(lines),
-				},
-			}
-		}
+		return validateDeleteLines(req, result, content)
 	}
 
 	return ValidationResult{
@@ -315,6 +288,156 @@ func (v *LineEditValidator) Validate(ctx context.Context, req ActionRequest, res
 			"line_count": strings.Count(string(content), "\n") + 1,
 		},
 	}
+}
+
+// validateDeleteLines verifies a completed delete_lines against the range that
+// was requested.
+//
+// This branch was both unreachable and vacuous. Unreachable: it read the range
+// with a bare `.(int)` assertion, but every payload that reaches VirtualStore
+// from the kernel or a tool call has been through JSON, so the numbers are
+// float64 — handleDeleteLines itself reads them as float64 — and hasStart/hasEnd
+// were false on every production delete, which fell through to the generic
+// Verified: true, Confidence: 0.85 tail. Vacuous: on the Go-caller path that did
+// pass ints, the only check was `len(strings.Split(content, "\n")) == 0`, which
+// is impossible for any string, so it returned Verified: true, Confidence: 0.8
+// for every delete — including one that removed nothing at all.
+//
+// The previous line count is not needed. FileEditor.DeleteLines clamps end_line
+// to the file length and reports what it actually removed as
+// metadata["lines_deleted"], and the untouched prefix pins the floor: after
+// deleting [start,end] the file must still hold at least start-1 lines, and when
+// fewer lines were removed than asked (the range ran past EOF) it must hold
+// EXACTLY start-1. Confidence now says which of those was checked rather than
+// asserting 0.8 for a file-is-not-empty test.
+func validateDeleteLines(req ActionRequest, result ActionResult, content []byte) ValidationResult {
+	startLine, hasStart := payloadInt(req.Payload["start_line"])
+	endLine, hasEnd := payloadInt(req.Payload["end_line"])
+
+	remaining := countTextLines(string(content))
+
+	if !hasStart || !hasEnd || startLine < 1 || endLine < startLine {
+		// Nothing to check the file against: the handler rejects such a
+		// request, so reaching here means the range never made it into the
+		// payload. Report what was actually verified — the file is readable —
+		// and nothing more.
+		return ValidationResult{
+			Verified:   true,
+			Confidence: 0.3,
+			Method:     ValidationMethodContentCheck,
+			Details: map[string]any{
+				"reason":          "delete range absent or malformed in payload; only readability checked",
+				"current_lines":   remaining,
+				"start_line_type": fmt.Sprintf("%T", req.Payload["start_line"]),
+			},
+		}
+	}
+
+	expectedDeleted := endLine - startLine + 1
+	actualDeleted, hasCount := payloadInt(result.Metadata["lines_deleted"])
+
+	details := map[string]any{
+		"expected_deleted": expectedDeleted,
+		"current_lines":    remaining,
+		"start_line":       startLine,
+		"end_line":         endLine,
+	}
+	if hasCount {
+		details["actual_deleted"] = actualDeleted
+	}
+
+	// The reported count is checked before the file, because a range that
+	// starts past EOF deletes nothing and would otherwise trip the
+	// untouched-prefix floor with a misleading over-deletion message.
+	if hasCount {
+		if actualDeleted <= 0 {
+			return ValidationResult{
+				Verified:   false,
+				Confidence: 0.95,
+				Method:     ValidationMethodContentCheck,
+				Error: fmt.Sprintf("delete_lines removed nothing: requested %d-%d (%d lines) but the handler reported 0 deleted",
+					startLine, endLine, expectedDeleted),
+				Details: details,
+			}
+		}
+		if actualDeleted > expectedDeleted {
+			return ValidationResult{
+				Verified:   false,
+				Confidence: 0.95,
+				Method:     ValidationMethodContentCheck,
+				Error: fmt.Sprintf("delete_lines removed %d lines for a %d-line range (%d-%d)",
+					actualDeleted, expectedDeleted, startLine, endLine),
+				Details: details,
+			}
+		}
+	}
+
+	// The prefix before start_line is untouched by definition, so the file
+	// cannot have come out shorter than it.
+	if remaining < startLine-1 {
+		return ValidationResult{
+			Verified:   false,
+			Confidence: 0.95,
+			Method:     ValidationMethodContentCheck,
+			Error: fmt.Sprintf("delete removed more than the requested range: %d lines remain but lines 1-%d were not in range %d-%d",
+				remaining, startLine-1, startLine, endLine),
+			Details: details,
+		}
+	}
+
+	if !hasCount {
+		details["reason"] = "handler reported no lines_deleted; only the untouched-prefix floor was checked"
+		return ValidationResult{
+			Verified:   true,
+			Confidence: 0.5,
+			Method:     ValidationMethodContentCheck,
+			Details:    details,
+		}
+	}
+
+	if actualDeleted < expectedDeleted {
+		// The range ran off the end of the file, so the delete truncated at
+		// start_line. Anything else means the count and the file disagree.
+		if remaining != startLine-1 {
+			return ValidationResult{
+				Verified:   false,
+				Confidence: 0.9,
+				Method:     ValidationMethodContentCheck,
+				Error: fmt.Sprintf("delete_lines reported %d of %d requested lines removed, which only happens at EOF, but %d lines remain instead of %d",
+					actualDeleted, expectedDeleted, remaining, startLine-1),
+				Details: details,
+			}
+		}
+		details["clamped_at_eof"] = true
+		return ValidationResult{
+			Verified:   true,
+			Confidence: 0.9,
+			Method:     ValidationMethodContentCheck,
+			Details:    details,
+		}
+	}
+
+	return ValidationResult{
+		Verified:   true,
+		Confidence: 0.9,
+		Method:     ValidationMethodContentCheck,
+		Details:    details,
+	}
+}
+
+// countTextLines counts lines the way FileEditor does: bufio.Scanner semantics,
+// so a trailing newline does not invent an extra empty line. Line endings are
+// normalized first because a CRLF working copy must not count differently.
+func countTextLines(content string) int {
+	content = normalizeLineEndings(content)
+	if content == "" {
+		return 0
+	}
+	n := strings.Count(content, "\n")
+	if !strings.HasSuffix(content, "\n") {
+		n++
+	}
+	return n
 }
 
 // normalizeLineEndings folds CRLF and lone CR to LF so content checks compare

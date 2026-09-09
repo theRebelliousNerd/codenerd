@@ -43,8 +43,8 @@ type chatRequest struct {
 }
 
 type chatTool struct {
-	Type     string         `json:"type"`
-	Function chatToolFunc   `json:"function"`
+	Type     string       `json:"type"`
+	Function chatToolFunc `json:"function"`
 }
 
 type chatToolFunc struct {

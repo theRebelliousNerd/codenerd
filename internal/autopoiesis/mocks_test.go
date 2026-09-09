@@ -156,11 +156,13 @@ func (m *MockKernelInterface) RetractExactFactsBatch(facts []types.Fact) error {
 func (m *MockKernelInterface) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
 	return nil
 }
+
 // Transaction exists to satisfy types.KernelTransactor via the embedded typestest.MockKernel.
 // Declared explicitly so the KernelTransactor guard's AST scan sees the method; the body
 // delegates to the promoted implementation so behaviour is identical to embedding alone.
-func (m *MockKernelInterface) Transaction() types.KernelTransaction { return m.MockKernel.Transaction() }
-
+func (m *MockKernelInterface) Transaction() types.KernelTransaction {
+	return m.MockKernel.Transaction()
+}
 
 // --- MockLLMClient ---
 

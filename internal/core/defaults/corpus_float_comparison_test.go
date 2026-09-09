@@ -104,11 +104,11 @@ func TestFloatComparisonRegex(t *testing.T) {
 	}
 
 	shouldNotMatch := []string{
-		"    Score >= 80.",                              // integer comparison — fine
-		"    |> let Avg = fn:float:sum(Xs).",            // float arithmetic — supported
+		"    Score >= 80.",                                 // integer comparison — fine
+		"    |> let Avg = fn:float:sum(Xs).",               // float arithmetic — supported
 		"# Replaces the hardcoded Confidence >= 0.5 check", // prose in a comment
-		"layer_priority(/scaffold, 10).",                // a plain fact
-		"    Dist > 30.",                                // integer threshold
+		"layer_priority(/scaffold, 10).",                   // a plain fact
+		"    Dist > 30.",                                   // integer threshold
 	}
 	for _, s := range shouldNotMatch {
 		if floatComparisonRE.MatchString(stripMangleComment(s)) {

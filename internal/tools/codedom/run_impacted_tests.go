@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"codenerd/internal/logging"
@@ -59,13 +60,42 @@ type TestImpactProvider interface {
 	NewTestDependencyAnalyzer() TestDependencyAnalyzer
 }
 
-// globalTestProvider is set by RegisterTestImpactProvider.
-var globalTestProvider TestImpactProvider
+// globalTestProvider is set by RegisterTestImpactProvider and read by the two
+// impacted-test tools.
+//
+// It is guarded because a process can hold more than one Cortex — every
+// system.NewCortex in the test suite builds another one, and the boot path
+// registers from each. An unguarded package global written during one boot and
+// read by a tool call on another goroutine is a data race that -race will find
+// eventually and production will find first.
+var (
+	testProviderMu     sync.RWMutex
+	globalTestProvider TestImpactProvider
+)
 
 // RegisterTestImpactProvider sets the provider for test impact analysis.
-// This should be called during initialization.
+//
+// Called from internal/system.wireTestImpactProvider during Cortex boot. Until
+// 2026-09-09 nothing called it, which meant run_impacted_tests and
+// get_impacted_tests were registered in both tool registries, advertised to the
+// model in internal/prompt/atoms/capability/codedom_tools.yaml, and returned
+// "test impact provider not initialized" every single time they were invoked —
+// a whole turn spent to learn a capability does not exist.
+//
+// A nil provider clears the slot rather than panicking, so a boot path that
+// could not build a kernel leaves the tools failing honestly instead of
+// dereferencing nil.
 func RegisterTestImpactProvider(provider TestImpactProvider) {
+	testProviderMu.Lock()
+	defer testProviderMu.Unlock()
 	globalTestProvider = provider
+}
+
+// testImpactProvider returns the registered provider, or nil.
+func testImpactProvider() TestImpactProvider {
+	testProviderMu.RLock()
+	defer testProviderMu.RUnlock()
+	return globalTestProvider
 }
 
 // RunImpactedTestsTool returns the tool definition for running impacted tests.
@@ -137,10 +167,50 @@ func GetImpactedTestsTool() *tools.Tool {
 	}
 }
 
+// editedRefsFromKernel collects the CodeDOM refs of everything edited so far.
+//
+// element_modified(Ref, SessionID, Timestamp) is emitted by every CodeDOM edit
+// handler (internal/core/virtual_store_codedom.go) and carries a real ref, so
+// it is the reliable source. plan_edit(Ref) is checked too because the
+// predicate is declared for exactly this and a future producer may fill it;
+// until 2026-09-09 its only producer emitted file paths into it, which matched
+// nothing here and made both tools return "no impacted tests" for every real
+// invocation.
+func editedRefsFromKernel(kernel KernelQuerier) []string {
+	if kernel == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, 8)
+	var refs []string
+	for _, predicate := range []string{"element_modified", "plan_edit"} {
+		facts, err := kernel.Query(predicate)
+		if err != nil {
+			logging.ToolsDebug("impacted tests: %s query failed: %v", predicate, err)
+			continue
+		}
+		for _, fact := range facts {
+			if len(fact.Args) == 0 {
+				continue
+			}
+			ref, ok := fact.Args[0].(string)
+			if !ok || ref == "" {
+				continue
+			}
+			if _, dup := seen[ref]; dup {
+				continue
+			}
+			seen[ref] = struct{}{}
+			refs = append(refs, ref)
+		}
+	}
+	return refs
+}
+
 // executeRunImpactedTests runs tests affected by code changes.
 func executeRunImpactedTests(ctx context.Context, args map[string]any) (string, error) {
-	if globalTestProvider == nil {
-		return "", fmt.Errorf("test impact provider not initialized")
+	provider := testImpactProvider()
+	if provider == nil {
+		return "", fmt.Errorf("test impact provider not initialized: run this from a booted workspace (nerd run/fix/chat), not a bare tool registry")
 	}
 
 	// Parse arguments
@@ -150,19 +220,9 @@ func executeRunImpactedTests(ctx context.Context, args map[string]any) (string, 
 	verbose := parseBool(args["verbose"], false)
 	timeout := parseString(args["timeout"], "10m")
 
-	// If no refs provided, query kernel for plan_edit facts
+	// If no refs provided, ask the kernel what has been edited.
 	if len(editedRefs) == 0 {
-		kernel := globalTestProvider.GetKernel()
-		facts, err := kernel.Query("plan_edit")
-		if err == nil {
-			for _, fact := range facts {
-				if len(fact.Args) >= 1 {
-					if ref, ok := fact.Args[0].(string); ok {
-						editedRefs = append(editedRefs, ref)
-					}
-				}
-			}
-		}
+		editedRefs = editedRefsFromKernel(provider.GetKernel())
 	}
 
 	if len(editedRefs) == 0 {
@@ -170,7 +230,7 @@ func executeRunImpactedTests(ctx context.Context, args map[string]any) (string, 
 	}
 
 	// Build test dependency graph
-	analyzer := globalTestProvider.NewTestDependencyAnalyzer()
+	analyzer := provider.NewTestDependencyAnalyzer()
 	if err := analyzer.Build(ctx); err != nil {
 		return "", fmt.Errorf("failed to build test dependency graph: %w", err)
 	}
@@ -237,7 +297,7 @@ func executeRunImpactedTests(ctx context.Context, args map[string]any) (string, 
 
 	if len(packages) > 0 {
 		// Run go test on impacted packages
-		testResult, err := runGoTests(ctx, globalTestProvider.GetProjectRoot(), packages, timeout, verbose)
+		testResult, err := runGoTests(ctx, provider.GetProjectRoot(), packages, timeout, verbose)
 		if err != nil {
 			result.WriteString(fmt.Sprintf("Test execution failed: %v\n", err))
 		}
@@ -249,31 +309,22 @@ func executeRunImpactedTests(ctx context.Context, args map[string]any) (string, 
 
 // executeGetImpactedTests queries impacted tests without running them.
 func executeGetImpactedTests(ctx context.Context, args map[string]any) (string, error) {
-	if globalTestProvider == nil {
-		return "", fmt.Errorf("test impact provider not initialized")
+	provider := testImpactProvider()
+	if provider == nil {
+		return "", fmt.Errorf("test impact provider not initialized: run this from a booted workspace (nerd run/fix/chat), not a bare tool registry")
 	}
 
 	// Parse arguments
 	editedRefs := parseStringArray(args["edited_refs"])
 	includeCoverageGaps := parseBool(args["include_coverage_gaps"], false)
 
-	// If no refs provided, query kernel for plan_edit facts
+	// If no refs provided, ask the kernel what has been edited.
 	if len(editedRefs) == 0 {
-		kernel := globalTestProvider.GetKernel()
-		facts, err := kernel.Query("plan_edit")
-		if err == nil {
-			for _, fact := range facts {
-				if len(fact.Args) >= 1 {
-					if ref, ok := fact.Args[0].(string); ok {
-						editedRefs = append(editedRefs, ref)
-					}
-				}
-			}
-		}
+		editedRefs = editedRefsFromKernel(provider.GetKernel())
 	}
 
 	// Build test dependency graph
-	analyzer := globalTestProvider.NewTestDependencyAnalyzer()
+	analyzer := provider.NewTestDependencyAnalyzer()
 	if err := analyzer.Build(ctx); err != nil {
 		return "", fmt.Errorf("failed to build test dependency graph: %w", err)
 	}

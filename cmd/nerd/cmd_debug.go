@@ -183,4 +183,3 @@ func DumpKernelSnapshot(kernel core.Kernel, workspace string) string {
 	logging.Persist("--dump-kernel: wrote %d facts to %s", len(facts), path)
 	return path
 }
-

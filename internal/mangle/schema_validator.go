@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"codeberg.org/TauCeti/mangle-go/analysis"
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 // =============================================================================
@@ -307,46 +308,108 @@ func (sv *SchemaValidator) ValidateRules(rules []string) []error {
 }
 
 // ValidateProgram validates an entire Mangle program text.
-// Returns errors for each invalid rule.
+//
+// The analysis result used to be computed and then thrown away — `_ = programInfo`
+// under the comment "Suppress 'programInfo declared but not used' error by using
+// it" — while the actual check was strings.Split(programText, "\n") plus a
+// substring test for ":-". That stand-in was blind in both directions. A rule
+// wrapped across lines (which is every non-trivial rule in defaults/) had only
+// its FIRST fragment validated: continuation lines carry no ":-" so they were
+// skipped entirely, and the fragment's truncated body hid every predicate below
+// the wrap. In the other direction, a ":-" inside a string literal or a trailing
+// comment was validated as though it were a rule. A nil return from whole-program
+// validation therefore meant close to nothing.
+//
+// The parser has already produced the clauses; use them. Premise predicates now
+// come from the desugared AST, which has resolved wrapping, negation, string
+// literals and comments before we look at a single name.
+//
+// Scope, so callers know what a nil return buys: this checks that every body
+// predicate has a data source (Bug #18, schema drift). Syntax errors come from
+// ParseUnit and binding/stratification errors from AnalyzeOneUnit; both are
+// returned verbatim above.
 func (sv *SchemaValidator) ValidateProgram(programText string) error {
-	// Parse the program to extract individual rules
 	parsed, err := ParseUnit(strings.NewReader(programText))
 	if err != nil {
 		return fmt.Errorf("parse error: %w", err)
 	}
 
-	// Analyze to get program info
 	programInfo, err := analysis.AnalyzeOneUnit(parsed, nil)
 	if err != nil {
 		return fmt.Errorf("analysis error: %w", err)
 	}
 
-	// Extract rules from the analyzed program
-	// For now, we'll use a simpler approach: split on lines and validate each rule-like line
-	lines := strings.Split(programText, "\n")
-	var errors []string
-
-	for i, line := range lines {
-		line = strings.TrimSpace(line)
-		// Skip comments and empty lines
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		// Check if this is a rule (contains :-)
-		if strings.Contains(line, ":-") {
-			if err := sv.ValidateRule(line); err != nil {
-				errors = append(errors, fmt.Sprintf("line %d: %v", i+1, err))
-			}
-		}
+	// A body predicate is sourced if the system schema declares it, if Mangle
+	// builds it in, or if THIS program produces it (rule head or standalone
+	// fact). Anything else is drift: analysis accepts the rule because the
+	// program declared the predicate locally, and the rule then never fires
+	// because nothing in the running system ever asserts it.
+	produced := make(map[string]bool, len(programInfo.Rules)+len(programInfo.InitialFacts))
+	for _, rule := range programInfo.Rules {
+		produced[rule.Head.Predicate.Symbol] = true
+	}
+	for _, fact := range programInfo.InitialFacts {
+		produced[fact.Predicate.Symbol] = true
 	}
 
-	// Suppress "programInfo declared but not used" error by using it
-	_ = programInfo
+	var errors []string
+	for _, rule := range programInfo.Rules {
+		for _, name := range sv.unsourcedPremisePredicates(rule, produced) {
+			errors = append(errors, fmt.Sprintf("rule %s uses undefined predicate %q (available: %v)",
+				rule.Head.Predicate.Symbol, name, sv.getAvailablePredicates()))
+		}
+	}
 
 	if len(errors) > 0 {
 		return fmt.Errorf("validation errors:\n%s", strings.Join(errors, "\n"))
 	}
 
+	return nil
+}
+
+// unsourcedPremisePredicates returns the body predicates of one clause that no
+// schema declares, no builtin provides, and this program does not produce.
+// Reported in premise order, once per name per clause.
+func (sv *SchemaValidator) unsourcedPremisePredicates(rule ast.Clause, produced map[string]bool) []string {
+	var undefined []string
+	seen := make(map[string]bool)
+
+	for _, premise := range rule.Premises {
+		for _, sym := range premisePredicates(premise) {
+			name := sym.Symbol
+			if seen[name] {
+				continue
+			}
+			// Builtins (:lt, :match_prefix, ...) and the synthetic predicates
+			// analysis generates while desugaring transforms have no Decl and
+			// are not drift.
+			if sym.IsBuiltin() || sym.IsInternalPredicate() || sv.isBuiltin(name) {
+				continue
+			}
+			if sv.declaredPredicates[name] || produced[name] {
+				continue
+			}
+			seen[name] = true
+			undefined = append(undefined, name)
+		}
+	}
+
+	return undefined
+}
+
+// premisePredicates returns the predicate symbols a single premise references.
+// Eq, Ineq and transform statements carry no predicate and yield nothing.
+func premisePredicates(term ast.Term) []ast.PredicateSym {
+	switch t := term.(type) {
+	case ast.Atom:
+		return []ast.PredicateSym{t.Predicate}
+	case ast.NegAtom:
+		return []ast.PredicateSym{t.Atom.Predicate}
+	case ast.TemporalAtom:
+		return []ast.PredicateSym{t.Atom.Predicate}
+	case ast.TemporalLiteral:
+		return premisePredicates(t.Literal)
+	}
 	return nil
 }
 

@@ -332,7 +332,7 @@ func TestTransactionManager_ToFacts(t *testing.T) {
 	// Get facts
 	facts = tm.ToFacts()
 
-	// Should have transaction_state and plan_edit facts
+	// Should have transaction_state and modified_file facts
 	var hasTransactionState, hasPlanEdit bool
 	for _, f := range facts {
 		if f.Predicate == "transaction_state" {
@@ -341,7 +341,7 @@ func TestTransactionManager_ToFacts(t *testing.T) {
 				t.Error("transaction_state should have 2 args")
 			}
 		}
-		if f.Predicate == "plan_edit" {
+		if f.Predicate == "modified_file" {
 			hasPlanEdit = true
 		}
 	}
@@ -350,7 +350,7 @@ func TestTransactionManager_ToFacts(t *testing.T) {
 		t.Error("Expected transaction_state fact")
 	}
 	if !hasPlanEdit {
-		t.Error("Expected plan_edit fact")
+		t.Error("Expected modified_file fact")
 	}
 
 	_ = txn
@@ -581,14 +581,20 @@ func TestTransactionManager_MultiFileEdit(t *testing.T) {
 
 	// Verify facts are generated for all edits
 	facts := tm.ToFacts()
+	// TransactionManager.ToFacts reports edits as modified_file, not plan_edit.
+	// plan_edit is declared as plan_edit(Ref) — "Element is planned for
+	// editing" — and all five of its consumers in test_impact.mg bind its
+	// argument from code_element's ref. FileEdit carries only a path, so
+	// emitting one into plan_edit produced a fact no rule could ever match.
+	// These assertions pinned the producer's behaviour, not the contract.
 	planEditCount := 0
 	for _, f := range facts {
-		if f.Predicate == "plan_edit" {
+		if f.Predicate == "modified_file" {
 			planEditCount++
 		}
 	}
 	if planEditCount != 3 {
-		t.Errorf("Expected 3 plan_edit facts, got %d", planEditCount)
+		t.Errorf("Expected 3 modified_file facts, got %d", planEditCount)
 	}
 }
 
@@ -711,7 +717,7 @@ func TestTransactionManager_MultiFileFactGeneration(t *testing.T) {
 		if f.Predicate == "transaction_state" {
 			hasTransactionState = true
 		}
-		if f.Predicate == "plan_edit" && len(f.Args) >= 1 {
+		if f.Predicate == "modified_file" && len(f.Args) >= 1 {
 			if path, ok := f.Args[0].(string); ok {
 				planEditFiles = append(planEditFiles, path)
 			}
@@ -723,7 +729,7 @@ func TestTransactionManager_MultiFileFactGeneration(t *testing.T) {
 	}
 
 	if len(planEditFiles) != 3 {
-		t.Errorf("Expected 3 plan_edit facts, got %d", len(planEditFiles))
+		t.Errorf("Expected 3 modified_file facts, got %d", len(planEditFiles))
 	}
 
 	// Verify all file paths are represented
@@ -733,13 +739,13 @@ func TestTransactionManager_MultiFileFactGeneration(t *testing.T) {
 	}
 
 	if !fileSet[goFile] {
-		t.Error("Missing plan_edit for Go file")
+		t.Error("Missing modified_file for Go file")
 	}
 	if !fileSet[tsFile] {
-		t.Error("Missing plan_edit for TypeScript file")
+		t.Error("Missing modified_file for TypeScript file")
 	}
 	if !fileSet[pyFile] {
-		t.Error("Missing plan_edit for Python file")
+		t.Error("Missing modified_file for Python file")
 	}
 }
 

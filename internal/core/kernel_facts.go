@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"reflect"
@@ -412,6 +413,29 @@ func (k *RealKernel) rebuildFactIndexLocked() {
 // OPTIMIZATION: Also caches the converted atom to avoid repeated ToAtom() calls.
 // SAFETY: Enforces MaxFactsInKernel limit and rejects facts that fail ToAtom().
 func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
+	added, _ := k.addFactIfNewLockedErr(f)
+	return added
+}
+
+// addFactIfNewLockedErr is addFactIfNewLocked plus the reason it said no.
+//
+// "Not added" carried two opposite meanings behind one bool: the fact was
+// already in the EDB (a no-op, entirely fine), or the fact was REJECTED and
+// will never be in the EDB. Assert read that bool as "duplicate" and returned
+// nil for both, so a fact the kernel threw out reported SUCCESS to its caller
+// and simply was not there afterwards.
+//
+// That is not hypothetical. coerceAtomToDeclLocked refuses a fractional float
+// in a slot the Decl bounds /number — it has to, because this Mangle fork's
+// comparison builtins are int64-only and one such fact aborts the entire
+// fixpoint. DreamRouter asserts dream_preference(Content, 0.85) and friends;
+// every one of those was dropped here and every one reported success, which is
+// how three Dream State learning predicates ended up with a Decl, a Go
+// producer, and no rows. Every `if err := kernel.Assert(f); err != nil` guard
+// in the tree was defeated by the same conflation.
+//
+// Duplicates still return (false, nil): a no-op is not a failure.
+func (k *RealKernel) addFactIfNewLockedErr(f Fact) (bool, error) {
 	// Enforce EDB size limit to prevent unbounded memory growth
 	maxFacts := k.maxFacts
 	if maxFacts <= 0 {
@@ -420,7 +444,7 @@ func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 	if len(k.facts) >= maxFacts {
 		logging.Get(logging.CategoryKernel).Warn("EDB fact limit reached (%d/%d), rejecting fact: %s",
 			len(k.facts), maxFacts, f.Predicate)
-		return false
+		return false, fmt.Errorf("EDB fact limit reached (%d/%d), rejected %s", len(k.facts), maxFacts, f.Predicate)
 	}
 
 	// Intern predicate name + string args so repeated values across
@@ -430,7 +454,7 @@ func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 	k.ensureFactIndexLocked()
 	key := k.canonFact(f)
 	if _, ok := k.factIndex[key]; ok {
-		return false
+		return false, nil
 	}
 
 	// Convert to atom once and cache it.
@@ -441,7 +465,7 @@ func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 	atom, err := k.factToAtomLocked(f)
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Error("addFactIfNewLocked: rejecting fact that fails ToAtom: %s - %v", f.Predicate, err)
-		return false
+		return false, fmt.Errorf("fact %s rejected by the kernel: %w", f.Predicate, err)
 	}
 
 	cacheInSync := !k.atomCacheStale && k.cachedAtoms != nil && len(k.cachedAtoms) == len(k.facts)
@@ -466,7 +490,7 @@ func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 		k.factsSinceLastEval = append(k.factsSinceLastEval, f)
 		k.markStratumDirtyLocked(atom.Predicate)
 	}
-	return true
+	return true, nil
 }
 
 // markStratumDirtyLocked sets the stratum that owns predicateSym and every
@@ -514,12 +538,20 @@ func (k *RealKernel) Assert(fact Fact) error {
 	k.mu.Lock()
 
 	fact = sanitizeFactForNumericPredicates(fact)
-	if !k.addFactIfNewLocked(fact) {
+	added, addErr := k.addFactIfNewLockedErr(fact)
+	if addErr != nil {
+		// The fact is not in the EDB and never will be. Returning nil here made
+		// every Assert error check in the tree ornamental.
+		k.mu.Unlock()
+		return addErr
+	}
+	if !added {
 		// Duplicate assert is a no-op — suppress debug to avoid log spam
 		k.mu.Unlock()
 		return nil
 	}
 	k.factsDirty.Store(true)
+	k.warnIfUndeclaredLocked(fact)
 	logging.KernelDebug("Assert: fact added successfully, total facts=%d", len(k.facts))
 	k.mu.Unlock()
 
@@ -607,9 +639,18 @@ func (k *RealKernel) AssertBatch(facts []Fact) error {
 
 	addedCount := 0
 	addedPredicates := make(map[string]struct{}) // Track unique predicates for event bus
+	// Rejections are collected, not swallowed: the good facts still land (a
+	// batch is a convenience, not a transaction) but the caller is told which
+	// ones did not, so a fallback loop or a retry has something to act on.
+	var rejected []error
 	for _, fact := range facts {
 		fact = sanitizeFactForNumericPredicates(fact)
-		if k.addFactIfNewLocked(fact) {
+		added, addErr := k.addFactIfNewLockedErr(fact)
+		if addErr != nil {
+			rejected = append(rejected, addErr)
+			continue
+		}
+		if added {
 			addedCount++
 			addedPredicates[fact.Predicate] = struct{}{}
 			logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
@@ -617,6 +658,10 @@ func (k *RealKernel) AssertBatch(facts []Fact) error {
 	}
 
 	if addedCount == 0 {
+		if len(rejected) > 0 {
+			k.mu.Unlock()
+			return fmt.Errorf("AssertBatch rejected all %d facts: %w", len(rejected), errors.Join(rejected...))
+		}
 		logging.KernelDebug("AssertBatch: all %d facts were duplicates", len(facts))
 		k.mu.Unlock()
 		return nil
@@ -634,6 +679,10 @@ func (k *RealKernel) AssertBatch(facts []Fact) error {
 		for pred := range addedPredicates {
 			k.eventBus.Publish(pred)
 		}
+	}
+	if len(rejected) > 0 {
+		return fmt.Errorf("AssertBatch added %d of %d facts; %d rejected: %w",
+			addedCount, len(facts), len(rejected), errors.Join(rejected...))
 	}
 	return nil
 }

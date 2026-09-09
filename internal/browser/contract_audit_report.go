@@ -46,12 +46,12 @@ var orderedReportSections = []string{
 }
 
 var findingSectionSet = map[string]struct{}{
-	"observations":       {},
-	"inferences":         {},
-	"skipped":            {},
-	"approval_required":  {},
+	"observations":        {},
+	"inferences":          {},
+	"skipped":             {},
+	"approval_required":   {},
 	"contract_mismatches": {},
-	"execution_failures": {},
+	"execution_failures":  {},
 }
 
 func isFindingSection(name string) bool {

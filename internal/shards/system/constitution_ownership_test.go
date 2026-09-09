@@ -39,7 +39,7 @@ func assertPendingAction(t *testing.T, kernel *core.RealKernel, actionID string)
 		// Payload is asserted the way production does (encodeActionPayload →
 		// string): RetractExactFact compares stored args with the queried
 		// fact's args, and a raw Go map never round-trips equal.
-		Args:      []any{actionID, "/read_file", "hello.txt", encodeActionPayload(map[string]any{}), time.Now().Unix()},
+		Args: []any{actionID, "/read_file", "hello.txt", encodeActionPayload(map[string]any{}), time.Now().Unix()},
 	}); err != nil {
 		t.Fatalf("assert pending_action %q: %v", actionID, err)
 	}

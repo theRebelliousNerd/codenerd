@@ -66,4 +66,4 @@ No feature-flag-specific counters in the features package. Cortex route hit/miss
 2. If line says `defaults active`, no Features block was installed (or SetActive(nil)).  
 3. For DiffEval issues, force env `CODENERD_DIFF_EVAL=0` and restart.  
 4. For shard boot skip, check `CODENERD_SYSTEM_SHARDS` and config `system_shards`.  
-5. Remember legacy `NERD_DISABLE_SYSTEM_SHARDS` is a **list**, not the master switch.  
+5. Remember `--disable-system-shard` is a **repeatable name flag**, not the master switch.  

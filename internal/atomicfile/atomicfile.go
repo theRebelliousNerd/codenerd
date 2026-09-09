@@ -89,4 +89,3 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 func Replace(src, dst string) error {
 	return replaceExisting(src, dst)
 }
-

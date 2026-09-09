@@ -663,6 +663,17 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		if err != nil {
 			return nil, fmt.Errorf("failed to assemble prompt: %w", err)
 		}
+
+		// Step 5b: Enforce the budget on what was actually assembled.
+		//
+		// Fit charges per-atom render-mode token counts. The assembler then
+		// expands {{...}} placeholders and joins with separators, so the
+		// emitted prompt can exceed the budget Fit reported as satisfied —
+		// {{available_specialists}} alone interpolates the whole agent
+		// registry over a 25-character placeholder. Until this step existed
+		// the overshoot was detected in logCompilationStats and then shipped
+		// anyway: the contract said "bounded", the wire said otherwise.
+		fitted, prompt = c.enforceAssembledBudget(fitted, cc, prompt, budget)
 		stats.AssembleMs = time.Since(assembleStart).Milliseconds()
 
 		// Finalize timing
@@ -803,6 +814,75 @@ func extractStringArgFast(arg any) (string, error) {
 	}
 }
 
+// Kernel-injected atoms are synthesized from live fact rows, not from the
+// reviewed corpus, so nothing upstream has ever looked at their size. They are
+// also emitted with IsMandatory=true, which means budget.Fit skips category
+// allocation for them entirely and only rejects the merged atom when it exceeds
+// the ENTIRE budget (see budget.go, "Mandatory atom %s rejected"). Two failure
+// modes follow from that, and both were live:
+//
+//  1. Growth. prompt_northstar.mg emits one injectable_context row per mission
+//     constraint and per risk with no limit, so a project that keeps declaring
+//     risks keeps growing a mandatory prompt section that outranks every
+//     optional atom in the corpus.
+//  2. Cliff. Because it is one merged atom, crossing the budget does not shed
+//     the least important row — it drops the whole block, silently, and the
+//     model loses the northstar entirely with no marker saying so.
+//
+// Capping at construction converts both into a visible, graduated loss.
+const (
+	// maxKernelContextRows caps injectable_context rows merged into the
+	// kernel-context atom. Spreading activation on a large workspace derives
+	// hundreds; the top rows carry the mission and the current focus, and the
+	// tail is near-duplicate neighbourhood chatter.
+	maxKernelContextRows = 60
+
+	// maxKernelContextRowChars caps one injectable_context row. A row is a
+	// single declarative sentence by contract; anything longer is a producer
+	// dumping a document into a fact slot.
+	maxKernelContextRowChars = 1024
+
+	// maxKernelInjectedAtomChars is the ceiling on either merged kernel atom
+	// (~4k tokens at the 4-chars-per-token estimate). Both are mandatory, so
+	// this is the largest slice of an 8k-token shard budget either is allowed
+	// to take before the corpus gets a look in.
+	maxKernelInjectedAtomChars = 16 * 1024
+
+	// maxSpecialistKnowledgeBlocks caps specialist_knowledge topics merged
+	// into one atom. Beyond a handful the model is being handed a library, not
+	// a briefing.
+	maxSpecialistKnowledgeBlocks = 12
+
+	// maxSpecialistTopicChars caps a specialist_knowledge topic heading.
+	maxSpecialistTopicChars = 200
+
+	// maxSpecialistBlockChars caps one specialist_knowledge body so a single
+	// verbose expert cannot crowd out its siblings inside the shared ceiling.
+	maxSpecialistBlockChars = 4 * 1024
+)
+
+// renderKernelContextBlock merges injectable_context rows under the caps above,
+// leaving markers so the model can tell "this is everything" from "this is the
+// first 60 of 400".
+func renderKernelContextBlock(rows []string) string {
+	var sb strings.Builder
+	sb.WriteString("// KERNEL-INJECTED CONTEXT (from spreading activation)\n")
+	shown := len(rows)
+	if shown > maxKernelContextRows {
+		shown = maxKernelContextRows
+	}
+	for _, row := range rows[:shown] {
+		sb.WriteString("- ")
+		sb.WriteString(ClampHead(row, maxKernelContextRowChars, "injectable_context row"))
+		sb.WriteString("\n")
+	}
+	if notice := TruncationNotice(shown, len(rows), "injectable_context rows"); notice != "" {
+		sb.WriteString(notice)
+		sb.WriteString("\n")
+	}
+	return ClampText(sb.String(), maxKernelInjectedAtomChars, "injectable_context")
+}
+
 func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) ([]*PromptAtom, error) {
 	if c.kernel == nil || cc == nil {
 		return nil, nil
@@ -846,14 +926,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		}
 	}
 	if len(ctxAtoms) > 0 {
-		var sb strings.Builder
-		sb.WriteString("// KERNEL-INJECTED CONTEXT (from spreading activation)\n")
-		for _, atom := range ctxAtoms {
-			sb.WriteString("- ")
-			sb.WriteString(atom)
-			sb.WriteString("\n")
-		}
-		content := sb.String()
+		content := renderKernelContextBlock(ctxAtoms)
 		id := "kernel/context/" + HashContent(content)[:8]
 		pa := NewPromptAtom(id, CategoryContext, content)
 		pa.IsMandatory = true
@@ -887,14 +960,22 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		if len(blocks) > 0 {
 			var sb strings.Builder
 			sb.WriteString("// SPECIALIST KNOWLEDGE (Type B/U expertise)\n")
-			for _, b := range blocks {
+			shown := len(blocks)
+			if shown > maxSpecialistKnowledgeBlocks {
+				shown = maxSpecialistKnowledgeBlocks
+			}
+			for _, b := range blocks[:shown] {
 				sb.WriteString("## ")
-				sb.WriteString(b.topic)
+				sb.WriteString(ClampHead(b.topic, maxSpecialistTopicChars, "specialist_knowledge topic"))
 				sb.WriteString("\n")
-				sb.WriteString(b.content)
+				sb.WriteString(ClampText(b.content, maxSpecialistBlockChars, "specialist_knowledge body"))
 				sb.WriteString("\n\n")
 			}
-			content := strings.TrimRight(sb.String(), "\n")
+			if notice := TruncationNotice(shown, len(blocks), "specialist_knowledge blocks"); notice != "" {
+				sb.WriteString(notice)
+				sb.WriteString("\n")
+			}
+			content := ClampText(strings.TrimRight(sb.String(), "\n"), maxKernelInjectedAtomChars, "specialist_knowledge")
 			id := "kernel/knowledge/" + HashContent(content)[:8]
 			pa := NewPromptAtom(id, CategoryKnowledge, content)
 			pa.IsMandatory = true
@@ -1233,10 +1314,14 @@ func (c *JITPromptCompiler) logCompilationStats(stats *CompilationStats, result 
 	// re-serve it for every cache HIT on the same context, contaminating the
 	// LLM with truncation-prone payloads. Surface it loudly so callers (and
 	// log audits) can see when the budget contract is violated.
+	// Post-enforcement this should be unreachable: Compile step 5b sheds
+	// optional atoms and, failing that, truncates. It is kept as the assertion
+	// that enforcement worked — if it ever fires again, enforceAssembledBudget
+	// has a hole in it, and the log line is the only place that will say so.
 	if stats.TokenBudget > 0 && stats.TokensUsed > stats.TokenBudget {
 		overshoot := stats.TokensUsed - stats.TokenBudget
 		logger.Warn(
-			"JIT[%s] budget breach: assembled %d tokens vs budget %d (+%d, %.1f%%) — assembler boilerplate exceeded budgetMgr.Fit accounting; consider reserving headroom in fit step",
+			"JIT[%s] budget breach SURVIVED ENFORCEMENT: assembled %d tokens vs budget %d (+%d, %.1f%%) — enforceAssembledBudget failed to shed or truncate; this is a bug in step 5b, not a headroom problem",
 			stats.ShardID, stats.TokensUsed, stats.TokenBudget, overshoot, stats.BudgetUtilization*100,
 		)
 	}
@@ -1397,4 +1482,63 @@ func (c *JITPromptCompiler) closeResources() error {
 	}()
 
 	return finalErr
+}
+
+// promptBudgetCharsPerToken converts a token budget into a byte ceiling for
+// the last-resort truncation. It matches EstimateTokens' (len+3)/4 heuristic;
+// using the same constant in both directions keeps the backstop from firing on
+// a prompt the measurement already considers in budget.
+const promptBudgetCharsPerToken = 4
+
+// promptTruncationMarkerBudget reserves bytes for truncatePrompt's marker
+// inside the budget. Without the reservation the marker itself pushes the
+// prompt back over the ceiling it was added to respect — the enforcement would
+// report success while shipping an over-budget prompt, which is the exact
+// failure this whole path exists to remove.
+const promptTruncationMarkerBudget = 160
+
+// enforceAssembledBudget makes the assembled prompt honour the token budget.
+//
+// Two stages, in the order the hardening brief requires: shed whole optional
+// atoms first (a missing exemplar is legible; half an exemplar is a lie), then
+// truncate as a last resort when the mandatory skeleton alone overflows. The
+// truncation is head+tail with a visible marker, so a prompt that had to be cut
+// says so instead of presenting itself as complete.
+func (c *JITPromptCompiler) enforceAssembledBudget(
+	fitted []*OrderedAtom,
+	cc *CompilationContext,
+	prompt string,
+	budget int,
+) ([]*OrderedAtom, string) {
+	if budget <= 0 || prompt == "" || cc == nil {
+		return fitted, prompt
+	}
+	if EstimateTokens(prompt) <= budget {
+		return fitted, prompt
+	}
+
+	budgetMgr := c.budgetMgr
+	if budgetMgr == nil {
+		budgetMgr = NewTokenBudgetManager()
+	}
+
+	kept, shedPrompt, used := budgetMgr.ShedToFit(fitted, prompt, budget, func(atoms []*OrderedAtom) (string, error) {
+		return c.assembler.Assemble(atoms, cc)
+	})
+	if used <= budget {
+		return kept, shedPrompt
+	}
+
+	// Every optional atom is gone and the prompt is still over. This is the
+	// mandatory skeleton plus template expansion; nothing here is safe to drop
+	// silently, so cut visibly and shout about it.
+	logging.Get(logging.CategoryJIT).Warn(
+		"JIT[%s] mandatory skeleton exceeds budget after shedding: %d tokens vs budget %d — truncating with a visible marker; raise TokenBudget or split the mandatory atoms",
+		cc.ShardID, used, budget,
+	)
+	ceiling := budget*promptBudgetCharsPerToken - promptTruncationMarkerBudget
+	if ceiling <= 0 {
+		ceiling = budget * promptBudgetCharsPerToken
+	}
+	return kept, truncatePrompt(shedPrompt, ceiling)
 }

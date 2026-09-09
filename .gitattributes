@@ -10,3 +10,7 @@
 # Note: .gitignore line 20 ignores all dotfiles ("(.*)"), which catches this
 # file too, so it had to be added with "git add -f".
 *.golden text eol=lf
+
+# The dead-code baseline is compared line by line; pin eol so a Windows
+# checkout does not read every entry as changed.
+scripts/testdata/deadcode-baseline.txt text eol=lf

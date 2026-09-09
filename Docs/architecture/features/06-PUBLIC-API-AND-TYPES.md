@@ -201,7 +201,7 @@ updated. Deleting `legacyEnvVar` from the tables then fails
 `TestEnvMigration_LegacyVarsShouldBeTheKnownFour` loudly instead of changing
 behavior silently.
 
-`NERD_DISABLE_SYSTEM_SHARDS` is **out of scope**: it is parsed at its call site
+`--disable-system-shard` is **out of scope**: it is parsed at its call site
 as a comma-separated list of shard names and is not part of this registry.
 
 ## 10. `PerShardFacts` — why it is still opt-in

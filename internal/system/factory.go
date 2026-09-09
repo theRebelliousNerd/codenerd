@@ -1690,6 +1690,22 @@ func initShardManagement(bctx *bootContext) error {
 		bctx.shardManager.DisableSystemShard(name)
 	}
 
+	// features.IsSystemShardsEnabled is documented as "the master switch for
+	// booting the autopoiesis/observer background shards" and is reported by
+	// `nerd features`, but it had no non-test caller anywhere: setting
+	// CODENERD_SYSTEM_SHARDS=0 did nothing at all. A flag an operator can see,
+	// read a description of, and set with no effect is worse than an absent
+	// one — it makes them believe they have turned something off.
+	//
+	// Gated here rather than inside ShardManager so the per-shard
+	// --disable-system-shard flag above and this master switch stay in one
+	// place, and so internal/core/shards keeps its independence from
+	// internal/features.
+	if !features.IsSystemShardsEnabled() {
+		logging.Boot("System shards disabled by CODENERD_SYSTEM_SHARDS; skipping StartSystemShards")
+		return nil
+	}
+
 	if err := bctx.shardManager.StartSystemShards(bctx.ctx); err != nil {
 		return fmt.Errorf("failed to start system shards: %w", err)
 	}
@@ -1871,6 +1887,13 @@ func initFinalExecutors(bctx *bootContext) error {
 	if ck, ok := bctx.kernel.(*core.CortexKernel); ok {
 		if rk := ck.GetPrimaryRealKernel(); rk != nil {
 			fileContextProvider = world.NewHolographicProvider(rk, bctx.workspace)
+			// The impacted-test tools read a package-level provider that
+			// nothing set until 2026-09-09, so run_impacted_tests and
+			// get_impacted_tests failed on every call while still being
+			// advertised to the model. Registering here ties their lifetime to
+			// the Cortex that owns the kernel they query. See
+			// test_impact_provider.go.
+			wireTestImpactProvider(rk, bctx.workspace)
 		}
 	}
 	if fileContextProvider != nil {

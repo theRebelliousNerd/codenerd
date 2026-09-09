@@ -28,6 +28,17 @@ import (
 // - Variables (e.g., Atom, X, _) are treated as wildcards.
 // - Constants (name constants like /foo, strings like "bar", numbers) must match.
 func (k *RealKernel) Query(predicate string) ([]Fact, error) {
+	// A nil receiver is an error, not a crash. Query is reached through
+	// interfaces (core.Kernel, world.FactQuerier, the shadow-mode querier), and
+	// a nil *RealKernel stored in one of those is a NON-nil interface, so a
+	// caller's `if k == nil` guard does not fire and ensureEvaluated
+	// dereferences nil. Panicking there takes the whole agent down over a
+	// wiring gap; returning an error lets the fail-closed paths — which are the
+	// ones that ask a kernel whether something is safe — record a failed check
+	// and refuse, which is what they are built to do.
+	if k == nil {
+		return nil, fmt.Errorf("query %q: kernel is nil", predicate)
+	}
 	if predicate == "" {
 		return nil, fmt.Errorf("cannot query empty predicate string")
 	}

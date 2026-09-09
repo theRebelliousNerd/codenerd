@@ -114,7 +114,6 @@ func TestWriteFileTool_Execute_MissingPath(t *testing.T) {
 	}
 }
 
-
 // TODO: Gap 1.1: write_file - The Null / Empty Content Boundary - What happens if content is exactly "" or null vs missing? (Null/Undefined/Empty)
 // func TestWriteFileTool_Execute_EmptyContent(t *testing.T) { ... }
 func TestWriteFileTool_Execute_Success(t *testing.T) {
@@ -223,7 +222,6 @@ func TestEditFileTool_Execute_MissingSearch(t *testing.T) {
 		t.Error("expected error for missing old_text")
 	}
 }
-
 
 // TODO: Gap 1.3: edit_file - Empty old_text - What if old_text is whitespace or zero-width? (Null/Undefined/Empty)
 // func TestEditFileTool_Execute_WhitespaceOldText_Ambiguity(t *testing.T) { ... }
@@ -446,7 +444,6 @@ func TestDeleteFileTool_Execute_MissingPath(t *testing.T) {
 	}
 }
 
-
 // TODO: Gap 2.2: delete_file - Confirmed Coercion - Confirmed as string "yes" or int 1? (Type Coercion)
 // func TestDeleteFileTool_Execute_ConfirmedTypeMismatch(t *testing.T) { ... }
 
@@ -511,7 +508,6 @@ func TestListFilesTool_Execute_MissingPath(t *testing.T) {
 	}
 	_ = result // result depends on current directory
 }
-
 
 // TODO: Gap 1.2: list_files - The Empty Path Boundary - Implicit fallback to . on null vs empty string? (Null/Undefined/Empty)
 // func TestListFilesTool_Execute_NullPath_ImplicitDefault(t *testing.T) { ... }

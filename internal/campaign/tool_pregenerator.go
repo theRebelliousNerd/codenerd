@@ -518,15 +518,19 @@ func (p *ToolPregenerator) generateTool(ctx context.Context, gap ToolGap) (*Gene
 		}
 		tool.Status = "validated"
 
-		// Run through Thunderdome if required
+		// Adversarial testing. The Ouroboros loop already runs the Thunderdome
+		// in its own phase 2.5 (ouroboros.go:507) with EnableThunderdome
+		// defaulting to true, so this is not a second battle — it is reading
+		// the verdict the loop already reached, and refusing the tool when the
+		// arena did not actually run.
+		tool.PassedThunderdome = result.ThunderdomeRan && result.ThunderdomeSurvived
 		if p.config.RequireThunderdome && result.ToolHandle != nil {
-			passed, errors := p.runThunderdomeForTool(ctx, result.ToolHandle)
-			tool.PassedThunderdome = passed
-			if !passed {
-				tool.ValidationErrors = append(tool.ValidationErrors, errors...)
+			if reasons := thunderdomeRefusalReasons(ctx, result); len(reasons) > 0 {
+				tool.ValidationErrors = append(tool.ValidationErrors, reasons...)
 				tool.Status = "failed"
-				return tool, fmt.Errorf("tool failed Thunderdome: %v", errors)
+				return tool, fmt.Errorf("tool failed Thunderdome: %v", reasons)
 			}
+			logging.CampaignDebug("Tool %s survived %d Thunderdome attacks", result.ToolName, result.ThunderdomeAttacks)
 		}
 
 		tool.Status = "ready"
@@ -540,25 +544,32 @@ func (p *ToolPregenerator) generateTool(ctx context.Context, gap ToolGap) (*Gene
 	return tool, nil
 }
 
-// runThunderdomeForTool runs a runtime tool through adversarial testing.
-func (p *ToolPregenerator) runThunderdomeForTool(ctx context.Context, tool *autopoiesis.RuntimeTool) (bool, []string) {
-	// Check for context cancellation
+// thunderdomeRefusalReasons returns why a generated tool must not be accepted
+// under RequireThunderdome, or nil when it earned its pass.
+//
+// This replaced a stub that returned (true, nil) unconditionally. With
+// RequireThunderdome defaulting to true (DefaultPregeneratorConfig), that stub
+// meant every pregenerated tool was stamped PassedThunderdome without an attack
+// vector ever being fired — the campaign reported a safety property it had not
+// checked. "No verdict" is now a refusal, not a pass: a tool whose arena did
+// not run is exactly the tool a campaign should not silently adopt.
+func thunderdomeRefusalReasons(ctx context.Context, result *autopoiesis.LoopResult) []string {
 	if err := ctx.Err(); err != nil {
-		return false, []string{fmt.Sprintf("Thunderdome cancelled: %v", err)}
+		return []string{fmt.Sprintf("Thunderdome cancelled: %v", err)}
 	}
-
-	// Placeholder for Thunderdome integration
-	// In full implementation, this would run attack vectors against the tool
-	logging.CampaignDebug("Thunderdome testing for tool: %s (ctx deadline: %v)", tool.Name,
-		func() string {
-			if d, ok := ctx.Deadline(); ok {
-				return d.Format(time.RFC3339)
-			}
-			return "none"
-		}())
-
-	// For now, assume tools pass if they were generated successfully
-	return true, nil
+	if result == nil {
+		return []string{"Thunderdome verdict unavailable: no loop result"}
+	}
+	if !result.ThunderdomeRan {
+		// The loop skips the arena when the Thunderdome is disabled, when the
+		// PanicMaker produced no attacks, or when the battle itself errored.
+		// All three leave the tool untested.
+		return []string{"Thunderdome did not run: tool is untested against adversarial input (arena disabled, no attack vectors generated, or battle failed)"}
+	}
+	if !result.ThunderdomeSurvived {
+		return []string{fmt.Sprintf("Thunderdome defeated the tool after %d attacks", result.ThunderdomeAttacks)}
+	}
+	return nil
 }
 
 // countResolvedGaps counts gaps that have been resolved.

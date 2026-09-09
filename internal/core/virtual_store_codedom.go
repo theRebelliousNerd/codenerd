@@ -237,6 +237,10 @@ func (v *VirtualStore) handleEditElement(ctx context.Context, req ActionRequest)
 		Fact{Predicate: "element_modified", Args: []any{ref, req.SessionID, time.Now().Unix()}},
 		Fact{Predicate: "modified", Args: []any{elem.File}},
 	)
+	// Start the impact chain. impact.mg joins modified_function against
+	// code_calls to derive who is affected; without this fact the whole
+	// caller-impact analysis derives nothing. See codedom_modified_symbols.go.
+	factsToAdd = append(factsToAdd, modifiedSymbolFacts(elem)...)
 
 	// Refresh scope to update line numbers with retry
 	if err := scope.RefreshWithRetry(3); err != nil {
@@ -355,6 +359,11 @@ func (v *VirtualStore) handleEditLines(ctx context.Context, req ActionRequest) (
 		newLines = strings.Split(strings.TrimSuffix(newContent, "\n"), "\n")
 	}
 
+	// Resolve which symbols this range touches BEFORE the edit and the scope
+	// refresh: afterwards the line numbers have moved, and the elements the
+	// edit removed are gone from the scope entirely.
+	modifiedSymbols := modifiedSymbolFactsForLineRange(scope, path, int(startLine), int(endLine))
+
 	result, err := editor.EditLines(path, int(startLine), int(endLine), newLines)
 	if err != nil {
 		return ActionResult{
@@ -365,6 +374,7 @@ func (v *VirtualStore) handleEditLines(ctx context.Context, req ActionRequest) (
 
 	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
 	factsToAdd = append(factsToAdd, result.Facts...)
+	factsToAdd = append(factsToAdd, modifiedSymbols...)
 
 	// Refresh scope if active with retry
 	if scope != nil && scope.IsInScope(path) {
@@ -419,6 +429,11 @@ func (v *VirtualStore) handleInsertLines(ctx context.Context, req ActionRequest)
 
 	newLines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
 
+	// An insertion after line N lands inside whatever element spans N, so the
+	// range is the single line it follows. Resolved before the edit, while the
+	// scope's line numbers still describe the file on disk.
+	modifiedSymbols := modifiedSymbolFactsForLineRange(scope, path, int(afterLine), int(afterLine))
+
 	result, err := editor.InsertLines(path, int(afterLine), newLines)
 	if err != nil {
 		return ActionResult{
@@ -429,6 +444,7 @@ func (v *VirtualStore) handleInsertLines(ctx context.Context, req ActionRequest)
 
 	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
 	factsToAdd = append(factsToAdd, result.Facts...)
+	factsToAdd = append(factsToAdd, modifiedSymbols...)
 
 	// Refresh scope if active with retry
 	if scope != nil && scope.IsInScope(path) {
@@ -480,6 +496,10 @@ func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest)
 		return ActionResult{Success: false, Error: "delete_lines requires 'start_line' and 'end_line' in payload"}, nil
 	}
 
+	// Resolve before the delete: after it the element may not exist at all,
+	// and a deleted function is precisely the one whose callers matter most.
+	modifiedSymbols := modifiedSymbolFactsForLineRange(scope, path, int(startLine), int(endLine))
+
 	result, err := editor.DeleteLines(path, int(startLine), int(endLine))
 	if err != nil {
 		return ActionResult{
@@ -490,6 +510,7 @@ func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest)
 
 	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
 	factsToAdd = append(factsToAdd, result.Facts...)
+	factsToAdd = append(factsToAdd, modifiedSymbols...)
 
 	// Refresh scope if active with retry
 	if scope != nil && scope.IsInScope(path) {

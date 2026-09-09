@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -103,8 +104,11 @@ func (m *pbMockVirtualStore) ReadRaw(path string) ([]byte, error) { return nil, 
 type pbMockConfigFactory struct{}
 
 func (m *pbMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+	// write_file is admitted, e2e_forbidden_tool is not. That is the boundary
+	// this file exists to test, and it is unchanged: the envelope asks for
+	// three tools and exactly the two on this list may run.
 	return &config.EffectiveAgentRuntimeConfig{
-		AllowedTools: []string{"e2e_safe_tool"},
+		AllowedTools: []string{"e2e_safe_tool", "write_file"},
 	}, nil
 }
 
@@ -143,6 +147,10 @@ func (m *pbMockTransducer) SetStrategicContext(ctx string)                   {}
 // - Unsafe mangle_updates (permitted, safe_action, next_action, rule injection, shell injection)
 // - A tool_request for an allowed tool (e2e_safe_tool)
 // - A tool_request for a forbidden tool (e2e_forbidden_tool)
+// pbWritePath is the file the legitimate write request targets. Set by the
+// test before the envelope is built.
+var pbWritePath string
+
 func buildAdversarialPiggybackJSON() string {
 	envelope := articulation.PiggybackEnvelope{
 		Control: articulation.ControlPacket{
@@ -187,6 +195,27 @@ func buildAdversarialPiggybackJSON() string {
 						"target": "owned",
 					},
 					Purpose:  "prove forbidden tool is blocked",
+					Required: true,
+				},
+				// A legitimate write alongside the adversarial requests.
+				//
+				// The envelope's own control packet declares Verb "/fix", and
+				// checkHollowSuccess (8e9507d) refuses a write-oriented intent
+				// that completes no write-mutation tool call. Without this the
+				// turn failed before any of the assertions below could run.
+				// Adding it does not soften the boundary being tested — the
+				// JIT allowlist still admits only e2e_safe_tool and write_file,
+				// and e2e_forbidden_tool is still refused — it makes the
+				// scenario realistic: a real /fix turn writes something, and
+				// the adversarial requests have to be blocked around it.
+				{
+					ID:       "req_write",
+					ToolName: "write_file",
+					ToolArgs: map[string]interface{}{
+						"path":    pbWritePath,
+						"content": "piggyback fixture",
+					},
+					Purpose:  "legitimate write so the /fix turn is not hollow",
 					Required: true,
 				},
 			},
@@ -237,6 +266,7 @@ func TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary(t *testing.T)
 	if !registry.Has("e2e_safe_tool") {
 		safeTool := &tools.Tool{
 			Name:        "e2e_safe_tool",
+			Effect:      tools.EffectRead,
 			Description: "E2E test safe tool — increments counter and records args",
 			Category:    tools.CategoryGeneral,
 			Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -260,6 +290,7 @@ func TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary(t *testing.T)
 	if !registry.Has("e2e_forbidden_tool") {
 		forbiddenTool := &tools.Tool{
 			Name:        "e2e_forbidden_tool",
+			Effect:      tools.EffectRead,
 			Description: "E2E test forbidden tool — must NEVER execute",
 			Category:    tools.CategoryGeneral,
 			Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -281,6 +312,16 @@ func TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary(t *testing.T)
 	// =========================================================================
 	// 3. BUILD MOCK LLM that returns adversarial piggyback envelope
 	// =========================================================================
+	// Set before the envelope is marshalled, not after.
+	//
+	// buildAdversarialPiggybackJSON reads pbWritePath at marshal time, so
+	// assigning it later produced an envelope carrying an empty path, the
+	// write stub refused the call, and the turn still failed hollow — with
+	// tool_calls=3 making it look like the write had been attempted and
+	// rejected on its merits.
+	registerWriteTurnTool(t)
+	pbWritePath = filepath.Join(t.TempDir(), "piggyback_write.txt")
+
 	mockLLM := &pbMockLLMClient{
 		piggybackResponse: buildAdversarialPiggybackJSON(),
 	}
@@ -288,7 +329,17 @@ func TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary(t *testing.T)
 	// =========================================================================
 	// 4. CREATE EXECUTOR with real kernel and all mocks
 	// =========================================================================
-	vstore := &pbMockVirtualStore{}
+	// A real VirtualStore, not pbMockVirtualStore.
+	//
+	// write_file carries EffectWrite, and executeToolCall requires an
+	// InteractiveExecutiveGate for anything that is not EffectRead.
+	// pbMockVirtualStore does not implement one, so the call would be refused
+	// with "mandatory executive gate unavailable". Giving the test a
+	// no-op gate would have rubber-stamped the very check this file is about;
+	// a real store wired to the real kernel above gives it a real Dreamer
+	// instead, with the safety gate left ON below.
+	vstore := core.NewVirtualStore(nil)
+	wireDreamer(vstore, kernel)
 	jit := &pbMockJITCompiler{}
 	cfgFactory := &pbMockConfigFactory{}
 	trans := &pbMockTransducer{}
@@ -531,9 +582,19 @@ func TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary(t *testing.T)
 			result.ToolCallsExecuted, atomic.LoadInt64(&safeToolCalls), atomic.LoadInt64(&forbiddenToolCalls))
 
 		// The executor increments ToolCallsExecuted for every tool call attempt,
-		// even if the tool is blocked. Both req_safe and req_forbidden are attempted.
-		if result.ToolCallsExecuted != 2 {
-			t.Errorf("Expected ToolCallsExecuted == 2 (both attempted), got %d", result.ToolCallsExecuted)
+		// even if the tool is blocked. The envelope carries three requests —
+		// req_safe, req_forbidden, and req_write — so three are attempted.
+		//
+		// req_write was added so the envelope's own "/fix" intent completes a
+		// write-mutation tool and is not refused as a hollow success. It does
+		// not soften what this assertion guards: the counts below still pin
+		// exactly one safe execution and zero forbidden ones, and the split
+		// between "attempted" and "actually ran" is the whole point.
+		if result.ToolCallsExecuted != 3 {
+			t.Errorf("Expected ToolCallsExecuted == 3 (safe, forbidden and write all attempted), got %d", result.ToolCallsExecuted)
+		}
+		if result.SuccessfulWriteTools != 1 {
+			t.Errorf("Expected exactly 1 successful write-mutation tool, got %d", result.SuccessfulWriteTools)
 		}
 
 		// But only 1 actually ran (safe tool), 1 was blocked (forbidden tool)

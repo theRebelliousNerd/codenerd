@@ -424,8 +424,14 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input any) 
 		sb.WriteString("// =============================================================================\n")
 		sb.WriteString("// KERNEL-INJECTED CONTEXT (Derived from Logic)\n")
 		sb.WriteString("// =============================================================================\n\n")
-		for _, atom := range contextAtoms {
-			sb.WriteString(fmt.Sprintf("- %s\n", atom))
+		shown := min(len(contextAtoms), maxInjectedContextAtoms)
+		for _, atom := range contextAtoms[:shown] {
+			sb.WriteString(fmt.Sprintf("- %s\n",
+				prompt.ClampHead(atom, maxInjectedContextAtomChars, "injectable_context row")))
+		}
+		if notice := prompt.TruncationNotice(shown, len(contextAtoms), "injectable_context rows"); notice != "" {
+			sb.WriteString(notice)
+			sb.WriteString("\n")
 		}
 		sb.WriteString("\n")
 	}
@@ -598,7 +604,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 				sb.WriteString(fmt.Sprintf("  - ... and %d more build/lint errors\n", len(ctx.CurrentDiagnostics)-maxCount))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  %s\n", diag))
+			sb.WriteString(fmt.Sprintf("  %s\n", sessionContextLine(diag)))
 		}
 	}
 
@@ -614,7 +620,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 				sb.WriteString(fmt.Sprintf("  - ... and %d more failing tests\n", len(ctx.FailingTests)-maxCount))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  - %s\n", test))
+			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(test)))
 		}
 	}
 
@@ -627,7 +633,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 				sb.WriteString(fmt.Sprintf("  - ... and %d more findings\n", len(ctx.RecentFindings)-maxCount))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  - %s\n", finding))
+			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(finding)))
 		}
 	}
 
@@ -640,7 +646,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 				sb.WriteString(fmt.Sprintf("  - ... and %d more reflection hits\n", len(ctx.ReflectionHits)-maxCount))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  - %s\n", hit))
+			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(hit)))
 		}
 	}
 
@@ -653,7 +659,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 				sb.WriteString(fmt.Sprintf("  - ... and %d more impacted files\n", len(ctx.ImpactedFiles)-maxCount))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  - %s\n", file))
+			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(file)))
 		}
 	}
 
@@ -677,7 +683,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 					sb.WriteString(fmt.Sprintf("    - ... and %d more commits\n", len(ctx.GitRecentCommits)-maxCount))
 					break
 				}
-				sb.WriteString(fmt.Sprintf("    - %s\n", commit))
+				sb.WriteString(fmt.Sprintf("    - %s\n", sessionContextLine(commit)))
 			}
 		}
 	}
@@ -689,7 +695,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 			sb.WriteString(fmt.Sprintf("  Phase: %s\n", ctx.CampaignPhase))
 		}
 		if ctx.CampaignGoal != "" {
-			sb.WriteString(fmt.Sprintf("  Goal: %s\n", ctx.CampaignGoal))
+			sb.WriteString(fmt.Sprintf("  Goal: %s\n", sessionContextLine(ctx.CampaignGoal)))
 		}
 		if len(ctx.TaskDependencies) > 0 {
 			sb.WriteString("  Blocked by: ")
@@ -712,7 +718,8 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 				status = "FAILED"
 			}
 			sb.WriteString(fmt.Sprintf("  [%s] %s: %s - %s\n",
-				output.ShardType, status, output.Task, output.Summary))
+				output.ShardType, status,
+				sessionContextLine(output.Task), sessionContextLine(output.Summary)))
 		}
 	}
 
@@ -725,7 +732,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 				sb.WriteString(fmt.Sprintf("  - ... and %d more recent actions\n", len(ctx.RecentActions)-maxCount))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  - %s\n", action))
+			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(action)))
 		}
 	}
 
@@ -738,14 +745,14 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 				sb.WriteString(fmt.Sprintf("  - ... and %d more knowledge atoms\n", len(ctx.KnowledgeAtoms)-maxCount))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  - %s\n", atom))
+			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(atom)))
 		}
 		for i, hint := range ctx.SpecialistHints {
 			if i >= maxCount {
 				sb.WriteString(fmt.Sprintf("  - ... and %d more hints\n", len(ctx.SpecialistHints)-maxCount))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  - HINT: %s\n", hint))
+			sb.WriteString(fmt.Sprintf("  - HINT: %s\n", sessionContextLine(hint)))
 		}
 	}
 
@@ -758,7 +765,7 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 				sb.WriteString(fmt.Sprintf("  - ... and %d more tools\n", len(ctx.AvailableTools)-maxCount))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  - %s: %s\n", tool.Name, tool.Description))
+			sb.WriteString(fmt.Sprintf("  - %s: %s\n", tool.Name, sessionContextLine(tool.Description)))
 			if tool.BinaryPath != "" {
 				sb.WriteString(fmt.Sprintf("    Binary: %s\n", tool.BinaryPath))
 			}
@@ -774,14 +781,14 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 				sb.WriteString(fmt.Sprintf("  BLOCKED: ... and %d more blocked actions\n", len(ctx.BlockedActions)-maxCount))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  BLOCKED: %s\n", blocked))
+			sb.WriteString(fmt.Sprintf("  BLOCKED: %s\n", sessionContextLine(blocked)))
 		}
 		for i, warning := range ctx.SafetyWarnings {
 			if i >= maxCount {
 				sb.WriteString(fmt.Sprintf("  WARNING: ... and %d more safety warnings\n", len(ctx.SafetyWarnings)-maxCount))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  WARNING: %s\n", warning))
+			sb.WriteString(fmt.Sprintf("  WARNING: %s\n", sessionContextLine(warning)))
 		}
 	}
 
@@ -792,7 +799,45 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 		sb.WriteString("\n")
 	}
 
-	return sb.String()
+	// Every section above caps its ELEMENT COUNT at 20 and (since this pass)
+	// each element's length. Twelve sections x 20 elements x the per-line cap
+	// is still ~120 KB, so the block gets a ceiling of its own. Head+tail: the
+	// head carries diagnostics and failing tests (what is broken), the tail
+	// carries safety constraints and compressed history (what must not be
+	// done). Cutting either end blind loses one of those.
+	return prompt.ClampText(sb.String(), maxSessionContextChars, "session context")
+}
+
+// Bounds on the legacy blackboard block.
+//
+// This is the fallback assembler: it runs when JIT compilation fails, which is
+// exactly when the system is already degraded and least able to absorb a
+// context-window error on top. Every list here was count-capped at 20 and
+// length-capped nowhere, so one shard that returned a 4 MB summary — a
+// reviewer dumping a whole file, a tester pasting full `go test` output —
+// put 4 MB into the next prompt.
+const (
+	// maxSessionContextLineChars caps one blackboard line. These are meant to
+	// be one-line facts: a failing test name, a diagnostic, a finding, a
+	// commit subject. A longer one is a producer pasting a payload into a
+	// slot sized for a label.
+	maxSessionContextLineChars = 500
+
+	// maxSessionContextChars caps the assembled blackboard block (~8k tokens).
+	maxSessionContextChars = 32 * 1024
+
+	// maxInjectedContextAtoms caps kernel-injected context lines in the legacy
+	// path. Mirrors maxKernelContextRows on the JIT path so the fallback does
+	// not admit what the primary path rejects.
+	maxInjectedContextAtoms = 60
+
+	// maxInjectedContextAtomChars caps one kernel-injected context line.
+	maxInjectedContextAtomChars = 1024
+)
+
+// sessionContextLine bounds one blackboard line with a visible marker.
+func sessionContextLine(s string) string {
+	return prompt.ClampHead(s, maxSessionContextLineChars, "session context line")
 }
 
 // buildIntentContext formats the user intent for prompt injection.

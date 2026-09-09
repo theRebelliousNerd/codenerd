@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"codenerd/internal/core"
-	"codenerd/internal/perception"
-	"codenerd/internal/session"
 	"codenerd/internal/jit/config"
+	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/session"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 )
@@ -53,7 +53,7 @@ func TestE2E_Boundary_Session_Kernel_FactIsolation(t *testing.T) {
 	}
 
 	intent := perception.Intent{
-		Verb: "/fix",
+		Verb:   "/fix",
 		Target: "auth.go",
 	}
 	fact := intent.ToFact()
@@ -100,7 +100,7 @@ func TestE2E_Boundary_Session_Kernel_ConcurrentStateCorruption(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			intent := perception.Intent{
-				Verb: fmt.Sprintf("/fix_%d", id),
+				Verb:   fmt.Sprintf("/fix_%d", id),
 				Target: fmt.Sprintf("file_%d.go", id),
 			}
 			err := k.Assert(intent.ToFact())
@@ -236,7 +236,7 @@ func TestE2E_Boundary_Session_Kernel_AtomStringDissonance(t *testing.T) {
 
 	fact := core.Fact{
 		Predicate: "user_intent",
-		Args: []any{ast.String("id"), ast.String("cat"), ast.String("/fix"), ast.String("t"), ast.String("c")},
+		Args:      []any{ast.String("id"), ast.String("cat"), ast.String("/fix"), ast.String("t"), ast.String("c")},
 	}
 	_ = k.Assert(fact)
 
@@ -253,7 +253,7 @@ func TestE2E_Boundary_Session_Kernel_InvalidArity(t *testing.T) {
 
 	fact := core.Fact{
 		Predicate: "user_intent",
-		Args: []any{ast.String("/fix"), ast.String("target"), ast.String("constraint")},
+		Args:      []any{ast.String("/fix"), ast.String("target"), ast.String("constraint")},
 	}
 
 	err := k.Assert(fact)
@@ -348,14 +348,30 @@ func TestE2E_Boundary_Session_Kernel_StringAllocationPressure(t *testing.T) {
 
 	largeString := strings.Repeat("A", 1024*1024)
 
+	// The index goes in FRONT of the payload, not after it.
+	//
+	// Intent.ToFact runs Target through sanitizeFactArg, which truncates at
+	// 2048 bytes. With the index appended, all 100 targets truncate to the same
+	// 2048 "A"s, so the kernel correctly stores one fact and the assertion of
+	// 100 could never hold. The truncation is a deliberate injection-and-size
+	// guard on a field that carries user input; it is the test that was wrong,
+	// putting its only distinguishing information past the cut.
+	//
+	// Prefixing keeps what this test is actually for — allocating and asserting
+	// a hundred one-megabyte strings — while making the count mean something.
 	for i := 0; i < 100; i++ {
-		intent := perception.Intent{Verb: "/parse", Target: fmt.Sprintf("%s_%d", largeString, i)}
-		_ = k.Assert(intent.ToFact())
+		intent := perception.Intent{Verb: "/parse", Target: fmt.Sprintf("%d_%s", i, largeString)}
+		if err := k.Assert(intent.ToFact()); err != nil {
+			t.Fatalf("assert %d: %v", i, err)
+		}
 	}
 
-	res, _ := k.Query("user_intent(_, _, /parse, _, _)")
+	res, err := k.Query("user_intent(_, _, /parse, _, _)")
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
 	if len(res) != 100 {
-		t.Fatalf("Failed large string allocation test")
+		t.Fatalf("large string allocation: expected 100 distinct facts, got %d", len(res))
 	}
 }
 
@@ -591,9 +607,9 @@ func TestE2E_Boundary_Session_Kernel_IntentFidelity(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			intent := perception.Intent{
-				Verb: tc.verb,
-				Target: tc.target,
-				Category: tc.category,
+				Verb:       tc.verb,
+				Target:     tc.target,
+				Category:   tc.category,
 				Constraint: tc.constraint,
 			}
 			err := k.Assert(intent.ToFact())

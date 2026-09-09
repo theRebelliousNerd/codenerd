@@ -90,6 +90,6 @@ perception → kernel facts → policy (core defaults .mg)
 | Flag / env | Effect |
 |------------|--------|
 | `features.IsSystemShardsEnabled()` | Skip StartSystemShards in chat boot |
-| `NERD_DISABLE_SYSTEM_SHARDS` | Comma-separated disable list (chat) |
+| `--disable-system-shard` | Repeatable CLI flag naming a shard to skip |
 | `BootConfig.DisableSystemShards` / CLI `--disable-system-shard` | Factory disable set |
 | `features.IsPerShardFactsEnabled()` | Flag surface exists, but no production consumer calls the exported shards manifest; do not infer wiring from the flag |

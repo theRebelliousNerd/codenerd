@@ -1180,7 +1180,7 @@ func (o *Orchestrator) appendTasksToPhase(phaseID string, tasks []Task) error {
 
 	// Persist campaign immediately for long-horizon durability.
 	o.mu.Lock()
-	_ = o.saveCampaign()
+	o.persistCampaign("assault phase expansion")
 	o.mu.Unlock()
 
 	return nil

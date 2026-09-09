@@ -207,7 +207,7 @@ func TestNewDockerLogFetcher_WhenContainerNameInvalid_ShouldError(t *testing.T) 
 	}
 }
 
- // TestParseDockerLogLines_ShouldParseRealDockerTimestampFormat pins the real
+// TestParseDockerLogLines_ShouldParseRealDockerTimestampFormat pins the real
 // Docker wire format. Docker emits a fixed nine-digit nanosecond field (e.g.
 // .100000000Z) while time.RFC3339Nano elides trailing zeros (e.g. .1Z), so a
 // round trip through Go's formatter cannot prove compatibility with the real
@@ -258,4 +258,3 @@ func TestParseDockerLogLines_ShouldParseRealDockerTimestampFormat(t *testing.T) 
 		t.Fatalf("trailing-zero line: expected Nanosecond() == 100000000, got %d (timestamp %v)", got, lines[2].Timestamp)
 	}
 }
-

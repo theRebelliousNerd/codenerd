@@ -8,12 +8,12 @@ import (
 
 func TestInteractiveContinuation_Table(t *testing.T) {
 	cases := []struct {
-		name         string
-		input        string
-		isEOF        bool
-		lastErrored  bool
-		wantExit     bool
-		wantCmd      InteractiveMetaCommand
+		name        string
+		input       string
+		isEOF       bool
+		lastErrored bool
+		wantExit    bool
+		wantCmd     InteractiveMetaCommand
 	}{
 		{
 			name:        "EOF after shard error exits",

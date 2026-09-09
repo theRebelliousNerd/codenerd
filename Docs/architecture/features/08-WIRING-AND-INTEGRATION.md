@@ -24,7 +24,7 @@ cmd/nerd/main.go main()
             └─ interactive chat → session_boot
                    if IsProvenanceEnabled → kernel.EnableProvenance
                    if !IsSystemShardsEnabled → skip shard boot
-                   else start system shards + NERD_DISABLE_SYSTEM_SHARDS list
+                   else start system shards + --disable-system-shard names
 ```
 
 **Ordering requirement:** config load **before** any feature-gated boot check. main.go comments document this explicitly for FlightRecorder and system shards.

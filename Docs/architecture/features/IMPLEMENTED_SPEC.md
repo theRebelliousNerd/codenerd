@@ -232,7 +232,7 @@ Garbage env (`yes`, `maybe`, `2`) falls through — intentional.
 ### System shards dual control
 
 - **Master:** `IsSystemShardsEnabled()` / `CODENERD_SYSTEM_SHARDS` / `features.system_shards`  
-- **Per-shard disable list (legacy):** `NERD_DISABLE_SYSTEM_SHARDS` comma list + CLI `--disable-system-shard` — parsed in session_boot, **not** in features  
+- **Per-shard disable:** CLI `--disable-system-shard` (repeatable, `cmd/nerd/main.go`) — applied in `internal/system/factory.go`, **not** in features. There is no `NERD_DISABLE_SYSTEM_SHARDS` env var; the string appears in no `.go` file (corrected 2026-09-09).  
 
 `TestSystemShardsLegacyEnvIgnored` proves legacy env does not flip the master switch.
 

@@ -123,11 +123,20 @@ func (o *Orchestrator) runPhaseCheckpoint(ctx context.Context, phase *Phase) (bo
 		}
 		o.mu.Unlock()
 
-		// Record in kernel
-		o.kernel.Assert(core.Fact{
+		// Record in kernel. A checkpoint verdict the kernel never receives is a
+		// verification that did not happen as far as every downstream rule is
+		// concerned, and the loop below still returns allPassed to the caller —
+		// so a dropped assert would let a phase advance on a checkpoint result
+		// nothing can audit. runPhaseCheckpoint's own verdict is unaffected, so
+		// this is logged rather than failing the checkpoint.
+		if err := o.kernel.Assert(core.Fact{
 			Predicate: "phase_checkpoint",
 			Args:      []any{phase.ID, string(obj.VerificationMethod), passed, details, time.Now().Unix()},
-		})
+		}); err != nil {
+			logging.Get(logging.CategoryCampaign).Error(
+				"Checkpoint %s for phase %s (passed=%v) was not recorded in the kernel: %v",
+				obj.VerificationMethod, phase.ID, passed, err)
+		}
 	}
 
 	return allPassed, strings.Join(failedSummaries, " | "), nil

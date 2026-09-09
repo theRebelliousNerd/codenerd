@@ -11,6 +11,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
+	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
 
@@ -200,6 +201,65 @@ func identifyBottleneck(promptMs, llmMs, parseRouteMs int64) string {
 
 // BuildPrompt constructs the user prompt with conversation history, learned semantic matches,
 // ambient session context, and strategic guidance context.
+// Bounds on the classification prompt.
+//
+// Perception runs on EVERY turn before anything else, on the cheap model tier,
+// and its only job is to answer "what does the user want" in one JSON object.
+// Every byte here is spent before a single line of real work happens, and none
+// of it was capped: ParseIntentWithContext truncates `input` at 50 KB
+// (understanding_adapter.go) and then BuildPrompt appended an unbounded editor
+// selection, an unbounded strategic-context blob, unbounded few-shot exemplars,
+// and five unbounded prior turns on top of it. A chat session that had just
+// pasted a 200 KB stack trace and received a long answer replayed both into
+// every subsequent classification call.
+//
+// The caps are deliberately tight. Classification does not need the whole
+// selection or the whole prior answer; it needs enough to tell "fix this" from
+// "explain this".
+const (
+	// maxAmbientSelectionChars caps the editor selection. An IDE "select all"
+	// in a large file is one keystroke away, and the selection is verbatim
+	// source: high token cost, near-zero classification value past the first
+	// few hundred lines.
+	maxAmbientSelectionChars = 4 * 1024
+
+	// maxAmbientDiagnostics caps diagnostics listed for classification. gopls
+	// on a broken build emits hundreds; the first few establish the intent
+	// ("something is failing") and the rest are noise at this stage.
+	maxAmbientDiagnostics = 10
+
+	// maxAmbientDiagnosticChars caps one diagnostic line.
+	maxAmbientDiagnosticChars = 300
+
+	// maxStrategicContextChars caps injected strategic context (campaign
+	// goal, northstar framing). It is set by the campaign layer with no size
+	// contract of its own.
+	maxStrategicContextChars = 4 * 1024
+
+	// maxSemanticExemplars caps few-shot exemplars. Past a handful the model
+	// is pattern-matching against a corpus rather than reading the request.
+	maxSemanticExemplars = 8
+
+	// maxSemanticExemplarChars caps one exemplar's recalled user text. These
+	// come from the embedding store, which holds whatever was typed —
+	// including the last 50 KB paste.
+	maxSemanticExemplarChars = 500
+
+	// maxClassificationTurns is the prior-turn window. Five was the
+	// existing behaviour and is kept; only the per-turn size is new.
+	maxClassificationTurns = 5
+
+	// maxClassificationTurnChars caps one replayed turn. Head+tail, because a user
+	// turn's tail carries the actual ask ("...and now make it compile") and an
+	// assistant turn's tail carries its conclusion.
+	maxClassificationTurnChars = 2000
+
+	// maxClassificationThoughtChars caps a replayed reasoning summary. Thinking
+	// models emit these at arbitrary length and they are the least
+	// load-bearing text in the prompt.
+	maxClassificationThoughtChars = 800
+)
+
 func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) string {
 	var sb strings.Builder
 
@@ -213,12 +273,18 @@ func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, se
 			sb.WriteString(fmt.Sprintf("- **Cursor Line:** %d\n", sessionCtx.Ambient.CursorLine))
 		}
 		if sessionCtx.Ambient.SelectedText != "" {
-			sb.WriteString(fmt.Sprintf("- **Selected Text:**\n```\n%s\n```\n", sessionCtx.Ambient.SelectedText))
+			sb.WriteString(fmt.Sprintf("- **Selected Text:**\n```\n%s\n```\n",
+				prompt.ClampText(sessionCtx.Ambient.SelectedText, maxAmbientSelectionChars, "editor selection")))
 		}
 		if len(sessionCtx.Ambient.Diagnostics) > 0 {
 			sb.WriteString("- **Diagnostics:**\n")
-			for _, diag := range sessionCtx.Ambient.Diagnostics {
-				sb.WriteString(fmt.Sprintf("  - %s\n", diag))
+			shown := min(len(sessionCtx.Ambient.Diagnostics), maxAmbientDiagnostics)
+			for _, diag := range sessionCtx.Ambient.Diagnostics[:shown] {
+				sb.WriteString(fmt.Sprintf("  - %s\n",
+					prompt.ClampHead(diag, maxAmbientDiagnosticChars, "diagnostic")))
+			}
+			if notice := prompt.TruncationNotice(shown, len(sessionCtx.Ambient.Diagnostics), "diagnostics"); notice != "" {
+				sb.WriteString("  - " + notice + "\n")
 			}
 		}
 		sb.WriteString("\n---\n\n")
@@ -227,7 +293,7 @@ func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, se
 	// Incorporate Strategic Context
 	if strategicContext != "" {
 		sb.WriteString("## Strategic Context\n\n")
-		sb.WriteString(strategicContext)
+		sb.WriteString(prompt.ClampText(strategicContext, maxStrategicContextChars, "strategic context"))
 		sb.WriteString("\n\n---\n\n")
 	}
 
@@ -235,13 +301,28 @@ func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, se
 	if len(semanticMatches) > 0 {
 		sb.WriteString("## Learned Semantic Matches\n\n")
 		sb.WriteString("These are similar past interactions that may guide your understanding:\n\n")
+		// The similarity gate is inside the loop, so count exemplars actually
+		// written rather than positions scanned; otherwise a run of
+		// low-similarity hits would burn the cap without emitting anything.
+		written := 0
+		eligible := 0
 		for _, match := range semanticMatches {
 			// Include high confidence matches as exemplars
-			if match.Similarity > 0.8 {
-				sb.WriteString(fmt.Sprintf("- **User Input:** \"%s\"\n", match.TextContent))
-				sb.WriteString(fmt.Sprintf("  **Mapped Intent:** Verb=%s, Target=%s, Constraint=%s (Similarity: %.2f)\n\n",
-					match.Verb, match.Target, match.Constraint, match.Similarity))
+			if match.Similarity <= 0.8 {
+				continue
 			}
+			eligible++
+			if written >= maxSemanticExemplars {
+				continue
+			}
+			written++
+			sb.WriteString(fmt.Sprintf("- **User Input:** \"%s\"\n",
+				prompt.ClampHead(match.TextContent, maxSemanticExemplarChars, "exemplar")))
+			sb.WriteString(fmt.Sprintf("  **Mapped Intent:** Verb=%s, Target=%s, Constraint=%s (Similarity: %.2f)\n\n",
+				match.Verb, match.Target, match.Constraint, match.Similarity))
+		}
+		if notice := prompt.TruncationNotice(written, eligible, "exemplars"); notice != "" {
+			sb.WriteString(notice + "\n\n")
 		}
 		sb.WriteString("---\n\n")
 	}
@@ -251,14 +332,16 @@ func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, se
 		sb.WriteString("## Recent Conversation\n\n")
 		// Only include last few turns to stay focused
 		start := 0
-		if len(history) > 5 {
-			start = len(history) - 5
+		if len(history) > maxClassificationTurns {
+			start = len(history) - maxClassificationTurns
 		}
 		for _, turn := range history[start:] {
 			if turn.ThoughtSummary != "" {
-				sb.WriteString(fmt.Sprintf("**%s (Previous Thoughts)**:\n```\n%s\n```\n\n", turn.Role, turn.ThoughtSummary))
+				sb.WriteString(fmt.Sprintf("**%s (Previous Thoughts)**:\n```\n%s\n```\n\n", turn.Role,
+					prompt.ClampHead(turn.ThoughtSummary, maxClassificationThoughtChars, "thought summary")))
 			}
-			sb.WriteString(fmt.Sprintf("**%s**: %s\n\n", turn.Role, turn.Content))
+			sb.WriteString(fmt.Sprintf("**%s**: %s\n\n", turn.Role,
+				prompt.ClampText(turn.Content, maxClassificationTurnChars, "prior turn")))
 		}
 		sb.WriteString("---\n\n")
 	}

@@ -429,7 +429,6 @@ func TestWithSessionContext_WhenNilSessionContext_ShouldReturnNilOnGet(t *testin
 	}
 }
 
-
 // =============================================================================
 // ArgName Tests
 // =============================================================================

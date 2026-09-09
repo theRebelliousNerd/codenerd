@@ -112,9 +112,9 @@ func TestGetByCategory(t *testing.T) {
 	reg := NewRegistry()
 
 	tools := []*Tool{
-		{Name: "research1", Category: CategoryResearch, Priority: 80, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
-		{Name: "research2", Category: CategoryResearch, Priority: 60, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
-		{Name: "code1", Category: CategoryCode, Priority: 50, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "research1", Effect: EffectRead, Category: CategoryResearch, Priority: 80, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "research2", Effect: EffectRead, Category: CategoryResearch, Priority: 60, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "code1", Effect: EffectRead, Category: CategoryCode, Priority: 50, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
 	}
 
 	for _, tool := range tools {
@@ -180,8 +180,8 @@ func TestFilterByIntent(t *testing.T) {
 	reg := NewRegistry()
 
 	tools := []*Tool{
-		{Name: "context7", Category: CategoryResearch, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
-		{Name: "file_write", Category: CategoryCode, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "context7", Effect: EffectRead, Category: CategoryResearch, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "file_write", Effect: EffectRead, Category: CategoryCode, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
 	}
 
 	for _, tool := range tools {
@@ -200,8 +200,10 @@ func TestFilterByIntent(t *testing.T) {
 }
 
 func TestGlobalRegistry(t *testing.T) {
-	// Reset global registry for test
-	globalRegistry = NewRegistry()
+	// Reset global registry for test. SwapGlobal restores it afterwards so this
+	// test cannot leave the package's global in a state a later test observes —
+	// which is the whole hazard SwapGlobal exists to remove.
+	t.Cleanup(SwapGlobal(NewRegistry()))
 
 	tool := &Tool{
 		Effect:   EffectRead,

@@ -843,6 +843,7 @@ func correlateBrowserFailures(failed, visible []types.Fact, window time.Duration
 	}
 	return result
 }
+
 // maxAdaptedContainerEvents caps how many browser facts are adapted into
 // RuntimeErrorEvents for container correlation. A storm of failures must not
 // turn one diagnosis into a huge correlation pass. The most recent events are
@@ -929,7 +930,6 @@ func adaptRuntimeErrorEvents(failed, visible []types.Fact) []browser.RuntimeErro
 	}
 	return events
 }
-
 
 func detectBrowserContradictions(failed, toasts []types.Fact) []map[string]any {
 	if len(failed) == 0 {

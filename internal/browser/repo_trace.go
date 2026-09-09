@@ -242,7 +242,7 @@ type traceState struct {
 	redactor            *browsersecurity.Redactor
 	result              RepoTraceResult
 	matches             []RepoMatch
-	depthNoteAdded    bool
+	depthNoteAdded      bool
 	fileLimitNoteAdded  bool
 	matchLimitNoteAdded bool
 	ctx                 context.Context

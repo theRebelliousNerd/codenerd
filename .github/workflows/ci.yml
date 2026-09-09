@@ -36,8 +36,109 @@ jobs:
         run: go vet -tags sqlite_vec ./...
       - name: Reject empty and log-only tests
         run: go run ./cmd/tools/audit_test_bodies .
+      # predicate_corpus.db is generated from the .mg corpus and embedded into
+      # the binary, where it tells a model which predicates exist and what shape
+      # they are. It had drifted seven weeks: eight browser predicates recorded
+      # one argument short, and 150 declarations missing. Feeding a model an
+      # arity the schema does not have invites a duplicate Decl, which takes the
+      # kernel down at boot. Rows carry a build timestamp, so `git diff` cannot
+      # gate it — the check compares name/arity/type instead.
+      - name: Predicate corpus is current
+        run: go run ./cmd/tools/predicate_corpus_builder -check
       - name: Test through Windows path aliases
         run: ./scripts/test_windows_path_identity.ps1 -Full
+
+  formatting:
+    name: gofmt
+    # Linux, not the Windows runner the rest of this file uses.
+    #
+    # .gitattributes records that this repo is developed with core.autocrlf=true
+    # and pins eol=lf only for golden files and the dead-code baseline, so .go
+    # files are checked out CRLF on Windows. gofmt normalises to LF, which makes
+    # every one of the 2049 files "not gofmt-clean" — the gate reported the whole
+    # tree as drifted while `gofmt -l` on Linux reported nothing.
+    #
+    # Pinning *.go to eol=lf would fix it and would also change what every
+    # Windows contributor gets on checkout, which is not this gate's call to
+    # make. Formatting has no platform-specific content, so it is checked where
+    # gofmt's own newline convention holds.
+    #
+    # 53 files had drifted out of gofmt by 2026-09. Drift is cheap to fix and
+    # expensive to leave: it grows silently, and once nobody runs gofmt on the
+    # whole tree, every real diff carries formatting noise. Fixed in one
+    # mechanical commit and gated here so it cannot come back.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Formatting
+        shell: bash
+        run: |
+          # testdata is excluded the way the Go toolchain excludes it: those
+          # files exist to be malformed. gofmt exits non-zero on a file it
+          # cannot parse, so without this the gate fails on a fixture rather
+          # than on formatting.
+          #
+          # The list goes through xargs, not "${files[@]}". Expanding ~2000
+          # paths into one argv exceeded the command-line limit on the Windows
+          # runner this step used to live on, and the step died with "Argument
+          # list too long" before gofmt ran a single file — a gate that never
+          # executed while looking like it had.
+          list="$(mktemp)"
+          trap 'rm -f "$list"' EXIT
+          find internal cmd -name '*.go' -not -path '*/testdata/*' -print0 > "$list"
+          count="$(tr -cd '\0' < "$list" | wc -c | tr -d ' ')"
+          if [[ "$count" -eq 0 ]]; then
+            echo "Found no Go files to check — the find expression is wrong."
+            exit 1
+          fi
+          unformatted="$(xargs -0 gofmt -l < "$list")"
+          if [[ -n "$unformatted" ]]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            echo
+            echo "Fix with: gofmt -w internal cmd"
+            exit 1
+          fi
+          echo "gofmt clean ($count files)."
+
+  deadcode:
+    # The Go half of this repo's recurring defect: a function defined and
+    # exported that nothing calls. Its Mangle twin — a predicate declared and
+    # read by rules that nothing produces — is gated by
+    # TestStarvedPredicateBudget, which the test job already runs.
+    #
+    # Both are budgets, not targets of zero. They fail when the number moves in
+    # either direction, so the baseline stays a measurement instead of rotting
+    # into a file nobody trusts.
+    #
+    # The script still normalises path separators and line endings, because it
+    # is run by hand on Windows too.
+    name: dead-code budget
+    # Linux, while every other job here is Windows.
+    #
+    # The baseline is a per-GOOS measurement: a file excluded by build tag is
+    # not analysed at all, so checking a Linux-recorded baseline on Windows
+    # reported 38 platform_linux/platform_unix functions as "no longer
+    # unreachable" when nothing had changed. Pinning GOOS inside the script
+    # cannot fix that from a Windows host, because cross-compiling disables cgo
+    # and this module needs it (go-tree-sitter). So the gate runs where its
+    # baseline was taken.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Dead-code budget
+        shell: bash
+        run: ./scripts/deadcode-budget.sh
 
   race:
     # Closes the mcp backlog item "-race CI for manager+store". Scoped to those

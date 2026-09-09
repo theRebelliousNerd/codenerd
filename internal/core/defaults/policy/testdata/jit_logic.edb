@@ -1,9 +1,24 @@
+# JIT logic scenario: context-boosted atom scoring and dependency satisfaction.
+#
+# 2026-09-09: the atom_selector seeds were removed with the atom_has_*_match
+# rules they fed. Those thirteen rules had no production producer — the only Go
+# emitter of atom_selector is PromptAtom.ToSelectorFacts, called from tests
+# only — and no consumer anywhere, in Go or Mangle. Seeding the facts here by
+# hand was the single thing that made them look alive. See the removal note at
+# the top of jit_logic.mg.
+#
+# atom_context_boost below is likewise seeded by hand. It is declared as a
+# virtual predicate ("Go-computed boost") but RegisterVirtualPredicate has no
+# call site in the repo, so nothing produces it in production either and the
+# non-mandatory branch of atom_matches_context does not fire there. That is
+# recorded, not fixed, in Docs/audits/2026-09-09-system-hardening: deciding
+# whether to implement or drop the boost is a separate call. This scenario
+# still pins the rules' arithmetic given the facts, which is what a golden test
+# of a rule file is for.
+
 prompt_atom("/atom_core", /identity, 100, 50, /true).
 prompt_atom("/atom_go", /language, 80, 20, /false).
 prompt_atom("/atom_react", /framework, 80, 20, /false).
-
-atom_selector("/atom_go", /language, /go).
-atom_selector("/atom_react", /framework, /react).
 
 compile_context(/language, /go).
 compile_context(/framework, /react).

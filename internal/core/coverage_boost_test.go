@@ -695,7 +695,6 @@ func TestValidatorRegistry_Register_WhenNil_ShouldBeNoOp(t *testing.T) {
 	r.Register(nil) // Should not panic
 }
 
-
 // kernel_virtual.go
 // =============================================================================
 

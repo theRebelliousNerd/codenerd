@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"codenerd/internal/core"
 	"codenerd/internal/evidence"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
@@ -212,6 +213,16 @@ func (e *Executor) runToolLoop(
 			Role:        "user",
 			ToolResults: toolResults,
 		})
+		// Each individual result is capped at 16 KiB by truncateToolResult, but
+		// `history` is append-only and is re-sent WHOLE on every round-trip:
+		// defaultMaxToolCalls is 50 and the loop runs up to 24 iterations, so
+		// the worst case replays ~800 KB of tool output on every one of them.
+		// This blanks the oldest payloads and keeps the newest, which is the
+		// half the model is still reasoning about. It is a no-op below the
+		// ceiling, preserves message count, ordering and every ToolUseID — an
+		// unpaired tool_use is a hard 400 from the provider — and is
+		// idempotent, so calling it at more sites is safe.
+		history = boundToolLoopHistory(history)
 
 		// A tool can itself reach the exploration cutoff. Its result (including
 		// any cancellation error) is already paired in history, so do not run
@@ -519,6 +530,10 @@ func (e *Executor) forceFinalAnswer(
 	}
 
 	*history = append(*history, types.Message{Role: "user", Text: nudge})
+	// The forced-final call resends the whole transcript, including every tool
+	// result accumulated before the deadline fired. Bounding here covers every
+	// append this function makes.
+	*history = boundToolLoopHistory(*history)
 
 	final, err := trp.CompleteWithToolResults(ctx, systemPrompt, *history, finalTools)
 	if err != nil {
@@ -1022,7 +1037,29 @@ func (e *Executor) assertPendingEdits(call ToolCall) []types.Fact {
 	content := pendingEditContent(call.Args)
 	facts := make([]types.Fact, 0, len(paths))
 	for _, filePath := range paths {
-		fact := types.Fact{Predicate: "pending_edit", Args: []any{filePath, content}}
+		// Validate the path shape before it becomes a fact.
+		//
+		// core.ValidatePendingEditFilePath rejects absolute paths, ".."
+		// traversal and backslash separators — exactly the shapes
+		// VirtualStore.resolvePath and the policy rules that read pending_edit
+		// assume they will never see. It had no production caller; this path
+		// was writing the fact without any shape check at all, so a tool
+		// argument like "/etc/passwd" or "a/../../b" became a fact the rules
+		// then reasoned over.
+		//
+		// The fact itself is still built here rather than through
+		// core.NewPendingEditFact: that helper previews Content at 200
+		// characters, while boundedPendingEditContent above keeps up to 16 KiB
+		// and falls back to a sha256 digest plus byte count. The digest
+		// preserves identity for a large file, which a truncated prefix does
+		// not — two files sharing their first 200 characters would look
+		// identical in the EDB.
+		if err := core.ValidatePendingEditFilePath(filePath); err != nil {
+			logging.Get(logging.CategorySession).Warn(
+				"Refusing to assert pending_edit for %s: %v", call.Name, err)
+			continue
+		}
+		fact := types.Fact{Predicate: core.PendingEditFactName, Args: []any{filePath, content}}
 		if err := e.kernel.Assert(fact); err != nil {
 			logging.Get(logging.CategorySession).Warn("Failed to assert pending_edit for %s (%s): %v", call.Name, filePath, err)
 			continue
@@ -1909,7 +1946,16 @@ func (e *Executor) retryWithNoToolNudge(
 		return nil, errors.New("no-tool-retry: JIT recompile produced empty prompt")
 	}
 
-	return e.generateResponse(ctx, client, compileResult.Prompt, userInput, cfg)
+	// The retry must carry the SAME system prompt the first attempt did.
+	// compileResult.Prompt is raw JIT output; the live prompt is that plus
+	// nerd.md's rendered instructions and the target's holographic context
+	// (executor.go, after the JIT compile). Reissuing without them dropped the
+	// project's write-protection rules from the retry — on precisely the turn
+	// where the model has already shown it is confused about what it may do.
+	// That is a safety regression, not just a context one.
+	retryPrompt := e.withProjectInstructions(compileResult.Prompt)
+	retryPrompt = e.withFileContext(ctx, retryPrompt, retryCtx.IntentTarget)
+	return e.generateResponse(ctx, client, retryPrompt, userInput, cfg)
 }
 
 // executeToolBatchPiggyback handles the single-turn Piggyback path. Tools are

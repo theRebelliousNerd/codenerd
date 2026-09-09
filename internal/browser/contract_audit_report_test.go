@@ -181,8 +181,8 @@ func TestBuildAuditReport_WhenEvidenceTruncated_ShouldMarkReportTruncated(t *tes
 		t.Fatalf("expected correlation note carried, got %v", report2.Notes)
 	}
 	in3 := AuditReportInput{
-		SessionID: "sess-notrunc",
-		Discovery: ContractAuditDiscovery{Findings: []AuditFinding{{Kind: AuditObservation, Subject: "s", Detail: "d"}}},
+		SessionID:    "sess-notrunc",
+		Discovery:    ContractAuditDiscovery{Findings: []AuditFinding{{Kind: AuditObservation, Subject: "s", Detail: "d"}}},
 		Correlations: ContainerCorrelationResult{},
 	}
 	report3 := BuildAuditReport(in3)
@@ -512,4 +512,3 @@ func TestAuditReportRelativePath_ShouldStripRootOnEitherPlatformConvention(t *te
 		}(p)
 	}
 }
-

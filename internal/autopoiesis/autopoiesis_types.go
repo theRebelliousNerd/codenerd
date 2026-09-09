@@ -17,8 +17,6 @@ import (
 // KERNEL INTERFACE - Bridge to Mangle Logic Core
 // =============================================================================
 
-
-
 // =============================================================================
 // JIT INTERFACES - Avoid Import Cycles
 // =============================================================================
@@ -97,6 +95,24 @@ type LoopResult struct {
 	CompileResult *CompileResult
 	ToolHandle    *RuntimeTool
 	Duration      time.Duration
+
+	// ThunderdomeRan reports whether the adversarial arena actually executed
+	// attacks against this tool. It is false when the Thunderdome is disabled,
+	// when the PanicMaker could not generate attacks, or when the battle
+	// errored — all three of which the loop treats as "continue anyway".
+	//
+	// It exists because a caller cannot infer this from Success. Until
+	// 2026-09-09 internal/campaign/tool_pregenerator.go had a RequireThunderdome
+	// config flag defaulting to true and a runThunderdomeForTool that returned
+	// (true, nil) unconditionally, so every pregenerated tool was recorded as
+	// PassedThunderdome without a single attack vector being fired. A safety
+	// gate that cannot fail is not a gate; the verdict has to be carried, not
+	// assumed.
+	ThunderdomeRan bool
+	// ThunderdomeSurvived is meaningful only when ThunderdomeRan is true.
+	ThunderdomeSurvived bool
+	// ThunderdomeAttacks is the number of attack vectors fired.
+	ThunderdomeAttacks int
 }
 
 // CompileResult contains compilation output

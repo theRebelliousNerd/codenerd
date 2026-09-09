@@ -5,6 +5,8 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/transparency"
 	"codenerd/internal/types"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -496,35 +498,166 @@ func (sm *ShardManager) GetReviewSuspectReasons(reviewID string) []string {
 }
 
 // AcceptReviewFinding marks a finding as accepted by the user.
+//
+// With no provider installed — which is every production process, since nothing
+// calls SetReviewerFeedbackProvider and no type implements the interface — this
+// used to be a silent no-op. The user told the system a finding was right and
+// the system discarded it.
+//
+// It now falls back to the kernel, the same way CheckReviewNeedsValidation and
+// GetReviewSuspectReasons already read from it. reviewer.mg's whole
+// self-correction section is built on user_accepted_finding/4 and
+// user_rejected_finding/5 (schemas_tools.mg:339,343) and nothing produced
+// either, so review_suspect, review_rejection_count and
+// reviewer_needs_validation could never fire — a learning loop complete on the
+// logic side and starved on the Go side.
 func (sm *ShardManager) AcceptReviewFinding(reviewID, file string, line int) {
 	sm.mu.RLock()
 	provider := sm.reviewerFeedback
+	kernel := sm.kernel
 	sm.mu.RUnlock()
 
 	if provider != nil {
 		provider.AcceptFinding(reviewID, file, line)
+		return
 	}
+	sm.assertReviewFeedback(kernel, types.Fact{
+		Predicate: "user_accepted_finding",
+		Args:      []any{reviewID, file, int64(line), time.Now().Unix()},
+	}, reviewID)
 }
 
 // RejectReviewFinding marks a finding as rejected by the user.
+//
+// The rejection is the higher-value half: reviewer.mg derives
+// review_suspect(ReviewID, "multiple_rejections") from two of these, and
+// reviewer_needs_validation from that — which the chat already reads back
+// through CheckReviewNeedsValidation's kernel fallback. Asserting the fact
+// closes that loop end to end.
 func (sm *ShardManager) RejectReviewFinding(reviewID, file string, line int, reason string) {
 	sm.mu.RLock()
 	provider := sm.reviewerFeedback
+	kernel := sm.kernel
 	sm.mu.RUnlock()
 
 	if provider != nil {
 		provider.RejectFinding(reviewID, file, line, reason)
+		return
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "unspecified"
+	}
+	sm.assertReviewFeedback(kernel, types.Fact{
+		Predicate: "user_rejected_finding",
+		Args:      []any{reviewID, file, int64(line), reason, time.Now().Unix()},
+	}, reviewID)
+}
+
+// assertReviewFeedback writes one feedback fact and refreshes review_accuracy.
+func (sm *ShardManager) assertReviewFeedback(kernel types.Kernel, fact types.Fact, reviewID string) {
+	if kernel == nil {
+		logging.Get(logging.CategoryShards).Warn(
+			"Review feedback for %s discarded: no provider and no kernel", reviewID)
+		return
+	}
+	if err := kernel.Assert(fact); err != nil {
+		logging.Get(logging.CategoryShards).Warn(
+			"Failed to record %s for review %s: %v", fact.Predicate, reviewID, err)
+		return
+	}
+	sm.refreshReviewAccuracy(kernel, reviewID)
+}
+
+// reviewFeedbackCounts totals a review's accepted and rejected findings.
+func reviewFeedbackCounts(kernel types.Kernel, reviewID string) (accepted, rejected int) {
+	if kernel == nil {
+		return 0, 0
+	}
+	count := func(predicate string) int {
+		facts, err := kernel.Query(predicate)
+		if err != nil {
+			logging.Get(logging.CategoryShards).Warn("review feedback query %q failed: %v", predicate, err)
+			return 0
+		}
+		n := 0
+		for _, f := range facts {
+			if len(f.Args) > 0 && types.ExtractString(f.Args[0]) == reviewID {
+				n++
+			}
+		}
+		return n
+	}
+	return count("user_accepted_finding"), count("user_rejected_finding")
+}
+
+// refreshReviewAccuracy recomputes review_accuracy/5 for one review.
+//
+// review_accuracy is an EDB with a Decl and no rule (schemas_tools.mg:347), and
+// reviewer.mg's high_rejection_rate suspicion joins on it. Recomputed rather
+// than incremented because Mangle facts are a set: asserting a second
+// review_accuracy row for the same review would leave both visible and make
+// every rule reading it non-deterministic.
+//
+// Score is an integer percentage. Every numeric Mangle slot in this kernel is
+// int64 — one float64 fact aborts the whole fixpoint — so the ratio goes
+// through types.PercentFromRatio rather than being cast.
+func (sm *ShardManager) refreshReviewAccuracy(kernel types.Kernel, reviewID string) {
+	accepted, rejected := reviewFeedbackCounts(kernel, reviewID)
+	total := accepted + rejected
+	if total == 0 {
+		return
+	}
+
+	// Retract only this review's row. types.Kernel.Retract takes a predicate
+	// and drops the whole relation, which would erase every other review's
+	// accuracy in the same session; RetractFact is the scoped one.
+	if existing, err := kernel.Query("review_accuracy"); err == nil {
+		for _, f := range existing {
+			if len(f.Args) > 0 && types.ExtractString(f.Args[0]) == reviewID {
+				if err := kernel.RetractFact(f); err != nil {
+					logging.ShardsDebug("review_accuracy retract before refresh failed: %v", err)
+				}
+			}
+		}
+	}
+	score := types.PercentFromRatio(float64(accepted) / float64(total))
+	if err := kernel.Assert(types.Fact{
+		Predicate: "review_accuracy",
+		Args:      []any{reviewID, int64(total), int64(accepted), int64(rejected), score},
+	}); err != nil {
+		logging.Get(logging.CategoryShards).Warn("Failed to record review_accuracy for %s: %v", reviewID, err)
 	}
 }
 
 // GetReviewAccuracyReport returns accuracy statistics for a review session.
+//
+// It used to return the fixed string "Review feedback provider not available"
+// in every production process, because no provider exists. It now reports what
+// the kernel actually holds.
 func (sm *ShardManager) GetReviewAccuracyReport(reviewID string) string {
 	sm.mu.RLock()
 	provider := sm.reviewerFeedback
+	kernel := sm.kernel
 	sm.mu.RUnlock()
 
-	if provider == nil {
-		return "Review feedback provider not available"
+	if provider != nil {
+		return provider.GetAccuracyReport(reviewID)
 	}
-	return provider.GetAccuracyReport(reviewID)
+	if kernel == nil {
+		return "Review feedback unavailable: no kernel attached"
+	}
+
+	accepted, rejected := reviewFeedbackCounts(kernel, reviewID)
+	total := accepted + rejected
+	if total == 0 {
+		return fmt.Sprintf("Review %s: no findings accepted or rejected yet", reviewID)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Review %s: %d finding(s) judged — %d accepted, %d rejected (%d%% accepted)",
+		reviewID, total, accepted, rejected, types.PercentFromRatio(float64(accepted)/float64(total)))
+	if reasons := sm.GetReviewSuspectReasons(reviewID); len(reasons) > 0 {
+		fmt.Fprintf(&b, "\nFlagged suspect: %s", strings.Join(reasons, ", "))
+	}
+	return b.String()
 }

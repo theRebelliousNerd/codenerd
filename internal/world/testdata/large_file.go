@@ -1,1 +1,4 @@
-package testdata\n\nfunc FuncA() {}\nfunc FuncB() {}
+package testdata
+
+func FuncA() {}
+func FuncB() {}

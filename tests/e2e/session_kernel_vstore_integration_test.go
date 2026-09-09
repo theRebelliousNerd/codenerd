@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"context"
+	"fmt"
 
 	"sync"
 	"testing"
@@ -890,14 +891,30 @@ func TestE2E_SessionKernelVStore_State_ExecutorIndependence(t *testing.T) {
 	kernel, _, _ := setupTestDeps(t)
 
 	var wg sync.WaitGroup
-	// Assert 100 facts simultaneously to check for map write panics
-	for i := 0; i < 100; i++ {
+	// critical_file, not concurrent_load.
+	//
+	// concurrent_load is not declared anywhere in the policy corpus. Asserting
+	// an undeclared predicate returns a nil error and stores nothing the query
+	// can see, so this test asserted a hundred facts, was told a hundred times
+	// that it worked, and then read back zero — and reported it as
+	// "Concurrency lost data", which is a real-sounding diagnosis of a bug that
+	// was not there. The concurrency was never the problem. (That Assert
+	// reports success for an undeclared predicate is its own finding; see the
+	// audit notes. It is not this test's job to prove it.)
+	//
+	// critical_file is declared and takes one string, which is what this test
+	// needs: a hundred concurrent writers on one kernel, then a check that
+	// every one of them landed. Membership is checked rather than a raw count,
+	// because the corpus asserts critical_file facts of its own at boot and a
+	// total would silently depend on how many.
+	const concurrentWriters = 100
+	for i := 0; i < concurrentWriters; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 			err := kernel.Assert(core.Fact{
-				Predicate: "concurrent_load",
-				Args:      []any{id},
+				Predicate: "critical_file",
+				Args:      []any{fmt.Sprintf("concurrent_%d.go", id)},
 			})
 			if err != nil {
 				t.Errorf("Concurrent assert failed: %v", err)
@@ -906,10 +923,20 @@ func TestE2E_SessionKernelVStore_State_ExecutorIndependence(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Verify all made it
-	facts, _ := kernel.Query("concurrent_load(X)")
-	if len(facts) != 100 {
-		t.Fatalf("Concurrency lost data! Expected 100 facts, got %d", len(facts))
+	facts, err := kernel.Query("critical_file(X)")
+	if err != nil {
+		t.Fatalf("query critical_file: %v", err)
+	}
+	seen := make(map[string]bool, len(facts))
+	for _, f := range facts {
+		if len(f.Args) > 0 {
+			seen[types.ExtractString(f.Args[0])] = true
+		}
+	}
+	for i := 0; i < concurrentWriters; i++ {
+		if want := fmt.Sprintf("concurrent_%d.go", i); !seen[want] {
+			t.Fatalf("Concurrency lost data! %s is missing from %d queried facts", want, len(facts))
+		}
 	}
 }
 

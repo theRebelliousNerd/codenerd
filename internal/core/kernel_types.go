@@ -75,7 +75,12 @@ type RealKernel struct {
 	// "Rule auto-repaired by feedback loop sanitizer ... hot-loaded
 	// successfully" seconds later. Zero value is false, so every other kernel
 	// keeps logging these at ERROR.
-	sandbox         bool
+	sandbox bool
+
+	// undeclared tracks predicates already reported by warnIfUndeclaredLocked,
+	// so each is named once per process instead of on every assert.
+	undeclared undeclaredWarner
+
 	schemaValidator *mangle.SchemaValidator
 	initialized     bool
 	manglePath      string      // Path to mangle files directory

@@ -88,9 +88,26 @@ type mockVirtualStore struct {
 	executeFunc func(ctx context.Context, call types.ToolCall) (string, error)
 }
 
+// ExecuteTool dispatches to the globally registered tool when one exists.
+//
+// It used to return "success" unconditionally, which made two tests in this
+// file unpassable by construction: TestE2E_StateCorruption_VirtualStoreFFIRace
+// registers race_tool in tools.Global() and asserts it ran 50 times, and
+// TestE2E_ResourceExhaustion_ConcurrentToolExecutions does the same for
+// heavy_tool. The executor routes every call through this method, so the
+// registered Execute was never reached and both counters stayed at zero. A mock
+// that answers "success" without doing the work it is standing in for tests
+// nothing.
+//
+// executeFunc still wins when a test sets it, and an unregistered tool still
+// answers "success" so the tests that only care about the call reaching the
+// store are unaffected.
 func (m *mockVirtualStore) ExecuteTool(ctx context.Context, call types.ToolCall) (string, error) {
 	if m.executeFunc != nil {
 		return m.executeFunc(ctx, call)
+	}
+	if tool := tools.Global().Get(call.Name); tool != nil && tool.Execute != nil {
+		return tool.Execute(ctx, call.Input)
 	}
 	return "success", nil
 }
@@ -128,6 +145,29 @@ func (m *mockJITCompiler) Compile(ctx context.Context, cc *prompt.CompilationCon
 	}, nil
 }
 
+// Every tool registered in this file declares Effect.
+//
+// It is not decoration. executeToolCall calls tools.LookupEffect before it
+// dispatches, and a Tool with no Effect makes DeclaredEffect return an error,
+// which executeToolCall returns as the call's result — the registered Execute
+// closure is never invoked. The executive gate cannot classify what a tool
+// does, so it refuses to run it. That is fail-closed and correct.
+//
+// The symptom is silent and misleading: Process returns a nil error, the
+// response text arrives, ToolCallsExecuted counts the attempt, and only
+// SuccessfulToolCalls stays at zero. Four tests here asserted on a side effect
+// of the tool body and saw a bare 0, which reads like a dropped execution or a
+// race rather than a refused dispatch. One of them, GoroutineLeakPrevention,
+// blocked forever on an unbuffered channel the tool body was supposed to close,
+// timing out the whole package at 12m so every test after it went unreported.
+//
+// These are inert in-memory doubles, so EffectRead is the honest declaration.
+// The two tools that must never run (unconfigured_tool, e2e_forbidden_tool in
+// the piggyback file) declare it too, on purpose: isToolAllowed runs before the
+// effect lookup, so with a real declaration those tests prove the JIT allowlist
+// blocks them rather than passing for the incidental reason that the effect
+// lookup failed first.
+
 // mockConfigFactory
 type mockConfigFactory struct{}
 
@@ -161,9 +201,24 @@ func setupTestExecutor(t *testing.T) (*session.Executor, *mockKernel, *mockLLMCl
 	llm := &mockLLMClient{}
 	jit := &mockJITCompiler{}
 	cf := &mockConfigFactory{}
+	// /explain, not /fix.
+	//
+	// Every test in this file exercises pipeline mechanics — piggyback parsing,
+	// tool spamming, races, resource caps, Mangle type safety. None is about
+	// write semantics; the verb here was incidental. Commit 8e9507d added
+	// checkHollowSuccess, which refuses a write-oriented intent that finishes
+	// with no tool call completed, so all eight of those tests began failing
+	// with "hollow success blocked" against mocks that return prose and call
+	// nothing. The guard is right; the verb was wrong.
+	//
+	// checkHollowSuccess measures read-only intents and never fails them
+	// (executor_tools.go, "a read-only intent is measured but never failed for
+	// hollowness"), so /explain lets these tests observe the mechanics they were
+	// written for. A test that genuinely needs write semantics should build its
+	// own transducer with a write verb rather than change this helper back.
 	trans := &mockTransducer{
 		intent: perception.Intent{
-			Verb:   "/fix",
+			Verb:   "/explain",
 			Target: "test.go",
 		},
 	}
@@ -258,7 +313,7 @@ func TestE2E_ContractViolation_ToolSpamming(t *testing.T) {
 		}, nil
 	}
 
-	tools.Global().Register(&tools.Tool{Name: "mock_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+	tools.Global().Register(&tools.Tool{Name: "mock_tool", Effect: tools.EffectRead, Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
 		return "data", nil
 	}})
 
@@ -297,7 +352,7 @@ func TestE2E_TemporalFailure_ToolBlocksIndefinitely(t *testing.T) {
 		}, nil
 	}
 
-	tools.Global().Register(&tools.Tool{Name: "blocking_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+	tools.Global().Register(&tools.Tool{Name: "blocking_tool", Effect: tools.EffectRead, Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
@@ -388,7 +443,7 @@ func TestE2E_ResourceExhaustion_GiganticToolResult(t *testing.T) {
 	}
 
 	hugeData := strings.Repeat("A", 50*1024*1024)
-	tools.Global().Register(&tools.Tool{Name: "huge_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+	tools.Global().Register(&tools.Tool{Name: "huge_tool", Effect: tools.EffectRead, Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
 		return hugeData, nil
 	}})
 
@@ -537,7 +592,7 @@ func TestE2E_StateCorruption_VirtualStoreFFIRace(t *testing.T) {
 	exec, kernel, llm := setupTestExecutor(t)
 
 	var execCount int32
-	tools.Global().Register(&tools.Tool{Name: "race_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+	tools.Global().Register(&tools.Tool{Name: "race_tool", Effect: tools.EffectRead, Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
 		time.Sleep(10 * time.Millisecond) // Ensure overlap
 		atomic.AddInt32(&execCount, 1)
 		return "done", nil
@@ -584,7 +639,7 @@ func TestE2E_ResourceExhaustion_ConcurrentToolExecutions(t *testing.T) {
 
 	hugeData := strings.Repeat("B", 10*1024*1024)
 	var completeCount int32
-	tools.Global().Register(&tools.Tool{Name: "heavy_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+	tools.Global().Register(&tools.Tool{Name: "heavy_tool", Effect: tools.EffectRead, Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
 		time.Sleep(5 * time.Millisecond)
 		atomic.AddInt32(&completeCount, 1)
 		return hugeData, nil
@@ -627,7 +682,7 @@ func TestE2E_TemporalFailure_GoroutineLeakPrevention(t *testing.T) {
 	started := make(chan struct{})
 	done := make(chan struct{})
 
-	tools.Global().Register(&tools.Tool{Name: "leaky_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+	tools.Global().Register(&tools.Tool{Name: "leaky_tool", Effect: tools.EffectRead, Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
 		close(started)
 		select {
 		case <-ctx.Done():
@@ -661,7 +716,20 @@ func TestE2E_TemporalFailure_GoroutineLeakPrevention(t *testing.T) {
 		_, _ = exec.Process(ctx, "run leak test")
 	}()
 
-	<-started // wait for tool to start executing
+	// Bounded, not bare.
+	//
+	// This receive was unguarded, and leaky_tool's body was what closed the
+	// channel. While the tool never ran (see the Effect note above), the test
+	// blocked here until the package-level 12m timeout killed the whole binary,
+	// so every test after this one went unreported and the failure looked like a
+	// suite-wide hang rather than one refused dispatch. A test that waits on
+	// another goroutine's progress needs a deadline: the tool either starts
+	// promptly or the test says so.
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("leaky_tool never started: the executor did not dispatch the tool call")
+	}
 	cancel()
 
 	select {
@@ -676,7 +744,7 @@ func TestE2E_Recovery_ContextTimeoutThenSuccess(t *testing.T) {
 	exec, _, llm := setupTestExecutor(t)
 
 	var secondTurnSuccess bool
-	tools.Global().Register(&tools.Tool{Name: "timing_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+	tools.Global().Register(&tools.Tool{Name: "timing_tool", Effect: tools.EffectRead, Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
 		if val, ok := args["sleep"]; ok && val == "yes" {
 			select {
 			case <-time.After(1 * time.Second):
@@ -769,7 +837,7 @@ func TestE2E_ContractViolation_ZeroResultQueryHandling(t *testing.T) {
 	// into an error). "unconfigured_tool" is deliberately not in the mock config
 	// factory's AllowedTools.
 	executed := false
-	tools.Global().Register(&tools.Tool{Name: "unconfigured_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+	tools.Global().Register(&tools.Tool{Name: "unconfigured_tool", Effect: tools.EffectRead, Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
 		executed = true
 		return "should not run", nil
 	}})

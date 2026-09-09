@@ -102,7 +102,6 @@ func TestFactToAtomInvalidMangleAtom(t *testing.T) {
 	}
 }
 
-
 func assertNameConstant(t *testing.T, term ast.BaseTerm, want string) {
 	t.Helper()
 	c, ok := term.(ast.Constant)

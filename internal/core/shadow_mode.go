@@ -4,11 +4,14 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
 
+	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
 
@@ -144,12 +147,27 @@ func (sm *ShadowMode) StartSimulation(ctx context.Context, description string) (
 	sm.simulations[simID] = sim
 	sm.activeSimID = simID
 
-	// Add shadow_state fact
+	// Add shadow_state fact.
+	//
+	// shadow_state is what marks the shadow kernel as a live simulation; the
+	// projection rules that decide whether a simulated action is safe are gated
+	// on it. This used to be a bare Assert with the error dropped, so a shadow
+	// kernel that never received the fact still handed back a Simulation the
+	// caller would happily run actions through — and every safety query against
+	// it would answer "nothing found", which reads as "safe". A simulation that
+	// cannot be marked valid must not start.
 	shadowStateFact := Fact{
 		Predicate: "shadow_state",
 		Args:      []any{simID, simID, "/valid"},
 	}
-	shadowKernel.Assert(shadowStateFact)
+	if err := shadowKernel.Assert(shadowStateFact); err != nil {
+		delete(sm.simulations, simID)
+		sm.activeSimID = ""
+		sm.shadowKernel = nil
+		logging.Get(logging.CategoryKernel).Error(
+			"Shadow simulation %s aborted: shadow_state fact rejected: %v", simID, err)
+		return nil, fmt.Errorf("shadow simulation %s could not assert shadow_state: %w", simID, err)
+	}
 
 	return sim, nil
 }
@@ -208,13 +226,28 @@ func (sm *ShadowMode) SimulateAction(ctx context.Context, action SimulatedAction
 	effects := sm.projectEffects(action)
 	sim.Effects = append(sim.Effects, effects...)
 
-	// Assert simulated effects
+	// Assert simulated effects.
+	//
+	// checkViolations below queries the shadow kernel for what these effects
+	// imply. An effect that never lands cannot trigger a violation, so dropping
+	// the Assert error here fails OPEN: the action is pronounced safe precisely
+	// because the evidence against it was lost. Same shape as the queryOrBlock
+	// fix in checkViolations — an empty result must mean "the kernel answered
+	// and found nothing", never "the kernel was not told".
 	for _, effect := range effects {
 		effectFact := Fact{
 			Predicate: "simulated_effect",
 			Args:      []any{action.ID, effect.Predicate, fmt.Sprintf("%v", effect.Args)},
 		}
-		sm.shadowKernel.Assert(effectFact)
+		if err := sm.shadowKernel.Assert(effectFact); err != nil {
+			sim.IsSafe = false
+			sim.Status = SimStatusFailed
+			sim.ErrorMessage = fmt.Sprintf("simulated effect %s could not be asserted: %v", effect.Predicate, err)
+			logging.Get(logging.CategoryKernel).Error(
+				"Shadow simulation %s: effect %s for action %s rejected; projection is incomplete: %v",
+				sm.activeSimID, effect.Predicate, action.ID, err)
+			return nil, fmt.Errorf("shadow projection incomplete for action %s: %w", action.ID, err)
+		}
 	}
 
 	// Check for violations
@@ -258,8 +291,14 @@ func (sm *ShadowMode) projectEffects(action SimulatedAction) []SimulatedEffect {
 			IsPositive: true,
 		})
 
-		// Check if this triggers impacted dependencies
-		deps, _ := sm.shadowKernel.Query("dependency_link")
+		// Check if this triggers impacted dependencies. Unlike the safety
+		// queries below this one only widens the simulated blast radius, so a
+		// failure degrades rather than blocks — but it is logged, because a
+		// silently empty dependency graph makes every simulation look local.
+		deps, depErr := sm.shadowKernel.Query("dependency_link")
+		if depErr != nil {
+			logging.Get(logging.CategoryKernel).Warn("shadow dependency_link query failed, impact effects omitted: %v", depErr)
+		}
 		for _, dep := range deps {
 			if len(dep.Args) >= 2 && types.ExtractString(dep.Args[1]) == action.Target {
 				effects = append(effects, SimulatedEffect{
@@ -317,12 +356,82 @@ func (sm *ShadowMode) projectEffects(action SimulatedAction) []SimulatedEffect {
 	return effects
 }
 
+// shadowQuerier is the read surface the safety checks need. Taking it as a
+// parameter rather than reaching for sm.shadowKernel is what makes the
+// fail-closed behaviour testable: a kernel that cannot answer is the case that
+// matters, and there is no way to put a healthy *RealKernel into that state.
+type shadowQuerier interface {
+	Query(predicate string) ([]Fact, error)
+}
+
+// isNilQuerier reports whether q is nil or a typed nil.
+//
+// sm.shadowKernel is a *RealKernel and is nil until StartSimulation clones the
+// parent. Stored in an interface that is a non-nil interface holding a nil
+// pointer, so a bare `q == nil` is false and the call dereferences nil. Same
+// trap, same fix as world.normalizeQuerier (holographic.go:154).
+func isNilQuerier(q shadowQuerier) bool {
+	if q == nil {
+		return true
+	}
+	v := reflect.ValueOf(q)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
+// queryOrBlock runs a shadow-kernel safety query and converts a query failure
+// into a blocking violation rather than an empty result.
+//
+// The four queries in checkViolations decide whether a simulated action is
+// safe, and their errors used to be dropped with `_`. That made "the kernel
+// could not evaluate" indistinguishable from "the kernel found nothing wrong":
+// a stratification error, a parse failure or a cancelled evaluation returned
+// zero violations and the caller read IsSafe. The constitution is default-deny
+// (defaults/policy/constitution.mg); a safety check that fails open inverts it
+// for exactly the cases where the kernel is least healthy.
+//
+// It returns the facts and, when the query failed, a violation to append.
+func queryOrBlock(q shadowQuerier, actionID, predicate string) ([]Fact, *ProjectionViolation) {
+	if isNilQuerier(q) {
+		return nil, &ProjectionViolation{
+			ActionID:      actionID,
+			ViolationType: "safety_check_failed",
+			Description:   fmt.Sprintf("Shadow kernel could not evaluate %s: no shadow kernel", predicate),
+			Severity:      "error",
+			Blocking:      true,
+		}
+	}
+	facts, err := q.Query(predicate)
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("shadow safety query %q failed: %v", predicate, err)
+		return nil, &ProjectionViolation{
+			ActionID:      actionID,
+			ViolationType: "safety_check_failed",
+			Description:   fmt.Sprintf("Shadow kernel could not evaluate %s: %v", predicate, err),
+			Severity:      "error",
+			Blocking:      true,
+		}
+	}
+	return facts, nil
+}
+
 // checkViolations queries the shadow kernel for safety violations.
+//
+// A query that errors produces a blocking violation of its own — see
+// queryOrBlock. An empty return from this function means "the kernel answered
+// and found nothing", never "the kernel did not answer".
 func (sm *ShadowMode) checkViolations(actionID string) []ProjectionViolation {
 	violations := make([]ProjectionViolation, 0)
 
 	// Check for block_commit
-	blockCommits, _ := sm.shadowKernel.Query("block_commit")
+	blockCommits, failure := queryOrBlock(sm.shadowKernel, actionID, "block_commit")
+	if failure != nil {
+		violations = append(violations, *failure)
+	}
 	for _, bc := range blockCommits {
 		reason := "unknown"
 		if len(bc.Args) > 0 {
@@ -338,7 +447,10 @@ func (sm *ShadowMode) checkViolations(actionID string) []ProjectionViolation {
 	}
 
 	// Check for unsafe_to_refactor
-	unsafeRefactors, _ := sm.shadowKernel.Query("unsafe_to_refactor")
+	unsafeRefactors, failure := queryOrBlock(sm.shadowKernel, actionID, "unsafe_to_refactor")
+	if failure != nil {
+		violations = append(violations, *failure)
+	}
 	for _, ur := range unsafeRefactors {
 		target := "unknown"
 		if len(ur.Args) > 0 {
@@ -354,7 +466,10 @@ func (sm *ShadowMode) checkViolations(actionID string) []ProjectionViolation {
 	}
 
 	// Check for chesterton_fence_warning
-	fenceWarnings, _ := sm.shadowKernel.Query("chesterton_fence_warning")
+	fenceWarnings, failure := queryOrBlock(sm.shadowKernel, actionID, "chesterton_fence_warning")
+	if failure != nil {
+		violations = append(violations, *failure)
+	}
 	for _, fw := range fenceWarnings {
 		file := "unknown"
 		reason := ""
@@ -374,7 +489,10 @@ func (sm *ShadowMode) checkViolations(actionID string) []ProjectionViolation {
 	}
 
 	// Check for projection_violation
-	projViolations, _ := sm.shadowKernel.Query("projection_violation")
+	projViolations, failure := queryOrBlock(sm.shadowKernel, actionID, "projection_violation")
+	if failure != nil {
+		violations = append(violations, *failure)
+	}
 	for _, pv := range projViolations {
 		violationType := "unknown"
 		if len(pv.Args) > 1 {
@@ -413,22 +531,45 @@ func (sm *ShadowMode) CommitSimulation(ctx context.Context) error {
 	sim.Status = SimStatusCompleted
 	sim.EndTime = time.Now()
 
-	// Apply effects to the parent kernel
+	// Apply effects to the parent kernel.
+	//
+	// This is the whole point of a commit: the simulation's projected facts
+	// become real. Both calls used to be bare statements, so a rejected fact
+	// left the parent kernel missing part of a commit that returned nil — the
+	// caller marks the transaction committed and nothing ever reconciles. Every
+	// effect is still attempted (stopping halfway would leave a worse split),
+	// then the failures are reported together.
+	var applyErrs []error
 	for _, effect := range sim.Effects {
 		fact := Fact{
 			Predicate: effect.Predicate,
 			Args:      effect.Args,
 		}
+		var err error
 		if effect.IsPositive {
-			sm.parentKernel.Assert(fact)
+			err = sm.parentKernel.Assert(fact)
 		} else {
-			sm.parentKernel.RetractExactFact(fact)
+			err = sm.parentKernel.RetractExactFact(fact)
+		}
+		if err != nil {
+			applyErrs = append(applyErrs, fmt.Errorf("%s: %w", effect.Predicate, err))
 		}
 	}
 
+	simID := sm.activeSimID
 	delete(sm.simulations, sm.activeSimID)
 	sm.activeSimID = ""
 	sm.shadowKernel = nil
+
+	if len(applyErrs) > 0 {
+		sim.Status = SimStatusFailed
+		sim.ErrorMessage = fmt.Sprintf("%d of %d effects did not reach the parent kernel", len(applyErrs), len(sim.Effects))
+		logging.Get(logging.CategoryKernel).Error(
+			"Shadow simulation %s committed partially: %d of %d effects rejected: %v",
+			simID, len(applyErrs), len(sim.Effects), errors.Join(applyErrs...))
+		return fmt.Errorf("shadow commit %s applied %d of %d effects: %w",
+			simID, len(sim.Effects)-len(applyErrs), len(sim.Effects), errors.Join(applyErrs...))
+	}
 
 	return nil
 }

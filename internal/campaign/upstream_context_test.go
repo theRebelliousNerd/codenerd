@@ -292,4 +292,3 @@ func TestUpstreamArtifactContext_CycleSafe(t *testing.T) {
 		t.Fatalf("expected CYCLE-MARKER-B exactly once, got %d: %q", n, section)
 	}
 }
-
