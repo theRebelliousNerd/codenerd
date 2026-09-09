@@ -25,6 +25,7 @@ import (
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/system"
 	"codenerd/internal/tools"
+	"codenerd/internal/tools/mcpctl"
 	"codenerd/internal/tools/research"
 	"codenerd/internal/types"
 	"database/sql"
@@ -1393,6 +1394,13 @@ func initIntelligenceLayer(bctx *bootContext) error {
 				bctx.virtualStore.SetMCPClient(serverID, mcpBridge.GetAdapter(serverID))
 				logging.Get(logging.CategoryTools).Info("Wired MCP integration: %s", serverID)
 			}
+			// Bind the model-facing control plane. This is what puts MCP in
+			// front of the LLM at all: the five mcp_* verbs are registered
+			// unconditionally, and until they have a plane they correctly
+			// report that nothing is configured. Binding happens before
+			// ConnectAll so a tool call racing boot sees an honest empty atlas
+			// rather than "MCP is not configured".
+			mcpctl.SetControlPlane(mcpBridge.ControlPlane())
 			go func() {
 				defer close(mcpDone)
 				if err := mcpBridge.ConnectAll(mcpCtx); err != nil && !errors.Is(err, context.Canceled) {

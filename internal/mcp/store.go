@@ -121,17 +121,32 @@ func (s *MCPToolStore) initialize() error {
 		return fmt.Errorf("failed to create mcp_tools table: %w", err)
 	}
 
-	// Additive migration for databases created before schema fingerprinting.
+	// Additive migrations for databases created before a column existed.
 	// SQLite has no "ADD COLUMN IF NOT EXISTS"; a duplicate-column error here
 	// simply means the migration already ran.
-	if _, err := s.db.Exec(`ALTER TABLE mcp_tools ADD COLUMN schema_hash TEXT`); err != nil &&
-		!strings.Contains(err.Error(), "duplicate column name") {
-		logging.Get(logging.CategoryTools).Debug("schema_hash migration skipped: %v", err)
+	//
+	// The control-plane columns matter on restart: without them a reconnect
+	// re-derives every classification, which is cheap for one server and not
+	// for a fleet, and worse, an atlas rendered before rediscovery finishes
+	// would show every tool in the default facet.
+	for _, column := range []string{
+		"schema_hash TEXT",
+		"facet TEXT",
+		"risk TEXT",
+		"facet_source TEXT",
+		"risk_source TEXT",
+		"annotations TEXT",
+	} {
+		if _, err := s.db.Exec(`ALTER TABLE mcp_tools ADD COLUMN ` + column); err != nil &&
+			!strings.Contains(err.Error(), "duplicate column name") {
+			logging.Get(logging.CategoryTools).Debug("mcp_tools migration skipped (%s): %v", column, err)
+		}
 	}
 
 	// Create indexes
 	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_mcp_tools_server ON mcp_tools(server_id)`)
 	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_mcp_tools_category ON mcp_tools(categories)`)
+	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_mcp_tools_facet ON mcp_tools(facet)`)
 
 	// Try to initialize vector extension
 	s.initVectorExtension()
@@ -324,6 +339,7 @@ func (s *MCPToolStore) SaveTool(ctx context.Context, tool *MCPTool) error {
 	capsJSON, _ := json.Marshal(tool.Capabilities)
 	affinitiesJSON, _ := json.Marshal(tool.ShardAffinities)
 	useCasesJSON, _ := json.Marshal(tool.UseCases)
+	annotationsJSON, _ := json.Marshal(tool.Annotations)
 
 	var embeddingBlob []byte
 	if len(tool.Embedding) > 0 {
@@ -334,8 +350,9 @@ func (s *MCPToolStore) SaveTool(ctx context.Context, tool *MCPTool) error {
 		INSERT INTO mcp_tools (
 			tool_id, server_id, name, description, input_schema, output_schema,
 			categories, capabilities, domain, shard_affinities, use_cases, condensed,
-			embedding, embedding_model, registered_at, analyzed_at, schema_hash
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			embedding, embedding_model, registered_at, analyzed_at, schema_hash,
+			facet, risk, facet_source, risk_source, annotations
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(tool_id) DO UPDATE SET
 			schema_hash = excluded.schema_hash,
 			description = excluded.description,
@@ -349,13 +366,20 @@ func (s *MCPToolStore) SaveTool(ctx context.Context, tool *MCPTool) error {
 			condensed = excluded.condensed,
 			embedding = excluded.embedding,
 			embedding_model = excluded.embedding_model,
-			analyzed_at = excluded.analyzed_at
+			analyzed_at = excluded.analyzed_at,
+			facet = excluded.facet,
+			risk = excluded.risk,
+			facet_source = excluded.facet_source,
+			risk_source = excluded.risk_source,
+			annotations = excluded.annotations
 	`,
 		tool.ToolID, tool.ServerID, tool.Name, tool.Description,
 		string(tool.InputSchema), string(tool.OutputSchema),
 		string(catsJSON), string(capsJSON), tool.Domain, string(affinitiesJSON),
 		string(useCasesJSON), tool.Condensed,
 		embeddingBlob, tool.EmbeddingModel, tool.RegisteredAt, tool.AnalyzedAt, tool.SchemaHash,
+		string(tool.Facet), string(tool.Risk), string(tool.FacetSource), string(tool.RiskSource),
+		string(annotationsJSON),
 	)
 	if err != nil {
 		return err
@@ -398,6 +422,7 @@ func (s *MCPToolStore) GetTool(ctx context.Context, toolID string) (*MCPTool, er
 func (s *MCPToolStore) getToolLocked(ctx context.Context, toolID string) (*MCPTool, error) {
 	var tool MCPTool
 	var inputSchema, outputSchema, catsJSON, capsJSON, affinitiesJSON, useCasesJSON, schemaHash sql.NullString
+	var facet, risk, facetSource, riskSource, annotationsJSON sql.NullString
 	var embeddingBlob []byte
 	var registeredAt, analyzedAt, lastUsed sql.NullTime
 
@@ -405,7 +430,8 @@ func (s *MCPToolStore) getToolLocked(ctx context.Context, toolID string) (*MCPTo
 		SELECT tool_id, server_id, name, description, input_schema, output_schema,
 			categories, capabilities, domain, shard_affinities, use_cases, condensed,
 			embedding, embedding_model, usage_count, success_count, avg_latency_ms, last_used,
-			registered_at, analyzed_at, schema_hash
+			registered_at, analyzed_at, schema_hash,
+			facet, risk, facet_source, risk_source, annotations
 		FROM mcp_tools WHERE tool_id = ?
 	`, toolID).Scan(
 		&tool.ToolID, &tool.ServerID, &tool.Name, &tool.Description,
@@ -413,6 +439,7 @@ func (s *MCPToolStore) getToolLocked(ctx context.Context, toolID string) (*MCPTo
 		&affinitiesJSON, &useCasesJSON, &tool.Condensed,
 		&embeddingBlob, &tool.EmbeddingModel, &tool.UsageCount, &tool.SuccessCount,
 		&tool.AvgLatencyMs, &lastUsed, &registeredAt, &analyzedAt, &schemaHash,
+		&facet, &risk, &facetSource, &riskSource, &annotationsJSON,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -441,6 +468,34 @@ func (s *MCPToolStore) getToolLocked(ctx context.Context, toolID string) (*MCPTo
 	}
 	if schemaHash.Valid {
 		tool.SchemaHash = schemaHash.String
+	}
+	// A row written before classification existed has NULL here. Rather than
+	// leaving the zero value — which is not a valid facet and would land the
+	// tool in no atlas section at all — reclassify from what the row already
+	// carries. The result is identical to what discovery would derive, so the
+	// atlas is correct before any reconnect happens.
+	tool.Facet = Facet(facet.String)
+	tool.Risk = RiskClass(risk.String)
+	tool.FacetSource = ClassificationSource(facetSource.String)
+	tool.RiskSource = ClassificationSource(riskSource.String)
+	if annotationsJSON.Valid && annotationsJSON.String != "" {
+		_ = json.Unmarshal([]byte(annotationsJSON.String), &tool.Annotations)
+	}
+	if !tool.Facet.Valid() || !tool.Risk.Valid() {
+		restored := ClassifyTool(MCPToolSchema{
+			Name:         tool.Name,
+			Description:  tool.Description,
+			InputSchema:  tool.InputSchema,
+			OutputSchema: tool.OutputSchema,
+			Annotations:  tool.Annotations,
+		}, &ToolAnalysis{
+			ToolID:       tool.ToolID,
+			Categories:   tool.Categories,
+			Capabilities: tool.Capabilities,
+			Domain:       tool.Domain,
+		})
+		tool.Facet, tool.Risk = restored.Facet, restored.Risk
+		tool.FacetSource, tool.RiskSource = restored.FacetSource, restored.RiskSource
 	}
 	if len(embeddingBlob) > 0 {
 		tool.Embedding = bytesToFloat32Slice(embeddingBlob)

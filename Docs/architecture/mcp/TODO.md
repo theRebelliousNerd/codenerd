@@ -22,7 +22,26 @@
   built at internal/system/factory.go:1146, stored on Cortex.mcpBridge, exposed by Cortex.MCPBridge() at factory.go:475
 - [x] Readiness signal after ConnectAll + initial discover
   FactEmitter.EmitReady(serverCount, toolCount) in facts.go
-- Needs design - Wire `CompileToolsForShard` (or equivalent) into shard/articulation JIT prompt path if product requires MCP tools in LLM context — genuinely open, gated on the "if product requires" condition which has never been decided. CompileToolsForShard exists at integration.go:257 and the bridge is retained, but Cortex.MCPBridge() has no consumers and the only non-test caller of the compile path is the `nerd mcp select` CLI at cmd/nerd/cmd_mcp_select.go, so MCP tools never reach an LLM prompt; closing it is a product decision, not a wiring oversight. CompileToolsForShard returns a RENDERED string (a tool block for LLM context), not a list of names, so it cannot ride the existing AvailableTools path: internal/core/shards/manager_spawn.go sets config.SessionContext.AvailableTools to a []string of tool names. SessionContext.ExtraContext is not a free-text channel either — internal/articulation/prompt_assembler.go:205-233 reads it only for specific selector keys — build_layer, init_phase, northstar_phase, ouroboros_stage, frameworks, framework, language, reflection_hits — so an arbitrary key would be silently ignored. Therefore wiring this means adding a NEW rendering path in prompt assembly for a rendered MCP block, which is the part that spends prompt budget on every turn. That is precisely the "if product requires" condition the item has always carried, and it has never been decided. Open question: should MCP tools appear in LLM prompts at all, given the whole selection stack (EDB emission, Mangle policy, vector scores, render modes, budget accounting) is built and tested but its only consumer today is a CLI command.
+- [x] Get MCP capability into the LLM prompt — closed 2026-09-09 by the control
+  plane, and the answer was to change what gets rendered rather than to render
+  the old thing. The item hedged with "if product requires" because injecting
+  rendered tool blocks spends prompt budget on every turn whether or not the
+  agent touches MCP, and nobody wanted to sign that recurring bill.
+
+  What ships instead is a fixed five-verb surface — `mcp_map`, `mcp_probe`,
+  `mcp_call`, `mcp_expand`, `mcp_context` in `internal/tools/mcpctl/` — whose
+  size does not depend on how many servers or tools are connected. It rides the
+  existing `AvailableTools` path (added to `coreTools` in
+  `internal/prompt/config_factory.go`), so both prompt paths pick it up:
+  `buildToolCatalogForPiggyback` and `buildToolDefinitions` each resolve
+  `cfg.AllowedTools` through `tools.Global()`. No new rendering path in prompt
+  assembly was needed, which is what made the original item look expensive.
+
+  Measured on a 26-tool fixture server: a compact atlas is 667 bytes against
+  10,905 for the equivalent catalog dump (16.3x), and result shaping took a
+  74,723-byte payload to 1,008 bytes (74x) while retaining the remainder under
+  an expandable handle.
+
 - [x] Fix `cmd_mangle_check` path: `internal/core/defaults/schemas_mcp.mg` (not missing `internal/mcp/schemas_mcp.mg`)
   cmd/nerd/cmd_mangle_check.go lines 180-182 load the internal/core/defaults/ path and record why the package-local path was wrong
 - [x] Align package README structure section with on-disk files
@@ -60,7 +79,28 @@
 
 ## Open question for the owner
 
-Everything is closed except two items, and neither is ordinary implementation work: (1) should MCP tools appear in LLM prompts at all — the whole selection stack is built and tested but its only consumer is a CLI command, and wiring it into the articulation/JIT prompt path would spend prompt budget every turn, which is why the original item hedged with "if product requires", a condition never decided; (2) -race CI cannot be actioned until the repository has CI.
+The prompt-budget question that blocked P1 is answered: capability reaches the
+model through a constant-size control plane rather than a rendered catalog, so
+the standing per-turn cost no longer scales with the number of connected tools.
+
+One judgement is worth a look rather than a decision: all five verbs are routed
+for every intent (`intent_routing_rules.mg`) and marked `safe_action`
+(`constitution.mg`), with blast radius gated one level down per remote tool by
+`mcp_tool_gated`. Scoping the verbs by `verb_category` was tried and rejected —
+the categories are `/code`, `/test`, `/git`, `/research`, `/learn`, `/document`
+and `/verify`, so any meaningful scoping leaves a configured server unreachable
+from whole regions of the taxonomy, and unreachable-by-routing fails silently.
+If that trade should go the other way, the change is two files.
+
+## Still open
+
+- `ToolSelectionConfig` (`types.go`) is not reachable from `.nerd/config.json`.
+  `SetToolSelectionConfig` and `SetConfig` exist and nothing calls them, so every
+  runtime uses the hardcoded defaults. `LogicWeight`, `VectorWeight` and
+  `SkeletonThreshold` are declared and never read — the compiler hardcodes
+  `*7/10` and `*3/10`. Either wire them or delete the dead fields; carrying a
+  knob that does nothing is worse than not having one.
+- Campaign-side `MCPToolStore` injection remains optional.
 
 ## Non-goals (do not TODO as defects)
 

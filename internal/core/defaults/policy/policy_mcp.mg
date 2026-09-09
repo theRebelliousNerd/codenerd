@@ -312,6 +312,51 @@ mcp_intent_requires_capability(/delete, /delete).
 mcp_intent_requires_capability(/remove, /delete).
 mcp_intent_requires_capability(/clear, /delete).
 
+# -----------------------------------------------------------------------------
+# 50.10 Control Plane Gating
+# -----------------------------------------------------------------------------
+# The Go side derives a facet and a risk class for every discovered tool; these
+# rules decide what follows from them. Deriving in Go and deciding in Mangle is
+# the split this system is built on: classification is mechanical, and what a
+# classification is ALLOWED to do is policy.
+
+# A destructive or arbitrary-execution tool must be confirmed before dispatch.
+# Confirmation is not a security boundary — the agent can supply the flag — it
+# is a deliberateness boundary. The failure it prevents is a tool with an
+# innocuous name turning out to delete a branch with nothing in the transcript
+# showing that anyone decided it should.
+mcp_tool_gated(ToolID) :-
+    mcp_tool_risk(ToolID, /destructive).
+
+mcp_tool_gated(ToolID) :-
+    mcp_tool_risk(ToolID, /arbitrary).
+
+# A risk class that was merely defaulted, rather than derived from a signal, is
+# gated too. Nothing about the tool said it was safe; the classifier simply ran
+# out of evidence, and running out of evidence is not the same as finding none.
+mcp_tool_gated(ToolID) :-
+    mcp_tool_risk(ToolID, /mutating),
+    mcp_tool_risk_source(ToolID, /default).
+
+# Browsable tools are what an exploratory listing may show unfiltered. An
+# exploratory list headed by destructive operations invites the mistake it
+# should be preventing.
+mcp_tool_browsable(ToolID) :-
+    mcp_tool_available(ToolID),
+    mcp_tool_risk(ToolID, /safe).
+
+mcp_tool_browsable(ToolID) :-
+    mcp_tool_available(ToolID),
+    mcp_tool_risk(ToolID, /mutating).
+
+# A server offers a facet when at least one reachable tool fills it. This is
+# what the atlas asserts about a server without naming any of its tools, and it
+# is the reason a fleet costs an atlas per turn instead of a catalog.
+mcp_server_facet_available(ServerID, Facet) :-
+    mcp_tool_registered(ToolID, ServerID, _),
+    mcp_tool_facet(ToolID, Facet),
+    mcp_tool_available(ToolID).
+
 # =============================================================================
 # END SECTION 50
 # =============================================================================

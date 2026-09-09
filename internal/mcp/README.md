@@ -1,25 +1,55 @@
 # internal/mcp/
 
-MCP (Model Context Protocol) Integration - JIT Tool Compiler for intelligent tool serving.
-
-**Architecture Version:** 2.0.0 (December 2024 - JIT-Driven)
+MCP (Model Context Protocol) client, and the control plane that turns any server
+it connects to into a progressively-disclosed context and tool surface.
 
 ## Overview
 
-The MCP package provides a JIT Tool Compiler for intelligent MCP tool serving based on task context. It enables dynamic tool discovery, analysis, and selection from MCP servers.
+Two things live here, and they answer two different questions.
+
+The **client** connects to MCP servers over HTTP, stdio or SSE, discovers what
+they expose, analyzes it, and persists it with embeddings. The **control plane**
+decides what the model gets to see, and when.
+
+The control plane exists because of an economic problem. Rendering every
+discovered tool's schema into a prompt charges for the entire catalog on every
+turn, forever, whether or not the agent touches any of it. So the model is given
+a **fixed five-verb surface** whose size does not change when a twenty-tool
+server or a two-hundred-tool server connects, and everything that varies —
+which facets a server fills, what a tool's arguments are, how large its results
+run — is disclosed only to the turn that asks for it.
+
+Measured on a 26-tool fixture server: a compact atlas is 667 bytes against
+10,905 for the equivalent catalog dump (16.3x). A 74,723-byte result shapes to
+1,008 bytes (74x) while reporting its own structure and retaining the rest.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     JIT TOOL COMPILER                           │
-├─────────────────────────────────────────────────────────────────┤
-│  MCPClientManager → ToolAnalyzer → MCPToolStore → Mangle Facts │
-│                                          ↓                      │
-│  TaskContext → Vector Search + Mangle Logic → Tool Selection   │
-│                                          ↓                      │
-│  ToolRenderer → Full/Condensed/Minimal → LLM Context           │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                          CONTROL PLANE                               │
+├──────────────────────────────────────────────────────────────────────┤
+│  mcp_map      atlas: servers x facets x counts, no schemas           │
+│  mcp_probe    signatures for a facet; full schema for one named tool │
+│  mcp_call     invoke; validate -> gate -> dispatch -> shape          │
+│  mcp_expand   reopen a retained payload by JSON pointer              │
+│  mcp_context  ranked server resources and prompt templates           │
+├──────────────────────────────────────────────────────────────────────┤
+│  facets.go    annotations + name + schema -> facet, risk class       │
+│  digest.go    5-axis budget, adaptive shrink, one-line shape sketch  │
+│  handles.go   retained payloads; expansion never re-invokes          │
+│  signature.go signature lines; full schema on demand or on failure   │
+├──────────────────────────────────────────────────────────────────────┤
+│              MANGLE: mcp_tool_gated decides what needs confirming    │
+└──────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────┐
+│                        JIT TOOL COMPILER                             │
+├──────────────────────────────────────────────────────────────────────┤
+│  MCPClientManager → ToolAnalyzer → MCPToolStore → Mangle Facts       │
+│  TaskContext → Vector Search + Mangle Logic → Tool Selection         │
+│  ToolRenderer → Full/Condensed/Minimal → rendered block              │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Structure
@@ -36,6 +66,12 @@ internal/mcp/
 ├── analyzer.go          # LLM + heuristic tool analysis
 ├── facts.go             # FactEmitter: MCP state -> kernel EDB
 ├── resources.go         # MCP resources and prompts support beyond tools
+├── facets.go            # Facet + risk classification, derived per tool
+├── digest.go            # Result shaping: byte budgets, shape sketch, elisions
+├── handles.go           # Retained payload store, RFC 6901 pointer expansion
+├── signature.go         # Signature lines, full schema, argument validation
+├── controlplane.go      # ControlPlane: Atlas, Probe, catalog cache
+├── controlplane_invoke.go # Call, Expand, Context, KernelRiskGate
 ├── compiler.go          # JITToolCompiler: vector + Mangle selection
 ├── renderer.go          # Tool set rendering for LLM context
 ├── metrics.go           # MCP call metrics (latency / error counters)
@@ -50,11 +86,12 @@ embedded under `internal/core/defaults/`:
 | File | Role |
 |------|------|
 | `internal/core/defaults/schemas_mcp.mg` | Decls (EDB + IDB names), loaded by `kernel_init.go` |
-| `internal/core/defaults/policy/policy_mcp.mg` | Section 50 selection rules, loaded by the `defaults/policy/*.mg` sweep |
+| `internal/core/defaults/policy/policy_mcp.mg` | Section 50 selection rules and 50.10 control-plane gating, loaded by the `defaults/policy/*.mg` sweep |
+| `internal/core/defaults/policy/constitution.mg` | `safe_action` for the five `mcp_*` verbs |
+| `internal/core/defaults/policy/intent_routing_rules.mg` | `modular_tool_allowed` for the five verbs |
 
-A package-local `policy_mcp.mg` used to live here; nothing loaded it, so
-`mcp_tool_selected` was always empty and selection silently fell back to the Go
-heuristic in `compiler.go`.
+The model-facing verbs are registered from `internal/tools/mcpctl/`, which
+imports this package. Nothing here imports it back.
 
 ## Key Concepts
 

@@ -201,6 +201,32 @@ func (e *FactEmitter) EmitPrompts(serverID string, prompts []MCPPrompt) {
 	e.replace("prompts:"+serverID, facts)
 }
 
+// EmitHandle publishes an outstanding result handle.
+//
+// A truncated result is a piece of unfinished business, and unfinished business
+// belongs in the kernel rather than only in the turn that created it. With this
+// fact, policy can notice that an agent shaped a large result and never went
+// back for the rest — which is exactly the shape of a wrong answer produced
+// confidently from a partial read.
+func (e *FactEmitter) EmitHandle(handle, toolID string, bytes int) {
+	if e == nil || handle == "" || toolID == "" {
+		return
+	}
+	e.replace("handle:"+handle, []string{
+		fmt.Sprintf("mcp_result_handle(%s, %s, %d)",
+			mangleString(handle), mangleString(toolID), bytes),
+	})
+}
+
+// RetractHandle drops a handle's fact once its payload is gone, so the kernel
+// never recommends expanding something the store has already evicted.
+func (e *FactEmitter) RetractHandle(handle string) {
+	if e == nil || handle == "" {
+		return
+	}
+	e.replace("handle:"+handle, nil)
+}
+
 // RetractTool removes every fact for a tool. Used when a server stops
 // advertising a tool it previously exposed.
 func (e *FactEmitter) RetractTool(toolID string) {
@@ -352,6 +378,27 @@ func toolFacts(tool *MCPTool) []string {
 	for _, shard := range shards {
 		facts = append(facts, fmt.Sprintf("mcp_tool_shard_affinity(%s, %s, %d)",
 			mangleString(tool.ToolID), mangleAtom(shard), tool.ShardAffinities[shard]))
+	}
+
+	// Control-plane classification. These are emitted unconditionally when
+	// valid, including for a tool whose LLM analysis never ran: the facet is
+	// what the atlas groups by and the risk class is what policy gates on, so a
+	// tool missing them is a tool the executive cannot reason about at all.
+	if tool.Facet.Valid() {
+		facts = append(facts, fmt.Sprintf("mcp_tool_facet(%s, %s)",
+			mangleString(tool.ToolID), tool.Facet.Atom()))
+	}
+	if tool.Risk.Valid() {
+		facts = append(facts, fmt.Sprintf("mcp_tool_risk(%s, %s)",
+			mangleString(tool.ToolID), tool.Risk.Atom()))
+	}
+	// The provenance of a risk class changes how much weight policy should give
+	// it: a server that declared itself read-only is evidence, a name-prefix
+	// guess is an inference, and a rule that grants a write on the strength of
+	// a guess should be able to say so.
+	if tool.RiskSource != "" {
+		facts = append(facts, fmt.Sprintf("mcp_tool_risk_source(%s, %s)",
+			mangleString(tool.ToolID), mangleAtom(string(tool.RiskSource))))
 	}
 
 	if !tool.AnalyzedAt.IsZero() {

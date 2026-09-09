@@ -411,10 +411,13 @@ func (m *MCPClientManager) processToolSchema(ctx context.Context, serverID strin
 	}
 
 	// Analyze with LLM if analyzer is available
+	var analysis *ToolAnalysis
 	if m.analyzer != nil {
-		analysis, err := m.analyzer.Analyze(ctx, schema)
+		var err error
+		analysis, err = m.analyzer.Analyze(ctx, schema)
 		if err != nil {
 			logging.Get(logging.CategoryTools).Warn("Failed to analyze tool %s: %v", toolID, err)
+			analysis = nil
 		} else {
 			tool.Categories = analysis.Categories
 			tool.Capabilities = analysis.Capabilities
@@ -431,6 +434,18 @@ func (m *MCPClientManager) processToolSchema(ctx context.Context, serverID strin
 	if tool.Condensed == "" && tool.Description != "" {
 		tool.Condensed = truncate(tool.Description, 80)
 	}
+
+	// Classify for the control plane. This deliberately runs on every tool,
+	// including one whose LLM analysis failed or was never configured: the
+	// atlas and the risk gate are what an agent navigates by, and a server that
+	// arrives unclassified is a server the agent cannot see. Classification
+	// degrades — annotations, then name, then schema — it does not vanish.
+	classification := ClassifyTool(schema, analysis)
+	tool.Facet = classification.Facet
+	tool.Risk = classification.Risk
+	tool.FacetSource = classification.FacetSource
+	tool.RiskSource = classification.RiskSource
+	tool.Annotations = schema.Annotations
 
 	// Persist to store
 	if m.store != nil {

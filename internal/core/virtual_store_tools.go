@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/tools"
 	"codenerd/internal/tools/codedom"
 	"codenerd/internal/tools/core"
+	"codenerd/internal/tools/mcpctl"
 	"codenerd/internal/tools/research"
 	"codenerd/internal/tools/shell"
 	"codenerd/internal/types"
@@ -94,6 +95,18 @@ func (v *VirtualStore) HydrateModularTools(searchers ...types.GroundedWebSearche
 	}
 	if err := codedom.RegisterAll(globalRegistry); err != nil {
 		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register codedom tools to global registry: %v", err)
+	}
+
+	// Register the MCP control-plane verbs (to both registries). These are
+	// registered unconditionally, exactly like the browser tools: the verbs are
+	// the stable surface, and whether any MCP server is actually connected is a
+	// runtime fact the atlas reports rather than a reason to hide the tools.
+	if err := mcpctl.RegisterAll(registry); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to register MCP control-plane tools: %v", err)
+		return fmt.Errorf("failed to register MCP control-plane tools: %w", err)
+	}
+	if err := mcpctl.RegisterAll(globalRegistry); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register MCP control-plane tools to global registry: %v", err)
 	}
 
 	// Register all research tools (to both registries)

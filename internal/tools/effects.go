@@ -20,7 +20,8 @@ func BuiltinEffect(name string) Effect {
 	case "read_file", "list_files", "glob", "grep", "search_code", "get_element", "get_elements",
 		"get_impacted_tests", "git_diff", "git_log", "research_cache_get",
 		"research_cache_stats", "browser_extract", "browser_observe",
-		"browser_evidence", "browser_specs", "browser_wait":
+		"browser_evidence", "browser_specs", "browser_wait",
+		"mcp_map", "mcp_probe", "mcp_expand":
 		return EffectRead
 	case "write_file", "edit_file", "delete_file", "edit_lines", "insert_lines",
 		"delete_lines", "edit_element", "apply_edits", "research_cache_set", "research_cache_clear":
@@ -30,7 +31,8 @@ func BuiltinEffect(name string) Effect {
 	case "browser_navigate", "browser_click", "browser_type", "browser_close",
 		"browser_screenshot", "browser_audit", "browser_test", "browser_act",
 		"browser_mangle", "browser_reason", "context7_fetch", "web_fetch",
-		"web_search", "grounded_web_search":
+		"web_search", "grounded_web_search",
+		"mcp_call", "mcp_context":
 		return EffectExternal
 	default:
 		return ""

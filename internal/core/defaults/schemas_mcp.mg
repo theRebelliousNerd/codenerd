@@ -225,6 +225,51 @@ Decl mcp_prompt_registered(ServerID, PromptName) bound [/string, /string].
 # Required: /true, /false
 Decl mcp_prompt_argument(PromptName, ArgumentName, Required) bound [/string, /string, /name].
 
+# -----------------------------------------------------------------------------
+# 50.10 MCP Control Plane
+# -----------------------------------------------------------------------------
+# A control plane fronts every connected server with a fixed set of verbs and
+# discloses detail on demand, so a fleet of servers costs an atlas per turn
+# instead of every tool schema per turn. These predicates are what the atlas is
+# grouped by and what the risk gate is decided from. Every one of them is
+# DERIVED at discovery from the server's own annotations plus its schema, so a
+# server nobody has hand-described still arrives fully described here.
+
+# mcp_tool_facet(ToolID, Facet)
+# The canonical verb bucket a tool belongs to.
+# Facet: /read, /search, /analyze, /write, /execute, /manage
+Decl mcp_tool_facet(ToolID, Facet) bound [/string, /name].
+
+# mcp_tool_risk(ToolID, Risk)
+# The blast radius of one call, in ascending order of consequence.
+# Risk: /safe, /mutating, /destructive, /arbitrary
+Decl mcp_tool_risk(ToolID, Risk) bound [/string, /name].
+
+# mcp_tool_risk_source(ToolID, Source)
+# Where the risk class came from. A declaration is evidence; a name guess is an
+# inference, and a rule that grants a write on the strength of one should be
+# able to tell them apart.
+# Source: /annotation, /capability, /name, /schema, /default
+Decl mcp_tool_risk_source(ToolID, Source) bound [/string, /name].
+
+# mcp_result_handle(Handle, ToolID, Bytes)
+# A shaped result whose withheld remainder is still retained and expandable.
+# Outstanding handles are unfinished business: a partial read that never got
+# finished is how a confident wrong answer gets produced.
+Decl mcp_result_handle(Handle, ToolID, Bytes) bound [/string, /string, /number].
+
+# mcp_tool_gated(ToolID)
+# Derived: a call to this tool must be explicitly confirmed before dispatch.
+Decl mcp_tool_gated(ToolID) bound [/string].
+
+# mcp_tool_browsable(ToolID)
+# Derived: safe enough to appear in an unfiltered exploratory listing.
+Decl mcp_tool_browsable(ToolID) bound [/string].
+
+# mcp_server_facet_available(ServerID, Facet)
+# Derived: this server currently offers at least one reachable tool in Facet.
+Decl mcp_server_facet_available(ServerID, Facet) bound [/string, /name].
+
 # =============================================================================
 # END SECTION 50
 # =============================================================================

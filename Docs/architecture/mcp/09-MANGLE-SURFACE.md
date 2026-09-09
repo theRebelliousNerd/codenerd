@@ -1,15 +1,18 @@
 # 09 — Mangle Surface: MCP
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-09-09  
 > Extra deep-dive (policy-heavy package)
 
 ## 1. Split of responsibility
 
 | Artifact | Location | Role |
 |----------|----------|------|
-| **Decls (EDB + IDB names)** | `internal/core/defaults/schemas_mcp.mg` | Boot-loaded via `kernel_init.go` list entry `schemas_mcp.mg` |
-| **Selection rules (IDB)** | `internal/mcp/policy_mcp.mg` | Section 50 hybrid selection — **package-local; not confirmed in policy load list** |
-| **Runtime temp facts** | Go `JITToolCompiler` | `mcp_tool_vector_score` assert/retract |
+| **Decls (EDB + IDB names)** | `internal/core/defaults/schemas_mcp.mg` | Boot-loaded via `kernel_init.go`; Sections 50.1–50.10 |
+| **Selection + gating rules (IDB)** | `internal/core/defaults/policy/policy_mcp.mg` | Section 50 hybrid selection and control-plane gating; swept by the `defaults/policy/*.mg` embed |
+| **Permanent EDB** | Go `FactEmitter` (`internal/mcp/facts.go`) | Server, tool, capability, affinity, usage, resource, prompt, facet, risk, handle |
+| **Runtime temp facts** | Go `JITToolCompiler` | `mcp_tool_vector_score` assert/retract, by exact fact |
+| **Verb permissions** | `internal/core/defaults/policy/constitution.mg` | `safe_action` for the five `mcp_*` verbs |
+| **Verb routing** | `internal/core/defaults/policy/intent_routing_rules.mg` | `modular_tool_allowed` for the five verbs |
 | **Related non-MCP tool policy** | `internal/core/defaults/policy/tool_routing.mg` | Section 40 generic tool relevance |
 
 ## 2. Decl inventory (schemas_mcp.mg)
@@ -105,11 +108,40 @@ Grep of `.go` sources shows **no** bulk assert of:
 - `mcp_tool_shard_affinity`  
 - `mcp_server_status`  
 
-on discover. Only **vector scores** are asserted during compile. Therefore policy body for base relevance **cannot fire** on real discovered tools until a fact emitter is added.
+on discover.
 
-## 6. CLI mangle-check drift
+**Fact emission is implemented.** `internal/mcp/facts.go` mirrors runtime state
+into the kernel as EDB, subject-keyed so a re-analysis replaces a tool's facts
+wholesale rather than layering new ones over stale ones. The kernel adapter
+retracts by exact fact string — a wildcard retraction is a silent no-op there —
+so every subject key remembers exactly which strings it asserted.
 
-`cmd/nerd/cmd_mangle_check.go` references `internal/mcp/schemas_mcp.mg`. Actual Decl file: `internal/core/defaults/schemas_mcp.mg`. Package-local policy remains `internal/mcp/policy_mcp.mg`.
+## 6. Control-plane predicates (Section 50.10)
+
+Derived at discovery by `internal/mcp/facets.go`, emitted by `FactEmitter`, and
+consumed by the gating rules in `policy_mcp.mg`.
+
+| Predicate | Kind | Meaning |
+|-----------|------|---------|
+| `mcp_tool_facet(ToolID, Facet)` | EDB | `/read` `/search` `/analyze` `/write` `/execute` `/manage` |
+| `mcp_tool_risk(ToolID, Risk)` | EDB | `/safe` `/mutating` `/destructive` `/arbitrary` |
+| `mcp_tool_risk_source(ToolID, Source)` | EDB | `/annotation` `/capability` `/name` `/schema` `/default` |
+| `mcp_result_handle(Handle, ToolID, Bytes)` | EDB | An outstanding, still-expandable shaped result |
+| `mcp_tool_gated(ToolID)` | IDB | Requires `confirm_risk` before dispatch |
+| `mcp_tool_browsable(ToolID)` | IDB | Safe enough for an unfiltered exploratory listing |
+| `mcp_server_facet_available(ServerID, Facet)` | IDB | This server currently fills this facet |
+
+Two design points worth keeping:
+
+- **Risk source is carried, not discarded.** A server that declared
+  `readOnlyHint` has told us the answer; a name-prefix guess is an inference. A
+  rule that grants a write on the strength of a guess should be able to say so,
+  and `mcp_tool_gated` uses exactly that distinction — `/mutating` with source
+  `/default` is gated, because nothing said it was safe.
+- **Go derives, Mangle decides.** Classification is mechanical and lives in Go;
+  what a classification is *allowed* to do is policy. `KernelRiskGate` queries
+  `mcp_tool_gated` and enforces the verdict, and a failed query is treated as
+  gated rather than permitted.
 
 ## 7. Guardrails reminder
 
@@ -119,9 +151,17 @@ on discover. Only **vector scores** are asserted during compile. Therefore polic
 - Aggregation uses `|> do … let …` (not used heavily in this section).  
 - Do not push fuzzy NL matching into Mangle — embeddings first.
 
-## 8. Recommended completion path
+## 8. Verification
 
-1. Move or include `policy_mcp.mg` in defaults policy load order (after schemas).  
-2. On SaveTool / SaveServer, assert/retract corresponding EDB.  
-3. Optionally assert usage predicates from `RecordToolUsage`.  
-4. Golden tests under `internal/core/defaults/policy/testdata` for section 50.
+- `internal/mcp/policy_golden_test.go` loads the real `schemas_mcp.mg` and
+  `policy/policy_mcp.mg` from disk and pins `mcp_tool_selected` against golden
+  fixtures, so a Decl or rule edit that breaks stratification fails there.
+- `internal/tools/catalog_policy_parity_test.go` fails if a registered tool has
+  no `safe_action` or `requires_permission` fact — verified by deliberately
+  removing `safe_action(/mcp_call)`, which produced
+  `tools with no policy entry: [mcp_call]`.
+- `internal/tools/catalog_golden_test.go` fails if a registered tool is absent
+  from `modular_tool_allowed`.
+
+All three hydrate `mcpctl.RegisterAll`, so the control-plane verbs are inside
+the gates rather than beside them.
