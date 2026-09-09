@@ -35,8 +35,13 @@ BASELINE="scripts/testdata/deadcode-baseline.txt"
 TOOL="golang.org/x/tools/cmd/deadcode@latest"
 
 report() {
-    # Strip line:col so the baseline survives edits that only move code.
+    # Strip line:col so the baseline survives edits that only move code, and
+    # normalise separators and line endings: CI runs on Windows, where the tool
+    # emits backslash paths and the shell may add CR. Without both, every entry
+    # in a Linux-generated baseline reads as new.
     go run "$TOOL" ./cmd/... 2>/dev/null \
+        | tr -d '\r' \
+        | tr '\\' '/' \
         | sed -E 's/^([^:]+):[0-9]+:[0-9]+: unreachable func: /\1\t/' \
         | sort -u
 }
@@ -55,11 +60,14 @@ if [[ ! -f "$BASELINE" ]]; then
 fi
 
 CURRENT="$(mktemp)"
-trap 'rm -f "$CURRENT"' EXIT
+KNOWN="$(mktemp)"
+trap 'rm -f "$CURRENT" "$KNOWN"' EXIT
 report > "$CURRENT"
+# Normalise the checked-in baseline the same way, so a CRLF checkout compares.
+tr -d '\r' < "$BASELINE" | sort -u > "$KNOWN"
 
-ADDED="$(comm -13 "$BASELINE" "$CURRENT" || true)"
-REMOVED="$(comm -23 "$BASELINE" "$CURRENT" || true)"
+ADDED="$(comm -13 "$KNOWN" "$CURRENT" || true)"
+REMOVED="$(comm -23 "$KNOWN" "$CURRENT" || true)"
 
 status=0
 
@@ -83,7 +91,7 @@ if [[ -n "$REMOVED" ]]; then
 fi
 
 if [[ $status -eq 0 ]]; then
-    echo "Dead-code budget holds: $(wc -l < "$BASELINE") known unreachable functions, no drift."
+    echo "Dead-code budget holds: $(wc -l < "$KNOWN") known unreachable functions, no drift."
 fi
 
 exit $status

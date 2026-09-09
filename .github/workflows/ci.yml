@@ -39,6 +39,31 @@ jobs:
       - name: Test through Windows path aliases
         run: ./scripts/test_windows_path_identity.ps1 -Full
 
+  deadcode:
+    # The Go half of this repo's recurring defect: a function defined and
+    # exported that nothing calls. Its Mangle twin — a predicate declared and
+    # read by rules that nothing produces — is gated by
+    # TestStarvedPredicateBudget, which the test job already runs.
+    #
+    # Both are budgets, not targets of zero. They fail when the number moves in
+    # either direction, so the baseline stays a measurement instead of rotting
+    # into a file nobody trusts.
+    #
+    # bash is Git Bash on the Windows runner; the script normalises separators
+    # and line endings for exactly that reason.
+    name: dead-code budget
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Dead-code budget
+        shell: bash
+        run: ./scripts/deadcode-budget.sh
+
   race:
     # Closes the mcp backlog item "-race CI for manager+store". Scoped to those
     # two packages rather than the whole tree: -race is slow, and these are the
