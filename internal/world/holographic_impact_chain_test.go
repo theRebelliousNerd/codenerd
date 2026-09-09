@@ -19,12 +19,18 @@ import (
 // (internal/core/defaults/policy/impact.mg:29-78)
 func seedImpactChain(t *testing.T, k *core.RealKernel, callerFile string) {
 	t.Helper()
+	// Package-qualified identifiers, matching what world.Cartographer emits for
+	// code_calls and code_defines (cartographer.go:107-110) and what
+	// core.symbolIDFromRef produces for modified_function. Using bare names
+	// here would make the scenario self-consistent and wrong: the first version
+	// of this test did exactly that and passed while the production join could
+	// never fire, because the two sides named the same function differently.
 	facts := []core.Fact{
-		{Predicate: "modified_function", Args: []any{"Target", "target.go"}},
-		{Predicate: "code_calls", Args: []any{"DirectCaller", "Target"}},
-		{Predicate: "code_calls", Args: []any{"GrandCaller", "DirectCaller"}},
-		{Predicate: "code_defines", Args: []any{callerFile, "DirectCaller", "/function", int64(1), int64(9)}},
-		{Predicate: "code_defines", Args: []any{callerFile, "GrandCaller", "/function", int64(11), int64(19)}},
+		{Predicate: "modified_function", Args: []any{"p.Target", "target.go"}},
+		{Predicate: "code_calls", Args: []any{"p.DirectCaller", "p.Target"}},
+		{Predicate: "code_calls", Args: []any{"p.GrandCaller", "p.DirectCaller"}},
+		{Predicate: "code_defines", Args: []any{callerFile, "p.DirectCaller", "/function", int64(1), int64(9)}},
+		{Predicate: "code_defines", Args: []any{callerFile, "p.GrandCaller", "/function", int64(11), int64(19)}},
 	}
 	for _, f := range facts {
 		if err := k.Assert(f); err != nil {
@@ -79,12 +85,12 @@ func TestImpactChain_ReachesPromptSection(t *testing.T) {
 	// caller rendered as MINIMAL.
 	var direct *PrioritizedCaller
 	for i := range hc.PrioritizedCallers {
-		if hc.PrioritizedCallers[i].Name == "DirectCaller" {
+		if hc.PrioritizedCallers[i].Name == "p.DirectCaller" {
 			direct = &hc.PrioritizedCallers[i]
 		}
 	}
 	if direct == nil {
-		t.Fatalf("DirectCaller missing from prioritized callers: %+v", hc.PrioritizedCallers)
+		t.Fatalf("p.DirectCaller missing from prioritized callers: %+v", hc.PrioritizedCallers)
 	}
 	if direct.Priority != 100 || direct.Depth != 1 {
 		t.Errorf("direct caller priority/depth = %d/%d, want 100/1 (impact.mg emits 3 for depth 1)", direct.Priority, direct.Depth)
@@ -94,7 +100,7 @@ func TestImpactChain_ReachesPromptSection(t *testing.T) {
 	}
 
 	// Ranking must put the direct caller ahead of the grandcaller.
-	if hc.PrioritizedCallers[0].Name != "DirectCaller" {
+	if hc.PrioritizedCallers[0].Name != "p.DirectCaller" {
 		t.Errorf("ranking put %q first; the direct caller must outrank the grandcaller", hc.PrioritizedCallers[0].Name)
 	}
 
@@ -102,7 +108,7 @@ func TestImpactChain_ReachesPromptSection(t *testing.T) {
 	if !strings.Contains(section, "Callers (impact-prioritized)") {
 		t.Fatalf("PromptSection fell through to the unranked branch:\n%s", section)
 	}
-	if !strings.Contains(section, "DirectCaller") {
+	if !strings.Contains(section, "p.DirectCaller") {
 		t.Errorf("rendered section omits the direct caller:\n%s", section)
 	}
 	if !strings.Contains(section, "priority 100") {
@@ -125,7 +131,7 @@ func TestImpactChain_QuietWithoutModifications(t *testing.T) {
 		t.Fatalf("kernel: %v", err)
 	}
 	// code_calls exists, but nothing was modified.
-	if err := kernel.Assert(core.Fact{Predicate: "code_calls", Args: []any{"DirectCaller", "Target"}}); err != nil {
+	if err := kernel.Assert(core.Fact{Predicate: "code_calls", Args: []any{"p.DirectCaller", "p.Target"}}); err != nil {
 		t.Fatalf("assert: %v", err)
 	}
 

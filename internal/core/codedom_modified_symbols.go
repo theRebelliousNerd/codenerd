@@ -28,19 +28,25 @@ package core
 
 import "strings"
 
-// symbolNameFromRef extracts the bare symbol name from a CodeDOM ref.
+// symbolIDFromRef converts a CodeDOM ref into the identifier the world model's
+// call graph is keyed by.
 //
-// Refs are built by world.GoCodeParser.buildRef as `<kind>:<pkg>.<Name>`, or
-// `<kind>:<pkg>.<Receiver>.<Name>` for a method; the tree-sitter path emits the
-// unqualified `<kind>:<Name>`. Taking the text after the last ':' drops the kind
-// prefix (and the '::' of a Rust path); taking the text after the last '.'
-// drops package and receiver qualification.
-func symbolNameFromRef(ref string) string {
+// This has to match world.Cartographer exactly or the join in impact.mg never
+// fires. The Cartographer builds both code_calls and code_defines identifiers as
+// `<pkg>.<Name>` for a function and `<pkg>.<Receiver>.<Name>` for a method
+// (cartographer.go:107-110). world.GoCodeParser.buildRef produces the same
+// string with a kind prefix: `fn:<pkg>.<Name>` (go_parser.go:174-178). So the
+// transform is to drop everything through the last ':' — and nothing else.
+//
+// The first version of this stripped to the last '.' as well, yielding the bare
+// `Target` where code_calls holds `impactdemo.Target`. Every fact was emitted
+// correctly and impact_caller still derived nothing, because the two sides of
+// the join were naming the same function differently.
+// TestImpactChain_EndToEndThroughVirtualStore is what caught it; no unit test
+// on either side could have, because each side was self-consistent.
+func symbolIDFromRef(ref string) string {
 	if i := strings.LastIndex(ref, ":"); i >= 0 {
-		ref = ref[i+1:]
-	}
-	if i := strings.LastIndex(ref, "."); i >= 0 {
-		ref = ref[i+1:]
+		return ref[i+1:]
 	}
 	return ref
 }
@@ -56,7 +62,7 @@ func modifiedSymbolFacts(elem *CodeElement) []Fact {
 	if elem == nil {
 		return nil
 	}
-	name := symbolNameFromRef(elem.Ref)
+	name := symbolIDFromRef(elem.Ref)
 	if name == "" || elem.File == "" {
 		return nil
 	}

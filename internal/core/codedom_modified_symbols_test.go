@@ -4,20 +4,22 @@ import (
 	"testing"
 )
 
-// TestSymbolNameFromRef covers the three ref shapes the parsers emit.
-func TestSymbolNameFromRef(t *testing.T) {
+// TestSymbolIDFromRef pins the identifier shape the world model's call graph is
+// keyed by. It must match world.Cartographer exactly — <pkg>.<Name> for a
+// function and <pkg>.<Receiver>.<Name> for a method — or the join in impact.mg
+// never fires.
+func TestSymbolIDFromRef(t *testing.T) {
 	cases := map[string]string{
-		"fn:world.NewHolographicProvider":         "NewHolographicProvider",
-		"fn:world.HolographicProvider.GetContext": "GetContext",
+		"fn:world.NewHolographicProvider":         "world.NewHolographicProvider",
+		"fn:world.HolographicProvider.GetContext": "world.HolographicProvider.GetContext",
 		"fn:TestFoo":                      "TestFoo",
-		"struct:world.HolographicContext": "HolographicContext",
-		"interface:core.Kernel":           "Kernel",
-		"fn:module::test_thing":           "test_thing",
+		"struct:world.HolographicContext": "world.HolographicContext",
+		"interface:core.Kernel":           "core.Kernel",
 		"":                                "",
 	}
 	for ref, want := range cases {
-		if got := symbolNameFromRef(ref); got != want {
-			t.Errorf("symbolNameFromRef(%q) = %q, want %q", ref, got, want)
+		if got := symbolIDFromRef(ref); got != want {
+			t.Errorf("symbolIDFromRef(%q) = %q, want %q", ref, got, want)
 		}
 	}
 }
@@ -36,19 +38,19 @@ func TestModifiedSymbolFacts(t *testing.T) {
 			name:     "function",
 			elem:     &CodeElement{Ref: "fn:world.Target", Type: "function", File: "target.go"},
 			wantPred: "modified_function",
-			wantName: "Target",
+			wantName: "world.Target",
 		},
 		{
 			name:     "method keeps its own name, not the receiver's",
 			elem:     &CodeElement{Ref: "fn:world.Provider.GetContext", Type: "method", File: "p.go"},
 			wantPred: "modified_function",
-			wantName: "GetContext",
+			wantName: "world.Provider.GetContext",
 		},
 		{
 			name:     "interface",
 			elem:     &CodeElement{Ref: "interface:core.Kernel", Type: "interface", File: "k.go"},
 			wantPred: "modified_interface",
-			wantName: "Kernel",
+			wantName: "core.Kernel",
 		},
 		// A struct edit is still recorded by element_modified and
 		// modified(File); it just does not start a caller walk, because there
@@ -118,11 +120,11 @@ func TestModifiedSymbolFactsForLineRange(t *testing.T) {
 		start, end int
 		want       []string
 	}{
-		{name: "inside one function", start: 5, end: 5, want: []string{"Alpha"}},
-		{name: "spanning two functions", start: 9, end: 13, want: []string{"Alpha", "Beta"}},
+		{name: "inside one function", start: 5, end: 5, want: []string{"p.Alpha"}},
+		{name: "spanning two functions", start: 9, end: 13, want: []string{"p.Alpha", "p.Beta"}},
 		{name: "gap between elements touches nothing", start: 11, end: 11},
 		{name: "struct range yields no caller-walk fact", start: 23, end: 24},
-		{name: "boundary line is inside", start: 10, end: 10, want: []string{"Alpha"}},
+		{name: "boundary line is inside", start: 10, end: 10, want: []string{"p.Alpha"}},
 		{name: "inverted range is refused", start: 9, end: 1},
 		{name: "range past the file touches nothing", start: 100, end: 200},
 	}
