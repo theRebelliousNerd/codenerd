@@ -65,8 +65,24 @@ type HandleStore struct {
 	entries  map[string]*handleEntry
 	curBytes int
 
+	// onEvict is called for every handle the store drops. Eviction is the one
+	// moment a published mcp_result_handle fact becomes a lie: the kernel would
+	// go on offering an expansion of bytes that no longer exist, and the agent
+	// would spend a turn discovering that.
+	onEvict func(handle string)
+
 	// now is injectable so TTL behaviour is testable without sleeping.
 	now func() time.Time
+}
+
+// SetEvictionHook installs the callback fired when a handle is dropped.
+func (s *HandleStore) SetEvictionHook(fn func(handle string)) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onEvict = fn
 }
 
 // NewHandleStore creates a store. A zero or negative limit falls back to the
@@ -112,20 +128,29 @@ func (s *HandleStore) Mint(toolID string, payload json.RawMessage) string {
 	sum.Write(payload)
 	id := handlePrefix + hex.EncodeToString(sum.Sum(nil))[:12]
 
+	// The eviction hook reaches the kernel, so it is collected under the lock
+	// and fired after it. Calling out to the kernel while holding a store mutex
+	// is how a deadlock gets built.
+	minted, evicted, hook := s.mintLocked(toolID, payload, id)
+	s.notifyEvicted(hook, evicted)
+	return minted
+}
+
+func (s *HandleStore) mintLocked(toolID string, payload json.RawMessage, id string) (string, []string, func(string)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := s.now()
 	if existing, ok := s.entries[id]; ok {
 		existing.lastUsed = now
-		return id
+		return id, nil, nil
 	}
 
 	// A single payload larger than the whole budget is not stored: evicting
 	// every other handle to hold one oversized blob trades many useful
 	// citations for one, and the caller still gets the shaped result.
 	if len(payload) > s.cfg.MaxBytes {
-		return ""
+		return "", nil, nil
 	}
 
 	// Copy: the caller's buffer may be reused or truncated after this returns,
@@ -138,22 +163,23 @@ func (s *HandleStore) Mint(toolID string, payload json.RawMessage) string {
 		bytes: len(stored), created: now, lastUsed: now,
 	}
 	s.curBytes += len(stored)
-	s.evictLocked(now)
-	return id
+	return id, s.evictLocked(now), s.onEvict
 }
 
 // evictLocked enforces TTL first, then the byte and entry ceilings by least
 // recently used. TTL first because an expired entry is worthless at any size,
 // so dropping it may make the other two ceilings moot.
-func (s *HandleStore) evictLocked(now time.Time) {
+func (s *HandleStore) evictLocked(now time.Time) []string {
+	var evicted []string
 	for id, e := range s.entries {
 		if now.Sub(e.created) > s.cfg.TTL {
 			s.curBytes -= e.bytes
 			delete(s.entries, id)
+			evicted = append(evicted, id)
 		}
 	}
 	if len(s.entries) <= s.cfg.MaxEntries && s.curBytes <= s.cfg.MaxBytes {
-		return
+		return evicted
 	}
 
 	ordered := make([]*handleEntry, 0, len(s.entries))
@@ -170,10 +196,22 @@ func (s *HandleStore) evictLocked(now time.Time) {
 
 	for _, e := range ordered {
 		if len(s.entries) <= s.cfg.MaxEntries && s.curBytes <= s.cfg.MaxBytes {
-			return
+			return evicted
 		}
 		s.curBytes -= e.bytes
 		delete(s.entries, e.id)
+		evicted = append(evicted, e.id)
+	}
+	return evicted
+}
+
+// notifyEvicted fires the hook outside the store lock.
+func (s *HandleStore) notifyEvicted(hook func(string), ids []string) {
+	if hook == nil {
+		return
+	}
+	for _, id := range ids {
+		hook(id)
 	}
 }
 
@@ -199,12 +237,14 @@ func (s *HandleStore) Expand(id, pointer string, view View, budget DigestBudget)
 	}
 
 	s.mu.Lock()
+	expired := false
 	entry, ok := s.entries[id]
 	if ok {
 		now := s.now()
 		if now.Sub(entry.created) > s.cfg.TTL {
 			s.curBytes -= entry.bytes
 			delete(s.entries, id)
+			expired = true
 			ok = false
 		} else {
 			entry.lastUsed = now
@@ -216,7 +256,12 @@ func (s *HandleStore) Expand(id, pointer string, view View, budget DigestBudget)
 		payload = entry.payload
 		toolID = entry.toolID
 	}
+	hook := s.onEvict
 	s.mu.Unlock()
+
+	if expired {
+		s.notifyEvicted(hook, []string{id})
+	}
 
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrHandleNotFound, id)

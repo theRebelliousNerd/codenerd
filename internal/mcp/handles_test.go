@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -175,5 +176,68 @@ func TestHandleStore_NilSafe(t *testing.T) {
 	}
 	if got := store.Stats(); got.Entries != 0 {
 		t.Errorf("nil store stats = %+v", got)
+	}
+}
+
+func TestHandleStore_ShouldNotifyOnEviction(t *testing.T) {
+	t.Parallel()
+
+	// An evicted payload has to lose its kernel fact. Without this the kernel
+	// keeps asserting that an expandable result exists, policy keeps
+	// recommending the expansion, and the agent burns a turn finding out the
+	// bytes are gone.
+	store := NewHandleStore(HandleStoreConfig{MaxEntries: 1, MaxBytes: 1 << 20, TTL: time.Hour})
+	base := time.Now()
+	store.now = func() time.Time { return base }
+
+	var mu sync.Mutex
+	var evicted []string
+	store.SetEvictionHook(func(handle string) {
+		mu.Lock()
+		defer mu.Unlock()
+		evicted = append(evicted, handle)
+	})
+
+	first := store.Mint("srv/a", json.RawMessage(`{"n":1}`))
+	store.now = func() time.Time { return base.Add(time.Second) }
+	store.Mint("srv/b", json.RawMessage(`{"n":2}`))
+
+	mu.Lock()
+	got := append([]string(nil), evicted...)
+	mu.Unlock()
+
+	if len(got) != 1 || got[0] != first {
+		t.Errorf("eviction notifications = %v, want exactly [%s]", got, first)
+	}
+}
+
+func TestHandleStore_ShouldNotifyWhenExpiredOnRead(t *testing.T) {
+	t.Parallel()
+
+	store := NewHandleStore(HandleStoreConfig{MaxEntries: 8, MaxBytes: 1 << 20, TTL: time.Minute})
+	base := time.Now()
+	store.now = func() time.Time { return base }
+	handle := store.Mint("srv/a", json.RawMessage(`{"n":1}`))
+
+	var mu sync.Mutex
+	var evicted []string
+	store.SetEvictionHook(func(h string) {
+		mu.Lock()
+		defer mu.Unlock()
+		evicted = append(evicted, h)
+	})
+
+	// Expiry discovered on read is an eviction like any other; the fact has to
+	// go even though nothing was minted to trigger a sweep.
+	store.now = func() time.Time { return base.Add(2 * time.Minute) }
+	if _, err := store.Expand(handle, "", ViewCompact, BudgetFor(ViewCompact)); err == nil {
+		t.Fatal("an expired handle expanded")
+	}
+
+	mu.Lock()
+	got := append([]string(nil), evicted...)
+	mu.Unlock()
+	if len(got) != 1 || got[0] != handle {
+		t.Errorf("eviction notifications = %v, want exactly [%s]", got, handle)
 	}
 }

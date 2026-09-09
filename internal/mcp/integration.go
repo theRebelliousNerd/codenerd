@@ -179,7 +179,16 @@ func (b *MCPIntegrationBridge) GetAdapter(serverID string) *IntegrationAdapter {
 }
 
 // ConnectServer connects to an MCP server by its configured ID.
+//
+// A reconnect drops that server's cached resource and prompt catalog. The cache
+// exists so a context lookup does not re-list on every call, but a server that
+// has just come back may be a different build advertising different resources,
+// and serving a five-minute-old catalog for it is serving an answer about a
+// server that no longer exists.
 func (b *MCPIntegrationBridge) ConnectServer(ctx context.Context, serverID string) error {
+	if plane := b.ControlPlane(); plane != nil {
+		plane.InvalidateCatalog(serverID)
+	}
 	return b.manager.Connect(ctx, serverID)
 }
 

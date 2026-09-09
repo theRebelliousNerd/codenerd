@@ -169,26 +169,6 @@ func renderSignature(name string, rawSchema json.RawMessage) string {
 	return sb.String()
 }
 
-// ToolLine renders the browsing view of one tool: signature, one-line purpose,
-// and risk class.
-//
-// Risk is on the line rather than a level down because it changes whether the
-// agent should call the tool at all, and a property that changes the decision
-// belongs where the decision is made.
-func ToolLine(tool *MCPTool) string {
-	if tool == nil {
-		return ""
-	}
-	line := ToolSignature(tool)
-	if tool.Condensed != "" {
-		line += " — " + tool.Condensed
-	}
-	if tool.Risk != "" && tool.Risk != RiskSafe {
-		line += " [" + string(tool.Risk) + "]"
-	}
-	return line
-}
-
 // FullSchema renders the complete input schema, bounded.
 //
 // Bounded even here, because "full" is a disclosure tier and not an escape from

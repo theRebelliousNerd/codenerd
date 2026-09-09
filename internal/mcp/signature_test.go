@@ -60,21 +60,6 @@ func TestToolSignature_WhenNoSchema_ShouldStillRender(t *testing.T) {
 	}
 }
 
-func TestToolLine_ShouldSurfaceRiskButNotForSafeTools(t *testing.T) {
-	t.Parallel()
-
-	// Risk belongs on the browsing line because it changes whether the agent
-	// should call the tool at all. Annotating every safe tool would be noise.
-	safe := ToolLine(&MCPTool{Name: "get_x", Condensed: "fetch x", Risk: RiskSafe})
-	if strings.Contains(safe, "[") {
-		t.Errorf("safe tool line = %q; want no risk annotation", safe)
-	}
-	risky := ToolLine(&MCPTool{Name: "rm_x", Condensed: "remove x", Risk: RiskDestructive})
-	if !strings.Contains(risky, "[destructive]") {
-		t.Errorf("destructive tool line = %q; want the risk called out", risky)
-	}
-}
-
 func TestValidateArgs_ShouldCatchMissingRequiredAndWrongType(t *testing.T) {
 	t.Parallel()
 

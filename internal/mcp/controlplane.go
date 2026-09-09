@@ -67,7 +67,7 @@ type serverCatalog struct {
 
 // NewControlPlane builds a control plane over an existing client manager.
 func NewControlPlane(manager *MCPClientManager, store *MCPToolStore, facts *FactEmitter) *ControlPlane {
-	return &ControlPlane{
+	cp := &ControlPlane{
 		manager:    manager,
 		store:      store,
 		handles:    NewHandleStore(DefaultHandleStoreConfig()),
@@ -76,10 +76,18 @@ func NewControlPlane(manager *MCPClientManager, store *MCPToolStore, facts *Fact
 		catalogTTL: 5 * time.Minute,
 		now:        time.Now,
 	}
+	// An evicted payload must lose its fact. Otherwise the kernel goes on
+	// asserting that an expandable result exists, policy goes on recommending
+	// the expansion, and the agent spends a turn discovering the bytes are
+	// gone — the same stale-fact failure the tool catalog already guards
+	// against when a server stops advertising a tool.
+	cp.handles.SetEvictionHook(func(handle string) {
+		if cp.facts != nil {
+			cp.facts.RetractHandle(handle)
+		}
+	})
+	return cp
 }
-
-// Handles exposes the retention store so a caller can report or bound it.
-func (cp *ControlPlane) Handles() *HandleStore { return cp.handles }
 
 // tools returns the classified catalog, preferring the persisted store.
 //
