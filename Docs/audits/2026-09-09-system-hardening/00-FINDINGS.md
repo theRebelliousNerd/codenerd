@@ -375,3 +375,62 @@ CODENERD_UPDATE_STARVED=1 go test ./internal/core/defaults/ -run TestStarvedPred
 
 Opt-in through the environment rather than a test flag, because a gate that
 rewrites its own baseline on failure is not a gate.
+
+## F16 — 869 unreachable functions, and a budget so that number cannot grow either
+
+F15 gates the Mangle half of the recurring defect. This is the Go half.
+
+Rapid type-aware reachability (RTA) from every `main` package
+(`golang.org/x/tools/cmd/deadcode`) reports **869 functions unreachable from any
+binary**. Unlike a grep, it understands interfaces and method sets, so an
+implementation reached only through an interface counts as live.
+
+Package concentration (top 10):
+
+| Package | Unreachable |
+|---|---|
+| `internal/tactile` | 93 |
+| `internal/core` | 77 |
+| `internal/logging` | 68 |
+| `cmd/nerd/ui` | 68 |
+| `cmd/nerd/chat` | 41 |
+| `internal/perception` | 39 |
+| `internal/world/lsp` | 37 |
+| `internal/world` | 36 |
+| `internal/tactile/python` | 34 |
+| `cmd/nerd` | 33 |
+
+Not all of it is rot — platform-specific paths, accessors kept for symmetry, and
+code reachable only from a path RTA cannot see all appear here. The number is
+not meant to reach zero.
+
+`scripts/deadcode-budget.sh` baselines it and fails on drift in both directions,
+the same contract as the starved-predicate gate. It is a **script, not a Go
+test**, because the analysis needs a tool fetched from the module proxy: a test
+that silently skips when the cache is cold gives false assurance, and one that
+requires the network makes `go test ./...` fragile. Run it in CI.
+
+```
+scripts/deadcode-budget.sh            # check
+scripts/deadcode-budget.sh --update   # rebaseline
+```
+
+Line and column are stripped from the baseline so it survives edits that only
+move code.
+
+---
+
+## The two gates, together
+
+The defects in this audit divide cleanly:
+
+| | Mangle side | Go side |
+|---|---|---|
+| Defect | predicate declared and read, produced by nothing | function defined and exported, called by nothing |
+| Why invisible | both halves correct in isolation | same |
+| Instances found | `modified_function`, `user_{accepted,rejected}_finding`, `atom_selector` | `BuildWithImpactPriorities`, `RegisterTestImpactProvider`, `IsSystemShardsEnabled`, `RegisterFileValidators` … |
+| Gate | `TestStarvedPredicateBudget` | `scripts/deadcode-budget.sh` |
+| Baseline | 65 | 869 |
+
+Neither number is a target. Both are now measurements that cannot move without
+someone noticing.
