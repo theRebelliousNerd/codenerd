@@ -85,6 +85,15 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"tool_domain", "mcp_tool_domain", "mcp_tool_registered", "mcp_server_status",
 				"mcp_tool_capability", "mcp_tool_shard_affinity", "mcp_tool_avg_latency",
 				"mcp_tool_usage", "mcp_tool_vector_score", "mcp_tool_category",
+				// Control-plane classification belongs with the catalog it
+				// classifies: policy_mcp.mg joins facet and risk against
+				// mcp_tool_available, which is derived from mcp_tool_registered
+				// above. Homing them anywhere else splits those joins across
+				// shards and the rules simply never fire — mcp_tool_browsable
+				// and mcp_server_facet_available would derive nothing, silently.
+				// risk_source travels with risk for the same reason: they are
+				// joined together in mcp_tool_gated.
+				"mcp_tool_facet", "mcp_tool_risk", "mcp_tool_risk_source",
 				// Coder-shard working state judged against the world model
 				// (coder_*.mg): the file under edit, its diagnostics, tests.
 				"coder_state", "coder_task", "active_review", "diagnostic_count",
