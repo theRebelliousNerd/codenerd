@@ -105,15 +105,14 @@ type turnTelemetry struct {
 // compilationAtomsJSON renders the JIT compiler's selected atom IDs as a JSON
 // array for session_turns.atoms_json. It returns "[]" when compilation was
 // skipped or selected no atoms.
+//
+// It shares turnAtomIDs with the learning path deliberately: persistence and
+// credit assignment must agree on which atoms were in a prompt, or an atom
+// blamed for a failure is not the one the turn recorded.
 func compilationAtomsJSON(compileResult *prompt.CompilationResult) string {
-	ids := []string{}
-	if compileResult != nil {
-		for _, atom := range compileResult.IncludedAtoms {
-			if atom == nil || atom.ID == "" {
-				continue
-			}
-			ids = append(ids, atom.ID)
-		}
+	ids := turnAtomIDs(turnTelemetry{compileResult: compileResult})
+	if ids == nil {
+		ids = []string{}
 	}
 	raw, err := json.Marshal(ids)
 	if err != nil {

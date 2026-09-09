@@ -19,7 +19,7 @@
 | Active state | String |
 |--------------|--------|
 | nil | `features: defaults active` |
-| non-nil | `features: diff_eval=%v flight_recorder=%v provenance=%v system_shards=%v per_shard_facts=%v dark_mode=%v skip_onboarding=%v taxonomy_fast=%v fast_scan_workers=%d fast_ast_max_bytes=%d` |
+| non-nil | `features: diff_eval=%v flight_recorder=%v provenance=%v system_shards=%v per_shard_facts=%v dark_mode=%v skip_onboarding=%v taxonomy_fast=%v prompt_evolution=%v fast_scan_workers=%d fast_ast_max_bytes=%d` |
 
 ### Known readability issue
 

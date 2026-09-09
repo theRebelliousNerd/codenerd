@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/features"
 	"codenerd/internal/mcp"
 	coresys "codenerd/internal/system"
 
@@ -277,11 +278,48 @@ var autopoiesisStatusCmd = &cobra.Command{
 		tools, _ := cortex.Kernel.Query("tool_registered")
 		fmt.Printf("%d tools generated\n", len(tools))
 
-		// prompt_evolved and thunderdome_result are declared and consumed by policy but never
-		// asserted — producer gap, not display choice. .nerd/prompts/evolution.db exists on
-		// disk and would be the real source if wired.
+		// The producer gap this used to report is closed: the Cortex owns the
+		// evolver (internal/system/factory_learning.go), records every turn's
+		// outcome, and asserts prompt_evolved on promotion. Read the evolver
+		// directly rather than the fact, because the fact only exists after a
+		// promotion and the interesting state is what is accumulating before
+		// one.
 		fmt.Print("Prompt Evolution:  ")
-		fmt.Println("not instrumented (no producer for prompt_evolved)")
+		if cortex.PromptEvolver == nil {
+			fmt.Println("unavailable (no evolver on this boot)")
+		} else if cortex.SessionExecutor != nil && !cortex.SessionExecutor.HasTurnRecorder() {
+			// The evolver exists but nothing feeds it. This is the shape the
+			// whole subsystem used to have on every headless path, and it is
+			// invisible from the atom counts alone — they just stay at zero.
+			fmt.Println("evolver present but NOT recording (no turn recorder on the session executor)")
+		} else {
+			stats := cortex.PromptEvolver.GetStats()
+			fmt.Printf("%d executions recorded, %d atoms pending / %d promoted, %d cycles\n",
+				stats.TotalExecutionsRecorded, stats.AtomsPending, stats.AtomsPromoted, stats.TotalCycles)
+			fmt.Print("  Auto-evolution:  ")
+			if features.IsPromptEvolutionEnabled() {
+				fmt.Println("on")
+			} else {
+				fmt.Println("off (set features.prompt_evolution or CODENERD_PROMPT_EVOLUTION=1)")
+			}
+		}
+		fmt.Print("Context Feedback:  ")
+		switch {
+		case cortex.ContextFeedback == nil:
+			fmt.Println("unavailable (the model's ratings of its own context are discarded)")
+		case cortex.SessionExecutor != nil && !cortex.SessionExecutor.HasContextFeedbackRecorder():
+			fmt.Println("store open but NOT recording")
+		default:
+			total, avg, err := cortex.ContextFeedback.GetOverallStats()
+			if err != nil {
+				fmt.Printf("recording (stats unavailable: %v)\n", err)
+			} else {
+				fmt.Printf("%d ratings recorded, mean usefulness %.2f\n", total, avg)
+			}
+		}
+
+		// thunderdome_result is still declared and consumed by policy but never
+		// asserted — a producer gap, not a display choice.
 		fmt.Print("Thunderdome:       ")
 		fmt.Println("not instrumented (no producer for thunderdome_result)")
 
@@ -301,6 +339,14 @@ var autopoiesisStatusCmd = &cobra.Command{
 		} else {
 			fmt.Println("\nOrchestrator: Standby")
 		}
+
+		// The measurement that says whether any of the above is working. Every
+		// turn has been asserting turn_cost — "the per-turn cost denominator
+		// for tokens-per-verified-work" — and nothing ever divided by it, so a
+		// self-improving system had no way to show that it was improving.
+		fmt.Println("\nWork verified per token spent")
+		fmt.Println(strings.Repeat("─", 60))
+		fmt.Print(cortex.LearningReport().String())
 
 		return nil
 	},

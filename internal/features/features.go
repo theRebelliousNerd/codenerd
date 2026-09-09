@@ -113,6 +113,23 @@ type FeaturesConfig struct {
 	// Env var: CODENERD_TAXONOMY_FAST.
 	TaxonomyFast *bool `json:"taxonomy_fast,omitempty"`
 
+	// PromptEvolution runs the System Prompt Learning cycle automatically
+	// on the Cortex maintenance schedule instead of only when a human types
+	// /evolve in chat. Env var: CODENERD_PROMPT_EVOLUTION.
+	//
+	// Off by default because the cycle SPENDS MONEY: it sends every
+	// unevaluated execution record (up to 20 per cycle) to the LLM-as-Judge.
+	// Recording those records is unconditional and free — a local SQLite
+	// insert per turn — so the corpus builds either way and `/evolve` can
+	// always be run by hand. This flag only decides whether codeNERD is
+	// allowed to spend tokens grading itself while nobody is watching.
+	//
+	// Turning it on never lets the agent rewrite its own system prompt
+	// unattended: promotion of an evolved atom stays behind
+	// EvolverConfig.AutoPromote, which is a separate, also-default-off
+	// decision.
+	PromptEvolution *bool `json:"prompt_evolution,omitempty"`
+
 	// FastScanWorkers overrides the worker count used by
 	// internal/world's fast scanner. Zero means "use default".
 	// Env var: CODENERD_FAST_SCAN_WORKERS (legacy: NERD_FAST_SCAN_WORKERS).
@@ -144,14 +161,15 @@ type FeaturesConfig struct {
 func DefaultFeaturesConfig() FeaturesConfig {
 	t, f := true, false
 	return FeaturesConfig{
-		DiffEval:       &f, // off in tests; .nerd/config.json sets true in production
-		FlightRecorder: &f, // drives the execution tracer; can OOM under heavy load — opt-in only
-		Provenance:     &f, // per-derivation buffers — off until /explain
-		SystemShards:   &t,
-		PerShardFacts:  &f,
-		DarkMode:       &f,
-		SkipOnboarding: &f,
-		TaxonomyFast:   &f, // fast path skips the scenario sweep; opt in explicitly
+		DiffEval:        &f, // off in tests; .nerd/config.json sets true in production
+		FlightRecorder:  &f, // drives the execution tracer; can OOM under heavy load — opt-in only
+		Provenance:      &f, // per-derivation buffers — off until /explain
+		SystemShards:    &t,
+		PerShardFacts:   &f,
+		DarkMode:        &f,
+		SkipOnboarding:  &f,
+		TaxonomyFast:    &f, // fast path skips the scenario sweep; opt in explicitly
+		PromptEvolution: &f, // spends LLM tokens grading past turns; opt in explicitly
 	}
 }
 
@@ -191,14 +209,15 @@ func FullyEnabledFeaturesConfig() FeaturesConfig {
 	t := true
 	f := false
 	return FeaturesConfig{
-		DiffEval:       &t,
-		FlightRecorder: &t,
-		Provenance:     &t,
-		SystemShards:   &t,
-		PerShardFacts:  &f, // see doc comment
-		DarkMode:       &t,
-		SkipOnboarding: &t,
-		TaxonomyFast:   &t,
+		DiffEval:        &t,
+		FlightRecorder:  &t,
+		Provenance:      &t,
+		SystemShards:    &t,
+		PerShardFacts:   &f, // see doc comment
+		DarkMode:        &t,
+		SkipOnboarding:  &t,
+		TaxonomyFast:    &t,
+		PromptEvolution: &f, // see doc comment
 	}
 }
 
@@ -276,6 +295,7 @@ var boolFlags = []struct {
 	{"dark_mode", "CODENERD_DARK_MODE", "", func(f *FeaturesConfig) *bool { return f.DarkMode }, false},
 	{"skip_onboarding", "CODENERD_SKIP_ONBOARDING", "NERD_SKIP_ONBOARDING", func(f *FeaturesConfig) *bool { return f.SkipOnboarding }, false},
 	{"taxonomy_fast", "CODENERD_TAXONOMY_FAST", "", func(f *FeaturesConfig) *bool { return f.TaxonomyFast }, false},
+	{"prompt_evolution", "CODENERD_PROMPT_EVOLUTION", "", func(f *FeaturesConfig) *bool { return f.PromptEvolution }, false},
 }
 
 // intFlags mirrors boolFlags for the two non-boolean overrides, so the
@@ -539,6 +559,20 @@ func IsOnboardingSkipped() bool {
 func IsTaxonomyFastEnabled() bool {
 	return resolveBool("CODENERD_TAXONOMY_FAST", "",
 		func(f *FeaturesConfig) *bool { return f.TaxonomyFast }, false)
+}
+
+// IsPromptEvolutionEnabled reports whether the Cortex may run the System
+// Prompt Learning cycle on its own maintenance schedule.
+//
+// Default OFF, and the reason is cost rather than caution: a cycle sends every
+// unevaluated execution record to the LLM-as-Judge, so turning this on lets
+// codeNERD spend the operator's API budget grading its own past turns in the
+// background. RECORDING those turns is unconditional and free, so the corpus
+// accumulates regardless and `/evolve` remains available by hand — this flag
+// only decides who pushes the button.
+func IsPromptEvolutionEnabled() bool {
+	return resolveBool("CODENERD_PROMPT_EVOLUTION", "",
+		func(f *FeaturesConfig) *bool { return f.PromptEvolution }, false)
 }
 
 // FastScanWorkers returns the configured worker count, or zero when

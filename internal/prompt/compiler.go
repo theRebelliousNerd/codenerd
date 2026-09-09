@@ -150,6 +150,9 @@ type CompilationStats struct {
 	// EvolvedAtoms is count of atoms from prompt evolution (SPL system)
 	EvolvedAtoms int
 
+	// StrategyAtoms is count of atoms from the learned-strategy provider.
+	StrategyAtoms int
+
 	// --- Render Mode Distribution ---
 	// StandardModeCount is atoms rendered in full/standard mode
 	StandardModeCount int
@@ -344,6 +347,11 @@ type JITPromptCompiler struct {
 
 	// Evolved atoms manager for System Prompt Learning (SPL)
 	evolvedAtomMgr *EvolvedAtomManager
+
+	// strategyProvider is the learned-strategy source (see strategy_atoms.go).
+	// Nil until registered, which is the state for every compiler built
+	// without a prompt evolver behind it.
+	strategyProvider StrategyProvider
 }
 
 // CompilerConfig holds configuration for the JIT compiler.
@@ -592,11 +600,12 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		stats.ProjectAtoms = sourceBreakdown.project
 		stats.ShardAtoms = sourceBreakdown.shard
 		stats.EvolvedAtoms = sourceBreakdown.evolved
+		stats.StrategyAtoms = sourceBreakdown.strategy
 
 		logging.Get(logging.CategoryJIT).Debug(
-			"Collected %d candidate atoms (embedded=%d, project=%d, shard=%d, evolved=%d) in %dms",
+			"Collected %d candidate atoms (embedded=%d, project=%d, shard=%d, evolved=%d, strategy=%d) in %dms",
 			len(candidates), sourceBreakdown.embedded, sourceBreakdown.project, sourceBreakdown.shard,
-			sourceBreakdown.evolved, stats.CollectAtomsMs,
+			sourceBreakdown.evolved, sourceBreakdown.strategy, stats.CollectAtomsMs,
 		)
 
 		// Step 2: Select atoms based on context (Mangle rules + vector search)
@@ -994,6 +1003,7 @@ type sourceBreakdown struct {
 	project  int
 	shard    int
 	evolved  int
+	strategy int
 }
 
 // collectAtomsWithStats gathers atoms and tracks source breakdown.
@@ -1077,6 +1087,11 @@ func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *Compi
 	// 4. Evolved atoms from SPL (System Prompt Learning).
 	evolvedAtoms := c.collectEvolvedAtoms(cc)
 	breakdown.evolved, _ = appendSource("evolved", evolvedAtoms)
+
+	// 5. Learned strategies for this problem type. Last, so a strategy never
+	// shadows a built-in atom that happens to share an ID — the same
+	// precedence every source below the embedded corpus already has.
+	breakdown.strategy, _ = appendSource("strategy", c.collectStrategyAtoms(cc))
 
 	return allAtoms, breakdown, nil
 }
@@ -1281,8 +1296,9 @@ func emitJITGlassBox(stats *CompilationStats, result *CompilationResult) {
 	var details strings.Builder
 	fmt.Fprintf(&details, "skeleton=%d flesh=%d candidates=%d dropped=%d\n",
 		stats.SkeletonAtoms, stats.FleshAtoms, stats.AtomsCandidates, stats.AtomsDropped)
-	fmt.Fprintf(&details, "sources: embedded=%d project=%d shard=%d evolved=%d\n",
-		stats.EmbeddedAtoms, stats.ProjectAtoms, stats.ShardAtoms, stats.EvolvedAtoms)
+	fmt.Fprintf(&details, "sources: embedded=%d project=%d shard=%d evolved=%d strategy=%d\n",
+		stats.EmbeddedAtoms, stats.ProjectAtoms, stats.ShardAtoms, stats.EvolvedAtoms,
+		stats.StrategyAtoms)
 	if stats.IntentVerb != "" {
 		fmt.Fprintf(&details, "intent=%s\n", stats.IntentVerb)
 	}
@@ -1337,8 +1353,9 @@ func (c *JITPromptCompiler) logCompilationStats(stats *CompilationStats, result 
 	)
 
 	logger.Debug(
-		"Source breakdown: embedded=%d project=%d shard=%d evolved=%d",
+		"Source breakdown: embedded=%d project=%d shard=%d evolved=%d strategy=%d",
 		stats.EmbeddedAtoms, stats.ProjectAtoms, stats.ShardAtoms, stats.EvolvedAtoms,
+		stats.StrategyAtoms,
 	)
 
 	logger.Debug(

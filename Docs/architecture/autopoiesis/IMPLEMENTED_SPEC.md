@@ -351,7 +351,72 @@ Execute → Evaluate (TaskJudge) → Evolve (meta-prompt / AtomGenerator)
 Key types (`types.go`): `ErrorCategory`, `ProblemType`, `ExecutionRecord`, `AgentAction`, `PinScope`.  
 `PromptEvolver` (`evolver.go`) config: min failures, interval, max atoms, confidence threshold, auto-promote, strategy refine threshold, judge model default `gemini-3-pro`, atom pin scope default `model_family`.
 
-Wired from chat: `cmd/nerd/chat/delegation.go`, `commands_evolution.go`, session boot (`session_boot.go` / `session_shared_boot.go`).
+Wired from the **Cortex boot**: `internal/system/factory_learning.go` constructs the
+evolver, registers the evolved-atom manager and the strategy provider on the JIT
+compiler, and installs the turn recorder on the session executor. Chat consumes
+`Cortex.PromptEvolver` (`session_shared_boot.go`) and drives the manual surfaces
+(`commands_evolution.go`); `delegation.go` still records chat shard executions.
+
+This ownership is load-bearing. SPL used to be assembled in the chat TUI alone,
+so every headless path — `nerd campaign`, `nerd instruction`, `nerd spawn`,
+`nerd swebench`, and every delegated shard task, all of which boot the same
+Cortex — recorded nothing and read back nothing. Two evolvers in one process
+would also be two writers on the same `.nerd/` SQLite files, which is why chat
+consumes the Cortex's rather than building its own.
+`TestBootWiresTheLearningLoop` (`internal/system`) fails if that regresses.
+
+### 8.0 Recording contract: the kernel grades, not the return value
+
+`session.Executor` reports every finished turn through the narrow
+`session.TurnRecorder` seam (`executor_learning.go`), inherited by
+`CloneForTask` so delegated work is recorded too. The adapter
+(`turnEvolutionRecorder`) maps the kernel's verdict onto the record:
+
+| `turn_cost` outcome | Recorded as | Judge call |
+|---|---|---|
+| `/done` | pre-filled **PASS** verdict, `Success: true` | none — the kernel witnessed the evidence |
+| `/hollow`, `/failed` | `Success: false`, **no** verdict, kernel reason in `BuildErrors` | yes — an atom is generated from the judge's explanation |
+| `/unverified` | not recorded | none |
+
+Two consequences worth stating plainly. First, a **hollow success** — a turn that
+announced the work as done with no evidence for it — is no longer recorded as a
+win, so the prompt atoms present on that turn are no longer credited for it.
+Grading on `err == nil` rewards confident prose over evidence, which is exactly
+what the hollow-success gate exists to catch. Second, judge spend is bounded by
+the **failure** count rather than the turn count, so a thousand-turn campaign does
+not queue a thousand judge calls.
+
+### 8.2 Strategies are read as well as written
+
+`StrategyAtomProvider` (`strategy_atoms.go`) renders the strategies selected for a
+compilation as `methodology` prompt atoms under the `strategy/` ID prefix, and the
+JIT compiler collects them as a fifth atom source
+(`internal/prompt/strategy_atoms.go`). `PromptEvolver.RecordStrategyOutcome`
+attributes each finished turn back to the strategies that were in its prompt.
+
+Before this, `GenerateDefaultStrategies` seeded a per-problem-type playbook at
+every boot and `RunEvolutionCycle` refined it from real failures, while
+`SelectStrategies` had no production caller at all — the strategy database was
+write-only and the agent shipped with a library of tactics it could not read.
+
+Rendered strategies rank by measured success rate but are capped below the
+hand-written methodology corpus (which sits in the 80s), so a machine-refined
+heuristic cannot displace the curated instructions. A strategy with zero uses
+takes the neutral middle rather than the floor: no evidence is not evidence of
+failure.
+
+### 8.3 Automatic cycles are opt-in
+
+`Cortex.runEvolutionCycle` runs on the maintenance schedule, gated on
+`features.IsPromptEvolutionEnabled()` (`CODENERD_PROMPT_EVOLUTION`, default
+**off**) and on `PromptEvolver.ShouldRunEvolution()`, which had no production
+caller before. After a cycle it calls `JITCompiler.RefreshEvolvedAtoms()` —
+without that reload, promoted atoms sit on disk and are never served, which looks
+like learning and is not.
+
+The flag is off because the cycle spends the operator's API budget. Recording is
+unconditional and free, so the corpus accumulates either way and `/evolve` remains
+available by hand. Promotion stays behind `EvolverConfig.AutoPromote`, unchanged.
 
 ### 8.1 Serving-model provenance and pinning
 

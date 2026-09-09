@@ -48,6 +48,7 @@ func TestConfigSchemaKeys_ShouldMatchTheJSONTags(t *testing.T) {
 		"diff_eval": true, "flight_recorder": true, "provenance": true,
 		"system_shards": true, "per_shard_facts": true, "dark_mode": true,
 		"skip_onboarding": true, "taxonomy_fast": true,
+		"prompt_evolution":  true,
 		"fast_scan_workers": true, "fast_ast_max_bytes": true,
 	}
 	got := ConfigSchemaKeys()

@@ -5,8 +5,10 @@ package system
 import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
+	promptevolution "codenerd/internal/autopoiesis/prompt_evolution"
 	"codenerd/internal/browser"
 	"codenerd/internal/config"
+	ctxlearn "codenerd/internal/context"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
@@ -320,6 +322,14 @@ type Cortex struct {
 	Workspace       string
 	JITCompiler     *prompt.JITPromptCompiler
 	PromptAssembler *articulation.PromptAssembler
+	// PromptEvolver is the System Prompt Learning loop. Non-nil on every boot
+	// that has a JIT compiler; see factory_learning.go for why it is owned
+	// here rather than by the chat TUI that used to build it.
+	PromptEvolver *promptevolution.PromptEvolver
+
+	// ContextFeedback stores the model's per-turn rating of the context it was
+	// given, which tunes spreading activation. Owned here for the same reason.
+	ContextFeedback *ctxlearn.ContextFeedbackStore
 	// WorkerLLMClient serves bulk shard/task execution when a worker tier is
 	// configured; nil means shards share LLMClient. PlannerLLMClient serves
 	// reasoning-intensive turns when a planner tier is configured; nil means
@@ -587,6 +597,7 @@ func (c *Cortex) StartMaintenanceSchedule(ctx context.Context) context.CancelFun
 				return
 			case <-ticker.C:
 				c.runMaintenance()
+				c.runEvolutionCycle(mCtx)
 			}
 		}
 	}()
@@ -704,6 +715,8 @@ type bootContext struct {
 	sessionSpawner               *session.Spawner
 	taskExecutor                 session.TaskExecutor
 	poiesis                      *autopoiesis.Orchestrator
+	promptEvolver                *promptevolution.PromptEvolver
+	contextFeedback              *ctxlearn.ContextFeedbackStore
 	browserMgr                   *browser.SessionManager
 	scanner                      *world.Scanner
 	tracker                      *usage.Tracker
@@ -2059,6 +2072,9 @@ func defaultBootSteps() []bootStep {
 		{name: "intelligence layer", run: initIntelligenceLayer},
 		{name: "shard management", run: initShardManagement},
 		{name: "final executors", run: initFinalExecutors},
+		// Last: the learning loop binds the session executor to the evolver
+		// and the evolver to the JIT compiler, so both must already exist.
+		{name: "learning loop", run: initLearningLoop},
 	}
 }
 
@@ -2140,6 +2156,8 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		Workspace:             bctx.workspace,
 		JITCompiler:           bctx.jitCompiler,
 		PromptAssembler:       bctx.promptAssembler,
+		PromptEvolver:         bctx.promptEvolver,
+		ContextFeedback:       bctx.contextFeedback,
 		WorkerLLMClient:       bctx.shardLLMClient,
 		PlannerLLMClient:      bctx.plannerLLMClient,
 		ToolStore:             bctx.toolStore,

@@ -6,13 +6,11 @@ import (
 	"path/filepath"
 	"time"
 
-	prompt_evolution "codenerd/internal/autopoiesis/prompt_evolution"
 	"codenerd/internal/config"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/northstar"
-	"codenerd/internal/prompt"
 	"codenerd/internal/retrieval"
 	"codenerd/internal/shards"
 	shardsystem "codenerd/internal/shards/system"
@@ -139,13 +137,14 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		}
 	}
 
-	logStep("Initializing context feedback store...")
-	feedbackDBPath := filepath.Join(workspace, ".nerd", "context_feedback.db")
-	var feedbackStore *ctxcompress.ContextFeedbackStore
-	if fs, err := ctxcompress.NewContextFeedbackStore(feedbackDBPath); err != nil {
-		logging.Get(logging.CategoryContext).Warn("Failed to create context feedback store: %v", err)
+	// The context feedback store is opened by the Cortex boot, which now feeds
+	// it from every path rather than only from this one. Opening a second
+	// handle here would put two writers on one SQLite file.
+	feedbackStore := cortex.ContextFeedback
+	if feedbackStore == nil {
+		logging.Get(logging.CategoryContext).Warn(
+			"Context feedback store unavailable; spreading activation will not use learned predicate usefulness")
 	} else {
-		feedbackStore = fs
 		compressor.SetFeedbackStore(feedbackStore)
 	}
 
@@ -223,26 +222,17 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		})
 	}
 
-	logStep("Initializing Prompt Evolution...")
-	var promptEvolver *prompt_evolution.PromptEvolver
 	nerdDir := filepath.Join(workspace, ".nerd")
-	if jitCompiler != nil {
-		evolverConfig := prompt_evolution.DefaultEvolverConfig()
-		if pe, err := prompt_evolution.NewPromptEvolver(nerdDir, llmClient, evolverConfig); err == nil {
-			promptEvolver = pe
-			pe.SetOnAtomPromoted(func(atomID string, promotedAt time.Time) {
-				if kernel == nil {
-					return
-				}
-				if err := kernel.Assert(core.Fact{Predicate: "prompt_evolved", Args: []any{atomID, promotedAt.Unix()}}); err != nil {
-					logging.Get(logging.CategoryBoot).Warn("Failed to assert prompt_evolved for %s: %v", atomID, err)
-				}
-			})
-			eam := prompt.NewEvolvedAtomManager(nerdDir)
-			jitCompiler.RegisterEvolvedAtomManager(eam)
-		} else {
-			logging.Get(logging.CategoryBoot).Warn("Failed to initialize Prompt Evolution: %v", err)
-		}
+
+	// Prompt evolution is built by the Cortex boot (internal/system's
+	// initLearningLoop), not here. It used to be assembled in this file, which
+	// is why only the chat TUI ever learned anything: every headless path
+	// boots the same Cortex and got no evolver at all. Constructing a second
+	// one here would now mean two writers on the same .nerd/ SQLite files.
+	promptEvolver := cortex.PromptEvolver
+	if promptEvolver == nil {
+		logging.Get(logging.CategoryBoot).Warn(
+			"Prompt Evolution unavailable; /evolve and prompt learning are disabled this session")
 	}
 
 	logStep("Hydrating session state...")

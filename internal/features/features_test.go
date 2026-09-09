@@ -185,6 +185,7 @@ func TestSummaryRendersBoolPointersAsValues(t *testing.T) {
 			DarkMode:        &fa,
 			SkipOnboarding:  &tr,
 			TaxonomyFast:    &fa,
+			PromptEvolution: &tr,
 			FastScanWorkers: 4,
 			FastASTMaxBytes: 2048,
 		})
@@ -198,6 +199,7 @@ func TestSummaryRendersBoolPointersAsValues(t *testing.T) {
 		want := "features: diff_eval=true(config) flight_recorder=false(config) provenance=true(config) " +
 			"system_shards=false(config) per_shard_facts=true(config) dark_mode=false(config) " +
 			"skip_onboarding=true(config) taxonomy_fast=false(config) " +
+			"prompt_evolution=true(config) " +
 			"fast_scan_workers=4 fast_ast_max_bytes=2048"
 		if got != want {
 			t.Fatalf("Summary mismatch\n got: %q\nwant: %q", got, want)

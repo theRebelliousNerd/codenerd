@@ -225,6 +225,18 @@ type Executor struct {
 	// lifetime (first Process call); per-turn session context hydrates on
 	// every turn via hydrateMemory.
 	learningsOnce sync.Once
+
+	// turnRecorder is the optional learning sink every finished turn is
+	// reported to (see executor_learning.go). Nil by default, so an executor
+	// with nothing wired in behaves as it did before the seam existed.
+	turnRecorder TurnRecorder
+
+	// contextFeedbackRecorder receives the model's rating of the context it
+	// was given; pendingContextFeedback holds that rating between the
+	// piggyback parse and persistTurn, where the turn number and manifest are
+	// available. Both under mu.
+	contextFeedbackRecorder ContextFeedbackRecorder
+	pendingContextFeedback  *articulation.ContextFeedback
 }
 
 // ExecutorConfig holds configuration for the executor.
@@ -535,6 +547,18 @@ func (e *Executor) CloneForTask() *Executor {
 	clone.plannerClient = e.plannerClient
 	clone.projectDoc = e.projectDoc
 	clone.fileContext = e.fileContext
+	// turnRecorder IS inherited, and it is the one place where inheriting
+	// differs from sessionPersister on purpose. Persistence is session
+	// bookkeeping, which a delegated task has no business writing into. The
+	// learning sink is the opposite: delegated tasks ARE the work — a campaign
+	// is thousands of them and a chat turn is a handful — so an executor clone
+	// that dropped the recorder would leave the system learning only from the
+	// paths a human happens to be watching.
+	clone.turnRecorder = e.turnRecorder
+	// Same reasoning for the context rating: a delegated task compiles its own
+	// prompt, so its verdict on that prompt is exactly as informative as a
+	// chat turn's.
+	clone.contextFeedbackRecorder = e.contextFeedbackRecorder
 	// Deliberately NOT copied: conversationHistory, sessionContext,
 	// sessionPersister (task runs must not be recorded as session turns),
 	// EffectiveAgentRuntimeConfig (set per task by the caller).
@@ -981,16 +1005,9 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		ThoughtSignature: llmResponse.ThoughtSignature,
 	})
 
-	// Dispatch asynchronous learning. Success is only true if no tool errored
-	// AND the executor produced a response.
-	if perception.SharedTaxonomy != nil {
-		trace := perception.ReasoningTrace{
-			UserPrompt: input,
-			Response:   result.Response,
-			Success:    result.Error == nil && len(toolErrs) == 0,
-		}
-		perception.SharedTaxonomy.QueueForLearning([]perception.ReasoningTrace{trace})
-	}
+	// Dispatch asynchronous learning over the conversation WINDOW, not this
+	// turn alone. See criticWindow for why one trace could never work.
+	e.queueTaxonomyLearning(result, toolErrs)
 
 	// Persist session turn for cross-session continuity
 	e.persistTurn(ctx, input, intent, result, turnTelemetry{compileResult: compileResult, usageBefore: usageBefore})
@@ -1958,13 +1975,43 @@ func (e *Executor) persistTurn(ctx context.Context, input string, intent percept
 
 	// Cost denominator: usage delta across this turn plus the kernel verdict.
 	promptTokens, completionTokens := telemetry.usageBefore.delta(snapshotTurnUsage(ctx, sessionID))
+	outcome := e.resolveTurnOutcome(result)
 	e.assertTurnCost(turnCost{
 		sessionID:        sessionID,
 		turnNumber:       turnNumber,
 		promptTokens:     promptTokens,
 		completionTokens: completionTokens,
 		toolCalls:        result.ToolCallsExecuted,
-		outcome:          e.resolveTurnOutcome(result),
+		outcome:          outcome,
+	})
+
+	// Report the turn to the learning sink with the same verdict turn_cost
+	// records. This runs before the persister check on purpose: a delegated
+	// task clone has no persister (see CloneForTask) and returning early would
+	// have skipped exactly the executions worth learning from.
+	e.recordContextFeedback(ContextFeedbackRecord{
+		SessionID:  sessionID,
+		TurnNumber: turnNumber,
+		IntentVerb: intent.Verb,
+		Verified:   outcome == types.MangleAtom("/done"),
+	}, telemetry)
+
+	provider, model := e.servingIdentity(intent.Verb)
+	e.recordTurn(TurnRecord{
+		SessionID:        sessionID,
+		TurnNumber:       turnNumber,
+		IntentVerb:       intent.Verb,
+		Task:             input,
+		Response:         result.Response,
+		Outcome:          outcome,
+		Err:              result.Error,
+		AtomIDs:          turnAtomIDs(telemetry),
+		Duration:         result.Duration,
+		ToolCalls:        result.ToolCallsExecuted,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		Provider:         provider,
+		Model:            model,
 	})
 
 	if persister == nil {
@@ -2075,6 +2122,11 @@ func (e *Executor) processPiggybackControlPacket(rawText string) string {
 	}
 
 	// --- Context Feedback ---
+	// The model has just told us which of the context we assembled earned its
+	// tokens. This used to be logged and dropped on every path but the chat
+	// TUI, which is the one path that was already keeping it. Stash it for
+	// persistTurn, which has the turn number and the compiled manifest the
+	// rating has to be filed against.
 	if envelope.Control.ContextFeedback != nil {
 		fb := envelope.Control.ContextFeedback
 		logging.Session("Piggyback context feedback: usefulness=%.2f, helpful=%d, noise=%d",
@@ -2082,6 +2134,7 @@ func (e *Executor) processPiggybackControlPacket(rawText string) string {
 		if fb.MissingContext != "" {
 			logging.SessionDebug("Piggyback missing context: %s", fb.MissingContext)
 		}
+		e.stashContextFeedback(fb)
 	}
 
 	// --- Intent Classification ---

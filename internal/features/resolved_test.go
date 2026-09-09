@@ -130,6 +130,8 @@ func setFlag(t *testing.T, cfg *FeaturesConfig, name string, v bool) {
 		cfg.SkipOnboarding = p
 	case "taxonomy_fast":
 		cfg.TaxonomyFast = p
+	case "prompt_evolution":
+		cfg.PromptEvolution = p
 	default:
 		t.Fatalf("setFlag has no case for %q — add it when adding a flag", name)
 	}
@@ -142,14 +144,15 @@ func TestResolved_ShouldMatchAccessors(t *testing.T) {
 	t.Cleanup(func() { SetActive(nil) })
 
 	accessors := map[string]func() bool{
-		"diff_eval":       IsDiffEvalEnabled,
-		"flight_recorder": IsFlightRecorderEnabled,
-		"provenance":      IsProvenanceEnabled,
-		"system_shards":   IsSystemShardsEnabled,
-		"per_shard_facts": IsPerShardFactsEnabled,
-		"dark_mode":       IsDarkModeEnabled,
-		"skip_onboarding": IsOnboardingSkipped,
-		"taxonomy_fast":   IsTaxonomyFastEnabled,
+		"diff_eval":        IsDiffEvalEnabled,
+		"flight_recorder":  IsFlightRecorderEnabled,
+		"provenance":       IsProvenanceEnabled,
+		"system_shards":    IsSystemShardsEnabled,
+		"per_shard_facts":  IsPerShardFactsEnabled,
+		"dark_mode":        IsDarkModeEnabled,
+		"skip_onboarding":  IsOnboardingSkipped,
+		"taxonomy_fast":    IsTaxonomyFastEnabled,
+		"prompt_evolution": IsPromptEvolutionEnabled,
 	}
 
 	resolved := Resolved()
