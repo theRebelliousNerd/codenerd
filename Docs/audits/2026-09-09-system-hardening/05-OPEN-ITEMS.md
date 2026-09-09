@@ -189,51 +189,103 @@ nothing else changed.
   floor so it cannot silently become a check over an empty set.
 - The unguarded `<-started` receive is now bounded, so a future regression
   fails in five seconds naming the cause instead of timing out the package.
+- `tests/e2e/write_turn_fixture_test.go`, the shared write-turn fixture the
+  orchestrator files needed — see the next section for what it does and why the
+  cheaper fix was the wrong one.
 
-Result: the suite completes in **160s** instead of hanging at 720s, and the
-failure list is visible and precise.
+Result: the suite completes instead of hanging at 720s, and the failure list is
+visible and precise — 29 failures at that point, 5 after the fixture below.
 
-### Still failing — 10 tests, all fixture staleness from `8e9507d`
+### The rest of the suite: 29 failures down to 5
 
-`8e9507d` added `checkHollowSuccess`: a write-oriented intent that finishes
-with no successful write-mutation tool call is refused. The guard is right.
-These fixtures predate it and drive write verbs against mocks that call
-nothing.
+`8e9507d` added `checkHollowSuccess`: a write-oriented intent that finishes with
+no successful write-mutation tool call is refused. The guard is right. Every
+orchestrator fixture in the package predated it and drove `/fix` against mocks
+that called nothing, so once the suite could run at all, 29 tests failed.
 
-| Test(s) | File | Error |
+**The obvious fix is wrong here.** The sibling piggyback/race file took a
+one-line verb change (`/fix` → `/explain`) because the verb there was incidental
+to the mechanics under test. That does not transfer: in the orchestrator files
+the verb *is* the mechanism — `"/fix" is treated as inline` and `Use "/research"
+to force Subagent isolation`. Swapping it would change which execution path each
+test exercises while turning the bar green — the precise failure this audit
+exists to find.
+
+So `tests/e2e/write_turn_fixture_test.go` makes the fixtures complete a **real
+write turn** instead. Three things were missing, each a genuine gap:
+
+1. **The VirtualStore never received the kernel.** Every fixture built a real
+   `RealKernel` and a real `VirtualStore` side by side and never connected them.
+   `getDreamer` derives the Dreamer lazily from `v.kernel`, so with a nil kernel
+   there is no Dreamer, and `PreflightDestructiveToolCall` is fail-closed on
+   exactly that — *"permission and speculative safety are independent gates; an
+   allow decision from checkSafety must never compensate for a missing
+   simulation engine."* Every destructive call was blocked before reaching a
+   tool. One `SetKernel` call fixes it.
+2. **No write-mutation tool.** The name `write_file` matters twice:
+   `projectdoc.IsWriteMutationTool` recognises it, and `BuiltinEffect` resolves
+   its `EffectWrite` with no `Tool.Effect` field needed.
+3. **Nothing in `AllowedTools`.** The config factories returned an empty
+   `EffectiveAgentRuntimeConfig`, so the JIT allowlist authorised nothing.
+
+The stub must *really* create the file — the post-action validator checks the
+side effect landed, so a stub returning `"wrote"` without writing is correctly
+judged hollow. And it must write **atomically** (temp file + rename): several
+tests drive ten or fifty goroutines through one executor sharing a single
+fixture path, and a plain `os.WriteFile` truncates before writing, so a
+validator racing a concurrent writer sees an empty file and fails the call. That
+single detail was the difference between a suite that varied run to run and one
+that does not.
+
+**Result: 29 → 5, identical across consecutive runs.** Twenty-four tests fixed,
+none broken.
+
+### Still failing — 5
+
+| Test | File | Error |
 |---|---|---|
-| 7 × `TestE2E_OrchestratorExecutor_*` | `orchestrator_executor_race_integration_test.go` | `hollow success blocked: intent /fix (or /research) requires side effects but no tool calls completed successfully (attempted=0)` |
+| `TestE2E_CrossBoundary_Executor_MultiTurn_ConversationDrift` | `cross_boundary_integration_test.go:507` | `/fix ... attempted=0` |
 | `TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary` | `piggyback_executor_full_boundary_test.go:312` | `write-oriented intent /fix completed without a recognized write-mutation tool (tool_calls=2)` |
+| `TestE2E_Boundary_Session_Kernel_StringAllocationPressure` | `Session_Kernel_Boundary_integration_test.go:358` | `Failed large string allocation test` |
 | `TestE2E_SessionKernelVStore_State_ExecutorIndependence` | `session_kernel_vstore_integration_test.go:912` | `Expected 100 facts, got 0` |
 | `TestE2E_Session_VirtualStore_Unavailable_AgentGracefulFail` | `session_spawner_config_integration_test.go:414` | expected an error loading a non-existent specialist; also panics on a nil `spawnerMockKernel` receiver via `executor.go:871` |
 
-Note the piggyback one now reads `tool_calls=2`, not `attempted=0`: the effect
-fix let its tools actually run, and it advanced to a *different*, real guard.
+Each needs bespoke work rather than the shared fixture:
 
-**Why not fixed here — and why the obvious fix is wrong.** The sibling file's
-tests took a one-line verb change (`/fix` → `/explain`) because the verb there
-was incidental to piggyback and race mechanics. That does **not** transfer.
-In `orchestrator_executor_race_integration_test.go` the verb *is* the mechanism
-under test: `"/fix" is treated as inline` (line 186) and `Use "/research" to
-force Subagent isolation` (line 236). Swapping the verb would change which
-execution path each test exercises while turning the bar green — the precise
-failure this audit exists to find.
+- **ConversationDrift** cycles `/explain`, `/fix`, `/test`, `/review` across 20
+  turns and passes a **nil** VirtualStore, so there is no executive gate at all.
+  It needs a real store plus a `/test`-satisfying tool (`run_tests`,
+  `EffectExecute`), which is a second fixture, not a reuse of this one. The verb
+  mix is deliberate — it is what "conversation drift" means here — so it should
+  not be narrowed.
+- **Piggyback ControlPacket** now reaches `tool_calls=2`: its tools run, but
+  `e2e_safe_tool` is not a write-mutation tool. Its subject is an adversarial
+  piggyback envelope, so the right fix is a write-mutation tool in *that*
+  fixture, not a verb change.
+- The last three are unrelated to hollow success and are each their own
+  investigation. The spawner one panics on a nil mock receiver, which is a
+  defect in the mock rather than in production code.
 
-The honest fix is a fixture that completes a real write turn: a
-`write_file`-named stub (so `projectdoc.IsWriteMutationTool` recognises it and
-`BuiltinEffect` resolves `EffectWrite`), in `AllowedTools`, returned as a tool
-call by the mock LLM. The obstacle is that a non-`EffectRead` tool requires
-`interactiveGate()` — satisfied only by a `VirtualStore` implementing
-`InteractiveExecutiveGate` — and then the write guards and `pending_edit`
-lifecycle behind it. That is write-path test infrastructure with its own design
-decisions, not a fixture tweak, and it is the same infrastructure all four rows
-above need.
-
-**Recommendation.** Build that shared write-turn fixture once, in
-`internal/testutil` where the other e2e files can reach it, then convert all
-four rows to it. Add the `-tags integration` CI job only after the suite is
+**Recommendation.** Add the `-tags integration` CI job only once these five are
 green: a job that fails on its first run is worse than no job, because it
 teaches everyone to ignore it.
+
+### A measurement trap worth recording
+
+Two earlier readings of this suite — "10 failures", then "15" — were both wrong,
+and the recorded conclusion drawn from them ("the write fixture is net negative:
+−7 here, +12 there") was exactly backwards. The cause was mundane: both runs
+were piped through `tail -40` / `tail -50`, so the counts were *the tail of the
+output*, not the number of failures. The fixture that reading rejected is the
+one that took the suite from 29 to 5.
+
+Two habits follow. Count failures with `grep -c '^--- FAIL'` over the whole
+output, never a tail. And compare only whole-package runs: `tools.Global()` is
+one registry shared by every test in the package, so a `-run` subset sees
+different global state than a full run — `TestE2E_OrchestratorExecutor_Smoke`
+failed alone and passed in a full run for exactly that reason. Per-test registry
+isolation (a `t.Cleanup`-scoped registry, or `tools.NewRegistry()` injected
+instead of the global) would remove the hazard.
 
 ### Related: O5 is only half-closed
 

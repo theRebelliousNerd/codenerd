@@ -128,21 +128,34 @@ func (m *oerMockLLMClient) CompleteWithStreaming(ctx context.Context, prompt str
 	return ch, errCh
 }
 
+// setupRaceEnvironment builds an environment whose turns can actually complete.
+// See write_turn_fixture_test.go for why a real write turn, rather than a
+// read-only verb, is the correct fix here: in this file the verb is the
+// mechanism under test ("/fix" routes inline, "/research" forces subagent
+// isolation), so swapping it would change what each test exercises.
 func setupRaceEnvironment(t *testing.T, llmDelay time.Duration) (*session.Executor, *session.JITExecutor) {
 	t.Helper()
 	kernel, _ := core.NewRealKernel()
 	virtualStore := core.NewVirtualStore(nil)
+	wireDreamer(virtualStore, kernel)
 
 	llm := &oerMockLLMClient{
-		responseToReturn: &types.LLMToolResponse{Text: "default success"},
-		delay:            llmDelay,
+		responseToReturn: &types.LLMToolResponse{
+			Text:      "default success",
+			ToolCalls: []types.ToolCall{writeTurnCall(t)},
+		},
+		delay: llmDelay,
 	}
 
 	transducer := &oerMockTransducer{intentToReturn: "/fix"}
 	compiler := &oerMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
-	configFactory := &oerMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
+	configFactory := &oerMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: writeTurnAllowedTools(),
+	}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
+	executor.SetConfig(writeTurnExecutorConfig())
+
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 

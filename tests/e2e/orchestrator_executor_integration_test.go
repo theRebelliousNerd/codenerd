@@ -144,14 +144,19 @@ func setupTestEnvironment(t *testing.T) (*session.Executor, *session.JITExecutor
 	t.Helper()
 	kernel, _ := core.NewRealKernel()
 	virtualStore := core.NewVirtualStore(nil)
+	wireDreamer(virtualStore, kernel)
 	llm := &oeMockLLMClient{
-		responseToReturn: &types.LLMToolResponse{Text: "default success"},
+		responseToReturn: &types.LLMToolResponse{
+			Text:      "default success",
+			ToolCalls: []types.ToolCall{writeTurnCall(t)},
+		},
 	}
 	transducer := &oeMockTransducer{intentToReturn: "/fix"}
 	compiler := &oeMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
-	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
+	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{AllowedTools: writeTurnAllowedTools()}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
+	executor.SetConfig(writeTurnExecutorConfig())
 
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
@@ -309,14 +314,16 @@ func TestE2E_OrchestratorExecutor_ResourceExhaustion_ConcurrentTasks(t *testing.
 func TestE2E_OrchestratorExecutor_Cancellation_DoesNotHang(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	virtualStore := core.NewVirtualStore(nil)
+	wireDreamer(virtualStore, kernel)
 	llm := &oeMockLLMClient{
 		delay: 5 * time.Second,
 	}
 	transducer := &oeMockTransducer{intentToReturn: "/fix"}
 	compiler := &oeMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
-	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
+	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{AllowedTools: writeTurnAllowedTools()}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
+	executor.SetConfig(writeTurnExecutorConfig())
 
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
@@ -437,14 +444,19 @@ func TestE2E_OrchestratorExecutor_PartialFailure_JITCompilationFails(t *testing.
 
 	kernel, _ := core.NewRealKernel()
 	virtualStore := core.NewVirtualStore(nil)
+	wireDreamer(virtualStore, kernel)
 	llm := &oeMockLLMClient{
-		responseToReturn: &types.LLMToolResponse{Text: "default success"},
+		responseToReturn: &types.LLMToolResponse{
+			Text:      "default success",
+			ToolCalls: []types.ToolCall{writeTurnCall(t)},
+		},
 	}
 	transducer := &oeMockTransducer{intentToReturn: "/fix"}
 	compiler := &oeMockJITCompiler{errToReturn: fmt.Errorf("JIT failed")}
-	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
+	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{AllowedTools: writeTurnAllowedTools()}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
+	executor.SetConfig(writeTurnExecutorConfig())
 
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
@@ -494,15 +506,17 @@ func TestE2E_OrchestratorExecutor_ConfigPoisoning(t *testing.T) {
 func TestE2E_OrchestratorExecutor_ConcurrentCancellation_GoroutineLeaks(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	virtualStore := core.NewVirtualStore(nil)
+	wireDreamer(virtualStore, kernel)
 
 	llm := &oeMockLLMClient{
 		delay: 1 * time.Hour,
 	}
 	transducer := &oeMockTransducer{intentToReturn: "/research"}
 	compiler := &oeMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
-	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
+	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{AllowedTools: writeTurnAllowedTools()}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
+	executor.SetConfig(writeTurnExecutorConfig())
 
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
@@ -621,15 +635,20 @@ func TestE2E_OrchestratorExecutor_TransducerFailure_GracefulHandling(t *testing.
 
 	kernel, _ := core.NewRealKernel()
 	virtualStore := core.NewVirtualStore(nil)
+	wireDreamer(virtualStore, kernel)
 	llm := &oeMockLLMClient{
-		responseToReturn: &types.LLMToolResponse{Text: "default success"},
+		responseToReturn: &types.LLMToolResponse{
+			Text:      "default success",
+			ToolCalls: []types.ToolCall{writeTurnCall(t)},
+		},
 	}
 
 	transducer := &oeMockTransducer{intentToReturn: "", delay: 1 * time.Millisecond}
 	compiler := &oeMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
-	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
+	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{AllowedTools: writeTurnAllowedTools()}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
+	executor.SetConfig(writeTurnExecutorConfig())
 
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
@@ -655,14 +674,16 @@ func TestE2E_OrchestratorExecutor_TransducerFailure_GracefulHandling(t *testing.
 func TestE2E_OrchestratorExecutor_LateCancellation(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	virtualStore := core.NewVirtualStore(nil)
+	wireDreamer(virtualStore, kernel)
 	llm := &oeMockLLMClient{
 		delay: 50 * time.Millisecond,
 	}
 	transducer := &oeMockTransducer{intentToReturn: "/fix"}
 	compiler := &oeMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
-	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
+	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{AllowedTools: writeTurnAllowedTools()}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
+	executor.SetConfig(writeTurnExecutorConfig())
 
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
