@@ -20,7 +20,11 @@ func seedImpactFacts(t *testing.T, k *core.RealKernel) {
 		{Predicate: "code_element", Args: []any{"fn:calc.Add", "/function", "calc.go", int64(1), int64(5)}},
 		{Predicate: "code_element", Args: []any{"fn:calc.TestAdd", "/function", "calc_test.go", int64(1), int64(9)}},
 		{Predicate: "code_calls", Args: []any{"fn:calc.TestAdd", "fn:calc.Add"}},
-		{Predicate: "plan_edit", Args: []any{"fn:calc.Add"}},
+		// element_modified is what the CodeDOM edit handlers actually emit, and
+		// is the shape the dependency graph is keyed by. plan_edit used to be
+		// read here alone, while its only producer wrote file paths into it —
+		// so the tools' no-argument path matched nothing on every real call.
+		{Predicate: "element_modified", Args: []any{"fn:calc.Add", "sess-1", int64(1)}},
 	}
 	for _, f := range facts {
 		if err := k.Assert(f); err != nil {

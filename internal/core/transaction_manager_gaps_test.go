@@ -548,14 +548,20 @@ func TestTransactionManagerGap_ManyEdits_Stress(t *testing.T) {
 
 	// Verify ToFacts handles large edit count without panic
 	facts := tm.ToFacts()
+	// TransactionManager.ToFacts reports edits as modified_file, not plan_edit.
+	// plan_edit is declared as plan_edit(Ref) — "Element is planned for
+	// editing" — and all five of its consumers in test_impact.mg bind its
+	// argument from code_element's ref. FileEdit carries only a path, so
+	// emitting one into plan_edit produced a fact no rule could ever match.
+	// These assertions pinned the producer's behaviour, not the contract.
 	planEditCount := 0
 	for _, f := range facts {
-		if f.Predicate == "plan_edit" {
+		if f.Predicate == "modified_file" {
 			planEditCount++
 		}
 	}
 	if planEditCount != editCount {
-		t.Errorf("Expected %d plan_edit facts, got %d", editCount, planEditCount)
+		t.Errorf("Expected %d modified_file facts, got %d", editCount, planEditCount)
 	}
 }
 

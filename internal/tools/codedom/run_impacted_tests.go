@@ -167,6 +167,45 @@ func GetImpactedTestsTool() *tools.Tool {
 	}
 }
 
+// editedRefsFromKernel collects the CodeDOM refs of everything edited so far.
+//
+// element_modified(Ref, SessionID, Timestamp) is emitted by every CodeDOM edit
+// handler (internal/core/virtual_store_codedom.go) and carries a real ref, so
+// it is the reliable source. plan_edit(Ref) is checked too because the
+// predicate is declared for exactly this and a future producer may fill it;
+// until 2026-09-09 its only producer emitted file paths into it, which matched
+// nothing here and made both tools return "no impacted tests" for every real
+// invocation.
+func editedRefsFromKernel(kernel KernelQuerier) []string {
+	if kernel == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, 8)
+	var refs []string
+	for _, predicate := range []string{"element_modified", "plan_edit"} {
+		facts, err := kernel.Query(predicate)
+		if err != nil {
+			logging.ToolsDebug("impacted tests: %s query failed: %v", predicate, err)
+			continue
+		}
+		for _, fact := range facts {
+			if len(fact.Args) == 0 {
+				continue
+			}
+			ref, ok := fact.Args[0].(string)
+			if !ok || ref == "" {
+				continue
+			}
+			if _, dup := seen[ref]; dup {
+				continue
+			}
+			seen[ref] = struct{}{}
+			refs = append(refs, ref)
+		}
+	}
+	return refs
+}
+
 // executeRunImpactedTests runs tests affected by code changes.
 func executeRunImpactedTests(ctx context.Context, args map[string]any) (string, error) {
 	provider := testImpactProvider()
@@ -181,19 +220,9 @@ func executeRunImpactedTests(ctx context.Context, args map[string]any) (string, 
 	verbose := parseBool(args["verbose"], false)
 	timeout := parseString(args["timeout"], "10m")
 
-	// If no refs provided, query kernel for plan_edit facts
+	// If no refs provided, ask the kernel what has been edited.
 	if len(editedRefs) == 0 {
-		kernel := provider.GetKernel()
-		facts, err := kernel.Query("plan_edit")
-		if err == nil {
-			for _, fact := range facts {
-				if len(fact.Args) >= 1 {
-					if ref, ok := fact.Args[0].(string); ok {
-						editedRefs = append(editedRefs, ref)
-					}
-				}
-			}
-		}
+		editedRefs = editedRefsFromKernel(provider.GetKernel())
 	}
 
 	if len(editedRefs) == 0 {
@@ -289,19 +318,9 @@ func executeGetImpactedTests(ctx context.Context, args map[string]any) (string, 
 	editedRefs := parseStringArray(args["edited_refs"])
 	includeCoverageGaps := parseBool(args["include_coverage_gaps"], false)
 
-	// If no refs provided, query kernel for plan_edit facts
+	// If no refs provided, ask the kernel what has been edited.
 	if len(editedRefs) == 0 {
-		kernel := provider.GetKernel()
-		facts, err := kernel.Query("plan_edit")
-		if err == nil {
-			for _, fact := range facts {
-				if len(fact.Args) >= 1 {
-					if ref, ok := fact.Args[0].(string); ok {
-						editedRefs = append(editedRefs, ref)
-					}
-				}
-			}
-		}
+		editedRefs = editedRefsFromKernel(provider.GetKernel())
 	}
 
 	// Build test dependency graph

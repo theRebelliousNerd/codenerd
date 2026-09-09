@@ -418,14 +418,33 @@ func (tm *TransactionManager) Commit(ctx context.Context) error {
 	txn.Status = TxnStatusCommitted
 	tm.activeTxnID = ""
 
-	// Emit file_written facts to kernel
+	// Emit file_written facts to kernel.
+	//
+	// The files are already on disk and the transaction is committed, so a
+	// rejected fact is NOT grounds to fail the commit — rolling back here would
+	// undo work that succeeded. But it was a bare Assert with the error dropped,
+	// and file_written is what the impact chain, test selection and the world
+	// model key off: a lost fact means the edit is invisible to everything
+	// downstream while the commit reports success. Best-effort, logged per file
+	// so the gap can be reconstructed.
+	factFailures := 0
 	for _, edit := range txn.Edits {
 		if edit.EditType != EditTypeDelete {
-			tm.kernel.Assert(Fact{
+			if err := tm.kernel.Assert(Fact{
 				Predicate: "file_written",
 				Args:      []any{edit.FilePath, edit.NewHash, txn.ID, time.Now().Unix()},
-			})
+			}); err != nil {
+				factFailures++
+				logging.Get(logging.CategoryKernel).Error(
+					"Transaction %s wrote %s but its file_written fact was rejected; downstream impact analysis will not see this edit: %v",
+					txn.ID, edit.FilePath, err)
+			}
 		}
+	}
+	if factFailures > 0 {
+		logging.Get(logging.CategoryKernel).Error(
+			"Transaction %s committed %d files but %d file_written facts never reached the kernel",
+			txn.ID, len(committedFiles), factFailures)
 	}
 
 	logging.KernelDebug("Transaction committed: %s (%d files)", txn.ID, len(committedFiles))
@@ -542,10 +561,25 @@ func (tm *TransactionManager) ToFacts() []Fact {
 		Args:      []any{txn.ID, string(txn.Status)},
 	})
 
-	// Add plan_edit facts for each edit
+	// Report the edits at the granularity this type actually has: a file path.
+	//
+	// These were emitted as plan_edit(FilePath) until 2026-09-09. plan_edit is
+	// declared as plan_edit(Ref) — "Element is planned for editing"
+	// (schemas_codedom_polyglot.mg:205) — and every consumer joins it against
+	// code_element's first argument, which is a CodeDOM ref like
+	// `fn:pkg.Name`. A file path never matches one, so four rules in
+	// test_impact.mg derived nothing, and the impacted-test tools' kernel
+	// fallback read file paths as refs and matched nothing in the dependency
+	// graph. FileEdit carries no element identity, so the fix is not to
+	// convert the shape but to stop claiming one this type does not have.
+	//
+	// modified_file(File) is the declared file-level predicate for exactly
+	// this, and it had no producer at all — so test_impact.mg's file-level
+	// fallback rule (`impacted_test` via file_imports, :98-102) was equally
+	// starved. One correct producer feeds it.
 	for _, edit := range txn.Edits {
 		facts = append(facts, Fact{
-			Predicate: "plan_edit",
+			Predicate: "modified_file",
 			Args:      []any{edit.FilePath},
 		})
 	}
