@@ -46,8 +46,21 @@ jobs:
           # files exist to be malformed. gofmt exits non-zero on a file it
           # cannot parse, so without this the gate fails on a fixture rather
           # than on formatting.
-          mapfile -t files < <(find internal cmd -name '*.go' -not -path '*/testdata/*')
-          unformatted="$(gofmt -l "${files[@]}")"
+          #
+          # The list goes through xargs, not "${files[@]}". Expanding ~2000
+          # paths into one argv exceeded the Windows command-line limit and the
+          # step died with "Argument list too long" (exit 126) before gofmt ran
+          # a single file — a gate that never executed while looking like it
+          # had. xargs splits the list into as many invocations as it needs.
+          list="$(mktemp)"
+          trap 'rm -f "$list"' EXIT
+          find internal cmd -name '*.go' -not -path '*/testdata/*' -print0 > "$list"
+          count="$(tr -cd '\0' < "$list" | wc -c | tr -d ' ')"
+          if [[ "$count" -eq 0 ]]; then
+            echo "Found no Go files to check — the find expression is wrong."
+            exit 1
+          fi
+          unformatted="$(xargs -0 gofmt -l < "$list")"
           if [[ -n "$unformatted" ]]; then
             echo "These files are not gofmt-clean:"
             echo "$unformatted"
@@ -55,7 +68,7 @@ jobs:
             echo "Fix with: gofmt -w internal cmd"
             exit 1
           fi
-          echo "gofmt clean (${#files[@]} files)."
+          echo "gofmt clean ($count files)."
       - name: Reject empty and log-only tests
         run: go run ./cmd/tools/audit_test_bodies .
       # predicate_corpus.db is generated from the .mg corpus and embedded into
@@ -80,8 +93,8 @@ jobs:
     # either direction, so the baseline stays a measurement instead of rotting
     # into a file nobody trusts.
     #
-    # bash is Git Bash on the Windows runner; the script normalises separators
-    # and line endings for exactly that reason.
+    # The script still normalises path separators and line endings, because it
+    # is run by hand on Windows too.
     name: dead-code budget
     # Linux, while every other job here is Windows.
     #
