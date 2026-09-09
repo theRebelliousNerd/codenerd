@@ -268,6 +268,16 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"list_files",
 		"glob",
 		"grep",
+		// MCP control plane. Five fixed verbs regardless of how many servers
+		// are connected, which is what makes them affordable for every persona
+		// — the alternative, rendering each discovered server's tool schemas,
+		// is what kept MCP out of the prompt entirely. Per-remote-tool blast
+		// radius is gated by mcp_tool_gated in policy_mcp.mg, not here.
+		"mcp_map",
+		"mcp_probe",
+		"mcp_call",
+		"mcp_expand",
+		"mcp_context",
 	}
 
 	// Code DOM tools for semantic code operations

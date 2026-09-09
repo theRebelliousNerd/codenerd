@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -40,7 +41,14 @@ func (a *countingAnalyzer) count() int {
 
 func newDiscoveryManager(t *testing.T, transport *mockTransport, analyzer ToolAnalyzerInterface) (*MCPClientManager, *MCPToolStore) {
 	t.Helper()
-	store, err := NewMCPToolStore("file::memory:?cache=shared", nil)
+	// An isolated database per test, not the process-wide "file::memory:
+	// ?cache=shared" handle. These tests assert on analyzer CALL COUNTS and on
+	// cache hits, and every test in this file registers the same server id and
+	// tool names — so any two whose store lifetimes overlap see each other's
+	// rows, and the second one finds a cached analysis it never made. It
+	// surfaces as "analyzer ran 3 times, want 1", which reads like a caching
+	// bug in the code under test rather than shared state in the fixture.
+	store, err := NewMCPToolStore(filepath.Join(t.TempDir(), "mcp.db"), nil)
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

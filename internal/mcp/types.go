@@ -93,6 +93,20 @@ type MCPTool struct {
 	UseCases        []string       `json:"use_cases"`
 	Condensed       string         `json:"condensed"` // One-line description (max 80 chars)
 
+	// Control-plane classification, derived at discovery from the server's own
+	// annotations plus the schema. Facet is the atlas bucket the tool appears
+	// under; Risk is the blast radius policy gates on. Both are derived rather
+	// than configured, because the whole point is that a server nobody has
+	// hand-described still arrives describable.
+	Facet       Facet                `json:"facet,omitzero"`
+	Risk        RiskClass            `json:"risk,omitzero"`
+	FacetSource ClassificationSource `json:"facet_source,omitzero"`
+	RiskSource  ClassificationSource `json:"risk_source,omitzero"`
+
+	// Annotations are the server's own behavioural declarations, retained so
+	// the atlas can say a risk class was declared rather than guessed.
+	Annotations MCPToolAnnotations `json:"annotations,omitzero"`
+
 	// Embedding
 	Embedding      []float32 `json:"embedding,omitzero"`
 	EmbeddingModel string    `json:"embedding_model,omitzero"`
@@ -121,6 +135,45 @@ type MCPToolSchema struct {
 	Description  string          `json:"description"`
 	InputSchema  json.RawMessage `json:"inputSchema"`
 	OutputSchema json.RawMessage `json:"outputSchema,omitzero"`
+
+	// Annotations are the server's own declarations about the tool's behaviour.
+	// The three transports unmarshal tools/list straight into this struct, so
+	// naming the field is the whole of the wiring.
+	Annotations MCPToolAnnotations `json:"annotations,omitzero"`
+}
+
+// MCPToolAnnotations carries the behavioural hints an MCP server may attach to
+// a tool.
+//
+// These are the only place a server tells us what a tool DOES rather than what
+// it is called, which makes them the highest-quality signal available for
+// classifying blast radius — and a signal a control plane that has never seen
+// the server cannot get any other way. Every field is a pointer because absent
+// and false mean different things: "this server declares nothing" must not be
+// read as "this server declares it is not destructive".
+type MCPToolAnnotations struct {
+	Title           string `json:"title,omitzero"`
+	ReadOnlyHint    *bool  `json:"readOnlyHint,omitzero"`
+	DestructiveHint *bool  `json:"destructiveHint,omitzero"`
+	IdempotentHint  *bool  `json:"idempotentHint,omitzero"`
+	OpenWorldHint   *bool  `json:"openWorldHint,omitzero"`
+}
+
+func (a MCPToolAnnotations) readOnly() bool {
+	return a.ReadOnlyHint != nil && *a.ReadOnlyHint
+}
+
+// destructive follows the MCP spec's own conditioning: destructiveHint is only
+// meaningful on a tool that is not read-only.
+func (a MCPToolAnnotations) destructive() bool {
+	return !a.readOnly() && a.DestructiveHint != nil && *a.DestructiveHint
+}
+
+// IsZero lets encoding/json's omitzero drop the field entirely for the servers
+// — still the majority — that advertise no annotations at all.
+func (a MCPToolAnnotations) IsZero() bool {
+	return a.Title == "" && a.ReadOnlyHint == nil && a.DestructiveHint == nil &&
+		a.IdempotentHint == nil && a.OpenWorldHint == nil
 }
 
 // MCPCapabilities represents server capabilities from the MCP protocol.
@@ -304,5 +357,13 @@ func ToolSchemaHash(schema MCPToolSchema) string {
 	h.Write(schema.InputSchema)
 	h.Write([]byte{0})
 	h.Write(schema.OutputSchema)
+	// Annotations decide the derived risk class, so a server that flips
+	// readOnlyHint without touching anything else has changed what the control
+	// plane is allowed to do with the tool. Leaving them out of the fingerprint
+	// would keep the old, more permissive classification cached forever.
+	h.Write([]byte{0})
+	if annotations, err := json.Marshal(schema.Annotations); err == nil {
+		h.Write(annotations)
+	}
 	return hex.EncodeToString(h.Sum(nil))
 }

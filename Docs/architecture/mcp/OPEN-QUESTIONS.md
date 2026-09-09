@@ -1,6 +1,6 @@
 # mcp — Open Questions
 
-> Last verified: 2026-07-13  
+> Last verified: 2026-09-09  
 > Real open design questions (not filler)
 
 ## Q1 — Where should Section 50 policy live?
@@ -19,13 +19,27 @@ Asserting Mangle facts on SaveTool couples persistence to kernel. Emitting in ma
 
 Policy marks tools available when server is `/disconnected` (cached offline). Is that desirable for LLM context (show tools you cannot call) vs only `/connected`?
 
-## Q4 — When does compile run in the live agent loop?
+Partly settled in practice: the atlas reports per-server `status`, so a
+disconnected server is visible as disconnected rather than silently absent —
+"connected but nothing discovered", "not connected" and "no such server" are
+three distinguishable answers. Whether a disconnected server's tools should
+still appear in `mcp_probe` results is still open.
 
-API exists (`Compile`, `CompileToolsForShard`) but standard articulation/shard prompt assembly wiring is unclear. Is MCP tool text meant to be:
+## Q4 — ANSWERED — MCP capability reaches the prompt as a control plane, not as tool text
 
-- Always injected for certain shards?  
-- Only when config integrations present?  
-- Only on explicit user/tool request?
+The question assumed the choice was *when* to inject rendered tool text. The
+answer is that rendered tool text is the wrong unit: its cost scales with the
+catalog and is paid every turn regardless of use.
+
+Five fixed verbs (`internal/tools/mcpctl/`) are always available, registered
+into `coreTools` so every persona gets them. Detail is disclosed on demand —
+atlas, then signatures, then one full schema — and results are shaped to a view
+with the remainder retained under an expandable handle. The compiler and
+renderer remain for the `nerd mcp select` diagnostic and for any future caller
+that genuinely wants a rendered block.
+
+Remaining sub-question, minor: whether the five verbs should be routed for every
+intent (current) or scoped by `verb_category`. See TODO.md.
 
 ## Q5 — Bridge lifecycle ownership after boot
 

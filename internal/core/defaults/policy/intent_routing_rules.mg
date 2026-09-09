@@ -313,6 +313,29 @@ modular_tool_allowed(/run_impacted_tests, Intent) :- verb_category(Intent, /test
 # Transactional multi-file edit - a code mutation, same envelope as edit_lines
 modular_tool_allowed(/apply_edits, Intent) :- verb_category(Intent, /code).
 
+# MCP control plane. Five fixed verbs front every connected MCP server, so what
+# is granted here is a NAVIGATION surface, not a capability. The tools an MCP
+# server actually exposes are gated one level down, per remote tool, by
+# mcp_tool_gated in policy_mcp.mg against a risk class derived at discovery from
+# the server's own annotations.
+#
+# All five are available from any intent, and that is a considered choice rather
+# than a permissive default. Scoping them by verb_category was tried and is
+# wrong here: the categories are /code, /test, /git, /research, /learn,
+# /document and /verify, so any scoping narrow enough to be meaningful leaves a
+# configured MCP server unreachable from whole regions of the taxonomy — an
+# /understand or /document intent could not consult a code-graph server that was
+# configured precisely to answer it. Unreachable-by-routing is indistinguishable
+# from broken, and it fails silently, which is the worst combination.
+#
+# The blast-radius question is not answered here because it cannot be: this rule
+# fires before anyone knows which remote tool will be named.
+modular_tool_allowed(/mcp_map, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/mcp_probe, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/mcp_expand, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/mcp_context, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/mcp_call, Intent) :- user_intent(_, _, Intent, _, _).
+
 # Git tools. shell.RegisterAll has registered git_diff, git_log and
 # git_operation since the package was split out, and none of them appeared
 # here, so the Mangle catalog and the Go registry disagreed about what exists.

@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/tools"
 	"codenerd/internal/tools/codedom"
 	"codenerd/internal/tools/core"
+	"codenerd/internal/tools/mcpctl"
 	"codenerd/internal/tools/research"
 	"codenerd/internal/tools/shell"
 )
@@ -40,6 +41,7 @@ func fullyHydratedRegistry(t *testing.T) *tools.Registry {
 		"shell":    shell.RegisterAll,
 		"codedom":  codedom.RegisterAll,
 		"research": research.RegisterAll,
+		"mcpctl":   mcpctl.RegisterAll,
 	} {
 		if err := register(reg); err != nil {
 			t.Fatalf("%s.RegisterAll: %v", name, err)

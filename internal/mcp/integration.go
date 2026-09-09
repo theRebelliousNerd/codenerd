@@ -70,6 +70,7 @@ type MCPIntegrationBridge struct {
 	renderer *ToolRenderer
 	facts    *FactEmitter
 	kernel   KernelInterface
+	plane    *ControlPlane
 	adapters map[string]*IntegrationAdapter
 
 	// ready closes once ConnectAll and the initial per-server discovery have
@@ -106,6 +107,16 @@ func NewMCPIntegrationBridge(workspace string, kernel KernelInterface, embedder 
 	emitter := NewFactEmitter(kernel)
 	manager.SetFactEmitter(emitter)
 
+	// The control plane is built here rather than lazily, so its risk gate is
+	// bound to the same kernel the rest of the bridge reports to. A plane built
+	// later, by a caller that happened to have a manager, could end up gating
+	// against a different kernel than the one holding the tool facts — and a
+	// gate reasoning over an empty fact base permits everything.
+	plane := NewControlPlane(manager, store, emitter)
+	if kernel != nil {
+		plane.SetRiskGate(KernelRiskGate(kernel))
+	}
+
 	return &MCPIntegrationBridge{
 		manager:  manager,
 		store:    store,
@@ -113,9 +124,18 @@ func NewMCPIntegrationBridge(workspace string, kernel KernelInterface, embedder 
 		renderer: renderer,
 		facts:    emitter,
 		kernel:   kernel,
+		plane:    plane,
 		adapters: make(map[string]*IntegrationAdapter),
 		ready:    make(chan struct{}),
 	}, nil
+}
+
+// ControlPlane returns the progressive-disclosure surface over every connected
+// server. It is the object the model-facing tools operate against.
+func (b *MCPIntegrationBridge) ControlPlane() *ControlPlane {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.plane
 }
 
 // GetFactEmitter returns the kernel fact emitter (nil when no kernel is wired).

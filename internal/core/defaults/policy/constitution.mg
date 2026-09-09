@@ -122,6 +122,18 @@ safe_action(/browser_evidence).
 safe_action(/browser_specs).
 safe_action(/browser_test).
 safe_action(/browser_audit).
+# MCP control plane. These five verbs front every connected MCP server; they
+# are safe as VERBS, and that is the correct granularity here. The constitution
+# cannot know the blast radius of a remote tool it has never seen, so the risk
+# decision is made one level down, per remote tool, by mcp_tool_gated in
+# policy_mcp.mg against a class derived at discovery. Marking mcp_call blanket
+# dangerous would prompt on every read through MCP and teach the operator to
+# wave the prompts through, which is worse than no prompt at all.
+safe_action(/mcp_map).
+safe_action(/mcp_probe).
+safe_action(/mcp_call).
+safe_action(/mcp_expand).
+safe_action(/mcp_context).
 # Provider-mediated, read-only research; JIT routing still limits availability.
 safe_action(/grounded_web_search).
 # Registered and granted by the JIT ConfigFactory, but absent here until

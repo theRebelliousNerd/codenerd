@@ -1,11 +1,13 @@
 # codeNERD MCP — Implemented Spec (Deep-Dive)
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-09-09  
 > Status: Living Reference Document  
 > Language: Go  
 > Primary package: `internal/mcp/`  
-> Scale: **10** non-test Go sources ≈ **4.0k** lines; **16** test files; **1** local policy `.mg`  
-> Related schema: `internal/core/defaults/schemas_mcp.mg`  
+> Model-facing package: `internal/tools/mcpctl/`  
+> Scale: **15** non-test Go sources in `internal/mcp/` plus **3** in `internal/tools/mcpctl/`  
+> Related schema: `internal/core/defaults/schemas_mcp.mg` (Section 50, incl. 50.10)  
+> Related policy: `internal/core/defaults/policy/policy_mcp.mg`, `constitution.mg`, `intent_routing_rules.mg`  
 > Boot wiring: `internal/system/factory.go`, `internal/config/integrations.go`  
 > Execution edge: `internal/core/virtual_store.go` + `virtual_store_mcp_proxy.go`
 
@@ -16,8 +18,32 @@
 1. **Connected** over HTTP, stdio, or SSE  
 2. **Discovered** and **analyzed** (LLM optional; heuristics always)  
 3. **Persisted** with embeddings under `{workspace}/.nerd/mcp_tools.db`  
-4. **Compiled** into a budgeted full/condensed/minimal set for LLM context  
-5. **Invoked** through `IntegrationAdapter` / VirtualStore `IntegrationClient`
+4. **Classified** into a verb facet and a blast-radius risk class, derived from the server's own annotations plus its schema  
+5. **Fronted** by a fixed five-verb control plane the model actually sees, which discloses detail on demand  
+6. **Invoked** through the control plane, or through `IntegrationAdapter` / VirtualStore `IntegrationClient`
+
+### The economic problem the control plane solves
+
+Discovering a server's tools and describing them to a model are two different
+costs, and only the first is paid once. Rendering every discovered tool's schema
+into a prompt charges for the whole catalog on **every turn**, forever, whether
+or not the agent touches any of it. That standing cost is why a complete
+selection stack can sit finished and unwired.
+
+The control plane changes the shape of the bill. The model sees five verbs whose
+count does not depend on how many servers are connected; everything that varies
+is disclosed only to the turn that asks for it. Measured against a 26-tool
+fixture server (`TestControlPlane_AtlasShouldCostFarLessThanTheRawCatalog`):
+
+| Surface | Bytes |
+|---------|------:|
+| Raw catalog dump (name + description + inputSchema for every tool) | 10,905 |
+| Compact atlas covering the same 26 tools | 667 |
+| **Reduction** | **16.3x** |
+
+And on results (`TestControlPlane_CallShouldShapeLargeResultAndRetainTheRest`), a
+200-row payload of 74,723 bytes shapes to 1,008 bytes — **74x** — while
+reporting its own structure and retaining the remainder under a handle.
 
 ### Key characteristics
 
@@ -27,11 +53,16 @@
 | Selection philosophy | Logic-first hybrid (0.7 logic + 0.3 vector) with Go fallback |
 | Render tiers | full ≥70, condensed ≥40, minimal ≥20 (defaults) |
 | Token budget default | 4000 (approx 200/30/5 tokens per tier) |
+| Model-facing surface | Fixed at **5 verbs**, independent of server or tool count |
+| Disclosure views | `summary` / `compact` / `full`, default `compact` |
+| Result shaping | Budgeted in **bytes**, items, depth, string width and object keys |
+| Handles | Payload **retained**, expandable by RFC 6901 pointer, never re-invoked |
 | Multi-server | Dynamic map of server IDs from config |
-| Kernel Decls | Loaded (`schemas_mcp.mg`) |
-| Kernel policy rules | Present as `policy_mcp.mg`; **load not confirmed** |
-| Fact emission on discover | **Not implemented** in Go |
-| Cycle safety | No import of `internal/core` |
+| Kernel Decls | Loaded (`schemas_mcp.mg`, Sections 50.1–50.10) |
+| Kernel policy rules | Loaded from `internal/core/defaults/policy/policy_mcp.mg` |
+| Fact emission on discover | Implemented (`facts.go` `FactEmitter`) |
+| Risk gate authority | Mangle `mcp_tool_gated/1`; Go fallback only when no kernel is wired |
+| Cycle safety | No import of `internal/core`; `mcpctl` imports `mcp`, never the reverse |
 
 ### High-level control flow
 
@@ -84,15 +115,24 @@ Tool *serving* into prompts is a parallel JIT path (compile+render), sibling to 
 | Boot adapter wiring | **Implemented** | when servers enabled |
 | Async auto-connect | **Implemented** | fire-and-forget |
 | VS proxy sanitization | **Implemented** | core package |
-| Schema Decls boot-load | **Implemented** | defaults |
-| Policy rules boot-load | **Missing** | `policy_mcp.mg` orphaned from loader |
-| EDB assert on discover | **Missing** | blocks true mangle select |
-| Bridge retained on bctx | **Partial** | local factory var |
-| Compile→prompt assembly default | **Partial** | API exists; not standard hot path |
+| Schema Decls boot-load | **Implemented** | `defaults/schemas_mcp.mg`, Sections 50.1–50.10 |
+| Policy rules boot-load | **Implemented** | `defaults/policy/policy_mcp.mg`, swept by `kernel_init.go` |
+| EDB assert on discover | **Implemented** | `facts.go` `FactEmitter`, subject-keyed replace |
+| Facet + risk classification | **Implemented** | `facets.go`, derived at discovery, persisted |
+| Result digest + byte budget | **Implemented** | `digest.go`, adaptive shrink |
+| Handle retention + expansion | **Implemented** | `handles.go`, content-addressed, TTL + LRU |
+| Progressive schema disclosure | **Implemented** | `signature.go`, schema returned on argument failure |
+| Control plane | **Implemented** | `controlplane.go`, `controlplane_invoke.go` |
+| Model-facing verbs | **Implemented** | `internal/tools/mcpctl/`, registered on both registries |
+| Constitution + routing coverage | **Implemented** | `constitution.mg`, `intent_routing_rules.mg`, parity-tested |
+| Bridge retained on bctx | **Implemented** | `Cortex.mcpBridge`, `Cortex.MCPBridge()` |
+| Control plane reaches LLM prompt | **Implemented** | via `coreTools` → `cfg.AllowedTools` → both prompt paths |
 | Campaign store consumers | **Partial** | optional injection |
 | MCP server host mode | **Out of scope** | |
 
-**Overall:** production-capable **client infrastructure** with designed JIT compiler; **Mangle executive selection is incomplete**. Heuristic completeness ~**85–90%** of client design.
+**Overall:** production-capable client infrastructure, Mangle-governed selection
+and gating, and a fixed-size progressively-disclosed surface that reaches the
+model. The remaining partial is campaign-side store injection.
 
 ---
 
@@ -102,20 +142,31 @@ Tool *serving* into prompts is a parallel JIT path (compile+render), sibling to 
 
 ```
 internal/mcp/
-  types.go              # domain model, MCPTransport, defaults
-  client.go             # MCPClientManager
-  analyzer.go           # ToolAnalyzer
-  store.go              # MCPToolStore
-  compiler.go           # JITToolCompiler
-  renderer.go           # ToolRenderer
-  integration.go        # Bridge + IntegrationAdapter
-  transport_http.go
-  transport_stdio.go
-  transport_sse.go
-  policy_mcp.mg         # Section 50 rules (local)
+  types.go                  # domain model, MCPTransport, annotations, defaults
+  client.go                 # MCPClientManager
+  analyzer.go               # ToolAnalyzer
+  store.go                  # MCPToolStore
+  compiler.go               # JITToolCompiler
+  renderer.go               # ToolRenderer
+  integration.go            # Bridge + IntegrationAdapter + ControlPlane()
+  facts.go                  # FactEmitter (kernel EDB mirror)
+  facets.go                 # facet + risk classification
+  digest.go                 # result shaping, byte budgets, shape sketch
+  handles.go                # retained payload store, pointer expansion
+  signature.go              # signature lines, full schema, argument validation
+  controlplane.go           # ControlPlane, Atlas, Probe, catalog cache
+  controlplane_invoke.go    # Call, Expand, Context, risk gate
+  resources.go              # resources/* and prompts/* transport surfaces
+  headers.go metrics.go redact.go
+  transport_http.go transport_stdio.go transport_sse.go
   README.md
-  *_test.go             # 16 test files
+  *_test.go
   export_test.go
+
+internal/tools/mcpctl/
+  mcpctl.go                 # control-plane binding + arg coercion
+  tools.go                  # mcp_map, mcp_probe, mcp_call, mcp_expand, mcp_context
+  register.go               # RegisterAll
 ```
 
 ### 3.2 Largest sources
@@ -337,7 +388,144 @@ Also: `RenderCompact`, `RenderJSON`, `RenderForInvocation`. Schema pretty-print 
 
 ---
 
-## 10. Deep dive — integration bridge
+## 10. Deep dive — control plane (progressive disclosure)
+
+`controlplane.go` + `controlplane_invoke.go` + `facets.go` + `digest.go` +
+`handles.go` + `signature.go`, surfaced by `internal/tools/mcpctl/`.
+
+### 10.1 The five verbs
+
+The model-facing surface is fixed at five tools regardless of how many servers
+or tools are connected. That constancy is the entire economic argument; a sixth
+verb costs every prompt forever, so the bar for adding one is that it changes
+which call an agent makes.
+
+| Verb | Effect | Purpose |
+|------|--------|---------|
+| `mcp_map` | read | Atlas: servers, status, tool counts, facets, sample names. No schemas. |
+| `mcp_probe` | read | Zoom: signature lines for a facet/query; full schema for one named tool. |
+| `mcp_call` | external | Invoke, with the result shaped to a view and the remainder handled. |
+| `mcp_expand` | read | Reopen a retained payload by handle and JSON pointer. Never re-invokes. |
+| `mcp_context` | external | The non-tool half: ranked server resources and prompt templates. |
+
+The ladder is taught in each tool's `Description`, because progressive
+disclosure only saves anything if the model starts at the cheap rung.
+
+### 10.2 Facets and risk (`facets.go`)
+
+Every discovered tool is classified into one of six verb facets — `read`,
+`search`, `analyze`, `write`, `execute`, `manage` — and one of four risk
+classes — `safe`, `mutating`, `destructive`, `arbitrary`.
+
+Classification is derived, never configured, so a server nobody has
+hand-described still arrives describable. Signals, strongest first:
+
+1. **Server annotations** (`readOnlyHint`, `destructiveHint`). The server is
+   describing itself; an inference that contradicts a declaration is a bug.
+2. **Name tokens**, split across snake_case, kebab-case and camelCase so
+   `listPullRequests` and `list_pull_requests` classify identically.
+3. **Analyzer capabilities**, consulted only where they are not overruled by a
+   stronger signal — capability extraction is substring matching over prose and
+   routinely tags a read tool `/write` for containing the word "updated".
+4. **Input schema shape**: a `code` or `command` parameter means arbitrary
+   execution whatever the tool is called.
+
+Risk evidence is never weaker than facet evidence, and a tool that matches
+nothing is classified `mutating`, not `safe`: the classifier ran out of
+evidence, which is not the same as finding none.
+
+`ClassificationSource` is retained alongside each verdict so policy can tell a
+declaration from a guess.
+
+### 10.3 Result shaping (`digest.go`)
+
+Budgets are enforced on five axes — bytes, items, depth, string width, object
+keys — because a payload can be too big in five independent ways and clamping
+any four still lets the fifth through. Item-count clamping alone is the obvious
+approach and it fails on the most common real payload there is: one object with
+one enormous string in it.
+
+| View | MaxBytes | MaxItems | MaxDepth | MaxStringBytes | MaxObjectKeys |
+|------|---------:|---------:|---------:|---------------:|--------------:|
+| `summary` | 600 | 3 | 3 | 120 | 12 |
+| `compact` | 2,400 | 20 | 5 | 400 | 32 |
+| `full` | 16,000 | 200 | 12 | 4,000 | 100 |
+
+`full` is bounded rather than unbounded on purpose: it means "everything within
+a budget you can afford".
+
+When a shaped render still overruns `MaxBytes`, `shapeToFit` halves the item,
+string and key budgets and reshapes, up to five times, before falling back to
+discarding. Returning fewer whole rows is the answer; nulling the payload
+answers a request for a smaller result with no result.
+
+**The shape sketch** is the highest-value line in the surface: one line such as
+`{items: [200 x {body: text, id: str, status: str, title: str}], next_cursor: str}`
+describes 200 records in about twenty tokens. String sketches are bucketed
+(`str` / `text`) rather than exact-length, so structurally identical rows
+collapse to one term instead of reading as `mixed`.
+
+Every cut is reported as an `Elision` carrying an RFC 6901 pointer **into the
+original payload**, which is what makes truncation actionable rather than merely
+honest.
+
+### 10.4 Handles (`handles.go`)
+
+The handle store **retains** payloads rather than re-deriving them, and this is
+a deliberate departure from the browser-side progressive tools, where expanding
+a handle re-runs the observation. Re-running is defensible for a read of a live
+page. It is not defensible here: this plane fronts arbitrary MCP servers, so the
+call behind a handle may have opened a pull request or deleted a branch.
+"Expand what you already told me" must never be able to fire a second side
+effect.
+
+Handles are content-addressed over `(toolID, payload)`, so an identical result
+is stored once and a handle quoted from an earlier turn still resolves.
+Retention is bounded on three axes at once — entries (64), bytes (8 MB) and TTL
+(30 min) — because they fail differently. Expansion is itself budgeted: the
+reason a result was elided is that it was too big.
+
+### 10.5 Progressive schema disclosure (`signature.go`)
+
+Browsing shows a signature — `get_issue(id: str[, as_of: str, expand: []str])` —
+at roughly fifteen tokens. The full JSON Schema is disclosed only when a tool is
+named in `mcp_probe`, or when a call fails validation: `ValidateArgs` returns an
+`ArgumentError` **carrying the schema**, because the moment an agent gets an
+argument wrong is the one moment where spending those tokens is certainly worth
+it. Validation is deliberately shallow (required-presence, top-level types); a
+client-side gate stricter than the server would refuse calls the server would
+have served.
+
+### 10.6 Risk gating
+
+`mcp_call` checks arguments, then risk, then dispatches. The order matters: a
+malformed call is answered with the schema rather than a warning about blast
+radius, and the agent meets the risk gate once, on a call it is ready to make.
+
+Gating authority is Mangle. `KernelRiskGate` queries `mcp_tool_gated(ToolID)`;
+the Go constant is a fallback used only when no kernel is wired, and it is the
+stricter reading of the two. A kernel query that *fails* is treated as gated —
+dispatching an unclassified remote call because the check itself broke is the
+one outcome that must never happen quietly.
+
+`confirm_risk` is not a security boundary; the agent can set it. It is a
+deliberateness boundary, and that is the failure it prevents: a tool with an
+innocuous name turns out to delete a branch, and nothing in the transcript shows
+that anyone decided it should.
+
+### 10.7 JIT context (`Context`)
+
+MCP servers expose three primitive kinds; tools are one. `mcp_context` ranks a
+server's published resources and prompt templates against a query, and with
+`read=true` fetches and excerpts the top few. Many servers publish exactly the
+context an agent would otherwise infer from tool descriptions — a query dialect,
+a field reference, a worked example. Catalogs are cached per server with a
+5-minute TTL, because a context lookup that re-listed every resource per call
+would make the cheap operation the expensive one.
+
+---
+
+## 11. Deep dive — integration bridge
 
 `NewMCPIntegrationBridge`:
 
@@ -356,7 +544,7 @@ Also: `RenderCompact`, `RenderJSON`, `RenderForInvocation`. Schema pretty-print 
 
 ---
 
-## 11. Integration map (cross-system)
+## 12. Integration map (cross-system)
 
 ```mermaid
 sequenceDiagram
@@ -391,22 +579,41 @@ Store pointer used for gap detection / affinity scoring — not transport owners
 
 ---
 
-## 12. Mangle surface (summary)
+## 13. Mangle surface (summary)
 
 Full detail: [09-MANGLE-SURFACE.md](09-MANGLE-SURFACE.md).
 
 | Layer | Path | Status |
 |-------|------|--------|
-| Decl | `internal/core/defaults/schemas_mcp.mg` | Loaded |
-| Rules | `internal/mcp/policy_mcp.mg` | **Not loaded (evidence)** |
-| Temp facts | `mcp_tool_vector_score` | Asserted during compile |
-| Permanent EDB | registered/capability/affinity | **Not asserted by Go** |
+| Decl | `internal/core/defaults/schemas_mcp.mg` | Loaded (Sections 50.1–50.10) |
+| Rules | `internal/core/defaults/policy/policy_mcp.mg` | Loaded by the `defaults/policy/*.mg` sweep |
+| Temp facts | `mcp_tool_vector_score` | Asserted during compile, retracted by exact fact |
+| Permanent EDB | server/tool/capability/affinity/facet/risk/handle | Asserted by `facts.go` `FactEmitter` |
+| Constitution | `constitution.mg` | `safe_action` for all five `mcp_*` verbs |
+| Routing | `intent_routing_rules.mg` | `modular_tool_allowed` for all five, any intent |
 
-Consequently production selection is **primarily `fallbackSelect`**.
+### Control-plane predicates (Section 50.10)
+
+| Predicate | Kind | Meaning |
+|-----------|------|---------|
+| `mcp_tool_facet(ToolID, Facet)` | EDB | `/read` `/search` `/analyze` `/write` `/execute` `/manage` |
+| `mcp_tool_risk(ToolID, Risk)` | EDB | `/safe` `/mutating` `/destructive` `/arbitrary` |
+| `mcp_tool_risk_source(ToolID, Source)` | EDB | `/annotation` `/capability` `/name` `/schema` `/default` |
+| `mcp_result_handle(Handle, ToolID, Bytes)` | EDB | An outstanding, still-expandable shaped result |
+| `mcp_tool_gated(ToolID)` | IDB | Needs `confirm_risk` before dispatch |
+| `mcp_tool_browsable(ToolID)` | IDB | Safe enough for an unfiltered exploratory listing |
+| `mcp_server_facet_available(ServerID, Facet)` | IDB | This server currently fills this facet |
+
+`mcp_tool_gated` fires on `/destructive`, on `/arbitrary`, and on `/mutating`
+whose risk source is `/default` — a class nothing said was safe, arrived at
+because the classifier ran out of evidence.
+
+Selection uses the Mangle path when the kernel derives a tool set and logs
+`path=mangle`; `fallbackSelect` is the mirrored Go heuristic used otherwise.
 
 ---
 
-## 13. Safety summary
+## 14. Safety summary
 
 | Control | Location |
 |---------|----------|
@@ -423,7 +630,7 @@ Constitutional permission is **outside** this package.
 
 ---
 
-## 14. Observability summary
+## 15. Observability summary
 
 - Category: `Tools`  
 - Compile Info line with timings and tier counts  
@@ -433,13 +640,13 @@ Constitutional permission is **outside** this package.
 
 ---
 
-## 15. Testing summary
+## 16. Testing summary
 
 Dense unit/coverage tests for manager, store, compiler, analyzer, renderer, transports; e2e for VS proxy. Gaps: real servers, mangle golden, factory integration. Commands in [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md).
 
 ---
 
-## 16. Gaps pointer
+## 17. Gaps pointer
 
 Prioritized gaps live in [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md). Top three:
 
@@ -449,7 +656,7 @@ Prioritized gaps live in [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md). Top three:
 
 ---
 
-## 17. Public API quick reference
+## 18. Public API quick reference
 
 Constructors: `NewMCPIntegrationBridge`, `NewMCPClientManager`, `NewMCPToolStore`, `NewToolAnalyzer`, `NewJITToolCompiler`, `NewToolRenderer`, `NewHTTPTransport`, `NewStdioTransport`, `NewSSETransport`, `NewIntegrationAdapter`, `DefaultToolSelectionConfig`.
 
@@ -457,7 +664,7 @@ See [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md) for full tables.
 
 ---
 
-## 18. Verify
+## 19. Verify
 
 ```powershell
 go test ./internal/mcp/...
@@ -467,7 +674,7 @@ go test ./tests/e2e/ -run MCP -count=1
 
 ---
 
-## 19. Document map
+## 20. Document map
 
 | Doc | Role |
 |-----|------|
@@ -490,7 +697,7 @@ go test ./tests/e2e/ -run MCP -count=1
 
 ---
 
-## 20. Changelog of understanding (rebuild)
+## 21. Changelog of understanding (rebuild)
 
 | Date | Note |
 |------|------|
