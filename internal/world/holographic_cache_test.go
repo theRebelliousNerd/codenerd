@@ -288,3 +288,59 @@ func BenchmarkHolographicPromptSection(b *testing.B) {
 		_ = h.PromptSection(ctx, target)
 	}
 }
+
+// TestPackageParse_FrozenMapsAreNotMutated pins the invariant that lets clone
+// share localRefs and refCount by reference instead of deep-copying them on
+// every cache hit.
+//
+// Both are written once, by narrowLocalRefs at the end of parsePackage, and
+// only read afterwards. If a future change starts writing to either through a
+// cloned parse, every later reader of that directory sees the write — the same
+// class of bug the deep copies elsewhere in this file exist to prevent. This
+// test drives two full contexts through one cache and checks the shared maps
+// came out untouched.
+func TestPackageParse_FrozenMapsAreNotMutated(t *testing.T) {
+	dir := t.TempDir()
+	writeTempPkg(t, dir, map[string]string{
+		"helper.go": "package p\n\nfunc Helper() int { return 1 }\n",
+		"target.go": "package p\n\nfunc Target() int { return Helper() }\n",
+	})
+
+	h := NewHolographicProvider(nil, dir)
+	target := filepath.Join(dir, "target.go")
+
+	first, err := h.GetContext(target)
+	if err != nil {
+		t.Fatalf("GetContext: %v", err)
+	}
+	wantRefs := len(first.SymbolRefCount)
+	if wantRefs == 0 {
+		t.Fatal("no reference counts recorded; the fixture does not exercise the path")
+	}
+
+	// A second context over the same directory must observe the same maps.
+	second, err := h.GetContext(target)
+	if err != nil {
+		t.Fatalf("GetContext: %v", err)
+	}
+	if len(second.SymbolRefCount) != wantRefs {
+		t.Fatalf("refCount changed between calls: %d then %d", wantRefs, len(second.SymbolRefCount))
+	}
+	if second.SymbolRefCount["Helper"] != first.SymbolRefCount["Helper"] {
+		t.Fatalf("Helper reference count drifted: %d then %d",
+			first.SymbolRefCount["Helper"], second.SymbolRefCount["Helper"])
+	}
+
+	// ReferencedSymbols is a per-call slice and IS safe to mutate; prove the
+	// shared maps behind it survive that.
+	first.ReferencedSymbols = append(first.ReferencedSymbols, "INJECTED")
+	third, err := h.GetContext(target)
+	if err != nil {
+		t.Fatalf("GetContext: %v", err)
+	}
+	for _, name := range third.ReferencedSymbols {
+		if name == "INJECTED" {
+			t.Fatal("mutating one context's ReferencedSymbols leaked into the cache")
+		}
+	}
+}

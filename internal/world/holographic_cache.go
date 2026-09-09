@@ -27,6 +27,7 @@ import (
 	"container/list"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,6 +55,29 @@ type packageParse struct {
 	// pkgName maps a file's base name to its package clause. Held per file
 	// because a directory can legally hold `foo` and `foo_test`.
 	pkgName map[string]string
+
+	// localRefs maps a file's base name to the package-level symbols it
+	// references but does not itself define.
+	//
+	// This is what makes the prompt's signature list relevant rather than
+	// alphabetical. When the target file defines little or nothing of its own —
+	// a package-marker file whose implementation lives in siblings, a main.go,
+	// a thin wrapper — the eight signature slots were filled from whichever
+	// sibling sorted first in directory order. On internal/core/kernel.go that
+	// meant eight symbols from action_validator.go and a "… and 592 more":
+	// tokens spent, signal zero.
+	//
+	// Filtered to package-level names before storage, so its size is bounded by
+	// the package's own symbol count rather than by every identifier in every
+	// file.
+	localRefs map[string]map[string]struct{}
+
+	// refCount maps a package-level symbol to how many other files in the
+	// package reference it. It is a cheap in-package centrality measure, and it
+	// is what stops the last resort from being alphabetical: for a file that
+	// defines nothing and references nothing — a package-marker file — the most
+	// useful eight symbols are the ones the rest of the package leans on.
+	refCount map[string]int
 }
 
 // packageCacheEntry pairs a parse with the directory fingerprint it was taken
@@ -185,7 +209,25 @@ func (p *packageParse) clone() *packageParse {
 	for k, v := range p.pkgName {
 		out.pkgName[k] = v
 	}
+	// localRefs and refCount are shared, not copied. Both are written once by
+	// narrowLocalRefs at the end of parsePackage and only ever read afterwards
+	// — applyTo reads them, nothing appends to them — so a per-hit deep copy
+	// buys no safety and costs real time: copying internal/core's ~600-entry
+	// refCount and its per-file reference sets on every cache hit tripled the
+	// cost of the hit, which is the whole thing the cache exists to make cheap.
+	// TestPackageParse_FrozenMapsAreNotMutated pins the invariant.
+	out.localRefs = p.localRefs
+	out.refCount = p.refCount
 	return out
+}
+
+// referencedBy returns the package-level symbols the given file uses but does
+// not define.
+func (p *packageParse) referencedBy(fileBase string) map[string]struct{} {
+	if p == nil || p.localRefs == nil {
+		return nil
+	}
+	return p.localRefs[fileBase]
 }
 
 // directoryFingerprint identifies a directory's Go source state by the
@@ -252,7 +294,22 @@ func (p *packageParse) applyTo(hc *HolographicContext, targetFile string) {
 	for k, v := range p.imports {
 		hc.PackageImports[k] = v
 	}
-	if name, ok := p.pkgName[filepath.Base(targetFile)]; ok && name != "" {
+	base := filepath.Base(targetFile)
+	if name, ok := p.pkgName[base]; ok && name != "" {
 		hc.TargetPkg = name
+	}
+	if refs := p.referencedBy(base); len(refs) > 0 {
+		hc.ReferencedSymbols = make([]string, 0, len(refs))
+		for name := range refs {
+			hc.ReferencedSymbols = append(hc.ReferencedSymbols, name)
+		}
+		// Sorted so the rendered section is byte-stable across turns; map
+		// iteration order is randomised, and a section that reshuffles for no
+		// reason throws away the model provider's prompt-cache hit.
+		sort.Strings(hc.ReferencedSymbols)
+	}
+	// Shared for the same reason: frozen after the parse, read-only from here.
+	if len(p.refCount) > 0 {
+		hc.SymbolRefCount = p.refCount
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 
@@ -60,6 +61,17 @@ type HolographicContext struct {
 	// Impact-Aware Priority Context (from Mangle impact analysis)
 	ImpactPriority     int                 `json:"impact_priority"`     // Overall priority from Mangle analysis
 	PrioritizedCallers []PrioritizedCaller `json:"prioritized_callers"` // Callers sorted by impact priority
+
+	// ReferencedSymbols are the package-level symbols the target file uses but
+	// does not define. Used to rank which sibling signatures are worth prompt
+	// tokens; see rankSignaturesForTarget.
+	ReferencedSymbols []string `json:"referenced_symbols,omitempty"`
+
+	// SymbolRefCount maps a package-level symbol to how many other files in the
+	// package reference it — in-package centrality, used as the last ranking
+	// tier so a file with no relevance signal of its own still gets the
+	// package's load-bearing API rather than its alphabetically first one.
+	SymbolRefCount map[string]int `json:"symbol_ref_count,omitempty"`
 }
 
 // PrioritizedCaller represents a caller function with impact analysis metadata.
@@ -201,6 +213,131 @@ func (h *HolographicProvider) GetContextWithContext(ctx context.Context, filePat
 	return h.getContextInternal(ctx, filePath)
 }
 
+// packageLabel names the package for the truncation lines, falling back to the
+// module when the package clause could not be read.
+func packageLabel(hc *HolographicContext) string {
+	if hc == nil {
+		return "?"
+	}
+	if hc.TargetPkg != "" {
+		return hc.TargetPkg
+	}
+	if hc.Module != "" {
+		return hc.Module
+	}
+	return "?"
+}
+
+// relevanceRank orders a package symbol against one target file.
+//
+// Lower is better. The order encodes what a model editing this file actually
+// needs to know:
+//
+//	0  defined in the target file      — what this file offers
+//	1  referenced by the target file   — what this file depends on
+//	2  everything else in the package  — background
+//
+// Before this ranking existed the fallback was directory order, so a target
+// file that exports nothing of its own — a package-marker file, a main.go, a
+// thin wrapper — spent all eight signature slots on whichever sibling sorted
+// first. On internal/core/kernel.go that was eight symbols from
+// action_validator.go followed by "… and 592 more".
+func relevanceRank(definedIn, name, targetBase string, referenced map[string]struct{}) int {
+	if definedIn == targetBase {
+		return 0
+	}
+	if _, ok := referenced[name]; ok {
+		return 1
+	}
+	return 2
+}
+
+// referencedSet turns the context's sorted slice back into a lookup set.
+func referencedSet(referenced []string) map[string]struct{} {
+	if len(referenced) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(referenced))
+	for _, name := range referenced {
+		set[name] = struct{}{}
+	}
+	return set
+}
+
+// rankSignaturesForTarget returns the package's exported signatures ordered by
+// relevance to targetBase, and the size of the pool they were drawn from.
+//
+// The pool size is returned separately so the "… and N more" line counts what
+// was left out of the whole candidate set, not out of the ranked prefix.
+func rankSignaturesForTarget(all []SymbolSignature, targetBase string, referenced []string, centrality map[string]int) ([]SymbolSignature, int) {
+	refs := referencedSet(referenced)
+
+	exported := make([]SymbolSignature, 0, len(all))
+	for _, sig := range all {
+		if sig.Exported {
+			exported = append(exported, sig)
+		}
+	}
+	if len(exported) == 0 {
+		return nil, 0
+	}
+
+	sort.SliceStable(exported, func(i, j int) bool {
+		ri := relevanceRank(exported[i].File, exported[i].Name, targetBase, refs)
+		rj := relevanceRank(exported[j].File, exported[j].Name, targetBase, refs)
+		if ri != rj {
+			return ri < rj
+		}
+		// Within a tier, prefer what the rest of the package actually leans on.
+		if ci, cj := centrality[exported[i].Name], centrality[exported[j].Name]; ci != cj {
+			return ci > cj
+		}
+		// Then a documented symbol over an undocumented one, then name order so
+		// the section is byte-stable between turns.
+		di, dj := exported[i].DocComment != "", exported[j].DocComment != ""
+		if di != dj {
+			return di
+		}
+		if exported[i].File != exported[j].File {
+			return exported[i].File < exported[j].File
+		}
+		return exported[i].Name < exported[j].Name
+	})
+	return exported, len(exported)
+}
+
+// rankTypesForTarget is rankSignaturesForTarget for type definitions.
+//
+// Unexported types are kept: inside a package the model edits the unexported
+// types too, and a struct's field count is the cheapest useful thing that can
+// be said about it.
+func rankTypesForTarget(all []TypeDefinition, targetBase string, referenced []string, centrality map[string]int) ([]TypeDefinition, int) {
+	if len(all) == 0 {
+		return nil, 0
+	}
+	refs := referencedSet(referenced)
+
+	ranked := append([]TypeDefinition(nil), all...)
+	sort.SliceStable(ranked, func(i, j int) bool {
+		ri := relevanceRank(ranked[i].File, ranked[i].Name, targetBase, refs)
+		rj := relevanceRank(ranked[j].File, ranked[j].Name, targetBase, refs)
+		if ri != rj {
+			return ri < rj
+		}
+		if ci, cj := centrality[ranked[i].Name], centrality[ranked[j].Name]; ci != cj {
+			return ci > cj
+		}
+		if ranked[i].Exported != ranked[j].Exported {
+			return ranked[i].Exported
+		}
+		if ranked[i].File != ranked[j].File {
+			return ranked[i].File < ranked[j].File
+		}
+		return ranked[i].Name < ranked[j].Name
+	})
+	return ranked, len(ranked)
+}
+
 // PromptSection renders holographic context for prompt injection.
 //
 // Mirrors the style of internal/projectdoc/facts.go:Document.PromptSection —
@@ -269,31 +406,16 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		b.WriteString("**Tests**: no\n\n")
 	}
 
-	// Exported signatures — prefer those defined in the target file, fall back to package.
+	// Exported signatures, ranked by relevance to the target file.
 	const maxSigs = 8
 	base := filepath.Base(filePath)
-	var exported []SymbolSignature
-	for _, sig := range hc.PackageSignatures {
-		if sig.Exported {
-			exported = append(exported, sig)
-		}
-	}
-	var fileExported []SymbolSignature
-	for _, sig := range exported {
-		if sig.File == base {
-			fileExported = append(fileExported, sig)
-		}
-	}
-	sigs := exported
-	if len(fileExported) > 0 {
-		sigs = fileExported
-	}
+	sigs, sigPool := rankSignaturesForTarget(hc.PackageSignatures, base, hc.ReferencedSymbols, hc.SymbolRefCount)
 	if len(sigs) > 0 {
 		b.WriteString("### Exported signatures\n\n")
 		shown := sigs
 		truncated := 0
 		if len(shown) > maxSigs {
-			truncated = len(shown) - maxSigs
+			truncated = sigPool - maxSigs
 			shown = shown[:maxSigs]
 		}
 		for _, sig := range shown {
@@ -321,29 +443,25 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 			b.WriteString("\n")
 		}
 		if truncated > 0 {
-			fmt.Fprintf(&b, "- … and %d more\n", truncated)
+			// Name the pool. "and 593 more" next to eight symbols from the
+			// target's own file reads like the file has 601 exports; saying
+			// "in package core" makes it clear the rest is the package's
+			// surface, which is what the model needs to know before it goes
+			// looking for something.
+			fmt.Fprintf(&b, "- … and %d more exported in package `%s`\n", truncated, packageLabel(hc))
 		}
 		b.WriteString("\n")
 	}
 
-	// Type definitions — prefer file-local, cap.
+	// Type definitions, ranked by relevance to the target file.
 	const maxTypes = 8
-	var fileTypes []TypeDefinition
-	for _, td := range hc.PackageTypes {
-		if td.File == base {
-			fileTypes = append(fileTypes, td)
-		}
-	}
-	types := fileTypes
-	if len(types) == 0 {
-		types = hc.PackageTypes
-	}
+	types, typePool := rankTypesForTarget(hc.PackageTypes, base, hc.ReferencedSymbols, hc.SymbolRefCount)
 	if len(types) > 0 {
 		b.WriteString("### Type definitions\n\n")
 		shown := types
 		truncated := 0
 		if len(shown) > maxTypes {
-			truncated = len(shown) - maxTypes
+			truncated = typePool - maxTypes
 			shown = shown[:maxTypes]
 		}
 		for _, td := range shown {
@@ -362,7 +480,7 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 			b.WriteString("\n")
 		}
 		if truncated > 0 {
-			fmt.Fprintf(&b, "- … and %d more\n", truncated)
+			fmt.Fprintf(&b, "- … and %d more in package `%s`\n", truncated, packageLabel(hc))
 		}
 		b.WriteString("\n")
 	}
@@ -580,6 +698,8 @@ func (h *HolographicProvider) parsePackage(ctx context.Context, dir string, entr
 		}
 	}
 
+	narrowLocalRefs(p)
+
 	return p, nil
 }
 
@@ -611,6 +731,10 @@ func (h *HolographicProvider) parseGoFileInto(p *packageParse, fset *token.FileS
 	if node.Name != nil {
 		p.pkgName[fileName] = node.Name.Name
 	}
+	// Record every identifier this file mentions. parsePackage narrows the set
+	// to package-level names once every file has been seen; keeping raw
+	// identifiers past that point would cost more memory than the parse itself.
+	rawRefs := make(map[string]struct{}, 64)
 
 	// Extract imports
 	var imports []string
@@ -622,6 +746,9 @@ func (h *HolographicProvider) parseGoFileInto(p *packageParse, fset *token.FileS
 
 	// Walk AST for definitions
 	ast.Inspect(node, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok {
+			rawRefs[id.Name] = struct{}{}
+		}
 		switch x := n.(type) {
 		case *ast.FuncDecl:
 			sig := h.extractFuncSignature(fset, x, fileName)
@@ -658,7 +785,55 @@ func (h *HolographicProvider) parseGoFileInto(p *packageParse, fset *token.FileS
 		return true
 	})
 
+	if p.localRefs == nil {
+		p.localRefs = make(map[string]map[string]struct{}, 8)
+	}
+	p.localRefs[fileName] = rawRefs
+
 	return nil
+}
+
+// narrowLocalRefs reduces each file's raw identifier set to the package-level
+// symbols it uses but does not define.
+//
+// Run once after the whole package is parsed, because "is this name defined in
+// this package" is only answerable then. Dropping the rest is what keeps the
+// cached parse bounded by the package's symbol count instead of by every
+// identifier in every file — the difference between a few kilobytes per package
+// and a few megabytes.
+func narrowLocalRefs(p *packageParse) {
+	if p == nil || len(p.localRefs) == 0 {
+		return
+	}
+
+	// owner maps a package-level symbol to the file that defines it.
+	owner := make(map[string]string, len(p.signatures)+len(p.types)+len(p.constants))
+	for _, sig := range p.signatures {
+		// Methods are addressed through their receiver, not by bare name, so
+		// indexing them here would make every file that mentions a common verb
+		// like Close or String look like it depends on all of them.
+		if sig.Receiver == "" {
+			owner[sig.Name] = sig.File
+		}
+	}
+	for _, td := range p.types {
+		owner[td.Name] = td.File
+	}
+	for _, cd := range p.constants {
+		owner[cd.Name] = cd.File
+	}
+
+	p.refCount = make(map[string]int, len(owner))
+	for file, raw := range p.localRefs {
+		narrowed := make(map[string]struct{}, len(raw)/8+1)
+		for name := range raw {
+			if definedIn, ok := owner[name]; ok && definedIn != file {
+				narrowed[name] = struct{}{}
+				p.refCount[name]++
+			}
+		}
+		p.localRefs[file] = narrowed
+	}
 }
 
 // extractGoSignatures parses one Go file directly into a HolographicContext.
