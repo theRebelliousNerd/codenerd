@@ -54,6 +54,7 @@ func (k *exactPermissionKernel) Query(query string) ([]types.Fact, error) {
 	return k.MockKernel.Query(query)
 }
 
+// TODO: TEST_GAP: [Type Coercion] Verify Atom vs String Confusion when asserting pending_action - ensure strings from tool arguments are not accidentally coerced into atoms.
 func TestCheckSafetyUsesGroundedPermissionQueryFastPath(t *testing.T) {
 	kernel := &exactPermissionKernel{MockKernel: &MockKernel{}}
 	executor := &Executor{kernel: kernel, config: DefaultExecutorConfig()}
@@ -114,6 +115,9 @@ func TestExecutor_CheckSafety_NilAgentConfigGracefulRejection(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: [State Conflicts] Add a test to verify checkSafety behavior under race conditions where the effective JIT config is hot-reloaded or the ToolRegistry is mutated simultaneously during safety validation.
+// TODO: TEST_GAP: [State Conflicts] Verify Deleted Resources behavior - ensure pending_action facts are correctly retracted even if the target resource causes execution panic.
+// TODO: TEST_GAP: [State Conflicts] Verify Context Cancellation behavior - ensure deferred retraction cleans up pending_action fact if context is violently canceled right after kernel.Assert.
 func TestExecutorConfigSnapshotConcurrentSet(t *testing.T) {
 	executor := &Executor{config: DefaultExecutorConfig()}
 	first := DefaultExecutorConfig()
@@ -156,6 +160,7 @@ func TestExecutorConfigSnapshotConcurrentSet(t *testing.T) {
 // QA boundary items 4+5: massive payload truncation/guard before Kernel.Assert.
 // TODO: TEST_GAP: [User Request Extremes] Add a negative test where the overall payload size is just under `maxPayloadBytes`, but the extracted `target` string alone is massive (e.g., 90KB), to verify Mangle engine resilience against massive atom names.
 // TODO: TEST_GAP: [User Request Extremes] Implement a stress test that fires 10,000 rapid concurrent `checkSafety` calls to validate garbage collection pressure and Mangle EDB growth limits (e.g., the '50 million line monorepo' edge case).
+// TODO: TEST_GAP: [User Request Extremes] Verify Frontier Coding Benchmarks behavior - ensure deeply recursive ASTs or massive source code blocks inline are truncated cleanly before hitting Mangle.
 func TestExecutor_CheckSafety_MassivePayloadRejected(t *testing.T) {
 	mockKernel := &MockKernel{}
 	executor := &Executor{
@@ -234,6 +239,8 @@ func TestExecutor_CheckSafety_PayloadAtBoundary(t *testing.T) {
 // TestExecutor_CheckSafety_EmptyToolNameRejectsCategorically asserts the
 // stricter contract: an empty Name returns false, AND no pending_action fact
 // is asserted to the kernel. This validates the categorical rejection path.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Empty Action Names (whitespace or fully empty ToolCall.Name) are rejected categorically before any kernel interaction.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Empty String Targets handling in extractTarget - does it skip empty string and try next candidate key, or return empty target causing malformed Mangle facts?
 func TestExecutor_CheckSafety_EmptyToolNameRejectsCategorically(t *testing.T) {
 	mockKernel := &MockKernel{}
 	executor := &Executor{
