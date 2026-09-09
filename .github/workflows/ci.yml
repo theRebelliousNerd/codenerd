@@ -42,7 +42,12 @@ jobs:
       - name: Formatting
         shell: bash
         run: |
-          unformatted="$(gofmt -l internal cmd)"
+          # testdata is excluded the way the Go toolchain excludes it: those
+          # files exist to be malformed. gofmt exits non-zero on a file it
+          # cannot parse, so without this the gate fails on a fixture rather
+          # than on formatting.
+          mapfile -t files < <(find internal cmd -name '*.go' -not -path '*/testdata/*')
+          unformatted="$(gofmt -l "${files[@]}")"
           if [[ -n "$unformatted" ]]; then
             echo "These files are not gofmt-clean:"
             echo "$unformatted"
@@ -50,7 +55,7 @@ jobs:
             echo "Fix with: gofmt -w internal cmd"
             exit 1
           fi
-          echo "gofmt clean."
+          echo "gofmt clean (${#files[@]} files)."
       - name: Reject empty and log-only tests
         run: go run ./cmd/tools/audit_test_bodies .
       # predicate_corpus.db is generated from the .mg corpus and embedded into
