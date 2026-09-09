@@ -1871,6 +1871,13 @@ func initFinalExecutors(bctx *bootContext) error {
 	if ck, ok := bctx.kernel.(*core.CortexKernel); ok {
 		if rk := ck.GetPrimaryRealKernel(); rk != nil {
 			fileContextProvider = world.NewHolographicProvider(rk, bctx.workspace)
+			// The impacted-test tools read a package-level provider that
+			// nothing set until 2026-09-09, so run_impacted_tests and
+			// get_impacted_tests failed on every call while still being
+			// advertised to the model. Registering here ties their lifetime to
+			// the Cortex that owns the kernel they query. See
+			// test_impact_provider.go.
+			wireTestImpactProvider(rk, bctx.workspace)
 		}
 	}
 	if fileContextProvider != nil {

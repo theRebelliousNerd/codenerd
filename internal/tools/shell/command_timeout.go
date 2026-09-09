@@ -1,7 +1,7 @@
 package shell
 
 import (
-	"path/filepath"
+	"path"
 	"strings"
 )
 
@@ -24,12 +24,12 @@ const (
 // toolchainSubcommands lists, per toolchain binary, the subcommands that
 // compile or run tests and therefore deserve the long default.
 var toolchainSubcommands = map[string]map[string]bool{
-	"go":    {"build": true, "test": true, "vet": true, "install": true, "generate": true, "run": true, "mod": true},
-	"cargo": {"build": true, "test": true, "check": true, "clippy": true, "run": true},
-	"npm":   {"test": true, "run": true, "ci": true, "install": true},
-	"pnpm":  {"test": true, "run": true, "install": true},
-	"yarn":  {"test": true, "run": true, "install": true},
-	"mvn":   {"test": true, "package": true, "verify": true, "install": true, "compile": true},
+	"go":     {"build": true, "test": true, "vet": true, "install": true, "generate": true, "run": true, "mod": true},
+	"cargo":  {"build": true, "test": true, "check": true, "clippy": true, "run": true},
+	"npm":    {"test": true, "run": true, "ci": true, "install": true},
+	"pnpm":   {"test": true, "run": true, "install": true},
+	"yarn":   {"test": true, "run": true, "install": true},
+	"mvn":    {"test": true, "package": true, "verify": true, "install": true, "compile": true},
 	"dotnet": {"build": true, "test": true, "restore": true},
 }
 
@@ -42,12 +42,23 @@ var standaloneToolchainCommands = map[string]bool{
 // defaultCommandTimeout returns the default timeout for command in seconds.
 // The first token is matched by base name with any .exe suffix removed, so
 // "C:\Go\bin\go.exe test ./..." and "go test ./..." are treated alike.
+//
+// The separator normalisation is done with an explicit ReplaceAll and path.Base
+// rather than filepath.ToSlash/filepath.Base, because filepath.ToSlash is a
+// no-op on any non-Windows host: on Linux the whole of `C:\Go\bin\go.exe`
+// survives as one path element, no `go` is ever recognised, and the command
+// silently gets the 60-second default it was supposed to escape. A model that
+// emits a Windows-style toolchain path — this repo's own nerd.md carries
+// C:/CodeProjects/codeNERD paths — must get the same timeout on every host the
+// agent runs on. TestDefaultCommandTimeout pins the Windows case and only
+// caught this because it runs on Linux in CI.
 func defaultCommandTimeout(command string) int {
 	fields := strings.Fields(command)
 	if len(fields) == 0 {
 		return defaultShortTimeoutSeconds
 	}
-	bin := strings.ToLower(strings.TrimSuffix(filepath.Base(filepath.ToSlash(fields[0])), ".exe"))
+	normalized := strings.ReplaceAll(fields[0], "\\", "/")
+	bin := strings.ToLower(strings.TrimSuffix(path.Base(normalized), ".exe"))
 	if standaloneToolchainCommands[bin] {
 		return defaultToolchainTimeoutSeconds
 	}

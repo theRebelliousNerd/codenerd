@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -135,6 +136,31 @@ type FactQuerier interface {
 type HolographicProvider struct {
 	kernel  FactQuerier
 	workDir string
+
+	// pkgCache memoises the filesystem-derived package parse. It is created
+	// lazily so a zero-value &HolographicProvider{} — which the tests build
+	// directly — still caches rather than silently falling back to the
+	// re-parse-everything path the cache exists to remove.
+	cacheOnce sync.Once
+	pkgCache  *packageParseCache
+}
+
+// packageCache returns the lazily-created package-parse cache.
+func (h *HolographicProvider) packageCache() *packageParseCache {
+	h.cacheOnce.Do(func() {
+		h.pkgCache = newPackageParseCache()
+	})
+	return h.pkgCache
+}
+
+// CacheStats reports package-parse cache hits and misses for this provider.
+// Exposed so `nerd world` and the world cache metrics can show whether the
+// per-turn holographic path is actually being served from cache.
+func (h *HolographicProvider) CacheStats() (hits, misses int64) {
+	if h == nil {
+		return 0, 0
+	}
+	return h.packageCache().stats()
 }
 
 // NewHolographicProvider creates a new holographic context provider.
@@ -461,71 +487,111 @@ func (h *HolographicProvider) buildGoContext(ctx *HolographicContext, filePath s
 	return h.buildGoContextWithContext(context.Background(), ctx, filePath)
 }
 
-// buildGoContextWithContext builds package-level context for Go files with cancellation and limit protections.
+// maxPackageFilesToParse caps how many sibling files one directory contributes
+// to a holographic context. A package with more files than this is already past
+// the point where listing its symbols helps the model, and parsing all of them
+// costs real time on the turn's critical path.
+const maxPackageFilesToParse = 100
+
+// maxSiblingFileBytes skips generated monsters. A 5 MB .go file is a generated
+// table, not something whose signatures the model needs, and parsing it can
+// dominate the whole package.
+const maxSiblingFileBytes = 5 * 1024 * 1024
+
+// buildGoContextWithContext builds package-level context for Go files with
+// cancellation and limit protections, served from the package-parse cache when
+// no file in the directory has changed.
 func (h *HolographicProvider) buildGoContextWithContext(ctx context.Context, hc *HolographicContext, filePath string) error {
-	// Get the directory containing this file
 	dir := filepath.Dir(filePath)
 
-	// Find all Go files in the same package
-	entries, err := os.ReadDir(dir)
+	fingerprint, entries, err := directoryFingerprint(dir)
 	if err != nil {
 		return fmt.Errorf("failed to read directory: %w", err)
 	}
 
-	var goFiles []string
-	const maxPackageFilesToParse = 100 // Cap to prevent memory/CPU starvation
+	cache := h.packageCache()
+	parse, hit := cache.get(dir, fingerprint)
+	if !hit {
+		// A cancelled or failed parse is never cached: a partial answer that
+		// looks fresh is worse than paying the parse again.
+		parse, err = h.parsePackage(ctx, dir, entries)
+		if err != nil {
+			return err
+		}
+		cache.put(dir, fingerprint, parse)
+	}
+
+	parse.applyTo(hc, filePath)
+	if hc.TargetPkg == "" {
+		h.readPackageClause(hc, filePath)
+	}
+	return nil
+}
+
+// parsePackage parses every non-test .go file in dir into a cacheable
+// packageParse. entries is the already-read directory listing, so the caller's
+// fingerprint pass and this one share a single ReadDir.
+func (h *HolographicProvider) parsePackage(ctx context.Context, dir string, entries []os.DirEntry) (*packageParse, error) {
+	p := &packageParse{
+		imports: make(map[string][]string),
+		pkgName: make(map[string]string),
+	}
 
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		// Include .go files but skip test files for signature extraction
-		if strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
-			fullPath := filepath.Join(dir, name)
-			if fullPath != filePath {
-				hc.PackageSiblings = append(hc.PackageSiblings, fullPath)
-			}
-			goFiles = append(goFiles, fullPath)
+		// Test files are excluded from signature extraction: the model asks
+		// what the package offers, not what its tests happen to define.
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
 		}
+		p.allGoFiles = append(p.allGoFiles, filepath.Join(dir, name))
 	}
 
-	// Cap the sibling files parsed to protect resource usage
-	if len(goFiles) > maxPackageFilesToParse {
-		logging.Get(logging.CategoryWorld).Warn("buildGoContext: package too large (%d files), limiting parsing to first %d", len(goFiles), maxPackageFilesToParse)
-		goFiles = goFiles[:maxPackageFilesToParse]
+	p.goFiles = p.allGoFiles
+	if len(p.goFiles) > maxPackageFilesToParse {
+		logging.Get(logging.CategoryWorld).Warn("buildGoContext: package too large (%d files), limiting parsing to first %d", len(p.goFiles), maxPackageFilesToParse)
+		p.goFiles = p.goFiles[:maxPackageFilesToParse]
 	}
 
-	// Parse all files in the package to extract signatures
 	fset := token.NewFileSet()
-	for _, goFile := range goFiles {
+	for _, goFile := range p.goFiles {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil, ctx.Err()
 		default:
 		}
 
-		// Skip huge sibling files to prevent OOM/memory starvation
-		if info, statErr := os.Stat(goFile); statErr == nil && info.Size() > 5*1024*1024 { // 5MB limit
+		if info, statErr := os.Stat(goFile); statErr == nil && info.Size() > maxSiblingFileBytes {
 			logging.Get(logging.CategoryWorld).Warn("buildGoContext: skipping huge sibling file: %s (%d bytes)", goFile, info.Size())
 			continue
 		}
-		if err := h.extractGoSignatures(hc, fset, goFile); err != nil {
+		if err := h.parseGoFileInto(p, fset, goFile); err != nil {
 			logging.WorldDebug("HolographicProvider: failed to parse %s: %v", goFile, err)
 			// Continue with other files
 		}
 	}
 
-	// Extract package name from target file
-	if node, err := parser.ParseFile(fset, filePath, nil, parser.PackageClauseOnly); err == nil {
-		hc.TargetPkg = node.Name.Name
-	}
-
-	return nil
+	return p, nil
 }
 
-// extractGoSignatures parses a Go file and extracts function/type/const signatures.
-func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset *token.FileSet, filePath string) error {
+// readPackageClause fills TargetPkg for a file the package parse did not cover
+// — a _test.go target, or one past maxPackageFilesToParse.
+func (h *HolographicProvider) readPackageClause(hc *HolographicContext, filePath string) {
+	fset := token.NewFileSet()
+	if node, err := parser.ParseFile(fset, filePath, nil, parser.PackageClauseOnly); err == nil && node.Name != nil {
+		hc.TargetPkg = node.Name.Name
+	}
+}
+
+// parseGoFileInto extracts one file's signatures, types, constants, imports and
+// package clause into a packageParse.
+//
+// This is the cacheable unit: it reads only the file's bytes and writes only
+// into p, so a directory's parse is a pure function of that directory.
+func (h *HolographicProvider) parseGoFileInto(p *packageParse, fset *token.FileSet, filePath string) error {
 	node, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
 	if err != nil {
 		// Handle entirely empty .go files (0 bytes and whitespace only)
@@ -536,6 +602,9 @@ func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset 
 	}
 
 	fileName := filepath.Base(filePath)
+	if node.Name != nil {
+		p.pkgName[fileName] = node.Name.Name
+	}
 
 	// Extract imports
 	var imports []string
@@ -543,14 +612,14 @@ func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset 
 		importPath := strings.Trim(imp.Path.Value, "\"")
 		imports = append(imports, importPath)
 	}
-	ctx.PackageImports[fileName] = imports
+	p.imports[fileName] = imports
 
 	// Walk AST for definitions
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.FuncDecl:
 			sig := h.extractFuncSignature(fset, x, fileName)
-			ctx.PackageSignatures = append(ctx.PackageSignatures, sig)
+			p.signatures = append(p.signatures, sig)
 
 		case *ast.GenDecl:
 			switch x.Tok {
@@ -558,7 +627,7 @@ func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset 
 				for _, spec := range x.Specs {
 					if ts, ok := spec.(*ast.TypeSpec); ok {
 						typeDef := h.extractTypeDefinition(fset, ts, x, fileName)
-						ctx.PackageTypes = append(ctx.PackageTypes, typeDef)
+						p.types = append(p.types, typeDef)
 					}
 				}
 			case token.CONST, token.VAR:
@@ -574,7 +643,7 @@ func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset 
 							if vs.Type != nil {
 								constDef.Type = formatNode(fset, vs.Type)
 							}
-							ctx.PackageConstants = append(ctx.PackageConstants, constDef)
+							p.constants = append(p.constants, constDef)
 						}
 					}
 				}
@@ -583,6 +652,31 @@ func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset 
 		return true
 	})
 
+	return nil
+}
+
+// extractGoSignatures parses one Go file directly into a HolographicContext.
+//
+// Kept as the single-file entry point for callers that hold a context rather
+// than a package parse; it is a thin adapter over parseGoFileInto so the two
+// paths cannot drift in what they extract.
+func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset *token.FileSet, filePath string) error {
+	p := &packageParse{
+		imports: make(map[string][]string, 1),
+		pkgName: make(map[string]string, 1),
+	}
+	if err := h.parseGoFileInto(p, fset, filePath); err != nil {
+		return err
+	}
+	ctx.PackageSignatures = append(ctx.PackageSignatures, p.signatures...)
+	ctx.PackageTypes = append(ctx.PackageTypes, p.types...)
+	ctx.PackageConstants = append(ctx.PackageConstants, p.constants...)
+	if ctx.PackageImports == nil {
+		ctx.PackageImports = make(map[string][]string, len(p.imports))
+	}
+	for k, v := range p.imports {
+		ctx.PackageImports[k] = v
+	}
 	return nil
 }
 

@@ -33,13 +33,52 @@ var _ codedom.TestDependencyAnalyzer = (*TestDependencyBuilder)(nil)
 
 // Test file detection patterns
 var (
-	goTestPattern     = regexp.MustCompile(`_test\.go$`)
-	pyTestPattern     = regexp.MustCompile(`(^test_.*\.py$|_test\.py$)`)
-	tsTestPattern     = regexp.MustCompile(`\.(test|spec)\.(ts|tsx|js|jsx)$`)
-	rustTestPattern   = regexp.MustCompile(`/tests/.*\.rs$`)
-	goTestFuncPattern = regexp.MustCompile(`:Test[A-Z]`)
-	pyTestFuncPattern = regexp.MustCompile(`:test_`)
+	goTestPattern   = regexp.MustCompile(`_test\.go$`)
+	pyTestPattern   = regexp.MustCompile(`(^test_.*\.py$|_test\.py$)`)
+	tsTestPattern   = regexp.MustCompile(`\.(test|spec)\.(ts|tsx|js|jsx)$`)
+	rustTestPattern = regexp.MustCompile(`/tests/.*\.rs$`)
+
+	// goTestFuncPattern matches the bare symbol name, not the whole ref.
+	//
+	// It used to be `:Test[A-Z]`, matched against the raw ref. The Go parser
+	// builds refs as `fn:<pkg>.<Name>` (go_parser.go:174-178) — so a real test
+	// function is `fn:world.TestFoo`, the character after the colon is `w`, and
+	// the pattern matched nothing this parser has ever produced. The only refs
+	// it did match are the unqualified `fn:<name>` form from the tree-sitter
+	// path (ast_treesitter.go:487). Two producers, two ref shapes, one
+	// consumer that only handled the rarer one: testFuncs stayed empty, so
+	// buildDependencyEdges added no edges, so GetImpactedTests returned nothing
+	// for every input. Matching the symbol name handles both shapes.
+	//
+	// Benchmark/Fuzz/Example are included because `go test` builds and can run
+	// them: they live in the same file and are impacted by the same edit.
+	goTestFuncPattern = regexp.MustCompile(`^(Test|Benchmark|Fuzz|Example)([^a-z]|$)`)
+	pyTestFuncPattern = regexp.MustCompile(`^test(_|$)`)
+	rsTestFuncPattern = regexp.MustCompile(`^test(_|$)`)
+	tsTestFuncPattern = regexp.MustCompile(`^(test|it|describe|suite)([^a-z]|$)`)
 )
+
+// refSymbolName returns the bare symbol name from a CodeDOM ref.
+//
+// Refs come in three shapes across the parsers:
+//
+//	fn:world.TestFoo                 (Go function,  go_parser.go:178)
+//	fn:world.Provider.GetContext     (Go method,    go_parser.go:176)
+//	fn:TestFoo                       (tree-sitter,  ast_treesitter.go:487)
+//
+// Taking the text after the last ':' strips the type prefix and also the '::'
+// of a Rust path; taking the text after the last '.' strips package and
+// receiver qualification. What is left is the name a naming convention is
+// actually about.
+func refSymbolName(ref string) string {
+	if i := strings.LastIndex(ref, ":"); i >= 0 {
+		ref = ref[i+1:]
+	}
+	if i := strings.LastIndex(ref, "."); i >= 0 {
+		ref = ref[i+1:]
+	}
+	return ref
+}
 
 // NewTestDependencyBuilder creates a new TestDependencyBuilder.
 func NewTestDependencyBuilder(kernel codedom.KernelQuerier, projectRoot string) *TestDependencyBuilder {
@@ -169,20 +208,25 @@ func (b *TestDependencyBuilder) identifyTestFunctions(ctx context.Context) error
 }
 
 // isTestFunction checks if a function ref matches test naming conventions.
+//
+// The conventions are about the symbol name, so the ref is reduced to its name
+// first. Matching the raw ref made every Go and Python check fail — see
+// goTestFuncPattern.
 func (b *TestDependencyBuilder) isTestFunction(ref, file string) bool {
-	ext := filepath.Ext(file)
+	name := refSymbolName(ref)
+	if name == "" {
+		return false
+	}
 
-	switch ext {
+	switch filepath.Ext(file) {
 	case ".go":
-		return goTestFuncPattern.MatchString(ref)
+		return goTestFuncPattern.MatchString(name)
 	case ".py":
-		return pyTestFuncPattern.MatchString(ref)
+		return pyTestFuncPattern.MatchString(name)
 	case ".ts", ".tsx", ".js", ".jsx":
-		// TypeScript/JS: functions named "test", "it", "describe" or matching patterns
-		return strings.Contains(ref, ":test") || strings.Contains(ref, ":it(") || strings.Contains(ref, ":describe(")
+		return tsTestFuncPattern.MatchString(name)
 	case ".rs":
-		// Rust: functions with #[test] attribute (detected by parser)
-		return strings.Contains(ref, "::test_")
+		return rsTestFuncPattern.MatchString(name)
 	}
 
 	return false
