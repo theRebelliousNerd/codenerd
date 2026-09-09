@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	pe "codenerd/internal/autopoiesis/prompt_evolution"
@@ -31,6 +32,41 @@ import (
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
 )
+
+// recordIDSequence disambiguates execution records minted within one clock
+// tick.
+//
+// Process-wide and monotonic, because that is the scope the collision lives
+// in: records from different processes are already partitioned by the session
+// id minted at boot, and records from one process can be minted concurrently
+// by delegated tasks that share a session id and a turn number.
+var recordIDSequence atomic.Uint64
+
+// mintRecordIDs builds the identifiers for one execution record.
+//
+// Session and turn alone do not identify a record: delegated tasks run on
+// executor clones that inherit the parent's session id, so several tasks
+// legitimately carry the same (session, turn) pair.
+//
+// What disambiguates them is the counter, NOT the clock. A wall-clock
+// nanosecond looks unique and is not — Windows' timer granularity is coarse
+// enough that consecutive calls return the same value, which CI caught as two
+// records minted in one tick colliding. A colliding TaskID means one delegated
+// task's outcome overwrites another's in the feedback database: silently, and
+// in the direction that loses failures.
+//
+// The timestamp stays in the ID because it makes a record greppable and orders
+// a listing. It is simply not what makes it unique, which is why `at` is a
+// parameter: a test can pass the same instant twice and see that the IDs still
+// differ. Sampling a loop cannot show that — on Linux the clock always
+// advances, so the bug is invisible there no matter how many iterations run.
+func mintRecordIDs(sessionID string, turnNumber int, shardType string, at time.Time) (taskID, shardID string) {
+	seq := recordIDSequence.Add(1)
+	nano := at.UnixNano()
+	taskID = fmt.Sprintf("turn-%s-%d-%d-%d", sessionID, turnNumber, nano, seq)
+	shardID = fmt.Sprintf("%s-%d-%d", strings.TrimPrefix(shardType, "/"), nano, seq)
+	return taskID, shardID
+}
 
 // evolutionCycleTimeout bounds one automatic cycle. The cycle sends up to 20
 // records to the LLM-as-Judge at five-way concurrency, so it is minutes, not
@@ -204,16 +240,13 @@ func executionRecordFor(rec session.TurnRecord) (*pe.ExecutionRecord, bool) {
 		shardType = "/unknown"
 	}
 
-	// Nanosecond suffix, not just session+turn: delegated tasks run on
-	// executor clones that inherit the parent's session id, so several tasks
-	// legitimately carry the same (session, turn) pair.
-	taskID := fmt.Sprintf("turn-%s-%d-%d", rec.SessionID, rec.TurnNumber, now.UnixNano())
+	taskID, shardID := mintRecordIDs(rec.SessionID, rec.TurnNumber, shardType, now)
 
 	record := &pe.ExecutionRecord{
 		TaskID:      taskID,
 		SessionID:   rec.SessionID,
 		Timestamp:   now,
-		ShardID:     fmt.Sprintf("%s-%d", strings.TrimPrefix(shardType, "/"), now.UnixNano()),
+		ShardID:     shardID,
 		ShardType:   shardType,
 		Provider:    rec.Provider,
 		Model:       rec.Model,

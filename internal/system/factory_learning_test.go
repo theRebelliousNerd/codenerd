@@ -1,7 +1,9 @@
 package system
 
 import (
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -102,19 +104,69 @@ func TestExecutionRecordFor_UnverifiedIsDropped(t *testing.T) {
 
 // TestExecutionRecordFor_TaskIDsAreUniqueForConcurrentClones: delegated tasks
 // run on executor clones that inherit the parent's session id, so several
-// legitimately share one (session, turn) pair. A colliding TaskID would have
-// them overwrite each other in the feedback database.
+// legitimately share one (session, turn) pair. A colliding TaskID has them
+// overwrite each other in the feedback database — silently, and in the
+// direction that loses failures.
 func TestExecutionRecordFor_TaskIDsAreUniqueForConcurrentClones(t *testing.T) {
-	seen := make(map[string]bool)
-	for i := 0; i < 50; i++ {
-		rec, ok := executionRecordFor(turnRec("/done"))
-		if !ok {
-			t.Fatal("record dropped")
-		}
-		if seen[rec.TaskID] {
-			t.Fatalf("duplicate TaskID %q: concurrent delegated tasks would overwrite each other", rec.TaskID)
-		}
-		seen[rec.TaskID] = true
+	const workers = 16
+	const perWorker = 32
+
+	var mu sync.Mutex
+	seen := make(map[string]bool, workers*perWorker)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for range perWorker {
+				rec, ok := executionRecordFor(turnRec("/done"))
+				if !ok {
+					return
+				}
+				mu.Lock()
+				if seen[rec.TaskID] {
+					mu.Unlock()
+					t.Errorf("duplicate TaskID %q", rec.TaskID)
+					return
+				}
+				seen[rec.TaskID] = true
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+
+	if len(seen) != workers*perWorker {
+		t.Fatalf("minted %d distinct TaskIDs from %d records", len(seen), workers*perWorker)
+	}
+}
+
+// TestMintRecordIDs_UniquenessDoesNotDependOnTheClock is the regression test
+// for how the collision above was actually found, and the reason mintRecordIDs
+// takes the instant as a parameter.
+//
+// The IDs used to be disambiguated by time.Now().UnixNano(), which looks
+// unique and is not: Windows' timer granularity is coarse enough that
+// consecutive calls return the same value, and CI caught two records minted in
+// one tick colliding. Sampling a loop cannot show that — on Linux the clock
+// always advances, so the defect is invisible there however many iterations
+// run, which is exactly how it reached CI. Passing the same instant twice
+// makes the property testable on every platform.
+func TestMintRecordIDs_UniquenessDoesNotDependOnTheClock(t *testing.T) {
+	frozen := time.Unix(1700000000, 0)
+
+	firstTask, firstShard := mintRecordIDs("sess-1", 4, "/fix", frozen)
+	secondTask, secondShard := mintRecordIDs("sess-1", 4, "/fix", frozen)
+
+	if firstTask == secondTask {
+		t.Errorf("TaskID %q repeated when the clock did not advance: "+
+			"one delegated task's outcome would overwrite another's", firstTask)
+	}
+	if firstShard == secondShard {
+		t.Errorf("ShardID %q repeated when the clock did not advance", firstShard)
+	}
+	// The timestamp must still be in there — it is what makes a record
+	// greppable and orders a listing, it just is not what makes it unique.
+	if !strings.Contains(firstTask, strconv.FormatInt(frozen.UnixNano(), 10)) {
+		t.Errorf("TaskID %q dropped its timestamp", firstTask)
 	}
 }
 
