@@ -80,8 +80,17 @@ type PredicateExample struct {
 }
 
 func main() {
+	// -check parses the .mg corpus and compares it against the committed
+	// database without writing anything, so CI can fail on drift. See check.go
+	// for why a byte comparison cannot do this job.
+	checkOnly := len(os.Args) > 1 && (os.Args[1] == "-check" || os.Args[1] == "--check")
+
 	fmt.Println("=================================================")
-	fmt.Println("  PREDICATE CORPUS BUILDER")
+	if checkOnly {
+		fmt.Println("  PREDICATE CORPUS DRIFT CHECK")
+	} else {
+		fmt.Println("  PREDICATE CORPUS BUILDER")
+	}
 	fmt.Println("  Mangle Schema & Self-Healing System")
 	fmt.Println("=================================================")
 	fmt.Println()
@@ -108,6 +117,10 @@ func main() {
 	fmt.Println("[3/5] Merging and deduplicating predicates...")
 	allPredicates := mergePredicates(edbPredicates, idbPredicates)
 	fmt.Printf("      Total unique predicates: %d\n", len(allPredicates))
+
+	if checkOnly {
+		os.Exit(runDriftCheck(allPredicates))
+	}
 
 	// Step 4: Create error patterns from AI failure modes
 	fmt.Println("[4/6] Creating error patterns...")
