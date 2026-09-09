@@ -133,7 +133,7 @@ replay side now, so it can affect at most one turn.
 learns their input was shortened rather than the model quietly working from
 half of it.
 
-## O7 — `tests/e2e`: from not compiling to green (RESOLVED)
+## O7 — `tests/e2e`: from not compiling to green on Linux, and why that is not enough
 
 The integration suite had not compiled since `8e9507d`. Once it compiled it did
 not finish: it hung for the full 12-minute package timeout, so the run reported
@@ -196,7 +196,7 @@ nothing else changed.
 Result: the suite completes instead of hanging at 720s, and the failure list is
 visible and precise — 29 failures at that point, zero after the work below.
 
-### The rest of the suite: 29 failures down to zero
+### The rest of the suite: 29 failures down to zero (on Linux)
 
 `8e9507d` added `checkHollowSuccess`: a write-oriented intent that finishes with
 no successful write-mutation tool call is refused. The guard is right. Every
@@ -237,11 +237,9 @@ validator racing a concurrent writer sees an empty file and fails the call. That
 single detail was the difference between a suite that varied run to run and one
 that does not.
 
-**Result: 29 → 0**, stable across three consecutive whole-package runs. The
-`-tags integration` CI job is added in the same commit, and not one commit
-earlier: a job that fails on its first run teaches everyone to ignore it, which
-is worse than no job because it also hides the day it starts failing for a real
-reason.
+**Result: 29 → 0 on Linux**, stable across three consecutive whole-package runs.
+Not on Windows, and not gated in CI. Why, precisely, is the next section — it
+is the most important thing in this document.
 
 Five of those came from outside the shared fixture, and each was a test
 asserting something the code deliberately does not do:
@@ -274,6 +272,62 @@ asserting something the code deliberately does not do:
   writes something. It got a real `core.VirtualStore` rather than a no-op gate,
   because a rubber-stamped gate in the one test whose premise is
   `EnableSafetyGate = true` would have been worse than the red bar.
+
+### The suite is green by ordering coincidence, and that is the real finding
+
+The `-tags integration` job was added and then removed in the same session. It
+passed nothing it was supposed to: green on Linux three runs running, red on the
+Windows runner on its first CI run. Shipping it would have been the exact thing
+this branch spent four commits arguing against — a job that fails on its first
+run teaches everyone to ignore it, and then hides the day it fails for a real
+reason. So it is out until the suite is genuinely green, and here is what
+"genuinely" is doing in that sentence.
+
+**The Windows failure.** `spawnerMockKernel` is `struct{ types.Kernel }` — an
+embedded interface that is nil. Every method it does not override dispatches to
+nil and panics, and a spawned agent reaches one on its first `Assert`
+(`ProcessWithIntent`, `executor.go:871`). The panic happens on a detached
+`SubAgent` goroutine, so it does not fail a test: it takes the whole binary
+down, and the stack points at production code rather than at a mock with
+nothing behind it. On Linux that goroutine reliably loses the race to the end
+of the test, so three consecutive green local runs said nothing about it. An
+embedded-nil mock is a landmine that goes off on timing, not on logic.
+`spawnerMockTransducer` (which overrides nothing at all) and
+`spawnerMockLLMClient` (three of five methods) are the same shape.
+
+**Why fixing it made things much worse.** Implementing those mocks properly —
+explicit no-op methods, no embedding — took the package from 0 failures to 8.
+The eight were in a different file and had nothing to do with spawning. Two of
+them, `Contract_FailOpen_MissingDreamer` and `Contract_FailOpen_UnknownTool`,
+turn out to fail **when run alone** and to pass only inside a full-package run:
+they assert the gate returns nil, while `PreflightDestructiveToolCall` is
+documented fail-CLOSED ("permission and speculative safety are independent
+gates; an allow decision from checkSafety must never compensate for a missing
+simulation engine"). They were passing on a coincidence of what an earlier test
+had left in `tools.Global()`.
+
+Correcting those two — inverting them to assert the refusal, which made both
+pass in isolation for the first time — took the package from 8 failures to
+**78**, across the whole `virtualstore_dreamer` and `interactive_gate` files.
+Renaming two tests was enough to reshuffle the order, and 78 tests changed
+answer.
+
+That is the finding. Those 78 tests do not depend on each other's *logic*; they
+depend on each other's *side effects on one process-global registry*. Any fix
+applied to one of them redistributes which ones happen to pass. The suite's
+green is not a measurement.
+
+**Recommendation, and the order matters more than the content.** Per-test
+registry isolation first: a `t.Cleanup`-scoped registry, or `tools.NewRegistry()`
+injected where `tools.Global()` is read, so no test can observe what another
+left behind. Only after that is it worth fixing the mocks, correcting the
+fail-open assertions, or adding the CI job — every one of which was tried here
+and had to be reverted, not because the change was wrong but because the suite
+cannot currently tell a real regression from a reordering.
+
+Everything else in this section stands: the 29 failures below were real defects
+with real fixes, and those fixes hold. What does not hold is the claim that a
+green run proves anything about the files above.
 
 ### Concurrency: it was never the file
 

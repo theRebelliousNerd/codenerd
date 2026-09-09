@@ -106,32 +106,6 @@ jobs:
           fi
           echo "gofmt clean ($count files)."
 
-  integration:
-    name: integration (tests/e2e)
-    # Added only now, with the suite green.
-    #
-    # tests/e2e had not compiled since 8e9507d, and once it did it hung on the
-    # package timeout and then failed 29 tests. Gating on it at any point before
-    # this would have shipped a job that fails on its first run, and a job that
-    # fails on its first run teaches everyone to ignore it — which is worse than
-    # no job, because it also hides the day it starts failing for a real reason.
-    #
-    # Windows, like build + test: this suite drives the executor, the kernel and
-    # the VirtualStore together, and that is the platform they run on.
-    #
-    # The 15m timeout is generous against a ~4m suite. It exists so a genuine
-    # hang is reported as a timeout rather than sitting until the job limit.
-    runs-on: windows-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Integration tests
-        run: go test -tags integration -count=1 -timeout 15m ./tests/e2e/...
-
   deadcode:
     # The Go half of this repo's recurring defect: a function defined and
     # exported that nothing calls. Its Mangle twin — a predicate declared and
