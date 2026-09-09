@@ -354,18 +354,44 @@ test, it takes down the binary, with a stack pointing at production code.
 five methods) are the same shape. It fires on the Windows CI runner and not on
 Linux, where the goroutine reliably loses the race to the end of the test.
 
-Implementing the three mocks properly was tried twice and reverted twice. It
-does not cascade through the ordering problem any more — that is fixed — but it
-uncovers a second one underneath: with working mocks the spawned agents actually
-run, outlive their tests, and make the package fail differently on every run
-(21, then 7, then 2, then 32 failures, in unrelated files). Adding
-`t.Cleanup(spawner.StopAll)` did not contain it. The nil-panic was accidentally
-holding those agents back.
+Implementing the three mocks properly was tried **three times** and reverted
+three times. It does not cascade through the ordering problem any more — that is
+fixed — but it uncovers a second one underneath: with working mocks the spawned
+agents actually run, outlive their tests, and make the package fail differently
+on every run.
 
-So the honest state is: agents spawned by `setupRealIntegrationEnv` are not
-contained, and the mock's landmine is what has been hiding it. Fixing the mock
-requires fixing the containment first — bounded agent lifetimes tied to the
-test, not merely a StopAll on the way out.
+Measured, per attempt:
+
+| Containment attempted | Full-package failures, consecutive runs |
+|---|---|
+| none | 21, 7 |
+| `t.Cleanup(spawner.StopAll)` | 2, 30 |
+| `StopAll` + poll `ListActive()` until empty, 10s deadline | 1, 11, 27 |
+
+Against 0, 0, 0 with the mocks left as they are.
+
+**A real finding fell out of the second attempt, and it is about production, not
+tests.** `Spawner.StopAll` cancels; it does not wait. It walks the agents,
+calls `Stop()` on each — which only fires the context cancel, as its own log
+line ("stop requested") says — and returns while every one of those detached
+goroutines is still unwinding. It also skips any agent not yet marked
+`SubAgentStateRunning`, which is a live race against `SubAgent.Run`'s own state
+store. A caller that reads the name and expects the agents to be stopped when it
+returns is wrong, and nothing says so.
+
+The third attempt was built on exactly that: poll `ListActive()` until it
+empties, since an agent leaves that list only when its goroutine reaches a
+terminal state, and re-call `StopAll` each pass to catch the race. It is a real
+wait, and it still did not stabilise the package — so whatever leaks past the
+end of these tests is not only the SubAgent goroutines. Something they start,
+or something the executor starts underneath them, outlives the agent's own
+terminal state.
+
+That is where this stops, with the boundary drawn honestly: agents spawned by
+`setupRealIntegrationEnv` are not contained, three containment strategies have
+been measured and none holds, and the mock's nil-panic is what has been hiding
+it. The next person needs to find what survives an agent reaching Completed —
+not another cleanup hook.
 
 **That is why there is still no `-tags integration` CI job.** The suite is green
 and deterministic on Linux, and it panics on Windows for a reason nobody has
