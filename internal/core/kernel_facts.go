@@ -551,6 +551,7 @@ func (k *RealKernel) Assert(fact Fact) error {
 		return nil
 	}
 	k.factsDirty.Store(true)
+	k.warnIfUndeclaredLocked(fact)
 	logging.KernelDebug("Assert: fact added successfully, total facts=%d", len(k.facts))
 	k.mu.Unlock()
 
