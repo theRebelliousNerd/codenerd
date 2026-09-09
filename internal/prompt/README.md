@@ -46,7 +46,9 @@ See: `config_factory.go` and `internal/jit/config/types.go`
 
 ## Atom sources (where prompt text comes from)
 
-The compiler can draw candidate atoms from three places:
+The compiler draws candidate atoms from five places, in this precedence order —
+earlier sources win a duplicate ID, so a built-in can never be shadowed by
+something generated at runtime (`collectAtomsWithStats` in `compiler.go`):
 
 1. **Embedded corpus (built-ins)**
    - Source: `internal/prompt/atoms/**/*.yaml`
@@ -67,6 +69,28 @@ The compiler can draw candidate atoms from three places:
      - `prompt.LoadAgentPrompts(...)` (see `internal/prompt/loader.go`), or
      - `internal/prompt/sync.AgentSynchronizer` (boot sync).
    - Registered via: `compiler.RegisterAgentDB(agent, db)` or `prompt.RegisterAgentDBWithJIT(...)`.
+
+4. **Evolved atoms (System Prompt Learning)**
+   - Convention: `.nerd/prompts/evolved/{pending,promoted,rejected}/`
+   - Registered via: `compiler.RegisterEvolvedAtomManager(...)` from the Cortex
+     boot (`internal/system/factory_learning.go`).
+   - Written by the evolution cycle from real failures; only *promoted* atoms
+     are served. `RefreshEvolvedAtoms()` reloads them and clears the prompt
+     cache — without that reload the atoms sit on disk and are never served.
+
+5. **Learned strategies**
+   - Convention: `.nerd/prompts/strategies.db` (the SPL strategy store)
+   - Registered via: `compiler.RegisterStrategyProvider(...)`, implemented by
+     `prompt_evolution.StrategyAtomProvider`.
+   - Selected per compilation by (problem type × shard type), rendered as
+     `methodology` atoms under the `strategy/` ID prefix, and ranked by measured
+     success rate — capped below the hand-written methodology corpus so a
+     machine-refined heuristic cannot displace a curated instruction.
+   - Fitted to the token budget by the same scoring as every other source: a
+     strategy earns its place or is dropped.
+
+Sources 4 and 5 are absent unless registered, which is the state of any compiler
+built without a prompt evolver behind it.
 
 ## Atom format (YAML)
 

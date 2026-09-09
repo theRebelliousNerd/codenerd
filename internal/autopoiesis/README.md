@@ -37,6 +37,7 @@ autopoiesis/
 ├── profiles.go             # Tool quality profiles
 ├── traces.go               # Reasoning trace capture
 └── prompt_evolution/       # System Prompt Learning (SPL)
+    └── strategy_atoms.go   # Renders learned strategies as prompt atoms
 ```
 
 ## Core Capabilities
@@ -48,7 +49,7 @@ autopoiesis/
 | **Ouroboros Loop** | Full tool self-generation cycle |
 | **Feedback & Learning** | Evaluate tool quality, improve over time |
 | **Thunderdome** | Adversarial testing arena |
-| **Prompt Evolution** | Automatic prompt improvement (SPL) |
+| **Prompt Evolution** | Automatic prompt improvement (SPL) — wired for every boot path, not just chat |
 
 ## The Ouroboros Loop
 
@@ -81,6 +82,25 @@ Execute Tool → Evaluate Quality → Detect Patterns → Refine Tool
       ↑                                                  |
       └────────────────────────────────────────────────→┘
 ```
+
+### Where the loop is wired
+
+Prompt evolution is owned by the **Cortex boot**
+(`internal/system/factory_learning.go`), not by the chat TUI. That matters
+because it used to be the other way round: SPL was assembled only in
+`cmd/nerd/chat`, so `nerd campaign`, `nerd instruction`, `nerd spawn` and every
+delegated shard task booted the same Cortex, recorded nothing, and read nothing
+back. The agent improved only while a human was watching it.
+
+Turns reach the loop through `session.TurnRecorder`, and the kernel's verdict —
+not `err == nil` — decides what a turn is worth: `/done` records a pre-filled
+PASS, `/hollow` and `/failed` go to the judge for an explanation, `/unverified`
+is dropped. A hollow success is not a success, so the atoms on that turn are not
+credited for it.
+
+The automatic cycle is behind `features.prompt_evolution`
+(`CODENERD_PROMPT_EVOLUTION`, default off) because it spends API budget on the
+judge. Recording is free and always on.
 
 ### Quality Dimensions
 
@@ -167,6 +187,7 @@ Invariants that are enforced as tests rather than prose:
 | Test | Invariant |
 |------|-----------|
 | `tool_creation_routing_test.go` | no production caller bypasses the Ouroboros pipeline |
+| `internal/system/factory_learning_test.go` | every boot path records turns for learning, not just chat |
 | `checker_failclosed_test.go` | policy load failure denies; every `ViolationType` is classified |
 | `kernel_parity_test.go` | registry tool count matches `tool_registered` facts after boot |
 | `kernel_listener_wiring_test.go` | every interactive boot path starts the delegation listener |

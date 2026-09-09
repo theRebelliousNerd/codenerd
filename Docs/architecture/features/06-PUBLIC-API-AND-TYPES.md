@@ -19,6 +19,7 @@ On-disk / in-memory toggle block embedded by `config.UserConfig` as `Features *f
 | DarkMode | `*bool` | `dark_mode` | `CODENERD_DARK_MODE` | — | Force dark theme |
 | SkipOnboarding | `*bool` | `skip_onboarding` | `CODENERD_SKIP_ONBOARDING` | `NERD_SKIP_ONBOARDING` | Skip UX wizard |
 | TaxonomyFast | `*bool` | `taxonomy_fast` | `CODENERD_TAXONOMY_FAST` | — | Tool fast path |
+| PromptEvolution | `*bool` | `prompt_evolution` | `CODENERD_PROMPT_EVOLUTION` | — | Automatic SPL cycle; off because it spends API budget |
 | FastScanWorkers | `int` | `fast_scan_workers` | `CODENERD_FAST_SCAN_WORKERS` | `NERD_FAST_SCAN_WORKERS` | 0 = unset |
 | FastASTMaxBytes | `int64` | `fast_ast_max_bytes` | `CODENERD_FAST_AST_MAX_BYTES` | `NERD_FAST_AST_MAX_BYTES` | 0 = unset |
 
@@ -46,6 +47,7 @@ than shipping.
     "dark_mode":           false,  // env: CODENERD_DARK_MODE
     "skip_onboarding":     false,  // env: CODENERD_SKIP_ONBOARDING (legacy: NERD_SKIP_ONBOARDING)
     "taxonomy_fast":       false,  // env: CODENERD_TAXONOMY_FAST
+    "prompt_evolution":    false,  // env: CODENERD_PROMPT_EVOLUTION
     "fast_scan_workers":   0,      // env: CODENERD_FAST_SCAN_WORKERS (legacy: NERD_FAST_SCAN_WORKERS); 0 = call site default
     "fast_ast_max_bytes":  0       // env: CODENERD_FAST_AST_MAX_BYTES (legacy: NERD_FAST_AST_MAX_BYTES); 0 = call site default
   }

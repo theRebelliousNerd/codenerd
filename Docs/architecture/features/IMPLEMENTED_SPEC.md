@@ -35,7 +35,7 @@ Those packages **cannot** import `internal/config` without cycles (`config → s
 | Bool env accept | `1`/`true`/`TRUE`/`True`, `0`/`false`/`FALSE`/`False` only |
 | Invalid env | Fall through (no silent flip) |
 | Defaults posture | Conservative for eval/memory; cheap paths ON |
-| Seed posture | `FullyEnabledFeaturesConfig()` for init/wizard (except PerShardFacts) |
+| Seed posture | `FullyEnabledFeaturesConfig()` for init/wizard (except PerShardFacts, PromptEvolution) |
 | Mangle | None — flags are Go-side only |
 | Constitutional safety | Does **not** implement `permitted(...)`; gates optional paths only |
 
@@ -76,7 +76,7 @@ user_intent → kernel → next_action → VirtualStore → articulation
 |-----------|--------|-------|
 | `FeaturesConfig` JSON shape | **Implemented** | Pointer bools + two int fields |
 | `DefaultFeaturesConfig` | **Implemented** | Conservative compile-time defaults |
-| `FullyEnabledFeaturesConfig` | **Implemented** | Init/wizard seed; PerShardFacts stays false |
+| `FullyEnabledFeaturesConfig` | **Implemented** | Init/wizard seed; PerShardFacts and PromptEvolution stay false |
 | `SetActive` / `Active` | **Implemented** | Snapshot copy; nil resets |
 | `Summary` | **Implemented** | Boot log string; package itself log-free |
 | `resolveBool` precedence | **Implemented** | env → active → default |
@@ -94,6 +94,7 @@ user_intent → kernel → next_action → VirtualStore → articulation
 | Scan tunables → world | **Wired** | `world/scanner_config.go` |
 | TaxonomyFast accessor | **Partial** | Registry exists; `cmd/tools/verify_taxonomy` reads **env only**, not `IsTaxonomyFastEnabled()` |
 | PerShardFacts production default | **Off by design** | FullyEnabled keeps false; coordinator opt-in |
+| PromptEvolution production default | **Off by design** | FullyEnabled keeps false; the cycle spends API budget, so the operator opts in. Recording is unconditional and free either way |
 | CLI `/features` or status dump | **Missing** | No first-class user-facing flag inspector |
 | Dynamic reload without re-load | **Partial** | `SetActive` works; no file watcher |
 
@@ -151,6 +152,7 @@ Every boolean is a **pointer** so JSON unmarshalling can distinguish:
 | `DarkMode` | `dark_mode` | `CODENERD_DARK_MODE` | **false** | true | Force dark TUI palette |
 | `SkipOnboarding` | `skip_onboarding` | `NERD_SKIP_ONBOARDING` | **false** | true | Bypass first-run wizard |
 | `TaxonomyFast` | `taxonomy_fast` | `CODENERD_TAXONOMY_FAST` | **true** | true | Fast verify_taxonomy path |
+| `PromptEvolution` | `prompt_evolution` | `CODENERD_PROMPT_EVOLUTION` | **false** | **false** | Automatic System Prompt Learning cycle |
 | `FastScanWorkers` | `fast_scan_workers` | `NERD_FAST_SCAN_WORKERS` | 0 | 0 | Override scan concurrency |
 | `FastASTMaxBytes` | `fast_ast_max_bytes` | `NERD_FAST_AST_MAX_BYTES` | 0 | 0 | Skip large-file AST parse |
 
@@ -161,14 +163,21 @@ Every boolean is a **pointer** so JSON unmarshalling can distinguish:
 **`DefaultFeaturesConfig()`** — unit tests, ad-hoc kernel construction, pre-config boot:
 
 - Cheap/safe ON: FlightRecorder, SystemShards, TaxonomyFast  
-- Expensive/experimental OFF: DiffEval, Provenance, PerShardFacts, DarkMode, SkipOnboarding  
+- Expensive/experimental OFF: DiffEval, Provenance, PerShardFacts, DarkMode, SkipOnboarding, PromptEvolution  
 
 Rationale (from source): DiffEval’s first build is heavyweight (schema load + stratify); Provenance allocates per-derivation; tests should see **canonical full-eval** unless they opt in.
 
 **`FullyEnabledFeaturesConfig()`** — what `DefaultUserConfig` / init seeds into `.nerd/config.json`:
 
-- All booleans true **except** `PerShardFacts` remains false  
-- Comment: enabling partition without coordinator readiness can soft-brick kernel paths  
+- All booleans true **except** `PerShardFacts` and `PromptEvolution`, which remain false  
+- `PerShardFacts`: enabling partition without coordinator readiness can soft-brick kernel paths  
+- `PromptEvolution`: the automatic System Prompt Learning cycle sends unevaluated
+  execution records to the LLM-as-Judge, so leaving it on by default would spend
+  the operator's API budget on background self-grading they never asked for.
+  Recording those records is unconditional and free, so the corpus accumulates
+  regardless and `/evolve` can always be run by hand — the flag only decides who
+  pushes the button. Promotion of an evolved atom is a separate, also-default-off
+  decision (`EvolverConfig.AutoPromote`).  
 
 **Important accuracy note:** `IsPerShardFactsEnabled()` does **not** hard-code `return false`. It uses normal `resolveBool`. The “always off” behavior of FullyEnabled is because the **seed struct sets the pointer to false**. Env `CODENERD_PER_SHARD_FACTS=1` or an explicit active true **does** enable the flag (covered by `TestPerShardFactsPrecedence`). Some older comments/tests phrase this as “short-circuit” or “hard-coded false” — that is **stale language** relative to the accessor body.
 

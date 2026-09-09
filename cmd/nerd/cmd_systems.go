@@ -320,6 +320,14 @@ var autopoiesisStatusCmd = &cobra.Command{
 			fmt.Println("\nOrchestrator: Standby")
 		}
 
+		// The measurement that says whether any of the above is working. Every
+		// turn has been asserting turn_cost — "the per-turn cost denominator
+		// for tokens-per-verified-work" — and nothing ever divided by it, so a
+		// self-improving system had no way to show that it was improving.
+		fmt.Println("\nWork verified per token spent")
+		fmt.Println(strings.Repeat("─", 60))
+		fmt.Print(cortex.LearningReport().String())
+
 		return nil
 	},
 }
