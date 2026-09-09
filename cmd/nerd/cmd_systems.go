@@ -287,6 +287,11 @@ var autopoiesisStatusCmd = &cobra.Command{
 		fmt.Print("Prompt Evolution:  ")
 		if cortex.PromptEvolver == nil {
 			fmt.Println("unavailable (no evolver on this boot)")
+		} else if cortex.SessionExecutor != nil && !cortex.SessionExecutor.HasTurnRecorder() {
+			// The evolver exists but nothing feeds it. This is the shape the
+			// whole subsystem used to have on every headless path, and it is
+			// invisible from the atom counts alone — they just stay at zero.
+			fmt.Println("evolver present but NOT recording (no turn recorder on the session executor)")
 		} else {
 			stats := cortex.PromptEvolver.GetStats()
 			fmt.Printf("%d executions recorded, %d atoms pending / %d promoted, %d cycles\n",
@@ -298,6 +303,21 @@ var autopoiesisStatusCmd = &cobra.Command{
 				fmt.Println("off (set features.prompt_evolution or CODENERD_PROMPT_EVOLUTION=1)")
 			}
 		}
+		fmt.Print("Context Feedback:  ")
+		switch {
+		case cortex.ContextFeedback == nil:
+			fmt.Println("unavailable (the model's ratings of its own context are discarded)")
+		case cortex.SessionExecutor != nil && !cortex.SessionExecutor.HasContextFeedbackRecorder():
+			fmt.Println("store open but NOT recording")
+		default:
+			total, avg, err := cortex.ContextFeedback.GetOverallStats()
+			if err != nil {
+				fmt.Printf("recording (stats unavailable: %v)\n", err)
+			} else {
+				fmt.Printf("%d ratings recorded, mean usefulness %.2f\n", total, avg)
+			}
+		}
+
 		// thunderdome_result is still declared and consumed by policy but never
 		// asserted — a producer gap, not a display choice.
 		fmt.Print("Thunderdome:       ")
