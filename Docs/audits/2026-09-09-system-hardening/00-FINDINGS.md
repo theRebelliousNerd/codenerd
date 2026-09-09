@@ -434,3 +434,59 @@ The defects in this audit divide cleanly:
 
 Neither number is a target. Both are now measurements that cannot move without
 someone noticing.
+
+## F17 — The embedded predicate corpus had drifted for seven weeks
+
+`internal/core/defaults/predicate_corpus.db` is generated from the `.mg` corpus
+and embedded into the binary, where it feeds schema validation and the
+self-healing repair guidance. It is how the system tells a model which
+predicates exist and what shape they are. Nothing checked it.
+
+Last built 2026-07-22. Rebuilding found:
+
+- **Eight browser predicates carried the wrong arity.** `click_event` was
+  recorded as `/2` against a `Decl` of `/3`; `console_event`, `input_event`,
+  `net_header`, `net_request`, `net_response`, `request_initiator` and
+  `state_change` were each one argument short. Every one had gained a leading
+  `SessionID` and the corpus never caught up.
+- **150 predicates declared since July were absent entirely.**
+- `mock_file` no longer has a `Decl` anywhere.
+
+The arity drift is the dangerous half. Handing a model `click_event/2` when the
+schema says `/3` invites the failure `nerd.md` warns about hardest: *"no
+predicate may be declared twice at the same arity — a duplicate takes the whole
+kernel down at boot, not just the rule that uses it."*
+
+Found because removing the `atom_has_*_match` rules (F12) left eleven of the
+corpus's entries stale, which prompted a rebuild.
+
+### The gate
+
+`go run ./cmd/tools/predicate_corpus_builder -check` parses the `.mg` corpus and
+compares `(name, arity, type)` against the committed database, writing nothing.
+Wired into the CI test job.
+
+`git diff --exit-code` cannot gate this: the rows carry a build timestamp, so
+every rebuild differs byte for byte while saying the same thing.
+
+Verified against the real defect — run against the pre-rebuild database it
+reports all eight wrong arities and all eleven removed rules, and exits 1.
+
+---
+
+## The three gates
+
+| Gate | Catches | Baseline | Where |
+|---|---|---|---|
+| `TestStarvedPredicateBudget` | a predicate declared and read by rules, produced by nothing | 65 | `go test ./...` |
+| `scripts/deadcode-budget.sh` | a function defined and exported, called by nothing | 869 | CI job |
+| `predicate_corpus_builder -check` | a generated artifact drifting from the source it is generated from | 0 drift | CI test job |
+
+All three fail on movement in **either** direction, so a baseline cannot rot
+into a file nobody trusts. None of the numbers is a target of zero.
+
+What no gate catches, and what `internal/mangle/agents.md` now warns about: a
+producer that emits the **wrong shape** into a predicate whose Decl and
+consumers agree on a different one. Three instances on this branch —
+`modified_function` twice, `plan_edit` once. Both sides are internally
+consistent, so the join is simply empty. That one is on the reader.
