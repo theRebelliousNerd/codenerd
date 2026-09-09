@@ -323,3 +323,55 @@ declaration (`intelligence_gatherer.go:71`), the constructor parameter (`:325`)
 and the assignment (`:335`). The campaign's most decision-relevant context —
 what the target file offers, what its package holds, who calls into it — was
 gathered nowhere.
+
+---
+
+## F15 — 65 starved predicates, and a gate so the number cannot grow silently
+
+Every defect in this audit that took real work to find was the same shape: a
+**starved predicate** — declared, joined by a rule body, and produced by
+nothing. No rule head, no ground fact, no Go code naming it. Rules that read one
+derive nothing, forever, and no test fails, because both halves are correct in
+isolation.
+
+Four were found and fixed the hard way:
+
+| Predicate | What it starved |
+|---|---|
+| `modified_function` | The entire caller-impact chain, and with it the flagship impact-prioritized holographic context (F1). |
+| `user_rejected_finding` / `user_accepted_finding` | reviewer.mg's self-correction loop (F10). |
+| `atom_selector` | Thirteen dimension rules — dead at both ends, removed (F12). |
+
+A systematic sweep of the corpus found **65** more. The full inventory is
+`internal/core/defaults/testdata/starved_predicates.txt`.
+
+### The gate
+
+`TestStarvedPredicateBudget` (`internal/core/defaults/starved_predicate_test.go`)
+parses every `.mg` file for Decls, rule heads and body uses, cross-references
+every lowercase quoted identifier in non-test Go, and diffs the result against
+the checked-in baseline. It fails when:
+
+- a rule starts reading a predicate nothing produces, **and**
+- a predicate on the list gains a producer without leaving the list.
+
+The second direction matters as much as the first: without it the baseline rots
+into a file nobody trusts, and the count stops being a measurement.
+
+The Go-producer check is deliberately over-approximate — any predicate name
+appearing as a quoted string in non-test Go counts as possibly produced. A false
+"produced" costs one missed finding; a false "starved" costs someone hunting a
+bug that is not there.
+
+The target is not zero. Some entries are genuinely optional inputs an operator
+or an integration supplies. But the list is now visible, diffed on every test
+run, and can only shrink by accident of someone doing the work.
+
+Regenerate with:
+
+```
+CODENERD_UPDATE_STARVED=1 go test ./internal/core/defaults/ -run TestStarvedPredicateBudget
+```
+
+Opt-in through the environment rather than a test flag, because a gate that
+rewrites its own baseline on failure is not a gate.

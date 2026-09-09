@@ -1,0 +1,77 @@
+# Starved predicates — declared, read by a rule body, produced by nothing.
+#
+# Regenerate: CODENERD_UPDATE_STARVED=1 go test ./internal/core/defaults/ -run TestStarvedPredicateBudget
+# See starved_predicate_test.go for what this measures and why it is a gate
+# rather than a target of zero.
+#
+# Adding to this list is an admission, not a fix. Each line is a rule chain that
+# derives nothing today. Before adding one, ask whether the producer is
+# genuinely someone else's job — an operator-supplied fact, an optional
+# integration — or whether the wiring is simply missing, which is what every
+# instance found in the 2026-09 audit turned out to be.
+
+acceptance_count
+action_violates
+agenda_dependency
+appeal_denial_count
+appeal_grant_count
+applied_rule
+armory_run
+armory_tool
+attack_vector
+campaign_active
+campaign_prompt_policy
+chaos_safety_violation
+checkpoint_needed
+code_accepted
+coder_rejection_count
+consultation_request
+coverage_goal
+coverage_metric
+derived_rule
+detected_security_flow
+element_action
+failure_count_by_file
+false_positive_pattern
+file_line_count
+fix_pattern
+intelligence_knowledge_link
+intelligence_preference
+invariant_value
+investigation_result
+item_retry_count
+known_cause
+nemesis_attack_run
+nesting_depth
+pass_count
+patch_tested
+pending_subtask_count_computed
+proposed_rule
+rejection
+rejection_count
+relevant_to_intent
+review_approved
+review_complete
+review_rejection_rate_high
+reviewer_task
+rule_outcome
+security_anomaly
+shard_family
+specialist_knowledge_updated
+specialist_match
+style_violation
+symptom
+system_invariant
+system_shard
+target_contains_multiple_files
+target_is_complex
+target_is_large
+target_word_count
+task_complexity
+test_package
+test_passed
+tester_task
+thunderdome_battle
+tool_language
+turn_age_category
+unhandled_case_count_computed
