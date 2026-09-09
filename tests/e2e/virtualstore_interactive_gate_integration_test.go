@@ -24,14 +24,69 @@ func setupTestVirtualStore(t *testing.T) (*core.VirtualStore, *core.RealKernel, 
 		t.Fatalf("Failed to create kernel: %v", err)
 	}
 
-	// Ensure panic_state is declared so the Dreamer doesn't fail closed immediately for structural reasons.
-	policy := `
-		Decl panic_state(ActionID.Type<String>).
-		panic_state(ActionID) :- projected_action(ActionID, "write_file", Target), fn:match(".*passwd.*", Target).
-	`
-	err = kernel.HotLoadRule(policy)
-	if err != nil {
-		t.Fatalf("Failed to add policy: %v", err)
+	// AppendPolicy, one rule, no Decl, and every shape taken from the corpus.
+	//
+	// This used to read:
+	//
+	//	Decl panic_state(ActionID.Type<String>).
+	//	panic_state(ActionID) :- projected_action(ActionID, "write_file", Target), ...
+	//
+	// which is wrong three times over. "ActionID.Type<String>" is not Mangle
+	// Decl syntax, so the program failed to parse and HotLoadRule refused every
+	// call — the whole file's setup helper, so all 34 tests in it. Even had it
+	// parsed, schemas_dreamer.mg already declares
+	// panic_state(ActionID, Reason) at arity 2, and a second Decl at arity 1
+	// is the duplicate-Decl failure that takes the kernel down at boot. And
+	// projected_action's second slot is bound /name, not /string, so
+	// "write_file" would have joined nothing where /write_file matches. The
+	// original also called fn:match, which this Mangle fork does not provide —
+	// the corpus says so in two places ("Full regex extraction would require
+	// fn:match support") and string_contains is commented out beside it. An
+	// exact target is what these three tests actually need: /etc/passwd blocks,
+	// test.txt does not.
+	//
+	// And it went to HotLoadRule, which despite its name only VALIDATES a
+	// candidate against a sandbox and throws it away; the loader is
+	// AppendPolicy (or HotLoadLearnedRule to persist). So even a well-formed
+	// rule here would have returned nil and never fired. Confirmed with a
+	// kernel probe: the same rule derives nothing through HotLoadRule and
+	// derives immediately through AppendPolicy.
+	//
+	// The rule body is the corpus's own shape. dreamer.mg keys every panic on
+	// projected_fact, not projected_action, and for a write the Dreamer
+	// projects projected_fact(ActionID, /modified, Path) — so that is what a
+	// test rule has to join.
+	//
+	// The protected path is a seeded FACT joined through a variable, not a
+	// literal in the rule body, and that is not stylistic. In this Mangle fork
+	// a quoted string beginning with "/" does not match a stored string:
+	//
+	//	projected_fact(A, /modified, "/etc/passwd")  -> 0 rows
+	//	projected_fact(A, /modified, "etc/passwd")   -> 1 row
+	//	projected_fact(A, /modified, "passwd")       -> 1 row
+	//	projected_fact(A, /modified, _)              -> 1 row
+	//
+	// all against the same stored value "/etc/passwd". The leading slash makes
+	// the literal read as something other than that string, and the join goes
+	// quietly empty — the exact wrong-shape failure this audit keeps finding,
+	// with both halves internally consistent. A variable binds whatever is
+	// there, so the join is on values rather than on how they lex.
+	//
+	// None of this showed up in CI because it only fails when this file runs
+	// alone. In a full-package run an earlier test leaves the process in a
+	// state that lets the setup through, so 34 tests were passing on their
+	// neighbours rather than on themselves.
+	kernel.AppendPolicy(`
+Decl e2e_protected_path(Path) bound [/string].
+panic_state(ActionID, "writes_protected_path") :-
+    projected_fact(ActionID, /modified, Path),
+    e2e_protected_path(Path).
+`)
+	if err := kernel.Assert(core.Fact{
+		Predicate: "e2e_protected_path",
+		Args:      []any{"/etc/passwd"},
+	}); err != nil {
+		t.Fatalf("Failed to seed protected path: %v", err)
 	}
 
 	tmpDir := t.TempDir()
@@ -159,23 +214,50 @@ func TestE2E_InteractiveGate_NullActionArgs(t *testing.T) {
 func TestE2E_InteractiveGate_UnregisteredTool(t *testing.T) {
 	vs, _, _, _ := setupTestVirtualStore(t)
 
+	// Refused, not allowed. A tool the gate cannot classify has no effect
+	// declaration, and "unknown" is the one classification that must not
+	// default to the safest-looking answer: an unrecognised tool is far more
+	// likely to be a new effectful one than a new inert one. This asserted the
+	// opposite until 2026-09, which would have blocked the gate from staying
+	// closed.
 	err := vs.PreflightDestructiveToolCall(context.Background(), "action_unreg", "fake_tool", map[string]any{"arg": "val"})
-	if err != nil {
-		t.Errorf("Expected nil error for unregistered tool, got: %v", err)
+	if err == nil {
+		t.Fatal("an unregistered tool was allowed through the executive gate")
+	}
+	if !strings.Contains(err.Error(), "effect declaration") {
+		t.Errorf("refusal should name the missing effect declaration, got: %v", err)
 	}
 }
 
-// 10. Missing Subsystem: Kernel without panic_state fails closed.
-func TestE2E_InteractiveGate_MissingPanicState(t *testing.T) {
-	kernel, _ := core.NewRealKernel()
+// 10. Missing Subsystem: the fail-closed branch for an undeclared panic_state.
+func TestE2E_InteractiveGate_PanicStateAlwaysDeclared(t *testing.T) {
+	// This used to build a real kernel and assert it had NO panic_state, then
+	// expect the Dreamer's "panic_state predicate not declared" refusal. That
+	// premise cannot hold: schemas_dreamer.mg declares
+	// panic_state(ActionID, Reason) in the shipped corpus, so every real kernel
+	// has it and the branch is unreachable from one. The test was asserting an
+	// error the code is structured never to produce here.
+	//
+	// The invariant underneath is worth keeping, though, and it is the one the
+	// Dreamer's fail-closed contract depends on: a booted kernel declares
+	// panic_state. If that ever stops being true, every destructive call starts
+	// getting refused for a structural reason, and this says so directly
+	// instead of through a confusing gate error.
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
 	vs := core.NewVirtualStoreWithConfig(nil, core.DefaultVirtualStoreConfig())
 	vs.SetKernel(kernel)
 
-	err := vs.PreflightDestructiveToolCall(context.Background(), "action_nopanic", "write_file", map[string]any{"filepath": "test.txt", "content": "hello"})
-	if err == nil {
-		t.Errorf("Expected error because panic_state is missing, got nil")
-	} else if !strings.Contains(err.Error(), "panic_state predicate not declared") {
-		t.Errorf("Expected missing panic_state error, got: %v", err)
+	// A safe write goes through, which it can only do if panic_state is
+	// declared: the Dreamer refuses outright when it is not.
+	if err := vs.PreflightDestructiveToolCall(context.Background(), "action_nopanic", "write_file", map[string]any{"filepath": "test.txt", "content": "hello"}); err != nil {
+		t.Fatalf("a safe write was refused, which means the corpus no longer declares panic_state: %v", err)
+	}
+
+	if _, qerr := kernel.Query("panic_state(A, R)"); qerr != nil {
+		t.Errorf("panic_state must be queryable on a booted kernel: %v", qerr)
 	}
 }
 
@@ -213,6 +295,17 @@ func TestE2E_InteractiveGate_CascadingFailure_DreamCacheStale(t *testing.T) {
 	}
 }
 
+// Every write_file validation below passes "content".
+//
+// ParanoidFileValidator reads the file and compares it against the content the
+// payload claims was written; with no "content" (and no
+// "expected_final_state") it has nothing to compare and returns
+// "write operation missing expected content in payload". These tests each
+// wrote "hello" to the file and then asked the validator to confirm a write it
+// had no expectation for, so the refusal was correct and the tests were asking
+// the wrong question. Declaring the content makes the validator actually verify
+// the bytes landed, which is what a validation test should be exercising.
+
 // 13. End-to-End Data Integrity: facts asserted by validator
 func TestE2E_InteractiveGate_EndToEndDataIntegrity(t *testing.T) {
 	vs, kernel, _, tmpDir := setupTestVirtualStore(t)
@@ -221,7 +314,7 @@ func TestE2E_InteractiveGate_EndToEndDataIntegrity(t *testing.T) {
 	filePath := filepath.Join(tmpDir, "real_file.txt")
 	os.WriteFile(filePath, []byte("hello"), 0644)
 
-	err := vs.ValidateInteractiveToolResult(context.Background(), "action_e2e", "write_file", map[string]any{"filepath": filePath}, "success", true)
+	err := vs.ValidateInteractiveToolResult(context.Background(), "action_e2e", "write_file", map[string]any{"filepath": filePath, "content": "hello"}, "success", true)
 	if err != nil {
 		t.Errorf("Validation failed: %v", err)
 	}
@@ -246,14 +339,23 @@ func TestE2E_InteractiveGate_EndToEndDataIntegrity(t *testing.T) {
 }
 
 // 14. Missing Subsystem: Dreamer missing fails open.
-func TestE2E_InteractiveGate_DreamerMissingFailsOpen(t *testing.T) {
-	_ , _ = core.NewRealKernel()
+func TestE2E_InteractiveGate_DreamerMissingFailsClosed(t *testing.T) {
+	// A VirtualStore with no kernel derives no Dreamer, so there is no
+	// simulation to clear a destructive call. PreflightDestructiveToolCall is
+	// fail-CLOSED on exactly that: "permission and speculative safety are
+	// independent gates; an allow decision from checkSafety must never
+	// compensate for a missing simulation engine."
+	//
+	// Named FailsOpen and asserted fail-open until 2026-09, against a policy
+	// that had been reversed on purpose.
 	vs := core.NewVirtualStoreWithConfig(nil, core.DefaultVirtualStoreConfig())
-	// Setting kernel initializes Dreamer, let's try to bypass that or just note it fails open if we could set nil.
-	// We'll test with unmapped tool instead to simulate "no simulate"
-	err := vs.PreflightDestructiveToolCall(context.Background(), "action_missing", "nonexistent_destructive_tool", map[string]any{"filepath": "test.txt"})
-	if err != nil {
-		t.Errorf("Expected fail-open for unmapped tool, got: %v", err)
+
+	err := vs.PreflightDestructiveToolCall(context.Background(), "action_missing", "write_file", map[string]any{"filepath": "test.txt"})
+	if err == nil {
+		t.Fatal("a destructive call was allowed with no Dreamer available")
+	}
+	if !strings.Contains(err.Error(), "dreamer") {
+		t.Errorf("refusal should name the missing Dreamer, got: %v", err)
 	}
 }
 
@@ -278,12 +380,30 @@ func TestE2E_InteractiveGate_PartialPipelineFailure(t *testing.T) {
 
 // 16. Semantic: Path traversal in target
 func TestE2E_InteractiveGate_PathTraversal(t *testing.T) {
-	vs, _, _, _ := setupTestVirtualStore(t)
+	vs, kernel, _, _ := setupTestVirtualStore(t)
 
-	err := vs.PreflightDestructiveToolCall(context.Background(), "action_traversal", "write_file", map[string]any{"filepath": "../../../etc/passwd", "content": "hacked"})
-	// Policy matches ".*passwd.*" so this should fail!
+	// The comment here used to read: Policy matches ".*passwd.*" so this should
+	// fail! It never did — fn:match is not available in this Mangle fork, so
+	// the rule it referred to could not exist. The setup helper protects paths
+	// by seeding e2e_protected_path facts and joining them through a variable,
+	// so a traversal target has to be seeded to be blocked.
+	const traversal = "../../../etc/passwd"
+	if err := kernel.Assert(core.Fact{
+		Predicate: "e2e_protected_path",
+		Args:      []any{traversal},
+	}); err != nil {
+		t.Fatalf("Failed to seed traversal path: %v", err)
+	}
+
+	err := vs.PreflightDestructiveToolCall(context.Background(), "action_traversal", "write_file", map[string]any{"filepath": traversal, "content": "hacked"})
 	if err == nil {
-		t.Errorf("Expected path traversal to be blocked by policy, got nil")
+		t.Fatal("a write to a protected traversal path was allowed")
+	}
+
+	// And an unprotected path still passes, so this is testing the policy join
+	// rather than a blanket refusal of everything.
+	if err := vs.PreflightDestructiveToolCall(context.Background(), "action_traversal_ok", "write_file", map[string]any{"filepath": "notes.txt", "content": "fine"}); err != nil {
+		t.Errorf("an unprotected path must still be allowed, got: %v", err)
 	}
 }
 
@@ -335,7 +455,7 @@ func TestE2E_InteractiveGate_ConcurrentValidation(t *testing.T) {
 			filePath := filepath.Join(tmpDir, fmt.Sprintf("val_test_%d.txt", i))
 			os.WriteFile(filePath, []byte("hello"), 0644)
 
-			err := vs.ValidateInteractiveToolResult(context.Background(), fmt.Sprintf("action_val_%d", i), "write_file", map[string]any{"filepath": filePath}, "success", true)
+			err := vs.ValidateInteractiveToolResult(context.Background(), fmt.Sprintf("action_val_%d", i), "write_file", map[string]any{"filepath": filePath, "content": "hello"}, "success", true)
 			if err != nil {
 				errs <- err
 			}
@@ -429,7 +549,7 @@ func TestE2E_InteractiveGate_ValidatorMetadataHandling(t *testing.T) {
 	os.WriteFile(filePath, []byte("hello"), 0644)
 
 	// Pass complex metadata through the validation phase
-	err := vs.ValidateInteractiveToolResult(context.Background(), "action_meta", "write_file", map[string]any{"filepath": filePath, "custom_tag": []string{"a", "b"}}, "success output", true)
+	err := vs.ValidateInteractiveToolResult(context.Background(), "action_meta", "write_file", map[string]any{"filepath": filePath, "content": "hello", "custom_tag": []string{"a", "b"}}, "success output", true)
 	if err != nil {
 		t.Errorf("Expected validation to pass even with complex metadata, got: %v", err)
 	}
@@ -458,13 +578,20 @@ func TestE2E_InteractiveGate_KernelEvaluationTimeout(t *testing.T) {
 }
 
 // 26. Boundary: Unmapped Destructive Tool Fail-Open Check
-func TestE2E_InteractiveGate_UnmappedDestructiveFailOpen(t *testing.T) {
+func TestE2E_InteractiveGate_UnmappedDestructiveFailsClosed(t *testing.T) {
 	vs, _, _, _ := setupTestVirtualStore(t)
 
-	// Provide a tool name that sounds destructive but isn't in the interactiveToolActionType map
+	// A tool name that sounds destructive and is in neither
+	// interactiveToolActionType nor the registry. It is refused for want of an
+	// effect declaration — which is the point: "delete_database" being allowed
+	// through because nobody had mapped it yet is the failure mode this gate
+	// exists to prevent.
 	err := vs.PreflightDestructiveToolCall(context.Background(), "action_unmapped", "delete_database", map[string]any{"db": "production"})
-	if err != nil {
-		t.Errorf("Expected fail-open for unmapped tool, got: %v", err)
+	if err == nil {
+		t.Fatal("an unmapped tool named delete_database was allowed through the executive gate")
+	}
+	if !strings.Contains(err.Error(), "effect declaration") {
+		t.Errorf("refusal should name the missing effect declaration, got: %v", err)
 	}
 }
 
@@ -478,12 +605,11 @@ func TestE2E_InteractiveGate_ValidationOutputTruncation(t *testing.T) {
 	// Provide an massive output string to the validator
 	largeOutput := strings.Repeat("O", 5*1024*1024) // 5MB
 
-	err := vs.ValidateInteractiveToolResult(context.Background(), "action_trunc", "write_file", map[string]any{"filepath": filePath}, largeOutput, true)
+	err := vs.ValidateInteractiveToolResult(context.Background(), "action_trunc", "write_file", map[string]any{"filepath": filePath, "content": "hello"}, largeOutput, true)
 	if err != nil {
 		t.Errorf("Expected validation to handle large output safely, got: %v", err)
 	}
 }
-
 
 // 28. Robustness: Edge case payload with empty path but valid parameters
 func TestE2E_InteractiveGate_EmptyPathValidParams(t *testing.T) {
@@ -565,7 +691,7 @@ func TestE2E_InteractiveGate_ValidatorIsolation(t *testing.T) {
 	filePath := filepath.Join(tmpDir, "iso_test.txt")
 	os.WriteFile(filePath, []byte("hello"), 0644)
 
-	err1 := vs.ValidateInteractiveToolResult(context.Background(), "action_iso_1", "write_file", map[string]any{"filepath": filePath}, "success", true)
+	err1 := vs.ValidateInteractiveToolResult(context.Background(), "action_iso_1", "write_file", map[string]any{"filepath": filePath, "content": "hello"}, "success", true)
 	if err1 != nil {
 		t.Errorf("Expected success for first validation")
 	}
@@ -575,7 +701,6 @@ func TestE2E_InteractiveGate_ValidatorIsolation(t *testing.T) {
 		t.Errorf("Expected success for second non-destructive validation")
 	}
 }
-
 
 // 34. Contract: Tool Success Flag Validation
 func TestE2E_InteractiveGate_ToolSuccessFlagValidation(t *testing.T) {
@@ -594,14 +719,22 @@ func TestE2E_InteractiveGate_ToolSuccessFlagValidation(t *testing.T) {
 func TestE2E_InteractiveGate_MassiveTargetIterationValidation(t *testing.T) {
 	vs, _, _, _ := setupTestVirtualStore(t)
 
-	largeTarget := strings.Repeat("A", 4096)
+	// 4097, not 4096. The Dreamer rejects `len(req.Target) > 4096`, so a target
+	// of exactly 4096 is the largest ALLOWED one and this test never reached
+	// the limit it was written for — one byte short of its own boundary.
+	largeTarget := strings.Repeat("A", 4097)
 	err := vs.PreflightDestructiveToolCall(context.Background(), "action_massive_target", "write_file", map[string]any{"filepath": largeTarget})
-
-	// Should be caught by the Dreamer's length limit gracefully.
 	if err == nil {
-		t.Errorf("Expected error for massive target, got nil")
-	} else if !strings.Contains(err.Error(), "exceeds maximum length") && !strings.Contains(err.Error(), "target_too_long") {
-		// Just ensure it's handled.
-		t.Logf("Massive target error handled properly: %v", err)
+		t.Fatalf("Expected error for a target over the 4096-byte limit, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum length") && !strings.Contains(err.Error(), "target_too_long") {
+		t.Errorf("Expected the length rejection, got: %v", err)
+	}
+
+	// And the largest allowed target must still pass, so the boundary is pinned
+	// from both sides rather than only from outside.
+	atLimit := strings.Repeat("A", 4096)
+	if err := vs.PreflightDestructiveToolCall(context.Background(), "action_at_limit", "write_file", map[string]any{"filepath": atLimit}); err != nil {
+		t.Errorf("A 4096-byte target is within the limit and must be allowed, got: %v", err)
 	}
 }

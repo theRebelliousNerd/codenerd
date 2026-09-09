@@ -133,7 +133,7 @@ replay side now, so it can affect at most one turn.
 learns their input was shortened rather than the model quietly working from
 half of it.
 
-## O7 — `tests/e2e`: from not compiling to green on Linux, and why that is not enough
+## O7 — `tests/e2e`: from not compiling, to green, to actually measuring something
 
 The integration suite had not compiled since `8e9507d`. Once it compiled it did
 not finish: it hung for the full 12-minute package timeout, so the run reported
@@ -237,9 +237,10 @@ validator racing a concurrent writer sees an empty file and fails the call. That
 single detail was the difference between a suite that varied run to run and one
 that does not.
 
-**Result: 29 → 0 on Linux**, stable across three consecutive whole-package runs.
-Not on Windows, and not gated in CI. Why, precisely, is the next section — it
-is the most important thing in this document.
+**Result: 29 → 0**, stable across three consecutive whole-package runs — and,
+after the work in the next section, green when the individual files run alone
+too, which had never been true. Still not gated in CI, for one specific reason
+recorded below.
 
 Five of those came from outside the shared fixture, and each was a test
 asserting something the code deliberately does not do:
@@ -273,61 +274,102 @@ asserting something the code deliberately does not do:
   because a rubber-stamped gate in the one test whose premise is
   `EnableSafetyGate = true` would have been worse than the red bar.
 
-### The suite is green by ordering coincidence, and that is the real finding
+### The 78 that passed by coincidence, and what was actually wrong with them
 
-The `-tags integration` job was added and then removed in the same session. It
-passed nothing it was supposed to: green on Linux three runs running, red on the
-Windows runner on its first CI run. Shipping it would have been the exact thing
-this branch spent four commits arguing against — a job that fails on its first
-run teaches everyone to ignore it, and then hides the day it fails for a real
-reason. So it is out until the suite is genuinely green, and here is what
-"genuinely" is doing in that sentence.
+`virtualstore_dreamer_integration_test.go` and
+`virtualstore_interactive_gate_integration_test.go` were green in a
+full-package run and had never been green on their own. Run their files alone:
+**77 of 78 failed**. They were passing on state earlier files left behind, so
+any change anywhere in the package redistributed which ones happened to pass —
+renaming two tests changed 78 results. A suite in that state cannot distinguish
+a regression from a reordering.
 
-**The Windows failure.** `spawnerMockKernel` is `struct{ types.Kernel }` — an
-embedded interface that is nil. Every method it does not override dispatches to
-nil and panics, and a spawned agent reaches one on its first `Assert`
-(`ProcessWithIntent`, `executor.go:871`). The panic happens on a detached
-`SubAgent` goroutine, so it does not fail a test: it takes the whole binary
-down, and the stack points at production code rather than at a mock with
-nothing behind it. On Linux that goroutine reliably loses the race to the end
-of the test, so three consecutive green local runs said nothing about it. An
-embedded-nil mock is a landmine that goes off on timing, not on logic.
-`spawnerMockTransducer` (which overrides nothing at all) and
-`spawnerMockLLMClient` (three of five methods) are the same shape.
+They are now green **both** ways: three consecutive full-package runs at zero,
+and each file at zero on its own. What they were hiding, in order of how much
+it mattered:
 
-**Why fixing it made things much worse.** Implementing those mocks properly —
-explicit no-op methods, no embedding — took the package from 0 failures to 8.
-The eight were in a different file and had nothing to do with spawning. Two of
-them, `Contract_FailOpen_MissingDreamer` and `Contract_FailOpen_UnknownTool`,
-turn out to fail **when run alone** and to pass only inside a full-package run:
-they assert the gate returns nil, while `PreflightDestructiveToolCall` is
-documented fail-CLOSED ("permission and speculative safety are independent
-gates; an allow decision from checkSafety must never compensate for a missing
-simulation engine"). They were passing on a coincidence of what an earlier test
-had left in `tools.Global()`.
+**`HotLoadRule` validates; it does not load.** The gate file's setup called
+`kernel.HotLoadRule(policy)` to install a `panic_state` rule, got `nil`, and
+then asserted on derivations that could never happen. `HotLoadRule` compiles a
+candidate against a sandbox and discards it; `AppendPolicy` is the loader, and
+`HotLoadLearnedRule` the one that also persists. Both production callers use it
+correctly as a validator ("Phase 3: Sandbox compilation", "Phase 1: Syntax
+check"), so nothing in production was broken — but the doc comment on it
+described `HotLoadLearnedRule`'s behaviour, and that is what the test's author
+read. Comment corrected in `internal/core/kernel_policy.go`; the trap recorded
+in `internal/mangle/agents.md`.
 
-Correcting those two — inverting them to assert the refusal, which made both
-pass in isolation for the first time — took the package from 8 failures to
-**78**, across the whole `virtualstore_dreamer` and `interactive_gate` files.
-Renaming two tests was enough to reshuffle the order, and 78 tests changed
-answer.
+**A quoted string starting with `/` does not match a stored string.** Measured
+against one stored fact whose value is `"/etc/passwd"`:
 
-That is the finding. Those 78 tests do not depend on each other's *logic*; they
-depend on each other's *side effects on one process-global registry*. Any fix
-applied to one of them redistributes which ones happen to pass. The suite's
-green is not a measurement.
+```
+projected_fact(A, /modified, "/etc/passwd")  ->  0 rows
+projected_fact(A, /modified, "etc/passwd")   ->  1 row
+projected_fact(A, /modified, "passwd")       ->  1 row
+projected_fact(A, /modified, _)              ->  1 row
+```
 
-**Recommendation, and the order matters more than the content.** Per-test
-registry isolation first: a `t.Cleanup`-scoped registry, or `tools.NewRegistry()`
-injected where `tools.Global()` is read, so no test can observe what another
-left behind. Only after that is it worth fixing the mocks, correcting the
-fail-open assertions, or adding the CI job — every one of which was tried here
-and had to be reverted, not because the change was wrong but because the suite
-cannot currently tell a real regression from a reordering.
+The slot is declared `/string`. No parse error, no type error — the join just
+goes empty, which is the Decl-contract trap wearing a different hat. Absolute
+paths are everywhere in this system, so this is easy to hit and invisible when
+hit. The fix is to join on a variable and put the path in a fact. Recorded in
+`agents.md` with the reproduction.
 
-Everything else in this section stands: the 29 failures below were real defects
-with real fixes, and those fixes hold. What does not hold is the claim that a
-green run proves anything about the files above.
+**The setup's Mangle was malformed three ways at once.** `Decl
+panic_state(ActionID.Type<String>)` is not Decl syntax; `schemas_dreamer.mg`
+already declares `panic_state` at arity 2, so a second Decl at arity 1 would be
+the duplicate-Decl failure that takes the kernel down at boot; and
+`projected_action`'s second slot is `/name`, so `"write_file"` could never have
+matched `/write_file`. Every panic rule in the corpus keys on `projected_fact`,
+not `projected_action`, which is what a test rule has to join.
+
+**Nine tests asked the validator to verify a write with no expectation.**
+`ParanoidFileValidator` compares the file's bytes against the `content` the
+payload claims was written. With no `content` it returns "write operation
+missing expected content in payload" — correct, and not what those tests meant
+to exercise. They each wrote `"hello"` and then declined to say so.
+
+**Thirteen tests asserted fail-open against a gate that is fail-closed by
+policy** — unknown tools, unmapped tools, a missing Dreamer, a cancelled
+context, nil args. A test pinning the wrong side of a safety decision is worse
+than no test: it blocks the correct behaviour from being kept. All inverted to
+assert the refusal, and renamed where the name said FailOpen.
+
+**One boundary test was one byte short of its own boundary.** The Dreamer
+rejects `len(Target) > 4096`; the test used exactly 4096, so it never once
+reached the limit it existed to check. Now 4097, with the 4096 case asserted
+allowed so the boundary is pinned from both sides.
+
+**Two tests never created the file they validated.** A bare `test.txt` and an
+`integration_test.txt`, with a comment reading "Assume executor succeeds here" —
+but the validator checks rather than assumes.
+
+### Still open: the Windows-only mock panic
+
+`spawnerMockKernel` is `struct{ types.Kernel }`, an embedded interface that is
+nil, so every method it does not override panics. A spawned agent reaches one on
+its first `Assert`, on a detached `SubAgent` goroutine — which does not fail a
+test, it takes down the binary, with a stack pointing at production code.
+`spawnerMockTransducer` (overrides nothing) and `spawnerMockLLMClient` (three of
+five methods) are the same shape. It fires on the Windows CI runner and not on
+Linux, where the goroutine reliably loses the race to the end of the test.
+
+Implementing the three mocks properly was tried twice and reverted twice. It
+does not cascade through the ordering problem any more — that is fixed — but it
+uncovers a second one underneath: with working mocks the spawned agents actually
+run, outlive their tests, and make the package fail differently on every run
+(21, then 7, then 2, then 32 failures, in unrelated files). Adding
+`t.Cleanup(spawner.StopAll)` did not contain it. The nil-panic was accidentally
+holding those agents back.
+
+So the honest state is: agents spawned by `setupRealIntegrationEnv` are not
+contained, and the mock's landmine is what has been hiding it. Fixing the mock
+requires fixing the containment first — bounded agent lifetimes tied to the
+test, not merely a StopAll on the way out.
+
+**That is why there is still no `-tags integration` CI job.** The suite is green
+and deterministic on Linux, and it panics on Windows for a reason nobody has
+fixed. A job that fails on its first run teaches everyone to ignore it.
 
 ### Concurrency: it was never the file
 
