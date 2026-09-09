@@ -19,6 +19,11 @@ the work they gate begins.
 - **Reconciliation alarm**: accumulated estimate vs. accumulated actual per
   model; alarm on divergence. Closes the blind spot in Q4 for providers with no
   counting endpoint.
+- **Runtime sentinel-client test** alongside the static audit. Install a sentinel
+  client and assert every live path emits a request manifest. The current audit
+  parses `client_factory.go`; a sentinel catches paths the parser cannot see —
+  dynamic construction, injected overrides, and anything added outside that file.
+  Raised by the Evidence-First Context Compiler report, Ch. 11 Phase 0.
 
 ## Next — Phase 1, observation codecs
 

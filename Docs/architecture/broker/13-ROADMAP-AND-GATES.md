@@ -36,6 +36,11 @@ between them they decide months of build.
 Prune **before** the model sees output, not after. Pruning an output after
 generating it does not refund its generation cost.
 
+**Measured as the single largest lever available: −33.0% modeled cost** against
+raw append, in the executed simulations accompanying the Evidence-First Context
+Compiler report. Every other layout intervention in that suite was second-order
+by comparison. Until this lands, nothing else in this roadmap should be started.
+
 Three opportunities, in decreasing value and increasing risk:
 
 1. **Before execution** — request the fields, symbols, ranges, or diagnostics
@@ -101,7 +106,12 @@ exactly the moment it matters most.
 
 **Result reuse that skips the inference entirely.** Everything in the economics
 below discounts tokens you still send. This deletes the call — input, generation,
-reasoning. Generation is where the money is. Validity becomes a derivation over
+reasoning. Generation is where the money is.
+
+The simulations put a judgement on this directly: **evidence-result memoization
+was more consequential than agent splitting.** That promotes this above every
+part of Phase 4 and Phase 5, and it is the strongest available argument for
+doing the typed graph before anything multi-agent. Validity becomes a derivation over
 dependency versions rather than a TTL guess: if any source a conclusion rests on
 has moved, the conclusion is invalid because the rule says so.
 
@@ -148,10 +158,23 @@ input component over twelve calls and breaks even at eight.
 
 Two things make it dangerous to build early:
 
-**The break-even is per-provider.** It depends entirely on the ratio between
-write penalty and read discount, and providers price this differently with
-different TTLs. It must live in a provider profile — the same structure that
-already carries feature support — never a constant in Go.
+**The break-even is per-provider, and the sign flips.** It depends entirely on
+the ratio between write penalty and read discount, and providers price this
+differently with different TTLs. It must live in a provider profile — the same
+structure that already carries feature support — never a constant in Go.
+
+This is no longer a prediction. Executed simulations in the Evidence-First
+Context Compiler report measured a periodic epoch policy at **−11.66%** against
+projected append at a 0.10 cached-read multiplier, and **+2.6%** — a loss — at
+0.025. Same policy, same traces, opposite conclusion. A hard-coded rebuild
+schedule is therefore a correctness risk rather than a tuning risk. The
+report's own twelve-decision schedule is explicitly arbitrary and must not be
+copied. See `Docs/research/2026-09-09-report-vs-shipped.md`.
+
+That work also measured the cost of churn directly: an every-step reordering
+policy cost **61.5% more** than projected append, and the cheaper epoch policy
+had a *lower* cache fraction than the more expensive one (91.1% vs 96.0%).
+More cache hits was not the cheaper plan.
 
 **Cache cost is not additive.** Think of the request as a train: appending cars
 is nearly free, but inserting one in the middle re-couples everything behind it.
@@ -185,6 +208,12 @@ strong model has been found to beat multi-model mixtures, and multi-agent
 benefits vary sharply by workload — with sequential planning deteriorating.
 Coding is substantially sequential. So: lanes for the decomposable minority, one
 strong loop for the sequential majority, and the router's **default is one lane**.
+
+The executed simulations sharpen this considerably. Against a *lean* single agent
+with equivalent result memoization, sparse lanes produced mean paired changes
+from **−8.06% to +0.37%** across four synthetic workloads — a range that includes
+being worse. Always invoking all three lanes was "much more expensive". That is a
+weak case, and it makes Gate A load-bearing rather than merely prudent.
 
 Before building any of it, answer the question the idea set never asks: codeNERD
 already has subagents, a spawner, and campaign orchestration. **Why did the
