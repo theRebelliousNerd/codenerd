@@ -44,19 +44,22 @@ type HolographicContext struct {
 	SystemPurpose string `json:"system_purpose"` // High-level purpose deduced from patterns
 
 	// Dependency Context (import/export relationships)
+	//
+	// DirectImporters is the one dimension here a model cannot get by reading
+	// the file: which other files in the workspace depend on this package. It
+	// comes from the world model's dependency_link facts, so it is only
+	// populated when a kernel is attached and a scan has run.
 	DirectImports   []ImportInfo `json:"direct_imports"`   // What this file imports
 	DirectImporters []string     `json:"direct_importers"` // Files that import this package
 	ExternalDeps    []string     `json:"external_deps"`    // Third-party dependencies
 
 	// Semantic Relationships (from knowledge graph)
-	RelatedEntities []RelatedEntity `json:"related_entities"` // Semantically related code
-	CallGraph       []CallEdge      `json:"call_graph"`       // Who calls what
+	CallGraph []CallEdge `json:"call_graph"` // Who calls what
 
 	// Code Quality Signals
-	TestCoverage    float64  `json:"test_coverage"`    // If known from facts
-	HasTests        bool     `json:"has_tests"`        // Does a _test.go file exist?
-	TODOCount       int      `json:"todo_count"`       // Number of TODO/FIXME comments
-	ComplexityHints []string `json:"complexity_hints"` // High complexity warnings
+	TestCoverage float64 `json:"test_coverage"` // If known from facts
+	HasTests     bool    `json:"has_tests"`     // Does a _test.go file exist?
+	TODOCount    int     `json:"todo_count"`    // Number of TODO/FIXME comments
 
 	// Impact-Aware Priority Context (from Mangle impact analysis)
 	ImpactPriority     int                 `json:"impact_priority"`     // Overall priority from Mangle analysis
@@ -121,13 +124,6 @@ type ConstDefinition struct {
 type ImportInfo struct {
 	Path  string `json:"path"`
 	Alias string `json:"alias,omitempty"`
-}
-
-// RelatedEntity represents a semantically related code entity.
-type RelatedEntity struct {
-	EntityID string `json:"entity_id"`
-	Relation string `json:"relation"` // "calls", "implements", "extends", "uses"
-	File     string `json:"file"`
 }
 
 // CallEdge represents a caller->callee relationship.
@@ -493,6 +489,33 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 		b.WriteString("\n")
 	}
 
+	// Dependents — which files outside this package import it.
+	//
+	// Rendered because it is the one dimension in the context that is invisible
+	// from the file itself, and the first thing worth knowing before changing
+	// an exported symbol. Bounded to a handful plus a count: the question is
+	// "is this load-bearing, and for whom", which six examples answer as well
+	// as fifty.
+	if len(hc.DirectImporters) > 0 {
+		substantive = true
+		b.WriteString("### Imported by\n\n")
+		shown := hc.DirectImporters
+		truncated := 0
+		if len(shown) > maxRenderedImporters {
+			truncated = len(shown) - maxRenderedImporters
+			shown = shown[:maxRenderedImporters]
+		}
+		for _, importer := range shown {
+			b.WriteString("- `")
+			b.WriteString(importer)
+			b.WriteString("`\n")
+		}
+		if truncated > 0 {
+			fmt.Fprintf(&b, "- … and %d more file(s)\n", truncated)
+		}
+		b.WriteString("\n")
+	}
+
 	// Callers — who calls this file (impact-aware if available).
 	const maxCallers = 8
 	if len(hc.PrioritizedCallers) > 0 {
@@ -609,6 +632,12 @@ func (h *HolographicProvider) getContextInternal(ctx context.Context, filePath s
 	// an unordered list of caller names on every turn. Costs one kernel query
 	// and no file I/O — see queryImpactPriorities.
 	h.applyImpactPriorities(ctx, hc)
+
+	// Dependency dimensions. DirectImporters is the reverse edge — who depends
+	// on this package — which is the one thing here a model cannot get by
+	// reading the file.
+	h.applyImportDimensions(hc, filePath)
+	h.applyDirectImporters(hc, filePath)
 
 	// Check for test file existence
 	h.checkTestCoverage(hc, filePath)
