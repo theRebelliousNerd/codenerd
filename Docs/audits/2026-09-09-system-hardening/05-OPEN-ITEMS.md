@@ -132,3 +132,112 @@ replay side now, so it can affect at most one turn.
 **Recommendation.** A configurable cap with a visible CLI warning, so the user
 learns their input was shortened rather than the model quietly working from
 half of it.
+
+## O7 — `tests/e2e`: ten failures, one shared shape
+
+The integration suite had not compiled since `8e9507d`. Once it compiled it did
+not finish: it hung for the full 12-minute package timeout, so the run reported
+three failures and silence — the silence was 30-odd tests that never got to
+run.
+
+### What was actually wrong
+
+Nine tools across three e2e files were registered without `Tool.Effect`:
+
+```go
+tools.Global().Register(&tools.Tool{Name: "race_tool", Execute: ...})
+//                                                     ^ no Effect
+```
+
+`executeToolCall` resolves an effect before it dispatches
+(`internal/session/executor_tools.go:2127`) and refuses the call when none
+resolves — the executive gate will not run what it cannot classify. That is
+correct and deliberately fail-closed. The problem is how quietly it fails:
+`Register` validated `Name` and `Execute` and never `Effect`, so the tool
+registered, was catalogued, was offered to the model, cleared the JIT
+allowlist, and then every invocation returned an error from a call site two
+thousand lines away while the `Execute` closure was never entered.
+
+The visible symptom is a nil error, a plausible response, `ToolCallsExecuted`
+counting the attempt, and only `SuccessfulToolCalls` staying at zero. The tests
+asserted on counters their tool bodies incremented, saw `0`, and reported
+`"Race corruption: Expected 50 executions, got 0"` and `"OOM limit bypassed or
+execution dropped"` — confident, specific, plausible diagnoses of a bug that
+did not exist. `TestE2E_TemporalFailure_GoroutineLeakPrevention` blocked on an
+unbuffered channel that its tool body was supposed to close, which is what
+timed out the package and hid everything after it.
+
+**This corrects `5837328`.** That commit's message attributed the failures to
+`buildToolDefinitions` producing nothing against the executor's config
+contract. That was wrong. Tool definitions were built correctly; the refusal
+happened later, at the effect lookup. The evidence is a one-field diff:
+adding `Effect: tools.EffectRead` moved a probe from
+`SuccessfulToolCalls:0, called=0` to `SuccessfulToolCalls:1, called=1` with
+nothing else changed.
+
+### Fixed in this pass
+
+- `Effect` declared at all nine registration sites, plus the eight in
+  `internal/tools`' own tests.
+- `Registry.Register` now rejects a tool whose effect does not resolve, so the
+  author finds out at the registration site instead of at dispatch.
+  `DeclaredEffect`, not `tool.Effect`: built-ins take their effect from the
+  reviewed `BuiltinEffect` manifest by name and set no field.
+- `TestEffects_WhenToolRegistered_ShouldDeclareAResolvableEffect` asserts the
+  property for every tool the production registrars install (45 today, all
+  clean — this was only ever a test-scaffolding defect), with a non-vacuity
+  floor so it cannot silently become a check over an empty set.
+- The unguarded `<-started` receive is now bounded, so a future regression
+  fails in five seconds naming the cause instead of timing out the package.
+
+Result: the suite completes in **160s** instead of hanging at 720s, and the
+failure list is visible and precise.
+
+### Still failing — 10 tests, all fixture staleness from `8e9507d`
+
+`8e9507d` added `checkHollowSuccess`: a write-oriented intent that finishes
+with no successful write-mutation tool call is refused. The guard is right.
+These fixtures predate it and drive write verbs against mocks that call
+nothing.
+
+| Test(s) | File | Error |
+|---|---|---|
+| 7 × `TestE2E_OrchestratorExecutor_*` | `orchestrator_executor_race_integration_test.go` | `hollow success blocked: intent /fix (or /research) requires side effects but no tool calls completed successfully (attempted=0)` |
+| `TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary` | `piggyback_executor_full_boundary_test.go:312` | `write-oriented intent /fix completed without a recognized write-mutation tool (tool_calls=2)` |
+| `TestE2E_SessionKernelVStore_State_ExecutorIndependence` | `session_kernel_vstore_integration_test.go:912` | `Expected 100 facts, got 0` |
+| `TestE2E_Session_VirtualStore_Unavailable_AgentGracefulFail` | `session_spawner_config_integration_test.go:414` | expected an error loading a non-existent specialist; also panics on a nil `spawnerMockKernel` receiver via `executor.go:871` |
+
+Note the piggyback one now reads `tool_calls=2`, not `attempted=0`: the effect
+fix let its tools actually run, and it advanced to a *different*, real guard.
+
+**Why not fixed here — and why the obvious fix is wrong.** The sibling file's
+tests took a one-line verb change (`/fix` → `/explain`) because the verb there
+was incidental to piggyback and race mechanics. That does **not** transfer.
+In `orchestrator_executor_race_integration_test.go` the verb *is* the mechanism
+under test: `"/fix" is treated as inline` (line 186) and `Use "/research" to
+force Subagent isolation` (line 236). Swapping the verb would change which
+execution path each test exercises while turning the bar green — the precise
+failure this audit exists to find.
+
+The honest fix is a fixture that completes a real write turn: a
+`write_file`-named stub (so `projectdoc.IsWriteMutationTool` recognises it and
+`BuiltinEffect` resolves `EffectWrite`), in `AllowedTools`, returned as a tool
+call by the mock LLM. The obstacle is that a non-`EffectRead` tool requires
+`interactiveGate()` — satisfied only by a `VirtualStore` implementing
+`InteractiveExecutiveGate` — and then the write guards and `pending_edit`
+lifecycle behind it. That is write-path test infrastructure with its own design
+decisions, not a fixture tweak, and it is the same infrastructure all four rows
+above need.
+
+**Recommendation.** Build that shared write-turn fixture once, in
+`internal/testutil` where the other e2e files can reach it, then convert all
+four rows to it. Add the `-tags integration` CI job only after the suite is
+green: a job that fails on its first run is worse than no job, because it
+teaches everyone to ignore it.
+
+### Related: O5 is only half-closed
+
+The `Formatting` CI gate added in this pass covers `internal` and `cmd`.
+`gofmt -l tests` still reports **13** unformatted files. Left out so this diff
+stays reviewable; widening the gate to `tests` should be its own mechanical
+commit, exactly as O5 recommends for the original 55.

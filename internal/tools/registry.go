@@ -132,6 +132,27 @@ func (r *Registry) Register(tool *Tool) error {
 		return fmt.Errorf("invalid tool: %w", err)
 	}
 
+	// Registered must imply runnable.
+	//
+	// executeToolCall resolves an effect before it dispatches and refuses the
+	// call when none resolves, because the executive gate will not run what it
+	// cannot classify. Without this check the two halves disagree silently: the
+	// tool registers, appears in the catalog, is offered to the model and
+	// cleared by the JIT allowlist, and then every invocation returns an error
+	// from a call site far away while the Execute closure is never entered. The
+	// symptom is a nil error, a plausible response, and a side effect that
+	// simply never happened — which reads as a dropped execution or a race, and
+	// gets diagnosed as one.
+	//
+	// DeclaredEffect, not tool.Effect: built-in tools take their effect from the
+	// reviewed BuiltinEffect manifest by name and set no field. Generated and
+	// plugin tools have always been required to supply Tool.Effect themselves;
+	// effects.go said so and nothing enforced it. This is that sentence, given
+	// teeth, at the boundary where the author can still act on it.
+	if _, err := tool.DeclaredEffect(); err != nil {
+		return fmt.Errorf("invalid tool: %w (set Tool.Effect, or add %q to BuiltinEffect in effects.go if it is a reviewed built-in)", err, tool.Name)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

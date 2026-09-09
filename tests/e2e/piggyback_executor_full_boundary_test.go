@@ -237,6 +237,7 @@ func TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary(t *testing.T)
 	if !registry.Has("e2e_safe_tool") {
 		safeTool := &tools.Tool{
 			Name:        "e2e_safe_tool",
+			Effect:      tools.EffectRead,
 			Description: "E2E test safe tool — increments counter and records args",
 			Category:    tools.CategoryGeneral,
 			Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -260,6 +261,7 @@ func TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary(t *testing.T)
 	if !registry.Has("e2e_forbidden_tool") {
 		forbiddenTool := &tools.Tool{
 			Name:        "e2e_forbidden_tool",
+			Effect:      tools.EffectRead,
 			Description: "E2E test forbidden tool — must NEVER execute",
 			Category:    tools.CategoryGeneral,
 			Execute: func(ctx context.Context, args map[string]any) (string, error) {

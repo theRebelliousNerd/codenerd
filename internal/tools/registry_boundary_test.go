@@ -88,9 +88,9 @@ func TestRegistry_ExecuteNilContext(t *testing.T) {
 func TestRegistry_FilterByIntent_Empty(t *testing.T) {
 	reg := NewRegistry()
 	tools := []*Tool{
-		{Name: "a", Category: CategoryResearch, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
-		{Name: "b", Category: CategoryCode, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
-		{Name: "c", Category: CategoryTest, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "a", Category: CategoryResearch, Effect: EffectRead, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "b", Category: CategoryCode, Effect: EffectRead, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "c", Category: CategoryTest, Effect: EffectRead, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
 	}
 	for _, tool := range tools {
 		reg.MustRegister(tool)
@@ -155,9 +155,9 @@ func TestRegistry_Execute_TypeMismatch(t *testing.T) {
 func TestRegistry_PrioritySorting_Extremes(t *testing.T) {
 	reg := NewRegistry()
 	tools := []*Tool{
-		{Name: "min", Category: CategoryCode, Priority: math.MinInt, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
-		{Name: "max", Category: CategoryCode, Priority: math.MaxInt, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
-		{Name: "mid", Category: CategoryCode, Priority: 50, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "min", Effect: EffectRead, Category: CategoryCode, Priority: math.MinInt, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "max", Effect: EffectRead, Category: CategoryCode, Priority: math.MaxInt, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "mid", Effect: EffectRead, Category: CategoryCode, Priority: 50, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
 	}
 	for _, tool := range tools {
 		reg.MustRegister(tool)

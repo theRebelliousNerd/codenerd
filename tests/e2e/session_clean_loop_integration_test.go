@@ -173,13 +173,15 @@ func setupExecutor(t *testing.T, tr *sclMockTransducer, jc *sclMockJITCompiler, 
 	t.Helper()
 
 	tools.Global().Register(&tools.Tool{
-		Name: "dummy_tool",
+		Name:   "dummy_tool",
+		Effect: tools.EffectRead,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			return "dummy result", nil
 		},
 	})
 	tools.Global().Register(&tools.Tool{
-		Name: "hanging_tool",
+		Name:   "hanging_tool",
+		Effect: tools.EffectRead,
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			<-ctx.Done()
 			return "", ctx.Err()
