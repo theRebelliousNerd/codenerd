@@ -983,4 +983,11 @@ func TrackFromContext(ctx context.Context, model, provider string, input, output
 	if t := FromContext(ctx); t != nil {
 		t.Track(ctx, model, provider, input, output, operation)
 	}
+	// Deliver the same report to an in-flight observer, if one is installed.
+	// This is what lets the broker learn the provider's actual token counts for
+	// a single request; see internal/usage/observer.go for why it lives here
+	// rather than in each provider client.
+	if obs := ObserverFromContext(ctx); obs != nil {
+		obs.Observed(model, provider, input, output, operation)
+	}
 }

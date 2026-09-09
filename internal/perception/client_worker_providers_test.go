@@ -1,6 +1,7 @@
 package perception
 
 import (
+	"codenerd/internal/broker"
 	"strings"
 	"testing"
 
@@ -86,9 +87,9 @@ func TestNewWorkerClientFromUserConfig_EndpointOverridesBaseURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorkerClientFromUserConfig: %v", err)
 	}
-	compat, ok := client.(*OpenAICompatClient)
+	compat, ok := broker.Base(client).(*OpenAICompatClient)
 	if !ok {
-		t.Fatalf("expected *OpenAICompatClient, got %T", client)
+		t.Fatalf("expected *OpenAICompatClient, got %T", broker.Base(client))
 	}
 	if compat.baseURL != "https://proxy.internal/v1" {
 		t.Errorf("baseURL = %q, want the worker endpoint override", compat.baseURL)

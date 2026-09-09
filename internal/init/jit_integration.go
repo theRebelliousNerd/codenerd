@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
@@ -442,8 +443,11 @@ func BuildInitCompilationContext(phase, task string, profile *ProjectProfile) *p
 		}
 	}
 
-	// Set token budget (init prompts can be larger)
-	cc.TokenBudget = 120000
+	// Init prompts can be larger than a turn prompt: scanning and profiling
+	// carry more instruction. Taken as a share of the enforced window rather
+	// than the flat 120000 that used to sit here, which was larger than some
+	// configured windows and a fraction of others.
+	cc.TokenBudget = broker.Default().PromptBudget(0.75, 120000)
 	cc.ReservedTokens = 10000
 
 	// Use task as semantic query for vector search

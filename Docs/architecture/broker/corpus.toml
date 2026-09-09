@@ -1,0 +1,7 @@
+schema_version = 1
+id = "broker"
+kind = "realized"
+source_roots = ["internal/broker"]
+entrypoint = "README.md"
+implemented_spec = "IMPLEMENTED_SPEC.md"
+verified_on = "2026-09-09"

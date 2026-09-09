@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
@@ -40,7 +41,11 @@ func (sc *SemanticCompressor) Compress(ctx context.Context, turns []perception.C
 		10*1024*1024)
 	sb.Grow(estimatedSize)
 
-	const maxTokens = 64000 // approx chars limit
+	// This cap used to be `const maxTokens = 64000 // approx chars limit` — a
+	// number that named tokens, measured characters, was known to no other part
+	// of the system, and was chosen by nobody still available to ask. It now
+	// derives from the one ledger, converted through the one learned ratio.
+	maxChars := summarizationCharAllowance()
 	totalChars := 0
 
 	for _, turn := range turns {
@@ -70,7 +75,7 @@ func (sc *SemanticCompressor) Compress(ctx context.Context, turns []perception.C
 
 		line := fmt.Sprintf("<turn role=\"%s\">\n%s\n</turn>\n", role, content)
 
-		if totalChars+len(line) > maxTokens {
+		if totalChars+len(line) > maxChars {
 			sb.WriteString("\n[... CONVERSATION TRUNCATED DUE TO LENGTH ...]\n")
 			break
 		}
@@ -102,3 +107,47 @@ Please provide only the summary text without any surrounding formatting.`, sb.St
 
 	return strings.TrimSpace(summary), nil
 }
+
+// summarizationCharAllowance is how much prior-turn text may be fed to a
+// compression call, in characters.
+//
+// Compression is itself an inference call and is charged to the same window as
+// everything else. Half the available window is given to the input so the
+// instructions and the summary it produces both have room; the result is
+// converted from tokens to characters through the broker's learned ratio rather
+// than a constant, so it tracks the actual tokenizer of the actual model.
+func summarizationCharAllowance() int {
+	available := broker.Default().Ledger().Available()
+	if available <= 0 {
+		// No configured window. Fall back to a bounded default rather than an
+		// unbounded read: an unbounded compression input is how a summarization
+		// call becomes more expensive than the history it was meant to shrink.
+		return fallbackSummarizationChars
+	}
+
+	ratio := broker.Default().TextCounter("").Ratio()
+	if ratio <= 0 {
+		ratio = broker.DefaultSeedRatio
+	}
+
+	chars := int(float64(available/2) * ratio)
+	if chars < minSummarizationChars {
+		return minSummarizationChars
+	}
+	if chars > maxSummarizationChars {
+		return maxSummarizationChars
+	}
+	return chars
+}
+
+const (
+	// fallbackSummarizationChars applies before a window is configured.
+	fallbackSummarizationChars = 64000
+	// minSummarizationChars keeps compression useful on a very small window: a
+	// summary built from two turns is not worth the call that produced it.
+	minSummarizationChars = 8000
+	// maxSummarizationChars bounds a single compression call on a very large
+	// window, where feeding the whole thing in costs more than the compression
+	// saves.
+	maxSummarizationChars = 400000
+)

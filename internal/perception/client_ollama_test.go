@@ -1,6 +1,7 @@
 package perception
 
 import (
+	"codenerd/internal/broker"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -77,9 +78,9 @@ func TestNewClientFromConfig_Ollama(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientFromConfig ollama: %v", err)
 	}
-	oc, ok := client.(*OllamaClient)
+	oc, ok := broker.Base(client).(*OllamaClient)
 	if !ok {
-		t.Fatalf("type=%T want *OllamaClient", client)
+		t.Fatalf("type=%T want *OllamaClient", broker.Base(client))
 	}
 	if oc.GetModel() != "gemma4:12b" {
 		t.Fatalf("model=%q", oc.GetModel())
@@ -103,9 +104,9 @@ func TestNewWorkerClientFromUserConfig_Ollama(t *testing.T) {
 	if client == nil {
 		t.Fatal("expected non-nil worker client")
 	}
-	oc, ok := client.(*OllamaClient)
+	oc, ok := broker.Base(client).(*OllamaClient)
 	if !ok {
-		t.Fatalf("type=%T", client)
+		t.Fatalf("type=%T", broker.Base(client))
 	}
 	if oc.GetModel() != "gemma4:12b" {
 		t.Fatalf("model=%q", oc.GetModel())
@@ -144,12 +145,12 @@ func TestNewImageClientFromUserConfig_NeverOllama(t *testing.T) {
 	if client == nil {
 		t.Fatal("expected non-nil image client")
 	}
-	if _, ok := client.(*OllamaClient); ok {
+	if _, ok := broker.Base(client).(*OllamaClient); ok {
 		t.Fatal("image client must never be Ollama")
 	}
-	gc, ok := client.(*GeminiClient)
+	gc, ok := broker.Base(client).(*GeminiClient)
 	if !ok {
-		t.Fatalf("want *GeminiClient, got %T", client)
+		t.Fatalf("want *GeminiClient, got %T", broker.Base(client))
 	}
 	if gc.GetModel() != config.DefaultImageModel {
 		t.Fatalf("model=%q want %q", gc.GetModel(), config.DefaultImageModel)

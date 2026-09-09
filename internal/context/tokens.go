@@ -2,74 +2,50 @@ package context
 
 import (
 	"fmt"
+	"strings"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
-	"strings"
-	"unicode/utf8"
 )
 
 // =============================================================================
-// Token Counting Utilities
+// Token Counting
 // =============================================================================
-// These utilities provide token estimation for context budget management.
-// The heuristic is calibrated for Claude's tokenizer (~4 characters per token).
-
-// TokenEstimator turns text into a token count. The default implementation is
-// the chars-per-token heuristic below; a provider-aligned adapter (a real BPE
-// tokenizer for the active model) can be substituted without touching any of
-// the budgeting call sites, which all funnel through CountString.
+// Counting is delegated to the process broker, which owns the only
+// chars-per-token ratio in the system and corrects it against every provider
+// response.
 //
-// Implementations must be safe for concurrent use: a single TokenCounter is
-// shared across the compressor, the activation engine's budget selection, and
-// the context block builder.
-type TokenEstimator interface {
-	// EstimateTokens returns the token count for s. It must never panic; a
-	// tokenizer that cannot handle the input should fall back to an estimate.
-	EstimateTokens(s string) int
-}
+// What used to be here was a private charsPerToken = 4.0 and a TokenEstimator
+// seam documented as the place to plug a real tokenizer. Nothing ever plugged
+// one in, so every compression threshold, every reserve, and every
+// IsCompressionActive decision was denominated in a unit roughly 20% wrong on
+// prose and worse on code — while the provider's exact figure was already
+// arriving on every response and reaching nothing but the cost display.
 
-// TokenCounter provides token counting functionality.
+// TokenCounter counts tokens for facts, turns, and compressed context blocks.
+//
+// The structural arithmetic (what a fact costs beyond its text, what a turn
+// costs beyond its atoms) stays here because it is specific to this package's
+// data shapes. Only the text-to-token conversion moved, and it moved to the one
+// place that learns.
+//
+// Safe for concurrent use: a single TokenCounter is shared across the
+// compressor, the activation engine's budget selection, and the context block
+// builder.
 type TokenCounter struct {
-	// Calibration factor (characters per token), used when estimator is nil.
-	charsPerToken float64
-
-	// estimator, when set, replaces the heuristic. Set once at construction
-	// time via NewTokenCounterWithEstimator; never mutated afterwards, so no
-	// lock is needed on the read path.
-	estimator TokenEstimator
+	estimator *broker.TextCounter
 }
 
-// NewTokenCounter creates a new token counter with default calibration.
+// NewTokenCounter returns a counter bound to the meter's primary model.
 func NewTokenCounter() *TokenCounter {
-	return &TokenCounter{
-		charsPerToken: 4.0, // Claude's approximate ratio
-	}
+	return &TokenCounter{estimator: broker.Default().TextCounter("")}
 }
 
-// NewTokenCounterWithEstimator creates a counter backed by a provider-aligned
-// tokenizer. Fact/turn structure overheads still come from the heuristic model
-// — the estimator only replaces raw string counting, which is where the
-// heuristic's error actually lives. A nil estimator yields the default counter.
-func NewTokenCounterWithEstimator(est TokenEstimator) *TokenCounter {
-	tc := NewTokenCounter()
-	tc.estimator = est
-	return tc
-}
-
-// CharsPerTokenEstimator is the default heuristic exposed as a TokenEstimator so
-// adapters can wrap or compare against it.
-type CharsPerTokenEstimator struct {
-	CharsPerToken float64
-}
-
-// EstimateTokens implements TokenEstimator.
-func (e CharsPerTokenEstimator) EstimateTokens(s string) int {
-	ratio := e.CharsPerToken
-	if ratio <= 0 {
-		ratio = 4.0
-	}
-	return int(float64(utf8.RuneCountInString(s)) / ratio)
+// NewTokenCounterForModel returns a counter bound to a specific model, for
+// callers sizing content destined for something other than the main model.
+func NewTokenCounterForModel(model string) *TokenCounter {
+	return &TokenCounter{estimator: broker.Default().TextCounter(model)}
 }
 
 // CountString estimates tokens in a string.
@@ -77,13 +53,18 @@ func (tc *TokenCounter) CountString(s string) int {
 	if s == "" {
 		return 0
 	}
-	if tc.estimator != nil {
-		return tc.estimator.EstimateTokens(s)
-	}
-	// Use rune count for proper unicode handling
-	runeCount := utf8.RuneCountInString(s)
-	return int(float64(runeCount) / tc.charsPerToken)
+	return tc.estimator.EstimateTokens(s)
 }
+
+// Confidence reports whether the counts this counter produces are backed by
+// observed provider actuals yet. Surfaced so a status display can distinguish
+// a measured budget from a seeded guess instead of presenting both as fact.
+func (tc *TokenCounter) Confidence() broker.Confidence {
+	return tc.estimator.Confidence()
+}
+
+// Ratio exposes the learned chars-per-token ratio, for diagnostics.
+func (tc *TokenCounter) Ratio() float64 { return tc.estimator.Ratio() }
 
 // CountFact estimates tokens for a single fact.
 func (tc *TokenCounter) CountFact(f core.Fact) int {
@@ -95,8 +76,10 @@ func (tc *TokenCounter) CountFact(f core.Fact) int {
 		switch v := arg.(type) {
 		case string:
 			if strings.HasPrefix(v, "/") {
-				// Name constant - relatively short
-				tokens += 1 + len(v)/4
+				// Name constant: no surrounding quotes on the wire, but still
+				// real text. It used to get its own len(v)/4, a second hardcoded
+				// ruler inside the fact accounting.
+				tokens += 1 + tc.CountString(v)
 			} else {
 				// String value - full counting
 				tokens += tc.CountString(v) + 2 // +2 for quotes

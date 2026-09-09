@@ -254,7 +254,7 @@ func NewClientFromEnv() (LLMClient, error) {
 //
 // When nil is returned, no error is set — the caller should treat nil as
 // "use main client" and not fail.
-func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
+func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 	if cfg == nil {
 		return nil, nil
 	}
@@ -442,7 +442,7 @@ func resolveXAIAPIKey(pc *ProviderConfig) string {
 
 // NewClientFromConfig creates an LLM client from a provider config.
 // Subscription engines (claude-cli, codex-cli, xai-oauth) take precedence over API providers.
-func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
+func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 	if config == nil {
 		return nil, fmt.Errorf("provider config is nil")
 	}
@@ -668,5 +668,50 @@ func NewImageClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error)
 		gcfg.Model = config.DefaultImageModel
 	}
 	logging.Perception("Image LLM: gemini model=%s (Nano Banana 2 family)", gcfg.Model)
-	return NewGeminiClientWithConfig(gcfg), nil
+	// Image generation is inference and is billed like any other. This path
+	// built its Gemini client directly and so spent entirely off the books
+	// until the wiring audit caught it.
+	return InstallBroker(NewGeminiClientWithConfig(gcfg), &ProviderConfig{
+		Provider: ProviderGemini,
+		Model:    gcfg.Model,
+		APIKey:   key,
+	})
+}
+
+// NewClientFromConfig creates an LLM client from a provider config, with
+// metering installed.
+//
+// The raw construction happens in newRawClientFromConfig; this is the only
+// exported way to obtain a client, and it always meters. Splitting it this way
+// means a new provider case added below is metered automatically rather than
+// depending on whoever adds it remembering to wrap.
+func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
+	client, err := newRawClientFromConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	return InstallBroker(client, config)
+}
+
+// NewClassificationClientFromConfig creates the cheap classification-tier
+// client, with metering installed.
+//
+// Classification runs on the critical path of every turn, so its spend is
+// exactly the kind that used to vanish: small per call, large in aggregate, and
+// invisible because nothing counted it.
+func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
+	client, err := newRawClassificationClientFromConfig(cfg)
+	if err != nil || client == nil {
+		return client, err
+	}
+
+	// The classification tier may run a different model from the main client.
+	// Metering it under the main model would attribute its tokens to the wrong
+	// account and, worse, feed the shared calibrator observations from one
+	// model's tokenizer labelled as another's.
+	metered := *cfg
+	if cfg.ClassificationModel != "" {
+		metered.Model = cfg.ClassificationModel
+	}
+	return InstallBroker(client, &metered)
 }

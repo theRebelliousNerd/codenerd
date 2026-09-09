@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/campaign"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -36,7 +37,11 @@ func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 	// Engine hinting for JIT prompt selection:
 	// When Codex CLI is the active LLM backend, tag it as a "framework" so we can
 	// select engine-specific atoms (e.g., disable native shell tools, prefer Piggyback).
-	if _, ok := m.client.(*perception.CodexCLIClient); ok {
+	// Reach through the metering decorator before asserting on the concrete
+	// engine type. The broker wraps every client at construction, so a bare
+	// assertion here would stop matching and the codex_cli framework tag would
+	// silently disappear from JIT atom selection.
+	if _, ok := broker.Base(m.client).(*perception.CodexCLIClient); ok {
 		if existing := strings.TrimSpace(sessionCtx.ExtraContext["frameworks"]); existing != "" {
 			sessionCtx.ExtraContext["frameworks"] = existing + ",codex_cli"
 		} else {
