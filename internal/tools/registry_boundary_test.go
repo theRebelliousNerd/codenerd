@@ -62,6 +62,7 @@ func TestRegistry_ExecuteNilContext(t *testing.T) {
 	}()
 
 	//nolint:staticcheck // intentionally passing nil to verify guard
+	//lint:ignore SA1012 this test exists to prove the callee rejects a nil Context; passing context.Background() would make it assert nothing.
 	result, err := reg.Execute(nil, "ctx_probe", map[string]any{})
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
@@ -75,6 +76,7 @@ func TestRegistry_ExecuteNilContext(t *testing.T) {
 
 	// And again via ExecuteTool directly.
 	//nolint:staticcheck // intentionally passing nil
+	//lint:ignore SA1012 this test exists to prove the callee rejects a nil Context; passing context.Background() would make it assert nothing.
 	if _, err := reg.ExecuteTool(nil, tool, map[string]any{}); err != nil {
 		t.Errorf("ExecuteTool with nil ctx returned error: %v", err)
 	}

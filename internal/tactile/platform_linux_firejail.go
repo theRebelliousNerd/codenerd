@@ -4,6 +4,7 @@ package tactile
 
 import (
 	"bytes"
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"os/exec"
@@ -281,7 +282,11 @@ func (e *FirejailExecutor) buildFirejailArgs(cmd Command) []string {
 
 	// Tmpfs for /tmp
 	if sandbox.TmpfsSize != "" {
-		// Firejail doesn't support tmpfs size directly, but private-tmp gives a tmpfs
+		// Firejail has no tmpfs-size flag; --private-tmp gives a tmpfs of the
+		// system default. Saying so matters: the operator configured a size and
+		// it has no effect, which previously produced no output at all.
+		logging.TactileWarn("firejail: tmpfs_size=%q is not supported by this backend; "+
+			"--private-tmp provides a tmpfs at the system default size", sandbox.TmpfsSize)
 	}
 
 	// Resource limits via rlimit

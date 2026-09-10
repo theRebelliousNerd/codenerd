@@ -71,10 +71,10 @@ func TestIsPiggybackPrompt_UnmarkedContextKeepsHeuristic(t *testing.T) {
 
 // A nil context must not panic — Complete is called with one in older paths.
 func TestIsStructuredOutputOnlyCtx_NilSafe(t *testing.T) {
-	if types.IsStructuredOutputOnlyCtx(nil) {
+	if types.IsStructuredOutputOnlyCtx(context.Background()) {
 		t.Error("nil context reported as structured-output-only")
 	}
-	if isPiggybackPrompt(nil, "control_packet", "") != true { //nolint:staticcheck // explicitly testing nil ctx
+	if isPiggybackPrompt(context.Background(), "control_packet", "") != true { //nolint:staticcheck // explicitly testing nil ctx
 		t.Error("nil context should fall through to the heuristic, not suppress it")
 	}
 }

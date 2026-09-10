@@ -139,7 +139,7 @@ func TestLive_Meta_ReasoningEffortTiers(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			defer cancel()
 
-			ctx = context.WithValue(ctx, types.CtxKeyModelCapability, capability)
+			ctx = types.WithModelCapability(ctx, capability)
 			got, err := c.CompleteWithSystem(ctx, "Answer with one word.", "What is 2+2?")
 			if err != nil {
 				t.Fatalf("capability %s rejected by vendor: %v", capability, err)

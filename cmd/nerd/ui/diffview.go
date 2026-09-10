@@ -1003,6 +1003,6 @@ func (d *DiffApprovalView) renderSideBySideHunkLines(lines []DiffLine) string {
 // renderEmptyDiffLine renders an empty line for side-by-side padding
 func (d *DiffApprovalView) renderEmptyDiffLine() string {
 	// Use lipgloss to ensure exact width padding
-	style := d.Styles.Text.Body.Copy().Width(d.Viewport.Width)
+	style := d.Styles.Text.Body.Width(d.Viewport.Width)
 	return style.Render("")
 }

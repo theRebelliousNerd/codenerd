@@ -263,7 +263,7 @@ func (m JITPageModel) View() string {
 	listPaneWidth := int(float64(totalWidth) * 0.35)
 	viewPaneWidth := totalWidth - listPaneWidth
 
-	baseStyle := m.styles.Layout.Content.Copy().
+	baseStyle := m.styles.Layout.Content.
 		Padding(0, 1).
 		Border(lipgloss.RoundedBorder())
 

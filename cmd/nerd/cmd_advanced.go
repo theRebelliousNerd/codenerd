@@ -264,8 +264,6 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 			m := loadDreamAgentMeta(wsRoot, shards[shardIdx].Name)
 			selectedScores[shardIdx] = dreamRelevanceScore(scenario, m)
 		}
-	} else {
-		// No ranking needed (no consultable agents).
 	}
 	// Announce the count actually consulted, not the raw registry size. It
 	// said "Consulting 22 agents" while consulting 9, so the error tally never

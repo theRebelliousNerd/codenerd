@@ -27,9 +27,10 @@ the work they gate begins.
 
 ## Next — Phase 1, observation codecs
 
-- **Tail-aware test-output codec.** `ClampText`/`ClampHead` truncate from the
-  front; Go test output puts the decisive failure at the end. This is a live
-  defect.
+- ~~Tail-aware test-output codec~~ — **withdrawn.** The claim behind it was
+  wrong: `ClampText` was already head+tail. The genuine narrower defect
+  (byte-offset cuts landing mid-line) is fixed on this branch. A structural
+  test-output codec is still worth building, but as structure, not as rescue.
 - Code-search codec: symbols and dependency edges, not matching lines.
 - File-read codec: exact source around the edit plus a precondition hash.
 - Subagent-return codec: findings, evidence refs, changed artifacts, verification

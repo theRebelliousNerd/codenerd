@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -930,7 +931,7 @@ func TestSessionManager_Shutdown_WhenNotStarted_ShouldNotPanic(t *testing.T) {
 	sm := NewSessionManagerWithSink(cfg, nil)
 
 	// Should not panic, browser is nil
-	err := sm.Shutdown(nil)
+	err := sm.Shutdown(context.Background())
 	if err != nil {
 		t.Errorf("Expected nil error shutting down unstarted manager, got %v", err)
 	}
@@ -950,7 +951,7 @@ func TestSessionManager_Shutdown_WhenSessionsExist_ShouldClearSessions(t *testin
 		page: nil,
 	}
 
-	err := sm.Shutdown(nil)
+	err := sm.Shutdown(context.Background())
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -1097,6 +1098,6 @@ func TestSessionManager_StartEventStream_WhenNilEngine_ShouldNotPanic(t *testing
 
 	// startEventStream should return early without panic when engine is nil
 	// We can't directly call it with a nil page, but the nil engine guard is the first check
-	sm.startEventStream(nil, "test-session", nil)
+	sm.startEventStream(context.Background(), "test-session", nil)
 	// If we reach here without panic, the nil guard works
 }

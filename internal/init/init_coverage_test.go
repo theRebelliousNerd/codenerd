@@ -1,6 +1,7 @@
 package init
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -1247,7 +1248,7 @@ func TestExtractGoModVersion_WhenEmptyContent_ShouldReturnEmpty(t *testing.T) {
 
 func TestGetContext7AgentSuggestions_WhenNoDeps_ShouldReturnEmpty(t *testing.T) {
 	profile := ProjectProfile{}
-	suggestions, err := GetContext7AgentSuggestions(nil, profile)
+	suggestions, err := GetContext7AgentSuggestions(context.Background(), profile)
 	require.NoError(t, err)
 	assert.Empty(t, suggestions)
 }
@@ -1259,7 +1260,7 @@ func TestGetContext7AgentSuggestions_WhenKnownDeps_ShouldSuggest(t *testing.T) {
 			{Name: "kubernetes", Type: "direct"},
 		},
 	}
-	suggestions, err := GetContext7AgentSuggestions(nil, profile)
+	suggestions, err := GetContext7AgentSuggestions(context.Background(), profile)
 	require.NoError(t, err)
 
 	names := make(map[string]bool)

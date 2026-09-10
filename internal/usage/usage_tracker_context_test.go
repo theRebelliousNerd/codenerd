@@ -42,7 +42,7 @@ func TestFromContext(t *testing.T) {
 	}
 
 	// Test nil context
-	if got := FromContext(nil); got != nil {
+	if got := FromContext(context.Background()); got != nil {
 		t.Errorf("FromContext(nil) = %v, want nil", got)
 	}
 

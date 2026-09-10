@@ -24,7 +24,9 @@ func TestDreamerGap_NilContext(t *testing.T) {
 		Target: "test.go",
 	}
 
-	// SimulateAction upgrades nil context to context.Background()
+	//lint:ignore SA1012 this test exists to prove the callee rejects a nil Context; passing context.Background() would make it assert nothing.
+	// SimulateAction upgrades nil context to nil
+	//lint:ignore SA1012 this test exists to prove the callee rejects a nil Context; passing context.Background() would make it assert nothing.
 	result := d.SimulateAction(nil, req)
 	if result.ActionID == "" {
 		t.Error("Expected ActionID to be set even with nil context")

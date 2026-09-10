@@ -151,11 +151,29 @@ and invisible to any accounting done upstream of that line. The broker counts at
 the outbound boundary specifically so that appends like this are charged rather
 than missed.
 
-## Head-truncation loses the decisive evidence
+## Truncation was already tail-aware — a correction
 
-`prompt.ClampText` / `ClampHead` truncate from the front. A Go test log whose
-decisive failure is at the bottom is decapitated, and the model then reasons
-confidently from the surviving top half. This is a live defect, not a
-hypothetical; it is recorded in [12-FAILURE-MODES.md](12-FAILURE-MODES.md) and
-the observation-codec work that fixes it is scoped in
-[13-ROADMAP-AND-GATES.md](13-ROADMAP-AND-GATES.md).
+An earlier revision of this corpus claimed that `prompt.ClampText` /
+`ClampHead` truncate from the front and decapitate Go test output. **That was
+wrong**, and the record is corrected here rather than quietly edited away.
+
+`ClampText` has been head+tail since it was written, and `internal/prompt/limits.go`
+documents the exact reasoning the claim attributed to its absence: *"a stack
+trace ends with the panic, `go test` output ends with FAIL and the failing
+package list … Head-only truncation on those inputs removes exactly the line the
+turn exists to act on."* Tool results and conversation turns use `ClampText`.
+`ClampHead` is head-only by design and every one of its ten callers is on
+single-line or head-dominant content — a specialist entry, one diagnostic, a
+session-context line.
+
+The real defect in that area was narrower and is fixed on this branch:
+`ClampText` cut at a byte offset, so the surviving ends routinely began or ended
+mid-line. A half-line reads to a model as a whole record — `FAIL
+github.com/example/parser` cut after `…/pars` names a package that does not
+exist. Cuts now snap to a line boundary when the snap costs less than an eighth
+of the budget, and fall back to the raw cut past that so a single-line minified
+bundle is not discarded chasing a newline that never comes.
+
+Separately, `ClampLines` — written for exactly this line-oriented case — had
+tests and **zero production callers**. Making `ClampText` line-aware serves every
+caller instead of migrating them one at a time.

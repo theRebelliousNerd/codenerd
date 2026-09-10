@@ -15,9 +15,9 @@ type capabilityCheckAgent struct {
 }
 
 func (a *capabilityCheckAgent) Execute(ctx context.Context, task string) (string, error) {
-	got, ok := ctx.Value(types.CtxKeyModelCapability).(types.ModelCapability)
+	got, ok := types.ModelCapabilityFromContext(ctx)
 	if !ok {
-		return "", fmt.Errorf("missing %s context value", types.CtxKeyModelCapability)
+		return "", fmt.Errorf("missing model capability context value")
 	}
 	if got != a.want {
 		return "", fmt.Errorf("model capability hint = %q, want %q", got, a.want)
@@ -31,9 +31,9 @@ type modelNameCheckAgent struct {
 }
 
 func (a *modelNameCheckAgent) Execute(ctx context.Context, task string) (string, error) {
-	got, ok := ctx.Value(types.CtxKeyModelName).(string)
+	got, ok := types.ModelNameFromContext(ctx)
 	if !ok {
-		return "", fmt.Errorf("missing %s context value", types.CtxKeyModelName)
+		return "", fmt.Errorf("missing model name context value")
 	}
 	if got != a.want {
 		return "", fmt.Errorf("model name hint = %q, want %q", got, a.want)

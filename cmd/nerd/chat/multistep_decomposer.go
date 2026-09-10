@@ -96,32 +96,61 @@ func decomposeExplicitSequence(input string, captures []string, pattern *MultiSt
 // =============================================================================
 // Handles: "1. do X 2. do Y 3. do Z"
 
+// numberedStepMarker matches the "1." / "2)" / "step 3:" prefix that introduces
+// each step in a numbered list.
+//
+// This used to be one pattern that also bounded the step text with a
+// `(?=(?:step\s*)?\d+[.):]|$)` lookahead. Go's regexp is RE2 and has no
+// lookahead, so regexp.MustCompile panicked — and because this decomposer is
+// registered in the pattern dispatch map, that was a live crash on any numbered
+// input whose captures came back empty, not a dormant one.
+//
+// Matching only the markers and slicing between them needs no assertion and
+// also fixes a second defect the old pattern had: `[^0-9]+?` for the step body
+// meant any digit inside a step ("fix bug 42") silently ended it.
+var numberedStepMarker = regexp.MustCompile(`(?i)(?:step\s*)?(\d+)[.):]\s*`)
+
+// splitNumberedSteps returns the trimmed text of each numbered step in input.
+// A step runs from the end of its marker to the start of the next marker, or to
+// the end of the input for the final step.
+func splitNumberedSteps(input string) []string {
+	markers := numberedStepMarker.FindAllStringIndex(input, -1)
+	if len(markers) == 0 {
+		return nil
+	}
+
+	steps := make([]string, 0, len(markers))
+	for i, marker := range markers {
+		end := len(input)
+		if i+1 < len(markers) {
+			end = markers[i+1][0]
+		}
+		if text := strings.TrimSpace(input[marker[1]:end]); text != "" {
+			steps = append(steps, text)
+		}
+	}
+	return steps
+}
+
 func decomposeNumberedSteps(input string, captures []string, pattern *MultiStepPattern, workspace string) []TaskStep {
 	var steps []TaskStep
 
 	// If captures are empty, try to parse numbered steps from input directly
 	if len(captures) == 0 || (len(captures) == 1 && captures[0] == "") {
-		// Parse numbered list format: "1. foo 2. bar 3. baz"
-		stepRegex := regexp.MustCompile(`(?i)(?:step\s*)?(\d+)[.):]\s*([^0-9]+?)(?=(?:step\s*)?\d+[.):]|$)`)
-		matches := stepRegex.FindAllStringSubmatch(input, -1)
+		for i, capture := range splitNumberedSteps(input) {
+			verb, target := parseVerbAndTarget(capture)
 
-		for i, match := range matches {
-			if len(match) >= 3 {
-				capture := strings.TrimSpace(match[2])
-				verb, target := parseVerbAndTarget(capture)
-
-				step := TaskStep{
-					Verb:      verb,
-					Target:    target,
-					ShardType: perception.GetShardTypeForVerb(verb),
-				}
-				step.Task = formatShardTask(step.Verb, step.Target, "none", workspace)
-
-				if i > 0 {
-					step.DependsOn = []int{i - 1}
-				}
-				steps = append(steps, step)
+			step := TaskStep{
+				Verb:      verb,
+				Target:    target,
+				ShardType: perception.GetShardTypeForVerb(verb),
 			}
+			step.Task = formatShardTask(step.Verb, step.Target, "none", workspace)
+
+			if i > 0 {
+				step.DependsOn = []int{i - 1}
+			}
+			steps = append(steps, step)
 		}
 		return steps
 	}

@@ -307,7 +307,7 @@ func formatDelegatedResponse(intent perception.Intent, shardType, task, result s
 	case "/research":
 		header = "## Research Findings"
 	default:
-		header = fmt.Sprintf("## %s Results", strings.Title(strings.TrimPrefix(intent.Verb, "/")))
+		header = fmt.Sprintf("## %s Results", titleWords(strings.TrimPrefix(intent.Verb, "/")))
 	}
 
 	// Include the LLM's surface response if meaningful

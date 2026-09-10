@@ -27,6 +27,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/regression"
+	"unicode"
 
 	// researcher removed - JIT clean loop handles research
 	"codenerd/internal/store"
@@ -973,7 +974,7 @@ func (i *Initializer) runPhase7cCreateCoreShardKBs(ctx context.Context, runner *
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create core shard KBs: %v", err))
 	} else {
 		for name, atoms := range coreShardKBs {
-			fmt.Printf("   ✓ %s KB ready (%d atoms)\n", strings.Title(name), atoms)
+			fmt.Printf("   ✓ %s KB ready (%d atoms)\n", titleFirst(name), atoms)
 		}
 	}
 	runner.complete("core_shards_kb")
@@ -1495,4 +1496,15 @@ func hasAgent(agents []CreatedAgent, name string) bool {
 		}
 	}
 	return false
+}
+
+// titleFirst upper-cases the first rune of s. It replaces strings.Title, which
+// is deprecated; the input here is a single knowledge-base name.
+func titleFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
 }

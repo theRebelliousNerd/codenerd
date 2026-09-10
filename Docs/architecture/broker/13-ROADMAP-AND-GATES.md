@@ -51,9 +51,11 @@ Three opportunities, in decreasing value and increasing risk:
 
 Codecs are domain-specific and deterministic, not LLM summarization:
 
-- test result → failing assertion, distinguishing frames, command, revision —
-  **not** the first 2,000 characters, which is the current behaviour and
-  decapitates a Go test log whose decisive failure is at the bottom
+- test result → failing assertion, distinguishing frames, command, revision.
+  Note that the framing here was previously wrong: truncation is already
+  head+tail and, since this branch, line-aware, so the verdict line survives.
+  What a codec adds over a bounded excerpt is *structure* — naming the failing
+  assertion and its frames rather than keeping some bytes from each end
 - code search → matching symbols and dependency edges, not every line
 - file edit → exact current source around the edit plus a precondition hash; a
   paraphrase is not an adequate substitute for code about to be modified

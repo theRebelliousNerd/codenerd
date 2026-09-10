@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,7 +29,7 @@ func TestResolveWorkspacePath_RelativeIsWorkspaceRelativeNotCWDRelative(t *testi
 	}
 
 	// CWD is the package directory, which is emphatically not `root`.
-	got, err := resolveWorkspacePath(nil, root, "internal/projectdoc/nerdmd.go")
+	got, err := resolveWorkspacePath(context.Background(), root, "internal/projectdoc/nerdmd.go")
 	if err != nil {
 		t.Fatalf("resolveWorkspacePath: %v", err)
 	}
@@ -48,7 +49,7 @@ func TestResolveWorkspacePath_RelativeEscapeStillRejected(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	if _, err := resolveWorkspacePath(nil, root, filepath.Join("..", "outside.txt")); err == nil {
+	if _, err := resolveWorkspacePath(context.Background(), root, filepath.Join("..", "outside.txt")); err == nil {
 		t.Error("a relative path climbing above the workspace root was accepted")
 	}
 }
@@ -64,7 +65,7 @@ func TestResolveWorkspacePath_AbsoluteInsideRootAccepted(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	got, err := resolveWorkspacePath(nil, root, target)
+	got, err := resolveWorkspacePath(context.Background(), root, target)
 	if err != nil {
 		t.Fatalf("resolveWorkspacePath: %v", err)
 	}

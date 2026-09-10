@@ -332,12 +332,16 @@ func (p *RustCodeParser) parseImplItem(
 		typeName = typeName[:idx]
 	}
 
-	// Check if implementing a trait
-	traitNode := node.ChildByFieldName("trait")
-	traitName := ""
-	if traitNode != nil {
-		traitName = getText(traitNode)
-	}
+	// Trait attribution is deliberately not recorded. The impl's trait was
+	// parsed here and fed to an empty branch commented "we'll emit this in
+	// facts", which it never did — so `impl Display for Foo` and `impl Foo`
+	// produced identical elements.
+	//
+	// Recording it properly needs a CodeElement field. Ref and Signature are
+	// both unavailable: Ref's shape is depended on by callers, and Signature is
+	// pattern-matched for "async ", "unsafe ", and "-> Result<" further down
+	// this file. Encoding a trait into either would corrupt those reads, so the
+	// parse is removed rather than half-encoded.
 
 	// Find the parent ref
 	parentRef := ""
@@ -362,11 +366,6 @@ func (p *RustCodeParser) parseImplItem(
 				elem.Ref = fmt.Sprintf("rs:%s:%s.%s", relPath, typeName, elem.Name)
 				elem.Type = ElementMethod
 				elem.Parent = parentRef
-
-				// Store trait info in body metadata if implementing trait
-				if traitName != "" {
-					// We'll emit this in facts
-				}
 
 				elements = append(elements, *elem)
 			}

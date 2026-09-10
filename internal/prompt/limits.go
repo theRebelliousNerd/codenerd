@@ -21,6 +21,10 @@ import (
 // with FAIL and the failing package list, a diff ends with the last hunk.
 // Head-only truncation on those inputs removes exactly the line the turn
 // exists to act on.
+//
+// Cuts also snap to line boundaries where doing so is cheap. Keeping the right
+// end of the text is not enough on its own: a cut at a byte offset lands
+// mid-line, and a half-line reads to the model as a whole record.
 
 const (
 	// clampMarkerPrefix is the visible truncation marker's stable prefix.
@@ -38,6 +42,23 @@ const (
 	// worth doing. Below this the marker itself dominates, so we degrade to
 	// head-only.
 	minClampChars = 200
+
+	// clampSnapDivisor bounds how far a cut may move to land on a line
+	// boundary: at most budget/clampSnapDivisor characters.
+	//
+	// Tool results are overwhelmingly line-oriented — `go test` output,
+	// compiler diagnostics, shell output, file reads — and a byte-position cut
+	// lands mid-line most of the time. The fragment that produces is worse
+	// than a shorter honest excerpt, because the model reads a half-line as a
+	// whole record: "FAIL github.com/x/y" cut after "FAIL github.com/x" is a
+	// package that does not exist, and "0 tests failed" cut from
+	// "10 tests failed" inverts the result.
+	//
+	// The bound matters as much as the snapping. A minified bundle or a
+	// base64 blob can be one line of megabytes, and snapping unconditionally
+	// would discard the entire excerpt to reach a newline that never comes.
+	// Past this distance the raw cut is the better answer.
+	clampSnapDivisor = 8
 )
 
 // ClampText bounds text to maxChars, keeping the head and the tail and
@@ -63,9 +84,35 @@ func ClampText(text string, maxChars int, label string) string {
 
 	tailChars := maxChars / clampTailDivisor
 	headChars := maxChars - tailChars
-	head := trimUTF8Suffix(text[:headChars])
-	tail := trimUTF8Prefix(text[len(text)-tailChars:])
+	head := trimUTF8Suffix(snapHeadToLine(text[:headChars], headChars/clampSnapDivisor))
+	tail := trimUTF8Prefix(snapTailToLine(text[len(text)-tailChars:], tailChars/clampSnapDivisor))
 	return head + marker + tail
+}
+
+// snapHeadToLine trims a trailing partial line from a head excerpt, provided
+// the trim costs no more than budget characters.
+func snapHeadToLine(head string, budget int) string {
+	if budget <= 0 {
+		return head
+	}
+	idx := strings.LastIndexByte(head, '\n')
+	if idx < 0 || len(head)-idx > budget {
+		return head
+	}
+	return head[:idx]
+}
+
+// snapTailToLine drops a leading partial line from a tail excerpt, provided
+// the drop costs no more than budget characters.
+func snapTailToLine(tail string, budget int) string {
+	if budget <= 0 {
+		return tail
+	}
+	idx := strings.IndexByte(tail, '\n')
+	if idx < 0 || idx+1 > budget {
+		return tail
+	}
+	return tail[idx+1:]
 }
 
 // ClampHead bounds text to maxChars keeping only the head. Use it when the

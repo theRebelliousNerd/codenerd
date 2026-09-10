@@ -61,7 +61,7 @@ func TestDefaultOpenAICompatConfig_VendorEndpoints(t *testing.T) {
 func TestBuildRequest_MetaFieldShape(t *testing.T) {
 	c := newTestCompatClient(t, ProviderMeta, "https://api.meta.ai/v1")
 
-	ctx := context.WithValue(context.Background(), types.CtxKeyModelCapability, types.CapabilityHighReasoning)
+	ctx := types.WithModelCapability(context.Background(), types.CapabilityHighReasoning)
 	req := c.buildRequest(ctx, []OpenAIMessage{{Role: "user", Content: "hi"}}, true)
 
 	if req.MaxTokens != 0 {
@@ -89,7 +89,7 @@ func TestBuildRequest_MetaNeverSendsEffortNone(t *testing.T) {
 		types.CapabilityBalanced,
 		types.CapabilityHighSpeed,
 	} {
-		ctx := context.WithValue(context.Background(), types.CtxKeyModelCapability, capability)
+		ctx := types.WithModelCapability(context.Background(), capability)
 		req := c.buildRequest(ctx, nil, true)
 		if req.ReasoningEffort == "none" {
 			t.Fatalf("capability %s produced reasoning_effort=none, which Muse Spark rejects with HTTP 400", capability)
@@ -151,7 +151,7 @@ func TestModelForContext_OverridesDefault(t *testing.T) {
 	if got := c.ModelForContext(context.Background()); got != metaContributorModel {
 		t.Errorf("default model = %q, want %s", got, metaContributorModel)
 	}
-	ctx := context.WithValue(context.Background(), types.CtxKeyModelName, metaContributorModel)
+	ctx := types.WithModelName(context.Background(), metaContributorModel)
 	if got := c.ModelForContext(ctx); got != metaContributorModel {
 		t.Errorf("context model = %q, want %s", got, metaContributorModel)
 	}
@@ -298,7 +298,7 @@ func TestBuildRequest_MetaExplicitXHighOnUnhintedAndAllCapabilities(t *testing.T
 		t.Fatalf("unhinted reasoning_effort = %q, want xhigh", req.ReasoningEffort)
 	}
 	for _, cap := range []types.ModelCapability{types.CapabilityHighReasoning, types.CapabilityBalanced, types.CapabilityHighSpeed} {
-		ctx := context.WithValue(context.Background(), types.CtxKeyModelCapability, cap)
+		ctx := types.WithModelCapability(context.Background(), cap)
 		req = c.buildRequest(ctx, nil, true)
 		if req.ReasoningEffort != "xhigh" {
 			t.Errorf("cap %q: reasoning_effort = %q, want xhigh", cap, req.ReasoningEffort)

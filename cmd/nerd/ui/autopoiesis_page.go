@@ -326,7 +326,7 @@ func (m AutopoiesisPageModel) View() string {
 		style := m.styles.Text.Muted
 		label := fmt.Sprintf("[ %s ]", tab.Title())
 		if i == m.activeTabIndex {
-			style = m.styles.Status.Info.Copy().Bold(true)
+			style = m.styles.Status.Info.Bold(true)
 		}
 		tabViews = append(tabViews, style.Render(label))
 		tabViews = append(tabViews, "  ")

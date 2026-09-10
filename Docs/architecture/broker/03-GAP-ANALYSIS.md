@@ -74,15 +74,21 @@ premise.
 selector. Recorded with the full three-part fix in [TODO.md](TODO.md) so the trap
 is not walked into.
 
-## B7 — Head truncation discards the decisive evidence — **OPEN**
+## B7 — Truncation cut mid-line — **CLOSED** (and the original claim withdrawn)
 
-**Gap.** `ClampText`/`ClampHead` truncate from the front. Test output places the
-decisive failure at the end.
+**Original claim, withdrawn.** This gap previously read "`ClampText`/`ClampHead`
+truncate from the front". That was false: `ClampText` has always been head+tail,
+and `ClampHead` is head-only by design on content whose tail cannot matter. See
+the correction in [02-CURRENT-STATE.md](02-CURRENT-STATE.md).
 
-**Disposition.** Requires observation codecs — deterministic, domain-specific
-projections applied *before* the model sees output rather than after. Scoped as
-Phase 1 in [13-ROADMAP-AND-GATES.md](13-ROADMAP-AND-GATES.md). Not fixed by the
-broker; the broker makes its cost visible for the first time.
+**The real gap.** `ClampText` cut at byte offsets, so both surviving ends
+routinely started or ended mid-line. A half-line reads as a whole record, and
+the failure mode is silent: a truncated package path names a package that does
+not exist, and `10 tests failed` cut to `0 tests failed` inverts the verdict.
+
+**Disposition.** Closed. Cuts snap to line boundaries when the snap costs under
+an eighth of the budget, with a raw-cut fallback so a single enormous line is
+not discarded. Four regression tests over real `go test` output shapes.
 
 ## B8 — Pruning happens after generation — **OPEN**
 

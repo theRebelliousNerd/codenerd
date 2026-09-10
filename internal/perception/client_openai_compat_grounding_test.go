@@ -125,7 +125,7 @@ func TestGroundedWebSearch_ReasoningEffortOverride(t *testing.T) {
 		t.Errorf("reasoning.effort = %q, want high (override)", gotEffort)
 	}
 	// hinted should still use override
-	ctx := context.WithValue(context.Background(), types.CtxKeyModelCapability, types.CapabilityHighSpeed)
+	ctx := types.WithModelCapability(context.Background(), types.CapabilityHighSpeed)
 	_, err = c.GroundedWebSearch(ctx, "q2")
 	if err != nil {
 		t.Fatalf("GroundedWebSearch: %v", err)
@@ -155,13 +155,13 @@ func TestGroundedWebSearch_ReasoningEffortFromContext(t *testing.T) {
 	// unhinted -> xhigh
 	_, _ = c.GroundedWebSearch(context.Background(), "q")
 	// high_reasoning -> high
-	ctx := context.WithValue(context.Background(), types.CtxKeyModelCapability, types.CapabilityHighReasoning)
+	ctx := types.WithModelCapability(context.Background(), types.CapabilityHighReasoning)
 	_, _ = c.GroundedWebSearch(ctx, "q")
 	// balanced -> medium
-	ctx2 := context.WithValue(context.Background(), types.CtxKeyModelCapability, types.CapabilityBalanced)
+	ctx2 := types.WithModelCapability(context.Background(), types.CapabilityBalanced)
 	_, _ = c.GroundedWebSearch(ctx2, "q")
 	// high_speed -> low
-	ctx3 := context.WithValue(context.Background(), types.CtxKeyModelCapability, types.CapabilityHighSpeed)
+	ctx3 := types.WithModelCapability(context.Background(), types.CapabilityHighSpeed)
 	_, _ = c.GroundedWebSearch(ctx3, "q")
 
 	want := []string{"xhigh", "high", "medium", "low"}
@@ -466,7 +466,7 @@ func TestGroundedWebSearch_ModelFromContext(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestCompatClient(t, ProviderMeta, srv.URL)
-	ctx := context.WithValue(context.Background(), types.CtxKeyModelName, "muse-spark-1.2")
+	ctx := types.WithModelName(context.Background(), "muse-spark-1.2")
 	_, err := c.GroundedWebSearch(ctx, "q")
 	if err != nil {
 		t.Fatalf("GroundedWebSearch: %v", err)

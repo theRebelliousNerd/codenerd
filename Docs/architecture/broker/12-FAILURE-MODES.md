@@ -33,13 +33,11 @@ window on every receipt from before configuration, rather than passing silently.
 
 ## Failures inherited from elsewhere, not fixed here
 
-**Head truncation discards the decisive evidence.** `prompt.ClampText` and
-`ClampHead` truncate from the front. Go test output puts the decisive failure at
-the end, so the model reasons confidently from the surviving top half. This is
-live today. The broker does not fix it; it makes the cost of the material being
-truncated visible for the first time. Fixing it needs observation codecs —
-deterministic, domain-specific projections applied *before* the model sees output
-— which is Phase 1 in [13-ROADMAP-AND-GATES.md](13-ROADMAP-AND-GATES.md).
+**Mid-line truncation** *(fixed on this branch; the original claim here was
+wrong and is corrected in [02-CURRENT-STATE.md](02-CURRENT-STATE.md))*.
+`ClampText` was always head+tail, but cut at byte offsets, so surviving ends
+began or ended mid-line and a fragment read as a whole record. Cuts now snap to
+line boundaries within a bounded budget.
 
 **Pruning after generation.** Tool results are generated in full, appended, then
 blanked by `boundToolLoopHistory`. Pruning an output after generating it does not

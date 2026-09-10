@@ -145,26 +145,6 @@ func (p SpawnPriority) String() string {
 	}
 }
 
-// CtxKeyPriority is the legacy string context key for spawn priority.
-//
-// Deprecated: use WithSpawnPriority / SpawnPriorityFromContext (ctxkeys.go).
-// Kept because existing readers still call ctx.Value(CtxKeyPriority) directly;
-// the setters dual-write this key so those readers keep working.
-const CtxKeyPriority = "spawn_priority"
-
-// CtxKeyModelCapability is the legacy string context key for the per-call
-// reasoning-class hint that lets one shared LLM client serve shards of
-// different model tiers.
-//
-// Deprecated: use WithModelCapability / ModelCapabilityFromContext.
-const CtxKeyModelCapability = "model_capability"
-
-// CtxKeyModelName is the legacy string context key for a concrete per-shard
-// model override.
-//
-// Deprecated: use WithModelName / ModelNameFromContext.
-const CtxKeyModelName = "model_name"
-
 // CtxKeyStructuredOutputOnly tells an LLM client that this call's reply is
 // parsed directly into a Go struct and must NOT be wrapped in the Piggyback
 // envelope, so no envelope response_format schema may be attached.

@@ -428,12 +428,12 @@ func formatDreamStateResponse(hypothetical string, consultations []DreamConsulta
 
 		for _, c := range typeConsultations {
 			if c.Error != nil {
-				sb.WriteString(fmt.Sprintf("### %s\n\n", strings.Title(c.ShardName)))
+				sb.WriteString(fmt.Sprintf("### %s\n\n", titleWords(c.ShardName)))
 				sb.WriteString(fmt.Sprintf("*Consultation failed: %v*\n\n", c.Error))
 				continue
 			}
 
-			sb.WriteString(fmt.Sprintf("### %s\n\n", strings.Title(c.ShardName)))
+			sb.WriteString(fmt.Sprintf("### %s\n\n", titleWords(c.ShardName)))
 			sb.WriteString(c.Perspective)
 			sb.WriteString("\n\n")
 

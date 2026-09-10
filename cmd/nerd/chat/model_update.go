@@ -816,7 +816,7 @@ func (m Model) handleWindowSizeMsg(msg windowSizeMsg) Model {
 	// Update split pane dimensions
 	if m.splitPane != nil {
 		m.list.SetSize(msg.Width, msg.Height)
-		m.filepicker.Height = msg.Height - 15
+		m.filepicker.SetHeight(msg.Height - 15)
 		m.splitPane.SetSize(msg.Width, msg.Height-headerHeight-footerHeight)
 		m.usagePage.SetSize(msg.Width, msg.Height-headerHeight)
 		m.campaignPage.SetSize(msg.Width, msg.Height-headerHeight)

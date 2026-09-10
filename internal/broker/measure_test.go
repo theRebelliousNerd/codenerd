@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -132,7 +133,7 @@ func TestEstimatingCounterProducesSegmentedCounts(t *testing.T) {
 		User:   strings.Repeat("u", 1000),
 	}
 
-	count, err := counter.Count(nil, req)
+	count, err := counter.Count(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
@@ -151,7 +152,7 @@ func TestEstimatingCounterProducesSegmentedCounts(t *testing.T) {
 }
 
 func TestEstimatingCounterRejectsNilRequest(t *testing.T) {
-	if _, err := NewEstimatingCounter(nil).Count(nil, nil); err == nil {
+	if _, err := NewEstimatingCounter(nil).Count(context.Background(), nil); err == nil {
 		t.Error("counting a nil request must fail rather than silently return zero")
 	}
 }

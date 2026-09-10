@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -172,5 +173,111 @@ func TestTruncationNotice(t *testing.T) {
 				t.Errorf("notice %q is not recognised as a truncation marker", got)
 			}
 		})
+	}
+}
+
+// The tests below pin the line-snapping behaviour of ClampText against the
+// output shapes it actually sees in production: `go test` results and compiler
+// diagnostics arriving as tool results.
+
+func TestClampText_ShouldNotEmitAPartialLine(t *testing.T) {
+	// A byte-position cut lands mid-line most of the time, and a half-line
+	// reads to the model as a whole record. "FAIL github.com/x/parser" cut
+	// after "...x/pars" names a package that does not exist.
+	var b strings.Builder
+	for i := 0; i < 400; i++ {
+		fmt.Fprintf(&b, "ok  \tgithub.com/example/project/pkg%03d\t0.0%02ds\n", i, i%100)
+	}
+	b.WriteString("--- FAIL: TestCancelDuringParse (2.01s)\n")
+	b.WriteString("    parser_test.go:88: timed out waiting for Parse to return\n")
+	b.WriteString("FAIL\tgithub.com/example/project/parser\t2.014s\n")
+	full := b.String()
+
+	got := ClampText(full, 2000, "tool result")
+
+	if !IsClamped(got) {
+		t.Fatal("expected a truncation marker")
+	}
+
+	head, tail, found := strings.Cut(got, clampMarkerPrefix)
+	if !found {
+		t.Fatal("marker not found")
+	}
+	// Whatever survives on each side must consist of whole lines.
+	if head != "" && !strings.HasSuffix(head, "\n") {
+		last := head[strings.LastIndexByte(head[:len(head)-1], '\n')+1:]
+		t.Errorf("head ends mid-line with %q", last)
+	}
+	if idx := strings.IndexByte(tail, '\n'); idx >= 0 {
+		afterMarker := tail[idx+1:]
+		if afterMarker != "" {
+			firstLine := afterMarker
+			if i := strings.IndexByte(firstLine, '\n'); i >= 0 {
+				firstLine = firstLine[:i]
+			}
+			if !strings.Contains(full, "\n"+firstLine) {
+				t.Errorf("tail starts mid-line with %q", firstLine)
+			}
+		}
+	}
+}
+
+func TestClampText_ShouldKeepTheVerdictLine(t *testing.T) {
+	// The whole reason truncation is head+tail: the line the turn exists to act
+	// on is the last one.
+	var b strings.Builder
+	for i := 0; i < 500; i++ {
+		fmt.Fprintf(&b, "ok  \tgithub.com/example/project/pkg%03d\t0.010s\n", i)
+	}
+	b.WriteString("FAIL\tgithub.com/example/project/parser\t2.014s\n")
+	b.WriteString("FAIL\n")
+
+	got := ClampText(b.String(), 1500, "tool result")
+
+	if !strings.Contains(got, "FAIL\tgithub.com/example/project/parser") {
+		t.Error("the failing package line was truncated away; head-only truncation on test " +
+			"output removes exactly the line the turn exists to act on")
+	}
+}
+
+func TestClampText_WhenOneEnormousLine_ShouldStillTruncate(t *testing.T) {
+	// A minified bundle or a base64 blob is one line of megabytes. Snapping
+	// unconditionally would discard the whole excerpt chasing a newline that
+	// never arrives, so past the snap budget the raw cut is correct.
+	oneLine := strings.Repeat("x", 100000)
+
+	got := ClampText(oneLine, 1000, "tool result")
+
+	if !IsClamped(got) {
+		t.Fatal("expected a truncation marker")
+	}
+	body := strings.ReplaceAll(got, "\n", "")
+	if len(body) < 500 {
+		t.Errorf("snapping ate the excerpt: kept %d chars of a %d-char single line",
+			len(body), len(oneLine))
+	}
+}
+
+func TestClampText_ShouldNotSnapAcrossAWholeBudget(t *testing.T) {
+	// Lines longer than the snap budget must not cause a cut to travel an
+	// unbounded distance backwards.
+	line := strings.Repeat("y", 900) + "\n"
+	text := strings.Repeat(line, 20)
+
+	got := ClampText(text, 1200, "tool result")
+
+	if !IsClamped(got) {
+		t.Fatal("expected a truncation marker")
+	}
+	head, _, _ := strings.Cut(got, clampMarkerPrefix)
+	if len(head) < 300 {
+		t.Errorf("head collapsed to %d chars snapping to a line boundary 900 chars away", len(head))
+	}
+}
+
+func TestClampText_ShouldPreserveShortTextExactly(t *testing.T) {
+	const s = "one\ntwo\nthree\n"
+	if got := ClampText(s, 1000, "unit test"); got != s {
+		t.Errorf("text under budget was modified: %q", got)
 	}
 }

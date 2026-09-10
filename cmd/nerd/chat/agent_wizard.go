@@ -3,6 +3,7 @@ package chat
 import (
 	nerdconfig "codenerd/internal/config"
 	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/logging"
 	coresys "codenerd/internal/system"
 	"context"
 	"fmt"
@@ -137,8 +138,11 @@ func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 		// or assume result contains the summary.
 		// For now, we persist so it survives restart.
 		if err := persistAgentProfile(m.workspace, wizard.Name, "persistent", config.KnowledgePath, 0, "active"); err != nil {
-			// Log error but don't fail the UI flow
-			// In a real app we'd send a toast or log it
+			// Deliberately non-fatal: the agent is usable this session even if
+			// its profile did not persist. Silently discarding the error meant
+			// the agent simply vanished on restart with nothing to explain it.
+			logging.Session("agent wizard: profile for %q was not persisted and will not survive restart: %v",
+				wizard.Name, err)
 		}
 
 		// 5. Clear wizard state

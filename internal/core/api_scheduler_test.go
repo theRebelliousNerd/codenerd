@@ -730,7 +730,7 @@ func TestAPIScheduler_ContextPriorityOverridesDefault(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		demoted := context.WithValue(ctx, types.CtxKeyPriority, types.PriorityLow)
+		demoted := types.WithSpawnPriority(ctx, types.PriorityLow)
 		if err := scheduler.AcquireAPISlot(demoted, "normally-high"); err != nil {
 			t.Errorf("normally-high acquire failed: %v", err)
 			return
@@ -746,7 +746,7 @@ func TestAPIScheduler_ContextPriorityOverridesDefault(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		promoted := context.WithValue(ctx, types.CtxKeyPriority, types.PriorityCritical)
+		promoted := types.WithSpawnPriority(ctx, types.PriorityCritical)
 		if err := scheduler.AcquireAPISlot(promoted, "normally-low"); err != nil {
 			t.Errorf("normally-low acquire failed: %v", err)
 			return

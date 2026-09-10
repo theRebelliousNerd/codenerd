@@ -344,7 +344,7 @@ func TestE2E_SpawnerAPIScheduler_PriorityInversion_Prevention(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		// Injecting priority into context as per architecture docs
-		ctx = context.WithValue(ctx, types.CtxKeyPriority, types.PriorityHigh)
+		ctx = types.WithSpawnPriority(ctx, types.PriorityHigh)
 
 		err := scheduler.AcquireAPISlot(ctx, "high_prio_agent")
 		if err == nil {

@@ -381,7 +381,7 @@ func (m Model) formatDelegationOutput(ctx context.Context, input, shardType, tas
 		return m.formatInterpretedResult(ctx, input, shardType, task, result, "")
 	}
 
-	header := fmt.Sprintf("## %s Result", strings.Title(shardType))
+	header := fmt.Sprintf("## %s Result", titleWords(shardType))
 	if shardType == "" {
 		header = "## Delegated Result"
 	}

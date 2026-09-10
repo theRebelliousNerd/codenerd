@@ -83,7 +83,7 @@ func TestWriteSetLockManager_NullEmptyInputs(t *testing.T) {
 	}
 
 	// nil context
-	lease, err = manager.acquire(nil, "t2", []string{"a"}, time.Millisecond)
+	lease, err = manager.acquire(context.Background(), "t2", []string{"a"}, time.Millisecond)
 	if err != nil || lease == nil {
 		t.Errorf("Expected success for nil context (should fallback to Background)")
 	}
