@@ -35,14 +35,36 @@ type SelectionRecord struct {
 	Atoms   []RecordedAtom `json:"atoms"`
 }
 
-// SetLog installs a persistence log. Passing nil detaches it.
-func (r *CoUseRecorder) SetLog(log *jsonl.Appender) {
+// SetLog installs a persistence log, closing whatever it replaces. Passing nil
+// detaches and closes the current one.
+//
+// The close is the whole point, and it was missing. CoUse() is a process-wide
+// singleton, so every boot in a process calls this, and a setter that dropped
+// the previous value on the floor leaked one open file per boot. On Linux that
+// is invisible: an unlinked-but-open file just goes away at exit. On Windows
+// the file cannot be deleted at all while a handle is open, which turned into
+// sixteen `internal/system` tests failing in CI with "The process cannot access
+// the file because it is being used by another process" on t.TempDir cleanup --
+// sixteen boots, sixteen leaked handles, sixteen temp directories that could
+// never be removed.
+//
+// The error is returned rather than swallowed so a caller that cares can see a
+// failed flush, but the new log is installed either way: refusing to swap
+// because the old one would not close would leave the recorder writing to a
+// file the caller has moved on from.
+func (r *CoUseRecorder) SetLog(log *jsonl.Appender) error {
 	if r == nil {
-		return
+		return nil
 	}
 	r.logMu.Lock()
-	defer r.logMu.Unlock()
+	previous := r.log
 	r.log = log
+	r.logMu.Unlock()
+
+	if previous != nil && previous != log {
+		return previous.Close()
+	}
+	return nil
 }
 
 // appendToLog writes one settled selection. Called without the tally mutex

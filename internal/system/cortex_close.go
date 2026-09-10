@@ -1,8 +1,10 @@
 package system
 
 import (
+	"codenerd/internal/broker"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
 	"codenerd/internal/tools/research"
 	"context"
 	"errors"
@@ -177,6 +179,25 @@ func (c *Cortex) Close() error {
 			errs = append(errs, err)
 		}
 		c.LearningStore = nil
+	}
+
+	// The two meter logs are process-wide singletons installed at boot, so they
+	// are released here rather than by whoever installed them. Cortex.Close is
+	// where the Windows handle problem this comment block opens with gets
+	// solved for every other file; these were simply never added to the list.
+	//
+	// Detaching also stops receipts and selections being written to a file the
+	// caller has finished with, which matters for a one-shot CLI that boots,
+	// works, closes, and expects the workspace to be quiet afterwards.
+	if err := runCloseStep("Broker.SetExtraSink(nil)", closeStepTimeout, func() error {
+		return broker.SetExtraSink(nil)
+	}); err != nil {
+		errs = append(errs, err)
+	}
+	if err := runCloseStep("CoUse.SetLog(nil)", closeStepTimeout, func() error {
+		return prompt.CoUse().SetLog(nil)
+	}); err != nil {
+		errs = append(errs, err)
 	}
 
 	// Evict from the keyed cache so a future GetOrBootCortex with the same

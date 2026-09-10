@@ -109,6 +109,12 @@ func configureCoUseLog(workspace string) {
 		return
 	}
 
-	prompt.CoUse().SetLog(log)
+	if err := prompt.CoUse().SetLog(log); err != nil {
+		// The new log is installed either way; this says the previous one did
+		// not flush cleanly, which is a lost tail of measurement rather than a
+		// reason to run without one.
+		logging.Get(logging.CategoryJIT).Warn(
+			"prompt: previous atom selection log did not close cleanly: %v", err)
+	}
 	logging.Get(logging.CategoryJIT).Debug("prompt: atom selections logging to %s", path)
 }

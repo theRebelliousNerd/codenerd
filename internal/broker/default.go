@@ -25,6 +25,10 @@ type Meter struct {
 	calibrator *Calibrator
 	ring       *RingSink
 	sink       ReceiptSink
+	// extraSink is held separately from sink so a replacement can close the
+	// resource the old one owns. sink is the composed fan-out and cannot be
+	// taken apart again.
+	extraSink  ReceiptSink
 	httpClient *http.Client
 
 	reconciler *Reconciler
@@ -103,11 +107,45 @@ func Configure(cfg MeterConfig) {
 		m.httpClient = cfg.HTTPClient
 	}
 	if cfg.ExtraSink != nil {
-		m.sink = MultiSink{LogSink{}, m.ring, cfg.ExtraSink}
+		m.setExtraSinkLocked(cfg.ExtraSink)
 	}
 	if cfg.PrimaryModel != "" {
 		m.primaryModel = cfg.PrimaryModel
 	}
+}
+
+// SetExtraSink installs (or with nil, removes) the process meter's extra
+// receipt sink, closing whatever it replaces if that sink holds resources.
+//
+// This exists because the sink is a file, the meter is a process singleton, and
+// nothing owned the handle. Every boot installed a new FileSink over the old
+// one and the old one stayed open forever. That is invisible on Linux and fatal
+// on Windows, where an open handle blocks deleting the file at all -- which is
+// how it surfaced: sixteen internal/system tests failing on t.TempDir cleanup,
+// one per boot, none of them about anything the test was testing.
+//
+// Passing nil is how a clean shutdown gives the handle back, and it is what
+// Cortex.Close does.
+func SetExtraSink(sink ReceiptSink) error {
+	m := Default()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.setExtraSinkLocked(sink)
+}
+
+// setExtraSinkLocked swaps the extra sink. The caller holds m.mu.
+func (m *Meter) setExtraSinkLocked(sink ReceiptSink) error {
+	var closeErr error
+	if closer, ok := m.extraSink.(interface{ Close() error }); ok && m.extraSink != sink {
+		closeErr = closer.Close()
+	}
+	m.extraSink = sink
+	if sink == nil {
+		m.sink = MultiSink{LogSink{}, m.ring}
+	} else {
+		m.sink = MultiSink{LogSink{}, m.ring, sink}
+	}
+	return closeErr
 }
 
 // NewMeter builds an independent meter. Tests use this to avoid sharing the
