@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -48,6 +49,22 @@ func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 		} else {
 			sessionCtx.ExtraContext["frameworks"] = "codex_cli"
 		}
+	}
+
+	// The prompt corpus gates 326 of its 918 atom entries on a language, and
+	// matchSelector fails closed: an atom that declares a constraint the context
+	// has no value for does not match. That is the right rule -- it is what stops
+	// Go advice leaking into a Python session -- but it means an empty language
+	// does not select "all languages", it selects none of them. A third of the
+	// corpus, including every TDD, debugging and refactoring methodology and all
+	// 113 Mangle atoms, was unreachable in an interactive turn.
+	//
+	// The workspace already knew the answer. The world scan derives the dominant
+	// language and asserts project_language as a whole-snapshot property.
+	// Nothing downstream had ever read it back, so CompilationContext.Language
+	// was set in exactly one place in the repository: the `nerd init` scan.
+	if lang := m.queryProjectLanguage(); lang != "" {
+		sessionCtx.ExtraContext["language"] = lang
 	}
 
 	// ==========================================================================
@@ -261,6 +278,57 @@ func (m *Model) queryKernelStrings(predicate string) []string {
 		}
 	}
 	return strs
+}
+
+// queryProjectLanguage returns the workspace's dominant language as the world
+// scan recorded it, or "" when no scan has run.
+//
+// types.ExtractString rather than a string type assertion. The scan asserts the
+// language as a Mangle atom, and query readback renders a /name sometimes as an
+// atom and sometimes as a plain string -- internal/world hit exactly this and
+// its comment records that a bare assertion "silently skipped every row". Here
+// that failure would be indistinguishable from "no scan has run yet", which is
+// a legitimate state, so it would never be investigated.
+//
+// Empty on absence rather than a guess. Selecting another ecosystem's atoms is
+// worse than selecting none: it spends budget on advice for the wrong language
+// and, unlike the empty case, nothing about the resulting prompt looks wrong.
+func (m *Model) queryProjectLanguage() string {
+	if m.kernel == nil {
+		return ""
+	}
+	results, err := m.kernel.Query("project_language")
+	if err != nil {
+		logging.Get(logging.CategoryContext).Warn(
+			"project_language query failed: %v; this turn compiles without a language "+
+				"and cannot select any language-gated prompt atom", err)
+		return ""
+	}
+
+	// project_language is a whole-snapshot property and internal/world holds it
+	// to one row. Sorting rather than taking whichever row came back first means
+	// a second one -- which would be a world-model bug -- produces the same
+	// prompt on every run instead of a coin flip between two languages.
+	var langs []string
+	for _, fact := range results {
+		if len(fact.Args) == 0 {
+			continue
+		}
+		if lang := strings.TrimSpace(types.ExtractString(fact.Args[0])); lang != "" {
+			langs = append(langs, lang)
+		}
+	}
+	if len(langs) == 0 {
+		return ""
+	}
+	sort.Strings(langs)
+	if len(langs) > 1 {
+		logging.Get(logging.CategoryContext).Warn(
+			"kernel holds %d project_language facts (%v); using %s. The world model "+
+				"is meant to keep exactly one -- a stale row survived a delta scan.",
+			len(langs), langs, langs[0])
+	}
+	return langs[0]
 }
 
 // queryDiagnostics extracts current diagnostics from the kernel.
