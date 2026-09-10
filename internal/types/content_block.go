@@ -160,23 +160,27 @@ func NewAssistantMessage(blocks ...ContentBlock) Message {
 // This is the only correct way to read a message's content. When the message
 // was built from blocks they are returned as they were given. When it was
 // built from the flat fields — every struct literal in the tree predating this
-// representation — they are lifted in the fixed order text, then tool_use,
-// then tool_result, which is exactly the order the adapters used to emit by
-// hand. So a legacy message keeps its existing wire shape byte for byte, and a
-// block-built message keeps its real one.
+// representation — they are lifted in a fixed order: tool_result, then text,
+// then tool_use.
+//
+// That order is not arbitrary and it is not a preference. It is the order the
+// adapters already emitted by hand, so a legacy message keeps its existing
+// wire shape byte for byte on every provider. It also happens to be the
+// chronological one: answers to the previous turn's calls, then this turn's
+// prose, then this turn's calls.
 func (m Message) Content() []ContentBlock {
 	if len(m.blocks) > 0 {
 		return m.blocks
 	}
 	out := make([]ContentBlock, 0, 1+len(m.ToolCalls)+len(m.ToolResults))
+	for _, tr := range m.ToolResults {
+		out = append(out, ToolResultBlock(tr.ToolUseID, tr.Content, tr.IsError))
+	}
 	if m.Text != "" {
 		out = append(out, TextBlock(m.Text))
 	}
 	for _, tc := range m.ToolCalls {
 		out = append(out, ToolUseBlock(tc.ID, tc.Name, tc.Input))
-	}
-	for _, tr := range m.ToolResults {
-		out = append(out, ToolResultBlock(tr.ToolUseID, tr.Content, tr.IsError))
 	}
 	return out
 }

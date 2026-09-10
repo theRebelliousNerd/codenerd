@@ -597,6 +597,12 @@ func (m *Model) populateGitContext(sessionCtx *types.SessionContext) {
 			case "recent_commits":
 				sessionCtx.GitRecentCommits = splitContextList(val)
 				sessionCtx.ExtraContext["git_commits"] = val
+			case "untracked_files":
+				// Through ExtraContext rather than a typed field, matching how
+				// reflection_hits reaches the same place. The value is carried
+				// as well as the flag because the atom asks the model to review
+				// and categorise the files, which it cannot do unnamed.
+				sessionCtx.ExtraContext["new_files"] = val
 			case "unstaged_count":
 				if count, convErr := strconv.Atoi(strings.TrimSpace(val)); convErr == nil {
 					sessionCtx.GitUnstagedCount = count

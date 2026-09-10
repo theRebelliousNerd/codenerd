@@ -79,52 +79,78 @@ func (c *Client) CompleteWithToolResults(ctx context.Context, systemPrompt strin
 	return parseToolChatResponse(body)
 }
 
+// mapHistoryToChatMessages converts the neutral history into SuperGrok's
+// OpenAI-shaped chat messages, reading the turn's ordered content blocks.
+//
+// It carries the same limits as every Chat Completions surface: an assistant
+// turn has one content string and one tool_calls array, so text interleaved
+// between two tool calls collapses ahead of both, and there is no request-side
+// field for reasoning, so thinking blocks are counted out here rather than
+// folded into the prose. See BlockFidelity in internal/perception.
 func mapHistoryToChatMessages(systemPrompt string, history []types.Message) ([]chatMessage, error) {
 	msgs := make([]chatMessage, 0, len(history)+1)
 	if strings.TrimSpace(systemPrompt) != "" {
 		msgs = append(msgs, chatMessage{Role: "system", Content: systemPrompt})
 	}
 	for _, m := range history {
-		switch {
-		case len(m.ToolResults) > 0:
-			for _, tr := range m.ToolResults {
-				content := tr.Content
-				if tr.IsError && content != "" {
-					content = "ERROR: " + content
-				}
-				msgs = append(msgs, chatMessage{
-					Role:       "tool",
-					Content:    content,
-					ToolCallID: tr.ToolUseID,
-				})
-			}
-		case len(m.ToolCalls) > 0:
-			oaiCalls := make([]toolCall, 0, len(m.ToolCalls))
-			for _, tc := range m.ToolCalls {
-				argsJSON, err := json.Marshal(tc.Input)
+		role := m.Role
+		if role == "" {
+			role = "user"
+		}
+
+		var text strings.Builder
+		var calls []toolCall
+		var results []chatMessage
+
+		for _, b := range m.Content() {
+			switch b.Kind {
+			case types.BlockText:
+				text.WriteString(b.Text)
+
+			case types.BlockThinking:
+				// Unrepresentable on Chat Completions; see the note above.
+
+			case types.BlockToolUse:
+				argsJSON, err := json.Marshal(b.Input)
 				if err != nil {
-					return nil, fmt.Errorf("marshal tool args for %s: %w", tc.Name, err)
+					return nil, fmt.Errorf("marshal tool args for %s: %w", b.Name, err)
 				}
-				oaiCalls = append(oaiCalls, toolCall{
-					ID:   tc.ID,
+				calls = append(calls, toolCall{
+					ID:   b.ID,
 					Type: "function",
 					Function: toolFunction{
-						Name:      tc.Name,
+						Name:      b.Name,
 						Arguments: string(argsJSON),
 					},
 				})
+
+			case types.BlockToolResult:
+				content := b.Text
+				if b.IsError && content != "" {
+					content = "ERROR: " + content
+				}
+				results = append(results, chatMessage{
+					Role:       "tool",
+					Content:    content,
+					ToolCallID: b.ToolUseID,
+				})
 			}
+		}
+
+		msgs = append(msgs, results...)
+		switch {
+		case len(calls) > 0:
 			msgs = append(msgs, chatMessage{
 				Role:      "assistant",
-				Content:   m.Text,
-				ToolCalls: oaiCalls,
+				Content:   text.String(),
+				ToolCalls: calls,
 			})
-		default:
-			role := m.Role
-			if role == "" {
-				role = "user"
+		case len(results) > 0:
+			if strings.TrimSpace(text.String()) != "" {
+				msgs = append(msgs, chatMessage{Role: role, Content: text.String()})
 			}
-			msgs = append(msgs, chatMessage{Role: role, Content: m.Text})
+		default:
+			msgs = append(msgs, chatMessage{Role: role, Content: text.String()})
 		}
 	}
 	return msgs, nil

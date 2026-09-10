@@ -1297,8 +1297,14 @@ func TestHandleDelegate(t *testing.T) {
 	if !res.Success {
 		t.Errorf("expected success, got: %+v", res)
 	}
-	if res.Output != "mock delegation success" {
-		t.Errorf("expected mock delegation success, got %q", res.Output)
+	// The output is the codec's projection, not the raw return. A return this
+	// short is carried whole (see observation.minRetainBytes), so the delegated
+	// text is still present -- under a header naming the agent and the status.
+	if !strings.Contains(res.Output, "mock delegation success") {
+		t.Errorf("expected the delegated return inside the projection, got %q", res.Output)
+	}
+	if !strings.Contains(res.Output, "coder returned") {
+		t.Errorf("expected the projection header naming the agent and status, got %q", res.Output)
 	}
 
 	// 3. Delegate alias checks
@@ -1306,7 +1312,7 @@ func TestHandleDelegate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleDelegateAlias failed: %v", err)
 	}
-	if !res.Success || res.Output != "mock delegation success" {
+	if !res.Success || !strings.Contains(res.Output, "mock delegation success") {
 		t.Errorf("expected success for alias, got: %+v", res)
 	}
 

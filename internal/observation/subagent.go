@@ -83,8 +83,9 @@ const (
 // Filling them is reconnecting a wire that exists on both ends, and it is the
 // difference between a projection that KNOWS what changed and one that guessed
 // from prose. Leaving them empty is allowed and means exactly "the producer had
-// no structure", not "there was none" — projection then reads what it can out
-// of the output and marks it as reported rather than observed.
+// no structure", not "there was none": findings are then read out of the
+// output, and Changed and the verifications are simply not reported. See
+// collectVerification for why those two do not fall back.
 type Return struct {
 	// Agent is the subagent's name or intent verb, as the producer knows it.
 	Agent string `json:"agent,omitempty"`
@@ -432,7 +433,7 @@ func ProjectReturn(r Return, limits ReturnLimits) ReturnResult {
 	// touched. "Nothing was reported" is recoverable; a confident wrong answer
 	// is not.
 	result.Changed, result.ChangedOmitted = capStrings(dedupe(r.Changed), limits.MaxChanged)
-	result.Verification = collectVerification(r, output)
+	result.Verification = collectVerification(r)
 
 	uncertainty := structuralUncertainty(r)
 
@@ -483,16 +484,26 @@ func ProjectReturn(r Return, limits ReturnLimits) ReturnResult {
 	return result
 }
 
-// collectVerification reports what ran, preferring what the runtime watched
-// over what the subagent claimed.
+// collectVerification reports what ran. It reads the producer's structure and
+// NOTHING ELSE — there is no fallback that reads a verdict out of the prose.
 //
-// The fallback reads the transcript with internal/testoutput — the repository's
-// one test-output parser, shared so a fix to how a runner is read reaches every
-// consumer at once. Its verdict is marked SourceReported, because a subagent
-// pasting a green test log is a claim about a run nobody watched, and a parent
-// that cannot tell that from an observed pass will skip a verification it
-// needed.
-func collectVerification(r Return, output string) []Verification {
+// That is a deliberate refusal, and it was not the first design. Running the
+// repository's test-output parser over a return looks obviously right until you
+// run it over a code review: internal/testoutput's generic heuristics match
+// "error" and "failed" as whole words, by design, so they can read a non-Go
+// runner — and a reviewer writing "the error from Flush is discarded" scored
+// three test failures on a shard that never ran a test. A projection that
+// reports "tests FAILED (0 passed, 3 failed)" for a code review has not
+// summarised the return, it has fabricated a verdict, and the parent will act
+// on it.
+//
+// The knowledge that a given return IS a test log belongs to the producer,
+// which knows it spawned a tester, not to a codec looking at text. So a
+// producer in that position parses its own output and passes Tests in, marked
+// SourceReported; every other producer passes nothing and the projection says
+// nothing. The log itself stays one subagent_expand away, so a parent that
+// wants the verdict badly enough can read it rather than be handed a guess.
+func collectVerification(r Return) []Verification {
 	var out []Verification
 	if r.Build != nil {
 		v := *r.Build
@@ -509,23 +520,33 @@ func collectVerification(r Return, output string) []Verification {
 			v.Source = SourceObserved
 		}
 		out = append(out, v)
-		return out
-	}
-	if output == "" {
-		return out
-	}
-	if counts := testoutput.Parse(output); counts.Parsed {
-		out = append(out, Verification{
-			Kind:        "tests",
-			Source:      SourceReported,
-			Ran:         true,
-			OK:          counts.Failed == 0,
-			Passed:      counts.Passed,
-			Failed:      counts.Failed,
-			FailedNames: counts.FailedNames,
-		})
 	}
 	return out
+}
+
+// ReportedTests reads a test verdict out of output the CALLER knows to be a
+// test runner's, for a producer that can attest to that.
+//
+// It is exported so a producer holding that knowledge — the chat blackboard,
+// which knows the prior shard was the tester — can supply it, and it is not
+// called from inside projection for the reason collectVerification gives. The
+// verdict comes back marked SourceReported because nothing here watched the run
+// happen; the counts are internal/testoutput's, so a fix to how a runner is
+// read still reaches this consumer with every other one.
+func ReportedTests(output string) *Verification {
+	counts := testoutput.Parse(output)
+	if !counts.Parsed {
+		return nil
+	}
+	return &Verification{
+		Kind:        "tests",
+		Source:      SourceReported,
+		Ran:         true,
+		OK:          counts.Failed == 0,
+		Passed:      counts.Passed,
+		Failed:      counts.Failed,
+		FailedNames: counts.FailedNames,
+	}
 }
 
 // structuralUncertainty turns what the producer knows into what the parent has

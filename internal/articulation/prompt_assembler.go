@@ -237,6 +237,13 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 			if v := pc.SessionCtx.ExtraContext["reflection_hits"]; v != "" {
 				cc.HasReflectionHits = true
 			}
+			// HasNewFiles had no writer anywhere in the repository, so the
+			// new_files world state could never fire and the mandatory atom
+			// gated on it -- whose own text reads "Untracked files exist in the
+			// working directory" -- was unselectable in every session.
+			if v := pc.SessionCtx.ExtraContext["new_files"]; v != "" {
+				cc.HasNewFiles = true
+			}
 		}
 
 		if len(pc.SessionCtx.ReflectionHits) > 0 {

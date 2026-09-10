@@ -168,6 +168,16 @@ func priorShardContext(prior *ShardResult) string {
 			Message:  message,
 		})
 	}
+	// A tester's return IS a test runner's output, and this is the one layer
+	// that knows that: the codec sees only text, and reading a pass/fail verdict
+	// out of arbitrary text is how a code review saying "the error from Flush is
+	// discarded" scores three test failures. Because the knowledge lives here,
+	// the parse happens here, and the verdict is marked reported rather than
+	// observed — nothing in this process watched the run.
+	if prior.ShardType == "tester" {
+		ret.Tests = observation.ReportedTests(prior.RawOutput)
+	}
+
 	return observation.SharedSubagents().
 		EncodeReturn(ret, observation.ReturnLimits{}).
 		Text(toolscore.SubagentExpandToolName)

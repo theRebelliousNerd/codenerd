@@ -264,12 +264,20 @@ func metaToolsFromDefinitions(tools []ToolDefinition) []metaResponsesTool {
 }
 
 // metaInputFromHistory converts codeNERD's conversation history into Responses
-// input items.
+// input items, in the order the turn's content blocks record.
 //
-// Reasoning replay is the point of this function. When a prior assistant turn
-// carried reasoning blocks, they are emitted BEFORE that turn's tool calls, in
-// the order Meta returned them — the model reads its own prior thinking and
-// then the calls it made, which is the ordering that keeps a tool loop coherent.
+// Reasoning replay is the point of this function, and there are two places the
+// reasoning can come from. A turn that carries its own thinking blocks — one
+// built by AssistantMessageFrom out of a Responses reply — replays them from
+// the message, in position, interleaved with the text and calls exactly as
+// Meta emitted them. A turn built the old way carries no blocks, and its
+// reasoning is looked up in the per-turn cache the client keeps on the side,
+// keyed by history index.
+//
+// The precedence is one-way and deliberate: the message wins whenever it has
+// anything, and the cache is consulted only for a turn that has nothing. They
+// are not two views of the same data — the cache exists precisely because the
+// message used to have nowhere to put it.
 //
 // Tool results become separate function_call_output items rather than user
 // messages, and each is paired to its call by call_id.
@@ -286,56 +294,85 @@ func metaInputFromHistory(systemPrompt string, history []types.Message, reasonin
 	seenOutputIDs := make(map[string]struct{})
 
 	for i, msg := range history {
-		switch msg.Role {
-		case "assistant":
-			// Replay this turn's reasoning first, keyed by turn index.
+		textRole := "user"
+		if msg.Role == "assistant" {
+			textRole = "assistant"
+		}
+		blocks := msg.Content()
+
+		if msg.Role == "assistant" && !metaCarriesOwnReasoning(blocks) {
+			// Legacy turn: replay this turn's reasoning from the side cache,
+			// ahead of the calls it produced.
 			for _, r := range reasoning[metaTurnKey(i)] {
 				input = append(input, metaReasoningItem(r.ID, r.EncryptedContent))
 			}
-			if strings.TrimSpace(msg.Text) != "" {
-				input = append(input, metaInputText("assistant", msg.Text))
-			}
-			for _, tc := range msg.ToolCalls {
-				if _, ok := seenCallIDs[tc.ID]; ok {
-					logging.Get(logging.CategoryAPI).Warn("meta responses: duplicate function_call call_id %s skipped", tc.ID)
+		}
+
+		for _, b := range blocks {
+			switch b.Kind {
+			case types.BlockThinking:
+				// An unsigned thinking block has no encrypted_content and
+				// nothing the API will accept; replaying an empty one would
+				// only add an item the model cannot read.
+				if b.Signature == "" {
 					continue
 				}
-				seenCallIDs[tc.ID] = struct{}{}
-				// ToolCall.Input is a decoded map; the wire wants the JSON
+				input = append(input, metaReasoningItem(b.ID, b.Signature))
+
+			case types.BlockText:
+				if strings.TrimSpace(b.Text) == "" {
+					continue
+				}
+				input = append(input, metaInputText(textRole, b.Text))
+
+			case types.BlockToolUse:
+				if _, ok := seenCallIDs[b.ID]; ok {
+					logging.Get(logging.CategoryAPI).Warn("meta responses: duplicate function_call call_id %s skipped", b.ID)
+					continue
+				}
+				seenCallIDs[b.ID] = struct{}{}
+				// ToolCall input is a decoded map; the wire wants the JSON
 				// text the model originally emitted. A marshal failure must
 				// not drop the call — an unpaired function_call_output on the
 				// next turn is rejected by the API, so send "{}" and let the
 				// pairing survive.
 				args := "{}"
-				if len(tc.Input) > 0 {
-					if encoded, err := json.Marshal(tc.Input); err == nil {
+				if len(b.Input) > 0 {
+					if encoded, err := json.Marshal(b.Input); err == nil {
 						args = string(encoded)
 					} else {
 						logging.Get(logging.CategoryAPI).Warn(
-							"meta responses: could not marshal args for tool %s (%v); sending {}", tc.Name, err)
+							"meta responses: could not marshal args for tool %s (%v); sending {}", b.Name, err)
 					}
 				}
-				input = append(input, metaFunctionCallItem(tc.ID, tc.Name, args))
-			}
+				input = append(input, metaFunctionCallItem(b.ID, b.Name, args))
 
-		default:
-			// Tool results are their own item type and must not be folded into
-			// the user text, or the model cannot pair them with their calls.
-			for _, tr := range msg.ToolResults {
-				if _, ok := seenOutputIDs[tr.ToolUseID]; ok {
-					logging.Get(logging.CategoryAPI).Warn("meta responses: duplicate function_call_output call_id %s skipped", tr.ToolUseID)
+			case types.BlockToolResult:
+				// Tool results are their own item type and must not be folded
+				// into the user text, or the model cannot pair them with their
+				// calls.
+				if _, ok := seenOutputIDs[b.ToolUseID]; ok {
+					logging.Get(logging.CategoryAPI).Warn("meta responses: duplicate function_call_output call_id %s skipped", b.ToolUseID)
 					continue
 				}
-				seenOutputIDs[tr.ToolUseID] = struct{}{}
-				input = append(input, metaFunctionOutputItem(tr.ToolUseID, tr.Content))
-			}
-			if strings.TrimSpace(msg.Text) != "" {
-				input = append(input, metaInputText("user", msg.Text))
+				seenOutputIDs[b.ToolUseID] = struct{}{}
+				input = append(input, metaFunctionOutputItem(b.ToolUseID, b.Text))
 			}
 		}
 	}
 
 	return input
+}
+
+// metaCarriesOwnReasoning reports whether a turn brought replayable reasoning
+// with it, which is what decides between the message and the side cache.
+func metaCarriesOwnReasoning(blocks []types.ContentBlock) bool {
+	for _, b := range blocks {
+		if b.Kind == types.BlockThinking && b.Signature != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // metaTurnKey names a history position for the reasoning cache.
@@ -790,9 +827,30 @@ func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 
 // metaToolResponseFromReply converts a Responses reply into codeNERD's
 // vendor-neutral tool response.
+//
+// The output array is ordered, so Blocks records the real order the model
+// emitted — reasoning, text and calls interleaved as they came — with each
+// reasoning item's encrypted_content kept verbatim as the block signature.
+// That is what lets the next turn replay this one in position rather than
+// looking it up by history index.
 func metaToolResponseFromReply(reply *metaResponsesReply) *LLMToolResponse {
 	out := &LLMToolResponse{Text: metaTextFromReply(reply)}
 	for _, item := range reply.Output {
+		switch item.Type {
+		case "reasoning":
+			if item.EncryptedContent == "" {
+				continue
+			}
+			block := types.RedactedThinkingBlock(item.EncryptedContent)
+			block.ID = item.ID
+			out.Blocks = append(out.Blocks, block)
+		case "message":
+			for _, c := range item.Content {
+				if c.Text != "" {
+					out.Blocks = append(out.Blocks, types.TextBlock(c.Text))
+				}
+			}
+		}
 		if item.Type != "function_call" {
 			continue
 		}
@@ -814,6 +872,7 @@ func metaToolResponseFromReply(reply *metaResponsesReply) *LLMToolResponse {
 			Name:  item.Name,
 			Input: input,
 		})
+		out.Blocks = append(out.Blocks, types.ToolUseBlock(item.CallID, item.Name, input))
 	}
 	return out
 }
