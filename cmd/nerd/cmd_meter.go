@@ -41,6 +41,30 @@ func meterWorkspaceRoot() (string, error) {
 	return cwd, nil
 }
 
+// emptyLogError explains why a log yielded nothing, which is not one question
+// but two.
+//
+// The reader cannot resynchronize after a malformed object, so a bad FIRST line
+// returns zero records and a truncation count of one -- and the caller used to
+// check the record count before the truncation count and report "run a session
+// first". That is the worst possible answer, because it is the one case where
+// the advice is certainly wrong: the sessions ran, the log is full, and every
+// record in it is unreadable. Found by pointing `nerd meter epochs` at a
+// twenty-eight line log whose first line had one field of the wrong shape,
+// which is exactly what a schema change between versions looks like.
+//
+// Distinguishing them costs nothing: a missing file yields no truncation, a
+// file whose first record will not decode yields one.
+func emptyLogError(kind, path string, truncated int, advice string) error {
+	if truncated > 0 {
+		return fmt.Errorf("%s exists but no %s in it could be parsed — "+
+			"the first record is malformed, so nothing after it could be read. "+
+			"A log written by a different version of this binary looks like this; "+
+			"move it aside to start a fresh one", path, kind)
+	}
+	return fmt.Errorf("no %ss at %s — %s", kind, path, advice)
+}
+
 func loadReceipts() ([]broker.Receipt, error) {
 	root, err := meterWorkspaceRoot()
 	if err != nil {
@@ -53,7 +77,8 @@ func loadReceipts() ([]broker.Receipt, error) {
 		return nil, fmt.Errorf("read receipt log %s: %w", path, err)
 	}
 	if len(receipts) == 0 {
-		return nil, fmt.Errorf("no receipts at %s — run an agent session in this workspace first", path)
+		return nil, emptyLogError("receipt", path, truncated,
+			"run an agent session in this workspace first")
 	}
 	if truncated > 0 && !meterJSON {
 		fmt.Fprintf(os.Stderr, "note: %d log generation(s) ended on a truncated line; "+
@@ -416,7 +441,8 @@ chart into an information architecture would describe the data even worse.`,
 
 		report := rec.Report(prompt.DefaultCoUseParams(), rec.Categories())
 		if report.SuccessSelections == 0 {
-			return fmt.Errorf("no settled selections at %s — run agent turns in this workspace first", path)
+			return emptyLogError("settled selection", path, truncated,
+				"run agent turns in this workspace first")
 		}
 		if meterJSON {
 			return emitJSON(cmd.OutOrStdout(), report)

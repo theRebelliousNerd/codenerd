@@ -391,6 +391,74 @@ func TestMeterExplainsAnEmptyWorkspace(t *testing.T) {
 	}
 }
 
+// The other half of TestMeterExplainsAnEmptyWorkspace, and the half that was
+// wrong. A log whose FIRST record will not decode yields zero receipts, and the
+// empty check ran before the truncation check, so a full log of unreadable
+// records reported "run an agent session in this workspace first" -- the one
+// case where that advice is certainly useless, because the sessions ran.
+//
+// The realistic cause is a schema change between binary versions, which is
+// exactly when an operator most needs to be told it is a parse problem.
+func TestMeterDistinguishesAnUnreadableLogFromAnAbsentOne(t *testing.T) {
+	root := t.TempDir()
+	prev := meterWorkspace
+	meterWorkspace = root
+	t.Cleanup(func() { meterWorkspace = prev })
+	meterJSON = false
+
+	path := filepath.Join(root, ".nerd", broker.DefaultReceiptLogName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// One field of the wrong shape on the first line, then perfectly good
+	// records behind it that the stream decoder can never reach.
+	body := `{"purpose":"/reasoning","estimated":{"confidence":{"source":"x"}}}` + "\n" +
+		`{"purpose":"/reasoning","actual":{"input_tokens":10,"calls":1}}` + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	var buf bytes.Buffer
+	c := &cobra.Command{}
+	c.SetOut(&buf)
+	c.SetErr(&buf)
+
+	err := meterCmd.RunE(c, nil)
+	if err == nil {
+		t.Fatal("meter succeeded on a log it could not parse a single record from")
+	}
+	if strings.Contains(err.Error(), "run an agent session") {
+		t.Errorf("an unreadable log was reported as an absent one, so the operator "+
+			"is told to do the thing they already did: %v", err)
+	}
+	if !strings.Contains(err.Error(), "could be parsed") {
+		t.Errorf("error does not say the records are unreadable: %v", err)
+	}
+}
+
+// emptyLogError's two branches turn on the truncation count, so the reader
+// contract it depends on is pinned here rather than assumed: a malformed first
+// record must yield zero records AND a non-zero truncation count. If the reader
+// ever started skipping bad lines instead of stopping, the two cases would
+// become indistinguishable again with nothing failing.
+func TestReaderReportsTruncationWhenTheFirstRecordIsBad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "receipts.jsonl")
+	if err := os.WriteFile(path, []byte("{not json at all\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	recs, truncated, err := broker.ReadReceiptLog(path)
+	if err != nil {
+		t.Fatalf("ReadReceiptLog: %v", err)
+	}
+	if len(recs) != 0 {
+		t.Errorf("got %d records from a log with one malformed line", len(recs))
+	}
+	if truncated == 0 {
+		t.Error("truncation not reported for a malformed first record; " +
+			"emptyLogError can no longer tell an unreadable log from an absent one")
+	}
+}
+
 func TestMeterToleratesATruncatedLog(t *testing.T) {
 	root := meterFixture(t)
 	meterJSON = true
