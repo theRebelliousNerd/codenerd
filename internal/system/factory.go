@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
 	promptevolution "codenerd/internal/autopoiesis/prompt_evolution"
+	"codenerd/internal/broker"
 	"codenerd/internal/browser"
 	"codenerd/internal/config"
 	ctxlearn "codenerd/internal/context"
@@ -14,6 +15,7 @@ import (
 	"codenerd/internal/embedding"
 	"codenerd/internal/features"
 	nerdinit "codenerd/internal/init"
+	"codenerd/internal/jsonl"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"codenerd/internal/mcp"
@@ -346,8 +348,16 @@ type Cortex struct {
 	ouroborosCancel       context.CancelFunc
 	ouroborosDone         <-chan struct{}
 	perceptionInitialized bool
-	closeMu               sync.Mutex
-	closed                bool
+
+	// meterSink and couseLog are what THIS boot installed into the two
+	// process-wide measurement singletons. Close detaches only these, by
+	// identity: several Cortex instances can be live at once (cortexCache is
+	// keyed per workspace and provider), and an unconditional detach lets one
+	// shutting down close the log another is still writing to.
+	meterSink broker.ReceiptSink
+	couseLog  *jsonl.Appender
+	closeMu   sync.Mutex
+	closed    bool
 
 	// cortexKey is the cache key under which this Cortex is registered
 	// in cortexCache (set by GetOrBootCortex). Direct BootCortex callers
@@ -693,6 +703,8 @@ type bootContext struct {
 	imageLLMClient               perception.LLMClient // Gemini Nano Banana 2 for image_generator only
 	providerCfgForClassification *perception.ProviderConfig
 	perceptionInitialized        bool
+	meterSink                    broker.ReceiptSink
+	couseLog                     *jsonl.Appender
 	localDB                      *store.LocalStore
 	learningStore                *store.LearningStore
 	kernel                       SystemKernel
@@ -812,8 +824,8 @@ func initPerceptionLayer(bctx *bootContext) error {
 	// one — and an unconfigured window is reported as zero headroom on every
 	// receipt rather than passing silently, so doing this late would be visible
 	// but wrong.
-	configureBrokerMeter(bctx.appCfg, bctx.workspace)
-	configureCoUseLog(bctx.workspace)
+	bctx.meterSink = configureBrokerMeter(bctx.appCfg, bctx.workspace)
+	bctx.couseLog = configureCoUseLog(bctx.workspace)
 
 	// Prefer workspace config first so engine selection wins over a ambient
 	// ZAI_API_KEY (or --api-key). Previously any non-empty apiKey forced
@@ -2196,6 +2208,8 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		ouroborosDone:         bctx.ouroborosDone,
 		perceptionInitialized: bctx.perceptionInitialized,
 		sessionID:             bctx.sessionID,
+		meterSink:             bctx.meterSink,
+		couseLog:              bctx.couseLog,
 	}
 }
 

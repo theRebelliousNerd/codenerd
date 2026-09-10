@@ -119,3 +119,43 @@ func fileSize(t *testing.T, path string) int64 {
 	}
 	return info.Size()
 }
+
+// Detaching must not close a log somebody else installed. CoUse() is a process
+// singleton and more than one Cortex can be live at once, so an unconditional
+// detach on shutdown let one agent stop another's measurement silently.
+func TestDetachLogOnlyClosesWhatYouInstalled(t *testing.T) {
+	dir := t.TempDir()
+	mine, err := jsonl.Open(filepath.Join(dir, "mine.jsonl"))
+	if err != nil {
+		t.Fatalf("open mine: %v", err)
+	}
+	theirsPath := filepath.Join(dir, "theirs.jsonl")
+	theirs, err := jsonl.Open(theirsPath)
+	if err != nil {
+		t.Fatalf("open theirs: %v", err)
+	}
+	t.Cleanup(func() { _ = theirs.Close() })
+
+	rec := NewCoUseRecorder()
+	if err := rec.SetLog(mine); err != nil {
+		t.Fatalf("SetLog(mine): %v", err)
+	}
+	// A later boot replaces mine, which closes mine — that is the swap
+	// contract and it is tested above.
+	if err := rec.SetLog(theirs); err != nil {
+		t.Fatalf("SetLog(theirs): %v", err)
+	}
+
+	detached, err := rec.DetachLog(mine)
+	if err != nil {
+		t.Fatalf("DetachLog: %v", err)
+	}
+	if detached {
+		t.Error("detached a log this caller did not install")
+	}
+
+	theirs.Append(map[string]string{"still": "recording"})
+	if fileSize(t, theirsPath) == 0 {
+		t.Error("the other agent's log was closed by a shutdown that did not own it")
+	}
+}

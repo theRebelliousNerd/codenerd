@@ -133,6 +133,30 @@ func SetExtraSink(sink ReceiptSink) error {
 	return m.setExtraSinkLocked(sink)
 }
 
+// DetachExtraSink removes and closes the extra sink only if it is still the one
+// the caller installed, reporting whether it did.
+//
+// The compare is the point. The meter is a process singleton and Cortex
+// instances are cached per (workspace, provider, key, model, shards), so more
+// than one can be live at once. An unconditional detach on shutdown meant
+// closing one agent lets it close the receipt log a DIFFERENT, still-running
+// agent is writing to — and a closed FileSink drops records silently, so that
+// second agent goes on working with its metering switched off and nothing to
+// say so. Exactly the class of defect this whole branch is about, introduced by
+// the fix for the previous one.
+func DetachExtraSink(installed ReceiptSink) (bool, error) {
+	if installed == nil {
+		return false, nil
+	}
+	m := Default()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.extraSink != installed {
+		return false, nil
+	}
+	return true, m.setExtraSinkLocked(nil)
+}
+
 // setExtraSinkLocked swaps the extra sink. The caller holds m.mu.
 func (m *Meter) setExtraSinkLocked(sink ReceiptSink) error {
 	var closeErr error

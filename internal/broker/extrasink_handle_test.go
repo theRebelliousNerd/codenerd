@@ -103,3 +103,82 @@ func sinkFileSize(t *testing.T, path string) int64 {
 	}
 	return info.Size()
 }
+
+// Detaching must not close a sink somebody else installed.
+//
+// The meter is a process singleton and Cortex instances are cached per
+// workspace and provider, so more than one can be live at once. An
+// unconditional detach on shutdown meant closing one agent let it close the
+// receipt log a DIFFERENT, still-running agent was writing to — and a closed
+// FileSink drops records silently, so that agent would carry on with its
+// metering switched off and nothing anywhere to say so.
+func TestDetachExtraSinkOnlyClosesWhatYouInstalled(t *testing.T) {
+	dir := t.TempDir()
+	minePath := filepath.Join(dir, "mine.jsonl")
+	theirsPath := filepath.Join(dir, "theirs.jsonl")
+
+	mine, err := NewFileSink(minePath)
+	if err != nil {
+		t.Fatalf("NewFileSink(mine): %v", err)
+	}
+	theirs, err := NewFileSink(theirsPath)
+	if err != nil {
+		t.Fatalf("NewFileSink(theirs): %v", err)
+	}
+	t.Cleanup(func() {
+		_ = SetExtraSink(nil)
+		_ = mine.Close()
+		_ = theirs.Close()
+	})
+
+	// I install mine; a later boot replaces it with theirs.
+	if err := SetExtraSink(mine); err != nil {
+		t.Fatalf("SetExtraSink(mine): %v", err)
+	}
+	if err := SetExtraSink(theirs); err != nil {
+		t.Fatalf("SetExtraSink(theirs): %v", err)
+	}
+
+	// Now I shut down and try to detach. The installed sink is not mine.
+	detached, err := DetachExtraSink(mine)
+	if err != nil {
+		t.Fatalf("DetachExtraSink: %v", err)
+	}
+	if detached {
+		t.Error("detached a sink this caller did not install")
+	}
+
+	theirs.Record(Receipt{Purpose: "/test", Provider: "p", Model: "m"})
+	if sinkFileSize(t, theirsPath) == 0 {
+		t.Error("the other agent's sink was closed by a shutdown that did not own it; " +
+			"its metering is now off with nothing to say so")
+	}
+}
+
+// And it must close what you DID install, or the handle leaks again.
+func TestDetachExtraSinkClosesYourOwn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "own.jsonl")
+	sink, err := NewFileSink(path)
+	if err != nil {
+		t.Fatalf("NewFileSink: %v", err)
+	}
+	t.Cleanup(func() { _ = SetExtraSink(nil); _ = sink.Close() })
+
+	if err := SetExtraSink(sink); err != nil {
+		t.Fatalf("SetExtraSink: %v", err)
+	}
+	sink.Record(Receipt{Purpose: "/test", Provider: "p", Model: "m"})
+	before := sinkFileSize(t, path)
+
+	detached, err := DetachExtraSink(sink)
+	if err != nil {
+		t.Fatalf("DetachExtraSink: %v", err)
+	}
+	if !detached {
+		t.Fatal("did not detach the sink this caller installed")
+	}
+	sink.Record(Receipt{Purpose: "/test", Provider: "p", Model: "m"})
+	if got := sinkFileSize(t, path); got != before {
+		t.Errorf("detach did not close the sink: %d bytes, was %d", got, before)
+	}
+}

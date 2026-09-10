@@ -189,15 +189,29 @@ func (c *Cortex) Close() error {
 	// Detaching also stops receipts and selections being written to a file the
 	// caller has finished with, which matters for a one-shot CLI that boots,
 	// works, closes, and expects the workspace to be quiet afterwards.
-	if err := runCloseStep("Broker.SetExtraSink(nil)", closeStepTimeout, func() error {
-		return broker.SetExtraSink(nil)
-	}); err != nil {
-		errs = append(errs, err)
+	// By identity, not unconditionally. Several Cortex instances can be live in
+	// one process — cortexCache is keyed per workspace and provider — and both
+	// of these are process singletons, so a blanket detach lets the one shutting
+	// down close the log another is still writing to. A closed sink drops
+	// records silently, so that second agent would go on working with its
+	// metering switched off and nothing anywhere to say so.
+	if c.meterSink != nil {
+		if err := runCloseStep("Broker.DetachExtraSink", closeStepTimeout, func() error {
+			_, detachErr := broker.DetachExtraSink(c.meterSink)
+			return detachErr
+		}); err != nil {
+			errs = append(errs, err)
+		}
+		c.meterSink = nil
 	}
-	if err := runCloseStep("CoUse.SetLog(nil)", closeStepTimeout, func() error {
-		return prompt.CoUse().SetLog(nil)
-	}); err != nil {
-		errs = append(errs, err)
+	if c.couseLog != nil {
+		if err := runCloseStep("CoUse.DetachLog", closeStepTimeout, func() error {
+			_, detachErr := prompt.CoUse().DetachLog(c.couseLog)
+			return detachErr
+		}); err != nil {
+			errs = append(errs, err)
+		}
+		c.couseLog = nil
 	}
 
 	// Evict from the keyed cache so a future GetOrBootCortex with the same

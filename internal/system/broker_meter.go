@@ -19,7 +19,13 @@ import (
 // subtracted the other, alongside four hard-coded literals elsewhere that read
 // nothing at all. It is now read once, here, and everything that spends tokens
 // is charged against the result.
-func configureBrokerMeter(appCfg *config.UserConfig, workspace string) {
+// configureBrokerMeter returns the sink it installed, or nil.
+//
+// The caller keeps it so shutdown can detach only what THIS boot installed.
+// The meter is a process singleton and Cortex instances are cached per
+// workspace and provider, so more than one can be live at once; an
+// unconditional detach lets one agent close the log another is writing to.
+func configureBrokerMeter(appCfg *config.UserConfig, workspace string) broker.ReceiptSink {
 	sink := openReceiptLog(workspace)
 
 	if appCfg == nil {
@@ -30,7 +36,7 @@ func configureBrokerMeter(appCfg *config.UserConfig, workspace string) {
 		if sink != nil {
 			broker.Configure(broker.MeterConfig{ExtraSink: sink})
 		}
-		return
+		return sink
 	}
 
 	ctxCfg := appCfg.GetContextWindowConfig()
@@ -38,7 +44,7 @@ func configureBrokerMeter(appCfg *config.UserConfig, workspace string) {
 		if sink != nil {
 			broker.Configure(broker.MeterConfig{ExtraSink: sink})
 		}
-		return
+		return sink
 	}
 
 	reserve := ctxCfg.OutputReserve
@@ -65,6 +71,7 @@ func configureBrokerMeter(appCfg *config.UserConfig, workspace string) {
 	logging.Get(logging.CategoryAPI).Info(
 		"broker: metering window=%d output_reserve=%d (output=%d thinking=%d tool_buffer=%d)",
 		ctxCfg.MaxTokens, reserve, ctxCfg.OutputReserve, ctxCfg.ThinkingReserve, ctxCfg.ToolUseBuffer)
+	return sink
 }
 
 // openReceiptLog installs the workspace receipt log, or returns nil when it
@@ -96,9 +103,11 @@ func openReceiptLog(workspace string) broker.ReceiptSink {
 // Same rationale as the receipt log, same failure posture: a workspace that
 // cannot be written to still runs the agent, with measurement degrading to
 // in-process only.
-func configureCoUseLog(workspace string) {
+// configureCoUseLog returns the log it installed, or nil. Same ownership
+// reasoning as configureBrokerMeter.
+func configureCoUseLog(workspace string) *jsonl.Appender {
 	if workspace == "" {
-		return
+		return nil
 	}
 
 	path := filepath.Join(workspace, ".nerd", prompt.DefaultSelectionLogName)
@@ -106,7 +115,7 @@ func configureCoUseLog(workspace string) {
 	if err != nil {
 		logging.Get(logging.CategoryJIT).Warn(
 			"prompt: atom selection log unavailable at %s (%v); co-use analysis stays in-process only", path, err)
-		return
+		return nil
 	}
 
 	if err := prompt.CoUse().SetLog(log); err != nil {
@@ -117,4 +126,5 @@ func configureCoUseLog(workspace string) {
 			"prompt: previous atom selection log did not close cleanly: %v", err)
 	}
 	logging.Get(logging.CategoryJIT).Debug("prompt: atom selections logging to %s", path)
+	return log
 }

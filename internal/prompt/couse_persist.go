@@ -67,6 +67,28 @@ func (r *CoUseRecorder) SetLog(log *jsonl.Appender) error {
 	return nil
 }
 
+// DetachLog removes and closes the log only if it is still the one the caller
+// installed, reporting whether it did.
+//
+// CoUse() is a process singleton and more than one Cortex can be live in a
+// process at once, so an unconditional detach on shutdown let one agent close
+// the selection log another was still writing to. A detached recorder drops
+// selections silently, which turns a shutdown into a second agent measuring
+// nothing.
+func (r *CoUseRecorder) DetachLog(installed *jsonl.Appender) (bool, error) {
+	if r == nil || installed == nil {
+		return false, nil
+	}
+	r.logMu.Lock()
+	if r.log != installed {
+		r.logMu.Unlock()
+		return false, nil
+	}
+	r.log = nil
+	r.logMu.Unlock()
+	return true, installed.Close()
+}
+
 // appendToLog writes one settled selection. Called without the tally mutex
 // held: writing to disk under the lock that every Observe contends on would
 // put file I/O on the compilation path.
