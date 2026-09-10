@@ -25,6 +25,15 @@ type ScheduledLLMCall struct {
 // Compile-time assertion that ScheduledLLMCall implements LLMClient
 var _ LLMClient = (*ScheduledLLMCall)(nil)
 
+// Unwrap exposes the wrapped client so broker.Base and broker.IsBrokered can
+// walk the decorator chain.
+//
+// Without it this type is opaque: Base stops here and returns the scheduler
+// instead of the concrete client, and IsBrokered reports an already-metered
+// chain as un-metered. Neither shows up as an error -- Base's callers use a
+// comma-ok type assertion, so a miss reads as "not that engine".
+func (c *ScheduledLLMCall) Unwrap() LLMClient { return c.Client }
+
 // Complete makes an LLM call with cooperative scheduling (single prompt).
 // Acquires a slot, makes the call, releases the slot.
 func (c *ScheduledLLMCall) Complete(ctx context.Context, prompt string) (string, error) {

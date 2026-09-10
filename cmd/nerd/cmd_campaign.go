@@ -1149,6 +1149,13 @@ func newCampaignLLMAdapter(client perception.LLMClient) *campaignLLMAdapter {
 	return &campaignLLMAdapter{client: client}
 }
 
+// Unwrap exposes the wrapped client so broker.Base and broker.IsBrokered can
+// walk the decorator chain. Without it this type is opaque to both: Base stops
+// here instead of reaching the concrete client, and IsBrokered reports an
+// already-metered chain as un-metered. Neither surfaces as an error -- Base's
+// callers use a comma-ok type assertion, so a miss reads as "not that engine".
+func (a *campaignLLMAdapter) Unwrap() perception.LLMClient { return a.client }
+
 func (a *campaignLLMAdapter) Complete(ctx context.Context, prompt string) (string, error) {
 	return a.client.Complete(ctx, prompt)
 }

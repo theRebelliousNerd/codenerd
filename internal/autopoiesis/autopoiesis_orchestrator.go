@@ -69,6 +69,22 @@ type llmClientWrapper struct {
 	client LLMClient
 }
 
+// Unwrap exposes the wrapped client so broker.Base and broker.IsBrokered can
+// walk the decorator chain.
+//
+// This wrapper widens rather than decorates: its field is the narrow local
+// LLMClient (Complete and CompleteWithSystem only), so what it holds is not
+// always a full types.LLMClient. When it is -- which is every case where a real
+// brokered client was passed in -- handing it back keeps the metering visible
+// behind this type. When it is not, returning nil stops the walk here, which is
+// the honest answer and is what both Base and IsBrokered already expect.
+func (w *llmClientWrapper) Unwrap() types.LLMClient {
+	if full, ok := w.client.(types.LLMClient); ok {
+		return full
+	}
+	return nil
+}
+
 func (w *llmClientWrapper) Complete(ctx context.Context, prompt string) (string, error) {
 	return w.client.Complete(ctx, prompt)
 }

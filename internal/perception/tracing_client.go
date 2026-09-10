@@ -448,6 +448,12 @@ func (tc *TracingLLMClient) GetUnderlying() LLMClient {
 	return tc.underlying
 }
 
+// Unwrap exposes the wrapped client so broker.Base and broker.IsBrokered can
+// walk the decorator chain. Without it this type is opaque to both: Base stops
+// here instead of reaching the concrete client, and IsBrokered reports an
+// already-metered chain as un-metered.
+func (tc *TracingLLMClient) Unwrap() LLMClient { return tc.underlying }
+
 // SetModel changes the model used for completions on the underlying client.
 func (tc *TracingLLMClient) SetModel(model string) {
 	tc.mu.Lock()

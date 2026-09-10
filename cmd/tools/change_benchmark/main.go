@@ -34,6 +34,12 @@ type boundedClient struct {
 	calls atomic.Int32
 }
 
+// Unwrap exposes the wrapped client so broker.Base and broker.IsBrokered can
+// walk the decorator chain. Without it this type is opaque to both: Base stops
+// here instead of reaching the concrete client, and IsBrokered reports an
+// already-metered chain as un-metered.
+func (c *boundedClient) Unwrap() types.LLMClient { return c.LLMClient }
+
 func (c *boundedClient) admit() error {
 	if c.calls.Add(1) > maxCalls {
 		return errors.New("comparison LLM-call budget exhausted")
