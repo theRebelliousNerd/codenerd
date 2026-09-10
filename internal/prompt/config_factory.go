@@ -265,6 +265,13 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	coreTools := []string{
 		"read_file",
 		"search_code",
+		// search_expand rides with search_code deliberately. search_code elides
+		// the matching lines and reports a handle for them; if the redemption
+		// verb is missing from the persona's catalog, that handle is a promise
+		// the model is structurally unable to keep, and the elision becomes
+		// plain loss. One extra schema on every turn is the price of the lines
+		// not being on every turn.
+		"search_expand",
 		"list_files",
 		"glob",
 		"grep",

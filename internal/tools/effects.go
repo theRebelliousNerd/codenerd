@@ -17,7 +17,8 @@ const (
 // Generated and plugin tools must supply their own explicit Tool.Effect.
 func BuiltinEffect(name string) Effect {
 	switch name {
-	case "read_file", "list_files", "glob", "grep", "search_code", "get_element", "get_elements",
+	case "read_file", "list_files", "glob", "grep", "search_code", "search_expand",
+		"get_element", "get_elements",
 		"get_impacted_tests", "git_diff", "git_log", "research_cache_get",
 		"research_cache_stats", "browser_extract", "browser_observe",
 		"browser_evidence", "browser_specs", "browser_wait",

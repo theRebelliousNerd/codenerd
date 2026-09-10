@@ -79,7 +79,27 @@ the work they gate begins.
   wrong: `ClampText` was already head+tail. The genuine narrower defect
   (byte-offset cuts landing mid-line) is fixed on this branch. A structural
   test-output codec is still worth building, but as structure, not as rescue.
-- Code-search codec: symbols and dependency edges, not matching lines.
+- ~~Code-search codec: symbols and dependency edges, not matching lines.~~ —
+  **built.** `internal/observation` composes `internal/retain` with a
+  code-search projection: each match resolves to the innermost element
+  containing it, and only dependency-bearing edges are kept (`references`,
+  `imports`). Wired into the two live producers — the `search_code` tool and
+  the VirtualStore action — plus a `search_expand` verb to redeem a handle,
+  registered through the tool registry, the effect table, `safe_action` and
+  `coreTools`, because a handle the model cannot redeem is a promise it is
+  structurally unable to keep.
+
+  **Hydration cannot re-run, structurally rather than by discipline.**
+  `CodeSearch` holds a `*retain.Store` and nothing else; the source reader is
+  an argument to `Encode`, so `Hydrate` has no reader to reach for. A
+  reflection test pins the field list.
+
+  Measured on this repo, codec vs raw grep output: `logging.Tools` 2374 vs
+  9246 bytes, `ActionResult` 3653 vs 9985, `WorkspaceRoot` 4428 vs 8687,
+  `ClampText` 1653 vs 2957, and the honest worst case `retain.` at 2094 vs
+  2019 — a wash on a search with one hit per symbol, while still carrying more
+  structure. The first rendering was *larger* than grep on exactly that shape,
+  which is why `TestResultText_ShouldNameEachSymbolOnce` exists.
 - File-read codec: exact source around the edit plus a precondition hash.
 - Subagent-return codec: findings, evidence refs, changed artifacts, verification
   status, remaining uncertainty — not the transcript.

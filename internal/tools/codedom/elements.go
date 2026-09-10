@@ -144,7 +144,19 @@ func extractCodeElements(path string) ([]CodeElement, error) {
 	if err != nil {
 		return nil, err
 	}
-	content := string(data)
+	return ElementsFromSource(path, string(data)), nil
+}
+
+// ElementsFromSource extracts code elements from source text that the caller
+// already holds.
+//
+// It is separate from extractCodeElements so that a caller which has just read
+// a file for another reason does not read it a second time, and — more
+// importantly — so that a caller can decide for itself which bytes are
+// analysed. The observation codec needs the second property: it projects the
+// bytes it observed, and a helper that always went back to disk would let the
+// projection describe a file that had changed since the search ran.
+func ElementsFromSource(path, content string) []CodeElement {
 	// Split into lines; handle empty file.
 	var lines []string
 	if content == "" {
@@ -210,7 +222,7 @@ func extractCodeElements(path string) ([]CodeElement, error) {
 		}
 	}
 
-	return elements, nil
+	return elements
 }
 
 // findBraceEndLine computes the end line for brace-based languages by counting
