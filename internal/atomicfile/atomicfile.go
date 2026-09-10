@@ -15,6 +15,36 @@
 // data, it permanently wedges `nerd init` for that workspace: every later run
 // refuses to touch the file it cannot parse. Atomicity is what keeps
 // fail-closed from becoming fail-forever.
+//
+// A later audit found six more, which makes ten and makes this systemic rather
+// than a run of bad luck: the northstar vision JSON and its Mangle projection,
+// the assault triage latest.json, the transaction manager's apply and rollback,
+// autopoiesis agent specs and memory, and the seven paths by which the agent
+// edits the user's own source. So the useful thing to record is not the tally
+// but the rule that separates the ten from the writes correctly left alone.
+//
+// A write must be atomic when EITHER holds:
+//
+//  1. The file is read back and its reader treats corruption as a hard error.
+//     Then a torn write is not a lost update, it is a permanent one: every
+//     later read fails on the file it cannot parse. northstar.json,
+//     agent.json and memory.json are all this shape.
+//
+//  2. Losing the previous contents is worse than losing the new ones. The
+//     transaction manager is the sharp case — it exists to give a multi-file
+//     edit all-or-nothing semantics, and it cannot deliver that on top of a
+//     write that can leave a file half-formed. The agent's source edits are
+//     the same argument at one file's scale.
+//
+// A write is correctly NOT atomic when the file is written once to a fresh path
+// (a timestamped report, a per-run log) or when it is a cache the caller can
+// re-derive. Converting those buys nothing and costs a temp file in a directory
+// somebody is watching.
+//
+// Two costs come with the rename, and both are stated on WriteFile rather than
+// left to be discovered: it needs write permission on the containing directory
+// rather than on the file, and it always creates a new inode and therefore
+// always applies the mode — which is why WriteFilePreservingMode exists.
 package atomicfile
 
 import (
