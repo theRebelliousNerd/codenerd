@@ -28,6 +28,10 @@
 | Prompt budgets derived from the ledger | **IMPLEMENTED** | `text.go#PromptBudget` | `TestPromptBudgetDerivesFromTheLedger` |
 | Meter configured from workspace config at boot | **IMPLEMENTED** | `internal/system/broker_meter.go` | `TestBrokerIsInstalledAtBoot` |
 | Latency recorded | **IMPLEMENTED** | `broker.go#settle` | `TestReceiptRecordsProviderActuals` |
+| Runtime proof that every provider/engine path is metered | **IMPLEMENTED** | `internal/perception/broker_sentinel_test.go` | `TestEveryProviderReturnsAMeteredClient`, `TestEveryEngineReturnsAMeteredClient` |
+| Reconciliation: per-model estimate-vs-billed drift, alarmed | **IMPLEMENTED** | `reconcile.go` | `TestReconcilerFlagsPersistentDrift`, `TestBrokerFeedsTheReconcilerFromRealCalls` |
+| `ActivatedFacts` hazards closed (cache identity, deep copy) | **IMPLEMENTED** | `internal/prompt/context.go` | `TestHashIncludesActivatedFacts`, `TestCloneDeepCopiesActivatedFacts` |
+| Campaign spend attributed rather than untracked | **IMPLEMENTED** | `cmd/nerd/chat/campaign.go` | covered by the sentinel and purpose tests |
 | Latency priced into decisions | **NOT IMPLEMENTED** | — | see P11, and Phase 4 preconditions |
 | Lossless native round-trip | **NOT IMPLEMENTED** | — | gap B11 |
 | Typed task graph, obligation-driven selection | **NOT IMPLEMENTED** | — | Phase 2 |

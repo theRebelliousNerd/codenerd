@@ -21,6 +21,9 @@ type Config struct {
 	Ledger *Ledger
 	// Sink receives one receipt per call. Optional; nil discards.
 	Sink ReceiptSink
+	// Reconciler accumulates estimated-versus-billed drift per model.
+	// Optional; nil disables reconciliation.
+	Reconciler *Reconciler
 }
 
 // core carries the metering behaviour shared by every wrapper shape.
@@ -193,6 +196,14 @@ func (c *core) settle(receipt Receipt, req *Request, obs *callObserver, reported
 
 	c.cfg.Ledger.Record(receipt.Purpose, actual)
 	c.calibrate(req, actual)
+
+	// Reconciliation compares the prediction against the bill. Calibration
+	// alone cannot detect a bias shared by both sides -- it would quietly
+	// absorb it into the ratio -- so the comparison is kept separately.
+	if c.cfg.Reconciler != nil && receipt.Estimated.Tokens > 0 {
+		c.cfg.Reconciler.Observe(req.Model, receipt.Estimated.Tokens, actual.InputTokens+actual.CachedTokens)
+	}
+
 	c.emit(receipt)
 }
 

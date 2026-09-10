@@ -28,7 +28,27 @@ broker.Default().Ledger().Accounts()                          // spend per purpo
 broker.Default().Ledger().Total()                             // session total
 broker.Default().Calibrator().Snapshot()                      // ratio + n, per model
 broker.Default().TextCounter("").Confidence()                 // is the budget measured or guessed
+broker.Default().Drift()                                      // per-model estimate-vs-billed drift, worst first
 ```
+
+## Reconciliation
+
+`EstimateErrorPct` grades a single call. `Drift()` grades the meter.
+
+On Anthropic the counting endpoint provides an independent check, so a
+near-zero error proves `measure()` is sound. Every other provider has none: the
+estimator predicts, the calibrator corrects itself toward the provider's report,
+and a systematically wrong `measure()` would produce a plausible ratio and
+correlated wrong counts with nothing to contradict them.
+
+Comparing accumulated totals catches that, because calibration removes *random*
+error and cannot remove a bias both sides share. Read `MeanAbsErrorPct`, not
+`NetBiasPct`: an estimator that overshoots by 30% as often as it undershoots has
+a net bias near zero and is wrong on every single call.
+
+A model warns once, past 20 samples and 10% mean absolute error. The floor
+matters as much as the threshold — early calls run on the seeded ratio and are
+expected to be wrong, and alarming on them teaches operators to ignore alarms.
 
 ## Logging
 

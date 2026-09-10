@@ -27,6 +27,8 @@ type Meter struct {
 	sink       ReceiptSink
 	httpClient *http.Client
 
+	reconciler *Reconciler
+
 	// primaryModel is the model that serves the main conversation. Callers that
 	// count text without knowing which model it is bound for resolve to this,
 	// so a compressor sizing a context block uses the ratio learned from the
@@ -135,6 +137,7 @@ func NewMeter(cfg MeterConfig) *Meter {
 			Budgets:       cfg.Budgets,
 		}),
 		calibrator:   calibrator,
+		reconciler:   NewReconciler(),
 		ring:         ring,
 		sink:         sink,
 		httpClient:   httpClient,
@@ -199,13 +202,25 @@ func (m *Meter) ConfigFor(creds ProviderCreds) Config {
 	m.mu.RLock()
 	ledger := m.ledger
 	sink := m.sink
+	reconciler := m.reconciler
 	m.mu.RUnlock()
 
 	return Config{
-		Provider: creds.Provider,
-		Model:    creds.Model,
-		Counter:  m.CounterFor(creds),
-		Ledger:   ledger,
-		Sink:     sink,
+		Provider:   creds.Provider,
+		Model:      creds.Model,
+		Counter:    m.CounterFor(creds),
+		Ledger:     ledger,
+		Sink:       sink,
+		Reconciler: reconciler,
 	}
 }
+
+// Reconciler returns the meter's drift tracker.
+func (m *Meter) Reconciler() *Reconciler {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.reconciler
+}
+
+// Drift reports per-model estimated-versus-billed divergence, worst first.
+func (m *Meter) Drift() []ModelDrift { return m.Reconciler().Drift() }

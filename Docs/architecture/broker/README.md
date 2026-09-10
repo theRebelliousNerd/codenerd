@@ -125,6 +125,10 @@ factory wraps.
 | The heuristic `charsPerToken` counter is gone from `internal/context` | **VERIFIED CURRENT** | `internal/context/tokens.go`; `internal/broker/wiring_test.go#TestNoCompetingTokenCounters` |
 | Receipts record estimate, actual, confidence, and admission outcome | **VERIFIED CURRENT** | `internal/broker/receipt.go`; `internal/broker/receipt_test.go` |
 | Usage is recorded exactly once per call (no double counting) | **VERIFIED CURRENT** | `internal/broker/broker.go`; `internal/broker/integrity_test.go#TestNoDoubleCounting` |
+| Every provider and engine the factory can build returns a metered client, checked at runtime | **VERIFIED CURRENT** | `internal/perception/broker_sentinel_test.go#TestEveryProviderReturnsAMeteredClient` |
+| A factory-built client emits a receipt end to end, with no network | **VERIFIED CURRENT** | `internal/perception/broker_sentinel_test.go#TestMeteredClientEmitsAReceiptWithoutNetwork` |
+| Estimator drift against provider actuals is measured and alarmed per model | **VERIFIED CURRENT** | `internal/broker/reconcile.go`; `internal/broker/reconcile_test.go` |
+| `ActivatedFacts` is part of cache identity and is deep-copied | **VERIFIED CURRENT** | `internal/prompt/context.go`; `internal/prompt/context_hash_test.go` |
 | Lane routing, epoch rebasing, evidence packets | **PROPOSED** | [13-ROADMAP-AND-GATES.md](13-ROADMAP-AND-GATES.md); gated behind measurement that does not exist yet |
 
 ## Reading order

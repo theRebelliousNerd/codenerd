@@ -9,21 +9,22 @@ the work they gate begins.
   entirely. ~1 day. See Q1.
 - **[gate] Atom co-use analysis** over successful turns. Gates the Phase 5 lane
   taxonomy. See Q2.
-- **`ActivatedFacts`, all three parts together** — the cheap test of the
-  meaning-driven-compilation premise. Any subset introduces a new defect:
-  1. populate from `Compressor.GetActivationScores()`
-  2. add to `CompilationContext.Hash()` — currently absent, so different hot
-     facts collide on one cache entry and serve a stale prompt with no error
-  3. deep-copy in `Clone()` — `clone := *cc` shares the map, and compilation runs
-     under `singleflight` with an `errgroup`
-- **Reconciliation alarm**: accumulated estimate vs. accumulated actual per
-  model; alarm on divergence. Closes the blind spot in Q4 for providers with no
-  counting endpoint.
-- **Runtime sentinel-client test** alongside the static audit. Install a sentinel
-  client and assert every live path emits a request manifest. The current audit
-  parses `client_factory.go`; a sentinel catches paths the parser cannot see —
-  dynamic construction, injected overrides, and anything added outside that file.
-  Raised by the Evidence-First Context Compiler report, Ch. 11 Phase 0.
+- **`ActivatedFacts` — populate it.** Parts 2 and 3 are **done**: it is in
+  `Hash()` (sorted, so map iteration order cannot destabilise it) and
+  deep-copied by `Clone()`, with six tests including a concurrent one under
+  `-race`. Only part 1 remains — populate from
+  `Compressor.GetActivationScores()` and read it in the selector — and it is now
+  a one-line change with no trap behind it.
+- ~~Reconciliation alarm~~ — **done.** `internal/broker/reconcile.go` accumulates
+  per-model estimate-vs-billed drift and warns once per model past 20 samples
+  and 10% mean absolute error. Mean absolute error is the headline rather than
+  net bias, so an estimator wrong by 30% on every call is not scored as perfect
+  because its errors happened to balance.
+- ~~Runtime sentinel-client test~~ — **done.**
+  `internal/perception/broker_sentinel_test.go` builds a client through the real
+  exported constructor for all ten providers and both CLI engines and asserts
+  each is metered, then drives a refusal end to end to prove a receipt is
+  emitted — no API key, no network, no fixture server.
 
 ## Next — Phase 1, observation codecs
 
