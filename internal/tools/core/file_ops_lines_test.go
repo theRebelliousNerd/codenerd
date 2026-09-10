@@ -10,42 +10,12 @@ import (
 	"codenerd/internal/tools"
 )
 
-func TestNumberLines_StartsAtOne(t *testing.T) {
-	got := numberLines("alpha\nbeta\ngamma", 1)
-	want := "1\talpha\n2\tbeta\n3\tgamma"
-	if got != want {
-		t.Errorf("numberLines() = %q, want %q", got, want)
-	}
-}
-
-// A ranged read numbered from 1 is worse than no numbers: it looks authoritative
-// and is wrong by the offset, which is exactly the citation drift this fixes.
-func TestNumberLines_RangedReadKeepsRealOffsets(t *testing.T) {
-	got := numberLines("func validate()\n\treturn nil\n}", 200)
-	want := "200\tfunc validate()\n201\t\treturn nil\n202\t}"
-	if got != want {
-		t.Errorf("numberLines() = %q, want %q", got, want)
-	}
-}
-
-func TestNumberLines_EmptyAndSingleLine(t *testing.T) {
-	if got := numberLines("", 1); got != "" {
-		t.Errorf("numberLines(\"\") = %q, want empty", got)
-	}
-	if got := numberLines("only", 7); got != "7\tonly" {
-		t.Errorf("numberLines single line = %q", got)
-	}
-}
-
-// Trailing newlines must not silently shift every subsequent number.
-func TestNumberLines_TrailingNewlineIsItsOwnLine(t *testing.T) {
-	got := numberLines("a\nb\n", 1)
-	want := "1\ta\n2\tb\n3\t"
-	if got != want {
-		t.Errorf("numberLines() = %q, want %q", got, want)
-	}
-}
-
+// The numbering itself now belongs to the file-read projection and is pinned
+// there; see TestNumberedRegion_* in internal/observation. What has to hold
+// HERE is that read_file still delivers it, because every file:line citation
+// and every line-addressed edit in this repo is built on the numbers this tool
+// returns.
+//
 // End-to-end: the number a model reads must be the number `sed -n Np` prints,
 // for a whole-file read and for a ranged one.
 func TestExecuteReadFile_LineNumbersMatchTheRealFile(t *testing.T) {
@@ -84,8 +54,8 @@ func TestExecuteReadFile_LineNumbersMatchTheRealFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ranged executeReadFile: %v", err)
 	}
-	if !strings.HasPrefix(ranged, "5\tfunc main() {") {
-		t.Errorf("ranged read must number from start_line, not from 1.\ngot:\n%s", ranged)
+	if !strings.Contains(ranged, "5\tfunc main() {") {
+		t.Errorf("ranged read must number from the real line, not from 1.\ngot:\n%s", ranged)
 	}
 	if strings.Contains(ranged, "1\tfunc main() {") {
 		t.Errorf("ranged read renumbered from 1, which cites confidently and wrongly.\ngot:\n%s", ranged)

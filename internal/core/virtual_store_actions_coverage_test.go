@@ -483,8 +483,20 @@ func TestHandleReadFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleReadFile failed: %v", err)
 	}
-	if !res.Success || res.Output != content {
-		t.Errorf("expected full content, got success=%v, output=%q", res.Success, res.Output)
+	// The output is the read projection, not the raw bytes. What must survive
+	// is every line of a file this short — nothing is elided at six lines — and
+	// the precondition, without which no later edit can be shown to rest on
+	// this read.
+	if !res.Success {
+		t.Fatalf("read of an existing file failed: %s", res.Error)
+	}
+	for _, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
+		if !strings.Contains(res.Output, line) {
+			t.Errorf("read projection dropped %q from a file short enough to show whole:\n%s", line, res.Output)
+		}
+	}
+	if !strings.Contains(res.Output, "precondition=obs:fr:") {
+		t.Errorf("read published no precondition, so an edit built on it cannot be checked:\n%s", res.Output)
 	}
 
 	// 2. File is a directory (should succeed and return directory listing)

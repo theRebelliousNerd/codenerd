@@ -340,8 +340,14 @@ func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RouteAction(read_file) error: %v", err)
 	}
-	if out != content {
-		t.Fatalf("unexpected output content; got len=%d want len=%d", len(out), len(content))
+	// read_file returns the read projection; file_content below is what keeps
+	// the raw bytes. Both matter and they are not the same thing: shrinking the
+	// fact to the projection would change what has_file_content means in
+	// coder_workflow.mg, and that is checked immediately after.
+	for _, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
+		if !strings.Contains(out, line) {
+			t.Fatalf("read projection dropped %q from a four-line file:\n%s", line, out)
+		}
 	}
 
 	fileFacts, err := kernel.Query("file_content")

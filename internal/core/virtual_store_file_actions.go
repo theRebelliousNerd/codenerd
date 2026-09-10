@@ -13,6 +13,8 @@ import (
 	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
+	"codenerd/internal/observation/precondition"
+	"codenerd/internal/tools"
 	toolscore "codenerd/internal/tools/core"
 )
 
@@ -90,6 +92,10 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 	modTime := info.ModTime().Unix()
 	timestamp := time.Now().Unix()
 
+	// file_content keeps the whole of what was read. The kernel's record of the
+	// file is not the model's view of it, and shrinking the fact to the
+	// projection would quietly change what has_file_content means in
+	// coder_workflow.mg.
 	facts := []Fact{
 		{Predicate: "file_content", Args: []any{path, content}},
 		{Predicate: "file_read", Args: []any{path, req.SessionID, timestamp}},
@@ -102,15 +108,39 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 		})
 	}
 
+	// The Output is shaped by the file-read codec, and the precondition it
+	// mints is redeemable by the edit tools even though this is the action
+	// path: the store is process-wide for exactly that reason. Reading through
+	// the kernel and editing through a tool is the ordinary shape of a turn,
+	// and a precondition that only worked when both halves came from the same
+	// package would be unusable in it.
+	start, _ := tools.ArgInt(req.Payload, "start_line")
+	end, _ := tools.ArgInt(req.Payload, "end_line")
+	// Path is the resolved absolute and Display is the pretty name, and they are
+	// separate here for a reason this call site is the proof of: this action
+	// resolves against v.workingDir, which is allowed to be a subdirectory of
+	// the session workspace the edit tools resolve against. A workspace-relative
+	// identity would be two strings for one file, and a precondition is refused
+	// outright when the two sides name it differently.
+	result := observation.EncodeRead(precondition.Read{
+		Path:      path,
+		Display:   tools.WorkspaceDisplayPath(tools.WithWorkspaceRoot(ctx, v.workingDir), path),
+		Content:   content,
+		Start:     start,
+		End:       end,
+		Truncated: truncated,
+	}, observation.ReadLimits{})
+
 	logging.VirtualStore("File read: path=%s, size=%d, truncated=%v", path, info.Size(), truncated)
 	return ActionResult{
 		Success: true,
-		Output:  content,
+		Output:  result.Text(),
 		Metadata: map[string]any{
 			"path":      path,
 			"size":      info.Size(),
 			"modified":  modTime,
 			"truncated": truncated,
+			"handle":    result.Handle,
 		},
 		FactsToAdd: facts,
 	}, nil
