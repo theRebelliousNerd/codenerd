@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"codenerd/internal/atomicfile"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -540,5 +541,67 @@ func TestLockedWorkspaceFiles_HandlesSharingViolations(t *testing.T) {
 	err := appendJSONL(tmpFile, assaultResult{})
 	if err == nil {
 		t.Errorf("expected error writing to locked/invalid file, got nil")
+	}
+}
+
+func TestTriagePathIsOnlyReportedWhenTheFileWasWritten(t *testing.T) {
+	// The write error used to be discarded while the result advertised
+	// triage_path unconditionally, sending a caller to read a file that might
+	// not exist. An empty path says "there is nothing to read"; a wrong one
+	// says "read this" and is worse than silence.
+	if got := triagePathFor("camp", false); got != "" {
+		t.Errorf("triage path = %q for a failed write, want empty", got)
+	}
+	got := triagePathFor("camp", true)
+	if got == "" {
+		t.Fatal("triage path is empty for a successful write")
+	}
+	for _, want := range []string{".nerd", "camp", "assault", "triage", "latest.json"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("triage path %q is missing %q", got, want)
+		}
+	}
+}
+
+func TestTriageLatestIsWrittenAtomically(t *testing.T) {
+	// latest.json is overwritten in place and read back by assault_report, so a
+	// truncating write can leave the only copy half-formed. That is the defect
+	// internal/atomicfile was created for, and this is the assertion that keeps
+	// this call site from regressing to os.WriteFile: an inode swap, not a
+	// mutation of the file a reader already holds open.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "latest.json")
+
+	original := []byte(`{"failures":1}`)
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	held, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = held.Close() }()
+
+	replacement := []byte(`{"failures":2,"padding":"` + strings.Repeat("x", 4096) + `"}`)
+	if err := atomicfile.WriteFile(path, replacement, 0o644); err != nil {
+		t.Fatalf("atomicfile.WriteFile: %v", err)
+	}
+
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after: %v", err)
+	}
+	if os.SameFile(before, after) {
+		t.Error("the write went through the existing file; a partial write would have destroyed the only copy")
+	}
+
+	buf := make([]byte, 8192)
+	n, _ := held.Read(buf)
+	if string(buf[:n]) != string(original) {
+		t.Errorf("a reader holding the file saw %q, want the contents it opened", buf[:n])
 	}
 }
