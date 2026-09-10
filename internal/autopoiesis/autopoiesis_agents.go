@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"codenerd/internal/atomicfile"
 )
 
 // =============================================================================
@@ -202,8 +204,21 @@ var (
 		return os.MkdirAll(path, 0755)
 	}
 
+	// Atomic, and this is the choke point every autopoiesis write goes
+	// through: agent specs, prompts, triggers and memory.
+	//
+	// UpdateAgentMemory is the case that forces it. It is a read-modify-write
+	// over memory.json, and the read treats a parse failure as a hard error --
+	// correctly, since half a memory is not a memory. Together those mean a
+	// single torn write does not lose one learning, it permanently wedges that
+	// agent's memory: every later update fails on the file it cannot parse.
+	// LoadAgent has the same shape over agent.json.
+	//
+	// Mode-preserving for uniformity rather than necessity: nothing under
+	// .nerd/agents is executable today, and a rule that holds everywhere is
+	// one fewer thing to get wrong when that changes.
 	writeFile = func(path string, data []byte) error {
-		return os.WriteFile(path, data, 0644)
+		return atomicfile.WriteFilePreservingMode(path, data, 0o644)
 	}
 
 	readFile = func(path string) ([]byte, error) {

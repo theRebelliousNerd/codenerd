@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -96,5 +98,63 @@ func TestOrchestrator_ListAgents_NoDir(t *testing.T) {
 	}
 	if len(agents) != 0 {
 		t.Errorf("expected empty agent list, got %d", len(agents))
+	}
+}
+
+// TestAgentMemoryUpdateSurvivesAnInterruptedWrite pins why the writeFile choke
+// point is atomic.
+//
+// UpdateAgentMemory is a read-modify-write over memory.json whose read treats a
+// parse failure as a hard error -- correctly, since half a memory is not a
+// memory. A truncating write interrupted partway therefore does not lose one
+// learning: it permanently wedges that agent's memory, because every later
+// update fails on the file it cannot parse.
+func TestAgentMemoryUpdateSurvivesAnInterruptedWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "memory.json")
+
+	original := []byte(`{"learnings":[],"updated_at":"2026-01-01T00:00:00Z"}`)
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	held, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = held.Close() }()
+
+	// Deliberately larger, so a truncate-then-write interrupted midway could
+	// not fit back what it had already destroyed.
+	replacement := []byte(`{"learnings":[{"note":"` + strings.Repeat("x", 4096) + `"}]}`)
+	if err := writeFile(path, replacement); err != nil {
+		t.Fatalf("writeFile: %v", err)
+	}
+
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after: %v", err)
+	}
+	if runtime.GOOS != "windows" && os.SameFile(before, after) {
+		t.Error("the write went through the existing inode; an interrupted write would leave " +
+			"memory.json unparseable and every later update would fail on it")
+	}
+
+	buf := make([]byte, 8192)
+	n, _ := held.Read(buf)
+	if string(buf[:n]) != string(original) {
+		t.Errorf("a reader holding the file saw %q, want the contents it opened", buf[:n])
+	}
+
+	// And the new contents are actually there.
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != string(replacement) {
+		t.Error("the replacement did not land in full")
 	}
 }
