@@ -50,6 +50,31 @@ import (
 // of a false "produced" is one missed finding; the cost of a false "starved" is
 // a failing gate sending someone after a bug that is not there.
 
+// THE FOURTH DIRECTION, AND WHY IT IS NOT GATED HERE.
+//
+// The Go/Mangle boundary has four ways to be disconnected, and three now have
+// a budget: Go asserting a predicate no .mg declares (undeclared_asserts.txt),
+// a rule reading a predicate nothing produces (starved_predicates.txt), and a
+// rule selecting an atom nothing produces (this file).
+//
+// The fourth is a rule that DERIVES something no rule body and no Go code ever
+// reads — which is what made the enrichment example doubly dead, since nothing
+// queries enrichment_strategy either. Measuring it is easy: 261 of the corpus's
+// 917 rule-derived predicates have no reader in a rule body and appear in no
+// non-test Go, among them build_healthy, campaign_requires_tests and
+// coder_stuck.
+//
+// It is not gated because that measurement cannot be defended as a definition
+// of dead. A derived fact can reach a consumer without being named: QueryAll
+// exists, shard export moves derivations across kernels, and a predicate that
+// lands in a prompt is read by the model rather than by Go. Establishing which
+// of the 261 are genuinely unreachable means settling each of those paths
+// first. A 261-entry baseline whose meaning is unsettled is not a gate, it is
+// a number that looks like rigour, and this repo has enough of those.
+//
+// The number is recorded here so the next person starts from it rather than
+// rediscovering it.
+
 const starvedAtomBaselinePath = "testdata/starved_atom_values.txt"
 
 var (
