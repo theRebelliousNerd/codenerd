@@ -128,16 +128,54 @@ the work they gate begins.
 ## Then — Phase 3, provider fidelity
 
 - `types.Message` must carry ordered native content blocks, signatures, ids and
-  continuation references losslessly, across all seven adapters.
+  continuation references losslessly, across all seven adapters. **Not started,
+  and this is the whole of what Phase 4 is blocked on now** — see below.
 - Provider profile: supported continuation modes, compaction, reminder
   placement, **and cache economics** (write penalty ÷ read discount), so Phase 4's
   break-even is derived per provider rather than hard-coded.
+
+  **The cache-economics half of this is done**, and the roadmap did not say so.
+  `internal/broker/epoch.go` carries `CacheEconomics` per provider — write
+  multiplier, read multiplier — and `BreakEvenCalls()` derives the threshold as
+  `(write−read)/(1−read)`, which is a call count independent of prefix size and
+  `+Inf` where reads are not discounted. An unknown provider gets `noCaching`
+  rather than a plausible-looking guess. So Phase 4's break-even is already
+  derived per provider, which is exactly what this line asked for.
+
+  It also carries a **TTL** per provider, which this line did not ask for and
+  which turned out to matter more than expected: an epoch whose wall-clock span
+  outruns the provider's cache window was evicted between calls, so it looks
+  long enough to pay and cannot. Anthropic and OpenAI hold an entry ~5 minutes,
+  Gemini and DeepSeek an hour — and a single high-reasoning call can run 2-5
+  minutes, which eats most of the shorter window. `nerd meter epochs` scores
+  those epochs separately in its EXPIRED column. Counting calls without
+  measuring time is how a cache strategy gets approved on paper and loses money
+  in production.
+
+  Still missing from the profile: continuation modes, compaction, reminder
+  placement. Those are Phase 4 inputs but not break-even inputs.
 
 ## Later — gated
 
 - Phase 4 economic rebasing. Preconditions: Gate A passed, Phase 3 landed,
   latency a term in the objective, hysteresis, correctness interlock, manual
   override.
+
+  Two of those preconditions have moved and the list should say so. Gate A now
+  needs sessions run rather than code written, and the break-even half of
+  Phase 3 has landed — so what actually blocks Phase 4 is the ordered native
+  content blocks, plus the design question Q1 surfaced: **the prefix moves
+  every turn by construction**, because the system prompt is the JIT
+  compilation plus the current target's file context. A rebuild controller
+  built on a head that never holds still is optimising the wrong layer. Request
+  ORDERING — a stable skeleton ahead of the volatile selection ahead of the
+  file context — has to be settled first, and that is a change to how the
+  prompt is assembled rather than to how it is cached.
+
+  On "latency a term in the objective": worth being precise, because it is easy
+  to read as an efficiency goal and it is not one. Latency is recorded on every
+  receipt and priced into no decision. The single place wall-clock enters is
+  cache TTL, above, which is a token question wearing a clock.
 - Phase 5 lanes. Preconditions: Gate A passed, Phase 2 landed, single-writer or
   worktree isolation for concurrent mutation, one global admission controller.
 
