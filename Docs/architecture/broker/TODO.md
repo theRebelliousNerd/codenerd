@@ -57,7 +57,13 @@ the work they gate begins.
 - File-read codec: exact source around the edit plus a precondition hash.
 - Subagent-return codec: findings, evidence refs, changed artifacts, verification
   status, remaining uncertainty — not the transcript.
-- Generalize the MCP elision/handle mechanism rather than building a second one.
+- ~~Generalize the MCP elision/handle mechanism rather than building a second
+  one~~ — **done.** Retention now lives in `internal/retain` and MCP composes
+  it with its JSON projection. The seam is retention versus projection:
+  retaining bytes under a content-addressed id, with TTL / byte / entry
+  ceilings and an eviction hook, is not MCP-specific, while shaping a JSON
+  payload through a pointer and a view is. Each codec below brings its own
+  projection and reuses the retention.
 - **Hydration must read the retained artifact, never re-run the tool.** Re-running
   gives a different answer from the one the reasoning was built on.
 

@@ -74,20 +74,20 @@ func TestHandleStore_ShouldEvictLeastRecentlyUsed(t *testing.T) {
 
 	store := NewHandleStore(HandleStoreConfig{MaxEntries: 2, MaxBytes: 1 << 20, TTL: time.Hour})
 	base := time.Now()
-	store.now = func() time.Time { return base }
+	store.store.SetClock(func() time.Time { return base })
 
 	first := store.Mint("srv/a", json.RawMessage(`{"n":1}`))
 
-	store.now = func() time.Time { return base.Add(time.Second) }
+	store.store.SetClock(func() time.Time { return base.Add(time.Second) })
 	second := store.Mint("srv/b", json.RawMessage(`{"n":2}`))
 
 	// Touch the first so the second becomes least-recently-used.
-	store.now = func() time.Time { return base.Add(2 * time.Second) }
+	store.store.SetClock(func() time.Time { return base.Add(2 * time.Second) })
 	if _, err := store.Expand(first, "", ViewSummary, BudgetFor(ViewSummary)); err != nil {
 		t.Fatalf("Expand first: %v", err)
 	}
 
-	store.now = func() time.Time { return base.Add(3 * time.Second) }
+	store.store.SetClock(func() time.Time { return base.Add(3 * time.Second) })
 	store.Mint("srv/c", json.RawMessage(`{"n":3}`))
 
 	if _, err := store.Expand(first, "", ViewSummary, BudgetFor(ViewSummary)); err != nil {
@@ -103,10 +103,10 @@ func TestHandleStore_WhenExpired_ShouldReportNotFoundDistinctly(t *testing.T) {
 
 	store := NewHandleStore(HandleStoreConfig{MaxEntries: 8, MaxBytes: 1 << 20, TTL: time.Minute})
 	base := time.Now()
-	store.now = func() time.Time { return base }
+	store.store.SetClock(func() time.Time { return base })
 	handle := store.Mint("srv/a", json.RawMessage(`{"n":1}`))
 
-	store.now = func() time.Time { return base.Add(2 * time.Minute) }
+	store.store.SetClock(func() time.Time { return base.Add(2 * time.Minute) })
 	_, err := store.Expand(handle, "", ViewCompact, BudgetFor(ViewCompact))
 	if err == nil {
 		t.Fatal("an expired handle expanded")
@@ -188,7 +188,7 @@ func TestHandleStore_ShouldNotifyOnEviction(t *testing.T) {
 	// bytes are gone.
 	store := NewHandleStore(HandleStoreConfig{MaxEntries: 1, MaxBytes: 1 << 20, TTL: time.Hour})
 	base := time.Now()
-	store.now = func() time.Time { return base }
+	store.store.SetClock(func() time.Time { return base })
 
 	var mu sync.Mutex
 	var evicted []string
@@ -199,7 +199,7 @@ func TestHandleStore_ShouldNotifyOnEviction(t *testing.T) {
 	})
 
 	first := store.Mint("srv/a", json.RawMessage(`{"n":1}`))
-	store.now = func() time.Time { return base.Add(time.Second) }
+	store.store.SetClock(func() time.Time { return base.Add(time.Second) })
 	store.Mint("srv/b", json.RawMessage(`{"n":2}`))
 
 	mu.Lock()
@@ -216,7 +216,7 @@ func TestHandleStore_ShouldNotifyWhenExpiredOnRead(t *testing.T) {
 
 	store := NewHandleStore(HandleStoreConfig{MaxEntries: 8, MaxBytes: 1 << 20, TTL: time.Minute})
 	base := time.Now()
-	store.now = func() time.Time { return base }
+	store.store.SetClock(func() time.Time { return base })
 	handle := store.Mint("srv/a", json.RawMessage(`{"n":1}`))
 
 	var mu sync.Mutex
@@ -229,7 +229,7 @@ func TestHandleStore_ShouldNotifyWhenExpiredOnRead(t *testing.T) {
 
 	// Expiry discovered on read is an eviction like any other; the fact has to
 	// go even though nothing was minted to trigger a sweep.
-	store.now = func() time.Time { return base.Add(2 * time.Minute) }
+	store.store.SetClock(func() time.Time { return base.Add(2 * time.Minute) })
 	if _, err := store.Expand(handle, "", ViewCompact, BudgetFor(ViewCompact)); err == nil {
 		t.Fatal("an expired handle expanded")
 	}
