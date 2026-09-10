@@ -100,7 +100,28 @@ the work they gate begins.
   2019 — a wash on a search with one hit per symbol, while still carrying more
   structure. The first rendering was *larger* than grep on exactly that shape,
   which is why `TestResultText_ShouldNameEachSymbolOnce` exists.
-- File-read codec: exact source around the edit plus a precondition hash.
+- ~~File-read codec: exact source around the edit plus a precondition hash.~~ —
+  **built.** A read made in order to edit needs the exact region the edit
+  concerns and enough context around it to be sound, where "enough" is the
+  enclosing code element rather than an arbitrary window: a function cut in half
+  reads as a whole one. The rest of the file is carried as an outline of what is
+  in it and where.
+
+  Measured on this repo: `internal/session/executor.go` is 106933 bytes; read
+  whole through the codec it costs 21281, and reading twenty lines of it costs
+  5695.
+
+  The elision is the smaller half. A read also mints a PRECONDITION, and the
+  edit that follows can be refused when the lines it rests on have changed
+  since. A stale read is worse than no read — the model has been given every
+  reason to believe it understands a file it no longer does, and will edit
+  confidently against a version that is gone.
+
+  The same read/write boundary holds and for the same reason. Checking a
+  precondition is inherently a comparison against the live file, so the live
+  bytes are an argument the edit verb passes in — the very buffer it is about to
+  modify. A store that opened the file itself would compare two instants and
+  prove nothing about the third one the edit lands on.
 - Subagent-return codec: findings, evidence refs, changed artifacts, verification
   status, remaining uncertainty — not the transcript.
 - ~~Generalize the MCP elision/handle mechanism rather than building a second
@@ -112,6 +133,62 @@ the work they gate begins.
   projection and reuses the retention.
 - **Hydration must read the retained artifact, never re-run the tool.** Re-running
   gives a different answer from the one the reasoning was built on.
+
+## Adjacent — what the prompt is built from
+
+Not broker work, but found while answering "are we spending tokens on the right
+things", and the same defect shape as everything else on this branch: a reader,
+a writer, and no wire between them.
+
+- ~~The interactive turn compiled with no language.~~ — **fixed.** 326 of the
+  corpus's 918 atom entries declare a language (113 Mangle, 72 Go, 27 Python, 24
+  Rust, 22 Java, 21 TypeScript, and every TDD, debugging and refactoring
+  methodology file). `matchSelector` fails closed, so an empty language selects
+  none of them rather than all of them — which is the correct rule, and is what
+  stops Go advice leaking into a Python session.
+
+  `CompilationContext.Language` was set in exactly one place in the repository:
+  the `nerd init` scan. `WithLanguage` has twenty-six callers, all tests. The
+  interactive path had one other source — a language inferred from the intent
+  target's file extension — so turns naming a file were fine and turns that did
+  not ("add tests for the compressor", "refactor the orchestrator") had no
+  language at all.
+
+  The workspace already knew: the world scan asserts `project_language`, and
+  `nerd init` writes it into `.nerd/profile.mg`, which chat loads at boot.
+  Nothing downstream had ever read it back.
+
+  Precedence is now explicit rather than emergent: the file the turn is about
+  beats the project's dominant language. That ordering had already inverted
+  once — the target inference was guarded on "language not already set", which
+  was the same condition as "always" for as long as nothing set one earlier, so
+  filling the project language silently switched the more precise source off.
+
+- ~~The framework dimension contributed in neither direction.~~ — **fixed.**
+  Frameworks are the mirror image and the asymmetry is deliberate: the check is
+  skipped entirely when the context names none, so all 42 framework-gated atoms
+  stay eligible in every session, django and react included. They compete rather
+  than being included outright, so the cost is not a fixed number of wasted
+  tokens; the real loss is that a project built on bubbletea and cobra had
+  nothing favouring the bubbletea and cobra atoms. `project_framework` was
+  already written by `nerd init`, and `internal/init`'s own comment says the
+  fact exists "to build the /framework JIT" selector.
+
+- **`build_layer` is dark, and not for want of a wire.** 18 atoms gate on it and
+  `CompilationContext.BuildLayer` is populated from nothing but `ExtraContext`,
+  which no caller fills. Unlike language and framework there is no fact to read:
+  the six layers (`/scaffold`, `/domain_core`, `/data_layer`, `/service`,
+  `/transport`, `/integration`) would have to be *derived* from what the turn is
+  touching. That is a classifier nobody has written, not a connection nobody
+  made, and it should be costed as a feature.
+
+- **The tag namespaces are fine.** Atoms emit `atom_tag(ID, /lang, /go)` while
+  the context writes `current_context(/lang, /go)` through an explicit long/short
+  mapping (`add("language", "lang", ...)`, `add("build_layer", "layer", ...)`).
+  Checked because a mismatch there would have made both fixes above useless on
+  the Mangle path; it is correct. The one real duplication is `/shard` versus
+  `/shard_type`, which the selector emits both of and the policy reads both of,
+  already carrying a comment saying so.
 
 ## Then — Phase 2, the typed graph
 
