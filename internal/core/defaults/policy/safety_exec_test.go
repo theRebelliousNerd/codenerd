@@ -89,10 +89,10 @@ func TestSafety_ExecCmd_Blocking(t *testing.T) {
 			// Query permitted
 			facts, err := eng.GetFacts("permitted")
 			if err != nil {
-				// If not found, it's empty, so not permitted.
-				// But we expect it to be declared.
-				// If GetFacts returns error for missing predicate, that's different.
-				// But permitted IS declared in schemas_safety.mg.
+				// permitted is declared in schemas_safety.mg, so an error here
+				// means the policy did not load -- the test's premise, not its
+				// subject. Swallowing it made every case below vacuous.
+				t.Fatalf("GetFacts(permitted): %v", err)
 			}
 
 			permitted := false

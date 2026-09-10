@@ -946,11 +946,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			if m.compressor != nil {
 				var memOps []perception.MemoryOperation
 				for _, op := range artOutput.MemoryOperations {
-					memOps = append(memOps, perception.MemoryOperation{
-						Op:    op.Op,
-						Key:   op.Key,
-						Value: op.Value,
-					})
+					memOps = append(memOps, perception.MemoryOperation(op))
 				}
 
 				allMangleUpdates := mangleUpdates

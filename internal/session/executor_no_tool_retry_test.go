@@ -78,7 +78,7 @@ func (c *proseRetryClient) CompleteWithTools(
 
 func TestRunToolLoop_PreservesProseOnlyRetryResponse(t *testing.T) {
 	const toolName = "no_tool_retry_probe"
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect:   tools.EffectRead,
 		Name:     toolName,
 		Category: tools.CategoryGeneral,
@@ -114,7 +114,7 @@ func TestRunToolLoop_PreservesProseOnlyRetryResponse(t *testing.T) {
 
 func TestRunToolLoop_RejectsNilInitialResponse(t *testing.T) {
 	const toolName = "nil_initial_probe"
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,
 		Name:   toolName, Category: tools.CategoryGeneral,
 		Execute: func(context.Context, map[string]any) (string, error) { return "unused", nil },
@@ -132,7 +132,7 @@ func TestRunToolLoop_RejectsNilInitialResponse(t *testing.T) {
 
 func TestRunToolLoop_RejectsNilFollowupResponse(t *testing.T) {
 	const toolName = "nil_followup_probe"
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,
 		Name:   toolName, Category: tools.CategoryGeneral,
 		Execute: func(context.Context, map[string]any) (string, error) { return "evidence", nil },

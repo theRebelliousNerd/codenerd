@@ -216,10 +216,8 @@ func TestGetElementsByType(t *testing.T) {
 			got := GetElementsByType(tt.elements, tt.elemType)
 
 			var gotRefs []string
-			if got != nil {
-				for _, e := range got {
-					gotRefs = append(gotRefs, e.Ref)
-				}
+			for _, e := range got {
+				gotRefs = append(gotRefs, e.Ref)
 			}
 
 			if !reflect.DeepEqual(gotRefs, tt.wantRefs) {
@@ -284,10 +282,8 @@ func TestGetMethodsOfStruct_Extended(t *testing.T) {
 			got := GetMethodsOfStruct(tt.elements, tt.structRef)
 
 			var gotRefs []string
-			if got != nil {
-				for _, e := range got {
-					gotRefs = append(gotRefs, e.Ref)
-				}
+			for _, e := range got {
+				gotRefs = append(gotRefs, e.Ref)
 			}
 
 			if !reflect.DeepEqual(gotRefs, tt.wantRefs) {
@@ -428,10 +424,8 @@ func TestGetElementsInRange_Extensive(t *testing.T) {
 			got := GetElementsInRange(tt.elements, tt.startLine, tt.endLine)
 
 			var gotRefs []string
-			if got != nil {
-				for _, e := range got {
-					gotRefs = append(gotRefs, e.Ref)
-				}
+			for _, e := range got {
+				gotRefs = append(gotRefs, e.Ref)
 			}
 
 			if !reflect.DeepEqual(gotRefs, tt.wantRefs) {

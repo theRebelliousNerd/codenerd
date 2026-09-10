@@ -98,7 +98,7 @@ func (c *historyRecordingClient) snapshot() (toolsCalls, toolResultsCalls int, l
 
 func registerHistoryProbeTool(t *testing.T, name string) {
 	t.Helper()
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect:      tools.EffectRead,
 		Name:        name,
 		Description: "history test probe",

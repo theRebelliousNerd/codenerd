@@ -587,14 +587,14 @@ func (a *sessionKernelAdapter) GetProgramInfo() *analysis.ProgramInfo {
 
 // missingLLMClient.CompleteWithStreaming is defined on the type in factory.go.
 
-func (s *sessionLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
-	ctx = s.meteredContext(ctx)
+func (a *sessionLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+	ctx = a.meteredContext(ctx)
 	contentChan := make(chan string, 1)
 	errorChan := make(chan error, 1)
 	go func() {
 		defer close(contentChan)
 		defer close(errorChan)
-		res, err := s.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		res, err := a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 		if err != nil {
 			errorChan <- err
 			return

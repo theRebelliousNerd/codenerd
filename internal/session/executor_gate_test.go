@@ -20,9 +20,7 @@ func (*testExecutiveStore) ValidateInteractiveToolResult(context.Context, string
 func TestEffectfulExecutionRequiresExecutiveAdapter(t *testing.T) {
 	name := fmt.Sprintf("mandatory_gate_probe_%d", capabilityTestToolCounter.Add(1))
 	ran := false
-	if err := tools.Global().Register(&tools.Tool{Name: name, Effect: tools.EffectExecute, Execute: func(context.Context, map[string]any) (string, error) { ran = true; return "ok", nil }}); err != nil {
-		t.Fatal(err)
-	}
+	registerTestTool(t, &tools.Tool{Name: name, Effect: tools.EffectExecute, Execute: func(context.Context, map[string]any) (string, error) { ran = true; return "ok", nil }})
 	e := &Executor{config: DefaultExecutorConfig(), virtualStore: &MockVirtualStore{}}
 	e.config.EnableSafetyGate = false // Isolate the independent executive gate.
 	if _, err := e.executeToolCall(t.Context(), ToolCall{Name: name}, validCapabilityTestConfig(name)); err == nil || !strings.Contains(err.Error(), "mandatory executive gate") {

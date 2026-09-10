@@ -251,13 +251,15 @@ func TestExecuteAssaultTriageTask_MissingArtifacts_HandlesEmptyLog(t *testing.T)
 	if err != nil {
 		t.Fatalf("expected no error for missing log, got %v", err)
 	}
-	// Should return zero tasks
-	if resStr, ok := res.(string); ok && resStr == "Triage complete: 0 tasks created" {
-		// Pass
-	} else if taskCount, ok := res.(int); ok && taskCount == 0 {
-		// Pass
-	} else {
-		// Depending on actual return type
+	summary, ok := res.(map[string]any)
+	if !ok {
+		t.Fatalf("triage result = %T, want map[string]any", res)
+	}
+	if got := summary["remediation_tasks_added"]; got != 0 {
+		t.Errorf("remediation_tasks_added = %v, want 0 for a missing results log", got)
+	}
+	if got := summary["total_results"]; got != 0 {
+		t.Errorf("total_results = %v, want 0 for a missing results log", got)
 	}
 }
 

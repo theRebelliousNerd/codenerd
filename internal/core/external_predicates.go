@@ -100,8 +100,8 @@ func (v *virtualExternalPredicate) ExecuteQuery(inputs []ast.Constant, filters [
 //	query_traces/5:          mode('+', '-', '-', '-', '-')     — ShardType required
 //	query_trace_stats/4:     mode('+', '-', '-', '-')          — ShardType required
 //	string_contains/2:       mode('+', '+')                    — both required
-func (vs *VirtualStore) BuildExternalPredicates() map[ast.PredicateSym]engine.ExternalPredicateCallback {
-	if vs == nil {
+func (v *VirtualStore) BuildExternalPredicates() map[ast.PredicateSym]engine.ExternalPredicateCallback {
+	if v == nil {
 		return nil
 	}
 
@@ -118,35 +118,35 @@ func (vs *VirtualStore) BuildExternalPredicates() map[ast.PredicateSym]engine.Ex
 	out := ast.ArgMode(ast.ArgModeOutput)
 	callbacks := make(map[ast.PredicateSym]engine.ExternalPredicateCallback, 10)
 
-	sym, cb := mkPred("query_learned", 2, vs.getQueryLearnedAtoms, out, out)
+	sym, cb := mkPred("query_learned", 2, v.getQueryLearnedAtoms, out, out)
 	callbacks[sym] = cb
 
-	sym, cb = mkPred("query_session", 3, vs.getQuerySessionAtoms, in, out, out)
+	sym, cb = mkPred("query_session", 3, v.getQuerySessionAtoms, in, out, out)
 	callbacks[sym] = cb
 
-	sym, cb = mkPred("recall_similar", 3, vs.getRecallSimilarAtoms, in, out, out)
+	sym, cb = mkPred("recall_similar", 3, v.getRecallSimilarAtoms, in, out, out)
 	callbacks[sym] = cb
 
-	sym, cb = mkPred("query_knowledge_graph", 3, vs.getQueryKnowledgeGraphAtoms, in, out, out)
+	sym, cb = mkPred("query_knowledge_graph", 3, v.getQueryKnowledgeGraphAtoms, in, out, out)
 	callbacks[sym] = cb
 
-	sym, cb = mkPred("query_strategic", 3, vs.getQueryStrategicAtoms, out, out, out)
+	sym, cb = mkPred("query_strategic", 3, v.getQueryStrategicAtoms, out, out, out)
 	callbacks[sym] = cb
 
-	sym, cb = mkPred("query_activations", 2, vs.getQueryActivationsAtoms, out, out)
+	sym, cb = mkPred("query_activations", 2, v.getQueryActivationsAtoms, out, out)
 	callbacks[sym] = cb
 
-	sym, cb = mkPred("has_learned", 1, vs.getHasLearnedAtoms, out)
+	sym, cb = mkPred("has_learned", 1, v.getHasLearnedAtoms, out)
 	callbacks[sym] = cb
 
-	sym, cb = mkPred("query_traces", 5, vs.getQueryTracesAtoms, in, out, out, out, out)
+	sym, cb = mkPred("query_traces", 5, v.getQueryTracesAtoms, in, out, out, out, out)
 	callbacks[sym] = cb
 
-	sym, cb = mkPred("query_trace_stats", 4, vs.getQueryTraceStatsAtoms, in, out, out, out)
+	sym, cb = mkPred("query_trace_stats", 4, v.getQueryTraceStatsAtoms, in, out, out, out)
 	callbacks[sym] = cb
 
 	// string_contains is commented out as we transitioned to native :string:contains.
-	// sym, cb = mkPred("string_contains", 2, vs.getStringContainsAtoms, in, in)
+	// sym, cb = mkPred("string_contains", 2, v.getStringContainsAtoms, in, in)
 	// callbacks[sym] = cb
 
 	logging.VirtualStoreDebug("Built %d external predicate callbacks", len(callbacks))

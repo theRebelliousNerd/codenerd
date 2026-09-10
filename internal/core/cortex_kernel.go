@@ -1011,10 +1011,7 @@ func (c *CortexKernel) LoadFactsFromFile(path string) error {
 	// Convert core.Fact to types.Fact since Cortex uses types.Fact
 	var typeFacts []types.Fact
 	for _, f := range parsedFacts {
-		typeFacts = append(typeFacts, types.Fact{
-			Predicate: f.Predicate,
-			Args:      f.Args,
-		})
+		typeFacts = append(typeFacts, types.Fact(f))
 	}
 
 	return c.LoadFacts(typeFacts)

@@ -135,14 +135,10 @@ func TestProcessTurn_CompressionFallback(t *testing.T) {
 	comp.ProcessTurn(context.Background(), Turn{Number: 1, Role: "user", UserInput: bigInput})
 	comp.ProcessTurn(context.Background(), Turn{Number: 2, Role: "user", UserInput: bigInput}) // Over 500
 
-	// Check fallback behavior
-	// If LLM fails, it should use generateSimpleSummary
-	if !strings.Contains(comp.rollingSummary.Text, "Turn 1") {
-		// Simple summary usually lists turns? Need to check implementation detail or just ensure no panic
-		// Implementation usually does: "Summary unavailable..." or heuristic summary.
-	}
-
-	// Mostly we verify it didn't panic and still pruned
+	// The rolling summary's exact fallback text is deliberately not asserted:
+	// it is an implementation detail of generateSimpleSummary, and pinning it
+	// here would break on wording changes without protecting anything. What
+	// must hold is below -- pruning happens even when the LLM path fails.
 	if len(comp.recentTurns) > comp.config.RecentTurnWindow {
 		t.Errorf("Compression should prune even on LLM failure (fallback), got %d turns", len(comp.recentTurns))
 	}

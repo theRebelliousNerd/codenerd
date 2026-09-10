@@ -250,14 +250,18 @@ func TestReplan_CircularDependencyInjection(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestReplan_PromptInjectionInErrors(t *testing.T) {
+	var (
+		sawInjection bool
+		promptSeen   string
+	)
+
 	r := NewReplanner(&MockKernel{}, &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
-			if strings.Contains(prompt, "IGNORE ALL PREVIOUS") {
-				// If the prompt isn't properly delimited or escaped, the LLM might see this.
-				// For the test, we just ensure it doesn't crash.
-			}
-			// In reality, this tests that the Replan context builder sanitizes or delimits inputs.
-			// Let's verify buildReplanContext doesn't crash on weird XML.
+			// Record what actually reached the model. The branch here used to
+			// be empty, which meant the test's stated subject -- whether
+			// injected text arrives delimited -- was never checked at all.
+			sawInjection = strings.Contains(prompt, "IGNORE ALL PREVIOUS")
+			promptSeen = prompt
 			return `{"success": true, "change_summary": "ok"}`, nil
 		},
 	}, "")
@@ -275,6 +279,27 @@ func TestReplan_PromptInjectionInErrors(t *testing.T) {
 	err := r.Replan(context.Background(), campaign, "/t1")
 	if err != nil {
 		t.Fatalf("Replan failed with prompt injection: %v", err)
+	}
+
+	if promptSeen == "" {
+		t.Fatal("the replanner never called the model, so nothing about prompt " +
+			"construction was exercised")
+	}
+	if !sawInjection {
+		t.Fatal("the injected text never reached the prompt; this test is no longer " +
+			"testing prompt injection and needs a new fixture")
+	}
+
+	// The injected text does reach the model -- it is the task's real error
+	// message and dropping it would lose the diagnostic. What must hold is that
+	// it arrives inside the error field it belongs to, not floating in the
+	// instruction body where it reads as a directive.
+	marker := "IGNORE ALL PREVIOUS"
+	at := strings.Index(promptSeen, marker)
+	before := promptSeen[:at]
+	if !strings.Contains(before, "error") && !strings.Contains(before, "Error") {
+		t.Errorf("injected text is not introduced as error content; the prompt around it is:\n%s",
+			promptSeen[max(0, at-200):min(len(promptSeen), at+200)])
 	}
 }
 

@@ -248,13 +248,7 @@ func WizardDocumentFromVision(v *Vision) *WizardDocument {
 		})
 	}
 	for _, r := range v.Risks {
-		d.Risks = append(d.Risks, WizardRisk{
-			ID:          r.ID,
-			Description: r.Description,
-			Likelihood:  r.Likelihood,
-			Impact:      r.Impact,
-			Mitigation:  r.Mitigation,
-		})
+		d.Risks = append(d.Risks, WizardRisk(r))
 	}
 	for _, r := range v.Requirements {
 		d.Requirements = append(d.Requirements, WizardRequirement{

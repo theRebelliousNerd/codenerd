@@ -360,4 +360,4 @@ func TestComputeWriteSetLockRetryDelay_BoundedAndContextAware(t *testing.T) {
 	}
 }
 
-func (m *safeKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
+func (k *safeKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }

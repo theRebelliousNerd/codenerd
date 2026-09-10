@@ -116,7 +116,7 @@ func TestExecutor_Process_ToolExecution(t *testing.T) {
 			return "file content", nil
 		},
 	}
-	tools.Global().Register(tool)
+	registerTestTool(t, tool)
 
 	// Setup
 	mockLLM := &MockLLMClient{
@@ -208,7 +208,7 @@ func TestExecutor_Process_SafetyGate(t *testing.T) {
 			return "deleted", nil
 		},
 	}
-	tools.Global().Register(tool)
+	registerTestTool(t, tool)
 
 	// Setup
 	mockLLM := &MockLLMClient{
@@ -396,7 +396,7 @@ func TestExecutor_Process_EmptyToolCallArgs(t *testing.T) {
 	)
 
 	// Register dummy tool
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,
 		Name:   "valid_name",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -511,7 +511,7 @@ func TestExecutor_Process_MaxToolCallsExceeded(t *testing.T) {
 	)
 	executor.config.MaxToolCalls = 5 // low limit for testing
 
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,
 		Name:   "valid_name",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -553,7 +553,7 @@ func TestExecutor_Process_ToolTimeout(t *testing.T) {
 	)
 	executor.config.ToolTimeout = 10 * time.Millisecond // very short timeout
 
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,
 		Name:   "sleep_tool",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -654,7 +654,7 @@ func TestExecutor_StateConflicts_PanicRecovery(t *testing.T) {
 		},
 	)
 
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,
 		Name:   "panic_tool",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
@@ -810,7 +810,7 @@ func TestExecutor_SafetyGateFailClosed(t *testing.T) {
 	)
 	executor.config.EnableSafetyGate = true
 
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,
 		Name:   "any_tool",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {

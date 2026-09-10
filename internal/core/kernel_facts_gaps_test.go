@@ -829,9 +829,19 @@ func TestLoadSchemas_ShouldSetPolicyDirty(t *testing.T) {
 	k := setupMockKernel(t)
 
 	k.LoadSchemas("Decl custom_schema(X).")
-	if !k.IsDirty() {
-		// policyDirty is separate from factsDirty; test policyDirty indirectly
-		// The next evaluate should use the new schema
+
+	// policyDirty and factsDirty are separate flags, and IsDirty reports the
+	// facts one. Reading IsDirty here and asserting nothing meant the test
+	// never checked either. Both halves are checkable from inside the package.
+	k.mu.RLock()
+	policyDirty := k.policyDirty
+	k.mu.RUnlock()
+	if !policyDirty {
+		t.Error("LoadSchemas did not mark the policy dirty; the new schema would never be reparsed")
+	}
+	if k.IsDirty() {
+		t.Error("LoadSchemas marked the facts dirty; replacing schemas asserts no facts and " +
+			"should not force a fact re-evaluation")
 	}
 }
 

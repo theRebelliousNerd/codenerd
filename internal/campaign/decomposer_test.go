@@ -710,7 +710,7 @@ func TestBuildCampaign_InvalidForwardDependencyNotInjected(t *testing.T) {
 	if len(campaign2.Phases[0].Tasks[2].ContextFrom) != 1 {
 		t.Fatalf("mixed valid research should be inherited, got %v", campaign2.Phases[0].Tasks[2].ContextFrom)
 	}
-	if campaign2.Phases[0].Tasks[1].ContextFrom != nil && len(campaign2.Phases[0].Tasks[1].ContextFrom) != 0 {
+	if len(campaign2.Phases[0].Tasks[1].ContextFrom) != 0 {
 		t.Fatalf("non-dependent task should not have context, got %v", campaign2.Phases[0].Tasks[1].ContextFrom)
 	}
 }

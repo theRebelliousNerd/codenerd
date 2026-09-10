@@ -1172,7 +1172,7 @@ func loadProjectDoc(bctx *bootContext) {
 	var coreFacts []core.Fact
 	for _, doc := range docs {
 		for _, f := range doc.Facts() {
-			coreFacts = append(coreFacts, core.Fact{Predicate: f.Predicate, Args: f.Args})
+			coreFacts = append(coreFacts, core.Fact(f))
 		}
 	}
 	if err := bctx.kernel.LoadFacts(coreFacts); err != nil {

@@ -125,7 +125,7 @@ func checkFactAgainstDecl(t *testing.T, bounds map[string][]string, f core.Fact)
 		t.Errorf("%s emitted with %d args but declared with %d: %v", f.Predicate, len(f.Args), len(want), f.Args)
 		return
 	}
-	atom, err := types.Fact{Predicate: f.Predicate, Args: f.Args}.ToAtom()
+	atom, err := types.Fact(f).ToAtom()
 	if err != nil {
 		t.Errorf("%s cannot be converted to a Mangle atom: %v (%v)", f.Predicate, err, f.Args)
 		return
@@ -233,7 +233,7 @@ func TestSymbolGraph_WhenEmitted_ShouldUseNameConstantsForTypeAndVisibility(t *t
 			continue
 		}
 		seen++
-		atom, err := types.Fact{Predicate: f.Predicate, Args: f.Args}.ToAtom()
+		atom, err := types.Fact(f).ToAtom()
 		if err != nil {
 			t.Fatalf("symbol_graph -> atom: %v", err)
 		}

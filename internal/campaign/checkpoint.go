@@ -443,8 +443,8 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 // projection (internal/tools/framework.go, mirroring the policy
 // test_framework/1 + test_command/1 facts) and falls back to the Go default
 // on unknown workspaces.
-func (r *CheckpointRunner) detectTestCommand() string {
-	if cmd, ok := tools.TestCommandForDir(r.workspace); ok {
+func (cr *CheckpointRunner) detectTestCommand() string {
+	if cmd, ok := tools.TestCommandForDir(cr.workspace); ok {
 		return cmd
 	}
 	return tools.DefaultTestCommand
@@ -453,8 +453,8 @@ func (r *CheckpointRunner) detectTestCommand() string {
 // detectBuildCommand delegates to the canonical tools.BuildCommandForDir
 // projection (mirroring the policy build_command/1 facts) and falls back to
 // the Go default on unknown workspaces.
-func (r *CheckpointRunner) detectBuildCommand() string {
-	if cmd, ok := tools.BuildCommandForDir(r.workspace); ok {
+func (cr *CheckpointRunner) detectBuildCommand() string {
+	if cmd, ok := tools.BuildCommandForDir(cr.workspace); ok {
 		return cmd
 	}
 	return tools.DefaultBuildCommand

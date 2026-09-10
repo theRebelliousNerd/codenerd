@@ -1614,10 +1614,7 @@ func TestTaxonomyEngine_NerdPath_WhenNoWorkspace_ShouldUseRelative(t *testing.T)
 
 	eng.workspaceRoot = ""
 	path := eng.nerdPath("mangle")
-	if strings.HasPrefix(path, "/") || strings.Contains(path, ":\\") {
-		// Relative path should not start with / or have drive letter on Windows
-		// This could vary by OS, so we just check it contains .nerd
-	}
+	// Absoluteness varies by OS and is not the subject; containing .nerd is.
 	if !strings.Contains(path, ".nerd") {
 		t.Errorf("nerdPath = %q, expected to contain '.nerd'", path)
 	}

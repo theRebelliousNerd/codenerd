@@ -50,10 +50,7 @@ func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 func toTypesFacts(worldFacts []Fact) []types.Fact {
 	res := make([]types.Fact, len(worldFacts))
 	for i, f := range worldFacts {
-		res[i] = types.Fact{
-			Predicate: f.Predicate,
-			Args:      f.Args,
-		}
+		res[i] = types.Fact(f)
 	}
 	return res
 }

@@ -521,4 +521,4 @@ func TestFilterCallerEnv_Empty(t *testing.T) {
 	}
 }
 
-func (k *stubKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
+func (s *stubKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }

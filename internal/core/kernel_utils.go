@@ -27,10 +27,10 @@ func (k *RealKernel) QueryPredicate(predicate string) ([]types.Fact, error) {
 
 	result := make([]types.Fact, len(facts))
 	for i, f := range facts {
-		result[i] = types.Fact{
-			Predicate: f.Predicate,
-			Args:      f.Args,
-		}
+		// A conversion rather than a field-by-field literal: the two structs
+		// are identical, and a literal would silently drop any field added to
+		// one of them, where a conversion stops compiling.
+		result[i] = types.Fact(f)
 	}
 	return result, nil
 }
