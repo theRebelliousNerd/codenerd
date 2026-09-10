@@ -13,6 +13,24 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Supersede a PR's own earlier runs, and never a push to main.
+#
+# Without this, every commit on a branch gets a full six-job run and they queue
+# behind each other. Pushing five fixes in twenty minutes meant thirty jobs
+# executing for commits nobody would read the result of, and the answer for the
+# HEAD commit — the only one that matters — arriving an hour and a quarter late.
+# That is not just runner time: a feedback loop that slow is one people stop
+# using, and this pipeline exists to catch a class of defect that only appears
+# on Windows.
+#
+# cancel-in-progress is deliberately conditional. A superseded PR run has been
+# made irrelevant by a newer commit on the same branch; a run on main has not,
+# and cancelling those would leave the default branch with gaps in its history
+# of what passed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   # internal/store/vec_support_enabled.go is behind `sqlite_vec && cgo`.
   # Without the tag the binary silently falls back from ANN to lexical search,
