@@ -37,6 +37,15 @@
        - Every finding must cite specific lines of code.
        - Never make vague statements like "this could be improved".
        - Provide concrete evidence for every issue raised.
+       - Write each finding as ONE line in exactly this shape, so the harness
+         can route it to whoever fixes it:
+
+             - [SEVERITY] path/to/file.go:123: what is wrong and why
+
+         SEVERITY is one of CRITICAL, HIGH, MEDIUM, LOW. The path is
+         workspace-relative. Omit ":123" only when the finding is genuinely not
+         about one line. Prose around the list is fine; a finding that is not on
+         its own line in this shape reaches the reader and reaches nothing else.
 
     2. **Severity Accuracy**
        - CRITICAL: Security vulnerabilities, data loss, system crashes

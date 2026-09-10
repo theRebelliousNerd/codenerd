@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,7 +94,12 @@ func formatShardTaskWithContext(verb, target, constraint, workspace string, prio
 	case "/refactor":
 		// If refactoring after a review, include improvement suggestions
 		if priorResult.ShardType == "reviewer" && len(priorResult.Findings) > 0 {
-			suggestions := filterFindingsBySeverity(priorResult.Findings, []string{"info", "warning"})
+			// The reviewer atom's ladder is CRITICAL/HIGH/MEDIUM/LOW, and
+			// extractFindings normalizes onto it. This filter used to name
+			// "info" and "warning" -- log-level words the reviewer is never
+			// told to use -- so a refactor after a review found no suggestions
+			// no matter what the reviewer wrote.
+			suggestions := filterFindingsBySeverity(priorResult.Findings, []string{"low", "medium"})
 			if len(suggestions) > 0 {
 				return fmt.Sprintf("refactor file:%s suggestions:[%s]", target, formatFindingsForTask(suggestions, target))
 			}
@@ -124,13 +130,13 @@ func formatFindingsForTask(findings []map[string]any, targetFile string) string 
 		if targetFile != "" && targetFile != "codebase" && file != "" && !strings.HasSuffix(file, targetFile) {
 			continue
 		}
-		line, _ := f["line"].(float64)
+		line := findingLineNumber(f)
 		msg, _ := f["message"].(string)
 		sev, _ := f["severity"].(string)
 
 		if msg != "" {
 			if line > 0 {
-				parts = append(parts, fmt.Sprintf("%s@L%d:%s", sev, int(line), truncateForTask(msg, 100)))
+				parts = append(parts, fmt.Sprintf("%s@L%d:%s", sev, line, truncateForTask(msg, 100)))
 			} else {
 				parts = append(parts, fmt.Sprintf("%s:%s", sev, truncateForTask(msg, 100)))
 			}
@@ -713,4 +719,32 @@ func detectProjectType(workspace string) ProjectTypeInfo {
 
 func getUIStyles() ui.Styles {
 	return ui.DefaultStyles()
+}
+
+// findingLineNumber reads a finding's line number, whichever numeric shape it
+// arrived in.
+//
+// Findings reach here two ways: parsed from a shard's text by extractFindings,
+// which stores a Go int, and decoded from JSON, where every number is a
+// float64. The consumer asserted float64 only, so an extractor-produced finding
+// silently reported line 0 -- which reads as "no line known" and drops the
+// citation the reviewer was required to provide.
+func findingLineNumber(f map[string]any) int {
+	switch v := f["line"].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			return int(n)
+		}
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			return n
+		}
+	}
+	return 0
 }

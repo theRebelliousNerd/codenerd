@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,34 +40,94 @@ func sanitizeCommandInput(input string) string {
 	return b.String()
 }
 
-// extractFindings parses findings from shard output (reviewer/tester results).
-// Looks for structured patterns like "- [ERROR] file:line: message"
+// findingLine matches the one-line finding format the reviewer atom specifies:
+//
+//   - [SEVERITY] path/to/file.go:123: message
+//
+// The line number is optional, because not every finding is about one line.
+// The file is captured non-greedily up to the ":<digits>:" so a Windows path
+// with a drive letter does not lose its prefix to the first colon.
+var findingLine = regexp.MustCompile(`^[-*\x{2022}]\s*\[([A-Za-z]+)\]\s*(.+?)(?::(\d+))?:\s*(.+)$`)
+
+// severityAliases maps every spelling in use onto the reviewer atom's four.
+//
+// The extractor and the atom used to disagree on the vocabulary itself: the
+// atom says CRITICAL/HIGH/MEDIUM/LOW and the extractor looked for
+// CRIT/ERR/WARN/INFO. A finding written exactly as instructed matched nothing.
+var severityAliases = map[string]string{
+	"crit": "critical", "critical": "critical",
+	"err": "high", "error": "high", "high": "high",
+	"warn": "medium", "warning": "medium", "medium": "medium",
+	"info": "low", "low": "low", "nit": "low",
+}
+
+// extractFindings parses a shard's output into structured findings.
+//
+// It emits file, line, message and severity -- not just the raw line -- because
+// that is what every consumer reads. Before this it set only "raw" and
+// "severity" while delegation.go read f["file"], f["line"] and f["message"], so
+// formatFindingsForTask produced an empty string and extractFileFromFindings
+// returned "" on every review. The reviewer-to-fixer delegation chain was
+// inert: it read findings, formatted nothing, and handed the fixer no file.
+//
+// A line that carries a severity marker but does not match the full shape is
+// still kept, with its raw text and severity. Dropping it would lose a real
+// finding to a formatting slip, and the consumers already tolerate a missing
+// file or message.
 func extractFindings(result string) []map[string]any {
 	var findings []map[string]any
-	// Simple line-based extraction - look for patterns like "- [ERROR] file:line: message"
-	lines := strings.SplitSeq(result, "\n")
-	for line := range lines {
+
+	for line := range strings.SplitSeq(result, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "- [") || strings.HasPrefix(line, "• [") ||
-			strings.Contains(line, "[WARN]") || strings.Contains(line, "[INFO]") ||
-			strings.Contains(line, "[CRIT]") || strings.Contains(line, "[ERR]") {
+		if line == "" {
+			continue
+		}
+
+		if m := findingLine.FindStringSubmatch(line); m != nil {
 			finding := map[string]any{
-				"raw": line,
+				"raw":      line,
+				"severity": normalizeSeverity(m[1]),
+				"file":     strings.TrimSpace(m[2]),
+				"message":  strings.TrimSpace(m[4]),
 			}
-			// Extract severity
-			if strings.Contains(line, "[CRIT]") || strings.Contains(line, "[CRITICAL]") {
-				finding["severity"] = "critical"
-			} else if strings.Contains(line, "[ERR]") || strings.Contains(line, "[ERROR]") {
-				finding["severity"] = "error"
-			} else if strings.Contains(line, "[WARN]") || strings.Contains(line, "[WARNING]") {
-				finding["severity"] = "warning"
-			} else if strings.Contains(line, "[INFO]") {
-				finding["severity"] = "info"
+			if m[3] != "" {
+				if n, err := strconv.Atoi(m[3]); err == nil {
+					finding["line"] = n
+				}
 			}
 			findings = append(findings, finding)
+			continue
+		}
+
+		// A severity marker with no parseable location. Keep it rather than
+		// lose a real finding to a formatting slip.
+		if sev, ok := severityMarkerIn(line); ok {
+			findings = append(findings, map[string]any{"raw": line, "severity": sev})
 		}
 	}
+
 	return findings
+}
+
+// normalizeSeverity maps a marker onto the reviewer atom's vocabulary, keeping
+// an unrecognized one lowercased rather than discarding it.
+func normalizeSeverity(marker string) string {
+	lower := strings.ToLower(strings.TrimSpace(marker))
+	if canonical, ok := severityAliases[lower]; ok {
+		return canonical
+	}
+	return lower
+}
+
+// severityMarkerIn finds a bracketed severity anywhere in a line.
+func severityMarkerIn(line string) (string, bool) {
+	upper := strings.ToUpper(line)
+	for alias, canonical := range severityAliases {
+		if strings.Contains(upper, "["+strings.ToUpper(alias)+"]") {
+			return canonical, true
+		}
+	}
+	return "", false
 }
 
 // extractMetrics parses metrics section from output.
