@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -128,13 +129,18 @@ func resolveCampaignID(cwd string) (string, error) {
 	return ids[0], nil
 }
 
-func emitJSON(v any) error {
+// emitJSON writes v as indented JSON to w.
+//
+// It takes a writer rather than printing to stdout so that a command's --json
+// path can be exercised by a test through cmd.OutOrStdout(), which is also the
+// only way to prove the JSON shape matches the table it replaces.
+func emitJSON(w io.Writer, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	fmt.Println(string(data))
-	return nil
+	_, err = fmt.Fprintln(w, string(data))
+	return err
 }
 
 func runCampaignJournalVerify(cmd *cobra.Command, _ []string) error {
@@ -152,7 +158,7 @@ func runCampaignJournalVerify(cmd *cobra.Command, _ []string) error {
 	}
 
 	if campaignJournalJSON {
-		if jerr := emitJSON(result); jerr != nil {
+		if jerr := emitJSON(cmd.OutOrStdout(), result); jerr != nil {
 			return jerr
 		}
 	} else {
@@ -181,7 +187,7 @@ func runCampaignJournalReplay(cmd *cobra.Command, _ []string) error {
 	}
 
 	if campaignJournalJSON {
-		return emitJSON(replay)
+		return emitJSON(cmd.OutOrStdout(), replay)
 	}
 	fmt.Print(campaign.RenderJournalReplay(replay))
 	return nil
@@ -208,7 +214,7 @@ func runCampaignReport(cmd *cobra.Command, _ []string) error {
 
 	switch {
 	case campaignReportJSON:
-		if jerr := emitJSON(summary); jerr != nil {
+		if jerr := emitJSON(cmd.OutOrStdout(), summary); jerr != nil {
 			return jerr
 		}
 	case campaignReportStdout:

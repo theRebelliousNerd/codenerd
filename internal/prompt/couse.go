@@ -92,6 +92,7 @@ type CoUseRecorder struct {
 	truncated    bool
 
 	catState
+	logState
 }
 
 // NewCoUseRecorder returns an empty recorder.
@@ -177,10 +178,9 @@ func (r *CoUseRecorder) Settle(turnID string, outcome Outcome) {
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	selections, ok := r.pending[turnID]
 	if !ok {
+		r.mu.Unlock()
 		return
 	}
 	delete(r.pending, turnID)
@@ -190,9 +190,16 @@ func (r *CoUseRecorder) Settle(turnID string, outcome Outcome) {
 			break
 		}
 	}
-
 	for _, atoms := range selections {
 		r.foldLocked(atoms, outcome)
+	}
+	r.mu.Unlock()
+
+	// Persist outside the tally mutex. Writing to disk under the lock that
+	// every Observe contends on would put file I/O on the compilation path,
+	// which is the one place this measurement must not be felt.
+	for _, atoms := range selections {
+		r.appendToLog(atoms, outcome)
 	}
 }
 

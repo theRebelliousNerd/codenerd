@@ -1,6 +1,10 @@
 package prompt
 
-import "sync"
+import (
+	"sync"
+
+	"codenerd/internal/jsonl"
+)
 
 // coUse is the process-wide recorder. Selection happens in the compiler and
 // outcomes are known in the session executor, two packages that have no handle
@@ -74,4 +78,11 @@ func (r *CoUseRecorder) Categories() CategoryLookup {
 type catState struct {
 	catMu      sync.RWMutex
 	categories map[string]string
+}
+
+// logState is embedded in CoUseRecorder. Its own lock, because the log is read
+// on the settle path while the tally mutex is deliberately not held.
+type logState struct {
+	logMu sync.RWMutex
+	log   *jsonl.Appender
 }

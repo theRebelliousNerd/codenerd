@@ -314,7 +314,7 @@ func TestUsageObserverHookIsWired(t *testing.T) {
 func TestBrokerIsInstalledAtBoot(t *testing.T) {
 	content := readRepoFile(t, "internal/system/factory.go")
 
-	if !strings.Contains(content, "configureBrokerMeter(bctx.appCfg)") {
+	if !strings.Contains(content, "configureBrokerMeter(bctx.appCfg, bctx.workspace)") {
 		t.Error("boot no longer configures the broker meter; the ledger would enforce no window")
 	}
 
@@ -323,6 +323,41 @@ func TestBrokerIsInstalledAtBoot(t *testing.T) {
 		if !strings.Contains(meterFile, needle) {
 			t.Errorf("boot meter configuration no longer references %s", needle)
 		}
+	}
+}
+
+// TestMeasurementLogsAreInstalledAtBoot covers the persistence half.
+//
+// The receipt ring and the co-use recorder both live in one process, and every
+// question they answer -- the distribution of calls per epoch across real
+// sessions, which atoms are used together -- spans processes. A readout command
+// is itself a different process from the agent that did the spending. Without
+// these two lines the data exists for exactly as long as the agent runs and is
+// gone before anyone can read it, with nothing failing anywhere.
+func TestMeasurementLogsAreInstalledAtBoot(t *testing.T) {
+	content := readRepoFile(t, "internal/system/factory.go")
+
+	if !strings.Contains(content, "configureCoUseLog(bctx.workspace)") {
+		t.Error("boot no longer installs the prompt-atom selection log; co-use evidence would " +
+			"never outlive the process that gathered it")
+	}
+
+	meterFile := readRepoFile(t, "internal/system/broker_meter.go")
+	for _, needle := range []string{
+		"broker.DefaultReceiptLogName",
+		"prompt.DefaultSelectionLogName",
+		"prompt.CoUse().SetLog",
+	} {
+		if !strings.Contains(meterFile, needle) {
+			t.Errorf("boot log wiring no longer references %s", needle)
+		}
+	}
+
+	// Failure to open a log must degrade to in-process metering rather than
+	// failing boot: a workspace on a read-only mount still has to run.
+	if !strings.Contains(meterFile, "stays in-process only") {
+		t.Error("the log-open failure path no longer degrades gracefully; a read-only " +
+			"workspace would stop being able to run the agent")
 	}
 }
 

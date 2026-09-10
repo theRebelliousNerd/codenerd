@@ -296,6 +296,7 @@ func init() {
 		featuresCmd,
 		snapshotCmd,
 		contextStatsCmd,
+		meterCmd,
 		auditCmd,
 		worldCmd,
 		retrieveCmd,

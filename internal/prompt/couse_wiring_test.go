@@ -2,14 +2,17 @@ package prompt
 
 import (
 	"context"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"codenerd/internal/jsonl"
 	"codenerd/internal/usage"
 )
 
@@ -249,5 +252,119 @@ func TestSettleUsesBothOutcomes(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("executor never uses %s; turn outcomes are not being distinguished", want)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Persistence
+// ---------------------------------------------------------------------------
+
+func TestSelectionLogRoundTripsThroughTheSameTallies(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "meter", "atom-selections.jsonl")
+	log, err := jsonl.Open(path)
+	if err != nil {
+		t.Fatalf("open selection log: %v", err)
+	}
+
+	live := NewCoUseRecorder()
+	live.SetLog(log)
+
+	for i := 0; i < 20; i++ {
+		turn := fmt.Sprintf("t%d", i)
+		if i%2 == 0 {
+			live.ObserveAtoms(turn, []*PromptAtom{
+				{ID: "a", Category: CategoryIdentity},
+				{ID: "b", Category: CategoryIdentity},
+			})
+			live.Settle(turn, OutcomeSuccess)
+			continue
+		}
+		live.ObserveAtoms(turn, []*PromptAtom{
+			{ID: "c", Category: CategoryKnowledge},
+			{ID: "d", Category: CategoryKnowledge},
+		})
+		live.Settle(turn, OutcomeFailure)
+	}
+	if err := log.Close(); err != nil {
+		t.Fatalf("close log: %v", err)
+	}
+
+	replayed, truncated, err := LoadSelections(path)
+	if err != nil {
+		t.Fatalf("LoadSelections: %v", err)
+	}
+	if truncated != 0 {
+		t.Fatalf("truncated = %d, want 0", truncated)
+	}
+
+	params := DefaultCoUseParams()
+	params.MinLift = 0
+	params.UbiquityThreshold = 2
+
+	want := live.Report(params, live.Categories())
+	got := replayed.Report(params, replayed.Categories())
+
+	// The replayed report must be identical to the live one. A separate ingest
+	// path is how a readout starts quietly disagreeing with the process it is
+	// reading, and the disagreement would look like a finding.
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("replayed report differs from the live one\nlive:    %+v\nreplayed: %+v", want, got)
+	}
+	if got.SuccessSelections != 10 || got.FailureSelections != 10 {
+		t.Fatalf("outcomes = %d success / %d failure, want 10/10",
+			got.SuccessSelections, got.FailureSelections)
+	}
+	if cat := replayed.Categories()("a"); cat != string(CategoryIdentity) {
+		t.Fatalf("category survived as %q, want %q", cat, CategoryIdentity)
+	}
+}
+
+func TestSelectionLogIsOnlyWrittenOnSettle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "selections.jsonl")
+	log, err := jsonl.Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	rec := NewCoUseRecorder()
+	rec.SetLog(log)
+
+	// An unsettled selection is not evidence: the whole question is about turns
+	// that succeeded. Writing it at Observe would put unknown-outcome data in a
+	// log whose reader has no way to tell it apart.
+	rec.ObserveAtoms("pending", []*PromptAtom{{ID: "a", Category: CategoryIdentity}})
+	_ = log.Close()
+
+	records, _, err := jsonl.Read[SelectionRecord](path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("an unsettled selection was persisted: %+v", records)
+	}
+}
+
+func TestDetachedLogStopsWriting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "selections.jsonl")
+	log, err := jsonl.Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	rec := NewCoUseRecorder()
+	rec.SetLog(log)
+
+	rec.ObserveAtoms("t1", []*PromptAtom{{ID: "a"}})
+	rec.Settle("t1", OutcomeSuccess)
+
+	rec.SetLog(nil)
+	rec.ObserveAtoms("t2", []*PromptAtom{{ID: "b"}})
+	rec.Settle("t2", OutcomeSuccess)
+	_ = log.Close()
+
+	records, _, err := jsonl.Read[SelectionRecord](path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1 — detaching the log must stop writes", len(records))
 	}
 }

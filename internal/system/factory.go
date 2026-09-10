@@ -812,7 +812,8 @@ func initPerceptionLayer(bctx *bootContext) error {
 	// one — and an unconfigured window is reported as zero headroom on every
 	// receipt rather than passing silently, so doing this late would be visible
 	// but wrong.
-	configureBrokerMeter(bctx.appCfg)
+	configureBrokerMeter(bctx.appCfg, bctx.workspace)
+	configureCoUseLog(bctx.workspace)
 
 	// Prefer workspace config first so engine selection wins over a ambient
 	// ZAI_API_KEY (or --api-key). Previously any non-empty apiKey forced
