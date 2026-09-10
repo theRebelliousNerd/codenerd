@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
@@ -396,7 +397,7 @@ func (tm *TransactionManager) Commit(ctx context.Context) error {
 			}
 
 			// Write the file.
-			if err := os.WriteFile(edit.FilePath, content, 0644); err != nil {
+			if err := writeFileAtomicPreservingMode(edit.FilePath, content); err != nil {
 				tm.rollback(txn, committedFiles)
 				txn.Status = TxnStatusAborted
 				txn.Error = fmt.Errorf("failed to write file: %s - %w", edit.FilePath, err)
@@ -486,7 +487,7 @@ func (tm *TransactionManager) rollback(txn *Transaction, committedFiles []string
 	for _, filePath := range committedFiles {
 		if original, exists := txn.Snapshots[filePath]; exists {
 			if len(original) > 0 {
-				if err := os.WriteFile(filePath, original, 0644); err != nil {
+				if err := writeFileAtomicPreservingMode(filePath, original); err != nil {
 					logging.Get(logging.CategoryKernel).Error("Rollback failed for %s: %v", filePath, err)
 				}
 			} else {
@@ -585,4 +586,28 @@ func (tm *TransactionManager) ToFacts() []Fact {
 	}
 
 	return facts
+}
+
+// writeFileAtomicPreservingMode replaces path atomically, keeping the mode the
+// file already had.
+//
+// Atomic, because this manager exists to give a multi-file edit all-or-nothing
+// semantics and a truncating write cannot deliver that. An apply interrupted
+// partway leaves the file half-written, and if the rollback's write is also
+// interrupted the file is destroyed with neither version surviving -- the
+// original is only in memory, and the rollback error is logged and execution
+// continues. With a rename the apply either happened or did not, and a failed
+// rollback leaves the fully-applied version, which is recoverable.
+//
+// Mode-preserving, because os.WriteFile applies its perm argument only when it
+// CREATES the file: writing over an existing one leaves the mode alone.
+// atomicfile.WriteFile chmods unconditionally, since it always creates a new
+// inode, so passing a constant 0644 here would silently strip the executable
+// bit off every script this manager edits.
+func writeFileAtomicPreservingMode(path string, content []byte) error {
+	perm := os.FileMode(0o644)
+	if info, err := os.Stat(path); err == nil {
+		perm = info.Mode().Perm()
+	}
+	return atomicfile.WriteFile(path, content, perm)
 }
