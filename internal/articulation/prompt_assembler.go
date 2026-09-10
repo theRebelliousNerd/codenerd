@@ -254,9 +254,25 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 			cc.SemanticQuery = pc.UserIntent.Target
 		}
 
-		// Infer language from intent target if not already set.
-		if cc.Language == "" && pc.UserIntent.Target != "" {
-			cc.Language = inferLanguageFromTarget(pc.UserIntent.Target)
+		// The file this turn is about beats the project's dominant language.
+		//
+		// This deliberately runs after the ExtraContext block and overrides what
+		// it set, rather than only filling a gap it left. Editing a .py script
+		// inside a Go repository should select Python advice: the specific fact
+		// is the more relevant one, and the general fact is the fallback.
+		//
+		// It used to be guarded on cc.Language == "" because nothing ever
+		// populated the language before this point, which made "not already set"
+		// and "always" the same condition. Once the session context started
+		// carrying the project language that guard silently turned this branch
+		// off, so the fallback would have replaced the more precise answer.
+		//
+		// An unrecognised extension returns "" and must not clobber a language
+		// that is already there.
+		if pc.UserIntent.Target != "" {
+			if lang := inferLanguageFromTarget(pc.UserIntent.Target); lang != "" {
+				cc.Language = lang
+			}
 		}
 	}
 

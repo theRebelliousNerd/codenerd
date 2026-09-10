@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
@@ -67,6 +68,11 @@ func NewLLMTransducer(client LLMClient, kernel RoutingKernel, prompt string) *LL
 // Understand uses the LLM to interpret user intent.
 // This is the primary (and only) classification path.
 func (t *LLMTransducer) Understand(ctx context.Context, input string, history []ConversationTurn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) (*Understanding, error) {
+	// Attribute this call and everything under it to perception. The purpose
+	// travels on the context, so it survives into the client wrapper without
+	// any call site in between having to know the broker exists.
+	ctx = broker.WithPurpose(ctx, broker.PurposePerception)
+
 	understandStart := time.Now()
 	truncatedInput := input
 	if len(truncatedInput) > 80 {

@@ -13,6 +13,24 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Supersede a PR's own earlier runs, and never a push to main.
+#
+# Without this, every commit on a branch gets a full six-job run and they queue
+# behind each other. Pushing five fixes in twenty minutes meant thirty jobs
+# executing for commits nobody would read the result of, and the answer for the
+# HEAD commit — the only one that matters — arriving an hour and a quarter late.
+# That is not just runner time: a feedback loop that slow is one people stop
+# using, and this pipeline exists to catch a class of defect that only appears
+# on Windows.
+#
+# cancel-in-progress is deliberately conditional. A superseded PR run has been
+# made irrelevant by a newer commit on the same branch; a run on main has not,
+# and cancelling those would leave the default branch with gaps in its history
+# of what passed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   # internal/store/vec_support_enabled.go is behind `sqlite_vec && cgo`.
   # Without the tag the binary silently falls back from ANN to lexical search,
@@ -36,6 +54,76 @@ jobs:
         run: go vet -tags sqlite_vec ./...
       - name: Reject empty and log-only tests
         run: go run ./cmd/tools/audit_test_bodies .
+      # Two compiled executables were tracked at the repository root -- a 9 MB
+      # `main` and a 24 MB `predicate_corpus_builder` -- landed by a commit
+      # whose message is about versioning a documentation file. Together they
+      # were roughly half the weight of .git, in every clone, stale from the
+      # moment their source changed.
+      #
+      # `go build ./cmd/tools/foo` writes its output to the working directory,
+      # so running it once at the root leaves an executable there and the next
+      # `git add -A` sweeps it up. Review cannot see it: a binary diff is one
+      # line saying the binary changed, sitting under the files the reviewer
+      # came for.
+      - name: No compiled binaries in git
+        run: go run ./cmd/tools/audit_committed_binaries
+      # A budget on JSON calls whose error is discarded, in the same spirit as
+      # the dead-code job below: the baseline is a measurement, not a target of
+      # zero, and it fails when the number moves either way.
+      #
+      # One sweep found this defect four times in four unrelated packages, and
+      # not one had a symptom near its cause. json.Marshal returns nil on
+      # failure and string(nil) is "", which downstream meant a row SQLite
+      # rejects with the bare message "malformed JSON", an embedding column
+      # that leaves its row selected by every recall query and then unparseable
+      # so the row is unsearchable while the write reports success, a DELETE
+      # reading `fact_args = ''` that matches nothing and tells its caller a
+      # fact was retracted, and ast.String(""), a valid Mangle constant
+      # asserted into the kernel in place of the argument that failed to
+      # encode. The last is the reason this is gated rather than noted: the
+      # kernel then derives, soundly, from a value that is not the value.
+      - name: Discarded JSON errors budget
+        run: go run ./cmd/tools/audit_json_errors
+      # cmd/tools/action_linter cross-checks the three places an action name
+      # has to agree: the Mangle policy that emits it, the router that routes
+      # it, and the VirtualStore that executes it. It has existed unrun, which
+      # is the repo's own signature defect turned on its tooling -- a drift
+      # linter that never runs is drift.
+      #
+      # It was unrunnable rather than merely unrun. Its single error was
+      # /research_cache_clear, "registered but the constitution can never
+      # permit it", which is an accurate description of a decision that was
+      # made ON PURPOSE and recorded in three separate places. A gate that
+      # fails on day one for a non-bug does not get switched on, and then the
+      # real drift it was written to catch goes unseen too. The deliberate
+      # denials now live in tools.PolicyDeniedByDesign, which the linter and
+      # the catalog parity test both read.
+      #
+      # It still reports two warnings and exits 0 on them, deliberately: one
+      # says /delete_file is gated behind a permission nothing asserts, the
+      # other that policy never emits /research. Both are capability
+      # questions for a person, not drift a gate should decide.
+      # A loop that ranges key and value and records the KEY as a running best
+      # inside an inequality. Over a map that is a coin flip — Go randomises
+      # iteration deliberately, so a tie is settled by whichever key the
+      # runtime reached first, and the program answers differently on
+      # different runs with nothing to explain it.
+      #
+      # Five were live here, none cosmetic: which file the fixer is sent to,
+      # the workspace's primary language in two separate scans (which decides
+      # the build and test commands the agent reaches for), the most common
+      # decision per topic recorded as a LEARNED preference, and a task's
+      # problem category which drives prompt evolution. All five now sort
+      # first. The baseline is empty and the gate holds it there.
+      #
+      # It works on syntax with no type information, so it cannot tell a map
+      # from a slice; a legitimate slice case is recorded in the baseline with
+      # its reason. That limit is in the tool's doc rather than left to be
+      # discovered.
+      - name: Tie-break determinism
+        run: go run ./cmd/tools/audit_tiebreak
+      - name: Action drift linter
+        run: go run ./cmd/tools/action_linter -mg-root internal/core/defaults -virtual-store internal/core/virtual_store_types.go
       # predicate_corpus.db is generated from the .mg corpus and embedded into
       # the binary, where it tells a model which predicates exist and what shape
       # they are. It had drifted seven weeks: eight browser predicates recorded
@@ -139,6 +227,40 @@ jobs:
       - name: Dead-code budget
         shell: bash
         run: ./scripts/deadcode-budget.sh
+
+  runonce:
+    # The repeat-run defect: a test that passes once and fails the second time
+    # in the same process, because it reads process-global state as if it were
+    # fresh. `go test` runs each test once, so it never shows.
+    #
+    # 34 of these were found in one 2026-09 pass, and the shape was always the
+    # same. internal/session tests registered probe tools into the
+    # process-wide registry and discarded Register's error; Register rejects
+    # duplicates, so the second run kept the FIRST run's Execute closure —
+    # incrementing a counter the second run could not see, which then read
+    # zero. Two more turned up in internal/tools.
+    #
+    # Scoped to the packages that hold process-global state rather than the
+    # whole tree, the same way the race job is scoped: a tool registry, the
+    # prompt co-use recorder, the default meter, and the boot singletons. That
+    # is where the defect can exist at all, and it keeps this job at a couple
+    # of minutes instead of doubling the whole suite.
+    #
+    # Linux, and not because of any filesystem behaviour — the defect is about
+    # state held in one process, which is identical on both platforms. It runs
+    # here because it is cheap here and the Windows job is already the long
+    # pole.
+    name: repeat-run (shared state)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run each test twice in one process
+        run: go test -count=2 ./internal/session/ ./internal/tools/ ./internal/prompt/ ./internal/broker/ ./internal/system/
 
   race:
     # Closes the mcp backlog item "-race CI for manager+store". Scoped to those

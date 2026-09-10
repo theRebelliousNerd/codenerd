@@ -855,6 +855,11 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// this session (BySession) rather than "unknown"; turn_cost reads that
 	// entry, never the cross-process project total.
 	ctx = usage.WithSessionID(ctx, e.SessionID())
+	// The default account for a turn. Subsystems that run inside it --
+	// perception, compression, verification, spawned shards -- override this
+	// on their own sub-context, so what stays tagged "session" is the turn's
+	// own reasoning rather than everything it triggered.
+	ctx = broker.WithPurpose(ctx, broker.PurposeSession)
 	// Carry the owned usage meter on the turn context so snapshotTurnUsage
 	// below (and every sub-agent/clone turn derived from this executor) reads
 	// this session's spend instead of zeros. A tracker already on ctx wins.
@@ -863,6 +868,20 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// shares the session id, so a session-level delta absorbed sibling shards'
 	// tokens (one coder turn read 4.9 M). Per-turn counts are exact and local.
 	ctx = usage.WithTurnID(ctx, fmt.Sprintf("%s#%d#%d", e.SessionID(), auditTurnNum, time.Now().UnixNano()))
+	// Settle this turn's prompt-atom selections against its outcome. The
+	// compiler records what was selected; only here is it known whether the
+	// selection worked. The id is read into a local rather than out of ctx at
+	// defer time because ctx is reassigned repeatedly below, and a closure
+	// reading it later would settle against whatever the last reassignment
+	// left behind.
+	coUseTurnID := usage.TurnIDFromContext(ctx)
+	defer func() {
+		outcome := prompt.OutcomeSuccess
+		if result == nil || result.Error != nil {
+			outcome = prompt.OutcomeFailure
+		}
+		prompt.CoUse().Settle(coUseTurnID, outcome)
+	}()
 	e.hydrateMemory(ctx, input)
 	usageBefore := snapshotTurnUsage(ctx, e.SessionID())
 
@@ -2326,9 +2345,10 @@ func (e *Executor) consumeHollowSuccessVerdict(verb string, result *ExecutionRes
 				}
 			}
 			// No per-turn creation matched (stale or scanner-derived fact):
-			// fall through so a leaked fact cannot fail later turns forever.
-			// Cleanup retracts per-turn facts on every path via defer.
-			break
+			// leave the switch without erroring, so a leaked fact cannot fail
+			// later turns forever. Cleanup retracts per-turn facts on every
+			// path via defer. (Go cases do not fall through, so reaching the
+			// end of this one is the exit; the explicit break was a no-op.)
 		default:
 			return newHollowSuccessError("policy blocked hollow completion for intent %s (reason %s)", verb, reason)
 		}

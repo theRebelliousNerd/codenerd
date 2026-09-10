@@ -6,6 +6,7 @@ package verification
 
 import (
 	"codenerd/internal/autopoiesis"
+	"codenerd/internal/broker"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -211,6 +212,11 @@ func (v *TaskVerifier) VerifyWithRetry(
 	if maxRetries <= 0 {
 		maxRetries = 3
 	}
+
+	// Verification retries multiply spend: a task verified three times costs
+	// four inferences, not one. Attributing them here is what makes that
+	// multiplier visible instead of hiding inside the caller's budget.
+	ctx = broker.WithPurpose(ctx, broker.PurposeVerification)
 
 	var lastResult string
 	var lastVerification *VerificationResult

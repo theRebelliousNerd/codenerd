@@ -33,10 +33,14 @@ func TestExtractFindings_ParsesSeverities(t *testing.T) {
 		}
 	}
 
+	// The reviewer atom's ladder is CRITICAL/HIGH/MEDIUM/LOW, and
+	// extractFindings normalizes onto it. The log-level spellings still resolve
+	// -- other shards and older output use them -- but they land on the ladder
+	// rather than beside it, so a single filter matches both.
 	assertSeverity("- [CRITICAL] kernel panic", "critical")
-	assertSeverity("- [ERROR] nil pointer", "error")
-	assertSeverity("- [WARN] slow call", "warning")
-	assertSeverity("- [INFO] note", "info")
+	assertSeverity("- [ERROR] nil pointer", "high")
+	assertSeverity("- [WARN] slow call", "medium")
+	assertSeverity("- [INFO] note", "low")
 }
 
 func TestExtractMetrics_ParsesKeyValuePairs(t *testing.T) {

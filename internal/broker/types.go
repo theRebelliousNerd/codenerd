@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -156,9 +157,6 @@ const (
 	// The broker fails closed here: a budget that cannot be checked is a budget
 	// that is not enforced.
 	DecisionCountUnavailable DecisionCode = "count_unavailable"
-	// DecisionConfidenceTooLow means the caller required an exact count and the
-	// counter could only estimate.
-	DecisionConfidenceTooLow DecisionCode = "confidence_too_low"
 )
 
 // Decision is the result of an admission check.
@@ -182,6 +180,17 @@ type Receipt struct {
 	Method   string        `json:"method"`
 	Started  time.Time     `json:"started"`
 	Duration time.Duration `json:"duration"`
+
+	// Scope is the session this call belonged to, or "" when untagged. Epoch
+	// segmentation groups by it so two concurrent sessions are not spliced into
+	// one alternating run that reports every call as a singleton.
+	Scope string `json:"scope,omitempty"`
+	// Prefix fingerprints the cacheable head of the request -- the tool
+	// definitions and the system prompt, in wire order. Two consecutive calls
+	// with the same Prefix could have shared a provider cache entry; a change
+	// means the entry was invalidated. Empty when the request had no cacheable
+	// head at all.
+	Prefix string `json:"prefix,omitempty"`
 
 	// Estimated is what admission believed before the request went out.
 	Estimated Count `json:"estimated"`
@@ -209,9 +218,17 @@ func (e *AdmissionError) Error() string {
 		e.Decision.Count.Tokens, e.Decision.Window, e.Decision.Headroom)
 }
 
-// IsAdmissionError reports whether err is a broker refusal, for callers that
-// want to degrade rather than fail.
+// IsAdmissionError reports whether err is, or wraps, a broker refusal.
+//
+// errors.As rather than a type assertion: a refusal raised inside perception
+// reaches the caller as "observation failed: %w", and a bare assertion answers
+// false for every path a refusal actually travels. The function existed to let
+// a caller present a refusal as the specific thing it is, and it could not have
+// worked on any real error.
 func IsAdmissionError(err error) (*AdmissionError, bool) {
-	ae, ok := err.(*AdmissionError)
-	return ae, ok
+	var ae *AdmissionError
+	if errors.As(err, &ae) {
+		return ae, true
+	}
+	return nil, false
 }

@@ -1,6 +1,8 @@
 package broker
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 	"testing"
 )
@@ -8,7 +10,7 @@ import (
 func TestLedgerAdmitsWithinWindow(t *testing.T) {
 	l := NewLedger(LedgerConfig{Window: 100000, OutputReserve: 8000})
 
-	d := l.Admit(PurposeSession, Count{Tokens: 50000, Confidence: ConfidenceExact}, false)
+	d := l.Admit(PurposeSession, Count{Tokens: 50000, Confidence: ConfidenceExact})
 	if !d.Allowed || d.Code != DecisionAdmitted {
 		t.Fatalf("in-window request refused: %+v", d)
 	}
@@ -23,7 +25,7 @@ func TestLedgerRefusesWhenRequestExceedsWindowMinusReserve(t *testing.T) {
 	// 95k fits the raw window but leaves the model nowhere to write its answer.
 	// Refusing locally is strictly cheaper than being rejected by the API after
 	// transmitting, and being billed for the attempt.
-	d := l.Admit(PurposeSession, Count{Tokens: 95000, Confidence: ConfidenceExact}, false)
+	d := l.Admit(PurposeSession, Count{Tokens: 95000, Confidence: ConfidenceExact})
 	if d.Allowed {
 		t.Fatal("request that leaves no room for the response was admitted")
 	}
@@ -38,7 +40,7 @@ func TestLedgerRefusesWhenRequestExceedsWindowMinusReserve(t *testing.T) {
 func TestLedgerFailsClosedOnUncountableRequest(t *testing.T) {
 	l := NewLedger(LedgerConfig{Window: 100000, OutputReserve: 8000})
 
-	d := l.Admit(PurposeSession, Count{Tokens: 0, Confidence: ConfidenceSeeded}, false)
+	d := l.Admit(PurposeSession, Count{Tokens: 0, Confidence: ConfidenceSeeded})
 	if d.Allowed {
 		t.Fatal("a request with no token count was admitted: a budget that cannot be checked is not enforced")
 	}
@@ -47,25 +49,26 @@ func TestLedgerFailsClosedOnUncountableRequest(t *testing.T) {
 	}
 }
 
-func TestLedgerHonoursRequireExact(t *testing.T) {
+func TestLedgerAdmitsOnConfidenceItCannotImprove(t *testing.T) {
+	// The ledger no longer refuses a count for being an estimate. The opt-in
+	// that used to gate that -- WithRequireExact -- had no caller anywhere, so
+	// the check could only ever be skipped, and a safety property nothing can
+	// switch on is decoration.
+	//
+	// Confidence is still carried on every Count and every Receipt, which is
+	// what makes a measurement distinguishable from a guess after the fact.
+	// What is gone is the pre-flight refusal, and it comes back with its first
+	// real caller rather than ahead of one.
 	l := NewLedger(LedgerConfig{Window: 100000, OutputReserve: 8000})
-	count := Count{Tokens: 1000, Confidence: ConfidenceCalibrated}
 
-	if d := l.Admit(PurposeSession, count, false); !d.Allowed {
-		t.Fatal("a calibrated count should be admitted when exactness is not required")
-	}
-
-	d := l.Admit(PurposeSession, count, true)
-	if d.Allowed {
-		t.Fatal("an estimate was admitted where the caller demanded an exact count")
-	}
-	if d.Code != DecisionConfidenceTooLow {
-		t.Errorf("code = %q, want %q", d.Code, DecisionConfidenceTooLow)
-	}
-
-	exact := Count{Tokens: 1000, Confidence: ConfidenceExact}
-	if d := l.Admit(PurposeSession, exact, true); !d.Allowed {
-		t.Error("an exact count must satisfy RequireExact")
+	for _, conf := range []Confidence{ConfidenceExact, ConfidenceCalibrated, ConfidenceSeeded} {
+		d := l.Admit(PurposeSession, Count{Tokens: 1000, Confidence: conf})
+		if !d.Allowed {
+			t.Errorf("a %s count that fits the window was refused: %+v", conf, d)
+		}
+		if d.Count.Confidence != conf {
+			t.Errorf("decision dropped the confidence: got %q, want %q", d.Count.Confidence, conf)
+		}
 	}
 }
 
@@ -79,7 +82,7 @@ func TestLedgerEnforcesPerPurposeBudget(t *testing.T) {
 	l.Record(PurposeCompression, Spend{InputTokens: 6000, OutputTokens: 3000, Calls: 1})
 
 	// 9000 spent of 10000; a 2000-token request does not fit.
-	d := l.Admit(PurposeCompression, Count{Tokens: 2000, Confidence: ConfidenceExact}, false)
+	d := l.Admit(PurposeCompression, Count{Tokens: 2000, Confidence: ConfidenceExact})
 	if d.Allowed {
 		t.Fatal("purpose budget was not enforced")
 	}
@@ -88,7 +91,7 @@ func TestLedgerEnforcesPerPurposeBudget(t *testing.T) {
 	}
 
 	// A different purpose is unaffected: budgets are per-account, not global.
-	if d := l.Admit(PurposeSession, Count{Tokens: 2000, Confidence: ConfidenceExact}, false); !d.Allowed {
+	if d := l.Admit(PurposeSession, Count{Tokens: 2000, Confidence: ConfidenceExact}); !d.Allowed {
 		t.Error("one purpose exhausting its budget must not block another")
 	}
 }
@@ -99,7 +102,7 @@ func TestLedgerAdmitsWhenWindowUnknownButReportsNoHeadroom(t *testing.T) {
 	// brick boot — but it must be visible as zero headroom on every receipt.
 	l := NewLedger(LedgerConfig{})
 
-	d := l.Admit(PurposeSession, Count{Tokens: 5_000_000, Confidence: ConfidenceExact}, false)
+	d := l.Admit(PurposeSession, Count{Tokens: 5_000_000, Confidence: ConfidenceExact})
 	if !d.Allowed {
 		t.Fatal("an unconfigured window must not refuse")
 	}
@@ -152,7 +155,7 @@ func TestLedgerSetWindowUpdatesEnforcement(t *testing.T) {
 		t.Errorf("Available() = %d, want 45000", got)
 	}
 
-	if d := l.Admit(PurposeSession, Count{Tokens: 46000, Confidence: ConfidenceExact}, false); d.Allowed {
+	if d := l.Admit(PurposeSession, Count{Tokens: 46000, Confidence: ConfidenceExact}); d.Allowed {
 		t.Error("a request over the newly-learned window was admitted")
 	}
 }
@@ -186,7 +189,7 @@ func TestLedgerIsRaceFree(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 400; i++ {
-				l.Admit(PurposeSession, Count{Tokens: 10, Confidence: ConfidenceExact}, false)
+				l.Admit(PurposeSession, Count{Tokens: 10, Confidence: ConfidenceExact})
 			}
 		}()
 		go func() {
@@ -216,5 +219,56 @@ func TestLedgerAccountsReturnsCopy(t *testing.T) {
 
 	if l.Account(PurposeSession).InputTokens != 10 {
 		t.Error("Accounts() exposed internal state to mutation")
+	}
+}
+
+// TestIsAdmissionErrorSeesThroughWrapping is the case the original type
+// assertion could not handle. A refusal raised inside perception reaches the
+// caller as "observation failed: %w", so an assertion on the outermost type
+// answers false for every path a refusal actually travels -- and the function
+// exists precisely so a caller can tell a refusal from any other failure.
+func TestIsAdmissionErrorSeesThroughWrapping(t *testing.T) {
+	refusal := &AdmissionError{
+		Purpose: PurposePerception,
+		Decision: Decision{
+			Code:   DecisionWindowExceeded,
+			Reason: "counted 210000 tokens against a 200000 window",
+			Count:  Count{Tokens: 210000, Confidence: ConfidenceExact},
+			Window: 200000,
+		},
+	}
+
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"bare", refusal},
+		{"wrapped once", fmt.Errorf("observation failed: %w", refusal)},
+		{"wrapped twice", fmt.Errorf("turn failed: %w", fmt.Errorf("observation failed: %w", refusal))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := IsAdmissionError(tc.err)
+			if !ok {
+				t.Fatalf("IsAdmissionError(%v) = false; a caller cannot tell this from any other failure", tc.err)
+			}
+			if got.Decision.Code != DecisionWindowExceeded {
+				t.Errorf("code = %q, want %q", got.Decision.Code, DecisionWindowExceeded)
+			}
+			if got.Purpose != PurposePerception {
+				t.Errorf("purpose = %q, want %q", got.Purpose, PurposePerception)
+			}
+		})
+	}
+}
+
+func TestIsAdmissionErrorRejectsOtherFailures(t *testing.T) {
+	for _, err := range []error{
+		nil,
+		errors.New("connection reset"),
+		fmt.Errorf("observation failed: %w", errors.New("timeout")),
+	} {
+		if _, ok := IsAdmissionError(err); ok {
+			t.Errorf("IsAdmissionError(%v) = true; an ordinary failure must not be reported as a refusal", err)
+		}
 	}
 }

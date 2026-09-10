@@ -167,7 +167,7 @@ func TestLoadAll_EmptyWorkspace(t *testing.T) {
 	if len(docs) != 0 {
 		t.Fatalf("got %d docs, want 0 for empty workspace, paths: %v", len(docs), pathsOf(docs))
 	}
-	if docs != nil && len(docs) != 0 {
+	if len(docs) != 0 {
 		t.Errorf("expected empty slice, got %v", docs)
 	}
 }

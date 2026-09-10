@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/tactile"
@@ -521,11 +522,31 @@ func (o *Orchestrator) executeAssaultTriageTask(ctx context.Context, task *Task)
 	}
 	triageOut.RecommendedTasks = recommended
 
+	// latest.json is written atomically and the timestamped snapshot beside it
+	// is not, because they fail differently. The snapshot is a fresh path every
+	// run, so a torn write costs one run's record. latest.json is overwritten
+	// in place and read back by assault_report, so a truncating write can leave
+	// the only copy half-formed -- the exact defect internal/atomicfile was
+	// created for, found a fifth time.
+	//
+	// The errors are logged rather than discarded. They were dropped while the
+	// result below still advertised triage_path, which pointed a caller at a
+	// file that might not exist.
+	triageWritten := false
 	triagePath := filepath.Join(assaultDir, "triage", fmt.Sprintf("triage_%s.json", time.Now().Format("20060102T150405")))
-	if err := os.MkdirAll(filepath.Dir(triagePath), 0755); err == nil {
-		if data, err := json.MarshalIndent(triageOut, "", "  "); err == nil {
-			_ = os.WriteFile(triagePath, data, 0644)
-			_ = os.WriteFile(filepath.Join(assaultDir, "triage", "latest.json"), data, 0644)
+	latestPath := filepath.Join(assaultDir, "triage", "latest.json")
+	if err := os.MkdirAll(filepath.Dir(triagePath), 0755); err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("assault triage: cannot create %s: %v", filepath.Dir(triagePath), err)
+	} else if data, err := json.MarshalIndent(triageOut, "", "  "); err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("assault triage: cannot encode triage output: %v", err)
+	} else {
+		if err := os.WriteFile(triagePath, data, 0o644); err != nil {
+			logging.Get(logging.CategoryCampaign).Warn("assault triage: cannot write %s: %v", triagePath, err)
+		}
+		if err := atomicfile.WriteFile(latestPath, data, 0o644); err != nil {
+			logging.Get(logging.CategoryCampaign).Warn("assault triage: cannot write %s: %v", latestPath, err)
+		} else {
+			triageWritten = true
 		}
 	}
 
@@ -541,7 +562,7 @@ func (o *Orchestrator) executeAssaultTriageTask(ctx context.Context, task *Task)
 			"total_results":           total,
 			"success":                 success,
 			"failures":                len(failures),
-			"triage_path":             normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "triage", "latest.json")),
+			"triage_path":             triagePathFor(slug, triageWritten),
 			"status":                  "already_triaged",
 			"remediation_tasks_added": 0,
 		}, nil
@@ -611,7 +632,7 @@ func (o *Orchestrator) executeAssaultTriageTask(ctx context.Context, task *Task)
 		"total_results":                total,
 		"success":                      success,
 		"failures":                     len(failures),
-		"triage_path":                  normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "triage", "latest.json")),
+		"triage_path":                  triagePathFor(slug, triageWritten),
 		"remediation_tasks_added":      len(remediationTasks),
 		"remediation_phase_task_count": existing + len(remediationTasks),
 	}, nil
@@ -1184,4 +1205,17 @@ func (o *Orchestrator) appendTasksToPhase(phaseID string, tasks []Task) error {
 	o.mu.Unlock()
 
 	return nil
+}
+
+// triagePathFor returns the workspace-relative triage path, or "" when the file
+// was not written.
+//
+// Reporting a path unconditionally is how a caller is sent to read a file that
+// does not exist: the write error used to be discarded while the result
+// advertised the path regardless.
+func triagePathFor(slug string, written bool) string {
+	if !written {
+		return ""
+	}
+	return normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "triage", "latest.json"))
 }

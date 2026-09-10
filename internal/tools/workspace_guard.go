@@ -249,3 +249,31 @@ func ResolveWorkspaceDir(ctx context.Context, root, p string) (string, error) {
 	}
 	return ResolveWorkspacePath(ctx, root, p)
 }
+
+// WorkspaceDisplayPath names an already-contained absolute path the way results
+// and preconditions refer to it: workspace-relative, forward-slashed, falling
+// back to the absolute path when the root cannot be resolved.
+//
+// It exists so that a precondition minted by read_file and checked by edit_file
+// or edit_lines names the same file. A precondition is refused when the two
+// names disagree, which is right — checking a handle for one file against
+// another would let an edit claim safety it was never granted — but it makes a
+// single shared derivation load-bearing. Two spellings of the same path (the
+// caller's raw argument, the resolved absolute) would make that refusal
+// reachable for a file nobody touched.
+//
+// The symlink resolution is already done by ResolveWorkspacePath, and the root
+// is resolved the same way, so Rel compares two canonical paths. Wherever the
+// workspace traverses a link (/tmp on macOS) an unresolved root would fail Rel
+// and silently fall back to absolute on one side only.
+func WorkspaceDisplayPath(ctx context.Context, abs string) string {
+	root, err := ResolveWorkspaceDir(ctx, "", "")
+	if err != nil {
+		return filepath.ToSlash(abs)
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(abs)
+	}
+	return filepath.ToSlash(rel)
+}

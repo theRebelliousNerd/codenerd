@@ -946,11 +946,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			if m.compressor != nil {
 				var memOps []perception.MemoryOperation
 				for _, op := range artOutput.MemoryOperations {
-					memOps = append(memOps, perception.MemoryOperation{
-						Op:    op.Op,
-						Key:   op.Key,
-						Value: op.Value,
-					})
+					memOps = append(memOps, perception.MemoryOperation(op))
 				}
 
 				allMangleUpdates := mangleUpdates
@@ -1017,6 +1013,50 @@ func (m Model) processInput(input string) tea.Cmd {
 				go m.compressor.ProcessTurn(compressCtx, turn)
 			}
 
+			// These two kernel writes sit ABOVE the warnings render on
+			// purpose. They are the last thing in the turn that can add a
+			// warning, and the render below is the only thing that shows one
+			// to the user -- so appending after it is a dead write, which is
+			// how their failures stayed invisible in the first place.
+			if len(artOutput.MangleUpdates) > 0 && m.kernel != nil {
+				// This is the one place in the turn where the model's own
+				// conclusions enter the kernel. A fact that does not parse, or
+				// that the kernel refuses, is a decision the agent will not
+				// make later -- and with both failures dropped, the only
+				// visible symptom was the agent behaving as though it had
+				// never been told.
+				//
+				// Warnings rather than errors: one bad atom must not cost the
+				// user their turn, and the surviving atoms are still worth
+				// asserting.
+				for _, mu := range artOutput.MangleUpdates {
+					f, parseErr := core.ParseSingleFact(mu)
+					if parseErr != nil {
+						warnings = append(warnings, fmt.Sprintf(
+							"[Kernel] Mangle update dropped, did not parse: %q: %v", truncateForStorage(mu, 120), parseErr))
+						continue
+					}
+					if assertErr := m.kernel.Assert(f); assertErr != nil {
+						warnings = append(warnings, fmt.Sprintf(
+							"[Kernel] Mangle update rejected: %s: %v", f.Predicate, assertErr))
+					}
+				}
+			}
+
+			if artOutput.SelfCorrection != nil && artOutput.SelfCorrection.Triggered && m.kernel != nil {
+				// A self-correction the kernel refused means the agent
+				// believes it caught its own mistake and the record of that
+				// belief did not land.
+				hypothesis := core.Fact{
+					Predicate: "self_correction_hypothesis",
+					Args:      []any{artOutput.SelfCorrection.Hypothesis},
+				}
+				if assertErr := m.kernel.Assert(hypothesis); assertErr != nil {
+					warnings = append(warnings, fmt.Sprintf(
+						"[Kernel] Self-correction hypothesis rejected: %v", assertErr))
+				}
+			}
+
 			if len(warnings) > 0 {
 				var warnStr strings.Builder
 				warnStr.WriteString("\n\n**System Warnings:**\n")
@@ -1024,23 +1064,6 @@ func (m Model) processInput(input string) tea.Cmd {
 					warnStr.WriteString(fmt.Sprintf("- %s\n", w))
 				}
 				response += warnStr.String()
-			}
-
-			if len(artOutput.MangleUpdates) > 0 && m.kernel != nil {
-				for _, mu := range artOutput.MangleUpdates {
-					if f, err := core.ParseSingleFact(mu); err == nil {
-						_ = m.kernel.Assert(f)
-					}
-				}
-			}
-
-			if artOutput.SelfCorrection != nil && artOutput.SelfCorrection.Triggered {
-				if m.kernel != nil {
-					_ = m.kernel.Assert(core.Fact{
-						Predicate: "self_correction_hypothesis",
-						Args:      []any{artOutput.SelfCorrection.Hypothesis},
-					})
-				}
 			}
 
 			thoughtSummary := ""

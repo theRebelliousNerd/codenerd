@@ -734,8 +734,14 @@ func (r *RepairLoop) UpdateFromProgramInfo(info *analysis.ProgramInfo) {
 	r.Validator.UpdateFromProgramInfo(info)
 }
 
-// ValidateAndRepair validates atoms and generates repair prompts if needed.
-func (r *RepairLoop) ValidateAndRepair(atoms []string) ([]string, error, string) {
+// ValidateAndRepair validates atoms and generates repair prompts if needed. It
+// returns the atoms that parsed, a repair prompt for the ones that did not, and
+// an error naming how many failed.
+//
+// The repair prompt precedes the error because a Go caller reads the last
+// return as the error and stops there; a signature that buries the error in the
+// middle invites a caller to check the wrong value.
+func (r *RepairLoop) ValidateAndRepair(atoms []string) ([]string, string, error) {
 	results := r.Validator.ValidateAtoms(atoms)
 
 	var validAtoms []string
@@ -750,13 +756,13 @@ func (r *RepairLoop) ValidateAndRepair(atoms []string) ([]string, error, string)
 	}
 
 	if len(invalidAtoms) == 0 {
-		return validAtoms, nil, ""
+		return validAtoms, "", nil
 	}
 
 	// Generate repair prompt
 	repairPrompt := r.generateRepairPrompt(invalidAtoms)
 
-	return validAtoms, fmt.Errorf("%d invalid atoms", len(invalidAtoms)), repairPrompt
+	return validAtoms, repairPrompt, fmt.Errorf("%d invalid atoms", len(invalidAtoms))
 }
 
 // generateRepairPrompt creates a prompt to help the LLM fix invalid atoms.

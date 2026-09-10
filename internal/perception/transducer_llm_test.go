@@ -106,13 +106,6 @@ func TestExtractJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ExtractCleanJSON(tt.input)
 			if got != tt.expected {
-				// Special handling for "Valid inside Invalid" case if behaviors differ,
-				// but let's see what the current implementation does first.
-				if tt.name == "Valid inside Invalid" {
-					// Current implementation might return `{"valid": "inside"}`.
-					// My implementation will return `{"valid": "inside"}`.
-					// So they should match.
-				}
 				t.Errorf("ExtractCleanJSON() = %q, want %q", got, tt.expected)
 			}
 		})

@@ -61,7 +61,7 @@ func TestExecutorToolCapabilityEnvelopeFailsClosed(t *testing.T) {
 func TestExecutorExecuteToolCallRequiresEffectiveCapability(t *testing.T) {
 	toolName := fmt.Sprintf("jit_capability_test_%d", capabilityTestToolCounter.Add(1))
 	var executions atomic.Int64
-	if err := modulartools.Global().Register(&modulartools.Tool{
+	registerTestTool(t, &modulartools.Tool{
 		Effect:      modulartools.EffectRead,
 		Name:        toolName,
 		Description: "capability boundary regression tool",
@@ -69,9 +69,7 @@ func TestExecutorExecuteToolCallRequiresEffectiveCapability(t *testing.T) {
 			executions.Add(1)
 			return "executed", nil
 		},
-	}); err != nil {
-		t.Fatalf("register modular test tool: %v", err)
-	}
+	})
 
 	executor := &Executor{config: DefaultExecutorConfig()}
 	executor.config.EnableSafetyGate = false

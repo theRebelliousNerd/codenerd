@@ -90,7 +90,7 @@ func (l *Ledger) availableLocked() int {
 // exception is an unconfigured window, which is an explicit "we do not know the
 // limit" rather than a failure to measure — that case admits and reports zero
 // headroom so it is visible in every receipt rather than mistaken for a pass.
-func (l *Ledger) Admit(p Purpose, count Count, requireExact bool) Decision {
+func (l *Ledger) Admit(p Purpose, count Count) Decision {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -99,12 +99,6 @@ func (l *Ledger) Admit(p Purpose, count Count, requireExact bool) Decision {
 	if count.Tokens <= 0 {
 		decision.Code = DecisionCountUnavailable
 		decision.Reason = "counter produced no token count"
-		return decision
-	}
-
-	if requireExact && !count.Confidence.AtLeast(ConfidenceExact) {
-		decision.Code = DecisionConfidenceTooLow
-		decision.Reason = fmt.Sprintf("caller required an exact count; counter reported %q", count.Confidence)
 		return decision
 	}
 

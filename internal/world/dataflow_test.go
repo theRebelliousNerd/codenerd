@@ -289,7 +289,7 @@ func TestDataFlowExtractor_SkipsNonGoFiles(t *testing.T) {
 		t.Fatalf("ExtractDataFlow should not error on non-Go file: %v", err)
 	}
 
-	if facts != nil && len(facts) > 0 {
+	if len(facts) > 0 {
 		t.Error("Expected no facts for non-Go file")
 	}
 }

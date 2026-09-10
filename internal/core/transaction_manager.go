@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
@@ -396,7 +397,7 @@ func (tm *TransactionManager) Commit(ctx context.Context) error {
 			}
 
 			// Write the file.
-			if err := os.WriteFile(edit.FilePath, content, 0644); err != nil {
+			if err := atomicfile.WriteFilePreservingMode(edit.FilePath, content, 0o644); err != nil {
 				tm.rollback(txn, committedFiles)
 				txn.Status = TxnStatusAborted
 				txn.Error = fmt.Errorf("failed to write file: %s - %w", edit.FilePath, err)
@@ -486,7 +487,7 @@ func (tm *TransactionManager) rollback(txn *Transaction, committedFiles []string
 	for _, filePath := range committedFiles {
 		if original, exists := txn.Snapshots[filePath]; exists {
 			if len(original) > 0 {
-				if err := os.WriteFile(filePath, original, 0644); err != nil {
+				if err := atomicfile.WriteFilePreservingMode(filePath, original, 0o644); err != nil {
 					logging.Get(logging.CategoryKernel).Error("Rollback failed for %s: %v", filePath, err)
 				}
 			} else {

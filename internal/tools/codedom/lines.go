@@ -3,11 +3,12 @@ package codedom
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
+	"codenerd/internal/observation/precondition"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/tactile"
 	"codenerd/internal/tools"
@@ -39,6 +40,10 @@ func EditLinesTool() *tools.Tool {
 				"new_content": {
 					Type:        "string",
 					Description: "New content to replace the lines with",
+				},
+				precondition.Arg: {
+					Type:        "string",
+					Description: precondition.ArgDescription,
 				},
 			},
 		},
@@ -93,6 +98,16 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
+	// Line numbers are the whole address of this edit, and they are the first
+	// thing an insertion above them invalidates. lineShiftNotice below warns
+	// the caller after a mutation; the precondition is the half that catches a
+	// mutation somebody else made between the read and this call, which no
+	// notice in this process can see.
+	staleWarning, err := preconditionWarning(args, path, content)
+	if err != nil {
+		return "", err
+	}
+
 	ending := tactile.DetectLineEnding(content)
 	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
 
@@ -128,15 +143,16 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 
 	// Write back
 	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
-	if err := os.WriteFile(path, []byte(output), 0644); err != nil {
+	if err := atomicfile.WriteFilePreservingMode(path, []byte(output), 0o644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
 	linesReplaced := endLine - startLine + 1
 	logging.Tools("edit_lines completed: %s (replaced %d lines with %d)", path, linesReplaced, len(newLines))
-	return fmt.Sprintf("Replaced lines %d-%d (%d lines) with %d new lines in %s.%s",
+	return fmt.Sprintf("Replaced lines %d-%d (%d lines) with %d new lines in %s.%s%s",
 		startLine, endLine, linesReplaced, len(newLines), path,
-		lineShiftNotice(startLine, len(newLines)-linesReplaced, len(result))), nil
+		lineShiftNotice(startLine, len(newLines)-linesReplaced, len(result)),
+		staleNotice(staleWarning)), nil
 }
 
 // checkDelimiterBalance refuses a replacement whose net brace/bracket/paren
@@ -303,6 +319,10 @@ func InsertLinesTool() *tools.Tool {
 					Type:        "string",
 					Description: "Content to insert",
 				},
+				precondition.Arg: {
+					Type:        "string",
+					Description: precondition.ArgDescription,
+				},
 			},
 		},
 	}
@@ -347,6 +367,11 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
+	staleWarning, err := preconditionWarning(args, path, content)
+	if err != nil {
+		return "", err
+	}
+
 	ending := tactile.DetectLineEnding(content)
 	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
 
@@ -366,14 +391,15 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 
 	// Write back
 	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
-	if err := os.WriteFile(path, []byte(output), 0644); err != nil {
+	if err := atomicfile.WriteFilePreservingMode(path, []byte(output), 0o644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
 	logging.Tools("insert_lines completed: %s (inserted %d lines after line %d)", path, len(newLines), afterLine)
-	return fmt.Sprintf("Inserted %d lines after line %d in %s.%s",
+	return fmt.Sprintf("Inserted %d lines after line %d in %s.%s%s",
 		len(newLines), afterLine, path,
-		lineShiftNotice(afterLine+1, len(newLines), len(result))), nil
+		lineShiftNotice(afterLine+1, len(newLines), len(result)),
+		staleNotice(staleWarning)), nil
 }
 
 // DeleteLinesTool returns a tool for deleting lines from a file.
@@ -398,6 +424,10 @@ func DeleteLinesTool() *tools.Tool {
 				"end_line": {
 					Type:        "integer",
 					Description: "Ending line number (inclusive)",
+				},
+				precondition.Arg: {
+					Type:        "string",
+					Description: precondition.ArgDescription,
 				},
 			},
 		},
@@ -449,6 +479,11 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
+	staleWarning, err := preconditionWarning(args, path, content)
+	if err != nil {
+		return "", err
+	}
+
 	ending := tactile.DetectLineEnding(content)
 	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
 
@@ -471,13 +506,41 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 
 	// Write back
 	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
-	if err := os.WriteFile(path, []byte(output), 0644); err != nil {
+	if err := atomicfile.WriteFilePreservingMode(path, []byte(output), 0o644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
 	linesDeleted := endLine - startLine + 1
 	logging.Tools("delete_lines completed: %s (deleted %d lines)", path, linesDeleted)
-	return fmt.Sprintf("Deleted lines %d-%d (%d lines) from %s.%s",
+	return fmt.Sprintf("Deleted lines %d-%d (%d lines) from %s.%s%s",
 		startLine, endLine, linesDeleted, path,
-		lineShiftNotice(startLine, -linesDeleted, len(result))), nil
+		lineShiftNotice(startLine, -linesDeleted, len(result)),
+		staleNotice(staleWarning)), nil
+}
+
+// preconditionWarning checks a caller-supplied precondition against the bytes
+// this verb is about to modify.
+//
+// path is the resolved absolute the containment guard produced, which is what a
+// precondition is keyed on: these verbs and read_file are in different packages
+// and resolve the caller's argument through different call sites, and a
+// precondition is refused outright when the two names disagree. Keying on
+// anything a workspace root can change would make that refusal reachable for a
+// file nobody touched, which reads to the model as "the file changed" and sends
+// it off to re-read something already correct.
+func preconditionWarning(args map[string]any, path string, content []byte) (string, error) {
+	return precondition.Enforce(args, path, content)
+}
+
+// staleNotice appends a precondition warning to a verb's result.
+//
+// It is a suffix on the success message rather than a second return value
+// because the edit did happen: reporting it as a failure would send the caller
+// off to redo an edit that is already applied, which is how a duplicated block
+// gets written.
+func staleNotice(warning string) string {
+	if warning == "" {
+		return ""
+	}
+	return " " + warning
 }

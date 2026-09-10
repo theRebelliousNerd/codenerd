@@ -12,6 +12,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -621,12 +622,26 @@ func detectProjectLanguage(facts []core.Fact) string {
 		}
 	}
 
-	// Simple majority wins
+	// Simple majority wins, and ties are broken by name rather than by luck.
+	//
+	// Ranging a map with a strict `>` picks whichever key Go's randomised
+	// iteration reaches first, so a workspace with equal Go and Python files
+	// reported a different primary language on different runs — and the
+	// primary language decides which build and test commands the agent
+	// reaches for. The tie-break being alphabetical is arbitrary; its being
+	// FIXED is not. A stable wrong answer can be found and argued with, a
+	// varying one cannot.
+	langs := make([]string, 0, len(counts))
+	for lang := range counts {
+		langs = append(langs, lang)
+	}
+	sort.Strings(langs)
+
 	bestLang := ""
 	maxCount := 0
-	for lang, count := range counts {
-		if count > maxCount {
-			maxCount = count
+	for _, lang := range langs {
+		if counts[lang] > maxCount {
+			maxCount = counts[lang]
 			bestLang = lang
 		}
 	}

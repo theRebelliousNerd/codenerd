@@ -1,8 +1,10 @@
 package system
 
 import (
+	"codenerd/internal/broker"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
 	"codenerd/internal/tools/research"
 	"context"
 	"errors"
@@ -177,6 +179,39 @@ func (c *Cortex) Close() error {
 			errs = append(errs, err)
 		}
 		c.LearningStore = nil
+	}
+
+	// The two meter logs are process-wide singletons installed at boot, so they
+	// are released here rather than by whoever installed them. Cortex.Close is
+	// where the Windows handle problem this comment block opens with gets
+	// solved for every other file; these were simply never added to the list.
+	//
+	// Detaching also stops receipts and selections being written to a file the
+	// caller has finished with, which matters for a one-shot CLI that boots,
+	// works, closes, and expects the workspace to be quiet afterwards.
+	// By identity, not unconditionally. Several Cortex instances can be live in
+	// one process — cortexCache is keyed per workspace and provider — and both
+	// of these are process singletons, so a blanket detach lets the one shutting
+	// down close the log another is still writing to. A closed sink drops
+	// records silently, so that second agent would go on working with its
+	// metering switched off and nothing anywhere to say so.
+	if c.meterSink != nil {
+		if err := runCloseStep("Broker.DetachExtraSink", closeStepTimeout, func() error {
+			_, detachErr := broker.DetachExtraSink(c.meterSink)
+			return detachErr
+		}); err != nil {
+			errs = append(errs, err)
+		}
+		c.meterSink = nil
+	}
+	if c.couseLog != nil {
+		if err := runCloseStep("CoUse.DetachLog", closeStepTimeout, func() error {
+			_, detachErr := prompt.CoUse().DetachLog(c.couseLog)
+			return detachErr
+		}); err != nil {
+			errs = append(errs, err)
+		}
+		c.couseLog = nil
 	}
 
 	// Evict from the keyed cache so a future GetOrBootCortex with the same

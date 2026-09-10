@@ -2,6 +2,7 @@ package xaioauth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -165,7 +166,8 @@ func formatLoginRequiredMessage(err error) string {
 	}
 	detail := err.Error()
 	// Prefer concise first line for status UI; full help remains in RawError.
-	if ae, ok := err.(*AuthRequiredError); ok && ae.Detail != "" {
+	var ae *AuthRequiredError
+	if errors.As(err, &ae) && ae.Detail != "" {
 		if IsTerminalRefreshFailure(ae.Detail) {
 			return fmt.Sprintf("refresh revoked (%s); run: nerd auth grok", ae.Detail)
 		}
@@ -191,6 +193,11 @@ func isRateLimited(err error) bool {
 	if err == nil {
 		return false
 	}
-	_, ok := err.(*RateLimitedError)
-	return ok
+	// errors.As, not a bare assertion. Its two neighbours in the same switch --
+	// IsAuthRequired and IsTierForbidden -- both reach through a wrapping
+	// chain, and a rate limit that a wrapper hides is classified as a generic
+	// failure. The agent then retries immediately against the thing that just
+	// told it to slow down.
+	var rl *RateLimitedError
+	return errors.As(err, &rl)
 }

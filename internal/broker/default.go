@@ -25,6 +25,10 @@ type Meter struct {
 	calibrator *Calibrator
 	ring       *RingSink
 	sink       ReceiptSink
+	// extraSink is held separately from sink so a replacement can close the
+	// resource the old one owns. sink is the composed fan-out and cannot be
+	// taken apart again.
+	extraSink  ReceiptSink
 	httpClient *http.Client
 
 	reconciler *Reconciler
@@ -103,11 +107,50 @@ func Configure(cfg MeterConfig) {
 		m.httpClient = cfg.HTTPClient
 	}
 	if cfg.ExtraSink != nil {
-		m.sink = MultiSink{LogSink{}, m.ring, cfg.ExtraSink}
+		m.setExtraSinkLocked(cfg.ExtraSink)
 	}
 	if cfg.PrimaryModel != "" {
 		m.primaryModel = cfg.PrimaryModel
 	}
+}
+
+// DetachExtraSink removes and closes the extra sink only if it is still the one
+// the caller installed, reporting whether it did.
+//
+// The compare is the point. The meter is a process singleton and Cortex
+// instances are cached per (workspace, provider, key, model, shards), so more
+// than one can be live at once. An unconditional detach on shutdown meant
+// closing one agent lets it close the receipt log a DIFFERENT, still-running
+// agent is writing to — and a closed FileSink drops records silently, so that
+// second agent goes on working with its metering switched off and nothing to
+// say so. Exactly the class of defect this whole branch is about, introduced by
+// the fix for the previous one.
+func DetachExtraSink(installed ReceiptSink) (bool, error) {
+	if installed == nil {
+		return false, nil
+	}
+	m := Default()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.extraSink != installed {
+		return false, nil
+	}
+	return true, m.setExtraSinkLocked(nil)
+}
+
+// setExtraSinkLocked swaps the extra sink. The caller holds m.mu.
+func (m *Meter) setExtraSinkLocked(sink ReceiptSink) error {
+	var closeErr error
+	if closer, ok := m.extraSink.(interface{ Close() error }); ok && m.extraSink != sink {
+		closeErr = closer.Close()
+	}
+	m.extraSink = sink
+	if sink == nil {
+		m.sink = MultiSink{LogSink{}, m.ring}
+	} else {
+		m.sink = MultiSink{LogSink{}, m.ring, sink}
+	}
+	return closeErr
 }
 
 // NewMeter builds an independent meter. Tests use this to avoid sharing the
@@ -152,21 +195,6 @@ func (m *Meter) Ledger() *Ledger {
 	return m.ledger
 }
 
-// Calibrator returns the meter's shared calibrator.
-func (m *Meter) Calibrator() *Calibrator {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.calibrator
-}
-
-// Receipts returns the buffered receipts, oldest first.
-func (m *Meter) Receipts() []Receipt {
-	m.mu.RLock()
-	ring := m.ring
-	m.mu.RUnlock()
-	return ring.Receipts()
-}
-
 // ProviderCreds is what a counter needs to reach a provider's counting
 // endpoint. Providers with no such endpoint leave it zero and get the
 // calibrating estimator.
@@ -175,6 +203,23 @@ type ProviderCreds struct {
 	Model    string
 	APIKey   string
 	BaseURL  string
+}
+
+// Calibrator returns the meter's shared calibrator.
+//
+// Exported for one reason worth stating: internal/context's token counter is
+// built from this calibrator, and the property that a ratio learned here
+// reaches a counter already handed out -- without reconstructing it, since the
+// compressor holds one counter for a whole session -- is only checkable by
+// feeding an observation in from outside the package.
+//
+// scripts/deadcode-budget.sh reports it unreachable because its only caller is
+// a test in another package, which production-reachability analysis does not
+// follow. It is recorded in the baseline for that reason rather than deleted.
+func (m *Meter) Calibrator() *Calibrator {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.calibrator
 }
 
 // CounterFor returns the strongest counter available for the given provider.
@@ -214,13 +259,3 @@ func (m *Meter) ConfigFor(creds ProviderCreds) Config {
 		Reconciler: reconciler,
 	}
 }
-
-// Reconciler returns the meter's drift tracker.
-func (m *Meter) Reconciler() *Reconciler {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.reconciler
-}
-
-// Drift reports per-model estimated-versus-billed divergence, worst first.
-func (m *Meter) Drift() []ModelDrift { return m.Reconciler().Drift() }

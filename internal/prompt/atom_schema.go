@@ -751,9 +751,7 @@ func slugMetadataName(value string) string {
 func NormalizeSelectorAtom(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.ToLower(s)
-	if strings.HasPrefix(s, "/") {
-		s = s[1:]
-	}
+	s = strings.TrimPrefix(s, "/")
 	var b strings.Builder
 	b.Grow(len(s) + 1)
 	prevUnderscore := false

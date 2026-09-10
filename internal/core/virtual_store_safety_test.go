@@ -269,8 +269,11 @@ func TestRouteActionReturnsPostValidationFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "post-action validation failed") {
 		t.Fatalf("RouteAction error = %v, want post-validation failure", err)
 	}
-	if output != "content" {
-		t.Fatalf("RouteAction output = %q, want handler output retained", output)
+	// The handler's output must survive a post-validation failure. read_file
+	// shapes it through the read projection, so the check is that the file's
+	// content is still in there rather than that the string is bare.
+	if !strings.Contains(output, "content") {
+		t.Fatalf("RouteAction output = %q, want the handler output retained", output)
 	}
 }
 

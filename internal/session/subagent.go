@@ -10,6 +10,7 @@ import (
 
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
 )
@@ -144,6 +145,13 @@ type SubAgent struct {
 	result string
 	err    error
 
+	// observed is what the executor recorded about this run — write set, build
+	// and test verdicts, critic findings — captured at the one moment it is
+	// still in hand. execute() used to return result.Response and let the rest
+	// of ExecutionResult fall out of scope, so every consumer downstream had to
+	// re-derive from prose what the runtime had already measured.
+	observed observation.Return
+
 	// Cancellation
 	cancel context.CancelFunc
 }
@@ -212,6 +220,19 @@ func (s *SubAgent) GetResult() (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.result, s.err
+}
+
+// ObservedReturn returns the raw observation of this subagent's run: the whole
+// output plus what the executor measured about it.
+//
+// It is a separate accessor rather than a wider GetResult because the string is
+// what the user sees and must stay exactly what it was; this is what the
+// PARENT's reasoning gets, which is a different question with a different
+// answer.
+func (s *SubAgent) ObservedReturn() observation.Return {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.observed
 }
 
 // Run executes the subagent's task asynchronously.
@@ -285,6 +306,16 @@ func (s *SubAgent) execute(ctx context.Context, task string) (string, error) {
 	// For single-turn execution, process the task. When the spawner recorded
 	// the routed intent verb, run with a preset intent — no re-perception.
 	result, err := s.executor.ProcessWithIntent(ctx, task, presetIntentForTask(intentVerb, task, intentTarget))
+
+	// Capture the structured return before anything narrows it to a string.
+	// This is the only point at which the write set, the build verdict and the
+	// test verdict for this run are all in scope together.
+	s.mu.Lock()
+	s.observed = observedReturn(s.config.Name, task, result)
+	if s.observed.Failure == "" && err != nil {
+		s.observed.Failure = err.Error()
+	}
+	s.mu.Unlock()
 
 	// Sync history back from executor
 	s.mu.Lock()

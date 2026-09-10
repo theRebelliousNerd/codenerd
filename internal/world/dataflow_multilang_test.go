@@ -321,7 +321,7 @@ func TestMultiLangDataFlowExtractor_UnsupportedLanguage(t *testing.T) {
 		t.Fatalf("ExtractDataFlow should not error for unsupported: %v", err)
 	}
 
-	if facts != nil && len(facts) > 0 {
+	if len(facts) > 0 {
 		t.Errorf("Expected no facts for unsupported language, got %d", len(facts))
 	}
 }

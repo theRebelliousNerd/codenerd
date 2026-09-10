@@ -502,6 +502,15 @@ func lint(policyActions map[string]actionSources, routes []system.ToolRoute, vir
 		if exemptions.isExempt(toolName) {
 			continue
 		}
+		// A tool the constitution denies ON PURPOSE is not drift. This used to
+		// be the linter's only error, which is why nobody could put it in CI:
+		// it reported a deliberate, tested policy decision as a failure. The
+		// reason lives with the decision rather than here, so the linter and
+		// the parity test in internal/tools cannot disagree about the same
+		// tool.
+		if tools.IsPolicyDeniedByDesign(toolName) {
+			continue
+		}
 		issues = append(issues, issue{
 			Severity: severityError,
 			Action:   "/" + toolName,

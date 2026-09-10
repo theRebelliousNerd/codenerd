@@ -256,6 +256,43 @@ func TestPromptAtom_MatchesContext(t *testing.T) {
 			expectMatch: true,
 		},
 		{
+			// The rule a third of the corpus hangs on. 326 of 918 atom entries
+			// declare a language, so "no language" excluding all of them is a
+			// far bigger event than it looks -- and it is the correct rule:
+			// selecting them all would put Rust advice in a Python session.
+			//
+			// It also means an empty language is a wiring bug rather than a
+			// neutral default, which is how the interactive turn ran for a long
+			// time. cmd/nerd/chat now fills it from the kernel's
+			// project_language fact.
+			name: "language required, context has none - excluded",
+			atom: &PromptAtom{
+				ID:        "go-lang",
+				Languages: []string{"/go"},
+			},
+			context:     &CompilationContext{},
+			expectMatch: false,
+		},
+		{
+			// Frameworks are the asymmetry, and it is deliberate enough to pin
+			// rather than leave for someone to discover: the framework check is
+			// skipped entirely when the context names none, so a framework atom
+			// matches instead of being excluded.
+			//
+			// Language answers "what is this project", which the workspace
+			// always has once scanned. Frameworks answer "which of these many
+			// libraries is in play", which is often genuinely unknown, and
+			// fail-closed there would drop every framework atom in every
+			// session that had not enumerated its libraries.
+			name: "framework required, context has none - included",
+			atom: &PromptAtom{
+				ID:         "bubbletea-atom",
+				Frameworks: []string{"/bubbletea"},
+			},
+			context:     &CompilationContext{},
+			expectMatch: true,
+		},
+		{
 			name: "matching framework - single",
 			atom: &PromptAtom{
 				ID:         "bubbletea-atom",

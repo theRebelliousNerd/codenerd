@@ -124,7 +124,7 @@ func TestMeteredClientEmitsAReceiptWithoutNetwork(t *testing.T) {
 	broker.Configure(broker.MeterConfig{
 		Window:        1000,
 		OutputReserve: 950,
-		ExtraSink: broker.ReceiptFunc(func(r broker.Receipt) {
+		ExtraSink: recordFunc(func(r broker.Receipt) {
 			select {
 			case captured <- r:
 			default:
@@ -179,3 +179,12 @@ func longSystemPromptForRefusal() string {
 
 // Compile-time proof that a metered client still satisfies the base interface.
 var _ types.LLMClient = (types.LLMClient)(nil)
+
+// recordFunc adapts a function to broker.ReceiptSink.
+//
+// Declared here rather than exported from the broker: an adapter whose only
+// user is a test is API the package under test has to keep alive for the
+// benefit of its own test suite.
+type recordFunc func(broker.Receipt)
+
+func (f recordFunc) Record(r broker.Receipt) { f(r) }

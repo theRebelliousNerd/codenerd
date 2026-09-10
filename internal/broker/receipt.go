@@ -12,12 +12,6 @@ type ReceiptSink interface {
 	Record(r Receipt)
 }
 
-// ReceiptFunc adapts a function to ReceiptSink.
-type ReceiptFunc func(Receipt)
-
-// Record implements ReceiptSink.
-func (f ReceiptFunc) Record(r Receipt) { f(r) }
-
 // RingSink keeps the most recent receipts in memory for observability.
 //
 // Bounded on purpose. An unbounded receipt log in a long agent session is a

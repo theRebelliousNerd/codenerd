@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"testing"
 
@@ -202,5 +203,58 @@ func TestConcurrentCloneAndHashAreRaceFree(t *testing.T) {
 	if len(original.ActivatedFacts) != 3 {
 		t.Errorf("concurrent clones wrote through to the original: %d facts, want 3",
 			len(original.ActivatedFacts))
+	}
+}
+
+// TestActivatedFactsWouldDefeatThePromptCache pins the cost of populating
+// ActivatedFacts with live activation scores.
+//
+// The field is part of Hash(), and Hash() is the prompt cache key. Activation
+// scores are intent-dependent and move every turn, so a populated map gives
+// every compilation a unique key and switches the prompt cache off. Two
+// compilations identical in every way that matters to the prompt would miss.
+//
+// This is not a bug in Hash -- excluding the field would be worse, because then
+// a populated map could serve a prompt built under different activation. It is
+// the cost of the design, and it is recorded here so that whoever wires the
+// field meets it in a failing expectation rather than in a latency graph weeks
+// later.
+func TestActivatedFactsWouldDefeatThePromptCache(t *testing.T) {
+	base := func() *CompilationContext {
+		cc := NewCompilationContext()
+		cc.IntentVerb = "/explain"
+		cc.IntentTarget = "internal/prompt/context.go"
+		return cc
+	}
+
+	a, b := base(), base()
+	if a.Hash() != b.Hash() {
+		t.Fatal("two identical contexts hash differently; the cache could never hit at all")
+	}
+
+	// The same hot facts at scores a turn apart. Nothing about the prompt has
+	// changed; only the activation engine's arithmetic has.
+	a.ActivatedFacts = map[string]float64{"file_modified(\"a.go\")": 0.81}
+	b.ActivatedFacts = map[string]float64{"file_modified(\"a.go\")": 0.82}
+
+	if a.Hash() == b.Hash() {
+		t.Fatal("a score change did not change the cache key — a populated map could then " +
+			"serve a prompt compiled under different activation, which is the worse failure")
+	}
+
+	// And the coarse fix, recorded as a demonstration rather than as behaviour:
+	// quantized to the same bucket, the two turns share a key again.
+	quantize := func(m map[string]float64, step float64) map[string]float64 {
+		out := make(map[string]float64, len(m))
+		for k, v := range m {
+			out[k] = math.Round(v/step) * step
+		}
+		return out
+	}
+	a.ActivatedFacts = quantize(a.ActivatedFacts, 0.1)
+	b.ActivatedFacts = quantize(b.ActivatedFacts, 0.1)
+	if a.Hash() != b.Hash() {
+		t.Fatal("quantizing to a common bucket did not restore a shared cache key; " +
+			"the documented fix does not work and the doc comment is wrong")
 	}
 }

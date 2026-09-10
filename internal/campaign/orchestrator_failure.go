@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"codenerd/internal/broker"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"context"
@@ -399,9 +400,32 @@ func isReproDiagnosticTask(task *Task) bool {
 }
 
 // classifyTaskError uses heuristics to bucket errors into retry taxonomies.
+// errorTypeRefused marks a task that failed because the inference broker
+// declined the request, rather than because anything about the task is wrong.
+//
+// It is separated from /logic because of what /logic costs. A task classified
+// /logic retries on a backoff capped at 30 seconds and, after enough attempts,
+// has a repro-diagnostic task inserted so the agent can debug it. Applied to a
+// budget refusal that is exactly backwards: the broker has just said there are
+// no tokens to spend, and the response is to schedule a fresh unit of work that
+// needs tokens to investigate why the model would not answer. The premise of
+// the diagnostic is false — there is nothing to reproduce — so the work is
+// wasted at the precise moment the system is out of budget.
+//
+// It is not /transient either. A transient error is expected to clear on its
+// own, and a spent purpose cap does not; only an operator raising it, or a
+// smaller request, changes the answer.
+const errorTypeRefused = "/refused"
+
 func classifyTaskError(err error) string {
 	if err == nil {
 		return "/logic"
+	}
+	// Checked before anything else, and with IsAdmissionError rather than a
+	// type assertion: a refusal raised inside perception reaches here wrapped
+	// as "observation failed: %w", which is every path a refusal travels.
+	if _, refused := broker.IsAdmissionError(err); refused {
+		return errorTypeRefused
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return "/transient"
@@ -475,6 +499,11 @@ func (o *Orchestrator) computeRetryBackoff(errorType string, attemptNum int) tim
 	if errorType == "/logic" && backoff > 30*time.Second {
 		backoff = 30 * time.Second
 	}
+	// A refusal gets the opposite treatment, and deliberately keeps the full
+	// exponential rather than the shortened one. Retrying quickly against a
+	// broker that just declined spends attempts against a limit that has not
+	// moved; the useful thing a retry can do here is arrive later, after a
+	// window has rolled or an operator has raised a cap.
 	if backoff > maxBackoff {
 		backoff = maxBackoff
 	}

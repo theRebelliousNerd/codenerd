@@ -174,6 +174,34 @@ task_needs_enrichment(TaskID) :-
 
 # Specific enrichment strategies based on failure type (computed in stratum 0)
 # Note: /research for /unknown_api is a specific strategy, not the default
+#
+# NONE OF THE FOUR SPECIFIC RULES BELOW CAN FIRE TODAY, and the reason is worth
+# stating here rather than leaving for the next person to find the hard way.
+#
+# They select on the second argument of task_error, and the Go producer and this
+# consumer speak disjoint vocabularies. classifyTaskError in
+# internal/campaign/orchestrator_failure.go emits /transient, /logic, /refused,
+# /logic_failure_escalated and max_retries_N. These rules match /unknown_api,
+# /missing_context, /too_complex and /domain_specific. The two sets do not
+# overlap at all, so every failing task falls through to the /research default
+# below regardless of why it failed — which is to say the kernel's adaptive
+# retry, the thing that makes it more than a retry loop, is inert.
+#
+# The other end is disconnected too: no Go code queries enrichment_strategy or
+# specific_enrichment, so even a firing rule would derive a conclusion nothing
+# reads. Both halves have to be built for either to be worth building, and
+# emitting these four types from a string-matching classifier would be guessing
+# — a wrong /decompose is worse than a uniform /research, because the agent acts
+# on it with confidence.
+#
+# TestStarvedPredicateBudget does not see this: task_error IS produced, just
+# never with these values, and starvation at the level of a value is invisible
+# to a check that works at the level of a predicate.
+#
+# The one mapping that would NOT be guesswork, when this is picked up:
+# a broker refusal with code window_exceeded means the request did not fit the
+# context window, and /too_complex -> /decompose is exactly the right response
+# to that. classifyTaskError already distinguishes refusals as /refused.
 specific_enrichment(TaskID, /research) :-
     task_needs_enrichment(TaskID),
     task_error(TaskID, /unknown_api, _).

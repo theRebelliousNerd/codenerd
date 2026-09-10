@@ -95,7 +95,7 @@ func TestExecuteToolBatchPiggyback_ReportsEverySkippedCall(t *testing.T) {
 
 func TestExecuteToolBatch_ZeroConfigUsesSafeDefaults(t *testing.T) {
 	const toolName = "zero_config_probe"
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect:   tools.EffectRead,
 		Name:     toolName,
 		Category: tools.CategoryGeneral,
@@ -178,7 +178,7 @@ func TestRunToolLoop_PiggybackRunsPostEditBuildGate(t *testing.T) {
 	}
 
 	const toolName = "multi_edit"
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,
 		Name:   toolName, Category: tools.CategoryCode,
 		Execute: func(context.Context, map[string]any) (string, error) { return "written", nil },
@@ -223,7 +223,7 @@ func TestRunToolLoop_ForcedFinalRunsPostEditBuildGate(t *testing.T) {
 	}
 
 	const toolName = "multi_edit"
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,
 		Name:   toolName, Category: tools.CategoryCode,
 		Execute: func(context.Context, map[string]any) (string, error) { return "written", nil },
@@ -271,7 +271,7 @@ func (p finalToolCallProvider) CompleteWithToolResults(
 func TestForceFinalAnswer_RefusesUnofferedToolCalls(t *testing.T) {
 	const toolName = "forced_final_probe"
 	executions := 0
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect:   tools.EffectRead,
 		Name:     toolName,
 		Category: tools.CategoryGeneral,
@@ -315,7 +315,7 @@ func TestForceFinalAnswer_RefusesUnofferedToolCalls(t *testing.T) {
 func TestForceFinalAnswer_ExecutesOfferedWriteThenClearsIt(t *testing.T) {
 	const toolName = "create_file"
 	executions := 0
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect:   tools.EffectRead,
 		Name:     toolName,
 		Category: tools.CategoryCode,
@@ -362,7 +362,7 @@ func (c *capturingProvider) CompleteWithToolResults(_ context.Context, _ string,
 func TestForceFinalAnswer_PendingCallPairedBeforeNudge(t *testing.T) {
 	const toolName = "pending_write_tool"
 	executions := 0
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect:   tools.EffectRead,
 		Name:     toolName,
 		Category: tools.CategoryCode,

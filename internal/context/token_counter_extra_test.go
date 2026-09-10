@@ -1,10 +1,12 @@
 package context
 
 import (
-	"codenerd/internal/broker"
+	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/core"
 )
 
@@ -117,8 +119,7 @@ func TestNewConfigWithBudget(t *testing.T) {
 // shared key would leak into each other.
 
 func TestTokenCounter_ShouldCountViaBrokerRatio(t *testing.T) {
-	const model = "test/context-counter-ratio"
-	counter := NewTokenCounterForModel(model)
+	counter, model := testCounterForModel("test/context-counter-ratio")
 
 	const text = "the quick brown fox jumps over the lazy dog"
 	before := counter.CountString(text)
@@ -150,7 +151,7 @@ func TestTokenCounter_ShouldCountViaBrokerRatio(t *testing.T) {
 }
 
 func TestTokenCounter_WhenEmpty_ShouldChargeNothing(t *testing.T) {
-	counter := NewTokenCounterForModel("test/context-counter-empty")
+	counter, _ := testCounterForModel("test/context-counter-empty")
 	if got := counter.CountString(""); got != 0 {
 		t.Errorf("CountString(\"\") = %d, want 0 — empty input must not be billed", got)
 	}
@@ -159,8 +160,29 @@ func TestTokenCounter_WhenEmpty_ShouldChargeNothing(t *testing.T) {
 func TestTokenCounter_ShouldNeverReturnZeroForNonEmptyText(t *testing.T) {
 	// A single character must cost at least one token. Returning zero would let
 	// an unbounded number of tiny facts into a budget that believed it was full.
-	counter := NewTokenCounterForModel("test/context-counter-floor")
+	counter, _ := testCounterForModel("test/context-counter-floor")
 	if got := counter.CountString("x"); got < 1 {
 		t.Errorf("CountString(\"x\") = %d, want >= 1", got)
 	}
 }
+
+// testCounterForModel builds a counter bound to an isolated model name so one
+// test's calibration cannot move another's learned ratio.
+//
+// The name is suffixed per call because the calibrator lives on the process
+// meter and outlives a single test: a fixed name means the second run of the
+// suite in one process finds the ratio the first run taught it, and a test
+// asserting "seeded before any observation" fails. That is the same run-once
+// defect as the tool-registry one, in a different shared singleton.
+//
+// It is a test helper rather than a production constructor because nothing in
+// the codebase sizes content for a model other than the primary one. Exporting
+// a constructor that only tests call is how a package accumulates surface
+// nobody maintains, and the repo's dead-code budget is there to catch exactly
+// that.
+func testCounterForModel(model string) (*TokenCounter, string) {
+	unique := fmt.Sprintf("%s#%d", model, testCounterSeq.Add(1))
+	return &TokenCounter{estimator: broker.Default().TextCounter(unique)}, unique
+}
+
+var testCounterSeq atomic.Int64

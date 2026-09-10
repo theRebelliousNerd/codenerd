@@ -283,6 +283,16 @@ modular_tool_allowed(/list_files, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/glob, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/grep, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/search_code, Intent) :- user_intent(_, _, Intent, _, _).
+# Wherever /search_code is allowed, so is the verb that reads back the lines it
+# retained. Allowing one without the other elides the matching lines from every
+# result and then withholds the only way to get them, which is strictly worse
+# than not eliding them.
+modular_tool_allowed(/search_expand, Intent) :- user_intent(_, _, Intent, _, _).
+# A subagent-return handle is minted by the delegate action, by the campaign
+# orchestrator and by the chat blackboard, and lands in the prompt of a persona
+# that ran none of them. The verb that redeems it therefore has to be available
+# wherever a return can arrive, which is everywhere.
+modular_tool_allowed(/subagent_expand, Intent) :- user_intent(_, _, Intent, _, _).
 
 # Write tools - available for code modification intents
 modular_tool_allowed(/write_file, Intent) :- verb_category(Intent, /code).

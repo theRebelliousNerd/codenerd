@@ -285,7 +285,7 @@ func TestCortexKernel_ConsumeBootPrompts(t *testing.T) {
 
 	// nil is a valid representation of empty prompts slice, but we can check if it returns
 	prompts := cortex.ConsumeBootPrompts()
-	if prompts != nil && len(prompts) != 0 {
+	if len(prompts) != 0 {
 		t.Errorf("expected empty prompts, got %v", prompts)
 	}
 }

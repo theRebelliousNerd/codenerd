@@ -91,12 +91,24 @@ func (i *Initializer) detectLanguageFromFiles() string {
 		}
 	}
 
-	// Return the language with the most config files
+	// Return the language with the most config files, breaking ties by name.
+	//
+	// A polyglot repo with one go.mod and one package.json is an ordinary
+	// shape, not an edge case, and ranging the map with a strict `>` decided
+	// it by Go's randomised iteration order — so `nerd init` could classify
+	// the same workspace differently on two runs. Alphabetical is an
+	// arbitrary rule; being fixed is the property that matters.
+	langs := make([]string, 0, len(langCounts))
+	for lang := range langCounts {
+		langs = append(langs, lang)
+	}
+	sort.Strings(langs)
+
 	var maxLang string
 	var maxCount int
-	for lang, count := range langCounts {
-		if count > maxCount {
-			maxCount = count
+	for _, lang := range langs {
+		if langCounts[lang] > maxCount {
+			maxCount = langCounts[lang]
 			maxLang = lang
 		}
 	}

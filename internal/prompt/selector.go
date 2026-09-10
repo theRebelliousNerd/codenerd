@@ -78,7 +78,7 @@ func (b *factBuilder) WriteInt(n int) {
 
 // WriteQuotedString writes a Mangle-quoted string directly to the builder.
 
-func (fb *factBuilder) writeAtom(s string) bool {
+func (b *factBuilder) writeAtom(s string) bool {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return false
@@ -87,18 +87,18 @@ func (fb *factBuilder) writeAtom(s string) bool {
 	needsPrefix := !strings.HasPrefix(s, "/")
 
 	if strings.ContainsAny(s, " '\"\t\n\r") {
-		fb.WriteByte('\'')
+		b.WriteByte('\'')
 		if needsPrefix {
-			fb.WriteByte('/')
+			b.WriteByte('/')
 		}
 		for i := 0; i < len(s); i++ {
 			if s[i] == '\'' {
-				fb.WriteString("\\'")
+				b.WriteString("\\'")
 			} else {
-				fb.WriteByte(s[i])
+				b.WriteByte(s[i])
 			}
 		}
-		fb.WriteByte('\'')
+		b.WriteByte('\'')
 		return true
 	}
 
@@ -147,10 +147,10 @@ func (fb *factBuilder) writeAtom(s string) bool {
 
 			if first != -1 {
 				if !hasWritten {
-					fb.WriteByte('/')
+					b.WriteByte('/')
 					hasWritten = true
 				} else {
-					fb.WriteByte('/')
+					b.WriteByte('/')
 				}
 
 				for j := first; j <= last; j++ {
@@ -160,13 +160,13 @@ func (fb *factBuilder) writeAtom(s string) bool {
 					}
 					switch {
 					case c >= 'a' && c <= 'z':
-						fb.WriteByte(c)
+						b.WriteByte(c)
 					case c >= '0' && c <= '9':
-						fb.WriteByte(c)
+						b.WriteByte(c)
 					case c == '.' || c == '-' || c == '_' || c == '~' || c == '%':
-						fb.WriteByte(c)
+						b.WriteByte(c)
 					default:
-						fb.WriteByte('_')
+						b.WriteByte('_')
 					}
 				}
 			}
@@ -176,25 +176,25 @@ func (fb *factBuilder) writeAtom(s string) bool {
 	return hasWritten
 }
 
-func (fb *factBuilder) writeStringLiteral(s string) {
-	fb.WriteByte('"')
+func (b *factBuilder) writeStringLiteral(s string) {
+	b.WriteByte('"')
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
 		case '"':
-			fb.WriteString(`\"`)
+			b.WriteString(`\"`)
 		case '\\':
-			fb.WriteString(`\\`)
+			b.WriteString(`\\`)
 		case '\n':
-			fb.WriteString(`\n`)
+			b.WriteString(`\n`)
 		case '\r':
-			fb.WriteString(`\r`)
+			b.WriteString(`\r`)
 		case '\t':
-			fb.WriteString(`\t`)
+			b.WriteString(`\t`)
 		default:
-			fb.WriteByte(s[i])
+			b.WriteByte(s[i])
 		}
 	}
-	fb.WriteByte('"')
+	b.WriteByte('"')
 }
 
 // mangleNormalizeNameConst is kept for backwards compatibility but implemented via factBuilder

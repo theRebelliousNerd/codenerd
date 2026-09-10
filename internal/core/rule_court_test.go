@@ -117,10 +117,10 @@ func TestRuleCourt_WhitespaceOnly(t *testing.T) {
 	court := NewRuleCourt(k)
 
 	cases := []string{
-		" \t \n \r ", // standard whitespace — trimmed to empty
-		"​​",         // zero-width spaces only
-		"  ",         // non-breaking spaces only
-		"​   \t",     // mixed exotic + standard
+		" \t \n \r ",       // standard whitespace — trimmed to empty
+		"\u200b\u200b",     // zero-width spaces only (U+200B)
+		"\u00a0\u00a0",     // non-breaking spaces only (U+00A0)
+		"\u200b \u00a0 \t", // mixed exotic + standard
 	}
 
 	for _, rule := range cases {

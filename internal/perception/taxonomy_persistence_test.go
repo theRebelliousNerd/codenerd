@@ -109,6 +109,15 @@ func TestTaxonomyStore_HydrateEngine_NormalizesNumericArgs(t *testing.T) {
 	}
 	engine.SetStore(ts)
 
+	// HydrateFromDB replaces the process-global verb corpus, which is correct
+	// in production and wrong to leave behind here: this test's temp database
+	// holds a minimal taxonomy, and every later test in the binary would parse
+	// against it. TestMatchVerbFromCorpus_Assault failed under -count=2 for
+	// exactly this reason -- the corpus it matched against had lost /assault's
+	// regex patterns.
+	corpusBefore := GetVerbCorpus()
+	t.Cleanup(func() { SetVerbCorpus(corpusBefore) })
+
 	if err := engine.HydrateFromDB(); err != nil {
 		t.Fatalf("HydrateFromDB failed: %v", err)
 	}

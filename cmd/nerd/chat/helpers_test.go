@@ -618,14 +618,14 @@ func TestExtractFindings(t *testing.T) {
 			name:           "single error finding",
 			input:          "- [ERROR] file.go:10: undefined variable",
 			expectedCount:  1,
-			checkSeverity:  "error",
+			checkSeverity:  "high",
 			severityExists: true,
 		},
 		{
 			name:           "single warning finding",
 			input:          "- [WARN] file.go:20: unused import",
 			expectedCount:  1,
-			checkSeverity:  "warning",
+			checkSeverity:  "medium",
 			severityExists: true,
 		},
 		{
@@ -639,7 +639,7 @@ func TestExtractFindings(t *testing.T) {
 			name:           "info finding",
 			input:          "[INFO] checking file.go",
 			expectedCount:  1,
-			checkSeverity:  "info",
+			checkSeverity:  "low",
 			severityExists: true,
 		},
 		{
@@ -1021,11 +1021,11 @@ func TestProviderModelsMap(t *testing.T) {
 
 func TestFilterFindingsBySeverity(t *testing.T) {
 	findings := []map[string]any{
-		{"raw": "error1", "severity": "error"},
-		{"raw": "warning1", "severity": "warning"},
+		{"raw": "error1", "severity": "high"},
+		{"raw": "warning1", "severity": "medium"},
 		{"raw": "critical1", "severity": "critical"},
-		{"raw": "info1", "severity": "info"},
-		{"raw": "error2", "severity": "error"},
+		{"raw": "info1", "severity": "low"},
+		{"raw": "error2", "severity": "high"},
 	}
 
 	tests := []struct {
@@ -1034,10 +1034,16 @@ func TestFilterFindingsBySeverity(t *testing.T) {
 		expectLen  int
 	}{
 		{"critical only", []string{"critical"}, 1},
-		{"error only", []string{"error"}, 2},
-		{"error and critical", []string{"error", "critical"}, 3},
-		{"all severities", []string{"critical", "error", "warning", "info"}, 5},
+		{"high only", []string{"high"}, 2},
+		{"high and critical", []string{"high", "critical"}, 3},
+		{"the whole ladder", []string{"critical", "high", "medium", "low"}, 5},
 		{"empty filter", []string{}, 0},
+		// The log-level spellings are normalized away by extractFindings, so a
+		// filter naming them matches nothing. That is the bug this vocabulary
+		// change fixes -- delegation.go asked for "info" and "warning" and got
+		// no suggestions however the reviewer wrote them -- and it stays fixed
+		// only while the two halves keep agreeing.
+		{"stale log-level words match nothing", []string{"error", "warning", "info"}, 0},
 	}
 
 	for _, tt := range tests {

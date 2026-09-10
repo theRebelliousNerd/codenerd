@@ -17,6 +17,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/transparency"
+	"codenerd/internal/usage"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -434,7 +435,24 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 }
 
 // This is the main entry point for prompt compilation.
+// Compile compiles a system prompt for cc and records the atom selection for
+// co-use analysis.
+//
+// The recording wraps the whole compilation rather than sitting at each return
+// site because two of the three success paths -- a prompt cache hit and a
+// singleflight share -- return a result that was selected earlier. Those turns
+// used those atoms just as much as the turn that compiled them, and a recorder
+// that only saw cache misses would report a sample biased toward whichever
+// contexts happen to be novel.
 func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext) (*CompilationResult, error) {
+	result, err := c.compile(ctx, cc)
+	if err == nil && result != nil {
+		CoUse().ObserveAtoms(usage.TurnIDFromContext(ctx), result.IncludedAtoms)
+	}
+	return result, err
+}
+
+func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext) (*CompilationResult, error) {
 	c.lifecycleMu.Lock()
 	if c.closed {
 		c.lifecycleMu.Unlock()

@@ -58,14 +58,7 @@ func (a *orchestratorToolExecutor) ListTools() []core.ToolInfo {
 	autoTools := a.orchestrator.ListTools()
 	coreTools := make([]core.ToolInfo, len(autoTools))
 	for i, t := range autoTools {
-		coreTools[i] = core.ToolInfo{
-			Name:         t.Name,
-			Description:  t.Description,
-			BinaryPath:   t.BinaryPath,
-			Hash:         t.Hash,
-			RegisteredAt: t.RegisteredAt,
-			ExecuteCount: t.ExecuteCount,
-		}
+		coreTools[i] = core.ToolInfo(t)
 	}
 	return coreTools
 }

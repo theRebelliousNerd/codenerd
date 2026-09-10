@@ -3,6 +3,7 @@ package xaioauth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -100,7 +101,12 @@ func (c *Client) CompleteWithSystem(ctx context.Context, systemPrompt, userPromp
 	text, err := c.chatOnce(ctx, c.cfg.Model, messages, nil)
 	if err != nil {
 		// Fallback model on rate limit
-		if _, ok := err.(*RateLimitedError); ok && c.cfg.FallbackModel != "" && c.cfg.FallbackModel != c.cfg.Model {
+		// errors.As so a wrapped rate limit still selects the fallback model.
+		// A bare assertion here fails silently: the primary model stays rate
+		// limited, the fallback that exists to carry the turn is never tried,
+		// and the failure reads as the model being down.
+		var rateLimited *RateLimitedError
+		if errors.As(err, &rateLimited) && c.cfg.FallbackModel != "" && c.cfg.FallbackModel != c.cfg.Model {
 			logging.PerceptionWarn("[XAI-OAuth] primary rate limited; trying fallback model=%s", c.cfg.FallbackModel)
 			text, err = c.chatOnce(ctx, c.cfg.FallbackModel, messages, nil)
 		}

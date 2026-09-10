@@ -210,7 +210,7 @@ func (c *XAIClient) CompleteWithToolResults(ctx context.Context, systemPrompt st
 	}
 	pTools := make([]ToolDefinition, len(tools))
 	for i, t := range tools {
-		pTools[i] = ToolDefinition{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema}
+		pTools[i] = ToolDefinition(t)
 	}
 	reqBody := OpenAIRequest{
 		Model:      c.model,

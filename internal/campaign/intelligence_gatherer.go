@@ -216,14 +216,14 @@ type HolographicSection struct {
 	Section string `json:"section"`
 }
 
-func (i *IntelligenceReport) IsEmpty() bool {
-	if i == nil {
+func (r *IntelligenceReport) IsEmpty() bool {
+	if r == nil {
 		return true
 	}
-	return len(i.FileTopology) == 0 &&
-		len(i.SymbolGraph) == 0 &&
-		len(i.WorldFacts) == 0 &&
-		len(i.GitChurnHotspots) == 0
+	return len(r.FileTopology) == 0 &&
+		len(r.SymbolGraph) == 0 &&
+		len(r.WorldFacts) == 0 &&
+		len(r.GitChurnHotspots) == 0
 }
 
 // Supporting types for IntelligenceReport

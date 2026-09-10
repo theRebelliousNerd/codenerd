@@ -96,38 +96,38 @@ func formatFieldList(fset *token.FileSet, fl *ast.FieldList) string {
 // =============================================================================
 
 // FormatForPrompt formats the holographic context for LLM injection.
-func (ctx *HolographicContext) FormatForPrompt() string {
+func (hc *HolographicContext) FormatForPrompt() string {
 	var sb strings.Builder
 
 	sb.WriteString("\n## Package Context\n")
 
 	// Package info
-	if ctx.TargetPkg != "" {
-		sb.WriteString(fmt.Sprintf("Package: `%s`\n", ctx.TargetPkg))
+	if hc.TargetPkg != "" {
+		sb.WriteString(fmt.Sprintf("Package: `%s`\n", hc.TargetPkg))
 	}
 
 	// Sibling files
-	if len(ctx.PackageSiblings) > 0 {
-		sb.WriteString(fmt.Sprintf("Sibling files in package: %d\n", len(ctx.PackageSiblings)))
-		for _, sib := range ctx.PackageSiblings {
+	if len(hc.PackageSiblings) > 0 {
+		sb.WriteString(fmt.Sprintf("Sibling files in package: %d\n", len(hc.PackageSiblings)))
+		for _, sib := range hc.PackageSiblings {
 			sb.WriteString(fmt.Sprintf("  - %s\n", filepath.Base(sib)))
 		}
 	}
 
 	// Available functions in package scope
-	if len(ctx.PackageSignatures) > 0 {
+	if len(hc.PackageSignatures) > 0 {
 		sb.WriteString("\n### Functions Available in Package Scope\n")
 		sb.WriteString("These are defined in sibling files and can be called without import:\n```go\n")
 
 		// Sort by exported first, then alphabetically
-		sort.Slice(ctx.PackageSignatures, func(i, j int) bool {
-			if ctx.PackageSignatures[i].Exported != ctx.PackageSignatures[j].Exported {
-				return ctx.PackageSignatures[i].Exported
+		sort.Slice(hc.PackageSignatures, func(i, j int) bool {
+			if hc.PackageSignatures[i].Exported != hc.PackageSignatures[j].Exported {
+				return hc.PackageSignatures[i].Exported
 			}
-			return ctx.PackageSignatures[i].Name < ctx.PackageSignatures[j].Name
+			return hc.PackageSignatures[i].Name < hc.PackageSignatures[j].Name
 		})
 
-		for _, sig := range ctx.PackageSignatures {
+		for _, sig := range hc.PackageSignatures {
 			if sig.Receiver != "" {
 				sb.WriteString(fmt.Sprintf("func (%s) %s%s %s  // %s\n",
 					sig.Receiver, sig.Name, sig.Params, sig.Returns, sig.File))
@@ -140,9 +140,9 @@ func (ctx *HolographicContext) FormatForPrompt() string {
 	}
 
 	// Types in package
-	if len(ctx.PackageTypes) > 0 {
+	if len(hc.PackageTypes) > 0 {
 		sb.WriteString("\n### Types Defined in Package\n```go\n")
-		for _, t := range ctx.PackageTypes {
+		for _, t := range hc.PackageTypes {
 			switch t.Kind {
 			case "struct":
 				sb.WriteString(fmt.Sprintf("type %s struct { ... }  // %s:%d, %d fields\n",
@@ -159,7 +159,7 @@ func (ctx *HolographicContext) FormatForPrompt() string {
 
 	// Constants
 	exportedConsts := make([]ConstDefinition, 0)
-	for _, c := range ctx.PackageConstants {
+	for _, c := range hc.PackageConstants {
 		if c.Exported {
 			exportedConsts = append(exportedConsts, c)
 		}
@@ -178,26 +178,26 @@ func (ctx *HolographicContext) FormatForPrompt() string {
 
 	// Architectural context
 	sb.WriteString("\n## Architectural Context\n")
-	if ctx.Layer != "" {
-		sb.WriteString(fmt.Sprintf("- Layer: %s\n", ctx.Layer))
+	if hc.Layer != "" {
+		sb.WriteString(fmt.Sprintf("- Layer: %s\n", hc.Layer))
 	}
-	if ctx.Module != "" {
-		sb.WriteString(fmt.Sprintf("- Module: %s\n", ctx.Module))
+	if hc.Module != "" {
+		sb.WriteString(fmt.Sprintf("- Module: %s\n", hc.Module))
 	}
-	if ctx.Role != "" {
-		sb.WriteString(fmt.Sprintf("- Role: %s\n", ctx.Role))
+	if hc.Role != "" {
+		sb.WriteString(fmt.Sprintf("- Role: %s\n", hc.Role))
 	}
-	if ctx.SystemPurpose != "" {
-		sb.WriteString(fmt.Sprintf("- Purpose: %s\n", ctx.SystemPurpose))
+	if hc.SystemPurpose != "" {
+		sb.WriteString(fmt.Sprintf("- Purpose: %s\n", hc.SystemPurpose))
 	}
-	if ctx.HasTests {
+	if hc.HasTests {
 		sb.WriteString("- Has corresponding test file: yes\n")
 	}
 
 	// Call graph (if populated)
-	if len(ctx.CallGraph) > 0 && len(ctx.CallGraph) < 20 {
+	if len(hc.CallGraph) > 0 && len(hc.CallGraph) < 20 {
 		sb.WriteString("\n### Call Relationships\n")
-		for _, edge := range ctx.CallGraph {
+		for _, edge := range hc.CallGraph {
 			sb.WriteString(fmt.Sprintf("- %s → %s\n", edge.Caller, edge.Callee))
 		}
 	}
@@ -206,15 +206,15 @@ func (ctx *HolographicContext) FormatForPrompt() string {
 }
 
 // FormatSignaturesCompact returns a compact signature list for context injection.
-func (ctx *HolographicContext) FormatSignaturesCompact() string {
-	if len(ctx.PackageSignatures) == 0 {
+func (hc *HolographicContext) FormatSignaturesCompact() string {
+	if len(hc.PackageSignatures) == 0 {
 		return ""
 	}
 
 	var sb strings.Builder
 	sb.WriteString("Package-scope symbols:\n")
 
-	for _, sig := range ctx.PackageSignatures {
+	for _, sig := range hc.PackageSignatures {
 		if sig.Receiver != "" {
 			sb.WriteString(fmt.Sprintf("  (%s).%s%s%s [%s]\n",
 				sig.Receiver, sig.Name, sig.Params, sig.Returns, sig.File))

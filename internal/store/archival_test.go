@@ -291,6 +291,12 @@ func TestPurgeOldArchivedFacts(t *testing.T) {
 		"UPDATE cold_storage SET last_accessed = datetime('now', '-100 days'), access_count = 1",
 	)
 	store.mu.Unlock()
+	if err != nil {
+		// This UPDATE is what makes the facts look old. Discarding its error
+		// left a failed setup silently producing a test that archived nothing
+		// and asserted against the wrong world.
+		t.Fatalf("age the stored facts: %v", err)
+	}
 
 	archived, err := store.ArchiveOldFacts(90, 5)
 	if err != nil || archived != 3 {

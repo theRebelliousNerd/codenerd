@@ -1,0 +1,30 @@
+# Predicates Go queries that nothing produces.
+#
+# Each of these returns zero rows on every call. Zero rows is also what a
+# legitimately empty kernel returns, so the caller cannot tell the two apart
+# and neither can anyone reading its output.
+#
+# Regenerate: CODENERD_UPDATE_QUERY_ONLY=1 go test ./internal/core/defaults/ -run TestGoQueriedPredicateBudget
+# See query_only_predicate_test.go for why this is a budget rather than a
+# target of zero.
+#
+# Adding a line is an admission, not a fix. Ask first whether the producer is
+# genuinely external -- an operator-supplied fact, an optional integration --
+# or whether the wiring is simply missing, which is what test_result was.
+#
+# Format: predicate<TAB>the file(s) querying it.
+code_edit_outcome	internal/autopoiesis/autopoiesis_kernel.go
+cold_storage_entry	cmd/nerd/cmd_systems.go
+compressed_context	cmd/nerd/cmd_systems.go
+context_to_inject	cmd/nerd/chat/process.go
+cyclomatic_complexity	internal/campaign/edge_case_detector.go internal/campaign/edge_case_detector.go
+file_imports	internal/world/test_dependency.go
+final_system_prompt	cmd/nerd/chat/process.go
+knowledge_edge	cmd/nerd/cmd_systems.go
+learned_pattern	cmd/nerd/cmd_systems.go
+module_northstar	internal/northstar/module.go
+module_requirement	internal/northstar/module.go
+requirement_task_link	cmd/nerd/chat/model_session_context.go
+safety_warning	cmd/nerd/chat/model_session_context.go internal/campaign/intelligence_gathering_methods.go
+shard_prompt_base	internal/articulation/prompt_assembler.go
+user_requests_appeal	internal/shards/system/constitution.go

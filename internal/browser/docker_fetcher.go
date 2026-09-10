@@ -168,9 +168,7 @@ func parseDockerLogLines(container string, raw []byte) []ContainerLogLine {
 	out := make([]ContainerLogLine, 0, len(parts))
 	for _, line := range parts {
 		// Tolerate Windows CRLF.
-		if strings.HasSuffix(line, "\r") {
-			line = strings.TrimSuffix(line, "\r")
-		}
+		line = strings.TrimSuffix(line, "\r")
 		if line == "" {
 			continue
 		}

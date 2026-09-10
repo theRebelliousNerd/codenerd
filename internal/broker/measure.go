@@ -2,6 +2,7 @@ package broker
 
 import (
 	"encoding/json"
+	"fmt"
 	"unicode/utf8"
 )
 
@@ -89,11 +90,32 @@ func jsonChars(v any) int {
 	if v == nil {
 		return 0
 	}
-	data, err := json.Marshal(v)
-	if err != nil {
+	data, ok := jsonBytes(v)
+	if !ok {
 		return unmarshallableSchemaChars
 	}
 	return utf8.RuneCount(data)
+}
+
+// jsonBytes marshals v deterministically, reporting whether it succeeded.
+//
+// Determinism holds because encoding/json sorts map keys, which is what lets
+// the same schema fingerprint identically across runs.
+//
+// On failure it falls back to Go's own syntax rendering rather than to a shared
+// constant. A shared constant would make two different unmarshallable schemas
+// hash alike, which would splice two genuinely distinct prefixes into one epoch
+// and overstate cache reuse — an error in the direction that flatters the
+// caching bet, which is the direction never to fail in.
+func jsonBytes(v any) ([]byte, bool) {
+	if v == nil {
+		return nil, true
+	}
+	data, err := json.Marshal(v)
+	if err != nil {
+		return []byte(fmt.Sprintf("unmarshallable:%#v", v)), false
+	}
+	return data, true
 }
 
 // unmarshallableSchemaChars is charged for a value that will not marshal. It is

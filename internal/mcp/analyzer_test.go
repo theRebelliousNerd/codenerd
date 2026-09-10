@@ -222,12 +222,11 @@ func TestAnalyzer_Analyze_ContextCancelled(t *testing.T) {
 
 	// If context is canceled, Complete returns ctx.Err()
 	// Check what Analyze does - does it fall back to analyzeWithoutLLM?
+	// Analyze falls back to analyzeWithoutLLM on any error, so a cancelled
+	// context must still produce an analysis. The error is deliberately not
+	// asserted either way; the fallback below is the subject.
 	analysis, err := analyzer.Analyze(ctx, schema)
-	if err != nil {
-		// Good, it errored out or... wait, the codebase says:
-		// if err != nil { return a.analyzeWithoutLLM(schema) }
-		// We'll just verify it doesn't crash and returns *something*
-	}
+	_ = err
 
 	// The codebase currently falls back to analyzeWithoutLLM on ANY error
 	// Let's verify that fallback occurred

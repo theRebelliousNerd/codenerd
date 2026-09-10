@@ -48,8 +48,15 @@ func TestGlobalRegistrySingleton(t *testing.T) {
 	if firstGlobal != secondGlobal {
 		t.Error("Global() should return the same instance each call")
 	}
-	MustRegisterGlobal(noopTool("global_probe_tool"))
-	if !Global().Has("global_probe_tool") {
+	// Unregister on cleanup, or this test only works the first time it runs in
+	// a process: MustRegisterGlobal panics on a duplicate name, so the second
+	// run of the suite dies here. Same defect as the 25 session tests, same
+	// fix.
+	const probe = "global_probe_tool"
+	t.Cleanup(func() { Global().Unregister(probe) })
+
+	MustRegisterGlobal(noopTool(probe))
+	if !Global().Has(probe) {
 		t.Error("MustRegisterGlobal should register into the global registry")
 	}
 }

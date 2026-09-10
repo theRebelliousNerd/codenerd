@@ -79,21 +79,41 @@ func Wrap(underlying types.LLMClient, cfg Config) (types.LLMClient, error) {
 // It also unwraps any other decorator that exposes Unwrap, so it keeps working
 // as more layers are added.
 func Base(client types.LLMClient) types.LLMClient {
-	for i := 0; i < maxUnwrapDepth; i++ {
-		unwrapper, ok := client.(interface{ Unwrap() types.LLMClient })
-		if !ok {
-			return client
-		}
-		next := unwrapper.Unwrap()
-		if next == nil {
-			return client
-		}
-		client = next
-	}
-	return client
+	var last types.LLMClient
+	Walk(client, func(layer types.LLMClient) bool {
+		last = layer
+		return true
+	})
+	return last
 }
 
-// maxUnwrapDepth bounds Base against a decorator chain that cycles. A malformed
+// Walk calls fn on client and on each layer beneath it, outermost first,
+// stopping early when fn returns false.
+//
+// It is the one place the chain is traversed. Before this existed the loop was
+// copied into Base and IsBrokered, and cmd/nerd/chat had two more walks of its
+// own that switched on two decorator types by name and did not know the broker
+// wrapper existed at all -- correct only because every layer happened to forward
+// the method being looked for, and silently wrong for any layer that did not.
+// A traversal written four times is four things to remember to update when a
+// decorator is added, which is precisely the update nobody remembers.
+//
+// A nil client, or a layer whose Unwrap returns nil, ends the walk: nil is not a
+// layer and must never be handed to fn.
+func Walk(client types.LLMClient, fn func(types.LLMClient) bool) {
+	for i := 0; i < maxUnwrapDepth && client != nil; i++ {
+		if !fn(client) {
+			return
+		}
+		unwrapper, ok := client.(interface{ Unwrap() types.LLMClient })
+		if !ok {
+			return
+		}
+		client = unwrapper.Unwrap()
+	}
+}
+
+// maxUnwrapDepth bounds Walk against a decorator chain that cycles. A malformed
 // Unwrap that returns its own receiver would otherwise spin forever inside a
 // prompt-assembly path.
 const maxUnwrapDepth = 16
@@ -102,21 +122,12 @@ const maxUnwrapDepth = 16
 // decorator chain. The wiring test uses this to prove no construction path
 // escapes the broker.
 func IsBrokered(client types.LLMClient) bool {
-	for i := 0; i < maxUnwrapDepth; i++ {
-		if _, ok := client.(brokered); ok {
-			return true
-		}
-		unwrapper, ok := client.(interface{ Unwrap() types.LLMClient })
-		if !ok {
-			return false
-		}
-		next := unwrapper.Unwrap()
-		if next == nil {
-			return false
-		}
-		client = next
-	}
-	return false
+	var found bool
+	Walk(client, func(layer types.LLMClient) bool {
+		_, found = layer.(brokered)
+		return !found
+	})
+	return found
 }
 
 // brokered marks the wrapper shapes. It is unexported so nothing outside this

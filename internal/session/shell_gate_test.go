@@ -12,7 +12,7 @@ import (
 func TestExecuteToolCall_ShellEffectGateStopsIncidentBeforeExecution(t *testing.T) {
 	executed := false
 	toolName := "run_shell"
-	if err := tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect:   tools.EffectRead,
 		Name:     toolName,
 		Category: tools.CategoryCode,
@@ -23,9 +23,7 @@ func TestExecuteToolCall_ShellEffectGateStopsIncidentBeforeExecution(t *testing.
 			executed = true
 			return "executed", nil
 		},
-	}); err != nil {
-		t.Fatalf("register shell probe: %v", err)
-	}
+	})
 
 	executorCfg := DefaultExecutorConfig()
 	executorCfg.EnableSafetyGate = false

@@ -122,10 +122,7 @@ func logsDirSymlinkRejected(logsDir string) bool {
 		return true
 	}
 	parent := filepath.Dir(clean)
-	if isSymlink(parent) {
-		return true
-	}
-	return false
+	return isSymlink(parent)
 }
 
 // runPrefixFromLogName extracts the run prefix from a log filename if it

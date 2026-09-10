@@ -218,13 +218,13 @@ func TestResponseProcessor_Process_NullFields(t *testing.T) {
 		t.Fatalf("Process() error = %v", err)
 	}
 
-	if res.Control.MangleUpdates != nil && len(res.Control.MangleUpdates) != 0 {
+	if len(res.Control.MangleUpdates) != 0 {
 		t.Errorf("Expected MangleUpdates to be nil or empty, got %v", res.Control.MangleUpdates)
 	}
-	if res.Control.MemoryOperations != nil && len(res.Control.MemoryOperations) != 0 {
+	if len(res.Control.MemoryOperations) != 0 {
 		t.Errorf("Expected MemoryOperations to be nil or empty, got %v", res.Control.MemoryOperations)
 	}
-	if res.Control.ToolRequests != nil && len(res.Control.ToolRequests) != 0 {
+	if len(res.Control.ToolRequests) != 0 {
 		t.Errorf("Expected ToolRequests to be nil or empty, got %v", res.Control.ToolRequests)
 	}
 	if res.Control.SelfCorrection != nil {
@@ -233,7 +233,7 @@ func TestResponseProcessor_Process_NullFields(t *testing.T) {
 	if res.Control.ContextFeedback != nil {
 		t.Errorf("Expected ContextFeedback to be nil, got %v", res.Control.ContextFeedback)
 	}
-	if res.Control.KnowledgeRequests != nil && len(res.Control.KnowledgeRequests) != 0 {
+	if len(res.Control.KnowledgeRequests) != 0 {
 		t.Errorf("Expected KnowledgeRequests to be nil or empty, got %v", res.Control.KnowledgeRequests)
 	}
 

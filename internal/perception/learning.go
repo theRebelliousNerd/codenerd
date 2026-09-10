@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/logging"
 )
 
@@ -145,6 +146,8 @@ func normalizeLearnedFact(fact string) string {
 // LearnFromInteraction analyzes recent history to learn new patterns.
 // It acts as the "Critic" in the Ouroboros Loop.
 func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []ReasoningTrace) (string, error) {
+	ctx = broker.WithPurpose(ctx, broker.PurposeAutopoiesis)
+
 	timer := logging.StartTimer(logging.CategoryPerception, "LearnFromInteraction")
 	defer timer.Stop()
 

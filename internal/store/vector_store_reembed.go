@@ -12,6 +12,35 @@ import (
 
 // Useful for migrating from keyword-only to embedding-based search.
 // Returns nil if no vectors need re-embedding.
+// encodeEmbedding serializes an embedding for the vectors.embedding column,
+// and refuses rather than returning the empty string.
+//
+// The failure it prevents is destructive, which is why it is worth a function.
+// Both re-embed loops used to write string(mustIgnore(json.Marshal(vec))) into
+// an UPDATE. json.Marshal of a []float32 fails on exactly one thing -- a NaN or
+// an Inf, which is what a degenerate input or a mangled model response
+// produces -- and a failed marshal yields nil, whose string form is "".
+//
+// "" is not NULL, so the row still matches `WHERE embedding IS NOT NULL` in
+// every recall query, and fastParseVectorJSON then rejects it and the loop
+// skips the row. The transaction commits, the function reports success, and a
+// row that was searchable a moment ago is quietly unsearchable forever. Same
+// for a nil embedding, which marshals to the literal `null` and parses no
+// better.
+//
+// Refusing here costs one row out of the batch instead of that row's index
+// entry.
+func encodeEmbedding(vec []float32) (string, error) {
+	if len(vec) == 0 {
+		return "", fmt.Errorf("empty embedding")
+	}
+	b, err := json.Marshal(vec)
+	if err != nil {
+		return "", fmt.Errorf("embedding is not JSON-serializable: %w", err)
+	}
+	return string(b), nil
+}
+
 func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 	timer := logging.StartTimer(logging.CategoryStore, "ReembedAllVectors")
 	defer timer.Stop()
@@ -59,6 +88,7 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 	// Generate embeddings in batches
 	batchSize := 32
 	totalEmbedded := 0
+	skipped := 0
 	for i := 0; i < len(vectors); i += batchSize {
 		end := int(math.Min(float64(i+batchSize), float64(len(vectors))))
 		batch := vectors[i:end]
@@ -102,8 +132,14 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 		}
 
 		for j, v := range batch {
-			embeddingJSON, _ := json.Marshal(embeddings[j])
-			_, err := updateStmt.Exec(string(embeddingJSON), v.id)
+			embeddingJSON, encErr := encodeEmbedding(embeddings[j])
+			if encErr != nil {
+				logging.Get(logging.CategoryStore).Warn(
+					"Leaving vector %d at its previous embedding: %v", v.id, encErr)
+				skipped++
+				continue
+			}
+			_, err := updateStmt.Exec(embeddingJSON, v.id)
 			if err != nil {
 				updateStmt.Close()
 				if insertVecStmt != nil {
@@ -137,7 +173,12 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 		}
 	}
 
-	logging.Store("Re-embedding complete: %d vectors processed", totalEmbedded)
+	if skipped > 0 {
+		logging.Get(logging.CategoryStore).Warn(
+			"Re-embedding complete: %d vectors processed, %d left at their previous embedding", totalEmbedded, skipped)
+	} else {
+		logging.Store("Re-embedding complete: %d vectors processed", totalEmbedded)
+	}
 	return nil
 }
 
@@ -190,6 +231,7 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 	batchSize := 32
 	totalBatches := (len(vectors) + batchSize - 1) / batchSize
 	totalEmbedded := 0
+	skipped := 0
 	var lastFallbackErr error
 	for i := 0; i < len(vectors); i += batchSize {
 		end := int(math.Min(float64(i+batchSize), float64(len(vectors))))
@@ -291,11 +333,18 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 		}
 
 		for j, v := range batch {
-			if j >= len(embeddings) || embeddings[j] == nil || len(embeddings[j]) == 0 {
+			if j >= len(embeddings) {
+				skipped++
 				continue
 			}
-			embeddingJSON, _ := json.Marshal(embeddings[j])
-			_, err := updateStmt.Exec(string(embeddingJSON), v.id)
+			embeddingJSON, encErr := encodeEmbedding(embeddings[j])
+			if encErr != nil {
+				logging.Get(logging.CategoryStore).Warn(
+					"Leaving vector %d at its previous embedding: %v", v.id, encErr)
+				skipped++
+				continue
+			}
+			_, err := updateStmt.Exec(embeddingJSON, v.id)
 			if err != nil {
 				updateStmt.Close()
 				if insertVecStmt != nil {
@@ -332,7 +381,12 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 		return 0, lastFallbackErr
 	}
 
-	logging.Store("Force re-embedding complete: %d vectors processed", totalEmbedded)
+	if skipped > 0 {
+		logging.Get(logging.CategoryStore).Warn(
+			"Force re-embedding complete: %d vectors processed, %d left at their previous embedding", totalEmbedded, skipped)
+	} else {
+		logging.Store("Force re-embedding complete: %d vectors processed", totalEmbedded)
+	}
 	return totalEmbedded, nil
 }
 

@@ -317,7 +317,7 @@ func TestCodexCLIClient_buildCLIArgs_ConfigOverridesDeterministicOrder(t *testin
 	joined := strings.Join(args, " ")
 
 	// We sort the safe allowlist, so model_verbosity precedes personality.
-	if strings.Index(joined, "model_verbosity=") < 0 || strings.Index(joined, "personality=") < 0 {
+	if !strings.Contains(joined, "model_verbosity=") || !strings.Contains(joined, "personality=") {
 		t.Fatalf("expected both overrides present, got: %s", joined)
 	}
 	if strings.Index(joined, "model_verbosity=") > strings.Index(joined, "personality=") {

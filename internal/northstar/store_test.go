@@ -405,7 +405,7 @@ func TestStore_GetAlignmentHistory_Empty(t *testing.T) {
 		t.Fatalf("GetAlignmentHistory error: %v", err)
 	}
 
-	if history != nil && len(history) != 0 {
+	if len(history) != 0 {
 		t.Errorf("expected 0 checks, got %d", len(history))
 	}
 }

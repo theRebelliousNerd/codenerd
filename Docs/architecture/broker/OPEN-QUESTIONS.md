@@ -9,8 +9,19 @@ why it matters, and what would settle it.
 computable number of calls against a warm prefix. If the median epoch is shorter
 than that, the whole controller is dead weight.
 
-**Settled by** a histogram over the receipt ring across real sessions. About a
-day's work. It gates months of build and should be the next thing anyone does.
+**Settled by** a histogram over the receipt log across real sessions.
+**The instrument is built**: `nerd meter epochs`. Receipts carry a fingerprint
+of the cacheable head and a session scope; `broker.Segment` cuts them into
+epochs and `broker.Histogram` reports the distribution with a per-provider
+break-even derived from published cache economics — `(write-read)/(1-read)`, a
+call count independent of prefix size, and `+Inf` where reads are not
+discounted, so an unknown provider gets no credit for a cache it may not have.
+
+Two ways an epoch can look profitable and not be are scored separately: one
+whose span outran the cache TTL was evicted between calls, and one with no
+cacheable head was never a candidate.
+
+What remains is running real sessions and reading the number.
 
 ## Q2 — Do atoms actually cluster the way the lane taxonomy assumes?
 
@@ -19,8 +30,23 @@ organize software teams. That is not evidence about how *information* clusters.
 The natural cut might be "code under active edit vs. everything else", or
 per-package, or something nobody would guess.
 
-**Settled by** co-use analysis: which atoms are selected together in turns that
-succeeded. Measure before hard-coding an org chart.
+**Settled by** co-use analysis: which atoms are selected together in
+compilations belonging to turns that succeeded. **The instrument is built**:
+`nerd meter atoms`.
+
+The sample unit is one selection, not one turn: a turn can compile several
+prompts (its own, plus one per shard), and merging them would report atoms as
+co-used when they were never in the same prompt — the exact false conclusion the
+analysis exists to test for.
+
+The statistic is lift rather than co-occurrence. A skeleton atom in every prompt
+co-occurs with everything more than any real pair does, so a count-ranked list
+puts the least informative atom at the top of every row; lift scores it at
+exactly 1, which is independence. The headline is CATEGORY ALIGNMENT: high means
+atoms are already used along the existing taxonomy, low means they are not — and
+that a lane taxonomy copied from an org chart would fit the data even worse.
+
+What remains is running real sessions and reading the number.
 
 ## Q3 — What fraction of parallel consultations get invalidated in flight?
 
@@ -42,8 +68,11 @@ correlated wrong counts.
 count, so a near-zero value proves `measure()` is sound there. For providers with
 no counting endpoint there is no independent check, and drift would be invisible.
 
-**Would be settled by** a periodic reconciliation: compare accumulated estimates
-against accumulated provider actuals per model and alarm on divergence.
+**Settled by** `internal/broker/reconcile.go`, which accumulates per-model
+estimate-versus-billed drift and warns past 20 samples and 10% mean absolute
+error. `nerd meter` reports the same per model, headlined on mean absolute error
+rather than net bias: an estimator wrong by 30% on every call in alternating
+directions has a bias near zero and is not remotely trustworthy.
 
 ## Q5 — Is a process-scoped ledger the right scope?
 
@@ -57,8 +86,19 @@ The ledger supports per-purpose budgets and none are configured. Compression is
 inference spent to reduce inference; an unbounded compressor can cost more than
 the history it shrinks.
 
-**Unsettled**: the right cap is a fraction of what compression saves, and nothing
-measures the saving yet.
+**Moot today, and the reason is worth knowing.** Attempting to tag
+`PurposeCompression` turned up that the compressor makes no LLM calls at all.
+`Compressor.generateSummary` is its only call site and is dead code — the C3
+observation-masking work replaced LLM summarization with a kernel-derived
+`should_mask_observation` decision. Compression currently costs zero tokens,
+which is a stronger answer than any cap.
+
+The question returns the moment summarization does. What is still unmeasured
+either way is what compression *saves*, and the right cap is a fraction of the
+saving — so even then the number is one measurement away.
+
+Recorded rather than deleted because "compression is expensive" is a belief that
+will outlive the code that justified it.
 
 ## Q7 — Who owns a subagent's obligations?
 
@@ -82,6 +122,23 @@ Today a refused request returns an `AdmissionError` and the turn fails. The
 alternative is to shed context and retry automatically — which is friendlier and
 also a silent quality change the user never sees.
 
-Current position: fail loudly. Shedding context invisibly is how a system stops
-being trustworthy. Revisit when the task graph can tell the difference between
-evidence that is safe to drop and evidence that is load-bearing.
+Current position: fail loudly, but *legibly*. Shedding context invisibly is how
+a system stops being trustworthy. Revisit when the task graph can tell the
+difference between evidence that is safe to drop and evidence that is
+load-bearing.
+
+**Failing loudly is not the same as failing opaquely**, and it used not to be
+legible at all. `IsAdmissionError` compared the outermost type, so it answered
+false for a refusal wrapped as `observation failed: %w` — which is every path a
+refusal actually travels. It now uses `errors.As`, and the chat surface
+translates a refusal into what happened, what it cost (nothing), and what to do,
+keeping the counted figures because an exact count is the difference between a
+diagnosis and a guess.
+
+**Removed along the way**: `WithRequireExact`, an opt-in that made the ledger
+refuse a request it could only estimate. No caller anywhere set it, so the check
+could only ever be skipped, and a safety property nothing can switch on is
+decoration. Confidence is still carried on every `Count` and every `Receipt`, so
+a measurement is still distinguishable from a guess after the fact. The
+pre-flight refusal comes back with its first real caller rather than ahead of
+one.

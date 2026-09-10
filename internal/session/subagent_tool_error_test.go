@@ -26,7 +26,7 @@ func TestSubAgent_Execute_SurfacesToolExecutionError(t *testing.T) {
 	// Register a modular tool that always fails. Registry is process-global,
 	// so skip registration when a prior run already added it.
 	if !tools.Global().Has(toolName) {
-		if err := tools.Global().Register(&tools.Tool{
+		registerTestTool(t, &tools.Tool{
 			Effect:      tools.EffectRead,
 			Name:        toolName,
 			Description: "Probe tool that always fails for sub-agent error propagation test",
@@ -34,9 +34,7 @@ func TestSubAgent_Execute_SurfacesToolExecutionError(t *testing.T) {
 			Execute: func(ctx context.Context, args map[string]any) (string, error) {
 				return "", errors.New("boom exploded")
 			},
-		}); err != nil {
-			t.Fatalf("register probe tool: %v", err)
-		}
+		})
 	}
 
 	// LLM adapter: request the failing tool once with an empty final text, so

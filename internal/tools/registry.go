@@ -201,6 +201,49 @@ func (r *Registry) Get(name string) *Tool {
 	return r.tools[name]
 }
 
+// Unregister removes a tool by name, reporting whether it was present.
+//
+// The registry could previously only grow. That is a real gap in its own right
+// -- forged tools arrive at runtime and a superseded one has no way out -- and
+// it also made every test that registers into the process-wide registry
+// non-isolated: Register rejects a duplicate name, so the second run of any
+// such test in one process silently kept the first run's Execute closure and
+// measured a counter nothing was incrementing.
+//
+// Removal must clear the category index as well as the name index. Leaving a
+// stale pointer in byCategory would keep the tool discoverable through
+// GetByCategory and FilterByIntent while Get reported it gone, which is a
+// harder failure to diagnose than never removing it at all.
+func (r *Registry) Unregister(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	tool, ok := r.tools[name]
+	if !ok {
+		return false
+	}
+	delete(r.tools, name)
+
+	// A tool is indexed under its primary category and every alt category, so
+	// sweep them all rather than only the primary.
+	for category, list := range r.byCategory {
+		filtered := list[:0]
+		for _, t := range list {
+			if t != tool {
+				filtered = append(filtered, t)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(r.byCategory, category)
+			continue
+		}
+		r.byCategory[category] = filtered
+	}
+
+	logging.ToolsDebug("Unregistered tool: %s", name)
+	return true
+}
+
 // Has returns true if a tool with the given name is registered.
 func (r *Registry) Has(name string) bool {
 	r.mu.RLock()

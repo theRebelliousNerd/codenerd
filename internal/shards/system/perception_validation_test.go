@@ -39,7 +39,7 @@ func TestPerceptionUnknownVerbEmitsIntentUnmapped(t *testing.T) {
 		t.Fatalf("NewRealKernel() error = %v", err)
 	}
 
-	intentJSON := fmt.Sprintf(`{"understanding":{"primary_intent":"deploy service","semantic_type":"instruction","action_type":"deploy","domain":"general","scope":{"level":"codebase","target":"","file":"","symbol":""},"user_constraints":[],"implicit_assumptions":[],"confidence":0.9,"signals":{"is_question":false,"is_hypothetical":false,"is_multi_step":false,"is_negated":false,"requires_confirmation":false,"urgency":"normal"},"suggested_approach":{"mode":"normal","primary_shard":"coder","supporting_shards":[],"tools_needed":[],"context_needed":[]}},"surface_response":"ok"}`)
+	intentJSON := `{"understanding":{"primary_intent":"deploy service","semantic_type":"instruction","action_type":"deploy","domain":"general","scope":{"level":"codebase","target":"","file":"","symbol":""},"user_constraints":[],"implicit_assumptions":[],"confidence":0.9,"signals":{"is_question":false,"is_hypothetical":false,"is_multi_step":false,"is_negated":false,"requires_confirmation":false,"urgency":"normal"},"suggested_approach":{"mode":"normal","primary_shard":"coder","supporting_shards":[],"tools_needed":[],"context_needed":[]}},"surface_response":"ok"}`
 	shard := NewPerceptionFirewallShard()
 	shard.SetParentKernel(kernel)
 	shard.SetLLMClient(stubLLMClient{response: intentJSON})
@@ -79,13 +79,13 @@ func TestPerceptionUnknownVerbEmitsIntentUnmapped(t *testing.T) {
 	}
 }
 
-func (m stubLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+func (s stubLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
 	contentChan := make(chan string, 1)
 	errorChan := make(chan error, 1)
 	go func() {
 		defer close(contentChan)
 		defer close(errorChan)
-		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		res, err := s.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 		if err != nil {
 			errorChan <- err
 			return

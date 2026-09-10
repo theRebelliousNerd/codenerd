@@ -540,6 +540,13 @@ type sessionLLMAdapter struct {
 // when the adapter has none (tracker init failed at boot); otherwise it tags
 // ctx with the adapter's tracker. Session IDs and shard metadata already on
 // the ctx are left untouched.
+// Unwrap exposes the wrapped client so broker.Base and broker.IsBrokered can
+// walk the decorator chain. Without it this type is opaque to both: Base stops
+// here instead of reaching the concrete client, and IsBrokered reports an
+// already-metered chain as un-metered. Neither surfaces as an error -- Base's
+// callers use a comma-ok type assertion, so a miss reads as "not that engine".
+func (a *sessionLLMAdapter) Unwrap() perception.LLMClient { return a.client }
+
 func (a *sessionLLMAdapter) meteredContext(ctx context.Context) context.Context {
 	if a == nil || a.tracker == nil {
 		return ctx
@@ -587,14 +594,14 @@ func (a *sessionKernelAdapter) GetProgramInfo() *analysis.ProgramInfo {
 
 // missingLLMClient.CompleteWithStreaming is defined on the type in factory.go.
 
-func (s *sessionLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
-	ctx = s.meteredContext(ctx)
+func (a *sessionLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+	ctx = a.meteredContext(ctx)
 	contentChan := make(chan string, 1)
 	errorChan := make(chan error, 1)
 	go func() {
 		defer close(contentChan)
 		defer close(errorChan)
-		res, err := s.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		res, err := a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 		if err != nil {
 			errorChan <- err
 			return

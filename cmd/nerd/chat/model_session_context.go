@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/testoutput"
 	"codenerd/internal/types"
 )
 
@@ -34,6 +36,26 @@ func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 		ExtraContext: make(map[string]string),
 	}
 
+	// The framework dimension is the language dimension's mirror image, and the
+	// asymmetry is deliberate: matchSelector skips the framework check entirely
+	// when the context names none, so all 42 framework-gated atoms stay eligible
+	// in every session -- django and react included, in a Go repository.
+	//
+	// They compete rather than being included outright, so the cost is not a
+	// fixed number of wasted tokens. The real loss is the other direction: with
+	// no framework in the context, a project that IS built on bubbletea and
+	// cobra gets no signal favouring the bubbletea and cobra atoms over the
+	// rest. The dimension contributes nothing in either direction.
+	//
+	// `nerd init` already writes project_framework into .nerd/profile.mg, chat
+	// loads that file at boot, and internal/init's own comment says the fact
+	// exists "to build the /framework JIT" selector. Nothing had read it back.
+	//
+	// Set before the engine hint below, which appends to whatever is here.
+	if fws := m.queryProjectFacts("project_framework"); len(fws) > 0 {
+		sessionCtx.ExtraContext["frameworks"] = strings.Join(fws, ",")
+	}
+
 	// Engine hinting for JIT prompt selection:
 	// When Codex CLI is the active LLM backend, tag it as a "framework" so we can
 	// select engine-specific atoms (e.g., disable native shell tools, prefer Piggyback).
@@ -47,6 +69,22 @@ func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 		} else {
 			sessionCtx.ExtraContext["frameworks"] = "codex_cli"
 		}
+	}
+
+	// The prompt corpus gates 326 of its 918 atom entries on a language, and
+	// matchSelector fails closed: an atom that declares a constraint the context
+	// has no value for does not match. That is the right rule -- it is what stops
+	// Go advice leaking into a Python session -- but it means an empty language
+	// does not select "all languages", it selects none of them. A third of the
+	// corpus, including every TDD, debugging and refactoring methodology and all
+	// 113 Mangle atoms, was unreachable in an interactive turn.
+	//
+	// The workspace already knew the answer. The world scan derives the dominant
+	// language and asserts project_language as a whole-snapshot property.
+	// Nothing downstream had ever read it back, so CompilationContext.Language
+	// was set in exactly one place in the repository: the `nerd init` scan.
+	if lang := m.queryProjectLanguage(); lang != "" {
+		sessionCtx.ExtraContext["language"] = lang
 	}
 
 	// ==========================================================================
@@ -260,6 +298,73 @@ func (m *Model) queryKernelStrings(predicate string) []string {
 		}
 	}
 	return strs
+}
+
+// queryProjectFacts returns the distinct first arguments of a whole-project
+// predicate, sorted, or nil when the kernel holds none.
+//
+// types.ExtractString rather than a string type assertion. These are asserted
+// as Mangle atoms and query readback renders a /name sometimes as an atom and
+// sometimes as a plain string -- internal/world hit exactly this and its
+// comment records that a bare assertion "silently skipped every row". Here that
+// failure would be indistinguishable from "no scan has run yet", which is a
+// legitimate state and so would never be investigated.
+//
+// Sorted and deduplicated rather than taken in the order the kernel returned
+// them. Two sources can assert these: the world scan, and the profile.mg that
+// `nerd init` writes and chat loads at boot. Where they disagree, ranging the
+// results and taking the first is a coin flip that changes the prompt between
+// runs with nothing to explain it.
+func (m *Model) queryProjectFacts(predicate string) []string {
+	if m.kernel == nil {
+		return nil
+	}
+	results, err := m.kernel.Query(predicate)
+	if err != nil {
+		logging.Get(logging.CategoryContext).Warn(
+			"%s query failed: %v; this turn compiles without it and cannot select "+
+				"any prompt atom gated on it", predicate, err)
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(results))
+	var values []string
+	for _, fact := range results {
+		if len(fact.Args) == 0 {
+			continue
+		}
+		v := strings.TrimSpace(types.ExtractString(fact.Args[0]))
+		if v == "" {
+			continue
+		}
+		if _, dup := seen[v]; dup {
+			continue
+		}
+		seen[v] = struct{}{}
+		values = append(values, v)
+	}
+	sort.Strings(values)
+	return values
+}
+
+// queryProjectLanguage returns the workspace's dominant language, or "" when no
+// scan has run.
+//
+// Empty on absence rather than a guess. Selecting another ecosystem's atoms is
+// worse than selecting none: it spends budget on advice for the wrong language
+// and, unlike the empty case, nothing about the resulting prompt looks wrong.
+func (m *Model) queryProjectLanguage() string {
+	langs := m.queryProjectFacts("project_language")
+	if len(langs) == 0 {
+		return ""
+	}
+	if len(langs) > 1 {
+		logging.Get(logging.CategoryContext).Warn(
+			"kernel holds %d distinct project_language facts (%v); using %s. A project "+
+				"has one dominant language -- a stale row survived a delta scan, or the "+
+				"world scan and .nerd/profile.mg disagree.", len(langs), langs, langs[0])
+	}
+	return langs[0]
 }
 
 // queryDiagnostics extracts current diagnostics from the kernel.
@@ -519,33 +624,72 @@ func splitContextList(raw string) []string {
 }
 
 // populateTestState fills in test execution state for TDD loop awareness.
+//
+// It reads the tester shard's own output, which is the only place this session
+// actually learns whether tests pass. What it replaced queried a test_result
+// predicate and was wrong four times over, each one silent on its own:
+//
+//   - nothing in this repository asserts test_result, so the query always came
+//     back empty;
+//   - the Decl is test_result(ShardID, TestName, Passed, Duration) and the code
+//     read Args[1] — the test's NAME — as its status;
+//   - it compared that through a bare string assertion against "/pass", while
+//     Passed is declared /name and comes back as a Mangle atom, so the
+//     assertion would have failed even on the right argument;
+//   - and it wrote its answer to ExtraContext["test_state"], which nothing
+//     reads.
+//
+// Its own comment documented a three-argument signature that does not exist,
+// which is where the rest of it came from.
+//
+// The silence mattered. prompt_assembler reads TestState to set OperationalMode
+// to /tdd_repair, and FailingTests to count failures, which is what arms the
+// failing_tests world state. The three TDD atoms in methodology/tdd.yaml are
+// gated on BOTH. Nothing in the repository wrote either field, so the guidance
+// for repairing a failing suite could not load at the one moment it is wanted.
 func (m *Model) populateTestState(sessionCtx *types.SessionContext) {
-	if m.kernel == nil {
-		return
-	}
-	// Query test_result facts from kernel
-	results, err := m.kernel.Query("test_result")
-	if err != nil {
-		return
-	}
-	var testSummary strings.Builder
-	passCount := 0
-	failCount := 0
-	for _, fact := range results {
-		// test_result(TestID, Status, Message)
-		if len(fact.Args) >= 2 {
-			status, _ := fact.Args[1].(string)
-			switch status {
-			case "/pass":
-				passCount++
-			case "/fail":
-				failCount++
-			}
+	// Most recent tester result wins. An older run describes a tree that has
+	// since been edited, and reporting its failures sends the model at tests
+	// that may already pass — which is worse than saying nothing, because it
+	// looks like current information.
+	for i := len(m.shardResultHistory) - 1; i >= 0; i-- {
+		sr := m.shardResultHistory[i]
+		if sr.ShardType != "tester" {
+			continue
 		}
-	}
-	if passCount+failCount > 0 {
-		testSummary.WriteString(fmt.Sprintf("Tests: %d pass, %d fail", passCount, failCount))
-		sessionCtx.ExtraContext["test_state"] = testSummary.String()
+
+		counts := testoutput.Parse(sr.RawOutput)
+		if !counts.Parsed {
+			// Unreadable output is not a passing suite, and it is not a failing
+			// one either. Leaving both fields alone asserts neither verdict;
+			// inventing one here would put the model into repair mode over a
+			// runner this parser simply does not know how to read.
+			return
+		}
+
+		switch {
+		case counts.Failed > 0:
+			sessionCtx.TestState = "/failing"
+			sessionCtx.FailingTests = counts.FailedNames
+			if len(sessionCtx.FailingTests) == 0 {
+				// A runner that reports a count without naming anything. One
+				// honest line, because FailingTests is rendered into the prompt
+				// and repeating a placeholder per failure would fill it with
+				// noise. It does mean failing_test_count understates the real
+				// number for such runners — which is the safe direction, and
+				// the world state, which only asks whether it is above zero,
+				// still fires.
+				sessionCtx.FailingTests = []string{
+					fmt.Sprintf("%d failing test(s); the runner did not name them", counts.Failed),
+				}
+			}
+		case counts.Passed > 0:
+			sessionCtx.TestState = "/passing"
+		}
+
+		sessionCtx.ExtraContext["test_state"] = fmt.Sprintf(
+			"Tests: %d pass, %d fail", counts.Passed, counts.Failed)
+		return
 	}
 }
 
@@ -570,11 +714,21 @@ func extractShardSummary(sr *ShardResult) string {
 	if sr.ShardType == "reviewer" && len(sr.Findings) > 0 {
 		return fmt.Sprintf("%d findings", len(sr.Findings))
 	}
-	// For tester: show pass/fail counts
-	if sr.ShardType == "tester" && sr.Metrics != nil {
-		pass, _ := sr.Metrics["pass"].(int)
-		fail, _ := sr.Metrics["fail"].(int)
-		return fmt.Sprintf("%d pass, %d fail", pass, fail)
+	// For tester: show pass/fail counts, read from the output rather than from
+	// the metrics map.
+	//
+	// This used to assert sr.Metrics["pass"].(int) against a map extractMetrics
+	// only ever fills with strings, so the counts were always zero. And because
+	// the map is never nil, the branch always fired -- so a tester's real
+	// output was REPLACED by "0 pass, 0 fail" in the context handed to the next
+	// turn, rather than falling through to the generic summary below.
+	//
+	// Parse, not ParseOptimistic: a summary that cannot read the output should
+	// say what the output said, not invent one pass.
+	if sr.ShardType == "tester" {
+		if counts := testoutput.Parse(sr.RawOutput); counts.Parsed {
+			return fmt.Sprintf("%d pass, %d fail", counts.Passed, counts.Failed)
+		}
 	}
 	// Generic: truncate output
 	return truncateForContext(sr.RawOutput, 100)

@@ -8,7 +8,10 @@ import (
 	"sort"
 	"strings"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
+	"codenerd/internal/observation/precondition"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/tactile"
 	"codenerd/internal/tools"
@@ -19,11 +22,15 @@ func ReadFileTool() *tools.Tool {
 	return &tools.Tool{
 		Name:          "read_file",
 		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryAttack, tools.CategoryGeneral},
-		Description: "Read the contents of a file. Each line is returned prefixed with its " +
-			"1-indexed line number and a tab, so you can cite file:line accurately. " +
-			"The prefix is NOT part of the file: strip it before passing any content to " +
-			"write_file, edit_file, edit_lines or any other tool that matches against the " +
-			"real text.",
+		Description: "Read a file. Each line is returned prefixed with its 1-indexed line " +
+			"number and a tab, so you can cite file:line accurately. The prefix is NOT part " +
+			"of the file: strip it before passing any content to write_file, edit_file, " +
+			"edit_lines or any other tool that matches against the real text. " +
+			"A long file comes back as the region you asked about plus an outline of the " +
+			"code elements it did not print, with their line numbers — read those lines by " +
+			"asking for them with start_line/end_line. Every read reports a precondition " +
+			"handle; pass it to the edit verb that follows and the edit is refused if the " +
+			"lines you read have changed since.",
 		Category: tools.CategoryCode,
 		Priority: 90,
 		Execute:  executeReadFile,
@@ -167,86 +174,41 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
-	result := string(content)
-
-	// Handle line range if specified.
 	// LLM tool args may arrive as float64 via JSON; coerce robustly.
-	startLine, hasStart := coerceInt(args["start_line"])
-	endLine, hasEnd := coerceInt(args["end_line"])
+	startLine, _ := coerceInt(args["start_line"])
+	endLine, _ := coerceInt(args["end_line"])
 
-	if hasStart || hasEnd {
-		lines := strings.Split(result, "\n")
-		totalLines := len(lines)
-
-		if !hasStart {
-			startLine = 1
-		}
-		if !hasEnd {
-			endLine = totalLines
-		}
-
-		// Clamp to valid 1-indexed range
-		if startLine < 1 {
-			startLine = 1
-		}
-		if startLine > totalLines {
-			startLine = totalLines
-		}
-		if endLine < startLine {
-			endLine = startLine
-		}
-		if endLine > totalLines {
-			endLine = totalLines
-		}
-
-		// Convert to 0-indexed slice bounds
-		result = strings.Join(lines[startLine-1:endLine], "\n")
-	} else {
-		startLine = 1
+	// The result is shaped by the file-read observation codec rather than
+	// returned as the whole file. Two things come out of that.
+	//
+	// It mints a precondition. An edit built on a read that has since gone
+	// stale is worse than no read at all: the model edits, with confidence, a
+	// file it no longer understands. Passing the handle back to an edit verb
+	// turns that into a refusal.
+	//
+	// And it bounds what a read costs. An unelided read of a long file was not
+	// arriving whole anyway — the tool-loop transcript clamps an oversized
+	// result head-and-tail, which removes the middle of the file and leaves no
+	// trace of what was in it. An outline of the elements it did not print is a
+	// better answer than a hole, and it is what lets the next read ask for the
+	// right lines instead of guessing at them.
+	observed := precondition.Read{
+		Path:    path,
+		Display: tools.WorkspaceDisplayPath(ctx, path),
+		Content: string(content),
+		Start:   startLine,
+		End:     endLine,
 	}
-
-	result = numberLines(result, startLine)
+	result := observation.EncodeRead(observed, observation.ReadLimits{}).Text()
 
 	logging.Audit().FileOp(logging.AuditFileRead, path, int64(len(content)), true, "")
-	logging.Tools("read_file completed: %s (%d bytes)", path, len(result))
+	logging.Tools("read_file completed: %s (%d bytes read, %d bytes returned)", path, len(content), len(result))
 	return result, nil
 }
 
-// numberLines prefixes each line with its 1-indexed number and a tab.
-//
-// Without this the model has to count lines by eye to cite anything, and it
-// counts badly. Measured on the architecture docs codeNERD wrote about its own
-// projectdoc package: the claims were correct but the citations drifted between
-// one and forty-two lines, and one pointed into an unrelated function. This repo
-// asks every architectural claim to carry a file:line, so an uncountable read
-// tool makes that convention unsatisfiable.
-//
-// startAt keeps ranged reads honest: slicing lines 200-240 and numbering them
-// from 1 would be worse than no numbers at all, because it looks authoritative.
-func numberLines(content string, startAt int) string {
-	if content == "" {
-		return content
-	}
-	if startAt < 1 {
-		startAt = 1
-	}
-
-	lines := strings.Split(content, "\n")
-	var b strings.Builder
-	// Rough preallocation: original text plus a short numeric prefix per line.
-	b.Grow(len(content) + len(lines)*8)
-	for i, line := range lines {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		fmt.Fprintf(&b, "%d\t%s", startAt+i, line)
-	}
-	return b.String()
-}
-
-// stripLineNumberPrefixes removes the "N\t" prefix numberLines adds, but only
-// when every line has one. Returns ok=false otherwise, so a genuine edit to a
-// file of tab-separated numeric data is never silently rewritten.
+// stripLineNumberPrefixes removes the "N\t" prefix the read projection adds,
+// but only when every line has one. Returns ok=false otherwise, so a genuine
+// edit to a file of tab-separated numeric data is never silently rewritten.
 func stripLineNumberPrefixes(s string) (string, bool) {
 	if s == "" {
 		return s, false
@@ -364,7 +326,7 @@ func executeWriteFile(ctx context.Context, args map[string]any) (string, error) 
 		content = tactile.NormalizeLineEnding(content, ending)
 	}
 
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := atomicfile.WriteFilePreservingMode(path, []byte(content), 0o644); err != nil {
 		logging.Audit().FileOp(logging.AuditFileWrite, path, 0, false, err.Error())
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
@@ -402,6 +364,10 @@ func EditFileTool() *tools.Tool {
 					Type:        "boolean",
 					Description: "Replace all occurrences (default: false, replaces first only)",
 					Default:     false,
+				},
+				precondition.Arg: {
+					Type:        "string",
+					Description: precondition.ArgDescription,
 				},
 			},
 		},
@@ -453,6 +419,16 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
+	// The precondition is checked against these bytes — the ones about to be
+	// edited — and before anything is written. Checking after the write would
+	// report a problem that has already happened, and checking against a
+	// separate read of the file would compare two instants and prove nothing
+	// about the third one the edit lands on.
+	staleWarning, err := precondition.Enforce(args, path, content)
+	if err != nil {
+		return "", err
+	}
+
 	originalEnding := tactile.DetectLineEnding(content)
 	contentStr := tactile.NormalizeLineEnding(string(content), "\n")
 	oldText = tactile.NormalizeLineEnding(oldText, "\n")
@@ -492,7 +468,7 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 	}
 	newContent = tactile.NormalizeLineEnding(newContent, originalEnding)
 
-	if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+	if err := atomicfile.WriteFilePreservingMode(path, []byte(newContent), 0o644); err != nil {
 		// An edit is a write and belongs in the durable record. read_file and
 		// write_file were instrumented; edit_file and delete_file were not,
 		// which left the two most forensically interesting mutations invisible
@@ -504,7 +480,11 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 
 	logging.Audit().FileOp(logging.AuditFileWrite, path, int64(len(newContent)), true, "")
 	logging.Tools("edit_file completed: %s (%d replacements)", path, count)
-	return fmt.Sprintf("Replaced %d occurrence(s) in %s", count, path), nil
+	result := fmt.Sprintf("Replaced %d occurrence(s) in %s", count, path)
+	if staleWarning != "" {
+		result += "\n" + staleWarning
+	}
+	return result, nil
 }
 
 // DeleteFileTool returns a tool for deleting files.

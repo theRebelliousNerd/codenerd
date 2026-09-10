@@ -99,6 +99,12 @@ func TestAuditFacts_WhenEveryEventFamilyRecorded_ShouldParseAsMangle(t *testing.
 		// Leave the process-global logger inert for the rest of this binary:
 		// the temp workspace is about to disappear.
 		logging.ApplyConfig(logging.Config{DebugMode: false})
+		// Then release the pin ApplyConfig sets. Without this the injected
+		// config survives, loadConfig refuses to read disk ("boot handed us the
+		// config"), and a later Initialize on a different workspace never sees
+		// its debug_mode -- so the second run of this test in one process found
+		// no audit log. ClearInjectedConfig exists for exactly this handover.
+		logging.ClearInjectedConfig()
 	})
 
 	a := logging.Audit()

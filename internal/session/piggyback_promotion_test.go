@@ -58,9 +58,9 @@ func (s *scriptedProvider) CompleteWithToolResults(ctx context.Context, sys stri
 	if s.completeWithToolResults != nil {
 		return s.completeWithToolResults(ctx, sys, history, defs)
 	}
-	if s.MockLLMClient != nil && s.MockLLMClient.CompleteWithToolsFunc != nil {
-		// fallback not used
-	}
+	// No fallback to MockLLMClient.CompleteWithToolsFunc here on purpose: this
+	// provider scripts CompleteWithToolResults explicitly, and silently serving
+	// a different method's script would make a missing script look like a pass.
 	return &types.LLMToolResponse{Text: "default"}, nil
 }
 
@@ -69,14 +69,12 @@ func ensureGeneralProbe(t *testing.T, name string, execFn tools.ExecuteFunc) {
 	if tools.Global().Has(name) {
 		return
 	}
-	if err := tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect:   tools.EffectRead,
 		Name:     name,
 		Category: tools.CategoryGeneral,
 		Execute:  execFn,
-	}); err != nil {
-		t.Fatalf("register %s: %v", name, err)
-	}
+	})
 }
 
 func TestRunToolLoop_PiggybackInitialEnvelopeIsPromoted(t *testing.T) {
@@ -252,7 +250,7 @@ func TestForceFinalAnswer_PiggybackOfferedWriteExecutes(t *testing.T) {
 		}
 		defer func() { existing.Execute = origExec }()
 	} else {
-		if err := tools.Global().Register(&tools.Tool{
+		registerTestTool(t, &tools.Tool{
 			Effect:   tools.EffectRead,
 			Name:     toolName,
 			Category: tools.CategoryCode,
@@ -260,9 +258,7 @@ func TestForceFinalAnswer_PiggybackOfferedWriteExecutes(t *testing.T) {
 				execCount++
 				return "written", nil
 			},
-		}); err != nil {
-			t.Fatalf("register create_file: %v", err)
-		}
+		})
 	}
 
 	envelope := piggySingleRequest("final surface", "req-create-1", toolName, map[string]any{"path": "out.txt", "content": "hi"})

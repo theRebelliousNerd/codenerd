@@ -523,31 +523,31 @@ func (v *VirtualStore) GetTransactionManager() *TransactionManager {
 }
 
 // Get resolves virtual predicates for the Mangle kernel on demand.
-func (vs *VirtualStore) Get(query ast.Atom) ([]ast.Atom, error) {
+func (v *VirtualStore) Get(query ast.Atom) ([]ast.Atom, error) {
 	switch query.Predicate.Symbol {
 	case "query_learned":
-		return vs.getQueryLearnedAtoms(query)
+		return v.getQueryLearnedAtoms(query)
 	case "query_session":
-		return vs.getQuerySessionAtoms(query)
+		return v.getQuerySessionAtoms(query)
 	case "recall_similar":
-		return vs.getRecallSimilarAtoms(query)
+		return v.getRecallSimilarAtoms(query)
 	case "query_knowledge_graph":
-		return vs.getQueryKnowledgeGraphAtoms(query)
+		return v.getQueryKnowledgeGraphAtoms(query)
 	case "query_activations":
-		return vs.getQueryActivationsAtoms(query)
+		return v.getQueryActivationsAtoms(query)
 	case "has_learned":
-		return vs.getHasLearnedAtoms(query)
+		return v.getHasLearnedAtoms(query)
 	case "query_traces":
-		return vs.getQueryTracesAtoms(query)
+		return v.getQueryTracesAtoms(query)
 	case "query_trace_stats":
-		return vs.getQueryTraceStatsAtoms(query)
+		return v.getQueryTraceStatsAtoms(query)
 	case "query_strategic":
-		return vs.getQueryStrategicAtoms(query)
+		return v.getQueryStrategicAtoms(query)
 	case "query_graph":
-		return vs.getQueryGraphAtoms(query)
+		return v.getQueryGraphAtoms(query)
 	// string_contains is commented out as we transitioned to native :string:contains.
 	// case "string_contains":
-	// 	return vs.getStringContainsAtoms(query)
+	// 	return v.getStringContainsAtoms(query)
 	default:
 		return nil, nil
 	}

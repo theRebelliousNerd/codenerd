@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"codenerd/internal/observation"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/tools"
@@ -482,8 +483,20 @@ func TestHandleReadFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleReadFile failed: %v", err)
 	}
-	if !res.Success || res.Output != content {
-		t.Errorf("expected full content, got success=%v, output=%q", res.Success, res.Output)
+	// The output is the read projection, not the raw bytes. What must survive
+	// is every line of a file this short — nothing is elided at six lines — and
+	// the precondition, without which no later edit can be shown to rest on
+	// this read.
+	if !res.Success {
+		t.Fatalf("read of an existing file failed: %s", res.Error)
+	}
+	for _, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
+		if !strings.Contains(res.Output, line) {
+			t.Errorf("read projection dropped %q from a file short enough to show whole:\n%s", line, res.Output)
+		}
+	}
+	if !strings.Contains(res.Output, "precondition=obs:fr:") {
+		t.Errorf("read published no precondition, so an edit built on it cannot be checked:\n%s", res.Output)
 	}
 
 	// 2. File is a directory (should succeed and return directory listing)
@@ -803,24 +816,28 @@ func TestHandleDeleteFile(t *testing.T) {
 	}
 }
 
-// TestHandleSearchCode tests code search wrapper
+// TestHandleSearchCode pins what a code-search action now returns: the symbols
+// the matches landed in and the edges between them, with the matching lines
+// retained rather than printed.
+//
+// It used to assert the opposite — that the output contained
+// "search.txt:1:here is the needle in the haystack". That wall of lines is what
+// this action stopped emitting: it is the most expensive way to convey the
+// least structure, and everything downstream (the console, the truncated
+// routing_result excerpt) paid for it on every search.
 func TestHandleSearchCode(t *testing.T) {
 	vs, _ := createActionsTestVS(t)
 	ctx := context.Background()
 
-	// A first ActionRequest with Target "search_pattern" used to be built here
-	// and overwritten below before anything read it.
-
-	// 1. Write file to tmpDir with some pattern to walk/find
-	fileName := "search.txt"
-	filePath := filepath.Join(vs.workingDir, fileName)
-	if err := os.WriteFile(filePath, []byte("here is the needle in the haystack"), 0644); err != nil {
+	source := "package widget\n\nfunc Encode() int {\n\treturn 1\n}\n\nfunc caller() int {\n\treturn Encode()\n}\n"
+	filePath := filepath.Join(vs.workingDir, "widget.go")
+	if err := os.WriteFile(filePath, []byte(source), 0644); err != nil {
 		t.Fatalf("failed to write search file: %v", err)
 	}
 
 	req := ActionRequest{
 		ActionID: "s1",
-		Target:   "needle",
+		Target:   "Encode",
 	}
 	res, err := vs.handleSearchCode(ctx, req)
 	if err != nil {
@@ -829,11 +846,39 @@ func TestHandleSearchCode(t *testing.T) {
 	if !res.Success {
 		t.Errorf("expected success, got: %+v", res)
 	}
-	if !strings.Contains(res.Output, "search.txt:1:here is the needle in the haystack") {
-		t.Errorf("expected match output, got %q", res.Output)
+
+	for _, want := range []string{"widget.go:Encode", "declared-here", "widget.go:caller", "references"} {
+		if !strings.Contains(res.Output, want) {
+			t.Errorf("search output is missing %q, so it does not say where the symbol is defined or who depends on it:\n%s", want, res.Output)
+		}
+	}
+	if strings.Contains(res.Output, "return Encode()") {
+		t.Errorf("search output quoted a matching line back; the lines belong behind the handle:\n%s", res.Output)
 	}
 
-	// 2. Canceled context
+	// The handle has to be redeemable, and it has to yield the lines this
+	// projection was derived from. A published handle that expands to nothing
+	// costs the agent a turn to discover.
+	handle, _ := res.Metadata["handle"].(string)
+	if handle == "" {
+		t.Fatalf("search result published no handle, so the elided lines are unreachable: %+v", res.Metadata)
+	}
+	hydrated, err := observation.Shared().Hydrate(handle, observation.Window{})
+	if err != nil {
+		t.Fatalf("handle minted by the action must resolve through the shared codec: %v", err)
+	}
+	if !strings.Contains(hydrated.Text(), "widget.go:8: return Encode()") {
+		t.Errorf("hydration did not return the observed lines:\n%s", hydrated.Text())
+	}
+
+	// Facts stay the raw per-line record: no rule reads search_result, and
+	// re-pointing it at the Cartographer's code_defines/code_calls would make
+	// this a second writer into predicates a deep scan replaces per file.
+	if len(res.FactsToAdd) == 0 {
+		t.Error("expected search_result facts to survive the reshaping of the output")
+	}
+
+	// Canceled context
 	cCtx, cancel := context.WithCancel(ctx)
 	cancel()
 	res, err = vs.handleSearchCode(cCtx, req)

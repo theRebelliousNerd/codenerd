@@ -265,6 +265,20 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	coreTools := []string{
 		"read_file",
 		"search_code",
+		// search_expand rides with search_code deliberately. search_code elides
+		// the matching lines and reports a handle for them; if the redemption
+		// verb is missing from the persona's catalog, that handle is a promise
+		// the model is structurally unable to keep, and the elision becomes
+		// plain loss. One extra schema on every turn is the price of the lines
+		// not being on every turn.
+		"search_expand",
+		// subagent_expand rides with every persona for the same reason, and
+		// with one difference that makes it more necessary rather than less: a
+		// search_code handle is minted by the same turn that would redeem it,
+		// while a subagent-return handle is minted by a delegation and arrives
+		// in the prompt of a persona that never ran one. There is no catalog to
+		// pair it with except all of them.
+		"subagent_expand",
 		"list_files",
 		"glob",
 		"grep",

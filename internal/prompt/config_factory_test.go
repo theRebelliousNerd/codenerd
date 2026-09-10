@@ -52,7 +52,7 @@ func TestConfigAtom_MergeNilSlices(t *testing.T) {
 	if len(merged.Tools) != 1 || merged.Tools[0] != "tool1" {
 		t.Errorf("Merge failed with nil slice: %v", merged.Tools)
 	}
-	if merged.Policies != nil && len(merged.Policies) != 0 {
+	if len(merged.Policies) != 0 {
 		t.Errorf("Merge of two nil slices should result in empty/nil slice, got: %v", merged.Policies)
 	}
 	if merged.Priority != 20 {

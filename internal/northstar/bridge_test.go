@@ -1,9 +1,12 @@
 package northstar
 
 import (
+	"codenerd/internal/atomicfile"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -287,5 +290,117 @@ func TestWizardDocument_WhenRoundTripped_ShouldPreserveLinks(t *testing.T) {
 	}
 	if len(back.Requirements) != 1 || len(back.Requirements[0].Supports) != 1 {
 		t.Errorf("requirement links lost in round trip: %+v", back.Requirements)
+	}
+}
+
+// TestVisionSurfacesAreWrittenAtomically is the guard for a failure that is
+// permanent rather than costly.
+//
+// LoadVisionJSON returns a hard error on a parse failure -- it does not fall
+// back to an empty vision -- so a truncating write that is interrupted does not
+// lose one boot's export. It makes every later load fail, which is fail-closed
+// becoming fail-forever, the case internal/atomicfile's doc describes for
+// `nerd init`.
+//
+// The assertion is identity, not content. A truncating write leaves the same
+// correct bytes whenever nothing goes wrong, so "the file parses afterwards"
+// passes either way, and that is how two durability suites in this repo came to
+// pass with their atomic write reverted.
+func TestVisionSurfacesAreWrittenAtomically(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		file  string
+		write func(dir string, v *Vision) error
+	}{
+		{
+			name: "json",
+			file: VisionJSONFileName,
+			write: func(dir string, v *Vision) error {
+				_, err := WriteVisionJSON(dir, v)
+				return err
+			},
+		},
+		{
+			name:  "mangle",
+			file:  VisionMangleFileName,
+			write: WriteVisionMangle,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, tc.file)
+
+			first := &Vision{Mission: "the original mission"}
+			if err := tc.write(dir, first); err != nil {
+				t.Fatalf("first write: %v", err)
+			}
+			before, err := os.Stat(path)
+			if err != nil {
+				t.Fatalf("stat: %v", err)
+			}
+			// atomicfile.Open, not os.Open: this stands in for a reader holding the
+			// file across the write, and on Windows a handle without FILE_SHARE_DELETE
+			// blocks the replace outright. That is the contract this package exists to
+			// provide, so the test states it rather than working around it.
+			held, err := atomicfile.Open(path)
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			defer func() { _ = held.Close() }()
+			originalBytes, err := io.ReadAll(held)
+			if err != nil {
+				t.Fatalf("read original: %v", err)
+			}
+			if _, err := held.Seek(0, io.SeekStart); err != nil {
+				t.Fatalf("seek: %v", err)
+			}
+
+			// Deliberately larger, so a truncate-then-write that failed midway
+			// could not fit back what it had just destroyed.
+			second := &Vision{Mission: "a substantially longer replacement mission " + strings.Repeat("x", 4096)}
+			if err := tc.write(dir, second); err != nil {
+				t.Fatalf("second write: %v", err)
+			}
+
+			after, err := os.Stat(path)
+			if err != nil {
+				t.Fatalf("stat after: %v", err)
+			}
+			// The inode check is POSIX-only, and the reason is not a Windows quirk to
+			// work around. ReplaceFileW deliberately PRESERVES the destination's
+			// identity — that is what it is for, so ACLs, streams and existing handles
+			// survive the swap — while a POSIX rename necessarily installs a new inode.
+			// Two mechanisms, one guarantee.
+			//
+			// The guarantee is what the next assertion checks, on both platforms: a
+			// reader holding the file still sees the bytes it opened. If the write had
+			// gone through the existing file, that reader would be looking at the new
+			// content, or at half of it.
+			if runtime.GOOS != "windows" && os.SameFile(before, after) {
+				t.Error("the write went through the existing file; an interrupted write would " +
+					"leave the only copy half-formed, and LoadVisionJSON fails hard on that")
+			}
+
+			stillThere, err := io.ReadAll(held)
+			if err != nil {
+				t.Fatalf("read through the old handle: %v", err)
+			}
+			if string(stillThere) != string(originalBytes) {
+				t.Error("a reader holding the file did not still see the contents it opened")
+			}
+		})
+	}
+}
+
+func TestLoadVisionJSONFailsHardOnCorruption(t *testing.T) {
+	// This is the property that makes the atomicity above matter. If it ever
+	// becomes a soft failure, the argument changes -- and so should the comment
+	// on the writers.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, VisionJSONFileName), []byte(`{"mission": "trunc`), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := LoadVisionJSON(dir); err == nil {
+		t.Fatal("LoadVisionJSON accepted a truncated file; the writers' atomicity comment is now wrong")
 	}
 }

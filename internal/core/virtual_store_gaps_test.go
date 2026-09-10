@@ -70,11 +70,9 @@ func TestVirtualStoreGap_MissingActionIDOrTarget(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := vs.RouteAction(context.Background(), tt.fact)
-			if tt.expectError {
-				if err == nil {
-					// ReadFile handler currently fails if target is empty, but we just want an error
-					// t.Errorf("Expected an error containing %q, but got nil", tt.errorContains)
-				}
+			if tt.expectError && err == nil {
+				t.Errorf("RouteAction(%v) = nil error, want an error containing %q",
+					tt.fact, tt.errorContains)
 			}
 		})
 	}

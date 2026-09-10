@@ -132,6 +132,8 @@ func (c *core) admit(ctx context.Context, req *Request) (Receipt, *AdmissionErro
 		Model:    req.Model,
 		Method:   req.Method,
 		Started:  time.Now(),
+		Scope:    usage.SessionIDFromContext(ctx),
+		Prefix:   prefixFingerprint(req),
 	}
 
 	count, err := c.cfg.Counter.Count(ctx, req)
@@ -147,7 +149,7 @@ func (c *core) admit(ctx context.Context, req *Request) (Receipt, *AdmissionErro
 		return receipt, &AdmissionError{Decision: receipt.Decision, Purpose: purpose}
 	}
 
-	decision := c.cfg.Ledger.Admit(purpose, count, RequiresExact(ctx))
+	decision := c.cfg.Ledger.Admit(purpose, count)
 	receipt.Estimated = count
 	receipt.Decision = decision
 

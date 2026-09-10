@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/broker"
 	appconfig "codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
@@ -379,6 +380,10 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		sessionID = "current-session"
 	}
 	ctx = usage.WithShardContext(ctx, config.Name, string(config.Type), sessionID)
+	// A spawned shard's spend is the parent's spend. Tagging it subagent is
+	// what separates "the turn cost 40k" from "the turn cost 40k, of which 31k
+	// was three shards you did not know you were paying for".
+	ctx = broker.WithPurpose(ctx, broker.PurposeSubagent)
 
 	go func() {
 		defer func() {

@@ -205,7 +205,7 @@ func (p *adaptiveBudgetProvider) CompleteWithToolResults(
 func TestRunToolLoop_ExtendsProgressingTurnAndFeedsRemainingBudget(t *testing.T) {
 	const toolName = "adaptive_budget_probe"
 	executions := 0
-	tools.Global().Register(&tools.Tool{
+	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,
 		Name:   toolName, Category: tools.CategoryGeneral,
 		Execute: func(context.Context, map[string]any) (string, error) {

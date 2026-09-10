@@ -23,7 +23,6 @@ cmd/nerd/chat/multistep_corpus.go	enrichPatternsWithKeywords
 cmd/nerd/chat/multistep_corpus.go	enrichPatternsWithVerbPairs
 cmd/nerd/chat/persistence.go	Model.persistActivationScores
 cmd/nerd/chat/persistence.go	Model.persistTurnToKnowledge
-cmd/nerd/chat/persistence.go	truncateForStorage
 cmd/nerd/chat/process_follow_up.go	Model.createAgentFromPrompt
 cmd/nerd/chat/process_sync.go	Model.checkWorkspaceSync
 cmd/nerd/chat/review_aggregator.go	Model.getLocalDB
@@ -58,6 +57,7 @@ cmd/nerd/cmd_campaign.go	campaignLLMAdapter.CompleteWithStreaming
 cmd/nerd/cmd_campaign.go	campaignLLMAdapter.CompleteWithSystem
 cmd/nerd/cmd_campaign.go	campaignLLMAdapter.CompleteWithToolResults
 cmd/nerd/cmd_campaign.go	campaignLLMAdapter.CompleteWithTools
+cmd/nerd/cmd_campaign.go	campaignLLMAdapter.Unwrap
 cmd/nerd/cmd_campaign.go	campaignTaskDelegatorAdapter.Execute
 cmd/nerd/cmd_campaign.go	campaignVirtualStoreAdapter.Exec
 cmd/nerd/cmd_campaign.go	campaignVirtualStoreAdapter.PreflightDestructiveToolCall
@@ -146,7 +146,6 @@ internal/articulation/emitter.go	MustExtractSurface
 internal/articulation/kernel_context.go	GetKernelContext
 internal/articulation/prompt_assembler.go	AssembleQuickPrompt
 internal/articulation/stream_parser.go	StreamParser.GetFullBuffer
-internal/atomicfile/open_other.go	Open
 internal/autopoiesis/ouroboros.go	DefaultOuroborosConfig
 internal/autopoiesis/ouroboros.go	GenerateMissingToolFacts
 internal/autopoiesis/ouroboros.go	GenerateToolCapabilityFacts
@@ -160,6 +159,7 @@ internal/autopoiesis/thunderdome.go	Thunderdome.generateTestHarness
 internal/autopoiesis/tool_compiler.go	extractFunctionBody
 internal/autopoiesis/tool_templates.go	extractJSONFromTemplate
 internal/autopoiesis/yaegi_executor.go	NewYaegiExecutor
+internal/broker/default.go	Meter.Calibrator
 internal/browser/contract_audit_report.go	BuildAuditReport
 internal/browser/contract_audit_report.go	ResumeAuditEvidence
 internal/browser/contract_audit_report.go	auditReportRelativePath
@@ -202,9 +202,7 @@ internal/config/ux.go	DefaultUIConfig
 internal/context/compressor.go	NewCompressorWithConfig
 internal/context/compressor_turns.go	Compressor.generateSimpleSummary
 internal/context/compressor_turns.go	Compressor.generateSummary
-internal/context/tokens.go	CharsPerTokenEstimator.EstimateTokens
 internal/context/tokens.go	EstimateCompressionRatio
-internal/context/tokens.go	NewTokenCounterWithEstimator
 internal/context/types.go	NewConfigWithBudget
 internal/core/action_validator.go	Aggregate
 internal/core/action_validator.go	HighestConfidence
