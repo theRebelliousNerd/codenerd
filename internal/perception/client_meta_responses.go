@@ -141,6 +141,13 @@ type metaResponsesReply struct {
 	Output []metaResponsesItem `json:"output"`
 	Usage  *metaResponsesUsage `json:"usage,omitempty"`
 	Error  *metaResponsesError `json:"error,omitempty"`
+	// IncompleteDetails says why a Status of "incomplete" stopped; the reason
+	// this client acts on is "max_output_tokens".
+	IncompleteDetails *metaIncompleteDetails `json:"incomplete_details,omitempty"`
+}
+
+type metaIncompleteDetails struct {
+	Reason string `json:"reason"`
 }
 
 type metaResponsesError struct {
@@ -771,6 +778,17 @@ func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 	reply, err := c.executeResponses(ctx, req)
 	if err != nil {
 		return nil, err
+	}
+	if reply.Status == "incomplete" && reply.IncompleteDetails != nil && types.LengthStop(reply.IncompleteDetails.Reason) {
+		produced := 0
+		if reply.Usage != nil {
+			produced = reply.Usage.OutputTokens
+		}
+		// Reasoning is billed as output on this surface, so a turn that spent
+		// its budget thinking lands here too; the restatement the broker asks
+		// for is the right response either way.
+		return nil, outputTruncated(c.vendor, c.model, "CompleteWithToolResults",
+			reply.IncompleteDetails.Reason, metaTextFromReply(reply), c.maxOutputTokens, produced)
 	}
 
 	// Record this turn's reasoning against the slot the assistant reply will

@@ -522,6 +522,10 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			"completion_tokens":     zaiResp.Usage.CompletionTokens,
 		})
 
+		if finish := zaiResp.Choices[0].FinishReason; lengthStop(finish) {
+			return "", outputTruncated(ProviderZAI, c.model, "CompleteWithSystem", finish,
+				strings.TrimSpace(zaiResp.Choices[0].Message.Content), 0, zaiResp.Usage.CompletionTokens)
+		}
 		return strings.TrimSpace(zaiResp.Choices[0].Message.Content), nil
 	}
 
@@ -895,6 +899,10 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			"cumulative_backoff_ms": cumulativeBackoffMs,
 		})
 
+		if finish := zaiResp.Choices[0].FinishReason; lengthStop(finish) {
+			return "", outputTruncated(ProviderZAI, c.model, "CompleteWithSchema", finish,
+				strings.TrimSpace(zaiResp.Choices[0].Message.Content), 0, zaiResp.Usage.CompletionTokens)
+		}
 		return strings.TrimSpace(zaiResp.Choices[0].Message.Content), nil
 	}
 
@@ -1016,12 +1024,15 @@ func (c *ZAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 		}
 
 		stopReason := choice.FinishReason
+		trackUsage(ctx, c.model, ProviderZAI,
+			zaiResp.Usage.PromptTokens, zaiResp.Usage.CompletionTokens, usageOpToolGen)
+		if lengthStop(stopReason) {
+			return nil, outputTruncated(ProviderZAI, c.model, "CompleteWithTools", stopReason, choice.Message.Content,
+				0, zaiResp.Usage.CompletionTokens)
+		}
 		if stopReason == "tool_calls" {
 			stopReason = "tool_use"
 		}
-
-		trackUsage(ctx, c.model, ProviderZAI,
-			zaiResp.Usage.PromptTokens, zaiResp.Usage.CompletionTokens, usageOpToolGen)
 
 		return &LLMToolResponse{
 			Text:       choice.Message.Content,

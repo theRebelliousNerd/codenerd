@@ -184,6 +184,10 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 			orResp.Usage.PromptTokens, orResp.Usage.CompletionTokens, usageOpChat)
 
 		response := strings.TrimSpace(orResp.Choices[0].Message.Content)
+		if finish := orResp.Choices[0].FinishReason; types.LengthStop(finish) {
+			return "", outputTruncated(ProviderOpenRouter, c.model, "CompleteWithSystem", finish, response,
+				0, orResp.Usage.CompletionTokens)
+		}
 		logging.Perception("[OpenRouter] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
 		return response, nil
 	}
@@ -442,6 +446,10 @@ func (c *OpenRouterClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 	}
 
 	stopReason := choice.FinishReason
+	if types.LengthStop(stopReason) {
+		return nil, outputTruncated(ProviderOpenRouter, c.model, "CompleteWithTools", stopReason, choice.Message.Content,
+			0, resp.Usage.CompletionTokens)
+	}
 	if stopReason == "tool_calls" {
 		stopReason = "tool_use"
 	}

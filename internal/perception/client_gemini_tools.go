@@ -150,6 +150,12 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 
 	if len(geminiResp.Candidates) > 0 {
 		result.StopReason = geminiResp.Candidates[0].FinishReason
+		if types.LengthStop(result.StopReason) {
+			// Covers both tool paths (single-shot and tool-results): a function
+			// call cut mid-arguments must not reach the executor.
+			return nil, outputTruncated(ProviderGemini, c.model, "CompleteWithTools", result.StopReason, "",
+				c.maxOutputTokens, geminiResp.UsageMetadata.CandidatesTokenCount)
+		}
 		var textBuilder strings.Builder
 		for _, part := range geminiResp.Candidates[0].Content.Parts {
 			if part.Text != "" {
@@ -377,6 +383,12 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 
 	if len(geminiResp.Candidates) > 0 {
 		result.StopReason = geminiResp.Candidates[0].FinishReason
+		if types.LengthStop(result.StopReason) {
+			// Covers both tool paths (single-shot and tool-results): a function
+			// call cut mid-arguments must not reach the executor.
+			return nil, outputTruncated(ProviderGemini, c.model, "CompleteWithTools", result.StopReason, "",
+				c.maxOutputTokens, geminiResp.UsageMetadata.CandidatesTokenCount)
+		}
 		var textBuilder strings.Builder
 		for _, part := range geminiResp.Candidates[0].Content.Parts {
 			if part.Text != "" {

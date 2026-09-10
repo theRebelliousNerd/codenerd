@@ -241,6 +241,10 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 			anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpChat)
 
 		response := strings.TrimSpace(result.String())
+		if types.LengthStop(anthropicResp.StopReason) {
+			return "", outputTruncated(ProviderAnthropic, c.model, "CompleteWithSystem", anthropicResp.StopReason, response,
+				reqBody.MaxTokens, anthropicResp.Usage.OutputTokens)
+		}
 		logging.Perception("[Anthropic] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
 		return response, nil
 	}
@@ -523,6 +527,11 @@ func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 	trackUsage(ctx, c.model, ProviderAnthropic,
 		anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
 
+	if types.LengthStop(anthropicResp.StopReason) {
+		return nil, outputTruncated(ProviderAnthropic, c.model, "CompleteWithTools", anthropicResp.StopReason,
+			textBuilder.String(), reqBody.MaxTokens, anthropicResp.Usage.OutputTokens)
+	}
+
 	return &LLMToolResponse{
 		Text:       strings.TrimSpace(textBuilder.String()),
 		ToolCalls:  result.ToolCalls,
@@ -637,6 +646,11 @@ func (c *AnthropicClient) CompleteWithToolResults(ctx context.Context, systemPro
 
 	trackUsage(ctx, c.model, ProviderAnthropic,
 		anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
+
+	if types.LengthStop(anthropicResp.StopReason) {
+		return nil, outputTruncated(ProviderAnthropic, c.model, "CompleteWithToolResults", anthropicResp.StopReason,
+			textBuilder.String(), reqBody.MaxTokens, anthropicResp.Usage.OutputTokens)
+	}
 
 	return &types.LLMToolResponse{
 		Text:       strings.TrimSpace(textBuilder.String()),

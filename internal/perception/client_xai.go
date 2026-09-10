@@ -158,6 +158,10 @@ func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			xaiResp.Usage.PromptTokens, xaiResp.Usage.CompletionTokens, usageOpChat)
 
 		response := strings.TrimSpace(xaiResp.Choices[0].Message.Content)
+		if finish := xaiResp.Choices[0].FinishReason; types.LengthStop(finish) {
+			return "", outputTruncated(ProviderXAI, c.model, "CompleteWithSystem", finish, response,
+				0, xaiResp.Usage.CompletionTokens)
+		}
 		logging.Perception("[XAI] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
 		return response, nil
 	}

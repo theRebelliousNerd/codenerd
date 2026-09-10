@@ -577,6 +577,10 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 
 		// Separate thought parts from response parts for clear presentation
 		thinkingText, responseText := extractResponseText(geminiResp.Candidates[0].Content.Parts)
+		if finish := geminiResp.Candidates[0].FinishReason; lengthStop(finish) {
+			return "", outputTruncated(ProviderGemini, c.model, "CompleteWithSystem", finish, responseText,
+				c.maxOutputTokens, geminiResp.UsageMetadata.CandidatesTokenCount)
+		}
 		logging.PerceptionDebug("[Gemini] CompleteWithSystem: thinking_len=%d thoughtSummary=%d chars",
 			len(thinkingText), len(geminiResp.ThoughtSummary))
 
@@ -845,6 +849,10 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 
 		// Filter out thought parts - only include non-thought content for structured output
 		thinkingText, response := extractResponseText(geminiResp.Candidates[0].Content.Parts)
+		if finish := geminiResp.Candidates[0].FinishReason; lengthStop(finish) {
+			return "", outputTruncated(ProviderGemini, c.model, "CompleteWithSchema", finish, response,
+				c.maxOutputTokens, geminiResp.UsageMetadata.CandidatesTokenCount)
+		}
 
 		// Log thought summary if any thinking was done
 		if thinkingText != "" {
