@@ -178,6 +178,40 @@ jobs:
         shell: bash
         run: ./scripts/deadcode-budget.sh
 
+  runonce:
+    # The repeat-run defect: a test that passes once and fails the second time
+    # in the same process, because it reads process-global state as if it were
+    # fresh. `go test` runs each test once, so it never shows.
+    #
+    # 34 of these were found in one 2026-09 pass, and the shape was always the
+    # same. internal/session tests registered probe tools into the
+    # process-wide registry and discarded Register's error; Register rejects
+    # duplicates, so the second run kept the FIRST run's Execute closure —
+    # incrementing a counter the second run could not see, which then read
+    # zero. Two more turned up in internal/tools.
+    #
+    # Scoped to the packages that hold process-global state rather than the
+    # whole tree, the same way the race job is scoped: a tool registry, the
+    # prompt co-use recorder, the default meter, and the boot singletons. That
+    # is where the defect can exist at all, and it keeps this job at a couple
+    # of minutes instead of doubling the whole suite.
+    #
+    # Linux, and not because of any filesystem behaviour — the defect is about
+    # state held in one process, which is identical on both platforms. It runs
+    # here because it is cheap here and the Windows job is already the long
+    # pole.
+    name: repeat-run (shared state)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run each test twice in one process
+        run: go test -count=2 ./internal/session/ ./internal/tools/ ./internal/prompt/ ./internal/broker/ ./internal/system/
+
   race:
     # Closes the mcp backlog item "-race CI for manager+store". Scoped to those
     # two packages rather than the whole tree: -race is slow, and these are the
