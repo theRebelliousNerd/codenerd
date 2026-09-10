@@ -111,6 +111,15 @@ func (c *core) proxyStream(
 		}
 	}()
 
+	// Settlement is deliberately after both forwarders have returned, and each
+	// forwarder closes its output channel before returning. A consumer therefore
+	// observes the stream close BEFORE the receipt exists.
+	//
+	// That ordering is the right one -- the receipt records the true end of the
+	// turn, including any error that arrived last -- but it has a consequence
+	// worth stating: nothing may assume a receipt is present the instant a
+	// stream closes. A reader that needs one has to wait for it, and a process
+	// exiting the moment its last stream closes can lose that final receipt.
 	go func() {
 		wg.Wait()
 		mu.Lock()

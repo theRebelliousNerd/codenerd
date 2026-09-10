@@ -218,9 +218,6 @@ func (e *AdmissionError) Error() string {
 		e.Decision.Count.Tokens, e.Decision.Window, e.Decision.Headroom)
 }
 
-// Unwrap lets errors.As find an AdmissionError through a wrapping chain.
-func (e *AdmissionError) Unwrap() error { return nil }
-
 // IsAdmissionError reports whether err is, or wraps, a broker refusal.
 //
 // errors.As rather than a type assertion: a refusal raised inside perception

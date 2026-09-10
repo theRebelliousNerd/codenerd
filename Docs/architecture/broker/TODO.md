@@ -91,8 +91,17 @@ the work they gate begins.
 
 ## Housekeeping
 
-- Raise broker coverage from 76.5%; the gaps are in `default.go` reconfiguration
-  paths and the rarely-taken degradation branches.
+- ~~Raise broker coverage from 76.5%~~ — **done: 94.1%.** The gaps that mattered
+  were not the arithmetic. `passthrough.go` — the capability-preservation
+  surface the eight-shape design exists to protect — was at 0%, and every
+  forwarder is now checked in both directions, because the whole design rests on
+  a forwarder producing exactly what the unwrapped client would have. The eight
+  shapes were tested for what they *advertise* and never for whether the
+  advertised method works; a shape delegating to the wrong core method would
+  pass the capability matrix and fail at runtime looking like a provider
+  problem. `Configure` is now exercised for real rather than through a replica
+  of its logic, including the cap-change path that must carry accumulated spend
+  across a ledger rebuild.
 - ~~Speculative broker surface~~ — **removed.** `Meter.Calibrator`,
   `Meter.Receipts`, `Meter.Reconciler`, `Meter.Drift`, `Meter.PrimaryModel` and
   `ReceiptFunc` had no production caller: the readout reads the workspace log,
