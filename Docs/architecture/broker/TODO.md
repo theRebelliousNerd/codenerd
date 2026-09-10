@@ -231,6 +231,35 @@ a writer, and no wire between them.
   touching. That is a classifier nobody has written, not a connection nobody
   made, and it should be costed as a feature.
 
+- **The two selectors disagree about language, and both are documented as
+  correct.** Worth knowing before anyone tunes atom selection, because it means
+  the primary and fallback paths do not select the same set.
+
+  `jit_compiler.mg` splits dimensions in two. The REGIME dimensions — `/shard`,
+  `/mode`, `/phase`, `/layer`, the three wizard steps, `/provider`, `/model` —
+  are fail-closed: "the honest answer for a compile that never set the dimension
+  is *not that one*". Everything else is situational and permissive, and its
+  comment names language explicitly: *"no language in context should not
+  suppress an atom that happens to mention Go"*.
+
+  `matchSelector` in Go, which is the fallback path when Mangle is unavailable,
+  is fail-closed for every dimension including language.
+
+  So with no language in context the kernel admits all 326 language-gated atoms
+  — Go, Python, Rust, Java and TypeScript advice at once, competing for the same
+  budget — and the fallback admits none of them. That is the same
+  contradictory-identity failure `internal/session/executor.go` documents for
+  shards, where a custom agent with no shard type "was handed 25+ contradictory
+  built-in identities and answered as whichever it latched onto".
+
+  **The fix above resolves this by making the disagreement unreachable rather
+  than by picking a winner**: a scanned workspace now always supplies a
+  language, so neither semantics applies. That is the right shape — choosing a
+  winner means either changing kernel policy or making the fallback permissive,
+  and both are decisions about prompt quality that want an eval. But the
+  divergence is still there for any dimension left empty, and a kernel outage
+  silently swaps one behaviour for the other.
+
 - **The tag namespaces are fine.** Atoms emit `atom_tag(ID, /lang, /go)` while
   the context writes `current_context(/lang, /go)` through an explicit long/short
   mapping (`add("language", "lang", ...)`, `add("build_layer", "layer", ...)`).
@@ -253,9 +282,42 @@ a writer, and no wire between them.
 
 ## Then — Phase 3, provider fidelity
 
-- `types.Message` must carry ordered native content blocks, signatures, ids and
-  continuation references losslessly, across all seven adapters. **Not started,
-  and this is the whole of what Phase 4 is blocked on now** — see below.
+- ~~`types.Message` must carry ordered native content blocks, signatures, ids and
+  continuation references losslessly, across all seven adapters.~~ — **the
+  representation and the adapters are built; one call site still flattens.**
+
+  `types.ContentBlock` is the ordered content — text, thinking with its
+  signature, tool_use with its id, tool_result with the id it answers — and it
+  lives in an UNEXPORTED field on `types.Message`. That is the whole of the
+  design decision. `Text`, `ToolCalls` and `ToolResults` stay as a flat
+  projection filled once by the constructors, so the several dozen callers that
+  read them keep working, and because the block list cannot be set by a struct
+  literal the two views cannot be given contradictory values. `Content()` is
+  the single read path: it returns the blocks when a constructor built them and
+  otherwise lifts the flat fields in the fixed order tool_result → text →
+  tool_use, which is exactly what every adapter emitted by hand before, so no
+  legacy turn changes shape on any wire.
+
+  Adapter fidelity is not uniform and the code now says where it stops.
+  Anthropic is total (thinking and redacted_thinking in their own wire shapes,
+  signatures verbatim, ids paired). The OpenAI Responses surface used by Meta
+  is total in order and reasoning; replayed encrypted_content now rides on the
+  message and the per-turn side cache is the fallback for legacy turns rather
+  than the only source. Gemini carries order and per-part thought signatures
+  but has **no tool ids on the wire at all** — a functionResponse pairs by tool
+  NAME and the "call_N" ids are minted from position. Every Chat Completions
+  surface (OpenAI, xAI, xAI-OAuth, OpenRouter, ZAI, Ollama, DashScope,
+  Moonshot) keeps ids and pairing and **cannot** keep either interleaving or
+  reasoning: an assistant turn has one content string and there is no
+  request-side field for a signature. Gemini's Piggyback path and the two CLI
+  engines carry no typed blocks at all, by construction.
+
+  **What is left is one call site.** `internal/session/executor_tools.go`
+  rebuilds the assistant turn as `types.Message{Role: "assistant", Text: ...,
+  ToolCalls: ...}`, which is the literal that drops the order and the
+  signature. `types.AssistantMessageFrom(resp)` is the replacement and is
+  already used by the two `cmd/` tool loops. Until the session loop calls it,
+  every adapter is lossless and the loop feeding them is not.
 - Provider profile: supported continuation modes, compaction, reminder
   placement, **and cache economics** (write penalty ÷ read discount), so Phase 4's
   break-even is derived per provider rather than hard-coded.
