@@ -991,3 +991,22 @@ func TrackFromContext(ctx context.Context, model, provider string, input, output
 		obs.Observed(model, provider, input, output, operation)
 	}
 }
+
+// SessionIDFromContext returns the session identity carried by ctx, or "" when
+// none was tagged.
+//
+// It returns the empty string rather than "unknown" — the sentinel the internal
+// aggregation path uses — because callers outside that path need to tell
+// "untagged" apart from a session that is genuinely named "unknown". Grouping
+// receipts into per-session streams is the case that forced the distinction: an
+// untagged call belongs to no stream, whereas one named "unknown" belongs to a
+// stream shared with every other call of that name.
+func SessionIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(sessionIDKey).(string); ok {
+		return v
+	}
+	return ""
+}

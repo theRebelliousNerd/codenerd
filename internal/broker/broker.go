@@ -132,6 +132,8 @@ func (c *core) admit(ctx context.Context, req *Request) (Receipt, *AdmissionErro
 		Model:    req.Model,
 		Method:   req.Method,
 		Started:  time.Now(),
+		Scope:    usage.SessionIDFromContext(ctx),
+		Prefix:   prefixFingerprint(req),
 	}
 
 	count, err := c.cfg.Counter.Count(ctx, req)

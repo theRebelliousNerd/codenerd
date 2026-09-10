@@ -183,6 +183,17 @@ type Receipt struct {
 	Started  time.Time     `json:"started"`
 	Duration time.Duration `json:"duration"`
 
+	// Scope is the session this call belonged to, or "" when untagged. Epoch
+	// segmentation groups by it so two concurrent sessions are not spliced into
+	// one alternating run that reports every call as a singleton.
+	Scope string `json:"scope,omitempty"`
+	// Prefix fingerprints the cacheable head of the request -- the tool
+	// definitions and the system prompt, in wire order. Two consecutive calls
+	// with the same Prefix could have shared a provider cache entry; a change
+	// means the entry was invalidated. Empty when the request had no cacheable
+	// head at all.
+	Prefix string `json:"prefix,omitempty"`
+
 	// Estimated is what admission believed before the request went out.
 	Estimated Count `json:"estimated"`
 	// Actual is what the provider reported. Zero when the provider reported
