@@ -1033,11 +1033,26 @@ func (s *AtomSelector) loadFleshAtomsKernel(
 	if err := kernel.AssertBatch(facts); err != nil {
 		// Logged at Error: when the kernel rejects flesh facts (e.g. the
 		// prompt_atom arg-order bug or a poisoned-EDB type mismatch), the
-		// selector silently falls back to fallbackFleshSelection — a
-		// keyword-matching code path that loses semantic ranking. The old
+		// selector silently falls back to fallbackFleshSelection. The old
 		// Warn level made this look like routine info; in fact it means
 		// the JIT compiler is running in degraded mode for this turn.
-		logging.Get(logging.CategoryContext).Error("Failed to assert flesh facts (selector falls back to keyword matching — semantic ranking unavailable): %v", err)
+		//
+		// "Loses semantic ranking" is what this comment used to say, and it
+		// understates the change. The fallback does not approximate the
+		// kernel's selection, it INVERTS it for every situational dimension.
+		//
+		// jit_compiler.mg is permissive by default and fail-closed only for the
+		// nine regime_dimension entries; matchSelector here is fail-closed for
+		// everything, with one hand-made exception for frameworks. So a context
+		// missing a language admits all 326 language-gated atoms on the kernel
+		// path and none of them here; the same holds for 195 intent-gated and
+		// 21 world-state-gated entries. 542 of the corpus's 918 entries select
+		// the opposite way when this line is reached.
+		//
+		// That is why it is an Error and not a Warn, and why the fallback is
+		// not a safe degradation to leave running: two turns either side of a
+		// transient kernel failure are compiled by two different policies.
+		logging.Get(logging.CategoryContext).Error("Failed to assert flesh facts (selector falls back to keyword matching — selection semantics INVERT for situational dimensions): %v", err)
 		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
 	}
 
