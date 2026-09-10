@@ -855,6 +855,11 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// this session (BySession) rather than "unknown"; turn_cost reads that
 	// entry, never the cross-process project total.
 	ctx = usage.WithSessionID(ctx, e.SessionID())
+	// The default account for a turn. Subsystems that run inside it --
+	// perception, compression, verification, spawned shards -- override this
+	// on their own sub-context, so what stays tagged "session" is the turn's
+	// own reasoning rather than everything it triggered.
+	ctx = broker.WithPurpose(ctx, broker.PurposeSession)
 	// Carry the owned usage meter on the turn context so snapshotTurnUsage
 	// below (and every sub-agent/clone turn derived from this executor) reads
 	// this session's spend instead of zeros. A tracker already on ctx wins.

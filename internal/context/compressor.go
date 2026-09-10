@@ -1,6 +1,7 @@
 package context
 
 import (
+	"codenerd/internal/broker"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -673,6 +674,11 @@ func newCompressorWithCompressorConfig(kernel *core.RealKernel, localStorage *st
 // This replaces raw conversation history with semantically compressed state.
 // Returns ErrContextWindowExceeded if the context would exceed the hard limit.
 func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, error) {
+	// Compression is inference spent to reduce inference. Attributing it
+	// separately is what makes it possible to ask whether it pays for itself,
+	// and what a per-purpose cap would eventually be enforced against.
+	ctx = broker.WithPurpose(ctx, broker.PurposeCompression)
+
 	timer := logging.StartTimer(logging.CategoryContext, "BuildContext")
 	defer timer.Stop()
 
