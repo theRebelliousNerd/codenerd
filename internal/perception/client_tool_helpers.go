@@ -178,6 +178,9 @@ func OpenAIToolResponseFromResponse(resp *OpenAIResponse) (*LLMToolResponse, err
 		return nil, err
 	}
 	stopReason := c.FinishReason
+	if types.LengthStop(stopReason) {
+		return nil, outputTruncated("", resp.Model, "CompleteWithTools", stopReason, c.Message.Content, 0, resp.Usage.CompletionTokens)
+	}
 	if stopReason == "tool_calls" {
 		stopReason = "tool_use"
 	}

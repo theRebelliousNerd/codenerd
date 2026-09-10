@@ -1719,13 +1719,11 @@ func (e *Executor) buildToolDefinitions(cfg *config.EffectiveAgentRuntimeConfig)
 
 // Bounds on the in-turn tool-result transcript.
 //
-// Each individual tool result is already capped at 16 KiB
-// (truncateToolResult), but the tool loop's `history` slice is append-only and
-// is re-sent WHOLE on every CompleteWithToolResults call. The worst case is
-// arithmetic, not hypothetical: defaultMaxToolCalls is 50 and the iteration
-// budget can be extended past 20, so 50 results x 16 KiB = 800 KB of tool
-// output can be replayed on each of ~24 provider round-trips. The per-result
-// cap bounds one result; nothing bounded their sum.
+// Tool results arrive whole (nothing cuts them any more; the working context
+// archives each one and pages it), but the tool loop's `history` slice is
+// append-only and is re-sent WHOLE on every CompleteWithToolResults call, so
+// the sum of an exploration session's output would be replayed on every
+// provider round-trip. Nothing bounded that sum.
 //
 // Eviction REWRITES the oldest tool results in place rather than deleting the
 // messages that carry them. Anthropic-style APIs reject a request in which a

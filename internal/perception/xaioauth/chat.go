@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // OpenAI-compatible request/response types local to this package (no XAIClient coupling).
@@ -174,6 +175,12 @@ func (c *Client) chatOnce(ctx context.Context, model string, messages []chatMess
 	}
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("no completion returned")
+	}
+	if finish := resp.Choices[0].FinishReason; types.LengthStop(finish) {
+		return "", &types.OutputTruncated{
+			Provider: "xai-oauth", Method: "CompleteWithSystem", Reason: finish,
+			Partial: strings.TrimSpace(resp.Choices[0].Message.Content),
+		}
 	}
 	return strings.TrimSpace(resp.Choices[0].Message.Content), nil
 }

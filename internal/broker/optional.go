@@ -37,17 +37,9 @@ func (c *core) completeWithToolResults(
 		Messages: history,
 		Tools:    tools,
 	}
-
-	receipt, refusal := c.admit(ctx, req)
-	if refusal != nil {
-		c.settleRefusal(receipt)
-		return nil, refusal
-	}
-
-	ctx, obs := c.observed(ctx)
-	resp, err := provider.CompleteWithToolResults(ctx, systemPrompt, history, tools)
-	c.settle(receipt, req, obs, usageOf(resp), err)
-	return resp, err
+	return compressing(c, ctx, req, false, usageOf, func(ctx context.Context, instruction string) (*types.LLMToolResponse, error) {
+		return provider.CompleteWithToolResults(ctx, withInstruction(systemPrompt, instruction), history, tools)
+	})
 }
 
 // completeWithSchema meters a structured-output completion.
@@ -69,17 +61,9 @@ func (c *core) completeWithSchema(ctx context.Context, systemPrompt, userPrompt,
 		System:   systemPrompt,
 		User:     userPrompt + jsonSchema,
 	}
-
-	receipt, refusal := c.admit(ctx, req)
-	if refusal != nil {
-		c.settleRefusal(receipt)
-		return "", refusal
-	}
-
-	ctx, obs := c.observed(ctx)
-	out, err := provider.CompleteWithSchema(ctx, systemPrompt, userPrompt, jsonSchema)
-	c.settle(receipt, req, obs, nil, err)
-	return out, err
+	return compressing(c, ctx, req, false, nil, func(ctx context.Context, instruction string) (string, error) {
+		return provider.CompleteWithSchema(ctx, withInstruction(systemPrompt, instruction), userPrompt, jsonSchema)
+	})
 }
 
 // completeWithStreamingAndThoughts meters a streamed turn that also emits

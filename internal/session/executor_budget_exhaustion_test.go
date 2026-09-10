@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
@@ -474,17 +473,6 @@ func assertToolCallPaired(t *testing.T, history []types.Message, wantID string, 
 	}
 	if gotIsError != wantIsError {
 		t.Fatalf("ToolResult IsError for %q = %v, want %v", wantID, gotIsError, wantIsError)
-	}
-}
-
-func TestTruncateToolResult_PreservesUTF8(t *testing.T) {
-	prefix := strings.Repeat("a", 16*1024-1)
-	got := truncateToolResult(prefix + "€tail")
-	if !strings.Contains(got, "...[truncated]") {
-		t.Fatal("expected truncation marker")
-	}
-	if !utf8.ValidString(got) {
-		t.Fatal("truncated tool result is not valid UTF-8")
 	}
 }
 

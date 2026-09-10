@@ -149,6 +149,15 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 
 	if len(geminiResp.Candidates) > 0 {
 		result.StopReason = geminiResp.Candidates[0].FinishReason
+		// Refuse before building: a function call cut mid-arguments must not
+		// reach the executor, and applyGeminiBlocks would happily assemble one.
+		if types.LengthStop(result.StopReason) {
+			return nil, outputTruncated(ProviderGemini, c.model, "CompleteWithTools", result.StopReason, "",
+				c.maxOutputTokens, geminiResp.UsageMetadata.CandidatesTokenCount)
+		}
+		// Replaces main's manual text/function-call walk: applyGeminiBlocks
+		// reads the same parts in order, keeping per-part thought signatures
+		// and filling Text and ToolCalls as the flat projection of them.
 		applyGeminiBlocks(result, &geminiResp)
 
 		// Extract grounding sources for transparency and learning
@@ -336,6 +345,15 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 
 	if len(geminiResp.Candidates) > 0 {
 		result.StopReason = geminiResp.Candidates[0].FinishReason
+		// Refuse before building: a function call cut mid-arguments must not
+		// reach the executor, and applyGeminiBlocks would happily assemble one.
+		if types.LengthStop(result.StopReason) {
+			return nil, outputTruncated(ProviderGemini, c.model, "CompleteWithToolResults", result.StopReason, "",
+				c.maxOutputTokens, geminiResp.UsageMetadata.CandidatesTokenCount)
+		}
+		// Replaces main's manual text/function-call walk: applyGeminiBlocks
+		// reads the same parts in order, keeping per-part thought signatures
+		// and filling Text and ToolCalls as the flat projection of them.
 		applyGeminiBlocks(result, &geminiResp)
 
 		// Extract grounding sources

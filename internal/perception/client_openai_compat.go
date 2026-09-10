@@ -713,6 +713,16 @@ func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPromp
 
 	out := strings.TrimSpace(msg.Content)
 
+	// A completion the vendor stopped at the ceiling is not an answer; it is a
+	// document with its ending missing. Report it as such so the broker sends
+	// the request back to be restated within the limit. Until 2026-09-10 the
+	// finish reason was read only into log lines and a cut answer went on as
+	// if it were whole.
+	if finish := resp.Choices[0].FinishReason; types.LengthStop(finish) {
+		return "", outputTruncated(c.vendor, reqBody.Model, "CompleteWithSystem", finish, out,
+			c.maxOutputTokens, resp.Usage.CompletionTokens)
+	}
+
 	// An empty completion must fail loudly. Returned as a successful "" it
 	// propagates through the whole agent loop as a hollow-but-successful result
 	// — the shard_result_empty / generation_degraded class this repo already
@@ -890,8 +900,10 @@ func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Respo
 	var forwarded atomic.Int64
 
 	// Final billed counts ride a trailing usage-only chunk (include_usage).
-	// Written by the scanner goroutine, read only after scanDone.
+	// Written by the scanner goroutine, read only after scanDone. The finish
+	// reason arrives on the last content chunk the same way.
 	var billed struct{ input, output int }
+	var finish string
 
 	go func() {
 		defer close(scanDone)
@@ -919,6 +931,9 @@ func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Respo
 			if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
 				billed.input = chunk.Usage.PromptTokens
 				billed.output = chunk.Usage.CompletionTokens
+			}
+			if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != "" {
+				finish = chunk.Choices[0].FinishReason
 			}
 			if len(chunk.Choices) == 0 || chunk.Choices[0].Delta == nil {
 				continue
@@ -955,6 +970,13 @@ func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Respo
 				logging.PerceptionError("[%s] CompleteWithStreaming: stream closed with no content after %v", c.vendor, time.Since(start))
 				errorChan <- fmt.Errorf("%s stream produced no content (model=%s); "+
 					"a reasoning model may have consumed the completion budget before emitting output", c.vendor, c.model)
+				return
+			}
+			// The deltas are already on the content channel; what the caller
+			// must not do is treat the stream's end as the answer's end.
+			if types.LengthStop(finish) {
+				errorChan <- outputTruncated(c.vendor, c.model, "CompleteWithStreaming", finish, "",
+					c.maxOutputTokens, billed.output)
 				return
 			}
 			logging.Perception("[%s] CompleteWithStreaming: completed in %v", c.vendor, time.Since(start))
@@ -1041,6 +1063,12 @@ func (c *OpenAICompatClient) toToolResponse(resp *OpenAIResponse) (*LLMToolRespo
 	}
 
 	stopReason := choice.FinishReason
+	if types.LengthStop(stopReason) {
+		// A tool call cut mid-arguments is worse than no answer: the executor
+		// would dispatch it with whatever parsed. Refuse the whole response.
+		return nil, outputTruncated(c.vendor, c.model, "CompleteWithTools", stopReason, choice.Message.Content,
+			c.maxOutputTokens, resp.Usage.CompletionTokens)
+	}
 	if stopReason == "tool_calls" {
 		stopReason = "tool_use"
 	}

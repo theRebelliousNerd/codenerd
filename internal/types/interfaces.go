@@ -84,7 +84,7 @@ type Message struct {
 // Anthropic/OpenAI can pair the result with the request.
 type ToolResult struct {
 	ToolUseID string // Matches the ID of the originating ToolCall
-	Content   string // Tool output (truncated if huge)
+	Content   string // Tool output, whole; the working context pages oversize results
 	IsError   bool   // True if the tool execution failed
 }
 

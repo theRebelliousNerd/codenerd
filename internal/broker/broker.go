@@ -258,17 +258,11 @@ func (c *core) Complete(ctx context.Context, prompt string) (string, error) {
 		Method:   "Complete",
 		User:     prompt,
 	}
-
-	receipt, refusal := c.admit(ctx, req)
-	if refusal != nil {
-		c.settleRefusal(receipt)
-		return "", refusal
-	}
-
-	ctx, obs := c.observed(ctx)
-	out, err := c.underlying.Complete(ctx, prompt)
-	c.settle(receipt, req, obs, nil, err)
-	return out, err
+	// No system prompt on this method, so a restatement instruction rides on
+	// the prompt itself.
+	return compressing(c, ctx, req, true, nil, func(ctx context.Context, instruction string) (string, error) {
+		return c.underlying.Complete(ctx, withInstruction(prompt, instruction))
+	})
 }
 
 // CompleteWithSystem implements types.LLMClient.
@@ -280,17 +274,9 @@ func (c *core) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt 
 		System:   systemPrompt,
 		User:     userPrompt,
 	}
-
-	receipt, refusal := c.admit(ctx, req)
-	if refusal != nil {
-		c.settleRefusal(receipt)
-		return "", refusal
-	}
-
-	ctx, obs := c.observed(ctx)
-	out, err := c.underlying.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-	c.settle(receipt, req, obs, nil, err)
-	return out, err
+	return compressing(c, ctx, req, false, nil, func(ctx context.Context, instruction string) (string, error) {
+		return c.underlying.CompleteWithSystem(ctx, withInstruction(systemPrompt, instruction), userPrompt)
+	})
 }
 
 // CompleteWithTools implements types.LLMClient.
@@ -303,17 +289,9 @@ func (c *core) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt s
 		User:     userPrompt,
 		Tools:    tools,
 	}
-
-	receipt, refusal := c.admit(ctx, req)
-	if refusal != nil {
-		c.settleRefusal(receipt)
-		return nil, refusal
-	}
-
-	ctx, obs := c.observed(ctx)
-	resp, err := c.underlying.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
-	c.settle(receipt, req, obs, usageOf(resp), err)
-	return resp, err
+	return compressing(c, ctx, req, false, usageOf, func(ctx context.Context, instruction string) (*types.LLMToolResponse, error) {
+		return c.underlying.CompleteWithTools(ctx, withInstruction(systemPrompt, instruction), userPrompt, tools)
+	})
 }
 
 // CompleteWithStreaming implements types.LLMClient.

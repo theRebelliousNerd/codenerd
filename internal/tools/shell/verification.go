@@ -123,17 +123,15 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 	} else if runErr != nil {
 		code = -1
 	}
-	truncated := len(out) > 50000
-	if truncated {
-		out = out[:50000]
-	}
+	// The output is returned whole. A build or test log is exactly the kind
+	// of result the working context archives and pages; cutting it here would
+	// hand the model the head of a log whose failures are at the tail.
 	data, _ := json.Marshal(struct {
 		Argv      []string `json:"argv"`
 		Directory string   `json:"directory"`
 		ExitCode  int      `json:"exit_code"`
 		Output    string   `json:"output"`
-		Truncated bool     `json:"truncated"`
-	}{argv, dir, code, string(out), truncated})
+	}{argv, dir, code, string(out)})
 	if runCtx.Err() != nil {
 		runErr = runCtx.Err()
 	}

@@ -192,6 +192,16 @@ func parseToolChatResponse(body []byte) (*types.LLMToolResponse, error) {
 		})
 	}
 	stopReason := choice.FinishReason
+	if types.LengthStop(stopReason) {
+		produced := 0
+		if resp.Usage != nil {
+			produced = resp.Usage.CompletionTokens
+		}
+		return nil, &types.OutputTruncated{
+			Provider: "xai-oauth", Method: "CompleteWithTools", Reason: stopReason,
+			Partial: choice.Message.Content, OutputTokens: produced,
+		}
+	}
 	if stopReason == "tool_calls" {
 		stopReason = "tool_use"
 	}

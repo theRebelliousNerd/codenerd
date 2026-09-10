@@ -231,9 +231,6 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 			}
 			output += stderr.String()
 		}
-		if len(output) > 50000 {
-			output = output[:50000] + "\n...[truncated]"
-		}
 		if runErr != nil {
 			if execCtx.Err() == context.DeadlineExceeded {
 				return output, fmt.Errorf("command timed out after %d seconds", timeout)
@@ -332,11 +329,6 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 			output += "\n--- stderr ---\n"
 		}
 		output += stderr.String()
-	}
-
-	// Truncate if too long
-	if len(output) > 50000 {
-		output = output[:50000] + "\n...[truncated]"
 	}
 
 	if runErr != nil {
@@ -448,10 +440,6 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 			output += "\n--- stderr ---\n"
 		}
 		output += stderr.String()
-	}
-
-	if len(output) > 50000 {
-		output = output[:50000] + "\n...[truncated]"
 	}
 
 	if err != nil {

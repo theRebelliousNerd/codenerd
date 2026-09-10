@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"codenerd/internal/core"
 	"codenerd/internal/evidence"
@@ -247,15 +246,14 @@ func (e *Executor) runToolLoop(
 			Role:        "user",
 			ToolResults: toolResults,
 		})
-		// Each individual result is capped at 16 KiB by truncateToolResult, but
-		// `history` is append-only and is re-sent WHOLE on every round-trip:
-		// defaultMaxToolCalls is 50 and the loop runs up to 24 iterations, so
-		// the worst case replays ~800 KB of tool output on every one of them.
-		// This blanks the oldest payloads and keeps the newest, which is the
-		// half the model is still reasoning about. It is a no-op below the
-		// ceiling, preserves message count, ordering and every ToolUseID — an
-		// unpaired tool_use is a hard 400 from the provider — and is
-		// idempotent, so calling it at more sites is safe.
+		// `history` is append-only and is re-sent WHOLE on every round-trip,
+		// and results arrive whole. This blanks the oldest payloads and keeps
+		// the newest, which is the half the model is still reasoning about;
+		// an evicted payload is still in the working-context archive, so the
+		// notice it leaves behind names a recall, not a loss. It is a no-op
+		// below the ceiling, preserves message count, ordering and every
+		// ToolUseID — an unpaired tool_use is a hard 400 from the provider —
+		// and is idempotent, so calling it at more sites is safe.
 		history = boundToolLoopHistory(history)
 
 		// A tool can itself reach the exploration cutoff. Its result (including
@@ -714,9 +712,14 @@ func (e *Executor) executeToolBatch(
 		}
 
 		logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(out))
+		// The result goes back whole. Until 2026-09-10 it was cut at 16 KiB
+		// here, silently, before the model saw it; the working context now
+		// archives every result in full and hands the model a page plus a
+		// recall handle for anything over its inline threshold, so size is
+		// managed by selection, never by cutting.
 		toolResults = append(toolResults, types.ToolResult{
 			ToolUseID: call.ID,
-			Content:   truncateToolResult(out),
+			Content:   out,
 			IsError:   false,
 		})
 	}
@@ -2013,21 +2016,6 @@ func (e *Executor) executeToolBatchPiggyback(
 	// the native path. Discard only the transport-specific result frames.
 	_, toolErrs := e.executeToolBatch(ctx, calls, cfg, result)
 	return toolErrs
-}
-
-// truncateToolResult caps tool output before feeding it back to the model.
-// Massive output (greps, file dumps) wastes context budget for diminishing
-// returns; 16 KB is enough for typical agent decisions.
-func truncateToolResult(s string) string {
-	const limit = 16 * 1024
-	if len(s) <= limit {
-		return s
-	}
-	cut := limit
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + "\n...[truncated]"
 }
 
 func effectiveMaxToolCalls(configured int) int {

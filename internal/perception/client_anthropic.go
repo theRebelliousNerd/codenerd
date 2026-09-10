@@ -241,6 +241,10 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 			anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpChat)
 
 		response := strings.TrimSpace(result.String())
+		if types.LengthStop(anthropicResp.StopReason) {
+			return "", outputTruncated(ProviderAnthropic, c.model, "CompleteWithSystem", anthropicResp.StopReason, response,
+				reqBody.MaxTokens, anthropicResp.Usage.OutputTokens)
+		}
 		logging.Perception("[Anthropic] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
 		return response, nil
 	}
@@ -505,7 +509,16 @@ func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 	trackUsage(ctx, c.model, ProviderAnthropic,
 		anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
 
-	return anthropicToolResponse(&anthropicResp), nil
+	// Build the neutral response first, then refuse it if the provider cut it
+	// at its ceiling. main's restatement path needs the partial text, and the
+	// flat Text field of the block-built response IS that text — it is the
+	// projection of the same content blocks the old textBuilder accumulated.
+	out := anthropicToolResponse(&anthropicResp)
+	if types.LengthStop(anthropicResp.StopReason) {
+		return nil, outputTruncated(ProviderAnthropic, c.model, "CompleteWithTools", anthropicResp.StopReason,
+			out.Text, reqBody.MaxTokens, anthropicResp.Usage.OutputTokens)
+	}
+	return out, nil
 }
 
 // CompleteWithToolResults continues a tool-using conversation. Pass the full
@@ -596,8 +609,20 @@ func (c *AnthropicClient) CompleteWithToolResults(ctx context.Context, systemPro
 	trackUsage(ctx, c.model, ProviderAnthropic,
 		anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
 
-	return anthropicToolResponse(&anthropicResp), nil
+	// Same composition as CompleteWithTools: build the neutral response, then
+	// refuse it if the provider cut it at its ceiling.
+	out := anthropicToolResponse(&anthropicResp)
+	if types.LengthStop(anthropicResp.StopReason) {
+		return nil, outputTruncated(ProviderAnthropic, c.model, "CompleteWithToolResults", anthropicResp.StopReason,
+			out.Text, reqBody.MaxTokens, anthropicResp.Usage.OutputTokens)
+	}
+	return out, nil
 }
+
+// The pre-block buildAnthropicMessagesFromHistory lived here. It read m.Text
+// and m.ToolCalls as separate fields and so could not express the order
+// between them; the block-aware replacement is in blocks_anthropic.go, and is
+// what every caller now reaches.
 
 // SetModel changes the model used for completions.
 func (c *AnthropicClient) SetModel(model string) {

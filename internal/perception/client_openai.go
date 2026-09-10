@@ -191,6 +191,10 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			openaiResp.Usage.PromptTokens, openaiResp.Usage.CompletionTokens, usageOpChat)
 
 		response := strings.TrimSpace(openaiResp.Choices[0].Message.Content)
+		if finish := openaiResp.Choices[0].FinishReason; types.LengthStop(finish) {
+			return "", outputTruncated(c.provider, c.model, "CompleteWithSystem", finish, response,
+				0, openaiResp.Usage.CompletionTokens)
+		}
 		logging.Perception("[OpenAI] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
 		return response, nil
 	}
@@ -449,6 +453,10 @@ func (c *OpenAIClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 
 	// OpenAI uses "tool_calls" as finish_reason when tool calls are present
 	stopReason := choice.FinishReason
+	if types.LengthStop(stopReason) {
+		return nil, outputTruncated(c.provider, c.model, "CompleteWithTools", stopReason, choice.Message.Content,
+			0, resp.Usage.CompletionTokens)
+	}
 	if stopReason == "tool_calls" {
 		stopReason = "tool_use" // Standardize on "tool_use"
 	}
