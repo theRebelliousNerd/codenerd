@@ -84,11 +84,21 @@ import (
 // Best effort by design: it returns nothing, because every caller is already
 // on a failure path and has a better error to report than this one.
 func removeTemp(path string) {
-	for attempt := 0; attempt < 5; attempt++ {
+	// Ten attempts on a growing backoff, roughly a quarter second in the worst
+	// case. Five over fifteen milliseconds was not enough: sixteen writers
+	// racing on one path still left debris on the Windows runner, because the
+	// handle a failed ReplaceFileW leaves behind outlives that window. This
+	// only ever runs on a path that has already failed, so the wait costs
+	// nothing in the normal case.
+	backoff := time.Millisecond
+	for attempt := 0; attempt < 10; attempt++ {
 		if err := os.Remove(path); err == nil || os.IsNotExist(err) {
 			return
 		}
-		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
+		time.Sleep(backoff)
+		if backoff < 40*time.Millisecond {
+			backoff *= 2
+		}
 	}
 }
 

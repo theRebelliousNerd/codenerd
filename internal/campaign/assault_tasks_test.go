@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -599,7 +600,17 @@ func TestTriageLatestIsWrittenAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat after: %v", err)
 	}
-	if os.SameFile(before, after) {
+	// The inode check is POSIX-only, and the reason is not a Windows quirk to
+	// work around. ReplaceFileW deliberately PRESERVES the destination's
+	// identity — that is what it is for, so ACLs, streams and existing handles
+	// survive the swap — while a POSIX rename necessarily installs a new inode.
+	// Two mechanisms, one guarantee.
+	//
+	// The guarantee is what the next assertion checks, on both platforms: a
+	// reader holding the file still sees the bytes it opened. If the write had
+	// gone through the existing file, that reader would be looking at the new
+	// content, or at half of it.
+	if runtime.GOOS != "windows" && os.SameFile(before, after) {
 		t.Error("the write went through the existing file; a partial write would have destroyed the only copy")
 	}
 
