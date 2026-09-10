@@ -36,6 +36,26 @@ func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 		ExtraContext: make(map[string]string),
 	}
 
+	// The framework dimension is the language dimension's mirror image, and the
+	// asymmetry is deliberate: matchSelector skips the framework check entirely
+	// when the context names none, so all 42 framework-gated atoms stay eligible
+	// in every session -- django and react included, in a Go repository.
+	//
+	// They compete rather than being included outright, so the cost is not a
+	// fixed number of wasted tokens. The real loss is the other direction: with
+	// no framework in the context, a project that IS built on bubbletea and
+	// cobra gets no signal favouring the bubbletea and cobra atoms over the
+	// rest. The dimension contributes nothing in either direction.
+	//
+	// `nerd init` already writes project_framework into .nerd/profile.mg, chat
+	// loads that file at boot, and internal/init's own comment says the fact
+	// exists "to build the /framework JIT" selector. Nothing had read it back.
+	//
+	// Set before the engine hint below, which appends to whatever is here.
+	if fws := m.queryProjectFacts("project_framework"); len(fws) > 0 {
+		sessionCtx.ExtraContext["frameworks"] = strings.Join(fws, ",")
+	}
+
 	// Engine hinting for JIT prompt selection:
 	// When Codex CLI is the active LLM backend, tag it as a "framework" so we can
 	// select engine-specific atoms (e.g., disable native shell tools, prefer Piggyback).
@@ -280,53 +300,69 @@ func (m *Model) queryKernelStrings(predicate string) []string {
 	return strs
 }
 
-// queryProjectLanguage returns the workspace's dominant language as the world
-// scan recorded it, or "" when no scan has run.
+// queryProjectFacts returns the distinct first arguments of a whole-project
+// predicate, sorted, or nil when the kernel holds none.
 //
-// types.ExtractString rather than a string type assertion. The scan asserts the
-// language as a Mangle atom, and query readback renders a /name sometimes as an
-// atom and sometimes as a plain string -- internal/world hit exactly this and
-// its comment records that a bare assertion "silently skipped every row". Here
-// that failure would be indistinguishable from "no scan has run yet", which is
-// a legitimate state, so it would never be investigated.
+// types.ExtractString rather than a string type assertion. These are asserted
+// as Mangle atoms and query readback renders a /name sometimes as an atom and
+// sometimes as a plain string -- internal/world hit exactly this and its
+// comment records that a bare assertion "silently skipped every row". Here that
+// failure would be indistinguishable from "no scan has run yet", which is a
+// legitimate state and so would never be investigated.
+//
+// Sorted and deduplicated rather than taken in the order the kernel returned
+// them. Two sources can assert these: the world scan, and the profile.mg that
+// `nerd init` writes and chat loads at boot. Where they disagree, ranging the
+// results and taking the first is a coin flip that changes the prompt between
+// runs with nothing to explain it.
+func (m *Model) queryProjectFacts(predicate string) []string {
+	if m.kernel == nil {
+		return nil
+	}
+	results, err := m.kernel.Query(predicate)
+	if err != nil {
+		logging.Get(logging.CategoryContext).Warn(
+			"%s query failed: %v; this turn compiles without it and cannot select "+
+				"any prompt atom gated on it", predicate, err)
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(results))
+	var values []string
+	for _, fact := range results {
+		if len(fact.Args) == 0 {
+			continue
+		}
+		v := strings.TrimSpace(types.ExtractString(fact.Args[0]))
+		if v == "" {
+			continue
+		}
+		if _, dup := seen[v]; dup {
+			continue
+		}
+		seen[v] = struct{}{}
+		values = append(values, v)
+	}
+	sort.Strings(values)
+	return values
+}
+
+// queryProjectLanguage returns the workspace's dominant language, or "" when no
+// scan has run.
 //
 // Empty on absence rather than a guess. Selecting another ecosystem's atoms is
 // worse than selecting none: it spends budget on advice for the wrong language
 // and, unlike the empty case, nothing about the resulting prompt looks wrong.
 func (m *Model) queryProjectLanguage() string {
-	if m.kernel == nil {
-		return ""
-	}
-	results, err := m.kernel.Query("project_language")
-	if err != nil {
-		logging.Get(logging.CategoryContext).Warn(
-			"project_language query failed: %v; this turn compiles without a language "+
-				"and cannot select any language-gated prompt atom", err)
-		return ""
-	}
-
-	// project_language is a whole-snapshot property and internal/world holds it
-	// to one row. Sorting rather than taking whichever row came back first means
-	// a second one -- which would be a world-model bug -- produces the same
-	// prompt on every run instead of a coin flip between two languages.
-	var langs []string
-	for _, fact := range results {
-		if len(fact.Args) == 0 {
-			continue
-		}
-		if lang := strings.TrimSpace(types.ExtractString(fact.Args[0])); lang != "" {
-			langs = append(langs, lang)
-		}
-	}
+	langs := m.queryProjectFacts("project_language")
 	if len(langs) == 0 {
 		return ""
 	}
-	sort.Strings(langs)
 	if len(langs) > 1 {
 		logging.Get(logging.CategoryContext).Warn(
-			"kernel holds %d project_language facts (%v); using %s. The world model "+
-				"is meant to keep exactly one -- a stale row survived a delta scan.",
-			len(langs), langs, langs[0])
+			"kernel holds %d distinct project_language facts (%v); using %s. A project "+
+				"has one dominant language -- a stale row survived a delta scan, or the "+
+				"world scan and .nerd/profile.mg disagree.", len(langs), langs, langs[0])
 	}
 	return langs[0]
 }

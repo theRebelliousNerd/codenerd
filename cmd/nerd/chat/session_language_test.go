@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"codenerd/internal/core"
@@ -60,5 +61,71 @@ func TestSessionContextOmitsLanguageWhenTheKernelHasNone(t *testing.T) {
 	if got, ok := sessionCtx.ExtraContext["language"]; ok && got != "" {
 		t.Errorf("ExtraContext[\"language\"] = %q with no project_language fact asserted; "+
 			"an invented language selects the wrong ecosystem's atoms", got)
+	}
+}
+
+// Frameworks are the language dimension's mirror image. matchSelector skips the
+// framework check entirely when the context names none, so all 42
+// framework-gated atoms stay eligible in every session regardless of project --
+// and, more to the point, a project that IS built on bubbletea gets nothing
+// favouring the bubbletea atoms over django's. The dimension contributes
+// nothing in either direction until something fills it.
+//
+// `nerd init` writes project_framework into .nerd/profile.mg and chat loads that
+// file at boot, so the fact was already there to be read.
+func TestSessionContextCarriesProjectFrameworks(t *testing.T) {
+	m, _ := SetupLiveModel(t)
+
+	for _, fw := range []string{"/cobra", "/bubbletea"} {
+		if err := m.kernel.Assert(core.Fact{
+			Predicate: "project_framework",
+			Args:      []any{core.MangleAtom(fw)},
+		}); err != nil {
+			t.Fatalf("assert project_framework(%s): %v", fw, err)
+		}
+	}
+
+	sessionCtx := m.buildSessionContext(context.Background())
+	if sessionCtx == nil {
+		t.Fatal("buildSessionContext returned nil")
+	}
+
+	// Sorted, so the prompt -- and the compilation cache key built from it --
+	// is the same on every run rather than following kernel iteration order.
+	got := sessionCtx.ExtraContext["frameworks"]
+	if got != "/bubbletea,/cobra" {
+		t.Errorf("ExtraContext[\"frameworks\"] = %q, want \"/bubbletea,/cobra\"", got)
+	}
+}
+
+// The engine hint appends to this same key, so the two must compose. Whichever
+// one overwrote the other would be a silent loss: the codex_cli tag disappearing
+// takes engine-specific prompt selection with it, and the project frameworks
+// disappearing takes the atoms this repository actually needs.
+func TestProjectFrameworksAndEngineHintCompose(t *testing.T) {
+	m, _ := SetupLiveModel(t)
+
+	if err := m.kernel.Assert(core.Fact{
+		Predicate: "project_framework",
+		Args:      []any{core.MangleAtom("/cobra")},
+	}); err != nil {
+		t.Fatalf("assert project_framework: %v", err)
+	}
+
+	sessionCtx := m.buildSessionContext(context.Background())
+	if sessionCtx == nil {
+		t.Fatal("buildSessionContext returned nil")
+	}
+	if got := sessionCtx.ExtraContext["frameworks"]; got != "/cobra" {
+		t.Fatalf("frameworks = %q, want \"/cobra\"", got)
+	}
+
+	// The engine hint is only added when the client is a Codex CLI client, which
+	// this model's mock is not; what has to hold here is that the project
+	// frameworks survive to be appended to, in the order the append expects.
+	// prompt_assembler splits this value on commas, so a single value must not
+	// be wrapped in anything the split would not undo.
+	if strings.Contains(sessionCtx.ExtraContext["frameworks"], ",,") {
+		t.Error("frameworks value has an empty element; prompt_assembler would produce an empty tag")
 	}
 }
