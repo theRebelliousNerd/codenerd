@@ -145,13 +145,13 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 			existingHashes = make(map[string]bool)
 		}
 
-		atomCount := 0
+		// Only newAtoms is reported; a parallel atomCount was incremented four
+		// times here and never read, and len(finalAtoms) already carries the total.
 		newAtoms := 0
 
 		// Store shard identity
 		added, err := appendKnowledgeAtom(shardDB, "shard_identity", shard.Description, 1.0, existingHashes)
 		if err == nil {
-			atomCount++
 			if added {
 				newAtoms++
 			}
@@ -161,7 +161,6 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 		for _, concept := range shard.Concepts {
 			added, err := appendKnowledgeAtom(shardDB, concept.Key, concept.Value, 0.95, existingHashes)
 			if err == nil {
-				atomCount++
 				if added {
 					newAtoms++
 				}
@@ -171,7 +170,6 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 		// Store project context
 		added, err = appendKnowledgeAtom(shardDB, "project_language", profile.Language, 0.9, existingHashes)
 		if err == nil {
-			atomCount++
 			if added {
 				newAtoms++
 			}
@@ -179,7 +177,6 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 		if profile.Framework != "" && profile.Framework != "unknown" {
 			added, err = appendKnowledgeAtom(shardDB, "project_framework", profile.Framework, 0.9, existingHashes)
 			if err == nil {
-				atomCount++
 				if added {
 					newAtoms++
 				}

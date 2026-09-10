@@ -46,11 +46,15 @@ func TestStabilityScore_PreservesOrdering(t *testing.T) {
 // Equal inputs must compare equal, or a transition to an identically-stable
 // state is rejected when the rule says >= should accept it.
 func TestStabilityScore_EqualInputsCompareEqual(t *testing.T) {
-	if stabilityScore(0.85) != stabilityScore(0.85) {
+	// Two named calls rather than one expression: this asserts determinism,
+	// and written inline it reads to a static analyser as "x != x".
+	first, second := stabilityScore(0.85), stabilityScore(0.85)
+	if first != second {
 		t.Error("identical stabilities did not map to the same score")
 	}
 	// The live path: baseline 0.0 vs a proposed state of equal stability.
-	if !(stabilityScore(0.0) >= stabilityScore(0.0)) {
+	zeroA, zeroB := stabilityScore(0.0), stabilityScore(0.0)
+	if !(zeroA >= zeroB) {
 		t.Error("a transition to an equally-stable state would be rejected")
 	}
 }

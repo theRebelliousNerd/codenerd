@@ -400,8 +400,5 @@ func ResumeAuditEvidence(report AuditReport, handles []string) (map[string][]str
 	if notes == nil {
 		notes = []string{}
 	}
-	if result == nil {
-		result = map[string][]string{}
-	}
 	return result, notes
 }

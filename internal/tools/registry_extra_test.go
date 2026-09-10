@@ -42,7 +42,10 @@ func TestGlobalRegistrySingleton(t *testing.T) {
 		t.Fatal("Global() should return a non-nil registry")
 	}
 	// Global() is a stable singleton.
-	if Global() != Global() {
+	// Global() must return one shared registry; two calls yielding different
+	// instances would silently give each caller its own tool set.
+	firstGlobal, secondGlobal := Global(), Global()
+	if firstGlobal != secondGlobal {
 		t.Error("Global() should return the same instance each call")
 	}
 	MustRegisterGlobal(noopTool("global_probe_tool"))

@@ -61,29 +61,16 @@ func TestGenAIEngine_Close_ShouldReturnNil(t *testing.T) {
 // GenAI Interface Compliance
 // =============================================================================
 
-func TestGenAIEngine_ImplementsEmbeddingEngine(t *testing.T) {
-	engine := &GenAIEngine{model: "test"}
-	var ee EmbeddingEngine = engine
-	if ee == nil {
-		t.Fatal("GenAIEngine should implement EmbeddingEngine")
-	}
-}
-
-func TestGenAIEngine_ImplementsTaskTypeAwareEngine(t *testing.T) {
-	engine := &GenAIEngine{model: "test"}
-	var tta TaskTypeAwareEngine = engine
-	if tta == nil {
-		t.Fatal("GenAIEngine should implement TaskTypeAwareEngine")
-	}
-}
-
-func TestGenAIEngine_ImplementsTaskTypeBatchAwareEngine(t *testing.T) {
-	engine := &GenAIEngine{model: "test"}
-	var ttba TaskTypeBatchAwareEngine = engine
-	if ttba == nil {
-		t.Fatal("GenAIEngine should implement TaskTypeBatchAwareEngine")
-	}
-}
+// Interface compliance is a compile-time property. These were runtime tests
+// that assigned the engine to an interface variable and then checked it for
+// nil — but the assignment is what proves compliance, and it fails the build if
+// it does not hold. The nil check could never fire, so it asserted nothing and
+// the real guarantee only ran when someone ran the tests.
+var (
+	_ EmbeddingEngine          = (*GenAIEngine)(nil)
+	_ TaskTypeAwareEngine      = (*GenAIEngine)(nil)
+	_ TaskTypeBatchAwareEngine = (*GenAIEngine)(nil)
+)
 
 // =============================================================================
 // int32Ptr Tests
@@ -103,9 +90,6 @@ func TestInt32Ptr_ShouldReturnPointerToValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ptr := new(tt.input)
-			if ptr == nil {
-				t.Fatal("int32Ptr returned nil")
-			}
 			if *ptr != tt.input {
 				t.Errorf("*int32Ptr(%d) = %d", tt.input, *ptr)
 			}

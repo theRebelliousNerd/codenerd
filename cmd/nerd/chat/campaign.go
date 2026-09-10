@@ -4,6 +4,7 @@ package chat
 
 import (
 	"codenerd/internal/articulation"
+	"codenerd/internal/broker"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
@@ -185,6 +186,18 @@ func (m Model) runCampaignOrchestrator() tea.Cmd {
 	} else {
 		ctx, cancel = context.WithCancel(context.Background())
 	}
+
+	// This is where a campaign actually runs, and until now it was the one
+	// LLM-spending path with no usage tracker attached. Two other functions
+	// attached one to a context they then discarded, which is why the gap was
+	// invisible: the wiring looked present everywhere except where it counted.
+	//
+	// The broker purpose rides along so campaign spend lands in its own account
+	// rather than in "unattributed", which is where it has been going.
+	if m.usageTracker != nil {
+		ctx = usage.NewContext(ctx, m.usageTracker)
+	}
+	ctx = broker.WithPurpose(ctx, broker.PurposeCampaign)
 
 	// Start orchestrator execution in background
 	if m.goroutineWg != nil {
