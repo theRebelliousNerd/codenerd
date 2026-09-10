@@ -299,7 +299,10 @@ func SharedSubagents() *Subagents {
 // transcript did not fit.
 func (s *Subagents) EncodeReturn(r Return, limits ReturnLimits) ReturnResult {
 	result := ProjectReturn(r, limits)
-	if s == nil || result.Verbatim != "" || strings.TrimSpace(r.Output) == "" {
+	// Nothing is retained below the threshold: either the return was carried
+	// whole, or it was empty and there is nothing to carry. Minting there would
+	// publish a handle that redeems to what the reader is already looking at.
+	if s == nil || len(r.Output) < minRetainBytes {
 		return result
 	}
 	payload, err := json.Marshal(r)
@@ -378,7 +381,11 @@ func (s *Subagents) HydrateReturn(handle string, w ReturnWindow) (HydratedReturn
 		return HydratedReturn{}, fmt.Errorf("retained return %s is unreadable: %w", handle, err)
 	}
 
-	lines := strings.Split(strings.ReplaceAll(r.Output, "\r\n", "\n"), "\n")
+	// Split, not normalise. A hydration is the retained bytes; stripping a
+	// carriage return would make this the retained bytes ALMOST, which is the
+	// property a handle exists to be free of. Text() writes each line back with
+	// a single newline, so a CRLF transcript reconstructs exactly.
+	lines := strings.Split(r.Output, "\n")
 	if match := strings.TrimSpace(w.Match); match != "" {
 		lower := strings.ToLower(match)
 		filtered := make([]string, 0, len(lines))
@@ -428,18 +435,23 @@ func (s *Subagents) HydrateReturn(handle string, w ReturnWindow) (HydratedReturn
 func ProjectReturn(r Return, limits ReturnLimits) ReturnResult {
 	limits = limits.resolved()
 
-	output := strings.TrimSpace(r.Output)
+	// Extraction reads the output as it was returned, not a trimmed copy. The
+	// outline reports the line a section starts on and hydration counts lines
+	// from the same string; trimming here would shift every one of those
+	// numbers by however many blank lines the subagent happened to open with,
+	// and an offset that lands one section early is worse than no offset.
+	output := r.Output
 	result := ReturnResult{
 		Agent:    strings.TrimSpace(r.Agent),
 		Task:     strings.TrimSpace(r.Task),
 		Failure:  strings.TrimSpace(r.Failure),
 		Duration: r.Duration,
-		Bytes:    len(r.Output),
+		Bytes:    len(output),
 	}
 	switch {
 	case result.Failure != "":
 		result.Status = StatusFailed
-	case output == "":
+	case strings.TrimSpace(output) == "":
 		result.Status = StatusEmpty
 	default:
 		result.Status = StatusCompleted
@@ -467,8 +479,8 @@ func ProjectReturn(r Return, limits ReturnLimits) ReturnResult {
 	// the code-search codec next door larger than the grep output it replaced.
 	// The structured halves above survive, because those are facts the
 	// transcript does not contain.
-	if len(r.Output) < minRetainBytes {
-		result.Verbatim = r.Output
+	if len(output) < minRetainBytes {
+		result.Verbatim = output
 		result.Uncertainty, result.UncertaintyOmitted = capStrings(uncertainty, limits.MaxUncertainty)
 		return result
 	}

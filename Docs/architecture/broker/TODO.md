@@ -122,8 +122,57 @@ the work they gate begins.
   bytes are an argument the edit verb passes in — the very buffer it is about to
   modify. A store that opened the file itself would compare two instants and
   prove nothing about the third one the edit lands on.
-- Subagent-return codec: findings, evidence refs, changed artifacts, verification
-  status, remaining uncertainty — not the transcript.
+- ~~Subagent-return codec: findings, evidence refs, changed artifacts,
+  verification status, remaining uncertainty — not the transcript.~~ —
+  **built.** `internal/observation/subagent.go` projects a delegation's return
+  into what the parent decides on, and retains the transcript under a handle.
+  Wired into the three places a subagent's output reaches another model's
+  reasoning: the `delegate` VirtualStore action (`handleDelegate`, output and
+  the `delegation_result` fact), the campaign orchestrator's `CONTEXT FROM
+  TASK` injection (`completeTask` → `projectTaskReturn` → `storeTaskResult`),
+  and the chat blackboard's cross-shard handoff (`priorShardContext`, which
+  replaces `truncateForTask(RawOutput, 500)`). The three human-facing surfaces
+  — `formatDelegatedResponse`, `formatInterpretedResult`, the `nerd spawn`
+  result — still get the prose, deliberately: the interpretation call has no
+  tool catalog, so a handle in that prompt would be unredeemable.
+
+  **Two of the five come only from structure, and the codec refuses to read
+  them out of prose.** The parent ACTS on "what changed" and "what was
+  verified", so a wrong answer is worse than none. `ExecutionResult` already
+  computes `WrittenPaths`, `BuildCheck`, `TestCheck`, `UntestedPaths` and
+  `CriticFindings` on every turn and `SubAgent.execute` discarded all of it at
+  the boundary — the same reader/writer/no-wire shape as everything else on
+  this branch. `ObservedTaskExecutor` / `ObservedTaskDelegator` carry it
+  through to `handleDelegate`. The first version did fall back to
+  `testoutput.Parse` over the whole return, and a reviewer writing "the error
+  from Flush is discarded" scored three test failures on a shard that never ran
+  a test; `TestProjectReturn_ShouldNotReadAVerificationVerdictOutOfProse`
+  exists because of it, and a producer that genuinely knows its output is a
+  test log calls `observation.ReportedTests` itself.
+
+  **Hydration cannot re-delegate, structurally rather than by discipline.**
+  `Subagents` holds a `*retain.Store` and nothing else, and here that matters
+  more than next door: re-running a search answers from a moved world, while
+  re-running a subagent writes files and spends tokens. The redemption verb is
+  `subagent_expand` — a read-only verb of its own rather than an argument on
+  `delegate`, because a depth or budget cap that denies further delegation must
+  not also take away the transcript of the delegation that already happened.
+  Registered through the tool registry, the effect table, `safe_action`,
+  `modular_tool_allowed` and `coreTools`.
+
+  Measured over the 67 real agent outputs in `.quality_assurance/`: 69892 bytes
+  projected against 2313106 raw, 3.0% in total; the largest is 892 against
+  93643. The honest worst case is the opposite shape — a return with nothing to
+  elide. A five-byte "Done." costs 72 bytes and a 504-byte return costs 571, a
+  fixed 67-byte header either way; nothing is elided below `minRetainBytes` and
+  no handle is minted, so the loss is bounded rather than compounded.
+  `TestProjectReturn_AtTheElideThreshold_ShouldCrossOverInTheRightDirection`
+  pins the crossover in both directions.
+
+  A third of those 67 returns carry no severity marker and no `file:line`
+  citation anywhere — long structured prose — and projected to a status line
+  and a handle until the projection grew a section outline, which is the same
+  move the file-read codec makes for the part of a file it does not print.
 - ~~Generalize the MCP elision/handle mechanism rather than building a second
   one~~ — **done.** Retention now lives in `internal/retain` and MCP composes
   it with its JSON projection. The seam is retention versus projection:
