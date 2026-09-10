@@ -396,7 +396,19 @@ func (ls *LearningStore) Delete(shardType string, factPredicate string, factArgs
 
 	logging.StoreDebug("Deleting learning: shard=%s predicate=%s", shardType, factPredicate)
 
-	argsJSON, _ := json.Marshal(factArgs)
+	// Both write paths check this error; only the delete used to drop it, and
+	// dropping it is worse here than on a write. A failed marshal yields "",
+	// so the statement becomes `fact_args = ''` -- a value no write ever
+	// stores, so it matches nothing, deletes nothing, and returns nil. The
+	// caller is told the learning was retracted while the kernel still holds
+	// it, which for a system that derives from facts is a wrong answer with no
+	// symptom.
+	argsJSON, err := json.Marshal(factArgs)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Cannot delete learning %s: fact args are not JSON-serializable: %v", factPredicate, err)
+		return fmt.Errorf("delete learning %s: fact args are not JSON-serializable: %w", factPredicate, err)
+	}
+
 	_, err = db.Exec(`DELETE FROM learnings WHERE fact_predicate = ? AND fact_args = ?`,
 		factPredicate, string(argsJSON))
 	if err != nil {

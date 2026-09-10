@@ -704,15 +704,32 @@ func convertValueToTypedTerm(value any, expectedType ast.ConstantType) (ast.Base
 		}
 		return ast.List(constants), nil
 	case map[string]string:
-		encoded, _ := json.Marshal(v)
+		// Checked for the same reason as the default branch below, even
+		// though a map of strings cannot actually fail to marshal: the point
+		// is that no branch here may return a constant it did not encode.
+		encoded, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("unsupported fact argument type %T: %w", v, err)
+		}
 		return ast.String(string(encoded)), nil
 	case map[string]any:
-		encoded, _ := json.Marshal(v)
+		// This branch really can fail -- a NaN, an Inf, a func or a channel
+		// nested anywhere in the map -- and dropping the error was the worst
+		// version of that. A failed marshal yields nil, whose string form is
+		// "", so the fact was asserted into the kernel as an EMPTY STRING in
+		// place of its actual value. Nothing downstream can tell that apart
+		// from a genuinely empty argument, so the kernel goes on to derive
+		// with full confidence from a value that is not the value. Refusing
+		// to build the constant is the only honest option.
+		encoded, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("unsupported fact argument type %T: %w", v, err)
+		}
 		return ast.String(string(encoded)), nil
 	default:
 		encoded, err := json.Marshal(v)
 		if err != nil {
-			return nil, fmt.Errorf("unsupported fact argument type %T", v)
+			return nil, fmt.Errorf("unsupported fact argument type %T: %w", v, err)
 		}
 		return ast.String(string(encoded)), nil
 	}

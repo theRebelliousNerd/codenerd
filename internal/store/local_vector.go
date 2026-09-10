@@ -2,7 +2,6 @@ package store
 
 import (
 	"codenerd/internal/logging"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -31,11 +30,15 @@ func (s *LocalStore) StoreVector(content string, metadata map[string]any) error 
 
 	logging.StoreDebug("Storing vector content (length=%d bytes, metadata keys=%d)", len(content), len(metadata))
 
-	metaJSON, _ := json.Marshal(metadata)
+	metaJSON, err := encodeRowMetadata(metadata)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Refusing to store vector: %v", err)
+		return err
+	}
 
-	_, err := s.db.Exec(
+	_, err = s.db.Exec(
 		"INSERT OR REPLACE INTO vectors (content, metadata) VALUES (?, ?)",
-		content, string(metaJSON),
+		content, metaJSON,
 	)
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to store vector: %v", err)
@@ -96,9 +99,7 @@ func (s *LocalStore) VectorRecall(query string, limit int) ([]VectorEntry, error
 		if err := rows.Scan(&entry.ID, &entry.Content, &metaJSON, &entry.CreatedAt); err != nil {
 			continue
 		}
-		if metaJSON != "" {
-			json.Unmarshal([]byte(metaJSON), &entry.Metadata)
-		}
+		entry.Metadata = decodeRowMetadata(entry.ID, []byte(metaJSON))
 		results = append(results, entry)
 	}
 

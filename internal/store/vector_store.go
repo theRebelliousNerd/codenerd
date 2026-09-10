@@ -103,11 +103,15 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 		return fmt.Errorf("failed to serialize embedding: %w", err)
 	}
 
-	metaJSON, _ := json.Marshal(metadata)
+	metaJSON, err := encodeRowMetadata(metadata)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Refusing to store vector: %v", err)
+		return err
+	}
 
 	res, err := s.db.Exec(
 		"INSERT OR REPLACE INTO vectors (content, embedding, metadata) VALUES (?, ?, ?)",
-		content, string(embeddingJSON), string(metaJSON),
+		content, string(embeddingJSON), metaJSON,
 	)
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to store vector in SQLite: %v", err)
@@ -254,8 +258,15 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 			}
 			continue
 		}
-		metaJSON, _ := json.Marshal(metadata[i])
-		res, err := stmt.Exec(content, string(embeddingJSON), string(metaJSON))
+		metaJSON, err := encodeRowMetadata(metadata[i])
+		if err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = fmt.Errorf("content index %d: %w", i, err)
+			}
+			continue
+		}
+		res, err := stmt.Exec(content, string(embeddingJSON), metaJSON)
 		if err != nil {
 			failed++
 			if firstErr == nil {
@@ -269,7 +280,7 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 				logging.Get(logging.CategoryStore).Warn("batch vec_index skipped: LastInsertId failed for row %d: %v (ANN drift)", i, lidErr)
 			} else {
 				vecBlob := encodeFloat32Slice(embeddings[i])
-				if _, vecErr := vecStmt.Exec(id, vecBlob, content, string(metaJSON)); vecErr != nil {
+				if _, vecErr := vecStmt.Exec(id, vecBlob, content, metaJSON); vecErr != nil {
 					logging.Get(logging.CategoryStore).Warn("batch vec_index insert failed for rowid=%d: %v (ANN drift)", id, vecErr)
 				}
 			}
@@ -290,11 +301,14 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 
 // storeVectorKeywordOnly stores content without embeddings (fallback).
 func (s *LocalStore) storeVectorKeywordOnly(content string, metadata map[string]any) error {
-	metaJSON, _ := json.Marshal(metadata)
+	metaJSON, err := encodeRowMetadata(metadata)
+	if err != nil {
+		return err
+	}
 
-	_, err := s.db.Exec(
+	_, err = s.db.Exec(
 		"INSERT OR REPLACE INTO vectors (content, metadata) VALUES (?, ?)",
-		content, string(metaJSON),
+		content, metaJSON,
 	)
 	return err
 }
@@ -315,9 +329,24 @@ func (s *LocalStore) storeVectorBatchKeywordOnly(contents []string, metadata []m
 	defer stmt.Close()
 
 	stored := 0
+	failed := 0
+	var firstErr error
+	// The sibling embedding path reports partial failure; this one used to
+	// swallow it, so a batch could store nothing and still return nil.
+	note := func(i int, err error) {
+		failed++
+		if firstErr == nil {
+			firstErr = fmt.Errorf("content index %d: %w", i, err)
+		}
+	}
 	for i, content := range contents {
-		metaJSON, _ := json.Marshal(metadata[i])
-		if _, err := stmt.Exec(content, string(metaJSON)); err != nil {
+		metaJSON, err := encodeRowMetadata(metadata[i])
+		if err != nil {
+			note(i, err)
+			continue
+		}
+		if _, err := stmt.Exec(content, metaJSON); err != nil {
+			note(i, err)
 			continue
 		}
 		stored++
@@ -325,6 +354,10 @@ func (s *LocalStore) storeVectorBatchKeywordOnly(contents []string, metadata []m
 
 	if err := tx.Commit(); err != nil {
 		return stored, err
+	}
+	if failed > 0 {
+		logging.Get(logging.CategoryStore).Warn("storeVectorBatchKeywordOnly: stored %d/%d vectors (%d failed): %v", stored, len(contents), failed, firstErr)
+		return stored, fmt.Errorf("stored %d/%d vectors (%d failed): %w", stored, len(contents), failed, firstErr)
 	}
 	return stored, nil
 }
@@ -497,6 +530,79 @@ func (s *LocalStore) vectorRecallKeyword(query string, limit int) ([]VectorEntry
 	return s.VectorRecall(query, limit)
 }
 
+// encodeRowMetadata turns a caller's metadata map into the blob written to the
+// vectors table, and is the write-side half of decodeRowMetadata.
+//
+// The reason it returns an error rather than a best-effort string is a trap
+// that took a while to see. Every insert here used to write
+// string(mustIgnore(json.Marshal(meta))), so a map holding anything the encoder
+// refuses -- a NaN, an Inf, a func, a cycle -- silently became the empty
+// string. And the empty string is the ONE value the vectors table will not
+// accept: idx_vectors_predicate_content_unique is a partial index over
+// json_extract(metadata, '$.kind'), and SQLite evaluates that expression on
+// every insert, so an unparseable blob aborts the write.
+//
+// Nobody wrote that index as a validator, but it is one, and its diagnostics
+// are what you would expect from an accident: the insert fails with the bare
+// string "malformed JSON", naming no table, no column, and nothing about the
+// value that could not be encoded. In the keyword-only batch path the row was
+// then skipped without even a count, so the visible symptom was content that
+// simply never became searchable.
+//
+// Failing here, with the marshal error attached, turns that into one sentence
+// that says which row and why.
+func encodeRowMetadata(meta map[string]any) (string, error) {
+	b, err := json.Marshal(meta)
+	if err != nil {
+		return "", fmt.Errorf("metadata is not JSON-serializable: %w", err)
+	}
+	return string(b), nil
+}
+
+// decodeRowMetadata turns the metadata blob of one vectors row into the map
+// callers see, and is the single place that decides what a corrupt blob means.
+//
+// It exists because the four scan loops that read this table had drifted apart.
+// The sqlite-vec path logged the decode failure and marked the row; the three
+// brute-force fallback paths dropped the error on the floor. That is backwards
+// from where the diagnostics are needed: brute force is what runs when the
+// sqlite-vec extension is absent, which is the common case in development.
+//
+// The metadata-filtered fallback was the sharp one. A row whose blob fails to
+// decode has no keys, so matchesMetadata rejects it and the row vanishes from
+// the result set — a silent wrong answer with nothing in the log to explain it.
+// "My search stopped finding that file" is a very hard question to answer from
+// nothing; it is an easy one to answer from a warning naming the row id.
+//
+// The returned map is never nil, so callers can write to it without a guard,
+// and whatever partially decoded before the failure is kept: half a map plus
+// the marker is strictly more evidence than an empty one.
+func decodeRowMetadata(id int64, metaJSON []byte) map[string]any {
+	meta := make(map[string]any)
+	if len(metaJSON) == 0 {
+		return meta
+	}
+	err := json.Unmarshal(metaJSON, &meta)
+	// The nil check has to happen on the SUCCESS path too, and that is not
+	// obvious. json.Unmarshal of the literal `null` into a map sets the map to
+	// nil and reports no error -- and `null` is exactly what json.Marshal
+	// writes for a row stored with nil metadata, so it is the single most
+	// common blob in this table. Re-making the map here is what keeps the
+	// "never nil" promise true for the callers that write to it unguarded.
+	if meta == nil {
+		meta = make(map[string]any)
+	}
+	if err != nil {
+		logging.Get(logging.CategoryStore).Warn(
+			"vectors row id=%d: metadata JSON unparseable (%d bytes): %v",
+			id, len(metaJSON), err)
+		// Marks the row for triage: a caller seeing an unexpectedly empty
+		// metadata map can tell "never had any" from "had some, lost it".
+		meta["_corrupt_metadata"] = true
+	}
+	return meta
+}
+
 func matchesMetadata(meta map[string]any, key string, value any) bool {
 	if key == "" {
 		return true
@@ -615,22 +721,7 @@ func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit
 			ID:        id,
 			Content:   content,
 			CreatedAt: time.Now(),
-			Metadata:  make(map[string]any),
-		}
-		if len(metaJSON) > 0 {
-			if err := json.Unmarshal(metaJSON, &entry.Metadata); err != nil {
-				// Mark the row as having corrupt metadata instead of
-				// silently presenting empty metadata to callers — this
-				// is the clue that lets triage notice a partial-write
-				// or schema-version mismatch in the vectors table.
-				logging.Get(logging.CategoryStore).Warn(
-					"sqlite-vec row id=%d: metadata JSON unparseable (%d bytes): %v",
-					id, len(metaJSON), err)
-				entry.Metadata["_corrupt_metadata"] = true
-			}
-		}
-		if entry.Metadata == nil {
-			entry.Metadata = make(map[string]any)
+			Metadata:  decodeRowMetadata(id, metaJSON),
 		}
 		entry.Metadata["similarity"] = 1 - dist
 		results = append(results, entry)

@@ -5,7 +5,6 @@ import (
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"slices"
 )
@@ -53,9 +52,7 @@ func (s *LocalStore) vectorRecallBruteForce(queryText string, queryEmbedding []f
 			continue
 		}
 
-		if len(metaJSON) > 0 {
-			json.Unmarshal(metaJSON, &entry.Metadata)
-		}
+		entry.Metadata = decodeRowMetadata(entry.ID, metaJSON)
 
 		candidates = append(candidates, candidate{
 			entry:      entry,
@@ -118,9 +115,7 @@ func (s *LocalStore) vectorRecallBruteForceByPaths(queryText string, queryEmbedd
 			continue
 		}
 
-		if len(metaJSON) > 0 {
-			json.Unmarshal(metaJSON, &entry.Metadata)
-		}
+		entry.Metadata = decodeRowMetadata(entry.ID, metaJSON)
 
 		var parseErr error
 		embeddingVec, parseErr = fastParseVectorJSON(embeddingJSON, embeddingVec)
@@ -196,9 +191,7 @@ func (s *LocalStore) vectorRecallBruteForceFiltered(queryText string, queryEmbed
 			continue
 		}
 
-		if len(metaJSON) > 0 {
-			json.Unmarshal(metaJSON, &entry.Metadata)
-		}
+		entry.Metadata = decodeRowMetadata(entry.ID, metaJSON)
 		if !matchesMetadata(entry.Metadata, metaKey, metaValue) {
 			continue
 		}
