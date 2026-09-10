@@ -23,7 +23,6 @@ cmd/nerd/chat/multistep_corpus.go	enrichPatternsWithKeywords
 cmd/nerd/chat/multistep_corpus.go	enrichPatternsWithVerbPairs
 cmd/nerd/chat/persistence.go	Model.persistActivationScores
 cmd/nerd/chat/persistence.go	Model.persistTurnToKnowledge
-cmd/nerd/chat/persistence.go	truncateForStorage
 cmd/nerd/chat/process_follow_up.go	Model.createAgentFromPrompt
 cmd/nerd/chat/process_sync.go	Model.checkWorkspaceSync
 cmd/nerd/chat/review_aggregator.go	Model.getLocalDB

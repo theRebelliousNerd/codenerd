@@ -25,6 +25,41 @@ import (
 // 3. knowledge_graph - Entity relationships from memory operations
 // 4. cold_storage - Learned Mangle facts
 // 5. knowledge_atoms - High-level semantic insights
+//
+// NOTHING CALLS THIS. Both functions in this file are in the dead-code
+// baseline (scripts/testdata/deadcode-baseline.txt), so the "complete learning
+// loop" above describes an intent, not a behaviour. What actually happens per
+// turn, table by table, so that whoever decides to wire this or delete it can
+// decide on facts rather than on the comment above:
+//
+//  1. session_history — Model.syncSessionToSQLite does this and is live, but
+//     writes "{}" and "[]" for intent_json and atoms_json. The real values
+//     come from internal/session/executor.go, on the shard path.
+//     LocalStore.StoreSessionTurn's ON CONFLICT clause carries a CASE that
+//     refuses to let a placeholder overwrite a real value, which is somebody
+//     having already met this collision head-on.
+//
+//  2. vectors — nothing else writes conversation vectors, and nothing reads
+//     them either. Wiring this alone would produce rows with no consumer;
+//     semantic recall over past turns needs the read side too.
+//
+//  3. knowledge_graph — Model.processMemoryOperations is live and handles the
+//     memory operations, but the two this function switches on, "store" and
+//     "link", are not in the protocol enum at all
+//     (internal/articulation/schema.go admits promote_to_long_term, forget,
+//     store_vector, note). So this branch could not fire even if it ran.
+//
+//  4. cold_storage — the live path in process.go asserts model-emitted facts
+//     into the in-memory kernel and never persists them, so they do not
+//     survive the process. This is the one capability here with no live
+//     equivalent at all.
+//
+//  5. knowledge_atoms — nothing else writes them.
+//
+// Left in place rather than deleted because of 4 and 5, which are real gaps
+// rather than duplication. Deleting it would lose the only written form of
+// them; wiring it as-is would double-write session_history and run a branch
+// that cannot match. Neither is a change to make silently.
 func (m Model) persistTurnToKnowledge(turn ctxcompress.Turn, intent perception.Intent, response string) {
 	if m.localDB == nil {
 		fmt.Printf("[Knowledge] Warning: knowledge database not configured; skipping persistence\n")

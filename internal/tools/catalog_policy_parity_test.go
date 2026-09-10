@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"sort"
 	"testing"
+
+	"codenerd/internal/tools"
 )
 
 const constitutionFile = "../core/defaults/policy/constitution.mg"
@@ -18,9 +20,10 @@ var requiresPermissionRe = regexp.MustCompile(`requires_permission\(/([A-Za-z0-9
 // safe_action/requires_permission fact, each with the reason. A tool listed
 // here is hard-denied by the constitution's default-deny gate; that is the
 // point, and the test fails if a policy fact later appears for it.
-var intentionalPolicyExceptions = map[string]string{
-	"research_cache_clear": "discards the research cache every agent in the process shares; denied by policy on purpose",
-}
+//
+// The list moved into the package proper as tools.PolicyDeniedByDesign so the
+// action linter reads the same one; see that declaration for why.
+var intentionalPolicyExceptions = tools.PolicyDeniedByDesign
 
 func constitutionCoveredTools(t *testing.T) map[string]bool {
 	t.Helper()

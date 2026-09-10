@@ -181,13 +181,31 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 }
 
 // processMemoryOperation handles a memory operation from the control packet.
+//
+// This is where "remember that I prefer tabs" actually lands, which is why
+// both writes below report failure rather than dropping it. They used to be
+// bare calls with the error discarded, and that is the worst possible place
+// for silence: the user was told the thing was remembered, the model recorded
+// that it had been, and the write that was supposed to make it true failed
+// with nobody informed. The next session simply does not know.
+//
+// The default branch matters for a different reason. The protocol enum in
+// internal/articulation/schema.go admits four operations and this switch
+// handles three, so a "note" -- specified in protocol/piggyback/memory_ops as
+// a short-term session observation, and validated as legal on the way in --
+// fell through to nothing at all. Whatever is decided about implementing it,
+// an operation the model was told to emit must not vanish without a word, and
+// the next operation added to that enum must not either.
 func (c *Compressor) processMemoryOperation(op perception.MemoryOperation) {
 	switch op.Op {
 	case "promote_to_long_term":
 		logging.ContextDebug("Memory op: promote_to_long_term key=%s", op.Key)
 		// Store in cold storage
 		if c.store != nil {
-			c.store.StoreFact(op.Key, []any{op.Value}, "preference", 10)
+			if err := c.store.StoreFact(op.Key, []any{op.Value}, "preference", 10); err != nil {
+				logging.Get(logging.CategoryContext).Warn(
+					"Memory op promote_to_long_term FAILED, the preference is not persisted: key=%s: %v", op.Key, err)
+			}
 		}
 	case "forget":
 		logging.ContextDebug("Memory op: forget key=%s", op.Key)
@@ -197,8 +215,20 @@ func (c *Compressor) processMemoryOperation(op perception.MemoryOperation) {
 		logging.ContextDebug("Memory op: store_vector key=%s", op.Key)
 		// Store in vector memory
 		if c.store != nil {
-			c.store.StoreVector(op.Value, map[string]any{"key": op.Key})
+			if err := c.store.StoreVector(op.Value, map[string]any{"key": op.Key}); err != nil {
+				logging.Get(logging.CategoryContext).Warn(
+					"Memory op store_vector FAILED, the content is not recallable: key=%s: %v", op.Key, err)
+			}
 		}
+	case "note":
+		// Accepted by the schema, described to the model, not implemented.
+		// Logged at Warn rather than Debug so it reads as a gap in the
+		// protocol's implementation and not as ordinary traffic.
+		logging.Get(logging.CategoryContext).Warn(
+			"Memory op note is accepted by the protocol schema but not implemented; dropping: key=%s", op.Key)
+	default:
+		logging.Get(logging.CategoryContext).Warn(
+			"Unhandled memory op %q, dropping: key=%s -- the protocol schema admits an operation this switch does not", op.Op, op.Key)
 	}
 }
 

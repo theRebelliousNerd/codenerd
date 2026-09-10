@@ -53,6 +53,27 @@ jobs:
       # kernel then derives, soundly, from a value that is not the value.
       - name: Discarded JSON errors budget
         run: go run ./cmd/tools/audit_json_errors
+      # cmd/tools/action_linter cross-checks the three places an action name
+      # has to agree: the Mangle policy that emits it, the router that routes
+      # it, and the VirtualStore that executes it. It has existed unrun, which
+      # is the repo's own signature defect turned on its tooling -- a drift
+      # linter that never runs is drift.
+      #
+      # It was unrunnable rather than merely unrun. Its single error was
+      # /research_cache_clear, "registered but the constitution can never
+      # permit it", which is an accurate description of a decision that was
+      # made ON PURPOSE and recorded in three separate places. A gate that
+      # fails on day one for a non-bug does not get switched on, and then the
+      # real drift it was written to catch goes unseen too. The deliberate
+      # denials now live in tools.PolicyDeniedByDesign, which the linter and
+      # the catalog parity test both read.
+      #
+      # It still reports two warnings and exits 0 on them, deliberately: one
+      # says /delete_file is gated behind a permission nothing asserts, the
+      # other that policy never emits /research. Both are capability
+      # questions for a person, not drift a gate should decide.
+      - name: Action drift linter
+        run: go run ./cmd/tools/action_linter -mg-root internal/core/defaults -virtual-store internal/core/virtual_store_types.go
       # predicate_corpus.db is generated from the .mg corpus and embedded into
       # the binary, where it tells a model which predicates exist and what shape
       # they are. It had drifted seven weeks: eight browser predicates recorded
