@@ -5,6 +5,7 @@ package world
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -26,6 +27,8 @@ type TestDependencyBuilder struct {
 	testFiles    map[string]bool     // File path → is test file
 	testFuncs    map[string]bool     // Ref → is test function
 	dependencies map[string][]string // Test Ref → Source Refs
+	elements     []codedom.FactData
+	aliases      map[string]string
 }
 
 // Verify TestDependencyBuilder implements the interface
@@ -97,6 +100,18 @@ func (b *TestDependencyBuilder) Build(ctx context.Context) error {
 	defer b.mu.Unlock()
 
 	logging.WorldDebug("Building test dependency graph for %s", b.projectRoot)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if b.kernel == nil {
+		return fmt.Errorf("test dependency kernel is unavailable")
+	}
+	b.testFiles = make(map[string]bool)
+	b.testFuncs = make(map[string]bool)
+	b.dependencies = make(map[string][]string)
+	if err := b.loadElements(); err != nil {
+		return err
+	}
 
 	// Phase 1: Identify all test files
 	if err := b.identifyTestFiles(ctx); err != nil {
@@ -165,10 +180,7 @@ func (b *TestDependencyBuilder) isTestFile(path string) bool {
 // identifyTestFunctions identifies test functions by convention.
 func (b *TestDependencyBuilder) identifyTestFunctions(ctx context.Context) error {
 	// Query all code elements
-	facts, err := b.kernel.Query("code_element")
-	if err != nil {
-		return err
-	}
+	facts := b.elements
 
 	for _, fact := range facts {
 		if len(fact.Args) < 5 {
@@ -180,10 +192,7 @@ func (b *TestDependencyBuilder) identifyTestFunctions(ctx context.Context) error
 			continue
 		}
 
-		elemType, ok := fact.Args[1].(string)
-		if !ok {
-			continue
-		}
+		elemType := fmt.Sprint(fact.Args[1])
 
 		file, ok := fact.Args[2].(string)
 		if !ok {
@@ -243,8 +252,19 @@ func (b *TestDependencyBuilder) buildDependencyEdges(ctx context.Context) error 
 			}
 			caller, _ := fact.Args[0].(string)
 			callee, _ := fact.Args[1].(string)
-
-			if b.testFuncs[caller] {
+			if caller == "" {
+				caller = fmt.Sprint(fact.Args[0])
+			}
+			if callee == "" {
+				callee = fmt.Sprint(fact.Args[1])
+			}
+			if ref := b.aliases[caller]; ref != "" {
+				caller = ref
+			}
+			if ref := b.aliases[callee]; ref != "" {
+				callee = ref
+			}
+			if caller != "" && callee != "" {
 				b.addDependency(caller, callee)
 			}
 		}
@@ -291,10 +311,7 @@ func (b *TestDependencyBuilder) addDependency(testRef, sourceRef string) {
 // addFileLevelDependency adds dependencies from all tests in testFile to all elements in sourceFile.
 func (b *TestDependencyBuilder) addFileLevelDependency(testFile, sourceFile string) {
 	// Query elements in source file
-	facts, err := b.kernel.Query("code_element")
-	if err != nil {
-		return
-	}
+	facts := b.elements
 
 	var sourceRefs []string
 	var testRefs []string
@@ -417,10 +434,7 @@ func (b *TestDependencyBuilder) GetImpactedTests(editedRefs []string) []codedom.
 
 // getTestFile returns the file containing a test function.
 func (b *TestDependencyBuilder) getTestFile(testRef string) string {
-	facts, err := b.kernel.Query("code_element")
-	if err != nil {
-		return ""
-	}
+	facts := b.elements
 
 	for _, fact := range facts {
 		if len(fact.Args) >= 5 {
@@ -442,7 +456,7 @@ func (b *TestDependencyBuilder) GetImpactedTestPackages(editedRefs []string) []s
 
 	pkgSet := make(map[string]bool)
 	for _, test := range impacted {
-		if test.TestFile != "" {
+		if filepath.Ext(test.TestFile) == ".go" {
 			pkg := filepath.Dir(test.TestFile)
 			pkgSet[pkg] = true
 		}

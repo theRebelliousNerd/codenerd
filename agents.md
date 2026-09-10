@@ -14,6 +14,14 @@ This repo exists to make that split real in production: creative power with dete
 - **Logic as executive**: planning, memory, orchestration, safety, and policy.
 - **Transduction interface**: natural language and code are converted into formal atoms that the kernel can reason over.
 
+### How This Shapes Runtime Changes
+
+- The world model, durable facts, and CodeDOM are the model's primary codebase context. Use targeted, revision-aware source views when those representations need detail or refresh.
+- Mangle manages the active working context throughout execution: relevance, retention, eviction, retrieval, and ordering. A growing tool transcript with occasional summarization does not fulfill this design. Evicted context must remain recoverable; stale evidence must not survive a source change as current truth.
+- Models use typed, policy-mediated operations. Do not give codeNERD models free-form CLI/shell access by default or use it to bypass missing tool wiring. Build/test tools must constrain their inputs and expose structured results. Development agents may use their own shell to build and verify codeNERD.
+- Bound each model request's context while allowing a task to continue as long as it makes progress within the user's constraints. Arbitrary tool-call counts are not task-completion criteria; detect stalls and repeated failures explicitly.
+- Validate this architecture through the normal production entry paths with CodeDOM and world-model context enabled. Restricted-tool benchmarks are supplementary evidence.
+
 ## Repo Contract
 
 - JIT is the standard for all new LLM-facing behavior.

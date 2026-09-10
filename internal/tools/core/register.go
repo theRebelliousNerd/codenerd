@@ -9,6 +9,7 @@ func RegisterAll(registry *tools.Registry) error {
 	allTools := []*tools.Tool{
 		// File operations
 		ReadFileTool(),
+		RecallContextTool(),
 		WriteFileTool(),
 		EditFileTool(),
 		DeleteFileTool(),

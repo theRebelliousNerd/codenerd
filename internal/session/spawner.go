@@ -56,7 +56,8 @@ type Spawner struct {
 	// When set, every spawned subagent receives it via
 	// Executor.SetFileContextProvider so withFileContext can append the rendered
 	// context to the compiled system prompt.
-	fileContext FileContextProvider
+	fileContext  FileContextProvider
+	workingWorld WorkingWorld
 
 	// executorConfig is the tool-loop budget inherited from the parent session.
 	// Nil means subagents keep DefaultExecutorConfig (8 iterations), preserving
@@ -358,6 +359,9 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	if fc := s.currentFileContext(); fc != nil {
 		agent.executor.SetFileContextProvider(fc)
 	}
+	s.mu.RLock()
+	agent.executor.SetWorkingWorld(s.workingWorld)
+	s.mu.RUnlock()
 	// Forward the parent session's tool-loop budget. Guard on whether a config
 	// was actually supplied: a zero ExecutorConfig would zero MaxToolIterations
 	// rather than preserve the default 8.
@@ -462,6 +466,7 @@ func (s *Spawner) SpawnSpecialist(ctx context.Context, name string, task string)
 	if s.fileContext != nil {
 		agent.executor.SetFileContextProvider(s.fileContext)
 	}
+	agent.executor.SetWorkingWorld(s.workingWorld)
 	// Forward tool-loop budget. s.mu is already held for writing, so read the
 	// slot directly. Nil guard preserves the pre-fix default 8 iteration budget
 	// when no parent budget was supplied; forwarding a zero value would instead

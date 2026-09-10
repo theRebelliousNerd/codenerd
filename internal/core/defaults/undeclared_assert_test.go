@@ -60,7 +60,21 @@ func declaredPredicateNames(t *testing.T, root string) map[string]struct{} {
 	t.Helper()
 	declared := make(map[string]struct{})
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".mg") {
+		if err != nil {
+			return nil
+		}
+		// Dot-directories are not the corpus: .git, .nerd (a workspace's own
+		// learned rules and campaign artifacts), and the ignored skill trees
+		// (.claude, .codex, .agent, .agents) all hold .mg files. A skill asset
+		// that declares a predicate the runtime never loads made this gate
+		// pass on a clean CI checkout and fail on every developer machine.
+		if info.IsDir() {
+			if path != root && strings.HasPrefix(info.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".mg") {
 			return nil
 		}
 		data, readErr := os.ReadFile(filepath.Clean(path))

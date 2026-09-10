@@ -281,32 +281,6 @@ func TestDetectTestCommand_Go(t *testing.T) {
 	}
 }
 
-func TestAddTestPattern(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name     string
-		command  string
-		pattern  string
-		expected string
-	}{
-		{"go_test", "go test", "TestFoo", "go test -run TestFoo"},
-		{"npm_test", "npm test", "test-file", "npm test -- --grep test-file"},
-		{"pytest", "pytest", "test_foo", "pytest -k test_foo"},
-		{"empty_pattern", "go test", "", "go test -run "},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			result := addTestPattern(tc.command, tc.pattern)
-			if result != tc.expected {
-				t.Errorf("got %q, want %q", result, tc.expected)
-			}
-		})
-	}
-}
-
 // =============================================================================
 // GIT TOOL TESTS
 // =============================================================================

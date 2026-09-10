@@ -47,6 +47,7 @@ permission_denied(Action, "Dangerous Action") :-
 # SAFE ACTIONS - Permitted by default for all shards
 # File operations
 safe_action(/read_file).
+safe_action(/recall_context).
 safe_action(/fs_read).
 safe_action(/write_file).
 safe_action(/fs_write).

@@ -188,7 +188,9 @@ type Executor struct {
 	// fileContext is the holographic per-file context provider, or nil. Used only
 	// to render file-targeted context into the prompt. Narrow interface so no
 	// import of internal/world is needed and no import cycle is possible.
-	fileContext FileContextProvider
+	fileContext  FileContextProvider
+	workingWorld WorkingWorld
+	workingScope string
 
 	// perTurnCreatedSourceFacts tracks created_source facts asserted this turn.
 	// perTurnTestFileForFacts tracks test_file_for facts asserted this turn.
@@ -249,6 +251,10 @@ type ExecutorConfig struct {
 	// in a single Process() call. Without this cap, a model that keeps requesting
 	// tools could spin forever. 0 falls back to the default.
 	MaxToolIterations int
+
+	// ProgressDrivenTools uses Mangle working-state decisions for continuation.
+	// Zero call/round limits then mean no caller-imposed count ceiling.
+	ProgressDrivenTools bool
 
 	// AdaptiveToolBudget permits bounded iteration extensions when the
 	// deterministic trace shows intent-appropriate progress and no repeated
@@ -571,6 +577,10 @@ func (e *Executor) CloneForTask() *Executor {
 	// prompt, so its verdict on that prompt is exactly as informative as a
 	// chat turn's.
 	clone.contextFeedbackRecorder = e.contextFeedbackRecorder
+	// The working world is the kernel view the per-task working set selects
+	// context from; a delegated task acts on the same workspace, so it reads
+	// the same world.
+	clone.workingWorld = e.workingWorld
 	// Deliberately NOT copied: conversationHistory, sessionContext,
 	// sessionPersister (task runs must not be recorded as session turns),
 	// EffectiveAgentRuntimeConfig (set per task by the caller).
@@ -985,7 +995,12 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// the atom selector has no way to score a document it has never seen, and
 	// budget-driven eviction could silently drop the project's own rules.
 	systemPrompt := e.withProjectInstructions(compileResult.Prompt)
-	systemPrompt = e.withFileContext(ctx, systemPrompt, intent.Target)
+	e.mu.RLock()
+	hasWorkingWorld := e.workingWorld != nil
+	e.mu.RUnlock()
+	if !hasWorkingWorld {
+		systemPrompt = e.withFileContext(ctx, systemPrompt, intent.Target)
+	}
 
 	// 5+6. LLM ↔ tools loop. The model may request tools, we execute them, then
 	// feed the results back as a new turn — repeated until the model returns a
@@ -1265,6 +1280,16 @@ func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient,
 
 	// Convert EffectiveAgentRuntimeConfig tool names to ToolDefinition structs
 	toolDefs := e.buildToolDefinitions(cfg)
+	if activeWorkingLoop(ctx) != nil {
+		if provider, ok := client.(types.ToolResultsProvider); ok {
+			return e.completeWithWorkingContext(ctx, provider, systemPrompt, []types.Message{{Role: "user", Text: userInput}}, toolDefs)
+		}
+		var prepareErr error
+		systemPrompt, _, prepareErr = e.prepareWorkingRequest(ctx, systemPrompt, nil)
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
+	}
 
 	// If we have tools, use native function calling; otherwise fall back to simple completion
 	if len(toolDefs) > 0 {
@@ -1277,7 +1302,7 @@ func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient,
 				history = append(history, prior...)
 				history = append(history, types.Message{Role: "user", Text: userInput})
 				logging.Session("Calling LLM with %d tools via CompleteWithToolResults (%d prior messages)", len(toolDefs), len(prior))
-				return trp.CompleteWithToolResults(ctx, systemPrompt, history, toolDefs)
+				return e.completeWithWorkingContext(ctx, trp, systemPrompt, history, toolDefs)
 			}
 			// No native history channel: degrade to a compact transcript
 			// prepended to the user prompt.
