@@ -93,9 +93,12 @@ the work they gate begins.
 
 - Raise broker coverage from 76.5%; the gaps are in `default.go` reconfiguration
   paths and the rarely-taken degradation branches.
-- Configure a compression purpose budget once Q6 has a number. Compression is
-  now tagged `PurposeCompression` at `Compressor.BuildContext`, so the number
-  is finally measurable: `nerd meter` reports it as its own row.
+- ~~Configure a compression purpose budget~~ — **moot; see Q6.** The compressor
+  makes no LLM calls: `Compressor.generateSummary` is its only call site and is
+  dead, replaced by kernel-driven observation masking. Compression costs zero
+  tokens today, so `PurposeCompression` is on the exemption list with that
+  reason and the test fails if it starts being tagged again without the
+  exemption being removed.
 - ~~Surface `Meter.Receipts()` through a `nerd` subcommand~~ — **done.**
   `nerd meter`, `nerd meter epochs`, `nerd meter atoms`, each with `--json`.
   Both measurement streams persist to rotating JSONL logs under `.nerd/meter/`

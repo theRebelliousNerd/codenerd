@@ -38,14 +38,14 @@ func (s *FileSink) Record(r Receipt) {
 	s.log.Append(r)
 }
 
-// Err returns the first write failure and how many have occurred, so a caller
-// can tell "no receipts because nothing spent" from "no receipts because the
-// sink has been broken since boot".
-func (s *FileSink) Err() (error, int) {
+// Failures returns how many receipt writes have failed and the first failure,
+// so a caller can tell "no receipts because nothing spent" from "no receipts
+// because the sink has been broken since boot".
+func (s *FileSink) Failures() (count int, first error) {
 	if s == nil || s.log == nil {
-		return nil, 0
+		return 0, nil
 	}
-	return s.log.Err()
+	return s.log.Failures()
 }
 
 // SetMaxBytes overrides the rotation threshold.

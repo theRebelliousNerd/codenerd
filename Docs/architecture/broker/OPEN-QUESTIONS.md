@@ -86,10 +86,19 @@ The ledger supports per-purpose budgets and none are configured. Compression is
 inference spent to reduce inference; an unbounded compressor can cost more than
 the history it shrinks.
 
-**Partially settled**: compression is now tagged `PurposeCompression` at
-`Compressor.BuildContext`, so what it *costs* is measurable — `nerd meter`
-reports it as its own row. What it *saves* is still unmeasured, and the right cap
-is a fraction of the saving, so the number is still one measurement away.
+**Moot today, and the reason is worth knowing.** Attempting to tag
+`PurposeCompression` turned up that the compressor makes no LLM calls at all.
+`Compressor.generateSummary` is its only call site and is dead code — the C3
+observation-masking work replaced LLM summarization with a kernel-derived
+`should_mask_observation` decision. Compression currently costs zero tokens,
+which is a stronger answer than any cap.
+
+The question returns the moment summarization does. What is still unmeasured
+either way is what compression *saves*, and the right cap is a fraction of the
+saving — so even then the number is one measurement away.
+
+Recorded rather than deleted because "compression is expensive" is a belief that
+will outlive the code that justified it.
 
 ## Q7 — Who owns a subagent's obligations?
 

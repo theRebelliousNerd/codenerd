@@ -30,6 +30,9 @@ var exemptPurposes = map[Purpose]string{
 	PurposeUnattributed: "the fallback itself; tagging it would defeat its point",
 	PurposeArticulation: "articulation makes no LLM calls today — emitter.go's only Complete is commented out",
 	PurposeCritic:       "no critic subsystem issues inference of its own yet",
+	PurposeCompression: "compression makes no LLM calls today: Compressor.generateSummary is its " +
+		"only call site and is dead, replaced by the kernel-driven observation masking in " +
+		"compressor_turns.go. Tag it again when summarization comes back.",
 }
 
 // tagSitesByPurpose names the file each purpose must be tagged in. Checking the
@@ -38,7 +41,6 @@ var exemptPurposes = map[Purpose]string{
 var tagSitesByPurpose = map[Purpose]string{
 	PurposePerception:   "internal/perception/transducer_llm.go",
 	PurposeSession:      "internal/session/executor.go",
-	PurposeCompression:  "internal/context/compressor.go",
 	PurposeVerification: "internal/verification/verifier.go",
 	PurposeSubagent:     "internal/core/shards/manager_spawn.go",
 	PurposeAutopoiesis:  "internal/perception/learning.go",
@@ -309,4 +311,98 @@ func TestUntaggedContextIsAccountedNotDiscarded(t *testing.T) {
 	if got := PurposeFromContext(nil); got != PurposeUnattributed {
 		t.Fatalf("nil-context purpose = %q, want unattributed", got)
 	}
+}
+
+// TestTaggedContextIsActuallyUsed catches a purpose tag that is assigned and
+// then thrown away.
+//
+// `ctx = broker.WithPurpose(ctx, ...)` in a function that never touches ctx
+// again compiles, passes every presence check above, and does nothing at all:
+// the tagged context is discarded when the function returns and no call ever
+// carries it. This is not hypothetical -- the compression tag shipped in
+// exactly that state, on a function that turned out to make no LLM calls, and
+// the presence checks above were happy with it.
+func TestTaggedContextIsActuallyUsed(t *testing.T) {
+	root := repoRoot(t)
+	fset := token.NewFileSet()
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "vendor", "node_modules", "testdata":
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+
+		file, perr := parser.ParseFile(fset, path, nil, 0)
+		if perr != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel)
+
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			for _, name := range taggedButUnusedIn(fn) {
+				t.Errorf("%s: %s tags a purpose onto %q and never uses it again; "+
+					"the tagged context is discarded and no call carries the purpose",
+					rel, fn.Name.Name, name)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk repo: %v", err)
+	}
+}
+
+// taggedButUnusedIn returns the names assigned from a WithPurpose call inside fn
+// that are never read afterwards.
+func taggedButUnusedIn(fn *ast.FuncDecl) []string {
+	var dead []string
+
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+			return true
+		}
+		call, ok := assign.Rhs[0].(*ast.CallExpr)
+		if !ok || !isWithPurposeCall(call.Fun) {
+			return true
+		}
+		target, ok := assign.Lhs[0].(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		// A read of the same identifier anywhere after the assignment counts.
+		// Position rather than scope analysis is deliberate: it is conservative
+		// in the direction of not reporting, so a passing test is a real
+		// signal and a failing one is never a false alarm about shadowing.
+		used := false
+		ast.Inspect(fn.Body, func(m ast.Node) bool {
+			id, ok := m.(*ast.Ident)
+			if !ok || id.Name != target.Name || id.Pos() <= assign.End() {
+				return true
+			}
+			used = true
+			return false
+		})
+		if !used {
+			dead = append(dead, target.Name)
+		}
+		return true
+	})
+
+	return dead
 }

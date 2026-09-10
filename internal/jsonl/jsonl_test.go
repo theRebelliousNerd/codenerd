@@ -261,9 +261,9 @@ func TestUnmarshallableRecordIsCountedNotDropped(t *testing.T) {
 
 	a.Append(map[string]any{"bad": make(chan int)})
 
-	failErr, n := a.Err()
+	n, failErr := a.Failures()
 	if failErr == nil || n != 1 {
-		t.Fatalf("Err = (%v, %d), want a recorded marshal failure", failErr, n)
+		t.Fatalf("Failures = (%d, %v), want a recorded marshal failure", n, failErr)
 	}
 
 	var typeErr *json.UnsupportedTypeError

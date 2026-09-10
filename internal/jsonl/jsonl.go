@@ -143,11 +143,16 @@ func (a *Appender) recordErrLocked(err error) {
 	a.errCount++
 }
 
-// Err returns the first write failure and how many have occurred.
-func (a *Appender) Err() (error, int) {
+// Failures returns how many writes have failed and the first failure.
+//
+// Reported rather than returned from Append because the callers write from
+// paths that cannot fail. An operator needs to be able to tell "no data because
+// nothing happened" from "no data because the writer has been broken since
+// boot", and that distinction has nowhere else to live.
+func (a *Appender) Failures() (count int, first error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.firstErr, a.errCount
+	return a.errCount, a.firstErr
 }
 
 // Path returns the live log path.

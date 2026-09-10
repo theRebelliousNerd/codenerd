@@ -112,8 +112,8 @@ func TestNilFileSinkIsInert(t *testing.T) {
 	var s *FileSink
 	s.Record(Receipt{})
 	s.SetMaxBytes(10)
-	if err, n := s.Err(); err != nil || n != 0 {
-		t.Fatalf("nil sink reported (%v, %d)", err, n)
+	if n, err := s.Failures(); err != nil || n != 0 {
+		t.Fatalf("nil sink reported (%d, %v)", n, err)
 	}
 	if err := s.Close(); err != nil {
 		t.Fatalf("nil sink Close: %v", err)
