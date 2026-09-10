@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/tactile"
@@ -364,7 +365,7 @@ func executeWriteFile(ctx context.Context, args map[string]any) (string, error) 
 		content = tactile.NormalizeLineEnding(content, ending)
 	}
 
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := atomicfile.WriteFilePreservingMode(path, []byte(content), 0o644); err != nil {
 		logging.Audit().FileOp(logging.AuditFileWrite, path, 0, false, err.Error())
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
@@ -492,7 +493,7 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 	}
 	newContent = tactile.NormalizeLineEnding(newContent, originalEnding)
 
-	if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+	if err := atomicfile.WriteFilePreservingMode(path, []byte(newContent), 0o644); err != nil {
 		// An edit is a write and belongs in the durable record. read_file and
 		// write_file were instrumented; edit_file and delete_file were not,
 		// which left the two most forensically interesting mutations invisible

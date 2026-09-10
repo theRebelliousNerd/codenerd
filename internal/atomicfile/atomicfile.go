@@ -89,3 +89,26 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 func Replace(src, dst string) error {
 	return replaceExisting(src, dst)
 }
+
+// WriteFilePreservingMode atomically replaces path, keeping whatever mode the
+// file already has. A file that does not exist yet is created with fallback.
+//
+// This exists because swapping os.WriteFile for WriteFile is not a
+// mode-neutral change, and the difference is easy to miss.
+//
+// os.WriteFile passes its perm argument to open(2), which applies it only when
+// the call CREATES the file. Writing over an existing one leaves the mode
+// alone, so every caller that passes a constant 0644 has been preserving the
+// executable bit on scripts by accident of the API rather than by intent.
+//
+// WriteFile always creates a new inode and therefore always chmods it. Feeding
+// it the same constant 0644 would silently strip +x off every script it
+// touched -- a regression that shows up as "the build script stopped running"
+// with nothing pointing back at the write.
+func WriteFilePreservingMode(path string, data []byte, fallback os.FileMode) error {
+	perm := fallback
+	if info, err := os.Stat(path); err == nil {
+		perm = info.Mode().Perm()
+	}
+	return WriteFile(path, data, perm)
+}

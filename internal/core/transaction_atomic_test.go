@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"codenerd/internal/atomicfile"
 )
 
 // The transaction manager exists to give a multi-file edit all-or-nothing
@@ -31,7 +33,7 @@ func TestTransactionWritePreservesMode(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	if err := writeFileAtomicPreservingMode(script, []byte("#!/bin/sh\necho new\n")); err != nil {
+	if err := atomicfile.WriteFilePreservingMode(script, []byte("#!/bin/sh\necho new\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -62,7 +64,7 @@ func TestTransactionWriteDefaultsModeForANewFile(t *testing.T) {
 	dir := t.TempDir()
 	created := filepath.Join(dir, "new.go")
 
-	if err := writeFileAtomicPreservingMode(created, []byte("package x\n")); err != nil {
+	if err := atomicfile.WriteFilePreservingMode(created, []byte("package x\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	info, err := os.Stat(created)
@@ -95,7 +97,7 @@ func TestTransactionWriteReplacesTheInodeRatherThanTruncating(t *testing.T) {
 	// Deliberately larger than the original: a truncate-then-write interrupted
 	// midway cannot fit back what it has already destroyed.
 	replacement := []byte("package replacement\n// " + strings.Repeat("x", 8192) + "\n")
-	if err := writeFileAtomicPreservingMode(path, replacement); err != nil {
+	if err := atomicfile.WriteFilePreservingMode(path, replacement, 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -120,7 +122,7 @@ func TestTransactionWriteLeavesNoTempFilesBeside(t *testing.T) {
 	path := filepath.Join(dir, "source.go")
 
 	for i := 0; i < 5; i++ {
-		if err := writeFileAtomicPreservingMode(path, []byte("package x\n")); err != nil {
+		if err := atomicfile.WriteFilePreservingMode(path, []byte("package x\n"), 0o644); err != nil {
 			t.Fatalf("write %d: %v", i, err)
 		}
 	}

@@ -362,3 +362,78 @@ func TestOpen_ReadsTheCurrentContents(t *testing.T) {
 		t.Errorf("an open reader saw %q after a replacement, want the contents it opened", got)
 	}
 }
+
+func TestWriteFilePreservingMode_KeepsAnExecutableBit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no POSIX mode bits")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "build.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho old\n"), 0o755); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// This is the whole reason the helper exists. os.WriteFile applies its perm
+	// only when it CREATES the file, so every caller passing a constant 0644
+	// has been preserving +x by accident of the API. WriteFile always creates a
+	// new inode and always chmods, so the same constant would strip it -- a
+	// regression that surfaces as "the build script stopped running", with
+	// nothing pointing back at the write.
+	if err := WriteFilePreservingMode(script, []byte("#!/bin/sh\necho new\n"), 0o644); err != nil {
+		t.Fatalf("WriteFilePreservingMode: %v", err)
+	}
+
+	info, err := os.Stat(script)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Errorf("mode = %o, want 0755 — the executable bit was stripped", got)
+	}
+}
+
+func TestWriteFilePreservingMode_UsesTheFallbackForANewFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no POSIX mode bits")
+	}
+	dir := t.TempDir()
+	created := filepath.Join(dir, "new.go")
+
+	if err := WriteFilePreservingMode(created, []byte("package x\n"), 0o600); err != nil {
+		t.Fatalf("WriteFilePreservingMode: %v", err)
+	}
+	info, err := os.Stat(created)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("mode = %o for a new file, want the fallback 0600", got)
+	}
+}
+
+func TestWriteFilePreservingMode_IsStillAtomic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "source.go")
+	original := []byte("package original\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+
+	// Preserving the mode must not have cost the atomicity: the point of
+	// routing the agent's file edits through here is that an interrupted write
+	// leaves the previous file intact rather than a truncated one.
+	if err := WriteFilePreservingMode(path, []byte("package replacement\n"+strings.Repeat("x", 4096)), 0o644); err != nil {
+		t.Fatalf("WriteFilePreservingMode: %v", err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after: %v", err)
+	}
+	if runtime.GOOS != "windows" && os.SameFile(before, after) {
+		t.Error("the write went through the existing inode")
+	}
+}

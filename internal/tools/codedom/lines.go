@@ -3,10 +3,10 @@ package codedom
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/tactile"
@@ -128,7 +128,7 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 
 	// Write back
 	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
-	if err := os.WriteFile(path, []byte(output), 0644); err != nil {
+	if err := atomicfile.WriteFilePreservingMode(path, []byte(output), 0o644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -366,7 +366,7 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 
 	// Write back
 	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
-	if err := os.WriteFile(path, []byte(output), 0644); err != nil {
+	if err := atomicfile.WriteFilePreservingMode(path, []byte(output), 0o644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -471,7 +471,7 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 
 	// Write back
 	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
-	if err := os.WriteFile(path, []byte(output), 0644); err != nil {
+	if err := atomicfile.WriteFilePreservingMode(path, []byte(output), 0o644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 )
 
@@ -226,7 +227,7 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 		content = normalizeLineEnding(content, ending)
 	}
 
-	err = os.WriteFile(path, []byte(content), 0644)
+	err = atomicfile.WriteFilePreservingMode(path, []byte(content), 0o644)
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Failed to write file %s: %v", path, err)
 		return ActionResult{
@@ -311,7 +312,7 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 	// it was just read — so this branch always applies.
 	newFileContent = normalizeLineEnding(newFileContent, originalEnding)
 
-	err = os.WriteFile(path, []byte(newFileContent), 0644)
+	err = atomicfile.WriteFilePreservingMode(path, []byte(newFileContent), 0o644)
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Failed to write edited file %s: %v", path, err)
 		return ActionResult{
