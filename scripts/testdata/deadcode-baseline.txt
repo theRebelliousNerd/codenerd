@@ -160,6 +160,7 @@ internal/autopoiesis/thunderdome.go	Thunderdome.generateTestHarness
 internal/autopoiesis/tool_compiler.go	extractFunctionBody
 internal/autopoiesis/tool_templates.go	extractJSONFromTemplate
 internal/autopoiesis/yaegi_executor.go	NewYaegiExecutor
+internal/broker/default.go	Meter.Calibrator
 internal/browser/contract_audit_report.go	BuildAuditReport
 internal/browser/contract_audit_report.go	ResumeAuditEvidence
 internal/browser/contract_audit_report.go	auditReportRelativePath
@@ -202,9 +203,7 @@ internal/config/ux.go	DefaultUIConfig
 internal/context/compressor.go	NewCompressorWithConfig
 internal/context/compressor_turns.go	Compressor.generateSimpleSummary
 internal/context/compressor_turns.go	Compressor.generateSummary
-internal/context/tokens.go	CharsPerTokenEstimator.EstimateTokens
 internal/context/tokens.go	EstimateCompressionRatio
-internal/context/tokens.go	NewTokenCounterWithEstimator
 internal/context/types.go	NewConfigWithBudget
 internal/core/action_validator.go	Aggregate
 internal/core/action_validator.go	HighestConfidence

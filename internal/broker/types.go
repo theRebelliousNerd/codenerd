@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -156,9 +157,6 @@ const (
 	// The broker fails closed here: a budget that cannot be checked is a budget
 	// that is not enforced.
 	DecisionCountUnavailable DecisionCode = "count_unavailable"
-	// DecisionConfidenceTooLow means the caller required an exact count and the
-	// counter could only estimate.
-	DecisionConfidenceTooLow DecisionCode = "confidence_too_low"
 )
 
 // Decision is the result of an admission check.
@@ -220,9 +218,20 @@ func (e *AdmissionError) Error() string {
 		e.Decision.Count.Tokens, e.Decision.Window, e.Decision.Headroom)
 }
 
-// IsAdmissionError reports whether err is a broker refusal, for callers that
-// want to degrade rather than fail.
+// Unwrap lets errors.As find an AdmissionError through a wrapping chain.
+func (e *AdmissionError) Unwrap() error { return nil }
+
+// IsAdmissionError reports whether err is, or wraps, a broker refusal.
+//
+// errors.As rather than a type assertion: a refusal raised inside perception
+// reaches the caller as "observation failed: %w", and a bare assertion answers
+// false for every path a refusal actually travels. The function existed to let
+// a caller present a refusal as the specific thing it is, and it could not have
+// worked on any real error.
 func IsAdmissionError(err error) (*AdmissionError, bool) {
-	ae, ok := err.(*AdmissionError)
-	return ae, ok
+	var ae *AdmissionError
+	if errors.As(err, &ae) {
+		return ae, true
+	}
+	return nil, false
 }

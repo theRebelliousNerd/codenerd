@@ -93,6 +93,12 @@ the work they gate begins.
 
 - Raise broker coverage from 76.5%; the gaps are in `default.go` reconfiguration
   paths and the rarely-taken degradation branches.
+- ~~Speculative broker surface~~ — **removed.** `Meter.Calibrator`,
+  `Meter.Receipts`, `Meter.Reconciler`, `Meter.Drift`, `Meter.PrimaryModel` and
+  `ReceiptFunc` had no production caller: the readout reads the workspace log,
+  because a `nerd meter` invocation is a different process from the agent that
+  spent the tokens, so the in-process getters had nothing to serve. The repo's
+  own `scripts/deadcode-budget.sh` is what surfaced them.
 - ~~Configure a compression purpose budget~~ — **moot; see Q6.** The compressor
   makes no LLM calls: `Compressor.generateSummary` is its only call site and is
   dead, replaced by kernel-driven observation masking. Compression costs zero

@@ -149,7 +149,7 @@ func (c *core) admit(ctx context.Context, req *Request) (Receipt, *AdmissionErro
 		return receipt, &AdmissionError{Decision: receipt.Decision, Purpose: purpose}
 	}
 
-	decision := c.cfg.Ledger.Admit(purpose, count, RequiresExact(ctx))
+	decision := c.cfg.Ledger.Admit(purpose, count)
 	receipt.Estimated = count
 	receipt.Decision = decision
 

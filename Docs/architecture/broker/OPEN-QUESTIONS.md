@@ -122,6 +122,23 @@ Today a refused request returns an `AdmissionError` and the turn fails. The
 alternative is to shed context and retry automatically — which is friendlier and
 also a silent quality change the user never sees.
 
-Current position: fail loudly. Shedding context invisibly is how a system stops
-being trustworthy. Revisit when the task graph can tell the difference between
-evidence that is safe to drop and evidence that is load-bearing.
+Current position: fail loudly, but *legibly*. Shedding context invisibly is how
+a system stops being trustworthy. Revisit when the task graph can tell the
+difference between evidence that is safe to drop and evidence that is
+load-bearing.
+
+**Failing loudly is not the same as failing opaquely**, and it used not to be
+legible at all. `IsAdmissionError` compared the outermost type, so it answered
+false for a refusal wrapped as `observation failed: %w` — which is every path a
+refusal actually travels. It now uses `errors.As`, and the chat surface
+translates a refusal into what happened, what it cost (nothing), and what to do,
+keeping the counted figures because an exact count is the difference between a
+diagnosis and a guess.
+
+**Removed along the way**: `WithRequireExact`, an opt-in that made the ledger
+refuse a request it could only estimate. No caller anywhere set it, so the check
+could only ever be skipped, and a safety property nothing can switch on is
+decoration. Confidence is still carried on every `Count` and every `Receipt`, so
+a measurement is still distinguishable from a guess after the fact. The
+pre-flight refusal comes back with its first real caller rather than ahead of
+one.

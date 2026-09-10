@@ -227,7 +227,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		m.err = msg
+		// A broker refusal means the turn never reached a provider. Presenting
+		// it as an ordinary failure sends the reader looking for a network or
+		// model problem that is not there.
+		m.err = explainAdmissionError(msg)
 		m.showError = true
 		m.focusError = false
 		m.refreshErrorViewport()

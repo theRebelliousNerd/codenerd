@@ -63,8 +63,6 @@ type counts struct {
 	failure int
 }
 
-func (c counts) total() int { return c.success + c.failure }
-
 // CoUseRecorder accumulates which atoms are selected together, split by the
 // outcome of the turn the selection was made for.
 //
@@ -239,47 +237,4 @@ func bump(c *counts, outcome Outcome) {
 		return
 	}
 	c.success++
-}
-
-// Pending reports how many turns are still awaiting an outcome, and how many
-// selections were evicted before one arrived.
-func (r *CoUseRecorder) Pending() (waiting, dropped int) {
-	if r == nil {
-		return 0, 0
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return len(r.pending), r.dropped
-}
-
-// Unattributed reports how many selections arrived with no turn identity and
-// could therefore never be settled.
-func (r *CoUseRecorder) Unattributed() int {
-	if r == nil {
-		return 0
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.unattributed
-}
-
-// Reset clears all tallies. Used between measurement runs.
-func (r *CoUseRecorder) Reset() {
-	if r == nil {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.selections = counts{}
-	r.atoms = make(map[string]*counts)
-	r.pairs = make(map[pairKey]*counts)
-	r.pending = make(map[string][][]string)
-	r.order = nil
-	r.dropped = 0
-	r.unattributed = 0
-	r.truncated = false
-
-	r.catMu.Lock()
-	r.categories = nil
-	r.catMu.Unlock()
 }

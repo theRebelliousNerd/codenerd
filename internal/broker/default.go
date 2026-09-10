@@ -152,21 +152,6 @@ func (m *Meter) Ledger() *Ledger {
 	return m.ledger
 }
 
-// Calibrator returns the meter's shared calibrator.
-func (m *Meter) Calibrator() *Calibrator {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.calibrator
-}
-
-// Receipts returns the buffered receipts, oldest first.
-func (m *Meter) Receipts() []Receipt {
-	m.mu.RLock()
-	ring := m.ring
-	m.mu.RUnlock()
-	return ring.Receipts()
-}
-
 // ProviderCreds is what a counter needs to reach a provider's counting
 // endpoint. Providers with no such endpoint leave it zero and get the
 // calibrating estimator.
@@ -175,6 +160,23 @@ type ProviderCreds struct {
 	Model    string
 	APIKey   string
 	BaseURL  string
+}
+
+// Calibrator returns the meter's shared calibrator.
+//
+// Exported for one reason worth stating: internal/context's token counter is
+// built from this calibrator, and the property that a ratio learned here
+// reaches a counter already handed out -- without reconstructing it, since the
+// compressor holds one counter for a whole session -- is only checkable by
+// feeding an observation in from outside the package.
+//
+// scripts/deadcode-budget.sh reports it unreachable because its only caller is
+// a test in another package, which production-reachability analysis does not
+// follow. It is recorded in the baseline for that reason rather than deleted.
+func (m *Meter) Calibrator() *Calibrator {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.calibrator
 }
 
 // CounterFor returns the strongest counter available for the given provider.
@@ -214,13 +216,3 @@ func (m *Meter) ConfigFor(creds ProviderCreds) Config {
 		Reconciler: reconciler,
 	}
 }
-
-// Reconciler returns the meter's drift tracker.
-func (m *Meter) Reconciler() *Reconciler {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.reconciler
-}
-
-// Drift reports per-model estimated-versus-billed divergence, worst first.
-func (m *Meter) Drift() []ModelDrift { return m.Reconciler().Drift() }

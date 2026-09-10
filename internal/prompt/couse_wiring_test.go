@@ -93,9 +93,8 @@ func TestCompileRecordsOnCacheHitsToo(t *testing.T) {
 		}
 	}
 
-	waiting, _ := rec.Pending()
-	if waiting != 1 {
-		t.Fatalf("pending turns = %d, want 1", waiting)
+	if got := rec.Report(DefaultCoUseParams(), nil).PendingTurns; got != 1 {
+		t.Fatalf("pending turns = %d, want 1", got)
 	}
 
 	rec.Settle("turn-1", OutcomeSuccess)
@@ -131,11 +130,13 @@ func TestCompileWithoutATurnIdIsCountedNotHidden(t *testing.T) {
 	// but a large count here means a whole class of compilations is invisible
 	// to the analysis, which is a wiring gap rather than an absence of
 	// clustering. It must show up as a number.
-	if got := rec.Unattributed(); got != 1 {
-		t.Fatalf("unattributed = %d, want 1", got)
+	rep := rec.Report(DefaultCoUseParams(), nil)
+	if rep.UnattributedSelections != 1 {
+		t.Fatalf("unattributed = %d, want 1", rep.UnattributedSelections)
 	}
-	if waiting, _ := rec.Pending(); waiting != 0 {
-		t.Fatalf("pending = %d, want 0 — an untagged selection must not sit in the queue forever", waiting)
+	if rep.PendingTurns != 0 {
+		t.Fatalf("pending = %d, want 0 — an untagged selection must not sit in the queue forever",
+			rep.PendingTurns)
 	}
 }
 

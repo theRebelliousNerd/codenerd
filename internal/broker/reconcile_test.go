@@ -152,7 +152,7 @@ func TestBrokerFeedsTheReconcilerFromRealCalls(t *testing.T) {
 		}
 	}
 
-	drift := meter.Drift()
+	drift := meter.reconciler.Drift()
 	if len(drift) == 0 {
 		t.Fatal("the reconciler saw no calls; the settle path is not feeding it")
 	}

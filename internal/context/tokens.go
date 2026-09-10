@@ -42,12 +42,6 @@ func NewTokenCounter() *TokenCounter {
 	return &TokenCounter{estimator: broker.Default().TextCounter("")}
 }
 
-// NewTokenCounterForModel returns a counter bound to a specific model, for
-// callers sizing content destined for something other than the main model.
-func NewTokenCounterForModel(model string) *TokenCounter {
-	return &TokenCounter{estimator: broker.Default().TextCounter(model)}
-}
-
 // CountString estimates tokens in a string.
 func (tc *TokenCounter) CountString(s string) int {
 	if s == "" {

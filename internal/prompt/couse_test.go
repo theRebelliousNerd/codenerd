@@ -409,17 +409,14 @@ func TestUnsettledTurnsAreDisclosedNotDiscarded(t *testing.T) {
 		r.Observe(fmt.Sprintf("t%d", i), []string{"A", "B"})
 	}
 
-	waiting, dropped := r.Pending()
-	if waiting != maxPendingTurns {
-		t.Fatalf("waiting = %d, want %d", waiting, maxPendingTurns)
-	}
-	if dropped != 7 {
-		t.Fatalf("dropped = %d, want 7", dropped)
-	}
-
 	rep := r.Report(DefaultCoUseParams(), nil)
-	if rep.PendingTurns != maxPendingTurns || rep.DroppedSelections != 7 {
-		t.Fatalf("report hides its own gaps: pending=%d dropped=%d", rep.PendingTurns, rep.DroppedSelections)
+	if rep.PendingTurns != maxPendingTurns {
+		t.Fatalf("pending = %d, want %d", rep.PendingTurns, maxPendingTurns)
+	}
+	// A report that does not disclose its own gaps invites its sample size to
+	// be read as larger than it is.
+	if rep.DroppedSelections != 7 {
+		t.Fatalf("dropped = %d, want 7", rep.DroppedSelections)
 	}
 }
 
@@ -455,30 +452,16 @@ func TestFailedTurnsAreTalliedSeparately(t *testing.T) {
 	}
 }
 
-func TestResetClears(t *testing.T) {
-	r := NewCoUseRecorder()
-	feed(r, 20, func(i int) []string { return []string{"A", "B"} })
-	r.Observe("pending", []string{"C"})
-	r.Reset()
-
-	rep := r.Report(DefaultCoUseParams(), nil)
-	if rep.SuccessSelections != 0 || rep.DistinctAtoms != 0 || len(rep.Pairs) != 0 {
-		t.Fatalf("reset left state behind: %+v", rep)
-	}
-	if waiting, dropped := r.Pending(); waiting != 0 || dropped != 0 {
-		t.Fatalf("reset left %d pending / %d dropped", waiting, dropped)
-	}
-}
-
 func TestNilRecorderIsInert(t *testing.T) {
 	// The recorder is optional wiring; a nil one must be safe to call so that
 	// disabling measurement never becomes a crash.
 	var r *CoUseRecorder
 	r.Observe("t", []string{"A"})
 	r.Settle("t", OutcomeSuccess)
-	r.Reset()
-	if w, d := r.Pending(); w != 0 || d != 0 {
-		t.Fatalf("nil recorder reported %d/%d", w, d)
+	r.ObserveAtoms("t", []*PromptAtom{{ID: "A"}})
+	r.SetLog(nil)
+	if r.Categories() != nil {
+		t.Fatal("nil recorder handed out a category lookup")
 	}
 	if rep := r.Report(DefaultCoUseParams(), nil); rep.SuccessSelections != 0 {
 		t.Fatalf("nil recorder produced a report: %+v", rep)
@@ -540,7 +523,6 @@ func TestRecorderIsSafeUnderConcurrency(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < 50; i++ {
 				_ = r.Report(DefaultCoUseParams(), nil)
-				_, _ = r.Pending()
 			}
 		}()
 	}

@@ -60,13 +60,6 @@ func (t *TextCounter) Ratio() float64 {
 	return ratio
 }
 
-// PrimaryModel returns the meter's primary model.
-func (m *Meter) PrimaryModel() string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.primaryModel
-}
-
 // PromptBudget returns the token allowance for assembling a system prompt,
 // as a share of the window the ledger is actually enforcing.
 //
