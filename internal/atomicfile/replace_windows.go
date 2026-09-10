@@ -21,6 +21,8 @@ var (
 	errorSharingViolate  = syscall.Errno(32)
 	errorLockViolation   = syscall.Errno(33)
 	errorUserMappedFile  = syscall.Errno(1224)
+	errorFileNotFound    = syscall.Errno(2)
+	errorPathNotFound    = syscall.Errno(3)
 	replaceRetryAttempts = 10
 )
 
@@ -51,11 +53,25 @@ var (
 //     surfaced as a failed write. The retry is bounded: a handle that is held
 //     open indefinitely is a real error and must be reported as one, not
 //     waited on forever.
+//
+//  3. Which mechanism applies cannot be decided in advance. This used to stat
+//     the destination and branch on the answer, which is stale the instant it
+//     returns: with several writers racing on a path that starts absent, some
+//     take MoveFileEx and others take ReplaceFileW, and the two then run
+//     against one destination at the same time. ReplaceFileW is delete-then-
+//     rename internally, so an interleaving exists where it removes the
+//     destination and then cannot put anything back — and the path ends up
+//     with NO file at all, which is the one outcome an atomic write must never
+//     produce. It is also the outcome least likely to be noticed, because the
+//     next writer simply creates it again.
+//
+//     So there is no stat. ReplaceFileW is attempted first and os.Rename is
+//     the fallback for the one error that means "there is nothing here to
+//     replace". That reads the state at the moment of the call rather than
+//     some moment before it, and it self-corrects: if two writers both find
+//     the destination missing and one wins the rename, the other's next
+//     attempt sees a destination and replaces it.
 func replaceExisting(src, dst string) error {
-	if _, err := os.Stat(dst); err != nil {
-		return os.Rename(src, dst)
-	}
-
 	clearedReadOnly := false
 	replaced := false
 	backoff := time.Millisecond
@@ -70,6 +86,23 @@ func replaceExisting(src, dst string) error {
 		lastErr = err
 
 		switch {
+		case errors.Is(err, errorFileNotFound), errors.Is(err, errorPathNotFound):
+			// Nothing to replace: a first write, or another writer's replace
+			// deleted the destination a moment ago. Rename creates it.
+			//
+			// A failure here is not fatal on its own -- the most likely cause
+			// is that someone else created the destination in between, and the
+			// next attempt will find it and replace it properly.
+			if renameErr := os.Rename(src, dst); renameErr == nil {
+				replaced = true
+				return nil
+			} else {
+				lastErr = renameErr
+				time.Sleep(backoff)
+				if backoff < 50*time.Millisecond {
+					backoff *= 2
+				}
+			}
 		case errors.Is(err, errorSharingViolate),
 			errors.Is(err, errorLockViolation),
 			errors.Is(err, errorUserMappedFile):

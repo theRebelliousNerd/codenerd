@@ -126,7 +126,15 @@ func TestWriteFile_WhenWritersRaceOnOnePath_ShouldNotInterleave(t *testing.T) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
+		// A MISSING file here is the worst outcome this package can produce and
+		// the least likely to be noticed, because the next writer just creates
+		// it again. It caught a real one on Windows: replaceExisting used to
+		// pick between MoveFileEx and ReplaceFileW by stat'ing the destination,
+		// which is stale the instant it returns, so racing writers ran both
+		// mechanisms against one path at once -- and ReplaceFileW is
+		// delete-then-rename inside, so one interleaving removed the file and
+		// could not put anything back.
+		t.Fatalf("no file at all after %d racing writers: %v", 16, err)
 	}
 	var got map[string]any
 	if err := json.Unmarshal(data, &got); err != nil {
