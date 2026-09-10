@@ -281,6 +281,35 @@ a writer, and no wire between them.
   Still missing from the profile: continuation modes, compaction, reminder
   placement. Those are Phase 4 inputs but not break-even inputs.
 
+- **The assembled order is measured, and it is inverted for two of three
+  sections.** This line already names the lever — "a stable skeleton ahead of
+  the volatile JIT selection ahead of the file context" — so here is what the
+  code does today, so Phase 4 starts from fact rather than from the sentence.
+
+  `internal/session/executor.go` builds the system prompt as:
+
+      compileResult.Prompt            JIT-selected atoms, varies every turn
+    + projectDoc.PromptSection()      stable for the life of the project
+    + fileContext.PromptSection(t)    per-file, the most volatile part
+
+  Both helpers append (`systemPrompt + "\n\n" + section`), so the ordering is
+  volatile, stable, most-volatile. A prefix cache matches a prefix: everything
+  after the first differing byte is uncacheable, so the project doc — identical
+  on every turn in a project, and the one section that could anchor a prefix —
+  is stranded behind the JIT selection and can never be part of one. The file
+  context being last is already right.
+
+  **Deliberately not reordered here.** Where an instruction sits in a prompt
+  changes how strongly a model follows it, and moving the project's own
+  instructions ahead of the JIT selection is a change to behaviour, not a
+  change to encoding. It wants an eval, not a commit. The measurement is the
+  contribution; the decision is Phase 4's.
+
+  The same applies inside `compileResult.Prompt`: the assembler's category
+  order decides how much of the prompt is stable-prefix, and identity, protocol
+  and safety are the categories that hold still across turns. Whether they lead
+  today has not been measured and should be, in the same pass.
+
 ## Later — gated
 
 - Phase 4 economic rebasing. Preconditions: Gate A passed, Phase 3 landed,
