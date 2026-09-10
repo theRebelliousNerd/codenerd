@@ -320,8 +320,8 @@ a writer, and no wire between them.
 ## Then — Phase 3, provider fidelity
 
 - ~~`types.Message` must carry ordered native content blocks, signatures, ids and
-  continuation references losslessly, across all seven adapters.~~ — **the
-  representation and the adapters are built; one call site still flattens.**
+  continuation references losslessly, across all seven adapters.~~ — **built,
+  and the loop that feeds them no longer flattens.**
 
   `types.ContentBlock` is the ordered content — text, thinking with its
   signature, tool_use with its id, tool_result with the id it answers — and it
@@ -384,12 +384,33 @@ a writer, and no wire between them.
   Phase 4 input: a break-even that ignores it will over-estimate what a Chat
   Completions surface is worth caching.
 
-  **What is left is one call site.** `internal/session/executor_tools.go`
-  rebuilds the assistant turn as `types.Message{Role: "assistant", Text: ...,
-  ToolCalls: ...}`, which is the literal that drops the order and the
-  signature. `types.AssistantMessageFrom(resp)` is the replacement and is
-  already used by the two `cmd/` tool loops. Until the session loop calls it,
-  every adapter is lossless and the loop feeding them is not.
+  **The last flattening call site is converted.**
+  `internal/session/executor_tools.go` built each assistant turn as
+  `types.Message{Role: "assistant", Text: ..., ToolCalls: ...}` — the literal
+  that drops the order and the signature — at three sites, all now
+  `types.AssistantMessageFrom`. Two things had to move with it, and neither was
+  the one this line predicted.
+
+  **`LLMToolResponse` is the one settable-both-ways type in the design**, and
+  three post-parse edits were writing only the flat half. Piggyback promotion
+  is the sharp one: it reads a control envelope out of the prose and turns it
+  into tool calls, writing `Text` and `ToolCalls` and leaving the blocks
+  holding the original envelope with no tool_use. `AssistantMessageFrom`
+  prefers blocks, so a block-carrying response would have gone into history as
+  an assistant turn claiming it called nothing, followed by a user turn
+  answering calls that are not in the transcript. The two `ToolCalls = nil`
+  sites were the same half-change in reverse. All three now go through
+  `Rewrite` / `ClearToolCalls`, which move both views and keep thinking blocks
+  in front, since their signatures cannot be regenerated.
+
+  **The transcript bound had to become block-aware.** `boundToolLoopHistory`
+  shrinks old tool results by assigning `ToolResults`, which on a block-built
+  message changes only the projection: `Content()` still returns the full
+  payload and the bound silently stops holding. The tool-RESULT turns are still
+  flat literals, so this was latent — and it stopped being safe to leave latent
+  the moment assistant turns became block-built, because the next person to
+  convert the user turns closes the loop. `Message.WithToolResults` rewrites
+  both views and both bounding paths use it.
 - Provider profile: supported continuation modes, compaction, reminder
   placement, **and cache economics** (write penalty ÷ read discount), so Phase 4's
   break-even is derived per provider rather than hard-coded.
