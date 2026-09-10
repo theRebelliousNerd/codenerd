@@ -1,6 +1,7 @@
 package prompt_evolution
 
 import (
+	"sort"
 	"sync"
 
 	"context"
@@ -42,7 +43,23 @@ func (pc *ProblemClassifier) Classify(taskRequest string) (ProblemType, float64)
 	maxScore := 0.0
 	maxType := ProblemDebugging // Default
 
-	for problemType, patterns := range pc.patterns {
+	// Sorted, because a tie must not be settled by Go's randomised map
+	// iteration. Two categories matching the same fraction of their patterns is
+	// ordinary — the keyword sets overlap by design — and the classification
+	// chosen here drives prompt evolution, so a coin flip means the same task
+	// trains two different lessons on two runs.
+	//
+	// Alphabetical is arbitrary and the default below (ProblemDebugging) still
+	// wins when nothing scores. What matters is that the answer is fixed: a
+	// stable misclassification can be found and corrected, a varying one cannot.
+	types := make([]ProblemType, 0, len(pc.patterns))
+	for problemType := range pc.patterns {
+		types = append(types, problemType)
+	}
+	sort.Slice(types, func(i, j int) bool { return string(types[i]) < string(types[j]) })
+
+	for _, problemType := range types {
+		patterns := pc.patterns[problemType]
 		score := 0.0
 		for _, pattern := range patterns {
 			if pattern.MatchString(normalized) {

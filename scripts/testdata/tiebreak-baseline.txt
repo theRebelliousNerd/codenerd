@@ -1,0 +1,11 @@
+# Selections whose winner depends on iteration order — a loop ranging key and
+# value that records the KEY as a running best inside an inequality.
+#
+# Over a map that is a coin flip: Go randomises map iteration, so a tie is
+# broken by whichever key the runtime reached first. See cmd/tools/audit_tiebreak
+# for the five live instances this was written after, and for why the check
+# cannot tell a map from a slice — a legitimate slice case belongs here, with
+# its reason in the commit that adds it.
+#
+# Regenerate: go run ./cmd/tools/audit_tiebreak -update
+# Format: package<TAB>function<TAB>range key

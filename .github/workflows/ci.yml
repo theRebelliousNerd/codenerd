@@ -90,6 +90,25 @@ jobs:
       # says /delete_file is gated behind a permission nothing asserts, the
       # other that policy never emits /research. Both are capability
       # questions for a person, not drift a gate should decide.
+      # A loop that ranges key and value and records the KEY as a running best
+      # inside an inequality. Over a map that is a coin flip — Go randomises
+      # iteration deliberately, so a tie is settled by whichever key the
+      # runtime reached first, and the program answers differently on
+      # different runs with nothing to explain it.
+      #
+      # Five were live here, none cosmetic: which file the fixer is sent to,
+      # the workspace's primary language in two separate scans (which decides
+      # the build and test commands the agent reaches for), the most common
+      # decision per topic recorded as a LEARNED preference, and a task's
+      # problem category which drives prompt evolution. All five now sort
+      # first. The baseline is empty and the gate holds it there.
+      #
+      # It works on syntax with no type information, so it cannot tell a map
+      # from a slice; a legitimate slice case is recorded in the baseline with
+      # its reason. That limit is in the tool's doc rather than left to be
+      # discovered.
+      - name: Tie-break determinism
+        run: go run ./cmd/tools/audit_tiebreak
       - name: Action drift linter
         run: go run ./cmd/tools/action_linter -mg-root internal/core/defaults -virtual-store internal/core/virtual_store_types.go
       # predicate_corpus.db is generated from the .mg corpus and embedded into
