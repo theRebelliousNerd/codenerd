@@ -57,6 +57,7 @@ cmd/nerd/cmd_campaign.go	campaignLLMAdapter.CompleteWithStreaming
 cmd/nerd/cmd_campaign.go	campaignLLMAdapter.CompleteWithSystem
 cmd/nerd/cmd_campaign.go	campaignLLMAdapter.CompleteWithToolResults
 cmd/nerd/cmd_campaign.go	campaignLLMAdapter.CompleteWithTools
+cmd/nerd/cmd_campaign.go	campaignLLMAdapter.Unwrap
 cmd/nerd/cmd_campaign.go	campaignTaskDelegatorAdapter.Execute
 cmd/nerd/cmd_campaign.go	campaignVirtualStoreAdapter.Exec
 cmd/nerd/cmd_campaign.go	campaignVirtualStoreAdapter.PreflightDestructiveToolCall

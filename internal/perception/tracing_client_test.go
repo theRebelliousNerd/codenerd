@@ -371,14 +371,21 @@ func TestTracingLLMClient_CompleteWithTools(t *testing.T) {
 	}
 }
 
-func TestTracingLLMClient_GetUnderlying(t *testing.T) {
+// Unwrap is what broker.Walk uses to reach past this decorator, so it is the
+// one that has to hand back exactly what was wrapped: Base's callers assert on
+// the concrete type of what comes out.
+//
+// This replaced GetUnderlying, which returned the same value and had no
+// production caller left once the /model walk stopped switching on decorator
+// types by name. Two methods doing one job is how they drift.
+func TestTracingLLMClient_Unwrap(t *testing.T) {
 	underlying := &mockTracingLLMClient{response: "test"}
 	client := NewTracingLLMClient(underlying, nil)
 
-	result := client.GetUnderlying()
+	result := client.Unwrap()
 
 	if result != underlying {
-		t.Error("GetUnderlying did not return underlying client")
+		t.Error("Unwrap did not return the client that was wrapped")
 	}
 }
 

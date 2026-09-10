@@ -442,12 +442,6 @@ func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPro
 	return outContent, outErr
 }
 
-// GetUnderlying returns the wrapped LLM client.
-// Use sparingly - prefer going through the tracing wrapper.
-func (tc *TracingLLMClient) GetUnderlying() LLMClient {
-	return tc.underlying
-}
-
 // Unwrap exposes the wrapped client so broker.Base and broker.IsBrokered can
 // walk the decorator chain. Without it this type is opaque to both: Base stops
 // here instead of reaching the concrete client, and IsBrokered reports an
