@@ -17,6 +17,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"codenerd/internal/atomicfile"
 )
 
 // DefaultMaxBytes caps a live log before rotation.
@@ -114,9 +116,15 @@ func (a *Appender) rotateLocked() error {
 	if err := a.file.Close(); err != nil {
 		return err
 	}
-	// Rename rather than truncate, so a reader holding the old file keeps a
+	// Replace rather than truncate, so a reader holding the old file keeps a
 	// consistent view instead of watching its content vanish mid-scan.
-	if err := os.Rename(a.path, a.path+".1"); err != nil && !os.IsNotExist(err) {
+	//
+	// atomicfile.Replace, not os.Rename: on Windows os.Rename maps to
+	// MoveFileEx, which refuses to supersede a destination any process holds
+	// open. A `nerd meter` invocation reading the rotated generation is exactly
+	// such a process, so the second rotation in a workspace someone is watching
+	// would fail -- and fail on the agent's hot path, where this must not.
+	if err := atomicfile.Replace(a.path, a.path+".1"); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 

@@ -340,3 +340,67 @@ func TestNilAppenderFieldsAreSafe(t *testing.T) {
 	}
 	_ = a.Close()
 }
+
+func TestRotatesMoreThanOnce(t *testing.T) {
+	// The second rotation is the one that matters. It replaces an EXISTING
+	// backup, and on Windows os.Rename maps to MoveFileEx, which refuses to
+	// supersede a destination any process holds open -- a `nerd meter`
+	// invocation reading the rotated generation is exactly such a process. The
+	// rotation runs on the agent's hot path, where a failure must not happen,
+	// so it goes through atomicfile.Replace rather than a bare rename.
+	path := tempLog(t)
+	a, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	a.SetMaxBytes(120)
+
+	for i := 0; i < 300; i++ {
+		a.Append(rec{N: i, Text: "rotate-me"})
+	}
+	if n, failErr := a.Failures(); failErr != nil {
+		t.Fatalf("rotation failed %d times: %v", n, failErr)
+	}
+	_ = a.Close()
+
+	got, truncated, err := Read[rec](path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if truncated != 0 {
+		t.Fatalf("truncated = %d after repeated rotation", truncated)
+	}
+	if len(got) == 0 {
+		t.Fatal("repeated rotation lost everything")
+	}
+	if got[len(got)-1].N != 299 {
+		t.Errorf("last record = %d, want 299", got[len(got)-1].N)
+	}
+}
+
+func TestRotationWhileAReaderHoldsTheBackupOpen(t *testing.T) {
+	path := tempLog(t)
+	a, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	a.SetMaxBytes(120)
+
+	// Force one rotation so a backup exists, then hold it open across the next.
+	for i := 0; i < 40; i++ {
+		a.Append(rec{N: i, Text: "first-round"})
+	}
+	reader, err := os.Open(path + ".1")
+	if err != nil {
+		t.Skipf("no backup produced in this environment: %v", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	for i := 40; i < 200; i++ {
+		a.Append(rec{N: i, Text: "second-round"})
+	}
+	if n, failErr := a.Failures(); failErr != nil {
+		t.Fatalf("rotation failed %d times with a reader holding the backup: %v", n, failErr)
+	}
+	_ = a.Close()
+}
