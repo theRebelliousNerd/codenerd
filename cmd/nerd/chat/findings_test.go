@@ -173,3 +173,46 @@ func TestFindingLineNumberAcceptsEveryShapeItArrivesIn(t *testing.T) {
 		}
 	}
 }
+
+func TestTesterSummaryReadsTheRealOutput(t *testing.T) {
+	// extractShardSummary asserted sr.Metrics["pass"].(int) against a map that
+	// extractMetrics only ever fills with strings, so the counts were always
+	// zero. And the map is never nil, so the branch always fired: a tester's
+	// real output was REPLACED by "0 pass, 0 fail" in the context handed to the
+	// next turn, rather than falling through to the generic summary.
+	sr := &ShardResult{
+		ShardType: "tester",
+		RawOutput: "--- PASS: TestAlpha (0.01s)\n--- PASS: TestBeta (0.00s)\n--- FAIL: TestGamma (0.02s)\nFAIL",
+		Metrics:   map[string]any{},
+	}
+
+	got := extractShardSummary(sr)
+	if !strings.Contains(got, "2 pass") {
+		t.Errorf("summary = %q, want the real pass count", got)
+	}
+	if !strings.Contains(got, "2 fail") && !strings.Contains(got, "1 fail") {
+		t.Errorf("summary = %q, want the real fail count", got)
+	}
+	if strings.HasPrefix(got, "0 pass, 0 fail") {
+		t.Errorf("summary = %q — still reporting zeroes over real output", got)
+	}
+}
+
+func TestTesterSummaryFallsBackWhenOutputIsNotTestResults(t *testing.T) {
+	// A summary that cannot read the output should show what the output said,
+	// not invent counts. Reporting "1 pass" here -- the checkpoint runner's
+	// optimistic convention -- would be a lie in a context window.
+	sr := &ShardResult{
+		ShardType: "tester",
+		RawOutput: "I could not find a test command for this project.",
+		Metrics:   map[string]any{},
+	}
+
+	got := extractShardSummary(sr)
+	if strings.Contains(got, "pass") && strings.Contains(got, "fail") {
+		t.Errorf("summary = %q, want the raw output rather than invented counts", got)
+	}
+	if !strings.Contains(got, "could not find a test command") {
+		t.Errorf("summary = %q, want it to carry the real output", got)
+	}
+}

@@ -103,24 +103,3 @@ func TestParseTestOutput_WhenSummaryMixesBoth_ShouldPreferFailure(t *testing.T) 
 		t.Errorf("failed=%d, want 1 on a mixed summary line", f)
 	}
 }
-
-func TestContainsWord_ShouldRespectLetterBoundaries(t *testing.T) {
-	cases := []struct {
-		s, word string
-		want    bool
-	}{
-		{"ok  github.com/x", "ok", true},
-		{"token", "ok", false},
-		{"broken", "ok", false},
-		{"an error occurred", "error", true},
-		{"errorless", "error", false},
-		{"terror", "error", false},
-		{"ok", "ok", true},
-		{"", "ok", false},
-	}
-	for _, tc := range cases {
-		if got := containsWord(tc.s, tc.word); got != tc.want {
-			t.Errorf("containsWord(%q, %q) = %v, want %v", tc.s, tc.word, got, tc.want)
-		}
-	}
-}

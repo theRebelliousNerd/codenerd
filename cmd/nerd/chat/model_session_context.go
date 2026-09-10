@@ -11,6 +11,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/testoutput"
 	"codenerd/internal/types"
 )
 
@@ -570,11 +571,21 @@ func extractShardSummary(sr *ShardResult) string {
 	if sr.ShardType == "reviewer" && len(sr.Findings) > 0 {
 		return fmt.Sprintf("%d findings", len(sr.Findings))
 	}
-	// For tester: show pass/fail counts
-	if sr.ShardType == "tester" && sr.Metrics != nil {
-		pass, _ := sr.Metrics["pass"].(int)
-		fail, _ := sr.Metrics["fail"].(int)
-		return fmt.Sprintf("%d pass, %d fail", pass, fail)
+	// For tester: show pass/fail counts, read from the output rather than from
+	// the metrics map.
+	//
+	// This used to assert sr.Metrics["pass"].(int) against a map extractMetrics
+	// only ever fills with strings, so the counts were always zero. And because
+	// the map is never nil, the branch always fired -- so a tester's real
+	// output was REPLACED by "0 pass, 0 fail" in the context handed to the next
+	// turn, rather than falling through to the generic summary below.
+	//
+	// Parse, not ParseOptimistic: a summary that cannot read the output should
+	// say what the output said, not invent one pass.
+	if sr.ShardType == "tester" {
+		if counts := testoutput.Parse(sr.RawOutput); counts.Parsed {
+			return fmt.Sprintf("%d pass, %d fail", counts.Passed, counts.Failed)
+		}
 	}
 	// Generic: truncate output
 	return truncateForContext(sr.RawOutput, 100)
