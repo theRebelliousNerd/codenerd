@@ -73,7 +73,11 @@ the work they gate begins.
   each is metered, then drives a refusal end to end to prove a receipt is
   emitted — no API key, no network, no fixture server.
 
-## Next — Phase 1, observation codecs
+## Next — Phase 1, observation codecs — **complete**
+
+All three codecs are built, wired into every live producer, and redeemable
+through a registered read-only verb. What follows records each one and, where
+it matters more than the byte count, the boundary it had to hold.
 
 - ~~Tail-aware test-output codec~~ — **withdrawn.** The claim behind it was
   wrong: `ClampText` was already head+tail. The genuine narrower defect
@@ -344,6 +348,41 @@ a writer, and no wire between them.
   reasoning: an assistant turn has one content string and there is no
   request-side field for a signature. Gemini's Piggyback path and the two CLI
   engines carry no typed blocks at all, by construction.
+
+  **That paragraph is now a table the tests hold to.**
+  `internal/perception/provider_fidelity.go` declares `BlockFidelity`, keyed by
+  request FORMAT rather than by vendor — OpenAI ships two surfaces with
+  different fidelity, which is the distinction a vendor-keyed table loses. Three
+  booleans, all about the REQUEST direction, because reading a response is the
+  easy half and the expensive mistakes are all on the way back in, where a turn
+  the model never produced is handed to it as its own history: `KeepsOrder`,
+  `ReplaysReasoning`, `CarriesToolIDs`.
+
+  Three comments already pointed at this table before it existed — in
+  `internal/types`, in `client_tool_helpers.go` and in `xaioauth` — which is the
+  same reader-with-no-writer shape as everything else on the branch. Prose is
+  where a limit goes to become a claim.
+
+  `provider_fidelity_test.go` runs the four real mappers over one interleaved
+  turn and holds each to its declaration in BOTH directions. A mapper that
+  quietly GAINS a capability fails as loudly as one that loses it: a gain means
+  either the table is wrong and callers are declining to pay for reasoning they
+  could replay, or the mapper is now sending a field the endpoint rejects. Two
+  invariants ride alongside — no surface may drop a tool result, and a surface
+  that cannot replay reasoning must DROP it rather than fold it into the prose,
+  where it would corrupt every structured-output parse downstream.
+
+  `xaioauth` is probed from an external test package, which is the only seam
+  that reaches it: the mapper is unexported and lives in a package
+  `internal/perception` imports, so `xaioauth_test` importing
+  `internal/perception` is the one direction that does not cycle. It is a
+  hand-copied Chat Completions clone, and hand-copied clones drift.
+
+  `ReplaysReasoning` is the axis with a bill on it. Where it is false, reasoning
+  is generated fresh every turn of a tool loop and thrown away every turn — the
+  provider bills for it and has no request-side field to take it back. That is a
+  Phase 4 input: a break-even that ignores it will over-estimate what a Chat
+  Completions surface is worth caching.
 
   **What is left is one call site.** `internal/session/executor_tools.go`
   rebuilds the assistant turn as `types.Message{Role: "assistant", Text: ...,
