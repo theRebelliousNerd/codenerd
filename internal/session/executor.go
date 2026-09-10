@@ -2345,9 +2345,10 @@ func (e *Executor) consumeHollowSuccessVerdict(verb string, result *ExecutionRes
 				}
 			}
 			// No per-turn creation matched (stale or scanner-derived fact):
-			// fall through so a leaked fact cannot fail later turns forever.
-			// Cleanup retracts per-turn facts on every path via defer.
-			break
+			// leave the switch without erroring, so a leaked fact cannot fail
+			// later turns forever. Cleanup retracts per-turn facts on every
+			// path via defer. (Go cases do not fall through, so reaching the
+			// end of this one is the exit; the explicit break was a no-op.)
 		default:
 			return newHollowSuccessError("policy blocked hollow completion for intent %s (reason %s)", verb, reason)
 		}

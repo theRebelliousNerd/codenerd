@@ -866,7 +866,7 @@ func initPerceptionLayer(bctx *bootContext) error {
 
 	localDBPath := filepath.Join(bctx.workspace, ".nerd", "knowledge.db")
 	var localDB *store.LocalStore
-	var rawLLMClient perception.LLMClient = baseLLMClient
+	rawLLMClient := baseLLMClient
 	if db, err := store.NewLocalStore(localDBPath); err == nil {
 		localDB = db
 		traceStore := createTraceStoreAdapter(db)

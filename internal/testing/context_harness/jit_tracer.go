@@ -139,7 +139,7 @@ func (t *JITTracer) TraceCompilation(snapshot *CompilationSnapshot) {
 	sb.WriteString(fmt.Sprintf("  Dynamic:          %s tokens (%.1f%%)\n",
 		formatNumber(snapshot.DynamicTokens),
 		percent(snapshot.DynamicTokens, totalUsed)))
-	sb.WriteString(fmt.Sprintf("  ────────────────────────────────\n"))
+	sb.WriteString("  ────────────────────────────────\n")
 	sb.WriteString(fmt.Sprintf("  Total Used:       %s / %s (%.1f%% of budget)\n\n",
 		formatNumber(totalUsed),
 		formatNumber(snapshot.TokenBudget),

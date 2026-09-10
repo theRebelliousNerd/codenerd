@@ -476,9 +476,7 @@ func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest
 		logging.Get(logging.CategoryVirtualStore).Warn("Build failed: %v", err)
 		diagnostics := v.parseBuildDiagnostics(output)
 		logging.VirtualStoreDebug("Parsed %d diagnostics from build output", len(diagnostics))
-		for _, d := range diagnostics {
-			facts = append(facts, d)
-		}
+		facts = append(facts, diagnostics...)
 	} else {
 		logging.VirtualStore("Build succeeded")
 	}

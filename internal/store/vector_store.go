@@ -894,8 +894,7 @@ func (s *LocalStore) GetVectorStats() (map[string]any, error) {
 	s.db.QueryRow("SELECT COUNT(*) FROM vectors WHERE embedding IS NOT NULL").Scan(&withEmbeddings)
 	stats["with_embeddings"] = withEmbeddings
 
-	var withoutEmbeddings int64
-	withoutEmbeddings = totalVectors - withEmbeddings
+	withoutEmbeddings := totalVectors - withEmbeddings
 	stats["without_embeddings"] = withoutEmbeddings
 
 	if s.embeddingEngine != nil {

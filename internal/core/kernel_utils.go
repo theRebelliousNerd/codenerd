@@ -14,9 +14,7 @@ func (k *RealKernel) AssertFact(fact types.Fact) error {
 func (k *RealKernel) AssertFactBatch(facts []types.Fact) error {
 	// Convert to core.Fact slice
 	coreFacts := make([]Fact, len(facts))
-	for i, f := range facts {
-		coreFacts[i] = f
-	}
+	copy(coreFacts, facts)
 	return k.AssertBatch(coreFacts)
 }
 

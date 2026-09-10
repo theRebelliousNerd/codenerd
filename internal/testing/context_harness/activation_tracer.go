@@ -218,7 +218,7 @@ func (t *ActivationTracer) TraceActivation(snapshot *ActivationSnapshot) {
 
 			if t.verbose {
 				// Show score breakdown (8 components)
-				sb.WriteString(fmt.Sprintf("    Score Breakdown:\n"))
+				sb.WriteString("    Score Breakdown:\n")
 				if fa.RecencyScore > 0 {
 					sb.WriteString(fmt.Sprintf("      Recency:     %.3f\n", fa.RecencyScore))
 				}

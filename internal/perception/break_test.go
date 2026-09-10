@@ -750,7 +750,7 @@ func TestBreak_Understanding_NegativeZero_Confidence(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected: -0.0 rejected: %v", err)
 	} else {
-		t.Logf("-0.0 accepted (0 == -0 in Go: %v)", 0.0 == math.Copysign(0, -1))
+		t.Logf("-0.0 accepted (0 == -0 in Go: %v)", math.Copysign(0, -1) == 0.0)
 	}
 }
 

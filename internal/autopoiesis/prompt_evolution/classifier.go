@@ -40,7 +40,7 @@ func (pc *ProblemClassifier) Classify(taskRequest string) (ProblemType, float64)
 	// Score each problem type
 	scores := make(map[ProblemType]float64)
 	maxScore := 0.0
-	var maxType ProblemType = ProblemDebugging // Default
+	maxType := ProblemDebugging // Default
 
 	for problemType, patterns := range pc.patterns {
 		score := 0.0

@@ -34,7 +34,7 @@ func TestScanWorkspace_BlindSpotFix(t *testing.T) {
 		".secret/key.pem":           false,
 	}
 
-	for path, _ := range files {
+	for path := range files {
 		fullPath := filepath.Join(tmpDir, path)
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 			t.Fatal(err)

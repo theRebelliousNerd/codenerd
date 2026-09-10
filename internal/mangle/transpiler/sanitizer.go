@@ -159,7 +159,7 @@ func (s *Sanitizer) transformAtom(atom ast.Atom) ast.Atom {
 				}
 			}
 		}
-		newArgs = append(newArgs, newTerm.(ast.BaseTerm))
+		newArgs = append(newArgs, newTerm)
 	}
 
 	return ast.Atom{
@@ -355,10 +355,7 @@ func (s *Sanitizer) serializeUnit(decls []ast.Decl, clauses []ast.Clause) (strin
 		clauseStr := tempClause.String()
 
 		// Robustly remove trailing period if present
-		clauseStr = strings.TrimSpace(clauseStr)
-		if strings.HasSuffix(clauseStr, ".") {
-			clauseStr = clauseStr[:len(clauseStr)-1]
-		}
+		clauseStr = strings.TrimSuffix(strings.TrimSpace(clauseStr), ".")
 
 		sb.WriteString(clauseStr)
 

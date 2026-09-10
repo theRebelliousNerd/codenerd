@@ -313,7 +313,7 @@ func executeCacheStats(ctx context.Context, args map[string]any) (string, error)
 	}
 
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("Cache Statistics:\n"))
+	result.WriteString("Cache Statistics:\n")
 	result.WriteString(fmt.Sprintf("  Total entries: %d\n", len(cache.entries)))
 	result.WriteString(fmt.Sprintf("  Valid entries: %d\n", validCount))
 	result.WriteString(fmt.Sprintf("  Total size: %d bytes\n", totalSize))
@@ -324,7 +324,7 @@ func executeCacheStats(ctx context.Context, args map[string]any) (string, error)
 	} else {
 		result.WriteString("  Persistent store: disabled (in-memory only)\n")
 	}
-	result.WriteString(fmt.Sprintf("\nBy source:\n"))
+	result.WriteString("\nBy source:\n")
 	for source, count := range sources {
 		result.WriteString(fmt.Sprintf("  %s: %d\n", source, count))
 	}

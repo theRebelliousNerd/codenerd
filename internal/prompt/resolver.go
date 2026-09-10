@@ -346,9 +346,7 @@ func (r *DependencyResolver) DetectCycles(atoms []*PromptAtom) []string {
 			continue
 		}
 		atomSet[atom.ID] = true
-		for _, depID := range atom.DependsOn {
-			graph[atom.ID] = append(graph[atom.ID], depID)
-		}
+		graph[atom.ID] = append(graph[atom.ID], atom.DependsOn...)
 	}
 
 	// DFS with color marking

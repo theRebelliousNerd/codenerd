@@ -433,7 +433,7 @@ func (m *BackgroundObserverManager) processEvent(runCtx context.Context, event O
 func (m *BackgroundObserverManager) buildAssessmentTask(event ObserverEvent, obs *ObserverState) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("ALIGNMENT CHECK REQUEST\n\n"))
+	sb.WriteString("ALIGNMENT CHECK REQUEST\n\n")
 	sb.WriteString(fmt.Sprintf("Event Type: %s\n", event.Type))
 	sb.WriteString(fmt.Sprintf("Source: %s\n", event.Source))
 	sb.WriteString(fmt.Sprintf("Target: %s\n", event.Target))

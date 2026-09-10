@@ -69,7 +69,7 @@ func TestRepairLoop_ValidateAndRepair(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			validAtoms, err, prompt := loop.ValidateAndRepair(tt.atoms)
+			validAtoms, prompt, err := loop.ValidateAndRepair(tt.atoms)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateAndRepair() error = %v, wantErr %v", err, tt.wantErr)

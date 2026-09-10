@@ -426,7 +426,7 @@ func (c *Compressor) refreshBackReferenceContextLocked(getFacts func(pred string
 	// Collect referenced turn IDs
 	referencedTurnsMap := make(map[int]bool)
 	var referencedTurnIDs []int
-	var referenceStrength float64 = 1.0
+	referenceStrength := 1.0
 
 	for _, f := range backRefs {
 		if len(f.Args) >= 2 {

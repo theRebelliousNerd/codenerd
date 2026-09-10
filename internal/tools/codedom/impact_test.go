@@ -46,7 +46,7 @@ func (m *mockAnalyzer) GetImpactedTests(editedRefs []string) []ImpactedTestInfo 
 
 func (m *mockAnalyzer) GetImpactedTestPackages(editedRefs []string) []string {
 	pkgs := make(map[string]bool)
-	for _, _ = range m.impactedTests {
+	for range m.impactedTests {
 		pkgs["codenerd/pkg"] = true
 	}
 	var res []string

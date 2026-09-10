@@ -200,11 +200,10 @@ func TestOllamaEngine_Embed_WhenServerReturns400_ShouldNotRetry(t *testing.T) {
 
 func TestOllamaEngine_Embed_WhenContextCancelled_ShouldReturnError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Slow handler - should be cancelled
-		select {
-		case <-r.Context().Done():
-			return
-		}
+		// Slow handler - should be cancelled. A bare receive, not a select:
+		// with one case and no default they are the same block, and the select
+		// suggests an alternative that does not exist.
+		<-r.Context().Done()
 	}))
 	defer server.Close()
 

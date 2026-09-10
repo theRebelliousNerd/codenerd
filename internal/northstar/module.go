@@ -138,9 +138,7 @@ func ModuleForPath(q FactQuerier, filePath string) (string, error) {
 	}
 	filePath = path.Clean(filepath.ToSlash(filePath))
 	// Remove leading "./" that path.Clean keeps for "."-relative inputs
-	if strings.HasPrefix(filePath, "./") {
-		filePath = strings.TrimPrefix(filePath, "./")
-	}
+	filePath = strings.TrimPrefix(filePath, "./")
 	// Collect candidates from effective_module_purpose (derived) and also from
 	// the base predicates so a fake querier that only provides EDB facts still
 	// works. Deduplicate by module path.

@@ -443,7 +443,7 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 	result := make([]*OrderedAtom, 0, preAlloc)
 	unselected := make([]*OrderedAtom, 0, preAlloc)
 	var usedTokens int64 = 0
-	var atomsIncluded int = 0
+	atomsIncluded := 0
 
 	// Helper to get token count for a mode. Shared with the assembler and the
 	// post-fit stats via tokenCountForMode so emitted text and accounting agree.
@@ -611,7 +611,7 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 	}
 
 	// Second pass: fill remaining budget with best remaining atoms
-	var remaining int64 = int64(availableBudget) - usedTokens
+	remaining := int64(availableBudget) - usedTokens
 	if remaining > 0 && len(unselected) > 0 {
 		// Sort unselected by Score descending
 		sort.SliceStable(unselected, func(i, j int) bool {

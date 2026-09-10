@@ -343,6 +343,11 @@ func TestJITExecutor_ExecuteAsync(t *testing.T) {
 
 	// Check GetResult after completion
 	res, done, err := jitExec.GetResult(taskID)
+	if err != nil {
+		// Discarding this made a GetResult failure surface as a value mismatch
+		// on the next assertion, which points at the wrong thing entirely.
+		t.Fatalf("GetResult after completion: %v", err)
+	}
 	if !done {
 		t.Error("Expected done=true")
 	}
