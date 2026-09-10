@@ -437,3 +437,43 @@ func TestWriteFilePreservingMode_IsStillAtomic(t *testing.T) {
 		t.Error("the write went through the existing inode")
 	}
 }
+
+func TestWriteFile_WhenTheDirectoryIsReadOnly_ShouldFailLoudly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows directory permissions do not gate file creation this way")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: directory mode does not restrict access")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "target")
+	if err := os.WriteFile(path, []byte("old"), 0o666); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatalf("chmod dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	// The documented cost of replacing by rename: this needs write permission
+	// on the directory, where a truncating write needed it only on the file.
+	// The point of the test is that it fails LOUDLY and names the path, rather
+	// than falling back to a non-atomic write, which would defeat the purpose
+	// exactly where durability was hardest to get.
+	err := WriteFile(path, []byte("new"), 0o644)
+	if err == nil {
+		t.Fatal("WriteFile into a read-only directory succeeded")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("error does not name the target path: %v", err)
+	}
+
+	got, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("read: %v", readErr)
+	}
+	if string(got) != "old" {
+		t.Errorf("contents = %q, want the previous copy untouched", got)
+	}
+}

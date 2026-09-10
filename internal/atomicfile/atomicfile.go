@@ -25,6 +25,14 @@ import (
 
 // WriteFile atomically replaces path with data.
 //
+// One cost is worth stating rather than discovering. Replacing by rename needs
+// write permission on the CONTAINING DIRECTORY, where a truncating write needed
+// it only on the file. A file that is writable inside a directory that is not
+// can be updated by os.WriteFile and cannot be updated by this. That
+// combination is unusual -- it means someone made the directory read-only and
+// left a file in it writable -- and the failure is loud and names the path,
+// which is the right trade against silently leaving a half-written file behind.
+//
 // The temp file is created in the destination directory (a rename across
 // filesystems is not atomic and would degrade to copy-then-delete) with a
 // unique name (a shared "<path>.tmp" lets two concurrent writers interleave
