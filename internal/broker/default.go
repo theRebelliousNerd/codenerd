@@ -114,25 +114,6 @@ func Configure(cfg MeterConfig) {
 	}
 }
 
-// SetExtraSink installs (or with nil, removes) the process meter's extra
-// receipt sink, closing whatever it replaces if that sink holds resources.
-//
-// This exists because the sink is a file, the meter is a process singleton, and
-// nothing owned the handle. Every boot installed a new FileSink over the old
-// one and the old one stayed open forever. That is invisible on Linux and fatal
-// on Windows, where an open handle blocks deleting the file at all -- which is
-// how it surfaced: sixteen internal/system tests failing on t.TempDir cleanup,
-// one per boot, none of them about anything the test was testing.
-//
-// Passing nil is how a clean shutdown gives the handle back, and it is what
-// Cortex.Close does.
-func SetExtraSink(sink ReceiptSink) error {
-	m := Default()
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.setExtraSinkLocked(sink)
-}
-
 // DetachExtraSink removes and closes the extra sink only if it is still the one
 // the caller installed, reporting whether it did.
 //

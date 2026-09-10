@@ -17,7 +17,7 @@ import (
 //
 // A closed FileSink silently stops writing, which is the cross-platform
 // observable: the replaced sink's file stops growing.
-func TestSetExtraSinkClosesWhatItReplaces(t *testing.T) {
+func TestConfigureClosesTheSinkItReplaces(t *testing.T) {
 	dir := t.TempDir()
 	firstPath := filepath.Join(dir, "first.jsonl")
 	secondPath := filepath.Join(dir, "second.jsonl")
@@ -30,27 +30,24 @@ func TestSetExtraSinkClosesWhatItReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileSink(second): %v", err)
 	}
-	// SetExtraSink(nil) closes whichever sink is installed at the end; the
+	// DetachExtraSink closes whichever of these is still installed; the
 	// other one has to be closed here or the test leaks the handle it is
 	// about, and fails its own TempDir cleanup on Windows.
 	t.Cleanup(func() {
-		_ = SetExtraSink(nil)
+		_, _ = DetachExtraSink(first)
+		_, _ = DetachExtraSink(second)
 		_ = first.Close()
 		_ = second.Close()
 	})
 
-	if err := SetExtraSink(first); err != nil {
-		t.Fatalf("SetExtraSink(first): %v", err)
-	}
+	Configure(MeterConfig{ExtraSink: first})
 	first.Record(Receipt{Purpose: "/test", Provider: "p", Model: "m"})
 	before := sinkFileSize(t, firstPath)
 	if before == 0 {
 		t.Fatal("nothing reached the first sink, so this test cannot detect a leak")
 	}
 
-	if err := SetExtraSink(second); err != nil {
-		t.Fatalf("SetExtraSink(second): %v", err)
-	}
+	Configure(MeterConfig{ExtraSink: second})
 
 	first.Record(Receipt{Purpose: "/test", Provider: "p", Model: "m"})
 	if got := sinkFileSize(t, firstPath); got != before {
@@ -59,22 +56,21 @@ func TestSetExtraSinkClosesWhatItReplaces(t *testing.T) {
 	}
 }
 
-// Detaching with nil is how a clean shutdown gives the handle back, and it must
-// leave the meter with a working sink rather than a hole where one was.
-func TestSetExtraSinkNilDetachesAndKeepsTheMeterUsable(t *testing.T) {
+// Detaching is how a clean shutdown gives the handle back, and it must leave the
+// meter with a working sink rather than a hole where one was: shutting the log
+// off is not the same as shutting metering off.
+func TestDetachExtraSinkKeepsTheMeterUsable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "live.jsonl")
 	sink, err := NewFileSink(path)
 	if err != nil {
 		t.Fatalf("NewFileSink: %v", err)
 	}
-	if err := SetExtraSink(sink); err != nil {
-		t.Fatalf("SetExtraSink: %v", err)
-	}
+	Configure(MeterConfig{ExtraSink: sink})
 	sink.Record(Receipt{Purpose: "/test", Provider: "p", Model: "m"})
 	before := sinkFileSize(t, path)
 
-	if err := SetExtraSink(nil); err != nil {
-		t.Fatalf("SetExtraSink(nil): %v", err)
+	if _, err := DetachExtraSink(sink); err != nil {
+		t.Fatalf("DetachExtraSink: %v", err)
 	}
 	sink.Record(Receipt{Purpose: "/test", Provider: "p", Model: "m"})
 	if got := sinkFileSize(t, path); got != before {
@@ -126,18 +122,15 @@ func TestDetachExtraSinkOnlyClosesWhatYouInstalled(t *testing.T) {
 		t.Fatalf("NewFileSink(theirs): %v", err)
 	}
 	t.Cleanup(func() {
-		_ = SetExtraSink(nil)
+		_, _ = DetachExtraSink(mine)
+		_, _ = DetachExtraSink(theirs)
 		_ = mine.Close()
 		_ = theirs.Close()
 	})
 
 	// I install mine; a later boot replaces it with theirs.
-	if err := SetExtraSink(mine); err != nil {
-		t.Fatalf("SetExtraSink(mine): %v", err)
-	}
-	if err := SetExtraSink(theirs); err != nil {
-		t.Fatalf("SetExtraSink(theirs): %v", err)
-	}
+	Configure(MeterConfig{ExtraSink: mine})
+	Configure(MeterConfig{ExtraSink: theirs})
 
 	// Now I shut down and try to detach. The installed sink is not mine.
 	detached, err := DetachExtraSink(mine)
@@ -162,11 +155,9 @@ func TestDetachExtraSinkClosesYourOwn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileSink: %v", err)
 	}
-	t.Cleanup(func() { _ = SetExtraSink(nil); _ = sink.Close() })
+	t.Cleanup(func() { _, _ = DetachExtraSink(sink); _ = sink.Close() })
 
-	if err := SetExtraSink(sink); err != nil {
-		t.Fatalf("SetExtraSink: %v", err)
-	}
+	Configure(MeterConfig{ExtraSink: sink})
 	sink.Record(Receipt{Purpose: "/test", Provider: "p", Model: "m"})
 	before := sinkFileSize(t, path)
 
