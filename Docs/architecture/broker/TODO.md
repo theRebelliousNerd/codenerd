@@ -411,16 +411,35 @@ a writer, and no wire between them.
   latency a term in the objective, hysteresis, correctness interlock, manual
   override.
 
-  Two of those preconditions have moved and the list should say so. Gate A now
-  needs sessions run rather than code written, and the break-even half of
-  Phase 3 has landed — so what actually blocks Phase 4 is the ordered native
-  content blocks, plus the design question Q1 surfaced: **the prefix moves
-  every turn by construction**, because the system prompt is the JIT
-  compilation plus the current target's file context. A rebuild controller
-  built on a head that never holds still is optimising the wrong layer. Request
-  ORDERING — a stable skeleton ahead of the volatile selection ahead of the
-  file context — has to be settled first, and that is a change to how the
-  prompt is assembled rather than to how it is cached.
+  The preconditions have moved and the list should say so. Gate A now needs
+  sessions run rather than code written; the break-even half of Phase 3 landed
+  earlier; and the ordered native content blocks have now landed too, with six
+  of seven adapter families converted and the fidelity limits of the seventh
+  written down rather than discovered later.
+
+  So what is left blocking Phase 4 is no longer a missing representation. It is
+  two things, one small and one not:
+
+  1. **One flattening point still in the loop.** `executor_tools.go` rebuilds
+     each assistant turn from `Text` and `ToolCalls`, discarding the ordered
+     blocks before any adapter sees them. The adapters are lossless and the
+     loop feeding them is not, so none of Phase 3's fidelity currently reaches
+     a provider. `types.AssistantMessageFrom` is the replacement. It is not a
+     three-line swap: the final-completion site deliberately snapshots the
+     tool calls before the response clears them, and the history eviction
+     blanks tool results through the flat fields — which changes only the
+     projection on a block-built message, so eviction has to move with it or
+     silently stop bounding the transcript.
+
+  2. **The design question Q1 surfaced, unchanged: the prefix moves every turn
+     by construction**, because the system prompt is the JIT compilation plus
+     the current target's file context. A rebuild controller built on a head
+     that never holds still is optimising the wrong layer. Request ORDERING —
+     a stable skeleton ahead of the volatile selection ahead of the file
+     context — has to be settled first, and the measurement of what the code
+     does today is recorded under Phase 3 above. That is a change to how the
+     prompt is assembled rather than to how it is cached, and it wants an eval
+     because where an instruction sits changes how strongly it is followed.
 
   On "latency a term in the objective": worth being precise, because it is easy
   to read as an efficiency goal and it is not one. Latency is recorded on every
