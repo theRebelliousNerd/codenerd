@@ -275,10 +275,18 @@ a writer, and no wire between them.
   choosing a winner means either changing kernel policy or making the fallback
   permissive, and both are prompt-quality decisions that want an eval.
 
-  The other two rows are still open, and `intent_verbs` is the one to look at
-  next: 195 entries, and `cc.IntentVerb` is only set when a turn carries a
-  parsed intent. On the kernel path an absent verb admits every verb's atoms at
-  once; on the fallback it admits none.
+  The other two rows are open in principle and are not live gaps, which is
+  worth saying precisely because the language row was. `buildCompilationContext`
+  sets `IntentVerb` from the intent on the executor path, `toCompilationContext`
+  sets it from `UserIntent` on the articulation path, and an empty verb is
+  defaulted to `/general` in three separate places — so `intent_verbs` is
+  normally supplied. World states are computed per turn from kernel facts and
+  are legitimately absent when nothing is wrong, which is the case the
+  permissive default was written for.
+
+  So the thing to fix was language, and it is fixed. What remains is that the
+  two defaults are still opposite, and any dimension anyone leaves empty in
+  future inherits the disagreement rather than a decision.
 
   A kernel outage therefore does not merely degrade selection, it inverts it for
   542 of the corpus's 918 entries. Whatever is decided about the defaults, that
