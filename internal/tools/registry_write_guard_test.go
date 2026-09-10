@@ -90,7 +90,13 @@ func TestWriteGuard_CoversTheGlobalRegistry(t *testing.T) {
 	if err := Register(guardTestTool(name, &ran)); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	t.Cleanup(func() { SetGlobalWriteGuard(nil) })
+	// Unregister as well as clearing the guard: Register rejects a duplicate
+	// name, so without this the test only works the first time it runs in a
+	// process and fails under -count=2.
+	t.Cleanup(func() {
+		SetGlobalWriteGuard(nil)
+		Global().Unregister(name)
+	})
 
 	SetGlobalWriteGuard(func(_ context.Context, toolName string, _ map[string]any) error {
 		if toolName == name {

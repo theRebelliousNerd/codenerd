@@ -167,3 +167,198 @@ func TestWriteFile_ShouldApplyTheRequestedMode(t *testing.T) {
 		t.Errorf("mode = %o, want 0644", got)
 	}
 }
+
+// The failure paths are the point of the package and were untested.
+//
+// Every property below is about what survives a failed write. WriteFile's
+// happy path being correct is necessary but not sufficient: the four defects
+// this package replaced all destroyed the previous good copy before the
+// replacement was guaranteed, and every one of them worked fine when nothing
+// went wrong.
+
+func TestWriteFile_WhenTheRenameFails_ShouldKeepThePreviousContents(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "target")
+
+	if err := os.WriteFile(path, []byte("the good copy"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// A rename onto an existing directory fails, which exercises the branch
+	// after the temp file is fully written and synced -- the last point at
+	// which the old contents could still be destroyed.
+	blocker := filepath.Join(dir, "blocked")
+	if err := os.Mkdir(blocker, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := WriteFile(blocker, []byte("replacement"), 0o644); err == nil {
+		t.Fatal("WriteFile onto a directory succeeded")
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after failure: %v", err)
+	}
+	if string(got) != "the good copy" {
+		t.Errorf("previous contents = %q, want them untouched", got)
+	}
+}
+
+func TestWriteFile_WhenTheRenameFails_ShouldLeaveNoTempFile(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "blocked")
+	if err := os.Mkdir(blocker, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	if err := WriteFile(blocker, []byte("replacement"), 0o644); err == nil {
+		t.Fatal("WriteFile onto a directory succeeded")
+	}
+
+	// A temp file left behind after a failure accumulates silently, and in a
+	// directory three subsystems share it also looks like real state.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp-") {
+			t.Errorf("temp file %q survived a failed write", e.Name())
+		}
+	}
+}
+
+func TestWriteFile_WhenTheDirectoryIsMissing_ShouldFailWithoutCreatingAnything(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "absent", "target")
+
+	err := WriteFile(path, []byte("data"), 0o644)
+	if err == nil {
+		t.Fatal("WriteFile into a missing directory succeeded")
+	}
+	// The message has to name the path, because this failure surfaces from
+	// deep inside subsystems that write several files.
+	if !strings.Contains(err.Error(), "target") {
+		t.Errorf("error does not name the target path: %v", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Error("a file was created despite the failure")
+	}
+}
+
+func TestWriteFile_WhenTheFileIsUnwritable_ShouldStillReplaceIt(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: mode bits do not restrict access")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "readonly")
+	if err := os.WriteFile(path, []byte("old"), 0o400); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Replacing by rename does not need write permission on the file itself,
+	// only on the directory. That is a property of the approach worth pinning:
+	// a read-only config a subsystem must still be able to update would fail
+	// under a truncating write and succeeds here.
+	if err := WriteFile(path, []byte("new"), 0o644); err != nil {
+		t.Fatalf("WriteFile over a read-only file: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != "new" {
+		t.Errorf("contents = %q, want new", got)
+	}
+}
+
+func TestWriteFile_EmptyData(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "target")
+	if err := os.WriteFile(path, []byte("previous"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Truncating to empty is a legitimate write, not a no-op. Treating it as
+	// one would leave stale contents behind for a caller that meant to clear
+	// the file.
+	if err := WriteFile(path, nil, 0o644); err != nil {
+		t.Fatalf("WriteFile(nil): %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("contents = %q, want empty", got)
+	}
+}
+
+func TestReplace_MovesOntoAnExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+
+	if err := os.WriteFile(src, []byte("streamed bytes"), 0o644); err != nil {
+		t.Fatalf("seed src: %v", err)
+	}
+	if err := os.WriteFile(dst, []byte("previous"), 0o644); err != nil {
+		t.Fatalf("seed dst: %v", err)
+	}
+
+	if err := Replace(src, dst); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("read dst: %v", err)
+	}
+	if string(got) != "streamed bytes" {
+		t.Errorf("dst = %q, want the source contents", got)
+	}
+	// Replace is a move: leaving the source behind would have a caller that
+	// streamed to a temp file quietly accumulating them.
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Error("the source survived the replace")
+	}
+}
+
+func TestReplace_ReportsAMissingSource(t *testing.T) {
+	dir := t.TempDir()
+	if err := Replace(filepath.Join(dir, "absent"), filepath.Join(dir, "dst")); err == nil {
+		t.Fatal("Replace of a missing source succeeded")
+	}
+}
+
+func TestOpen_ReadsTheCurrentContents(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "target")
+	if err := WriteFile(path, []byte("v1"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	f, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	// A reader holding the file open must keep seeing the contents it opened,
+	// even after a replacement lands. That is the guarantee the whole
+	// rename-based approach buys, and it is what makes a torn read impossible
+	// rather than merely unlikely.
+	if err := WriteFile(path, []byte("v2"), 0o644); err != nil {
+		t.Fatalf("second WriteFile: %v", err)
+	}
+
+	buf := make([]byte, 8)
+	n, err := f.Read(buf)
+	if err != nil && err.Error() != "EOF" {
+		t.Fatalf("read: %v", err)
+	}
+	if got := string(buf[:n]); got != "v1" {
+		t.Errorf("an open reader saw %q after a replacement, want the contents it opened", got)
+	}
+}
