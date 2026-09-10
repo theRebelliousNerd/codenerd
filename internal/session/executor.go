@@ -868,6 +868,20 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// shares the session id, so a session-level delta absorbed sibling shards'
 	// tokens (one coder turn read 4.9 M). Per-turn counts are exact and local.
 	ctx = usage.WithTurnID(ctx, fmt.Sprintf("%s#%d#%d", e.SessionID(), auditTurnNum, time.Now().UnixNano()))
+	// Settle this turn's prompt-atom selections against its outcome. The
+	// compiler records what was selected; only here is it known whether the
+	// selection worked. The id is read into a local rather than out of ctx at
+	// defer time because ctx is reassigned repeatedly below, and a closure
+	// reading it later would settle against whatever the last reassignment
+	// left behind.
+	coUseTurnID := usage.TurnIDFromContext(ctx)
+	defer func() {
+		outcome := prompt.OutcomeSuccess
+		if result == nil || result.Error != nil {
+			outcome = prompt.OutcomeFailure
+		}
+		prompt.CoUse().Settle(coUseTurnID, outcome)
+	}()
 	e.hydrateMemory(ctx, input)
 	usageBefore := snapshotTurnUsage(ctx, e.SessionID())
 
