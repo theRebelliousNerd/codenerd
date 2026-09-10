@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/northstar"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -56,7 +57,10 @@ func (m Model) saveNorthstar(startCampaign bool) (tea.Model, tea.Cmd) {
 	// Save JSON backup
 	jsonPath := filepath.Join(m.workspace, ".nerd", "northstar.json")
 	if jsonData, err := json.MarshalIndent(w, "", "  "); err == nil {
-		if err := os.WriteFile(jsonPath, jsonData, 0644); err != nil {
+		// Atomic: northstar.LoadVisionJSON returns a hard error on a parse
+		// failure, so a torn write here wedges every later load rather than
+		// costing one save.
+		if err := atomicfile.WriteFile(jsonPath, jsonData, 0644); err != nil {
 			warnings = append(warnings, fmt.Sprintf("Failed to save JSON backup: %v", err))
 		}
 	}

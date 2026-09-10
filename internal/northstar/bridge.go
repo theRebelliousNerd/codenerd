@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 )
 
@@ -319,7 +320,12 @@ func WriteVisionJSON(nerdDir string, v *Vision) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("marshal vision: %w", err)
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0644); err != nil {
+	// Atomic, because LoadVisionJSON returns a hard error on a parse failure
+	// rather than falling back. A torn write here does not lose one boot's
+	// export -- it makes every later load fail, which is fail-closed becoming
+	// fail-forever, the exact case internal/atomicfile's doc describes for
+	// `nerd init`.
+	if err := atomicfile.WriteFile(path, append(data, '\n'), 0644); err != nil {
 		return false, fmt.Errorf("write %s: %w", path, err)
 	}
 	return true, nil
@@ -338,8 +344,10 @@ func WriteVisionMangle(nerdDir string, v *Vision) error {
 	if err := os.MkdirAll(nerdDir, 0755); err != nil {
 		return fmt.Errorf("create %s: %w", nerdDir, err)
 	}
+	// Atomic for the same reason as the JSON surface: this file is loaded into
+	// the kernel, and a half-written fact file is a parse error at boot.
 	path := filepath.Join(nerdDir, VisionMangleFileName)
-	return os.WriteFile(path, []byte(RenderVisionMangle(v)), 0644)
+	return atomicfile.WriteFile(path, []byte(RenderVisionMangle(v)), 0644)
 }
 
 // RenderVisionMangle renders a vision as a loadable .mg fact file.
