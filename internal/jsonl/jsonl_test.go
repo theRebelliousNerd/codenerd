@@ -1,6 +1,7 @@
 package jsonl
 
 import (
+	"codenerd/internal/atomicfile"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -390,7 +391,12 @@ func TestRotationWhileAReaderHoldsTheBackupOpen(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		a.Append(rec{N: i, Text: "first-round"})
 	}
-	reader, err := os.Open(path + ".1")
+	// atomicfile.Open, not os.Open. Rotation replaces this file, and on
+	// Windows a handle opened without FILE_SHARE_DELETE blocks that replace
+	// for as long as it lives — which is why readOne now opens this way too.
+	// With os.Open here the test would be asserting something the design does
+	// not promise and cannot deliver.
+	reader, err := atomicfile.Open(path + ".1")
 	if err != nil {
 		t.Skipf("no backup produced in this environment: %v", err)
 	}

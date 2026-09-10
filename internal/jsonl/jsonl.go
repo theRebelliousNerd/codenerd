@@ -210,7 +210,15 @@ func Read[T any](path string) ([]T, int, error) {
 }
 
 func readOne[T any](path string) ([]T, bool, error) {
-	f, err := os.Open(path)
+	// atomicfile.Open, not os.Open. This package rotates with
+	// atomicfile.Replace precisely so a reader does not break rotation, and
+	// then read its own logs with os.Open — which is the half that makes the
+	// other half work. On Windows a handle opened without FILE_SHARE_DELETE
+	// blocks any replace of that file for as long as it lives, so a `nerd
+	// meter` invocation reading the rotated generation made every subsequent
+	// rotation fail, on the agent's hot path, which is the exact failure the
+	// rotation comment says it was avoiding.
+	f, err := atomicfile.Open(path)
 	if err != nil {
 		return nil, false, err
 	}

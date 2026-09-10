@@ -1,6 +1,7 @@
 package autopoiesis
 
 import (
+	"codenerd/internal/atomicfile"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -121,7 +122,11 @@ func TestAgentMemoryUpdateSurvivesAnInterruptedWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
-	held, err := os.Open(path)
+	// atomicfile.Open, not os.Open: this stands in for a reader holding the
+	// file across the write, and on Windows a handle without FILE_SHARE_DELETE
+	// blocks the replace outright. That is the contract this package exists to
+	// provide, so the test states it rather than working around it.
+	held, err := atomicfile.Open(path)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

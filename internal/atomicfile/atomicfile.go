@@ -45,13 +45,52 @@
 // left to be discovered: it needs write permission on the containing directory
 // rather than on the file, and it always creates a new inode and therefore
 // always applies the mode — which is why WriteFilePreservingMode exists.
+//
+// A third cost is Windows, and it is the one that nearly sank this package.
+// POSIX lets a rename replace a file that other processes hold open; Windows
+// does not, unless every one of those handles was opened with
+// FILE_SHARE_DELETE. So atomicity here is a CONTRACT BETWEEN WRITER AND
+// READER, not a property of the writer alone: the writer uses WriteFile, and
+// anyone reading a file that gets written this way uses Open from this package.
+// A reader that reaches for os.Open instead makes every atomic write to that
+// path fail for as long as it lives.
+//
+// That half was built and then not connected, which cost six packages failing
+// on the Windows runner while Linux stayed green — including internal/jsonl,
+// whose rotation comment explains at length that it uses atomicfile.Replace so
+// a reader cannot break rotation, immediately above a reader of its own logs
+// calling os.Open. See replace_windows.go for the two further Windows
+// behaviours that had to be handled: a destination carrying the read-only
+// attribute, and transient sharing violations under contention.
 package atomicfile
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
+
+// removeTemp deletes a temp file this package created, retrying briefly.
+//
+// A plain os.Remove is enough on POSIX and not quite enough on Windows, where
+// a failed ReplaceFileW can still have the replacement file open for a moment
+// afterwards and deleting an open file is refused outright. Sixteen writers
+// racing on one path left temp files behind for exactly that reason — the
+// write correctly reported its failure and the debris outlived it, in the
+// directory the caller is watching, which is the one place this package
+// promises not to leave anything.
+//
+// Best effort by design: it returns nothing, because every caller is already
+// on a failure path and has a better error to report than this one.
+func removeTemp(path string) {
+	for attempt := 0; attempt < 5; attempt++ {
+		if err := os.Remove(path); err == nil || os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
+	}
+}
 
 // WriteFile atomically replaces path with data.
 //
@@ -85,7 +124,7 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 	// Any failure from here on must not leave the temp file behind.
 	cleanup := func() {
 		tmp.Close()
-		os.Remove(tmpName)
+		removeTemp(tmpName)
 	}
 
 	if _, err := tmp.Write(data); err != nil {
@@ -97,16 +136,16 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 		return fmt.Errorf("sync temp file for %s: %w", path, err)
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
+		removeTemp(tmpName)
 		return fmt.Errorf("close temp file for %s: %w", path, err)
 	}
 	// CreateTemp makes 0600; the caller's mode is what the file should have.
 	if err := os.Chmod(tmpName, perm); err != nil {
-		os.Remove(tmpName)
+		removeTemp(tmpName)
 		return fmt.Errorf("chmod temp file for %s: %w", path, err)
 	}
 	if err := replaceExisting(tmpName, path); err != nil {
-		os.Remove(tmpName)
+		removeTemp(tmpName)
 		return fmt.Errorf("rename temp file onto %s: %w", path, err)
 	}
 
