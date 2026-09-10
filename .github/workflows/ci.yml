@@ -36,6 +36,23 @@ jobs:
         run: go vet -tags sqlite_vec ./...
       - name: Reject empty and log-only tests
         run: go run ./cmd/tools/audit_test_bodies .
+      # A budget on JSON calls whose error is discarded, in the same spirit as
+      # the dead-code job below: the baseline is a measurement, not a target of
+      # zero, and it fails when the number moves either way.
+      #
+      # One sweep found this defect four times in four unrelated packages, and
+      # not one had a symptom near its cause. json.Marshal returns nil on
+      # failure and string(nil) is "", which downstream meant a row SQLite
+      # rejects with the bare message "malformed JSON", an embedding column
+      # that leaves its row selected by every recall query and then unparseable
+      # so the row is unsearchable while the write reports success, a DELETE
+      # reading `fact_args = ''` that matches nothing and tells its caller a
+      # fact was retracted, and ast.String(""), a valid Mangle constant
+      # asserted into the kernel in place of the argument that failed to
+      # encode. The last is the reason this is gated rather than noted: the
+      # kernel then derives, soundly, from a value that is not the value.
+      - name: Discarded JSON errors budget
+        run: go run ./cmd/tools/audit_json_errors
       # predicate_corpus.db is generated from the .mg corpus and embedded into
       # the binary, where it tells a model which predicates exist and what shape
       # they are. It had drifted seven weeks: eight browser predicates recorded
