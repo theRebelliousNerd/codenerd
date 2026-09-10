@@ -258,6 +258,9 @@ func (m *campaignMockTransducer) Transduce(ctx context.Context, input string) ([
 // =============================================================================
 
 func TestE2E_CampaignSession_Smoke_BasicExecution(t *testing.T) {
+	// TODO: Add negative test for null/empty campaign plan ingestion.
+	// TODO: Verify orchestrator behavior when initial task dependencies are empty.
+	// TODO: Test handling of empty tool results (null bytes/empty strings) in parsing logic.
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	err := orch.SetCampaign(createDummyCampaign("/campaign_smoke"))
@@ -316,6 +319,8 @@ func TestE2E_CampaignSession_Contract_ConcurrentInlineExecutionDataRace(t *testi
 // TestE2E_CampaignSession_Contract_UnknownIntentFallback (P3)
 // Tests graceful degradation if the Orchestrator requests an unknown intent.
 func TestE2E_CampaignSession_Contract_UnknownIntentFallback(t *testing.T) {
+	// TODO: Test type coercion failures: passing string where Atom is expected in task arguments.
+	// TODO: Test numeric overflows in task iteration limits or timeout values.
 	orch, _, _, trans, _ := setupCampaignEnvironment(t)
 	trans.intentToReturn = "/unknown_intent_verb"
 
@@ -495,6 +500,7 @@ func TestE2E_CampaignSession_StateCorruption_DataRaceInConversationHistory(t *te
 // TestE2E_CampaignSession_StateCorruption_GhostFacts (P1)
 // Tests if the shared Kernel asserts facts without task isolation leading to rules triggering incorrectly.
 func TestE2E_CampaignSession_StateCorruption_GhostFacts(t *testing.T) {
+	// TODO: Fact Store Contamination: verify clean slate between tasks so Task B does not inherit Task A's facts.
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_ghost_facts")
@@ -512,6 +518,7 @@ func TestE2E_CampaignSession_StateCorruption_GhostFacts(t *testing.T) {
 // TestE2E_CampaignSession_StateCorruption_SharedResourceOverwrite (P1)
 // Tests if VirtualStore modifies the wrong file due to corrupted context.
 // TODO: TestE2E_CampaignSession_StateCorruption_SharedResourceOverwrite needs a behavioral witness; removed its log-only placeholder.
+	// TODO: State conflict: test task operating on a resource just deleted by a concurrent task (stale reference).
 
 
 // =============================================================================
@@ -520,6 +527,9 @@ func TestE2E_CampaignSession_StateCorruption_GhostFacts(t *testing.T) {
 
 // TestE2E_CampaignSession_ResourceExhaustion_TaskSpamLimits (P2)
 func TestE2E_CampaignSession_ResourceExhaustion_TaskSpamLimits(t *testing.T) {
+	// TODO: Extreme boundary: simulate 50M line monorepo read to test context window and pagination limits.
+	// TODO: Frontier case: test resilience against requests for non-existent coding languages.
+	// TODO: Ouroboros limit: test orchestrator circuit breakers against infinite tool generation loops.
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_spam")
@@ -764,6 +774,7 @@ func TestE2E_CampaignSession_Recovery_ContextPagingLimitsExceeded(t *testing.T) 
 // E2E Tests require robust validation of the contract between Session and Campaign Orchestrator.
 // 35. TestE2E_CampaignSession_StateCorruption_GhostFacts_Variant2
 func TestE2E_CampaignSession_StateCorruption_GhostFacts_Variant2(t *testing.T) {
+	// TODO: Fact Store Contamination: verify clean slate between tasks so Task B does not inherit Task A's facts.
 	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
@@ -782,6 +793,7 @@ func TestE2E_CampaignSession_StateCorruption_GhostFacts_Variant2(t *testing.T) {
 
 // 36. TestE2E_CampaignSession_StateCorruption_SharedResourceOverwrite_Variant2
 func TestE2E_CampaignSession_StateCorruption_SharedResourceOverwrite_Variant2(t *testing.T) {
+	// TODO: State conflict: test task operating on a resource just deleted by a concurrent task (stale reference).
 	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
@@ -800,6 +812,9 @@ func TestE2E_CampaignSession_StateCorruption_SharedResourceOverwrite_Variant2(t 
 
 // 37. TestE2E_CampaignSession_ResourceExhaustion_TaskSpamLimits_Variant2
 func TestE2E_CampaignSession_ResourceExhaustion_TaskSpamLimits_Variant2(t *testing.T) {
+	// TODO: Extreme boundary: simulate 50M line monorepo read to test context window and pagination limits.
+	// TODO: Frontier case: test resilience against requests for non-existent coding languages.
+	// TODO: Ouroboros limit: test orchestrator circuit breakers against infinite tool generation loops.
 	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
