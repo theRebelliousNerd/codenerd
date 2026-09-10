@@ -175,7 +175,6 @@ type ResponseProcessor struct {
 	// Validation settings
 	RequireValidJSON     bool
 	AllowMarkdownWrapped bool
-	MaxSurfaceLength     int
 	LogFallbackAsError   bool
 
 	// Statistics for monitoring
@@ -215,11 +214,10 @@ func NewResponseProcessor() *ResponseProcessor {
 	rp := &ResponseProcessor{
 		RequireValidJSON:     false, // Allow fallback parsing
 		AllowMarkdownWrapped: true,
-		MaxSurfaceLength:     50000,
 		LogFallbackAsError:   true,
 	}
-	logging.ArticulationDebug("ResponseProcessor initialized: RequireValidJSON=%v, AllowMarkdownWrapped=%v, MaxSurfaceLength=%d",
-		rp.RequireValidJSON, rp.AllowMarkdownWrapped, rp.MaxSurfaceLength)
+	logging.ArticulationDebug("ResponseProcessor initialized: RequireValidJSON=%v, AllowMarkdownWrapped=%v",
+		rp.RequireValidJSON, rp.AllowMarkdownWrapped)
 	return rp
 }
 
@@ -409,18 +407,17 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 	return nil, fmt.Errorf("failed to parse Piggyback JSON: %w", bestErr)
 }
 
-// applyCaps enforces surface/control size limits to avoid runaway payloads.
+// applyCaps validates the control packet and bounds the parts of it that are
+// not the answer: injected Mangle atoms and memory operations (defensive
+// against a hallucinated flood) and the reasoning trace (telemetry). The
+// surface response and the tool and knowledge requests are never cut here.
+// The surface is the answer, and an answer that does not fit the provider's
+// ceiling is sent back by the broker to be restated within it; the requests
+// are the model's plan, and the tool loop's continuation policy governs how
+// much of a plan runs, not a slice at the parser.
 func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 	if result == nil {
 		return
-	}
-
-	// Surface length cap. The limit is bytes because it bounds model/network
-	// payload size, but the cut must preserve valid UTF-8 for the UI.
-	if rp.MaxSurfaceLength > 0 && len(result.Surface) > rp.MaxSurfaceLength {
-		result.Surface = truncateUTF8Bytes(result.Surface, rp.MaxSurfaceLength) + "\n\n[TRUNCATED]"
-		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Surface response truncated to %d bytes", rp.MaxSurfaceLength))
 	}
 
 	// Control packet caps (defensive)
@@ -487,18 +484,6 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 		result.Warnings = append(result.Warnings, "Reasoning trace truncated")
 	}
 
-	// Tool and knowledge request spam can degrade executor performance.
-	const maxToolRequests = 20
-	if len(result.Control.ToolRequests) > maxToolRequests {
-		result.Control.ToolRequests = result.Control.ToolRequests[:maxToolRequests]
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Tool requests truncated to %d items", maxToolRequests))
-	}
-
-	const maxKnowledgeRequests = 20
-	if len(result.Control.KnowledgeRequests) > maxKnowledgeRequests {
-		result.Control.KnowledgeRequests = result.Control.KnowledgeRequests[:maxKnowledgeRequests]
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Knowledge requests truncated to %d items", maxKnowledgeRequests))
-	}
 }
 
 func truncateUTF8Bytes(value string, maxBytes int) string {

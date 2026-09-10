@@ -5,7 +5,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"unicode/utf8"
 )
 
 func TestResponseProcessor_Process_JSON(t *testing.T) {
@@ -82,34 +81,25 @@ func TestResponseProcessor_Process_StrictValidation(t *testing.T) {
 	}
 }
 
-func TestResponseProcessor_Process_SurfaceTruncation(t *testing.T) {
+// The surface is the answer and is never cut by the parser: a long answer is
+// returned whole. The provider's ceiling is the only limit, and the broker
+// sends an answer that hits it back to be restated, so a parser cap would
+// only ever cut an answer that already fit.
+func TestResponseProcessor_Process_SurfaceIsNeverTruncated(t *testing.T) {
 	rp := NewResponseProcessor()
-	rp.MaxSurfaceLength = 5
-
-	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"mangle_updates":[],"memory_operations":[]},"surface_response":"123456789"}`
+	long := strings.Repeat("é", 120000)
+	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"mangle_updates":[],"memory_operations":[]},"surface_response":"` + long + `"}`
 	res, err := rp.Process(raw)
 	if err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
-	if !strings.HasPrefix(res.Surface, "12345") || !strings.Contains(res.Surface, "[TRUNCATED]") {
-		t.Fatalf("Surface not truncated as expected: %q", res.Surface)
+	if res.Surface != long {
+		t.Fatalf("surface was altered: len=%d want %d", len(res.Surface), len(long))
 	}
-}
-
-func TestResponseProcessor_Process_SurfaceTruncationPreservesUTF8(t *testing.T) {
-	rp := NewResponseProcessor()
-	rp.MaxSurfaceLength = 5
-
-	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"mangle_updates":[],"memory_operations":[]},"surface_response":"ééé"}`
-	res, err := rp.Process(raw)
-	if err != nil {
-		t.Fatalf("Process() error = %v", err)
-	}
-	if !utf8.ValidString(res.Surface) {
-		t.Fatalf("Surface contains invalid UTF-8 after truncation: %q", res.Surface)
-	}
-	if !strings.HasPrefix(res.Surface, "éé") || !strings.Contains(res.Surface, "[TRUNCATED]") {
-		t.Fatalf("Surface not truncated at a UTF-8 boundary: %q", res.Surface)
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "truncated") {
+			t.Fatalf("a whole answer produced a truncation warning: %q", w)
+		}
 	}
 }
 
