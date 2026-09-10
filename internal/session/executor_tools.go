@@ -195,7 +195,13 @@ func (e *Executor) runToolLoop(
 		toolResults, batchErrs := e.executeToolBatch(explorationCtx, currentResponse.ToolCalls, cfg, result)
 		toolErrs = append(toolErrs, batchErrs...)
 		budget.observe(currentResponse.ToolCalls, toolResults)
-		if !progressDriven {
+		// The nudge tells the model how much of a count ceiling is left. It is
+		// keyed to the ceiling, not to the progress-driven flag: a user who sets
+		// core_limits.max_tool_iterations on a progress-driven loop still has a
+		// hard stop at that round, and a hard stop the model was never warned
+		// about is the worst of both designs. Only a genuinely open loop, where
+		// policy is the sole ceiling, has nothing to warn about.
+		if !openRounds {
 			toolResults = appendToolBudgetNudge(toolResults, budget.nudge(
 				iter+1,
 				result.ToolCallsExecuted,
@@ -309,8 +315,9 @@ func (e *Executor) runToolLoop(
 		// The model still has executable work at the current boundary. The
 		// orchestrator may extend only when the trace since the prior boundary
 		// contains intent-appropriate material progress and no deterministic
-		// repeat cycle or write-task read-only stall.
-		if !progressDriven && iter+1 >= budget.iterationLimit {
+		// repeat cycle or write-task read-only stall. Like the nudge, this is
+		// keyed to the ceiling: an open loop has no limit to extend.
+		if !openRounds && iter+1 >= budget.iterationLimit {
 			decision := budget.maybeExtend(e.writeOrientedIntent(result.Intent.Verb))
 			if decision.Granted {
 				logging.Get(logging.CategorySession).Warn(

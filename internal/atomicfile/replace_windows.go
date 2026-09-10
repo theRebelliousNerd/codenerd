@@ -11,17 +11,21 @@ import (
 )
 
 var (
-	modkernel32          = syscall.NewLazyDLL("kernel32.dll")
-	procReplaceFileW     = modkernel32.NewProc("ReplaceFileW")
-	procGetFileAttrsW    = modkernel32.NewProc("GetFileAttributesW")
-	procSetFileAttrsW    = modkernel32.NewProc("SetFileAttributesW")
-	invalidFileAttrs     = uint32(0xFFFFFFFF)
-	fileAttributeRdOnly  = uint32(0x00000001)
-	errorAccessDenied    = syscall.Errno(5)
-	errorSharingViolate  = syscall.Errno(32)
-	errorLockViolation   = syscall.Errno(33)
-	errorUserMappedFile  = syscall.Errno(1224)
-	replaceRetryAttempts = 10
+	modkernel32         = syscall.NewLazyDLL("kernel32.dll")
+	procReplaceFileW    = modkernel32.NewProc("ReplaceFileW")
+	procGetFileAttrsW   = modkernel32.NewProc("GetFileAttributesW")
+	procSetFileAttrsW   = modkernel32.NewProc("SetFileAttributesW")
+	invalidFileAttrs    = uint32(0xFFFFFFFF)
+	fileAttributeRdOnly = uint32(0x00000001)
+	errorAccessDenied   = syscall.Errno(5)
+	errorSharingViolate = syscall.Errno(32)
+	errorLockViolation  = syscall.Errno(33)
+	errorUserMappedFile = syscall.Errno(1224)
+	// A duration, not an attempt count: the sharing violation being waited out
+	// is another process's handle, and how long that lives is a function of
+	// machine load, not of how many times we asked. Ten attempts over a
+	// quarter second held on an idle runner and not under the full suite.
+	replaceRetryBudget = 2 * time.Second
 )
 
 // replaceExisting atomically moves src onto dst.
@@ -59,20 +63,22 @@ func replaceExisting(src, dst string) error {
 	clearedReadOnly := false
 	replaced := false
 	backoff := time.Millisecond
-	var lastErr error
+	deadline := time.Now().Add(replaceRetryBudget)
 
-	for attempt := 0; attempt < replaceRetryAttempts; attempt++ {
+	for {
 		err := replaceFileOnce(src, dst)
 		if err == nil {
 			replaced = true
 			return nil
 		}
-		lastErr = err
 
 		switch {
 		case errors.Is(err, errorSharingViolate),
 			errors.Is(err, errorLockViolation),
 			errors.Is(err, errorUserMappedFile):
+			if time.Now().After(deadline) {
+				return err
+			}
 			time.Sleep(backoff)
 			if backoff < 50*time.Millisecond {
 				backoff *= 2
@@ -95,7 +101,6 @@ func replaceExisting(src, dst string) error {
 			return err
 		}
 	}
-	return lastErr
 }
 
 func replaceFileOnce(src, dst string) error {
