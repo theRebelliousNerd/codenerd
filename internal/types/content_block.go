@@ -205,3 +205,117 @@ func AssistantMessageFrom(resp *LLMToolResponse) Message {
 	}
 	return Message{Role: "assistant", Text: resp.Text, ToolCalls: resp.ToolCalls}
 }
+
+// Rewrite replaces the turn's prose and tool calls in BOTH views at once.
+//
+// LLMToolResponse is the one place in this design where the flat fields and the
+// block list are both settable, and so the one place they can be given
+// contradictory values. Message solved that by hiding the block list behind
+// constructors; a response cannot, because adapters build it field by field as
+// they parse. So the invariant is kept by making every post-parse edit go
+// through here.
+//
+// The edit that made this necessary is piggyback promotion. It reads a control
+// envelope out of the prose and turns it into tool calls, writing both to the
+// flat fields — and a block-carrying response would then hold the original
+// envelope text and NO tool_use blocks, so AssistantMessageFrom (which prefers
+// blocks) would append an assistant turn claiming it called nothing. The next
+// user turn carries tool_results for calls that are not in the transcript,
+// which strict providers reject outright.
+//
+// Thinking blocks survive, in front. They carry provider signatures that must
+// be replayed verbatim, so dropping them to rebuild the turn would lose exactly
+// what the block representation exists to keep; and Anthropic requires them at
+// the head of an assistant turn regardless. Everything else is rebuilt from the
+// arguments, because after a rewrite the model's original ordering no longer
+// describes what the turn means.
+//
+// A response with no blocks is left with no blocks. Nil means "this provider
+// did not tell us the order", and inventing one here would turn an honest
+// absence into a claim.
+func (r *LLMToolResponse) Rewrite(text string, calls []ToolCall) {
+	if r == nil {
+		return
+	}
+	r.Text = text
+	r.ToolCalls = calls
+	if len(r.Blocks) == 0 {
+		return
+	}
+
+	rebuilt := make([]ContentBlock, 0, len(r.Blocks)+len(calls))
+	for _, b := range r.Blocks {
+		switch b.Kind {
+		case BlockText, BlockToolUse:
+			// Replaced by the arguments.
+		default:
+			rebuilt = append(rebuilt, b)
+		}
+	}
+	if text != "" {
+		rebuilt = append(rebuilt, TextBlock(text))
+	}
+	for _, c := range calls {
+		rebuilt = append(rebuilt, ToolUseBlock(c.ID, c.Name, c.Input))
+	}
+	r.Blocks = rebuilt
+}
+
+// ClearToolCalls drops the turn's tool calls from both views, keeping its prose.
+//
+// `resp.ToolCalls = nil` is the tempting form and it is half a change: the
+// tool_use blocks stay, so a caller reading the blocks still sees the calls the
+// assignment was written to retract. It allocates a fresh block slice rather
+// than filtering in place, because responses are copied by value in this
+// package and an in-place filter would reach through the copy into the
+// original's backing array.
+func (r *LLMToolResponse) ClearToolCalls() {
+	if r == nil {
+		return
+	}
+	r.Rewrite(r.Text, nil)
+}
+
+// WithToolResults returns a copy of m carrying these tool results in BOTH
+// views, matched to the originals by position.
+//
+// The tool-loop transcript is bounded by rewriting old tool results — blanked
+// to a notice, or clamped head+tail — and the obvious way to do that is to
+// assign the message's ToolResults field. On a message built from the flat
+// fields that is correct, because Content() lifts them. On a message built from
+// blocks it changes only the projection: Content() returns the block list, so
+// every adapter goes on sending the full payload and the transcript quietly
+// stops being bounded. Nothing fails. The bill arrives instead.
+//
+// Position is a sound way to match because the flat projection is built by
+// walking the blocks in order, so the n-th ToolResult is the n-th
+// BlockToolResult. A caller handing back a different number of results has
+// already lost that correspondence, so the block list is rebuilt from the
+// arguments alone rather than half-matched.
+func (m Message) WithToolResults(results []ToolResult) Message {
+	if len(m.blocks) == 0 {
+		m.ToolResults = results
+		return m
+	}
+
+	rebuilt := make([]ContentBlock, 0, len(m.blocks))
+	aligned := len(results) == len(m.ToolResults)
+	seen := 0
+	for _, b := range m.blocks {
+		if b.Kind != BlockToolResult {
+			rebuilt = append(rebuilt, b)
+			continue
+		}
+		if aligned && seen < len(results) {
+			r := results[seen]
+			rebuilt = append(rebuilt, ToolResultBlock(r.ToolUseID, r.Content, r.IsError))
+		}
+		seen++
+	}
+	if !aligned {
+		for _, r := range results {
+			rebuilt = append(rebuilt, ToolResultBlock(r.ToolUseID, r.Content, r.IsError))
+		}
+	}
+	return NewMessage(m.Role, rebuilt...)
+}

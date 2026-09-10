@@ -1802,7 +1802,9 @@ func boundToolLoopHistory(history []types.Message) []types.Message {
 			results[j].Content = evictedToolResultNotice
 			evicted++
 		}
-		bounded[i].ToolResults = results
+		// Both views. Assigning the field alone would leave a block-built turn
+		// sending the payload this eviction just accounted for as gone.
+		bounded[i] = bounded[i].WithToolResults(results)
 	}
 
 	// Every older result is gone and the transcript is still over: the newest
@@ -1836,7 +1838,7 @@ func boundToolLoopHistory(history []types.Message) []types.Message {
 			total += len(results[j].Content)
 			clamped++
 		}
-		bounded[newest].ToolResults = results
+		bounded[newest] = bounded[newest].WithToolResults(results)
 	}
 
 	if evicted > 0 || clamped > 0 {
