@@ -73,6 +73,24 @@ type CortexKernel struct {
 	routeMissCount int64 // Mutations/queries for unowned predicates
 	routeHitCount  int64 // Successfully routed mutations/queries
 
+	// mutationFailCount counts Assert/Retract/RetractFact calls that returned
+	// an error. It is here rather than left to callers because of a count
+	// taken in September 2026: 130 call sites across the repo write
+	// `_ = kernel.Assert(...)`, discarding the error.
+	//
+	// Most of those are reasonable in isolation -- a fact about progress is
+	// not worth failing a campaign over -- but the sum is not. In an agent
+	// whose executive is a Datalog kernel, a fact that does not land is a
+	// decision that will not be made, and 130 places where that happens
+	// without a trace means the symptom is always "the agent just didn't do
+	// the thing" with nothing to point at.
+	//
+	// Reporting at the boundary rather than editing 130 call sites is the
+	// trade: one place cannot be forgotten, the error is still returned for
+	// callers who do check it, and the count rides along in the stats line
+	// that already prints route hits and misses.
+	mutationFailCount int64
+
 	// Event bus for fact mutations — aggregates events from all domain shards
 	eventBus *FactEventBus
 
@@ -176,6 +194,19 @@ func (c *CortexKernel) isShared(predicate string) bool {
 // consuming shards plus the catch-all for a shared predicate with a
 // derivation map, all shards for a shared predicate without one, else the
 // single shard routeToShard picks.
+// noteMutationFailure records and reports a kernel write that did not land.
+//
+// Warn, not Debug: this is never routine. A failed assert means the kernel's
+// picture of the world is now missing something the caller believed it had
+// told it, and every rule downstream of that fact will evaluate as though it
+// were never true.
+func (c *CortexKernel) noteMutationFailure(op, predicate string, err error) error {
+	atomic.AddInt64(&c.mutationFailCount, 1)
+	logging.Get(logging.CategoryKernel).Warn(
+		"[cortex] %s of '%s' FAILED, the kernel does not hold it: %v", op, predicate, err)
+	return err
+}
+
 func (c *CortexKernel) targetShards(predicate string) []*KernelShard {
 	bare := barePredicate(predicate)
 	c.mu.RLock()
@@ -411,7 +442,8 @@ func (c *CortexKernel) routeToShard(predicate string) *KernelShard {
 func (c *CortexKernel) Assert(fact types.Fact) error {
 	targets := c.targetShards(fact.Predicate)
 	if len(targets) == 0 {
-		return fmt.Errorf("[cortex] no shard available for predicate '%s'", fact.Predicate)
+		return c.noteMutationFailure("assert", fact.Predicate,
+			fmt.Errorf("no shard available for predicate '%s'", fact.Predicate))
 	}
 	for _, shard := range targets {
 		var err error
@@ -421,7 +453,7 @@ func (c *CortexKernel) Assert(fact types.Fact) error {
 			err = shard.Assert(fact)
 		}
 		if err != nil {
-			return err
+			return c.noteMutationFailure("assert", fact.Predicate, err)
 		}
 	}
 	// Publish at cortex level so system shards subscribing here get notified
@@ -466,7 +498,8 @@ func (c *CortexKernel) AssertBatch(facts []types.Fact) error {
 func (c *CortexKernel) Retract(predicate string) error {
 	targets := c.targetShards(predicate)
 	if len(targets) == 0 {
-		return fmt.Errorf("[cortex] no shard available for predicate '%s'", predicate)
+		return c.noteMutationFailure("retract", predicate,
+			fmt.Errorf("no shard available for predicate '%s'", predicate))
 	}
 	for _, shard := range targets {
 		var err error
@@ -476,7 +509,7 @@ func (c *CortexKernel) Retract(predicate string) error {
 			err = shard.Retract(predicate)
 		}
 		if err != nil {
-			return err
+			return c.noteMutationFailure("retract", predicate, err)
 		}
 	}
 	return nil
@@ -487,7 +520,8 @@ func (c *CortexKernel) Retract(predicate string) error {
 func (c *CortexKernel) RetractFact(fact types.Fact) error {
 	targets := c.targetShards(fact.Predicate)
 	if len(targets) == 0 {
-		return fmt.Errorf("[cortex] no shard available for predicate '%s'", fact.Predicate)
+		return c.noteMutationFailure("retract fact", fact.Predicate,
+			fmt.Errorf("no shard available for predicate '%s'", fact.Predicate))
 	}
 	for _, shard := range targets {
 		var err error
@@ -497,7 +531,7 @@ func (c *CortexKernel) RetractFact(fact types.Fact) error {
 			err = shard.RetractFact(fact)
 		}
 		if err != nil {
-			return err
+			return c.noteMutationFailure("retract fact", fact.Predicate, err)
 		}
 	}
 	return nil
@@ -931,9 +965,10 @@ func (c *CortexKernel) LogMetrics() {
 	routeHits := c.routeHitCount
 	routeMisses := c.routeMissCount
 	c.mu.RUnlock()
+	mutationFails := atomic.LoadInt64(&c.mutationFailCount)
 
-	logging.Kernel("[cortex] TOTAL: shards=%d facts=%d evals=%d queries=%d routeHits=%d routeMisses=%d",
-		len(metrics), totalFacts, totalEvals, totalQueries, routeHits, routeMisses)
+	logging.Kernel("[cortex] TOTAL: shards=%d facts=%d evals=%d queries=%d routeHits=%d routeMisses=%d mutationFails=%d",
+		len(metrics), totalFacts, totalEvals, totalQueries, routeHits, routeMisses, mutationFails)
 }
 
 // TotalFactCount returns the total number of EDB facts across all shards.
