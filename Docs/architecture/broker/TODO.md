@@ -12,6 +12,32 @@ the work they gate begins.
   break-even derived from published cache economics rather than hard-coded.
   Read it with `nerd meter epochs`. **The gate is now a matter of running
   sessions and looking**, not of building anything.
+
+  **Half of Q1 turns out to be answerable from the code, and it sharpens the
+  other half.** An epoch in this architecture is not a session, it is one
+  turn's tool loop. The system prompt handed to a provider is
+  `compileResult.Prompt` plus `withFileContext` for the current target, so it
+  changes from turn to turn by construction — that is what JIT context
+  management *means*, and no cache strategy will talk it out of it. What holds
+  still is the system prompt inside one turn's native loop, where
+  `runToolLoop` passes the same string into every round while only the message
+  history grows, and messages are deliberately outside the fingerprint.
+
+  So the ceiling on epoch length is the tool-loop round count, capped by
+  `budget.iterationLimit` — and the Piggyback structured-output path runs a
+  single iteration by design, so epochs are 1 there whatever else is true.
+  That makes the aggregate median ambiguous in a way that decides Phase 4 the
+  wrong way round: a p50 of 1 means either turns that used no tools, where
+  there is no loop to lengthen, or a tool loop that is not reusing its prefix,
+  which is exactly what Phase 4 fixes. `nerd meter epochs` now splits by call
+  shape for that reason. **Read the by-shape table, not the headline.**
+
+  It also names the Phase 4 design input. If the prefix is going to move every
+  turn anyway, the lever is not a better rebuild controller but request
+  *ordering*: a stable skeleton ahead of the volatile JIT selection ahead of
+  the file context, so the cacheable head is the part that does not move. That
+  is a change to how the prompt is assembled, not to how it is cached, and it
+  should be settled before any controller is built on top of it.
 - ~~**[gate] Atom co-use analysis**~~ — **built.** `internal/prompt/couse.go`
   records which atoms are selected together per compilation, settled against the
   turn's outcome, and reports lift, Jaccard, clusters and category alignment.
