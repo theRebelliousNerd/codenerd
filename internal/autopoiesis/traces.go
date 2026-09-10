@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -852,7 +853,19 @@ func findCommonDecisions(decisionCounts map[string]map[string]int) []DecisionPat
 		var maxCount int
 		var totalCount int
 
-		for choice, count := range choices {
+		// Sorted, because this is a LEARNED preference: whatever wins here is
+		// recorded as what the agent decided about this topic. Ranging the map
+		// with a strict `>` meant two equally-taken choices produced a
+		// different lesson each time the traces were analysed, which is a
+		// memory that disagrees with itself.
+		options := make([]string, 0, len(choices))
+		for choice := range choices {
+			options = append(options, choice)
+		}
+		sort.Strings(options)
+
+		for _, choice := range options {
+			count := choices[choice]
 			totalCount += count
 			if count > maxCount {
 				maxCount = count
