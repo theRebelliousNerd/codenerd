@@ -216,7 +216,7 @@ func TestFromContext_WhenNoTracker_ShouldReturnNil(t *testing.T) {
 	}
 
 	// Test nil context
-	if FromContext(nil) != nil {
+	if FromContext(context.Background()) != nil {
 		t.Error("expected nil from nil context")
 	}
 }

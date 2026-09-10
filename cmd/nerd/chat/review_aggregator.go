@@ -1202,12 +1202,6 @@ func (m Model) enableNemesisReview() bool {
 		return false
 	}
 
-	// Check if nemesis shard is registered in shard manager
-	if m.shardMgr != nil {
-		// Try to spawn - if it fails, shard isn't available
-		// We'll check registration differently
-	}
-
 	// Check for go.mod (Nemesis currently works best with Go code)
 	goModPath := filepath.Join(m.workspace, "go.mod")
 	if _, err := os.Stat(goModPath); err == nil {

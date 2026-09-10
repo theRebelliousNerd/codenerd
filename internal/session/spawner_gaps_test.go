@@ -280,8 +280,7 @@ func TestSpawner_GetByNamePredictability(t *testing.T) {
 
 	req1 := SpawnRequest{Name: "duplicate", Task: "test", Type: SubAgentTypeEphemeral}
 	agent1, _ := spawner.Spawn(context.Background(), req1)
-	if agent1 != nil {
-	} // Keep unused warning away
+	_ = agent1 // the assertion is that spawning did not panic
 
 	// wait for agent to start
 	time.Sleep(10 * time.Millisecond)

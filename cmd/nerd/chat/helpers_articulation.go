@@ -332,6 +332,7 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 		parser := articulation.NewStreamParser()
 		var fullBuilder strings.Builder
 
+	streamLoop:
 		for {
 			select {
 			case chunk, ok := <-chunkChan:
@@ -360,11 +361,16 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 					errChan = nil
 				} else if streamErr != nil {
 					err = streamErr
-					break
+					// Labelled: a bare break here exits the select, not the
+					// loop, so a stream error did not stop consumption.
+					break streamLoop
 				}
 			case <-ctx.Done():
 				err = ctx.Err()
-				break
+				// Same, and worse on this arm: a cancelled context makes
+				// ctx.Done() ready on every pass, so the bare break spun the
+				// loop instead of leaving it.
+				break streamLoop
 			}
 
 			if chunkChan == nil && tChan == nil && errChan == nil {

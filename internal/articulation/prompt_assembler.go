@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
@@ -142,8 +143,11 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 	switch pc.ShardType {
 	case "legislator", "mangle_repair":
 		// Keep Mangle system prompts focused to avoid massive context dumps.
-		if cc.TokenBudget > 60000 {
-			cc.TokenBudget = 60000
+		// This is a deliberate narrowing for two shards, not a competing budget
+		// authority: it takes a share of whatever the ledger is enforcing rather
+		// than the flat 60000 that used to be pinned here regardless of window.
+		if focused := broker.Default().PromptBudget(0.3, 60000); cc.TokenBudget > focused {
+			cc.TokenBudget = focused
 		}
 		if cc.ReservedTokens > 4000 {
 			cc.ReservedTokens = 4000

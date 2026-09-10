@@ -273,7 +273,7 @@ func TestCodexCLIClient_buildCLIArgs_ReasoningEffortByCapability(t *testing.T) {
 		ReasoningEffortHighReasoning: "xhigh",
 	})
 
-	ctx := context.WithValue(context.Background(), types.CtxKeyModelCapability, types.CapabilityHighReasoning)
+	ctx := types.WithModelCapability(context.Background(), types.CapabilityHighReasoning)
 	args := client.buildCLIArgs(ctx, client.GetModel(), "out.txt", "")
 	joined := strings.Join(args, " ")
 
@@ -291,7 +291,7 @@ func TestCodexCLIClient_buildCLIArgs_ConfigOverridesWin(t *testing.T) {
 		},
 	})
 
-	ctx := context.WithValue(context.Background(), types.CtxKeyModelCapability, types.CapabilityHighReasoning)
+	ctx := types.WithModelCapability(context.Background(), types.CapabilityHighReasoning)
 	args := client.buildCLIArgs(ctx, client.GetModel(), "out.txt", "")
 	joined := strings.Join(args, " ")
 
@@ -360,7 +360,7 @@ func TestCodexCLIClient_SchemaCapable_Disabled(t *testing.T) {
 
 func TestCodexCLIClient_ModelForContext(t *testing.T) {
 	client := NewCodexCLIClient(nil)
-	ctx := context.WithValue(context.Background(), types.CtxKeyModelName, "gpt-5.3-codex-spark")
+	ctx := types.WithModelName(context.Background(), "gpt-5.3-codex-spark")
 
 	if got := client.ModelForContext(ctx); got != "gpt-5.3-codex-spark" {
 		t.Fatalf("ModelForContext() = %q, want shard override", got)

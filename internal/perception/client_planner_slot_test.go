@@ -1,6 +1,7 @@
 package perception
 
 import (
+	"codenerd/internal/broker"
 	"strings"
 	"testing"
 
@@ -22,9 +23,9 @@ func TestNewPlannerClientFromUserConfig_BuildsDistinctClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPlannerClientFromUserConfig: %v", err)
 	}
-	compat, ok := planner.(*OpenAICompatClient)
+	compat, ok := broker.Base(planner).(*OpenAICompatClient)
 	if !ok {
-		t.Fatalf("expected *OpenAICompatClient, got %T", planner)
+		t.Fatalf("expected *OpenAICompatClient, got %T", broker.Base(planner))
 	}
 	if compat.model != "qwen3.8-max" {
 		t.Errorf("planner model = %q, want qwen3.8-max", compat.model)
@@ -34,9 +35,9 @@ func TestNewPlannerClientFromUserConfig_BuildsDistinctClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorkerClientFromUserConfig: %v", err)
 	}
-	workerCompat, ok := worker.(*OpenAICompatClient)
+	workerCompat, ok := broker.Base(worker).(*OpenAICompatClient)
 	if !ok {
-		t.Fatalf("expected *OpenAICompatClient for the worker, got %T", worker)
+		t.Fatalf("expected *OpenAICompatClient for the worker, got %T", broker.Base(worker))
 	}
 	if workerCompat.model == compat.model {
 		t.Error("worker and planner resolved to the same model; the two-tier split would be a no-op")

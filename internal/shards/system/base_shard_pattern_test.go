@@ -376,6 +376,10 @@ func (f *callbackFakeKernel) Assert(fact types.Fact) error {
 	// but the outer test's timeout is the real deadlock detector.
 	done := make(chan struct{})
 	go func() {
+		// Acquiring and immediately releasing is the whole probe: it completes
+		// only if no writer is holding the lock, which is what the select below
+		// times out on. There is nothing to do inside the critical section.
+		//lint:ignore SA2001 the empty critical section is the deadlock probe
 		f.shard.mu.RLock()
 		f.shard.mu.RUnlock()
 		close(done)

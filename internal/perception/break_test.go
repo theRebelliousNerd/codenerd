@@ -726,6 +726,10 @@ func TestBreak_Understanding_NaN_Confidence(t *testing.T) {
 	err := u.Validate()
 	if err == nil {
 		t.Error("DANGEROUS: NaN confidence passed validation — IEEE 754 comparison bypass")
+		// Printed only when validation wrongly accepted NaN. The comparisons
+		// are false by IEEE 754 and that is the point being demonstrated: a
+		// range check written as `v < 0 || v > 1` lets NaN through.
+		//lint:ignore SA4012 demonstrating the NaN comparison bypass is the purpose of this log
 		t.Log("NaN < 0 =", math.NaN() < 0, "; NaN > 1 =", math.NaN() > 1)
 	} else {
 		t.Logf("NaN correctly rejected: %v", err)

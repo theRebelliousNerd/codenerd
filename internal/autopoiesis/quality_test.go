@@ -328,11 +328,13 @@ func TestIssueType_Values(t *testing.T) {
 	}
 
 	seen := make(map[IssueType]bool)
-	for _, t := range types {
-		if seen[t] {
-			// Types are strings, they should be unique
+	for _, issueType := range types {
+		if seen[issueType] {
+			t.Errorf("duplicate issue type %v: the set is meant to be distinct, and the check "+
+				"for it was an empty branch — the loop variable was named t, shadowing *testing.T, "+
+				"so an assertion could not have been written there", issueType)
 		}
-		seen[t] = true
+		seen[issueType] = true
 	}
 }
 
@@ -351,11 +353,12 @@ func TestSuggestionType_Values(t *testing.T) {
 	}
 
 	seen := make(map[SuggestionType]bool)
-	for _, t := range types {
-		if seen[t] {
-			// Types are strings, they should be unique
+	for _, suggestionType := range types {
+		if seen[suggestionType] {
+			t.Errorf("duplicate suggestion type %v: same shadowed-loop-variable cause as the "+
+				"issue-type check above", suggestionType)
 		}
-		seen[t] = true
+		seen[suggestionType] = true
 	}
 }
 

@@ -807,6 +807,13 @@ func initPerceptionLayer(bctx *bootContext) error {
 	if bctx.cfg.LLMClientOverride != nil {
 		baseLLMClient = bctx.cfg.LLMClientOverride
 	}
+	// Configure the process meter before any client exists. The broker counts
+	// and records regardless, but until it knows the window it cannot enforce
+	// one — and an unconfigured window is reported as zero headroom on every
+	// receipt rather than passing silently, so doing this late would be visible
+	// but wrong.
+	configureBrokerMeter(bctx.appCfg)
+
 	// Prefer workspace config first so engine selection wins over a ambient
 	// ZAI_API_KEY (or --api-key). Previously any non-empty apiKey forced
 	// NewZAIClient and bypassed engine=xai-oauth / claude-cli / codex-cli.
@@ -833,8 +840,19 @@ func initPerceptionLayer(bctx *bootContext) error {
 	}
 	// Legacy CLI fallback: raw apiKey arg / --api-key only when no config engine/provider client exists.
 	if baseLLMClient == nil && strings.TrimSpace(bctx.apiKey) != "" {
-		baseLLMClient = perception.NewZAIClient(strings.TrimSpace(bctx.apiKey))
-		logging.Get(logging.CategoryPerception).Info("LLM client from legacy apiKey arg (Z.AI)")
+		legacyKey := strings.TrimSpace(bctx.apiKey)
+		// This is the one client in the codebase built outside the factory, so
+		// it is also the one that would otherwise spend un-metered. Broker it
+		// explicitly rather than leaving a hole the wiring test has to special-case.
+		legacyClient, brokerErr := perception.InstallBrokerForProvider(
+			perception.NewZAIClient(legacyKey), perception.ProviderZAI, "", legacyKey)
+		if brokerErr != nil {
+			logging.Get(logging.CategoryPerception).Error(
+				"legacy apiKey client could not be metered: %v", brokerErr)
+		} else {
+			baseLLMClient = legacyClient
+			logging.Get(logging.CategoryPerception).Info("LLM client from legacy apiKey arg (Z.AI)")
+		}
 	}
 	if baseLLMClient == nil {
 		err := fmt.Errorf("no LLM client configured (missing config or env keys)")

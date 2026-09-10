@@ -200,8 +200,9 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 							visibility = "public"
 						}
 
-						var fields []string
-						var methods []string
+						// Struct fields and interface methods are emitted as individual
+						// facts below rather than accumulated here. Two slices used to
+						// collect them and were never read.
 
 						if typeNode != nil {
 							if typeNode.Type() == "struct_type" {
@@ -223,7 +224,6 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 												fieldType = getText(fieldTypeNode)
 											}
 											if fieldName != "" {
-												fields = append(fields, fmt.Sprintf("%s %s", fieldName, fieldType))
 												// Emit field fact
 												fieldID := fmt.Sprintf("field:%s.%s", name, fieldName)
 												fieldVis := "private"
@@ -271,8 +271,6 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 												sb.WriteString(resultText)
 											}
 											methodSig := sb.String()
-											methods = append(methods, methodSig)
-
 											// Emit interface method fact
 											methodID := fmt.Sprintf("iface_method:%s.%s", name, methodName)
 											methodVis := "private"

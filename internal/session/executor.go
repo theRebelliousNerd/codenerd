@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"codenerd/internal/articulation"
+	"codenerd/internal/broker"
 	"codenerd/internal/core"
 	"codenerd/internal/evidence"
 	"codenerd/internal/jit/config"
@@ -344,7 +345,18 @@ type ExecutorConfig struct {
 // ExecutorConfig/SpawnerConfig override is set. 65,536 tokens is a
 // safe sub-agent default that survives on Claude/Gemini/GPT context
 // windows ≥128K and still leaves headroom for response + tool I/O.
-const DefaultTokenBudget = 65536
+const defaultTokenBudgetFallback = 65536
+
+// DefaultTokenBudget is the prompt-compilation allowance for a session turn.
+//
+// It was a bare const at 65536 — a number chosen conservatively because nothing
+// in the codebase could tell what the real window was or who else was spending
+// it. It now derives from the one ledger, taking half the enforced window and
+// leaving the rest for the context block, the history, and the tool schemas
+// that share it.
+func DefaultTokenBudget() int {
+	return broker.Default().PromptBudget(0.5, defaultTokenBudgetFallback)
+}
 
 const (
 	defaultMaxToolCalls               = 50
@@ -384,7 +396,7 @@ func DefaultExecutorConfig() ExecutorConfig {
 		ToolTimeout:                defaultToolTimeout,
 		FinalAnswerReserve:         defaultFinalAnswerReserve,
 		EnableSafetyGate:           true,
-		TokenBudget:                DefaultTokenBudget,
+		TokenBudget:                DefaultTokenBudget(),
 		HistoryTurnWindow:          DefaultHistoryTurnWindow,
 		HistoryCharBudget:          DefaultHistoryCharBudget,
 		// On by default: the failure this prevents (confident, non-compiling
@@ -1033,7 +1045,7 @@ func (e *Executor) observe(ctx context.Context, input string) (perception.Intent
 func (e *Executor) buildCompilationContext(ctx context.Context, intent perception.Intent) *prompt.CompilationContext {
 	budget := e.configSnapshot().TokenBudget
 	if budget <= 0 {
-		budget = DefaultTokenBudget
+		budget = DefaultTokenBudget()
 	}
 	cc := &prompt.CompilationContext{
 		IntentVerb:      intent.Verb,

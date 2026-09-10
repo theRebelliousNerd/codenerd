@@ -13,19 +13,21 @@ import (
 	"time"
 
 	"codenerd/internal/core"
-	"codenerd/internal/session"
+	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
-	"codenerd/internal/jit/config"
+	"codenerd/internal/session"
 )
 
 // Mock dependencies to isolate the Spawner <-> APIScheduler boundary.
 type mockCompiler struct{}
+
 func (m *mockCompiler) Compile(ctx context.Context, compCtx *prompt.CompilationContext) (*prompt.CompilationResult, error) {
 	return &prompt.CompilationResult{}, nil
 }
 
 type sasMockConfigFactory struct{}
+
 func (m *sasMockConfigFactory) Generate(ctx context.Context, res *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	return &config.EffectiveAgentRuntimeConfig{}, nil
 }
@@ -305,7 +307,6 @@ func TestE2E_SpawnerAPIScheduler_CascadingFailure_SchedulerStall(t *testing.T) {
 	}
 }
 
-
 // TestE2E_SpawnerAPIScheduler_PriorityInversion_Prevention tests if a high-priority
 // spawn can bypass a crowded wait queue.
 func TestE2E_SpawnerAPIScheduler_PriorityInversion_Prevention(t *testing.T) {
@@ -344,7 +345,7 @@ func TestE2E_SpawnerAPIScheduler_PriorityInversion_Prevention(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		// Injecting priority into context as per architecture docs
-		ctx = context.WithValue(ctx, types.CtxKeyPriority, types.PriorityHigh)
+		ctx = types.WithSpawnPriority(ctx, types.PriorityHigh)
 
 		err := scheduler.AcquireAPISlot(ctx, "high_prio_agent")
 		if err == nil {

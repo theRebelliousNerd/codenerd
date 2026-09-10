@@ -460,36 +460,101 @@ func (r *CheckpointRunner) detectBuildCommand() string {
 	return tools.DefaultBuildCommand
 }
 
-// parseTestOutput parses test output to count passed/failed tests.
+// parseTestOutput counts passed and failed tests in a runner's plain output.
+//
+// Two defects lived here and both skewed every checkpoint verdict toward
+// failure:
+//
+//   - A Go result line fell through into the generic patterns below, so any
+//     test whose name contained "failed" was counted twice. "--- FAIL:
+//     TestFailedLogin" matched "--- fail" and then matched "failed" again.
+//   - The generic passing branch was empty while the generic failing branch
+//     incremented, so a non-Go runner reporting "12 passed, 1 failed" scored
+//     zero passes and one failure.
+//
+// Go's own markers are unambiguous, so they win and stop the line. The generic
+// heuristics are symmetric, and match "ok" and "error" as whole words: a plain
+// Contains matched "ok" inside "token" and "error" inside "errorless".
 func (cr *CheckpointRunner) parseTestOutput(output string) (passed, failed int) {
-	lines := strings.SplitSeq(output, "\n")
+	for line := range strings.SplitSeq(output, "\n") {
+		lower := strings.ToLower(strings.TrimSpace(line))
+		if lower == "" {
+			continue
+		}
 
-	for line := range lines {
-		lower := strings.ToLower(line)
-
-		// Go test output
-		if strings.Contains(lower, "--- pass") {
+		switch {
+		case strings.Contains(lower, "--- pass"):
 			passed++
-		} else if strings.Contains(lower, "--- fail") {
+			continue
+		case strings.Contains(lower, "--- fail"):
 			failed++
+			continue
+		case strings.Contains(lower, "--- skip"):
+			// A skipped test is neither a pass nor a failure. Counting it
+			// either way misreports the suite.
+			continue
 		}
 
-		// Generic patterns
-		if strings.Contains(lower, "passed") || strings.Contains(lower, "ok") {
-			// Try to extract number
-			// This is a rough heuristic
-		}
-		if strings.Contains(lower, "failed") || strings.Contains(lower, "error") {
+		// Failure wins a tie: a line reading "1 failed, 3 passed" is a failing
+		// summary, and treating it as a pass is the dangerous direction.
+		switch {
+		case genericFailureLine(lower):
 			failed++
+		case genericPassLine(lower):
+			passed++
 		}
 	}
 
-	// If we couldn't parse, assume 1 passed if no failures
+	// Unparseable output is optimistically one pass. Preserved deliberately:
+	// a runner this function cannot read should not manufacture a failure.
 	if passed == 0 && failed == 0 {
 		passed = 1
 	}
 
 	return passed, failed
+}
+
+// genericPassLine reports whether a non-Go runner's line announces success.
+func genericPassLine(lower string) bool {
+	return strings.Contains(lower, "passed") ||
+		strings.Contains(lower, "passing") ||
+		containsWord(lower, "ok")
+}
+
+// genericFailureLine reports whether a non-Go runner's line announces failure.
+func genericFailureLine(lower string) bool {
+	return strings.Contains(lower, "failed") ||
+		strings.Contains(lower, "failing") ||
+		containsWord(lower, "error") ||
+		containsWord(lower, "errors")
+}
+
+// containsWord reports whether word appears in s bounded by non-letters.
+//
+// The bound is the point: strings.Contains(s, "ok") is true of "token" and
+// "broken", and every `go test` summary line names a package path.
+func containsWord(s, word string) bool {
+	for i := 0; ; {
+		idx := strings.Index(s[i:], word)
+		if idx < 0 {
+			return false
+		}
+		start := i + idx
+		end := start + len(word)
+		beforeOK := start == 0 || !isASCIILetter(s[start-1])
+		afterOK := end == len(s) || !isASCIILetter(s[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		i = start + 1
+		if i >= len(s) {
+			return false
+		}
+	}
+}
+
+func isASCIILetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 // parseGoTestJSON parses go test -json output for pass/fail counts.

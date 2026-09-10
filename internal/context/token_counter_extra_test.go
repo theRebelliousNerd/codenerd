@@ -1,6 +1,7 @@
 package context
 
 import (
+	"codenerd/internal/broker"
 	"strings"
 	"testing"
 
@@ -107,37 +108,59 @@ func TestNewConfigWithBudget(t *testing.T) {
 	}
 }
 
-// stubEstimator stands in for a provider-aligned tokenizer adapter.
-type stubEstimator struct{ perString int }
+// The counter no longer owns a ratio. These tests pin the property that
+// replaced the old TokenEstimator seam: counting is delegated to the process
+// broker, so it improves as the broker observes real provider responses.
+//
+// Each test uses a model name unique to itself. The broker's calibrator is
+// process-wide by design (one ledger, one ratio), so tests that trained a
+// shared key would leak into each other.
 
-func (s stubEstimator) EstimateTokens(string) int { return s.perString }
+func TestTokenCounter_ShouldCountViaBrokerRatio(t *testing.T) {
+	const model = "test/context-counter-ratio"
+	counter := NewTokenCounterForModel(model)
 
-func TestTokenCounter_WhenEstimatorProvided_ShouldReplaceHeuristic(t *testing.T) {
-	heuristic := NewTokenCounter()
-	adapted := NewTokenCounterWithEstimator(stubEstimator{perString: 7})
-
-	const s = "the quick brown fox jumps over the lazy dog"
-	if got := adapted.CountString(s); got != 7 {
-		t.Errorf("estimator ignored: CountString = %d, want 7", got)
+	const text = "the quick brown fox jumps over the lazy dog"
+	before := counter.CountString(text)
+	if before <= 0 {
+		t.Fatalf("CountString returned %d for non-empty text", before)
 	}
-	if heuristic.CountString(s) == 7 {
-		t.Error("test is vacuous: the heuristic happens to agree with the stub")
+	if counter.Confidence() != broker.ConfidenceSeeded {
+		t.Errorf("a model with no observations should report seeded, got %q", counter.Confidence())
 	}
-	// Empty input must short-circuit before the estimator so callers cannot be
-	// charged tokens for nothing.
-	if got := adapted.CountString(""); got != 0 {
-		t.Errorf("CountString(\"\") = %d, want 0", got)
+
+	// Teach the broker that this model packs twice as many characters per
+	// token as the seed assumes. The counter must follow without being
+	// reconstructed: the compressor holds one counter for a whole session.
+	seedRatio := counter.Ratio()
+	broker.Default().Calibrator().Observe(broker.Observation{
+		Model:             model,
+		Chars:             20000,
+		ActualInputTokens: int(20000 / (seedRatio * 2)),
+	})
+
+	after := counter.CountString(text)
+	if after >= before {
+		t.Errorf("counter ignored the observed ratio: %d before, %d after (ratio now %.2f)",
+			before, after, counter.Ratio())
+	}
+	if counter.Confidence() != broker.ConfidenceCalibrated {
+		t.Errorf("after an observation the counter should report calibrated, got %q", counter.Confidence())
 	}
 }
 
-func TestTokenCounter_WhenEstimatorNil_ShouldKeepDefaultHeuristic(t *testing.T) {
-	if NewTokenCounterWithEstimator(nil).CountString("abcdefgh") != NewTokenCounter().CountString("abcdefgh") {
-		t.Error("nil estimator must degrade to the default heuristic")
+func TestTokenCounter_WhenEmpty_ShouldChargeNothing(t *testing.T) {
+	counter := NewTokenCounterForModel("test/context-counter-empty")
+	if got := counter.CountString(""); got != 0 {
+		t.Errorf("CountString(\"\") = %d, want 0 — empty input must not be billed", got)
 	}
 }
 
-func TestCharsPerTokenEstimator_WhenRatioInvalid_ShouldFallBackToFour(t *testing.T) {
-	if got := (CharsPerTokenEstimator{CharsPerToken: 0}).EstimateTokens("abcdefgh"); got != 2 {
-		t.Errorf("zero ratio must fall back to 4 chars/token, got %d", got)
+func TestTokenCounter_ShouldNeverReturnZeroForNonEmptyText(t *testing.T) {
+	// A single character must cost at least one token. Returning zero would let
+	// an unbounded number of tiny facts into a budget that believed it was full.
+	counter := NewTokenCounterForModel("test/context-counter-floor")
+	if got := counter.CountString("x"); got < 1 {
+		t.Errorf("CountString(\"x\") = %d, want >= 1", got)
 	}
 }

@@ -662,7 +662,6 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 			break
 		}
 
-		iterNum++
 		break // Normal flow: single successful iteration exits
 	}
 

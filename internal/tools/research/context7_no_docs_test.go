@@ -50,8 +50,12 @@ func TestExecuteContext7_WhenNoDocsFound_ShouldReturnError(t *testing.T) {
 			if result != "" {
 				t.Errorf("executeContext7(%v) result = %q; want empty result on no-documentation error", tt.args, result)
 			}
-			if !strings.Contains(err.Error(), "No LLM-optimized documentation found") {
-				t.Errorf("error %q should contain 'No LLM-optimized documentation found'", err.Error())
+			// Matched case-insensitively: the assertion is about the error
+			// naming the no-documentation condition, not about its
+			// capitalization, and the exact-case form broke when the message
+			// was lowercased to follow Go's error-string convention.
+			if !strings.Contains(strings.ToLower(err.Error()), "no llm-optimized documentation found") {
+				t.Errorf("error %q should say no LLM-optimized documentation was found", err.Error())
 			}
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("error %q should mention topic %q", err.Error(), tt.want)

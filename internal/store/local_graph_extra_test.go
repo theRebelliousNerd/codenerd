@@ -55,13 +55,13 @@ func TestLocalStore_KnowledgeGraph_Extra(t *testing.T) {
 	}
 
 	// TraversePath with maxDepth limit
-	path, err = s.TraversePath("a", "c", 1)
+	_, err = s.TraversePath("a", "c", 1)
 	if err == nil {
 		t.Errorf("Expected error when maxDepth is too small")
 	}
 
 	// TraversePath no path
-	path, err = s.TraversePath("a", "x", 5)
+	_, err = s.TraversePath("a", "x", 5)
 	if err == nil {
 		t.Errorf("Expected error when no path exists")
 	}

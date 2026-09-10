@@ -152,8 +152,10 @@ func TestTruncateCode_WhenShort_ShouldReturnOriginal(t *testing.T) {
 func TestTruncateCode_WhenLong_ShouldTruncateWithNote(t *testing.T) {
 	code := "this is a long string that exceeds the max"
 	got := truncateCode(code, 10)
+	// The test is named ShouldTruncateWithNote and never checked for the note:
+	// the branch below stated the expectation and had an empty body.
 	if len(got) <= 10 {
-		// Should have truncation note appended
+		t.Errorf("truncateCode(%d) returned %d chars with no room for a note: %q", 10, len(got), got)
 	}
 	if got[:10] != code[:10] {
 		t.Errorf("truncation should preserve start")

@@ -194,35 +194,35 @@ func TestE2E_Campaign_Decomposer_RePlanningExhaustion(t *testing.T) {
 // Contract: A phase must not transition if a task fails fatally
 func TestE2E_Campaign_Decomposer_PhaseTransitionFailureBlock(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        if task.ID == "task_a" {
-            return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("task a hard fail")
-        }
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		if task.ID == "task_a" {
+			return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("task a hard fail")
+		}
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
+	}
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "phase_1", Tasks: []*campaign.Task{{ID: "task_a"}, {ID: "task_b"}}},
-            {ID: "phase_2", Tasks: []*campaign.Task{{ID: "task_c"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "phase_1", Tasks: []*campaign.Task{{ID: "task_a"}, {ID: "task_b"}}},
+			{ID: "phase_2", Tasks: []*campaign.Task{{ID: "task_c"}}},
+		},
+	}
 
-    err := orch.ExecutePlan(context.Background(), plan)
-    if err == nil {
-        t.Errorf("Expected phase to block transition and return error, got nil")
-    }
+	err := orch.ExecutePlan(context.Background(), plan)
+	if err == nil {
+		t.Errorf("Expected phase to block transition and return error, got nil")
+	}
 
-    mExec := mockExec
-    mExec.mu.Lock()
-    count := mExec.ExecutionCnt
-    mExec.mu.Unlock()
+	mExec := mockExec
+	mExec.mu.Lock()
+	count := mExec.ExecutionCnt
+	mExec.mu.Unlock()
 
-    if count >= 3 {
-        t.Errorf("Phase 2 tasks executed despite Phase 1 failure")
-    }
+	if count >= 3 {
+		t.Errorf("Phase 2 tasks executed despite Phase 1 failure")
+	}
 }
 
 // Contract: Orchestrator resilience against task panic
@@ -293,78 +293,77 @@ func TestE2E_Campaign_Decomposer_PhaseTransitionRace(t *testing.T) {
 // State Corruption: Mutating Plan mid-flight
 func TestE2E_Campaign_Decomposer_ConcurrentPlanMutation(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "phase_1", Tasks: []*campaign.Task{{ID: "task_a"}}},
-            {ID: "phase_2", Tasks: []*campaign.Task{{ID: "task_b"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "phase_1", Tasks: []*campaign.Task{{ID: "task_a"}}},
+			{ID: "phase_2", Tasks: []*campaign.Task{{ID: "task_b"}}},
+		},
+	}
 
-    var wg sync.WaitGroup
-    wg.Add(1)
+	var wg sync.WaitGroup
+	wg.Add(1)
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        if task.ID == "task_a" {
-            wg.Done()
-            time.Sleep(50 * time.Millisecond)
-        }
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		if task.ID == "task_a" {
+			wg.Done()
+			time.Sleep(50 * time.Millisecond)
+		}
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
+	}
 
-    go func() {
-        wg.Wait() // wait for task_a to start
-        // Maliciously mutate phase 2 while orchestrator is processing
-        plan.Phases[1].Tasks[0].ID = "mutated_task"
-    }()
+	go func() {
+		wg.Wait() // wait for task_a to start
+		// Maliciously mutate phase 2 while orchestrator is processing
+		plan.Phases[1].Tasks[0].ID = "mutated_task"
+	}()
 
-    err := orch.ExecutePlan(context.Background(), plan)
-    // Run with -race. If no race condition is flagged, it passes the safety check.
-    if err != nil {
-        t.Logf("Plan completed with error: %v", err)
-    }
+	err := orch.ExecutePlan(context.Background(), plan)
+	// Run with -race. If no race condition is flagged, it passes the safety check.
+	if err != nil {
+		t.Logf("Plan completed with error: %v", err)
+	}
 }
 
 // State Corruption: Context Data Bleed Across Tasks
 func TestE2E_Campaign_Decomposer_ContextDataBleed(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    var taskAContext string
-    var taskBContext string
-    var mu sync.Mutex
+	var taskAContext string
+	var taskBContext string
+	var mu sync.Mutex
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        mu.Lock()
-        defer mu.Unlock()
-        if task.ID == "task_a" {
-            taskAContext = cd
-            return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "task_a_result"}, nil
-        }
-        if task.ID == "task_b" {
-            taskBContext = cd
-            return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "task_b_result"}, nil
-        }
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if task.ID == "task_a" {
+			taskAContext = cd
+			return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "task_a_result"}, nil
+		}
+		if task.ID == "task_b" {
+			taskBContext = cd
+			return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "task_b_result"}, nil
+		}
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
+	}
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "phase_1", Tasks: []*campaign.Task{{ID: "task_a"}}},
-            {ID: "phase_2", Tasks: []*campaign.Task{{ID: "task_b"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "phase_1", Tasks: []*campaign.Task{{ID: "task_a"}}},
+			{ID: "phase_2", Tasks: []*campaign.Task{{ID: "task_b"}}},
+		},
+	}
 
-    _ = orch.ExecutePlan(context.Background(), plan)
+	_ = orch.ExecutePlan(context.Background(), plan)
 
-    mu.Lock()
-    defer mu.Unlock()
-    if taskBContext != "" && strings.Contains(taskAContext, "task_b_result") {
-        t.Errorf("Context state bled incorrectly between tasks")
-    }
+	mu.Lock()
+	defer mu.Unlock()
+	if taskBContext != "" && strings.Contains(taskAContext, "task_b_result") {
+		t.Errorf("Context state bled incorrectly between tasks")
+	}
 }
-
 
 // -------------------------------------------------------------------------
 // Resource Exhaustion Tests (Minimum 2)
@@ -419,33 +418,33 @@ func TestE2E_Campaign_Decomposer_ExtremePhaseScaling(t *testing.T) {
 // Resource Exhaustion: Massive Phase Context Accumulation
 func TestE2E_Campaign_Decomposer_ContextPagingOverflow(t *testing.T) {
 	t.Parallel()
-    if testing.Short() {
-        t.Skip("Skipping massive memory test in short mode")
-    }
+	if testing.Short() {
+		t.Skip("Skipping massive memory test in short mode")
+	}
 
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    massiveString := strings.Repeat("A", 10*1024*1024) // 10MB
+	massiveString := strings.Repeat("A", 10*1024*1024) // 10MB
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        if task.ID == "task_1" {
-            return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: massiveString}, nil
-        }
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		if task.ID == "task_1" {
+			return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: massiveString}, nil
+		}
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
+	}
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "phase_1", Tasks: []*campaign.Task{{ID: "task_1"}}},
-            {ID: "phase_2", Tasks: []*campaign.Task{{ID: "task_2"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "phase_1", Tasks: []*campaign.Task{{ID: "task_1"}}},
+			{ID: "phase_2", Tasks: []*campaign.Task{{ID: "task_2"}}},
+		},
+	}
 
-    err := orch.ExecutePlan(context.Background(), plan)
+	err := orch.ExecutePlan(context.Background(), plan)
 
-    if err != nil && !strings.Contains(strings.ToLower(err.Error()), "limit") && !strings.Contains(strings.ToLower(err.Error()), "too large") {
-        t.Logf("Massive payload caused unrelated error: %v", err)
-    }
+	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "limit") && !strings.Contains(strings.ToLower(err.Error()), "too large") {
+		t.Logf("Massive payload caused unrelated error: %v", err)
+	}
 }
 
 // -------------------------------------------------------------------------
@@ -513,26 +512,26 @@ func TestE2E_Campaign_Decomposer_MidCampaignCancel(t *testing.T) {
 // Temporal Failure: Long-Running Phase Initialization
 func TestE2E_Campaign_Decomposer_SlowInitialization(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        time.Sleep(200 * time.Millisecond)
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		time.Sleep(200 * time.Millisecond)
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
+	}
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "phase_1", Tasks: []*campaign.Task{{ID: "task_a"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "phase_1", Tasks: []*campaign.Task{{ID: "task_a"}}},
+		},
+	}
 
-    ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-    defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
 
-    err := orch.ExecutePlan(ctx, plan)
-    if err == nil {
-        t.Errorf("Expected timeout error due to slow initialization")
-    }
+	err := orch.ExecutePlan(ctx, plan)
+	if err == nil {
+		t.Errorf("Expected timeout error due to slow initialization")
+	}
 }
 
 // -------------------------------------------------------------------------
@@ -542,60 +541,60 @@ func TestE2E_Campaign_Decomposer_SlowInitialization(t *testing.T) {
 // Cascading Failure: Phase 1 output is corrupted, causing Phase 2 to fail
 func TestE2E_Campaign_Decomposer_CascadingPhaseFailure(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        if task.ID == "task_p1" {
-            // Task succeeds but returns corrupted output
-            return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "CORRUPTED_JSON"}, nil
-        }
-        if task.ID == "task_p2" {
-            if strings.Contains(cd, "CORRUPTED_JSON") {
-                return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("invalid json payload")
-            }
-        }
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		if task.ID == "task_p1" {
+			// Task succeeds but returns corrupted output
+			return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "CORRUPTED_JSON"}, nil
+		}
+		if task.ID == "task_p2" {
+			if strings.Contains(cd, "CORRUPTED_JSON") {
+				return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("invalid json payload")
+			}
+		}
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
+	}
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "p1", Tasks: []*campaign.Task{{ID: "task_p1"}}},
-            {ID: "p2", Tasks: []*campaign.Task{{ID: "task_p2"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "p1", Tasks: []*campaign.Task{{ID: "task_p1"}}},
+			{ID: "p2", Tasks: []*campaign.Task{{ID: "task_p2"}}},
+		},
+	}
 
-    err := orch.ExecutePlan(context.Background(), plan)
-    if err == nil {
-        t.Errorf("Expected cascade failure from corrupted output")
-    } else if !strings.Contains(err.Error(), "invalid json payload") {
-        t.Logf("Error propagated but string check failed: %v", err)
-    }
+	err := orch.ExecutePlan(context.Background(), plan)
+	if err == nil {
+		t.Errorf("Expected cascade failure from corrupted output")
+	} else if !strings.Contains(err.Error(), "invalid json payload") {
+		t.Logf("Error propagated but string check failed: %v", err)
+	}
 }
 
 // Cascading Failure: Orchestrator fails to handle partial phase completion
 func TestE2E_Campaign_Decomposer_PartialPhaseCascade(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        if task.ID == "task_a" {
-            return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("task a failed")
-        }
-        // Task B succeeds but shouldn't trigger phase 2
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		if task.ID == "task_a" {
+			return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("task a failed")
+		}
+		// Task B succeeds but shouldn't trigger phase 2
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
+	}
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "p1", Tasks: []*campaign.Task{{ID: "task_a"}, {ID: "task_b"}}},
-            {ID: "p2", Tasks: []*campaign.Task{{ID: "task_c"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "p1", Tasks: []*campaign.Task{{ID: "task_a"}, {ID: "task_b"}}},
+			{ID: "p2", Tasks: []*campaign.Task{{ID: "task_c"}}},
+		},
+	}
 
-    err := orch.ExecutePlan(context.Background(), plan)
-    if err == nil {
-        t.Errorf("Expected orchestrator to halt cascade")
-    }
+	err := orch.ExecutePlan(context.Background(), plan)
+	if err == nil {
+		t.Errorf("Expected orchestrator to halt cascade")
+	}
 }
 
 // -------------------------------------------------------------------------
@@ -605,54 +604,54 @@ func TestE2E_Campaign_Decomposer_PartialPhaseCascade(t *testing.T) {
 // Recovery: Orchestrator Retries Failed Task
 func TestE2E_Campaign_Decomposer_TaskRetryRecovery(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    var attempts int
-    var mu sync.Mutex
+	var attempts int
+	var mu sync.Mutex
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        mu.Lock()
-        attempts++
-        currAttempts := attempts
-        mu.Unlock()
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		mu.Lock()
+		attempts++
+		currAttempts := attempts
+		mu.Unlock()
 
-        if currAttempts == 1 {
-            return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("transient failure")
-        }
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
-    }
+		if currAttempts == 1 {
+			return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("transient failure")
+		}
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
+	}
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "p1", Tasks: []*campaign.Task{{ID: "task_a"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "p1", Tasks: []*campaign.Task{{ID: "task_a"}}},
+		},
+	}
 
-    err := orch.ExecutePlan(context.Background(), plan)
-    if err != nil {
-        t.Errorf("Expected recovery via retry, got error: %v", err)
-    }
+	err := orch.ExecutePlan(context.Background(), plan)
+	if err != nil {
+		t.Errorf("Expected recovery via retry, got error: %v", err)
+	}
 }
 
 // Recovery: Mismatched Schema Resilient Fallback
 func TestE2E_Campaign_Decomposer_SchemaRecovery(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
+	}
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "p1", Tasks: []*campaign.Task{{ID: "task_a"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "p1", Tasks: []*campaign.Task{{ID: "task_a"}}},
+		},
+	}
 
-    err := orch.ExecutePlan(context.Background(), plan)
-    if err != nil {
-        t.Errorf("Expected orchestrator to recover, got: %v", err)
-    }
+	err := orch.ExecutePlan(context.Background(), plan)
+	if err != nil {
+		t.Errorf("Expected orchestrator to recover, got: %v", err)
+	}
 }
 
 // -------------------------------------------------------------------------
@@ -662,188 +661,188 @@ func TestE2E_Campaign_Decomposer_SchemaRecovery(t *testing.T) {
 // End-to-End Data Integrity (Minimum 2)
 func TestE2E_Campaign_Decomposer_PipelineDataIntegrity(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        if task.ID == "p1_task" {
-            return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "FACT:123"}, nil
-        }
-        if task.ID == "p2_task" {
-            if !strings.Contains(cd, "FACT:123") {
-                return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("Data lost")
-            }
-        }
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		if task.ID == "p1_task" {
+			return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "FACT:123"}, nil
+		}
+		if task.ID == "p2_task" {
+			if !strings.Contains(cd, "FACT:123") {
+				return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("Data lost")
+			}
+		}
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
+	}
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "p1", Tasks: []*campaign.Task{{ID: "p1_task"}}},
-            {ID: "p2", Tasks: []*campaign.Task{{ID: "p2_task"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "p1", Tasks: []*campaign.Task{{ID: "p1_task"}}},
+			{ID: "p2", Tasks: []*campaign.Task{{ID: "p2_task"}}},
+		},
+	}
 
-    err := orch.ExecutePlan(context.Background(), plan)
-    if err != nil {
-        t.Errorf("Data integrity check failed: %v", err)
-    }
+	err := orch.ExecutePlan(context.Background(), plan)
+	if err != nil {
+		t.Errorf("Data integrity check failed: %v", err)
+	}
 }
 
 func TestE2E_Campaign_Decomposer_DataIntegrity_MultiStep(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        if task.ID == "p1_task" {
-            return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "MAGIC_KEY"}, nil
-        }
-        if task.ID == "p3_task" {
-            if !strings.Contains(cd, "MAGIC_KEY") {
-                return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("Multi-step data lost")
-            }
-        }
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "intermediate"}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		if task.ID == "p1_task" {
+			return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "MAGIC_KEY"}, nil
+		}
+		if task.ID == "p3_task" {
+			if !strings.Contains(cd, "MAGIC_KEY") {
+				return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("Multi-step data lost")
+			}
+		}
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "intermediate"}, nil
+	}
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "p1", Tasks: []*campaign.Task{{ID: "p1_task"}}},
-            {ID: "p2", Tasks: []*campaign.Task{{ID: "p2_task"}}},
-            {ID: "p3", Tasks: []*campaign.Task{{ID: "p3_task"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "p1", Tasks: []*campaign.Task{{ID: "p1_task"}}},
+			{ID: "p2", Tasks: []*campaign.Task{{ID: "p2_task"}}},
+			{ID: "p3", Tasks: []*campaign.Task{{ID: "p3_task"}}},
+		},
+	}
 
-    err := orch.ExecutePlan(context.Background(), plan)
-    if err != nil {
-        t.Errorf("Multi-step data integrity failed: %v", err)
-    }
+	err := orch.ExecutePlan(context.Background(), plan)
+	if err != nil {
+		t.Errorf("Multi-step data integrity failed: %v", err)
+	}
 }
 
 // Multi-Turn State Accumulation (Minimum 2)
 func TestE2E_Campaign_Decomposer_MultiTurnAccumulation(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    var stateAccumulator []string
-    var mu sync.Mutex
+	var stateAccumulator []string
+	var mu sync.Mutex
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        mu.Lock()
-        stateAccumulator = append(stateAccumulator, cd)
-        mu.Unlock()
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "T_" + task.ID}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		mu.Lock()
+		stateAccumulator = append(stateAccumulator, cd)
+		mu.Unlock()
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: "T_" + task.ID}, nil
+	}
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "p1", Tasks: []*campaign.Task{{ID: "t1"}}},
-            {ID: "p2", Tasks: []*campaign.Task{{ID: "t2"}}},
-            {ID: "p3", Tasks: []*campaign.Task{{ID: "t3"}}},
-            {ID: "p4", Tasks: []*campaign.Task{{ID: "t4"}}},
-            {ID: "p5", Tasks: []*campaign.Task{{ID: "t5"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "p1", Tasks: []*campaign.Task{{ID: "t1"}}},
+			{ID: "p2", Tasks: []*campaign.Task{{ID: "t2"}}},
+			{ID: "p3", Tasks: []*campaign.Task{{ID: "t3"}}},
+			{ID: "p4", Tasks: []*campaign.Task{{ID: "t4"}}},
+			{ID: "p5", Tasks: []*campaign.Task{{ID: "t5"}}},
+		},
+	}
 
-    _ = orch.ExecutePlan(context.Background(), plan)
+	_ = orch.ExecutePlan(context.Background(), plan)
 
-    mu.Lock()
-    defer mu.Unlock()
-    if len(stateAccumulator) != 5 {
-        t.Errorf("Expected 5 accumulated turns, got %d", len(stateAccumulator))
-    }
+	mu.Lock()
+	defer mu.Unlock()
+	if len(stateAccumulator) != 5 {
+		t.Errorf("Expected 5 accumulated turns, got %d", len(stateAccumulator))
+	}
 
-    if !strings.Contains(stateAccumulator[4], "T_t1") {
-        t.Log("Context was reset or not accumulated properly across 5 turns")
-    }
+	if !strings.Contains(stateAccumulator[4], "T_t1") {
+		t.Log("Context was reset or not accumulated properly across 5 turns")
+	}
 }
 
 func TestE2E_Campaign_Decomposer_StateAccumulationMemoryLeak(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: strings.Repeat("A", 1024)}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted, Output: strings.Repeat("A", 1024)}, nil
+	}
 
-    var phases []campaign.Phase
-    for i := 0; i < 20; i++ {
-        phases = append(phases, campaign.Phase{ID: fmt.Sprintf("p%d", i), Tasks: []*campaign.Task{{ID: "t"}}})
-    }
+	var phases []campaign.Phase
+	for i := 0; i < 20; i++ {
+		phases = append(phases, campaign.Phase{ID: fmt.Sprintf("p%d", i), Tasks: []*campaign.Task{{ID: "t"}}})
+	}
 
-    plan := &campaign.Plan{Phases: phases}
+	plan := &campaign.Plan{Phases: phases}
 
-    err := orch.ExecutePlan(context.Background(), plan)
-    if err != nil {
-        t.Errorf("Accumulation over 20 turns failed: %v", err)
-    }
+	err := orch.ExecutePlan(context.Background(), plan)
+	if err != nil {
+		t.Errorf("Accumulation over 20 turns failed: %v", err)
+	}
 }
 
 // Partial Pipeline Failure (Minimum 2)
 func TestE2E_Campaign_Decomposer_PartialPipelineHalt(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        if task.ID == "fatal_task" {
-            return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("halt here")
-        }
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		if task.ID == "fatal_task" {
+			return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("halt here")
+		}
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
+	}
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "p1", Tasks: []*campaign.Task{{ID: "t1"}}},
-            {ID: "p2", Tasks: []*campaign.Task{{ID: "fatal_task"}}},
-            {ID: "p3", Tasks: []*campaign.Task{{ID: "t3"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "p1", Tasks: []*campaign.Task{{ID: "t1"}}},
+			{ID: "p2", Tasks: []*campaign.Task{{ID: "fatal_task"}}},
+			{ID: "p3", Tasks: []*campaign.Task{{ID: "t3"}}},
+		},
+	}
 
-    err := orch.ExecutePlan(context.Background(), plan)
-    if err == nil {
-        t.Errorf("Expected pipeline to halt on fatal task")
-    }
+	err := orch.ExecutePlan(context.Background(), plan)
+	if err == nil {
+		t.Errorf("Expected pipeline to halt on fatal task")
+	}
 
-    mExec := mockExec
-    mExec.mu.Lock()
-    cnt := mExec.ExecutionCnt
-    mExec.mu.Unlock()
+	mExec := mockExec
+	mExec.mu.Lock()
+	cnt := mExec.ExecutionCnt
+	mExec.mu.Unlock()
 
-    if cnt == 3 {
-        t.Errorf("Phase 3 executed despite Phase 2 fatal error")
-    }
+	if cnt == 3 {
+		t.Errorf("Phase 3 executed despite Phase 2 fatal error")
+	}
 }
 
 func TestE2E_Campaign_Decomposer_PartialFailurePreservesState(t *testing.T) {
 	t.Parallel()
-    orch, mockExec, _ := setupOrchestratorIntegration(t)
+	orch, mockExec, _ := setupOrchestratorIntegration(t)
 
-    var executedTasks []string
-    var mu sync.Mutex
+	var executedTasks []string
+	var mu sync.Mutex
 
-    mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
-        mu.Lock()
-        executedTasks = append(executedTasks, task.ID)
-        mu.Unlock()
-        if task.ID == "t2" {
-            return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("fail")
-        }
-        return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
-    }
+	mockExec.ExecuteFunc = func(ctx context.Context, task *campaign.Task, cd string) (*campaign.TaskResult, error) {
+		mu.Lock()
+		executedTasks = append(executedTasks, task.ID)
+		mu.Unlock()
+		if task.ID == "t2" {
+			return &campaign.TaskResult{Status: campaign.TaskStatusFailed}, fmt.Errorf("fail")
+		}
+		return &campaign.TaskResult{Status: campaign.TaskStatusCompleted}, nil
+	}
 
-    plan := &campaign.Plan{
-        Phases: []campaign.Phase{
-            {ID: "p1", Tasks: []*campaign.Task{{ID: "t1"}}},
-            {ID: "p2", Tasks: []*campaign.Task{{ID: "t2"}}},
-        },
-    }
+	plan := &campaign.Plan{
+		Phases: []campaign.Phase{
+			{ID: "p1", Tasks: []*campaign.Task{{ID: "t1"}}},
+			{ID: "p2", Tasks: []*campaign.Task{{ID: "t2"}}},
+		},
+	}
 
-    _ = orch.ExecutePlan(context.Background(), plan)
+	_ = orch.ExecutePlan(context.Background(), plan)
 
-    mu.Lock()
-    defer mu.Unlock()
-    if len(executedTasks) != 2 || executedTasks[0] != "t1" || executedTasks[1] != "t2" {
-        t.Errorf("Execution order or state preservation failed")
-    }
+	mu.Lock()
+	defer mu.Unlock()
+	if len(executedTasks) != 2 || executedTasks[0] != "t1" || executedTasks[1] != "t2" {
+		t.Errorf("Execution order or state preservation failed")
+	}
 }
 
 // -------------------------------------------------------------------------

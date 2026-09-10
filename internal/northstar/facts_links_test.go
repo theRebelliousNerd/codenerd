@@ -128,7 +128,10 @@ func TestMitigationStrategyAtom_WhenTextsDiffer_ShouldProduceDistinctAtoms(t *te
 	if a == b {
 		t.Fatalf("two different mitigations collided on %q", a)
 	}
-	if MitigationStrategyAtom("same text") != MitigationStrategyAtom("same text") {
+	// Determinism: the same input must map to the same atom, or two facts about
+	// one mitigation land under different names in the kernel.
+	atomA, atomB := MitigationStrategyAtom("same text"), MitigationStrategyAtom("same text")
+	if atomA != atomB {
 		t.Error("atom encoding is not deterministic; kernel facts would churn on every boot")
 	}
 }

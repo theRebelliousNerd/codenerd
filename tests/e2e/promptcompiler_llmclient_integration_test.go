@@ -10,21 +10,21 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
-	"codenerd/internal/articulation"
 )
 
 // mockPromptCompilerLLMClient is an adversarial mock of the LLM Client designed to
 // inject failures, block indefinitely, or return malformed JSON.
 type mockPromptCompilerLLMClient struct {
-	mu           sync.Mutex
-	failComplete bool
-	failStream   bool
-	blockStream  bool
-	blockChan    chan struct{}
+	mu             sync.Mutex
+	failComplete   bool
+	failStream     bool
+	blockStream    bool
+	blockChan      chan struct{}
 	cannedResponse string
-	callCount    int
+	callCount      int
 }
 
 func newMockPromptCompilerLLMClient() *mockPromptCompilerLLMClient {
@@ -128,8 +128,8 @@ func TestE2E_PromptCompiler_Smoke_BasicCompilation(t *testing.T) {
 	mockLLM := newMockPromptCompilerLLMClient()
 
 	cc := &prompt.CompilationContext{
-		UserIntent: "test intent",
-		IntentVerb: "test",
+		UserIntent:  "test intent",
+		IntentVerb:  "test",
 		TokenBudget: 500,
 	}
 
@@ -168,10 +168,10 @@ func TestE2E_PromptCompiler_ContractViolation_UTF8Truncation(t *testing.T) {
 	atoms := []*prompt.OrderedAtom{
 		{
 			Atom: &prompt.PromptAtom{
-				ID: "utf8_test",
+				ID:       "utf8_test",
 				Category: prompt.CategoryCapability,
 				Priority: int(prompt.PriorityHigh),
-				Content: longString,
+				Content:  longString,
 			},
 			RenderMode: "standard",
 		},
@@ -193,7 +193,7 @@ func TestE2E_PromptCompiler_ContractViolation_UTF8Truncation(t *testing.T) {
 	// In the real system, final assembly happens next.
 	assembler := prompt.NewFinalAssembler()
 	cc := &prompt.CompilationContext{
-		UserIntent: "test",
+		UserIntent:  "test",
 		TokenBudget: 100, // Matching budget
 	}
 
@@ -276,10 +276,10 @@ func TestE2E_PromptCompiler_ContractViolation_PiggybackStarvation(t *testing.T) 
 	atoms := []*prompt.OrderedAtom{
 		{
 			Atom: &prompt.PromptAtom{
-				ID: "massive_context",
+				ID:       "massive_context",
 				Category: prompt.CategoryCapability,
 				Priority: int(prompt.PriorityHigh),
-				Content: strings.Repeat("token ", 5000), // ~5000 tokens
+				Content:  strings.Repeat("token ", 5000), // ~5000 tokens
 			},
 			RenderMode: "standard",
 		},
@@ -324,10 +324,10 @@ func TestE2E_PromptCompiler_ResourceExhaustion_MillionAtoms(t *testing.T) {
 	for i := 0; i < count; i++ {
 		atoms[i] = &prompt.OrderedAtom{
 			Atom: &prompt.PromptAtom{
-				ID: fmt.Sprintf("atom_%d", i),
+				ID:       fmt.Sprintf("atom_%d", i),
 				Category: prompt.CategoryCapability,
 				Priority: int(prompt.PriorityLow),
-				Content: "tiny",
+				Content:  "tiny",
 			},
 			RenderMode: "standard",
 		}
@@ -369,8 +369,8 @@ func TestE2E_PromptCompiler_StateCorruption_ConcurrentCompilation(t *testing.T) 
 			defer wg.Done()
 
 			cc := &prompt.CompilationContext{
-				UserIntent: fmt.Sprintf("intent_%d", idx),
-				IntentVerb: "test",
+				UserIntent:  fmt.Sprintf("intent_%d", idx),
+				IntentVerb:  "test",
 				TokenBudget: 500,
 			}
 
@@ -451,19 +451,19 @@ func TestE2E_PromptCompiler_ContractViolation_MandatoryAtomsExceedBudget(t *test
 	atoms := []*prompt.OrderedAtom{
 		{
 			Atom: &prompt.PromptAtom{
-				ID: "mandatory_1",
+				ID:       "mandatory_1",
 				Category: prompt.CategoryCapability,
 				Priority: int(prompt.PriorityMandatory),
-				Content: strings.Repeat("token ", 1500),
+				Content:  strings.Repeat("token ", 1500),
 			},
 			RenderMode: "standard",
 		},
 		{
 			Atom: &prompt.PromptAtom{
-				ID: "mandatory_2",
+				ID:       "mandatory_2",
 				Category: prompt.CategoryCapability,
 				Priority: int(prompt.PriorityMandatory),
-				Content: strings.Repeat("token ", 1500),
+				Content:  strings.Repeat("token ", 1500),
 			},
 			RenderMode: "standard",
 		},
@@ -541,10 +541,10 @@ func TestE2E_PromptCompiler_Boundary_NegativeHeadroom(t *testing.T) {
 	atoms := []*prompt.OrderedAtom{
 		{
 			Atom: &prompt.PromptAtom{
-				ID: "test_atom",
+				ID:       "test_atom",
 				Category: prompt.CategoryCapability,
 				Priority: int(prompt.PriorityHigh),
-				Content: "tiny content",
+				Content:  "tiny content",
 			},
 			RenderMode: "standard",
 		},
@@ -560,7 +560,6 @@ func TestE2E_PromptCompiler_Boundary_NegativeHeadroom(t *testing.T) {
 	}
 }
 
-
 // TestE2E_PromptCompiler_ContractViolation_ZeroTokenBudget verifies that Fit() handles 0 budget correctly without panicking.
 func TestE2E_PromptCompiler_ContractViolation_ZeroTokenBudget(t *testing.T) {
 	t.Parallel()
@@ -570,10 +569,10 @@ func TestE2E_PromptCompiler_ContractViolation_ZeroTokenBudget(t *testing.T) {
 	atoms := []*prompt.OrderedAtom{
 		{
 			Atom: &prompt.PromptAtom{
-				ID: "test_atom",
+				ID:       "test_atom",
 				Category: prompt.CategoryCapability,
 				Priority: int(prompt.PriorityHigh),
-				Content: "content",
+				Content:  "content",
 			},
 			RenderMode: "standard",
 		},
@@ -599,19 +598,19 @@ func TestE2E_PromptCompiler_ContractViolation_HugeSingleAtom(t *testing.T) {
 	atoms := []*prompt.OrderedAtom{
 		{
 			Atom: &prompt.PromptAtom{
-				ID: "huge_atom",
+				ID:       "huge_atom",
 				Category: prompt.CategoryCapability,
 				Priority: int(prompt.PriorityHigh),
-				Content: strings.Repeat("token ", 10000),
+				Content:  strings.Repeat("token ", 10000),
 			},
 			RenderMode: "standard",
 		},
 		{
 			Atom: &prompt.PromptAtom{
-				ID: "small_atom",
+				ID:       "small_atom",
 				Category: prompt.CategoryCapability,
 				Priority: int(prompt.PriorityHigh),
-				Content: "tiny",
+				Content:  "tiny",
 			},
 			RenderMode: "standard",
 		},

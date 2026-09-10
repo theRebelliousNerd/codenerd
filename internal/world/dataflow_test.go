@@ -769,8 +769,7 @@ func TestDataFlowExtractor_UserRequestExtremes(t *testing.T) {
 		}
 
 		_, err := extractor.ExtractDataFlowForDirectory(massiveDir)
-		if err != nil {
-		}
+		_ = err // this path exercises the call; the error is not the subject
 	})
 }
 

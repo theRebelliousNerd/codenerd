@@ -48,7 +48,7 @@ func TestAPIScheduler_PriorityContext(t *testing.T) {
 	s.RegisterShard("test_prio", "test")
 	defer s.UnregisterShard("test_prio")
 
-	ctx := context.WithValue(context.Background(), types.CtxKeyPriority, types.PriorityHigh)
+	ctx := types.WithSpawnPriority(context.Background(), types.PriorityHigh)
 	err := s.AcquireAPISlot(ctx, "test_prio")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

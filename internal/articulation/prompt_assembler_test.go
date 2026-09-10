@@ -771,9 +771,8 @@ func TestPromptAssembler_ExtremelyLongSessionCtx(t *testing.T) {
 	}
 
 	// If the prompt assembler truncates, it's fine. If not, just ensure it works without crashing.
-	if len(res) < 10*1024*1024 {
-		// Just confirming it succeeded
-	}
+	// Completing without panicking or hanging is the assertion here.
+	_ = res
 }
 
 func TestPromptAssembler_StateConflicts_ConcurrentMutation(t *testing.T) {

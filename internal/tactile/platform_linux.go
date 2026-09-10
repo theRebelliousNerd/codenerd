@@ -4,6 +4,7 @@ package tactile
 
 import (
 	"bytes"
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"os"
@@ -383,7 +384,12 @@ func (c *CgroupManager) setupV2(limits *ResourceLimits) error {
 	if limits.MaxProcesses > 0 {
 		pidsMax := filepath.Join(cgroupDir, "pids.max")
 		if err := os.WriteFile(pidsMax, []byte(strconv.Itoa(limits.MaxProcesses)), 0644); err != nil {
-			// Non-fatal, continue
+			// Non-fatal by design: the sandbox still runs without a pid cap.
+			// But it runs *uncapped*, and swallowing this meant the caller
+			// believed a process limit was in force when none was. A fork bomb
+			// inside the sandbox is exactly what this limit exists to contain.
+			logging.TactileWarn("cgroup pids.max not applied (%s): sandbox is running without a process limit: %v",
+				pidsMax, err)
 		}
 	}
 

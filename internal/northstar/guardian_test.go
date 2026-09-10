@@ -52,9 +52,8 @@ func TestGuardianConfig_MassiveThresholds(t *testing.T) {
 	guardian := NewGuardian(store, config)
 
 	severity := guardian.scoreToSeverity(1.0)
-	if severity != DriftMinor {
-		// Just ensuring it doesn't crash
-	}
+	// Returning any severity without panicking is the assertion.
+	_ = severity
 }
 func TestNewGuardian(t *testing.T) {
 	t.Parallel()

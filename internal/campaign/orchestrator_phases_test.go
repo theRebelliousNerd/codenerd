@@ -541,6 +541,7 @@ func TestOrchestrator_CompletePhase_KernelAssertFailure(t *testing.T) {
 
 func TestOrchestrator_StartNextPhase_NilContext(t *testing.T) {
 	orch := &Orchestrator{}
+	//lint:ignore SA1012 this test exists to prove the callee rejects a nil Context; passing context.Background() would make it assert nothing.
 	err := orch.startNextPhase(nil)
 	if err == nil {
 		t.Errorf("Expected error when calling startNextPhase with nil context, got nil")

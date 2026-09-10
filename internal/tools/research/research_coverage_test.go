@@ -168,8 +168,9 @@ func TestExecuteContext7_WhenNoDocsFound_ShouldReturnHelpfulMessage(t *testing.T
 	if result != "" {
 		t.Errorf("expected empty result on no-docs error, got: %s", result)
 	}
-	if !strings.Contains(err.Error(), "No LLM-optimized documentation found") {
-		t.Errorf("expected 'no docs found' error, got: %v", err)
+	// Case-insensitive: this asserts the condition, not the capitalization.
+	if !strings.Contains(strings.ToLower(err.Error()), "no llm-optimized documentation found") {
+		t.Errorf("expected a no-documentation-found error, got: %v", err)
 	}
 }
 

@@ -502,27 +502,13 @@ func TestOllamaEngine_HealthCheck_WhenUnreachable_ShouldReturnError(t *testing.T
 // Ollama HealthChecker Interface Compliance
 // =============================================================================
 
-func TestOllamaEngine_ImplementsHealthChecker(t *testing.T) {
-	engine, err := NewOllamaEngine("", "")
-	if err != nil {
-		t.Fatalf("NewOllamaEngine returned error: %v", err)
-	}
-	var hc HealthChecker = engine
-	if hc == nil {
-		t.Fatal("OllamaEngine should implement HealthChecker")
-	}
-}
-
-func TestOllamaEngine_ImplementsEmbeddingEngine(t *testing.T) {
-	engine, err := NewOllamaEngine("", "")
-	if err != nil {
-		t.Fatalf("NewOllamaEngine returned error: %v", err)
-	}
-	var ee EmbeddingEngine = engine
-	if ee == nil {
-		t.Fatal("OllamaEngine should implement EmbeddingEngine")
-	}
-}
+// Compile-time, for the reason given on the GenAI assertions above: the
+// interface assignment is the proof, and a runtime nil check after it can never
+// fire.
+var (
+	_ HealthChecker   = (*OllamaEngine)(nil)
+	_ EmbeddingEngine = (*OllamaEngine)(nil)
+)
 
 // =============================================================================
 // Ollama Embed with "connection was forcibly closed" retry

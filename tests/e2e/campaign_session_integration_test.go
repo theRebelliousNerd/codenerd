@@ -513,7 +513,6 @@ func TestE2E_CampaignSession_StateCorruption_GhostFacts(t *testing.T) {
 // Tests if VirtualStore modifies the wrong file due to corrupted context.
 // TODO: TestE2E_CampaignSession_StateCorruption_SharedResourceOverwrite needs a behavioral witness; removed its log-only placeholder.
 
-
 // =============================================================================
 // 4. RESOURCE EXHAUSTION TESTS
 // =============================================================================
@@ -593,7 +592,6 @@ func TestE2E_CampaignSession_Temporal_TaskRetryLogicOnTimeout(t *testing.T) {
 
 // TestE2E_CampaignSession_Temporal_HeartbeatMaintainedDuringHeavyLLMLoad (P2)
 // TODO: TestE2E_CampaignSession_Temporal_HeartbeatMaintainedDuringHeavyLLMLoad needs a behavioral witness; removed its log-only placeholder.
-
 
 // TestE2E_CampaignSession_Temporal_ContextCancellationLeaksGoroutines (P2)
 func TestE2E_CampaignSession_Temporal_ContextCancellationLeaksGoroutines(t *testing.T) {

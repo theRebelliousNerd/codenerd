@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 // buildFileTopologyFact constructs a file_topology fact with hash/lang/test flag.
@@ -470,7 +471,7 @@ func formatVerifiedResponse(
 		sb.WriteString(fmt.Sprintf("<!-- Task: %s (%s) -->\n", task, intent.Verb))
 	}
 
-	sb.WriteString(fmt.Sprintf("## %s Result\n\n", strings.Title(shardType)))
+	sb.WriteString(fmt.Sprintf("## %s Result\n\n", titleWords(shardType)))
 
 	if verificationResult != nil {
 		sb.WriteString(fmt.Sprintf("**Verification**: ✅ Passed (confidence: %.0f%%)\n\n",
@@ -665,4 +666,25 @@ func (m Model) renderJITStatus() string {
 	sb.WriteString("_Use Alt+P to toggle the Prompt Inspector view._\n")
 
 	return sb.String()
+}
+
+// titleWords upper-cases the first rune of each space-separated word.
+//
+// It replaces strings.Title, deprecated since Go 1.18 because its word-boundary
+// rule mishandles Unicode punctuation. The documented replacement,
+// golang.org/x/text/cases, is deliberately not used here: a cases.Caser is not
+// safe for concurrent use, and a package-level caser shared by a TUI that
+// renders from several goroutines would be a data race. Every input at these
+// call sites is a single ASCII display token — a shard type, an intent verb, a
+// knowledge-base name — so the simple rule is the correct one.
+func titleWords(s string) string {
+	prevIsSpace := true
+	return strings.Map(func(r rune) rune {
+		if prevIsSpace && unicode.IsLetter(r) {
+			prevIsSpace = false
+			return unicode.ToUpper(r)
+		}
+		prevIsSpace = unicode.IsSpace(r)
+		return r
+	}, s)
 }

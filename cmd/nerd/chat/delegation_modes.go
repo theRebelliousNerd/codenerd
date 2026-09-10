@@ -62,7 +62,7 @@ func (m Model) executeParallelMode(ctx context.Context, verb, shardType, task, t
 // executeAdvisoryMode: Phase 1 (advice) → Phase 2 (execute with advice)
 func (m Model) executeAdvisoryMode(ctx context.Context, verb, shardType, task, target string, files []string, specialists []shards.SpecialistMatch, startTime time.Time) tea.Msg {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("## %s with Specialist Advisory\n\n", strings.Title(strings.TrimPrefix(verb, "/"))))
+	sb.WriteString(fmt.Sprintf("## %s with Specialist Advisory\n\n", titleWords(strings.TrimPrefix(verb, "/"))))
 	sb.WriteString(fmt.Sprintf("**Target**: %s\n\n", target))
 
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -135,7 +135,7 @@ func (m Model) executeAdvisoryMode(ctx context.Context, verb, shardType, task, t
 // executeAdvisoryWithCritiqueMode: Phase 1 (advice) → Phase 2 (execute) → Phase 3 (critique)
 func (m Model) executeAdvisoryWithCritiqueMode(ctx context.Context, verb, shardType, task, target string, files []string, specialists []shards.SpecialistMatch, startTime time.Time) tea.Msg {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("## %s with Specialist Advisory & Critique\n\n", strings.Title(strings.TrimPrefix(verb, "/"))))
+	sb.WriteString(fmt.Sprintf("## %s with Specialist Advisory & Critique\n\n", titleWords(strings.TrimPrefix(verb, "/"))))
 	sb.WriteString(fmt.Sprintf("**Target**: %s\n\n", target))
 
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -226,7 +226,7 @@ func (m Model) executeAdvisoryWithCritiqueMode(ctx context.Context, verb, shardT
 // without going through the generic shard. This implements specialist_should_execute.
 func (m Model) executeSpecialistDirectMode(ctx context.Context, verb string, specialist shards.SpecialistMatch, task, target string, startTime time.Time) tea.Msg {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("## %s via Specialist Executor\n\n", strings.Title(strings.TrimPrefix(verb, "/"))))
+	sb.WriteString(fmt.Sprintf("## %s via Specialist Executor\n\n", titleWords(strings.TrimPrefix(verb, "/"))))
 	sb.WriteString(fmt.Sprintf("**Target**: %s\n", target))
 	sb.WriteString(fmt.Sprintf("**Specialist**: %s (confidence: %.0f%%)\n", specialist.AgentName, specialist.Score*100))
 	sb.WriteString("**Mode**: Direct Execution\n\n")
@@ -456,7 +456,7 @@ type spawnResult struct {
 // formatParallelResults formats the output for parallel execution mode
 func (m Model) formatParallelResults(verb, shardType, task, target string, results []spawnResult, startTime time.Time) tea.Msg {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("## Multi-Specialist %s Complete\n\n", strings.Title(strings.TrimPrefix(verb, "/"))))
+	sb.WriteString(fmt.Sprintf("## Multi-Specialist %s Complete\n\n", titleWords(strings.TrimPrefix(verb, "/"))))
 	sb.WriteString(fmt.Sprintf("**Target**: %s\n", target))
 	sb.WriteString(fmt.Sprintf("**Duration**: %s\n\n", time.Since(startTime).Round(time.Second)))
 

@@ -105,8 +105,10 @@ func TestReplan_EmptyTaskAttemptError(t *testing.T) {
 	}
 
 	ctxText := r.buildReplanContext(campaign, []Task{campaign.Phases[0].Tasks[0]}, nil, nil)
+	// An attempt with no error must not render an empty "Error:" line into the
+	// replan prompt. The check existed and never failed on it.
 	if strings.Contains(ctxText, "Error: \n") || strings.Contains(ctxText, "Error: <empty>") {
-		// Output formatting should be clean
+		t.Errorf("empty attempt error rendered as a dangling Error line:\n%s", ctxText)
 	}
 	if !strings.Contains(ctxText, "Attempt 1:") {
 		t.Errorf("Expected attempt to be logged even with empty error")

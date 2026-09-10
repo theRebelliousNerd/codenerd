@@ -107,7 +107,7 @@ type SpawnerConfig struct {
 func DefaultSpawnerConfig() SpawnerConfig {
 	return SpawnerConfig{
 		MaxActiveSubagents: 10,
-		TokenBudget:        DefaultTokenBudget,
+		TokenBudget:        DefaultTokenBudget(),
 	}
 }
 
@@ -125,7 +125,7 @@ func NewSpawner(
 
 	budget := cfg.TokenBudget
 	if budget <= 0 {
-		budget = DefaultTokenBudget
+		budget = DefaultTokenBudget()
 	}
 	return &Spawner{
 		kernel:             kernel,
@@ -649,7 +649,7 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 	// pre-fix bottleneck that silently stripped mandatory atoms.
 	budget := s.tokenBudget
 	if budget <= 0 {
-		budget = DefaultTokenBudget
+		budget = DefaultTokenBudget()
 	}
 	compilationCtx := &prompt.CompilationContext{
 		IntentVerb:      intentVerb,

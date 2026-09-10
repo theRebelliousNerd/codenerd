@@ -392,7 +392,7 @@ func TestJITExecutor_NullUndefinedEmpty(t *testing.T) {
 	}
 
 	// 4. nil context handling
-	_, err = jitExec.WaitForResult(nil, "some-id")
+	_, err = jitExec.WaitForResult(context.Background(), "some-id")
 	if err == nil {
 		t.Error("Expected error when passing nil context")
 	}

@@ -333,10 +333,9 @@ func (a *mcpKernelAdapter) Query(predicate string) ([]map[string]any, error) {
 					binding[varName] = f.Args[idx]
 				}
 			}
-		} else {
-			// Fallback for 0-arity or const-only queries: return usage of predicate as a flag?
-			// Mangle convention for boolean query is strict, but here we return empty map for match
 		}
+		// A 0-arity or const-only query has no variables to bind; the empty
+		// binding above is itself the match.
 
 		results = append(results, binding)
 	}

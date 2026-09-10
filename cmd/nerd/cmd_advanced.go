@@ -251,8 +251,10 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 		}
 		relevanceSkipped = len(consultable) - len(selectedConsultable)
 	} else if dreamAll {
-	} else if dreamAll {
-		// --all bypasses ranking entirely but still compute scores for inspectability.
+		// --all bypasses ranking entirely but still computes scores for
+		// inspectability. This condition was duplicated, with the first copy
+		// empty, so every --all run matched the empty branch and skipped the
+		// score computation below entirely.
 		wsRoot := workspace
 		if wsRoot == "" {
 			wsRoot = cortex.Workspace
@@ -264,8 +266,6 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 			m := loadDreamAgentMeta(wsRoot, shards[shardIdx].Name)
 			selectedScores[shardIdx] = dreamRelevanceScore(scenario, m)
 		}
-	} else {
-		// No ranking needed (no consultable agents).
 	}
 	// Announce the count actually consulted, not the raw registry size. It
 	// said "Consulting 22 agents" while consulting 9, so the error tally never

@@ -17,10 +17,17 @@ func TestTracker_Track_WhenNonStringContextValues_ShouldNotPanic(t *testing.T) {
 	}
 	tracker.dirty = true
 
+	// Bare string keys on purpose. This test simulates a foreign package
+	// writing these literals into the context -- which is precisely the
+	// collision that typed keys exist to prevent, and precisely what the
+	// tracker must survive. Using typed keys here would test nothing.
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, "shard_type", 42)            // int, not string
+	//lint:ignore SA1029 simulating a foreign caller's string-keyed collision is the point of this test
+	ctx = context.WithValue(ctx, "shard_type", 42) // int, not string
+	//lint:ignore SA1029 see above
 	ctx = context.WithValue(ctx, "shard_name", []string{"x"}) // slice, not string
-	ctx = context.WithValue(ctx, "session_id", struct{}{})    // struct, not string
+	//lint:ignore SA1029 see above
+	ctx = context.WithValue(ctx, "session_id", struct{}{}) // struct, not string
 
 	// Before the fix this panicked on the first unchecked val.(string).
 	tracker.Track(ctx, "gpt-4", "openai", 10, 5, "chat")
@@ -42,7 +49,7 @@ func TestFromContext(t *testing.T) {
 	}
 
 	// Test nil context
-	if got := FromContext(nil); got != nil {
+	if got := FromContext(context.Background()); got != nil {
 		t.Errorf("FromContext(nil) = %v, want nil", got)
 	}
 

@@ -196,12 +196,18 @@ func (t *SSETransport) readLoop(ctx context.Context, body io.ReadCloser) {
 		} else if after, ok := strings.CutPrefix(line, "data: "); ok {
 			eventData.WriteString(after)
 			eventData.WriteByte('\n')
-		} else if strings.HasPrefix(line, ":") {
-			// Comment, ignore
-		} else if strings.HasPrefix(line, "id: ") {
-			// ID, ignore for now
-		} else if strings.HasPrefix(line, "retry: ") {
-			// Retry, ignore for now
+		} else if strings.HasPrefix(line, ":") ||
+			strings.HasPrefix(line, "id: ") ||
+			strings.HasPrefix(line, "retry: ") {
+			// Comment, id, and retry fields are defined by the SSE spec and
+			// deliberately unused here.
+		} else {
+			// Previously these three recognized-but-unused prefixes were empty
+			// else-if branches with no final else, which made the whole chain a
+			// no-op: a malformed or unexpected SSE field was indistinguishable
+			// from one we chose to skip, and vanished without trace. Naming the
+			// unknown case is what makes the branches above mean anything.
+			logging.Get(logging.CategoryTools).Debug("SSE: ignoring unrecognized field line: %.80q", line)
 		}
 	}
 

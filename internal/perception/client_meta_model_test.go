@@ -63,7 +63,7 @@ func TestMetaClient_DefaultsToContributor(t *testing.T) {
 func TestMetaClient_OverrideCannotEscapeContributorTier(t *testing.T) {
 	c := newTestCompatClient(t, ProviderMeta, "https://api.meta.ai/v1")
 
-	ctx := context.WithValue(context.Background(), types.CtxKeyModelName, "muse-spark-1.2")
+	ctx := types.WithModelName(context.Background(), "muse-spark-1.2")
 	if got := c.ModelForContext(ctx); got != metaContributorModel {
 		t.Errorf("a per-shard override routed Meta traffic to %q", got)
 	}
@@ -91,7 +91,7 @@ func TestMetaClient_SetModelNormalizes(t *testing.T) {
 func TestNormalizeModel_LeavesOtherVendorsAlone(t *testing.T) {
 	for _, vendor := range []Provider{ProviderDashScope, ProviderMoonshot} {
 		c := newTestCompatClient(t, vendor, "https://example.invalid/v1")
-		ctx := context.WithValue(context.Background(), types.CtxKeyModelName, "some-custom-model")
+		ctx := types.WithModelName(context.Background(), "some-custom-model")
 		if got := c.ModelForContext(ctx); got != "some-custom-model" {
 			t.Errorf("%s: model override was rewritten to %q", vendor, got)
 		}

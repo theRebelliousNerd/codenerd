@@ -52,6 +52,7 @@ func TestAPISchedulerGap_AcquireSlot_NilContext(t *testing.T) {
 	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
 	scheduler.RegisterShard("test", "test")
 
+	//lint:ignore SA1012 this test exists to prove the callee rejects a nil Context; passing context.Background() would make it assert nothing.
 	err := scheduler.AcquireAPISlot(nil, "test") //nolint:staticcheck
 	if err == nil {
 		t.Fatal("Expected AcquireAPISlot to fail with nil context")

@@ -64,8 +64,8 @@ func (t *SimpleTable) View(styles Styles) string {
 	}
 
 	// Define styles
-	headerStyle := styles.Text.Bold.Copy().Padding(0, 1)
-	rowStyle := styles.Text.Body.Copy().Padding(0, 1)
+	headerStyle := styles.Text.Bold.Padding(0, 1)
+	rowStyle := styles.Text.Body.Padding(0, 1)
 	sepStyle := styles.Text.Muted
 
 	// Render Header

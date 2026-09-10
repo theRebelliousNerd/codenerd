@@ -6,9 +6,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
-	"codenerd/internal/usage"
 	"codenerd/internal/world"
-	"context"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -38,18 +36,12 @@ func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 			return campaignErrorMsg{err: err}
 		}
 
-		// Use shutdown context if available
-		var ctx context.Context
-		var cancel context.CancelFunc
-		if m.shutdownCtx != nil {
-			ctx, cancel = context.WithTimeout(m.shutdownCtx, config.GetLLMTimeouts().ShardExecutionTimeout)
-		} else {
-			ctx, cancel = context.WithTimeout(context.Background(), config.GetLLMTimeouts().ShardExecutionTimeout)
-		}
-		if m.usageTracker != nil {
-			ctx = usage.NewContext(ctx, m.usageTracker)
-		}
-		defer cancel()
+		// No context is built here. One used to be — with a timeout and a usage
+		// tracker attached — and it was never passed to anything; `defer
+		// cancel()` would have cancelled it on return regardless, long before
+		// the orchestrator ran. The orchestrator receives its context from
+		// runCampaignOrchestrator, which is also where usage tracking and spend
+		// attribution are attached.
 
 		m.ReportStatus("Creating adversarial assault campaign...")
 

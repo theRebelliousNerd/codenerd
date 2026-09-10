@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"sync"
@@ -213,6 +214,13 @@ type CompilationContext struct {
 	// ActivatedFacts maps fact string representation to activation score (0.0-1.0).
 	// Used to boost atoms related to highly-activated facts.
 	// Populated by the compression system's GetActivationScores().
+	//
+	// Not yet populated by any production caller: whether activation should
+	// drive atom selection is an open experiment, not a shipped behaviour.
+	// Both hazards that made wiring it dangerous are now closed — it is part of
+	// Hash() so a populated map cannot serve a stale cached prompt, and it is
+	// deep-copied by Clone() so concurrent compiles cannot share one map.
+	// Populating it is therefore a one-line change with no trap behind it.
 	ActivatedFacts map[string]float64
 
 	// ActivationThreshold is the minimum score for a fact to be considered "hot".
@@ -421,6 +429,16 @@ func (cc *CompilationContext) Clone() *CompilationContext {
 		clone.AvailableTools = make([]string, len(cc.AvailableTools))
 		copy(clone.AvailableTools, cc.AvailableTools)
 	}
+	// ActivatedFacts is a map, so `clone := *cc` copied the header and left
+	// both contexts pointing at one set of buckets. Compilation runs under
+	// singleflight with an errgroup, so two concurrent compiles sharing this
+	// map is a data race, not a theoretical one — and the field is documented
+	// as populated per-turn from the compressor, which is exactly the write
+	// that would collide. See TestCloneDeepCopiesActivatedFacts.
+	if cc.ActivatedFacts != nil {
+		clone.ActivatedFacts = make(map[string]float64, len(cc.ActivatedFacts))
+		maps.Copy(clone.ActivatedFacts, cc.ActivatedFacts)
+	}
 
 	return &clone
 }
@@ -600,7 +618,7 @@ func (cc *CompilationContext) Hash() string {
 		}
 	}
 
-	write("schema", "compilation-context-v3")
+	write("schema", "compilation-context-v4")
 	write("operational_mode", cc.OperationalMode)
 	write("campaign_phase", cc.CampaignPhase)
 	write("campaign_id", cc.CampaignID)
@@ -620,7 +638,8 @@ func (cc *CompilationContext) Hash() string {
 
 	// Canonical tokens, not the raw strings: two spellings of one model
 	// ("gpt-4o" and "openai/gpt-4o") select identically, so they must share a
-	// cache entry. Schema bumped to v3 for these two keys.
+	// cache entry. Schema was bumped to v3 for these two keys, and to v4 when
+	// ActivatedFacts joined cache identity below.
 	write("provider", cc.ProviderToken())
 	writeSet("model", cc.ModelTokens())
 
@@ -644,6 +663,27 @@ func (cc *CompilationContext) Hash() string {
 	writeFloat("activation_threshold", cc.ActivationThreshold)
 	write("available_specialists", cc.AvailableSpecialists)
 	writeSet("available_tool", cc.AvailableTools)
+
+	// ActivatedFacts is part of cache identity because it is an input to
+	// selection. It was previously absent while activation_threshold above was
+	// present, so two turns with entirely different hot facts hashed
+	// identically and the second was served the first's compiled prompt. No
+	// error is raised on that path; the prompt is simply stale.
+	//
+	// Keys are sorted so an identical set hashes identically regardless of map
+	// iteration order, which is randomized in Go.
+	writeInt("activated_fact_count", len(cc.ActivatedFacts))
+	if len(cc.ActivatedFacts) > 0 {
+		keys := make([]string, 0, len(cc.ActivatedFacts))
+		for k := range cc.ActivatedFacts {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			write("activated_fact", k)
+			writeFloat("activated_score", cc.ActivatedFacts[k])
+		}
+	}
 
 	// Hash the content
 	hash := sha256.Sum256(buf.Bytes())

@@ -1,6 +1,7 @@
 package perception
 
 import (
+	"codenerd/internal/broker"
 	"context"
 	"strings"
 	"testing"
@@ -29,6 +30,13 @@ func TestNewClientFromConfig_NilConfig(t *testing.T) {
 	}
 }
 
+// The factory now returns metered clients. Every concrete-type assertion in
+// this file therefore goes through broker.Base, which is the same thing
+// production code does (see cmd/nerd/chat/model_session_context.go). An
+// assertion that stopped matching here would have stopped matching there too,
+// which is exactly why these tests are worth keeping in this shape rather than
+// relaxing them to interface checks.
+
 func TestNewClientFromConfig_Engines(t *testing.T) {
 	// 1. Claude CLI
 	cfg := &ProviderConfig{
@@ -41,8 +49,8 @@ func TestNewClientFromConfig_Engines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create claude-cli client: %v", err)
 	}
-	if _, ok := client.(*ClaudeCodeCLIClient); !ok {
-		t.Errorf("Expected *ClaudeCodeCLIClient, got %T", client)
+	if _, ok := broker.Base(client).(*ClaudeCodeCLIClient); !ok {
+		t.Errorf("Expected *ClaudeCodeCLIClient, got %T", broker.Base(client))
 	}
 
 	// 2. Codex CLI
@@ -97,8 +105,8 @@ func TestNewClientFromConfig_Providers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create Anthropic client: %v", err)
 	}
-	if _, ok := client.(*AnthropicClient); !ok {
-		t.Errorf("Expected *AnthropicClient, got %T", client)
+	if _, ok := broker.Base(client).(*AnthropicClient); !ok {
+		t.Errorf("Expected *AnthropicClient, got %T", broker.Base(client))
 	}
 
 	// 2. OpenAI
@@ -110,8 +118,8 @@ func TestNewClientFromConfig_Providers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create OpenAI client: %v", err)
 	}
-	if _, ok := client.(*OpenAIClient); !ok {
-		t.Errorf("Expected *OpenAIClient, got %T", client)
+	if _, ok := broker.Base(client).(*OpenAIClient); !ok {
+		t.Errorf("Expected *OpenAIClient, got %T", broker.Base(client))
 	}
 
 	// 3. Gemini (with config)
@@ -127,8 +135,8 @@ func TestNewClientFromConfig_Providers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create Gemini client: %v", err)
 	}
-	if geminiClient, ok := client.(*GeminiClient); !ok {
-		t.Errorf("Expected *GeminiClient, got %T", client)
+	if geminiClient, ok := broker.Base(client).(*GeminiClient); !ok {
+		t.Errorf("Expected *GeminiClient, got %T", broker.Base(client))
 	} else {
 		// Verify config propagated using interface method
 		if !geminiClient.IsThinkingEnabled() {
@@ -153,7 +161,7 @@ func TestNewClientFromConfig_MetaReasoningEffort_XHigh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientFromConfig: %v", err)
 	}
-	compat, ok := client.(*OpenAICompatClient)
+	compat, ok := broker.Base(client).(*OpenAICompatClient)
 	if !ok {
 		t.Fatalf("got %T, want *OpenAICompatClient", client)
 	}
@@ -165,7 +173,7 @@ func TestNewClientFromConfig_MetaReasoningEffort_XHigh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClassificationClientFromConfig: %v", err)
 	}
-	classCompat, ok := class.(*OpenAICompatClient)
+	classCompat, ok := broker.Base(class).(*OpenAICompatClient)
 	if !ok {
 		t.Fatalf("classification got %T, want *OpenAICompatClient", class)
 	}
@@ -188,7 +196,7 @@ func TestNewClientFromConfig_DashScopeNeverEmitsReasoningEffort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientFromConfig: %v", err)
 	}
-	compat := client.(*OpenAICompatClient)
+	compat := broker.Base(client).(*OpenAICompatClient)
 	req := compat.buildRequest(context.Background(), nil, true)
 	if req.ReasoningEffort != "" {
 		t.Fatalf("dashscope reasoning_effort = %q, want empty", req.ReasoningEffort)
@@ -203,7 +211,7 @@ func TestSecondarySlotClient_MetaPerSlotXHigh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("worker newSecondarySlotClient: %v", err)
 	}
-	if got := dsClient.(*OpenAICompatClient).buildRequest(context.Background(), nil, true).ReasoningEffort; got != "xhigh" {
+	if got := broker.Base(dsClient).(*OpenAICompatClient).buildRequest(context.Background(), nil, true).ReasoningEffort; got != "xhigh" {
 		t.Fatalf("worker reasoning_effort = %q, want xhigh", got)
 	}
 	plannerClient, err := newSecondarySlotClient(&config.UserConfig{
@@ -214,7 +222,7 @@ func TestSecondarySlotClient_MetaPerSlotXHigh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("planner newSecondarySlotClient: %v", err)
 	}
-	if got := plannerClient.(*OpenAICompatClient).buildRequest(context.Background(), nil, true).ReasoningEffort; got != "xhigh" {
+	if got := broker.Base(plannerClient).(*OpenAICompatClient).buildRequest(context.Background(), nil, true).ReasoningEffort; got != "xhigh" {
 		t.Fatalf("planner reasoning_effort = %q, want xhigh", got)
 	}
 }
@@ -248,7 +256,7 @@ func TestProviderConfigFromUserConfig_MetaXHigh_FullRootRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientFromConfig: %v", err)
 	}
-	compat, ok := client.(*OpenAICompatClient)
+	compat, ok := broker.Base(client).(*OpenAICompatClient)
 	if !ok {
 		t.Fatalf("main client got %T, want *OpenAICompatClient", client)
 	}
@@ -264,7 +272,7 @@ func TestProviderConfigFromUserConfig_MetaXHigh_FullRootRoute(t *testing.T) {
 	if classClient == nil {
 		t.Fatal("classification client = nil, want non-nil for meta with classification_model")
 	}
-	classCompat, ok := classClient.(*OpenAICompatClient)
+	classCompat, ok := broker.Base(classClient).(*OpenAICompatClient)
 	if !ok {
 		t.Fatalf("classification client got %T, want *OpenAICompatClient", classClient)
 	}
@@ -280,7 +288,7 @@ func TestNewClassificationClientFromConfig_MetaDefaultsMinimal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClassificationClientFromConfig: %v", err)
 	}
-	compat, ok := class.(*OpenAICompatClient)
+	compat, ok := broker.Base(class).(*OpenAICompatClient)
 	if !ok {
 		t.Fatalf("classification got %T, want *OpenAICompatClient", class)
 	}
@@ -296,7 +304,7 @@ func TestNewClassificationClientFromConfig_MetaHonorsExplicitLow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClassificationClientFromConfig: %v", err)
 	}
-	compat, ok := class.(*OpenAICompatClient)
+	compat, ok := broker.Base(class).(*OpenAICompatClient)
 	if !ok {
 		t.Fatalf("classification got %T, want *OpenAICompatClient", class)
 	}
@@ -312,7 +320,7 @@ func TestNewClassificationClientFromConfig_DashScopeNoReasoningEffort(t *testing
 	if err != nil {
 		t.Fatalf("NewClassificationClientFromConfig: %v", err)
 	}
-	compat, ok := class.(*OpenAICompatClient)
+	compat, ok := broker.Base(class).(*OpenAICompatClient)
 	if !ok {
 		t.Fatalf("classification got %T, want *OpenAICompatClient", class)
 	}

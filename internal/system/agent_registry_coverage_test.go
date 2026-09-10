@@ -1,6 +1,7 @@
 package system
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -312,15 +313,15 @@ func TestHolographicCodeScope_EnsureDeepFacts_WhenNilKernel_ShouldNoOp(t *testin
 	dir := t.TempDir()
 	h := NewHolographicCodeScope(dir, nil, nil, 2)
 	// Should not panic with nil kernel
-	h.ensureDeepFacts(nil, []string{"some/file.go"})
+	h.ensureDeepFacts(context.Background(), []string{"some/file.go"})
 }
 
 func TestHolographicCodeScope_EnsureDeepFacts_WhenEmptyPaths_ShouldNoOp(t *testing.T) {
 	dir := t.TempDir()
 	h := NewHolographicCodeScope(dir, nil, nil, 2)
 	// Should not panic with empty paths
-	h.ensureDeepFacts(nil, nil)
-	h.ensureDeepFacts(nil, []string{})
+	h.ensureDeepFacts(context.Background(), nil)
+	h.ensureDeepFacts(context.Background(), []string{})
 }
 
 // --- Cortex.Close ---

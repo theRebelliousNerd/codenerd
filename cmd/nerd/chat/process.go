@@ -468,7 +468,10 @@ func (m Model) processInput(input string) tea.Cmd {
 			logging.Routing("[processInput] ACT: delegating | shard=%s verb=%s target=%q confidence=%.2f | needsWorkspaceScan=%v alreadyScanned=%v | elapsed=%dms",
 				shardType, intent.Verb, intent.Target, intent.Confidence, needsWsScan, workspaceScanned, time.Since(oodaStart).Milliseconds())
 			if needsWsScan && !workspaceScanned {
-				workspaceScanned = m.loadWorkspaceFacts(ctx, intent, &warnings)
+				// The return value is deliberately dropped: this call's purpose
+				// is loading facts into the kernel, and the delegation path
+				// returns without reading the flag again.
+				_ = m.loadWorkspaceFacts(ctx, intent, &warnings)
 			}
 			m.ReportStatus(fmt.Sprintf("Act: delegating to %s...", shardType))
 			// Format task based on verb and target, with prior shard context (blackboard pattern)
@@ -724,7 +727,9 @@ func (m Model) processInput(input string) tea.Cmd {
 		// Use incremental scan to avoid reparsing unchanged repos.
 		logging.Routing("[processInput] context loading phase at %dms", time.Since(oodaStart).Milliseconds())
 		if !workspaceScanned {
-			workspaceScanned = m.loadWorkspaceFacts(ctx, intent, &warnings)
+			// Same as the delegation path above: the kernel side effect is the
+			// point, and nothing reads the flag after this.
+			_ = m.loadWorkspaceFacts(ctx, intent, &warnings)
 		}
 
 		// 3. STATE UPDATE (Kernel)

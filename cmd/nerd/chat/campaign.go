@@ -4,6 +4,7 @@ package chat
 
 import (
 	"codenerd/internal/articulation"
+	"codenerd/internal/broker"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
@@ -12,6 +13,7 @@ import (
 	"codenerd/internal/world"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -185,6 +187,18 @@ func (m Model) runCampaignOrchestrator() tea.Cmd {
 		ctx, cancel = context.WithCancel(context.Background())
 	}
 
+	// This is where a campaign actually runs, and until now it was the one
+	// LLM-spending path with no usage tracker attached. Two other functions
+	// attached one to a context they then discarded, which is why the gap was
+	// invisible: the wiring looked present everywhere except where it counted.
+	//
+	// The broker purpose rides along so campaign spend lands in its own account
+	// rather than in "unattributed", which is where it has been going.
+	if m.usageTracker != nil {
+		ctx = usage.NewContext(ctx, m.usageTracker)
+	}
+	ctx = broker.WithPurpose(ctx, broker.PurposeCampaign)
+
 	// Start orchestrator execution in background
 	if m.goroutineWg != nil {
 		m.goroutineWg.Add(1)
@@ -194,8 +208,11 @@ func (m Model) runCampaignOrchestrator() tea.Cmd {
 			defer m.goroutineWg.Done()
 		}
 		defer cancel()
-		if err := orch.Run(ctx); err != nil && err != context.Canceled {
-			// Error will be captured via event channel or campaign status
+		if err := orch.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			// The event channel and campaign status are the user-facing report.
+			// This log is the one that survives when the orchestrator fails
+			// before it can publish either.
+			logging.Kernel("[campaign] orchestrator run ended with error: %v", err)
 		}
 	}()
 

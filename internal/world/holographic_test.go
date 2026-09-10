@@ -629,6 +629,7 @@ func TestHolographicProviderIntArg(t *testing.T) {
 func TestBuildWithImpactPrioritiesNilContext(t *testing.T) {
 	h := NewHolographicProvider(nil, ".")
 
+	//lint:ignore SA1012 this test exists to prove the callee rejects a nil Context; passing context.Background() would make it assert nothing.
 	_, err := h.BuildWithImpactPriorities(nil, "test.go")
 	if err == nil {
 		t.Error("BuildWithImpactPriorities should return error for nil context")

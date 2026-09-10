@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
-	"codenerd/internal/types"
-	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codenerd/internal/tools"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -121,13 +121,13 @@ func (m *mockLLMClientWithControls) Complete(ctx context.Context, prompt string)
 
 // mockToolRegistry for simulating slow or failing tools
 type mockToolRegistry struct {
-	tools map[string]*types.ToolDefinition
+	tools    map[string]*types.ToolDefinition
 	handlers map[string]func(ctx context.Context, args map[string]any) (string, error)
 }
 
 func newMockToolRegistry() *mockToolRegistry {
 	return &mockToolRegistry{
-		tools: make(map[string]*types.ToolDefinition),
+		tools:    make(map[string]*types.ToolDefinition),
 		handlers: make(map[string]func(context.Context, map[string]any) (string, error)),
 	}
 }
@@ -192,10 +192,6 @@ func setupTestExecutorLLM(t *testing.T, llmClient core.LLMClient, toolReg *mockT
 		Client:    llmClient,
 	}
 
-
-
-
-
 	executor := session.NewExecutor(newMockKernelLLM(), nil, scheduledLLM, &mockJITCompilerLLM{}, &mockConfigFactoryLLM{}, nil)
 
 	// Replace global tool registry for this test with our mock if provided
@@ -246,6 +242,7 @@ func TestE2E_SchedulerSession_Smoke_HappyPath(t *testing.T) {
 type panickingClient struct {
 	core.LLMClient
 }
+
 func (p *panickingClient) CompleteWithSystem(ctx context.Context, sys, user string) (string, error) {
 	panic("intentional mock panic")
 }
@@ -281,11 +278,10 @@ func TestE2E_SchedulerSession_ContractViolation_NilAgentConfig(t *testing.T) {
 
 	llm := &mockLLMClientWithControls{
 		responses: []types.LLMToolResponse{{
-			Text: "I will use a tool.",
+			Text:      "I will use a tool.",
 			ToolCalls: []types.ToolCall{{ID: "1", Name: "mock_tool"}},
 		}},
 	}
-
 
 	exec := session.NewExecutor(newMockKernelLLM(), nil, llm, nil, nil, nil) // no JIT/ConfigFactory
 
@@ -422,7 +418,7 @@ func TestE2E_SchedulerSession_ResourceExhaustion_InfiniteToolLoop(t *testing.T) 
 	}
 	for i := 0; i < 20; i++ {
 		llm.responses = append(llm.responses, types.LLMToolResponse{
-			Text: "I need more tools",
+			Text:      "I need more tools",
 			ToolCalls: []types.ToolCall{{ID: fmt.Sprintf("call_%d", i), Name: "unknown_tool"}},
 		})
 	}
@@ -559,7 +555,7 @@ func TestE2E_SchedulerSession_Cascading_PiggybackMalformed(t *testing.T) {
 	malformedJSON := `{"control_packet": {"intent_classification": {"category": "broken"` // Missing braces
 
 	llm := &mockLLMClientWithControls{
-		responses: []types.LLMToolResponse{{Text: malformedJSON}},
+		responses:   []types.LLMToolResponse{{Text: malformedJSON}},
 		isPiggyback: true,
 	}
 
@@ -752,9 +748,9 @@ func TestE2E_SchedulerSession_Cascading_ToolOutputBufferExhaustion(t *testing.T)
 // TestE2E_SchedulerSession_Temporal_TaskExecutor_SpawnLimiter
 // Scenario 17: Spawner Limits vs. Session Intent Injection
 func TestE2E_SchedulerSession_Temporal_TaskExecutor_SpawnLimiter(t *testing.T) {
-    if testing.Short() {
-        t.Skip("Skipping long test")
-    }
+	if testing.Short() {
+		t.Skip("Skipping long test")
+	}
 
 	// Create a spawner with max 2 active agents
 	kernel := newMockKernelLLM()
@@ -771,8 +767,12 @@ func TestE2E_SchedulerSession_Temporal_TaskExecutor_SpawnLimiter(t *testing.T) {
 	_, err2 := spawner.SpawnSpecialist(ctx, "agent2", "task 2")
 	_, err3 := spawner.SpawnSpecialist(ctx, "agent3", "task 3")
 
-	if err1 != nil { t.Errorf("Agent 1 failed: %v", err1) }
-	if err2 != nil { t.Errorf("Agent 2 failed: %v", err2) }
+	if err1 != nil {
+		t.Errorf("Agent 1 failed: %v", err1)
+	}
+	if err2 != nil {
+		t.Errorf("Agent 2 failed: %v", err2)
+	}
 
 	if err3 == nil {
 		t.Errorf("Expected agent 3 to fail due to spawner limits, but it succeeded")
@@ -790,7 +790,7 @@ func TestE2E_SchedulerSession_Semantic_PiggybackFallback(t *testing.T) {
 	llm := &mockLLMClientWithControls{
 		isPiggyback: true,
 		responses: []types.LLMToolResponse{{
-			Text: "I am using standard tools, not piggyback JSON",
+			Text:      "I am using standard tools, not piggyback JSON",
 			ToolCalls: []types.ToolCall{{ID: "1", Name: "mock_tool"}},
 		}},
 	}
@@ -818,21 +818,23 @@ type mockKernelLLM struct {
 func newMockKernelLLM() *mockKernelLLM {
 	return &mockKernelLLM{}
 }
-func (m *mockKernelLLM) Assert(fact types.Fact) error { return nil }
-func (m *mockKernelLLM) Retract(predicate string) error { return nil }
-func (m *mockKernelLLM) Query(query string) ([]types.Fact, error) { return nil, nil }
-func (m *mockKernelLLM) LoadFacts(facts []types.Fact) error { return nil }
-func (m *mockKernelLLM) RetractFact(fact types.Fact) error { return nil }
-func (m *mockKernelLLM) AssertBatch(facts []types.Fact) error { return nil }
-func (m *mockKernelLLM) QueryAll() (map[string][]types.Fact, error) { return nil, nil }
-func (m *mockKernelLLM) UpdateSystemFacts() error { return nil }
-func (m *mockKernelLLM) Reset() {}
-func (m *mockKernelLLM) AppendPolicy(policy string) {}
-func (m *mockKernelLLM) RetractExactFactsBatch(facts []types.Fact) error { return nil }
+func (m *mockKernelLLM) Assert(fact types.Fact) error                                   { return nil }
+func (m *mockKernelLLM) Retract(predicate string) error                                 { return nil }
+func (m *mockKernelLLM) Query(query string) ([]types.Fact, error)                       { return nil, nil }
+func (m *mockKernelLLM) LoadFacts(facts []types.Fact) error                             { return nil }
+func (m *mockKernelLLM) RetractFact(fact types.Fact) error                              { return nil }
+func (m *mockKernelLLM) AssertBatch(facts []types.Fact) error                           { return nil }
+func (m *mockKernelLLM) QueryAll() (map[string][]types.Fact, error)                     { return nil, nil }
+func (m *mockKernelLLM) UpdateSystemFacts() error                                       { return nil }
+func (m *mockKernelLLM) Reset()                                                         {}
+func (m *mockKernelLLM) AppendPolicy(policy string)                                     {}
+func (m *mockKernelLLM) RetractExactFactsBatch(facts []types.Fact) error                { return nil }
 func (m *mockKernelLLM) RemoveFactsByPredicateSet(predicates map[string]struct{}) error { return nil }
 
 func (m *mockKernelLLM) GetProgramInfo() *analysis.ProgramInfo { return nil }
-func (m *mockLLMClientWithControls) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) { return nil, nil }
+func (m *mockLLMClientWithControls) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	return nil, nil
+}
 
 // ResolveAllowedTools projects the same fixture envelope before JIT selection.
 func (m *mockConfigFactoryLLM) ResolveAllowedTools(ctx context.Context, intents ...string) ([]string, error) {

@@ -1,6 +1,7 @@
 package retrieval
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -263,7 +264,7 @@ func TestFindFile_WhenExactPath_ShouldReturn(t *testing.T) {
 	os.WriteFile(testFile, []byte("package main"), 0644)
 
 	builder := NewTieredContextBuilder(&TieredContextConfig{WorkDir: dir})
-	found := builder.findFile(nil, filepath.Join("src", "main.go"))
+	found := builder.findFile(context.Background(), filepath.Join("src", "main.go"))
 	if found == "" {
 		t.Error("expected file to be found by exact path")
 	}
@@ -272,7 +273,7 @@ func TestFindFile_WhenExactPath_ShouldReturn(t *testing.T) {
 func TestFindFile_WhenNonExistent_ShouldReturnEmpty(t *testing.T) {
 	dir := t.TempDir()
 	builder := NewTieredContextBuilder(&TieredContextConfig{WorkDir: dir})
-	found := builder.findFile(nil, "nonexistent_file.go")
+	found := builder.findFile(context.Background(), "nonexistent_file.go")
 	if found != "" {
 		t.Errorf("expected empty string for nonexistent file, got %q", found)
 	}
