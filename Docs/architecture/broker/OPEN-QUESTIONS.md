@@ -9,8 +9,19 @@ why it matters, and what would settle it.
 computable number of calls against a warm prefix. If the median epoch is shorter
 than that, the whole controller is dead weight.
 
-**Settled by** a histogram over the receipt ring across real sessions. About a
-day's work. It gates months of build and should be the next thing anyone does.
+**Settled by** a histogram over the receipt log across real sessions.
+**The instrument is built**: `nerd meter epochs`. Receipts carry a fingerprint
+of the cacheable head and a session scope; `broker.Segment` cuts them into
+epochs and `broker.Histogram` reports the distribution with a per-provider
+break-even derived from published cache economics — `(write-read)/(1-read)`, a
+call count independent of prefix size, and `+Inf` where reads are not
+discounted, so an unknown provider gets no credit for a cache it may not have.
+
+Two ways an epoch can look profitable and not be are scored separately: one
+whose span outran the cache TTL was evicted between calls, and one with no
+cacheable head was never a candidate.
+
+What remains is running real sessions and reading the number.
 
 ## Q2 — Do atoms actually cluster the way the lane taxonomy assumes?
 
@@ -19,8 +30,23 @@ organize software teams. That is not evidence about how *information* clusters.
 The natural cut might be "code under active edit vs. everything else", or
 per-package, or something nobody would guess.
 
-**Settled by** co-use analysis: which atoms are selected together in turns that
-succeeded. Measure before hard-coding an org chart.
+**Settled by** co-use analysis: which atoms are selected together in
+compilations belonging to turns that succeeded. **The instrument is built**:
+`nerd meter atoms`.
+
+The sample unit is one selection, not one turn: a turn can compile several
+prompts (its own, plus one per shard), and merging them would report atoms as
+co-used when they were never in the same prompt — the exact false conclusion the
+analysis exists to test for.
+
+The statistic is lift rather than co-occurrence. A skeleton atom in every prompt
+co-occurs with everything more than any real pair does, so a count-ranked list
+puts the least informative atom at the top of every row; lift scores it at
+exactly 1, which is independence. The headline is CATEGORY ALIGNMENT: high means
+atoms are already used along the existing taxonomy, low means they are not — and
+that a lane taxonomy copied from an org chart would fit the data even worse.
+
+What remains is running real sessions and reading the number.
 
 ## Q3 — What fraction of parallel consultations get invalidated in flight?
 
@@ -42,8 +68,11 @@ correlated wrong counts.
 count, so a near-zero value proves `measure()` is sound there. For providers with
 no counting endpoint there is no independent check, and drift would be invisible.
 
-**Would be settled by** a periodic reconciliation: compare accumulated estimates
-against accumulated provider actuals per model and alarm on divergence.
+**Settled by** `internal/broker/reconcile.go`, which accumulates per-model
+estimate-versus-billed drift and warns past 20 samples and 10% mean absolute
+error. `nerd meter` reports the same per model, headlined on mean absolute error
+rather than net bias: an estimator wrong by 30% on every call in alternating
+directions has a bias near zero and is not remotely trustworthy.
 
 ## Q5 — Is a process-scoped ledger the right scope?
 
@@ -57,8 +86,10 @@ The ledger supports per-purpose budgets and none are configured. Compression is
 inference spent to reduce inference; an unbounded compressor can cost more than
 the history it shrinks.
 
-**Unsettled**: the right cap is a fraction of what compression saves, and nothing
-measures the saving yet.
+**Partially settled**: compression is now tagged `PurposeCompression` at
+`Compressor.BuildContext`, so what it *costs* is measurable — `nerd meter`
+reports it as its own row. What it *saves* is still unmeasured, and the right cap
+is a fraction of the saving, so the number is still one measurement away.
 
 ## Q7 — Who owns a subagent's obligations?
 

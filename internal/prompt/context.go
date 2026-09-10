@@ -211,20 +211,41 @@ type CompilationContext struct {
 	// Activation Scores (from Compression System)
 	// =========================================================================
 
-	// ActivatedFacts maps fact string representation to activation score (0.0-1.0).
-	// Used to boost atoms related to highly-activated facts.
-	// Populated by the compression system's GetActivationScores().
+	// ActivatedFacts maps fact string representation to activation score
+	// (0.0-1.0), intended to boost atoms related to highly-activated facts.
 	//
-	// Not yet populated by any production caller: whether activation should
-	// drive atom selection is an open experiment, not a shipped behaviour.
-	// Both hazards that made wiring it dangerous are now closed — it is part of
-	// Hash() so a populated map cannot serve a stale cached prompt, and it is
-	// deep-copied by Clone() so concurrent compiles cannot share one map.
-	// Populating it is therefore a one-line change with no trap behind it.
+	// UNPOPULATED AND UNREAD, and not for want of wiring. Two earlier hazards
+	// are closed — it is part of Hash() so a populated map cannot serve a stale
+	// cached prompt, and it is deep-copied by Clone() so concurrent compiles
+	// cannot share one map — but two harder ones remain, and both must be
+	// answered before this is filled in.
+	//
+	// 1. There is no relation between facts and atoms. Every selector dimension
+	//    on PromptAtom is a *context* dimension: operational mode, campaign
+	//    phase, intent verb, shard type, language, framework, model, provider,
+	//    world state. None of them is fact-shaped. "Boost atoms related to hot
+	//    facts" needs a definition of "related" that does not exist anywhere in
+	//    the corpus schema, so populating this map hands the selector data it
+	//    has no rule to act on. Inventing that relation -- text-matching a
+	//    fact's predicate name against atom content, say -- is a design
+	//    decision, not a wiring task, and a plausible-looking heuristic here
+	//    would be indistinguishable from a working one for a long time.
+	//
+	// 2. It is in Hash(), and Hash() is the prompt cache key. Activation scores
+	//    are intent-dependent and move every turn, so populating this map with
+	//    live scores gives every compilation a unique cache key and turns the
+	//    prompt cache off. That is not a small regression: it converts every
+	//    turn into a full compile, and it would show up weeks later as "the
+	//    agent got slow" rather than as anything traceable to this field.
+	//    TestActivatedFactsWouldDefeatThePromptCache pins the behaviour so
+	//    whoever wires this meets the cost immediately. Quantizing scores into
+	//    coarse buckets, or carrying only the set of hot facts rather than
+	//    their exact scores, is the shape of the fix.
 	ActivatedFacts map[string]float64
 
-	// ActivationThreshold is the minimum score for a fact to be considered "hot".
-	// Default: 0.5
+	// ActivationThreshold is the minimum score for a fact to be considered
+	// "hot". Default: 0.5. Read by nothing in this package today; it is part of
+	// Hash() and travels with ActivatedFacts above, and shares its blockers.
 	ActivationThreshold float64
 
 	// =========================================================================

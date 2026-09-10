@@ -5,16 +5,37 @@ the work they gate begins.
 
 ## Now
 
-- **[gate] Calls-per-epoch histogram** over the receipt ring. Gates Phase 4
-  entirely. ~1 day. See Q1.
-- **[gate] Atom co-use analysis** over successful turns. Gates the Phase 5 lane
-  taxonomy. See Q2.
-- **`ActivatedFacts` — populate it.** Parts 2 and 3 are **done**: it is in
-  `Hash()` (sorted, so map iteration order cannot destabilise it) and
-  deep-copied by `Clone()`, with six tests including a concurrent one under
-  `-race`. Only part 1 remains — populate from
-  `Compressor.GetActivationScores()` and read it in the selector — and it is now
-  a one-line change with no trap behind it.
+- ~~**[gate] Calls-per-epoch histogram**~~ — **built.** `internal/broker/epoch.go`
+  fingerprints each request's cacheable head (tool definitions then system
+  prompt, in wire order) onto the receipt, segments receipts into epochs per
+  (scope, provider, model), and reports the distribution with a per-provider
+  break-even derived from published cache economics rather than hard-coded.
+  Read it with `nerd meter epochs`. **The gate is now a matter of running
+  sessions and looking**, not of building anything.
+- ~~**[gate] Atom co-use analysis**~~ — **built.** `internal/prompt/couse.go`
+  records which atoms are selected together per compilation, settled against the
+  turn's outcome, and reports lift, Jaccard, clusters and category alignment.
+  Read it with `nerd meter atoms`. Same status: the gate needs data, not code.
+- **`ActivatedFacts` — do not populate it yet.** The earlier note here claimed
+  this was "a one-line change with no trap behind it". That was wrong, and the
+  two real blockers are now recorded on the field itself:
+
+  1. **There is no relation between facts and atoms.** Every selector dimension
+     on `PromptAtom` is a context dimension — mode, phase, verb, shard,
+     language, framework, model, provider, world state. None is fact-shaped.
+     "Boost atoms related to hot facts" needs a definition of *related* that
+     does not exist in the corpus schema. Populating the map hands the selector
+     data it has no rule to act on.
+  2. **It is in `Hash()`, and `Hash()` is the prompt cache key.** Activation
+     scores move every turn, so live scores give every compilation a unique key
+     and switch the prompt cache off — every turn becomes a full compile.
+     `TestActivatedFactsWouldDefeatThePromptCache` pins this, and demonstrates
+     the shape of the fix (quantize to coarse buckets, or carry the set of hot
+     facts rather than exact scores).
+
+  `Compressor.GetActivationScores()` is likewise called by nothing. The producer
+  and the consumer both exist and neither is connected, because the thing
+  between them was never designed.
 - ~~Reconciliation alarm~~ — **done.** `internal/broker/reconcile.go` accumulates
   per-model estimate-vs-billed drift and warns once per model past 20 samples
   and 10% mean absolute error. Mean absolute error is the headline rather than
@@ -72,6 +93,12 @@ the work they gate begins.
 
 - Raise broker coverage from 76.5%; the gaps are in `default.go` reconfiguration
   paths and the rarely-taken degradation branches.
-- Configure a compression purpose budget once Q6 has a number.
-- Consider surfacing `Meter.Receipts()` through a `nerd` subcommand — the data is
-  there and nothing displays it.
+- Configure a compression purpose budget once Q6 has a number. Compression is
+  now tagged `PurposeCompression` at `Compressor.BuildContext`, so the number
+  is finally measurable: `nerd meter` reports it as its own row.
+- ~~Surface `Meter.Receipts()` through a `nerd` subcommand~~ — **done.**
+  `nerd meter`, `nerd meter epochs`, `nerd meter atoms`, each with `--json`.
+  Both measurement streams persist to rotating JSONL logs under `.nerd/meter/`
+  via `internal/jsonl`, because every question they answer spans processes and
+  the readout is itself a different process from the agent that spent the
+  tokens.
