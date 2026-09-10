@@ -17,6 +17,7 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/jsonl"
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 	"codenerd/internal/mangle"
 	"codenerd/internal/mcp"
 	"codenerd/internal/perception"
@@ -502,6 +503,24 @@ func (a *taskDelegatorAdapter) Execute(ctx context.Context, intent string, task 
 		Task:       task,
 	}
 	return a.executor.Execute(ctx, req)
+}
+
+// ExecuteObserved forwards the structured return when the wrapped executor can
+// produce one, satisfying core.ObservedTaskDelegator.
+//
+// The adapter has to declare the method unconditionally — Go decides interface
+// satisfaction on the adapter's own type, not on what it happens to wrap — so
+// an executor that cannot report structure falls back to Execute here rather
+// than failing. Returning an error instead would turn "this executor keeps no
+// write set" into "the delegation failed", which is a different and much worse
+// answer for the parent to act on.
+func (a *taskDelegatorAdapter) ExecuteObserved(ctx context.Context, intent string, task string) (observation.Return, error) {
+	req := session.TaskRequest{IntentVerb: intent, Task: task}
+	if observed, ok := a.executor.(session.ObservedTaskExecutor); ok {
+		return observed.ExecuteObserved(ctx, req)
+	}
+	result, err := a.executor.Execute(ctx, req)
+	return observation.Return{Output: result}, err
 }
 
 // maintenanceInterval is the period between LocalDB maintenance cycles.

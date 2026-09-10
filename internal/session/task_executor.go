@@ -9,6 +9,7 @@ import (
 
 	appconfig "codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
 )
@@ -94,9 +95,14 @@ type TaskExecutor interface {
 
 // TaskResult represents the result of an async task execution.
 type TaskResult struct {
-	TaskID    string
-	Result    string
-	Error     error
+	TaskID string
+	Result string
+	Error  error
+	// Observed is the raw observation of the run: the same output, plus the
+	// write set, build verdict and test verdict the executor measured. Result
+	// stays the string it always was because the surfaces that print it to a
+	// user are right to want prose; this is what a PARENT AGENT reads.
+	Observed  observation.Return
 	Duration  time.Duration
 	Completed bool
 }
@@ -210,13 +216,28 @@ func (j *JITExecutor) Execute(ctx context.Context, req TaskRequest) (string, err
 
 // ExecuteWithContext runs a task with explicit session context and priority.
 func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
+	observed, err := j.executeObserved(ctx, req, sessionCtx, priority)
+	return observed.Output, err
+}
+
+// ExecuteObserved implements ObservedTaskExecutor: the same run, returning what
+// the executor measured about it rather than only the prose.
+func (j *JITExecutor) ExecuteObserved(ctx context.Context, req TaskRequest) (observation.Return, error) {
+	return j.executeObserved(ctx, req, nil, types.PriorityNormal)
+}
+
+// executeObserved is the one implementation both entry points share. Splitting
+// it in two so each could "just" return what its caller wanted is how the two
+// paths would drift, and a structured return that disagreed with the string
+// beside it would be worse than no structured return at all.
+func (j *JITExecutor) executeObserved(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (observation.Return, error) {
 	// Normalize IntentVerb: callers (CLI `nerd spawn <shard-type>`, Cortex.SpawnTask)
 	// often pass bare shard names ("tester", "reviewer") rather than Mangle verbs
 	// ("/test", "/review"). Only "coder" was special-cased before — other domain
 	// shards hard-failed with "must start with '/'".
 	normalized, nerr := normalizeTaskIntentVerb(req.IntentVerb)
 	if nerr != nil {
-		return "", nerr
+		return observation.Return{}, nerr
 	}
 	if normalized != req.IntentVerb {
 		logging.Get(logging.CategorySession).Warn(
@@ -273,19 +294,23 @@ func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, s
 	// The routing layer already classified this task — run with the preset
 	// intent instead of re-perceiving the synthetic task string.
 	result, err := exec.ProcessWithIntent(ctx, inlineTask, presetIntentForTask(req.IntentVerb, inlineTask, req.Target))
+	observed := observedReturn(j.intentToAgentName(req.IntentVerb), inlineTask, result)
 	if err != nil {
 		// Still surface any partial response text for diagnostics, but never
 		// treat hollow/tool failure as success for CLI one-shots.
-		if result != nil && strings.TrimSpace(result.Response) != "" {
-			return result.Response, fmt.Errorf("execution failed: %w", err)
+		if observed.Failure == "" {
+			observed.Failure = err.Error()
 		}
-		return "", fmt.Errorf("execution failed: %w", err)
+		if result == nil || strings.TrimSpace(result.Response) == "" {
+			observed.Output = ""
+		}
+		return observed, fmt.Errorf("execution failed: %w", err)
 	}
 	if result.Error != nil {
-		return result.Response, result.Error
+		return observed, result.Error
 	}
 
-	return result.Response, nil
+	return observed, nil
 }
 
 // ExecuteAsync spawns a subagent to handle the task.
@@ -343,6 +368,21 @@ func (j *JITExecutor) executeAsyncInternal(ctx context.Context, req TaskRequest,
 
 // GetResult retrieves the result of an async task.
 func (j *JITExecutor) GetResult(taskID string) (string, bool, error) {
+	observed, done, err := j.getObserved(taskID)
+	return observed.Output, done, err
+}
+
+// GetObservedResult retrieves the structured return of an async task.
+//
+// It shares getObserved with GetResult rather than polling separately, because
+// two readers of one subagent's completion that cached independently would each
+// see a different answer the moment either of them raced the other to the
+// state transition.
+func (j *JITExecutor) GetObservedResult(taskID string) (observation.Return, bool, error) {
+	return j.getObserved(taskID)
+}
+
+func (j *JITExecutor) getObserved(taskID string) (observation.Return, bool, error) {
 	// Check if subagent exists
 	agent, ok := j.spawner.Get(taskID)
 	if !ok {
@@ -351,9 +391,9 @@ func (j *JITExecutor) GetResult(taskID string) (string, bool, error) {
 		result, cached := j.results[taskID]
 		j.mu.RUnlock()
 		if cached && result.Completed {
-			return result.Result, true, result.Error
+			return result.Observed, true, result.Error
 		}
-		return "", false, fmt.Errorf("task not found: %s", taskID)
+		return observation.Return{}, false, fmt.Errorf("task not found: %s", taskID)
 	}
 
 	// Check if completed
@@ -369,26 +409,46 @@ func (j *JITExecutor) GetResult(taskID string) (string, bool, error) {
 			err = fmt.Errorf("subagent execution failed")
 		}
 
+		// The subagent captured its structured return at the moment its
+		// ExecutionResult was still in scope; this reads that back rather than
+		// rebuilding anything from the string, which is what makes "changed"
+		// and "verified" facts here instead of guesses.
+		observed := agent.ObservedReturn()
+		observed.Output = result
+		if observed.Failure == "" && err != nil {
+			observed.Failure = err.Error()
+		}
+		if observed.Agent == "" {
+			observed.Agent = agent.GetName()
+		}
+
 		// Cache the result
 		j.mu.Lock()
 		j.results[taskID] = &TaskResult{
 			TaskID:    taskID,
 			Result:    result,
 			Error:     err,
+			Observed:  observed,
 			Completed: true,
 		}
 		j.mu.Unlock()
 
-		return result, true, err
+		return observed, true, err
 	}
 
-	return "", false, nil
+	return observation.Return{}, false, nil
 }
 
 // WaitForResult blocks until the async task completes.
 func (j *JITExecutor) WaitForResult(ctx context.Context, taskID string) (string, error) {
+	observed, err := j.waitObserved(ctx, taskID)
+	return observed.Output, err
+}
+
+// waitObserved is the polling loop both waiters share.
+func (j *JITExecutor) waitObserved(ctx context.Context, taskID string) (observation.Return, error) {
 	if ctx == nil {
-		return "", fmt.Errorf("context is nil")
+		return observation.Return{}, fmt.Errorf("context is nil")
 	}
 
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -407,11 +467,11 @@ func (j *JITExecutor) WaitForResult(ctx context.Context, taskID string) (string,
 					logging.Session("WaitForResult: stopped subagent %s on context cancellation", taskID)
 				}
 			}
-			return "", ctx.Err()
+			return observation.Return{}, ctx.Err()
 		case <-ticker.C:
-			result, done, err := j.GetResult(taskID)
+			result, done, err := j.getObserved(taskID)
 			if err != nil && !done {
-				return "", err
+				return observation.Return{}, err
 			}
 			if done {
 				return result, err
@@ -435,13 +495,13 @@ func (j *JITExecutor) needsSubagent(intent string) bool {
 }
 
 // executeWithSubagent spawns a subagent and waits for the result.
-func (j *JITExecutor) executeWithSubagent(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext) (string, error) {
+func (j *JITExecutor) executeWithSubagent(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext) (observation.Return, error) {
 	taskID, err := j.executeAsyncInternal(ctx, req, sessionCtx)
 	if err != nil {
-		return "", err
+		return observation.Return{}, err
 	}
 
-	return j.WaitForResult(ctx, taskID)
+	return j.waitObserved(ctx, taskID)
 }
 
 // intentToAgentName maps intent verbs to agent names for logging and identification.
