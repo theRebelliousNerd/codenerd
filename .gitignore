@@ -157,7 +157,7 @@ vet_output.txt
 
 # Local runtime / tooling state
 /conductor/
-/scripts/*
+/scripts/
 /script/
 /tools/
 /data/traces/
@@ -242,109 +242,3 @@ C:\\*
 # scaffolding, never a deliverable, and a stray `git add -A` should not be able
 # to land one. No tracked file has ever used this prefix.
 zz*_test.go
-
-# =============================================================================
-# Tracked-content negations
-# =============================================================================
-# The blanket `.*` rule above (and a few directory rules below it) matched 307
-# files that are *already tracked* in this repository — including .github/
-# workflows, .gitattributes, the entire .quality_assurance/ corpus, and eight
-# .claude skills. A rule that ignores tracked content does not remove it; it
-# silently drops new siblings from `git add`, so a new QA doc or a new workflow
-# vanishes without an error. That is not hypothetical: it swallowed a set of
-# research documents in this branch's history before being caught.
-#
-# These negations make the ignore file describe reality. They un-ignore only
-# paths whose content is already committed; nothing new is exposed.
-
-# Git and CI configuration.
-!.gitattributes
-!.github/
-!.github/**
-
-# Quality-assurance corpora. Every file under these is tracked repo content.
-!.quality_assurance/
-!.quality_assurance/**
-!.e2e_quality_assurance/
-!.e2e_quality_assurance/**
-!.jules/
-!.jules/**
-
-# Claude skills whose definitions live in the repo.
-!.claude/skills/corpus-comms-plumber/
-!.claude/skills/corpus-comms-plumber/**
-!.claude/skills/corpus-consumables-keeper/
-!.claude/skills/corpus-consumables-keeper/**
-!.claude/skills/corpus-critic/
-!.claude/skills/corpus-critic/**
-!.claude/skills/corpus-defense-auditor/
-!.claude/skills/corpus-defense-auditor/**
-!.claude/skills/corpus-doc-auditor/
-!.claude/skills/corpus-doc-auditor/**
-!.claude/skills/corpus-feature-tagging/
-!.claude/skills/corpus-feature-tagging/**
-!.claude/skills/corpus-jules-dispatcher/
-!.claude/skills/corpus-jules-dispatcher/**
-!.claude/skills/requirements-interrogator/
-!.claude/skills/requirements-interrogator/**
-!.agents/skills/spec-doc-sprint/
-!.agents/skills/spec-doc-sprint/**
-
-# Repository tooling. /scripts/ is ignored for local scratch, but these are
-# checked-in quality gates.
-!/scripts/deadcode-budget.sh
-!/scripts/test_windows_path_identity.ps1
-!/scripts/testdata/
-!/scripts/testdata/**
-
-# Subsystem specifications. Docs/Spec/ is listed as corpus-build scratch above,
-# but its committed contents are deliverable documentation.
-!Docs/Spec/
-!Docs/Spec/**
-
-# =============================================================================
-# Safety floor — MUST REMAIN LAST
-# =============================================================================
-# Ignore rules are last-match-wins. The negations above re-expose whole
-# directory trees, which would otherwise override the secret and noise guards
-# declared earlier in this file: a config.json under .quality_assurance/ or
-# .github/ became committable the moment those trees were un-ignored.
-#
-# Re-asserting them here restores the intended precedence. Nothing may be added
-# below this block.
-
-# Credentials and provider payloads. This is the one that matters.
-**/config.json
-**/config.*.json
-config.json
-**/*.secret
-**/secrets.json
-*.pem
-*.key
-!**/testdata/**/*.key
-
-# Local model prompt files.
-**/CLAUDE.md
-**/claude.md
-**/GEMINI.md
-**/gemini.md
-
-# Runtime noise and build output.
-*.log
-*.exe
-*.test
-*.db-shm
-*.db-wal
-*.db-journal
-*.sqlite-journal
-*.sqlite3-journal
-**/__pycache__/
-*.pyc
-
-# Scratch probe tests (see the note above the original rule).
-zz*_test.go
-
-# Campaign runtime debris written by tests executing inside the package dir.
-internal/campaign/.nerd/
-internal/campaign/campaigns/
-internal/campaign/log.txt
