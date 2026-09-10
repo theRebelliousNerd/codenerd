@@ -394,8 +394,13 @@ func main() {
 		}
 	}
 
+	// SilenceErrors, because main prints the error itself below. Without it
+	// cobra prints it too and every failed command emits the same message
+	// twice -- once with cobra's "Error:" prefix and once bare, which reads
+	// like two different things went wrong.
+	rootCmd.SilenceErrors = true
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
