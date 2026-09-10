@@ -12,23 +12,22 @@ import (
 	"testing"
 	"time"
 
-	"codenerd/internal/core"
 	"codeberg.org/TauCeti/mangle-go/ast"
-
+	"codenerd/internal/core"
 )
 
 // mockGraphQuery is a programmable mock that simulates types.GraphQuery.
 // It allows us to inject delays, errors, structural anomalies, and state corruption.
 type mockGraphQuery struct {
-	mu           sync.RWMutex
-	calls        int32
-	delay        time.Duration
-	result       any
-	err          error
-	panics       bool
-	dynamicFunc  func(queryType string, params map[string]any) (any, error)
-	lastParams   map[string]any
-	lastQuery    string
+	mu          sync.RWMutex
+	calls       int32
+	delay       time.Duration
+	result      any
+	err         error
+	panics      bool
+	dynamicFunc func(queryType string, params map[string]any) (any, error)
+	lastParams  map[string]any
+	lastQuery   string
 }
 
 func (m *mockGraphQuery) QueryGraph(queryType string, params map[string]any) (any, error) {
@@ -158,7 +157,7 @@ func TestE2E_VirtualStore_GraphQuery_Contract_UnsupportedStructFallback(t *testi
 	vs := core.NewVirtualStore(nil)
 
 	type ComplexType struct {
-		Name string
+		Name  string
 		Score float64
 	}
 
@@ -369,7 +368,6 @@ func TestE2E_VirtualStore_GraphQuery_State_PointerCorruption(t *testing.T) {
 	// so upstream Mangle AST is safe, but we assert this boundary defense holds.
 }
 
-
 // --------------------------------------------------------------------------------
 // 4. Resource Exhaustion
 // --------------------------------------------------------------------------------
@@ -448,7 +446,7 @@ func TestE2E_VirtualStore_GraphQuery_Temporal_SynchronousHang(t *testing.T) {
 	// the only way to timeout the engine is to wrap the Kernel.Query call itself,
 	// which leaves the underlying goroutine permanently blocked.
 	mock := &mockGraphQuery{
-		delay: 2 * time.Second,
+		delay:  2 * time.Second,
 		result: true,
 	}
 	vs.SetGraphQuery(mock)
@@ -524,7 +522,6 @@ func TestE2E_VirtualStore_GraphQuery_Temporal_RapidCancelSpam(t *testing.T) {
 	}
 }
 
-
 // --------------------------------------------------------------------------------
 // 6. Cascading Failures
 // --------------------------------------------------------------------------------
@@ -575,7 +572,6 @@ func TestE2E_VirtualStore_GraphQuery_Cascade_SilentEmptyResult(t *testing.T) {
 	}
 	// Note: t.Log("KNOWN: SQLite locked error causes silent logic inversion in Mangle.")
 }
-
 
 // --------------------------------------------------------------------------------
 // 7. Recovery Scenarios
@@ -650,8 +646,6 @@ func TestE2E_VirtualStore_GraphQuery_Recovery_InvalidArgRecovery(t *testing.T) {
 		t.Errorf("No results after recovery")
 	}
 }
-
-
 
 // --------------------------------------------------------------------------------
 // 8. End-to-End Data Integrity

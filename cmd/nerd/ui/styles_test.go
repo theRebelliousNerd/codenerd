@@ -137,7 +137,7 @@ func TestAdjustColor(t *testing.T) {
 			// Lowercase the result because colorful might use lowercase hex
 			// whereas we might use uppercase in tests. AdjustColor returns the hex directly.
 			// Let's compare strings directly and allow for case differences.
-			if strings.ToLower(string(result)) != strings.ToLower(tt.expectedHex) {
+			if !strings.EqualFold(string(result), tt.expectedHex) {
 				t.Errorf("AdjustColor() = %v, want %v", result, tt.expectedHex)
 			}
 		})

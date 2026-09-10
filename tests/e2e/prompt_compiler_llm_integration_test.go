@@ -162,9 +162,9 @@ func TestE2E_PromptCompilerLLM_Smoke_ValidPipeline(t *testing.T) {
 		{
 
 			Atom: &prompt.PromptAtom{
-				ID:       "test-atom",
+				ID: "test-atom",
 
-				Content:  "I am a test persona.",
+				Content: "I am a test persona.",
 			},
 			Score: 1.0,
 		},
@@ -198,7 +198,6 @@ func TestE2E_PromptCompilerLLM_ResourceExhaustion_10MBPayload(t *testing.T) {
 		t.Skip("Skipping resource exhaustion test in short mode")
 	}
 
-
 	// Generate a massive 10MB atom content
 	massiveContent := strings.Repeat("A", 10*1024*1024)
 
@@ -215,9 +214,9 @@ func TestE2E_PromptCompilerLLM_ResourceExhaustion_10MBPayload(t *testing.T) {
 		{
 
 			Atom: &prompt.PromptAtom{
-				ID:       "massive-atom",
+				ID: "massive-atom",
 
-				Content:  massiveContent,
+				Content: massiveContent,
 			},
 			Score: 1.0,
 		},
@@ -599,7 +598,6 @@ func TestE2E_PromptCompilerLLM_PartialPipelineFailure(t *testing.T) {
 	// allowing upstream components (like the Executor) to clean up transient context state.
 	t.Log("Pipeline safely bubbled up error for cleanup.")
 }
-
 
 // TestE2E_PromptCompilerLLM_SchemaViolation detects when the LLM generates invalid piggyback.
 func TestE2E_PromptCompilerLLM_SchemaViolation(t *testing.T) {

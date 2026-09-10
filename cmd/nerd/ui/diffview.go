@@ -876,9 +876,9 @@ func sliceString(s string, startCol, maxCols int) string {
 	var currentWidth int
 	var outputWidth int
 	var sb strings.Builder
-	runes := []rune(s)
-
-	for _, r := range runes {
+	// Ranging the string directly yields the same runes without materializing
+	// a []rune the size of the input.
+	for _, r := range s {
 		w := runewidth.RuneWidth(r)
 
 		if currentWidth >= startCol {

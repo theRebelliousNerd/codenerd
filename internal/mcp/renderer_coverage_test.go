@@ -210,8 +210,10 @@ func TestFormatSchema_WhenLongSchema_ShouldTruncate(t *testing.T) {
 
 	raw := json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"number"}}}`)
 	result := r.formatSchema(raw)
-	if len(result) <= 20 {
-		// The truncated result should have the suffix
+	// Truncation has to actually shorten the schema. The line below checks for
+	// the indicator; nothing checked that anything was removed.
+	if len(result) >= len(raw) {
+		t.Errorf("formatSchema did not shorten a %d-char schema: got %d chars", len(raw), len(result))
 	}
 	if !contains(result, "truncated") {
 		t.Error("expected truncation indicator")

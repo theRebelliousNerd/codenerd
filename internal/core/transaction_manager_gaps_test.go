@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 // ============================================================================
@@ -523,11 +522,10 @@ func TestTransactionManagerGap_ManyEdits_Stress(t *testing.T) {
 
 	const editCount = 500
 	for i := range editCount {
-		filePath := filepath.Join(tmpDir, "gen", "file_"+strings.Replace(
-			time.Now().Format("150405.000000"), ".", "_", -1)+"_"+
-			strings.Repeat("x", 5)+".go")
-		// Use unique paths
-		filePath = filepath.Join(tmpDir, "gen", filepath.Base(
+		// A timestamp-based path used to be computed here and overwritten on the
+		// next statement, so every iteration called time.Now().Format for a
+		// value nothing read.
+		filePath := filepath.Join(tmpDir, "gen", filepath.Base(
 			filepath.Join(tmpDir, "gen", "file_"+string(rune('a'+i%26))+
 				"_"+strings.Repeat("x", i%10)+".go")))
 

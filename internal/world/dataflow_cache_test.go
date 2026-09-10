@@ -116,7 +116,9 @@ func TestDataFlowCache_Serialization(t *testing.T) {
 
 	// Store facts
 	computed := false
-	facts := cache.GetOrCompute(file, content, func() []core.Fact {
+	// The returned facts are not read here; the assertion is that the compute
+	// function ran. The value is read from the second lookup further down.
+	_ = cache.GetOrCompute(file, content, func() []core.Fact {
 		computed = true
 		return originalFacts
 	})
@@ -166,7 +168,7 @@ func TestDataFlowCache_Serialization(t *testing.T) {
 
 	// Verify second lookup is a hit
 	computed = false
-	facts = cache2.GetOrCompute(file, content, func() []core.Fact {
+	facts := cache2.GetOrCompute(file, content, func() []core.Fact {
 		computed = true
 		return nil
 	})

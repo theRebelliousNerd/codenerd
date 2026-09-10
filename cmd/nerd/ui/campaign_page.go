@@ -120,13 +120,13 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 
 		switch {
 		case key.Matches(msg, m.keys.Up):
-			m.viewport.LineUp(1)
+			m.viewport.ScrollUp(1)
 		case key.Matches(msg, m.keys.Down):
-			m.viewport.LineDown(1)
+			m.viewport.ScrollDown(1)
 		case key.Matches(msg, m.keys.PageUp):
-			m.viewport.HalfViewUp()
+			m.viewport.HalfPageUp()
 		case key.Matches(msg, m.keys.PageDown):
-			m.viewport.HalfViewDown()
+			m.viewport.HalfPageDown()
 		case msg.String() == "v":
 			// Cycle detail/summary/dashboard view.
 			m.viewMode = (m.viewMode + 1) % 3

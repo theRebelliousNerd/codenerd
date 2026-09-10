@@ -166,12 +166,12 @@ func TestLintExemptedMissingSafeAction(t *testing.T) {
 	virtualActions := map[string]struct{}{}
 	registered := map[string]struct{}{"exempted_tool": {}}
 	safe := map[string]struct{}{}
-	exempt, err := loadExemptions("")
-	if err != nil {
+	// The loaded value is discarded: this call is here to prove an empty path
+	// does not error, and the struct below is what the lint run actually uses.
+	if _, err := loadExemptions(""); err != nil {
 		t.Fatalf("load exemptions: %v", err)
 	}
-	// Use direct exemptions struct with pattern matching the tool.
-	exempt = exemptions{Patterns: []string{"exempted_tool"}}
+	exempt := exemptions{Patterns: []string{"exempted_tool"}}
 	issues := lint(policyActions, routes, virtualActions, false, exempt, registered, safe, nil)
 	for _, it := range issues {
 		if it.Action == "/exempted_tool" {

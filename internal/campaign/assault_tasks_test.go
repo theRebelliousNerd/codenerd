@@ -229,9 +229,8 @@ func TestDiscoverGoTargets_EmptyIncludesExcludes_Ignored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discoverGoTargets failed: %v", err)
 	}
-	if len(targets) == 0 {
-		// Just ensure it ran successfully without panicking.
-	}
+	// Running to completion is the assertion; an empty target set is valid.
+	_ = targets
 }
 
 func TestExecuteAssaultTriageTask_MissingArtifacts_HandlesEmptyLog(t *testing.T) {

@@ -251,8 +251,10 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 		}
 		relevanceSkipped = len(consultable) - len(selectedConsultable)
 	} else if dreamAll {
-	} else if dreamAll {
-		// --all bypasses ranking entirely but still compute scores for inspectability.
+		// --all bypasses ranking entirely but still computes scores for
+		// inspectability. This condition was duplicated, with the first copy
+		// empty, so every --all run matched the empty branch and skipped the
+		// score computation below entirely.
 		wsRoot := workspace
 		if wsRoot == "" {
 			wsRoot = cortex.Workspace

@@ -92,11 +92,11 @@ func TestWriteSetLockManager_NullEmptyInputs(t *testing.T) {
 	}
 
 	// empty/whitespace taskID
-	lease, err = manager.acquire(context.Background(), "", []string{"a"}, time.Millisecond)
+	_, err = manager.acquire(context.Background(), "", []string{"a"}, time.Millisecond)
 	if err == nil {
 		t.Errorf("Expected error for empty taskID")
 	}
-	lease, err = manager.acquire(context.Background(), "   ", []string{"a"}, time.Millisecond)
+	_, err = manager.acquire(context.Background(), "   ", []string{"a"}, time.Millisecond)
 	if err == nil {
 		t.Errorf("Expected error for whitespace taskID")
 	}

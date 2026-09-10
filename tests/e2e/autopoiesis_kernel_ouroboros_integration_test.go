@@ -26,6 +26,7 @@ type mockPoisonKernel struct {
 	rejectAssert bool
 	queries      map[string]bool
 }
+
 var _ types.Kernel = (*mockPoisonKernel)(nil)
 
 func (m *mockPoisonKernel) LoadFacts(facts []types.Fact) error              { return nil }

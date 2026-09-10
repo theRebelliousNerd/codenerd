@@ -170,9 +170,10 @@ func TestLoadSelectedSession(t *testing.T) {
 		t.Errorf("Expected system message at end, got '%s'", lastMsg.Content)
 	}
 
-	if cmd != nil {
-		// Cmd is usually nil for this function unless there are side effects returning cmds
-	}
+	// The assertion is that the call above returned without panicking; cmd may
+	// legitimately be nil or non-nil. An `if cmd != nil {}` branch checked
+	// nothing while looking like it did.
+	_ = cmd
 }
 
 func TestLoadSelectedSession_NotFound(t *testing.T) {

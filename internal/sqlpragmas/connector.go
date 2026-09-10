@@ -136,6 +136,8 @@ func execOnDriverConn(ctx context.Context, conn driver.Conn, query string) error
 		_, err = sec.ExecContext(ctx, nil)
 		return err
 	}
-	_, err = stmt.Exec(nil) //nolint:staticcheck // pre-context driver fallback
+	// staticcheck does not honour //nolint, which is a golangci-lint directive.
+	//lint:ignore SA1019 fallback for drivers predating StmtExecContext
+	_, err = stmt.Exec(nil)
 	return err
 }

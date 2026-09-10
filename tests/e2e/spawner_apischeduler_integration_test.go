@@ -13,19 +13,21 @@ import (
 	"time"
 
 	"codenerd/internal/core"
-	"codenerd/internal/session"
+	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
-	"codenerd/internal/jit/config"
+	"codenerd/internal/session"
 )
 
 // Mock dependencies to isolate the Spawner <-> APIScheduler boundary.
 type mockCompiler struct{}
+
 func (m *mockCompiler) Compile(ctx context.Context, compCtx *prompt.CompilationContext) (*prompt.CompilationResult, error) {
 	return &prompt.CompilationResult{}, nil
 }
 
 type sasMockConfigFactory struct{}
+
 func (m *sasMockConfigFactory) Generate(ctx context.Context, res *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	return &config.EffectiveAgentRuntimeConfig{}, nil
 }
@@ -304,7 +306,6 @@ func TestE2E_SpawnerAPIScheduler_CascadingFailure_SchedulerStall(t *testing.T) {
 		t.Fatalf("Subagent stalled for %v waiting for slot. Should have timed out fast.", duration)
 	}
 }
-
 
 // TestE2E_SpawnerAPIScheduler_PriorityInversion_Prevention tests if a high-priority
 // spawn can bypass a crowded wait queue.

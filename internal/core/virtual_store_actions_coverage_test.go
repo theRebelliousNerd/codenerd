@@ -808,10 +808,8 @@ func TestHandleSearchCode(t *testing.T) {
 	vs, _ := createActionsTestVS(t)
 	ctx := context.Background()
 
-	req := ActionRequest{
-		ActionID: "s1",
-		Target:   "search_pattern",
-	}
+	// A first ActionRequest with Target "search_pattern" used to be built here
+	// and overwritten below before anything read it.
 
 	// 1. Write file to tmpDir with some pattern to walk/find
 	fileName := "search.txt"
@@ -820,7 +818,7 @@ func TestHandleSearchCode(t *testing.T) {
 		t.Fatalf("failed to write search file: %v", err)
 	}
 
-	req = ActionRequest{
+	req := ActionRequest{
 		ActionID: "s1",
 		Target:   "needle",
 	}
