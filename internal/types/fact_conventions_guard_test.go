@@ -467,6 +467,12 @@ var declMismatchBaseline = map[string][]string{
 		`git_state/2 arg 0 is declared /name but the Go value is /string (modified_files)`,
 		`git_state/2 arg 0 is declared /name but the Go value is /string (recent_commits)`,
 		`git_state/2 arg 0 is declared /name but the Go value is /string (unstaged_count)`,
+		// Added with the untracked-files attribute. Same predicate, same
+		// convention, same reader: switching this one to /untracked_files while
+		// populateGitContext still matches "untracked_files" would make the
+		// new_files world state silently never fire, which is the exact defect
+		// that attribute was added to fix.
+		`git_state/2 arg 0 is declared /name but the Go value is /string (untracked_files)`,
 	},
 	// routing_error(ActionType, Reason, Timestamp) bound [/name, /string, /number].
 	"internal/shards/system/router.go": {
