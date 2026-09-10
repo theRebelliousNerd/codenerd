@@ -24,6 +24,16 @@ type Counts struct {
 	// to be able to tell "nothing ran" from "this is not a test runner's
 	// output at all", and a zero/zero pair cannot say which.
 	Parsed bool
+
+	// FailedNames are the failures the runner named, in the order it reported
+	// them. Go names every one; a runner that only reports "1 failed" names
+	// none, so this can be shorter than Failed and callers must not use its
+	// length as the failure count.
+	//
+	// It exists because naming the failing tests is what makes the count
+	// actionable: a prompt that says three tests are failing and cannot say
+	// which has told the model to go looking.
+	FailedNames []string
 }
 
 // Parse counts passed and failed tests in a runner's plain output.
@@ -45,7 +55,8 @@ func Parse(output string) Counts {
 	var c Counts
 
 	for line := range strings.SplitSeq(output, "\n") {
-		lower := strings.ToLower(strings.TrimSpace(line))
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
 		if lower == "" {
 			continue
 		}
@@ -58,6 +69,9 @@ func Parse(output string) Counts {
 		case strings.Contains(lower, "--- fail"):
 			c.Failed++
 			c.Parsed = true
+			if name := failedTestName(trimmed, strings.Index(lower, "--- fail")); name != "" {
+				c.FailedNames = append(c.FailedNames, name)
+			}
 			continue
 		case strings.Contains(lower, "--- skip"):
 			// A skipped test is neither a pass nor a failure. Counting it
@@ -80,6 +94,29 @@ func Parse(output string) Counts {
 	}
 
 	return c
+}
+
+// failedTestName pulls the test name out of a Go failure marker.
+//
+// It works on the original line rather than the lowercased copy the matching
+// uses, because the name is the payload and "testfailedlogin" is not a name
+// anyone can run. The offset of the marker is passed in so the two views of
+// the line cannot drift apart.
+//
+// Returns "" for anything it cannot read confidently. A wrong name is worse
+// than no name: it sends the model to a test that is not failing.
+func failedTestName(line string, markerAt int) string {
+	if markerAt < 0 || markerAt+len("--- fail") > len(line) {
+		return ""
+	}
+	rest := strings.TrimSpace(line[markerAt+len("--- fail"):])
+	rest = strings.TrimSpace(strings.TrimPrefix(rest, ":"))
+	// Go appends a duration, "TestName (0.00s)". Subtest names keep their
+	// slashes: TestParse/empty_input is the name you rerun with -run.
+	if idx := strings.Index(rest, " ("); idx >= 0 {
+		rest = rest[:idx]
+	}
+	return strings.TrimSpace(rest)
 }
 
 // ParseOptimistic is Parse with the checkpoint runner's convention that

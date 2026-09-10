@@ -96,3 +96,53 @@ func TestParseOptimisticKeepsTheCheckpointConvention(t *testing.T) {
 		t.Errorf("readable output = %d pass / %d fail, want 1/1", p, f)
 	}
 }
+
+// Naming the failures is what makes the count actionable. A prompt that says
+// three tests are failing and cannot say which has told the model to go
+// looking, which costs a turn and several file reads to recover information the
+// runner already printed.
+func TestParseNamesGoFailures(t *testing.T) {
+	out := `=== RUN   TestAlpha
+--- PASS: TestAlpha (0.00s)
+=== RUN   TestBeta
+    beta_test.go:12: want 5, got 0
+--- FAIL: TestBeta (0.01s)
+=== RUN   TestGamma/empty_input
+--- FAIL: TestGamma/empty_input (0.00s)
+--- SKIP: TestDelta (0.00s)
+FAIL`
+
+	c := Parse(out)
+	if !c.Parsed {
+		t.Fatal("Parse did not recognise Go test output")
+	}
+	if c.Failed != 2 {
+		t.Errorf("Failed = %d, want 2", c.Failed)
+	}
+	want := []string{"TestBeta", "TestGamma/empty_input"}
+	if len(c.FailedNames) != len(want) {
+		t.Fatalf("FailedNames = %v, want %v", c.FailedNames, want)
+	}
+	for i := range want {
+		if c.FailedNames[i] != want[i] {
+			// The subtest case is the one worth stating: the slash is part of
+			// the name you rerun with -run, so trimming it would hand back a
+			// name that runs the wrong thing.
+			t.Errorf("FailedNames[%d] = %q, want %q", i, c.FailedNames[i], want[i])
+		}
+	}
+}
+
+// A runner that reports a count without naming anything must not produce
+// invented names. Callers are told FailedNames can be shorter than Failed; a
+// wrong name is worse than no name, because it sends the model to a test that
+// is not failing.
+func TestParseInventsNoNamesForUnnamedFailures(t *testing.T) {
+	c := Parse("12 passed, 3 failed")
+	if !c.Parsed {
+		t.Fatal("Parse did not recognise a generic summary line")
+	}
+	if len(c.FailedNames) != 0 {
+		t.Errorf("FailedNames = %v, want none: this runner named nothing", c.FailedNames)
+	}
+}

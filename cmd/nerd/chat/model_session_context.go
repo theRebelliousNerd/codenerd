@@ -624,33 +624,72 @@ func splitContextList(raw string) []string {
 }
 
 // populateTestState fills in test execution state for TDD loop awareness.
+//
+// It reads the tester shard's own output, which is the only place this session
+// actually learns whether tests pass. What it replaced queried a test_result
+// predicate and was wrong four times over, each one silent on its own:
+//
+//   - nothing in this repository asserts test_result, so the query always came
+//     back empty;
+//   - the Decl is test_result(ShardID, TestName, Passed, Duration) and the code
+//     read Args[1] — the test's NAME — as its status;
+//   - it compared that through a bare string assertion against "/pass", while
+//     Passed is declared /name and comes back as a Mangle atom, so the
+//     assertion would have failed even on the right argument;
+//   - and it wrote its answer to ExtraContext["test_state"], which nothing
+//     reads.
+//
+// Its own comment documented a three-argument signature that does not exist,
+// which is where the rest of it came from.
+//
+// The silence mattered. prompt_assembler reads TestState to set OperationalMode
+// to /tdd_repair, and FailingTests to count failures, which is what arms the
+// failing_tests world state. The three TDD atoms in methodology/tdd.yaml are
+// gated on BOTH. Nothing in the repository wrote either field, so the guidance
+// for repairing a failing suite could not load at the one moment it is wanted.
 func (m *Model) populateTestState(sessionCtx *types.SessionContext) {
-	if m.kernel == nil {
-		return
-	}
-	// Query test_result facts from kernel
-	results, err := m.kernel.Query("test_result")
-	if err != nil {
-		return
-	}
-	var testSummary strings.Builder
-	passCount := 0
-	failCount := 0
-	for _, fact := range results {
-		// test_result(TestID, Status, Message)
-		if len(fact.Args) >= 2 {
-			status, _ := fact.Args[1].(string)
-			switch status {
-			case "/pass":
-				passCount++
-			case "/fail":
-				failCount++
-			}
+	// Most recent tester result wins. An older run describes a tree that has
+	// since been edited, and reporting its failures sends the model at tests
+	// that may already pass — which is worse than saying nothing, because it
+	// looks like current information.
+	for i := len(m.shardResultHistory) - 1; i >= 0; i-- {
+		sr := m.shardResultHistory[i]
+		if sr.ShardType != "tester" {
+			continue
 		}
-	}
-	if passCount+failCount > 0 {
-		testSummary.WriteString(fmt.Sprintf("Tests: %d pass, %d fail", passCount, failCount))
-		sessionCtx.ExtraContext["test_state"] = testSummary.String()
+
+		counts := testoutput.Parse(sr.RawOutput)
+		if !counts.Parsed {
+			// Unreadable output is not a passing suite, and it is not a failing
+			// one either. Leaving both fields alone asserts neither verdict;
+			// inventing one here would put the model into repair mode over a
+			// runner this parser simply does not know how to read.
+			return
+		}
+
+		switch {
+		case counts.Failed > 0:
+			sessionCtx.TestState = "/failing"
+			sessionCtx.FailingTests = counts.FailedNames
+			if len(sessionCtx.FailingTests) == 0 {
+				// A runner that reports a count without naming anything. One
+				// honest line, because FailingTests is rendered into the prompt
+				// and repeating a placeholder per failure would fill it with
+				// noise. It does mean failing_test_count understates the real
+				// number for such runners — which is the safe direction, and
+				// the world state, which only asks whether it is above zero,
+				// still fires.
+				sessionCtx.FailingTests = []string{
+					fmt.Sprintf("%d failing test(s); the runner did not name them", counts.Failed),
+				}
+			}
+		case counts.Passed > 0:
+			sessionCtx.TestState = "/passing"
+		}
+
+		sessionCtx.ExtraContext["test_state"] = fmt.Sprintf(
+			"Tests: %d pass, %d fail", counts.Passed, counts.Failed)
+		return
 	}
 }
 

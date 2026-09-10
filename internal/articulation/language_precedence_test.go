@@ -86,3 +86,69 @@ func TestLanguagePrecedence(t *testing.T) {
 		})
 	}
 }
+
+// A failing suite has to arrive as two separate signals, and the pair is what
+// the TDD atoms need: TestState puts the compile into /tdd_repair, and the
+// count of failing tests arms the failing_tests world state. The three entries
+// in methodology/tdd.yaml are gated on BOTH, so either one missing is the same
+// as neither.
+//
+// This is the compile half. The producer half -- that a tester shard's output
+// reaches these two fields at all -- is asserted in cmd/nerd/chat. Both halves
+// were broken, and separately: nothing in the repository wrote either field,
+// and the code that meant to read the test results queried a predicate nothing
+// asserts, at the wrong argument index, through an assertion that could not
+// have matched anyway.
+func TestFailingTestsProduceRepairModeAndWorldState(t *testing.T) {
+	pa := &PromptAssembler{}
+
+	cc := pa.toCompilationContext(&PromptContext{
+		ShardID:   "coder",
+		ShardType: "coder",
+		SessionCtx: &types.SessionContext{
+			ExtraContext: map[string]string{},
+			TestState:    "/failing",
+			FailingTests: []string{"TestBeta", "TestGamma/empty_input"},
+		},
+	})
+	if cc == nil {
+		t.Fatal("toCompilationContext returned nil")
+	}
+
+	if cc.OperationalMode != "/tdd_repair" {
+		t.Errorf("OperationalMode = %q, want \"/tdd_repair\"", cc.OperationalMode)
+	}
+	if cc.FailingTestCount != 2 {
+		t.Errorf("FailingTestCount = %d, want 2", cc.FailingTestCount)
+	}
+
+	var sawFailingTests bool
+	for _, state := range cc.WorldStates() {
+		if state == "failing_tests" {
+			sawFailingTests = true
+		}
+	}
+	if !sawFailingTests {
+		t.Errorf("world states %v omit failing_tests; the TDD atoms are gated on it as well as "+
+			"on the operational mode, so they still would not load", cc.WorldStates())
+	}
+}
+
+// And a session with no test verdict must stay in /active. /tdd_repair
+// displaces the default mode rather than adding to it, so a false positive
+// changes which operational mode the entire compile selects for.
+func TestNoTestVerdictLeavesTheModeActive(t *testing.T) {
+	pa := &PromptAssembler{}
+
+	cc := pa.toCompilationContext(&PromptContext{
+		ShardID:    "coder",
+		ShardType:  "coder",
+		SessionCtx: &types.SessionContext{ExtraContext: map[string]string{}},
+	})
+	if cc.OperationalMode != "/active" {
+		t.Errorf("OperationalMode = %q, want \"/active\"", cc.OperationalMode)
+	}
+	if cc.FailingTestCount != 0 {
+		t.Errorf("FailingTestCount = %d, want 0", cc.FailingTestCount)
+	}
+}
