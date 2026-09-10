@@ -1,0 +1,47 @@
+# Atoms a Mangle rule body selects on that nothing can produce — no rule head,
+# no ground fact, no mention in non-test Go. Each of these rules cannot fire.
+#
+# A budget, not a target of zero: see TestStarvedAtomValueBudget for why some of
+# these are deliberate, and for the two that were not.
+#
+# Regenerate: CODENERD_UPDATE_STARVED_ATOMS=1 go test ./internal/core/defaults/ -run TestStarvedAtomValueBudget
+# Format: predicate<TAB>/atom
+atom_tag	/debug_only
+atom_tag	/dream_only
+coder_state	/build_failed
+coder_state	/build_passed
+coder_state	/context_ready
+coder_state	/edit_applied
+detected_modal	/polite_request
+doc_tag	/experimental
+edit_analysis	/does_io
+edit_analysis	/handles_errors
+edit_analysis	/has_context
+edit_analysis	/has_context_cancel
+edit_analysis	/has_waitgroup
+edit_analysis	/public_function
+edit_analysis	/spawns_goroutine
+fix_pattern	/retry_addition
+fix_pattern	/timeout_increase
+guards_block	/ok_check
+guards_return	/ok_check
+invariant_value	/deadlock_detected
+invariant_value	/goroutine_count
+invariant_value	/http_500_rate
+invariant_value	/p99_latency_ms
+pytest_failure	/fixture
+raw_finding	/maintainability
+reviewer_task	/style_check
+shard_result	/review_needed
+shard_result	/tests_needed
+system_invariant	/goroutine_limit
+system_invariant	/http_500_rate
+system_invariant	/latency_limit_ms
+task_error	/domain_specific
+task_error	/too_complex
+task_error	/unknown_api
+task_failure_reason	/missing_capability
+test_scope	/full_suite
+test_state	/cause_found
+tester_task	/generate_tests
+user_intent	/close
