@@ -7,6 +7,7 @@ import (
 	"math"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"codenerd/internal/core"
@@ -909,12 +910,17 @@ func TestNormalizeLearnedFactInternal_WhenAlreadyHasPeriod_ShouldNotDouble(t *te
 // =============================================================================
 
 func TestRecordLLMCall_WhenCalled_ShouldTrack(t *testing.T) {
-	// Record some calls
-	RecordLLMCall("test_category", "test_type", 100, 500, nil)
-	RecordLLMCall("test_category", "test_type", 200, 300, fmt.Errorf("test error"))
+	// A unique category per invocation. The metrics map is process-global and
+	// has no reset, so a fixed key accumulates: the second run of this test in
+	// one process saw 4 calls where it asserted 2. Same run-once defect as the
+	// tool registry, in a different shared singleton.
+	category := fmt.Sprintf("test_category_%d", llmMetricsSeq.Add(1))
+
+	RecordLLMCall(category, "test_type", 100, 500, nil)
+	RecordLLMCall(category, "test_type", 200, 300, fmt.Errorf("test error"))
 
 	snapshot := GetLLMMetrics()
-	key := "test_category:test_type"
+	key := category + ":test_type"
 
 	m, ok := snapshot[key]
 	if !ok {
@@ -1647,6 +1653,11 @@ func TestTaxonomyEngine_HydrateFromDB_WhenNoStore_ShouldReturnError(t *testing.T
 	defer eng.StopWorker()
 
 	eng.store = nil
+	// Same reason as taxonomy_persistence_test: hydration swaps the
+	// process-global corpus, and this one comes from a temp database.
+	corpusBefore := GetVerbCorpus()
+	t.Cleanup(func() { SetVerbCorpus(corpusBefore) })
+
 	err = eng.HydrateFromDB()
 	if err == nil {
 		t.Error("expected error when no store configured")
@@ -2075,3 +2086,7 @@ func TestMapActionToVerb_WhenAllActions_ShouldMapCorrectly(t *testing.T) {
 
 // needed by existing tests that reference it
 var _ = core.MangleAtom("/test")
+
+// llmMetricsSeq keeps each run of the metrics test on a key the process-global
+// map has not seen.
+var llmMetricsSeq atomic.Int64

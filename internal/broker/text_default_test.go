@@ -398,7 +398,15 @@ func TestConfigureCarriesSpendAcrossACapChange(t *testing.T) {
 		m.mu.Unlock()
 	})
 
-	Configure(MeterConfig{Window: 200000, OutputReserve: 8000})
+	// Install a fresh ledger rather than reusing whatever the process meter
+	// already holds. Configure mutates the existing ledger in place when no
+	// budgets are given, so a test that recorded into it and then restored the
+	// same pointer on cleanup left its own spend behind -- and accumulated on
+	// the next run, which is how this test failed under -count=2.
+	m.mu.Lock()
+	m.ledger = NewLedger(LedgerConfig{Window: 200000, OutputReserve: 8000})
+	m.mu.Unlock()
+
 	m.Ledger().Record(PurposeCritic, Spend{InputTokens: 4000, OutputTokens: 500, Calls: 1})
 
 	// Applying caps rebuilds the ledger. A budget change that silently zeroed

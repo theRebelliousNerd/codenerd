@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"codenerd/internal/diff"
@@ -140,8 +142,13 @@ func TestCreateDiffFromStrings_ShouldUseTheSameEngineAsTheView(t *testing.T) {
 	// The bridge used to run on diff.DefaultEngine while each view held its own
 	// engine, so identical content was diffed and cached twice in caches with
 	// different lifetimes. One engine per package removes that surprise.
+	// Content unique per invocation, or the engine's cache serves the second
+	// run of this test in a process and Computes does not move -- the test
+	// would then report a caching hit as a routing failure. That is the same
+	// run-once defect the tool registry had, in a different shared singleton.
+	tag := fmt.Sprintf("run-%d", diffBridgeSeq.Add(1))
 	before := DiffEngineStats()
-	_ = CreateDiffFromStrings("a.go", "a.go", "one\ntwo\n", "one\nthree\n")
+	_ = CreateDiffFromStrings("a.go", "a.go", "one\n"+tag+"\n", "one\nthree-"+tag+"\n")
 	after := DiffEngineStats()
 
 	if after.Computes == before.Computes {
@@ -153,3 +160,7 @@ func TestCreateDiffFromStrings_ShouldUseTheSameEngineAsTheView(t *testing.T) {
 		t.Error("DiffApprovalView holds a private engine again; word diffs and file diffs would use separate caches")
 	}
 }
+
+// diffBridgeSeq keeps each run of the bridge test on content the diff cache has
+// not seen.
+var diffBridgeSeq atomic.Int64
