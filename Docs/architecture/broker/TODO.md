@@ -252,13 +252,38 @@ a writer, and no wire between them.
   shards, where a custom agent with no shard type "was handed 25+ contradictory
   built-in identities and answered as whichever it latched onto".
 
-  **The fix above resolves this by making the disagreement unreachable rather
-  than by picking a winner**: a scanned workspace now always supplies a
-  language, so neither semantics applies. That is the right shape — choosing a
-  winner means either changing kernel policy or making the fallback permissive,
-  and both are decisions about prompt quality that want an eval. But the
-  divergence is still there for any dimension left empty, and a kernel outage
-  silently swaps one behaviour for the other.
+  **It is not one dimension, it is the default stance.** The two selectors
+  disagree about everything situational, and agree in exactly one place:
+
+  | dimension | entries | Mangle | Go `matchSelector` |
+  |---|---|---|---|
+  | `languages` | 326 | permissive | fail-closed |
+  | `intent_verbs` | 195 | permissive | fail-closed |
+  | `world_states` | 21 | permissive | fail-closed |
+  | `frameworks` | 42 | permissive | permissive |
+  | the 9 regime dimensions | — | fail-closed | fail-closed |
+
+  Go is fail-closed by default with one hand-made exception, frameworks, whose
+  block is skipped entirely when the context names none. Mangle is permissive by
+  default with a declared list of exceptions, `regime_dimension`. Two opposite
+  defaults that happen to meet on the regime list and on the one case somebody
+  special-cased by hand.
+
+  **The fix above resolves the language row by making the disagreement
+  unreachable rather than by picking a winner**: a scanned workspace now always
+  supplies a language, so neither semantics applies. That is the right shape —
+  choosing a winner means either changing kernel policy or making the fallback
+  permissive, and both are prompt-quality decisions that want an eval.
+
+  The other two rows are still open, and `intent_verbs` is the one to look at
+  next: 195 entries, and `cc.IntentVerb` is only set when a turn carries a
+  parsed intent. On the kernel path an absent verb admits every verb's atoms at
+  once; on the fallback it admits none.
+
+  A kernel outage therefore does not merely degrade selection, it inverts it for
+  542 of the corpus's 918 entries. Whatever is decided about the defaults, that
+  is worth a line in the fallback's own doc, because "the fallback selects
+  differently" is a much smaller claim than what actually happens.
 
 - **The tag namespaces are fine.** Atoms emit `atom_tag(ID, /lang, /go)` while
   the context writes `current_context(/lang, /go)` through an explicit long/short
