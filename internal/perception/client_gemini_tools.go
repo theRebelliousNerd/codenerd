@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -150,20 +149,7 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 
 	if len(geminiResp.Candidates) > 0 {
 		result.StopReason = geminiResp.Candidates[0].FinishReason
-		var textBuilder strings.Builder
-		for _, part := range geminiResp.Candidates[0].Content.Parts {
-			if part.Text != "" {
-				textBuilder.WriteString(part.Text)
-			}
-			if part.FunctionCall != nil {
-				result.ToolCalls = append(result.ToolCalls, ToolCall{
-					ID:    fmt.Sprintf("call_%d", len(result.ToolCalls)),
-					Name:  part.FunctionCall.Name,
-					Input: part.FunctionCall.Args,
-				})
-			}
-		}
-		result.Text = strings.TrimSpace(textBuilder.String())
+		applyGeminiBlocks(result, &geminiResp)
 
 		// Extract grounding sources for transparency and learning
 		if geminiResp.Candidates[0].GroundingMetadata != nil {
@@ -192,10 +178,22 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 	return result, nil
 }
 
-// CompleteWithToolResults continues a multi-turn function calling conversation.
-// This is used after the model returns tool calls - we execute the tools and
-// pass the results back along with the thought signature for reasoning continuity.
-func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, contents []GeminiContent, toolResults []ToolResult, tools []ToolDefinition) (*LLMToolResponse, error) {
+// CompleteWithToolResults continues a multi-turn function calling conversation,
+// satisfying types.ToolResultsProvider.
+//
+// It previously took a pre-built []GeminiContent plus a loose []ToolResult and
+// had no caller anywhere in the tree, so Gemini fell through to the
+// single-turn path with the conversation flattened into a text transcript.
+// Taking the neutral history is what makes the native loop reachable: the
+// history's ordered blocks map onto Gemini parts in position, carrying each
+// thought signature with the call it belongs to.
+//
+// This changes routing for one configuration. Gemini's default enables Google
+// Search and URL Context, and ShouldUsePiggybackTools is true whenever either
+// is on, so the default path is unchanged. A Gemini client with both grounding
+// options off now runs the native multi-turn loop instead of a single
+// CompleteWithTools call over a rendered transcript.
+func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	// Auto-apply timeout if context has no deadline
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
@@ -204,63 +202,24 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 	}
 
 	startTime := time.Now()
-	logging.PerceptionDebug("[Gemini] CompleteWithToolResults: model=%s tool_results=%d prev_thought_sig=%t",
-		c.model, len(toolResults), c.lastThoughtSignature != "")
+	logging.PerceptionDebug("[Gemini] CompleteWithToolResults: model=%s history=%d prev_thought_sig=%t",
+		c.model, len(history), c.lastThoughtSignature != "")
 
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("API key not configured")
 	}
-
-	// Build tool result parts (preserve Gemini 3 thought signature positions)
-	resultParts := make([]GeminiPart, 0, len(toolResults))
-	if len(c.lastToolCalls) > 0 {
-		resultsByID := make(map[string]ToolResult, len(toolResults))
-		for _, tr := range toolResults {
-			resultsByID[tr.ToolUseID] = tr
-		}
-		for _, call := range c.lastToolCalls {
-			tr, ok := resultsByID[call.id]
-			if !ok {
-				logging.PerceptionWarn("[Gemini] CompleteWithToolResults: missing tool result for %s", call.id)
-				continue
-			}
-			part := GeminiPart{
-				FunctionResponse: &GeminiFunctionResponse{
-					Name: call.name,
-					Response: map[string]any{
-						"content":  tr.Content,
-						"is_error": tr.IsError,
-					},
-				},
-			}
-			signature := call.signature
-			if signature == "" {
-				signature = c.lastThoughtSignature
-			}
-			if signature != "" {
-				part.ThoughtSignature = signature
-			}
-			resultParts = append(resultParts, part)
-		}
-	} else {
-		for _, tr := range toolResults {
-			resultParts = append(resultParts, GeminiPart{
-				FunctionResponse: &GeminiFunctionResponse{
-					Name: tr.ToolUseID,
-					Response: map[string]any{
-						"content":  tr.Content,
-						"is_error": tr.IsError,
-					},
-				},
-			})
-		}
+	if len(history) == 0 {
+		return nil, fmt.Errorf("history must contain at least one message")
 	}
 
-	// Append the tool results as a function role message
-	allContents := append(contents, GeminiContent{
-		Role:  "function",
-		Parts: resultParts,
-	})
+	allContents, err := geminiContentsFromHistory(history)
+	if err != nil {
+		return nil, fmt.Errorf("invalid history: %w", err)
+	}
+	// A history assembled from legacy flat messages carries no signatures of
+	// its own. Fall back to the one the last response left on the client, which
+	// is where this path used to get every signature it sent.
+	c.applyFallbackThoughtSignatures(allContents)
 
 	// Convert tools to Gemini format
 	geminiTools := make([]GeminiFunctionDeclaration, len(tools))
@@ -377,20 +336,7 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 
 	if len(geminiResp.Candidates) > 0 {
 		result.StopReason = geminiResp.Candidates[0].FinishReason
-		var textBuilder strings.Builder
-		for _, part := range geminiResp.Candidates[0].Content.Parts {
-			if part.Text != "" {
-				textBuilder.WriteString(part.Text)
-			}
-			if part.FunctionCall != nil {
-				result.ToolCalls = append(result.ToolCalls, ToolCall{
-					ID:    fmt.Sprintf("call_%d", len(result.ToolCalls)),
-					Name:  part.FunctionCall.Name,
-					Input: part.FunctionCall.Args,
-				})
-			}
-		}
-		result.Text = strings.TrimSpace(textBuilder.String())
+		applyGeminiBlocks(result, &geminiResp)
 
 		// Extract grounding sources
 		if geminiResp.Candidates[0].GroundingMetadata != nil {

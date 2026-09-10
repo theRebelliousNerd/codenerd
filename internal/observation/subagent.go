@@ -99,12 +99,11 @@ type Return struct {
 	Failure  string        `json:"failure,omitempty"`
 	Duration time.Duration `json:"duration,omitempty"`
 
-	Findings []Finding      `json:"findings,omitempty"`
-	Changed  []string       `json:"changed,omitempty"`
-	Build    *Verification  `json:"build,omitempty"`
-	Tests    *Verification  `json:"tests,omitempty"`
-	Notes    []string       `json:"notes,omitempty"`
-	Extra    map[string]any `json:"extra,omitempty"`
+	Findings []Finding     `json:"findings,omitempty"`
+	Changed  []string      `json:"changed,omitempty"`
+	Build    *Verification `json:"build,omitempty"`
+	Tests    *Verification `json:"tests,omitempty"`
+	Notes    []string      `json:"notes,omitempty"`
 }
 
 // ReturnResult is the projection handed to the parent's reasoning.
@@ -114,6 +113,14 @@ type ReturnResult struct {
 	Status   string        `json:"status"`
 	Failure  string        `json:"failure,omitempty"`
 	Duration time.Duration `json:"duration,omitempty"`
+
+	// Outline is the return's own section headings and where they start. It is
+	// what the file-read codec next door does with the part of a file it does
+	// not print, and for the same reason: an elision the reader has no handle
+	// on is a loss, while a list of what is in there and where lets the next
+	// expansion ask for the right lines instead of paging from the top.
+	Outline        []Section `json:"outline,omitempty"`
+	OutlineOmitted int       `json:"outline_omitted,omitempty"`
 
 	Findings        []Finding      `json:"findings,omitempty"`
 	FindingsOmitted int            `json:"findings_omitted,omitempty"`
@@ -146,6 +153,17 @@ type ReturnResult struct {
 	Handle string `json:"handle,omitempty"`
 }
 
+// Section is one heading in a return, and the line it starts on.
+//
+// Depth is carried so nesting survives without the indentation costing
+// anything: a flat list of eighteen headings reads as eighteen peers, which is
+// a different document from the one the subagent wrote.
+type Section struct {
+	Title string `json:"title"`
+	Line  int    `json:"line"`
+	Depth int    `json:"depth"`
+}
+
 // Return statuses. Empty is separate from completed on purpose: a subagent that
 // returns nothing has failed at the only thing it was for, and reporting that
 // as completion is how a campaign phase advances on an empty deliverable.
@@ -163,6 +181,7 @@ type ReturnLimits struct {
 	MaxEvidence    int
 	MaxChanged     int
 	MaxUncertainty int
+	MaxOutline     int
 	// MaxMessage caps one finding's message. A subagent that pastes a stack
 	// trace into a finding would otherwise walk straight through MaxFindings.
 	MaxMessage int
@@ -181,6 +200,7 @@ func DefaultReturnLimits() ReturnLimits {
 		MaxEvidence:    12,
 		MaxChanged:     12,
 		MaxUncertainty: 6,
+		MaxOutline:     18,
 		MaxMessage:     200,
 	}
 }
@@ -198,6 +218,9 @@ func (l ReturnLimits) resolved() ReturnLimits {
 	}
 	if l.MaxUncertainty <= 0 {
 		l.MaxUncertainty = def.MaxUncertainty
+	}
+	if l.MaxOutline <= 0 {
+		l.MaxOutline = def.MaxOutline
 	}
 	if l.MaxMessage <= 0 {
 		l.MaxMessage = def.MaxMessage
@@ -481,7 +504,47 @@ func ProjectReturn(r Return, limits ReturnLimits) ReturnResult {
 
 	uncertainty = append(uncertainty, extractHedges(output, limits.MaxMessage)...)
 	result.Uncertainty, result.UncertaintyOmitted = capStrings(dedupe(uncertainty), limits.MaxUncertainty)
+
+	// The outline is last because it is the fallback, and it earns its place on
+	// exactly the returns the four sections above cannot help with. Measured
+	// over the 67 real agent outputs in this repository's .quality_assurance
+	// directory, a third of them carry no severity-marked finding and no
+	// file:line citation at all — they are long structured prose — and without
+	// this they projected to a status line and a handle. That is honest and
+	// nearly useless; the headings are the return's own structure and are
+	// neither a summary nor the transcript.
+	result.Outline, result.OutlineOmitted = extractOutline(output, limits.MaxOutline)
 	return result
+}
+
+// outlineHeading matches a markdown ATX heading, which is what an agent's long
+// return is structured with when it is structured at all.
+//
+// Only ATX. A looser rule — a short line ending in a colon, a bold-only line —
+// picks up ordinary prose and fills the outline with sentences, which costs the
+// same bytes as real headings and carries none of the navigation.
+var outlineHeading = regexp.MustCompile(`^(#{1,6})\s+(\S.*?)\s*#*$`)
+
+// extractOutline lists the return's headings and where each starts.
+func extractOutline(output string, limit int) ([]Section, int) {
+	var out []Section
+	for i, line := range strings.Split(output, "\n") {
+		m := outlineHeading.FindStringSubmatch(strings.TrimSuffix(line, "\r"))
+		if m == nil {
+			continue
+		}
+		out = append(out, Section{
+			Title: clampMessage(m[2], 120),
+			Line:  i + 1,
+			Depth: len(m[1]),
+		})
+	}
+	if len(out) <= limit {
+		return out, 0
+	}
+	// The head, not a sample. A document's first headings are its shape; a
+	// slice from the middle would describe a document nobody wrote.
+	return out[:limit], len(out) - limit
 }
 
 // collectVerification reports what ran. It reads the producer's structure and
@@ -882,6 +945,16 @@ func (r ReturnResult) Text(expandVerb string) string {
 		sb.WriteString("verification: ")
 		sb.WriteString(v.Text())
 		sb.WriteString("\n")
+	}
+
+	if len(r.Outline) > 0 {
+		sb.WriteString("sections (line title):\n")
+		for _, sec := range r.Outline {
+			fmt.Fprintf(&sb, "  %d %s%s\n", sec.Line, strings.Repeat("  ", max(sec.Depth-1, 0)), sec.Title)
+		}
+		if r.OutlineOmitted > 0 {
+			fmt.Fprintf(&sb, "  ... %d more section(s) not listed\n", r.OutlineOmitted)
+		}
 	}
 
 	if len(r.Uncertainty) > 0 {

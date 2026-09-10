@@ -561,6 +561,22 @@ func (c *ClaudeCodeCLIClient) GetMaxTurns() int {
 
 // CompleteWithTools sends a prompt with tool definitions.
 // Claude CLI is used as a backend here; tools are requested via Piggyback Protocol.
+//
+// # No content blocks reach this engine, and none can
+//
+// The CLI takes a prompt on stdin and returns text. There is no history
+// parameter, no content-block array, and no field for a thinking signature or
+// a tool-use id anywhere in its interface — which is why this client does not
+// implement types.ToolResultsProvider and why the session executor renders
+// prior turns into a plain transcript before calling it.
+//
+// So every block property this branch exists to preserve — the order between
+// text and tool calls, the signature attesting a thinking block, the id
+// pairing a tool_use to its result — is flattened to prose at the boundary.
+// That is a property of shelling out to an agent that manages its own
+// conversation, not something an adapter here can fix: the CLI has its own
+// session and its own tool loop, and codeNERD is talking to that agent rather
+// than to the model behind it.
 func (c *ClaudeCodeCLIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
 	// Execute simple completion, Piggyback++ extracts tool_requests later.
 	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)

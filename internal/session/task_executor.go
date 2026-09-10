@@ -372,16 +372,11 @@ func (j *JITExecutor) GetResult(taskID string) (string, bool, error) {
 	return observed.Output, done, err
 }
 
-// GetObservedResult retrieves the structured return of an async task.
+// getObserved is the one completion check GetResult and waitObserved share.
 //
-// It shares getObserved with GetResult rather than polling separately, because
-// two readers of one subagent's completion that cached independently would each
-// see a different answer the moment either of them raced the other to the
-// state transition.
-func (j *JITExecutor) GetObservedResult(taskID string) (observation.Return, bool, error) {
-	return j.getObserved(taskID)
-}
-
+// Not two, and not an exported second accessor beside GetResult: two readers of
+// one subagent's completion that cached independently would each see a
+// different answer the moment either raced the other to the state transition.
 func (j *JITExecutor) getObserved(taskID string) (observation.Return, bool, error) {
 	// Check if subagent exists
 	agent, ok := j.spawner.Get(taskID)

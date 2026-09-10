@@ -241,39 +241,61 @@ func (a *AnthropicCounter) buildCountBody(req *Request) ([]byte, error) {
 // convertCountMessage renders one internal message as Anthropic content blocks.
 // It returns false for a message with nothing countable in it, so an empty turn
 // does not become an empty content array the endpoint will reject.
+//
+// It walks the message's ordered blocks so that what is counted is what the
+// adapter will actually send — thinking blocks and their signatures included.
+// A count taken from the flat fields would omit replayed reasoning entirely and
+// report a request materially smaller than the one that gets billed.
 func convertCountMessage(msg *types.Message) (anthropicCountMessage, bool) {
 	role := msg.Role
 	if role != "assistant" {
 		role = "user"
 	}
 
-	if len(msg.ToolCalls) == 0 && len(msg.ToolResults) == 0 {
-		if msg.Text == "" {
+	content := msg.Content()
+	if len(content) == 0 {
+		return anthropicCountMessage{}, false
+	}
+	if len(content) == 1 && content[0].Kind == types.BlockText {
+		if content[0].Text == "" {
 			return anthropicCountMessage{}, false
 		}
-		return anthropicCountMessage{Role: role, Content: msg.Text}, true
+		return anthropicCountMessage{Role: role, Content: content[0].Text}, true
 	}
 
-	blocks := make([]map[string]any, 0, 1+len(msg.ToolCalls)+len(msg.ToolResults))
-	if msg.Text != "" {
-		blocks = append(blocks, map[string]any{"type": "text", "text": msg.Text})
-	}
-	for i := range msg.ToolCalls {
-		call := &msg.ToolCalls[i]
-		input := call.Input
-		if input == nil {
-			input = map[string]any{}
+	blocks := make([]map[string]any, 0, len(content))
+	for _, b := range content {
+		switch b.Kind {
+		case types.BlockText:
+			if b.Text == "" {
+				continue
+			}
+			blocks = append(blocks, map[string]any{"type": "text", "text": b.Text})
+		case types.BlockThinking:
+			if b.Signature == "" {
+				continue
+			}
+			if b.Redacted {
+				blocks = append(blocks, map[string]any{"type": "redacted_thinking", "data": b.Signature})
+				continue
+			}
+			blocks = append(blocks, map[string]any{
+				"type": "thinking", "thinking": b.Text, "signature": b.Signature,
+			})
+		case types.BlockToolUse:
+			input := b.Input
+			if input == nil {
+				input = map[string]any{}
+			}
+			blocks = append(blocks, map[string]any{
+				"type": "tool_use", "id": b.ID, "name": b.Name, "input": input,
+			})
+		case types.BlockToolResult:
+			blocks = append(blocks, map[string]any{
+				"type": "tool_result", "tool_use_id": b.ToolUseID,
+				"content": b.Text, "is_error": b.IsError,
+			})
 		}
-		blocks = append(blocks, map[string]any{
-			"type": "tool_use", "id": call.ID, "name": call.Name, "input": input,
-		})
-	}
-	for i := range msg.ToolResults {
-		res := &msg.ToolResults[i]
-		blocks = append(blocks, map[string]any{
-			"type": "tool_result", "tool_use_id": res.ToolUseID,
-			"content": res.Content, "is_error": res.IsError,
-		})
 	}
 	if len(blocks) == 0 {
 		return anthropicCountMessage{}, false

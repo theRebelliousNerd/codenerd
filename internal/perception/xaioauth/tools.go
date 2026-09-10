@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
 
@@ -101,6 +102,7 @@ func mapHistoryToChatMessages(systemPrompt string, history []types.Message) ([]c
 		var text strings.Builder
 		var calls []toolCall
 		var results []chatMessage
+		droppedThinking := 0
 
 		for _, b := range m.Content() {
 			switch b.Kind {
@@ -109,6 +111,7 @@ func mapHistoryToChatMessages(systemPrompt string, history []types.Message) ([]c
 
 			case types.BlockThinking:
 				// Unrepresentable on Chat Completions; see the note above.
+				droppedThinking++
 
 			case types.BlockToolUse:
 				argsJSON, err := json.Marshal(b.Input)
@@ -135,6 +138,12 @@ func mapHistoryToChatMessages(systemPrompt string, history []types.Message) ([]c
 					ToolCallID: b.ToolUseID,
 				})
 			}
+		}
+
+		if droppedThinking > 0 {
+			logging.Get(logging.CategoryAPI).Warn(
+				"xai-oauth: dropped %d thinking block(s) from a %s turn — Chat Completions has no request-side field for reasoning, so continuity is lost for this turn",
+				droppedThinking, role)
 		}
 
 		msgs = append(msgs, results...)

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -268,8 +269,16 @@ func (k *RealKernel) GenerateValidatedRule(
 
 	if len(contextMap) > 0 {
 		userPromptBuilder.WriteString("\n\n## Additional Context:\n")
-		for key, value := range contextMap {
-			userPromptBuilder.WriteString(fmt.Sprintf("- %s: %s\n", key, value))
+		contextKeys := make([]string, 0, len(contextMap))
+		for key := range contextMap {
+			contextKeys = append(contextKeys, key)
+		}
+		sort.Strings(contextKeys)
+		// Sorted: this builds a prompt, and a prompt whose lines reorder
+		// between runs cannot be matched by a provider's prefix cache or
+		// diffed by a person trying to find out why the agent got worse.
+		for _, key := range contextKeys {
+			userPromptBuilder.WriteString(fmt.Sprintf("- %s: %s\n", key, contextMap[key]))
 		}
 	}
 

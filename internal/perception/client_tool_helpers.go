@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
 
@@ -90,14 +91,23 @@ func MapTypesHistoryToOpenAIMessages(systemPrompt string, history []types.Messag
 		var text strings.Builder
 		var calls []OpenAIToolCall
 		var results []OpenAIMessage
+		droppedThinking := 0
 
 		for _, b := range m.Content() {
 			switch b.Kind {
 			case types.BlockText:
+				if len(calls) > 0 {
+					// Prose the model emitted AFTER a tool call. Chat
+					// Completions has one content string per assistant turn,
+					// so it lands ahead of the calls instead of between them.
+					logging.PerceptionDebug(
+						"chat-completions: interleaved text after %d tool call(s) collapsed to the front of the turn", len(calls))
+				}
 				text.WriteString(b.Text)
 
 			case types.BlockThinking:
 				// Unrepresentable here; see the note above.
+				droppedThinking++
 
 			case types.BlockToolUse:
 				argsJSON, err := json.Marshal(b.Input)
@@ -125,6 +135,12 @@ func MapTypesHistoryToOpenAIMessages(systemPrompt string, history []types.Messag
 					ToolCallID: b.ToolUseID,
 				})
 			}
+		}
+
+		if droppedThinking > 0 {
+			logging.PerceptionWarn(
+				"chat-completions: dropped %d thinking block(s) from a %s turn — the surface has no request-side field for reasoning, so continuity is lost for this turn",
+				droppedThinking, role)
 		}
 
 		msgs = append(msgs, results...)

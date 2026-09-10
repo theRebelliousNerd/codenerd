@@ -284,10 +284,92 @@ func TestProjectReturn_WhenTheReturnIsShort_ShouldCarryItWholeRatherThanElide(t 
 	if strings.Contains(text, "subagent_expand") {
 		t.Error("nothing was elided, so naming a redemption verb charges for a promise with no debt behind it")
 	}
-	// Measured: 41 bytes of header over a 68-byte return. Pinned because it is
-	// the case this codec is worst at, and a second header line would double it.
+	// Measured: 67 bytes of header over a 68-byte return, and 67 over a 5-byte
+	// one — the overhead is one header line and does not scale. Pinned because
+	// this is the case the codec is worst at: it cannot help, so all it must do
+	// is not hurt much. A second header line would double it.
 	if over := len(text) - len(short); over > 90 {
 		t.Errorf("a short return costs %d bytes over the raw return; the header must stay small on the case the codec cannot help", over)
+	}
+}
+
+// TestProjectReturn_AtTheElideThreshold_ShouldCrossOverInTheRightDirection is
+// the worst case pinned honestly. Just under minRetainBytes the projection is
+// LARGER than the return it replaced — measured at 571 bytes against 504, a
+// 13% loss — and just over it the projection is smaller. That is the whole
+// justification for the threshold, and a change that moved the crossover the
+// wrong way would make the codec cost more than it saves on every short return
+// while every other test still passed.
+func TestProjectReturn_AtTheElideThreshold_ShouldCrossOverInTheRightDirection(t *testing.T) {
+	t.Parallel()
+
+	filler := "prose that says very little at all. "
+	under := strings.Repeat(filler, (minRetainBytes/len(filler))-1)
+	over := strings.Repeat(filler, (minRetainBytes/len(filler))+1)
+	if len(under) >= minRetainBytes || len(over) < minRetainBytes {
+		t.Fatalf("fixture straddles the wrong threshold: under=%d over=%d minRetainBytes=%d", len(under), len(over), minRetainBytes)
+	}
+
+	c := NewSubagents(retain.DefaultConfig())
+	underText := c.EncodeReturn(Return{Agent: "coder", Output: under}, ReturnLimits{}).Text("subagent_expand")
+	overText := c.EncodeReturn(Return{Agent: "coder", Output: over}, ReturnLimits{}).Text("subagent_expand")
+
+	if len(underText) <= len(under) {
+		t.Errorf("a return under the threshold projected to %d bytes from %d; if it were already smaller the threshold would be in the wrong place", len(underText), len(under))
+	}
+	if cost := len(underText) - len(under); cost > 90 {
+		t.Errorf("under the threshold the projection costs %d bytes over the return; that is the loss the threshold exists to bound", cost)
+	}
+	if len(overText) >= len(over) {
+		t.Errorf("a return over the threshold projected to %d bytes from %d; past the threshold eliding must pay", len(overText), len(over))
+	}
+}
+
+// TestProjectReturn_WhenThereAreNoFindingsOrCitations_ShouldStillCarryTheShape.
+// A third of the 67 real agent outputs in this repository's .quality_assurance
+// directory are long structured prose with no severity marker and no file:line
+// citation anywhere. Without the outline those projected to a status line and a
+// handle, which is honest and nearly useless.
+func TestProjectReturn_WhenThereAreNoFindingsOrCitations_ShouldStillCarryTheShape(t *testing.T) {
+	t.Parallel()
+
+	var sb strings.Builder
+	sb.WriteString("# Boundary analysis\n\n")
+	for i := 0; i < 6; i++ {
+		fmt.Fprintf(&sb, "## Section %d\n", i)
+		for j := 0; j < 6; j++ {
+			sb.WriteString("Discussion of the shape of the problem, with no citations at all.\n")
+		}
+	}
+
+	r := ProjectReturn(Return{Agent: "researcher", Output: sb.String()}, ReturnLimits{})
+	if len(r.Findings) != 0 || len(r.Evidence) != 0 {
+		t.Fatalf("fixture is not the prose-only case: findings=%v evidence=%v", r.Findings, r.Evidence)
+	}
+	if len(r.Outline) != 7 {
+		t.Fatalf("outline = %+v, want the 7 headings", r.Outline)
+	}
+	if r.Outline[0].Title != "Boundary analysis" || r.Outline[0].Line != 1 {
+		t.Errorf("first section = %+v, want the document title at line 1", r.Outline[0])
+	}
+	text := r.Text("")
+	if !strings.Contains(text, "sections (line title)") || !strings.Contains(text, "Section 3") {
+		t.Errorf("the rendered projection carries no navigation for a prose-only return:\n%s", text)
+	}
+	if strings.Contains(text, "Discussion of the shape") {
+		t.Error("the outline carried body prose; it is an outline of what is in the return, not the return")
+	}
+}
+
+// TestExtractOutline_ShouldNotTreatOrdinaryProseAsAHeading keeps the outline
+// from filling with sentences, which would cost the same bytes as real headings
+// and carry none of the navigation.
+func TestExtractOutline_ShouldNotTreatOrdinaryProseAsAHeading(t *testing.T) {
+	t.Parallel()
+
+	out, _ := extractOutline("Findings:\n**Important**\n#hashtag not a heading\n# Real heading\n", 10)
+	if len(out) != 1 || out[0].Title != "Real heading" {
+		t.Errorf("outline = %+v, want only the ATX heading", out)
 	}
 }
 

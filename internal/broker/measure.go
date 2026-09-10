@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"unicode/utf8"
+
+	"codenerd/internal/types"
 )
 
 // Per-element structural overheads, in characters. These stand in for the JSON
@@ -23,6 +25,9 @@ const (
 	perToolResultOverheadChar = 24
 	perToolDefOverheadChars   = 32
 	systemBlockOverheadChars  = 16
+	// A replayed thinking block costs its type marker plus the framing around
+	// an opaque signature, which is longer than a text block's wrapper.
+	perThinkingOverheadChars = 24
 )
 
 // measure returns the character size of an assembled request, broken out by
@@ -48,21 +53,32 @@ func measure(req *Request) Segments {
 
 	for i := range req.Messages {
 		msg := &req.Messages[i]
-		n := perMessageOverheadChars + utf8.RuneCountInString(msg.Role) + utf8.RuneCountInString(msg.Text)
+		n := perMessageOverheadChars + utf8.RuneCountInString(msg.Role)
 
-		for j := range msg.ToolCalls {
-			call := &msg.ToolCalls[j]
-			n += perToolCallOverheadChars +
-				utf8.RuneCountInString(call.ID) +
-				utf8.RuneCountInString(call.Name) +
-				jsonChars(call.Input)
-		}
-
-		for j := range msg.ToolResults {
-			res := &msg.ToolResults[j]
-			n += perToolResultOverheadChar +
-				utf8.RuneCountInString(res.ToolUseID) +
-				utf8.RuneCountInString(res.Content)
+		// Counted from the message's ordered blocks rather than its flat
+		// fields, because the flat fields have no place for reasoning. A turn
+		// carrying a replayed thinking block is billed for it, and counting
+		// only Text/ToolCalls/ToolResults would under-measure that turn by the
+		// whole size of the block — which is precisely the request shape this
+		// counter exists to keep honest.
+		for _, b := range msg.Content() {
+			switch b.Kind {
+			case types.BlockText:
+				n += utf8.RuneCountInString(b.Text)
+			case types.BlockThinking:
+				n += perThinkingOverheadChars +
+					utf8.RuneCountInString(b.Text) +
+					utf8.RuneCountInString(b.Signature)
+			case types.BlockToolUse:
+				n += perToolCallOverheadChars +
+					utf8.RuneCountInString(b.ID) +
+					utf8.RuneCountInString(b.Name) +
+					jsonChars(b.Input)
+			case types.BlockToolResult:
+				n += perToolResultOverheadChar +
+					utf8.RuneCountInString(b.ToolUseID) +
+					utf8.RuneCountInString(b.Text)
+			}
 		}
 
 		seg.History += n

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -509,8 +510,32 @@ func (tr *ToolRegistry) BuildToolCatalog(shardType string) string {
 		byAffinity[affinity] = append(byAffinity[affinity], tool)
 	}
 
-	// Output tools grouped by affinity
-	for affinity, toolList := range byAffinity {
+	// Output tools grouped by affinity, in a stable order.
+	//
+	// This catalog is part of the system prompt, and by the epoch fingerprint's
+	// own design tool definitions are the FIRST thing in a provider's cacheable
+	// prefix. Ranging the map directly shuffled the section order on every call,
+	// so the prefix bytes differed run to run and a prefix cache could never hit
+	// across them — a cost paid on every request, to save a sort of half a dozen
+	// keys.
+	//
+	// It also makes the prompt diffable. Two runs that differ only in map order
+	// cannot be compared, which is exactly what someone needs to do when a
+	// prompt change makes the agent worse.
+	affinities := make([]string, 0, len(byAffinity))
+	for affinity := range byAffinity {
+		affinities = append(affinities, affinity)
+	}
+	sort.Strings(affinities)
+
+	for _, affinity := range affinities {
+		toolList := byAffinity[affinity]
+		// Within a section too. GetToolsForShard builds its slice by ranging
+		// the registry map, so the tools arrive in a different order on every
+		// call — sorting the sections alone would leave the same instability
+		// one level down, which is the sort of half-fix that reads as done.
+		sort.Slice(toolList, func(i, j int) bool { return toolList[i].Name < toolList[j].Name })
+
 		catalog.WriteString(fmt.Sprintf("### %s Tools\n\n", strings.TrimPrefix(affinity, "/")))
 		for _, tool := range toolList {
 			catalog.WriteString(fmt.Sprintf("**%s**\n", tool.Name))
