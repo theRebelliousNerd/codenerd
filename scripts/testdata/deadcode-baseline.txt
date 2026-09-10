@@ -145,7 +145,6 @@ internal/articulation/emitter.go	MustExtractSurface
 internal/articulation/kernel_context.go	GetKernelContext
 internal/articulation/prompt_assembler.go	AssembleQuickPrompt
 internal/articulation/stream_parser.go	StreamParser.GetFullBuffer
-internal/atomicfile/open_other.go	Open
 internal/autopoiesis/ouroboros.go	DefaultOuroborosConfig
 internal/autopoiesis/ouroboros.go	GenerateMissingToolFacts
 internal/autopoiesis/ouroboros.go	GenerateToolCapabilityFacts
