@@ -13,5 +13,6 @@
 //   - grep: Search file contents with regex
 //   - search_code: search shaped to symbols and dependency edges, not lines
 //   - search_expand: read the raw lines behind a search_code handle
+//   - subagent_expand: read the raw transcript behind a subagent-return handle
 //   - delete_file: Delete a file (requires permission)
 package core

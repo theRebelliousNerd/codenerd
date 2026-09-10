@@ -88,6 +88,14 @@ safe_action(/analyze_code).
 # worse than never eliding the lines at all.
 safe_action(/search_expand).
 
+# /subagent_expand reads back the transcript a delegation already retained in
+# this process. It spawns nothing, runs nothing and touches no file, so it
+# grants strictly less than the /delegate that minted the handle — which is the
+# whole reason it is a verb of its own rather than an argument on /delegate. A
+# depth or budget cap that denies further delegation must not also take away the
+# transcript of the delegation that already happened.
+safe_action(/subagent_expand).
+
 # Code analysis operations
 safe_action(/parse_ast).
 safe_action(/query_symbols).
