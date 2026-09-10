@@ -424,3 +424,34 @@ func TestFirstLine_ShouldStayQuotable(t *testing.T) {
 		t.Errorf("firstLine(\"\") = %q, want empty", got)
 	}
 }
+
+// TestVerify_ShouldKeyOnIdentityNotOnTheDisplayedName is why Read carries two
+// path fields.
+//
+// read_file and the line-edit verbs resolve against the session workspace; the
+// VirtualStore read action resolves against its own execution working
+// directory, which is allowed to be a subdirectory of it. A workspace-relative
+// name is therefore two different strings for one file, and Verify refuses when
+// the two sides name it differently — a safe refusal, but one for a file nobody
+// touched, which reads to the model as "the file changed" when nothing has.
+func TestVerify_ShouldKeyOnIdentityNotOnTheDisplayedName(t *testing.T) {
+	t.Parallel()
+
+	const abs = "/ws/sub/widget.go"
+	s := New(retain.DefaultConfig())
+	handle := s.Mint(Read{Path: abs, Display: "widget.go", Content: source, Start: 5, End: 7})
+
+	v, err := s.Verify(handle, abs, []byte(source))
+	if err != nil {
+		t.Fatalf("a precondition must resolve for the absolute path every verb already holds: %v", err)
+	}
+	if !v.RegionIntact {
+		t.Error("region should verify")
+	}
+	if v.Path != "widget.go" {
+		t.Errorf("reported path = %q, want the display name: echoing the absolute back costs the same prefix on every read and teaches the model to cite files that way", v.Path)
+	}
+	if !strings.Contains(v.Explain(), "widget.go") || strings.Contains(v.Explain(), abs) {
+		t.Errorf("the explanation must use the display name, not the identity:\n%s", v.Explain())
+	}
+}

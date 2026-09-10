@@ -54,6 +54,19 @@ jobs:
         run: go vet -tags sqlite_vec ./...
       - name: Reject empty and log-only tests
         run: go run ./cmd/tools/audit_test_bodies .
+      # Two compiled executables were tracked at the repository root -- a 9 MB
+      # `main` and a 24 MB `predicate_corpus_builder` -- landed by a commit
+      # whose message is about versioning a documentation file. Together they
+      # were roughly half the weight of .git, in every clone, stale from the
+      # moment their source changed.
+      #
+      # `go build ./cmd/tools/foo` writes its output to the working directory,
+      # so running it once at the root leaves an executable there and the next
+      # `git add -A` sweeps it up. Review cannot see it: a binary diff is one
+      # line saying the binary changed, sitting under the files the reviewer
+      # came for.
+      - name: No compiled binaries in git
+        run: go run ./cmd/tools/audit_committed_binaries
       # A budget on JSON calls whose error is discarded, in the same spirit as
       # the dead-code job below: the baseline is a measurement, not a target of
       # zero, and it fails when the number moves either way.

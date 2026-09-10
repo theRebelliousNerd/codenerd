@@ -30,7 +30,7 @@ import (
 	"strings"
 	"time"
 
-	"codenerd/internal/core"
+	"codenerd/internal/broker"
 	"codenerd/internal/perception"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -262,33 +262,42 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 	}
 }
 
+// setModelRecursive applies /model to every layer of the client chain that
+// tracks a model of its own.
+//
+// It walks rather than relying on the outermost layer to forward, because the
+// two are not the same guarantee: a layer that does not forward SetModel would
+// leave everything beneath it on the old model, and the failure is a wrong
+// answer from the next call rather than an error anyone sees. The broker layer
+// in particular keeps its own record of the model it is metering, so setting
+// only the concrete client at the bottom would leave the receipts labelled with
+// the model the session is no longer using.
+//
+// This used to switch on two decorator types by name and did not know the
+// broker wrapper existed at all, which made it correct only for the layers
+// somebody had remembered to list.
 func setModelRecursive(client perception.LLMClient, model string) {
-	if client == nil {
-		return
-	}
-	if setter, ok := client.(interface{ SetModel(string) }); ok {
-		setter.SetModel(model)
-	}
-	if sched, ok := client.(*core.ScheduledLLMCall); ok {
-		setModelRecursive(sched.Client, model)
-	}
-	if tc, ok := client.(*perception.TracingLLMClient); ok {
-		setModelRecursive(tc.GetUnderlying(), model)
-	}
+	broker.Walk(client, func(layer perception.LLMClient) bool {
+		if setter, ok := layer.(interface{ SetModel(string) }); ok {
+			setter.SetModel(model)
+		}
+		return true
+	})
 }
 
+// getModelRecursive reports the model in effect, taking the first layer that
+// names one.
+//
+// Outermost first, and first non-empty wins: a decorator answers for what it
+// wraps, and an empty answer means "I do not track this", not "no model" -- so
+// an empty string has to keep the walk going rather than end it.
 func getModelRecursive(client perception.LLMClient) string {
-	if client == nil {
-		return ""
-	}
-	if getter, ok := client.(interface{ GetModel() string }); ok {
-		return getter.GetModel()
-	}
-	if sched, ok := client.(*core.ScheduledLLMCall); ok {
-		return getModelRecursive(sched.Client)
-	}
-	if tc, ok := client.(*perception.TracingLLMClient); ok {
-		return getModelRecursive(tc.GetUnderlying())
-	}
-	return ""
+	var model string
+	broker.Walk(client, func(layer perception.LLMClient) bool {
+		if getter, ok := layer.(interface{ GetModel() string }); ok {
+			model = getter.GetModel()
+		}
+		return model == ""
+	})
+	return model
 }
