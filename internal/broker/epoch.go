@@ -170,6 +170,26 @@ type Epoch struct {
 	// proportional attribution rather than separately measured quantities, so
 	// treat this as an order of magnitude, not a precise count.
 	PrefixTokens int `json:"prefix_tokens"`
+
+	// Method is the call shape that opened the epoch. It is here because
+	// without it the headline number is ambiguous in a way that matters.
+	//
+	// Reading the executor settles what an epoch actually is in this
+	// architecture, and it is not a session. The system prompt handed to the
+	// provider is the JIT compilation result plus the current target's file
+	// context, so it changes from turn to turn by construction -- that is what
+	// JIT context management means. What does NOT change is the system prompt
+	// within one turn's native tool loop, where runToolLoop passes the same
+	// string into every round while only the message history grows, and
+	// messages are deliberately outside the fingerprint.
+	//
+	// So an epoch is one turn's tool loop, and its length is that turn's round
+	// count. A p50 of 1 then has two completely different readings: turns that
+	// used no tools at all, or a tool loop that is not reusing its prefix. The
+	// first is a fact about how the agent is used and Phase 4 cannot fix it;
+	// the second is a caching problem and Phase 4 is exactly the fix. Grouping
+	// the histogram by method is what separates them.
+	Method string `json:"method"`
 }
 
 // Span returns the wall-clock duration the epoch covered.
@@ -214,6 +234,7 @@ func Segment(receipts []Receipt) []Epoch {
 					Prefix:       r.Prefix,
 					Started:      r.Started,
 					PrefixTokens: r.Estimated.Segments.System + r.Estimated.Segments.Tools,
+					Method:       r.Method,
 				}
 			}
 			cur.Calls++
@@ -291,6 +312,11 @@ type EpochHistogram struct {
 	// provider because the threshold differs per provider; an aggregate would
 	// average two different questions into one meaningless number.
 	ByProvider []ProviderVerdict `json:"by_provider"`
+
+	// ByMethod splits the same epochs by the call shape that opened them, so
+	// a low median can be attributed rather than merely observed. See the
+	// Method field on Epoch for why the two readings differ so much.
+	ByMethod []MethodVerdict `json:"by_method"`
 }
 
 // ProviderVerdict is the amortization verdict for one provider.
@@ -308,6 +334,26 @@ type ProviderVerdict struct {
 	ExpiredEpochs int `json:"expired_epochs"`
 }
 
+// MethodVerdict is the epoch distribution for one call shape.
+//
+// The split exists because "p50 = 1" answers two questions at once and they
+// have opposite consequences. Epochs opened by a plain completion are single
+// calls because there is nothing to loop over -- Phase 4 cannot lengthen them,
+// and no amount of cache engineering will. Epochs opened by a tool-calling
+// method are a turn's tool loop, and a singleton there means the loop ran one
+// round or the prefix moved inside it, which is a caching problem Phase 4 is
+// exactly the fix for.
+//
+// Reporting only the aggregate hides which of those the number is describing.
+type MethodVerdict struct {
+	Method     string  `json:"method"`
+	Epochs     int     `json:"epochs"`
+	Calls      int     `json:"calls"`
+	Singletons int     `json:"singletons"`
+	Mean       float64 `json:"mean"`
+	MaxCalls   int     `json:"max_calls"`
+}
+
 // Histogram summarizes epochs into the Q1 distribution.
 func Histogram(epochs []Epoch) EpochHistogram {
 	h := EpochHistogram{Buckets: make([]Bucket, len(bucketBounds))}
@@ -321,6 +367,8 @@ func Histogram(epochs []Epoch) EpochHistogram {
 	lengths := make([]int, 0, len(epochs))
 	perProvider := make(map[string]*ProviderVerdict)
 	var order []string
+	perMethod := make(map[string]*MethodVerdict)
+	var methodOrder []string
 
 	for _, e := range epochs {
 		h.Epochs++
@@ -339,6 +387,21 @@ func Histogram(epochs []Epoch) EpochHistogram {
 				h.Buckets[i].Count++
 				break
 			}
+		}
+
+		mv, ok := perMethod[e.Method]
+		if !ok {
+			mv = &MethodVerdict{Method: e.Method}
+			perMethod[e.Method] = mv
+			methodOrder = append(methodOrder, e.Method)
+		}
+		mv.Epochs++
+		mv.Calls += e.Calls
+		if e.Calls == 1 {
+			mv.Singletons++
+		}
+		if e.Calls > mv.MaxCalls {
+			mv.MaxCalls = e.Calls
 		}
 
 		pv, ok := perProvider[e.Provider]
@@ -383,6 +446,21 @@ func Histogram(epochs []Epoch) EpochHistogram {
 		pv := perProvider[p]
 		pv.PayingPct = pct(pv.PayingEpochs, pv.Epochs)
 		h.ByProvider = append(h.ByProvider, *pv)
+	}
+
+	// Most calls first: the shape carrying the spend is the one whose epoch
+	// length decides whether Phase 4 is worth building.
+	sort.SliceStable(methodOrder, func(i, j int) bool {
+		a, b := perMethod[methodOrder[i]], perMethod[methodOrder[j]]
+		if a.Calls != b.Calls {
+			return a.Calls > b.Calls
+		}
+		return a.Method < b.Method
+	})
+	for _, m := range methodOrder {
+		mv := perMethod[m]
+		mv.Mean = float64(mv.Calls) / float64(mv.Epochs)
+		h.ByMethod = append(h.ByMethod, *mv)
 	}
 
 	return h

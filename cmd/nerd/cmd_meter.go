@@ -400,7 +400,40 @@ func printEpochHistogram(w io.Writer, h broker.EpochHistogram) {
 	_ = tw.Flush()
 	fmt.Fprintln(w, "\nEXPIRED counts epochs whose span outran the provider's cache TTL: long enough\n"+
 		"to look profitable, evicted between calls, so they were not.")
+
+	if len(h.ByMethod) > 0 {
+		fmt.Fprintln(w, "\nBy call shape — this is what disambiguates the median:")
+		mtw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(mtw, "METHOD\tEPOCHS\tCALLS\tMEAN\tLONGEST\tSINGLETONS")
+		for _, mv := range h.ByMethod {
+			name := mv.Method
+			if name == "" {
+				name = "(unrecorded)"
+			}
+			fmt.Fprintf(mtw, "%s\t%d\t%d\t%.2f\t%d\t%d (%.1f%%)\n",
+				name, mv.Epochs, mv.Calls, mv.Mean, mv.MaxCalls,
+				mv.Singletons, pctOf(mv.Singletons, mv.Epochs))
+		}
+		_ = mtw.Flush()
+		fmt.Fprintln(w, "\nAn epoch here is one turn's tool loop, not a session: the system prompt is\n"+
+			"recompiled per turn (JIT atoms plus the target file), so the prefix changes\n"+
+			"between turns by construction, and holds still only inside a tool loop where\n"+
+			"just the message history grows. So a singleton on a plain completion is a fact\n"+
+			"about how the agent is used and no cache can fix it, while a singleton on a\n"+
+			"tool-calling shape is a loop that ran one round or moved its prefix — which is\n"+
+			"the case Phase 4 exists to address.")
+	}
 	fmt.Fprintln(w)
+}
+
+// pctOf is the percentage helper for this report; a zero denominator is 0
+// rather than NaN, because a table full of NaN reads as broken tooling and
+// sends the reader after the wrong thing.
+func pctOf(n, total int) float64 {
+	if total == 0 {
+		return 0
+	}
+	return float64(n) / float64(total) * 100
 }
 
 // ---------------------------------------------------------------------------
