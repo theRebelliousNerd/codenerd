@@ -29,7 +29,19 @@ import (
 //   - it is the only path that carries the in-process bounds (maxScanFileSize,
 //     maxHitsPerFile, maxHitsPerKeyword, the binary sniff) as code rather than
 //     as flags a future edit could drop;
-//   - it uses the AVX2 scanner in scanner_amd64.go.
+//   - its scan is bytes.Index in ScanBuffer (scanner_generic.go), which the Go
+//     runtime already vectorises on amd64.
+//
+// That third bullet used to read "it uses the AVX2 scanner in
+// scanner_amd64.go", and both halves of that were false. scanner_amd64.go was
+// deleted — scanner_generic.go says why, and says it is now the single
+// unconditional implementation — and the vector work it claimed was never
+// happening: the removed file built archsimd values and then compared them
+// element by element, sixteen scalar checks in a SIMD costume. So the bullet
+// justified a DEFAULT with a performance property the code did not have, which
+// is the kind of claim someone weighs when deciding whether to switch a large
+// tree over to ripgrep. The vectorisation is real; it belongs to the standard
+// library rather than to us.
 //
 // Ripgrep is worth selecting on very large trees, where its own walker and
 // mmap'd search beat a Go worker pool by a wide margin. The backend mirrors the

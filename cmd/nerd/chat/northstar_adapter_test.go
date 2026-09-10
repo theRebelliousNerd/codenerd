@@ -159,5 +159,12 @@ func TestNorthstarHandlerAdapter_WhenEventTypeIsFileModified_ShouldUseHighImpact
 }
 
 // The adapter must satisfy the interface the observer manager stores, or the
-// wiring in session_boot.go silently degrades to no northstar handler at all.
+// SetNorthstarHandler call in session_shared_boot.go silently degrades to no
+// northstar handler at all.
+//
+// It said session_boot.go, which was deleted when the shared boot became the
+// only path (guardian_wiring_test.go records the commit). A stale filename in a
+// comment about a SILENT degradation is worse than most: the reader who goes
+// looking finds nothing, and has no way to tell a renamed file from a wiring
+// that was removed.
 var _ shards.NorthstarHandler = (*northstarHandlerAdapter)(nil)
