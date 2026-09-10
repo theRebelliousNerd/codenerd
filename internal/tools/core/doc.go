@@ -6,6 +6,8 @@
 // Tools:
 //   - read_file: read the region around an edit, an outline of the rest, and a
 //     precondition handle that lets a later edit be refused if the file moved
+//   - recall_context: page an archived working-context observation back by
+//     record ID, or search the archive when the ID is unknown
 //   - write_file: Write content to a file
 //   - edit_file: Edit file with replacements, optionally under a read precondition
 //   - list_files: List directory contents

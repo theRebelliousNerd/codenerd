@@ -263,6 +263,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 
 	// Core tools available to all personas
 	coreTools := []string{
+		"recall_context",
 		"read_file",
 		"search_code",
 		// search_expand rides with search_code deliberately. search_code elides
@@ -323,9 +324,8 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"edit_file",
 		"delete_file",
 		"run_build",
+		"run_tests",
 		"git_operation",
-		"run_command",
-		"bash",
 	)
 	coderTools = append(coderTools, codeDomTools...)
 	coderTools = append(coderTools, testImpactTools...)
@@ -333,8 +333,6 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	// Tester persona tools
 	testerTools := copyTools(coreTools,
 		"run_tests",
-		"run_command",
-		"bash",
 		"write_file", // Can write test files
 		"edit_file",
 		"browser_observe",
@@ -353,7 +351,6 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	reviewerTools := copyTools(coreTools,
 		"git_diff",
 		"git_log",
-		"run_command", // For running static analysis tools
 	)
 	reviewerTools = append(reviewerTools, codeDomTools...)
 
@@ -464,8 +461,6 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 
 	// Nemesis/adversarial intents (attack persona)
 	nemesisTools := copyTools(coreTools,
-		"run_command", // For running attack programs
-		"bash",
 		"run_build",
 		"run_tests",
 		"write_file", // For writing attack code
@@ -484,7 +479,6 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"write_file",
 		"run_build",
 		"run_tests",
-		"run_command",
 	)
 	for _, intent := range []string{
 		"/generate_tool",

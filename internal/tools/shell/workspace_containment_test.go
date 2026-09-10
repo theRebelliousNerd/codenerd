@@ -90,7 +90,6 @@ func TestRunBuild_WhenWorkingDirEscapesWorkspace_ShouldRefuse(t *testing.T) {
 
 	if _, err := executeRunBuild(shellWsCtx(root), map[string]any{
 		"working_dir": outside,
-		"command":     "echo build",
 	}); !errors.Is(err, tools.ErrPathOutsideWorkspace) {
 		t.Fatalf("expected run_build working_dir to be refused, got %v", err)
 	}
@@ -102,7 +101,6 @@ func TestRunTests_WhenWorkingDirEscapesWorkspace_ShouldRefuse(t *testing.T) {
 
 	if _, err := executeRunTests(shellWsCtx(root), map[string]any{
 		"working_dir": outside,
-		"command":     "echo test",
 	}); !errors.Is(err, tools.ErrPathOutsideWorkspace) {
 		t.Fatalf("expected run_tests working_dir to be refused, got %v", err)
 	}

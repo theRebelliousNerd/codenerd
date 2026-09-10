@@ -117,10 +117,7 @@ func RunCommandTool() *tools.Tool {
 		Schema: tools.ToolSchema{
 			Required: []string{"command"},
 			Properties: map[string]tools.Property{
-				"command": {
-					Type:        "string",
-					Description: "The command to execute",
-				},
+				"command": {Type: "string", Description: "The command to execute"},
 				"working_dir": {
 					Type:        "string",
 					Description: "Working directory for the command",
@@ -502,13 +499,10 @@ func RunBuildTool() *tools.Tool {
 		Schema: tools.ToolSchema{
 			Required: []string{},
 			Properties: map[string]tools.Property{
+				"packages": {Type: "array", Description: "Workspace-relative Go packages, e.g. ./internal/session; defaults to ./...", Items: &tools.PropertyItems{Type: "string"}},
 				"working_dir": {
 					Type:        "string",
 					Description: "Project directory (default: current directory)",
-				},
-				"command": {
-					Type:        "string",
-					Description: "Custom build command (auto-detected if not specified)",
 				},
 				"timeout_seconds": {
 					Type:        "integer",
@@ -521,28 +515,7 @@ func RunBuildTool() *tools.Tool {
 }
 
 func executeRunBuild(ctx context.Context, args map[string]any) (string, error) {
-	rawWorkingDir, _ := args["working_dir"].(string)
-	workingDir, err := resolveWorkingDir(ctx, rawWorkingDir)
-	if err != nil {
-		return "", err
-	}
-
-	command, _ := args["command"].(string)
-	if command == "" {
-		// Auto-detect build command
-		command, _ = tools.BuildCommandForDir(workingDir)
-		if command == "" {
-			return "", fmt.Errorf("could not detect build command, please specify one")
-		}
-	}
-
-	logging.ToolsDebug("run_build: cmd=%s, dir=%s", command, workingDir)
-
-	return executeRunCommand(ctx, map[string]any{
-		"command":         command,
-		"working_dir":     workingDir,
-		"timeout_seconds": args["timeout_seconds"],
-	})
+	return executeTypedVerification(ctx, args, false)
 }
 
 // RunTestsTool returns a tool for running project tests.
@@ -557,13 +530,11 @@ func RunTestsTool() *tools.Tool {
 		Schema: tools.ToolSchema{
 			Required: []string{},
 			Properties: map[string]tools.Property{
+				"packages": {Type: "array", Description: "Workspace-relative Go packages; defaults to ./...", Items: &tools.PropertyItems{Type: "string"}},
+				"race":     {Type: "boolean", Description: "Enable the Go race detector"},
 				"working_dir": {
 					Type:        "string",
 					Description: "Project directory (default: current directory)",
-				},
-				"command": {
-					Type:        "string",
-					Description: "Custom test command (auto-detected if not specified)",
 				},
 				"pattern": {
 					Type:        "string",
@@ -580,52 +551,7 @@ func RunTestsTool() *tools.Tool {
 }
 
 func executeRunTests(ctx context.Context, args map[string]any) (string, error) {
-	rawWorkingDir, _ := args["working_dir"].(string)
-	workingDir, err := resolveWorkingDir(ctx, rawWorkingDir)
-	if err != nil {
-		return "", err
-	}
-
-	command, _ := args["command"].(string)
-	pattern, _ := args["pattern"].(string)
-
-	if command == "" {
-		// Auto-detect test command
-		command, _ = tools.TestCommandForDir(workingDir)
-		if command == "" {
-			return "", fmt.Errorf("could not detect test command, please specify one")
-		}
-	}
-
-	// Add pattern if specified
-	if pattern != "" {
-		command = addTestPattern(command, pattern)
-	}
-
-	logging.ToolsDebug("run_tests: cmd=%s, dir=%s", command, workingDir)
-
-	return executeRunCommand(ctx, map[string]any{
-		"command":         command,
-		"working_dir":     workingDir,
-		"timeout_seconds": args["timeout_seconds"],
-	})
-}
-
-// addTestPattern adds a test pattern to the command.
-func addTestPattern(command, pattern string) string {
-	if strings.HasPrefix(command, "go test") {
-		return command + " -run " + pattern
-	}
-	if strings.HasPrefix(command, "pytest") {
-		return command + " -k " + pattern
-	}
-	if strings.HasPrefix(command, "npm test") {
-		return command + " -- --grep " + pattern
-	}
-	if strings.HasPrefix(command, "cargo test") {
-		return command + " " + pattern
-	}
-	return command + " " + pattern
+	return executeTypedVerification(ctx, args, true)
 }
 
 // GitDiffTool returns a tool for viewing git diffs.

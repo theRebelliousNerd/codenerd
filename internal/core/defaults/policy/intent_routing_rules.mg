@@ -279,6 +279,10 @@ persona_tool_allowed(/researcher, /grounded_web_search).
 
 # Core filesystem tools - available to all intents
 modular_tool_allowed(/read_file, Intent) :- user_intent(_, _, Intent, _, _).
+# recall_context pages an archived working-context observation back by its
+# record ID. It rides with read_file: any turn whose earlier tool output was
+# evicted from the active window must be able to recover it.
+modular_tool_allowed(/recall_context, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/list_files, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/glob, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/grep, Intent) :- user_intent(_, _, Intent, _, _).

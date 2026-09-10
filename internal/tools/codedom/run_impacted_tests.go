@@ -300,8 +300,12 @@ func executeRunImpactedTests(ctx context.Context, args map[string]any) (string, 
 		testResult, err := runGoTests(ctx, provider.GetProjectRoot(), packages, timeout, verbose)
 		if err != nil {
 			result.WriteString(fmt.Sprintf("Test execution failed: %v\n", err))
+			result.WriteString(testResult)
+			return result.String(), err
 		}
 		result.WriteString(testResult)
+	} else {
+		return result.String(), fmt.Errorf("no supported Go test packages found; verification was not executed")
 	}
 
 	return result.String(), nil
@@ -383,9 +387,21 @@ func executeGetImpactedTests(ctx context.Context, args map[string]any) (string, 
 // runGoTests runs go test on the specified packages.
 func runGoTests(ctx context.Context, projectRoot string, packages []string, timeout string, verbose bool) (string, error) {
 	// Parse timeout
+	// The timeout is a model-supplied string. A value that does not parse, or
+	// that is outside the sane window, falls back to the default rather than
+	// refusing the run: the packages and the workspace check below are what
+	// bound what executes, and a test run that was asked for should happen.
 	timeoutDuration, err := time.ParseDuration(timeout)
-	if err != nil {
+	if err != nil || timeoutDuration <= 0 || timeoutDuration > 24*time.Hour {
 		timeoutDuration = 10 * time.Minute
+	}
+	if len(packages) == 0 {
+		return "", fmt.Errorf("no test packages specified")
+	}
+	workspaceCtx := tools.WithWorkspaceRoot(ctx, projectRoot)
+	projectRoot, err = tools.ResolveWorkspacePath(workspaceCtx, "", ".")
+	if err != nil {
+		return "", err
 	}
 
 	// Create timeout context
@@ -395,9 +411,13 @@ func runGoTests(ctx context.Context, projectRoot string, packages []string, time
 	// Build relative package paths
 	var relPackages []string
 	for _, pkg := range packages {
-		relPkg, err := filepath.Rel(projectRoot, pkg)
+		abs, err := tools.ResolveWorkspacePath(workspaceCtx, "", pkg)
 		if err != nil {
-			relPkg = pkg
+			return "", err
+		}
+		relPkg, err := filepath.Rel(projectRoot, abs)
+		if err != nil {
+			return "", err
 		}
 		// Convert to Go package path
 		relPkg = "./" + filepath.ToSlash(relPkg)
@@ -405,11 +425,15 @@ func runGoTests(ctx context.Context, projectRoot string, packages []string, time
 	}
 
 	// Build command
-	args := []string{"test"}
+	args := []string{"test", "-count=1"}
 	if verbose {
 		args = append(args, "-v")
 	}
-	args = append(args, "-timeout", timeout)
+	// The parsed duration, not the model's string: the raw value was handed
+	// to `go test -timeout` verbatim, so an unparseable timeout "fell back"
+	// for the context deadline and still made go test exit 2 on flag parsing.
+	// The swallowed exit status hid that until the run's error was propagated.
+	args = append(args, "-timeout", timeoutDuration.String())
 	args = append(args, relPackages...)
 
 	logging.WorldDebug("Running: go %s", strings.Join(args, " "))
@@ -428,7 +452,7 @@ func runGoTests(ctx context.Context, projectRoot string, packages []string, time
 		result.WriteString(fmt.Sprintf("\nError: %v\n", err))
 	}
 
-	return result.String(), nil
+	return result.String(), err
 }
 
 // filterByPriority filters tests by priority level.

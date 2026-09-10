@@ -57,6 +57,11 @@ func (e *Executor) runToolLoop(
 	// generation, the no-tool retry, and every tool-result follow-up — shares
 	// one conversation history, so they must all hit the same client.
 	client := e.llmForVerb(result.Intent.Verb)
+	ctx, closeWorking, workingErr := e.beginWorkingLoop(ctx, userInput, compilationCtx)
+	if workingErr != nil {
+		return nil, nil, workingErr
+	}
+	defer closeWorking()
 
 	llmResponse, err := e.generateResponse(ctx, client, systemPrompt, userInput, cfg)
 	if err != nil {
@@ -142,6 +147,9 @@ func (e *Executor) runToolLoop(
 	)
 
 	budget := newToolBudgetController(executorCfg)
+	progressDriven := activeWorkingLoop(ctx) != nil && executorCfg.ProgressDrivenTools
+	openRounds := progressDriven && executorCfg.MaxToolIterations == 0
+	failedRounds := 0
 	finalizationCutoff, finalizationReserve, hasFinalizationCutoff :=
 		toolExplorationCutoff(ctx, executorCfg.FinalAnswerReserve)
 	// A client that cannot consume tool results has no final follow-up phase to
@@ -157,7 +165,7 @@ func (e *Executor) runToolLoop(
 		return verified, verifyErr
 	}
 
-	for iter := 0; iter < budget.iterationLimit; iter++ {
+	for iter := 0; openRounds || iter < budget.iterationLimit; iter++ {
 		if ctx.Err() != nil {
 			return currentResponse, toolErrs, ctx.Err()
 		}
@@ -187,12 +195,38 @@ func (e *Executor) runToolLoop(
 		toolResults, batchErrs := e.executeToolBatch(explorationCtx, currentResponse.ToolCalls, cfg, result)
 		toolErrs = append(toolErrs, batchErrs...)
 		budget.observe(currentResponse.ToolCalls, toolResults)
-		toolResults = appendToolBudgetNudge(toolResults, budget.nudge(
-			iter+1,
-			result.ToolCallsExecuted,
-			e.writeOrientedIntent(result.Intent.Verb),
-			hasToolDefinition(toolDefs, "apply_edits"),
-		))
+		// The nudge tells the model how much of a count ceiling is left. It is
+		// keyed to the ceiling, not to the progress-driven flag: a user who sets
+		// core_limits.max_tool_iterations on a progress-driven loop still has a
+		// hard stop at that round, and a hard stop the model was never warned
+		// about is the worst of both designs. Only a genuinely open loop, where
+		// policy is the sole ceiling, has nothing to warn about.
+		if !openRounds {
+			toolResults = appendToolBudgetNudge(toolResults, budget.nudge(
+				iter+1,
+				result.ToolCallsExecuted,
+				e.writeOrientedIntent(result.Intent.Verb),
+				hasToolDefinition(toolDefs, "apply_edits"),
+			))
+		}
+		if progressDriven {
+			failedRounds++
+			for _, r := range toolResults {
+				if !r.IsError {
+					failedRounds = 0
+					break
+				}
+			}
+			keepGoing, reason, policyErr := activeWorkingLoop(ctx).set.Continue(ctx, budget.repeatedTailCycle(), failedRounds)
+			if policyErr != nil {
+				cancelExploration()
+				return currentResponse, toolErrs, fmt.Errorf("working continuation policy: %w", policyErr)
+			}
+			if !keepGoing {
+				cancelExploration()
+				return currentResponse, toolErrs, fmt.Errorf("task unresolved: working continuation stopped by policy %s after %d executed tools", reason, result.ToolCallsExecuted)
+			}
+		}
 		if ctx.Err() != nil {
 			cancelExploration()
 			return currentResponse, toolErrs, ctx.Err()
@@ -240,7 +274,7 @@ func (e *Executor) runToolLoop(
 			return verified, toolErrs, verifyErr
 		}
 
-		nextResp, err := trp.CompleteWithToolResults(explorationCtx, systemPrompt, history, toolDefs)
+		nextResp, err := e.completeWithWorkingContext(explorationCtx, trp, systemPrompt, history, toolDefs)
 		plannedFinalization := hasFinalizationCutoff && errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil
 		cancelExploration()
 		if plannedFinalization {
@@ -269,6 +303,9 @@ func (e *Executor) runToolLoop(
 			Text:      nextResp.Text,
 			ToolCalls: nextResp.ToolCalls,
 		})
+		if activeWorkingLoop(ctx) != nil && len(history) > 4 {
+			history = append([]types.Message(nil), history[len(history)-3:]...)
+		}
 
 		if len(nextResp.ToolCalls) == 0 {
 			verified, verifyErr := verifyTerminal(currentResponse)
@@ -278,8 +315,9 @@ func (e *Executor) runToolLoop(
 		// The model still has executable work at the current boundary. The
 		// orchestrator may extend only when the trace since the prior boundary
 		// contains intent-appropriate material progress and no deterministic
-		// repeat cycle or write-task read-only stall.
-		if iter+1 >= budget.iterationLimit {
+		// repeat cycle or write-task read-only stall. Like the nudge, this is
+		// keyed to the ceiling: an open loop has no limit to extend.
+		if !openRounds && iter+1 >= budget.iterationLimit {
 			decision := budget.maybeExtend(e.writeOrientedIntent(result.Intent.Verb))
 			if decision.Granted {
 				logging.Get(logging.CategorySession).Warn(
@@ -535,7 +573,7 @@ func (e *Executor) forceFinalAnswer(
 	// append this function makes.
 	*history = boundToolLoopHistory(*history)
 
-	final, err := trp.CompleteWithToolResults(ctx, systemPrompt, *history, finalTools)
+	final, err := e.completeWithWorkingContext(ctx, trp, systemPrompt, *history, finalTools)
 	if err != nil {
 		return pending, toolErrs, fmt.Errorf("final completion failed: %w", err)
 	}
@@ -636,6 +674,8 @@ func (e *Executor) executeToolBatch(
 	toolResults := make([]types.ToolResult, 0, len(calls))
 	var toolErrs []string
 	maxToolCalls := effectiveMaxToolCalls(e.configSnapshot().MaxToolCalls)
+	execCfg := e.configSnapshot()
+	openCalls := activeWorkingLoop(ctx) != nil && execCfg.ProgressDrivenTools && execCfg.MaxToolCalls == 0
 
 	for _, call := range calls {
 		if err := ctx.Err(); err != nil {
@@ -649,7 +689,7 @@ func (e *Executor) executeToolBatch(
 			}
 			break
 		}
-		if result.ToolCallsExecuted >= maxToolCalls {
+		if !openCalls && result.ToolCallsExecuted >= maxToolCalls {
 			logging.Get(logging.CategorySession).Warn("Max tool calls reached: %d", maxToolCalls)
 			toolResults = append(toolResults, types.ToolResult{
 				ToolUseID: call.ID,
@@ -695,8 +735,9 @@ func (e *Executor) executeAndRecordToolCall(
 ) (string, error) {
 	out, err := e.executeToolCall(ctx, ToolCall{ID: call.ID, Name: call.Name, Args: call.Input}, cfg)
 	result.ToolCallsExecuted++
+	memoryErr := e.recordWorkingResult(ctx, call, out, err)
 	if err != nil {
-		return "", err
+		return out, errors.Join(err, memoryErr)
 	}
 
 	result.SuccessfulToolCalls++
@@ -710,7 +751,7 @@ func (e *Executor) executeAndRecordToolCall(
 	if isTestExecutionTool(call.Name, call.Input) {
 		result.SuccessfulTestTools++
 	}
-	return out, nil
+	return out, memoryErr
 }
 
 func recordWrittenPaths(result *ExecutionResult, args map[string]any, workspace string) error {

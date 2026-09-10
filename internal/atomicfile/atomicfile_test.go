@@ -103,14 +103,20 @@ func TestWriteFile_ShouldLeaveNoTempFiles(t *testing.T) {
 	}
 }
 
-// TestWriteFile_WhenWritersRaceOnOnePath_ShouldNotInterleave uses a UNIQUE temp
-// name per call as its defence, so — unlike a mutex-serialised writer — this
-// still holds with no lock at all.
+// TestWriteFile_WhenWritersRaceOnOnePath_ShouldNotInterleave pins two things.
+// The unique temp name per call is what stops interleaving, and would do so
+// with no lock at all. The per-path stripe lock is what makes every writer
+// SUCCEED: without it, on Windows, sixteen concurrent ReplaceFileW calls on one
+// path race for the destination and, once the machine is loaded, the losers'
+// retry windows close before the winner's handles do — a correct write is
+// reported as failed and its temp file outlives the report. So no writer may
+// fail here, and nothing may be left in the directory.
 func TestWriteFile_WhenWritersRaceOnOnePath_ShouldNotInterleave(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "doc.json")
 
 	var wg sync.WaitGroup
+	errs := make(chan error, 16)
 	for i := 0; i < 16; i++ {
 		wg.Add(1)
 		go func(i int) {
@@ -119,10 +125,16 @@ func TestWriteFile_WhenWritersRaceOnOnePath_ShouldNotInterleave(t *testing.T) {
 				"writer": i,
 				"pad":    strings.Repeat("y", 2048+i),
 			})
-			_ = WriteFile(path, payload, 0o644)
+			if err := WriteFile(path, payload, 0o644); err != nil {
+				errs <- err
+			}
 		}(i)
 	}
 	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("a racing writer failed a write that had nothing wrong with it: %v", err)
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {

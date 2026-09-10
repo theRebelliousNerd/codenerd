@@ -11,19 +11,23 @@ import (
 )
 
 var (
-	modkernel32          = syscall.NewLazyDLL("kernel32.dll")
-	procReplaceFileW     = modkernel32.NewProc("ReplaceFileW")
-	procGetFileAttrsW    = modkernel32.NewProc("GetFileAttributesW")
-	procSetFileAttrsW    = modkernel32.NewProc("SetFileAttributesW")
-	invalidFileAttrs     = uint32(0xFFFFFFFF)
-	fileAttributeRdOnly  = uint32(0x00000001)
-	errorAccessDenied    = syscall.Errno(5)
-	errorSharingViolate  = syscall.Errno(32)
-	errorLockViolation   = syscall.Errno(33)
-	errorUserMappedFile  = syscall.Errno(1224)
-	errorFileNotFound    = syscall.Errno(2)
-	errorPathNotFound    = syscall.Errno(3)
-	replaceRetryAttempts = 10
+	modkernel32         = syscall.NewLazyDLL("kernel32.dll")
+	procReplaceFileW    = modkernel32.NewProc("ReplaceFileW")
+	procGetFileAttrsW   = modkernel32.NewProc("GetFileAttributesW")
+	procSetFileAttrsW   = modkernel32.NewProc("SetFileAttributesW")
+	invalidFileAttrs    = uint32(0xFFFFFFFF)
+	fileAttributeRdOnly = uint32(0x00000001)
+	errorAccessDenied   = syscall.Errno(5)
+	errorSharingViolate = syscall.Errno(32)
+	errorLockViolation  = syscall.Errno(33)
+	errorUserMappedFile = syscall.Errno(1224)
+	errorFileNotFound   = syscall.Errno(2)
+	errorPathNotFound   = syscall.Errno(3)
+	// A duration, not an attempt count: the sharing violation being waited out
+	// is another process's handle, and how long that lives is a function of
+	// machine load, not of how many times we asked. Ten attempts over a
+	// quarter second held on an idle runner and not under the full suite.
+	replaceRetryBudget = 2 * time.Second
 )
 
 // replaceExisting atomically moves src onto dst.
@@ -71,19 +75,26 @@ var (
 //     some moment before it, and it self-corrects: if two writers both find
 //     the destination missing and one wins the rename, the other's next
 //     attempt sees a destination and replaces it.
+//
+//     This composes with the per-path lock in atomicfile.go rather than
+//     duplicating it. That lock removes contention between writers in ONE
+//     process, which is self-inflicted and cheap to prevent; its own comment
+//     says the retries here remain for contention with other processes, which
+//     no lock of ours can see. The stat removed here is in that second
+//     category: two processes racing a first write cannot be serialised by
+//     either of them, so the mechanism choice has to be race-free on its own.
 func replaceExisting(src, dst string) error {
 	clearedReadOnly := false
 	replaced := false
 	backoff := time.Millisecond
-	var lastErr error
+	deadline := time.Now().Add(replaceRetryBudget)
 
-	for attempt := 0; attempt < replaceRetryAttempts; attempt++ {
+	for {
 		err := replaceFileOnce(src, dst)
 		if err == nil {
 			replaced = true
 			return nil
 		}
-		lastErr = err
 
 		switch {
 		case errors.Is(err, errorFileNotFound), errors.Is(err, errorPathNotFound):
@@ -96,16 +107,21 @@ func replaceExisting(src, dst string) error {
 			if renameErr := os.Rename(src, dst); renameErr == nil {
 				replaced = true
 				return nil
-			} else {
-				lastErr = renameErr
-				time.Sleep(backoff)
-				if backoff < 50*time.Millisecond {
-					backoff *= 2
-				}
+			} else if time.Now().After(deadline) {
+				// The rename's error, not the not-found one: it describes why
+				// the create failed, which is the part a caller can act on.
+				return renameErr
+			}
+			time.Sleep(backoff)
+			if backoff < 50*time.Millisecond {
+				backoff *= 2
 			}
 		case errors.Is(err, errorSharingViolate),
 			errors.Is(err, errorLockViolation),
 			errors.Is(err, errorUserMappedFile):
+			if time.Now().After(deadline) {
+				return err
+			}
 			time.Sleep(backoff)
 			if backoff < 50*time.Millisecond {
 				backoff *= 2
@@ -128,7 +144,6 @@ func replaceExisting(src, dst string) error {
 			return err
 		}
 	}
-	return lastErr
 }
 
 func replaceFileOnce(src, dst string) error {

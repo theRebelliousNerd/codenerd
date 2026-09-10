@@ -66,10 +66,20 @@ package atomicfile
 
 import (
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
 	"time"
 )
+
+// removeTempBudget bounds how long removeTemp keeps trying. It is a duration
+// rather than an attempt count because the thing being waited for — a handle
+// the OS still holds on a file we just failed to rename — is measured in time
+// the machine is busy, not in our retries.
+const removeTempBudget = time.Second
 
 // removeTemp deletes a temp file this package created, retrying briefly.
 //
@@ -84,15 +94,18 @@ import (
 // Best effort by design: it returns nothing, because every caller is already
 // on a failure path and has a better error to report than this one.
 func removeTemp(path string) {
-	// Ten attempts on a growing backoff, roughly a quarter second in the worst
-	// case. Five over fifteen milliseconds was not enough: sixteen writers
-	// racing on one path still left debris on the Windows runner, because the
-	// handle a failed ReplaceFileW leaves behind outlives that window. This
-	// only ever runs on a path that has already failed, so the wait costs
-	// nothing in the normal case.
+	// Ten attempts over a quarter second was enough on an idle runner and not
+	// under load: with the full suite saturating the machine, the handle a
+	// failed ReplaceFileW leaves behind outlived that window and the debris
+	// stayed. A second of waiting only ever happens on a path that has already
+	// failed, so it costs nothing in the normal case.
+	deadline := time.Now().Add(removeTempBudget)
 	backoff := time.Millisecond
-	for attempt := 0; attempt < 10; attempt++ {
+	for {
 		if err := os.Remove(path); err == nil || os.IsNotExist(err) {
+			return
+		}
+		if time.Now().After(deadline) {
 			return
 		}
 		time.Sleep(backoff)
@@ -100,6 +113,35 @@ func removeTemp(path string) {
 			backoff *= 2
 		}
 	}
+}
+
+// pathLocks serialises this process's writers on one destination.
+//
+// The unique temp name is what stops two writers interleaving into one file;
+// it is not what stops them contending for the rename. On Windows every
+// concurrent ReplaceFileW on one path but the winner gets a sharing violation,
+// and under load the retry window can close before the winner's handles do —
+// the losers then fail a write that had nothing wrong with it and leave their
+// temp files behind. Contention inside one process is self-inflicted, so it is
+// removed here; the retries in replace_windows.go remain for contention with
+// other processes, which no lock of ours can see.
+//
+// Striped rather than per-path so a long-lived agent that writes thousands of
+// distinct files does not grow a lock map without bound. A collision between
+// unrelated paths only serialises two writes that each take milliseconds.
+var pathLocks [64]sync.Mutex
+
+// lockPath takes the stripe for path and returns it locked.
+func lockPath(path string) *sync.Mutex {
+	key := filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		key = strings.ToLower(key)
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	mu := &pathLocks[h.Sum32()%uint32(len(pathLocks))]
+	mu.Lock()
+	return mu
 }
 
 // WriteFile atomically replaces path with data.
@@ -123,6 +165,8 @@ func removeTemp(path string) {
 // The containing directory is fsynced afterwards so the rename itself is
 // durable, not just the bytes.
 func WriteFile(path string, data []byte, perm os.FileMode) error {
+	mu := lockPath(path)
+	defer mu.Unlock()
 	dir := filepath.Dir(path)
 
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
@@ -174,6 +218,8 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 // compressor) and so cannot use WriteFile, but still need the Windows-correct
 // replace. See replaceExisting for why os.Rename is not sufficient there.
 func Replace(src, dst string) error {
+	mu := lockPath(dst)
+	defer mu.Unlock()
 	return replaceExisting(src, dst)
 }
 
