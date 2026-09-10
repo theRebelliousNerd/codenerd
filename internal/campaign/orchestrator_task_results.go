@@ -1,9 +1,82 @@
 package campaign
 
 import (
-	"codenerd/internal/logging"
+	"encoding/json"
 	"strings"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/observation"
+	toolscore "codenerd/internal/tools/core"
 )
+
+// projectTaskReturn shapes a completed task's return for the ONE consumer that
+// is another agent: the "CONTEXT FROM TASK" section buildTaskInput pastes into
+// every dependent task's prompt.
+//
+// What was stored there before was json.Marshal of the handler's return value,
+// cut at 1000 bytes by completeTask and again at 10240 here. That is a
+// transcript with its head kept and its tail thrown away — the shape most
+// likely to end mid-sentence, and the shape that gives a dependent task the
+// subagent's PREAMBLE rather than its conclusions, because a shard states its
+// plan before its findings. The projection is bounded by structure instead, so
+// a downstream task gets the findings, the citations, what changed and what was
+// verified whether the upstream shard wrote four hundred bytes or forty
+// thousand.
+//
+// Artifacts come from the task record rather than from the prose. The
+// orchestrator already knows what this task was supposed to produce and has
+// resolved the paths; reading them back out of the shard's own description of
+// its work would be re-deriving a fact that was never in doubt.
+func (o *Orchestrator) projectTaskReturn(task *Task, result any) string {
+	ret := observation.Return{}
+	if task != nil {
+		ret.Task = task.Description
+		ret.Agent = task.Shard
+		if ret.Agent == "" {
+			ret.Agent = string(task.Type)
+		}
+		for _, a := range task.Artifacts {
+			if p := strings.TrimSpace(a.Path); p != "" {
+				ret.Changed = append(ret.Changed, p)
+			}
+		}
+	}
+
+	switch v := result.(type) {
+	case nil:
+	case string:
+		ret.Output = v
+	case map[string]any:
+		// The shape every explicit-shard handler returns. The "result" member
+		// is the shard's own output; the rest is routing metadata the
+		// projection header already carries.
+		if out, ok := v["result"].(string); ok {
+			ret.Output = out
+			if shard, ok := v["shard"].(string); ok && strings.TrimSpace(shard) != "" {
+				ret.Agent = shard
+			}
+			break
+		}
+		ret.Output = marshalForContext(result)
+	default:
+		ret.Output = marshalForContext(result)
+	}
+
+	return observation.SharedSubagents().
+		EncodeReturn(ret, observation.ReturnLimits{}).
+		Text(toolscore.SubagentExpandToolName)
+}
+
+// marshalForContext renders a handler return value that is not a shard output
+// map. A value that will not marshal is reported as such rather than dropped:
+// an empty context section reads as "the upstream task found nothing".
+func marshalForContext(result any) string {
+	data, err := json.Marshal(result)
+	if err != nil {
+		return "(task result could not be encoded for context injection)"
+	}
+	return string(data)
+}
 
 // storeTaskResult stores a task's result for context injection into dependent tasks.
 func (o *Orchestrator) storeTaskResult(taskID, result string) {

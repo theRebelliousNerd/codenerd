@@ -17,9 +17,11 @@ import (
 	prompt_evolution "codenerd/internal/autopoiesis/prompt_evolution"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 	"codenerd/internal/perception"
 	promptpkg "codenerd/internal/prompt"
 	"codenerd/internal/shards"
+	toolscore "codenerd/internal/tools/core"
 	"codenerd/internal/types"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -88,7 +90,7 @@ func formatShardTaskWithContext(verb, target, constraint, workspace string, prio
 		}
 		// If fixing after a test failure, include test errors
 		if priorResult.ShardType == "tester" && priorResult.RawOutput != "" {
-			return fmt.Sprintf("fix file:%s test_errors:[%s]", target, truncateForTask(priorResult.RawOutput, 500))
+			return fmt.Sprintf("fix file:%s test_errors:[%s]", target, priorShardContext(priorResult))
 		}
 
 	case "/refactor":
@@ -108,17 +110,67 @@ func formatShardTaskWithContext(verb, target, constraint, workspace string, prio
 	case "/test":
 		// If testing after a fix, include what was fixed
 		if priorResult.ShardType == "coder" {
-			return fmt.Sprintf("write_tests for %s after_fix context:[%s]", target, truncateForTask(priorResult.RawOutput, 300))
+			return fmt.Sprintf("write_tests for %s after_fix context:[%s]", target, priorShardContext(priorResult))
 		}
 
 	case "/debug":
 		// Include prior test or error context
 		if priorResult.ShardType == "tester" || priorResult.ShardType == "reviewer" {
-			return fmt.Sprintf("debug %s context:[%s]", target, truncateForTask(priorResult.RawOutput, 500))
+			return fmt.Sprintf("debug %s context:[%s]", target, priorShardContext(priorResult))
 		}
 	}
 
 	return baseTask
+}
+
+// priorShardContext projects one agent's return into the task string of the
+// next one.
+//
+// This is the blackboard: a tester's output reaching a coder, a coder's
+// reaching a tester, a reviewer's reaching a debugger. It used to be
+// truncateForTask(RawOutput, 500) — the first five hundred bytes of another
+// agent's whole turn, newlines flattened, cut wherever byte five hundred fell.
+// A shard states its plan before its findings, so that window reliably carried
+// the preamble and dropped the conclusions; and because 500 is a fixed cut, a
+// tester that named ten failing tests handed the coder the first two and no
+// indication there were eight more.
+//
+// The projection is bounded by structure instead. It carries the failures the
+// runner named, the citations, and what is unsettled, and it retains the whole
+// output under a handle the receiving agent can redeem with subagent_expand —
+// which reads the retained bytes and never re-runs the shard, so expanding "the
+// rest of what you already told me" cannot cost a second execution.
+func priorShardContext(prior *ShardResult) string {
+	if prior == nil {
+		return ""
+	}
+	ret := observation.Return{
+		Agent:  prior.ShardType,
+		Task:   prior.Task,
+		Output: prior.RawOutput,
+	}
+	// Findings arrive already parsed here — extractFindings gives file, line,
+	// severity and message — so they are projected from rather than re-read out
+	// of the rendered text. Re-parsing would lose exactly the fields that
+	// survived, and would disagree with the copy this same ShardResult hands
+	// every other consumer.
+	for _, f := range prior.Findings {
+		file, _ := f["file"].(string)
+		severity, _ := f["severity"].(string)
+		message, _ := f["message"].(string)
+		if message == "" {
+			message, _ = f["raw"].(string)
+		}
+		ret.Findings = append(ret.Findings, observation.Finding{
+			File:     file,
+			Line:     findingLineNumber(f),
+			Severity: severity,
+			Message:  message,
+		})
+	}
+	return observation.SharedSubagents().
+		EncodeReturn(ret, observation.ReturnLimits{}).
+		Text(toolscore.SubagentExpandToolName)
 }
 
 // formatFindingsForTask converts findings to a compact string for task injection

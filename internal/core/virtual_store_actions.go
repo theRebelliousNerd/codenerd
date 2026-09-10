@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/observation"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/tactile"
+	toolscore "codenerd/internal/tools/core"
 )
 
 // Exec executes a command directly, bypassing the ActionRequest routing but maintaining safety checks.
@@ -890,7 +891,7 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 	// verified, and what is still open. The transcript stays reachable behind
 	// the handle in the last line.
 	projected := observation.SharedSubagents().EncodeReturn(observed, observation.ReturnLimits{})
-	text := projected.Text(subagentExpandVerb)
+	text := projected.Text(toolscore.SubagentExpandToolName)
 
 	logging.VirtualStore("Shard delegation completed: type=%s, result_len=%d, projected_len=%d",
 		shardType, len(observed.Output), len(text))
@@ -906,14 +907,6 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 		},
 	}, nil
 }
-
-// subagentExpandVerb is the verb a delegation result names as the way to read
-// the transcript it elided. It is stated as a constant beside the producer so
-// the name cannot drift from internal/tools/core.SubagentExpandToolName without
-// somebody noticing: a result that names the wrong verb publishes a handle
-// nobody can redeem, and the model cannot tell that from an expired one.
-// TestDelegateResultNamesTheRegisteredExpandVerb pins the two together.
-const subagentExpandVerb = "subagent_expand"
 
 func (v *VirtualStore) handleDelegateAlias(ctx context.Context, req ActionRequest, shardType string) (ActionResult, error) {
 	task := ""
