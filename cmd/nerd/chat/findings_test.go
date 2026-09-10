@@ -127,9 +127,14 @@ func TestDelegationGetsAFileAndFindingsText(t *testing.T) {
 	// used to be "" and "".
 	findings := extractFindings(reviewerOutput)
 
+	// session.go and login.go both carry two findings, so this is a TIE, and
+	// the old assertion's stated reason ("the most-cited file") was simply
+	// false — it passed about half the time on Go's randomised map order.
+	// session.go wins because it holds the CRITICAL.
 	file := extractFileFromFindings(findings)
 	if file != "internal/auth/session.go" {
-		t.Errorf("delegated file = %q, want the most-cited file", file)
+		t.Errorf("delegated file = %q, want the file holding the worst finding "+
+			"among those cited equally often", file)
 	}
 
 	text := formatFindingsForTask(findings, "session.go")
@@ -214,5 +219,61 @@ func TestTesterSummaryFallsBackWhenOutputIsNotTestResults(t *testing.T) {
 	}
 	if !strings.Contains(got, "could not find a test command") {
 		t.Errorf("summary = %q, want it to carry the real output", got)
+	}
+}
+
+// The dispatch must not depend on Go's map iteration order.
+//
+// This is the property, not the instance: a review that cites two files
+// equally must send the fixer to the same one every time, or the agent's
+// behaviour changes run to run for no reason a reader could ever find.
+func TestDelegatedFileIsDeterministicOnATie(t *testing.T) {
+	findings := extractFindings(reviewerOutput)
+
+	first := extractFileFromFindings(findings)
+	if first == "" {
+		t.Fatal("no file was selected at all")
+	}
+	// Enough iterations that a randomised map order would have shown itself:
+	// with two tied keys, 200 draws miss a 50/50 flip with probability 2^-199.
+	for i := 0; i < 200; i++ {
+		if got := extractFileFromFindings(findings); got != first {
+			t.Fatalf("iteration %d selected %q, first selected %q: the fixer is "+
+				"dispatched by coin flip", i, got, first)
+		}
+	}
+}
+
+// Severity breaks a tie, because that is the rule worth having rather than
+// merely a deterministic one.
+func TestTiedFilesAreBrokenByWorstSeverity(t *testing.T) {
+	findings := extractFindings(`
+- [LOW] a/first.go:1: cosmetic
+- [LOW] a/first.go:2: cosmetic
+- [MEDIUM] b/second.go:3: a real problem
+- [CRITICAL] b/second.go:4: a serious one`)
+
+	if len(findings) != 4 {
+		t.Fatalf("findings = %d, want 4: %+v", len(findings), findings)
+	}
+	// first.go is mentioned first and both files are cited twice; second.go
+	// wins on the CRITICAL.
+	if got := extractFileFromFindings(findings); got != "b/second.go" {
+		t.Errorf("delegated file = %q, want b/second.go — equal citations, worse findings", got)
+	}
+}
+
+// Count still outranks severity: a file cited five times with only LOW
+// findings is where the work is, even if another file has one CRITICAL.
+func TestCitationCountOutranksSeverity(t *testing.T) {
+	findings := extractFindings(`
+- [CRITICAL] rare/once.go:1: one bad thing
+- [LOW] common/many.go:1: a
+- [LOW] common/many.go:2: b
+- [LOW] common/many.go:3: c`)
+
+	if got := extractFileFromFindings(findings); got != "common/many.go" {
+		t.Errorf("delegated file = %q, want common/many.go — severity breaks ties, "+
+			"it does not override the count", got)
 	}
 }

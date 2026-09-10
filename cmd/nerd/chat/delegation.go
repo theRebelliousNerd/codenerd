@@ -146,23 +146,77 @@ func formatFindingsForTask(findings []map[string]any, targetFile string) string 
 }
 
 // extractFileFromFindings extracts the primary file from findings
+// findingSeverityRank orders the reviewer's severity ladder so it can be
+// compared. Anything unrecognised sorts below /low rather than above
+// /critical, because an unknown word is missing information, not an emergency.
+func findingSeverityRank(severity string) int {
+	switch strings.ToLower(strings.TrimSpace(severity)) {
+	case "critical":
+		return 4
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	case "low":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// extractFileFromFindings picks the one file the fixer is sent to.
+//
+// The count alone does not decide it, and the previous version pretended it
+// did: it ranged over a map with a strict `>`, so on a tie the winner was
+// whichever key Go's randomised iteration reached first. That is not a flaky
+// test, it is a flaky agent — the same review dispatches the fixer to a
+// different file on two runs, with nothing in the output to say why.
+//
+// Ties are common rather than exotic. Two findings in one file and two in
+// another is an ordinary review, and it is exactly the fixture that caught
+// this.
+//
+// So the order is: most citations, then the worst severity among them, then
+// the file the reviewer mentioned first. The middle rule is the one worth
+// having on its own merits — given equal attention, the fixer should go where
+// the most severe finding is, which is what a person reading the review would
+// do. The last is a pure determinism backstop.
 func extractFileFromFindings(findings []map[string]any) string {
-	fileCount := make(map[string]int)
-	for _, f := range findings {
-		if file, ok := f["file"].(string); ok && file != "" {
-			fileCount[file]++
+	type fileScore struct {
+		count      int
+		worstRank  int
+		firstIndex int
+	}
+	scores := make(map[string]*fileScore)
+	for i, f := range findings {
+		file, ok := f["file"].(string)
+		if !ok || file == "" {
+			continue
+		}
+		severity, _ := f["severity"].(string)
+		rank := findingSeverityRank(severity)
+		s := scores[file]
+		if s == nil {
+			scores[file] = &fileScore{count: 1, worstRank: rank, firstIndex: i}
+			continue
+		}
+		s.count++
+		if rank > s.worstRank {
+			s.worstRank = rank
 		}
 	}
-	// Return most common file
-	maxFile := ""
-	maxCount := 0
-	for file, count := range fileCount {
-		if count > maxCount {
-			maxCount = count
-			maxFile = file
+
+	best := ""
+	var bestScore *fileScore
+	for file, s := range scores {
+		if bestScore == nil ||
+			s.count > bestScore.count ||
+			(s.count == bestScore.count && s.worstRank > bestScore.worstRank) ||
+			(s.count == bestScore.count && s.worstRank == bestScore.worstRank && s.firstIndex < bestScore.firstIndex) {
+			best, bestScore = file, s
 		}
 	}
-	return maxFile
+	return best
 }
 
 // filterFindingsBySeverity filters findings to only include specified severities
