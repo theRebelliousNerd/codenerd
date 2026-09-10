@@ -33,6 +33,10 @@ func TestSetLogClosesTheLogItReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open new: %v", err)
 	}
+	// The replacement is never swapped out, so nothing else closes it. A test
+	// about leaked handles that leaks one fails its own TempDir cleanup on
+	// Windows, which is how this was caught.
+	t.Cleanup(func() { _ = newLog.Close() })
 
 	rec := NewCoUseRecorder()
 	if err := rec.SetLog(oldLog); err != nil {
@@ -90,6 +94,7 @@ func TestSetLogIsIdempotentForTheSameLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
+	t.Cleanup(func() { _ = log.Close() })
 	rec := NewCoUseRecorder()
 	if err := rec.SetLog(log); err != nil {
 		t.Fatalf("SetLog: %v", err)

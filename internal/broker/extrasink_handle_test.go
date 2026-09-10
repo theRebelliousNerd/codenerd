@@ -30,7 +30,14 @@ func TestSetExtraSinkClosesWhatItReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileSink(second): %v", err)
 	}
-	t.Cleanup(func() { _ = SetExtraSink(nil) })
+	// SetExtraSink(nil) closes whichever sink is installed at the end; the
+	// other one has to be closed here or the test leaks the handle it is
+	// about, and fails its own TempDir cleanup on Windows.
+	t.Cleanup(func() {
+		_ = SetExtraSink(nil)
+		_ = first.Close()
+		_ = second.Close()
+	})
 
 	if err := SetExtraSink(first); err != nil {
 		t.Fatalf("SetExtraSink(first): %v", err)
