@@ -165,7 +165,20 @@ type CompilationStats struct {
 	MinModeCount int
 
 	// --- Cache & Fallback ---
-	// FallbackUsed indicates whether legacy fallback compilation was used
+	// FallbackUsed indicates whether legacy fallback compilation was used.
+	//
+	// Dark by MISSING SOURCE rather than missing wire, and the tests say so out
+	// loud: TestCompiler_Fallback* builds the two situations that would set it
+	// -- a nil kernel and a kernel query error -- finds the compiler returns an
+	// error in both, and skips with "Fallback for nil kernel not yet
+	// implemented - test documents expected behavior". There is no fallback
+	// compile path to report on.
+	//
+	// So the "fallback_used" key in Map() below always reads false, which is
+	// true for the reason that nothing can make it true. Wiring this means
+	// BUILDING the fallback -- deciding what a compile does when the kernel is
+	// unavailable -- which is the same open question internal/session's 52-
+	// character fallback prompt raises, and it is a feature, not a wire.
 	FallbackUsed bool
 
 	// CacheHit indicates whether a cached skeleton was used
@@ -411,7 +424,25 @@ type CompilerConfig struct {
 	// VectorSearchWeight is the weight of vector scores vs logic scores (0.0-1.0)
 	VectorSearchWeight float64
 
-	// VectorSearchTimeout is the timeout duration for vector searches
+	// VectorSearchTimeout is the timeout duration for vector searches.
+	//
+	// Read in four places and set by no production caller, which is what the
+	// dark-field gate reports -- but it is a knob with no SOURCE, not a broken
+	// wire, and the difference is the whole triage. Both consumers coerce a
+	// zero (`if timeout <= 0 { timeout = 10 * time.Second }`, here in
+	// collectLearningAtoms and again in AtomSelector.SetVectorSearchTimeout)
+	// and the selector's constructor defaults to the same ten seconds, so the
+	// inert field costs nothing and semantic selection runs on the default.
+	//
+	// Checked because the opposite would have been bad: a timeout field read
+	// and never written, with no guard, gives context.WithTimeout(ctx, 0) --
+	// a deadline already past, which would disable vector search on every
+	// compile while reporting a timeout nobody configured. That is the shape
+	// worth ruling out, and it is ruled out.
+	//
+	// Making it live means adding a user-facing config key and plumbing it,
+	// which is main's 938cd87 decision in reverse and belongs with whoever
+	// wants the knob.
 	VectorSearchTimeout time.Duration
 
 	// MaxAtomsPerCategory caps atoms selected per category
