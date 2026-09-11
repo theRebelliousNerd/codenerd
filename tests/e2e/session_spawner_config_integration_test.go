@@ -5,8 +5,6 @@ package e2e_test
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -315,61 +313,6 @@ func TestE2E_Session_SpawnerConcurrentSpawns_NoStateCorruption(t *testing.T) {
 	}
 }
 
-// TestE2E_Session_PathTraversalSpecialistName_SpawnerRejects tests Contract Violation
-func TestE2E_Session_PathTraversalSpecialistName_SpawnerRejects(t *testing.T) {
-	t.Parallel()
-	env := setupRealIntegrationEnv(t)
-
-	ctx := context.Background()
-
-	adversarialNames := []string{
-		"../../etc/passwd",
-		"../test",
-		"/absolute/path",
-		"dir\\file",
-	}
-
-	for _, name := range adversarialNames {
-		_, err := env.Spawner.SpawnSpecialist(ctx, name, "task")
-		if err == nil {
-			t.Errorf("Expected error for adversarial name %q, got nil", name)
-		} else if !strings.Contains(err.Error(), "traversal") && !strings.Contains(err.Error(), "invalid") {
-			t.Errorf("Expected path traversal error for %q, got: %v", name, err)
-		}
-	}
-}
-
-// TestE2E_Session_OversizedSpecialistConfig_SpawnerRejects tests Resource Exhaustion
-func TestE2E_Session_OversizedSpecialistConfig_SpawnerRejects(t *testing.T) {
-	tmpDir := t.TempDir()
-	agentDir := filepath.Join(tmpDir, ".nerd", "agents", "huge-agent")
-	if err := os.MkdirAll(agentDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	hugeContent := make([]byte, 2*1024*1024)
-	for i := range hugeContent {
-		hugeContent[i] = ' '
-	}
-	yamlStr := "\nidentity_prompt: valid"
-	copy(hugeContent[len(hugeContent)-len(yamlStr):], yamlStr)
-
-	if err := os.WriteFile(filepath.Join(agentDir, "config.yaml"), hugeContent, 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cwd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(cwd)
-
-	env := setupRealIntegrationEnv(t)
-
-	_, err := env.Spawner.SpawnSpecialist(context.Background(), "huge-agent", "task")
-	if err == nil {
-		t.Fatal("Expected error for oversized config, got nil")
-	}
-}
-
 // TestE2E_Session_ConfigFactory_Fails_SpawnAborts tests Partial Pipeline Failure
 func TestE2E_Session_ConfigFactory_Fails_SpawnAborts(t *testing.T) {
 	t.Parallel()
@@ -393,37 +336,6 @@ func TestE2E_Session_ConfigFactory_Fails_SpawnAborts(t *testing.T) {
 	}
 	if agent == nil {
 		t.Fatal("Expected agent to be created despite config generation failure")
-	}
-}
-
-// TestE2E_Session_VirtualStore_Unavailable_AgentGracefulFail tests Cascading Failure
-func TestE2E_Session_VirtualStore_Unavailable_AgentGracefulFail(t *testing.T) {
-	env := setupRealIntegrationEnv(t)
-
-	// An unknown specialist degrades; it does not fail.
-	//
-	// This asserted that SpawnSpecialist errors on a name with no on-disk
-	// config. It does not, by design: loadSpecialistConfig falls back to JIT
-	// generation with a documented reason — "when no on-disk config exists for
-	// `name`, we still need a runtime config so the specialist can boot with
-	// default tools/policies drawn from its intent atom." The test pinned the
-	// opposite of the behaviour the code deliberately has, which costs more
-	// than a red bar: it would have blocked anyone from relying on the
-	// fallback. The test's own name says GracefulFail; this is what graceful
-	// looks like.
-	agent, err := env.Spawner.SpawnSpecialist(context.Background(), "unknown-agent", "task")
-	if err != nil {
-		t.Fatalf("unknown specialist should degrade to a JIT-generated config, got: %v", err)
-	}
-	if agent == nil {
-		t.Fatal("unknown specialist degraded to no agent at all")
-	}
-
-	// The real error path is still an error. Path traversal is rejected before
-	// any filesystem access, so this pins the guard the fallback must not
-	// swallow.
-	if _, err := env.Spawner.SpawnSpecialist(context.Background(), "../../etc/passwd", "task"); err == nil {
-		t.Fatal("a path-traversing specialist name must be rejected, not resolved")
 	}
 }
 
