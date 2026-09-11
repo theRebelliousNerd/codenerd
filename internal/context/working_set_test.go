@@ -192,6 +192,40 @@ func TestWorkingSetSelectCollapsesRepeatedBodies(t *testing.T) {
 	require.Equal(t, 1, strings.Count(sel.Text, "same projection"))
 }
 
+// A later read of the same file at the same revision that covers an earlier
+// read's span replaces it; a read of a disjoint span does not. Observed
+// 2026-09-11: one region read five times with slightly different ranges was
+// five observations, and the section ran to 146 KB a round.
+func TestWorkingSetSelectCollapsesCoveredSpans(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
+	w, err := NewWorkingSet(nil, root, "task")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+	rev := w.Revision("a.go")
+	save := func(id string, step, start, end int64, body string) {
+		t.Helper()
+		require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: id, Entity: "a.go", Revision: rev, Kind: "read_file/" + id, Step: step, Start: start, End: end, Body: body}))
+	}
+	save("narrow", 1, 760, 830, "a.go: lines 760-830\nnarrow view")
+	save("wide", 2, 700, 850, "a.go: lines 700-850\nwide view")
+	save("apart", 3, 1, 50, "a.go: lines 1-50\nhead view")
+	save("outline", 4, 0, 0, "a.go: outline\nsymbols")
+
+	sel, err := w.Select(t.Context(), "a.go", []string{"narrow", "wide", "apart", "outline"}, nil, 100000)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"wide", "apart", "outline"}, sel.Selected, "the covering read replaces the narrow one; a disjoint read and a span-less record stay")
+	require.NotContains(t, sel.Text, "narrow view")
+
+	save("whole", 5, 1, wholeSpanEnd, "a.go: whole file\nall of it")
+	sel, err = w.Select(t.Context(), "a.go", []string{"narrow", "wide", "apart", "outline", "whole"}, nil, 100000)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"whole", "outline"}, sel.Selected, "a whole-file read replaces every ranged read at the same revision")
+}
+
+// wholeSpanEnd mirrors the session recorder's "to the end of the file" span.
+const wholeSpanEnd = 1_000_000_000
+
 // An observation whose call/result pair the request already carries in the
 // transcript is neither selected into the section nor reported omitted, so
 // nothing is sent twice; the span of such rounds is the policy's.

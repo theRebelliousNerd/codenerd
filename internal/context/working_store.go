@@ -20,7 +20,9 @@ import (
 // WorkingRecord retains an observation independently of its active-window life.
 // Kind identifies the exact request; Revision identifies the observed artifact;
 // Digest identifies what came back, so two requests that differ in their
-// arguments but produced the same observation are recognised as one.
+// arguments but produced the same observation are recognised as one. Start
+// and End are the line span a content read covered (End 0: no span recorded),
+// so a later read covering an earlier one's span can replace it.
 type WorkingRecord struct {
 	ID       string `json:"id"`
 	Entity   string `json:"entity"`
@@ -29,6 +31,8 @@ type WorkingRecord struct {
 	Step     int64  `json:"step"`
 	Body     string `json:"body"`
 	Digest   string `json:"digest,omitempty"`
+	Start    int64  `json:"start,omitempty"`
+	End      int64  `json:"end,omitempty"`
 	Failed   bool   `json:"failed"`
 }
 
@@ -68,7 +72,8 @@ func OpenWorkingStore(workspace, scope string) (*WorkingStore, error) {
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS working_records (
 		id TEXT PRIMARY KEY, scope TEXT NOT NULL, entity TEXT NOT NULL,
 		revision TEXT NOT NULL, kind TEXT NOT NULL, step INTEGER NOT NULL,
-		body TEXT NOT NULL, failed INTEGER NOT NULL, digest TEXT NOT NULL DEFAULT '');
+		body TEXT NOT NULL, failed INTEGER NOT NULL, digest TEXT NOT NULL DEFAULT '',
+		span_start INTEGER NOT NULL DEFAULT 0, span_end INTEGER NOT NULL DEFAULT 0);
 		CREATE INDEX IF NOT EXISTS working_entity ON working_records(scope,entity,step DESC);`)
 	if err != nil {
 		_ = db.Close()
@@ -114,8 +119,8 @@ func (s *WorkingStore) Save(ctx context.Context, r WorkingRecord) error {
 	if r.Digest == "" {
 		r.Digest = workingDigest(r.Body)
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO working_records (id,scope,entity,revision,kind,step,body,failed,digest) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
-		r.ID, s.scope, r.Entity, r.Revision, r.Kind, r.Step, r.Body, r.Failed, r.Digest)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO working_records (id,scope,entity,revision,kind,step,body,failed,digest,span_start,span_end) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
+		r.ID, s.scope, r.Entity, r.Revision, r.Kind, r.Step, r.Body, r.Failed, r.Digest, r.Start, r.End)
 	return err
 }
 
@@ -131,7 +136,7 @@ func (s *WorkingStore) Candidates(ctx context.Context, entities []string, limit 
 		args = append(args, e)
 	}
 	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, `SELECT id,entity,revision,kind,step,failed,digest FROM working_records
+	rows, err := s.db.QueryContext(ctx, `SELECT id,entity,revision,kind,step,failed,digest,span_start,span_end FROM working_records
 		WHERE scope=? AND entity IN (`+strings.Join(marks, ",")+`) ORDER BY step DESC,id LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
@@ -140,7 +145,7 @@ func (s *WorkingStore) Candidates(ctx context.Context, entities []string, limit 
 	var result []WorkingRecord
 	for rows.Next() {
 		var r WorkingRecord
-		if err := rows.Scan(&r.ID, &r.Entity, &r.Revision, &r.Kind, &r.Step, &r.Failed, &r.Digest); err != nil {
+		if err := rows.Scan(&r.ID, &r.Entity, &r.Revision, &r.Kind, &r.Step, &r.Failed, &r.Digest, &r.Start, &r.End); err != nil {
 			return nil, err
 		}
 		result = append(result, r)

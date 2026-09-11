@@ -51,7 +51,10 @@
   caller pages. No fixed character thresholds on this path. The transcript
   keeps the last `working_transcript_rounds` (policy fact) native rounds so
   the model sees its own recent turns; those observations are excluded from
-  the section, so nothing is sent twice.
+  the section, so nothing is sent twice. A `read_file` observation records
+  its line span; a later read of the same file at the same revision that
+  covers an earlier read's span replaces it (`working_span`), as a repeated
+  body does (`working_digest`).
 - New LLM-facing behavior is a prompt atom first. `AvailableTools` describes the
   effective envelope; it is not authority.
 - Pass bounded task text into JIT retrieval even when delegation supplies only

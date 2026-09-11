@@ -187,7 +187,8 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	step := time.Now().UnixNano()
 	idSum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%d", call.ID, kind, body, revision, step)))
 	id := hex.EncodeToString(idSum[:])
-	record := working.WorkingRecord{ID: id, Entity: loop.focus, Revision: revision, Kind: kind, Step: step, Body: body, Failed: toolErr != nil}
+	start, end := observedSpan(call)
+	record := working.WorkingRecord{ID: id, Entity: loop.focus, Revision: revision, Kind: kind, Step: step, Body: body, Start: start, End: end, Failed: toolErr != nil}
 	if err := loop.set.Save(ctx, record); err != nil {
 		return fmt.Errorf("persist working observation: %w", err)
 	}
@@ -197,6 +198,31 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 		loop.recent = loop.recent[len(loop.recent)-16:]
 	}
 	return nil
+}
+
+// wholeFileSpanEnd stands for "to the end of the file" in an observation's
+// span: a content read with no end line covers everything after its start.
+const wholeFileSpanEnd = 1_000_000_000
+
+// observedSpan is the line span a content read covered, so a later read that
+// covers it can replace it in the working section. Only read_file records a
+// span: an outline or a search is not a view of the lines, and must not stand
+// in for one.
+func observedSpan(call types.ToolCall) (int64, int64) {
+	if !strings.EqualFold(strings.TrimSpace(call.Name), "read_file") {
+		return 0, 0
+	}
+	start, end := int64(1), int64(wholeFileSpanEnd)
+	if v, ok := tools.CoerceInt(call.Input["start_line"]); ok && v > 0 {
+		start = int64(v)
+	}
+	if v, ok := tools.CoerceInt(call.Input["end_line"]); ok && v > 0 {
+		end = int64(v)
+	}
+	if end < start {
+		end = start
+	}
+	return start, end
 }
 
 // prepareWorkingRequest builds the provider request for one round of a working

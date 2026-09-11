@@ -7,6 +7,8 @@ Decl working_revision(Entity, Revision) bound [/string, /string].
 # code element), so identity of what came back is tracked beside identity of
 # what was asked.
 Decl working_digest(ID, Digest) bound [/string, /string].
+# The line span a content read covered; only reads with a span assert one.
+Decl working_span(ID, Start, End) bound [/string, /number, /number].
 Decl working_recent(ID) bound [/string].
 # Observations whose native call/result pair is in the provider transcript
 # this round. They are the model's own recent turns and are not repeated in
@@ -122,6 +124,14 @@ working_superseded(ID) :-
     working_observation(ID, Entity, Revision, _, Step), working_digest(ID, Digest),
     working_observation(Other, Entity, Revision, _, Later), working_digest(Other, Digest),
     Step < Later.
+# A later read of the same file at the same revision that covers an earlier
+# read's span replaces it. Observed 2026-09-11: one region read five times as
+# 760-830, 700-850, 768-815, 740-830 and 690-850 was five observations, and
+# with two other files treated the same the section ran to 146 KB a round.
+working_superseded(ID) :-
+    working_observation(ID, Entity, Revision, _, Step), working_span(ID, Start, End),
+    working_observation(Other, Entity, Revision, _, Later), working_span(Other, OtherStart, OtherEnd),
+    Step < Later, OtherStart <= Start, OtherEnd >= End.
 
 working_selected(ID, Priority) :-
     working_observation(ID, Entity, _, _, _),
