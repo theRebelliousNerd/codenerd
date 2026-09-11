@@ -237,6 +237,12 @@ func TestValidateShellToolInvocation_FailsClosed(t *testing.T) {
 		{"git_log", map[string]any{"count": 5}},
 		{"run_build", nil},
 		{"run_tests", map[string]any{"pattern": "TestSafe"}},
+		// A test pattern is a regular expression handed to the runner as one
+		// argument: alternation and anchors are not shell syntax. The gate
+		// refused "A|B" as a pipe, which is the -run form every brief names.
+		{"run_tests", map[string]any{"pattern": "PriorShard|SessionContext|Flatten"}},
+		{"run_tests", map[string]any{"pattern": "^TestFlatten$"}},
+		{"run_tests", map[string]any{"pattern": "TestA|TestB", "packages": []any{"./cmd/nerd/chat"}}},
 	} {
 		if _, _, err := ValidateShellToolInvocation(tc.name, tc.args); err != nil {
 			t.Errorf("ValidateShellToolInvocation(%q, %v) denied safe structured command: %v", tc.name, tc.args, err)

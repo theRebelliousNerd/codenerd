@@ -282,23 +282,30 @@ func ValidateShellToolInvocation(toolName string, args map[string]any) (ShellEff
 	// invocation, but still refuse obviously mutating commands (knownMutations).
 	if normalizedName == "run_build" || normalizedName == "run_tests" {
 		rawCmd := ShellCommand(args)
-		var command string
-		if normalizedName == "run_build" && rawCmd == "" {
+		if rawCmd == "" {
+			// The typed tools take no command text: the runner comes from
+			// project files and a test pattern travels as one exec argument
+			// (`-run <pattern>`), never through a shell. A pattern is a
+			// regular expression, so "A|B" is an alternation, not a pipe;
+			// classifying it as shell text refused the exact -run form every
+			// brief names (live, 2026-09-11: the model asked for the named
+			// test and was told the call "lacks task-scope authorization").
+			// Shell syntax no regexp needs is still refused, so a smuggled
+			// command cannot ride in the argument should a runner ever hand
+			// it to a shell.
+			if pattern := stringArg(args, "pattern"); normalizedName == "run_tests" && pattern != "" {
+				if strings.ContainsAny(pattern, ";&<>`\x00\r\n") || strings.Contains(pattern, "$(") {
+					return ShellEffectUnknownMutating, "go test -run " + pattern, fmt.Errorf(
+						"blocked by shell-effect gate: %s pattern carries shell syntax; a test pattern is a regular expression passed as one argument",
+						toolName,
+					)
+				}
+			}
 			return ShellEffectVerification, normalizedName + " (auto-detected)", nil
 		}
-		if normalizedName == "run_tests" && rawCmd == "" {
-			// The concrete test runner is selected later from project files. A
-			// synthetic verification prefix lets us still reject injected pattern
-			// syntax before that selection happens.
-			command = joinStructuredCommand("go test", args, "pattern")
-			if strings.TrimSpace(command) == "go test" {
-				return ShellEffectVerification, normalizedName + " (auto-detected)", nil
-			}
-		} else {
-			command = structuredShellCommand(normalizedName, args)
-			if strings.TrimSpace(command) == "" {
-				return ShellEffectVerification, normalizedName + " (auto-detected)", nil
-			}
+		command := structuredShellCommand(normalizedName, args)
+		if strings.TrimSpace(command) == "" {
+			return ShellEffectVerification, normalizedName + " (auto-detected)", nil
 		}
 		// Refuse obviously mutating payloads even when smuggled via verification tools.
 		lower := strings.ToLower(command)
