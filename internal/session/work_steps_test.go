@@ -116,10 +116,13 @@ func TestParseWorkSteps(t *testing.T) {
 		"2. STEP internal/a.go :: add the field after line 10\n" +
 		"STEP :: no file\n" +
 		"STEP internal/c.go\n" +
+		"STEP internal/prompt/ :: Verify with: go test ./internal/prompt/ -run TestEmbeddedCorpus\n" +
+		"STEP ./internal/prompt/... :: run go test on the package\n" +
+		"STEP internal/d.go :: Run the tests named in the task\n" +
 		"not a step line\n"
 	got := parseWorkSteps(plan)
 	if len(got) != 2 {
-		t.Fatalf("steps = %+v, want the two well-formed distinct steps", got)
+		t.Fatalf("steps = %+v, want the two well-formed distinct edit steps (a verification is not a step)", got)
 	}
 	if got[0].File != "internal/a.go" || got[0].Change != "add the field after line 10" {
 		t.Errorf("step 1 = %+v", got[0])

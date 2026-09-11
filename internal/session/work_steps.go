@@ -46,7 +46,7 @@ const workStepPlanSystem = `You divide one code-change task into the edit steps 
 Output one line per step, in the order the task gives them, in exactly this form:
 STEP <workspace-relative file path> :: <the change to make in that file, with its location>
 
-Rules: one step per file region the task says to change; keep the task's own numbering, names, line numbers and wording; a test the task asks for is its own step; an import a step needs is part of that step, never a step of its own; never add a file the task does not name or clearly imply; never add a step the task does not ask for. A task with one change is one STEP line. Output only STEP lines, nothing else.`
+Rules: one step per file region the task says to change; keep the task's own numbering, names, line numbers and wording; a test the task asks for is its own step; an import a step needs is part of that step, never a step of its own; never add a file the task does not name or clearly imply; never add a step the task does not ask for; the task's verification command is not a step, the executive runs it. A task with one change is one STEP line. Output only STEP lines, nothing else.`
 
 // workStep is one edit site of a planned task and what became of it.
 // CoveredBy names the earlier step (1-based) that edited the same file when
@@ -73,7 +73,10 @@ type toolLoopPass struct {
 
 // parseWorkSteps reads STEP lines out of a plan. Anything else on a line, a
 // bullet or a number in front of STEP, is tolerated; a line without both a
-// path and a change is not a step. Duplicates collapse; the count is bounded.
+// path and a change is not a step, and neither is a verification (a path
+// that is a directory, or a change that is the task's verify command: the
+// executive runs verification itself). Duplicates collapse; the count is
+// bounded.
 func parseWorkSteps(text string) []workStep {
 	var steps []workStep
 	seen := map[string]bool{}
@@ -90,7 +93,7 @@ func parseWorkSteps(text string) []workStep {
 		}
 		file = strings.Trim(strings.TrimSpace(file), "`'\"")
 		change = strings.TrimSpace(change)
-		if file == "" || change == "" {
+		if file == "" || change == "" || !isEditStep(file, change) {
 			continue
 		}
 		key := file + "\x00" + change
@@ -148,6 +151,23 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 	}
 	logging.Session("Executive runs the task as %d planned step(s): %s", len(steps), strings.Join(names, ", "))
 	return steps
+}
+
+// isEditStep tells an edit site from a verification the planner wrote down
+// as a step. Observed 2026-09-11: "STEP internal/prompt/ :: Verify with: go
+// test ./internal/prompt/ ..." ran as a fifth step, made no edit, and
+// failed the turn.
+func isEditStep(file, change string) bool {
+	if strings.HasSuffix(file, "/") || strings.HasSuffix(file, "\\") || strings.HasSuffix(file, "/...") {
+		return false
+	}
+	lower := strings.ToLower(change)
+	for _, prefix := range []string{"verify with", "verify:", "verification:", "run go test", "run the tests", "run tests"} {
+		if strings.HasPrefix(lower, prefix) {
+			return false
+		}
+	}
+	return true
 }
 
 func hasWriteTool(names []string) bool {
