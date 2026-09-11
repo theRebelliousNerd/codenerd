@@ -64,3 +64,27 @@ func TestCompilationContextUsesPermittedToolEnvelope(t *testing.T) {
 		t.Fatal("missing config factory supplied ambient tools")
 	}
 }
+
+func TestBuildCompilationContext_LanguageAndFrameworksFromKernel(t *testing.T) {
+	k := &MockKernel{}
+	if err := k.LoadFacts([]types.Fact{
+		{Predicate: "project_language", Args: []any{types.MangleAtom("/go")}},
+		{Predicate: "project_framework", Args: []any{types.MangleAtom("/bubbletea")}},
+	}); err != nil {
+		t.Fatalf("LoadFacts: %v", err)
+	}
+	cc := (&Executor{kernel: k}).buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix"})
+	if cc.Language != "/go" {
+		t.Fatalf("Language=%q, want %q", cc.Language, "/go")
+	}
+	if !slices.Equal(cc.Frameworks, []string{"/bubbletea"}) {
+		t.Fatalf("Frameworks=%v, want %v", cc.Frameworks, []string{"/bubbletea"})
+	}
+	ccNil := (&Executor{}).buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix"})
+	if ccNil.Language != "" {
+		t.Fatalf("nil kernel Language=%q, want empty", ccNil.Language)
+	}
+	if len(ccNil.Frameworks) != 0 {
+		t.Fatalf("nil kernel Frameworks=%v, want empty", ccNil.Frameworks)
+	}
+}
