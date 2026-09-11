@@ -3609,6 +3609,9 @@ Two `nerd chat` probes on the rebuilt binary, both through `chat_driver.py`.
 | executor language gate, two files (executor change + new test) | derive `cc.Language`/`cc.Frameworks` from kernel facts in buildCompilationContext | 53 (0 writes) | 3m30s | `read_only_stall`. Working section held five copies of one 389-line region (ranges snapped to one projection); model said "wiring now" every round |
 | same, executor half only | as above, no test | 42 / 39 / 32 (0 writes) | ~3-4 min each | three more `read_only_stall`s across: body-digest supersession (8d63e069), traced transcript (bfcb15db), and the 3-round transcript window (1241242b). The trace shows the model re-fetching the same four facts every round with the implement nudge in hand |
 | same, under the commit regime (7213b414) | as above | 40 (1 insert_lines, 1 run_build) | 12m23s | regime engaged after 27 calls / 16 rounds; `insert_lines` at tool 28; harness build + tests passed twice; `checks_passed`; the 33 inserted lines were exactly the brief (2c9bc34e) |
+| regression test for the language gate (test only) | `TestBuildCompilationContext_LanguageAndFrameworksFromKernel` | 25 (1 insert_lines) | 4m01s | wrote at tool 14 without needing the regime; `checks_passed` (c2acf8a4) |
+| taxonomy prompt tables read base facts through `Engine.Query` | replace two `Query` calls with `QueryFacts` in GenerateSystemPromptSection + a test | 45 (1 edit_lines) | 3m51s | the query replacement was right and complete; the now-unused `context` import stayed, the build failed, and the single repair round spent ~20 reads and no edit. Import removed by hand (e402020a); no test written |
+| its regression test (test only) | `TestGenerateSystemPromptSection_IncludesLearnedExemplars` | 36 (1 insert_lines under the commit regime) | 7m04s | test written without `strings`/`types` imports and with a one-value assignment of a two-value return; tests failed; the test-repair round read instead of editing. Fixed by hand, then re-seeded through the store because `AddFact` rejects the float confidence (1036c85f, 5484a578) |
 
 What governed the second run: in open (progress-driven, no count ceiling)
 mode the working policy only knew a repeated-trace flag and a failure
@@ -3669,9 +3672,21 @@ on the first write (7213b414). Fifth run: wrote at the first round under
 the regime. Steering that works for this model is a catalog change, not a
 sentence.
 
+The two taxonomy runs share a second pattern: an edit that compiles wrong
+by one line (an import left or missed), and a repair round that reads
+instead of editing. The repair rounds bypassed the working request path,
+offered the full catalog, and their prompt said to read before editing.
+f0a89c22: repair rounds go through the working request path; a round that
+read without editing is followed by one more under the commit regime with
+the compiler or test output again. Underneath the taxonomy fix sat an engine
+fact: `Engine.Query` serves derived predicates only, and a fact written in a
+.mg file is a program clause the store never sees until an evaluation runs
+(`Engine.Evaluate`, b72add22).
+
 Signatures to grep after every probe: `Working context: … selected=0` for
 the focus file, `Observation archived`, `[ERROR] Tool call`, and in the
-session log `closed exploration (commit regime)`. Still open:
+session log `closed exploration (commit regime)` and `Repair round read
+without editing`. Still open:
 world facts filled 78 KB per round with `code_defines(…, 0, 0)` lines from
 two-hop neighbours (share cut to one eighth in the commit after 69fd896e;
 the zero spans are a world-model defect); the JIT system prompt is 115 KB
