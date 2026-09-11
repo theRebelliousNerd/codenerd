@@ -223,7 +223,7 @@ func runAuthGrok(cmd *cobra.Command, args []string) error {
 		oauthCfg.ImportGrokAuth = &t
 	}
 
-	client := xaioauth.NewClientFromUserConfig(oauthCfg)
+	client := xaioauth.NewClientFromUserConfig(oauthCfg, 0)
 	ts := client.TokenSource()
 
 	// Prefer existing / importable credentials when they already work.
@@ -251,7 +251,7 @@ func runAuthGrok(cmd *cobra.Command, args []string) error {
 			fmt.Println("Clearing broken/quarantined tokens so we can re-import or re-login...")
 			_ = ts.PrepareForReauth()
 			// Fresh client after clear — try Grok CLI import again.
-			client = xaioauth.NewClientFromUserConfig(oauthCfg)
+			client = xaioauth.NewClientFromUserConfig(oauthCfg, 0)
 			ts = client.TokenSource()
 			if err := ts.Load(); err == nil {
 				probe = client.RunHealthProbe(probeCtx)
@@ -275,7 +275,7 @@ func runAuthGrok(cmd *cobra.Command, args []string) error {
 		if xaioauth.IsAuthRequired(err) {
 			fmt.Println("Clearing quarantined store (if any) and retrying import...")
 			_ = ts.PrepareForReauth()
-			client = xaioauth.NewClientFromUserConfig(oauthCfg)
+			client = xaioauth.NewClientFromUserConfig(oauthCfg, 0)
 			ts = client.TokenSource()
 			if loadErr := ts.Load(); loadErr == nil {
 				probe := client.RunHealthProbe(probeCtx)
@@ -445,7 +445,7 @@ func printSuperGrokAuthStatus(ctx context.Context, cfg *config.UserConfig) {
 	fmt.Printf("  Import Grok CLI auth: %t\n", importGrok)
 	fmt.Printf("  Fallback to API key: %t\n", fallbackAPI)
 
-	client := xaioauth.NewClientFromUserConfig(oauthCfg)
+	client := xaioauth.NewClientFromUserConfig(oauthCfg, 0)
 	fmt.Printf("  Credential path: %s\n", client.Config().CredentialPath)
 	probeCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()

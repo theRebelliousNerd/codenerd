@@ -449,7 +449,6 @@ func TestDefaultAssemblyOptions(t *testing.T) {
 	assert.False(t, opts.IncludeSectionHeaders)
 	assert.False(t, opts.MinifyWhitespace)
 	assert.False(t, opts.IncludeMetadata)
-	assert.Equal(t, 0, opts.MaxLength)
 }
 
 func TestFinalAssembler_AssembleWithOptions(t *testing.T) {
@@ -481,21 +480,6 @@ func TestFinalAssembler_AssembleWithOptions(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotContains(t, result, "\n\n\n\n")
 		assert.Contains(t, result, "\n\n")
-	})
-
-	t.Run("with max length truncation", func(t *testing.T) {
-		longAtoms := []*OrderedAtom{
-			{Atom: &PromptAtom{ID: "long", Category: CategoryIdentity, Content: strings.Repeat("a", 1000)}, Order: 0},
-		}
-
-		assembler := NewFinalAssembler()
-		opts := AssemblyOptions{MaxLength: 100}
-
-		result, err := assembler.AssembleWithOptions(longAtoms, NewCompilationContext(), opts)
-
-		require.NoError(t, err)
-		assert.LessOrEqual(t, len(result), 200) // Some overhead for truncation message
-		assert.Contains(t, result, "[Content truncated")
 	})
 }
 
@@ -531,55 +515,6 @@ func TestMinifyWhitespace(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := minifyWhitespace(tt.input)
 			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestTruncatePrompt(t *testing.T) {
-	tests := []struct {
-		name           string
-		content        string
-		maxLen         int
-		shouldTruncate bool
-		containsMsg    bool
-	}{
-		{
-			name:           "no truncation needed",
-			content:        "short content",
-			maxLen:         100,
-			shouldTruncate: false,
-			containsMsg:    false,
-		},
-		{
-			name:           "truncation at paragraph",
-			content:        "First paragraph.\n\nSecond paragraph.\n\nThird paragraph that is very long.",
-			maxLen:         40,
-			shouldTruncate: true,
-			containsMsg:    true,
-		},
-		{
-			name:           "truncation message added",
-			content:        strings.Repeat("a", 200),
-			maxLen:         100,
-			shouldTruncate: true,
-			containsMsg:    true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := truncatePrompt(tt.content, tt.maxLen)
-
-			if tt.shouldTruncate {
-				// Result might be longer due to truncation message
-				assert.LessOrEqual(t, len(result), tt.maxLen+100)
-			} else {
-				assert.Equal(t, tt.content, result)
-			}
-
-			if tt.containsMsg {
-				assert.Contains(t, result, "truncated")
-			}
 		})
 	}
 }

@@ -54,7 +54,7 @@ func (c *Client) CompleteWithToolResults(ctx context.Context, systemPrompt strin
 		Messages:    msgs,
 		Tools:       chatTools,
 		ToolChoice:  "auto",
-		MaxTokens:   8192,
+		MaxTokens:   c.cfg.MaxOutputTokens,
 		Temperature: 0.1,
 	}
 
@@ -229,7 +229,7 @@ func (c *Client) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt
 		},
 		Tools:       chatTools,
 		ToolChoice:  "auto",
-		MaxTokens:   8192,
+		MaxTokens:   c.cfg.MaxOutputTokens,
 		Temperature: 0.1,
 	}
 

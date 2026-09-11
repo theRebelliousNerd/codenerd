@@ -1097,7 +1097,6 @@ func (i *Initializer) createDefaultConfig(path string) error {
 			Temperature:           0.7,
 			TopP:                  0.9,
 			MaxContextTokens:      1048576,
-			MaxOutputTokens:       65536,
 			MaxExecutionTimeSec:   300,
 			MaxRetries:            3,
 			MaxFactsInShardKernel: 20000,

@@ -687,7 +687,7 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 		baselineCtx := &prompt.CompilationContext{
 			IntentVerb:      "/general",
 			OperationalMode: "/active",
-			TokenBudget:     4096, // Reduced budget for fallback
+			TokenBudget:     budget, // The configured budget; a smaller fallback budget cut mandatory atoms
 		}
 		baselineCtx.Provider, baselineCtx.Model = s.servingIdentity()
 		compileResult, err = s.jitCompiler.Compile(ctx, baselineCtx)

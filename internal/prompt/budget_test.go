@@ -6,6 +6,7 @@ package prompt
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -621,12 +622,14 @@ func TestTokenBudgetManager_SetReservedHeadroom_Negative(t *testing.T) {
 	assert.Equal(t, 750, mgr.reservedHeadroom)
 }
 
-// TestTokenBudgetManager_Fit_MandatoryOverflow verifies that a single
-// mandatory atom larger than the total budget is skipped (with a warning)
-// rather than included and exploding the context window.
-// GAP: Enormous single atom from boundary analysis QA.
+// TestTokenBudgetManager_Fit_MandatoryOverflow pins what happens when the
+// mandatory skeleton does not fit the budget: Fit refuses, naming the atom,
+// instead of dropping the atom and reporting success. A prompt missing part of
+// its constitution is not a smaller prompt; the caller must see the refusal
+// and raise the budget or split the atom. A mandatory atom with a smaller
+// rendering that fits is placed in that rendering, whole.
 func TestTokenBudgetManager_Fit_MandatoryOverflow(t *testing.T) {
-	t.Run("oversized mandatory atom is skipped", func(t *testing.T) {
+	t.Run("oversized mandatory atom refuses the fit", func(t *testing.T) {
 		atoms := []*OrderedAtom{
 			{Atom: &PromptAtom{
 				ID:          "huge-mandatory",
@@ -646,20 +649,10 @@ func TestTokenBudgetManager_Fit_MandatoryOverflow(t *testing.T) {
 		mgr.SetReservedHeadroom(0)
 
 		result, err := mgr.Fit(atoms, 8000)
-		require.NoError(t, err)
-
-		// huge-mandatory must not appear; small-mandatory should.
-		var sawHuge, sawSmall bool
-		for _, oa := range result {
-			if oa.Atom.ID == "huge-mandatory" {
-				sawHuge = true
-			}
-			if oa.Atom.ID == "small-mandatory" {
-				sawSmall = true
-			}
-		}
-		assert.False(t, sawHuge, "oversized mandatory atom should be skipped")
-		assert.True(t, sawSmall, "in-budget mandatory atom should be included")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "mandatory skeleton")
+		assert.Contains(t, err.Error(), "huge-mandatory")
+		assert.Nil(t, result, "a refused fit hands back no atoms to ship")
 	})
 
 	t.Run("mandatory atom at MaxInt64 token count does not overflow", func(t *testing.T) {
@@ -675,15 +668,13 @@ func TestTokenBudgetManager_Fit_MandatoryOverflow(t *testing.T) {
 		mgr := NewTokenBudgetManager()
 		mgr.SetReservedHeadroom(0)
 
-		// Must not panic or wrap. Atom should be skipped because it cannot fit.
-		result, err := mgr.Fit(atoms, 10000)
-		require.NoError(t, err)
-		for _, oa := range result {
-			assert.NotEqual(t, "max-int", oa.Atom.ID)
-		}
+		// Must not panic or wrap; the atom cannot fit, so the fit is refused.
+		_, err := mgr.Fit(atoms, 10000)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "max-int")
 	})
 
-	t.Run("multiple mandatory atoms summing past budget are partially included", func(t *testing.T) {
+	t.Run("multiple mandatory atoms summing past budget refuse rather than ship a partial skeleton", func(t *testing.T) {
 		atoms := []*OrderedAtom{
 			{Atom: &PromptAtom{
 				ID:          "m1",
@@ -708,11 +699,32 @@ func TestTokenBudgetManager_Fit_MandatoryOverflow(t *testing.T) {
 		mgr := NewTokenBudgetManager()
 		mgr.SetReservedHeadroom(0)
 
-		// Budget allows two but not three.
-		result, err := mgr.Fit(atoms, 11000)
+		// Budget allows two but not three: the third is mandatory, so two is
+		// not an answer.
+		_, err := mgr.Fit(atoms, 11000)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "m3")
+	})
+
+	t.Run("a mandatory atom falls back to a smaller rendering that fits", func(t *testing.T) {
+		atoms := []*OrderedAtom{
+			{Atom: &PromptAtom{
+				ID:             "safety",
+				Content:        strings.Repeat("s", 40000), // ~10000 tokens
+				ContentConcise: strings.Repeat("c", 4000),  // ~1000 tokens
+				TokenCount:     10000,
+				Category:       CategorySafety,
+				IsMandatory:    true,
+			}, Score: 1.0},
+		}
+
+		mgr := NewTokenBudgetManager()
+		mgr.SetReservedHeadroom(0)
+
+		result, err := mgr.Fit(atoms, 2000)
 		require.NoError(t, err)
-		// At most two of the three mandatory atoms fit; the third must be skipped.
-		assert.LessOrEqual(t, len(result), 2)
+		require.Len(t, result, 1)
+		assert.Equal(t, "concise", result[0].RenderMode, "the whole concise rendering fits; nothing is cut")
 	})
 }
 

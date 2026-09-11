@@ -1224,7 +1224,6 @@ func (c *UserConfig) GetShardProfile(shardType string) ShardProfile {
 		Temperature:           0.7,
 		TopP:                  0.9,
 		MaxContextTokens:      20000,
-		MaxOutputTokens:       4000,
 		MaxExecutionTimeSec:   300,
 		MaxRetries:            3,
 		MaxFactsInShardKernel: 20000,

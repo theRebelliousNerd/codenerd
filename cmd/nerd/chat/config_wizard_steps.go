@@ -68,7 +68,6 @@ func (m Model) configWizardShardModel(input string) (tea.Model, tea.Cmd) {
 			Model:            m.configWizard.Model, // Default to main model
 			Temperature:      0.7,
 			MaxContextTokens: 30000,
-			MaxOutputTokens:  4000,
 			EnableLearning:   true,
 		}
 	}

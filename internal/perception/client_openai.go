@@ -29,6 +29,8 @@ type OpenAIClient struct {
 
 	mu          sync.Mutex
 	lastRequest time.Time
+	// maxOutputTokens is the completion ceiling sent on every request.
+	maxOutputTokens int
 }
 
 // OpenAI Codex Models (2025):
@@ -57,11 +59,12 @@ func NewOpenAIClient(apiKey string) *OpenAIClient {
 // NewOpenAIClientWithConfig creates a new OpenAI client with custom config.
 func NewOpenAIClientWithConfig(config OpenAIConfig) *OpenAIClient {
 	return &OpenAIClient{
-		apiKey:     config.APIKey,
-		baseURL:    config.BaseURL,
-		model:      config.Model,
-		provider:   ProviderOpenAI,
-		httpClient: NewSharedHTTPClient(config.Timeout),
+		apiKey:          config.APIKey,
+		baseURL:         config.BaseURL,
+		model:           config.Model,
+		provider:        ProviderOpenAI,
+		httpClient:      NewSharedHTTPClient(config.Timeout),
+		maxOutputTokens: orDefaultTokens(config.MaxOutputTokens, 4096),
 	}
 }
 
@@ -114,7 +117,7 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	reqBody := OpenAIRequest{
 		Model:       c.model,
 		Messages:    messages,
-		MaxTokens:   4096,
+		MaxTokens:   c.maxOutputTokens,
 		Temperature: 0.1,
 	}
 	if isPiggyback {
@@ -193,7 +196,7 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		response := strings.TrimSpace(openaiResp.Choices[0].Message.Content)
 		if finish := openaiResp.Choices[0].FinishReason; types.LengthStop(finish) {
 			return "", outputTruncated(c.provider, c.model, "CompleteWithSystem", finish, response,
-				0, openaiResp.Usage.CompletionTokens)
+				c.maxOutputTokens, openaiResp.Usage.CompletionTokens)
 		}
 		logging.Perception("[OpenAI] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
 		return response, nil
@@ -257,7 +260,7 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 		reqBody := OpenAIRequest{
 			Model:       c.model,
 			Messages:    messages,
-			MaxTokens:   4096,
+			MaxTokens:   c.maxOutputTokens,
 			Temperature: 0.1,
 			Stream:      true,
 			StreamOptions: &OpenAIStreamOptions{
@@ -455,7 +458,7 @@ func (c *OpenAIClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 	stopReason := choice.FinishReason
 	if types.LengthStop(stopReason) {
 		return nil, outputTruncated(c.provider, c.model, "CompleteWithTools", stopReason, choice.Message.Content,
-			0, resp.Usage.CompletionTokens)
+			c.maxOutputTokens, resp.Usage.CompletionTokens)
 	}
 	if stopReason == "tool_calls" {
 		stopReason = "tool_use" // Standardize on "tool_use"

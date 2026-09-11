@@ -700,7 +700,10 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		// registry over a 25-character placeholder. Until this step existed
 		// the overshoot was detected in logCompilationStats and then shipped
 		// anyway: the contract said "bounded", the wire said otherwise.
-		fitted, prompt = c.enforceAssembledBudget(fitted, cc, prompt, budget)
+		fitted, prompt, err = c.enforceAssembledBudget(fitted, cc, prompt, budget)
+		if err != nil {
+			return nil, err
+		}
 		stats.AssembleMs = time.Since(assembleStart).Milliseconds()
 
 		// Finalize timing
@@ -1519,37 +1522,27 @@ func (c *JITPromptCompiler) closeResources() error {
 	return finalErr
 }
 
-// promptBudgetCharsPerToken converts a token budget into a byte ceiling for
-// the last-resort truncation. It matches EstimateTokens' (len+3)/4 heuristic;
-// using the same constant in both directions keeps the backstop from firing on
-// a prompt the measurement already considers in budget.
-const promptBudgetCharsPerToken = 4
-
-// promptTruncationMarkerBudget reserves bytes for truncatePrompt's marker
-// inside the budget. Without the reservation the marker itself pushes the
-// prompt back over the ceiling it was added to respect — the enforcement would
-// report success while shipping an over-budget prompt, which is the exact
-// failure this whole path exists to remove.
-const promptTruncationMarkerBudget = 160
-
 // enforceAssembledBudget makes the assembled prompt honour the token budget.
 //
-// Two stages, in the order the hardening brief requires: shed whole optional
-// atoms first (a missing exemplar is legible; half an exemplar is a lie), then
-// truncate as a last resort when the mandatory skeleton alone overflows. The
-// truncation is head+tail with a visible marker, so a prompt that had to be cut
-// says so instead of presenting itself as complete.
+// One mechanism: shed whole optional atoms, lowest priority first (a missing
+// exemplar is legible; half an exemplar is a lie). If the mandatory skeleton
+// alone does not fit, the compile fails with an error naming the budget and
+// the skeleton. It used to cut the prompt head+tail with a marker instead;
+// that cut the identity and safety atoms — the ones that constrain the model
+// — and shipped the result as a prompt. A turn that does not run is a
+// configuration error the operator can see and fix; a turn that runs on a
+// constitution with its ending missing is not.
 func (c *JITPromptCompiler) enforceAssembledBudget(
 	fitted []*OrderedAtom,
 	cc *CompilationContext,
 	prompt string,
 	budget int,
-) ([]*OrderedAtom, string) {
+) ([]*OrderedAtom, string, error) {
 	if budget <= 0 || prompt == "" || cc == nil {
-		return fitted, prompt
+		return fitted, prompt, nil
 	}
 	if EstimateTokens(prompt) <= budget {
-		return fitted, prompt
+		return fitted, prompt, nil
 	}
 
 	budgetMgr := c.budgetMgr
@@ -1561,19 +1554,14 @@ func (c *JITPromptCompiler) enforceAssembledBudget(
 		return c.assembler.Assemble(atoms, cc)
 	})
 	if used <= budget {
-		return kept, shedPrompt
+		return kept, shedPrompt, nil
 	}
 
-	// Every optional atom is gone and the prompt is still over. This is the
-	// mandatory skeleton plus template expansion; nothing here is safe to drop
-	// silently, so cut visibly and shout about it.
-	logging.Get(logging.CategoryJIT).Warn(
-		"JIT[%s] mandatory skeleton exceeds budget after shedding: %d tokens vs budget %d — truncating with a visible marker; raise TokenBudget or split the mandatory atoms",
+	logging.Get(logging.CategoryJIT).Error(
+		"JIT[%s] mandatory skeleton exceeds budget after shedding every optional atom: %d tokens vs budget %d — refusing to compile a cut prompt; raise context_window.max_tokens or jit.token_budget, or split the mandatory atoms",
 		cc.ShardID, used, budget,
 	)
-	ceiling := budget*promptBudgetCharsPerToken - promptTruncationMarkerBudget
-	if ceiling <= 0 {
-		ceiling = budget * promptBudgetCharsPerToken
-	}
-	return kept, truncatePrompt(shedPrompt, ceiling)
+	return kept, shedPrompt, fmt.Errorf(
+		"prompt budget of %d tokens cannot hold the mandatory skeleton (%d tokens after shedding every optional atom) for shard %q: raise context_window.max_tokens or jit.token_budget, or split the mandatory atoms",
+		budget, used, cc.ShardID)
 }

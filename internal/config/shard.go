@@ -12,8 +12,13 @@ type ShardProfile struct {
 	TopP        float64 `yaml:"top_p" json:"top_p"`             // 0.0-1.0
 
 	// Context Limits (per-shard)
+	//
+	// There is no per-shard output ceiling. Every shard runs on the worker
+	// (or main) client, whose completion ceiling is max_output_tokens at the
+	// top level or on the worker/planner slot. A per-profile
+	// max_output_tokens field existed until 2026-09-10; it validated,
+	// persisted, was echoed by the config wizard, and was read by nothing.
 	MaxContextTokens int `yaml:"max_context_tokens" json:"max_context_tokens"` // Shard-specific context limit
-	MaxOutputTokens  int `yaml:"max_output_tokens" json:"max_output_tokens"`   // Max generation length
 
 	// Execution Limits
 	MaxExecutionTimeSec int `yaml:"max_execution_time_sec" json:"max_execution_time_sec"` // Timeout per task
@@ -40,9 +45,6 @@ func applyShardDefaults(p ShardProfile) ShardProfile {
 	if p.MaxContextTokens == 0 {
 		p.MaxContextTokens = 20000
 	}
-	if p.MaxOutputTokens == 0 {
-		p.MaxOutputTokens = 4000
-	}
 	if p.MaxExecutionTimeSec == 0 {
 		p.MaxExecutionTimeSec = 300
 	}
@@ -62,7 +64,6 @@ func DefaultShardProfile() *ShardProfile {
 		Temperature:           0.7,
 		TopP:                  0.9,
 		MaxContextTokens:      20000,
-		MaxOutputTokens:       4000,
 		MaxExecutionTimeSec:   300,
 		MaxRetries:            3,
 		MaxFactsInShardKernel: 20000,
@@ -78,7 +79,6 @@ func DefaultShardProfiles() map[string]ShardProfile {
 			Temperature:           0.7,
 			TopP:                  0.9,
 			MaxContextTokens:      30000,
-			MaxOutputTokens:       6000,
 			MaxExecutionTimeSec:   600,
 			MaxRetries:            3,
 			MaxFactsInShardKernel: 30000,
@@ -89,7 +89,6 @@ func DefaultShardProfiles() map[string]ShardProfile {
 			Temperature:           0.5,
 			TopP:                  0.9,
 			MaxContextTokens:      20000,
-			MaxOutputTokens:       4000,
 			MaxExecutionTimeSec:   300,
 			MaxRetries:            3,
 			MaxFactsInShardKernel: 20000,
@@ -100,7 +99,6 @@ func DefaultShardProfiles() map[string]ShardProfile {
 			Temperature:           0.3,
 			TopP:                  0.9,
 			MaxContextTokens:      40000,
-			MaxOutputTokens:       8000,
 			MaxExecutionTimeSec:   900,
 			MaxRetries:            2,
 			MaxFactsInShardKernel: 30000,
@@ -111,7 +109,6 @@ func DefaultShardProfiles() map[string]ShardProfile {
 			Temperature:           0.6,
 			TopP:                  0.95,
 			MaxContextTokens:      25000,
-			MaxOutputTokens:       5000,
 			MaxExecutionTimeSec:   600,
 			MaxRetries:            3,
 			MaxFactsInShardKernel: 25000,

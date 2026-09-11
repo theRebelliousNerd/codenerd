@@ -64,22 +64,25 @@ type ZAIConfig struct {
 	RetryBackoffMax  time.Duration
 	RateLimitDelay   time.Duration
 	StreamingTimeout time.Duration
+	MaxOutputTokens  int // completion ceiling; zero uses the client default
 }
 
 // AnthropicConfig holds configuration for Anthropic client.
 type AnthropicConfig struct {
-	APIKey  string
-	BaseURL string
-	Model   string
-	Timeout time.Duration
+	APIKey          string
+	BaseURL         string
+	Model           string
+	Timeout         time.Duration
+	MaxOutputTokens int // completion ceiling; zero uses the client default
 }
 
 // OpenAIConfig holds configuration for OpenAI client.
 type OpenAIConfig struct {
-	APIKey  string
-	BaseURL string
-	Model   string
-	Timeout time.Duration
+	APIKey          string
+	BaseURL         string
+	Model           string
+	Timeout         time.Duration
+	MaxOutputTokens int // completion ceiling; zero uses the client default
 }
 
 // GeminiConfig holds configuration for Gemini client.
@@ -102,20 +105,22 @@ type GeminiConfig struct {
 
 // XAIConfig holds configuration for xAI client.
 type XAIConfig struct {
-	APIKey  string
-	BaseURL string
-	Model   string
-	Timeout time.Duration
+	APIKey          string
+	BaseURL         string
+	Model           string
+	Timeout         time.Duration
+	MaxOutputTokens int // completion ceiling; zero uses the client default
 }
 
 // OpenRouterConfig holds configuration for OpenRouter client.
 type OpenRouterConfig struct {
-	APIKey   string
-	BaseURL  string
-	Model    string
-	Timeout  time.Duration
-	SiteURL  string // Optional
-	SiteName string // Optional
+	APIKey          string
+	BaseURL         string
+	Model           string
+	Timeout         time.Duration
+	SiteURL         string // Optional
+	SiteName        string // Optional
+	MaxOutputTokens int    // completion ceiling; zero uses the client default
 }
 
 // ZAIStreamOptions configures streaming behavior.

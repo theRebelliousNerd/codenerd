@@ -4,7 +4,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"unicode/utf8"
 )
 
 // =============================================================================
@@ -117,23 +116,6 @@ func TestTemplate_NilSliceFields(t *testing.T) {
 
 // Vector B: Type Coercion/Invalid Data
 
-func TestTruncatePrompt_UTF8Boundary(t *testing.T) {
-	// GAP B1: Supply strings with multi-byte runes and bisect them.
-	content := "Hello " + strings.Repeat("日本語", 100) // Multi-byte runes
-
-	// Test truncations at various points to hit different parts of multi-byte characters
-	for i := 48; i <= 52; i++ {
-		truncated := truncatePrompt(content, i)
-
-		if !utf8.ValidString(truncated) {
-			t.Errorf("Truncation at length %d produced invalid UTF-8 string: %q", i, truncated)
-		}
-		if strings.ContainsRune(truncated, '\uFFFD') {
-			t.Errorf("Truncation at length %d produced replacement characters (invalid UTF-8): %q", i, truncated)
-		}
-	}
-}
-
 func TestTemplate_MalformedSyntax(t *testing.T) {
 	// GAP B2: Verify malformed templates are treated as literal text.
 	te := NewTemplateEngine()
@@ -220,29 +202,6 @@ func TestTemplate_NestedTemplates(t *testing.T) {
 	// Single-pass: should NOT resolve the inner {{language}}
 	// The result should contain the literal "{{language}}" or "go"
 	t.Logf("Nested template result: %q", result)
-}
-
-func TestTruncatePrompt_NoParagraphBreaks(t *testing.T) {
-	// GAP C2: Test fallback hard-slice on strings without paragraph breaks.
-	content := strings.Repeat("x", 10000) // No newlines at all
-	result := truncatePrompt(content, 100)
-
-	if !strings.Contains(result, "truncated") {
-		t.Error("Expected truncation message")
-	}
-	t.Logf("Truncated length: %d", len(result))
-}
-
-func TestTruncatePrompt_WarningWithinBudget(t *testing.T) {
-	// GAP C3: Assert the final string stays within reasonable bounds.
-	content := strings.Repeat("word ", 1000) // ~5000 chars
-	maxLen := 100
-	result := truncatePrompt(content, maxLen)
-
-	// Allow some overhead for the truncation message
-	if len(result) > maxLen+100 {
-		t.Errorf("Truncated result too long: %d (max=%d)", len(result), maxLen)
-	}
 }
 
 func TestAssembler_MassiveAtomCount(t *testing.T) {

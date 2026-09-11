@@ -22,6 +22,8 @@ type AnthropicClient struct {
 	httpClient  *http.Client
 	mu          sync.Mutex
 	lastRequest time.Time
+	// maxOutputTokens is the completion ceiling sent on every request.
+	maxOutputTokens int
 	// NERD-EVOLVE-START: P1P2-prompt-caching
 	// enableSystemCaching, when true, sends the system prompt as a structured block
 	// with cache_control: {"type": "ephemeral"} to enable Anthropic prompt caching.
@@ -49,10 +51,11 @@ func NewAnthropicClient(apiKey string) *AnthropicClient {
 // NewAnthropicClientWithConfig creates a new Anthropic client with custom config.
 func NewAnthropicClientWithConfig(config AnthropicConfig) *AnthropicClient {
 	return &AnthropicClient{
-		apiKey:     config.APIKey,
-		baseURL:    config.BaseURL,
-		model:      config.Model,
-		httpClient: NewSharedHTTPClient(config.Timeout),
+		apiKey:          config.APIKey,
+		baseURL:         config.BaseURL,
+		model:           config.Model,
+		httpClient:      NewSharedHTTPClient(config.Timeout),
+		maxOutputTokens: orDefaultTokens(config.MaxOutputTokens, 8192),
 	}
 }
 
@@ -136,7 +139,7 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 
 	reqBody := AnthropicRequest{
 		Model:     c.model,
-		MaxTokens: 8192, // Higher limit for complex tasks
+		MaxTokens: c.maxOutputTokens,
 		System:    systemPrompt,
 		Messages: []AnthropicMessage{
 			{Role: "user", Content: userPrompt},
@@ -282,7 +285,7 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 
 		reqBody := AnthropicRequest{
 			Model:     c.model,
-			MaxTokens: 4096,
+			MaxTokens: c.maxOutputTokens,
 			System:    systemPrompt,
 			Messages: []AnthropicMessage{
 				{Role: "user", Content: userPrompt},
@@ -459,7 +462,7 @@ func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 
 	reqBody := AnthropicRequest{
 		Model:       c.model,
-		MaxTokens:   8192, // Higher limit for tool use
+		MaxTokens:   c.maxOutputTokens,
 		System:      systemPrompt,
 		Messages:    []AnthropicMessage{{Role: "user", Content: userPrompt}},
 		Tools:       anthropicTools,
@@ -584,7 +587,7 @@ func (c *AnthropicClient) CompleteWithToolResults(ctx context.Context, systemPro
 
 	reqBody := AnthropicRequest{
 		Model:       c.model,
-		MaxTokens:   8192,
+		MaxTokens:   c.maxOutputTokens,
 		System:      systemPrompt,
 		Messages:    messages,
 		Tools:       anthropicTools,

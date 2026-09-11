@@ -66,6 +66,8 @@ type ZAIClient struct {
 	maxRetries       int
 	streamingTimeout time.Duration
 	cooldownUntil    time.Time
+	// maxOutputTokens is the completion ceiling sent on every request.
+	maxOutputTokens int
 }
 
 // DefaultZAIConfig returns sensible defaults.
@@ -156,6 +158,7 @@ func NewZAIClientWithConfig(config ZAIConfig) *ZAIClient {
 		retryBackoffMax:  config.RetryBackoffMax,
 		maxRetries:       config.MaxRetries,
 		streamingTimeout: config.StreamingTimeout,
+		maxOutputTokens:  orDefaultTokens(config.MaxOutputTokens, 4096),
 	}
 	// Only create semaphore if not disabled (external scheduler handles concurrency)
 	if !config.DisableSemaphore {
@@ -283,7 +286,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 	reqBody := ZAIRequest{
 		Model:       c.model,
 		Messages:    messages,
-		MaxTokens:   4096,
+		MaxTokens:   c.maxOutputTokens,
 		Temperature: 0.1, // Low temperature for structured output
 	}
 
@@ -650,7 +653,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 	reqBody := ZAIRequest{
 		Model:       c.model,
 		Messages:    messages,
-		MaxTokens:   4096,
+		MaxTokens:   c.maxOutputTokens,
 		Temperature: 0.1,
 		TopP:        0.9,
 		// Stream: false (default)
@@ -1028,7 +1031,7 @@ func (c *ZAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 			zaiResp.Usage.PromptTokens, zaiResp.Usage.CompletionTokens, usageOpToolGen)
 		if lengthStop(stopReason) {
 			return nil, outputTruncated(ProviderZAI, c.model, "CompleteWithTools", stopReason, choice.Message.Content,
-				0, zaiResp.Usage.CompletionTokens)
+				c.maxOutputTokens, zaiResp.Usage.CompletionTokens)
 		}
 		if stopReason == "tool_calls" {
 			stopReason = "tool_use"

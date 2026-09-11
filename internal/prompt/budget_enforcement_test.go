@@ -141,9 +141,11 @@ func TestShedToFit_AssemblyFailureKeepsOriginal(t *testing.T) {
 	}
 }
 
-// The end-to-end contract: an adversarial atom set compiled at a realistic
-// shard budget must produce a prompt inside that budget, and must say so when
-// it had to cut.
+// The end-to-end contract: an adversarial atom set compiled at a small budget
+// either sheds whole optional atoms back under the budget, or — when the
+// mandatory skeleton alone does not fit — refuses to compile. It never cuts:
+// a prompt with its identity or safety atoms cut mid-way is not a smaller
+// prompt, it is a different constitution.
 func TestEnforceAssembledBudget_AdversarialInput(t *testing.T) {
 	c, err := NewJITPromptCompiler()
 	if err != nil {
@@ -151,13 +153,12 @@ func TestEnforceAssembledBudget_AdversarialInput(t *testing.T) {
 	}
 	defer func() { _ = c.Close() }()
 
-	const budget = 4096 // the budget subagents really compile at
+	const budget = 4096
 
 	tests := []struct {
-		name      string
-		atoms     []*OrderedAtom
-		wantUnder bool
-		wantMark  bool
+		name    string
+		atoms   []*OrderedAtom
+		wantErr bool
 	}{
 		{
 			name: "optional bloat is shed back under budget",
@@ -166,15 +167,13 @@ func TestEnforceAssembledBudget_AdversarialInput(t *testing.T) {
 				mkAtom("bloat1", CategoryExemplar, 20000, false, 10),
 				mkAtom("bloat2", CategoryKnowledge, 20000, false, 20),
 			},
-			wantUnder: true,
 		},
 		{
-			name: "a mandatory skeleton that alone overflows is cut visibly",
+			name: "a mandatory skeleton that alone overflows is refused, not cut",
 			atoms: []*OrderedAtom{
 				mkAtom("id", CategoryIdentity, 40000, true, 90),
 			},
-			wantUnder: true,
-			wantMark:  true,
+			wantErr: true,
 		},
 	}
 
@@ -189,14 +188,24 @@ func TestEnforceAssembledBudget_AdversarialInput(t *testing.T) {
 				t.Fatalf("test setup is not adversarial: %d tokens already fits %d", EstimateTokens(assembled), budget)
 			}
 
-			_, got := c.enforceAssembledBudget(tt.atoms, cc, assembled, budget)
-			used := EstimateTokens(got)
-
-			if tt.wantUnder && used > budget {
+			_, got, err := c.enforceAssembledBudget(tt.atoms, cc, assembled, budget)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "mandatory skeleton") {
+					t.Fatalf("err = %v, want a refusal naming the mandatory skeleton", err)
+				}
+				if strings.Contains(got, "truncated") {
+					t.Fatal("the prompt was cut on the way to the refusal; nothing may be cut")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("enforceAssembledBudget: %v", err)
+			}
+			if used := EstimateTokens(got); used > budget {
 				t.Errorf("prompt is still over budget: %d > %d", used, budget)
 			}
-			if tt.wantMark && !strings.Contains(got, "truncated") {
-				t.Error("a truncated prompt must carry a visible marker; silent truncation makes the model reason on a lie")
+			if strings.Contains(got, "truncated") {
+				t.Error("shedding whole atoms must leave no truncation marker")
 			}
 		})
 	}
@@ -246,17 +255,19 @@ func TestFit_SmallBudgetDoesNotOverAllocate(t *testing.T) {
 // "budget breach", and returned the over-budget prompt anyway.
 func TestCompile_ResultAlwaysFitsBudget(t *testing.T) {
 	tests := []struct {
-		name   string
-		budget int
-		atoms  []*PromptAtom
+		name    string
+		budget  int
+		atoms   []*PromptAtom
+		wantErr bool
 	}{
 		{
-			name:   "mandatory atoms far larger than a subagent budget",
+			name:   "mandatory atoms far larger than the budget refuse to compile",
 			budget: 4096,
 			atoms: []*PromptAtom{
 				bigAtom("id/huge", CategoryIdentity, 30000, true),
 				bigAtom("safety/huge", CategorySafety, 30000, true),
 			},
+			wantErr: true,
 		},
 		{
 			name:   "a corpus of oversized optional atoms",
@@ -301,6 +312,15 @@ func TestCompile_ResultAlwaysFitsBudget(t *testing.T) {
 			effective := cc.AvailableTokens()
 
 			result, err := compiler.Compile(context.Background(), cc)
+			if tt.wantErr {
+				// The mandatory skeleton does not fit. The compiler refuses
+				// rather than cutting the constitution to size; the operator
+				// raises the budget or splits the atoms.
+				if err == nil || !strings.Contains(err.Error(), "mandatory skeleton") {
+					t.Fatalf("Compile err = %v, want a refusal naming the mandatory skeleton", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("Compile: %v", err)
 			}
@@ -311,18 +331,12 @@ func TestCompile_ResultAlwaysFitsBudget(t *testing.T) {
 					"the compiler must enforce the budget it reports, not merely measure it",
 					used, effective)
 			}
-			// A prompt that had to be cut must say so — silent truncation makes
-			// the model reason on a lie.
-			if used > 0 && result.Prompt != "" {
-				total := 0
-				for _, a := range tt.atoms {
-					total += a.TokenCount
-				}
-				if total > effective && !IsClamped(result.Prompt) &&
-					!strings.Contains(result.Prompt, "truncated") &&
-					result.AtomsIncluded == len(tt.atoms) {
-					t.Error("every atom survived a budget it cannot fit, with no truncation marker")
-				}
+			// Nothing is ever cut: an atom that does not fit is omitted whole.
+			if IsClamped(result.Prompt) || strings.Contains(result.Prompt, "truncated") {
+				t.Error("the compiled prompt carries a truncation marker; atoms are omitted whole, never cut")
+			}
+			if result.AtomsIncluded == len(tt.atoms) {
+				t.Error("every atom survived a budget it cannot fit")
 			}
 		})
 	}

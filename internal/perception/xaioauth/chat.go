@@ -135,7 +135,7 @@ func (c *Client) chatOnce(ctx context.Context, model string, messages []chatMess
 	reqBody := chatRequest{
 		Model:       model,
 		Messages:    messages,
-		MaxTokens:   8192,
+		MaxTokens:   c.cfg.MaxOutputTokens,
 		Temperature: 0.1,
 		Stream:      false,
 	}

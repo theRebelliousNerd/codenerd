@@ -22,6 +22,8 @@ type XAIClient struct {
 	httpClient  *http.Client
 	mu          sync.Mutex
 	lastRequest time.Time
+	// maxOutputTokens is the completion ceiling sent on every request.
+	maxOutputTokens int
 }
 
 // DefaultXAIConfig returns sensible defaults.
@@ -43,10 +45,11 @@ func NewXAIClient(apiKey string) *XAIClient {
 // NewXAIClientWithConfig creates a new xAI client with custom config.
 func NewXAIClientWithConfig(config XAIConfig) *XAIClient {
 	return &XAIClient{
-		apiKey:     config.APIKey,
-		baseURL:    config.BaseURL,
-		model:      config.Model,
-		httpClient: NewSharedHTTPClient(config.Timeout),
+		apiKey:          config.APIKey,
+		baseURL:         config.BaseURL,
+		model:           config.Model,
+		httpClient:      NewSharedHTTPClient(config.Timeout),
+		maxOutputTokens: orDefaultTokens(config.MaxOutputTokens, 4096),
 	}
 }
 
@@ -93,7 +96,7 @@ func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 	reqBody := XAIRequest{
 		Model:       c.model,
 		Messages:    messages,
-		MaxTokens:   4096,
+		MaxTokens:   c.maxOutputTokens,
 		Temperature: 0.1,
 	}
 
@@ -160,7 +163,7 @@ func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		response := strings.TrimSpace(xaiResp.Choices[0].Message.Content)
 		if finish := xaiResp.Choices[0].FinishReason; types.LengthStop(finish) {
 			return "", outputTruncated(ProviderXAI, c.model, "CompleteWithSystem", finish, response,
-				0, xaiResp.Usage.CompletionTokens)
+				c.maxOutputTokens, xaiResp.Usage.CompletionTokens)
 		}
 		logging.Perception("[XAI] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
 		return response, nil
