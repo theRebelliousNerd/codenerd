@@ -3,6 +3,7 @@ package world
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -36,7 +37,7 @@ def standalone_function():
 	parser := NewASTParser()
 	defer parser.Close()
 
-	facts, err := parser.Parse(pythonFile)
+	facts, err := parser.ParseAs(pythonFile, pythonFile)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -114,7 +115,7 @@ pub mod my_module {
 	parser := NewASTParser()
 	defer parser.Close()
 
-	facts, err := parser.Parse(rustFile)
+	facts, err := parser.ParseAs(rustFile, rustFile)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -189,7 +190,7 @@ export type MyType = string | number;
 	parser := NewASTParser()
 	defer parser.Close()
 
-	facts, err := parser.Parse(tsFile)
+	facts, err := parser.ParseAs(tsFile, tsFile)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -262,7 +263,7 @@ export const exportedArrow = () => {
 	parser := NewASTParser()
 	defer parser.Close()
 
-	facts, err := parser.Parse(jsFile)
+	facts, err := parser.ParseAs(jsFile, jsFile)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -294,4 +295,59 @@ export const exportedArrow = () => {
 	}
 
 	t.Logf("Found %d facts", len(facts))
+}
+
+// TestASTParser_ParseAs_ShouldLabelFactsWithTheFactPath — the parser opens
+// fsPath but every fact carries factPath. A caller holding an absolute path so
+// it can read the file must still get facts under the file's canonical
+// identity, or symbol_graph/dependency_link key an identity no file_topology
+// row shares and nothing joins.
+func TestASTParser_ParseAs_ShouldLabelFactsWithTheFactPath(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		name, rel, code string
+	}{
+		{"go via cartographer", "pkg/svc.go", "package pkg\n\nimport \"fmt\"\n\nfunc Run() { fmt.Println(\"x\") }\n"},
+		{"python via tree-sitter", "app/main.py", "import os\n\ndef run():\n    return os.getcwd()\n"},
+	}
+	parser := NewASTParser()
+	defer parser.Close()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fsPath := filepath.Join(root, filepath.FromSlash(tc.rel))
+			if err := os.MkdirAll(filepath.Dir(fsPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(fsPath, []byte(tc.code), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			facts, err := parser.ParseAs(fsPath, tc.rel)
+			if err != nil {
+				t.Fatalf("ParseAs: %v", err)
+			}
+			symbols, deps := 0, 0
+			for _, f := range facts {
+				switch f.Predicate {
+				case "symbol_graph":
+					symbols++
+					if got := f.Args[3]; got != tc.rel {
+						t.Errorf("symbol_graph %v carries %q, want fact path %q", f.Args[0], got, tc.rel)
+					}
+				case "dependency_link":
+					deps++
+					if got := f.Args[0]; got != tc.rel {
+						t.Errorf("dependency_link carries %q, want fact path %q", got, tc.rel)
+					}
+				}
+				for _, a := range f.Args {
+					if s, ok := a.(string); ok && strings.Contains(s, root) {
+						t.Errorf("%s fact leaks the filesystem path: %v", f.Predicate, f.Args)
+					}
+				}
+			}
+			if symbols == 0 || deps == 0 {
+				t.Fatalf("expected symbol and dependency facts, got %d symbols / %d deps from %d facts", symbols, deps, len(facts))
+			}
+		})
+	}
 }

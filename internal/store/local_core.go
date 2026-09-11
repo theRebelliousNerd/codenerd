@@ -453,6 +453,9 @@ func (s *LocalStore) initialize() error {
 	if err := RunMigrations(s.db); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
+	if err := s.retireMislabelledDependencyEdges(); err != nil {
+		return fmt.Errorf("failed to retire mislabelled dependency edges: %w", err)
+	}
 
 	ensureReasoningTraceIndexes(s.db)
 
@@ -709,4 +712,22 @@ func (s *LocalStore) ensurePredicateVectorUniqueIndex() error {
 		 WHERE json_extract(metadata, '$.kind') = 'predicate';`,
 	)
 	return err
+}
+
+// retireMislabelledDependencyEdges deletes knowledge_graph rows whose relation
+// is "depends_on:<import path>". Every scanner wrote its import edges under
+// that label until 2026-09-10; it is not a Mangle name, so the hydrated
+// knowledge_link carried a string relation that policy/knowledge.mg's
+// /depends_on rule could never match, and each boot re-asserted the dead rows
+// into the kernel. The edges are re-projected as plain "depends_on" (import
+// path in the metadata) by the next scan, so nothing is lost by dropping them.
+func (s *LocalStore) retireMislabelledDependencyEdges() error {
+	result, err := s.db.Exec(`DELETE FROM knowledge_graph WHERE relation LIKE 'depends_on:%'`)
+	if err != nil {
+		return err
+	}
+	if n, err := result.RowsAffected(); err == nil && n > 0 {
+		logging.Store("Retired %d knowledge_graph rows labelled depends_on:<import>; the next scan re-projects them as depends_on", n)
+	}
+	return nil
 }

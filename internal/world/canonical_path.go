@@ -51,7 +51,11 @@ func CanonicalPath(root, path string) string {
 	if !isAbsSlash(p) {
 		return cleanSlash(p)
 	}
-	if rel, err := filepath.Rel(root, path); err == nil {
+	// Relativise the slash-normalised forms, not the raw arguments: on a POSIX
+	// host a backslash is an ordinary character, so a Windows-shaped root and
+	// path (a restored session, a config written on another machine) never
+	// shared a prefix and the file kept its absolute identity.
+	if rel, err := filepath.Rel(toSlashAlways(root), p); err == nil {
 		relSlash := toSlashAlways(rel)
 		if !strings.HasPrefix(relSlash, "../") && relSlash != ".." {
 			return cleanSlash(relSlash)

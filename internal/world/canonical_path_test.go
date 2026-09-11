@@ -308,3 +308,29 @@ func TestResolveWorkspacePath_WhenCanonical_ShouldOpenTheRealFile(t *testing.T) 
 		t.Errorf("ResolveWorkspacePath rewrote an absolute path: %q", got)
 	}
 }
+
+// TestCanonicalPath_WhenWindowsShaped_ShouldAgreeAcrossSpellings — the same
+// file spelled as a backslash absolute path, a forward-slash absolute path, a
+// backslash relative path and a slash relative path must yield one identity,
+// on every host. This is the property the world-model shard used to guard with
+// its own normaliser; it now lives on the single definition.
+func TestCanonicalPath_WhenWindowsShaped_ShouldAgreeAcrossSpellings(t *testing.T) {
+	const want = "internal/session/gate_names_test.go"
+	roots := []string{`C:\CodeProjects\codeNERD`, "C:/CodeProjects/codeNERD"}
+	inputs := []string{
+		`C:\CodeProjects\codeNERD\internal\session\gate_names_test.go`,
+		"C:/CodeProjects/codeNERD/internal/session/gate_names_test.go",
+		`internal\session\gate_names_test.go`,
+		"internal/session/gate_names_test.go",
+	}
+	for _, root := range roots {
+		for _, in := range inputs {
+			if got := CanonicalPath(root, in); got != want {
+				t.Errorf("CanonicalPath(%q, %q) = %q, want %q", root, in, got, want)
+			}
+		}
+		if got := CanonicalPath(root, root); got != "." {
+			t.Errorf("CanonicalPath(root, root) = %q, want \".\"", got)
+		}
+	}
+}

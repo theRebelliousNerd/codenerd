@@ -121,7 +121,17 @@ func ResolveDependencyLinks(root string, facts []core.Fact) []core.Fact {
 			}
 		}
 	}
-	return resolveDependencyLinksWithIndex(newRepoFileIndex(root, files), facts)
+	return ResolveDependencyLinksAgainst(root, files, facts)
+}
+
+// ResolveDependencyLinksAgainst is ResolveDependencyLinks with the workspace
+// file set given explicitly, as canonical paths. It is the entry point for a
+// scan that covers only part of the workspace (a chat /scan-path or /scan-dir):
+// an import from a file in hand into a package that was not rescanned still
+// has to resolve, so the index must span every file the kernel knows, not just
+// the ones whose facts are in the slice.
+func ResolveDependencyLinksAgainst(root string, workspaceFiles []string, facts []core.Fact) []core.Fact {
+	return resolveDependencyLinksWithIndex(newRepoFileIndex(root, workspaceFiles), facts)
 }
 
 func resolveDependencyLinksWithIndex(idx *repoFileIndex, facts []core.Fact) []core.Fact {

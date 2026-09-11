@@ -199,25 +199,8 @@ func (m Model) loadWorkspaceFacts(ctx context.Context, intent perception.Intent,
 		if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5); err != nil && warnings != nil {
 			*warnings = append(*warnings, fmt.Sprintf("Knowledge persistence warning: %v", err))
 		}
-		for _, f := range res.NewFacts {
-			switch f.Predicate {
-			case "dependency_link":
-				if len(f.Args) >= 2 {
-					a := types.ExtractString(f.Args[0])
-					b := types.ExtractString(f.Args[1])
-					rel := "depends_on"
-					if len(f.Args) >= 3 {
-						rel = "depends_on:" + types.ExtractString(f.Args[2])
-					}
-					_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]any{"source": "scan"})
-				}
-			case "symbol_graph":
-				if len(f.Args) >= 4 {
-					sid := types.ExtractString(f.Args[0])
-					file := types.ExtractString(f.Args[3])
-					_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]any{"source": "scan"})
-				}
-			}
+		if err := m.virtualStore.PersistLinkFacts(res.NewFacts, "scan"); err != nil && warnings != nil {
+			*warnings = append(*warnings, fmt.Sprintf("Knowledge graph warning: %v", err))
 		}
 	}
 
