@@ -374,18 +374,16 @@ func TestLegacyClientPathIsMetered(t *testing.T) {
 	}
 }
 
-// TestConcreteTypeAssertionsReachThroughTheDecorator guards the one behavioural
-// break a decorator introduces: an assertion on a concrete client type stops
-// matching once the client is wrapped.
+// TestConcreteTypeAssertionsReachThroughTheDecorator guards the identity read:
+// a decorator introduces one behavioural break — an assertion made directly on
+// the wrapped client stops matching once the client is wrapped.
 func TestConcreteTypeAssertionsReachThroughTheDecorator(t *testing.T) {
 	content := readRepoFile(t, "cmd/nerd/chat/model_session_context.go")
 
-	if strings.Contains(content, "m.client.(*perception.CodexCLIClient)") {
-		t.Error("the Codex CLI engine check asserts on the wrapped client and will never match; " +
-			"it must go through broker.Base first, or the codex_cli framework tag silently disappears " +
-			"from JIT atom selection")
+	if strings.Contains(content, "m.client.(") {
+		t.Error("an assertion on the wrapped client will never match; it must go through broker.Base first, or the provider and model silently disappear from JIT atom selection")
 	}
-	if !strings.Contains(content, "broker.Base(m.client).(*perception.CodexCLIClient)") {
-		t.Error("the Codex CLI engine check no longer reaches through the decorator via broker.Base")
+	if !strings.Contains(content, "broker.Base(m.client).(types.ModelIdentifier)") {
+		t.Error("the client identity read no longer reaches through the decorator via broker.Base")
 	}
 }
