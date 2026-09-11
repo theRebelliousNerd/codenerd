@@ -65,7 +65,7 @@ func NewWorkingSet(world WorkingWorld, root, scope string) (*WorkingSet, error) 
 	// Facts written in the policy (the spans, the transcript window) reach
 	// the fact store only when an evaluation runs; before the first Select or
 	// Continue nothing could read them back.
-	if err = engine.ReplaceControlFacts(nil); err != nil {
+	if err = engine.Evaluate(); err != nil {
 		_ = engine.Close()
 		return nil, err
 	}

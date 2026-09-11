@@ -521,6 +521,26 @@ func (e *Engine) replaceFactsForFileImpl(file string, facts []Fact, contentHash 
 	return nil
 }
 
+// Evaluate runs the program over the current store and materialises what it
+// derives, including the facts written in the program itself.
+//
+// A fact written in a loaded .mg file is a clause of the program, not an
+// entry in the store, until an evaluation runs. Proved 2026-09-11: the
+// working policy's constants and a learned exemplar loaded from
+// .nerd/mangle/learned.mg were both invisible to QueryFacts (and to Query,
+// which serves derived predicates only) until something evaluated, and the
+// only exported ways to make that happen were fact insertion and
+// ReplaceControlFacts(nil), neither of which says what it is doing.
+func (e *Engine) Evaluate() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.programInfo == nil {
+		return errNoSchemas
+	}
+	_, err := e.evalWithGasLimit()
+	return err
+}
+
 // ReplaceControlFacts replaces every base fact of the named predicates with
 // facts and re-derives from scratch.
 //
