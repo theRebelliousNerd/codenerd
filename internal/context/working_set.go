@@ -75,6 +75,8 @@ func (w *WorkingSet) Save(ctx context.Context, r WorkingRecord) error { return w
 func (w *WorkingSet) Search(ctx context.Context, query string, offset, limit int) (string, error) {
 	return w.store.Search(ctx, query, offset, limit)
 }
+// Recall returns a page of an archived observation from a character offset;
+// a limit of zero or less returns the rest of the body.
 func (w *WorkingSet) Recall(ctx context.Context, id string, offset, limit int) (string, error) {
 	r, total, err := w.store.Read(ctx, id, offset, limit)
 	if err != nil {
@@ -88,7 +90,7 @@ func (w *WorkingSet) Recall(ctx context.Context, id string, offset, limit int) (
 		Offset          int           `json:"offset"`
 		Total           int           `json:"total_chars"`
 		Next            int           `json:"next_offset"`
-	}{r, current, current != r.Revision, offset, total, min(total, offset+limit)})
+	}{r, current, current != r.Revision, offset, total, min(total, offset+len([]rune(r.Body)))})
 	return string(data), err
 }
 
@@ -320,12 +322,15 @@ func (w *WorkingSet) Select(ctx context.Context, focus string, recent []string, 
 			selection.Omitted = append(selection.Omitted, r.ID)
 			continue
 		}
-		body, length, err := w.store.Read(ctx, r.ID, 0, 16000)
+		// The whole body, so the budget alone decides whether it is shown. A
+		// 16000-character page here meant a longer observation was pointed at
+		// and never shown, however much budget the request had.
+		body, _, err := w.store.Read(ctx, r.ID, 0, 0)
 		if err != nil {
 			return selection, err
 		}
 		header := fmt.Sprintf("\n[observation id=%q entity=%q revision=%q failed=%t]\n", r.ID, r.Entity, r.Revision, r.Failed)
-		if length > len([]rune(body.Body)) || text.Len()+len(header)+len(body.Body)+1 > charBudget {
+		if text.Len()+len(header)+len(body.Body)+1 > charBudget {
 			selection.Omitted = append(selection.Omitted, r.ID)
 			ref := header + "[body outside active budget; recover with recall_context]\n"
 			if text.Len()+len(ref) <= charBudget {

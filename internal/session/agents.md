@@ -32,6 +32,13 @@
   `working_finalize` (exploration over: the pending batch runs, then the
   forced-final path and the post-edit gate) or `working_nudge` (steering text
   on the round's last tool result). Change the spans in the .mg, not in Go.
+- A working request carries the current call/result pair whole. A result is
+  archived to a `recall_context` pointer (which states the body's size) only
+  when the request cannot otherwise fit the configured input window, largest
+  result first. The tool catalog is charged to the window, never to the
+  observation section; that section's ceiling is the transcript bound it
+  replaces (`maxToolLoopHistoryBytes`). Recall returns a whole body unless the
+  caller pages. No fixed character thresholds on this path.
 - New LLM-facing behavior is a prompt atom first. `AvailableTools` describes the
   effective envelope; it is not authority.
 - Pass bounded task text into JIT retrieval even when delegation supplies only

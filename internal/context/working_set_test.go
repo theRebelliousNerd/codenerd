@@ -80,3 +80,52 @@ func TestWorkingSetContinuePolicy(t *testing.T) {
 		})
 	}
 }
+
+// A selected observation is shown whole when the budget allows, whatever its
+// length. Select used to read at most a 16000-character page of each body and
+// then treat a longer body as unshowable, so a 20 KB read the policy had
+// selected was replaced by a pointer however much budget the request had.
+func TestWorkingSetSelectShowsALongObservationWithinBudget(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
+	w, err := NewWorkingSet(nil, root, "task")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+	body := strings.Repeat("payload line\n", 3000) + "tail-marker"
+	require.Greater(t, len(body), 16000)
+	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "long", Entity: "a.go", Revision: w.Revision("a.go"), Kind: "read", Step: 1, Body: body}))
+
+	shown, err := w.Select(t.Context(), "a.go", []string{"long"}, 2*len(body))
+	require.NoError(t, err)
+	require.Contains(t, shown.Text, "tail-marker", "a body that fits the budget is shown whole")
+	require.Equal(t, []string{"long"}, shown.Selected)
+
+	pointed, err := w.Select(t.Context(), "a.go", []string{"long"}, len(body)/2)
+	require.NoError(t, err)
+	require.NotContains(t, pointed.Text, "tail-marker")
+	require.Contains(t, pointed.Text, "recover with recall_context", "a body outside the budget is pointed at, not dropped")
+}
+
+// Recall returns the rest of a body from the offset unless the caller pages,
+// and reports where the next page would start. The default page was 2000
+// characters, which handed a 14 KB read back seven calls at a time.
+func TestWorkingSetRecallReturnsTheWholeBodyUnlessPaged(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
+	w, err := NewWorkingSet(nil, root, "task")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+	body := strings.Repeat("0123456789", 2500) + "tail-marker"
+	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "whole", Entity: "a.go", Revision: w.Revision("a.go"), Kind: "read", Step: 1, Body: body}))
+
+	whole, err := w.Recall(t.Context(), "whole", 0, 0)
+	require.NoError(t, err)
+	require.Contains(t, whole, "tail-marker")
+	require.Contains(t, whole, fmt.Sprintf(`"total_chars":%d,"next_offset":%d`, len(body), len(body)))
+
+	page, err := w.Recall(t.Context(), "whole", 10, 100)
+	require.NoError(t, err)
+	require.NotContains(t, page, "tail-marker")
+	require.Contains(t, page, `"offset":10,`)
+	require.Contains(t, page, `"next_offset":110`)
+}

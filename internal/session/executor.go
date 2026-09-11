@@ -1290,7 +1290,7 @@ func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient,
 			return e.completeWithWorkingContext(ctx, provider, systemPrompt, []types.Message{{Role: "user", Text: userInput}}, toolDefs)
 		}
 		var prepareErr error
-		systemPrompt, _, prepareErr = e.prepareWorkingRequest(ctx, systemPrompt, nil)
+		systemPrompt, _, prepareErr = e.prepareWorkingRequest(ctx, systemPrompt, nil, nil)
 		if prepareErr != nil {
 			return nil, prepareErr
 		}

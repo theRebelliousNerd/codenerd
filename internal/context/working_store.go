@@ -142,10 +142,18 @@ func (s *WorkingStore) Candidates(ctx context.Context, entities []string, limit 
 	return result, rows.Err()
 }
 
-// Read retrieves a bounded page, retaining provenance on every page.
+// Read retrieves a page of a record's body from a character offset, retaining
+// provenance on every page. A limit of zero or less reads to the end: the
+// store serves what is asked for whole, and whether a body fits a request is
+// decided where the request is built, against the configured window. It used
+// to refuse any page over 16000 characters, so a selected observation longer
+// than that could never be shown in full, only pointed at.
 func (s *WorkingStore) Read(ctx context.Context, id string, offset, limit int) (WorkingRecord, int, error) {
-	if offset < 0 || offset > 1<<30 || limit < 1 || limit > 16000 {
+	if offset < 0 || offset > 1<<30 {
 		return WorkingRecord{}, 0, fmt.Errorf("invalid context page bounds")
+	}
+	if limit <= 0 {
+		limit = 1 << 30
 	}
 	var r WorkingRecord
 	var length int

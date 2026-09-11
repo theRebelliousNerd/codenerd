@@ -13,7 +13,7 @@ func RecallContextTool() *tools.Tool {
 			"id":     {Type: "string", Description: "Observation ID from working context"},
 			"query":  {Type: "string", Description: "Literal archive search when the observation ID is unknown; provide query or id"},
 			"offset": {Type: "integer", Description: "Character offset, default zero"},
-			"limit":  {Type: "integer", Description: "Page characters, default 2000; maximum 16000"},
+			"limit":  {Type: "integer", Description: "Page characters; omitted returns the rest of the body from offset. Page only when a whole body was reported as not fitting the request"},
 		}}, Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			recall := tools.ContextRecallFrom(ctx)
 			if recall == nil {
@@ -43,7 +43,10 @@ func RecallContextTool() *tools.Tool {
 			if err != nil {
 				return "", err
 			}
-			defaultLimit := 2000
+			// A body is returned whole unless the caller pages: the default
+			// page used to be 2000 characters, and a model handed a 14 KB
+			// observation in 2000-character pages re-read the file instead.
+			defaultLimit := 0
 			if query != "" {
 				defaultLimit = 10
 			}

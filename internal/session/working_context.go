@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -36,10 +37,21 @@ type workingLoop struct {
 	focus        string
 	recent       []string
 	anchor       string
-	budget       int
 	prior        []types.Message
 	observations map[string]string
 }
+
+// workingSectionCeiling bounds the observations section of a working request
+// at what the transcript it replaces was allowed to cost. The working context
+// exists so the provider transcript stops growing with every tool result; a
+// section allowed to grow to the whole input window would put that growth
+// back, at 1M-window prices, on every round of a long turn. Within the ceiling
+// the policy chooses what is shown; what it leaves out stays recallable.
+const workingSectionCeiling = maxToolLoopHistoryBytes
+
+// workingReplyReserve is the part of the input window kept free of working
+// context so the request is never sent at exactly the budget.
+const workingReplyReserve = 256
 
 func activeWorkingLoop(ctx context.Context) *workingLoop {
 	value, _ := ctx.Value(workingLoopKey{}).(*workingLoop)
@@ -67,12 +79,17 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 		return ctx, func() {}, err
 	}
 	focus := normalizeWorkingEntity(cc.IntentTarget, root)
-	loop := &workingLoop{set: set, focus: focus, anchor: input, budget: 16384, prior: e.priorTurnMessages(), observations: make(map[string]string)}
+	loop := &workingLoop{set: set, focus: focus, anchor: input, prior: e.priorTurnMessages(), observations: make(map[string]string)}
 	ctx = context.WithValue(ctx, workingLoopKey{}, loop)
 	ctx = tools.WithContextRecall(ctx, set)
 	return ctx, func() { _ = set.Close() }, nil
 }
 
+// normalizeWorkingEntity turns a target into the workspace entity observations
+// are recorded under. A target that is not a workspace path — an intent target
+// is often a phrase describing the change, not a file — resolves to the
+// workspace root rather than to a path that exists nowhere, so the first
+// round's observations are not filed under a sentence.
 func normalizeWorkingEntity(target, root string) string {
 	target = strings.TrimSpace(target)
 	if target == "" {
@@ -80,6 +97,9 @@ func normalizeWorkingEntity(target, root string) string {
 	}
 	abs, err := tools.ResolveWorkspacePath(context.Background(), root, target)
 	if err != nil {
+		return "."
+	}
+	if _, err := os.Stat(abs); err != nil {
 		return "."
 	}
 	root, err = tools.CanonicalWorkspaceRoot(root)
@@ -139,7 +159,24 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	return nil
 }
 
-func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, history []types.Message) (string, []types.Message, error) {
+// prepareWorkingRequest builds the provider request for one round of a working
+// loop: the prior turns, the anchor, the current native call/result pair, and a
+// system prompt carrying the observations the working policy selected.
+//
+// The current pair is sent whole. Observed 2026-09-11: a 14 KB read of the
+// file the brief named was swapped for an "archived, recall it" pointer on a
+// fixed 8000-character rule, and the model spent 24 rounds reading the file,
+// recalling a 2000-character page of it and reading it again, without ever
+// reaching the line it was asked to change. A result the model just asked for
+// is only archived when the request cannot otherwise fit the input window,
+// largest first, and the pointer then says how large the body is.
+//
+// The catalog of tool definitions is part of the request, so its cost comes
+// off the window like the system prompt and the transcript do. It used to be
+// subtracted from a fixed 16 KB section budget instead: a catalog of 26 tools
+// is larger than that, so the section budget was zero, no observation was ever
+// selected, and the model started every round with nothing but the anchor.
+func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, history []types.Message, definitions []types.ToolDefinition) (string, []types.Message, error) {
 	loop := activeWorkingLoop(ctx)
 	if loop == nil {
 		return system, history, nil
@@ -159,15 +196,6 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		for _, message := range history[start:] {
 			copyMessage := message
 			copyMessage.ToolResults = append([]types.ToolResult(nil), message.ToolResults...)
-			for i := range copyMessage.ToolResults {
-				if len(copyMessage.ToolResults[i].Content) > 8000 {
-					id := loop.observations[copyMessage.ToolResults[i].ToolUseID]
-					if id == "" {
-						return "", nil, fmt.Errorf("oversize tool result has no durable observation")
-					}
-					copyMessage.ToolResults[i].Content = fmt.Sprintf("Observation archived: recall_context id=%q; retrieve its paginated body. Historical evidence requires a current revision check.", id)
-				}
-			}
 			messages = append(messages, copyMessage)
 		}
 	}
@@ -175,15 +203,35 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	if window <= 0 {
 		window = DefaultTokenBudget()
 	}
-	encoded, err := json.Marshal(messages)
+	catalog := 0
+	if len(definitions) > 0 {
+		encoded, err := json.Marshal(definitions)
+		if err != nil {
+			return "", nil, err
+		}
+		catalog = prompt.EstimateTokens(string(encoded))
+	}
+	remaining, err := workingWindowRemaining(window, system, messages, catalog)
 	if err != nil {
 		return "", nil, err
 	}
-	remaining := window - prompt.EstimateTokens(system) - prompt.EstimateTokens(string(encoded))
-	if remaining < 512 {
-		return "", nil, fmt.Errorf("working request exceeds configured input budget; required instructions cannot be discarded")
+	for remaining < workingReplyReserve+512 {
+		i, j, size := largestToolResult(messages)
+		if size == 0 {
+			return "", nil, fmt.Errorf("working request exceeds configured input budget; required instructions cannot be discarded")
+		}
+		result := &messages[i].ToolResults[j]
+		id := loop.observations[result.ToolUseID]
+		if id == "" {
+			return "", nil, fmt.Errorf("oversize tool result has no durable observation")
+		}
+		result.Content = fmt.Sprintf("%s this %d-character result does not fit the request; recall_context id=%q returns it from offset 0, or in offset/limit pages. Historical evidence requires a current revision check.", archivedResultPrefix, size, id)
+		if remaining, err = workingWindowRemaining(window, system, messages, catalog); err != nil {
+			return "", nil, err
+		}
 	}
-	selected, err := loop.set.Select(ctx, loop.focus, loop.recent, min(loop.budget, (remaining-256)*4))
+	budget := min((remaining-workingReplyReserve)*4, workingSectionCeiling)
+	selected, err := loop.set.Select(ctx, loop.focus, loop.recent, budget)
 	if err != nil {
 		return "", nil, err
 	}
@@ -191,7 +239,7 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	// current code views and observations stay adjacent to the current request.
 	section := selected.Text
 	view := e.withFileContext(ctx, "", loop.focus)
-	if len(section)+len(view) <= min(loop.budget, (remaining-256)*4) {
+	if len(section)+len(view) <= budget {
 		section = view + "\n" + section
 	}
 	if section != "" {
@@ -200,19 +248,37 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	return system, messages, nil
 }
 
-func (e *Executor) completeWithWorkingContext(ctx context.Context, provider types.ToolResultsProvider, system string, history []types.Message, definitions []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	if activeWorkingLoop(ctx) != nil {
-		encoded, err := json.Marshal(definitions)
-		if err != nil {
-			return nil, err
-		}
-		// Reserve the actual catalog cost before selecting optional observations.
-		loop := activeWorkingLoop(ctx)
-		original := loop.budget
-		loop.budget = max(0, original-len(encoded))
-		defer func() { loop.budget = original }()
+// archivedResultPrefix opens the pointer that replaces a tool result the
+// request could not carry. It is also how largestToolResult recognises a
+// result it has already archived.
+const archivedResultPrefix = "Observation archived:"
+
+// workingWindowRemaining is the input window left after the system prompt, the
+// transcript and the tool catalog, in tokens.
+func workingWindowRemaining(window int, system string, messages []types.Message, catalog int) (int, error) {
+	encoded, err := json.Marshal(messages)
+	if err != nil {
+		return 0, err
 	}
-	system, history, err := e.prepareWorkingRequest(ctx, system, history)
+	return window - prompt.EstimateTokens(system) - prompt.EstimateTokens(string(encoded)) - catalog, nil
+}
+
+// largestToolResult locates the largest tool result in the transcript that has
+// not already been archived. Zero size means there is nothing left to archive.
+func largestToolResult(messages []types.Message) (mi, ri, size int) {
+	for i := range messages {
+		for j := range messages[i].ToolResults {
+			content := messages[i].ToolResults[j].Content
+			if n := len(content); n > size && !strings.HasPrefix(content, archivedResultPrefix) {
+				mi, ri, size = i, j, n
+			}
+		}
+	}
+	return mi, ri, size
+}
+
+func (e *Executor) completeWithWorkingContext(ctx context.Context, provider types.ToolResultsProvider, system string, history []types.Message, definitions []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	system, history, err := e.prepareWorkingRequest(ctx, system, history, definitions)
 	if err != nil {
 		return nil, fmt.Errorf("compile working context: %w", err)
 	}
