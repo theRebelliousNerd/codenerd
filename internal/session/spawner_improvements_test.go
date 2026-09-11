@@ -112,8 +112,11 @@ func TestSpawner_GenerateConfig_FallbackOnFailure(t *testing.T) {
 				if cc.IntentVerb != "/general" {
 					t.Errorf("Expected baseline intent /general, got %s", cc.IntentVerb)
 				}
-				if cc.TokenBudget != 4096 {
-					t.Errorf("Expected reduced budget 4096, got %d", cc.TokenBudget)
+				// The baseline retry compiles at the configured budget, not a
+				// reduced one: a smaller fallback budget cut mandatory atoms
+				// from exactly the prompt that was already struggling.
+				if cc.TokenBudget != cfg.TokenBudget {
+					t.Errorf("Expected the configured budget %d on the baseline retry, got %d", cfg.TokenBudget, cc.TokenBudget)
 				}
 				return nil, errors.New("baseline also failed")
 			}

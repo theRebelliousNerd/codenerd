@@ -508,12 +508,11 @@ func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map
 		return nil, fmt.Errorf("MCP protocol error: %w", err)
 	}
 
-	// Cap MCP context memory windows during multi-turn exchanges
-	const maxContextWindowBytes = 500 * 1024
-	if len(result.Output) > maxContextWindowBytes {
-		truncMsg := []byte("\n...[output truncated due to MCP context memory window limit]")
-		result.Output = append(result.Output[:maxContextWindowBytes], truncMsg...)
-	}
+	// The output is returned whole. It used to be cut at 500 KiB here with a
+	// marker, which lost the tail of exactly the large results (query dumps,
+	// document fetches) a model asks an external tool for; the working
+	// context archives every tool result in full and pages it, so size is
+	// managed by selection, never by cutting.
 
 	// Update usage stats defensively with nil checks and panic recovery
 	if m.store != nil && result != nil {

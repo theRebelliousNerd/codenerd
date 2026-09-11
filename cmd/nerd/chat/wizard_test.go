@@ -68,7 +68,6 @@ func TestConfigWizard_ShardProfileConfig(t *testing.T) {
 		Model:            "gpt-4",
 		Temperature:      0.7,
 		MaxContextTokens: 8000,
-		MaxOutputTokens:  4000,
 		EnableLearning:   true,
 	}
 
@@ -80,9 +79,6 @@ func TestConfigWizard_ShardProfileConfig(t *testing.T) {
 	}
 	if profile.MaxContextTokens != 8000 {
 		t.Errorf("Expected MaxContextTokens 8000, got %d", profile.MaxContextTokens)
-	}
-	if profile.MaxOutputTokens != 4000 {
-		t.Errorf("Expected MaxOutputTokens 4000, got %d", profile.MaxOutputTokens)
 	}
 	if !profile.EnableLearning {
 		t.Errorf("Expected EnableLearning true")

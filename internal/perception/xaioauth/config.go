@@ -54,7 +54,15 @@ type Config struct {
 	ImportGrokAuth     bool
 	GrokAuthPath       string
 	MaxConcurrentCalls int
+	// MaxOutputTokens is the completion ceiling sent on every request. Zero
+	// takes DefaultMaxOutputTokens; the factory fills it from the top-level
+	// max_output_tokens so this engine honours the same setting as the API
+	// providers instead of a literal in each request builder.
+	MaxOutputTokens int
 }
+
+// DefaultMaxOutputTokens is the completion ceiling when none is configured.
+const DefaultMaxOutputTokens = 8192
 
 // DefaultConfig returns sensible SuperGrok OAuth defaults.
 func DefaultConfig() Config {
@@ -69,6 +77,7 @@ func DefaultConfig() Config {
 		ImportGrokAuth:     true,
 		GrokAuthPath:       DefaultGrokAuthPath(),
 		MaxConcurrentCalls: DefaultMaxConcurrentCalls,
+		MaxOutputTokens:    DefaultMaxOutputTokens,
 	}
 }
 
@@ -103,6 +112,9 @@ func (c Config) ApplyDefaults() Config {
 	}
 	if c.MaxConcurrentCalls <= 0 {
 		c.MaxConcurrentCalls = d.MaxConcurrentCalls
+	}
+	if c.MaxOutputTokens <= 0 {
+		c.MaxOutputTokens = d.MaxOutputTokens
 	}
 	return c
 }

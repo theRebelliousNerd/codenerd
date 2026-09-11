@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"codenerd/internal/logging"
 )
@@ -467,9 +466,6 @@ type AssemblyOptions struct {
 
 	// IncludeMetadata adds atom metadata as comments
 	IncludeMetadata bool
-
-	// MaxLength truncates at this character count (0 = no limit)
-	MaxLength int
 }
 
 // DefaultAssemblyOptions returns sensible defaults.
@@ -478,7 +474,6 @@ func DefaultAssemblyOptions() AssemblyOptions {
 		IncludeSectionHeaders: false,
 		MinifyWhitespace:      false,
 		IncludeMetadata:       false,
-		MaxLength:             0,
 	}
 }
 
@@ -516,10 +511,6 @@ func (a *FinalAssembler) AssembleWithOptions(
 	// Post-processing
 	if opts.MinifyWhitespace {
 		prompt = minifyWhitespace(prompt)
-	}
-
-	if opts.MaxLength > 0 && len(prompt) > opts.MaxLength {
-		prompt = truncatePrompt(prompt, opts.MaxLength)
 	}
 
 	return prompt, nil
@@ -563,77 +554,6 @@ func minifyWhitespace(content string) string {
 	// is naturally ignored as we've finished the loop.
 
 	return sb.String()
-}
-
-// truncatePrompt is the last-resort ceiling on an assembled prompt: it runs
-// after every optional atom has already been shed, when the mandatory skeleton
-// plus post-Fit template expansion still exceeds the budget.
-//
-// It keeps the head AND the tail. defaultCategoryOrder deliberately puts
-// identity/safety first and JIT working memory (intent, world state, current
-// context) last, so head-only truncation removes exactly the part of the
-// prompt that describes the turn the model is being asked to take — the model
-// then answers with a correct persona and no idea what it was asked. The
-// marker names how much was removed so the model can see it is working from a
-// partial prompt rather than assuming completeness.
-//
-// The returned string exceeds maxLen by the marker's length; callers that need
-// a hard byte ceiling must subtract it themselves.
-func truncatePrompt(content string, maxLen int) string {
-	if maxLen <= 0 {
-		return ""
-	}
-	if len(content) <= maxLen {
-		return content
-	}
-
-	dropped := len(content) - maxLen
-	marker := fmt.Sprintf("\n\n[Content truncated due to length limits: %d of %d chars removed]\n\n",
-		dropped, len(content))
-
-	// Below minClampChars the marker dominates the budget, so a head+tail
-	// split would emit two fragments too small to read. Degrade to head-only.
-	if maxLen < minClampChars {
-		return truncateHeadAtParagraph(content, maxLen) + marker
-	}
-
-	tailChars := maxLen / clampTailDivisor
-	headChars := maxLen - tailChars
-	return truncateHeadAtParagraph(content, headChars) +
-		marker +
-		trimUTF8Prefix(content[len(content)-tailChars:])
-}
-
-// truncateHeadAtParagraph slices the first maxLen bytes, repairs the UTF-8
-// boundary, and backs up to the last paragraph break when one falls in the
-// second half — cutting mid-sentence reads as a corrupted instruction.
-func truncateHeadAtParagraph(content string, maxLen int) string {
-	if maxLen <= 0 {
-		return ""
-	}
-	if len(content) <= maxLen {
-		return content
-	}
-
-	truncated := content[:maxLen]
-
-	// Fix UTF-8 boundary efficiently
-	for len(truncated) > 0 {
-		r, size := utf8.DecodeLastRuneInString(truncated)
-		if r == utf8.RuneError && size <= 1 {
-			truncated = truncated[:len(truncated)-1]
-		} else {
-			break
-		}
-	}
-
-	// Try to truncate at a paragraph boundary
-	lastPara := strings.LastIndex(truncated, "\n\n")
-	if lastPara > maxLen/2 {
-		truncated = truncated[:lastPara]
-	}
-
-	return truncated
 }
 
 // PromptStats returns statistics about an assembled prompt.

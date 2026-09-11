@@ -25,6 +25,8 @@ type OpenRouterClient struct {
 	lastRequest time.Time
 	siteURL     string // Optional: Your site URL for rankings
 	siteName    string // Optional: Your app name for rankings
+	// maxOutputTokens is the completion ceiling sent on every request.
+	maxOutputTokens int
 }
 
 // DefaultOpenRouterConfig returns sensible defaults.
@@ -47,12 +49,13 @@ func NewOpenRouterClient(apiKey string) *OpenRouterClient {
 // NewOpenRouterClientWithConfig creates a new OpenRouter client with custom config.
 func NewOpenRouterClientWithConfig(config OpenRouterConfig) *OpenRouterClient {
 	return &OpenRouterClient{
-		apiKey:     config.APIKey,
-		baseURL:    config.BaseURL,
-		model:      config.Model,
-		siteURL:    config.SiteURL,
-		siteName:   config.SiteName,
-		httpClient: NewSharedHTTPClient(config.Timeout),
+		apiKey:          config.APIKey,
+		baseURL:         config.BaseURL,
+		model:           config.Model,
+		siteURL:         config.SiteURL,
+		siteName:        config.SiteName,
+		httpClient:      NewSharedHTTPClient(config.Timeout),
+		maxOutputTokens: orDefaultTokens(config.MaxOutputTokens, 4096),
 	}
 }
 
@@ -104,7 +107,7 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 	reqBody := OpenRouterRequest{
 		Model:       c.model,
 		Messages:    messages,
-		MaxTokens:   4096,
+		MaxTokens:   c.maxOutputTokens,
 		Temperature: 0.1,
 	}
 	if isPiggyback {
@@ -186,7 +189,7 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 		response := strings.TrimSpace(orResp.Choices[0].Message.Content)
 		if finish := orResp.Choices[0].FinishReason; types.LengthStop(finish) {
 			return "", outputTruncated(ProviderOpenRouter, c.model, "CompleteWithSystem", finish, response,
-				0, orResp.Usage.CompletionTokens)
+				c.maxOutputTokens, orResp.Usage.CompletionTokens)
 		}
 		logging.Perception("[OpenRouter] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
 		return response, nil
@@ -249,7 +252,7 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 		reqBody := OpenRouterRequest{
 			Model:       c.model,
 			Messages:    messages,
-			MaxTokens:   4096,
+			MaxTokens:   c.maxOutputTokens,
 			Temperature: 0.1,
 			Stream:      true,
 			StreamOptions: &OpenAIStreamOptions{
@@ -448,7 +451,7 @@ func (c *OpenRouterClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 	stopReason := choice.FinishReason
 	if types.LengthStop(stopReason) {
 		return nil, outputTruncated(ProviderOpenRouter, c.model, "CompleteWithTools", stopReason, choice.Message.Content,
-			0, resp.Usage.CompletionTokens)
+			c.maxOutputTokens, resp.Usage.CompletionTokens)
 	}
 	if stopReason == "tool_calls" {
 		stopReason = "tool_use"

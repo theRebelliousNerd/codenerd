@@ -100,7 +100,6 @@ type ShardProfileConfig struct {
 	Model            string
 	Temperature      float64
 	MaxContextTokens int
-	MaxOutputTokens  int
 	EnableLearning   bool
 }
 

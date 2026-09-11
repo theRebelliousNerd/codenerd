@@ -382,7 +382,7 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 // sessions stay usable after refresh-token revoke. Prefer re-import (handled in
 // TokenSource.Load) over stuck quarantined tokens before this path runs.
 func newSuperGrokClientOrAPIFallback(config *ProviderConfig) (LLMClient, error) {
-	oauthClient := xaioauth.NewClientFromUserConfig(config.XAIOAuth)
+	oauthClient := xaioauth.NewClientFromUserConfig(config.XAIOAuth, config.MaxOutputTokens)
 	if err := oauthClient.TokenSource().Load(); err != nil && xaioauth.IsAuthRequired(err) {
 		if xaiOAuthFallbackEnabled(config) {
 			if key := resolveXAIAPIKey(config); key != "" {
@@ -464,14 +464,18 @@ func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 	// API-based provider selection
 	switch config.Provider {
 	case ProviderAnthropic:
-		client := NewAnthropicClient(config.APIKey)
+		cfg := DefaultAnthropicConfig(config.APIKey)
+		cfg.MaxOutputTokens = config.MaxOutputTokens
+		client := NewAnthropicClientWithConfig(cfg)
 		if config.Model != "" {
 			client.SetModel(config.Model)
 		}
 		return client, nil
 
 	case ProviderOpenAI:
-		client := NewOpenAIClient(config.APIKey)
+		cfg := DefaultOpenAIConfig(config.APIKey)
+		cfg.MaxOutputTokens = config.MaxOutputTokens
+		client := NewOpenAIClientWithConfig(cfg)
 		if config.Model != "" {
 			client.SetModel(config.Model)
 		}
@@ -502,21 +506,27 @@ func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 		return NewGeminiClientWithConfig(geminiCfg), nil
 
 	case ProviderXAI:
-		client := NewXAIClient(config.APIKey)
+		cfg := DefaultXAIConfig(config.APIKey)
+		cfg.MaxOutputTokens = config.MaxOutputTokens
+		client := NewXAIClientWithConfig(cfg)
 		if config.Model != "" {
 			client.SetModel(config.Model)
 		}
 		return client, nil
 
 	case ProviderZAI:
-		client := NewZAIClient(config.APIKey)
+		cfg := DefaultZAIConfig(config.APIKey)
+		cfg.MaxOutputTokens = config.MaxOutputTokens
+		client := NewZAIClientWithConfig(cfg)
 		if config.Model != "" {
 			client.SetModel(config.Model)
 		}
 		return client, nil
 
 	case ProviderOpenRouter:
-		client := NewOpenRouterClient(config.APIKey)
+		cfg := DefaultOpenRouterConfig(config.APIKey)
+		cfg.MaxOutputTokens = config.MaxOutputTokens
+		client := NewOpenRouterClientWithConfig(cfg)
 		if config.Model != "" {
 			client.SetModel(config.Model)
 		}

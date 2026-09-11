@@ -485,34 +485,38 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 			tokens := int64(getTokenCount(oa.Atom, mode))
 
 			if oa.Atom.IsMandatory {
-				// Enforce absolute totalBudget cap even for mandatory atoms.
-				// Without this guard, a single oversized mandatory atom can
-				// blow the context window (e.g. a 2M-token atom against an
-				// 8K budget).
-				//
-				// Distinguish two failure modes in the log so triage is
-				// actionable. A single atom larger than the entire budget
-				// is a content problem (atom needs to be split / minified);
-				// cumulative saturation is a config problem (budget too
-				// small for the mandatory skeleton). Earlier this used a
-				// single message that conflated both and gave no signal of
-				// which was happening.
-				if tokens > int64(totalBudget) {
-					logging.Get(logging.CategoryContext).Warn(
-						"Mandatory atom %s rejected: single-atom size %d exceeds total budget %d — atom too large, split or minify it",
-						oa.Atom.ID, tokens, totalBudget,
-					)
-					unselected = append(unselected, oa)
-					continue
+				// A mandatory atom goes in whole, in the largest rendering that
+				// fits what is left of the total budget: standard, then concise,
+				// then min. If none fits, the compile fails here. Until
+				// 2026-09-10 the atom was dropped with a warning and the compile
+				// reported success — a prompt shipped with part of its
+				// constitution missing, and nothing downstream could tell.
+				placed := false
+				smallest := tokens
+				for _, candidate := range []string{"standard", "concise", "min"} {
+					if candidate == "concise" && oa.Atom.ContentConcise == "" {
+						continue
+					}
+					if candidate == "min" && oa.Atom.ContentMin == "" {
+						continue
+					}
+					mode = candidate
+					tokens = int64(getTokenCount(oa.Atom, mode))
+					if tokens >= 0 && tokens < smallest {
+						smallest = tokens
+					}
+					if tokens < 0 || tokens > int64(totalBudget) ||
+						usedTokens > math.MaxInt64-tokens ||
+						usedTokens+tokens > int64(totalBudget) {
+						continue
+					}
+					placed = true
+					break
 				}
-				if usedTokens > math.MaxInt64-tokens ||
-					usedTokens+tokens > int64(totalBudget) {
-					logging.Get(logging.CategoryContext).Warn(
-						"Mandatory atom %s (%d tokens) skipped: budget saturated by earlier atoms (used=%d/%d) — increase TokenBudget in JIT config",
-						oa.Atom.ID, tokens, usedTokens, totalBudget,
-					)
-					unselected = append(unselected, oa)
-					continue
+				if !placed {
+					return nil, fmt.Errorf(
+						"prompt budget of %d tokens cannot hold the mandatory skeleton: atom %s needs %d tokens in its smallest rendering with %d already used by earlier mandatory atoms; raise context_window.max_tokens or jit.token_budget, or split the atom",
+						totalBudget, oa.Atom.ID, smallest, usedTokens)
 				}
 				oa.RenderMode = mode
 				result = append(result, oa)
@@ -540,15 +544,10 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 			// while the default category floors total ~6100. Without this guard
 			// pass 1 spends every category's floor and overruns the window; pass
 			// 2 has always checked availableBudget, so only pass 1 leaked.
-			remainingAlloc := int64(allocation) - catTokens
-			globalRemaining := int64(availableBudget) - usedTokens
-			if remainingAlloc > globalRemaining {
-				remainingAlloc = globalRemaining
-			}
-			if remainingAlloc > 0 && tokens > remainingAlloc {
-				truncateAtomToBudget(oa.Atom, int(remainingAlloc))
-				tokens = int64(getTokenCount(oa.Atom, mode))
-			}
+			// An atom that does not fit whole is not cut to fit: it falls
+			// through to its concise and min renderings, and if none of those
+			// fit it is omitted whole. A cut atom is an instruction with its
+			// ending missing, which is worse than no instruction.
 			if tokens >= 0 &&
 				catTokens <= math.MaxInt64-tokens &&
 				usedTokens <= math.MaxInt64-tokens &&
@@ -623,12 +622,8 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 				break
 			}
 
-			// Try Standard
+			// Try Standard, whole or not at all.
 			tokens := int64(getTokenCount(oa.Atom, "standard"))
-			if remaining > 0 && tokens > remaining {
-				truncateAtomToBudget(oa.Atom, int(remaining))
-				tokens = int64(getTokenCount(oa.Atom, "standard"))
-			}
 			if tokens >= 0 && tokens <= remaining &&
 				usedTokens <= math.MaxInt64-tokens {
 				oa.RenderMode = "standard"
@@ -967,62 +962,6 @@ func tokenCountForMode(atom *PromptAtom, mode string) int {
 	return cnt
 }
 
-func truncateAtomToBudget(atom *PromptAtom, maxTokens int) {
-	// Retrieved evidence is indivisible: truncating its tail can remove the
-	// qualification that makes a measurement safe to interpret. Fit it whole
-	// in the second pass or omit it; never spend tokens on a partial witness.
-	if atom.RetrievedContext {
-		return
-	}
-	if maxTokens <= 0 {
-		atom.Content = ""
-		atom.TokenCount = 0
-		return
-	}
-	// maxTokens*2 is deliberately pessimistic (2 chars/token against the
-	// 4-chars/token estimate) so the truncated atom provably fits the
-	// remaining category allocation even on token-dense code.
-	maxChars := maxTokens * 2
-	if len(atom.Content) <= maxChars {
-		return
-	}
-	// Reserve room for the marker inside the same allocation. Truncating and
-	// then appending would push the atom back over the ceiling Fit is about
-	// to check, and the atom would be rejected for the marker that exists to
-	// explain the rejection.
-	body := maxChars
-	if body > atomTruncationMarkerBudget {
-		body -= atomTruncationMarkerBudget
-	}
-	dropped := len(atom.Content) - body
-	atom.Content = truncateUTF8Safe(atom.Content, body) +
-		fmt.Sprintf("\n%s %d of %d chars from atom %s] …", clampMarkerPrefix, dropped, len(atom.Content), atom.ID)
-	atom.TokenCount = EstimateTokens(atom.Content)
-}
-
-// atomTruncationMarkerBudget reserves bytes for the truncation marker inside
-// an atom's remaining allocation. Sized for the longest realistic marker
-// (prefix + two counts + an atom ID); over-reserving costs a few characters of
-// content, under-reserving costs the whole atom.
-const atomTruncationMarkerBudget = 120
-
-func truncateUTF8Safe(content string, maxChars int) string {
-	if maxChars <= 0 {
-		return ""
-	}
-	if len(content) <= maxChars {
-		return content
-	}
-	slice := content[:maxChars]
-	for len(slice) > 0 && (slice[len(slice)-1]&0xC0) == 0x80 {
-		slice = slice[:len(slice)-1]
-	}
-	if len(slice) > 0 && (slice[len(slice)-1]&0x80) != 0 {
-		slice = slice[:len(slice)-1]
-	}
-	return slice
-}
-
 // CategoryPriority returns the configured priority for a category, or
 // PriorityConditional for a category with no budget entry (the same fallback
 // Fit's internal getPriority uses — an unbudgeted category is shed first).
@@ -1039,7 +978,7 @@ func (m *TokenBudgetManager) CategoryPriority(cat AtomCategory) BudgetPriority {
 // least the measured overshoot's worth of atoms, so convergence is normally
 // immediate; the cap exists so a pathological template expansion (one that
 // grows faster than the atoms we remove) cannot spin. After the last pass the
-// caller falls back to truncatePrompt.
+// caller refuses to compile if the mandatory skeleton still does not fit.
 const maxShedPasses = 4
 
 // ShedToFit enforces the token budget on the ASSEMBLED prompt rather than on

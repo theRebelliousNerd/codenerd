@@ -36,9 +36,17 @@ func NewClient(cfg Config) *Client {
 }
 
 // NewClientFromUserConfig maps codeNERD config.XAIOAuthConfig into a Client.
-func NewClientFromUserConfig(uc *config.XAIOAuthConfig) *Client {
+//
+// maxOutputTokens is the top-level max_output_tokens from the user's config;
+// zero keeps DefaultMaxOutputTokens. It is a parameter rather than a field on
+// XAIOAuthConfig because the ceiling is a property of the user's setup, not
+// of the OAuth engine, and every other provider reads the same top-level key.
+func NewClientFromUserConfig(uc *config.XAIOAuthConfig, maxOutputTokens int) *Client {
 	cfg := DefaultConfig()
 	cfg.ImportGrokAuth = true
+	if maxOutputTokens > 0 {
+		cfg.MaxOutputTokens = maxOutputTokens
+	}
 	if uc != nil {
 		if uc.Model != "" {
 			cfg.Model = uc.Model
