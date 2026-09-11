@@ -699,7 +699,7 @@ func (m *Model) buildPriorShardSummaries() []types.ShardSummary {
 	for _, sr := range m.shardResultHistory {
 		summaries = append(summaries, types.ShardSummary{
 			ShardType: sr.ShardType,
-			Task:      truncateForContext(sr.Task, 100),
+			Task:      flattenForTask(sr.Task),
 			Summary:   extractShardSummary(sr),
 			Timestamp: sr.Timestamp,
 			Success:   true, // Default to success since we're showing completed shards

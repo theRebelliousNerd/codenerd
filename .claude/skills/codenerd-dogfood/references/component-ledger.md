@@ -3593,3 +3593,36 @@ hand afterwards.
 - `executeSubtask` reads `isInterrupted`/`continuationStep` from a snapshot
   taken when the command was created; Ctrl+X cannot abort an in-flight step.
 - `handleSystemDelegations` blocks up to 1.2 s per turn polling.
+
+## Open tool loop measured and governed (2026-09-11)
+
+Two `nerd chat` probes on the rebuilt binary, both through `chat_driver.py`.
+
+| Turn | Brief | Tools | Wall | Outcome |
+|---|---|---|---|---|
+| grep-shaped citation question | "which function asserts specialist_match, called from where; file:line only" | 4 | 61 s | three citations, all exact |
+| one-line edit, file+line+test named (before 2c409a58) | replace a 100-char cut in extractShardSummary | 311 (195 read_file, 62 grep, 1 edit_lines) | 30m58s | correct edit after ~25 min of reading; named test never run; ended by the 30-min ceiling as `artifact_changed`, unverified |
+| same shape (after 2c409a58) | replace a 100-char cut in buildPriorShardSummaries | 20 (8 read_file, 8 grep, 1 edit_lines) | 5m21s | correct edit; policy finalized 8 idle rounds after the write; harness ran build (38 s) and test (43 s) verification; `checks_passed` |
+
+What governed the second run: in open (progress-driven, no count ceiling)
+mode the working policy only knew a repeated-trace flag and a failure
+count. It now receives `working_progress(Intent, Rounds, Writes,
+SinceWrite, SinceVerify)` each boundary (`internal/context/working_set.mg`):
+`working_stop(/read_only_stall)` at 24 read-only rounds on a change task,
+`working_finalize(/verify_after_write)` 8 idle rounds after a write (the
+pending batch runs, then the forced-final path and the post-edit gate),
+`working_nudge(/implement|/verify|/conclude)` from 8 rounds (verify from 3
+idle rounds after a write). Spans are Mangle facts.
+
+Two engine defects surfaced by the policy table test, both older than
+this work: `Engine.ReplaceFactsForFile` keys facts by their first STRING
+argument, so control facts with an atom first argument accumulated forever
+and (evaluation being monotone) a derived `working_stop` never went away;
+`Engine.ReplaceControlFacts` replaces named predicates and clears rule
+heads before re-deriving. And `types.MangleAtom` had no encoder case, so it
+was stored as the JSON string `"\"/yes\""`: `working_control(/yes, _)` had
+never matched, and the working set's `user_intent` facts for context
+selection carried strings where the rules match names.
+
+Meta answers one tool per round at about 7 s, so rounds, not tool calls,
+are the unit the policy counts.
