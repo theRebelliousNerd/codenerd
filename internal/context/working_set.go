@@ -133,13 +133,14 @@ type WorkingSelection struct {
 // WorkingProgress is the loop's report to policy at a round boundary. The
 // loop counts; the policy (working_set.mg) decides what the counts mean.
 type WorkingProgress struct {
-	Cycle        bool // the tail of the tool trace repeats deterministically
-	FailedRounds int  // consecutive rounds in which every tool failed
-	WriteIntent  bool // the turn's verb is write-oriented
-	Rounds       int  // rounds completed this turn
-	Writes       int  // durable writes so far
-	SinceWrite   int  // rounds since the last durable write (Rounds when none)
-	SinceVerify  int  // rounds since the last focused verification (Rounds when none)
+	Cycle        bool   // the tail of the tool trace repeats deterministically
+	FailedRounds int    // consecutive rounds in which every tool failed
+	WriteIntent  bool   // the turn's verb is write-oriented
+	Rounds       int    // rounds completed this turn
+	Writes       int    // durable writes so far
+	SinceWrite   int    // rounds since the last durable write (Rounds when none)
+	SinceVerify  int    // rounds since the last focused verification (Rounds when none)
+	Regime       string // the regime the round just ran under ("" open, "commit")
 }
 
 // WorkingDecision is policy's answer. A Stop means the task is unresolved. A
@@ -171,13 +172,18 @@ func (w *WorkingSet) Continue(ctx context.Context, p WorkingProgress) (WorkingDe
 	if p.WriteIntent {
 		intent = "/write"
 	}
+	regime := "/open"
+	if strings.TrimPrefix(strings.TrimSpace(p.Regime), "/") == "commit" {
+		regime = "/commit"
+	}
 	facts := []mangle.Fact{
 		{Predicate: "working_control", Args: []any{flag, int64(p.FailedRounds)}},
 		{Predicate: "working_progress", Args: []any{intent, int64(p.Rounds), int64(p.Writes), int64(p.SinceWrite), int64(p.SinceVerify)}},
+		{Predicate: "working_regime_now", Args: []any{regime}},
 	}
 	// Control facts are not file-keyed and their derivations must not outlive
 	// them; ReplaceFactsForFile did neither (see Engine.ReplaceControlFacts).
-	if err := w.engine.ReplaceControlFacts(facts, "working_control", "working_progress"); err != nil {
+	if err := w.engine.ReplaceControlFacts(facts, "working_control", "working_progress", "working_regime_now"); err != nil {
 		return WorkingDecision{}, err
 	}
 	first := func(query, variable string) (string, error) {

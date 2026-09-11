@@ -41,7 +41,8 @@ Decl working_nudge(Kind) descr [doc("Steering the loop appends to the round's la
 # it already gathered), so its legal moves are to make the change, verify it,
 # or conclude. Observed 2026-09-11: four runs of one insertion brief re-read
 # the same four facts for 24 rounds each with the nudge in hand.
-Decl working_regime(Regime) descr [doc("The loop's regime for the next round; /commit closes exploration on a change task that ignored the implement nudge for a span, or that wrote and then only read for a span.")].
+Decl working_regime(Regime) descr [doc("The loop's regime for the next round; /commit closes exploration on a change task that ignored the implement nudge for a span, or that wrote and then only read for a span, and stays until a verification.")].
+Decl working_regime_now(Regime) bound [/name].
 Decl working_commit_rounds(N) bound [/number].
 Decl working_finalize_rounds(N) bound [/number].
 Decl working_stopped() bound [].
@@ -65,6 +66,14 @@ working_regime(/commit) :-
 working_regime(/commit) :-
     working_progress(/write, _, Writes, SinceWrite, SinceVerify), Writes > 0,
     working_nudge_rounds(N), SinceWrite >= N, SinceVerify >= N.
+# Once closed, reading stays closed until a verification brings evidence the
+# model has not seen; a write by itself lifts nothing. Observed 2026-09-11
+# with the regime lifting on a write: a twelve-site signature change went
+# one edit per cycle, each cycle eight rounds of re-reading, closure, three
+# recalls and one edit.
+working_regime(/commit) :-
+    working_regime_now(/commit),
+    working_progress(/write, _, _, _, SinceVerify), SinceVerify > 0.
 
 working_stop(/repeated_cycle) :- working_control(/yes, _).
 working_stop(/tool_failures) :- working_control(_, Failed), Failed >= 3.

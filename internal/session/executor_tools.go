@@ -236,7 +236,9 @@ func (e *Executor) runToolLoop(
 			// this it saw only a repeated-trace flag and a failure count, so an
 			// open loop on a change task could read for half an hour, write one
 			// line, and read on without ever running the test the task named.
-			decision, policyErr := activeWorkingLoop(ctx).set.Continue(ctx, budget.workingProgress(writeOriented, failedRounds))
+			progress := budget.workingProgress(writeOriented, failedRounds)
+			progress.Regime = activeWorkingLoop(ctx).regime
+			decision, policyErr := activeWorkingLoop(ctx).set.Continue(ctx, progress)
 			if policyErr != nil {
 				cancelExploration()
 				return currentResponse, toolErrs, fmt.Errorf("working continuation policy: %w", policyErr)

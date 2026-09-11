@@ -72,7 +72,9 @@ func TestWorkingSetContinuePolicy(t *testing.T) {
 		{"a change task is nudged to verify three rounds after a write", WorkingProgress{WriteIntent: true, Rounds: 5, Writes: 1, SinceWrite: 3, SinceVerify: 5}, WorkingDecision{Continue: true, Nudge: "verify"}},
 		{"a change task that wrote and drifted for a nudge span is put in the commit regime", WorkingProgress{WriteIntent: true, Rounds: 10, Writes: 1, SinceWrite: 8, SinceVerify: 10}, WorkingDecision{Continue: true, Nudge: "verify", Regime: "commit"}},
 		{"a change task that wrote and drifted for the finalize span finalizes", WorkingProgress{WriteIntent: true, Rounds: 18, Writes: 1, SinceWrite: 16, SinceVerify: 18}, WorkingDecision{Continue: true, Finalize: "verify_after_write", Nudge: "verify", Regime: "commit"}},
-		{"a write under the commit regime lifts it", WorkingProgress{WriteIntent: true, Rounds: 11, Writes: 2, SinceWrite: 0, SinceVerify: 11}, WorkingDecision{Continue: true}},
+		{"a write with reading open leaves it open", WorkingProgress{WriteIntent: true, Rounds: 11, Writes: 2, SinceWrite: 0, SinceVerify: 11}, WorkingDecision{Continue: true}},
+		{"a write under the commit regime does not lift it", WorkingProgress{WriteIntent: true, Regime: "commit", Rounds: 11, Writes: 2, SinceWrite: 0, SinceVerify: 11}, WorkingDecision{Continue: true, Regime: "commit"}},
+		{"a verification under the commit regime lifts it", WorkingProgress{WriteIntent: true, Regime: "commit", Rounds: 12, Writes: 2, SinceWrite: 1, SinceVerify: 0}, WorkingDecision{Continue: true}},
 		{"a verified write keeps going", WorkingProgress{WriteIntent: true, Rounds: 12, Writes: 1, SinceWrite: 10, SinceVerify: 1}, WorkingDecision{Continue: true}},
 	}
 	for _, tc := range cases {
