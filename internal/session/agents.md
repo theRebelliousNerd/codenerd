@@ -35,6 +35,10 @@
   task that ignored the implement nudge for a span: read tools leave the
   offered catalog, a read asked for anyway is answered with the regime and
   not run, `recall_context` stays). Change the spans in the .mg, not in Go.
+- Post-edit repair rounds (build, tests) go through the working request
+  path. The first round is open; a round that read without editing is
+  followed by one more under the commit regime with the compiler or test
+  output again. Two rounds at most; the regime is restored afterwards.
 - A working request carries the current call/result pair whole. A result is
   archived to a `recall_context` pointer (which states the body's size) only
   when the request cannot otherwise fit the configured input window, largest

@@ -56,6 +56,18 @@ func closedForReading(name string) bool {
 	return err == nil && effect == tools.EffectRead
 }
 
+// enterCommitRegime puts the active working loop under the commit regime and
+// returns the call that restores what it was. A no-op outside a working loop.
+func (e *Executor) enterCommitRegime(ctx context.Context) func() {
+	loop := activeWorkingLoop(ctx)
+	if loop == nil {
+		return func() {}
+	}
+	previous := loop.regime
+	loop.regime = commitRegime
+	return func() { loop.regime = previous }
+}
+
 // commitRegimeDefinitions is the catalog offered under the commit regime.
 func commitRegimeDefinitions(definitions []types.ToolDefinition) []types.ToolDefinition {
 	kept := make([]types.ToolDefinition, 0, len(definitions))
