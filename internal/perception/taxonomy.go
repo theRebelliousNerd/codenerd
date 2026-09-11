@@ -192,6 +192,10 @@ func (t *TaxonomyEngine) tryLoadLearned() {
 		fmt.Printf("WARNING: Failed to load learned taxonomy from %s: %v\n", learnedPath, err)
 		return
 	}
+	if err := t.engine.Evaluate(); err != nil {
+		fmt.Printf("WARNING: Failed to load learned taxonomy from %s: %v\n", learnedPath, err)
+		return
+	}
 	t.learnedPath = learnedPath
 }
 
