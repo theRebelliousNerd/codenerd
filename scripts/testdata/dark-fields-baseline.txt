@@ -15,12 +15,11 @@ AmbientContext.SelectedText	internal/types/types.go:401
 AuditReportInput.Discovery	internal/browser/contract_audit_report.go:16
 BindMount.ReadOnly	internal/tactile/platform_unix.go:115
 BootConfig.KernelOverride	internal/system/factory.go:80
-CompilationStats.CacheHit	internal/prompt/compiler.go:172
 CompilationStats.FallbackUsed	internal/prompt/compiler.go:169
-CompilerConfig.VectorSearchTimeout	internal/prompt/compiler.go:370
-CompilerStats.AverageTimeMs	internal/prompt/compiler.go:1446
-CompilerStats.ProjectAtomCount	internal/prompt/compiler.go:1443
-CompilerStats.TotalCompilations	internal/prompt/compiler.go:1445
+CompilerConfig.VectorSearchTimeout	internal/prompt/compiler.go:404
+CompilerStats.AverageTimeMs	internal/prompt/compiler.go:1480
+CompilerStats.ProjectAtomCount	internal/prompt/compiler.go:1477
+CompilerStats.TotalCompilations	internal/prompt/compiler.go:1479
 CompressedTurn.ActionAtoms	internal/context/types.go:190
 DecomposeRequest.UserHints	internal/campaign/decomposer.go:215
 DependencyError.ConflictID	internal/prompt/resolver.go:318

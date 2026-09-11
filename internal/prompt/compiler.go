@@ -282,6 +282,40 @@ type CompilationResult struct {
 // It combines rule-based selection (Mangle) with semantic search (vectors)
 // to select the most relevant prompt atoms for a given context.
 
+// cacheHitResult returns a cached compilation marked as what it is.
+//
+// CompilationStats.CacheHit had three readers — the stats summary line,
+// ToLogFields()["cache_hit"], and the glass-box "(cache hit)" suffix — and no
+// writer anywhere. It reported false on every compilation this repository has
+// ever done, including the ones served straight out of the LRU above. The
+// counter next to it (c.cacheHits) works; the per-compilation flag, which is
+// what any correlation between a hit and what the turn cost would be joined
+// on, did not.
+//
+// It has to be a copy rather than a field assignment. The cache stores a
+// *CompilationResult and hands the same pointer to every hit, so setting
+// CacheHit on it would mark the ORIGINAL compilation as a cache hit
+// retroactively — and would race two callers writing the same field. Copying
+// the result and its stats gives this caller an honest answer without touching
+// what anyone else is holding.
+//
+// The copy is shallow on purpose. Prompt, the atom slice and the manifest are
+// shared with the cache entry exactly as they were before this function
+// existed: that exposure is not new and is not what this is about. Stats is
+// the only thing that differs between one caller and another.
+func cacheHitResult(cached *CompilationResult) *CompilationResult {
+	if cached == nil {
+		return nil
+	}
+	hit := *cached
+	if cached.Stats != nil {
+		stats := *cached.Stats
+		stats.CacheHit = true
+		hit.Stats = &stats
+	}
+	return &hit
+}
+
 // promptCacheEntry holds a cached compilation result and its key.
 type promptCacheEntry struct {
 	key    string
@@ -502,7 +536,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		atomic.AddInt64(&c.cacheHits, 1)
 		logging.Get(logging.CategoryJIT).Info("Prompt cache HIT for %s (hash=%s, hits=%d)",
 			cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheHits))
-		return cached, nil
+		return cacheHitResult(cached), nil
 	}
 	c.cacheMu.Unlock()
 	// Singleflight to prevent Thundering Herd
