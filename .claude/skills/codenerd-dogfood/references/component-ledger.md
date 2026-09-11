@@ -3620,6 +3620,8 @@ Two `nerd chat` probes on the rebuilt binary, both through `chat_driver.py`.
 | TUI prompt path never set provider/model | assembler maps `ExtraContext["provider"/"model"]` into the compilation context + test | 30 (2 writes) | 7m17s | mapping and test in one turn; `checks_passed` (08af2006) |
 | TUI never supplied provider/model | `buildSessionContext` reads the client's `ModelIdentity` through the broker | 13 (1 write) | 5m43s | exact; `checks_passed` (600a1d6d) |
 | Codex backend atom pinned as a project framework; TUI hint by hand (three-file brief) | atom → `providers: ["/codex_cli"]`, hint block + `perception` import removed, test renamed | 21 (3 writes) | 7m19s | two of three edits landed; the removed import broke the build and the first repair round fixed it with `delete_lines` (f0a89c22 at work); the test rename was skipped and re-briefed alone (6be7b276) |
+| broker audit test still looked for the removed Codex assertion literal | `TestConcreteTypeAssertionsReachThroughTheDecorator` repointed at `broker.Base(m.client).(types.ModelIdentifier)` | 3 (1 write) | 1m11s | exact; `checks_passed` (bca82aa2). Found by the full suite, not the brief: a source-scanning test in another package guarded the literal 6be7b276 removed |
+| `TestStreamingSettlesWhenTheStreamEnds` flaky under `-race` (waited on the ledger, asserted on the receipt emitted after it) | wait on `sink.last()` instead | 11 (1 write) | 2m34s | exact edit and comment (comment landed on one 167-char line, wrapped by hand); 30 runs under `-race` pass. The model reported it could not run `-count=30` because the test tool hardcodes `-count=1` — a flake is exactly when a count is needed |
 
 What governed the second run: in open (progress-driven, no count ceiling)
 mode the working policy only knew a repeated-trace flag and a failure
@@ -3693,6 +3695,20 @@ fact: `Engine.Query` serves derived predicates only, and a fact written in a
 
 Full suite on the tree at 058c3a01: 87 packages ok, 0 failures, exit 0,
 binary rebuilt (2026-09-11 09:42).
+
+Full suite on the tree at 14e7a8d9: 86 ok, 1 failure — the broker audit
+test above, whose literal 6be7b276 had removed. Rule from it: before
+deleting a literal, grep `*_test.go` across the whole tree for it; a
+source-scanning guard can live in a package the brief never names.
+
+Running the broker package four times under `-race` after that fix
+exposed a second, unrelated flake: `TestStreamingSettlesWhenTheStreamEnds`
+waits on the ledger, which `core.settle` records before it emits the
+receipt, then asserts on the receipt (2 of 4 runs). Briefed as a one-file
+test fix (wait on the sink instead); landed in eleven tools.
+
+Tool gap seen in that run: the test tool offers no `-count` or `-race`, so
+the model could verify the fix once but not thirty times as the brief asked.
 
 Brief discipline, restated from the stalled test brief: read the target
 function's real signature and name it verbatim, with the file it reads and
