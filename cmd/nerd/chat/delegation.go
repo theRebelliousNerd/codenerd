@@ -88,7 +88,7 @@ func formatShardTaskWithContext(verb, target, constraint, workspace string, prio
 		}
 		// If fixing after a test failure, include test errors
 		if priorResult.ShardType == "tester" && priorResult.RawOutput != "" {
-			return fmt.Sprintf("fix file:%s test_errors:[%s]", target, truncateForTask(priorResult.RawOutput, 500))
+			return fmt.Sprintf("fix file:%s test_errors:[%s]", target, flattenForTask(priorResult.RawOutput))
 		}
 
 	case "/refactor":
@@ -108,13 +108,13 @@ func formatShardTaskWithContext(verb, target, constraint, workspace string, prio
 	case "/test":
 		// If testing after a fix, include what was fixed
 		if priorResult.ShardType == "coder" {
-			return fmt.Sprintf("write_tests for %s after_fix context:[%s]", target, truncateForTask(priorResult.RawOutput, 300))
+			return fmt.Sprintf("write_tests for %s after_fix context:[%s]", target, flattenForTask(priorResult.RawOutput))
 		}
 
 	case "/debug":
 		// Include prior test or error context
 		if priorResult.ShardType == "tester" || priorResult.ShardType == "reviewer" {
-			return fmt.Sprintf("debug %s context:[%s]", target, truncateForTask(priorResult.RawOutput, 500))
+			return fmt.Sprintf("debug %s context:[%s]", target, flattenForTask(priorResult.RawOutput))
 		}
 	}
 
@@ -136,9 +136,9 @@ func formatFindingsForTask(findings []map[string]any, targetFile string) string 
 
 		if msg != "" {
 			if line > 0 {
-				parts = append(parts, fmt.Sprintf("%s@L%d:%s", sev, line, truncateForTask(msg, 100)))
+				parts = append(parts, fmt.Sprintf("%s@L%d:%s", sev, line, flattenForTask(msg)))
 			} else {
-				parts = append(parts, fmt.Sprintf("%s:%s", sev, truncateForTask(msg, 100)))
+				parts = append(parts, fmt.Sprintf("%s:%s", sev, flattenForTask(msg)))
 			}
 		}
 	}
@@ -234,14 +234,14 @@ func filterFindingsBySeverity(findings []map[string]any, severities []string) []
 	return result
 }
 
-// truncateForTask truncates a string for embedding in task strings
-func truncateForTask(s string, maxLen int) string {
-	s = strings.ReplaceAll(s, "\n", " ")
+// flattenForTask makes a prior shard's output fit on the one line a task
+// string is, without cutting it. It used to cut at 300-500 characters, so
+// the coder fixing "after the tests failed" was handed the first fifth of
+// the test log and the failure at the end of it was not in the task.
+func flattenForTask(s string) string {
 	s = strings.ReplaceAll(s, "\r", "")
-	if len(s) > maxLen {
-		return s[:maxLen] + "..."
-	}
-	return s
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.TrimSpace(s)
 }
 
 func formatShardTask(verb, target, constraint, workspace string) string {

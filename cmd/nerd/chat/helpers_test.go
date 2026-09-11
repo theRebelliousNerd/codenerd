@@ -1059,26 +1059,22 @@ func TestFilterFindingsBySeverity(t *testing.T) {
 	}
 }
 
-func TestTruncateForTask(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		maxLen int
-	}{
-		{"shorter than max", "hello", 100},
-		{"exact length", "hello", 5},
-		{"needs truncation", "hello world this is a long message", 10},
-		{"empty", "", 10},
+func TestFlattenForTask(t *testing.T) {
+	// A prior shard's output rides into the next task whole: flattened onto
+	// one line, never cut. The failure that matters is usually the last line.
+	long := strings.Repeat("line of test output\n", 200) + "--- FAIL: TestLast (0.01s)\r\n"
+	got := flattenForTask(long)
+	if strings.ContainsAny(got, "\r\n") {
+		t.Errorf("newlines survived flattening: %q", got[:40])
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := truncateForTask(tt.input, tt.maxLen)
-			// The function may add "..." when truncating, so just check it's reasonably bounded
-			if len(result) > tt.maxLen+3 { // Allow for "..." suffix
-				t.Errorf("truncateForTask(%q, %d) returned len=%d, exceeds max+3", tt.input, tt.maxLen, len(result))
-			}
-		})
+	if !strings.HasSuffix(got, "--- FAIL: TestLast (0.01s)") {
+		t.Errorf("the end of the output was dropped: ...%q", got[max(0, len(got)-60):])
+	}
+	if strings.Count(got, "line of test output") != 200 {
+		t.Errorf("output was cut: %d of 200 lines kept", strings.Count(got, "line of test output"))
+	}
+	if flattenForTask("") != "" {
+		t.Error("empty input should flatten to empty")
 	}
 }
 
