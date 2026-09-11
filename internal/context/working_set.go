@@ -62,6 +62,13 @@ func NewWorkingSet(world WorkingWorld, root, scope string) (*WorkingSet, error) 
 		_ = engine.Close()
 		return nil, err
 	}
+	// Facts written in the policy (the spans, the transcript window) reach
+	// the fact store only when an evaluation runs; before the first Select or
+	// Continue nothing could read them back.
+	if err = engine.ReplaceControlFacts(nil); err != nil {
+		_ = engine.Close()
+		return nil, err
+	}
 	storage, err := OpenWorkingStore(root, scope)
 	if err != nil {
 		_ = engine.Close()
@@ -206,11 +213,39 @@ func (w *WorkingSet) Continue(ctx context.Context, p WorkingProgress) (WorkingDe
 
 // Select refreshes a bounded dependency slice, then asks the canonical Mangle
 // context rules which entities matter. Only the selected record bodies load.
-func (w *WorkingSet) Select(ctx context.Context, focus string, recent []string, charBudget int) (WorkingSelection, error) {
+// TranscriptRounds is the policy's span of native call/result rounds the
+// request keeps in the provider transcript (working_transcript_rounds).
+//
+// Read from the fact store rather than through Query: a constant written in
+// the policy is a base fact, and the rule-evaluating query path answers
+// nothing for one (working_nudge_rounds(N) likewise), while the rules that
+// join on it evaluate fine.
+func (w *WorkingSet) TranscriptRounds(context.Context) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	facts := w.engine.QueryFacts("working_transcript_rounds")
+	if len(facts) == 0 || len(facts[0].Args) != 1 {
+		return 0, fmt.Errorf("working policy declares no working_transcript_rounds")
+	}
+	n, err := strconv.Atoi(fmt.Sprint(facts[0].Args[0]))
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("working_transcript_rounds must be a positive count, got %v", facts[0].Args[0])
+	}
+	return n, nil
+}
+
+// Select chooses the observations for this round's system prompt. shown
+// names the observations whose native call/result pair the request already
+// carries in the transcript; they are neither selected nor reported omitted.
+func (w *WorkingSet) Select(ctx context.Context, focus string, recent, shown []string, charBudget int) (WorkingSelection, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return WorkingSelection{}, err
+	}
+	inTranscript := make(map[string]bool, len(shown))
+	for _, id := range shown {
+		inTranscript[id] = true
 	}
 	var facts []mangle.Fact
 	var worldFacts []core.Fact
@@ -278,6 +313,9 @@ func (w *WorkingSet) Select(ctx context.Context, focus string, recent []string, 
 	for _, id := range recent {
 		add("working_recent", id)
 	}
+	for _, id := range shown {
+		add("working_in_transcript", id)
+	}
 	// Replace, not accumulate. ReplaceFactsForFile keys removal by a fact's
 	// first string argument, and none of these facts is keyed by the label,
 	// so nothing asserted here was ever removed: every revision a file had
@@ -287,7 +325,7 @@ func (w *WorkingSet) Select(ctx context.Context, focus string, recent []string, 
 	// selected again. Seen live 2026-09-11: after its one edit the model
 	// re-read the edited file eight times and concluded that no edit had been
 	// needed.
-	if err := w.engine.ReplaceControlFacts(facts, "user_intent", "focus_resolution", "dependency_link", "working_revision", "working_observation", "working_digest", "working_recent"); err != nil {
+	if err := w.engine.ReplaceControlFacts(facts, "user_intent", "focus_resolution", "dependency_link", "working_revision", "working_observation", "working_digest", "working_recent", "working_in_transcript"); err != nil {
 		return WorkingSelection{}, err
 	}
 	result, err := w.engine.Query(ctx, "working_selected(ID, Priority)")
@@ -338,6 +376,9 @@ func (w *WorkingSet) Select(ctx context.Context, focus string, recent []string, 
 		}
 	}
 	for _, r := range records {
+		if inTranscript[r.ID] {
+			continue
+		}
 		if priorities[r.ID] == 0 {
 			selection.Omitted = append(selection.Omitted, r.ID)
 			continue
@@ -364,6 +405,6 @@ func (w *WorkingSet) Select(ctx context.Context, focus string, recent []string, 
 		selection.Selected = append(selection.Selected, r.ID)
 	}
 	selection.Text = text.String()
-	logging.Context("Working context: candidates=%d selected=%d omitted=%d chars=%d focus=%q", len(records), len(selection.Selected), len(selection.Omitted), text.Len(), focus)
+	logging.Context("Working context: candidates=%d selected=%d omitted=%d in_transcript=%d chars=%d focus=%q", len(records), len(selection.Selected), len(selection.Omitted), len(shown), text.Len(), focus)
 	return selection, nil
 }

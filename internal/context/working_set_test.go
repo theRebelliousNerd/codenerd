@@ -24,15 +24,15 @@ func TestWorkingSetEvictionRecallAndRevision(t *testing.T) {
 		}
 		require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: fmt.Sprint(i), Entity: entity, Revision: w.Revision(entity), Kind: fmt.Sprint(i), Step: int64(i), Body: strings.Repeat("payload ", 80) + fmt.Sprintf(" fact-%d", i)}))
 	}
-	selected, err := w.Select(t.Context(), "b.go", nil, 1800)
+	selected, err := w.Select(t.Context(), "b.go", nil, nil, 1800)
 	require.NoError(t, err)
 	require.NotContains(t, selected.Text, "fact-0")
 	require.LessOrEqual(t, len(selected.Text), 1800)
-	recalled, err := w.Select(t.Context(), "a.go", nil, 1800)
+	recalled, err := w.Select(t.Context(), "a.go", nil, nil, 1800)
 	require.NoError(t, err)
 	require.Contains(t, recalled.Text, "fact-0", "early fact must return after many intervening observations")
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package changed"), 0600))
-	stale, err := w.Select(t.Context(), "a.go", nil, 1800)
+	stale, err := w.Select(t.Context(), "a.go", nil, nil, 1800)
 	require.NoError(t, err)
 	require.NotContains(t, stale.Text, "fact-0", "changed source invalidates old evidence")
 	page, err := w.Recall(t.Context(), "0", 0, 1000)
@@ -95,12 +95,12 @@ func TestWorkingSetSelectShowsALongObservationWithinBudget(t *testing.T) {
 	require.Greater(t, len(body), 16000)
 	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "long", Entity: "a.go", Revision: w.Revision("a.go"), Kind: "read", Step: 1, Body: body}))
 
-	shown, err := w.Select(t.Context(), "a.go", []string{"long"}, 2*len(body))
+	shown, err := w.Select(t.Context(), "a.go", []string{"long"}, nil, 2*len(body))
 	require.NoError(t, err)
 	require.Contains(t, shown.Text, "tail-marker", "a body that fits the budget is shown whole")
 	require.Equal(t, []string{"long"}, shown.Selected)
 
-	pointed, err := w.Select(t.Context(), "a.go", []string{"long"}, len(body)/2)
+	pointed, err := w.Select(t.Context(), "a.go", []string{"long"}, nil, len(body)/2)
 	require.NoError(t, err)
 	require.NotContains(t, pointed.Text, "tail-marker")
 	require.Contains(t, pointed.Text, "recover with recall_context", "a body outside the budget is pointed at, not dropped")
@@ -146,7 +146,7 @@ func TestWorkingSetSelectFollowsTheFileAcrossAnEdit(t *testing.T) {
 
 	before := w.Revision("a.go")
 	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "read-before", Entity: "a.go", Revision: before, Kind: "read_file/x", Step: 1, Body: "body before"}))
-	first, err := w.Select(t.Context(), "a.go", []string{"read-before"}, 100000)
+	first, err := w.Select(t.Context(), "a.go", []string{"read-before"}, nil, 100000)
 	require.NoError(t, err)
 	require.Equal(t, []string{"read-before"}, first.Selected)
 
@@ -156,7 +156,7 @@ func TestWorkingSetSelectFollowsTheFileAcrossAnEdit(t *testing.T) {
 	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "edit", Entity: "a.go", Revision: after, Kind: "edit_lines/y", Step: 2, Body: "body edit"}))
 	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "read-after", Entity: "a.go", Revision: after, Kind: "read_file/x", Step: 3, Body: "body after"}))
 
-	second, err := w.Select(t.Context(), "a.go", []string{"read-before", "edit", "read-after"}, 100000)
+	second, err := w.Select(t.Context(), "a.go", []string{"read-before", "edit", "read-after"}, nil, 100000)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"edit", "read-after"}, second.Selected, "the post-edit observations are the working set")
 	require.Equal(t, []string{"read-before"}, second.Omitted, "the pre-edit read is stale")
@@ -181,8 +181,32 @@ func TestWorkingSetSelectCollapsesRepeatedBodies(t *testing.T) {
 	}
 	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "other", Entity: "a.go", Revision: rev, Kind: "read_file/range-50-60", Step: 4, Body: "a.go: lines 50-60 of 90\ndifferent projection"}))
 
-	sel, err := w.Select(t.Context(), "a.go", []string{"r0", "r1", "r2", "other"}, 100000)
+	sel, err := w.Select(t.Context(), "a.go", []string{"r0", "r1", "r2", "other"}, nil, 100000)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"r2", "other"}, sel.Selected, "the latest copy of a repeated body and the distinct body")
 	require.Equal(t, 1, strings.Count(sel.Text, "same projection"))
+}
+
+// An observation whose call/result pair the request already carries in the
+// transcript is neither selected into the section nor reported omitted, so
+// nothing is sent twice; the span of such rounds is the policy's.
+func TestWorkingSetSelectSkipsObservationsShownInTheTranscript(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
+	w, err := NewWorkingSet(nil, root, "task")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+	rounds, err := w.TranscriptRounds(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, 3, rounds, "the policy's working_transcript_rounds")
+	rev := w.Revision("a.go")
+	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "older", Entity: "a.go", Revision: rev, Kind: "read_file/1", Step: 1, Body: "older body"}))
+	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "current", Entity: "a.go", Revision: rev, Kind: "read_file/2", Step: 2, Body: "current body"}))
+
+	sel, err := w.Select(t.Context(), "a.go", []string{"older", "current"}, []string{"current"}, 100000)
+	require.NoError(t, err)
+	require.Equal(t, []string{"older"}, sel.Selected)
+	require.Empty(t, sel.Omitted, "a shown observation is not an omission")
+	require.Contains(t, sel.Text, "older body")
+	require.NotContains(t, sel.Text, "current body")
 }

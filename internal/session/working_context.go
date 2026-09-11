@@ -181,22 +181,37 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	if loop == nil {
 		return system, history, nil
 	}
-	// Keep the current native call/result pair intact. Earlier observations live
-	// in the selected state, rather than an ever-growing provider transcript.
+	// Keep the last rounds of native call/result pairs intact, as many as the
+	// policy says. Older observations live in the selected state rather than
+	// an ever-growing provider transcript. Only the current pair was kept
+	// before, and a model that saw no turn of its own before this one started
+	// every round from scratch (see working_transcript_rounds in the policy).
+	rounds, err := loop.set.TranscriptRounds(ctx)
+	if err != nil {
+		return "", nil, err
+	}
 	start := len(history)
-	for i := len(history) - 1; i >= 0; i-- {
+	for i, kept := len(history)-1, 0; i >= 0; i-- {
 		if history[i].Role == "assistant" && len(history[i].ToolCalls) > 0 {
 			start = i
-			break
+			if kept++; kept >= rounds {
+				break
+			}
 		}
 	}
 	messages := append([]types.Message(nil), loop.prior...)
 	messages = append(messages, types.Message{Role: "user", Text: loop.anchor})
+	var shown []string
 	if start < len(history) {
 		for _, message := range history[start:] {
 			copyMessage := message
 			copyMessage.ToolResults = append([]types.ToolResult(nil), message.ToolResults...)
 			messages = append(messages, copyMessage)
+			for _, call := range message.ToolCalls {
+				if id := loop.observations[call.ID]; id != "" {
+					shown = append(shown, id)
+				}
+			}
 		}
 	}
 	window := e.configSnapshot().TokenBudget
@@ -231,7 +246,7 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		}
 	}
 	budget := min((remaining-workingReplyReserve)*4, workingSectionCeiling)
-	selected, err := loop.set.Select(ctx, loop.focus, loop.recent, budget)
+	selected, err := loop.set.Select(ctx, loop.focus, loop.recent, shown, budget)
 	if err != nil {
 		return "", nil, err
 	}

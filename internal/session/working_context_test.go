@@ -103,15 +103,36 @@ func TestPrepareWorkingRequest_CarriesTheCurrentResultWholeUnderAProductionCatal
 		t.Fatalf("catalog is %d bytes; the regression needs one larger than the old 16384-character section budget", len(encoded))
 	}
 
+	// Three more rounds push the first read out of the transcript window, so
+	// it has to come back through the selected section, which is where the
+	// zeroed budget used to lose it.
+	for round := 2; round <= 4; round++ {
+		call := types.ToolCall{ID: fmt.Sprintf("call-%d", round), Name: "read_file", Input: map[string]any{"path": "target.go", "start_line": round}}
+		later := fmt.Sprintf("round-%d-body", round)
+		if err := e.recordWorkingResult(ctx, call, later, nil); err != nil {
+			t.Fatalf("recordWorkingResult: %v", err)
+		}
+		history = append(history,
+			types.Message{Role: "assistant", ToolCalls: []types.ToolCall{call}},
+			types.Message{Role: "user", ToolResults: []types.ToolResult{{ToolUseID: call.ID, Content: later}}})
+	}
+
 	provider := &captureProvider{MockLLMClient: &MockLLMClient{}}
 	if _, err := e.completeWithWorkingContext(ctx, provider, "system", history, defs); err != nil {
 		t.Fatalf("completeWithWorkingContext: %v", err)
 	}
-	if got := lastToolResult(t, provider.history); got != body {
-		t.Fatalf("the current read result was not sent whole; the model saw:\n%s", got)
+	if got := lastToolResult(t, provider.history); got != "round-4-body" {
+		t.Fatalf("the current result was not sent whole; the model saw:\n%s", got)
+	}
+	for _, m := range provider.history {
+		for _, r := range m.ToolResults {
+			if r.Content == body {
+				t.Fatal("the first read is outside the transcript window and must not be in the transcript")
+			}
+		}
 	}
 	if !strings.Contains(provider.system, "[observation id=") || !strings.Contains(provider.system, "needle-line-437") {
-		t.Fatalf("the round's observation was not selected into the working section under a %d-tool catalog; system prompt tail:\n%s", len(defs), provider.system[max(0, len(provider.system)-600):])
+		t.Fatalf("the first read was not selected into the working section under a %d-tool catalog; system prompt tail:\n%s", len(defs), provider.system[max(0, len(provider.system)-600):])
 	}
 }
 
@@ -132,8 +153,8 @@ func TestPrepareWorkingRequest_ArchivesOnlyWhatTheWindowCannotCarry(t *testing.T
 	if !strings.HasPrefix(got, archivedResultPrefix) || !strings.Contains(got, fmt.Sprintf("%d-character", len(body))) || !strings.Contains(got, "recall_context id=") {
 		t.Fatalf("archived pointer must name the size and the record; got:\n%s", got)
 	}
-	if !strings.Contains(provider.system, "recover with recall_context") {
-		t.Fatalf("an observation outside the section budget must still be pointed at; system prompt tail:\n%s", provider.system[max(0, len(provider.system)-400):])
+	if strings.Contains(provider.system, "needle-line-437") {
+		t.Fatal("a result the transcript points at must not also be sent in the section")
 	}
 }
 
@@ -150,5 +171,63 @@ func TestNormalizeWorkingEntity_PhraseTargetIsTheWorkspaceRoot(t *testing.T) {
 	}
 	if got := normalizeWorkingEntity("real.go", root); got != "real.go" {
 		t.Fatalf("file target normalised to %q, want real.go", got)
+	}
+}
+
+// The request keeps the policy's span of native rounds so the model sees its
+// own recent turns; older rounds move to the section, and no observation is
+// sent both ways. Three runs on 2026-09-11 stalled with only the current
+// pair kept: each round the model, seeing no earlier turn of its own,
+// re-read the same region to "locate the insertion point" and never wrote.
+func TestPrepareWorkingRequest_KeepsRecentRoundsInTheTranscript(t *testing.T) {
+	e := newWorkingLoopExecutor(t, &MockLLMClient{})
+	e.config.TokenBudget = 200000
+	if err := os.WriteFile(filepath.Join(e.config.WorkspaceRoot, "target.go"), []byte("package target\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "fix target.go", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "target.go"})
+	if err != nil {
+		t.Fatalf("beginWorkingLoop: %v", err)
+	}
+	t.Cleanup(closeLoop)
+
+	history := []types.Message{{Role: "user", Text: "fix target.go"}}
+	for round := 1; round <= 5; round++ {
+		call := types.ToolCall{ID: fmt.Sprintf("call-%d", round), Name: "read_file", Input: map[string]any{"path": "target.go", "start_line": round}}
+		body := fmt.Sprintf("round-%d-body", round)
+		if err := e.recordWorkingResult(ctx, call, body, nil); err != nil {
+			t.Fatalf("recordWorkingResult: %v", err)
+		}
+		history = append(history,
+			types.Message{Role: "assistant", Text: fmt.Sprintf("round %d", round), ToolCalls: []types.ToolCall{call}},
+			types.Message{Role: "user", ToolResults: []types.ToolResult{{ToolUseID: call.ID, Content: body}}})
+	}
+
+	provider := &captureProvider{MockLLMClient: &MockLLMClient{}}
+	if _, err := e.completeWithWorkingContext(ctx, provider, "system", history, nil); err != nil {
+		t.Fatalf("completeWithWorkingContext: %v", err)
+	}
+	var transcript strings.Builder
+	for _, m := range provider.history {
+		transcript.WriteString(m.Text)
+		for _, r := range m.ToolResults {
+			transcript.WriteString(r.Content)
+		}
+	}
+	for round := 3; round <= 5; round++ {
+		if !strings.Contains(transcript.String(), fmt.Sprintf("round-%d-body", round)) {
+			t.Fatalf("round %d must stay in the transcript (policy keeps 3 rounds); transcript: %q", round, transcript.String())
+		}
+		if strings.Contains(provider.system, fmt.Sprintf("round-%d-body", round)) {
+			t.Fatalf("round %d is in the transcript and must not also be in the section", round)
+		}
+	}
+	for round := 1; round <= 2; round++ {
+		if strings.Contains(transcript.String(), fmt.Sprintf("round-%d-body", round)) {
+			t.Fatalf("round %d is outside the kept span and must leave the transcript", round)
+		}
+		if !strings.Contains(provider.system, fmt.Sprintf("round-%d-body", round)) {
+			t.Fatalf("round %d left the transcript and must be in the section; section tail: %q", round, provider.system[max(0, len(provider.system)-400):])
+		}
 	}
 }

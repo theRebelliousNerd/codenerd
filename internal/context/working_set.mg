@@ -8,6 +8,18 @@ Decl working_revision(Entity, Revision) bound [/string, /string].
 # what was asked.
 Decl working_digest(ID, Digest) bound [/string, /string].
 Decl working_recent(ID) bound [/string].
+# Observations whose native call/result pair is in the provider transcript
+# this round. They are the model's own recent turns and are not repeated in
+# the selected state.
+Decl working_in_transcript(ID) bound [/string].
+# Rounds of native call/result pairs kept in the provider transcript. The
+# current round is always kept. Observed 2026-09-11: with only the current
+# pair kept, every earlier read lived in the system prompt as an observation
+# block and the model, seeing no turn of its own before this one, "located
+# the insertion point" afresh on every round of a three-fact insertion and
+# never wrote; three runs stalled at the read-only ceiling.
+Decl working_transcript_rounds(N) bound [/number].
+working_transcript_rounds(3).
 Decl working_stale(ID) bound [/string].
 Decl working_superseded(ID) bound [/string].
 Decl working_selected(ID, Priority) bound [/string, /name].
@@ -81,8 +93,8 @@ working_superseded(ID) :-
 working_selected(ID, Priority) :-
     working_observation(ID, Entity, _, _, _),
     should_include_context(Entity, Priority),
-    !working_stale(ID), !working_superseded(ID).
+    !working_stale(ID), !working_superseded(ID), !working_in_transcript(ID).
 
 working_selected(ID, /p100) :-
     working_observation(ID, _, _, _, _), working_recent(ID),
-    !working_stale(ID), !working_superseded(ID).
+    !working_stale(ID), !working_superseded(ID), !working_in_transcript(ID).

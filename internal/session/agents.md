@@ -38,7 +38,10 @@
   result first. The tool catalog is charged to the window, never to the
   observation section; that section's ceiling is the transcript bound it
   replaces (`maxToolLoopHistoryBytes`). Recall returns a whole body unless the
-  caller pages. No fixed character thresholds on this path.
+  caller pages. No fixed character thresholds on this path. The transcript
+  keeps the last `working_transcript_rounds` (policy fact) native rounds so
+  the model sees its own recent turns; those observations are excluded from
+  the section, so nothing is sent twice.
 - New LLM-facing behavior is a prompt atom first. `AvailableTools` describes the
   effective envelope; it is not authority.
 - Pass bounded task text into JIT retrieval even when delegation supplies only
