@@ -100,6 +100,26 @@ jobs:
       # indistinguishable from a legitimate "nothing to report".
       - name: Dark-field budget
         run: go run ./cmd/tools/audit_dark_fields
+      # A test that calls t.Parallel() and then reads runtime.NumGoroutine, or
+      # writes os.Setenv, is measuring or mutating its neighbours rather than
+      # its subject. This job went red on exactly that:
+      #
+      #   --- FAIL: TestUpdate_NoGoroutineLeakOnQuit
+      #       Possible goroutine leak: before=68 after=88
+      #
+      # with no leak to find -- the subject creates no goroutines at all, and
+      # cmd/nerd/chat has 176 parallel tests. Three properties make it worse
+      # than an ordinary flake: it passes locally and on most runs, the message
+      # names the innocent test, and both halves review clean because only the
+      # PAIR is wrong and no diff shows a pair.
+      #
+      # Go already panics on t.Setenv in a parallel test, so the language
+      # authors consider this worth runtime enforcement; that guard sees one
+      # function. This is the rest. The baseline is empty and meant to stay
+      # empty, because the fix -- drop t.Parallel() -- is always available and
+      # costs a second of wall clock.
+      - name: Parallel tests and process-global state
+        run: go run ./cmd/tools/audit_parallel_globals
       # cmd/tools/action_linter cross-checks the three places an action name
       # has to agree: the Mangle policy that emits it, the router that routes
       # it, and the VirtualStore that executes it. It has existed unrun, which

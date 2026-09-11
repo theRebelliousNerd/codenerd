@@ -117,8 +117,10 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	if entity != "" {
 		loop.focus = normalizeWorkingEntity(entity, e.workspaceForVerification())
 	}
-	// The discarded error is recorded in the audit_json_errors baseline, and
-	// this is the note that says it was checked rather than waved through.
+	// The discarded error is recorded in the audit_json_errors baseline, whose
+	// tool doc reaches the same conclusion from the other end; this is the note
+	// that says so where the reader of this line actually is. Keep the two in
+	// step if either changes.
 	// ToolCall.Input is only ever built by json.Unmarshal into a map[string]any
 	// (client_tool_helpers.go, xaioauth/tools.go), so its values are nil, bool,
 	// float64, string, []any or map[string]any -- and JSON has no NaN or Inf

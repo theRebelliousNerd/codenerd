@@ -5,7 +5,6 @@ package e2e_test
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -389,22 +388,29 @@ func TestE2E_VirtualStore_GraphQuery_Resource_MassiveDataPayload(t *testing.T) {
 	vs.SetGraphQuery(mock)
 	kernel.SetVirtualStore(vs)
 
-	// Monitor memory (rough heuristic)
-	var m1, m2 runtime.MemStats
-	runtime.ReadMemStats(&m1)
-
+	// There were two runtime.ReadMemStats calls here, into m1 and m2, under a
+	// comment reading "Monitor memory (rough heuristic)". Nothing ever compared
+	// them. They were a measurement with no reader -- taken, stored, and never
+	// asked a question of -- which is the same defect this file's subject is
+	// full of, in local-variable form.
+	//
+	// They could not have been made to work where they stood, either.
+	// ReadMemStats reports allocation for the WHOLE PROCESS and this test is
+	// t.Parallel(), so the delta it would have measured is every other parallel
+	// test's allocation as much as this one's. audit_parallel_globals is the
+	// gate for that, and this was its one finding.
+	//
+	// What the test actually asserts is in the line below and in the absence of
+	// a panic: a 100,000-element slice translates through goToMangleTerm and
+	// comes back with results. That is a resilience check and it is a real one.
 	answers, err := kernel.Query(`query_graph("huge", "arg", R)`)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
 
-	runtime.ReadMemStats(&m2)
-
 	if len(answers) == 0 {
 		t.Fatal("Expected results, got 0")
 	}
-
-	// This is a resilience check: no panic occurred when building the massive AST list.
 }
 
 // TestE2E_VirtualStore_GraphQuery_Resource_QuerySpam ensures the system can handle
