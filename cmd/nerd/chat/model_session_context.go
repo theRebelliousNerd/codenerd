@@ -11,7 +11,6 @@ import (
 	"codenerd/internal/campaign"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
-	"codenerd/internal/perception"
 	"codenerd/internal/testoutput"
 	"codenerd/internal/types"
 )
@@ -54,21 +53,6 @@ func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 	// Set before the engine hint below, which appends to whatever is here.
 	if fws := m.queryProjectFacts("project_framework"); len(fws) > 0 {
 		sessionCtx.ExtraContext["frameworks"] = strings.Join(fws, ",")
-	}
-
-	// Engine hinting for JIT prompt selection:
-	// When Codex CLI is the active LLM backend, tag it as a "framework" so we can
-	// select engine-specific atoms (e.g., disable native shell tools, prefer Piggyback).
-	// Reach through the metering decorator before asserting on the concrete
-	// engine type. The broker wraps every client at construction, so a bare
-	// assertion here would stop matching and the codex_cli framework tag would
-	// silently disappear from JIT atom selection.
-	if _, ok := broker.Base(m.client).(*perception.CodexCLIClient); ok {
-		if existing := strings.TrimSpace(sessionCtx.ExtraContext["frameworks"]); existing != "" {
-			sessionCtx.ExtraContext["frameworks"] = existing + ",codex_cli"
-		} else {
-			sessionCtx.ExtraContext["frameworks"] = "codex_cli"
-		}
 	}
 
 	// The prompt corpus gates 326 of its 918 atom entries on a language, and

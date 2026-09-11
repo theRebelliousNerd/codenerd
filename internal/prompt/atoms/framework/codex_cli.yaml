@@ -9,7 +9,7 @@
   subcategory: "codex_cli"
   priority: 82
   is_mandatory: true
-  frameworks: ["/codex_cli"]
+  providers: ["/codex_cli"]
   content: |
     ## Codex CLI Backend Mode
 
