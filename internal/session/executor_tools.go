@@ -774,6 +774,9 @@ func (e *Executor) executeAndRecordToolCall(
 	cfg *config.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (string, error) {
+	if isWriteMutationTool(call.Name) {
+		snapshotPreWriteContents(result, call.Input, e.workspaceForVerification())
+	}
 	out, err := e.executeToolCall(ctx, ToolCall{ID: call.ID, Name: call.Name, Args: call.Input}, cfg)
 	result.ToolCallsExecuted++
 	memoryErr := e.recordWorkingResult(ctx, call, out, err)
@@ -807,6 +810,39 @@ func recordWrittenPaths(result *ExecutionResult, args map[string]any, workspace 
 		}
 	}
 	return nil
+}
+
+// snapshotPreWriteContents records what each target file held before the
+// turn's first write to it, so post-edit signals can be narrowed to the lines
+// the turn changed. It never fails a call: a missing snapshot only widens a
+// later signal.
+func snapshotPreWriteContents(result *ExecutionResult, args map[string]any, workspace string) {
+	paths, err := projectdoc.TargetPaths(args)
+	if err != nil {
+		return
+	}
+	for _, path := range paths {
+		normalized := canonicalizeWrittenPath(path, workspace)
+		if normalized == "" {
+			continue
+		}
+		if result.PreWriteContents == nil {
+			result.PreWriteContents = map[string]string{}
+		}
+		if _, seen := result.PreWriteContents[normalized]; seen {
+			continue
+		}
+		target := normalized
+		if workspace != "" {
+			target = filepath.Join(workspace, filepath.FromSlash(normalized))
+		}
+		data, readErr := os.ReadFile(target)
+		if readErr != nil {
+			result.PreWriteContents[normalized] = ""
+			continue
+		}
+		result.PreWriteContents[normalized] = string(data)
+	}
 }
 
 // intentRequiresToolCall asks the Mangle kernel whether the supplied intent

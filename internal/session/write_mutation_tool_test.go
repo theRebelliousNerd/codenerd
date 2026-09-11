@@ -1,6 +1,8 @@
 package session
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"codenerd/internal/core"
@@ -89,5 +91,32 @@ func TestRecordWrittenPaths_RecordsEveryCanonicalNestedTarget(t *testing.T) {
 		if result.WrittenPaths[i] != want[i] {
 			t.Fatalf("WrittenPaths[%d]=%q want %q", i, result.WrittenPaths[i], want[i])
 		}
+	}
+}
+
+func TestSnapshotPreWriteContents_KeepsTheContentBeforeTheFirstWrite(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("old"), 0o644); err != nil {
+		t.Fatalf("write a.go: %v", err)
+	}
+	result := &ExecutionResult{}
+	snapshotPreWriteContents(result, map[string]any{"path": "a.go"}, ws)
+	if got := result.PreWriteContents["a.go"]; got != "old" {
+		t.Fatalf("PreWriteContents[%q]=%q want %q", "a.go", got, "old")
+	}
+	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("new"), 0o644); err != nil {
+		t.Fatalf("overwrite a.go: %v", err)
+	}
+	snapshotPreWriteContents(result, map[string]any{"path": "a.go"}, ws)
+	if got := result.PreWriteContents["a.go"]; got != "old" {
+		t.Fatalf("PreWriteContents[%q]=%q want %q after second snapshot", "a.go", got, "old")
+	}
+	snapshotPreWriteContents(result, map[string]any{"path": "missing.go"}, ws)
+	got, ok := result.PreWriteContents["missing.go"]
+	if !ok {
+		t.Fatalf("PreWriteContents missing key %q", "missing.go")
+	}
+	if got != "" {
+		t.Fatalf("PreWriteContents[%q]=%q want %q", "missing.go", got, "")
 	}
 }
