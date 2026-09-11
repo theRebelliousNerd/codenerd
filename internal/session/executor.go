@@ -968,6 +968,30 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	} else {
 		compiled, compileErr := e.jitCompiler.Compile(ctx, compilationCtx)
 		if compileErr != nil {
+			// FLAGGED, not changed: this fallback and main's 938cd87 disagree,
+			// and the disagreement is worth someone's decision rather than
+			// mine.
+			//
+			// That commit made the compiler REFUSE when the mandatory skeleton
+			// does not fit the budget, and its reasoning is explicit: "A cut
+			// identity or safety atom is not a smaller prompt, it is a
+			// different constitution, and a turn that runs on one is worse
+			// than a turn that refuses." This line catches that refusal and
+			// runs the turn on fifty-two characters — which is a different
+			// constitution by any reading, and the Warn above is the only
+			// trace.
+			//
+			// The compiler cannot help a caller tell those apart: the refusal
+			// is a plain fmt.Errorf, so "the budget cannot hold the skeleton"
+			// and "the corpus database is locked" arrive as the same error.
+			// Distinguishing them wants a typed error in internal/prompt and a
+			// decision about what a refused compile should do to a turn, which
+			// belongs with whoever owns this loop.
+			//
+			// The narrower improvement available without that decision is to
+			// degrade to prompt.AssembleEmbeddedBaselinePrompt, the embedded
+			// mandatory atoms, as internal/articulation already does in the
+			// same situation — a real constitution rather than one sentence.
 			logging.Get(logging.CategorySession).Warn("JIT compilation failed, using baseline: %v", compileErr)
 			// Fall back to baseline prompt if JIT fails
 			compileResult = &prompt.CompilationResult{

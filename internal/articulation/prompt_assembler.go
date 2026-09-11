@@ -391,16 +391,30 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input any) 
 		cc := pa.toCompilationContext(pc)
 		result, err := compiler.Compile(ctx, cc)
 		if err == nil {
-			// Ensure Piggyback Protocol is present when required
-			if shouldAppendPiggybackProtocol(cc.ShardType, result.Prompt) &&
-				(!strings.Contains(result.Prompt, "control_packet") || !strings.Contains(result.Prompt, "surface_response")) {
+			// Build the returned prompt in a local rather than appending to
+			// result.Prompt.
+			//
+			// The compiler keeps an LRU and, on a MISS, the *CompilationResult
+			// it returns is the very object it just stored. `result.Prompt +=`
+			// therefore wrote the Piggyback suffix into the cache entry, so
+			// every later hit on that context served a prompt the compiler had
+			// not produced — and TestCompiledPromptIsByteStable cannot see it,
+			// because it compares what the compiler returns, not what a
+			// consumer did to it afterwards. The guard below keeps it from
+			// compounding; it does not keep it from happening.
+			//
+			// A cache hit is already safe (the hit path hands out a copy), so
+			// this closes the other half rather than the same one twice.
+			assembled := result.Prompt
+			if shouldAppendPiggybackProtocol(cc.ShardType, assembled) &&
+				(!strings.Contains(assembled, "control_packet") || !strings.Contains(assembled, "surface_response")) {
 				logging.Articulation("JIT prompt missing Piggyback Protocol - appending mandatory suffix")
-				result.Prompt += "\n\n" + PiggybackProtocolSuffix
+				assembled += "\n\n" + PiggybackProtocolSuffix
 			}
 
 			logging.Articulation("JIT compiled prompt: %d bytes, %d atoms, %.1f%% budget",
-				len(result.Prompt), result.AtomsIncluded, result.BudgetUsed*100)
-			return result.Prompt, nil
+				len(assembled), result.AtomsIncluded, result.BudgetUsed*100)
+			return assembled, nil
 		}
 		// Telemetry: record JIT fallback into the kernel if possible.
 		reason := err.Error()

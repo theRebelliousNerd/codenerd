@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -198,5 +199,43 @@ func TestJITStatsSurviveAMissingProjectCorpus(t *testing.T) {
 	compiler := cacheProbeCompiler(t)
 	if got := compiler.GetStats().ProjectAtomCount; got != 0 {
 		t.Errorf("ProjectAtomCount = %d with no project DB, want 0", got)
+	}
+}
+
+// A consumer must not be able to change what the cache holds.
+//
+// The compiler keeps an LRU and, on a MISS, hands back the very object it just
+// stored — so a caller that appends to result.Prompt writes into the cache
+// entry, and every later hit on that context serves a prompt the compiler did
+// not produce. internal/articulation did exactly that with the Piggyback
+// suffix. TestCompiledPromptIsByteStable cannot see it: it compares what the
+// compiler returns, not what a consumer did to it afterwards.
+//
+// This is the compiler-side half of the pin. It does not stop a caller
+// mutating what it is given — Go has no way to — but it fails if the SECOND
+// compile of a context ever reflects the first caller's edit, which is the
+// only consequence that reaches a model.
+func TestACallerEditingItsResultCannotReachTheCache(t *testing.T) {
+	compiler := cacheProbeCompiler(t)
+	ctxFor := func() *CompilationContext { return NewCompilationContext().WithTokenBudget(10000, 1000) }
+
+	first, err := compiler.Compile(context.Background(), ctxFor())
+	require.NoError(t, err)
+	original := first.Prompt
+	require.NotEmpty(t, original, "an empty prompt proves nothing here")
+
+	// A consumer doing what articulation used to do.
+	first.Prompt += "\n\nAPPENDED BY A CONSUMER"
+
+	second, err := compiler.Compile(context.Background(), ctxFor())
+	require.NoError(t, err)
+
+	if strings.Contains(second.Prompt, "APPENDED BY A CONSUMER") {
+		t.Error("a later compile served a consumer's edit back out of the cache; " +
+			"the prompt the model sees is no longer the prompt the compiler built")
+	}
+	if second.Prompt != original {
+		t.Errorf("the cached prompt changed after a consumer edited its copy:\n got %d bytes\nwant %d bytes",
+			len(second.Prompt), len(original))
 	}
 }

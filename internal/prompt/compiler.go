@@ -282,38 +282,44 @@ type CompilationResult struct {
 // It combines rule-based selection (Mangle) with semantic search (vectors)
 // to select the most relevant prompt atoms for a given context.
 
-// cacheHitResult returns a cached compilation marked as what it is.
+// privateResult hands a caller its own copy of a compilation.
 //
-// CompilationStats.CacheHit had three readers — the stats summary line,
-// ToLogFields()["cache_hit"], and the glass-box "(cache hit)" suffix — and no
-// writer anywhere. It reported false on every compilation this repository has
-// ever done, including the ones served straight out of the LRU above. The
-// counter next to it (c.cacheHits) works; the per-compilation flag, which is
-// what any correlation between a hit and what the turn cost would be joined
-// on, did not.
+// Every exit from Compile goes through here, and each of the three has the same
+// hazard for a different reason:
 //
-// It has to be a copy rather than a field assignment. The cache stores a
-// *CompilationResult and hands the same pointer to every hit, so setting
-// CacheHit on it would mark the ORIGINAL compilation as a cache hit
-// retroactively — and would race two callers writing the same field. Copying
-// the result and its stats gives this caller an honest answer without touching
-// what anyone else is holding.
+//   - a cache HIT returns the object the LRU holds, shared with every past and
+//     future hit on that context;
+//   - a cache MISS returns the object it has just STORED in the LRU, so a
+//     caller that edits it edits the cache;
+//   - a singleflight JOIN hands one object to two concurrent callers.
 //
-// The copy is shallow on purpose. Prompt, the atom slice and the manifest are
-// shared with the cache entry exactly as they were before this function
-// existed: that exposure is not new and is not what this is about. Stats is
-// the only thing that differs between one caller and another.
-func cacheHitResult(cached *CompilationResult) *CompilationResult {
-	if cached == nil {
+// internal/articulation walked into the second one: it appended the Piggyback
+// suffix to result.Prompt, which wrote into the cache entry, and every later
+// hit on that context served a prompt the compiler had not produced.
+// TestCompiledPromptIsByteStable cannot see that — it compares what the
+// compiler returns, not what a consumer did to it afterwards.
+//
+// cacheHit is a parameter rather than a field read because it is the one thing
+// that legitimately differs between two callers holding the same compilation,
+// and setting it on the shared object would mark the ORIGINAL compile as a hit
+// retroactively and race two callers writing one field.
+//
+// The copy is SHALLOW, and the limit is worth stating: Prompt is a string, so
+// a caller reassigning it cannot reach the original, but IncludedAtoms,
+// CategoryTokens and Manifest are still shared and a caller that mutates their
+// contents still reaches everyone. That exposure predates this function. What
+// it closes is the one that reaches a model — the prompt text itself.
+func privateResult(res *CompilationResult, cacheHit bool) *CompilationResult {
+	if res == nil {
 		return nil
 	}
-	hit := *cached
-	if cached.Stats != nil {
-		stats := *cached.Stats
-		stats.CacheHit = true
-		hit.Stats = &stats
+	out := *res
+	if res.Stats != nil {
+		stats := *res.Stats
+		stats.CacheHit = cacheHit
+		out.Stats = &stats
 	}
-	return &hit
+	return &out
 }
 
 // promptCacheEntry holds a cached compilation result and its key.
@@ -541,7 +547,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		atomic.AddInt64(&c.cacheHits, 1)
 		logging.Get(logging.CategoryJIT).Info("Prompt cache HIT for %s (hash=%s, hits=%d)",
 			cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheHits))
-		return cacheHitResult(cached), nil
+		return privateResult(cached, true), nil
 	}
 	c.cacheMu.Unlock()
 	// Singleflight to prevent Thundering Herd
@@ -829,7 +835,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 	if shared {
 		logging.Get(logging.CategoryJIT).Info("Prompt compilation joined via singleflight for hash=%s", cacheKey[:8])
 	}
-	return res, nil
+	return privateResult(res, false), nil
 }
 
 func acquireCompilationKernel(base KernelQuerier) (KernelQuerier, func(), error) {
