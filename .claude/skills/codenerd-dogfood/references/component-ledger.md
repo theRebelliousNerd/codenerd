@@ -3626,6 +3626,7 @@ Two `nerd chat` probes on the rebuilt binary, both through `chat_driver.py`.
 | its schema entry (one file) | `"count"` property on `run_tests` | 6 (2 writes) | 4m54s | exact; most of the time in the gates (a one-line edit drew "59 blocks of Go that no test executes", see below); `checks_passed` (91aa8a19) |
 | its validation test (one file) | `TestTypedVerification_ValidatesCount` | 4 (1 write) | 1m22s | exact, mirrors the neighbouring test; `checks_passed` (91aa8a19) |
 | critic-uplift reply replaces the answer (twelve-site signature change in one package: nine returns, two `fmt.Errorf` returns, the caller, one test) | `verifyAndUpliftWithCritic` returns `([]string, error)` | 56 (3 writes) | 8m20s | first run under 3fddec99: 14 reads, one edit (the last return), 8 rounds of re-reading, reading closed at 26 tools, three recalls, one edit, regime lifted on the write, 8 more rounds of reading, closed again at 45, eight recalls, finalized at 53 (`verify_after_write`), build broken, repair rounds did not finish. Nine returns, the caller and four test sites (three the brief had not named) finished by hand (47b97fac). Finding: the regime lifting on a write gives this model a fresh reading span per edit |
+| pre-write snapshots (three-part brief: field, function + call, test) | `ExecutionResult.PreWriteContents` | 42 (1 write) | 8m57s | first run under the sticky regime (f8ede0e1): the field landed at tool 11; then the same three regions were read five times each with slightly different ranges (section 102→146 KB a round), reading closed at 32, seven `recall_context` searches and one `git status` under the regime, finalized at 40 with no second edit. Final message said plainly it had not applied parts two and three. Root cause fixed by hand: covered spans now supersede (d08a2a82). Parts two and three re-briefed one file each |
 
 What governed the second run: in open (progress-driven, no count ceiling)
 mode the working policy only knew a repeated-trace flag and a failure
@@ -3747,6 +3748,17 @@ uncovered block of every written file, so the one-line schema edit was
 reported as 59 blocks the turn "wrote" and handed to the critic as
 grounding. Briefs `brief_cov1.txt` (pre-write snapshots on the result) and
 `brief_cov2.txt` (narrow the blocks to the inserted lines) are queued.
+
+The first cov1 run showed the next section defect: the model read one
+region as 760-830, 700-850, 768-815, 740-830 and 690-850, and only
+identical bodies collapsed, so all five stayed selected — 146 KB of
+section a round, three files treated the same way. Now (d08a2a82) a
+`read_file` observation records its line span and a later read of the
+same file at the same revision that covers an earlier one's span replaces
+it; outlines and searches record no span. Under the sticky regime the
+model's substitute for reading was `recall_context` search (seven calls),
+which found little because it searched for "executor.go" while the
+observations were of `executor_tools.go`.
 
 Brief discipline, restated from the stalled test brief: read the target
 function's real signature and name it verbatim, with the file it reads and
