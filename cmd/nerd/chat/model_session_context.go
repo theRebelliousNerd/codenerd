@@ -14,7 +14,6 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/testoutput"
 	"codenerd/internal/types"
-	"codenerd/internal/world"
 )
 
 // =============================================================================
@@ -454,25 +453,34 @@ func (m *Model) queryDependencyContext(files []string) []string {
 	if err != nil {
 		return nil
 	}
-	// Both sides are canonicalized before they are compared, and that is the
-	// whole reason this join produces anything.
+	// Both sides are canonicalized before they are compared.
 	//
-	// The two fact families reach the kernel by different routes and do NOT
-	// agree on path form. dependency_link comes from the world scan, which runs
-	// every path through world.CanonicalPath and stores it workspace-relative
-	// with forward slashes. modified() comes from internal/tactile, which
-	// records whatever path the tool call carried — usually absolute, and on
+	// When this join was wired the two fact families did NOT agree on path
+	// form: dependency_link came from the world scan, canonical and
+	// workspace-relative, while modified() came from internal/tactile, which
+	// recorded whatever path the tool call carried — usually absolute, on
 	// Windows usually with backslashes. Matching those raw is a map lookup that
 	// never hits, and a lookup that never hits returns an empty slice, which is
 	// indistinguishable from "this file has no dependencies".
 	//
-	// CanonicalPath is documented as idempotent and safe to apply at any layer
-	// precisely so a consumer can do this without knowing which producer it is
-	// talking to.
+	// main's 29c2967 then fixed it at the source, and fixed it everywhere: the
+	// CodeDOM family, the tactile editor and the transaction manager all emit
+	// the canonical identity now, and CanonicalPath moved to internal/types so
+	// core and tactile — which cannot import world — can reach it. Its commit
+	// message names the same failure this join hit, across a dozen more
+	// predicates: "the joins across the two families were dead."
+	//
+	// These two calls stay anyway, and not out of sentiment. CanonicalPath is
+	// idempotent, so on a fact that is already canonical they cost a string
+	// compare; and it still returns an ABSOLUTE path for a file outside the
+	// workspace root, which is a spelling this consumer would otherwise have to
+	// know about. A join is the one place where being defensive is free: the
+	// producer's guarantee can be right and this still cannot tell, because
+	// what arrives is a string.
 	var deps []string
 	fileSet := make(map[string]bool)
 	for _, f := range files {
-		fileSet[world.CanonicalPath(m.workspace, f)] = true
+		fileSet[types.CanonicalPath(m.workspace, f)] = true
 	}
 	for _, fact := range results {
 		// dependency_link(CallerID, CalleeID, ImportPath)
@@ -480,8 +488,8 @@ func (m *Model) queryDependencyContext(files []string) []string {
 			caller, _ := fact.Args[0].(string)
 			callee, _ := fact.Args[1].(string)
 			importPath, _ := fact.Args[2].(string)
-			caller = world.CanonicalPath(m.workspace, caller)
-			callee = world.CanonicalPath(m.workspace, callee)
+			caller = types.CanonicalPath(m.workspace, caller)
+			callee = types.CanonicalPath(m.workspace, callee)
 			// Check if caller or callee is in our active files
 			if fileSet[caller] {
 				deps = append(deps, fmt.Sprintf("%s imports %s", caller, importPath))
