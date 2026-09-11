@@ -3612,6 +3612,10 @@ Two `nerd chat` probes on the rebuilt binary, both through `chat_driver.py`.
 | regression test for the language gate (test only) | `TestBuildCompilationContext_LanguageAndFrameworksFromKernel` | 25 (1 insert_lines) | 4m01s | wrote at tool 14 without needing the regime; `checks_passed` (c2acf8a4) |
 | taxonomy prompt tables read base facts through `Engine.Query` | replace two `Query` calls with `QueryFacts` in GenerateSystemPromptSection + a test | 45 (1 edit_lines) | 3m51s | the query replacement was right and complete; the now-unused `context` import stayed, the build failed, and the single repair round spent ~20 reads and no edit. Import removed by hand (e402020a); no test written |
 | its regression test (test only) | `TestGenerateSystemPromptSection_IncludesLearnedExemplars` | 36 (1 insert_lines under the commit regime) | 7m04s | test written without `strings`/`types` imports and with a one-value assignment of a two-value return; tests failed; the test-repair round read instead of editing. Fixed by hand, then re-seeded through the store because `AddFact` rejects the float confidence (1036c85f, 5484a578) |
+| learned_taxonomy.mg never evaluated after load | call `Engine.Evaluate()` after `LoadSchema(learnedPath)` in tryLoadLearned | 28 (1 insert) | 8m00s | exactly the requested call; reused warning text said "load" (fixed by hand, bdfef4c8); no test written (c40afaa2) |
+| its regression test, first brief | test calling "the loader with a path" | 30 (0 writes) | 4m17s | `read_only_stall`: the brief guessed a signature; `tryLoadLearned()` takes none. Under the regime the model reached for `mcp_context` (external, still offered) and `recall_context` search with limit 20000 (refused) — both fixed in bcd78c06 |
+| its regression test, re-brief naming `tryLoadLearned()`, `SetWorkspace(root)` and the file | `TestGenerateSystemPromptSection_IncludesExemplarsLoadedFromFile` | 16 (2 writes) | 4m34s | exact test, imports included, no regime needed; `checks_passed` (058c3a01) |
+| CLI engines report no model identity | `ModelIdentity()` on `CodexCLIClient` and `ClaudeCodeCLIClient`, two source files | 58 (2 writes) | 10m50s | both three-line methods exactly as briefed; `checks_passed` (395f46e1) |
 
 What governed the second run: in open (progress-driven, no count ceiling)
 mode the working policy only knew a repeated-trace flag and a failure
@@ -3682,6 +3686,14 @@ the compiler or test output again. Underneath the taxonomy fix sat an engine
 fact: `Engine.Query` serves derived predicates only, and a fact written in a
 .mg file is a program clause the store never sees until an evaluation runs
 (`Engine.Evaluate`, b72add22).
+
+Full suite on the tree at 058c3a01: 87 packages ok, 0 failures, exit 0,
+binary rebuilt (2026-09-11 09:42).
+
+Brief discipline, restated from the stalled test brief: read the target
+function's real signature and name it verbatim, with the file it reads and
+the setter that points it at a workspace. A guessed signature costs a
+five-minute stall; the same test re-briefed exactly landed in sixteen tools.
 
 Signatures to grep after every probe: `Working context: … selected=0` for
 the focus file, `Observation archived`, `[ERROR] Tool call`, and in the
