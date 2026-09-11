@@ -46,14 +46,16 @@ type workingLoop struct {
 const commitRegime = "commit"
 
 // closedForReading says whether a tool is withheld under the commit regime:
-// every read-effect tool except recall_context, which recovers evidence the
-// loop already gathered rather than exploring for more.
+// every read-effect and external-effect tool except recall_context, which
+// recovers evidence the loop already gathered rather than exploring for more.
+// External tools are exploration too: observed 2026-09-11, a model under the
+// regime reached for mcp_context and mcp_map instead of writing.
 func closedForReading(name string) bool {
 	if name == "recall_context" {
 		return false
 	}
 	effect, err := tools.LookupEffect(name)
-	return err == nil && effect == tools.EffectRead
+	return err == nil && (effect == tools.EffectRead || effect == tools.EffectExternal)
 }
 
 // enterCommitRegime puts the active working loop under the commit regime and

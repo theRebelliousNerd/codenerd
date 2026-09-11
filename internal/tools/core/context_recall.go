@@ -6,6 +6,10 @@ import (
 	"fmt"
 )
 
+// maxContextSearchRecords is the working store's ceiling on records per
+// search (WorkingStore.Search).
+const maxContextSearchRecords = 50
+
 func RecallContextTool() *tools.Tool {
 	return &tools.Tool{
 		Name: "recall_context", Description: "Recover a page of an archived observation by its context record ID. Returns original revision and provenance; historical observations are not current verification.", Category: tools.CategoryGeneral, Priority: 65,
@@ -13,7 +17,7 @@ func RecallContextTool() *tools.Tool {
 			"id":     {Type: "string", Description: "Observation ID from working context"},
 			"query":  {Type: "string", Description: "Literal archive search when the observation ID is unknown; provide query or id"},
 			"offset": {Type: "integer", Description: "Character offset, default zero"},
-			"limit":  {Type: "integer", Description: "Page characters; omitted returns the rest of the body from offset. Page only when a whole body was reported as not fitting the request"},
+			"limit":  {Type: "integer", Description: "With id: page characters; omitted returns the rest of the body from offset. Page only when a whole body was reported as not fitting the request. With query: number of records, at most 50"},
 		}}, Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			recall := tools.ContextRecallFrom(ctx)
 			if recall == nil {
@@ -60,6 +64,13 @@ func RecallContextTool() *tools.Tool {
 				})
 				if !ok {
 					return "", fmt.Errorf("context search unavailable")
+				}
+				// A search answers records, not characters. A model that
+				// pages bodies by the thousand and then searches with the
+				// same number was refused ("invalid context search bounds");
+				// the store's record maximum is what it meant.
+				if limit > maxContextSearchRecords {
+					limit = maxContextSearchRecords
 				}
 				return search.Search(ctx, query, offset, limit)
 			}

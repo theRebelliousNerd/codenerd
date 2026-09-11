@@ -322,11 +322,27 @@ func TestRunToolLoop_ProgressDriven_ClosesReadingUnderTheCommitRegime(t *testing
 		Effect: tools.EffectRead, Name: toolName, Category: tools.CategoryGeneral,
 		Execute: func(context.Context, map[string]any) (string, error) { return "observed", nil },
 	})
+	// An external-effect tool is exploration too and leaves the catalog with
+	// the read tools; recall_context stays.
+	const externalName = "working_loop_commit_external"
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectExternal, Name: externalName, Category: tools.CategoryResearch,
+		Execute: func(context.Context, map[string]any) (string, error) { return "fetched", nil },
+	})
+	// Whether the core tools are registered depends on which tests ran
+	// before this one; a stub under the real name stands in for
+	// recall_context (which the regime keeps by name) only when it is absent.
+	if tools.Global().Get("recall_context") == nil {
+		registerTestTool(t, &tools.Tool{
+			Effect: tools.EffectRead, Name: "recall_context", Category: tools.CategoryGeneral,
+			Execute: func(context.Context, map[string]any) (string, error) { return "recalled", nil },
+		})
+	}
 	client := &roundScriptProvider{MockLLMClient: &MockLLMClient{}, toolName: toolName, rounds: 30}
 	e := newWorkingLoopExecutor(t, client)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
 	_, _, err := e.runToolLoop(context.Background(), "system", "change it",
-		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName, externalName, "recall_context"}},
 		&prompt.CompilationContext{ShardID: "probe"}, result)
 	if err == nil || !strings.Contains(err.Error(), "read_only_stall") {
 		t.Fatalf("err = %v, want the stall span to end a task that never wrote", err)
@@ -340,6 +356,12 @@ func TestRunToolLoop_ProgressDriven_ClosesReadingUnderTheCommitRegime(t *testing
 		}
 		if i >= 16 && offered {
 			t.Fatalf("request %d: the read tool is still offered under the commit regime (%v)", i+1, names)
+		}
+		if i >= 16 && slices.Contains(names, externalName) {
+			t.Fatalf("request %d: an external tool is still offered under the commit regime (%v)", i+1, names)
+		}
+		if i >= 16 && !slices.Contains(names, "recall_context") {
+			t.Fatalf("request %d: recall_context must stay under the commit regime (%v)", i+1, names)
 		}
 	}
 	if len(client.catalogs) < 18 {
