@@ -72,31 +72,6 @@
     The reasoning_trace in control_packet must demonstrate your complete analysis
     BEFORE the surface_response is generated. This is not optional.
 
-- id: "protocol/piggyback/reasoning_trace"
-  category: "protocol"
-  subcategory: "reasoning"
-  priority: 90
-  is_mandatory: true
-  depends_on: ["protocol/piggyback/envelope"]
-  content: |
-    ## REASONING TRACE REQUIREMENTS
-
-    The reasoning_trace field must demonstrate systematic analysis.
-
-    ### MINIMUM LENGTH
-    50 words minimum. If your reasoning is shorter, you have not thought enough.
-
-    ### REQUIRED ELEMENTS
-    1. What inputs/context were analyzed?
-    2. What decision points were encountered?
-    3. What alternatives were considered?
-    4. Why was the chosen approach selected?
-    5. What confidence level and why?
-
-    ### FORMAT
-    Use numbered steps to show your thought process:
-    "1. Analyzed inputs: X, Y, Z. 2. Identified constraint: A. 3. Selected approach: B because C. 4. Confidence: 0.85 due to D."
-
 - id: "protocol/piggyback/mangle_updates"
   category: "protocol"
   subcategory: "mangle"

@@ -32,35 +32,6 @@
     ```
     This will trigger the Ouroboros Loop to potentially generate the missing tool.
 
-- id: "shards/coder/self_correction"
-  category: "methodology"
-  subcategory: "correction"
-  priority: 70
-  is_mandatory: true
-  shard_types: ["/coder"]
-  content: |
-    ## SELF-CORRECTION PROTOCOL
-
-    If you detect an error in your own output, you MUST self-correct before emitting.
-
-    ### SELF-CORRECTION TRIGGERS
-    - You wrote an import but aren't sure the package exists -> Remove it, use stdlib
-    - You called a method but aren't sure it exists -> Use a more basic approach
-    - You added a feature but it wasn't requested -> Remove it
-    - You changed code outside the target area -> Revert to original
-
-    ### SELF-CORRECTION FORMAT
-    Include in your control packet:
-    ```json
-    {
-      "self_correction": {
-        "original_approach": "Used custom error type",
-        "correction": "Reverted to fmt.Errorf for simplicity",
-        "reason": "No evidence of custom error types in codebase"
-      }
-    }
-    ```
-
 - id: "shards/coder/constitutional_compliance"
   category: "safety"
   subcategory: "constitutional"
