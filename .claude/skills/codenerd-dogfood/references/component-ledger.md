@@ -3603,6 +3603,8 @@ Two `nerd chat` probes on the rebuilt binary, both through `chat_driver.py`.
 | grep-shaped citation question | "which function asserts specialist_match, called from where; file:line only" | 4 | 61 s | three citations, all exact |
 | one-line edit, file+line+test named (before 2c409a58) | replace a 100-char cut in extractShardSummary | 311 (195 read_file, 62 grep, 1 edit_lines) | 30m58s | correct edit after ~25 min of reading; named test never run; ended by the 30-min ceiling as `artifact_changed`, unverified |
 | same shape (after 2c409a58) | replace a 100-char cut in buildPriorShardSummaries | 20 (8 read_file, 8 grep, 1 edit_lines) | 5m21s | correct edit; policy finalized 8 idle rounds after the write; harness ran build (38 s) and test (43 s) verification; `checks_passed` |
+| same shape (after ec632737; blackboard history, 50-char cut) | replace `truncateForContext(sr.Task, 50)` in articulateWithConversation | 24 (11 read_file of the named file, 11 recall_context, 0 writes) | 2m57s | **no edit**: `read_only_stall` stop. Every round logged `Working context: candidates=N selected=0 omitted=N chars=0`; the 14 KB read reached the model as an "Observation archived" pointer and it paged 2000-6000 chars from offset 0, then read again |
+| same brief (after 1e93bcc3) | as above | 25 (1 edit_lines, 1 run_tests, 8 post-edit read_file) | 8m37s | correct edit at tool 7; model ran the named test itself through typed `run_tests` (`Flatten\|ShardHistory`, gate OK); harness build 17 s + tests 1m30s, `checks_passed` (10256fd2). Final answer claimed "no edit was needed": from the edit on, every observation of the file was `omitted` (fixed 69fd896e) |
 
 What governed the second run: in open (progress-driven, no count ceiling)
 mode the working policy only knew a repeated-trace flag and a failure
@@ -3623,6 +3625,36 @@ heads before re-deriving. And `types.MangleAtom` had no encoder case, so it
 was stored as the JSON string `"\"/yes\""`: `working_control(/yes, _)` had
 never matched, and the working set's `user_intent` facts for context
 selection carried strings where the rules match names.
+
+The fourth and fifth rows are the working-context request path
+(`internal/session/working_context.go`, `internal/context/working_set.go`),
+which every open-loop round goes through. Three defects, all count- or
+key-shaped:
+
+- The tool catalog's JSON (26 tools ≈ 18 KB; the 11 core tools alone are
+  7849 B) was subtracted from a literal 16384-character observation budget,
+  so the section budget was zero and no observation was ever selected. The
+  catalog is now charged to the input window; the section gets the window's
+  remainder, capped at `maxToolLoopHistoryBytes` (1e93bcc3).
+- Any current tool result over 8000 characters was swapped for an archive
+  pointer, and `recall_context` defaulted to 2000-character pages. A result
+  is now sent whole and archived (pointer states its size) only when the
+  request cannot fit; recall returns whole bodies unless paged.
+- `Select` asserted its per-round facts with `ReplaceFactsForFile`, which
+  removes nothing here (removal is keyed by a fact's first string argument),
+  so every old `working_revision` stayed asserted and, evaluation being
+  monotone, every post-edit observation derived `working_stale`. From the
+  first edit on the model lost every observation of the edited file,
+  including the edit (69fd896e, `ReplaceControlFacts` over the six runtime
+  predicates).
+
+Signatures to grep after every probe: `Working context: … selected=0` for
+the focus file, `Observation archived`, `[ERROR] Tool call`. Still open:
+world facts filled 78 KB per round with `code_defines(…, 0, 0)` lines from
+two-hop neighbours (share cut to one eighth in the commit after 69fd896e;
+the zero spans are a world-model defect); the JIT system prompt is 115 KB
+with duplicated reasoning-trace and self-correction atoms and Java/Python
+atoms in a Go repo.
 
 Meta answers one tool per round at about 7 s, so rounds, not tool calls,
 are the unit the policy counts.
