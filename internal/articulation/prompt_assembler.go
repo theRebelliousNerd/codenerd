@@ -234,6 +234,12 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 			if v := pc.SessionCtx.ExtraContext["language"]; v != "" {
 				cc.Language = normalizeTag(v)
 			}
+			if v := pc.SessionCtx.ExtraContext["provider"]; v != "" {
+				cc.Provider = v
+			}
+			if v := pc.SessionCtx.ExtraContext["model"]; v != "" {
+				cc.Model = v
+			}
 			if v := pc.SessionCtx.ExtraContext["reflection_hits"]; v != "" {
 				cc.HasReflectionHits = true
 			}

@@ -655,6 +655,30 @@ func TestToCompilationContext(t *testing.T) {
 	}
 }
 
+func TestToCompilationContext_ProviderAndModelFromSessionContext(t *testing.T) {
+	mk := newMockKernel()
+	pa, err := NewPromptAssembler(mk)
+	if err != nil {
+		t.Fatalf("NewPromptAssembler() error = %v", err)
+	}
+
+	cc := pa.toCompilationContext(&PromptContext{ShardID: "coder-1", ShardType: "coder", SessionCtx: &types.SessionContext{ExtraContext: map[string]string{"provider": "codex-cli", "model": "gpt-5.4"}}})
+	if cc.Provider != "codex-cli" {
+		t.Errorf("Provider = %q, want %q", cc.Provider, "codex-cli")
+	}
+	if cc.Model != "gpt-5.4" {
+		t.Errorf("Model = %q, want %q", cc.Model, "gpt-5.4")
+	}
+
+	empty := pa.toCompilationContext(&PromptContext{ShardID: "coder-1", ShardType: "coder", SessionCtx: &types.SessionContext{ExtraContext: map[string]string{}}})
+	if empty.Provider != "" {
+		t.Errorf("Provider = %q, want empty", empty.Provider)
+	}
+	if empty.Model != "" {
+		t.Errorf("Model = %q, want empty", empty.Model)
+	}
+}
+
 func TestAssembleSystemPromptFallsBackOnNoJIT(t *testing.T) {
 	// When JIT is not configured, should use legacy assembly
 	mk := newMockKernel()
