@@ -35,6 +35,7 @@ import (
 // 1. PARSE TORTURE — programs that MUST parse without error
 // =============================================================================
 
+// TODO: Add negative test for nil io.Reader and incomplete streams
 func TestTorture_Parse_EmptySchema(t *testing.T) {
 	// GCC parallel: empty translation unit should compile
 	_, err := ParseUnit(strings.NewReader(""))
@@ -51,6 +52,7 @@ func TestTorture_Parse_CommentOnly(t *testing.T) {
 	}
 }
 
+// TODO: Add negative test for zero-arity rule definition or empty slices
 func TestTorture_Parse_SingleDecl(t *testing.T) {
 	src := `Decl simple(X).`
 	unit, err := ParseUnit(strings.NewReader(src))
@@ -233,6 +235,7 @@ reachable(X) :- via_edge(X).
 	}
 }
 
+// TODO: Add tests for extreme campaign sizes (e.g. 10,000+ conditions in a union)
 func TestTorture_Parse_DeeplyNestedProgram(t *testing.T) {
 	// Large program with many declarations and rules
 	var sb strings.Builder
@@ -276,6 +279,7 @@ Decl record(ID, Name, Score, Active, Updated) bound [/number, /string, /float64,
 // 2. EVAL TORTURE — programs that MUST produce expected derived facts
 // =============================================================================
 
+// TODO: Add tests for huge datasets representing brownfield monorepos and enforce memory footprint
 func TestTorture_Eval_TransitiveClosure(t *testing.T) {
 	program := `
 Decl edge(X, Y).
@@ -395,6 +399,7 @@ confirmed(X) :- not_rejected(X).
 	}
 }
 
+// TODO: Add tests for strict disjoint typing between Atoms and Strings to prevent silent coercion
 func TestTorture_Eval_ComparisonOperators(t *testing.T) {
 	program := `
 Decl score(Name, Value).
@@ -432,6 +437,7 @@ perfect(Name) :- score(Name, V), V = 100.
 	})
 }
 
+// TODO: Add tests for extreme values (e.g. integer overflow, float coercion)
 func TestTorture_Eval_Arithmetic(t *testing.T) {
 	program := `
 Decl input(Name, X).
@@ -521,6 +527,7 @@ combined(X) :- source_b(X).
 	}
 }
 
+// TODO: Add explicit test for infinite cyclic recursion to verify context cancellation without goroutine leaks
 func TestTorture_Eval_DeepRecursion(t *testing.T) {
 	// Long chain: node_0 -> node_1 -> ... -> node_99 (100 nodes, 99 edges)
 	program := `
@@ -2606,6 +2613,7 @@ Decl gamma(X, Y, Z).
 // TODO: Add tests for asserting and retracting the exact same fact simultaneously across many goroutines.
 // TODO: Add tests querying the engine while Clear() or Close() is actively executing.
 // TODO: Add tests for retracting a fact that does not exist to verify it is handled gracefully as a no-op.
+// TODO: Add tests simulating mutation (deletion/clearing) during an active evaluation loop
 func TestTorture_Concurrency_ConcurrentQueryAndRecompute(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AutoEval = true
