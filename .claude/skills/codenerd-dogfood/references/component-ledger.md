@@ -3623,6 +3623,9 @@ Two `nerd chat` probes on the rebuilt binary, both through `chat_driver.py`.
 | broker audit test still looked for the removed Codex assertion literal | `TestConcreteTypeAssertionsReachThroughTheDecorator` repointed at `broker.Base(m.client).(types.ModelIdentifier)` | 3 (1 write) | 1m11s | exact; `checks_passed` (bca82aa2). Found by the full suite, not the brief: a source-scanning test in another package guarded the literal 6be7b276 removed |
 | `TestStreamingSettlesWhenTheStreamEnds` flaky under `-race` (waited on the ledger, asserted on the receipt emitted after it) | wait on `sink.last()` instead | 11 (1 write) | 2m34s | exact edit and comment (comment landed on one 167-char line, wrapped by hand); 30 runs under `-race` pass. The model reported it could not run `-count=30` because the test tool hardcodes `-count=1` — a flake is exactly when a count is needed |
 | `run_tests` hardcodes `-count=1` (three-part brief: parse, schema, test) | `count` argument 1..1000 parsed like `timeout_seconds` | 26 (2 writes, one file) | 5m19s | edit one replaced line 43 before the parse block existed (build broken); then sixteen reads of the same three files, each round announcing "adding the count parsing"; `verify_after_write` finalized the turn at 21 tools; repair round 1 read, round 2 under the commit regime inserted the parse block. Schema and test unmade; the surfaced answer was the critic-uplift round's narration. Policy fixed by hand (3fddec99); schema and test re-briefed one file each |
+| its schema entry (one file) | `"count"` property on `run_tests` | 6 (2 writes) | 4m54s | exact; most of the time in the gates (a one-line edit drew "59 blocks of Go that no test executes", see below); `checks_passed` (91aa8a19) |
+| its validation test (one file) | `TestTypedVerification_ValidatesCount` | 4 (1 write) | 1m22s | exact, mirrors the neighbouring test; `checks_passed` (91aa8a19) |
+| critic-uplift reply replaces the answer (twelve-site signature change in one package: nine returns, two `fmt.Errorf` returns, the caller, one test) | `verifyAndUpliftWithCritic` returns `([]string, error)` | 56 (3 writes) | 8m20s | first run under 3fddec99: 14 reads, one edit (the last return), 8 rounds of re-reading, reading closed at 26 tools, three recalls, one edit, regime lifted on the write, 8 more rounds of reading, closed again at 45, eight recalls, finalized at 53 (`verify_after_write`), build broken, repair rounds did not finish. Nine returns, the caller and four test sites (three the brief had not named) finished by hand (47b97fac). Finding: the regime lifting on a write gives this model a fresh reading span per edit |
 
 What governed the second run: in open (progress-driven, no count ceiling)
 mode the working policy only knew a repeated-trace flag and a failure
@@ -3726,6 +3729,24 @@ its response replaces the turn's answer. The model answered the eight
 findings with narration plus read calls ("Tackling the review's coverage
 gaps — inspecting the runner to judge each finding"), the reads ran, and
 that sentence was the turn's surfaced answer.
+Fixed in 47b97fac: the uplift round returns only its tool errors; the
+answer the loop produced stays the answer.
+
+The uplift brief was the first run under the after-write regime and showed
+its next hole: the regime lifted on each write, and the model spent a fresh
+nudge span re-reading before every edit — one edit per cycle on a
+twelve-site change. Now reading stays closed until a verification
+(`working_regime_now(/commit)` asserted by the loop each round;
+`working_regime(/commit) :- working_regime_now(/commit), … SinceVerify > 0`).
+Under the regime the model reached for `recall_context` three and then eight
+times in a row instead of reading — recall is exploration too, but it costs
+no observation and is bounded by what was already gathered.
+
+Coverage attribution is file-level: `parseCoverProfile` keeps every
+uncovered block of every written file, so the one-line schema edit was
+reported as 59 blocks the turn "wrote" and handed to the critic as
+grounding. Briefs `brief_cov1.txt` (pre-write snapshots on the result) and
+`brief_cov2.txt` (narrow the blocks to the inserted lines) are queued.
 
 Brief discipline, restated from the stalled test brief: read the target
 function's real signature and name it verbatim, with the file it reads and
