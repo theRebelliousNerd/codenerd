@@ -251,7 +251,24 @@ func collectUses(f *ast.File, order map[string][]string, writes, reads map[strin
 			}
 		}
 	}
+	// Selectors in call position are METHOD CALLS, not field reads.
+	//
+	// Without this, any field whose name matches a method anywhere in the tree
+	// reads as read: ZAIConfig.DisableSemaphore was reported dark because
+	// `c.DisableSemaphore()` is a method on the LLM client interface, and this
+	// analysis keys on names rather than types by design. A CallExpr's Fun is
+	// recorded before the walk reaches it, since Inspect visits a node before
+	// its children.
+	//
+	// It costs the ability to see a dark func-typed FIELD that is only ever
+	// called and never otherwise mentioned, which is the under-reporting side
+	// of the same trade every other decision here takes: a gate that cries wolf
+	// is a gate nobody runs.
+	calls := map[ast.Node]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok {
+			calls[c.Fun] = true
+		}
 		switch x := n.(type) {
 		case *ast.AssignStmt:
 			for _, lhs := range x.Lhs {
@@ -274,7 +291,9 @@ func collectUses(f *ast.File, order map[string][]string, writes, reads map[strin
 			// harmless, since marking a name written twice is marking it once.
 			markCompositeWrites(x, "", order, writes)
 		case *ast.SelectorExpr:
-			reads[x.Sel.Name] = true
+			if !calls[x] {
+				reads[x.Sel.Name] = true
+			}
 		}
 		return true
 	})

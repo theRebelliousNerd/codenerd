@@ -42,12 +42,6 @@ func DefaultAnthropicConfig(apiKey string) AnthropicConfig {
 	}
 }
 
-// NewAnthropicClient creates a new Anthropic client.
-func NewAnthropicClient(apiKey string) *AnthropicClient {
-	config := DefaultAnthropicConfig(apiKey)
-	return NewAnthropicClientWithConfig(config)
-}
-
 // NewAnthropicClientWithConfig creates a new Anthropic client with custom config.
 func NewAnthropicClientWithConfig(config AnthropicConfig) *AnthropicClient {
 	return &AnthropicClient{
