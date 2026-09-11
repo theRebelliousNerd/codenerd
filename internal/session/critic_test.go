@@ -528,13 +528,13 @@ func TestVerifyAndUpliftWithCritic_SkipsWhenNotApplicable(t *testing.T) {
 
 			// A nil client would panic if the gate got as far as calling the
 			// model, so reaching the end proves we short-circuited.
-			resp, errs, err := e.verifyAndUpliftWithCritic(
+			errs, err := e.verifyAndUpliftWithCritic(
 				context.Background(), stubToolResults{}, "", nil, nil, nil, tc.result)
 			if err != nil {
 				t.Fatalf("gate should have skipped, got error: %v", err)
 			}
-			if resp != nil || errs != nil {
-				t.Errorf("gate should have skipped, got resp=%v errs=%v", resp, errs)
+			if errs != nil {
+				t.Errorf("gate should have skipped, got errs=%v", errs)
 			}
 		})
 	}
@@ -812,7 +812,7 @@ func TestVerifyAndUpliftWithCritic_FiresUpliftOnHighSeverityFinding(t *testing.T
 
 	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}
 
-	resp, _, err := e.verifyAndUpliftWithCritic(
+	_, err := e.verifyAndUpliftWithCritic(
 		context.Background(), trp, "sys", nil, nil, nil, result)
 	if err != nil {
 		t.Fatalf("uplift returned an error: %v", err)
@@ -823,9 +823,6 @@ func TestVerifyAndUpliftWithCritic_FiresUpliftOnHighSeverityFinding(t *testing.T
 	}
 	if trp.calls != 1 {
 		t.Fatalf("uplift round fired %d times; want exactly 1 — the finding must reach the model", trp.calls)
-	}
-	if resp == nil {
-		t.Error("uplift response was not returned to the caller")
 	}
 	if len(result.CriticFindings) != 1 {
 		t.Fatalf("findings not recorded on the result: %+v", result.CriticFindings)
@@ -860,7 +857,7 @@ func TestVerifyAndUpliftWithCritic_LowSeverityDoesNotFireUplift(t *testing.T) {
 	e := &Executor{config: cfg, llmClient: critic}
 	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}
 
-	if _, _, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result); err != nil {
+	if _, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if trp.calls != 0 {
@@ -888,9 +885,9 @@ func TestVerifyAndUpliftWithCritic_NoFindingsCostsNothingExtra(t *testing.T) {
 	e := &Executor{config: cfg, llmClient: critic}
 	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}
 
-	resp, errs, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result)
-	if err != nil || resp != nil || errs != nil {
-		t.Fatalf("a clean review must be a no-op, got resp=%v errs=%v err=%v", resp, errs, err)
+	errs, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result)
+	if err != nil || errs != nil {
+		t.Fatalf("a clean review must be a no-op, got errs=%v err=%v", errs, err)
 	}
 	if trp.calls != 0 {
 		t.Errorf("uplift fired %d times on NO FINDINGS; want 0", trp.calls)

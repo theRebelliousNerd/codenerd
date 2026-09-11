@@ -443,7 +443,11 @@ func (e *Executor) repairRound(
 
 // verifyAndUpliftWithCritic runs one adversarial review of the code this turn
 // wrote and, when it reports something worth acting on, gives the model one
-// round to respond.
+// round to respond. The round's edits count; its words do not: the answer the
+// turn surfaces is the one the loop produced, so a narrated reaction to the
+// review never replaces it (observed 2026-09-11: "Tackling the review's
+// coverage gaps — inspecting the runner to judge each finding" was a turn's
+// whole answer).
 //
 // This is the third question, after "does it compile" and "do the tests pass":
 // is it actually right. A turn can satisfy both mechanical gates and still ship
@@ -468,23 +472,23 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	toolDefs []types.ToolDefinition,
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
-) (*types.LLMToolResponse, []string, error) {
+) ([]string, error) {
 	if !e.configSnapshot().CriticReviewAfterEdits {
-		return nil, nil, nil
+		return nil, nil
 	}
 	if result == nil || result.SuccessfulWriteTools == 0 || !touchedGoFiles(result.WrittenPaths) {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	workspace := e.workspaceForVerification()
 	files := readWrittenFilesForReview(workspace, result.WrittenPaths)
 	if len(files) == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	client := e.criticClient()
 	if client == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	// Ground the reviewer in tool output before asking for its opinion. A
@@ -523,7 +527,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		// The critic is advisory. A failed review is a missing opinion, not a
 		// failed turn.
 		logging.Get(logging.CategorySession).Warn("adversarial review failed (%v); turn continues", err)
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	findings := parseCriticFindings(response)
@@ -536,19 +540,19 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		SummarizeTurnSignals(true, true, len(result.UncoveredBlocks), len(findings)))
 
 	if len(findings) == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	worth := findingsWorthUplift(findings)
 	logging.Get(logging.CategorySession).Warn(
 		"Adversarial review reported %d finding(s), %d worth acting on", len(findings), len(worth))
 	if len(worth) == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 	if trp == nil {
 		logging.Get(logging.CategorySession).Warn(
 			"Adversarial review found %d actionable item(s), but this provider has no repair channel", len(worth))
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	history = append(history, types.Message{Role: "user", Text: formatUpliftPrompt(worth)})
@@ -558,7 +562,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	uplifted, err := trp.CompleteWithToolResults(upliftCtx, systemPrompt, history, toolDefs)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("uplift round failed (%v); turn continues", err)
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	var upliftErrs []string
@@ -578,17 +582,17 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		// and the test runner like every other edit. Acting on a wrong finding
 		// and breaking the build is a real break, whoever suggested it.
 		if verification := verifyBuild(ctx, workspace, nil); verification.Ran && !verification.OK {
-			return uplifted, upliftErrs, fmt.Errorf(
+			return upliftErrs, fmt.Errorf(
 				"%w: the adversarial review's uplift round broke the build. Compiler output:\n%s",
 				ErrVerificationFailed, verification.Output)
 		}
 		if tv := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths)); tv.Ran && !tv.OK {
-			return uplifted, upliftErrs, fmt.Errorf(
+			return upliftErrs, fmt.Errorf(
 				"%w: the adversarial review's uplift round broke the tests. Test output:\n%s",
 				ErrVerificationFailed, tv.Output)
 		}
 	}
-	return uplifted, upliftErrs, nil
+	return upliftErrs, nil
 }
 
 // criticTimeout bounds the adversarial review call.

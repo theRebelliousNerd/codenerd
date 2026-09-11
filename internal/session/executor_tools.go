@@ -453,12 +453,9 @@ func (e *Executor) verifyCompletedToolTurn(
 
 	// The critic is advisory; only its resulting edits can fail the turn through
 	// the mechanical rechecks inside verifyAndUpliftWithCritic.
-	uplifted, upliftErrs, upliftErr := e.verifyAndUpliftWithCritic(
+	upliftErrs, upliftErr := e.verifyAndUpliftWithCritic(
 		ctx, trp, systemPrompt, history, toolDefs, cfg, result)
 	toolErrs = append(toolErrs, upliftErrs...)
-	if uplifted != nil {
-		current = uplifted
-	}
 	if upliftErr != nil {
 		return current, toolErrs, upliftErr
 	}
