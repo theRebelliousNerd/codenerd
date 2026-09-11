@@ -75,6 +75,7 @@ func (w *WorkingSet) Save(ctx context.Context, r WorkingRecord) error { return w
 func (w *WorkingSet) Search(ctx context.Context, query string, offset, limit int) (string, error) {
 	return w.store.Search(ctx, query, offset, limit)
 }
+
 // Recall returns a page of an archived observation from a character offset;
 // a limit of zero or less returns the rest of the body.
 func (w *WorkingSet) Recall(ctx context.Context, id string, offset, limit int) (string, error) {
@@ -276,7 +277,16 @@ func (w *WorkingSet) Select(ctx context.Context, focus string, recent []string, 
 	for _, id := range recent {
 		add("working_recent", id)
 	}
-	if err := w.engine.ReplaceFactsForFile("working-runtime", facts); err != nil {
+	// Replace, not accumulate. ReplaceFactsForFile keys removal by a fact's
+	// first string argument, and none of these facts is keyed by the label,
+	// so nothing asserted here was ever removed: every revision a file had
+	// ever had stayed asserted as working_revision, and evaluation is
+	// monotone, so once the first edit landed every later observation of that
+	// file derived working_stale against the old revision and none was ever
+	// selected again. Seen live 2026-09-11: after its one edit the model
+	// re-read the edited file eight times and concluded that no edit had been
+	// needed.
+	if err := w.engine.ReplaceControlFacts(facts, "user_intent", "focus_resolution", "dependency_link", "working_revision", "working_observation", "working_recent"); err != nil {
 		return WorkingSelection{}, err
 	}
 	result, err := w.engine.Query(ctx, "working_selected(ID, Priority)")

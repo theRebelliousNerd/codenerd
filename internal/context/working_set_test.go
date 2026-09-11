@@ -129,3 +129,37 @@ func TestWorkingSetRecallReturnsTheWholeBodyUnlessPaged(t *testing.T) {
 	require.Contains(t, page, `"offset":10,`)
 	require.Contains(t, page, `"next_offset":110`)
 }
+
+// After an edit, the observations made at the new revision are the working
+// set; the ones from before it are stale. Every round's runtime facts must
+// replace the previous round's: with them accumulating, the file's old
+// revision stayed asserted, every post-edit observation derived working_stale
+// against it, and from the first edit on nothing about the edited file was
+// ever selected again.
+func TestWorkingSetSelectFollowsTheFileAcrossAnEdit(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "a.go")
+	require.NoError(t, os.WriteFile(path, []byte("package a\n// v1\n"), 0600))
+	w, err := NewWorkingSet(nil, root, "task")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+
+	before := w.Revision("a.go")
+	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "read-before", Entity: "a.go", Revision: before, Kind: "read_file/x", Step: 1, Body: "body before"}))
+	first, err := w.Select(t.Context(), "a.go", []string{"read-before"}, 100000)
+	require.NoError(t, err)
+	require.Equal(t, []string{"read-before"}, first.Selected)
+
+	require.NoError(t, os.WriteFile(path, []byte("package a\n// v2\n"), 0600))
+	after := w.Revision("a.go")
+	require.NotEqual(t, before, after)
+	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "edit", Entity: "a.go", Revision: after, Kind: "edit_lines/y", Step: 2, Body: "body edit"}))
+	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "read-after", Entity: "a.go", Revision: after, Kind: "read_file/x", Step: 3, Body: "body after"}))
+
+	second, err := w.Select(t.Context(), "a.go", []string{"read-before", "edit", "read-after"}, 100000)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"edit", "read-after"}, second.Selected, "the post-edit observations are the working set")
+	require.Equal(t, []string{"read-before"}, second.Omitted, "the pre-edit read is stale")
+	require.Contains(t, second.Text, "body after")
+	require.NotContains(t, second.Text, "body before")
+}
