@@ -10,22 +10,21 @@
 #   a missing WIRE   - a producer exists and nothing connects it. Fix it.
 #   a missing SOURCE - nothing in this architecture can answer. Say so at
 #                      the field, and cost the producer as a feature.
-AmbientContext.CursorLine	internal/types/types.go:400
-AmbientContext.SelectedText	internal/types/types.go:401
-AuditReportInput.Discovery	internal/browser/contract_audit_report.go:16
-BindMount.ReadOnly	internal/tactile/platform_unix.go:115
-BootConfig.KernelOverride	internal/system/factory.go:80
+#
+# A line marked (dead file) declares the field in a file that also has
+# entries in the dead-code budget. Those fields are usually dark BECAUSE
+# nothing calls the functions that would fill them — triage them last.
+AmbientContext.CursorLine	internal/types/types.go:400	(dead file)
+AmbientContext.SelectedText	internal/types/types.go:401	(dead file)
+AuditReportInput.Discovery	internal/browser/contract_audit_report.go:16	(dead file)
+BindMount.ReadOnly	internal/tactile/platform_unix.go:115	(dead file)
+BootConfig.KernelOverride	internal/system/factory.go:80	(dead file)
 CompilationStats.FallbackUsed	internal/prompt/compiler.go:169
-CompilerConfig.VectorSearchTimeout	internal/prompt/compiler.go:404
-CompilerStats.AverageTimeMs	internal/prompt/compiler.go:1480
-CompilerStats.ProjectAtomCount	internal/prompt/compiler.go:1477
-CompilerStats.TotalCompilations	internal/prompt/compiler.go:1479
-CompressedTurn.ActionAtoms	internal/context/types.go:190
+CompilerConfig.VectorSearchTimeout	internal/prompt/compiler.go:409
+CompressedTurn.ActionAtoms	internal/context/types.go:190	(dead file)
 DecomposeRequest.UserHints	internal/campaign/decomposer.go:215
 DependencyError.ConflictID	internal/prompt/resolver.go:318
 DependencyError.CycleIDs	internal/prompt/resolver.go:319
-DeviceLoginResult.Credentials	internal/perception/xaioauth/auth_device.go:26
-DeviceLoginResult.UserCode	internal/perception/xaioauth/auth_device.go:27
 FileEdit.EditType	internal/core/transaction_manager.go:61
 GeminiConfig.URLContextURLs	internal/perception/client_types.go:100
 IO_COUNTERS.ReadTransferCount	internal/tactile/platform_windows.go:67
@@ -35,7 +34,7 @@ InitConfig.PreferenceHints	internal/init/initializer.go:99
 IntegrationPath.InputArity	internal/core/integration_path.go:10
 IntegrationPath.OutputArity	internal/core/integration_path.go:12
 IntegrationPath.Witness	internal/core/integration_path.go:13
-InteractiveConfig.PromptTimeout	internal/init/interactive.go:70
+InteractiveConfig.PromptTimeout	internal/init/interactive.go:70	(dead file)
 JOBOBJECT_BASIC_ACCOUNTING_INFORMATION.TotalKernelTime	internal/tactile/platform_windows.go:83
 JOBOBJECT_BASIC_ACCOUNTING_INFORMATION.TotalUserTime	internal/tactile/platform_windows.go:82
 JOBOBJECT_EXTENDED_LIMIT_INFORMATION.BasicLimitInformation	internal/tactile/platform_windows.go:73
@@ -45,35 +44,33 @@ KernelShardConfig.ExportedPreds	internal/core/kernel_shard.go:58
 KernelShardConfig.ManglePath	internal/core/kernel_shard.go:59
 KernelShardConfig.PolicyFiles	internal/core/kernel_shard.go:56
 KernelShardConfig.SchemaFiles	internal/core/kernel_shard.go:55
-LogicPane.ScrollOffset	cmd/nerd/ui/splitpane.go:84
-MeterConfig.HTTPClient	internal/broker/default.go:58
-MeterConfig.PrimaryModel	internal/broker/default.go:63
-MeterConfig.ReceiptBuffer	internal/broker/default.go:54
-MeterConfig.SeedRatio	internal/broker/default.go:56
-Migration.Def	internal/store/migrations.go:42
-Migration.Table	internal/store/migrations.go:40
-NamespaceConfig.NewUser	internal/tactile/platform_darwin.go:42
+LogicPane.ScrollOffset	cmd/nerd/ui/splitpane.go:84	(dead file)
+MeterConfig.HTTPClient	internal/broker/default.go:58	(dead file)
+MeterConfig.PrimaryModel	internal/broker/default.go:63	(dead file)
+MeterConfig.ReceiptBuffer	internal/broker/default.go:54	(dead file)
+MeterConfig.SeedRatio	internal/broker/default.go:56	(dead file)
+NamespaceConfig.NewUser	internal/tactile/platform_linux.go:618	(dead file)
 OpenRouterConfig.SiteURL	internal/perception/client_types.go:117
-Options.ContextLines	internal/diff/diff.go:166
-Options.DisableCache	internal/diff/diff.go:170
-Options.MaxCacheBytes	internal/diff/diff.go:177
-Options.MaxCacheEntries	internal/diff/diff.go:173
-Options.NoSidecar	internal/persist/factsnap/factsnap.go:84
-Options.VerifyCacheContent	internal/diff/diff.go:190
+Options.ContextLines	internal/diff/diff.go:166	(dead file)
+Options.DisableCache	internal/diff/diff.go:170	(dead file)
+Options.MaxCacheBytes	internal/diff/diff.go:177	(dead file)
+Options.MaxCacheEntries	internal/diff/diff.go:173	(dead file)
+Options.NoSidecar	internal/persist/factsnap/factsnap.go:84	(dead file)
+Options.VerifyCacheContent	internal/diff/diff.go:190	(dead file)
 OrchestratorConfig.CampaignRiskOverride	internal/campaign/orchestrator_types.go:153
 OrchestratorConfig.TaskRiskOverrides	internal/campaign/orchestrator_types.go:154
-OuroborosConfig.AllowCompilationFallback	internal/autopoiesis/ouroboros.go:147
+OuroborosConfig.AllowCompilationFallback	internal/autopoiesis/ouroboros.go:147	(dead file)
 PROCESS_MEMORY_COUNTERS.PeakWorkingSetSize	internal/tactile/platform_windows.go:108
-PendingMutation.Diff	cmd/nerd/ui/diffview.go:115
-RouterConfig.CustomRoutes	internal/shards/system/router.go:43
-SessionContext.Ambient	internal/types/types.go:426
+PendingMutation.Diff	cmd/nerd/ui/diffview.go:115	(dead file)
+RouterConfig.CustomRoutes	internal/shards/system/router.go:43	(dead file)
+SessionContext.Ambient	internal/types/types.go:426	(dead file)
 SpawnQueueMetrics.QueueDepthByPriority	internal/core/shards/spawn_queue.go:555
-TipContext.ErrorOccurred	cmd/nerd/chat/tips.go:18
-TipContext.LastCommand	cmd/nerd/chat/tips.go:16
-TipContext.LastShardType	cmd/nerd/chat/tips.go:17
-TipContext.ReviewIssues	cmd/nerd/chat/tips.go:21
-TipContext.TestsFailed	cmd/nerd/chat/tips.go:20
-ToolTemplate.Template	internal/autopoiesis/tool_templates.go:17
-Turn.ExtractedAtoms	internal/context/types.go:325
+TipContext.ErrorOccurred	cmd/nerd/chat/tips.go:18	(dead file)
+TipContext.LastCommand	cmd/nerd/chat/tips.go:16	(dead file)
+TipContext.LastShardType	cmd/nerd/chat/tips.go:17	(dead file)
+TipContext.ReviewIssues	cmd/nerd/chat/tips.go:21	(dead file)
+TipContext.TestsFailed	cmd/nerd/chat/tips.go:20	(dead file)
+ToolTemplate.Template	internal/autopoiesis/tool_templates.go:17	(dead file)
+Turn.ExtractedAtoms	internal/context/types.go:325	(dead file)
 ZAIConfig.DisableSemaphore	internal/perception/client_types.go:61
-initResearchResult.FallbackUsed	internal/init/agents.go:45
+initResearchResult.FallbackUsed	internal/init/agents.go:45	(dead file)

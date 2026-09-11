@@ -64,6 +64,18 @@ import (
 
 const baselinePath = "scripts/testdata/dark-fields-baseline.txt"
 
+// deadcodeBaselinePath is read only to ANNOTATE. A field declared in a file
+// that also has entries in the dead-code budget is very often a consequence of
+// those rather than a finding of its own: cmd/nerd/chat/tips.go contributes
+// five dark fields and eight dead functions, and the fields are dark because
+// nothing calls the functions that would fill them. Whoever triages this list
+// should spend their attention elsewhere first.
+//
+// It is a hint and not a filter. The overlap is at file granularity, so a live
+// function beside a dead one still gets the mark, and dropping those entries
+// would hide real findings behind an approximation.
+const deadcodeBaselinePath = "scripts/testdata/deadcode-baseline.txt"
+
 // roots are the production trees. tests/ is excluded with _test.go files: a
 // field only an end-to-end test writes is still dark in production.
 var roots = []string{"internal", "cmd"}
@@ -117,12 +129,15 @@ func main() {
 	}
 
 	declared := map[string][]field{}
+	order := map[string][]string{}
 	writes := map[string]bool{}
 	reads := map[string]bool{}
 
 	for i, f := range files {
-		collectFields(fset, f, paths[i], declared)
-		collectUses(f, writes, reads)
+		collectFields(fset, f, paths[i], declared, order)
+	}
+	for _, f := range files {
+		collectUses(f, order, writes, reads)
 	}
 
 	var dark []field
@@ -156,7 +171,7 @@ func main() {
 // collectFields records every exported field of a named struct type, except
 // the ones carrying a struct tag — a tag declares that something outside this
 // analysis writes the field.
-func collectFields(fset *token.FileSet, f *ast.File, path string, out map[string][]field) {
+func collectFields(fset *token.FileSet, f *ast.File, path string, out map[string][]field, order map[string][]string) {
 	ast.Inspect(f, func(n ast.Node) bool {
 		ts, ok := n.(*ast.TypeSpec)
 		if !ok {
@@ -166,6 +181,22 @@ func collectFields(fset *token.FileSet, f *ast.File, path string, out map[string
 		if !ok || st.Fields == nil {
 			return true
 		}
+		// Positional order includes EVERY field — unexported, tagged and
+		// embedded alike — because a positional composite literal counts all of
+		// them. An embedded field has no name and still occupies a slot, so it
+		// gets an empty placeholder rather than being skipped.
+		var positions []string
+		for _, fl := range st.Fields.List {
+			if len(fl.Names) == 0 {
+				positions = append(positions, "")
+				continue
+			}
+			for _, name := range fl.Names {
+				positions = append(positions, name.Name)
+			}
+		}
+		order[ts.Name.Name] = positions
+
 		for _, fl := range st.Fields.List {
 			if fl.Tag != nil {
 				continue
@@ -190,7 +221,7 @@ func collectFields(fset *token.FileSet, f *ast.File, path string, out map[string
 // collectUses splits every selector and composite-literal key into a write or
 // a read. It deliberately resolves nothing: a name written anywhere counts as
 // written everywhere, which makes this under-report rather than cry wolf.
-func collectUses(f *ast.File, writes, reads map[string]bool) {
+func collectUses(f *ast.File, order map[string][]string, writes, reads map[string]bool) {
 	mark := func(e ast.Expr, into map[string]bool) {
 		if sel, ok := e.(*ast.SelectorExpr); ok {
 			into[sel.Sel.Name] = true
@@ -210,18 +241,120 @@ func collectUses(f *ast.File, writes, reads map[string]bool) {
 				mark(x.X, writes)
 			}
 		case *ast.CompositeLit:
-			for _, elt := range x.Elts {
-				if kv, ok := elt.(*ast.KeyValueExpr); ok {
-					if id, ok := kv.Key.(*ast.Ident); ok {
-						writes[id.Name] = true
-					}
-				}
-			}
+			// No early return: the walker must still descend, or selector
+			// reads and assignments nested inside a literal (a field whose
+			// value is a function literal, most of all) stop being seen and
+			// the fields they touch turn dark by omission. markCompositeWrites
+			// recurses into inner literals itself so it can carry the element
+			// type down; the walker reaching the same literal again is
+			// harmless, since marking a name written twice is marking it once.
+			markCompositeWrites(x, "", order, writes)
 		case *ast.SelectorExpr:
 			reads[x.Sel.Name] = true
 		}
 		return true
 	})
+}
+
+// deadcodeFiles reads the dead-code budget for the set of files that have
+// unreachable functions in them. A missing or unreadable baseline is not an
+// error: this annotation is a convenience, and failing the dark-field gate
+// because a DIFFERENT gate's file moved would be its own small disaster.
+func deadcodeFiles() map[string]bool {
+	out := map[string]bool{}
+	raw, err := os.ReadFile(deadcodeBaselinePath)
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out[strings.Split(line, "\t")[0]] = true
+	}
+	return out
+}
+
+// markCompositeWrites records the fields a composite literal fills, including
+// the POSITIONAL form.
+//
+// Missing positional literals was a real false positive and not a theoretical
+// one. internal/store declares `type Migration struct { Table, Column, Def
+// string }` and fills fifty of them as `{"cold_storage", "last_accessed",
+// "DATETIME DEFAULT CURRENT_TIMESTAMP"}`. Table and Def are written on every
+// one of those lines, and a key-only walk reported both as dark — a gate
+// crying wolf about a struct that works, which is how a gate stops being run.
+//
+// The type name comes from the literal itself (Migration{...}, core.FileEdit
+// {...}) or, for the elided inner literals of a slice or map, from the element
+// type of the enclosing one. That is the shape `var x = []Migration{{...}}`
+// takes, which is the shape the false positive came in.
+func markCompositeWrites(lit *ast.CompositeLit, inherited string, order map[string][]string, writes map[string]bool) {
+	name := inherited
+	if lit.Type != nil {
+		name = namedType(lit.Type)
+	}
+
+	// What an inner literal of this one would be: the element type of a slice,
+	// array or map, or nothing.
+	elem := ""
+	switch t := lit.Type.(type) {
+	case *ast.ArrayType:
+		elem = namedType(t.Elt)
+	case *ast.MapType:
+		elem = namedType(t.Value)
+	}
+
+	for i, elt := range lit.Elts {
+		switch e := elt.(type) {
+		case *ast.KeyValueExpr:
+			if id, ok := e.Key.(*ast.Ident); ok {
+				writes[id.Name] = true
+			}
+			if inner, ok := e.Value.(*ast.CompositeLit); ok {
+				markCompositeWrites(inner, elem, order, writes)
+			}
+		case *ast.CompositeLit:
+			markCompositeWrites(e, elem, order, writes)
+		default:
+			// A positional element fills the i-th field of the named struct.
+			if fields, ok := order[name]; ok && i < len(fields) && fields[i] != "" {
+				writes[fields[i]] = true
+			}
+		}
+	}
+
+	// A positional literal whose elements are themselves composites still fills
+	// those positions, so walk them for the field names as well as recursing.
+	if name != "" {
+		if fields, ok := order[name]; ok {
+			for i, elt := range lit.Elts {
+				if _, keyed := elt.(*ast.KeyValueExpr); keyed {
+					continue
+				}
+				if i < len(fields) && fields[i] != "" {
+					writes[fields[i]] = true
+				}
+			}
+		}
+	}
+}
+
+// namedType reduces a type expression to the bare type name this analysis keys
+// on, seeing through pointers and package qualifiers.
+func namedType(e ast.Expr) string {
+	switch t := e.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		return t.Sel.Name
+	case *ast.StarExpr:
+		return namedType(t.X)
+	case *ast.ArrayType:
+		return namedType(t.Elt)
+	}
+	return ""
 }
 
 func dedupe(in []string) []string {
@@ -259,9 +392,18 @@ func writeBaseline(lines []string, dark []field) {
 	b.WriteString("#   a missing WIRE   - a producer exists and nothing connects it. Fix it.\n")
 	b.WriteString("#   a missing SOURCE - nothing in this architecture can answer. Say so at\n")
 	b.WriteString("#                      the field, and cost the producer as a feature.\n")
+	b.WriteString("#\n")
+	b.WriteString("# A line marked (dead file) declares the field in a file that also has\n")
+	b.WriteString("# entries in the dead-code budget. Those fields are usually dark BECAUSE\n")
+	b.WriteString("# nothing calls the functions that would fill them — triage them last.\n")
+	dead := deadcodeFiles()
 	for _, l := range lines {
 		d := site[l]
-		fmt.Fprintf(&b, "%s\t%s:%d\n", l, d.File, d.Line)
+		mark := ""
+		if dead[d.File] {
+			mark = "\t(dead file)"
+		}
+		fmt.Fprintf(&b, "%s\t%s:%d%s\n", l, d.File, d.Line, mark)
 	}
 	if err := os.WriteFile(baselinePath, []byte(b.String()), 0o644); err != nil {
 		fmt.Fprintln(os.Stderr, err)

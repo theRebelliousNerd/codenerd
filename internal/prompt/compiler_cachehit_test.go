@@ -2,8 +2,11 @@ package prompt
 
 import (
 	"context"
+	"database/sql"
+	"path/filepath"
 	"testing"
 
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/require"
 )
 
@@ -92,4 +95,108 @@ func cacheProbeCompiler(t *testing.T) *JITPromptCompiler {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = compiler.Close() })
 	return compiler
+}
+
+// `nerd jit` prints five numbers and three of them were filled by nothing:
+// GetStats built the struct with ShardDBCount and EmbeddedAtomCount and
+// returned it, so the command reported "Project Atoms: 0 / Compilations: 0 /
+// Avg Time (ms): 0.00" on a machine that had been compiling prompts all day.
+//
+// Zeros are the worst possible failure for a stats command. They read as a
+// system that has not run, rather than as a command that is not looking, and
+// the reader has no way to tell those apart.
+func TestJITStatsCountTheCompilesThatActuallyRan(t *testing.T) {
+	compiler := cacheProbeCompiler(t)
+
+	if got := compiler.GetStats().TotalCompilations; got != 0 {
+		t.Fatalf("a fresh compiler reports %d compilations", got)
+	}
+
+	_, err := compiler.Compile(context.Background(), NewCompilationContext().WithTokenBudget(10000, 1000))
+	require.NoError(t, err)
+
+	stats := compiler.GetStats()
+	if stats.TotalCompilations != 1 {
+		t.Errorf("TotalCompilations = %d after one compile, want 1", stats.TotalCompilations)
+	}
+	if stats.AverageTimeMs <= 0 {
+		t.Errorf("AverageTimeMs = %v after a compile that measurably took time", stats.AverageTimeMs)
+	}
+
+	// A cache hit is not a compilation, it is an avoided one. Counting it would
+	// make the number grow while the work stops, and would drag the average
+	// towards zero the better the cache performed — a metric that improves as
+	// its subject does nothing.
+	_, err = compiler.Compile(context.Background(), NewCompilationContext().WithTokenBudget(10000, 1000))
+	require.NoError(t, err)
+
+	if got := compiler.GetStats().TotalCompilations; got != 1 {
+		t.Errorf("TotalCompilations = %d after a cache hit, want 1", got)
+	}
+}
+
+// The two numbers share a denominator on purpose, so a reader can multiply
+// them back into total time without being wrong.
+func TestTheAverageIsOverTheCompilesThatAreCounted(t *testing.T) {
+	compiler := cacheProbeCompiler(t)
+
+	for i := range 3 {
+		// A different budget each time, so each is a distinct cache key and a
+		// real compile rather than a hit.
+		_, err := compiler.Compile(context.Background(),
+			NewCompilationContext().WithTokenBudget(10000+i, 1000))
+		require.NoError(t, err)
+	}
+
+	stats := compiler.GetStats()
+	if stats.TotalCompilations != 3 {
+		t.Fatalf("TotalCompilations = %d, want 3", stats.TotalCompilations)
+	}
+	if stats.AverageTimeMs <= 0 {
+		t.Errorf("AverageTimeMs = %v over three compiles", stats.AverageTimeMs)
+	}
+}
+
+// ProjectAtomCount is the third of the three zeros, and it is a query rather
+// than a counter: the project corpus is a database, not a slice.
+//
+// It is tested rather than assumed for the same reason every other line on
+// this branch is. "SELECT COUNT(*) FROM prompt_atoms" against the wrong handle,
+// or against a schema whose table is named something else, returns an error
+// that this code deliberately swallows into a debug line — so the failure mode
+// of getting it wrong is the exact zero it was written to replace.
+func TestJITStatsCountTheProjectCorpus(t *testing.T) {
+	db, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "corpus.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	_, err = db.Exec(`CREATE TABLE prompt_atoms (
+		atom_id TEXT PRIMARY KEY, content TEXT, description TEXT,
+		embedding BLOB, embedding_task TEXT, source_file TEXT)`)
+	require.NoError(t, err)
+	for _, id := range []string{"a", "b", "c"} {
+		_, err = db.Exec("INSERT INTO prompt_atoms (atom_id, content) VALUES (?, ?)", id, "x")
+		require.NoError(t, err)
+	}
+
+	compiler, err := NewJITPromptCompiler(
+		WithEmbeddedCorpus(NewEmbeddedCorpus(nil)),
+		WithProjectDB(db),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = compiler.Close() })
+
+	if got := compiler.GetStats().ProjectAtomCount; got != 3 {
+		t.Errorf("ProjectAtomCount = %d, want 3", got)
+	}
+}
+
+// And a compiler with no project corpus reports zero rather than failing. An
+// unscanned workspace is the ordinary state, not an error, and a stats command
+// that errors on it is a stats command nobody runs.
+func TestJITStatsSurviveAMissingProjectCorpus(t *testing.T) {
+	compiler := cacheProbeCompiler(t)
+	if got := compiler.GetStats().ProjectAtomCount; got != 0 {
+		t.Errorf("ProjectAtomCount = %d with no project DB, want 0", got)
+	}
 }

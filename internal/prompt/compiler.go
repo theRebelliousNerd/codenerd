@@ -351,6 +351,11 @@ type JITPromptCompiler struct {
 	cacheMu    sync.Mutex
 	cacheHits  int64
 	cacheMiss  int64
+	// compileNanos accumulates the wall time of compiles that actually ran.
+	// Its denominator is cacheMiss, deliberately: averaging in cache hits,
+	// which take microseconds, produces a number that describes the cache
+	// rather than the compiler and gets smaller the better the cache works.
+	compileNanos int64
 
 	// Observability
 	lastResult atomic.Pointer[CompilationResult]
@@ -555,6 +560,15 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 
 		// Start comprehensive timing after validation
 		compileStart := time.Now()
+		// The same clock feeds the per-compilation Duration below and the
+		// process-wide average `nerd jit` reports. Accumulating on EVERY exit
+		// path, including the error ones, is deliberate: a compile that failed
+		// after eight seconds still spent eight seconds, and an average that
+		// counted only successes would get better the more often compilation
+		// broke.
+		defer func() {
+			atomic.AddInt64(&c.compileNanos, int64(time.Since(compileStart)))
+		}()
 		stats := &CompilationStats{
 			ShardID:         cc.ShardID,
 			OperationalMode: cc.OperationalMode,
@@ -1471,13 +1485,28 @@ func (c *JITPromptCompiler) GetLastResult() *CompilationResult {
 	return c.lastResult.Load()
 }
 
-// Stats returns compilation statistics.
+// CompilerStats is what `nerd jit` prints.
+//
+// Three of these five were filled by nothing. GetStats built the struct with
+// ShardDBCount and EmbeddedAtomCount and returned it, so the command printed
+// "Project Atoms: 0 / Compilations: 0 / Avg Time (ms): 0.00" on a machine that
+// had been compiling prompts all day — and statsCompilations, which the
+// explanatory lines of the same command read, returned zero with it. Zeros are
+// the worst possible failure for a stats command: they read as a system that
+// has not run rather than as a command that is not looking.
 type CompilerStats struct {
 	EmbeddedAtomCount int
 	ProjectAtomCount  int
 	ShardDBCount      int
+
+	// TotalCompilations counts compiles that actually RAN. A cache hit is not
+	// a compilation, it is an avoided one, and singleflight coalescing means
+	// two concurrent callers of the same context produce one. This is the
+	// denominator AverageTimeMs uses, so the two numbers can be read together.
 	TotalCompilations int64
-	AverageTimeMs     float64
+
+	// AverageTimeMs is the mean wall time of those compiles.
+	AverageTimeMs float64
 }
 
 // GetStats returns current compiler statistics.
@@ -1486,13 +1515,31 @@ func (c *JITPromptCompiler) GetStats() CompilerStats {
 	shardCount := len(c.shardDBs)
 	c.shardMu.RUnlock()
 
+	compiles := atomic.LoadInt64(&c.cacheMiss)
 	stats := CompilerStats{
-		ShardDBCount: shardCount,
+		ShardDBCount:      shardCount,
+		TotalCompilations: compiles,
+	}
+	if compiles > 0 {
+		nanos := atomic.LoadInt64(&c.compileNanos)
+		stats.AverageTimeMs = float64(nanos) / float64(compiles) / float64(time.Millisecond)
 	}
 
 	c.dbMu.RLock()
 	if c.embeddedCorpus != nil {
 		stats.EmbeddedAtomCount = c.embeddedCorpus.Count()
+	}
+	// The project corpus is a database rather than a slice, so its size is a
+	// query. A failure here is reported as zero and not as an error: this is a
+	// stats call, and a closed or missing .nerd/prompts/corpus.db is the
+	// ordinary state of a workspace nobody has run `nerd init` in.
+	if c.projectDB != nil {
+		var count int
+		if err := c.projectDB.QueryRow("SELECT COUNT(*) FROM prompt_atoms").Scan(&count); err == nil {
+			stats.ProjectAtomCount = count
+		} else {
+			logging.Get(logging.CategoryJIT).Debug("GetStats: counting project atoms: %v", err)
+		}
 	}
 	c.dbMu.RUnlock()
 
