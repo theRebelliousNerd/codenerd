@@ -151,13 +151,10 @@ func LogLLMRequest(callsite string, systemPrompt string, userPrompt string, hist
 		sb.WriteString("─── BEGIN HISTORY ───\n")
 		for i, msg := range history {
 			role := strings.ToUpper(msg.Role)
-			// Truncate first, then redact: a secret straddling the 2000-char
-			// cut would otherwise be half-written before the redactor saw it.
-			content := msg.Content
-			if len(content) > 2000 {
-				content = content[:2000] + fmt.Sprintf("... [TRUNCATED, full=%d chars]", len(msg.Content))
-			}
-			sb.WriteString(fmt.Sprintf("[%d][%s] %s\n", i+1, role, redactTrace(content)))
+			// Whole, not cut at 2000 characters: the trace exists to show what
+			// the model saw, and a tool-loop round's steering sits at the end
+			// of its last tool result, past where the cut fell.
+			sb.WriteString(fmt.Sprintf("[%d][%s] %s\n", i+1, role, redactTrace(msg.Content)))
 		}
 		sb.WriteString("─── END HISTORY ───\n")
 	} else {

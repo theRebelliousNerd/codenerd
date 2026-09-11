@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -283,8 +284,13 @@ func (c *ScheduledLLMCall) CompleteWithToolResults(ctx context.Context, systemPr
 	defer c.Scheduler.ReleaseAPISlot(c.ShardID)
 
 	model := c.GetModel()
+	// The transcript is the request. Tracing only its length left every
+	// tool-loop round in llm_io.log as "[TOOL_RESULTS history_turns=3]",
+	// so what the model actually saw of its tool results, and whether the
+	// orchestrator's steering reached it, could not be read back from the
+	// trace of a stalled run.
 	logging.LogLLMRequest(c.ShardID+"-tool-results", systemPrompt,
-		fmt.Sprintf("[TOOL_RESULTS history_turns=%d tools=%d]", len(history), len(tools)), nil, model, 0)
+		fmt.Sprintf("[TOOL_RESULTS history_turns=%d tools=%d]", len(history), len(tools)), traceMessages(history), model, 0)
 
 	var resp *types.LLMToolResponse
 	var err error
@@ -940,4 +946,35 @@ func (c *ScheduledLLMCall) GroundedWebSearch(ctx context.Context, query string) 
 		c.Scheduler.ReportSuccess()
 	}
 	return result, callErr
+}
+
+// traceMessages renders a tool-loop transcript for the LLM I/O trace: each
+// message's text, then its tool calls with their arguments, then its tool
+// results whole. Whole, because the orchestrator's steering is appended to
+// the end of a round's last result, and a trace that cut results short is
+// exactly the trace that could not show whether the model was ever told.
+func traceMessages(history []types.Message) []logging.LLMMessage {
+	out := make([]logging.LLMMessage, 0, len(history))
+	for _, m := range history {
+		var sb strings.Builder
+		sb.WriteString(m.Text)
+		for _, call := range m.ToolCalls {
+			args, err := json.Marshal(call.Input)
+			if err != nil {
+				args = []byte(fmt.Sprintf("%v", call.Input))
+			}
+			if sb.Len() > 0 {
+				sb.WriteString("\n")
+			}
+			fmt.Fprintf(&sb, "[tool_use id=%s name=%s] %s", call.ID, call.Name, args)
+		}
+		for _, r := range m.ToolResults {
+			if sb.Len() > 0 {
+				sb.WriteString("\n")
+			}
+			fmt.Fprintf(&sb, "[tool_result id=%s error=%t]\n%s", r.ToolUseID, r.IsError, r.Content)
+		}
+		out = append(out, logging.LLMMessage{Role: m.Role, Content: sb.String()})
+	}
+	return out
 }
