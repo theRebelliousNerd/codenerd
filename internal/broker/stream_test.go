@@ -31,8 +31,10 @@ func TestStreamingSettlesWhenTheStreamEnds(t *testing.T) {
 		t.Errorf("stream content = %q, want %q", got, "hello world")
 	}
 
-	// The settling goroutine runs after both channels drain.
-	waitFor(t, func() bool { return meter.Ledger().Total().Calls == 1 })
+	// The settling goroutine runs after both channels drain, and the receipt is
+	// the last thing it emits, after the ledger, so waiting on the ledger can
+	// read the sink before the receipt exists.
+	waitFor(t, func() bool { _, ok := sink.last(); return ok })
 
 	total := meter.Ledger().Total()
 	if total.InputTokens != 900 || total.OutputTokens != 300 {
