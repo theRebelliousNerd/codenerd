@@ -38,6 +38,45 @@ the work they gate begins.
   the file context, so the cacheable head is the part that does not move. That
   is a change to how the prompt is assembled, not to how it is cached, and it
   should be settled before any controller is built on top of it.
+
+  **And caching is already switched on for one client and off for the other,
+  by omission.** `EnableSystemCaching()` — which wraps the system prompt in a
+  `cache_control: {"type": "ephemeral"}` block — is called in exactly one place
+  in the repository: the Anthropic CLASSIFICATION client in
+  `client_factory.go`. The main Anthropic client, the one carrying the large
+  JIT-compiled system prompt this whole phase is about, never calls it.
+
+  Nobody wrote that decision down, which is why it is here rather than in a
+  commit. Reading the code, the default is off for the agent and on for the
+  labeller, and the two sites are four hundred lines apart.
+
+  The arithmetic is already in this repository. `cacheEconomicsByProvider` puts
+  Anthropic at write 1.25x, read 0.10x, TTL 5 minutes, and `BreakEvenCalls()`
+  derives `(1.25 - 0.10) / (1 - 0.10) = 1.28` calls. So caching pays from the
+  SECOND call onward within the window, and costs 25% of the system prompt's
+  input tokens on a turn that makes only one.
+
+  That maps onto the by-shape split above rather than onto a global on/off:
+
+    native tool loop   the same system prompt goes into every round while only
+                       the messages grow, so a turn with N rounds pays
+                       1.25 + 0.1(N-1) instead of N. Four rounds: 1.55 against
+                       4.00, a 61% reduction on the system prompt's input cost.
+    Piggyback          one iteration by design. Epoch length is 1 whatever else
+                       is true, so caching is a flat 25% loss there.
+
+  The honest conclusion is that this is not a global setting and should not be
+  made one. It is a per-call-shape decision, and the shape is known at the call
+  site and not at client construction, which is where `EnableSystemCaching` is
+  set today. **What Gate A needs from the epoch histogram is not "should we
+  cache" but the round-count distribution of the native tool loop**, and a way
+  to set the flag per request rather than per client.
+
+  A TTL note that the by-shape table above already makes and that applies
+  doubly here: Anthropic holds an entry ~5 minutes, and a single high-reasoning
+  call can run 2-5 of them. An epoch whose rounds are slow enough can lose the
+  entry between calls and pay the write premium for nothing, which is what the
+  EXPIRED column in `nerd meter epochs` is for.
 - ~~**[gate] Atom co-use analysis**~~ — **built.** `internal/prompt/couse.go`
   records which atoms are selected together per compilation, settled against the
   turn's outcome, and reports lift, Jaccard, clusters and category alignment.

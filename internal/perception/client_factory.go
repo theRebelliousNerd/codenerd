@@ -301,6 +301,23 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 			haikuCfg.Model = model
 		}
 		client := NewAnthropicClientWithConfig(haikuCfg)
+		// The only EnableSystemCaching call in the repository.
+		//
+		// It is right here: the perception system prompt is static, so every
+		// classification call after the first reads it at 0.10x instead of
+		// paying 1.00x. What is worth noticing is the other side — the MAIN
+		// Anthropic client, built in newRawClientFromConfig below with the
+		// large JIT-compiled system prompt, does not call it, and no comment
+		// anywhere says that was decided rather than missed.
+		//
+		// It is not a one-line fix and should not be made one. Anthropic's
+		// break-even is (1.25-0.10)/(1-0.10) = 1.28 calls, so caching pays from
+		// the second call in a window and loses 25% on a turn that makes one.
+		// A native tool loop reuses one system prompt across rounds and profits;
+		// the Piggyback path runs a single iteration by design and cannot. The
+		// shape is known at the call site, not at construction, which is where
+		// this flag lives. Docs/architecture/broker/TODO.md carries the
+		// arithmetic and what Gate A actually needs to settle it.
 		client.EnableSystemCaching() // P1: cache the static perception system prompt
 		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=anthropic model=%s (configured=%v)", haikuCfg.Model, model != "")
 		return client, nil
