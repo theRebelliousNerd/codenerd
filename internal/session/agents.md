@@ -45,8 +45,9 @@
   earlier steps' outcomes, own focus, own policy spans), gives a step that
   made no edit one more pass with reading closed, runs the post-edit gate
   once after the last step, appends a step ledger to the response, and
-  fails the turn (`ErrStepsIncomplete`) when a step never edited. One step
-  or no plan is the single pass. Keep the plan a list of edit sites, not an
+  fails the turn (`ErrStepsIncomplete`) when a file no step edited remains;
+  a step on a file an earlier step edited is reported, not failed (planners
+  split imports out). One step or no plan is the single pass. Keep the plan a list of edit sites, not an
   approach; the model plans, the harness sequences.
 - Post-edit repair rounds (build, tests) go through the working request
   path. The first round is open; a round that read without editing is

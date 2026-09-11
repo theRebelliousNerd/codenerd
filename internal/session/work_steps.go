@@ -46,15 +46,20 @@ const workStepPlanSystem = `You divide one code-change task into the edit steps 
 Output one line per step, in the order the task gives them, in exactly this form:
 STEP <workspace-relative file path> :: <the change to make in that file, with its location>
 
-Rules: one step per file region the task says to change; keep the task's own numbering, names, line numbers and wording; a test the task asks for is its own step; never add a file the task does not name or clearly imply; never add a step the task does not ask for. A task with one change is one STEP line. Output only STEP lines, nothing else.`
+Rules: one step per file region the task says to change; keep the task's own numbering, names, line numbers and wording; a test the task asks for is its own step; an import a step needs is part of that step, never a step of its own; never add a file the task does not name or clearly imply; never add a step the task does not ask for. A task with one change is one STEP line. Output only STEP lines, nothing else.`
 
 // workStep is one edit site of a planned task and what became of it.
+// CoveredBy names the earlier step (1-based) that edited the same file when
+// this one made no edit: a planner that splits an import out of the change
+// that needs it produces a step the first pass has already done, and that
+// is not a missed edit. Zero when the step edited or nothing covers it.
 type workStep struct {
-	File   string
-	Change string
-	Edited bool
-	Calls  int
-	Note   string // the model's closing sentence, or the pass error
+	File      string
+	Change    string
+	Edited    bool
+	CoveredBy int
+	Calls     int
+	Note      string // the model's closing sentence, or the pass error
 }
 
 // toolLoopPass is how one pass of the tool loop is run. verify runs the
@@ -179,6 +184,34 @@ func workStepAnchor(task string, steps []workStep, current int, retry bool) stri
 	return b.String()
 }
 
+// markCoveredSteps records, for every step that made no edit, the earliest
+// step that edited the same file. The task's guarantee is per file: every
+// file the plan names was edited, whichever of its steps did it.
+func markCoveredSteps(steps []workStep) {
+	for i := range steps {
+		if steps[i].Edited {
+			continue
+		}
+		for j := range steps {
+			if j != i && steps[j].Edited && steps[j].File == steps[i].File {
+				steps[i].CoveredBy = j + 1
+				break
+			}
+		}
+	}
+}
+
+// unfinishedSteps are the steps whose file no step edited.
+func unfinishedSteps(steps []workStep) []string {
+	var missing []string
+	for i, s := range steps {
+		if !s.Edited && s.CoveredBy == 0 {
+			missing = append(missing, fmt.Sprintf("[%d] %s", i+1, s.File))
+		}
+	}
+	return missing
+}
+
 // workStepReport is the ledger the turn surfaces: every step, whether it
 // edited, and the model's closing word on it.
 func workStepReport(steps []workStep) string {
@@ -192,8 +225,11 @@ func workStepReport(steps []workStep) string {
 	fmt.Fprintf(&b, "Planned steps: %d, edited: %d.", len(steps), edited)
 	for i, s := range steps {
 		status := "no edit"
-		if s.Edited {
+		switch {
+		case s.Edited:
 			status = "edited"
+		case s.CoveredBy > 0:
+			status = fmt.Sprintf("no edit (file edited in step %d)", s.CoveredBy)
 		}
 		fmt.Fprintf(&b, "\n[%d] %s :: %s — %s (%d tool call(s))", i+1, s.File, s.Change, status, s.Calls)
 		if note := strings.TrimSpace(s.Note); note != "" {
@@ -258,13 +294,17 @@ func (e *Executor) runPlannedSteps(
 		step.Edited = result.SuccessfulWriteTools > writesBefore
 		step.Calls = result.ToolCallsExecuted - callsBefore
 		if resp != nil {
-			if text := strings.TrimSpace(resp.Text); text != "" {
+			// The closing word is the envelope's surface text, not its first
+			// brace: a model that answers in the Piggyback envelope closes
+			// with a JSON object.
+			if text := strings.TrimSpace(e.processPiggybackControlPacket(resp.Text)); text != "" {
 				step.Note = text
 			}
 			last = resp
 		}
 		logging.Session("Step %d/%d %s: edited=%v, %d tool call(s)", i+1, len(steps), step.File, step.Edited, step.Calls)
 	}
+	markCoveredSteps(steps)
 	result.StepReport = workStepReport(steps)
 	if last == nil {
 		last = &types.LLMToolResponse{Text: result.StepReport}
@@ -288,14 +328,8 @@ func (e *Executor) runPlannedSteps(
 	if verifyErr != nil {
 		return verified, toolErrs, verifyErr
 	}
-	var missing []string
-	for i, s := range steps {
-		if !s.Edited {
-			missing = append(missing, fmt.Sprintf("[%d] %s", i+1, s.File))
-		}
-	}
-	if len(missing) > 0 {
-		return verified, toolErrs, fmt.Errorf("%w: %d of %d step(s) made no edit (%s)\n%s",
+	if missing := unfinishedSteps(steps); len(missing) > 0 {
+		return verified, toolErrs, fmt.Errorf("%w: %d of %d step(s) made no edit and nothing else edited the file (%s)\n%s",
 			ErrStepsIncomplete, len(missing), len(steps), strings.Join(missing, ", "), result.StepReport)
 	}
 	return verified, toolErrs, nil

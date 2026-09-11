@@ -247,6 +247,36 @@ func TestRunToolLoop_PlannedSteps_ReportsAStepThatNeverEdited(t *testing.T) {
 	}
 }
 
+// A planner that splits an import out of the change that needs it produces
+// a step the earlier step has already done. Such a step is reported, not
+// failed: the guarantee is that every file the plan names was edited.
+func TestRunToolLoop_PlannedSteps_AStepOnAFileAlreadyEditedIsNotAFailure(t *testing.T) {
+	_, writeTool := registerStepTools(t)
+	plan := "STEP a.txt :: create it with the greeting\nSTEP a.txt :: add the import it needs\nSTEP b.txt :: create it\n"
+	client := newStepScriptProvider(plan, map[string][]types.ToolCall{
+		"a.txt": {{ID: "w-a", Name: writeTool, Input: map[string]any{"path": "a.txt", "content": "hello"}}},
+		"b.txt": {{ID: "w-b", Name: writeTool, Input: map[string]any{"path": "b.txt", "content": "bye"}}},
+	})
+	e := newPlannedStepsExecutor(t, client)
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
+
+	_, toolErrs, err := e.runToolLoop(context.Background(), "system", "create both files",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
+		&prompt.CompilationContext{ShardID: "probe"}, result)
+	if err != nil {
+		t.Fatalf("runToolLoop: %v (tool errors: %q); report:\n%s", err, toolErrs, result.StepReport)
+	}
+	if result.SuccessfulWriteTools != 2 {
+		t.Fatalf("writes = %d, want one per file", result.SuccessfulWriteTools)
+	}
+	if !strings.Contains(result.StepReport, "[2] a.txt :: add the import it needs — no edit (file edited in step 1)") {
+		t.Fatalf("report = %q", result.StepReport)
+	}
+	if !anyContains(client.anchors, "This step's first pass made no edit. Reading is closed") {
+		t.Fatalf("the covered step must still have been given its second pass; anchors: %q", client.anchors)
+	}
+}
+
 // One STEP line, or none, is the single pass the loop always ran: the task
 // text is the anchor, untouched, and no report is written.
 func TestRunToolLoop_PlannedSteps_OneStepIsOnePass(t *testing.T) {
@@ -315,12 +345,15 @@ func TestWorkStepReport_ListsEveryStep(t *testing.T) {
 	steps := []workStep{
 		{File: "a.go", Change: "add the field", Edited: true, Calls: 3, Note: "Added the field.\nmore"},
 		{File: "b.go", Change: "call it", Edited: false, Calls: 9, Note: "task unresolved: read_only_stall"},
+		{File: "a.go", Change: "add the import", Edited: false, Calls: 2},
 	}
+	markCoveredSteps(steps)
 	got := workStepReport(steps)
 	for _, want := range []string{
-		"Planned steps: 2, edited: 1.",
+		"Planned steps: 3, edited: 1.",
 		"[1] a.go :: add the field — edited (3 tool call(s)): Added the field.",
 		"[2] b.go :: call it — no edit (9 tool call(s)): task unresolved: read_only_stall",
+		"[3] a.go :: add the import — no edit (file edited in step 1) (2 tool call(s))",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("report lacks %q:\n%s", want, got)
@@ -328,5 +361,8 @@ func TestWorkStepReport_ListsEveryStep(t *testing.T) {
 	}
 	if strings.Contains(got, "more") {
 		t.Errorf("only the first line of a note belongs in the report:\n%s", got)
+	}
+	if missing := unfinishedSteps(steps); len(missing) != 1 || missing[0] != "[2] b.go" {
+		t.Errorf("unfinished = %v, want only the file no step edited", missing)
 	}
 }
