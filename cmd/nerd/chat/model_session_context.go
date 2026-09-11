@@ -109,7 +109,7 @@ func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 		}
 		// Track recent actions
 		sessionCtx.RecentActions = append(sessionCtx.RecentActions,
-			fmt.Sprintf("[%s] %s", sr.ShardType, truncateForContext(sr.Task, 50)))
+			fmt.Sprintf("[%s] %s", sr.ShardType, flattenForTask(sr.Task)))
 	}
 
 	// Limit findings to last 20
