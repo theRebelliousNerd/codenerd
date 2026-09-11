@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/require"
@@ -120,9 +122,6 @@ func TestJITStatsCountTheCompilesThatActuallyRan(t *testing.T) {
 	if stats.TotalCompilations != 1 {
 		t.Errorf("TotalCompilations = %d after one compile, want 1", stats.TotalCompilations)
 	}
-	if stats.AverageTimeMs <= 0 {
-		t.Errorf("AverageTimeMs = %v after a compile that measurably took time", stats.AverageTimeMs)
-	}
 
 	// A cache hit is not a compilation, it is an avoided one. Counting it would
 	// make the number grow while the work stops, and would drag the average
@@ -153,8 +152,66 @@ func TestTheAverageIsOverTheCompilesThatAreCounted(t *testing.T) {
 	if stats.TotalCompilations != 3 {
 		t.Fatalf("TotalCompilations = %d, want 3", stats.TotalCompilations)
 	}
-	if stats.AverageTimeMs <= 0 {
-		t.Errorf("AverageTimeMs = %v over three compiles", stats.AverageTimeMs)
+
+	// The average is checked against the accumulator rather than against zero.
+	//
+	// "AverageTimeMs > 0 after a real compile" is the assertion that reads
+	// right and is wrong: this repo's CI runs Windows, where the monotonic
+	// clock granularity is about half a millisecond, and a two-atom compile
+	// finishes inside one tick. time.Since then returns 0 honestly and the
+	// test failed on a platform difference rather than on a defect — which is
+	// precisely what that Windows job exists to find, so it found one of mine.
+	want := float64(atomic.LoadInt64(&compiler.compileNanos)) / 3 / float64(time.Millisecond)
+	if stats.AverageTimeMs != want {
+		t.Errorf("AverageTimeMs = %v, want %v (accumulator over three compiles)", stats.AverageTimeMs, want)
+	}
+}
+
+// And the average must come from the accumulator with the right denominator,
+// which is pinned by seeding the accumulator directly: a real compile cannot
+// be relied on to take a measurable amount of time, and a test that needs it to
+// is a test that fails on the fastest machine rather than the slowest.
+func TestTheAverageIsTheAccumulatorOverTheCompileCount(t *testing.T) {
+	compiler := cacheProbeCompiler(t)
+
+	_, err := compiler.Compile(context.Background(), NewCompilationContext().WithTokenBudget(10000, 1000))
+	require.NoError(t, err)
+
+	// A duration no clock granularity can round away.
+	atomic.StoreInt64(&compiler.compileNanos, int64(50*time.Millisecond))
+
+	stats := compiler.GetStats()
+	if stats.TotalCompilations != 1 {
+		t.Fatalf("TotalCompilations = %d, want 1", stats.TotalCompilations)
+	}
+	if stats.AverageTimeMs != 50 {
+		t.Errorf("AverageTimeMs = %v over one compile of 50ms, want 50", stats.AverageTimeMs)
+	}
+
+	// Two more compiles with the same accumulated time must divide it three
+	// ways.
+	for i := range 2 {
+		_, err := compiler.Compile(context.Background(),
+			NewCompilationContext().WithTokenBudget(20000+i, 1000))
+		require.NoError(t, err)
+	}
+	atomic.StoreInt64(&compiler.compileNanos, int64(90*time.Millisecond))
+
+	if got := compiler.GetStats().AverageTimeMs; got != 30 {
+		t.Errorf("AverageTimeMs = %v over three compiles of 90ms total, want 30", got)
+	}
+
+	// And a CACHE HIT must not move it. This is the case that distinguishes the
+	// right denominator from the plausible one: a hit adds a call and no
+	// compile, so an average taken over calls drops here while the work has not
+	// changed. Without this the two denominators are indistinguishable, because
+	// every compile above has a distinct key and the hit count is zero.
+	_, err = compiler.Compile(context.Background(), NewCompilationContext().WithTokenBudget(10000, 1000))
+	require.NoError(t, err)
+
+	if got := compiler.GetStats().AverageTimeMs; got != 30 {
+		t.Errorf("AverageTimeMs = %v after a cache hit, want 30 — the average is being "+
+			"taken over calls rather than over the compiles that actually ran", got)
 	}
 }
 
