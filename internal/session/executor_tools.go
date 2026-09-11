@@ -45,12 +45,33 @@ type ToolCall struct {
 //   - Piggyback Protocol clients keep using their structured-output path — the
 //     loop currently runs for one iteration on that path because the
 //     Piggyback envelope is its own contract; extending it is future work.
+//
+// A write-oriented turn on the native path is first divided into edit steps
+// (see work_steps.go); with two or more, each step runs as its own pass and
+// the gate runs once at the end. Otherwise the turn is one pass.
 func (e *Executor) runToolLoop(
 	ctx context.Context,
 	systemPrompt, userInput string,
 	cfg *config.EffectiveAgentRuntimeConfig,
 	compilationCtx *prompt.CompilationContext,
 	result *ExecutionResult,
+) (*types.LLMToolResponse, []string, error) {
+	if steps := e.planTurnSteps(ctx, e.llmForVerb(result.Intent.Verb), userInput, cfg, result); len(steps) > 1 {
+		return e.runPlannedSteps(ctx, systemPrompt, userInput, steps, cfg, compilationCtx, result)
+	}
+	return e.runToolLoopPass(ctx, systemPrompt, userInput, cfg, compilationCtx, result, toolLoopPass{verify: true})
+}
+
+// runToolLoopPass is one pass of the loop: a working loop on userInput, the
+// initial generation, the rounds, and, when pass.verify is set, the post-edit
+// gate at every terminal path.
+func (e *Executor) runToolLoopPass(
+	ctx context.Context,
+	systemPrompt, userInput string,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	compilationCtx *prompt.CompilationContext,
+	result *ExecutionResult,
+	pass toolLoopPass,
 ) (*types.LLMToolResponse, []string, error) {
 	// Resolve the turn's model once. Everything below — the initial
 	// generation, the no-tool retry, and every tool-result follow-up — shares
@@ -61,6 +82,11 @@ func (e *Executor) runToolLoop(
 		return nil, nil, workingErr
 	}
 	defer closeWorking()
+	if pass.regime != "" {
+		if loop := activeWorkingLoop(ctx); loop != nil {
+			loop.regime = pass.regime
+		}
+	}
 
 	llmResponse, err := e.generateResponse(ctx, client, systemPrompt, userInput, cfg)
 	if err != nil {
@@ -121,6 +147,9 @@ func (e *Executor) runToolLoop(
 	// envelope. Out of scope for this fix.)
 	if ptp, ok := client.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
 		toolErrs := e.executeToolBatchPiggyback(ctx, llmResponse.ToolCalls, cfg, result)
+		if !pass.verify {
+			return llmResponse, toolErrs, nil
+		}
 		verified, verifyErrs, verifyErr := e.verifyCompletedToolTurn(
 			ctx, nil, systemPrompt, nil, llmResponse, e.buildToolDefinitions(cfg), cfg, result)
 		toolErrs = append(toolErrs, verifyErrs...)
@@ -162,6 +191,9 @@ func (e *Executor) runToolLoop(
 	var toolErrs []string
 	currentResponse := llmResponse
 	verifyTerminal := func(response *types.LLMToolResponse) (*types.LLMToolResponse, error) {
+		if !pass.verify {
+			return response, nil
+		}
 		verified, verifyErrs, verifyErr := e.verifyCompletedToolTurn(
 			ctx, trp, systemPrompt, history, response, toolDefs, cfg, result)
 		toolErrs = append(toolErrs, verifyErrs...)

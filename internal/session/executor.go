@@ -772,6 +772,13 @@ type ExecutionResult struct {
 	// silent about; advisory, and empty on machines without gopls.
 	StaticDiagnostics string
 
+	// StepReport is the executive's ledger of a planned task: every step,
+	// whether it edited, and the model's closing word on it. Empty for a
+	// single-pass turn. It is appended to the response so the user reads the
+	// truth about a task that was run in steps, whatever the model's last
+	// sentence claimed.
+	StepReport string
+
 	// Duration is how long the execution took.
 	Duration time.Duration
 
@@ -809,7 +816,7 @@ func wrapToolLoopError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, ErrVerificationFailed) {
+	if errors.Is(err, ErrVerificationFailed) || errors.Is(err, ErrStepsIncomplete) {
 		return err
 	}
 	return fmt.Errorf("LLM generation failed: %w", err)
@@ -1024,6 +1031,9 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 
 	// 7. Articulate response — process Piggyback control packet (best-effort)
 	result.Response = e.processPiggybackControlPacket(llmResponse.Text)
+	if result.StepReport != "" {
+		result.Response = strings.TrimSpace(result.Response) + "\n\n" + result.StepReport
+	}
 	result.Duration = time.Since(start)
 
 	// Surface unrecovered tool failures as the execution error. A tool that

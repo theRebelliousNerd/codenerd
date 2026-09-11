@@ -38,6 +38,16 @@
   `recall_context` stays; a verification lifts it, a write does not). A task
   that wrote and drifted is finalized only a commit span after its reading
   closed. Change the spans in the .mg, not in Go.
+- A write-oriented turn on the native tool path is planned before it runs
+  (`work_steps.go`): one short model call lists the edit sites as
+  `STEP <file> :: <change>` lines; with two or more, the executive runs each
+  step as its own pass of the loop (own anchor naming the step and the
+  earlier steps' outcomes, own focus, own policy spans), gives a step that
+  made no edit one more pass with reading closed, runs the post-edit gate
+  once after the last step, appends a step ledger to the response, and
+  fails the turn (`ErrStepsIncomplete`) when a step never edited. One step
+  or no plan is the single pass. Keep the plan a list of edit sites, not an
+  approach; the model plans, the harness sequences.
 - Post-edit repair rounds (build, tests) go through the working request
   path. The first round is open; a round that read without editing is
   followed by one more under the commit regime with the compiler or test
