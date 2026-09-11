@@ -3628,6 +3628,8 @@ Two `nerd chat` probes on the rebuilt binary, both through `chat_driver.py`.
 | critic-uplift reply replaces the answer (twelve-site signature change in one package: nine returns, two `fmt.Errorf` returns, the caller, one test) | `verifyAndUpliftWithCritic` returns `([]string, error)` | 56 (3 writes) | 8m20s | first run under 3fddec99: 14 reads, one edit (the last return), 8 rounds of re-reading, reading closed at 26 tools, three recalls, one edit, regime lifted on the write, 8 more rounds of reading, closed again at 45, eight recalls, finalized at 53 (`verify_after_write`), build broken, repair rounds did not finish. Nine returns, the caller and four test sites (three the brief had not named) finished by hand (47b97fac). Finding: the regime lifting on a write gives this model a fresh reading span per edit |
 | pre-write snapshots (three-part brief: field, function + call, test) | `ExecutionResult.PreWriteContents` | 42 (1 write) | 8m57s | first run under the sticky regime (f8ede0e1): the field landed at tool 11; then the same three regions were read five times each with slightly different ranges (section 102→146 KB a round), reading closed at 32, seven `recall_context` searches and one `git status` under the regime, finalized at 40 with no second edit. Final message said plainly it had not applied parts two and three. Root cause fixed by hand: covered spans now supersede (d08a2a82). Parts two and three re-briefed one file each |
 | its function and call site (one file, two edits) | `snapshotPreWriteContents` + the call in `executeAndRecordToolCall` | 27 (2 writes) | 8m14s | first run under span supersession: section 20–27 KB a round (was 102–146), both edits exact, build passed; the one-line `if` and two long comments wrapped by hand. Under the regime-free run the model still re-read the target region four times, but each copy replaced the last |
+| its test (one file) | `TestSnapshotPreWriteContents_KeepsTheContentBeforeTheFirstWrite` | 12 (2 writes) | 3m22s | exact, imports added as briefed; `checks_passed` (9eedb506) |
+| **coverage narrowing, three files as ONE brief** (first task under the planned-steps executive, 65ebba1b) | `LineRange`, `changedLines`, `blocksInChangedLines`, two tests, the `verifyAndRepairTests` block, two import edits | 26 (7 writes) | 11m14s | planned as 6 steps (the planner split each part's import out); step 1 (15 tools) added the helpers and the import, step 2 (the import) had nothing left to do and was reported, steps 3–6 landed in 2–3 tools each; build and the named tests green; gofmt of the import group by hand (f67188e3). Before the executive, the same three-file shape landed one part per turn |
 
 What governed the second run: in open (progress-driven, no count ceiling)
 mode the working policy only knew a repeated-trace flag and a failure
@@ -3743,6 +3745,20 @@ twelve-site change. Now reading stays closed until a verification
 Under the regime the model reached for `recall_context` three and then eight
 times in a row instead of reading — recall is exploration too, but it costs
 no observation and is bounded by what was already gathered.
+
+**Planned steps (65ebba1b, 2f-follow-up in the next commit).** Steve's
+ruling mid-afternoon: "multi step is mad important.. you need to fix
+that yourself... robustly". The loop's own shape was the defect (one
+edit, then reading until the policy stops it), so the executive now
+divides a write task once (one short `STEP <file> :: <change>` planning
+call) and runs each step as its own pass with the file named, the way a
+repair round already ran; a step with no edit gets one more pass with
+reading closed; the gate runs once at the end; a step ledger is appended
+to the response; a file no step edited fails the turn. First live task:
+the three-file coverage change above, 5 of 6 steps edited, all three
+files done in 26 tools. Note the planner over-splits (imports as their
+own steps); such a step on an already-edited file is reported, not
+failed.
 
 Coverage attribution is file-level: `parseCoverProfile` keeps every
 uncovered block of every written file, so the one-line schema edit was
