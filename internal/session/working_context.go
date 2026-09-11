@@ -117,6 +117,20 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	if entity != "" {
 		loop.focus = normalizeWorkingEntity(entity, e.workspaceForVerification())
 	}
+	// The discarded error is recorded in the audit_json_errors baseline, and
+	// this is the note that says it was checked rather than waved through.
+	// ToolCall.Input is only ever built by json.Unmarshal into a map[string]any
+	// (client_tool_helpers.go, xaioauth/tools.go), so its values are nil, bool,
+	// float64, string, []any or map[string]any -- and JSON has no NaN or Inf
+	// literal, which is the only way an Unmarshal result can refuse to Marshal.
+	//
+	// Worth stating what a failure WOULD cost, because it is not local: args
+	// feeds a hash that becomes Kind, Kind is persisted on the record and is
+	// what working_set.mg selects observations by. A nil args does not error
+	// here, it makes every call of one tool hash identically regardless of its
+	// arguments -- distinct observations silently collapsing into one kind. If
+	// Input ever acquires a producer that is not an Unmarshal, that is the
+	// consequence to design against.
 	args, _ := json.Marshal(call.Input)
 	sum := sha256.Sum256(append([]byte(call.Name+"\x00"), args...))
 	kind := call.Name + "/" + hex.EncodeToString(sum[:8])
