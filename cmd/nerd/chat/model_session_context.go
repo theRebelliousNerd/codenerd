@@ -677,6 +677,7 @@ func (m *Model) populateTestState(sessionCtx *types.SessionContext) {
 		case counts.Failed > 0:
 			sessionCtx.TestState = "/failing"
 			sessionCtx.FailingTests = counts.FailedNames
+			sessionCtx.TDDRetryCount = repeatedTestFailures(m.shardResultHistory[:i])
 			if len(sessionCtx.FailingTests) == 0 {
 				// A runner that reports a count without naming anything. One
 				// honest line, because FailingTests is rendered into the prompt
@@ -697,6 +698,49 @@ func (m *Model) populateTestState(sessionCtx *types.SessionContext) {
 			"Tests: %d pass, %d fail", counts.Passed, counts.Failed)
 		return
 	}
+}
+
+// repeatedTestFailures counts how many tester runs BEFORE the current one
+// failed without a passing run in between.
+//
+// It is the third field of the TEST STATE block and had the same defect as the
+// other two: two production readers, in prompt_assembler.go and in
+// shards/agents.go, both rendering "TDD Retry: N (fix root cause, not
+// symptoms)" into the prompt, and nothing in the repository ever setting it.
+// Two tests wrote it, which is how a field survives with no producer — the
+// readers are exercised, so the feature looks covered.
+//
+// It counts PRIOR failures, not the current one, so the first failure is zero
+// and prints nothing. That is the semantics the readers already assume: a
+// retry count of 1 has to mean "you have tried once and it is still failing",
+// or the line fires on a suite that has just gone red for the first time and
+// tells a model that has not attempted anything yet to stop treating symptoms.
+//
+// A passing run ends the loop. This is the CURRENT repair loop's depth, not a
+// tally of everything that has ever gone red in the session, and green in
+// between means whatever came after it is a new problem.
+//
+// Runs the parser cannot read are skipped rather than counted or treated as a
+// break: an unreadable runner is not evidence of a repair and not evidence of
+// a fix. The same reasoning governs the caller — it asserts neither verdict on
+// an unparseable newest result.
+func repeatedTestFailures(earlier []*ShardResult) int {
+	count := 0
+	for i := len(earlier) - 1; i >= 0; i-- {
+		if earlier[i].ShardType != "tester" {
+			continue
+		}
+		counts := testoutput.Parse(earlier[i].RawOutput)
+		switch {
+		case !counts.Parsed:
+			continue
+		case counts.Failed > 0:
+			count++
+		case counts.Passed > 0:
+			return count
+		}
+	}
+	return count
 }
 
 // buildPriorShardSummaries extracts summaries from recent shard executions.
