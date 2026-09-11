@@ -319,11 +319,20 @@ func (w *WorkingSet) Select(ctx context.Context, focus string, recent []string, 
 	for _, row := range included.Bindings {
 		decisions = append(decisions, core.Fact{Predicate: "should_include_context", Args: []any{row["Entity"], fmt.Sprint(row["Priority"])}})
 	}
-	w.selector.config.AtomReserve = max(1, charBudget/8)
+	// World facts annotate the evidence; they are not the evidence. They used
+	// to be allowed half the section, which at a 16 KB section was 8 KB and
+	// at the window-derived section is enough for the symbol table of every
+	// file within two dependency hops: measured 2026-09-11, 762 code_defines
+	// lines (78 KB, about 20k tokens) on every round of a one-line edit, most
+	// for files the task never touched. The share is one eighth; the policy's
+	// priority order decides which facts fill it, so the focus entity's own
+	// definitions come first and the far neighbourhood is what gets cut.
+	factShare := charBudget / 8
+	w.selector.config.AtomReserve = max(1, factShare/4)
 	selectedFacts := w.selector.buildKernelDerivedContext(decisions, worldFacts)
 	for _, f := range selectedFacts {
 		line := f.Fact.String() + "\n"
-		if text.Len()+len(line) <= charBudget/2 {
+		if text.Len()+len(line) <= factShare {
 			text.WriteString(line)
 		}
 	}
