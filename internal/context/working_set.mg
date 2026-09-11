@@ -41,8 +41,9 @@ Decl working_nudge(Kind) descr [doc("Steering the loop appends to the round's la
 # it already gathered), so its legal moves are to make the change, verify it,
 # or conclude. Observed 2026-09-11: four runs of one insertion brief re-read
 # the same four facts for 24 rounds each with the nudge in hand.
-Decl working_regime(Regime) descr [doc("The loop's regime for the next round; /commit closes exploration on a change task that ignored the implement nudge for a span.")].
+Decl working_regime(Regime) descr [doc("The loop's regime for the next round; /commit closes exploration on a change task that ignored the implement nudge for a span, or that wrote and then only read for a span.")].
 Decl working_commit_rounds(N) bound [/number].
+Decl working_finalize_rounds(N) bound [/number].
 Decl working_stopped() bound [].
 Decl working_continue() descr [doc("Continuation requires no observed stall; it never means task completion.")].
 
@@ -50,11 +51,20 @@ Decl working_continue() descr [doc("Continuation requires no observed stall; it 
 # one response and one that reads one file per response get the same span.
 working_nudge_rounds(8).
 working_commit_rounds(16).
+working_finalize_rounds(16).
 working_stall_rounds(24).
 
 working_regime(/commit) :-
     working_progress(/write, Rounds, 0, _, _),
     working_commit_rounds(N), Rounds >= N.
+# A change task that wrote and then neither wrote nor verified for a nudge
+# span is exploring again; its reading closes the same way. Observed
+# 2026-09-11: one edit, then sixteen reads of the same three files while the
+# model announced the next edit every round, until the turn was finalized
+# with two of the brief's three changes unmade.
+working_regime(/commit) :-
+    working_progress(/write, _, Writes, SinceWrite, SinceVerify), Writes > 0,
+    working_nudge_rounds(N), SinceWrite >= N, SinceVerify >= N.
 
 working_stop(/repeated_cycle) :- working_control(/yes, _).
 working_stop(/tool_failures) :- working_control(_, Failed), Failed >= 3.
@@ -69,12 +79,13 @@ working_stop(/read_only_stall) :-
 working_stopped() :- working_stop(_).
 working_continue() :- working_control(_, _), !working_stopped().
 
-# A change task that wrote and then neither wrote nor verified for a nudge
-# span is done exploring: the harness collects the conclusion and runs the
-# build/test gate itself instead of waiting for the model to get round to it.
+# A change task that wrote and then neither wrote nor verified for the
+# finalize span, a whole commit span past the point its reading closed, is
+# done exploring: the harness collects the conclusion and runs the build/test
+# gate itself instead of waiting for the model to get round to it.
 working_finalize(/verify_after_write) :-
     working_progress(/write, _, Writes, SinceWrite, SinceVerify), Writes > 0,
-    working_nudge_rounds(N), SinceWrite >= N, SinceVerify >= N.
+    working_finalize_rounds(N), SinceWrite >= N, SinceVerify >= N.
 
 # Steering, well before the stop and finalize thresholds.
 working_nudge(/implement) :-

@@ -264,10 +264,14 @@ func TestRunToolLoop_ProgressDriven_NudgesAReadTaskToConclude(t *testing.T) {
 	}
 }
 
-// A change task that wrote and then only read is finalized by policy: the
-// model's pending batch still runs, then the harness asks for the conclusion
-// and takes over verification. Before this the loop waited for the model to
-// get round to the test the task named, which it never did.
+// A change task that wrote and then only read has its reading closed after a
+// nudge span (the commit regime, as for a task that never wrote) and is
+// finalized by policy a commit span later: the model's pending batch still
+// runs, then the harness asks for the conclusion and takes over verification.
+// Before this the loop waited for the model to get round to the test the task
+// named, which it never did; and before the regime applied here, a turn that
+// made one of three briefed edits and then re-read the same files was
+// finalized with the other two unmade (observed 2026-09-11).
 func TestRunToolLoop_ProgressDriven_FinalizesAChangeTaskThatWroteThenDrifted(t *testing.T) {
 	const readTool = "working_loop_drift_probe"
 	const writeTool = "create_file"
@@ -296,10 +300,11 @@ func TestRunToolLoop_ProgressDriven_FinalizesAChangeTaskThatWroteThenDrifted(t *
 	if resp == nil || resp.Text != "done" {
 		t.Fatalf("response = %+v, want the forced final answer", resp)
 	}
-	// One write, eight idle reads to the finalize boundary, and the pending
-	// ninth read executed inside the forced-final path.
-	if result.ToolCallsExecuted != 10 {
-		t.Fatalf("executed = %d, want 10: policy finalizes eight idle rounds after the write", result.ToolCallsExecuted)
+	// One write, eight idle reads to the regime boundary, eight more rounds
+	// whose reads are answered with the regime instead of running, and the
+	// pending seventeenth read executed inside the forced-final path.
+	if result.ToolCallsExecuted != 18 {
+		t.Fatalf("executed = %d, want 18: reading closes eight idle rounds after the write and the turn finalizes eight rounds later", result.ToolCallsExecuted)
 	}
 	if client.next >= len(client.calls) {
 		t.Fatal("the script ran out: the loop was bounded by the mock, not by policy")
@@ -307,6 +312,9 @@ func TestRunToolLoop_ProgressDriven_FinalizesAChangeTaskThatWroteThenDrifted(t *
 	seen := toolResultContents(client.histories)
 	if !anyContains(seen, "nothing has verified it") {
 		t.Fatalf("the model was never told to verify after its write; tool results seen: %q", seen)
+	}
+	if !anyContains(seen, "Reading is closed for this task") {
+		t.Fatalf("reading was never closed after the write; tool results seen: %q", seen)
 	}
 }
 

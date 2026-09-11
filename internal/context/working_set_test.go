@@ -70,7 +70,9 @@ func TestWorkingSetContinuePolicy(t *testing.T) {
 		{"a change task that ignored the implement nudge for a span is put in the commit regime", WorkingProgress{WriteIntent: true, Rounds: 16, SinceWrite: 16, SinceVerify: 16}, WorkingDecision{Continue: true, Nudge: "implement", Regime: "commit"}},
 		{"a change task that only read for the stall span stops", WorkingProgress{WriteIntent: true, Rounds: 24, SinceWrite: 24, SinceVerify: 24}, WorkingDecision{Stop: "read_only_stall"}},
 		{"a change task is nudged to verify three rounds after a write", WorkingProgress{WriteIntent: true, Rounds: 5, Writes: 1, SinceWrite: 3, SinceVerify: 5}, WorkingDecision{Continue: true, Nudge: "verify"}},
-		{"a change task that wrote and drifted finalizes", WorkingProgress{WriteIntent: true, Rounds: 10, Writes: 1, SinceWrite: 8, SinceVerify: 10}, WorkingDecision{Continue: true, Finalize: "verify_after_write", Nudge: "verify"}},
+		{"a change task that wrote and drifted for a nudge span is put in the commit regime", WorkingProgress{WriteIntent: true, Rounds: 10, Writes: 1, SinceWrite: 8, SinceVerify: 10}, WorkingDecision{Continue: true, Nudge: "verify", Regime: "commit"}},
+		{"a change task that wrote and drifted for the finalize span finalizes", WorkingProgress{WriteIntent: true, Rounds: 18, Writes: 1, SinceWrite: 16, SinceVerify: 18}, WorkingDecision{Continue: true, Finalize: "verify_after_write", Nudge: "verify", Regime: "commit"}},
+		{"a write under the commit regime lifts it", WorkingProgress{WriteIntent: true, Rounds: 11, Writes: 2, SinceWrite: 0, SinceVerify: 11}, WorkingDecision{Continue: true}},
 		{"a verified write keeps going", WorkingProgress{WriteIntent: true, Rounds: 12, Writes: 1, SinceWrite: 10, SinceVerify: 1}, WorkingDecision{Continue: true}},
 	}
 	for _, tc := range cases {

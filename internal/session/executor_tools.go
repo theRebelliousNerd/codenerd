@@ -258,7 +258,7 @@ func (e *Executor) runToolLoop(
 				loop.regime = decision.Regime
 				if decision.Regime == commitRegime {
 					logging.Get(logging.CategorySession).Warn(
-						"Working policy closed exploration (commit regime) after %d rounds without a write", result.ToolCallsExecuted)
+						"Working policy closed exploration (commit regime) after %d executed tool call(s)", result.ToolCallsExecuted)
 				}
 				toolResults = appendToolBudgetNudge(toolResults, workingRegimeText(decision.Regime))
 			}

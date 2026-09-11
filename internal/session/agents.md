@@ -32,9 +32,12 @@
   `working_finalize` (exploration over: the pending batch runs, then the
   forced-final path and the post-edit gate), `working_nudge` (steering text
   on the round's last tool result) or `working_regime(/commit)` (a change
-  task that ignored the implement nudge for a span: read tools leave the
-  offered catalog, a read asked for anyway is answered with the regime and
-  not run, `recall_context` stays). Change the spans in the .mg, not in Go.
+  task that ignored the implement nudge for a span, or that wrote and then
+  neither wrote nor verified for a nudge span: read tools leave the offered
+  catalog, a read asked for anyway is answered with the regime and not run,
+  `recall_context` stays; a write lifts it). A task that wrote and drifted is
+  finalized only a commit span after its reading closed. Change the spans in
+  the .mg, not in Go.
 - Post-edit repair rounds (build, tests) go through the working request
   path. The first round is open; a round that read without editing is
   followed by one more under the commit regime with the compiler or test
