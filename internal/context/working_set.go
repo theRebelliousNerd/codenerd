@@ -151,6 +151,7 @@ type WorkingDecision struct {
 	Stop     string // working_stop reason, without the leading slash
 	Finalize string // working_finalize reason, without the leading slash
 	Nudge    string // working_nudge kind, without the leading slash
+	Regime   string // working_regime for the next round, without the leading slash
 }
 
 // Continue asks policy whether observed execution should continue. A stop is
@@ -201,6 +202,9 @@ func (w *WorkingSet) Continue(ctx context.Context, p WorkingProgress) (WorkingDe
 		return WorkingDecision{}, err
 	}
 	if decision.Nudge, err = first("working_nudge(Kind)", "Kind"); err != nil {
+		return WorkingDecision{}, err
+	}
+	if decision.Regime, err = first("working_regime(Regime)", "Regime"); err != nil {
 		return WorkingDecision{}, err
 	}
 	rows, err := w.engine.Query(ctx, "working_continue()")

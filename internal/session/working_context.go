@@ -39,6 +39,32 @@ type workingLoop struct {
 	anchor       string
 	prior        []types.Message
 	observations map[string]string
+	regime       string // the policy's working_regime for the next round
+}
+
+// commitRegime is the working_regime under which exploration is closed.
+const commitRegime = "commit"
+
+// closedForReading says whether a tool is withheld under the commit regime:
+// every read-effect tool except recall_context, which recovers evidence the
+// loop already gathered rather than exploring for more.
+func closedForReading(name string) bool {
+	if name == "recall_context" {
+		return false
+	}
+	effect, err := tools.LookupEffect(name)
+	return err == nil && effect == tools.EffectRead
+}
+
+// commitRegimeDefinitions is the catalog offered under the commit regime.
+func commitRegimeDefinitions(definitions []types.ToolDefinition) []types.ToolDefinition {
+	kept := make([]types.ToolDefinition, 0, len(definitions))
+	for _, def := range definitions {
+		if !closedForReading(def.Name) {
+			kept = append(kept, def)
+		}
+	}
+	return kept
 }
 
 // workingSectionCeiling bounds the observations section of a working request
@@ -293,6 +319,9 @@ func largestToolResult(messages []types.Message) (mi, ri, size int) {
 }
 
 func (e *Executor) completeWithWorkingContext(ctx context.Context, provider types.ToolResultsProvider, system string, history []types.Message, definitions []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if loop := activeWorkingLoop(ctx); loop != nil && loop.regime == commitRegime {
+		definitions = commitRegimeDefinitions(definitions)
+	}
 	system, history, err := e.prepareWorkingRequest(ctx, system, history, definitions)
 	if err != nil {
 		return nil, fmt.Errorf("compile working context: %w", err)

@@ -67,6 +67,7 @@ func TestWorkingSetContinuePolicy(t *testing.T) {
 		{"three failed rounds stop", WorkingProgress{FailedRounds: 3, Rounds: 3, SinceWrite: 3, SinceVerify: 3}, WorkingDecision{Stop: "tool_failures"}},
 		{"a read task is nudged to conclude at the nudge span", WorkingProgress{Rounds: 8, SinceWrite: 8, SinceVerify: 8}, WorkingDecision{Continue: true, Nudge: "conclude"}},
 		{"a change task is nudged to implement at the nudge span", WorkingProgress{WriteIntent: true, Rounds: 8, SinceWrite: 8, SinceVerify: 8}, WorkingDecision{Continue: true, Nudge: "implement"}},
+		{"a change task that ignored the implement nudge for a span is put in the commit regime", WorkingProgress{WriteIntent: true, Rounds: 16, SinceWrite: 16, SinceVerify: 16}, WorkingDecision{Continue: true, Nudge: "implement", Regime: "commit"}},
 		{"a change task that only read for the stall span stops", WorkingProgress{WriteIntent: true, Rounds: 24, SinceWrite: 24, SinceVerify: 24}, WorkingDecision{Stop: "read_only_stall"}},
 		{"a change task is nudged to verify three rounds after a write", WorkingProgress{WriteIntent: true, Rounds: 5, Writes: 1, SinceWrite: 3, SinceVerify: 5}, WorkingDecision{Continue: true, Nudge: "verify"}},
 		{"a change task that wrote and drifted finalizes", WorkingProgress{WriteIntent: true, Rounds: 10, Writes: 1, SinceWrite: 8, SinceVerify: 10}, WorkingDecision{Continue: true, Finalize: "verify_after_write", Nudge: "verify"}},

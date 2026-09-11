@@ -30,8 +30,11 @@
   (intent, rounds, writes, rounds since the last write and verification) at
   every boundary; the policy answers with `working_stop` (unresolved),
   `working_finalize` (exploration over: the pending batch runs, then the
-  forced-final path and the post-edit gate) or `working_nudge` (steering text
-  on the round's last tool result). Change the spans in the .mg, not in Go.
+  forced-final path and the post-edit gate), `working_nudge` (steering text
+  on the round's last tool result) or `working_regime(/commit)` (a change
+  task that ignored the implement nudge for a span: read tools leave the
+  offered catalog, a read asked for anyway is answered with the regime and
+  not run, `recall_context` stays). Change the spans in the .mg, not in Go.
 - A working request carries the current call/result pair whole. A result is
   archived to a `recall_context` pointer (which states the body's size) only
   when the request cannot otherwise fit the configured input window, largest

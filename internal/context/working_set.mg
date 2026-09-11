@@ -35,13 +35,26 @@ Decl working_stall_rounds(N) bound [/number].
 Decl working_stop(Reason) bound [/name].
 Decl working_finalize(Reason) descr [doc("Exploration is over; the harness asks for the conclusion and runs verification. Not a stop and not a completion witness.")].
 Decl working_nudge(Kind) descr [doc("Steering the loop appends to the round's last tool result: /implement, /verify or /conclude.")].
+# The regime the loop runs the next round under. /commit: the model has had
+# the implement nudge for a whole span and only read; the catalog offered to
+# it narrows to the tools that make and verify a change (plus recall of what
+# it already gathered), so its legal moves are to make the change, verify it,
+# or conclude. Observed 2026-09-11: four runs of one insertion brief re-read
+# the same four facts for 24 rounds each with the nudge in hand.
+Decl working_regime(Regime) descr [doc("The loop's regime for the next round; /commit closes exploration on a change task that ignored the implement nudge for a span.")].
+Decl working_commit_rounds(N) bound [/number].
 Decl working_stopped() bound [].
 Decl working_continue() descr [doc("Continuation requires no observed stall; it never means task completion.")].
 
 # Policy constants. Rounds, not tool calls: a model that batches ten reads in
 # one response and one that reads one file per response get the same span.
 working_nudge_rounds(8).
+working_commit_rounds(16).
 working_stall_rounds(24).
+
+working_regime(/commit) :-
+    working_progress(/write, Rounds, 0, _, _),
+    working_commit_rounds(N), Rounds >= N.
 
 working_stop(/repeated_cycle) :- working_control(/yes, _).
 working_stop(/tool_failures) :- working_control(_, Failed), Failed >= 3.

@@ -357,6 +357,15 @@ func workingNudgeText(kind string, p working.WorkingProgress) string {
 	return ""
 }
 
+// workingRegimeText tells the model what the policy's regime means for the
+// next round. Empty for the open regime.
+func workingRegimeText(regime string) string {
+	if strings.TrimPrefix(strings.TrimSpace(regime), "/") == commitRegime {
+		return "Reading is closed for this task: the evidence gathered so far is what there is, and the tools offered now are the ones that make and verify the change (recall_context recovers what was already read). Make the change now, verify it, or conclude with what is missing."
+	}
+	return ""
+}
+
 func appendToolBudgetNudge(results []types.ToolResult, nudge string) []types.ToolResult {
 	if len(results) == 0 || strings.TrimSpace(nudge) == "" {
 		return results

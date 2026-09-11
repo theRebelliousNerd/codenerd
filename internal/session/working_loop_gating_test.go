@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -26,10 +27,16 @@ type roundScriptProvider struct {
 	toolName  string
 	rounds    int
 	histories [][]types.Message
+	catalogs  [][]string // tool names offered on each call, in order
 }
 
-func (p *roundScriptProvider) CompleteWithToolResults(_ context.Context, _ string, history []types.Message, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+func (p *roundScriptProvider) CompleteWithToolResults(_ context.Context, _ string, history []types.Message, definitions []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	p.histories = append(p.histories, append([]types.Message(nil), history...))
+	names := make([]string, 0, len(definitions))
+	for _, def := range definitions {
+		names = append(names, def.Name)
+	}
+	p.catalogs = append(p.catalogs, names)
 	if p.rounds > 0 {
 		p.rounds--
 		n := len(p.histories)
@@ -195,12 +202,19 @@ func TestRunToolLoop_ProgressDriven_StopsAChangeTaskThatOnlyReads(t *testing.T) 
 		Effect: tools.EffectRead, Name: toolName, Category: tools.CategoryGeneral,
 		Execute: func(context.Context, map[string]any) (string, error) { return "observed", nil },
 	})
+	// A change task's catalog carries a write tool; under the commit regime it
+	// is what remains on offer, and this scripted model never uses it.
+	const writerName = "working_loop_stall_writer"
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectWrite, Name: writerName, Category: tools.CategoryCode,
+		Execute: func(context.Context, map[string]any) (string, error) { return "written", nil },
+	})
 	client := &scriptedCallsProvider{MockLLMClient: &MockLLMClient{}, calls: readCalls(toolName, 60)}
 	e := newWorkingLoopExecutor(t, client)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
 
 	_, _, err := e.runToolLoop(context.Background(), "system", "fix it",
-		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName, writerName}},
 		&prompt.CompilationContext{ShardID: "probe"}, result)
 	if err == nil || !strings.Contains(err.Error(), "stopped by policy") || !strings.Contains(err.Error(), "read_only_stall") {
 		t.Fatalf("err = %v, want the working policy to stop a change task that never wrote", err)
@@ -293,5 +307,49 @@ func TestRunToolLoop_ProgressDriven_FinalizesAChangeTaskThatWroteThenDrifted(t *
 	seen := toolResultContents(client.histories)
 	if !anyContains(seen, "nothing has verified it") {
 		t.Fatalf("the model was never told to verify after its write; tool results seen: %q", seen)
+	}
+}
+
+// A change task that has ignored the implement nudge for the commit span is
+// put in the commit regime: the read tools leave the catalog offered to the
+// model, a read it asks for anyway is answered with the regime instead of
+// run, and the stall span still ends the turn. Observed 2026-09-11: four runs
+// of one insertion brief re-read the same four facts for 24 rounds each,
+// nudge in hand, and never wrote.
+func TestRunToolLoop_ProgressDriven_ClosesReadingUnderTheCommitRegime(t *testing.T) {
+	const toolName = "working_loop_commit_probe"
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectRead, Name: toolName, Category: tools.CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) { return "observed", nil },
+	})
+	client := &roundScriptProvider{MockLLMClient: &MockLLMClient{}, toolName: toolName, rounds: 30}
+	e := newWorkingLoopExecutor(t, client)
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
+	_, _, err := e.runToolLoop(context.Background(), "system", "change it",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		&prompt.CompilationContext{ShardID: "probe"}, result)
+	if err == nil || !strings.Contains(err.Error(), "read_only_stall") {
+		t.Fatalf("err = %v, want the stall span to end a task that never wrote", err)
+	}
+	// Calls 1..16 are the open regime; the policy closes reading at 16 rounds,
+	// so the 17th request onward offers no read tool.
+	for i, names := range client.catalogs {
+		offered := slices.Contains(names, toolName)
+		if i < 16 && !offered {
+			t.Fatalf("request %d: the read tool was withheld before the commit span", i+1)
+		}
+		if i >= 16 && offered {
+			t.Fatalf("request %d: the read tool is still offered under the commit regime (%v)", i+1, names)
+		}
+	}
+	if len(client.catalogs) < 18 {
+		t.Fatalf("only %d requests; the run must continue under the commit regime", len(client.catalogs))
+	}
+	results := toolResultContents(client.histories)
+	if !anyContains(results, "Reading is closed for this task") {
+		t.Fatalf("a read asked for under the commit regime must be answered with the regime; results: %q", results[len(results)-3:])
+	}
+	if anyContains(results[len(results)-2:], "observed") {
+		t.Fatalf("a read tool ran under the commit regime; last results: %q", results[len(results)-2:])
 	}
 }

@@ -254,6 +254,14 @@ func (e *Executor) runToolLoop(
 				toolResults = appendToolBudgetNudge(toolResults,
 					workingNudgeText(decision.Nudge, budget.workingProgress(writeOriented, failedRounds)))
 			}
+			if loop := activeWorkingLoop(ctx); loop != nil && decision.Regime != loop.regime {
+				loop.regime = decision.Regime
+				if decision.Regime == commitRegime {
+					logging.Get(logging.CategorySession).Warn(
+						"Working policy closed exploration (commit regime) after %d rounds without a write", result.ToolCallsExecuted)
+				}
+				toolResults = appendToolBudgetNudge(toolResults, workingRegimeText(decision.Regime))
+			}
 		}
 		if ctx.Err() != nil {
 			cancelExploration()
@@ -2074,6 +2082,12 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	// the current agent the capability to invoke that handler.
 	if !e.isToolAllowed(call.Name, cfg) {
 		return "", fmt.Errorf("tool %s not allowed by effective JIT config", call.Name)
+	}
+	// Under the commit regime the read tools are withheld from the catalog; a
+	// call to one anyway is answered with the regime, not run, and not counted
+	// as a failure: it is steering, and the stall span still governs.
+	if loop := activeWorkingLoop(ctx); loop != nil && loop.regime == commitRegime && closedForReading(call.Name) {
+		return workingRegimeText(commitRegime), nil
 	}
 
 	// Safety check via Constitutional Gate
