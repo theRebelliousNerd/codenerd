@@ -25,12 +25,38 @@ func explainAdmissionError(err error) error {
 	if !ok {
 		return err
 	}
+	if explained := explainRefusal(refusal); explained != nil {
+		return explained
+	}
+	return err
+}
 
+// explainedRefusal is the user-facing text over the refusal it explains. It
+// unwraps to the original error so errors.Is/As and broker.IsAdmissionError
+// still find the refusal behind the explanation.
+type explainedRefusal struct {
+	text  string
+	cause error
+}
+
+func (e *explainedRefusal) Error() string { return e.text }
+func (e *explainedRefusal) Unwrap() error { return e.cause }
+
+// explainRefusal returns nil for a decision code it has no explanation for.
+func explainRefusal(refusal *broker.AdmissionError) error {
+	text := refusalText(refusal)
+	if text == "" {
+		return nil
+	}
+	return &explainedRefusal{text: text, cause: refusal}
+}
+
+func refusalText(refusal *broker.AdmissionError) string {
 	d := refusal.Decision
 	switch d.Code {
 	case broker.DecisionWindowExceeded:
 		over := d.Count.Tokens - d.Window
-		return fmt.Errorf(
+		return fmt.Sprintf(
 			"the request did not fit the model's context window, so it was not sent.\n\n"+
 				"  counted   %d tokens (%s)\n"+
 				"  window    %d tokens\n"+
@@ -41,7 +67,7 @@ func explainAdmissionError(err error) error {
 			d.Count.Tokens, d.Count.Confidence, d.Window, over, refusal.Purpose)
 
 	case broker.DecisionBudgetExhausted:
-		return fmt.Errorf(
+		return fmt.Sprintf(
 			"the %s budget is used up, so the request was not sent.\n\n"+
 				"  counted  %d tokens (%s)\n\n"+
 				"Nothing was billed. Raise the cap for this purpose, or start a new session.",
@@ -51,7 +77,7 @@ func explainAdmissionError(err error) error {
 		// Failing closed here is deliberate: a budget that cannot be checked is
 		// not a budget. Say so, rather than leaving it looking like a provider
 		// outage.
-		return fmt.Errorf(
+		return fmt.Sprintf(
 			"the request could not be measured, so it was refused rather than sent blind: %s\n\n"+
 				"Nothing was billed. This is the meter failing closed — a budget that cannot be "+
 				"checked is not being enforced — and usually means the token-counting endpoint "+
@@ -59,5 +85,5 @@ func explainAdmissionError(err error) error {
 			d.Reason)
 	}
 
-	return err
+	return ""
 }

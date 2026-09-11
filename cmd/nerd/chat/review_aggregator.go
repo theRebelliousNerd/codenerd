@@ -155,13 +155,10 @@ func toShardsAgentRegistry(registry *AgentRegistry) *shards.AgentRegistry {
 	}
 }
 
-// specialistKnowledgeAtomLimit bounds how much of an agent's knowledge base is
-// pasted into its review task. The knowledge is free text ingested from user
-// documents; it rides into a prompt, so it is capped in both count and length.
-const (
-	specialistKnowledgeAtomLimit  = 5
-	specialistKnowledgeAtomLength = 400
-)
+// specialistKnowledgeAtomLimit is the lexical search's top-k: how many of an
+// agent's knowledge passages, ranked by relevance to the files under review,
+// ride into its review task. Each passage rides whole.
+const specialistKnowledgeAtomLimit = 5
 
 // loadAndQueryKnowledgeBase returns the passages in a specialist's knowledge
 // base most relevant to the files it is about to review.
@@ -218,11 +215,9 @@ func loadAndQueryKnowledgeBase(ctx context.Context, kbPath string, files []strin
 	var sb strings.Builder
 	sb.WriteString("## Relevant knowledge\n\n")
 	for _, atom := range atoms {
-		content := strings.TrimSpace(atom.Content)
-		if len(content) > specialistKnowledgeAtomLength {
-			content = content[:specialistKnowledgeAtomLength] + "..."
-		}
-		sb.WriteString(fmt.Sprintf("- **%s**: %s\n", atom.Concept, content))
+		// Whole passages. A passage cut at 400 characters ended mid-sentence
+		// and the specialist reasoned from the half it was given.
+		sb.WriteString(fmt.Sprintf("- **%s**: %s\n", atom.Concept, strings.TrimSpace(atom.Content)))
 	}
 
 	logging.Shards("loadAndQueryKnowledgeBase: %s returned %d atoms for %d files", kbPath, len(atoms), len(files))
@@ -751,12 +746,15 @@ func formatReviewNarrativeContext(agg *AggregatedReview) string {
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString("\nTop Findings (deduplicated):\n")
-	sb.WriteString(formatNarrativeFindings(agg.DeduplicatedList, 12))
+	// The narrator summarises the review; it is given every finding and the
+	// whole enhancement section. Twelve findings and 800 characters were a
+	// summary of a sample, and the sample was chosen by sort order.
+	sb.WriteString("\nFindings (deduplicated, by severity):\n")
+	sb.WriteString(formatNarrativeFindings(agg.DeduplicatedList, 0))
 
 	if enhancement := strings.TrimSpace(agg.EnhancementSection); enhancement != "" {
-		sb.WriteString("\nEnhancement Suggestions (excerpt):\n")
-		sb.WriteString(trimPromptSection(enhancement, 800))
+		sb.WriteString("\nEnhancement Suggestions:\n")
+		sb.WriteString(enhancement)
 		sb.WriteString("\n")
 	}
 
@@ -809,14 +807,6 @@ func formatNarrativeFindings(findings []ParsedFinding, limit int) string {
 		))
 	}
 	return sb.String()
-}
-
-func trimPromptSection(value string, maxLen int) string {
-	trimmed := strings.TrimSpace(value)
-	if maxLen <= 0 || len(trimmed) <= maxLen {
-		return trimmed
-	}
-	return strings.TrimSpace(trimmed[:maxLen]) + "..."
 }
 
 // deduplicateFindings removes duplicate findings, keeping highest severity

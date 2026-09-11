@@ -20,8 +20,17 @@ func (m Model) handleQueryCommand(input string, parts []string) (tea.Model, tea.
 			Content: "Usage: `/query <predicate>`",
 			Time:    time.Now(),
 		})
+	} else if m.kernel == nil {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "The kernel is not running yet, so there is nothing to query.",
+			Time:    time.Now(),
+		})
 	} else {
-		predicate := parts[1]
+		// A predicate with arguments is typed with spaces after the commas,
+		// so the query is everything after the command, not just the first
+		// word.
+		predicate := strings.TrimSpace(strings.Join(parts[1:], " "))
 		facts, err := m.kernel.Query(predicate)
 		if err != nil {
 			m = m.addMessage(Message{

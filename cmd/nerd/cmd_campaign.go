@@ -3,6 +3,7 @@ package main
 import (
 	"codeberg.org/TauCeti/mangle-go/analysis"
 
+	"codenerd/cmd/nerd/chat"
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
@@ -249,7 +250,7 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 
 	var promptProvider campaign.PromptProvider
 	if cortex.PromptAssembler != nil {
-		promptProvider = &CampaignJITProvider{assembler: cortex.PromptAssembler}
+		promptProvider = chat.NewCampaignJITProvider(cortex.PromptAssembler)
 	} else if cortex.JITCompiler != nil {
 		var querier articulation.KernelQuerier
 		if realKern != nil {
@@ -264,7 +265,7 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 		}
 		if querier != nil {
 			if pa, err := articulation.NewPromptAssemblerWithJIT(querier, cortex.JITCompiler); err == nil && pa != nil {
-				promptProvider = &CampaignJITProvider{assembler: pa}
+				promptProvider = chat.NewCampaignJITProvider(pa)
 			}
 		}
 	}

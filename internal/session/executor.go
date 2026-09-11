@@ -1564,30 +1564,7 @@ func (e *Executor) processMangleUpdatesFromEnvelope(envelope *articulation.Piggy
 		return
 	}
 
-	policy := core.MangleUpdatePolicy{
-		AllowedPredicates: map[string]struct{}{
-			"missing_tool_for":  {},
-			"observation":       {},
-			"task_status":       {},
-			"task_completed":    {},
-			"diagnostic":        {},
-			"failing_test":      {},
-			"test_state":        {},
-			"review_finding":    {},
-			"modified":          {},
-			"modified_function": {},
-			// checkpoint_verdict/4 is the campaign checkpoint's structured
-			// reviewer verdict. internal/campaign/checkpoint.go queries the
-			// kernel for it after the reviewer spawn and retracts it once
-			// read, so it decides one checkpoint and nothing else. Without
-			// this entry the verdict was blocked here and every checkpoint
-			// failed closed (audit campaign 5a2f4c8d, 2026-09-04).
-			"checkpoint_verdict": {},
-		},
-		MaxUpdates: 100,
-	}
-
-	facts, blocked := core.FilterMangleUpdates(e.kernel, envelope.Control.MangleUpdates, policy)
+	facts, blocked := core.FilterMangleUpdates(e.kernel, envelope.Control.MangleUpdates, core.ModelObservationPolicy())
 	if len(blocked) > 0 {
 		blockedAtoms := make([]string, 0, len(blocked))
 		for _, b := range blocked {

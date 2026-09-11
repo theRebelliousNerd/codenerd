@@ -80,6 +80,13 @@ func resolveAPIKey(flagValue, workspace string) string {
 	if envName, ok := providerEnvVar[provider]; ok {
 		return os.Getenv(envName)
 	}
+	if provider != "" {
+		// A named provider with no environment variable of its own (ollama,
+		// or a vendor this table does not know) gets nothing. Falling
+		// through to the legacy variable here handed such a workspace
+		// Z.AI's key.
+		return ""
+	}
 
 	// provider == "" means the config named no provider and held no key —
 	// LoadUserConfig returns an empty struct rather than an error when the file

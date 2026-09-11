@@ -83,7 +83,8 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 	// Writing prompts.yaml first also means the Cortex boot below discovers the
 	// agent, syncs its atoms into .nerd/shards/<name>_knowledge.db, and registers
 	// that DB with the JIT compiler in this same run.
-	promptsPath, err := coresys.WriteAgentDefinition(ws, name, topic, topic)
+	// No research runs here, so the domain atom carries no knowledge yet.
+	promptsPath, err := coresys.WriteAgentDefinition(ws, name, topic, topic, "")
 	if err != nil {
 		return fmt.Errorf("failed to write agent definition: %w", err)
 	}

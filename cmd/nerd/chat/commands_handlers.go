@@ -80,14 +80,26 @@ Press **Enter** to begin...`,
 	} else if parts[1] == "set-theme" && len(parts) >= 3 {
 		theme := parts[2]
 		if theme == "dark" || theme == "light" {
-			m.Config.Theme = theme
-			// Load current config, update theme, and save
-			cfg, _ := config.GlobalConfig()
-			if cfg == nil {
-				cfg = config.DefaultUserConfig()
+			// Change one field of the live config. A config that cannot be
+			// read is left alone: saving DefaultUserConfig over a file that
+			// exists would wipe every key, model and allowlist the user set,
+			// to change a colour.
+			configPath := m.userConfigPath()
+			cfg, err := config.LoadUserConfig(configPath)
+			if err != nil {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("Theme not changed: could not read %s: %v", configPath, err),
+					Time:    time.Now(),
+				})
+				m.viewport.SetContent(m.renderHistory())
+				m.viewport.GotoBottom()
+				m.textarea.Reset()
+				return m, nil
 			}
+			m.Config.Theme = theme
 			cfg.Theme = theme
-			if err := cfg.Save(m.userConfigPath()); err != nil {
+			if err := cfg.Save(configPath); err != nil {
 				logging.Routing("[commands] failed to save config: %v", err)
 			}
 			// Apply theme

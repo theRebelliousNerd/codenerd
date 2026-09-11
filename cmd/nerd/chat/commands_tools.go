@@ -45,9 +45,14 @@ func (m Model) buildStatusReport() string {
 	sb.WriteString("\n")
 
 	// Query fact counts
-	facts, _ := m.kernel.Query("*")
 	sb.WriteString("### Kernel State\n")
-	sb.WriteString(fmt.Sprintf("- Total Facts: %d\n", len(facts)))
+	if m.kernel == nil {
+		sb.WriteString("- Kernel: not running\n")
+	} else if facts, err := m.kernel.Query("*"); err != nil {
+		sb.WriteString(fmt.Sprintf("- Total Facts: query failed: %v\n", err))
+	} else {
+		sb.WriteString(fmt.Sprintf("- Total Facts: %d\n", len(facts)))
+	}
 
 	// List registered shards
 	sb.WriteString("\n### Registered Shards\n")

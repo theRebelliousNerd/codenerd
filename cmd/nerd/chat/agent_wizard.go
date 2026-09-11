@@ -7,6 +7,7 @@ import (
 	coresys "codenerd/internal/system"
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -41,6 +42,17 @@ func (m Model) handleAgentWizardInput(input string) (tea.Model, tea.Cmd) {
 			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Agent name cannot be empty. Please enter a name (e.g., 'RustExpert'):",
+				Time:    time.Now(),
+			})
+			return m, nil
+		}
+		// The name becomes a directory under .nerd/agents and a knowledge
+		// database path, so it is validated where it is typed rather than
+		// failing later inside the research goroutine.
+		if err := coresys.ValidateAgentName(name); err != nil {
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("%v. Please enter a name (e.g., 'RustExpert'):", err),
 				Time:    time.Now(),
 			})
 			return m, nil
@@ -109,34 +121,49 @@ func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 		config := coreshards.DefaultSpecialistConfig(wizard.Name, fmt.Sprintf("memory/shards/%s_knowledge.db", wizard.Name))
 		m.shardMgr.DefineProfile(wizard.Name, config)
 
-		// 2. Generate prompts.yaml template
-		if err := generateAgentPromptsTemplate(m.workspace, wizard.Name, wizard.Role, wizard.Topics); err != nil {
-			// Log error but don't fail the UI flow - prompts can be added manually
-			fmt.Printf("[AgentWizard] Warning: Failed to generate prompts.yaml: %v\n", err)
-		}
+		// 2. An existing definition is never clobbered, so decide up front
+		// whether the research can land in prompts.yaml at all.
+		promptsPath := coresys.AgentPromptsPath(m.workspace, wizard.Name)
+		_, statErr := os.Stat(promptsPath)
+		alreadyDefined := statErr == nil
 
-		// 3. Trigger Research (using Researcher Shard)
-		// We construct a prompt that explicitly mentions Context7 if applicable
+		// 3. Research. The result IS the agent's domain atom, so it is asked
+		// for as prompt text rather than as Mangle facts.
 		researchTask := fmt.Sprintf(
-			"Research the following topics to build a knowledge base for a new '%s' agent (%s).\nTopics/Docs: %s.\n\nGenerate extensive Mangle facts covering API patterns, best practices, and pitfalls.",
+			"Research the following topics for a new '%s' agent (%s).\nTopics/Docs: %s.\n\n"+
+				"Write the domain-knowledge section of this agent's system prompt in markdown: "+
+				"key concepts, APIs and patterns, common pitfalls, best practices, and references with URLs. "+
+				"No preamble; the text is used verbatim.",
 			wizard.Name, wizard.Role, wizard.Topics,
 		)
 
-		// Spawn researcher
 		ctx, cancel := context.WithTimeout(context.Background(), nerdconfig.GetLLMTimeouts().ShardExecutionTimeout)
 		defer cancel()
 
 		result, err := m.spawnTask(ctx, "researcher", researchTask)
 		if err != nil {
+			// The agent still exists on disk, with a domain atom that says
+			// nothing has been researched, so the research can be re-run.
+			if !alreadyDefined {
+				if _, werr := coresys.WriteAgentDefinition(m.workspace, wizard.Name, wizard.Role, wizard.Topics, ""); werr != nil {
+					logging.Session("agent wizard: prompts.yaml for %q was not written: %v", wizard.Name, werr)
+				}
+			}
 			return errorMsg(fmt.Errorf("research failed: %w", err))
 		}
 
-		// 4. Persist Agent Profile
-		// Extract stats from result if possible, or estimate
-		// Result string format: "Researched ... gathered N knowledge atoms ..."
-		// We'll just default to "Active" and 0 size if we can't parse easily,
-		// or assume result contains the summary.
-		// For now, we persist so it survives restart.
+		// 4. Write the definition with the researched knowledge as its domain
+		// atom. Before this the result was shown once and discarded, and the
+		// atom shipped "[Add specific concepts...]" placeholders instead.
+		knowledgeNote := "Populated via Deep Research; written into the domain atom of prompts.yaml"
+		if alreadyDefined {
+			knowledgeNote = "Existing prompts.yaml kept as is; the research summary below was NOT written into it"
+		} else if _, werr := coresys.WriteAgentDefinition(m.workspace, wizard.Name, wizard.Role, wizard.Topics, result); werr != nil {
+			logging.Session("agent wizard: prompts.yaml for %q was not written: %v", wizard.Name, werr)
+			knowledgeNote = fmt.Sprintf("prompts.yaml was not written (%v); the research summary is below", werr)
+		}
+
+		// 5. Persist the agent profile so it survives restart.
 		if err := persistAgentProfile(m.workspace, wizard.Name, "persistent", config.KnowledgePath, 0, "active"); err != nil {
 			// Deliberately non-fatal: the agent is usable this session even if
 			// its profile did not persist. Silently discarding the error meant
@@ -145,30 +172,14 @@ func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 				wizard.Name, err)
 		}
 
-		// 5. Clear wizard state
+		// 6. Clear wizard state
 		m.agentWizard = nil
 
-		promptsPath := fmt.Sprintf(".nerd/agents/%s/prompts.yaml", wizard.Name)
 		spawnCmd := fmt.Sprintf("/spawn %s <task>", wizard.Name)
 
-		response := fmt.Sprintf("## Agent Created: %s\n\n**Role**: %s\n**Status**: Ready\n**Knowledge Base**: Populated via Deep Research\n**Prompts**: Template generated at %s\n\n### Research Summary\n%s\n\nYou can now use this agent by running:\n`%s`\n\nTo customize this agent's behavior, edit the prompts.yaml file.",
-			wizard.Name, wizard.Role, promptsPath, result, spawnCmd)
+		response := fmt.Sprintf("## Agent Created: %s\n\n**Role**: %s\n**Status**: Ready\n**Knowledge Base**: %s\n**Prompts**: %s\n\n### Research Summary\n%s\n\nYou can now use this agent by running:\n`%s`\n\nTo customize this agent's behavior, edit the prompts.yaml file.",
+			wizard.Name, wizard.Role, knowledgeNote, promptsPath, result, spawnCmd)
 
 		return responseMsg(response)
 	}
-}
-
-// generateAgentPromptsTemplate generates a starter prompts.yaml template for a
-// new agent and registers it in .nerd/agents.json.
-//
-// The template itself lives in internal/system (RenderAgentPromptsYAML) so the
-// chat wizard and `nerd define-agent` cannot drift apart; this wrapper keeps the
-// wizard's call shape.
-func generateAgentPromptsTemplate(workspace, agentName, role, topics string) error {
-	promptsPath, err := coresys.WriteAgentDefinition(workspace, agentName, role, topics)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("[AgentWizard] ✓ Generated prompts.yaml template at %s\n", promptsPath)
-	return nil
 }

@@ -1029,13 +1029,18 @@ func (m Model) processInput(input string) tea.Cmd {
 				// Warnings rather than errors: one bad atom must not cost the
 				// user their turn, and the surviving atoms are still worth
 				// asserting.
-				for _, mu := range artOutput.MangleUpdates {
-					f, parseErr := core.ParseSingleFact(mu)
-					if parseErr != nil {
-						warnings = append(warnings, fmt.Sprintf(
-							"[Kernel] Mangle update dropped, did not parse: %q: %v", truncateForStorage(mu, 120), parseErr))
-						continue
-					}
+				//
+				// The same allowlist the session executor applies: the model
+				// reports what it observed and did, and nothing else. This
+				// path used to parse and assert any fact at all, so a model
+				// that wrote user_intent(...) or permitted(...) into its
+				// envelope was rewriting the kernel's own decisions.
+				facts, blocked := core.FilterMangleUpdates(m.kernel, artOutput.MangleUpdates, core.ModelObservationPolicy())
+				for _, b := range blocked {
+					warnings = append(warnings, fmt.Sprintf(
+						"[Kernel] Mangle update dropped: %q: %s", b.Update, b.Reason))
+				}
+				for _, f := range facts {
 					if assertErr := m.kernel.Assert(f); assertErr != nil {
 						warnings = append(warnings, fmt.Sprintf(
 							"[Kernel] Mangle update rejected: %s: %v", f.Predicate, assertErr))

@@ -49,10 +49,14 @@ func AgentPromptsPath(workspace, name string) string {
 // nothing. Only the chat wizard ever wrote prompts.yaml, and it carried its own
 // copy of this template.
 //
+// knowledge is what research produced for the agent's domain atom; empty means
+// nothing has been researched and the atom says so.
+//
 // Returns the path of the written prompts.yaml. Writing is skipped (without
 // error) when a definition already exists, so re-running define-agent never
-// clobbers a hand-edited prompts.yaml.
-func WriteAgentDefinition(workspace, name, role, topics string) (string, error) {
+// clobbers a hand-edited prompts.yaml; callers that have fresh knowledge to
+// write check AgentPromptsPath first and tell the user when it was kept.
+func WriteAgentDefinition(workspace, name, role, topics, knowledge string) (string, error) {
 	if err := ValidateAgentName(name); err != nil {
 		return "", err
 	}
@@ -74,7 +78,7 @@ func WriteAgentDefinition(workspace, name, role, topics string) (string, error) 
 		return promptsPath, nil
 	}
 
-	if err := os.WriteFile(promptsPath, []byte(RenderAgentPromptsYAML(name, role, topics)), 0o644); err != nil {
+	if err := os.WriteFile(promptsPath, []byte(RenderAgentPromptsYAML(name, role, topics, knowledge)), 0o644); err != nil {
 		return "", fmt.Errorf("write prompts.yaml: %w", err)
 	}
 
@@ -91,7 +95,12 @@ func WriteAgentDefinition(workspace, name, role, topics string) (string, error) 
 //
 // The three tiers of content (content, content_concise, content_min) are what
 // lets the JIT budget degrade an agent's prompt instead of dropping it.
-func RenderAgentPromptsYAML(agentName, role, topics string) string {
+//
+// The domain atom's body is the researched knowledge. It used to be a set of
+// "[Add specific concepts...]" placeholders that rode into every prompt as if
+// they were knowledge, while the wizard's research result was shown to the
+// user once and discarded.
+func RenderAgentPromptsYAML(agentName, role, topics, knowledge string) string {
 	return fmt.Sprintf(`# Prompt atoms for %[1]s
 # These are loaded into the JIT prompt compiler when the agent is spawned.
 # Edit this file to customize the agent's identity, methodology, and domain knowledge.
@@ -176,22 +185,37 @@ func RenderAgentPromptsYAML(agentName, role, topics string) string {
   content: |
     ## Domain-Specific Knowledge
 
-    ### Key Concepts
-    [Add specific concepts, patterns, or frameworks relevant to this domain]
-
-    ### Common Pitfalls
-    [Add known issues, gotchas, or anti-patterns to avoid]
-
-    ### Best Practices
-    [Add domain-specific best practices and guidelines]
-
-    ### Resources
     Research Topics: %[3]s
 
-    [Add additional references, documentation links, or learning resources]
+%[4]s
 `,
-		agentName, // 1: stable id prefix
-		role,      // 2: domain/role
-		topics,    // 3: topics
+		agentName,                       // 1: stable id prefix
+		role,                            // 2: domain/role
+		topics,                          // 3: topics
+		domainKnowledgeBlock(knowledge), // 4: researched knowledge, indented for the block scalar
 	)
+}
+
+// domainKnowledgeBlock renders the researched knowledge as the body of the
+// domain atom's `content: |` block scalar: every line indented four spaces so
+// YAML keeps it as content, whatever markdown the researcher produced. With
+// nothing researched the atom says so, so the model is not handed an empty
+// heading to fill in from imagination.
+func domainKnowledgeBlock(knowledge string) string {
+	knowledge = strings.TrimSpace(knowledge)
+	if knowledge == "" {
+		return "    No researched knowledge has been ingested for this agent yet. Work from the\n" +
+			"    topics above and from what each task provides; do not invent domain facts."
+	}
+	var sb strings.Builder
+	for _, line := range strings.Split(knowledge, "\n") {
+		line = strings.TrimRight(line, " \t\r")
+		if line != "" {
+			// A blank line stays blank rather than becoming four spaces.
+			sb.WriteString("    ")
+			sb.WriteString(line)
+		}
+		sb.WriteString("\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }

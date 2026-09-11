@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -98,7 +99,6 @@ func (m *spawnerMockConfigFactory) Generate(ctx context.Context, res *prompt.Com
 	}, nil
 }
 
-type spawnerMockKernel struct{ types.Kernel }
 type spawnerMockLLMClient struct{ types.LLMClient }
 type spawnerMockTransducer struct{ perception.Transducer }
 
@@ -178,7 +178,14 @@ func setupRealIntegrationEnv(t *testing.T, responses ...string) *realTestEnv {
 	mockLLM := &mockRealLLM{responses: responses}
 	mockCompiler := &spawnerMockJITCompiler{}
 	mockConfig := &spawnerMockConfigFactory{}
-	mockKernel := &spawnerMockKernel{}
+	// A real kernel: the executor asserts turn facts into it as soon as an
+	// agent runs, and the nil-embedded mock this used to be panicked on the
+	// first Assert (executor.go recordTurn), so every test here that let an
+	// agent execute died at baseline.
+	mockKernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("real kernel: %v", err)
+	}
 	mockTransducer := &spawnerMockTransducer{}
 
 	spawnerConfig := session.DefaultSpawnerConfig()

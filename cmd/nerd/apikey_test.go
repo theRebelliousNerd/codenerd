@@ -95,3 +95,28 @@ func TestProviderEnvVar_CoversEveryNamedProvider(t *testing.T) {
 		}
 	}
 }
+
+// A provider that is named but has no environment variable of its own (a
+// vendor reached through base_url that the table does not know) must resolve
+// to nothing. Falling through to the legacy variable handed such a workspace
+// Z.AI's key.
+func TestResolveAPIKey_NamedProviderWithoutEnvVarGetsNothing(t *testing.T) {
+	ws := writeConfig(t, `{"provider":"acme"}`)
+	t.Setenv("ZAI_API_KEY", "zai-key")
+
+	if got := resolveAPIKey("", ws); got != "" {
+		t.Errorf("resolveAPIKey = %q for an acme workspace; want empty, not the legacy Z.AI key", got)
+	}
+}
+
+// Ollama needs no cloud key; GetActiveProvider hands back its "ollama"
+// sentinel so callers that gate on a non-empty key proceed, and the legacy
+// variable is never consulted.
+func TestResolveAPIKey_OllamaKeepsItsSentinel(t *testing.T) {
+	ws := writeConfig(t, `{"provider":"ollama"}`)
+	t.Setenv("ZAI_API_KEY", "zai-key")
+
+	if got := resolveAPIKey("", ws); got != "ollama" {
+		t.Errorf("resolveAPIKey = %q for an ollama workspace; want the ollama sentinel", got)
+	}
+}

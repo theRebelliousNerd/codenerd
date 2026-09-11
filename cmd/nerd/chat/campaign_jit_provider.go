@@ -15,6 +15,13 @@ type campaignJITProvider struct {
 	assembler *articulation.PromptAssembler
 }
 
+// NewCampaignJITProvider adapts a PromptAssembler to campaign.PromptProvider
+// for callers outside this package (the campaign CLI shares the one adapter
+// the chat TUI uses).
+func NewCampaignJITProvider(assembler *articulation.PromptAssembler) campaign.PromptProvider {
+	return &campaignJITProvider{assembler: assembler}
+}
+
 func (p *campaignJITProvider) GetPrompt(ctx context.Context, role campaign.CampaignRole, campaignID string) (string, error) {
 	if p == nil || p.assembler == nil {
 		return "", fmt.Errorf("prompt assembler not initialized")

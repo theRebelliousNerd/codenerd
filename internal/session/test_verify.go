@@ -46,11 +46,6 @@ import (
 // out reports a false alarm, which is worse than a slow one.
 const testVerifyTimeout = 4 * time.Minute
 
-// testVerifyMaxOutput caps how much test output is retained. A failing package
-// can be verbose; a runaway dump would blow the context budget any repair
-// logic needs.
-const testVerifyMaxOutput = 6000
-
 // TestVerification is the outcome of running `go test` on the packages touched
 // by a turn.
 type TestVerification struct {
@@ -258,9 +253,8 @@ func verifyTests(ctx context.Context, workspace string, packages []string, extra
 	if text == "" {
 		text = err.Error()
 	}
-	if len(text) > testVerifyMaxOutput {
-		text = text[:testVerifyMaxOutput] + "\n... (test output truncated)"
-	}
+	// The test output goes back whole; the failure that matters is usually
+	// the last thing printed, which a head cut dropped first.
 
 	logging.Get(logging.CategorySession).Warn(
 		"test verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), text)

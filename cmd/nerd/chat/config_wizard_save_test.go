@@ -10,18 +10,10 @@ import (
 )
 
 func TestSaveConfigWizardPreservesUnownedSettings(t *testing.T) {
+	// The model carries its workspace, so the wizard saves into an explicit
+	// path; nothing here depends on the process working directory or on
+	// whatever DefaultUserConfigPath() resolves to.
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module wizard-test\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	oldWD, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(workspace); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
 	base := &internalconfig.UserConfig{
 		Provider: "openai",
@@ -43,7 +35,10 @@ func TestSaveConfigWizardPreservesUnownedSettings(t *testing.T) {
 			},
 		},
 	}
-	configPath := internalconfig.DefaultUserConfigPath()
+	configPath := filepath.Join(workspace, ".nerd", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := base.Save(configPath); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +49,7 @@ func TestSaveConfigWizardPreservesUnownedSettings(t *testing.T) {
 	wizard.CodexCLISandbox = "workspace-write" // legacy state must still save safely
 	wizard.EmbeddingProvider = "ollama"
 
-	model := Model{configWizard: wizard}
+	model := Model{configWizard: wizard, workspace: workspace}
 	if err := model.saveConfigWizard(); err != nil {
 		t.Fatal(err)
 	}

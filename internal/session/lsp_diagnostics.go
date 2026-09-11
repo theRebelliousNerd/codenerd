@@ -36,9 +36,6 @@ import (
 // does not silently drop the signal.
 const goplsTimeout = 90 * time.Second
 
-// goplsMaxOutput caps the diagnostics fed into the critic prompt.
-const goplsMaxOutput = 4000
-
 // goplsMaxFiles bounds how many files are analysed in one call.
 const goplsMaxFiles = 8
 
@@ -94,9 +91,6 @@ func goplsDiagnostics(ctx context.Context, workspace string, writtenPaths []stri
 			logging.SessionDebug("gopls check failed with no usable output (%v); continuing", err)
 		}
 		return ""
-	}
-	if len(text) > goplsMaxOutput {
-		text = text[:goplsMaxOutput] + "\n... (diagnostics truncated)"
 	}
 	return text
 }

@@ -324,10 +324,8 @@ func discoverFiles(workspace, constraint string) []string {
 		return nil
 	})
 
-	// Limit to 50 files for safety (avoid overwhelming the shard)
-	if len(files) > 50 {
-		files = files[:50]
-	}
-
+	// No cap. This list is what the shard is told the target IS; the first
+	// fifty files in walk order silently made "review the codebase" a
+	// review of the a-to-c directories, and nothing downstream could tell.
 	return files
 }

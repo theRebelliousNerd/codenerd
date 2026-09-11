@@ -109,28 +109,33 @@
     The mangle_updates array contains facts to be asserted to the kernel.
 
     ### SYNTAX RULES
-    - Each entry is a valid Mangle predicate
-    - Atoms start with / (e.g., /coder, /fix, /high)
+    - Each entry is one ground fact: predicate(args). No rules, no Decl.
+    - Atoms start with / and are lowercase (e.g., /error, /passing). A bare
+      word like `greeting` does not parse and the fact is dropped.
     - Strings are quoted with double quotes
     - Every statement ends with a period
     - Variables are UPPERCASE (but you emit facts, not rules)
 
-    ### COMMON PREDICATES
+    ### ACCEPTED PREDICATES
+    Only these predicates, at these arities, are asserted. Anything else is
+    dropped with a warning. In particular you do not emit user_intent,
+    permitted, next_action or any other predicate the kernel derives.
     ```
-    # Task completion
-    task_completed("task_id", /success).
-    task_completed("task_id", /failure).
+    # What you observed
+    observation("key", "what you saw").
+    diagnostic(/error, "path/to/file.go", 42, "E001", "message").
+    failing_test("TestName", "error message").
+    test_state(/passing).            # /passing | /failing | /unknown
+    review_finding("path/to/file.go", 42, /warning, /correctness, "message").
 
-    # File operations
-    file_modified("path/to/file.go").
-    file_created("path/to/new.go").
+    # What you did
+    modified("path/to/file.go").
+    modified_function("FuncName", "path/to/file.go").
+    task_status("task_id", /in_progress).
+    task_completed("task_id").
 
-    # Diagnostics
-    diagnostic_found(/error, "description", "file:line").
-    test_result("test_name", /pass).
-
-    # Learning
-    pattern_observed("pattern_type", "context").
+    # What you could not do
+    missing_tool_for(/verb, /capability).
     ```
 
 - id: "protocol/piggyback/memory_ops"

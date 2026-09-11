@@ -48,12 +48,6 @@ var ErrVerificationFailed = errors.New("post-edit verification failed")
 // that times out reports a false alarm, which is worse than a slow one.
 const buildVerifyTimeout = 4 * time.Minute
 
-// buildVerifyMaxOutput caps how much compiler output is fed back to the model.
-// Go reports errors newest-package-first and a broken edit usually produces a
-// handful; a runaway cascade would otherwise blow the context budget the repair
-// round needs.
-const buildVerifyMaxOutput = 6000
-
 // BuildVerification is the outcome of compiling the workspace after edits.
 type BuildVerification struct {
 	// Ran is false when verification was skipped (no Go files touched, no Go
@@ -156,9 +150,10 @@ func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConf
 	if text == "" {
 		text = err.Error()
 	}
-	if len(text) > buildVerifyMaxOutput {
-		text = text[:buildVerifyMaxOutput] + "\n... (compiler output truncated)"
-	}
+	// The compiler output goes back whole. A repair prompt built from the
+	// first 6000 characters was a repair of the errors that happened to sort
+	// first; if the whole log does not fit the window, the broker refuses the
+	// request and says so instead.
 
 	logging.Get(logging.CategorySession).Warn(
 		"build verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), text)

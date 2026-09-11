@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	coresys "codenerd/internal/system"
 )
 
 func TestGenerateAgentPromptsTemplate(t *testing.T) {
@@ -16,10 +18,10 @@ func TestGenerateAgentPromptsTemplate(t *testing.T) {
 	role := "Expert in testing and quality assurance"
 	topics := "Go testing, TDD, mocking frameworks"
 
-	// Generate the template
-	err := generateAgentPromptsTemplate(tmpDir, agentName, role, topics)
+	// Write the definition the way the wizard does once research has run.
+	_, err := coresys.WriteAgentDefinition(tmpDir, agentName, role, topics, "## Key Concepts\n- table-driven tests\n\n## Pitfalls\n- t.Parallel with shared state")
 	if err != nil {
-		t.Fatalf("generateAgentPromptsTemplate failed: %v", err)
+		t.Fatalf("WriteAgentDefinition failed: %v", err)
 	}
 
 	// Verify the file was created
@@ -53,6 +55,12 @@ func TestGenerateAgentPromptsTemplate(t *testing.T) {
 		"priority: 70",
 		"is_mandatory: true",
 		"is_mandatory: false",
+		// The researched knowledge is the domain atom's body, indented as
+		// block-scalar content.
+		"    ## Key Concepts\n    - table-driven tests\n\n    ## Pitfalls\n    - t.Parallel with shared state",
+	}
+	if strings.Contains(contentStr, "[Add ") {
+		t.Error("prompts.yaml still carries template placeholders")
 	}
 
 	for _, expected := range expectedElements {
@@ -85,9 +93,9 @@ func TestGenerateAgentPromptsTemplate_CreatesDirectory(t *testing.T) {
 	role := "Test role"
 	topics := "Test topics"
 
-	err := generateAgentPromptsTemplate(tmpDir, agentName, role, topics)
+	_, err := coresys.WriteAgentDefinition(tmpDir, agentName, role, topics, "")
 	if err != nil {
-		t.Fatalf("generateAgentPromptsTemplate failed: %v", err)
+		t.Fatalf("WriteAgentDefinition failed: %v", err)
 	}
 
 	// Verify the directory was created
@@ -104,9 +112,9 @@ func TestGenerateAgentPromptsTemplate_ValidYAML(t *testing.T) {
 	role := "Expert in validation"
 	topics := "YAML, JSON schema, data validation"
 
-	err := generateAgentPromptsTemplate(tmpDir, agentName, role, topics)
+	_, err := coresys.WriteAgentDefinition(tmpDir, agentName, role, topics, "")
 	if err != nil {
-		t.Fatalf("generateAgentPromptsTemplate failed: %v", err)
+		t.Fatalf("WriteAgentDefinition failed: %v", err)
 	}
 
 	// Read the file

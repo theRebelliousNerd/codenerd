@@ -83,7 +83,10 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 			shardAtomStr = "/" + shardType
 		}
 	}
-	confInt := int64(intent.Confidence * 100)
+	// The classifier's confidence is a ratio; the policy compares it as a
+	// percentage, so a value outside [0,1] would be a negative or >100
+	// score that no rule threshold anticipates.
+	confInt := int64(min(max(intent.Confidence, 0), 1) * 100)
 
 	// Refresh the per-turn EDB. Retract-before-assert so stale facts from the
 	// previous turn can never influence this decision.

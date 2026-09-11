@@ -261,10 +261,11 @@ func TestVerifyTests_RunsExactlyRequestedPackages(t *testing.T) {
 	}
 }
 
-// Truncation: a failing test that emits more than testVerifyMaxOutput bytes
-// must have its output capped so it can be fed back without blowing the
-// context budget. Mirrors the buildVerifyMaxOutput truncation contract.
-func TestVerifyTests_TruncatesLongOutput(t *testing.T) {
+// A failing test that prints a lot is fed back whole. The failure that
+// matters is usually the last line, which a head cut dropped first; if the
+// log does not fit the window, the broker refuses the repair request and
+// says so rather than repairing from a sample.
+func TestVerifyTests_KeepsLongOutputWhole(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles throwaway package with large output")
 	}
@@ -281,7 +282,7 @@ func TestVerifyTests_TruncatesLongOutput(t *testing.T) {
 	}
 	write("go.mod", "module verifyprobe\n\ngo 1.21\n")
 
-	// Print a payload larger than testVerifyMaxOutput (6000) then fail.
+	// Print a payload well past the 6000 bytes the old cap kept, then fail.
 	write("big_test.go", "package verifyprobe\n\nimport (\n\"strings\"\n\"testing\"\n)\n\nfunc TestBig(t *testing.T) {\n t.Log(strings.Repeat(\"X\", 8000))\n t.Fatal(\"fail big\")\n}\n")
 	v := verifyTests(context.Background(), ws, []string{"."})
 	if !v.Ran {
@@ -290,11 +291,14 @@ func TestVerifyTests_TruncatesLongOutput(t *testing.T) {
 	if v.OK {
 		t.Fatal("verification passed a failing test")
 	}
-	if len(v.Output) > testVerifyMaxOutput+100 {
-		t.Errorf("output not truncated: len=%d want <= %d", len(v.Output), testVerifyMaxOutput+100)
+	if strings.Count(v.Output, "X") < 8000 {
+		t.Errorf("output was cut: %d bytes kept of a log longer than 8000", len(v.Output))
 	}
-	if !strings.Contains(v.Output, "test output truncated") {
-		t.Errorf("truncated output should contain truncation marker, got %q", v.Output)
+	if !strings.Contains(v.Output, "fail big") {
+		t.Errorf("the failure message at the end of the log was dropped: %q", v.Output)
+	}
+	if strings.Contains(v.Output, "truncated") {
+		t.Errorf("output carries a truncation marker: %q", v.Output)
 	}
 }
 

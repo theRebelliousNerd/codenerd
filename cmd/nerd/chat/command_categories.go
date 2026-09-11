@@ -18,7 +18,7 @@ const (
 // String returns the category name.
 func (c CommandCategory) String() string {
 	names := []string{"Core", "Basic", "Advanced", "Expert", "System"}
-	if int(c) < len(names) {
+	if c >= 0 && int(c) < len(names) {
 		return names[c]
 	}
 	return "Unknown"

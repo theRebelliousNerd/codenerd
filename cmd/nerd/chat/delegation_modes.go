@@ -393,11 +393,11 @@ func (m Model) gatherSpecialistCritique(ctx context.Context, verb string, files 
 
 	logging.Shards("Gathering critique for %s on %d files", verb, len(files))
 
-	// Truncate execution result if too long
+	// The critics see the whole result. A critique of the first 3000
+	// characters is a critique of something else; if the result is too
+	// large for the window the broker refuses the request and says so,
+	// which is the honest outcome.
 	truncatedResult := executionResult
-	if len(truncatedResult) > 3000 {
-		truncatedResult = truncatedResult[:3000] + "\n... [truncated]"
-	}
 
 	for _, spec := range specialists {
 		s := spec

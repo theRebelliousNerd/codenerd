@@ -18,6 +18,40 @@ type MangleUpdateBlock struct {
 	Reason string
 }
 
+// ModelObservationPolicy is the one allowlist for facts a model volunteers
+// through control_packet.mangle_updates, shared by every surface that reads
+// an envelope (the session executor and the chat turn). A model may report
+// what it observed and what it did; it may not write the predicates the
+// kernel derives decisions from, and it may not witness its own completion
+// (see predicateAllowed).
+//
+// The prompt atom protocol/piggyback/mangle_updates teaches exactly this set
+// with its declared arities. Add a predicate here and there together.
+func ModelObservationPolicy() MangleUpdatePolicy {
+	return MangleUpdatePolicy{
+		AllowedPredicates: map[string]struct{}{
+			"missing_tool_for":  {},
+			"observation":       {},
+			"task_status":       {},
+			"task_completed":    {},
+			"diagnostic":        {},
+			"failing_test":      {},
+			"test_state":        {},
+			"review_finding":    {},
+			"modified":          {},
+			"modified_function": {},
+			// checkpoint_verdict/4 is the campaign checkpoint's structured
+			// reviewer verdict. internal/campaign/checkpoint.go queries the
+			// kernel for it after the reviewer spawn and retracts it once
+			// read, so it decides one checkpoint and nothing else. Without
+			// this entry the verdict was blocked and every checkpoint
+			// failed closed (audit campaign 5a2f4c8d, 2026-09-04).
+			"checkpoint_verdict": {},
+		},
+		MaxUpdates: 100,
+	}
+}
+
 // FilterMangleUpdates parses and validates control-packet mangle_updates.
 // It rejects rules/decls/imports, enforces allowed predicates/prefixes, and
 // validates predicate declarations/arity when possible.
