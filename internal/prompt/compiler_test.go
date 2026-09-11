@@ -84,12 +84,60 @@ func TestDefaultCompilerConfig(t *testing.T) {
 	config := DefaultCompilerConfig()
 
 	assert.Equal(t, 200000, config.DefaultTokenBudget) // Default updated to 200k
-	assert.True(t, config.EnableVectorSearch)
 	assert.Equal(t, 0.3, config.VectorSearchWeight)
-	assert.Equal(t, 10, config.MaxAtomsPerCategory)
-	assert.True(t, config.EnableCaching)
-	assert.Equal(t, 300, config.CacheTTLSeconds)
 	assert.False(t, config.DebugMode)
+}
+
+// TestVectorSearchWeightReachesTheSelector pins the wire rather than the
+// struct. The four assertions removed from the test above checked that
+// DefaultCompilerConfig returns the literals DefaultCompilerConfig assigns,
+// which is a test that Go assignment works -- and all four fields were read by
+// nothing, so they passed for years while the knobs did nothing.
+//
+// VectorSearchWeight was the one of the five that was a real missing wire:
+// SetVectorWeight had no production caller at all, while its sibling
+// SetVectorSearchTimeout was wired from config in three separate places. This
+// asserts the value ARRIVES, through each of the three paths that carry it.
+func TestVectorSearchWeightReachesTheSelector(t *testing.T) {
+	cfg := DefaultCompilerConfig()
+	cfg.VectorSearchWeight = 0.85
+
+	compiler, err := NewJITPromptCompiler(WithConfig(cfg))
+	require.NoError(t, err)
+	defer compiler.Close()
+
+	assert.Equal(t, 0.85, compiler.selector.vectorWeight,
+		"the constructor must push VectorSearchWeight into the selector; it is the number that decides how much semantic score competes with logic score")
+
+	// WithConfig has to be exercised ON ITS OWN, and the first version of this
+	// test did not. NewJITPromptCompiler applies the options and THEN wires the
+	// selector from compiler.config, so the constructor's own wire covers for
+	// the option's: deleting the line inside WithConfig left this test green.
+	// That is the fifth test on this branch to pass while measuring nothing,
+	// and the fifth found by mutating rather than by reading.
+	optOnly, err := NewJITPromptCompiler()
+	require.NoError(t, err)
+	defer optOnly.Close()
+	optCfg := DefaultCompilerConfig()
+	optCfg.VectorSearchWeight = 0.77
+	require.NoError(t, WithConfig(optCfg)(optOnly))
+	assert.Equal(t, 0.77, optOnly.selector.vectorWeight,
+		"WithConfig must wire the selector itself, not rely on the constructor doing it afterwards")
+
+	cfg.VectorSearchWeight = 0.42
+	compiler.SetConfig(cfg)
+	assert.Equal(t, 0.42, compiler.selector.vectorWeight,
+		"SetConfig must repoint the selector too, or a reconfigure silently keeps the old blend")
+
+	// A zero is "unset", not "pure logic". The two setters disagree about
+	// this -- SetVectorSearchTimeout substitutes a default for zero while
+	// SetVectorWeight clamps and takes zero literally -- so an unguarded wire
+	// would let a partially-filled CompilerConfig turn vector scoring off with
+	// no way to tell that from a deliberate choice.
+	partial := CompilerConfig{DefaultTokenBudget: 1000}
+	compiler.SetConfig(partial)
+	assert.Equal(t, 0.42, compiler.selector.vectorWeight,
+		"a config with no VectorSearchWeight must leave the weight alone, not zero it")
 }
 
 func TestNewJITPromptCompiler(t *testing.T) {
@@ -428,14 +476,15 @@ func TestJITPromptCompiler_GetSetConfig(t *testing.T) {
 	t.Run("set updates config", func(t *testing.T) {
 		newConfig := CompilerConfig{
 			DefaultTokenBudget: 50000,
-			EnableVectorSearch: false,
+			VectorSearchWeight: 0.61,
 		}
 
 		compiler.SetConfig(newConfig)
 		config := compiler.GetConfig()
 
 		assert.Equal(t, 50000, config.DefaultTokenBudget)
-		assert.False(t, config.EnableVectorSearch)
+		// Not just that the struct kept the number -- that the selector got it.
+		assert.Equal(t, 0.61, compiler.selector.vectorWeight)
 	})
 }
 

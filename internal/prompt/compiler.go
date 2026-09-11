@@ -418,9 +418,6 @@ type CompilerConfig struct {
 	// DefaultTokenBudget is the default token budget if not specified in context
 	DefaultTokenBudget int
 
-	// EnableVectorSearch enables semantic search for atom selection
-	EnableVectorSearch bool
-
 	// VectorSearchWeight is the weight of vector scores vs logic scores (0.0-1.0)
 	VectorSearchWeight float64
 
@@ -445,32 +442,49 @@ type CompilerConfig struct {
 	// wants the knob.
 	VectorSearchTimeout time.Duration
 
-	// MaxAtomsPerCategory caps atoms selected per category
-	MaxAtomsPerCategory int
-
-	// EnableCaching enables caching of compiled prompts
-	EnableCaching bool
-
-	// CacheTTLSeconds is the cache TTL in seconds
-	CacheTTLSeconds int
-
 	// DebugMode enables verbose JIT manifest logging
 	DebugMode bool
 
 	// KnowledgeSearchTimeout is the max time to wait for knowledge atom embedding and search
 	KnowledgeSearchTimeout time.Duration
+
+	// FOUR FIELDS WERE REMOVED HERE on 2026-09-11, all set by
+	// DefaultCompilerConfig and read by nothing in the repository -- not
+	// production, not tests, except tests asserting the literal they had just
+	// been handed. Three of them described behaviour that does not exist,
+	// which is worse than an absent knob: a reader reasoning about this
+	// compiler believed them.
+	//
+	//   EnableVectorSearch   the selector has no such switch. It runs the
+	//                        search when a vectorSearcher is installed and
+	//                        skips it when one is not, and the factory decides
+	//                        that by whether an embedding engine exists.
+	//   MaxAtomsPerCategory  no per-category cap exists anywhere. Selection is
+	//                        bounded by the token budget.
+	//   CacheTTLSeconds      the prompt LRU has NO TTL. Entries live until size
+	//                        eviction. The "// 5 minutes" beside it was
+	//                        especially expensive, because this branch spent
+	//                        real effort on Anthropic's five-minute prompt-cache
+	//                        TTL and a second inert five-minute TTL in the same
+	//                        subsystem is a trap laid for exactly that reader.
+	//   EnableCaching        the LRU is unconditional; nothing checks a flag.
+	//
+	// Deleted rather than wired, which is main's 938cd87 judgement on
+	// shard_profiles.max_output_tokens applied again: each of the three would
+	// have meant BUILDING the behaviour it claims, and that is a feature
+	// decision. VectorSearchWeight is the one of the five that was a genuine
+	// missing wire and it is wired above.
 }
 
 // DefaultCompilerConfig returns a sensible default configuration.
 // Note: DefaultTokenBudget should be overridden via WithDefaultTokenBudget() from config.ContextWindow.MaxTokens.
 func DefaultCompilerConfig() CompilerConfig {
 	return CompilerConfig{
-		DefaultTokenBudget:     200000, // 200k tokens default - callers should override from config
-		EnableVectorSearch:     true,
+		DefaultTokenBudget: 200000, // 200k tokens default - callers should override from config
+		// Mirrors AtomSelector's own default. The selector keeps one too, for
+		// direct users that never see a CompilerConfig; this is the value the
+		// compiler pushes into it.
 		VectorSearchWeight:     0.3, // 70% logic, 30% vector
-		MaxAtomsPerCategory:    10,
-		EnableCaching:          true,
-		CacheTTLSeconds:        300, // 5 minutes
 		DebugMode:              false,
 		KnowledgeSearchTimeout: 10 * time.Second,
 	}
@@ -505,6 +519,23 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 
 	// Ensure selector has the timeout from config
 	compiler.selector.SetVectorSearchTimeout(compiler.config.VectorSearchTimeout)
+	// The sibling knob, and it was wired nowhere. SetVectorWeight had no
+	// production caller and CompilerConfig.VectorSearchWeight had no
+	// reader: two halves of one missing wire, which is why the selector
+	// and the config each carried their own 0.3 with the same
+	// "70% logic, 30% vector" comment attached.
+	//
+	// The zero is guarded because the two setters do NOT agree about what
+	// one means. SetVectorSearchTimeout reads zero as "unset" and
+	// substitutes ten seconds; SetVectorWeight clamps to [0,1] and takes a
+	// zero literally, as pure logic. So wiring this unguarded would make a
+	// partially-filled CompilerConfig silently turn vector scoring off --
+	// the exact silent-failure shape this is being fixed to remove. Pure
+	// logic is expressed by installing no vector searcher at all
+	// (selector.go skips the search when vectorSearcher is nil).
+	if compiler.config.VectorSearchWeight > 0 {
+		compiler.selector.SetVectorWeight(compiler.config.VectorSearchWeight)
+	}
 
 	logging.Get(logging.CategoryContext).Info("JITPromptCompiler initialized")
 	return compiler, nil

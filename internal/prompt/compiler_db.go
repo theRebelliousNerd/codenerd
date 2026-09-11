@@ -268,6 +268,23 @@ func (c *JITPromptCompiler) SetConfig(config CompilerConfig) {
 	defer c.configMu.Unlock()
 	c.config = config
 	c.selector.SetVectorSearchTimeout(config.VectorSearchTimeout)
+	// The sibling knob, and it was wired nowhere. SetVectorWeight had no
+	// production caller and CompilerConfig.VectorSearchWeight had no
+	// reader: two halves of one missing wire, which is why the selector
+	// and the config each carried their own 0.3 with the same
+	// "70% logic, 30% vector" comment attached.
+	//
+	// The zero is guarded because the two setters do NOT agree about what
+	// one means. SetVectorSearchTimeout reads zero as "unset" and
+	// substitutes ten seconds; SetVectorWeight clamps to [0,1] and takes a
+	// zero literally, as pure logic. So wiring this unguarded would make a
+	// partially-filled CompilerConfig silently turn vector scoring off --
+	// the exact silent-failure shape this is being fixed to remove. Pure
+	// logic is expressed by installing no vector searcher at all
+	// (selector.go skips the search when vectorSearcher is nil).
+	if config.VectorSearchWeight > 0 {
+		c.selector.SetVectorWeight(config.VectorSearchWeight)
+	}
 }
 
 // SetLocalDB sets the LocalStore for semantic knowledge atom queries.
