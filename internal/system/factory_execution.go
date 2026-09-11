@@ -46,6 +46,7 @@ func executionLayerConfigs(appCfg *config.UserConfig, workspace string) (tactile
 
 	virtualStoreCfg := core.VirtualStoreConfig{
 		WorkingDir:      workingDir,
+		WorkspaceRoot:   workspace,
 		AllowedEnvVars:  append([]string(nil), execution.AllowedEnvVars...),
 		AllowedBinaries: append([]string(nil), execution.AllowedBinaries...),
 	}

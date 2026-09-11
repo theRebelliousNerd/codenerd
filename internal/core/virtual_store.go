@@ -76,6 +76,8 @@ type VirtualStore struct {
 
 	// Working directory
 	workingDir string
+	// workspaceRoot: see VirtualStoreConfig.WorkspaceRoot.
+	workspaceRoot string
 
 	// Allowed environment variables
 	allowedEnvVars []string
@@ -155,7 +157,12 @@ func (v *VirtualStore) SetToolEventBus(bus *transparency.ToolEventBus) {
 
 // VirtualStoreConfig holds configuration for the VirtualStore.
 type VirtualStoreConfig struct {
-	WorkingDir      string
+	WorkingDir string
+	// WorkspaceRoot is the root every file identity in a fact is relative to
+	// (types.CanonicalPath). It is distinct from WorkingDir, which may be a
+	// configured subdirectory for command execution; a fact keyed relative to
+	// that subdirectory would name a file no scanner row identifies.
+	WorkspaceRoot   string
 	AllowedEnvVars  []string
 	AllowedBinaries []string
 }
@@ -192,6 +199,7 @@ func NewVirtualStoreWithConfig(executor tactile.Executor, config VirtualStoreCon
 	vs := &VirtualStore{
 		executor:        executor,
 		workingDir:      config.WorkingDir,
+		workspaceRoot:   config.WorkspaceRoot,
 		allowedEnvVars:  config.AllowedEnvVars,
 		allowedBinaries: config.AllowedBinaries,
 		shardManager:    coreshards.NewShardManager(),
@@ -720,6 +728,20 @@ func (v *VirtualStore) resolvePath(path string) string {
 		return path
 	}
 	return filepath.Join(v.workingDir, path)
+}
+
+// factPath returns the identity a fact carries for path: canonical relative
+// to the workspace root, or to the working directory when no root was
+// configured (tests, and callers that never leave the working directory).
+// Every file-keyed fact the store emits — modified, file_written, file_edited,
+// scope_open_failed, scope_refresh_failed, file_modified_externally,
+// modified_function — goes through here so it joins the scanners' rows.
+func (v *VirtualStore) factPath(path string) string {
+	root := v.workspaceRoot
+	if root == "" {
+		root = v.workingDir
+	}
+	return types.CanonicalPath(root, path)
 }
 
 func (v *VirtualStore) isBinaryAllowed(binary string) bool {

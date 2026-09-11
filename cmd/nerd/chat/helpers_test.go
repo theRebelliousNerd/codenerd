@@ -175,12 +175,15 @@ func TestBuildFileTopologyFact(t *testing.T) {
 		t.Fatalf("stat file: %v", err)
 	}
 
-	fact := buildFileTopologyFact(path, info)
+	fact := buildFileTopologyFact(path, "sample_test.go", info)
 	if fact.Predicate != "file_topology" {
 		t.Fatalf("predicate = %q, want %q", fact.Predicate, "file_topology")
 	}
 	if len(fact.Args) != 5 {
 		t.Fatalf("expected 5 args, got %d", len(fact.Args))
+	}
+	if got, ok := fact.Args[0].(string); !ok || got != "sample_test.go" {
+		t.Fatalf("path arg = %v, want the canonical fact path %q, not the opened path", fact.Args[0], "sample_test.go")
 	}
 
 	wantHash := sha256.Sum256([]byte(content))

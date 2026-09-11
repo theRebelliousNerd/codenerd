@@ -58,19 +58,23 @@ func symbolIDFromRef(ref string) string {
 // predicates impact.mg joins on. A struct or const edit still asserts
 // element_modified and modified(File); it just does not start a caller-impact
 // walk, because there is no caller relation for it to walk.
-func modifiedSymbolFacts(elem *CodeElement) []Fact {
+//
+// file is the CANONICAL identity of elem.File (the element itself keeps the
+// absolute path the scope opened): impact.mg joins these against code_calls
+// and file_topology, which are canonical.
+func modifiedSymbolFacts(elem *CodeElement, file string) []Fact {
 	if elem == nil {
 		return nil
 	}
 	name := symbolIDFromRef(elem.Ref)
-	if name == "" || elem.File == "" {
+	if name == "" || file == "" {
 		return nil
 	}
 	switch elem.Type {
 	case "function", "method":
-		return []Fact{{Predicate: "modified_function", Args: []any{name, elem.File}}}
+		return []Fact{{Predicate: "modified_function", Args: []any{name, file}}}
 	case "interface":
-		return []Fact{{Predicate: "modified_interface", Args: []any{name, elem.File}}}
+		return []Fact{{Predicate: "modified_interface", Args: []any{name, file}}}
 	default:
 		return nil
 	}
@@ -87,7 +91,10 @@ func modifiedSymbolFacts(elem *CodeElement) []Fact {
 // It must be called BEFORE the scope refresh. After the refresh the line
 // numbers have moved, and for delete_lines the element may be gone entirely —
 // which is exactly the case whose callers most need to be looked at.
-func modifiedSymbolFactsForLineRange(scope CodeScope, path string, startLine, endLine int) []Fact {
+//
+// path is what the scope resolves (absolute or canonical); file is the
+// canonical identity the facts carry.
+func modifiedSymbolFactsForLineRange(scope CodeScope, path, file string, startLine, endLine int) []Fact {
 	if scope == nil || path == "" || endLine < startLine {
 		return nil
 	}
@@ -100,7 +107,7 @@ func modifiedSymbolFactsForLineRange(scope CodeScope, path string, startLine, en
 		if elem.EndLine < startLine || elem.StartLine > endLine {
 			continue
 		}
-		for _, f := range modifiedSymbolFacts(elem) {
+		for _, f := range modifiedSymbolFacts(elem, file) {
 			key := f.Predicate + "\x00" + elem.Ref
 			if _, dup := seen[key]; dup {
 				continue

@@ -15,6 +15,7 @@ import (
 	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
 	nerdsystem "codenerd/internal/system"
+	"codenerd/internal/types"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -123,12 +124,7 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 				continue
 			}
 
-			rel := path
-			if r, err := filepath.Rel(m.workspace, path); err == nil && r != "" && !strings.HasPrefix(r, "..") {
-				rel = filepath.ToSlash(r)
-			} else {
-				rel = filepath.ToSlash(path)
-			}
+			rel := types.CanonicalPath(m.workspace, path)
 
 			chunks := chunkTextRunes(string(data), 2000)
 			if len(chunks) == 0 {
@@ -138,7 +134,9 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 
 			sourceHash := prompt.HashContent(rel)[:8]
 			if localDB != nil {
-				_ = localDB.StoreLink(root, "/has_file", rel, 1.0, map[string]any{"path": rel})
+				// Both ends canonical: the root was stored absolute, so the
+				// edge named a directory no other fact identified.
+				_ = localDB.StoreLink(types.CanonicalPath(m.workspace, root), "/has_file", rel, 1.0, map[string]any{"path": rel})
 			}
 
 			// Collect batch data for vector storage

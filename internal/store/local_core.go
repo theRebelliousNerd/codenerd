@@ -453,6 +453,9 @@ func (s *LocalStore) initialize() error {
 	if err := RunMigrations(s.db); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
+	if err := s.retireMislabelledDependencyEdges(); err != nil {
+		return fmt.Errorf("failed to retire mislabelled dependency edges: %w", err)
+	}
 
 	ensureReasoningTraceIndexes(s.db)
 
@@ -709,4 +712,37 @@ func (s *LocalStore) ensurePredicateVectorUniqueIndex() error {
 		 WHERE json_extract(metadata, '$.kind') = 'predicate';`,
 	)
 	return err
+}
+
+// retireMislabelledDependencyEdges deletes the scanner-projected
+// knowledge_graph rows that can never join a policy rule, so each boot stops
+// re-asserting them into the kernel. Two shapes, both written until
+// 2026-09-10:
+//
+//   - relation "depends_on:<import path>": not a Mangle name, so the hydrated
+//     knowledge_link carried a string relation that policy/knowledge.mg's
+//     /depends_on rule could never match;
+//   - a defined_in / depends_on edge whose file end is an absolute path (a
+//     backslash, a drive letter, or a leading slash): every other file fact
+//     is keyed by the canonical workspace-relative path, so the edge named a
+//     file no fact identified. One live store held 9,378 such rows, most of
+//     them pointing at a crash dump that had been scanned as source.
+//
+// The next scan re-projects both shapes correctly (VirtualStore.PersistLinkFacts),
+// so nothing is lost by dropping them. Ingest edges (/has_file) are left
+// alone: no automatic path re-creates them.
+func (s *LocalStore) retireMislabelledDependencyEdges() error {
+	result, err := s.db.Exec(`
+		DELETE FROM knowledge_graph
+		WHERE relation LIKE 'depends_on:%'
+		   OR (relation IN ('depends_on', 'defined_in')
+		       AND (instr(entity_b, char(92)) > 0 OR entity_b LIKE '_:/%' OR entity_b LIKE '/%'
+		            OR instr(entity_a, char(92)) > 0 OR entity_a LIKE '_:/%' OR entity_a LIKE '/%'))`)
+	if err != nil {
+		return err
+	}
+	if n, err := result.RowsAffected(); err == nil && n > 0 {
+		logging.Store("Retired %d knowledge_graph rows that could not join (depends_on:<import> label or absolute-path file identity); the next scan re-projects them", n)
+	}
+	return nil
 }

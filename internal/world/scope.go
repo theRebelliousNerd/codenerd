@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"crypto/sha256"
 	"fmt"
 	"go/parser"
@@ -334,7 +335,7 @@ func (s *FileScope) QueryElements(filter func(CodeElement) bool) []CodeElement {
 
 // GetElementsByFile returns all elements in a specific file.
 func (s *FileScope) GetElementsByFile(path string) []CodeElement {
-	absPath, _ := filepath.Abs(path)
+	absPath := s.fsPath(path)
 	return s.QueryElements(func(e CodeElement) bool {
 		return e.File == absPath
 	})
@@ -345,7 +346,7 @@ func (s *FileScope) IsInScope(path string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	absPath, _ := filepath.Abs(path)
+	absPath := s.fsPath(path)
 	return slices.Contains(s.InScope, absPath)
 }
 
@@ -425,7 +426,7 @@ func (s *FileScope) loadFile(path string) error {
 		logging.Get(logging.CategoryWorld).Warn("Large file detected: %s (%d lines, %d bytes)", filepath.Base(path), lineCount, byteSize)
 		s.emitFact(core.Fact{
 			Predicate: "large_file_warning",
-			Args:      []any{path, int64(lineCount), byteSize},
+			Args:      []any{s.factPath(path), int64(lineCount), byteSize},
 		})
 	}
 
@@ -435,21 +436,21 @@ func (s *FileScope) loadFile(path string) error {
 		logging.Get(logging.CategoryWorld).Warn("BOM detected in file: %s (%s)", filepath.Base(path), encoding.BOMType)
 		s.emitFact(core.Fact{
 			Predicate: "encoding_issue",
-			Args:      []any{path, "/bom_detected"},
+			Args:      []any{s.factPath(path), "/bom_detected"},
 		})
 	}
 	if encoding.MixedLineEnding {
 		logging.Get(logging.CategoryWorld).Warn("Mixed line endings in file: %s", filepath.Base(path))
 		s.emitFact(core.Fact{
 			Predicate: "encoding_issue",
-			Args:      []any{path, "/crlf_inconsistent"},
+			Args:      []any{s.factPath(path), "/crlf_inconsistent"},
 		})
 	}
 	if !encoding.IsValidUTF8 {
 		logging.Get(logging.CategoryWorld).Warn("Invalid UTF-8 in file: %s", filepath.Base(path))
 		s.emitFact(core.Fact{
 			Predicate: "encoding_issue",
-			Args:      []any{path, "/non_utf8"},
+			Args:      []any{s.factPath(path), "/non_utf8"},
 		})
 	}
 
@@ -470,24 +471,17 @@ func (s *FileScope) loadFile(path string) error {
 	if lang == "go" {
 		// Detect code patterns (generated code, API clients, CGo, etc.)
 		patterns := DetectCodePatterns(string(content), elements)
-		patternFacts := patterns.ToPatternFacts(path, elements)
+		patternFacts := patterns.ToPatternFacts(s.factPath(path), elements)
 		for _, fact := range patternFacts {
 			s.emitFact(fact)
 		}
 
-		// Warn if editing generated code
+		// Warn if editing generated code. The per-element edit_unsafe(Ref,
+		// /generated_code) facts are derived by policy/codedom_edit.mg from
+		// the generated_code/3 fact emitted just above; a file-keyed copy
+		// was emitted here too, into a predicate declared over a Ref.
 		if patterns.IsGenerated {
 			logging.Get(logging.CategoryWorld).Warn("Generated code detected: %s (generator: %s)", filepath.Base(path), patterns.Generator)
-			// edit_unsafe(Ref, Reason) declares Reason /name, and
-			// policy/codedom_edit.mg derives edit_unsafe(Ref, /generated_code)
-			// per code element from the same generated_code/3 facts emitted
-			// just above. Emitting the reason as a bare Go string made it a
-			// string constant that shared no vocabulary with those rules, so a
-			// consumer matching /generated_code saw only half the relation.
-			s.emitFact(core.Fact{
-				Predicate: "edit_unsafe",
-				Args:      []any{path, core.MangleAtom("/generated_code")},
-			})
 		}
 	}
 
@@ -545,6 +539,7 @@ func (s *FileScope) emitFact(fact core.Fact) {
 // emitErrorFact emits an error fact with timestamp.
 func (s *FileScope) emitErrorFact(predicate, path, errMsg string) {
 	ts := time.Now().Unix()
+	path = s.factPath(path)
 	var args []any
 	switch predicate {
 	case "file_not_found":
@@ -565,6 +560,7 @@ func (s *FileScope) emitErrorFact(predicate, path, errMsg string) {
 // VerifyFileHash checks if a file has been modified since it was loaded.
 // Returns true if the file is unchanged, false if it was modified externally.
 func (s *FileScope) VerifyFileHash(path string) (bool, error) {
+	path = s.fsPath(path)
 	logging.WorldDebug("Verifying hash for: %s", filepath.Base(path))
 
 	s.mu.RLock()
@@ -587,7 +583,7 @@ func (s *FileScope) VerifyFileHash(path string) (bool, error) {
 		logging.Get(logging.CategoryWorld).Warn("Hash mismatch detected: %s (expected=%s, actual=%s)", filepath.Base(path), expectedHash[:16], actualHash[:16])
 		s.emitFact(core.Fact{
 			Predicate: "file_hash_mismatch",
-			Args:      []any{path, expectedHash, actualHash},
+			Args:      []any{s.factPath(path), expectedHash, actualHash},
 		})
 		return false, nil
 	}
@@ -750,7 +746,7 @@ func (s *FileScope) getImportPathForFile(path string) string {
 		return ""
 	}
 
-	absPath, _ := filepath.Abs(path)
+	absPath := s.fsPath(path)
 	dir := filepath.Dir(absPath)
 
 	relPath, err := filepath.Rel(s.ProjectRoot, dir)
@@ -785,6 +781,30 @@ func (s *FileScope) detectModulePath() error {
 	return fmt.Errorf("module directive not found in go.mod")
 }
 
+// factPath is the identity a fact carries for p. The scope keeps every path
+// absolute internally (it opens, hashes and re-parses them), but a fact keyed
+// by an absolute path joins nothing the scanners emitted for the same file:
+// file_topology, dependency_link, code_defines and modified are all canonical
+// (types.CanonicalPath), and seven policy rules joining the two families were
+// dead for as long as this family was absolute.
+func (s *FileScope) factPath(p string) string {
+	return types.CanonicalPath(s.ProjectRoot, p)
+}
+
+// fsPath accepts either a canonical identity or an absolute path and returns
+// the absolute path the scope keys its state by. Lookups used filepath.Abs on
+// the argument, which resolves against the process working directory rather
+// than the project root, so a canonical identity coming back from a fact
+// resolved to the wrong file whenever the process was not chdir'd into the
+// workspace.
+func (s *FileScope) fsPath(p string) string {
+	abs, err := filepath.Abs(types.ResolveWorkspacePath(s.ProjectRoot, p))
+	if err != nil {
+		return p
+	}
+	return abs
+}
+
 // emitScopeFacts emits Mangle facts for the current scope.
 func (s *FileScope) emitScopeFacts() {
 	s.cbMu.RLock()
@@ -797,7 +817,7 @@ func (s *FileScope) emitScopeFacts() {
 	// Emit active_file fact
 	callback(core.Fact{
 		Predicate: "active_file",
-		Args:      []any{s.ActiveFile},
+		Args:      []any{s.factPath(s.ActiveFile)},
 	})
 
 	// Emit file_in_scope facts
@@ -810,13 +830,13 @@ func (s *FileScope) emitScopeFacts() {
 		lang := detectLanguage(filepath.Ext(file), file)
 		callback(core.Fact{
 			Predicate: "file_in_scope",
-			Args:      []any{file, hash, "/" + lang, int64(lineCount)},
+			Args:      []any{s.factPath(file), hash, "/" + lang, int64(lineCount)},
 		})
 	}
 
 	// Emit code element facts
 	for _, elem := range s.Elements {
-		for _, fact := range elem.ToFacts() {
+		for _, fact := range types.RelabelPathArgs(elem.ToFacts(), elem.File, s.factPath(elem.File)) {
 			callback(fact)
 		}
 	}
@@ -915,7 +935,7 @@ func (s *FileScope) ScopeFacts() []core.Fact {
 	if activeFile != "" {
 		facts = append(facts, core.Fact{
 			Predicate: "active_file",
-			Args:      []any{activeFile},
+			Args:      []any{s.factPath(activeFile)},
 		})
 	}
 
@@ -929,13 +949,13 @@ func (s *FileScope) ScopeFacts() []core.Fact {
 		lang := detectLanguage(filepath.Ext(file), file)
 		facts = append(facts, core.Fact{
 			Predicate: "file_in_scope",
-			Args:      []any{file, hash, "/" + lang, int64(lineCount)},
+			Args:      []any{s.factPath(file), hash, "/" + lang, int64(lineCount)},
 		})
 	}
 
 	// Elements
 	for _, elem := range elements {
-		facts = append(facts, elem.ToFacts()...)
+		facts = append(facts, types.RelabelPathArgs(elem.ToFacts(), elem.File, s.factPath(elem.File))...)
 	}
 
 	// Per-scope diagnostics/meta facts
@@ -999,7 +1019,7 @@ func (s *FileScope) GetCoreElement(ref string) *core.CodeElement {
 
 // GetCoreElementsByFile implements core.CodeScope.GetElementsByFile.
 func (s *FileScope) GetCoreElementsByFile(path string) []core.CodeElement {
-	absPath, _ := filepath.Abs(path)
+	absPath := s.fsPath(path)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

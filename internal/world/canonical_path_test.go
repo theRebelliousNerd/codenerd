@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"codenerd/internal/types"
 )
 
 // pathArgIndexes names, per predicate, which argument slots carry a file or
@@ -277,13 +279,13 @@ func TestCanonicalPath_WhenReapplied_ShouldBeIdempotent(t *testing.T) {
 		"a//b.go",
 	}
 	for _, in := range cases {
-		once := CanonicalPath(root, in)
-		twice := CanonicalPath(root, once)
+		once := types.CanonicalPath(root, in)
+		twice := types.CanonicalPath(root, once)
 		if once != twice {
 			t.Errorf("CanonicalPath not idempotent for %q: %q then %q", in, once, twice)
 		}
 		if strings.Contains(once, `\`) {
-			t.Errorf("CanonicalPath(%q) = %q still contains a backslash", in, once)
+			t.Errorf("types.CanonicalPath(%q) = %q still contains a backslash", in, once)
 		}
 	}
 }
@@ -300,11 +302,37 @@ func TestResolveWorkspacePath_WhenCanonical_ShouldOpenTheRealFile(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(root, "x", "y.go"), []byte("package x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(ResolveWorkspacePath(root, "x/y.go")); err != nil {
+	if _, err := os.Stat(types.ResolveWorkspacePath(root, "x/y.go")); err != nil {
 		t.Fatalf("canonical path did not resolve to a readable file: %v", err)
 	}
 	abs := filepath.Join(root, "x", "y.go")
-	if got := ResolveWorkspacePath(root, abs); got != abs {
+	if got := types.ResolveWorkspacePath(root, abs); got != abs {
 		t.Errorf("ResolveWorkspacePath rewrote an absolute path: %q", got)
+	}
+}
+
+// TestCanonicalPath_WhenWindowsShaped_ShouldAgreeAcrossSpellings — the same
+// file spelled as a backslash absolute path, a forward-slash absolute path, a
+// backslash relative path and a slash relative path must yield one identity,
+// on every host. This is the property the world-model shard used to guard with
+// its own normaliser; it now lives on the single definition.
+func TestCanonicalPath_WhenWindowsShaped_ShouldAgreeAcrossSpellings(t *testing.T) {
+	const want = "internal/session/gate_names_test.go"
+	roots := []string{`C:\CodeProjects\codeNERD`, "C:/CodeProjects/codeNERD"}
+	inputs := []string{
+		`C:\CodeProjects\codeNERD\internal\session\gate_names_test.go`,
+		"C:/CodeProjects/codeNERD/internal/session/gate_names_test.go",
+		`internal\session\gate_names_test.go`,
+		"internal/session/gate_names_test.go",
+	}
+	for _, root := range roots {
+		for _, in := range inputs {
+			if got := types.CanonicalPath(root, in); got != want {
+				t.Errorf("types.CanonicalPath(%q, %q) = %q, want %q", root, in, got, want)
+			}
+		}
+		if got := types.CanonicalPath(root, root); got != "." {
+			t.Errorf("types.CanonicalPath(root, root) = %q, want \".\"", got)
+		}
 	}
 }

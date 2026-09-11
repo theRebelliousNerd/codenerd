@@ -139,6 +139,52 @@ func (v *VirtualStore) PersistLink(entityA, relation, entityB string, weight flo
 	return nil
 }
 
+// PersistLinkFacts projects the graph-shaped world facts in facts into the
+// knowledge graph: dependency_link(From, To, Import) becomes a depends_on edge
+// and symbol_graph(Symbol, _, _, File, _) a defined_in edge, with source (which
+// scanner produced it) in the edge metadata. Facts of any other predicate are
+// ignored, so a whole scan result can be handed over.
+//
+// This is the one projection for every producer: full, incremental, deep,
+// partial and directory scans, and the world-model shard. The six copies it
+// replaces each labelled the dependency edge "depends_on:<import path>", a
+// token that is not a Mangle name, so HydrateKnowledgeGraph landed it as a
+// string constant and the /depends_on activation rule in policy/knowledge.mg
+// matched none of them. The import path now rides in the metadata, readable
+// but no longer part of the edge's identity.
+func (v *VirtualStore) PersistLinkFacts(facts []Fact, source string) error {
+	var errs []error
+	for _, f := range facts {
+		switch f.Predicate {
+		case "dependency_link":
+			if len(f.Args) < 2 {
+				continue
+			}
+			from := types.ExtractString(f.Args[0])
+			to := types.ExtractString(f.Args[1])
+			meta := map[string]any{"source": source}
+			if len(f.Args) >= 3 {
+				if imp := types.ExtractString(f.Args[2]); imp != "" {
+					meta["import"] = imp
+				}
+			}
+			if err := v.PersistLink(from, "depends_on", to, 1.0, meta); err != nil {
+				errs = append(errs, fmt.Errorf("depends_on %s -> %s: %w", from, to, err))
+			}
+		case "symbol_graph":
+			if len(f.Args) < 4 {
+				continue
+			}
+			symbol := types.ExtractString(f.Args[0])
+			file := types.ExtractString(f.Args[3])
+			if err := v.PersistLink(symbol, "defined_in", file, 1.0, map[string]any{"source": source}); err != nil {
+				errs = append(errs, fmt.Errorf("defined_in %s -> %s: %w", symbol, file, err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // QueryKnowledgeGraph queries the knowledge graph for entity relationships.
 // Implements: query_knowledge_graph(EntityA, Relation, EntityB) Bound
 func (v *VirtualStore) QueryKnowledgeGraph(entity, direction string) ([]Fact, error) {

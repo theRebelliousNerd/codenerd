@@ -1,6 +1,7 @@
 package core
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"os"
 	"path/filepath"
@@ -732,20 +733,20 @@ func TestTransactionManager_MultiFileFactGeneration(t *testing.T) {
 		t.Errorf("Expected 3 modified_file facts, got %d", len(planEditFiles))
 	}
 
-	// Verify all file paths are represented
+	// Verify all file paths are represented, under the canonical identity
+	// (workspace-relative, forward-slash) that every other file fact carries;
+	// test_impact.mg joins modified_file against file_imports, which the
+	// scanner keys canonically, so an absolute path here matched nothing.
 	fileSet := make(map[string]bool)
 	for _, f := range planEditFiles {
 		fileSet[f] = true
 	}
 
-	if !fileSet[goFile] {
-		t.Error("Missing modified_file for Go file")
-	}
-	if !fileSet[tsFile] {
-		t.Error("Missing modified_file for TypeScript file")
-	}
-	if !fileSet[pyFile] {
-		t.Error("Missing modified_file for Python file")
+	for name, abs := range map[string]string{"Go": goFile, "TypeScript": tsFile, "Python": pyFile} {
+		want := types.CanonicalPath(tmpDir, abs)
+		if !fileSet[want] {
+			t.Errorf("Missing modified_file for %s file: want %q in %v", name, want, planEditFiles)
+		}
 	}
 }
 

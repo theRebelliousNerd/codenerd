@@ -105,7 +105,6 @@ func (fc *FeedbackCollector) ensureSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_records_shard ON execution_records(shard_type);
 	CREATE INDEX IF NOT EXISTS idx_records_problem ON execution_records(problem_type);
 	CREATE INDEX IF NOT EXISTS idx_records_created ON execution_records(created_at);
-	CREATE INDEX IF NOT EXISTS idx_records_serving ON execution_records(provider, model);
 
 	CREATE TABLE IF NOT EXISTS evolution_stats (
 		key TEXT PRIMARY KEY,
@@ -117,7 +116,20 @@ func (fc *FeedbackCollector) ensureSchema() error {
 		return err
 	}
 
-	return fc.ensureExecutionRecordColumns()
+	if err := fc.ensureExecutionRecordColumns(); err != nil {
+		return err
+	}
+
+	// Indexes over migrated columns come after the column migration. This one
+	// sat in the schema batch above, so on any evolution.db created before
+	// serving provenance existed it failed with "no such column: provider"
+	// before ensureExecutionRecordColumns could add the column — and the
+	// evolver reported "this session will not learn from its turns" on every
+	// boot of an established workspace.
+	if _, err := fc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_records_serving ON execution_records(provider, model)`); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (fc *FeedbackCollector) ensureExecutionRecordColumns() error {

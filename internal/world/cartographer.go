@@ -3,6 +3,7 @@ package world
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -194,7 +195,7 @@ func (c *Cartographer) mapGoFile(fsPath, path string) ([]core.Fact, error) {
 			logging.WorldDebug("Cartographer: data flow extraction failed for %s: %v (continuing with symbol facts only)", filepath.Base(path), err)
 			// Continue - data flow is an enhancement, not critical
 		} else {
-			facts = append(facts, relabelPathArgs(dataFlowFacts, fsPath, path)...)
+			facts = append(facts, types.RelabelPathArgs(dataFlowFacts, fsPath, path)...)
 			logging.WorldDebug("Cartographer: extracted %d data flow facts from %s", len(dataFlowFacts), filepath.Base(fsPath))
 		}
 	}
@@ -210,28 +211,6 @@ func (c *Cartographer) Close() {
 		c.dataFlowExtractor.Close()
 	}
 	c.parsers.close()
-}
-
-// relabelPathArgs rewrites the filesystem path the data-flow extractor stamped
-// into its facts to the canonical fact identity. The extractor is given a
-// readable path and has no notion of workspace-relative identity, so without
-// this its facts key a different file than the code_defines emitted beside them.
-func relabelPathArgs(facts []core.Fact, from, to string) []core.Fact {
-	if from == to || len(facts) == 0 {
-		return facts
-	}
-	out := make([]core.Fact, 0, len(facts))
-	for _, f := range facts {
-		args := make([]any, len(f.Args))
-		copy(args, f.Args)
-		for i, a := range args {
-			if s, ok := a.(string); ok && s == from {
-				args[i] = to
-			}
-		}
-		out = append(out, core.Fact{Predicate: f.Predicate, Args: args})
-	}
-	return out
 }
 
 // SupportedLanguages returns the list of languages supported for data flow extraction.

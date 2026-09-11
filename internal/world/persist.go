@@ -49,7 +49,7 @@ func PersistFastSnapshotToDBInRoot(db *store.LocalStore, root string, facts []co
 			Fingerprint: path,
 		}
 		if path != globalWorldFactsPath {
-			info, statErr := os.Stat(ResolveWorkspacePath(root, path))
+			info, statErr := os.Stat(types.ResolveWorkspacePath(root, path))
 			if statErr != nil {
 				continue
 			}

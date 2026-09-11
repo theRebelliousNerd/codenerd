@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -378,7 +377,7 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 		w.mu.Unlock()
 
 		// Emit file_topology fact
-		normalizedPath := normalizeTopologyPath(w.config.RootPath, fileInfo.Path)
+		normalizedPath := types.CanonicalPath(w.config.RootPath, fileInfo.Path)
 		ft := types.Fact{
 			Predicate: "file_topology",
 			Args: []any{
@@ -462,7 +461,7 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 		changedFiles++
 
 		// Emit updated file_topology fact
-		normalizedPath := normalizeTopologyPath(w.config.RootPath, fileInfo.Path)
+		normalizedPath := types.CanonicalPath(w.config.RootPath, fileInfo.Path)
 		ft := types.Fact{
 			Predicate: "file_topology",
 			Args: []any{
@@ -473,10 +472,12 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 				fileInfo.IsTestFile,
 			},
 		}
-		// Mark file as modified for impact analysis
+		// Mark file as modified for impact analysis. Canonical, like every
+		// other path identity: the impact rules join modified/1 against
+		// dependency_link, and an absolute walk path matched no edge.
 		mod := types.Fact{
 			Predicate: "modified",
-			Args:      []any{fileInfo.Path},
+			Args:      []any{normalizedPath},
 		}
 
 		facts = append(facts, ft, mod)
@@ -526,10 +527,13 @@ func (w *WorldModelIngestorShard) processFile(ctx context.Context, path string, 
 		fi.Hash = hex.EncodeToString(hash[:])
 	}
 
-	// Parse AST for symbols/dependencies if enabled
+	// Parse AST for symbols/dependencies if enabled. The walk path is what
+	// the parser opens; the facts carry the canonical identity so they join
+	// the file_topology row emitted below and the scanners' rows for the
+	// same file.
 	if w.config.EnableSymbolGraph || w.config.EnableDependencies {
 		if w.parser != nil {
-			parsedFacts, err := w.parser.Parse(path)
+			parsedFacts, err := w.parser.ParseAs(path, types.CanonicalPath(w.config.RootPath, path))
 			if err == nil && len(parsedFacts) > 0 {
 				facts = append(facts, parsedFacts...)
 			}
@@ -601,63 +605,6 @@ func isTestFile(path string) bool {
 		}
 	}
 	return false
-}
-
-// normalizeTopologyPath returns the workspace-relative POSIX form of p.
-// If p is absolute it is made relative to workspaceRoot; backslashes are
-// converted to forward slashes, and an already-relative POSIX path is left
-// unchanged (aside from separator normalisation and cleaning).
-func normalizeTopologyPath(workspaceRoot, p string) string {
-	// Normalise separators so Windows paths are handled uniformly on any OS.
-	pSlash := strings.ReplaceAll(p, "\\", "/")
-	rootSlash := strings.ReplaceAll(workspaceRoot, "\\", "/")
-
-	pSlash = path.Clean(pSlash)
-	rootSlash = path.Clean(rootSlash)
-
-	isAbs := func(s string) bool {
-		if strings.HasPrefix(s, "/") {
-			return true
-		}
-		if len(s) >= 2 && s[1] == ':' {
-			return true
-		}
-		if filepath.IsAbs(s) || filepath.IsAbs(p) {
-			return true
-		}
-		return false
-	}
-
-	if !isAbs(pSlash) {
-		return pSlash
-	}
-
-	// Try OS-aware relativisation first.
-	if rel, err := filepath.Rel(workspaceRoot, p); err == nil && rel != "." && rel != p {
-		// filepath.Rel on Linux does not understand Windows drives; detect that
-		// case and fall through to manual prefix stripping.
-		if !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !strings.HasPrefix(rel, "../") && rel != ".." {
-			relSlash := strings.ReplaceAll(rel, "\\", "/")
-			relSlash = path.Clean(relSlash)
-			if !strings.Contains(relSlash, ":") && !isAbs(relSlash) {
-				return relSlash
-			}
-		}
-	}
-
-	// Fallback: manual prefix stripping (case-insensitive for Windows).
-	lowerRoot := strings.ToLower(rootSlash)
-	lowerP := strings.ToLower(pSlash)
-	if lowerRoot != "." && lowerRoot != "" && strings.HasPrefix(lowerP, lowerRoot+"/") {
-		suffix := pSlash[len(rootSlash)+1:]
-		suffix = path.Clean(suffix)
-		suffix = strings.ReplaceAll(suffix, "\\", "/")
-		return suffix
-	}
-	if strings.EqualFold(pSlash, rootSlash) {
-		return "."
-	}
-	return pSlash
 }
 
 // handleAutopoiesis uses LLM for semantic interpretation.
@@ -785,21 +732,8 @@ func (w *WorldModelIngestorShard) persistToKnowledge(facts []types.Fact) {
 		fmt.Printf("[WorldModel] Knowledge persistence warning: %v\n", err)
 	}
 	// Also project dependency links into knowledge_graph for fast lookup
-	for _, f := range facts {
-		if f.Predicate == "dependency_link" && len(f.Args) >= 2 {
-			a := types.ExtractString(f.Args[0])
-			b := types.ExtractString(f.Args[1])
-			rel := "depends_on"
-			if len(f.Args) >= 3 {
-				rel = "depends_on:" + types.ExtractString(f.Args[2])
-			}
-			_ = w.VirtualStore.PersistLink(a, rel, b, 1.0, map[string]any{"source": "world_model"})
-		}
-		if f.Predicate == "symbol_graph" && len(f.Args) >= 4 {
-			symbolID := types.ExtractString(f.Args[0])
-			filePath := types.ExtractString(f.Args[3])
-			_ = w.VirtualStore.PersistLink(symbolID, "defined_in", filePath, 1.0, map[string]any{"source": "world_model"})
-		}
+	if err := w.VirtualStore.PersistLinkFacts(facts, "world_model"); err != nil {
+		fmt.Printf("[WorldModel] Knowledge graph warning: %v\n", err)
 	}
 }
 

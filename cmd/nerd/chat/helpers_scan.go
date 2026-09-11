@@ -172,29 +172,8 @@ func (m Model) runScan(deep bool) tea.Cmd {
 			if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5); err != nil {
 				logging.Routing("[helpers] failed to persist facts to knowledge: %v", err)
 			}
-			for _, f := range res.NewFacts {
-				switch f.Predicate {
-				case "dependency_link":
-					if len(f.Args) >= 2 {
-						a := types.ExtractString(f.Args[0])
-						b := types.ExtractString(f.Args[1])
-						rel := "depends_on"
-						if len(f.Args) >= 3 {
-							rel = "depends_on:" + types.ExtractString(f.Args[2])
-						}
-						if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]any{"source": "scan"}); err != nil {
-							logging.Routing("[helpers] failed to persist dependency link: %v", err)
-						}
-					}
-				case "symbol_graph":
-					if len(f.Args) >= 4 {
-						sid := types.ExtractString(f.Args[0])
-						file := types.ExtractString(f.Args[3])
-						if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]any{"source": "scan"}); err != nil {
-							logging.Routing("[helpers] failed to persist symbol link: %v", err)
-						}
-					}
-				}
+			if err := m.virtualStore.PersistLinkFacts(res.NewFacts, "scan"); err != nil {
+				logging.Routing("[helpers] failed to persist knowledge graph links: %v", err)
 			}
 		}
 
@@ -363,29 +342,8 @@ func (m *Model) ensureDeepWorldFacts() error {
 		if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 6); err != nil {
 			logging.Routing("[helpers] failed to persist deep facts to knowledge: %v", err)
 		}
-		for _, f := range res.NewFacts {
-			switch f.Predicate {
-			case "dependency_link":
-				if len(f.Args) >= 2 {
-					a := types.ExtractString(f.Args[0])
-					b := types.ExtractString(f.Args[1])
-					rel := "depends_on"
-					if len(f.Args) >= 3 {
-						rel = "depends_on:" + types.ExtractString(f.Args[2])
-					}
-					if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]any{"source": "scan-deep"}); err != nil {
-						logging.Routing("[helpers] failed to persist deep dependency link: %v", err)
-					}
-				}
-			case "symbol_graph":
-				if len(f.Args) >= 4 {
-					sid := types.ExtractString(f.Args[0])
-					file := types.ExtractString(f.Args[3])
-					if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]any{"source": "scan-deep"}); err != nil {
-						logging.Routing("[helpers] failed to persist deep symbol link: %v", err)
-					}
-				}
-			}
+		if err := m.virtualStore.PersistLinkFacts(res.NewFacts, "scan-deep"); err != nil {
+			logging.Routing("[helpers] failed to persist deep knowledge graph links: %v", err)
 		}
 	}
 
@@ -397,77 +355,20 @@ func (m Model) runPartialScan(paths []string) tea.Cmd {
 	return func() tea.Msg {
 		start := time.Now()
 		m.ReportStatus(fmt.Sprintf("Scanning %d paths...", len(paths)))
-		parser := world.NewASTParser()
-		defer parser.Close()
-
-		var totalFacts int
+		files := make([]string, 0, len(paths))
 		for _, raw := range paths {
-			path := strings.TrimSpace(raw)
-			if path == "" {
+			p := strings.TrimSpace(raw)
+			if p == "" {
 				continue
 			}
-			if !filepath.IsAbs(path) {
-				path = filepath.Join(m.workspace, path)
-			}
-			info, err := os.Stat(path)
-			if err != nil || info.IsDir() {
-				continue
-			}
-
-			ft := buildFileTopologyFact(path, info)
-			if err := m.kernel.LoadFacts([]core.Fact{ft}); err != nil {
-				logging.Kernel("[helpers] failed to load file topology fact: %v", err)
-			}
-			if m.virtualStore != nil {
-				if err := m.virtualStore.PersistFactsToKnowledge([]core.Fact{ft}, "fact", 5); err != nil {
-					logging.Routing("[helpers] failed to persist file topology: %v", err)
-				}
-			}
-			totalFacts++
-
-			astFacts, parseErr := parser.Parse(path)
-			if parseErr == nil && len(astFacts) > 0 {
-				if err := m.kernel.LoadFacts(astFacts); err != nil {
-					logging.Kernel("[helpers] failed to load AST facts: %v", err)
-				}
-				totalFacts += len(astFacts)
-				if m.virtualStore != nil {
-					if err := m.virtualStore.PersistFactsToKnowledge(astFacts, "fact", 6); err != nil {
-						logging.Routing("[helpers] failed to persist AST facts: %v", err)
-					}
-					for _, f := range astFacts {
-						switch f.Predicate {
-						case "dependency_link":
-							if len(f.Args) >= 2 {
-								a := types.ExtractString(f.Args[0])
-								b := types.ExtractString(f.Args[1])
-								rel := "depends_on"
-								if len(f.Args) >= 3 {
-									rel = "depends_on:" + types.ExtractString(f.Args[2])
-								}
-								if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]any{"source": "scan-path"}); err != nil {
-									logging.Routing("[helpers] failed to persist path dependency link: %v", err)
-								}
-							}
-						case "symbol_graph":
-							if len(f.Args) >= 4 {
-								sid := types.ExtractString(f.Args[0])
-								file := types.ExtractString(f.Args[3])
-								if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]any{"source": "scan-path"}); err != nil {
-									logging.Routing("[helpers] failed to persist path symbol link: %v", err)
-								}
-							}
-						}
-					}
-				}
-			}
+			files = append(files, types.ResolveWorkspacePath(m.workspace, p))
 		}
-
+		total := m.scanFilesIntoWorld(files, "scan-path")
 		m.ReportStatus("Scan complete")
 		return scanCompleteMsg{
-			fileCount:      len(paths),
+			fileCount:      len(files),
 			directoryCount: 0,
-			factCount:      totalFacts,
+			factCount:      total,
 			duration:       time.Since(start),
 		}
 	}
@@ -477,22 +378,15 @@ func (m Model) runPartialScan(paths []string) tea.Cmd {
 func (m Model) runDirScan(dir string) tea.Cmd {
 	return func() tea.Msg {
 		start := time.Now()
-		if !filepath.IsAbs(dir) {
-			dir = filepath.Join(m.workspace, dir)
-		}
+		dir = types.ResolveWorkspacePath(m.workspace, strings.TrimSpace(dir))
 		m.ReportStatus(fmt.Sprintf("Scanning directory: %s", dir))
 		info, err := os.Stat(dir)
 		if err != nil || !info.IsDir() {
 			return scanCompleteMsg{err: fmt.Errorf("invalid directory: %s", dir)}
 		}
 
-		parser := world.NewASTParser()
-		defer parser.Close()
-
-		fileCount := 0
+		var files []string
 		dirCount := 0
-		factCount := 0
-
 		if walkDirErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return nil
@@ -505,73 +399,133 @@ func (m Model) runDirScan(dir string) tea.Cmd {
 				}
 				return nil
 			}
-			fileCount++
-			if fileCount%10 == 0 {
-				m.ReportStatus(fmt.Sprintf("Scanning... (%d files)", fileCount))
-			}
-			info, statErr := d.Info()
-			if statErr != nil {
-				return nil
-			}
-
-			ft := buildFileTopologyFact(path, info)
-			if err := m.kernel.LoadFacts([]core.Fact{ft}); err != nil {
-				logging.Kernel("[helpers] failed to load dir file topology fact: %v", err)
-			}
-			if m.virtualStore != nil {
-				if err := m.virtualStore.PersistFactsToKnowledge([]core.Fact{ft}, "fact", 5); err != nil {
-					logging.Routing("[helpers] failed to persist dir file topology: %v", err)
-				}
-			}
-			factCount++
-
-			astFacts, parseErr := parser.Parse(path)
-			if parseErr == nil && len(astFacts) > 0 {
-				if err := m.kernel.LoadFacts(astFacts); err != nil {
-					logging.Kernel("[helpers] failed to load dir AST facts: %v", err)
-				}
-				factCount += len(astFacts)
-				if m.virtualStore != nil {
-					if err := m.virtualStore.PersistFactsToKnowledge(astFacts, "fact", 6); err != nil {
-						logging.Routing("[helpers] failed to persist dir AST facts: %v", err)
-					}
-					for _, f := range astFacts {
-						switch f.Predicate {
-						case "dependency_link":
-							if len(f.Args) >= 2 {
-								a := types.ExtractString(f.Args[0])
-								b := types.ExtractString(f.Args[1])
-								rel := "depends_on"
-								if len(f.Args) >= 3 {
-									rel = "depends_on:" + types.ExtractString(f.Args[2])
-								}
-								if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]any{"source": "scan-dir"}); err != nil {
-									logging.Routing("[helpers] failed to persist dir dependency link: %v", err)
-								}
-							}
-						case "symbol_graph":
-							if len(f.Args) >= 4 {
-								sid := types.ExtractString(f.Args[0])
-								file := types.ExtractString(f.Args[3])
-								if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]any{"source": "scan-dir"}); err != nil {
-									logging.Routing("[helpers] failed to persist dir symbol link: %v", err)
-								}
-							}
-						}
-					}
-				}
+			files = append(files, path)
+			if len(files)%10 == 0 {
+				m.ReportStatus(fmt.Sprintf("Scanning... (%d files)", len(files)))
 			}
 			return nil
 		}); walkDirErr != nil {
 			logging.Routing("[helpers] directory walk error: %v", walkDirErr)
 		}
 
+		total := m.scanFilesIntoWorld(files, "scan-dir")
 		m.ReportStatus("Scan complete")
 		return scanCompleteMsg{
-			fileCount:      fileCount,
+			fileCount:      len(files),
 			directoryCount: dirCount,
-			factCount:      factCount,
+			factCount:      total,
 			duration:       time.Since(start),
 		}
 	}
+}
+
+// scanFilesIntoWorld parses the files at fsPaths (absolute, openable) and
+// installs their facts in the kernel, the world cache and the knowledge graph
+// under each file's CANONICAL identity (workspace-relative, forward-slash; see
+// world.CanonicalPath). It is the shared body of /scan-path and /scan-dir and
+// returns the number of facts loaded.
+//
+// Before this, both commands keyed every fact by the absolute path they had
+// opened. The file_topology, symbol_graph and dependency_link rows they
+// produced therefore named a file the full and incremental scanners had
+// already recorded under its relative path, so nothing joined (impact,
+// activation, test_file_for), nothing was ever retracted, and a moved
+// checkout matched none of it. They also left import facts as raw "pkg:..."
+// tokens where every other scanner resolves them into file->file edges, and
+// wrote nothing to the world cache, so the next incremental scan could not
+// retract what they had loaded either.
+func (m Model) scanFilesIntoWorld(fsPaths []string, source string) int {
+	if m.kernel == nil || len(fsPaths) == 0 {
+		return 0
+	}
+	parser := world.NewASTParser()
+	defer parser.Close()
+
+	facts := make([]core.Fact, 0, len(fsPaths)*4)
+	scanned := make([]string, 0, len(fsPaths))
+	var retract []core.Fact
+	for _, fsPath := range fsPaths {
+		info, err := os.Stat(fsPath)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		canonical := types.CanonicalPath(m.workspace, fsPath)
+		scanned = append(scanned, canonical)
+		if m.localDB != nil {
+			// The cached rows are what a later incremental scan retracts by;
+			// retracting them here keeps the kernel at one generation per file.
+			if old, _, loadErr := m.localDB.LoadWorldFactsForFile(canonical, "fast"); loadErr == nil {
+				for _, in := range old {
+					retract = append(retract, core.Fact{Predicate: in.Predicate, Args: in.Args})
+				}
+			}
+		}
+		facts = append(facts, buildFileTopologyFact(fsPath, canonical, info))
+		astFacts, parseErr := parser.ParseAs(fsPath, canonical)
+		if parseErr != nil {
+			logging.Routing("[helpers] %s: AST parse of %s failed: %v", source, canonical, parseErr)
+			continue
+		}
+		facts = append(facts, astFacts...)
+	}
+	if len(facts) == 0 {
+		return 0
+	}
+
+	// Import edges resolve against the whole workspace, not just the files in
+	// hand: a scanned file's import of an untouched package still has to land.
+	facts = append(facts, world.ResolveDependencyLinksAgainst(m.workspace, m.knownWorkspaceFiles(scanned), facts)...)
+
+	if len(retract) > 0 {
+		if err := m.kernel.RetractExactFactsBatch(retract); err != nil {
+			logging.Kernel("[helpers] %s: failed to retract superseded facts: %v", source, err)
+		}
+	}
+	if err := m.kernel.LoadFacts(facts); err != nil {
+		logging.Kernel("[helpers] %s: failed to load facts: %v", source, err)
+	}
+	if m.localDB != nil {
+		if err := world.PersistFastSnapshotToDBInRoot(m.localDB, m.workspace, facts); err != nil {
+			logging.Routing("[helpers] %s: failed to cache world facts: %v", source, err)
+		}
+	}
+	if m.virtualStore != nil {
+		if err := m.virtualStore.PersistFactsToKnowledge(facts, "fact", 5); err != nil {
+			logging.Routing("[helpers] %s: failed to persist facts to knowledge: %v", source, err)
+		}
+		if err := m.virtualStore.PersistLinkFacts(facts, source); err != nil {
+			logging.Routing("[helpers] %s: failed to persist knowledge graph links: %v", source, err)
+		}
+	}
+	return len(facts)
+}
+
+// knownWorkspaceFiles returns the canonical paths of every file the kernel
+// currently knows, plus extra, for import resolution over a partial scan.
+func (m Model) knownWorkspaceFiles(extra []string) []string {
+	seen := make(map[string]struct{}, len(extra))
+	files := make([]string, 0, len(extra))
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		if _, dup := seen[p]; dup {
+			return
+		}
+		seen[p] = struct{}{}
+		files = append(files, p)
+	}
+	for _, p := range extra {
+		add(p)
+	}
+	if m.kernel != nil {
+		if rows, err := m.kernel.Query("file_topology"); err == nil {
+			for _, f := range rows {
+				if len(f.Args) > 0 {
+					add(types.ExtractString(f.Args[0]))
+				}
+			}
+		}
+	}
+	return files
 }

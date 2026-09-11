@@ -62,7 +62,7 @@ func TestModifiedSymbolFacts(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			facts := modifiedSymbolFacts(tc.elem)
+			facts := modifiedSymbolFacts(tc.elem, elemFile(tc.elem))
 			if tc.wantPred == "" {
 				if len(facts) != 0 {
 					t.Fatalf("expected no facts, got %+v", facts)
@@ -131,7 +131,7 @@ func TestModifiedSymbolFactsForLineRange(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := names(modifiedSymbolFactsForLineRange(scope, "p.go", tc.start, tc.end))
+			got := names(modifiedSymbolFactsForLineRange(scope, "p.go", "p.go", tc.start, tc.end))
 			if len(got) != len(tc.want) {
 				t.Fatalf("got %v, want %v", got, tc.want)
 			}
@@ -147,11 +147,20 @@ func TestModifiedSymbolFactsForLineRange(t *testing.T) {
 // TestModifiedSymbolFactsForLineRange_NilScope keeps the handlers safe: the line
 // tools run whether or not a CodeDOM scope is open.
 func TestModifiedSymbolFactsForLineRange_NilScope(t *testing.T) {
-	if got := modifiedSymbolFactsForLineRange(nil, "p.go", 1, 2); got != nil {
+	if got := modifiedSymbolFactsForLineRange(nil, "p.go", "p.go", 1, 2); got != nil {
 		t.Fatalf("nil scope must produce no facts, got %+v", got)
 	}
 	scope := &lineRangeScope{}
-	if got := modifiedSymbolFactsForLineRange(scope, "", 1, 2); got != nil {
+	if got := modifiedSymbolFactsForLineRange(scope, "", "", 1, 2); got != nil {
 		t.Fatalf("empty path must produce no facts, got %+v", got)
 	}
+}
+
+// elemFile mirrors the handlers, which pass the element's file as the fact
+// identity; the test fixtures already use canonical spellings.
+func elemFile(elem *CodeElement) string {
+	if elem == nil {
+		return ""
+	}
+	return elem.File
 }

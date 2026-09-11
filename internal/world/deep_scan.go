@@ -5,6 +5,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/tools"
+	"codenerd/internal/types"
 	"context"
 	"os"
 	"path/filepath"
@@ -71,8 +72,8 @@ func EnsureDeepFactsInRoot(ctx context.Context, root string, paths []string, db 
 		if !deepMappableExt(filepath.Ext(p)) {
 			continue
 		}
-		canonical := CanonicalPath(root, p)
-		fsPath := ResolveWorkspacePath(root, canonical)
+		canonical := types.CanonicalPath(root, p)
+		fsPath := types.ResolveWorkspacePath(root, canonical)
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()

@@ -20,19 +20,24 @@ import (
 	"unicode"
 )
 
-// buildFileTopologyFact constructs a file_topology fact with hash/lang/test flag.
-func buildFileTopologyFact(path string, info os.FileInfo) core.Fact {
-	data, _ := os.ReadFile(path)
+// buildFileTopologyFact constructs a file_topology fact with hash/lang/test
+// flag. fsPath is read; factPath is the file's canonical (workspace-relative,
+// forward-slash) identity and is what the fact carries — the same split as
+// world.Cartographer.MapFileAs, for the same reason: a fact keyed by the
+// absolute path a chat command happened to open joins nothing the scanners
+// emitted for that file.
+func buildFileTopologyFact(fsPath, factPath string, info os.FileInfo) core.Fact {
+	data, _ := os.ReadFile(fsPath)
 	hash := sha256.Sum256(data)
-	lang := detectLanguage(path)
+	lang := detectLanguage(factPath)
 	isTest := "/false"
-	if isTestFile(path) {
+	if isTestFile(factPath) {
 		isTest = "/true"
 	}
 	return core.Fact{
 		Predicate: "file_topology",
 		Args: []any{
-			path,
+			factPath,
 			hex.EncodeToString(hash[:]),
 			"/" + lang,
 			info.ModTime().Unix(),
