@@ -59,10 +59,11 @@ type CodexCLIClient struct {
 }
 
 // NewCodexCLIClient creates a new Codex CLI client.
-// If cfg is nil, defaults are applied (model: "gpt-5.4", sandbox: "read-only", timeout: 300s).
+// If cfg is nil, defaults are applied (sandbox: "read-only", timeout: 300s).
+// There is no default model: an empty model sends no --model flag and the CLI
+// uses the model the user configured in Codex itself.
 func NewCodexCLIClient(cfg *config.CodexCLIConfig) *CodexCLIClient {
 	client := &CodexCLIClient{
-		model:              "gpt-5.4",
 		sandbox:            "read-only",
 		timeout:            300 * time.Second,
 		skillEnabled:       true,
@@ -289,12 +290,17 @@ func (c *CodexCLIClient) ModelForContext(ctx context.Context) string {
 func (c *CodexCLIClient) buildCLIArgs(ctx context.Context, model, outPath, schemaPath string) []string {
 	args := []string{
 		"exec", "-",
-		"--model", model,
+	}
+	// An empty model is the CLI's own choice, not ours.
+	if strings.TrimSpace(model) != "" {
+		args = append(args, "--model", model)
+	}
+	args = append(args,
 		"--sandbox", "read-only",
 		"--color", "never",
 		"--output-last-message", outPath,
 		"--json",
-	}
+	)
 	if schemaPath != "" {
 		args = append(args, "--output-schema", schemaPath)
 	}

@@ -18,9 +18,9 @@ func TestNewClaudeCodeCLIClient(t *testing.T) {
 		wantTimeout time.Duration
 	}{
 		{
-			name:        "nil config uses defaults",
+			name:        "nil config uses defaults and no model (the CLI decides)",
 			cfg:         nil,
-			wantModel:   "sonnet",
+			wantModel:   "",
 			wantTimeout: 600 * time.Second,
 		},
 		{
@@ -33,12 +33,12 @@ func TestNewClaudeCodeCLIClient(t *testing.T) {
 			wantTimeout: 600 * time.Second,
 		},
 		{
-			name: "empty model uses default",
+			name: "empty model stays empty so the CLI's own model is used",
 			cfg: &config.ClaudeCLIConfig{
 				Model:   "",
 				Timeout: 120,
 			},
-			wantModel:   "sonnet",
+			wantModel:   "",
 			wantTimeout: 120 * time.Second,
 		},
 		{

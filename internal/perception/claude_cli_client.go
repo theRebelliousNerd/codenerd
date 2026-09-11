@@ -102,11 +102,12 @@ type claudeCLIResultObject struct {
 }
 
 // NewClaudeCodeCLIClient creates a new Claude Code CLI client.
-// If cfg is nil, defaults are applied (model: "sonnet", timeout: 300s, maxTurns: 1).
+// If cfg is nil, defaults are applied (timeout: 600s, maxTurns: 1). There is
+// no default model: an empty model sends no --model flag and the CLI uses the
+// model the user configured in Claude Code itself.
 func NewClaudeCodeCLIClient(cfg *config.ClaudeCLIConfig) *ClaudeCodeCLIClient {
 	// Apply defaults
 	client := &ClaudeCodeCLIClient{
-		model:    "sonnet",
 		timeout:  600 * time.Second,
 		maxTurns: 1, // Single completion, no agentic loops
 	}
@@ -384,8 +385,11 @@ func (c *ClaudeCodeCLIClient) buildArgs(model string, opts *ExecutionOptions) []
 		maxTurns = 3 // JSON schema uses internal tool calls that count as turns
 	}
 	args := []string{
-		"--model", model,
 		"--max-turns", fmt.Sprintf("%d", maxTurns),
+	}
+	// An empty model is the CLI's own choice, not ours.
+	if strings.TrimSpace(model) != "" {
+		args = append(args, "--model", model)
 	}
 
 	// DISABLE all Claude Code tools UNLESS using JSON schema

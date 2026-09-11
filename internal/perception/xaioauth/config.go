@@ -10,10 +10,6 @@ const (
 	// EngineID is the codeNERD engine string for SuperGrok OAuth.
 	EngineID = "xai-oauth"
 
-	// DefaultModel is Grok 4.5 — the flagship model and current Grok Build default.
-	// API id confirmed via https://api.x.ai/v1/models under SuperGrok OAuth.
-	DefaultModel = "grok-4.5"
-
 	// DefaultBaseURL is the xAI OpenAI-compatible API root.
 	DefaultBaseURL = "https://api.x.ai/v1"
 
@@ -64,10 +60,11 @@ type Config struct {
 // DefaultMaxOutputTokens is the completion ceiling when none is configured.
 const DefaultMaxOutputTokens = 8192
 
-// DefaultConfig returns sensible SuperGrok OAuth defaults.
+// DefaultConfig returns sensible SuperGrok OAuth defaults. There is no default
+// model: the API needs one, so xai_oauth.model is set by the user and a
+// request without it is refused (ErrModelNotSet).
 func DefaultConfig() Config {
 	return Config{
-		Model:              DefaultModel,
 		Timeout:            DefaultTimeout,
 		BaseURL:            DefaultBaseURL,
 		Issuer:             DefaultIssuer,
@@ -84,9 +81,6 @@ func DefaultConfig() Config {
 // ApplyDefaults fills empty fields from DefaultConfig.
 func (c Config) ApplyDefaults() Config {
 	d := DefaultConfig()
-	if c.Model == "" {
-		c.Model = d.Model
-	}
 	if c.Timeout <= 0 {
 		c.Timeout = d.Timeout
 	}

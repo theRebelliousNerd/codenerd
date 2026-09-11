@@ -1,7 +1,9 @@
 package xaioauth
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,6 +86,20 @@ func NewClientFromUserConfig(uc *config.XAIOAuthConfig, maxOutputTokens int) *Cl
 // Config returns a copy of the runtime config.
 func (c *Client) Config() Config {
 	return c.cfg
+}
+
+// ErrModelNotSet is returned by every request when xai_oauth.model is empty.
+// Token import, login and credential handling still work without a model;
+// inference does not, and no model is invented in its place.
+var ErrModelNotSet = errors.New("xai_oauth.model is not set in .nerd/config.json; SuperGrok OAuth needs a model id (see https://api.x.ai/v1/models)")
+
+// requestModel returns the model a request may be sent with, or
+// ErrModelNotSet.
+func requestModel(model string) (string, error) {
+	if strings.TrimSpace(model) == "" {
+		return "", ErrModelNotSet
+	}
+	return model, nil
 }
 
 // TokenSource exposes the token source for auth/probe flows.

@@ -195,11 +195,10 @@ func NewConfigWizard() *ConfigWizardState {
 	return &ConfigWizardState{
 		Step:          StepWelcome,
 		ShardProfiles: make(map[string]*ShardProfileConfig),
-		// Engine defaults
+		// Engine defaults. No CLI model: empty means the CLI's own
+		// configured model, and the wizard does not pick one.
 		Engine:                     "api", // Default to HTTP API mode
-		ClaudeCLIModel:             "sonnet",
 		ClaudeCLITimeout:           300,
-		CodexCLIModel:              "gpt-5.4",
 		CodexCLISandbox:            "read-only",
 		CodexCLITimeout:            300,
 		CodexCLISkillEnabled:       true,
@@ -337,16 +336,16 @@ You selected **Claude Code CLI** engine.
 
 | # | Model | Subscription |
 |---|-------|--------------|
-| 1 | sonnet | Claude Pro, Max (default) |
+| 1 | sonnet | Claude Pro, Max |
 | 2 | opus | Claude Max only |
 | 3 | haiku | Claude Pro, Max (fast) |
 
 Current: **%s**
 
-Enter model number/name (Enter for default):`, m.configWizard.ClaudeCLIModel),
+Enter model number/name (Enter to keep the CLI's own configured model):`, internalconfig.CLIModelLabel(m.configWizard.ClaudeCLIModel)),
 			Time: time.Now(),
 		})
-		m.textarea.Placeholder = "Claude CLI model (Enter for sonnet)..."
+		m.textarea.Placeholder = "Claude CLI model (Enter for the CLI's default)..."
 
 	case "codex-cli":
 		m.configWizard.Step = StepCodexCLIConfig
@@ -360,7 +359,7 @@ You selected **Codex CLI** engine.
 
 | # | Model | Description |
 |---|-------|-------------|
-| 1 | gpt-5.4 | **Recommended** - Best current GPT-5 Codex-capable model |
+| 1 | gpt-5.4 | Current GPT-5 Codex-capable model |
 | 2 | gpt-5.3-codex | Current Codex-tuned model |
 | 3 | gpt-5.3-codex-spark | Fast Codex Spark variant |
 | 4 | gpt-5.2-codex | Previous Codex-tuned model |
@@ -373,34 +372,33 @@ You selected **Codex CLI** engine.
 
 Current: **%s**
 
-Enter model number/name (Enter for default):`, m.configWizard.CodexCLIModel),
+Enter model number/name (Enter to keep the CLI's own configured model):`, internalconfig.CLIModelLabel(m.configWizard.CodexCLIModel)),
 			Time: time.Now(),
 		})
-		m.textarea.Placeholder = "Codex CLI model (Enter for gpt-5.4)..."
+		m.textarea.Placeholder = "Codex CLI model (Enter for the CLI's default)..."
 
 	case "xai-oauth":
-		// SuperGrok OAuth: no API key; auth via `nerd auth grok`. Use defaults and continue.
-		if m.configWizard.Model == "" {
-			m.configWizard.Model = "grok-4.5"
+		// SuperGrok OAuth: no API key (auth via `nerd auth grok`), but the
+		// OAuth API needs a model and the wizard does not pick one: the xAI
+		// model list is offered and the choice lands in xai_oauth.model.
+		m.configWizard.Provider = "xai"
+		m.configWizard.Step = StepModel
+		var sb strings.Builder
+		sb.WriteString("## Step 2: SuperGrok OAuth\n\n")
+		sb.WriteString("You selected **xai-oauth** (SuperGrok / X Premium+ subscription).\n\n")
+		sb.WriteString("- Auth: run \"nerd auth grok\" (or import from Grok CLI ~/.grok/auth.json)\n")
+		sb.WriteString("- No xai_api_key required\n\n")
+		sb.WriteString("### Model\n\n| # | Model |\n|---|-------|\n")
+		for i, model := range ProviderModels["xai"] {
+			sb.WriteString(fmt.Sprintf("| %d | %s |\n", i+1, model))
 		}
-		m.configWizard.Step = StepShardConfig
+		sb.WriteString("\nEnter a number or model id (Enter for the first listed):")
 		m = m.addMessage(Message{
-			Role: "assistant",
-			Content: fmt.Sprintf(`## Step 2: SuperGrok OAuth
-
-You selected **xai-oauth** (SuperGrok / X Premium+ subscription).
-
-- Default model: **%s**
-- Auth: run "nerd auth grok" (or import from Grok CLI ~/.grok/auth.json)
-- No xai_api_key required
-
-Would you like to configure individual shard settings?
-
-**y** = Configure each shard
-**n** = Use defaults for all shards (recommended)`, m.configWizard.Model),
-			Time: time.Now(),
+			Role:    "assistant",
+			Content: sb.String(),
+			Time:    time.Now(),
 		})
-		m.textarea.Placeholder = "y/n (Enter for n)..."
+		m.textarea.Placeholder = "Enter xAI model..."
 
 	default: // "api"
 		m.configWizard.Step = StepProvider

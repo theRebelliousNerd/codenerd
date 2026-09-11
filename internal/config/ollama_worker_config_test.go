@@ -55,12 +55,13 @@ func TestIsImageGenerationModel_NanoBanana2(t *testing.T) {
 func TestGetImageLLMConfig_Defaults(t *testing.T) {
 	cfg := &UserConfig{}
 	img := cfg.GetImageLLMConfig()
-	if img.Model != DefaultImageModel || img.Provider != "gemini" {
+	// The provider defaults (gemini is the only one); the model does not.
+	if img.Model != "" || img.Provider != "gemini" {
 		t.Fatalf("%+v", img)
 	}
 	cfg.Image = &ImageLLMConfig{Model: "nano-banana-2"}
 	img = cfg.GetImageLLMConfig()
-	if img.Model != DefaultImageModel {
+	if img.Model != NanoBanana2ImageModel {
 		t.Fatalf("alias normalize got %q", img.Model)
 	}
 }

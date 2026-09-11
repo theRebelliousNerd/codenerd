@@ -152,8 +152,14 @@ func TestNewImageClientFromUserConfig_NeverOllama(t *testing.T) {
 	if !ok {
 		t.Fatalf("want *GeminiClient, got %T", broker.Base(client))
 	}
-	if gc.GetModel() != config.DefaultImageModel {
-		t.Fatalf("model=%q want %q", gc.GetModel(), config.DefaultImageModel)
+	if gc.GetModel() != config.NanoBanana2ImageModel {
+		t.Fatalf("model=%q want %q", gc.GetModel(), config.NanoBanana2ImageModel)
+	}
+
+	// No invented model: an unset image.model is an error, not a tier pick.
+	uc.Image = &config.ImageLLMConfig{Provider: "gemini"}
+	if _, err := NewImageClientFromUserConfig(uc); err == nil || !strings.Contains(err.Error(), "image.model") {
+		t.Fatalf("expected an image.model error, got %v", err)
 	}
 
 	// Unsupported image provider must fail closed (not fall through to ollama).

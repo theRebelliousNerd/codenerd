@@ -685,12 +685,15 @@ type PlannerLLMConfig = SecondaryLLMConfig
 type ImageLLMConfig struct {
 	// Provider must be "gemini" today (Gemini Image / Nano Banana family).
 	Provider string `json:"provider,omitempty"`
-	// Model API id, default gemini-3.1-flash-image.
+	// Model API id (for example gemini-3.1-flash-image). Required for image
+	// generation; friendly names such as nano-banana-2 are normalised to the
+	// API id. There is no default.
 	Model string `json:"model,omitempty"`
 }
 
-// DefaultImageModel is Nano Banana 2 (Gemini 3.1 Flash Image).
-const DefaultImageModel = "gemini-3.1-flash-image"
+// NanoBanana2ImageModel is the API id the nano-banana-2 aliases map to. It is
+// an alias target, not a default: image.model must be set.
+const NanoBanana2ImageModel = "gemini-3.1-flash-image"
 
 // IsImageGenerationModel reports whether model is a Gemini image / Nano Banana model.
 func IsImageGenerationModel(model string) bool {
@@ -724,11 +727,13 @@ func IsImageShardType(typeName string) bool {
 	}
 }
 
-// GetImageLLMConfig returns image-generation settings with Nano Banana 2 defaults.
+// GetImageLLMConfig returns image-generation settings. The provider defaults
+// to gemini (the only one supported); the model does not default, so an
+// unset image.model fails at client construction instead of quietly picking a
+// tier.
 func (c *UserConfig) GetImageLLMConfig() ImageLLMConfig {
 	def := ImageLLMConfig{
 		Provider: "gemini",
-		Model:    DefaultImageModel,
 	}
 	if c == nil || c.Image == nil {
 		return def
@@ -737,13 +742,10 @@ func (c *UserConfig) GetImageLLMConfig() ImageLLMConfig {
 	if out.Provider == "" {
 		out.Provider = def.Provider
 	}
-	if out.Model == "" {
-		out.Model = def.Model
-	}
 	// Normalize friendly aliases to API ids.
 	switch strings.ToLower(out.Model) {
 	case "nano-banana-2", "nano_banana_2", "nano-banana", "nanobanana2", "gemini-image":
-		out.Model = DefaultImageModel
+		out.Model = NanoBanana2ImageModel
 	case "nano-banana-2-lite", "nano_banana_2_lite", "nanobanana2-lite":
 		out.Model = "gemini-3.1-flash-lite-image"
 	}
@@ -1016,32 +1018,29 @@ func (c *UserConfig) SetEngine(engine string) error {
 	return nil
 }
 
-// GetClaudeCLIConfig returns Claude CLI config with defaults applied.
+// GetClaudeCLIConfig returns Claude CLI config with defaults applied. The
+// model is never defaulted: empty means the CLI's own configured model.
 func (c *UserConfig) GetClaudeCLIConfig() *ClaudeCLIConfig {
 	if c.ClaudeCLI == nil {
 		return &ClaudeCLIConfig{
-			Model:   "sonnet",
 			Timeout: 300,
 		}
 	}
 	cfg := *c.ClaudeCLI
-	if cfg.Model == "" {
-		cfg.Model = "sonnet"
-	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 300
 	}
 	return &cfg
 }
 
-// GetCodexCLIConfig returns Codex CLI config with defaults applied.
+// GetCodexCLIConfig returns Codex CLI config with defaults applied. The model
+// is never defaulted: empty means the CLI's own configured model.
 func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 	if c.CodexCLI == nil {
 		disableShell := true
 		enableSchema := true
 		skillEnabled := true
 		return &CodexCLIConfig{
-			Model:              "gpt-5.4",
 			Sandbox:            "read-only",
 			Timeout:            300,
 			SkillEnabled:       &skillEnabled,
@@ -1052,9 +1051,6 @@ func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 		}
 	}
 	cfg := *c.CodexCLI
-	if cfg.Model == "" {
-		cfg.Model = "gpt-5.4"
-	}
 	// Codex CLI is a completion backend, never an effect executor. Force both
 	// controls even when an older or hand-edited config requests otherwise.
 	cfg.Sandbox = "read-only"
@@ -1080,13 +1076,14 @@ func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 	return &cfg
 }
 
-// GetXAIOAuthConfig returns SuperGrok OAuth config with defaults applied.
+// GetXAIOAuthConfig returns SuperGrok OAuth config with defaults applied. The
+// model is never defaulted: the OAuth API needs one, so xai_oauth.model must be
+// set and the client refuses to send a request without it.
 func (c *UserConfig) GetXAIOAuthConfig() *XAIOAuthConfig {
 	importGrok := true
 	fallbackAPI := true
 	if c.XAIOAuth == nil {
 		return &XAIOAuthConfig{
-			Model:              "grok-4.5",
 			Timeout:            300,
 			ImportGrokAuth:     &importGrok,
 			FallbackToAPIKey:   &fallbackAPI,
@@ -1094,9 +1091,6 @@ func (c *UserConfig) GetXAIOAuthConfig() *XAIOAuthConfig {
 		}
 	}
 	cfg := *c.XAIOAuth
-	if cfg.Model == "" {
-		cfg.Model = "grok-4.5"
-	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 300
 	}

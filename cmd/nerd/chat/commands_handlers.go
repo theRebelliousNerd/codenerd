@@ -209,7 +209,7 @@ Press **Enter** to begin...`,
 			switch engine {
 			case "claude-cli":
 				cliCfg := cfg.GetClaudeCLIConfig()
-				engineDesc = fmt.Sprintf("**Claude Code CLI** (model: %s, timeout: %ds)", cliCfg.Model, cliCfg.Timeout)
+				engineDesc = fmt.Sprintf("**Claude Code CLI** (model: %s, timeout: %ds)", config.CLIModelLabel(cliCfg.Model), cliCfg.Timeout)
 			case "codex-cli":
 				cliCfg := cfg.GetCodexCLIConfig()
 				skillEnabled := false
@@ -222,7 +222,7 @@ Press **Enter** to begin...`,
 				}
 				engineDesc = fmt.Sprintf(
 					"**Codex CLI** (model: %s, sandbox: %s, timeout: %ds, skill: %s, skill_enabled: %t, schema_mode: %t, max_concurrent_calls: %d, effective_scheduler_ceiling: %d)",
-					cliCfg.Model,
+					config.CLIModelLabel(cliCfg.Model),
 					cliCfg.Sandbox,
 					cliCfg.Timeout,
 					cliCfg.SkillName,

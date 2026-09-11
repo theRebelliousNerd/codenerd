@@ -190,8 +190,9 @@ func TestGetClaudeCLIConfig_WhenNil_ShouldReturnDefaults(t *testing.T) {
 	if cliCfg == nil {
 		t.Fatal("expected non-nil ClaudeCLI config")
 	}
-	if cliCfg.Model != "sonnet" {
-		t.Errorf("Model = %q, want 'sonnet'", cliCfg.Model)
+	// No invented model: empty means the CLI's own configured model.
+	if cliCfg.Model != "" {
+		t.Errorf("Model = %q, want empty (the CLI decides)", cliCfg.Model)
 	}
 	if cliCfg.Timeout != 300 {
 		t.Errorf("Timeout = %d, want 300", cliCfg.Timeout)
@@ -217,8 +218,9 @@ func TestGetCodexCLIConfig_WhenNil_ShouldReturnDefaults(t *testing.T) {
 	if codexCfg == nil {
 		t.Fatal("expected non-nil CodexCLI config")
 	}
-	if codexCfg.Model != "gpt-5.4" {
-		t.Errorf("Model = %q, want 'gpt-5.4'", codexCfg.Model)
+	// No invented model: empty means the CLI's own configured model.
+	if codexCfg.Model != "" {
+		t.Errorf("Model = %q, want empty (the CLI decides)", codexCfg.Model)
 	}
 	if codexCfg.Sandbox != "read-only" {
 		t.Errorf("Sandbox = %q, want 'read-only'", codexCfg.Sandbox)

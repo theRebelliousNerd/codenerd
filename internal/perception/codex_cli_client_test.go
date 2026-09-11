@@ -20,9 +20,9 @@ func TestNewCodexCLIClient(t *testing.T) {
 		wantTimeout time.Duration
 	}{
 		{
-			name:        "nil config uses defaults",
+			name:        "nil config uses defaults and no model (the CLI decides)",
 			cfg:         nil,
-			wantModel:   "gpt-5.4",
+			wantModel:   "",
 			wantSandbox: "read-only",
 			wantTimeout: 300 * time.Second,
 		},
@@ -38,13 +38,13 @@ func TestNewCodexCLIClient(t *testing.T) {
 			wantTimeout: 600 * time.Second,
 		},
 		{
-			name: "empty model uses default",
+			name: "empty model stays empty so the CLI's own model is used",
 			cfg: &config.CodexCLIConfig{
 				Model:   "",
 				Sandbox: "read-only",
 				Timeout: 120,
 			},
-			wantModel:   "gpt-5.4",
+			wantModel:   "",
 			wantSandbox: "read-only",
 			wantTimeout: 120 * time.Second,
 		},
@@ -359,14 +359,19 @@ func TestCodexCLIClient_SchemaCapable_Disabled(t *testing.T) {
 }
 
 func TestCodexCLIClient_ModelForContext(t *testing.T) {
-	client := NewCodexCLIClient(nil)
+	client := NewCodexCLIClient(&config.CodexCLIConfig{Model: "gpt-5.4"})
 	ctx := types.WithModelName(context.Background(), "gpt-5.3-codex-spark")
 
 	if got := client.ModelForContext(ctx); got != "gpt-5.3-codex-spark" {
 		t.Fatalf("ModelForContext() = %q, want shard override", got)
 	}
 	if got := client.ModelForContext(context.Background()); got != "gpt-5.4" {
-		t.Fatalf("ModelForContext() without override = %q, want default", got)
+		t.Fatalf("ModelForContext() without override = %q, want the configured model", got)
+	}
+	// With nothing configured there is nothing to fall back to: the CLI's
+	// own model runs, so no --model flag is sent.
+	if got := NewCodexCLIClient(nil).ModelForContext(context.Background()); got != "" {
+		t.Fatalf("ModelForContext() with no configured model = %q, want empty", got)
 	}
 }
 

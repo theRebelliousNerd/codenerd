@@ -49,8 +49,12 @@ func (c *Client) CompleteWithToolResults(ctx context.Context, systemPrompt strin
 			},
 		})
 	}
+	model, err := requestModel(c.cfg.Model)
+	if err != nil {
+		return nil, err
+	}
 	reqBody := chatRequest{
-		Model:       c.cfg.Model,
+		Model:       model,
 		Messages:    msgs,
 		Tools:       chatTools,
 		ToolChoice:  "auto",
@@ -221,8 +225,12 @@ func (c *Client) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt
 		})
 	}
 
+	model, err := requestModel(c.cfg.Model)
+	if err != nil {
+		return nil, err
+	}
 	reqBody := chatRequest{
-		Model: c.cfg.Model,
+		Model: model,
 		Messages: []chatMessage{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},

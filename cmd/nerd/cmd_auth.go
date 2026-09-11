@@ -113,10 +113,10 @@ func runAuthClaude(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to set engine: %w", err)
 	}
 
-	// Ensure claude_cli config exists
+	// Ensure claude_cli config exists. No model is written: an empty model
+	// means the Claude CLI's own configured model, which is the user's choice.
 	if cfg.ClaudeCLI == nil {
 		cfg.ClaudeCLI = &config.ClaudeCLIConfig{
-			Model:   "sonnet",
 			Timeout: 300,
 		}
 	}
@@ -127,7 +127,7 @@ func runAuthClaude(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("\n✓ Configuration updated!")
 	fmt.Println("  Engine: claude-cli")
-	fmt.Printf("  Model: %s\n", cfg.ClaudeCLI.Model)
+	fmt.Printf("  Model: %s\n", config.CLIModelLabel(cfg.ClaudeCLI.Model))
 	fmt.Println("\ncodeNERD will now use your Claude subscription for LLM calls.")
 	return nil
 }
@@ -197,7 +197,7 @@ func runAuthCodex(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("\n✓ Configuration updated!")
 	fmt.Println("  Engine: codex-cli")
-	fmt.Printf("  Model: %s\n", cfg.CodexCLI.Model)
+	fmt.Printf("  Model: %s\n", config.CLIModelLabel(cfg.CodexCLI.Model))
 	fmt.Printf("  Sandbox: %s\n", cfg.CodexCLI.Sandbox)
 	if cfg.CodexCLI.SkillEnabled != nil {
 		fmt.Printf("  Skill enabled: %t\n", *cfg.CodexCLI.SkillEnabled)
@@ -361,7 +361,7 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	case "claude-cli":
 		fmt.Println("Backend: Claude Code CLI (subscription)")
 		cliCfg := cfg.GetClaudeCLIConfig()
-		fmt.Printf("  Model: %s\n", cliCfg.Model)
+		fmt.Printf("  Model: %s\n", config.CLIModelLabel(cliCfg.Model))
 		fmt.Printf("  Timeout: %ds\n", cliCfg.Timeout)
 
 		// Check CLI status
@@ -374,7 +374,7 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	case "codex-cli":
 		fmt.Println("Backend: Codex CLI (ChatGPT subscription)")
 		cliCfg := cfg.GetCodexCLIConfig()
-		fmt.Printf("  Model: %s\n", cliCfg.Model)
+		fmt.Printf("  Model: %s\n", config.CLIModelLabel(cliCfg.Model))
 		fmt.Printf("  Sandbox: %s\n", cliCfg.Sandbox)
 		fmt.Printf("  Timeout: %ds\n", cliCfg.Timeout)
 		fmt.Printf("  Skill enabled: %t\n", cliCfg.SkillEnabled != nil && *cliCfg.SkillEnabled)

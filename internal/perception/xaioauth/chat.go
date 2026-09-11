@@ -121,6 +121,10 @@ func (c *Client) CompleteWithSystem(ctx context.Context, systemPrompt, userPromp
 }
 
 func (c *Client) chatOnce(ctx context.Context, model string, messages []chatMessage, tools []chatTool) (string, error) {
+	model, err := requestModel(model)
+	if err != nil {
+		return "", err
+	}
 	token, err := c.tokens.AccessToken(ctx)
 	if err != nil {
 		// One reload attempt (e.g. credentials written after construction)

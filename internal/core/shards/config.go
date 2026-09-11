@@ -62,8 +62,11 @@ func DefaultSystemConfig(name string) types.ShardConfig {
 	}
 }
 
-// DefaultImageGeneratorConfig returns config for Gemini Nano Banana 2 image shards.
+// DefaultImageGeneratorConfig returns config for Gemini image shards.
 // Timeout is intentionally tight so missing/slow Gemini cannot hold the CLI.
+// The model is not named here: the image client is built from image.model in
+// the user's config, and a literal in this profile would be a second, silent
+// answer to the same question.
 func DefaultImageGeneratorConfig(name string) types.ShardConfig {
 	return types.ShardConfig{
 		Name:    name,
@@ -74,7 +77,6 @@ func DefaultImageGeneratorConfig(name string) types.ShardConfig {
 			types.PermissionNetwork,
 		},
 		Model: types.ModelConfig{
-			Name:       "gemini-3.1-flash-image",
 			Capability: types.CapabilityBalanced,
 		},
 	}

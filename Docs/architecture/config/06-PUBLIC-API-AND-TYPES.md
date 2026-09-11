@@ -42,7 +42,7 @@
 | `OllamaLLMConfig` | user_config.go |
 | `WorkerLLMConfig` | user_config.go |
 | `ImageLLMConfig` | user_config.go |
-| `DefaultImageModel` | user_config.go |
+| `NanoBanana2ImageModel` | user_config.go |
 | `IsImageGenerationModel` | user_config.go |
 | `IsImageShardType` | user_config.go |
 

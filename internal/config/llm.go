@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 const (
 	// DefaultCodexExecSkillName is the repo-local Codex skill injected into
 	// codex exec prompts when skill support is enabled.
@@ -222,19 +224,29 @@ func DefaultGeminiProviderConfig() *GeminiProviderConfig {
 }
 
 // DefaultClaudeCLIConfig returns a ClaudeCLIConfig with sensible defaults.
+// No model: an empty model means the Claude CLI's own configured model is
+// used, so codeNERD never picks one on the user's behalf.
 func DefaultClaudeCLIConfig() *ClaudeCLIConfig {
 	return &ClaudeCLIConfig{
-		Model:    "sonnet",
 		Timeout:  300,
 		MaxTurns: 1,
 	}
 }
 
-// DefaultCodexCLIConfig returns a CodexCLIConfig with sensible defaults.
+// CLIModelLabel is how an engine's model is shown when the config leaves it
+// empty and the CLI decides.
+func CLIModelLabel(model string) string {
+	if strings.TrimSpace(model) == "" {
+		return "(CLI default)"
+	}
+	return model
+}
+
+// DefaultCodexCLIConfig returns a CodexCLIConfig with sensible defaults. No
+// model, for the same reason as DefaultClaudeCLIConfig.
 func DefaultCodexCLIConfig() *CodexCLIConfig {
 	t := true
 	return &CodexCLIConfig{
-		Model:              "gpt-5.4",
 		Sandbox:            "read-only",
 		Timeout:            300,
 		SkillEnabled:       &t,

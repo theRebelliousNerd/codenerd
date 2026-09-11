@@ -327,7 +327,7 @@ func (m Model) showConfigReview() (tea.Model, tea.Cmd) {
 	case "xai-oauth":
 		model := w.Model
 		if model == "" {
-			model = "grok-4.5"
+			model = "(not set; required)"
 		}
 		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", model))
 		sb.WriteString("- **Auth**: SuperGrok OAuth (run `nerd auth grok`)\n")
@@ -450,13 +450,13 @@ func (m Model) renderCurrentConfig() string {
 	switch engine {
 	case "claude-cli":
 		cliCfg := userCfg.GetClaudeCLIConfig()
-		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", cliCfg.Model))
+		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", internalconfig.CLIModelLabel(cliCfg.Model)))
 		sb.WriteString(fmt.Sprintf("- **Timeout**: %ds\n", cliCfg.Timeout))
 		sb.WriteString("- **Auth**: Claude Code CLI (subscription-based)\n")
 
 	case "codex-cli":
 		cliCfg := userCfg.GetCodexCLIConfig()
-		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", cliCfg.Model))
+		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", internalconfig.CLIModelLabel(cliCfg.Model)))
 		sb.WriteString(fmt.Sprintf("- **Sandbox**: %s\n", cliCfg.Sandbox))
 		sb.WriteString(fmt.Sprintf("- **Timeout**: %ds\n", cliCfg.Timeout))
 		if cliCfg.SkillEnabled != nil {
@@ -567,9 +567,10 @@ func (m Model) saveConfigWizard() error {
 	case "xai-oauth":
 		// SuperGrok OAuth — no API key; authenticate with `nerd auth grok`
 		importGrok := true
-		model := w.Model
+		model := strings.TrimSpace(w.Model)
 		if model == "" {
-			model = "grok-4.5"
+			// The OAuth API needs a model and the wizard does not pick one.
+			return fmt.Errorf("xai-oauth needs a model (xai_oauth.model); none was chosen")
 		}
 		userCfg.XAIOAuth = &internalconfig.XAIOAuthConfig{
 			Model:              model,

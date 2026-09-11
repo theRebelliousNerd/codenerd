@@ -360,6 +360,11 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 // sessions stay usable after refresh-token revoke. Prefer re-import (handled in
 // TokenSource.Load) over stuck quarantined tokens before this path runs.
 func newSuperGrokClientOrAPIFallback(config *ProviderConfig) (LLMClient, error) {
+	// Fail at boot, not on the first request: the OAuth API needs a model and
+	// none is invented for it.
+	if config.XAIOAuth == nil || strings.TrimSpace(config.XAIOAuth.Model) == "" {
+		return nil, xaioauth.ErrModelNotSet
+	}
 	oauthClient := xaioauth.NewClientFromUserConfig(config.XAIOAuth, config.MaxOutputTokens)
 	if err := oauthClient.TokenSource().Load(); err != nil && xaioauth.IsAuthRequired(err) {
 		if xaiOAuthFallbackEnabled(config) {
@@ -370,16 +375,11 @@ func newSuperGrokClientOrAPIFallback(config *ProviderConfig) (LLMClient, error) 
 						"Disable fallback: set xai_oauth.fallback_to_api_key=false",
 					err,
 				)
+				// The metered fallback runs the same model the OAuth engine
+				// was configured for (checked non-empty above), never the
+				// API client's own literal.
 				xai := NewXAIClient(key)
-				model := ""
-				if config.XAIOAuth != nil && config.XAIOAuth.Model != "" {
-					model = config.XAIOAuth.Model
-				} else if config.Model != "" {
-					model = config.Model
-				}
-				if model != "" {
-					xai.SetModel(model)
-				}
+				xai.SetModel(config.XAIOAuth.Model)
 				return xai, nil
 			}
 		}
@@ -662,12 +662,12 @@ func NewImageClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error)
 	if key == "" {
 		return nil, fmt.Errorf("image generation needs gemini_api_key (Nano Banana 2 / gemini-3.1-flash-image)")
 	}
+	if strings.TrimSpace(img.Model) == "" {
+		return nil, fmt.Errorf("image generation needs image.model in .nerd/config.json (for example %q); no model is invented", config.NanoBanana2ImageModel)
+	}
 	gcfg := DefaultGeminiConfig(key)
 	gcfg.Model = img.Model
-	if gcfg.Model == "" {
-		gcfg.Model = config.DefaultImageModel
-	}
-	logging.Perception("Image LLM: gemini model=%s (Nano Banana 2 family)", gcfg.Model)
+	logging.Perception("Image LLM: gemini model=%s", gcfg.Model)
 	// Image generation is inference and is billed like any other. This path
 	// built its Gemini client directly and so spent entirely off the books
 	// until the wiring audit caught it.
