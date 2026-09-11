@@ -3622,6 +3622,7 @@ Two `nerd chat` probes on the rebuilt binary, both through `chat_driver.py`.
 | Codex backend atom pinned as a project framework; TUI hint by hand (three-file brief) | atom → `providers: ["/codex_cli"]`, hint block + `perception` import removed, test renamed | 21 (3 writes) | 7m19s | two of three edits landed; the removed import broke the build and the first repair round fixed it with `delete_lines` (f0a89c22 at work); the test rename was skipped and re-briefed alone (6be7b276) |
 | broker audit test still looked for the removed Codex assertion literal | `TestConcreteTypeAssertionsReachThroughTheDecorator` repointed at `broker.Base(m.client).(types.ModelIdentifier)` | 3 (1 write) | 1m11s | exact; `checks_passed` (bca82aa2). Found by the full suite, not the brief: a source-scanning test in another package guarded the literal 6be7b276 removed |
 | `TestStreamingSettlesWhenTheStreamEnds` flaky under `-race` (waited on the ledger, asserted on the receipt emitted after it) | wait on `sink.last()` instead | 11 (1 write) | 2m34s | exact edit and comment (comment landed on one 167-char line, wrapped by hand); 30 runs under `-race` pass. The model reported it could not run `-count=30` because the test tool hardcodes `-count=1` — a flake is exactly when a count is needed |
+| `run_tests` hardcodes `-count=1` (three-part brief: parse, schema, test) | `count` argument 1..1000 parsed like `timeout_seconds` | 26 (2 writes, one file) | 5m19s | edit one replaced line 43 before the parse block existed (build broken); then sixteen reads of the same three files, each round announcing "adding the count parsing"; `verify_after_write` finalized the turn at 21 tools; repair round 1 read, round 2 under the commit regime inserted the parse block. Schema and test unmade; the surfaced answer was the critic-uplift round's narration. Policy fixed by hand (3fddec99); schema and test re-briefed one file each |
 
 What governed the second run: in open (progress-driven, no count ceiling)
 mode the working policy only knew a repeated-trace flag and a failure
@@ -3707,8 +3708,24 @@ waits on the ledger, which `core.settle` records before it emits the
 receipt, then asserts on the receipt (2 of 4 runs). Briefed as a one-file
 test fix (wait on the sink instead); landed in eleven tools.
 
-Tool gap seen in that run: the test tool offers no `-count` or `-race`, so
-the model could verify the fix once but not thirty times as the brief asked.
+Tool gap seen in that run: the test tool offers no `-count` (it does offer
+`race`), so the model could verify the fix once but not thirty times as the
+brief asked.
+
+The count brief exposed a policy hole: the commit regime keyed on a turn
+with no write at all, so a turn that made one edit and then re-read the
+same three files for sixteen tools was never closed for reading; the
+`verify_after_write` finalization ended it at the nudge span with two of
+three changes unmade. Now (3fddec99) a change task that wrote and then
+neither wrote nor verified for a nudge span has its reading closed the same
+way, a write lifts it, and finalization waits a commit span
+(`working_finalize_rounds(16)`) past that point.
+
+Second finding from the same run: the critic-uplift round is one shot, and
+its response replaces the turn's answer. The model answered the eight
+findings with narration plus read calls ("Tackling the review's coverage
+gaps — inspecting the runner to judge each finding"), the reads ran, and
+that sentence was the turn's surfaced answer.
 
 Brief discipline, restated from the stalled test brief: read the target
 function's real signature and name it verbatim, with the file it reads and
