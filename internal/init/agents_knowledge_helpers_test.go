@@ -26,43 +26,39 @@ func TestBuildAtomHashSet_WhenAtoms_ShouldHashByConceptAndContent(t *testing.T) 
 	}
 }
 
-func TestParseResearchResult_WhenSectionedContent_ShouldChunkAndSummarize(t *testing.T) {
+func TestParseResearchResult_WhenSectionedContent_ShouldChunkByParagraph(t *testing.T) {
 	init := &Initializer{}
 	long := strings.Repeat("Detailed knowledge about the topic. ", 5) // > 50 chars
 	content := long + "\n\n" + "tiny" + "\n\n" + long
 	atoms := init.parseResearchResult("go", content)
-	if len(atoms) == 0 {
-		t.Fatal("expected at least one knowledge atom from sectioned content")
+	if len(atoms) != 2 {
+		t.Fatalf("expected one atom per substantive paragraph, got %d", len(atoms))
 	}
-	// The short "tiny" section (< 50 chars) must be skipped.
+	// The short "tiny" section (< 50 chars) must be skipped, and no atom
+	// claims to be a summary: the old ":summary" atom was the first 500
+	// characters of the text, not a summary of it.
 	for _, a := range atoms {
 		if a.Content == "tiny" {
 			t.Error("sections under 50 chars should be skipped")
 		}
-	}
-	// A summary atom is appended for non-trivial content.
-	var hasSummary bool
-	for _, a := range atoms {
-		if a.Concept == "go:summary" {
-			hasSummary = true
-			if a.Confidence < 0.85 {
-				t.Errorf("summary confidence=%.2f, want >= 0.85", a.Confidence)
-			}
+		if strings.HasSuffix(a.Concept, ":summary") {
+			t.Errorf("a head cut was stored as a summary: %s", a.Concept)
 		}
-	}
-	if !hasSummary {
-		t.Error("expected a summary atom for content over 100 chars")
+		if strings.TrimSpace(a.Content) != strings.TrimSpace(long) {
+			t.Errorf("paragraph was not stored whole: %q", a.Content)
+		}
 	}
 }
 
-func TestParseResearchResult_WhenLongSection_ShouldTruncate(t *testing.T) {
+func TestParseResearchResult_WhenLongSection_ShouldKeepItWhole(t *testing.T) {
 	init := &Initializer{}
 	huge := strings.Repeat("x", 3000)
 	atoms := init.parseResearchResult("topic", huge)
-	for _, a := range atoms {
-		if len(a.Content) > 2100 { // 2000 + ellipsis margin
-			t.Errorf("section of len %d was not truncated", len(a.Content))
-		}
+	if len(atoms) != 1 {
+		t.Fatalf("expected one atom, got %d", len(atoms))
+	}
+	if len(atoms[0].Content) != 3000 {
+		t.Errorf("section of len 3000 was cut to %d", len(atoms[0].Content))
 	}
 }
 
