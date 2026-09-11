@@ -107,13 +107,17 @@ func TestCodedomReasonAtomsUnify(t *testing.T) {
 func TestCodedomReasonProducersEmitAtoms(t *testing.T) {
 	root := codedomRepoRoot(t)
 
+	// edit_unsafe has no Go producer any more: FileScope.loadFile used to emit
+	// a file-keyed edit_unsafe(File, /generated_code) into a predicate
+	// declared over a Ref, and policy/codedom_edit.mg already derives the
+	// per-element form from the generated_code/3 fact. The rule-side pin for
+	// edit_unsafe lives in TestCodedomReasonAtomsUnify above.
 	cases := []struct {
 		file      string
 		predicate string
 		argIndex  int
 	}{
 		{"internal/core/virtual_store_codedom.go", "element_edit_blocked", 1},
-		{"internal/world/scope.go", "edit_unsafe", 1},
 	}
 
 	for _, tc := range cases {

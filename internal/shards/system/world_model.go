@@ -377,7 +377,7 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 		w.mu.Unlock()
 
 		// Emit file_topology fact
-		normalizedPath := world.CanonicalPath(w.config.RootPath, fileInfo.Path)
+		normalizedPath := types.CanonicalPath(w.config.RootPath, fileInfo.Path)
 		ft := types.Fact{
 			Predicate: "file_topology",
 			Args: []any{
@@ -461,7 +461,7 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 		changedFiles++
 
 		// Emit updated file_topology fact
-		normalizedPath := world.CanonicalPath(w.config.RootPath, fileInfo.Path)
+		normalizedPath := types.CanonicalPath(w.config.RootPath, fileInfo.Path)
 		ft := types.Fact{
 			Predicate: "file_topology",
 			Args: []any{
@@ -533,7 +533,7 @@ func (w *WorldModelIngestorShard) processFile(ctx context.Context, path string, 
 	// same file.
 	if w.config.EnableSymbolGraph || w.config.EnableDependencies {
 		if w.parser != nil {
-			parsedFacts, err := w.parser.ParseAs(path, world.CanonicalPath(w.config.RootPath, path))
+			parsedFacts, err := w.parser.ParseAs(path, types.CanonicalPath(w.config.RootPath, path))
 			if err == nil && len(parsedFacts) > 0 {
 				facts = append(facts, parsedFacts...)
 			}

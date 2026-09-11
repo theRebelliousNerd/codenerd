@@ -581,7 +581,7 @@ func (tm *TransactionManager) ToFacts() []Fact {
 	for _, edit := range txn.Edits {
 		facts = append(facts, Fact{
 			Predicate: "modified_file",
-			Args:      []any{edit.FilePath},
+			Args:      []any{types.CanonicalPath(tm.projectRoot, edit.FilePath)},
 		})
 	}
 

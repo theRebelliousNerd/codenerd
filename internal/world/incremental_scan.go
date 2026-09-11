@@ -54,7 +54,7 @@ func fileFingerprint(info os.FileInfo) string {
 // isNonCanonicalWorldPath reports whether a cached world file path was written
 // by a pre-canonicalisation scanner: it contains a backslash, is absolute
 // (filepath.IsAbs or a Windows drive-letter prefix, which IsAbs misses on
-// Linux), or differs from cleanSlash(toSlashAlways(path)).
+// Linux), or differs from types.SlashClean(path).
 func isNonCanonicalWorldPath(p string) bool {
 	if p == "" {
 		return true
@@ -68,7 +68,7 @@ func isNonCanonicalWorldPath(p string) bool {
 	if len(p) >= 2 && p[1] == ':' && ((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')) {
 		return true
 	}
-	if cleanSlash(toSlashAlways(p)) != p {
+	if types.SlashClean(p) != p {
 		return true
 	}
 	return false
@@ -88,7 +88,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 
 	// Retire rows written by pre-canonicalisation scanners: absolute Windows
 	// paths (C:\...), backslash-laden keys, or anything that is not already
-	// cleanSlash(toSlashAlways(path)). An incremental scan with
+	// types.SlashClean(path). An incremental scan with
 	// SkipWhenUnchanged keys by canonical path, so it would never touch these
 	// rows: they are immortal duplicates next to the canonical rows for the
 	// same files. Deleting them here lets this pass re-scan their canonical

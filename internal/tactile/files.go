@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // FileOpType defines the types of file operations.
@@ -43,56 +44,61 @@ type FileAuditEvent struct {
 	NewHash     string     `json:"new_hash,omitempty"`
 }
 
-// ToFacts converts a FileAuditEvent to Mangle facts.
-func (e FileAuditEvent) ToFacts() []Fact {
+// ToFacts converts a FileAuditEvent to Mangle facts. The event keeps the
+// absolute path the editor opened; the facts carry the canonical identity
+// relative to workspaceRoot (types.CanonicalPath), because modified/1,
+// file_written/4 and the line-edit facts are joined by the impact, scope and
+// test-selection rules against scanner facts that are canonical.
+func (e FileAuditEvent) ToFacts(workspaceRoot string) []Fact {
 	facts := make([]Fact, 0)
 	timestamp := e.Timestamp.Unix()
+	path := types.CanonicalPath(workspaceRoot, e.Path)
 
 	switch e.Type {
 	case FileOpRead:
 		facts = append(facts, Fact{
 			Predicate: "file_read",
-			Args:      []any{e.Path, e.SessionID, timestamp},
+			Args:      []any{path, e.SessionID, timestamp},
 		})
 
 	case FileOpWrite:
 		facts = append(facts, Fact{
 			Predicate: "file_written",
-			Args:      []any{e.Path, e.NewHash, e.SessionID, timestamp},
+			Args:      []any{path, e.NewHash, e.SessionID, timestamp},
 		})
 		facts = append(facts, Fact{
 			Predicate: "modified",
-			Args:      []any{e.Path},
+			Args:      []any{path},
 		})
 
 	case FileOpEdit:
 		facts = append(facts, Fact{
 			Predicate: "lines_edited",
-			Args:      []any{e.Path, int64(e.StartLine), int64(e.EndLine), e.SessionID},
+			Args:      []any{path, int64(e.StartLine), int64(e.EndLine), e.SessionID},
 		})
 		facts = append(facts, Fact{
 			Predicate: "modified",
-			Args:      []any{e.Path},
+			Args:      []any{path},
 		})
 
 	case FileOpInsert:
 		facts = append(facts, Fact{
 			Predicate: "lines_inserted",
-			Args:      []any{e.Path, int64(e.StartLine), int64(e.LinesAdded), e.SessionID},
+			Args:      []any{path, int64(e.StartLine), int64(e.LinesAdded), e.SessionID},
 		})
 		facts = append(facts, Fact{
 			Predicate: "modified",
-			Args:      []any{e.Path},
+			Args:      []any{path},
 		})
 
 	case FileOpDelete:
 		facts = append(facts, Fact{
 			Predicate: "lines_deleted",
-			Args:      []any{e.Path, int64(e.StartLine), int64(e.EndLine), e.SessionID},
+			Args:      []any{path, int64(e.StartLine), int64(e.EndLine), e.SessionID},
 		})
 		facts = append(facts, Fact{
 			Predicate: "modified",
-			Args:      []any{e.Path},
+			Args:      []any{path},
 		})
 	}
 
@@ -185,10 +191,19 @@ func (e *FileEditor) emitAudit(event FileAuditEvent) {
 	}
 
 	if factCb != nil {
-		for _, fact := range event.ToFacts() {
+		for _, fact := range event.ToFacts(e.workspaceRootLocked()) {
 			factCb(fact)
 		}
 	}
+}
+
+// workspaceRootLocked returns the working directory, which the factory sets
+// to the workspace root, for fact identities. It takes the read lock itself;
+// callers do not hold it at the points where result facts are built.
+func (e *FileEditor) workspaceRootLocked() string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.workingDir
 }
 
 // resolvePath resolves a path relative to working directory.
@@ -392,7 +407,7 @@ func (e *FileEditor) WriteFile(path string, lines []string) (*FileResult, error)
 		NewHash:   newHash,
 	}
 	e.emitAudit(event)
-	result.Facts = event.ToFacts()
+	result.Facts = event.ToFacts(e.workspaceRootLocked())
 
 	logging.Tactile("File write completed: %s (%d lines)", path, len(lines))
 	return result, nil
@@ -468,7 +483,7 @@ func (e *FileEditor) EditLines(path string, startLine, endLine int, newLines []s
 		NewHash:     writeResult.NewHash,
 	}
 	e.emitAudit(event)
-	editResult.Facts = event.ToFacts()
+	editResult.Facts = event.ToFacts(e.workspaceRootLocked())
 
 	logging.TactileDebug("Edit completed: %s (replaced %d lines with %d lines)", path, len(oldContent), len(newLines))
 	return editResult, nil
@@ -536,7 +551,7 @@ func (e *FileEditor) InsertLines(path string, afterLine int, newLines []string) 
 		NewHash:    writeResult.NewHash,
 	}
 	e.emitAudit(event)
-	insertResult.Facts = event.ToFacts()
+	insertResult.Facts = event.ToFacts(e.workspaceRootLocked())
 
 	logging.TactileDebug("Insert completed: %s (added %d lines after line %d)", path, len(newLines), afterLine)
 	return insertResult, nil
@@ -613,7 +628,7 @@ func (e *FileEditor) DeleteLines(path string, startLine, endLine int) (*FileResu
 		NewHash:     writeResult.NewHash,
 	}
 	e.emitAudit(event)
-	deleteResult.Facts = event.ToFacts()
+	deleteResult.Facts = event.ToFacts(e.workspaceRootLocked())
 
 	logging.TactileDebug("Delete completed: %s (removed %d lines)", path, len(oldContent))
 	return deleteResult, nil

@@ -281,8 +281,8 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 		Success: true,
 		Output:  fmt.Sprintf("Written %d bytes to %s", len(content), path),
 		FactsToAdd: []Fact{
-			{Predicate: "file_written", Args: []any{path, hashStr, req.SessionID, timestamp}},
-			{Predicate: "modified", Args: []any{path}},
+			{Predicate: "file_written", Args: []any{v.factPath(path), hashStr, req.SessionID, timestamp}},
+			{Predicate: "modified", Args: []any{v.factPath(path)}},
 		},
 	}, nil
 }
@@ -358,8 +358,8 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 		Success: true,
 		Output:  fmt.Sprintf("Edited %s", path),
 		FactsToAdd: []Fact{
-			{Predicate: "file_edited", Args: []any{path}},
-			{Predicate: "modified", Args: []any{path}},
+			{Predicate: "file_edited", Args: []any{v.factPath(path)}},
+			{Predicate: "modified", Args: []any{v.factPath(path)}},
 		},
 	}, nil
 }

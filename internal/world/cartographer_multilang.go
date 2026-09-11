@@ -10,6 +10,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/javascript"
@@ -128,7 +129,7 @@ func (c *Cartographer) mapNonGoFile(fsPath, factPath, lang string) ([]core.Fact,
 // mapper's use of the package name: "widget.render" for widget.py. Without a
 // qualifier, `render` in two files would collide into one call-graph node.
 func moduleIDForPath(p string) string {
-	base := path.Base(cleanSlash(p))
+	base := path.Base(types.SlashClean(p))
 	if i := strings.Index(base, "."); i > 0 {
 		base = base[:i]
 	}

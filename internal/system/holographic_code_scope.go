@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 	"codenerd/internal/world"
 	"context"
 	"fmt"
@@ -145,7 +146,7 @@ func (h *HolographicCodeScope) ensureDeepFacts(ctx context.Context, paths []stri
 			continue
 		}
 		fp := fmt.Sprintf("%d:%d", info.Size(), info.ModTime().Unix())
-		path := world.CanonicalPath(h.scope.ProjectRoot, fsPath)
+		path := types.CanonicalPath(h.scope.ProjectRoot, fsPath)
 
 		if prev, ok := h.memCache[path]; ok && prev.fingerprint == fp {
 			continue

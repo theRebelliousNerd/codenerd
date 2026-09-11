@@ -361,7 +361,7 @@ func (m Model) runPartialScan(paths []string) tea.Cmd {
 			if p == "" {
 				continue
 			}
-			files = append(files, world.ResolveWorkspacePath(m.workspace, p))
+			files = append(files, types.ResolveWorkspacePath(m.workspace, p))
 		}
 		total := m.scanFilesIntoWorld(files, "scan-path")
 		m.ReportStatus("Scan complete")
@@ -378,7 +378,7 @@ func (m Model) runPartialScan(paths []string) tea.Cmd {
 func (m Model) runDirScan(dir string) tea.Cmd {
 	return func() tea.Msg {
 		start := time.Now()
-		dir = world.ResolveWorkspacePath(m.workspace, strings.TrimSpace(dir))
+		dir = types.ResolveWorkspacePath(m.workspace, strings.TrimSpace(dir))
 		m.ReportStatus(fmt.Sprintf("Scanning directory: %s", dir))
 		info, err := os.Stat(dir)
 		if err != nil || !info.IsDir() {
@@ -449,7 +449,7 @@ func (m Model) scanFilesIntoWorld(fsPaths []string, source string) int {
 		if err != nil || info.IsDir() {
 			continue
 		}
-		canonical := world.CanonicalPath(m.workspace, fsPath)
+		canonical := types.CanonicalPath(m.workspace, fsPath)
 		scanned = append(scanned, canonical)
 		if m.localDB != nil {
 			// The cached rows are what a later incremental scan retracts by;

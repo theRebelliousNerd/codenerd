@@ -24,7 +24,7 @@ func TestFileAuditEvent_ToFacts_WhenRead_ShouldProduceFileReadFact(t *testing.T)
 		Success:   true,
 	}
 
-	facts := event.ToFacts()
+	facts := event.ToFacts("")
 
 	if len(facts) != 1 {
 		t.Fatalf("expected 1 fact, got %d", len(facts))
@@ -51,7 +51,7 @@ func TestFileAuditEvent_ToFacts_WhenWrite_ShouldProduceWriteAndModifiedFacts(t *
 		Success:   true,
 	}
 
-	facts := event.ToFacts()
+	facts := event.ToFacts("")
 
 	predicates := make(map[string]bool)
 	for _, f := range facts {
@@ -77,7 +77,7 @@ func TestFileAuditEvent_ToFacts_WhenEdit_ShouldProduceEditAndModifiedFacts(t *te
 		Success:   true,
 	}
 
-	facts := event.ToFacts()
+	facts := event.ToFacts("")
 
 	predicates := make(map[string]bool)
 	for _, f := range facts {
@@ -103,7 +103,7 @@ func TestFileAuditEvent_ToFacts_WhenInsert_ShouldProduceInsertAndModifiedFacts(t
 		Success:    true,
 	}
 
-	facts := event.ToFacts()
+	facts := event.ToFacts("")
 
 	predicates := make(map[string]bool)
 	for _, f := range facts {
@@ -129,7 +129,7 @@ func TestFileAuditEvent_ToFacts_WhenDelete_ShouldProduceDeleteAndModifiedFacts(t
 		Success:   true,
 	}
 
-	facts := event.ToFacts()
+	facts := event.ToFacts("")
 
 	predicates := make(map[string]bool)
 	for _, f := range facts {
@@ -150,7 +150,7 @@ func TestFileAuditEvent_ToFacts_WhenPatch_ShouldProduceNoFacts(t *testing.T) {
 		Timestamp: time.Now(),
 		Path:      "patch.go",
 	}
-	facts := event.ToFacts()
+	facts := event.ToFacts("")
 	if len(facts) != 0 {
 		t.Errorf("expected 0 facts for Patch type, got %d", len(facts))
 	}

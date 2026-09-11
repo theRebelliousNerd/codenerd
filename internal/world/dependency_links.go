@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // Import-edge resolution.
@@ -68,7 +69,7 @@ func newRepoFileIndex(root string, canonicalFiles []string) *repoFileIndex {
 		goModule:     readGoModulePath(root),
 	}
 	for _, f := range canonicalFiles {
-		c := cleanSlash(toSlashAlways(f))
+		c := types.SlashClean(f)
 		if c == "" || c == "." {
 			continue
 		}
@@ -89,7 +90,7 @@ func newRepoFileIndex(root string, canonicalFiles []string) *repoFileIndex {
 // resolution falls back to treating the import path as a literal directory
 // (which is what a GOPATH-less multi-module checkout looks like).
 func readGoModulePath(root string) string {
-	data, err := os.ReadFile(ResolveWorkspacePath(root, "go.mod"))
+	data, err := os.ReadFile(types.ResolveWorkspacePath(root, "go.mod"))
 	if err != nil {
 		return ""
 	}
@@ -230,7 +231,7 @@ func (idx *repoFileIndex) resolveGoPackage(importPath string) []string {
 	if dir == "" {
 		dir = "."
 	}
-	return idx.goFilesByDir[cleanSlash(dir)]
+	return idx.goFilesByDir[types.SlashClean(dir)]
 }
 
 func (idx *repoFileIndex) resolvePythonModule(from, module string) []string {
@@ -259,7 +260,7 @@ func (idx *repoFileIndex) resolveJSModule(from, source string) []string {
 	}
 	base := path.Join(canonicalDir(from), source)
 	if strings.HasPrefix(source, "/") {
-		base = cleanSlash(strings.TrimPrefix(source, "/"))
+		base = types.SlashClean(strings.TrimPrefix(source, "/"))
 	}
 	exts := []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
 	candidates := []string{base}
@@ -298,7 +299,7 @@ func (idx *repoFileIndex) resolveRustPath(from, usePath string) []string {
 
 func (idx *repoFileIndex) firstExisting(candidates []string) []string {
 	for _, c := range candidates {
-		c = cleanSlash(c)
+		c = types.SlashClean(c)
 		if c == "" || strings.HasPrefix(c, "..") {
 			continue
 		}
