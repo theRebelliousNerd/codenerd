@@ -49,7 +49,7 @@ MeterConfig.HTTPClient	internal/broker/default.go:58	(dead file)
 MeterConfig.PrimaryModel	internal/broker/default.go:63	(dead file)
 MeterConfig.ReceiptBuffer	internal/broker/default.go:54	(dead file)
 MeterConfig.SeedRatio	internal/broker/default.go:56	(dead file)
-NamespaceConfig.NewUser	internal/tactile/platform_linux.go:618	(dead file)
+NamespaceConfig.NewUser	internal/tactile/platform_darwin.go:42
 OpenRouterConfig.SiteURL	internal/perception/client_types.go:117
 Options.ContextLines	internal/diff/diff.go:166	(dead file)
 Options.DisableCache	internal/diff/diff.go:170	(dead file)
@@ -64,7 +64,6 @@ PROCESS_MEMORY_COUNTERS.PeakWorkingSetSize	internal/tactile/platform_windows.go:
 PendingMutation.Diff	cmd/nerd/ui/diffview.go:115	(dead file)
 RouterConfig.CustomRoutes	internal/shards/system/router.go:43	(dead file)
 SessionContext.Ambient	internal/types/types.go:426	(dead file)
-SpawnQueueMetrics.QueueDepthByPriority	internal/core/shards/spawn_queue.go:555
 TipContext.ErrorOccurred	cmd/nerd/chat/tips.go:18	(dead file)
 TipContext.LastCommand	cmd/nerd/chat/tips.go:16	(dead file)
 TipContext.LastShardType	cmd/nerd/chat/tips.go:17	(dead file)

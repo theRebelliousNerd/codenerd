@@ -222,9 +222,33 @@ func collectFields(fset *token.FileSet, f *ast.File, path string, out map[string
 // a read. It deliberately resolves nothing: a name written anywhere counts as
 // written everywhere, which makes this under-report rather than cry wolf.
 func collectUses(f *ast.File, order map[string][]string, writes, reads map[string]bool) {
+	// mark records the field an assignment target names, seeing through the
+	// wrappers an assignable expression can carry.
+	//
+	// `metrics.QueueDepthByPriority[i] = len(q)` is an assignment to an index
+	// expression whose operand is the selector, not to the selector itself, so
+	// a bare type switch on *ast.SelectorExpr misses it entirely — and
+	// SpawnQueueMetrics.QueueDepthByPriority was reported dark on the strength
+	// of a line that fills it. Any field that is a slice, array or map gets
+	// written this way, which is a large share of the fields worth caring
+	// about.
 	mark := func(e ast.Expr, into map[string]bool) {
-		if sel, ok := e.(*ast.SelectorExpr); ok {
-			into[sel.Sel.Name] = true
+		for {
+			switch t := e.(type) {
+			case *ast.ParenExpr:
+				e = t.X
+			case *ast.IndexExpr:
+				e = t.X
+			case *ast.SliceExpr:
+				e = t.X
+			case *ast.StarExpr:
+				e = t.X
+			case *ast.SelectorExpr:
+				into[t.Sel.Name] = true
+				return
+			default:
+				return
+			}
 		}
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
