@@ -5,7 +5,6 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"codenerd/internal/types"
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -557,18 +556,20 @@ func (t *TaxonomyEngine) GenerateSystemPromptSection() (string, error) {
 
 	// Inject usage of Learned Patterns
 	if t.engine != nil {
-		results, err := t.engine.Query(context.Background(), "learned_exemplar(P, V, T, C, _)")
-		if err == nil && results != nil && len(results.Bindings) > 0 {
+		facts := t.engine.QueryFacts("learned_exemplar")
+		if len(facts) > 0 {
 			sb.WriteString("### LEARNED USER PATTERNS (High Priority)\n")
 			sb.WriteString("| User Phrase | Mapped Action | Constraint |\n")
 			sb.WriteString("|-------------|---------------|------------|\n")
-			for _, row := range results.Bindings {
-				// Row is map[string]interface{}. Need to extract.
-				p, _ := row["P"].(string)
-				v, _ := row["V"].(string)
-				t, _ := row["T"].(string)
-				c, _ := row["C"].(string) // Constraint
-				sb.WriteString(fmt.Sprintf("| %q | {verb: %s, target: %q} | %s |\n", p, v, t, c))
+			for _, f := range facts {
+				if len(f.Args) < 4 {
+					continue
+				}
+				p := types.ExtractString(f.Args[0])
+				v := types.ExtractString(f.Args[1])
+				targ := types.ExtractString(f.Args[2])
+				c := types.ExtractString(f.Args[3])
+				sb.WriteString(fmt.Sprintf("| %q | {verb: %s, target: %q} | %s |\n", p, v, targ, c))
 			}
 			sb.WriteString("\n")
 		}
@@ -579,16 +580,19 @@ func (t *TaxonomyEngine) GenerateSystemPromptSection() (string, error) {
 	// We need to check if intent_definition exists first to avoid query error if schema not loaded
 	// But if we fail, we just ignore.
 	if t.engine != nil {
-		canonResults, err := t.engine.Query(context.Background(), "intent_definition(S, V, T)")
-		if err == nil && canonResults != nil && len(canonResults.Bindings) > 0 {
+		canonFacts := t.engine.QueryFacts("intent_definition")
+		if len(canonFacts) > 0 {
 			sb.WriteString("### INTENT LIBRARY (Canonical Examples)\n")
 			sb.WriteString("| Canonical Request | Mangle Action |\n")
 			sb.WriteString("|-------------------|---------------|\n")
-			for _, row := range canonResults.Bindings {
-				s, _ := row["S"].(string)
-				v, _ := row["V"].(string)
-				t, _ := row["T"].(string)
-				sb.WriteString(fmt.Sprintf("| %q | {verb: %s, target: %q} |\n", s, v, t))
+			for _, f := range canonFacts {
+				if len(f.Args) < 3 {
+					continue
+				}
+				s := types.ExtractString(f.Args[0])
+				v := types.ExtractString(f.Args[1])
+				targ := types.ExtractString(f.Args[2])
+				sb.WriteString(fmt.Sprintf("| %q | {verb: %s, target: %q} |\n", s, v, targ))
 			}
 			sb.WriteString("\n")
 		}
