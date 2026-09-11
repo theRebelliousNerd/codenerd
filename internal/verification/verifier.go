@@ -376,7 +376,7 @@ Only return the JSON object, no other text.`
 ## Result to Verify
 %s
 
-Analyze this result for quality violations and determine if the task was completed properly.`, task, truncateForVerification(result))
+Analyze this result for quality violations and determine if the task was completed properly.`, task, result)
 
 	response, err := v.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
@@ -406,7 +406,7 @@ func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *Correc
 		if specialist := v.findMatchingSpecialist(action.ShardHint, action.Query); specialist != "" {
 			result, err := v.spawnTask(ctx, specialist, action.Query)
 			if err == nil && result != "" {
-				return fmt.Sprintf("## Specialist Knowledge (%s)\n%s", specialist, truncateContext(result, 2000))
+				return fmt.Sprintf("## Specialist Knowledge (%s)\n%s", specialist, result)
 			}
 		}
 	}
@@ -417,7 +417,7 @@ func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *Correc
 		if specialist := v.findMatchingSpecialist("", action.Query); specialist != "" && (v.shardMgr != nil || v.taskExecutor != nil) {
 			result, err := v.spawnTask(ctx, specialist, action.Query)
 			if err == nil && result != "" {
-				return fmt.Sprintf("## Specialist Knowledge (%s)\n%s", specialist, truncateContext(result, 2000))
+				return fmt.Sprintf("## Specialist Knowledge (%s)\n%s", specialist, result)
 			}
 		}
 
@@ -426,7 +426,7 @@ func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *Correc
 		if specialist := v.findMatchingSpecialist("", action.Query); specialist != "" && (v.shardMgr != nil || v.taskExecutor != nil) {
 			result, err := v.spawnTask(ctx, specialist, "docs: "+action.Query)
 			if err == nil && result != "" {
-				return fmt.Sprintf("## Specialist Documentation (%s)\n%s", specialist, truncateContext(result, 2000))
+				return fmt.Sprintf("## Specialist Documentation (%s)\n%s", specialist, result)
 			}
 		}
 
@@ -663,23 +663,6 @@ func parseVerificationResponse(response string) (*VerificationResult, error) {
 	}
 
 	return &result, nil
-}
-
-// truncateForVerification limits result size for LLM verification.
-func truncateForVerification(s string) string {
-	const maxLen = 8000
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "\n... [truncated]"
-}
-
-// truncateContext limits context size.
-func truncateContext(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "\n... [truncated]"
 }
 
 // selectBestShard analyzes the failure and selects the best shard to fix it.

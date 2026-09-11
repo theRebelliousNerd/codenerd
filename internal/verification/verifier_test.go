@@ -2,7 +2,6 @@ package verification
 
 import (
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -73,29 +72,6 @@ func TestParseVerificationResponse_StripsCodeFences(t *testing.T) {
 	if len(parsed.Suggestions) != 1 || parsed.Suggestions[0] != "s" {
 		t.Fatalf("parsed suggestions unexpected: %#v", parsed.Suggestions)
 	}
-}
-
-func TestTruncateHelpers(t *testing.T) {
-	t.Run("truncateContext", func(t *testing.T) {
-		got := truncateContext("0123456789abcdef", 10)
-		if !strings.HasPrefix(got, "0123456789") || !strings.Contains(got, "[truncated]") {
-			t.Fatalf("truncateContext unexpected: %q", got)
-		}
-		if got2 := truncateContext("short", 10); got2 != "short" {
-			t.Fatalf("truncateContext short = %q, want %q", got2, "short")
-		}
-	})
-
-	t.Run("truncateForVerification", func(t *testing.T) {
-		long := strings.Repeat("a", 9000)
-		got := truncateForVerification(long)
-		if len(got) <= 8000 {
-			t.Fatalf("truncateForVerification len=%d, want > 8000", len(got))
-		}
-		if !strings.HasSuffix(got, "[truncated]") {
-			t.Fatalf("truncateForVerification missing suffix: %q", got[len(got)-32:])
-		}
-	})
 }
 
 func containsViolation(vs []QualityViolation, want QualityViolation) bool {

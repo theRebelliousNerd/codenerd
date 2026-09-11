@@ -165,8 +165,10 @@ func runInteractiveAction(shardType, verb, initialTarget string) error {
 				continue
 			}
 			// Append refinement to task
+			// The previous result rides whole: a refinement of its first
+			// 2000 characters is a refinement of something else.
 			currentTask = fmt.Sprintf("%s\n\nRefinement: %s\n\nPrevious result context:\n%s",
-				currentTask, arg, truncateForContext(lastResult, 2000))
+				currentTask, arg, lastResult)
 			fmt.Printf("📝 Refined task with: %s\n", arg)
 
 		case MetaHelp:
@@ -271,12 +273,4 @@ Example:
   > also add error handling for nil input
   > approve
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-}
-
-// truncateForContext truncates text for use as context in prompts.
-func truncateForContext(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "\n... [truncated]"
 }

@@ -553,15 +553,7 @@ func runPerceptionTest(cmd *cobra.Command, args []string) error {
 		fmt.Printf("   Shard: %s\n", shardType)
 	}
 	fmt.Println(strings.Repeat("─", 50))
-	fmt.Printf("💬 Response Preview:\n%s\n", truncateResponse(intent.Response, 500))
+	fmt.Printf("💬 Response:\n%s\n", intent.Response)
 
 	return nil
-}
-
-// truncateResponse truncates long responses for display
-func truncateResponse(s string, maxLen int) string {
-	if len(s) > maxLen {
-		return s[:maxLen] + "\n... (truncated)"
-	}
-	return s
 }

@@ -139,7 +139,7 @@ func (m *Model) renderReflectionStatus() string {
 	state := m.lastReflection
 	var sb strings.Builder
 	sb.WriteString("**Reflection status**\n\n")
-	sb.WriteString(fmt.Sprintf("Query: %s\n", truncateForContext(state.Query, 200)))
+	sb.WriteString(fmt.Sprintf("Query: %s\n", flattenForTask(state.Query)))
 	sb.WriteString(fmt.Sprintf("Used embeddings: %t\n", state.UsedEmbedding))
 	sb.WriteString(fmt.Sprintf("Duration: %s\n", state.Duration.Round(time.Millisecond)))
 	if len(state.Warnings) > 0 {
@@ -344,7 +344,7 @@ func formatTraceHit(hit store.TraceRecallHit, score float64) string {
 		hit.ShardType,
 		strings.TrimPrefix(outcome, "/"),
 		scoreToPercent(score),
-		truncateForContext(summary, 220),
+		flattenForTask(summary),
 	)
 }
 
@@ -361,7 +361,7 @@ func formatLearningHit(hit store.LearningRecallHit, score float64) string {
 		hit.ShardType,
 		predicate,
 		scoreToPercent(score),
-		truncateForContext(summary, 220),
+		flattenForTask(summary),
 	)
 }
 
@@ -372,7 +372,8 @@ func assertReflectionFacts(kernel *core.RealKernel, traceHits []rankedTrace, lea
 		if summary == "" {
 			summary = r.hit.TraceID
 		}
-		summary = truncateForContext(summary, 300)
+		// The summary is the model's own and rides into the fact whole.
+		summary = flattenForTask(summary)
 		score := scoreToPercent(r.score)
 		_ = kernel.Assert(core.Fact{
 			Predicate: "trace_recall_result",
@@ -385,7 +386,7 @@ func assertReflectionFacts(kernel *core.RealKernel, traceHits []rankedTrace, lea
 		if summary == "" {
 			summary = r.hit.Predicate
 		}
-		summary = truncateForContext(summary, 300)
+		summary = flattenForTask(summary)
 		score := scoreToPercent(r.score)
 		_ = kernel.Assert(core.Fact{
 			Predicate: "learning_recall_result",

@@ -249,12 +249,13 @@ func TestSanitizeCommandInput_ControlChars(t *testing.T) {
 	}
 }
 
-func TestSanitizeCommandInput_LengthCap(t *testing.T) {
-	// Build a string longer than 10K
+func TestSanitizeCommandInput_NoLengthCap(t *testing.T) {
+	// A slash command carrying a pasted log is kept whole; it used to lose
+	// everything past 10,000 characters without a word.
 	input := strings.Repeat("A", 15000)
 	result := sanitizeCommandInput(input)
-	if len(result) > 10000 {
-		t.Errorf("expected result capped at 10000, got %d", len(result))
+	if len(result) != 15000 {
+		t.Errorf("expected the whole input (15000), got %d", len(result))
 	}
 }
 

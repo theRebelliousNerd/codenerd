@@ -16,13 +16,10 @@ import (
 )
 
 // sanitizeCommandInput strips null bytes, ANSI escape sequences, and control
-// characters from command input. Also caps length to prevent OOM from massive
-// inputs flowing into strings.Fields() and downstream command handlers.
+// characters from command input. It does not cut the input: a slash command
+// carrying a pasted log (/spawn coder <task with the failure>) used to lose
+// everything past 10,000 characters without a word.
 func sanitizeCommandInput(input string) string {
-	const maxCommandInputLen = 10_000
-	if len(input) > maxCommandInputLen {
-		input = input[:maxCommandInputLen]
-	}
 	var b strings.Builder
 	b.Grow(len(input))
 	for _, r := range input {

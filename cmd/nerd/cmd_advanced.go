@@ -340,7 +340,7 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 		}
 		succeeded++
 		fmt.Printf("   ✓ Response:\n")
-		for line := range strings.SplitSeq(truncateResponse(r.response, 500), "\n") {
+		for line := range strings.SplitSeq(r.response, "\n") {
 			fmt.Printf("     %s\n", line)
 		}
 		fmt.Println()
@@ -1261,7 +1261,7 @@ func printDreamLearnings(scenario string, results []dreamResult) {
 
 	fmt.Printf("\n💡 %d learnable insight(s) from this dream:\n", len(learnings))
 	for _, l := range learnings {
-		fmt.Printf("  [%s] %s\n", l.Type, truncateResponse(l.Content, 240))
+		fmt.Printf("  [%s] %s\n", l.Type, l.Content)
 	}
 	fmt.Println("\n   Not persisted: a learning is stored only once a person confirms it.")
 	fmt.Println("   Run the same scenario in chat (/dream) to confirm and keep these.")

@@ -155,22 +155,15 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 	if convCtx != nil && len(convCtx.RecentTurns) > 0 {
 		sb.WriteString("## Recent Conversation History\n")
 		sb.WriteString("(Use this context to understand follow-up questions)\n\n")
+		// Turns are replayed whole. The assistant's previous answer was cut
+		// at 500 characters here, which is exactly the answer "what are the
+		// other suggestions?" refers to; size is the compressor's job (it
+		// summarises older turns with the model), not a cut at replay.
 		for _, turn := range convCtx.RecentTurns {
 			if turn.Role == "user" {
-				// Cap replayed user content: a single giant paste must not be
-				// re-sent verbatim in every subsequent articulation prompt.
-				content := turn.Content
-				if len(content) > 2000 {
-					content = content[:2000] + "\n... (truncated)"
-				}
-				sb.WriteString(fmt.Sprintf("**User**: %s\n", content))
+				sb.WriteString(fmt.Sprintf("**User**: %s\n", turn.Content))
 			} else {
-				// Truncate long assistant responses
-				content := turn.Content
-				if len(content) > 500 {
-					content = content[:500] + "\n... (truncated)"
-				}
-				sb.WriteString(fmt.Sprintf("**Assistant**: %s\n", content))
+				sb.WriteString(fmt.Sprintf("**Assistant**: %s\n", turn.Content))
 			}
 		}
 		sb.WriteString("\n")

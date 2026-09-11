@@ -465,11 +465,10 @@ func (t *TDDLoop) generatePatch(ctx context.Context) error {
 		return nil
 	}
 
-	// Truncate hypothesis to prevent token limits on extreme inputs
+	// The whole hypothesis. A fix prompt built from its first 10000
+	// characters was a fix for a different hypothesis; if it does not fit the
+	// window the broker refuses the request and says so.
 	hypothesis := t.hypothesis
-	if len(hypothesis) > 10000 {
-		hypothesis = hypothesis[:10000] + "... (truncated)"
-	}
 
 	// Construct prompt for LLM
 	var sb strings.Builder
@@ -661,12 +660,12 @@ func (t *TDDLoop) parseTestOutput(output string) []Diagnostic {
 		scanner.Buffer(buf, 10*1024*1024)
 	}
 
-	// Truncate raw output stored per diagnostic to avoid O(n*m) memory
-	// where n = diagnostics and m = output size. Keep first 500 chars for context.
+	// Every diagnostic carries the whole output. Go strings share their
+	// backing array, so n diagnostics referencing one output cost n headers,
+	// not n copies; the 500-character cut this used to make bought nothing
+	// and left each diagnostic with the top of a log whose failure was at the
+	// bottom.
 	rawSnippet := output
-	if len(rawSnippet) > 500 {
-		rawSnippet = rawSnippet[:500] + "... [truncated]"
-	}
 
 	var lastRustError *Diagnostic
 

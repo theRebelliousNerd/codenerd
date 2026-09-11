@@ -280,67 +280,6 @@ func TestParseVerificationResponse_WithQualityViolations_ShouldParseAll(t *testi
 }
 
 // =============================================================================
-// truncateForVerification TESTS
-// =============================================================================
-
-func TestTruncateForVerification_WhenUnderLimit_ShouldReturnUnchanged(t *testing.T) {
-	short := "hello world"
-	got := truncateForVerification(short)
-	if got != short {
-		t.Errorf("Short string should be unchanged: %q", got)
-	}
-}
-
-func TestTruncateForVerification_WhenOverLimit_ShouldTruncate(t *testing.T) {
-	long := strings.Repeat("x", 10000)
-	got := truncateForVerification(long)
-
-	if len(got) <= 8000 {
-		t.Errorf("Expected len > 8000, got %d", len(got))
-	}
-	if !strings.Contains(got, "[truncated]") {
-		t.Error("Should contain [truncated] suffix")
-	}
-}
-
-func TestTruncateForVerification_WhenExactlyAtLimit_ShouldReturnUnchanged(t *testing.T) {
-	exact := strings.Repeat("x", 8000)
-	got := truncateForVerification(exact)
-	if got != exact {
-		t.Error("String at exact limit should be unchanged")
-	}
-}
-
-// =============================================================================
-// truncateContext TESTS
-// =============================================================================
-
-func TestTruncateContext_WhenUnderLimit_ShouldReturnUnchanged(t *testing.T) {
-	got := truncateContext("short", 100)
-	if got != "short" {
-		t.Errorf("Expected 'short', got %q", got)
-	}
-}
-
-func TestTruncateContext_WhenOverLimit_ShouldTruncate(t *testing.T) {
-	long := strings.Repeat("a", 500)
-	got := truncateContext(long, 100)
-	if !strings.HasPrefix(got, strings.Repeat("a", 100)) {
-		t.Error("Should preserve first 100 chars")
-	}
-	if !strings.Contains(got, "[truncated]") {
-		t.Error("Should contain [truncated]")
-	}
-}
-
-func TestTruncateContext_WhenZeroMax_ShouldTruncate(t *testing.T) {
-	got := truncateContext("anything", 0)
-	if !strings.Contains(got, "[truncated]") {
-		t.Error("Should truncate with max=0")
-	}
-}
-
-// =============================================================================
 // NewTaskVerifier TESTS
 // =============================================================================
 

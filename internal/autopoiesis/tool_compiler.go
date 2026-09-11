@@ -166,13 +166,11 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 		)
 		testOutput, err := testCmd.CombinedOutput()
 		if err != nil {
-			truncated := string(testOutput)
-			const maxOutputLen = 4096
-			if len(truncated) > maxOutputLen {
-				truncated = truncated[:maxOutputLen] + "\n... (truncated)"
-			}
-			result.Errors = append(result.Errors, truncated)
-			return result, fmt.Errorf("generated tool failed its own generated tests: %w\n%s", err, truncated)
+			// The whole test output goes back into the repair loop; a
+			// 4 KiB head of it hid the failing assertion.
+			output := string(testOutput)
+			result.Errors = append(result.Errors, output)
+			return result, fmt.Errorf("generated tool failed its own generated tests: %w\n%s", err, output)
 		}
 	}
 

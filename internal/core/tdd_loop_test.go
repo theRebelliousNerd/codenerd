@@ -401,7 +401,10 @@ func TestTDDLoop_ParseTestOutput_LargeFile(t *testing.T) {
 	}
 }
 
-// 6. [User Request Extremes] Long Hypothesis: Truncation
+// 6. [User Request Extremes] Long Hypothesis rides whole. A fix prompt
+// built from the first 10000 characters was a fix for a different
+// hypothesis; if the whole thing does not fit the window, the broker
+// refuses the request and says so.
 func TestTDDLoop_GeneratePatch_LongHypothesis(t *testing.T) {
 	tdd, _, _, mockLLM := SetupTDDLoop(t)
 	tdd.state = TDDStateGenerating
@@ -412,19 +415,18 @@ func TestTDDLoop_GeneratePatch_LongHypothesis(t *testing.T) {
 		return "FILE: a.go\nOLD:\n\nNEW:\n\nRATIONALE: r", nil
 	}
 
-	// Create a 50,000 char hypothesis
-	tdd.hypothesis = strings.Repeat("A", 50000)
+	// Create a 50,000 char hypothesis whose end is distinctive.
+	tdd.hypothesis = strings.Repeat("A", 50000) + " THE-END"
 
 	if err := tdd.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 
-	// The prompt should contain truncated hypothesis
-	if len(receivedPrompt) > 20000 {
-		t.Errorf("Prompt is too large (%d bytes), hypothesis was not truncated", len(receivedPrompt))
+	if !strings.Contains(receivedPrompt, "AAAA THE-END") {
+		t.Errorf("the end of the hypothesis was cut from the prompt (%d bytes)", len(receivedPrompt))
 	}
-	if !strings.Contains(receivedPrompt, "... (truncated)") {
-		t.Errorf("Prompt missing truncation marker")
+	if strings.Contains(receivedPrompt, "(truncated)") {
+		t.Errorf("prompt carries a truncation marker")
 	}
 }
 
