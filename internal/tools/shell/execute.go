@@ -520,6 +520,7 @@ func RunTestsTool() *tools.Tool {
 			Properties: map[string]tools.Property{
 				"packages": {Type: "array", Description: "Workspace-relative Go packages; defaults to ./...", Items: &tools.PropertyItems{Type: "string"}},
 				"race":     {Type: "boolean", Description: "Enable the Go race detector"},
+				"count":    {Type: "integer", Description: "Run each test this many times without the test cache (default 1; more than 1 exposes a flaky test)"},
 				"working_dir": {
 					Type:        "string",
 					Description: "Project directory (default: current directory)",

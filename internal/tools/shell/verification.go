@@ -37,10 +37,18 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 	if len(argv) == 0 {
 		return "", fmt.Errorf("empty verification runner")
 	}
+	count := 1
+	if value, exists := args["count"]; exists && value != nil {
+		n, ok := coerceInt(value)
+		if !ok || n < 1 || n > 1000 {
+			return "", fmt.Errorf("invalid count")
+		}
+		count = n
+	}
 	if argv[0] == "go" {
 		argv = argv[:2]
 		if tests {
-			argv = append(argv, "-count=1")
+			argv = append(argv, fmt.Sprintf("-count=%d", count))
 			if race, _ := args["race"].(bool); race {
 				argv = append(argv, "-race")
 			}

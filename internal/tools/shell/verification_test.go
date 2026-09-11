@@ -86,6 +86,20 @@ func TestTypedVerification_ValidatesPatternAndTimeout(t *testing.T) {
 	}
 }
 
+// A count is bounded test repetition: it must be an integer in range.
+func TestTypedVerification_ValidatesCount(t *testing.T) {
+	t.Parallel()
+	root := goWorkspace(t)
+	for _, count := range []any{0, -1, 1001, "many"} {
+		if _, err := executeTypedVerification(shellWsCtx(root), map[string]any{
+			"working_dir": root,
+			"count":       count,
+		}, true); err == nil || !strings.Contains(err.Error(), "invalid count") {
+			t.Fatalf("count %v must be refused, got %v", count, err)
+		}
+	}
+}
+
 // A directory with no recognised build system has no runner; the tool says
 // so instead of guessing a command.
 func TestTypedVerification_NoRunnerIsAnError(t *testing.T) {
