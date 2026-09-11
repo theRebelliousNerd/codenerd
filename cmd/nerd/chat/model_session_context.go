@@ -730,8 +730,13 @@ func extractShardSummary(sr *ShardResult) string {
 			return fmt.Sprintf("%d pass, %d fail", counts.Passed, counts.Failed)
 		}
 	}
-	// Generic: truncate output
-	return truncateForContext(sr.RawOutput, 100)
+	// Generic: first non-empty line, flattened with no character cut.
+	for _, line := range strings.Split(sr.RawOutput, "\n") {
+		if strings.TrimSpace(line) != "" {
+			return flattenForTask(line)
+		}
+	}
+	return ""
 }
 
 // assertKnowledgeAtomsToKernel asserts strategic knowledge atoms to the kernel
