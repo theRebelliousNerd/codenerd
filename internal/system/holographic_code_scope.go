@@ -129,19 +129,23 @@ func (h *HolographicCodeScope) ensureDeepFacts(ctx context.Context, paths []stri
 		return
 	}
 
-	// No LocalStore available (still keep deep facts consistent within this session).
+	// No LocalStore available (still keep deep facts consistent within this
+	// session). Same identity split as the store-backed branch: the scope
+	// hands over absolute paths, which open the file; the facts and the cache
+	// key carry the canonical identity so they agree with the scanners' rows.
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for _, path := range paths {
-		if filepath.Ext(path) != ".go" {
+	for _, fsPath := range paths {
+		if filepath.Ext(fsPath) != ".go" {
 			continue
 		}
-		info, err := os.Stat(path)
+		info, err := os.Stat(fsPath)
 		if err != nil {
 			continue
 		}
 		fp := fmt.Sprintf("%d:%d", info.Size(), info.ModTime().Unix())
+		path := world.CanonicalPath(h.scope.ProjectRoot, fsPath)
 
 		if prev, ok := h.memCache[path]; ok && prev.fingerprint == fp {
 			continue
@@ -152,7 +156,7 @@ func (h *HolographicCodeScope) ensureDeepFacts(ctx context.Context, paths []stri
 			oldFacts = prev.facts
 		}
 
-		newFacts, err := h.cartograph.MapFile(path)
+		newFacts, err := h.cartograph.MapFileAs(fsPath, path)
 		if err != nil {
 			continue
 		}
