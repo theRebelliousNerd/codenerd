@@ -578,3 +578,67 @@ a writer, and no wire between them.
   via `internal/jsonl`, because every question they answer spans processes and
   the readout is itself a different process from the agent that spent the
   tokens.
+
+## Open: the Mangle half of the dark-field gate — investigated, not built
+
+`audit_dark_fields` catches the Go form of this branch's defect: a struct field
+production reads and never writes, which is always the zero value. The Mangle
+form is a rule body joining a predicate nothing asserts. In a logic-first
+architecture that matters more, not less: a field that is always empty gives a
+wrong answer, and a rule that can never fire is **a decision the executive
+cannot make at all**, with no log line and no error — the kernel simply derives
+nothing and the turn proceeds as if the question were never asked.
+
+It is a real class, and it was found by hand rather than by a tool. Tracing
+`FileEdit.EditType` on 2026-09-11 ended at `test_impact.mg`, where every
+`impacted_test` and `test_depends_on` rule is starved:
+
+- `is_test_function/1` — declared in that file, named in five rule bodies, and
+  asserted by nothing in Go or Mangle. The file's own header claimed
+  `internal/world/test_dependency.go` asserts it; that file contains no
+  `Fact{}`, no `Assert` and no `Predicate:` anywhere. It is a consumer.
+- `file_imports/2` — declared, joined by three rules, aliased by
+  `intent_routing_rules.mg:588` as `imports/2`, and asserted by nothing. The
+  live file-to-file edge the scanners emit is `dependency_link/3`. Two names for
+  one relation, and the populated one is not the one the rules join.
+- `modified_file/1` — its only producer is `TransactionManager.ToFacts()`, and
+  nothing drives the transaction manager (see its type doc).
+
+**A gate for it was prototyped and deliberately not shipped, which is the part
+worth recording.** The analysis is easy in one direction and impossible in the
+other. Finding the consumers is exact: `mangle.ParseUnit` gives `Clause.Head`
+and `Clause.Premises`, so "declared, in a rule body, never a rule head, never a
+ground fact" is a precise set. Finding the *producers* is the problem, because a
+Go producer is a string literal in a `Fact{Predicate: ...}` far from anything
+that identifies it as a fact assertion. Four defensible heuristics gave four
+different answers on the same corpus:
+
+| producer rule | starved |
+|---|---|
+| any Go string literal anywhere | 92 |
+| ...minus predicates with a Mangle ground fact | 39 |
+| `Fact{Predicate:}` / `Assert*(` literals only | 279 |
+| any Go literal, excluding the shard ownership manifest | 77 |
+
+A baseline that moves between 39 and 279 on the analyst's choice of heuristic is
+not a measurement, and this repo has written down twice what a gate that cries
+wolf does to the job it is attached to. Worse, the conservative rules exclude
+the two cases that motivated the search: `is_test_function` and `file_imports`
+are both named in Go — as an owned-predicate entry in a shard manifest, and as
+the argument of a `Query` — so "mentioned in Go" is not "produced by Go", and a
+gate built on that confusion would have stayed silent on its own founding
+examples.
+
+**The way to settle it is a measurement, not an inference.** The kernel knows,
+during a real session, exactly which predicates ever receive a fact — that is
+the one authority no static walk can replace, and it is the same argument the
+meter already makes for token accounting (`nerd meter` reads a workspace log
+because the spender and the reader are different processes). A
+`nerd kernel starved` readout over a session's fact log would give the list as
+an observation: declared, joined by a rule, and never once asserted while the
+agent was actually working. Then it can be gated, because the number would mean
+something.
+
+Until that exists, the three starved predicates above are recorded where a
+reader hits them — in `test_impact.mg`'s header and at the `TransactionManager`
+type — rather than in a baseline file nobody trusts.
