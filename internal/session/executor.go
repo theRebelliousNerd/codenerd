@@ -1101,6 +1101,39 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 	// evolved corpus.
 	cc.Provider, cc.Model = e.servingIdentity(intent.Verb)
 
+	if e.kernel != nil {
+		if langFacts, err := e.kernel.Query("project_language"); err != nil {
+			logging.Get(logging.CategorySession).Warn("buildCompilationContext: project_language query failed: %v", err)
+		} else if len(langFacts) > 0 && len(langFacts[0].Args) > 0 {
+			lang := types.ExtractString(langFacts[0].Args[0])
+			if lang != "" && !strings.HasPrefix(lang, "/") {
+				lang = "/" + lang
+			}
+			cc.Language = lang
+		}
+		if fwFacts, err := e.kernel.Query("project_framework"); err != nil {
+			logging.Get(logging.CategorySession).Warn("buildCompilationContext: project_framework query failed: %v", err)
+		} else {
+			seen := make(map[string]struct{}, len(fwFacts))
+			for _, f := range fwFacts {
+				if len(f.Args) == 0 {
+					continue
+				}
+				fw := types.ExtractString(f.Args[0])
+				if fw == "" {
+					continue
+				}
+				if !strings.HasPrefix(fw, "/") {
+					fw = "/" + fw
+				}
+				if _, ok := seen[fw]; !ok {
+					seen[fw] = struct{}{}
+					cc.Frameworks = append(cc.Frameworks, fw)
+				}
+			}
+		}
+	}
+
 	// Drive vector atom selection.
 	//
 	// This struct is built literally, which bypasses the SemanticTopK default of
