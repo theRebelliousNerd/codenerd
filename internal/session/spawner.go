@@ -312,6 +312,15 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	// Phase 2: Generate JIT config (no lock - may involve IO/LLM calls)
 	EffectiveAgentRuntimeConfig, err := s.generateConfig(ctx, req)
 	if err != nil {
+		// A cancelled or expired context is the caller withdrawing the
+		// request, not a compile failure to degrade around: continuing here
+		// started an agent nobody was waiting for, on an empty config, after
+		// the deadline had passed. The deferred release above returns the
+		// capacity reservation.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			logging.Get(logging.CategorySession).Warn("Spawn of %s abandoned: %v", req.Name, ctxErr)
+			return nil, fmt.Errorf("spawn %s: %w", req.Name, ctxErr)
+		}
 		logging.Get(logging.CategorySession).Warn("Failed to generate config for %s: %v", req.Name, err)
 		// Continue with empty config - subagent can still function
 		EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{}
@@ -593,6 +602,12 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 
 	compileResult, err := s.jitCompiler.Compile(ctx, compilationCtx)
 	if err != nil {
+		// The caller's context ending is not a compile failure to retry
+		// around; the baseline retry would fail the same way and the empty
+		// config below would then start an agent after the deadline.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		// Fallback strategy: Retry once with baseline context, then return empty config
 		logging.Get(logging.CategorySession).Warn("JIT compilation failed, retrying with baseline: %v", err)
 
@@ -605,6 +620,9 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 		baselineCtx.Provider, baselineCtx.Model = s.servingIdentity()
 		compileResult, err = s.jitCompiler.Compile(ctx, baselineCtx)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
 			// Final fallback: return empty config, subagent will use defaults
 			logging.Get(logging.CategorySession).Warn("JIT baseline compilation also failed, using empty config: %v", err)
 			return &config.EffectiveAgentRuntimeConfig{}, nil

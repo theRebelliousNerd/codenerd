@@ -284,17 +284,22 @@ func TestE2E_Session_SpawnerConcurrentSpawns_NoStateCorruption(t *testing.T) {
 	var wg sync.WaitGroup
 	var successCount int32
 	var failCount int32
+	var spawnedMu sync.Mutex
+	var spawned []*session.SubAgent
 
 	for i := 0; i < numSpawns; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := env.Spawner.Spawn(context.Background(), req)
+			agent, err := env.Spawner.Spawn(context.Background(), req)
 			if err != nil {
 				atomic.AddInt32(&failCount, 1)
-			} else {
-				atomic.AddInt32(&successCount, 1)
+				return
 			}
+			atomic.AddInt32(&successCount, 1)
+			spawnedMu.Lock()
+			spawned = append(spawned, agent)
+			spawnedMu.Unlock()
 		}()
 	}
 
@@ -307,9 +312,23 @@ func TestE2E_Session_SpawnerConcurrentSpawns_NoStateCorruption(t *testing.T) {
 		t.Errorf("Expected exactly 150 rejected spawns, got %d", failCount)
 	}
 
-	active := len(env.Spawner.ListActive())
-	if active != 50 {
-		t.Errorf("ListActive returned %d, expected 50", active)
+	// Spawn registers an agent and hands it back idle; the caller runs it. An
+	// idle agent holds its capacity slot until it has run to completion, so
+	// the registry must hold exactly the fifty that won the race, no more,
+	// and none of them is running yet. (This environment's kernel mock is
+	// spawn-only — it embeds a nil types.Kernel — so the agents cannot be run
+	// here; the run-to-release half lives in the internal/session tests.)
+	if got := len(spawned); got != 50 {
+		t.Errorf("collected %d admitted agents, want 50", got)
+	}
+	if got := len(env.Spawner.GetMetrics()); got != 50 {
+		t.Errorf("registry holds %d agents after the burst, want the 50 that were admitted", got)
+	}
+	if active := len(env.Spawner.ListActive()); active != 0 {
+		t.Errorf("ListActive returned %d before any agent was run, want 0", active)
+	}
+	if _, err := env.Spawner.Spawn(context.Background(), req); err == nil {
+		t.Error("a 51st spawn was admitted while 50 idle agents hold the capacity")
 	}
 }
 
