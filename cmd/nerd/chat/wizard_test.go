@@ -742,41 +742,69 @@ func TestAggregatedReview_Fields(t *testing.T) {
 	}
 }
 
-func TestParsedFinding_Fields(t *testing.T) {
+// A multi-shard review exists to tell you WHICH reviewer said what, and that
+// attribution travelled from parseShardOutput to the session context through
+// two different field names.
+//
+// What stood here before was a struct round-trip: build a ParsedFinding with
+// every field set, then assert each field reads back. It set ShardSource and
+// asserted ShardSource, so it passed forever while the producer wrote Source
+// and the consumer read ShardSource — every finding reaching the prompt
+// carried an empty shard. A test that writes a field and reads it back proves
+// the struct has a field, which the compiler already said.
+//
+// So this drives the wire instead: the real parser, then the real renderer.
+func TestReviewFindingsCarryTheShardThatFoundThem(t *testing.T) {
 	t.Parallel()
 
-	finding := ParsedFinding{
+	findings := parseShardOutput(
+		"CRITICAL main.go:42 - SQL injection vulnerability", "security_reviewer")
+	if len(findings) != 1 {
+		t.Fatalf("parseShardOutput returned %d findings, want 1: %#v", len(findings), findings)
+	}
+
+	rendered := reviewFindingMaps(findings)
+	if len(rendered) != 1 {
+		t.Fatalf("reviewFindingMaps returned %d maps, want 1", len(rendered))
+	}
+	if got := rendered[0]["shard"]; got != "security_reviewer" {
+		t.Errorf(`rendered["shard"] = %q, want "security_reviewer"; the finding `+
+			"reaches the prompt unable to say which reviewer produced it", got)
+	}
+	if got := rendered[0]["severity"]; got != "critical" {
+		t.Errorf(`rendered["severity"] = %q, want "critical"`, got)
+	}
+}
+
+// And the renderer must carry every field the consumer of the map reads, not
+// just the one that was broken.
+func TestReviewFindingMapsCarryTheWholeFinding(t *testing.T) {
+	t.Parallel()
+
+	rendered := reviewFindingMaps([]ParsedFinding{{
 		File:           "main.go",
 		Line:           42,
 		Severity:       "high",
 		Category:       "security",
 		Message:        "SQL injection vulnerability",
 		Recommendation: "Use prepared statements",
-		ShardSource:    "security_reviewer",
+		Source:         "security_reviewer",
+	}})
+	if len(rendered) != 1 {
+		t.Fatalf("rendered %d maps, want 1", len(rendered))
 	}
 
-	if finding.File != "main.go" {
-		t.Errorf("Unexpected file: %s", finding.File)
-	}
-	if finding.Line != 42 {
-		t.Errorf("Unexpected line: %d", finding.Line)
-	}
-	if finding.Severity != "high" {
-		t.Errorf("Unexpected severity: %s", finding.Severity)
-	}
-	if finding.Category != "security" {
-		t.Errorf("Unexpected category: %s", finding.Category)
-	}
-	if finding.Message != "SQL injection vulnerability" {
-		t.Errorf("Unexpected message: %s", finding.Message)
-	}
-	if finding.Recommendation != "Use prepared statements" {
-		t.Errorf("Unexpected recommendation: %s", finding.Recommendation)
-	}
-	if finding.ShardSource != "security_reviewer" {
-		t.Errorf("Unexpected source: %s", finding.ShardSource)
-	}
-	if finding.Severity != "high" {
-		t.Errorf("Expected severity 'high', got '%s'", finding.Severity)
+	for key, want := range map[string]any{
+		"file":           "main.go",
+		"line":           float64(42),
+		"severity":       "high",
+		"category":       "security",
+		"message":        "SQL injection vulnerability",
+		"recommendation": "Use prepared statements",
+		"shard":          "security_reviewer",
+	} {
+		if got := rendered[0][key]; got != want {
+			t.Errorf("rendered[%q] = %#v, want %#v", key, got, want)
+		}
 	}
 }
