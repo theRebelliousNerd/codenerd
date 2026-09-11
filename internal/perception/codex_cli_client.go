@@ -435,6 +435,9 @@ func (c *CodexCLIClient) SetModel(model string) { c.model = model }
 // GetModel returns the current model.
 func (c *CodexCLIClient) GetModel() string { return c.model }
 
+// ModelIdentity implements types.ModelIdentifier.
+func (c *CodexCLIClient) ModelIdentity() (string, string) { return "codex-cli", c.model }
+
 // SetFallbackModel sets the fallback model for rate limit resilience.
 func (c *CodexCLIClient) SetFallbackModel(model string) { c.fallbackModel = model }
 

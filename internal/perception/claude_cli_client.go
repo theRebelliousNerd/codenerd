@@ -522,6 +522,9 @@ func (c *ClaudeCodeCLIClient) GetModel() string {
 	return c.model
 }
 
+// ModelIdentity implements types.ModelIdentifier.
+func (c *ClaudeCodeCLIClient) ModelIdentity() (string, string) { return "claude-cli", c.model }
+
 // SetFallbackModel sets the fallback model for rate limit resilience.
 func (c *ClaudeCodeCLIClient) SetFallbackModel(model string) {
 	c.fallbackModel = model
