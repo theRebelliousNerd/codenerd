@@ -3616,6 +3616,10 @@ Two `nerd chat` probes on the rebuilt binary, both through `chat_driver.py`.
 | its regression test, first brief | test calling "the loader with a path" | 30 (0 writes) | 4m17s | `read_only_stall`: the brief guessed a signature; `tryLoadLearned()` takes none. Under the regime the model reached for `mcp_context` (external, still offered) and `recall_context` search with limit 20000 (refused) — both fixed in bcd78c06 |
 | its regression test, re-brief naming `tryLoadLearned()`, `SetWorkspace(root)` and the file | `TestGenerateSystemPromptSection_IncludesExemplarsLoadedFromFile` | 16 (2 writes) | 4m34s | exact test, imports included, no regime needed; `checks_passed` (058c3a01) |
 | CLI engines report no model identity | `ModelIdentity()` on `CodexCLIClient` and `ClaudeCodeCLIClient`, two source files | 58 (2 writes) | 10m50s | both three-line methods exactly as briefed; `checks_passed` (395f46e1) |
+| its test (new file) | `TestCLIClientsReportAModelIdentity` + compile-time assertions | 2 (1 write) | 3m18s | file written on the first call, named test run on the second; `checks_passed` (46771ce1) |
+| TUI prompt path never set provider/model | assembler maps `ExtraContext["provider"/"model"]` into the compilation context + test | 30 (2 writes) | 7m17s | mapping and test in one turn; `checks_passed` (08af2006) |
+| TUI never supplied provider/model | `buildSessionContext` reads the client's `ModelIdentity` through the broker | 13 (1 write) | 5m43s | exact; `checks_passed` (600a1d6d) |
+| Codex backend atom pinned as a project framework; TUI hint by hand (three-file brief) | atom → `providers: ["/codex_cli"]`, hint block + `perception` import removed, test renamed | 21 (3 writes) | 7m19s | two of three edits landed; the removed import broke the build and the first repair round fixed it with `delete_lines` (f0a89c22 at work); the test rename was skipped and re-briefed alone (6be7b276) |
 
 What governed the second run: in open (progress-driven, no count ceiling)
 mode the working policy only knew a repeated-trace flag and a failure
