@@ -14,6 +14,8 @@ import (
 
 	"codenerd/internal/build"
 	"codenerd/internal/logging"
+
+	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
 // Post-edit coverage verification.
@@ -370,4 +372,84 @@ func NormalizeCoverPath(p string) string {
 	p = strings.ReplaceAll(p, "\\", "/")
 	p = strings.TrimPrefix(p, "./")
 	return p
+}
+
+// LineRange is a 1-based inclusive span of lines.
+type LineRange struct {
+	Start, End int
+}
+
+func changedLines(before, after string) []LineRange {
+	dmp := diffmatchpatch.New()
+	a, b, lineArray := dmp.DiffLinesToChars(before, after)
+	diffs := dmp.DiffMain(a, b, false)
+	diffs = dmp.DiffCharsToLines(diffs, lineArray)
+
+	countLines := func(s string) int {
+		if s == "" {
+			return 0
+		}
+		n := strings.Count(s, "\n")
+		if !strings.HasSuffix(s, "\n") {
+			n++
+		}
+		return n
+	}
+
+	var out []LineRange
+	line := 1
+	for _, d := range diffs {
+		switch d.Type {
+		case diffmatchpatch.DiffDelete:
+			// Deletes exist only in the before text; the after-text line counter does not advance.
+		case diffmatchpatch.DiffEqual:
+			line += countLines(d.Text)
+		case diffmatchpatch.DiffInsert:
+			n := countLines(d.Text)
+			if n == 0 {
+				continue
+			}
+			start := line
+			end := line + n - 1
+			line += n
+			if len(out) > 0 && start == out[len(out)-1].End+1 {
+				out[len(out)-1].End = end
+			} else {
+				out = append(out, LineRange{Start: start, End: end})
+			}
+		}
+	}
+	return out
+}
+
+func blocksInChangedLines(blocks []UncoveredBlock, changed map[string][]LineRange) []UncoveredBlock {
+	var out []UncoveredBlock
+	for _, b := range blocks {
+		fileSlash := NormalizeCoverPath(b.File)
+		matched := false
+		overlap := false
+		for k, ranges := range changed {
+			nk := NormalizeCoverPath(k)
+			if nk == "" {
+				continue
+			}
+			if !strings.HasSuffix(fileSlash, nk) {
+				continue
+			}
+			matched = true
+			for _, r := range ranges {
+				if r.Start <= b.EndLine && r.End >= b.StartLine {
+					overlap = true
+					break
+				}
+			}
+			if overlap {
+				break
+			}
+		}
+		if !matched || overlap {
+			out = append(out, b)
+		}
+	}
+	return out
 }

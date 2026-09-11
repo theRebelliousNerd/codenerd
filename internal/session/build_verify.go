@@ -1,19 +1,20 @@
 package session
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"os/exec"
-	"strings"
-	"time"
-
 	"codenerd/internal/build"
 	"codenerd/internal/config"
 	jitconfig "codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
 )
 
 // ErrVerificationFailed marks post-edit verification failures (build, test,
@@ -285,6 +286,22 @@ func (e *Executor) verifyAndRepairTests(
 	}
 
 	verification, uncovered := verifyTestsWithCoverage(ctx, workspace, packages, result.WrittenPaths)
+
+	// The profile is file-level, so without this a one-line edit in a large
+	// file reports every uncovered block of the file as code the turn wrote
+	// (observed 2026-09-11: 59 blocks for one line); a file with no pre-write
+	// snapshot keeps all its blocks.
+	if len(uncovered) > 0 && len(result.PreWriteContents) > 0 {
+		changed := make(map[string][]LineRange, len(result.PreWriteContents))
+		for path, before := range result.PreWriteContents {
+			data, readErr := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(path)))
+			if readErr != nil {
+				continue
+			}
+			changed[path] = changedLines(before, string(data))
+		}
+		uncovered = blocksInChangedLines(uncovered, changed)
+	}
 	result.TestCheck = verification
 
 	// Coverage is reported whether or not the tests passed. Green tests over

@@ -147,6 +147,59 @@ func TestParseCoverProfile(t *testing.T) {
 	}
 }
 
+func TestChangedLines_ReportsTheInsertedRanges(t *testing.T) {
+	got := changedLines("a\nb\nc\n", "a\nx\ny\nb\nc\nz\n")
+	want := []LineRange{{Start: 2, End: 3}, {Start: 6, End: 6}}
+	if len(got) != len(want) {
+		t.Fatalf("changedLines() = %v; want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("changedLines()[%d] = %+v; want %+v", i, got[i], want[i])
+		}
+	}
+
+	if got := changedLines("a\nb\nc\n", "a\nb\nc\n"); len(got) != 0 {
+		t.Errorf("changedLines() on identical texts = %v; want empty", got)
+	}
+
+	got = changedLines("", "p\nq\n")
+	want = []LineRange{{Start: 1, End: 2}}
+	if len(got) != len(want) {
+		t.Fatalf("changedLines() from empty = %v; want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("changedLines() from empty [%d] = %+v; want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBlocksInChangedLines_KeepsOnlyTouchedBlocks(t *testing.T) {
+	blocks := []UncoveredBlock{
+		{File: "codenerd/internal/x/a.go", StartLine: 1, EndLine: 3},
+		{File: "codenerd/internal/x/a.go", StartLine: 10, EndLine: 12},
+		{File: "codenerd/internal/x/a.go", StartLine: 20, EndLine: 25},
+		{File: "codenerd/internal/x/b.go", StartLine: 1, EndLine: 2},
+	}
+	changed := map[string][]LineRange{
+		"internal/x/a.go": {{Start: 11, End: 11}},
+	}
+	got := blocksInChangedLines(blocks, changed)
+	want := []UncoveredBlock{
+		{File: "codenerd/internal/x/a.go", StartLine: 10, EndLine: 12},
+		{File: "codenerd/internal/x/b.go", StartLine: 1, EndLine: 2},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("blocksInChangedLines() = %v; want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("blocksInChangedLines()[%d] = %+v; want %+v", i, got[i], want[i])
+		}
+	}
+}
+
 // uncoveredWrittenCode had no test at all when it was written, while its file
 // header claimed it was "exercised through the integration path". This is that
 // integration path: a real throwaway module, a real `go test -coverprofile`,
