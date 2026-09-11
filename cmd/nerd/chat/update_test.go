@@ -3,7 +3,6 @@
 package chat
 
 import (
-	"runtime"
 	"testing"
 	"time"
 
@@ -676,27 +675,15 @@ func TestUpdate_NoGoroutineLeakOnQuit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping goroutine test in short mode")
 	}
-	t.Parallel()
+	// Deliberately not t.Parallel: assertNoGoroutineLeak reads a process-wide
+	// counter, and a parallel test reading that is measuring its neighbours.
 
-	before := runtime.NumGoroutine()
-
-	// Create and shutdown multiple models
-	for range 5 {
-		m := NewTestModel()
-		m.Shutdown()
-	}
-
-	// Allow time for goroutines to exit
-	time.Sleep(100 * time.Millisecond)
-	runtime.GC()
-	time.Sleep(100 * time.Millisecond)
-
-	after := runtime.NumGoroutine()
-
-	// Allow some slack for background runtime goroutines
-	if after > before+5 {
-		t.Errorf("Possible goroutine leak: before=%d after=%d", before, after)
-	}
+	assertNoGoroutineLeak(t, 5, func() {
+		for range 5 {
+			m := NewTestModel()
+			m.Shutdown()
+		}
+	})
 }
 
 // =============================================================================
