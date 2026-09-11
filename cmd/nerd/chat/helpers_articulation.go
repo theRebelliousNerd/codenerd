@@ -223,7 +223,7 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 		// Skip the last one since it's already shown above as LastShardResult
 		for i := 0; i < len(convCtx.ShardHistory)-1; i++ {
 			sr := convCtx.ShardHistory[i]
-			sb.WriteString(fmt.Sprintf("- **Turn %d [%s]**: %s", sr.TurnNumber, sr.ShardType, truncateForContext(sr.Task, 50)))
+			sb.WriteString(fmt.Sprintf("- **Turn %d [%s]**: %s", sr.TurnNumber, sr.ShardType, flattenForTask(sr.Task)))
 			if len(sr.Findings) > 0 {
 				sb.WriteString(fmt.Sprintf(" → %d findings", len(sr.Findings)))
 			}
