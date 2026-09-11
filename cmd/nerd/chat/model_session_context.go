@@ -87,6 +87,18 @@ func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 		sessionCtx.ExtraContext["language"] = lang
 	}
 
+	// Provider and model for JIT prompt selection: toCompilationContext reads
+	// these fail-closed dimensions, so leave them unset when unknown.
+	if identifier, ok := broker.Base(m.client).(types.ModelIdentifier); ok {
+		provider, model := identifier.ModelIdentity()
+		if provider != "" {
+			sessionCtx.ExtraContext["provider"] = provider
+		}
+		if model != "" {
+			sessionCtx.ExtraContext["model"] = model
+		}
+	}
+
 	// ==========================================================================
 	// CORE CONTEXT (Original)
 	// ==========================================================================
