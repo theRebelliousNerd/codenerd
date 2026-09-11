@@ -1,6 +1,8 @@
 package perception
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -125,6 +127,31 @@ func TestGenerateSystemPromptSection_IncludesLearnedExemplars(t *testing.T) {
 		t.Fatalf("GenerateSystemPromptSection failed: %v", err)
 	}
 	for _, want := range []string{"LEARNED USER PATTERNS", "Nuke it", "/delete"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("section lacks %q:\n%s", want, section)
+		}
+	}
+}
+
+func TestGenerateSystemPromptSection_IncludesExemplarsLoadedFromFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".nerd", "mangle"), 0o755); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+	content := "learned_exemplar(\"Load me\", /explain, \"x\", \"\", 90).\n"
+	if err := os.WriteFile(filepath.Join(root, ".nerd", "mangle", "learned_taxonomy.mg"), []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	te, err := NewTaxonomyEngine()
+	if err != nil {
+		t.Fatalf("NewTaxonomyEngine failed: %v", err)
+	}
+	te.SetWorkspace(root)
+	section, err := te.GenerateSystemPromptSection()
+	if err != nil {
+		t.Fatalf("GenerateSystemPromptSection failed: %v", err)
+	}
+	for _, want := range []string{"Load me", "/explain"} {
 		if !strings.Contains(section, want) {
 			t.Errorf("section lacks %q:\n%s", want, section)
 		}
