@@ -2,6 +2,11 @@
 # in a private evaluation scope; observations can never authorize an action.
 Decl working_observation(ID, Entity, Revision, Kind, Step) bound [/string, /string, /string, /string, /number].
 Decl working_revision(Entity, Revision) bound [/string, /string].
+# Digest of the observation body. Two requests can differ in their arguments
+# and still return the same observation (a read whose range snaps to the same
+# code element), so identity of what came back is tracked beside identity of
+# what was asked.
+Decl working_digest(ID, Digest) bound [/string, /string].
 Decl working_recent(ID) bound [/string].
 Decl working_stale(ID) bound [/string].
 Decl working_superseded(ID) bound [/string].
@@ -64,6 +69,14 @@ working_stale(ID) :-
 working_superseded(ID) :-
     working_observation(ID, Entity, Revision, Kind, Step),
     working_observation(_, Entity, Revision, Kind, Later), Step < Later.
+# The same body observed again later is one observation, whatever the
+# request looked like. Observed 2026-09-11: five copies of one 389-line
+# region of a file, requested with ranges that all snapped to the same
+# projection, filled a third of the working section.
+working_superseded(ID) :-
+    working_observation(ID, Entity, Revision, _, Step), working_digest(ID, Digest),
+    working_observation(Other, Entity, Revision, _, Later), working_digest(Other, Digest),
+    Step < Later.
 
 working_selected(ID, Priority) :-
     working_observation(ID, Entity, _, _, _),

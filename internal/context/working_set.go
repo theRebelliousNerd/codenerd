@@ -273,6 +273,7 @@ func (w *WorkingSet) Select(ctx context.Context, focus string, recent []string, 
 	}
 	for _, r := range records {
 		add("working_observation", r.ID, r.Entity, r.Revision, r.Kind, r.Step)
+		add("working_digest", r.ID, r.Digest)
 	}
 	for _, id := range recent {
 		add("working_recent", id)
@@ -286,7 +287,7 @@ func (w *WorkingSet) Select(ctx context.Context, focus string, recent []string, 
 	// selected again. Seen live 2026-09-11: after its one edit the model
 	// re-read the edited file eight times and concluded that no edit had been
 	// needed.
-	if err := w.engine.ReplaceControlFacts(facts, "user_intent", "focus_resolution", "dependency_link", "working_revision", "working_observation", "working_recent"); err != nil {
+	if err := w.engine.ReplaceControlFacts(facts, "user_intent", "focus_resolution", "dependency_link", "working_revision", "working_observation", "working_digest", "working_recent"); err != nil {
 		return WorkingSelection{}, err
 	}
 	result, err := w.engine.Query(ctx, "working_selected(ID, Priority)")

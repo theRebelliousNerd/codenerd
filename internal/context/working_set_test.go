@@ -163,3 +163,26 @@ func TestWorkingSetSelectFollowsTheFileAcrossAnEdit(t *testing.T) {
 	require.Contains(t, second.Text, "body after")
 	require.NotContains(t, second.Text, "body before")
 }
+
+// Two requests that differ in their arguments but returned the same body are
+// one observation; only the latest is shown. Supersession used to key on the
+// request alone, so a read whose range snapped to the same projection five
+// times filled the section with five copies of it.
+func TestWorkingSetSelectCollapsesRepeatedBodies(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
+	w, err := NewWorkingSet(nil, root, "task")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+	rev := w.Revision("a.go")
+	body := "a.go: lines 10-40 of 90\nsame projection"
+	for i, kind := range []string{"read_file/range-8-40", "read_file/range-10-40", "read_file/range-12-40"} {
+		require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: fmt.Sprintf("r%d", i), Entity: "a.go", Revision: rev, Kind: kind, Step: int64(i + 1), Body: body}))
+	}
+	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "other", Entity: "a.go", Revision: rev, Kind: "read_file/range-50-60", Step: 4, Body: "a.go: lines 50-60 of 90\ndifferent projection"}))
+
+	sel, err := w.Select(t.Context(), "a.go", []string{"r0", "r1", "r2", "other"}, 100000)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"r2", "other"}, sel.Selected, "the latest copy of a repeated body and the distinct body")
+	require.Equal(t, 1, strings.Count(sel.Text, "same projection"))
+}
