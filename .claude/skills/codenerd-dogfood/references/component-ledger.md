@@ -3605,6 +3605,10 @@ Two `nerd chat` probes on the rebuilt binary, both through `chat_driver.py`.
 | same shape (after 2c409a58) | replace a 100-char cut in buildPriorShardSummaries | 20 (8 read_file, 8 grep, 1 edit_lines) | 5m21s | correct edit; policy finalized 8 idle rounds after the write; harness ran build (38 s) and test (43 s) verification; `checks_passed` |
 | same shape (after ec632737; blackboard history, 50-char cut) | replace `truncateForContext(sr.Task, 50)` in articulateWithConversation | 24 (11 read_file of the named file, 11 recall_context, 0 writes) | 2m57s | **no edit**: `read_only_stall` stop. Every round logged `Working context: candidates=N selected=0 omitted=N chars=0`; the 14 KB read reached the model as an "Observation archived" pointer and it paged 2000-6000 chars from offset 0, then read again |
 | same brief (after 1e93bcc3) | as above | 25 (1 edit_lines, 1 run_tests, 8 post-edit read_file) | 8m37s | correct edit at tool 7; model ran the named test itself through typed `run_tests` (`Flatten\|ShardHistory`, gate OK); harness build 17 s + tests 1m30s, `checks_passed` (10256fd2). Final answer claimed "no edit was needed": from the edit on, every observation of the file was `omitted` (fixed 69fd896e) |
+| roster label cut (after 69fd896e) | replace `truncateForContext(sr.Task, 50)` in buildSessionContext | 12 (1 edit_lines) | 9m12s | correct edit; post-edit observations selected every round; `checks_passed` (183c4632) |
+| executor language gate, two files (executor change + new test) | derive `cc.Language`/`cc.Frameworks` from kernel facts in buildCompilationContext | 53 (0 writes) | 3m30s | `read_only_stall`. Working section held five copies of one 389-line region (ranges snapped to one projection); model said "wiring now" every round |
+| same, executor half only | as above, no test | 42 / 39 / 32 (0 writes) | ~3-4 min each | three more `read_only_stall`s across: body-digest supersession (8d63e069), traced transcript (bfcb15db), and the 3-round transcript window (1241242b). The trace shows the model re-fetching the same four facts every round with the implement nudge in hand |
+| same, under the commit regime (7213b414) | as above | 40 (1 insert_lines, 1 run_build) | 12m23s | regime engaged after 27 calls / 16 rounds; `insert_lines` at tool 28; harness build + tests passed twice; `checks_passed`; the 33 inserted lines were exactly the brief (2c9bc34e) |
 
 What governed the second run: in open (progress-driven, no count ceiling)
 mode the working policy only knew a repeated-trace flag and a failure
@@ -3648,8 +3652,26 @@ key-shaped:
   including the edit (69fd896e, `ReplaceControlFacts` over the six runtime
   predicates).
 
+What the stalled series taught (2026-09-11, rows six to nine): the working
+request needed four more corrections before a three-fact insertion landed.
+Supersession keyed on request arguments kept five copies of one region
+(fixed by body digest, 8d63e069). The tool-loop transcript was not in the
+llm_io trace at all, only its length (bfcb15db); once traced it showed the
+model was sent the brief, its own one-line remark and the current pair,
+nothing of its earlier turns, so each round began afresh (3-round window,
+1241242b). That was still not enough: with reading always available,
+reading was always what the model did, nudge or not. The policy now derives
+`working_regime(/commit)` after `working_commit_rounds(16)` read-only
+rounds on a change task: read tools leave the offered catalog
+(`recall_context` stays), a read asked for anyway is answered with the
+regime text and not run, the stall span still governs, and the regime lifts
+on the first write (7213b414). Fifth run: wrote at the first round under
+the regime. Steering that works for this model is a catalog change, not a
+sentence.
+
 Signatures to grep after every probe: `Working context: … selected=0` for
-the focus file, `Observation archived`, `[ERROR] Tool call`. Still open:
+the focus file, `Observation archived`, `[ERROR] Tool call`, and in the
+session log `closed exploration (commit regime)`. Still open:
 world facts filled 78 KB per round with `code_defines(…, 0, 0)` lines from
 two-hop neighbours (share cut to one eighth in the commit after 69fd896e;
 the zero spans are a world-model defect); the JIT system prompt is 115 KB
