@@ -1,7 +1,6 @@
 package perception
 
 import (
-	"codenerd/internal/types"
 	"strings"
 	"testing"
 
@@ -90,31 +89,45 @@ func TestTaxonomyStore_Integration(t *testing.T) {
 	}
 }
 
+// GenerateSystemPromptSection read its LEARNED USER PATTERNS table through
+// Engine.Query, which answers nothing for a base fact, so every learned
+// exemplar was invisible to classification (fixed e402020a). Seeded the way
+// production seeds it: through the taxonomy store's hydration.
 func TestGenerateSystemPromptSection_IncludesLearnedExemplars(t *testing.T) {
+	localDB, err := store.NewLocalStore(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create local store: %v", err)
+	}
+	defer localDB.Close()
+	ts := NewTaxonomyStore(localDB)
+	if err := ts.StoreVerbDef("/delete", "/mutation", "/coder", 90); err != nil {
+		t.Fatalf("StoreVerbDef failed: %v", err)
+	}
+	if err := ts.StoreLearnedExemplar("Nuke it", "/delete", "database", "", 0.95); err != nil {
+		t.Fatalf("StoreLearnedExemplar failed: %v", err)
+	}
+
 	te, err := NewTaxonomyEngine()
 	if err != nil {
 		t.Fatalf("NewTaxonomyEngine failed: %v", err)
 	}
-	if err := te.engine.AddFact("learned_exemplar", "Nuke it", types.MangleAtom("/delete"), "database", "", 0.95); err != nil {
-		if err := te.engine.LoadSchemaString("Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)."); err != nil {
-			t.Fatalf("LoadSchemaString failed: %v", err)
-		}
-		if err := te.engine.AddFact("learned_exemplar", "Nuke it", types.MangleAtom("/delete"), "database", "", 0.95); err != nil {
-			t.Fatalf("AddFact failed: %v", err)
-		}
+	te.SetStore(ts)
+	// HydrateFromDB replaces the process-global verb corpus; restore it so
+	// later tests parse against the full one.
+	corpusBefore := GetVerbCorpus()
+	t.Cleanup(func() { SetVerbCorpus(corpusBefore) })
+	if err := te.HydrateFromDB(); err != nil {
+		t.Fatalf("HydrateFromDB failed: %v", err)
 	}
+
 	section, err := te.GenerateSystemPromptSection()
 	if err != nil {
 		t.Fatalf("GenerateSystemPromptSection failed: %v", err)
 	}
-	if !strings.Contains(section, "LEARNED USER PATTERNS") {
-		t.Errorf("expected section to contain %q, got %q", "LEARNED USER PATTERNS", section)
-	}
-	if !strings.Contains(section, "Nuke it") {
-		t.Errorf("expected section to contain %q, got %q", "Nuke it", section)
-	}
-	if !strings.Contains(section, "/delete") {
-		t.Errorf("expected section to contain %q, got %q", "/delete", section)
+	for _, want := range []string{"LEARNED USER PATTERNS", "Nuke it", "/delete"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("section lacks %q:\n%s", want, section)
+		}
 	}
 }
 
