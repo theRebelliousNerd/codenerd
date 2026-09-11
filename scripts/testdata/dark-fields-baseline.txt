@@ -66,7 +66,6 @@ OuroborosConfig.AllowCompilationFallback	internal/autopoiesis/ouroboros.go:147
 PROCESS_MEMORY_COUNTERS.PeakWorkingSetSize	internal/tactile/platform_windows.go:108
 PendingMutation.Diff	cmd/nerd/ui/diffview.go:115
 RouterConfig.CustomRoutes	internal/shards/system/router.go:43
-SessionContext.ActiveFiles	internal/types/types.go:424
 SessionContext.Ambient	internal/types/types.go:426
 SpawnQueueMetrics.QueueDepthByPriority	internal/core/shards/spawn_queue.go:555
 TipContext.ErrorOccurred	cmd/nerd/chat/tips.go:18

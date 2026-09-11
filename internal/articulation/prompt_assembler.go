@@ -690,6 +690,30 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 		}
 	}
 
+	// Dependencies of the files this session has touched.
+	//
+	// The field, both its producers and their caps all already existed; the
+	// render did not, so DependencyContext was written by two functions and
+	// read by none. Wiring its input without this would have been a producer
+	// feeding a field nobody consumes — the same defect from the other end.
+	//
+	// This is the one place on this branch where prompt CONTENT grows, so the
+	// cost is worth naming: the producers cap themselves at 10 (kernel
+	// dependency_link) and 30 (after graph memory appends), and this renders at
+	// most 15, so the section is bounded at roughly 150 tokens. What it buys is
+	// the grounding that stops an edit breaking a caller the model never saw.
+	if len(ctx.DependencyContext) > 0 {
+		sb.WriteString("\nDEPENDENCIES OF FILES IN FOCUS:\n")
+		maxCount := 15
+		for i, dep := range ctx.DependencyContext {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  - ... and %d more\n", len(ctx.DependencyContext)-maxCount))
+				break
+			}
+			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(dep)))
+		}
+	}
+
 	// Git context (Chesterton's Fence)
 	if ctx.GitBranch != "" || len(ctx.GitRecentCommits) > 0 {
 		sb.WriteString("\nGIT CONTEXT:\n")

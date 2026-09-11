@@ -227,6 +227,23 @@ func (b *BaseShardAgent) BuildSessionContextPrompt() string {
 	}
 
 	// ==========================================================================
+	// DEPENDENCIES OF FILES IN FOCUS
+	// ==========================================================================
+	// Rendered here as well as in articulation's assembler, because the two
+	// build the same context for different callers and a section present in
+	// only one is a section a shard silently does not get.
+	if len(ctx.DependencyContext) > 0 {
+		sb.WriteString("\nDEPENDENCIES OF FILES IN FOCUS:\n")
+		for i, dep := range ctx.DependencyContext {
+			if i >= 15 {
+				sb.WriteString(fmt.Sprintf("  - ... and %d more\n", len(ctx.DependencyContext)-15))
+				break
+			}
+			sb.WriteString(fmt.Sprintf("  - %s\n", dep))
+		}
+	}
+
+	// ==========================================================================
 	// GIT CONTEXT
 	// ==========================================================================
 	if ctx.GitBranch != "" || len(ctx.GitRecentCommits) > 0 {

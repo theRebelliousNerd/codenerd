@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/testoutput"
 	"codenerd/internal/types"
+	"codenerd/internal/world"
 )
 
 // =============================================================================
@@ -134,6 +135,20 @@ func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 
 		// Get relevant symbols in scope
 		sessionCtx.SymbolContext = m.querySymbolContext()
+
+		// Files currently in focus, which had no writer at all: two consumers
+		// read ActiveFiles — this dependency query and queryGraphMemory — and
+		// nothing in the repository ever filled it, so DependencyContext was
+		// empty in every session ever run and both retrieval paths behind it
+		// were unreachable.
+		//
+		// modified(Path) is the right source rather than the git working set.
+		// It is asserted by internal/tactile on every write, edit, insert and
+		// delete the agent performs, so it means "files THIS SESSION has
+		// touched" — which is what "in focus" has to mean for a turn — rather
+		// than "files that differ from HEAD", which includes whatever was
+		// already dirty when the session started.
+		sessionCtx.ActiveFiles = m.queryKernelStrings("modified")
 
 		// Get 1-hop dependencies for active files
 		if len(sessionCtx.ActiveFiles) > 0 {
@@ -439,10 +454,25 @@ func (m *Model) queryDependencyContext(files []string) []string {
 	if err != nil {
 		return nil
 	}
+	// Both sides are canonicalized before they are compared, and that is the
+	// whole reason this join produces anything.
+	//
+	// The two fact families reach the kernel by different routes and do NOT
+	// agree on path form. dependency_link comes from the world scan, which runs
+	// every path through world.CanonicalPath and stores it workspace-relative
+	// with forward slashes. modified() comes from internal/tactile, which
+	// records whatever path the tool call carried — usually absolute, and on
+	// Windows usually with backslashes. Matching those raw is a map lookup that
+	// never hits, and a lookup that never hits returns an empty slice, which is
+	// indistinguishable from "this file has no dependencies".
+	//
+	// CanonicalPath is documented as idempotent and safe to apply at any layer
+	// precisely so a consumer can do this without knowing which producer it is
+	// talking to.
 	var deps []string
 	fileSet := make(map[string]bool)
 	for _, f := range files {
-		fileSet[f] = true
+		fileSet[world.CanonicalPath(m.workspace, f)] = true
 	}
 	for _, fact := range results {
 		// dependency_link(CallerID, CalleeID, ImportPath)
@@ -450,6 +480,8 @@ func (m *Model) queryDependencyContext(files []string) []string {
 			caller, _ := fact.Args[0].(string)
 			callee, _ := fact.Args[1].(string)
 			importPath, _ := fact.Args[2].(string)
+			caller = world.CanonicalPath(m.workspace, caller)
+			callee = world.CanonicalPath(m.workspace, callee)
 			// Check if caller or callee is in our active files
 			if fileSet[caller] {
 				deps = append(deps, fmt.Sprintf("%s imports %s", caller, importPath))
