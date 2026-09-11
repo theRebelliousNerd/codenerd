@@ -192,8 +192,10 @@ func (t *TaxonomyEngine) tryLoadLearned() {
 		fmt.Printf("WARNING: Failed to load learned taxonomy from %s: %v\n", learnedPath, err)
 		return
 	}
+	// Loaded facts are program clauses until an evaluation runs; without this
+	// the learned exemplars were invisible to the prompt tables (b72add22).
 	if err := t.engine.Evaluate(); err != nil {
-		fmt.Printf("WARNING: Failed to load learned taxonomy from %s: %v\n", learnedPath, err)
+		fmt.Printf("WARNING: Failed to evaluate learned taxonomy from %s: %v\n", learnedPath, err)
 		return
 	}
 	t.learnedPath = learnedPath
