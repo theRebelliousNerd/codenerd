@@ -98,11 +98,9 @@ func TestSessionContextCarriesProjectFrameworks(t *testing.T) {
 	}
 }
 
-// The engine hint appends to this same key, so the two must compose. Whichever
-// one overwrote the other would be a silent loss: the codex_cli tag disappearing
-// takes engine-specific prompt selection with it, and the project frameworks
-// disappearing takes the atoms this repository actually needs.
-func TestProjectFrameworksAndEngineHintCompose(t *testing.T) {
+// project_framework facts reach ExtraContext["frameworks"] as a comma-joined list
+// with no empty element, because prompt_assembler splits that value on commas.
+func TestProjectFrameworksReachTheSessionContext(t *testing.T) {
 	m, _ := SetupLiveModel(t)
 
 	if err := m.kernel.Assert(core.Fact{
@@ -120,11 +118,7 @@ func TestProjectFrameworksAndEngineHintCompose(t *testing.T) {
 		t.Fatalf("frameworks = %q, want \"/cobra\"", got)
 	}
 
-	// The engine hint is only added when the client is a Codex CLI client, which
-	// this model's mock is not; what has to hold here is that the project
-	// frameworks survive to be appended to, in the order the append expects.
-	// prompt_assembler splits this value on commas, so a single value must not
-	// be wrapped in anything the split would not undo.
+	// prompt_assembler splits this value on commas, so a single value must not be wrapped in anything the split would not undo.
 	if strings.Contains(sessionCtx.ExtraContext["frameworks"], ",,") {
 		t.Error("frameworks value has an empty element; prompt_assembler would produce an empty tag")
 	}
