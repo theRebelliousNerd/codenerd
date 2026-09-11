@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
 
@@ -57,53 +58,109 @@ func MapOpenAIToolCallsToInternal(calls []OpenAIToolCall) ([]ToolCall, error) {
 // Expected history shape (from session executor):
 //
 //	user(text) → assistant(tool_calls) → user(tool_results) → assistant(...) …
+//
+// # What this surface cannot represent
+//
+// Chat Completions gives an assistant turn one content string and one
+// tool_calls array. There is no place to say that prose came BETWEEN two tool
+// calls, so a turn of text → tool_use → text → tool_use is flattened to all
+// the text, then both calls. That is a limit of the wire format, not of the
+// block list: the ordering is read faithfully here and then collapsed on
+// purpose, because the alternative — splitting the turn into several assistant
+// messages — puts a tool_calls message somewhere other than immediately before
+// its tool results, which the endpoint rejects.
+//
+// Thinking blocks are dropped for the same kind of reason and it is worth
+// being precise about it: Chat Completions has no request-side field for
+// reasoning at all. Some vendors (DashScope/Qwen) RETURN reasoning_content;
+// none of them accept it back. A thinking block replayed here would have
+// nowhere to go, so it is counted out at the boundary rather than smuggled
+// into the content string, where it would corrupt structured-output parses.
+// See BlockFidelity in provider_fidelity.go for the machine-readable form.
 func MapTypesHistoryToOpenAIMessages(systemPrompt string, history []types.Message) ([]OpenAIMessage, error) {
 	msgs := make([]OpenAIMessage, 0, len(history)+1)
 	if strings.TrimSpace(systemPrompt) != "" {
 		msgs = append(msgs, OpenAIMessage{Role: "system", Content: systemPrompt})
 	}
 	for _, m := range history {
-		switch {
-		case len(m.ToolResults) > 0:
-			// OpenAI expects one role=tool message per tool_result.
-			for _, tr := range m.ToolResults {
-				content := tr.Content
-				if tr.IsError && content != "" {
-					content = "ERROR: " + content
+		role := m.Role
+		if role == "" {
+			role = "user"
+		}
+
+		var text strings.Builder
+		var calls []OpenAIToolCall
+		var results []OpenAIMessage
+		droppedThinking := 0
+
+		for _, b := range m.Content() {
+			switch b.Kind {
+			case types.BlockText:
+				if len(calls) > 0 {
+					// Prose the model emitted AFTER a tool call. Chat
+					// Completions has one content string per assistant turn,
+					// so it lands ahead of the calls instead of between them.
+					logging.PerceptionDebug(
+						"chat-completions: interleaved text after %d tool call(s) collapsed to the front of the turn", len(calls))
 				}
-				msgs = append(msgs, OpenAIMessage{
-					Role:       "tool",
-					Content:    content,
-					ToolCallID: tr.ToolUseID,
-				})
-			}
-		case len(m.ToolCalls) > 0:
-			oaiCalls := make([]OpenAIToolCall, 0, len(m.ToolCalls))
-			for _, tc := range m.ToolCalls {
-				argsJSON, err := json.Marshal(tc.Input)
+				text.WriteString(b.Text)
+
+			case types.BlockThinking:
+				// Unrepresentable here; see the note above.
+				droppedThinking++
+
+			case types.BlockToolUse:
+				argsJSON, err := json.Marshal(b.Input)
 				if err != nil {
-					return nil, fmt.Errorf("marshal tool args for %s: %w", tc.Name, err)
+					return nil, fmt.Errorf("marshal tool args for %s: %w", b.Name, err)
 				}
-				oaiCalls = append(oaiCalls, OpenAIToolCall{
-					ID:   tc.ID,
+				calls = append(calls, OpenAIToolCall{
+					ID:   b.ID,
 					Type: "function",
 					Function: OpenAIFunctionCall{
-						Name:      tc.Name,
+						Name:      b.Name,
 						Arguments: string(argsJSON),
 					},
 				})
+
+			case types.BlockToolResult:
+				// OpenAI expects one role=tool message per tool_result.
+				content := b.Text
+				if b.IsError && content != "" {
+					content = "ERROR: " + content
+				}
+				results = append(results, OpenAIMessage{
+					Role:       "tool",
+					Content:    content,
+					ToolCallID: b.ToolUseID,
+				})
 			}
+		}
+
+		if droppedThinking > 0 {
+			logging.PerceptionWarn(
+				"chat-completions: dropped %d thinking block(s) from a %s turn — the surface has no request-side field for reasoning, so continuity is lost for this turn",
+				droppedThinking, role)
+		}
+
+		msgs = append(msgs, results...)
+		switch {
+		case len(calls) > 0:
 			msgs = append(msgs, OpenAIMessage{
 				Role:      "assistant",
-				Content:   m.Text,
-				ToolCalls: oaiCalls,
+				Content:   text.String(),
+				ToolCalls: calls,
 			})
-		default:
-			role := m.Role
-			if role == "" {
-				role = "user"
+		case len(results) > 0:
+			// A turn that is nothing but tool results adds no further message.
+			// Text alongside them is rare and used to be discarded; it is now
+			// emitted after the results, where it reads as the user's own
+			// comment on them.
+			if strings.TrimSpace(text.String()) != "" {
+				msgs = append(msgs, OpenAIMessage{Role: role, Content: text.String()})
 			}
-			msgs = append(msgs, OpenAIMessage{Role: role, Content: m.Text})
+		default:
+			msgs = append(msgs, OpenAIMessage{Role: role, Content: text.String()})
 		}
 	}
 	return msgs, nil

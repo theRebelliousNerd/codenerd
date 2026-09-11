@@ -4,8 +4,12 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -26,6 +30,132 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// =============================================================================
+// GOROUTINE LEAK MEASUREMENT
+// =============================================================================
+
+// assertNoGoroutineLeak runs body and fails if the process-wide goroutine count
+// does not come back to within slack of where it started.
+//
+// The caller MUST NOT be parallel, and that is the whole point of routing both
+// of this package's leak tests through one helper. runtime.NumGoroutine counts
+// the WHOLE PROCESS, so a t.Parallel() test that reads it is not measuring its
+// own subject at all -- it is measuring whatever the other 176 parallel tests
+// in this package happen to be doing between the two snapshots. Go guarantees
+// the isolation a global measurement needs, but only to a serial test:
+// t.Parallel "signals that this test is to be run in parallel with (and only
+// with) other parallel tests", so every serial test completes before any
+// parallel one resumes.
+//
+// That is not theory. Both tests here were parallel and both went red on CI
+// with no leak to find: before=68 after=88, five models that provably create
+// no goroutines at all. A neighbour whose count rises by twenty across a
+// 200ms window reproduces it on demand, and is indistinguishable in the report
+// from a subject that leaks twenty.
+//
+// Two further differences from the fixed-sleep version they replace:
+//
+//   - The count is POLLED to the bound rather than read once after a sleep
+//     long enough "on my machine". A shutdown that needs 210ms on a loaded
+//     Windows runner is not a leak, and the old form called it one. This is
+//     internal/broker/stream_test.go's waitFor idiom, which is the same
+//     assertion written correctly.
+//   - A failure NAMES the goroutines, by the "created by" frame the runtime
+//     records for each. "before=68 after=88" says a number moved and nothing
+//     about what moved it, which is an hour of somebody's evening.
+func assertNoGoroutineLeak(t *testing.T, slack int, body func()) {
+	t.Helper()
+
+	settle := func() {
+		runtime.GC()
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Goroutines from EARLIER tests in this package may still be winding down.
+	// Counting those against this subject is the other direction of the same
+	// mistake, so let them go before the snapshot.
+	settle()
+	before := runtime.NumGoroutine()
+	originsBefore := goroutineOrigins()
+
+	body()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		settle()
+		if runtime.NumGoroutine() <= before+slack {
+			return
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+	}
+
+	after := runtime.NumGoroutine()
+	t.Errorf("goroutine leak: before=%d after=%d, more than the %d allowed for runtime background work\n%s",
+		before, after, slack, grownOrigins(originsBefore, goroutineOrigins()))
+}
+
+// goroutineOrigins counts the live goroutines by the "created by" frame the
+// runtime records for each, which is the closest thing to a name a leaked
+// goroutine has.
+func goroutineOrigins() map[string]int {
+	buf := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+
+	origins := make(map[string]int)
+	for _, block := range strings.Split(string(buf), "\n\n") {
+		origin := "(no creator frame: main, or a test runner goroutine)"
+		for _, line := range strings.Split(block, "\n") {
+			if rest, ok := strings.CutPrefix(line, "created by "); ok {
+				origin = strings.TrimSpace(rest)
+				break
+			}
+		}
+		origins[origin]++
+	}
+	return origins
+}
+
+// grownOrigins reports the creator frames that gained goroutines, most first,
+// with ties broken by name so the message is the same on every run.
+func grownOrigins(before, after map[string]int) string {
+	type growth struct {
+		origin string
+		by     int
+	}
+	var grown []growth
+	for origin, n := range after {
+		if by := n - before[origin]; by > 0 {
+			grown = append(grown, growth{origin, by})
+		}
+	}
+	if len(grown) == 0 {
+		return "  no creator frame gained a goroutine, so the growth is in goroutines " +
+			"that existed before and did not exit, or in another test running concurrently"
+	}
+	sort.Slice(grown, func(i, j int) bool {
+		if grown[i].by != grown[j].by {
+			return grown[i].by > grown[j].by
+		}
+		return grown[i].origin < grown[j].origin
+	})
+
+	var b strings.Builder
+	b.WriteString("  goroutines gained, by the frame that created them:\n")
+	for _, g := range grown {
+		fmt.Fprintf(&b, "    +%d  %s\n", g.by, g.origin)
+	}
+	return b.String()
+}
 
 // =============================================================================
 // MOCK KERNEL

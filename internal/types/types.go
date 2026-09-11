@@ -370,6 +370,31 @@ type ToolExecutionSummary struct {
 // =============================================================================
 
 // AmbientContext provides context about the user's active IDE workspace environment.
+//
+// **It has no producer, and unlike the other dark fields on this branch that is
+// correct.** internal/perception/transducer_llm.go reads all four fields and
+// builds a whole "Ambient Context" prompt section out of them; the only writers
+// anywhere are four test files. It is recorded here rather than wired, for the
+// same reason build_layer is: the difference between a missing wire and a
+// missing SOURCE.
+//
+// ActiveFile, CursorLine and SelectedText are editor state. codeNERD's surfaces
+// are a TUI, a CLI and shards, and none of them has a cursor. There is nothing
+// to read these from, so populating them would mean inventing an answer — and
+// an invented active file is worse than no active file, because the prompt
+// presents it as where the user is looking.
+//
+// Diagnostics is the one with a live producer, and it is already spoken for.
+// internal/session/lsp_diagnostics.go runs gopls over the turn's written files
+// and hands the findings to the CRITIC, deliberately: an LLM reviewer given
+// concrete tool output reviews better than one given only source. Rerouting the
+// same signal into the ambient block would pay for it twice in one turn and put
+// it in front of a model that is not the one reviewing.
+//
+// What would make this live is an editor bridge — an LSP or extension client
+// reporting the user's position. That is a feature, and should be costed as
+// one. Until then the consumer stays where it is: deleting it would only mean
+// rebuilding it, worse, when the bridge arrives.
 type AmbientContext struct {
 	ActiveFile   string
 	CursorLine   int

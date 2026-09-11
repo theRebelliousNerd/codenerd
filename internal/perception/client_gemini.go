@@ -310,6 +310,17 @@ func (c *GeminiClient) GetLastGroundingSources() []string {
 // for tool invocation instead of native function calling.
 // For Gemini, this is true when grounding tools (Google Search, URL Context) are enabled,
 // because Gemini API cannot combine built-in tools with function declarations.
+//
+// # The Piggyback path carries no native content blocks at all
+//
+// Piggyback does not use function declarations: it asks for a JSON envelope
+// inside the user prompt and parses tool requests back out of the model's
+// text. Everything typed about a turn is therefore gone by construction on
+// this path — there are no tool_use blocks to carry ids, no thinking parts to
+// carry a signature, and no ordering beyond the order of prose. It is a
+// deliberate trade for keeping grounding available, not a gap an adapter can
+// close, and it is why Gemini's default configuration gets none of the
+// fidelity the native path below preserves.
 func (c *GeminiClient) ShouldUsePiggybackTools() bool {
 	// Use Piggyback for tools when grounding is enabled
 	// This allows tool_requests via structured output while keeping grounding active

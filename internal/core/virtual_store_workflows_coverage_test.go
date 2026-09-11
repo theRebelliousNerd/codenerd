@@ -631,7 +631,11 @@ func TestVirtualStoreWorkflows_Ouroboros(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !res.Success || res.Output != "compile success" {
+	// The delegated return arrives through the subagent-return codec, so the
+	// output is the projection. Short returns are carried whole (see
+	// observation.minRetainBytes), so the compiler's word still reaches the
+	// caller -- under a header naming the agent and the status.
+	if !res.Success || !strings.Contains(res.Output, "compile success") {
 		t.Errorf("expected compile success, got: %+v", res)
 	}
 

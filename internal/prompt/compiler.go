@@ -165,7 +165,20 @@ type CompilationStats struct {
 	MinModeCount int
 
 	// --- Cache & Fallback ---
-	// FallbackUsed indicates whether legacy fallback compilation was used
+	// FallbackUsed indicates whether legacy fallback compilation was used.
+	//
+	// Dark by MISSING SOURCE rather than missing wire, and the tests say so out
+	// loud: TestCompiler_Fallback* builds the two situations that would set it
+	// -- a nil kernel and a kernel query error -- finds the compiler returns an
+	// error in both, and skips with "Fallback for nil kernel not yet
+	// implemented - test documents expected behavior". There is no fallback
+	// compile path to report on.
+	//
+	// So the "fallback_used" key in Map() below always reads false, which is
+	// true for the reason that nothing can make it true. Wiring this means
+	// BUILDING the fallback -- deciding what a compile does when the kernel is
+	// unavailable -- which is the same open question internal/session's 52-
+	// character fallback prompt raises, and it is a feature, not a wire.
 	FallbackUsed bool
 
 	// CacheHit indicates whether a cached skeleton was used
@@ -282,6 +295,46 @@ type CompilationResult struct {
 // It combines rule-based selection (Mangle) with semantic search (vectors)
 // to select the most relevant prompt atoms for a given context.
 
+// privateResult hands a caller its own copy of a compilation.
+//
+// Every exit from Compile goes through here, and each of the three has the same
+// hazard for a different reason:
+//
+//   - a cache HIT returns the object the LRU holds, shared with every past and
+//     future hit on that context;
+//   - a cache MISS returns the object it has just STORED in the LRU, so a
+//     caller that edits it edits the cache;
+//   - a singleflight JOIN hands one object to two concurrent callers.
+//
+// internal/articulation walked into the second one: it appended the Piggyback
+// suffix to result.Prompt, which wrote into the cache entry, and every later
+// hit on that context served a prompt the compiler had not produced.
+// TestCompiledPromptIsByteStable cannot see that — it compares what the
+// compiler returns, not what a consumer did to it afterwards.
+//
+// cacheHit is a parameter rather than a field read because it is the one thing
+// that legitimately differs between two callers holding the same compilation,
+// and setting it on the shared object would mark the ORIGINAL compile as a hit
+// retroactively and race two callers writing one field.
+//
+// The copy is SHALLOW, and the limit is worth stating: Prompt is a string, so
+// a caller reassigning it cannot reach the original, but IncludedAtoms,
+// CategoryTokens and Manifest are still shared and a caller that mutates their
+// contents still reaches everyone. That exposure predates this function. What
+// it closes is the one that reaches a model — the prompt text itself.
+func privateResult(res *CompilationResult, cacheHit bool) *CompilationResult {
+	if res == nil {
+		return nil
+	}
+	out := *res
+	if res.Stats != nil {
+		stats := *res.Stats
+		stats.CacheHit = cacheHit
+		out.Stats = &stats
+	}
+	return &out
+}
+
 // promptCacheEntry holds a cached compilation result and its key.
 type promptCacheEntry struct {
 	key    string
@@ -317,6 +370,11 @@ type JITPromptCompiler struct {
 	cacheMu    sync.Mutex
 	cacheHits  int64
 	cacheMiss  int64
+	// compileNanos accumulates the wall time of compiles that actually ran.
+	// Its denominator is cacheMiss, deliberately: averaging in cache hits,
+	// which take microseconds, produces a number that describes the cache
+	// rather than the compiler and gets smaller the better the cache works.
+	compileNanos int64
 
 	// Observability
 	lastResult atomic.Pointer[CompilationResult]
@@ -360,41 +418,73 @@ type CompilerConfig struct {
 	// DefaultTokenBudget is the default token budget if not specified in context
 	DefaultTokenBudget int
 
-	// EnableVectorSearch enables semantic search for atom selection
-	EnableVectorSearch bool
-
 	// VectorSearchWeight is the weight of vector scores vs logic scores (0.0-1.0)
 	VectorSearchWeight float64
 
-	// VectorSearchTimeout is the timeout duration for vector searches
+	// VectorSearchTimeout is the timeout duration for vector searches.
+	//
+	// Read in four places and set by no production caller, which is what the
+	// dark-field gate reports -- but it is a knob with no SOURCE, not a broken
+	// wire, and the difference is the whole triage. Both consumers coerce a
+	// zero (`if timeout <= 0 { timeout = 10 * time.Second }`, here in
+	// collectLearningAtoms and again in AtomSelector.SetVectorSearchTimeout)
+	// and the selector's constructor defaults to the same ten seconds, so the
+	// inert field costs nothing and semantic selection runs on the default.
+	//
+	// Checked because the opposite would have been bad: a timeout field read
+	// and never written, with no guard, gives context.WithTimeout(ctx, 0) --
+	// a deadline already past, which would disable vector search on every
+	// compile while reporting a timeout nobody configured. That is the shape
+	// worth ruling out, and it is ruled out.
+	//
+	// Making it live means adding a user-facing config key and plumbing it,
+	// which is main's 938cd87 decision in reverse and belongs with whoever
+	// wants the knob.
 	VectorSearchTimeout time.Duration
-
-	// MaxAtomsPerCategory caps atoms selected per category
-	MaxAtomsPerCategory int
-
-	// EnableCaching enables caching of compiled prompts
-	EnableCaching bool
-
-	// CacheTTLSeconds is the cache TTL in seconds
-	CacheTTLSeconds int
 
 	// DebugMode enables verbose JIT manifest logging
 	DebugMode bool
 
 	// KnowledgeSearchTimeout is the max time to wait for knowledge atom embedding and search
 	KnowledgeSearchTimeout time.Duration
+
+	// FOUR FIELDS WERE REMOVED HERE on 2026-09-11, all set by
+	// DefaultCompilerConfig and read by nothing in the repository -- not
+	// production, not tests, except tests asserting the literal they had just
+	// been handed. Three of them described behaviour that does not exist,
+	// which is worse than an absent knob: a reader reasoning about this
+	// compiler believed them.
+	//
+	//   EnableVectorSearch   the selector has no such switch. It runs the
+	//                        search when a vectorSearcher is installed and
+	//                        skips it when one is not, and the factory decides
+	//                        that by whether an embedding engine exists.
+	//   MaxAtomsPerCategory  no per-category cap exists anywhere. Selection is
+	//                        bounded by the token budget.
+	//   CacheTTLSeconds      the prompt LRU has NO TTL. Entries live until size
+	//                        eviction. The "// 5 minutes" beside it was
+	//                        especially expensive, because this branch spent
+	//                        real effort on Anthropic's five-minute prompt-cache
+	//                        TTL and a second inert five-minute TTL in the same
+	//                        subsystem is a trap laid for exactly that reader.
+	//   EnableCaching        the LRU is unconditional; nothing checks a flag.
+	//
+	// Deleted rather than wired, which is main's 938cd87 judgement on
+	// shard_profiles.max_output_tokens applied again: each of the three would
+	// have meant BUILDING the behaviour it claims, and that is a feature
+	// decision. VectorSearchWeight is the one of the five that was a genuine
+	// missing wire and it is wired above.
 }
 
 // DefaultCompilerConfig returns a sensible default configuration.
 // Note: DefaultTokenBudget should be overridden via WithDefaultTokenBudget() from config.ContextWindow.MaxTokens.
 func DefaultCompilerConfig() CompilerConfig {
 	return CompilerConfig{
-		DefaultTokenBudget:     200000, // 200k tokens default - callers should override from config
-		EnableVectorSearch:     true,
+		DefaultTokenBudget: 200000, // 200k tokens default - callers should override from config
+		// Mirrors AtomSelector's own default. The selector keeps one too, for
+		// direct users that never see a CompilerConfig; this is the value the
+		// compiler pushes into it.
 		VectorSearchWeight:     0.3, // 70% logic, 30% vector
-		MaxAtomsPerCategory:    10,
-		EnableCaching:          true,
-		CacheTTLSeconds:        300, // 5 minutes
 		DebugMode:              false,
 		KnowledgeSearchTimeout: 10 * time.Second,
 	}
@@ -429,6 +519,23 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 
 	// Ensure selector has the timeout from config
 	compiler.selector.SetVectorSearchTimeout(compiler.config.VectorSearchTimeout)
+	// The sibling knob, and it was wired nowhere. SetVectorWeight had no
+	// production caller and CompilerConfig.VectorSearchWeight had no
+	// reader: two halves of one missing wire, which is why the selector
+	// and the config each carried their own 0.3 with the same
+	// "70% logic, 30% vector" comment attached.
+	//
+	// The zero is guarded because the two setters do NOT agree about what
+	// one means. SetVectorSearchTimeout reads zero as "unset" and
+	// substitutes ten seconds; SetVectorWeight clamps to [0,1] and takes a
+	// zero literally, as pure logic. So wiring this unguarded would make a
+	// partially-filled CompilerConfig silently turn vector scoring off --
+	// the exact silent-failure shape this is being fixed to remove. Pure
+	// logic is expressed by installing no vector searcher at all
+	// (selector.go skips the search when vectorSearcher is nil).
+	if compiler.config.VectorSearchWeight > 0 {
+		compiler.selector.SetVectorWeight(compiler.config.VectorSearchWeight)
+	}
 
 	logging.Get(logging.CategoryContext).Info("JITPromptCompiler initialized")
 	return compiler, nil
@@ -502,7 +609,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		atomic.AddInt64(&c.cacheHits, 1)
 		logging.Get(logging.CategoryJIT).Info("Prompt cache HIT for %s (hash=%s, hits=%d)",
 			cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheHits))
-		return cached, nil
+		return privateResult(cached, true), nil
 	}
 	c.cacheMu.Unlock()
 	// Singleflight to prevent Thundering Herd
@@ -521,6 +628,15 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 
 		// Start comprehensive timing after validation
 		compileStart := time.Now()
+		// The same clock feeds the per-compilation Duration below and the
+		// process-wide average `nerd jit` reports. Accumulating on EVERY exit
+		// path, including the error ones, is deliberate: a compile that failed
+		// after eight seconds still spent eight seconds, and an average that
+		// counted only successes would get better the more often compilation
+		// broke.
+		defer func() {
+			atomic.AddInt64(&c.compileNanos, int64(time.Since(compileStart)))
+		}()
 		stats := &CompilationStats{
 			ShardID:         cc.ShardID,
 			OperationalMode: cc.OperationalMode,
@@ -781,7 +897,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 	if shared {
 		logging.Get(logging.CategoryJIT).Info("Prompt compilation joined via singleflight for hash=%s", cacheKey[:8])
 	}
-	return res, nil
+	return privateResult(res, false), nil
 }
 
 func acquireCompilationKernel(base KernelQuerier) (KernelQuerier, func(), error) {
@@ -1440,13 +1556,28 @@ func (c *JITPromptCompiler) GetLastResult() *CompilationResult {
 	return c.lastResult.Load()
 }
 
-// Stats returns compilation statistics.
+// CompilerStats is what `nerd jit` prints.
+//
+// Three of these five were filled by nothing. GetStats built the struct with
+// ShardDBCount and EmbeddedAtomCount and returned it, so the command printed
+// "Project Atoms: 0 / Compilations: 0 / Avg Time (ms): 0.00" on a machine that
+// had been compiling prompts all day — and statsCompilations, which the
+// explanatory lines of the same command read, returned zero with it. Zeros are
+// the worst possible failure for a stats command: they read as a system that
+// has not run rather than as a command that is not looking.
 type CompilerStats struct {
 	EmbeddedAtomCount int
 	ProjectAtomCount  int
 	ShardDBCount      int
+
+	// TotalCompilations counts compiles that actually RAN. A cache hit is not
+	// a compilation, it is an avoided one, and singleflight coalescing means
+	// two concurrent callers of the same context produce one. This is the
+	// denominator AverageTimeMs uses, so the two numbers can be read together.
 	TotalCompilations int64
-	AverageTimeMs     float64
+
+	// AverageTimeMs is the mean wall time of those compiles.
+	AverageTimeMs float64
 }
 
 // GetStats returns current compiler statistics.
@@ -1455,13 +1586,31 @@ func (c *JITPromptCompiler) GetStats() CompilerStats {
 	shardCount := len(c.shardDBs)
 	c.shardMu.RUnlock()
 
+	compiles := atomic.LoadInt64(&c.cacheMiss)
 	stats := CompilerStats{
-		ShardDBCount: shardCount,
+		ShardDBCount:      shardCount,
+		TotalCompilations: compiles,
+	}
+	if compiles > 0 {
+		nanos := atomic.LoadInt64(&c.compileNanos)
+		stats.AverageTimeMs = float64(nanos) / float64(compiles) / float64(time.Millisecond)
 	}
 
 	c.dbMu.RLock()
 	if c.embeddedCorpus != nil {
 		stats.EmbeddedAtomCount = c.embeddedCorpus.Count()
+	}
+	// The project corpus is a database rather than a slice, so its size is a
+	// query. A failure here is reported as zero and not as an error: this is a
+	// stats call, and a closed or missing .nerd/prompts/corpus.db is the
+	// ordinary state of a workspace nobody has run `nerd init` in.
+	if c.projectDB != nil {
+		var count int
+		if err := c.projectDB.QueryRow("SELECT COUNT(*) FROM prompt_atoms").Scan(&count); err == nil {
+			stats.ProjectAtomCount = count
+		} else {
+			logging.Get(logging.CategoryJIT).Debug("GetStats: counting project atoms: %v", err)
+		}
 	}
 	c.dbMu.RUnlock()
 

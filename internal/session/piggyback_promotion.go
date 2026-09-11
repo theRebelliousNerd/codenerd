@@ -69,7 +69,11 @@ func (e *Executor) promotePiggybackToolRequests(resp *types.LLMToolResponse) boo
 			e.processMangleUpdatesFromEnvelope(env)
 		}
 	}
-	resp.Text = surface
-	resp.ToolCalls = valid
+	// Both views, in one call. Writing resp.Text and resp.ToolCalls directly
+	// would leave a block-carrying response holding the original envelope text
+	// and no tool_use blocks, so the assistant turn appended to history would
+	// claim it called nothing while the next user turn answered calls that are
+	// not in the transcript.
+	resp.Rewrite(surface, valid)
 	return true
 }

@@ -4,7 +4,6 @@ package chat
 
 import (
 	"context"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -213,37 +212,21 @@ func TestGoroutineCount_AfterOperations(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping goroutine count test in short mode")
 	}
-	t.Parallel()
+	// Deliberately not t.Parallel: assertNoGoroutineLeak reads a process-wide
+	// counter, and a parallel test reading that is measuring its neighbours.
 
-	// Wait for any previous goroutines to settle
-	runtime.GC()
-	time.Sleep(100 * time.Millisecond)
+	assertNoGoroutineLeak(t, 10, func() {
+		for range 10 {
+			m := NewTestModel()
 
-	before := runtime.NumGoroutine()
+			// Perform some operations that don't require kernel
+			m, _ = SimulateInput(m, "/help")
+			m, _ = SimulateInput(m, "/usage")
 
-	// Create and use multiple models
-	for range 10 {
-		m := NewTestModel()
-
-		// Perform some operations that don't require kernel
-		m, _ = SimulateInput(m, "/help")
-		m, _ = SimulateInput(m, "/usage")
-
-		// Cleanup
-		m.Shutdown()
-	}
-
-	// Wait for cleanup
-	time.Sleep(500 * time.Millisecond)
-	runtime.GC()
-	time.Sleep(100 * time.Millisecond)
-
-	after := runtime.NumGoroutine()
-
-	// Allow some slack for runtime goroutines
-	if after > before+10 {
-		t.Errorf("Possible goroutine leak: before=%d after=%d (diff=%d)", before, after, after-before)
-	}
+			// Cleanup
+			m.Shutdown()
+		}
+	})
 }
 
 // =============================================================================

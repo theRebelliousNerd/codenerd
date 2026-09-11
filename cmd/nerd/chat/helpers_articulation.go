@@ -8,6 +8,7 @@ import (
 	"codenerd/internal/types"
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -201,8 +202,12 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 					break
 				}
 				sb.WriteString(fmt.Sprintf("%d. ", i+1))
-				for k, v := range finding {
-					sb.WriteString(fmt.Sprintf("%s=%v ", k, v))
+				// Sorted: a finding is a map, so ranging it directly renders the
+				// same finding with its fields in a different order every run.
+				// The model reads this, and two runs of one review become
+				// impossible to diff.
+				for _, k := range sortedKeys(finding) {
+					sb.WriteString(fmt.Sprintf("%s=%v ", k, finding[k]))
 				}
 				sb.WriteString("\n")
 			}
@@ -212,8 +217,8 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 		// Include metrics if available
 		if len(sr.Metrics) > 0 {
 			sb.WriteString("### Metrics\n")
-			for k, v := range sr.Metrics {
-				sb.WriteString(fmt.Sprintf("- %s: %v\n", k, v))
+			for _, k := range sortedKeys(sr.Metrics) {
+				sb.WriteString(fmt.Sprintf("- %s: %v\n", k, sr.Metrics[k]))
 			}
 			sb.WriteString("\n")
 		}
@@ -441,4 +446,19 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 	}
 
 	return output, nil
+}
+
+// sortedKeys returns a map's keys in a stable order.
+//
+// Go randomises map iteration deliberately, so any map ranged straight into
+// prompt text renders differently on every run. That costs twice: a provider's
+// prefix cache cannot match bytes that keep moving, and a person trying to work
+// out why a prompt got worse cannot diff two runs of it.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

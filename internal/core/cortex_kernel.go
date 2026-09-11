@@ -956,9 +956,9 @@ func (c *CortexKernel) LogMetrics() {
 		totalFacts += m.FactCount
 		totalEvals += m.EvalCount
 		totalQueries += m.QueryCount
-		logging.Kernel("[cortex] shard=%s facts=%d evals=%d queries=%d lastEval=%v dirty=%d exports=%d",
+		logging.Kernel("[cortex] shard=%s facts=%d evals=%d queries=%d lastEval=%v dirty=%d",
 			m.Domain, m.FactCount, m.EvalCount, m.QueryCount,
-			m.LastEvalDuration, m.DirtyCount, m.ExportHitCount)
+			m.LastEvalDuration, m.DirtyCount)
 	}
 
 	c.mu.RLock()

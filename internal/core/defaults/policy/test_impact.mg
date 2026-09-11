@@ -8,15 +8,55 @@
 # NOTE: Test file and function identification is done in Go code
 # (internal/world/test_dependency.go) because Mangle doesn't have
 # string matching functions (fn:match, fn:basename, fn:dirname, etc.).
-# The Go code asserts is_test_file(File) and is_test_function(Ref) facts
-# which these rules then consume.
+#
+# THE SENTENCE THAT USED TO BE HERE SAID that Go code asserts is_test_file(File)
+# and is_test_function(Ref), "which these rules then consume". Verified
+# 2026-09-11 and it is not so, which matters because it is the difference
+# between a rule that fires and one that cannot:
+#
+#   is_test_function   NO PRODUCER, in Go or Mangle. Declared below, named in
+#                      five rule bodies in this file, asserted by nobody.
+#                      internal/world/test_dependency.go -- the file named
+#                      above -- contains no Fact{}, no Assert and no
+#                      Predicate: at all. It is a CONSUMER: it queries the
+#                      kernel and builds a dependency graph in Go, which
+#                      run_impacted_tests reaches through the
+#                      TestDependencyAnalyzer interface.
+#
+#   file_imports       NO PRODUCER either (Decl in schemas_codedom_polyglot.mg
+#                      :200, joined by three rules here and aliased by
+#                      intent_routing_rules.mg:588 as imports/2). The live
+#                      file-to-file edge the scanners actually emit is
+#                      dependency_link(CallerID, CalleeID, ImportPath),
+#                      schemas_world.mg:54. Two names for one relation, and
+#                      the populated one is not the one these rules join.
+#
+#   modified_file      Its only Go producer is TransactionManager.ToFacts()
+#                      (internal/core/transaction_manager.go), and nothing in
+#                      the repository calls it -- VirtualStore.
+#                      GetTransactionManager() has no callers at all, and no
+#                      production code calls Begin or AddEdit, so no
+#                      transaction is ever opened and ToFacts returns empty.
+#
+# So every impacted_test and test_depends_on rule below is starved, and has
+# been. This is recorded rather than fixed because fixing it is a design
+# decision, not a wire: somebody has to choose whether test identification
+# moves into the scanner, whether file_imports collapses into dependency_link,
+# and what drives the transaction manager. Wiring modified_file ALONE -- the
+# obvious-looking fix, and the one this note exists to stop -- derives exactly
+# nothing, because is_test_function still binds no rows.
+#
+# The Go path is what carries test impact today and it works: run_impacted_tests
+# reads edited refs from element_modified and plan_edit and walks the graph in
+# Go. These rules are a parallel Mangle path that never came up.
 
 # =============================================================================
 # SECTION 1: TEST IDENTIFICATION PREDICATES
 # =============================================================================
-# These predicates are ASSERTED BY GO CODE (test_dependency.go), not derived.
-# Declarations are in schemas_shards.mg (is_test_file, same_package).
-# is_test_function is not yet declared elsewhere, so we declare it here.
+# These predicates were INTENDED to be asserted by Go code (test_dependency.go)
+# rather than derived. Declarations are in schemas_shards.mg (is_test_file,
+# same_package). is_test_function is not declared elsewhere, so we declare it
+# here -- and nothing asserts it; see the note at the top of this file.
 
 Decl is_test_function(Ref).
 

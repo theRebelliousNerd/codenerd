@@ -534,14 +534,6 @@ internal/shards/matching.go	IsStrategicAdvisor
 internal/shards/registration.go	RegisterSystemShardProfiles
 internal/shards/system/perception.go	buildVerbPatterns
 internal/shards/system/router.go	extractIntentIDFromPayloadString
-internal/sqlpragmas/connector.go	NewConnector
-internal/sqlpragmas/connector.go	OpenWithPragmas
-internal/sqlpragmas/connector.go	applyToDriverConn
-internal/sqlpragmas/connector.go	dsnConnector.Connect
-internal/sqlpragmas/connector.go	dsnConnector.Driver
-internal/sqlpragmas/connector.go	execOnDriverConn
-internal/sqlpragmas/connector.go	pragmaConnector.Connect
-internal/sqlpragmas/connector.go	pragmaConnector.Driver
 internal/sqlpragmas/hostclass.go	ClearHostClass
 internal/sqlpragmas/hostclass.go	HostClass.String
 internal/sqlpragmas/hostclass.go	SetHostClass

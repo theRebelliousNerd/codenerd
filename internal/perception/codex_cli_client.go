@@ -471,6 +471,15 @@ func (c *CodexCLIClient) WorkspaceRoot() string { return c.workspaceRoot }
 
 // CompleteWithTools sends a prompt with tool definitions.
 // Codex CLI is used as a backend here; tools are requested via Piggyback control_packet.tool_requests.
+//
+// # No content blocks reach this engine, and none can
+//
+// Same shape as claude-cli: the CLI takes a prompt and returns text, so there
+// is nowhere to put an ordered block list, a thinking signature or a tool-use
+// id. This client does not implement types.ToolResultsProvider, and prior
+// turns arrive as a rendered transcript. See the note on
+// ClaudeCodeCLIClient.CompleteWithTools for why that is a property of the
+// engine rather than a gap in this adapter.
 func (c *CodexCLIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
 	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {

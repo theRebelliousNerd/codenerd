@@ -312,6 +312,24 @@ const (
 )
 
 // DependencyError describes a dependency resolution error.
+//
+// Only ONE of its three types is ever constructed. ValidateDependencies emits
+// DependencyErrorMissing and nothing else, so ConflictID and CycleIDs are
+// never filled and the two Error() branches that format them are unreachable —
+// which is why the dark-field gate reports both fields.
+//
+// That is a missing SOURCE rather than a missing wire, and the source moved on
+// purpose. Conflict detection is now Mangle's: atoms carry ConflictsWith,
+// selector.go feeds it to atom_conflicts() in jit_compiler.mg, and the kernel
+// resolves conflicts during selection rather than after it — which is the only
+// place it CAN be resolved, since two atoms only conflict once both have been
+// selected. DetectCycles here is still the cycle algorithm, and it returns its
+// path directly; nothing wraps that path into a DependencyError because
+// nothing needs the error type to carry it.
+//
+// Left rather than deleted: Error() is the documented rendering for all three
+// types, and a future caller that does want a typed cycle error should find
+// the shape already agreed rather than invent a second one.
 type DependencyError struct {
 	AtomID       string
 	MissingDepID string

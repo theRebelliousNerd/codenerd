@@ -28,6 +28,27 @@
 // line costs nothing. Deciding that needs full type information and a look at
 // where the bytes go, which is a reviewer's job, not a walker's.
 //
+// ONE ENTRY BELOW IS NOT IN THAT SAFE CATEGORY, and is recorded rather than
+// fixed on purpose. internal/session's Executor.recordWorkingResult does:
+//
+//	args, _ := json.Marshal(call.Input)
+//	sum := sha256.Sum256(append([]byte(call.Name+"\x00"), args...))
+//	kind := call.Name + "/" + hex.EncodeToString(sum[:8])
+//
+// and `kind` is the identity the observation is persisted under. A failed
+// Marshal yields nil, so every failing call of one tool would hash to the SAME
+// kind whatever its arguments were — the record's identity silently collapses
+// rather than erroring.
+//
+// In practice call.Input is decoded from the model's tool-call JSON, so its
+// values are strings, numbers, bools, nils, maps and slices, none of which
+// Marshal rejects. The risk is a future Go-constructed Input carrying something
+// it does. It is listed here rather than patched because the fix is a
+// behavioural choice in someone else's change — fail the record, or fall back
+// to a rendering that must ALSO be deterministic, since fmt.Sprintf of a map is
+// not — and that belongs with whoever owns that loop, not with the branch that
+// happened to run the audit.
+//
 // So this is a budget, in the same spirit as scripts/deadcode-budget.sh: the
 // baseline is a measurement, not a target of zero, and the gate fails when the
 // number moves in EITHER direction. Fixing one means updating the baseline,
@@ -183,7 +204,7 @@ func scan() ([]finding, error) {
 				out = append(out, finding{
 					key: fmt.Sprintf("%s\t%s\tjson.%s(%s)",
 						filepath.ToSlash(filepath.Dir(path)),
-						enclosingFunc(file, stmt.Pos()), fn, buf.String()),
+						enclosingFunc(file, stmt.Pos()), fn, oneLine(buf.String())),
 					file: filepath.ToSlash(path),
 					line: pos.Line,
 				})
@@ -336,4 +357,24 @@ func diff(baseline, found []string) (added, removed []string) {
 	sort.Strings(added)
 	sort.Strings(removed)
 	return added, removed
+}
+
+// oneLine collapses a rendered expression onto a single line.
+//
+// The baseline is one finding per line, so an argument whose SOURCE spans
+// several lines -- an anonymous struct literal is the common case -- could not
+// be written to it and read back. The tool would report the finding, -update
+// would appear to record it, and the very next run would report it again:
+// permanently red, with no way for anyone to make it green except by not
+// marshalling an anonymous struct.
+//
+// That is worse than a missing check. This repo's own notes on the action
+// linter say it: a gate that fails on day one for something that is not a bug
+// does not get switched on, and then the real drift it was written to catch
+// goes unseen too.
+//
+// Whitespace is collapsed rather than stripped so the text stays readable and
+// two different literals stay distinguishable.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }

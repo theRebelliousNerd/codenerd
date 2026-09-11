@@ -256,15 +256,29 @@ func TestPromptAtom_MatchesContext(t *testing.T) {
 			expectMatch: true,
 		},
 		{
-			// The rule a third of the corpus hangs on. 326 of 918 atom entries
+			// The rule a third of the corpus hangs on: 326 of 918 atom entries
 			// declare a language, so "no language" excluding all of them is a
-			// far bigger event than it looks -- and it is the correct rule:
-			// selecting them all would put Rust advice in a Python session.
+			// far bigger event than it looks.
 			//
-			// It also means an empty language is a wiring bug rather than a
-			// neutral default, which is how the interactive turn ran for a long
-			// time. cmd/nerd/chat now fills it from the kernel's
-			// project_language fact.
+			// THE MANGLE PATH DOES THE OPPOSITE, deliberately, and this is the
+			// only place the two are written down together. jit_compiler.mg
+			// treats language as a SITUATIONAL dimension -- its comment reads
+			// "no language in context should not suppress an atom that happens
+			// to mention Go" -- so there, an absent language ADMITS all 326.
+			// Only the regime dimensions (/shard, /mode, /phase, /layer, the
+			// wizard steps, /provider, /model) are fail-closed in Mangle.
+			//
+			// So the primary and fallback selectors disagree on this dimension,
+			// each documented as correct in its own file. Absent a language the
+			// kernel admits Go and Python and Rust advice at once, and this
+			// function admits none of it -- the same contradictory-identity
+			// pathology internal/session/executor.go describes for shards.
+			//
+			// The resolution is not to pick a winner but to make the
+			// disagreement unreachable: cmd/nerd/chat now fills the language
+			// from the kernel's project_language fact, so the dimension is
+			// never empty on a scanned workspace and both paths select the same
+			// thing. An empty language is a wiring bug, not a neutral default.
 			name: "language required, context has none - excluded",
 			atom: &PromptAtom{
 				ID:        "go-lang",

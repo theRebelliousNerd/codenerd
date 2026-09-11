@@ -135,6 +135,20 @@ func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 		// Get relevant symbols in scope
 		sessionCtx.SymbolContext = m.querySymbolContext()
 
+		// Files currently in focus, which had no writer at all: two consumers
+		// read ActiveFiles — this dependency query and queryGraphMemory — and
+		// nothing in the repository ever filled it, so DependencyContext was
+		// empty in every session ever run and both retrieval paths behind it
+		// were unreachable.
+		//
+		// modified(Path) is the right source rather than the git working set.
+		// It is asserted by internal/tactile on every write, edit, insert and
+		// delete the agent performs, so it means "files THIS SESSION has
+		// touched" — which is what "in focus" has to mean for a turn — rather
+		// than "files that differ from HEAD", which includes whatever was
+		// already dirty when the session started.
+		sessionCtx.ActiveFiles = m.queryKernelStrings("modified")
+
 		// Get 1-hop dependencies for active files
 		if len(sessionCtx.ActiveFiles) > 0 {
 			sessionCtx.DependencyContext = m.queryDependencyContext(sessionCtx.ActiveFiles)
@@ -439,10 +453,34 @@ func (m *Model) queryDependencyContext(files []string) []string {
 	if err != nil {
 		return nil
 	}
+	// Both sides are canonicalized before they are compared.
+	//
+	// When this join was wired the two fact families did NOT agree on path
+	// form: dependency_link came from the world scan, canonical and
+	// workspace-relative, while modified() came from internal/tactile, which
+	// recorded whatever path the tool call carried — usually absolute, on
+	// Windows usually with backslashes. Matching those raw is a map lookup that
+	// never hits, and a lookup that never hits returns an empty slice, which is
+	// indistinguishable from "this file has no dependencies".
+	//
+	// main's 29c2967 then fixed it at the source, and fixed it everywhere: the
+	// CodeDOM family, the tactile editor and the transaction manager all emit
+	// the canonical identity now, and CanonicalPath moved to internal/types so
+	// core and tactile — which cannot import world — can reach it. Its commit
+	// message names the same failure this join hit, across a dozen more
+	// predicates: "the joins across the two families were dead."
+	//
+	// These two calls stay anyway, and not out of sentiment. CanonicalPath is
+	// idempotent, so on a fact that is already canonical they cost a string
+	// compare; and it still returns an ABSOLUTE path for a file outside the
+	// workspace root, which is a spelling this consumer would otherwise have to
+	// know about. A join is the one place where being defensive is free: the
+	// producer's guarantee can be right and this still cannot tell, because
+	// what arrives is a string.
 	var deps []string
 	fileSet := make(map[string]bool)
 	for _, f := range files {
-		fileSet[f] = true
+		fileSet[types.CanonicalPath(m.workspace, f)] = true
 	}
 	for _, fact := range results {
 		// dependency_link(CallerID, CalleeID, ImportPath)
@@ -450,6 +488,8 @@ func (m *Model) queryDependencyContext(files []string) []string {
 			caller, _ := fact.Args[0].(string)
 			callee, _ := fact.Args[1].(string)
 			importPath, _ := fact.Args[2].(string)
+			caller = types.CanonicalPath(m.workspace, caller)
+			callee = types.CanonicalPath(m.workspace, callee)
 			// Check if caller or callee is in our active files
 			if fileSet[caller] {
 				deps = append(deps, fmt.Sprintf("%s imports %s", caller, importPath))
@@ -597,6 +637,12 @@ func (m *Model) populateGitContext(sessionCtx *types.SessionContext) {
 			case "recent_commits":
 				sessionCtx.GitRecentCommits = splitContextList(val)
 				sessionCtx.ExtraContext["git_commits"] = val
+			case "untracked_files":
+				// Through ExtraContext rather than a typed field, matching how
+				// reflection_hits reaches the same place. The value is carried
+				// as well as the flag because the atom asks the model to review
+				// and categorise the files, which it cannot do unnamed.
+				sessionCtx.ExtraContext["new_files"] = val
 			case "unstaged_count":
 				if count, convErr := strconv.Atoi(strings.TrimSpace(val)); convErr == nil {
 					sessionCtx.GitUnstagedCount = count
@@ -671,6 +717,7 @@ func (m *Model) populateTestState(sessionCtx *types.SessionContext) {
 		case counts.Failed > 0:
 			sessionCtx.TestState = "/failing"
 			sessionCtx.FailingTests = counts.FailedNames
+			sessionCtx.TDDRetryCount = repeatedTestFailures(m.shardResultHistory[:i])
 			if len(sessionCtx.FailingTests) == 0 {
 				// A runner that reports a count without naming anything. One
 				// honest line, because FailingTests is rendered into the prompt
@@ -691,6 +738,49 @@ func (m *Model) populateTestState(sessionCtx *types.SessionContext) {
 			"Tests: %d pass, %d fail", counts.Passed, counts.Failed)
 		return
 	}
+}
+
+// repeatedTestFailures counts how many tester runs BEFORE the current one
+// failed without a passing run in between.
+//
+// It is the third field of the TEST STATE block and had the same defect as the
+// other two: two production readers, in prompt_assembler.go and in
+// shards/agents.go, both rendering "TDD Retry: N (fix root cause, not
+// symptoms)" into the prompt, and nothing in the repository ever setting it.
+// Two tests wrote it, which is how a field survives with no producer — the
+// readers are exercised, so the feature looks covered.
+//
+// It counts PRIOR failures, not the current one, so the first failure is zero
+// and prints nothing. That is the semantics the readers already assume: a
+// retry count of 1 has to mean "you have tried once and it is still failing",
+// or the line fires on a suite that has just gone red for the first time and
+// tells a model that has not attempted anything yet to stop treating symptoms.
+//
+// A passing run ends the loop. This is the CURRENT repair loop's depth, not a
+// tally of everything that has ever gone red in the session, and green in
+// between means whatever came after it is a new problem.
+//
+// Runs the parser cannot read are skipped rather than counted or treated as a
+// break: an unreadable runner is not evidence of a repair and not evidence of
+// a fix. The same reasoning governs the caller — it asserts neither verdict on
+// an unparseable newest result.
+func repeatedTestFailures(earlier []*ShardResult) int {
+	count := 0
+	for i := len(earlier) - 1; i >= 0; i-- {
+		if earlier[i].ShardType != "tester" {
+			continue
+		}
+		counts := testoutput.Parse(earlier[i].RawOutput)
+		switch {
+		case !counts.Parsed:
+			continue
+		case counts.Failed > 0:
+			count++
+		case counts.Passed > 0:
+			return count
+		}
+	}
+	return count
 }
 
 // buildPriorShardSummaries extracts summaries from recent shard executions.

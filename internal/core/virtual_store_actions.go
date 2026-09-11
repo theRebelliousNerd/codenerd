@@ -13,8 +13,10 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/tactile"
+	toolscore "codenerd/internal/tools/core"
 )
 
 // Exec executes a command directly, bypassing the ActionRequest routing but maintaining safety checks.
@@ -844,15 +846,30 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 
 	logging.VirtualStore("Delegating to shard: type=%s, task_len=%d", shardType, len(task))
 
-	var result string
+	// The observed path is preferred because it is the only one that can say
+	// what the subagent CHANGED and whether it BUILT. Both are facts the
+	// executor already measured and then dropped at the boundary; a delegator
+	// that cannot answer falls through to the string, and the projection then
+	// marks what it reads out of prose as reported rather than observed.
+	var observed observation.Return
 	var err error
-	if delegator != nil {
-		// Use new TaskDelegator (JIT architecture)
-		result, err = delegator.Execute(ctx, shardType, task)
-	} else {
+	switch {
+	case delegator != nil:
+		if od, ok := delegator.(ObservedTaskDelegator); ok {
+			observed, err = od.ExecuteObserved(ctx, shardType, task)
+		} else {
+			var result string
+			result, err = delegator.Execute(ctx, shardType, task)
+			observed = observation.Return{Output: result}
+		}
+	default:
 		// Fall back to legacy ShardManager
+		var result string
 		result, err = sm.Spawn(ctx, shardType, task)
+		observed = observation.Return{Output: result}
 	}
+	observed.Agent = strings.TrimPrefix(shardType, "/")
+	observed.Task = task
 
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Shard delegation failed: %s - %v", shardType, err)
@@ -865,12 +882,28 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 		}, nil
 	}
 
-	logging.VirtualStore("Shard delegation completed: type=%s, result_len=%d", shardType, len(result))
+	// The parent gets the projection, not the transcript. A delegation returns
+	// the whole of another agent's turn — its plan, its tool narration, its
+	// reasoning aloud — and all of that lands verbatim in the parent's tool
+	// loop, where the parent pays for it on every subsequent round of that same
+	// loop. What the parent has to decide on is narrower and does not vary with
+	// how talkative the subagent was: what it found, what it changed, what was
+	// verified, and what is still open. The transcript stays reachable behind
+	// the handle in the last line.
+	projected := observation.SharedSubagents().EncodeReturn(observed, observation.ReturnLimits{})
+	text := projected.Text(toolscore.SubagentExpandToolName)
+
+	logging.VirtualStore("Shard delegation completed: type=%s, result_len=%d, projected_len=%d",
+		shardType, len(observed.Output), len(text))
 	return ActionResult{
 		Success: true,
-		Output:  result,
+		Output:  text,
 		FactsToAdd: []Fact{
-			{Predicate: "delegation_result", Args: []any{shardType, result}},
+			// The fact carries the projection for the same reason the output
+			// does: a delegation_result holding a whole transcript is a whole
+			// transcript in the kernel, reachable by every injectable-context
+			// query for the rest of the session.
+			{Predicate: "delegation_result", Args: []any{shardType, text}},
 		},
 	}, nil
 }

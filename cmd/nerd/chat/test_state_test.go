@@ -105,3 +105,109 @@ func TestMostRecentTesterResultWins(t *testing.T) {
 			sessionCtx.TestState)
 	}
 }
+
+// TDDRetryCount is the third field of the TEST STATE block and had the same
+// defect as the other two: two production readers — prompt_assembler.go and
+// shards/agents.go, both rendering "TDD Retry: N (fix root cause, not
+// symptoms)" into the prompt — and nothing in the repository writing it. Two
+// tests set it by hand, which is exactly how a field survives with no
+// producer: the readers are exercised, so the feature looks covered.
+func TestRepeatedFailuresArmTheStopTreatingSymptomsSignal(t *testing.T) {
+	tests := []struct {
+		name    string
+		history []*ShardResult
+		want    int
+	}{
+		{
+			name:    "the first failure is not a retry",
+			history: []*ShardResult{tester(failingGoOutput)},
+			// Zero, and the readers print nothing at zero. A "TDD Retry: 1" on
+			// a suite that has only just gone red tells a model that has not
+			// attempted anything yet to stop treating symptoms.
+			want: 0,
+		},
+		{
+			name:    "failing twice in a row means one attempt has already been made",
+			history: []*ShardResult{tester(failingGoOutput), tester(failingGoOutput)},
+			want:    1,
+		},
+		{
+			name: "a passing run ends the loop",
+			history: []*ShardResult{
+				tester(failingGoOutput),
+				tester(failingGoOutput),
+				tester(passingGoOutput),
+				tester(failingGoOutput),
+			},
+			// This is the depth of the CURRENT repair loop, not a tally of
+			// everything that has ever gone red. Green in between means what
+			// came after is a new problem, and carrying the old count into it
+			// would tell the model it is three attempts deep into something it
+			// has not started.
+			want: 0,
+		},
+		{
+			name: "other shards between two tester runs are not the loop",
+			history: []*ShardResult{
+				tester(failingGoOutput),
+				{ShardType: "coder", RawOutput: "wrote the fix"},
+				{ShardType: "reviewer", RawOutput: "looks fine"},
+				tester(failingGoOutput),
+			},
+			// A coder run between two failures is the retry, not a break in it.
+			want: 1,
+		},
+		{
+			name: "a runner the parser cannot read is neither a retry nor a fix",
+			history: []*ShardResult{
+				tester(failingGoOutput),
+				tester("pytest exited 1; no summary line this parser knows"),
+				tester(failingGoOutput),
+			},
+			// Skipped rather than counted or treated as green: unreadable
+			// output is not evidence of a repair and not evidence of one
+			// landing.
+			want: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _ := SetupLiveModel(t)
+			m.shardResultHistory = append(m.shardResultHistory, tt.history...)
+
+			sessionCtx := m.buildSessionContext(context.Background())
+			if sessionCtx == nil {
+				t.Fatal("buildSessionContext returned nil")
+			}
+			if sessionCtx.TDDRetryCount != tt.want {
+				t.Errorf("TDDRetryCount = %d, want %d", sessionCtx.TDDRetryCount, tt.want)
+			}
+		})
+	}
+}
+
+// And a suite that has gone green must not carry a retry count into the next
+// turn. The count is only meaningful alongside /failing; a nonzero one on a
+// passing suite would put "fix root cause, not symptoms" in the prompt of a
+// turn with nothing to fix.
+func TestAPassingSuiteReportsNoRetryCount(t *testing.T) {
+	m, _ := SetupLiveModel(t)
+	m.shardResultHistory = append(m.shardResultHistory,
+		tester(failingGoOutput), tester(failingGoOutput), tester(passingGoOutput))
+
+	sessionCtx := m.buildSessionContext(context.Background())
+	if sessionCtx == nil {
+		t.Fatal("buildSessionContext returned nil")
+	}
+	if sessionCtx.TestState != "/passing" {
+		t.Fatalf("TestState = %q, want \"/passing\"", sessionCtx.TestState)
+	}
+	if sessionCtx.TDDRetryCount != 0 {
+		t.Errorf("TDDRetryCount = %d on a passing suite, want 0", sessionCtx.TDDRetryCount)
+	}
+}
+
+func tester(out string) *ShardResult {
+	return &ShardResult{ShardType: "tester", RawOutput: out}
+}

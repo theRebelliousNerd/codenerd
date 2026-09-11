@@ -83,8 +83,9 @@ const (
 // Filling them is reconnecting a wire that exists on both ends, and it is the
 // difference between a projection that KNOWS what changed and one that guessed
 // from prose. Leaving them empty is allowed and means exactly "the producer had
-// no structure", not "there was none" — projection then reads what it can out
-// of the output and marks it as reported rather than observed.
+// no structure", not "there was none": findings are then read out of the
+// output, and Changed and the verifications are simply not reported. See
+// collectVerification for why those two do not fall back.
 type Return struct {
 	// Agent is the subagent's name or intent verb, as the producer knows it.
 	Agent string `json:"agent,omitempty"`
@@ -98,12 +99,11 @@ type Return struct {
 	Failure  string        `json:"failure,omitempty"`
 	Duration time.Duration `json:"duration,omitempty"`
 
-	Findings []Finding      `json:"findings,omitempty"`
-	Changed  []string       `json:"changed,omitempty"`
-	Build    *Verification  `json:"build,omitempty"`
-	Tests    *Verification  `json:"tests,omitempty"`
-	Notes    []string       `json:"notes,omitempty"`
-	Extra    map[string]any `json:"extra,omitempty"`
+	Findings []Finding     `json:"findings,omitempty"`
+	Changed  []string      `json:"changed,omitempty"`
+	Build    *Verification `json:"build,omitempty"`
+	Tests    *Verification `json:"tests,omitempty"`
+	Notes    []string      `json:"notes,omitempty"`
 }
 
 // ReturnResult is the projection handed to the parent's reasoning.
@@ -113,6 +113,14 @@ type ReturnResult struct {
 	Status   string        `json:"status"`
 	Failure  string        `json:"failure,omitempty"`
 	Duration time.Duration `json:"duration,omitempty"`
+
+	// Outline is the return's own section headings and where they start. It is
+	// what the file-read codec next door does with the part of a file it does
+	// not print, and for the same reason: an elision the reader has no handle
+	// on is a loss, while a list of what is in there and where lets the next
+	// expansion ask for the right lines instead of paging from the top.
+	Outline        []Section `json:"outline,omitempty"`
+	OutlineOmitted int       `json:"outline_omitted,omitempty"`
 
 	Findings        []Finding      `json:"findings,omitempty"`
 	FindingsOmitted int            `json:"findings_omitted,omitempty"`
@@ -145,6 +153,17 @@ type ReturnResult struct {
 	Handle string `json:"handle,omitempty"`
 }
 
+// Section is one heading in a return, and the line it starts on.
+//
+// Depth is carried so nesting survives without the indentation costing
+// anything: a flat list of eighteen headings reads as eighteen peers, which is
+// a different document from the one the subagent wrote.
+type Section struct {
+	Title string `json:"title"`
+	Line  int    `json:"line"`
+	Depth int    `json:"depth"`
+}
+
 // Return statuses. Empty is separate from completed on purpose: a subagent that
 // returns nothing has failed at the only thing it was for, and reporting that
 // as completion is how a campaign phase advances on an empty deliverable.
@@ -162,6 +181,7 @@ type ReturnLimits struct {
 	MaxEvidence    int
 	MaxChanged     int
 	MaxUncertainty int
+	MaxOutline     int
 	// MaxMessage caps one finding's message. A subagent that pastes a stack
 	// trace into a finding would otherwise walk straight through MaxFindings.
 	MaxMessage int
@@ -180,6 +200,7 @@ func DefaultReturnLimits() ReturnLimits {
 		MaxEvidence:    12,
 		MaxChanged:     12,
 		MaxUncertainty: 6,
+		MaxOutline:     18,
 		MaxMessage:     200,
 	}
 }
@@ -197,6 +218,9 @@ func (l ReturnLimits) resolved() ReturnLimits {
 	}
 	if l.MaxUncertainty <= 0 {
 		l.MaxUncertainty = def.MaxUncertainty
+	}
+	if l.MaxOutline <= 0 {
+		l.MaxOutline = def.MaxOutline
 	}
 	if l.MaxMessage <= 0 {
 		l.MaxMessage = def.MaxMessage
@@ -275,7 +299,10 @@ func SharedSubagents() *Subagents {
 // transcript did not fit.
 func (s *Subagents) EncodeReturn(r Return, limits ReturnLimits) ReturnResult {
 	result := ProjectReturn(r, limits)
-	if s == nil || result.Verbatim != "" || strings.TrimSpace(r.Output) == "" {
+	// Nothing is retained below the threshold: either the return was carried
+	// whole, or it was empty and there is nothing to carry. Minting there would
+	// publish a handle that redeems to what the reader is already looking at.
+	if s == nil || len(r.Output) < minRetainBytes {
 		return result
 	}
 	payload, err := json.Marshal(r)
@@ -354,7 +381,11 @@ func (s *Subagents) HydrateReturn(handle string, w ReturnWindow) (HydratedReturn
 		return HydratedReturn{}, fmt.Errorf("retained return %s is unreadable: %w", handle, err)
 	}
 
-	lines := strings.Split(strings.ReplaceAll(r.Output, "\r\n", "\n"), "\n")
+	// Split, not normalise. A hydration is the retained bytes; stripping a
+	// carriage return would make this the retained bytes ALMOST, which is the
+	// property a handle exists to be free of. Text() writes each line back with
+	// a single newline, so a CRLF transcript reconstructs exactly.
+	lines := strings.Split(r.Output, "\n")
 	if match := strings.TrimSpace(w.Match); match != "" {
 		lower := strings.ToLower(match)
 		filtered := make([]string, 0, len(lines))
@@ -404,18 +435,23 @@ func (s *Subagents) HydrateReturn(handle string, w ReturnWindow) (HydratedReturn
 func ProjectReturn(r Return, limits ReturnLimits) ReturnResult {
 	limits = limits.resolved()
 
-	output := strings.TrimSpace(r.Output)
+	// Extraction reads the output as it was returned, not a trimmed copy. The
+	// outline reports the line a section starts on and hydration counts lines
+	// from the same string; trimming here would shift every one of those
+	// numbers by however many blank lines the subagent happened to open with,
+	// and an offset that lands one section early is worse than no offset.
+	output := r.Output
 	result := ReturnResult{
 		Agent:    strings.TrimSpace(r.Agent),
 		Task:     strings.TrimSpace(r.Task),
 		Failure:  strings.TrimSpace(r.Failure),
 		Duration: r.Duration,
-		Bytes:    len(r.Output),
+		Bytes:    len(output),
 	}
 	switch {
 	case result.Failure != "":
 		result.Status = StatusFailed
-	case output == "":
+	case strings.TrimSpace(output) == "":
 		result.Status = StatusEmpty
 	default:
 		result.Status = StatusCompleted
@@ -432,7 +468,7 @@ func ProjectReturn(r Return, limits ReturnLimits) ReturnResult {
 	// touched. "Nothing was reported" is recoverable; a confident wrong answer
 	// is not.
 	result.Changed, result.ChangedOmitted = capStrings(dedupe(r.Changed), limits.MaxChanged)
-	result.Verification = collectVerification(r, output)
+	result.Verification = collectVerification(r)
 
 	uncertainty := structuralUncertainty(r)
 
@@ -443,8 +479,8 @@ func ProjectReturn(r Return, limits ReturnLimits) ReturnResult {
 	// the code-search codec next door larger than the grep output it replaced.
 	// The structured halves above survive, because those are facts the
 	// transcript does not contain.
-	if len(r.Output) < minRetainBytes {
-		result.Verbatim = r.Output
+	if len(output) < minRetainBytes {
+		result.Verbatim = output
 		result.Uncertainty, result.UncertaintyOmitted = capStrings(uncertainty, limits.MaxUncertainty)
 		return result
 	}
@@ -480,19 +516,69 @@ func ProjectReturn(r Return, limits ReturnLimits) ReturnResult {
 
 	uncertainty = append(uncertainty, extractHedges(output, limits.MaxMessage)...)
 	result.Uncertainty, result.UncertaintyOmitted = capStrings(dedupe(uncertainty), limits.MaxUncertainty)
+
+	// The outline is last because it is the fallback, and it earns its place on
+	// exactly the returns the four sections above cannot help with. Measured
+	// over the 67 real agent outputs in this repository's .quality_assurance
+	// directory, a third of them carry no severity-marked finding and no
+	// file:line citation at all — they are long structured prose — and without
+	// this they projected to a status line and a handle. That is honest and
+	// nearly useless; the headings are the return's own structure and are
+	// neither a summary nor the transcript.
+	result.Outline, result.OutlineOmitted = extractOutline(output, limits.MaxOutline)
 	return result
 }
 
-// collectVerification reports what ran, preferring what the runtime watched
-// over what the subagent claimed.
+// outlineHeading matches a markdown ATX heading, which is what an agent's long
+// return is structured with when it is structured at all.
 //
-// The fallback reads the transcript with internal/testoutput — the repository's
-// one test-output parser, shared so a fix to how a runner is read reaches every
-// consumer at once. Its verdict is marked SourceReported, because a subagent
-// pasting a green test log is a claim about a run nobody watched, and a parent
-// that cannot tell that from an observed pass will skip a verification it
-// needed.
-func collectVerification(r Return, output string) []Verification {
+// Only ATX. A looser rule — a short line ending in a colon, a bold-only line —
+// picks up ordinary prose and fills the outline with sentences, which costs the
+// same bytes as real headings and carries none of the navigation.
+var outlineHeading = regexp.MustCompile(`^(#{1,6})\s+(\S.*?)\s*#*$`)
+
+// extractOutline lists the return's headings and where each starts.
+func extractOutline(output string, limit int) ([]Section, int) {
+	var out []Section
+	for i, line := range strings.Split(output, "\n") {
+		m := outlineHeading.FindStringSubmatch(strings.TrimSuffix(line, "\r"))
+		if m == nil {
+			continue
+		}
+		out = append(out, Section{
+			Title: clampMessage(m[2], 120),
+			Line:  i + 1,
+			Depth: len(m[1]),
+		})
+	}
+	if len(out) <= limit {
+		return out, 0
+	}
+	// The head, not a sample. A document's first headings are its shape; a
+	// slice from the middle would describe a document nobody wrote.
+	return out[:limit], len(out) - limit
+}
+
+// collectVerification reports what ran. It reads the producer's structure and
+// NOTHING ELSE — there is no fallback that reads a verdict out of the prose.
+//
+// That is a deliberate refusal, and it was not the first design. Running the
+// repository's test-output parser over a return looks obviously right until you
+// run it over a code review: internal/testoutput's generic heuristics match
+// "error" and "failed" as whole words, by design, so they can read a non-Go
+// runner — and a reviewer writing "the error from Flush is discarded" scored
+// three test failures on a shard that never ran a test. A projection that
+// reports "tests FAILED (0 passed, 3 failed)" for a code review has not
+// summarised the return, it has fabricated a verdict, and the parent will act
+// on it.
+//
+// The knowledge that a given return IS a test log belongs to the producer,
+// which knows it spawned a tester, not to a codec looking at text. So a
+// producer in that position parses its own output and passes Tests in, marked
+// SourceReported; every other producer passes nothing and the projection says
+// nothing. The log itself stays one subagent_expand away, so a parent that
+// wants the verdict badly enough can read it rather than be handed a guess.
+func collectVerification(r Return) []Verification {
 	var out []Verification
 	if r.Build != nil {
 		v := *r.Build
@@ -509,23 +595,33 @@ func collectVerification(r Return, output string) []Verification {
 			v.Source = SourceObserved
 		}
 		out = append(out, v)
-		return out
-	}
-	if output == "" {
-		return out
-	}
-	if counts := testoutput.Parse(output); counts.Parsed {
-		out = append(out, Verification{
-			Kind:        "tests",
-			Source:      SourceReported,
-			Ran:         true,
-			OK:          counts.Failed == 0,
-			Passed:      counts.Passed,
-			Failed:      counts.Failed,
-			FailedNames: counts.FailedNames,
-		})
 	}
 	return out
+}
+
+// ReportedTests reads a test verdict out of output the CALLER knows to be a
+// test runner's, for a producer that can attest to that.
+//
+// It is exported so a producer holding that knowledge — the chat blackboard,
+// which knows the prior shard was the tester — can supply it, and it is not
+// called from inside projection for the reason collectVerification gives. The
+// verdict comes back marked SourceReported because nothing here watched the run
+// happen; the counts are internal/testoutput's, so a fix to how a runner is
+// read still reaches this consumer with every other one.
+func ReportedTests(output string) *Verification {
+	counts := testoutput.Parse(output)
+	if !counts.Parsed {
+		return nil
+	}
+	return &Verification{
+		Kind:        "tests",
+		Source:      SourceReported,
+		Ran:         true,
+		OK:          counts.Failed == 0,
+		Passed:      counts.Passed,
+		Failed:      counts.Failed,
+		FailedNames: counts.FailedNames,
+	}
 }
 
 // structuralUncertainty turns what the producer knows into what the parent has
@@ -861,6 +957,16 @@ func (r ReturnResult) Text(expandVerb string) string {
 		sb.WriteString("verification: ")
 		sb.WriteString(v.Text())
 		sb.WriteString("\n")
+	}
+
+	if len(r.Outline) > 0 {
+		sb.WriteString("sections (line title):\n")
+		for _, sec := range r.Outline {
+			fmt.Fprintf(&sb, "  %d %s%s\n", sec.Line, strings.Repeat("  ", max(sec.Depth-1, 0)), sec.Title)
+		}
+		if r.OutlineOmitted > 0 {
+			fmt.Fprintf(&sb, "  ... %d more section(s) not listed\n", r.OutlineOmitted)
+		}
 	}
 
 	if len(r.Uncertainty) > 0 {

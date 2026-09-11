@@ -522,7 +522,35 @@ func (k *RealKernel) markStratumDirtyLocked(predicate ast.PredicateSym) {
 }
 
 // Assert adds a single fact dynamically and re-evaluates derived facts.
-func (k *RealKernel) Assert(fact Fact) error {
+// noteMutationFailure reports a kernel write that did not land.
+//
+// Warn, not Debug: this is never routine. A failed assert means the kernel's
+// picture of the world is now missing something the caller believed it had told
+// it, and every rule downstream of that fact evaluates as though it were never
+// true. For a logic-first agent that is not a lost update, it is a conclusion
+// drawn from a world that does not exist.
+//
+// CortexKernel has had this since the silent-write audit. RealKernel had not,
+// and RealKernel is the one that is actually held: nothing in this repository
+// declares a *CortexKernel field, while seventy-nine declare a *RealKernel —
+// the chat model among them. So the reporting existed on the routing layer
+// while every direct caller, which is all of them, still failed in silence.
+//
+// A failure that arrives through CortexKernel is now logged twice, once at each
+// layer. That is worth the duplication: the cortex line names the routing
+// decision and this one names the fact.
+func (k *RealKernel) noteMutationFailure(op, predicate string, err error) error {
+	if err == nil {
+		return nil
+	}
+	logging.Get(logging.CategoryKernel).Warn(
+		"[kernel] %s of '%s' FAILED, the kernel does not hold it: %v", op, predicate, err)
+	return err
+}
+
+func (k *RealKernel) Assert(fact Fact) (err error) {
+	defer func() { err = k.noteMutationFailure("assert", fact.Predicate, err) }()
+
 	// Heartbeats are high-frequency (every few seconds × N system shards).
 	// Each used a unique timestamp, so they always dirtied the kernel and
 	// forced a full/diff re-eval of the entire EDB (10–17s with ~28k world
@@ -628,7 +656,9 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 // AssertBatch adds multiple facts and re-evaluates once.
 // OPTIMIZATION: This is significantly faster than calling Assert() in a loop.
 // For M assertions, Assert loop = O(M*N) evaluations, AssertBatch = O(N) evaluation.
-func (k *RealKernel) AssertBatch(facts []Fact) error {
+func (k *RealKernel) AssertBatch(facts []Fact) (err error) {
+	defer func() { err = k.noteMutationFailure("assert batch", batchPredicates(facts), err) }()
+
 	if len(facts) == 0 {
 		return nil
 	}
@@ -763,7 +793,9 @@ func (k *RealKernel) Evaluate() error {
 
 // Retract removes all facts of a given predicate.
 // OPTIMIZATION: Maintains atom cache instead of rebuilding entire index.
-func (k *RealKernel) Retract(predicate string) error {
+func (k *RealKernel) Retract(predicate string) (err error) {
+	defer func() { err = k.noteMutationFailure("retract", predicate, err) }()
+
 	// Skip per-retract debug for high-frequency no-op retractions
 
 	k.mu.Lock()
@@ -826,7 +858,9 @@ func (k *RealKernel) Retract(predicate string) error {
 
 // RetractFact removes a specific fact by matching predicate and first argument.
 // This enables selective fact removal (e.g., removing all facts for a specific tool).
-func (k *RealKernel) RetractFact(fact Fact) error {
+func (k *RealKernel) RetractFact(fact Fact) (err error) {
+	defer func() { err = k.noteMutationFailure("retract fact", fact.Predicate, err) }()
+
 	logging.KernelDebug("RetractFact: removing fact matching predicate=%s, firstArg=%v", fact.Predicate, fact.Args)
 
 	k.mu.Lock()
@@ -892,7 +926,9 @@ func (k *RealKernel) RetractFact(fact Fact) error {
 // RetractExactFact removes facts that exactly match predicate and all arguments.
 // This is safer for multi-arity predicates where multiple facts may share a first arg.
 // It does NOT replace RetractFact, which intentionally matches only the first arg.
-func (k *RealKernel) RetractExactFact(fact Fact) error {
+func (k *RealKernel) RetractExactFact(fact Fact) (err error) {
+	defer func() { err = k.noteMutationFailure("retract exact fact", fact.Predicate, err) }()
+
 	logging.KernelDebug("RetractExactFact: removing exact fact predicate=%s args=%v", fact.Predicate, fact.Args)
 
 	k.mu.Lock()
@@ -934,7 +970,9 @@ func (k *RealKernel) RetractExactFact(fact Fact) error {
 
 // RetractExactFactsBatch removes a batch of exact facts and rebuilds once.
 // Useful for incremental world model updates on large repos.
-func (k *RealKernel) RetractExactFactsBatch(facts []Fact) error {
+func (k *RealKernel) RetractExactFactsBatch(facts []Fact) (err error) {
+	defer func() { err = k.noteMutationFailure("retract exact batch", batchPredicates(facts), err) }()
+
 	if len(facts) == 0 {
 		return nil
 	}
@@ -1345,4 +1383,28 @@ func (k *RealKernel) LoadPolicy(policyContent string) {
 	k.policy = policyContent
 	k.policyDirty = true // Force reparse since policy changed
 	logging.KernelDebug("LoadPolicy: replaced policy (%d bytes), policyDirty=true", len(policyContent))
+}
+
+// batchPredicates names a batch's predicates for a failure message, bounded so
+// a failed ten-thousand-fact load reports what it was rather than filling the
+// log with it.
+func batchPredicates(facts []Fact) string {
+	seen := make(map[string]struct{}, 8)
+	var names []string
+	for _, f := range facts {
+		if _, dup := seen[f.Predicate]; dup {
+			continue
+		}
+		seen[f.Predicate] = struct{}{}
+		names = append(names, f.Predicate)
+		if len(names) == 8 {
+			names = append(names, "...")
+			break
+		}
+	}
+	if len(names) == 0 {
+		return "(empty batch)"
+	}
+	sort.Strings(names)
+	return strings.Join(names, ",")
 }

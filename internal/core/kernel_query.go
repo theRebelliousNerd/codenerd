@@ -533,7 +533,7 @@ func (k *RealKernel) UpdateSystemFacts() error {
 	statusOutput, _ := gitCmd(gitRoot, "status", "--porcelain")
 	commitOutput, _ := gitCmd(gitRoot, "log", "-n", "5", "--pretty=format:%s")
 
-	modifiedFiles, unstagedCount := parseGitStatus(statusOutput)
+	modifiedFiles, unstagedCount, untrackedFiles := parseGitStatus(statusOutput)
 	recentCommits := splitLinesTrimmed(commitOutput)
 
 	tx.Retract("git_state")
@@ -550,6 +550,14 @@ func (k *RealKernel) UpdateSystemFacts() error {
 		tx.Assert(Fact{Predicate: "git_state", Args: []any{"recent_commits", strings.Join(recentCommits, "\n")}})
 	}
 	tx.Assert(Fact{Predicate: "git_state", Args: []any{"unstaged_count", strconv.Itoa(unstagedCount)}})
+	// The new_files world state gates a mandatory prompt atom whose own text
+	// reads "Untracked files exist in the working directory". Nothing had ever
+	// set it: CompilationContext.HasNewFiles had no writer anywhere, so that
+	// atom could not be selected in any session. The status output this
+	// function already parses is where the answer was.
+	if len(untrackedFiles) > 0 {
+		tx.Assert(Fact{Predicate: "git_state", Args: []any{"untracked_files", strings.Join(untrackedFiles, "\n")}})
+	}
 
 	return tx.Commit()
 }
@@ -599,10 +607,48 @@ func gitCmd(workspaceRoot string, args ...string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-func parseGitStatus(statusOutput string) ([]string, int) {
-	lines := splitLinesTrimmed(statusOutput)
-	files := make([]string, 0, len(lines))
-	unstaged := 0
+// splitPorcelainLines splits `git status --porcelain` output WITHOUT trimming
+// the leading whitespace, because in that format the leading whitespace is data.
+//
+// Porcelain lines are "XY path", where X is the index column and Y the worktree
+// column, and a space is a meaningful value in either. " M file" means modified
+// in the worktree and not staged; "M  file" means staged. Trimming the line
+// shifts both columns left and turns the first into the second, so the two
+// became indistinguishable and — since the check is on the SECOND column — an
+// ordinary edited-but-unstaged file was counted as staged.
+//
+// That is the most common state a working tree is ever in, so the unstaged count
+// only ever saw untracked files and files staged and then edited again. The
+// high_churn world state is gated on that count exceeding twenty, and could not
+// be reached by editing files at all.
+func splitPorcelainLines(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, "\n")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		// Trailing only: \r from a Windows git, and any trailing spaces. The
+		// leading columns stay exactly as git wrote them.
+		part = strings.TrimRight(part, " \t\r")
+		if strings.TrimSpace(part) != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// parseGitStatus returns the changed paths, the unstaged count, and the
+// untracked paths.
+//
+// The untracked set was already being recognised here -- the "??" branch
+// below has always identified it -- and then folded into the unstaged count
+// and discarded. It is returned separately because it answers a different
+// question: an untracked file is not a change to something that exists, it is
+// something that exists and is not yet part of the project.
+func parseGitStatus(statusOutput string) (files []string, unstaged int, untracked []string) {
+	lines := splitPorcelainLines(statusOutput)
+	files = make([]string, 0, len(lines))
 
 	for _, line := range lines {
 		if len(line) < 3 {
@@ -621,6 +667,7 @@ func parseGitStatus(statusOutput string) ([]string, int) {
 
 		if status == "??" {
 			unstaged++
+			untracked = append(untracked, path)
 			continue
 		}
 		if len(status) == 2 && status[1] != ' ' {
@@ -628,7 +675,7 @@ func parseGitStatus(statusOutput string) ([]string, int) {
 		}
 	}
 
-	return dedupeStrings(files), unstaged
+	return dedupeStrings(files), unstaged, dedupeStrings(untracked)
 }
 
 func splitLinesTrimmed(raw string) []string {

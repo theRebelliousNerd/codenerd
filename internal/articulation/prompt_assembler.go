@@ -237,6 +237,13 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 			if v := pc.SessionCtx.ExtraContext["reflection_hits"]; v != "" {
 				cc.HasReflectionHits = true
 			}
+			// HasNewFiles had no writer anywhere in the repository, so the
+			// new_files world state could never fire and the mandatory atom
+			// gated on it -- whose own text reads "Untracked files exist in the
+			// working directory" -- was unselectable in every session.
+			if v := pc.SessionCtx.ExtraContext["new_files"]; v != "" {
+				cc.HasNewFiles = true
+			}
 		}
 
 		if len(pc.SessionCtx.ReflectionHits) > 0 {
@@ -384,16 +391,30 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input any) 
 		cc := pa.toCompilationContext(pc)
 		result, err := compiler.Compile(ctx, cc)
 		if err == nil {
-			// Ensure Piggyback Protocol is present when required
-			if shouldAppendPiggybackProtocol(cc.ShardType, result.Prompt) &&
-				(!strings.Contains(result.Prompt, "control_packet") || !strings.Contains(result.Prompt, "surface_response")) {
+			// Build the returned prompt in a local rather than appending to
+			// result.Prompt.
+			//
+			// The compiler keeps an LRU and, on a MISS, the *CompilationResult
+			// it returns is the very object it just stored. `result.Prompt +=`
+			// therefore wrote the Piggyback suffix into the cache entry, so
+			// every later hit on that context served a prompt the compiler had
+			// not produced — and TestCompiledPromptIsByteStable cannot see it,
+			// because it compares what the compiler returns, not what a
+			// consumer did to it afterwards. The guard below keeps it from
+			// compounding; it does not keep it from happening.
+			//
+			// A cache hit is already safe (the hit path hands out a copy), so
+			// this closes the other half rather than the same one twice.
+			assembled := result.Prompt
+			if shouldAppendPiggybackProtocol(cc.ShardType, assembled) &&
+				(!strings.Contains(assembled, "control_packet") || !strings.Contains(assembled, "surface_response")) {
 				logging.Articulation("JIT prompt missing Piggyback Protocol - appending mandatory suffix")
-				result.Prompt += "\n\n" + PiggybackProtocolSuffix
+				assembled += "\n\n" + PiggybackProtocolSuffix
 			}
 
 			logging.Articulation("JIT compiled prompt: %d bytes, %d atoms, %.1f%% budget",
-				len(result.Prompt), result.AtomsIncluded, result.BudgetUsed*100)
-			return result.Prompt, nil
+				len(assembled), result.AtomsIncluded, result.BudgetUsed*100)
+			return assembled, nil
 		}
 		// Telemetry: record JIT fallback into the kernel if possible.
 		reason := err.Error()
@@ -680,6 +701,30 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 				break
 			}
 			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(file)))
+		}
+	}
+
+	// Dependencies of the files this session has touched.
+	//
+	// The field, both its producers and their caps all already existed; the
+	// render did not, so DependencyContext was written by two functions and
+	// read by none. Wiring its input without this would have been a producer
+	// feeding a field nobody consumes — the same defect from the other end.
+	//
+	// This is the one place on this branch where prompt CONTENT grows, so the
+	// cost is worth naming: the producers cap themselves at 10 (kernel
+	// dependency_link) and 30 (after graph memory appends), and this renders at
+	// most 15, so the section is bounded at roughly 150 tokens. What it buys is
+	// the grounding that stops an edit breaking a caller the model never saw.
+	if len(ctx.DependencyContext) > 0 {
+		sb.WriteString("\nDEPENDENCIES OF FILES IN FOCUS:\n")
+		maxCount := 15
+		for i, dep := range ctx.DependencyContext {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  - ... and %d more\n", len(ctx.DependencyContext)-maxCount))
+				break
+			}
+			sb.WriteString(fmt.Sprintf("  - %s\n", sessionContextLine(dep)))
 		}
 	}
 

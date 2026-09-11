@@ -7,9 +7,6 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
-
-	"codeberg.org/TauCeti/mangle-go/ast"
-	"codeberg.org/TauCeti/mangle-go/engine"
 )
 
 // =============================================================================
@@ -26,11 +23,6 @@ type KernelShard struct {
 
 	// Domain ownership
 	ownedPredicates map[string]bool // Predicates this shard is authoritative for
-	exportedPreds   []string        // Predicate names exported to the cortex
-
-	// Schema/policy files loaded by this shard
-	schemaFiles []string
-	policyFiles []string
 
 	// router is the Track-D per-shard fact coordinator. When non-nil, the
 	// shard's Assert/Query/Retract paths consult it before touching the
@@ -46,18 +38,22 @@ type KernelShard struct {
 	queryCount       int64         // Total queries served
 	lastEvalDuration time.Duration // Duration of last evaluation
 	dirtyCount       int64         // Times factsDirty was set
-	exportHitCount   int64         // Times an external predicate callback was called
 }
 
 // KernelShardConfig contains configuration for creating a KernelShard.
 type KernelShardConfig struct {
 	Domain          string   // Domain name
-	SchemaFiles     []string // Paths to schema .mg files to load
-	PolicyFiles     []string // Paths to policy .mg files to load
 	OwnedPredicates []string // Predicate names this shard owns
-	ExportedPreds   []string // Predicate names to export to cortex
-	ManglePath      string   // Path to mangle files directory
-	WorkspaceRoot   string   // Workspace root for .nerd paths
+
+	// ManglePath selects NewRealKernelWithPath over the embedded corpus. No
+	// production caller sets it -- defaultKernelShardConfigs fills Domain,
+	// WorkspaceRoot and OwnedPredicates and nothing else -- so the dark-field
+	// gate reports it, and it stays: unlike the export fields deleted beside
+	// it, this is one live branch of a working constructor rather than a
+	// mechanism with no consumer. An on-disk corpus is how a shard would be
+	// pointed at a workspace's own .mg files, and the branch is three lines.
+	ManglePath    string // Path to mangle files directory
+	WorkspaceRoot string // Workspace root for .nerd paths
 }
 
 // NewKernelShard creates a new domain-specific kernel shard.
@@ -92,13 +88,9 @@ func NewKernelShard(config KernelShardConfig) (*KernelShard, error) {
 		domain:          config.Domain,
 		kernel:          kernel,
 		ownedPredicates: ownedPreds,
-		exportedPreds:   config.ExportedPreds,
-		schemaFiles:     config.SchemaFiles,
-		policyFiles:     config.PolicyFiles,
 	}
 
-	logging.Kernel("[shard:%s] created (owned=%d predicates, exported=%d predicates)",
-		config.Domain, len(ownedPreds), len(config.ExportedPreds))
+	logging.Kernel("[shard:%s] created (owned=%d predicates)", config.Domain, len(ownedPreds))
 
 	return shard, nil
 }
@@ -315,43 +307,6 @@ func (s *KernelShard) IsDirty() bool {
 	return s.kernel.IsDirty()
 }
 
-// ExportCallbacks builds external predicate callbacks that allow the cortex
-// kernel to query this shard's facts during its own fixpoint evaluation.
-//
-// Each exported predicate becomes an engine.ExternalPredicateCallback that
-// queries this shard's store. The cortex registers these callbacks so when
-// it evaluates cross-domain rules, it can pull facts from children on demand.
-func (s *KernelShard) ExportCallbacks() map[ast.PredicateSym]engine.ExternalPredicateCallback {
-	callbacks := make(map[ast.PredicateSym]engine.ExternalPredicateCallback)
-
-	programInfo := s.kernel.GetProgramInfo()
-	if programInfo == nil || programInfo.Decls == nil {
-		return callbacks
-	}
-
-	for _, predName := range s.exportedPreds {
-		// Find the matching PredicateSym in this shard's declarations
-		for pred := range programInfo.Decls {
-			if pred.Symbol == predName {
-				// Capture for closure
-				capturedPred := pred
-				capturedShard := s
-
-				callbacks[capturedPred] = &shardExternalCallback{
-					shard:     capturedShard,
-					predicate: capturedPred,
-				}
-				break
-			}
-		}
-	}
-
-	logging.KernelDebug("[shard:%s] ExportCallbacks: exported %d/%d predicates",
-		s.domain, len(callbacks), len(s.exportedPreds))
-
-	return callbacks
-}
-
 // Metrics returns observability metrics for this shard.
 func (s *KernelShard) Metrics() ShardMetrics {
 	s.mu.RLock()
@@ -364,7 +319,6 @@ func (s *KernelShard) Metrics() ShardMetrics {
 		QueryCount:       s.queryCount,
 		LastEvalDuration: s.lastEvalDuration,
 		DirtyCount:       s.dirtyCount,
-		ExportHitCount:   s.exportHitCount,
 	}
 }
 
@@ -376,62 +330,4 @@ type ShardMetrics struct {
 	QueryCount       int64
 	LastEvalDuration time.Duration
 	DirtyCount       int64
-	ExportHitCount   int64
-}
-
-// =============================================================================
-// SHARD EXTERNAL CALLBACK — Cross-Kernel Predicate Bridge
-// =============================================================================
-
-// shardExternalCallback implements engine.ExternalPredicateCallback.
-// It bridges a child shard's predicate into the cortex kernel's evaluation
-// using the Mangle engine's native external predicate API.
-type shardExternalCallback struct {
-	shard     *KernelShard
-	predicate ast.PredicateSym
-}
-
-// ShouldPushdown returns false — we do full scans from the child shard.
-func (cb *shardExternalCallback) ShouldPushdown() bool {
-	return false
-}
-
-// ShouldQuery always returns true — child shard queries are in-process.
-func (cb *shardExternalCallback) ShouldQuery(inputs []ast.Constant, filters []ast.BaseTerm, pushdown []ast.Term) bool {
-	return true
-}
-
-// ExecuteQuery queries the child shard's store for facts matching the predicate.
-// It reconstructs the query from inputs/filters, fetches from the child's store,
-// and emits output tuples via the callback.
-func (cb *shardExternalCallback) ExecuteQuery(inputs []ast.Constant, filters []ast.BaseTerm, pushdown []ast.Term, emit func([]ast.BaseTerm)) error {
-	cb.shard.mu.Lock()
-	cb.shard.exportHitCount++
-	cb.shard.mu.Unlock()
-
-	// Ensure the child shard is evaluated before querying
-	if cb.shard.IsDirty() {
-		if err := cb.shard.Evaluate(); err != nil {
-			return fmt.Errorf("[shard:%s] lazy eval for export failed: %w", cb.shard.domain, err)
-		}
-	}
-
-	// Get the child shard's store and query it
-	store := cb.shard.kernel.GetStore()
-	if store == nil {
-		return nil
-	}
-
-	resultCount := 0
-	store.GetFacts(ast.NewQuery(cb.predicate), func(a ast.Atom) error {
-		// Emit all args as output terms
-		emit(a.Args)
-		resultCount++
-		return nil
-	})
-
-	logging.KernelDebug("[shard:%s] ExportCallback: %s returned %d facts",
-		cb.shard.domain, cb.predicate.Symbol, resultCount)
-
-	return nil
 }
