@@ -389,13 +389,11 @@ Decl cross_shard_insight(ReviewID, InsightType, Description) bound [/string, /na
 # Individual review insights stored for learning/retrieval
 Decl review_insight(Index, Insight) bound [/number, /string].
 
-# specialist_match(ReviewID, AgentName, Score, Reason)
-# Records which specialists were matched for a review and why
-Decl specialist_match(ReviewID, AgentName, Score, Reason) bound [/string, /string, /number, /string].
-
 # specialist_match(Specialist, Task, Confidence)
-# BUG FIX: 3-arg overload for task matching rules in shards.mg
-Decl specialist_match(Specialist, Task, Confidence) bound [/string, /string, /number].
+# Asserted per delegated task by the Go matcher (internal/shards/specialist_facts.go);
+# Specialist is the /name form of the registry name, Confidence is 0-100.
+# The 4-arg review form that used to sit beside it had no producer.
+Decl specialist_match(Specialist, Task, Confidence) bound [/name, /string, /number].
 
 # symbol_verified_exists(Symbol, File, VerifiedAt)
 # Symbol was verified to exist (counters false "undefined" claims)

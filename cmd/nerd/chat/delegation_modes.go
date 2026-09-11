@@ -224,7 +224,7 @@ func (m Model) executeAdvisoryWithCritiqueMode(ctx context.Context, verb, shardT
 // executeSpecialistDirectMode handles high-confidence executor specialists directly.
 // When a specialist has ShouldExecute=true and is an Executor, they handle the task
 // without going through the generic shard. This implements specialist_should_execute.
-func (m Model) executeSpecialistDirectMode(ctx context.Context, verb string, specialist shards.SpecialistMatch, task, target string, startTime time.Time) tea.Msg {
+func (m Model) executeSpecialistDirectMode(ctx context.Context, verb string, specialist shards.SpecialistMatch, task, target, complexity string, startTime time.Time) tea.Msg {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("## %s via Specialist Executor\n\n", titleWords(strings.TrimPrefix(verb, "/"))))
 	sb.WriteString(fmt.Sprintf("**Target**: %s\n", target))
@@ -251,16 +251,9 @@ Do NOT just advise - implement the solution.`,
 		strings.Join(specialist.Files, ", "),
 		specialist.Reason)
 
-	// Strategic Advisory Delegation check (consultation.go integration)
-	taskComplexity := "normal"
-	taskLower := strings.ToLower(task)
-	if strings.Contains(taskLower, "complex") || strings.Contains(taskLower, "security") ||
-		strings.Contains(taskLower, "architecture") || strings.Contains(taskLower, "critical") ||
-		strings.Contains(taskLower, "refactor") || len(specialist.Files) > 3 {
-		taskComplexity = "high"
-	}
-
-	if shards.ShouldConsultBeforeExecution(specialist.AgentName, taskComplexity) {
+	// Strategic advisory: strategic_advisor_required (policy/shards.mg) over
+	// the task_complexity fact asserted when this task was matched.
+	if m.strategicAdvisorRequired(task, complexity, specialist) {
 		advisors := shards.GetStrategicAdvisorsFor(specialist.AgentName)
 		if len(advisors) > 0 {
 			m.ReportStatus("Consulting strategic advisors for complex task...")

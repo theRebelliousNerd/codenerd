@@ -93,14 +93,12 @@ Decl specialist_campaign_role(Specialist, Role) bound [/name, /name].
 # Projection of specialist_classification/3 arg 1, so it carries name constants.
 Decl specialist_can_execute(Specialist) bound [/name].
 
-# consultation_request(FromSpec, ToSpec, Question, Timestamp) - specialist consultation request
-Decl consultation_request(FromSpec, ToSpec, Question, Timestamp) bound [/string, /string, /string, /number].
 
 # specialist_should_execute(Specialist, Task) - derived: specialist should execute task directly
-Decl specialist_should_execute(Specialist, Task) bound [/string, /string].
+Decl specialist_should_execute(Specialist, Task) bound [/name, /string].
 
 # specialist_should_advise(Specialist, Task) - derived: specialist should advise on task
-Decl specialist_should_advise(Specialist, Task) bound [/string, /string].
+Decl specialist_should_advise(Specialist, Task) bound [/name, /string].
 
 # strategic_advisor_required(Task) - derived: task requires strategic advisor
 Decl strategic_advisor_required(Task) bound [/string].
@@ -118,8 +116,6 @@ Decl activate_specialist_for_phase(Specialist, Phase) bound [/name, /string].
 # Both slots are specialist_classification/3 arg 1.
 Decl specialist_assists(Advisor, Executor) bound [/name, /name].
 
-# specialist_consultation_route(FromSpec, ToSpec, Question) - derived: consultation routing
-Decl specialist_consultation_route(FromSpec, ToSpec, Question) bound [/string, /string, /string].
 
 # specialist_allowed_tools(Specialist, Tool) - derived: tools specialist can use
 # Specialist is specialist_classification/3 arg 1; Tool is the /write_file,

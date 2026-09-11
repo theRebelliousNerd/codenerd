@@ -224,7 +224,12 @@ specialist_can_execute(Specialist) :-
     specialist_classification(Specialist, /executor, _).
 
 # Determine if specialist should execute directly
-# High confidence (>0.8) on an executor specialist triggers direct execution
+# High confidence (>0.8) on an executor specialist triggers direct execution.
+# Inputs are asserted by the Go matcher (internal/shards/specialist_facts.go):
+# specialist_classification from DefaultSpecialistClassifications,
+# specialist_match and task_complexity per delegated task. The chat
+# delegation path reads specialist_should_execute / strategic_advisor_required
+# back instead of deciding in Go.
 specialist_should_execute(Specialist, Task) :-
     specialist_match(Specialist, Task, Confidence),
     specialist_can_execute(Specialist),
@@ -280,11 +285,6 @@ activate_specialist_for_phase(Specialist, Phase) :-
 specialist_assists(Advisor, Executor) :-
     specialist_classification(Advisor, /advisor, /strategic),
     specialist_classification(Executor, /executor, /technical).
-
-# Specialist consultation request routing
-specialist_consultation_route(FromSpec, ToSpec, Question) :-
-    consultation_request(FromSpec, ToSpec, Question, _),
-    specialist_classification(ToSpec, _, _).
 
 # Derive specialist tools from classification
 specialist_allowed_tools(Specialist, /write_file) :-
