@@ -1,6 +1,8 @@
 package perception
 
 import (
+	"codenerd/internal/types"
+	"strings"
 	"testing"
 
 	"codenerd/internal/store"
@@ -85,6 +87,34 @@ func TestTaxonomyStore_Integration(t *testing.T) {
 
 	if !foundExemplar {
 		t.Error("learned_exemplar fact not found")
+	}
+}
+
+func TestGenerateSystemPromptSection_IncludesLearnedExemplars(t *testing.T) {
+	te, err := NewTaxonomyEngine()
+	if err != nil {
+		t.Fatalf("NewTaxonomyEngine failed: %v", err)
+	}
+	if err := te.engine.AddFact("learned_exemplar", "Nuke it", types.MangleAtom("/delete"), "database", "", 0.95); err != nil {
+		if err := te.engine.LoadSchemaString("Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)."); err != nil {
+			t.Fatalf("LoadSchemaString failed: %v", err)
+		}
+		if err := te.engine.AddFact("learned_exemplar", "Nuke it", types.MangleAtom("/delete"), "database", "", 0.95); err != nil {
+			t.Fatalf("AddFact failed: %v", err)
+		}
+	}
+	section, err := te.GenerateSystemPromptSection()
+	if err != nil {
+		t.Fatalf("GenerateSystemPromptSection failed: %v", err)
+	}
+	if !strings.Contains(section, "LEARNED USER PATTERNS") {
+		t.Errorf("expected section to contain %q, got %q", "LEARNED USER PATTERNS", section)
+	}
+	if !strings.Contains(section, "Nuke it") {
+		t.Errorf("expected section to contain %q, got %q", "Nuke it", section)
+	}
+	if !strings.Contains(section, "/delete") {
+		t.Errorf("expected section to contain %q, got %q", "/delete", section)
 	}
 }
 
