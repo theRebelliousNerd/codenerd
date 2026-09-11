@@ -521,6 +521,62 @@ func (e *Engine) replaceFactsForFileImpl(file string, facts []Fact, contentHash 
 	return nil
 }
 
+// ReplaceControlFacts replaces every base fact of the named predicates with
+// facts and re-derives from scratch.
+//
+// It exists for control facts whose first argument is not a file path.
+// ReplaceFactsForFile keys facts by their first string argument, so a fact
+// such as working_control(/no, 0) was never removed by it and every call
+// accumulated one more. Evaluation is also monotone: a stop derived from a
+// fact that no longer exists stayed derived, so a working loop that once hit
+// three failed rounds was stopped for that reason on every later round.
+// Every rule-head predicate is cleared before re-evaluation here. It is
+// meant for small task-private engines; a world-model engine would re-derive
+// everything on each call.
+func (e *Engine) ReplaceControlFacts(facts []Fact, predicates ...string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.programInfo == nil {
+		return errNoSchemas
+	}
+	for _, predicate := range predicates {
+		sym, ok := e.predicateIndex[predicate]
+		if !ok {
+			return fmt.Errorf("predicate %s is not declared in schemas", predicate)
+		}
+		e.removePredicateLocked(sym, true)
+	}
+	for _, fact := range facts {
+		if err := e.insertFactLocked(fact); err != nil {
+			return err
+		}
+	}
+	for sym := range e.programInfo.IdbPredicates {
+		e.removePredicateLocked(sym, false)
+	}
+	if e.autoEval {
+		if _, err := e.evalWithGasLimit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removePredicateLocked drops every stored atom of one predicate. counted
+// says whether the atoms were base facts that insertFactLocked counted.
+func (e *Engine) removePredicateLocked(sym ast.PredicateSym, counted bool) {
+	var atoms []ast.Atom
+	_ = e.store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
+		atoms = append(atoms, atom)
+		return nil
+	})
+	for _, atom := range atoms {
+		if e.baseStore.Remove(atom) && counted && e.factCount > 0 {
+			e.factCount--
+		}
+	}
+}
+
 // isNilPersistence guards against typed nil persistence implementations.
 func isNilPersistence(p Persistence) bool {
 	if p == nil {
@@ -651,6 +707,18 @@ func convertValueToTypedTerm(value any, expectedType ast.ConstantType) (ast.Base
 	switch v := value.(type) {
 	case ast.BaseTerm:
 		return v, nil
+	case types.MangleAtom:
+		// The explicit atom type. It has no String method, so before this
+		// case it fell through to the JSON default and was stored as the
+		// string constant "\"/yes\"": every rule that matched the atom by
+		// name saw nothing, silently, for every caller that used the type.
+		name := string(v)
+		if !strings.HasPrefix(name, "/") {
+			name = "/" + name
+		}
+		return ast.Name(name)
+	case types.MangleString:
+		return ast.String(string(v)), nil
 	case string:
 		if strings.HasPrefix(v, "/") {
 			// Explicit Name syntax in string ALWAYS wins

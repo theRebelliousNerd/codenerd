@@ -149,6 +149,10 @@ func (e *Executor) runToolLoop(
 	progressDriven := activeWorkingLoop(ctx) != nil && executorCfg.ProgressDrivenTools
 	openRounds := progressDriven && executorCfg.MaxToolIterations == 0
 	failedRounds := 0
+	writeOriented := e.writeOrientedIntent(result.Intent.Verb)
+	// Set when the working policy ends exploration at a boundary; the loop
+	// then leaves the model's next batch pending for the forced-final path.
+	finalizeReason := ""
 	finalizationCutoff, finalizationReserve, hasFinalizationCutoff :=
 		toolExplorationCutoff(ctx, executorCfg.FinalAnswerReserve)
 	// A client that cannot consume tool results has no final follow-up phase to
@@ -167,6 +171,16 @@ func (e *Executor) runToolLoop(
 	for iter := 0; openRounds || iter < budget.iterationLimit; iter++ {
 		if ctx.Err() != nil {
 			return currentResponse, toolErrs, ctx.Err()
+		}
+		if finalizeReason != "" {
+			// Policy ended exploration at the previous boundary. The batch the
+			// model requested since is still pending and runs inside the
+			// forced-final path, so a late verification call is not lost; what
+			// stops is the open-ended reading after it.
+			logging.Get(logging.CategorySession).Warn(
+				"Working policy finalized the turn (%s) after %d executed tool call(s); forcing a final answer",
+				finalizeReason, result.ToolCallsExecuted)
+			break
 		}
 
 		// A deadline is a second budget, independent of MaxToolIterations. Keep
@@ -204,7 +218,7 @@ func (e *Executor) runToolLoop(
 			toolResults = appendToolBudgetNudge(toolResults, budget.nudge(
 				iter+1,
 				result.ToolCallsExecuted,
-				e.writeOrientedIntent(result.Intent.Verb),
+				writeOriented,
 				hasToolDefinition(toolDefs, "apply_edits"),
 			))
 		}
@@ -216,14 +230,29 @@ func (e *Executor) runToolLoop(
 					break
 				}
 			}
-			keepGoing, reason, policyErr := activeWorkingLoop(ctx).set.Continue(ctx, budget.repeatedTailCycle(), failedRounds)
+			// The policy sees the whole-turn shape (write intent, rounds,
+			// writes, rounds since the last write and verification) and answers
+			// with a stop, a finalize, a nudge, or plain continuation. Before
+			// this it saw only a repeated-trace flag and a failure count, so an
+			// open loop on a change task could read for half an hour, write one
+			// line, and read on without ever running the test the task named.
+			decision, policyErr := activeWorkingLoop(ctx).set.Continue(ctx, budget.workingProgress(writeOriented, failedRounds))
 			if policyErr != nil {
 				cancelExploration()
 				return currentResponse, toolErrs, fmt.Errorf("working continuation policy: %w", policyErr)
 			}
-			if !keepGoing {
+			if !decision.Continue {
+				reason := decision.Stop
+				if reason == "" {
+					reason = "no continuation derived"
+				}
 				cancelExploration()
 				return currentResponse, toolErrs, fmt.Errorf("task unresolved: working continuation stopped by policy %s after %d executed tools", reason, result.ToolCallsExecuted)
+			}
+			finalizeReason = decision.Finalize
+			if decision.Nudge != "" {
+				toolResults = appendToolBudgetNudge(toolResults,
+					workingNudgeText(decision.Nudge, budget.workingProgress(writeOriented, failedRounds)))
 			}
 		}
 		if ctx.Err() != nil {
@@ -316,7 +345,7 @@ func (e *Executor) runToolLoop(
 		// repeat cycle or write-task read-only stall. Like the nudge, this is
 		// keyed to the ceiling: an open loop has no limit to extend.
 		if !openRounds && iter+1 >= budget.iterationLimit {
-			decision := budget.maybeExtend(e.writeOrientedIntent(result.Intent.Verb))
+			decision := budget.maybeExtend(writeOriented)
 			if decision.Granted {
 				logging.Get(logging.CategorySession).Warn(
 					"Adaptive tool budget extended by %d rounds to %d after %d executed tool call(s): %s",
@@ -350,10 +379,12 @@ func (e *Executor) runToolLoop(
 	// hollow-success guard then correctly failed. "You have explored enough,
 	// now do the thing" is the instruction that turn needed; "you have explored
 	// enough, now describe the thing" is not.
-	logging.Get(logging.CategorySession).Warn(
-		"Tool iteration budget reached: %d rounds (base %d, hard %d, extensions %d/%d); forcing a final answer from %d executed tool call(s)",
-		budget.iterationLimit, budget.baseLimit, budget.hardLimit, budget.extensions,
-		budget.maxExtensions, result.ToolCallsExecuted)
+	if finalizeReason == "" {
+		logging.Get(logging.CategorySession).Warn(
+			"Tool iteration budget reached: %d rounds (base %d, hard %d, extensions %d/%d); forcing a final answer from %d executed tool call(s)",
+			budget.iterationLimit, budget.baseLimit, budget.hardLimit, budget.extensions,
+			budget.maxExtensions, result.ToolCallsExecuted)
+	}
 
 	final, finalErrs, finalErr := e.forceFinalAnswer(ctx, trp, systemPrompt, &history, currentResponse, cfg, result)
 	toolErrs = append(toolErrs, finalErrs...)

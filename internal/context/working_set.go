@@ -120,30 +120,85 @@ type WorkingSelection struct {
 	Candidates int
 }
 
+// WorkingProgress is the loop's report to policy at a round boundary. The
+// loop counts; the policy (working_set.mg) decides what the counts mean.
+type WorkingProgress struct {
+	Cycle        bool // the tail of the tool trace repeats deterministically
+	FailedRounds int  // consecutive rounds in which every tool failed
+	WriteIntent  bool // the turn's verb is write-oriented
+	Rounds       int  // rounds completed this turn
+	Writes       int  // durable writes so far
+	SinceWrite   int  // rounds since the last durable write (Rounds when none)
+	SinceVerify  int  // rounds since the last focused verification (Rounds when none)
+}
+
+// WorkingDecision is policy's answer. A Stop means the task is unresolved. A
+// Finalize means exploration is over and the harness collects the conclusion
+// and runs verification. A Nudge is steering text for the model; it never
+// ends the loop by itself.
+type WorkingDecision struct {
+	Continue bool
+	Stop     string // working_stop reason, without the leading slash
+	Finalize string // working_finalize reason, without the leading slash
+	Nudge    string // working_nudge kind, without the leading slash
+}
+
 // Continue asks policy whether observed execution should continue. A stop is
 // an unresolved task, never a successful completion witness.
-func (w *WorkingSet) Continue(ctx context.Context, cycle bool, failedRounds int) (bool, string, error) {
+func (w *WorkingSet) Continue(ctx context.Context, p WorkingProgress) (WorkingDecision, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	flag := types.MangleAtom("/no")
-	if cycle {
-		flag = types.MangleAtom("/yes")
+	// Plain "/"-prefixed strings: the engine encodes those as name atoms. A
+	// types.MangleAtom is a fmt.Stringer to the encoder and became a string
+	// constant, so working_control(/yes, _) never matched and the repeated
+	// cycle stop had never fired.
+	flag := "/no"
+	if p.Cycle {
+		flag = "/yes"
 	}
-	if err := w.engine.ReplaceFactsForFile("working-control", []mangle.Fact{{Predicate: "working_control", Args: []any{flag, int64(failedRounds)}}}); err != nil {
-		return false, "", err
+	intent := "/read"
+	if p.WriteIntent {
+		intent = "/write"
 	}
-	stops, err := w.engine.Query(ctx, "working_stop(Reason)")
+	facts := []mangle.Fact{
+		{Predicate: "working_control", Args: []any{flag, int64(p.FailedRounds)}},
+		{Predicate: "working_progress", Args: []any{intent, int64(p.Rounds), int64(p.Writes), int64(p.SinceWrite), int64(p.SinceVerify)}},
+	}
+	// Control facts are not file-keyed and their derivations must not outlive
+	// them; ReplaceFactsForFile did neither (see Engine.ReplaceControlFacts).
+	if err := w.engine.ReplaceControlFacts(facts, "working_control", "working_progress"); err != nil {
+		return WorkingDecision{}, err
+	}
+	first := func(query, variable string) (string, error) {
+		rows, err := w.engine.Query(ctx, query)
+		if err != nil {
+			return "", err
+		}
+		if len(rows.Bindings) == 0 {
+			return "", nil
+		}
+		return strings.TrimPrefix(fmt.Sprint(rows.Bindings[0][variable]), "/"), nil
+	}
+	var decision WorkingDecision
+	var err error
+	if decision.Stop, err = first("working_stop(Reason)", "Reason"); err != nil {
+		return WorkingDecision{}, err
+	}
+	if decision.Stop != "" {
+		return decision, nil
+	}
+	if decision.Finalize, err = first("working_finalize(Reason)", "Reason"); err != nil {
+		return WorkingDecision{}, err
+	}
+	if decision.Nudge, err = first("working_nudge(Kind)", "Kind"); err != nil {
+		return WorkingDecision{}, err
+	}
+	rows, err := w.engine.Query(ctx, "working_continue()")
 	if err != nil {
-		return false, "", err
+		return WorkingDecision{}, err
 	}
-	if len(stops.Bindings) > 0 {
-		return false, fmt.Sprint(stops.Bindings[0]["Reason"]), nil
-	}
-	decision, err := w.engine.Query(ctx, "working_continue()")
-	if err != nil {
-		return false, "", err
-	}
-	return len(decision.Bindings) > 0, "", nil
+	decision.Continue = len(rows.Bindings) > 0
+	return decision, nil
 }
 
 // Select refreshes a bounded dependency slice, then asks the canonical Mangle

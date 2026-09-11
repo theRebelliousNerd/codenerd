@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	working "codenerd/internal/context"
 	"codenerd/internal/types"
 )
 
@@ -31,6 +32,13 @@ type toolBudgetController struct {
 	writesSinceExtension   int
 	verifiesSinceExtension int
 	hasSuccessfulWrite     bool
+
+	// Whole-turn counters reported to the working policy at each boundary.
+	// Unlike the *SinceExtension fields they never reset.
+	rounds            int
+	writesTotal       int
+	roundsSinceWrite  int
+	roundsSinceVerify int
 }
 
 type toolBudgetObservation struct {
@@ -106,6 +114,7 @@ func (c *toolBudgetController) observe(calls []types.ToolCall, results []types.T
 
 	parts := make([]string, 0, len(calls))
 	observation := toolBudgetObservation{}
+	verifies := 0
 	for _, call := range calls {
 		result, paired := byID[call.ID]
 		event := toolBudgetEventSignature(call, result, paired)
@@ -119,14 +128,29 @@ func (c *toolBudgetController) observe(calls []types.ToolCall, results []types.T
 			observation.writes++
 			c.writesSinceExtension++
 			c.hasSuccessfulWrite = true
-		} else if c.hasSuccessfulWrite && isFocusedVerificationCall(call) {
-			c.verifiesSinceExtension++
+		} else if isFocusedVerificationCall(call) {
+			verifies++
+			if c.hasSuccessfulWrite {
+				c.verifiesSinceExtension++
+			}
 		}
 		if _, seen := c.seenEvents[event]; !seen {
 			c.seenEvents[event] = struct{}{}
 			observation.novel++
 			c.progressSinceExtension++
 		}
+	}
+	c.rounds++
+	c.writesTotal += observation.writes
+	if observation.writes > 0 {
+		c.roundsSinceWrite = 0
+	} else {
+		c.roundsSinceWrite++
+	}
+	if verifies > 0 {
+		c.roundsSinceVerify = 0
+	} else {
+		c.roundsSinceVerify++
 	}
 	observation.signature = digestStrings(parts)
 	c.trace = append(c.trace, observation)
@@ -300,6 +324,37 @@ func (c *toolBudgetController) nudge(iterationsCompleted, callsUsed int, writeOr
 	default:
 		return prefix + " Batch independent reads/searches in one response; discover paths before reading them."
 	}
+}
+
+// workingProgress is the loop's report to the working policy at a round
+// boundary. It only counts; working_set.mg decides what the counts mean.
+func (c *toolBudgetController) workingProgress(writeIntent bool, failedRounds int) working.WorkingProgress {
+	if c == nil {
+		return working.WorkingProgress{WriteIntent: writeIntent, FailedRounds: failedRounds}
+	}
+	return working.WorkingProgress{
+		Cycle:        c.repeatedTailCycle(),
+		FailedRounds: failedRounds,
+		WriteIntent:  writeIntent,
+		Rounds:       c.rounds,
+		Writes:       c.writesTotal,
+		SinceWrite:   c.roundsSinceWrite,
+		SinceVerify:  c.roundsSinceVerify,
+	}
+}
+
+// workingNudgeText renders a policy-derived steering kind for the model. The
+// policy decides when; the wording lives here so the .mg stays declarative.
+func workingNudgeText(kind string, p working.WorkingProgress) string {
+	switch strings.TrimPrefix(strings.TrimSpace(kind), "/") {
+	case "implement":
+		return fmt.Sprintf("%d rounds of reading and no file written for a change task. Make the change now with the evidence in hand; read only what the edit itself needs.", p.Rounds)
+	case "verify":
+		return fmt.Sprintf("A file was written %d rounds ago and nothing has verified it. Run the verification the task names (or the tests for the touched package) now, then finish.", p.SinceWrite)
+	case "conclude":
+		return fmt.Sprintf("%d rounds of reading. Conclude from the gathered evidence, or name exactly what is missing and read only that.", p.Rounds)
+	}
+	return ""
 }
 
 func appendToolBudgetNudge(results []types.ToolResult, nudge string) []types.ToolResult {

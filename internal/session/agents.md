@@ -25,6 +25,13 @@
   not progress: only a durable write or focused post-write verification earns
   an extension. Repeated traces and read-only stalls deny extension. Keep the
   live calls/rounds nudge short and attach it to a paired tool result.
+- An open (progress-driven, no count ceiling) loop is governed by
+  `internal/context/working_set.mg`. The loop reports `working_progress`
+  (intent, rounds, writes, rounds since the last write and verification) at
+  every boundary; the policy answers with `working_stop` (unresolved),
+  `working_finalize` (exploration over: the pending batch runs, then the
+  forced-final path and the post-edit gate) or `working_nudge` (steering text
+  on the round's last tool result). Change the spans in the .mg, not in Go.
 - New LLM-facing behavior is a prompt atom first. `AvailableTools` describes the
   effective envelope; it is not authority.
 - Pass bounded task text into JIT retrieval even when delegation supplies only

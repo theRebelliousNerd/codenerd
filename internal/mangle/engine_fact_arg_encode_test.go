@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
+
+	"codenerd/internal/types"
 )
 
 // A fact argument that cannot be encoded must stop the conversion, never
@@ -68,5 +70,33 @@ func TestConvertValueToTypedTermEncodesMaps(t *testing.T) {
 				t.Errorf("encoded to %q, want %q", s, `{"k":"v"}`)
 			}
 		})
+	}
+}
+
+// The explicit atom and string types encode as what they say they are. A
+// types.MangleAtom has no String method, so it used to fall through to the
+// JSON default and become the string constant "\"/yes\"": every rule that
+// matched the atom by name saw nothing, for every caller that used the type.
+func TestConvertValueToTypedTermHonoursExplicitMangleTypes(t *testing.T) {
+	atom, err := convertValueToTypedTerm(types.MangleAtom("/yes"), -1)
+	if err != nil {
+		t.Fatalf("MangleAtom: %v", err)
+	}
+	if c, ok := atom.(ast.Constant); !ok || c.Type != ast.NameType || c.Symbol != "/yes" {
+		t.Fatalf("MangleAtom(\"/yes\") encoded as %#v, want the name /yes", atom)
+	}
+	bare, err := convertValueToTypedTerm(types.MangleAtom("yes"), -1)
+	if err != nil {
+		t.Fatalf("bare MangleAtom: %v", err)
+	}
+	if c, ok := bare.(ast.Constant); !ok || c.Type != ast.NameType || c.Symbol != "/yes" {
+		t.Fatalf("MangleAtom(\"yes\") encoded as %#v, want the name /yes", bare)
+	}
+	str, err := convertValueToTypedTerm(types.MangleString("/not-a-name"), -1)
+	if err != nil {
+		t.Fatalf("MangleString: %v", err)
+	}
+	if c, ok := str.(ast.Constant); !ok || c.Type != ast.StringType || c.Symbol != "/not-a-name" {
+		t.Fatalf("MangleString(\"/not-a-name\") encoded as %#v, want the string constant", str)
 	}
 }

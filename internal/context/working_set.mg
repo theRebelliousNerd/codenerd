@@ -7,16 +7,55 @@ Decl working_stale(ID) bound [/string].
 Decl working_superseded(ID) bound [/string].
 Decl working_selected(ID, Priority) bound [/string, /name].
 Decl working_control(Cycle, FailedRounds) bound [/name, /number].
+# The loop's report at each round boundary. Intent is /write for a
+# write-oriented verb and /read otherwise; Rounds counts completed rounds;
+# Writes counts durable writes so far; SinceWrite and SinceVerify count rounds
+# since the last durable write and the last focused verification (equal to
+# Rounds when there has been none).
+Decl working_progress(Intent, Rounds, Writes, SinceWrite, SinceVerify) bound [/name, /number, /number, /number, /number].
+Decl working_nudge_rounds(N) bound [/number].
+Decl working_stall_rounds(N) bound [/number].
 Decl working_stop(Reason) bound [/name].
+Decl working_finalize(Reason) descr [doc("Exploration is over; the harness asks for the conclusion and runs verification. Not a stop and not a completion witness.")].
+Decl working_nudge(Kind) descr [doc("Steering the loop appends to the round's last tool result: /implement, /verify or /conclude.")].
 Decl working_stopped() bound [].
 Decl working_continue() descr [doc("Continuation requires no observed stall; it never means task completion.")].
 
+# Policy constants. Rounds, not tool calls: a model that batches ten reads in
+# one response and one that reads one file per response get the same span.
+working_nudge_rounds(8).
+working_stall_rounds(24).
+
 working_stop(/repeated_cycle) :- working_control(/yes, _).
 working_stop(/tool_failures) :- working_control(_, Failed), Failed >= 3.
+# A change task that has only read for the whole stall span never started.
+# Observed 2026-09-11: 300 reads in 25 minutes before a one-line edit the
+# brief had named by file and line.
+working_stop(/read_only_stall) :-
+    working_progress(/write, Rounds, 0, _, _),
+    working_stall_rounds(N), Rounds >= N.
 # Negation needs a bound literal, and a wildcard in a negated atom does not
 # exclude in this Mangle; project the stop reasons to arity 0 first.
 working_stopped() :- working_stop(_).
 working_continue() :- working_control(_, _), !working_stopped().
+
+# A change task that wrote and then neither wrote nor verified for a nudge
+# span is done exploring: the harness collects the conclusion and runs the
+# build/test gate itself instead of waiting for the model to get round to it.
+working_finalize(/verify_after_write) :-
+    working_progress(/write, _, Writes, SinceWrite, SinceVerify), Writes > 0,
+    working_nudge_rounds(N), SinceWrite >= N, SinceVerify >= N.
+
+# Steering, well before the stop and finalize thresholds.
+working_nudge(/implement) :-
+    working_progress(/write, Rounds, 0, _, _),
+    working_nudge_rounds(N), Rounds >= N.
+working_nudge(/verify) :-
+    working_progress(/write, _, Writes, SinceWrite, SinceVerify), Writes > 0,
+    SinceWrite >= 3, SinceVerify >= 3.
+working_nudge(/conclude) :-
+    working_progress(/read, Rounds, _, _, _),
+    working_nudge_rounds(N), Rounds >= N.
 
 working_stale(ID) :-
     working_observation(ID, Entity, Old, _, _),
