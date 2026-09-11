@@ -4,9 +4,6 @@ package session
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,8 +17,6 @@ import (
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
-
-	"gopkg.in/yaml.v3"
 )
 
 var spawnerCounter uint64
@@ -317,6 +312,15 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	// Phase 2: Generate JIT config (no lock - may involve IO/LLM calls)
 	EffectiveAgentRuntimeConfig, err := s.generateConfig(ctx, req)
 	if err != nil {
+		// A cancelled or expired context is the caller withdrawing the
+		// request, not a compile failure to degrade around: continuing here
+		// started an agent nobody was waiting for, on an empty config, after
+		// the deadline had passed. The deferred release above returns the
+		// capacity reservation.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			logging.Get(logging.CategorySession).Warn("Spawn of %s abandoned: %v", req.Name, ctxErr)
+			return nil, fmt.Errorf("spawn %s: %w", req.Name, ctxErr)
+		}
 		logging.Get(logging.CategorySession).Warn("Failed to generate config for %s: %v", req.Name, err)
 		// Continue with empty config - subagent can still function
 		EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{}
@@ -414,88 +418,6 @@ func (s *Spawner) SpawnForIntent(ctx context.Context, intent perception.Intent, 
 	}
 
 	return s.Spawn(ctx, req)
-}
-
-// SpawnSpecialist spawns a user-defined specialist agent.
-// Specialists have their configs loaded from .nerd/agents/{name}/
-func (s *Spawner) SpawnSpecialist(ctx context.Context, name string, task string) (*SubAgent, error) {
-	// Load specialist config from filesystem
-	EffectiveAgentRuntimeConfig, err := s.loadSpecialistConfig(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load specialist %s: %w", name, err)
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Check active limit
-	activeCount := s.countActive()
-	if activeCount >= s.maxActiveSubagents {
-		return nil, fmt.Errorf("max active subagents reached: %d", s.maxActiveSubagents)
-	}
-
-	// Build config
-	subCfg := SubAgentConfig{
-		ID:                          fmt.Sprintf("%s-%d-%d", name, time.Now().UnixNano(), atomic.AddUint64(&spawnerCounter, 1)),
-		Name:                        name,
-		Type:                        SubAgentTypePersistent, // Specialists are persistent
-		EffectiveAgentRuntimeConfig: EffectiveAgentRuntimeConfig,
-		IntentVerb:                  "/consult/" + name,
-		Timeout:                     appconfig.GetLLMTimeouts().ShardExecutionTimeout,
-		MaxTurns:                    100,
-	}
-
-	// Create and start. s.mu is already held for writing here, so read the
-	// planner slot directly rather than through currentPlannerClient().
-	agent := NewSubAgent(
-		subCfg,
-		s.kernel,
-		s.virtualStore,
-		s.llmClient,
-		s.jitCompiler,
-		s.configFactory,
-		s.transducer,
-	)
-	agent.SetPlannerClient(s.plannerClient)
-	// Forward nerd.md to specialists as well. s.mu is already held for writing,
-	// so read the slot directly rather than via currentProjectDoc() to avoid
-	// a redundant RLock (and to mirror the plannerClient pattern above).
-	if s.projectDoc != nil {
-		agent.executor.SetProjectDoc(s.projectDoc)
-	}
-	if s.fileContext != nil {
-		agent.executor.SetFileContextProvider(s.fileContext)
-	}
-	agent.executor.SetWorkingWorld(s.workingWorld)
-	// Forward tool-loop budget. s.mu is already held for writing, so read the
-	// slot directly. Nil guard preserves the pre-fix default 8 iteration budget
-	// when no parent budget was supplied; forwarding a zero value would instead
-	// set MaxToolIterations to 0.
-	if s.executorConfig != nil {
-		agent.executor.SetConfig(*s.executorConfig)
-	}
-	// Forward session identity and generated-tool registry. s.mu is already
-	// held for writing, so read the slots directly. The subagent executor has
-	// no persister, so the inherited session ID only correlates audit
-	// boundaries and never records specialist turns as session turns.
-	if s.sessionID != "" {
-		agent.executor.SetSessionID(s.sessionID)
-	}
-	// Forward the usage meter so specialist turns read spend instead of
-	// zeros. s.mu is already held for writing, so read the slot directly.
-	if s.usageTracker != nil {
-		agent.executor.SetUsageTracker(s.usageTracker)
-	}
-	if s.ouroborosRegistry != nil {
-		agent.executor.SetOuroborosRegistry(s.ouroborosRegistry)
-	}
-
-	s.subagents[agent.GetID()] = agent
-	go agent.Run(ctx, task)
-
-	logging.Session("Spawned specialist: %s (id: %s)", name, agent.GetID())
-
-	return agent, nil
 }
 
 // Get returns a subagent by ID.
@@ -680,6 +602,12 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 
 	compileResult, err := s.jitCompiler.Compile(ctx, compilationCtx)
 	if err != nil {
+		// The caller's context ending is not a compile failure to retry
+		// around; the baseline retry would fail the same way and the empty
+		// config below would then start an agent after the deadline.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		// Fallback strategy: Retry once with baseline context, then return empty config
 		logging.Get(logging.CategorySession).Warn("JIT compilation failed, retrying with baseline: %v", err)
 
@@ -692,6 +620,9 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 		baselineCtx.Provider, baselineCtx.Model = s.servingIdentity()
 		compileResult, err = s.jitCompiler.Compile(ctx, baselineCtx)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
 			// Final fallback: return empty config, subagent will use defaults
 			logging.Get(logging.CategorySession).Warn("JIT baseline compilation also failed, using empty config: %v", err)
 			return &config.EffectiveAgentRuntimeConfig{}, nil
@@ -699,68 +630,6 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 	}
 
 	return s.configFactory.Generate(ctx, compileResult, intentVerb)
-}
-
-// maxSpecialistConfigSize is the maximum allowed size for a specialist config YAML file.
-// Prevents DoS via oversized configs that cause the YAML parser to consume excessive CPU/memory.
-const maxSpecialistConfigSize = 1 << 20 // 1MB
-
-// loadSpecialistConfig loads a specialist's config from the filesystem.
-func (s *Spawner) loadSpecialistConfig(ctx context.Context, name string) (*config.EffectiveAgentRuntimeConfig, error) {
-	// Guard against path traversal: reject names containing ".." or path separators.
-	// Without this, a name like "../../etc/passwd" would escape .nerd/agents/.
-	if strings.Contains(name, "..") || strings.ContainsAny(name, "/\\") {
-		return nil, fmt.Errorf("invalid specialist name %q: contains path traversal characters", name)
-	}
-
-	// Try to load from .nerd/agents/{name}/config.yaml
-	configPath := filepath.Join(".nerd", "agents", name, "config.yaml")
-	logging.SessionDebug("Loading specialist config for: %s from %s", name, configPath)
-
-	// Use virtualStore.ReadRaw() for consistency with architecture if available
-	var data []byte
-	var err error
-	if s.virtualStore != nil {
-		data, err = s.virtualStore.ReadRaw(configPath)
-	} else {
-		// Fallback to os.ReadFile when virtualStore is not set
-		data, err = os.ReadFile(configPath)
-	}
-	if err == nil {
-		// Reject oversized configs to prevent YAML parser DoS
-		if len(data) > maxSpecialistConfigSize {
-			return nil, fmt.Errorf("specialist config for %q exceeds maximum size (%d > %d bytes)",
-				name, len(data), maxSpecialistConfigSize)
-		}
-
-		var cfg config.EffectiveAgentRuntimeConfig
-		if err := yaml.Unmarshal(data, &cfg); err != nil {
-			return nil, fmt.Errorf("failed to parse specialist config at %s: %w", configPath, err)
-		}
-		if err := cfg.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid specialist config at %s: %w", configPath, err)
-		}
-		logging.SessionDebug("Successfully loaded specialist config for %s", name)
-		return &cfg, nil
-	} else if !os.IsNotExist(err) {
-		// Log read errors other than NotExist
-		logging.Session("Error reading specialist config for %s: %v", name, err)
-	} else {
-		logging.SessionDebug("Specialist config not found for %s, falling back to JIT generation", name)
-	}
-
-	if s.configFactory == nil {
-		return &config.EffectiveAgentRuntimeConfig{}, nil
-	}
-
-	// Specialist fallback path: when no on-disk config exists for `name`, we still
-	// need a runtime config so the specialist can boot with default tools/policies
-	// drawn from its intent atom. ConfigFactory.Generate rejects a nil
-	// CompilationResult (it dereferences result.Prompt), so we pass a minimal
-	// non-nil shell instead. The identity prompt is intentionally empty here —
-	// the specialist will be driven by whatever ConfigAtom the factory resolves
-	// for "/<name>".
-	return s.configFactory.Generate(ctx, &prompt.CompilationResult{Prompt: ""}, "/"+name)
 }
 
 // determineAgentType maps intents to subagent types.

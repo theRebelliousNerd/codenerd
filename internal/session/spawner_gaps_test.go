@@ -110,14 +110,6 @@ func (m *mockTransducerUT) SetStrategicContext(context string) {}
 // - Input: SpawnRequest{Task: strings.Repeat("A", 50*1024*1024)} (50MB string)
 // - Expected: Memory remains stable, spawn is either rejected or handled gracefully without OOM.
 
-// TODO: Add Test Case: Empty Specialist Config
-// - Input: 0-byte config.yaml in specialist directory
-// - Expected: Meaningful error during unmarshal, fallback triggers correctly.
-
-// TODO: Add Test Case: Specialist Name Null Byte Injection
-// - Input: SpawnSpecialist(ctx, "admin\x00", task)
-// - Expected: Rejected early due to invalid characters, OS file APIs not invoked.
-
 // TODO: Add Test Case: Exact Boundary MaxActiveSubagents
 // - Input: Set limit to 5. Spawn 5. Spawn 1 more.
 // - Expected: 6th spawn fails immediately with specific max capacity error.
@@ -133,10 +125,6 @@ func (m *mockTransducerUT) SetStrategicContext(context string) {}
 // TODO: Add Test Case: Mangle Atom vs String Coercion
 // - Input: SpawnRequest{IntentVerb: "test"} (missing slash)
 // - Expected: The system normalizes it to "/test" or gracefully errors out, preventing silent failures in Mangle.
-
-// TODO: Add Test Case: Specialist Capacity Check DoS (TOCTOU)
-// - Input: 100 concurrent requests for a specialist with a slow/large YAML config.
-// - Expected: Capacity checks should ideally occur before expensive YAML parsing to prevent memory/CPU exhaustion.
 
 func TestSpawner_MaxActiveSubagents_TOCTOU(t *testing.T) {
 	// State Conflicts: Verify Spawn TOCTOU mitigation with concurrent requests

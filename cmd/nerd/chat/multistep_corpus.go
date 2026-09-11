@@ -5,7 +5,7 @@
 // ARCHITECTURE NOTE:
 // The authoritative multi-step knowledge lives in Mangle schema files:
 //   - internal/core/defaults/taxonomy.mg: verb_composition, step_connector, etc.
-//   - internal/core/defaults/schema/intent.mg: multistep_pattern, multistep_keyword, etc.
+//   - internal/core/defaults/schema/intent_multi_step.mg: multistep_pattern, multistep_keyword, etc.
 //
 // This Go file provides:
 //  1. Runtime regex compilation (can't be stored in Mangle)

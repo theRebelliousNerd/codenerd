@@ -46,8 +46,17 @@ func TestFindMGFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findMGFiles: %v", err)
 	}
-	if len(files) < 4 {
+	// Three files are listed by hand (taxonomy, doc_taxonomy, build_topology);
+	// the schema directory is walked, and the intent monolith that used to be
+	// the fourth hand-listed entry is deleted — its facts live in the modular
+	// schema/intent_*.mg files the walk finds.
+	if len(files) < 3 {
 		t.Fatalf("expected at least the known .mg files, got %d: %v", len(files), files)
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, "schema/intent.mg") || strings.HasSuffix(f, `schema\intent.mg`) {
+			t.Errorf("the deleted intent monolith is still listed: %v", files)
+		}
 	}
 	var hasTaxonomy bool
 	for _, f := range files {

@@ -201,7 +201,6 @@ func findMGFiles() ([]string, error) {
 		"taxonomy.mg",
 		"doc_taxonomy.mg",
 		"build_topology.mg",
-		"schema/intent.mg",
 	}
 
 	for _, f := range knownFiles {

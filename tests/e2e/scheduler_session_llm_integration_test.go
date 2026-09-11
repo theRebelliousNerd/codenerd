@@ -763,9 +763,13 @@ func TestE2E_SchedulerSession_Temporal_TaskExecutor_SpawnLimiter(t *testing.T) {
 	ctx := context.Background()
 
 	// Spawn 3 agents. The 3rd should fail if it exceeds the limit.
-	_, err1 := spawner.SpawnSpecialist(ctx, "agent1", "task 1")
-	_, err2 := spawner.SpawnSpecialist(ctx, "agent2", "task 2")
-	_, err3 := spawner.SpawnSpecialist(ctx, "agent3", "task 3")
+	spawn := func(name, task string) error {
+		_, err := spawner.Spawn(ctx, session.SpawnRequest{Name: name, Task: task, Type: session.SubAgentTypePersistent, IntentVerb: "/consult/" + name})
+		return err
+	}
+	err1 := spawn("agent1", "task 1")
+	err2 := spawn("agent2", "task 2")
+	err3 := spawn("agent3", "task 3")
 
 	if err1 != nil {
 		t.Errorf("Agent 1 failed: %v", err1)
