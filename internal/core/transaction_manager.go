@@ -19,6 +19,33 @@ import (
 
 // TransactionManager orchestrates atomic multi-file edits using 2PC protocol.
 // It uses shadow validation to ensure edits pass safety rules before committing.
+//
+// NOTHING DRIVES IT, verified 2026-09-11, and that is worth knowing before
+// reading the six hundred lines below as live machinery. It is constructed at
+// boot (internal/system/factory.go) and handed to the VirtualStore, which logs
+// "TransactionManager connected for atomic multi-file edits" -- and then:
+//
+//	VirtualStore.GetTransactionManager()  no callers anywhere, tests included
+//	Begin / AddEdit / Prepare / Commit    no production callers
+//	FileEdit{...}                         constructed only in tests
+//
+// The single production use of any method is Close()'s
+// `if IsTransactionActive() { Abort(...) }`, which cleans up a transaction
+// that cannot have been opened. ToFacts() therefore always returns empty,
+// which makes this the only producer of modified_file/1 and leaves that
+// predicate -- declared, owned by a shard, and joined by test_impact.mg -- with
+// no live producer at all.
+//
+// Docs/audits/WRITE_MUTATION_INVENTORY.md lists this as one of the repo's
+// write-mutation paths. It is a path that exists and is not taken.
+//
+// Recorded rather than deleted, unlike the shard export chain removed in the
+// same pass, because the two are different kinds of dead. That one was
+// SUPERSEDED -- derivation-map fan-out does its job, measurably. This one has
+// no replacement: two-phase commit with shadow validation and rollback across
+// several files is a capability nothing else in the tree offers, and whether
+// to drive it from the tactile editor, from the plan, or not at all is a
+// product decision rather than a missing wire.
 type TransactionManager struct {
 	mu          sync.RWMutex
 	shadowMode  *ShadowMode
