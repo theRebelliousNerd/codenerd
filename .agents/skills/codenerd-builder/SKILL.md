@@ -1642,7 +1642,7 @@ Core logic files have been reorganized to `internal/core/defaults/`:
 - [internal/core/defaults/campaign_rules.mg](internal/core/defaults/campaign_rules.mg) - Campaign orchestration (33KB)
 - [internal/core/defaults/inference.mg](internal/core/defaults/inference.mg) - Inference rules
 - [internal/core/defaults/taxonomy.mg](internal/core/defaults/taxonomy.mg) - Category taxonomies
-- [internal/core/defaults/schema/intent.mg](internal/core/defaults/schema/intent.mg) - Intent schema (1.7MB)
+- [internal/core/defaults/schema/intent_*.mg](internal/core/defaults/schema/intent_*.mg) - Intent schema (1.7MB)
 
 **Autopoiesis Logic:**
 

@@ -194,7 +194,7 @@ type learnedValidationResult struct {
 var coreLogic embed.FS
 
 // GetDefaultContent returns the content of an embedded default file.
-// Path should be relative to defaults/ (e.g. "schemas.mg" or "schema/intent.mg").
+// Path should be relative to defaults/ (e.g. "schemas.mg" or "schema/intent_queries.mg").
 func GetDefaultContent(path string) (string, error) {
 	data, err := coreLogic.ReadFile("defaults/" + path)
 	if err != nil {
