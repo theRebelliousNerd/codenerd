@@ -404,6 +404,12 @@ func (m Model) sendObserverEvent(eventType shards.ObserverEventType, source, tar
 // It captures LLM thinking metadata (ThoughtSummary, ThinkingTokens) when available
 // for the LLM-as-Judge to evaluate reasoning quality.
 func (m Model) recordShardExecution(shardType, task, result string, err error, duration time.Duration) {
+	// The shard profile's enable_learning gates recording. It was collected
+	// by the wizard and persisted for months while every run was recorded
+	// regardless; reviewer ships with it off.
+	if !m.shardLearningEnabled(shardType) {
+		return
+	}
 	if m.promptEvolver == nil {
 		return
 	}

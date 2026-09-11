@@ -328,8 +328,31 @@ func (m *Model) withShardModelContext(ctx context.Context, shardType string) con
 		return ctx
 	}
 	profile := m.Config.GetShardProfile(strings.TrimSpace(shardType))
+	// The profile's sampling rides on the context beside the model override;
+	// every client's request builder reads it (types.TemperatureFor). Unset
+	// fields attach nothing, so a profile that never chose a temperature
+	// leaves the client's own default in force.
+	ctx = types.WithSampling(ctx, types.Sampling{Temperature: profile.Temperature, TopP: profile.TopP})
 	if strings.TrimSpace(profile.Model) == "" {
 		return ctx
 	}
 	return types.WithModelName(ctx, strings.TrimSpace(profile.Model))
+}
+
+// shardMaxRetries is the verification attempt cap for a shard type, from its
+// profile; VerifyWithRetry treats a non-positive value as its default.
+func (m *Model) shardMaxRetries(shardType string) int {
+	if m == nil || m.Config == nil {
+		return 0
+	}
+	return m.Config.GetShardProfile(strings.TrimSpace(shardType)).MaxRetries
+}
+
+// shardLearningEnabled reports whether a shard type's profile allows its runs
+// to be recorded for prompt evolution. Without a config every run is recorded.
+func (m *Model) shardLearningEnabled(shardType string) bool {
+	if m == nil || m.Config == nil {
+		return true
+	}
+	return m.Config.GetShardProfile(strings.TrimSpace(shardType)).EnableLearning
 }

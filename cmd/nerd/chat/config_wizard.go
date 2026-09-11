@@ -34,7 +34,6 @@ const (
 	StepShardConfig
 	StepShardModel
 	StepShardTemperature
-	StepShardContext
 	StepNextShard
 	StepEmbeddingProvider
 	StepEmbeddingConfig
@@ -97,10 +96,9 @@ type ConfigWizardState struct {
 
 // ShardProfileConfig holds per-shard configuration.
 type ShardProfileConfig struct {
-	Model            string
-	Temperature      float64
-	MaxContextTokens int
-	EnableLearning   bool
+	Model          string
+	Temperature    float64
+	EnableLearning bool
 }
 
 // intentTypes lists the primary intent types for the configuration wizard UI.
@@ -251,8 +249,6 @@ func (m Model) handleConfigWizardInput(input string) (tea.Model, tea.Cmd) {
 		return m.configWizardShardModel(input)
 	case StepShardTemperature:
 		return m.configWizardShardTemperature(input)
-	case StepShardContext:
-		return m.configWizardShardContext(input)
 	case StepNextShard:
 		return m.configWizardNextShard(input)
 	case StepEmbeddingProvider:

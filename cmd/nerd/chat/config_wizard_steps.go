@@ -65,10 +65,9 @@ func (m Model) configWizardShardModel(input string) (tea.Model, tea.Cmd) {
 	// Initialize shard profile if needed
 	if m.configWizard.ShardProfiles[shard] == nil {
 		m.configWizard.ShardProfiles[shard] = &ShardProfileConfig{
-			Model:            m.configWizard.Model, // Default to main model
-			Temperature:      0.7,
-			MaxContextTokens: 30000,
-			EnableLearning:   true,
+			Model:          m.configWizard.Model, // Default to main model
+			Temperature:    0.7,
+			EnableLearning: true,
 		}
 	}
 
@@ -127,54 +126,6 @@ func (m Model) configWizardShardTemperature(input string) (tea.Model, tea.Cmd) {
 		}
 	} else {
 		m.configWizard.ShardProfiles[shard].Temperature = defaultTemp
-	}
-
-	m.configWizard.Step = StepShardContext
-
-	defaultContext := map[string]int{
-		"coder":      30000,
-		"tester":     20000,
-		"reviewer":   40000,
-		"researcher": 25000,
-	}[shard]
-
-	m = m.addMessage(Message{
-		Role: "assistant",
-		Content: fmt.Sprintf(`### Context Tokens for %s
-
-Maximum tokens for input context:
-- **20000**: Standard tasks
-- **30000**: Complex code generation
-- **40000**: Full codebase analysis
-
-Suggested for %s: **%d**
-
-Enter max context tokens or Enter for suggested:`, shard, shard, defaultContext),
-		Time: time.Now(),
-	})
-	m.textarea.Placeholder = fmt.Sprintf("Max context tokens (%d)...", defaultContext)
-	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
-	return m, nil
-}
-
-// configWizardShardContext handles shard context tokens.
-func (m Model) configWizardShardContext(input string) (tea.Model, tea.Cmd) {
-	shard := m.configWizard.CurrentShard
-
-	defaultContext := map[string]int{
-		"coder":      30000,
-		"tester":     20000,
-		"reviewer":   40000,
-		"researcher": 25000,
-	}[shard]
-
-	if input != "" {
-		if ctx, err := strconv.Atoi(input); err == nil && ctx > 0 {
-			m.configWizard.ShardProfiles[shard].MaxContextTokens = ctx
-		}
-	} else {
-		m.configWizard.ShardProfiles[shard].MaxContextTokens = defaultContext
 	}
 
 	m.configWizard.Step = StepNextShard
@@ -393,12 +344,12 @@ func (m Model) showConfigReview() (tea.Model, tea.Cmd) {
 
 	if w.ConfigureShards && len(w.ShardProfiles) > 0 {
 		sb.WriteString("\n### Per-Shard Configuration\n\n")
-		sb.WriteString("| Shard | Model | Temp | Context |\n")
-		sb.WriteString("|-------|-------|------|-------:|\n")
+		sb.WriteString("| Shard | Model | Temp |\n")
+		sb.WriteString("|-------|-------|------|\n")
 		for _, shard := range intentTypes {
 			if profile, ok := w.ShardProfiles[shard]; ok {
-				sb.WriteString(fmt.Sprintf("| %s | %s | %.1f | %d |\n",
-					shard, profile.Model, profile.Temperature, profile.MaxContextTokens))
+				sb.WriteString(fmt.Sprintf("| %s | %s | %.1f |\n",
+					shard, profile.Model, profile.Temperature))
 			}
 		}
 	}

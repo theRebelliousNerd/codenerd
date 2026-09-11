@@ -40,7 +40,6 @@ func TestConfigWizard_AllSteps(t *testing.T) {
 		StepShardConfig,
 		StepShardModel,
 		StepShardTemperature,
-		StepShardContext,
 		StepNextShard,
 		StepEmbeddingProvider,
 		StepEmbeddingConfig,
@@ -65,10 +64,9 @@ func TestConfigWizard_ShardProfileConfig(t *testing.T) {
 	t.Parallel()
 
 	profile := &ShardProfileConfig{
-		Model:            "gpt-4",
-		Temperature:      0.7,
-		MaxContextTokens: 8000,
-		EnableLearning:   true,
+		Model:          "gpt-4",
+		Temperature:    0.7,
+		EnableLearning: true,
 	}
 
 	if profile.Model != "gpt-4" {
@@ -76,9 +74,6 @@ func TestConfigWizard_ShardProfileConfig(t *testing.T) {
 	}
 	if profile.Temperature != 0.7 {
 		t.Errorf("Expected temperature 0.7, got %f", profile.Temperature)
-	}
-	if profile.MaxContextTokens != 8000 {
-		t.Errorf("Expected MaxContextTokens 8000, got %d", profile.MaxContextTokens)
 	}
 	if !profile.EnableLearning {
 		t.Errorf("Expected EnableLearning true")

@@ -118,7 +118,7 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		Model:       c.model,
 		Messages:    messages,
 		MaxTokens:   c.maxOutputTokens,
-		Temperature: 0.1,
+		Temperature: types.TemperatureFor(ctx, 0.1),
 	}
 	if isPiggyback {
 		reqBody.ResponseFormat = BuildOpenAIPiggybackEnvelopeSchema()
@@ -261,7 +261,7 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 			Model:       c.model,
 			Messages:    messages,
 			MaxTokens:   c.maxOutputTokens,
-			Temperature: 0.1,
+			Temperature: types.TemperatureFor(ctx, 0.1),
 			Stream:      true,
 			StreamOptions: &OpenAIStreamOptions{
 				IncludeUsage: true,
@@ -429,7 +429,9 @@ func (c *OpenAIClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 	openAITools := MapToolDefinitionsToOpenAI(tools)
 
 	reqBody := OpenAIRequest{
-		Model: c.model,
+		Model:       c.model,
+		MaxTokens:   c.maxOutputTokens,
+		Temperature: types.TemperatureFor(ctx, 0),
 		Messages: []OpenAIMessage{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},

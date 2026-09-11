@@ -144,7 +144,7 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 		Messages: []AnthropicMessage{
 			{Role: "user", Content: userPrompt},
 		},
-		Temperature: 0.1,
+		Temperature: types.TemperatureFor(ctx, 0.1),
 	}
 
 	// Retry loop for rate limits and transient errors
@@ -290,7 +290,7 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 			Messages: []AnthropicMessage{
 				{Role: "user", Content: userPrompt},
 			},
-			Temperature: 0.1,
+			Temperature: types.TemperatureFor(ctx, 0.1),
 			Stream:      true,
 		}
 
@@ -466,7 +466,7 @@ func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 		System:      systemPrompt,
 		Messages:    []AnthropicMessage{{Role: "user", Content: userPrompt}},
 		Tools:       anthropicTools,
-		Temperature: 0.1,
+		Temperature: types.TemperatureFor(ctx, 0.1),
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -591,7 +591,7 @@ func (c *AnthropicClient) CompleteWithToolResults(ctx context.Context, systemPro
 		System:      systemPrompt,
 		Messages:    messages,
 		Tools:       anthropicTools,
-		Temperature: 0.1,
+		Temperature: types.TemperatureFor(ctx, 0.1),
 	}
 
 	jsonData, err := json.Marshal(reqBody)

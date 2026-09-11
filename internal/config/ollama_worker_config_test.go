@@ -5,8 +5,10 @@ import "testing"
 func TestGetOllamaLLMConfig_Defaults(t *testing.T) {
 	cfg := &UserConfig{}
 	o := cfg.GetOllamaLLMConfig()
-	if o.Model != "gemma4:12b" {
-		t.Fatalf("model=%q", o.Model)
+	// No invented model: an Ollama workspace names its chat model or client
+	// construction fails and says so.
+	if o.Model != "" {
+		t.Fatalf("model=%q, want empty", o.Model)
 	}
 	if o.Endpoint == "" {
 		t.Fatal("empty endpoint")

@@ -752,9 +752,10 @@ func (c *UserConfig) GetImageLLMConfig() ImageLLMConfig {
 
 // GetOllamaLLMConfig returns Ollama chat settings with defaults.
 func (c *UserConfig) GetOllamaLLMConfig() OllamaLLMConfig {
+	// No default model: a workspace on Ollama names its chat model in
+	// ollama.model (or model), or client construction fails and says so.
 	def := OllamaLLMConfig{
 		Endpoint: "http://127.0.0.1:11434",
-		Model:    "gemma4:12b",
 	}
 	if c == nil || c.Ollama == nil {
 		// Fall back to embedding endpoint if present so one Ollama host is shared.
@@ -1218,16 +1219,12 @@ func (c *UserConfig) GetShardProfile(shardType string) ShardProfile {
 		return applyShardDefaults(*c.DefaultShard)
 	}
 
-	// Ultimate fallback - sensible defaults
+	// Ultimate fallback - sensible defaults. Sampling is left unset so the
+	// client's own default applies (see ShardProfile.Temperature).
 	return ShardProfile{
-		Model:                 "glm-4.7",
-		Temperature:           0.7,
-		TopP:                  0.9,
-		MaxContextTokens:      20000,
-		MaxExecutionTimeSec:   300,
-		MaxRetries:            3,
-		MaxFactsInShardKernel: 20000,
-		EnableLearning:        true,
+		MaxExecutionTimeSec: 300,
+		MaxRetries:          3,
+		EnableLearning:      true,
 	}
 }
 
@@ -1487,8 +1484,6 @@ func DefaultUserConfig() *UserConfig {
 	browserCfg := DefaultBrowserAutomationConfig()
 
 	return &UserConfig{
-		Provider:                     "zai",
-		Model:                        "glm-4.7",
 		Engine:                       "api",
 		Theme:                        "light",
 		ContinuationMode:             1,

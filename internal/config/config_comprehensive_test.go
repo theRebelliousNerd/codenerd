@@ -464,11 +464,13 @@ func TestGetContext7APIKey_WhenNilConfig_ShouldReturnEmpty(t *testing.T) {
 
 func TestDefaultUserConfig_ShouldHaveSensibleDefaults(t *testing.T) {
 	cfg := DefaultUserConfig()
-	if cfg.Provider != "zai" {
-		t.Errorf("Provider = %q, want 'zai'", cfg.Provider)
+	// No invented provider or model: a workspace that has not chosen one
+	// must fail at client construction and say so, not quietly talk to Z.AI.
+	if cfg.Provider != "" {
+		t.Errorf("Provider = %q, want empty (nothing chosen)", cfg.Provider)
 	}
-	if cfg.Model != "glm-4.7" {
-		t.Errorf("Model = %q, want 'glm-4.7'", cfg.Model)
+	if cfg.Model != "" {
+		t.Errorf("Model = %q, want empty (nothing chosen)", cfg.Model)
 	}
 	if cfg.Theme != "light" {
 		t.Errorf("Theme = %q, want 'light'", cfg.Theme)

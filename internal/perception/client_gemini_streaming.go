@@ -3,6 +3,7 @@ package perception
 import (
 	"bytes"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -110,7 +111,7 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 			Parts: []GeminiPart{{Text: systemPrompt}},
 		},
 		GenerationConfig: GeminiGenerationConfig{
-			Temperature:     1.0,
+			Temperature:     types.TemperatureFor(ctx, 1.0),
 			MaxOutputTokens: c.maxOutputTokens,
 			ThinkingConfig:  c.buildThinkingConfig(),
 		},

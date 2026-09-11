@@ -55,7 +55,7 @@ func (c *Client) CompleteWithToolResults(ctx context.Context, systemPrompt strin
 		Tools:       chatTools,
 		ToolChoice:  "auto",
 		MaxTokens:   c.cfg.MaxOutputTokens,
-		Temperature: 0.1,
+		Temperature: types.TemperatureFor(ctx, 0.1),
 	}
 
 	status, body, err := doJSON(ctx, c.httpClient, "POST", chatURL(c.cfg.BaseURL), token, reqBody, 10<<20)
@@ -230,7 +230,7 @@ func (c *Client) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt
 		Tools:       chatTools,
 		ToolChoice:  "auto",
 		MaxTokens:   c.cfg.MaxOutputTokens,
-		Temperature: 0.1,
+		Temperature: types.TemperatureFor(ctx, 0.1),
 	}
 
 	status, body, err := doJSON(ctx, c.httpClient, "POST", chatURL(c.cfg.BaseURL), token, reqBody, 10<<20)

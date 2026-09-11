@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"errors"
@@ -472,7 +473,7 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			Parts: []GeminiPart{{Text: systemPrompt}},
 		},
 		GenerationConfig: GeminiGenerationConfig{
-			Temperature:     1.0,
+			Temperature:     types.TemperatureFor(ctx, 1.0),
 			MaxOutputTokens: c.maxOutputTokens,
 			ThinkingConfig:  c.buildThinkingConfig(),
 		},
@@ -752,7 +753,7 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 			Parts: []GeminiPart{{Text: systemPrompt}},
 		},
 		GenerationConfig: GeminiGenerationConfig{
-			Temperature:      1.0,
+			Temperature:      types.TemperatureFor(ctx, 1.0),
 			MaxOutputTokens:  c.maxOutputTokens,
 			ThinkingConfig:   c.buildThinkingConfig(), // Thinking enabled - thought parts will be filtered
 			ResponseMimeType: "application/json",

@@ -238,19 +238,16 @@ func NewClientFromEnv() (LLMClient, error) {
 
 // NERD-EVOLVE-START: P1P2-model-tiering
 // NewClassificationClientFromConfig creates an LLM client for intent
-// classification (P2 model tiering). The model is determined by:
-//  1. cfg.ClassificationModel — explicit user override from config.json
-//  2. Per-provider fast-tier defaults:
-//     - Anthropic: claude-haiku-4-5 with prompt caching enabled (P1+P2)
-//     - Gemini: gemini-3.1-flash-lite
-//     - OpenAI: gpt-4o-mini
-//  3. Providers without a known fast tier (zai, xai, openrouter): returns nil
-//     unless ClassificationModel is set (caller falls back to main LLMClient).
-//
-// The main cfg.Model setting deliberately does NOT apply here: classification
-// runs on every interactive turn before anything else can happen, so routing
-// it to the user's (typically large, slow) main model put minutes of latency
-// in front of every prompt. That was the old behavior and it was a bug.
+// classification (P2 model tiering). The model is classification_model when
+// set, else the configured main model — never a hardcoded fast tier. Three
+// providers used to invent one (claude-haiku-4-5, gemini-3.1-flash-lite,
+// gpt-4o-mini) when classification_model was empty, which meant the
+// classification tier a workspace ran on was decided by a literal in this
+// file rather than by its config. Classification runs on every interactive
+// turn, so a workspace on a large main model should set classification_model
+// to its provider's fast tier; the client built here still carries the
+// classification-specific settings (prompt caching, thinking off, minimal
+// reasoning effort) whichever model it runs on.
 //
 // When nil is returned, no error is set — the caller should treat nil as
 // "use main client" and not fail.
@@ -265,14 +262,14 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 	}
 
 	model := cfg.ClassificationModel
+	if classificationModel(cfg) == "" {
+		return nil, nil
+	}
 
 	switch cfg.Provider {
 	case ProviderAnthropic:
 		haikuCfg := DefaultAnthropicConfig(cfg.APIKey)
-		haikuCfg.Model = "claude-haiku-4-5"
-		if model != "" {
-			haikuCfg.Model = model
-		}
+		haikuCfg.Model = classificationModel(cfg)
 		client := NewAnthropicClientWithConfig(haikuCfg)
 		client.EnableSystemCaching() // P1: cache the static perception system prompt
 		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=anthropic model=%s (configured=%v)", haikuCfg.Model, model != "")
@@ -280,49 +277,32 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 
 	case ProviderGemini:
 		flashCfg := DefaultGeminiConfig(cfg.APIKey)
-		flashCfg.Model = "gemini-3.1-flash-lite"
-		if model != "" {
-			flashCfg.Model = model
-		}
+		flashCfg.Model = classificationModel(cfg)
 		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=gemini model=%s (configured=%v)", flashCfg.Model, model != "")
 		return NewGeminiClientWithConfig(flashCfg), nil
 
 	case ProviderOpenAI:
 		client := NewOpenAIClient(cfg.APIKey)
-		client.SetModel("gpt-4o-mini")
-		if model != "" {
-			client.SetModel(model)
-		}
-		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=openai model=%s (configured=%v)", model, model != "")
+		client.SetModel(classificationModel(cfg))
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=openai model=%s (configured=%v)", classificationModel(cfg), model != "")
 		return client, nil
 
 	case ProviderZAI:
-		// Z.AI has no universally-available fast tier we can assume; honor an
-		// explicit classification_model only.
-		if model == "" {
-			return nil, nil
-		}
 		client := NewZAIClient(cfg.APIKey)
-		client.SetModel(model)
-		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=zai model=%s", model)
+		client.SetModel(classificationModel(cfg))
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=zai model=%s (configured=%v)", classificationModel(cfg), model != "")
 		return client, nil
 
 	case ProviderXAI:
-		if model == "" {
-			return nil, nil
-		}
 		client := NewXAIClient(cfg.APIKey)
-		client.SetModel(model)
-		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=xai model=%s", model)
+		client.SetModel(classificationModel(cfg))
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=xai model=%s (configured=%v)", classificationModel(cfg), model != "")
 		return client, nil
 
 	case ProviderOpenRouter:
-		if model == "" {
-			return nil, nil
-		}
 		client := NewOpenRouterClient(cfg.APIKey)
-		client.SetModel(model)
-		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=openrouter model=%s", model)
+		client.SetModel(classificationModel(cfg))
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=openrouter model=%s (configured=%v)", classificationModel(cfg), model != "")
 		return client, nil
 
 	case ProviderDashScope, ProviderMeta, ProviderMoonshot:
@@ -346,9 +326,7 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 		if floor := minCompletionTokensFor(cfg.Provider); floor > compatCfg.MaxOutputTokens {
 			compatCfg.MaxOutputTokens = floor
 		}
-		if model != "" {
-			compatCfg.Model = model
-		}
+		compatCfg.Model = classificationModel(cfg)
 		if cfg.BaseURL != "" {
 			compatCfg.BaseURL = cfg.BaseURL
 		}
@@ -459,6 +437,14 @@ func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 		// Continue to API-based provider selection below
 	default:
 		return nil, fmt.Errorf("unknown engine: %s (valid: api, claude-cli, codex-cli, xai-oauth)", config.Engine)
+	}
+
+	// No invented model. Every client below carries a constructor default,
+	// and for years an empty "model" quietly became whichever one the
+	// provider's client happened to ship with. A workspace that has not
+	// chosen a model does not work; it says so.
+	if isAPIProvider(config.Provider) && strings.TrimSpace(config.Model) == "" && !(config.Provider == ProviderOllama && config.Ollama != nil && strings.TrimSpace(config.Ollama.Model) != "") {
+		return nil, fmt.Errorf("no model configured for provider %q: set \"model\" in .nerd/config.json (or the slot's worker.model / planner.model)", config.Provider)
 	}
 
 	// API-based provider selection
@@ -608,6 +594,10 @@ func newSecondarySlotClient(userCfg *config.UserConfig, slot string, w *config.S
 		}
 		if w.Model != "" {
 			cfg.Model = w.Model
+		} else if main := userCfg.GetOllamaLLMConfig(); main.Model != "" {
+			cfg.Model = main.Model
+		} else {
+			return nil, fmt.Errorf("%s LLM: no model configured for ollama: set %s.model or ollama.model in .nerd/config.json", slot, slot)
 		}
 		logging.Perception("%s LLM: ollama model=%s endpoint=%s", slot, cfg.Model, cfg.Endpoint)
 		return NewOllamaClientWithConfig(cfg), nil
@@ -724,4 +714,30 @@ func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 		metered.Model = cfg.ClassificationModel
 	}
 	return InstallBroker(client, &metered)
+}
+
+// classificationModel is the model the classification client runs on: the
+// explicit classification_model, else the configured main model. Empty only
+// when neither is set, in which case there is no classification client and
+// the main client (whose construction already failed for the same reason)
+// would have been used.
+func classificationModel(cfg *ProviderConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	if m := strings.TrimSpace(cfg.ClassificationModel); m != "" {
+		return m
+	}
+	return strings.TrimSpace(cfg.Model)
+}
+
+// isAPIProvider reports whether p is a provider newRawClientFromConfig can build.
+// The model requirement applies only to those; an unknown provider is still
+// reported as unknown.
+func isAPIProvider(p Provider) bool {
+	switch p {
+	case ProviderAnthropic, ProviderDashScope, ProviderGemini, ProviderMeta, ProviderMoonshot, ProviderOllama, ProviderOpenAI, ProviderOpenRouter, ProviderXAI, ProviderZAI:
+		return true
+	}
+	return false
 }

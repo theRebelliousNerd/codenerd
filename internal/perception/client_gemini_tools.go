@@ -50,7 +50,7 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 			},
 		},
 		GenerationConfig: GeminiGenerationConfig{
-			Temperature:     1.0,
+			Temperature:     types.TemperatureFor(ctx, 1.0),
 			MaxOutputTokens: c.maxOutputTokens,
 			ThinkingConfig:  c.buildThinkingConfig(),
 		},
@@ -283,7 +283,7 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 		Contents:         allContents,
 		ThoughtSignature: c.lastThoughtSignature, // CRITICAL: Pass signature back for Gemini 3
 		GenerationConfig: GeminiGenerationConfig{
-			Temperature:     1.0,
+			Temperature:     types.TemperatureFor(ctx, 1.0),
 			MaxOutputTokens: c.maxOutputTokens,
 			ThinkingConfig:  c.buildThinkingConfig(),
 		},

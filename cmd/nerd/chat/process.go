@@ -490,7 +490,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				// Set session context for verification persistence
 				m.verifier.SetSessionContext(m.sessionID, m.turnCount)
 
-				result, verification, verifyErr := m.verifier.VerifyWithRetry(ctx, task, shardType, 3)
+				result, verification, verifyErr := m.verifier.VerifyWithRetry(ctx, task, shardType, m.shardMaxRetries(shardType))
 
 				// CRITICAL FIX: Inject verified shard results as facts for cross-turn context
 				shardID := fmt.Sprintf("%s-verified-%d", shardType, time.Now().UnixNano())

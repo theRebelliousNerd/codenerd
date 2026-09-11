@@ -108,7 +108,7 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 		Model:       c.model,
 		Messages:    messages,
 		MaxTokens:   c.maxOutputTokens,
-		Temperature: 0.1,
+		Temperature: types.TemperatureFor(ctx, 0.1),
 	}
 	if isPiggyback {
 		reqBody.ResponseFormat = BuildOpenRouterPiggybackEnvelopeSchema()
@@ -253,7 +253,7 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 			Model:       c.model,
 			Messages:    messages,
 			MaxTokens:   c.maxOutputTokens,
-			Temperature: 0.1,
+			Temperature: types.TemperatureFor(ctx, 0.1),
 			Stream:      true,
 			StreamOptions: &OpenAIStreamOptions{
 				IncludeUsage: true,

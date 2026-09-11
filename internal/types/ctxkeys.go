@@ -93,3 +93,55 @@ func ModelNameFromContext(ctx context.Context) (string, bool) {
 	}
 	return "", false
 }
+
+// Sampling carries the per-call sampling a shard profile configured. A zero
+// field means "not configured": the client keeps its own value for it. Shard
+// profiles carried temperature and top_p for months without any client
+// reading them; this is the seam that makes them live, the same way the
+// model override reaches a shared client without a per-shard client.
+type Sampling struct {
+	Temperature float64
+	TopP        float64
+}
+
+type samplingKeyType struct{}
+
+var samplingKey = samplingKeyType{}
+
+// WithSampling attaches s to ctx. A Sampling with nothing configured attaches
+// nothing, so callers can pass a profile's values through unconditionally.
+func WithSampling(ctx context.Context, s Sampling) context.Context {
+	if s.Temperature <= 0 && s.TopP <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, samplingKey, s)
+}
+
+// SamplingFromContext returns the sampling attached to ctx, if any.
+func SamplingFromContext(ctx context.Context) (Sampling, bool) {
+	if ctx == nil {
+		return Sampling{}, false
+	}
+	if v, ok := ctx.Value(samplingKey).(Sampling); ok && (v.Temperature > 0 || v.TopP > 0) {
+		return v, true
+	}
+	return Sampling{}, false
+}
+
+// TemperatureFor is the temperature a request builder should send: the
+// profile's, when one is attached to ctx, else fallback (the client's own
+// default, which may be zero to leave the vendor default in force).
+func TemperatureFor(ctx context.Context, fallback float64) float64 {
+	if s, ok := SamplingFromContext(ctx); ok && s.Temperature > 0 {
+		return s.Temperature
+	}
+	return fallback
+}
+
+// TopPFor is the top_p counterpart of TemperatureFor.
+func TopPFor(ctx context.Context, fallback float64) float64 {
+	if s, ok := SamplingFromContext(ctx); ok && s.TopP > 0 {
+		return s.TopP
+	}
+	return fallback
+}

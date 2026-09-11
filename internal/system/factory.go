@@ -1899,6 +1899,13 @@ func initFinalExecutors(bctx *bootContext) error {
 		execCfg.ToolLoopRepeatThreshold = limits.ToolLoopRepeatThreshold
 	}
 	bctx.sessionExecutor.SetConfig(execCfg)
+	// The shard profile's enable_learning gates what the executor records
+	// for prompt evolution, per persona.
+	if appCfg := bctx.appCfg; appCfg != nil {
+		bctx.sessionExecutor.SetLearningPolicy(func(shardType string) bool {
+			return appCfg.GetShardProfile(shardType).EnableLearning
+		})
+	}
 	logging.Boot("Tool loop budget: %d calls / %d base iterations; adaptive=%v extension=%dx%d repeat_threshold=%d; build verification after edits: %v (workspace %s)",
 		execCfg.MaxToolCalls, execCfg.MaxToolIterations, execCfg.AdaptiveToolBudget,
 		execCfg.MaxToolIterationExtensions, execCfg.ToolIterationExtensionSize,

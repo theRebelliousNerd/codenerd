@@ -454,11 +454,12 @@ func (c *OpenAICompatClient) buildRequest(ctx context.Context, messages []OpenAI
 			}
 		}
 		// Sampling deliberately left at vendor defaults unless explicitly
-		// configured, and never both at once.
-		if c.temperature > 0 {
-			req.Temperature = c.temperature
-		} else if c.topP > 0 {
-			req.TopP = c.topP
+		// configured (client config or the shard profile on ctx), and never
+		// both at once.
+		if temperature := types.TemperatureFor(ctx, c.temperature); temperature > 0 {
+			req.Temperature = temperature
+		} else if topP := types.TopPFor(ctx, c.topP); topP > 0 {
+			req.TopP = topP
 		}
 
 	case ProviderDashScope:
@@ -468,13 +469,13 @@ func (c *OpenAICompatClient) buildRequest(ctx context.Context, messages []OpenAI
 		if enabled && c.thinkingBudget > 0 {
 			req.ThinkingBudget = c.thinkingBudget
 		}
-		req.Temperature = c.temperature
-		req.TopP = c.topP
+		req.Temperature = types.TemperatureFor(ctx, c.temperature)
+		req.TopP = types.TopPFor(ctx, c.topP)
 
 	default:
 		req.MaxTokens = c.maxOutputTokens
-		req.Temperature = c.temperature
-		req.TopP = c.topP
+		req.Temperature = types.TemperatureFor(ctx, c.temperature)
+		req.TopP = types.TopPFor(ctx, c.topP)
 	}
 
 	return req

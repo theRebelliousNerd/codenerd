@@ -1331,17 +1331,18 @@ func TestBuildOpenRouterPiggybackEnvelopeSchema_ShouldReturnJSONSchema(t *testin
 // CLASSIFICATION MODEL TIERING TESTS
 // =============================================================================
 
-// TestNewClassificationClientFromConfig_MainModelDoesNotLeak guards the fix
-// for the latency bug where a configured main model silently became the
-// classification model. With Model set but ClassificationModel empty, the
-// fast-tier default must win.
-func TestNewClassificationClientFromConfig_MainModelDoesNotLeak(t *testing.T) {
+// TestNewClassificationClientFromConfig_RunsOnTheConfiguredModel pins the
+// no-invented-model rule: with ClassificationModel empty the classification
+// client runs on the configured main model, never on a fast tier chosen by
+// a literal in the factory. A workspace on a large main model sets
+// classification_model; it does not get claude-haiku-4-5 by default.
+func TestNewClassificationClientFromConfig_RunsOnTheConfiguredModel(t *testing.T) {
 	t.Parallel()
 
 	cfg := &ProviderConfig{
 		Provider: ProviderAnthropic,
 		APIKey:   "test-key",
-		Model:    "claude-opus-4-8", // big main model — must NOT be used for classification
+		Model:    "claude-opus-4-8",
 	}
 	client, err := NewClassificationClientFromConfig(cfg)
 	if err != nil {
@@ -1355,8 +1356,14 @@ func TestNewClassificationClientFromConfig_MainModelDoesNotLeak(t *testing.T) {
 	if !ok {
 		t.Fatalf("client %T does not expose GetModel", client)
 	}
-	if got := mc.GetModel(); got != "claude-haiku-4-5" {
-		t.Errorf("classification model = %q, want fast-tier default %q (main model must not leak)", got, "claude-haiku-4-5")
+	if got := mc.GetModel(); got != "claude-opus-4-8" {
+		t.Errorf("classification model = %q, want the configured model %q", got, "claude-opus-4-8")
+	}
+
+	// With neither model configured there is no classification client at all.
+	none, err := NewClassificationClientFromConfig(&ProviderConfig{Provider: ProviderAnthropic, APIKey: "test-key"})
+	if err != nil || none != nil {
+		t.Errorf("no configured model: got client %T, err %v; want nil, nil", none, err)
 	}
 }
 

@@ -106,6 +106,22 @@ func (e *Executor) SetTurnRecorder(r TurnRecorder) {
 	e.turnRecorder = r
 }
 
+// SetLearningPolicy installs the per-shard-type gate on recording: the
+// function receives the persona the turn ran as ("coder", "reviewer", ...)
+// and returns whether its turns may be recorded. It is the executor-side
+// binding of the shard profile's enable_learning, which was persisted and
+// echoed by the config wizard for months while every turn was recorded
+// regardless. Kept as a function value so the executor does not import the
+// config package, the same way TurnRecorder is kept dependency-free.
+func (e *Executor) SetLearningPolicy(allow func(shardType string) bool) {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.learningPolicy = allow
+}
+
 // HasTurnRecorder reports whether a learning sink is installed.
 //
 // It exists so "does this boot path learn?" is a question a test and a
@@ -134,8 +150,14 @@ func (e *Executor) recordTurn(rec TurnRecord) {
 	}
 	e.mu.RLock()
 	recorder := e.turnRecorder
+	policy := e.learningPolicy
 	e.mu.RUnlock()
 	if recorder == nil {
+		return
+	}
+	if policy != nil && !policy(perception.GetShardTypeForVerb(rec.IntentVerb)) {
+		logging.SessionDebug("Turn %d of session %s not recorded: learning is disabled for %s",
+			rec.TurnNumber, rec.SessionID, rec.IntentVerb)
 		return
 	}
 

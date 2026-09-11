@@ -2,6 +2,7 @@ package perception
 
 import (
 	"bytes"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -134,8 +135,8 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 				Model:          c.model,
 				Messages:       messages,
 				MaxTokens:      4096,
-				Temperature:    0.1,
-				TopP:           0.9,
+				Temperature:    types.TemperatureFor(ctx, 0.1),
+				TopP:           types.TopPFor(ctx, 0.9),
 				Stream:         true,
 				StreamOptions:  &ZAIStreamOptions{IncludeUsage: true},
 				ResponseFormat: BuildZAIPiggybackEnvelopeSchema(), // Z.AI: json_object only with streaming

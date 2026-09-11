@@ -233,6 +233,10 @@ type Executor struct {
 	// reported to (see executor_learning.go). Nil by default, so an executor
 	// with nothing wired in behaves as it did before the seam existed.
 	turnRecorder TurnRecorder
+	// learningPolicy, when set, decides per shard type whether a turn is
+	// handed to turnRecorder at all (the shard profile's enable_learning).
+	// Nil records every turn.
+	learningPolicy func(shardType string) bool
 
 	// contextFeedbackRecorder receives the model's rating of the context it
 	// was given; pendingContextFeedback holds that rating between the
@@ -573,6 +577,7 @@ func (e *Executor) CloneForTask() *Executor {
 	// that dropped the recorder would leave the system learning only from the
 	// paths a human happens to be watching.
 	clone.turnRecorder = e.turnRecorder
+	clone.learningPolicy = e.learningPolicy
 	// Same reasoning for the context rating: a delegated task compiles its own
 	// prompt, so its verdict on that prompt is exactly as informative as a
 	// chat turn's.

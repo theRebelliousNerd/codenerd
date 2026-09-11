@@ -1093,14 +1093,11 @@ func (i *Initializer) createDefaultConfig(path string) error {
 
 		// Shard profiles are populated dynamically below,
 		DefaultShard: &config.ShardProfile{
-			Model:                 "gemini-3.5-flash",
-			Temperature:           0.7,
-			TopP:                  0.9,
-			MaxContextTokens:      1048576,
-			MaxExecutionTimeSec:   300,
-			MaxRetries:            3,
-			MaxFactsInShardKernel: 20000,
-			EnableLearning:        true,
+			Temperature:         0.7,
+			TopP:                0.9,
+			MaxExecutionTimeSec: 300,
+			MaxRetries:          3,
+			EnableLearning:      true,
 		},
 		CoreLimits: &config.CoreLimits{
 			MaxTotalMemoryMB:      12288,

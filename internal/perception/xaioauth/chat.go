@@ -136,7 +136,7 @@ func (c *Client) chatOnce(ctx context.Context, model string, messages []chatMess
 		Model:       model,
 		Messages:    messages,
 		MaxTokens:   c.cfg.MaxOutputTokens,
-		Temperature: 0.1,
+		Temperature: types.TemperatureFor(ctx, 0.1),
 		Stream:      false,
 	}
 	if len(tools) > 0 {

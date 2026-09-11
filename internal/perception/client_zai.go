@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	crand "crypto/rand"
 	"crypto/tls"
@@ -287,7 +288,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		Model:       c.model,
 		Messages:    messages,
 		MaxTokens:   c.maxOutputTokens,
-		Temperature: 0.1, // Low temperature for structured output
+		Temperature: types.TemperatureFor(ctx, 0.1), // Low temperature for structured output
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -654,8 +655,8 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 		Model:       c.model,
 		Messages:    messages,
 		MaxTokens:   c.maxOutputTokens,
-		Temperature: 0.1,
-		TopP:        0.9,
+		Temperature: types.TemperatureFor(ctx, 0.1),
+		TopP:        types.TopPFor(ctx, 0.9),
 		// Stream: false (default)
 		ResponseFormat: BuildZAIPiggybackEnvelopeSchema(), // Z.AI: json_object only
 	}
