@@ -130,14 +130,15 @@ func main() {
 
 	declared := map[string][]field{}
 	order := map[string][]string{}
+	ftypes := map[string][]string{}
 	writes := map[string]bool{}
 	reads := map[string]bool{}
 
 	for i, f := range files {
-		collectFields(fset, f, paths[i], declared, order)
+		collectFields(fset, f, paths[i], declared, order, ftypes)
 	}
 	for _, f := range files {
-		collectUses(f, order, writes, reads)
+		collectUses(f, order, ftypes, writes, reads)
 	}
 
 	var dark []field
@@ -171,7 +172,7 @@ func main() {
 // collectFields records every exported field of a named struct type, except
 // the ones carrying a struct tag — a tag declares that something outside this
 // analysis writes the field.
-func collectFields(fset *token.FileSet, f *ast.File, path string, out map[string][]field, order map[string][]string) {
+func collectFields(fset *token.FileSet, f *ast.File, path string, out map[string][]field, order map[string][]string, ftypes map[string][]string) {
 	ast.Inspect(f, func(n ast.Node) bool {
 		ts, ok := n.(*ast.TypeSpec)
 		if !ok {
@@ -186,16 +187,22 @@ func collectFields(fset *token.FileSet, f *ast.File, path string, out map[string
 		// them. An embedded field has no name and still occupies a slot, so it
 		// gets an empty placeholder rather than being skipped.
 		var positions []string
+		// types runs alongside positions, one entry per slot, so a struct
+		// handed to a syscall can be walked into its nested structs.
+		var types []string
 		for _, fl := range st.Fields.List {
 			if len(fl.Names) == 0 {
 				positions = append(positions, "")
+				types = append(types, namedType(fl.Type))
 				continue
 			}
 			for _, name := range fl.Names {
 				positions = append(positions, name.Name)
+				types = append(types, namedType(fl.Type))
 			}
 		}
 		order[ts.Name.Name] = positions
+		ftypes[ts.Name.Name] = types
 
 		for _, fl := range st.Fields.List {
 			if fl.Tag != nil {
@@ -221,7 +228,8 @@ func collectFields(fset *token.FileSet, f *ast.File, path string, out map[string
 // collectUses splits every selector and composite-literal key into a write or
 // a read. It deliberately resolves nothing: a name written anywhere counts as
 // written everywhere, which makes this under-report rather than cry wolf.
-func collectUses(f *ast.File, order map[string][]string, writes, reads map[string]bool) {
+func collectUses(f *ast.File, order, ftypes map[string][]string, writes, reads map[string]bool) {
+	varTypes := collectVarTypes(f)
 	// mark records the field an assignment target names, seeing through the
 	// wrappers an assignable expression can carry.
 	//
@@ -268,6 +276,7 @@ func collectUses(f *ast.File, order map[string][]string, writes, reads map[strin
 	ast.Inspect(f, func(n ast.Node) bool {
 		if c, ok := n.(*ast.CallExpr); ok {
 			calls[c.Fun] = true
+			markSyscallBuffer(c, varTypes, order, ftypes, writes)
 		}
 		switch x := n.(type) {
 		case *ast.AssignStmt:
@@ -297,6 +306,130 @@ func collectUses(f *ast.File, order map[string][]string, writes, reads map[strin
 		}
 		return true
 	})
+}
+
+// markSyscallBuffer records every field of a struct whose address is handed to
+// a syscall through unsafe.Pointer as written.
+//
+// This is the same principle collectFields already applies to a struct tag —
+// a tag declares that something outside this analysis writes the field — and
+// it needs saying, because nine of the twenty-nine live entries in the
+// baseline were this and nothing else.
+//
+// internal/tactile/platform_windows.go declares the Win32 structs and reads
+// them back: usage.MaxRSSBytes = int64(extInfo.PeakJobMemoryUsed),
+// DiskReadBytes = int64(extInfo.IoInfo.ReadTransferCount), UserTimeMs =
+// accountInfo.TotalUserTime / 10000. No Go statement ever assigns those
+// fields, and none ever will: QueryInformationJobObject, GetProcessIoCounters
+// and K32GetProcessMemoryInfo write the bytes, and what the walker sees of
+// that is uintptr(unsafe.Pointer(&extInfo)) — an address leaving the language.
+//
+// A walker with no type information cannot resolve &extInfo to its struct, so
+// it resolves the VARIABLE instead, file-wide rather than per function. Two
+// locals of different types sharing a name over-marks, which is the direction
+// this whole tool is biased in already: over-counting writes under-reports
+// dark fields, and a gate that cries wolf is a gate nobody runs.
+//
+// The recursion is not optional. IO_COUNTERS.ReadTransferCount is written
+// through extInfo.IoInfo, one level down from the struct whose address was
+// taken, so stopping at the top level would leave the nested ones dark.
+func markSyscallBuffer(call *ast.CallExpr, varTypes map[string]string, order, ftypes map[string][]string, writes map[string]bool) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Pointer" {
+		return
+	}
+	if pkg, ok := sel.X.(*ast.Ident); !ok || pkg.Name != "unsafe" {
+		return
+	}
+	if len(call.Args) != 1 {
+		return
+	}
+	// Peel &x, &x[0], (&x) and x.f down to the identifier whose storage is
+	// being handed out.
+	e := call.Args[0]
+	for {
+		switch t := e.(type) {
+		case *ast.ParenExpr:
+			e = t.X
+		case *ast.UnaryExpr:
+			if t.Op != token.AND {
+				return
+			}
+			e = t.X
+		case *ast.IndexExpr:
+			e = t.X
+		case *ast.SelectorExpr:
+			e = t.X
+		default:
+			id, ok := e.(*ast.Ident)
+			if !ok {
+				return
+			}
+			markFieldsOf(varTypes[id.Name], order, ftypes, writes, map[string]bool{})
+			return
+		}
+	}
+}
+
+// markFieldsOf marks every field of a named struct type written, and recurses
+// into its struct-typed fields. seen stops a type that contains itself.
+func markFieldsOf(typeName string, order, ftypes map[string][]string, writes map[string]bool, seen map[string]bool) {
+	if typeName == "" || seen[typeName] {
+		return
+	}
+	seen[typeName] = true
+	names := order[typeName]
+	types := ftypes[typeName]
+	for i, name := range names {
+		if name != "" {
+			writes[name] = true
+		}
+		if i < len(types) {
+			markFieldsOf(types[i], order, ftypes, writes, seen)
+		}
+	}
+}
+
+// collectVarTypes records the declared type of each variable in a file, so the
+// identifier inside unsafe.Pointer(&x) can be resolved to a struct name. It is
+// file-wide on purpose: see markSyscallBuffer on why over-marking is the safe
+// direction here.
+func collectVarTypes(f *ast.File) map[string]string {
+	types := map[string]string{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch t := n.(type) {
+		case *ast.ValueSpec:
+			if t.Type == nil {
+				return true
+			}
+			if name := namedType(t.Type); name != "" {
+				for _, id := range t.Names {
+					types[id.Name] = name
+				}
+			}
+		case *ast.AssignStmt:
+			if t.Tok != token.DEFINE || len(t.Lhs) != len(t.Rhs) {
+				return true
+			}
+			for i, lhs := range t.Lhs {
+				id, ok := lhs.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				rhs := t.Rhs[i]
+				if u, ok := rhs.(*ast.UnaryExpr); ok && u.Op == token.AND {
+					rhs = u.X
+				}
+				if lit, ok := rhs.(*ast.CompositeLit); ok {
+					if name := namedType(lit.Type); name != "" {
+						types[id.Name] = name
+					}
+				}
+			}
+		}
+		return true
+	})
+	return types
 }
 
 // deadcodeFiles reads the dead-code budget for the set of files that have
