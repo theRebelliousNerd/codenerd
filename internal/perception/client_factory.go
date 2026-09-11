@@ -45,6 +45,32 @@ func providerKeyFieldName(provider string) string {
 // it is raised to the vendor's reasoning floor where one exists.
 const classificationMaxOutputTokens = 2048
 
+// classificationCeiling is the completion ceiling for a classification client
+// on this provider: the small label budget, raised to the vendor's reasoning
+// floor where one exists.
+//
+// It exists because the rule was applied to one branch of seven. The comment
+// on the OpenAI-compatible branch states it plainly — "A classification reply
+// is a short label, so a small ceiling is right" — and Anthropic, Gemini,
+// OpenAI, Z.AI, xAI and OpenRouter classification clients were each built from
+// a default config and kept the general-purpose ceiling: 4096 for most, 8192
+// for Anthropic, and 65536 for Gemini. A 64K output ceiling on a call that
+// runs on EVERY interactive turn to produce a label.
+//
+// A ceiling is a cap rather than a spend, so the usual case costs nothing
+// either way; what it bounds is the turn where a model does not produce a
+// short label, and that is the turn worth bounding. The floor matters in the
+// other direction and is not optional: below a reasoning vendor's minimum a
+// model burns the whole budget thinking and returns an EMPTY body with
+// finish_reason "stop".
+func classificationCeiling(vendor Provider) int {
+	ceiling := classificationMaxOutputTokens
+	if floor := minCompletionTokensFor(vendor); floor > ceiling {
+		ceiling = floor
+	}
+	return ceiling
+}
+
 type ProviderConfig struct {
 	Provider       Provider
 	APIKey         string
@@ -269,6 +295,7 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 	switch cfg.Provider {
 	case ProviderAnthropic:
 		haikuCfg := DefaultAnthropicConfig(cfg.APIKey)
+		haikuCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
 		haikuCfg.Model = "claude-haiku-4-5"
 		if model != "" {
 			haikuCfg.Model = model
@@ -280,6 +307,7 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 
 	case ProviderGemini:
 		flashCfg := DefaultGeminiConfig(cfg.APIKey)
+		flashCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
 		flashCfg.Model = "gemini-3.1-flash-lite"
 		if model != "" {
 			flashCfg.Model = model
@@ -288,7 +316,9 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 		return NewGeminiClientWithConfig(flashCfg), nil
 
 	case ProviderOpenAI:
-		client := NewOpenAIClient(cfg.APIKey)
+		openaiCfg := DefaultOpenAIConfig(cfg.APIKey)
+		openaiCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
+		client := NewOpenAIClientWithConfig(openaiCfg)
 		client.SetModel("gpt-4o-mini")
 		if model != "" {
 			client.SetModel(model)
@@ -302,7 +332,9 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 		if model == "" {
 			return nil, nil
 		}
-		client := NewZAIClient(cfg.APIKey)
+		zaiCfg := DefaultZAIConfig(cfg.APIKey)
+		zaiCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
+		client := NewZAIClientWithConfig(zaiCfg)
 		client.SetModel(model)
 		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=zai model=%s", model)
 		return client, nil
@@ -311,7 +343,9 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 		if model == "" {
 			return nil, nil
 		}
-		client := NewXAIClient(cfg.APIKey)
+		xaiCfg := DefaultXAIConfig(cfg.APIKey)
+		xaiCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
+		client := NewXAIClientWithConfig(xaiCfg)
 		client.SetModel(model)
 		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=xai model=%s", model)
 		return client, nil
@@ -320,7 +354,9 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 		if model == "" {
 			return nil, nil
 		}
-		client := NewOpenRouterClient(cfg.APIKey)
+		orCfg := DefaultOpenRouterConfig(cfg.APIKey)
+		orCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
+		client := NewOpenRouterClientWithConfig(orCfg)
 		client.SetModel(model)
 		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=openrouter model=%s", model)
 		return client, nil
@@ -342,10 +378,7 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 		// EMPTY body with finish_reason "stop". A flat 2048 sat under Meta's
 		// 4096 floor, so every boot logged a clamp warning twice and the value
 		// never applied as written.
-		compatCfg.MaxOutputTokens = classificationMaxOutputTokens
-		if floor := minCompletionTokensFor(cfg.Provider); floor > compatCfg.MaxOutputTokens {
-			compatCfg.MaxOutputTokens = floor
-		}
+		compatCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
 		if model != "" {
 			compatCfg.Model = model
 		}
