@@ -200,3 +200,10 @@ func TestMethodChaining(t *testing.T) {
 		t.Error("Expected corpus order loaded")
 	}
 }
+
+
+// TODO: parseArgValue panics on single quote character
+// TODO: splitArgs does not handle unbalanced quotes gracefully
+// TODO: parseArgValue incorrectly coerces 123a to 123
+// TODO: ParseMangleAtom lacks protection against extremely large inputs
+// TODO: ExtractAtomsFromControlPacket does not handle malformed updates safely
