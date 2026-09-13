@@ -277,6 +277,12 @@ func containsString(values []string, target string) bool {
 	return slices.Contains(values, target)
 }
 
+
+// TODO: Gap - Null/Undefined/Empty: Test handleTaskFailure when task.ID is an empty string. Validate kernel assertion safety.
+// TODO: Gap - Type Coercion / Adversarial: Test handleTaskFailure where err contains unescaped Mangle syntax or adversarial payload strings to ensure they don't break kernel fact parsing.
+// TODO: Gap - User Request Extremes (Performance): Test shouldEscalateLogicFailure and handleTaskFailure with a task that has 100,000 previous attempts to ensure lock contention and memory pressure are manageable.
+// TODO: Gap - State Conflicts: Test handleTaskFailure when the kernel.Assert returns an error (e.g. read-only mode). Ensure orchestrator state doesn't desync or hang.
+
 // -----------------------------------------------------------------------------
 // Gap Implementations
 // -----------------------------------------------------------------------------
