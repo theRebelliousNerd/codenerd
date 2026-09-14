@@ -90,3 +90,17 @@ func TestFinalizeCancellationDoesNotPauseWithoutCancellation(t *testing.T) {
 		t.Fatalf("ordinary return unexpectedly persisted cancellation state: %v", err)
 	}
 }
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Orchestrator.Run safely handles an initialized campaign with an empty ID ("") without polluting the root filesystem during o.persistCampaign.
+
+// TODO: TEST_GAP: [Type Coercion] Verify campaign_heartbeat assertions use correct Atom vs String types matching the Mangle schema to prevent silent join failures when asserting campaignID.
+
+// TODO: TEST_GAP: [Type Coercion] Verify the timestamp int64 values do not overflow or lose precision when asserted into Mangle's type system during heartbeat.
+
+// TODO: TEST_GAP: [User Request Extremes] Verify performance of o.persistCampaign("autosave") during autosave with 1,000,000 tasks to ensure it does not hold o.mu.Lock() long enough to block the run loop.
+
+// TODO: TEST_GAP: [User Request Extremes] Verify memory stability when rapidly cycling through empty phases where context switching happens rapidly.
+
+// TODO: TEST_GAP: [State Conflicts] Verify that concurrent ctx.Done() and autosaveTicker.C firing do not corrupt the persisted state during o.persistCampaign.
+
+// TODO: TEST_GAP: [State Conflicts] Verify state desynchronization handling when a transaction commit in the heartbeat loop fails, as the error is only logged via logging.Campaign and execution continues.
