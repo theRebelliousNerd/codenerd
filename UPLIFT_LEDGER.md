@@ -2049,6 +2049,9 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 ### internal/mangle/engine_test.go (1)
 - [ ] `internal/mangle/engine_test.go`
 
+### internal/mangle/engine_uplift_test.go (1)
+- [x] `internal/mangle/engine_uplift_test.go`
+
 ### internal/mangle/fact_store_proxy_test.go (1)
 - [ ] `internal/mangle/fact_store_proxy_test.go`
 

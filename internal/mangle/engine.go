@@ -76,6 +76,7 @@ type Engine struct {
 	autoEval        bool
 	persistence     Persistence
 	fileFacts       map[string][]ast.Atom
+	lastUpdate      time.Time // Last mutation of the store (base or derived); zero before any
 }
 
 // Fact represents a single fact in the knowledge graph.
@@ -244,6 +245,9 @@ func (e *Engine) evalWithGasLimit() (mengine.Stats, error) {
 		derivedThisRound = 0
 	}
 	e.derivedCount += derivedThisRound
+	if derivedThisRound > 0 {
+		e.lastUpdate = time.Now()
+	}
 
 	if derivedThisRound > 0 {
 		logging.KernelDebug("Evaluation derived %d new facts (total derived: %d, limit: %d)",
@@ -394,6 +398,10 @@ func (e *Engine) WarmFromPersistence(ctx context.Context) error {
 
 	wasAuto := e.autoEval
 	e.autoEval = false
+	// Restore even when a fact fails to hydrate: returning early with
+	// autoEval stuck off would silently stop all future derivation on an
+	// engine the caller believes is live.
+	defer func() { e.autoEval = wasAuto }()
 	for _, fact := range facts {
 		if err := e.insertFactLocked(fact); err != nil {
 			return fmt.Errorf("hydrate fact %s: %w", fact.Predicate, err)
@@ -580,10 +588,12 @@ func (e *Engine) ReplaceControlFacts(facts []Fact, predicates ...string) error {
 	for sym := range e.programInfo.IdbPredicates {
 		e.removePredicateLocked(sym, false)
 	}
-	if e.autoEval {
-		if _, err := e.evalWithGasLimit(); err != nil {
-			return err
-		}
+	// Always re-derive, even when autoEval is off. This method promises to
+	// "re-derive from scratch" and it has just wiped every IDB predicate:
+	// honouring the autoEval flag here would return an engine whose derived
+	// state is silently empty until someone happens to call RecomputeRules.
+	if _, err := e.evalWithGasLimit(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -597,8 +607,11 @@ func (e *Engine) removePredicateLocked(sym ast.PredicateSym, counted bool) {
 		return nil
 	})
 	for _, atom := range atoms {
-		if e.baseStore.Remove(atom) && counted && e.factCount > 0 {
-			e.factCount--
+		if e.baseStore.Remove(atom) {
+			if counted && e.factCount > 0 {
+				e.factCount--
+			}
+			e.lastUpdate = time.Now()
 		}
 	}
 }
@@ -624,6 +637,7 @@ func (e *Engine) insertFactLocked(fact Fact) error {
 
 	if e.store.Add(atom) {
 		e.factCount++
+		e.lastUpdate = time.Now()
 		e.maybeWarnFactLimit()
 
 		// Update reverse index if this fact applies to a file
@@ -673,8 +687,9 @@ func (e *Engine) factToAtomLocked(fact Fact) (ast.Atom, error) {
 	for i, raw := range fact.Args {
 		var expectedType ast.ConstantType = -1 // -1 means unknown/any
 		if decl != nil && len(decl.Bounds) > 0 {
-			// Iterate over bounds to find a matching type constraint
-			// For simplicity, we check the first bound declaration
+			// Only the first bound declaration is consulted. A predicate
+			// with multiple Decl overloads may mistype arguments that match
+			// a later overload; such overloads are currently unsupported.
 			bounds := decl.Bounds[0].Bounds
 			if len(bounds) > i {
 				if c, ok := bounds[i].(ast.Constant); ok {
@@ -709,6 +724,12 @@ func (e *Engine) factToAtomLocked(fact Fact) (ast.Atom, error) {
 }
 
 // convertValueToTypedTerm converts a value to a Mangle BaseTerm, enforcing expected type if known.
+//
+// Known limitation: only Go strings are coerced to the expected Name/String
+// type. A non-string value (e.g. an int for a /name argument) falls through
+// to generic encoding and is stored with its natural type, which may violate
+// the Decl bound without error. Callers must pass correctly typed values;
+// silently stored mistyped facts match nothing downstream.
 func convertValueToTypedTerm(value any, expectedType ast.ConstantType) (ast.BaseTerm, error) {
 	// 1. If we have a strict type expectation, try to coerce or validate
 	switch expectedType {
@@ -932,6 +953,10 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 func (e *Engine) GetFacts(predicate string) ([]Fact, error) {
 	e.mu.RLock()
 	sym, ok := e.predicateIndex[predicate]
+	// Capture the store under the same lock: Clear and Reset swap e.store
+	// under the write lock, so reading the field after RUnlock is a data
+	// race that can also strand the scan across two different stores.
+	store := e.store
 	e.mu.RUnlock()
 
 	if !ok {
@@ -939,7 +964,7 @@ func (e *Engine) GetFacts(predicate string) ([]Fact, error) {
 	}
 
 	var results []Fact
-	err := e.store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
+	err := store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
 		args := make([]any, len(atom.Args))
 		for i, arg := range atom.Args {
 			args[i] = convertBaseTermToInterface(arg)
@@ -974,7 +999,7 @@ func (e *Engine) GetStats() Stats {
 	return Stats{
 		TotalFacts:      e.store.EstimateFactCount(),
 		PredicateCounts: counts,
-		LastUpdate:      time.Now(),
+		LastUpdate:      e.lastUpdate,
 	}
 }
 
@@ -986,6 +1011,7 @@ func (e *Engine) Clear() {
 	e.store = factstore.NewConcurrentFactStore(e.baseStore)
 	e.factCount = 0
 	e.fileFacts = make(map[string][]ast.Atom)
+	e.lastUpdate = time.Now()
 
 	// The query evaluator holds its own copy of the store reference
 	// (rebuildProgramLocked sets QueryContext.Store, and Store is a value field
@@ -1024,6 +1050,7 @@ func (e *Engine) Reset() {
 	e.predicateIndex = make(map[string]ast.PredicateSym)
 	e.schemaFragments = nil
 	e.derivedCount = 0
+	e.lastUpdate = time.Now()
 }
 
 // Close cleans up engine resources.
@@ -1164,6 +1191,9 @@ func (e *Engine) removeFactsLocked(file string) int {
 		}
 		delete(e.fileFacts, target)
 	}
+	if removed > 0 {
+		e.lastUpdate = time.Now()
+	}
 
 	// Optimization: Fallback path removed.
 	// The fileFacts index is guaranteed to be consistent for all explicitly added facts
@@ -1189,8 +1219,15 @@ func (e *Engine) PushFact(predicate string, args ...any) error {
 }
 
 // QueryFacts returns facts matching a predicate pattern (for compatibility with browser).
+// An undeclared predicate yields nil — indistinguishable from "no facts" by
+// design, since callers range over the result. The miss is debug-logged so a
+// typo'd predicate name still leaves a trace.
 func (e *Engine) QueryFacts(predicate string, args ...string) []Fact {
-	facts, _ := e.GetFacts(predicate)
+	facts, err := e.GetFacts(predicate)
+	if err != nil {
+		logging.KernelDebug("QueryFacts: %v", err)
+		return nil
+	}
 
 	// Filter by args if provided
 	if len(args) == 0 {
@@ -1223,13 +1260,16 @@ func (e *Engine) GetFactsSeq(predicate string) iter.Seq[Fact] {
 	return func(yield func(Fact) bool) {
 		e.mu.RLock()
 		sym, ok := e.predicateIndex[predicate]
+		// Same store-capture discipline as GetFacts: the field must not be
+		// read after RUnlock while Clear/Reset can swap it.
+		store := e.store
 		e.mu.RUnlock()
 
 		if !ok {
 			return
 		}
 
-		_ = e.store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
+		_ = store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
 			args := make([]any, len(atom.Args))
 			for i, arg := range atom.Args {
 				args[i] = convertBaseTermToInterface(arg)
@@ -1237,7 +1277,8 @@ func (e *Engine) GetFactsSeq(predicate string) iter.Seq[Fact] {
 			fact := Fact{
 				Predicate: predicate,
 				Args:      args,
-				Timestamp: time.Now(), // We don't store timestamp in EDB currently
+				// No timestamp is stored in the EDB; leave zero like GetFacts
+				// rather than fabricating a per-fact time.Now().
 			}
 			if !yield(fact) {
 				return fmt.Errorf("stop iteration")
