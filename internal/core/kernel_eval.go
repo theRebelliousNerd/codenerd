@@ -614,6 +614,9 @@ func (k *RealKernel) rebuild() error {
 // subsequent RLock, but that race already existed in the previous
 // implementation and is handled by readers checking k.initialized.
 func (k *RealKernel) ensureEvaluated() error {
+	if k == nil {
+		return fmt.Errorf("ensureEvaluated: kernel is nil")
+	}
 	if !k.factsDirty.Load() {
 		return nil
 	}
@@ -667,6 +670,10 @@ func (k *RealKernel) Clear() {
 
 // Reset resets the kernel to initial state (removes facts, keeps loaded policy).
 func (k *RealKernel) Reset() {
+	if k == nil {
+		logging.Get(logging.CategoryKernel).Error("Reset: kernel is nil")
+		return
+	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.facts = make([]Fact, 0)

@@ -48,6 +48,10 @@ func (k *RealKernel) SetPolicy(policy string) {
 
 // AppendPolicy appends additional policy rules (for shard-specific policies).
 func (k *RealKernel) AppendPolicy(additionalPolicy string) {
+	if k == nil {
+		logging.Get(logging.CategoryKernel).Error("AppendPolicy: kernel is nil, dropping %d bytes of policy", len(additionalPolicy))
+		return
+	}
 	logging.KernelDebug("AppendPolicy: appending %d bytes to existing policy", len(additionalPolicy))
 	k.mu.Lock()
 	defer k.mu.Unlock()

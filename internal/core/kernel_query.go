@@ -2,16 +2,10 @@ package core
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
-	"time"
 
 	"codenerd/internal/logging"
-	"codenerd/internal/processutil"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 )
@@ -58,24 +52,7 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 		return nil, err
 	}
 
-	// Parse optional pattern form, using the official Mangle parser for correctness.
-	// If parsing fails, fall back to predicate-only query.
-	var (
-		patternFact   Fact
-		hasPattern    bool
-		desiredArity  int
-		predicateName = predicate
-	)
-	if idx := strings.Index(predicate, "("); idx > 0 {
-		// Fast path: extract predicate name even if full parse fails.
-		predicateName = strings.TrimSpace(predicate[:idx])
-		if parsedFact, err := ParseFactString(predicate); err == nil {
-			patternFact = parsedFact
-			hasPattern = true
-			desiredArity = len(parsedFact.Args)
-			predicateName = parsedFact.Predicate
-		}
-	}
+	predicateName, patternFact, hasPattern, desiredArity := parseQueryPattern(predicate)
 
 	results := make([]Fact, 0)
 
@@ -144,6 +121,23 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	return results, nil
 }
 
+// parseQueryPattern splits a query string into its predicate name and an
+// optional argument pattern. Variables in the pattern act as wildcards;
+// constants must match. A bare predicate name yields hasPattern=false.
+// An unparseable pattern form falls back to a predicate-only query using
+// the name before the paren, matching historical behavior.
+func parseQueryPattern(query string) (predicateName string, pattern Fact, hasPattern bool, arity int) {
+	predicateName = query
+	if idx := strings.Index(query, "("); idx > 0 {
+		// Fast path: extract predicate name even if full parse fails.
+		predicateName = strings.TrimSpace(query[:idx])
+		if parsedFact, err := ParseFactString(query); err == nil {
+			return parsedFact.Predicate, parsedFact, true, len(parsedFact.Args)
+		}
+	}
+	return predicateName, Fact{}, false, 0
+}
+
 func factMatchesPattern(f Fact, pattern Fact) bool {
 	if f.Predicate != pattern.Predicate {
 		return false
@@ -197,6 +191,10 @@ func patternArgMatches(pattern any, value any) bool {
 		if v, ok := normValue.(bool); ok {
 			return p == v
 		}
+	case float64:
+		if v, ok := normValue.(float64); ok {
+			return p == v
+		}
 	default:
 		// FALLBACK: Only for truly unknown types
 		// This should rarely execute with well-typed facts
@@ -213,8 +211,13 @@ func normalizeQueryValue(v any) any {
 	case int64:
 		return t
 	case float64:
-		// Mangle numeric constants are integers; normalize defensively.
-		return int64(t)
+		// Fold only integral floats: 3.0 is 3, but 3.14 must never
+		// match 3. Truncation here made every fractional pattern
+		// over-match its integer neighbors.
+		if t == float64(int64(t)) {
+			return int64(t)
+		}
+		return t
 	default:
 		return v
 	}
@@ -224,6 +227,10 @@ func normalizeQueryValue(v any) any {
 // This allows streaming processing and avoids O(N) memory allocation for large result sets.
 // Like Query, it accepts an optional pattern (e.g., "code_defines(/file.go, X)").
 func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error {
+	// Nil receiver is an error, not a crash (see Query for the interface-trap rationale).
+	if k == nil {
+		return fmt.Errorf("queryCallback %q: kernel is nil", predicate)
+	}
 	timer := logging.StartTimer(logging.CategoryKernel, "QueryCallback")
 	logging.KernelDebug("QueryCallback: predicate=%s", predicate)
 
@@ -239,22 +246,7 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 		return err
 	}
 
-	// Parse optional pattern form
-	var (
-		patternFact   Fact
-		hasPattern    bool
-		desiredArity  int
-		predicateName = predicate
-	)
-	if idx := strings.Index(predicate, "("); idx > 0 {
-		predicateName = strings.TrimSpace(predicate[:idx])
-		if parsedFact, err := ParseFactString(predicate); err == nil {
-			patternFact = parsedFact
-			hasPattern = true
-			desiredArity = len(parsedFact.Args)
-			predicateName = parsedFact.Predicate
-		}
-	}
+	predicateName, patternFact, hasPattern, desiredArity := parseQueryPattern(predicate)
 
 	if k.programInfo == nil {
 		logging.KernelDebug("QueryCallback: programInfo is nil, returning")
@@ -317,6 +309,10 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 
 // QueryAll retrieves all derived facts organized by predicate.
 func (k *RealKernel) QueryAll() (map[string][]Fact, error) {
+	// Nil receiver is an error, not a crash (see Query for the interface-trap rationale).
+	if k == nil {
+		return nil, fmt.Errorf("queryAll: kernel is nil")
+	}
 	timer := logging.StartTimer(logging.CategoryKernel, "QueryAll")
 	logging.KernelDebug("QueryAll: retrieving all derived facts")
 
@@ -364,31 +360,6 @@ func (k *RealKernel) QueryAll() (map[string][]Fact, error) {
 // GetDerivedFacts returns all derived facts organized by predicate (alias for QueryAll).
 func (k *RealKernel) GetDerivedFacts() (map[string][]Fact, error) {
 	return k.QueryAll()
-}
-
-// LoadFactsFromFile loads facts from a .mg file and adds them to the EDB.
-func (k *RealKernel) LoadFactsFromFile(path string) error {
-	logging.KernelDebug("LoadFactsFromFile: loading facts from %s", path)
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		logging.Get(logging.CategoryKernel).Error("LoadFactsFromFile: failed to read %s: %v", path, err)
-		return fmt.Errorf("failed to read file %s: %w", path, err)
-	}
-
-	facts, err := ParseFactsFromString(string(data))
-	if err != nil {
-		logging.Get(logging.CategoryKernel).Error("LoadFactsFromFile: failed to parse facts from %s: %v", path, err)
-		return fmt.Errorf("failed to parse facts from %s: %w", path, err)
-	}
-
-	if len(facts) == 0 {
-		logging.KernelDebug("LoadFactsFromFile: no facts found in %s", path)
-		return nil
-	}
-
-	logging.Kernel("LoadFactsFromFile: parsed %d facts from %s", len(facts), path)
-	return k.LoadFacts(facts)
 }
 
 // =============================================================================
@@ -499,170 +470,4 @@ func ParseFactsFromString(content string) ([]Fact, error) {
 	}
 
 	return facts, nil
-}
-
-// UpdateSystemFacts updates system-level facts (e.g., time, git state).
-// This is a placeholder for dynamic system fact injection.
-func (k *RealKernel) UpdateSystemFacts() error {
-	now := time.Now().Unix()
-
-	tx := k.Transaction()
-	tx.Retract("current_time")
-	tx.Assert(Fact{Predicate: "current_time", Args: []any{now}})
-
-	workspaceRoot := strings.TrimSpace(k.workspaceRoot)
-	if workspaceRoot == "" {
-		logging.KernelDebug("UpdateSystemFacts: workspace root not set, skipping git facts")
-		return tx.Commit()
-	}
-	if abs, err := filepath.Abs(workspaceRoot); err == nil {
-		workspaceRoot = abs
-	}
-	if info, err := os.Stat(workspaceRoot); err != nil || !info.IsDir() {
-		logging.KernelDebug("UpdateSystemFacts: invalid workspace root: %s", workspaceRoot)
-		return tx.Commit()
-	}
-
-	gitRoot, err := gitRepoRoot(workspaceRoot)
-	if err != nil {
-		logging.KernelDebug("UpdateSystemFacts: git root not found: %v", err)
-		return tx.Commit()
-	}
-
-	branch, _ := gitCmd(gitRoot, "rev-parse", "--abbrev-ref", "HEAD")
-	statusOutput, _ := gitCmd(gitRoot, "status", "--porcelain")
-	commitOutput, _ := gitCmd(gitRoot, "log", "-n", "5", "--pretty=format:%s")
-
-	modifiedFiles, unstagedCount := parseGitStatus(statusOutput)
-	recentCommits := splitLinesTrimmed(commitOutput)
-
-	tx.Retract("git_state")
-	tx.Retract("git_branch")
-
-	if branch != "" {
-		tx.Assert(Fact{Predicate: "git_state", Args: []any{"branch", branch}})
-		tx.Assert(Fact{Predicate: "git_branch", Args: []any{branch}})
-	}
-	if len(modifiedFiles) > 0 {
-		tx.Assert(Fact{Predicate: "git_state", Args: []any{"modified_files", strings.Join(modifiedFiles, "\n")}})
-	}
-	if len(recentCommits) > 0 {
-		tx.Assert(Fact{Predicate: "git_state", Args: []any{"recent_commits", strings.Join(recentCommits, "\n")}})
-	}
-	tx.Assert(Fact{Predicate: "git_state", Args: []any{"unstaged_count", strconv.Itoa(unstagedCount)}})
-
-	return tx.Commit()
-}
-
-func gitRepoRoot(workspaceRoot string) (string, error) {
-	out, err := gitCmd(workspaceRoot, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return "", err
-	}
-	return out, nil
-}
-
-func gitCmd(workspaceRoot string, args ...string) (string, error) {
-	if workspaceRoot == "" {
-		return "", fmt.Errorf("workspace root is empty")
-	}
-
-	if len(args) == 0 {
-		return "", fmt.Errorf("no git subcommand provided")
-	}
-
-	// Validate subcommand
-	validSubcommands := map[string]bool{
-		"rev-parse": true,
-		"status":    true,
-		"log":       true,
-	}
-	if !validSubcommands[args[0]] {
-		return "", fmt.Errorf("unauthorized git subcommand: %s", args[0])
-	}
-
-	// Defensive check against argument injection for dangerous flags
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--exec-path") ||
-			strings.HasPrefix(arg, "-c") ||
-			strings.HasPrefix(arg, "--upload-pack") ||
-			strings.HasPrefix(arg, "--receive-pack") {
-			return "", fmt.Errorf("unauthorized git argument: %s", arg)
-		}
-	}
-
-	cmd := processutil.NonInteractive(exec.Command("git", append([]string{"-C", workspaceRoot}, args...)...))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("git %s: %w (%s)", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
-	}
-	return strings.TrimSpace(string(output)), nil
-}
-
-func parseGitStatus(statusOutput string) ([]string, int) {
-	lines := splitLinesTrimmed(statusOutput)
-	files := make([]string, 0, len(lines))
-	unstaged := 0
-
-	for _, line := range lines {
-		if len(line) < 3 {
-			continue
-		}
-		status := line[:2]
-		path := strings.TrimSpace(line[2:])
-		if path == "" {
-			continue
-		}
-		if strings.Contains(path, " -> ") {
-			parts := strings.Split(path, " -> ")
-			path = strings.TrimSpace(parts[len(parts)-1])
-		}
-		files = append(files, path)
-
-		if status == "??" {
-			unstaged++
-			continue
-		}
-		if len(status) == 2 && status[1] != ' ' {
-			unstaged++
-		}
-	}
-
-	return dedupeStrings(files), unstaged
-}
-
-func splitLinesTrimmed(raw string) []string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	parts := strings.Split(raw, "\n")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			out = append(out, part)
-		}
-	}
-	return out
-}
-
-func dedupeStrings(values []string) []string {
-	if len(values) == 0 {
-		return values
-	}
-	seen := make(map[string]struct{}, len(values))
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	return out
 }

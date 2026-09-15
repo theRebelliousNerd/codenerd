@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"os"
 	"reflect"
 	"sort"
 	"strconv"
@@ -60,6 +61,9 @@ func (k *RealKernel) LoadFactsSeq(seq iter.Seq[Fact]) error {
 
 // LoadFacts adds facts to the EDB and rebuilds the program.
 func (k *RealKernel) LoadFacts(facts []Fact) error {
+	if k == nil {
+		return fmt.Errorf("loadFacts: kernel is nil")
+	}
 	timer := logging.StartTimer(logging.CategoryKernel, "LoadFacts")
 	logging.Kernel("LoadFacts: loading %d facts into EDB", len(facts))
 
@@ -523,6 +527,9 @@ func (k *RealKernel) markStratumDirtyLocked(predicate ast.PredicateSym) {
 
 // Assert adds a single fact dynamically and re-evaluates derived facts.
 func (k *RealKernel) Assert(fact Fact) error {
+	if k == nil {
+		return fmt.Errorf("assert %s: kernel is nil", fact.Predicate)
+	}
 	// Heartbeats are high-frequency (every few seconds × N system shards).
 	// Each used a unique timestamp, so they always dirtied the kernel and
 	// forced a full/diff re-eval of the entire EDB (10–17s with ~28k world
@@ -634,6 +641,9 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 // OPTIMIZATION: This is significantly faster than calling Assert() in a loop.
 // For M assertions, Assert loop = O(M*N) evaluations, AssertBatch = O(N) evaluation.
 func (k *RealKernel) AssertBatch(facts []Fact) error {
+	if k == nil {
+		return fmt.Errorf("assertBatch: kernel is nil")
+	}
 	if len(facts) == 0 {
 		return nil
 	}
@@ -800,6 +810,9 @@ func (k *RealKernel) filterFactsLocked(keep func(Fact) bool) (removed int) {
 
 // Retract removes all facts of a given predicate.
 func (k *RealKernel) Retract(predicate string) error {
+	if k == nil {
+		return fmt.Errorf("retract %s: kernel is nil", predicate)
+	}
 	// Skip per-retract debug for high-frequency no-op retractions
 
 	k.mu.Lock()
@@ -828,6 +841,9 @@ func (k *RealKernel) Retract(predicate string) error {
 // RetractFact removes a specific fact by matching predicate and first argument.
 // This enables selective fact removal (e.g., removing all facts for a specific tool).
 func (k *RealKernel) RetractFact(fact Fact) error {
+	if k == nil {
+		return fmt.Errorf("retractFact %s: kernel is nil", fact.Predicate)
+	}
 	logging.KernelDebug("RetractFact: removing fact matching predicate=%s, firstArg=%v", fact.Predicate, fact.Args)
 
 	k.mu.Lock()
@@ -908,6 +924,9 @@ func (k *RealKernel) RetractExactFact(fact Fact) error {
 // RetractExactFactsBatch removes a batch of exact facts and rebuilds once.
 // Useful for incremental world model updates on large repos.
 func (k *RealKernel) RetractExactFactsBatch(facts []Fact) error {
+	if k == nil {
+		return fmt.Errorf("retractExactFactsBatch: kernel is nil")
+	}
 	if len(facts) == 0 {
 		return nil
 	}
@@ -941,6 +960,9 @@ func (k *RealKernel) RetractExactFactsBatch(facts []Fact) error {
 // RemoveFactsByPredicateSet removes all facts whose predicate is in the given set.
 // Rebuilds once if anything was removed.
 func (k *RealKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
+	if k == nil {
+		return fmt.Errorf("removeFactsByPredicateSet: kernel is nil")
+	}
 	if len(predicates) == 0 {
 		return nil
 	}
@@ -1268,4 +1290,29 @@ func (k *RealKernel) GetAllFactsSeq() iter.Seq[Fact] {
 // When true, the next Query/QueryAll will trigger a lazy re-evaluation.
 func (k *RealKernel) IsDirty() bool {
 	return k.factsDirty.Load()
+}
+
+// LoadFactsFromFile loads facts from a .mg file and adds them to the EDB.
+func (k *RealKernel) LoadFactsFromFile(path string) error {
+	logging.KernelDebug("LoadFactsFromFile: loading facts from %s", path)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("LoadFactsFromFile: failed to read %s: %v", path, err)
+		return fmt.Errorf("failed to read file %s: %w", path, err)
+	}
+
+	facts, err := ParseFactsFromString(string(data))
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("LoadFactsFromFile: failed to parse facts from %s: %v", path, err)
+		return fmt.Errorf("failed to parse facts from %s: %w", path, err)
+	}
+
+	if len(facts) == 0 {
+		logging.KernelDebug("LoadFactsFromFile: no facts found in %s", path)
+		return nil
+	}
+
+	logging.Kernel("LoadFactsFromFile: parsed %d facts from %s", len(facts), path)
+	return k.LoadFacts(facts)
 }

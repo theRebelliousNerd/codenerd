@@ -22,6 +22,7 @@ package core
 // - kernel_transactions.go: Transactor support for atomic updates
 // - kernel_undeclared.go: Undeclared-predicate handling
 // - kernel_utils.go: Shared kernel helpers
+// - kernel_sysfacts.go: System facts (wall clock, git state) refreshed into the EDB
 //
 // All functionality has been moved to the appropriate modular files.
 // This file remains as a package marker and documentation reference.

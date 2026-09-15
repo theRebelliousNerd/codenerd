@@ -1321,7 +1321,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/kernel.go`
 
 ### internal/core/kernel_accessors.go (1)
-- [ ] `internal/core/kernel_accessors.go`
+- [x] `internal/core/kernel_accessors.go`
 
 ### internal/core/kernel_assert_rejection_test.go (1)
 - [ ] `internal/core/kernel_assert_rejection_test.go`
@@ -1399,7 +1399,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/kernel_provenance_test.go`
 
 ### internal/core/kernel_query.go (1)
-- [ ] `internal/core/kernel_query.go`
+- [x] `internal/core/kernel_query.go`
 
 ### internal/core/kernel_query_gaps_test.go (1)
 - [ ] `internal/core/kernel_query_gaps_test.go`
@@ -2055,6 +2055,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/mangle/corpus_gate_test.go`
 - [x] `internal/core/kernel_boot_uplift_test.go`
 - [x] `internal/core/kernel_facts_uplift_test.go`
+- [x] `internal/core/kernel_sysfacts.go`
+- [x] `internal/core/kernel_query_uplift_test.go`
 
 ### internal/mangle/fact_store_proxy_test.go (1)
 - [ ] `internal/mangle/fact_store_proxy_test.go`
