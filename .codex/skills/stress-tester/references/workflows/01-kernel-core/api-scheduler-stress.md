@@ -444,22 +444,22 @@ In logquery REPL:
 # Find all slot acquisition events
 slot_acquired(T, Shard, M) :-
     log_entry(T, /shards, _, M, _, _),
-    fn:contains(M, "acquired slot").
+    :string:contains(M, "acquired slot").
 
 # Find wait events
 slot_wait(T, Shard, M) :-
     log_entry(T, /shards, _, M, _, _),
-    fn:contains(M, "waiting for slot").
+    :string:contains(M, "waiting for slot").
 
 # Find release events
 slot_released(T, Shard, M) :-
     log_entry(T, /shards, _, M, _, _),
-    fn:contains(M, "released slot").
+    :string:contains(M, "released slot").
 
 # Find errors
 scheduler_error(T, M) :-
     log_entry(T, /shards, /error, M, _, _),
-    fn:contains(M, "APIScheduler").
+    :string:contains(M, "APIScheduler").
 
 # Query them
 ?slot_acquired(T, S, M).

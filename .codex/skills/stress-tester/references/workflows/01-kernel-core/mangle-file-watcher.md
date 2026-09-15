@@ -63,7 +63,7 @@ ls .nerd/mangle/
 # Create a valid new Mangle file
 cat > .nerd/mangle/test_rules.mg << 'EOF'
 # Test rules for stress testing
-Decl test_fact(X.Type<string>).
+Decl test_fact(X) bound [/string].
 
 test_fact("hello").
 test_fact("world").
@@ -111,7 +111,7 @@ EOF
 # Add a rule with logic
 cat >> .nerd/mangle/test_rules.mg << 'EOF'
 
-Decl derived_fact(X.Type<string>).
+Decl derived_fact(X) bound [/string].
 
 derived_fact(X) :- test_fact(X), X = "hello".
 EOF
@@ -159,7 +159,7 @@ EOF
 ```bash
 # Inject syntax error (lowercase variable)
 cat > .nerd/mangle/broken.mg << 'EOF'
-Decl broken_rule(X.Type<int>).
+Decl broken_rule(X) bound [/number].
 
 # SYNTAX ERROR: lowercase variable
 broken_rule(x) :- x = 5.
@@ -171,7 +171,7 @@ EOF
 
 # Manual fix after observing repair
 cat > .nerd/mangle/broken.mg << 'EOF'
-Decl broken_rule(X.Type<int>).
+Decl broken_rule(X) bound [/number].
 
 broken_rule(X) :- X = 5.
 EOF
@@ -218,7 +218,7 @@ EOF
 
 # Terminal 2 (run simultaneously)
 cat >> .nerd/mangle/learned.mg << 'EOF'
-Decl learned_fact(X.Type<string>).
+Decl learned_fact(X) bound [/string].
 learned_fact("concurrent_2").
 EOF
 
@@ -239,7 +239,7 @@ EOF
 ```bash
 # Generate large Mangle file
 cat > .nerd/mangle/large.mg << 'EOF'
-Decl large_fact(X.Type<int>).
+Decl large_fact(X) bound [/number].
 
 EOF
 
@@ -291,7 +291,7 @@ rm .nerd/mangle/test_rules.mg
 # Chaos script
 for i in {1..20}; do
   # Create
-  echo "Decl chaos_$i(X.Type<int>)." > .nerd/mangle/chaos_$i.mg
+  echo "Decl chaos_$i(X) bound [/number]." > .nerd/mangle/chaos_$i.mg
   sleep 0.1
 
   # Modify
@@ -355,7 +355,7 @@ kill $PID1 $PID2
 ```bash
 # Start writing large file
 cat > .nerd/mangle/corrupt.mg << 'EOF'
-Decl corrupt_test(X.Type<string>).
+Decl corrupt_test(X) bound [/string].
 
 EOF
 
@@ -386,7 +386,7 @@ kill -9 $WRITE_PID
 ```bash
 # Create large file for slow validation
 cat > .nerd/mangle/rename_test.mg << 'EOF'
-Decl rename_fact(X.Type<int>).
+Decl rename_fact(X) bound [/number].
 
 EOF
 
@@ -422,7 +422,7 @@ wait $VALIDATE_PID
 mkdir -p .nerd/mangle/flood
 for i in {1..1000}; do
   cat > .nerd/mangle/flood/file_$i.mg << EOF
-Decl flood_$i(X.Type<int>).
+Decl flood_$i(X) bound [/number].
 flood_$i($i).
 EOF
 done
@@ -459,7 +459,7 @@ rm -rf .nerd/mangle/flood
 ./nerd.exe watcher --stop
 
 # Make changes while watcher is down
-echo "Decl recovery_test(X.Type<string>)." > .nerd/mangle/recovery.mg
+echo "Decl recovery_test(X) bound [/string]." > .nerd/mangle/recovery.mg
 
 # Restart watcher
 ./nerd.exe watcher --start

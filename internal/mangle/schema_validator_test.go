@@ -24,9 +24,9 @@ func TestNewSchemaValidator(t *testing.T) {
 func TestLoadDeclaredPredicates(t *testing.T) {
 	schemas := `
 # Core predicates
-Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
-Decl file_topology(Path.Type<string>).
-Decl next_action(Action.Type<name>).
+Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, /name, /string, /string].
+Decl file_topology(Path) bound [/string].
+Decl next_action(Action) bound [/name].
 `
 	sv := NewSchemaValidator(schemas, "")
 	err := sv.LoadDeclaredPredicates()
@@ -57,10 +57,10 @@ Decl next_action(Action.Type<name>).
 // TestGetArity tests arity extraction from declarations.
 func TestGetArity(t *testing.T) {
 	schemas := `
-Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
-Decl file_topology(Path.Type<string>).
-Decl next_action(Action.Type<name>).
-Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<string>, Severity.Type<name>).
+Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, /name, /string, /string].
+Decl file_topology(Path) bound [/string].
+Decl next_action(Action) bound [/name].
+Decl diagnostic(File, Line, Col, Msg, Severity) bound [/string, /number, /number, /string, /name].
 `
 	sv := NewSchemaValidator(schemas, "")
 	if err := sv.LoadDeclaredPredicates(); err != nil {
@@ -77,7 +77,7 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 		{"next_action has 1 arg", "next_action", 1},
 		{"diagnostic has 5 args", "diagnostic", 5},
 		{"unknown predicate returns -1", "unknown_pred", -1},
-		// TODO: Missing Test: Type declaration comma vulnerability. E.g., `Decl generic_map(Map.Type<string, string>)`. `extractDeclsFromText` counts commas directly and will miscount generics.
+		// TODO: Missing Test: Type declaration comma vulnerability. E.g., `Decl generic_map(Map) bound [/string]` with a comma inside a bound term. `extractDeclsFromText` counts commas directly and will miscount those.
 	}
 
 	// TODO: TEST_GAP - Malformed syntax (missing parens, trailing commas)
@@ -94,8 +94,8 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 // TestCheckArity tests arity validation.
 func TestCheckArity(t *testing.T) {
 	schemas := `
-Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
-Decl file_topology(Path.Type<string>).
+Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, /name, /string, /string].
+Decl file_topology(Path) bound [/string].
 `
 	sv := NewSchemaValidator(schemas, "")
 	if err := sv.LoadDeclaredPredicates(); err != nil {
@@ -166,10 +166,10 @@ func TestSetPredicateArity(t *testing.T) {
 // TestValidateRule tests rule validation with declared predicates.
 func TestValidateRule(t *testing.T) {
 	schemas := `
-Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
-Decl file_topology(Path.Type<string>).
-Decl next_action(Action.Type<name>).
-Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<string>, Severity.Type<name>).
+Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, /name, /string, /string].
+Decl file_topology(Path) bound [/string].
+Decl next_action(Action) bound [/name].
+Decl diagnostic(File, Line, Col, Msg, Severity) bound [/string, /number, /number, /string, /name].
 `
 	sv := NewSchemaValidator(schemas, "")
 	if err := sv.LoadDeclaredPredicates(); err != nil {
@@ -222,9 +222,9 @@ Decl diagnostic(File.Type<string>, Line.Type<int>, Col.Type<int>, Msg.Type<strin
 // TestValidateRules tests validation of multiple rules at once.
 func TestValidateRules(t *testing.T) {
 	schemas := `
-Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
-Decl file_topology(Path.Type<string>).
-Decl next_action(Action.Type<name>).
+Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, /name, /string, /string].
+Decl file_topology(Path) bound [/string].
+Decl next_action(Action) bound [/name].
 `
 	sv := NewSchemaValidator(schemas, "")
 	if err := sv.LoadDeclaredPredicates(); err != nil {
@@ -280,8 +280,8 @@ Decl next_action(Action.Type<name>).
 // TestValidateLearnedRule tests protection of forbidden learned heads.
 func TestValidateLearnedRule(t *testing.T) {
 	schemas := `
-Decl permitted(Action.Type<name>).
-Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
+Decl permitted(Action) bound [/name].
+Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, /name, /string, /string].
 `
 	sv := NewSchemaValidator(schemas, "")
 	if err := sv.LoadDeclaredPredicates(); err != nil {
@@ -341,9 +341,9 @@ Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.T
 // TestGetDeclaredPredicates tests retrieval of all declared predicates.
 func TestGetDeclaredPredicates(t *testing.T) {
 	schemas := `
-Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
-Decl file_topology(Path.Type<string>).
-Decl next_action(Action.Type<name>).
+Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, /name, /string, /string].
+Decl file_topology(Path) bound [/string].
+Decl next_action(Action) bound [/name].
 `
 	sv := NewSchemaValidator(schemas, "")
 	if err := sv.LoadDeclaredPredicates(); err != nil {
@@ -375,7 +375,7 @@ Decl next_action(Action.Type<name>).
 // TestLearnedRulesExtractHeads tests that rule heads from learned.mg are extracted.
 func TestLearnedRulesExtractHeads(t *testing.T) {
 	schemas := `
-Decl base_predicate(X.Type<name>).
+Decl base_predicate(X) bound [/name].
 `
 	learned := `
 # Learned rules
@@ -404,9 +404,9 @@ another_derived(Y) :- derived_fact(Y).
 // TestValidateProgram tests program validation.
 func TestValidateProgram(t *testing.T) {
 	schemas := `
-Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
-Decl file_topology(Path.Type<string>).
-Decl next_action(Action.Type<name>).
+Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, /name, /string, /string].
+Decl file_topology(Path) bound [/string].
+Decl next_action(Action) bound [/name].
 `
 	sv := NewSchemaValidator(schemas, "")
 	if err := sv.LoadDeclaredPredicates(); err != nil {
@@ -499,8 +499,8 @@ file_topology("/src/main.go").
 
 func TestHotLoadRule(t *testing.T) {
 	schemas := `
-Decl permitted(Action.Type<name>).
-Decl user_intent(ID.Type<string>, Category.Type<name>, Verb.Type<name>, Target.Type<string>, Constraint.Type<string>).
+Decl permitted(Action) bound [/name].
+Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, /name, /string, /string].
 `
 	sv := NewSchemaValidator(schemas, "")
 	if err := sv.LoadDeclaredPredicates(); err != nil {

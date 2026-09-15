@@ -6,13 +6,13 @@
 # SCHEMA DECLARATIONS
 # =============================================================================
 
-Decl edge(from: name, to: name).
-Decl node(n: name).
-Decl reachable(from: name, to: name).
-Decl path(from: name, to: name, length: num).
-Decl connected(a: name, b: name).
-Decl cycle_member(n: name).
-Decl stress_fact(id: num, payload: name).
+Decl edge(From, To) bound [/name, /name].
+Decl node(N) bound [/name].
+Decl reachable(From, To) bound [/name, /name].
+Decl path(From, To, Length) bound [/name, /name, /number].
+Decl connected(A, B) bound [/name, /name].
+Decl cycle_member(N) bound [/name].
+Decl stress_fact(Id, Payload) bound [/number, /name].
 
 # =============================================================================
 # BASE FACTS (EDB) - Creates a dense graph
@@ -61,7 +61,7 @@ reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
 
 # Rule 2: Path with length (exponential in dense graphs)
 path(X, Y, 1) :- edge(X, Y).
-path(X, Z, N) :- path(X, Y, M), edge(Y, Z), N = M + 1, N < 20.
+path(X, Z, N) :- path(X, Y, M), edge(Y, Z), N = fn:plus(M, 1), N < 20.
 
 # Rule 3: Bidirectional connectivity (doubles the explosion)
 connected(A, B) :- reachable(A, B).
@@ -91,9 +91,9 @@ cycle_member(N) :- reachable(N, N).
 # stress_fact(0, /seed).
 
 # Cartesian product (exponential blowup)
-# Decl pair(a: name, b: name).
+# Decl pair(A, B) bound [/name, /name].
 # pair(X, Y) :- node(X), node(Y).  # 400 facts from 20 nodes
 
 # Triple product (cubic blowup)
-# Decl triple(a: name, b: name, c: name).
+# Decl triple(A, B, C) bound [/name, /name, /name].
 # triple(X, Y, Z) :- node(X), node(Y), node(Z).  # 8000 facts from 20 nodes

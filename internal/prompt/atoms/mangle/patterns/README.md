@@ -268,7 +268,7 @@ p(X) :- temp(X), not excluded(X).
 ### 3. Type Safety
 Match types from schema declarations:
 ```mangle
-# Schema: Decl value(X.Type<int>)
+# Schema: Decl value(X) bound [/number].
 
 # ✓ CORRECT
 result(X) :- value(X), X > 100.  # int > int

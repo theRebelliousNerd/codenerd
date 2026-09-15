@@ -502,23 +502,23 @@ The Perception Transducer converts user input into Mangle atoms. Key schemas:
 
 ```mangle
 Decl user_intent(
-    ID.Type<n>,
-    Category.Type<n>,      # /query, /mutation, /instruction
-    Verb.Type<n>,          # /explain, /refactor, /debug, /generate
-    Target.Type<string>,
-    Constraint.Type<string>
-).
+    ID,
+    Category,      # /Query, /Mutation, /Instruction
+    Verb,          # /Explain, /Refactor, /Debug, /Generate
+    Target,
+    Constraint
+) bound [/name, /name, /name, /string, /string].
 ```
 
 **focus_resolution** - Ground fuzzy references to concrete paths:
 
 ```mangle
 Decl focus_resolution(
-    RawReference.Type<string>,
-    ResolvedPath.Type<string>,
-    SymbolName.Type<string>,
-    Confidence.Type<float>
-).
+    RawReference,
+    ResolvedPath,
+    SymbolName,
+    Confidence
+) bound [/string, /string, /string, /float64].
 
 # Clarification threshold - blocks execution if uncertain
 clarification_needed(Ref) :-
@@ -620,30 +620,30 @@ The Extensional Database maintains the "Ground Truth" of the codebase:
 
 ```mangle
 Decl file_topology(
-    Path.Type<string>,
-    Hash.Type<string>,       # SHA-256
-    Language.Type<n>,        # /go, /python, /ts
-    LastModified.Type<int>,
-    IsTestFile.Type<bool>
-).
+    Path,
+    Hash,       # SHA-256
+    Language,        # /Go, /Python, /Ts
+    LastModified,
+    IsTestFile
+) bound [/string, /string, /name, /number, /name].
 ```
 
 **symbol_graph** - AST Projection:
 
 ```mangle
 Decl symbol_graph(
-    SymbolID.Type<string>,
-    Type.Type<n>,            # /function, /class, /interface
-    Visibility.Type<n>,
-    DefinedAt.Type<string>,
-    Signature.Type<string>
-).
+    SymbolID,
+    Type,            # /Function, /Class, /Interface
+    Visibility,
+    DefinedAt,
+    Signature
+) bound [/string, /name, /name, /string, /string].
 
 Decl dependency_link(
-    CallerID.Type<string>,
-    CalleeID.Type<string>,
-    ImportPath.Type<string>
-).
+    CallerID,
+    CalleeID,
+    ImportPath
+) bound [/string, /string, /string].
 
 # Transitive Impact Analysis
 impacted(X) :- dependency_link(X, Y, _), modified(Y).
@@ -654,12 +654,12 @@ impacted(X) :- dependency_link(X, Z, _), impacted(Z).
 
 ```mangle
 Decl diagnostic(
-    Severity.Type<n>,      # /panic, /error, /warning
-    FilePath.Type<string>,
-    Line.Type<int>,
-    ErrorCode.Type<string>,
-    Message.Type<string>
-).
+    Severity,      # /Panic, /Error, /Warning
+    FilePath,
+    Line,
+    ErrorCode,
+    Message
+) bound [/name, /string, /number, /string, /string].
 
 # The Commit Barrier - blocks git commit if errors exist
 block_commit("Build Broken") :-
@@ -772,18 +772,18 @@ internal/shards/
 
 ```mangle
 Decl delegate_task(
-    ShardType.Type<n>,
-    TaskDescription.Type<string>,
-    Result.Type<string>
-).
+    ShardType,
+    TaskDescription,
+    Result
+) bound [/name, /string, /string].
 
 Decl shard_lifecycle(
-    ShardID.Type<n>,
-    ShardType.Type<n>,       # /generalist, /specialist
-    MountStrategy.Type<n>,   # /ram, /sqlite
-    KnowledgeBase.Type<string>,
-    Permissions.Type<string>
-).
+    ShardID,
+    ShardType,       # /Generalist, /Specialist
+    MountStrategy,   # /Ram, /Sqlite
+    KnowledgeBase,
+    Permissions
+) bound [/name, /name, /name, /string, /string].
 ```
 
 Implementation locations:

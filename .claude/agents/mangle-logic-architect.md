@@ -34,7 +34,7 @@ Write, debug, and optimize Mangle programs that are syntactically correct, seman
 
 ### Type Declarations
 - Declare predicates in schemas: `Decl predicate_name(arg1, arg2).`
-- For typed arguments: `Decl predicate(Arg.Type<type>).`
+- For typed arguments: `Decl predicate(Arg1, Arg2) bound [/type1, /type2].`
 
 ## Aggregation & Transform Syntax
 

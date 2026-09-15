@@ -130,8 +130,8 @@ func init() {
 			Pattern:        `^\s*\.decl\s+`,
 			Message:        "Soufflé .decl syntax is invalid in Mangle",
 			WrongExample:   `.decl parent(x: string, y: string)`,
-			CorrectFix:     `Decl parent(X.Type<string>, Y.Type<string>).`,
-			Suggestion:     "Use Mangle declaration syntax: Decl predicate(Arg.Type<type>).",
+			CorrectFix:     `Decl parent(X, Y) bound [/string, /string].`,
+			Suggestion:     "Use Mangle declaration syntax: Decl predicate(Arg1, Arg2) bound [/type1, /type2].",
 			AutoRepairable: false,
 		},
 		// Direct struct field access

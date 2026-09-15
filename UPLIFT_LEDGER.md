@@ -2051,6 +2051,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 
 ### internal/mangle/engine_uplift_test.go (1)
 - [x] `internal/mangle/engine_uplift_test.go`
+- [x] `internal/mangle/doc600_pin_test.go`
 
 ### internal/mangle/fact_store_proxy_test.go (1)
 - [ ] `internal/mangle/fact_store_proxy_test.go`
@@ -3460,12 +3461,12 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 ### .agent (34)
 - [ ] `.agent/skills/log-analyzer/assets/log-schema.mg`
 - [ ] `.agent/skills/log-analyzer/scripts/logquery/schema.mg`
-- [ ] `.agent/skills/mangle-programming/assets/codenerd-schemas.mg`
-- [ ] `.agent/skills/mangle-programming/assets/examples/access-control.mg`
-- [ ] `.agent/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
-- [ ] `.agent/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
-- [ ] `.agent/skills/mangle-programming/assets/starter-policy.mg`
-- [ ] `.agent/skills/mangle-programming/assets/starter-schema.mg`
+- [x] `.agent/skills/mangle-programming/assets/codenerd-schemas.mg`
+- [x] `.agent/skills/mangle-programming/assets/examples/access-control.mg`
+- [x] `.agent/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
+- [x] `.agent/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
+- [x] `.agent/skills/mangle-programming/assets/starter-policy.mg`
+- [x] `.agent/skills/mangle-programming/assets/starter-schema.mg`
 - [ ] `.agent/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
 - [ ] `.agent/skills/stress-tester/assets/cyclic_rules.mg`
 - [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg`
@@ -3496,34 +3497,34 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 ### .agents (9)
 - [ ] `.agents/skills/log-analyzer/assets/log-schema.mg`
 - [ ] `.agents/skills/log-analyzer/scripts/logquery/schema.mg`
-- [ ] `.agents/skills/mangle-programming/assets/codenerd-schemas.mg`
-- [ ] `.agents/skills/mangle-programming/assets/examples/access-control.mg`
-- [ ] `.agents/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
-- [ ] `.agents/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
-- [ ] `.agents/skills/mangle-programming/assets/starter-policy.mg`
-- [ ] `.agents/skills/mangle-programming/assets/starter-schema.mg`
+- [x] `.agents/skills/mangle-programming/assets/codenerd-schemas.mg`
+- [x] `.agents/skills/mangle-programming/assets/examples/access-control.mg`
+- [x] `.agents/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
+- [x] `.agents/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
+- [x] `.agents/skills/mangle-programming/assets/starter-policy.mg`
+- [x] `.agents/skills/mangle-programming/assets/starter-schema.mg`
 - [ ] `.agents/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
 
 ### .claude (9)
 - [ ] `.claude/skills/log-analyzer/assets/log-schema.mg`
 - [ ] `.claude/skills/log-analyzer/scripts/logquery/schema.mg`
-- [ ] `.claude/skills/mangle-programming/assets/codenerd-schemas.mg`
-- [ ] `.claude/skills/mangle-programming/assets/examples/access-control.mg`
-- [ ] `.claude/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
-- [ ] `.claude/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
-- [ ] `.claude/skills/mangle-programming/assets/starter-policy.mg`
-- [ ] `.claude/skills/mangle-programming/assets/starter-schema.mg`
+- [x] `.claude/skills/mangle-programming/assets/codenerd-schemas.mg`
+- [x] `.claude/skills/mangle-programming/assets/examples/access-control.mg`
+- [x] `.claude/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
+- [x] `.claude/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
+- [x] `.claude/skills/mangle-programming/assets/starter-policy.mg`
+- [x] `.claude/skills/mangle-programming/assets/starter-schema.mg`
 - [ ] `.claude/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
 
 ### .codex (34)
 - [ ] `.codex/skills/log-analyzer/assets/log-schema.mg`
 - [ ] `.codex/skills/log-analyzer/scripts/logquery/schema.mg`
-- [ ] `.codex/skills/mangle-programming/assets/codenerd-schemas.mg`
-- [ ] `.codex/skills/mangle-programming/assets/examples/access-control.mg`
-- [ ] `.codex/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
-- [ ] `.codex/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
-- [ ] `.codex/skills/mangle-programming/assets/starter-policy.mg`
-- [ ] `.codex/skills/mangle-programming/assets/starter-schema.mg`
+- [x] `.codex/skills/mangle-programming/assets/codenerd-schemas.mg`
+- [x] `.codex/skills/mangle-programming/assets/examples/access-control.mg`
+- [x] `.codex/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
+- [x] `.codex/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
+- [x] `.codex/skills/mangle-programming/assets/starter-policy.mg`
+- [x] `.codex/skills/mangle-programming/assets/starter-schema.mg`
 - [ ] `.codex/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
 - [ ] `.codex/skills/stress-tester/assets/cyclic_rules.mg`
 - [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg`

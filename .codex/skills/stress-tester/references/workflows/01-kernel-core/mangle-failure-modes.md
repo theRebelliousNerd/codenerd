@@ -58,7 +58,7 @@ active_users(U) :- status(U, "active").
 $test = @"
 status(/user1, /active).
 status(/user2, /inactive).
-Decl active_users(U.Type<n>).
+Decl active_users(U) bound [/name].
 active_users(U) :- status(U, "active").
 "@
 $test | Out-File -FilePath .nerd/test/failure_modes/atom_string.mg -Encoding utf8
@@ -103,8 +103,8 @@ ancestor(x, y) :- parent(x, y).
 **Verification:**
 ```bash
 $test = @"
-Decl parent(A.Type<n>, B.Type<n>).
-Decl ancestor(A.Type<n>, B.Type<n>).
+Decl parent(A, B) bound [/name, /name].
+Decl ancestor(A, B) bound [/name, /name].
 parent(/alice, /bob).
 ancestor(x, y) :- parent(x, y).
 "@
@@ -129,8 +129,8 @@ total(Sum) :- item(X), Sum = sum(X).
 **Verification:**
 ```bash
 $test = @"
-Decl item(X.Type<int>).
-Decl total(Sum.Type<int>).
+Decl item(X) bound [/number].
+Decl total(Sum) bound [/number].
 item(10).
 item(20).
 item(30).
@@ -158,7 +158,7 @@ child(/bob, /alice)
 **Verification:**
 ```bash
 $test = @"
-Decl parent(A.Type<n>, B.Type<n>).
+Decl parent(A, B) bound [/name, /name].
 parent(/alice, /bob)
 parent(/bob, /charlie).
 "@
@@ -184,7 +184,7 @@ $test | Out-File -FilePath .nerd/test/failure_modes/missing_period.mg -Encoding 
 ```bash
 $test = @"
 // This is a wrong comment
-Decl test(X.Type<int>).
+Decl test(X) bound [/number].
 test(42).
 "@
 $test | Out-File -FilePath .nerd/test/failure_modes/wrong_comments.mg -Encoding utf8
@@ -208,7 +208,7 @@ result(X) :- X := 5.
 **Verification:**
 ```bash
 $test = @"
-Decl result(X.Type<int>).
+Decl result(X) bound [/number].
 result(X) :- X := 5.
 "@
 $test | Out-File -FilePath .nerd/test/failure_modes/wrong_assignment.mg -Encoding utf8
@@ -232,8 +232,8 @@ region_sales(Region, Total) :- sales(Region, Amount), Total = fn:Sum(Amount).
 **Verification:**
 ```bash
 $test = @"
-Decl sales(Region.Type<n>, Amount.Type<int>).
-Decl region_sales(Region.Type<n>, Total.Type<int>).
+Decl sales(Region, Amount) bound [/name, /number].
+Decl region_sales(Region, Total) bound [/name, /number].
 sales(/north, 100).
 sales(/north, 200).
 sales(/south, 150).
@@ -264,8 +264,8 @@ result(X) :- other(Y).
 **Verification:**
 ```bash
 $test = @"
-Decl other(Y.Type<int>).
-Decl result(X.Type<int>).
+Decl other(Y) bound [/number].
+Decl result(X) bound [/number].
 other(42).
 result(X) :- other(Y).
 "@
@@ -290,8 +290,8 @@ safe(X) :- not distinct(X).
 **Verification:**
 ```bash
 $test = @"
-Decl distinct(X.Type<int>).
-Decl safe(X.Type<int>).
+Decl distinct(X) bound [/number].
+Decl safe(X) bound [/number].
 distinct(5).
 safe(X) :- not distinct(X).
 "@
@@ -317,8 +317,8 @@ q(X) :- not p(X).
 **Verification:**
 ```bash
 $test = @"
-Decl p(X.Type<int>).
-Decl q(X.Type<int>).
+Decl p(X) bound [/number].
+Decl q(X) bound [/number].
 p(X) :- not q(X).
 q(X) :- not p(X).
 "@
@@ -343,7 +343,7 @@ count(N) :- count(M), N = fn:plus(M, 1).
 **Verification:**
 ```bash
 $test = @"
-Decl count(N.Type<int>).
+Decl count(N) bound [/number].
 count(0).
 count(N) :- count(M), N = fn:plus(M, 1).
 "@
@@ -369,9 +369,9 @@ slow(X, Y) :- user(X), user(Y), friends(X, Y).
 **Verification:**
 ```bash
 $test = @"
-Decl user(U.Type<int>).
-Decl friends(A.Type<int>, B.Type<int>).
-Decl slow(X.Type<int>, Y.Type<int>).
+Decl user(U) bound [/number].
+Decl friends(A, B) bound [/number, /number].
+Decl slow(X, Y) bound [/number, /number].
 
 # Generate many users
 user(1). user(2). user(3). user(4). user(5).
@@ -405,8 +405,8 @@ check(X) :- data(X), X != null.
 **Verification:**
 ```bash
 $test = @"
-Decl data(X.Type<int>).
-Decl check(X.Type<int>).
+Decl data(X) bound [/number].
+Decl check(X) bound [/number].
 data(42).
 check(X) :- data(X), X != null.
 "@
@@ -432,7 +432,7 @@ p(2).  # AI expects only p(2) to exist
 **Verification:**
 ```bash
 $test = @"
-Decl p(X.Type<int>).
+Decl p(X) bound [/number].
 p(1).
 p(2).
 "@
@@ -458,9 +458,9 @@ result(X) :- data(_, X), process(X, _).
 **Verification:**
 ```bash
 $test = @"
-Decl data(A.Type<int>, B.Type<int>).
-Decl process(B.Type<int>, C.Type<int>).
-Decl result(X.Type<int>).
+Decl data(A, B) bound [/number, /number].
+Decl process(B, C) bound [/number, /number].
+Decl result(X) bound [/number].
 data(1, 10).
 data(2, 20).
 process(10, 100).
@@ -491,8 +491,8 @@ bad(Name) :- record(R), Name = R.name.
 **Verification:**
 ```bash
 $test = @"
-Decl record(R.Type<{/name: string}>).
-Decl bad(Name.Type<string>).
+Decl record(R).
+Decl bad(Name) bound [/string].
 record({/name: "Alice"}).
 bad(Name) :- record(R), Name = R.name.
 "@
@@ -517,8 +517,8 @@ head(H) :- list(L), H = L[0].
 **Verification:**
 ```bash
 $test = @"
-Decl list(L.Type<[int]>).
-Decl head(H.Type<int>).
+Decl list(L).
+Decl head(H) bound [/number].
 list([1, 2, 3]).
 head(H) :- list(L), H = L[0].
 "@
@@ -535,7 +535,7 @@ $test | Out-File -FilePath .nerd/test/failure_modes/list_index.mg -Encoding utf8
 **Invalid Pattern:**
 ```mangle
 # WRONG: Using int literal for float type
-Decl value(X.Type<float>).
+Decl value(X) bound [/float64].
 value(5).  # Should be 5.0
 ```
 
@@ -544,7 +544,7 @@ value(5).  # Should be 5.0
 **Verification:**
 ```bash
 $test = @"
-Decl value(X.Type<float>).
+Decl value(X) bound [/float64].
 value(5).
 "@
 $test | Out-File -FilePath .nerd/test/failure_modes/type_mismatch.mg -Encoding utf8
@@ -568,7 +568,7 @@ msg("Error: $Code").
 **Verification:**
 ```bash
 $test = @"
-Decl msg(M.Type<string>).
+Decl msg(M) bound [/string].
 msg("Error: \$Code").
 "@
 $test | Out-File -FilePath .nerd/test/failure_modes/string_interp.mg -Encoding utf8
@@ -592,8 +592,8 @@ parts(P) :- text(T), P = fn:split(T, ",").
 **Verification:**
 ```bash
 $test = @"
-Decl text(T.Type<string>).
-Decl parts(P.Type<[string]>).
+Decl text(T) bound [/string].
+Decl parts(P).
 text("a,b,c").
 parts(P) :- text(T), P = fn:split(T, ",").
 "@
@@ -618,8 +618,8 @@ match(T) :- text(T), fn:contains(T, "error").
 **Verification:**
 ```bash
 $test = @"
-Decl text(T.Type<string>).
-Decl match(T.Type<string>).
+Decl text(T) bound [/string].
+Decl match(T) bound [/string].
 text("this has error").
 match(T) :- text(T), fn:contains(T, "error").
 "@
@@ -644,7 +644,7 @@ data({"key": "value"}).
 **Verification:**
 ```bash
 $test = @"
-Decl data(D.Type<Any>).
+Decl data(D).
 data({\"key\": \"value\"}).
 "@
 $test | Out-File -FilePath .nerd/test/failure_modes/json_struct.mg -Encoding utf8
@@ -670,8 +670,8 @@ person_info(Name) :- person(P), Name = P.name.
 **Verification:**
 ```bash
 $test = @"
-Decl person(P.Type<{/name: string}>).
-Decl person_info(Name.Type<string>).
+Decl person(P).
+Decl person_info(Name) bound [/string].
 person({/name: "Bob"}).
 person_info(Name) :- person(P), Name = P.name.
 "@
@@ -696,8 +696,8 @@ good(Name) :- record(R), R = {/name: Name}.
 **Verification:**
 ```bash
 $test = @"
-Decl record(R.Type<{/name: string, /age: int}>).
-Decl good(Name.Type<string>).
+Decl record(R).
+Decl good(Name) bound [/string].
 record({/name: "Charlie", /age: 30}).
 # Correct way
 good(Name) :- record(R), :match_field(R, /name, Name).
@@ -723,8 +723,8 @@ tail(T) :- list(L), T = L.tail().
 **Verification:**
 ```bash
 $test = @"
-Decl list(L.Type<[int]>).
-Decl tail(T.Type<[int]>).
+Decl list(L).
+Decl tail(T).
 list([1, 2, 3]).
 tail(T) :- list(L), T = L.tail().
 "@
@@ -745,8 +745,8 @@ $test | Out-File -FilePath .nerd/test/failure_modes/list_methods.mg -Encoding ut
 **Verification:**
 ```bash
 $test = @"
-Decl my_list(L.Type<[int]>).
-Decl head_elem(H.Type<int>).
+Decl my_list(L).
+Decl head_elem(H) bound [/number].
 my_list([10, 20, 30]).
 head_elem(H) :- my_list(L), :match_cons(L, H, _).
 "@
@@ -817,7 +817,7 @@ result(X) :- unknown_pred(X).
 **Verification:**
 ```bash
 $test = @"
-Decl result(X.Type<int>).
+Decl result(X) bound [/number].
 result(X) :- unknown_pred(X).
 "@
 $test | Out-File -FilePath .nerd/test/failure_modes/undeclared.mg -Encoding utf8
@@ -888,11 +888,11 @@ intent_definition("look at my code", /review).
 **Verification:**
 ```bash
 $test = @"
-Decl intent_definition(Text.Type<string>, Verb.Type<n>).
+Decl intent_definition(Text, Verb) bound [/string, /name].
 intent_definition("review my code", /review).
 intent_definition("check for bugs", /debug).
 
-Decl matched(V.Type<n>).
+Decl matched(V) bound [/name].
 # This will NOT match "examine my code"
 matched(V) :- intent_definition("examine my code", V).
 "@
@@ -919,8 +919,8 @@ match(T) :- text(T), fn:startswith(T, "ERR").
 **Verification:**
 ```bash
 $test = @"
-Decl text(T.Type<string>).
-Decl match(T.Type<string>).
+Decl text(T) bound [/string].
+Decl match(T) bound [/string].
 text("Error123").
 match(T) :- text(T), fn:substring(T, 0, 5) = "Error".
 "@
@@ -941,8 +941,8 @@ $test | Out-File -FilePath .nerd/test/failure_modes/fn_substring.mg -Encoding ut
 **Verification:**
 ```bash
 $test = @"
-Decl num(N.Type<int>).
-Decl result(R.Type<int>).
+Decl num(N) bound [/number].
+Decl result(R) bound [/number].
 num(5).
 num(10).
 num(15).
@@ -972,7 +972,7 @@ TAXONOMY: /vehicle > /car > /sedan
 ```bash
 $test = @"
 TAXONOMY: /vehicle > /car
-Decl test(X.Type<int>).
+Decl test(X) bound [/number].
 test(1).
 "@
 $test | Out-File -FilePath .nerd/test/failure_modes/taxonomy.mg -Encoding utf8
@@ -993,8 +993,8 @@ $test | Out-File -FilePath .nerd/test/failure_modes/taxonomy.mg -Encoding utf8
 ```bash
 $test = @"
 # CORRECT: Facts injected, transitive closure in logic
-Decl subclass_of(Child.Type<n>, Parent.Type<n>).
-Decl is_subtype(Child.Type<n>, Parent.Type<n>).
+Decl subclass_of(Child, Parent) bound [/name, /name].
+Decl is_subtype(Child, Parent) bound [/name, /name].
 
 subclass_of(/sedan, /car).
 subclass_of(/car, /vehicle).
@@ -1028,8 +1028,8 @@ region_sales(Region, Total) :-
 **Verification:**
 ```bash
 $test = @"
-Decl sales(Region.Type<n>, Amount.Type<int>).
-Decl region_sales(Region.Type<n>, Total.Type<int>).
+Decl sales(Region, Amount) bound [/name, /number].
+Decl region_sales(Region, Total) bound [/name, /number].
 sales(/north, 100).
 region_sales(Region, Total) :-
     sales(Region, Amount) |>
@@ -1057,8 +1057,8 @@ total(T) :- item(X) |> do fn:group_by(), let T = fn:sum(X).
 **Verification:**
 ```bash
 $test = @"
-Decl item(X.Type<int>).
-Decl total(T.Type<int>).
+Decl item(X) bound [/number].
+Decl total(T) bound [/number].
 item(10).
 total(T) :- item(X) |> do fn:group_by(), let T = fn:sum(X).
 "@
@@ -1079,8 +1079,8 @@ $test | Out-File -FilePath .nerd/test/failure_modes/wrong_casing.mg -Encoding ut
 **Verification:**
 ```bash
 $test = @"
-Decl sales(Region.Type<n>, Amount.Type<int>).
-Decl region_sales(Region.Type<n>, Total.Type<int>).
+Decl sales(Region, Amount) bound [/name, /number].
+Decl region_sales(Region, Total) bound [/name, /number].
 
 sales(/north, 100).
 sales(/north, 200).
@@ -1112,8 +1112,8 @@ total(T) :- findall(Amount, sales(_, Amount), Amounts), sum_list(Amounts, T).
 **Verification:**
 ```bash
 $test = @"
-Decl sales(R.Type<n>, A.Type<int>).
-Decl total(T.Type<int>).
+Decl sales(R, A) bound [/name, /number].
+Decl total(T) bound [/number].
 sales(/a, 10).
 total(T) :- findall(Amount, sales(_, Amount), Amounts), sum_list(Amounts, T).
 "@
@@ -1138,8 +1138,8 @@ count_items(N) :- item(_) |> let N = fn:Count().
 **Verification:**
 ```bash
 $test = @"
-Decl item(X.Type<int>).
-Decl count_items(N.Type<int>).
+Decl item(X) bound [/number].
+Decl count_items(N) bound [/number].
 item(1).
 item(2).
 item(3).
@@ -1170,8 +1170,8 @@ stats(Count, Total) :-
 **Verification:**
 ```bash
 $test = @"
-Decl item(X.Type<int>).
-Decl stats(Count.Type<int>, Total.Type<int>).
+Decl item(X) bound [/number].
+Decl stats(Count, Total) bound [/number, /number].
 item(10).
 item(20).
 item(30).
@@ -1198,8 +1198,8 @@ $test | Out-File -FilePath .nerd/test/failure_modes/multi_agg.mg -Encoding utf8
 **Verification:**
 ```bash
 $test = @"
-Decl tag(Item.Type<n>, Tag.Type<n>).
-Decl all_tags(Item.Type<n>, Tags.Type<[n]>).
+Decl tag(Item, Tag) bound [/name, /name].
+Decl all_tags(Item, Tags).
 
 tag(/item1, /red).
 tag(/item1, /large).
@@ -1234,8 +1234,8 @@ bad(X, Total) :-
 **Verification:**
 ```bash
 $test = @"
-Decl sales(R.Type<n>, A.Type<int>).
-Decl bad(X.Type<n>, Total.Type<int>).
+Decl sales(R, A) bound [/name, /number].
+Decl bad(X, Total) bound [/name, /number].
 sales(/a, 10).
 bad(X, Total) :-
     sales(_, Amount) |>
@@ -1261,8 +1261,8 @@ $test | Out-File -FilePath .nerd/test/failure_modes/unbound_group.mg -Encoding u
 **Verification:**
 ```bash
 $test = @"
-Decl edge(X.Type<n>, Y.Type<n>).
-Decl reachable(X.Type<n>, Y.Type<n>).
+Decl edge(X, Y) bound [/name, /name].
+Decl reachable(X, Y) bound [/name, /name].
 
 edge(/a, /b).
 edge(/b, /c).
@@ -1288,8 +1288,8 @@ $test | Out-File -FilePath .nerd/test/failure_modes/safe_recursion.mg -Encoding 
 **Verification:**
 ```bash
 $test = @"
-Decl edge(X.Type<n>, Y.Type<n>).
-Decl path(X.Type<n>, Y.Type<n>, D.Type<int>).
+Decl edge(X, Y) bound [/name, /name].
+Decl path(X, Y, D) bound [/name, /name, /number].
 
 edge(/a, /b).
 edge(/b, /c).
@@ -1323,7 +1323,7 @@ grow(X) :- grow(Y), X = fn:plus(Y, 1).
 **Verification:**
 ```bash
 $test = @"
-Decl grow(X.Type<int>).
+Decl grow(X) bound [/number].
 grow(0).
 grow(X) :- grow(Y), X = fn:plus(Y, 1).
 "@
@@ -1350,8 +1350,8 @@ edge(/c, /a).  # Cycle!
 **Verification:**
 ```bash
 $test = @"
-Decl edge(X.Type<n>, Y.Type<n>).
-Decl reachable(X.Type<n>, Y.Type<n>).
+Decl edge(X, Y) bound [/name, /name].
+Decl reachable(X, Y) bound [/name, /name].
 
 edge(/a, /b).
 edge(/b, /c).
@@ -1377,7 +1377,7 @@ $test | Out-File -FilePath .nerd/test/failure_modes/graph_cycle.mg -Encoding utf
 **Verification:**
 ```bash
 $test = @"
-Decl counter(N.Type<int>).
+Decl counter(N) bound [/number].
 counter(0).
 counter(N) :- counter(M), N = fn:plus(M, 1), N < 5.
 "@
@@ -1398,8 +1398,8 @@ $test | Out-File -FilePath .nerd/test/failure_modes/counter_limit.mg -Encoding u
 **Verification:**
 ```bash
 $test = @"
-Decl even(N.Type<int>).
-Decl odd(N.Type<int>).
+Decl even(N) bound [/number].
+Decl odd(N) bound [/number].
 
 even(0).
 even(N) :- odd(M), N = fn:plus(M, 1), N < 10.
@@ -1428,9 +1428,9 @@ handle(X, Status) :- item(X), Status = (known_status(X, S) ? S : /unknown).
 **Verification:**
 ```bash
 $test = @"
-Decl item(X.Type<int>).
-Decl known_status(X.Type<int>, S.Type<n>).
-Decl handle(X.Type<int>, Status.Type<n>).
+Decl item(X) bound [/number].
+Decl known_status(X, S) bound [/number, /name].
+Decl handle(X, Status) bound [/number, /name].
 item(1).
 item(2).
 known_status(1, /active).
@@ -1453,10 +1453,10 @@ $test | Out-File -FilePath .nerd/test/failure_modes/null_ternary.mg -Encoding ut
 **Verification:**
 ```bash
 $test = @"
-Decl item(X.Type<int>).
-Decl known_status(X.Type<int>, S.Type<n>).
-Decl known(X.Type<int>).
-Decl unknown(X.Type<int>).
+Decl item(X) bound [/number].
+Decl known_status(X, S) bound [/number, /name].
+Decl known(X) bound [/number].
+Decl unknown(X) bound [/number].
 
 item(1).
 item(2).
@@ -1492,8 +1492,8 @@ result(X, Label) :-
 **Verification:**
 ```bash
 $test = @"
-Decl item(X.Type<int>).
-Decl result(X.Type<int>, Label.Type<n>).
+Decl item(X) bound [/number].
+Decl result(X, Label) bound [/number, /name].
 item(75).
 result(X, Label) :-
     item(X),
@@ -1526,7 +1526,7 @@ use /std/date.
 ```bash
 $test = @"
 use /std/date.
-Decl test(X.Type<int>).
+Decl test(X) bound [/number].
 test(1).
 "@
 $test | Out-File -FilePath .nerd/test/failure_modes/fake_import.mg -Encoding utf8
@@ -1550,7 +1550,7 @@ content(C) :- read_file("/path/to/file.txt", C).
 **Verification:**
 ```bash
 $test = @"
-Decl content(C.Type<string>).
+Decl content(C) bound [/string].
 content(C) :- read_file("/path/to/file.txt", C).
 "@
 $test | Out-File -FilePath .nerd/test/failure_modes/io_ops.mg -Encoding utf8
@@ -1574,8 +1574,8 @@ greater(X, Y) :- value(X), value(Y), fn:greater_than(X, Y).
 **Verification:**
 ```bash
 $test = @"
-Decl value(V.Type<int>).
-Decl greater(X.Type<int>, Y.Type<int>).
+Decl value(V) bound [/number].
+Decl greater(X, Y) bound [/number, /number].
 value(10).
 value(5).
 greater(X, Y) :- value(X), value(Y), fn:greater_than(X, Y).
@@ -1597,8 +1597,8 @@ $test | Out-File -FilePath .nerd/test/failure_modes/fn_comparison.mg -Encoding u
 **Verification:**
 ```bash
 $test = @"
-Decl value(V.Type<int>).
-Decl greater(X.Type<int>, Y.Type<int>).
+Decl value(V) bound [/number].
+Decl greater(X, Y) bound [/number, /number].
 value(10).
 value(5).
 greater(X, Y) :- value(X), value(Y), X > Y.
@@ -1625,7 +1625,7 @@ flag(false).
 **Verification:**
 ```bash
 $test = @"
-Decl flag(F.Type<n>).
+Decl flag(F) bound [/name].
 flag(true).
 flag(false).
 "@
@@ -1646,7 +1646,7 @@ $test | Out-File -FilePath .nerd/test/failure_modes/boolean.mg -Encoding utf8
 **Verification:**
 ```bash
 $test = @"
-Decl flag(F.Type<n>).
+Decl flag(F) bound [/name].
 flag(/true).
 flag(/false).
 "@
@@ -1671,8 +1671,8 @@ recent(E) :- event(E, T), fn:days_since(T) < 7.
 **Verification:**
 ```bash
 $test = @"
-Decl event(E.Type<n>, T.Type<int>).
-Decl recent(E.Type<n>).
+Decl event(E, T) bound [/name, /number].
+Decl recent(E) bound [/name].
 event(/e1, 1000).
 recent(E) :- event(E, T), fn:days_since(T) < 7.
 "@
@@ -1697,8 +1697,8 @@ match(T) :- text(T), fn:regex(T, "^ERR-\\d+$").
 **Verification:**
 ```bash
 $test = @"
-Decl text(T.Type<string>).
-Decl match(T.Type<string>).
+Decl text(T) bound [/string].
+Decl match(T) bound [/string].
 text("ERR-123").
 match(T) :- text(T), fn:regex(T, "^ERR-\\d+\$").
 "@
@@ -1723,9 +1723,9 @@ p(X) :- q(X), r(X).
 **Verification:**
 ```bash
 $test = @"
-Decl q(X.Type<int>).
-Decl r(X.Type<int>).
-Decl p(X.Type<int>).
+Decl q(X) bound [/number].
+Decl r(X) bound [/number].
+Decl p(X) bound [/number].
 q(5).
 q(10).
 r(5).
@@ -1748,7 +1748,7 @@ $test | Out-File -FilePath .nerd/test/failure_modes/var_shadow.mg -Encoding utf8
 **Verification:**
 ```bash
 $test = @"
-Decl status(Entity.Type<n>, State.Type<n>).
+Decl status(Entity, State) bound [/name, /name].
 status(/user/alice, /status/active).
 status(/user/bob, /status/pending).
 "@
@@ -1769,7 +1769,7 @@ $test | Out-File -FilePath .nerd/test/failure_modes/nested_atoms.mg -Encoding ut
 **Verification:**
 ```bash
 $test = @"
-Decl value(V.Type<int>).
+Decl value(V) bound [/number].
 value(-42).
 value(0).
 value(42).
@@ -1791,7 +1791,7 @@ $test | Out-File -FilePath .nerd/test/failure_modes/negative.mg -Encoding utf8
 **Verification:**
 ```bash
 $test = @"
-Decl tags(Item.Type<n>, Tags.Type<[n]>).
+Decl tags(Item, Tags).
 tags(/item1, []).
 tags(/item2, [/red, /large]).
 "@
@@ -1812,7 +1812,7 @@ $test | Out-File -FilePath .nerd/test/failure_modes/empty_list.mg -Encoding utf8
 **Verification:**
 ```bash
 $test = @"
-Decl message(M.Type<string>).
+Decl message(M) bound [/string].
 message("Hello 世界 🌍").
 "@
 $test | Out-File -FilePath .nerd/test/failure_modes/unicode.mg -Encoding utf8
@@ -1832,7 +1832,7 @@ $test | Out-File -FilePath .nerd/test/failure_modes/unicode.mg -Encoding utf8
 **Verification:**
 ```bash
 $test = @"
-Decl very_long_predicate_name_that_tests_parser_limits(X.Type<int>).
+Decl very_long_predicate_name_that_tests_parser_limits(X) bound [/number].
 very_long_predicate_name_that_tests_parser_limits(42).
 "@
 $test | Out-File -FilePath .nerd/test/failure_modes/long_names.mg -Encoding utf8

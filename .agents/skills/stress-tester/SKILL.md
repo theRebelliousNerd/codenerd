@@ -862,17 +862,17 @@ The `stress_queries.mg` file provides predicates specifically for analyzing Mang
 # Find all corpus validation events
 corpus_validation(T, M) :-
     log_entry(T, /kernel, _, M, _, _),
-    fn:contains(M, "check-mangle").
+    :string:contains(M, "check-mangle").
 
 # Find repair loop activity
 repair_attempt(T, M) :-
     log_entry(T, /system_shards, _, M, _, _),
-    fn:contains(M, "repair attempt").
+    :string:contains(M, "repair attempt").
 
 # Find critical self-healing failures
 healing_critical(T, /corpus_missing, M) :-
     log_entry(T, /kernel, /warn, M, _, _),
-    fn:contains(M, "corpus not available").
+    :string:contains(M, "corpus not available").
 
 healing_critical(T, /validation_failed, M) :-
     validation_error(T, M).
@@ -883,16 +883,16 @@ healing_critical(T, /rule_rejected, M) :-
 # Success metrics
 healing_success(T, M) :-
     log_entry(T, /system_shards, _, M, _, _),
-    fn:contains(M, "repaired successfully").
+    :string:contains(M, "repaired successfully").
 
 # JIT selection metrics
 jit_selection(T, M) :-
     log_entry(T, /kernel, _, M, _, _),
-    fn:contains(M, "JIT selected").
+    :string:contains(M, "JIT selected").
 
 selection_fallback(T, M) :-
     log_entry(T, /kernel, /warn, M, _, _),
-    fn:contains(M, "JIT selector failed").
+    :string:contains(M, "JIT selector failed").
 ```
 
 ### Success Criteria via Mangle Queries

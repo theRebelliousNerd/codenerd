@@ -360,8 +360,12 @@ Key properties:
 ### 7.3 Dormant policy bridge — `policy/projectdoc.mg:32-34`
 
 ```mangle
-project_write_denied(Target, Reason) :- project_forbidden_path(Match, Reason), fn:contains(ToLower(Target), ToLower(Match))
-coder_block_write(Target, Reason) :- project_write_denied(Target, Reason)
+project_write_denied(Path, Reason) :-
+    pending_edit(Path, _),
+    project_forbidden_path(Match, Reason),
+    path_contains(Path, Match).
+coder_block_write(Path, Reason) :-
+    project_write_denied(Path, Reason).
 ```
 
 `VERIFIED CURRENT` as Mangle derivation, `PARTIAL` as enforcement — executor does **not** query `coder_block_write`; it queries Go `projectForbidsWrite` directly. The policy path is declared but not wired to `permitted(...)` or to executor. See §9 and TODO.md — wiring it into `deny_edit` / `permitted` would be the leverage uplift.

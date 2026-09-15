@@ -372,17 +372,17 @@ Search patterns for log-analyzer:
 # Detect panic entries
 Decl panic_entry(Time, Category, Message).
 panic_entry(T, C, M) :- log_entry(T, C, /error, M, _, _),
-    fn:contains(M, "panic").
+    :string:contains(M, "panic").
 
 # Detect nil pointer
 Decl nil_pointer(Time, Category, Message).
 nil_pointer(T, C, M) :- log_entry(T, C, /error, M, _, _),
-    fn:contains(M, "nil pointer").
+    :string:contains(M, "nil pointer").
 
 # Detect OOM
 Decl oom_event(Time, Category, Message).
 oom_event(T, C, M) :- log_entry(T, C, /error, M, _, _),
-    fn:contains(M, "out of memory").
+    :string:contains(M, "out of memory").
 ```
 
 ---

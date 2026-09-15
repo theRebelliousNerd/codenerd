@@ -249,7 +249,7 @@ Decl turn_created_source(File) bound [/string].
 # turn by the session executor in persistTurn. VerifiedOutcome is /done when
 # the kernel derived turn_done, /hollow when hollow_success fired, /failed
 # when the turn errored, and /unverified otherwise.
-Decl turn_cost(SessionID, TurnNum, PromptTokens, CompletionTokens, ToolCalls, VerifiedOutcome) bound [/string, /number, /number, /number, /number, /atom].
+Decl turn_cost(SessionID, TurnNum, PromptTokens, CompletionTokens, ToolCalls, VerifiedOutcome) bound [/string, /number, /number, /number, /number, /name].
 
 # checkpoint_verdict(Phase, Verdict, Reason, Confidence)
 # Structured reviewer/nemesis verdict for campaign checkpoints.
