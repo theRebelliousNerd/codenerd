@@ -8,6 +8,7 @@ import (
 	"runtime/metrics"
 	"runtime/trace"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codenerd/internal/logging"
@@ -26,6 +27,10 @@ var (
 	flightMu           sync.Mutex
 	flight             *trace.FlightRecorder
 	flightWatchdogStop chan struct{}
+	// flightDumpSeq disambiguates dumps within one wall-clock second.
+	// Production dumps on panic and may dump again on graceful shutdown;
+	// with second-precision names the second dump overwrote the first.
+	flightDumpSeq atomic.Uint64
 )
 
 // memClassOther is the runtime/metrics path where the execution tracer's
@@ -264,7 +269,8 @@ func DumpFlightRecord(nerdDir string) (string, error) {
 		return "", fmt.Errorf("create traces dir: %w", err)
 	}
 
-	filename := fmt.Sprintf("flight_%s.trace", time.Now().UTC().Format("20060102T150405Z"))
+	seq := flightDumpSeq.Add(1)
+	filename := fmt.Sprintf("flight_%s_%03d.trace", time.Now().UTC().Format("20060102T150405Z"), seq)
 	path := filepath.Join(tracesDir, filename)
 
 	// Buffer first so a failed disk write doesn't tear the recorder.
