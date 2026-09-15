@@ -376,10 +376,16 @@ func (de *DifferentialEngine) AddFactIncremental(fact Fact) error {
 // full-program stratification cannot be computed (which would also
 // have failed the base engine's analysis, so this is defensive).
 func (de *DifferentialEngine) EnableUnifiedFastPath() error {
+	if de == nil {
+		return fmt.Errorf("diff: EnableUnifiedFastPath on nil engine")
+	}
 	de.mu.Lock()
 	defer de.mu.Unlock()
 	if de.unifiedStore != nil {
 		return nil
+	}
+	if de.programInfo == nil {
+		return fmt.Errorf("diff: EnableUnifiedFastPath on uninitialized engine (nil programInfo)")
 	}
 	strata, predToStratum, err := analysis.Stratify(analysis.Program{
 		EdbPredicates: de.programInfo.EdbPredicates,
@@ -516,6 +522,12 @@ func (de *DifferentialEngine) ApplyAtomDelta(atoms []ast.Atom) error {
 // called, the unified store IS the union and a single walk suffices —
 // no per-stratum dedup needed.
 func (de *DifferentialEngine) CopyAllFactsTo(dest factstore.FactStore) error {
+	if de == nil {
+		return fmt.Errorf("diff: CopyAllFactsTo on nil engine")
+	}
+	if dest == nil {
+		return fmt.Errorf("diff: CopyAllFactsTo with nil destination")
+	}
 	de.mu.RLock()
 	defer de.mu.RUnlock()
 
@@ -555,6 +567,17 @@ func (de *DifferentialEngine) CopyAllFactsTo(dest factstore.FactStore) error {
 
 // ApplyDelta applies a set of new facts and re-evaluates necessary strata.
 func (de *DifferentialEngine) ApplyDelta(facts []Fact) error {
+	if de == nil {
+		return fmt.Errorf("diff: ApplyDelta on nil engine")
+	}
+	// Empty deltas stay a safe no-op even on a zero engine: callers use
+	// them as unconditional flush points.
+	if len(facts) == 0 {
+		return nil
+	}
+	if de.baseEngine == nil {
+		return fmt.Errorf("diff: ApplyDelta on uninitialized engine (nil baseEngine)")
+	}
 	de.mu.Lock()
 	defer de.mu.Unlock()
 

@@ -240,6 +240,9 @@ func (e *Engine) evalWithGasLimit() (mengine.Stats, error) {
 	// Telemetry: track derived facts for monitoring
 	afterCount := e.store.EstimateFactCount()
 	derivedThisRound := afterCount - beforeCount
+	if derivedThisRound < 0 {
+		derivedThisRound = 0
+	}
 	e.derivedCount += derivedThisRound
 
 	if derivedThisRound > 0 {
@@ -299,6 +302,9 @@ func (e *Engine) LoadSchemaString(schema string) error {
 
 	e.schemaFragments = append(e.schemaFragments, unit)
 	if err := e.rebuildProgramLocked(); err != nil {
+		// Fail closed: drop the fragment that did not analyze so a bad schema
+		// cannot poison every later rebuild.
+		e.schemaFragments = e.schemaFragments[:len(e.schemaFragments)-1]
 		return fmt.Errorf("failed to analyze schema: %w", err)
 	}
 
@@ -785,10 +791,12 @@ func convertValueToTypedTerm(value any, expectedType ast.ConstantType) (ast.Base
 		return ast.List(constants), nil
 	case []any:
 		constants := make([]ast.Constant, 0, len(v))
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				constants = append(constants, ast.String(s))
+		for i, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("unsupported list element type %T at index %d: only strings supported", item, i)
 			}
+			constants = append(constants, ast.String(s))
 		}
 		return ast.List(constants), nil
 	case map[string]string:

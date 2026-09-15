@@ -1,7 +1,9 @@
 package mangle
 
 import (
+	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
@@ -29,6 +31,9 @@ var parseMu sync.Mutex
 // Callers in any package MUST use this instead of parse.Unit directly so the
 // shared ANTLR prediction state is never mutated concurrently.
 func ParseUnit(reader io.Reader) (parse.SourceUnit, error) {
+	if reader == nil {
+		return parse.SourceUnit{}, fmt.Errorf("mangle: ParseUnit called with nil reader")
+	}
 	parseMu.Lock()
 	defer parseMu.Unlock()
 	return parse.Unit(reader)
@@ -40,5 +45,26 @@ func ParseUnit(reader io.Reader) (parse.SourceUnit, error) {
 func ParseAtom(s string) (ast.Atom, error) {
 	parseMu.Lock()
 	defer parseMu.Unlock()
-	return parse.Atom(s)
+	atom, err := parse.Atom(s)
+	if err != nil {
+		return atom, err
+	}
+	// The upstream parser accepts a prefix and silently drops the rest:
+	// `foo(1) garbage` parses as foo(1) with no error. In a logic kernel
+	// that turns a typo into a different rule, so verify the whole input
+	// was consumed by re-encoding the atom and comparing modulo whitespace
+	// and one statement-terminating period.
+	if !atomConsumesInput(s, atom) {
+		return ast.Atom{}, fmt.Errorf("mangle: trailing input after atom in %q", s)
+	}
+	return atom, nil
+}
+
+// atomConsumesInput reports whether atom accounts for all of s.
+func atomConsumesInput(s string, atom ast.Atom) bool {
+	strip := func(v string) string {
+		v = strings.Join(strings.Fields(v), "")
+		return strings.TrimSuffix(v, ".")
+	}
+	return strip(s) == strip(atom.String())
 }
