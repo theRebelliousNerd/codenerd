@@ -10,6 +10,11 @@ import (
 // factPatternRe is precompiled for extractRuleFromResponse (avoids per-call regexp compilation).
 var factPatternRe = regexp.MustCompile(`([a-z_][a-z0-9_]*\s*\([^)]*\)\.)`)
 
+// cleanQuotedAtomRe matches the same quoted-lowercase-identifier shape as the
+// pre-validator's QuickFix rewrite. It is hoisted to package scope: compiling
+// it on every cleanRuleCandidate call wastes a compile per LLM response.
+var cleanQuotedAtomRe = regexp.MustCompile(`"([a-z][a-z0-9_]*)"`)
+
 // PromptBuilder constructs feedback prompts for LLM retry attempts.
 // Uses progressive strategy: more context and constraints on each retry.
 type PromptBuilder struct {
@@ -286,7 +291,11 @@ func extractRuleString(payload map[string]any) string {
 		if value, ok := payload[key]; ok {
 			switch typed := value.(type) {
 			case string:
-				return cleanRuleCandidate(typed)
+				// Keep scanning on empty: an empty "rule" key must not
+				// shadow a populated "output" key later in the list.
+				if candidate := cleanRuleCandidate(typed); candidate != "" {
+					return candidate
+				}
 			case map[string]any:
 				if candidate := extractRuleString(typed); candidate != "" {
 					return candidate
@@ -320,8 +329,7 @@ func cleanRuleCandidate(candidate string) string {
 	trimmed = strings.TrimSpace(trimmed)
 
 	// Convert quoted atoms to /atoms: "compile" -> /compile
-	quotedAtomRegex := regexp.MustCompile(`"([a-z][a-z0-9_]*)"`)
-	trimmed = quotedAtomRegex.ReplaceAllString(trimmed, "/$1")
+	trimmed = cleanQuotedAtomRe.ReplaceAllString(trimmed, "/$1")
 
 	lines := strings.Split(trimmed, "\n")
 	for i, line := range lines {

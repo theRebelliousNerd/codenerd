@@ -117,6 +117,10 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 ) (*GenerateResult, error) {
 	result := &GenerateResult{}
 
+	if fl.config.MaxRetries <= 0 {
+		return result, fmt.Errorf("feedback loop misconfigured: MaxRetries=%d, want positive", fl.config.MaxRetries)
+	}
+
 	// Apply total timeout if context has no deadline
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline && fl.config.TotalTimeout > 0 {
 		var cancel context.CancelFunc
@@ -157,14 +161,13 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 			return result, fmt.Errorf("deadline exhausted before attempt %d: %w", attempt, ctx.Err())
 		}
 
-		// Check budget
-		canRetry, reason := fl.budget.CanRetry(promptHash)
-		if !canRetry {
+		// Claim one attempt atomically: a CanRetry/RecordAttempt pair can
+		// over-claim when two goroutines share this loop.
+		if ok, reason := fl.budget.TryRecord(promptHash); !ok {
 			logging.Get(logging.CategoryKernel).Warn("FeedbackLoop: budget exhausted: %s", reason)
 			result.Errors = lastErrors
 			return result, fmt.Errorf("validation budget exhausted: %s", reason)
 		}
-		fl.budget.RecordAttempt(promptHash)
 
 		logging.KernelDebug("FeedbackLoop: attempt %d/%d", attempt, fl.config.MaxRetries)
 
@@ -334,8 +337,17 @@ func (fl *FeedbackLoop) ValidateOnly(rule string, validator RuleValidator) *Vali
 	preErrors := fl.preValidator.Validate(rule)
 	result.Errors = preErrors
 
-	// Sanitize
-	sanitized, _ := fl.sanitizer.Sanitize(rule)
+	// Sanitize. On failure keep the original rule (Sanitize returns "" with
+	// the error) and record the real parse failure instead of validating an
+	// empty string and reporting whatever the sandbox says about that.
+	sanitized, sanitizeErr := fl.sanitizer.Sanitize(rule)
+	if sanitizeErr != nil {
+		result.Errors = append(result.Errors, ValidationError{
+			Category: CategoryParse,
+			Message:  sanitizeErr.Error(),
+			Wrong:    rule,
+		})
+	}
 	result.Sanitized = sanitized
 
 	// Compilation check
@@ -358,6 +370,11 @@ func (fl *FeedbackLoop) ValidateOnly(rule string, validator RuleValidator) *Vali
 		return result
 	}
 
+	// Success demotes input observations to warnings: preErrors describe the
+	// rule as received, but the sanitized rule compiled and schema-checked.
+	// A Valid result must never carry blocking Errors.
+	result.Warnings = append(result.Warnings, result.Errors...)
+	result.Errors = nil
 	result.Valid = true
 	return result
 }
@@ -465,7 +482,11 @@ func truncatePredicateQuery(text string, max int) string {
 	if max <= 0 || len(text) <= max {
 		return text
 	}
-	return text[:max] + "..."
+	runes := []rune(text)
+	if len(runes) <= max {
+		return text
+	}
+	return string(runes[:max]) + "..."
 }
 
 func limitPredicateList(predicates []string, limit int) []string {

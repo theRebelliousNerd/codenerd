@@ -2055,24 +2055,25 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 ### internal/mangle/fact_store_proxy_test.go (1)
 - [ ] `internal/mangle/fact_store_proxy_test.go`
 
-### internal/mangle/feedback (17)
-- [ ] `internal/mangle/feedback/error_classifier.go`
+### internal/mangle/feedback (18)
+- [x] `internal/mangle/feedback/error_classifier.go`
 - [ ] `internal/mangle/feedback/error_classifier_benchmark_test.go`
 - [ ] `internal/mangle/feedback/error_classifier_test.go`
 - [ ] `internal/mangle/feedback/feedback_test.go`
 - [ ] `internal/mangle/feedback/jit_test.go`
-- [ ] `internal/mangle/feedback/loop.go`
+- [x] `internal/mangle/feedback/loop.go`
 - [ ] `internal/mangle/feedback/loop_test.go`
-- [ ] `internal/mangle/feedback/normalize.go`
-- [ ] `internal/mangle/feedback/normalize_test.go`
-- [ ] `internal/mangle/feedback/pre_validator.go`
+- [x] `internal/mangle/feedback/normalize.go`
+- [x] `internal/mangle/feedback/normalize_test.go`
+- [x] `internal/mangle/feedback/pre_validator.go`
 - [ ] `internal/mangle/feedback/pre_validator_bench_test.go`
 - [ ] `internal/mangle/feedback/pre_validator_benchmark_test.go`
 - [ ] `internal/mangle/feedback/pre_validator_test.go`
-- [ ] `internal/mangle/feedback/prompt_builder.go`
+- [x] `internal/mangle/feedback/prompt_builder.go`
 - [ ] `internal/mangle/feedback/prompt_builder_test.go`
-- [ ] `internal/mangle/feedback/types.go`
+- [x] `internal/mangle/feedback/types.go`
 - [ ] `internal/mangle/feedback/types_test.go`
+- [x] `internal/mangle/feedback/uplift_test.go`
 
 ### internal/mangle/grammar.go (1)
 - [x] `internal/mangle/grammar.go`

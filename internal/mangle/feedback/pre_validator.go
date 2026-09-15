@@ -278,8 +278,12 @@ func (pv *PreValidator) validateLine(line string, lineNum int) []ValidationError
 			continue
 		}
 
-		matches := p.regex.FindStringSubmatch(line)
-		if len(matches) > 0 {
+		// All matches, not just the first: two enum-strings on one line are
+		// two defects, and reporting one per retry round wastes LLM calls.
+		for _, matches := range p.regex.FindAllStringSubmatch(line, -1) {
+			if len(matches) == 0 {
+				continue
+			}
 			wrong := matches[0]
 			if len(matches) > 1 {
 				wrong = matches[1] // Use first capture group if available
@@ -339,9 +343,12 @@ func (pv *PreValidator) validateGlobal(code string) []ValidationError {
 		}
 	}
 
-	// Check for unbalanced parentheses
-	openCount := strings.Count(code, "(")
-	closeCount := strings.Count(code, ")")
+	// Check for unbalanced parentheses, ignoring parens inside string
+	// literals and comments: desc(X, "a)b") is balanced, and flagging it
+	// sends the LLM chasing a defect that does not exist.
+	bare := stripStringsAndComments(code)
+	openCount := strings.Count(bare, "(")
+	closeCount := strings.Count(bare, ")")
 	if openCount != closeCount {
 		errors = append(errors, ValidationError{
 			Category:   CategorySyntax,
@@ -357,8 +364,56 @@ func (pv *PreValidator) validateGlobal(code string) []ValidationError {
 	return errors
 }
 
+// stripStringsAndComments removes double-quoted spans (with backslash
+// escapes) and #-to-end-of-line comments for structural checks that must
+// not see inside literals.
+func stripStringsAndComments(code string) string {
+	var sb strings.Builder
+	sb.Grow(len(code))
+	runes := []rune(code)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		switch {
+		case r == '"':
+			// Skip the whole literal, honouring backslash escapes, so a
+			// quote inside a string cannot flip the state.
+			i++
+			for i < len(runes) {
+				if runes[i] == '\\' {
+					i += 2
+					continue
+				}
+				if runes[i] == '"' {
+					break
+				}
+				if runes[i] == '\n' {
+					sb.WriteRune('\n')
+				}
+				i++
+			}
+		case r == '#':
+			// Skip to end of line, preserving the newline itself.
+			for i < len(runes) && runes[i] != '\n' {
+				i++
+			}
+			if i < len(runes) {
+				sb.WriteRune('\n')
+			}
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
 // QuickFix attempts to auto-fix simple errors and returns the fixed code.
 // Returns the original code if no fixes were applied.
+//
+// Heuristic warning: the quoted-atom rewrite turns EVERY lowercase quoted
+// identifier into an atom, including string constants that are legitimately
+// strings (desc(X, "bob") becomes desc(X, /bob)). Callers that cannot
+// tolerate that must disable auto-repair and validate the original text.
+
 func (pv *PreValidator) QuickFix(code string) string {
 	fixed := code
 

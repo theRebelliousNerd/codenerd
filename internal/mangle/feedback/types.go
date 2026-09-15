@@ -13,8 +13,11 @@ import (
 type ErrorCategory int
 
 const (
+	// CategoryUnknown is the zero value: an unset category must not masquerade
+	// as a parse error. It renders as "unknown" and is never auto-repairable.
+	CategoryUnknown ErrorCategory = iota
 	// CategoryParse indicates a Mangle parser failure.
-	CategoryParse ErrorCategory = iota
+	CategoryParse
 	// CategoryAtomString indicates "string" should be /atom.
 	CategoryAtomString
 	// CategoryAggregation indicates wrong aggregation syntax (missing |> do fn:).
@@ -38,6 +41,8 @@ const (
 // String returns a human-readable name for the error category.
 func (c ErrorCategory) String() string {
 	switch c {
+	case CategoryUnknown:
+		return "unknown"
 	case CategoryParse:
 		return "parse_error"
 	case CategoryAtomString:
@@ -98,7 +103,7 @@ type ValidationResult struct {
 }
 
 // HasErrors returns true if there are any blocking errors.
-func (r *ValidationResult) HasErrors() bool {
+func (r ValidationResult) HasErrors() bool {
 	return len(r.Errors) > 0
 }
 
@@ -150,10 +155,10 @@ type ValidationBudget struct {
 }
 
 // NewValidationBudget creates a new budget tracker.
-func NewValidationBudget(config RetryConfig) *ValidationBudget {
+func NewValidationBudget(cfg RetryConfig) *ValidationBudget {
 	return &ValidationBudget{
-		maxPerRule:    config.MaxRetries,
-		sessionBudget: config.SessionBudget,
+		maxPerRule:    cfg.MaxRetries,
+		sessionBudget: cfg.SessionBudget,
 		ruleAttempts:  make(map[string]int),
 	}
 }
@@ -181,6 +186,24 @@ func (b *ValidationBudget) RecordAttempt(ruleHash string) {
 
 	b.sessionUsed++
 	b.ruleAttempts[ruleHash]++
+}
+
+// TryRecord atomically checks the budget and claims one attempt. Prefer it
+// over a CanRetry/RecordAttempt pair, which can over-claim when two goroutines
+// interleave between the check and the record.
+func (b *ValidationBudget) TryRecord(ruleHash string) (bool, string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.sessionUsed >= b.sessionBudget {
+		return false, "session validation budget exhausted"
+	}
+	if b.ruleAttempts[ruleHash] >= b.maxPerRule {
+		return false, "max retries exceeded for this rule"
+	}
+	b.sessionUsed++
+	b.ruleAttempts[ruleHash]++
+	return true, ""
 }
 
 // GetAttemptCount returns the current attempt count for a rule.

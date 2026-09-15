@@ -47,9 +47,11 @@ func TestNormalizeRuleInput(t *testing.T) {
 		},
 		{
 			name: "backslash inside string - windows path",
-			// \t and \f are known escapes, so they are not double-escaped
+			// \t is a real Mangle escape and passes through. \p and \f are
+			// not (Mangle rejects \f at lex time), so they are doubled and
+			// parse as literal text.
 			input:    `foo :- bar("C:\path\to\file").`,
-			expected: `foo :- bar("C:\\path\to\file").`,
+			expected: `foo :- bar("C:\\path\to\\file").`,
 		},
 		{
 			name:     "already escaped backslashes inside string",
@@ -57,9 +59,58 @@ func TestNormalizeRuleInput(t *testing.T) {
 			expected: `foo :- bar("C:\\path\\to\\file").`,
 		},
 		{
-			name:     "known escapes inside string",
-			input:    `foo :- bar("hello\n\t\r\b\f\0world").`,
-			expected: `foo :- bar("hello\n\t\r\b\f\0world").`,
+			name:  "known escapes inside string",
+			input: `foo :- bar("hello\n\tworld").`,
+			// Only Mangle's real escapes (\n \t \\ " ' ` \xHH \u{h..})
+			// pass through; the rest are doubled below.
+			expected: `foo :- bar("hello\n\tworld").`,
+		},
+		{
+			name:  "non-mangle escapes are doubled to literal text",
+			input: `foo :- bar("a\rb\fc\0d").`,
+			// \r \b \f \0 are Go escapes, not Mangle escapes: Mangle's
+			// lexer rejects them with "token recognition error" (proven
+			// against mangle-go's parser), so normalize doubles them and the
+			// rule parses with literal backslash text.
+			expected: `foo :- bar("a\\rb\\fc\\0d").`,
+		},
+		{
+			name:     "well-formed hex and unicode escapes pass through",
+			input:    `foo :- bar("A\x41B\u{00e9}C").`,
+			expected: `foo :- bar("A\x41B\u{00e9}C").`,
+		},
+		{
+			name:  "malformed hex escape is doubled",
+			input: `foo :- bar("C:\xerox").`,
+			// \x without two hex digits is not a Mangle escape; doubling
+			// keeps Windows-style paths parseable as literal text.
+			expected: `foo :- bar("C:\\xerox").`,
+		},
+		{
+			name:  "uppercase and out-of-range hex escapes are doubled",
+			input: `foo :- bar("\xE9\xe9").`,
+			// The grammar's HEXDIGIT is lowercase-only, and Unescape rejects
+			// bytes above 0x7F in strings: neither form can survive, so both
+			// become literal text.
+			expected: `foo :- bar("\\xE9\\xe9").`,
+		},
+		{
+			name:  "short unicode escape is doubled",
+			input: `foo :- bar("\u{e9}").`,
+			// The grammar demands 4-6 hex digits in \u{...}; fewer fail the lex.
+			expected: `foo :- bar("\\u{e9}").`,
+		},
+		{
+			name:     "prolog negation inside string is data",
+			input:    `foo :- bar("a\+b").`,
+			expected: `foo :- bar("a\\+b").`,
+		},
+		{
+			name:  "escaped backslash before quote keeps boundary",
+			input: `foo :- bar("a\\"), baz(X).`,
+			// The \\" is an escaped backslash plus the closing quote: the
+			// string ends there and the rest normalizes outside strings.
+			expected: `foo :- bar("a\\"), baz(X).`,
 		},
 		{
 			name:     "unknown escapes inside string",
@@ -104,14 +155,16 @@ func TestNormalizeRuleInput(t *testing.T) {
 }
 
 func TestIsKnownEscape(t *testing.T) {
-	known := []byte{'\\', '"', 'n', 'r', 't', 'b', 'f', '0'}
+	known := []byte{'\\', '"', 'n', 't', '\'', '\n'}
 	for _, b := range known {
 		if !isKnownEscape(b) {
 			t.Errorf("expected isKnownEscape(%q) to be true", b)
 		}
 	}
 
-	unknown := []byte{'a', 'c', 'x', 'y', '1', 'z'}
+	// r b f 0 are Go escapes Mangle's lexer rejects; x and u need shape
+	// validation in copyStringEscape and must never be copied blindly.
+	unknown := []byte{'a', 'c', 'x', 'y', '1', 'z', 'r', 'b', 'f', '0', 'u', 'v', '`'}
 	for _, b := range unknown {
 		if isKnownEscape(b) {
 			t.Errorf("expected isKnownEscape(%q) to be false", b)
