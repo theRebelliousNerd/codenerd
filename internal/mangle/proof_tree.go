@@ -52,6 +52,7 @@ type ProofTreeTracer struct {
 	mu        sync.RWMutex
 	engine    *Engine
 	traces    map[string]*DerivationTrace // Cache of recent traces by query
+	traceOrder []string                   // Insertion order for FIFO eviction
 	maxCache  int                         // Max traces to cache
 	nodeIDSeq int64                       // Sequence for generating node IDs
 	ruleIndex map[string][]RuleSpec       // Index of rules by head predicate
@@ -72,12 +73,16 @@ func NewProofTreeTracer(engine *Engine) *ProofTreeTracer {
 		engine:    engine,
 		traces:    make(map[string]*DerivationTrace),
 		maxCache:  100,
+		traceOrder: make([]string, 0, 100),
 		ruleIndex: make(map[string][]RuleSpec),
 	}
 }
 
 // IndexRules extracts rule structure from the program info for tracing.
 func (t *ProofTreeTracer) IndexRules() {
+	if t == nil || t.engine == nil {
+		return
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -127,7 +132,14 @@ func (t *ProofTreeTracer) IndexRules() {
 }
 
 // TraceQuery executes a query and builds a proof tree.
+//
+// The cache assumes the engine is unchanged between calls: mutate the engine
+// and call ClearCache, or a later identical query will be served the stale
+// derivation. There is no mutation hook from Engine to here by design.
 func (t *ProofTreeTracer) TraceQuery(ctx context.Context, query string) (*DerivationTrace, error) {
+	if t == nil || t.engine == nil {
+		return nil, fmt.Errorf("mangle: TraceQuery on nil tracer or engine")
+	}
 	start := time.Now()
 
 	// Check cache first
@@ -191,11 +203,14 @@ func (t *ProofTreeTracer) TraceQuery(ctx context.Context, query string) (*Deriva
 
 	// Cache the result
 	t.mu.Lock()
-	if len(t.traces) >= t.maxCache {
-		// Evict oldest entry
-		for k := range t.traces {
-			delete(t.traces, k)
-			break
+	if _, seen := t.traces[query]; !seen {
+		t.traceOrder = append(t.traceOrder, query)
+	}
+	for len(t.traces) >= t.maxCache && len(t.traceOrder) > 0 {
+		oldest := t.traceOrder[0]
+		t.traceOrder = t.traceOrder[1:]
+		if oldest != query {
+			delete(t.traces, oldest)
 		}
 	}
 	t.traces[query] = trace
@@ -374,9 +389,13 @@ func (t *ProofTreeTracer) premiseString(node *DerivationNode) string {
 
 // ClearCache clears the trace cache.
 func (t *ProofTreeTracer) ClearCache() {
+	if t == nil {
+		return
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.traces = make(map[string]*DerivationTrace)
+	t.traceOrder = nil
 }
 
 // GetCachedTrace retrieves a cached trace if available.
