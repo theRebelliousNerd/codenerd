@@ -1748,10 +1748,10 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/verification_host_test.go`
 
 ### internal/core/virtual_store.go (1)
-- [ ] `internal/core/virtual_store.go`
+- [x] `internal/core/virtual_store.go`
 
 ### internal/core/virtual_store_actions.go (1)
-- [ ] `internal/core/virtual_store_actions.go`
+- [x] `internal/core/virtual_store_actions.go`
 
 ### internal/core/virtual_store_actions_coverage_test.go (1)
 - [ ] `internal/core/virtual_store_actions_coverage_test.go`
@@ -1772,7 +1772,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/virtual_store_command_guard_test.go`
 
 ### internal/core/virtual_store_constitution.go (1)
-- [ ] `internal/core/virtual_store_constitution.go`
+- [x] `internal/core/virtual_store_constitution.go`
 
 ### internal/core/virtual_store_delegate_codec_test.go (1)
 - [ ] `internal/core/virtual_store_delegate_codec_test.go`
@@ -1832,7 +1832,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/virtual_store_python_test.go`
 
 ### internal/core/virtual_store_routing.go (1)
-- [ ] `internal/core/virtual_store_routing.go`
+- [x] `internal/core/virtual_store_routing.go`
 
 ### internal/core/virtual_store_safety_test.go (1)
 - [ ] `internal/core/virtual_store_safety_test.go`
@@ -1850,7 +1850,10 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/virtual_store_tools.go`
 
 ### internal/core/virtual_store_types.go (1)
-- [ ] `internal/core/virtual_store_types.go`
+- [x] `internal/core/virtual_store_types.go`
+
+### internal/core/virtual_store_uplift_test.go (1)
+- [x] `internal/core/virtual_store_uplift_test.go`
 
 ### internal/core/virtual_store_workflows.go (1)
 - [ ] `internal/core/virtual_store_workflows.go`

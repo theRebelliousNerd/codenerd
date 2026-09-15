@@ -19,6 +19,21 @@ import (
 	toolscore "codenerd/internal/tools/core"
 )
 
+// execLegacy runs cmd on the injected legacy executor. A store built with a
+// nil executor (NewVirtualStore(nil)) fails closed with an infrastructure
+// error instead of panicking on the nil interface -- the same (nil result,
+// non-nil err) shape an executor returns for infrastructure failure, so each
+// caller's existing handling applies unchanged.
+func (v *VirtualStore) execLegacy(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
+	v.mu.RLock()
+	executor := v.executor
+	v.mu.RUnlock()
+	if executor == nil {
+		return nil, fmt.Errorf("no executor: VirtualStore built with nil executor")
+	}
+	return executor.Execute(ctx, cmd)
+}
+
 // Exec executes a command directly, bypassing the ActionRequest routing but maintaining safety checks.
 // It returns stdout, stderr, and error.
 // This is used by the session package to execute tools directly via VirtualStore.
@@ -61,13 +76,16 @@ func (v *VirtualStore) Exec(ctx context.Context, cmd string, env []string) (stri
 	// Choose executor
 	v.mu.RLock()
 	useModern := v.useModernExecutor && v.modernExecutor != nil
-	executor := v.executor
-	if useModern {
-		executor = v.modernExecutor
-	}
+	modern := v.modernExecutor
 	v.mu.RUnlock()
 
-	result, err := executor.Execute(ctx, command)
+	var result *tactile.ExecutionResult
+	var err error
+	if useModern {
+		result, err = modern.Execute(ctx, command)
+	} else {
+		result, err = v.execLegacy(ctx, command)
+	}
 	if err != nil {
 		// Infrastructure error
 		return "", "", err
@@ -155,7 +173,7 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 		},
 	}
 
-	result, err := v.executor.Execute(ctx, cmd)
+	result, err := v.execLegacy(ctx, cmd)
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Shell command failed: %s - %v", binary, err)
 		return ActionResult{
@@ -410,7 +428,7 @@ func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (A
 		},
 	}
 
-	result, err := v.executor.Execute(ctx, cmd)
+	result, err := v.execLegacy(ctx, cmd)
 	var output string
 	var success bool
 	if result != nil {
@@ -460,7 +478,7 @@ func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest
 		},
 	}
 
-	result, err := v.executor.Execute(ctx, cmd)
+	result, err := v.execLegacy(ctx, cmd)
 	var output string
 	var success bool
 	if result != nil {
@@ -526,7 +544,7 @@ func (v *VirtualStore) handleGitOperation(ctx context.Context, req ActionRequest
 		},
 	}
 
-	result, err := v.executor.Execute(ctx, cmd)
+	result, err := v.execLegacy(ctx, cmd)
 	var output string
 	var success bool
 	if result != nil {
