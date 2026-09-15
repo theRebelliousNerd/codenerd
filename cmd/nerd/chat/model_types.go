@@ -312,7 +312,7 @@ type Model struct {
 	campaignProgressChan chan campaign.Progress          // Real-time progress updates from orchestrator
 	campaignEventChan    chan campaign.OrchestratorEvent // Real-time events from orchestrator
 	showCampaignPanel    bool
-	recurse             *recurseState // Non-nil while a /recurse sweep runs
+	recurse              *recurseState // Non-nil while a /recurse sweep runs
 
 	// Continuation Protocol (Multi-Step Task Execution)
 	// Enables natural multi-step task chaining with three modes:

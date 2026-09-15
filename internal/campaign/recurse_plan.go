@@ -314,8 +314,8 @@ func buildRecurseWave(workspace, recurseID string, wave int, cfg RecurseConfig, 
 		ContextBudget:   cfg.ContextBudget,
 		Phases:          make([]Phase, 0, len(nodes)),
 		ContextProfiles: buildContextProfiles(campaignID),
-		RecurseID:   recurseID,
-		RecurseWave: wave,
+		RecurseID:       recurseID,
+		RecurseWave:     wave,
 	}
 
 	phaseIDs := make(map[string]string, len(nodes))

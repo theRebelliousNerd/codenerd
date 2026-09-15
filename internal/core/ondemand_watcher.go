@@ -15,8 +15,8 @@ import (
 // the FactEventBus contract: publish drops events when a subscriber's buffer
 // is full, so a periodic sweep catches anything the event path missed.
 const (
-	onDemandDebounceWindow  = time.Second
-	onDemandFallbackSweep   = 30 * time.Second
+	onDemandDebounceWindow = time.Second
+	onDemandFallbackSweep  = 30 * time.Second
 )
 
 // StartOnDemandWatcher subscribes to the on-demand trigger predicates and

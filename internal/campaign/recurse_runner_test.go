@@ -191,7 +191,9 @@ func TestRecurseRunner_NilGuards(t *testing.T) {
 	}
 	r = &RecurseRunner{
 		MaxWaves: -1,
-		NewWave:  func(ctx context.Context, wave int, prev *Campaign) (*Campaign, error) { return recurseTestWave("x", 1, 0), nil },
+		NewWave: func(ctx context.Context, wave int, prev *Campaign) (*Campaign, error) {
+			return recurseTestWave("x", 1, 0), nil
+		},
 	}
 	if _, err := r.Run(context.Background()); err == nil {
 		t.Fatal("negative waves must fail")

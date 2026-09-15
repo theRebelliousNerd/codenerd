@@ -16,12 +16,12 @@ type onDemandFakeAgent struct {
 func (a *onDemandFakeAgent) Execute(context.Context, string) (string, error) {
 	return "on-demand work", nil
 }
-func (a *onDemandFakeAgent) GetID() string                          { return a.id }
-func (a *onDemandFakeAgent) GetState() types.ShardState             { return types.ShardStateRunning }
-func (a *onDemandFakeAgent) GetConfig() types.ShardConfig           { return a.config }
-func (a *onDemandFakeAgent) Stop() error                            { return nil }
-func (a *onDemandFakeAgent) SetParentKernel(types.Kernel)           {}
-func (a *onDemandFakeAgent) SetLLMClient(types.LLMClient)           {}
+func (a *onDemandFakeAgent) GetID() string                           { return a.id }
+func (a *onDemandFakeAgent) GetState() types.ShardState              { return types.ShardStateRunning }
+func (a *onDemandFakeAgent) GetConfig() types.ShardConfig            { return a.config }
+func (a *onDemandFakeAgent) Stop() error                             { return nil }
+func (a *onDemandFakeAgent) SetParentKernel(types.Kernel)            {}
+func (a *onDemandFakeAgent) SetLLMClient(types.LLMClient)            {}
 func (a *onDemandFakeAgent) SetSessionContext(*types.SessionContext) {}
 
 func activateFact(atom string) types.Fact {
