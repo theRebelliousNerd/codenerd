@@ -89,6 +89,10 @@ var (
 // campaignRetryFailed backs --retry-failed on `nerd campaign resume`.
 var campaignRetryFailed bool
 
+// campaignResumeID backs --campaign on `nerd campaign resume`: resume the
+// campaign whose ID contains this substring instead of the default pick.
+var campaignResumeID string
+
 // rootCmd represents the base command
 var rootCmd = &cobra.Command{
 	Use:   "nerd",
@@ -219,6 +223,7 @@ func init() {
 	campaignStartCmd.Flags().StringArrayVar(&campaignDocs, "docs", nil, "Paths to spec/requirement documents")
 	campaignStartCmd.Flags().StringVar(&campaignType, "type", "feature", "Campaign type (greenfield, feature, audit, migration, remediation)")
 	campaignResumeCmd.Flags().BoolVar(&campaignRetryFailed, "retry-failed", false, "Also resume a failed campaign that has no recorded block reason")
+	campaignResumeCmd.Flags().StringVar(&campaignResumeID, "campaign", "", "Resume the campaign whose ID contains this text (default: newest paused, then active, then blocked)")
 	campaignCmd.AddCommand(
 		campaignStartCmd,
 		campaignStatusCmd,

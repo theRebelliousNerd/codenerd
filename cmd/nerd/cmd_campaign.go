@@ -673,7 +673,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		}
 		return err
 	}
-	sel := selectResumeCampaign(candidates, campaignRetryFailed)
+	sel := selectResumeCampaign(candidates, campaignRetryFailed, campaignResumeID)
 	if sel == nil {
 		fmt.Println("No paused, active, or blocked campaigns found.")
 		return nil
@@ -931,11 +931,14 @@ type resumeCandidate struct {
 // BlockReason is non-empty; else, only when retryFailed is true, the newest
 // StatusFailed campaign regardless of BlockReason; else nil.
 // It is pure (no disk, no Cortex) for testability.
-func selectResumeCampaign(candidates []resumeCandidate, retryFailed bool) *resumeCandidate {
+func selectResumeCampaign(candidates []resumeCandidate, retryFailed bool, idFilter string) *resumeCandidate {
 	var bestPaused, bestActive, bestBlocked, bestFailed *resumeCandidate
 	for i := range candidates {
 		c := &candidates[i]
 		if c.Campaign == nil {
+			continue
+		}
+		if idFilter != "" && !strings.Contains(strings.ToLower(c.Campaign.ID), strings.ToLower(idFilter)) {
 			continue
 		}
 		switch c.Campaign.Status {

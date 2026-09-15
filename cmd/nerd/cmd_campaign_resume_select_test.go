@@ -20,9 +20,9 @@ func resumeSelectFixture(id string, status campaign.CampaignStatus, age time.Dur
 	}
 }
 
-func assertSelectID(t *testing.T, cands []resumeCandidate, retry bool, want string) {
+func assertSelectID(t *testing.T, cands []resumeCandidate, retry bool, filter, want string) {
 	t.Helper()
-	got := selectResumeCampaign(cands, retry)
+	got := selectResumeCampaign(cands, retry, filter)
 	if want == "" && got != nil {
 		t.Fatalf("want nil, got %s", got.Campaign.ID)
 	}
@@ -40,7 +40,7 @@ func TestSelectResumePreference(t *testing.T) {
 		resumeSelectFixture("active", campaign.StatusActive, -2*time.Hour, ""),
 		resumeSelectFixture("paused", campaign.StatusPaused, -1*time.Hour, ""),
 	}
-	assertSelectID(t, cands, false, "paused")
+	assertSelectID(t, cands, false, "", "paused")
 }
 
 func TestSelectResumeActiveBeatsBlocked(t *testing.T) {
@@ -48,7 +48,7 @@ func TestSelectResumeActiveBeatsBlocked(t *testing.T) {
 		resumeSelectFixture("blocked", campaign.StatusFailed, -1*time.Hour, "/all_tasks_blocked"),
 		resumeSelectFixture("active", campaign.StatusActive, -2*time.Hour, ""),
 	}
-	assertSelectID(t, cands, false, "active")
+	assertSelectID(t, cands, false, "", "active")
 }
 
 func TestSelectResumeNewestWins(t *testing.T) {
@@ -56,29 +56,39 @@ func TestSelectResumeNewestWins(t *testing.T) {
 		resumeSelectFixture("p-old", campaign.StatusPaused, -5*time.Hour, ""),
 		resumeSelectFixture("p-new", campaign.StatusPaused, -1*time.Hour, ""),
 	}
-	assertSelectID(t, oldPaused, false, "p-new")
+	assertSelectID(t, oldPaused, false, "", "p-new")
 	oldBlocked := []resumeCandidate{
 		resumeSelectFixture("b-old", campaign.StatusFailed, -5*time.Hour, "/all_tasks_blocked"),
 		resumeSelectFixture("b-new", campaign.StatusFailed, -1*time.Hour, "/other"),
 	}
-	assertSelectID(t, oldBlocked, false, "b-new")
+	assertSelectID(t, oldBlocked, false, "", "b-new")
 }
 
 func TestSelectResumeRetryFailed(t *testing.T) {
 	plain := []resumeCandidate{
 		resumeSelectFixture("plain", campaign.StatusFailed, -1*time.Hour, ""),
 	}
-	assertSelectID(t, plain, false, "")
-	assertSelectID(t, plain, true, "plain")
+	assertSelectID(t, plain, false, "", "")
+	assertSelectID(t, plain, true, "", "plain")
+}
+
+func TestSelectResumeIDFilterBeatsPreference(t *testing.T) {
+	cands := []resumeCandidate{
+		resumeSelectFixture("campaign_aaa", campaign.StatusPaused, -1*time.Hour, ""),
+		resumeSelectFixture("campaign_bbb", campaign.StatusFailed, -3*time.Hour, "/all_tasks_blocked"),
+	}
+	assertSelectID(t, cands, false, "bbb", "campaign_bbb")
+	assertSelectID(t, cands, false, "BBB", "campaign_bbb")
+	assertSelectID(t, cands, false, "zzz", "")
 }
 
 func TestSelectResumeEmpty(t *testing.T) {
-	assertSelectID(t, nil, false, "")
-	assertSelectID(t, nil, true, "")
+	assertSelectID(t, nil, false, "", "")
+	assertSelectID(t, nil, true, "", "")
 	done := []resumeCandidate{
 		resumeSelectFixture("done", campaign.StatusCompleted, -1*time.Hour, ""),
 	}
-	assertSelectID(t, done, true, "")
+	assertSelectID(t, done, true, "", "")
 }
 
 func TestRunCampaignResumeCallsPrepareResume(t *testing.T) {
