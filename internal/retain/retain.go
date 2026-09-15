@@ -216,7 +216,12 @@ func (s *Store) Get(id string) (kind string, payload []byte, err error) {
 		}
 	}
 	if ok {
-		kind, payload = e.kind, e.payload
+		kind = e.kind
+		// Copy: Mint copies on the way in, and Get must copy on the way
+		// out, or a caller that mutates the returned slice silently rots
+		// every future expansion of the same id.
+		payload = make([]byte, len(e.payload))
+		copy(payload, e.payload)
 	}
 	hook := s.onEvict
 	s.mu.Unlock()
