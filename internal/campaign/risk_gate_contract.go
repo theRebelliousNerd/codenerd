@@ -122,7 +122,14 @@ func FormatRiskBlock(err error) (string, bool) {
 	if eval == nil {
 		return "", false
 	}
+	return FormatRiskEvaluation(eval), true
+}
 
+// FormatRiskEvaluation renders a preflight evaluation for a terminal. It is
+// the shared body behind FormatRiskBlock: the CLI formats from the error
+// Run returns, while chat formats from the evaluation the blocked event
+// carries (the event channel has no typed error). eval must be non-nil.
+func FormatRiskEvaluation(eval *RiskGateEvaluation) string {
 	var sb strings.Builder
 	sb.WriteString("Campaign refused before any task ran.\n\n")
 	sb.WriteString(fmt.Sprintf("  Blocked by : %s\n", eval.BlockedBy))
@@ -158,7 +165,7 @@ func FormatRiskBlock(err error) (string, bool) {
 
 	sb.WriteString("\n  Soft findings are advisory and do not stop a campaign; hard findings do.\n")
 	sb.WriteString("  Override with --risk-gate force_allow only when you understand the finding.\n")
-	return sb.String(), true
+	return sb.String()
 }
 
 func truncateForDisplay(s string, limit int) string {

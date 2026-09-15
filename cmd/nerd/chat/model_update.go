@@ -292,9 +292,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case campaignEventMsg:
-		// Handle real-time events from the orchestrator
-		// Events are informational - we can log them or show in UI
-		// Continue listening for more events
+		// Risk-gate events are the campaign's only voice when preflight
+		// refuses to start: no progress will ever publish, so swallowing them
+		// strands the transcript on a run that already ended. Render the
+		// report and, on a hard block, stand the campaign UI down the way
+		// completion does. Anything else stays informational.
+		if text, terminal := renderRiskGateEvent(campaign.OrchestratorEvent(msg)); text != "" {
+			m = m.pushAssistantMsg(text)
+			if terminal {
+				m.isLoading = false
+				m.activeCampaign = nil
+				m.campaignOrch = nil
+				m.campaignProgress = nil
+				m.campaignProgressChan = nil
+				m.campaignEventChan = nil
+				m.showCampaignPanel = false
+			}
+		}
 		if m.campaignEventChan != nil && m.activeCampaign != nil {
 			return m, m.listenCampaignEvents()
 		}

@@ -36,6 +36,16 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// instead of leaving it buried in CategoryCampaign logs.
 	if eval, err := o.runRiskPreflight(ctx); err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Risk gate blocked campaign start: %v", err)
+		// Terminal state: a refusal that leaves the campaign active with no
+		// progress ever published strands every UI on a run that already
+		// ended, and persists a runnable-looking campaign that can only be
+		// refused again. Record it through the same choke point a mid-run
+		// block uses so status, BlockReason, and the snapshot agree.
+		reason := err.Error()
+		if eval != nil && eval.BlockReason != "" {
+			reason = fmt.Sprintf("risk gate %s: %s", eval.BlockedBy, eval.BlockReason)
+		}
+		o.failCampaign(reason)
 		o.emitEvent(EventRiskGateBlocked, "", "", err.Error(), eval)
 		o.mu.Unlock()
 		return err

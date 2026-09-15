@@ -270,6 +270,45 @@ func (m Model) listenCampaignEvents() tea.Cmd {
 	}
 }
 
+// renderRiskGateEvent formats risk-gate orchestrator events for the chat
+// transcript. The text is empty for non-risk events, which stay silent. The
+// second return is true for a hard block, after which no further progress or
+// events will arrive, so the caller stands the campaign UI down instead of
+// re-arming the listener.
+func renderRiskGateEvent(event campaign.OrchestratorEvent) (string, bool) {
+	switch event.Type {
+	case campaign.EventRiskGateBlocked:
+		if eval := riskEvaluationFromEvent(event.Data); eval != nil {
+			return "## Campaign Blocked by Risk Gate\n\n```\n" + campaign.FormatRiskEvaluation(eval) + "```", true
+		}
+		if msg := strings.TrimSpace(event.Message); msg != "" {
+			return "## Campaign Blocked by Risk Gate\n\n" + msg, true
+		}
+		return "## Campaign Blocked by Risk Gate", true
+	case campaign.EventRiskGateAdvisory:
+		if msg := strings.TrimSpace(event.Message); msg != "" {
+			return msg, false
+		}
+		return "", false
+	default:
+		return "", false
+	}
+}
+
+// riskEvaluationFromEvent unwraps the evaluation the orchestrator attaches to
+// a blocked event. Anything else (nil, a foreign payload) yields nil and the
+// caller falls back to the event message.
+func riskEvaluationFromEvent(data any) *campaign.RiskGateEvaluation {
+	switch d := data.(type) {
+	case *campaign.RiskGateEvaluation:
+		return d
+	case campaign.RiskGateEvaluation:
+		return &d
+	default:
+		return nil
+	}
+}
+
 // runLaunchCampaign runs clarifier then auto-starts a campaign using the goal plus clarifier answers (if provided).
 func (m *Model) runLaunchCampaign(goal string) tea.Cmd {
 	return func() tea.Msg {

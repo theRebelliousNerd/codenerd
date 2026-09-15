@@ -2,7 +2,10 @@ package campaign
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -413,5 +416,45 @@ func TestRun_WhenOnlySoftFindings_ShouldStartAndEmitAdvisories(t *testing.T) {
 	seen := drainEventTypes(orch.eventChan)
 	if seen[EventRiskGateAdvisory] == 0 {
 		t.Fatalf("expected %s events so the operator sees the advice; got %v", EventRiskGateAdvisory, seen)
+	}
+}
+
+// A refused start must strand nothing: the campaign is failed with the gate
+// named, the snapshot agrees so resume shows the refusal honestly, and the
+// blocked event is emitted for the UIs. Before this, Run returned the error
+// with the campaign left active and no progress ever published: chat sat on
+// a "running" campaign that had already ended, and the persisted snapshot
+// described a runnable campaign that could only be refused again.
+func TestRun_WhenRiskPreflightHardBlocks_ShouldRecordTerminalFailure(t *testing.T) {
+	kernel := newRiskContractKernel(t)
+	c := riskContractCampaign("/campaign_run_refused", "internal/core/kernel_init.go")
+	orch := riskContractOrchestrator(t, kernel, c)
+	orch.config.EnableRiskAutoWiring = true
+	orch.config.GlobalRiskGate = true
+
+	err := orch.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected the hard block")
+	}
+	if orch.campaign.Status != StatusFailed {
+		t.Fatalf("status = %s, want %s", orch.campaign.Status, StatusFailed)
+	}
+	if !strings.Contains(orch.campaign.BlockReason, "risk gate") {
+		t.Fatalf("BlockReason = %q, want the gate named", orch.campaign.BlockReason)
+	}
+	seen := drainEventTypes(orch.eventChan)
+	if seen[EventRiskGateBlocked] == 0 {
+		t.Fatalf("no %s event for the UIs; got %v", EventRiskGateBlocked, seen)
+	}
+	raw, readErr := os.ReadFile(filepath.Join(orch.workspace, ".nerd", "campaigns", c.ID+".json"))
+	if readErr != nil {
+		t.Fatalf("refused campaign was not persisted: %v", readErr)
+	}
+	var snap Campaign
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatalf("snapshot is not JSON: %v", err)
+	}
+	if snap.Status != StatusFailed || snap.BlockReason == "" {
+		t.Fatalf("snapshot disagrees: status=%s block_reason=%q", snap.Status, snap.BlockReason)
 	}
 }
