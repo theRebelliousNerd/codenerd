@@ -2052,6 +2052,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 ### internal/mangle/engine_uplift_test.go (1)
 - [x] `internal/mangle/engine_uplift_test.go`
 - [x] `internal/mangle/doc600_pin_test.go`
+- [x] `internal/mangle/corpus_gate_test.go`
 
 ### internal/mangle/fact_store_proxy_test.go (1)
 - [ ] `internal/mangle/fact_store_proxy_test.go`
@@ -3459,16 +3460,16 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 
 ## Mangle files (278)
 ### .agent (34)
-- [ ] `.agent/skills/log-analyzer/assets/log-schema.mg`
-- [ ] `.agent/skills/log-analyzer/scripts/logquery/schema.mg`
+- [x] `.agent/skills/log-analyzer/assets/log-schema.mg`
+- [x] `.agent/skills/log-analyzer/scripts/logquery/schema.mg`
 - [x] `.agent/skills/mangle-programming/assets/codenerd-schemas.mg`
 - [x] `.agent/skills/mangle-programming/assets/examples/access-control.mg`
 - [x] `.agent/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
 - [x] `.agent/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
 - [x] `.agent/skills/mangle-programming/assets/starter-policy.mg`
 - [x] `.agent/skills/mangle-programming/assets/starter-schema.mg`
-- [ ] `.agent/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
-- [ ] `.agent/skills/stress-tester/assets/cyclic_rules.mg`
+- [x] `.agent/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
+- [x] `.agent/skills/stress-tester/assets/cyclic_rules.mg`
 - [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg`
 - [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/direct_self_reference.mg`
 - [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/mutual_recursion.mg`
@@ -3492,41 +3493,41 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/types/hallucinated_functions.mg`
 - [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/types/int_vs_float.mg`
 - [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/types/list_in_scalar.mg`
-- [ ] `.agent/skills/stress-tester/assets/stress_queries.mg`
+- [x] `.agent/skills/stress-tester/assets/stress_queries.mg`
 
 ### .agents (9)
-- [ ] `.agents/skills/log-analyzer/assets/log-schema.mg`
-- [ ] `.agents/skills/log-analyzer/scripts/logquery/schema.mg`
+- [x] `.agents/skills/log-analyzer/assets/log-schema.mg`
+- [x] `.agents/skills/log-analyzer/scripts/logquery/schema.mg`
 - [x] `.agents/skills/mangle-programming/assets/codenerd-schemas.mg`
 - [x] `.agents/skills/mangle-programming/assets/examples/access-control.mg`
 - [x] `.agents/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
 - [x] `.agents/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
 - [x] `.agents/skills/mangle-programming/assets/starter-policy.mg`
 - [x] `.agents/skills/mangle-programming/assets/starter-schema.mg`
-- [ ] `.agents/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
+- [x] `.agents/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
 
 ### .claude (9)
-- [ ] `.claude/skills/log-analyzer/assets/log-schema.mg`
-- [ ] `.claude/skills/log-analyzer/scripts/logquery/schema.mg`
+- [x] `.claude/skills/log-analyzer/assets/log-schema.mg`
+- [x] `.claude/skills/log-analyzer/scripts/logquery/schema.mg`
 - [x] `.claude/skills/mangle-programming/assets/codenerd-schemas.mg`
 - [x] `.claude/skills/mangle-programming/assets/examples/access-control.mg`
 - [x] `.claude/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
 - [x] `.claude/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
 - [x] `.claude/skills/mangle-programming/assets/starter-policy.mg`
 - [x] `.claude/skills/mangle-programming/assets/starter-schema.mg`
-- [ ] `.claude/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
+- [x] `.claude/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
 
 ### .codex (34)
-- [ ] `.codex/skills/log-analyzer/assets/log-schema.mg`
-- [ ] `.codex/skills/log-analyzer/scripts/logquery/schema.mg`
+- [x] `.codex/skills/log-analyzer/assets/log-schema.mg`
+- [x] `.codex/skills/log-analyzer/scripts/logquery/schema.mg`
 - [x] `.codex/skills/mangle-programming/assets/codenerd-schemas.mg`
 - [x] `.codex/skills/mangle-programming/assets/examples/access-control.mg`
 - [x] `.codex/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
 - [x] `.codex/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
 - [x] `.codex/skills/mangle-programming/assets/starter-policy.mg`
 - [x] `.codex/skills/mangle-programming/assets/starter-schema.mg`
-- [ ] `.codex/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
-- [ ] `.codex/skills/stress-tester/assets/cyclic_rules.mg`
+- [x] `.codex/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
+- [x] `.codex/skills/stress-tester/assets/cyclic_rules.mg`
 - [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg`
 - [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/direct_self_reference.mg`
 - [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/mutual_recursion.mg`
@@ -3550,12 +3551,12 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/types/hallucinated_functions.mg`
 - [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/types/int_vs_float.mg`
 - [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/types/list_in_scalar.mg`
-- [ ] `.codex/skills/stress-tester/assets/stress_queries.mg`
+- [x] `.codex/skills/stress-tester/assets/stress_queries.mg`
 
 ### .gemini (27)
-- [ ] `.gemini/skills/log-analyzer/assets/log-schema.mg`
-- [ ] `.gemini/skills/log-analyzer/scripts/logquery/schema.mg`
-- [ ] `.gemini/skills/stress-tester/assets/cyclic_rules.mg`
+- [x] `.gemini/skills/log-analyzer/assets/log-schema.mg`
+- [x] `.gemini/skills/log-analyzer/scripts/logquery/schema.mg`
+- [x] `.gemini/skills/stress-tester/assets/cyclic_rules.mg`
 - [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg`
 - [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/direct_self_reference.mg`
 - [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/mutual_recursion.mg`
@@ -3579,7 +3580,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/hallucinated_functions.mg`
 - [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/int_vs_float.mg`
 - [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/list_in_scalar.mg`
-- [ ] `.gemini/skills/stress-tester/assets/stress_queries.mg`
+- [x] `.gemini/skills/stress-tester/assets/stress_queries.mg`
 
 ### .nerd (12)
 - [ ] `.nerd/agents/GofmtExpert/gofmt_windows_line_endings.mg`
@@ -3604,146 +3605,146 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 
 ### internal/context (2)
 - [ ] `internal/context/.nerd/debug/debug_program_ERROR.mg`
-- [ ] `internal/context/working_set.mg`
+- [x] `internal/context/working_set.mg`
 
 ### internal/core/.nerd (1)
 - [ ] `internal/core/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/core/defaults (134)
-- [ ] `internal/core/defaults/benchmarks.mg`
-- [ ] `internal/core/defaults/build_topology.mg`
-- [ ] `internal/core/defaults/campaign_rules.mg`
-- [ ] `internal/core/defaults/chaos.mg`
-- [ ] `internal/core/defaults/doc_taxonomy.mg`
-- [ ] `internal/core/defaults/go_safety.mg`
-- [ ] `internal/core/defaults/inference.mg`
-- [ ] `internal/core/defaults/jit_compiler.mg`
-- [ ] `internal/core/defaults/learned.mg`
-- [ ] `internal/core/defaults/policy/activation.mg`
-- [ ] `internal/core/defaults/policy/autopoiesis.mg`
-- [ ] `internal/core/defaults/policy/bridge.mg`
-- [ ] `internal/core/defaults/policy/browser.mg`
-- [ ] `internal/core/defaults/policy/browser_honeypot.mg`
-- [ ] `internal/core/defaults/policy/campaign_autopoiesis.mg`
-- [ ] `internal/core/defaults/policy/campaign_context.mg`
-- [ ] `internal/core/defaults/policy/campaign_core.mg`
-- [ ] `internal/core/defaults/policy/campaign_phases.mg`
-- [ ] `internal/core/defaults/policy/campaign_planning.mg`
-- [ ] `internal/core/defaults/policy/campaign_tasks.mg`
-- [ ] `internal/core/defaults/policy/capabilities.mg`
-- [ ] `internal/core/defaults/policy/clarification.mg`
-- [ ] `internal/core/defaults/policy/codedom_continuation.mg`
-- [ ] `internal/core/defaults/policy/codedom_core.mg`
-- [ ] `internal/core/defaults/policy/codedom_edit.mg`
-- [ ] `internal/core/defaults/policy/codedom_safety.mg`
-- [ ] `internal/core/defaults/policy/coder_build.mg`
-- [ ] `internal/core/defaults/policy/coder_campaign.mg`
-- [ ] `internal/core/defaults/policy/coder_classification.mg`
-- [ ] `internal/core/defaults/policy/coder_context.mg`
-- [ ] `internal/core/defaults/policy/coder_diagnostics.mg`
-- [ ] `internal/core/defaults/policy/coder_impact.mg`
-- [ ] `internal/core/defaults/policy/coder_language.mg`
-- [ ] `internal/core/defaults/policy/coder_learning.mg`
-- [ ] `internal/core/defaults/policy/coder_observability.mg`
-- [ ] `internal/core/defaults/policy/coder_patterns.mg`
-- [ ] `internal/core/defaults/policy/coder_quality.mg`
-- [ ] `internal/core/defaults/policy/coder_safety.mg`
-- [ ] `internal/core/defaults/policy/coder_tdd.mg`
-- [ ] `internal/core/defaults/policy/coder_workflow.mg`
-- [ ] `internal/core/defaults/policy/commit_gate.mg`
-- [ ] `internal/core/defaults/policy/constitution.mg`
-- [ ] `internal/core/defaults/policy/context_compilation.mg`
-- [ ] `internal/core/defaults/policy/data_flow.mg`
-- [ ] `internal/core/defaults/policy/delegation.mg`
-- [ ] `internal/core/defaults/policy/dreamer.mg`
-- [ ] `internal/core/defaults/policy/git_safety.mg`
-- [ ] `internal/core/defaults/policy/impact.mg`
-- [ ] `internal/core/defaults/policy/intelligence.mg`
-- [ ] `internal/core/defaults/policy/intent_routing_rules.mg`
-- [ ] `internal/core/defaults/policy/jit_config.mg`
-- [ ] `internal/core/defaults/policy/jit_logic.mg`
-- [ ] `internal/core/defaults/policy/jit_selection.mg`
-- [ ] `internal/core/defaults/policy/knowledge.mg`
-- [ ] `internal/core/defaults/policy/learning.mg`
-- [ ] `internal/core/defaults/policy/perception_routing.mg`
-- [ ] `internal/core/defaults/policy/policy_mcp.mg`
-- [ ] `internal/core/defaults/policy/prioritization.mg`
-- [ ] `internal/core/defaults/policy/projectdoc.mg`
-- [ ] `internal/core/defaults/policy/prompt_context.mg`
-- [ ] `internal/core/defaults/policy/prompt_northstar.mg`
-- [ ] `internal/core/defaults/policy/regression_battery.mg`
-- [ ] `internal/core/defaults/policy/routing_arbitration.mg`
-- [ ] `internal/core/defaults/policy/schemas_perception_latency.mg`
-- [ ] `internal/core/defaults/policy/shadow_mode.mg`
-- [ ] `internal/core/defaults/policy/shards.mg`
-- [ ] `internal/core/defaults/policy/stage_context.mg`
-- [ ] `internal/core/defaults/policy/strategy.mg`
-- [ ] `internal/core/defaults/policy/system_autopoiesis.mg`
-- [ ] `internal/core/defaults/policy/system_config.mg`
-- [ ] `internal/core/defaults/policy/system_core.mg`
-- [ ] `internal/core/defaults/policy/system_ooda.mg`
-- [ ] `internal/core/defaults/policy/system_routing.mg`
-- [ ] `internal/core/defaults/policy/system_session.mg`
-- [ ] `internal/core/defaults/policy/system_shards.mg`
-- [ ] `internal/core/defaults/policy/system_world.mg`
-- [ ] `internal/core/defaults/policy/task_stage.mg`
-- [ ] `internal/core/defaults/policy/taxonomy_inference.mg`
-- [ ] `internal/core/defaults/policy/taxonomy_qualifiers.mg`
-- [ ] `internal/core/defaults/policy/tdd_logic.mg`
-- [ ] `internal/core/defaults/policy/tdd_loop.mg`
-- [ ] `internal/core/defaults/policy/test_impact.mg`
-- [ ] `internal/core/defaults/policy/tool_routing.mg`
-- [ ] `internal/core/defaults/policy/trace_logic.mg`
-- [ ] `internal/core/defaults/policy/validation.mg`
-- [ ] `internal/core/defaults/policy/verification.mg`
-- [ ] `internal/core/defaults/reviewer.mg`
-- [ ] `internal/core/defaults/schema/intent_campaign.mg`
-- [ ] `internal/core/defaults/schema/intent_code_mutations.mg`
-- [ ] `internal/core/defaults/schema/intent_code_review.mg`
-- [ ] `internal/core/defaults/schema/intent_conversational.mg`
-- [ ] `internal/core/defaults/schema/intent_index.mg`
-- [ ] `internal/core/defaults/schema/intent_instructions.mg`
-- [ ] `internal/core/defaults/schema/intent_multi_step.mg`
-- [ ] `internal/core/defaults/schema/intent_mutations.mg`
-- [ ] `internal/core/defaults/schema/intent_operations.mg`
-- [ ] `internal/core/defaults/schema/intent_qualifiers.mg`
-- [ ] `internal/core/defaults/schema/intent_queries.mg`
-- [ ] `internal/core/defaults/schema/intent_routing.mg`
-- [ ] `internal/core/defaults/schema/intent_stats.mg`
-- [ ] `internal/core/defaults/schema/intent_system.mg`
-- [ ] `internal/core/defaults/schema/intent_testing.mg`
-- [ ] `internal/core/defaults/schema/prompts.mg`
-- [ ] `internal/core/defaults/schemas.mg`
-- [ ] `internal/core/defaults/schemas_analysis.mg`
-- [ ] `internal/core/defaults/schemas_browser.mg`
-- [ ] `internal/core/defaults/schemas_campaign.mg`
-- [ ] `internal/core/defaults/schemas_codedom.mg`
-- [ ] `internal/core/defaults/schemas_codedom_polyglot.mg`
-- [ ] `internal/core/defaults/schemas_coder.mg`
-- [ ] `internal/core/defaults/schemas_context.mg`
-- [ ] `internal/core/defaults/schemas_dreamer.mg`
-- [ ] `internal/core/defaults/schemas_execution.mg`
-- [ ] `internal/core/defaults/schemas_intelligence.mg`
-- [ ] `internal/core/defaults/schemas_intent.mg`
-- [ ] `internal/core/defaults/schemas_knowledge.mg`
-- [ ] `internal/core/defaults/schemas_learning.mg`
-- [ ] `internal/core/defaults/schemas_mcp.mg`
-- [ ] `internal/core/defaults/schemas_memory.mg`
-- [ ] `internal/core/defaults/schemas_misc.mg`
-- [ ] `internal/core/defaults/schemas_project.mg`
-- [ ] `internal/core/defaults/schemas_projectdoc.mg`
-- [ ] `internal/core/defaults/schemas_prompts.mg`
-- [ ] `internal/core/defaults/schemas_reviewer.mg`
-- [ ] `internal/core/defaults/schemas_safety.mg`
-- [ ] `internal/core/defaults/schemas_shards.mg`
-- [ ] `internal/core/defaults/schemas_state.mg`
-- [ ] `internal/core/defaults/schemas_testing.mg`
-- [ ] `internal/core/defaults/schemas_tools.mg`
-- [ ] `internal/core/defaults/schemas_world.mg`
-- [ ] `internal/core/defaults/selection_policy.mg`
-- [ ] `internal/core/defaults/taxonomy.mg`
-- [ ] `internal/core/defaults/tester.mg`
-- [ ] `internal/core/defaults/topology_planner.mg`
+- [x] `internal/core/defaults/benchmarks.mg`
+- [x] `internal/core/defaults/build_topology.mg`
+- [x] `internal/core/defaults/campaign_rules.mg`
+- [x] `internal/core/defaults/chaos.mg`
+- [x] `internal/core/defaults/doc_taxonomy.mg`
+- [x] `internal/core/defaults/go_safety.mg`
+- [x] `internal/core/defaults/inference.mg`
+- [x] `internal/core/defaults/jit_compiler.mg`
+- [x] `internal/core/defaults/learned.mg`
+- [x] `internal/core/defaults/policy/activation.mg`
+- [x] `internal/core/defaults/policy/autopoiesis.mg`
+- [x] `internal/core/defaults/policy/bridge.mg`
+- [x] `internal/core/defaults/policy/browser.mg`
+- [x] `internal/core/defaults/policy/browser_honeypot.mg`
+- [x] `internal/core/defaults/policy/campaign_autopoiesis.mg`
+- [x] `internal/core/defaults/policy/campaign_context.mg`
+- [x] `internal/core/defaults/policy/campaign_core.mg`
+- [x] `internal/core/defaults/policy/campaign_phases.mg`
+- [x] `internal/core/defaults/policy/campaign_planning.mg`
+- [x] `internal/core/defaults/policy/campaign_tasks.mg`
+- [x] `internal/core/defaults/policy/capabilities.mg`
+- [x] `internal/core/defaults/policy/clarification.mg`
+- [x] `internal/core/defaults/policy/codedom_continuation.mg`
+- [x] `internal/core/defaults/policy/codedom_core.mg`
+- [x] `internal/core/defaults/policy/codedom_edit.mg`
+- [x] `internal/core/defaults/policy/codedom_safety.mg`
+- [x] `internal/core/defaults/policy/coder_build.mg`
+- [x] `internal/core/defaults/policy/coder_campaign.mg`
+- [x] `internal/core/defaults/policy/coder_classification.mg`
+- [x] `internal/core/defaults/policy/coder_context.mg`
+- [x] `internal/core/defaults/policy/coder_diagnostics.mg`
+- [x] `internal/core/defaults/policy/coder_impact.mg`
+- [x] `internal/core/defaults/policy/coder_language.mg`
+- [x] `internal/core/defaults/policy/coder_learning.mg`
+- [x] `internal/core/defaults/policy/coder_observability.mg`
+- [x] `internal/core/defaults/policy/coder_patterns.mg`
+- [x] `internal/core/defaults/policy/coder_quality.mg`
+- [x] `internal/core/defaults/policy/coder_safety.mg`
+- [x] `internal/core/defaults/policy/coder_tdd.mg`
+- [x] `internal/core/defaults/policy/coder_workflow.mg`
+- [x] `internal/core/defaults/policy/commit_gate.mg`
+- [x] `internal/core/defaults/policy/constitution.mg`
+- [x] `internal/core/defaults/policy/context_compilation.mg`
+- [x] `internal/core/defaults/policy/data_flow.mg`
+- [x] `internal/core/defaults/policy/delegation.mg`
+- [x] `internal/core/defaults/policy/dreamer.mg`
+- [x] `internal/core/defaults/policy/git_safety.mg`
+- [x] `internal/core/defaults/policy/impact.mg`
+- [x] `internal/core/defaults/policy/intelligence.mg`
+- [x] `internal/core/defaults/policy/intent_routing_rules.mg`
+- [x] `internal/core/defaults/policy/jit_config.mg`
+- [x] `internal/core/defaults/policy/jit_logic.mg`
+- [x] `internal/core/defaults/policy/jit_selection.mg`
+- [x] `internal/core/defaults/policy/knowledge.mg`
+- [x] `internal/core/defaults/policy/learning.mg`
+- [x] `internal/core/defaults/policy/perception_routing.mg`
+- [x] `internal/core/defaults/policy/policy_mcp.mg`
+- [x] `internal/core/defaults/policy/prioritization.mg`
+- [x] `internal/core/defaults/policy/projectdoc.mg`
+- [x] `internal/core/defaults/policy/prompt_context.mg`
+- [x] `internal/core/defaults/policy/prompt_northstar.mg`
+- [x] `internal/core/defaults/policy/regression_battery.mg`
+- [x] `internal/core/defaults/policy/routing_arbitration.mg`
+- [x] `internal/core/defaults/policy/schemas_perception_latency.mg`
+- [x] `internal/core/defaults/policy/shadow_mode.mg`
+- [x] `internal/core/defaults/policy/shards.mg`
+- [x] `internal/core/defaults/policy/stage_context.mg`
+- [x] `internal/core/defaults/policy/strategy.mg`
+- [x] `internal/core/defaults/policy/system_autopoiesis.mg`
+- [x] `internal/core/defaults/policy/system_config.mg`
+- [x] `internal/core/defaults/policy/system_core.mg`
+- [x] `internal/core/defaults/policy/system_ooda.mg`
+- [x] `internal/core/defaults/policy/system_routing.mg`
+- [x] `internal/core/defaults/policy/system_session.mg`
+- [x] `internal/core/defaults/policy/system_shards.mg`
+- [x] `internal/core/defaults/policy/system_world.mg`
+- [x] `internal/core/defaults/policy/task_stage.mg`
+- [x] `internal/core/defaults/policy/taxonomy_inference.mg`
+- [x] `internal/core/defaults/policy/taxonomy_qualifiers.mg`
+- [x] `internal/core/defaults/policy/tdd_logic.mg`
+- [x] `internal/core/defaults/policy/tdd_loop.mg`
+- [x] `internal/core/defaults/policy/test_impact.mg`
+- [x] `internal/core/defaults/policy/tool_routing.mg`
+- [x] `internal/core/defaults/policy/trace_logic.mg`
+- [x] `internal/core/defaults/policy/validation.mg`
+- [x] `internal/core/defaults/policy/verification.mg`
+- [x] `internal/core/defaults/reviewer.mg`
+- [x] `internal/core/defaults/schema/intent_campaign.mg`
+- [x] `internal/core/defaults/schema/intent_code_mutations.mg`
+- [x] `internal/core/defaults/schema/intent_code_review.mg`
+- [x] `internal/core/defaults/schema/intent_conversational.mg`
+- [x] `internal/core/defaults/schema/intent_index.mg`
+- [x] `internal/core/defaults/schema/intent_instructions.mg`
+- [x] `internal/core/defaults/schema/intent_multi_step.mg`
+- [x] `internal/core/defaults/schema/intent_mutations.mg`
+- [x] `internal/core/defaults/schema/intent_operations.mg`
+- [x] `internal/core/defaults/schema/intent_qualifiers.mg`
+- [x] `internal/core/defaults/schema/intent_queries.mg`
+- [x] `internal/core/defaults/schema/intent_routing.mg`
+- [x] `internal/core/defaults/schema/intent_stats.mg`
+- [x] `internal/core/defaults/schema/intent_system.mg`
+- [x] `internal/core/defaults/schema/intent_testing.mg`
+- [x] `internal/core/defaults/schema/prompts.mg`
+- [x] `internal/core/defaults/schemas.mg`
+- [x] `internal/core/defaults/schemas_analysis.mg`
+- [x] `internal/core/defaults/schemas_browser.mg`
+- [x] `internal/core/defaults/schemas_campaign.mg`
+- [x] `internal/core/defaults/schemas_codedom.mg`
+- [x] `internal/core/defaults/schemas_codedom_polyglot.mg`
+- [x] `internal/core/defaults/schemas_coder.mg`
+- [x] `internal/core/defaults/schemas_context.mg`
+- [x] `internal/core/defaults/schemas_dreamer.mg`
+- [x] `internal/core/defaults/schemas_execution.mg`
+- [x] `internal/core/defaults/schemas_intelligence.mg`
+- [x] `internal/core/defaults/schemas_intent.mg`
+- [x] `internal/core/defaults/schemas_knowledge.mg`
+- [x] `internal/core/defaults/schemas_learning.mg`
+- [x] `internal/core/defaults/schemas_mcp.mg`
+- [x] `internal/core/defaults/schemas_memory.mg`
+- [x] `internal/core/defaults/schemas_misc.mg`
+- [x] `internal/core/defaults/schemas_project.mg`
+- [x] `internal/core/defaults/schemas_projectdoc.mg`
+- [x] `internal/core/defaults/schemas_prompts.mg`
+- [x] `internal/core/defaults/schemas_reviewer.mg`
+- [x] `internal/core/defaults/schemas_safety.mg`
+- [x] `internal/core/defaults/schemas_shards.mg`
+- [x] `internal/core/defaults/schemas_state.mg`
+- [x] `internal/core/defaults/schemas_testing.mg`
+- [x] `internal/core/defaults/schemas_tools.mg`
+- [x] `internal/core/defaults/schemas_world.mg`
+- [x] `internal/core/defaults/selection_policy.mg`
+- [x] `internal/core/defaults/taxonomy.mg`
+- [x] `internal/core/defaults/tester.mg`
+- [x] `internal/core/defaults/topology_planner.mg`
 
 ### internal/init (1)
 - [ ] `internal/init/.nerd/debug/debug_program_ERROR.mg`
