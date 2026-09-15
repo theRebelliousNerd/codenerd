@@ -285,7 +285,8 @@ func (s *SessionPlannerShard) initializeFromTask(ctx context.Context, task strin
 }
 
 // decomposeGoal uses LLM to break down a high-level goal.
-// Uses JIT prompt compilation if available, otherwise falls back to legacy prompts.
+// JIT prompt compilation is required: without it decomposition fails loudly
+// rather than planning from a degraded prompt.
 func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) error {
 	timer := logging.StartTimer(logging.CategorySystemShards, "[SessionPlanner] Goal decomposition")
 	defer timer.Stop()
