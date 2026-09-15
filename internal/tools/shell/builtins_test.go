@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,7 +28,7 @@ func setupTree(t *testing.T) string {
 
 func TestBuiltin_Ls(t *testing.T) {
 	dir := setupTree(t)
-	out, handled := runBuiltinFallback([]string{"ls"}, dir)
+	out, handled := runBuiltinFallback(context.Background(), []string{"ls"}, dir, dir)
 	if !handled {
 		t.Fatal("ls not handled")
 	}
@@ -38,7 +39,7 @@ func TestBuiltin_Ls(t *testing.T) {
 
 func TestBuiltin_Cat(t *testing.T) {
 	dir := setupTree(t)
-	out, handled := runBuiltinFallback([]string{"cat", "beta.txt"}, dir)
+	out, handled := runBuiltinFallback(context.Background(), []string{"cat", "beta.txt"}, dir, dir)
 	if !handled {
 		t.Fatal("cat not handled")
 	}
@@ -49,7 +50,7 @@ func TestBuiltin_Cat(t *testing.T) {
 
 func TestBuiltin_WcLines(t *testing.T) {
 	dir := setupTree(t)
-	out, handled := runBuiltinFallback([]string{"wc", "-l", "beta.txt"}, dir)
+	out, handled := runBuiltinFallback(context.Background(), []string{"wc", "-l", "beta.txt"}, dir, dir)
 	if !handled {
 		t.Fatal("wc not handled")
 	}
@@ -60,11 +61,11 @@ func TestBuiltin_WcLines(t *testing.T) {
 
 func TestBuiltin_HeadTail(t *testing.T) {
 	dir := setupTree(t)
-	head, _ := runBuiltinFallback([]string{"head", "-n", "2", "beta.txt"}, dir)
+	head, _ := runBuiltinFallback(context.Background(), []string{"head", "-n", "2", "beta.txt"}, dir, dir)
 	if head != "one\ntwo" {
 		t.Fatalf("head -n 2 = %q", head)
 	}
-	tail, _ := runBuiltinFallback([]string{"tail", "-n", "1", "beta.txt"}, dir)
+	tail, _ := runBuiltinFallback(context.Background(), []string{"tail", "-n", "1", "beta.txt"}, dir, dir)
 	if tail != "three" {
 		t.Fatalf("tail -n 1 = %q", tail)
 	}
@@ -73,7 +74,7 @@ func TestBuiltin_HeadTail(t *testing.T) {
 func TestBuiltin_GrepRecursive(t *testing.T) {
 	dir := setupTree(t)
 	// rg defaults to recursive with line numbers.
-	out, handled := runBuiltinFallback([]string{"rg", "Foo"}, dir)
+	out, handled := runBuiltinFallback(context.Background(), []string{"rg", "Foo"}, dir, dir)
 	if !handled {
 		t.Fatal("rg not handled")
 	}
@@ -87,7 +88,7 @@ func TestBuiltin_GrepRecursive(t *testing.T) {
 
 func TestBuiltin_GrepIgnoreCase(t *testing.T) {
 	dir := setupTree(t)
-	out, _ := runBuiltinFallback([]string{"grep", "-i", "foo", "alpha.go"}, dir)
+	out, _ := runBuiltinFallback(context.Background(), []string{"grep", "-i", "foo", "alpha.go"}, dir, dir)
 	if !strings.Contains(out, "Foo") {
 		t.Fatalf("grep -i foo should match Foo, got: %q", out)
 	}
@@ -95,7 +96,7 @@ func TestBuiltin_GrepIgnoreCase(t *testing.T) {
 
 func TestBuiltin_GrepFilesOnly(t *testing.T) {
 	dir := setupTree(t)
-	out, _ := runBuiltinFallback([]string{"rg", "-l", "TODO"}, dir)
+	out, _ := runBuiltinFallback(context.Background(), []string{"rg", "-l", "TODO"}, dir, dir)
 	if !strings.Contains(out, "gamma.go") || strings.Contains(out, ":") {
 		t.Fatalf("rg -l should list only the filename, got: %q", out)
 	}
@@ -119,13 +120,13 @@ func TestIsLikelyPowerShell(t *testing.T) {
 }
 
 func TestBuiltin_Unhandled(t *testing.T) {
-	if _, handled := runBuiltinFallback([]string{"somefancytool", "--x"}, ""); handled {
+	if _, handled := runBuiltinFallback(context.Background(), []string{"somefancytool", "--x"}, "", ""); handled {
 		t.Fatal("unknown command must fall through (handled=false)")
 	}
 }
 
 func TestBuiltin_ExeSuffixAndEcho(t *testing.T) {
-	out, handled := runBuiltinFallback([]string{"echo.exe", "hello", "world"}, "")
+	out, handled := runBuiltinFallback(context.Background(), []string{"echo.exe", "hello", "world"}, "", "")
 	if !handled || out != "hello world" {
 		t.Fatalf("echo.exe = %q handled=%v", out, handled)
 	}

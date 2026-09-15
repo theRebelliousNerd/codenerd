@@ -19,7 +19,15 @@
       `campaign.FormatRiskBlock` renders gate-by-gate. Wired into
       `campaignOutcome` (Cobra) and the chat `campaignErrorMsg` branch. Advisory
       findings are emitted as `risk_gate_advisory` events on the channel the UIs
-      already read, and `LastRiskEvaluation()` exposes them after a successful start.*
+      already read, and `LastRiskEvaluation()` exposes them after a successful start.
+      Correction 2026-09-15: the `campaignErrorMsg` branch never fired for `Run`
+      errors (the launch goroutine only logged them) and `Run` left the refused
+      campaign active with no progress, so chat sat on a run that had ended.
+      `Run` now records the refusal through `failCampaign` (status, gate name in
+      `BlockReason`, snapshot), and chat renders blocked/advisory events via
+      `renderRiskGateEvent`, standing down on a hard block. Guards:
+      `TestRun_WhenRiskPreflightHardBlocks_ShouldRecordTerminalFailure`,
+      `TestRenderRiskGateEvent_*`, `TestUpdate_CampaignRisk*`.*
 - [x] Golden tests for `ToFacts` predicate/arity stability  
       *`testdata/tofacts_predicates.golden` pins predicate/arity/argument-kind.
       A second test cross-checks every emitted predicate against its `Decl` in

@@ -3,6 +3,7 @@ package shell
 import (
 	"bufio"
 	"container/list"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"codenerd/internal/tools"
 )
 
 // psVerbs is the set of PowerShell approved-verb prefixes we recognize, used to
@@ -137,7 +140,7 @@ func isAlphaWord(s string) bool {
 // the caller fall through to the normal exec path (which preserves the prior
 // not-found error for genuinely unavailable commands). All builtins are
 // strictly read-only.
-func runBuiltinFallback(argv []string, workingDir string) (string, bool) {
+func runBuiltinFallback(ctx context.Context, argv []string, root, workingDir string) (string, bool) {
 	if len(argv) == 0 {
 		return "", false
 	}
@@ -146,47 +149,60 @@ func runBuiltinFallback(argv []string, workingDir string) (string, bool) {
 	name = strings.TrimSuffix(name, ".exe")
 	args := argv[1:]
 
+	scope := builtinScope{ctx: ctx, root: root, dir: workingDir}
+	if scope.dir == "" {
+		scope.dir = root
+	}
+
 	switch name {
 	case "pwd":
-		return builtinPwd(workingDir), true
+		return builtinPwd(scope.dir), true
 	case "echo":
 		return strings.Join(args, " "), true
 	case "ls", "dir":
-		return builtinLs(args, workingDir), true
+		return builtinLs(args, scope), true
 	case "cat":
-		return builtinCat(args, workingDir), true
+		return builtinCat(args, scope), true
 	case "head":
-		return builtinHeadTail(args, workingDir, true), true
+		return builtinHeadTail(args, scope, true), true
 	case "tail":
-		return builtinHeadTail(args, workingDir, false), true
+		return builtinHeadTail(args, scope, false), true
 	case "wc":
-		return builtinWc(args, workingDir), true
+		return builtinWc(args, scope), true
 	case "grep", "rg", "egrep", "fgrep":
 		// rg defaults to recursive; grep only recurses with -r/-R. We honor an
 		// explicit path and recurse into directories in both cases, which
 		// matches how the model uses them for code search.
-		return builtinGrep(name, args, workingDir), true
+		return builtinGrep(name, args, scope), true
 	default:
 		return "", false
 	}
 }
 
-// resolvePath joins a possibly-relative path against the command working dir so
-// builtins behave like a shell running in that directory.
-func resolvePath(p, workingDir string) string {
+// builtinScope is the filesystem view one builtin invocation may touch: shell
+// semantics for relative operands (they join onto the command working dir)
+// with workspace containment for the result. Every operand passes through the
+// same guard as the file tools, because a read-only builtin that honors
+// absolute paths and ".." is a containment bypass wearing a safe label: the
+// permission gate approved a workspace search, not /etc/passwd.
+type builtinScope struct {
+	ctx  context.Context
+	root string
+	dir  string
+}
+
+// resolve joins a possibly-relative operand against the command working dir
+// (shell semantics) and contains the result to the workspace root: symlinks
+// resolved, escapes rejected. It returns the canonical admitted path.
+func (s builtinScope) resolve(p string) (string, error) {
 	if p == "" {
 		p = "."
 	}
-	if filepath.IsAbs(p) {
-		return filepath.Clean(p)
+	candidate := p
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(s.dir, candidate)
 	}
-	base := workingDir
-	if base == "" {
-		if wd, err := os.Getwd(); err == nil {
-			base = wd
-		}
-	}
-	return filepath.Clean(filepath.Join(base, p))
+	return tools.ResolveWorkspacePath(s.ctx, s.root, candidate)
 }
 
 // splitFlags separates leading -flags from positional operands. Values that
@@ -239,7 +255,7 @@ func builtinPwd(workingDir string) string {
 	return "."
 }
 
-func builtinLs(args []string, workingDir string) string {
+func builtinLs(args []string, scope builtinScope) string {
 	flags, _, operands := splitFlags(args)
 	if len(operands) == 0 {
 		operands = []string{"."}
@@ -248,7 +264,11 @@ func builtinLs(args []string, workingDir string) string {
 	var out strings.Builder
 	multi := len(operands) > 1
 	for idx, target := range operands {
-		full := resolvePath(target, workingDir)
+		full, err := scope.resolve(target)
+		if err != nil {
+			fmt.Fprintf(&out, "ls: cannot access '%s': %v\n", target, err)
+			continue
+		}
 		info, err := os.Stat(full)
 		if err != nil {
 			fmt.Fprintf(&out, "ls: cannot access '%s': %v\n", target, err)
@@ -288,14 +308,19 @@ func builtinLs(args []string, workingDir string) string {
 	return strings.TrimRight(out.String(), "\n")
 }
 
-func builtinCat(args []string, workingDir string) string {
+func builtinCat(args []string, scope builtinScope) string {
 	_, _, operands := splitFlags(args)
 	if len(operands) == 0 {
 		return ""
 	}
 	var out strings.Builder
 	for _, f := range operands {
-		data, err := os.ReadFile(resolvePath(f, workingDir))
+		full, err := scope.resolve(f)
+		if err != nil {
+			fmt.Fprintf(&out, "cat: %s: %v\n", f, err)
+			continue
+		}
+		data, err := os.ReadFile(full)
 		if err != nil {
 			fmt.Fprintf(&out, "cat: %s: %v\n", f, err)
 			continue
@@ -308,7 +333,7 @@ func builtinCat(args []string, workingDir string) string {
 	return strings.TrimRight(out.String(), "\n")
 }
 
-func builtinHeadTail(args []string, workingDir string, head bool) string {
+func builtinHeadTail(args []string, scope builtinScope, head bool) string {
 	flags, flagVals, operands := splitFlags(args)
 	_ = flags
 	n := 10
@@ -322,7 +347,12 @@ func builtinHeadTail(args []string, workingDir string, head bool) string {
 	}
 	var out strings.Builder
 	for _, f := range operands {
-		data, err := os.ReadFile(resolvePath(f, workingDir))
+		full, err := scope.resolve(f)
+		if err != nil {
+			fmt.Fprintf(&out, "%s: %s: %v\n", map[bool]string{true: "head", false: "tail"}[head], f, err)
+			continue
+		}
+		data, err := os.ReadFile(full)
 		if err != nil {
 			fmt.Fprintf(&out, "%s: %s: %v\n", map[bool]string{true: "head", false: "tail"}[head], f, err)
 			continue
@@ -343,7 +373,7 @@ func builtinHeadTail(args []string, workingDir string, head bool) string {
 	return strings.TrimRight(out.String(), "\n")
 }
 
-func builtinWc(args []string, workingDir string) string {
+func builtinWc(args []string, scope builtinScope) string {
 	flags, _, operands := splitFlags(args)
 	onlyLines := flags['l'] && !flags['w'] && !flags['c']
 	onlyWords := flags['w'] && !flags['l'] && !flags['c']
@@ -353,7 +383,12 @@ func builtinWc(args []string, workingDir string) string {
 	}
 	var out strings.Builder
 	for _, f := range operands {
-		data, err := os.ReadFile(resolvePath(f, workingDir))
+		full, err := scope.resolve(f)
+		if err != nil {
+			fmt.Fprintf(&out, "wc: %s: %v\n", f, err)
+			continue
+		}
+		data, err := os.ReadFile(full)
 		if err != nil {
 			fmt.Fprintf(&out, "wc: %s: %v\n", f, err)
 			continue
@@ -379,7 +414,7 @@ func builtinWc(args []string, workingDir string) string {
 }
 
 // builtinGrep implements a read-only grep/rg over files and directories.
-func builtinGrep(name string, args []string, workingDir string) string {
+func builtinGrep(name string, args []string, scope builtinScope) string {
 	flags, flagVals, operands := splitFlags(args)
 	if len(operands) == 0 {
 		return fmt.Sprintf("%s: no pattern given", name)
@@ -421,6 +456,15 @@ func builtinGrep(name string, args []string, workingDir string) string {
 	matches := 0
 	const maxMatches = 2000 // safety bound on output volume
 
+	// Display paths stay relative to the command working dir. The base is
+	// symlink-resolved because every admitted path is canonical; without that,
+	// a working dir reached through a link (e.g. /tmp on macOS) would break
+	// every Rel and print absolute paths.
+	displayBase := scope.dir
+	if resolved, err := filepath.EvalSymlinks(scope.dir); err == nil {
+		displayBase = resolved
+	}
+
 	searchFile := func(path string) {
 		f, err := os.Open(path)
 		if err != nil {
@@ -428,7 +472,7 @@ func builtinGrep(name string, args []string, workingDir string) string {
 		}
 		defer f.Close()
 		rel := path
-		if r, err := filepath.Rel(resolvePath(".", workingDir), path); err == nil {
+		if r, err := filepath.Rel(displayBase, path); err == nil {
 			rel = filepath.ToSlash(r)
 		}
 		scanner := bufio.NewScanner(f)
@@ -462,7 +506,11 @@ func builtinGrep(name string, args []string, workingDir string) string {
 	}
 
 	for _, p := range paths {
-		full := resolvePath(p, workingDir)
+		full, err := scope.resolve(p)
+		if err != nil {
+			fmt.Fprintf(&out, "%s: %s: %v\n", name, p, err)
+			continue
+		}
 		info, err := os.Stat(full)
 		if err != nil {
 			continue
@@ -480,7 +528,13 @@ func builtinGrep(name string, args []string, workingDir string) string {
 					}
 					return nil
 				}
-				searchFile(walkPath)
+				// The walk is lexical: a symlink inside the tree can point
+				// outside it, and opening it would read past containment.
+				// Admit every walked file through the guard; skips stay
+				// silent the way permission errors do.
+				if admitted, err := scope.resolve(walkPath); err == nil {
+					searchFile(admitted)
+				}
 				if matches >= maxMatches {
 					return filepath.SkipAll
 				}

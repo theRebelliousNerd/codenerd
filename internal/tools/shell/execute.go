@@ -265,9 +265,17 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 	// binary is absent, so an installed tool always wins and behavior is
 	// unchanged on systems that have the command.
 	if _, lookErr := execLookPath(parsedArgs[0]); lookErr != nil {
-		if out, handled := runBuiltinFallback(parsedArgs, workingDir); handled {
-			logging.Tools("run_command builtin fallback served: %s", parsedArgs[0])
-			return out, nil
+		// The builtin fallback serves read-only implementations of coreutils;
+		// its operands are contained to the workspace root, not merely joined
+		// onto the working dir, so an absolute path or ".." cannot escape.
+		// Without a root the fallback cannot contain anything, so it stays
+		// silent and the command falls through (working_dir resolution above
+		// already needed the same root, so this is unreachable in practice).
+		if builtinRoot, rootErr := tools.WorkspaceRoot(ctx); rootErr == nil {
+			if out, handled := runBuiltinFallback(ctx, parsedArgs, builtinRoot, workingDir); handled {
+				logging.Tools("run_command builtin fallback served: %s", parsedArgs[0])
+				return out, nil
+			}
 		}
 		// On Windows the model frequently emits PowerShell cmdlets
 		// (Get-ChildItem, Select-String, Measure-Object, ...) which are not
