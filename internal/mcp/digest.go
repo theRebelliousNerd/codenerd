@@ -307,6 +307,12 @@ func halveShapingBudget(b DigestBudget) DigestBudget {
 // return plain text — it is shaped as a single string instead, which is exactly
 // what the string branch of the walker already does correctly.
 func DigestJSON(raw json.RawMessage, view View, budget DigestBudget) Digest {
+	// A zero budget almost certainly means the caller forgot one, and every
+	// axis treats <=0 as unbounded -- so forgetting would pipe an unbounded
+	// payload at the model. Fail safe to the view default instead.
+	if budget == (DigestBudget{}) {
+		budget = BudgetFor(view)
+	}
 	full := len(raw)
 
 	var value any
