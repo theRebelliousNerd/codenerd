@@ -256,10 +256,11 @@ var (
 // SharedSubagents returns the process-wide subagent-return codec.
 //
 // One store, not one per producer. The delegate action mints a handle inside
-// the VirtualStore, the campaign orchestrator mints one in its own package, and
-// the verb that redeems either lives in a third; separate stores would make
-// every published handle unredeemable across that boundary and the agent would
-// spend a turn finding out.
+// the VirtualStore and the verb that redeems it lives in another package;
+// separate stores would make every published handle unredeemable across that
+// boundary and the agent would spend a turn finding out. A campaign-side
+// producer remains future work: no campaign path pastes transcripts into
+// reasoning today (replan context carries truncated metadata only).
 func SharedSubagents() *Subagents {
 	sharedSubagentsOnce.Do(func() {
 		sharedSubagents = NewSubagents(retain.DefaultConfig())
