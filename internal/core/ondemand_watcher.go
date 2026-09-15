@@ -44,6 +44,10 @@ func StartOnDemandWatcher(ctx context.Context, bus *FactEventBus, ensure func(co
 		defer cancel()
 		events := bus.Subscribe(append([]string(nil), coreshards.OnDemandTriggerPredicates...))
 		defer bus.Unsubscribe(events)
+		// Startup sweep: triggers that landed between the boot-time
+		// activate_shard query and this subscription would otherwise wait
+		// for the fallback sweep. One idempotent pass closes the gap.
+		ensure(ctx)
 
 		sweep := time.NewTicker(onDemandFallbackSweep)
 		defer sweep.Stop()

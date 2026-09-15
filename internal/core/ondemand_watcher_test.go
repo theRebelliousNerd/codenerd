@@ -38,13 +38,21 @@ func TestOnDemandWatcherFiresOnTrigger(t *testing.T) {
 	defer stop()
 	waitForSubscription(t, bus)
 
-	bus.Publish("modified")
-
+	// Drain the startup sweep: this test must prove the TRIGGER invokes
+	// ensure, not merely that ensure ran once at startup.
 	deadline := time.Now().Add(5 * time.Second)
 	for calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	before := calls.Load()
+
+	bus.Publish("modified")
+
+	deadline = time.Now().Add(5 * time.Second)
+	for calls.Load() == before && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 	}
-	if calls.Load() == 0 {
+	if calls.Load() == before {
 		t.Fatal("publishing 'modified' never invoked ensure within 5s")
 	}
 }
@@ -65,11 +73,19 @@ func TestOnDemandWatcherIgnoresUnrelatedPredicates(t *testing.T) {
 	defer stop()
 	waitForSubscription(t, bus)
 
+	// Drain the startup sweep so the assertion below measures only what
+	// the unrelated event causes.
+	deadline := time.Now().Add(5 * time.Second)
+	for calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	before := calls.Load()
+
 	bus.Publish("some_unrelated_predicate")
 	time.Sleep(1500 * time.Millisecond)
 
-	if got := calls.Load(); got != 0 {
-		t.Fatalf("unrelated predicate woke the watcher %d times", got)
+	if got := calls.Load(); got != before {
+		t.Fatalf("unrelated predicate woke the watcher (calls %d -> %d)", before, got)
 	}
 }
 
@@ -95,10 +111,37 @@ func TestOnDemandWatcherStopUnsubscribes(t *testing.T) {
 	if n := bus.SubscriberCount(); n != 0 {
 		t.Fatalf("stop must unsubscribe, bus still has %d subscribers", n)
 	}
+	before := calls.Load() // Startup sweep may already have fired; freeze it here.
 	bus.Publish("modified")
 	time.Sleep(1500 * time.Millisecond)
-	if got := calls.Load(); got != 0 {
-		t.Fatalf("stopped watcher still fired %d times", got)
+	if got := calls.Load(); got != before {
+		t.Fatalf("stopped watcher still fired (calls %d -> %d)", before, got)
+	}
+}
+
+// TestOnDemandWatcherStartupSweep proves the watcher runs one ensure pass on
+// start, before any event arrives: triggers that landed between the
+// boot-time activate_shard query and this subscription must not wait for the
+// 30s fallback sweep. No event is published here, so any call within the
+// 5s window (far short of the sweep) can only be the startup pass.
+func TestOnDemandWatcherStartupSweep(t *testing.T) {
+	bus := NewFactEventBus()
+	var calls atomic.Int64
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stop := StartOnDemandWatcher(ctx, bus, func(context.Context) []string {
+		calls.Add(1)
+		return nil
+	})
+	defer stop()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if calls.Load() == 0 {
+		t.Fatal("watcher never ran its startup ensure pass within 5s")
 	}
 }
 
