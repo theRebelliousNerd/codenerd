@@ -177,7 +177,13 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	if entity != "" {
 		loop.focus = normalizeWorkingEntity(entity, e.workspaceForVerification())
 	}
-	args, _ := json.Marshal(call.Input)
+	args, marshalErr := json.Marshal(call.Input)
+	if marshalErr != nil {
+		// The bytes below feed a persisted identity hash, so a marshal
+		// failure must neither collide with a real input nor vanish: fold
+		// the error into the hashed material instead.
+		args = []byte("marshal-error:\x00" + marshalErr.Error())
+	}
 	sum := sha256.Sum256(append([]byte(call.Name+"\x00"), args...))
 	kind := call.Name + "/" + hex.EncodeToString(sum[:8])
 	if toolErr != nil {

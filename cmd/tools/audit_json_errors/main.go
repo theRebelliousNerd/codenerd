@@ -179,11 +179,25 @@ func scan() ([]finding, error) {
 				}
 				var buf bytes.Buffer
 				_ = printer.Fprint(&buf, fset, arg)
+				argSrc := buf.String()
+				// The baseline is one key per line, but the printer preserves
+				// the argument's original line breaks. A multi-line call would
+				// span baseline lines: -update writes fragments the check can
+				// never match back, so update-then-check never converges for
+				// that file. Flatten newlines (and their indentation) here;
+				// single-line arguments pass through byte-identical.
+				if strings.Contains(argSrc, "\n") {
+					lines := strings.Split(argSrc, "\n")
+					for i := range lines {
+						lines[i] = strings.TrimSpace(lines[i])
+					}
+					argSrc = strings.Join(lines, " ")
+				}
 				pos := fset.Position(stmt.Pos())
 				out = append(out, finding{
 					key: fmt.Sprintf("%s\t%s\tjson.%s(%s)",
 						filepath.ToSlash(filepath.Dir(path)),
-						enclosingFunc(file, stmt.Pos()), fn, buf.String()),
+						enclosingFunc(file, stmt.Pos()), fn, argSrc),
 					file: filepath.ToSlash(path),
 					line: pos.Line,
 				})
