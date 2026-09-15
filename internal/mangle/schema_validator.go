@@ -115,6 +115,11 @@ func (sv *SchemaValidator) extractHeadPredicatesFromText(text string) error {
 	return nil
 }
 
+// learnedAtomValidator checks the syntax of model-authored rule heads.
+// It is shared and read-only: ValidateAtom never mutates the maps, so
+// concurrent validation is safe. Do not call UpdateFromProgramInfo on it.
+var learnedAtomValidator = NewAtomValidator()
+
 // ValidateRule checks if a rule only uses declared predicates in its body.
 // Returns error if any undefined predicate is found.
 func (sv *SchemaValidator) ValidateRule(ruleText string) error {
@@ -163,12 +168,27 @@ func (sv *SchemaValidator) ValidateLearnedRule(ruleText string) error {
 	}
 
 	head := sv.extractHeadPredicate(trimmed)
-	isRule := strings.Contains(trimmed, ":-")
+	_, isRule := splitRuleBody(trimmed)
 
 	if head != "" {
 		if reason, forbidden := forbiddenLearnedHeads[head]; forbidden {
 			return fmt.Errorf("learned rule defines protected predicate %q: %s", head, reason)
 		}
+	}
+
+	// Atom-syntax check on whatever the model put in head position. This
+	// runs even when the head regex could not name a predicate (uppercase
+	// head, missing parens): a regex miss must not excuse the text from
+	// validation. Unknown predicates are warnings, not errors - learning
+	// new predicates is legitimate - so only Error/Fatal severities block.
+	// Forbidden heads report as forbidden above, never as malformed here.
+	if ht := headText(trimmed); ht != "" {
+		if verdict := learnedAtomValidator.ValidateAtom(ht); !verdict.Valid {
+			return fmt.Errorf("learned rule head failed atom validation: %s", firstFatalOrError(verdict))
+		}
+	}
+
+	if head != "" {
 
 		// Schema drift check for learned FACTS only (not rules).
 		// A learned fact like undeclared_pred("oops"). asserts data for a predicate with no Decl —
@@ -338,6 +358,43 @@ func splitRuleBody(ruleText string) (body string, isRule bool) {
 		}
 	}
 	return "", false
+}
+
+// headText returns the head of a rule (or the whole fact) for atom
+// validation: everything before the rule separator, outside strings.
+func headText(ruleText string) string {
+	inString, escaped := false, false
+	for i := 0; i+1 < len(ruleText); i++ {
+		c := ruleText[i]
+		if inString {
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if c == '"' {
+			inString = true
+			continue
+		}
+		if c == ':' && ruleText[i+1] == '-' {
+			return strings.TrimSpace(ruleText[:i])
+		}
+	}
+	return strings.TrimSpace(ruleText)
+}
+
+// firstFatalOrError renders the first blocking diagnostic in a verdict.
+func firstFatalOrError(v ValidationResult) string {
+	for _, e := range v.Errors {
+		if e.Severity >= SeverityError {
+			return e.Message
+		}
+	}
+	return "invalid atom"
 }
 
 // ValidateRules validates multiple rules at once.

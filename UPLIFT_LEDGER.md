@@ -2072,7 +2072,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/mangle/feedback/types_test.go`
 
 ### internal/mangle/grammar.go (1)
-- [ ] `internal/mangle/grammar.go`
+- [x] `internal/mangle/grammar.go`
 
 ### internal/mangle/grammar_argtype_test.go (1)
 - [ ] `internal/mangle/grammar_argtype_test.go`
@@ -3773,4 +3773,4 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `test_init/.nerd/mangle/policy_overrides.mg`
 - [ ] `test_init/.nerd/profile.mg`
 
-**Progress: 6/2632**
+**Progress: 7/2632**

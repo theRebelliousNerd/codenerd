@@ -79,6 +79,48 @@ func TestSplitRuleBody(t *testing.T) {
 	}
 }
 
+// Learned rules route their heads through atom validation: malformed heads
+// are rejected, while genuinely new predicates stay learnable.
+func TestLearnedRuleHeadAtomWiring(t *testing.T) {
+	sv := NewSchemaValidator("Decl user_intent(A, B, C, D, E).\nDecl outer(X).\n", "")
+	if err := sv.LoadDeclaredPredicates(); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	bad := []string{
+		`outer(X :- user_intent(A, B, C, D, E).`, // missing close paren
+		`Outer(X) :- user_intent(A, B, C, D, E).`, // uppercase head
+		`outer("unclosed) :- user_intent(A, B, C, D, E).`, // broken string
+	}
+	for _, rule := range bad {
+		if err := sv.ValidateLearnedRule(rule); err == nil {
+			t.Errorf("malformed head accepted: %q", rule)
+		} else if !strings.Contains(err.Error(), "atom validation") {
+			t.Errorf("wrong rejection for %q: %v", rule, err)
+		}
+	}
+	// A new predicate head is learnable (unknown = warning, not error).
+	if err := sv.ValidateLearnedRule(`brand_new_pred(X) :- user_intent(A, B, C, D, E).`); err != nil {
+		t.Errorf("new head predicate rejected: %v", err)
+	}
+}
+
+// A fact carrying ":-" inside a string is a fact, not a rule: the drift
+// check must still apply to it.
+func TestLearnedFactSeparatorInStringIsFact(t *testing.T) {
+	sv := NewSchemaValidator("Decl outer(X).\n", "")
+	if err := sv.LoadDeclaredPredicates(); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	if err := sv.ValidateLearnedRule(`undeclared("a:-b").`); err == nil {
+		t.Fatal("undeclared fact with :- in string accepted (misclassified as rule)")
+	} else if !strings.Contains(err.Error(), "undeclared") {
+		t.Fatalf("wrong rejection: %v", err)
+	}
+	if err := sv.ValidateLearnedRule(`outer("a:-b").`); err != nil {
+		t.Fatalf("declared fact with :- in string rejected: %v", err)
+	}
+}
+
 func TestCountTopLevelArgs(t *testing.T) {
 	cases := map[string]int{
 		``:                 0,
