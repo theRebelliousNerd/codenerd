@@ -23,6 +23,7 @@ cmd/nerd/chat/multistep_corpus.go	enrichPatternsWithKeywords
 cmd/nerd/chat/multistep_corpus.go	enrichPatternsWithVerbPairs
 cmd/nerd/chat/persistence.go	Model.persistActivationScores
 cmd/nerd/chat/persistence.go	Model.persistTurnToKnowledge
+cmd/nerd/chat/persistence.go	truncateForStorage
 cmd/nerd/chat/process_follow_up.go	Model.createAgentFromPrompt
 cmd/nerd/chat/process_sync.go	Model.checkWorkspaceSync
 cmd/nerd/chat/review_aggregator.go	Model.getLocalDB
@@ -534,14 +535,6 @@ internal/shards/matching.go	IsStrategicAdvisor
 internal/shards/registration.go	RegisterSystemShardProfiles
 internal/shards/system/perception.go	buildVerbPatterns
 internal/shards/system/router.go	extractIntentIDFromPayloadString
-internal/sqlpragmas/connector.go	NewConnector
-internal/sqlpragmas/connector.go	OpenWithPragmas
-internal/sqlpragmas/connector.go	applyToDriverConn
-internal/sqlpragmas/connector.go	dsnConnector.Connect
-internal/sqlpragmas/connector.go	dsnConnector.Driver
-internal/sqlpragmas/connector.go	execOnDriverConn
-internal/sqlpragmas/connector.go	pragmaConnector.Connect
-internal/sqlpragmas/connector.go	pragmaConnector.Driver
 internal/sqlpragmas/hostclass.go	ClearHostClass
 internal/sqlpragmas/hostclass.go	HostClass.String
 internal/sqlpragmas/hostclass.go	SetHostClass
@@ -571,7 +564,6 @@ internal/store/local_knowledge.go	KnowledgeStore.StoreAtom
 internal/store/local_knowledge.go	NewKnowledgeStore
 internal/store/reflection_worker.go	applyRecencyWeight
 internal/store/tool_cleanup.go	DefaultCleanupConfig
-internal/system/agent_definition.go	AgentPromptsPath
 internal/system/factory.go	ResetCortexForWorkspace
 internal/system/factory.go	ResetGlobalCortex
 internal/tactile/audit.go	AuditedExecutorWrapper.Capabilities

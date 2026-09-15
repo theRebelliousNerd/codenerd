@@ -13,8 +13,10 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/tactile"
+	toolscore "codenerd/internal/tools/core"
 )
 
 // Exec executes a command directly, bypassing the ActionRequest routing but maintaining safety checks.
@@ -866,13 +868,41 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 	}
 
 	logging.VirtualStore("Shard delegation completed: type=%s, result_len=%d", shardType, len(result))
+	output, metadata := encodeDelegationReturn(shardType, task, result)
 	return ActionResult{
-		Success: true,
-		Output:  result,
+		Success:  true,
+		Output:   output,
+		Metadata: metadata,
 		FactsToAdd: []Fact{
 			{Predicate: "delegation_result", Args: []any{shardType, result}},
 		},
 	}, nil
+}
+
+// encodeDelegationReturn is the delegate action's mint site for the
+// subagent-return codec (internal/observation/subagent.go): large delegation
+// transcripts are retained under a handle the parent can redeem with
+// subagent_expand instead of pasted whole into the parent's reasoning.
+//
+// The shaping rule preserves the historical contract exactly: returns small
+// enough to carry verbatim (below the codec's own retention threshold) come
+// back byte-identical, and a retention failure also falls back to the raw
+// result — a projection the parent cannot expand must never destroy the only
+// copy of the content. Only a successfully retained transcript is replaced
+// by its projection, and the raw result still travels untouched in the
+// delegation_result fact.
+func encodeDelegationReturn(shardType, task, result string) (string, map[string]any) {
+	encoded := observation.SharedSubagents().EncodeReturn(observation.Return{
+		Agent:  shardType,
+		Task:   task,
+		Output: result,
+	}, observation.DefaultReturnLimits())
+	if encoded.Handle == "" {
+		return result, nil
+	}
+	return encoded.Text(toolscore.SubagentExpandToolName), map[string]any{
+		"subagent_handle": encoded.Handle,
+	}
 }
 
 func (v *VirtualStore) handleDelegateAlias(ctx context.Context, req ActionRequest, shardType string) (ActionResult, error) {
