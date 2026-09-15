@@ -37,7 +37,7 @@ func (m Model) handleCmdYolo(input string, parts []string) (tea.Model, tea.Cmd) 
 	}
 	m = m.setYolo(on)
 	if on {
-		return m.pushYoloNote("Yolo mode ON: I will decide everything I can without asking. Safety denials still apply — this resolves choices, never verdicts."), nil
+		return m.pushYoloNote("Yolo mode ON: no clarification round-trips, learning auto-consent, unbounded /recurse allowed. Safety denials, error notices, and loop stalls still surface — this resolves choices, never verdicts."), nil
 	}
 	return m.pushYoloNote("Yolo mode OFF: back to asking."), nil
 }
@@ -92,7 +92,7 @@ func (m Model) pushYoloNote(content string) Model {
 
 func yoloStatusText(on bool) string {
 	if on {
-		return "Yolo mode is ON: deciding without asking (safety denials still apply)."
+		return "Yolo mode is ON: no clarification round-trips, learning auto-consent, unbounded /recurse allowed (safety denials, error notices, and stalls still apply)."
 	}
 	return "Yolo mode is OFF."
 }
