@@ -120,7 +120,7 @@ func (v *VirtualStore) RouteActionResult(ctx context.Context, action Fact) (Acti
 		logging.Get(logging.CategoryVirtualStore).Warn(
 			"policy DENY action=%s target=%s payload_keys=%v",
 			req.Type, req.Target, payloadKeys)
-		err := fmt.Errorf("action %s not permitted by kernel policy", req.Type)
+		err := fmt.Errorf("action %s on %q not permitted by kernel policy: no permitted/3 fact (payload_keys=%v). Check the target (must address a file, not a directory) and that the active intent authorizes this action", req.Type, req.Target, payloadKeys)
 		logging.Audit().SafetyCheck(string(req.Type)+" "+req.Target, false,
 			fmt.Sprintf("kernel policy derived no permitted/3 fact (payload_keys=%v)", payloadKeys))
 		v.injectFact(newSecurityViolationFact(req, err.Error()))

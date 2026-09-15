@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/build"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/session"
@@ -118,12 +119,20 @@ func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (bool, strin
 		// Try to request JSON where supported (e.g., jest). This is best-effort.
 		testCmdStr = testCmdStr + " -- --json --outputFile=.nerd/npm-test.json"
 	}
+	// Workspace build tags: without them the gate judges a different build
+	// than dev/CI in tag-gated trees. No-op elsewhere.
+	if tags := build.TestTagsForWorkspace(cr.workspace); len(tags) > 0 && strings.HasPrefix(testCmdStr, "go test") {
+		testCmdStr = "go test " + strings.Join(tags, " ") + strings.TrimPrefix(testCmdStr, "go test")
+	}
 	parts := strings.Fields(testCmdStr)
 
 	cmd := tactile.Command{
 		Binary:           parts[0],
 		Arguments:        parts[1:],
 		WorkingDirectory: cr.workspace,
+		// Build env carries the CGO flags the tagged build needs; without
+		// them the tag above would turn the gate red on missing headers.
+		Environment: build.GetBuildEnv(nil, cr.workspace),
 		Limits: &tactile.ResourceLimits{
 			TimeoutMs: 600 * 1000, // 10 minutes
 		},

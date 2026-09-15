@@ -12,11 +12,13 @@ import (
 	"time"
 	"unicode"
 
+	"codenerd/internal/build"
 	"codenerd/internal/core"
 	"codenerd/internal/evidence"
 	"codenerd/internal/logging"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
+	"codenerd/internal/testoutput"
 	internaltypes "codenerd/internal/types"
 	"crypto/sha256"
 )
@@ -650,7 +652,10 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 	if err != nil {
 		return nil, err
 	}
-	command := "go test -count=1 " + target
+	// Workspace build tags: a tagless run in codeNERD's own tree tests a
+	// different build (sqlite-vec files excluded). No-op elsewhere.
+	cmdParts := append([]string{"go", "test", "-count=1"}, build.TestTagsForWorkspace(o.workspace)...)
+	command := strings.Join(append(cmdParts, target), " ")
 	actionID := "campaign-check-" + task.ID
 	pending := core.Fact{Predicate: "pending_action", Args: []any{actionID, core.MangleAtom("/run_tests"), command, `{"timeout":900}`, time.Now().Unix()}}
 	if err := o.kernel.Assert(pending); err != nil {
@@ -665,7 +670,7 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 		return nil, err
 	}
 	if !result.Success {
-		return nil, fmt.Errorf("test execution failed: %s\n%s", result.Error, result.Output)
+		return nil, fmt.Errorf("test execution failed: %s", testFailureSummary(target, result.Error, result.Output))
 	}
 	after, err := evidence.Snapshot(ctx, o.workspace)
 	if err != nil {
@@ -679,6 +684,80 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 	task.TestWitness = witness
 	o.mu.Unlock()
 	return map[string]any{"target": target, "passed": true, "output": result.Output, "witness": witness, "witness_source": "virtual_store/run_tests"}, nil
+}
+
+// testFailureSummary leads a failed run's error with the parsed failure list
+// instead of the raw log. Downstream only the head of this error survives —
+// the repro task carries 220 chars of "last error" — so a summary that opens
+// with "exit status 1" followed by megabytes of log tells the agent the suite
+// is red without ever saying which tests broke. Counts and names first, raw
+// output (capped) after.
+func testFailureSummary(target, runErr, output string) string {
+	var sb strings.Builder
+	counts := testoutput.Parse(output)
+	if counts.Parsed && counts.Failed > 0 {
+		// Named failures are authoritative: the generic line matcher also
+		// counts package summary lines ("FAIL\tpkg"), so the raw count can
+		// exceed the number of tests that actually broke.
+		failed := counts.Failed
+		names := counts.FailedNames
+		if len(names) > 0 {
+			failed = len(names)
+		}
+		fmt.Fprintf(&sb, "%d failed / %d passed in %s", failed, counts.Passed, target)
+		const maxNames = 8
+		shown := names
+		if len(shown) > maxNames {
+			shown = shown[:maxNames]
+		}
+		if len(shown) > 0 {
+			fmt.Fprintf(&sb, ": %s", strings.Join(shown, ", "))
+		}
+		if len(names) > len(shown) {
+			fmt.Fprintf(&sb, " (+%d more)", len(names)-len(shown))
+		}
+		if first := firstFailureDetail(output); first != "" {
+			fmt.Fprintf(&sb, ". First: %s", first)
+		}
+	} else {
+		fmt.Fprintf(&sb, "%s (output did not parse as test results)", runErr)
+	}
+	const maxRaw = 4000
+	raw := strings.TrimSpace(output)
+	if len(raw) > maxRaw {
+		raw = raw[:maxRaw] + "\n... (raw output truncated)"
+	}
+	if raw != "" {
+		sb.WriteString("\n" + raw)
+	}
+	return sb.String()
+}
+
+// firstFailureDetail returns the first assertion line of the first failing
+// test. Verbose go output prints a test's log lines BEFORE its `--- FAIL:`
+// marker, so it searches backward from the marker for the nearest
+// `_test.go:NN: message` line.
+func firstFailureDetail(output string) string {
+	lines := strings.Split(output, "\n")
+	for i, line := range lines {
+		if !strings.Contains(line, "--- FAIL:") {
+			continue
+		}
+		for j := i - 1; j >= 0 && j >= i-10; j-- {
+			trimmed := strings.TrimSpace(lines[j])
+			if strings.Contains(trimmed, "_test.go:") {
+				if len(trimmed) > 200 {
+					trimmed = trimmed[:200] + "..."
+				}
+				return trimmed
+			}
+			if strings.HasPrefix(trimmed, "=== RUN") || strings.HasPrefix(trimmed, "--- ") {
+				break
+			}
+		}
+		return strings.TrimSpace(line)
+	}
+	return ""
 }
 
 // executeVerifyTask runs verification (build, lint, etc.).

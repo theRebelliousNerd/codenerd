@@ -108,6 +108,18 @@ checkpoints, shard build/test verification) sees `CGO_CFLAGS`/`GOFLAGS`/
 only allowlisted parent variables and the `/tests_pass` checkpoint reported
 37 package build failures on `sqlite3.h` (campaign 5a2f4c8d, 2026-09-04).
 
+## 4d. Live integration: campaign test commands
+
+**Files:** `internal/campaign/orchestrator_task_handlers.go` (`executeTestRunTask`),
+`internal/campaign/checkpoint.go` (`runTestsCheckpoint`)
+
+Both route their `go test` argv through `TestTagsForWorkspace`, which appends
+`-tags sqlite_vec` in codeNERD's own tree (detected via go.mod module plus
+`sqlite_headers/sqlite3.h`) and is a no-op elsewhere. The checkpoint also sets
+its tactile command Environment from `GetBuildEnv` so the tagged CGO build has
+its headers. Before this, campaign test runs and phase gates judged a tagless
+build while dev and CI tested the sqlite_vec one.
+
 ---
 
 ## 5. Config wiring (latent)
