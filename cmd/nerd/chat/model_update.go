@@ -630,6 +630,12 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 
 	case knowledgeGatheredMsg:
 		return m.handleKnowledgeGatheredMsg(msg)
+
+	case sessionStatePersistedMsg:
+		// Documented no-op: async persistence finished off-loop and nothing
+		// in the UI depends on the result. The explicit case keeps the
+		// completion signal visible instead of falling through silently.
+		return m, nil
 	}
 
 	m.viewport, vpCmd = m.viewport.Update(msg)

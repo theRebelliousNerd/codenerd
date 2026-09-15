@@ -142,3 +142,23 @@ func TestSaveSessionStateCmd_HistorySnapshotIsolated(t *testing.T) {
 		t.Fatal("Cmd did not complete after concurrent history mutation")
 	}
 }
+
+func TestUpdate_SessionStatePersistedIsNoop(t *testing.T) {
+	m := NewTestModel()
+	m = m.addMessage(Message{Role: "user", Content: "hello"})
+	before := len(m.history)
+
+	updated, cmd := m.Update(sessionStatePersistedMsg{})
+	result, ok := updated.(Model)
+	if !ok {
+		t.Fatalf("Update returned %T, want Model", updated)
+	}
+	if len(result.history) != before {
+		t.Fatalf("persisted signal must not touch history: %d -> %d", before, len(result.history))
+	}
+	if cmd != nil {
+		if msg := cmd(); msg != nil {
+			t.Fatalf("persisted signal must not chain commands, got %T", msg)
+		}
+	}
+}
