@@ -23,3 +23,17 @@ violation(Line) :-
 # Rule 3: Prohibit panic for generated code; force error returns instead.
 violation(Func) :-
     ast_call(Func, /panic).
+
+# Rule 4: Prohibit process-exiting calls. `log` is allowlisted, so log.Fatal
+# would otherwise let generated code kill the host. os.Exit/syscall.Exit are
+# defense in depth for configs that admit os/syscall.
+violation(Func) :-
+    ast_call(Func, "log.Fatal").
+violation(Func) :-
+    ast_call(Func, "log.Fatalf").
+violation(Func) :-
+    ast_call(Func, "log.Fatalln").
+violation(Func) :-
+    ast_call(Func, "os.Exit").
+violation(Func) :-
+    ast_call(Func, "syscall.Exit").
