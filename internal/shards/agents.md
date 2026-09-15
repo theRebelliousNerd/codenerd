@@ -18,3 +18,13 @@
 - Integration witnesses bind input/output arity, a loaded dependency path, and
   an executed witness at the current snapshot. Structural reachability alone
   does not establish behavioral acceptance.
+- On-demand system shards activate at runtime, not just at boot: the kernel
+  derives `activate_shard/1`, `core.StartOnDemandWatcher` subscribes to the
+  trigger predicates on the fact event bus, and
+  `ShardManager.EnsureOnDemandShards` spawns derived profiles that are not
+  already active. Keep `OnDemandTriggerPredicates` mirroring the rule bodies
+  in `internal/core/defaults/policy/system_shards.mg`.
+- System-shard `Execute` receives lifecycle labels (`system_start`,
+  `on_demand_activation`) as its task when started by the manager. Treat a
+  task as a path or goal only when it names a real one; a label must never
+  clobber configured roots or trigger goal decomposition.
