@@ -183,7 +183,9 @@ func runInitWithLLMConfigurer(cmd *cobra.Command, args []string, configureLLM fu
 	}
 	config.TypeUAgents = typeUAgents
 
-	if noInteractiveInit {
+	// Yolo mode never asks questions: it implies --no-interactive, so init
+	// takes defaults for every choice the wizard would offer.
+	if noInteractiveInit || yoloMode {
 		config.Interactive = false
 	}
 

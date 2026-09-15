@@ -3,9 +3,29 @@ package northstar
 import (
 	"fmt"
 	"path/filepath"
+	"reflect"
 
 	"codenerd/internal/logging"
 )
+
+// IsNil reports whether v is unusable as a dependency: a plain nil interface
+// or a typed nil (a non-nil interface holding a nil pointer, map, slice,
+// channel, func, or nested interface). Typed nils pass `!= nil` checks and
+// then panic on first use; they are exactly what a struct field like
+// `kernel *core.RealKernel` becomes when passed as an interface before it is
+// ever assigned.
+func IsNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+		return rv.IsNil()
+	default:
+		return false
+	}
+}
 
 // BuildCampaignObserver constructs the vision-guardian observer the campaign
 // risk gate requires for protected surfaces.
@@ -34,17 +54,17 @@ func BuildCampaignObserver(cwd string, llmClient LLMClient, kern KernelClient) *
 		return nil
 	}
 
-	if llmClient != nil {
+	if !IsNil(llmClient) {
 		guardian.SetLLMClient(llmClient)
 	}
-	if kern != nil {
+	if !IsNil(kern) {
 		guardian.SetParentKernel(kern)
 	}
 	// A guardian without a querier is exactly the inert observer this
 	// function's doc comment warns about for module northstars -- it would
 	// satisfy the risk gate while checking alignment against the project
 	// vision alone and silently ignoring every module's declared purpose.
-	if q, ok := kern.(FactQuerier); ok {
+	if q, ok := kern.(FactQuerier); ok && !IsNil(q) {
 		guardian.SetQuerier(q)
 	}
 	if err := guardian.Initialize(); err != nil {

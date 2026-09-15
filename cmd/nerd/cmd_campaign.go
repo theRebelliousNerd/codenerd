@@ -432,13 +432,24 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 
-	// Display plan summary
-	fmt.Printf("\n📊 Campaign Plan: %s\n", result.Campaign.Title)
-	fmt.Printf("   Confidence: %.0f%%\n", result.Campaign.Confidence*100)
-	fmt.Printf("   Phases: %d\n", result.Campaign.TotalPhases)
-	fmt.Printf("   Tasks: %d\n\n", result.Campaign.TotalTasks)
+	startCampaignEventPrinter(eventChan)
 
-	for i, phase := range result.Campaign.Phases {
+	return executeCampaignPlan(ctx, cmd, orchCfg, campaignPromptProvider, result.Campaign)
+}
+
+// executeCampaignPlan runs one fully-planned campaign: summary, orchestrator
+// construction, Run, and outcome translation. runCampaignStart calls it once;
+// runCampaignRecurse calls it per wave, so every wave gets the identical boot
+// and outcome handling. Event printing is the caller's job: one printer serves
+// a whole command over a shared channel, since waves run sequentially.
+func executeCampaignPlan(ctx context.Context, cmd *cobra.Command, orchCfg campaign.OrchestratorConfig, promptProvider campaign.PromptProvider, camp *campaign.Campaign) error {
+	// Display plan summary
+	fmt.Printf("\n📊 Campaign Plan: %s\n", camp.Title)
+	fmt.Printf("   Confidence: %.0f%%\n", camp.Confidence*100)
+	fmt.Printf("   Phases: %d\n", camp.TotalPhases)
+	fmt.Printf("   Tasks: %d\n\n", camp.TotalTasks)
+
+	for i, phase := range camp.Phases {
 		fmt.Printf("Phase %d: %s (%d tasks)\n", i+1, phase.Name, len(phase.Tasks))
 		for j, task := range phase.Tasks {
 			status := "⏳"
@@ -450,42 +461,17 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize campaign orchestrator: %w", err)
 	}
-	if campaignPromptProvider != nil {
-		orchestrator.SetPromptProvider(campaignPromptProvider)
+	if promptProvider != nil {
+		orchestrator.SetPromptProvider(promptProvider)
 	}
 
-	if err := orchestrator.SetCampaign(result.Campaign); err != nil {
+	if err := orchestrator.SetCampaign(camp); err != nil {
 		return fmt.Errorf("failed to set campaign: %w", err)
 	}
 
 	fmt.Println("\n🚀 Starting campaign execution...")
 	fmt.Println("   Press Ctrl+C to pause")
 
-	// Start event listener
-	go func() {
-		for event := range eventChan {
-			switch event.Type {
-			case "task_started":
-				fmt.Printf("🔄 %s\n", event.Message)
-			case "task_completed":
-				fmt.Printf("✅ %s\n", event.Message)
-			case "task_failed":
-				fmt.Printf("❌ %s\n", event.Message)
-			case "phase_started":
-				fmt.Printf("\n📦 Phase: %s\n", event.Message)
-			case "phase_completed":
-				fmt.Printf("🎉 Phase completed: %s\n", event.Message)
-			case "campaign_completed":
-				fmt.Printf("\n🏆 %s\n", event.Message)
-			case "replan_triggered":
-				fmt.Printf("🔄 Replanning: %s\n", event.Message)
-			case "snapshot_write_failed":
-				// The campaign is running from memory only. Silence here is how
-				// an operator ends up believing finished phases were saved.
-				fmt.Printf("⚠️  Campaign snapshot NOT written — progress is not on disk: %s\n", event.Message)
-			}
-		}
-	}()
 
 	// Run campaign
 	if err := orchestrator.Run(ctx); err != nil {
@@ -504,6 +490,38 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("\n✨ Campaign completed successfully!")
 	return nil
+}
+
+
+
+// startCampaignEventPrinter streams orchestrator events to stdout until the
+// channel closes. One printer serves a whole command; recurse waves share the
+// channel and the printer, since waves run sequentially.
+func startCampaignEventPrinter(eventChan chan campaign.OrchestratorEvent) {
+	go func() {
+		for event := range eventChan {
+			switch event.Type {
+			case "task_started":
+				fmt.Printf("\U0001F504 %s\n", event.Message)
+			case "task_completed":
+				fmt.Printf("\u2705 %s\n", event.Message)
+			case "task_failed":
+				fmt.Printf("\u274C %s\n", event.Message)
+			case "phase_started":
+				fmt.Printf("\n\U0001F4E6 Phase: %s\n", event.Message)
+			case "phase_completed":
+				fmt.Printf("\U0001F389 Phase completed: %s\n", event.Message)
+			case "campaign_completed":
+				fmt.Printf("\n\U0001F3C6 %s\n", event.Message)
+			case "replan_triggered":
+				fmt.Printf("\U0001F504 Replanning: %s\n", event.Message)
+			case "snapshot_write_failed":
+				// The campaign is running from memory only. Silence here is how
+				// an operator ends up believing finished phases were saved.
+				fmt.Printf("\u26A0\uFE0F  Campaign snapshot NOT written \u2014 progress is not on disk: %s\n", event.Message)
+			}
+		}
+	}()
 }
 
 // runCampaignStatus shows current campaign status

@@ -611,7 +611,7 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 	if len(parts) < 2 {
 		m = m.addMessage(Message{
 			Role:    "assistant",
-			Content: "Usage: `/campaign <start|assault|status|pause|resume|list> [args]`",
+			Content: "Usage: `/campaign <start|assault|recurse|status|pause|resume|list> [args]`",
 			Time:    time.Now(),
 		})
 	} else {
@@ -648,6 +648,17 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 			m.textarea.Reset()
 			m.isLoading = true
 			return m, tea.Batch(m.spinner.Tick, m.startAssaultCampaign(parts[2:]))
+		case "recurse":
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: "Starting self-improvement sweep over the subsystem DAG...",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			m.isLoading = true
+			return m, tea.Batch(m.spinner.Tick, m.startRecurseCampaign(parts[2:]))
 		case "status":
 			content := m.renderCampaignStatus()
 			m = m.addMessage(Message{
@@ -658,9 +669,14 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 		case "pause":
 			if m.activeCampaign != nil {
 				m.activeCampaign.Status = campaign.StatusPaused
+				content := "Campaign paused."
+				if m.recurse != nil {
+					m.recurse.held = true
+					content = "Campaign paused. The recurse sweep holds between waves."
+				}
 				m = m.addMessage(Message{
 					Role:    "assistant",
-					Content: "Campaign paused.",
+					Content: content,
 					Time:    time.Now(),
 				})
 			} else {
@@ -671,6 +687,22 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 				})
 			}
 		case "resume":
+			if m.recurse != nil && m.recurse.held && m.recurse.lastWave != nil {
+				m.recurse.held = false
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: "Resuming recurse sweep with the next wave...",
+					Time:    time.Now(),
+				})
+				m.viewport.SetContent(m.renderHistory())
+				m.viewport.GotoBottom()
+				m.textarea.Reset()
+				m.isLoading = true
+				st := m.recurse
+				prev := st.lastWave
+				m, nextCmd := m.startNextRecurseWave(st, prev, fmt.Sprintf("Recurse wave %d finished.", prev.RecurseWave))
+				return m, tea.Batch(m.spinner.Tick, nextCmd)
+			}
 			if m.activeCampaign != nil && m.activeCampaign.Status == campaign.StatusPaused {
 				m = m.addMessage(Message{
 					Role:    "assistant",

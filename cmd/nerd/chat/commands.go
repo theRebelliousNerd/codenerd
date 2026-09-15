@@ -220,6 +220,10 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 
 	case "/campaign":
 		return m.handleCampaignCommand(input, parts)
+	case "/recurse":
+		return m.handleCampaignCommand(input, append([]string{"/campaign", "recurse"}, parts[1:]...))
+	case "/yolo":
+		return m.handleCmdYolo(input, parts)
 	case "/tool":
 		return m.handleToolCommand(input, parts)
 	case "/jit":

@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"time"
 )
@@ -93,27 +92,18 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 // CampaignRunnerShard.TaskExecutor() returns when a concrete pointer field was
 // never assigned.
 func isNilTaskExecutor(te session.TaskExecutor) bool {
-	if te == nil {
-		return true
-	}
-	v := reflect.ValueOf(te)
-	switch v.Kind() {
-	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
-		return v.IsNil()
-	default:
-		return false
-	}
+	return northstar.IsNil(te)
 }
 
 func validateOrchestratorConfig(cfg OrchestratorConfig) error {
 	var missing []string
-	if cfg.Kernel == nil {
+	if northstar.IsNil(cfg.Kernel) {
 		missing = append(missing, "kernel")
 	}
-	if cfg.LLMClient == nil {
+	if northstar.IsNil(cfg.LLMClient) {
 		missing = append(missing, "llm_client")
 	}
-	if cfg.Executor == nil {
+	if northstar.IsNil(cfg.Executor) {
 		missing = append(missing, "executor")
 	}
 	if cfg.VirtualStore == nil {

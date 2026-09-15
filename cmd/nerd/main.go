@@ -72,6 +72,7 @@ import (
 var (
 	// Global flags
 	verbose   bool
+	yoloMode  bool
 	apiKey    string
 	workspace string
 	timeout   time.Duration
@@ -172,6 +173,7 @@ Run without arguments to start the interactive chat interface.`,
 func init() {
 	// Global flags
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging")
+	rootCmd.PersistentFlags().BoolVar(&yoloMode, "yolo", false, "Autonomous mode: decide everything without asking (never overrides safety denials)")
 	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "",
 		"API key override for the configured provider (default: .nerd/config.json, then that provider's env var)")
 	rootCmd.PersistentFlags().StringVarP(&workspace, "workspace", "w", "", "Workspace directory (default: current)")
@@ -223,6 +225,7 @@ func init() {
 		campaignPauseCmd,
 		campaignResumeCmd,
 		campaignListCmd,
+		campaignRecurseCmd,
 	)
 
 	// Auth subcommands

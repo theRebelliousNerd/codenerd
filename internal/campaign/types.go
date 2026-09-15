@@ -31,6 +31,7 @@ const (
 	CampaignTypeMigration          CampaignType = "/migration"           // Technology migration
 	CampaignTypeRemediation        CampaignType = "/remediation"         // Fix issues across codebase
 	CampaignTypeAdversarialAssault CampaignType = "/adversarial_assault" // Long-horizon stress + adversarial probing
+	CampaignTypeRecurse CampaignType = "/recurse" // Self-improvement sweep over the subsystem DAG, wave after wave
 	CampaignTypeCustom             CampaignType = "/custom"              // User-defined campaign
 )
 
@@ -166,6 +167,13 @@ type Campaign struct {
 	// ResumeCount counts how many times PrepareResume re-activated this
 	// campaign after a failed/blocked stop.
 	ResumeCount int `json:"resume_count,omitzero"`
+
+	// RecurseID links the wave-campaigns of one /recurse run; RecurseWave is
+	// the zero-based wave index. Empty/zero for non-recurse campaigns. Each
+	// wave is a normal campaign (resumable, inspectable on its own); the ID
+	// is what ties the sweep together.
+	RecurseID   string `json:"recurse_id,omitzero"`
+	RecurseWave int    `json:"recurse_wave,omitzero"`
 
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`

@@ -246,6 +246,17 @@ type UserConfig struct {
 	// Require explicit confirmation before promotion (default: false)
 	LearningCandidateAutoPromote bool `json:"learning_candidate_auto_promote,omitempty"`
 
+	// Yolo is the autonomy switch: codeNERD makes every decision it can to
+	// the best of its ability without user involvement — no wizard questions,
+	// no inter-wave pauses, no resume ambiguity. It is settable from config,
+	// the --yolo flag, or the /yolo chat command.
+	//
+	// Yolo resolves CHOICE points, never SAFETY verdicts: constitutional
+	// denials, risk-gate refusals, and safety validators still refuse, and
+	// unbounded /recurse still stops on its stall fuse. "Do whatever" means
+	// whatever the policy already permits, decided alone.
+	Yolo bool `json:"yolo,omitempty"`
+
 	// =========================================================================
 	// USER EXPERIENCE
 	// =========================================================================
@@ -271,6 +282,12 @@ type UserConfig struct {
 	// process-wide active pointer so low-level call sites (kernel, world
 	// scanner, main.go boot) can consult it without re-reading config.json.
 	Features *features.FeaturesConfig `json:"features,omitempty"`
+}
+
+// YoloMode reports whether autonomous no-questions operation is enabled.
+// Nil-safe: no config means no yolo.
+func (c *UserConfig) YoloMode() bool {
+	return c != nil && c.Yolo
 }
 
 // GetContextWindowConfig returns the context window config with defaults.
