@@ -199,9 +199,18 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 		w.Kernel = kernel
 	}
 
-	// Parse task for root path
+	// A task that names an existing directory overrides the root path (ad-hoc
+	// scans); anything else is a lifecycle label like "system_start" or
+	// "on_demand_activation" and must NOT clobber the configured root. Walking
+	// a nonexistent directory silently yields zero files, so an unconditional
+	// assignment here turned every system-started ingestor into a shard that
+	// scans nothing and asserts nothing.
 	if task != "" {
-		w.config.RootPath = task
+		if info, err := os.Stat(task); err == nil && info.IsDir() {
+			w.config.RootPath = task
+		} else {
+			logging.SystemShards("[WorldModel] task %q is not a directory; keeping root %q", task, w.config.RootPath)
+		}
 	}
 
 	// Initial full scan
