@@ -242,6 +242,13 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 		fallbackCh = fallbackTicker.C
 	}
 
+	// Startup drain: actions permitted before this subscription existed would
+	// otherwise sit unprocessed until the next event (the bus has no backlog).
+	// One idempotent pass closes the gap; completion retracts each action.
+	if err := r.processPermittedActions(ctx); err != nil {
+		logging.Routing("Startup drain failed: %v", err)
+	}
+
 	var lastErr string
 	for {
 		select {
