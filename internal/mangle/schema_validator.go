@@ -3,6 +3,7 @@ package mangle
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"codeberg.org/TauCeti/mangle-go/analysis"
@@ -61,30 +62,40 @@ func (sv *SchemaValidator) LoadDeclaredPredicates() error {
 
 // extractDeclsFromText parses text and extracts all predicates from Decl statements.
 func (sv *SchemaValidator) extractDeclsFromText(text string) error {
-	// Use regex to extract Decl statements with full argument list
-	// Pattern: Decl predicate_name(args...).
-	declPattern := regexp.MustCompile(`(?m)^Decl\s+([a-z_][a-z0-9_]*)\s*\(([^)]*)\)`)
-	matches := declPattern.FindAllStringSubmatch(text, -1)
+	// The head pattern locates `Decl name(`; the argument list is then
+	// scanned to its matching close paren, because a `[^)]*` capture
+	// truncates nested terms (Decl foo(bar(1,2), X) would lose everything
+	// after the first `)`).
+	matches := declHeadPattern.FindAllStringSubmatchIndex(text, -1)
 
-	for _, match := range matches {
-		if len(match) > 1 {
-			predicate := match[1]
-			sv.declaredPredicates[predicate] = true
-
-			// Count arguments for arity validation
-			if len(match) > 2 {
-				argsStr := strings.TrimSpace(match[2])
-				if argsStr == "" {
-					sv.predicateArities[predicate] = 0
-				} else {
-					// Count commas + 1 = number of args
-					sv.predicateArities[predicate] = strings.Count(argsStr, ",") + 1
-				}
-			}
+	for _, m := range matches {
+		if len(m) < 4 || m[2] < 0 {
+			continue
 		}
+		predicate := text[m[2]:m[3]]
+		sv.declaredPredicates[predicate] = true
+		argsStr := balancedArgs(text, m[1])
+		sv.predicateArities[predicate] = countTopLevelArgs(argsStr)
 	}
 
 	return nil
+}
+
+// balancedArgs returns the argument list starting at the open paren that
+// ends at fromIdx (the index just past it), scanned to its match.
+func balancedArgs(text string, fromIdx int) string {
+	depth := 1
+	for i := fromIdx; i < len(text); i++ {
+		if text[i] == '(' {
+			depth++
+		} else if text[i] == ')' {
+			depth--
+			if depth == 0 {
+				return text[fromIdx:i]
+			}
+		}
+	}
+	return ""
 }
 
 // extractHeadPredicatesFromText extracts predicates that are defined as rule heads.
@@ -92,7 +103,6 @@ func (sv *SchemaValidator) extractDeclsFromText(text string) error {
 func (sv *SchemaValidator) extractHeadPredicatesFromText(text string) error {
 	// Pattern: predicate(args) :- ...
 	// or: predicate(args).
-	headPattern := regexp.MustCompile(`(?m)^([a-z_][a-z0-9_]*)\s*\(`)
 	matches := headPattern.FindAllStringSubmatch(text, -1)
 
 	for _, match := range matches {
@@ -108,18 +118,14 @@ func (sv *SchemaValidator) extractHeadPredicatesFromText(text string) error {
 // ValidateRule checks if a rule only uses declared predicates in its body.
 // Returns error if any undefined predicate is found.
 func (sv *SchemaValidator) ValidateRule(ruleText string) error {
-	// Extract predicates from rule body (everything after :-)
-	parts := strings.Split(ruleText, ":-")
-	if len(parts) < 2 {
+	body, isRule := splitRuleBody(ruleText)
+	if !isRule {
 		// Fact, not a rule - no body to validate
 		return nil
 	}
 
-	body := parts[1]
-
 	// Extract all predicate calls from body
 	// Pattern: predicate_name(
-	predicatePattern := regexp.MustCompile(`([a-z_][a-z0-9_]*)\s*\(`)
 	matches := predicatePattern.FindAllStringSubmatch(body, -1)
 
 	var undefined []string
@@ -240,21 +246,7 @@ func (sv *SchemaValidator) validateHeadArity(line, headName string) error {
 	}
 
 	argsStr := strings.TrimSpace(afterHead[argStart:argEnd])
-	actualArity := 0
-	if argsStr != "" {
-		// Count args by tracking commas at depth 0
-		depth = 0
-		actualArity = 1
-		for _, c := range argsStr {
-			if c == '(' {
-				depth++
-			} else if c == ')' {
-				depth--
-			} else if c == ',' && depth == 0 {
-				actualArity++
-			}
-		}
-	}
+	actualArity := countTopLevelArgs(argsStr)
 
 	if actualArity != expectedArity {
 		return fmt.Errorf("arity mismatch: %s has %d args but schema declares %d",
@@ -262,6 +254,30 @@ func (sv *SchemaValidator) validateHeadArity(line, headName string) error {
 	}
 
 	return nil
+}
+
+// countTopLevelArgs counts comma-separated arguments at paren depth 0.
+// A naive comma count breaks on nested terms (foo(bar(1,2), X) has two
+// args, not three); both schema extraction and head validation share this.
+func countTopLevelArgs(argsStr string) int {
+	argsStr = strings.TrimSpace(argsStr)
+	if argsStr == "" {
+		return 0
+	}
+	depth, count := 0, 1
+	for _, c := range argsStr {
+		switch c {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 var forbiddenLearnedHeads = map[string]string{
@@ -280,6 +296,12 @@ var forbiddenLearnedHeads = map[string]string{
 	"system_shard_state":      "produced by system shard supervisor",
 }
 
+var declHeadPattern = regexp.MustCompile(`(?m)^Decl\s+([a-z_][a-z0-9_]*)\s*\(`)
+
+var headPattern = regexp.MustCompile(`(?m)^([a-z_][a-z0-9_]*)\s*\(`)
+
+var predicatePattern = regexp.MustCompile(`([a-z_][a-z0-9_]*)\s*\(`)
+
 var learnedHeadPattern = regexp.MustCompile(`^([a-z_][a-z0-9_]*)\s*\(`)
 
 func (sv *SchemaValidator) extractHeadPredicate(line string) string {
@@ -288,6 +310,34 @@ func (sv *SchemaValidator) extractHeadPredicate(line string) string {
 		return ""
 	}
 	return match[1]
+}
+
+// splitRuleBody splits a rule into head and body at the first :- outside
+// string literals. A naive strings.Split misfires when ":-" appears inside
+// a quoted atom argument, validating a fragment of the head as the body.
+func splitRuleBody(ruleText string) (body string, isRule bool) {
+	inString, escaped := false, false
+	for i := 0; i+1 < len(ruleText); i++ {
+		c := ruleText[i]
+		if inString {
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if c == '"' {
+			inString = true
+			continue
+		}
+		if c == ':' && ruleText[i+1] == '-' {
+			return ruleText[i+2:], true
+		}
+	}
+	return "", false
 }
 
 // ValidateRules validates multiple rules at once.
@@ -434,10 +484,11 @@ func (sv *SchemaValidator) isBuiltin(predicate string) bool {
 
 // getAvailablePredicates returns a sorted list of available predicates for error messages.
 func (sv *SchemaValidator) getAvailablePredicates() []string {
-	var predicates []string
+	predicates := make([]string, 0, len(sv.declaredPredicates))
 	for p := range sv.declaredPredicates {
 		predicates = append(predicates, p)
 	}
+	sort.Strings(predicates)
 	return predicates
 }
 
