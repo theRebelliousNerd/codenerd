@@ -74,6 +74,17 @@ func (k *RealKernel) coerceAtomToDeclLocked(atom ast.Atom) (ast.Atom, error) {
 					"scale ratios to integer percent at the assert site (see types.PercentScale)",
 				atom.Predicate.Symbol, i, numberBoundSymbol, f)
 		}
+		// Integral but unrepresentable: float64→int64 conversion of an
+		// out-of-range value is implementation-defined (amd64 yields
+		// MinInt64), so a huge "integer" would silently become a wildly
+		// wrong one. The valid range is [-2^63, 2^63): MaxInt64 itself is
+		// not representable as a float64, so anything at or above 2^63
+		// cannot be narrowed exactly.
+		if f >= 1<<63 || f < -(1<<63) {
+			return ast.Atom{}, fmt.Errorf(
+				"%s arg %d is declared %s but got %v, outside the int64 range",
+				atom.Predicate.Symbol, i, numberBoundSymbol, f)
+		}
 		if coerced == nil {
 			coerced = slices.Clone(atom.Args)
 		}

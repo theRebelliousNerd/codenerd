@@ -1342,7 +1342,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/kernel_eval_test.go`
 
 ### internal/core/kernel_fact_decl.go (1)
-- [ ] `internal/core/kernel_fact_decl.go`
+- [x] `internal/core/kernel_fact_decl.go`
 
 ### internal/core/kernel_fact_decl_test.go (1)
 - [ ] `internal/core/kernel_fact_decl_test.go`
@@ -1354,7 +1354,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/kernel_facts_gaps_test.go`
 
 ### internal/core/kernel_facts_intern.go (1)
-- [ ] `internal/core/kernel_facts_intern.go`
+- [x] `internal/core/kernel_facts_intern.go`
 
 ### internal/core/kernel_facts_intern_test.go (1)
 - [ ] `internal/core/kernel_facts_intern_test.go`
@@ -1393,7 +1393,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/kernel_policy_test.go`
 
 ### internal/core/kernel_provenance.go (1)
-- [ ] `internal/core/kernel_provenance.go`
+- [x] `internal/core/kernel_provenance.go`
 
 ### internal/core/kernel_provenance_test.go (1)
 - [ ] `internal/core/kernel_provenance_test.go`
@@ -1438,13 +1438,13 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/kernel_types.go`
 
 ### internal/core/kernel_undeclared.go (1)
-- [ ] `internal/core/kernel_undeclared.go`
+- [x] `internal/core/kernel_undeclared.go`
 
 ### internal/core/kernel_undeclared_test.go (1)
 - [ ] `internal/core/kernel_undeclared_test.go`
 
 ### internal/core/kernel_utils.go (1)
-- [ ] `internal/core/kernel_utils.go`
+- [x] `internal/core/kernel_utils.go`
 
 ### internal/core/kernel_validation.go (1)
 - [ ] `internal/core/kernel_validation.go`

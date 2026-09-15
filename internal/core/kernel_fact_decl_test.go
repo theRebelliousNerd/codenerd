@@ -78,6 +78,34 @@ func TestFactBoundary_BadFactDoesNotStopUnrelatedDerivations(t *testing.T) {
 		"0.85 must be rejected, not truncated to 0 and treated as < 30 coverage")
 }
 
+// An integral float outside the int64 range cannot be narrowed: float64→int64
+// conversion there is implementation-defined (amd64 yields MinInt64), so the
+// fact must be rejected, not stored as a wildly wrong value.
+func TestFactBoundary_OutOfRangeFloatIsRejected(t *testing.T) {
+	k, err := NewRealKernel()
+	require.NoError(t, err)
+
+	for _, v := range []float64{1e300, -1e300} {
+		err := k.Assert(Fact{Predicate: "intelligence_test_coverage", Args: []any{"huge.go", v}})
+		require.Error(t, err, "out-of-range %v must be rejected", v)
+		require.Contains(t, err.Error(), "outside the int64 range")
+	}
+
+	// A large but representable integral float still narrows exactly.
+	require.NoError(t, k.Assert(Fact{Predicate: "intelligence_test_coverage", Args: []any{"big.go", float64(int64(1) << 62)}}))
+
+	// The kernel keeps deriving around the rejections.
+	require.NoError(t, k.AssertBatch([]Fact{
+		{Predicate: "intelligence_test_coverage", Args: []any{"ok.go", float64(10)}},
+	}))
+	require.True(t,
+		queryHasArg(t, k, "intelligence_missing_tests", 0, "ok.go"),
+		"unrelated derivation must survive out-of-range rejections")
+	require.False(t,
+		queryHasArg(t, k, "intelligence_missing_tests", 0, "huge.go"),
+		"rejected rows must not appear in derivations")
+}
+
 // Integers keep flowing untouched — the coercion must not disturb the common path.
 func TestFactBoundary_IntegerArgsAreUnchanged(t *testing.T) {
 	k, err := NewRealKernel()
