@@ -350,6 +350,7 @@ func SharedPredicates() []string {
 		// side must be visible everywhere the positive side is.
 		"gauntlet_result",
 		"mutation_approved",
+		"yolo_mode",
 		"action_verified",
 		"shard_context_refreshed",
 		"shadow_state",
