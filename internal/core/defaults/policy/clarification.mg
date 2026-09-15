@@ -13,7 +13,8 @@ any_awaiting_clarification(/yes) :- awaiting_clarification(_).
 # Block action derivation when clarification is needed
 next_action(/interrogative_mode) :-
     clarification_needed(_),
-    !any_awaiting_clarification(/yes).
+    !any_awaiting_clarification(/yes),
+    !yolo_mode().
 
 # Ambiguity detection
 ambiguity_detected(Param) :-
@@ -21,7 +22,8 @@ ambiguity_detected(Param) :-
 
 next_action(/interrogative_mode) :-
     ambiguity_detected(_),
-    !any_awaiting_clarification(/yes).
+    !any_awaiting_clarification(/yes),
+    !yolo_mode().
 
 # =============================================================================
 # INTENT UNKNOWN / UNMAPPED CLARIFICATION
@@ -29,15 +31,18 @@ next_action(/interrogative_mode) :-
 
 next_action(/interrogative_mode) :-
     intent_unknown(_, _),
-    !any_awaiting_clarification(/yes).
+    !any_awaiting_clarification(/yes),
+    !yolo_mode().
 
 next_action(/interrogative_mode) :-
     intent_unmapped(_, _),
-    !any_awaiting_clarification(/yes).
+    !any_awaiting_clarification(/yes),
+    !yolo_mode().
 
 clarification_question(/current_intent, Question) :-
     intent_unmapped(Verb, /unknown_verb),
-    Question = "I don't recognize that action. What would you like me to do?".
+    Question = "I don't recognize that action. What would you like me to do?",
+    !yolo_mode().
 
 # /llm_unavailable: the model was transiently unreachable (a 503/5xx that
 # survived retries). This is an infrastructure hiccup, NOT user ambiguity, so
@@ -51,26 +56,35 @@ clarification_question(/current_intent, "Something went wrong on my end while pr
     intent_unknown(_, /llm_failed).
 
 clarification_question(/current_intent, "I'm not confident I understood correctly. Could you clarify?") :-
-    intent_unknown(_, /heuristic_low).
+    intent_unknown(_, /heuristic_low),
+    !yolo_mode().
 
 clarification_question(/current_intent, "I couldn't identify the action you want. What would you like me to do?") :-
-    intent_unknown(_, /no_verb_match).
+    intent_unknown(_, /no_verb_match),
+    !yolo_mode().
 
 clarification_question(/current_intent, "I recognize the action but don't have a mapping for it. Which action should I take instead?") :-
-    intent_unmapped(_, /no_action_mapping).
+    intent_unmapped(_, /no_action_mapping),
+    !yolo_mode().
 
 clarification_option(/current_intent, /explain, "Explain or describe something") :-
-    intent_unmapped(_, _).
+    intent_unmapped(_, _),
+    !yolo_mode().
 clarification_option(/current_intent, /fix, "Fix a bug or issue") :-
-    intent_unmapped(_, _).
+    intent_unmapped(_, _),
+    !yolo_mode().
 clarification_option(/current_intent, /review, "Review code for issues") :-
-    intent_unmapped(_, _).
+    intent_unmapped(_, _),
+    !yolo_mode().
 clarification_option(/current_intent, /search, "Search the codebase") :-
-    intent_unmapped(_, _).
+    intent_unmapped(_, _),
+    !yolo_mode().
 clarification_option(/current_intent, /test, "Run or generate tests") :-
-    intent_unmapped(_, _).
+    intent_unmapped(_, _),
+    !yolo_mode().
 clarification_option(/current_intent, /create, "Create new code or files") :-
-    intent_unmapped(_, _).
+    intent_unmapped(_, _),
+    !yolo_mode().
 
 # =============================================================================
 # NO ACTION REASON HANDLING
@@ -78,18 +92,22 @@ clarification_option(/current_intent, /create, "Create new code or files") :-
 
 next_action(/interrogative_mode) :-
     no_action_reason(_, /no_route),
-    !any_awaiting_clarification(/yes).
+    !any_awaiting_clarification(/yes),
+    !yolo_mode().
 
 clarification_question(IntentID, "I don't have a tool to handle this action. Would you like me to try a different approach?") :-
-    no_action_reason(IntentID, /no_route).
+    no_action_reason(IntentID, /no_route),
+    !yolo_mode().
 
 next_action(/interrogative_mode) :-
     no_action_reason(_, /no_action_derived),
-    !any_awaiting_clarification(/yes).
+    !any_awaiting_clarification(/yes),
+    !yolo_mode().
 
 clarification_question(IntentID, "I'm not sure which action to take for this request. Could you clarify?") :-
     no_action_reason(IntentID, /no_action_derived),
-    !learning_confirmation_active(/yes).
+    !learning_confirmation_active(/yes),
+    !yolo_mode().
 
 # Section 11: Abductive Reasoning
 

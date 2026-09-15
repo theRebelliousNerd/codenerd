@@ -42,6 +42,17 @@ Decl multi_step_signal(Signal) bound [/name].
 # kernel is unavailable or returns nothing.
 Decl is_multi_step() bound [].
 
+# yolo_mode() - EDB asserted by Go. Present when the operator enabled yolo
+# autonomy (/yolo, --yolo, or persisted config): the agent resolves ambiguity
+# itself instead of asking. Ambiguity-driven clarification_question and
+# interrogative_mode rules carry !yolo_mode(), including learning consent
+# (remembering a mapping is a reversible memory choice, not a safety
+# verdict). Error notices (model unreachable, failed calls) and loop-health
+# stalls do NOT, so yolo never hides infrastructure failure or a stalled
+# loop. Session state: asserted
+# at boot from config and on every /yolo toggle, never persisted as a fact.
+Decl yolo_mode() bound [].
+
 # intent_signal(Signal) - EDB asserted by Go per turn (retract-before-assert).
 # Carries perception's boolean understanding signals into policy so routing
 # arbitration can reason over them.

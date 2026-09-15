@@ -5,6 +5,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
 )
 
 // /yolo toggles autonomous mode: codeNERD makes every decision it can without
@@ -48,6 +51,7 @@ func (m Model) setYolo(on bool) Model {
 		return m
 	}
 	m.Config.Yolo = on
+	m.syncYoloFact()
 	if err := m.Config.Save(m.userConfigPath()); err != nil {
 		m = m.addMessage(Message{
 			Role:    "assistant",
@@ -56,6 +60,26 @@ func (m Model) setYolo(on bool) Model {
 		})
 	}
 	return m
+}
+
+// syncYoloFact mirrors the yolo switch into the kernel as the yolo_mode
+// fact, which the ambiguity-driven clarification rules consult. Config is
+// the source of truth (it persists); the fact is derived session state.
+// A nil kernel (pre-boot toggle) is fine: the boot hook re-syncs from
+// config once the kernel exists.
+func (m Model) syncYoloFact() {
+	if m.kernel == nil {
+		return
+	}
+	if m.yoloEnabled() {
+		if err := m.kernel.Assert(core.Fact{Predicate: "yolo_mode"}); err != nil {
+			logging.Get(logging.CategoryKernel).Error("yolo: failed to assert yolo_mode: %v", err)
+		}
+		return
+	}
+	if err := m.kernel.Retract("yolo_mode"); err != nil {
+		logging.Get(logging.CategoryKernel).Error("yolo: failed to retract yolo_mode: %v", err)
+	}
 }
 
 func (m Model) pushYoloNote(content string) Model {

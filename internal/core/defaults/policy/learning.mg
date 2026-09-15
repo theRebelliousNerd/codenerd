@@ -16,14 +16,18 @@ learning_confirmation_active(/yes) :-
 
 next_action(/interrogative_mode) :-
     learning_confirmation_needed(_, _, _, _),
-    !any_awaiting_clarification(/yes).
+    !any_awaiting_clarification(/yes),
+    !yolo_mode().
 
 clarification_question(/current_intent, Question) :-
     learning_confirmation_needed(_, _, _, _),
-    Question = "I can learn this mapping. Should I learn it?".
+    Question = "I can learn this mapping. Should I learn it?",
+    !yolo_mode().
 
 clarification_option(/current_intent, /learn_yes, "Yes, learn this mapping") :-
-    learning_confirmation_needed(_, _, _, _).
+    learning_confirmation_needed(_, _, _, _),
+    !yolo_mode().
 
 clarification_option(/current_intent, /learn_no, "No, do not learn this") :-
-    learning_confirmation_needed(_, _, _, _).
+    learning_confirmation_needed(_, _, _, _),
+    !yolo_mode().

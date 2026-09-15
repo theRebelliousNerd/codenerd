@@ -756,6 +756,10 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 
 		// Rehydrate semantic compression state for this session (if persisted).
 		m.hydrateCompressorForSession(m.sessionID)
+
+		// Mirror persisted yolo autonomy into the kernel: the fact is session
+		// state and does not survive restarts, but the config does.
+		m.syncYoloFact()
 	}
 
 	// If boot failed, allow input immediately. If boot succeeded, wait until scan completes.
