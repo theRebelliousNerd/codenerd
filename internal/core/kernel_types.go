@@ -253,17 +253,22 @@ var defaultSchemaFiles = []string{
 // corpus. User extensions, northstar vision, and learned rules are excluded:
 // they are runtime data, not the static default corpus.
 //
-// An error is returned only when the embedded policy inventory is empty,
-// which indicates a corrupt binary.
+// An error is returned when any listed constitution file cannot be read,
+// which indicates a corrupt binary. Missing files are never skipped: a
+// silently dropped schema module removes Decls and a dropped policy module
+// removes rules, and both failure modes surface only as empty derivations
+// far downstream.
 func DefaultCorpusText() (schemas string, policy string, err error) {
 	var schemasBuilder strings.Builder
-	if data, rerr := coreLogic.ReadFile("defaults/schemas.mg"); rerr == nil {
-		schemasBuilder.Write(data)
+	data, rerr := readRequiredEmbeddedFile(coreLogic, "defaults/schemas.mg")
+	if rerr != nil {
+		return "", "", rerr
 	}
+	schemasBuilder.Write(data)
 	for _, schemaFile := range defaultSchemaFiles {
-		data, rerr := coreLogic.ReadFile("defaults/" + schemaFile)
+		data, rerr := readRequiredEmbeddedFile(coreLogic, "defaults/"+schemaFile)
 		if rerr != nil {
-			continue
+			return "", "", rerr
 		}
 		schemasBuilder.WriteString("\n\n# Schema Module: ")
 		schemasBuilder.WriteString(schemaFile)
@@ -271,15 +276,18 @@ func DefaultCorpusText() (schemas string, policy string, err error) {
 		schemasBuilder.Write(data)
 	}
 
-	policyFiles := DefaultPolicyFiles()
+	policyFiles, perr := DefaultPolicyFiles()
+	if perr != nil {
+		return "", "", perr
+	}
 	if len(policyFiles) == 0 {
 		return "", "", fmt.Errorf("default corpus: embedded policy inventory is empty")
 	}
 	var policyBuilder strings.Builder
 	for _, file := range policyFiles {
-		data, rerr := coreLogic.ReadFile("defaults/" + file)
+		data, rerr := readRequiredEmbeddedFile(coreLogic, "defaults/"+file)
 		if rerr != nil {
-			continue
+			return "", "", rerr
 		}
 		policyBuilder.WriteString("\n\n# Policy Module: ")
 		policyBuilder.WriteString(path.Base(file))

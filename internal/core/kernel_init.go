@@ -36,13 +36,12 @@ func filterBootFacts(bootFacts []Fact) []Fact {
 	return persistentFacts
 }
 
-// NewRealKernel creates a new kernel instance.
-// Returns an error if the embedded constitution fails to compile (e.g., corrupted binary).
-func NewRealKernel() (*RealKernel, error) {
-	timer := logging.StartTimer(logging.CategoryKernel, "NewRealKernel")
-	logging.Kernel("Initializing new RealKernel instance")
-
-	k := &RealKernel{
+// newRealKernelBase builds the shared RealKernel skeleton. Every constructor
+// must start here so no kernel boots with a nil event bus, fact index, or
+// store. (NewRealKernelWithPath once skipped the event bus, leaving shard
+// kernels with a nil bus whose Subscribe would panic.)
+func newRealKernelBase() *RealKernel {
+	return &RealKernel{
 		facts:             make([]Fact, 0),
 		cachedAtoms:       make([]ast.Atom, 0), // OPTIMIZATION: Initialize atom cache
 		factIndex:         make(map[string]struct{}),
@@ -54,6 +53,25 @@ func NewRealKernel() (*RealKernel, error) {
 		policyDirty:       true, // Need to parse on first use
 		eventBus:          NewFactEventBus(),
 	}
+}
+
+// injectBootFacts appends EDB facts extracted from hybrid .mg files before
+// first evaluation. QUIESCENT BOOT: ephemeral facts are filtered to prevent
+// stale actions at boot.
+func (k *RealKernel) injectBootFacts() {
+	if len(k.bootFacts) > 0 {
+		k.facts = append(k.facts, filterBootFacts(k.bootFacts)...)
+	}
+	k.rebuildFactIndexLocked()
+}
+
+// NewRealKernel creates a new kernel instance.
+// Returns an error if the embedded constitution fails to compile (e.g., corrupted binary).
+func NewRealKernel() (*RealKernel, error) {
+	timer := logging.StartTimer(logging.CategoryKernel, "NewRealKernel")
+	logging.Kernel("Initializing new RealKernel instance")
+
+	k := newRealKernelBase()
 	logging.KernelDebug("Kernel struct created, store initialized, policyDirty=true")
 
 	// Find and load mangle files from the project
@@ -62,12 +80,7 @@ func NewRealKernel() (*RealKernel, error) {
 		return nil, fmt.Errorf("failed to load mangle files: %w", err)
 	}
 
-	// Inject any EDB facts extracted from hybrid .mg files before first evaluation.
-	// QUIESCENT BOOT: Filter ephemeral facts to prevent stale actions at boot.
-	if len(k.bootFacts) > 0 {
-		k.facts = append(k.facts, filterBootFacts(k.bootFacts)...)
-	}
-	k.rebuildFactIndexLocked()
+	k.injectBootFacts()
 
 	// Force initial evaluation to boot the Mangle engine.
 	// The embedded core MUST compile, otherwise the binary is corrupt.
@@ -95,19 +108,8 @@ func NewRealKernelWithWorkspace(workspaceRoot string) (*RealKernel, error) {
 	}
 	logging.Kernel("Initializing RealKernel with workspace root: %s", workspaceRoot)
 
-	k := &RealKernel{
-		facts:             make([]Fact, 0),
-		cachedAtoms:       make([]ast.Atom, 0), // OPTIMIZATION: Initialize atom cache
-		factIndex:         make(map[string]struct{}),
-		bootFacts:         make([]Fact, 0),
-		bootIntents:       make([]HybridIntent, 0),
-		bootPrompts:       make([]HybridPrompt, 0),
-		store:             factstore.NewSimpleInMemoryStore(),
-		workspaceRoot:     workspaceRoot,
-		loadedPolicyFiles: make(map[string]struct{}),
-		policyDirty:       true, // Need to parse on first use
-		eventBus:          NewFactEventBus(),
-	}
+	k := newRealKernelBase()
+	k.workspaceRoot = workspaceRoot
 	logging.KernelDebug("Kernel struct created with workspaceRoot=%s, policyDirty=true", workspaceRoot)
 
 	// Find and load mangle files from the project
@@ -116,12 +118,7 @@ func NewRealKernelWithWorkspace(workspaceRoot string) (*RealKernel, error) {
 		return nil, fmt.Errorf("failed to load mangle files: %w", err)
 	}
 
-	// Inject any EDB facts extracted from hybrid .mg files before first evaluation.
-	// QUIESCENT BOOT: Filter ephemeral facts to prevent stale actions at boot.
-	if len(k.bootFacts) > 0 {
-		k.facts = append(k.facts, filterBootFacts(k.bootFacts)...)
-	}
-	k.rebuildFactIndexLocked()
+	k.injectBootFacts()
 
 	// Force initial evaluation to boot the Mangle engine.
 	// The embedded core MUST compile, otherwise the binary is corrupt.
@@ -143,18 +140,8 @@ func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {
 	timer := logging.StartTimer(logging.CategoryKernel, "NewRealKernelWithPath")
 	logging.Kernel("Initializing RealKernel with explicit path: %s", manglePath)
 
-	k := &RealKernel{
-		facts:             make([]Fact, 0),
-		cachedAtoms:       make([]ast.Atom, 0), // OPTIMIZATION: Initialize atom cache
-		factIndex:         make(map[string]struct{}),
-		bootFacts:         make([]Fact, 0),
-		bootIntents:       make([]HybridIntent, 0),
-		bootPrompts:       make([]HybridPrompt, 0),
-		store:             factstore.NewSimpleInMemoryStore(),
-		manglePath:        manglePath,
-		loadedPolicyFiles: make(map[string]struct{}),
-		policyDirty:       true,
-	}
+	k := newRealKernelBase()
+	k.manglePath = manglePath
 	logging.KernelDebug("Kernel struct created with manglePath=%s", manglePath)
 
 	if err := k.loadMangleFiles(); err != nil {
@@ -162,12 +149,7 @@ func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {
 		return nil, fmt.Errorf("failed to load mangle files: %w", err)
 	}
 
-	// Inject any EDB facts extracted from hybrid .mg files before first evaluation.
-	// QUIESCENT BOOT: Filter ephemeral facts to prevent stale actions at boot.
-	if len(k.bootFacts) > 0 {
-		k.facts = append(k.facts, filterBootFacts(k.bootFacts)...)
-	}
-	k.rebuildFactIndexLocked()
+	k.injectBootFacts()
 
 	// Force initial evaluation
 	logging.Kernel("Booting Mangle engine...")
@@ -183,8 +165,10 @@ func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {
 }
 
 // SetWorkspace sets the explicit workspace root path for .nerd directory resolution.
-// This MUST be called after kernel creation to ensure .nerd paths resolve correctly.
-// If not set, paths will be resolved relative to CWD (which may be incorrect).
+// Call it after kernel creation and before the kernel is shared across
+// goroutines: nerdPath reads the root without holding the kernel lock, so a
+// late write races with in-flight evaluations. Prefer
+// NewRealKernelWithWorkspace, which sets the root before boot.
 func (k *RealKernel) SetWorkspace(root string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -291,13 +275,15 @@ func (k *RealKernel) loadMangleFiles() error {
 	logging.KernelDebug("Loading baked-in core (Constitution)...")
 
 	// Load Core Schemas (Modular)
-	// Load the index file first (contains core predicates and documentation)
-	if data, err := coreLogic.ReadFile("defaults/schemas.mg"); err == nil {
-		schemasBuilder.Write(data)
-		logging.KernelDebug("Loaded schema index (%d bytes)", len(data))
-	} else {
-		logging.Get(logging.CategoryKernel).Error("Failed to load schema index: %v", err)
+	// Load the index file first (contains core predicates and documentation).
+	// Embedded misses are fatal: a skipped schema module removes Decls and the
+	// kernel would boot hollow, deriving nothing where it should derive.
+	data, err := readRequiredEmbeddedFile(coreLogic, "defaults/schemas.mg")
+	if err != nil {
+		return err
 	}
+	schemasBuilder.Write(data)
+	logging.KernelDebug("Loaded schema index (%d bytes)", len(data))
 
 	// Load all modular schema files (schemas_*.mg) plus learning schema.
 	// This allows selective loading and better organization (modular schemas under 600 lines).
@@ -306,16 +292,16 @@ func (k *RealKernel) loadMangleFiles() error {
 	loadedSchemaBytes := 0
 	for _, schemaFile := range schemaFiles {
 		path := "defaults/" + schemaFile
-		if data, err := coreLogic.ReadFile(path); err == nil {
-			schemasBuilder.WriteString("\n\n# Schema Module: ")
-			schemasBuilder.WriteString(schemaFile)
-			schemasBuilder.WriteString("\n")
-			schemasBuilder.Write(data)
-			loadedSchemaBytes += len(data)
-			logging.KernelDebug("Loaded schema module: %s (%d bytes)", schemaFile, len(data))
-		} else {
-			logging.Get(logging.CategoryKernel).Warn("Failed to read schema module %s: %v", path, err)
+		data, err := readRequiredEmbeddedFile(coreLogic, path)
+		if err != nil {
+			return err
 		}
+		schemasBuilder.WriteString("\n\n# Schema Module: ")
+		schemasBuilder.WriteString(schemaFile)
+		schemasBuilder.WriteString("\n")
+		schemasBuilder.Write(data)
+		loadedSchemaBytes += len(data)
+		logging.KernelDebug("Loaded schema module: %s (%d bytes)", schemaFile, len(data))
 	}
 	logging.KernelDebug("Loaded modular schemas (%d bytes from %d files)", loadedSchemaBytes, len(schemaFiles))
 
@@ -328,16 +314,16 @@ func (k *RealKernel) loadMangleFiles() error {
 		for _, entry := range policyEntries {
 			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".mg") {
 				path := policyDir + "/" + entry.Name()
-				if data, err := coreLogic.ReadFile(path); err == nil {
-					policyBuilder.WriteString("\n\n# Policy Module: ")
-					policyBuilder.WriteString(entry.Name())
-					policyBuilder.WriteString("\n")
-					policyBuilder.Write(data)
-					loadedPolicyBytes += len(data)
-					logging.KernelDebug("Loaded policy module: %s (%d bytes)", entry.Name(), len(data))
-				} else {
-					logging.Get(logging.CategoryKernel).Warn("Failed to read policy module %s: %v", path, err)
+				data, err := readRequiredEmbeddedFile(coreLogic, path)
+				if err != nil {
+					return err
 				}
+				policyBuilder.WriteString("\n\n# Policy Module: ")
+				policyBuilder.WriteString(entry.Name())
+				policyBuilder.WriteString("\n")
+				policyBuilder.Write(data)
+				loadedPolicyBytes += len(data)
+				logging.KernelDebug("Loaded policy module: %s (%d bytes)", entry.Name(), len(data))
 			}
 		}
 		logging.KernelDebug("Loaded stratified policy (%d bytes from %d files)", loadedPolicyBytes, len(policyEntries))
@@ -352,15 +338,15 @@ func (k *RealKernel) loadMangleFiles() error {
 
 	loadedModules := 0
 	for _, mod := range coreModules {
-		if data, err := coreLogic.ReadFile("defaults/" + mod); err == nil {
-			policyBuilder.WriteString("\n\n")
-			policyBuilder.Write(data)
-			k.loadedPolicyFiles[strings.ToLower(mod)] = struct{}{}
-			loadedModules++
-			logging.KernelDebug("Loaded core module: %s (%d bytes)", mod, len(data))
-		} else {
-			logging.KernelDebug("Core module not found (optional): %s", mod)
+		data, err := readRequiredEmbeddedFile(coreLogic, "defaults/"+mod)
+		if err != nil {
+			return err
 		}
+		policyBuilder.WriteString("\n\n")
+		policyBuilder.Write(data)
+		k.loadedPolicyFiles[strings.ToLower(mod)] = struct{}{}
+		loadedModules++
+		logging.KernelDebug("Loaded core module: %s (%d bytes)", mod, len(data))
 	}
 	logging.KernelDebug("Loaded %d/%d core modules", loadedModules, len(coreModules))
 

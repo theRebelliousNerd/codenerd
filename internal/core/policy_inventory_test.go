@@ -27,7 +27,10 @@ func TestDefaultAgentPolicySetsResolveToEmbeddedPolicyInventory(t *testing.T) {
 }
 
 func TestDefaultPolicyFilesMatchKernelRootModuleInventory(t *testing.T) {
-	files := DefaultPolicyFiles()
+	files, err := DefaultPolicyFiles()
+	if err != nil {
+		t.Fatalf("DefaultPolicyFiles: %v", err)
+	}
 	for _, module := range DefaultCorePolicyModules() {
 		if !slices.Contains(files, module) {
 			t.Errorf("DefaultPolicyFiles() missing root module %q", module)

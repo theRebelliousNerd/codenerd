@@ -1,6 +1,8 @@
 package core
 
 import (
+	"fmt"
+	"io/fs"
 	"path"
 	"slices"
 	"sort"
@@ -88,18 +90,37 @@ func DefaultCorePolicyModules() []string {
 
 // DefaultPolicyFiles returns every embedded file that is loaded as default
 // policy: defaults/policy/*.mg followed by the root policy modules.
-func DefaultPolicyFiles() []string {
+//
+// A failed directory listing is an error, not an empty policy set: the
+// embedded constitution is compiled into the binary, so an unreadable
+// policy directory means a corrupt binary. Callers must fail closed.
+func DefaultPolicyFiles() ([]string, error) {
+	entries, err := coreLogic.ReadDir("defaults/policy")
+	if err != nil {
+		return nil, fmt.Errorf("default policy inventory: cannot list defaults/policy: %w", err)
+	}
 	files := make([]string, 0, 96)
-	if entries, err := coreLogic.ReadDir("defaults/policy"); err == nil {
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".mg") {
-				files = append(files, "policy/"+entry.Name())
-			}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".mg") {
+			files = append(files, "policy/"+entry.Name())
 		}
 	}
 	sort.Strings(files)
 	files = append(files, defaultCorePolicyModules...)
-	return files
+	return files, nil
+}
+
+// readRequiredEmbeddedFile reads a constitution file that must exist. The
+// embedded .mg corpus is compiled into the binary; a listed file that cannot
+// be read means a corrupt binary, and every caller treats that as fatal.
+// fsys is a parameter (production passes coreLogic) so tests can prove the
+// failure mode against fstest.MapFS.
+func readRequiredEmbeddedFile(fsys fs.FS, path string) ([]byte, error) {
+	data, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return nil, fmt.Errorf("critical: embedded constitution file %s unreadable (corrupt binary?): %w", path, err)
+	}
+	return data, nil
 }
 
 // IsDefaultPolicyFile reports whether ref is a canonical embedded policy path.
@@ -113,7 +134,11 @@ func IsDefaultPolicyFile(ref string) bool {
 	if cleaned != ref || cleaned == "." || strings.HasPrefix(cleaned, "/") || strings.HasPrefix(cleaned, "../") {
 		return false
 	}
-	return slices.Contains(DefaultPolicyFiles(), ref)
+	files, err := DefaultPolicyFiles()
+	if err != nil {
+		return false
+	}
+	return slices.Contains(files, ref)
 }
 
 // DefaultAgentPolicySetFiles resolves a stable set ID to canonical files in the

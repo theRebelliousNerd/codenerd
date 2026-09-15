@@ -70,7 +70,10 @@ func TestWorldShardEvalCost(t *testing.T) {
 	if v := os.Getenv("CODENERD_WORLD_EVAL_EXCLUDE"); v != "" {
 		configs = strings.Split(v, ";")
 	}
-	policyFiles := core.DefaultPolicyFiles()
+	policyFiles, err := core.DefaultPolicyFiles()
+	if err != nil {
+		t.Fatalf("DefaultPolicyFiles: %v", err)
+	}
 
 	for _, cfg := range configs {
 		exclude := map[string]bool{}

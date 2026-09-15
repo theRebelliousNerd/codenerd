@@ -1318,7 +1318,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/jit_supersession_test.go`
 
 ### internal/core/kernel.go (1)
-- [ ] `internal/core/kernel.go`
+- [x] `internal/core/kernel.go`
 
 ### internal/core/kernel_accessors.go (1)
 - [ ] `internal/core/kernel_accessors.go`
@@ -1375,7 +1375,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/kernel_indexed_store_test.go`
 
 ### internal/core/kernel_init.go (1)
-- [ ] `internal/core/kernel_init.go`
+- [x] `internal/core/kernel_init.go`
 
 ### internal/core/kernel_init_bench_test.go (1)
 - [ ] `internal/core/kernel_init_bench_test.go`
@@ -1435,7 +1435,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/kernel_transactions.go`
 
 ### internal/core/kernel_types.go (1)
-- [ ] `internal/core/kernel_types.go`
+- [x] `internal/core/kernel_types.go`
 
 ### internal/core/kernel_undeclared.go (1)
 - [ ] `internal/core/kernel_undeclared.go`
@@ -1459,7 +1459,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/kernel_validation_test.go`
 
 ### internal/core/kernel_virtual.go (1)
-- [ ] `internal/core/kernel_virtual.go`
+- [x] `internal/core/kernel_virtual.go`
 
 ### internal/core/kernel_workspace_constructor_test.go (1)
 - [ ] `internal/core/kernel_workspace_constructor_test.go`
@@ -1531,7 +1531,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/performance_bench_test.go`
 
 ### internal/core/policy_inventory.go (1)
-- [ ] `internal/core/policy_inventory.go`
+- [x] `internal/core/policy_inventory.go`
 
 ### internal/core/policy_inventory_test.go (1)
 - [ ] `internal/core/policy_inventory_test.go`
@@ -2053,6 +2053,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/mangle/engine_uplift_test.go`
 - [x] `internal/mangle/doc600_pin_test.go`
 - [x] `internal/mangle/corpus_gate_test.go`
+- [x] `internal/core/kernel_boot_uplift_test.go`
 
 ### internal/mangle/fact_store_proxy_test.go (1)
 - [ ] `internal/mangle/fact_store_proxy_test.go`
