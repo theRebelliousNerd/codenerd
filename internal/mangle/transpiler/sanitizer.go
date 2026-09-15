@@ -3,6 +3,7 @@ package transpiler
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"codenerd/internal/mangle"
@@ -37,6 +38,7 @@ func (s *Sanitizer) UpdateFromProgramInfo(info *analysis.ProgramInfo) {
 // 4. Pass 2 - Aggregation Repair: temp_agg -> |> do fn:group_by(...)...
 // 5. Pass 3 - Safety Injection: unsafe(X) :- not safe(X) -> unsafe(X) :- candidate(X), not safe(X)
 // 6. Serialize: specific string formatting
+// 7. Reparse gate: the output must parse, or Sanitize fails
 func (s *Sanitizer) Sanitize(raw string) (string, error) {
 	// 1. Preprocess SQL-style aggregations
 	// Pattern: Res = count(Var) -> llm_agg("count", Res, Var)
@@ -65,7 +67,18 @@ func (s *Sanitizer) Sanitize(raw string) (string, error) {
 	}
 
 	// 4. Serialize
-	return s.serializeUnit(unit.Decls, newClauses)
+	out, err := s.serializeUnit(unit.Decls, newClauses)
+	if err != nil {
+		return "", err
+	}
+	// 5. Reparse gate: a repair that does not parse (e.g. interning a
+	// string with spaces into a bare /atom) must fail here with a clear
+	// error, not travel downstream to fail the sandbox with the evidence
+	// of what the sanitizer did already lost.
+	if _, err := mangle.ParseUnit(strings.NewReader(out)); err != nil {
+		return "", fmt.Errorf("sanitized output does not parse: %w", err)
+	}
+	return out, nil
 }
 
 // aggPattern matches: VAR = count(VAR) or VAR = sum(VAR)
@@ -76,8 +89,54 @@ var aggPattern = regexp.MustCompile(`([A-Z][a-zA-Z0-9_]*)\s*=\s*(count|sum|min|m
 // preprocessAggregations converts invalid `VAR = AGG(VAR)` syntax to a temporary valid predicate `llm_agg`.
 func (s *Sanitizer) preprocessAggregations(raw string) string {
 	// Replacement: llm_agg("FUNC", ResVar, ArgVar)
-	// We quote the func name to make it a string constant
-	return aggPattern.ReplaceAllString(raw, `llm_agg("$2", $1, $3)`)
+	// We quote the func name to make it a string constant.
+	// Matches inside string literals are left alone: rewriting
+	// desc("N = sum(X)") would corrupt data into code.
+	matches := aggPattern.FindAllStringSubmatchIndex(raw, -1)
+	if len(matches) == 0 {
+		return raw
+	}
+	var sb strings.Builder
+	sb.Grow(len(raw) + len(matches)*8)
+	pos := 0
+	for _, m := range matches {
+		if isInsideString(raw, m[0]) {
+			continue
+		}
+		sb.WriteString(raw[pos:m[0]])
+		sb.WriteString(`llm_agg("`)
+		sb.WriteString(raw[m[4]:m[5]])
+		sb.WriteString(`", `)
+		sb.WriteString(raw[m[2]:m[3]])
+		sb.WriteString(`, `)
+		sb.WriteString(raw[m[6]:m[7]])
+		sb.WriteString(`)`)
+		pos = m[1]
+	}
+	sb.WriteString(raw[pos:])
+	return sb.String()
+}
+
+// isInsideString reports whether offset falls inside a double-quoted span,
+// honouring backslash escapes. Unbalanced quotes fail closed (in string).
+func isInsideString(s string, offset int) bool {
+	inString := false
+	escaped := false
+	for i := 0; i < offset && i < len(s); i++ {
+		c := s[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if c == '\\' && inString {
+			escaped = true
+			continue
+		}
+		if c == '"' {
+			inString = !inString
+		}
+	}
+	return inString
 }
 
 // SanitizeAtoms acts as the public entry point for just Atom Interning (Pass 1).
@@ -92,7 +151,14 @@ func (s *Sanitizer) SanitizeAtoms(raw string) (string, error) {
 		newClauses = append(newClauses, s.transformClauseAtoms(clause))
 	}
 
-	return s.serializeUnit(unit.Decls, newClauses)
+	out, err := s.serializeUnit(unit.Decls, newClauses)
+	if err != nil {
+		return "", err
+	}
+	if _, err := mangle.ParseUnit(strings.NewReader(out)); err != nil {
+		return "", fmt.Errorf("sanitized output does not parse: %w", err)
+	}
+	return out, nil
 }
 
 func (s *Sanitizer) transformClauseAtoms(clause ast.Clause) ast.Clause {
@@ -147,13 +213,11 @@ func (s *Sanitizer) transformAtom(atom ast.Atom) ast.Atom {
 						if !strings.HasPrefix(cleanVal, "/") {
 							cleanVal = "/" + cleanVal
 						}
-						// Create new Name constant
-						// Note: ast.Name() constuctor might return error, but here we manually construct
-						// assuming internal structure is similar or use ast factory if available.
-						// Mangle ast.Constant is a struct.
-						newTerm = ast.Constant{
-							Type:   ast.NameType,
-							Symbol: cleanVal,
+						// Build via the constructor so the constant is valid
+						// (hash included). If the string cannot be a name at
+						// all, keep the original: inventing garbage helps no one.
+						if name, err := ast.Name(cleanVal); err == nil {
+							newTerm = name
 						}
 					}
 				}
@@ -172,7 +236,7 @@ func (s *Sanitizer) transformAtom(atom ast.Atom) ast.Atom {
 // It looks for `llm_agg` in premises and moves them to |> do fn:group_by(...), let ...
 func (s *Sanitizer) repairAggregations(clause ast.Clause) (ast.Clause, error) {
 	var cleanPremises []ast.Term
-	var aggInfo *aggDetails
+	var aggInfos []*aggDetails
 
 	for _, term := range clause.Premises {
 		if atom, ok := term.(ast.Atom); ok {
@@ -189,11 +253,11 @@ func (s *Sanitizer) repairAggregations(clause ast.Clause) (ast.Clause, error) {
 						// Remove quotes from function name
 						funcName := strings.Trim(funcConst.Symbol, "\"")
 
-						aggInfo = &aggDetails{
+						aggInfos = append(aggInfos, &aggDetails{
 							Fn:     funcName,
 							Result: resVar,
 							Arg:    argVar,
-						}
+						})
 						// Do NOT append to cleanPremises
 						continue
 					}
@@ -204,20 +268,17 @@ func (s *Sanitizer) repairAggregations(clause ast.Clause) (ast.Clause, error) {
 		cleanPremises = append(cleanPremises, term)
 	}
 
-	if aggInfo == nil {
+	if len(aggInfos) == 0 {
 		return clause, nil
 	}
 
-	// We have an aggregation. We need to construct the transform.
+	// We have aggregations. We need to construct the transform.
 	// Since we can't easily construct ast.Transform nodes (private/complex),
-	// we will use a "Synthetic Transform" strategy:
-	// We will inject a special "Comment" atom that serializeUnit will look for
-	// and write as a pipe.
-	// Or better: We rely on the fact that we return a Clause, and we can't create Transform easily.
-	// So we will Inject a SPECIAL PREMISE that serializeUnit detects.
-	// Marker: sys_emit_pipe("group_by_vars", "func", "res", "arg")
+	// we will use a "Synthetic Transform" strategy: inject a SPECIAL PREMISE
+	// that serializeUnit detects and writes as a pipe.
+	// Marker: sys_emit_pipe("group_by_vars", "func", "res", "arg", ...)
 
-	// infer group_by keys: All variables in Head EXCEPT Result
+	// infer group_by keys: All variables in Head EXCEPT aggregation results
 	headVars := make(map[string]bool)
 	collectVarsFromBaseTerm := func(bt ast.BaseTerm) {
 		if v, ok := bt.(ast.Variable); ok {
@@ -227,20 +288,27 @@ func (s *Sanitizer) repairAggregations(clause ast.Clause) (ast.Clause, error) {
 	for _, arg := range clause.Head.Args {
 		collectVarsFromBaseTerm(arg)
 	}
-	delete(headVars, aggInfo.Result.Symbol)
+	for _, info := range aggInfos {
+		delete(headVars, info.Result.Symbol)
+	}
 
 	groupByKeys := make([]string, 0, len(headVars))
 	for k := range headVars {
 		groupByKeys = append(groupByKeys, k)
 	}
+	sort.Strings(groupByKeys)
 
-	// Create marker atom
-	markerPred := ast.PredicateSym{Symbol: "sys_emit_pipe", Arity: 4}
+	// Marker args: group_by, then one (func, res, arg) triple per aggregation.
+	markerPred := ast.PredicateSym{Symbol: "sys_emit_pipe", Arity: 1 + 3*len(aggInfos)}
 	args := []ast.BaseTerm{
 		ast.Constant{Type: ast.StringType, Symbol: strings.Join(groupByKeys, ",")},
-		ast.Constant{Type: ast.StringType, Symbol: aggInfo.Fn},
-		ast.Constant{Type: ast.StringType, Symbol: aggInfo.Result.Symbol},
-		ast.Constant{Type: ast.StringType, Symbol: aggInfo.Arg.Symbol},
+	}
+	for _, info := range aggInfos {
+		args = append(args,
+			ast.Constant{Type: ast.StringType, Symbol: info.Fn},
+			ast.Constant{Type: ast.StringType, Symbol: info.Result.Symbol},
+			ast.Constant{Type: ast.StringType, Symbol: info.Arg.Symbol},
+		)
 	}
 
 	cleanPremises = append(cleanPremises, ast.Atom{Predicate: markerPred, Args: args})
@@ -258,7 +326,43 @@ type aggDetails struct {
 	Arg    ast.Variable
 }
 
+// parsePipeMarker reads a sys_emit_pipe marker premise: a group-by key list
+// followed by one (func, result, arg) triple per aggregation. Every arg must
+// be a string constant; anything else is a malformed (likely hand-written)
+// marker and fails closed.
+func parsePipeMarker(atom ast.Atom) (string, []*aggDetails, error) {
+	if len(atom.Args) < 4 || (len(atom.Args)-1)%3 != 0 {
+		return "", nil, fmt.Errorf("malformed sys_emit_pipe marker: want 1+3n args, got %d", len(atom.Args))
+	}
+	consts := make([]string, len(atom.Args))
+	for i, arg := range atom.Args {
+		c, ok := arg.(ast.Constant)
+		if !ok || c.Type != ast.StringType {
+			return "", nil, fmt.Errorf("malformed sys_emit_pipe marker: arg %d is not a string constant", i)
+		}
+		consts[i] = c.Symbol
+	}
+	var aggs []*aggDetails
+	for i := 1; i < len(consts); i += 3 {
+		aggs = append(aggs, &aggDetails{
+			Fn:     consts[i],
+			Result: ast.Variable{Symbol: consts[i+1]},
+			Arg:    ast.Variable{Symbol: consts[i+2]},
+		})
+	}
+	return consts[0], aggs, nil
+}
+
 func (s *Sanitizer) rectifySafety(clause ast.Clause) ast.Clause {
+	// Only inject bindings the schema actually provides. An unconditional
+	// candidate_node premise invents a predicate the LLM never wrote and no
+	// schema declares, so the rule fails downstream with a mystifying
+	// "undeclared predicate" instead of the real, actionable unsafe-variable
+	// error. When no generator is known, the rule passes through untouched.
+	if _, known := s.validator.ValidPredicates["candidate_node"]; !known {
+		return clause
+	}
+
 	positiveVars := make(map[string]bool)
 
 	for _, term := range clause.Premises {
@@ -329,22 +433,21 @@ func (s *Sanitizer) serializeUnit(decls []ast.Decl, clauses []ast.Clause) (strin
 
 	for i, c := range clauses {
 		// Check for sys_emit_pipe in premises
-		var params *aggDetails
 		var groupBy string
+		var pipeAggs []*aggDetails
 		var normalPremises []ast.Term
 
 		for _, p := range c.Premises {
 			if atom, ok := p.(ast.Atom); ok && atom.Predicate.Symbol == "sys_emit_pipe" {
-				// Parse marker
-				groupBy = atom.Args[0].(ast.Constant).Symbol
-				fn := atom.Args[1].(ast.Constant).Symbol
-				res := atom.Args[2].(ast.Constant).Symbol
-				arg := atom.Args[3].(ast.Constant).Symbol
-				params = &aggDetails{
-					Fn:     fn,
-					Result: ast.Variable{Symbol: res},
-					Arg:    ast.Variable{Symbol: arg},
+				// Parse marker defensively: the input is untrusted LLM text
+				// and a hand-written sys_emit_pipe with the wrong shape must
+				// error, not panic on a failed type assertion.
+				gb, aggs, err := parsePipeMarker(atom)
+				if err != nil {
+					return "", err
 				}
+				groupBy = gb
+				pipeAggs = append(pipeAggs, aggs...)
 			} else {
 				normalPremises = append(normalPremises, p)
 			}
@@ -360,9 +463,12 @@ func (s *Sanitizer) serializeUnit(decls []ast.Decl, clauses []ast.Clause) (strin
 		sb.WriteString(clauseStr)
 
 		// Append Pipe if needed
-		if params != nil {
-			sb.WriteString(fmt.Sprintf(" |> do fn:group_by(%s), let %s = fn:%s(%s)",
-				groupBy, params.Result.Symbol, params.Fn, params.Arg.Symbol))
+		if len(pipeAggs) > 0 {
+			sb.WriteString(fmt.Sprintf(" |> do fn:group_by(%s)", groupBy))
+			for _, agg := range pipeAggs {
+				sb.WriteString(fmt.Sprintf(", let %s = fn:%s(%s)",
+					agg.Result.Symbol, agg.Fn, agg.Arg.Symbol))
+			}
 		}
 
 		sb.WriteString(".\n")

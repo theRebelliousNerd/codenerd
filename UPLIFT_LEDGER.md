@@ -2153,28 +2153,30 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 ### internal/mangle/simd_intersect_test.go (1)
 - [ ] `internal/mangle/simd_intersect_test.go`
 
-### internal/mangle/synth (13)
-- [ ] `internal/mangle/synth/compile.go`
-- [ ] `internal/mangle/synth/compile_test.go`
-- [ ] `internal/mangle/synth/decoder.go`
+### internal/mangle/synth (14)
+- [x] `internal/mangle/synth/compile.go`
+- [x] `internal/mangle/synth/compile_test.go`
+- [x] `internal/mangle/synth/decoder.go`
 - [ ] `internal/mangle/synth/decoder_fromresponse_test.go`
 - [ ] `internal/mangle/synth/decoder_more_test.go`
 - [ ] `internal/mangle/synth/decoder_test.go`
-- [ ] `internal/mangle/synth/schema.go`
+- [x] `internal/mangle/synth/schema.go`
 - [ ] `internal/mangle/synth/schema_test.go`
-- [ ] `internal/mangle/synth/spec.go`
+- [x] `internal/mangle/synth/spec.go`
 - [ ] `internal/mangle/synth/spec_test.go`
 - [ ] `internal/mangle/synth/synth_test.go`
-- [ ] `internal/mangle/synth/validate.go`
+- [x] `internal/mangle/synth/validate.go`
 - [ ] `internal/mangle/synth/validate_test.go`
+- [x] `internal/mangle/synth/uplift_test.go`
 
 ### internal/mangle/torture_test.go (1)
 - [ ] `internal/mangle/torture_test.go`
 
-### internal/mangle/transpiler (3)
-- [ ] `internal/mangle/transpiler/sanitizer.go`
+### internal/mangle/transpiler (4)
+- [x] `internal/mangle/transpiler/sanitizer.go`
 - [ ] `internal/mangle/transpiler/sanitizer_atoms_test.go`
-- [ ] `internal/mangle/transpiler/sanitizer_test.go`
+- [x] `internal/mangle/transpiler/sanitizer_test.go`
+- [x] `internal/mangle/transpiler/uplift_test.go`
 
 ### internal/mangle/verification_logic_test.go (1)
 - [ ] `internal/mangle/verification_logic_test.go`

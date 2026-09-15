@@ -3,6 +3,8 @@ package transpiler
 import (
 	"strings"
 	"testing"
+
+	"codenerd/internal/mangle"
 )
 
 func TestSanitizeAtoms(t *testing.T) {
@@ -31,6 +33,13 @@ func normalize(s string) string {
 
 func TestInjectSafety(t *testing.T) {
 	s := NewSanitizer()
+	// Injection fires only when the schema provides the generator universe:
+	// registering candidate_node/1 models a kernel that declares it.
+	s.validator.ValidPredicates["candidate_node"] = mangle.PredicateSpec{
+		Name:  "candidate_node",
+		Arity: 1,
+		Args:  []mangle.ArgSpec{{Name: "Node", Type: mangle.ArgTypeVariable}},
+	}
 
 	input := `unsafe(X) :- !safe(X).`
 

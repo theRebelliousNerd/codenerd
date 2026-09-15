@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 var (
@@ -223,6 +225,12 @@ func validateExprSpec(spec ExprSpec, path string) error {
 		if !strings.HasPrefix(spec.Value, "/") {
 			return NewSpecError(path+".value", "name constant must start with '/'")
 		}
+		// Validate the full atom, not just the prefix, so ValidateSpec alone
+		// never blesses a name the builder will reject (e.g. "/Upper" or
+		// names with illegal characters).
+		if _, err := ast.Name(spec.Value); err != nil {
+			return NewSpecError(path+".value", fmt.Sprintf("invalid name constant: %v", err))
+		}
 	case "string":
 		// strings may be empty
 	case "bytes":
@@ -301,6 +309,8 @@ func validateArity(arity *int, argLen int, path string) error {
 	if arity == nil {
 		return nil
 	}
+	// -1 means "any arity": the builder resolves it to the actual arg count
+	// rather than stamping a lying -1 on the function symbol.
 	if *arity == -1 {
 		return nil
 	}

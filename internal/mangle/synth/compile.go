@@ -184,19 +184,27 @@ func buildClause(spec ClauseSpec) (ast.Clause, error) {
 	if err != nil {
 		return ast.Clause{}, err
 	}
-	if len(spec.Body) == 0 {
-		return ast.Clause{Head: head}, nil
-	}
-
-	premises := make([]ast.Term, 0, len(spec.Body))
-	for _, term := range spec.Body {
-		parsed, err := buildTerm(term)
-		if err != nil {
-			return ast.Clause{}, err
+	// Keep premises nil (not empty) for bodyless clauses: the AST
+	// renderer treats a non-nil slice as a rule body and emits " :- ".
+	var premises []ast.Term
+	if len(spec.Body) > 0 {
+		premises = make([]ast.Term, 0, len(spec.Body))
+		for _, term := range spec.Body {
+			parsed, err := buildTerm(term)
+			if err != nil {
+				return ast.Clause{}, err
+			}
+			premises = append(premises, parsed)
 		}
-		premises = append(premises, parsed)
 	}
 
+	// A transform on a bodyless clause is rejected outright. The AST
+	// renderer cannot even print that shape (it emits a bare fact), so
+	// attaching it anyway would reproduce the silent drop one layer down,
+	// past a reparse gate that only ever sees the fact.
+	if spec.Transform != nil && len(spec.Body) == 0 {
+		return ast.Clause{}, NewSpecError("clause.transform", "transform requires a non-empty body")
+	}
 	var transform *ast.Transform
 	if spec.Transform != nil {
 		built, err := buildTransform(*spec.Transform)
@@ -396,7 +404,7 @@ func buildApplyFn(spec ExprSpec) (ast.ApplyFn, error) {
 		args = append(args, parsed)
 	}
 	arity := len(args)
-	if spec.Arity != nil {
+	if spec.Arity != nil && *spec.Arity != -1 {
 		arity = *spec.Arity
 	}
 	return ast.ApplyFn{Function: ast.FunctionSym{Symbol: function, Arity: arity}, Args: args}, nil

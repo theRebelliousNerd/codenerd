@@ -379,6 +379,22 @@ func TestCompile_FullCoverage(t *testing.T) {
 				Format: FormatV1,
 				Program: ProgramSpec{
 					Clauses: []ClauseSpec{{
+						Head: AtomSpec{Pred: "p", Args: []ExprSpec{{Kind: "var", Value: "X"}}},
+						Body: []TermSpec{{Kind: "atom", Atom: &AtomSpec{Pred: "q", Args: []ExprSpec{{Kind: "var", Value: "X"}}}}},
+						Transform: &TransformSpec{
+							Statements: []TransformStmtSpec{{Kind: "let", Var: "X", Fn: ExprSpec{Kind: "apply", Function: "fn:list", Args: []ExprSpec{{Kind: "number", Value: "1"}}}}},
+						},
+					}},
+				},
+			},
+			wantSrc: "p(X) :- q(X) |> let X = fn:list(1).",
+		},
+		{
+			name: "transform on bodyless clause is rejected",
+			spec: Spec{
+				Format: FormatV1,
+				Program: ProgramSpec{
+					Clauses: []ClauseSpec{{
 						Head: AtomSpec{Pred: "p"},
 						Transform: &TransformSpec{
 							Statements: []TransformStmtSpec{{Kind: "let", Var: "X", Fn: ExprSpec{Kind: "apply", Function: "fn:list", Args: []ExprSpec{{Kind: "number", Value: "1"}}}}},
@@ -386,8 +402,10 @@ func TestCompile_FullCoverage(t *testing.T) {
 					}},
 				},
 			},
-			// The current logic apparently doesn't render transform |> correctly, or AST doesn't print it the way expected? Wait... let's just assert on the source it returns.
-			// Actually the other test checks strings.Contains(). Let's keep it simple here.
+			// The AST renderer cannot print a transform without premises (it
+			// emits a bare fact), so compiling one must fail loudly rather
+			// than silently drop the aggregation.
+			wantErr: "transform requires a non-empty body",
 		},
 		{
 			name: "renderPackage",
