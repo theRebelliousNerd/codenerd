@@ -347,6 +347,7 @@ type Cortex struct {
 	mcpDone               <-chan struct{}
 	ouroborosCancel       context.CancelFunc
 	ouroborosDone         <-chan struct{}
+	onDemandStop          func()
 	perceptionInitialized bool
 
 	// meterSink and couseLog are what THIS boot installed into the two
@@ -739,6 +740,9 @@ type bootContext struct {
 	// single source of truth propagated to the session executor, the
 	// spawner, and the Cortex accessor.
 	sessionID string
+	// onDemandStop halts the runtime activate_shard watcher. It is set
+	// where system shards boot and transferred to the Cortex aggregate.
+	onDemandStop func()
 }
 
 func initCoreComponents(bctx *bootContext) error {
@@ -1761,7 +1765,35 @@ func initShardManagement(bctx *bootContext) error {
 	if err := bctx.shardManager.StartSystemShards(bctx.ctx); err != nil {
 		return fmt.Errorf("failed to start system shards: %w", err)
 	}
+	bctx.onDemandStop = startOnDemandWatcher(bctx)
 	return nil
+}
+
+// startOnDemandWatcher subscribes the shard manager to kernel fact events so
+// on-demand system shards (world_model_ingestor, tactile_router,
+// session_planner) actually start when their activate_shard rules derive at
+// runtime. StartSystemShards queries activate_shard once at boot, before any
+// trigger fact exists; without this watcher those derivations fire into a
+// void and the shards never run.
+func startOnDemandWatcher(bctx *bootContext) func() {
+	noop := func() {}
+	if bctx == nil || bctx.shardManager == nil || bctx.kernel == nil {
+		return noop
+	}
+	provider, ok := bctx.kernel.(interface{ GetEventBus() *core.FactEventBus })
+	if !ok || provider == nil {
+		logging.Boot("On-demand shard activation disabled: kernel has no fact event bus")
+		return noop
+	}
+	bus := provider.GetEventBus()
+	if bus == nil {
+		logging.Boot("On-demand shard activation disabled: fact event bus is nil")
+		return noop
+	}
+	mgr := bctx.shardManager
+	return core.StartOnDemandWatcher(bctx.ctx, bus, func(ctx context.Context) []string {
+		return mgr.EnsureOnDemandShards(ctx)
+	})
 }
 
 // registerUserAgentConfigAtoms gives every user-defined agent in
@@ -2222,6 +2254,7 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		mcpDone:               bctx.mcpDone,
 		ouroborosCancel:       bctx.ouroborosCancel,
 		ouroborosDone:         bctx.ouroborosDone,
+		onDemandStop:          bctx.onDemandStop,
 		perceptionInitialized: bctx.perceptionInitialized,
 		sessionID:             bctx.sessionID,
 		meterSink:             bctx.meterSink,

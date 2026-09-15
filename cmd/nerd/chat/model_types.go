@@ -299,7 +299,7 @@ type Model struct {
 	emitter             *articulation.Emitter
 	virtualStore        *core.VirtualStore
 	scanner             *world.Scanner
-	retriever           *retrieval.SparseRetriever // Issue-seed sparse search; boot built one but nothing copied it onto the model
+	retriever           *retrieval.SparseRetriever // Issue-seed sparse search; boot builds it (session_shared_boot.go) and model_update.go copies it here
 	workspace           string
 	DisableSystemShards []string
 	browserMgr          *browser.SessionManager // Browser automation manager

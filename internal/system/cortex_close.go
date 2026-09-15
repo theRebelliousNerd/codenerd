@@ -51,6 +51,18 @@ func (c *Cortex) Close() error {
 		c.UsageTracker = nil
 	}
 
+	// Stop on-demand activation BEFORE draining shards: a trigger landing
+	// mid-shutdown must not spawn a shard into a queue that is stopping.
+	if c.onDemandStop != nil {
+		if err := runCloseStep("OnDemandWatcher.Stop", closeStepTimeout, func() error {
+			c.onDemandStop()
+			return nil
+		}); err != nil {
+			errs = append(errs, err)
+		}
+		c.onDemandStop = nil
+	}
+
 	if c.ShardManager != nil {
 		shardManager := c.ShardManager
 		// Stop admission before workers so the queue cannot start another shard
