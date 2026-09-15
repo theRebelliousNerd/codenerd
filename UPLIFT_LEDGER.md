@@ -1348,7 +1348,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/kernel_fact_decl_test.go`
 
 ### internal/core/kernel_facts.go (1)
-- [ ] `internal/core/kernel_facts.go`
+- [x] `internal/core/kernel_facts.go`
 
 ### internal/core/kernel_facts_gaps_test.go (1)
 - [ ] `internal/core/kernel_facts_gaps_test.go`
@@ -2054,6 +2054,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/mangle/doc600_pin_test.go`
 - [x] `internal/mangle/corpus_gate_test.go`
 - [x] `internal/core/kernel_boot_uplift_test.go`
+- [x] `internal/core/kernel_facts_uplift_test.go`
 
 ### internal/mangle/fact_store_proxy_test.go (1)
 - [ ] `internal/mangle/fact_store_proxy_test.go`

@@ -610,8 +610,13 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 		return nil
 	}
 
-	// First heartbeat for this shard.
-	if !k.addFactIfNewLocked(fact) {
+	// First heartbeat for this shard. A rejection (EDB full, encoding
+	// failure) must surface: the shard would otherwise look dead while
+	// its reporter believes it is alive.
+	if added, addErr := k.addFactIfNewLockedErr(fact); addErr != nil {
+		k.mu.Unlock()
+		return addErr
+	} else if !added {
 		k.mu.Unlock()
 		return nil
 	}
@@ -702,6 +707,10 @@ func (k *RealKernel) AssertString(factStr string) error {
 
 // AssertWithoutEval adds a fact without re-evaluating.
 // Use when batching many facts, then call Evaluate() once at the end.
+//
+// It reports nothing: duplicates, EDB-limit rejections, and encoding
+// failures are all silent. Production safety paths must use
+// assertWithoutEvalChecked and fail closed on its error instead.
 func (k *RealKernel) AssertWithoutEval(fact Fact) {
 	logging.KernelDebug("AssertWithoutEval: %s (deferred evaluation)", fact.Predicate)
 	k.mu.Lock()
@@ -761,8 +770,35 @@ func (k *RealKernel) Evaluate() error {
 	return nil
 }
 
+// filterFactsLocked removes every fact for which keep returns false, using an
+// in-place compaction that preserves EDB order. It rebuilds the dedupe index
+// and zeroes the truncated tail for GC. Call only while holding k.mu.
+//
+// The atom cache is deliberately NOT maintained here: every retract path
+// funnels through rebuild(), which invalidates it.
+func (k *RealKernel) filterFactsLocked(keep func(Fact) bool) (removed int) {
+	prevCount := len(k.facts)
+	newLen := 0
+	for _, f := range k.facts {
+		if !keep(f) {
+			removed++
+			continue
+		}
+		k.facts[newLen] = f
+		newLen++
+	}
+	if removed == 0 {
+		return 0
+	}
+	for i := newLen; i < prevCount; i++ {
+		k.facts[i] = Fact{}
+	}
+	k.facts = k.facts[:newLen]
+	k.rebuildFactIndexLocked()
+	return removed
+}
+
 // Retract removes all facts of a given predicate.
-// OPTIMIZATION: Maintains atom cache instead of rebuilding entire index.
 func (k *RealKernel) Retract(predicate string) error {
 	// Skip per-retract debug for high-frequency no-op retractions
 
@@ -770,48 +806,13 @@ func (k *RealKernel) Retract(predicate string) error {
 	defer k.mu.Unlock()
 
 	prevCount := len(k.facts)
-	retractedCount := 0
-	newFactsLen := 0
-	newAtomsLen := 0
-
-	// Filter facts and atoms in parallel
-	hasCachedAtoms := len(k.cachedAtoms) == prevCount && prevCount > 0
-	for i, f := range k.facts {
-		if f.Predicate != predicate {
-			k.facts[newFactsLen] = f
-			if hasCachedAtoms {
-				k.cachedAtoms[newAtomsLen] = k.cachedAtoms[i]
-				newAtomsLen++
-			}
-			newFactsLen++
-		} else {
-			retractedCount++
-		}
-	}
+	retractedCount := k.filterFactsLocked(func(f Fact) bool {
+		return f.Predicate != predicate
+	})
 
 	if retractedCount == 0 {
 		// Empty retract is a no-op — suppress debug to avoid log spam
 		return nil
-	}
-
-	// Zero tail to release references for GC.
-	for i := newFactsLen; i < prevCount; i++ {
-		k.facts[i] = Fact{}
-		if hasCachedAtoms {
-			k.cachedAtoms[i] = ast.Atom{} // Zero value for ast.Atom
-		}
-	}
-	k.facts = k.facts[:newFactsLen]
-	if hasCachedAtoms {
-		k.cachedAtoms = k.cachedAtoms[:newAtomsLen]
-	} else {
-		k.cachedAtoms = nil
-	}
-
-	// OPTIMIZATION: Incremental index update instead of full rebuild
-	if retractedCount > 0 && k.factIndex != nil {
-		// Rebuild index only for removed predicate
-		k.rebuildFactIndexLocked()
 	}
 
 	logging.KernelDebug("Retract: removed %d facts (predicate=%s), EDB: %d -> %d facts",
@@ -839,29 +840,18 @@ func (k *RealKernel) RetractFact(fact Fact) error {
 	}
 
 	prevCount := len(k.facts)
-	retractedCount := 0
-	newLen := 0
-	for _, f := range k.facts {
+	retractedCount := k.filterFactsLocked(func(f Fact) bool {
 		// Keep facts that don't match predicate OR don't match first argument
 		if f.Predicate != fact.Predicate {
-			k.facts[newLen] = f
-			newLen++
-			continue
+			return true
 		}
 		// Same predicate - check first argument
 		if len(f.Args) > 0 && len(fact.Args) > 0 {
-			if !argsEqual(f.Args[0], fact.Args[0]) {
-				k.facts[newLen] = f
-				newLen++
-			} else {
-				retractedCount++
-			}
-			// Matching predicate and first arg - don't add (retract it)
-		} else {
-			k.facts[newLen] = f
-			newLen++
+			// Matching predicate and first arg - don't keep (retract it)
+			return !argsEqual(f.Args[0], fact.Args[0])
 		}
-	}
+		return true
+	})
 
 	if retractedCount == 0 {
 		firstArg := any(nil)
@@ -871,13 +861,6 @@ func (k *RealKernel) RetractFact(fact Fact) error {
 		logging.KernelDebug("RetractFact: no matching facts found (predicate=%s firstArg=%v)", fact.Predicate, firstArg)
 		return nil
 	}
-
-	// Zero tail to release references for GC.
-	for i := newLen; i < prevCount; i++ {
-		k.facts[i] = Fact{}
-	}
-	k.facts = k.facts[:newLen]
-	k.rebuildFactIndexLocked()
 
 	logging.KernelDebug("RetractFact: removed %d facts, EDB: %d -> %d facts",
 		retractedCount, prevCount, len(k.facts))
@@ -905,19 +888,9 @@ func (k *RealKernel) RetractExactFact(fact Fact) error {
 	}
 
 	prevCount := len(k.facts)
-	filtered := make([]Fact, 0, prevCount)
-	retractedCount := 0
-	for _, f := range k.facts {
-		if f.Predicate != fact.Predicate || !argsSliceEqual(f.Args, fact.Args) {
-			filtered = append(filtered, f)
-			continue
-		}
-		retractedCount++
-	}
-	k.facts = filtered
-	if retractedCount > 0 {
-		k.rebuildFactIndexLocked()
-	}
+	retractedCount := k.filterFactsLocked(func(f Fact) bool {
+		return f.Predicate != fact.Predicate || !argsSliceEqual(f.Args, fact.Args)
+	})
 
 	logging.KernelDebug("RetractExactFact: removed %d facts, EDB: %d -> %d facts",
 		retractedCount, prevCount, len(k.facts))
@@ -948,19 +921,10 @@ func (k *RealKernel) RetractExactFactsBatch(facts []Fact) error {
 	}
 
 	prevCount := len(k.facts)
-	filtered := make([]Fact, 0, prevCount)
-	retractedCount := 0
-	for _, f := range k.facts {
-		if _, ok := toRemove[k.canonFact(f)]; ok {
-			retractedCount++
-			continue
-		}
-		filtered = append(filtered, f)
-	}
-	k.facts = filtered
-	if retractedCount > 0 {
-		k.rebuildFactIndexLocked()
-	}
+	retractedCount := k.filterFactsLocked(func(f Fact) bool {
+		_, ok := toRemove[k.canonFact(f)]
+		return !ok
+	})
 
 	logging.KernelDebug("RetractExactFactsBatch: removed %d facts, EDB: %d -> %d facts",
 		retractedCount, prevCount, len(k.facts))
@@ -985,19 +949,10 @@ func (k *RealKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) e
 	defer k.mu.Unlock()
 
 	prevCount := len(k.facts)
-	filtered := make([]Fact, 0, prevCount)
-	retractedCount := 0
-	for _, f := range k.facts {
-		if _, ok := predicates[f.Predicate]; ok {
-			retractedCount++
-			continue
-		}
-		filtered = append(filtered, f)
-	}
-	k.facts = filtered
-	if retractedCount > 0 {
-		k.rebuildFactIndexLocked()
-	}
+	retractedCount := k.filterFactsLocked(func(f Fact) bool {
+		_, ok := predicates[f.Predicate]
+		return !ok
+	})
 
 	logging.KernelDebug("RemoveFactsByPredicateSet: removed %d facts, EDB: %d -> %d facts",
 		retractedCount, prevCount, len(k.facts))
@@ -1313,36 +1268,4 @@ func (k *RealKernel) GetAllFactsSeq() iter.Seq[Fact] {
 // When true, the next Query/QueryAll will trigger a lazy re-evaluation.
 func (k *RealKernel) IsDirty() bool {
 	return k.factsDirty.Load()
-}
-
-// LoadSchemas replaces the kernel's schema content and marks it for reparse.
-// This is used by KernelShard to load domain-specific schemas.
-func (k *RealKernel) LoadSchemas(schemaContent string) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	k.schemas = schemaContent
-	k.policyDirty = true // Force reparse since schemas changed
-	logging.KernelDebug("LoadSchemas: replaced schemas (%d bytes), policyDirty=true", len(schemaContent))
-}
-
-// AppendSchema appends additional schema declarations to the kernel's existing schemas.
-// Unlike LoadSchemas, this preserves all existing schemas (e.g., the 277KB Cortex defaults)
-// and adds new declarations on top. Use this for tests or extensions that need to add
-// one or two predicates without wiping out the entire schema corpus.
-func (k *RealKernel) AppendSchema(schemaContent string) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	k.schemas += "\n" + schemaContent
-	k.policyDirty = true // Force reparse since schemas changed
-	logging.KernelDebug("AppendSchema: appended %d bytes to schemas (total %d bytes), policyDirty=true", len(schemaContent), len(k.schemas))
-}
-
-// LoadPolicy replaces the kernel's policy content and marks it for reparse.
-// This is used by KernelShard to load domain-specific policy rules.
-func (k *RealKernel) LoadPolicy(policyContent string) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	k.policy = policyContent
-	k.policyDirty = true // Force reparse since policy changed
-	logging.KernelDebug("LoadPolicy: replaced policy (%d bytes), policyDirty=true", len(policyContent))
 }

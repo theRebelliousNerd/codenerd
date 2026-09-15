@@ -506,3 +506,39 @@ func (k *RealKernel) SetLearned(learned string) {
 	k.policyDirty = true
 	k.refreshSchemaValidatorLocked()
 }
+
+// -----------------------------------------------------------------------------
+// Schema / policy content setters
+// -----------------------------------------------------------------------------
+
+// LoadSchemas replaces the kernel's schema content and marks it for reparse.
+// This is used by KernelShard to load domain-specific schemas.
+func (k *RealKernel) LoadSchemas(schemaContent string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.schemas = schemaContent
+	k.policyDirty = true // Force reparse since schemas changed
+	logging.KernelDebug("LoadSchemas: replaced schemas (%d bytes), policyDirty=true", len(schemaContent))
+}
+
+// AppendSchema appends additional schema declarations to the kernel's existing schemas.
+// Unlike LoadSchemas, this preserves all existing schemas (e.g., the 277KB Cortex defaults)
+// and adds new declarations on top. Use this for tests or extensions that need to add
+// one or two predicates without wiping out the entire schema corpus.
+func (k *RealKernel) AppendSchema(schemaContent string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.schemas += "\n" + schemaContent
+	k.policyDirty = true // Force reparse since schemas changed
+	logging.KernelDebug("AppendSchema: appended %d bytes to schemas (total %d bytes), policyDirty=true", len(schemaContent), len(k.schemas))
+}
+
+// LoadPolicy replaces the kernel's policy content and marks it for reparse.
+// This is used by KernelShard to load domain-specific policy rules.
+func (k *RealKernel) LoadPolicy(policyContent string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.policy = policyContent
+	k.policyDirty = true // Force reparse since policy changed
+	logging.KernelDebug("LoadPolicy: replaced policy (%d bytes), policyDirty=true", len(policyContent))
+}

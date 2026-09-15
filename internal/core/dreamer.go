@@ -26,6 +26,7 @@ type DreamResult struct {
 type Dreamer struct {
 	mu                sync.RWMutex
 	kernel            *RealKernel
+	criticalPathsReady bool // every critical_path_prefix fact landed in kernel; SimulateAction refuses to run blind without them
 	router            *DreamRouter            // Routes confirmed learnings to persistence stores
 	planManager       *DreamPlanManager       // Manages dream plan lifecycle and execution state
 	learningCollector *DreamLearningCollector // Extracts learnings from dream consultations
@@ -121,24 +122,37 @@ var criticalPathPrefixes = []string{
 // assertCriticalPathFacts populates the Mangle critical_path_prefix(Prefix) schema
 // from the Go hardcoded constants, giving policy rules visibility into critical paths.
 func (d *Dreamer) assertCriticalPathFacts() {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.assertCriticalPathFactsLocked()
 }
 
 // assertCriticalPathFactsLocked does the actual assertion without locking.
-// Caller must hold d.mu.
+// Caller must hold d.mu (write: it records criticalPathsReady).
+//
+// A dropped critical_path_prefix fact blinds every panic_state rule that
+// joins on it, so deletions of catastrophic paths would simulate as safe.
+// Staging is checked, not fire-and-forget: any failure clears
+// criticalPathsReady and SimulateAction refuses to run until a kernel with
+// the full set is attached.
 func (d *Dreamer) assertCriticalPathFactsLocked() {
+	d.criticalPathsReady = false
 	if d.kernel == nil {
 		return
 	}
 	for _, prefix := range criticalPathPrefixes {
-		d.kernel.AssertWithoutEval(Fact{
+		if err := d.kernel.assertWithoutEvalChecked(Fact{
 			Predicate: "critical_path_prefix",
 			Args:      []any{prefix},
-		})
+		}); err != nil {
+			logging.Get(logging.CategoryDream).Error(
+				"Dreamer: critical_path_prefix %q rejected by kernel: %v; simulations refused until repaired",
+				prefix, err)
+			return
+		}
 	}
 	d.kernel.Evaluate()
+	d.criticalPathsReady = true
 	logging.DreamDebug("Dreamer: asserted %d critical_path_prefix facts", len(criticalPathPrefixes))
 }
 
@@ -218,6 +232,20 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 	if kernel == nil {
 		result.Unsafe = true
 		result.Reason = "dreamer kernel unavailable"
+		logging.Get(logging.CategoryDream).Error("SimulateAction: %s", result.Reason)
+		timer.Stop()
+		return result
+	}
+
+	// Critical-path facts missing -> fail closed. Without them the
+	// panic_state rules that guard catastrophic deletions match nothing
+	// and every deletion simulates as safe.
+	d.mu.RLock()
+	ready := d.criticalPathsReady
+	d.mu.RUnlock()
+	if !ready {
+		result.Unsafe = true
+		result.Reason = "dreamer critical path facts missing; refusing blind simulation"
 		logging.Get(logging.CategoryDream).Error("SimulateAction: %s", result.Reason)
 		timer.Stop()
 		return result
