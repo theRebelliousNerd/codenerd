@@ -1330,7 +1330,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/kernel_cache_sync_test.go`
 
 ### internal/core/kernel_eval.go (1)
-- [ ] `internal/core/kernel_eval.go`
+- [x] `internal/core/kernel_eval.go`
 
 ### internal/core/kernel_eval_demote_test.go (1)
 - [ ] `internal/core/kernel_eval_demote_test.go`
@@ -2057,6 +2057,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/kernel_facts_uplift_test.go`
 - [x] `internal/core/kernel_sysfacts.go`
 - [x] `internal/core/kernel_query_uplift_test.go`
+- [x] `internal/core/kernel_eval_uplift_test.go`
 
 ### internal/mangle/fact_store_proxy_test.go (1)
 - [ ] `internal/mangle/fact_store_proxy_test.go`

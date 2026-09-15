@@ -44,6 +44,17 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 		return nil, err
 	}
 	k.mu.RLock()
+	if !k.initialized && k.programInfo != nil {
+		// Cleared kernel: the program survived but the EDB was wiped.
+		// Re-evaluate lazily instead of erroring. A never-booted kernel
+		// (no programInfo) has nothing to evaluate and still errors below.
+		k.mu.RUnlock()
+		k.factsDirty.Store(true)
+		if err := k.ensureEvaluated(); err != nil {
+			return nil, err
+		}
+		k.mu.RLock()
+	}
 	defer k.mu.RUnlock()
 
 	if !k.initialized {
@@ -238,6 +249,17 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 		return err
 	}
 	k.mu.RLock()
+	if !k.initialized && k.programInfo != nil {
+		// Cleared kernel: the program survived but the EDB was wiped.
+		// Re-evaluate lazily instead of erroring. A never-booted kernel
+		// (no programInfo) has nothing to evaluate and still errors below.
+		k.mu.RUnlock()
+		k.factsDirty.Store(true)
+		if err := k.ensureEvaluated(); err != nil {
+			return err
+		}
+		k.mu.RLock()
+	}
 	defer k.mu.RUnlock()
 
 	if !k.initialized {
@@ -320,6 +342,17 @@ func (k *RealKernel) QueryAll() (map[string][]Fact, error) {
 		return nil, err
 	}
 	k.mu.RLock()
+	if !k.initialized && k.programInfo != nil {
+		// Cleared kernel: the program survived but the EDB was wiped.
+		// Re-evaluate lazily instead of erroring. A never-booted kernel
+		// (no programInfo) has nothing to evaluate and still errors below.
+		k.mu.RUnlock()
+		k.factsDirty.Store(true)
+		if err := k.ensureEvaluated(); err != nil {
+			return nil, err
+		}
+		k.mu.RLock()
+	}
 	defer k.mu.RUnlock()
 
 	if !k.initialized {

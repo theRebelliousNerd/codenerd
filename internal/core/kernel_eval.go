@@ -44,36 +44,43 @@ var programBuilderPool = sync.Pool{
 	New: func() any { return &strings.Builder{} },
 }
 
+// writeProgramLocked appends schemas, policy, and learned rules to sb in
+// canonical order. It is the single assembly point shared by rebuildProgram
+// and buildDiffEngineLocked: the diff engine's predicate index must match
+// the kernel's programInfo exactly, so the order lives in exactly one
+// place. Caller must hold k.mu (or the kernel is not yet shared).
+func (k *RealKernel) writeProgramLocked(sb *strings.Builder) {
+	// STRATIFIED TRUST: Load order ensures Constitution has priority
+	if k.schemas != "" {
+		sb.WriteString(k.schemas)
+		sb.WriteString("\n")
+		logging.KernelDebug("program: included schemas (%d bytes)", len(k.schemas))
+	}
+	if k.policy != "" {
+		sb.WriteString(k.policy)
+		sb.WriteString("\n")
+		logging.KernelDebug("program: included policy (%d bytes)", len(k.policy))
+	}
+	// Load learned rules AFTER constitution (stratified trust)
+	if k.learned != "" {
+		sb.WriteString("# Learned Rules (Autopoiesis Layer - Stratified Trust)\n")
+		sb.WriteString(k.learned)
+		logging.KernelDebug("program: included learned rules (%d bytes)", len(k.learned))
+	}
+}
+
 // rebuildProgram parses schemas+policy and caches programInfo.
 // This is only called when policyDirty is true.
+// Caller must hold k.mu, or the kernel must not be shared yet (boot, sandbox trial).
 func (k *RealKernel) rebuildProgram() error {
 	timer := logging.StartTimer(logging.CategoryKernel, "rebuildProgram")
 	logging.Kernel("Rebuilding Mangle program (parsing schemas+policy+learned)")
 
 	// Construct program from schemas + policy + learned (no facts)
-	// STRATIFIED TRUST: Load order ensures Constitution has priority
 	sb := programBuilderPool.Get().(*strings.Builder)
 	sb.Reset()
 	defer programBuilderPool.Put(sb)
-
-	if k.schemas != "" {
-		sb.WriteString(k.schemas)
-		sb.WriteString("\n")
-		logging.KernelDebug("rebuildProgram: included schemas (%d bytes)", len(k.schemas))
-	}
-
-	if k.policy != "" {
-		sb.WriteString(k.policy)
-		sb.WriteString("\n")
-		logging.KernelDebug("rebuildProgram: included policy (%d bytes)", len(k.policy))
-	}
-
-	// Load learned rules AFTER constitution (stratified trust)
-	if k.learned != "" {
-		sb.WriteString("# Learned Rules (Autopoiesis Layer - Stratified Trust)\n")
-		sb.WriteString(k.learned)
-		logging.KernelDebug("rebuildProgram: included learned rules (%d bytes)", len(k.learned))
-	}
+	k.writeProgramLocked(sb)
 
 	programStr := sb.String()
 	logging.KernelDebug("rebuildProgram: total program size = %d bytes", len(programStr))
@@ -169,6 +176,8 @@ func (k *RealKernel) rebuildProgram() error {
 // stable policy and a non-invalidated diff engine, this routes to
 // evaluateDiff(), which uses DifferentialEngine.ApplyDelta on the facts
 // asserted since the last evaluate(). Otherwise the full-rebuild path runs.
+//
+// Caller must hold k.mu, or the kernel must not be shared yet (boot).
 func (k *RealKernel) evaluate() error {
 	started := time.Now()
 	stats := EvaluationStats{Mode: "full", InputFacts: len(k.facts), DeltaFacts: len(k.factsSinceLastEval)}
@@ -501,20 +510,10 @@ func (k *RealKernel) buildDiffEngineLocked() (*manglepkg.DifferentialEngine, err
 		return nil, fmt.Errorf("diff: NewEngine: %w", err)
 	}
 
-	// Construct schemas+policy+learned in the same order rebuildProgram uses.
+	// Assemble the identical program rebuildProgram parses, from the same
+	// single source, so the predicate index matches programInfo exactly.
 	var sb strings.Builder
-	if k.schemas != "" {
-		sb.WriteString(k.schemas)
-		sb.WriteString("\n")
-	}
-	if k.policy != "" {
-		sb.WriteString(k.policy)
-		sb.WriteString("\n")
-	}
-	if k.learned != "" {
-		sb.WriteString("# Learned Rules (Autopoiesis Layer - Stratified Trust)\n")
-		sb.WriteString(k.learned)
-	}
+	k.writeProgramLocked(&sb)
 	if err := eng.LoadSchemaString(sb.String()); err != nil {
 		return nil, fmt.Errorf("diff: LoadSchemaString: %w", err)
 	}
@@ -655,16 +654,26 @@ func (k *RealKernel) GetStore() factstore.FactStore {
 	return k.store
 }
 
-// Clear removes all facts from the kernel (but keeps schemas/policy).
-func (k *RealKernel) Clear() {
-	k.mu.Lock()
-	defer k.mu.Unlock()
+// clearFactsLocked empties the EDB while retaining schemas, policy, and
+// learned rules. It marks factsDirty so the next read lazily re-evaluates
+// to a fresh empty store; without that, reads after a clear would error
+// with "kernel not initialized". Caller must hold k.mu.
+func (k *RealKernel) clearFactsLocked(reason string) {
 	k.facts = make([]Fact, 0)
 	k.cachedAtoms = make([]ast.Atom, 0) // OPTIMIZATION: Clear atom cache
 	k.factIndex = make(map[string]struct{})
 	k.store = factstore.NewSimpleInMemoryStore()
 	k.initialized = false
-	k.invalidateDiffEngineLocked("Clear")
+	// factsDirty stays as-is (Clear does not set dirty): the !initialized
+	// state alone drives the next read to re-evaluate via ensureEvaluated.
+	k.invalidateDiffEngineLocked(reason)
+}
+
+// Clear removes all facts from the kernel (but keeps schemas/policy).
+func (k *RealKernel) Clear() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.clearFactsLocked("Clear")
 	logging.KernelDebug("Kernel cleared (facts removed, schemas/policy retained)")
 }
 
@@ -676,12 +685,7 @@ func (k *RealKernel) Reset() {
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	k.facts = make([]Fact, 0)
-	k.cachedAtoms = make([]ast.Atom, 0) // OPTIMIZATION: Clear atom cache
-	k.factIndex = make(map[string]struct{})
-	k.store = factstore.NewSimpleInMemoryStore()
-	k.initialized = false
-	k.invalidateDiffEngineLocked("Reset")
+	k.clearFactsLocked("Reset")
 	// Keep schemas, policy, learned - only reset facts
 	logging.KernelDebug("Kernel reset (facts cleared, policy retained)")
 }
@@ -706,11 +710,13 @@ func (k *RealKernel) Clone() *RealKernel {
 		policy:            k.policy,
 		learned:           k.learned,
 		loadedPolicyFiles: make(map[string]struct{}, len(k.loadedPolicyFiles)),
+		sandbox:           k.sandbox, // A clone of a trial kernel is still a trial kernel
 		schemaValidator:   k.schemaValidator, // Share validator (read-only)
 		initialized:       k.initialized,
 		manglePath:        k.manglePath,
 		workspaceRoot:     k.workspaceRoot,
 		policyDirty:       k.policyDirty,
+		derivedFactLimit:  k.derivedFactLimit, // Custom inference ceilings must survive cloning
 		maxFacts:          k.maxFacts,
 		// factsDirty is atomic.Bool — cannot be copied by value; set on the clone below.
 		userLearnedPath:   k.userLearnedPath,
@@ -718,6 +724,11 @@ func (k *RealKernel) Clone() *RealKernel {
 		repairInterceptor: k.repairInterceptor, // Share interceptor
 		virtualStore:      k.virtualStore,
 		simulateCommitErr: k.simulateCommitErr,
+		eventBus:          NewFactEventBus(), // Fresh bus: every kernel needs a non-nil one
+		diffPathDemoted:   k.diffPathDemoted, // Keep a measured demotion; the clone holds the same EDB
+		// Deliberately fresh: diff engine state (rebuilt lazily), proof
+		// recorder (sharing it would race), lastEvaluation, undeclared
+		// warnings (re-warn on the clone is benign).
 	}
 	// Mirror atomic factsDirty state onto the clone (atomic.Bool can't be copied).
 	clone.factsDirty.Store(k.factsDirty.Load())
@@ -785,12 +796,16 @@ func deepCopyArg(arg any) any {
 	}
 }
 
-// ClearSchemas removes all loaded schemas and policy from the kernel.
+// ClearSchemas removes all loaded schemas, policy, and learned rules from
+// the kernel. Learned rules are cleared too: they reference schema
+// predicates, so keeping them across a schema swap would fail the next
+// analysis with undeclared predicates.
 func (k *RealKernel) ClearSchemas() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.schemas = ""
 	k.policy = ""
+	k.learned = ""
 	k.programInfo = nil
 	k.policyDirty = true
 	k.invalidateDiffEngineLocked("ClearSchemas")
