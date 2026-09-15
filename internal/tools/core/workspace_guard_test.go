@@ -167,3 +167,9 @@ func TestWorkspaceRoot_PrefersContext(t *testing.T) {
 		t.Errorf("expected root path %q, got %q", want, got)
 	}
 }
+
+// TODO: Test Null/Undefined/Empty: What happens if inputs are null bytes or zero-width spaces?
+// TODO: Test Type Coercion/Encoding: What happens if invalid UTF-8 sequences are passed as paths?
+// TODO: Test User request Extremes: Extreme length paths (>4096 bytes) and deeply nested traversals.
+// TODO: Test User request Extremes: Windows reserved device names (CON, PRN, AUX) regardless of host OS.
+// TODO: Test State Conflicts: Race Conditions (TOCTOU attacks) during symlink evaluation.
