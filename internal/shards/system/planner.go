@@ -177,15 +177,17 @@ func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string,
 		s.Kernel = kernel
 	}
 
-	// Parse task for initial goal or campaign
-	// Skip decomposition for system_start - it's just a startup signal, not a goal
-	if task != "" && task != "system_start" {
+	// Parse task for initial goal or campaign. Lifecycle labels (boot and
+	// on-demand activation) are startup signals, not goals: decomposing them
+	// would burn an LLM call on a nonsense agenda. The planner awaits real
+	// goals via task/campaign facts either way.
+	if task != "" && task != "system_start" && task != "on_demand_activation" {
 		logging.SystemShards("[SessionPlanner] Initializing from task: %s", truncateForLog(task, 100))
 		if err := s.initializeFromTask(ctx, task); err != nil {
 			logging.Get(logging.CategorySystemShards).Error("[SessionPlanner] Failed to initialize: %v", err)
 			return "", fmt.Errorf("failed to initialize: %w", err)
 		}
-	} else if task == "system_start" {
+	} else if task == "system_start" || task == "on_demand_activation" {
 		logging.SystemShards("[SessionPlanner] System startup - awaiting goals")
 	}
 
