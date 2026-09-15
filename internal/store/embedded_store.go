@@ -132,18 +132,24 @@ func (s *EmbeddedCorpusStore) Search(queryEmbedding []float32, topK int) ([]Sema
 	// Encode query embedding as binary blob for sqlite-vec
 	queryBlob := encodeFloat32SliceToBlob(queryEmbedding)
 
-	// Query using sqlite-vec's vec_distance_cosine function
-	// The corpus table schema:
-	//   vec_corpus(embedding, text_content, predicate, verb, target, category)
+	// Query using sqlite-vec's vec_distance_cosine function.
+	// True artifact schemas (see cmd/tools/corpus_builder):
+	//   vec_corpus(embedding, content, predicate, verb)          -- ANN index
+	//   corpus_embeddings(predicate, text_content, verb, target, category, ...)
+	// ANN ordering comes from the vec table; full columns are enriched via
+	// JOIN. Every vec row was inserted right after its corpus_embeddings row,
+	// so the (content, predicate) key always resolves.
 	query := `
 		SELECT
-			text_content,
-			predicate,
-			verb,
-			target,
-			category,
-			vec_distance_cosine(embedding, ?) AS distance
-		FROM vec_corpus
+			v.content,
+			v.predicate,
+			COALESCE(v.verb, ''),
+			COALESCE(ce.target, ''),
+			COALESCE(ce.category, ''),
+			COALESCE(vec_distance_cosine(v.embedding, ?), 1.0) AS distance
+		FROM vec_corpus v
+		LEFT JOIN corpus_embeddings ce
+			ON ce.text_content = v.content AND ce.predicate = v.predicate
 		ORDER BY distance ASC
 		LIMIT ?
 	`
@@ -213,14 +219,16 @@ func (s *EmbeddedCorpusStore) SearchByPredicate(queryEmbedding []float32, predic
 	// Query with predicate filter
 	query := `
 		SELECT
-			text_content,
-			predicate,
-			verb,
-			target,
-			category,
-			vec_distance_cosine(embedding, ?) AS distance
-		FROM vec_corpus
-		WHERE predicate = ?
+			v.content,
+			v.predicate,
+			COALESCE(v.verb, ''),
+			COALESCE(ce.target, ''),
+			COALESCE(ce.category, ''),
+			COALESCE(vec_distance_cosine(v.embedding, ?), 1.0) AS distance
+		FROM vec_corpus v
+		LEFT JOIN corpus_embeddings ce
+			ON ce.text_content = v.content AND ce.predicate = v.predicate
+		WHERE v.predicate = ?
 		ORDER BY distance ASC
 		LIMIT ?
 	`
@@ -286,16 +294,19 @@ func (s *EmbeddedCorpusStore) SearchByCategory(queryEmbedding []float32, categor
 
 	queryBlob := encodeFloat32SliceToBlob(queryEmbedding)
 
+	// Category lives only in corpus_embeddings, so the filter applies there.
 	query := `
 		SELECT
-			text_content,
-			predicate,
-			verb,
-			target,
-			category,
-			vec_distance_cosine(embedding, ?) AS distance
-		FROM vec_corpus
-		WHERE category = ?
+			v.content,
+			v.predicate,
+			COALESCE(v.verb, ''),
+			COALESCE(ce.target, ''),
+			COALESCE(ce.category, ''),
+			COALESCE(vec_distance_cosine(v.embedding, ?), 1.0) AS distance
+		FROM vec_corpus v
+		JOIN corpus_embeddings ce
+			ON ce.text_content = v.content AND ce.predicate = v.predicate
+		WHERE ce.category = ?
 		ORDER BY distance ASC
 		LIMIT ?
 	`
@@ -362,8 +373,8 @@ func (s *EmbeddedCorpusStore) GetStats() (map[string]any, error) {
 	}
 	stats["total_entries"] = totalEntries
 
-	// Entries by category
-	categoryRows, err := s.db.Query("SELECT category, COUNT(*) FROM vec_corpus GROUP BY category")
+	// Entries by category (category exists only in the full-fidelity table)
+	categoryRows, err := s.db.Query("SELECT category, COUNT(*) FROM corpus_embeddings GROUP BY category")
 	if err == nil {
 		categories := make(map[string]int64)
 		for categoryRows.Next() {
@@ -378,7 +389,7 @@ func (s *EmbeddedCorpusStore) GetStats() (map[string]any, error) {
 	}
 
 	// Entries by verb
-	verbRows, err := s.db.Query("SELECT verb, COUNT(*) FROM vec_corpus GROUP BY verb ORDER BY COUNT(*) DESC LIMIT 20")
+	verbRows, err := s.db.Query("SELECT verb, COUNT(*) FROM corpus_embeddings GROUP BY verb ORDER BY COUNT(*) DESC LIMIT 20")
 	if err == nil {
 		verbs := make(map[string]int64)
 		for verbRows.Next() {
