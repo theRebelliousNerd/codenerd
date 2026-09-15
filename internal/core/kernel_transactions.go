@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 
 	"codenerd/internal/logging"
@@ -74,7 +75,16 @@ func (tx *KernelTransaction) Assert(fact Fact) {
 
 // Commit applies all buffered operations atomically under a single lock,
 // then triggers exactly one rebuild()/evaluate().
+//
+// Validation runs before any mutation: a no-args RetractFact would otherwise
+// silently remove a whole predicate (RealKernel.RetractFact rejects those
+// outright). Assert rejections are reported AssertBatch-style — the good
+// facts still land, but the caller learns which ones did not — and asserted
+// predicates are published on the event bus like any other Assert.
 func (tx *KernelTransaction) Commit() error {
+	if tx == nil || tx.kernel == nil {
+		return fmt.Errorf("transaction commit: nil transaction or kernel")
+	}
 	if tx.committed {
 		return fmt.Errorf("transaction already committed")
 	}
@@ -85,8 +95,13 @@ func (tx *KernelTransaction) Commit() error {
 		return k.simulateCommitErr
 	}
 
+	for _, rf := range tx.retractFacts {
+		if len(rf.Args) == 0 {
+			return fmt.Errorf("transaction rejected: retractFact %s has no args (would remove the whole predicate)", rf.Predicate)
+		}
+	}
+
 	k.mu.Lock()
-	defer k.mu.Unlock()
 
 	timer := logging.StartTimer(logging.CategoryKernel, "Transaction.Commit")
 	defer timer.Stop()
@@ -95,56 +110,66 @@ func (tx *KernelTransaction) Commit() error {
 
 	// Phase 1: Retracts (by full predicate)
 	for _, pred := range tx.retractPredicates {
-		if tx.retractByPredicateLocked(k, pred) {
+		if k.compactFactsLocked(func(f Fact) bool { return f.Predicate != pred }) > 0 {
 			mutated = true
 		}
 	}
 
 	// Phase 2: Retracts (by predicate set)
 	if len(tx.retractPredicateSet) > 0 {
-		for _, f := range k.facts {
-			if _, ok := tx.retractPredicateSet[f.Predicate]; ok {
-				mutated = true
-				break
-			}
-		}
-		if mutated {
-			filtered := make([]Fact, 0, len(k.facts))
-			for _, f := range k.facts {
-				if _, ok := tx.retractPredicateSet[f.Predicate]; !ok {
-					filtered = append(filtered, f)
-				}
-			}
-			k.facts = filtered
+		if k.compactFactsLocked(func(f Fact) bool {
+			_, ok := tx.retractPredicateSet[f.Predicate]
+			return !ok
+		}) > 0 {
+			mutated = true
 		}
 	}
 
 	// Phase 3: Retracts (by predicate + first arg)
 	for _, rf := range tx.retractFacts {
-		if tx.retractFactLocked(k, rf) {
+		if k.compactFactsLocked(func(f Fact) bool {
+			if f.Predicate != rf.Predicate {
+				return true
+			}
+			if len(f.Args) > 0 && len(rf.Args) > 0 {
+				return !argsEqual(f.Args[0], rf.Args[0])
+			}
+			return true
+		}) > 0 {
 			mutated = true
 		}
 	}
 
 	// Phase 4: Retracts (exact match)
 	for _, rf := range tx.retractExactFacts {
-		if tx.retractExactFactLocked(k, rf) {
+		if k.compactFactsLocked(func(f Fact) bool {
+			return f.Predicate != rf.Predicate || !argsSliceEqual(f.Args, rf.Args)
+		}) > 0 {
 			mutated = true
 		}
 	}
 
-	// Rebuild index after all retracts
+	// Rebuild index once after all retracts
 	if mutated {
 		k.cachedAtoms = nil // Invalidate atom cache
 		k.rebuildFactIndexLocked()
 	}
 
-	// Phase 5: Asserts
+	// Phase 5: Asserts. Rejections are collected, not swallowed: the good
+	// facts still land but the caller is told which ones did not.
 	assertCount := 0
+	assertedPredicates := make(map[string]struct{})
+	var rejected []error
 	for _, f := range tx.assertFacts {
 		f = sanitizeFactForNumericPredicates(f)
-		if k.addFactIfNewLocked(f) {
+		added, addErr := k.addFactIfNewLockedErr(f)
+		if addErr != nil {
+			rejected = append(rejected, addErr)
+			continue
+		}
+		if added {
 			assertCount++
+			assertedPredicates[f.Predicate] = struct{}{}
 		}
 	}
 
@@ -160,80 +185,24 @@ func (tx *KernelTransaction) Commit() error {
 	// Phase 6: Single rebuild/evaluate
 	if mutated || assertCount > 0 {
 		if err := k.rebuild(); err != nil {
+			k.mu.Unlock()
 			logging.Get(logging.CategoryKernel).Error("Transaction.Commit: rebuild failed: %v", err)
 			return err
 		}
 	}
+	k.mu.Unlock()
+
+	// Publish AFTER releasing lock — one event per asserted predicate,
+	// matching standalone Assert.
+	if k.eventBus != nil {
+		for pred := range assertedPredicates {
+			k.eventBus.Publish(pred)
+		}
+	}
+	if len(rejected) > 0 {
+		return fmt.Errorf("Transaction.Commit added %d of %d facts; %d rejected: %w",
+			assertCount, len(tx.assertFacts), len(rejected), errors.Join(rejected...))
+	}
 
 	return nil
-}
-
-// retractByPredicateLocked removes all facts with a predicate. Caller holds k.mu.
-func (tx *KernelTransaction) retractByPredicateLocked(k *RealKernel, predicate string) bool {
-	n := 0
-	retracted := false
-	for _, f := range k.facts {
-		if f.Predicate != predicate {
-			k.facts[n] = f
-			n++
-		} else {
-			retracted = true
-		}
-	}
-	// Zero tail for GC
-	for i := n; i < len(k.facts); i++ {
-		k.facts[i] = Fact{}
-	}
-	k.facts = k.facts[:n]
-	return retracted
-}
-
-// retractFactLocked removes facts matching predicate + first arg. Caller holds k.mu.
-func (tx *KernelTransaction) retractFactLocked(k *RealKernel, fact Fact) bool {
-	if len(fact.Args) == 0 {
-		return tx.retractByPredicateLocked(k, fact.Predicate)
-	}
-	n := 0
-	retracted := false
-	for _, f := range k.facts {
-		if f.Predicate == fact.Predicate && len(f.Args) > 0 && argsEqual(f.Args[0], fact.Args[0]) {
-			retracted = true
-		} else {
-			k.facts[n] = f
-			n++
-		}
-	}
-	for i := n; i < len(k.facts); i++ {
-		k.facts[i] = Fact{}
-	}
-	k.facts = k.facts[:n]
-	return retracted
-}
-
-// retractExactFactLocked removes facts matching predicate + all args. Caller holds k.mu.
-func (tx *KernelTransaction) retractExactFactLocked(k *RealKernel, fact Fact) bool {
-	n := 0
-	retracted := false
-	for _, f := range k.facts {
-		if f.Predicate == fact.Predicate && len(f.Args) == len(fact.Args) {
-			match := true
-			for j := range f.Args {
-				if !argsEqual(f.Args[j], fact.Args[j]) {
-					match = false
-					break
-				}
-			}
-			if match {
-				retracted = true
-				continue
-			}
-		}
-		k.facts[n] = f
-		n++
-	}
-	for i := n; i < len(k.facts); i++ {
-		k.facts[i] = Fact{}
-	}
-	k.facts = k.facts[:n]
-	return retracted
 }

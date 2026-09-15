@@ -1387,10 +1387,13 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/kernel_loadfacts_lazy_test.go`
 
 ### internal/core/kernel_policy.go (1)
-- [ ] `internal/core/kernel_policy.go`
+- [x] `internal/core/kernel_policy.go`
 
 ### internal/core/kernel_policy_test.go (1)
 - [ ] `internal/core/kernel_policy_test.go`
+
+### internal/core/kernel_policy_uplift_test.go (1)
+- [x] `internal/core/kernel_policy_uplift_test.go`
 
 ### internal/core/kernel_provenance.go (1)
 - [x] `internal/core/kernel_provenance.go`
@@ -1414,7 +1417,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/kernel_query_test.go`
 
 ### internal/core/kernel_safe_action.go (1)
-- [ ] `internal/core/kernel_safe_action.go`
+- [x] `internal/core/kernel_safe_action.go`
 
 ### internal/core/kernel_safe_action_test.go (1)
 - [ ] `internal/core/kernel_safe_action_test.go`
@@ -1423,7 +1426,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/kernel_sandbox_logging_test.go`
 
 ### internal/core/kernel_shard.go (1)
-- [ ] `internal/core/kernel_shard.go`
+- [x] `internal/core/kernel_shard.go`
 
 ### internal/core/kernel_step_predicates_test.go (1)
 - [ ] `internal/core/kernel_step_predicates_test.go`
@@ -1432,7 +1435,10 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/kernel_test.go`
 
 ### internal/core/kernel_transactions.go (1)
-- [ ] `internal/core/kernel_transactions.go`
+- [x] `internal/core/kernel_transactions.go`
+
+### internal/core/kernel_transactions_uplift_test.go (1)
+- [x] `internal/core/kernel_transactions_uplift_test.go`
 
 ### internal/core/kernel_types.go (1)
 - [x] `internal/core/kernel_types.go`
@@ -1447,7 +1453,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/kernel_utils.go`
 
 ### internal/core/kernel_validation.go (1)
-- [ ] `internal/core/kernel_validation.go`
+- [x] `internal/core/kernel_validation.go`
 
 ### internal/core/kernel_validation_absurd_test.go (1)
 - [ ] `internal/core/kernel_validation_absurd_test.go`

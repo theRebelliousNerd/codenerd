@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -58,7 +59,8 @@ func (k *RealKernel) refreshSchemaValidatorLocked() {
 	}
 	k.schemaValidator = mangle.NewSchemaValidator(k.schemas, k.learned)
 	if err := k.schemaValidator.LoadDeclaredPredicates(); err != nil {
-		logging.Get(logging.CategoryKernel).Warn("Failed to load schema validator: %v", err)
+		k.schemaValidator = nil
+		logging.Get(logging.CategoryKernel).Warn("Schema validator inventory failed, validation disabled: %v", err)
 	} else {
 		logging.KernelDebug("Schema validator refreshed")
 	}
@@ -79,6 +81,117 @@ func (k *RealKernel) healLearnedRules(learnedText string, filePath string) strin
 	return result.healedText
 }
 
+// learnedStatement is one validatable unit: usually a single line, or a
+// multi-line rule joined with its continuations by groupLearnedStatements.
+type learnedStatement struct {
+	text      string   // joined text, for parsing and validation
+	lines     []string // original source lines, for healing output
+	startLine int      // 1-based start line, for messages
+}
+
+// stmtStartPattern recognizes a new statement head at column zero.
+var stmtStartPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\s*\(`)
+
+// isSingleStatement reports whether text parses as exactly one statement.
+// The parser auto-generates a Decl for undeclared predicates, so Decls is
+// not a statement count: one fact or rule yields exactly one Clause (plus
+// its auto Decl), while a bare Decl yields none.
+func isSingleStatement(text string) bool {
+	unit, err := parseUnit(strings.NewReader(text))
+	if err != nil {
+		return false
+	}
+	if len(unit.Clauses) == 1 && len(unit.Decls) <= 1 {
+		return true
+	}
+	return len(unit.Clauses) == 0 && len(unit.Decls) >= 1
+}
+
+// isStatementStart reports whether the line looks like a new statement head
+// at column zero. Indented lines are continuations, never new statements.
+func isStatementStart(line string) bool {
+	if line == "" || line[0] == ' ' || line[0] == '\t' {
+		return false
+	}
+	return stmtStartPattern.MatchString(line)
+}
+
+// groupLearnedStatements splits text into validatable statements, joining
+// continuation lines so a multi-line rule validates (and heals) as one
+// unit. Single-line statements group exactly as before; joining only
+// triggers for lines that do not end with the statement terminator:
+//
+//   - a blank line terminates (the missing-dot case: the fragment heals
+//     alone and the follower is processed fresh);
+//   - comment lines ride along (the parser strips them);
+//   - an indented line is a genuine continuation and is absorbed;
+//   - a column-zero statement head is usually a new statement — but it
+//     could be an unindented continuation, so it is absorbed only when the
+//     tentative join parses as exactly one statement.
+//
+// If a joined block still does not parse, only its first line is emitted
+// (it heals as malformed) and the rest is reprocessed, so one garbage line
+// can never swallow a valid neighbor.
+func groupLearnedStatements(learnedText string) []learnedStatement {
+	lines := strings.Split(learnedText, "\n")
+	var out []learnedStatement
+	emit := func(start int, group []string) {
+		out = append(out, learnedStatement{
+			text:      strings.Join(group, "\n"),
+			lines:     group,
+			startLine: start + 1,
+		})
+	}
+	i := 0
+	for i < len(lines) {
+		trimmed := strings.TrimSpace(lines[i])
+		// Empty lines and comments never join; the validator counts them.
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			emit(i, lines[i:i+1])
+			i++
+			continue
+		}
+		start := i
+		group := []string{lines[i]}
+		i++
+		for {
+			acc := strings.Join(group, "\n")
+			if strings.HasSuffix(strings.TrimSpace(acc), ".") {
+				break // complete statement
+			}
+			if i >= len(lines) {
+				break // truncated at EOF
+			}
+			next := lines[i]
+			nextTrimmed := strings.TrimSpace(next)
+			if nextTrimmed == "" {
+				break // blank line terminates (missing-dot case)
+			}
+			if strings.HasPrefix(nextTrimmed, "#") {
+				group = append(group, next)
+				i++
+				continue
+			}
+			if isStatementStart(next) {
+				tent := acc + "\n" + next
+				if !isSingleStatement(tent) {
+					break
+				}
+			}
+			group = append(group, next)
+			i++
+		}
+		joined := strings.Join(group, "\n")
+		if len(group) > 1 && !isSingleStatement(joined) {
+			emit(start, group[:1])
+			i = start + 1
+			continue
+		}
+		emit(start, group)
+	}
+	return out
+}
+
 // validateLearnedRulesContent performs startup validation of learned rules.
 // Returns validation statistics and optionally the healed text.
 func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath string, heal bool) learnedValidationResult {
@@ -93,22 +206,33 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 		return result
 	}
 
-	lines := strings.Split(learnedText, "\n")
+	statements := groupLearnedStatements(learnedText)
 	var healedLines []string
 
-	for i, line := range lines {
+	for _, stmt := range statements {
+		line := stmt.text
+		lineNo := stmt.startLine
+		emitRaw := func() {
+			healedLines = append(healedLines, stmt.lines...)
+		}
+		emitHealed := func(marker string) {
+			healedLines = append(healedLines, marker)
+			for _, l := range stmt.lines {
+				healedLines = append(healedLines, "# "+l)
+			}
+		}
 		trimmed := strings.TrimSpace(line)
 
 		// Skip empty lines
 		if trimmed == "" {
-			healedLines = append(healedLines, line)
+			emitRaw()
 			continue
 		}
 
 		// Track previously self-healed rules
 		if strings.HasPrefix(trimmed, "# SELF-HEALED:") {
 			result.stats.PreviouslyHealed++
-			healedLines = append(healedLines, line)
+			emitRaw()
 			continue
 		}
 
@@ -120,7 +244,7 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 			if strings.Contains(commentContent, ":-") && !strings.HasPrefix(commentContent, "SELF-HEALED") {
 				result.stats.CommentedRules++
 			}
-			healedLines = append(healedLines, line)
+			emitRaw()
 			continue
 		}
 
@@ -134,15 +258,14 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 			// STEP 1: Syntax validation - try parsing the rule/fact
 			if syntaxErr := checkSyntax(trimmed); syntaxErr != nil {
 				result.stats.InvalidRules++
-				errMsg := fmt.Sprintf("line %d: syntax error: %v", i+1, syntaxErr)
+				errMsg := fmt.Sprintf("line %d: syntax error: %v", lineNo, syntaxErr)
 				result.stats.InvalidRuleErrors = append(result.stats.InvalidRuleErrors, errMsg)
 				logging.Get(logging.CategoryKernel).Warn("Startup validation: %s", errMsg)
 
 				if heal {
-					healedLines = append(healedLines, "# SELF-HEALED: syntax error: "+syntaxErr.Error())
-					healedLines = append(healedLines, "# "+line)
+					emitHealed("# SELF-HEALED: syntax error: " + syntaxErr.Error())
 				} else {
-					healedLines = append(healedLines, line)
+					emitRaw()
 				}
 				continue
 			}
@@ -150,15 +273,14 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 			// STEP 2: Schema + safety validation for learned rules/facts.
 			if err := k.schemaValidator.ValidateLearnedRule(trimmed); err != nil {
 				result.stats.InvalidRules++
-				errMsg := fmt.Sprintf("line %d: %v", i+1, err)
+				errMsg := fmt.Sprintf("line %d: %v", lineNo, err)
 				result.stats.InvalidRuleErrors = append(result.stats.InvalidRuleErrors, errMsg)
 				logging.Get(logging.CategoryKernel).Warn("Startup validation: invalid learned rule at %s", errMsg)
 
 				if heal {
-					healedLines = append(healedLines, "# SELF-HEALED: "+err.Error())
-					healedLines = append(healedLines, "# "+line)
+					emitHealed("# SELF-HEALED: " + err.Error())
 				} else {
-					healedLines = append(healedLines, line)
+					emitRaw()
 				}
 				continue
 			}
@@ -166,21 +288,20 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 			// Infinite loop risk detection for next_action rules
 			if loopErr := k.checkInfiniteLoopRisk(trimmed); loopErr != "" {
 				result.stats.InvalidRules++
-				errMsg := fmt.Sprintf("line %d: %s", i+1, loopErr)
+				errMsg := fmt.Sprintf("line %d: %s", lineNo, loopErr)
 				result.stats.InvalidRuleErrors = append(result.stats.InvalidRuleErrors, errMsg)
 				logging.Get(logging.CategoryKernel).Warn("Startup validation: %s", errMsg)
 
 				if heal {
-					healedLines = append(healedLines, "# SELF-HEALED: "+loopErr)
-					healedLines = append(healedLines, "# "+line)
+					emitHealed("# SELF-HEALED: " + loopErr)
 				} else {
-					healedLines = append(healedLines, line)
+					emitRaw()
 				}
 				continue
 			}
 
 			result.stats.ValidRules++
-			healedLines = append(healedLines, line)
+			emitRaw()
 			continue
 		}
 
@@ -190,22 +311,21 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 		result.stats.TotalRules++
 		if syntaxErr := checkSyntax(trimmed); syntaxErr != nil {
 			result.stats.InvalidRules++
-			errMsg := fmt.Sprintf("line %d: malformed statement: %v", i+1, syntaxErr)
+			errMsg := fmt.Sprintf("line %d: malformed statement: %v", lineNo, syntaxErr)
 			result.stats.InvalidRuleErrors = append(result.stats.InvalidRuleErrors, errMsg)
 			logging.Get(logging.CategoryKernel).Warn("Startup validation: %s", errMsg)
 
 			if heal {
-				healedLines = append(healedLines, "# SELF-HEALED: malformed statement: "+syntaxErr.Error())
-				healedLines = append(healedLines, "# "+line)
+				emitHealed("# SELF-HEALED: malformed statement: " + syntaxErr.Error())
 			} else {
-				healedLines = append(healedLines, line)
+				emitRaw()
 			}
 			continue
 		}
 
 		// Syntactically valid but structurally unrecognized — keep it
 		result.stats.ValidRules++
-		healedLines = append(healedLines, line)
+		emitRaw()
 	}
 
 	result.healedText = strings.Join(healedLines, "\n")
@@ -360,20 +480,25 @@ func (k *RealKernel) checkInfiniteLoopRisk(rule string) string {
 // GetStartupValidationResult returns the result of the last startup validation.
 // This can be called after kernel initialization to check learned rule health.
 func (k *RealKernel) GetStartupValidationResult() *StartupValidationResult {
+	// Snapshot the path first so disk I/O stays out from under the
+	// kernel lock (a slow read must not stall writers system-wide).
 	k.mu.RLock()
-	defer k.mu.RUnlock()
+	path := k.userLearnedPath
+	k.mu.RUnlock()
 
-	if k.userLearnedPath == "" {
+	if path == "" {
 		return nil
 	}
 
 	// Re-validate current learned rules (read-only, no healing)
-	data, err := os.ReadFile(k.userLearnedPath)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
 
-	result := k.validateLearnedRulesContent(string(data), k.userLearnedPath, false)
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	result := k.validateLearnedRulesContent(string(data), path, false)
 	return &result.stats
 }
 

@@ -299,3 +299,78 @@ func TestKernelValidation_AbsurdTransactionEdgeCases(t *testing.T) {
 		t.Errorf("Expected name_pred(john) to be retracted, but got: %v", nameFacts)
 	}
 }
+
+// TestKernelValidation_MultiLineRulesSurviveHealing pins statement grouping:
+// a rule spanning lines must validate (and heal) as one unit, while a
+// missing-dot fragment must heal alone without swallowing its neighbor.
+func TestKernelValidation_MultiLineRulesSurviveHealing(t *testing.T) {
+	k := setupMockKernel(t)
+	k.SetSchemas("Decl valid_pred(Name).\nDecl other_pred(Name, Val).")
+	k.SetPolicy("")
+	if err := k.Evaluate(); err != nil {
+		t.Fatalf("Kernel evaluate failed: %v", err)
+	}
+
+	text := `# indented multi-line rule
+other_pred(X, "val") :-
+  valid_pred(X),
+  X != "skip".
+
+# multi-line with embedded comment
+other_pred(Y, "w") :-
+  # why this holds
+  valid_pred(Y).
+
+# unindented continuation
+other_pred(Z, "u") :-
+valid_pred(Z).
+
+# missing dot followed directly by a valid rule (no blank line)
+other_pred("dangling", "dot")
+valid_pred("neighbor").
+
+# garbage followed by an indented valid fact
+Garbage(((
+  valid_pred("loner").
+`
+	healed := k.healLearnedRules(text, "")
+
+	// All three multi-line rules survive byte-intact. The leading \n anchors
+	// each match: a healed (commented) rule is preceded by "# ", which must
+	// not satisfy the assertion.
+	for _, want := range []string{
+		"\nother_pred(X, \"val\") :-\n  valid_pred(X),\n  X != \"skip\".",
+		"\nother_pred(Y, \"w\") :-\n  # why this holds\n  valid_pred(Y).",
+		"\nother_pred(Z, \"u\") :-\nvalid_pred(Z).",
+	} {
+		if !strings.Contains(healed, want) {
+			t.Errorf("multi-line rule not preserved intact:\n%s\nhealed:\n%s", want, healed)
+		}
+	}
+	// The dangling fragment heals; its neighbors live on as their own lines.
+	if !strings.Contains(healed, "# SELF-HEALED") {
+		t.Errorf("expected SELF-HEALED markers, got:\n%s", healed)
+	}
+	if strings.Contains(healed, "\nother_pred(\"dangling\", \"dot\")\n") {
+		t.Errorf("dangling fragment should be commented out, got:\n%s", healed)
+	}
+	for _, want := range []string{"\nvalid_pred(\"neighbor\").\n", "\n  valid_pred(\"loner\").\n"} {
+		if !strings.Contains(healed, want) {
+			t.Errorf("neighbor %q should survive uncommented, got:\n%s", want, healed)
+		}
+	}
+	if strings.Contains(healed, "#   valid_pred(\"loner\").") {
+		t.Errorf("indented neighbor must not be swallowed by garbage, got:\n%s", healed)
+	}
+
+	stats := k.validateLearnedRulesContent(text, "", false)
+	if stats.stats.TotalRules != 7 {
+		t.Errorf("expected 7 statements (3 rules + dangling + neighbor + garbage + loner), got %d", stats.stats.TotalRules)
+	}
+	if stats.stats.ValidRules != 5 {
+		t.Errorf("expected 5 valid, got %d (%v)", stats.stats.ValidRules, stats.stats.InvalidRuleErrors)
+	}
+	if stats.stats.InvalidRules != 2 {
+		t.Errorf("expected 2 invalid (dangling, garbage), got %d", stats.stats.InvalidRules)
+	}
+}

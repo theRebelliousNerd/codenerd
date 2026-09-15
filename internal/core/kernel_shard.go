@@ -270,7 +270,9 @@ func (s *KernelShard) queryLocal(predicate string) ([]types.Fact, error) {
 	return results, err
 }
 
-// LoadFacts delegates to the inner kernel.
+// LoadFacts delegates to the inner kernel. Unlike Assert it deliberately does
+// not consult the router: callers (CortexKernel.LoadFacts) pre-partition by
+// owner via groupByTarget, so the batch already belongs to this shard.
 func (s *KernelShard) LoadFacts(facts []types.Fact) error {
 	return s.kernel.LoadFacts(facts)
 }

@@ -25,7 +25,8 @@ import (
 // This file is the single canonical projection. New policy consumers must use
 // ProjectSafeActions / ListSafeActions / LookupSafeAction instead of querying
 // "safe_action" directly. VirtualStore.rebuildPermissionCache is the reference
-// adopter.
+// adopter. Row consumers that need the Fact values themselves for display
+// (trace premise explanations) legitimately query directly.
 //
 // Design notes:
 //   - The projection is read-only: it never asserts or retracts facts.

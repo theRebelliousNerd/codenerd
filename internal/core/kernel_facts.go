@@ -780,13 +780,12 @@ func (k *RealKernel) Evaluate() error {
 	return nil
 }
 
-// filterFactsLocked removes every fact for which keep returns false, using an
-// in-place compaction that preserves EDB order. It rebuilds the dedupe index
-// and zeroes the truncated tail for GC. Call only while holding k.mu.
-//
-// The atom cache is deliberately NOT maintained here: every retract path
-// funnels through rebuild(), which invalidates it.
-func (k *RealKernel) filterFactsLocked(keep func(Fact) bool) (removed int) {
+// compactFactsLocked removes every fact for which keep returns false, using an
+// in-place compaction that preserves EDB order, and zeroes the truncated
+// tail for GC. It does NOT rebuild the dedupe index: single-shot retracts
+// use filterFactsLocked, while multi-phase callers (transactions) compact
+// several times and rebuild once. Call only while holding k.mu.
+func (k *RealKernel) compactFactsLocked(keep func(Fact) bool) (removed int) {
 	prevCount := len(k.facts)
 	newLen := 0
 	for _, f := range k.facts {
@@ -804,7 +803,16 @@ func (k *RealKernel) filterFactsLocked(keep func(Fact) bool) (removed int) {
 		k.facts[i] = Fact{}
 	}
 	k.facts = k.facts[:newLen]
-	k.rebuildFactIndexLocked()
+	return removed
+}
+
+// filterFactsLocked compacts the EDB by keep and rebuilds the dedupe index.
+// The atom cache is deliberately NOT maintained here: every retract path
+// funnels through rebuild(), which invalidates it. Call only while holding k.mu.
+func (k *RealKernel) filterFactsLocked(keep func(Fact) bool) (removed int) {
+	if removed = k.compactFactsLocked(keep); removed > 0 {
+		k.rebuildFactIndexLocked()
+	}
 	return removed
 }
 

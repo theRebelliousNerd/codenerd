@@ -346,8 +346,16 @@ Output ONLY the rule, no explanation. The rule must compile.`
 // HotLoadLearnedRule dynamically loads a learned rule and persists it to learned.mg.
 // This is the primary method for Autopoiesis to add new learned rules.
 // It validates the rule, loads it into memory, and writes it to disk for persistence.
+// Empty rules are rejected before the interceptor runs: there is nothing
+// to repair, and a successful return must never persist a junk entry.
 func (k *RealKernel) HotLoadLearnedRule(rule string) error {
 	logging.Kernel("HotLoadLearnedRule: loading and persisting learned rule")
+
+	if strings.TrimSpace(rule) == "" {
+		err := fmt.Errorf("empty rule")
+		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: %v", err)
+		return err
+	}
 
 	// 0. If repair interceptor is set, use it for validation and repair FIRST
 	// This allows MangleRepairShard to fix rules before we even try to load them
