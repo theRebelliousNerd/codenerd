@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // ============================================================================
@@ -28,6 +29,7 @@ type LSPServer struct {
 	references  map[string][]Reference  // References by symbol name
 	diagnostics map[string][]Diagnostic // Diagnostics by file URI
 	hover       map[string]string       // Hover documentation by symbol
+	shutdownRequested atomic.Bool      // Set by the exit notification
 }
 
 // Document represents an open Mangle file.
@@ -111,6 +113,18 @@ func NewLSPServer(engine *Engine) *LSPServer {
 	}
 }
 
+// Index patterns, compiled once: indexing runs on every keystroke.
+var (
+	lspPredicatePattern = regexp.MustCompile(`^(\w+)\s*\(`)
+	// Unanchored twin for scanning inside rule bodies: the anchored form
+	// can only match at position zero, so `head(X) :- body(X)` (with the
+	// usual space after :-) indexed zero body predicates.
+	lspBodyPredicatePattern = regexp.MustCompile(`(\w+)\s*\(`)
+	lspNameConstantPattern = regexp.MustCompile(`/[\w_]+`)
+	lspRulePattern = regexp.MustCompile(`^(\w+)\s*\([^)]*\)\s*:-`)
+	lspDeclPattern = regexp.MustCompile(`^Decl\s+(\w+)\s*\(`)
+)
+
 // ============================================================================
 // Document Management
 // ============================================================================
@@ -137,6 +151,7 @@ func (s *LSPServer) CloseDocument(uri string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.documents, uri)
+	s.clearFileEntriesLocked(uriToPath(uri))
 }
 
 // ============================================================================
@@ -152,11 +167,6 @@ func (s *LSPServer) indexDocumentLocked(uri string, content string) {
 
 	lines := strings.Split(content, "\n")
 
-	// Parse patterns for Mangle syntax
-	predicatePattern := regexp.MustCompile(`^(\w+)\s*\(`)
-	nameConstantPattern := regexp.MustCompile(`/[\w_]+`)
-	rulePattern := regexp.MustCompile(`^(\w+)\s*\([^)]*\)\s*:-`)
-	declPattern := regexp.MustCompile(`^Decl\s+(\w+)\s*\(`)
 
 	for lineNum, line := range lines {
 		line = strings.TrimSpace(line)
@@ -165,7 +175,7 @@ func (s *LSPServer) indexDocumentLocked(uri string, content string) {
 		}
 
 		// Check for declaration
-		if matches := declPattern.FindStringSubmatch(line); len(matches) > 1 {
+		if matches := lspDeclPattern.FindStringSubmatch(line); len(matches) > 1 {
 			predName := matches[1]
 			s.addDefinition(predName, filePath, lineNum+1, 0, SymbolPredicate, countArity(line))
 			s.hover[predName] = fmt.Sprintf("**Predicate Declaration**\n\n`%s`", line)
@@ -173,7 +183,7 @@ func (s *LSPServer) indexDocumentLocked(uri string, content string) {
 		}
 
 		// Check for rule (has :-)
-		if matches := rulePattern.FindStringSubmatch(line); len(matches) > 1 {
+		if matches := lspRulePattern.FindStringSubmatch(line); len(matches) > 1 {
 			predName := matches[1]
 			s.addDefinition(predName, filePath, lineNum+1, 0, SymbolRule, countArity(line))
 			s.addReference(predName, filePath, lineNum+1, 0, RefInHead)
@@ -182,10 +192,9 @@ func (s *LSPServer) indexDocumentLocked(uri string, content string) {
 			bodyStart := strings.Index(line, ":-")
 			if bodyStart > 0 {
 				body := line[bodyStart+2:]
-				bodyPreds := predicatePattern.FindAllStringSubmatch(body, -1)
-				for _, bp := range bodyPreds {
-					if len(bp) > 1 {
-						s.addReference(bp[1], filePath, lineNum+1, strings.Index(body, bp[1])+bodyStart+2, RefInBody)
+				for _, idx := range lspBodyPredicatePattern.FindAllStringSubmatchIndex(body, -1) {
+					if len(idx) >= 4 && idx[2] >= 0 {
+						s.addReference(body[idx[2]:idx[3]], filePath, lineNum+1, idx[2]+bodyStart+2, RefInBody)
 					}
 				}
 			}
@@ -193,7 +202,7 @@ func (s *LSPServer) indexDocumentLocked(uri string, content string) {
 		}
 
 		// Check for fact (predicate without :-)
-		if matches := predicatePattern.FindStringSubmatch(line); len(matches) > 1 {
+		if matches := lspPredicatePattern.FindStringSubmatch(line); len(matches) > 1 {
 			predName := matches[1]
 			if predName != "Decl" && predName != "fn" && predName != "let" && predName != "do" {
 				s.addReference(predName, filePath, lineNum+1, 0, RefInFact)
@@ -201,7 +210,7 @@ func (s *LSPServer) indexDocumentLocked(uri string, content string) {
 		}
 
 		// Index all name constants
-		nameMatches := nameConstantPattern.FindAllStringIndex(line, -1)
+		nameMatches := lspNameConstantPattern.FindAllStringIndex(line, -1)
 		for _, match := range nameMatches {
 			name := line[match[0]:match[1]]
 			s.addReference(name, filePath, lineNum+1, match[0], RefInFact)
@@ -275,6 +284,69 @@ func (s *LSPServer) addReference(symbol, filePath string, line, col int, kind Re
 // Diagnostics
 // ============================================================================
 
+// diagnoseLine runs the shared per-line checks: missing terminator,
+// unbalanced parentheses, and empty rule bodies. Both the document
+// indexer and the ad-hoc code validator use it so shard-facing
+// diagnostics can never drift from editor diagnostics.
+func diagnoseLine(filePath string, lineNum int, trimmed string) []Diagnostic {
+	var out []Diagnostic
+
+	// Missing period at end of facts/rules. Continuation lines (",", ":-",
+	// "{", aggregation pipelines) are not statements and stay quiet.
+	if !strings.HasSuffix(trimmed, ".") && !strings.HasSuffix(trimmed, ",") &&
+		!strings.HasSuffix(trimmed, ":-") && !strings.HasSuffix(trimmed, "{") &&
+		!strings.HasPrefix(trimmed, "#") && !strings.HasPrefix(trimmed, "//") &&
+		!strings.Contains(trimmed, "|>") {
+		if strings.Contains(trimmed, "(") && strings.Contains(trimmed, ")") &&
+			!strings.Contains(trimmed, ":-") {
+			out = append(out, Diagnostic{
+				FilePath: filePath,
+				Line:     lineNum,
+				Column:   len(trimmed),
+				Severity: DiagWarning,
+				Message:  "Statement may be missing terminating period '.'",
+				Code:     "missing-period",
+				Source:   "mangle-lsp",
+			})
+		}
+	}
+
+	// Unbalanced parentheses.
+	opens := strings.Count(trimmed, "(")
+	closes := strings.Count(trimmed, ")")
+	if opens != closes {
+		out = append(out, Diagnostic{
+			FilePath: filePath,
+			Line:     lineNum,
+			Column:   0,
+			Severity: DiagError,
+			Message:  fmt.Sprintf("Unbalanced parentheses: %d open, %d close", opens, closes),
+			Code:     "unbalanced-parens",
+			Source:   "mangle-lsp",
+		})
+	}
+
+	// Rule with no body predicates.
+	if strings.Contains(trimmed, ":-") {
+		bodyStart := strings.Index(trimmed, ":-")
+		body := strings.TrimSpace(trimmed[bodyStart+2:])
+		body = strings.TrimSuffix(body, ".")
+		if body == "" {
+			out = append(out, Diagnostic{
+				FilePath: filePath,
+				Line:     lineNum,
+				Column:   bodyStart + 2,
+				Severity: DiagError,
+				Message:  "Rule has empty body",
+				Code:     "empty-body",
+				Source:   "mangle-lsp",
+			})
+		}
+	}
+
+	return out
+}
+
 // runDiagnosticsLocked runs diagnostics on a document.
 func (s *LSPServer) runDiagnosticsLocked(uri string, content string) {
 	filePath := uriToPath(uri)
@@ -282,68 +354,12 @@ func (s *LSPServer) runDiagnosticsLocked(uri string, content string) {
 
 	lines := strings.Split(content, "\n")
 
-	// Check each line for common errors
 	for lineNum, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-
-		// Check for missing period at end of facts/rules
-		if !strings.HasSuffix(trimmed, ".") && !strings.HasSuffix(trimmed, ",") &&
-			!strings.HasSuffix(trimmed, ":-") && !strings.HasSuffix(trimmed, "{") &&
-			!strings.HasPrefix(trimmed, "#") && !strings.HasPrefix(trimmed, "//") {
-			// Likely a continuation line or error
-			if strings.Contains(trimmed, "(") && strings.Contains(trimmed, ")") &&
-				!strings.Contains(trimmed, ":-") {
-				diagnostics = append(diagnostics, Diagnostic{
-					FilePath: filePath,
-					Line:     lineNum + 1,
-					Column:   len(trimmed),
-					Severity: DiagWarning,
-					Message:  "Statement may be missing terminating period '.'",
-					Code:     "missing-period",
-					Source:   "mangle-lsp",
-				})
-			}
-		}
-
-		// Check for unbalanced parentheses
-		opens := strings.Count(trimmed, "(")
-		closes := strings.Count(trimmed, ")")
-		if opens != closes {
-			diagnostics = append(diagnostics, Diagnostic{
-				FilePath: filePath,
-				Line:     lineNum + 1,
-				Column:   0,
-				Severity: DiagError,
-				Message:  fmt.Sprintf("Unbalanced parentheses: %d open, %d close", opens, closes),
-				Code:     "unbalanced-parens",
-				Source:   "mangle-lsp",
-			})
-		}
-
-		// Check for common Mangle syntax patterns that might be wrong
-		if strings.Contains(trimmed, ":-") {
-			// Rule with no body predicates
-			bodyStart := strings.Index(trimmed, ":-")
-			body := strings.TrimSpace(trimmed[bodyStart+2:])
-			body = strings.TrimSuffix(body, ".")
-			if body == "" {
-				diagnostics = append(diagnostics, Diagnostic{
-					FilePath: filePath,
-					Line:     lineNum + 1,
-					Column:   bodyStart + 2,
-					Severity: DiagError,
-					Message:  "Rule has empty body",
-					Code:     "empty-body",
-					Source:   "mangle-lsp",
-				})
-			}
-		}
-
-		// Check for undefined predicates (would need full indexing)
-		// This is a placeholder for more sophisticated analysis
+		diagnostics = append(diagnostics, diagnoseLine(filePath, lineNum+1, trimmed)...)
 	}
 
 	s.diagnostics[uri] = diagnostics
@@ -353,7 +369,7 @@ func (s *LSPServer) runDiagnosticsLocked(uri string, content string) {
 func (s *LSPServer) GetDiagnostics(uri string) []Diagnostic {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.diagnostics[uri]
+	return append([]Diagnostic(nil), s.diagnostics[uri]...)
 }
 
 // ============================================================================
@@ -376,7 +392,7 @@ func (s *LSPServer) GoToDefinition(uri string, line, col int) []Definition {
 		return nil
 	}
 
-	return s.definitions[symbol]
+	return append([]Definition(nil), s.definitions[symbol]...)
 }
 
 // ============================================================================
@@ -398,7 +414,7 @@ func (s *LSPServer) FindReferences(uri string, line, col int, includeDeclaration
 		return nil
 	}
 
-	refs := s.references[symbol]
+	refs := append([]Reference(nil), s.references[symbol]...)
 	if includeDeclaration {
 		// Add definition locations as references
 		for _, def := range s.definitions[symbol] {
@@ -582,7 +598,7 @@ func (s *LSPServer) GetCompletions(uri string, line, col int) []CompletionItem {
 func (s *LSPServer) GetDefinitions(symbol string) []Definition {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.definitions[symbol]
+	return append([]Definition(nil), s.definitions[symbol]...)
 }
 
 // GetReferences returns all references to a symbol.
@@ -590,7 +606,7 @@ func (s *LSPServer) GetDefinitions(symbol string) []Definition {
 func (s *LSPServer) GetReferences(symbol string) []Reference {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.references[symbol]
+	return append([]Reference(nil), s.references[symbol]...)
 }
 
 // GetAllDefinitions returns all definitions across all symbols.
@@ -647,50 +663,7 @@ func (s *LSPServer) ValidateCode(uri, content string) []Diagnostic {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-
-		// Check for missing period
-		if !strings.HasSuffix(line, ".") && !strings.HasSuffix(line, ":-") && !strings.Contains(line, "|>") {
-			diags = append(diags, Diagnostic{
-				FilePath: uriToPath(uri),
-				Line:     lineNum + 1,
-				Column:   len(line),
-				Severity: DiagWarning,
-				Message:  "Statement should end with period",
-				Code:     "missing-period",
-				Source:   "mangle-lsp",
-			})
-		}
-
-		// Check for unbalanced parentheses
-		openCount := strings.Count(line, "(")
-		closeCount := strings.Count(line, ")")
-		if openCount != closeCount {
-			diags = append(diags, Diagnostic{
-				FilePath: uriToPath(uri),
-				Line:     lineNum + 1,
-				Column:   0,
-				Severity: DiagError,
-				Message:  "Unbalanced parentheses",
-				Code:     "unbalanced-parens",
-				Source:   "mangle-lsp",
-			})
-		}
-
-		// Check for empty rule body
-		if strings.Contains(line, ":-") {
-			parts := strings.Split(line, ":-")
-			if len(parts) > 1 && strings.TrimSpace(parts[1]) == "." {
-				diags = append(diags, Diagnostic{
-					FilePath: uriToPath(uri),
-					Line:     lineNum + 1,
-					Column:   strings.Index(line, ":-"),
-					Severity: DiagError,
-					Message:  "Empty rule body",
-					Code:     "empty-body",
-					Source:   "mangle-lsp",
-				})
-			}
-		}
+		diags = append(diags, diagnoseLine(uriToPath(uri), lineNum+1, line)...)
 	}
 
 	return diags
@@ -778,6 +751,9 @@ func (s *LSPServer) ServeStdio(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+		if s.shutdownRequested.Load() {
+			return nil
 		}
 
 		// Read Content-Length header
@@ -939,7 +915,9 @@ func (s *LSPServer) handleRequest(req LSPRequest) *LSPResponse {
 		return &LSPResponse{JSONRPC: "2.0", ID: req.ID, Result: nil}
 
 	case "exit":
-		os.Exit(0)
+		// Never os.Exit from a library: signal the serve loop so hosts
+		// (and test runners) shut down on their own terms.
+		s.shutdownRequested.Store(true)
 		return nil
 
 	default:
@@ -1009,47 +987,33 @@ func isWordChar(c byte) bool {
 		(c >= '0' && c <= '9') || c == '_' || c == '/' || c == ':'
 }
 
+// countArity counts the arguments of the first atom on a line by locating
+// its argument list and delegating to the shared top-level counter, so the
+// LSP can never disagree with schema validation about arity.
 func countArity(line string) int {
-	// Count arguments by counting commas + 1
 	parenStart := strings.Index(line, "(")
 	if parenStart < 0 {
 		return 0
 	}
-
-	depth := 0
-	commas := 0
-	inQuote := false
-
+	depth, inQuote := 0, false
 	for i := parenStart; i < len(line); i++ {
 		c := line[i]
 		if c == '"' {
 			inQuote = !inQuote
+			continue
 		}
-		if !inQuote {
-			if c == '(' {
-				depth++
-			} else if c == ')' {
-				depth--
-				if depth == 0 {
-					break
-				}
-			} else if c == ',' && depth == 1 {
-				commas++
+		if inQuote {
+			continue
+		}
+		if c == '(' {
+			depth++
+		} else if c == ')' {
+			depth--
+			if depth == 0 {
+				return countTopLevelArgs(line[parenStart+1 : i])
 			}
 		}
 	}
-
-	if commas == 0 {
-		// Check if there's any content between parens
-		parenEnd := strings.Index(line[parenStart:], ")")
-		if parenEnd > 0 {
-			content := strings.TrimSpace(line[parenStart+1 : parenStart+parenEnd])
-			if content == "" {
-				return 0
-			}
-		}
-		return 1
-	}
-
-	return commas + 1
+	// Unbalanced line: count what is there rather than failing.
+	return countTopLevelArgs(line[parenStart+1:])
 }

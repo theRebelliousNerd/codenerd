@@ -2099,7 +2099,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/mangle/intent_wiring_test.go`
 
 ### internal/mangle/lsp.go (1)
-- [ ] `internal/mangle/lsp.go`
+- [x] `internal/mangle/lsp.go`
 
 ### internal/mangle/lsp_helpers_test.go (1)
 - [ ] `internal/mangle/lsp_helpers_test.go`
@@ -3773,4 +3773,4 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `test_init/.nerd/mangle/policy_overrides.mg`
 - [ ] `test_init/.nerd/profile.mg`
 
-**Progress: 7/2632**
+**Progress: 8/2632**

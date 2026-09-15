@@ -276,16 +276,24 @@ func (sv *SchemaValidator) validateHeadArity(line, headName string) error {
 	return nil
 }
 
-// countTopLevelArgs counts comma-separated arguments at paren depth 0.
-// A naive comma count breaks on nested terms (foo(bar(1,2), X) has two
-// args, not three); both schema extraction and head validation share this.
+// countTopLevelArgs counts comma-separated arguments at paren depth 0,
+// ignoring commas inside double-quoted strings. A naive comma count breaks
+// on nested terms (foo(bar(1,2), X) has two args, not three) and on string
+// contents (foo("a,b", X) has two args, not three).
 func countTopLevelArgs(argsStr string) int {
 	argsStr = strings.TrimSpace(argsStr)
 	if argsStr == "" {
 		return 0
 	}
-	depth, count := 0, 1
+	depth, count, inQuote := 0, 1, false
 	for _, c := range argsStr {
+		if c == '"' {
+			inQuote = !inQuote
+			continue
+		}
+		if inQuote {
+			continue
+		}
 		switch c {
 		case '(':
 			depth++
