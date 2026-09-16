@@ -3496,7 +3496,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `tests/e2e/rulecourt_feedback_integration_test.go`
 - [x] `tests/e2e/scheduler_session_llm_integration_test.go` (16/16; dead harness removed, priority preemption + nil-config degradation behavioral)
 - [ ] `tests/e2e/session_clean_loop_integration_test.go`
-- [ ] `tests/e2e/session_context_isolation_test.go`
+- [x] `tests/e2e/session_context_isolation_test.go` (2/2 + race; echo mocks prove per-task/per-context ownership, clone history isolation)
 - [ ] `tests/e2e/session_executor_kernel_integration_test.go`
 - [ ] `tests/e2e/session_kernel_vstore_integration_test.go`
 - [x] `tests/e2e/session_spawner_config_integration_test.go` (17/17; vacuous tests made behavioral)

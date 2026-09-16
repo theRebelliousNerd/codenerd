@@ -5,6 +5,7 @@ package e2e_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -33,13 +34,13 @@ func (m *sciMockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 	m.mu.Lock()
 	m.systemPrompts = append(m.systemPrompts, systemPrompt)
 	m.mu.Unlock()
-	return "ok", nil
+	return "sci-system:" + systemPrompt + "\nsci-input:" + userInput, nil
 }
 func (m *sciMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userInput string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	m.mu.Lock()
 	m.systemPrompts = append(m.systemPrompts, systemPrompt)
 	m.mu.Unlock()
-	return &types.LLMToolResponse{Text: "ok"}, nil
+	return &types.LLMToolResponse{Text: "sci-system:" + systemPrompt + "\nsci-input:" + userInput}, nil
 }
 func (m *sciMockLLMClient) ShouldUsePiggybackTools() bool { return false }
 
@@ -73,7 +74,68 @@ func (m *sciMockConfigFactory) RegisterSpecialist(name string, config *config.Ef
 type sciMockJITCompiler struct{}
 
 func (m *sciMockJITCompiler) Compile(ctx context.Context, cc *prompt.CompilationContext) (*prompt.CompilationResult, error) {
-	return &prompt.CompilationResult{Prompt: "mock"}, nil
+	return &prompt.CompilationResult{Prompt: "sci-context:" + sciIsolationMarker(cc)}, nil
+}
+
+// sciIsolationMarker exposes the session context a compilation actually used.
+// The function is pure so concurrent compiles cannot contaminate each other
+// through this mock.
+func sciIsolationMarker(cc *prompt.CompilationContext) string {
+	if cc == nil {
+		return "missing-compilation-context"
+	}
+	sessionCtx, ok := cc.SessionContext.(*types.SessionContext)
+	if !ok || sessionCtx == nil {
+		return "missing-session-context"
+	}
+	marker := sessionCtx.ExtraContext["isolation_marker"]
+	if marker == "" {
+		return "missing-isolation-marker"
+	}
+	return marker
+}
+
+func sciSessionContext(marker string) *types.SessionContext {
+	return &types.SessionContext{ExtraContext: map[string]string{"isolation_marker": marker}}
+}
+
+// sciRequireIsolatedOutput verifies that one execution consumed exactly its
+// own task and session-context markers, and none of the foreign markers.
+func sciRequireIsolatedOutput(t *testing.T, name, output, ownTask, ownContext string, foreign []string) {
+	t.Helper()
+	if !strings.Contains(output, ownTask) {
+		t.Errorf("%s output lost its task marker %q: %q", name, ownTask, output)
+	}
+	if !strings.Contains(output, ownContext) {
+		t.Errorf("%s output lost its session-context marker %q: %q", name, ownContext, output)
+	}
+	for _, marker := range foreign {
+		if strings.Contains(output, marker) {
+			t.Errorf("%s output leaked foreign marker %q: %q", name, marker, output)
+		}
+	}
+}
+
+// sciRequireHistoryOwnership verifies that a task-scoped executor history
+// contains its own turn and no foreign task or context markers.
+func sciRequireHistoryOwnership(t *testing.T, name string, history []perception.ConversationTurn, ownTask, ownContext string, foreign []string) {
+	t.Helper()
+	if len(history) != 2 {
+		t.Fatalf("%s history has %d turns, want exactly one user turn and one assistant turn", name, len(history))
+	}
+	if history[0].Role != "user" || !strings.Contains(history[0].Content, ownTask) {
+		t.Errorf("%s user turn does not own %q: %+v", name, ownTask, history[0])
+	}
+	if history[1].Role != "assistant" || !strings.Contains(history[1].Content, ownTask) || !strings.Contains(history[1].Content, ownContext) {
+		t.Errorf("%s assistant turn does not own %q and %q: %+v", name, ownTask, ownContext, history[1])
+	}
+	for _, turn := range history {
+		for _, marker := range foreign {
+			if strings.Contains(turn.Content, marker) {
+				t.Errorf("%s history leaked foreign marker %q: %+v", name, marker, turn)
+			}
+		}
+	}
 }
 
 type sciMockTransducer struct{}
@@ -113,6 +175,13 @@ func TestE2E_SessionContext_ConcurrentExecute_NoBleed(t *testing.T) {
 	taskExec := session.NewJITExecutor(exec, spawner, trans)
 
 	const goroutines = 10
+	taskMarkers := make([]string, goroutines)
+	contextMarkers := make([]string, goroutines)
+	for i := range taskMarkers {
+		taskMarkers[i] = fmt.Sprintf("task-marker-%02d", i)
+		contextMarkers[i] = fmt.Sprintf("context-marker-%02d", i)
+	}
+
 	var wg sync.WaitGroup
 	results := make([]string, goroutines)
 	errors := make([]error, goroutines)
@@ -125,15 +194,14 @@ func TestE2E_SessionContext_ConcurrentExecute_NoBleed(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 
-			uniqueTask := fmt.Sprintf("task_with_unique_marker_%d_%d", idx, time.Now().UnixNano())
-
-			taskID, err := taskExec.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: uniqueTask})
+			taskCtx := types.WithSessionContext(ctx, sciSessionContext(contextMarkers[idx]))
+			taskID, err := taskExec.ExecuteAsync(taskCtx, session.TaskRequest{IntentVerb: "/fix", Task: "repair " + taskMarkers[idx]})
 			if err != nil {
 				errors[idx] = err
 				return
 			}
 
-			result, err := taskExec.WaitForResult(ctx, taskID)
+			result, err := taskExec.WaitForResult(taskCtx, taskID)
 			results[idx] = result
 			errors[idx] = err
 		}(i)
@@ -141,23 +209,23 @@ func TestE2E_SessionContext_ConcurrentExecute_NoBleed(t *testing.T) {
 
 	wg.Wait()
 
-	// Count successes
-	successes := 0
 	for i, err := range errors {
 		if err != nil {
-			t.Logf("Goroutine %d error: %v (may be capacity limit)", i, err)
-		} else {
-			successes++
+			t.Errorf("goroutine %d failed: %v", i, err)
 		}
 	}
-
-	t.Logf("Concurrent context isolation: %d/%d succeeded", successes, goroutines)
-
-	// Verify all results are independent (no shared result values between goroutines)
-	// Since our mock always returns "ok", we can't distinguish by value.
-	// But the key invariant is: no panics, no races (tested with -race flag)
-	if successes == 0 {
-		t.Error("All goroutines failed — possible systemic issue")
+	for i, result := range results {
+		if errors[i] != nil {
+			continue
+		}
+		foreign := make([]string, 0, 2*(goroutines-1))
+		for j := range taskMarkers {
+			if j == i {
+				continue
+			}
+			foreign = append(foreign, taskMarkers[j], contextMarkers[j])
+		}
+		sciRequireIsolatedOutput(t, fmt.Sprintf("goroutine %d", i), result, taskMarkers[i], contextMarkers[i], foreign)
 	}
 }
 
@@ -173,38 +241,38 @@ func TestE2E_SessionContext_SequentialExecution_NoStateBleed(t *testing.T) {
 	cfgFactory := &sciMockConfigFactory{}
 	trans := &sciMockTransducer{}
 
-	exec := session.NewExecutor(nil, vstore, llm, jit, cfgFactory, trans)
-	exec.SetConfig(session.DefaultExecutorConfig())
+	parent := session.NewExecutor(nil, vstore, llm, jit, cfgFactory, trans)
+	parent.SetConfig(session.DefaultExecutorConfig())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// First call
-	result1, err := exec.Process(ctx, "first task with unique context A")
+	// Task-scoped work clones the session executor. Two sequential clones
+	// must neither see each other's session context nor write their turns
+	// back into the parent session.
+	firstInput := "first task with sequential-task-A"
+	first := parent.CloneForTask()
+	first.SetSessionContext(sciSessionContext("sequential-context-A"))
+	resultA, err := first.Process(ctx, firstInput)
 	if err != nil {
 		t.Fatalf("First Process failed: %v", err)
 	}
-	t.Logf("First result: %v", result1)
 
-	// Second call
-	result2, err := exec.Process(ctx, "second task with unique context B")
+	secondInput := "second task with sequential-task-B"
+	second := parent.CloneForTask()
+	second.SetSessionContext(sciSessionContext("sequential-context-B"))
+	resultB, err := second.Process(ctx, secondInput)
 	if err != nil {
 		t.Fatalf("Second Process failed: %v", err)
 	}
-	t.Logf("Second result: %v", result2)
 
-	// Verify conversation history isn't shared
-	// The mock LLM should have received 2 distinct calls
-	llm.mu.Lock()
-	promptCount := len(llm.systemPrompts)
-	llm.mu.Unlock()
+	sciRequireIsolatedOutput(t, "first", resultA.Response, "sequential-task-A", "sequential-context-A", []string{"sequential-task-B", "sequential-context-B"})
+	sciRequireIsolatedOutput(t, "second", resultB.Response, "sequential-task-B", "sequential-context-B", []string{"sequential-task-A", "sequential-context-A"})
+	sciRequireHistoryOwnership(t, "first", first.GetHistory(), "sequential-task-A", "sequential-context-A", []string{"sequential-task-B", "sequential-context-B"})
+	sciRequireHistoryOwnership(t, "second", second.GetHistory(), "sequential-task-B", "sequential-context-B", []string{"sequential-task-A", "sequential-context-A"})
 
-	t.Logf("Total system prompts received: %d", promptCount)
-
-	// Each Process call should have its own invocation
-	// (At minimum 2, could be more if the executor retries)
-	if promptCount < 2 {
-		t.Errorf("Expected at least 2 LLM calls for 2 Process calls, got %d", promptCount)
+	if got := len(parent.GetHistory()); got != 0 {
+		t.Errorf("parent session history has %d turns after two cloned task runs, want 0", got)
 	}
 }
 
