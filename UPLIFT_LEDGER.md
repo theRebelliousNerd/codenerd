@@ -2360,9 +2360,9 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/perception/client_zai_retry_test.go`
 - [ ] `internal/perception/client_zai_streaming.go`
 - [ ] `internal/perception/client_zai_test.go`
-- [ ] `internal/perception/codex_cli_client.go`
+- [x] `internal/perception/codex_cli_client.go`
 - [ ] `internal/perception/codex_cli_client_test.go`
-- [ ] `internal/perception/codex_cli_probe.go`
+- [x] `internal/perception/codex_cli_probe.go`
 - [ ] `internal/perception/codex_cli_probe_test.go`
 - [x] `internal/perception/codex_exec_client.go`
 - [x] `internal/perception/consolidation.go`
