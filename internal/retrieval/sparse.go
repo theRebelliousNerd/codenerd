@@ -100,9 +100,21 @@ func NewSparseRetriever(cfg *SparseRetrieverConfig) *SparseRetriever {
 		parallelism = runtime.NumCPU()
 	}
 
+	// Zero means default throughout this config: an unset cache size would
+	// otherwise disable eviction while a zero TTL expired every entry on
+	// read — an unbounded map that never hits.
+	cacheSize := cfg.CacheSize
+	if cacheSize <= 0 {
+		cacheSize = 1000
+	}
+	cacheTTL := cfg.CacheTTL
+	if cacheTTL <= 0 {
+		cacheTTL = 5 * time.Minute
+	}
+
 	return &SparseRetriever{
 		workDir:         cfg.WorkDir,
-		cache:           NewKeywordHitCache(cfg.CacheSize, cfg.CacheTTL),
+		cache:           NewKeywordHitCache(cacheSize, cacheTTL),
 		backend:         cfg.Backend,
 		maxResults:      cfg.MaxResults,
 		searchTimeout:   cfg.SearchTimeout,
@@ -715,6 +727,9 @@ func (r *SparseRetriever) RankFiles(hits []KeywordHit, keywords *IssueKeywords, 
 	if len(hits) == 0 {
 		return nil
 	}
+	if keywords == nil {
+		keywords = &IssueKeywords{}
+	}
 
 	// Group hits by file
 	fileHits := make(map[string][]KeywordHit)
@@ -733,9 +748,14 @@ func (r *SparseRetriever) RankFiles(hits []KeywordHit, keywords *IssueKeywords, 
 
 		// Calculate weighted score
 		var score float64
-		var keywordList []string
+		keywordList := make([]string, 0, len(keywordSet))
 		for kw := range keywordSet {
 			keywordList = append(keywordList, kw)
+		}
+		// The keyword list renders into Tier 2 selection reasons; map order
+		// would make those strings (and the prompt bytes) nondeterministic.
+		sort.Strings(keywordList)
+		for _, kw := range keywordList {
 			weight := keywords.Weights[kw]
 			if weight == 0 {
 				weight = 0.3 // Default weight
@@ -762,9 +782,14 @@ func (r *SparseRetriever) RankFiles(hits []KeywordHit, keywords *IssueKeywords, 
 		})
 	}
 
-	// Sort by relevance score (descending)
+	// Sort by relevance score (descending), breaking ties by path: equal
+	// scores are routine (single-keyword files share one weight), and an
+	// unstable order would make the limit below keep a different subset.
 	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].RelevanceScore > candidates[j].RelevanceScore
+		if candidates[i].RelevanceScore != candidates[j].RelevanceScore {
+			return candidates[i].RelevanceScore > candidates[j].RelevanceScore
+		}
+		return candidates[i].FilePath < candidates[j].FilePath
 	})
 
 	// Apply limit
@@ -931,9 +956,9 @@ func (c *KeywordHitCache) Clear() {
 // HELPERS
 // =============================================================================
 
-// isCommonWord returns true if the word is too common to be useful.
-func isCommonWord(word string) bool {
-	common := map[string]bool{
+// commonWords is the stop-word set for keyword extraction. Package-level:
+// rebuilding a 120-entry map on every extracted token was pure allocation.
+var commonWords = map[string]bool{
 		"the": true, "a": true, "an": true, "is": true, "are": true,
 		"was": true, "were": true, "be": true, "been": true, "being": true,
 		"have": true, "has": true, "had": true, "do": true, "does": true,
@@ -971,8 +996,8 @@ func isCommonWord(word string) bool {
 		"name": true, "type": true, "error": true, "result": true,
 	}
 
-	lower := strings.ToLower(word)
-
+// isCommonWord returns true if the word is too common to be useful.
+func isCommonWord(word string) bool {
 	// Too short
 	if len(word) <= 2 {
 		return true
@@ -983,7 +1008,7 @@ func isCommonWord(word string) bool {
 		return true
 	}
 
-	return common[lower]
+	return commonWords[strings.ToLower(word)]
 }
 
 // uniqueStrings removes duplicates from a string slice.

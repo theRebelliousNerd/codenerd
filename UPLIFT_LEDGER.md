@@ -2600,26 +2600,27 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/retain/retain_brutal_test.go`
 - [ ] `internal/retain/retain_test.go`
 
-### internal/retrieval (19)
-- [ ] `internal/retrieval/backend.go`
-- [ ] `internal/retrieval/bounds_test.go`
-- [ ] `internal/retrieval/facts.go`
-- [ ] `internal/retrieval/facts_test.go`
-- [ ] `internal/retrieval/go_imports.go`
-- [ ] `internal/retrieval/invalidation.go`
-- [ ] `internal/retrieval/metrics.go`
-- [ ] `internal/retrieval/scanner_generic.go`
-- [ ] `internal/retrieval/semantic.go`
-- [ ] `internal/retrieval/semantic_tier_test.go`
-- [ ] `internal/retrieval/sparse.go`
-- [ ] `internal/retrieval/sparse_bench_test.go`
-- [ ] `internal/retrieval/sparse_integration_test.go`
-- [ ] `internal/retrieval/sparse_search_test.go`
-- [ ] `internal/retrieval/sparse_test.go`
-- [ ] `internal/retrieval/tiered_context.go`
-- [ ] `internal/retrieval/tiered_context_coverage_test.go`
-- [ ] `internal/retrieval/tiered_context_test.go`
-- [ ] `internal/retrieval/wiring_test.go`
+### internal/retrieval (20)
+- [x] `internal/retrieval/backend.go`
+- [x] `internal/retrieval/bounds_test.go`
+- [x] `internal/retrieval/facts.go`
+- [x] `internal/retrieval/facts_test.go`
+- [x] `internal/retrieval/go_imports.go`
+- [x] `internal/retrieval/invalidation.go`
+- [x] `internal/retrieval/metrics.go`
+- [x] `internal/retrieval/scanner_generic.go`
+- [x] `internal/retrieval/semantic.go`
+- [x] `internal/retrieval/semantic_tier_test.go`
+- [x] `internal/retrieval/sparse.go`
+- [x] `internal/retrieval/sparse_bench_test.go`
+- [x] `internal/retrieval/sparse_integration_test.go`
+- [x] `internal/retrieval/sparse_search_test.go`
+- [x] `internal/retrieval/sparse_test.go`
+- [x] `internal/retrieval/tiered_context.go`
+- [x] `internal/retrieval/tiered_context_coverage_test.go`
+- [x] `internal/retrieval/tiered_context_test.go`
+- [x] `internal/retrieval/retrieval_uplift_test.go`
+- [x] `internal/retrieval/wiring_test.go`
 
 ### internal/session (90)
 - [ ] `internal/session/build_repair_regime_test.go`

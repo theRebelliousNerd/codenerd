@@ -29,7 +29,7 @@ import (
 //   - it is the only path that carries the in-process bounds (maxScanFileSize,
 //     maxHitsPerFile, maxHitsPerKeyword, the binary sniff) as code rather than
 //     as flags a future edit could drop;
-//   - it uses the AVX2 scanner in scanner_amd64.go.
+//   - it uses the single generic byte scanner in scanner_generic.go.
 //
 // Ripgrep is worth selecting on very large trees, where its own walker and
 // mmap'd search beat a Go worker pool by a wide margin. The backend mirrors the

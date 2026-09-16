@@ -96,6 +96,15 @@ func NewTieredContextBuilder(cfg *TieredContextConfig) *TieredContextBuilder {
 	if maxTotal == 0 {
 		maxTotal = 50
 	}
+	// Zero means default, matching MaxTotal above: a bare config with no
+	// budgets would otherwise cap every tier at zero and yield an empty
+	// context with no error. Only all-zero triggers; an explicit zero on one
+	// tier still disables that tier.
+	if cfg.Tier1Budget == 0 && cfg.Tier2Budget == 0 && cfg.Tier3Budget == 0 && cfg.Tier4Budget == 0 {
+		defaults := DefaultTieredContextConfig(cfg.WorkDir)
+		cfg.Tier1Budget, cfg.Tier2Budget, cfg.Tier3Budget, cfg.Tier4Budget =
+			defaults.Tier1Budget, defaults.Tier2Budget, defaults.Tier3Budget, defaults.Tier4Budget
+	}
 
 	return &TieredContextBuilder{
 		retriever:   retriever,
@@ -433,6 +442,10 @@ func (b *TieredContextBuilder) importNeighbors(filePath string) []string {
 	return out
 }
 
+// pyImportPattern matches top-level Python import statements. Package-level
+// so every Tier 3 file does not recompile it.
+var pyImportPattern = regexp.MustCompile(`^(?:from\s+([a-zA-Z0-9_.]+)\s+import|import\s+([a-zA-Z0-9_.]+))`)
+
 // extractImports extracts import statements from a Python file.
 func (b *TieredContextBuilder) extractImports(filePath string) []string {
 	file, err := os.Open(filePath)
@@ -442,13 +455,14 @@ func (b *TieredContextBuilder) extractImports(filePath string) []string {
 	defer file.Close()
 
 	var imports []string
-	importRegex := regexp.MustCompile(`^(?:from\s+([a-zA-Z0-9_.]+)\s+import|import\s+([a-zA-Z0-9_.]+))`)
-
 	scanner := bufio.NewScanner(file)
+	// A minified single-line file trips the 64KB default buffer and aborts the
+	// whole scan; imports live near the top, so 1MB is ample headroom.
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
-		matches := importRegex.FindStringSubmatch(line)
+		matches := pyImportPattern.FindStringSubmatch(line)
 		if len(matches) > 0 {
 			if matches[1] != "" {
 				imports = append(imports, matches[1])
@@ -646,7 +660,10 @@ func (tc *TieredContext) GetTopFiles(n int) []ContextFile {
 	sorted := make([]ContextFile, len(tc.Files))
 	copy(sorted, tc.Files)
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].RelevanceScore > sorted[j].RelevanceScore
+		if sorted[i].RelevanceScore != sorted[j].RelevanceScore {
+			return sorted[i].RelevanceScore > sorted[j].RelevanceScore
+		}
+		return sorted[i].FilePath < sorted[j].FilePath
 	})
 
 	if n < 0 {

@@ -399,10 +399,18 @@ func TieredContextFacts(issueID string, tc *TieredContext, workDir string) []typ
 			Predicate: "candidate_file",
 			Args:      []any{types.MangleString(path), types.PercentFromRatio(c.RelevanceScore)},
 		})
-		for keyword, count := range keywordCounts(c) {
+		// Sorted like the issue_keyword words above: map order would shuffle
+		// these facts run to run and churn EDB snapshots.
+		counts := keywordCounts(c)
+		hitWords := make([]string, 0, len(counts))
+		for keyword := range counts {
+			hitWords = append(hitWords, keyword)
+		}
+		sort.Strings(hitWords)
+		for _, keyword := range hitWords {
 			facts = append(facts, types.Fact{
 				Predicate: "keyword_hit",
-				Args:      []any{types.MangleString(path), types.MangleString(keyword), count},
+				Args:      []any{types.MangleString(path), types.MangleString(keyword), counts[keyword]},
 			})
 		}
 	}
