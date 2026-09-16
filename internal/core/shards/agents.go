@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
@@ -421,83 +420,4 @@ func (b *BaseShardAgent) ShouldUsePiggybackTools() bool {
 		return ptp.ShouldUsePiggybackTools()
 	}
 	return false
-}
-
-// =============================================================================
-// SYSTEM SHARD
-// =============================================================================
-
-// SystemShard is a Type 1 (Permanent) shard agent.
-// It runs continuously in the background, monitoring the environment
-// and maintaining system homeostasis.
-type SystemShard struct {
-	*BaseShardAgent
-	systemPrompt string
-}
-
-// NewSystemShard creates a new System Shard.
-func NewSystemShard(id string, config types.ShardConfig, systemPrompt string) *SystemShard {
-	if systemPrompt == "" {
-		systemPrompt = `You are the System Shard (Type 1).
-Your Role: The Operating System of the Agent.
-Your Duties:
-1. Monitor the filesystem for changes (Fact-Based Filesystem).
-2. Maintain the integrity of the .nerd/ directory.
-3. Prune old logs or temporary files.
-4. Alert the Kernel to critical system state changes.
-
-You run in a continuous loop. Report status every heartbeat.`
-	}
-	return &SystemShard{
-		BaseShardAgent: NewBaseShardAgent(id, config),
-		systemPrompt:   systemPrompt,
-	}
-}
-
-// Execute runs the System Shard's continuous loop.
-// Unlike Type 2 shards, this does NOT exit after one task.
-func (s *SystemShard) Execute(ctx context.Context, task string) (string, error) {
-	s.SetState(types.ShardStateRunning)
-	defer s.SetState(types.ShardStateCompleted)
-
-	// Prime with a single LLM call to seed role-specific intent/plan.
-	// This makes it a "Real LLM Shard" as requested.
-	if llm := s.llm(); llm != nil {
-		userPrompt := fmt.Sprintf("System Startup. Task: %s. Status: Online.", task)
-		// We ignore the error here to allow the loop to proceed even if LLM is flaky on startup
-		// Ideally we'd log this.
-		_, _ = llm.CompleteWithSystem(ctx, s.systemPrompt, userPrompt)
-	}
-
-	// System Shard Main Loop
-	ticker := time.NewTicker(10 * time.Second) // Heartbeat
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return "System Shard shutdown", ctx.Err()
-		case <-s.stopCh:
-			return "System Shard stopped", nil
-		case tick := <-ticker.C:
-			// Propagate a heartbeat fact to the parent kernel.
-			// Arg 1 is the /name slot of system_heartbeat/2 and holds the shard
-			// TYPE name, not this agent's spawn instance id ("coder-17…-3"):
-			// policy/system_shards.mg negates it as
-			// !system_shard_healthy(/session_planner). config.Name is the
-			// registry name; fall back to the id only when it is unset.
-			if s.kernel != nil {
-				name := s.config.Name
-				if name == "" {
-					name = s.id
-				}
-				if err := s.kernel.Assert(types.Fact{
-					Predicate: "system_heartbeat",
-					Args:      []any{types.MangleAtom("/" + strings.TrimLeft(name, "/")), tick.Unix()},
-				}); err != nil {
-					logging.Get(logging.CategoryKernel).Warn("failed to assert system_heartbeat: %v", err)
-				}
-			}
-		}
-	}
 }

@@ -82,17 +82,17 @@ func (k *RealKernel) UpdateSystemFacts() error {
 	tx.Retract("git_branch")
 
 	if branch != "" {
-		tx.Assert(Fact{Predicate: "git_state", Args: []any{"branch", branch}})
+		tx.Assert(Fact{Predicate: "git_state", Args: []any{"/branch", branch}})
 		tx.Assert(Fact{Predicate: "git_branch", Args: []any{branch}})
 	}
 	if statusOK && len(modifiedFiles) > 0 {
-		tx.Assert(Fact{Predicate: "git_state", Args: []any{"modified_files", strings.Join(modifiedFiles, "\n")}})
+		tx.Assert(Fact{Predicate: "git_state", Args: []any{"/modified_files", strings.Join(modifiedFiles, "\n")}})
 	}
 	if commitErr == nil && len(recentCommits) > 0 {
-		tx.Assert(Fact{Predicate: "git_state", Args: []any{"recent_commits", strings.Join(recentCommits, "\n")}})
+		tx.Assert(Fact{Predicate: "git_state", Args: []any{"/recent_commits", strings.Join(recentCommits, "\n")}})
 	}
 	if statusOK {
-		tx.Assert(Fact{Predicate: "git_state", Args: []any{"unstaged_count", strconv.Itoa(unstagedCount)}})
+		tx.Assert(Fact{Predicate: "git_state", Args: []any{"/unstaged_count", strconv.Itoa(unstagedCount)}})
 	}
 
 	return tx.Commit()

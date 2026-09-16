@@ -581,7 +581,9 @@ func (m *Model) populateGitContext(sessionCtx *types.SessionContext) {
 	for _, fact := range results {
 		// git_state(Attribute, Value)
 		if len(fact.Args) >= 2 {
-			attr, _ := fact.Args[0].(string)
+			// Attribute is a /name (slash-prefixed); trim so the switch
+			// below matches, tolerating legacy bare-string facts too.
+			attr := strings.TrimPrefix(types.ExtractName(fact.Args[0]), "/")
 			val := types.ExtractString(fact.Args[1])
 			switch attr {
 			case "branch":

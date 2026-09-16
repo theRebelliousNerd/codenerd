@@ -458,16 +458,6 @@ var declMismatchBaseline = map[string][]string{
 		`edit_failed/2 arg 1 is declared /name but the Go value is /string (pattern_not_found)`,
 		`delete_blocked/2 arg 1 is declared /name but the Go value is /string (no_confirmation)`,
 	},
-	// git_state(Attribute, Value) bound [/name, /string]. Writer and reader
-	// (cmd/nerd/chat/model_session_context.go populateGitContext) agree on the
-	// unquoted-string convention, so fixing one without the other silently
-	// empties SessionContext.GitBranch — they must move together.
-	"internal/core/kernel_query.go": {
-		`git_state/2 arg 0 is declared /name but the Go value is /string (branch)`,
-		`git_state/2 arg 0 is declared /name but the Go value is /string (modified_files)`,
-		`git_state/2 arg 0 is declared /name but the Go value is /string (recent_commits)`,
-		`git_state/2 arg 0 is declared /name but the Go value is /string (unstaged_count)`,
-	},
 	// routing_error(ActionType, Reason, Timestamp) bound [/name, /string, /number].
 	"internal/shards/system/router.go": {
 		`routing_error/3 arg 0 is declared /name but the Go value is /string (internal_error)`,

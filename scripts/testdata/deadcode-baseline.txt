@@ -253,8 +253,6 @@ internal/core/self_healing.go	SelfHealer.escalateToUser
 internal/core/self_healing.go	SelfHealer.retryAction
 internal/core/self_healing.go	SelfHealer.rollbackAction
 internal/core/self_healing.go	SelfHealer.tryAlternative
-internal/core/shards/agents.go	NewSystemShard
-internal/core/shards/agents.go	SystemShard.Execute
 internal/core/shards/manager.go	ShardManager.categorizeShardType
 internal/core/shards/manager.go	ShardManager.clientForShardType
 internal/core/tdd_loop.go	DefaultTDDLoopConfig

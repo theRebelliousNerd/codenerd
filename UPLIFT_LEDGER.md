@@ -372,34 +372,34 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 
 ### internal/articulation (20)
 - [x] `internal/articulation/emitter.go`
-- [ ] `internal/articulation/emitter_boundary_test.go`
-- [ ] `internal/articulation/emitter_extra_test.go`
-- [ ] `internal/articulation/emitter_helpers_test.go`
-- [ ] `internal/articulation/emitter_placeholder_test.go`
-- [ ] `internal/articulation/emitter_test.go`
-- [ ] `internal/articulation/emitter_warnings_test.go`
+- [x] `internal/articulation/emitter_boundary_test.go`
+- [x] `internal/articulation/emitter_extra_test.go`
+- [x] `internal/articulation/emitter_helpers_test.go`
+- [x] `internal/articulation/emitter_placeholder_test.go`
+- [x] `internal/articulation/emitter_test.go`
+- [x] `internal/articulation/emitter_warnings_test.go`
 - [x] `internal/articulation/json_scanner.go`
-- [ ] `internal/articulation/json_scanner_test.go`
+- [x] `internal/articulation/json_scanner_test.go`
 - [x] `internal/articulation/kernel_context.go`
-- [ ] `internal/articulation/language_precedence_test.go`
+- [x] `internal/articulation/language_precedence_test.go`
 - [x] `internal/articulation/prompt_assembler.go`
 - [x] `internal/articulation/prompt_assembler_adapter.go`
-- [ ] `internal/articulation/prompt_assembler_ouroboros_test.go`
-- [ ] `internal/articulation/prompt_assembler_test.go`
+- [x] `internal/articulation/prompt_assembler_ouroboros_test.go`
+- [x] `internal/articulation/prompt_assembler_test.go`
 - [x] `internal/articulation/protocol_types.go`
 - [x] `internal/articulation/schema.go`
-- [ ] `internal/articulation/session_context_bounds_test.go`
+- [x] `internal/articulation/session_context_bounds_test.go`
 - [x] `internal/articulation/stream_parser.go`
 - [x] `internal/articulation/articulation_uplift_test.go`
-- [ ] `internal/articulation/stream_parser_test.go`
+- [x] `internal/articulation/stream_parser_test.go`
 
 ### internal/atomicfile (6)
-- [ ] `internal/atomicfile/atomicfile.go`
-- [ ] `internal/atomicfile/atomicfile_test.go`
-- [ ] `internal/atomicfile/open_other.go`
-- [ ] `internal/atomicfile/open_windows.go`
-- [ ] `internal/atomicfile/replace_other.go`
-- [ ] `internal/atomicfile/replace_windows.go`
+- [x] `internal/atomicfile/atomicfile.go`
+- [x] `internal/atomicfile/atomicfile_test.go`
+- [x] `internal/atomicfile/open_other.go`
+- [x] `internal/atomicfile/open_windows.go`
+- [x] `internal/atomicfile/replace_other.go`
+- [x] `internal/atomicfile/replace_windows.go`
 
 ### internal/autopoiesis (96)
 - [x] `internal/autopoiesis/agent_handoff_test.go`
@@ -608,13 +608,13 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/browser/testspec/types.go`
 
 ### internal/build (7)
-- [ ] `internal/build/env.go`
-- [ ] `internal/build/env_features_test.go`
-- [ ] `internal/build/env_gaps_test.go`
-- [ ] `internal/build/env_test.go`
-- [ ] `internal/build/go_invocation_inventory_test.go`
-- [ ] `internal/build/tags.go`
-- [ ] `internal/build/tags_test.go`
+- [x] `internal/build/env.go`
+- [x] `internal/build/env_features_test.go`
+- [x] `internal/build/env_gaps_test.go`
+- [x] `internal/build/env_test.go`
+- [x] `internal/build/go_invocation_inventory_test.go`
+- [x] `internal/build/tags.go`
+- [x] `internal/build/tags_test.go`
 
 ### internal/campaign/assault_campaign.go (1)
 - [x] `internal/campaign/assault_campaign.go`
@@ -1105,114 +1105,114 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/action_validator.go`
 
 ### internal/core/action_validator_gaps_test.go (1)
-- [ ] `internal/core/action_validator_gaps_test.go`
+- [x] `internal/core/action_validator_gaps_test.go`
 
 ### internal/core/action_validator_test.go (1)
-- [ ] `internal/core/action_validator_test.go`
+- [x] `internal/core/action_validator_test.go`
 
 ### internal/core/api_scheduler.go (1)
 - [x] `internal/core/api_scheduler.go`
 
 ### internal/core/api_scheduler_gaps_test.go (1)
-- [ ] `internal/core/api_scheduler_gaps_test.go`
+- [x] `internal/core/api_scheduler_gaps_test.go`
 
 ### internal/core/api_scheduler_more_coverage_test.go (1)
-- [ ] `internal/core/api_scheduler_more_coverage_test.go`
+- [x] `internal/core/api_scheduler_more_coverage_test.go`
 
 ### internal/core/api_scheduler_slot_leak_test.go (1)
-- [ ] `internal/core/api_scheduler_slot_leak_test.go`
+- [x] `internal/core/api_scheduler_slot_leak_test.go`
 
 ### internal/core/api_scheduler_test.go (1)
-- [ ] `internal/core/api_scheduler_test.go`
+- [x] `internal/core/api_scheduler_test.go`
 
 ### internal/core/bound_negation_test.go (1)
-- [ ] `internal/core/bound_negation_test.go`
+- [x] `internal/core/bound_negation_test.go`
 
 ### internal/core/build_tool_env_test.go (1)
-- [ ] `internal/core/build_tool_env_test.go`
+- [x] `internal/core/build_tool_env_test.go`
 
 ### internal/core/campaign_phase_category_test.go (1)
-- [ ] `internal/core/campaign_phase_category_test.go`
+- [x] `internal/core/campaign_phase_category_test.go`
 
 ### internal/core/canary_helpers_test.go (1)
-- [ ] `internal/core/canary_helpers_test.go`
+- [x] `internal/core/canary_helpers_test.go`
 
 ### internal/core/codedom_modified_symbols.go (1)
 - [x] `internal/core/codedom_modified_symbols.go`
 
 ### internal/core/codedom_modified_symbols_test.go (1)
-- [ ] `internal/core/codedom_modified_symbols_test.go`
+- [x] `internal/core/codedom_modified_symbols_test.go`
 
 ### internal/core/codedom_reason_atom_unification_test.go (1)
-- [ ] `internal/core/codedom_reason_atom_unification_test.go`
+- [x] `internal/core/codedom_reason_atom_unification_test.go`
 
 ### internal/core/consistency_test.go (1)
-- [ ] `internal/core/consistency_test.go`
+- [x] `internal/core/consistency_test.go`
 
 ### internal/core/cortex_derivation_wiring_test.go (1)
-- [ ] `internal/core/cortex_derivation_wiring_test.go`
+- [x] `internal/core/cortex_derivation_wiring_test.go`
 
 ### internal/core/cortex_kernel.go (1)
 - [x] `internal/core/cortex_kernel.go`
 
 ### internal/core/cortex_kernel_extra_test.go (1)
-- [ ] `internal/core/cortex_kernel_extra_test.go`
+- [x] `internal/core/cortex_kernel_extra_test.go`
 
 ### internal/core/cortex_kernel_query_fanout_test.go (1)
-- [ ] `internal/core/cortex_kernel_query_fanout_test.go`
+- [x] `internal/core/cortex_kernel_query_fanout_test.go`
 
 ### internal/core/cortex_kernel_test.go (1)
-- [ ] `internal/core/cortex_kernel_test.go`
+- [x] `internal/core/cortex_kernel_test.go`
 
 ### internal/core/cortex_uplift_test.go (1)
 - [x] `internal/core/cortex_uplift_test.go`
 
 ### internal/core/cortex_kernel_transaction_test.go (1)
-- [ ] `internal/core/cortex_kernel_transaction_test.go`
+- [x] `internal/core/cortex_kernel_transaction_test.go`
 
 ### internal/core/cortex_mutation_failure_test.go (1)
-- [ ] `internal/core/cortex_mutation_failure_test.go`
+- [x] `internal/core/cortex_mutation_failure_test.go`
 
 ### internal/core/cortex_split_join_test.go (1)
-- [ ] `internal/core/cortex_split_join_test.go`
+- [x] `internal/core/cortex_split_join_test.go`
 
 ### internal/core/coverage_boost_test.go (1)
-- [ ] `internal/core/coverage_boost_test.go`
+- [x] `internal/core/coverage_boost_test.go`
 
 ### internal/core/defaults (18)
-- [ ] `internal/core/defaults/build_topology_test.go`
-- [ ] `internal/core/defaults/corpus_float_comparison_test.go`
-- [ ] `internal/core/defaults/corpus_test.go`
-- [ ] `internal/core/defaults/intent_corpus.go`
-- [ ] `internal/core/defaults/policy/browser_honeypot_test.go`
-- [ ] `internal/core/defaults/policy/browser_reasoning_test.go`
-- [ ] `internal/core/defaults/policy/logic_test.go`
-- [ ] `internal/core/defaults/policy/main_test.go`
-- [ ] `internal/core/defaults/policy/safety_exec_test.go`
-- [ ] `internal/core/defaults/policy/safety_test.go`
-- [ ] `internal/core/defaults/policy/tdd_logic_test.go`
-- [ ] `internal/core/defaults/predicate_corpus.go`
-- [ ] `internal/core/defaults/prompt_corpus.go`
-- [ ] `internal/core/defaults/query_only_predicate_test.go`
-- [ ] `internal/core/defaults/schema_duplicate_decl_test.go`
-- [ ] `internal/core/defaults/starved_atom_value_test.go`
-- [ ] `internal/core/defaults/starved_predicate_test.go`
-- [ ] `internal/core/defaults/undeclared_assert_test.go`
+- [x] `internal/core/defaults/build_topology_test.go`
+- [x] `internal/core/defaults/corpus_float_comparison_test.go`
+- [x] `internal/core/defaults/corpus_test.go`
+- [x] `internal/core/defaults/intent_corpus.go`
+- [x] `internal/core/defaults/policy/browser_honeypot_test.go`
+- [x] `internal/core/defaults/policy/browser_reasoning_test.go`
+- [x] `internal/core/defaults/policy/logic_test.go`
+- [x] `internal/core/defaults/policy/main_test.go`
+- [x] `internal/core/defaults/policy/safety_exec_test.go`
+- [x] `internal/core/defaults/policy/safety_test.go`
+- [x] `internal/core/defaults/policy/tdd_logic_test.go`
+- [x] `internal/core/defaults/predicate_corpus.go`
+- [x] `internal/core/defaults/prompt_corpus.go`
+- [x] `internal/core/defaults/query_only_predicate_test.go`
+- [x] `internal/core/defaults/schema_duplicate_decl_test.go`
+- [x] `internal/core/defaults/starved_atom_value_test.go`
+- [x] `internal/core/defaults/starved_predicate_test.go`
+- [x] `internal/core/defaults/undeclared_assert_test.go`
 
 ### internal/core/dependency_reachability_test.go (1)
-- [ ] `internal/core/dependency_reachability_test.go`
+- [x] `internal/core/dependency_reachability_test.go`
 
 ### internal/core/derivation_map.go (1)
 - [x] `internal/core/derivation_map.go`
 
 ### internal/core/derivation_map_test.go (1)
-- [ ] `internal/core/derivation_map_test.go`
+- [x] `internal/core/derivation_map_test.go`
 
 ### internal/core/dream_learning.go (1)
 - [x] `internal/core/dream_learning.go`
 
 ### internal/core/dream_learning_test.go (1)
-- [ ] `internal/core/dream_learning_test.go`
+- [x] `internal/core/dream_learning_test.go`
 
 ### internal/core/dream_plan.go (1)
 - [x] `internal/core/dream_plan.go`
@@ -1221,94 +1221,94 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/dream_plan_extractor.go`
 
 ### internal/core/dream_plan_extractor_test.go (1)
-- [ ] `internal/core/dream_plan_extractor_test.go`
+- [x] `internal/core/dream_plan_extractor_test.go`
 
 ### internal/core/dream_plan_gaps_test.go (1)
-- [ ] `internal/core/dream_plan_gaps_test.go`
+- [x] `internal/core/dream_plan_gaps_test.go`
 
 ### internal/core/dream_plan_manager.go (1)
 - [x] `internal/core/dream_plan_manager.go`
 
 ### internal/core/dream_plan_manager_test.go (1)
-- [ ] `internal/core/dream_plan_manager_test.go`
+- [x] `internal/core/dream_plan_manager_test.go`
 
 ### internal/core/dream_plan_test.go (1)
-- [ ] `internal/core/dream_plan_test.go`
+- [x] `internal/core/dream_plan_test.go`
 
 ### internal/core/dream_router.go (1)
 - [x] `internal/core/dream_router.go`
 
 ### internal/core/dream_router_persist_test.go (1)
-- [ ] `internal/core/dream_router_persist_test.go`
+- [x] `internal/core/dream_router_persist_test.go`
 
 ### internal/core/dream_router_test.go (1)
-- [ ] `internal/core/dream_router_test.go`
+- [x] `internal/core/dream_router_test.go`
 
 ### internal/core/dream_singleton_test.go (1)
-- [ ] `internal/core/dream_singleton_test.go`
+- [x] `internal/core/dream_singleton_test.go`
 
 ### internal/core/dreamer.go (1)
 - [x] `internal/core/dreamer.go`
 
 ### internal/core/dreamer_authorization_test.go (1)
-- [ ] `internal/core/dreamer_authorization_test.go`
+- [x] `internal/core/dreamer_authorization_test.go`
 
 ### internal/core/dreamer_benchmark_test.go (1)
-- [ ] `internal/core/dreamer_benchmark_test.go`
+- [x] `internal/core/dreamer_benchmark_test.go`
 
 ### internal/core/dreamer_gaps_test.go (1)
-- [ ] `internal/core/dreamer_gaps_test.go`
+- [x] `internal/core/dreamer_gaps_test.go`
 
 ### internal/core/dreamer_perf_test.go (1)
-- [ ] `internal/core/dreamer_perf_test.go`
+- [x] `internal/core/dreamer_perf_test.go`
 
 ### internal/core/dreamer_test.go (1)
-- [ ] `internal/core/dreamer_test.go`
+- [x] `internal/core/dreamer_test.go`
 
 ### internal/core/external_predicates.go (1)
 - [x] `internal/core/external_predicates.go`
 
 ### internal/core/external_predicates_coverage_test.go (1)
-- [ ] `internal/core/external_predicates_coverage_test.go`
+- [x] `internal/core/external_predicates_coverage_test.go`
 
 ### internal/core/fact_categories.go (1)
 - [x] `internal/core/fact_categories.go`
 
 ### internal/core/fact_categories_coverage_test.go (1)
-- [ ] `internal/core/fact_categories_coverage_test.go`
+- [x] `internal/core/fact_categories_coverage_test.go`
 
 ### internal/core/fact_event_bus.go (1)
 - [x] `internal/core/fact_event_bus.go`
 
 ### internal/core/fact_event_bus_test.go (1)
-- [ ] `internal/core/fact_event_bus_test.go`
+- [x] `internal/core/fact_event_bus_test.go`
 
 ### internal/core/hybrid_loader.go (1)
 - [x] `internal/core/hybrid_loader.go`
 
 ### internal/core/hybrid_loader_test.go (1)
-- [ ] `internal/core/hybrid_loader_test.go`
+- [x] `internal/core/hybrid_loader_test.go`
 
 ### internal/core/integration_path.go (1)
 - [x] `internal/core/integration_path.go`
 
 ### internal/core/intent_coverage_test.go (1)
-- [ ] `internal/core/intent_coverage_test.go`
+- [x] `internal/core/intent_coverage_test.go`
 
 ### internal/core/intent_decl_interning_test.go (1)
-- [ ] `internal/core/intent_decl_interning_test.go`
+- [x] `internal/core/intent_decl_interning_test.go`
 
 ### internal/core/intent_defaults.go (1)
 - [x] `internal/core/intent_defaults.go`
 
 ### internal/core/intent_identity_atom_unification_test.go (1)
-- [ ] `internal/core/intent_identity_atom_unification_test.go`
+- [x] `internal/core/intent_identity_atom_unification_test.go`
 
 ### internal/core/intent_inference.go (1)
 - [x] `internal/core/intent_inference.go`
 
 ### internal/core/intent_inference_test.go (1)
-- [ ] `internal/core/intent_inference_test.go`
+- [x] `internal/core/intent_inference_test.go`
 
 ### internal/core/intent_loader.go (1)
 - [x] `internal/core/intent_loader.go`
@@ -1317,16 +1317,16 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/intent_uplift_test.go`
 
 ### internal/core/intent_schema_files_test.go (1)
-- [ ] `internal/core/intent_schema_files_test.go`
+- [x] `internal/core/intent_schema_files_test.go`
 
 ### internal/core/jit_pinning_test.go (1)
-- [ ] `internal/core/jit_pinning_test.go`
+- [x] `internal/core/jit_pinning_test.go`
 
 ### internal/core/jit_retrieved_context_test.go (1)
-- [ ] `internal/core/jit_retrieved_context_test.go`
+- [x] `internal/core/jit_retrieved_context_test.go`
 
 ### internal/core/jit_supersession_test.go (1)
-- [ ] `internal/core/jit_supersession_test.go`
+- [x] `internal/core/jit_supersession_test.go`
 
 ### internal/core/kernel.go (1)
 - [x] `internal/core/kernel.go`
@@ -1335,73 +1335,73 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/kernel_accessors.go`
 
 ### internal/core/kernel_assert_rejection_test.go (1)
-- [ ] `internal/core/kernel_assert_rejection_test.go`
+- [x] `internal/core/kernel_assert_rejection_test.go`
 
 ### internal/core/kernel_cache_sync_test.go (1)
-- [ ] `internal/core/kernel_cache_sync_test.go`
+- [x] `internal/core/kernel_cache_sync_test.go`
 
 ### internal/core/kernel_eval.go (1)
 - [x] `internal/core/kernel_eval.go`
 
 ### internal/core/kernel_eval_demote_test.go (1)
-- [ ] `internal/core/kernel_eval_demote_test.go`
+- [x] `internal/core/kernel_eval_demote_test.go`
 
 ### internal/core/kernel_eval_large_test.go (1)
-- [ ] `internal/core/kernel_eval_large_test.go`
+- [x] `internal/core/kernel_eval_large_test.go`
 
 ### internal/core/kernel_eval_test.go (1)
-- [ ] `internal/core/kernel_eval_test.go`
+- [x] `internal/core/kernel_eval_test.go`
 
 ### internal/core/kernel_fact_decl.go (1)
 - [x] `internal/core/kernel_fact_decl.go`
 
 ### internal/core/kernel_fact_decl_test.go (1)
-- [ ] `internal/core/kernel_fact_decl_test.go`
+- [x] `internal/core/kernel_fact_decl_test.go`
 
 ### internal/core/kernel_facts.go (1)
 - [x] `internal/core/kernel_facts.go`
 
 ### internal/core/kernel_facts_gaps_test.go (1)
-- [ ] `internal/core/kernel_facts_gaps_test.go`
+- [x] `internal/core/kernel_facts_gaps_test.go`
 
 ### internal/core/kernel_facts_intern.go (1)
 - [x] `internal/core/kernel_facts_intern.go`
 
 ### internal/core/kernel_facts_intern_test.go (1)
-- [ ] `internal/core/kernel_facts_intern_test.go`
+- [x] `internal/core/kernel_facts_intern_test.go`
 
 ### internal/core/kernel_facts_scrub_test.go (1)
-- [ ] `internal/core/kernel_facts_scrub_test.go`
+- [x] `internal/core/kernel_facts_scrub_test.go`
 
 ### internal/core/kernel_facts_test.go (1)
-- [ ] `internal/core/kernel_facts_test.go`
+- [x] `internal/core/kernel_facts_test.go`
 
 ### internal/core/kernel_features_test.go (1)
-- [ ] `internal/core/kernel_features_test.go`
+- [x] `internal/core/kernel_features_test.go`
 
 ### internal/core/kernel_heartbeat_test.go (1)
-- [ ] `internal/core/kernel_heartbeat_test.go`
+- [x] `internal/core/kernel_heartbeat_test.go`
 
 ### internal/core/kernel_indexed_store_test.go (1)
-- [ ] `internal/core/kernel_indexed_store_test.go`
+- [x] `internal/core/kernel_indexed_store_test.go`
 
 ### internal/core/kernel_init.go (1)
 - [x] `internal/core/kernel_init.go`
 
 ### internal/core/kernel_init_bench_test.go (1)
-- [ ] `internal/core/kernel_init_bench_test.go`
+- [x] `internal/core/kernel_init_bench_test.go`
 
 ### internal/core/kernel_intelligence_test.go (1)
-- [ ] `internal/core/kernel_intelligence_test.go`
+- [x] `internal/core/kernel_intelligence_test.go`
 
 ### internal/core/kernel_loadfacts_lazy_test.go (1)
-- [ ] `internal/core/kernel_loadfacts_lazy_test.go`
+- [x] `internal/core/kernel_loadfacts_lazy_test.go`
 
 ### internal/core/kernel_policy.go (1)
 - [x] `internal/core/kernel_policy.go`
 
 ### internal/core/kernel_policy_test.go (1)
-- [ ] `internal/core/kernel_policy_test.go`
+- [x] `internal/core/kernel_policy_test.go`
 
 ### internal/core/kernel_policy_uplift_test.go (1)
 - [x] `internal/core/kernel_policy_uplift_test.go`
@@ -1410,40 +1410,40 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/kernel_provenance.go`
 
 ### internal/core/kernel_provenance_test.go (1)
-- [ ] `internal/core/kernel_provenance_test.go`
+- [x] `internal/core/kernel_provenance_test.go`
 
 ### internal/core/kernel_query.go (1)
 - [x] `internal/core/kernel_query.go`
 
 ### internal/core/kernel_query_gaps_test.go (1)
-- [ ] `internal/core/kernel_query_gaps_test.go`
+- [x] `internal/core/kernel_query_gaps_test.go`
 
 ### internal/core/kernel_query_multi_arity_test.go (1)
-- [ ] `internal/core/kernel_query_multi_arity_test.go`
+- [x] `internal/core/kernel_query_multi_arity_test.go`
 
 ### internal/core/kernel_query_security_test.go (1)
-- [ ] `internal/core/kernel_query_security_test.go`
+- [x] `internal/core/kernel_query_security_test.go`
 
 ### internal/core/kernel_query_test.go (1)
-- [ ] `internal/core/kernel_query_test.go`
+- [x] `internal/core/kernel_query_test.go`
 
 ### internal/core/kernel_safe_action.go (1)
 - [x] `internal/core/kernel_safe_action.go`
 
 ### internal/core/kernel_safe_action_test.go (1)
-- [ ] `internal/core/kernel_safe_action_test.go`
+- [x] `internal/core/kernel_safe_action_test.go`
 
 ### internal/core/kernel_sandbox_logging_test.go (1)
-- [ ] `internal/core/kernel_sandbox_logging_test.go`
+- [x] `internal/core/kernel_sandbox_logging_test.go`
 
 ### internal/core/kernel_shard.go (1)
 - [x] `internal/core/kernel_shard.go`
 
 ### internal/core/kernel_step_predicates_test.go (1)
-- [ ] `internal/core/kernel_step_predicates_test.go`
+- [x] `internal/core/kernel_step_predicates_test.go`
 
 ### internal/core/kernel_test.go (1)
-- [ ] `internal/core/kernel_test.go`
+- [x] `internal/core/kernel_test.go`
 
 ### internal/core/kernel_transactions.go (1)
 - [x] `internal/core/kernel_transactions.go`
@@ -1458,7 +1458,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/kernel_undeclared.go`
 
 ### internal/core/kernel_undeclared_test.go (1)
-- [ ] `internal/core/kernel_undeclared_test.go`
+- [x] `internal/core/kernel_undeclared_test.go`
 
 ### internal/core/kernel_utils.go (1)
 - [x] `internal/core/kernel_utils.go`
@@ -1467,22 +1467,22 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/kernel_validation.go`
 
 ### internal/core/kernel_validation_absurd_test.go (1)
-- [ ] `internal/core/kernel_validation_absurd_test.go`
+- [x] `internal/core/kernel_validation_absurd_test.go`
 
 ### internal/core/kernel_validation_gaps_test.go (1)
-- [ ] `internal/core/kernel_validation_gaps_test.go`
+- [x] `internal/core/kernel_validation_gaps_test.go`
 
 ### internal/core/kernel_validation_test.go (1)
-- [ ] `internal/core/kernel_validation_test.go`
+- [x] `internal/core/kernel_validation_test.go`
 
 ### internal/core/kernel_virtual.go (1)
 - [x] `internal/core/kernel_virtual.go`
 
 ### internal/core/kernel_workspace_constructor_test.go (1)
-- [ ] `internal/core/kernel_workspace_constructor_test.go`
+- [x] `internal/core/kernel_workspace_constructor_test.go`
 
 ### internal/core/knowledge_graph_test.go (1)
-- [ ] `internal/core/knowledge_graph_test.go`
+- [x] `internal/core/knowledge_graph_test.go`
 
 ### internal/core/learning.go (1)
 - [x] `internal/core/learning.go`
@@ -1491,52 +1491,52 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/limits.go`
 
 ### internal/core/limits_coverage_test.go (1)
-- [ ] `internal/core/limits_coverage_test.go`
+- [x] `internal/core/limits_coverage_test.go`
 
 ### internal/core/limits_test.go (1)
-- [ ] `internal/core/limits_test.go`
+- [x] `internal/core/limits_test.go`
 
 ### internal/core/line_ending.go (1)
 - [x] `internal/core/line_ending.go`
 
 ### internal/core/line_ending_test.go (1)
-- [ ] `internal/core/line_ending_test.go`
+- [x] `internal/core/line_ending_test.go`
 
 ### internal/core/llm_client.go (1)
 - [x] `internal/core/llm_client.go`
 
 ### internal/core/llm_client_test.go (1)
-- [ ] `internal/core/llm_client_test.go`
+- [x] `internal/core/llm_client_test.go`
 
 ### internal/core/manager_routing_test.go (1)
-- [ ] `internal/core/manager_routing_test.go`
+- [x] `internal/core/manager_routing_test.go`
 
 ### internal/core/mangle_evidence_authority_test.go (1)
-- [ ] `internal/core/mangle_evidence_authority_test.go`
+- [x] `internal/core/mangle_evidence_authority_test.go`
 
 ### internal/core/mangle_updates.go (1)
 - [x] `internal/core/mangle_updates.go`
 
 ### internal/core/mangle_updates_test.go (1)
-- [ ] `internal/core/mangle_updates_test.go`
+- [x] `internal/core/mangle_updates_test.go`
 
 ### internal/core/mangle_watcher.go (1)
 - [x] `internal/core/mangle_watcher.go`
 
 ### internal/core/mangle_watcher_test.go (1)
-- [ ] `internal/core/mangle_watcher_test.go`
+- [x] `internal/core/mangle_watcher_test.go`
 
 ### internal/core/mg_decl_body_literal_wiring_test.go (1)
-- [ ] `internal/core/mg_decl_body_literal_wiring_test.go`
+- [x] `internal/core/mg_decl_body_literal_wiring_test.go`
 
 ### internal/core/mg_decl_literal_conformance_test.go (1)
-- [ ] `internal/core/mg_decl_literal_conformance_test.go`
+- [x] `internal/core/mg_decl_literal_conformance_test.go`
 
 ### internal/core/ondemand_watcher.go (1)
 - [x] `internal/core/ondemand_watcher.go`
 
 ### internal/core/ondemand_watcher_test.go (1)
-- [ ] `internal/core/ondemand_watcher_test.go`
+- [x] `internal/core/ondemand_watcher_test.go`
 
 ### internal/core/parse_serial.go (1)
 - [x] `internal/core/parse_serial.go`
@@ -1545,170 +1545,170 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/pending_edit.go`
 
 ### internal/core/performance_bench_test.go (1)
-- [ ] `internal/core/performance_bench_test.go`
+- [x] `internal/core/performance_bench_test.go`
 
 ### internal/core/policy_inventory.go (1)
 - [x] `internal/core/policy_inventory.go`
 
 ### internal/core/policy_inventory_test.go (1)
-- [ ] `internal/core/policy_inventory_test.go`
+- [x] `internal/core/policy_inventory_test.go`
 
 ### internal/core/predicate_corpus.go (1)
 - [x] `internal/core/predicate_corpus.go`
 
 ### internal/core/predicate_corpus_extra_test.go (1)
-- [ ] `internal/core/predicate_corpus_extra_test.go`
+- [x] `internal/core/predicate_corpus_extra_test.go`
 
 ### internal/core/predicate_corpus_test.go (1)
-- [ ] `internal/core/predicate_corpus_test.go`
+- [x] `internal/core/predicate_corpus_test.go`
 
 ### internal/core/query_pattern_test.go (1)
-- [ ] `internal/core/query_pattern_test.go`
+- [x] `internal/core/query_pattern_test.go`
 
 ### internal/core/routing_performance_test.go (1)
-- [ ] `internal/core/routing_performance_test.go`
+- [x] `internal/core/routing_performance_test.go`
 
 ### internal/core/rule_court.go (1)
 - [x] `internal/core/rule_court.go`
 
 ### internal/core/rule_court_coverage_test.go (1)
-- [ ] `internal/core/rule_court_coverage_test.go`
+- [x] `internal/core/rule_court_coverage_test.go`
 
 ### internal/core/rule_court_gaps_test.go (1)
-- [ ] `internal/core/rule_court_gaps_test.go`
+- [x] `internal/core/rule_court_gaps_test.go`
 
 ### internal/core/rule_court_test.go (1)
-- [ ] `internal/core/rule_court_test.go`
+- [x] `internal/core/rule_court_test.go`
 
 ### internal/core/scheduled_grounded_test.go (1)
-- [ ] `internal/core/scheduled_grounded_test.go`
+- [x] `internal/core/scheduled_grounded_test.go`
 
 ### internal/core/scheduled_llm_client.go (1)
 - [x] `internal/core/scheduled_llm_client.go`
 
 ### internal/core/scheduled_llm_client_coverage_test.go (1)
-- [ ] `internal/core/scheduled_llm_client_coverage_test.go`
+- [x] `internal/core/scheduled_llm_client_coverage_test.go`
 
 ### internal/core/scheduled_llm_client_trace_test.go (1)
-- [ ] `internal/core/scheduled_llm_client_trace_test.go`
+- [x] `internal/core/scheduled_llm_client_trace_test.go`
 
 ### internal/core/scheduled_llm_tool_results_test.go (1)
-- [ ] `internal/core/scheduled_llm_tool_results_test.go`
+- [x] `internal/core/scheduled_llm_tool_results_test.go`
 
 ### internal/core/self_healing.go (1)
 - [x] `internal/core/self_healing.go`
 
 ### internal/core/self_healing_test.go (1)
-- [ ] `internal/core/self_healing_test.go`
+- [x] `internal/core/self_healing_test.go`
 
 ### internal/core/shadow_failclosed_test.go (1)
-- [ ] `internal/core/shadow_failclosed_test.go`
+- [x] `internal/core/shadow_failclosed_test.go`
 
 ### internal/core/shadow_mode.go (1)
 - [x] `internal/core/shadow_mode.go`
 
 ### internal/core/shadow_mode_assert_test.go (1)
-- [ ] `internal/core/shadow_mode_assert_test.go`
+- [x] `internal/core/shadow_mode_assert_test.go`
 
 ### internal/core/shadow_mode_gaps_test.go (1)
-- [ ] `internal/core/shadow_mode_gaps_test.go`
+- [x] `internal/core/shadow_mode_gaps_test.go`
 
 ### internal/core/shadow_mode_test.go (1)
-- [ ] `internal/core/shadow_mode_test.go`
+- [x] `internal/core/shadow_mode_test.go`
 
 ### internal/core/shard_fact_router.go (1)
 - [x] `internal/core/shard_fact_router.go`
 
 ### internal/core/shard_fact_router_test.go (1)
-- [ ] `internal/core/shard_fact_router_test.go`
+- [x] `internal/core/shard_fact_router_test.go`
 
 ### internal/core/shards (23)
-- [ ] `internal/core/shards/agents.go`
-- [ ] `internal/core/shards/agents_test.go`
-- [ ] `internal/core/shards/base_agent_test.go`
-- [ ] `internal/core/shards/config.go`
-- [ ] `internal/core/shards/config_test.go`
-- [ ] `internal/core/shards/hollow_spawn_test.go`
-- [ ] `internal/core/shards/image_generator.go`
-- [ ] `internal/core/shards/image_generator_test.go`
-- [ ] `internal/core/shards/manager.go`
-- [ ] `internal/core/shards/manager_accessors_test.go`
-- [ ] `internal/core/shards/manager_facts_test.go`
-- [ ] `internal/core/shards/manager_ondemand.go`
-- [ ] `internal/core/shards/manager_ondemand_test.go`
-- [ ] `internal/core/shards/manager_spawn.go`
-- [ ] `internal/core/shards/manager_spawn_context_test.go`
-- [ ] `internal/core/shards/manager_test.go`
-- [ ] `internal/core/shards/manager_tools.go`
-- [ ] `internal/core/shards/queue_stress_test.go`
-- [ ] `internal/core/shards/review_feedback_test.go`
-- [ ] `internal/core/shards/shards_coverage_test.go`
-- [ ] `internal/core/shards/spawn_queue.go`
-- [ ] `internal/core/shards/spawn_queue_test.go`
-- [ ] `internal/core/shards/transparency_feed_test.go`
+- [x] `internal/core/shards/agents.go`
+- [x] `internal/core/shards/agents_test.go`
+- [x] `internal/core/shards/base_agent_test.go`
+- [x] `internal/core/shards/config.go`
+- [x] `internal/core/shards/config_test.go`
+- [x] `internal/core/shards/hollow_spawn_test.go`
+- [x] `internal/core/shards/image_generator.go`
+- [x] `internal/core/shards/image_generator_test.go`
+- [x] `internal/core/shards/manager.go`
+- [x] `internal/core/shards/manager_accessors_test.go`
+- [x] `internal/core/shards/manager_facts_test.go`
+- [x] `internal/core/shards/manager_ondemand.go`
+- [x] `internal/core/shards/manager_ondemand_test.go`
+- [x] `internal/core/shards/manager_spawn.go`
+- [x] `internal/core/shards/manager_spawn_context_test.go`
+- [x] `internal/core/shards/manager_test.go`
+- [x] `internal/core/shards/manager_tools.go`
+- [x] `internal/core/shards/queue_stress_test.go`
+- [x] `internal/core/shards/review_feedback_test.go`
+- [x] `internal/core/shards/shards_coverage_test.go`
+- [x] `internal/core/shards/spawn_queue.go`
+- [x] `internal/core/shards/spawn_queue_test.go`
+- [x] `internal/core/shards/transparency_feed_test.go`
 
 ### internal/core/shards_decl_atom_unification_test.go (1)
-- [ ] `internal/core/shards_decl_atom_unification_test.go`
+- [x] `internal/core/shards_decl_atom_unification_test.go`
 
 ### internal/core/stage_context_test.go (1)
-- [ ] `internal/core/stage_context_test.go`
+- [x] `internal/core/stage_context_test.go`
 
 ### internal/core/task_stage_test.go (1)
-- [ ] `internal/core/task_stage_test.go`
+- [x] `internal/core/task_stage_test.go`
 
 ### internal/core/tdd_loop.go (1)
 - [x] `internal/core/tdd_loop.go`
 
 ### internal/core/tdd_loop_test.go (1)
-- [ ] `internal/core/tdd_loop_test.go`
+- [x] `internal/core/tdd_loop_test.go`
 
 ### internal/core/test_helpers_test.go (1)
-- [ ] `internal/core/test_helpers_test.go`
+- [x] `internal/core/test_helpers_test.go`
 
 ### internal/core/tool_registry.go (1)
 - [x] `internal/core/tool_registry.go`
 
 ### internal/core/tool_registry_test.go (1)
-- [ ] `internal/core/tool_registry_test.go`
+- [x] `internal/core/tool_registry_test.go`
 
 ### internal/core/trace.go (1)
 - [x] `internal/core/trace.go`
 
 ### internal/core/trace_classification_test.go (1)
-- [ ] `internal/core/trace_classification_test.go`
+- [x] `internal/core/trace_classification_test.go`
 
 ### internal/core/trace_coverage_test.go (1)
-- [ ] `internal/core/trace_coverage_test.go`
+- [x] `internal/core/trace_coverage_test.go`
 
 ### internal/core/trace_test.go (1)
-- [ ] `internal/core/trace_test.go`
+- [x] `internal/core/trace_test.go`
 
 ### internal/core/transaction_atomic_test.go (1)
-- [ ] `internal/core/transaction_atomic_test.go`
+- [x] `internal/core/transaction_atomic_test.go`
 
 ### internal/core/transaction_manager.go (1)
 - [x] `internal/core/transaction_manager.go`
 
 ### internal/core/transaction_manager_gaps_test.go (1)
-- [ ] `internal/core/transaction_manager_gaps_test.go`
+- [x] `internal/core/transaction_manager_gaps_test.go`
 
 ### internal/core/transaction_manager_test.go (1)
-- [ ] `internal/core/transaction_manager_test.go`
+- [x] `internal/core/transaction_manager_test.go`
 
 ### internal/core/transparency_deny_test.go (1)
-- [ ] `internal/core/transparency_deny_test.go`
+- [x] `internal/core/transparency_deny_test.go`
 
 ### internal/core/validation_reason_vocabulary_test.go (1)
-- [ ] `internal/core/validation_reason_vocabulary_test.go`
+- [x] `internal/core/validation_reason_vocabulary_test.go`
 
 ### internal/core/validator_codedom.go (1)
 - [x] `internal/core/validator_codedom.go`
 
 ### internal/core/validator_codedom_crlf_test.go (1)
-- [ ] `internal/core/validator_codedom_crlf_test.go`
+- [x] `internal/core/validator_codedom_crlf_test.go`
 
 ### internal/core/validator_codedom_delete_lines_test.go (1)
-- [ ] `internal/core/validator_codedom_delete_lines_test.go`
+- [x] `internal/core/validator_codedom_delete_lines_test.go`
 
 ### internal/core/validator_dir.go (1)
 - [x] `internal/core/validator_dir.go`
@@ -1720,43 +1720,43 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/validator_exec.go`
 
 ### internal/core/validator_exec_gaps_test.go (1)
-- [ ] `internal/core/validator_exec_gaps_test.go`
+- [x] `internal/core/validator_exec_gaps_test.go`
 
 ### internal/core/validator_exec_test.go (1)
-- [ ] `internal/core/validator_exec_test.go`
+- [x] `internal/core/validator_exec_test.go`
 
 ### internal/core/validator_file.go (1)
 - [x] `internal/core/validator_file.go`
 
 ### internal/core/validator_file_integration_test.go (1)
-- [ ] `internal/core/validator_file_integration_test.go`
+- [x] `internal/core/validator_file_integration_test.go`
 
 ### internal/core/validator_paranoid.go (1)
 - [x] `internal/core/validator_paranoid.go`
 
 ### internal/core/validator_paranoid_test.go (1)
-- [ ] `internal/core/validator_paranoid_test.go`
+- [x] `internal/core/validator_paranoid_test.go`
 
 ### internal/core/validator_registry.go (1)
 - [x] `internal/core/validator_registry.go`
 
 ### internal/core/validator_registry_test.go (1)
-- [ ] `internal/core/validator_registry_test.go`
+- [x] `internal/core/validator_registry_test.go`
 
 ### internal/core/validator_syntax.go (1)
 - [x] `internal/core/validator_syntax.go`
 
 ### internal/core/validator_syntax_gaps_test.go (1)
-- [ ] `internal/core/validator_syntax_gaps_test.go`
+- [x] `internal/core/validator_syntax_gaps_test.go`
 
 ### internal/core/validator_syntax_test.go (1)
-- [ ] `internal/core/validator_syntax_test.go`
+- [x] `internal/core/validator_syntax_test.go`
 
 ### internal/core/validator_tool_contract_test.go (1)
-- [ ] `internal/core/validator_tool_contract_test.go`
+- [x] `internal/core/validator_tool_contract_test.go`
 
 ### internal/core/verification_host_test.go (1)
-- [ ] `internal/core/verification_host_test.go`
+- [x] `internal/core/verification_host_test.go`
 
 ### internal/core/virtual_store.go (1)
 - [x] `internal/core/virtual_store.go`
@@ -1765,94 +1765,94 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/virtual_store_actions.go`
 
 ### internal/core/virtual_store_actions_coverage_test.go (1)
-- [ ] `internal/core/virtual_store_actions_coverage_test.go`
+- [x] `internal/core/virtual_store_actions_coverage_test.go`
 
 ### internal/core/virtual_store_cli_fact_test.go (1)
-- [ ] `internal/core/virtual_store_cli_fact_test.go`
+- [x] `internal/core/virtual_store_cli_fact_test.go`
 
 ### internal/core/virtual_store_codedom.go (1)
 - [x] `internal/core/virtual_store_codedom.go`
 
 ### internal/core/virtual_store_codedom_coverage_test.go (1)
-- [ ] `internal/core/virtual_store_codedom_coverage_test.go`
+- [x] `internal/core/virtual_store_codedom_coverage_test.go`
 
 ### internal/core/virtual_store_codedom_test.go (1)
-- [ ] `internal/core/virtual_store_codedom_test.go`
+- [x] `internal/core/virtual_store_codedom_test.go`
 
 ### internal/core/virtual_store_command_guard_test.go (1)
-- [ ] `internal/core/virtual_store_command_guard_test.go`
+- [x] `internal/core/virtual_store_command_guard_test.go`
 
 ### internal/core/virtual_store_constitution.go (1)
 - [x] `internal/core/virtual_store_constitution.go`
 
 ### internal/core/virtual_store_delegate_codec_test.go (1)
-- [ ] `internal/core/virtual_store_delegate_codec_test.go`
+- [x] `internal/core/virtual_store_delegate_codec_test.go`
 
 ### internal/core/virtual_store_denial_feedback_test.go (1)
-- [ ] `internal/core/virtual_store_denial_feedback_test.go`
+- [x] `internal/core/virtual_store_denial_feedback_test.go`
 
 ### internal/core/virtual_store_file_actions.go (1)
 - [x] `internal/core/virtual_store_file_actions.go`
 
 ### internal/core/virtual_store_gaps_test.go (1)
-- [ ] `internal/core/virtual_store_gaps_test.go`
+- [x] `internal/core/virtual_store_gaps_test.go`
 
 ### internal/core/virtual_store_graph.go (1)
 - [x] `internal/core/virtual_store_graph.go`
 
 ### internal/core/virtual_store_grounded_test.go (1)
-- [ ] `internal/core/virtual_store_grounded_test.go`
+- [x] `internal/core/virtual_store_grounded_test.go`
 
 ### internal/core/virtual_store_integration_test.go (1)
-- [ ] `internal/core/virtual_store_integration_test.go`
+- [x] `internal/core/virtual_store_integration_test.go`
 
 ### internal/core/virtual_store_interactive_gate.go (1)
 - [x] `internal/core/virtual_store_interactive_gate.go`
 
 ### internal/core/virtual_store_interactive_gate_test.go (1)
-- [ ] `internal/core/virtual_store_interactive_gate_test.go`
+- [x] `internal/core/virtual_store_interactive_gate_test.go`
 
 ### internal/core/virtual_store_interface_test.go (1)
-- [ ] `internal/core/virtual_store_interface_test.go`
+- [x] `internal/core/virtual_store_interface_test.go`
 
 ### internal/core/virtual_store_link_facts_test.go (1)
-- [ ] `internal/core/virtual_store_link_facts_test.go`
+- [x] `internal/core/virtual_store_link_facts_test.go`
 
 ### internal/core/virtual_store_mcp_proxy.go (1)
 - [x] `internal/core/virtual_store_mcp_proxy.go`
 
 ### internal/core/virtual_store_mcp_wiring_test.go (1)
-- [ ] `internal/core/virtual_store_mcp_wiring_test.go`
+- [x] `internal/core/virtual_store_mcp_wiring_test.go`
 
 ### internal/core/virtual_store_predicates.go (1)
 - [x] `internal/core/virtual_store_predicates.go`
 
 ### internal/core/virtual_store_predicates_coverage_test.go (1)
-- [ ] `internal/core/virtual_store_predicates_coverage_test.go`
+- [x] `internal/core/virtual_store_predicates_coverage_test.go`
 
 ### internal/core/virtual_store_projectdoc.go (1)
 - [x] `internal/core/virtual_store_projectdoc.go`
 
 ### internal/core/virtual_store_projectdoc_test.go (1)
-- [ ] `internal/core/virtual_store_projectdoc_test.go`
+- [x] `internal/core/virtual_store_projectdoc_test.go`
 
 ### internal/core/virtual_store_python.go (1)
 - [x] `internal/core/virtual_store_python.go`
 
 ### internal/core/virtual_store_python_test.go (1)
-- [ ] `internal/core/virtual_store_python_test.go`
+- [x] `internal/core/virtual_store_python_test.go`
 
 ### internal/core/virtual_store_routing.go (1)
 - [x] `internal/core/virtual_store_routing.go`
 
 ### internal/core/virtual_store_safety_test.go (1)
-- [ ] `internal/core/virtual_store_safety_test.go`
+- [x] `internal/core/virtual_store_safety_test.go`
 
 ### internal/core/virtual_store_tactile_audit_test.go (1)
-- [ ] `internal/core/virtual_store_tactile_audit_test.go`
+- [x] `internal/core/virtual_store_tactile_audit_test.go`
 
 ### internal/core/virtual_store_test.go (1)
-- [ ] `internal/core/virtual_store_test.go`
+- [x] `internal/core/virtual_store_test.go`
 
 ### internal/core/virtual_store_tool_facts.go (1)
 - [x] `internal/core/virtual_store_tool_facts.go`
@@ -1870,104 +1870,104 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/virtual_store_workflows.go`
 
 ### internal/core/virtual_store_workflows_coverage_test.go (1)
-- [ ] `internal/core/virtual_store_workflows_coverage_test.go`
+- [x] `internal/core/virtual_store_workflows_coverage_test.go`
 
 ### internal/core/virtual_store_workflows_test.go (1)
-- [ ] `internal/core/virtual_store_workflows_test.go`
+- [x] `internal/core/virtual_store_workflows_test.go`
 
 ### internal/core/virtual_store_write_guard.go (1)
 - [x] `internal/core/virtual_store_write_guard.go`
 
 ### internal/core/yolo_policy_test.go (1)
-- [ ] `internal/core/yolo_policy_test.go`
+- [x] `internal/core/yolo_policy_test.go`
 
 ### internal/diff (7)
-- [ ] `internal/diff/benchmark_test.go`
-- [ ] `internal/diff/cache.go`
-- [ ] `internal/diff/cache_test.go`
-- [ ] `internal/diff/diff.go`
-- [ ] `internal/diff/diff_comprehensive_test.go`
-- [ ] `internal/diff/diff_test.go`
-- [ ] `internal/diff/word_span_test.go`
+- [x] `internal/diff/benchmark_test.go`
+- [x] `internal/diff/cache.go`
+- [x] `internal/diff/cache_test.go`
+- [x] `internal/diff/diff.go`
+- [x] `internal/diff/diff_comprehensive_test.go`
+- [x] `internal/diff/diff_test.go`
+- [x] `internal/diff/word_span_test.go`
 
 ### internal/embedding (15)
-- [ ] `internal/embedding/engine.go`
-- [ ] `internal/embedding/engine_coverage_test.go`
-- [ ] `internal/embedding/genai.go`
-- [ ] `internal/embedding/genai_bench_test.go`
-- [ ] `internal/embedding/genai_coverage_test.go`
-- [ ] `internal/embedding/genai_test.go`
-- [ ] `internal/embedding/math_amd64.go`
-- [ ] `internal/embedding/math_generic.go`
-- [ ] `internal/embedding/ollama.go`
-- [ ] `internal/embedding/ollama_coverage_test.go`
-- [ ] `internal/embedding/ollama_ensure_test.go`
-- [ ] `internal/embedding/ollama_test.go`
-- [ ] `internal/embedding/task_selector.go`
-- [ ] `internal/embedding/task_selector_coverage_test.go`
-- [ ] `internal/embedding/task_selector_test.go`
+- [x] `internal/embedding/engine.go`
+- [x] `internal/embedding/engine_coverage_test.go`
+- [x] `internal/embedding/genai.go`
+- [x] `internal/embedding/genai_bench_test.go`
+- [x] `internal/embedding/genai_coverage_test.go`
+- [x] `internal/embedding/genai_test.go`
+- [x] `internal/embedding/math_amd64.go`
+- [x] `internal/embedding/math_generic.go`
+- [x] `internal/embedding/ollama.go`
+- [x] `internal/embedding/ollama_coverage_test.go`
+- [x] `internal/embedding/ollama_ensure_test.go`
+- [x] `internal/embedding/ollama_test.go`
+- [x] `internal/embedding/task_selector.go`
+- [x] `internal/embedding/task_selector_coverage_test.go`
+- [x] `internal/embedding/task_selector_test.go`
 
 ### internal/evidence (3)
-- [ ] `internal/evidence/change.go`
-- [ ] `internal/evidence/change_test.go`
-- [ ] `internal/evidence/context.go`
+- [x] `internal/evidence/change.go`
+- [x] `internal/evidence/change_test.go`
+- [x] `internal/evidence/context.go`
 
 ### internal/features (8)
-- [ ] `internal/features/config_roundtrip_test.go`
-- [ ] `internal/features/features.go`
-- [ ] `internal/features/features_defaults_test.go`
-- [ ] `internal/features/features_test.go`
-- [ ] `internal/features/migration_test.go`
-- [ ] `internal/features/resolved_test.go`
-- [ ] `internal/features/schema.go`
-- [ ] `internal/features/schema_test.go`
+- [x] `internal/features/config_roundtrip_test.go`
+- [x] `internal/features/features.go`
+- [x] `internal/features/features_defaults_test.go`
+- [x] `internal/features/features_test.go`
+- [x] `internal/features/migration_test.go`
+- [x] `internal/features/resolved_test.go`
+- [x] `internal/features/schema.go`
+- [x] `internal/features/schema_test.go`
 
 ### internal/init (37)
-- [ ] `internal/init/agent_generation_contract_test.go`
-- [ ] `internal/init/agents.go`
-- [ ] `internal/init/agents_curation.go`
-- [ ] `internal/init/agents_curation_test.go`
-- [ ] `internal/init/agents_knowledge.go`
-- [ ] `internal/init/agents_knowledge_helpers_test.go`
-- [ ] `internal/init/agents_prompts_test.go`
-- [ ] `internal/init/agents_registration.go`
-- [ ] `internal/init/discovered_agent_store_test.go`
-- [ ] `internal/init/eta_tracker.go`
-- [ ] `internal/init/init_coverage_test.go`
-- [ ] `internal/init/init_test.go`
-- [ ] `internal/init/initializer.go`
-- [ ] `internal/init/initializer_truth_test.go`
-- [ ] `internal/init/interactive.go`
-- [ ] `internal/init/interactive_display_test.go`
-- [ ] `internal/init/jit_integration.go`
-- [ ] `internal/init/jit_kernel_verify_test.go`
-- [ ] `internal/init/modules_test.go`
-- [ ] `internal/init/preferences_preservation_test.go`
-- [ ] `internal/init/profile.go`
-- [ ] `internal/init/profile_detection_test.go`
-- [ ] `internal/init/prompt_deadline_test.go`
-- [ ] `internal/init/scanner.go`
-- [ ] `internal/init/scanner_dependencies.go`
-- [ ] `internal/init/scanner_dependencies_test.go`
-- [ ] `internal/init/scanner_determinism_test.go`
-- [ ] `internal/init/scanner_test.go`
-- [ ] `internal/init/shared_kb.go`
-- [ ] `internal/init/strategic_documents.go`
-- [ ] `internal/init/strategic_knowledge.go`
-- [ ] `internal/init/strategic_knowledge_parsing_test.go`
-- [ ] `internal/init/tool_target_test.go`
-- [ ] `internal/init/tools.go`
-- [ ] `internal/init/typeu_agents.go`
-- [ ] `internal/init/typeu_coverage_test.go`
-- [ ] `internal/init/validation.go`
+- [x] `internal/init/agent_generation_contract_test.go`
+- [x] `internal/init/agents.go`
+- [x] `internal/init/agents_curation.go`
+- [x] `internal/init/agents_curation_test.go`
+- [x] `internal/init/agents_knowledge.go`
+- [x] `internal/init/agents_knowledge_helpers_test.go`
+- [x] `internal/init/agents_prompts_test.go`
+- [x] `internal/init/agents_registration.go`
+- [x] `internal/init/discovered_agent_store_test.go`
+- [x] `internal/init/eta_tracker.go`
+- [x] `internal/init/init_coverage_test.go`
+- [x] `internal/init/init_test.go`
+- [x] `internal/init/initializer.go`
+- [x] `internal/init/initializer_truth_test.go`
+- [x] `internal/init/interactive.go`
+- [x] `internal/init/interactive_display_test.go`
+- [x] `internal/init/jit_integration.go`
+- [x] `internal/init/jit_kernel_verify_test.go`
+- [x] `internal/init/modules_test.go`
+- [x] `internal/init/preferences_preservation_test.go`
+- [x] `internal/init/profile.go`
+- [x] `internal/init/profile_detection_test.go`
+- [x] `internal/init/prompt_deadline_test.go`
+- [x] `internal/init/scanner.go`
+- [x] `internal/init/scanner_dependencies.go`
+- [x] `internal/init/scanner_dependencies_test.go`
+- [x] `internal/init/scanner_determinism_test.go`
+- [x] `internal/init/scanner_test.go`
+- [x] `internal/init/shared_kb.go`
+- [x] `internal/init/strategic_documents.go`
+- [x] `internal/init/strategic_knowledge.go`
+- [x] `internal/init/strategic_knowledge_parsing_test.go`
+- [x] `internal/init/tool_target_test.go`
+- [x] `internal/init/tools.go`
+- [x] `internal/init/typeu_agents.go`
+- [x] `internal/init/typeu_coverage_test.go`
+- [x] `internal/init/validation.go`
 
 ### internal/jit (2)
-- [ ] `internal/jit/config/types.go`
-- [ ] `internal/jit/config/types_test.go`
+- [x] `internal/jit/config/types.go`
+- [x] `internal/jit/config/types_test.go`
 
 ### internal/jsonl (2)
-- [ ] `internal/jsonl/jsonl.go`
-- [ ] `internal/jsonl/jsonl_test.go`
+- [x] `internal/jsonl/jsonl.go`
+- [x] `internal/jsonl/jsonl_test.go`
 
 ### internal/logging (32)
 - [x] `internal/logging/audit.go`
@@ -2263,49 +2263,49 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/mcp/types_coverage_test.go`
 
 ### internal/northstar (25)
-- [ ] `internal/northstar/alignment_prompt.go`
-- [ ] `internal/northstar/alignment_prompt_test.go`
-- [ ] `internal/northstar/bridge.go`
-- [ ] `internal/northstar/bridge_test.go`
-- [ ] `internal/northstar/campaign_observer.go`
-- [ ] `internal/northstar/docs.go`
-- [ ] `internal/northstar/docs_test.go`
-- [ ] `internal/northstar/facts_links_test.go`
-- [ ] `internal/northstar/guardian.go`
-- [ ] `internal/northstar/guardian_querier_wiring_test.go`
-- [ ] `internal/northstar/guardian_test.go`
-- [ ] `internal/northstar/guardian_warn_test.go`
-- [ ] `internal/northstar/guardian_wiring_test.go`
-- [ ] `internal/northstar/kernel_integration_test.go`
-- [ ] `internal/northstar/module.go`
-- [ ] `internal/northstar/module_test.go`
-- [ ] `internal/northstar/ns6_diag_test.go`
-- [ ] `internal/northstar/observer.go`
-- [ ] `internal/northstar/observer_test.go`
-- [ ] `internal/northstar/registry.go`
-- [ ] `internal/northstar/store.go`
-- [ ] `internal/northstar/store_test.go`
-- [ ] `internal/northstar/types.go`
-- [ ] `internal/northstar/types_facts_test.go`
-- [ ] `internal/northstar/types_test.go`
+- [x] `internal/northstar/alignment_prompt.go`
+- [x] `internal/northstar/alignment_prompt_test.go`
+- [x] `internal/northstar/bridge.go`
+- [x] `internal/northstar/bridge_test.go`
+- [x] `internal/northstar/campaign_observer.go`
+- [x] `internal/northstar/docs.go`
+- [x] `internal/northstar/docs_test.go`
+- [x] `internal/northstar/facts_links_test.go`
+- [x] `internal/northstar/guardian.go`
+- [x] `internal/northstar/guardian_querier_wiring_test.go`
+- [x] `internal/northstar/guardian_test.go`
+- [x] `internal/northstar/guardian_warn_test.go`
+- [x] `internal/northstar/guardian_wiring_test.go`
+- [x] `internal/northstar/kernel_integration_test.go`
+- [x] `internal/northstar/module.go`
+- [x] `internal/northstar/module_test.go`
+- [x] `internal/northstar/ns6_diag_test.go`
+- [x] `internal/northstar/observer.go`
+- [x] `internal/northstar/observer_test.go`
+- [x] `internal/northstar/registry.go`
+- [x] `internal/northstar/store.go`
+- [x] `internal/northstar/store_test.go`
+- [x] `internal/northstar/types.go`
+- [x] `internal/northstar/types_facts_test.go`
+- [x] `internal/northstar/types_test.go`
 
 ### internal/observability (6)
-- [ ] `internal/observability/flight_recorder.go`
-- [ ] `internal/observability/flight_recorder_lifecycle_test.go`
-- [ ] `internal/observability/flight_recorder_test.go`
-- [ ] `internal/observability/flight_recorder_watchdog_test.go`
-- [ ] `internal/observability/runtime_metrics.go`
-- [ ] `internal/observability/runtime_metrics_test.go`
+- [x] `internal/observability/flight_recorder.go`
+- [x] `internal/observability/flight_recorder_lifecycle_test.go`
+- [x] `internal/observability/flight_recorder_test.go`
+- [x] `internal/observability/flight_recorder_watchdog_test.go`
+- [x] `internal/observability/runtime_metrics.go`
+- [x] `internal/observability/runtime_metrics_test.go`
 
 ### internal/observation (8)
-- [ ] `internal/observation/codesearch.go`
-- [ ] `internal/observation/codesearch_test.go`
-- [ ] `internal/observation/doc.go`
-- [ ] `internal/observation/fileread.go`
-- [ ] `internal/observation/fileread_test.go`
-- [ ] `internal/observation/precondition/precondition.go`
-- [ ] `internal/observation/precondition/precondition_test.go`
-- [ ] `internal/observation/subagent.go`
+- [x] `internal/observation/codesearch.go`
+- [x] `internal/observation/codesearch_test.go`
+- [x] `internal/observation/doc.go`
+- [x] `internal/observation/fileread.go`
+- [x] `internal/observation/fileread_test.go`
+- [x] `internal/observation/precondition/precondition.go`
+- [x] `internal/observation/precondition/precondition_test.go`
+- [x] `internal/observation/subagent.go`
 
 ### internal/perception (131)
 - [x] `internal/perception/assault_verb_test.go`
@@ -2448,37 +2448,37 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/perception/zai_live_test.go`
 
 ### internal/persist (10)
-- [ ] `internal/persist/doc.go`
-- [ ] `internal/persist/factsnap/codec_parity_test.go`
-- [ ] `internal/persist/factsnap/factsnap.go`
-- [ ] `internal/persist/factsnap/factsnap_codec_test.go`
-- [ ] `internal/persist/factsnap/factsnap_robustness_test.go`
-- [ ] `internal/persist/factsnap/factsnap_test.go`
-- [ ] `internal/persist/factsnap/legacy_test.go`
-- [ ] `internal/persist/snapshot/kernel_roundtrip_test.go`
-- [ ] `internal/persist/snapshot/snapshot.go`
-- [ ] `internal/persist/snapshot/snapshot_test.go`
+- [x] `internal/persist/doc.go`
+- [x] `internal/persist/factsnap/codec_parity_test.go`
+- [x] `internal/persist/factsnap/factsnap.go`
+- [x] `internal/persist/factsnap/factsnap_codec_test.go`
+- [x] `internal/persist/factsnap/factsnap_robustness_test.go`
+- [x] `internal/persist/factsnap/factsnap_test.go`
+- [x] `internal/persist/factsnap/legacy_test.go`
+- [x] `internal/persist/snapshot/kernel_roundtrip_test.go`
+- [x] `internal/persist/snapshot/snapshot.go`
+- [x] `internal/persist/snapshot/snapshot_test.go`
 
 ### internal/processutil (5)
-- [ ] `internal/processutil/cancellation_test.go`
-- [ ] `internal/processutil/command.go`
-- [ ] `internal/processutil/command_test.go`
-- [ ] `internal/processutil/proc_tree_other.go`
-- [ ] `internal/processutil/proc_tree_windows.go`
+- [x] `internal/processutil/cancellation_test.go`
+- [x] `internal/processutil/command.go`
+- [x] `internal/processutil/command_test.go`
+- [x] `internal/processutil/proc_tree_other.go`
+- [x] `internal/processutil/proc_tree_windows.go`
 
 ### internal/projectdoc (12)
-- [ ] `internal/projectdoc/facts.go`
-- [ ] `internal/projectdoc/gate.go`
-- [ ] `internal/projectdoc/gofmt_gate_test.go`
-- [ ] `internal/projectdoc/loadall_test.go`
-- [ ] `internal/projectdoc/nerdmd.go`
-- [ ] `internal/projectdoc/nerdmd_test.go`
-- [ ] `internal/projectdoc/northstar_facts_test.go`
-- [ ] `internal/projectdoc/northstar_schema_test.go`
-- [ ] `internal/projectdoc/prompt_section_bounds_test.go`
-- [ ] `internal/projectdoc/readfile_tool_test.go`
-- [ ] `internal/projectdoc/tool_gate.go`
-- [ ] `internal/projectdoc/tool_gate_test.go`
+- [x] `internal/projectdoc/facts.go`
+- [x] `internal/projectdoc/gate.go`
+- [x] `internal/projectdoc/gofmt_gate_test.go`
+- [x] `internal/projectdoc/loadall_test.go`
+- [x] `internal/projectdoc/nerdmd.go`
+- [x] `internal/projectdoc/nerdmd_test.go`
+- [x] `internal/projectdoc/northstar_facts_test.go`
+- [x] `internal/projectdoc/northstar_schema_test.go`
+- [x] `internal/projectdoc/prompt_section_bounds_test.go`
+- [x] `internal/projectdoc/readfile_tool_test.go`
+- [x] `internal/projectdoc/tool_gate.go`
+- [x] `internal/projectdoc/tool_gate_test.go`
 
 ### internal/prompt (105)
 - [x] `internal/prompt/assembler.go`
@@ -2588,18 +2588,18 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/prompt/verify_pe1_test.go`
 
 ### internal/regression (7)
-- [ ] `internal/regression/battery.go`
-- [ ] `internal/regression/battery_features_test.go`
-- [ ] `internal/regression/battery_test.go`
-- [ ] `internal/regression/policy.go`
-- [ ] `internal/regression/policy_test.go`
-- [ ] `internal/regression/seed.go`
-- [ ] `internal/regression/seed_test.go`
+- [x] `internal/regression/battery.go`
+- [x] `internal/regression/battery_features_test.go`
+- [x] `internal/regression/battery_test.go`
+- [x] `internal/regression/policy.go`
+- [x] `internal/regression/policy_test.go`
+- [x] `internal/regression/seed.go`
+- [x] `internal/regression/seed_test.go`
 
 ### internal/retain (3)
-- [ ] `internal/retain/retain.go`
-- [ ] `internal/retain/retain_brutal_test.go`
-- [ ] `internal/retain/retain_test.go`
+- [x] `internal/retain/retain.go`
+- [x] `internal/retain/retain_brutal_test.go`
+- [x] `internal/retain/retain_test.go`
 
 ### internal/retrieval (20)
 - [x] `internal/retrieval/backend.go`
@@ -2818,18 +2818,18 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/shards/system/world_model_rootpath_test.go`
 
 ### internal/sqlpragmas (12)
-- [ ] `internal/sqlpragmas/connector.go`
-- [ ] `internal/sqlpragmas/corpus_coverage_test.go`
-- [ ] `internal/sqlpragmas/features_test.go`
-- [ ] `internal/sqlpragmas/golden_test.go`
-- [ ] `internal/sqlpragmas/hostclass.go`
-- [ ] `internal/sqlpragmas/imports_test.go`
-- [ ] `internal/sqlpragmas/metrics.go`
-- [ ] `internal/sqlpragmas/modernc_integration_test.go`
-- [ ] `internal/sqlpragmas/open_site_audit_test.go`
-- [ ] `internal/sqlpragmas/pragma_integration_test.go`
-- [ ] `internal/sqlpragmas/pragmas.go`
-- [ ] `internal/sqlpragmas/pragmas_test.go`
+- [x] `internal/sqlpragmas/connector.go`
+- [x] `internal/sqlpragmas/corpus_coverage_test.go`
+- [x] `internal/sqlpragmas/features_test.go`
+- [x] `internal/sqlpragmas/golden_test.go`
+- [x] `internal/sqlpragmas/hostclass.go`
+- [x] `internal/sqlpragmas/imports_test.go`
+- [x] `internal/sqlpragmas/metrics.go`
+- [x] `internal/sqlpragmas/modernc_integration_test.go`
+- [x] `internal/sqlpragmas/open_site_audit_test.go`
+- [x] `internal/sqlpragmas/pragma_integration_test.go`
+- [x] `internal/sqlpragmas/pragmas.go`
+- [x] `internal/sqlpragmas/pragmas_test.go`
 
 ### internal/store (96)
 - [ ] `internal/store/archival_test.go`
@@ -3065,8 +3065,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/testing/harness_subsystem.go`
 
 ### internal/testoutput (2)
-- [ ] `internal/testoutput/testoutput.go`
-- [ ] `internal/testoutput/testoutput_test.go`
+- [x] `internal/testoutput/testoutput.go`
+- [x] `internal/testoutput/testoutput_test.go`
 
 ### internal/tools/allowlist_test.go (1)
 - [x] `internal/tools/allowlist_test.go`
@@ -3263,95 +3263,95 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/tools/workspace_identity_test.go`
 
 ### internal/transparency (23)
-- [ ] `internal/transparency/doc.go`
-- [ ] `internal/transparency/error_classifier.go`
-- [ ] `internal/transparency/error_classifier_test.go`
-- [ ] `internal/transparency/event_bus.go`
-- [ ] `internal/transparency/event_bus_category_test.go`
-- [ ] `internal/transparency/event_bus_test.go`
-- [ ] `internal/transparency/explainer.go`
-- [ ] `internal/transparency/explainer_test.go`
-- [ ] `internal/transparency/glass_box_events.go`
-- [ ] `internal/transparency/glass_box_events_test.go`
-- [ ] `internal/transparency/glass_box_helpers_test.go`
-- [ ] `internal/transparency/ndjson_sink.go`
-- [ ] `internal/transparency/observability_test.go`
-- [ ] `internal/transparency/process.go`
-- [ ] `internal/transparency/process_test.go`
-- [ ] `internal/transparency/safety_reporter.go`
-- [ ] `internal/transparency/safety_reporter_test.go`
-- [ ] `internal/transparency/shard_observer.go`
-- [ ] `internal/transparency/shard_observer_test.go`
-- [ ] `internal/transparency/transparency.go`
-- [ ] `internal/transparency/transparency_comprehensive_test.go`
-- [ ] `internal/transparency/transparency_test.go`
-- [ ] `internal/transparency/wiring_test.go`
+- [x] `internal/transparency/doc.go`
+- [x] `internal/transparency/error_classifier.go`
+- [x] `internal/transparency/error_classifier_test.go`
+- [x] `internal/transparency/event_bus.go`
+- [x] `internal/transparency/event_bus_category_test.go`
+- [x] `internal/transparency/event_bus_test.go`
+- [x] `internal/transparency/explainer.go`
+- [x] `internal/transparency/explainer_test.go`
+- [x] `internal/transparency/glass_box_events.go`
+- [x] `internal/transparency/glass_box_events_test.go`
+- [x] `internal/transparency/glass_box_helpers_test.go`
+- [x] `internal/transparency/ndjson_sink.go`
+- [x] `internal/transparency/observability_test.go`
+- [x] `internal/transparency/process.go`
+- [x] `internal/transparency/process_test.go`
+- [x] `internal/transparency/safety_reporter.go`
+- [x] `internal/transparency/safety_reporter_test.go`
+- [x] `internal/transparency/shard_observer.go`
+- [x] `internal/transparency/shard_observer_test.go`
+- [x] `internal/transparency/transparency.go`
+- [x] `internal/transparency/transparency_comprehensive_test.go`
+- [x] `internal/transparency/transparency_test.go`
+- [x] `internal/transparency/wiring_test.go`
 
 ### internal/types (28)
-- [ ] `internal/types/atom.go`
-- [ ] `internal/types/atom_test.go`
-- [ ] `internal/types/container_toatom_test.go`
-- [ ] `internal/types/ctxkeys.go`
-- [ ] `internal/types/ctxkeys_test.go`
-- [ ] `internal/types/example_test.go`
-- [ ] `internal/types/extract.go`
-- [ ] `internal/types/extract_test.go`
-- [ ] `internal/types/fact_conventions_guard_test.go`
-- [ ] `internal/types/fact_text.go`
-- [ ] `internal/types/fact_text_test.go`
-- [ ] `internal/types/interfaces.go`
-- [ ] `internal/types/kernel_transactor_guard_test.go`
-- [ ] `internal/types/mangle_roundtrip_external_test.go`
-- [ ] `internal/types/mangle_scale.go`
-- [ ] `internal/types/mangle_scale_test.go`
-- [ ] `internal/types/mangle_string_test.go`
-- [ ] `internal/types/path_identity.go`
-- [ ] `internal/types/shard.go`
-- [ ] `internal/types/shard_test.go`
-- [ ] `internal/types/transaction.go`
-- [ ] `internal/types/transparency.go`
-- [ ] `internal/types/truncation.go`
-- [ ] `internal/types/types.go`
-- [ ] `internal/types/types_comprehensive_test.go`
-- [ ] `internal/types/types_test.go`
-- [ ] `internal/types/typestest/mockkernel.go`
-- [ ] `internal/types/typestest/mockkernel_test.go`
+- [x] `internal/types/atom.go`
+- [x] `internal/types/atom_test.go`
+- [x] `internal/types/container_toatom_test.go`
+- [x] `internal/types/ctxkeys.go`
+- [x] `internal/types/ctxkeys_test.go`
+- [x] `internal/types/example_test.go`
+- [x] `internal/types/extract.go`
+- [x] `internal/types/extract_test.go`
+- [x] `internal/types/fact_conventions_guard_test.go`
+- [x] `internal/types/fact_text.go`
+- [x] `internal/types/fact_text_test.go`
+- [x] `internal/types/interfaces.go`
+- [x] `internal/types/kernel_transactor_guard_test.go`
+- [x] `internal/types/mangle_roundtrip_external_test.go`
+- [x] `internal/types/mangle_scale.go`
+- [x] `internal/types/mangle_scale_test.go`
+- [x] `internal/types/mangle_string_test.go`
+- [x] `internal/types/path_identity.go`
+- [x] `internal/types/shard.go`
+- [x] `internal/types/shard_test.go`
+- [x] `internal/types/transaction.go`
+- [x] `internal/types/transparency.go`
+- [x] `internal/types/truncation.go`
+- [x] `internal/types/types.go`
+- [x] `internal/types/types_comprehensive_test.go`
+- [x] `internal/types/types_test.go`
+- [x] `internal/types/typestest/mockkernel.go`
+- [x] `internal/types/typestest/mockkernel_test.go`
 
 ### internal/usage (17)
-- [ ] `internal/usage/crossprocess_test.go`
-- [ ] `internal/usage/durability_test.go`
-- [ ] `internal/usage/filelock_other.go`
-- [ ] `internal/usage/filelock_test.go`
-- [ ] `internal/usage/filelock_windows.go`
-- [ ] `internal/usage/observer.go`
-- [ ] `internal/usage/pricing.go`
-- [ ] `internal/usage/pricing_test.go`
-- [ ] `internal/usage/shared_ownership_test.go`
-- [ ] `internal/usage/shared_tracker_test.go`
-- [ ] `internal/usage/turn_tokens_test.go`
-- [ ] `internal/usage/usage_comprehensive_test.go`
-- [ ] `internal/usage/usage_tracker.go`
-- [ ] `internal/usage/usage_tracker_context_test.go`
-- [ ] `internal/usage/usage_tracker_test.go`
-- [ ] `internal/usage/usage_types.go`
-- [ ] `internal/usage/usage_types_test.go`
+- [x] `internal/usage/crossprocess_test.go`
+- [x] `internal/usage/durability_test.go`
+- [x] `internal/usage/filelock_other.go`
+- [x] `internal/usage/filelock_test.go`
+- [x] `internal/usage/filelock_windows.go`
+- [x] `internal/usage/observer.go`
+- [x] `internal/usage/pricing.go`
+- [x] `internal/usage/pricing_test.go`
+- [x] `internal/usage/shared_ownership_test.go`
+- [x] `internal/usage/shared_tracker_test.go`
+- [x] `internal/usage/turn_tokens_test.go`
+- [x] `internal/usage/usage_comprehensive_test.go`
+- [x] `internal/usage/usage_tracker.go`
+- [x] `internal/usage/usage_tracker_context_test.go`
+- [x] `internal/usage/usage_tracker_test.go`
+- [x] `internal/usage/usage_types.go`
+- [x] `internal/usage/usage_types_test.go`
 
 ### internal/ux (8)
-- [ ] `internal/ux/doc.go`
-- [ ] `internal/ux/migration.go`
-- [ ] `internal/ux/migration_extra_test.go`
-- [ ] `internal/ux/migration_test.go`
-- [ ] `internal/ux/preferences.go`
-- [ ] `internal/ux/preferences_test.go`
-- [ ] `internal/ux/user_state.go`
-- [ ] `internal/ux/user_state_test.go`
+- [x] `internal/ux/doc.go`
+- [x] `internal/ux/migration.go`
+- [x] `internal/ux/migration_extra_test.go`
+- [x] `internal/ux/migration_test.go`
+- [x] `internal/ux/preferences.go`
+- [x] `internal/ux/preferences_test.go`
+- [x] `internal/ux/user_state.go`
+- [x] `internal/ux/user_state_test.go`
 
 ### internal/verification (5)
-- [ ] `internal/verification/verifier.go`
-- [ ] `internal/verification/verifier_failclosed_test.go`
-- [ ] `internal/verification/verifier_gaps_test.go`
-- [ ] `internal/verification/verifier_normalize_test.go`
-- [ ] `internal/verification/verifier_test.go`
+- [x] `internal/verification/verifier.go`
+- [x] `internal/verification/verifier_failclosed_test.go`
+- [x] `internal/verification/verifier_gaps_test.go`
+- [x] `internal/verification/verifier_normalize_test.go`
+- [x] `internal/verification/verifier_test.go`
 
 ### internal/world (105)
 - [x] `internal/world/apply_incremental.go`
@@ -3663,7 +3663,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/context/working_set.mg`
 
 ### internal/core/.nerd (1)
-- [ ] `internal/core/.nerd/debug/debug_program_ERROR.mg`
+- [ ] `internal/core/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
 
 ### internal/core/defaults (134)
 - [x] `internal/core/defaults/benchmarks.mg`
@@ -3802,16 +3802,16 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/defaults/topology_planner.mg`
 
 ### internal/init (1)
-- [ ] `internal/init/.nerd/debug/debug_program_ERROR.mg`
+- [x] `internal/init/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/mcp (1)
 - [x] `internal/mcp/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/northstar (1)
-- [ ] `internal/northstar/.nerd/debug/debug_program_ERROR.mg`
+- [x] `internal/northstar/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/persist (1)
-- [ ] `internal/persist/snapshot/.nerd/debug/debug_program_ERROR.mg`
+- [x] `internal/persist/snapshot/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/retrieval (1)
 - [ ] `internal/retrieval/.nerd/debug/debug_program_ERROR.mg`
