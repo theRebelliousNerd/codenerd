@@ -94,7 +94,8 @@ func (c *OllamaClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 // CompleteWithToolResults implements types.ToolResultsProvider so multi-turn
 // tool loops work for local Ollama the same way as xAI/OpenAI.
 func (c *OllamaClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	// OpenAIClient may not expose ToolResultsProvider yet — use shared helpers.
+	// OpenAIClient has no multi-turn tool-results path, so this builds the
+	// request with the shared helpers directly against the same transport.
 	msgs, err := MapTypesHistoryToOpenAIMessages(systemPrompt, history)
 	if err != nil {
 		return nil, err
@@ -104,7 +105,11 @@ func (c *OllamaClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 		pTools[i] = ToolDefinition(t)
 	}
 	reqBody := OpenAIRequest{
-		Model:      c.model,
+		Model: c.model,
+		// The ceiling must ride along: without it max_tokens is omitted
+		// (omitzero) and tool loops truncate at Ollama's own default
+		// instead of this client's like every sibling path.
+		MaxTokens:  c.openai.maxOutputTokens,
 		Messages:   msgs,
 		Tools:      MapToolDefinitionsToOpenAI(pTools),
 		ToolChoice: "auto",
