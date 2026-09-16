@@ -3,7 +3,7 @@
 File-by-file: uplift, wiring, .mg correctness, modularity, brutal behavioral integration tests.
 Checked = audited and uplifted (or verified sound) with behavioral coverage.
 
-## Go files (2357)
+## Go files (2359)
 ### .agent (5)
 - [ ] `.agent/skills/log-analyzer/scripts/logquery/main.go`
 - [ ] `.agent/skills/mangle-programming/assets/go-integration/main.go`
@@ -2318,6 +2318,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/perception/cli_client_identity_test.go`
 - [x] `internal/perception/client.go`
 - [x] `internal/perception/client_anthropic.go`
+- [x] `internal/perception/client_fallback.go`
+- [x] `internal/perception/client_fallback_test.go`
 - [x] `internal/perception/client_factory.go`
 - [x] `internal/perception/client_factory_extra_test.go`
 - [x] `internal/perception/client_factory_test.go`

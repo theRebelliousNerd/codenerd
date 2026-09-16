@@ -975,7 +975,19 @@ func initPerceptionLayer(bctx *bootContext) error {
 //  2. the main provider's fast tier (Haiku / Flash-Lite / gpt-4o-mini, or an
 //     explicit classification_model);
 //  3. the main client, when neither of the above can be built.
+//
+// Tiers 1 and 2 combine into a call-time failover pair, not just a
+// construction-time preference. A worker client builds fine with a valid key
+// and then 403s on every call (observed live: OpenRouter attestation gate),
+// and without call-time failover that silently degrades every turn's intent
+// understanding to a non-LLM guess — policy then derives the wrong
+// next_action and the run reports success on work it never did.
 func classificationClientFor(bctx *bootContext) perception.LLMClient {
+	// Captured before the worker branch below overwrites it for shard
+	// registration: the main provider's fast-tier config is the failover
+	// secondary, not the worker config.
+	mainCfg := bctx.providerCfgForClassification
+	var primary perception.LLMClient
 	if bctx.appCfg != nil {
 		if w := bctx.appCfg.GetWorkerLLMConfig(); w != nil {
 			if key := bctx.appCfg.APIKeyForProvider(w.Provider); key != "" {
@@ -998,24 +1010,47 @@ func classificationClientFor(bctx *bootContext) perception.LLMClient {
 					// Reuse the classification client for shard registration too,
 					// so both paths agree on the cheap tier.
 					bctx.providerCfgForClassification = workerCfg
-					return core.NewScheduledLLMCall("classification", client)
+					primary = client
 				}
 			}
 		}
 	}
 
-	if bctx.providerCfgForClassification != nil {
-		if client, err := perception.NewClassificationClientFromConfig(bctx.providerCfgForClassification); err == nil && client != nil {
-			logging.Get(logging.CategoryPerception).Info(
-				"Classification on the main provider's fast tier: provider=%s",
-				bctx.providerCfgForClassification.Provider)
-			return core.NewScheduledLLMCall("classification", client)
+	var secondary perception.LLMClient
+	secondaryIsFastTier := false
+	if mainCfg != nil {
+		if client, err := perception.NewClassificationClientFromConfig(mainCfg); err == nil && client != nil {
+			secondary = client
+			secondaryIsFastTier = true
 		}
 	}
+	if secondary == nil {
+		secondary = bctx.llmClient
+	}
 
-	logging.Get(logging.CategoryPerception).Warn(
-		"No cheap classification tier available; intent classification runs on the main model (slow on every turn)")
-	return bctx.llmClient
+	switch {
+	case primary != nil && secondary != nil:
+		logging.Get(logging.CategoryPerception).Info(
+			"Classification failover armed: worker tier primary, main tier secondary")
+		return core.NewScheduledLLMCall("classification",
+			perception.NewFallbackClient("classification", primary, secondary))
+	case primary != nil:
+		return core.NewScheduledLLMCall("classification", primary)
+	case secondary != nil && secondaryIsFastTier:
+		logging.Get(logging.CategoryPerception).Info(
+			"Classification on the main provider's fast tier: provider=%s", mainCfg.Provider)
+		return core.NewScheduledLLMCall("classification", secondary)
+	case secondary != nil:
+		// secondary here is the already-scheduled main client: return it
+		// directly rather than double-wrapping it in a second scheduler.
+		logging.Get(logging.CategoryPerception).Warn(
+			"No cheap classification tier available; intent classification runs on the main model (slow on every turn)")
+		return secondary
+	default:
+		logging.Get(logging.CategoryPerception).Warn(
+			"No classification client available at all; transducer runs without LLM understanding")
+		return bctx.llmClient
+	}
 }
 
 func initStorageLayer(bctx *bootContext) error {
