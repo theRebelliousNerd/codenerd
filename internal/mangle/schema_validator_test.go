@@ -559,3 +559,8 @@ Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, 
 		})
 	}
 }
+
+// TODO: TEST_GAP - Null/Undefined/Empty Inputs. Test countArity(" ") and countArity("") directly. Test CheckArity on predicates defined with zero arguments.
+// TODO: TEST_GAP - Type Coercion & Format Mismatches. What if CheckArity receives negative arities from external callers?
+// TODO: TEST_GAP - String Literal Evasion. The countArity function toggles inQuote when it sees ", but it doesn't handle escaped quotes \" inside strings.
+// TODO: TEST_GAP - Rule Separator Evasion. What if the rule separator :- is broken by whitespace like : -? Mangle syntax might allow it, but the parser looks strictly for :-.
