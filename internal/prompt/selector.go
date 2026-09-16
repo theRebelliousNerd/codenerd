@@ -524,16 +524,6 @@ func (s *AtomSelector) SelectAtoms(
 	return merged, err
 }
 
-func (s *AtomSelector) selectAtomsKernel(
-	ctx context.Context,
-	atoms []*PromptAtom,
-	cc *CompilationContext,
-	kernel KernelQuerier,
-) ([]*ScoredAtom, error) {
-	merged, _, err := s.runSelection(ctx, atoms, cc, kernel, false)
-	return merged, err
-}
-
 // SelectAtomsWithTiming wraps SelectAtoms and returns vector search timing.
 // This method is used by the JIT compiler for comprehensive stats tracking.
 // Returns:

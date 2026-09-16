@@ -288,7 +288,7 @@ func TestSelection_NilAtomsDegrade(t *testing.T) {
 	cc := NewCompilationContext()
 	// An empty kernel double: queries answer nothing, so the run exercises
 	// fact building (where the nils live) and degrades to no selection.
-	scored, err := sel.selectAtomsKernel(context.Background(), []*PromptAtom{nil, valid, nil}, cc, &mockKernel{})
+	scored, _, err := sel.runSelection(context.Background(), []*PromptAtom{nil, valid, nil}, cc, &mockKernel{}, false)
 	if err != nil {
 		t.Fatalf("SelectAtoms with nils: %v", err)
 	}

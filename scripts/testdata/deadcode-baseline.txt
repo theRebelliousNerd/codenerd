@@ -147,6 +147,8 @@ internal/articulation/emitter.go	MustExtractSurface
 internal/articulation/kernel_context.go	GetKernelContext
 internal/articulation/prompt_assembler.go	AssembleQuickPrompt
 internal/articulation/stream_parser.go	StreamParser.GetFullBuffer
+internal/articulation/stream_parser.go	StreamParser.IsComplete
+internal/articulation/stream_parser.go	StreamParser.Reset
 internal/autopoiesis/ouroboros.go	DefaultOuroborosConfig
 internal/autopoiesis/ouroboros.go	GenerateMissingToolFacts
 internal/autopoiesis/ouroboros.go	GenerateToolCapabilityFacts
@@ -445,6 +447,7 @@ internal/perception/codex_cli_probe.go	mapCodexCLIProbeClassification
 internal/perception/debug.go	DebugTaxonomyWithContext
 internal/perception/semantic_classifier.go	NewSemanticClassifier
 internal/perception/semantic_classifier.go	SemanticClassifier.SetConfig
+internal/perception/taxonomy.go	TaxonomyEngine.ClassifyInput
 internal/perception/taxonomy.go	TaxonomyEngine.GenerateSystemPromptSection
 internal/perception/tracing_client.go	CategoryFromShardType
 internal/perception/tracing_client.go	ExtractLearnings
@@ -469,6 +472,7 @@ internal/perception/transducer_llm.go	LLMTransducer.validate
 internal/perception/transducer_llm.go	MangleRoutingKernel.QueryRouting
 internal/perception/transducer_llm.go	MangleRoutingKernel.ValidateField
 internal/perception/transducer_llm.go	NewMangleRoutingKernel
+internal/perception/transducer_llm.go	validRoutingAtomArg
 internal/persist/factsnap/factsnap.go	CanonicalPath
 internal/persist/factsnap/factsnap.go	LegacyJSON
 internal/persist/factsnap/factsnap.go	Verify
@@ -477,8 +481,6 @@ internal/persist/factsnap/factsnap.go	WriteCodec
 internal/persist/factsnap/factsnap.go	WriteOptions
 internal/prompt/assembler.go	AnalyzePrompt
 internal/prompt/assembler.go	DefaultAssemblyOptions
-internal/prompt/assembler.go	FinalAssembler.assembleSection
-internal/prompt/assembler.go	FinalAssembler.categoryInOrder
 internal/prompt/atom_schema.go	ParsePromptAtomDirectory
 internal/prompt/atoms.go	LogAtomSelection
 internal/prompt/compiler_options.go	WithConfigFactory
@@ -495,7 +497,6 @@ internal/prompt/embedded.go	MustLoadEmbeddedCorpus
 internal/prompt/limits.go	ClampLines
 internal/prompt/limits.go	IsClamped
 internal/prompt/loader.go	AtomLoader.LoadFromDirectory
-internal/prompt/loader.go	toJSONString
 internal/prompt/loader_embedding.go	SyncEmbeddedToSQLite
 internal/prompt/loader_embedding.go	getTextForEmbedding
 internal/prompt/loader_embedding.go	loadExistingHashes
@@ -503,7 +504,9 @@ internal/prompt/loader_embedding.go	storeAtomsChunk
 internal/prompt/loader_embedding.go	storeAtomsWithEmbeddings
 internal/prompt/reconciler.go	ReconcileEmbeddedCorpus
 internal/prompt/selector.go	AtomSelector.loadFleshAtoms
+internal/prompt/selector.go	AtomSelector.loadFleshAtomsKernel
 internal/prompt/selector.go	AtomSelector.loadSkeletonAtoms
+internal/prompt/selector.go	AtomSelector.loadSkeletonAtomsKernel
 internal/regression/battery.go	RunBattery
 internal/regression/policy.go	PolicyFacts
 internal/regression/policy.go	taskSlice
@@ -513,7 +516,6 @@ internal/retrieval/tiered_context.go	TieredContext.GetFilesByTier
 internal/retrieval/tiered_context.go	TieredContext.GetTopFiles
 internal/retrieval/tiered_context.go	TieredContext.LoadContent
 internal/retrieval/tiered_context.go	TieredContextBuilder.ResolveFile
-internal/session/coverage_profile.go	uncoveredWrittenCode
 internal/session/critic.go	CriticSeverityRank
 internal/session/executor.go	Executor.parseMangleArg
 internal/session/executor.go	Executor.parseMangleArgs
@@ -552,6 +554,7 @@ internal/store/embedded_store.go	EmbeddedCorpusStore.Search
 internal/store/embedded_store.go	EmbeddedCorpusStore.SearchByCategory
 internal/store/embedded_store.go	EmbeddedCorpusStore.SearchByPredicate
 internal/store/embedded_store.go	NewEmbeddedCorpusStore
+internal/store/embedded_store.go	scanSemanticMatches
 internal/store/learned_store.go	LearnedCorpusStore.DecayConfidence
 internal/store/learned_store.go	LearnedCorpusStore.DeletePattern
 internal/store/learned_store.go	LearnedCorpusStore.GetAllPatterns

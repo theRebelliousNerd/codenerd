@@ -60,315 +60,315 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `.nerd/tools/given_a_file_path_as_input_return_the_total_numb_test.go`
 
 ### cmd/nerd (247)
-- [ ] `cmd/nerd/acceptance_args_test.go`
-- [ ] `cmd/nerd/apikey.go`
-- [ ] `cmd/nerd/apikey_test.go`
-- [ ] `cmd/nerd/campaign_outcome_test.go`
-- [ ] `cmd/nerd/chat/activity_pulse_test.go`
-- [ ] `cmd/nerd/chat/admission_error.go`
-- [ ] `cmd/nerd/chat/admission_error_test.go`
-- [ ] `cmd/nerd/chat/agent_wizard.go`
-- [ ] `cmd/nerd/chat/agent_wizard_test.go`
-- [ ] `cmd/nerd/chat/async_test.go`
-- [ ] `cmd/nerd/chat/boot_benchmark_test.go`
-- [ ] `cmd/nerd/chat/browser_test.go`
-- [ ] `cmd/nerd/chat/campaign.go`
-- [ ] `cmd/nerd/chat/campaign_assault.go`
-- [ ] `cmd/nerd/chat/campaign_assault_test.go`
-- [ ] `cmd/nerd/chat/campaign_consultation_adapter.go`
-- [ ] `cmd/nerd/chat/campaign_jit_provider.go`
-- [ ] `cmd/nerd/chat/campaign_recurse.go`
-- [ ] `cmd/nerd/chat/campaign_recurse_test.go`
-- [ ] `cmd/nerd/chat/campaign_risk_test.go`
-- [ ] `cmd/nerd/chat/chat_loop_contract_e2e_test.go`
-- [ ] `cmd/nerd/chat/cmd_explain.go`
-- [ ] `cmd/nerd/chat/cmd_explain_test.go`
-- [ ] `cmd/nerd/chat/command_categories.go`
-- [ ] `cmd/nerd/chat/command_categories_test.go`
-- [ ] `cmd/nerd/chat/commands.go`
-- [ ] `cmd/nerd/chat/commands_evolution.go`
-- [ ] `cmd/nerd/chat/commands_handlers.go`
-- [ ] `cmd/nerd/chat/commands_handlers_analysis.go`
-- [ ] `cmd/nerd/chat/commands_handlers_evolution.go`
-- [ ] `cmd/nerd/chat/commands_handlers_features.go`
-- [ ] `cmd/nerd/chat/commands_handlers_features_test.go`
-- [ ] `cmd/nerd/chat/commands_handlers_files.go`
-- [ ] `cmd/nerd/chat/commands_handlers_misc.go`
-- [ ] `cmd/nerd/chat/commands_test.go`
-- [ ] `cmd/nerd/chat/commands_tools.go`
-- [ ] `cmd/nerd/chat/config_path.go`
-- [ ] `cmd/nerd/chat/config_wizard.go`
-- [ ] `cmd/nerd/chat/config_wizard_save_test.go`
-- [ ] `cmd/nerd/chat/config_wizard_steps.go`
-- [ ] `cmd/nerd/chat/continuation_done_test.go`
-- [ ] `cmd/nerd/chat/delegation.go`
-- [ ] `cmd/nerd/chat/delegation_modes.go`
-- [ ] `cmd/nerd/chat/delegation_multistep.go`
-- [ ] `cmd/nerd/chat/delegation_roundtrip_test.go`
-- [ ] `cmd/nerd/chat/delegation_routing.go`
-- [ ] `cmd/nerd/chat/delegation_routing_resolve_test.go`
-- [ ] `cmd/nerd/chat/findings_test.go`
-- [ ] `cmd/nerd/chat/glass_box.go`
-- [ ] `cmd/nerd/chat/glass_box_stream_test.go`
-- [ ] `cmd/nerd/chat/harness_test.go`
-- [ ] `cmd/nerd/chat/help_renderer.go`
-- [ ] `cmd/nerd/chat/helpers.go`
-- [ ] `cmd/nerd/chat/helpers_articulation.go`
-- [ ] `cmd/nerd/chat/helpers_files.go`
-- [ ] `cmd/nerd/chat/helpers_scan.go`
-- [ ] `cmd/nerd/chat/helpers_test.go`
-- [ ] `cmd/nerd/chat/helpers_tools.go`
-- [ ] `cmd/nerd/chat/ingest.go`
-- [ ] `cmd/nerd/chat/integration_test.go`
-- [ ] `cmd/nerd/chat/knowledge_format.go`
-- [ ] `cmd/nerd/chat/knowledge_synthesis_test.go`
-- [ ] `cmd/nerd/chat/live_integration_test.go`
-- [ ] `cmd/nerd/chat/live_kernel_test.go`
-- [ ] `cmd/nerd/chat/model.go`
-- [ ] `cmd/nerd/chat/model_handlers.go`
-- [ ] `cmd/nerd/chat/model_helpers.go`
-- [ ] `cmd/nerd/chat/model_helpers_test.go`
-- [ ] `cmd/nerd/chat/model_key_handler.go`
-- [ ] `cmd/nerd/chat/model_lifecycle.go`
-- [ ] `cmd/nerd/chat/model_session_context.go`
-- [ ] `cmd/nerd/chat/model_types.go`
-- [ ] `cmd/nerd/chat/model_update.go`
-- [ ] `cmd/nerd/chat/model_update_persist_test.go`
-- [ ] `cmd/nerd/chat/multistep_corpus.go`
-- [ ] `cmd/nerd/chat/multistep_decomposer.go`
-- [ ] `cmd/nerd/chat/northstar_adapter_test.go`
-- [ ] `cmd/nerd/chat/northstar_llm.go`
-- [ ] `cmd/nerd/chat/northstar_llm_live_test.go`
-- [ ] `cmd/nerd/chat/northstar_navigation.go`
-- [ ] `cmd/nerd/chat/northstar_persistence.go`
-- [ ] `cmd/nerd/chat/northstar_persistence_test.go`
-- [ ] `cmd/nerd/chat/northstar_types.go`
-- [ ] `cmd/nerd/chat/northstar_types_test.go`
-- [ ] `cmd/nerd/chat/northstar_utils.go`
-- [ ] `cmd/nerd/chat/northstar_utils_test.go`
-- [ ] `cmd/nerd/chat/northstar_wizard.go`
-- [ ] `cmd/nerd/chat/onboarding_wizard.go`
-- [ ] `cmd/nerd/chat/perception_regression_test.go`
-- [ ] `cmd/nerd/chat/performance_test.go`
-- [ ] `cmd/nerd/chat/persistence.go`
-- [ ] `cmd/nerd/chat/process.go`
-- [ ] `cmd/nerd/chat/process_continuation.go`
-- [ ] `cmd/nerd/chat/process_dream.go`
-- [ ] `cmd/nerd/chat/process_dream_delegation.go`
-- [ ] `cmd/nerd/chat/process_dream_parsing.go`
-- [ ] `cmd/nerd/chat/process_follow_up.go`
-- [ ] `cmd/nerd/chat/process_helpers.go`
-- [ ] `cmd/nerd/chat/process_knowledge.go`
-- [ ] `cmd/nerd/chat/process_seed.go`
-- [ ] `cmd/nerd/chat/process_sync.go`
-- [ ] `cmd/nerd/chat/process_test.go`
-- [ ] `cmd/nerd/chat/reembed.go`
-- [ ] `cmd/nerd/chat/reflection.go`
-- [ ] `cmd/nerd/chat/review_aggregator.go`
-- [ ] `cmd/nerd/chat/review_aggregator_specialists_test.go`
-- [ ] `cmd/nerd/chat/review_aggregator_test.go`
-- [ ] `cmd/nerd/chat/routing_arbitration_roundtrip_test.go`
-- [ ] `cmd/nerd/chat/routing_performance_contract_e2e_test.go`
-- [ ] `cmd/nerd/chat/scan_identity_test.go`
-- [ ] `cmd/nerd/chat/session.go`
-- [ ] `cmd/nerd/chat/session_adapters.go`
-- [ ] `cmd/nerd/chat/session_adapters_test.go`
-- [ ] `cmd/nerd/chat/session_boot_helpers.go`
-- [ ] `cmd/nerd/chat/session_functions_test.go`
-- [ ] `cmd/nerd/chat/session_language_test.go`
-- [ ] `cmd/nerd/chat/session_persistence.go`
-- [ ] `cmd/nerd/chat/session_persistence_test.go`
-- [ ] `cmd/nerd/chat/session_shared_boot.go`
-- [ ] `cmd/nerd/chat/shadow.go`
-- [ ] `cmd/nerd/chat/shadow_test.go`
-- [ ] `cmd/nerd/chat/specialist_policy_test.go`
-- [ ] `cmd/nerd/chat/task_routing_arbitration_e2e_test.go`
-- [ ] `cmd/nerd/chat/test_state_test.go`
-- [ ] `cmd/nerd/chat/testutil_test.go`
-- [ ] `cmd/nerd/chat/tips.go`
-- [ ] `cmd/nerd/chat/tui_frame_contract_e2e_test.go`
-- [ ] `cmd/nerd/chat/update_test.go`
-- [ ] `cmd/nerd/chat/view.go`
-- [ ] `cmd/nerd/chat/warnings_render_order_test.go`
-- [ ] `cmd/nerd/chat/welcome.go`
-- [ ] `cmd/nerd/chat/wizard_test.go`
-- [ ] `cmd/nerd/chat/yolo.go`
-- [ ] `cmd/nerd/chat/yolo_kernel_test.go`
-- [ ] `cmd/nerd/chat/yolo_test.go`
-- [ ] `cmd/nerd/cli_test.go`
-- [ ] `cmd/nerd/cmd_advanced.go`
-- [ ] `cmd/nerd/cmd_advanced_dream_test.go`
-- [ ] `cmd/nerd/cmd_audit.go`
-- [ ] `cmd/nerd/cmd_audit_test.go`
-- [ ] `cmd/nerd/cmd_auth.go`
-- [ ] `cmd/nerd/cmd_browser.go`
-- [ ] `cmd/nerd/cmd_browser_config_test.go`
-- [ ] `cmd/nerd/cmd_browser_snapshot_test.go`
-- [ ] `cmd/nerd/cmd_campaign.go`
-- [ ] `cmd/nerd/cmd_campaign_assault.go`
-- [ ] `cmd/nerd/cmd_campaign_assault_test.go`
-- [ ] `cmd/nerd/cmd_campaign_cortex_test.go`
-- [ ] `cmd/nerd/cmd_campaign_journal.go`
-- [ ] `cmd/nerd/cmd_campaign_recurse.go`
-- [ ] `cmd/nerd/cmd_campaign_recurse_test.go`
-- [ ] `cmd/nerd/cmd_campaign_resume_boot_test.go`
-- [ ] `cmd/nerd/cmd_campaign_resume_select_test.go`
-- [ ] `cmd/nerd/cmd_campaign_tool_budget_test.go`
-- [ ] `cmd/nerd/cmd_chat.go`
-- [ ] `cmd/nerd/cmd_chat_test.go`
-- [ ] `cmd/nerd/cmd_context_stats.go`
-- [ ] `cmd/nerd/cmd_context_stats_test.go`
-- [ ] `cmd/nerd/cmd_debug.go`
-- [ ] `cmd/nerd/cmd_direct_actions.go`
-- [ ] `cmd/nerd/cmd_direct_actions_heartbeat_test.go`
-- [ ] `cmd/nerd/cmd_direct_actions_root_test.go`
-- [ ] `cmd/nerd/cmd_dream_learning_test.go`
-- [ ] `cmd/nerd/cmd_features.go`
-- [ ] `cmd/nerd/cmd_features_test.go`
-- [ ] `cmd/nerd/cmd_flags_test.go`
-- [ ] `cmd/nerd/cmd_init_scan.go`
-- [ ] `cmd/nerd/cmd_init_scan_test.go`
-- [ ] `cmd/nerd/cmd_instruction.go`
-- [ ] `cmd/nerd/cmd_instruction_context_test.go`
-- [ ] `cmd/nerd/cmd_instruction_fact_test.go`
-- [ ] `cmd/nerd/cmd_instruction_guard_fix_test.go`
-- [ ] `cmd/nerd/cmd_instruction_prohibition_test.go`
-- [ ] `cmd/nerd/cmd_instruction_stopwords_test.go`
-- [ ] `cmd/nerd/cmd_instruction_subtask_test.go`
-- [ ] `cmd/nerd/cmd_interactive.go`
-- [ ] `cmd/nerd/cmd_interactive_test.go`
-- [ ] `cmd/nerd/cmd_knowledge.go`
-- [ ] `cmd/nerd/cmd_logs.go`
-- [ ] `cmd/nerd/cmd_mangle_check.go`
-- [ ] `cmd/nerd/cmd_mangle_lsp.go`
-- [ ] `cmd/nerd/cmd_mcp_select.go`
-- [ ] `cmd/nerd/cmd_mcp_select_test.go`
-- [ ] `cmd/nerd/cmd_meter.go`
-- [ ] `cmd/nerd/cmd_meter_test.go`
-- [ ] `cmd/nerd/cmd_northstar.go`
-- [ ] `cmd/nerd/cmd_query.go`
-- [ ] `cmd/nerd/cmd_regression.go`
-- [ ] `cmd/nerd/cmd_regression_test.go`
-- [ ] `cmd/nerd/cmd_retrieve.go`
-- [ ] `cmd/nerd/cmd_retrieve_test.go`
-- [ ] `cmd/nerd/cmd_sessions.go`
-- [ ] `cmd/nerd/cmd_snapshot.go`
-- [ ] `cmd/nerd/cmd_snapshot_test.go`
-- [ ] `cmd/nerd/cmd_spawn.go`
-- [ ] `cmd/nerd/cmd_swebench.go`
-- [ ] `cmd/nerd/cmd_swebench_test.go`
-- [ ] `cmd/nerd/cmd_systems.go`
-- [ ] `cmd/nerd/cmd_systems_mcp_test.go`
-- [ ] `cmd/nerd/cmd_test_context.go`
-- [ ] `cmd/nerd/cmd_transparency.go`
-- [ ] `cmd/nerd/cmd_usage.go`
-- [ ] `cmd/nerd/cmd_world.go`
-- [ ] `cmd/nerd/cmd_world_test.go`
-- [ ] `cmd/nerd/dom_apply_cmd.go`
-- [ ] `cmd/nerd/dom_cmd.go`
-- [ ] `cmd/nerd/dom_replace_cmd.go`
-- [ ] `cmd/nerd/dom_replace_cmd_test.go`
-- [ ] `cmd/nerd/dom_utils.go`
-- [ ] `cmd/nerd/dom_utils_test.go`
-- [ ] `cmd/nerd/embedding_cmd.go`
-- [ ] `cmd/nerd/main.go`
-- [ ] `cmd/nerd/main_test.go`
-- [ ] `cmd/nerd/parent_group_test.go`
-- [ ] `cmd/nerd/pending_action.go`
-- [ ] `cmd/nerd/pending_action_failure_test.go`
-- [ ] `cmd/nerd/stats.go`
-- [ ] `cmd/nerd/system_results.go`
-- [ ] `cmd/nerd/ui/autopoiesis_page.go`
-- [ ] `cmd/nerd/ui/campaign_page.go`
-- [ ] `cmd/nerd/ui/debounce.go`
-- [ ] `cmd/nerd/ui/debounce_test.go`
-- [ ] `cmd/nerd/ui/diffview.go`
-- [ ] `cmd/nerd/ui/diffview_scrolling_test.go`
-- [ ] `cmd/nerd/ui/diffview_test.go`
-- [ ] `cmd/nerd/ui/jit_page.go`
-- [ ] `cmd/nerd/ui/jit_page_test.go`
-- [ ] `cmd/nerd/ui/keyboard_navigation_test.go`
-- [ ] `cmd/nerd/ui/layout.go`
-- [ ] `cmd/nerd/ui/pages_test.go`
-- [ ] `cmd/nerd/ui/render_cache.go`
-- [ ] `cmd/nerd/ui/render_cache_benchmark_test.go`
-- [ ] `cmd/nerd/ui/render_cache_test.go`
-- [ ] `cmd/nerd/ui/resources.go`
-- [ ] `cmd/nerd/ui/shard_page.go`
-- [ ] `cmd/nerd/ui/simple_table.go`
-- [ ] `cmd/nerd/ui/simple_table_test.go`
-- [ ] `cmd/nerd/ui/splitpane.go`
-- [ ] `cmd/nerd/ui/splitpane_filter_test.go`
-- [ ] `cmd/nerd/ui/splitpane_test.go`
-- [ ] `cmd/nerd/ui/styles.go`
-- [ ] `cmd/nerd/ui/styles_json_test.go`
-- [ ] `cmd/nerd/ui/styles_options_test.go`
-- [ ] `cmd/nerd/ui/styles_test.go`
-- [ ] `cmd/nerd/ui/usage_page.go`
-- [ ] `cmd/nerd/ui/word_diff_test.go`
-- [ ] `cmd/nerd/ui/word_highlight_test.go`
+- [x] `cmd/nerd/acceptance_args_test.go`
+- [x] `cmd/nerd/apikey.go`
+- [x] `cmd/nerd/apikey_test.go`
+- [x] `cmd/nerd/campaign_outcome_test.go`
+- [x] `cmd/nerd/chat/activity_pulse_test.go`
+- [x] `cmd/nerd/chat/admission_error.go`
+- [x] `cmd/nerd/chat/admission_error_test.go`
+- [x] `cmd/nerd/chat/agent_wizard.go`
+- [x] `cmd/nerd/chat/agent_wizard_test.go`
+- [x] `cmd/nerd/chat/async_test.go`
+- [x] `cmd/nerd/chat/boot_benchmark_test.go`
+- [x] `cmd/nerd/chat/browser_test.go`
+- [x] `cmd/nerd/chat/campaign.go`
+- [x] `cmd/nerd/chat/campaign_assault.go`
+- [x] `cmd/nerd/chat/campaign_assault_test.go`
+- [x] `cmd/nerd/chat/campaign_consultation_adapter.go`
+- [x] `cmd/nerd/chat/campaign_jit_provider.go`
+- [x] `cmd/nerd/chat/campaign_recurse.go`
+- [x] `cmd/nerd/chat/campaign_recurse_test.go`
+- [x] `cmd/nerd/chat/campaign_risk_test.go`
+- [x] `cmd/nerd/chat/chat_loop_contract_e2e_test.go`
+- [x] `cmd/nerd/chat/cmd_explain.go`
+- [x] `cmd/nerd/chat/cmd_explain_test.go`
+- [x] `cmd/nerd/chat/command_categories.go`
+- [x] `cmd/nerd/chat/command_categories_test.go`
+- [x] `cmd/nerd/chat/commands.go`
+- [x] `cmd/nerd/chat/commands_evolution.go`
+- [x] `cmd/nerd/chat/commands_handlers.go`
+- [x] `cmd/nerd/chat/commands_handlers_analysis.go`
+- [x] `cmd/nerd/chat/commands_handlers_evolution.go`
+- [x] `cmd/nerd/chat/commands_handlers_features.go`
+- [x] `cmd/nerd/chat/commands_handlers_features_test.go`
+- [x] `cmd/nerd/chat/commands_handlers_files.go`
+- [x] `cmd/nerd/chat/commands_handlers_misc.go`
+- [x] `cmd/nerd/chat/commands_test.go`
+- [x] `cmd/nerd/chat/commands_tools.go`
+- [x] `cmd/nerd/chat/config_path.go`
+- [x] `cmd/nerd/chat/config_wizard.go`
+- [x] `cmd/nerd/chat/config_wizard_save_test.go`
+- [x] `cmd/nerd/chat/config_wizard_steps.go`
+- [x] `cmd/nerd/chat/continuation_done_test.go`
+- [x] `cmd/nerd/chat/delegation.go`
+- [x] `cmd/nerd/chat/delegation_modes.go`
+- [x] `cmd/nerd/chat/delegation_multistep.go`
+- [x] `cmd/nerd/chat/delegation_roundtrip_test.go`
+- [x] `cmd/nerd/chat/delegation_routing.go`
+- [x] `cmd/nerd/chat/delegation_routing_resolve_test.go`
+- [x] `cmd/nerd/chat/findings_test.go`
+- [x] `cmd/nerd/chat/glass_box.go`
+- [x] `cmd/nerd/chat/glass_box_stream_test.go`
+- [x] `cmd/nerd/chat/harness_test.go`
+- [x] `cmd/nerd/chat/help_renderer.go`
+- [x] `cmd/nerd/chat/helpers.go`
+- [x] `cmd/nerd/chat/helpers_articulation.go`
+- [x] `cmd/nerd/chat/helpers_files.go`
+- [x] `cmd/nerd/chat/helpers_scan.go`
+- [x] `cmd/nerd/chat/helpers_test.go`
+- [x] `cmd/nerd/chat/helpers_tools.go`
+- [x] `cmd/nerd/chat/ingest.go`
+- [x] `cmd/nerd/chat/integration_test.go`
+- [x] `cmd/nerd/chat/knowledge_format.go`
+- [x] `cmd/nerd/chat/knowledge_synthesis_test.go`
+- [x] `cmd/nerd/chat/live_integration_test.go`
+- [x] `cmd/nerd/chat/live_kernel_test.go`
+- [x] `cmd/nerd/chat/model.go`
+- [x] `cmd/nerd/chat/model_handlers.go`
+- [x] `cmd/nerd/chat/model_helpers.go`
+- [x] `cmd/nerd/chat/model_helpers_test.go`
+- [x] `cmd/nerd/chat/model_key_handler.go`
+- [x] `cmd/nerd/chat/model_lifecycle.go`
+- [x] `cmd/nerd/chat/model_session_context.go`
+- [x] `cmd/nerd/chat/model_types.go`
+- [x] `cmd/nerd/chat/model_update.go`
+- [x] `cmd/nerd/chat/model_update_persist_test.go`
+- [x] `cmd/nerd/chat/multistep_corpus.go`
+- [x] `cmd/nerd/chat/multistep_decomposer.go`
+- [x] `cmd/nerd/chat/northstar_adapter_test.go`
+- [x] `cmd/nerd/chat/northstar_llm.go`
+- [x] `cmd/nerd/chat/northstar_llm_live_test.go`
+- [x] `cmd/nerd/chat/northstar_navigation.go`
+- [x] `cmd/nerd/chat/northstar_persistence.go`
+- [x] `cmd/nerd/chat/northstar_persistence_test.go`
+- [x] `cmd/nerd/chat/northstar_types.go`
+- [x] `cmd/nerd/chat/northstar_types_test.go`
+- [x] `cmd/nerd/chat/northstar_utils.go`
+- [x] `cmd/nerd/chat/northstar_utils_test.go`
+- [x] `cmd/nerd/chat/northstar_wizard.go`
+- [x] `cmd/nerd/chat/onboarding_wizard.go`
+- [x] `cmd/nerd/chat/perception_regression_test.go`
+- [x] `cmd/nerd/chat/performance_test.go`
+- [x] `cmd/nerd/chat/persistence.go`
+- [x] `cmd/nerd/chat/process.go`
+- [x] `cmd/nerd/chat/process_continuation.go`
+- [x] `cmd/nerd/chat/process_dream.go`
+- [x] `cmd/nerd/chat/process_dream_delegation.go`
+- [x] `cmd/nerd/chat/process_dream_parsing.go`
+- [x] `cmd/nerd/chat/process_follow_up.go`
+- [x] `cmd/nerd/chat/process_helpers.go`
+- [x] `cmd/nerd/chat/process_knowledge.go`
+- [x] `cmd/nerd/chat/process_seed.go`
+- [x] `cmd/nerd/chat/process_sync.go`
+- [x] `cmd/nerd/chat/process_test.go`
+- [x] `cmd/nerd/chat/reembed.go`
+- [x] `cmd/nerd/chat/reflection.go`
+- [x] `cmd/nerd/chat/review_aggregator.go`
+- [x] `cmd/nerd/chat/review_aggregator_specialists_test.go`
+- [x] `cmd/nerd/chat/review_aggregator_test.go`
+- [x] `cmd/nerd/chat/routing_arbitration_roundtrip_test.go`
+- [x] `cmd/nerd/chat/routing_performance_contract_e2e_test.go`
+- [x] `cmd/nerd/chat/scan_identity_test.go`
+- [x] `cmd/nerd/chat/session.go`
+- [x] `cmd/nerd/chat/session_adapters.go`
+- [x] `cmd/nerd/chat/session_adapters_test.go`
+- [x] `cmd/nerd/chat/session_boot_helpers.go`
+- [x] `cmd/nerd/chat/session_functions_test.go`
+- [x] `cmd/nerd/chat/session_language_test.go`
+- [x] `cmd/nerd/chat/session_persistence.go`
+- [x] `cmd/nerd/chat/session_persistence_test.go`
+- [x] `cmd/nerd/chat/session_shared_boot.go`
+- [x] `cmd/nerd/chat/shadow.go`
+- [x] `cmd/nerd/chat/shadow_test.go`
+- [x] `cmd/nerd/chat/specialist_policy_test.go`
+- [x] `cmd/nerd/chat/task_routing_arbitration_e2e_test.go`
+- [x] `cmd/nerd/chat/test_state_test.go`
+- [x] `cmd/nerd/chat/testutil_test.go`
+- [x] `cmd/nerd/chat/tips.go`
+- [x] `cmd/nerd/chat/tui_frame_contract_e2e_test.go`
+- [x] `cmd/nerd/chat/update_test.go`
+- [x] `cmd/nerd/chat/view.go`
+- [x] `cmd/nerd/chat/warnings_render_order_test.go`
+- [x] `cmd/nerd/chat/welcome.go`
+- [x] `cmd/nerd/chat/wizard_test.go`
+- [x] `cmd/nerd/chat/yolo.go`
+- [x] `cmd/nerd/chat/yolo_kernel_test.go`
+- [x] `cmd/nerd/chat/yolo_test.go`
+- [x] `cmd/nerd/cli_test.go`
+- [x] `cmd/nerd/cmd_advanced.go`
+- [x] `cmd/nerd/cmd_advanced_dream_test.go`
+- [x] `cmd/nerd/cmd_audit.go`
+- [x] `cmd/nerd/cmd_audit_test.go`
+- [x] `cmd/nerd/cmd_auth.go`
+- [x] `cmd/nerd/cmd_browser.go`
+- [x] `cmd/nerd/cmd_browser_config_test.go`
+- [x] `cmd/nerd/cmd_browser_snapshot_test.go`
+- [x] `cmd/nerd/cmd_campaign.go`
+- [x] `cmd/nerd/cmd_campaign_assault.go`
+- [x] `cmd/nerd/cmd_campaign_assault_test.go`
+- [x] `cmd/nerd/cmd_campaign_cortex_test.go`
+- [x] `cmd/nerd/cmd_campaign_journal.go`
+- [x] `cmd/nerd/cmd_campaign_recurse.go`
+- [x] `cmd/nerd/cmd_campaign_recurse_test.go`
+- [x] `cmd/nerd/cmd_campaign_resume_boot_test.go`
+- [x] `cmd/nerd/cmd_campaign_resume_select_test.go`
+- [x] `cmd/nerd/cmd_campaign_tool_budget_test.go`
+- [x] `cmd/nerd/cmd_chat.go`
+- [x] `cmd/nerd/cmd_chat_test.go`
+- [x] `cmd/nerd/cmd_context_stats.go`
+- [x] `cmd/nerd/cmd_context_stats_test.go`
+- [x] `cmd/nerd/cmd_debug.go`
+- [x] `cmd/nerd/cmd_direct_actions.go`
+- [x] `cmd/nerd/cmd_direct_actions_heartbeat_test.go`
+- [x] `cmd/nerd/cmd_direct_actions_root_test.go`
+- [x] `cmd/nerd/cmd_dream_learning_test.go`
+- [x] `cmd/nerd/cmd_features.go`
+- [x] `cmd/nerd/cmd_features_test.go`
+- [x] `cmd/nerd/cmd_flags_test.go`
+- [x] `cmd/nerd/cmd_init_scan.go`
+- [x] `cmd/nerd/cmd_init_scan_test.go`
+- [x] `cmd/nerd/cmd_instruction.go`
+- [x] `cmd/nerd/cmd_instruction_context_test.go`
+- [x] `cmd/nerd/cmd_instruction_fact_test.go`
+- [x] `cmd/nerd/cmd_instruction_guard_fix_test.go`
+- [x] `cmd/nerd/cmd_instruction_prohibition_test.go`
+- [x] `cmd/nerd/cmd_instruction_stopwords_test.go`
+- [x] `cmd/nerd/cmd_instruction_subtask_test.go`
+- [x] `cmd/nerd/cmd_interactive.go`
+- [x] `cmd/nerd/cmd_interactive_test.go`
+- [x] `cmd/nerd/cmd_knowledge.go`
+- [x] `cmd/nerd/cmd_logs.go`
+- [x] `cmd/nerd/cmd_mangle_check.go`
+- [x] `cmd/nerd/cmd_mangle_lsp.go`
+- [x] `cmd/nerd/cmd_mcp_select.go`
+- [x] `cmd/nerd/cmd_mcp_select_test.go`
+- [x] `cmd/nerd/cmd_meter.go`
+- [x] `cmd/nerd/cmd_meter_test.go`
+- [x] `cmd/nerd/cmd_northstar.go`
+- [x] `cmd/nerd/cmd_query.go`
+- [x] `cmd/nerd/cmd_regression.go`
+- [x] `cmd/nerd/cmd_regression_test.go`
+- [x] `cmd/nerd/cmd_retrieve.go`
+- [x] `cmd/nerd/cmd_retrieve_test.go`
+- [x] `cmd/nerd/cmd_sessions.go`
+- [x] `cmd/nerd/cmd_snapshot.go`
+- [x] `cmd/nerd/cmd_snapshot_test.go`
+- [x] `cmd/nerd/cmd_spawn.go`
+- [x] `cmd/nerd/cmd_swebench.go`
+- [x] `cmd/nerd/cmd_swebench_test.go`
+- [x] `cmd/nerd/cmd_systems.go`
+- [x] `cmd/nerd/cmd_systems_mcp_test.go`
+- [x] `cmd/nerd/cmd_test_context.go`
+- [x] `cmd/nerd/cmd_transparency.go`
+- [x] `cmd/nerd/cmd_usage.go`
+- [x] `cmd/nerd/cmd_world.go`
+- [x] `cmd/nerd/cmd_world_test.go`
+- [x] `cmd/nerd/dom_apply_cmd.go`
+- [x] `cmd/nerd/dom_cmd.go`
+- [x] `cmd/nerd/dom_replace_cmd.go`
+- [x] `cmd/nerd/dom_replace_cmd_test.go`
+- [x] `cmd/nerd/dom_utils.go`
+- [x] `cmd/nerd/dom_utils_test.go`
+- [x] `cmd/nerd/embedding_cmd.go`
+- [x] `cmd/nerd/main.go`
+- [x] `cmd/nerd/main_test.go`
+- [x] `cmd/nerd/parent_group_test.go`
+- [x] `cmd/nerd/pending_action.go`
+- [x] `cmd/nerd/pending_action_failure_test.go`
+- [x] `cmd/nerd/stats.go`
+- [x] `cmd/nerd/system_results.go`
+- [x] `cmd/nerd/ui/autopoiesis_page.go`
+- [x] `cmd/nerd/ui/campaign_page.go`
+- [x] `cmd/nerd/ui/debounce.go`
+- [x] `cmd/nerd/ui/debounce_test.go`
+- [x] `cmd/nerd/ui/diffview.go`
+- [x] `cmd/nerd/ui/diffview_scrolling_test.go`
+- [x] `cmd/nerd/ui/diffview_test.go`
+- [x] `cmd/nerd/ui/jit_page.go`
+- [x] `cmd/nerd/ui/jit_page_test.go`
+- [x] `cmd/nerd/ui/keyboard_navigation_test.go`
+- [x] `cmd/nerd/ui/layout.go`
+- [x] `cmd/nerd/ui/pages_test.go`
+- [x] `cmd/nerd/ui/render_cache.go`
+- [x] `cmd/nerd/ui/render_cache_benchmark_test.go`
+- [x] `cmd/nerd/ui/render_cache_test.go`
+- [x] `cmd/nerd/ui/resources.go`
+- [x] `cmd/nerd/ui/shard_page.go`
+- [x] `cmd/nerd/ui/simple_table.go`
+- [x] `cmd/nerd/ui/simple_table_test.go`
+- [x] `cmd/nerd/ui/splitpane.go`
+- [x] `cmd/nerd/ui/splitpane_filter_test.go`
+- [x] `cmd/nerd/ui/splitpane_test.go`
+- [x] `cmd/nerd/ui/styles.go`
+- [x] `cmd/nerd/ui/styles_json_test.go`
+- [x] `cmd/nerd/ui/styles_options_test.go`
+- [x] `cmd/nerd/ui/styles_test.go`
+- [x] `cmd/nerd/ui/usage_page.go`
+- [x] `cmd/nerd/ui/word_diff_test.go`
+- [x] `cmd/nerd/ui/word_highlight_test.go`
 
 ### cmd/query-kb (3)
-- [ ] `cmd/query-kb/deep_query.go`
-- [ ] `cmd/query-kb/main.go`
-- [ ] `cmd/query-kb/main_test.go`
+- [x] `cmd/query-kb/deep_query.go`
+- [x] `cmd/query-kb/main.go`
+- [x] `cmd/query-kb/main_test.go`
 
 ### cmd/tools/action_linter (2)
-- [ ] `cmd/tools/action_linter/main.go`
-- [ ] `cmd/tools/action_linter/main_test.go`
+- [x] `cmd/tools/action_linter/main.go`
+- [x] `cmd/tools/action_linter/main_test.go`
 
 ### cmd/tools/audit_committed_binaries (1)
-- [ ] `cmd/tools/audit_committed_binaries/main.go`
+- [x] `cmd/tools/audit_committed_binaries/main.go`
 
 ### cmd/tools/audit_json_errors (2)
-- [ ] `cmd/tools/audit_json_errors/main.go`
-- [ ] `cmd/tools/audit_json_errors/main_test.go`
+- [x] `cmd/tools/audit_json_errors/main.go`
+- [x] `cmd/tools/audit_json_errors/main_test.go`
 
 ### cmd/tools/audit_test_bodies (2)
-- [ ] `cmd/tools/audit_test_bodies/main.go`
-- [ ] `cmd/tools/audit_test_bodies/main_test.go`
+- [x] `cmd/tools/audit_test_bodies/main.go`
+- [x] `cmd/tools/audit_test_bodies/main_test.go`
 
 ### cmd/tools/audit_tiebreak (2)
-- [ ] `cmd/tools/audit_tiebreak/main.go`
-- [ ] `cmd/tools/audit_tiebreak/main_test.go`
+- [x] `cmd/tools/audit_tiebreak/main.go`
+- [x] `cmd/tools/audit_tiebreak/main_test.go`
 
 ### cmd/tools/change_benchmark (1)
-- [ ] `cmd/tools/change_benchmark/main.go`
+- [x] `cmd/tools/change_benchmark/main.go`
 
 ### cmd/tools/corpus_builder (5)
-- [ ] `cmd/tools/corpus_builder/extract_test.go`
-- [ ] `cmd/tools/corpus_builder/helpers_test.go`
-- [ ] `cmd/tools/corpus_builder/main.go`
-- [ ] `cmd/tools/corpus_builder/main_test.go`
-- [ ] `cmd/tools/corpus_builder/sqlite_vec.go`
+- [x] `cmd/tools/corpus_builder/extract_test.go`
+- [x] `cmd/tools/corpus_builder/helpers_test.go`
+- [x] `cmd/tools/corpus_builder/main.go`
+- [x] `cmd/tools/corpus_builder/main_test.go`
+- [x] `cmd/tools/corpus_builder/sqlite_vec.go`
 
 ### cmd/tools/mangle_check (2)
-- [ ] `cmd/tools/mangle_check/inspect_clause.go`
-- [ ] `cmd/tools/mangle_check/inspect_clause_test.go`
+- [x] `cmd/tools/mangle_check/inspect_clause.go`
+- [x] `cmd/tools/mangle_check/inspect_clause_test.go`
 
 ### cmd/tools/predicate_corpus_builder (5)
-- [ ] `cmd/tools/predicate_corpus_builder/check.go`
-- [ ] `cmd/tools/predicate_corpus_builder/main.go`
-- [ ] `cmd/tools/predicate_corpus_builder/main_test.go`
-- [ ] `cmd/tools/predicate_corpus_builder/parse_test.go`
-- [ ] `cmd/tools/predicate_corpus_builder/schema_parsing.go`
+- [x] `cmd/tools/predicate_corpus_builder/check.go`
+- [x] `cmd/tools/predicate_corpus_builder/main.go`
+- [x] `cmd/tools/predicate_corpus_builder/main_test.go`
+- [x] `cmd/tools/predicate_corpus_builder/parse_test.go`
+- [x] `cmd/tools/predicate_corpus_builder/schema_parsing.go`
 
 ### cmd/tools/prompt_builder (5)
-- [ ] `cmd/tools/prompt_builder/createdb_test.go`
-- [ ] `cmd/tools/prompt_builder/helpers_test.go`
-- [ ] `cmd/tools/prompt_builder/main.go`
-- [ ] `cmd/tools/prompt_builder/main_test.go`
-- [ ] `cmd/tools/prompt_builder/sqlite_vec.go`
+- [x] `cmd/tools/prompt_builder/createdb_test.go`
+- [x] `cmd/tools/prompt_builder/helpers_test.go`
+- [x] `cmd/tools/prompt_builder/main.go`
+- [x] `cmd/tools/prompt_builder/main_test.go`
+- [x] `cmd/tools/prompt_builder/sqlite_vec.go`
 
 ### cmd/tools/validate_prompt_atoms (4)
-- [ ] `cmd/tools/validate_prompt_atoms/corpus_parity_test.go`
-- [ ] `cmd/tools/validate_prompt_atoms/main.go`
-- [ ] `cmd/tools/validate_prompt_atoms/main_test.go`
-- [ ] `cmd/tools/validate_prompt_atoms/validate_test.go`
+- [x] `cmd/tools/validate_prompt_atoms/corpus_parity_test.go`
+- [x] `cmd/tools/validate_prompt_atoms/main.go`
+- [x] `cmd/tools/validate_prompt_atoms/main_test.go`
+- [x] `cmd/tools/validate_prompt_atoms/validate_test.go`
 
 ### cmd/tools/verify_taxonomy (2)
-- [ ] `cmd/tools/verify_taxonomy/main.go`
-- [ ] `cmd/tools/verify_taxonomy/main_test.go`
+- [x] `cmd/tools/verify_taxonomy/main.go`
+- [x] `cmd/tools/verify_taxonomy/main_test.go`
 
 ### internal/articulation (20)
 - [x] `internal/articulation/emitter.go`
@@ -1031,40 +1031,40 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/campaign/write_set_lock_manager_test.go`
 
 ### internal/config (34)
-- [ ] `internal/config/browser_config_test.go`
-- [ ] `internal/config/browser_correlation_test.go`
-- [ ] `internal/config/build.go`
-- [ ] `internal/config/config_comprehensive_test.go`
-- [ ] `internal/config/config_defaults_test.go`
-- [ ] `internal/config/config_security_test.go`
-- [ ] `internal/config/config_test.go`
-- [ ] `internal/config/core_limits_load_test.go`
-- [ ] `internal/config/execution.go`
-- [ ] `internal/config/integrations.go`
-- [ ] `internal/config/jit.go`
-- [ ] `internal/config/limits.go`
-- [ ] `internal/config/limits_tool_budget_test.go`
-- [ ] `internal/config/llm.go`
-- [ ] `internal/config/llm_timeouts.go`
-- [ ] `internal/config/llm_timeouts_config.go`
-- [ ] `internal/config/llm_timeouts_config_test.go`
-- [ ] `internal/config/logging.go`
-- [ ] `internal/config/mangle.go`
-- [ ] `internal/config/memory.go`
-- [ ] `internal/config/ollama_worker_config_test.go`
-- [ ] `internal/config/persistence.go`
-- [ ] `internal/config/persistence_replace_other.go`
-- [ ] `internal/config/persistence_replace_windows.go`
-- [ ] `internal/config/reflection.go`
-- [ ] `internal/config/reflection_test.go`
-- [ ] `internal/config/shard.go`
-- [ ] `internal/config/tool_generation.go`
-- [ ] `internal/config/tool_generation_test.go`
-- [ ] `internal/config/user_config.go`
-- [ ] `internal/config/user_config_api_key_test.go`
-- [ ] `internal/config/ux.go`
-- [ ] `internal/config/world.go`
-- [ ] `internal/config/yolo_test.go`
+- [x] `internal/config/browser_config_test.go`
+- [x] `internal/config/browser_correlation_test.go`
+- [x] `internal/config/build.go`
+- [x] `internal/config/config_comprehensive_test.go`
+- [x] `internal/config/config_defaults_test.go`
+- [x] `internal/config/config_security_test.go`
+- [x] `internal/config/config_test.go`
+- [x] `internal/config/core_limits_load_test.go`
+- [x] `internal/config/execution.go`
+- [x] `internal/config/integrations.go`
+- [x] `internal/config/jit.go`
+- [x] `internal/config/limits.go`
+- [x] `internal/config/limits_tool_budget_test.go`
+- [x] `internal/config/llm.go`
+- [x] `internal/config/llm_timeouts.go`
+- [x] `internal/config/llm_timeouts_config.go`
+- [x] `internal/config/llm_timeouts_config_test.go`
+- [x] `internal/config/logging.go`
+- [x] `internal/config/mangle.go`
+- [x] `internal/config/memory.go`
+- [x] `internal/config/ollama_worker_config_test.go`
+- [x] `internal/config/persistence.go`
+- [x] `internal/config/persistence_replace_other.go`
+- [x] `internal/config/persistence_replace_windows.go`
+- [x] `internal/config/reflection.go`
+- [x] `internal/config/reflection_test.go`
+- [x] `internal/config/shard.go`
+- [x] `internal/config/tool_generation.go`
+- [x] `internal/config/tool_generation_test.go`
+- [x] `internal/config/user_config.go`
+- [x] `internal/config/user_config_api_key_test.go`
+- [x] `internal/config/ux.go`
+- [x] `internal/config/world.go`
+- [x] `internal/config/yolo_test.go`
 
 ### internal/context (30)
 - [x] `internal/context/activation.go`
@@ -1970,38 +1970,38 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/jsonl/jsonl_test.go`
 
 ### internal/logging (32)
-- [ ] `internal/logging/audit.go`
-- [ ] `internal/logging/audit_benchmark_test.go`
-- [ ] `internal/logging/audit_concurrency_test.go`
-- [ ] `internal/logging/audit_coverage_test.go`
-- [ ] `internal/logging/audit_facts.go`
-- [ ] `internal/logging/audit_facts_test.go`
-- [ ] `internal/logging/audit_reader.go`
-- [ ] `internal/logging/audit_reader_test.go`
-- [ ] `internal/logging/category_inventory_test.go`
-- [ ] `internal/logging/config_schema_test.go`
-- [ ] `internal/logging/coverage_boost_test.go`
-- [ ] `internal/logging/fresh_run.go`
-- [ ] `internal/logging/fresh_run_substantive_test.go`
-- [ ] `internal/logging/fresh_run_test.go`
-- [ ] `internal/logging/init_rebind_test.go`
-- [ ] `internal/logging/late_config_test.go`
-- [ ] `internal/logging/llm_io_logger.go`
-- [ ] `internal/logging/llm_io_trace_test.go`
-- [ ] `internal/logging/logger.go`
-- [ ] `internal/logging/logger_convenience.go`
-- [ ] `internal/logging/logger_test.go`
-- [ ] `internal/logging/logging_comprehensive_test.go`
-- [ ] `internal/logging/problems_log_test.go`
-- [ ] `internal/logging/redact.go`
-- [ ] `internal/logging/redact_test.go`
-- [ ] `internal/logging/request_logger_fields_test.go`
-- [ ] `internal/logging/rotate.go`
-- [ ] `internal/logging/rotate_test.go`
-- [ ] `internal/logging/safety_callsite_audit_test.go`
-- [ ] `internal/logging/sink_lifecycle_test.go`
-- [ ] `internal/logging/structured_decorators_test.go`
-- [ ] `internal/logging/testsupport_test.go`
+- [x] `internal/logging/audit.go`
+- [x] `internal/logging/audit_benchmark_test.go`
+- [x] `internal/logging/audit_concurrency_test.go`
+- [x] `internal/logging/audit_coverage_test.go`
+- [x] `internal/logging/audit_facts.go`
+- [x] `internal/logging/audit_facts_test.go`
+- [x] `internal/logging/audit_reader.go`
+- [x] `internal/logging/audit_reader_test.go`
+- [x] `internal/logging/category_inventory_test.go`
+- [x] `internal/logging/config_schema_test.go`
+- [x] `internal/logging/coverage_boost_test.go`
+- [x] `internal/logging/fresh_run.go`
+- [x] `internal/logging/fresh_run_substantive_test.go`
+- [x] `internal/logging/fresh_run_test.go`
+- [x] `internal/logging/init_rebind_test.go`
+- [x] `internal/logging/late_config_test.go`
+- [x] `internal/logging/llm_io_logger.go`
+- [x] `internal/logging/llm_io_trace_test.go`
+- [x] `internal/logging/logger.go`
+- [x] `internal/logging/logger_convenience.go`
+- [x] `internal/logging/logger_test.go`
+- [x] `internal/logging/logging_comprehensive_test.go`
+- [x] `internal/logging/problems_log_test.go`
+- [x] `internal/logging/redact.go`
+- [x] `internal/logging/redact_test.go`
+- [x] `internal/logging/request_logger_fields_test.go`
+- [x] `internal/logging/rotate.go`
+- [x] `internal/logging/rotate_test.go`
+- [x] `internal/logging/safety_callsite_audit_test.go`
+- [x] `internal/logging/sink_lifecycle_test.go`
+- [x] `internal/logging/structured_decorators_test.go`
+- [x] `internal/logging/testsupport_test.go`
 
 ### internal/mangle/differential.go (1)
 - [x] `internal/mangle/differential.go`
@@ -2936,65 +2936,65 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/store/vector_utils_test.go`
 
 ### internal/system (59)
-- [ ] `internal/system/agent_definition.go`
-- [ ] `internal/system/agent_registry.go`
-- [ ] `internal/system/agent_registry_coverage_test.go`
-- [ ] `internal/system/boot_test.go`
-- [ ] `internal/system/broker_meter.go`
-- [ ] `internal/system/browser_wiring_test.go`
-- [ ] `internal/system/close_releases_handles_test.go`
-- [ ] `internal/system/containment_binding_test.go`
-- [ ] `internal/system/cortex_close.go`
-- [ ] `internal/system/cortex_close_test.go`
-- [ ] `internal/system/cortex_permission_routing_test.go`
-- [ ] `internal/system/decorator_chain_test.go`
-- [ ] `internal/system/dom_demo_test.go`
-- [ ] `internal/system/dom_mangle_test.go`
-- [ ] `internal/system/expert_knowledge_integration_test.go`
-- [ ] `internal/system/factory.go`
-- [ ] `internal/system/factory_adapters.go`
-- [ ] `internal/system/factory_adapters_float_test.go`
-- [ ] `internal/system/factory_adapters_test.go`
-- [ ] `internal/system/factory_adapters_usage_test.go`
-- [ ] `internal/system/factory_boot_test.go`
-- [ ] `internal/system/factory_cache_test.go`
-- [ ] `internal/system/factory_execution.go`
-- [ ] `internal/system/factory_execution_base_env_test.go`
-- [ ] `internal/system/factory_execution_test.go`
-- [ ] `internal/system/factory_gate_test.go`
-- [ ] `internal/system/factory_helpers_test.go`
-- [ ] `internal/system/factory_kernel_shards_test.go`
-- [ ] `internal/system/factory_learning.go`
-- [ ] `internal/system/factory_learning_test.go`
-- [ ] `internal/system/factory_ouroboros_toolstore_test.go`
-- [ ] `internal/system/factory_projectdoc_test.go`
-- [ ] `internal/system/factory_rollback_test.go`
-- [ ] `internal/system/factory_test.go`
-- [ ] `internal/system/factory_tool_executor.go`
-- [ ] `internal/system/factory_world_refresh_test.go`
-- [ ] `internal/system/holographic_code_scope.go`
-- [ ] `internal/system/impact_chain_e2e_test.go`
-- [ ] `internal/system/learning_report.go`
-- [ ] `internal/system/learning_report_test.go`
-- [ ] `internal/system/maintenance_schedule_test.go`
-- [ ] `internal/system/mocks_test.go`
-- [ ] `internal/system/nontest_callers_test.go`
-- [ ] `internal/system/ondemand_e2e_test.go`
-- [ ] `internal/system/planner_e2e_test.go`
-- [ ] `internal/system/planning_factory_ownership_test.go`
-- [ ] `internal/system/prompt_capability_production_test.go`
-- [ ] `internal/system/prompt_kernel_scope_test.go`
-- [ ] `internal/system/router_e2e_test.go`
-- [ ] `internal/system/session_kernel_adapter_test.go`
-- [ ] `internal/system/session_wiring_test.go`
-- [ ] `internal/system/system_shards_switch_test.go`
-- [ ] `internal/system/test_impact_provider.go`
-- [ ] `internal/system/test_impact_provider_test.go`
-- [ ] `internal/system/tool_compilation_test.go`
-- [ ] `internal/system/user_agent_prompt_test.go`
-- [ ] `internal/system/virtual_store_test_helpers_test.go`
-- [ ] `internal/system/workspace_root_env_test.go`
-- [ ] `internal/system/world_shard_eval_bench_test.go`
+- [x] `internal/system/agent_definition.go`
+- [x] `internal/system/agent_registry.go`
+- [x] `internal/system/agent_registry_coverage_test.go`
+- [x] `internal/system/boot_test.go`
+- [x] `internal/system/broker_meter.go`
+- [x] `internal/system/browser_wiring_test.go`
+- [x] `internal/system/close_releases_handles_test.go`
+- [x] `internal/system/containment_binding_test.go`
+- [x] `internal/system/cortex_close.go`
+- [x] `internal/system/cortex_close_test.go`
+- [x] `internal/system/cortex_permission_routing_test.go`
+- [x] `internal/system/decorator_chain_test.go`
+- [x] `internal/system/dom_demo_test.go`
+- [x] `internal/system/dom_mangle_test.go`
+- [x] `internal/system/expert_knowledge_integration_test.go`
+- [x] `internal/system/factory.go`
+- [x] `internal/system/factory_adapters.go`
+- [x] `internal/system/factory_adapters_float_test.go`
+- [x] `internal/system/factory_adapters_test.go`
+- [x] `internal/system/factory_adapters_usage_test.go`
+- [x] `internal/system/factory_boot_test.go`
+- [x] `internal/system/factory_cache_test.go`
+- [x] `internal/system/factory_execution.go`
+- [x] `internal/system/factory_execution_base_env_test.go`
+- [x] `internal/system/factory_execution_test.go`
+- [x] `internal/system/factory_gate_test.go`
+- [x] `internal/system/factory_helpers_test.go`
+- [x] `internal/system/factory_kernel_shards_test.go`
+- [x] `internal/system/factory_learning.go`
+- [x] `internal/system/factory_learning_test.go`
+- [x] `internal/system/factory_ouroboros_toolstore_test.go`
+- [x] `internal/system/factory_projectdoc_test.go`
+- [x] `internal/system/factory_rollback_test.go`
+- [x] `internal/system/factory_test.go`
+- [x] `internal/system/factory_tool_executor.go`
+- [x] `internal/system/factory_world_refresh_test.go`
+- [x] `internal/system/holographic_code_scope.go`
+- [x] `internal/system/impact_chain_e2e_test.go`
+- [x] `internal/system/learning_report.go`
+- [x] `internal/system/learning_report_test.go`
+- [x] `internal/system/maintenance_schedule_test.go`
+- [x] `internal/system/mocks_test.go`
+- [x] `internal/system/nontest_callers_test.go`
+- [x] `internal/system/ondemand_e2e_test.go`
+- [x] `internal/system/planner_e2e_test.go`
+- [x] `internal/system/planning_factory_ownership_test.go`
+- [x] `internal/system/prompt_capability_production_test.go`
+- [x] `internal/system/prompt_kernel_scope_test.go`
+- [x] `internal/system/router_e2e_test.go`
+- [x] `internal/system/session_kernel_adapter_test.go`
+- [x] `internal/system/session_wiring_test.go`
+- [x] `internal/system/system_shards_switch_test.go`
+- [x] `internal/system/test_impact_provider.go`
+- [x] `internal/system/test_impact_provider_test.go`
+- [x] `internal/system/tool_compilation_test.go`
+- [x] `internal/system/user_agent_prompt_test.go`
+- [x] `internal/system/virtual_store_test_helpers_test.go`
+- [x] `internal/system/workspace_root_env_test.go`
+- [x] `internal/system/world_shard_eval_bench_test.go`
 
 ### internal/tactile (35)
 - [ ] `internal/tactile/audit.go`
@@ -3652,8 +3652,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `.nerd/profile.mg`
 
 ### cmd/nerd (2)
-- [ ] `cmd/nerd/.nerd/debug/debug_program_ERROR.mg`
-- [ ] `cmd/nerd/chat/.nerd/debug/debug_program_ERROR.mg`
+- [x] `cmd/nerd/.nerd/debug/debug_program_ERROR.mg`
+- [x] `cmd/nerd/chat/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/campaign/.nerd (1)
 - [x] `internal/campaign/.nerd/debug/debug_program_ERROR.mg`
@@ -3823,7 +3823,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/shards/system/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/system (1)
-- [ ] `internal/system/.nerd/debug/debug_program_ERROR.mg`
+- [x] `internal/system/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/testing (1)
 - [ ] `internal/testing/context_harness/.nerd/debug/debug_program_ERROR.mg`

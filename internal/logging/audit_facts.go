@@ -80,11 +80,17 @@ func ExportAuditFacts(auditPath string, w io.Writer, eventTypes []AuditEventType
 		if !ok {
 			continue
 		}
-		if seen[fact] {
+		// Dedup compares timestamp-insensitive keys: every audit fact leads
+		// with a Unix-millisecond timestamp, so raw-string comparison makes
+		// collapse timing-dependent (two identical writes straddling a
+		// millisecond boundary never match). The emitted fact keeps its own
+		// real timestamp; only the identity ignores it.
+		key := dedupKey(fact)
+		if seen[key] {
 			stats.Duplicates++
 			continue
 		}
-		seen[fact] = true
+		seen[key] = true
 		facts = append(facts, fact)
 		if existing, found := stats.Predicates[name]; !found || arity > existing {
 			stats.Predicates[name] = arity
@@ -126,6 +132,56 @@ func declArgs(arity int) string {
 		parts = append(parts, fmt.Sprintf("Arg%d", i))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// dedupKey returns the identity of a fact for duplicate collapsing. When the
+// first top-level argument is a bare integer (the Unix-millisecond timestamp
+// every generated fact leads with) it is dropped from the identity; anything
+// else compares exactly, so foreign or hand-written shapes can never
+// over-collapse.
+func dedupKey(fact string) string {
+	open := strings.IndexByte(fact, '(')
+	if open < 0 || !strings.HasSuffix(fact, ").") {
+		return fact
+	}
+	body := fact[open+1 : len(fact)-2]
+	depth := 0
+	inQuote := false
+	escaped := false
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		switch {
+		case escaped:
+			escaped = false
+		case c == '\\':
+			escaped = true
+		case c == '"':
+			inQuote = !inQuote
+		case inQuote:
+		case c == '(' || c == '[':
+			depth++
+		case c == ')' || c == ']':
+			depth--
+		case c == ',' && depth == 0:
+			if !isDigits(strings.TrimSpace(body[:i])) {
+				return fact
+			}
+			return fact[:open+1] + body[i+1:] + ")."
+		}
+	}
+	return fact
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // parseFactShape extracts the predicate name and arity from a fact string like
