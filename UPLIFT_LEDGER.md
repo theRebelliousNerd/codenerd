@@ -2421,25 +2421,26 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/perception/utils.go`
 - [ ] `internal/perception/utils_coverage_test.go`
 - [ ] `internal/perception/xai_torture_test.go`
-- [ ] `internal/perception/xaioauth/auth_device.go`
-- [ ] `internal/perception/xaioauth/chat.go`
-- [ ] `internal/perception/xaioauth/chat_test.go`
-- [ ] `internal/perception/xaioauth/classification_test.go`
-- [ ] `internal/perception/xaioauth/client.go`
-- [ ] `internal/perception/xaioauth/config.go`
-- [ ] `internal/perception/xaioauth/doc.go`
-- [ ] `internal/perception/xaioauth/errors.go`
-- [ ] `internal/perception/xaioauth/errors_test.go`
-- [ ] `internal/perception/xaioauth/grok_auth_import.go`
-- [ ] `internal/perception/xaioauth/probe.go`
-- [ ] `internal/perception/xaioauth/store.go`
-- [ ] `internal/perception/xaioauth/store_test.go`
-- [ ] `internal/perception/xaioauth/streaming.go`
-- [ ] `internal/perception/xaioauth/token.go`
-- [ ] `internal/perception/xaioauth/token_quarantine_test.go`
-- [ ] `internal/perception/xaioauth/token_test.go`
-- [ ] `internal/perception/xaioauth/tools.go`
-- [ ] `internal/perception/xaioauth/transport.go`
+- [x] `internal/perception/xaioauth/auth_device.go`
+- [x] `internal/perception/xaioauth/chat.go`
+- [x] `internal/perception/xaioauth/chat_test.go`
+- [x] `internal/perception/xaioauth/classification_test.go`
+- [x] `internal/perception/xaioauth/client.go`
+- [x] `internal/perception/xaioauth/config.go`
+- [x] `internal/perception/xaioauth/doc.go`
+- [x] `internal/perception/xaioauth/errors.go`
+- [x] `internal/perception/xaioauth/errors_test.go`
+- [x] `internal/perception/xaioauth/grok_auth_import.go`
+- [x] `internal/perception/xaioauth/probe.go`
+- [x] `internal/perception/xaioauth/store.go`
+- [x] `internal/perception/xaioauth/store_test.go`
+- [x] `internal/perception/xaioauth/streaming.go`
+- [x] `internal/perception/xaioauth/token.go`
+- [x] `internal/perception/xaioauth/token_quarantine_test.go`
+- [x] `internal/perception/xaioauth/token_test.go`
+- [x] `internal/perception/xaioauth/tools.go`
+- [x] `internal/perception/xaioauth/transport.go`
+- [x] `internal/perception/xaioauth/uplift_test.go`
 - [ ] `internal/perception/zai_live_test.go`
 
 ### internal/persist (10)

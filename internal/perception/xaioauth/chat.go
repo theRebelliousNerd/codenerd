@@ -125,16 +125,6 @@ func (c *Client) chatOnce(ctx context.Context, model string, messages []chatMess
 	if err != nil {
 		return "", err
 	}
-	token, err := c.tokens.AccessToken(ctx)
-	if err != nil {
-		// One reload attempt (e.g. credentials written after construction)
-		if loadErr := c.tokens.Load(); loadErr == nil {
-			token, err = c.tokens.AccessToken(ctx)
-		}
-		if err != nil {
-			return "", err
-		}
-	}
 
 	reqBody := chatRequest{
 		Model:       model,
@@ -148,26 +138,9 @@ func (c *Client) chatOnce(ctx context.Context, model string, messages []chatMess
 		reqBody.ToolChoice = "auto"
 	}
 
-	status, body, err := doJSON(ctx, c.httpClient, "POST", chatURL(c.cfg.BaseURL), token, reqBody, 10<<20)
+	body, err := c.doChatRequest(ctx, reqBody)
 	if err != nil {
 		return "", err
-	}
-
-	if status == 401 {
-		// Force refresh and retry once
-		c.tokens.InvalidateAccess()
-		token, err = c.tokens.AccessToken(ctx)
-		if err != nil {
-			return "", err
-		}
-		status, body, err = doJSON(ctx, c.httpClient, "POST", chatURL(c.cfg.BaseURL), token, reqBody, 10<<20)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	if status != 200 {
-		return "", classifyHTTPError(status, body, nil)
 	}
 
 	var resp chatResponse

@@ -142,7 +142,18 @@ func PollDeviceToken(ctx context.Context, httpClient *http.Client, tokenEndpoint
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("device token poll: %w", err)
+			// A login poll runs for minutes; one network blip must not kill
+			// the whole flow. Only context death aborts — anything else
+			// polls again after the interval, like authorization_pending.
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(interval):
+			}
+			continue
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()

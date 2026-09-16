@@ -17,6 +17,10 @@ type Client struct {
 	httpClient *http.Client
 	tokens     *TokenSource
 
+	// sem enforces MaxConcurrentCalls. Nil when an external scheduler owns
+	// concurrency (see DisableSemaphore, discovered by the broker).
+	sem chan struct{}
+
 	mu          sync.Mutex
 	lastRequest time.Time
 }
@@ -30,11 +34,24 @@ func NewClient(cfg Config) *Client {
 	// to keep xaioauth free of init cycles; factory can inject later if needed.
 	ts := NewTokenSource(cfg, &http.Client{Timeout: 30 * time.Second})
 	_ = ts.Load() // best-effort; errors surface on first request
-	return &Client{
+	c := &Client{
 		cfg:        cfg,
 		httpClient: httpClient,
 		tokens:     ts,
 	}
+	if cfg.MaxConcurrentCalls > 0 {
+		c.sem = make(chan struct{}, cfg.MaxConcurrentCalls)
+	}
+	return c
+}
+
+// DisableSemaphore drops the internal concurrency cap when an external
+// scheduler manages it. Discovered via interface assertion by the broker and
+// the scheduled client; safe to call before issuing requests.
+func (c *Client) DisableSemaphore() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sem = nil
 }
 
 // NewClientFromUserConfig maps codeNERD config.XAIOAuthConfig into a Client.

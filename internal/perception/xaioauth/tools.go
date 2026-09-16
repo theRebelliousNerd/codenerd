@@ -24,30 +24,9 @@ func (c *Client) CompleteWithToolResults(ctx context.Context, systemPrompt strin
 
 	c.rateLimitPace()
 
-	token, err := c.tokens.AccessToken(ctx)
-	if err != nil {
-		if loadErr := c.tokens.Load(); loadErr == nil {
-			token, err = c.tokens.AccessToken(ctx)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	msgs, err := mapHistoryToChatMessages(systemPrompt, history)
 	if err != nil {
 		return nil, err
-	}
-	chatTools := make([]chatTool, 0, len(tools))
-	for _, t := range tools {
-		chatTools = append(chatTools, chatTool{
-			Type: "function",
-			Function: chatToolFunc{
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters:  t.InputSchema,
-			},
-		})
 	}
 	model, err := requestModel(c.cfg.Model)
 	if err != nil {
@@ -56,29 +35,15 @@ func (c *Client) CompleteWithToolResults(ctx context.Context, systemPrompt strin
 	reqBody := chatRequest{
 		Model:       model,
 		Messages:    msgs,
-		Tools:       chatTools,
+		Tools:       mapToolsToChatTools(tools),
 		ToolChoice:  "auto",
 		MaxTokens:   c.cfg.MaxOutputTokens,
 		Temperature: types.TemperatureFor(ctx, 0.1),
 	}
 
-	status, body, err := doJSON(ctx, c.httpClient, "POST", chatURL(c.cfg.BaseURL), token, reqBody, 10<<20)
+	body, err := c.doChatRequest(ctx, reqBody)
 	if err != nil {
 		return nil, err
-	}
-	if status == 401 {
-		c.tokens.InvalidateAccess()
-		token, err = c.tokens.AccessToken(ctx)
-		if err != nil {
-			return nil, err
-		}
-		status, body, err = doJSON(ctx, c.httpClient, "POST", chatURL(c.cfg.BaseURL), token, reqBody, 10<<20)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if status != 200 {
-		return nil, classifyHTTPError(status, body, nil)
 	}
 	return parseToolChatResponse(body)
 }
@@ -203,16 +168,32 @@ func (c *Client) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt
 
 	c.rateLimitPace()
 
-	token, err := c.tokens.AccessToken(ctx)
+	model, err := requestModel(c.cfg.Model)
 	if err != nil {
-		if loadErr := c.tokens.Load(); loadErr == nil {
-			token, err = c.tokens.AccessToken(ctx)
-		}
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
+	}
+	reqBody := chatRequest{
+		Model: model,
+		Messages: []chatMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Tools:       mapToolsToChatTools(tools),
+		ToolChoice:  "auto",
+		MaxTokens:   c.cfg.MaxOutputTokens,
+		Temperature: types.TemperatureFor(ctx, 0.1),
 	}
 
+	body, err := c.doChatRequest(ctx, reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseToolChatResponse(body)
+}
+
+// mapToolsToChatTools converts codeNERD tool definitions to the chat wire shape.
+func mapToolsToChatTools(tools []types.ToolDefinition) []chatTool {
 	chatTools := make([]chatTool, 0, len(tools))
 	for _, t := range tools {
 		chatTools = append(chatTools, chatTool{
@@ -224,41 +205,5 @@ func (c *Client) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt
 			},
 		})
 	}
-
-	model, err := requestModel(c.cfg.Model)
-	if err != nil {
-		return nil, err
-	}
-	reqBody := chatRequest{
-		Model: model,
-		Messages: []chatMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
-		Tools:       chatTools,
-		ToolChoice:  "auto",
-		MaxTokens:   c.cfg.MaxOutputTokens,
-		Temperature: types.TemperatureFor(ctx, 0.1),
-	}
-
-	status, body, err := doJSON(ctx, c.httpClient, "POST", chatURL(c.cfg.BaseURL), token, reqBody, 10<<20)
-	if err != nil {
-		return nil, err
-	}
-	if status == 401 {
-		c.tokens.InvalidateAccess()
-		token, err = c.tokens.AccessToken(ctx)
-		if err != nil {
-			return nil, err
-		}
-		status, body, err = doJSON(ctx, c.httpClient, "POST", chatURL(c.cfg.BaseURL), token, reqBody, 10<<20)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if status != 200 {
-		return nil, classifyHTTPError(status, body, nil)
-	}
-
-	return parseToolChatResponse(body)
+	return chatTools
 }
