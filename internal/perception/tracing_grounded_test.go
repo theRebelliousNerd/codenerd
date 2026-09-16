@@ -171,6 +171,8 @@ func TestTracingLLMClient_GroundedWebSearch_StructuredUsage(t *testing.T) {
 func TestTracingLLMClient_GroundedWebSearch_RawSanitizationViaRealClient(t *testing.T) {
 	const secret = "super-secret-reasoning"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Persistent 500s are retried; Retry-After: 0 keeps the backoff instant.
+		w.Header().Set("Retry-After", "0")
 		w.WriteHeader(500)
 		_, _ = w.Write([]byte(`{"error":{"message":"` + secret + `","code":"internal_error","type":"server_error"}}`))
 	}))

@@ -2303,124 +2303,123 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/observation/subagent.go`
 
 ### internal/perception (131)
-- [ ] `internal/perception/assault_verb_test.go`
-- [ ] `internal/perception/benchmark_test.go`
-- [ ] `internal/perception/break_test.go`
+- [x] `internal/perception/assault_verb_test.go`
+- [x] `internal/perception/benchmark_test.go`
+- [x] `internal/perception/break_test.go`
 - [x] `internal/perception/broker_install.go`
-- [ ] `internal/perception/broker_sentinel_test.go`
+- [x] `internal/perception/broker_sentinel_test.go`
 - [x] `internal/perception/claude_cli_client.go`
-- [ ] `internal/perception/claude_cli_client_test.go`
-- [ ] `internal/perception/cli_client_identity_test.go`
+- [x] `internal/perception/claude_cli_client_test.go`
+- [x] `internal/perception/cli_client_identity_test.go`
 - [x] `internal/perception/client.go`
 - [x] `internal/perception/client_anthropic.go`
 - [x] `internal/perception/client_factory.go`
-- [ ] `internal/perception/client_factory_extra_test.go`
-- [ ] `internal/perception/client_factory_test.go`
+- [x] `internal/perception/client_factory_extra_test.go`
+- [x] `internal/perception/client_factory_test.go`
 - [x] `internal/perception/client_gemini.go`
 - [x] `internal/perception/client_gemini_files.go`
 - [x] `internal/perception/client_gemini_files_uplift_test.go`
-- [ ] `internal/perception/client_gemini_files_test.go`
-- [ ] `internal/perception/client_gemini_getters_test.go`
-- [ ] `internal/perception/client_gemini_http_test.go`
-- [ ] `internal/perception/client_gemini_schema_test.go`
+- [x] `internal/perception/client_gemini_files_test.go`
+- [x] `internal/perception/client_gemini_getters_test.go`
+- [x] `internal/perception/client_gemini_http_test.go`
+- [x] `internal/perception/client_gemini_schema_test.go`
 - [x] `internal/perception/client_gemini_streaming.go`
 - [x] `internal/perception/client_gemini_streaming_uplift_test.go`
-- [ ] `internal/perception/client_gemini_test.go`
-- [ ] `internal/perception/client_gemini_toolcalls_test.go`
+- [x] `internal/perception/client_gemini_test.go`
+- [x] `internal/perception/client_gemini_toolcalls_test.go`
 - [x] `internal/perception/client_gemini_tools.go`
 - [x] `internal/perception/client_gemini_tools_uplift_test.go`
-- [ ] `internal/perception/client_meta_model_test.go`
-- [ ] `internal/perception/client_meta_piggyback_test.go`
+- [x] `internal/perception/client_meta_model_test.go`
+- [x] `internal/perception/client_meta_piggyback_test.go`
 - [x] `internal/perception/client_meta_responses.go`
 - [x] `internal/perception/client_meta_responses_uplift_test.go`
-- [ ] `internal/perception/client_meta_responses_concurrency_test.go`
-- [ ] `internal/perception/client_meta_responses_dedup_test.go`
-- [ ] `internal/perception/client_meta_responses_retry_test.go`
+- [x] `internal/perception/client_meta_responses_concurrency_test.go`
+- [x] `internal/perception/client_meta_responses_dedup_test.go`
+- [x] `internal/perception/client_meta_responses_retry_test.go`
 - [x] `internal/perception/client_ollama.go`
-- [ ] `internal/perception/client_ollama_test.go`
+- [x] `internal/perception/client_ollama_test.go`
 - [x] `internal/perception/client_openai.go`
 - [x] `internal/perception/client_openai_compat.go`
-- [ ] `internal/perception/client_openai_compat_allow_empty_test.go`
-- [ ] `internal/perception/client_openai_compat_empty_retry_test.go`
-- [ ] `internal/perception/client_openai_compat_grounded_supports_test.go`
+- [x] `internal/perception/client_openai_compat_allow_empty_test.go`
+- [x] `internal/perception/client_openai_compat_empty_retry_test.go`
+- [x] `internal/perception/client_openai_compat_grounded_supports_test.go`
 - [x] `internal/perception/client_openai_compat_grounding.go`
 - [x] `internal/perception/client_openai_compat_grounding_uplift_test.go`
-- [ ] `internal/perception/client_openai_compat_grounding_test.go`
-- [ ] `internal/perception/client_openai_compat_live_test.go`
-- [ ] `internal/perception/client_openai_compat_meta_tools_test.go`
-- [ ] `internal/perception/client_openai_compat_test.go`
-- [ ] `internal/perception/client_openai_compat_truncation_test.go`
-- [ ] `internal/perception/client_openai_http_test.go`
+- [x] `internal/perception/client_openai_compat_grounding_test.go`
+- [x] `internal/perception/client_openai_compat_live_test.go`
+- [x] `internal/perception/client_openai_compat_meta_tools_test.go`
+- [x] `internal/perception/client_openai_compat_test.go`
+- [x] `internal/perception/client_openai_compat_truncation_test.go`
+- [x] `internal/perception/client_openai_http_test.go`
 - [x] `internal/perception/client_openrouter.go`
-- [ ] `internal/perception/client_planner_slot_test.go`
+- [x] `internal/perception/client_planner_slot_test.go`
 - [x] `internal/perception/client_schema.go`
-- [ ] `internal/perception/client_schema_strict_test.go`
+- [x] `internal/perception/client_schema_strict_test.go`
 - [x] `internal/perception/client_tool_helpers.go`
-- [ ] `internal/perception/client_tool_helpers_test.go`
+- [x] `internal/perception/client_tool_helpers_test.go`
 - [x] `internal/perception/client_types.go`
-- [ ] `internal/perception/client_worker_providers_test.go`
+- [x] `internal/perception/client_worker_providers_test.go`
 - [x] `internal/perception/client_xai.go`
 - [x] `internal/perception/client_zai.go`
 - [x] `internal/perception/client_zai_retry.go`
-- [ ] `internal/perception/client_zai_retry_test.go`
+- [x] `internal/perception/client_zai_retry_test.go`
 - [x] `internal/perception/client_zai_streaming.go`
 - [x] `internal/perception/client_zai_streaming_uplift_test.go`
-- [ ] `internal/perception/client_zai_test.go`
+- [x] `internal/perception/client_zai_test.go`
 - [x] `internal/perception/codex_cli_client.go`
-- [ ] `internal/perception/codex_cli_client_test.go`
+- [x] `internal/perception/codex_cli_client_test.go`
 - [x] `internal/perception/codex_cli_probe.go`
-- [ ] `internal/perception/codex_cli_probe_test.go`
+- [x] `internal/perception/codex_cli_probe_test.go`
 - [x] `internal/perception/codex_exec_client.go`
 - [x] `internal/perception/consolidation.go`
-- [ ] `internal/perception/context_token_phrase_unification_test.go`
+- [x] `internal/perception/context_token_phrase_unification_test.go`
 - [x] `internal/perception/debug.go`
-- [ ] `internal/perception/gemini_live_test.go`
-- [ ] `internal/perception/gemini_structured_test.go`
-- [ ] `internal/perception/gemini_thinking_test.go`
+- [x] `internal/perception/gemini_live_test.go`
+- [x] `internal/perception/gemini_structured_test.go`
+- [x] `internal/perception/gemini_thinking_test.go`
 - [x] `internal/perception/learning.go`
-- [ ] `internal/perception/learning_test.go`
+- [x] `internal/perception/learning_test.go`
 - [x] `internal/perception/metrics.go`
-- [ ] `internal/perception/piggyback_contract_test.go`
+- [x] `internal/perception/piggyback_contract_test.go`
 - [x] `internal/perception/scanner_pool.go`
 - [x] `internal/perception/semantic_classifier.go`
-- [ ] `internal/perception/semantic_classifier_test.go`
+- [x] `internal/perception/semantic_classifier_test.go`
 - [x] `internal/perception/taxonomy.go`
-- [ ] `internal/perception/taxonomy_benchmark_test.go`
-- [ ] `internal/perception/taxonomy_extra_test.go`
+- [x] `internal/perception/taxonomy_benchmark_test.go`
+- [x] `internal/perception/taxonomy_extra_test.go`
 - [x] `internal/perception/taxonomy_persistence.go`
-- [ ] `internal/perception/taxonomy_persistence_test.go`
-- [ ] `internal/perception/taxonomy_test.go`
+- [x] `internal/perception/taxonomy_persistence_test.go`
+- [x] `internal/perception/taxonomy_test.go`
 - [x] `internal/perception/tracing_client.go`
 - [x] `internal/perception/tracing_client_uplift_test.go`
-- [ ] `internal/perception/tracing_client_extra_test.go`
-- [ ] `internal/perception/tracing_client_test.go`
-- [ ] `internal/perception/tracing_grounded_test.go`
-- [ ] `internal/perception/tracing_tool_results_test.go`
+- [x] `internal/perception/tracing_client_extra_test.go`
+- [x] `internal/perception/tracing_client_test.go`
+- [x] `internal/perception/tracing_grounded_test.go`
+- [x] `internal/perception/tracing_tool_results_test.go`
 - [x] `internal/perception/transducer.go`
-- [ ] `internal/perception/transducer_coverage_test.go`
-- [ ] `internal/perception/transducer_extra_test.go`
+- [x] `internal/perception/transducer_coverage_test.go`
+- [x] `internal/perception/transducer_extra_test.go`
 - [x] `internal/perception/transducer_gemini.go`
-- [ ] `internal/perception/transducer_gemini_extra_test.go`
-- [ ] `internal/perception/transducer_live_test.go`
+- [x] `internal/perception/transducer_gemini_extra_test.go`
 - [x] `internal/perception/transducer_llm.go`
-- [ ] `internal/perception/transducer_llm_extra2_test.go`
-- [ ] `internal/perception/transducer_llm_test.go`
-- [ ] `internal/perception/transducer_prompt_bounds_test.go`
-- [ ] `internal/perception/transducer_unit_test.go`
+- [x] `internal/perception/transducer_llm_extra2_test.go`
+- [x] `internal/perception/transducer_llm_test.go`
+- [x] `internal/perception/transducer_prompt_bounds_test.go`
+- [x] `internal/perception/transducer_unit_test.go`
 - [x] `internal/perception/transport.go`
-- [ ] `internal/perception/transport_pool_test.go`
+- [x] `internal/perception/transport_pool_test.go`
 - [x] `internal/perception/truncation.go`
 - [x] `internal/perception/understanding.go`
 - [x] `internal/perception/understanding_adapter.go`
-- [ ] `internal/perception/understanding_adapter_extra_test.go`
-- [ ] `internal/perception/understanding_adapter_test.go`
-- [ ] `internal/perception/understanding_adapter_transient_test.go`
-- [ ] `internal/perception/understanding_verbs_test.go`
+- [x] `internal/perception/understanding_adapter_extra_test.go`
+- [x] `internal/perception/understanding_adapter_test.go`
+- [x] `internal/perception/understanding_adapter_transient_test.go`
+- [x] `internal/perception/understanding_verbs_test.go`
 - [x] `internal/perception/usage_track.go`
-- [ ] `internal/perception/usage_track_test.go`
+- [x] `internal/perception/usage_track_test.go`
 - [x] `internal/perception/utils.go`
-- [ ] `internal/perception/utils_coverage_test.go`
-- [ ] `internal/perception/xai_torture_test.go`
+- [x] `internal/perception/utils_coverage_test.go`
+- [x] `internal/perception/xai_torture_test.go`
 - [x] `internal/perception/xaioauth/auth_device.go`
 - [x] `internal/perception/xaioauth/chat.go`
 - [x] `internal/perception/xaioauth/chat_test.go`
@@ -2441,7 +2440,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/perception/xaioauth/tools.go`
 - [x] `internal/perception/xaioauth/transport.go`
 - [x] `internal/perception/xaioauth/uplift_test.go`
-- [ ] `internal/perception/zai_live_test.go`
+- [x] `internal/perception/zai_live_test.go`
 
 ### internal/persist (10)
 - [ ] `internal/persist/doc.go`
