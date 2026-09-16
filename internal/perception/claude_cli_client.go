@@ -1,7 +1,6 @@
 package perception
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -137,6 +136,9 @@ func (c *ClaudeCodeCLIClient) Complete(ctx context.Context, prompt string) (stri
 // CompleteWithSystem sends a prompt with an optional system message to Claude Code CLI.
 // The system prompt is passed via --system-prompt flag for proper handling.
 func (c *ClaudeCodeCLIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if strings.TrimSpace(systemPrompt) == "" {
+		systemPrompt = defaultSystemPrompt
+	}
 	opts := &ExecutionOptions{
 		SystemPrompt: systemPrompt,
 	}
@@ -318,8 +320,9 @@ func (c *ClaudeCodeCLIClient) executeStreaming(ctx context.Context, prompt strin
 		return fmt.Errorf("failed to start claude CLI: %w", err)
 	}
 
-	// Read streaming output line by line
-	scanner := bufio.NewScanner(stdout)
+	// Read streaming output line by line with the shared 1MB pooled scanner.
+	scanner, releaseScanner := newPooledScanner(stdout, 1024*1024)
+	defer releaseScanner()
 	var fullContent strings.Builder
 
 	for scanner.Scan() {
@@ -375,7 +378,7 @@ func (c *ClaudeCodeCLIClient) executeStreaming(ctx context.Context, prompt strin
 // buildArgs constructs the CLI arguments.
 // CRITICAL: This configures Claude CLI as a SUBPROCESS LLM API, not as an agent.
 // - Tools are DISABLED (codeNERD has its own tools)
-// - Max turns is 1 (single completion, no agentic loops) - bumped to 2 for JSON schema
+// - Max turns is 1 (single completion, no agentic loops) - bumped to 3 for JSON schema
 // - System prompt REPLACES Claude Code instructions
 func (c *ClaudeCodeCLIClient) buildArgs(model string, opts *ExecutionOptions) []string {
 	// Determine max turns: JSON schema validation requires extra turns internally
@@ -385,6 +388,10 @@ func (c *ClaudeCodeCLIClient) buildArgs(model string, opts *ExecutionOptions) []
 		maxTurns = 3 // JSON schema uses internal tool calls that count as turns
 	}
 	args := []string{
+		// -p selects non-interactive print mode: one completion, then exit.
+		// Required: without it the CLI may run conversationally and the
+		// output is no longer parseable JSON.
+		"-p",
 		"--max-turns", fmt.Sprintf("%d", maxTurns),
 	}
 	// An empty model is the CLI's own choice, not ours.

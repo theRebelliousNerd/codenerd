@@ -2308,7 +2308,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/perception/break_test.go`
 - [x] `internal/perception/broker_install.go`
 - [ ] `internal/perception/broker_sentinel_test.go`
-- [ ] `internal/perception/claude_cli_client.go`
+- [x] `internal/perception/claude_cli_client.go`
 - [ ] `internal/perception/claude_cli_client_test.go`
 - [ ] `internal/perception/cli_client_identity_test.go`
 - [x] `internal/perception/client.go`
