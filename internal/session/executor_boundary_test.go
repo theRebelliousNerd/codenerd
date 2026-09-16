@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
@@ -291,5 +292,30 @@ func TestExecutor_CheckSafety_NilArgsAssertsEmptyObject(t *testing.T) {
 	allowed := executor.checkSafety(toolCall)
 	if !allowed {
 		t.Error("Expected nil Args to normalize to {} payload and match permitted fact")
+	}
+}
+func TestExecutor_Observe_NilTransducerFailsClosed(t *testing.T) {
+	// A partially-wired executor (nil transducer) must return an error from
+	// Process, never panic with a nil-pointer dereference in observe.
+	executor := NewExecutor(nil, nil, nil, nil, nil, nil)
+	_, err := executor.Process(context.Background(), "do something")
+	if err == nil {
+		t.Fatal("expected error for nil transducer, got nil")
+	}
+	if !strings.Contains(err.Error(), "no transducer configured") {
+		t.Errorf("expected missing-transducer error, got: %v", err)
+	}
+}
+func TestExecutor_GenerateResponse_NilClientFailsClosed(t *testing.T) {
+	// A partially-wired executor (nil LLM client) must return an error from
+	// the tool loop, never panic with a nil-pointer dereference on the
+	// completion call.
+	executor := NewExecutor(nil, nil, nil, nil, nil, nil)
+	_, err := executor.generateResponse(context.Background(), nil, "sys", "hi", nil)
+	if err == nil {
+		t.Fatal("expected error for nil LLM client, got nil")
+	}
+	if !strings.Contains(err.Error(), "no LLM client configured") {
+		t.Errorf("expected missing-client error, got: %v", err)
 	}
 }

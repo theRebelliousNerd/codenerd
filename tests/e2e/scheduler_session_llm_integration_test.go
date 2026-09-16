@@ -177,14 +177,34 @@ func (m *mockConfigFactoryLLM) Generate(ctx context.Context, result *prompt.Comp
 // TEST SUITE CONFIGURATION
 // =============================================================================
 
+// registerSchedMockToolsOnce guards the global mock_tool registration below.
+// buildToolDefinitions filters the config grant against tools.Global(), so a
+// granted-but-unregistered tool is never offered to the model and the executor
+// degrades to the text-only path with zero executions. Registering mock_tool
+// keeps the tool-loop tests on the loop they intend to pin.
+var registerSchedMockToolsOnce sync.Once
+
+func registerSchedMockTools() {
+	registerSchedMockToolsOnce.Do(func() {
+		// Ignore the error: sibling e2e files register their own mock_tool
+		// with a success handler, and every assertion in this file depends
+		// on success, not on which handler won the race.
+		_ = tools.Global().Register(&tools.Tool{Name: "mock_tool", Effect: tools.EffectRead, Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			return "sched-mock-ok", nil
+		}})
+	})
+}
+
 func setupTestExecutorLLM(t *testing.T, llmClient core.LLMClient, toolReg *mockToolRegistry, maxConcurrent int) (*session.Executor, *core.APIScheduler) {
 	t.Helper()
+	registerSchedMockTools()
 
 	// Reset scheduler global state implicitly by creating a fresh one
 	cfg := core.DefaultAPISchedulerConfig()
 	cfg.MaxConcurrentAPICalls = maxConcurrent
 	cfg.SlotAcquireTimeout = 2 * time.Second
 	scheduler := core.NewAPIScheduler(cfg)
+	scheduler.RegisterShard("test-shard", "test")
 
 	scheduledLLM := &core.ScheduledLLMCall{
 		Scheduler: scheduler,
@@ -425,19 +445,27 @@ func TestE2E_SchedulerSession_ResourceExhaustion_InfiniteToolLoop(t *testing.T) 
 
 	exec, _ := setupTestExecutorLLM(t, llm, nil, 5)
 
-	// Max iterations is set to 5 in setupTestExecutorLLM
+	// Pin the iteration ceiling on the executor itself: the "5" in the setup
+	// helper is scheduler slots, not the tool-loop cap (which defaults to 8).
+	execCfg := session.DefaultExecutorConfig()
+	execCfg.MaxToolIterations = 5
+	exec.SetConfig(execCfg)
 	res, err := exec.ProcessWithIntent(context.Background(), "start loop", &perception.Intent{Verb: "/general"})
 
-	// It should NOT run forever. It should run 5 times and exit cleanly.
+	// It should NOT run forever. It runs the 5 configured iterations, then the
+	// forced-final path runs the one pending batch (so a late verification
+	// call is not lost) and generates the conclusion: 1 initial + 5
+	// follow-ups + 1 final = 7 LLM calls, 5 + 1 = 6 executions. Bounded,
+	// with exactly one post-ceiling batch.
 	if err != nil {
 		// It's acceptable for the executor to return the accumulated error
 		// when budget is blown.
 	}
 
-	if atomic.LoadInt32(&llm.callCount) > 6 { // 1 initial + 5 loops = 6
+	if atomic.LoadInt32(&llm.callCount) > 7 {
 		t.Errorf("Executor failed to cap tool iterations, called LLM %d times", llm.callCount)
 	}
-	if res != nil && res.ToolCallsExecuted > 5 {
+	if res != nil && res.ToolCallsExecuted > 6 {
 		t.Errorf("Executed too many tool calls: %d", res.ToolCallsExecuted)
 	}
 }
@@ -494,6 +522,9 @@ func TestE2E_SchedulerSession_Temporal_TOCTOU_CancelRace(t *testing.T) {
 
 	// Direct test of the scheduler fallback logic
 	scheduler := core.NewAPIScheduler(core.APISchedulerConfig{MaxConcurrentAPICalls: 1, SlotAcquireTimeout: 5 * time.Second})
+	scheduler.RegisterShard("taskA", "test")
+	scheduler.RegisterShard("taskB", "test")
+	scheduler.RegisterShard("taskC", "test")
 
 	// 1. Task A takes the slot
 	err := scheduler.AcquireAPISlot(context.Background(), "taskA")
@@ -567,9 +598,11 @@ func TestE2E_SchedulerSession_Cascading_PiggybackMalformed(t *testing.T) {
 		t.Fatalf("Cascading failure: Malformed Piggyback crashed the executor: %v", err)
 	}
 
-	// The executor should swallow the parse error and return the raw string
-	if res.Response != malformedJSON {
-		t.Errorf("Expected raw output fallback, got: %s", res.Response)
+	// The executor must swallow the parse error and degrade gracefully: an
+	// unterminated envelope is indistinguishable from truncation, so the
+	// emitter answers with the truncation notice instead of raw garbage.
+	if !strings.Contains(res.Response, "cut off") {
+		t.Errorf("Expected truncation-notice fallback, got: %s", res.Response)
 	}
 }
 
@@ -584,9 +617,19 @@ func TestE2E_SchedulerSession_Recovery_DynamicReconfig(t *testing.T) {
 
 	scheduler := core.NewAPIScheduler(core.APISchedulerConfig{MaxConcurrentAPICalls: 2, SlotAcquireTimeout: 5 * time.Second})
 
+	// Enrollment is the fail-closed gate: unregistered shards cannot hold
+	// slots, so register before acquiring.
+	for i := 1; i <= 5; i++ {
+		scheduler.RegisterShard(fmt.Sprintf("t%d", i), "test")
+	}
+
 	// Acquire initial 2
-	_ = scheduler.AcquireAPISlot(context.Background(), "t1")
-	_ = scheduler.AcquireAPISlot(context.Background(), "t2")
+	if err := scheduler.AcquireAPISlot(context.Background(), "t1"); err != nil {
+		t.Fatalf("t1 acquire failed: %v", err)
+	}
+	if err := scheduler.AcquireAPISlot(context.Background(), "t2"); err != nil {
+		t.Fatalf("t2 acquire failed: %v", err)
+	}
 
 	// Queue up 3
 	for i := 3; i <= 5; i++ {
@@ -790,13 +833,15 @@ func TestE2E_SchedulerSession_Temporal_TaskExecutor_SpawnLimiter(t *testing.T) {
 func TestE2E_SchedulerSession_Semantic_PiggybackFallback(t *testing.T) {
 	t.Parallel()
 
-	// A client that CLAIMS piggyback support, but returns standard tool calls
+	// A client that CLAIMS piggyback support. The claim must survive the
+	// scheduler wrapper (ScheduledLLMCall delegates ShouldUsePiggybackTools),
+	// so generation takes the structured-output path and the envelope's
+	// tool_request executes via the single-turn piggyback batch, which runs
+	// tools once without multi-turn continuation.
+	envelope := `{"control_packet":{"reasoning_trace":"need tool data","tool_requests":[{"id":"req_1","tool_name":"mock_tool","tool_args":{},"purpose":"fallback probe","required":true}]},"surface_response":"using tools"}`
 	llm := &mockLLMClientWithControls{
 		isPiggyback: true,
-		responses: []types.LLMToolResponse{{
-			Text:      "I am using standard tools, not piggyback JSON",
-			ToolCalls: []types.ToolCall{{ID: "1", Name: "mock_tool"}},
-		}},
+		responses:   []types.LLMToolResponse{{Text: envelope}},
 	}
 
 	exec, _ := setupTestExecutorLLM(t, llm, nil, 5)

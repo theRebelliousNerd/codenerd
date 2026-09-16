@@ -30,9 +30,29 @@ type mockPoisonKernel struct {
 var _ types.Kernel = (*mockPoisonKernel)(nil)
 
 func (m *mockPoisonKernel) LoadFacts(facts []types.Fact) error              { return nil }
-func (m *mockPoisonKernel) Query(predicate string) ([]types.Fact, error)    { return nil, nil }
+// Query honors the programmable queries map: production asks ShouldGenerateTool
+// style yes/no questions through Query, so a mapped-true query yields one fact.
+func (m *mockPoisonKernel) Query(predicate string) ([]types.Fact, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.queries[predicate] {
+		return []types.Fact{{Predicate: predicate}}, nil
+	}
+	// Otherwise scan recorded facts: production prunes via bare Query.
+	var res []types.Fact
+	for _, f := range m.facts {
+		if f.Predicate == predicate {
+			res = append(res, f)
+		}
+	}
+	return res, nil
+}
 func (m *mockPoisonKernel) QueryAll() (map[string][]types.Fact, error)      { return nil, nil }
-func (m *mockPoisonKernel) Assert(fact types.Fact) error                    { return nil }
+// Assert records like AssertFact: production's assertToKernel path calls Assert,
+// so a recording mock must honor rejectAssert/assertDelay here too.
+func (m *mockPoisonKernel) Assert(fact types.Fact) error {
+	return m.AssertFact(fact)
+}
 func (m *mockPoisonKernel) AssertBatch(facts []types.Fact) error            { return nil }
 func (m *mockPoisonKernel) Retract(predicate string) error                  { return nil }
 func (m *mockPoisonKernel) UpdateSystemFacts() error                        { return nil }

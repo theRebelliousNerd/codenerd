@@ -423,6 +423,18 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 	}
 	compiler.stopContext, compiler.stop = context.WithCancel(context.Background())
 
+	// Default the canonical built-in atoms. The embedded corpus is a
+	// compile-time constant and production treats it as mandatory (the system
+	// factory fails startup without it), so a bare compiler must not silently
+	// compile empty prompts. An explicit WithEmbeddedCorpus option — including
+	// nil for isolation — still overrides this default.
+	if corpus, err := getEmbeddedCorpusCached(); err != nil {
+		compiler.stop()
+		return nil, fmt.Errorf("failed to load embedded prompt corpus: %w", err)
+	} else {
+		compiler.embeddedCorpus = corpus
+	}
+
 	// Apply options
 	for _, opt := range opts {
 		if opt == nil {

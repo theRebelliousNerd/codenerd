@@ -5,6 +5,7 @@ package e2e_test
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
 
@@ -94,7 +96,7 @@ func (m *spawnerMockConfigFactory) Generate(ctx context.Context, res *prompt.Com
 	}
 
 	return &config.EffectiveAgentRuntimeConfig{
-		AllowedTools: []string{"file_read", "file_write"},
+		AllowedTools: []string{"read_file", "write_file"},
 		Policies:     []string{"policy.mg"},
 	}, nil
 }
@@ -120,13 +122,39 @@ type mockRealLLM struct {
 	mu        sync.Mutex
 	responses []string
 	idx       int
+	// blockCh, when non-nil, parks every completion until it closes or the
+	// context ends, simulating a long-running model for stop/cancel tests.
+	blockCh chan struct{}
+	// toolQueue scripts native function-calling turns. When empty,
+	// CompleteWithTools falls back to the text responses so prose-only
+	// fixtures behave identically on the native path.
+	toolQueue []*types.LLMToolResponse
+	toolIdx   int
 }
 
 func (m *mockRealLLM) Complete(ctx context.Context, prompt string) (string, error) {
 	return m.CompleteWithSystem(ctx, "", prompt)
 }
 
+func (m *mockRealLLM) awaitUnblock(ctx context.Context) error {
+	m.mu.Lock()
+	ch := m.blockCh
+	m.mu.Unlock()
+	if ch == nil {
+		return nil
+	}
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (m *mockRealLLM) CompleteWithSystem(ctx context.Context, sys, user string) (string, error) {
+	if err := m.awaitUnblock(ctx); err != nil {
+		return "", err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.idx >= len(m.responses) {
@@ -162,7 +190,48 @@ func (m *spawnerMockLLMClient) CompleteWithStreaming(ctx context.Context, system
 }
 
 func (m *mockRealLLM) CompleteWithTools(ctx context.Context, system, prompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if err := m.awaitUnblock(ctx); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.toolIdx < len(m.toolQueue) {
+		resp := m.toolQueue[m.toolIdx]
+		m.toolIdx++
+		return resp, nil
+	}
+	// No scripted tool turn: surface the next prose fixture (or the legacy
+	// empty object) so text-only tests behave the same on native generation.
+	if m.idx < len(m.responses) {
+		resp := m.responses[m.idx]
+		m.idx++
+		return &types.LLMToolResponse{Text: resp}, nil
+	}
 	return &types.LLMToolResponse{Text: "{}"}, nil
+}
+
+// CompleteWithToolResults continues a scripted native tool conversation. An
+// exhausted queue ends the turn with benign prose instead of looping forever.
+func (m *mockRealLLM) CompleteWithToolResults(ctx context.Context, system string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if err := m.awaitUnblock(ctx); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.toolIdx < len(m.toolQueue) {
+		resp := m.toolQueue[m.toolIdx]
+		m.toolIdx++
+		return resp, nil
+	}
+	return &types.LLMToolResponse{Text: "done"}, nil
+}
+
+// scriptToolTurns queues native function-calling turns: generation consumes
+// from the front, follow-ups continue through the same queue.
+func (m *mockRealLLM) scriptToolTurns(turns ...*types.LLMToolResponse) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.toolQueue = append(m.toolQueue, turns...)
 }
 
 func (m *spawnerMockLLMClient) CompleteWithTools(ctx context.Context, system, prompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
@@ -172,8 +241,30 @@ func (m *spawnerMockLLMClient) CompleteWithTools(ctx context.Context, system, pr
 func (m *mockRealLLM) Dimensions() int          { return 1536 }
 func (m *spawnerMockLLMClient) Dimensions() int { return 1536 }
 
+// registerSpawnerMockToolsOnce guards the global fixture-tool registration.
+// buildToolDefinitions filters the config grant against tools.Global(), so
+// the read_file/write_file grant only reaches the model when handlers exist.
+// Real tool names (not fictional ones): the constitutional safety gate derives
+// permitted(...) from safe_action/1, which knows /read_file and /write_file.
+//
+// Only read_file is stubbed here, and reads need no landing so canned text is
+// honest. write_file comes from the shared write-turn fixture
+// (registerWriteTurnTool): the post-action validator checks that a write
+// really landed, so a no-op stub would be correctly judged hollow — and a
+// second global write_file would race the shared one.
+var registerSpawnerMockToolsOnce sync.Once
+
+func registerSpawnerMockTools() {
+	registerSpawnerMockToolsOnce.Do(func() {
+		_ = tools.Global().Register(&tools.Tool{Name: "read_file", Effect: tools.EffectRead, Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			return "file contents ok", nil
+		}})
+	})
+}
+
 func setupRealIntegrationEnv(t *testing.T, responses ...string) *realTestEnv {
 	t.Helper()
+	registerSpawnerMockTools()
 
 	mockLLM := &mockRealLLM{responses: responses}
 	mockCompiler := &spawnerMockJITCompiler{}
@@ -186,6 +277,12 @@ func setupRealIntegrationEnv(t *testing.T, responses ...string) *realTestEnv {
 	if err != nil {
 		t.Fatalf("real kernel: %v", err)
 	}
+	// A real VirtualStore wired to the real kernel: write_file carries
+	// EffectWrite, and executeToolCall requires an InteractiveExecutiveGate
+	// for anything that is not EffectRead. A nil store refuses every write
+	// with "mandatory executive gate unavailable".
+	vstore := core.NewVirtualStore(nil)
+	wireDreamer(vstore, mockKernel)
 	mockTransducer := &spawnerMockTransducer{}
 
 	spawnerConfig := session.DefaultSpawnerConfig()
@@ -193,7 +290,7 @@ func setupRealIntegrationEnv(t *testing.T, responses ...string) *realTestEnv {
 
 	s := session.NewSpawner(
 		mockKernel,
-		nil,
+		vstore,
 		mockLLM,
 		mockCompiler,
 		mockConfig,
@@ -202,7 +299,15 @@ func setupRealIntegrationEnv(t *testing.T, responses ...string) *realTestEnv {
 	)
 
 	// We instantiate a real JITExecutor to cross the Spawner -> Executor boundary
-	baseExec := session.NewExecutor(mockKernel, nil, mockLLM, mockCompiler, mockConfig, mockTransducer)
+	baseExec := session.NewExecutor(mockKernel, vstore, mockLLM, mockCompiler, mockConfig, mockTransducer)
+	// Fixture writes land in a per-test temp workspace, and post-edit build /
+	// test / critic verification is off: fixture files live outside any Go
+	// module (same precedent as writeTurnExecutorConfig). The safety gate and
+	// the landing validator stay ON.
+	fixtureCfg := writeTurnExecutorConfig()
+	fixtureCfg.WorkspaceRoot = t.TempDir()
+	baseExec.SetConfig(fixtureCfg)
+	s.SetExecutorConfig(&fixtureCfg)
 	exec := session.NewJITExecutor(baseExec, s, mockTransducer)
 
 	return &realTestEnv{
@@ -369,6 +474,9 @@ func TestE2E_Session_ConfigFactory_Fails_SpawnAborts(t *testing.T) {
 func TestE2E_Session_SubagentStop_HaltsExecutionLoop(t *testing.T) {
 	t.Parallel()
 	env := setupRealIntegrationEnv(t)
+	// Park the model mid-turn so there is a running loop to halt. Spawn alone
+	// leaves the agent Idle; only Run starts execution.
+	env.MockLLM.blockCh = make(chan struct{})
 
 	req := session.SpawnRequest{
 		Name:       "test-agent",
@@ -381,14 +489,32 @@ func TestE2E_Session_SubagentStop_HaltsExecutionLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	agent.Run(context.Background(), req.Task)
+	waitForAgentState(t, agent, session.SubAgentStateRunning, 5*time.Second)
 
-	err = agent.Stop()
-	if err != nil {
+	if err := agent.Stop(); err != nil {
 		t.Fatalf("Stop failed: %v", err)
 	}
+	// Stop cancels the run context, so the parked LLM call fails and the
+	// agent lands Failed — promptly, not after a timeout.
+	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _ = agent.WaitWithContext(waitCtx)
 
-	if agent.GetState() != session.SubAgentStateCompleted && agent.GetState() != session.SubAgentStateFailed {
-		t.Errorf("Agent state should be Completed or Failed after stop, got %v", agent.GetState())
+	if agent.GetState() != session.SubAgentStateFailed {
+		t.Errorf("Agent state should be Failed after stop mid-run, got %v", agent.GetState())
+	}
+}
+
+// waitForAgentState polls until the agent reaches want or the timeout fires.
+func waitForAgentState(t *testing.T, agent *session.SubAgent, want session.SubAgentState, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for agent.GetState() != want {
+		if !time.Now().Before(deadline) {
+			t.Fatalf("agent %s never reached %v (still %v)", agent.GetName(), want, agent.GetState())
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -396,6 +522,9 @@ func TestE2E_Session_SubagentStop_HaltsExecutionLoop(t *testing.T) {
 func TestE2E_Session_StopAll_DuringMassiveActivity(t *testing.T) {
 	t.Parallel()
 	env := setupRealIntegrationEnv(t)
+	// Park every model call so all 20 agents stay Running (an instant mock
+	// would let each finish before the next spawns).
+	env.MockLLM.blockCh = make(chan struct{})
 
 	req := session.SpawnRequest{
 		Name:       "test-agent",
@@ -405,23 +534,29 @@ func TestE2E_Session_StopAll_DuringMassiveActivity(t *testing.T) {
 	}
 
 	for i := 0; i < 20; i++ {
-		_, err := env.Spawner.Spawn(context.Background(), req)
+		agent, err := env.Spawner.Spawn(context.Background(), req)
 		if err != nil {
 			t.Fatal(err)
 		}
+		agent.Run(context.Background(), req.Task)
 	}
 
-	active := env.Spawner.ListActive()
-	if len(active) != 20 {
-		t.Fatalf("Expected 20 active agents, got %d", len(active))
+	deadline := time.Now().Add(10 * time.Second)
+	for len(env.Spawner.ListActive()) != 20 {
+		if !time.Now().Before(deadline) {
+			t.Fatalf("Expected 20 active agents, got %d", len(env.Spawner.ListActive()))
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 
 	env.Spawner.StopAll()
-	time.Sleep(10 * time.Millisecond)
 
-	activeAfter := env.Spawner.ListActive()
-	if len(activeAfter) != 0 {
-		t.Logf("KNOWN: ListActive returned %d after StopAll, expecting 0", len(activeAfter))
+	deadline = time.Now().Add(10 * time.Second)
+	for len(env.Spawner.ListActive()) != 0 {
+		if !time.Now().Before(deadline) {
+			t.Fatalf("StopAll left %d agents running", len(env.Spawner.ListActive()))
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -495,8 +630,19 @@ func TestE2E_Session_ExecutorMultiTurnStateLeak_IsolatedHistory(t *testing.T) {
 func TestE2E_Executor_ExecutesTask_Successfully(t *testing.T) {
 	t.Parallel()
 
-	// Simulate a valid LLM response to complete the task
-	env := setupRealIntegrationEnv(t, `{"message": "I fixed it"}`)
+	// Simulate a tool-using model: /fix is write-oriented, so prose alone is
+	// hollow and correctly blocked. The turn reads the buggy file, writes the
+	// fix through the shared write-turn stub (which really lands the file —
+	// the post-action validator rejects no-op writes), then concludes.
+	env := setupRealIntegrationEnv(t)
+	writeCall := writeTurnCall(t)
+	env.MockLLM.scriptToolTurns(
+		&types.LLMToolResponse{Text: "fixing", ToolCalls: []types.ToolCall{
+			{ID: "1", Name: "read_file", Input: map[string]any{"path": "bug.go"}},
+			writeCall,
+		}},
+		&types.LLMToolResponse{Text: `{"message": "I fixed it"}`},
+	)
 
 	req := session.TaskRequest{
 		IntentVerb: "/fix", // persona is expressed through IntentVerb; TaskRequest has no Persona field
@@ -513,6 +659,15 @@ func TestE2E_Executor_ExecutesTask_Successfully(t *testing.T) {
 		t.Errorf("Expected response to contain 'I fixed it', got: %s", res)
 	}
 
+	// The fix must have landed on disk, not just been reported.
+	writtenPath, _ := writeCall.Input["path"].(string)
+	content, readErr := os.ReadFile(writtenPath)
+	if readErr != nil {
+		t.Errorf("Expected written file %s to exist: %v", writtenPath, readErr)
+	} else if !strings.Contains(string(content), "write-turn fixture") {
+		t.Errorf("Written file %s has unexpected content: %q", writtenPath, content)
+	}
+
 	// Verify the agent was properly spawned and cleaned up
 	if len(env.Spawner.ListActive()) > 0 {
 		t.Errorf("Expected active agent list to be empty after execution")
@@ -521,7 +676,7 @@ func TestE2E_Executor_ExecutesTask_Successfully(t *testing.T) {
 
 // TestE2E_Executor_HandlesMalformedPiggyback_FromLLM validates the resilient execution loop.
 // The Spawner generates config, the Executor spawns the agent, but the LLM returns garbage JSON.
-// The Executor should intercept this, not panic, and gracefully fail or retry.
+// The Executor must not panic or hang: it degrades to a raw-text fallback and succeeds.
 func TestE2E_Executor_HandlesMalformedPiggyback_FromLLM(t *testing.T) {
 	t.Parallel()
 
@@ -535,20 +690,29 @@ func TestE2E_Executor_HandlesMalformedPiggyback_FromLLM(t *testing.T) {
 
 	res, err := env.Executor.Execute(context.Background(), req)
 
-	// The JITExecutor should wrap the parsing failure
-	if err == nil {
-		t.Fatalf("Expected error due to malformed JSON, got successful response: %s", res)
+	// Malformed model output degrades gracefully: no control packet is
+	// trusted, the raw text is echoed as the surface, and the turn succeeds
+	// without panicking, hanging, or leaking the agent.
+	if err != nil {
+		t.Fatalf("Executor should degrade gracefully on malformed JSON, got error: %v", err)
 	}
-
-	if !strings.Contains(err.Error(), "malformed") && !strings.Contains(err.Error(), "JSON") && !strings.Contains(err.Error(), "parse") {
-		t.Errorf("Expected JSON parsing error, got: %v", err)
+	if !strings.Contains(res, "unclosed bracket") {
+		t.Errorf("Expected raw-text fallback echoing the malformed payload, got: %s", res)
+	}
+	if len(env.Spawner.ListActive()) != 0 {
+		t.Errorf("Expected no leaked agents after malformed turn")
 	}
 }
 
 // TestE2E_Executor_DelegationWithPriority respects priority queueing during high contention.
 func TestE2E_Executor_DelegationWithPriority(t *testing.T) {
 	t.Parallel()
-	env := setupRealIntegrationEnv(t, `{"message": "done"}`)
+	// /test requires side effects, so the scripted turn reads before concluding.
+	env := setupRealIntegrationEnv(t)
+	env.MockLLM.scriptToolTurns(
+		&types.LLMToolResponse{Text: "testing", ToolCalls: []types.ToolCall{{ID: "1", Name: "read_file", Input: map[string]any{"path": "suite_test.go"}}}},
+		&types.LLMToolResponse{Text: `{"message": "done"}`},
+	)
 
 	req := session.TaskRequest{
 		IntentVerb: "/test",
@@ -642,7 +806,15 @@ func TestE2E_Spawner_OuroborosPatchDrift(t *testing.T) {
 // highly contentious tasks in sequence.
 func TestE2E_Session_CampaignExecution_PhaseAwarePaging_Isolation(t *testing.T) {
 	t.Parallel()
-	env := setupRealIntegrationEnv(t, `{"message": "Phase 1 complete"}`, `{"message": "Phase 2 complete"}`)
+	// Both phases use tools (/research requires side effects); each scripted
+	// turn reads once, then concludes with its phase message.
+	env := setupRealIntegrationEnv(t)
+	env.MockLLM.scriptToolTurns(
+		&types.LLMToolResponse{Text: "researching", ToolCalls: []types.ToolCall{{ID: "p1", Name: "read_file", Input: map[string]any{"path": "docs.md"}}}},
+		&types.LLMToolResponse{Text: `{"message": "Phase 1 complete"}`},
+		&types.LLMToolResponse{Text: "auditing", ToolCalls: []types.ToolCall{{ID: "p2", Name: "read_file", Input: map[string]any{"path": "store.go"}}}},
+		&types.LLMToolResponse{Text: `{"message": "Phase 2 complete"}`},
+	)
 
 	// Simulate a high-memory footprint task in Phase 1
 	req1 := session.TaskRequest{
@@ -689,15 +861,17 @@ func TestE2E_Session_CampaignExecution_PhaseAwarePaging_Isolation(t *testing.T) 
 func TestE2E_Session_DreamerSandbox_SafetyCheck_Rejection(t *testing.T) {
 	t.Parallel()
 
-	// The LLM response simulates an attempt to invoke a forbidden tool
-	env := setupRealIntegrationEnv(t, `{"tool_call": {"name": "system_exec", "arguments": {"cmd": "rm -rf /"}}}`)
+	// The LLM attempts to invoke a forbidden tool. system_exec exists nowhere
+	// in any registry, so the attempt is doubly safe: the JIT allowlist gate
+	// denies it before any backend resolution is even attempted.
+	env := setupRealIntegrationEnv(t)
+	env.MockLLM.scriptToolTurns(
+		&types.LLMToolResponse{Text: "cleaning", ToolCalls: []types.ToolCall{{ID: "evil", Name: "system_exec", Input: map[string]any{"cmd": "rm -rf /"}}}},
+		&types.LLMToolResponse{Text: "done"},
+	)
 
-	// We mock the ConfigFactory to allow 'system_exec', but the test focuses on
-	// the deeper VirtualStore/Dreamer boundary.
-	env.MockConfig.mu.Lock()
-	// By default the mock returns file_read, file_write.
-	// If system_exec is not allowed by ConfigFactory, it fails at the Spawner/Executor layer.
-	env.MockConfig.mu.Unlock()
+	// The fixture grant covers read_file/write_file only: system_exec must fail
+	// at the executor's allowlist gate, never reaching any backend.
 
 	req := session.TaskRequest{
 		IntentVerb: "/test",
@@ -726,17 +900,26 @@ func TestE2E_Session_DreamerSandbox_SafetyCheck_Rejection(t *testing.T) {
 func TestE2E_Session_Autopoiesis_RuleCourt_Validation(t *testing.T) {
 	t.Parallel()
 
-	// LLM outputs a syntactically invalid Mangle rule
-	env := setupRealIntegrationEnv(t, `{"tool_call": {"name": "assert_rule", "arguments": {"rule": "p(X) :- not p(X)."}}}`)
+	// The LLM attempts an ungranted tool. assert_rule is outside the fixture
+	// grant (read_file, write_file), so the executor's tool gating layer
+	// denies it before it can reach the kernel — the first layer of defense.
+	env := setupRealIntegrationEnv(t)
+	env.MockLLM.scriptToolTurns(
+		&types.LLMToolResponse{Text: "formulating", ToolCalls: []types.ToolCall{{ID: "r1", Name: "assert_rule", Input: map[string]any{"rule": "p(X) :- not p(X)."}}}},
+		&types.LLMToolResponse{Text: "done"},
+	)
 
+	// /test requires side effects (unlike /learn, which has no action mapping
+	// and is hollow-exempt), so the denied call fails the turn instead of
+	// degrading to prose.
 	req := session.TaskRequest{
-		IntentVerb: "/learn",
+		IntentVerb: "/test",
 		Task:       "Formulate a new architectural rule",
 	}
 
 	_, err := env.Executor.Execute(context.Background(), req)
 
-	// Since assert_rule is not in the default mock allowlist (file_read, file_write),
+	// Since assert_rule is not in the default mock allowlist (read_file, write_file),
 	// it will fail at the Executor tool gating layer before hitting the kernel.
 	// This perfectly proves the first layer of defense.
 	if err == nil {

@@ -65,3 +65,18 @@ func TestAtom_WhenGivenTheAuditedMismatchValues_ShouldRoundTripThroughIsValidNam
 		}
 	}
 }
+func TestFact_ToAtom_RejectsInvalidPredicateName(t *testing.T) {
+	t.Parallel()
+	for _, pred := range []string{"", "invalid name with spaces", "Uppercase", "has-dash", "has.dot", "has/slash", "9starts_with_digit"} {
+		f := Fact{Predicate: pred, Args: []any{"x"}}
+		if _, err := f.ToAtom(); err == nil {
+			t.Errorf("ToAtom with predicate %q should fail closed, got nil error", pred)
+		}
+	}
+	for _, pred := range []string{"user_intent", "turn_evidence", "a", "p2", "snake_case_9"} {
+		f := Fact{Predicate: pred, Args: []any{"x"}}
+		if _, err := f.ToAtom(); err != nil {
+			t.Errorf("ToAtom with predicate %q should succeed, got: %v", pred, err)
+		}
+	}
+}

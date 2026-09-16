@@ -868,6 +868,24 @@ func (c *ScheduledLLMCall) GetModel() string {
 	return ""
 }
 
+var _ types.PiggybackToolProvider = (*ScheduledLLMCall)(nil)
+
+// ShouldUsePiggybackTools forwards the optional PiggybackToolProvider
+// capability so the claim survives the scheduling boundary. Without this the
+// executor takes the native function-calling path for a wrapped client that
+// requires Piggyback (a Gemini client with grounding enabled), which conflicts
+// with the provider's built-in tools. A nil or non-piggyback inner client
+// stays native.
+func (c *ScheduledLLMCall) ShouldUsePiggybackTools() bool {
+	if c == nil || c.Client == nil {
+		return false
+	}
+	if ptp, ok := c.Client.(types.PiggybackToolProvider); ok {
+		return ptp.ShouldUsePiggybackTools()
+	}
+	return false
+}
+
 // =============================================================================
 // GroundedWebSearcher Pass-Through (scheduled, slot-accounted)
 // =============================================================================

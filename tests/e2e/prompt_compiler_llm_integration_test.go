@@ -198,7 +198,9 @@ func TestE2E_PromptCompilerLLM_ResourceExhaustion_10MBPayload(t *testing.T) {
 		t.Skip("Skipping resource exhaustion test in short mode")
 	}
 
-	// Generate a massive 10MB atom content
+	// Generate a massive 10MB atom content. The budget manager must shed it
+	// whole — atoms are omitted, never cut — without crashing, hanging, or
+	// mutating the caller's atom.
 	massiveContent := strings.Repeat("A", 10*1024*1024)
 
 	budgetMgr := prompt.NewTokenBudgetManager()
@@ -224,22 +226,29 @@ func TestE2E_PromptCompilerLLM_ResourceExhaustion_10MBPayload(t *testing.T) {
 
 	// Apply budget constraint of exactly 4000 tokens
 	maxBudget := 4000
+	start := time.Now()
 	fitted, err := budgetMgr.Fit(atoms, maxBudget)
+	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("Fit failed unexpectedly: %v", err)
 	}
 
-	if len(fitted) != 1 {
-		t.Fatalf("Expected atom to be retained (truncated), got %d", len(fitted))
+	if len(fitted) != 0 {
+		t.Fatalf("Expected massive atom to be omitted whole (never cut), got %d fitted", len(fitted))
 	}
 
-	truncatedContent := fitted[0].Atom.Content
-	// Assuming 1 char = ~1 token for the simplified budget manager logic
-	// the truncated content should be WAY smaller than 10MB.
-	if len(truncatedContent) > maxBudget*5 {
-		t.Fatalf("Content was not truncated properly! Length is %d", len(truncatedContent))
+	// The caller's atom must be untouched: Fit deep-copies and never truncates
+	// caller data in place.
+	if len(atoms[0].Atom.Content) != 10*1024*1024 {
+		t.Fatalf("Fit mutated the input atom content (len now %d)", len(atoms[0].Atom.Content))
+	}
+
+	// Shedding must stay fast even for pathological inputs.
+	if elapsed > 30*time.Second {
+		t.Fatalf("Fit took too long on oversize atom: %v", elapsed)
 	}
 }
+
 
 // TestE2E_PromptCompilerLLM_Temporal_StreamingCancellation injects context cancellation mid-stream.
 // Contract Violated: Context cancellation must terminate LLM streaming goroutines immediately.

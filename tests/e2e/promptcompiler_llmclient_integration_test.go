@@ -120,17 +120,20 @@ func TestE2E_PromptCompiler_Smoke_BasicCompilation(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	compiler, err := prompt.NewJITPromptCompiler()
-	if err != nil {
-		t.Fatalf("Failed to create compiler: %v", err)
-	}
+	// Production-faithful wiring: embedded corpus plus a real policy kernel
+	// for Mangle selection. A bare compiler has no selection executive.
+	compiler := newE2EPromptCompiler(t)
 
 	mockLLM := newMockPromptCompilerLLMClient()
 
 	cc := &prompt.CompilationContext{
 		UserIntent:  "test intent",
 		IntentVerb:  "test",
-		TokenBudget: 500,
+		// 8000 fits the real mandatory skeleton (~4200 tokens) plus the
+		// 500-token default headroom reserved for LLM output; a budget at
+		// or below headroom correctly fails closed with nothing left for
+		// the prompt.
+		TokenBudget: 8000,
 	}
 
 	result, err := compiler.Compile(ctx, cc)
@@ -265,48 +268,74 @@ func TestE2E_PromptCompiler_ContractViolation_StreamingLeak(t *testing.T) {
 func TestE2E_PromptCompiler_ContractViolation_PiggybackStarvation(t *testing.T) {
 	t.Parallel()
 
-	// 1. Contract Violated: Protocol Overhead Reservation.
-
+	// Contract: protocol overhead reservation + never-cut atoms. Fit must hold
+	// back headroom for the LLM response (Piggyback JSON) and omit oversize
+	// atoms whole — a cut atom is an instruction with its ending missing,
+	// which is worse than no instruction.
 	mgr := prompt.NewTokenBudgetManager()
 
 	// Force the total budget to simulate a very constrained context window.
 	totalBudget := 2000
 
-	// Create atoms that exceed the budget.
-	atoms := []*prompt.OrderedAtom{
-		{
+	mkAtom := func(id string, content string) *prompt.OrderedAtom {
+		return &prompt.OrderedAtom{
 			Atom: &prompt.PromptAtom{
-				ID:       "massive_context",
+				ID:       id,
 				Category: prompt.CategoryCapability,
 				Priority: int(prompt.PriorityHigh),
-				Content:  strings.Repeat("token ", 5000), // ~5000 tokens
+				Content:  content,
 			},
 			RenderMode: "standard",
-		},
+		}
 	}
+	// ~7500 tokens: exceeds even the total budget, so no headroom setting
+	// can save it. No concise/min rendering, so there is nothing smaller to
+	// fall back to either.
+	massive := mkAtom("massive_context", strings.Repeat("token ", 5000))
+	// ~1701 tokens: fits the 2000 total but not the 1500 left after the 500
+	// headroom. Its presence/absence across the two runs below is the
+	// behavioral pin for the reservation itself.
+	medium := mkAtom("medium_context", strings.Repeat("token ", 1134))
+	small := mkAtom("small_context", "do the thing")
 
-	// Before fixing, Fit might use the entire 2000 tokens for the prompt,
-	// leaving 0 for the LLM response, which breaks the Piggyback protocol.
-
-	// Ensure some headroom is reserved.
+	// Run 1: headroom reserved. Only the small atom fits.
 	mgr.SetReservedHeadroom(500)
-
-	fitted, err := mgr.Fit(atoms, totalBudget)
+	fitted, err := mgr.Fit([]*prompt.OrderedAtom{massive, medium, small}, totalBudget)
 	if err != nil {
 		t.Fatalf("Fit failed: %v", err)
 	}
-
-	if len(fitted) == 0 {
-		t.Fatalf("Expected some atoms to fit")
+	ids := make(map[string]bool)
+	for _, oa := range fitted {
+		ids[oa.Atom.ID] = true
+	}
+	if len(fitted) != 1 || !ids["small_context"] {
+		t.Fatalf("expected only small_context to fit with headroom, got %v", ids)
+	}
+	if fitted[0].Atom.Content != "do the thing" {
+		t.Errorf("fitted atom content was cut or altered: %q", fitted[0].Atom.Content)
 	}
 
-	// We need to verify that the fitted atoms didn't consume the reserved headroom.
-	// In the TokenBudgetManager, totalBudget is the max. If it used up to totalBudget - headroom, it's correct.
-	// Since we can't easily inspect the internal `usedTokens` directly without modifying the struct,
-	// we infer it by checking if it respected the headroom parameter.
-
-	t.Log("KNOWN: TokenBudgetManager must explicitly reserve at least 500-1000 tokens for the LLM output (Piggyback JSON) regardless of input size.")
+	// Run 2 (counterfactual): no headroom. The medium atom must now fit,
+	// proving the reservation — not the atom — excluded it above. The
+	// massive atom stays out: it exceeds the total budget whole.
+	mgr2 := prompt.NewTokenBudgetManager()
+	mgr2.SetReservedHeadroom(0)
+	fitted2, err := mgr2.Fit([]*prompt.OrderedAtom{massive, medium, small}, totalBudget)
+	if err != nil {
+		t.Fatalf("Fit without headroom failed: %v", err)
+	}
+	ids2 := make(map[string]bool)
+	for _, oa := range fitted2 {
+		ids2[oa.Atom.ID] = true
+	}
+	if !ids2["medium_context"] || !ids2["small_context"] {
+		t.Errorf("expected medium+small to fit without headroom, got %v", ids2)
+	}
+	if ids2["massive_context"] {
+		t.Errorf("massive atom must be omitted whole even without headroom")
+	}
 }
+
 
 // TestE2E_PromptCompiler_ResourceExhaustion_MillionAtoms verifies Fit() survives 1,000,000 inputs without OOMing.
 func TestE2E_PromptCompiler_ResourceExhaustion_MillionAtoms(t *testing.T) {
@@ -390,11 +419,10 @@ func TestE2E_PromptCompiler_StateCorruption_ConcurrentCompilation(t *testing.T) 
 func TestE2E_PromptCompiler_CascadingFailure_MalformedJSON(t *testing.T) {
 	t.Parallel()
 
-	// 1. Contract Violated: Protocol Parsing.
-
-	// Create an executor (we need its processPiggybackControlPacket method,
-	// which is unexported but we can reach it if we set up the executor or test it via side-effects).
-	// Because it's unexported, we test the public articulation function directly as it's the core.
+	// Contract Violated: Protocol Parsing. The envelope below is broken (an
+	// unterminated string inside control_packet), so no control packet may be
+	// trusted — but the intact surface_response is still salvaged for the
+	// user instead of dumping the raw JSON blob.
 
 	malformedJSON := `{"surface_response": "I tried", "control_packet": { "mangle_updates": [ "missing_quote(/bad) ]}}`
 
@@ -405,11 +433,16 @@ func TestE2E_PromptCompiler_CascadingFailure_MalformedJSON(t *testing.T) {
 		t.Errorf("Expected nil control packet due to parse failure, got %+v", result.Control)
 	}
 
-	// The surface should just be the raw text since it failed to parse the envelope cleanly.
-	if result.Surface != malformedJSON {
-		t.Errorf("Expected raw text fallback, got %s", result.Surface)
+	// The salvage path recovers surface_response from a partial envelope;
+	// only when that fails does the user see a truncation notice.
+	if result.Surface != "I tried" {
+		t.Errorf("Expected salvaged surface, got %q", result.Surface)
+	}
+	if result.ParseMethod != "fallback" {
+		t.Errorf("Expected fallback parse method for malformed envelope, got %q", result.ParseMethod)
 	}
 }
+
 
 // TestE2E_PromptCompiler_Recovery_LLMTimeout verifies the system recovers on the next turn after a failure.
 func TestE2E_PromptCompiler_Recovery_LLMTimeout(t *testing.T) {

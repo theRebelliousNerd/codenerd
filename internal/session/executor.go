@@ -1091,10 +1091,16 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 // observe uses the transducer to convert natural language to intent.
 func (e *Executor) observe(ctx context.Context, input string) (perception.Intent, error) {
 	e.mu.RLock()
+	transducer := e.transducer
 	history := e.conversationHistory
 	e.mu.RUnlock()
 
-	return e.transducer.ParseIntentWithContext(ctx, input, history)
+	// A missing transducer fails closed as an error, never as a nil-pointer
+	// panic: Process must stay callable on partially-wired executors.
+	if transducer == nil {
+		return perception.Intent{}, fmt.Errorf("cannot perceive intent %q: no transducer configured", input)
+	}
+	return transducer.ParseIntentWithContext(ctx, input, history)
 }
 
 // buildCompilationContext creates a CompilationContext from the current state.
@@ -1325,6 +1331,11 @@ func (e *Executor) compileConfig(ctx context.Context, result *prompt.Compilation
 // rather than read from the struct so that every call in one tool loop provably
 // hits the same model.
 func (e *Executor) generateResponse(ctx context.Context, client types.LLMClient, systemPrompt, userInput string, cfg *config.EffectiveAgentRuntimeConfig) (*types.LLMToolResponse, error) {
+	// A missing model client fails closed as an error, never as a nil-pointer
+	// panic on the completion call below.
+	if client == nil {
+		return nil, fmt.Errorf("cannot generate response: no LLM client configured")
+	}
 	// Check if client should use Piggyback for tools (e.g., Gemini with grounding enabled)
 	if ptp, ok := client.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
 		return e.generateResponseWithPiggybackTools(ctx, client, systemPrompt, userInput, cfg)

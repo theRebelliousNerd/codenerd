@@ -113,6 +113,17 @@ safe_action(/run_tests).
 safe_action(/test_single).
 safe_action(/coverage).
 
+# Build operations
+# /build_project executes the project build command through the same guarded
+# pipeline as /run_tests (command allowlist, binary policy, Dreamer
+# simulation, exact pending_action payload). It was absent from this
+# allowlist, so the constitutional gate silently denied every build the TDD
+# loop routed and every repair cycle ended in escalation. Same bug class as
+# the /edit_file and /grep additions above; capabilities.mg already derives
+# next_action(/build_project) for /build intents, so the system intends it
+# routable.
+safe_action(/build_project).
+
 # Knowledge operations
 safe_action(/vector_search).
 safe_action(/knowledge_query).

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 )
@@ -53,6 +54,24 @@ type MangleString string
 type Fact struct {
 	Predicate string
 	Args      []any
+}
+
+// isValidPredicateName reports whether s is a well-formed Mangle predicate
+// name: nonempty, starting with a lowercase letter, containing only
+// letters, digits, and underscore.
+func isValidPredicateName(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	if !unicode.IsLower(rune(s[0])) {
+		return false
+	}
+	for _, r := range s {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 func isValidMangleNameConstant(v string) bool {
@@ -198,6 +217,13 @@ func quoteJSONOrValue(v any) string {
 
 // ToAtom converts a Fact to a Mangle AST Atom for direct store insertion.
 func (f Fact) ToAtom() (ast.Atom, error) {
+	// Fail closed on malformed predicate names: an atom whose predicate no
+	// rule or query can name would poison the EDB silently. Mirrors the
+	// grammar validator (internal/mangle/grammar.go); types cannot import
+	// mangle (import cycle), so the check lives here at the conversion choke.
+	if !isValidPredicateName(f.Predicate) {
+		return ast.Atom{}, fmt.Errorf("Fact: invalid predicate name %q \u2014 must start with a lowercase letter and contain only letters, digits, and underscore", f.Predicate)
+	}
 	var terms []ast.BaseTerm
 	for _, arg := range f.Args {
 		switch v := arg.(type) {

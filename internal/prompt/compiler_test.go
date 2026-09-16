@@ -168,7 +168,9 @@ func TestJITPromptCompiler_Compile(t *testing.T) {
 	})
 
 	t.Run("empty corpus returns empty prompt", func(t *testing.T) {
-		compiler, err := NewJITPromptCompiler()
+		// Explicit empty corpus: bare construction now defaults to the
+		// embedded atoms, so isolation needs the override.
+		compiler, err := NewJITPromptCompiler(WithEmbeddedCorpus(NewEmbeddedCorpus(nil)))
 		require.NoError(t, err)
 
 		cc := NewCompilationContext()
@@ -1331,7 +1333,9 @@ func TestCompiler_MissingSpecialistRegistry(t *testing.T) {
 
 	// Since we can't easily mock the os.Stat inside the method,
 	// we just ensure that calling Compile with a missing registry doesn't panic.
-	compiler, err := NewJITPromptCompiler()
+	// Empty corpus isolates the registry question from atom selection (which
+	// needs a kernel once candidates exist).
+	compiler, err := NewJITPromptCompiler(WithEmbeddedCorpus(NewEmbeddedCorpus(nil)))
 	require.NoError(t, err)
 
 	_, err = compiler.Compile(context.Background(), cc)
