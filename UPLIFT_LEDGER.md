@@ -2334,7 +2334,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/perception/client_meta_responses_retry_test.go`
 - [ ] `internal/perception/client_ollama.go`
 - [ ] `internal/perception/client_ollama_test.go`
-- [ ] `internal/perception/client_openai.go`
+- [x] `internal/perception/client_openai.go`
 - [ ] `internal/perception/client_openai_compat.go`
 - [ ] `internal/perception/client_openai_compat_allow_empty_test.go`
 - [ ] `internal/perception/client_openai_compat_empty_retry_test.go`

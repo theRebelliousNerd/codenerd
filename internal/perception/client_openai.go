@@ -68,6 +68,18 @@ func NewOpenAIClientWithConfig(config OpenAIConfig) *OpenAIClient {
 	}
 }
 
+// rateLimit enforces minimum inter-request spacing to avoid 429 responses.
+// Must be called before each API request.
+func (c *OpenAIClient) rateLimit() {
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 100*time.Millisecond {
+		time.Sleep(100*time.Millisecond - elapsed)
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
+}
+
 // Complete sends a prompt and returns the completion.
 func (c *OpenAIClient) Complete(ctx context.Context, prompt string) (string, error) {
 	return c.CompleteWithSystem(ctx, "", prompt)
@@ -101,13 +113,7 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			strings.Contains(userPrompt, "control_packet"))
 
 	// Rate limiting
-	c.mu.Lock()
-	elapsed := time.Since(c.lastRequest)
-	if elapsed < 100*time.Millisecond {
-		time.Sleep(100*time.Millisecond - elapsed)
-	}
-	c.lastRequest = time.Now()
-	c.mu.Unlock()
+	c.rateLimit()
 
 	messages := []OpenAIMessage{
 		{Role: "system", Content: systemPrompt},
@@ -130,7 +136,14 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
-			time.Sleep(time.Duration(1<<uint(i-1)) * time.Second)
+			// Context-aware backoff: a cancelled turn must exit during
+			// the sleep, not after it (matches ExecuteOpenAIRequest).
+			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
 		}
 
 		jsonData, err := json.Marshal(reqBody)
@@ -244,13 +257,7 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 				strings.Contains(userPrompt, "control_packet"))
 
 		// Rate limiting
-		c.mu.Lock()
-		elapsed := time.Since(c.lastRequest)
-		if elapsed < 100*time.Millisecond {
-			time.Sleep(100*time.Millisecond - elapsed)
-		}
-		c.lastRequest = time.Now()
-		c.mu.Unlock()
+		c.rateLimit()
 
 		messages := []OpenAIMessage{
 			{Role: "system", Content: systemPrompt},
@@ -277,7 +284,15 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 
 		for attempt := 0; attempt <= maxRetries; attempt++ {
 			if attempt > 0 {
-				time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+				// Context-aware backoff: a cancelled turn must exit during
+				// the sleep, not after it (matches ExecuteOpenAIRequest).
+				backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+				select {
+				case <-ctx.Done():
+					errorChan <- fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+					return
+				case <-time.After(backoff):
+				}
 			}
 
 			jsonData, err := json.Marshal(reqBody)
@@ -423,7 +438,6 @@ func (c *OpenAIClient) GetModel() string {
 }
 
 // CompleteWithTools sends a prompt with tool definitions.
-// CompleteWithTools sends a prompt with tool definitions.
 func (c *OpenAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
 	// Map generic tools to OpenAI tools
 	openAITools := MapToolDefinitionsToOpenAI(tools)
@@ -479,74 +493,29 @@ func (c *OpenAIClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 }
 
 // completeNonStreaming performs a non-streaming completion request.
+//
+// The HTTP round-trip is the shared ExecuteOpenAIRequest helper — the
+// retry/backoff/parse contract lives there, once — and this only adds the
+// client's usage accounting. Previously this was a second copy of that
+// loop, minus transient-status retry and minus cancel-aware backoff, so
+// the OpenAI tools path was strictly less resilient than the xAI/OpenRouter
+// paths that already shared the helper.
 func (c *OpenAIClient) completeNonStreaming(ctx context.Context, reqBody OpenAIRequest) (*OpenAIResponse, error) {
-	// Retry loop
-	maxRetries := 3
-	var lastErr error
-
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
-		}
-
-		jsonData, err := json.Marshal(reqBody)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request: %w", err)
-		}
-
-		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
-		// No Accept: text/event-stream for non-streaming
-
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("request failed: %w", err)
-			continue
-		}
-
-		if resp.StatusCode == http.StatusTooManyRequests {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-			resp.Body.Close()
-			lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
-			continue
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-			resp.Body.Close()
-			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-		}
-
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-		resp.Body.Close() // Close immediately after read
-		if err != nil {
-			return nil, fmt.Errorf("failed to read response body: %w", err)
-		}
-
-		var openAIResp OpenAIResponse
-		if err := json.Unmarshal(body, &openAIResp); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-		}
-
-		if openAIResp.Error != nil {
-			return nil, fmt.Errorf("API error: %s", openAIResp.Error.Message)
-		}
-
-		// Tracked here rather than at each caller: this is the single
-		// non-streaming HTTP path on this client, so every billed request is
-		// counted exactly once even when a caller retries at a higher level.
-		trackUsage(ctx, reqBody.Model, c.provider,
-			openAIResp.Usage.PromptTokens, openAIResp.Usage.CompletionTokens, usageOpFor(len(reqBody.Tools)))
-
-		return &openAIResp, nil
+	if c.apiKey == "" {
+		return nil, fmt.Errorf("API key not configured")
+	}
+	openAIResp, err := ExecuteOpenAIRequest(ctx, c.httpClient, c.baseURL, c.apiKey, reqBody)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
+	// Tracked here rather than at each caller: this is the single
+	// non-streaming HTTP path on this client, so every billed request is
+	// counted exactly once even when a caller retries at a higher level.
+	trackUsage(ctx, reqBody.Model, c.provider,
+		openAIResp.Usage.PromptTokens, openAIResp.Usage.CompletionTokens, usageOpFor(len(reqBody.Tools)))
+
+	return openAIResp, nil
 }
 
 // ModelIdentity reports the provider and model this client serves, satisfying
