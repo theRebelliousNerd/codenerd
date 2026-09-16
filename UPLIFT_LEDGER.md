@@ -1090,11 +1090,12 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/context/serializer_bounds_test.go`
 - [ ] `internal/context/serializer_test.go`
 - [ ] `internal/context/token_counter_extra_test.go`
-- [ ] `internal/context/tokens.go`
-- [ ] `internal/context/types.go`
-- [ ] `internal/context/working_set.go`
+- [x] `internal/context/tokens.go`
+- [x] `internal/context/types.go`
+- [x] `internal/context/working_set.go`
 - [ ] `internal/context/working_set_test.go`
-- [ ] `internal/context/working_store.go`
+- [x] `internal/context/working_store.go`
+- [x] `internal/context/context_unit1_uplift_test.go`
 
 ### internal/core/action_validator.go (1)
 - [x] `internal/core/action_validator.go`

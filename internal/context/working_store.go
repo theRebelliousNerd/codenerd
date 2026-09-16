@@ -116,6 +116,12 @@ func (s *WorkingStore) Search(ctx context.Context, query string, offset, limit i
 }
 
 func (s *WorkingStore) Save(ctx context.Context, r WorkingRecord) error {
+	// An empty ID would collide every anonymous record onto one row, and
+	// ON CONFLICT DO NOTHING would then silently keep the first body and
+	// drop the rest. Refuse instead of storing unaddressable observations.
+	if r.ID == "" {
+		return fmt.Errorf("cannot save a working record with an empty id")
+	}
 	if r.Digest == "" {
 		r.Digest = workingDigest(r.Body)
 	}
@@ -128,6 +134,12 @@ func (s *WorkingStore) Save(ctx context.Context, r WorkingRecord) error {
 func (s *WorkingStore) Candidates(ctx context.Context, entities []string, limit int) ([]WorkingRecord, error) {
 	if len(entities) == 0 {
 		return nil, nil
+	}
+	// SQLite treats LIMIT -1 as "no limit", so a non-positive limit would
+	// silently unbind a slice documented as bounded. The only caller passes
+	// 256; anything else is a bug at the call site, not a request for all.
+	if limit <= 0 {
+		return nil, fmt.Errorf("invalid candidates limit %d", limit)
 	}
 	args := []any{s.scope}
 	marks := make([]string, len(entities))

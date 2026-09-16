@@ -160,10 +160,10 @@ type WorkingDecision struct {
 func (w *WorkingSet) Continue(ctx context.Context, p WorkingProgress) (WorkingDecision, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	// Plain "/"-prefixed strings: the engine encodes those as name atoms. A
-	// types.MangleAtom is a fmt.Stringer to the encoder and became a string
-	// constant, so working_control(/yes, _) never matched and the repeated
-	// cycle stop had never fired.
+	// Plain "/"-prefixed strings: the engine encodes those as name atoms,
+	// exactly like the types.MangleAtom form used for user_intent below
+	// (convertValueToTypedTerm honours both; the old "MangleAtom became a
+	// string constant" failure is pinned fixed in the mangle package).
 	flag := "/no"
 	if p.Cycle {
 		flag = "/yes"

@@ -273,13 +273,8 @@ func (c *Compressor) recalcBudget(turnNumber int, workingTokens int) {
 
 	usage := compressedCtx.TokenUsage
 
-	// Reset and set budget usage
-	c.budget.Reset()
-	c.budget.used.core = usage.Core
-	c.budget.used.atoms = usage.Atoms
-	c.budget.used.history = usage.History
-	c.budget.used.recent = usage.Recent
-	c.budget.used.working = workingTokens
+	// Reset and set budget usage atomically behind the budget's own lock.
+	c.budget.SetUsage(usage.Core, usage.Atoms, usage.History, usage.Recent, workingTokens)
 
 	logging.ContextDebug("Budget recalculated: core=%d, atoms=%d, history=%d, recent=%d, working=%d (total=%d)",
 		usage.Core, usage.Atoms, usage.History, usage.Recent, workingTokens, c.budget.TotalUsed())

@@ -3,10 +3,12 @@ package context
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"codenerd/internal/broker"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -78,7 +80,12 @@ func (tc *TokenCounter) CountFact(f core.Fact) int {
 				// String value - full counting
 				tokens += tc.CountString(v) + 2 // +2 for quotes
 			}
-		case int, int64, float64:
+		case types.MangleAtom:
+			// A MangleAtom is a distinct type from string, so without this
+			// case every atom — often a long path or symbol — cost a flat
+			// 3 tokens. Count the text like a name constant: no quotes.
+			tokens += 1 + tc.CountString(string(v))
+		case int, int32, int64, uint64, float32, float64:
 			tokens += 2 // Numbers are typically 1-2 tokens
 		case bool:
 			tokens += 1
@@ -168,7 +175,14 @@ func (tc *TokenCounter) CountCompressedContext(ctx *CompressedContext) int {
 var ErrContextWindowExceeded = fmt.Errorf("context window limit exceeded")
 
 // TokenBudget tracks token allocation and usage.
+//
+// Safe for concurrent use. The budget used to rely on the compressor's mutex
+// held around every access — an implicit contract one direct field write away
+// from a data race (recalcBudget did exactly that). The lock lives here now,
+// so the budget is correct no matter who touches it; it is a leaf lock, so
+// holding the compressor mutex while calling in cannot deadlock.
 type TokenBudget struct {
+	mu      sync.RWMutex
 	counter *TokenCounter
 	config  CompressorConfig
 
@@ -197,17 +211,29 @@ func NewTokenBudget(config CompressorConfig) *TokenBudget {
 // SetHardEnforcement enables or disables hard enforcement mode.
 // When enabled (default), exceeding limits returns errors instead of just false.
 func (tb *TokenBudget) SetHardEnforcement(enabled bool) {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	tb.hardEnforcement = enabled
 }
 
 // IsHardEnforcementEnabled returns whether hard enforcement is enabled.
 func (tb *TokenBudget) IsHardEnforcementEnabled() bool {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
 	return tb.hardEnforcement
 }
 
 // Allocate attempts to allocate tokens for a category.
 // Returns true if allocation succeeded, false if over budget.
 func (tb *TokenBudget) Allocate(category string, tokens int) bool {
+	if tokens < 0 {
+		// A negative allocation would silently un-spend budget. Reject it;
+		// callers that mean to release must say Release.
+		logging.Get(logging.CategoryContext).Warn("Token allocation REJECTED: %s negative amount %d", category, tokens)
+		return false
+	}
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	switch category {
 	case "core":
 		if tb.used.core+tokens > tb.config.CoreReserve {
@@ -249,7 +275,7 @@ func (tb *TokenBudget) Allocate(category string, tokens int) bool {
 		logging.Get(logging.CategoryContext).Warn("Unknown token category: %s", category)
 		return false
 	}
-	logging.ContextDebug("Token allocation: %s +%d (new total: %d)", category, tokens, tb.TotalUsed())
+	logging.ContextDebug("Token allocation: %s +%d (new total: %d)", category, tokens, tb.totalUsedLocked())
 	return true
 }
 
@@ -266,7 +292,9 @@ func (tb *TokenBudget) AllocateWithError(category string, tokens int) error {
 // CheckTotalBudget verifies that total usage doesn't exceed the total budget.
 // Returns error if the hard limit is exceeded.
 func (tb *TokenBudget) CheckTotalBudget() error {
-	total := tb.TotalUsed()
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	total := tb.totalUsedLocked()
 	if total > tb.config.TotalBudget {
 		logging.Get(logging.CategoryContext).Error("CONTEXT WINDOW EXCEEDED: %d tokens > %d limit",
 			total, tb.config.TotalBudget)
@@ -279,10 +307,13 @@ func (tb *TokenBudget) CheckTotalBudget() error {
 // MustFitWithinBudget checks if adding tokens would exceed the total budget.
 // Returns error if adding the tokens would exceed the limit.
 func (tb *TokenBudget) MustFitWithinBudget(additionalTokens int) error {
-	newTotal := tb.TotalUsed() + additionalTokens
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	used := tb.totalUsedLocked()
+	newTotal := used + additionalTokens
 	if newTotal > tb.config.TotalBudget {
 		logging.Get(logging.CategoryContext).Error("CONTEXT WINDOW WOULD EXCEED: %d + %d = %d tokens > %d limit",
-			tb.TotalUsed(), additionalTokens, newTotal, tb.config.TotalBudget)
+			used, additionalTokens, newTotal, tb.config.TotalBudget)
 		return fmt.Errorf("%w: adding %d tokens would result in %d total, exceeding %d limit",
 			ErrContextWindowExceeded, additionalTokens, newTotal, tb.config.TotalBudget)
 	}
@@ -291,6 +322,11 @@ func (tb *TokenBudget) MustFitWithinBudget(additionalTokens int) error {
 
 // Release releases tokens from a category.
 func (tb *TokenBudget) Release(category string, tokens int) {
+	if tokens < 0 {
+		return
+	}
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	switch category {
 	case "core":
 		tb.used.core = max(0, tb.used.core-tokens)
@@ -307,22 +343,47 @@ func (tb *TokenBudget) Release(category string, tokens int) {
 
 // TotalUsed returns total tokens currently used.
 func (tb *TokenBudget) TotalUsed() int {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	return tb.totalUsedLocked()
+}
+
+// totalUsedLocked sums usage. Callers must hold at least a read lock.
+func (tb *TokenBudget) totalUsedLocked() int {
 	return tb.used.core + tb.used.atoms + tb.used.history + tb.used.recent + tb.used.working
 }
 
 // Available returns tokens still available.
 func (tb *TokenBudget) Available() int {
-	return tb.config.TotalBudget - tb.TotalUsed()
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	return tb.config.TotalBudget - tb.totalUsedLocked()
 }
 
-// Utilization returns the current utilization as a percentage.
+// Utilization returns the current utilization as a fraction of the budget.
+//
+// A zero or negative budget reports 1.0 (full), not NaN: the old division
+// produced NaN, which compares false against every threshold, so a misconfigured
+// budget silently disabled compression — unbounded growth with no error.
 func (tb *TokenBudget) Utilization() float64 {
-	return float64(tb.TotalUsed()) / float64(tb.config.TotalBudget)
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	if tb.config.TotalBudget <= 0 {
+		return 1.0
+	}
+	return float64(tb.totalUsedLocked()) / float64(tb.config.TotalBudget)
 }
 
 // ShouldCompress returns true if compression should be triggered.
 func (tb *TokenBudget) ShouldCompress() bool {
-	utilization := tb.Utilization()
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	var utilization float64
+	if tb.config.TotalBudget <= 0 {
+		utilization = 1.0
+	} else {
+		utilization = float64(tb.totalUsedLocked()) / float64(tb.config.TotalBudget)
+	}
 	shouldCompress := utilization >= tb.config.CompressionThreshold
 	if shouldCompress {
 		logging.ContextDebug("ShouldCompress: YES (%.1f%% >= %.1f%% threshold)",
@@ -333,23 +394,41 @@ func (tb *TokenBudget) ShouldCompress() bool {
 
 // GetUsage returns detailed token usage.
 func (tb *TokenBudget) GetUsage() TokenUsage {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	total := tb.totalUsedLocked()
 	return TokenUsage{
-		Total:     tb.TotalUsed(),
+		Total:     total,
 		Core:      tb.used.core,
 		Atoms:     tb.used.atoms,
 		History:   tb.used.history,
 		Recent:    tb.used.recent,
-		Available: tb.Available(),
+		Available: tb.config.TotalBudget - total,
 	}
 }
 
 // Reset resets all usage counters.
 func (tb *TokenBudget) Reset() {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	tb.used.core = 0
 	tb.used.atoms = 0
 	tb.used.history = 0
 	tb.used.recent = 0
 	tb.used.working = 0
+}
+
+// SetUsage replaces every usage counter atomically. Negative inputs clamp to
+// zero. This is the only sanctioned way to set absolute usage from outside
+// (recalcBudget); direct field writes bypass the lock and race with readers.
+func (tb *TokenBudget) SetUsage(core, atoms, history, recent, working int) {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+	tb.used.core = max(core, 0)
+	tb.used.atoms = max(atoms, 0)
+	tb.used.history = max(history, 0)
+	tb.used.recent = max(recent, 0)
+	tb.used.working = max(working, 0)
 }
 
 // =============================================================================
