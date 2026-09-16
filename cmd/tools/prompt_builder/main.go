@@ -58,6 +58,7 @@ type AtomDefinition struct {
 	IsExclusive   string   `yaml:"is_exclusive,omitempty"`
 	DependsOn     []string `yaml:"depends_on,omitempty"`
 	ConflictsWith []string `yaml:"conflicts_with,omitempty"`
+	RequiresTools []string `yaml:"requires_tools,omitempty"`
 
 	// Contextual Selectors
 	OperationalModes []string `yaml:"operational_modes,omitempty"`
@@ -70,6 +71,8 @@ type AtomDefinition struct {
 	ShardTypes       []string `yaml:"shard_types,omitempty"`
 	Languages        []string `yaml:"languages,omitempty"`
 	Frameworks       []string `yaml:"frameworks,omitempty"`
+	Models           []string `yaml:"models,omitempty"`
+	Providers        []string `yaml:"providers,omitempty"`
 	WorldStates      []string `yaml:"world_states,omitempty"`
 
 	// Content (can be inline or reference a file)
@@ -655,9 +658,12 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 			addTags("shard", atom.ShardTypes)
 			addTags("lang", atom.Languages)
 			addTags("framework", atom.Frameworks)
+			addTags("model", atom.Models)
+			addTags("provider", atom.Providers)
 			addTags("state", atom.WorldStates)
 			addTags("depends_on", atom.DependsOn)
 			addTags("conflicts_with", atom.ConflictsWith)
+			addTags("requires_tool", atom.RequiresTools)
 
 			// Also insert into vec_prompt_atoms if available
 			if vecAvailable && vecStmt != nil && embeddingBlob != nil {

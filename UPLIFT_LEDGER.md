@@ -2479,18 +2479,18 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/projectdoc/tool_gate.go`
 - [ ] `internal/projectdoc/tool_gate_test.go`
 
-### internal/prompt (104)
+### internal/prompt (105)
 - [ ] `internal/prompt/assembler.go`
 - [ ] `internal/prompt/assembler_gaps_test.go`
 - [ ] `internal/prompt/assembler_test.go`
 - [ ] `internal/prompt/atom_pinning_test.go`
-- [ ] `internal/prompt/atom_schema.go`
+- [x] `internal/prompt/atom_schema.go`
 - [ ] `internal/prompt/atom_schema_test.go`
-- [ ] `internal/prompt/atoms.go`
+- [x] `internal/prompt/atoms.go`
 - [ ] `internal/prompt/atoms_placeholder_test.go`
 - [ ] `internal/prompt/atoms_test.go`
 - [ ] `internal/prompt/atoms_verification_test.go`
-- [ ] `internal/prompt/baseline.go`
+- [x] `internal/prompt/baseline.go`
 - [ ] `internal/prompt/budget.go`
 - [ ] `internal/prompt/budget_enforcement_test.go`
 - [ ] `internal/prompt/budget_test.go`
@@ -2529,23 +2529,23 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/prompt/couse_test.go`
 - [ ] `internal/prompt/couse_wiring_test.go`
 - [ ] `internal/prompt/debugging_atoms_test.go`
-- [ ] `internal/prompt/default_corpus.go`
+- [x] `internal/prompt/default_corpus.go`
 - [ ] `internal/prompt/default_corpus_benchmark_test.go`
-- [ ] `internal/prompt/embedded.go`
+- [x] `internal/prompt/embedded.go`
 - [ ] `internal/prompt/embedded_test.go`
-- [ ] `internal/prompt/evolved_atoms.go`
+- [x] `internal/prompt/evolved_atoms.go`
 - [ ] `internal/prompt/grounded_web_search_test.go`
 - [ ] `internal/prompt/kernel_injection_bounds_test.go`
 - [ ] `internal/prompt/learning_evidence_test.go`
 - [ ] `internal/prompt/limits.go`
 - [ ] `internal/prompt/limits_test.go`
-- [ ] `internal/prompt/loader.go`
+- [x] `internal/prompt/loader.go`
 - [ ] `internal/prompt/loader_bench_test.go`
-- [ ] `internal/prompt/loader_embedding.go`
+- [x] `internal/prompt/loader_embedding.go`
 - [ ] `internal/prompt/loader_example_test.go`
 - [ ] `internal/prompt/loader_test.go`
 - [ ] `internal/prompt/loader_yaml_fields_test.go`
-- [ ] `internal/prompt/manifest.go`
+- [x] `internal/prompt/manifest.go`
 - [ ] `internal/prompt/marathon/marathon.go`
 - [ ] `internal/prompt/marathon/marathon_test.go`
 - [ ] `internal/prompt/marathon/optimize.go`
@@ -2559,6 +2559,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/prompt/predicate_selector.go`
 - [ ] `internal/prompt/predicate_selector_test.go`
 - [x] `internal/prompt/prompt_core_uplift_test.go`
+- [x] `internal/prompt/prompt_loader_uplift_test.go`
 - [ ] `internal/prompt/prompt_gaps_test.go`
 - [ ] `internal/prompt/query_expansion.go`
 - [ ] `internal/prompt/query_expansion_semantic_test.go`
@@ -2577,7 +2578,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/prompt/selector_vector_score_test.go`
 - [ ] `internal/prompt/shard_gating_test.go`
 - [ ] `internal/prompt/specialist_benchmark_test.go`
-- [ ] `internal/prompt/strategy_atoms.go`
+- [x] `internal/prompt/strategy_atoms.go`
 - [ ] `internal/prompt/strategy_atoms_test.go`
 - [ ] `internal/prompt/structured_output_corpus_test.go`
 - [ ] `internal/prompt/sync/synchronizer.go`

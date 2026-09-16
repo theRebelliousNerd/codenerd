@@ -249,8 +249,6 @@ func (l *AtomLoader) StoreAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 
 // ReplaceAtoms stores the provided prompt atoms transactionally after pruning the
 // existing prompt atom set in the target database.
-// ReplaceAtoms stores the provided prompt atoms transactionally after pruning the
-// existing prompt atom set in the target database.
 func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*PromptAtom) error {
 	// 1. Process Embeddings BEFORE starting the transaction
 	// This prevents holding open database transactions while waiting on network I/O
@@ -387,56 +385,10 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 			return nil
 		}
 
-		addTags := func(dim string, values []string) error {
-			for _, val := range values {
-				if err := queueTag(dim, val); err != nil {
-					return err
-				}
+		for _, tag := range atom.ContextTags() {
+			if err := queueTag(tag.Dimension, tag.Tag); err != nil {
+				return err
 			}
-			return nil
-		}
-
-		if err := addTags("mode", atom.OperationalModes); err != nil {
-			return err
-		}
-		if err := addTags("phase", atom.CampaignPhases); err != nil {
-			return err
-		}
-		if err := addTags("layer", atom.BuildLayers); err != nil {
-			return err
-		}
-		if err := addTags("init_phase", atom.InitPhases); err != nil {
-			return err
-		}
-		if err := addTags("northstar_phase", atom.NorthstarPhases); err != nil {
-			return err
-		}
-		if err := addTags("ouroboros_stage", atom.OuroborosStages); err != nil {
-			return err
-		}
-		if err := addTags("intent", atom.IntentVerbs); err != nil {
-			return err
-		}
-		if err := addTags("shard", atom.ShardTypes); err != nil {
-			return err
-		}
-		if err := addTags("lang", atom.Languages); err != nil {
-			return err
-		}
-		if err := addTags("framework", atom.Frameworks); err != nil {
-			return err
-		}
-		if err := addTags("state", atom.WorldStates); err != nil {
-			return err
-		}
-		if err := addTags("depends_on", atom.DependsOn); err != nil {
-			return err
-		}
-		if err := addTags("conflicts_with", atom.ConflictsWith); err != nil {
-			return err
-		}
-		if err := addTags("requires_tool", atom.RequiresTools); err != nil {
-			return err
 		}
 	}
 
@@ -747,10 +699,3 @@ func nullableString(s string) any {
 	return s
 }
 
-// toJSONString converts JSON bytes to string, returning nil for empty arrays.
-func toJSONString(data []byte) any {
-	if len(data) == 0 || string(data) == "[]" || string(data) == "null" {
-		return nil
-	}
-	return string(data)
-}

@@ -186,8 +186,8 @@ func getTextForEmbedding(atom *PromptAtom) string {
 
 	// Fallback: use first 500 characters of content
 	content := atom.Content
-	if len(content) > 500 {
-		content = content[:500]
+	if runes := []rune(content); len(runes) > 500 {
+		content = string(runes[:500])
 	}
 	return content
 }
@@ -301,25 +301,9 @@ func insertContextTagsBatch(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom
 	var allTags []tagEntry
 
 	for _, atom := range atoms {
-		addDim := func(dimension string, values []string) {
-			for _, v := range values {
-				allTags = append(allTags, tagEntry{atom.ID, dimension, v})
-			}
+		for _, tag := range atom.ContextTags() {
+			allTags = append(allTags, tagEntry{atom.ID, tag.Dimension, tag.Tag})
 		}
-		addDim("mode", atom.OperationalModes)
-		addDim("phase", atom.CampaignPhases)
-		addDim("layer", atom.BuildLayers)
-		addDim("init_phase", atom.InitPhases)
-		addDim("northstar_phase", atom.NorthstarPhases)
-		addDim("ouroboros_stage", atom.OuroborosStages)
-		addDim("intent", atom.IntentVerbs)
-		addDim("shard", atom.ShardTypes)
-		addDim("lang", atom.Languages)
-		addDim("framework", atom.Frameworks)
-		addDim("state", atom.WorldStates)
-		addDim("depends_on", atom.DependsOn)
-		addDim("conflicts_with", atom.ConflictsWith)
-		addDim("requires_tool", atom.RequiresTools)
 	}
 
 	if len(allTags) == 0 {

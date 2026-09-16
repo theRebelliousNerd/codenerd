@@ -85,13 +85,11 @@ func HydrateAtomContextTags(ctx context.Context, db *sql.DB, atoms []*PromptAtom
 	}
 	var allTags []tagRow
 
-	insertTags := func(atomID, dim string, values []string) {
-		for _, v := range values {
-			if strings.TrimSpace(v) == "" {
-				continue
-			}
-			allTags = append(allTags, tagRow{atomID: atomID, dim: dim, tag: v})
+	insertTag := func(atomID, dim, tag string) {
+		if strings.TrimSpace(tag) == "" {
+			return
 		}
+		allTags = append(allTags, tagRow{atomID: atomID, dim: dim, tag: tag})
 	}
 
 	for _, atom := range atoms {
@@ -102,20 +100,9 @@ func HydrateAtomContextTags(ctx context.Context, db *sql.DB, atoms []*PromptAtom
 			continue
 		}
 
-		insertTags(atom.ID, "mode", atom.OperationalModes)
-		insertTags(atom.ID, "phase", atom.CampaignPhases)
-		insertTags(atom.ID, "layer", atom.BuildLayers)
-		insertTags(atom.ID, "init_phase", atom.InitPhases)
-		insertTags(atom.ID, "northstar_phase", atom.NorthstarPhases)
-		insertTags(atom.ID, "ouroboros_stage", atom.OuroborosStages)
-		insertTags(atom.ID, "intent", atom.IntentVerbs)
-		insertTags(atom.ID, "shard", atom.ShardTypes)
-		insertTags(atom.ID, "lang", atom.Languages)
-		insertTags(atom.ID, "framework", atom.Frameworks)
-		insertTags(atom.ID, "state", atom.WorldStates)
-		insertTags(atom.ID, "depends_on", atom.DependsOn)
-		insertTags(atom.ID, "conflicts_with", atom.ConflictsWith)
-		insertTags(atom.ID, "requires_tool", atom.RequiresTools)
+		for _, tag := range atom.ContextTags() {
+			insertTag(atom.ID, tag.Dimension, tag.Tag)
+		}
 	}
 
 	if len(allTags) > 0 {

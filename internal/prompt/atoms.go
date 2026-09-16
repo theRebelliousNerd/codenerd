@@ -345,6 +345,59 @@ func normalizeList(list []string) {
 	}
 }
 
+// AtomTag binds one selector value to its persistence dimension. The
+// dimension vocabulary here is shared by every SQLite writer (loader,
+// reconciler, corpus hydration, the prompt_builder tool) and by the
+// compiler_db.go reader; a dimension missing from either side silently
+// drops on round-trip, which for models/providers/requires_tool is a
+// fail-open leak (an unpinned atom matches every vendor).
+type AtomTag struct {
+	Dimension string
+	Tag       string
+}
+
+// ContextTags returns every selector binding in canonical dimension order.
+// This is the single producer all tag-table writers iterate; adding a
+// selector dimension to PromptAtom requires adding it here and to the
+// appendTag reader, pinned by TestContextTags_ReaderParity.
+func (a *PromptAtom) ContextTags() []AtomTag {
+	if a == nil {
+		return nil
+	}
+	dims := []struct {
+		name   string
+		values []string
+	}{
+		{"mode", a.OperationalModes},
+		{"phase", a.CampaignPhases},
+		{"layer", a.BuildLayers},
+		{"init_phase", a.InitPhases},
+		{"northstar_phase", a.NorthstarPhases},
+		{"ouroboros_stage", a.OuroborosStages},
+		{"intent", a.IntentVerbs},
+		{"shard", a.ShardTypes},
+		{"lang", a.Languages},
+		{"framework", a.Frameworks},
+		{"model", a.Models},
+		{"provider", a.Providers},
+		{"state", a.WorldStates},
+		{"depends_on", a.DependsOn},
+		{"conflicts_with", a.ConflictsWith},
+		{"requires_tool", a.RequiresTools},
+	}
+	total := 0
+	for _, d := range dims {
+		total += len(d.values)
+	}
+	tags := make([]AtomTag, 0, total)
+	for _, d := range dims {
+		for _, v := range d.values {
+			tags = append(tags, AtomTag{Dimension: d.name, Tag: v})
+		}
+	}
+	return tags
+}
+
 // MatchesContext checks if this atom should be included for the given context.
 // Returns true if the atom matches ALL non-empty selector dimensions.
 // Empty selector lists are treated as "match any".

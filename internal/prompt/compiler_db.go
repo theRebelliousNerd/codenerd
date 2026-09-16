@@ -120,6 +120,10 @@ func (c *JITPromptCompiler) appendTag(atom *PromptAtom, dim, tag string) {
 		atom.Languages = append(atom.Languages, tag)
 	case "framework":
 		atom.Frameworks = append(atom.Frameworks, tag)
+	case "model":
+		atom.Models = append(atom.Models, tag)
+	case "provider":
+		atom.Providers = append(atom.Providers, tag)
 	case "state":
 		atom.WorldStates = append(atom.WorldStates, tag)
 	case "depends_on":

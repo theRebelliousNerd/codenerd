@@ -201,33 +201,20 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 		}
 		var rows []tagRow
 		seenTags := make(map[tagRow]struct{})
-		add := func(dim string, vals []string) {
-			for _, v := range vals {
-				if strings.TrimSpace(v) == "" {
-					continue
-				}
-				row := tagRow{dim: dim, tag: v}
-				if _, exists := seenTags[row]; exists {
-					continue
-				}
-				seenTags[row] = struct{}{}
-				rows = append(rows, row)
+		add := func(dim, tag string) {
+			if strings.TrimSpace(tag) == "" {
+				return
 			}
+			row := tagRow{dim: dim, tag: tag}
+			if _, exists := seenTags[row]; exists {
+				return
+			}
+			seenTags[row] = struct{}{}
+			rows = append(rows, row)
 		}
-		add("mode", atom.OperationalModes)
-		add("phase", atom.CampaignPhases)
-		add("layer", atom.BuildLayers)
-		add("init_phase", atom.InitPhases)
-		add("northstar_phase", atom.NorthstarPhases)
-		add("ouroboros_stage", atom.OuroborosStages)
-		add("intent", atom.IntentVerbs)
-		add("shard", atom.ShardTypes)
-		add("lang", atom.Languages)
-		add("framework", atom.Frameworks)
-		add("state", atom.WorldStates)
-		add("depends_on", atom.DependsOn)
-		add("conflicts_with", atom.ConflictsWith)
-		add("requires_tool", atom.RequiresTools)
+		for _, tag := range atom.ContextTags() {
+			add(tag.Dimension, tag.Tag)
+		}
 
 		if len(rows) > 0 {
 			const chunkSize = 300

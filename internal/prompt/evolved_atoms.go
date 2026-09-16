@@ -87,9 +87,17 @@ func (eam *EvolvedAtomManager) loadFromDir(dir string) {
 }
 
 // loadAtomFromFile loads an atom from a YAML file.
+//
+// Evolved files use a wrapper shape the canonical AtomDefinition parser does
+// not speak, so this path unmarshals PromptAtom directly and then applies
+// the canonical post-conditions by hand: structural validation, selector
+// normalization, and computed-field backfill. A corrupt file is skipped with
+// a warning -- the evolved directory is a derived cache, and one bad file
+// must not fail compilation -- but never silently.
 func (eam *EvolvedAtomManager) loadAtomFromFile(path string) *PromptAtom {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		logging.Get(logging.CategoryJIT).Warn("Evolved atom %s unreadable: %v (skipped)", path, err)
 		return nil
 	}
 
@@ -99,10 +107,27 @@ func (eam *EvolvedAtomManager) loadAtomFromFile(path string) *PromptAtom {
 	}
 
 	if err := yaml.Unmarshal(data, &wrapper); err != nil {
+		logging.Get(logging.CategoryJIT).Warn("Evolved atom %s unparseable: %v (skipped)", path, err)
+		return nil
+	}
+	if wrapper.Atom == nil {
+		logging.Get(logging.CategoryJIT).Warn("Evolved atom %s has no atom body (skipped)", path)
 		return nil
 	}
 
-	return wrapper.Atom
+	atom := wrapper.Atom
+	if err := atom.Validate(); err != nil {
+		logging.Get(logging.CategoryJIT).Warn("Evolved atom %s invalid: %v (skipped)", path, err)
+		return nil
+	}
+	atom.NormalizeSelectors()
+	if atom.TokenCount <= 0 {
+		atom.TokenCount = EstimateTokens(atom.Content)
+	}
+	if atom.ContentHash == "" {
+		atom.ContentHash = HashContent(atom.Content)
+	}
+	return atom
 }
 
 // GetAll returns all evolved atoms.
