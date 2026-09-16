@@ -499,50 +499,51 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/autopoiesis/utils_coverage_test.go`
 - [ ] `internal/autopoiesis/yaegi_executor.go`
 
-### internal/broker (43)
-- [ ] `internal/broker/broker.go`
-- [ ] `internal/broker/broker_test.go`
-- [ ] `internal/broker/calibration.go`
-- [ ] `internal/broker/calibration_test.go`
-- [ ] `internal/broker/compression.go`
-- [ ] `internal/broker/compression_test.go`
-- [ ] `internal/broker/context.go`
-- [ ] `internal/broker/counter.go`
-- [ ] `internal/broker/counter_anthropic.go`
-- [ ] `internal/broker/counter_anthropic_test.go`
-- [ ] `internal/broker/decorator_audit_test.go`
-- [ ] `internal/broker/default.go`
-- [ ] `internal/broker/doc.go`
-- [ ] `internal/broker/epoch.go`
-- [ ] `internal/broker/epoch_method_test.go`
-- [ ] `internal/broker/epoch_test.go`
-- [ ] `internal/broker/errors.go`
-- [ ] `internal/broker/extrasink_handle_test.go`
-- [ ] `internal/broker/fakes_test.go`
-- [ ] `internal/broker/filesink.go`
-- [ ] `internal/broker/filesink_test.go`
-- [ ] `internal/broker/helpers_test.go`
-- [ ] `internal/broker/integrity_test.go`
-- [ ] `internal/broker/ledger.go`
-- [ ] `internal/broker/ledger_test.go`
-- [ ] `internal/broker/measure.go`
-- [ ] `internal/broker/measure_test.go`
-- [ ] `internal/broker/optional.go`
-- [ ] `internal/broker/passthrough.go`
-- [ ] `internal/broker/passthrough_test.go`
-- [ ] `internal/broker/purpose_wiring_test.go`
-- [ ] `internal/broker/receipt.go`
-- [ ] `internal/broker/reconcile.go`
-- [ ] `internal/broker/reconcile_test.go`
-- [ ] `internal/broker/shapes_test.go`
-- [ ] `internal/broker/stream.go`
-- [ ] `internal/broker/stream_test.go`
-- [ ] `internal/broker/text.go`
-- [ ] `internal/broker/text_default_test.go`
-- [ ] `internal/broker/types.go`
-- [ ] `internal/broker/wiring_test.go`
-- [ ] `internal/broker/wrap.go`
-- [ ] `internal/broker/wrap_test.go`
+### internal/broker (44)
+- [x] `internal/broker/broker.go`
+- [x] `internal/broker/broker_test.go`
+- [x] `internal/broker/calibration.go`
+- [x] `internal/broker/calibration_test.go`
+- [x] `internal/broker/compression.go`
+- [x] `internal/broker/compression_test.go`
+- [x] `internal/broker/context.go`
+- [x] `internal/broker/counter.go`
+- [x] `internal/broker/counter_anthropic.go`
+- [x] `internal/broker/counter_anthropic_test.go`
+- [x] `internal/broker/decorator_audit_test.go`
+- [x] `internal/broker/default.go`
+- [x] `internal/broker/doc.go`
+- [x] `internal/broker/epoch.go`
+- [x] `internal/broker/epoch_method_test.go`
+- [x] `internal/broker/epoch_test.go`
+- [x] `internal/broker/errors.go`
+- [x] `internal/broker/extrasink_handle_test.go`
+- [x] `internal/broker/fakes_test.go`
+- [x] `internal/broker/filesink.go`
+- [x] `internal/broker/filesink_test.go`
+- [x] `internal/broker/helpers_test.go`
+- [x] `internal/broker/integrity_test.go`
+- [x] `internal/broker/ledger.go`
+- [x] `internal/broker/ledger_test.go`
+- [x] `internal/broker/ledger_uplift_test.go`
+- [x] `internal/broker/measure.go`
+- [x] `internal/broker/measure_test.go`
+- [x] `internal/broker/optional.go`
+- [x] `internal/broker/passthrough.go`
+- [x] `internal/broker/passthrough_test.go`
+- [x] `internal/broker/purpose_wiring_test.go`
+- [x] `internal/broker/receipt.go`
+- [x] `internal/broker/reconcile.go`
+- [x] `internal/broker/reconcile_test.go`
+- [x] `internal/broker/shapes_test.go`
+- [x] `internal/broker/stream.go`
+- [x] `internal/broker/stream_test.go`
+- [x] `internal/broker/text.go`
+- [x] `internal/broker/text_default_test.go`
+- [x] `internal/broker/types.go`
+- [x] `internal/broker/wiring_test.go`
+- [x] `internal/broker/wrap.go`
+- [x] `internal/broker/wrap_test.go`
 
 ### internal/browser (60)
 - [ ] `internal/browser/browser_integration_test.go`

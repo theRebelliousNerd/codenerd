@@ -195,6 +195,26 @@ func (l *Ledger) SetWindow(window, outputReserve int) {
 	}
 }
 
+// SetBudgets replaces the per-purpose caps in place, keeping recorded spend.
+//
+// In-place is the point. Broker cores capture their ledger pointer at Wrap
+// time, so replacing the meter's ledger would leave every live client
+// enforcing the old caps while only future clients saw the new ones — and the
+// spend carried across the swap would race settlements still landing on the
+// old object. Caps are policy; spend is money; changing policy must neither
+// fork the clients nor zero the balances.
+func (l *Ledger) SetBudgets(budgets map[Purpose]int64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	caps := make(map[Purpose]int64, len(budgets))
+	for p, b := range budgets {
+		if b > 0 {
+			caps[p] = b
+		}
+	}
+	l.budgets = caps
+}
+
 // Reset clears recorded spend but keeps limits. Used when a session restarts.
 func (l *Ledger) Reset() {
 	l.mu.Lock()

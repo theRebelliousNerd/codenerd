@@ -409,10 +409,9 @@ func TestConfigureCarriesSpendAcrossACapChange(t *testing.T) {
 
 	m.Ledger().Record(PurposeCritic, Spend{InputTokens: 4000, OutputTokens: 500, Calls: 1})
 
-	// Applying caps rebuilds the ledger. A budget change that silently zeroed
-	// the balances it is being compared against would be a cap that does not
-	// bind until the next restart -- which is the moment it is least likely to
-	// be noticed.
+	// Applying caps must not zero the balances they are compared against: a
+	// cap that does not bind until the next restart binds at the moment it is
+	// least likely to be noticed.
 	Configure(MeterConfig{
 		Window: 200000, OutputReserve: 8000,
 		Budgets: map[Purpose]int64{PurposeCritic: 10000},

@@ -90,18 +90,10 @@ func Configure(cfg MeterConfig) {
 
 	m.ledger.SetWindow(cfg.Window, cfg.OutputReserve)
 	if len(cfg.Budgets) > 0 {
-		// Rebuild the ledger's caps while preserving accumulated spend by
-		// copying it across; a budget change must not silently zero the
-		// balances it is being compared against.
-		replacement := NewLedger(LedgerConfig{
-			Window:        cfg.Window,
-			OutputReserve: cfg.OutputReserve,
-			Budgets:       cfg.Budgets,
-		})
-		for purpose, spend := range m.ledger.Accounts() {
-			replacement.Record(purpose, spend)
-		}
-		m.ledger = replacement
+		// Caps change in place: recorded spend survives, and live clients —
+		// which captured the ledger pointer at Wrap time — enforce the new
+		// caps immediately instead of metering against a discarded object.
+		m.ledger.SetBudgets(cfg.Budgets)
 	}
 	if cfg.HTTPClient != nil {
 		m.httpClient = cfg.HTTPClient
