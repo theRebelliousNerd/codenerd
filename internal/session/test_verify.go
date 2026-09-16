@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -11,7 +10,6 @@ import (
 
 	"codenerd/internal/build"
 	"codenerd/internal/logging"
-	"codenerd/internal/processutil"
 )
 
 // Post-edit test verification.
@@ -41,28 +39,51 @@ import (
 //
 // Written by codeNERD on itself (2026-08-08), reviewed and corrected by hand.
 
-// testVerifyTimeout bounds the verification `go test`. Cold tests on this repo
-// are slower than a build; the ceiling is generous because a verify that times
-// out reports a false alarm, which is worse than a slow one.
-const testVerifyTimeout = 4 * time.Minute
-
 // TestVerification is the outcome of running `go test` on the packages touched
-// by a turn.
+// by a turn. Outcome is the authoritative verdict; Ran and OK stay as derived
+// compatibility (Ran = the command executed, OK = passed). Gates must branch
+// on Verdict, never on OK alone.
 type TestVerification struct {
-	// Ran is false when verification was skipped (no Go packages touched, empty
-	// workspace, no Go toolchain, verification disabled). A skipped verification
-	// is NOT a pass and must never be reported as one.
+	// Ran is true when the verification command executed, even if it
+	// produced no verdict (timeout, cancellation). It is false only when
+	// nothing ran: skipped for lack of workspace, toolchain, or packages.
 	Ran bool
 
 	// OK is true only when the tests actually ran and passed.
 	OK bool
 
 	// Output is the test command's combined stderr/stdout, truncated. Empty on
-	// success.
+	// success and on runs that produced no text (skips, pre-start cancels).
 	Output string
 
 	// Duration is how long the test run took.
 	Duration time.Duration
+
+	// Outcome is the explicit verdict: passed, failed, skipped,
+	// indeterminate (budget exhausted), or canceled.
+	Outcome VerifyOutcome
+
+	// Command is the argv executed, for provenance. Nil when nothing ran.
+	Command []string
+
+	// Reason explains a non-pass outcome without overloading Output.
+	Reason string
+}
+
+// Verdict returns the authoritative outcome, deriving one for hand-built
+// structs that predate the Outcome field.
+func (v TestVerification) Verdict() VerifyOutcome {
+	if v.Outcome != "" {
+		return v.Outcome
+	}
+	switch {
+	case v.Ran && v.OK:
+		return VerifyPassed
+	case v.Ran:
+		return VerifyFailed
+	default:
+		return VerifySkipped
+	}
 }
 
 // DeduplicatePreservingOrder removes duplicate strings while preserving the
@@ -206,10 +227,10 @@ func verifyTests(ctx context.Context, workspace string, packages []string, extra
 	start := time.Now()
 
 	if strings.TrimSpace(workspace) == "" {
-		return TestVerification{Ran: false}
+		return TestVerification{Outcome: VerifySkipped, Reason: "empty workspace path", Duration: time.Since(start)}
 	}
 	if len(packages) == 0 {
-		return TestVerification{Ran: false}
+		return TestVerification{Outcome: VerifySkipped, Reason: "no packages to verify", Duration: time.Since(start)}
 	}
 	filtered := make([]string, 0, len(packages))
 	for _, p := range packages {
@@ -218,48 +239,47 @@ func verifyTests(ctx context.Context, workspace string, packages []string, extra
 		}
 	}
 	if len(filtered) == 0 {
-		return TestVerification{Ran: false}
+		return TestVerification{Outcome: VerifySkipped, Reason: "no packages to verify", Duration: time.Since(start)}
 	}
-	if _, err := exec.LookPath("go"); err != nil {
+	if _, err := verifyLookPath("go"); err != nil {
 		logging.Get(logging.CategorySession).Warn(
 			"test verification skipped: no Go toolchain on PATH (%v)", err)
-		return TestVerification{Ran: false}
+		return TestVerification{Outcome: VerifySkipped, Reason: "no Go toolchain on PATH", Duration: time.Since(start)}
 	}
-
-	buildCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), testVerifyTimeout)
-	defer cancel()
 
 	args := append([]string{"test"}, extraArgs...)
 	args = append(args, filtered...)
-	cmd := processutil.NonInteractive(exec.CommandContext(buildCtx, "go", args...))
-	cmd.Dir = workspace
-	cmd.Env = build.GetBuildEnv(nil, workspace)
+	command := append([]string{"go"}, args...)
 
-	out, err := cmd.CombinedOutput()
+	out, outcome, reason := runVerificationCommand(ctx, workspace, build.GetBuildEnv(nil, workspace), testVerifyTimeout, command[0], command[1:], verifyTestRunner)
 	elapsed := time.Since(start)
 
-	if err == nil {
+	switch outcome {
+	case VerifyPassed:
 		logging.SessionDebug("test verification passed in %s", elapsed.Round(time.Millisecond))
-		return TestVerification{Ran: true, OK: true, Duration: elapsed}
-	}
-
-	if buildCtx.Err() != nil {
+		return TestVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Duration: elapsed}
+	case VerifyFailed:
+		text := strings.TrimSpace(string(out))
+		if text == "" {
+			text = reason
+		}
+		// The test output goes back whole; the failure that matters is usually
+		// the last thing printed, which a head cut dropped first.
 		logging.Get(logging.CategorySession).Warn(
-			"test verification timed out after %s; treating as not run", testVerifyTimeout)
-		return TestVerification{Ran: false, Duration: elapsed}
+			"test verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), text)
+		return TestVerification{Ran: true, OK: false, Output: text, Outcome: VerifyFailed, Command: command, Reason: reason, Duration: elapsed}
+	case VerifyCanceled:
+		logging.Get(logging.CategorySession).Warn("test verification canceled: %s", reason)
+		return TestVerification{Ran: len(out) > 0, Output: strings.TrimSpace(string(out)), Outcome: VerifyCanceled, Command: command, Reason: reason, Duration: elapsed}
+	default: // VerifyIndeterminate
+		// A timeout is not evidence the tests are broken — but it is not
+		// evidence of recovery either. Report it as indeterminate with
+		// whatever the runner had printed, so gates retain what they knew
+		// instead of minting a pass from silence.
+		logging.Get(logging.CategorySession).Warn(
+			"test verification timed out after %s; recovery not verified", testVerifyTimeout)
+		return TestVerification{Ran: true, Output: strings.TrimSpace(string(out)), Outcome: VerifyIndeterminate, Command: command, Reason: reason, Duration: elapsed}
 	}
-
-	text := strings.TrimSpace(string(out))
-	if text == "" {
-		text = err.Error()
-	}
-	// The test output goes back whole; the failure that matters is usually
-	// the last thing printed, which a head cut dropped first.
-
-	logging.Get(logging.CategorySession).Warn(
-		"test verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), text)
-
-	return TestVerification{Ran: true, OK: false, Output: text, Duration: elapsed}
 }
 
 // untestedGoFiles returns the subset of paths that are non-test .go files

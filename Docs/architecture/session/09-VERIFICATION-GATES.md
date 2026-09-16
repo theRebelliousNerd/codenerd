@@ -33,21 +33,21 @@ Gates 1 and 2 can fail a turn. Gates 3 (coverage) and 4 (critic) are advisory an
 | **Primary function** | `func (e *Executor) verifyAndRepairBuild(ctx, trp, systemPrompt, history, current, toolDefs, cfg, result) (*LLMToolResponse, []string, error)` in `internal/session/build_verify.go` |
 | **Inner checker** | `func verifyBuild(ctx, workspace, userCfg) BuildVerification` — runs `go build ./...` with `build.GetBuildEnv` so `CGO_CFLAGS` (e.g. `-I<workspace>/sqlite_headers`) is inherited |
 | **Helpers** | `func touchedGoFiles(paths []string) bool`, `func (e *Executor) workspaceForVerification() string` (falls back to `config.FindWorkspaceRoot` when `ExecutorConfig.WorkspaceRoot` is empty), `func buildRepairPrompt(compilerOutput string) string` |
-| **Outcome type** | `type BuildVerification struct { Ran bool; OK bool; Output string; Duration time.Duration }` |
-| **Constants** | `buildVerifyTimeout = 4 * time.Minute`, `buildVerifyMaxOutput = 6000` (truncated output is appended with `... (compiler output truncated)`) |
+| **Outcome type** | `type BuildVerification struct { Ran bool; OK bool; Output string; Duration time.Duration; Outcome VerifyOutcome; Command []string; Reason string }` — `Outcome` (`passed`/`failed`/`skipped`/`indeterminate`/`canceled`) is authoritative; `Ran`/`OK` are derived compatibility |
+| **Constants** | `buildVerifyTimeout = 4 * time.Minute` (a var, so tests can shrink it; cold builds take tens of seconds, hence the generous ceiling). Compiler output goes back whole — there is no output cap. |
 | **Can fail a turn** | **Yes** |
 
 **When it fails:**
 
 1. `verifyAndRepairBuild` checks a coherent config snapshot's `VerifyBuildAfterEdits`; if false, returns immediately (gate disabled).
-2. Runs `verifyBuild`. If `!Ran || OK`, returns no repair (nothing to fix or nothing to check).
+2. Runs `verifyBuild` and branches on `Verdict()`: `Passed`/`Skipped` return no repair (nothing to fix or nothing to check); `Canceled` aborts the turn; `Indeterminate` completes unverified with no error (a timeout is not evidence of breakage); only `Failed` proceeds to repair.
 3. Otherwise logs `Edits broke the build; giving the model one repair round with the compiler output`.
 4. If `trp == nil` (client cannot accept tool results), returns `fmt.Errorf("edits broke the build and no repair is possible...")` — turn fails without a repair attempt.
 5. Appends `buildRepairPrompt(verification.Output)` as a `user` message to `history` and calls `trp.CompleteWithToolResults`.
 6. Executes any repair `ToolCalls` via `e.executeToolBatch` (repair errors are collected but do not short-circuit).
-7. Re-runs `verifyBuild`. If `recheck.Ran && !recheck.OK`, returns `fmt.Errorf("edits broke the build and the repair round did not fix it...")` — **turn fails**. Otherwise returns the repaired response.
+7. Re-runs `verifyBuild` and branches on the recheck verdict: `Passed` clears the failure, stores the fresh pass, and returns the repaired response; `Failed` stores the fresh failure and returns `fmt.Errorf("edits broke the build and the repair round did not fix it...")` — **turn fails**; `Canceled` aborts the turn; `Indeterminate`/`Skipped` retains the ORIGINAL failure on the result and completes unverified with no error — `closeChangeEvidence` then arbitrates the final workspace with a fresh check, and only its affirmative pass clears the retained failure.
 
-Timeout handling: if `buildCtx.Err() != nil` after `CombinedOutput`, `verifyBuild` returns `Ran: false` (treated as not-run, never as pass or fail) with a warning log.
+Timeout handling: if the run exhausts `buildVerifyTimeout`, `verifyBuild` returns `Ran: true, OK: false, Outcome: indeterminate` with whatever partial output the compiler had printed — never a pass, and never overwriting a known failure.
 
 ---
 
@@ -59,8 +59,8 @@ Timeout handling: if `buildCtx.Err() != nil` after `CombinedOutput`, `verifyBuil
 | **Primary function** | `func (e *Executor) verifyAndRepairTests(ctx, trp, systemPrompt, history, toolDefs, cfg, result) (*LLMToolResponse, []string, error)` in `internal/session/build_verify.go` (defined there, documented as `test_verify.go` gate) |
 | **Inner checkers** | `func verifyTests(ctx, workspace, packages, extraArgs...) TestVerification` and `func verifyTestsWithCoverage(ctx, workspace, packages, writtenPaths) (TestVerification, []UncoveredBlock)` in `internal/session/test_verify.go` / `internal/session/coverage_profile.go` |
 | **Helpers** | `func packagesForPaths(paths []string) []string`, `func untestedGoFiles(paths []string) []string`, `func untestedWithoutCoverageOnDisk(workspace string, paths []string) []string`, `func packageHasTestFile(dir string) bool`, `func DeduplicatePreservingOrder`, `func TrimGoExtension`, `func testRepairPrompt(testOutput string) string` |
-| **Outcome type** | `type TestVerification struct { Ran bool; OK bool; Output string; Duration time.Duration }` |
-| **Constants** | `testVerifyTimeout = 4 * time.Minute`, `testVerifyMaxOutput = 6000` |
+| **Outcome type** | `type TestVerification struct { Ran bool; OK bool; Output string; Duration time.Duration; Outcome VerifyOutcome; Command []string; Reason string }` — same `Outcome` authority as the build gate |
+| **Constants** | `testVerifyTimeout = 4 * time.Minute` (a var, so tests can shrink it). Test output goes back whole — there is no output cap. |
 | **Can fail a turn** | **Yes** |
 
 **When it fails:**
@@ -70,12 +70,12 @@ Timeout handling: if `buildCtx.Err() != nil` after `CombinedOutput`, `verifyBuil
 3. Computes `packages := packagesForPaths(result.WrittenPaths)` (workspace-relative `.go` paths → `go test` package patterns like `./internal/session`, deduplicated, sorted).
 4. Calls `untestedWithoutCoverageOnDisk(workspace, result.WrittenPaths)`; if non-empty, sets `result.UntestedPaths` and logs a warning. This is **warning only, never a failure** — editing a long-tested file without rewriting its test file is legitimate.
 5. Calls `verifyTestsWithCoverage` (single `go test -covermode=set -coverprofile=<tmp>` invocation that yields both pass/fail and uncovered blocks — see Gate 3).
-6. If `!Ran || OK`, returns (coverage blocks, if any, are still stored on `result.UncoveredBlocks` even on success).
+6. Branches on the verdict: `Passed`/`Skipped` return (coverage blocks, if any, are still stored on `result.UncoveredBlocks` even on success); `Canceled` aborts the turn; `Indeterminate` completes unverified with no error; only `Failed` proceeds to repair.
 7. Otherwise logs `Edits broke the tests; giving the model one repair round with the test output`, appends `testRepairPrompt(verification.Output)`, calls `trp.CompleteWithToolResults`, executes repair tool calls.
 8. Re-checks build first (`verifyBuild`): if the test repair broke the build, returns build error and fails the turn.
-9. Re-runs `verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))`. If `recheck.Ran && !recheck.OK`, returns `fmt.Errorf("edits broke the tests and the repair round did not fix them...")` — **turn fails**.
+9. Re-runs `verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))` and branches like the build gate: `Passed` clears and stores; `Failed` stores and fails the turn with `fmt.Errorf("edits broke the tests and the repair round did not fix them...")`; `Canceled` aborts; `Indeterminate`/`Skipped` retains the ORIGINAL failure and completes unverified for `closeChangeEvidence` to arbitrate.
 
-`verifyTests` timeout handling mirrors the build gate: `buildCtx.Err() != nil` → `Ran: false`, not a failure.
+`verifyTests` timeout handling mirrors the build gate: budget exhaustion → `Ran: true, OK: false, Outcome: indeterminate` with partial output — never a pass, never a failure, never overwriting a known failure.
 
 ---
 
@@ -126,7 +126,7 @@ Coverage never turns a passing turn into a failing one.
 7. Parses with `parseCriticFindings`: `NO FINDINGS` on any line → `nil`; otherwise regex `^FINDING\s+(\S+):(\d+)\s+(\w+):\s*(.+)$` per line, severity must be `high`/`medium`/`low` (case-insensitive), non-matching lines silently skipped.
 8. Filters with `findingsWorthUplift` (keeps only `high`/`medium`; `low` is noise). If `nil`, stores `result.CriticFindings` (if any original findings existed) and returns.
 9. If worthy findings remain, stores all findings in `result.CriticFindings`, appends `formatUpliftPrompt(worth)` as a `user` message, and runs one advisory `CompleteWithToolResults` bounded by `criticUpliftTimeout` (5m). The uplift prompt requires the model to either fix each finding or state plainly why the finding is wrong — forcing a fix for a hallucinated finding is explicitly forbidden.
-10. Executes any uplift tool calls, then re-runs `verifyBuild` and `verifyTests`. If either fails, `verifyAndUpliftWithCritic` returns an error and **the turn fails**.
+10. Executes any uplift tool calls, then re-runs `verifyBuild` and `verifyTests` and stores both re-verdicts (the uplift edits came after the gates' passes, so those passes no longer describe the workspace). A `Failed` re-verdict returns an error and **the turn fails**; a `Passed` one refreshes the stored pass; an `Indeterminate` one invalidates the stale pass to indeterminate with no error (the turn completes unverified); `Canceled` aborts the turn.
 
     This is the one case where the critic gate can fail a turn, and it is not an exception to "advisory". The critic's *opinion* is advisory: a hallucinated finding must never fail anything. Its *edits* are not privileged — they answer to the compiler and the test runner like any other edit. Acting on a wrong finding and breaking the build is a real break, whoever suggested it.
 
@@ -136,36 +136,38 @@ Coverage never turns a passing turn into a failing one.
 
 ---
 
-## 6. The Ran / OK convention — a skipped verification is never a pass
+## 6. The Outcome convention — only an affirmative pass is a pass
 
-Both `BuildVerification` and `TestVerification` split "did we run?" from "did we pass?":
+Both `BuildVerification` and `TestVerification` carry an explicit `Outcome` verdict (`passed`/`failed`/`skipped`/`indeterminate`/`canceled`) alongside the older `Ran`/`OK` pair, which stays as derived compatibility (`Ran` = the command executed, `OK` = passed). Gates branch on `Verdict()`, which returns `Outcome` when set and otherwise derives it from `Ran`/`OK` for hand-built structs:
 
 ```go
 type BuildVerification struct {
-    Ran      bool          // false means skipped/unknown — NOT a pass
+    Ran      bool          // true when the command executed, even without a verdict
     OK       bool          // true only when the build actually succeeded
     Output   string
     Duration time.Duration
+    Outcome  VerifyOutcome // authoritative: passed, failed, skipped, indeterminate, canceled
+    Command  []string      // argv executed, for provenance; nil when nothing ran
+    Reason   string        // why, for non-pass outcomes; Output stays empty on skips
 }
 type TestVerification struct {
-    Ran      bool
-    OK       bool
-    Output   string
-    Duration time.Duration
+    // Same shape as BuildVerification.
 }
 ```
 
 Coverage follows the same discipline with a different shape: `verifyTestsWithCoverage` returns `(verification, nil)` and `uncoveredWrittenCode` / `parseCoverProfile` callers treat `(nil, nil)` as "no signal, not nothing uncovered". The comment in `coverage_profile.go` states it explicitly: "Absence of a profile is 'unknown', never 'covered'".
 
-`Ran == false` occurs when:
+`Outcome == skipped` (`Ran == false`) occurs when:
 
 - no successful write-mutation touched a `.go` file (`touchedGoFiles` / `SuccessfulWriteTools` guard),
 - workspace is empty (no `WorkspaceRoot` and `FindWorkspaceRoot` failed),
-- no `go` toolchain on `PATH` (`exec.LookPath("go")` fails),
+- no `go` toolchain on `PATH` (toolchain probe fails),
 - verification disabled via `ExecutorConfig` flag,
-- the verification subprocess timed out (`buildVerifyTimeout` / `testVerifyTimeout` / `coverVerifyTimeout`).
+- no packages to verify (test gate only).
 
-All of these paths log at `Warn` or `Debug` and return without touching `result.Error`. Callers test `if !verification.Ran || verification.OK { return }` — only `Ran && OK` is a pass, only `Ran && !OK` is a fail, everything else is unknown and must never be reported as success. A gate that reports "verification skipped" while looking enabled is described in `workspaceForVerification`'s comment as the dormant-wiring defect this codebase keeps producing.
+A subprocess that exhausts its budget is NOT a skip: it reports `Ran: true, OK: false, Outcome: indeterminate` with partial output. Operator cancellation reports `Outcome: canceled`. Callers branch on `Verdict()` — only `Passed` is a pass, only `Failed` is a fail, and a known failure is retained until an affirmative pass on the final workspace clears it. Nothing indeterminate is ever reported as success. A gate that reports "verification skipped" while looking enabled is described in `workspaceForVerification`'s comment as the dormant-wiring defect this codebase keeps producing.
+
+The subprocess runs under an independent budget rooted at `Background`, supervised so an expired parent (turn) deadline does not abort it while explicit operator cancellation kills it promptly — `runVerificationCommand` in `internal/session/verify_outcome.go`. The runner, toolchain probe, and budgets are package-level seams (`verifyBuildRunner`, `verifyTestRunner`, `verifyLookPath`, `buildVerifyTimeout`, `testVerifyTimeout`) so timeout / missing-toolchain / cancel tests run in milliseconds without real subprocesses.
 
 ---
 
@@ -235,6 +237,7 @@ Execution order inside `runToolLoop` (verified in `internal/session/executor_too
 ## References
 
 - `internal/session/build_verify.go` — `BuildVerification`, `verifyBuild`, `verifyAndRepairBuild`, `verifyAndRepairTests`, `verifyAndUpliftWithCritic`, `criticTimeout`, `criticUpliftTimeout`, `buildRepairPrompt`, `testRepairPrompt`
+- `internal/session/verify_outcome.go` — `VerifyOutcome`, `runVerificationCommand`, `verifyBuildRunner`, `verifyTestRunner`, `verifyLookPath`, `buildVerifyTimeout`, `testVerifyTimeout`
 - `internal/session/test_verify.go` — `TestVerification`, `verifyTests`, `packagesForPaths`, `untestedGoFiles`, `untestedWithoutCoverageOnDisk`, `DeduplicatePreservingOrder`, `TrimGoExtension`
 - `internal/session/coverage_profile.go` — `UncoveredBlock`, `parseCoverProfile`, `verifyTestsWithCoverage`, `uncoveredWrittenCode`, `NormalizeCoverPath`, `summarizeUncovered`
 - `internal/session/lsp_diagnostics.go` — `goplsDiagnostics`, `keepDiagnosticLines`, `diagnosticLineRe`

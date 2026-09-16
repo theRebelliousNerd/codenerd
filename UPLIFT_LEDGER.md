@@ -3,7 +3,7 @@
 File-by-file: uplift, wiring, .mg correctness, modularity, brutal behavioral integration tests.
 Checked = audited and uplifted (or verified sound) with behavioral coverage.
 
-## Go files (2355)
+## Go files (2357)
 ### .agent (5)
 - [ ] `.agent/skills/log-analyzer/scripts/logquery/main.go`
 - [ ] `.agent/skills/mangle-programming/assets/go-integration/main.go`
@@ -2305,7 +2305,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/observation/fileread_test.go`
 - [x] `internal/observation/precondition/precondition.go`
 - [x] `internal/observation/precondition/precondition_test.go`
-- [x] `internal/observation/subagent.go`
+- [x] `internal/observation/subagent.go` (post-uplift B1: Verification.Outcome + indeterminate/canceled rendering)
 
 ### internal/perception (131)
 - [x] `internal/perception/assault_verb_test.go`
@@ -2623,11 +2623,11 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/retrieval/retrieval_uplift_test.go`
 - [x] `internal/retrieval/wiring_test.go`
 
-### internal/session (93)
+### internal/session (95)
 - [x] `internal/session/build_repair_regime_test.go`
-- [x] `internal/session/build_verify.go`
+- [x] `internal/session/build_verify.go` (post-uplift B1: explicit Outcome gates, retain failure until affirmative pass)
 - [x] `internal/session/build_verify_test.go`
-- [x] `internal/session/change_evidence.go`
+- [x] `internal/session/change_evidence.go` (post-uplift B1: checks_passed/fail branch on Verdict)
 - [x] `internal/session/check_safety_real_kernel_test.go`
 - [x] `internal/session/check_safety_write_large_test.go`
 - [x] `internal/session/coverage_profile.go`
@@ -2670,7 +2670,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/session/modularity.go`
 - [x] `internal/session/modularity_guard_verify_test.go`
 - [x] `internal/session/modularity_test.go`
-- [x] `internal/session/observed_return.go`
+- [x] `internal/session/observed_return.go` (post-uplift B1: projects Outcome verdict)
 - [x] `internal/session/pending_edit_path_validation_test.go`
 - [x] `internal/session/pending_edit_test.go`
 - [x] `internal/session/persistence.go`
@@ -2696,7 +2696,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/session/task_executor.go`
 - [x] `internal/session/task_executor_test.go`
 - [x] `internal/session/test_output_detector.go`
-- [x] `internal/session/test_verify.go`
+- [x] `internal/session/test_verify.go` (post-uplift B1: explicit Outcome + supervisor wiring)
 - [x] `internal/session/test_verify_test.go`
 - [x] `internal/session/testtool_test.go`
 - [x] `internal/session/tool_budget_controller.go`
@@ -2708,6 +2708,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/session/unverified_test_claim_test.go`
 - [x] `internal/session/user_agent_wiring_test.go`
 - [x] `internal/session/verify_created2_test.go`
+- [x] `internal/session/verify_outcome.go` (B1: VerifyOutcome, runner seams, cancel/deadline supervisor)
+- [x] `internal/session/verify_outcome_test.go` (B1: 11 behavioral outcome/cancel/budget tests)
 - [x] `internal/session/work_steps.go`
 - [x] `internal/session/work_steps_test.go`
 - [x] `internal/session/working_context.go`

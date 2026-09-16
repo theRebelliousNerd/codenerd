@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -44,26 +43,52 @@ var ErrVerificationFailed = errors.New("post-edit verification failed")
 // than handing back broken code. That is the difference between an agent that
 // writes plausible code and one that can finish a job.
 
-// buildVerifyTimeout bounds the verification build. A cold `go build ./...` on
-// this repo takes tens of seconds; the ceiling is generous because a verify
-// that times out reports a false alarm, which is worse than a slow one.
-const buildVerifyTimeout = 4 * time.Minute
-
 // BuildVerification is the outcome of compiling the workspace after edits.
+// Outcome is the authoritative verdict; Ran and OK stay as derived
+// compatibility (Ran = the command executed, OK = passed). A skipped or
+// indeterminate verification is NOT a pass, and gates must branch on
+// Verdict, never on OK alone.
 type BuildVerification struct {
-	// Ran is false when verification was skipped (no Go files touched, no Go
-	// toolchain, verification disabled). A skipped verification is NOT a pass
-	// and must never be reported as one.
+	// Ran is true when the verification command executed, even if it
+	// produced no verdict (timeout, cancellation). It is false only when
+	// nothing ran: skipped for lack of workspace, toolchain, or packages.
 	Ran bool
 
 	// OK is true only when the build actually succeeded.
 	OK bool
 
-	// Output is the compiler's stderr/stdout, truncated. Empty on success.
+	// Output is the compiler's stderr/stdout, truncated. Empty on success
+	// and on runs that produced no text (skips, pre-start cancels).
 	Output string
 
 	// Duration is how long the build took.
 	Duration time.Duration
+
+	// Outcome is the explicit verdict: passed, failed, skipped,
+	// indeterminate (budget exhausted), or canceled.
+	Outcome VerifyOutcome
+
+	// Command is the argv executed, for provenance. Nil when nothing ran.
+	Command []string
+
+	// Reason explains a non-pass outcome without overloading Output.
+	Reason string
+}
+
+// Verdict returns the authoritative outcome, deriving one for hand-built
+// structs that predate the Outcome field.
+func (v BuildVerification) Verdict() VerifyOutcome {
+	if v.Outcome != "" {
+		return v.Outcome
+	}
+	switch {
+	case v.Ran && v.OK:
+		return VerifyPassed
+	case v.Ran:
+		return VerifyFailed
+	default:
+		return VerifySkipped
+	}
 }
 
 // touchedGoFiles reports whether any successful write-mutation touched a .go
@@ -112,54 +137,48 @@ func (e *Executor) workspaceForVerification() string {
 // worse than not verifying at all.
 func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConfig) BuildVerification {
 	start := time.Now()
+	command := []string{"go", "build", "./..."}
 
 	if strings.TrimSpace(workspace) == "" {
-		return BuildVerification{Ran: false}
+		return BuildVerification{Outcome: VerifySkipped, Reason: "empty workspace path", Duration: time.Since(start)}
 	}
-	if _, err := exec.LookPath("go"); err != nil {
+	if _, err := verifyLookPath("go"); err != nil {
 		logging.Get(logging.CategorySession).Warn(
 			"build verification skipped: no Go toolchain on PATH (%v)", err)
-		return BuildVerification{Ran: false}
+		return BuildVerification{Outcome: VerifySkipped, Reason: "no Go toolchain on PATH", Duration: time.Since(start)}
 	}
 
-	// Bound the build independently of the turn's remaining budget: a verify
-	// that inherits an almost-expired context reports a spurious failure.
-	buildCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), buildVerifyTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(buildCtx, "go", "build", "./...")
-	cmd.Dir = workspace
-	cmd.Env = build.GetBuildEnv(userCfg, workspace)
-
-	out, err := cmd.CombinedOutput()
+	out, outcome, reason := runVerificationCommand(ctx, workspace, build.GetBuildEnv(userCfg, workspace), buildVerifyTimeout, command[0], command[1:], verifyBuildRunner)
 	elapsed := time.Since(start)
 
-	if err == nil {
+	switch outcome {
+	case VerifyPassed:
 		logging.SessionDebug("build verification passed in %s", elapsed.Round(time.Millisecond))
-		return BuildVerification{Ran: true, OK: true, Duration: elapsed}
-	}
-
-	if buildCtx.Err() != nil {
-		// A timeout is not evidence the code is broken. Report it as "did not
-		// run" so the turn is not failed on a verification that never finished.
+		return BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Duration: elapsed}
+	case VerifyFailed:
+		text := strings.TrimSpace(string(out))
+		if text == "" {
+			text = reason
+		}
+		// The compiler output goes back whole. A repair prompt built from the
+		// first 6000 characters was a repair of the errors that happened to sort
+		// first; if the whole log does not fit the window, the broker refuses the
+		// request and says so instead.
 		logging.Get(logging.CategorySession).Warn(
-			"build verification timed out after %s; treating as not run", buildVerifyTimeout)
-		return BuildVerification{Ran: false, Duration: elapsed}
+			"build verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), text)
+		return BuildVerification{Ran: true, OK: false, Output: text, Outcome: VerifyFailed, Command: command, Reason: reason, Duration: elapsed}
+	case VerifyCanceled:
+		logging.Get(logging.CategorySession).Warn("build verification canceled: %s", reason)
+		return BuildVerification{Ran: len(out) > 0, Output: strings.TrimSpace(string(out)), Outcome: VerifyCanceled, Command: command, Reason: reason, Duration: elapsed}
+	default: // VerifyIndeterminate
+		// A timeout is not evidence the code is broken — but it is not
+		// evidence of recovery either. Report it as indeterminate with
+		// whatever the compiler had printed, so gates retain what they knew
+		// instead of minting a pass from silence.
+		logging.Get(logging.CategorySession).Warn(
+			"build verification timed out after %s; recovery not verified", buildVerifyTimeout)
+		return BuildVerification{Ran: true, Output: strings.TrimSpace(string(out)), Outcome: VerifyIndeterminate, Command: command, Reason: reason, Duration: elapsed}
 	}
-
-	text := strings.TrimSpace(string(out))
-	if text == "" {
-		text = err.Error()
-	}
-	// The compiler output goes back whole. A repair prompt built from the
-	// first 6000 characters was a repair of the errors that happened to sort
-	// first; if the whole log does not fit the window, the broker refuses the
-	// request and says so instead.
-
-	logging.Get(logging.CategorySession).Warn(
-		"build verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), text)
-
-	return BuildVerification{Ran: true, OK: false, Output: text, Duration: elapsed}
 }
 
 // verifyAndRepairBuild compiles the workspace after a turn's edits and, if the
@@ -173,7 +192,10 @@ func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConf
 // than reporting the success that started this whole problem.
 //
 // Returns the model's post-repair response when a repair happened, nil when no
-// repair was needed, and an error when the build is still broken.
+// repair was needed, and an error when the build is still broken. When a
+// recheck produces no verdict (timeout), the original failure is retained on
+// the result and the turn completes unverified with no error —
+// closeChangeEvidence arbitrates the final workspace with a fresh check.
 func (e *Executor) verifyAndRepairBuild(
 	ctx context.Context,
 	trp types.ToolResultsProvider,
@@ -195,7 +217,17 @@ func (e *Executor) verifyAndRepairBuild(
 	workspace := e.workspaceForVerification()
 	verification := verifyBuild(ctx, workspace, nil)
 	result.BuildCheck = verification
-	if !verification.Ran || verification.OK {
+	switch verification.Verdict() {
+	case VerifyPassed, VerifySkipped:
+		return nil, nil, nil
+	case VerifyCanceled:
+		return nil, nil, fmt.Errorf("build verification canceled: %w", context.Canceled)
+	case VerifyIndeterminate:
+		// No known failure: nothing to repair, and a timeout is not
+		// evidence of breakage. The turn completes unverified;
+		// closeChangeEvidence arbitrates the final workspace.
+		logging.Get(logging.CategorySession).Warn(
+			"Build verification timed out on the initial check; turn completes unverified")
 		return nil, nil, nil
 	}
 
@@ -217,8 +249,7 @@ func (e *Executor) verifyAndRepairBuild(
 	}
 
 	recheck := verifyBuild(ctx, workspace, nil)
-	result.BuildCheck = recheck
-	if recheck.Ran && !recheck.OK && !wrote {
+	if recheck.Verdict() == VerifyFailed && !wrote {
 		// The round read instead of editing. Observed 2026-09-11: handed
 		// `"context" imported and not used` with the line number, the model
 		// spent its round on twenty reads and no edit, and the turn ended on
@@ -237,16 +268,30 @@ func (e *Executor) verifyAndRepairBuild(
 		}
 		repaired = second
 		recheck = verifyBuild(ctx, workspace, nil)
-		result.BuildCheck = recheck
 	}
-	if recheck.Ran && !recheck.OK {
+	switch recheck.Verdict() {
+	case VerifyPassed:
+		// An affirmative pass on the final workspace clears the failure.
+		result.BuildCheck = recheck
+		logging.Get(logging.CategorySession).Info("Build repaired successfully after one round")
+		return repaired, repairErrs, nil
+	case VerifyFailed:
+		result.BuildCheck = recheck
 		return nil, repairErrs, fmt.Errorf(
 			"%w: edits broke the build and the repair round did not fix it. Compiler output:\n%s",
 			ErrVerificationFailed, recheck.Output)
+	case VerifyCanceled:
+		return nil, repairErrs, fmt.Errorf("build re-verification canceled: %w", context.Canceled)
+	default: // VerifyIndeterminate, VerifySkipped
+		// The recheck produced no verdict: the original failure stands until
+		// an affirmative pass clears it. The turn completes unverified — a
+		// timeout is not proof of recovery — and closeChangeEvidence gets
+		// the final word on the workspace with a fresh check.
+		logging.Get(logging.CategorySession).Warn(
+			"Build re-verification produced no verdict (%s); original failure retained, recovery NOT verified",
+			recheck.Verdict())
+		return repaired, repairErrs, nil
 	}
-
-	logging.Get(logging.CategorySession).Info("Build repaired successfully after one round")
-	return repaired, repairErrs, nil
 }
 
 // verifyAndRepairTests runs the tests for the packages this turn touched and,
@@ -315,7 +360,17 @@ func (e *Executor) verifyAndRepairTests(
 			len(uncovered), summarizeUncovered(uncovered))
 	}
 
-	if !verification.Ran || verification.OK {
+	switch verification.Verdict() {
+	case VerifyPassed, VerifySkipped:
+		return nil, nil, nil
+	case VerifyCanceled:
+		return nil, nil, fmt.Errorf("test verification canceled: %w", context.Canceled)
+	case VerifyIndeterminate:
+		// No known failure: nothing to repair, and a timeout is not
+		// evidence of breakage. The turn completes unverified;
+		// closeChangeEvidence arbitrates the final workspace.
+		logging.Get(logging.CategorySession).Warn(
+			"Test verification timed out on the initial check; turn completes unverified")
 		return nil, nil, nil
 	}
 
@@ -337,14 +392,18 @@ func (e *Executor) verifyAndRepairTests(
 	}
 
 	// A test repair can break the build, so re-check both, cheapest first.
-	if recheckBuild := verifyBuild(ctx, workspace, nil); recheckBuild.Ran && !recheckBuild.OK {
+	// Only an affirmative failure verdict fails here: a recheck that
+	// produced no verdict cannot prove the repair broke anything.
+	if recheckBuild := verifyBuild(ctx, workspace, nil); recheckBuild.Verdict() == VerifyFailed {
+		result.BuildCheck = recheckBuild
 		return nil, repairErrs, fmt.Errorf(
 			"%w: the test repair round broke the build. Compiler output:\n%s",
 			ErrVerificationFailed, recheckBuild.Output)
+	} else if recheckBuild.Verdict() == VerifyCanceled {
+		return nil, repairErrs, fmt.Errorf("build re-verification canceled: %w", context.Canceled)
 	}
 	recheck := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))
-	result.TestCheck = recheck
-	if recheck.Ran && !recheck.OK && !wrote {
+	if recheck.Verdict() == VerifyFailed && !wrote {
 		// Same escalation as the build repair: a round that only read gets
 		// one more with reading closed.
 		logging.Get(logging.CategorySession).Warn(
@@ -358,22 +417,39 @@ func (e *Executor) verifyAndRepairTests(
 				ErrVerificationFailed, err, recheck.Output)
 		}
 		repaired = second
-		if recheckBuild := verifyBuild(ctx, workspace, nil); recheckBuild.Ran && !recheckBuild.OK {
+		if recheckBuild := verifyBuild(ctx, workspace, nil); recheckBuild.Verdict() == VerifyFailed {
+			result.BuildCheck = recheckBuild
 			return nil, repairErrs, fmt.Errorf(
 				"%w: the test repair round broke the build. Compiler output:\n%s",
 				ErrVerificationFailed, recheckBuild.Output)
+		} else if recheckBuild.Verdict() == VerifyCanceled {
+			return nil, repairErrs, fmt.Errorf("build re-verification canceled: %w", context.Canceled)
 		}
 		recheck = verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))
-		result.TestCheck = recheck
 	}
-	if recheck.Ran && !recheck.OK {
+	switch recheck.Verdict() {
+	case VerifyPassed:
+		// An affirmative pass on the final workspace clears the failure.
+		result.TestCheck = recheck
+		logging.Get(logging.CategorySession).Info("Tests repaired successfully after one round")
+		return repaired, repairErrs, nil
+	case VerifyFailed:
+		result.TestCheck = recheck
 		return nil, repairErrs, fmt.Errorf(
 			"%w: edits broke the tests and the repair round did not fix them. Test output:\n%s",
 			ErrVerificationFailed, recheck.Output)
+	case VerifyCanceled:
+		return nil, repairErrs, fmt.Errorf("test re-verification canceled: %w", context.Canceled)
+	default: // VerifyIndeterminate, VerifySkipped
+		// The recheck produced no verdict: the original failure stands until
+		// an affirmative pass clears it. The turn completes unverified — a
+		// timeout is not proof of recovery — and closeChangeEvidence gets
+		// the final word on the workspace with a fresh check.
+		logging.Get(logging.CategorySession).Warn(
+			"Test re-verification produced no verdict (%s); original failure retained, recovery NOT verified",
+			recheck.Verdict())
+		return repaired, repairErrs, nil
 	}
-
-	logging.Get(logging.CategorySession).Info("Tests repaired successfully after one round")
-	return repaired, repairErrs, nil
 }
 
 // testRepairPrompt is the turn handed back to the model when its edits broke
@@ -598,15 +674,39 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		// anything. Its EDITS are not privileged — they answer to the compiler
 		// and the test runner like every other edit. Acting on a wrong finding
 		// and breaking the build is a real break, whoever suggested it.
-		if verification := verifyBuild(ctx, workspace, nil); verification.Ran && !verification.OK {
+		//
+		// Every re-verdict is stored: the uplift edits came after the gates'
+		// passes, so those passes no longer describe this workspace. A pass
+		// refreshes them; a failure fails the turn; a timeout invalidates
+		// them to indeterminate rather than leaving a stale green behind.
+		// closeChangeEvidence then re-verifies the final workspace anyway.
+		if verification := verifyBuild(ctx, workspace, nil); verification.Verdict() == VerifyFailed {
+			result.BuildCheck = verification
 			return upliftErrs, fmt.Errorf(
 				"%w: the adversarial review's uplift round broke the build. Compiler output:\n%s",
 				ErrVerificationFailed, verification.Output)
+		} else if verification.Verdict() == VerifyCanceled {
+			return upliftErrs, fmt.Errorf("uplift build re-verification canceled: %w", context.Canceled)
+		} else {
+			result.BuildCheck = verification
+			if verification.Verdict() == VerifyIndeterminate {
+				logging.Get(logging.CategorySession).Warn(
+					"Uplift build re-verification timed out; prior pass invalidated, recovery NOT verified")
+			}
 		}
-		if tv := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths)); tv.Ran && !tv.OK {
+		if tv := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths)); tv.Verdict() == VerifyFailed {
+			result.TestCheck = tv
 			return upliftErrs, fmt.Errorf(
 				"%w: the adversarial review's uplift round broke the tests. Test output:\n%s",
 				ErrVerificationFailed, tv.Output)
+		} else if tv.Verdict() == VerifyCanceled {
+			return upliftErrs, fmt.Errorf("uplift test re-verification canceled: %w", context.Canceled)
+		} else {
+			result.TestCheck = tv
+			if tv.Verdict() == VerifyIndeterminate {
+				logging.Get(logging.CategorySession).Warn(
+					"Uplift test re-verification timed out; prior pass invalidated, recovery NOT verified")
+			}
 		}
 	}
 	return upliftErrs, nil

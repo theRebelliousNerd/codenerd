@@ -27,11 +27,15 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 				}
 			}
 			current, currentErr := evidence.Snapshot(ctx, workspace)
-			if err == nil && currentErr == nil && current == after && result.BuildCheck.Ran && result.BuildCheck.OK && result.TestCheck.Ran && result.TestCheck.OK {
+			if err == nil && currentErr == nil && current == after &&
+				result.BuildCheck.Verdict() == VerifyPassed && result.TestCheck.Verdict() == VerifyPassed {
 				result.ChecksSnapshot = current
 				result.ChangeStage = "checks_passed"
 			}
-			if (result.BuildCheck.Ran && !result.BuildCheck.OK) || (result.TestCheck.Ran && !result.TestCheck.OK) {
+			// Only an affirmative failure fails the turn. A timeout or cancel is
+			// not proof of broken code: the stage stays artifact_changed and the
+			// turn is labeled unverified rather than failed.
+			if result.BuildCheck.Verdict() == VerifyFailed || result.TestCheck.Verdict() == VerifyFailed {
 				return fmt.Errorf("%w: final workspace failed mechanical checks", ErrVerificationFailed)
 			}
 		}

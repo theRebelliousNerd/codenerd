@@ -36,6 +36,11 @@ type Finding struct {
 // passed is not the same evidence as the executor having watched them pass —
 // and the two must not render identically, because the parent decides whether
 // to re-verify on exactly that difference.
+//
+// Outcome carries the explicit verdict when the producer had one (passed,
+// failed, skipped, indeterminate, canceled). A timeout is neither "did not
+// run" nor "failed": without this field the parent cannot tell a check that
+// never finished from one that never started or one that broke.
 type Verification struct {
 	// Kind is "build" or "tests".
 	Kind string `json:"kind"`
@@ -44,6 +49,9 @@ type Verification struct {
 	Source string `json:"source"`
 	Ran    bool   `json:"ran"`
 	OK     bool   `json:"ok"`
+	// Outcome is the explicit verdict when the producer recorded one.
+	// Empty on projections built from prose, which fall back to Ran/OK.
+	Outcome string `json:"outcome,omitempty"`
 	// Passed and Failed are counts where the check produced them; zero
 	// otherwise. They are not a substitute for Ran.
 	Passed int `json:"passed,omitempty"`
@@ -538,14 +546,28 @@ func collectVerification(r Return, output string) []Verification {
 // separate things in this projection rather than one.
 func structuralUncertainty(r Return) []string {
 	var out []string
-	if r.Build != nil && !r.Build.Ran {
-		out = append(out, "build verification did not run for this return")
-	}
-	if r.Tests != nil && !r.Tests.Ran {
-		out = append(out, "test verification did not run for this return")
-	}
+	out = append(out, verificationUncertainty("build", r.Build)...)
+	out = append(out, verificationUncertainty("tests", r.Tests)...)
 	out = append(out, r.Notes...)
 	return out
+}
+
+// verificationUncertainty names a check the parent cannot treat as green: one
+// that never ran, never finished, or was canceled.
+func verificationUncertainty(kind string, v *Verification) []string {
+	if v == nil {
+		return nil
+	}
+	switch {
+	case v.Outcome == "indeterminate":
+		return []string{kind + " verification timed out for this return (outcome unknown)"}
+	case v.Outcome == "canceled":
+		return []string{kind + " verification was canceled for this return"}
+	case !v.Ran:
+		return []string{kind + " verification did not run for this return"}
+	default:
+		return nil
+	}
 }
 
 // returnFindingLine matches the one-line finding format the reviewer atom
@@ -907,6 +929,10 @@ func (v Verification) Text() string {
 	var sb strings.Builder
 	sb.WriteString(v.Kind)
 	switch {
+	case v.Outcome == "indeterminate":
+		sb.WriteString(" timed out (outcome unknown)")
+	case v.Outcome == "canceled":
+		sb.WriteString(" canceled")
 	case !v.Ran:
 		sb.WriteString(" did not run")
 	case v.OK:

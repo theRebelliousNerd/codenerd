@@ -55,22 +55,24 @@ func observedReturn(agent, task string, res *ExecutionResult) observation.Return
 	// "changed artifacts" means when it is a fact rather than a claim.
 	out.Changed = append(out.Changed, res.WrittenPaths...)
 
-	if res.BuildCheck.Ran || res.BuildCheck.OK || res.BuildCheck.Output != "" {
+	if res.BuildCheck.Ran || res.BuildCheck.OK || res.BuildCheck.Output != "" || res.BuildCheck.Outcome != "" {
 		out.Build = &observation.Verification{
-			Kind:   "build",
-			Source: observation.SourceObserved,
-			Ran:    res.BuildCheck.Ran,
-			OK:     res.BuildCheck.OK,
-			Detail: firstLine(res.BuildCheck.Output),
+			Kind:    "build",
+			Source:  observation.SourceObserved,
+			Ran:     res.BuildCheck.Ran,
+			OK:      res.BuildCheck.OK,
+			Outcome: string(res.BuildCheck.Verdict()),
+			Detail:  firstLine(res.BuildCheck.Output),
 		}
 	}
-	if res.TestCheck.Ran || res.TestCheck.OK || res.TestCheck.Output != "" {
+	if res.TestCheck.Ran || res.TestCheck.OK || res.TestCheck.Output != "" || res.TestCheck.Outcome != "" {
 		out.Tests = &observation.Verification{
-			Kind:   "tests",
-			Source: observation.SourceObserved,
-			Ran:    res.TestCheck.Ran,
-			OK:     res.TestCheck.OK,
-			Detail: firstLine(res.TestCheck.Output),
+			Kind:    "tests",
+			Source:  observation.SourceObserved,
+			Ran:     res.TestCheck.Ran,
+			OK:      res.TestCheck.OK,
+			Outcome: string(res.TestCheck.Verdict()),
+			Detail:  firstLine(res.TestCheck.Output),
 		}
 	}
 
