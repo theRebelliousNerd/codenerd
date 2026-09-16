@@ -211,6 +211,49 @@ func TestFallbackClient_StreamBothFail(t *testing.T) {
 	}
 }
 
+// fallbackNamedFakeClient adds the observability methods to the scriptable
+// fake. The bare fake deliberately lacks them so fall-through is testable.
+type fallbackNamedFakeClient struct {
+	*fallbackFakeClient
+	model    string
+	provider string
+}
+
+func (f *fallbackNamedFakeClient) GetModel() string { return f.model }
+
+func (f *fallbackNamedFakeClient) ModelIdentity() (string, string) { return f.provider, f.model }
+
+func TestFallbackClient_ForwardsObservability(t *testing.T) {
+	primary := &fallbackNamedFakeClient{fallbackFakeClient: &fallbackFakeClient{}, model: "primary-model", provider: "primary-prov"}
+	secondary := &fallbackNamedFakeClient{fallbackFakeClient: &fallbackFakeClient{}, model: "secondary-model", provider: "secondary-prov"}
+	c := NewFallbackClient("test", primary, secondary)
+	if got := c.GetModel(); got != "primary-model" {
+		t.Errorf("GetModel = %q, want primary-model", got)
+	}
+	if p, m := c.ModelIdentity(); p != "primary-prov" || m != "primary-model" {
+		t.Errorf("ModelIdentity = %q/%q, want primary-prov/primary-model", p, m)
+	}
+
+	// A primary without observability falls through to the secondary.
+	bare := &fallbackFakeClient{}
+	c2 := NewFallbackClient("test", bare, secondary)
+	if got := c2.GetModel(); got != "secondary-model" {
+		t.Errorf("GetModel fall-through = %q, want secondary-model", got)
+	}
+	if p, m := c2.ModelIdentity(); p != "secondary-prov" || m != "secondary-model" {
+		t.Errorf("ModelIdentity fall-through = %q/%q, want secondary-prov/secondary-model", p, m)
+	}
+
+	// Neither side observable: empty, not a crash.
+	c3 := NewFallbackClient("test", bare, &fallbackFakeClient{})
+	if got := c3.GetModel(); got != "" {
+		t.Errorf("GetModel with bare clients = %q, want empty", got)
+	}
+	if p, m := c3.ModelIdentity(); p != "" || m != "" {
+		t.Errorf("ModelIdentity with bare clients = %q/%q, want empty/empty", p, m)
+	}
+}
+
 func TestFallbackClient_NilStreamFailsOver(t *testing.T) {
 	primary := &fallbackFakeClient{nilStream: true}
 	secondary := &fallbackFakeClient{streamChunks: []string{"ok"}}

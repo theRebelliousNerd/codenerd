@@ -992,12 +992,19 @@ func classificationClientFor(bctx *bootContext) perception.LLMClient {
 		if w := bctx.appCfg.GetWorkerLLMConfig(); w != nil {
 			if key := bctx.appCfg.APIKeyForProvider(w.Provider); key != "" {
 				workerCfg := &perception.ProviderConfig{
-					Engine:              "api",
-					Provider:            perception.Provider(strings.ToLower(strings.TrimSpace(w.Provider))),
-					APIKey:              key,
-					BaseURL:             w.Endpoint,
-					Model:               w.Model,
-					ClassificationModel: bctx.appCfg.ClassificationModel,
+					Engine:   "api",
+					Provider: perception.Provider(strings.ToLower(strings.TrimSpace(w.Provider))),
+					APIKey:   key,
+					BaseURL:  w.Endpoint,
+					Model:    w.Model,
+					// ClassificationModel stays empty here on purpose: it names
+					// a model on the MAIN provider, and the classification
+					// factory prefers it over Model — so copying it into the
+					// worker-tier config sent the main-tier model name to the
+					// worker's provider (observed live: Meta's Spark name sent
+					// to OpenRouter, 403 on every classification). Empty falls
+					// back to the worker's own model.
+					ClassificationModel: "",
 					Gemini:              bctx.appCfg.GetGeminiConfig(),
 					// The configured effort wins over the classifier's "minimal"
 					// fallback (perception/client_factory.go); without this the

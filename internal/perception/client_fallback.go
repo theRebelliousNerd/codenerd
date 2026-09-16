@@ -48,6 +48,44 @@ func NewFallbackClient(name string, primary, secondary LLMClient) *FallbackClien
 
 var _ LLMClient = (*FallbackClient)(nil)
 
+// GetModel reports the primary's model, else the secondary's, for I/O
+// tracing. Without this forwarding the scheduled wrapper logs MODEL: empty
+// for every failover-protected call.
+func (c *FallbackClient) GetModel() string {
+	for _, client := range []LLMClient{c.primary, c.secondary} {
+		if getter, ok := client.(interface{ GetModel() string }); ok {
+			if model := getter.GetModel(); model != "" {
+				return model
+			}
+		}
+	}
+	return ""
+}
+
+// ModelIdentity reports the primary's provider/model identity, else the
+// secondary's. It satisfies types.ModelIdentifier for prompt-atom pinning.
+func (c *FallbackClient) ModelIdentity() (provider, model string) {
+	for _, client := range []LLMClient{c.primary, c.secondary} {
+		if ident, ok := client.(types.ModelIdentifier); ok {
+			if provider, model := ident.ModelIdentity(); model != "" {
+				return provider, model
+			}
+		}
+	}
+	return "", ""
+}
+
+var _ types.ModelIdentifier = (*FallbackClient)(nil)
+
+// Capability interfaces (ToolResultsProvider, CompleteWithSchema, thinking
+// providers) are deliberately NOT forwarded. Forwarding would make the
+// fallback client claim a capability whenever either side has it — but a
+// secondary-only capability cannot serve the primary path, and callers that
+// type-assert (the shard executor, the broker matrix) would take the
+// multi-turn/native branch against a client that can only serve it after a
+// primary failure. Observability forwarding above is safe because a model
+// name is descriptive; a capability claim changes the caller's control flow.
+
 // useSecondary reports whether a failed primary call should be retried on the
 // secondary, logging the failover when it fires.
 func (c *FallbackClient) useSecondary(op string, primaryErr error) bool {
