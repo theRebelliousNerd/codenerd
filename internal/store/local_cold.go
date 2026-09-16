@@ -123,6 +123,9 @@ func (s *LocalStore) LoadFacts(predicate string) ([]StoredFact, error) {
 		facts = append(facts, fact)
 		factIDs = append(factIDs, fact.ID)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	// Update access tracking for retrieved facts
 	if len(factIDs) > 0 {
@@ -194,6 +197,9 @@ func (s *LocalStore) LoadAllFacts(factType string) ([]StoredFact, error) {
 			continue
 		}
 		facts = append(facts, fact)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	logging.StoreDebug("Loaded %d total facts from cold storage", len(facts))
@@ -292,6 +298,9 @@ func (s *LocalStore) ArchiveOldFacts(olderThanDays int, maxAccessCount int) (int
 		idsToDelete = append(idsToDelete, id)
 		archivedCount++
 	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("iterate archival candidates: %w", err)
+	}
 
 	// Delete from cold_storage
 	for _, id := range idsToDelete {
@@ -347,6 +356,9 @@ func (s *LocalStore) GetArchivedFacts(predicate string) ([]ArchivedFact, error) 
 		}
 		facts = append(facts, fact)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	logging.StoreDebug("Retrieved %d archived facts for predicate=%s", len(facts), predicate)
 	return facts, nil
@@ -393,6 +405,9 @@ func (s *LocalStore) GetAllArchivedFacts(factType string) ([]ArchivedFact, error
 			continue
 		}
 		facts = append(facts, fact)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	logging.StoreDebug("Retrieved %d archived facts", len(facts))

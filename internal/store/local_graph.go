@@ -119,6 +119,9 @@ func (s *LocalStore) queryLinksLocked(entity string, direction string) ([]Knowle
 		}
 		links = append(links, link)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	logging.StoreDebug("Graph query returned %d links", len(links))
 	return links, nil
@@ -253,6 +256,10 @@ func (s *LocalStore) HydrateKnowledgeGraph(assertFunc func(predicate string, arg
 		} else {
 			skipped++
 		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return count, err
 	}
 
 	logging.Store("Knowledge graph hydration complete: asserted=%d, skipped=%d", count, skipped)

@@ -102,7 +102,7 @@ func (s *ToolStore) CleanupByRuntimeBudget(budgetHours float64) (*CleanupStats, 
 	for hoursToFree > 0 {
 		// Identify sessions to delete
 		rows, err := s.db.Query(`
-			SELECT session_id, MAX(session_runtime_ms), COUNT(*), SUM(result_size)
+			SELECT session_id, COALESCE(MAX(session_runtime_ms), 0), COUNT(*), COALESCE(SUM(result_size), 0)
 			FROM tool_executions
 			GROUP BY session_id
 			ORDER BY MIN(created_at) ASC
@@ -255,6 +255,9 @@ func (s *ToolStore) GetToolStatsSummary() ([]ToolStatsSummary, error) {
 			s.LastReferenced = "never"
 		}
 		summaries = append(summaries, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return summaries, nil

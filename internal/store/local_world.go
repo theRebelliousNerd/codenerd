@@ -157,6 +157,9 @@ func (s *LocalStore) LoadWorldFactsForFile(path, depth string) ([]WorldFactInput
 		}
 		out = append(out, WorldFactInput{Predicate: pred, Args: args})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
 	return out, fp, nil
 }
 
@@ -192,6 +195,9 @@ func (s *LocalStore) LoadAllWorldFacts(depth string) ([]WorldFactInput, error) {
 			continue
 		}
 		out = append(out, WorldFactInput{Predicate: pred, Args: args})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

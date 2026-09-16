@@ -587,6 +587,9 @@ func (ts *TraceStore) GetFailurePatterns(limit int) (map[string]int, error) {
 			patterns[errMsg] = count
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	return patterns, nil
 }
@@ -604,20 +607,27 @@ func (ts *TraceStore) GetLearningInsights(shardType string, days int) (map[strin
 	insights := make(map[string]any)
 	cutoff := time.Now().AddDate(0, 0, -days)
 
-	// Recent activity
+	// Every scan is checked: the old code ignored all of them, so a broken
+	// table read as a quiet store with zero activity. Aggregates are
+	// COALESCE-wrapped because SUM/AVG over zero rows is NULL, which fails
+	// an int64/float64 scan.
 	var recentCount int64
-	ts.db.QueryRow(`
+	if err := ts.db.QueryRow(`
 		SELECT COUNT(*) FROM reasoning_traces
 		WHERE shard_type = ? AND created_at >= ?`,
-		shardType, cutoff).Scan(&recentCount)
+		shardType, cutoff).Scan(&recentCount); err != nil {
+		return nil, fmt.Errorf("trace insights count: %w", err)
+	}
 	insights["recent_trace_count"] = recentCount
 
 	// Recent success rate
 	var recentSuccess int64
-	ts.db.QueryRow(`
+	if err := ts.db.QueryRow(`
 		SELECT COUNT(*) FROM reasoning_traces
 		WHERE shard_type = ? AND created_at >= ? AND success = 1`,
-		shardType, cutoff).Scan(&recentSuccess)
+		shardType, cutoff).Scan(&recentSuccess); err != nil {
+		return nil, fmt.Errorf("trace insights success count: %w", err)
+	}
 	if recentCount > 0 {
 		insights["recent_success_rate"] = float64(recentSuccess) / float64(recentCount)
 	}
@@ -626,17 +636,21 @@ func (ts *TraceStore) GetLearningInsights(shardType string, days int) (map[strin
 	midpoint := cutoff.Add(time.Duration(days*24/2) * time.Hour)
 	var firstHalfSuccess, firstHalfTotal, secondHalfSuccess, secondHalfTotal int64
 
-	ts.db.QueryRow(`
-		SELECT COUNT(*), SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END)
+	if err := ts.db.QueryRow(`
+		SELECT COUNT(*), COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0)
 		FROM reasoning_traces
 		WHERE shard_type = ? AND created_at >= ? AND created_at < ?`,
-		shardType, cutoff, midpoint).Scan(&firstHalfTotal, &firstHalfSuccess)
+		shardType, cutoff, midpoint).Scan(&firstHalfTotal, &firstHalfSuccess); err != nil {
+		return nil, fmt.Errorf("trace insights first half: %w", err)
+	}
 
-	ts.db.QueryRow(`
-		SELECT COUNT(*), SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END)
+	if err := ts.db.QueryRow(`
+		SELECT COUNT(*), COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0)
 		FROM reasoning_traces
 		WHERE shard_type = ? AND created_at >= ?`,
-		shardType, midpoint).Scan(&secondHalfTotal, &secondHalfSuccess)
+		shardType, midpoint).Scan(&secondHalfTotal, &secondHalfSuccess); err != nil {
+		return nil, fmt.Errorf("trace insights second half: %w", err)
+	}
 
 	if firstHalfTotal > 0 && secondHalfTotal > 0 {
 		firstRate := float64(firstHalfSuccess) / float64(firstHalfTotal)
@@ -645,15 +659,20 @@ func (ts *TraceStore) GetLearningInsights(shardType string, days int) (map[strin
 	}
 
 	// Common failure reasons
-	failurePatterns, _ := ts.GetFailurePatterns(5)
+	failurePatterns, err := ts.GetFailurePatterns(5)
+	if err != nil {
+		return nil, fmt.Errorf("trace insights failure patterns: %w", err)
+	}
 	insights["top_failure_patterns"] = failurePatterns
 
 	// Average response time trend
 	var avgDuration float64
-	ts.db.QueryRow(`
-		SELECT AVG(duration_ms) FROM reasoning_traces
+	if err := ts.db.QueryRow(`
+		SELECT COALESCE(AVG(duration_ms), 0) FROM reasoning_traces
 		WHERE shard_type = ? AND created_at >= ?`,
-		shardType, cutoff).Scan(&avgDuration)
+		shardType, cutoff).Scan(&avgDuration); err != nil {
+		return nil, fmt.Errorf("trace insights avg duration: %w", err)
+	}
 	insights["avg_duration_ms"] = avgDuration
 
 	return insights, nil
@@ -687,6 +706,12 @@ func (ts *TraceStore) CleanupOldTraces(retentionDays int) (int64, error) {
 	}
 
 	rowsAffected, _ := result.RowsAffected()
+	// Purged traces must not haunt the ANN index as ghosts.
+	if tableExists(ts.db, "reasoning_traces_vec") {
+		if _, err := ts.db.Exec("DELETE FROM reasoning_traces_vec WHERE trace_id NOT IN (SELECT id FROM reasoning_traces)"); err != nil {
+			logging.Get(logging.CategoryStore).Warn("Trace vec ghost purge after cleanup failed: %v (ANN drift)", err)
+		}
+	}
 	logging.Store("Cleaned up %d old traces (retention=%d days)", rowsAffected, retentionDays)
 	return rowsAffected, nil
 }
@@ -733,6 +758,9 @@ func (ts *TraceStore) scanTraces(rows *sql.Rows) ([]ReasoningTrace, error) {
 		}
 
 		traces = append(traces, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return traces, nil

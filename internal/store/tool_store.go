@@ -294,6 +294,9 @@ func (s *ToolStore) getStatsLocked() (*ToolStoreStats, error) {
 		}
 		stats.ToolBreakdown[name] = count
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	return stats, nil
 }
@@ -367,6 +370,9 @@ func (s *ToolStore) scanExecutions(rows *sql.Rows) ([]ToolExecution, error) {
 		}
 
 		executions = append(executions, exec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return executions, nil

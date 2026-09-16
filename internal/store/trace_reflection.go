@@ -72,7 +72,10 @@ func (ts *TraceStore) ListTraceEmbeddingCandidates(limit int, skipSuccess bool, 
 		args = append(args, expectedTask)
 	}
 	if skipSuccess {
-		where += " AND success = 0"
+		// Parenthesized: AND binds tighter than OR, so appending a bare
+		// AND would only constrain the last OR arm and keep returning
+		// successful traces missing descriptors.
+		where = "(" + where + ") AND success = 0"
 	}
 
 	query := fmt.Sprintf(`
@@ -129,6 +132,9 @@ func (ts *TraceStore) ListTraceEmbeddingCandidates(limit int, skipSuccess bool, 
 		}
 		c.Embedding = embedding
 		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return candidates, nil
 }
@@ -197,6 +203,9 @@ func (ts *TraceStore) ListAllTraceEmbeddingCandidates(limit int, offset int) ([]
 		}
 		c.Embedding = embedding
 		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return candidates, nil
 }
