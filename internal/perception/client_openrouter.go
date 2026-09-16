@@ -463,7 +463,45 @@ func (c *OpenRouterClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 	}
 	trackUsage(ctx, c.model, ProviderOpenRouter,
 		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, usageOpFor(len(tools)))
+	return c.toToolResponse(resp, "CompleteWithTools")
+}
 
+// CompleteWithToolResults implements types.ToolResultsProvider: it continues a
+// multi-turn tool conversation by sending the accumulated history plus tool
+// definitions. Without this method broker.Wrap demotes the client to a bare
+// baseClient and every shard fails before its first call with "does not
+// implement ToolResultsProvider".
+func (c *OpenRouterClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []ToolDefinition) (*LLMToolResponse, error) {
+	messages, err := MapTypesHistoryToOpenAIMessages(systemPrompt, history)
+	if err != nil {
+		return nil, err
+	}
+
+	reqBody := OpenAIRequest{
+		Model:    c.model,
+		Messages: messages,
+		Tools:    MapToolDefinitionsToOpenAI(tools),
+		Stream:   false,
+	}
+	if len(reqBody.Tools) > 0 {
+		reqBody.ToolChoice = "auto"
+	}
+
+	resp, err := ExecuteOpenAIRequest(ctx, c.httpClient, c.baseURL, c.apiKey, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	trackUsage(ctx, c.model, ProviderOpenRouter,
+		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, usageOpFor(len(tools)))
+	return c.toToolResponse(resp, "CompleteWithToolResults")
+}
+
+var _ types.ToolResultsProvider = (*OpenRouterClient)(nil)
+
+// toToolResponse converts a raw OpenAI-shaped response into the internal tool
+// shape. Shared by the single-turn and multi-turn tool paths; op names the
+// caller in truncation errors.
+func (c *OpenRouterClient) toToolResponse(resp *OpenAIResponse, op string) (*LLMToolResponse, error) {
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("no choices in response")
 	}
@@ -476,7 +514,7 @@ func (c *OpenRouterClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 
 	stopReason := choice.FinishReason
 	if types.LengthStop(stopReason) {
-		return nil, outputTruncated(ProviderOpenRouter, c.model, "CompleteWithTools", stopReason, choice.Message.Content,
+		return nil, outputTruncated(ProviderOpenRouter, c.model, op, stopReason, choice.Message.Content,
 			c.maxOutputTokens, resp.Usage.CompletionTokens)
 	}
 	if stopReason == "tool_calls" {

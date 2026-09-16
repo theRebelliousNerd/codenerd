@@ -2,13 +2,18 @@ package perception
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"codenerd/internal/broker"
+	"codenerd/internal/types"
 )
 
 func openrouterTestClient(baseURL string) *OpenRouterClient {
@@ -186,5 +191,71 @@ func TestOpenRouterRateLimit_PreservesSpacing(t *testing.T) {
 	second := <-arrivals
 	if gap := second.Sub(first); gap < 90*time.Millisecond {
 		t.Errorf("inter-request gap = %v, want >= 90ms", gap)
+	}
+}
+
+// The multi-turn tool path must serialize the accumulated history (system,
+// user, assistant tool_use, tool result) and parse the next tool calls.
+// Without CompleteWithToolResults, broker.Wrap demotes the OpenRouter client
+// to baseClient and every shard fails before its first call.
+func TestOpenRouterToolResults_SendsHistoryAndParsesCalls(t *testing.T) {
+	var gotRoles []string
+	var gotToolChoice any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req struct {
+			Messages []OpenAIMessage `json:"messages"`
+		}
+		_ = json.Unmarshal(body, &req)
+		for _, m := range req.Messages {
+			gotRoles = append(gotRoles, m.Role)
+		}
+		var raw map[string]any
+		_ = json.Unmarshal(body, &raw)
+		gotToolChoice = raw["tool_choice"]
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"x.go\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+	}))
+	defer srv.Close()
+
+	c := openrouterTestClient(srv.URL)
+	history := []types.Message{
+		{Role: "user", Text: "read x.go"},
+		{Role: "assistant", ToolCalls: []types.ToolCall{{ID: "call_0", Name: "glob", Input: map[string]any{"pattern": "*.go"}}}},
+		{Role: "user", ToolResults: []types.ToolResult{{ToolUseID: "call_0", Content: "x.go"}}},
+	}
+	tools := []ToolDefinition{{Name: "read_file", Description: "read a file"}}
+	resp, err := c.CompleteWithToolResults(context.Background(), "sys", history, tools)
+	if err != nil {
+		t.Fatalf("CompleteWithToolResults: %v", err)
+	}
+	wantRoles := []string{"system", "user", "assistant", "tool"}
+	if strings.Join(gotRoles, ",") != strings.Join(wantRoles, ",") {
+		t.Errorf("request roles = %v, want %v", gotRoles, wantRoles)
+	}
+	if gotToolChoice != "auto" {
+		t.Errorf("tool_choice = %v, want auto", gotToolChoice)
+	}
+	if resp.StopReason != "tool_use" {
+		t.Errorf("StopReason = %q, want tool_use", resp.StopReason)
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Name != "read_file" {
+		t.Fatalf("ToolCalls = %+v, want one read_file call", resp.ToolCalls)
+	}
+	if resp.ToolCalls[0].Input["path"] != "x.go" {
+		t.Errorf("ToolCall input = %v, want path=x.go", resp.ToolCalls[0].Input)
+	}
+}
+
+// Regression pin for the live dogfood failure: the brokered worker client
+// handed to shards must still expose ToolResultsProvider.
+func TestOpenRouterWrap_PreservesToolResultsProvider(t *testing.T) {
+	c := openrouterTestClient("http://127.0.0.1:1")
+	wrapped, err := broker.Wrap(c, broker.Default().ConfigFor(broker.ProviderCreds{Provider: "openrouter", Model: "test/model"}))
+	if err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	if _, ok := wrapped.(types.ToolResultsProvider); !ok {
+		t.Fatalf("wrapped client is %T, does not implement ToolResultsProvider", wrapped)
 	}
 }
