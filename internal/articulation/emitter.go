@@ -27,12 +27,12 @@ func looksLikePartialEnvelope(s string) bool {
 }
 
 // salvageSurfaceFromPartial scans a malformed/truncated piggyback envelope
-// for a usable surface_response value. Mirrors the StreamParser's logic:
-// find `"surface_response"`, then the colon, then the opening quote, then
-// read characters (honoring escapes) until the closing quote.
-// Returns "" if no usable value can be extracted.
+// for a usable surface_response value. The key lookup skips mentions quoted
+// inside other strings, and the value scan shares scanJSONString with the
+// field extractor, so escapes — including \uXXXX — decode the same
+// everywhere. Returns "" if no usable value can be extracted.
 func salvageSurfaceFromPartial(raw string) string {
-	keyIdx := strings.Index(raw, `"surface_response"`)
+	keyIdx := findKeyOutsideStrings(raw, "surface_response")
 	if keyIdx == -1 {
 		return ""
 	}
@@ -45,45 +45,20 @@ func salvageSurfaceFromPartial(raw string) string {
 	if quoteIdx == -1 {
 		return ""
 	}
-	start := colonIdx + quoteIdx + 1
+	open := colonIdx + quoteIdx
 
-	var b strings.Builder
-	escapeNext := false
-	for i := start; i < len(raw); i++ {
-		c := raw[i]
-		if escapeNext {
-			switch c {
-			case 'n':
-				b.WriteByte('\n')
-			case 'r':
-				b.WriteByte('\r')
-			case 't':
-				b.WriteByte('\t')
-			case '"':
-				b.WriteByte('"')
-			case '\\':
-				b.WriteByte('\\')
-			default:
-				b.WriteByte(c)
-			}
-			escapeNext = false
-			continue
-		}
-		if c == '\\' {
-			escapeNext = true
-			continue
-		}
-		if c == '"' {
-			return strings.TrimSpace(b.String())
-		}
-		b.WriteByte(c)
+	if val, _, ok := scanJSONString(raw, open); ok {
+		return strings.TrimSpace(val)
 	}
+
 	// Closing quote never appeared — output was truncated mid-string. If we
 	// got at least a few meaningful characters, return what we have; the
 	// user is better off seeing the partial message than the raw envelope.
-	salvaged := strings.TrimSpace(b.String())
-	if len(salvaged) >= 8 {
-		return salvaged + " […truncated]"
+	if val, ok := scanJSONStringPrefix(raw, open); ok {
+		salvaged := strings.TrimSpace(val)
+		if len(salvaged) >= 8 {
+			return salvaged + " […truncated]"
+		}
 	}
 	return ""
 }
@@ -95,22 +70,22 @@ func salvageSurfaceFromPartial(raw string) string {
 func truncatedEnvelopeMessage(raw string) string {
 	reasoning := extractStringField(raw, "reasoning_trace")
 	if reasoning != "" {
-		if len(reasoning) > 600 {
-			reasoning = reasoning[:600] + "…"
+		// Rune cut: a byte cut can split a multi-byte rune and hand the
+		// user invalid UTF-8 in the one message meant to reassure them.
+		if runes := []rune(reasoning); len(runes) > 600 {
+			reasoning = string(runes[:600]) + "…"
 		}
 		return "_The model's response was cut off before it could write a reply (likely an output-token limit). It was working on:_\n\n> " + reasoning
 	}
 	return "_The model's response was cut off before it could write a reply (likely an output-token limit). Please ask again — possibly more narrowly._"
 }
 
-// extractStringField pulls the value of a top-level JSON string field out of
-// a possibly malformed/truncated envelope. Used by truncatedEnvelopeMessage
-// to recover reasoning_trace. Returns "" if not found or value is
-// non-string. Mirrors the same scan logic as salvageSurfaceFromPartial but
-// keyed on the requested field name.
+// extractStringField pulls the value of a JSON string field out of a possibly
+// malformed/truncated envelope. Used by truncatedEnvelopeMessage to recover
+// reasoning_trace. Returns "" if not found or the value is non-string. Shares
+// the key lookup and value scan with the surface salvager.
 func extractStringField(raw, field string) string {
-	needle := `"` + field + `"`
-	keyIdx := strings.Index(raw, needle)
+	keyIdx := findKeyOutsideStrings(raw, field)
 	if keyIdx == -1 {
 		return ""
 	}
@@ -123,40 +98,17 @@ func extractStringField(raw, field string) string {
 	if quoteIdx == -1 {
 		return ""
 	}
-	start := colonIdx + quoteIdx + 1
+	open := colonIdx + quoteIdx
 
-	var b strings.Builder
-	escapeNext := false
-	for i := start; i < len(raw); i++ {
-		c := raw[i]
-		if escapeNext {
-			switch c {
-			case 'n':
-				b.WriteByte('\n')
-			case 'r':
-				b.WriteByte('\r')
-			case 't':
-				b.WriteByte('\t')
-			case '"':
-				b.WriteByte('"')
-			case '\\':
-				b.WriteByte('\\')
-			default:
-				b.WriteByte(c)
-			}
-			escapeNext = false
-			continue
-		}
-		if c == '\\' {
-			escapeNext = true
-			continue
-		}
-		if c == '"' {
-			return strings.TrimSpace(b.String())
-		}
-		b.WriteByte(c)
+	// A truncated envelope ends mid-value; the prefix scan recovers what
+	// arrived instead of failing the whole field.
+	if val, _, ok := scanJSONString(raw, open); ok {
+		return strings.TrimSpace(val)
 	}
-	return strings.TrimSpace(b.String())
+	if val, ok := scanJSONStringPrefix(raw, open); ok {
+		return strings.TrimSpace(val)
+	}
+	return ""
 }
 
 // =============================================================================
@@ -458,8 +410,13 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 			logging.ArticulationWarn("mangle_update skipped (%s): %s", reason, truncateUTF8Bytes(trimmed, 120))
 			continue
 		}
-		// Reject shell metacharacters that could escape from Mangle into exec
-		if strings.ContainsAny(trimmed, "`$;|") {
+		// Reject shell metacharacters that could escape from Mangle into exec.
+		// & and <> matter too: && chains, & backgrounds, > redirects, and <
+		// feeds input, all without any of the older four. (The airtight fix
+		// lives at the exec site — never interpolate atom text into a shell —
+		// but a hostile atom should not sail through parsing unremarked on
+		// its way there.)
+		if strings.ContainsAny(trimmed, "`$;|&<>") {
 			result.Warnings = append(result.Warnings, "Mangle update with shell metacharacters skipped")
 			logging.ArticulationWarn("mangle_update skipped (shell metacharacters): %s", truncateUTF8Bytes(trimmed, 120))
 			continue
@@ -895,6 +852,10 @@ type ConstitutionalOverride struct {
 // ApplyConstitutionalOverride modifies the surface response based on kernel rules.
 // This allows the kernel to block or rewrite unsafe surface responses.
 func ApplyConstitutionalOverride(envelope *PiggybackEnvelope, blocked []string, reason string) *ConstitutionalOverride {
+	if envelope == nil {
+		logging.ArticulationWarn("ApplyConstitutionalOverride: nil envelope with blocked=%d reason=%q; nothing to override", len(blocked), reason)
+		return nil
+	}
 	if len(blocked) == 0 && reason == "" {
 		logging.ArticulationDebug("ApplyConstitutionalOverride: no override needed (blocked=%d, reason empty)", len(blocked))
 		return nil // No override needed
@@ -1109,14 +1070,29 @@ func isPlaceholderFeedback(fb *ContextFeedback) bool {
 //	// Display: processed.Surface
 //	// Route to kernel: processed.Control
 func ProcessLLMResponse(rawResponse string) *ProcessedLLMResponse {
-	logging.ArticulationDebug("ProcessLLMResponse: processing %d bytes", len(rawResponse))
+	return processLLMResponse("ProcessLLMResponse", rawResponse, true)
+}
+
+// ProcessLLMResponseAllowPlain treats non-Piggyback responses as expected output.
+// It avoids emitting error logs when the response is intentionally plain text.
+func ProcessLLMResponseAllowPlain(rawResponse string) *ProcessedLLMResponse {
+	return processLLMResponse("ProcessLLMResponseAllowPlain", rawResponse, false)
+}
+
+// processLLMResponse is the shared engine behind ProcessLLMResponse and
+// ProcessLLMResponseAllowPlain, which differed only in log labels and the
+// fallback log level. The two entry points stay so call sites keep declaring
+// whether plain text is an expected output or a degraded one.
+func processLLMResponse(name, rawResponse string, logFallbackAsError bool) *ProcessedLLMResponse {
+	logging.ArticulationDebug("%s: processing %d bytes", name, len(rawResponse))
 
 	processor := NewResponseProcessor()
 	processor.RequireValidJSON = false // Allow fallback to raw text
+	processor.LogFallbackAsError = logFallbackAsError
 
 	result, err := processor.Process(rawResponse)
 	if err != nil {
-		logging.Get(logging.CategoryArticulation).Warn("ProcessLLMResponse: parse failed, using raw: %v", err)
+		logging.Get(logging.CategoryArticulation).Warn("%s: parse failed, using raw: %v", name, err)
 		return &ProcessedLLMResponse{
 			Surface:     strings.TrimSpace(rawResponse),
 			Control:     nil,
@@ -1125,8 +1101,8 @@ func ProcessLLMResponse(rawResponse string) *ProcessedLLMResponse {
 		}
 	}
 
-	logging.Articulation("ProcessLLMResponse: method=%s, confidence=%.2f, surface_len=%d",
-		result.ParseMethod, result.Confidence, len(result.Surface))
+	logging.Articulation("%s: method=%s, confidence=%.2f, surface_len=%d",
+		name, result.ParseMethod, result.Confidence, len(result.Surface))
 
 	// Drop parroted schema placeholders so example text is never shown or learned from.
 	if isPlaceholderSurface(result.Surface) {
@@ -1148,55 +1124,6 @@ func ProcessLLMResponse(rawResponse string) *ProcessedLLMResponse {
 	}
 
 	// Only include control packet if we actually parsed it
-	if result.ParseMethod != "fallback" {
-		processed.Control = &result.Control
-	}
-
-	return processed
-}
-
-// ProcessLLMResponseAllowPlain treats non-Piggyback responses as expected output.
-// It avoids emitting error logs when the response is intentionally plain text.
-func ProcessLLMResponseAllowPlain(rawResponse string) *ProcessedLLMResponse {
-	logging.ArticulationDebug("ProcessLLMResponseAllowPlain: processing %d bytes", len(rawResponse))
-
-	processor := NewResponseProcessor()
-	processor.RequireValidJSON = false
-	processor.LogFallbackAsError = false
-
-	result, err := processor.Process(rawResponse)
-	if err != nil {
-		logging.Get(logging.CategoryArticulation).Warn("ProcessLLMResponseAllowPlain: parse failed, using raw: %v", err)
-		return &ProcessedLLMResponse{
-			Surface:     strings.TrimSpace(rawResponse),
-			Control:     nil,
-			ParseMethod: "fallback",
-			Confidence:  0.0,
-		}
-	}
-
-	logging.Articulation("ProcessLLMResponseAllowPlain: method=%s, confidence=%.2f, surface_len=%d",
-		result.ParseMethod, result.Confidence, len(result.Surface))
-
-	// Drop parroted schema placeholders so example text is never shown or learned from.
-	if isPlaceholderSurface(result.Surface) {
-		logging.Get(logging.CategoryArticulation).Warn("placeholder surface_response dropped")
-		result.Surface = ""
-		result.Warnings = append(result.Warnings, "placeholder surface_response dropped")
-	}
-	if isPlaceholderFeedback(result.Control.ContextFeedback) {
-		logging.Get(logging.CategoryArticulation).Warn("placeholder context_feedback dropped")
-		result.Control.ContextFeedback = nil
-		result.Warnings = append(result.Warnings, "placeholder context_feedback dropped")
-	}
-
-	processed := &ProcessedLLMResponse{
-		Surface:     result.Surface,
-		ParseMethod: result.ParseMethod,
-		Confidence:  result.Confidence,
-		Warnings:    result.Warnings,
-	}
-
 	if result.ParseMethod != "fallback" {
 		processed.Control = &result.Control
 	}

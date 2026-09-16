@@ -371,25 +371,26 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `cmd/tools/verify_taxonomy/main_test.go`
 
 ### internal/articulation (20)
-- [ ] `internal/articulation/emitter.go`
+- [x] `internal/articulation/emitter.go`
 - [ ] `internal/articulation/emitter_boundary_test.go`
 - [ ] `internal/articulation/emitter_extra_test.go`
 - [ ] `internal/articulation/emitter_helpers_test.go`
 - [ ] `internal/articulation/emitter_placeholder_test.go`
 - [ ] `internal/articulation/emitter_test.go`
 - [ ] `internal/articulation/emitter_warnings_test.go`
-- [ ] `internal/articulation/json_scanner.go`
+- [x] `internal/articulation/json_scanner.go`
 - [ ] `internal/articulation/json_scanner_test.go`
-- [ ] `internal/articulation/kernel_context.go`
+- [x] `internal/articulation/kernel_context.go`
 - [ ] `internal/articulation/language_precedence_test.go`
-- [ ] `internal/articulation/prompt_assembler.go`
-- [ ] `internal/articulation/prompt_assembler_adapter.go`
+- [x] `internal/articulation/prompt_assembler.go`
+- [x] `internal/articulation/prompt_assembler_adapter.go`
 - [ ] `internal/articulation/prompt_assembler_ouroboros_test.go`
 - [ ] `internal/articulation/prompt_assembler_test.go`
-- [ ] `internal/articulation/protocol_types.go`
-- [ ] `internal/articulation/schema.go`
+- [x] `internal/articulation/protocol_types.go`
+- [x] `internal/articulation/schema.go`
 - [ ] `internal/articulation/session_context_bounds_test.go`
-- [ ] `internal/articulation/stream_parser.go`
+- [x] `internal/articulation/stream_parser.go`
+- [x] `internal/articulation/articulation_uplift_test.go`
 - [ ] `internal/articulation/stream_parser_test.go`
 
 ### internal/atomicfile (6)

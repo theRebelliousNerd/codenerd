@@ -25,6 +25,9 @@ func NewPromptAssemblerAdapter(assembler *PromptAssembler) *PromptAssemblerAdapt
 
 // AssembleSystemPrompt implements the simplified interface used by perception.
 func (a *PromptAssemblerAdapter) AssembleSystemPrompt(ctx context.Context, shardID, shardType string) (string, error) {
+	if a == nil || a.assembler == nil {
+		return "", fmt.Errorf("prompt assembler adapter is not initialized")
+	}
 	pc := &PromptContext{
 		ShardID:   shardID,
 		ShardType: shardType,
@@ -37,6 +40,9 @@ func (a *PromptAssemblerAdapter) AssembleSystemPrompt(ctx context.Context, shard
 
 // JITReady returns true if JIT compilation is available and enabled.
 func (a *PromptAssemblerAdapter) JITReady() bool {
+	if a == nil || a.assembler == nil {
+		return false
+	}
 	return a.assembler.JITReady()
 }
 
@@ -110,12 +116,16 @@ func (pa *PromptAssembler) mapToPromptContext(m map[string]any) (*PromptContext,
 				ExtraContext: extraContext,
 			}
 		} else {
-			// Merge into existing ExtraContext
-			if pc.SessionCtx.ExtraContext == nil {
-				pc.SessionCtx.ExtraContext = extraContext
-			} else {
-				maps.Copy(pc.SessionCtx.ExtraContext, extraContext)
-			}
+			// Merge into a COPY of the caller's ExtraContext. The SessionCtx
+			// pointer belongs to the caller and is often shared across
+			// compiles; writing the merge into it contaminated every later
+			// compile with this call's Ouroboros keys.
+			merged := make(map[string]string, len(pc.SessionCtx.ExtraContext)+len(extraContext))
+			maps.Copy(merged, pc.SessionCtx.ExtraContext)
+			maps.Copy(merged, extraContext)
+			sessionCopy := *pc.SessionCtx
+			sessionCopy.ExtraContext = merged
+			pc.SessionCtx = &sessionCopy
 		}
 	}
 

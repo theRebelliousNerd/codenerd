@@ -119,8 +119,13 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 		return instanceID[:lastDash]
 	}
 
-	// Set shard context
-	cc.ShardType = "/" + pc.ShardType
+	// Set shard context. Tolerate an already-prefixed type: callers hand both
+	// "coder" and "/coder" across this boundary, and "//coder" matches no
+	// atom tag anywhere downstream.
+	cc.ShardType = pc.ShardType
+	if !strings.HasPrefix(cc.ShardType, "/") {
+		cc.ShardType = "/" + cc.ShardType
+	}
 	// ShardID must be the stable agent name to match registered shard DBs and atom tags.
 	// pc.ShardID may be an ephemeral instance ID (e.g., coder-123), so keep it separately.
 	cc.ShardID = stableShardID(pc.ShardID, pc.ShardType)
@@ -403,8 +408,8 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input any) 
 		}
 		// Telemetry: record JIT fallback into the kernel if possible.
 		reason := err.Error()
-		if len(reason) > 400 {
-			reason = reason[:400]
+		if runes := []rune(reason); len(runes) > 400 {
+			reason = string(runes[:400])
 		}
 		_ = compiler.AssertFacts([]string{
 			fmt.Sprintf("jit_fallback(%s, %q).", cc.ShardType, reason),
