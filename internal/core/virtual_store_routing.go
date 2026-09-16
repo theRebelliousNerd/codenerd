@@ -208,7 +208,8 @@ func (v *VirtualStore) RouteActionResult(ctx context.Context, action Fact) (Acti
 func (v *VirtualStore) requestForValidation(req ActionRequest) ActionRequest {
 	switch req.Type {
 	case ActionReadFile, ActionWriteFile, ActionEditFile, ActionDeleteFile,
-		ActionFSRead, ActionFSWrite, ActionEditLines, ActionInsertLines, ActionDeleteLines:
+		ActionFSRead, ActionFSWrite, ActionEditLines, ActionInsertLines, ActionDeleteLines,
+		ActionCampaignCreateFile, ActionCampaignModifyFile, ActionCampaignWriteTest:
 		req.Target = v.resolvePath(req.Target)
 	}
 	return req
@@ -385,6 +386,9 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 			Error:   fmt.Sprintf("blocked by nerd.md: %s is write-protected (%s)", req.Target, reason),
 		}, nil
 	}
+
+	// Snapshot bytes for post-edit change detection before anything mutates.
+	v.capturePreEditState(req)
 
 	// Mark the edit in flight for the policy layer, and clear it on every exit
 	// path. pending_edit is the root fact for 26 rules across 7 policy files

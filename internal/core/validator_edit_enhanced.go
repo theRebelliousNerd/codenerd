@@ -119,10 +119,23 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 
 	actualContent := string(actualBytes)
 
+	// Compare in LF space. File writers preserve the destination newline
+	// convention, so a CRLF working copy holds CRLF bytes while the payload
+	// carries LF text; raw Contains failed every CRLF edit at CHECK 5 and
+	// passed CHECK 4 by luck. FileEditValidator already normalizes the
+	// same way.
+	normActual := normalizeLineEndings(actualContent)
+	normOld := normalizeLineEndings(oldContent)
+	normNew := normalizeLineEndings(newContent)
+	// An edit that expands text (old "User" -> new "UserService")
+	// legitimately leaves old behind inside new; absence checks must not
+	// fire on that shape.
+	oldInNew := normOld != "" && strings.Contains(normNew, normOld)
+
 	// CHECK 4: Old content must be COMPLETELY GONE
-	if oldContent != "" {
+	if normOld != "" && !oldInNew {
 		// Check for any substring of old content (partial edit detection)
-		if strings.Contains(actualContent, oldContent) {
+		if strings.Contains(normActual, normOld) {
 			return ValidationResult{
 				Verified:   false,
 				Confidence: 1.0,
@@ -137,12 +150,12 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 
 		// Also check for fragmented old content (corruption detection)
 		// Split old content into chunks and verify none are present
-		oldLines := strings.Split(oldContent, "\n")
+		oldLines := strings.Split(normOld, "\n")
 		if len(oldLines) > 2 {
 			// Check significant chunks (> 20 chars) aren't lingering
 			for _, line := range oldLines {
 				line = strings.TrimSpace(line)
-				if len(line) > 20 && strings.Contains(actualContent, line) {
+				if len(line) > 20 && strings.Contains(normActual, line) {
 					return ValidationResult{
 						Verified:   false,
 						Confidence: 0.95,
@@ -159,8 +172,8 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 	}
 
 	// CHECK 5: New content must be FULLY PRESENT
-	if newContent != "" {
-		if !strings.Contains(actualContent, newContent) {
+	if normNew != "" {
+		if !strings.Contains(normActual, normNew) {
 			return ValidationResult{
 				Verified:   false,
 				Confidence: 1.0,
@@ -173,9 +186,9 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 			}
 		}
 
-		// CHECK 6: Exact match verification (byte-for-byte)
+		// CHECK 6: Exact match verification (byte-for-byte in LF space)
 		if v.RequireExactMatch {
-			newIndex := strings.Index(actualContent, newContent)
+			newIndex := strings.Index(normActual, normNew)
 			if newIndex == -1 {
 				// Should never happen (already checked Contains above)
 				return ValidationResult{
@@ -187,9 +200,9 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 			}
 
 			// Verify the exact bytes match (no encoding issues, whitespace corruption, etc.)
-			extractedNew := actualContent[newIndex : newIndex+len(newContent)]
-			if extractedNew != newContent {
-				expectedHash := sha256.Sum256([]byte(newContent))
+			extractedNew := normActual[newIndex : newIndex+len(normNew)]
+			if extractedNew != normNew {
+				expectedHash := sha256.Sum256([]byte(normNew))
 				actualHash := sha256.Sum256([]byte(extractedNew))
 				return ValidationResult{
 					Verified:   false,
@@ -208,7 +221,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 
 	// CHECK 7: Context preservation (verify surrounding lines weren't corrupted)
 	if beforeContext, ok := req.Payload["context_before"].(string); ok && beforeContext != "" {
-		if !strings.Contains(actualContent, beforeContext) {
+		if !strings.Contains(normActual, normalizeLineEndings(beforeContext)) {
 			return ValidationResult{
 				Verified:   false,
 				Confidence: 0.9,
@@ -223,7 +236,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 	}
 
 	if afterContext, ok := req.Payload["context_after"].(string); ok && afterContext != "" {
-		if !strings.Contains(actualContent, afterContext) {
+		if !strings.Contains(normActual, normalizeLineEndings(afterContext)) {
 			return ValidationResult{
 				Verified:   false,
 				Confidence: 0.9,
@@ -251,8 +264,8 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 	}
 
 	// CHECK 9: Edit was singular (verify old content appears exactly 0 times)
-	oldCount := strings.Count(actualContent, oldContent)
-	if oldCount > 0 {
+	oldCount := strings.Count(normActual, normOld)
+	if normOld != "" && oldCount > 0 && !oldInNew {
 		return ValidationResult{
 			Verified:   false,
 			Confidence: 1.0,
@@ -266,7 +279,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 	}
 
 	// CHECK 10: New content appears at least once
-	newCount := strings.Count(actualContent, newContent)
+	newCount := strings.Count(normActual, normNew)
 	if newCount == 0 {
 		return ValidationResult{
 			Verified:   false,

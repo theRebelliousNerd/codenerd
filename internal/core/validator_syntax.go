@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -56,7 +57,10 @@ func (v *SyntaxValidator) CanValidate(actionType ActionType) bool {
 		actionType == ActionEditFile ||
 		actionType == ActionEditElement ||
 		actionType == ActionEditLines ||
-		actionType == ActionInsertLines
+		actionType == ActionInsertLines ||
+		// Deleting lines can break syntax (a removed closing brace),
+		// so deletes take the same parsers as inserts.
+		actionType == ActionDeleteLines
 }
 
 // Validate parses the file to check for syntax errors.
@@ -252,7 +256,7 @@ type tomlSyntaxError struct {
 }
 
 func (e *tomlSyntaxError) Error() string {
-	return "TOML syntax error at line " + itoaValidator(e.line) + ": " + e.msg
+	return "TOML syntax error at line " + strconv.Itoa(e.line) + ": " + e.msg
 }
 
 // MangleSyntaxValidator validates Mangle (.mg) files.
@@ -267,10 +271,18 @@ func NewMangleSyntaxValidator() *MangleSyntaxValidator {
 func (v *MangleSyntaxValidator) CanValidate(actionType ActionType) bool {
 	return actionType == ActionWriteFile ||
 		actionType == ActionFSWrite ||
-		actionType == ActionEditFile
+		actionType == ActionEditFile ||
+		actionType == ActionEditLines ||
+		actionType == ActionInsertLines ||
+		actionType == ActionDeleteLines
 }
 
-// Validate checks Mangle syntax by looking for common errors.
+// Validate checks Mangle syntax with the real parser (parseUnit), not
+// heuristics. The old check only noticed a missing period on Decl lines and
+// SQL-style aggregation; everything else passed, including unbalanced
+// parens and malformed rules. A parse failure is definitive, so it reports
+// at full confidence with the "syntax validation failed" prefix the
+// validation.mg reason vocabulary branches on.
 func (v *MangleSyntaxValidator) Validate(ctx context.Context, req ActionRequest, result ActionResult) ValidationResult {
 	if !result.Success {
 		return ValidationResult{
@@ -300,20 +312,19 @@ func (v *MangleSyntaxValidator) Validate(ctx context.Context, req ActionRequest,
 		}
 	}
 
-	issues := validateMangleSyntax(string(content))
-	if len(issues) > 0 {
+	if _, err := parseUnit(strings.NewReader(string(content))); err != nil {
 		return ValidationResult{
 			Verified:   false,
-			Confidence: 0.9,
+			Confidence: 1.0,
 			Method:     ValidationMethodSyntax,
-			Error:      "Mangle syntax issues detected",
-			Details:    map[string]any{"issues": issues},
+			Error:      "syntax validation failed: " + truncateStr(firstLine(err.Error()), 200),
+			Details:    map[string]any{"parse_error": err.Error()},
 		}
 	}
 
 	return ValidationResult{
 		Verified:   true,
-		Confidence: 0.9,
+		Confidence: 1.0,
 		Method:     ValidationMethodSyntax,
 	}
 }
@@ -324,68 +335,12 @@ func (v *MangleSyntaxValidator) Name() string { return "mangle_syntax_validator"
 // Priority returns the validator priority.
 func (v *MangleSyntaxValidator) Priority() int { return 20 }
 
-// validateMangleSyntax checks for common Mangle syntax errors.
-func validateMangleSyntax(content string) []string {
-	var issues []string
-	lines := strings.Split(content, "\n")
-
-	inComment := false
-	for i, line := range lines {
-		lineNum := i + 1
-		trimmed := strings.TrimSpace(line)
-
-		if trimmed == "" {
-			continue
-		}
-
-		if strings.HasPrefix(trimmed, "/*") {
-			inComment = true
-		}
-		if strings.HasSuffix(trimmed, "*/") {
-			inComment = false
-			continue
-		}
-		if inComment {
-			continue
-		}
-
-		if strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-
-		if strings.HasPrefix(trimmed, "Decl ") && !strings.HasSuffix(trimmed, ".") {
-			issues = append(issues, "line "+itoaValidator(lineNum)+": Decl missing period")
-		}
-
-		if strings.Contains(trimmed, " = sum(") || strings.Contains(trimmed, " = count(") {
-			issues = append(issues, "line "+itoaValidator(lineNum)+": SQL-style aggregation detected (use |> do fn:group_by)")
-		}
+// firstLine returns the text up to the first newline. Parser errors are
+// multi-line; the Error slot carries the summary while Details keeps the
+// full text.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
 	}
-
-	return issues
-}
-
-// itoaValidator converts int to string without importing strconv
-func itoaValidator(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	result := ""
-	negative := n < 0
-
-	var un uint
-	if negative {
-		un = ^uint(n) + 1 // Safely compute absolute value for MinInt
-	} else {
-		un = uint(n)
-	}
-
-	for un > 0 {
-		result = string(rune('0'+un%10)) + result
-		un /= 10
-	}
-	if negative {
-		result = "-" + result
-	}
-	return result
+	return s
 }

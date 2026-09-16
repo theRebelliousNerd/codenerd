@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"math"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -110,7 +111,7 @@ func TestActionValidator_MassiveValidators(t *testing.T) {
 func TestValidationResult_ToFacts_MassiveDetails(t *testing.T) {
 	details := make(map[string]any)
 	for i := range 1000 {
-		details["key"+itoaValidator(i)] = "value"
+		details["key"+strconv.Itoa(i)] = "value"
 	}
 	vr := ValidationResult{
 		Verified: false,

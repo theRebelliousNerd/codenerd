@@ -442,3 +442,240 @@ func TestCampaignCreateFile_RespectsNerdMd(t *testing.T) {
 		t.Fatalf("unprotected write did not land (content=%q, err=%v)", raw, readErr)
 	}
 }
+
+// TestValidatorAlias_CampaignWritesVerified pins validatorTypeAlias: campaign
+// actions that delegate to file/test handlers must run those handlers'
+// validators instead of taking the "skipped" branch.
+func TestValidatorAlias_CampaignWritesVerified(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "camp.txt")
+	if err := os.WriteFile(path, []byte("hello"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r := NewValidatorRegistry()
+	RegisterAllValidators(r)
+
+	req := ActionRequest{ActionID: "v-1", Type: ActionCampaignCreateFile, Target: path,
+		Payload: map[string]any{"content": "hello"}}
+	res := ActionResult{Success: true, Output: "written"}
+	results := r.Validate(ctx, req, res)
+	seenWrite := false
+	// A registry-level skip is a single "no validators registered" result.
+	// Per-validator skips (no parser for .txt, not a Mangle file) are
+	// legitimate granular verdicts, not dispatch misses.
+	if len(results) == 1 && results[0].Method == ValidationMethodSkipped {
+		t.Fatalf("campaign write validation skipped: %+v", results)
+	}
+	for _, vr := range results {
+		if vr.ActionID != "v-1" {
+			t.Errorf("result not stamped with action id: %+v", vr)
+		}
+		// Validators leave ActionType empty; the registry stamps the real
+		// (campaign) type so facts attribute the verification correctly.
+		if vr.ActionType != ActionCampaignCreateFile {
+			t.Errorf("ActionType = %q, want the campaign type", vr.ActionType)
+		}
+	}
+	// file_write_validator must have run and verified the hash.
+	for _, vr := range results {
+		if vr.Method == ValidationMethodHash && vr.Verified {
+			seenWrite = true
+		}
+	}
+	if !seenWrite {
+		t.Fatalf("no verified hash result for campaign write: %+v", results)
+	}
+
+	// Tamper: the aliased validators must catch a mismatch at high confidence.
+	if err := os.WriteFile(path, []byte("tampered"), 0644); err != nil {
+		t.Fatalf("tamper: %v", err)
+	}
+	results = r.Validate(ctx, req, res)
+	if ValidateAll(results) {
+		t.Fatalf("tampered campaign write verified: %+v", results)
+	}
+	if f := FirstFailure(results); f == nil || f.Confidence < 0.8 {
+		t.Fatalf("tamper not caught at high confidence: %+v", results)
+	}
+}
+
+// TestValidatorAlias_CampaignRunTestNotSkipped pins test delegation: a
+// campaign test run must reach the execution/test validators.
+func TestValidatorAlias_CampaignRunTestNotSkipped(t *testing.T) {
+	ctx := context.Background()
+	r := NewValidatorRegistry()
+	RegisterAllValidators(r)
+	req := ActionRequest{ActionID: "v-2", Type: ActionCampaignRunTest, Target: "go test ./..."}
+	res := ActionResult{Success: true, Output: "ok  	pkg	1.2s"}
+	results := r.Validate(ctx, req, res)
+	if len(results) == 0 {
+		t.Fatal("no validation results")
+	}
+	for _, vr := range results {
+		if vr.Method == ValidationMethodSkipped {
+			t.Fatalf("campaign test run validation skipped: %+v", results)
+		}
+	}
+}
+
+// TestValidatorAlias_CampaignDocumentSignalSkipped pins the deliberate
+// exception: signal-mode document requests (no content, nothing written)
+// take the skipped branch rather than failing existence checks.
+func TestValidatorAlias_CampaignDocumentSignalSkipped(t *testing.T) {
+	ctx := context.Background()
+	r := NewValidatorRegistry()
+	RegisterAllValidators(r)
+	req := ActionRequest{ActionID: "v-3", Type: ActionCampaignDocument, Target: "missing.md"}
+	res := ActionResult{Success: true, Output: "Documentation requested"}
+	results := r.Validate(ctx, req, res)
+	if len(results) != 1 || results[0].Method != ValidationMethodSkipped {
+		t.Fatalf("signal-mode document should skip validation, got: %+v", results)
+	}
+}
+
+// TestMangleSyntaxValidator_RealParser pins the heuristic-to-parser upgrade:
+// malformed rules the old checks never noticed (unbalanced parens) must
+// fail, while valid multi-line rules pass.
+func TestMangleSyntaxValidator_RealParser(t *testing.T) {
+	ctx := context.Background()
+	v := NewMangleSyntaxValidator()
+	cases := []struct {
+		name    string
+		content string
+		wantOK  bool
+	}{
+		{"unbalanced paren", "Decl foo(Name).\nfoo(\"bar\".\n", false},
+		{"missing period", "Decl foo(Name)\n", false},
+		{"sql aggregation", "total(X) :- X = sum(Y).\n", false},
+		{"valid multiline rule", "Decl a(X).\nDecl b(X).\nb(X) :-\n  a(X).\n", true},
+		{"valid fact", "Decl foo(Name).\nfoo(\"bar\").\n", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "case.mg")
+			if err := os.WriteFile(path, []byte(tc.content), 0644); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			vr := v.Validate(ctx, ActionRequest{Type: ActionWriteFile, Target: path}, ActionResult{Success: true})
+			if vr.Verified != tc.wantOK {
+				t.Fatalf("Verified=%v, want %v (error=%q)", vr.Verified, tc.wantOK, vr.Error)
+			}
+			if !tc.wantOK && !strings.HasPrefix(vr.Error, "syntax validation failed") {
+				t.Fatalf("Error=%q, want the validation.mg vocabulary prefix", vr.Error)
+			}
+		})
+	}
+}
+
+// TestSyntaxValidator_CoversDeleteLines pins delete coverage: removing lines
+// can break syntax (a deleted closing brace), so deletes take the parsers.
+func TestSyntaxValidator_CoversDeleteLines(t *testing.T) {
+	v := NewSyntaxValidator()
+	if !v.CanValidate(ActionDeleteLines) {
+		t.Fatal("SyntaxValidator skips delete_lines")
+	}
+	mv := NewMangleSyntaxValidator()
+	for _, at := range []ActionType{ActionEditLines, ActionInsertLines, ActionDeleteLines} {
+		if !mv.CanValidate(at) {
+			t.Fatalf("MangleSyntaxValidator skips %s", at)
+		}
+	}
+}
+
+// TestCodeDOMValidator_PreEditCaptureWired proves the capture hook end to
+// end: CapturePreEditState had no callers, so the "hash unchanged" check
+// never fired. Part 1 pins the check given a capture; part 2 pins that
+// executeAction performs the capture before a real line edit.
+func TestCodeDOMValidator_PreEditCaptureWired(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "w.go")
+	if err := os.WriteFile(path, []byte("package w\n"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// Part 1: captured pre-state + identical bytes = applied-nothing failure.
+	cv := NewCodeDOMValidator()
+	if err := cv.CapturePreEditState(path); err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	vr := cv.Validate(ctx, ActionRequest{Type: ActionEditLines, Target: path}, ActionResult{Success: true})
+	if vr.Verified {
+		t.Fatalf("unchanged file verified after capture: %+v", vr)
+	}
+	if !strings.Contains(vr.Error, "hash unchanged") {
+		t.Fatalf("Error=%q, want the unchanged-hash verdict", vr.Error)
+	}
+
+	// Part 2: executeAction captures before running the edit.
+	vs, editDir := lineEditStore(t)
+	vs.SetKernel(setupMockKernel(t)) // nerd.md gate fails closed without one
+	name := writeLinesFile(t, editDir, "e.go", []string{"package e", "", "func F() {}"})
+	abs := filepath.Join(editDir, name)
+	_, err := vs.executeAction(ctx, ActionRequest{
+		ActionID: "cap-1", Type: ActionEditLines, Target: name,
+		Payload: map[string]any{"start_line": 1, "end_line": 1, "content": "package edited"},
+	})
+	if err != nil {
+		t.Fatalf("executeAction: %v", err)
+	}
+	found := false
+	for _, validator := range vs.validators.Validators() {
+		if c, ok := validator.(*CodeDOMValidator); ok {
+			found = true
+			if h := c.preEditHashes[abs]; h == "" {
+				t.Fatalf("no pre-edit snapshot for %s after executeAction", abs)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no CodeDOMValidator in the store registry")
+	}
+}
+
+// TestEnhancedEditValidator_CRLFAndExpansion pins LF-space comparison: a
+// CRLF working copy with LF payload must verify, and an edit that expands
+// text (old inside new) must not trip the old-absence checks. A genuine
+// mismatch must still fail.
+func TestEnhancedEditValidator_CRLFAndExpansion(t *testing.T) {
+	ctx := context.Background()
+	v := NewEnhancedEditValidator()
+
+	t.Run("crlf", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "c.txt")
+		// File on disk is CRLF; payload carries LF text.
+		if err := os.WriteFile(path, []byte("alpha\r\nBETA\r\ngamma\r\n"), 0644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		vr := v.Validate(ctx, ActionRequest{Type: ActionEditFile, Target: path,
+			Payload: map[string]any{"old": "beta", "new": "BETA"}}, ActionResult{Success: true})
+		if !vr.Verified {
+			t.Fatalf("CRLF edit failed validation: %q (%+v)", vr.Error, vr.Details)
+		}
+	})
+
+	t.Run("expansion", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "e.txt")
+		if err := os.WriteFile(path, []byte("type UserService struct{}\n"), 0644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		vr := v.Validate(ctx, ActionRequest{Type: ActionEditFile, Target: path,
+			Payload: map[string]any{"old": "User", "new": "UserService"}}, ActionResult{Success: true})
+		if !vr.Verified {
+			t.Fatalf("expanding edit failed validation: %q (%+v)", vr.Error, vr.Details)
+		}
+	})
+
+	t.Run("genuine mismatch still fails", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "m.txt")
+		if err := os.WriteFile(path, []byte("nothing relevant\n"), 0644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		vr := v.Validate(ctx, ActionRequest{Type: ActionEditFile, Target: path,
+			Payload: map[string]any{"old": "aaa", "new": "bbb"}}, ActionResult{Success: true})
+		if vr.Verified {
+			t.Fatalf("mismatched edit verified: %+v", vr)
+		}
+	})
+}

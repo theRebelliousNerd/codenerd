@@ -1097,7 +1097,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/context/working_store.go`
 
 ### internal/core/action_validator.go (1)
-- [ ] `internal/core/action_validator.go`
+- [x] `internal/core/action_validator.go`
 
 ### internal/core/action_validator_gaps_test.go (1)
 - [ ] `internal/core/action_validator_gaps_test.go`
@@ -1691,7 +1691,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/validation_reason_vocabulary_test.go`
 
 ### internal/core/validator_codedom.go (1)
-- [ ] `internal/core/validator_codedom.go`
+- [x] `internal/core/validator_codedom.go`
 
 ### internal/core/validator_codedom_crlf_test.go (1)
 - [ ] `internal/core/validator_codedom_crlf_test.go`
@@ -1700,13 +1700,13 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/validator_codedom_delete_lines_test.go`
 
 ### internal/core/validator_dir.go (1)
-- [ ] `internal/core/validator_dir.go`
+- [x] `internal/core/validator_dir.go`
 
 ### internal/core/validator_edit_enhanced.go (1)
-- [ ] `internal/core/validator_edit_enhanced.go`
+- [x] `internal/core/validator_edit_enhanced.go`
 
 ### internal/core/validator_exec.go (1)
-- [ ] `internal/core/validator_exec.go`
+- [x] `internal/core/validator_exec.go`
 
 ### internal/core/validator_exec_gaps_test.go (1)
 - [ ] `internal/core/validator_exec_gaps_test.go`
@@ -1715,25 +1715,25 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/validator_exec_test.go`
 
 ### internal/core/validator_file.go (1)
-- [ ] `internal/core/validator_file.go`
+- [x] `internal/core/validator_file.go`
 
 ### internal/core/validator_file_integration_test.go (1)
 - [ ] `internal/core/validator_file_integration_test.go`
 
 ### internal/core/validator_paranoid.go (1)
-- [ ] `internal/core/validator_paranoid.go`
+- [x] `internal/core/validator_paranoid.go`
 
 ### internal/core/validator_paranoid_test.go (1)
 - [ ] `internal/core/validator_paranoid_test.go`
 
 ### internal/core/validator_registry.go (1)
-- [ ] `internal/core/validator_registry.go`
+- [x] `internal/core/validator_registry.go`
 
 ### internal/core/validator_registry_test.go (1)
 - [ ] `internal/core/validator_registry_test.go`
 
 ### internal/core/validator_syntax.go (1)
-- [ ] `internal/core/validator_syntax.go`
+- [x] `internal/core/validator_syntax.go`
 
 ### internal/core/validator_syntax_gaps_test.go (1)
 - [ ] `internal/core/validator_syntax_gaps_test.go`

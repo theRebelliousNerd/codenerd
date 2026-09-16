@@ -112,9 +112,38 @@ func (r *ValidatorRegistry) Register(v ActionValidator) {
 	r.byType = make(map[ActionType][]ActionValidator)
 }
 
+// validatorTypeAlias maps delegating action types onto the type whose
+// validators verify the work. Campaign file/test actions delegate to the file
+// and test handlers, so without this their results take the "skipped" branch
+// and real mutations go unverified. One map, not per-validator cases: the
+// registry comment explains why a duplicated safety list drifts.
+//
+// Deliberately NOT mapping CampaignDocument: it only writes when content is
+// present, and running existence validators over signal-mode requests would
+// fail actions that did exactly what they claimed.
+var validatorTypeAlias = map[ActionType]ActionType{
+	ActionCampaignCreateFile: ActionWriteFile,
+	ActionCampaignModifyFile: ActionEditFile,
+	ActionCampaignWriteTest:  ActionWriteFile,
+	ActionCampaignRunTest:    ActionRunTests,
+}
+
+// Validators returns a snapshot of the registered validators for inspection
+// (e.g. priming stateful validators before execution).
+func (r *ValidatorRegistry) Validators() []ActionValidator {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]ActionValidator, len(r.validators))
+	copy(out, r.validators)
+	return out
+}
+
 // getValidatorsForType returns validators that can handle the given action type.
 // Results are cached for performance.
 func (r *ValidatorRegistry) getValidatorsForType(actionType ActionType) []ActionValidator {
+	if canon, ok := validatorTypeAlias[actionType]; ok {
+		actionType = canon
+	}
 	r.mu.RLock()
 	if cached, ok := r.byType[actionType]; ok {
 		r.mu.RUnlock()

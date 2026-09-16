@@ -82,10 +82,16 @@ func TestSyntaxValidator_TypeCoercion(t *testing.T) {
 		t.Error("Expected YAML with only number to fail")
 	}
 
-	// Mangle behaves
-	issues := validateMangleSyntax("123")
-	if len(issues) > 0 {
-		t.Errorf("Mangle pure integer string should not trigger issues, got %v", issues)
+	// Mangle parses with the real parser: a bare integer is not a fact,
+	// rule, Decl or query, so it must fail validation.
+	mangleProbe := NewMangleSyntaxValidator()
+	manglePath := filepath.Join(t.TempDir(), "probe.mg")
+	if err := os.WriteFile(manglePath, []byte("123"), 0644); err != nil {
+		t.Fatalf("write probe: %v", err)
+	}
+	mangleReq := ActionRequest{Type: ActionWriteFile, Target: manglePath}
+	if vr := mangleProbe.Validate(context.Background(), mangleReq, ActionResult{Success: true}); vr.Verified {
+		t.Error("bare integer .mg content passed validation, want rejection")
 	}
 }
 

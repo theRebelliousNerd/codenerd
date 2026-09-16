@@ -207,7 +207,7 @@ func (v *ExecutionValidator) Validate(ctx context.Context, req ActionRequest, re
 		Method:     ValidationMethodOutputScan,
 		Details: map[string]any{
 			"output_length":    len(output),
-			"patterns_checked": len(v.failurePatterns),
+			"patterns_checked": len(patterns),
 		},
 	}
 }

@@ -39,6 +39,45 @@ func (v *CodeDOMValidator) CapturePreEditState(path string) error {
 	return nil
 }
 
+// capturePreEditState primes CodeDOM change detection before an edit runs.
+// CodeDOMValidator compares post-edit bytes against this snapshot; without
+// this call its "hash unchanged" check never fires (CapturePreEditState had
+// no callers). Element refs resolve through the scope when one is attached;
+// anything unresolvable is skipped, which the validator treats as "no
+// pre-state" rather than as a failure.
+func (v *VirtualStore) capturePreEditState(req ActionRequest) {
+	switch req.Type {
+	case ActionEditElement, ActionEditLines, ActionInsertLines, ActionDeleteLines:
+	default:
+		return
+	}
+	v.mu.RLock()
+	validators := v.validators
+	scope := v.codeScope
+	v.mu.RUnlock()
+	if validators == nil {
+		return
+	}
+	path := req.Target
+	if strings.Contains(path, ":") {
+		if scope == nil {
+			return
+		}
+		elem := scope.GetCoreElement(path)
+		if elem == nil {
+			return
+		}
+		path = elem.File
+	} else {
+		path = v.resolvePath(path)
+	}
+	for _, validator := range validators.Validators() {
+		if cv, ok := validator.(*CodeDOMValidator); ok {
+			_ = cv.CapturePreEditState(path)
+		}
+	}
+}
+
 // CanValidate returns true for CodeDOM action types.
 func (v *CodeDOMValidator) CanValidate(actionType ActionType) bool {
 	return actionType == ActionEditElement ||
