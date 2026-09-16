@@ -295,19 +295,40 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 		if d, ok := k.programInfo.Decls[pred]; ok {
 			predicateFound = true
 			queryDeclExternal = d.IsExternal()
-			err := k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
-				fact := atomToFact(a)
-				if factMatchesPattern(fact, patternFact) {
-					if err := cb(fact); err != nil {
+			// Resolve the authoritative source BEFORE any user callback runs.
+			// For an external the live VirtualStore is truth and stored rows are
+			// eval-cache artifacts (see queryExternalVirtualStore): streaming the
+			// cache rows through cb first would hand callers stale data, and a
+			// callback that already fired cannot be deduplicated or retracted —
+			// a provider failure must surface with zero callbacks made.
+			vsFacts, vsHandled, verr := k.queryExternalVirtualStore(predicate, patternFact, hasPattern, queryDeclExternal)
+			if vsHandled {
+				// Live rows supersede stored rows; the eval cache is skipped.
+				if verr != nil {
+					timer.Stop()
+					return verr
+				}
+				for _, f := range vsFacts {
+					if err := cb(f); err != nil {
+						timer.Stop()
 						return err
 					}
 					count++
 				}
-				return nil
-			})
-			if err != nil {
-				timer.Stop()
-				return err
+			} else {
+				if err := k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+					fact := atomToFact(a)
+					if factMatchesPattern(fact, patternFact) {
+						if err := cb(fact); err != nil {
+							return err
+						}
+						count++
+					}
+					return nil
+				}); err != nil {
+					timer.Stop()
+					return err
+				}
 			}
 		}
 	} else {
@@ -327,20 +348,6 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 					return err
 				}
 			}
-		}
-	}
-
-	if vsFacts, handled, verr := k.queryExternalVirtualStore(predicate, patternFact, hasPattern, queryDeclExternal); handled {
-		if verr != nil {
-			timer.Stop()
-			return verr
-		}
-		for _, f := range vsFacts {
-			if err := cb(f); err != nil {
-				timer.Stop()
-				return err
-			}
-			count++
 		}
 	}
 
