@@ -66,15 +66,24 @@ func (m *MockKernel) Query(predicate string) ([]Fact, error) {
 	if m.QueryFunc != nil {
 		return m.QueryFunc(predicate)
 	}
-	// Default: if querying permitted, return everything permitted
+	// Default: mirror the constitution rule, which derives permitted/3 from
+	// an asserted pending_action/5 with an exactly matching canonical
+	// payload. A hardcoded payload here would silently desync from the
+	// payload the loop actually routes (e.g. timeout_seconds) and turn the
+	// suite into a permit-denial test.
 	if predicate == "permitted" {
-		return []Fact{
-			// VirtualStore authorization is exact across action, target, and
-			// canonical payload. Keep this mock aligned with the default TDD
-			// command instead of teaching tests that wildcard classifications
-			// are permissions.
-			{Predicate: "permitted", Args: []any{"/run_tests", "go test ./...", "{}"}},
-		}, nil
+		var out []Fact
+		for _, f := range m.Facts {
+			if f.Predicate == "pending_action" && len(f.Args) >= 4 {
+				out = append(out, Fact{Predicate: "permitted", Args: []any{f.Args[1], f.Args[2], f.Args[3]}})
+			}
+		}
+		if len(out) == 0 {
+			out = []Fact{
+				{Predicate: "permitted", Args: []any{"/run_tests", "go test ./...", "{}"}},
+			}
+		}
+		return out, nil
 	}
 	// Return collected facts matching predicate
 	var results []Fact
@@ -362,10 +371,9 @@ func TestTDDLoop_ToFacts_MangleTypes(t *testing.T) {
 
 // 4. [Type Coercion] Test Output Formats: JSON safely handled
 func TestTDDLoop_ParseTestOutput_JSON(t *testing.T) {
-	tdd, _, _, _ := SetupTDDLoop(t)
 
 	jsonOutput := `{"errors": [{"file": "main.go", "line": 10, "msg": "syntax error"}]}`
-	diagnostics := tdd.parseTestOutput(jsonOutput)
+	diagnostics := parseTestOutput(jsonOutput)
 
 	// Should gracefully return 0 diagnostics since it doesn't match standard regex, not panic
 	if len(diagnostics) != 0 {
@@ -375,7 +383,6 @@ func TestTDDLoop_ParseTestOutput_JSON(t *testing.T) {
 
 // 5. [User Request Extremes] Large Log File: streaming parsing
 func TestTDDLoop_ParseTestOutput_LargeFile(t *testing.T) {
-	tdd, _, _, _ := SetupTDDLoop(t)
 
 	// Construct a massive 10MB string
 	var sb strings.Builder
@@ -389,7 +396,7 @@ func TestTDDLoop_ParseTestOutput_LargeFile(t *testing.T) {
 
 	// Should not OOM or take excessively long due to bufio.Scanner
 	start := time.Now()
-	diagnostics := tdd.parseTestOutput(output)
+	diagnostics := parseTestOutput(output)
 	elapsed := time.Since(start)
 
 	if elapsed > 10*time.Second {
@@ -542,5 +549,70 @@ func TestTDDLoopUsesExecutionStatusNotOutputWords(t *testing.T) {
 				t.Fatalf("calls=%d state=%s want=%s", calls, loop.GetState(), tc.want)
 			}
 		})
+	}
+}
+
+func TestTimeoutPayloadSeconds(t *testing.T) {
+	cases := []struct {
+		name    string
+		timeout time.Duration
+		want    int
+		wantOK  bool
+	}{
+		{"zero omits key", 0, 0, false},
+		{"negative omits key", -time.Second, 0, false},
+		{"sub-second floors to one", 10 * time.Millisecond, 1, true},
+		{"exact second", 2 * time.Second, 2, true},
+		{"fraction ceils", 1500 * time.Millisecond, 2, true},
+		{"minutes", 15 * time.Minute, 900, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := timeoutPayloadSeconds(tc.timeout)
+			if ok != tc.wantOK || got != tc.want {
+				t.Fatalf("timeoutPayloadSeconds(%v) = (%d, %v), want (%d, %v)",
+					tc.timeout, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestTDDLoop_NilVirtualStore_FailClosed(t *testing.T) {
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Skipf("kernel unavailable: %v", err)
+	}
+	loop := NewTDDLoop(nil, kernel, nil)
+	if err := loop.Run(context.Background()); err == nil {
+		t.Fatal("expected error for nil virtual store, got nil")
+	}
+	if err := loop.RunToCompletion(context.Background()); err == nil {
+		t.Fatal("expected RunToCompletion error for nil virtual store, got nil")
+	}
+}
+
+// TestTDDLoop_TestTimeout_ReachesExecutor pins the timeout wiring through the
+// whole TDD→VirtualStore→executor chain: config.TestTimeout must arrive at
+// the executor as Limits.TimeoutMs, with a pending_action payload the permit
+// check accepts. (The mock kernel derives permitted/3 from the asserted
+// pending_action, mirroring the constitution rule.)
+func TestTDDLoop_TestTimeout_ReachesExecutor(t *testing.T) {
+	tdd, mockExec, _, _ := SetupTDDLoop(t)
+	var gotTimeoutMs int64 = -1
+	mockExec.ExecuteFunc = func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
+		if cmd.Limits != nil {
+			gotTimeoutMs = cmd.Limits.TimeoutMs
+		}
+		return &tactile.ExecutionResult{Success: true, ExitCode: 0, Stdout: "ok"}, nil
+	}
+	tdd.config.TestTimeout = 2 * time.Second
+	if err := tdd.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if gotTimeoutMs != 2000 {
+		t.Fatalf("executor saw TimeoutMs=%d, want 2000", gotTimeoutMs)
+	}
+	if tdd.GetState() != TDDStatePassing {
+		t.Fatalf("state=%s, want passing", tdd.GetState())
 	}
 }

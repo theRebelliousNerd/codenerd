@@ -3030,6 +3030,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/tactile/swebench/instance.go`
 - [x] `internal/tactile/swebench/instance_test.go`
 - [x] `internal/tactile/tactile_test.go`
+- [x] `internal/tactile/timeout_kill_test.go` (new: grandchild-kill regression pins)
 - [x] `internal/tactile/types.go`
 - [x] `internal/tactile/types_coverage_test.go`
 
@@ -3501,7 +3502,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `tests/e2e/shadowmode_commit_safety_boundary_test.go`
 - [ ] `tests/e2e/spawner_apischeduler_integration_test.go`
 - [ ] `tests/e2e/task_executor_async_lifecycle_test.go`
-- [ ] `tests/e2e/tddloop_executor_integration_test.go`
+- [x] `tests/e2e/tddloop_executor_integration_test.go` (18/18 green; hang fixed, stalls real)
 - [ ] `tests/e2e/tool_safety_fallback_config_test.go`
 - [ ] `tests/e2e/virtualstore_dreamer_integration_test.go`
 - [ ] `tests/e2e/virtualstore_graphquery_integration_test.go`

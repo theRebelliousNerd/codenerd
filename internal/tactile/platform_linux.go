@@ -207,6 +207,11 @@ func (e *LimitedExecutorLinux) Execute(ctx context.Context, cmd Command) (*Execu
 
 	// Set up process group for clean killing
 	setupProcessGroup(execCmd)
+	// Kill the whole process group on timeout/cancel: the real work is
+	// usually a grandchild of the spawned shell, and killing only the shell
+	// leaves the grandchild holding the output pipes open, which blocks
+	// Wait() until it exits on its own and defeats the timeout.
+	execCmd.Cancel = func() error { return killProcessGroup(execCmd) }
 
 	// Record start time
 	result.StartedAt = time.Now()
@@ -757,6 +762,12 @@ func (e *NamespaceExecutor) Execute(ctx context.Context, cmd Command) (*Executio
 
 	execCmd.Stdout = stdoutLimited
 	execCmd.Stderr = stderrLimited
+
+	// Kill the whole process group on timeout/cancel: the real work is
+	// usually a grandchild of the spawned shell, and killing only the shell
+	// leaves the grandchild holding the output pipes open, which blocks
+	// Wait() until it exits on its own and defeats the timeout.
+	execCmd.Cancel = func() error { return killProcessGroup(execCmd) }
 
 	// Record start time
 	result.StartedAt = time.Now()

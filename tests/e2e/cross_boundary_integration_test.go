@@ -165,7 +165,6 @@ func TestE2E_CrossBoundary_TDDLoop_FullRepairCycle(t *testing.T) {
 		BuildCommand: "echo ok",
 		TestTimeout:  5 * time.Second,
 		BuildTimeout: 5 * time.Second,
-		WorkingDir:   t.TempDir(),
 	}
 
 	loop := core.NewTDDLoopWithConfig(vs, kernel, llm, cfg)
@@ -588,7 +587,6 @@ func TestE2E_CrossBoundary_TDDLoop_PatchGeneration_WithLLM(t *testing.T) {
 		BuildCommand: "echo ok",
 		TestTimeout:  5 * time.Second,
 		BuildTimeout: 5 * time.Second,
-		WorkingDir:   t.TempDir(),
 	}
 
 	loop := core.NewTDDLoopWithConfig(vs, kernel, llm, cfg)

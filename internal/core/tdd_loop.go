@@ -3,7 +3,9 @@ package core
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"sync"
@@ -100,13 +102,23 @@ func (p Patch) ToFact() Fact {
 }
 
 // TDDLoopConfig holds configuration for the TDD loop.
+//
+// TestTimeout and BuildTimeout are forwarded to the VirtualStore as the
+// per-action timeout_seconds payload, so a stalled suite or build is killed
+// and the loop degrades to escalation instead of hanging. The VirtualStore
+// timeout path has whole-second granularity: a positive timeout below one
+// second is raised to one second, and a non-positive timeout omits the key
+// so the VirtualStore default applies.
+//
+// There is deliberately no WorkingDir here: test and build commands execute
+// inside the VirtualStore's own working directory, and a second directory
+// knob on this struct used to sit beside it as a silent no-op.
 type TDDLoopConfig struct {
 	MaxRetries   int
 	TestCommand  string
 	BuildCommand string
 	TestTimeout  time.Duration
 	BuildTimeout time.Duration
-	WorkingDir   string
 }
 
 // DefaultTDDLoopConfig returns sensible defaults.
@@ -117,8 +129,22 @@ func DefaultTDDLoopConfig() TDDLoopConfig {
 		BuildCommand: "go build ./...",
 		TestTimeout:  15 * time.Minute,
 		BuildTimeout: 10 * time.Minute,
-		WorkingDir:   ".",
 	}
+}
+
+// timeoutPayloadSeconds converts a TDD timeout into the whole-second
+// timeout_seconds payload the VirtualStore handlers understand. ok is false
+// when the timeout is non-positive, meaning the caller must omit the key so
+// the VirtualStore default applies.
+func timeoutPayloadSeconds(timeout time.Duration) (seconds int, ok bool) {
+	if timeout <= 0 {
+		return 0, false
+	}
+	seconds = int(math.Ceil(timeout.Seconds()))
+	if seconds < 1 {
+		seconds = 1
+	}
+	return seconds, true
 }
 
 // TDDLoop implements the TDD repair loop state machine.
@@ -254,12 +280,25 @@ func (t *TDDLoop) NextAction() TDDAction {
 		return TDDActionEscalate
 
 	case TDDStateAnalyzing:
+		// Termination: the Analyzing→Generating→Applying→Analyzing repair
+		// cycle never passes through Failing or CompileError, so without a
+		// budget check here a permanently failing edit or build loops until
+		// the context dies instead of escalating.
+		if t.retryCount >= t.maxRetries {
+			return TDDActionEscalate
+		}
 		return TDDActionAnalyzeRoot
 
 	case TDDStateGenerating:
+		if t.retryCount >= t.maxRetries {
+			return TDDActionEscalate
+		}
 		return TDDActionGeneratePatch
 
 	case TDDStateApplying:
+		if t.retryCount >= t.maxRetries {
+			return TDDActionEscalate
+		}
 		return TDDActionApplyPatch
 
 	case TDDStateCompiling:
@@ -284,6 +323,12 @@ func (t *TDDLoop) NextAction() TDDAction {
 
 // Run executes a single step of the TDD loop.
 func (t *TDDLoop) Run(ctx context.Context) error {
+	// Fail closed: every step routes through the VirtualStore, so a nil
+	// store must be an error here rather than a nil-pointer panic deep in
+	// a step handler.
+	if t.virtualStore == nil {
+		return fmt.Errorf("TDD loop requires a virtual store")
+	}
 	action := t.NextAction()
 
 	switch action {
@@ -345,9 +390,32 @@ func (t *TDDLoop) Reset() {
 // runTests executes the test suite.
 func (t *TDDLoop) runTests(ctx context.Context) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
+	if t.virtualStore == nil || t.kernel == nil {
+		t.mu.Unlock()
+		return fmt.Errorf("test execution requires a kernel and virtual store")
+	}
 	t.transition(TDDStateRunning, TDDActionRunTests, nil)
+	testCommand := t.config.TestCommand
+	testTimeout := t.config.TestTimeout
+	vs := t.virtualStore
+	kernel := t.kernel
+	t.mu.Unlock()
+
+	// The lock stays released across the subprocess call below: holding it
+	// would stall every concurrent reader (GetState, Reset) for the whole
+	// test run. State is re-locked only to record the outcome.
+	//
+	// The timeout payload is built once and shared: the permit check
+	// re-marshals the routed action's payload and requires an exact match
+	// with the pending_action JSON, so the two must come from one marshal.
+	payload := map[string]any{}
+	if seconds, ok := timeoutPayloadSeconds(testTimeout); ok {
+		payload["timeout_seconds"] = seconds
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to encode test action payload: %w", err)
+	}
 
 	// Execute tests via VirtualStore
 	// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
@@ -356,25 +424,26 @@ func (t *TDDLoop) runTests(ctx context.Context) error {
 		Args: []any{
 			fmt.Sprintf("tdd-test-%d", time.Now().UnixNano()),
 			"/run_tests",
-			t.config.TestCommand,
+			testCommand,
+			payload,
 		},
 	}
 
-	if t.kernel == nil {
-		return fmt.Errorf("test execution requires a kernel")
-	}
-	pending := Fact{Predicate: "pending_action", Args: []any{action.Args[0], MangleAtom("/run_tests"), t.config.TestCommand, "{}", time.Now().Unix()}}
-	if err := t.kernel.Assert(pending); err != nil {
+	pending := Fact{Predicate: "pending_action", Args: []any{action.Args[0], MangleAtom("/run_tests"), testCommand, string(payloadBytes), time.Now().Unix()}}
+	if err := kernel.Assert(pending); err != nil {
 		return err
 	}
-	defer t.kernel.RetractFact(pending)
-	result, err := t.virtualStore.RouteActionResult(ctx, action)
+	defer kernel.RetractFact(pending)
+	result, err := vs.RouteActionResult(ctx, action)
 	output := result.Output
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.lastOutput = output
 
 	if err != nil || !result.Success || ctx.Err() != nil {
 		t.retryCount++
-		t.diagnostics = t.parseTestOutput(output)
+		t.diagnostics = parseTestOutput(output)
 		t.transition(TDDStateFailing, TDDActionRunTests, map[string]any{
 			"error_count": len(t.diagnostics),
 			"retry":       t.retryCount,
@@ -497,7 +566,7 @@ func (t *TDDLoop) generatePatch(ctx context.Context) error {
 	}
 
 	// Parse LLM response
-	patches := t.parseLLMPatch(resp)
+	patches := parseLLMPatch(resp)
 
 	// Re-acquire lock to mutate state
 	t.mu.Lock()
@@ -518,7 +587,9 @@ func (t *TDDLoop) generatePatch(ctx context.Context) error {
 }
 
 // parseLLMPatch parses the LLM response into Patch structs.
-func (t *TDDLoop) parseLLMPatch(response string) []Patch {
+// A pure function: LLM output parsing must not depend on loop state, so it
+// takes no receiver and is unit-testable in isolation.
+func parseLLMPatch(response string) []Patch {
 	patches := make([]Patch, 0)
 
 	// Simple parsing logic (robustness could be improved)
@@ -558,32 +629,56 @@ func (t *TDDLoop) parseLLMPatch(response string) []Patch {
 // applyPatch applies the generated patches.
 func (t *TDDLoop) applyPatch(ctx context.Context) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	if t.virtualStore == nil {
+		t.mu.Unlock()
+		return fmt.Errorf("patch application requires a virtual store")
+	}
+	// Snapshot under the lock, route without it: each edit is a blocking
+	// VirtualStore round-trip and must not stall concurrent readers.
+	patches := append([]Patch{}, t.patches...)
+	kernel := t.kernel
+	vs := t.virtualStore
+	t.mu.Unlock()
 
-	for _, patch := range t.patches {
+	for _, patch := range patches {
 		if patch.OldContent == "" || patch.NewContent == "" {
 			continue
 		}
 
 		// Apply via VirtualStore
 		// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
+		//
+		// The edit payload is built once and shared: the pending_action fact
+		// must carry the exact canonical JSON the permit check recomputes
+		// from the routed action, and two separate marshals of two separate
+		// maps would be a drift risk.
+		editPayload := map[string]any{
+			"old": patch.OldContent,
+			"new": patch.NewContent,
+		}
 		action := Fact{
 			Predicate: "next_action",
 			Args: []any{
 				fmt.Sprintf("tdd-edit-%d", time.Now().UnixNano()),
 				"/edit_file",
 				patch.FilePath,
-				map[string]any{
-					"old": patch.OldContent,
-					"new": patch.NewContent,
-				},
+				editPayload,
 			},
+		}
+		if kernel != nil {
+			payloadBytes, marshalErr := json.Marshal(editPayload)
+			if marshalErr == nil {
+				pending := Fact{Predicate: "pending_action", Args: []any{action.Args[0], MangleAtom("/edit_file"), patch.FilePath, string(payloadBytes), time.Now().Unix()}}
+				if assertErr := kernel.Assert(pending); assertErr == nil {
+					defer kernel.RetractFact(pending)
+				}
+			}
 		}
 
 		// RouteActionResult, not RouteAction: edit failures arrive as
 		// Success:false with a nil error, and the old check treated them
 		// as applied and moved on to Compiling.
-		result, err := t.virtualStore.RouteActionResult(ctx, action)
+		result, err := vs.RouteActionResult(ctx, action)
 		if err != nil || !result.Success {
 			failure := ""
 			if err != nil {
@@ -591,14 +686,23 @@ func (t *TDDLoop) applyPatch(ctx context.Context) error {
 			} else {
 				failure = result.Error
 			}
+			t.mu.Lock()
+			// A failed edit consumes a repair attempt, mirroring runTests:
+			// without this the Analyzing→Generating→Applying cycle never
+			// exhausts the retry budget and loops until the context dies.
+			t.retryCount++
 			// Mark as needing analysis
 			t.transition(TDDStateAnalyzing, TDDActionApplyPatch, map[string]any{
 				"error": failure,
+				"retry": t.retryCount,
 			})
+			t.mu.Unlock()
 			return nil
 		}
 	}
 
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.transition(TDDStateCompiling, TDDActionApplyPatch, nil)
 	return nil
 }
@@ -606,7 +710,25 @@ func (t *TDDLoop) applyPatch(ctx context.Context) error {
 // build compiles the project.
 func (t *TDDLoop) build(ctx context.Context) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	if t.virtualStore == nil {
+		t.mu.Unlock()
+		return fmt.Errorf("build requires a virtual store")
+	}
+	buildCommand := t.config.BuildCommand
+	buildTimeout := t.config.BuildTimeout
+	kernel := t.kernel
+	vs := t.virtualStore
+	t.mu.Unlock()
+
+	// Unlocked across the subprocess call, mirroring runTests.
+	payload := map[string]any{}
+	if seconds, ok := timeoutPayloadSeconds(buildTimeout); ok {
+		payload["timeout_seconds"] = seconds
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to encode build action payload: %w", err)
+	}
 
 	// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
 	action := Fact{
@@ -614,20 +736,39 @@ func (t *TDDLoop) build(ctx context.Context) error {
 		Args: []any{
 			fmt.Sprintf("tdd-build-%d", time.Now().UnixNano()),
 			"/build_project",
-			t.config.BuildCommand,
+			buildCommand,
+			payload,
 		},
+	}
+	// The permit rule only fires on an asserted pending_action (mirrors
+	// runTests): without this the constitutional gate denies every build.
+	// The pending payload is the same single marshal as the routed payload:
+	// the permit check requires an exact JSON match.
+	if kernel != nil {
+		pending := Fact{Predicate: "pending_action", Args: []any{action.Args[0], MangleAtom("/build_project"), buildCommand, string(payloadBytes), time.Now().Unix()}}
+		if assertErr := kernel.Assert(pending); assertErr == nil {
+			defer kernel.RetractFact(pending)
+		}
 	}
 
 	// RouteActionResult, not RouteAction: the old code grepped the output
 	// for the substring "error", which false-fires on success output like
 	// "0 errors" and misses failures that never print the word.
-	result, err := t.virtualStore.RouteActionResult(ctx, action)
+	result, err := vs.RouteActionResult(ctx, action)
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.lastOutput = result.Output
 
 	if err != nil || !result.Success {
-		t.diagnostics = t.parseBuildOutput(result.Output)
+		t.diagnostics = parseBuildOutput(result.Output)
+		// A failed build consumes a repair attempt, mirroring runTests:
+		// without this the repair cycle through CompileError never exhausts
+		// the retry budget and loops until the context dies.
+		t.retryCount++
 		t.transition(TDDStateCompileError, TDDActionBuild, map[string]any{
 			"error_count": len(t.diagnostics),
+			"retry":       t.retryCount,
 		})
 		return nil
 	}
@@ -639,10 +780,14 @@ func (t *TDDLoop) build(ctx context.Context) error {
 // escalate escalates to the user.
 func (t *TDDLoop) escalate(ctx context.Context) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
+	if t.virtualStore == nil {
+		t.mu.Unlock()
+		return fmt.Errorf("escalation requires a virtual store")
+	}
 	reason := fmt.Sprintf("TDD loop exhausted after %d retries. Last diagnostics: %d errors",
 		t.retryCount, len(t.diagnostics))
+	vs := t.virtualStore
+	t.mu.Unlock()
 
 	// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
 	action := Fact{
@@ -654,8 +799,12 @@ func (t *TDDLoop) escalate(ctx context.Context) error {
 		},
 	}
 
-	_, _ = t.virtualStore.RouteAction(ctx, action)
+	// Escalation delivery is best-effort: the loop already decided to stop,
+	// so a routing failure must not wedge it in a pre-escalation state.
+	_, _ = vs.RouteAction(ctx, action)
 
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.transition(TDDStateEscalated, TDDActionEscalate, map[string]any{
 		"reason": reason,
 	})
@@ -664,7 +813,8 @@ func (t *TDDLoop) escalate(ctx context.Context) error {
 }
 
 // parseTestOutput parses test output into diagnostics.
-func (t *TDDLoop) parseTestOutput(output string) []Diagnostic {
+// A pure function: output parsing must not depend on loop state.
+func parseTestOutput(output string) []Diagnostic {
 	diagnostics := make([]Diagnostic, 0)
 
 	scanner := bufio.NewScanner(strings.NewReader(output))
@@ -765,9 +915,9 @@ func (t *TDDLoop) parseTestOutput(output string) []Diagnostic {
 }
 
 // parseBuildOutput parses build output into diagnostics.
-func (t *TDDLoop) parseBuildOutput(output string) []Diagnostic {
+func parseBuildOutput(output string) []Diagnostic {
 	// Reuse test output parser as it covers compile errors too
-	return t.parseTestOutput(output)
+	return parseTestOutput(output)
 }
 
 // InjectPatch allows external code (e.g., LLM) to inject a patch.

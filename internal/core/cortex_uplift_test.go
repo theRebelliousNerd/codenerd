@@ -194,17 +194,16 @@ func TestTDDLoop_BuildFailureCompilesError(t *testing.T) {
 // TestTDDLoop_MalformedPatchSkipped pins the section-order guard: NEW: before
 // OLD: must skip the block, not slice out of range.
 func TestTDDLoop_MalformedPatchSkipped(t *testing.T) {
-	tdd, _, _, _ := SetupTDDLoop(t)
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("parseLLMPatch panicked: %v", r)
 		}
 	}()
-	patches := tdd.parseLLMPatch("FILE: x.go\nNEW:\nB\nOLD:\nA\nRATIONALE: r\n")
+	patches := parseLLMPatch("FILE: x.go\nNEW:\nB\nOLD:\nA\nRATIONALE: r\n")
 	if len(patches) != 0 {
 		t.Fatalf("malformed patch parsed: %+v", patches)
 	}
-	good := tdd.parseLLMPatch("FILE: x.go\nOLD:\nA\nNEW:\nB\nRATIONALE: r\n")
+	good := parseLLMPatch("FILE: x.go\nOLD:\nA\nNEW:\nB\nRATIONALE: r\n")
 	if len(good) != 1 || good[0].NewContent != "B" {
 		t.Fatalf("well-formed patch rejected: %+v", good)
 	}

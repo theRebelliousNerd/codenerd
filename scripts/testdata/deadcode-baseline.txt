@@ -277,12 +277,13 @@ internal/core/tdd_loop.go	TDDLoop.applyPatch
 internal/core/tdd_loop.go	TDDLoop.build
 internal/core/tdd_loop.go	TDDLoop.escalate
 internal/core/tdd_loop.go	TDDLoop.generatePatch
-internal/core/tdd_loop.go	TDDLoop.parseBuildOutput
-internal/core/tdd_loop.go	TDDLoop.parseLLMPatch
-internal/core/tdd_loop.go	TDDLoop.parseTestOutput
 internal/core/tdd_loop.go	TDDLoop.readErrorLog
 internal/core/tdd_loop.go	TDDLoop.runTests
 internal/core/tdd_loop.go	TDDLoop.transition
+internal/core/tdd_loop.go	parseBuildOutput
+internal/core/tdd_loop.go	parseLLMPatch
+internal/core/tdd_loop.go	parseTestOutput
+internal/core/tdd_loop.go	timeoutPayloadSeconds
 internal/core/virtual_store.go	CodeDOMScopePredicates
 internal/core/virtual_store.go	NewVirtualStore
 internal/diff/cache.go	FileDiff.Clone
@@ -656,8 +657,6 @@ internal/tactile/platform_linux_firejail.go	FirejailExecutor.buildFirejailArgs
 internal/tactile/platform_linux_firejail.go	FirejailExecutor.detectFirejail
 internal/tactile/platform_linux_firejail.go	NewFirejailExecutor
 internal/tactile/platform_unix.go	createRlimitsCommon
-internal/tactile/platform_unix.go	killProcessGroup
-internal/tactile/platform_unix.go	setupProcessGroup
 internal/tactile/python/environment.go	DefaultConfig
 internal/tactile/python/environment.go	Environment.ApplyPatch
 internal/tactile/python/environment.go	Environment.CheckoutBranch

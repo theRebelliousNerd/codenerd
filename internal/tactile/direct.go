@@ -164,6 +164,13 @@ func (e *DirectExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 	execCmd.Stdout = stdoutLimited
 	execCmd.Stderr = stderrLimited
 
+	setupProcessGroup(execCmd)
+	// Kill the whole process group on timeout/cancel: the real work is
+	// usually a grandchild of the spawned shell, and killing only the shell
+	// leaves the grandchild holding the output pipes open, which blocks
+	// Wait() until it exits on its own and defeats the timeout.
+	execCmd.Cancel = func() error { return killProcessGroup(execCmd) }
+
 	// Record start time
 	result.StartedAt = time.Now()
 	logging.TactileDebug("Starting process: %s", cmd.Binary)
