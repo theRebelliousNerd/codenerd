@@ -617,418 +617,418 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/build/tags_test.go`
 
 ### internal/campaign/assault_campaign.go (1)
-- [ ] `internal/campaign/assault_campaign.go`
+- [x] `internal/campaign/assault_campaign.go`
 
 ### internal/campaign/assault_helpers_test.go (1)
-- [ ] `internal/campaign/assault_helpers_test.go`
+- [x] `internal/campaign/assault_helpers_test.go`
 
 ### internal/campaign/assault_prompts.go (1)
-- [ ] `internal/campaign/assault_prompts.go`
+- [x] `internal/campaign/assault_prompts.go`
 
 ### internal/campaign/assault_report.go (1)
-- [ ] `internal/campaign/assault_report.go`
+- [x] `internal/campaign/assault_report.go`
 
 ### internal/campaign/assault_report_test.go (1)
-- [ ] `internal/campaign/assault_report_test.go`
+- [x] `internal/campaign/assault_report_test.go`
 
 ### internal/campaign/assault_tasks.go (1)
-- [ ] `internal/campaign/assault_tasks.go`
+- [x] `internal/campaign/assault_tasks.go`
 
 ### internal/campaign/assault_tasks_test.go (1)
-- [ ] `internal/campaign/assault_tasks_test.go`
+- [x] `internal/campaign/assault_tasks_test.go`
 
 ### internal/campaign/assault_types.go (1)
-- [ ] `internal/campaign/assault_types.go`
+- [x] `internal/campaign/assault_types.go`
 
 ### internal/campaign/campaign_fact_sync.go (1)
-- [ ] `internal/campaign/campaign_fact_sync.go`
+- [x] `internal/campaign/campaign_fact_sync.go`
 
 ### internal/campaign/campaign_prompts.go (1)
-- [ ] `internal/campaign/campaign_prompts.go`
+- [x] `internal/campaign/campaign_prompts.go`
 
 ### internal/campaign/campaign_prompts_atoms_test.go (1)
-- [ ] `internal/campaign/campaign_prompts_atoms_test.go`
+- [x] `internal/campaign/campaign_prompts_atoms_test.go`
 
 ### internal/campaign/campaign_ref_e2e_test.go (1)
-- [ ] `internal/campaign/campaign_ref_e2e_test.go`
+- [x] `internal/campaign/campaign_ref_e2e_test.go`
 
 ### internal/campaign/checkpoint.go (1)
-- [ ] `internal/campaign/checkpoint.go`
+- [x] `internal/campaign/checkpoint.go`
 
 ### internal/campaign/checkpoint_failclosed_test.go (1)
-- [ ] `internal/campaign/checkpoint_failclosed_test.go`
+- [x] `internal/campaign/checkpoint_failclosed_test.go`
 
 ### internal/campaign/checkpoint_gotest_json_test.go (1)
-- [ ] `internal/campaign/checkpoint_gotest_json_test.go`
+- [x] `internal/campaign/checkpoint_gotest_json_test.go`
 
 ### internal/campaign/checkpoint_integration_test.go (1)
-- [ ] `internal/campaign/checkpoint_integration_test.go`
+- [x] `internal/campaign/checkpoint_integration_test.go`
 
 ### internal/campaign/checkpoint_manual_review_test.go (1)
-- [ ] `internal/campaign/checkpoint_manual_review_test.go`
+- [x] `internal/campaign/checkpoint_manual_review_test.go`
 
 ### internal/campaign/checkpoint_parsers_test.go (1)
-- [ ] `internal/campaign/checkpoint_parsers_test.go`
+- [x] `internal/campaign/checkpoint_parsers_test.go`
 
 ### internal/campaign/checkpoint_phase_completion_test.go (1)
-- [ ] `internal/campaign/checkpoint_phase_completion_test.go`
+- [x] `internal/campaign/checkpoint_phase_completion_test.go`
 
 ### internal/campaign/checkpoint_test.go (1)
-- [ ] `internal/campaign/checkpoint_test.go`
+- [x] `internal/campaign/checkpoint_test.go`
 
 ### internal/campaign/checkpoint_verdict_contract_test.go (1)
-- [ ] `internal/campaign/checkpoint_verdict_contract_test.go`
+- [x] `internal/campaign/checkpoint_verdict_contract_test.go`
 
 ### internal/campaign/checkpoint_verdict_test.go (1)
-- [ ] `internal/campaign/checkpoint_verdict_test.go`
+- [x] `internal/campaign/checkpoint_verdict_test.go`
 
 ### internal/campaign/config_wiring_test.go (1)
-- [ ] `internal/campaign/config_wiring_test.go`
+- [x] `internal/campaign/config_wiring_test.go`
 
 ### internal/campaign/context_pager.go (1)
-- [ ] `internal/campaign/context_pager.go`
+- [x] `internal/campaign/context_pager.go`
 
 ### internal/campaign/context_pager_bench_test.go (1)
-- [ ] `internal/campaign/context_pager_bench_test.go`
+- [x] `internal/campaign/context_pager_bench_test.go`
 
 ### internal/campaign/context_pager_test.go (1)
-- [ ] `internal/campaign/context_pager_test.go`
+- [x] `internal/campaign/context_pager_test.go`
 
 ### internal/campaign/decomposer.go (1)
-- [ ] `internal/campaign/decomposer.go`
+- [x] `internal/campaign/decomposer.go`
 
 ### internal/campaign/decomposer_documents.go (1)
-- [ ] `internal/campaign/decomposer_documents.go`
+- [x] `internal/campaign/decomposer_documents.go`
 
 ### internal/campaign/decomposer_helpers_test.go (1)
-- [ ] `internal/campaign/decomposer_helpers_test.go`
+- [x] `internal/campaign/decomposer_helpers_test.go`
 
 ### internal/campaign/decomposer_planning.go (1)
-- [ ] `internal/campaign/decomposer_planning.go`
+- [x] `internal/campaign/decomposer_planning.go`
 
 ### internal/campaign/decomposer_requirements.go (1)
-- [ ] `internal/campaign/decomposer_requirements.go`
+- [x] `internal/campaign/decomposer_requirements.go`
 
 ### internal/campaign/decomposer_requirements_test.go (1)
-- [ ] `internal/campaign/decomposer_requirements_test.go`
+- [x] `internal/campaign/decomposer_requirements_test.go`
 
 ### internal/campaign/decomposer_retype_test.go (1)
-- [ ] `internal/campaign/decomposer_retype_test.go`
+- [x] `internal/campaign/decomposer_retype_test.go`
 
 ### internal/campaign/decomposer_test.go (1)
-- [ ] `internal/campaign/decomposer_test.go`
+- [x] `internal/campaign/decomposer_test.go`
 
 ### internal/campaign/document_ingestor.go (1)
-- [ ] `internal/campaign/document_ingestor.go`
+- [x] `internal/campaign/document_ingestor.go`
 
 ### internal/campaign/edge_case_detector.go (1)
-- [ ] `internal/campaign/edge_case_detector.go`
+- [x] `internal/campaign/edge_case_detector.go`
 
 ### internal/campaign/edge_case_detector_gaps_test.go (1)
-- [ ] `internal/campaign/edge_case_detector_gaps_test.go`
+- [x] `internal/campaign/edge_case_detector_gaps_test.go`
 
 ### internal/campaign/edge_case_detector_test.go (1)
-- [ ] `internal/campaign/edge_case_detector_test.go`
+- [x] `internal/campaign/edge_case_detector_test.go`
 
 ### internal/campaign/edge_case_helpers_test.go (1)
-- [ ] `internal/campaign/edge_case_helpers_test.go`
+- [x] `internal/campaign/edge_case_helpers_test.go`
 
 ### internal/campaign/errors.go (1)
-- [ ] `internal/campaign/errors.go`
+- [x] `internal/campaign/errors.go`
 
 ### internal/campaign/failure_classification_test.go (1)
-- [ ] `internal/campaign/failure_classification_test.go`
+- [x] `internal/campaign/failure_classification_test.go`
 
 ### internal/campaign/file_task_target_test.go (1)
-- [ ] `internal/campaign/file_task_target_test.go`
+- [x] `internal/campaign/file_task_target_test.go`
 
 ### internal/campaign/holographic_gathering_test.go (1)
-- [ ] `internal/campaign/holographic_gathering_test.go`
+- [x] `internal/campaign/holographic_gathering_test.go`
 
 ### internal/campaign/intelligence_formatting.go (1)
-- [ ] `internal/campaign/intelligence_formatting.go`
+- [x] `internal/campaign/intelligence_formatting.go`
 
 ### internal/campaign/intelligence_gatherer.go (1)
-- [ ] `internal/campaign/intelligence_gatherer.go`
+- [x] `internal/campaign/intelligence_gatherer.go`
 
 ### internal/campaign/intelligence_gatherer_gaps_test.go (1)
-- [ ] `internal/campaign/intelligence_gatherer_gaps_test.go`
+- [x] `internal/campaign/intelligence_gatherer_gaps_test.go`
 
 ### internal/campaign/intelligence_gatherer_test.go (1)
-- [ ] `internal/campaign/intelligence_gatherer_test.go`
+- [x] `internal/campaign/intelligence_gatherer_test.go`
 
 ### internal/campaign/intelligence_gathering_methods.go (1)
-- [ ] `internal/campaign/intelligence_gathering_methods.go`
+- [x] `internal/campaign/intelligence_gathering_methods.go`
 
 ### internal/campaign/journal_ops.go (1)
-- [ ] `internal/campaign/journal_ops.go`
+- [x] `internal/campaign/journal_ops.go`
 
 ### internal/campaign/journal_ops_test.go (1)
-- [ ] `internal/campaign/journal_ops_test.go`
+- [x] `internal/campaign/journal_ops_test.go`
 
 ### internal/campaign/kernel_assert.go (1)
-- [ ] `internal/campaign/kernel_assert.go`
+- [x] `internal/campaign/kernel_assert.go`
 
 ### internal/campaign/kernel_assert_test.go (1)
-- [ ] `internal/campaign/kernel_assert_test.go`
+- [x] `internal/campaign/kernel_assert_test.go`
 
 ### internal/campaign/main_test.go (1)
-- [ ] `internal/campaign/main_test.go`
+- [x] `internal/campaign/main_test.go`
 
 ### internal/campaign/metrics.go (1)
-- [ ] `internal/campaign/metrics.go`
+- [x] `internal/campaign/metrics.go`
 
 ### internal/campaign/micro_checkpoint.go (1)
-- [ ] `internal/campaign/micro_checkpoint.go`
+- [x] `internal/campaign/micro_checkpoint.go`
 
 ### internal/campaign/micro_checkpoint_test.go (1)
-- [ ] `internal/campaign/micro_checkpoint_test.go`
+- [x] `internal/campaign/micro_checkpoint_test.go`
 
 ### internal/campaign/mocks_test.go (1)
-- [ ] `internal/campaign/mocks_test.go`
+- [x] `internal/campaign/mocks_test.go`
 
 ### internal/campaign/normalization.go (1)
-- [ ] `internal/campaign/normalization.go`
+- [x] `internal/campaign/normalization.go`
 
 ### internal/campaign/northstar_wiring_test.go (1)
-- [ ] `internal/campaign/northstar_wiring_test.go`
+- [x] `internal/campaign/northstar_wiring_test.go`
 
 ### internal/campaign/orchestrator.go (1)
-- [ ] `internal/campaign/orchestrator.go`
+- [x] `internal/campaign/orchestrator.go`
 
 ### internal/campaign/orchestrator_behavior_test.go (1)
-- [ ] `internal/campaign/orchestrator_behavior_test.go`
+- [x] `internal/campaign/orchestrator_behavior_test.go`
 
 ### internal/campaign/orchestrator_blockreason_cap_test.go (1)
-- [ ] `internal/campaign/orchestrator_blockreason_cap_test.go`
+- [x] `internal/campaign/orchestrator_blockreason_cap_test.go`
 
 ### internal/campaign/orchestrator_callsite_test.go (1)
-- [ ] `internal/campaign/orchestrator_callsite_test.go`
+- [x] `internal/campaign/orchestrator_callsite_test.go`
 
 ### internal/campaign/orchestrator_control.go (1)
-- [ ] `internal/campaign/orchestrator_control.go`
+- [x] `internal/campaign/orchestrator_control.go`
 
 ### internal/campaign/orchestrator_di_test.go (1)
-- [ ] `internal/campaign/orchestrator_di_test.go`
+- [x] `internal/campaign/orchestrator_di_test.go`
 
 ### internal/campaign/orchestrator_doc_degeneracy_test.go (1)
-- [ ] `internal/campaign/orchestrator_doc_degeneracy_test.go`
+- [x] `internal/campaign/orchestrator_doc_degeneracy_test.go`
 
 ### internal/campaign/orchestrator_durable_artifact_test.go (1)
-- [ ] `internal/campaign/orchestrator_durable_artifact_test.go`
+- [x] `internal/campaign/orchestrator_durable_artifact_test.go`
 
 ### internal/campaign/orchestrator_events.go (1)
-- [ ] `internal/campaign/orchestrator_events.go`
+- [x] `internal/campaign/orchestrator_events.go`
 
 ### internal/campaign/orchestrator_events_test.go (1)
-- [ ] `internal/campaign/orchestrator_events_test.go`
+- [x] `internal/campaign/orchestrator_events_test.go`
 
 ### internal/campaign/orchestrator_execution.go (1)
-- [ ] `internal/campaign/orchestrator_execution.go`
+- [x] `internal/campaign/orchestrator_execution.go`
 
 ### internal/campaign/orchestrator_execution_test.go (1)
-- [ ] `internal/campaign/orchestrator_execution_test.go`
+- [x] `internal/campaign/orchestrator_execution_test.go`
 
 ### internal/campaign/orchestrator_failure.go (1)
-- [ ] `internal/campaign/orchestrator_failure.go`
+- [x] `internal/campaign/orchestrator_failure.go`
 
 ### internal/campaign/orchestrator_failure_test.go (1)
-- [ ] `internal/campaign/orchestrator_failure_test.go`
+- [x] `internal/campaign/orchestrator_failure_test.go`
 
 ### internal/campaign/orchestrator_fallback_test.go (1)
-- [ ] `internal/campaign/orchestrator_fallback_test.go`
+- [x] `internal/campaign/orchestrator_fallback_test.go`
 
 ### internal/campaign/orchestrator_init.go (1)
-- [ ] `internal/campaign/orchestrator_init.go`
+- [x] `internal/campaign/orchestrator_init.go`
 
 ### internal/campaign/orchestrator_init_validation_test.go (1)
-- [ ] `internal/campaign/orchestrator_init_validation_test.go`
+- [x] `internal/campaign/orchestrator_init_validation_test.go`
 
 ### internal/campaign/orchestrator_journal.go (1)
-- [ ] `internal/campaign/orchestrator_journal.go`
+- [x] `internal/campaign/orchestrator_journal.go`
 
 ### internal/campaign/orchestrator_journal_test.go (1)
-- [ ] `internal/campaign/orchestrator_journal_test.go`
+- [x] `internal/campaign/orchestrator_journal_test.go`
 
 ### internal/campaign/orchestrator_lifecycle.go (1)
-- [ ] `internal/campaign/orchestrator_lifecycle.go`
+- [x] `internal/campaign/orchestrator_lifecycle.go`
 
 ### internal/campaign/orchestrator_phases.go (1)
-- [ ] `internal/campaign/orchestrator_phases.go`
+- [x] `internal/campaign/orchestrator_phases.go`
 
 ### internal/campaign/orchestrator_phases_test.go (1)
-- [ ] `internal/campaign/orchestrator_phases_test.go`
+- [x] `internal/campaign/orchestrator_phases_test.go`
 
 ### internal/campaign/orchestrator_resume.go (1)
-- [ ] `internal/campaign/orchestrator_resume.go`
+- [x] `internal/campaign/orchestrator_resume.go`
 
 ### internal/campaign/orchestrator_resume_test.go (1)
-- [ ] `internal/campaign/orchestrator_resume_test.go`
+- [x] `internal/campaign/orchestrator_resume_test.go`
 
 ### internal/campaign/orchestrator_retry_replan_regression_test.go (1)
-- [ ] `internal/campaign/orchestrator_retry_replan_regression_test.go`
+- [x] `internal/campaign/orchestrator_retry_replan_regression_test.go`
 
 ### internal/campaign/orchestrator_sched_regression_test.go (1)
-- [ ] `internal/campaign/orchestrator_sched_regression_test.go`
+- [x] `internal/campaign/orchestrator_sched_regression_test.go`
 
 ### internal/campaign/orchestrator_task_context_test.go (1)
-- [ ] `internal/campaign/orchestrator_task_context_test.go`
+- [x] `internal/campaign/orchestrator_task_context_test.go`
 
 ### internal/campaign/orchestrator_task_handlers.go (1)
-- [ ] `internal/campaign/orchestrator_task_handlers.go`
+- [x] `internal/campaign/orchestrator_task_handlers.go`
 
 ### internal/campaign/orchestrator_task_handlers_bench_test.go (1)
-- [ ] `internal/campaign/orchestrator_task_handlers_bench_test.go`
+- [x] `internal/campaign/orchestrator_task_handlers_bench_test.go`
 
 ### internal/campaign/orchestrator_task_handlers_test.go (1)
-- [ ] `internal/campaign/orchestrator_task_handlers_test.go`
+- [x] `internal/campaign/orchestrator_task_handlers_test.go`
 
 ### internal/campaign/orchestrator_task_results.go (1)
-- [ ] `internal/campaign/orchestrator_task_results.go`
+- [x] `internal/campaign/orchestrator_task_results.go`
 
 ### internal/campaign/orchestrator_task_transaction.go (1)
-- [ ] `internal/campaign/orchestrator_task_transaction.go`
+- [x] `internal/campaign/orchestrator_task_transaction.go`
 
 ### internal/campaign/orchestrator_task_transaction_test.go (1)
-- [ ] `internal/campaign/orchestrator_task_transaction_test.go`
+- [x] `internal/campaign/orchestrator_task_transaction_test.go`
 
 ### internal/campaign/orchestrator_taskexecutor_callsite_test.go (1)
-- [ ] `internal/campaign/orchestrator_taskexecutor_callsite_test.go`
+- [x] `internal/campaign/orchestrator_taskexecutor_callsite_test.go`
 
 ### internal/campaign/orchestrator_tasks.go (1)
-- [ ] `internal/campaign/orchestrator_tasks.go`
+- [x] `internal/campaign/orchestrator_tasks.go`
 
 ### internal/campaign/orchestrator_types.go (1)
-- [ ] `internal/campaign/orchestrator_types.go`
+- [x] `internal/campaign/orchestrator_types.go`
 
 ### internal/campaign/orchestrator_utils.go (1)
-- [ ] `internal/campaign/orchestrator_utils.go`
+- [x] `internal/campaign/orchestrator_utils.go`
 
 ### internal/campaign/orchestrator_write_set_gating_test.go (1)
-- [ ] `internal/campaign/orchestrator_write_set_gating_test.go`
+- [x] `internal/campaign/orchestrator_write_set_gating_test.go`
 
 ### internal/campaign/pause_durable.go (1)
-- [ ] `internal/campaign/pause_durable.go`
+- [x] `internal/campaign/pause_durable.go`
 
 ### internal/campaign/pause_durable_test.go (1)
-- [ ] `internal/campaign/pause_durable_test.go`
+- [x] `internal/campaign/pause_durable_test.go`
 
 ### internal/campaign/persist_campaign_test.go (1)
-- [ ] `internal/campaign/persist_campaign_test.go`
+- [x] `internal/campaign/persist_campaign_test.go`
 
 ### internal/campaign/prompts.go (1)
-- [ ] `internal/campaign/prompts.go`
+- [x] `internal/campaign/prompts.go`
 
 ### internal/campaign/recurse_dag.go (1)
-- [ ] `internal/campaign/recurse_dag.go`
+- [x] `internal/campaign/recurse_dag.go`
 
 ### internal/campaign/recurse_dag_test.go (1)
-- [ ] `internal/campaign/recurse_dag_test.go`
+- [x] `internal/campaign/recurse_dag_test.go`
 
 ### internal/campaign/recurse_plan.go (1)
-- [ ] `internal/campaign/recurse_plan.go`
+- [x] `internal/campaign/recurse_plan.go`
 
 ### internal/campaign/recurse_plan_test.go (1)
-- [ ] `internal/campaign/recurse_plan_test.go`
+- [x] `internal/campaign/recurse_plan_test.go`
 
 ### internal/campaign/recurse_runner.go (1)
-- [ ] `internal/campaign/recurse_runner.go`
+- [x] `internal/campaign/recurse_runner.go`
 
 ### internal/campaign/recurse_runner_test.go (1)
-- [ ] `internal/campaign/recurse_runner_test.go`
+- [x] `internal/campaign/recurse_runner_test.go`
 
 ### internal/campaign/replan.go (1)
-- [ ] `internal/campaign/replan.go`
+- [x] `internal/campaign/replan.go`
 
 ### internal/campaign/replan_retype_test.go (1)
-- [ ] `internal/campaign/replan_retype_test.go`
+- [x] `internal/campaign/replan_retype_test.go`
 
 ### internal/campaign/replan_test.go (1)
-- [ ] `internal/campaign/replan_test.go`
+- [x] `internal/campaign/replan_test.go`
 
 ### internal/campaign/replanner_fix_test.go (1)
-- [ ] `internal/campaign/replanner_fix_test.go`
+- [x] `internal/campaign/replanner_fix_test.go`
 
 ### internal/campaign/risk_gate_contract.go (1)
-- [ ] `internal/campaign/risk_gate_contract.go`
+- [x] `internal/campaign/risk_gate_contract.go`
 
 ### internal/campaign/risk_gate_contract_test.go (1)
-- [ ] `internal/campaign/risk_gate_contract_test.go`
+- [x] `internal/campaign/risk_gate_contract_test.go`
 
 ### internal/campaign/risk_scoring.go (1)
-- [ ] `internal/campaign/risk_scoring.go`
+- [x] `internal/campaign/risk_scoring.go`
 
 ### internal/campaign/risk_scoring_test.go (1)
-- [ ] `internal/campaign/risk_scoring_test.go`
+- [x] `internal/campaign/risk_scoring_test.go`
 
 ### internal/campaign/root_write_report_test.go (1)
-- [ ] `internal/campaign/root_write_report_test.go`
+- [x] `internal/campaign/root_write_report_test.go`
 
 ### internal/campaign/shard_advisory_board.go (1)
-- [ ] `internal/campaign/shard_advisory_board.go`
+- [x] `internal/campaign/shard_advisory_board.go`
 
 ### internal/campaign/shard_advisory_board_test.go (1)
-- [ ] `internal/campaign/shard_advisory_board_test.go`
+- [x] `internal/campaign/shard_advisory_board_test.go`
 
 ### internal/campaign/shard_manifest_contract_test.go (1)
-- [ ] `internal/campaign/shard_manifest_contract_test.go`
+- [x] `internal/campaign/shard_manifest_contract_test.go`
 
 ### internal/campaign/specialist_knowledge.go (1)
-- [ ] `internal/campaign/specialist_knowledge.go`
+- [x] `internal/campaign/specialist_knowledge.go`
 
 ### internal/campaign/task_dedup_test.go (1)
-- [ ] `internal/campaign/task_dedup_test.go`
+- [x] `internal/campaign/task_dedup_test.go`
 
 ### internal/campaign/task_effect_contract.go (1)
-- [ ] `internal/campaign/task_effect_contract.go`
+- [x] `internal/campaign/task_effect_contract.go`
 
 ### internal/campaign/task_effect_contract_test.go (1)
-- [ ] `internal/campaign/task_effect_contract_test.go`
+- [x] `internal/campaign/task_effect_contract_test.go`
 
 ### internal/campaign/task_mutation_types.go (1)
-- [ ] `internal/campaign/task_mutation_types.go`
+- [x] `internal/campaign/task_mutation_types.go`
 
 ### internal/campaign/test_failure_summary_test.go (1)
-- [ ] `internal/campaign/test_failure_summary_test.go`
+- [x] `internal/campaign/test_failure_summary_test.go`
 
 ### internal/campaign/thunderdome_verdict_test.go (1)
-- [ ] `internal/campaign/thunderdome_verdict_test.go`
+- [x] `internal/campaign/thunderdome_verdict_test.go`
 
 ### internal/campaign/tool_pregenerator.go (1)
-- [ ] `internal/campaign/tool_pregenerator.go`
+- [x] `internal/campaign/tool_pregenerator.go`
 
 ### internal/campaign/tool_pregenerator_test.go (1)
-- [ ] `internal/campaign/tool_pregenerator_test.go`
+- [x] `internal/campaign/tool_pregenerator_test.go`
 
 ### internal/campaign/topology_contract_test.go (1)
-- [ ] `internal/campaign/topology_contract_test.go`
+- [x] `internal/campaign/topology_contract_test.go`
 
 ### internal/campaign/types.go (1)
-- [ ] `internal/campaign/types.go`
+- [x] `internal/campaign/types.go`
 
 ### internal/campaign/types_test.go (1)
-- [ ] `internal/campaign/types_test.go`
+- [x] `internal/campaign/types_test.go`
 
 ### internal/campaign/types_tofacts_golden_test.go (1)
-- [ ] `internal/campaign/types_tofacts_golden_test.go`
+- [x] `internal/campaign/types_tofacts_golden_test.go`
 
 ### internal/campaign/upstream_context.go (1)
-- [ ] `internal/campaign/upstream_context.go`
+- [x] `internal/campaign/upstream_context.go`
 
 ### internal/campaign/upstream_context_test.go (1)
-- [ ] `internal/campaign/upstream_context_test.go`
+- [x] `internal/campaign/upstream_context_test.go`
 
 ### internal/campaign/utils.go (1)
-- [ ] `internal/campaign/utils.go`
+- [x] `internal/campaign/utils.go`
 
 ### internal/campaign/utils_test.go (1)
-- [ ] `internal/campaign/utils_test.go`
+- [x] `internal/campaign/utils_test.go`
 
 ### internal/campaign/write_set_lock_manager.go (1)
-- [ ] `internal/campaign/write_set_lock_manager.go`
+- [x] `internal/campaign/write_set_lock_manager.go`
 
 ### internal/campaign/write_set_lock_manager_test.go (1)
-- [ ] `internal/campaign/write_set_lock_manager_test.go`
+- [x] `internal/campaign/write_set_lock_manager_test.go`
 
 ### internal/config (34)
 - [ ] `internal/config/browser_config_test.go`
@@ -3656,7 +3656,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `cmd/nerd/chat/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/campaign/.nerd (1)
-- [ ] `internal/campaign/.nerd/debug/debug_program_ERROR.mg`
+- [x] `internal/campaign/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/context (2)
 - [ ] `internal/context/.nerd/debug/debug_program_ERROR.mg`

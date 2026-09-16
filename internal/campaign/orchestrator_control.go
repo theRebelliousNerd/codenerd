@@ -10,6 +10,9 @@ import (
 func (o *Orchestrator) Pause() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if o.campaign == nil {
+		return
+	}
 	logging.Campaign("Pausing campaign: %s", o.campaign.ID)
 	if !o.isPaused {
 		// Only swap when transitioning resumed → paused, else we'd leak
@@ -28,6 +31,9 @@ func (o *Orchestrator) Pause() {
 func (o *Orchestrator) Resume() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if o.campaign == nil {
+		return
+	}
 	logging.Campaign("Resuming campaign: %s", o.campaign.ID)
 	if o.isPaused && o.pauseCh != nil {
 		// Guard against double-close: only close if non-nil and we know
@@ -38,17 +44,20 @@ func (o *Orchestrator) Resume() {
 	o.updateCampaignStatus(StatusActive)
 }
 
-// Stop stops campaign execution.
+// Stop stops campaign execution. Teardown (cancel, channel close) always runs;
+// the campaign snapshot touch is skipped when nothing is loaded.
 func (o *Orchestrator) Stop() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	logging.Campaign("Stopping campaign: %s", o.campaign.ID)
 	if o.cancelFunc != nil {
 		o.cancelFunc()
 	}
-	o.updateCampaignStatus(StatusPaused)
-	if err := o.saveCampaign(); err != nil {
-		logging.CampaignWarn("failed to save campaign on stop: %v", err)
+	if o.campaign != nil {
+		logging.Campaign("Stopping campaign: %s", o.campaign.ID)
+		o.updateCampaignStatus(StatusPaused)
+		if err := o.saveCampaign(); err != nil {
+			logging.CampaignWarn("failed to save campaign on stop: %v", err)
+		}
 	}
 
 	// Close channels to signal consumers
