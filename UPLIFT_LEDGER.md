@@ -2317,15 +2317,18 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/perception/client_factory_extra_test.go`
 - [ ] `internal/perception/client_factory_test.go`
 - [x] `internal/perception/client_gemini.go`
-- [ ] `internal/perception/client_gemini_files.go`
+- [x] `internal/perception/client_gemini_files.go`
+- [x] `internal/perception/client_gemini_files_uplift_test.go`
 - [ ] `internal/perception/client_gemini_files_test.go`
 - [ ] `internal/perception/client_gemini_getters_test.go`
 - [ ] `internal/perception/client_gemini_http_test.go`
 - [ ] `internal/perception/client_gemini_schema_test.go`
-- [ ] `internal/perception/client_gemini_streaming.go`
+- [x] `internal/perception/client_gemini_streaming.go`
+- [x] `internal/perception/client_gemini_streaming_uplift_test.go`
 - [ ] `internal/perception/client_gemini_test.go`
 - [ ] `internal/perception/client_gemini_toolcalls_test.go`
-- [ ] `internal/perception/client_gemini_tools.go`
+- [x] `internal/perception/client_gemini_tools.go`
+- [x] `internal/perception/client_gemini_tools_uplift_test.go`
 - [ ] `internal/perception/client_meta_model_test.go`
 - [ ] `internal/perception/client_meta_piggyback_test.go`
 - [ ] `internal/perception/client_meta_responses.go`

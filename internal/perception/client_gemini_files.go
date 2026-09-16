@@ -155,27 +155,30 @@ func (c *GeminiClient) ListFiles(ctx context.Context) ([]string, error) {
 	return uris, nil
 }
 
+// geminiFilesResourceName normalizes a file reference to the resource name
+// the Files API expects ("files/..."). UploadFile returns full URIs, so a
+// URI is stripped to its path; a bare ID gains the prefix.
+func geminiFilesResourceName(input string) string {
+	if i := strings.Index(input, "/files/"); i >= 0 {
+		return input[i+1:]
+	}
+	if strings.HasPrefix(input, "files/") {
+		return input
+	}
+	return "files/" + input
+}
+
 // GetFile retrieves metadata for a file.
 func (c *GeminiClient) GetFile(ctx context.Context, fileNameOrURI string) (any, error) {
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("API key required")
 	}
 
-	// Name should be "files/..."
-	// If URI passed, might need to extract ID, but API usually takes resource name.
-	// Assuming caller passes resource name "files/xxx" or we assume it's just the ID.
-	name := fileNameOrURI
-	if strings.HasPrefix(name, "https://") {
-		// It's a URI, but GetFile expects resource name.
-		// For now, let's assume the user passes the resource name.
-		// If they pass URI, valid for inference, but not for Get/Delete API usually.
-		return nil, fmt.Errorf("DeleteFile requires resource name (files/...), got URI")
-	}
-	if !strings.HasPrefix(name, "files/") {
-		name = "files/" + name
-	}
+	// Accept both resource names ("files/...") and the full URIs UploadFile
+	// returns, so upload-then-inspect round-trips.
+	name := geminiFilesResourceName(fileNameOrURI)
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/%s?key=%s", name, c.apiKey)
+	url := fmt.Sprintf("%s/%s?key=%s", c.baseURL, name, c.apiKey)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -205,12 +208,9 @@ func (c *GeminiClient) DeleteFile(ctx context.Context, fileID string) error {
 		return fmt.Errorf("API key required")
 	}
 
-	name := fileID
-	if !strings.HasPrefix(name, "files/") {
-		name = "files/" + name
-	}
+	name := geminiFilesResourceName(fileID)
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/%s?key=%s", name, c.apiKey)
+	url := fmt.Sprintf("%s/%s?key=%s", c.baseURL, name, c.apiKey)
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {
 		return err
@@ -319,7 +319,7 @@ func (c *GeminiClient) GetCachedContent(ctx context.Context, cacheName string) (
 		return nil, fmt.Errorf("API key required")
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/%s?key=%s", cacheName, c.apiKey)
+	url := fmt.Sprintf("%s/%s?key=%s", c.baseURL, cacheName, c.apiKey)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -349,7 +349,7 @@ func (c *GeminiClient) DeleteCachedContent(ctx context.Context, cacheName string
 		return fmt.Errorf("API key required")
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/%s?key=%s", cacheName, c.apiKey)
+	url := fmt.Sprintf("%s/%s?key=%s", c.baseURL, cacheName, c.apiKey)
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {
 		return err
@@ -374,7 +374,7 @@ func (c *GeminiClient) ListCachedContent(ctx context.Context) ([]string, error) 
 		return nil, fmt.Errorf("API key required")
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/cachedContents?key=%s", c.apiKey)
+	url := fmt.Sprintf("%s/cachedContents?key=%s", c.baseURL, c.apiKey)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err

@@ -92,13 +92,7 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 		strings.Contains(userPrompt, "control_packet")
 
 	// Rate limiting
-	c.mu.Lock()
-	elapsed := time.Since(c.lastRequest)
-	if elapsed < 100*time.Millisecond {
-		time.Sleep(100*time.Millisecond - elapsed)
-	}
-	c.lastRequest = time.Now()
-	c.mu.Unlock()
+	c.rateLimit()
 
 	reqBody := GeminiRequest{
 		Contents: []GeminiContent{
@@ -129,7 +123,15 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+			// Context-aware backoff: a cancelled turn must exit during
+			// the sleep, not after it (matches ExecuteOpenAIRequest).
+			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+			select {
+			case <-ctx.Done():
+				errorChan <- fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+				return
+			case <-time.After(backoff):
+			}
 		}
 
 		jsonData, err := json.Marshal(reqBody)
@@ -361,5 +363,3 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 	logging.PerceptionError("[Gemini] CompleteWithStreaming: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
 	errorChan <- fmt.Errorf("max retries exceeded: %w", lastErr)
 }
-
-// SetModel changes the model used for completions.
