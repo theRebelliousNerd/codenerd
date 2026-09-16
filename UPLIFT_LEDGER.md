@@ -2355,8 +2355,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/perception/client_types.go`
 - [ ] `internal/perception/client_worker_providers_test.go`
 - [x] `internal/perception/client_xai.go`
-- [ ] `internal/perception/client_zai.go`
-- [ ] `internal/perception/client_zai_retry.go`
+- [x] `internal/perception/client_zai.go`
+- [x] `internal/perception/client_zai_retry.go`
 - [ ] `internal/perception/client_zai_retry_test.go`
 - [ ] `internal/perception/client_zai_streaming.go`
 - [ ] `internal/perception/client_zai_test.go`

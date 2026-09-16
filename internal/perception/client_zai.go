@@ -332,7 +332,11 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 					"backoff_ms":           backoffDuration.Milliseconds(),
 					"context_remaining_ms": remainingBeforeBackoff.Milliseconds(),
 				})
-				return "", ctx.Err()
+				// ctx.Err() is nil here — the deadline has not fired yet, the
+				// backoff just does not fit inside it. Returning it would
+				// report ("", nil): an empty SUCCESS. Fail loudly instead.
+				return "", fmt.Errorf("retry backoff %v would exceed context deadline (%v remaining): %w",
+					backoffDuration, remainingBeforeBackoff, context.DeadlineExceeded)
 			}
 
 			if err := sleepWithContext(ctx, backoffDuration); err != nil {
@@ -528,7 +532,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 
 		if finish := zaiResp.Choices[0].FinishReason; lengthStop(finish) {
 			return "", outputTruncated(ProviderZAI, c.model, "CompleteWithSystem", finish,
-				strings.TrimSpace(zaiResp.Choices[0].Message.Content), 0, zaiResp.Usage.CompletionTokens)
+				strings.TrimSpace(zaiResp.Choices[0].Message.Content), c.maxOutputTokens, zaiResp.Usage.CompletionTokens)
 		}
 		return strings.TrimSpace(zaiResp.Choices[0].Message.Content), nil
 	}
@@ -710,7 +714,11 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 					"backoff_ms":           backoffDuration.Milliseconds(),
 					"context_remaining_ms": remainingBeforeBackoff.Milliseconds(),
 				})
-				return "", ctx.Err()
+				// ctx.Err() is nil here — the deadline has not fired yet, the
+				// backoff just does not fit inside it. Returning it would
+				// report ("", nil): an empty SUCCESS. Fail loudly instead.
+				return "", fmt.Errorf("retry backoff %v would exceed context deadline (%v remaining): %w",
+					backoffDuration, remainingBeforeBackoff, context.DeadlineExceeded)
 			}
 
 			if err := sleepWithContext(ctx, backoffDuration); err != nil {
@@ -905,7 +913,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 
 		if finish := zaiResp.Choices[0].FinishReason; lengthStop(finish) {
 			return "", outputTruncated(ProviderZAI, c.model, "CompleteWithSchema", finish,
-				strings.TrimSpace(zaiResp.Choices[0].Message.Content), 0, zaiResp.Usage.CompletionTokens)
+				strings.TrimSpace(zaiResp.Choices[0].Message.Content), c.maxOutputTokens, zaiResp.Usage.CompletionTokens)
 		}
 		return strings.TrimSpace(zaiResp.Choices[0].Message.Content), nil
 	}
@@ -930,7 +938,6 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 }
 
 // CompleteWithTools sends a prompt with tool definitions.
-// CompleteWithTools sends a prompt with tool definitions.
 func (c *ZAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
 	openAITools := MapToolDefinitionsToOpenAI(tools)
 
@@ -946,12 +953,19 @@ func (c *ZAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 	}
 
 	// Retry loop
-	maxRetries := 3
+	maxRetries := c.maxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+			// Cancel-aware like the chat paths: a cancelled turn must
+			// exit during the sleep, not after it.
+			if err := sleepWithContext(ctx, time.Duration(1<<uint(attempt-1))*time.Second); err != nil {
+				return nil, err
+			}
 		}
 
 		jsonData, err := json.Marshal(reqBody)
@@ -999,6 +1013,10 @@ func (c *ZAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			resp.Body.Close()
+			if shouldRetryStatus(resp.StatusCode) {
+				lastErr = fmt.Errorf("retryable status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+				continue
+			}
 			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 		}
 
