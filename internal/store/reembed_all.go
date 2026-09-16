@@ -37,6 +37,10 @@ func ReembedAllDBsForce(ctx context.Context, roots []string, engine embedding.Em
 	if engine == nil {
 		return result, fmt.Errorf("no embedding engine configured")
 	}
+	if err := ctx.Err(); err != nil {
+		result.Duration = time.Since(start)
+		return result, err
+	}
 
 	logging.Store("Starting force re-embed across %d root(s) with engine=%s dims=%d",
 		len(roots), engine.Name(), engine.Dimensions())
@@ -57,6 +61,17 @@ func ReembedAllDBsForce(ctx context.Context, roots []string, engine embedding.Em
 	var skipped []string
 
 	for i, dbPath := range dbPaths {
+		// Fail fast between databases: without this a cancelled run still
+		// opens and re-embeds every remaining DB before noticing.
+		if err := ctx.Err(); err != nil {
+			result.DBCount = dbCount
+			result.VectorsDone = totalVectors
+			result.AtomsDone = totalAtoms
+			result.TracesDone = totalTraces
+			result.Skipped = skipped
+			result.Duration = time.Since(start)
+			return result, err
+		}
 		if progress != nil {
 			progress(fmt.Sprintf("Re-embedding %d/%d: %s", i+1, len(dbPaths), dbPath))
 		}
@@ -76,6 +91,16 @@ func ReembedAllDBsForce(ctx context.Context, roots []string, engine embedding.Em
 	learningRoots := discoverLearningRoots(roots)
 	totalLearnings := 0
 	for shardsDir := range learningRoots {
+		if err := ctx.Err(); err != nil {
+			result.DBCount = dbCount
+			result.VectorsDone = totalVectors
+			result.AtomsDone = totalAtoms
+			result.TracesDone = totalTraces
+			result.LearningsDone = totalLearnings
+			result.Skipped = skipped
+			result.Duration = time.Since(start)
+			return result, err
+		}
 		totalLearnings += processLearningStore(ctx, shardsDir, engine, &skipped)
 	}
 

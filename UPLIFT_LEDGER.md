@@ -2842,16 +2842,16 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/store/learned_uplift_test.go`
 - [ ] `internal/store/learning_stats_test.go`
 - [x] `internal/store/local.go`
-- [ ] `internal/store/local_cold.go`
+- [x] `internal/store/local_cold.go`
 - [ ] `internal/store/local_cold_extra_test.go`
 - [x] `internal/store/local_core.go`
 - [ ] `internal/store/local_core_test.go`
-- [ ] `internal/store/local_graph.go`
+- [x] `internal/store/local_graph.go`
 - [ ] `internal/store/local_graph_benchmark_test.go`
 - [ ] `internal/store/local_graph_extra_test.go`
 - [ ] `internal/store/local_graph_integration_test.go`
 - [ ] `internal/store/local_graph_migration_test.go`
-- [ ] `internal/store/local_graph_query.go`
+- [x] `internal/store/local_graph_query.go`
 - [ ] `internal/store/local_graph_test.go`
 - [x] `internal/store/local_knowledge.go`
 - [ ] `internal/store/local_knowledge_benchmark_test.go`
@@ -2870,7 +2870,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/store/local_vector_test.go`
 - [x] `internal/store/local_verification.go`
 - [ ] `internal/store/local_verification_extra_test.go`
-- [ ] `internal/store/local_world.go`
+- [x] `internal/store/local_world.go`
 - [ ] `internal/store/local_world_extra_test.go`
 - [x] `internal/store/migrations.go`
 - [ ] `internal/store/migrations_benchmark_test.go`
@@ -2889,16 +2889,18 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/store/reflection_utils_test.go`
 - [x] `internal/store/reflection_worker.go`
 - [x] `internal/store/vector_uplift_test.go`
+- [x] `internal/store/local_domains_b_uplift_test.go`
+- [x] `internal/store/local_store_unit_c_uplift_test.go`
 - [ ] `internal/store/reflection_worker_test.go`
 - [ ] `internal/store/serialization_test.go`
-- [ ] `internal/store/tool_cleanup.go`
+- [x] `internal/store/tool_cleanup.go`
 - [ ] `internal/store/tool_cleanup_extra_test.go`
 - [ ] `internal/store/tool_cleanup_test.go`
-- [ ] `internal/store/tool_store.go`
+- [x] `internal/store/tool_store.go`
 - [ ] `internal/store/tool_store_test.go`
-- [ ] `internal/store/trace_reflection.go`
+- [x] `internal/store/trace_reflection.go`
 - [ ] `internal/store/trace_reflection_extra_test.go`
-- [ ] `internal/store/trace_store.go`
+- [x] `internal/store/trace_store.go`
 - [ ] `internal/store/trace_store_integration_test.go`
 - [ ] `internal/store/trace_store_test.go`
 - [ ] `internal/store/vec_probe_test.go`

@@ -3,9 +3,17 @@ package store
 import (
 	"codenerd/internal/logging"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 )
+
+// ErrNoPath reports a clean graph traversal that reached no target: every
+// expansion query succeeded, the target is simply unreachable within maxDepth.
+// Callers that treat "no path" as a boolean (rather than a failure) must match
+// it with errors.Is: any other TraversePath error is a storage failure and
+// must propagate.
+var ErrNoPath = errors.New("no path found")
 
 // =============================================================================
 // KNOWLEDGE GRAPH (Shard C)
@@ -78,21 +86,25 @@ func (s *LocalStore) StoreLink(entityA, relation, entityB string, weight float64
 func (s *LocalStore) queryLinksLocked(entity string, direction string) ([]KnowledgeLink, error) {
 	logging.StoreDebug("Querying graph links for entity=%q direction=%s", entity, direction)
 
+	// The direction arrives unvalidated from Mangle query_graph rules via
+	// VirtualStore.QueryKnowledgeGraph. Reject anything outside the three
+	// known values here: the old default branch paired the two-placeholder
+	// "both" query with a one-element args slice, so a typoed direction
+	// surfaced as a cryptic SQL arg-count error instead of naming the bad value.
 	var query string
+	var args []any
 	switch direction {
 	case "outgoing":
 		query = "SELECT entity_a, relation, entity_b, weight, metadata FROM knowledge_graph WHERE entity_a = ?"
+		args = []any{entity}
 	case "incoming":
 		query = "SELECT entity_a, relation, entity_b, weight, metadata FROM knowledge_graph WHERE entity_b = ?"
-	default: // both
-		query = "SELECT entity_a, relation, entity_b, weight, metadata FROM knowledge_graph WHERE entity_a = ? OR entity_b = ?"
-	}
-
-	var args []any
-	if direction == "both" {
-		args = []any{entity, entity}
-	} else {
 		args = []any{entity}
+	case "both":
+		query = "SELECT entity_a, relation, entity_b, weight, metadata FROM knowledge_graph WHERE entity_a = ? OR entity_b = ?"
+		args = []any{entity, entity}
+	default:
+		return nil, fmt.Errorf("query_graph: unsupported direction %q (want outgoing, incoming, or both)", direction)
 	}
 
 	rows, err := s.db.Query(query, args...)
@@ -163,6 +175,13 @@ func (s *LocalStore) TraversePath(from, to string, maxDepth int) ([]KnowledgeLin
 	cameFrom := make(map[string]*KnowledgeLink)
 	queue := []queueItem{{entity: from, depth: 0}}
 
+	// A failed expansion must not masquerade as "no path". A dead database
+	// fails every expansion, drains the queue, and used to return the same
+	// error as a genuinely unreachable target. Keep the BFS resilient — one
+	// bad node still does not abort the traversal — but remember the first
+	// failure so the miss below can report storage trouble instead of absence.
+	var expandErr error
+
 	// Mark start as visited (nil link)
 	cameFrom[from] = nil
 
@@ -194,6 +213,9 @@ func (s *LocalStore) TraversePath(from, to string, maxDepth int) ([]KnowledgeLin
 		// and re-acquiring RLock can deadlock when a writer is waiting.
 		links, err := s.queryLinksLocked(current.entity, "outgoing")
 		if err != nil {
+			if expandErr == nil {
+				expandErr = err
+			}
 			continue
 		}
 
@@ -206,8 +228,13 @@ func (s *LocalStore) TraversePath(from, to string, maxDepth int) ([]KnowledgeLin
 		}
 	}
 
+	if expandErr != nil {
+		logging.Get(logging.CategoryStore).Warn("Graph traversal %s -> %s hit storage errors (visited %d nodes): %v",
+			from, to, len(cameFrom), expandErr)
+		return nil, fmt.Errorf("graph traversal %s -> %s failed: %w", from, to, expandErr)
+	}
 	logging.StoreDebug("No path found from %s to %s (visited %d nodes)", from, to, len(cameFrom))
-	return nil, fmt.Errorf("no path found from %s to %s", from, to)
+	return nil, fmt.Errorf("no path found from %s to %s: %w", from, to, ErrNoPath)
 }
 
 // HydrateKnowledgeGraph loads all knowledge graph entries and converts them to

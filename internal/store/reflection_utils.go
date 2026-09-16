@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"math"
 	"regexp"
 	"strings"
 )
@@ -47,8 +48,13 @@ func sanitizeDescriptor(text string) string {
 	text = combinedSecretPattern.ReplaceAllString(text, "[redacted]")
 
 	text = strings.Join(strings.Fields(text), " ")
+	// Truncate by rune, not byte: a byte cut can split a multi-byte rune
+	// and store invalid UTF-8 in the descriptor column.
 	if len(text) > defaultDescriptorMaxLen {
-		text = text[:defaultDescriptorMaxLen]
+		runes := []rune(text)
+		if len(runes) > defaultDescriptorMaxLen {
+			text = string(runes[:defaultDescriptorMaxLen])
+		}
 	}
 	return text
 }
@@ -82,7 +88,10 @@ func extractFileHints(text string, max int) []string {
 }
 
 func clampScore(score float64) float64 {
-	if score < 0 {
+	// NaN compares false against both bounds and would otherwise pass
+	// straight through into ORDER BY scoring, where it poisons ranking.
+	// A score that is not a number is no signal at all: clamp to zero.
+	if math.IsNaN(score) || score < 0 {
 		return 0
 	}
 	if score > 1 {

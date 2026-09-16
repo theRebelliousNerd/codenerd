@@ -29,6 +29,11 @@ func fastParseVectorJSON(data []byte, dest []float32) ([]float32, error) {
 	}
 	i++ // skip '['
 
+	// closed tracks whether the array terminated with ']'. Without it a
+	// truncated column ("[0.1,0.2" from a torn write) parses as a short
+	// vector with a nil error, and any caller whose dim check happens to
+	// line up would score garbage. Unterminated input is corrupt: say so.
+	closed := false
 	for i < len(data) {
 		// Skip whitespace before number
 		for i < len(data) && (data[i] == ' ' || data[i] == '\t' || data[i] == '\n' || data[i] == '\r') {
@@ -39,7 +44,8 @@ func fastParseVectorJSON(data []byte, dest []float32) ([]float32, error) {
 		}
 
 		if data[i] == ']' {
-			return dest, nil
+			closed = true
+			break
 		}
 
 		// Find end of number
@@ -69,9 +75,13 @@ func fastParseVectorJSON(data []byte, dest []float32) ([]float32, error) {
 		if i < len(data) && data[i] == ',' {
 			i++
 		} else if i < len(data) && data[i] == ']' {
-			return dest, nil
+			closed = true
+			break
 		}
 	}
 
+	if !closed {
+		return nil, errors.New("unterminated vector array: expected ']'")
+	}
 	return dest, nil
 }

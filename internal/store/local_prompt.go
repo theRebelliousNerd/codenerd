@@ -56,6 +56,15 @@ type PromptAtom struct {
 
 // StorePromptAtom persists a prompt atom to the database.
 func (s *LocalStore) StorePromptAtom(atom *PromptAtom) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("local store not initialized")
+	}
+	if atom == nil {
+		return fmt.Errorf("cannot store nil prompt atom")
+	}
+	if atom.AtomID == "" {
+		return fmt.Errorf("cannot store prompt atom with empty atom_id")
+	}
 	timer := logging.StartTimer(logging.CategoryStore, "StorePromptAtom")
 	defer timer.Stop()
 
@@ -134,6 +143,9 @@ func (s *LocalStore) StorePromptAtom(atom *PromptAtom) error {
 
 // LoadPromptAtoms retrieves all prompt atoms from the database.
 func (s *LocalStore) LoadPromptAtoms() ([]*PromptAtom, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("local store not initialized")
+	}
 	timer := logging.StartTimer(logging.CategoryStore, "LoadPromptAtoms")
 	defer timer.Stop()
 
@@ -169,6 +181,9 @@ func (s *LocalStore) LoadPromptAtoms() ([]*PromptAtom, error) {
 
 // LoadPromptAtomsByCategory retrieves prompt atoms filtered by category.
 func (s *LocalStore) LoadPromptAtomsByCategory(category string) ([]*PromptAtom, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("local store not initialized")
+	}
 	timer := logging.StartTimer(logging.CategoryStore, "LoadPromptAtomsByCategory")
 	defer timer.Stop()
 
@@ -205,6 +220,9 @@ func (s *LocalStore) LoadPromptAtomsByCategory(category string) ([]*PromptAtom, 
 
 // GetPromptAtom retrieves a single prompt atom by its atom_id.
 func (s *LocalStore) GetPromptAtom(atomID string) (*PromptAtom, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("local store not initialized")
+	}
 	timer := logging.StartTimer(logging.CategoryStore, "GetPromptAtom")
 	defer timer.Stop()
 
@@ -245,6 +263,9 @@ func (s *LocalStore) GetPromptAtom(atomID string) (*PromptAtom, error) {
 
 // DeletePromptAtom removes a prompt atom by its atom_id.
 func (s *LocalStore) DeletePromptAtom(atomID string) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("local store not initialized")
+	}
 	timer := logging.StartTimer(logging.CategoryStore, "DeletePromptAtom")
 	defer timer.Stop()
 

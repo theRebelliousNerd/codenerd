@@ -74,7 +74,9 @@ func (s *LocalStore) ListLearningCandidates(status string, limit int) ([]Learnin
 		query += " WHERE status = ?"
 		args = append(args, status)
 	}
-	query += " ORDER BY updated_at DESC"
+	// updated_at has one-second resolution, so same-second rows need the id
+	// tiebreak for a deterministic listing.
+	query += " ORDER BY updated_at DESC, id DESC"
 	if limit > 0 {
 		query += " LIMIT ?"
 		args = append(args, limit)
@@ -90,6 +92,9 @@ func (s *LocalStore) ListLearningCandidates(status string, limit int) ([]Learnin
 	for rows.Next() {
 		var cand LearningCandidate
 		if err := rows.Scan(&cand.ID, &cand.Phrase, &cand.Verb, &cand.Target, &cand.Reason, &cand.Count, &cand.Status, &cand.CreatedAt, &cand.UpdatedAt); err != nil {
+			// One malformed row never hides the rest, but it must not
+			// vanish silently either: name it so the row can be found.
+			logging.Get(logging.CategoryStore).Warn("Skipping malformed learning candidate row: %v", err)
 			continue
 		}
 		results = append(results, cand)

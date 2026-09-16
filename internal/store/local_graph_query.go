@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 
 	"codenerd/internal/logging"
@@ -29,6 +30,9 @@ func NewLocalStoreGraphAdapter(store *LocalStore) *LocalStoreGraphAdapter {
 //   - "path": params["arg"] = "from->to" → returns path existence as bool
 //   - "relations": params["arg"] = entity name → returns all connected entities (both directions)
 func (a *LocalStoreGraphAdapter) QueryGraph(queryType string, params map[string]any) (any, error) {
+	if a == nil || a.store == nil {
+		return nil, fmt.Errorf("query_graph: no graph store configured")
+	}
 	entity, _ := params["arg"].(string)
 	if entity == "" {
 		return nil, fmt.Errorf("query_graph: missing or empty 'arg' parameter")
@@ -82,7 +86,12 @@ func (a *LocalStoreGraphAdapter) QueryGraph(queryType string, params map[string]
 		}
 		path, err := a.store.TraversePath(parts[0], parts[1], 5)
 		if err != nil {
-			return false, nil // No path found is not an error
+			// Only a clean miss folds to false. A storage failure must
+			// reach the rule as an error, never as "no path".
+			if errors.Is(err, ErrNoPath) {
+				return false, nil
+			}
+			return nil, fmt.Errorf("query_graph path failed: %w", err)
 		}
 		return len(path) > 0, nil
 

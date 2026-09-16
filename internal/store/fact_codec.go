@@ -3,6 +3,8 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"codenerd/internal/types"
@@ -25,8 +27,20 @@ func encodeFactArgs(args []any) (string, error) {
 			encoded = append(encoded, encodedFactArg{Type: "string", Value: v})
 		case int:
 			encoded = append(encoded, encodedFactArg{Type: "int64", Value: int64(v)})
+		case int32:
+			encoded = append(encoded, encodedFactArg{Type: "int64", Value: int64(v)})
 		case int64:
 			encoded = append(encoded, encodedFactArg{Type: "int64", Value: v})
+		case uint64:
+			// int64 holds uint64 exactly up to MaxInt64; above that the
+			// value keeps its digits as a string rather than wrapping.
+			if v <= uint64(math.MaxInt64) {
+				encoded = append(encoded, encodedFactArg{Type: "int64", Value: int64(v)})
+			} else {
+				encoded = append(encoded, encodedFactArg{Type: "string", Value: strconv.FormatUint(v, 10)})
+			}
+		case float32:
+			encoded = append(encoded, encodedFactArg{Type: "float64", Value: float64(v)})
 		case float64:
 			encoded = append(encoded, encodedFactArg{Type: "float64", Value: v})
 		case bool:
@@ -129,13 +143,34 @@ func decodeFactArgs(data string) ([]any, error) {
 					args = append(args, false)
 				}
 			default:
-				args = append(args, arg.Value)
+				// Forward-compatible tag from a newer writer: never leak
+				// the raw json.Number into kernel facts. Prefer a numeric
+				// reading, else keep the literal digits as a string.
+				args = append(args, coerceUnknownFactValue(arg.Value))
 			}
 		}
 		return args, nil
 	}
 
 	return nil, fmt.Errorf("invalid or non-tagged fact arguments data")
+}
+
+// coerceUnknownFactValue converts a value carrying an unrecognized type tag
+// into a plain Go value. The decoder runs with UseNumber, so anything numeric
+// arrives as json.Number; handing that to the kernel would poison fact
+// equality (a json.Number never equals an int64), so try int64, then float64,
+// then fall back to the literal text.
+func coerceUnknownFactValue(v any) any {
+	if n, ok := v.(json.Number); ok {
+		if i, err := n.Int64(); err == nil {
+			return i
+		}
+		if f, err := n.Float64(); err == nil {
+			return f
+		}
+		return n.String()
+	}
+	return v
 }
 
 func isTaggedFactArgs(args []encodedFactArg) bool {
