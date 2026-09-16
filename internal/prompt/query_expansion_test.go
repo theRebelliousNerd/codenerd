@@ -36,6 +36,15 @@ func TestQueryExpansion(t *testing.T) {
 			expected: "unknown",
 		},
 		{
+			// Canonical contexts carry slash-prefixed languages; the lookup
+			// must strip before consulting the slashless synonym table.
+			name: "slashed language expands",
+			context: &CompilationContext{
+				Language: "/go",
+			},
+			expected: "go golang",
+		},
+		{
 			name: "intent target tokenization and synonyms",
 			context: &CompilationContext{
 				IntentTarget: "auth service",

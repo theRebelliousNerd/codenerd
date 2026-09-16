@@ -134,6 +134,33 @@ func (r *DependencyResolver) Resolve(atoms []*ScoredAtom) ([]*OrderedAtom, error
 	return result, nil
 }
 
+// scoredPeerLess orders ready peers for Kahn's algorithm in four tiers: a
+// NaN score never outranks a real one; then score; then declared priority;
+// then atom ID. Two NaNs are never ==, so they fall through rather than be
+// compared. One function serves both queue sorts: the re-sort after each pop
+// used to drop the priority tier and the NaN guards, so peers could reorder
+// mid-run relative to the initial queue.
+func scoredPeerLess(a, b *ScoredAtom) bool {
+	if a.Atom.IsMandatory != b.Atom.IsMandatory {
+		return a.Atom.IsMandatory
+	}
+	as, bs := a.Combined, b.Combined
+	aNaN, bNaN := math.IsNaN(as), math.IsNaN(bs)
+	switch {
+	case aNaN && bNaN: // tie: fall through to priority, then ID
+	case aNaN:
+		return false
+	case bNaN:
+		return true
+	case as != bs:
+		return as > bs
+	}
+	if a.Atom.Priority != b.Atom.Priority {
+		return a.Atom.Priority > b.Atom.Priority
+	}
+	return a.Atom.ID < b.Atom.ID
+}
+
 // topologicalSort orders atoms so dependencies come before dependents.
 // Uses Kahn's algorithm with cycle detection.
 func (r *DependencyResolver) topologicalSort(
@@ -171,30 +198,7 @@ func (r *DependencyResolver) topologicalSort(
 
 	// Sort queue by score for deterministic ordering among peers
 	sort.Slice(queue, func(i, j int) bool {
-		// Mandatory first, then by score
-		if queue[i].Atom.IsMandatory != queue[j].Atom.IsMandatory {
-			return queue[i].Atom.IsMandatory
-		}
-		// NaN-safe and fully deterministic, in four tiers: a NaN score never
-		// outranks a real one; then score; then declared priority; then atom
-		// ID. Two NaNs are never ==, so they must fall through rather than be
-		// compared -- otherwise the compiled prompt is not reproducible.
-		a := queue[i].Combined
-		b := queue[j].Combined
-		aNaN, bNaN := math.IsNaN(a), math.IsNaN(b)
-		switch {
-		case aNaN && bNaN: // tie: fall through to priority, then ID
-		case aNaN:
-			return false
-		case bNaN:
-			return true
-		case a != b:
-			return a > b
-		}
-		if queue[i].Atom.Priority != queue[j].Atom.Priority {
-			return queue[i].Atom.Priority > queue[j].Atom.Priority
-		}
-		return queue[i].Atom.ID < queue[j].Atom.ID
+		return scoredPeerLess(queue[i], queue[j])
 	})
 
 	// Build reverse dependency map (atom -> atoms that depend on it)
@@ -260,13 +264,7 @@ func (r *DependencyResolver) topologicalSort(
 
 		// Re-sort queue after adding new items
 		sort.Slice(queue, func(i, j int) bool {
-			if queue[i].Atom.IsMandatory != queue[j].Atom.IsMandatory {
-				return queue[i].Atom.IsMandatory
-			}
-			if queue[i].Combined != queue[j].Combined {
-				return queue[i].Combined > queue[j].Combined
-			}
-			return queue[i].Atom.ID < queue[j].Atom.ID
+			return scoredPeerLess(queue[i], queue[j])
 		})
 	}
 
@@ -278,11 +276,17 @@ func (r *DependencyResolver) topologicalSort(
 func (r *DependencyResolver) ValidateDependencies(atoms []*PromptAtom) []DependencyError {
 	atomSet := make(map[string]bool, len(atoms))
 	for _, atom := range atoms {
+		if atom == nil || atom.ID == "" {
+			continue
+		}
 		atomSet[atom.ID] = true
 	}
 
 	var errors []DependencyError
 	for _, atom := range atoms {
+		if atom == nil || atom.ID == "" {
+			continue
+		}
 		for _, depID := range atom.DependsOn {
 			if !atomSet[depID] {
 				errors = append(errors, DependencyError{
@@ -450,18 +454,19 @@ func (r *DependencyResolver) SortByCategory(atoms []*OrderedAtom) []*OrderedAtom
 	// Sort within each category by score
 	for cat := range byCategory {
 		sort.Slice(byCategory[cat], func(i, j int) bool {
-			a := byCategory[cat][i].Score
-			b := byCategory[cat][j].Score
-			if math.IsNaN(a) && math.IsNaN(b) {
+			a := byCategory[cat][i]
+			b := byCategory[cat][j]
+			aNaN, bNaN := math.IsNaN(a.Score), math.IsNaN(b.Score)
+			switch {
+			case aNaN && bNaN:
+			case aNaN:
 				return false
-			}
-			if math.IsNaN(a) {
-				return false
-			}
-			if math.IsNaN(b) {
+			case bNaN:
 				return true
+			case a.Score != b.Score:
+				return a.Score > b.Score
 			}
-			return a > b
+			return a.Atom.ID < b.Atom.ID
 		})
 	}
 

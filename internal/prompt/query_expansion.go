@@ -136,9 +136,11 @@ func buildExpandedQuery(cc *CompilationContext) string {
 		}
 	}
 
-	// 4. Process Language
+	// 4. Process Language. Canonical contexts carry "/go", not "go"; the
+	// synonym table is keyed without slashes, so an unstripped lookup missed
+	// every time and no language ever expanded in production.
 	if cc.Language != "" {
-		lang := strings.ToLower(cc.Language)
+		lang := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(cc.Language), "/"))
 		if synonyms, ok := languageSynonyms[lang]; ok {
 			addTerms(synonyms)
 		} else {

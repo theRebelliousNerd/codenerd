@@ -5,6 +5,7 @@ package prompt
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,6 +80,18 @@ func (ps *PredicateSelector) SetMaxPredicates(limit int) {
 	}
 }
 
+// predicatesByDomain returns the corpus predicates for a domain. A failed
+// lookup logs and yields nothing: one bad domain must not sink the whole
+// selection, but it must not vanish silently either.
+func (ps *PredicateSelector) predicatesByDomain(domain string) []core.PredicateInfo {
+	predicates, err := ps.corpus.GetByDomain(domain)
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Warn("PredicateSelector: domain %q lookup failed: %v", domain, err)
+		return nil
+	}
+	return predicates
+}
+
 // Select chooses predicates based on the compilation context.
 func (ps *PredicateSelector) Select(ctx SelectionContext) ([]SelectedPredicate, error) {
 	if ps.corpus == nil {
@@ -94,7 +107,7 @@ func (ps *PredicateSelector) Select(ctx SelectionContext) ([]SelectedPredicate, 
 	seen := make(map[string]bool)
 
 	// 1. Always include core predicates (highest priority)
-	corePredicates, _ := ps.corpus.GetByDomain("core")
+	corePredicates := ps.predicatesByDomain("core")
 	for _, p := range corePredicates {
 		if !seen[p.Name] {
 			seen[p.Name] = true
@@ -113,7 +126,7 @@ func (ps *PredicateSelector) Select(ctx SelectionContext) ([]SelectedPredicate, 
 	if ctx.ShardType != "" {
 		shardDomains := ps.shardTypeToDomains(ctx.ShardType)
 		for _, domain := range shardDomains {
-			domainPredicates, _ := ps.corpus.GetByDomain(domain)
+			domainPredicates := ps.predicatesByDomain(domain)
 			for _, p := range domainPredicates {
 				if !seen[p.Name] {
 					seen[p.Name] = true
@@ -134,7 +147,7 @@ func (ps *PredicateSelector) Select(ctx SelectionContext) ([]SelectedPredicate, 
 	if ctx.IntentVerb != "" {
 		intentDomains := ps.intentVerbToDomains(ctx.IntentVerb)
 		for _, domain := range intentDomains {
-			domainPredicates, _ := ps.corpus.GetByDomain(domain)
+			domainPredicates := ps.predicatesByDomain(domain)
 			for _, p := range domainPredicates {
 				if !seen[p.Name] {
 					seen[p.Name] = true
@@ -153,7 +166,7 @@ func (ps *PredicateSelector) Select(ctx SelectionContext) ([]SelectedPredicate, 
 
 	// 4. Add campaign/phase predicates if active
 	if ctx.CampaignPhase != "" {
-		campaignPredicates, _ := ps.corpus.GetByDomain("campaign")
+		campaignPredicates := ps.predicatesByDomain("campaign")
 		for _, p := range campaignPredicates {
 			if !seen[p.Name] {
 				seen[p.Name] = true
@@ -171,7 +184,7 @@ func (ps *PredicateSelector) Select(ctx SelectionContext) ([]SelectedPredicate, 
 
 	// 5. Add explicitly requested domains
 	for _, domain := range ctx.Domains {
-		domainPredicates, _ := ps.corpus.GetByDomain(domain)
+		domainPredicates := ps.predicatesByDomain(domain)
 		for _, p := range domainPredicates {
 			if !seen[p.Name] {
 				seen[p.Name] = true
@@ -188,7 +201,7 @@ func (ps *PredicateSelector) Select(ctx SelectionContext) ([]SelectedPredicate, 
 	}
 
 	// 6. Add safety predicates (always important)
-	safetyPredicates, _ := ps.corpus.GetByDomain("safety")
+	safetyPredicates := ps.predicatesByDomain("safety")
 	for _, p := range safetyPredicates {
 		if !seen[p.Name] {
 			seen[p.Name] = true
@@ -204,7 +217,7 @@ func (ps *PredicateSelector) Select(ctx SelectionContext) ([]SelectedPredicate, 
 	}
 
 	// 7. Add routing predicates (needed for action dispatch)
-	routingPredicates, _ := ps.corpus.GetByDomain("routing")
+	routingPredicates := ps.predicatesByDomain("routing")
 	for _, p := range routingPredicates {
 		if !seen[p.Name] {
 			seen[p.Name] = true
@@ -219,9 +232,15 @@ func (ps *PredicateSelector) Select(ctx SelectionContext) ([]SelectedPredicate, 
 		}
 	}
 
-	// Sort by relevance (highest first)
+	// Sort by relevance (highest first), breaking ties by name: relevance
+	// ties are the common case (whole domains share one score), and an
+	// unstable order would make the MaxPredicates truncation keep a
+	// different subset on every run.
 	sort.Slice(selected, func(i, j int) bool {
-		return selected[i].Relevance > selected[j].Relevance
+		if selected[i].Relevance != selected[j].Relevance {
+			return selected[i].Relevance > selected[j].Relevance
+		}
+		return selected[i].Name < selected[j].Name
 	})
 
 	// Limit to max
@@ -304,13 +323,8 @@ func (ps *PredicateSelector) FormatForPrompt(predicates []SelectedPredicate) str
 			sb.WriteString(strconv.Itoa(p.Arity))
 			sb.WriteString("`")
 			if p.Description != "" {
-				// Truncate long descriptions
-				desc := p.Description
-				if len(desc) > 60 {
-					desc = desc[:60] + "..."
-				}
 				sb.WriteString(" - ")
-				sb.WriteString(desc)
+				sb.WriteString(truncateRunes(p.Description, 60))
 			}
 			sb.WriteString("\n")
 		}
@@ -434,13 +448,8 @@ func (ps *PredicateSelector) SelectForContext(ctx context.Context, shardType, in
 		sb.WriteString(strconv.Itoa(p.Arity))
 
 		if p.Description != "" {
-			// Truncate description for readability
-			desc := p.Description
-			if len(desc) > 50 {
-				desc = desc[:50] + "..."
-			}
 			sb.WriteString(" - ")
-			sb.WriteString(desc)
+			sb.WriteString(truncateRunes(p.Description, 50))
 		}
 		signatures = append(signatures, sb.String())
 	}
@@ -702,13 +711,28 @@ func similarityFromMetadata(meta map[string]any) float64 {
 }
 
 func clampSimilarity(v float64) float64 {
-	if v < 0 {
+	if math.IsNaN(v) || v < 0 {
 		return 0
 	}
 	if v > 1 {
 		return 1
 	}
 	return v
+}
+
+// truncateRunes bounds s to n runes so a cut never splits a UTF-8 sequence.
+func truncateRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(s) <= n {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "..."
 }
 
 func predicateKey(name string, arity int) string {

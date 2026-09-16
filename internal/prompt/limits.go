@@ -66,7 +66,7 @@ const (
 //
 // The returned string can exceed maxChars by the length of the marker; the
 // marker is the point, and callers that need a hard ceiling should subtract
-// clampMarkerBudget from their limit first.
+// a marker allowance from their limit first.
 func ClampText(text string, maxChars int, label string) string {
 	if maxChars <= 0 {
 		return ""

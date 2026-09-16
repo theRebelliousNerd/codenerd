@@ -138,6 +138,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 
 	cp := loadCheckpoint(cfg, profile)
 	loader := prompt.NewAtomLoader(cfg.EmbedEngine)
+	if err := loader.EnsureSchema(ctx, db); err != nil {
+		return nil, fmt.Errorf("marathon: ensure corpus schema: %w", err)
+	}
 
 	// Phase 5 -- optimize and emit, one atom at a time.
 	budget := cfg.MaxAtoms
@@ -172,10 +175,12 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			if err := emitVariant(ctx, loader, db, optimized); err != nil {
 				result.AtomsFailed++
 				result.Errors = append(result.Errors, fmt.Sprintf("emit %s: %v", optimized.Atom.ID, err))
-				break
+				optErr = err
+				optimized = nil
+			} else {
+				result.AtomsOptimized++
+				cp.markDecided(base)
 			}
-			result.AtomsOptimized++
-			cp.markDecided(base)
 		}
 
 		if err := cp.save(cfg.Workspace); err != nil {

@@ -312,6 +312,9 @@ func selectMangleMandatoryIDs(cc *CompilationContext, atoms []*PromptAtom) map[s
 
 	candidates := make([]*PromptAtom, 0, len(atoms))
 	for _, atom := range atoms {
+		if atom == nil {
+			continue
+		}
 		if !atom.IsMandatory {
 			continue
 		}
@@ -1169,6 +1172,9 @@ func (s *AtomSelector) fallbackFleshSelection(
 	available := availableToolSet(cc)
 
 	for _, atom := range atoms {
+		if atom == nil {
+			continue
+		}
 		// Check context match
 		if !atom.MatchesContext(cc) {
 			continue
@@ -1299,6 +1305,9 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 
 	// Candidate Facts
 	for _, atom := range atoms {
+		if atom == nil {
+			continue
+		}
 		id := atom.ID
 		isMandatory := atom.IsMandatory
 		if forcedMandatory != nil {

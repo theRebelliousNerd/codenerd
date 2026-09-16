@@ -82,6 +82,14 @@ func defaultCategoryOrder() []AtomCategory {
 		// Level 4: JIT Working Memory (Changes EVERY turn) - THE TAIL
 		CategoryIntent,
 		CategoryWorldState,
+
+		// Runtime system atoms (tool-call nudges, executor retries) are
+		// conditionally present but stable in content, so they sit ahead of
+		// context, whose values change every turn. Context stays last: the
+		// tail position is pinned by TestDefaultCategoryOrder. System must be
+		// listed at all: unlisted categories fall to the unknown-category
+		// path, which historically emitted in map order.
+		CategorySystem,
 		CategoryContext,
 	}
 }
@@ -110,13 +118,6 @@ func (a *FinalAssembler) SetSeparators(section, atom string) {
 
 // Assemble combines ordered atoms into a single prompt string.
 func (a *FinalAssembler) Assemble(atoms []*OrderedAtom, cc *CompilationContext) (string, error) {
-	timer := logging.StartTimer(logging.CategoryContext, "FinalAssembler.Assemble")
-	defer timer.Stop()
-
-	if len(atoms) == 0 {
-		return "", nil
-	}
-
 	// Snapshot config under read lock to avoid races with concurrent Set* calls
 	a.mu.RLock()
 	categoryOrder := make([]AtomCategory, len(a.categoryOrder))
@@ -125,6 +126,28 @@ func (a *FinalAssembler) Assemble(atoms []*OrderedAtom, cc *CompilationContext) 
 	sectionSeparator := a.sectionSeparator
 	atomSeparator := a.atomSeparator
 	a.mu.RUnlock()
+
+	return a.assembleWithConfig(atoms, cc, categoryOrder, addSectionHeaders, sectionSeparator, atomSeparator)
+}
+
+// assembleWithConfig runs assembly against explicit config. Overrides (see
+// AssembleWithOptions) flow through parameters, never through temporary
+// mutation of shared state, so concurrent assemblies cannot observe each
+// other's options.
+func (a *FinalAssembler) assembleWithConfig(
+	atoms []*OrderedAtom,
+	cc *CompilationContext,
+	categoryOrder []AtomCategory,
+	addSectionHeaders bool,
+	sectionSeparator string,
+	atomSeparator string,
+) (string, error) {
+	timer := logging.StartTimer(logging.CategoryContext, "FinalAssembler.Assemble")
+	defer timer.Stop()
+
+	if len(atoms) == 0 {
+		return "", nil
+	}
 
 	if cc != nil && strings.TrimSpace(cc.AvailableSpecialists) == "" {
 		if err := InjectAvailableSpecialists(cc, ""); err != nil {
@@ -135,6 +158,9 @@ func (a *FinalAssembler) Assemble(atoms []*OrderedAtom, cc *CompilationContext) 
 	// Group atoms by category
 	byCategory := make(map[AtomCategory][]*OrderedAtom)
 	for _, oa := range atoms {
+		if oa == nil || oa.Atom == nil {
+			continue
+		}
 		cat := oa.Atom.Category
 		byCategory[cat] = append(byCategory[cat], oa)
 	}
@@ -170,11 +196,18 @@ func (a *FinalAssembler) Assemble(atoms []*OrderedAtom, cc *CompilationContext) 
 		}
 	}
 
-	// Handle any categories not in the standard order
-	for cat, atomsInCat := range byCategory {
-		if _, inOrder := catOrderSet[cat]; inOrder {
-			continue // Already processed
+	// Handle any categories not in the standard order, sorted for
+	// determinism: map iteration would shuffle these sections run to run
+	// and churn the prefix cache.
+	unknownCats := make([]AtomCategory, 0)
+	for cat := range byCategory {
+		if _, inOrder := catOrderSet[cat]; !inOrder {
+			unknownCats = append(unknownCats, cat)
 		}
+	}
+	slices.Sort(unknownCats)
+	for _, cat := range unknownCats {
+		atomsInCat := byCategory[cat]
 
 		section, err := a.assembleSectionWith(cat, atomsInCat, cc, addSectionHeaders, atomSeparator)
 		if err != nil {
@@ -202,20 +235,6 @@ func (a *FinalAssembler) Assemble(atoms []*OrderedAtom, cc *CompilationContext) 
 	return prompt, nil
 }
 
-// assembleSection builds the content for a single category section.
-// Uses struct fields directly — only safe when called under lock or single-threaded.
-func (a *FinalAssembler) assembleSection(
-	category AtomCategory,
-	atoms []*OrderedAtom,
-	cc *CompilationContext,
-) (string, error) {
-	a.mu.RLock()
-	headers := a.addSectionHeaders
-	sep := a.atomSeparator
-	a.mu.RUnlock()
-	return a.assembleSectionWith(category, atoms, cc, headers, sep)
-}
-
 // assembleSectionWith builds the content for a single category section
 // using explicitly provided config to avoid concurrent struct field reads.
 func (a *FinalAssembler) assembleSectionWith(
@@ -241,6 +260,9 @@ func (a *FinalAssembler) assembleSectionWith(
 
 	// Add each atom's content
 	for _, oa := range atoms {
+		if oa == nil || oa.Atom == nil {
+			continue
+		}
 		// Emit the render-mode variant the budget manager selected in Fit
 		// (concise/min under budget pressure). Emitting the full standard
 		// Content while Fit charged the smaller variant silently overflows the
@@ -256,11 +278,6 @@ func (a *FinalAssembler) assembleSectionWith(
 	}
 
 	return strings.Join(parts, atomSep), nil
-}
-
-// categoryInOrder checks if a category is in the standard order.
-func (a *FinalAssembler) categoryInOrder(cat AtomCategory) bool {
-	return slices.Contains(a.categoryOrder, cat)
 }
 
 // categoryHeader returns a markdown header for a category.
@@ -288,6 +305,7 @@ func categoryHeader(cat AtomCategory) string {
 		CategoryIntent:        "## User Intent",
 		CategoryWorldState:    "## World State",
 		CategoryContext:       "## Current Context",
+		CategorySystem:        "## Runtime System",
 	}
 
 	if name, ok := names[cat]; ok {
@@ -477,33 +495,22 @@ func DefaultAssemblyOptions() AssemblyOptions {
 	}
 }
 
-// AssembleWithOptions assembles with custom options.
+// AssembleWithOptions assembles with custom options. The header override flows
+// through parameters, never through temporary mutation of shared state, so
+// concurrent assemblies cannot observe each other's options.
 func (a *FinalAssembler) AssembleWithOptions(
 	atoms []*OrderedAtom,
 	cc *CompilationContext,
 	opts AssemblyOptions,
 ) (string, error) {
-	// Earlier this temporarily mutated a.addSectionHeaders without
-	// holding a.mu, and called Assemble which then re-snapshotted under
-	// RLock. Two concurrent AssembleWithOptions calls would race on the
-	// temp swap and one could observe the other's "restored" value as
-	// its own active config. Hold the write lock for the duration of the
-	// swap+Assemble pair so the override is atomic w.r.t. other writers.
-	// AssembleWithOptions is a low-frequency call path (e.g.
-	// preview/debug surfaces), so the added serialization is harmless.
-	a.mu.Lock()
-	originalHeaders := a.addSectionHeaders
-	a.addSectionHeaders = opts.IncludeSectionHeaders
-	a.mu.Unlock()
+	a.mu.RLock()
+	categoryOrder := make([]AtomCategory, len(a.categoryOrder))
+	copy(categoryOrder, a.categoryOrder)
+	sectionSeparator := a.sectionSeparator
+	atomSeparator := a.atomSeparator
+	a.mu.RUnlock()
 
-	defer func() {
-		a.mu.Lock()
-		a.addSectionHeaders = originalHeaders
-		a.mu.Unlock()
-	}()
-
-	// Assemble
-	prompt, err := a.Assemble(atoms, cc)
+	prompt, err := a.assembleWithConfig(atoms, cc, categoryOrder, opts.IncludeSectionHeaders, sectionSeparator, atomSeparator)
 	if err != nil {
 		return "", err
 	}
@@ -581,6 +588,9 @@ func AnalyzePrompt(prompt string, atoms []*OrderedAtom) PromptStats {
 	}
 
 	for _, oa := range atoms {
+		if oa == nil || oa.Atom == nil {
+			continue
+		}
 		stats.CategoryCounts[oa.Atom.Category]++
 
 		if oa.Atom.IsMandatory {

@@ -5,12 +5,55 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
+
+// The world-state mapping lives in four places: WorldStates, hasWorldState,
+// GenerateFacts, and the AllContextDimensions vocabulary. They must agree on
+// every context, or selection sees a different world through each path.
+func TestWorldStateCopies_Agree(t *testing.T) {
+	full := NewCompilationContext()
+	full.FailingTestCount = 2
+	full.DiagnosticCount = 1
+	full.IsLargeRefactor = true
+	full.HasSecurityIssues = true
+	full.HasNewFiles = true
+	full.IsHighChurn = true
+	full.HasReflectionHits = true
+	full.PreviousAttemptNoToolCall = true
+
+	some := NewCompilationContext()
+	some.DiagnosticCount = 3
+	some.HasNewFiles = true
+
+	for name, cc := range map[string]*CompilationContext{"full": full, "some": some, "zero": NewCompilationContext()} {
+		t.Run(name, func(t *testing.T) {
+			states := cc.WorldStates()
+			for state := range KnownWorldStates() {
+				want := slices.Contains(states, state)
+				assert.Equal(t, want, hasWorldState(cc, state), "hasWorldState(%q) disagrees with WorldStates()", state)
+			}
+			facts := cc.GenerateFacts(FactStyle{Predicate: "current_context", UseShort: true, ForceAtoms: true})
+			var factStates []string
+			for _, f := range facts {
+				s, ok := f.(string)
+				if !ok {
+					continue
+				}
+				if rest, found := strings.CutPrefix(s, "current_context(/state, /"); found {
+					factStates = append(factStates, strings.TrimSuffix(rest, ")"))
+				}
+			}
+			assert.ElementsMatch(t, states, factStates, "GenerateFacts world states disagree with WorldStates()")
+		})
+	}
+}
 
 // tagRoundTripFixture carries one distinctive value per persistence dimension,
 // pre-normalized exactly as canonical YAML loads produce.

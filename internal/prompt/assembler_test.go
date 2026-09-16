@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -670,4 +671,95 @@ func BenchmarkAnalyzePrompt(b *testing.B) {
 	for b.Loop() {
 		AnalyzePrompt(prompt, atoms)
 	}
+}
+
+func TestAssemble_UnknownCategoriesSortDeterministically(t *testing.T) {
+	mk := func(id string, cat AtomCategory) *OrderedAtom {
+		return &OrderedAtom{Atom: &PromptAtom{ID: id, Category: cat, Content: "body-" + id}, Order: 0, RenderMode: "standard"}
+	}
+	atoms := []*OrderedAtom{
+		mk("z1", AtomCategory("zzz_custom")),
+		mk("a1", AtomCategory("aaa_custom")),
+		mk("m1", AtomCategory("mmm_custom")),
+	}
+	assembler := NewFinalAssembler()
+	first, err := assembler.Assemble(atoms, NewCompilationContext())
+	require.NoError(t, err)
+	ia := strings.Index(first, "body-a1")
+	im := strings.Index(first, "body-m1")
+	iz := strings.Index(first, "body-z1")
+	require.NotEqual(t, -1, ia)
+	assert.True(t, ia < im && im < iz, "unknown categories must emit sorted, got:\n%s", first)
+	for i := 0; i < 20; i++ {
+		again, err := assembler.Assemble(atoms, NewCompilationContext())
+		require.NoError(t, err)
+		assert.Equal(t, first, again, "assembly must be stable across runs")
+	}
+}
+
+func TestAssemble_SystemCategoryRendersBeforeContext(t *testing.T) {
+	mk := func(id string, cat AtomCategory) *OrderedAtom {
+		return &OrderedAtom{Atom: &PromptAtom{ID: id, Category: cat, Content: "body-" + id}, Order: 0, RenderMode: "standard"}
+	}
+	atoms := []*OrderedAtom{
+		mk("s1", CategorySystem),
+		mk("c1", CategoryContext),
+		mk("i1", CategoryIdentity),
+	}
+	out, err := NewFinalAssembler().Assemble(atoms, NewCompilationContext())
+	require.NoError(t, err)
+	ii := strings.Index(out, "body-i1")
+	ic := strings.Index(out, "body-c1")
+	is := strings.Index(out, "body-s1")
+	require.NotEqual(t, -1, is)
+	assert.True(t, ii < is && is < ic, "system renders ahead of context (context stays last), got:\n%s", out)
+}
+
+func TestAssemble_SkipsNilAtoms(t *testing.T) {
+	atoms := []*OrderedAtom{
+		nil,
+		{Atom: nil},
+		{Atom: &PromptAtom{ID: "ok", Category: CategoryIdentity, Content: "hello"}, Order: 0, RenderMode: "standard"},
+	}
+	out, err := NewFinalAssembler().Assemble(atoms, NewCompilationContext())
+	require.NoError(t, err)
+	assert.Contains(t, out, "hello")
+	assert.NotPanics(t, func() { AnalyzePrompt(out, atoms) })
+}
+
+func TestAssembleWithOptions_ConcurrentOverridesStayIsolated(t *testing.T) {
+	assembler := NewFinalAssembler()
+	atoms := []*OrderedAtom{
+		{Atom: &PromptAtom{ID: "a", Category: CategoryIdentity, Content: "alpha"}, Order: 0, RenderMode: "standard"},
+	}
+	withHeaders := AssemblyOptions{IncludeSectionHeaders: true}
+	withoutHeaders := AssemblyOptions{IncludeSectionHeaders: false}
+	var wg sync.WaitGroup
+	for w := 0; w < 8; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < 25; i++ {
+				opts := withHeaders
+				if (w+i)%2 == 1 {
+					opts = withoutHeaders
+				}
+				out, err := assembler.AssembleWithOptions(atoms, NewCompilationContext(), opts)
+				if err != nil {
+					t.Errorf("assemble: %v", err)
+					return
+				}
+				hasHeader := strings.Contains(out, "## Identity")
+				if opts.IncludeSectionHeaders && !hasHeader {
+					t.Errorf("headers=true rendered without header: %q", out)
+					return
+				}
+				if !opts.IncludeSectionHeaders && hasHeader {
+					t.Errorf("headers=false rendered with header: %q", out)
+					return
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
 }

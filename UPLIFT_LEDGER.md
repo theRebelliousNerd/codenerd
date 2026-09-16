@@ -2480,111 +2480,111 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/projectdoc/tool_gate_test.go`
 
 ### internal/prompt (105)
-- [ ] `internal/prompt/assembler.go`
-- [ ] `internal/prompt/assembler_gaps_test.go`
-- [ ] `internal/prompt/assembler_test.go`
-- [ ] `internal/prompt/atom_pinning_test.go`
+- [x] `internal/prompt/assembler.go`
+- [x] `internal/prompt/assembler_gaps_test.go`
+- [x] `internal/prompt/assembler_test.go`
+- [x] `internal/prompt/atom_pinning_test.go`
 - [x] `internal/prompt/atom_schema.go`
-- [ ] `internal/prompt/atom_schema_test.go`
+- [x] `internal/prompt/atom_schema_test.go`
 - [x] `internal/prompt/atoms.go`
-- [ ] `internal/prompt/atoms_placeholder_test.go`
-- [ ] `internal/prompt/atoms_test.go`
-- [ ] `internal/prompt/atoms_verification_test.go`
+- [x] `internal/prompt/atoms_placeholder_test.go`
+- [x] `internal/prompt/atoms_test.go`
+- [x] `internal/prompt/atoms_verification_test.go`
 - [x] `internal/prompt/baseline.go`
-- [ ] `internal/prompt/budget.go`
-- [ ] `internal/prompt/budget_enforcement_test.go`
-- [ ] `internal/prompt/budget_test.go`
-- [ ] `internal/prompt/capability_gating_test.go`
-- [ ] `internal/prompt/codedom_policy_test.go`
-- [ ] `internal/prompt/compile_shard_test.go`
-- [ ] `internal/prompt/compiler.go`
-- [ ] `internal/prompt/compiler_boundary_test.go`
+- [x] `internal/prompt/budget.go`
+- [x] `internal/prompt/budget_enforcement_test.go`
+- [x] `internal/prompt/budget_test.go`
+- [x] `internal/prompt/capability_gating_test.go`
+- [x] `internal/prompt/codedom_policy_test.go`
+- [x] `internal/prompt/compile_shard_test.go`
+- [x] `internal/prompt/compiler.go`
+- [x] `internal/prompt/compiler_boundary_test.go`
 - [x] `internal/prompt/compiler_db.go`
-- [ ] `internal/prompt/compiler_expert_knowledge_test.go`
-- [ ] `internal/prompt/compiler_gaps_test.go`
-- [ ] `internal/prompt/compiler_kernel_atoms_test.go`
-- [ ] `internal/prompt/compiler_options.go`
-- [ ] `internal/prompt/compiler_scope_test.go`
-- [ ] `internal/prompt/compiler_shutdown_test.go`
-- [ ] `internal/prompt/compiler_specialists.go`
-- [ ] `internal/prompt/compiler_test.go`
-- [ ] `internal/prompt/config_defaults.go`
+- [x] `internal/prompt/compiler_expert_knowledge_test.go`
+- [x] `internal/prompt/compiler_gaps_test.go`
+- [x] `internal/prompt/compiler_kernel_atoms_test.go`
+- [x] `internal/prompt/compiler_options.go`
+- [x] `internal/prompt/compiler_scope_test.go`
+- [x] `internal/prompt/compiler_shutdown_test.go`
+- [x] `internal/prompt/compiler_specialists.go`
+- [x] `internal/prompt/compiler_test.go`
+- [x] `internal/prompt/config_defaults.go`
 - [x] `internal/prompt/config_factory.go`
-- [ ] `internal/prompt/config_factory_all_verbs_test.go`
-- [ ] `internal/prompt/config_factory_mcp_test.go`
-- [ ] `internal/prompt/config_factory_taxonomy_test.go`
-- [ ] `internal/prompt/config_factory_test.go`
-- [ ] `internal/prompt/config_generation_test.go`
-- [ ] `internal/prompt/config_policy_registry_test.go`
-- [ ] `internal/prompt/config_registry.go`
-- [ ] `internal/prompt/config_registry_test.go`
-- [ ] `internal/prompt/context.go`
-- [ ] `internal/prompt/context_hash_test.go`
-- [ ] `internal/prompt/context_test.go`
-- [ ] `internal/prompt/couse.go`
-- [ ] `internal/prompt/couse_default.go`
-- [ ] `internal/prompt/couse_log_handle_test.go`
-- [ ] `internal/prompt/couse_persist.go`
-- [ ] `internal/prompt/couse_report.go`
-- [ ] `internal/prompt/couse_test.go`
-- [ ] `internal/prompt/couse_wiring_test.go`
-- [ ] `internal/prompt/debugging_atoms_test.go`
+- [x] `internal/prompt/config_factory_all_verbs_test.go`
+- [x] `internal/prompt/config_factory_mcp_test.go`
+- [x] `internal/prompt/config_factory_taxonomy_test.go`
+- [x] `internal/prompt/config_factory_test.go`
+- [x] `internal/prompt/config_generation_test.go`
+- [x] `internal/prompt/config_policy_registry_test.go`
+- [x] `internal/prompt/config_registry.go`
+- [x] `internal/prompt/config_registry_test.go`
+- [x] `internal/prompt/context.go`
+- [x] `internal/prompt/context_hash_test.go`
+- [x] `internal/prompt/context_test.go`
+- [x] `internal/prompt/couse.go`
+- [x] `internal/prompt/couse_default.go`
+- [x] `internal/prompt/couse_log_handle_test.go`
+- [x] `internal/prompt/couse_persist.go`
+- [x] `internal/prompt/couse_report.go`
+- [x] `internal/prompt/couse_test.go`
+- [x] `internal/prompt/couse_wiring_test.go`
+- [x] `internal/prompt/debugging_atoms_test.go`
 - [x] `internal/prompt/default_corpus.go`
-- [ ] `internal/prompt/default_corpus_benchmark_test.go`
+- [x] `internal/prompt/default_corpus_benchmark_test.go`
 - [x] `internal/prompt/embedded.go`
-- [ ] `internal/prompt/embedded_test.go`
+- [x] `internal/prompt/embedded_test.go`
 - [x] `internal/prompt/evolved_atoms.go`
-- [ ] `internal/prompt/grounded_web_search_test.go`
-- [ ] `internal/prompt/kernel_injection_bounds_test.go`
-- [ ] `internal/prompt/learning_evidence_test.go`
-- [ ] `internal/prompt/limits.go`
-- [ ] `internal/prompt/limits_test.go`
+- [x] `internal/prompt/grounded_web_search_test.go`
+- [x] `internal/prompt/kernel_injection_bounds_test.go`
+- [x] `internal/prompt/learning_evidence_test.go`
+- [x] `internal/prompt/limits.go`
+- [x] `internal/prompt/limits_test.go`
 - [x] `internal/prompt/loader.go`
-- [ ] `internal/prompt/loader_bench_test.go`
+- [x] `internal/prompt/loader_bench_test.go`
 - [x] `internal/prompt/loader_embedding.go`
-- [ ] `internal/prompt/loader_example_test.go`
-- [ ] `internal/prompt/loader_test.go`
-- [ ] `internal/prompt/loader_yaml_fields_test.go`
+- [x] `internal/prompt/loader_example_test.go`
+- [x] `internal/prompt/loader_test.go`
+- [x] `internal/prompt/loader_yaml_fields_test.go`
 - [x] `internal/prompt/manifest.go`
-- [ ] `internal/prompt/marathon/marathon.go`
-- [ ] `internal/prompt/marathon/marathon_test.go`
-- [ ] `internal/prompt/marathon/optimize.go`
-- [ ] `internal/prompt/marathon/research.go`
-- [ ] `internal/prompt/marathon/types.go`
-- [ ] `internal/prompt/minify_whitespace_perf_test.go`
-- [ ] `internal/prompt/output_mode.go`
-- [ ] `internal/prompt/output_mode_campaign_test.go`
-- [ ] `internal/prompt/pinning.go`
-- [ ] `internal/prompt/pinning_test.go`
-- [ ] `internal/prompt/predicate_selector.go`
-- [ ] `internal/prompt/predicate_selector_test.go`
+- [x] `internal/prompt/marathon/marathon.go`
+- [x] `internal/prompt/marathon/marathon_test.go`
+- [x] `internal/prompt/marathon/optimize.go`
+- [x] `internal/prompt/marathon/research.go`
+- [x] `internal/prompt/marathon/types.go`
+- [x] `internal/prompt/minify_whitespace_perf_test.go`
+- [x] `internal/prompt/output_mode.go`
+- [x] `internal/prompt/output_mode_campaign_test.go`
+- [x] `internal/prompt/pinning.go`
+- [x] `internal/prompt/pinning_test.go`
+- [x] `internal/prompt/predicate_selector.go`
+- [x] `internal/prompt/predicate_selector_test.go`
 - [x] `internal/prompt/prompt_core_uplift_test.go`
 - [x] `internal/prompt/prompt_loader_uplift_test.go`
-- [ ] `internal/prompt/prompt_gaps_test.go`
-- [ ] `internal/prompt/query_expansion.go`
-- [ ] `internal/prompt/query_expansion_semantic_test.go`
-- [ ] `internal/prompt/query_expansion_test.go`
-- [ ] `internal/prompt/reconciler.go`
-- [ ] `internal/prompt/reconciler_test.go`
-- [ ] `internal/prompt/refactoring_atoms_test.go`
-- [ ] `internal/prompt/reload_failure_contract_test.go`
-- [ ] `internal/prompt/render_mode_test.go`
-- [ ] `internal/prompt/resolver.go`
-- [ ] `internal/prompt/resolver_gaps_test.go`
-- [ ] `internal/prompt/resolver_test.go`
+- [x] `internal/prompt/prompt_gaps_test.go`
+- [x] `internal/prompt/query_expansion.go`
+- [x] `internal/prompt/query_expansion_semantic_test.go`
+- [x] `internal/prompt/query_expansion_test.go`
+- [x] `internal/prompt/reconciler.go`
+- [x] `internal/prompt/reconciler_test.go`
+- [x] `internal/prompt/refactoring_atoms_test.go`
+- [x] `internal/prompt/reload_failure_contract_test.go`
+- [x] `internal/prompt/render_mode_test.go`
+- [x] `internal/prompt/resolver.go`
+- [x] `internal/prompt/resolver_gaps_test.go`
+- [x] `internal/prompt/resolver_test.go`
 - [x] `internal/prompt/selector.go`
-- [ ] `internal/prompt/selector_gaps_test.go`
-- [ ] `internal/prompt/selector_test.go`
-- [ ] `internal/prompt/selector_vector_score_test.go`
-- [ ] `internal/prompt/shard_gating_test.go`
-- [ ] `internal/prompt/specialist_benchmark_test.go`
+- [x] `internal/prompt/selector_gaps_test.go`
+- [x] `internal/prompt/selector_test.go`
+- [x] `internal/prompt/selector_vector_score_test.go`
+- [x] `internal/prompt/shard_gating_test.go`
+- [x] `internal/prompt/specialist_benchmark_test.go`
 - [x] `internal/prompt/strategy_atoms.go`
-- [ ] `internal/prompt/strategy_atoms_test.go`
-- [ ] `internal/prompt/structured_output_corpus_test.go`
-- [ ] `internal/prompt/sync/synchronizer.go`
-- [ ] `internal/prompt/sync/synchronizer_test.go`
-- [ ] `internal/prompt/vector_searcher.go`
-- [ ] `internal/prompt/verify_pe1_test.go`
+- [x] `internal/prompt/strategy_atoms_test.go`
+- [x] `internal/prompt/structured_output_corpus_test.go`
+- [x] `internal/prompt/sync/synchronizer.go`
+- [x] `internal/prompt/sync/synchronizer_test.go`
+- [x] `internal/prompt/vector_searcher.go`
+- [x] `internal/prompt/verify_pe1_test.go`
 
 ### internal/regression (7)
 - [ ] `internal/regression/battery.go`

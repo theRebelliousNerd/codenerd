@@ -121,7 +121,10 @@ func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit
 		candidates = append(candidates, scored{id: id, score: score})
 	}
 	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].score > candidates[j].score
+		if candidates[i].score != candidates[j].score {
+			return candidates[i].score > candidates[j].score
+		}
+		return candidates[i].id < candidates[j].id
 	})
 	if len(candidates) > limit {
 		candidates = candidates[:limit]

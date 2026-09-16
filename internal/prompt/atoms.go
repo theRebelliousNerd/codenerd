@@ -402,6 +402,9 @@ func (a *PromptAtom) ContextTags() []AtomTag {
 // Returns true if the atom matches ALL non-empty selector dimensions.
 // Empty selector lists are treated as "match any".
 func (a *PromptAtom) MatchesContext(cc *CompilationContext) bool {
+	if a == nil {
+		return false
+	}
 	if cc == nil {
 		return true
 	}

@@ -235,11 +235,19 @@ func (c *JITPromptCompiler) RegisterShardDB(shardID string, db *sql.DB) {
 	c.clearPromptCache(fmt.Sprintf("shard database registered: %s", shardID))
 }
 
-// UnregisterShardDB removes a shard database registration.
+// UnregisterShardDB removes a shard database registration and closes the
+// handle: *sql.DB has no finalizer, so dropping it from the map without
+// closing leaks the connection pool until process exit.
 func (c *JITPromptCompiler) UnregisterShardDB(shardID string) {
 	c.shardMu.Lock()
+	db, ok := c.shardDBs[shardDBKey(shardID)]
 	delete(c.shardDBs, shardDBKey(shardID))
 	c.shardMu.Unlock()
+	if ok && db != nil {
+		if err := db.Close(); err != nil {
+			logging.Get(logging.CategoryContext).Warn("Failed to close unregistered shard DB %s: %v", shardID, err)
+		}
+	}
 	c.clearPromptCache(fmt.Sprintf("shard database unregistered: %s", shardID))
 }
 
@@ -509,7 +517,7 @@ func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *Compil
 		pa.Priority = 88 // slightly above regular knowledge
 		pa.IsMandatory = false
 		if cc.ShardID != "" {
-			pa.ShardTypes = []string{cc.ShardID}
+			pa.ShardTypes = []string{shardDBKey(cc.ShardID)}
 		}
 		result = append(result, pa)
 	}

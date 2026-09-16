@@ -828,3 +828,26 @@ func TestDependencyResolver_Resolve_MassiveDependencyChain(t *testing.T) {
 	assert.Equal(t, "atom_1", ordered[1].Atom.ID)
 	assert.Equal(t, fmt.Sprintf("atom_%d", numAtoms-1), ordered[numAtoms-1].Atom.ID)
 }
+
+func TestResolve_PriorityTierSurvivesMidRunUnlock(t *testing.T) {
+	// A and B tie on score; B's higher declared priority must win even after
+	// C joins the queue mid-run. The re-sort after each pop once dropped the
+	// priority tier, so peers reordered by ID the moment any unlock happened.
+	mk := func(id string, priority int, score float64, deps ...string) *ScoredAtom {
+		return &ScoredAtom{
+			Atom:     &PromptAtom{ID: id, Category: CategoryProtocol, Content: "x", Priority: priority, DependsOn: deps},
+			Combined: score,
+		}
+	}
+	atoms := []*ScoredAtom{
+		mk("root", 50, 1.0),
+		mk("a-peer", 10, 0.5),
+		mk("b-peer", 90, 0.5),
+		mk("c-unlocked", 50, 0.9, "root"),
+	}
+	ordered, err := NewDependencyResolver().Resolve(atoms)
+	require.NoError(t, err)
+	require.Len(t, ordered, 4)
+	got := []string{ordered[0].Atom.ID, ordered[1].Atom.ID, ordered[2].Atom.ID, ordered[3].Atom.ID}
+	assert.Equal(t, []string{"root", "c-unlocked", "b-peer", "a-peer"}, got)
+}

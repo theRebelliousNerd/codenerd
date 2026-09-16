@@ -7,6 +7,7 @@ package prompt
 import (
 	"math"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,6 +24,7 @@ func TestBudgetPriority_String(t *testing.T) {
 		{PriorityMedium, "medium"},
 		{PriorityLow, "low"},
 		{PriorityConditional, "conditional"},
+		{PriorityUnknown, "unbudgeted"},
 		{BudgetPriority(99), "unknown"},
 	}
 
@@ -846,3 +848,72 @@ func TestTokenBudgetManager_calculateAllocations(t *testing.T) {
 // TODO: Gap (User Request Extremes) - Test Fit behavior with totalBudget set to math.MaxInt (or very close to it) to check for integer overflow during allocation calculations.
 // TODO: Gap (User Request Extremes) - Test Fit with a massive string content that exceeds standard memory limits to verify truncateUTF8Safe and EstimateTokens performance and limits.
 // TODO: Gap (User Request Extremes) - Test scenario where the total tokens required by Mandatory items far exceeds the totalBudget. Validate the exact truncation behavior or error handling.
+
+func TestDefaultBudgets_CoverEveryCategory(t *testing.T) {
+	// A category without a budget entry falls to the unbudgeted fallback:
+	// fitted last, shed first. That fallback exists for forward
+	// compatibility, not as a permanent home — every known category needs
+	// an entry the day it is added to AllCategories.
+	mgr := NewTokenBudgetManager()
+	for _, cat := range AllCategories() {
+		budget, ok := mgr.budgets[cat]
+		require.True(t, ok, "category %q has no budget entry", cat)
+		require.NotEqual(t, PriorityUnknown, mgr.CategoryPriority(cat))
+		_ = budget
+	}
+	require.Equal(t, PriorityUnknown, mgr.CategoryPriority(AtomCategory("zz_no_such_cat")))
+}
+
+func TestShedToFit_UnbudgetedShedsBeforeConditional(t *testing.T) {
+	mk := func(id string, cat AtomCategory) *OrderedAtom {
+		return &OrderedAtom{
+			Atom:       &PromptAtom{ID: id, Category: cat, Content: strings.Repeat("x", 1600), TokenCount: 400},
+			Score:      0.9,
+			RenderMode: "standard",
+		}
+	}
+	atoms := []*OrderedAtom{
+		mk("cond", CategoryCampaign),
+		mk("unbd", AtomCategory("zz_no_such_cat")),
+	}
+	assemble := func(kept []*OrderedAtom) (string, error) {
+		var parts []string
+		for _, oa := range kept {
+			parts = append(parts, oa.Atom.Content)
+		}
+		return strings.Join(parts, "\n\n"), nil
+	}
+	full, err := assemble(atoms)
+	require.NoError(t, err)
+	survivors, _, used := NewTokenBudgetManager().ShedToFit(atoms, full, 500, assemble)
+	require.Len(t, survivors, 1, "one atom must shed to fit 500 tokens")
+	assert.Equal(t, "cond", survivors[0].Atom.ID, "unbudgeted atom must shed before conditional")
+	assert.LessOrEqual(t, used, 500)
+}
+
+func TestSetCategoryBudget_ClampsBasePercent(t *testing.T) {
+	mgr := NewTokenBudgetManager()
+	mgr.SetCategoryBudget(CategoryBudget{Category: CategoryDomain, BasePercent: math.NaN(), MaxTokens: 100})
+	assert.Equal(t, 0.0, mgr.budgets[CategoryDomain].BasePercent)
+	mgr.SetCategoryBudget(CategoryBudget{Category: CategoryDomain, BasePercent: -2, MaxTokens: 100})
+	assert.Equal(t, 0.0, mgr.budgets[CategoryDomain].BasePercent)
+	mgr.SetCategoryBudget(CategoryBudget{Category: CategoryDomain, BasePercent: 9, MaxTokens: 100})
+	assert.Equal(t, 1.0, mgr.budgets[CategoryDomain].BasePercent)
+}
+
+func TestGenerateReport_ConcurrentWithSetCategoryBudget(t *testing.T) {
+	mgr := NewTokenBudgetManager()
+	atoms := []*OrderedAtom{
+		{Atom: &PromptAtom{ID: "a", Category: CategoryDomain, Content: "x", TokenCount: 1}, Score: 1},
+	}
+	var wg sync.WaitGroup
+	for w := 0; w < 4; w++ {
+		wg.Add(2)
+		go func() { defer wg.Done(); _ = mgr.GenerateReport(atoms, 1000) }()
+		go func(w int) {
+			defer wg.Done()
+			mgr.SetCategoryBudget(CategoryBudget{Category: CategoryDomain, BasePercent: 0.1, MaxTokens: 100 + w})
+		}(w)
+	}
+	wg.Wait()
+}

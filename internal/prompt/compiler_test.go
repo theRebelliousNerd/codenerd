@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -1358,4 +1359,57 @@ func TestCompiler_ExtremeTokenBudget(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid compilation context")
 	})
+}
+
+func TestJITPromptCompiler_GetStats_TracksCompilesAndProjectAtoms(t *testing.T) {
+	// `nerd jit` prints these numbers; three of them used to be permanently
+	// zero. A repeated compile is a cache hit (served, not compiled), so the
+	// lifetime counters must move exactly once for two identical compiles.
+	ctx := context.Background()
+	atoms := []*PromptAtom{NewPromptAtom("a", CategoryIdentity, "A")}
+	compiler, err := NewJITPromptCompiler(
+		WithEmbeddedCorpus(NewEmbeddedCorpus(atoms)),
+		WithKernel(&mockKernel{facts: atomsToFacts(atoms)}),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = compiler.Close() })
+
+	dbPath := filepath.Join(t.TempDir(), "proj.db")
+	db, err := sql.Open("sqlite3", dbPath)
+	require.NoError(t, err)
+	loader := NewAtomLoader(nil)
+	require.NoError(t, loader.EnsureSchema(ctx, db))
+	require.NoError(t, loader.StoreAtom(ctx, db, NewPromptAtom("p/1", CategoryDomain, "one")))
+	require.NoError(t, loader.StoreAtom(ctx, db, NewPromptAtom("p/2", CategoryDomain, "two")))
+	require.NoError(t, db.Close())
+	require.NoError(t, compiler.RegisterDB("project", dbPath))
+
+	cc := NewCompilationContext().WithShard("/coder", "coder-1", "Primary Coder").WithTokenBudget(10000, 1000)
+	_, err = compiler.Compile(ctx, cc)
+	require.NoError(t, err)
+	_, err = compiler.Compile(ctx, cc)
+	require.NoError(t, err)
+
+	stats := compiler.GetStats()
+	assert.Equal(t, 1, stats.EmbeddedAtomCount)
+	assert.Equal(t, 2, stats.ProjectAtomCount)
+	assert.Equal(t, int64(1), stats.TotalCompilations)
+	assert.GreaterOrEqual(t, stats.AverageTimeMs, 0.0)
+}
+
+func TestJITPromptCompiler_UnregisterShardDB_ClosesHandle(t *testing.T) {
+	// *sql.DB has no finalizer: dropping the registration without closing
+	// leaks the pool. A second life-signal on the handle must fail.
+	compiler, err := NewJITPromptCompiler()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = compiler.Close() })
+
+	db, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "shard.db"))
+	require.NoError(t, err)
+	compiler.RegisterShardDB("shard-x", db)
+	compiler.UnregisterShardDB("shard-x")
+
+	assert.Error(t, db.Ping(), "unregister must close the handle")
+	_, ok := compiler.LookupShardDB("shard-x")
+	assert.False(t, ok)
 }

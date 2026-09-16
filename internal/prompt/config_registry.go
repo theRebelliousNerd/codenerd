@@ -22,10 +22,15 @@ func (r *SimpleRegistry) Register(intent string, atom ConfigAtom) {
 	r.atoms[intent] = atom
 }
 
-// GetAtom retrieves a ConfigAtom from the registry.
+// GetAtom retrieves a ConfigAtom from the registry. The returned atom is a
+// clone: callers routinely append to Tools, and sharing the registry's slice
+// would corrupt every later lookup of the same intent.
 func (r *SimpleRegistry) GetAtom(intent string) (ConfigAtom, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	atom, ok := r.atoms[intent]
-	return atom, ok
+	if !ok {
+		return atom, false
+	}
+	return atom.Clone(), true
 }

@@ -32,6 +32,13 @@ const (
 
 	// PriorityConditional items are only included if specific conditions are met.
 	PriorityConditional
+
+	// PriorityUnknown is the fallback for categories with no budget entry. It
+	// sorts after Conditional everywhere, so unbudgeted atoms are fitted last
+	// and shed first. Fit's internal getPriority and CategoryPriority must
+	// agree on this: they once returned Conditional+1 and Conditional
+	// respectively, and the comment claimed they matched.
+	PriorityUnknown
 )
 
 // String returns the string representation of BudgetPriority.
@@ -47,6 +54,8 @@ func (p BudgetPriority) String() string {
 		return "low"
 	case PriorityConditional:
 		return "conditional"
+	case PriorityUnknown:
+		return "unbudgeted"
 	default:
 		return "unknown"
 	}
@@ -312,10 +321,35 @@ func (m *TokenBudgetManager) setDefaultBudgets() {
 		MaxTokens:   5000,
 		Priority:    PriorityLow,
 	}
+
+	// Runtime system atoms (tool-call nudges, shard-identity guidance) are
+	// small and only present when their context matches, so when they do show
+	// up they are highly relevant. Without an entry they fell to the
+	// unbudgeted fallback and could only ever ride pass-2 leftovers.
+	m.budgets[CategorySystem] = CategoryBudget{
+		Category:    CategorySystem,
+		BasePercent: 0.03,
+		MinTokens:   0,
+		MaxTokens:   3000,
+		Priority:    PriorityHigh,
+	}
 }
 
-// SetCategoryBudget configures the budget for a specific category.
+// SetCategoryBudget configures the budget for a specific category. BasePercent
+// outside 0..1 (including NaN, which would poison every normalized share) is
+// clamped, following the SetReservedHeadroom precedent.
 func (m *TokenBudgetManager) SetCategoryBudget(budget CategoryBudget) {
+	if math.IsNaN(budget.BasePercent) || budget.BasePercent < 0 {
+		logging.Get(logging.CategoryContext).Warn(
+			"SetCategoryBudget: BasePercent %v for %s clamped to 0", budget.BasePercent, budget.Category,
+		)
+		budget.BasePercent = 0
+	} else if budget.BasePercent > 1 {
+		logging.Get(logging.CategoryContext).Warn(
+			"SetCategoryBudget: BasePercent %v for %s clamped to 1", budget.BasePercent, budget.Category,
+		)
+		budget.BasePercent = 1
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.budgets[budget.Category] = budget
@@ -403,7 +437,7 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 			return int(b.Priority)
 		}
 		// Categories without budget config come last
-		return int(PriorityConditional) + 1
+		return int(PriorityUnknown)
 	}
 
 	sort.SliceStable(sortedAtoms, func(i, j int) bool {
@@ -879,6 +913,8 @@ type CategoryUsage struct {
 
 // GenerateReport creates a budget report for a set of fitted atoms.
 func (m *TokenBudgetManager) GenerateReport(atoms []*OrderedAtom, totalBudget int) BudgetReport {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	report := BudgetReport{
 		TotalBudget:   totalBudget,
 		CategoryUsage: make(map[AtomCategory]CategoryUsage),
@@ -922,6 +958,9 @@ func (m *TokenBudgetManager) GenerateReport(atoms []*OrderedAtom, totalBudget in
 // prompt silently exceeds the budget accounting. Empty variants fall back to the
 // standard Content so text and count stay consistent.
 func contentForMode(atom *PromptAtom, mode string) string {
+	if atom == nil {
+		return ""
+	}
 	switch mode {
 	case "concise":
 		if atom.ContentConcise != "" {
@@ -939,6 +978,9 @@ func contentForMode(atom *PromptAtom, mode string) string {
 // mode, falling back to the standard TokenCount when the requested variant is
 // empty. Mirrors contentForMode so accounting matches emitted text.
 func tokenCountForMode(atom *PromptAtom, mode string) int {
+	if atom == nil {
+		return 0
+	}
 	var cnt int
 	switch mode {
 	case "concise":
@@ -963,7 +1005,7 @@ func tokenCountForMode(atom *PromptAtom, mode string) int {
 }
 
 // CategoryPriority returns the configured priority for a category, or
-// PriorityConditional for a category with no budget entry (the same fallback
+// PriorityUnknown for a category with no budget entry (the same fallback
 // Fit's internal getPriority uses — an unbudgeted category is shed first).
 func (m *TokenBudgetManager) CategoryPriority(cat AtomCategory) BudgetPriority {
 	m.mu.RLock()
@@ -971,7 +1013,7 @@ func (m *TokenBudgetManager) CategoryPriority(cat AtomCategory) BudgetPriority {
 	if b, ok := m.budgets[cat]; ok {
 		return b.Priority
 	}
-	return PriorityConditional
+	return PriorityUnknown
 }
 
 // maxShedPasses bounds the assemble/measure/shed loop. Each pass removes at

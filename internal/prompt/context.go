@@ -197,6 +197,11 @@ type CompilationContext struct {
 
 	// SessionContext holds the current session context
 	// Type: *core.SessionContext
+	//
+	// Write-only baggage: the articulation adapter sets these for downstream
+	// consumers that do not exist yet. Nothing reads them, so they are
+	// correctly excluded from Hash; if a reader ever lands, hashing must be
+	// revisited or two contexts will share a cache entry they should not.
 	SessionContext any
 
 	// UserIntent holds the parsed user intent
@@ -499,7 +504,8 @@ func (cc *CompilationContext) String() string {
 
 // ToContextFacts generates Mangle facts representing this context.
 // These facts are formatted for the compile_context(Dimension, Value) schema
-// as declared in schemas.mg Section 45 and used by policy.mg for atom selection.
+// as declared in schemas.mg and consumed by jit_compiler.mg /
+// policy/jit_selection.mg for atom selection.
 
 func (cc *CompilationContext) ToContextFacts() []any {
 	return cc.GenerateFacts(FactStyle{

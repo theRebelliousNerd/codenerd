@@ -275,3 +275,39 @@ func TestWriteAtom_WhitespaceFoldsNeverQuotes(t *testing.T) {
 		t.Errorf("blank input = %q, want empty (skip the fact)", got)
 	}
 }
+
+// A corrupt source must degrade, never panic the turn: nil atoms flow through
+// collection deliberately, so every downstream loop skips them.
+func TestSelection_NilAtomsDegrade(t *testing.T) {
+	var nilAtom *PromptAtom
+	if nilAtom.MatchesContext(NewCompilationContext()) {
+		t.Error("nil atom must not match any context")
+	}
+	valid := NewPromptAtom("ok/id", CategoryIdentity, "content")
+	sel := NewAtomSelector()
+	cc := NewCompilationContext()
+	// An empty kernel double: queries answer nothing, so the run exercises
+	// fact building (where the nils live) and degrades to no selection.
+	scored, err := sel.selectAtomsKernel(context.Background(), []*PromptAtom{nil, valid, nil}, cc, &mockKernel{})
+	if err != nil {
+		t.Fatalf("SelectAtoms with nils: %v", err)
+	}
+	for _, sa := range scored {
+		if sa == nil || sa.Atom == nil {
+			t.Fatal("selection must not emit nil scored atoms")
+		}
+	}
+	compiler, err := NewJITPromptCompiler()
+	if err != nil {
+		t.Fatalf("compiler: %v", err)
+	}
+	result := compiler.buildResultWithStats(
+		[]*PromptAtom{nil, valid},
+		append([]*ScoredAtom{nil}, scored...),
+		[]*OrderedAtom{nil},
+		"", 1000, &CompilationStats{},
+	)
+	if result == nil || result.Manifest == nil {
+		t.Fatal("result build with nils must still produce a manifest")
+	}
+}

@@ -321,6 +321,12 @@ type JITPromptCompiler struct {
 	// Observability
 	lastResult atomic.Pointer[CompilationResult]
 
+	// Lifetime compilation counters backing GetStats. Only real compiles
+	// (singleflight winners) count; cache hits and shared results are served
+	// work, not compiled work.
+	totalCompilations atomic.Int64
+	totalCompileMs    atomic.Int64
+
 	// Concurrency control
 	configMu     sync.RWMutex
 	dbMu         sync.RWMutex
@@ -532,7 +538,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 
 		// Step 1: Assert context facts to kernel for Mangle-based selection
 		// We do this first so that context is available for kernel injection and Mangle-based selection.
-		// This enables policy.mg Section 45/46 rules to boost atoms matching current context.
+		// This enables the jit_compiler.mg / policy/jit_selection.mg rules to boost atoms matching current context.
 		if selectionKernel != nil {
 			contextFacts := cc.ToContextFacts()
 			if len(contextFacts) > 0 {
@@ -769,6 +775,9 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		if c.config.DebugMode {
 			c.logCompilationManifest(stats, result)
 		}
+
+		c.totalCompilations.Add(1)
+		c.totalCompileMs.Add(stats.Duration.Milliseconds())
 
 		return result, nil
 	})
@@ -1140,6 +1149,9 @@ func (c *JITPromptCompiler) buildResultWithStats(
 	var standardCount, conciseCount, minCount int
 
 	for _, oa := range fitted {
+		if oa == nil || oa.Atom == nil {
+			continue
+		}
 		result.IncludedAtoms = append(result.IncludedAtoms, oa.Atom)
 		// Count the render-mode variant actually emitted (see contentForMode),
 		// not the standard TokenCount — otherwise degraded (concise/min) atoms
@@ -1231,18 +1243,27 @@ func (c *JITPromptCompiler) buildManifest(
 	// the manifest matches contentForMode's output rather than over-reporting
 	// the standard size of degraded (concise/min) atoms.
 	for _, oa := range fitted {
+		if oa == nil || oa.Atom == nil {
+			continue
+		}
 		manifest.TokenUsage += tokenCountForMode(oa.Atom, oa.RenderMode)
 	}
 
 	// Lookup map for scores
 	scoreMap := make(map[string]*ScoredAtom)
 	for _, sa := range scored {
+		if sa == nil || sa.Atom == nil {
+			continue
+		}
 		scoreMap[sa.Atom.ID] = sa
 	}
 
 	// Lookup map for fitted
 	fittedMap := make(map[string]bool)
 	for _, oa := range fitted {
+		if oa == nil || oa.Atom == nil {
+			continue
+		}
 		fittedMap[oa.Atom.ID] = true
 
 		// Find scores
@@ -1272,6 +1293,9 @@ func (c *JITPromptCompiler) buildManifest(
 	// Identify dropped atoms
 	// 1. Candidates rejected by Selector (Logic/Vector)
 	for _, cand := range candidates {
+		if cand == nil {
+			continue
+		}
 		if _, ok := scoreMap[cand.ID]; !ok {
 			manifest.Dropped = append(manifest.Dropped, DroppedAtomEntry{
 				ID:     cand.ID,
@@ -1282,6 +1306,9 @@ func (c *JITPromptCompiler) buildManifest(
 
 	// 2. Scored atoms rejected by Budget/Resolver
 	for _, sa := range scored {
+		if sa == nil || sa.Atom == nil {
+			continue
+		}
 		if !fittedMap[sa.Atom.ID] {
 			manifest.Dropped = append(manifest.Dropped, DroppedAtomEntry{
 				ID:     sa.Atom.ID,
@@ -1463,7 +1490,22 @@ func (c *JITPromptCompiler) GetStats() CompilerStats {
 	if c.embeddedCorpus != nil {
 		stats.EmbeddedAtomCount = c.embeddedCorpus.Count()
 	}
+	projectDB := c.projectDB
 	c.dbMu.RUnlock()
+
+	// A COUNT(*) on a status getter is cheap and always current, unlike a
+	// cached value that reconciles and marathon runs would silently stale.
+	if projectDB != nil {
+		var count int
+		if err := projectDB.QueryRow("SELECT COUNT(*) FROM prompt_atoms").Scan(&count); err == nil {
+			stats.ProjectAtomCount = count
+		}
+	}
+
+	if total := c.totalCompilations.Load(); total > 0 {
+		stats.TotalCompilations = total
+		stats.AverageTimeMs = float64(c.totalCompileMs.Load()) / float64(total)
+	}
 
 	return stats
 }

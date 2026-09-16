@@ -2,7 +2,10 @@ package marathon
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -350,5 +353,86 @@ func TestOverlayAtomID(t *testing.T) {
 	// must not silently collide with the base ID under a different name.
 	if got := OverlayAtomID("methodology/tdd", ""); got != "methodology/tdd" {
 		t.Errorf("OverlayAtomID with no pin = %q", got)
+	}
+}
+
+// End to end through a fake client: research gates on citations, the optimizer
+// rewrites, and the emitted variants land in the workspace overlay CARRYING
+// their pins. The pins are the whole point of the overlay -- a variant without
+// a model/provider tag is served to every model, silently replacing the
+// shipped atom it was meant to stand in for on one model only.
+func TestRun_EmitsPinnedVariantsToOverlay(t *testing.T) {
+	workspace := t.TempDir()
+	fc := &fakeClient{
+		provider: "anthropic", model: "claude-opus-4-20260501", supports: true,
+		searchResult: groundedResult("Use clear instructions.", "https://docs.example.com/prompting"),
+		completion: "changed: true\nrationale: \"tightened per docs\"\ncontent: |\n  REWRITTEN ATOM BODY\n",
+	}
+	client := groundingClient{identifyingClient{fc}}
+	var ticks []Progress
+	res, err := Run(context.Background(), Config{
+		Workspace: workspace, Client: client, MaxAtoms: 2, Resume: false,
+		Progress: func(p Progress) { ticks = append(ticks, p) },
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.AtomsOptimized != 2 || res.AtomsFailed != 0 {
+		t.Fatalf("optimized=%d failed=%d errors=%v, want 2/0", res.AtomsOptimized, res.AtomsFailed, res.Errors)
+	}
+	if len(ticks) != 2 {
+		t.Fatalf("progress ticks = %d, want 2", len(ticks))
+	}
+	for _, tick := range ticks {
+		if !tick.Optimized || tick.Err != nil {
+			t.Errorf("tick %+v must report success", tick)
+		}
+	}
+
+	db, err := sql.Open("sqlite3", filepath.Join(workspace, ".nerd", "prompts", "corpus.db"))
+	if err != nil {
+		t.Fatalf("open overlay: %v", err)
+	}
+	defer db.Close()
+	var variants int
+	if err := db.QueryRow("SELECT COUNT(*) FROM prompt_atoms WHERE atom_id LIKE '%@%'").Scan(&variants); err != nil {
+		t.Fatalf("count variants: %v", err)
+	}
+	if variants != 2 {
+		t.Fatalf("overlay variants = %d, want 2", variants)
+	}
+	rows, err := db.Query("SELECT DISTINCT dimension FROM atom_context_tags WHERE atom_id LIKE '%@%'")
+	if err != nil {
+		t.Fatalf("variant dims: %v", err)
+	}
+	defer rows.Close()
+	dims := map[string]bool{}
+	for rows.Next() {
+		var dim string
+		if err := rows.Scan(&dim); err != nil {
+			t.Fatalf("scan dim: %v", err)
+		}
+		dims[dim] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+	for _, dim := range []string{"model", "provider"} {
+		if !dims[dim] {
+			t.Errorf("overlay variants carry no %q tag (dims %v); variants would serve every model", dim, dims)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(workspace, ".nerd", "prompts", "marathon_checkpoint.json")); err != nil {
+		t.Fatalf("checkpoint missing: %v", err)
+	}
+
+	// A resumed run skips the decided atoms and continues with the next ones.
+	res2, err := Run(context.Background(), Config{Workspace: workspace, Client: client, MaxAtoms: 2, Resume: true})
+	if err != nil {
+		t.Fatalf("resume Run: %v", err)
+	}
+	if res2.AtomsResumed != 2 || res2.AtomsOptimized != 2 {
+		t.Errorf("resume: resumed=%d optimized=%d, want 2/2", res2.AtomsResumed, res2.AtomsOptimized)
 	}
 }

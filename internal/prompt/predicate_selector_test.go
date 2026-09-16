@@ -2,8 +2,11 @@ package prompt
 
 import (
 	"database/sql"
+	"math"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"codenerd/internal/core"
 
@@ -284,4 +287,47 @@ func TestPredicateSelector_SelectForMangleGeneration(t *testing.T) {
 
 	assert.Contains(t, names, "next_action")
 	assert.Contains(t, names, "shard_status")
+}
+
+func TestPredicateSelector_Select_RelevanceTiesBreakByName(t *testing.T) {
+	// Every domain in one shard-type group shares a single relevance score,
+	// so the tier order comes entirely from the tiebreak. Arrival order is
+	// domain-grouped (shard_status first); name order is not.
+	corpus := createTestCorpus(t)
+	selector := NewPredicateSelector(corpus)
+	selected, err := selector.Select(SelectionContext{ShardType: "/coder", MaxPredicates: 100})
+	require.NoError(t, err)
+	var tier []string
+	for _, p := range selected {
+		if p.Relevance == 0.9 {
+			tier = append(tier, p.Name)
+		}
+	}
+	require.Equal(t, []string{"code_change", "diagnostic", "shard_status"}, tier)
+	first := make([]SelectedPredicate, len(selected))
+	copy(first, selected)
+	for i := 0; i < 20; i++ {
+		again, err := selector.Select(SelectionContext{ShardType: "/coder", MaxPredicates: 100})
+		require.NoError(t, err)
+		require.Equal(t, first, again, "selection must be stable across runs")
+	}
+}
+
+func TestTruncateRunes_PreservesUTF8(t *testing.T) {
+	assert.Equal(t, "", truncateRunes("hello", 0))
+	assert.Equal(t, "hi", truncateRunes("hi", 10))
+	s := "héllo wörld 🌱🌱🌱 tail"
+	got := truncateRunes(s, 8)
+	assert.True(t, utf8.ValidString(got), "cut must not split a rune: %q", got)
+	assert.True(t, strings.HasSuffix(got, "..."), got)
+	assert.Equal(t, 8+3, utf8.RuneCountInString(got))
+}
+
+func TestClampSimilarity_BoundsAndNaN(t *testing.T) {
+	assert.Equal(t, 0.0, clampSimilarity(math.NaN()))
+	assert.Equal(t, 0.0, clampSimilarity(-0.5))
+	assert.Equal(t, 1.0, clampSimilarity(1.5))
+	assert.Equal(t, 0.6, clampSimilarity(0.6))
+	assert.Equal(t, 0.6, similarityFromMetadata(map[string]any{}))
+	assert.Equal(t, 0.0, similarityFromMetadata(map[string]any{"similarity": math.NaN()}))
 }
