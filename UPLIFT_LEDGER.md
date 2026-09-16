@@ -3,7 +3,7 @@
 File-by-file: uplift, wiring, .mg correctness, modularity, brutal behavioral integration tests.
 Checked = audited and uplifted (or verified sound) with behavioral coverage.
 
-## Go files (2354)
+## Go files (2355)
 ### .agent (5)
 - [ ] `.agent/skills/log-analyzer/scripts/logquery/main.go`
 - [ ] `.agent/skills/mangle-programming/assets/go-integration/main.go`
@@ -3469,7 +3469,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `scripts/torture_live/main.go`
 - [x] `scripts/torture_live/main_test.go`
 
-### tests (38)
+### tests (39)
 - [ ] `tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go`
 - [ ] `tests/e2e/Session_Kernel_Boundary_integration_test.go`
 - [ ] `tests/e2e/autopoiesis_kernel_ouroboros_integration_test.go`
@@ -3490,10 +3490,11 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `tests/e2e/perception_stateful_e2e_test.go`
 - [ ] `tests/e2e/piggyback_control_packet_boundary_test.go`
 - [ ] `tests/e2e/piggyback_executor_full_boundary_test.go`
+- [x] `tests/e2e/prompt_kernel_e2e_test.go` (shared real-kernel JIT helper; coverage via prompt e2e suites)
 - [ ] `tests/e2e/prompt_compiler_llm_integration_test.go`
 - [ ] `tests/e2e/promptcompiler_llmclient_integration_test.go`
 - [ ] `tests/e2e/rulecourt_feedback_integration_test.go`
-- [ ] `tests/e2e/scheduler_session_llm_integration_test.go`
+- [x] `tests/e2e/scheduler_session_llm_integration_test.go` (16/16; dead harness removed, priority preemption + nil-config degradation behavioral)
 - [ ] `tests/e2e/session_clean_loop_integration_test.go`
 - [ ] `tests/e2e/session_context_isolation_test.go`
 - [ ] `tests/e2e/session_executor_kernel_integration_test.go`

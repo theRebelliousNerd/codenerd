@@ -27,14 +27,13 @@ import (
 
 // mockLLMClientWithControls allows precise timing control over LLM completion
 type mockLLMClientWithControls struct {
-	mu           sync.Mutex
-	responses    []types.LLMToolResponse
-	callCount    int32
-	blockChan    chan struct{} // blocks generation until closed
-	errToReturn  error
-	simulateOOM  bool
-	isPiggyback  bool // If true, implements PiggybackToolProvider
-	supportsLoop bool // If true, implements ToolResultsProvider
+	mu          sync.Mutex
+	responses   []types.LLMToolResponse
+	callCount   int32
+	blockChan   chan struct{} // blocks generation until closed
+	errToReturn error
+	simulateOOM bool
+	isPiggyback bool // If true, implements PiggybackToolProvider
 }
 
 func (m *mockLLMClientWithControls) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
@@ -119,44 +118,6 @@ func (m *mockLLMClientWithControls) Complete(ctx context.Context, prompt string)
 	return m.CompleteWithSystem(ctx, "", prompt)
 }
 
-// mockToolRegistry for simulating slow or failing tools
-type mockToolRegistry struct {
-	tools    map[string]*types.ToolDefinition
-	handlers map[string]func(ctx context.Context, args map[string]any) (string, error)
-}
-
-func newMockToolRegistry() *mockToolRegistry {
-	return &mockToolRegistry{
-		tools:    make(map[string]*types.ToolDefinition),
-		handlers: make(map[string]func(context.Context, map[string]any) (string, error)),
-	}
-}
-
-func (r *mockToolRegistry) Register(def *types.ToolDefinition, handler func(context.Context, map[string]any) (string, error)) {
-	r.tools[def.Name] = def
-	r.handlers[def.Name] = handler
-}
-
-func (r *mockToolRegistry) Get(name string) *types.ToolDefinition {
-	return r.tools[name]
-}
-
-func (r *mockToolRegistry) Has(name string) bool {
-	_, ok := r.tools[name]
-	return ok
-}
-
-func (r *mockToolRegistry) Execute(ctx context.Context, name string, args map[string]any) (*tools.ToolResult, error) {
-	handler, ok := r.handlers[name]
-	if !ok {
-		return nil, fmt.Errorf("tool not found: %s", name)
-	}
-	res, err := handler(ctx, args)
-	return &tools.ToolResult{Result: res, Error: err}, nil
-}
-
-func (r *mockToolRegistry) ListTools() []types.ToolDefinition { return nil }
-
 // mockJITCompilerLLM
 type mockJITCompilerLLM struct{}
 
@@ -195,7 +156,7 @@ func registerSchedMockTools() {
 	})
 }
 
-func setupTestExecutorLLM(t *testing.T, llmClient core.LLMClient, toolReg *mockToolRegistry, maxConcurrent int) (*session.Executor, *core.APIScheduler) {
+func setupTestExecutorLLM(t *testing.T, llmClient core.LLMClient, maxConcurrent int) (*session.Executor, *core.APIScheduler) {
 	t.Helper()
 	registerSchedMockTools()
 
@@ -214,16 +175,9 @@ func setupTestExecutorLLM(t *testing.T, llmClient core.LLMClient, toolReg *mockT
 
 	executor := session.NewExecutor(newMockKernelLLM(), nil, scheduledLLM, &mockJITCompilerLLM{}, &mockConfigFactoryLLM{}, nil)
 
-	// Replace global tool registry for this test with our mock if provided
-	if toolReg != nil {
-		// We can't safely replace tools.Global() in parallel tests, so we rely on the fact
-		// that the executor uses tools.Global(). Has/Execute.
-		// Since we can't inject it cleanly without modifying source, we'll configure
-		// the tests to either use Ouroboros tool registry or accept errors.
-		// For true isolation, we set the ouroboros registry on the executor.
-		// A nil registry satisfies the interface and falls back correctly.
-	}
-
+	// Tool execution resolves against tools.Global(): the suite registers
+	// mock_tool there once (registerSchedMockTools) because the executor
+	// offers only granted-AND-registered tools to the model.
 	return executor, scheduler
 }
 
@@ -238,7 +192,7 @@ func TestE2E_SchedulerSession_Smoke_HappyPath(t *testing.T) {
 	llm := &mockLLMClientWithControls{
 		responses: []types.LLMToolResponse{{Text: "Hello, world!"}},
 	}
-	exec, _ := setupTestExecutorLLM(t, llm, nil, 5)
+	exec, _ := setupTestExecutorLLM(t, llm, 5)
 
 	ctx := context.Background()
 	res, err := exec.ProcessWithIntent(ctx, "hello", &perception.Intent{Verb: "/general"})
@@ -307,11 +261,20 @@ func TestE2E_SchedulerSession_ContractViolation_NilAgentConfig(t *testing.T) {
 
 	// When using Process (no intent preset), it tries to transduce.
 	// We'll bypass Transducer by using ProcessWithIntent and forcing a nil JIT context path by having nil factories.
-	_, err := exec.ProcessWithIntent(context.Background(), "do it", &perception.Intent{Verb: "/general"})
+	res, err := exec.ProcessWithIntent(context.Background(), "do it", &perception.Intent{Verb: "/general"})
 
-	// It should fail gracefully, NOT panic on nil cfg inside executeToolCall/buildToolDefinitions
-	if err == nil {
-		// It will fail because tool is not allowed, which is expected.
+	// It must degrade gracefully, NOT panic on nil factories inside
+	// compileConfig/buildToolDefinitions. With an empty config, the executor
+	// takes the text-only path and ignores the ungranted tool request rather
+	// than executing it or failing the turn.
+	if err != nil {
+		t.Fatalf("Expected graceful text-only degradation with nil factories, got error: %v", err)
+	}
+	if res.Response != "I will use a tool." {
+		t.Errorf("expected model text to pass through unchanged, got %q", res.Response)
+	}
+	if res.ToolCallsExecuted != 0 {
+		t.Errorf("expected 0 tool executions with nil factories, got %d", res.ToolCallsExecuted)
 	}
 }
 
@@ -327,7 +290,7 @@ func TestE2E_SchedulerSession_StateCorruption_HistoryRace(t *testing.T) {
 	llm := &mockLLMClientWithControls{
 		responses: []types.LLMToolResponse{{Text: "looping"}},
 	}
-	exec, _ := setupTestExecutorLLM(t, llm, nil, 5)
+	exec, _ := setupTestExecutorLLM(t, llm, 5)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -358,6 +321,20 @@ func TestE2E_SchedulerSession_StateCorruption_HistoryRace(t *testing.T) {
 
 	wg.Wait()
 	// If it doesn't panic under `go test -race`, the mutex contract holds.
+	// Behaviorally: history stays readable, clearing works, and the
+	// executor still processes after the storm.
+	h := exec.GetHistory()
+	for _, m := range h {
+		_ = m.Role
+		_ = m.Content
+	}
+	exec.ClearHistory()
+	if got := len(exec.GetHistory()); got != 0 {
+		t.Fatalf("ClearHistory left %d items after race", got)
+	}
+	if _, err := exec.ProcessWithIntent(context.Background(), "after storm", &perception.Intent{Verb: "/chat"}); err != nil {
+		t.Fatalf("Executor broken after history race: %v", err)
+	}
 }
 
 // =============================================================================
@@ -380,7 +357,7 @@ func TestE2E_SchedulerSession_ResourceExhaustion_ThunderingHerd(t *testing.T) {
 		responses: []types.LLMToolResponse{{Text: "done"}},
 	}
 
-	exec, scheduler := setupTestExecutorLLM(t, llm, nil, maxSlots)
+	exec, scheduler := setupTestExecutorLLM(t, llm, maxSlots)
 
 	var wg sync.WaitGroup
 	startCh := make(chan struct{})
@@ -433,9 +410,7 @@ func TestE2E_SchedulerSession_ResourceExhaustion_InfiniteToolLoop(t *testing.T) 
 	t.Parallel()
 
 	// A client that *always* returns a tool call
-	llm := &mockLLMClientWithControls{
-		supportsLoop: true, // Crucial: enables multi-turn processing
-	}
+	llm := &mockLLMClientWithControls{}
 	for i := 0; i < 20; i++ {
 		llm.responses = append(llm.responses, types.LLMToolResponse{
 			Text:      "I need more tools",
@@ -443,7 +418,7 @@ func TestE2E_SchedulerSession_ResourceExhaustion_InfiniteToolLoop(t *testing.T) 
 		})
 	}
 
-	exec, _ := setupTestExecutorLLM(t, llm, nil, 5)
+	exec, _ := setupTestExecutorLLM(t, llm, 5)
 
 	// Pin the iteration ceiling on the executor itself: the "5" in the setup
 	// helper is scheduler slots, not the tool-loop cap (which defaults to 8).
@@ -483,7 +458,7 @@ func TestE2E_SchedulerSession_Temporal_AcquireTimeout(t *testing.T) {
 		blockChan: make(chan struct{}), // block all calls indefinitely
 	}
 	// Max 1 slot
-	exec, scheduler := setupTestExecutorLLM(t, llm, nil, 1)
+	exec, scheduler := setupTestExecutorLLM(t, llm, 1)
 
 	// Task 1: Acquires the slot and blocks forever
 	go exec.ProcessWithIntent(context.Background(), "task1", &perception.Intent{Verb: "/general"})
@@ -590,7 +565,7 @@ func TestE2E_SchedulerSession_Cascading_PiggybackMalformed(t *testing.T) {
 		isPiggyback: true,
 	}
 
-	exec, _ := setupTestExecutorLLM(t, llm, nil, 5)
+	exec, _ := setupTestExecutorLLM(t, llm, 5)
 
 	res, err := exec.ProcessWithIntent(context.Background(), "test", &perception.Intent{Verb: "/general"})
 
@@ -675,7 +650,6 @@ func TestE2E_SchedulerSession_Partial_ToolBatchFailure(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMClientWithControls{
-		supportsLoop: true,
 		responses: []types.LLMToolResponse{
 			{
 				Text: "Running tools",
@@ -688,7 +662,7 @@ func TestE2E_SchedulerSession_Partial_ToolBatchFailure(t *testing.T) {
 		},
 	}
 
-	exec, _ := setupTestExecutorLLM(t, llm, nil, 5)
+	exec, _ := setupTestExecutorLLM(t, llm, 5)
 
 	res, err := exec.ProcessWithIntent(context.Background(), "test", &perception.Intent{Verb: "/general"})
 
@@ -719,7 +693,7 @@ func TestE2E_SchedulerSession_DataIntegrity_MultiTurn(t *testing.T) {
 			{Text: "Turn 3"},
 		},
 	}
-	exec, _ := setupTestExecutorLLM(t, llm, nil, 5)
+	exec, _ := setupTestExecutorLLM(t, llm, 5)
 
 	ctx := context.Background()
 
@@ -751,14 +725,14 @@ func TestE2E_SchedulerSession_DataIntegrity_MultiTurn(t *testing.T) {
 // 10. ADVANCED EDGE CASES (ADDED FOR COVERAGE AND ROBUSTNESS)
 // =============================================================================
 
-// TestE2E_SchedulerSession_Cascading_ToolOutputBufferExhaustion
-// Scenario 16: Tool Output Size Bounds and Buffer Exhaustion
-func TestE2E_SchedulerSession_Cascading_ToolOutputBufferExhaustion(t *testing.T) {
+// TestE2E_SchedulerSession_Cascading_LargeError_Propagation
+// Scenario 16: a 100KB model-side failure must surface intact — not hang,
+// not get swallowed, not truncated past recognition.
+func TestE2E_SchedulerSession_Cascading_LargeError_Propagation(t *testing.T) {
 	t.Parallel()
 
 	// Create a mock LLM that requests a specific tool
 	llm := &mockLLMClientWithControls{
-		supportsLoop: true,
 		responses: []types.LLMToolResponse{
 			{
 				Text: "Fetching large file",
@@ -770,21 +744,21 @@ func TestE2E_SchedulerSession_Cascading_ToolOutputBufferExhaustion(t *testing.T)
 		},
 	}
 
-	// We can't inject a tool directly into tools.Global() safely, but we can verify the executor
-	// safely handles the scenario if a modular tool outputs a massive string.
-	// To do this we use the Ouroboros fallback.
-
 	exec := session.NewExecutor(newMockKernelLLM(), nil, llm, nil, nil, nil)
 
-	// Because of isolation, the executor will just return "tool not allowed" error.
-	// But it proves that the tool loop handles large errors safely.
 	largeError := fmt.Errorf("fake large error: %s", strings.Repeat("A", 100*1024))
-	llm.errToReturn = largeError // The LLM will just fail immediately in this mock setup.
+	llm.errToReturn = largeError // The LLM fails immediately in this mock setup.
 
 	_, err := exec.ProcessWithIntent(context.Background(), "test", &perception.Intent{Verb: "/general"})
 
 	if err == nil {
 		t.Fatalf("Expected large error, got nil")
+	}
+	if !strings.Contains(err.Error(), "fake large error") {
+		t.Fatalf("Large error lost its marker in propagation: %.120s...", err.Error())
+	}
+	if len(err.Error()) < 100*1024 {
+		t.Fatalf("Large error truncated in propagation: %d bytes", len(err.Error()))
 	}
 }
 
@@ -844,7 +818,7 @@ func TestE2E_SchedulerSession_Semantic_PiggybackFallback(t *testing.T) {
 		responses:   []types.LLMToolResponse{{Text: envelope}},
 	}
 
-	exec, _ := setupTestExecutorLLM(t, llm, nil, 5)
+	exec, _ := setupTestExecutorLLM(t, llm, 5)
 
 	res, err := exec.ProcessWithIntent(context.Background(), "test", &perception.Intent{Verb: "/general"})
 
@@ -856,6 +830,118 @@ func TestE2E_SchedulerSession_Semantic_PiggybackFallback(t *testing.T) {
 	if res.ToolCallsExecuted != 1 {
 		t.Errorf("Expected 1 tool call to be executed, got %d", res.ToolCallsExecuted)
 	}
+}
+
+// TestE2E_SchedulerSession_Semantic_PriorityOrdering proves the waiter list
+// is priority-ordered, not FIFO: with one slot held, a low-priority waiter
+// that queued FIRST must still lose the grant to a high-priority waiter
+// that queued second. Same-priority waiters keep FIFO order.
+func TestE2E_SchedulerSession_Semantic_PriorityOrdering(t *testing.T) {
+	t.Parallel()
+
+	scheduler := core.NewAPIScheduler(core.APISchedulerConfig{MaxConcurrentAPICalls: 1, SlotAcquireTimeout: 10 * time.Second})
+	scheduler.RegisterShardWithPriority("holder", "test", types.PriorityNormal)
+	scheduler.RegisterShardWithPriority("low", "test", types.PriorityLow)
+	scheduler.RegisterShardWithPriority("high", "test", types.PriorityHigh)
+
+	if err := scheduler.AcquireAPISlot(context.Background(), "holder"); err != nil {
+		t.Fatal(err)
+	}
+
+	lowAcquired := make(chan struct{})
+	highAcquired := make(chan struct{})
+	go func() {
+		defer close(lowAcquired)
+		_ = scheduler.AcquireAPISlot(context.Background(), "low")
+	}()
+	waitForSchedulerWaiters(t, scheduler, 1)
+	go func() {
+		defer close(highAcquired)
+		_ = scheduler.AcquireAPISlot(context.Background(), "high")
+	}()
+	waitForSchedulerWaiters(t, scheduler, 2)
+
+	// Release: the grant must jump the queue to high.
+	scheduler.ReleaseAPISlot("holder")
+
+	select {
+	case <-highAcquired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("high-priority waiter never acquired the released slot")
+	}
+	select {
+	case <-lowAcquired:
+		t.Fatal("low-priority waiter acquired ahead of a queued high-priority waiter")
+	case <-time.After(100 * time.Millisecond):
+		// Expected: low still waiting while high holds the slot.
+	}
+	scheduler.ReleaseAPISlot("high")
+
+	select {
+	case <-lowAcquired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("low-priority waiter never acquired after high released")
+	}
+	scheduler.ReleaseAPISlot("low")
+
+	// Same priority keeps FIFO: n1 queued first, so n1 is granted first.
+	scheduler.RegisterShardWithPriority("n1", "test", types.PriorityNormal)
+	scheduler.RegisterShardWithPriority("n2", "test", types.PriorityNormal)
+	if err := scheduler.AcquireAPISlot(context.Background(), "holder"); err != nil {
+		t.Fatal(err)
+	}
+	n1Acquired := make(chan struct{})
+	n2Acquired := make(chan struct{})
+	go func() {
+		defer close(n1Acquired)
+		_ = scheduler.AcquireAPISlot(context.Background(), "n1")
+	}()
+	waitForSchedulerWaiters(t, scheduler, 1)
+	go func() {
+		defer close(n2Acquired)
+		_ = scheduler.AcquireAPISlot(context.Background(), "n2")
+	}()
+	waitForSchedulerWaiters(t, scheduler, 2)
+	scheduler.ReleaseAPISlot("holder")
+
+	select {
+	case <-n1Acquired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first-queued normal waiter never acquired")
+	}
+	select {
+	case <-n2Acquired:
+		t.Fatal("second-queued waiter acquired ahead of first-queued at equal priority")
+	case <-time.After(100 * time.Millisecond):
+		// Expected: n2 still waiting while n1 holds the slot.
+	}
+	scheduler.ReleaseAPISlot("n1")
+
+	select {
+	case <-n2Acquired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second-queued waiter never acquired")
+	}
+	scheduler.ReleaseAPISlot("n2")
+
+	if m := scheduler.GetMetrics(); m.ActiveSlots != 0 || m.WaitingForSlot != 0 {
+		t.Fatalf("scheduler leaked slots: %+v", m)
+	}
+}
+
+// waitForSchedulerWaiters polls until want waiters are queued (or fails).
+// Queue arrival is asynchronous; polling beats a blind sleep and keeps the
+// preemption windows above deterministic instead of racy.
+func waitForSchedulerWaiters(t *testing.T, scheduler *core.APIScheduler, want int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := scheduler.GetMetrics().WaitingForSlot; got >= want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d queued waiters", want)
 }
 
 // mockKernelLLM implements types.Kernel
