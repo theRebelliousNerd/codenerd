@@ -1292,13 +1292,26 @@ func (e *Executor) resolveAvailableTools(ctx context.Context, cc *prompt.Compila
 	if verb == "" {
 		verb = "/general"
 	}
-	tools, err := e.configFactory.ResolveAllowedTools(ctx, verb)
+	tools, err := e.resolveAllowedToolsSafely(ctx, verb)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("Tool envelope resolution failed for %q: %v (compiling with empty catalog)", verb, err)
 		cc.AvailableTools = nil
 		return
 	}
 	cc.AvailableTools = tools
+}
+
+// resolveAllowedToolsSafely calls the config factory with panic recovery. A
+// factory that panics degrades exactly like one that errors — empty catalog —
+// instead of crashing the turn; fail-closed parity with the error path above.
+func (e *Executor) resolveAllowedToolsSafely(ctx context.Context, verb string) (resolved []string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			resolved = nil
+			err = fmt.Errorf("config factory ResolveAllowedTools panicked: %v", r)
+		}
+	}()
+	return e.configFactory.ResolveAllowedTools(ctx, verb)
 }
 
 // compileConfig creates an EffectiveAgentRuntimeConfig from the compilation result and intent.
@@ -1321,6 +1334,19 @@ func (e *Executor) compileConfig(ctx context.Context, result *prompt.Compilation
 		intentVerb = "/general"
 	}
 
+	return e.generateAgentConfigSafely(ctx, result, intentVerb)
+}
+
+// generateAgentConfigSafely calls the config factory with panic recovery. A
+// factory that panics degrades exactly like one that errors — the caller
+// continues with an empty config — instead of crashing the turn.
+func (e *Executor) generateAgentConfigSafely(ctx context.Context, result *prompt.CompilationResult, intentVerb string) (cfg *config.EffectiveAgentRuntimeConfig, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			cfg = nil
+			err = fmt.Errorf("config factory Generate panicked: %v", r)
+		}
+	}()
 	return e.configFactory.Generate(ctx, result, intentVerb)
 }
 

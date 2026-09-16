@@ -2634,7 +2634,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/session/coverage_profile_test.go`
 - [x] `internal/session/critic.go`
 - [x] `internal/session/critic_test.go`
-- [x] `internal/session/executor.go`
+- [x] `internal/session/executor.go` (post-uplift: config-factory panic recovery fail-closed to empty config/catalog)
 - [x] `internal/session/executor_boundary_test.go`
 - [x] `internal/session/executor_budget_exhaustion_test.go`
 - [x] `internal/session/executor_capability_test.go`
@@ -3495,7 +3495,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `tests/e2e/promptcompiler_llmclient_integration_test.go`
 - [ ] `tests/e2e/rulecourt_feedback_integration_test.go`
 - [x] `tests/e2e/scheduler_session_llm_integration_test.go` (16/16; dead harness removed, priority preemption + nil-config degradation behavioral)
-- [ ] `tests/e2e/session_clean_loop_integration_test.go`
+- [x] `tests/e2e/session_clean_loop_integration_test.go` (19/19 + race; vacuous log-only branches pinned to real contracts; exposed + fixed factory-panic crash)
 - [x] `tests/e2e/session_context_isolation_test.go` (2/2 + race; echo mocks prove per-task/per-context ownership, clone history isolation)
 - [ ] `tests/e2e/session_executor_kernel_integration_test.go`
 - [ ] `tests/e2e/session_kernel_vstore_integration_test.go`
