@@ -547,5 +547,8 @@ func truncateQuery(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	if runes := []rune(s); len(runes) > maxLen {
+		return string(runes[:maxLen]) + "..."
+	}
+	return s
 }

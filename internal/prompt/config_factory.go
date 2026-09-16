@@ -398,7 +398,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	for _, intent := range []string{
 		"/fix", "/refactor", "/create", "/write", "/delete", "/debug",
 		"/campaign", "/git", "/migrate", "/optimize", "/document",
-		"/scaffold", "/format",
+		"/scaffold", "/format", "/deploy",
 		// non-canonical aliases
 		"/implement", "/modify", "/add", "/update",
 	} {
@@ -507,6 +507,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	for _, intent := range []string{
 		"/explain", "/read", "/stats", "/knowledge", "/help", "/greet",
 		"/configure", "/dream", "/shadow", "/assault",
+		"/converse", "/forget", "/remember",
 		// Built-in consultable system shards. User agents get the same pair
 		// from registerUserAgentConfigAtoms; without these, /consult/<name>
 		// falls back to /general and logs a warning on every /clarify.

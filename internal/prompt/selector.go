@@ -86,21 +86,11 @@ func (b *factBuilder) writeAtom(s string) bool {
 
 	needsPrefix := !strings.HasPrefix(s, "/")
 
-	if strings.ContainsAny(s, " '\"\t\n\r") {
-		b.WriteByte('\'')
-		if needsPrefix {
-			b.WriteByte('/')
-		}
-		for i := 0; i < len(s); i++ {
-			if s[i] == '\'' {
-				b.WriteString("\\'")
-			} else {
-				b.WriteByte(s[i])
-			}
-		}
-		b.WriteByte('\'')
-		return true
-	}
+	// No quoting escape hatch: bytes outside the name-constant alphabet fold
+	// to '_' in the loop below. An earlier revision single-quoted values with
+	// whitespace ("Coder Shard" -> '/Coder Shard'), but Mangle strings are
+	// double-quoted -- the lexer rejects single quotes, so every fact routed
+	// through that branch died at assert time. Normalizing keeps facts parseable.
 
 	var hasWritten bool
 	start := 0
@@ -177,24 +167,7 @@ func (b *factBuilder) writeAtom(s string) bool {
 }
 
 func (b *factBuilder) writeStringLiteral(s string) {
-	b.WriteByte('"')
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '"':
-			b.WriteString(`\"`)
-		case '\\':
-			b.WriteString(`\\`)
-		case '\n':
-			b.WriteString(`\n`)
-		case '\r':
-			b.WriteString(`\r`)
-		case '\t':
-			b.WriteString(`\t`)
-		default:
-			b.WriteByte(s[i])
-		}
-	}
-	b.WriteByte('"')
+	writeMangleQuoted(&b.Builder, s)
 }
 
 // mangleNormalizeNameConst is kept for backwards compatibility but implemented via factBuilder
@@ -206,40 +179,7 @@ func mangleNormalizeNameConst(s string) string {
 	return ""
 }
 func (b *factBuilder) WriteQuotedString(s string) {
-	const hex = "0123456789abcdef"
-	if s == "" {
-		b.WriteString("\"\"")
-		return
-	}
-	b.WriteByte('"')
-	for _, r := range s {
-		switch r {
-		case '"':
-			b.WriteString("\\\"")
-		case '\\':
-			b.WriteString("\\\\")
-		case '\n':
-			b.WriteString("\\n")
-		case '\t':
-			b.WriteString("\\t")
-		default:
-			if r >= 0x20 && r <= 0x7e {
-				b.WriteRune(r)
-				continue
-			}
-			if r >= 0 && r <= 0xff {
-				b.WriteString("\\x")
-				bt := byte(r)
-				b.WriteByte(hex[bt>>4])
-				b.WriteByte(hex[bt&0x0f])
-				continue
-			}
-			b.WriteString("\\u{")
-			b.WriteString(strconv.FormatInt(int64(r), 16))
-			b.WriteByte('}')
-		}
-	}
-	b.WriteByte('"')
+	writeMangleQuoted(&b.Builder, s)
 }
 
 // vectorScoreToPercent maps a similarity score to the integer 0-100 scale the
@@ -265,19 +205,33 @@ func vectorScoreToPercent(score float64) int64 {
 }
 
 func mangleQuoteString(s string) string {
-	// Mangle short strings can be single or double quoted. We standardize on
-	// double quotes and escape using the escapes supported by the Mangle lexer:
-	//   \" \\ \n \t \xHH \u{HHHH[HH]}
-	//
-	// We keep output ASCII-only to avoid encoding edge cases.
+	var sb strings.Builder
+	sb.Grow(len(s) + 2)
+	writeMangleQuoted(&sb, s)
+	return sb.String()
+}
+
+// writeMangleQuoted writes s as a double-quoted Mangle string literal,
+// escaping with the escapes the Mangle lexer supports:
+//
+//	\" \\ \n \t \xHH \u{HHHH[HH]}
+//
+// Output is ASCII-only: raw bytes above 0x7F cannot survive the lexer, and
+// \u{...} demands 4-6 hex digits. This is the single engine behind
+// mangleQuoteString, factBuilder.WriteQuotedString and
+// factBuilder.writeStringLiteral, which used to be three loops that disagreed:
+// writeStringLiteral passed raw UTF-8 through (lex-rejected) and
+// WriteQuotedString emitted unpadded \u{e9} escapes (also lex-rejected). Any
+// context value with non-ASCII text — a unicode path, a pasted snippet —
+// produced facts the kernel refused to assert.
+func writeMangleQuoted(sb *strings.Builder, s string) {
 	const hex = "0123456789abcdef"
 
 	if s == "" {
-		return "\"\""
+		sb.WriteString("\"\"")
+		return
 	}
 
-	var sb strings.Builder
-	sb.Grow(len(s) + 2)
 	sb.WriteByte('"')
 
 	for _, r := range s {
@@ -290,6 +244,9 @@ func mangleQuoteString(s string) string {
 			sb.WriteString("\\n")
 		case '\t':
 			sb.WriteString("\\t")
+		// No \r case on purpose: the lexer accepts \n \t \\ " ' ` \xHH
+		// \u{h..} and nothing else, so \r (like \b \f \v) falls through to
+		// the \xHH branch below.
 		default:
 			// Printable ASCII (excluding backslash/quote handled above).
 			if r >= 0x20 && r <= 0x7e {
@@ -321,7 +278,6 @@ func mangleQuoteString(s string) string {
 	}
 
 	sb.WriteByte('"')
-	return sb.String()
 }
 
 func mangleMandatoryLimits(cc *CompilationContext) (int, int) {
@@ -561,7 +517,8 @@ func (s *AtomSelector) SelectAtoms(
 	atoms []*PromptAtom,
 	cc *CompilationContext,
 ) ([]*ScoredAtom, error) {
-	return s.selectAtomsKernel(ctx, atoms, cc, s.kernel)
+	merged, _, err := s.runSelection(ctx, atoms, cc, s.kernel, false)
+	return merged, err
 }
 
 func (s *AtomSelector) selectAtomsKernel(
@@ -570,79 +527,8 @@ func (s *AtomSelector) selectAtomsKernel(
 	cc *CompilationContext,
 	kernel KernelQuerier,
 ) ([]*ScoredAtom, error) {
-	timer := logging.StartTimer(logging.CategoryContext, "AtomSelector.SelectAtoms")
-	defer timer.Stop()
-
-	if len(atoms) == 0 {
-		return nil, nil
-	}
-
-	if cc == nil {
-		cc = NewCompilationContext()
-	}
-
-	atoms = filterAtomsForStructuredOutput(atoms, cc)
-	if len(atoms) == 0 {
-		return nil, nil
-	}
-
-	forcedMandatory := selectMangleMandatoryIDs(cc, atoms)
-
-	var skeleton, flesh []*ScoredAtom
-	var skeletonErr, fleshErr error
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	// =========================================================================
-	// PHASE 1: Load Skeleton (deterministic, CRITICAL)
-	// =========================================================================
-	go func() {
-		defer wg.Done()
-		defer recoverSelectionPanic("skeleton", &skeletonErr)
-		skeleton, skeletonErr = s.loadSkeletonAtomsKernel(ctx, atoms, cc, forcedMandatory, kernel)
-	}()
-
-	// =========================================================================
-	// PHASE 2: Load Flesh (probabilistic, degradable)
-	// =========================================================================
-	go func() {
-		defer wg.Done()
-		defer recoverSelectionPanic("flesh", &fleshErr)
-		flesh, fleshErr = s.loadFleshAtomsKernel(ctx, atoms, cc, forcedMandatory, kernel)
-	}()
-
-	wg.Wait()
-
-	if skeletonErr != nil {
-		return nil, fmt.Errorf("CRITICAL: skeleton atoms failed: %w", skeletonErr)
-	}
-
-	logging.Get(logging.CategoryContext).Debug(
-		"Phase 1 complete: %d skeleton atoms loaded", len(skeleton),
-	)
-
-	if fleshErr != nil {
-		// Flesh failure is NOT critical - continue with skeleton only
-		logging.Get(logging.CategoryContext).Warn(
-			"Flesh atoms failed, continuing with skeleton only: %v", fleshErr,
-		)
-		flesh = nil
-	}
-
-	logging.Get(logging.CategoryContext).Debug(
-		"Phase 2 complete: %d flesh atoms loaded", len(flesh),
-	)
-
-	// =========================================================================
-	// PHASE 3: Merge and dedupe
-	// =========================================================================
-	merged := s.mergeAtoms(skeleton, flesh)
-
-	logging.Get(logging.CategoryContext).Debug(
-		"Phase 3 complete: %d total atoms after merge", len(merged),
-	)
-
-	return merged, nil
+	merged, _, err := s.runSelection(ctx, atoms, cc, kernel, false)
+	return merged, err
 }
 
 // SelectAtomsWithTiming wraps SelectAtoms and returns vector search timing.
@@ -665,7 +551,33 @@ func (s *AtomSelector) selectAtomsWithTimingKernel(
 	cc *CompilationContext,
 	kernel KernelQuerier,
 ) ([]*ScoredAtom, int64, error) {
-	timer := logging.StartTimer(logging.CategoryJIT, "AtomSelector.SelectAtomsWithTiming")
+	return s.runSelection(ctx, atoms, cc, kernel, true)
+}
+
+// runSelection is the single engine behind SelectAtoms and
+// SelectAtomsWithTiming, which were two copies of the same three phases.
+//
+// The phases run build-all, assert-all, query-all: both phases build their
+// fact sets in parallel (pure computation, plus the flesh vector search),
+// both fact sets land before either query runs, and the two read-only queries
+// run in parallel. The old shape ran each phase as build+assert+query in its
+// own goroutine, so a flesh query could run before the skeleton's facts
+// landed: conflict_loser and the dependency closure in jit_compiler.mg are
+// union-sensitive, and a flesh candidate that should have lost to a skeleton
+// mandatory survived whenever the goroutines interleaved that way. Same
+// input, different prompt, depending on the scheduler.
+//
+// With wantTiming the flesh vector search itself is timed (previously the
+// timer wrapped the whole flesh load — build, assert and query included —
+// under the name "vector query time").
+func (s *AtomSelector) runSelection(
+	ctx context.Context,
+	atoms []*PromptAtom,
+	cc *CompilationContext,
+	kernel KernelQuerier,
+	wantTiming bool,
+) ([]*ScoredAtom, int64, error) {
+	timer := logging.StartTimer(logging.CategoryJIT, "AtomSelector.runSelection")
 	defer timer.Stop()
 
 	if len(atoms) == 0 {
@@ -683,64 +595,134 @@ func (s *AtomSelector) selectAtomsWithTimingKernel(
 
 	forcedMandatory := selectMangleMandatoryIDs(cc, atoms)
 
-	// Track vector search timing via the flesh atom loader
-	// The actual vector search happens inside loadFleshAtoms
+	// =========================================================================
+	// PHASE A: build both fact sets in parallel (no kernel writes yet)
+	// =========================================================================
+	var skeletonAtoms, fleshAtoms []*PromptAtom
+	var skeletonFacts, fleshFacts []any
+	var vectorScores map[string]float64
+	var skeletonBuildErr, fleshBuildErr error
 	var vectorMs int64
-
-	var skeleton, flesh []*ScoredAtom
-	var skeletonErr, fleshErr error
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// =========================================================================
-	// PHASE 1: Load Skeleton (deterministic, CRITICAL) - no vector search
-	// =========================================================================
 	go func() {
 		defer wg.Done()
-		defer recoverSelectionPanic("skeleton", &skeletonErr)
-		skeleton, skeletonErr = s.loadSkeletonAtomsKernel(ctx, atoms, cc, forcedMandatory, kernel)
+		defer recoverSelectionPanic("skeleton build", &skeletonBuildErr)
+		skeletonAtoms = filterSkeletonAtoms(atoms, cc)
+		if len(skeletonAtoms) == 0 {
+			skeletonBuildErr = fmt.Errorf("CRITICAL: no skeleton atoms found in corpus")
+			return
+		}
+		var err error
+		skeletonFacts, err = s.buildContextFacts(cc, skeletonAtoms, forcedMandatory)
+		if err != nil {
+			skeletonBuildErr = fmt.Errorf("CRITICAL: failed to build skeleton context facts: %w", err)
+		}
 	}()
 
-	// =========================================================================
-	// PHASE 2: Load Flesh (probabilistic, degradable) - includes vector search
-	// =========================================================================
 	go func() {
 		defer wg.Done()
-		defer recoverSelectionPanic("flesh", &fleshErr)
-		if s.vectorSearcher != nil && cc != nil && cc.SemanticQuery != "" {
+		defer recoverSelectionPanic("flesh build", &fleshBuildErr)
+		fleshAtoms = filterFleshAtoms(atoms, cc)
+		if len(fleshAtoms) == 0 {
+			logging.Get(logging.CategoryContext).Debug("No flesh atoms in corpus")
+			return
+		}
+		vectorSearch := func() map[string]float64 {
+			if s.vectorSearcher == nil || cc.SemanticQuery == "" {
+				return nil
+			}
+			return s.getVectorScores(ctx, cc.SemanticQuery, cc.SemanticTopK)
+		}
+		if wantTiming {
 			vectorStart := time.Now()
-			flesh, fleshErr = s.loadFleshAtomsKernel(ctx, atoms, cc, forcedMandatory, kernel)
+			vectorScores = vectorSearch()
 			vectorMs = time.Since(vectorStart).Milliseconds()
-
-			logging.Get(logging.CategoryJIT).Debug(
-				"Vector-enabled flesh loading took %dms", vectorMs,
-			)
 		} else {
-			flesh, fleshErr = s.loadFleshAtomsKernel(ctx, atoms, cc, forcedMandatory, kernel)
+			vectorScores = vectorSearch()
+		}
+		var err error
+		fleshFacts, err = s.buildFleshFacts(cc, fleshAtoms, forcedMandatory, vectorScores)
+		if err != nil {
+			// Flesh fact failure degrades to no flesh facts; the query
+			// phase falls back to keyword matching below.
+			logging.Get(logging.CategoryContext).Warn("Failed to build flesh context facts: %v", err)
+			fleshFacts = nil
 		}
 	}()
 
 	wg.Wait()
 
-	if skeletonErr != nil {
-		return nil, 0, fmt.Errorf("CRITICAL: skeleton atoms failed: %w", skeletonErr)
+	if skeletonBuildErr != nil {
+		return nil, 0, skeletonBuildErr
+	}
+	// A flesh build panic degrades to no flesh (the old loadFleshAtomsKernel
+	// shape turned the same panic into a flesh error, which also dropped
+	// flesh). Everything else about a failed flesh build falls back to
+	// keyword matching in the query phase.
+	fleshFailed := fleshBuildErr != nil
+	if fleshFailed {
+		logging.Get(logging.CategoryContext).Warn(
+			"Flesh atoms failed, continuing with skeleton only: %v", fleshBuildErr,
+		)
+		fleshAtoms = nil
+		fleshFacts = nil
 	}
 
-	logging.Get(logging.CategoryJIT).Debug(
-		"Phase 1 complete: %d skeleton atoms loaded", len(skeleton),
-	)
+	// =========================================================================
+	// ASSERT: both fact sets land before either query runs
+	// =========================================================================
+	fleshReady := false
+	if kernel == nil {
+		return nil, 0, fmt.Errorf("CRITICAL: Mangle kernel not configured for skeleton selection")
+	}
+	if err := kernel.AssertBatch(skeletonFacts); err != nil {
+		return nil, 0, fmt.Errorf("CRITICAL: failed to assert skeleton facts: %w", err)
+	}
+	if !fleshFailed && fleshFacts != nil {
+		if err := kernel.AssertBatch(fleshFacts); err != nil {
+			// Logged at Error: the selector falls back to keyword
+			// matching — semantic ranking unavailable for this turn.
+			logging.Get(logging.CategoryContext).Error("Failed to assert flesh facts (selector falls back to keyword matching — semantic ranking unavailable): %v", err)
+		} else {
+			fleshReady = true
+		}
+	}
 
+	// =========================================================================
+	// PHASE B: query both phases in parallel (read-only on a complete EDB)
+	// =========================================================================
+	var skeleton, flesh []*ScoredAtom
+	var skeletonErr, fleshErr error
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		defer recoverSelectionPanic("skeleton query", &skeletonErr)
+		skeleton, skeletonErr = s.querySkeletonAtoms(kernel, skeletonAtoms, forcedMandatory)
+	}()
+
+	go func() {
+		defer wg.Done()
+		defer recoverSelectionPanic("flesh query", &fleshErr)
+		flesh = s.queryFleshAtoms(kernel, fleshAtoms, fleshReady, forcedMandatory, vectorScores, cc)
+	}()
+
+	wg.Wait()
+
+	if skeletonErr != nil {
+		return nil, 0, skeletonErr
+	}
 	if fleshErr != nil {
-		// Flesh failure is NOT critical - continue with skeleton only
-		logging.Get(logging.CategoryJIT).Warn(
+		// Flesh failure is NOT critical - continue with skeleton only.
+		// (Only a query-phase panic lands here; assert/query failures
+		// already fell back to keyword matching inside queryFleshAtoms.)
+		logging.Get(logging.CategoryContext).Warn(
 			"Flesh atoms failed, continuing with skeleton only: %v", fleshErr,
 		)
 		flesh = nil
 	}
-
-	logging.Get(logging.CategoryJIT).Debug(
-		"Phase 2 complete: %d flesh atoms loaded", len(flesh),
-	)
 
 	// =========================================================================
 	// PHASE 3: Merge and dedupe
@@ -748,7 +730,8 @@ func (s *AtomSelector) selectAtomsWithTimingKernel(
 	merged := s.mergeAtoms(skeleton, flesh)
 
 	logging.Get(logging.CategoryJIT).Debug(
-		"Phase 3 complete: %d total atoms after merge (vector=%dms)", len(merged), vectorMs,
+		"Selection complete: %d skeleton + %d flesh = %d total atoms (vector=%dms)",
+		len(skeleton), len(flesh), len(merged), vectorMs,
 	)
 
 	return merged, vectorMs, nil
@@ -820,24 +803,13 @@ func (s *AtomSelector) loadSkeletonAtomsKernel(
 ) ([]*ScoredAtom, error) {
 	timer := logging.StartTimer(logging.CategoryContext, "AtomSelector.loadSkeletonAtoms")
 	defer timer.Stop()
+	_ = ctx
 
 	if kernel == nil {
 		return nil, fmt.Errorf("CRITICAL: Mangle kernel not configured for skeleton selection")
 	}
 
-	// Filter to skeleton atoms only. An explicit requires_tools entry means
-	// the same thing here as in flesh: the atom is omitted when the
-	// effective catalog lacks any required tool. Tool-agnostic
-	// constitutional, evidence and general identity atoms carry no
-	// requires_tools and are always retained.
-	available := availableToolSet(cc)
-	var skeletonAtoms []*PromptAtom
-	for _, atom := range atoms {
-		if atom != nil && isSkeletonCategory(atom.Category) && atomMatchesActiveWorldState(atom, cc) && atomToolSatisfied(atom, available) {
-			skeletonAtoms = append(skeletonAtoms, atom)
-		}
-	}
-
+	skeletonAtoms := filterSkeletonAtoms(atoms, cc)
 	if len(skeletonAtoms) == 0 {
 		return nil, fmt.Errorf("CRITICAL: no skeleton atoms found in corpus")
 	}
@@ -853,6 +825,35 @@ func (s *AtomSelector) loadSkeletonAtomsKernel(
 		return nil, fmt.Errorf("CRITICAL: failed to assert skeleton facts: %w", err)
 	}
 
+	return s.querySkeletonAtoms(kernel, skeletonAtoms, forcedMandatory)
+}
+
+// filterSkeletonAtoms keeps the skeleton-category atoms whose world state
+// matches and whose required tools are all present. An explicit requires_tools
+// entry means the same thing here as in flesh: the atom is omitted when the
+// effective catalog lacks any required tool. Tool-agnostic constitutional,
+// evidence and general identity atoms carry no requires_tools and are always
+// retained.
+func filterSkeletonAtoms(atoms []*PromptAtom, cc *CompilationContext) []*PromptAtom {
+	available := availableToolSet(cc)
+	var skeletonAtoms []*PromptAtom
+	for _, atom := range atoms {
+		if atom != nil && isSkeletonCategory(atom.Category) && atomMatchesActiveWorldState(atom, cc) && atomToolSatisfied(atom, available) {
+			skeletonAtoms = append(skeletonAtoms, atom)
+		}
+	}
+	return skeletonAtoms
+}
+
+// querySkeletonAtoms runs the skeleton read phase against a kernel whose
+// skeleton facts are already asserted: diagnostic queries, then the
+// selected_result mapping. It writes nothing, so runSelection can run it in
+// parallel with the flesh query once both fact sets have landed.
+func (s *AtomSelector) querySkeletonAtoms(
+	kernel KernelQuerier,
+	skeletonAtoms []*PromptAtom,
+	forcedMandatory map[string]struct{},
+) ([]*ScoredAtom, error) {
 	// Debug: Query blocked atoms to diagnose context matching issues
 	blockedResults, blockedErr := kernel.Query("blocked_by_context(Atom)")
 	if blockedErr == nil && len(blockedResults) > 0 {
@@ -958,24 +959,14 @@ func (s *AtomSelector) loadFleshAtomsKernel(
 	timer := logging.StartTimer(logging.CategoryContext, "AtomSelector.loadFleshAtoms")
 	defer timer.Stop()
 
-	// Filter to flesh atoms only. An explicit requires_tools entry omits
-	// the atom when the effective catalog lacks any required tool, the
-	// same rule skeleton selection enforces.
-	available := availableToolSet(cc)
-	var fleshAtoms []*PromptAtom
-	for _, atom := range atoms {
-		if atom != nil && !isSkeletonCategory(atom.Category) && atomMatchesActiveWorldState(atom, cc) && atomToolSatisfied(atom, available) {
-			fleshAtoms = append(fleshAtoms, atom)
-		}
-	}
-
+	fleshAtoms := filterFleshAtoms(atoms, cc)
 	if len(fleshAtoms) == 0 {
 		logging.Get(logging.CategoryContext).Debug("No flesh atoms in corpus")
 		return nil, nil
 	}
 
 	// Step 1: Vector search (if enabled and query provided)
-	vectorScores := make(map[string]float64)
+	var vectorScores map[string]float64
 	if s.vectorSearcher != nil && cc.SemanticQuery != "" {
 		if scores := s.getVectorScores(ctx, cc.SemanticQuery, cc.SemanticTopK); scores != nil {
 			vectorScores = scores
@@ -983,11 +974,60 @@ func (s *AtomSelector) loadFleshAtomsKernel(
 	}
 
 	// Step 2: Build facts for Mangle
-	facts, err := s.buildContextFacts(cc, fleshAtoms, forcedMandatory)
+	facts, err := s.buildFleshFacts(cc, fleshAtoms, forcedMandatory, vectorScores)
 	if err != nil {
 		// Fact building failure is logged but we continue
 		logging.Get(logging.CategoryContext).Warn("Failed to build flesh context facts: %v", err)
 		return nil, nil
+	}
+
+	// Step 3: Query Mangle (if kernel available)
+	if kernel == nil {
+		// No kernel - fall back to context matching only
+		logging.Get(logging.CategoryContext).Warn("No kernel for flesh selection, using context matching")
+		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
+	}
+
+	if err := kernel.AssertBatch(facts); err != nil {
+		// Logged at Error: when the kernel rejects flesh facts (e.g. the
+		// prompt_atom arg-order bug or a poisoned-EDB type mismatch), the
+		// selector silently falls back to fallbackFleshSelection — a
+		// keyword-matching code path that loses semantic ranking. The old
+		// Warn level made this look like routine info; in fact it means
+		// the JIT compiler is running in degraded mode for this turn.
+		logging.Get(logging.CategoryContext).Error("Failed to assert flesh facts (selector falls back to keyword matching — semantic ranking unavailable): %v", err)
+		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
+	}
+
+	return s.queryFleshAtoms(kernel, fleshAtoms, true, forcedMandatory, vectorScores, cc), nil
+}
+
+// filterFleshAtoms keeps the non-skeleton atoms whose world state matches and
+// whose required tools are all present. An explicit requires_tools entry omits
+// the atom when the effective catalog lacks any required tool, the same rule
+// skeleton selection enforces.
+func filterFleshAtoms(atoms []*PromptAtom, cc *CompilationContext) []*PromptAtom {
+	available := availableToolSet(cc)
+	var fleshAtoms []*PromptAtom
+	for _, atom := range atoms {
+		if atom != nil && !isSkeletonCategory(atom.Category) && atomMatchesActiveWorldState(atom, cc) && atomToolSatisfied(atom, available) {
+			fleshAtoms = append(fleshAtoms, atom)
+		}
+	}
+	return fleshAtoms
+}
+
+// buildFleshFacts builds the context facts for the flesh atoms plus the
+// vector-hit and retrieved-context witness facts.
+func (s *AtomSelector) buildFleshFacts(
+	cc *CompilationContext,
+	fleshAtoms []*PromptAtom,
+	forcedMandatory map[string]struct{},
+	vectorScores map[string]float64,
+) ([]any, error) {
+	facts, err := s.buildContextFacts(cc, fleshAtoms, forcedMandatory)
+	if err != nil {
+		return nil, err
 	}
 
 	// Add vector hits as facts, scaled to the integer 0-100 the policy expects.
@@ -1022,29 +1062,32 @@ func (s *AtomSelector) loadFleshAtomsKernel(
 			facts = append(facts, "retrieved_context("+mangleQuoteString(atom.ID)+")")
 		}
 	}
+	return facts, nil
+}
 
-	// Step 3: Query Mangle (if kernel available)
-	if kernel == nil {
-		// No kernel - fall back to context matching only
-		logging.Get(logging.CategoryContext).Warn("No kernel for flesh selection, using context matching")
-		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
-	}
-
-	if err := kernel.AssertBatch(facts); err != nil {
-		// Logged at Error: when the kernel rejects flesh facts (e.g. the
-		// prompt_atom arg-order bug or a poisoned-EDB type mismatch), the
-		// selector silently falls back to fallbackFleshSelection — a
-		// keyword-matching code path that loses semantic ranking. The old
-		// Warn level made this look like routine info; in fact it means
-		// the JIT compiler is running in degraded mode for this turn.
-		logging.Get(logging.CategoryContext).Error("Failed to assert flesh facts (selector falls back to keyword matching — semantic ranking unavailable): %v", err)
-		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
+// queryFleshAtoms runs the flesh read phase. When ready is false the flesh
+// facts never landed (no kernel, or the assert failed) and it goes straight
+// to keyword matching; a query failure degrades the same way. It never
+// returns an error: flesh is the degradable phase.
+func (s *AtomSelector) queryFleshAtoms(
+	kernel KernelQuerier,
+	fleshAtoms []*PromptAtom,
+	ready bool,
+	forcedMandatory map[string]struct{},
+	vectorScores map[string]float64,
+	cc *CompilationContext,
+) []*ScoredAtom {
+	if !ready {
+		if kernel == nil {
+			logging.Get(logging.CategoryContext).Warn("No kernel for flesh selection, using context matching")
+		}
+		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory)
 	}
 
 	results, err := kernel.Query("selected_result(Atom, Priority, Source)")
 	if err != nil {
 		logging.Get(logging.CategoryContext).Warn("Flesh query failed: %v", err)
-		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
+		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory)
 	}
 
 	// Step 4: Map results to ScoredAtoms
@@ -1096,7 +1139,7 @@ func (s *AtomSelector) loadFleshAtomsKernel(
 		"Loaded %d flesh atoms from %d candidates", len(selected), len(fleshAtoms),
 	)
 
-	return selected, nil
+	return selected
 }
 
 func atomMatchesActiveWorldState(atom *PromptAtom, cc *CompilationContext) bool {
@@ -1154,9 +1197,13 @@ func (s *AtomSelector) fallbackFleshSelection(
 		})
 	}
 
-	// Sort by combined score
-	sort.Slice(selected, func(i, j int) bool {
-		return selected[i].Combined > selected[j].Combined
+	// Sort by combined score, ties broken on atom ID so the fallback order is
+	// stable run to run.
+	sort.SliceStable(selected, func(i, j int) bool {
+		if selected[i].Combined != selected[j].Combined {
+			return selected[i].Combined > selected[j].Combined
+		}
+		return selected[i].Atom.ID < selected[j].Atom.ID
 	})
 
 	return selected
@@ -1188,8 +1235,11 @@ func (s *AtomSelector) mergeAtoms(skeleton, flesh []*ScoredAtom) []*ScoredAtom {
 		}
 	}
 
-	// Sort: skeleton categories first, then by combined score
-	sort.Slice(result, func(i, j int) bool {
+	// Sort: skeleton categories first, mandatory first, then by combined
+	// score — with ties broken on atom ID. Flesh order arrives from kernel
+	// query results, and without the tiebreak equal-scored atoms flap run to
+	// run: the same prompt compiling to different text for no reason.
+	sort.SliceStable(result, func(i, j int) bool {
 		iSkel := isSkeletonCategory(result[i].Atom.Category)
 		jSkel := isSkeletonCategory(result[j].Atom.Category)
 
@@ -1204,7 +1254,10 @@ func (s *AtomSelector) mergeAtoms(skeleton, flesh []*ScoredAtom) []*ScoredAtom {
 		}
 
 		// Then by combined score
-		return result[i].Combined > result[j].Combined
+		if result[i].Combined != result[j].Combined {
+			return result[i].Combined > result[j].Combined
+		}
+		return result[i].Atom.ID < result[j].Atom.ID
 	})
 
 	logging.Get(logging.CategoryContext).Debug(

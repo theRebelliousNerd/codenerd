@@ -2479,7 +2479,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/projectdoc/tool_gate.go`
 - [ ] `internal/projectdoc/tool_gate_test.go`
 
-### internal/prompt (103)
+### internal/prompt (104)
 - [ ] `internal/prompt/assembler.go`
 - [ ] `internal/prompt/assembler_gaps_test.go`
 - [ ] `internal/prompt/assembler_test.go`
@@ -2499,7 +2499,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/prompt/compile_shard_test.go`
 - [ ] `internal/prompt/compiler.go`
 - [ ] `internal/prompt/compiler_boundary_test.go`
-- [ ] `internal/prompt/compiler_db.go`
+- [x] `internal/prompt/compiler_db.go`
 - [ ] `internal/prompt/compiler_expert_knowledge_test.go`
 - [ ] `internal/prompt/compiler_gaps_test.go`
 - [ ] `internal/prompt/compiler_kernel_atoms_test.go`
@@ -2509,7 +2509,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/prompt/compiler_specialists.go`
 - [ ] `internal/prompt/compiler_test.go`
 - [ ] `internal/prompt/config_defaults.go`
-- [ ] `internal/prompt/config_factory.go`
+- [x] `internal/prompt/config_factory.go`
 - [ ] `internal/prompt/config_factory_all_verbs_test.go`
 - [ ] `internal/prompt/config_factory_mcp_test.go`
 - [ ] `internal/prompt/config_factory_taxonomy_test.go`
@@ -2558,6 +2558,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/prompt/pinning_test.go`
 - [ ] `internal/prompt/predicate_selector.go`
 - [ ] `internal/prompt/predicate_selector_test.go`
+- [x] `internal/prompt/prompt_core_uplift_test.go`
 - [ ] `internal/prompt/prompt_gaps_test.go`
 - [ ] `internal/prompt/query_expansion.go`
 - [ ] `internal/prompt/query_expansion_semantic_test.go`
@@ -2570,7 +2571,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/prompt/resolver.go`
 - [ ] `internal/prompt/resolver_gaps_test.go`
 - [ ] `internal/prompt/resolver_test.go`
-- [ ] `internal/prompt/selector.go`
+- [x] `internal/prompt/selector.go`
 - [ ] `internal/prompt/selector_gaps_test.go`
 - [ ] `internal/prompt/selector_test.go`
 - [ ] `internal/prompt/selector_vector_score_test.go`
