@@ -1,9 +1,11 @@
 package perception
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -369,13 +371,21 @@ func (t *LLMTransducer) parseResponse(response string) (*Understanding, error) {
 	// Try envelope first, then direct Understanding.
 	// Go's json.Unmarshal is lenient: it succeeds even when the JSON has no
 	// "understanding" key, leaving envelope.Understanding zero-valued. We must
-	// detect that case and fall through to the direct parse path.
+	// detect that case and fall through to the direct parse path. Detection is
+	// by key presence, not by PrimaryIntent content: an envelope whose model
+	// omitted the one-word summary is still an envelope, and falling through
+	// would re-parse it as a bare Understanding and zero every field.
 	var envelope UnderstandingEnvelope
-	if err := json.Unmarshal([]byte(jsonStr), &envelope); err == nil && envelope.Understanding.PrimaryIntent != "" {
-		// Valid envelope with populated Understanding
-		envelope.Understanding.SurfaceResponse = envelope.SurfaceResponse
-		normalizeLLMFields(&envelope.Understanding)
-		return &envelope.Understanding, nil
+	var probe struct {
+		Understanding json.RawMessage `json:"understanding"`
+	}
+	if err := json.Unmarshal([]byte(jsonStr), &envelope); err == nil {
+		if perr := json.Unmarshal([]byte(jsonStr), &probe); perr == nil && isJSONObject(probe.Understanding) {
+			// Valid envelope with an understanding object
+			envelope.Understanding.SurfaceResponse = envelope.SurfaceResponse
+			normalizeLLMFields(&envelope.Understanding)
+			return &envelope.Understanding, nil
+		}
 	}
 
 	// Try parsing as just Understanding (no envelope wrapper)
@@ -394,14 +404,21 @@ func normalizeLLMFields(u *Understanding) {
 	if u == nil {
 		return
 	}
-	u.SemanticType = strings.ToLower(u.SemanticType)
-	u.ActionType = strings.ToLower(u.ActionType)
-	u.Domain = strings.ToLower(u.Domain)
+	u.SemanticType = strings.ToLower(strings.TrimSpace(u.SemanticType))
+	u.ActionType = strings.ToLower(strings.TrimSpace(u.ActionType))
+	u.Domain = strings.ToLower(strings.TrimSpace(u.Domain))
 	if u.Scope.Level != "" {
-		u.Scope.Level = strings.ToLower(u.Scope.Level)
+		u.Scope.Level = strings.ToLower(strings.TrimSpace(u.Scope.Level))
 	}
 	if u.SuggestedApproach.Mode != "" {
-		u.SuggestedApproach.Mode = strings.ToLower(u.SuggestedApproach.Mode)
+		u.SuggestedApproach.Mode = strings.ToLower(strings.TrimSpace(u.SuggestedApproach.Mode))
+	}
+	// Clamp confidence: the model sometimes returns percentages (85.0),
+	// negatives, or NaN. Downstream gates compare against 0..1 thresholds.
+	if math.IsNaN(u.Confidence) || u.Confidence < 0 {
+		u.Confidence = 0
+	} else if u.Confidence > 1 {
+		u.Confidence = 1
 	}
 }
 
@@ -411,6 +428,14 @@ func normalizeLLMFields(u *Understanding) {
 // unbounded size. Since we want the LAST valid object/array, we only need
 // to retain the most recent spans — older ones can be dropped.
 const maxJSONCandidates = 1000
+
+// isJSONObject reports whether raw is a non-empty JSON object value.
+// The envelope probe uses it so `"understanding": null` (or a scalar)
+// falls through to the direct parse instead of yielding a zero struct.
+func isJSONObject(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && trimmed[0] == '{'
+}
 
 // ExtractCleanJSON finds the last valid JSON object in the response.
 // This handles cases where the model outputs thinking logs or schema examples before the final JSON.
@@ -594,38 +619,65 @@ func (t *LLMTransducer) deriveRouting(ctx context.Context, u *Understanding) {
 // Fact budget: 4 fixed facts + |ContextPriorities| + |ToolPriorities| per turn.
 // All are retracted at turn start (see process.go retraction block).
 func (t *LLMTransducer) assertRoutingFacts(asserter KernelAsserter, u *Understanding, routing *Routing) {
+	// Retract-before-assert: these predicates hold one turn's routing, and
+	// only the chat path retracts them per turn. Without this, session
+	// turns accumulate stale priorities that later turns join against.
+	for _, pred := range []string{
+		"current_understanding", "llm_suggested_mode", "derived_mode",
+		"derived_primary_shard", "derived_context_priority", "derived_tool_priority",
+	} {
+		_ = asserter.RetractRoutingPredicate(pred)
+	}
+
 	// current_understanding(SemanticType, ActionType, Domain, ScopeLevel)
 	scopeLevel := u.Scope.Level
 	if scopeLevel == "" {
 		scopeLevel = "function"
 	}
-	_ = asserter.AssertRoutingFact("current_understanding",
-		"/"+u.SemanticType, "/"+u.ActionType, "/"+u.Domain, "/"+scopeLevel)
+	if sem, act, dom, lvl := cleanRoutingAtom(u.SemanticType), cleanRoutingAtom(u.ActionType), cleanRoutingAtom(u.Domain), cleanRoutingAtom(scopeLevel); sem != "" && act != "" && dom != "" && lvl != "" {
+		_ = asserter.AssertRoutingFact("current_understanding", sem, act, dom, lvl)
+	}
 
 	// llm_suggested_mode(Mode) — the raw LLM suggestion before Mangle override
-	if u.SuggestedApproach.Mode != "" {
-		_ = asserter.AssertRoutingFact("llm_suggested_mode", "/"+u.SuggestedApproach.Mode)
+	if mode := cleanRoutingAtom(u.SuggestedApproach.Mode); mode != "" {
+		_ = asserter.AssertRoutingFact("llm_suggested_mode", mode)
 	}
 
 	// derived_mode(Mode) — the final harness mode after Mangle derivation
-	if routing.Mode != "" {
-		_ = asserter.AssertRoutingFact("derived_mode", "/"+routing.Mode)
+	if mode := cleanRoutingAtom(routing.Mode); mode != "" {
+		_ = asserter.AssertRoutingFact("derived_mode", mode)
 	}
 
 	// derived_primary_shard(ShardID)
-	if routing.PrimaryShard != "" {
-		_ = asserter.AssertRoutingFact("derived_primary_shard", "/"+routing.PrimaryShard)
+	if shard := cleanRoutingAtom(routing.PrimaryShard); shard != "" {
+		_ = asserter.AssertRoutingFact("derived_primary_shard", shard)
 	}
 
 	// derived_context_priority(Category, Priority)
 	for cat, priority := range routing.ContextPriorities {
-		_ = asserter.AssertRoutingFact("derived_context_priority", "/"+cat, priority)
+		if atom := cleanRoutingAtom(cat); atom != "" {
+			_ = asserter.AssertRoutingFact("derived_context_priority", atom, priority)
+		}
 	}
 
 	// derived_tool_priority(Tool, Priority)
 	for tool, priority := range routing.ToolPriorities {
-		_ = asserter.AssertRoutingFact("derived_tool_priority", "/"+tool, priority)
+		if atom := cleanRoutingAtom(tool); atom != "" {
+			_ = asserter.AssertRoutingFact("derived_tool_priority", atom, priority)
+		}
 	}
+}
+
+// cleanRoutingAtom normalizes a model- or table-derived value into a Mangle
+// name atom ("/"-prefixed, no whitespace), or "" when the value cannot be
+// an atom. Callers skip empty results: asserting "/" or "/two words"
+// would degrade to a string constant that no /name rule can join.
+func cleanRoutingAtom(value string) string {
+	value = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), "/"))
+	if value == "" || strings.ContainsAny(value, " \t\r\n") {
+		return ""
+	}
+	return "/" + value
 }
 
 // NERD-EVOLVE-END: P3_routing_assertion
@@ -791,10 +843,22 @@ func (t *LLMTransducer) deriveBlockedTools(ctx context.Context, u *Understanding
 	return blocked
 }
 
-// Turn represents a conversation turn for context.
-type Turn struct {
-	Role    string // "user" or "assistant"
-	Content string
+// validRoutingAtomArg reports whether s is safe to interpolate into a Mangle
+// query as a /name atom. Routing args arrive from LLM JSON (semantic type,
+// action type, domain), which the harness must not trust in query position:
+// anything outside [a-z0-9_] fails closed to no-match instead of becoming
+// a query-language fragment.
+func validRoutingAtomArg(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // MangleRoutingKernel implements RoutingKernel using the Mangle engine.
@@ -824,6 +888,10 @@ func (k *MangleRoutingKernel) QueryRouting(ctx context.Context, predicate string
 		query = fmt.Sprintf("constraint_blocks_tool(/%s, Tool)", arg)
 	default:
 		return nil, fmt.Errorf("unknown predicate: %s", predicate)
+	}
+
+	if !validRoutingAtomArg(arg) {
+		return nil, nil // fail closed: unarguable input matches nothing
 	}
 
 	result, err := k.engine.Query(ctx, query)
@@ -885,6 +953,10 @@ func (k *MangleRoutingKernel) ValidateField(ctx context.Context, field, value st
 		return true // Unknown field, assume valid
 	}
 
+	if !validRoutingAtomArg(value) {
+		return false // fail closed: unarguable input validates nothing
+	}
+
 	result, err := k.engine.Query(ctx, query)
 	if err != nil {
 		return false
@@ -913,9 +985,6 @@ func (k *RealKernelRouter) QueryRouting(ctx context.Context, predicate string, a
 	if k.kernel == nil {
 		return nil, nil
 	}
-
-	// Build the query predicate
-	fullPredicate := fmt.Sprintf("%s(/%s", predicate, arg)
 
 	// Query the kernel for facts matching this predicate
 	facts, err := k.kernel.Query(predicate)
@@ -967,7 +1036,6 @@ func (k *RealKernelRouter) QueryRouting(ctx context.Context, predicate string, a
 		}
 	}
 
-	_ = fullPredicate // Avoid unused variable warning
 	return matches, nil
 }
 

@@ -1,6 +1,9 @@
 package perception
 
-import "math"
+import (
+	"math"
+	"strings"
+)
 
 // Understanding represents the LLM's interpretation of user intent.
 // This is the output of LLM-first classification - the LLM tells us
@@ -185,13 +188,13 @@ func (e *ValidationError) Error() string {
 
 // IsActionRequest returns true if this understanding represents a request
 // for the agent to DO something (vs. just explain or answer a question).
+// It delegates to isMutationAction so the mutation set stays defined in one
+// place; verify joins it because running tests is an execution request even
+// though it is read-only. Inspection (investigate/explain/research/review/
+// audit/lint/benchmark/profile), conversation, and memory turns are not.
 func (u *Understanding) IsActionRequest() bool {
-	switch u.ActionType {
-	case "implement", "modify", "refactor", "verify", "attack", "revert", "configure":
-		return true
-	default:
-		return false
-	}
+	action := strings.ToLower(strings.TrimSpace(u.ActionType))
+	return isMutationAction(action) || action == "verify"
 }
 
 // IsReadOnly returns true if this understanding should not modify any files.

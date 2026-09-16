@@ -1537,6 +1537,35 @@ func initIntelligenceLayer(bctx *bootContext) error {
 		}
 	}
 
+	// Wire the kernel into the transducer so routing derives from Mangle
+	// tables (mode/shard/context/tool affinities) instead of passing the
+	// LLM's suggestions through verbatim. Without this, deriveRouting takes
+	// its no-kernel fallback on every turn and the routing corpus plus the
+	// per-turn current_understanding/derived_* facts are dead paths.
+	// Extraction mirrors initExecutionLayer: a bare RealKernel passes
+	// through, a CortexKernel contributes its primary shard's kernel.
+	if bctx.transducer != nil {
+		tk, ok := bctx.transducer.(perception.TransducerWithKernel)
+		if !ok {
+			logging.Get(logging.CategoryPerception).Warn(
+				"transducer %T has no kernel port; routing falls back to LLM suggestions",
+				bctx.transducer)
+		} else {
+			var routingKernel *core.RealKernel
+			if rk, ok := bctx.kernel.(*core.RealKernel); ok {
+				routingKernel = rk
+			} else if ck, ok := bctx.kernel.(*core.CortexKernel); ok {
+				routingKernel = ck.GetPrimaryRealKernel()
+			}
+			if routingKernel != nil {
+				tk.SetKernel(routingKernel)
+			} else {
+				logging.Get(logging.CategoryPerception).Warn(
+					"transducer routing kernel unavailable; routing falls back to LLM suggestions")
+			}
+		}
+	}
+
 	discoveredAgents := synchronizer.GetDiscoveredAgents()
 	if len(discoveredAgents) > 0 {
 		agentsOnDisk := make([]AgentOnDisk, 0, len(discoveredAgents))
