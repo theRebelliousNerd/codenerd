@@ -2316,7 +2316,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/perception/client_factory.go`
 - [ ] `internal/perception/client_factory_extra_test.go`
 - [ ] `internal/perception/client_factory_test.go`
-- [ ] `internal/perception/client_gemini.go`
+- [x] `internal/perception/client_gemini.go`
 - [ ] `internal/perception/client_gemini_files.go`
 - [ ] `internal/perception/client_gemini_files_test.go`
 - [ ] `internal/perception/client_gemini_getters_test.go`

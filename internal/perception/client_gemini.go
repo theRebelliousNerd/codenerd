@@ -177,10 +177,11 @@ func isGemini3Model(model string) bool {
 	return strings.Contains(strings.ToLower(model), "gemini-3")
 }
 
+// defaultMaxOutputTokensForModel is the completion ceiling when none was
+// configured. A single cap for now; kept per-model so a future vendor
+// difference (e.g. a lower Lite ceiling) has one place to land.
 func defaultMaxOutputTokensForModel(model string) int {
-	if isGemini3Model(model) {
-		return 65536
-	}
+	_ = model
 	return 65536
 }
 
@@ -278,7 +279,7 @@ func (c *GeminiClient) buildBuiltInTools() []GeminiTool {
 
 // SetURLContextURLs sets URLs for the URL context tool.
 func (c *GeminiClient) SetURLContextURLs(urls []string) {
-	c.urlContextURLs = urls
+	c.urlContextURLs = append([]string(nil), urls...)
 }
 
 // SetEnableGoogleSearch enables or disables Google Search grounding at runtime.
@@ -304,7 +305,7 @@ func (c *GeminiClient) IsURLContextEnabled() bool {
 // GetLastGroundingSources returns the grounding sources from the last response.
 // These are URLs that Gemini used to ground its response via Google Search or URL Context.
 func (c *GeminiClient) GetLastGroundingSources() []string {
-	return c.lastGroundingSources
+	return append([]string(nil), c.lastGroundingSources...)
 }
 
 // ShouldUsePiggybackTools returns true if this client should use Piggyback Protocol
@@ -502,7 +503,14 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
-			time.Sleep(time.Duration(1<<uint(i-1)) * time.Second)
+			// Context-aware backoff: a cancelled turn must exit during
+			// the sleep, not after it (matches ExecuteOpenAIRequest).
+			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
 		}
 
 		jsonData, err := json.Marshal(reqBody)
@@ -773,7 +781,14 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
-			time.Sleep(time.Duration(1<<uint(i-1)) * time.Second)
+			// Context-aware backoff: a cancelled turn must exit during
+			// the sleep, not after it (matches ExecuteOpenAIRequest).
+			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
 		}
 
 		jsonData, err := json.Marshal(reqBody)
@@ -889,6 +904,10 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 
 func (c *GeminiClient) SetModel(model string) {
 	c.model = model
+	// Match the constructor: Gemini 3 models always think, so switching
+	// into one (e.g. via the broker) must flip thinking on. One-way latch:
+	// switching back out keeps thinking enabled, which is valid on 2.x.
+	c.enableThinking = c.enableThinking || isGemini3Model(model)
 	if !c.maxOutputTokensConfig {
 		c.maxOutputTokens = defaultMaxOutputTokensForModel(model)
 	}
@@ -921,8 +940,10 @@ func (c *GeminiClient) CountTokens(ctx context.Context, systemPrompt, userPrompt
 		}
 	}
 
-	// Apply cached content if set
+	// Apply cached content if set (locked: SetCachedContent writes under mu).
+	c.mu.Lock()
 	cachedContent := c.cachedContentName
+	c.mu.Unlock()
 	if cachedContent != "" {
 		reqBody.CachedContent = cachedContent
 	}
