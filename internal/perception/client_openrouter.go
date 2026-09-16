@@ -59,6 +59,18 @@ func NewOpenRouterClientWithConfig(config OpenRouterConfig) *OpenRouterClient {
 	}
 }
 
+// rateLimit enforces minimum inter-request spacing to avoid 429 responses.
+// Must be called before each API request.
+func (c *OpenRouterClient) rateLimit() {
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 100*time.Millisecond {
+		time.Sleep(100*time.Millisecond - elapsed)
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
+}
+
 // Complete sends a prompt and returns the completion.
 func (c *OpenRouterClient) Complete(ctx context.Context, prompt string) (string, error) {
 	return c.CompleteWithSystem(ctx, "", prompt)
@@ -91,13 +103,7 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 		strings.Contains(userPrompt, "control_packet")
 
 	// Rate limiting
-	c.mu.Lock()
-	elapsed := time.Since(c.lastRequest)
-	if elapsed < 100*time.Millisecond {
-		time.Sleep(100*time.Millisecond - elapsed)
-	}
-	c.lastRequest = time.Now()
-	c.mu.Unlock()
+	c.rateLimit()
 
 	messages := []OpenRouterMessage{
 		{Role: "system", Content: systemPrompt},
@@ -120,7 +126,14 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
-			time.Sleep(time.Duration(1<<uint(i-1)) * time.Second)
+			// Context-aware backoff: a cancelled turn must exit during
+			// the sleep, not after it (matches ExecuteOpenAIRequest).
+			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
 		}
 
 		jsonData, err := json.Marshal(reqBody)
@@ -153,6 +166,11 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 
 		if resp.StatusCode == http.StatusTooManyRequests {
 			lastErr = fmt.Errorf("rate limit exceeded (429)")
+			continue
+		}
+
+		if isTransientHTTPStatus(resp.StatusCode) {
+			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 			continue
 		}
 
@@ -236,13 +254,7 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 			strings.Contains(userPrompt, "control_packet")
 
 		// Rate limiting
-		c.mu.Lock()
-		elapsed := time.Since(c.lastRequest)
-		if elapsed < 100*time.Millisecond {
-			time.Sleep(100*time.Millisecond - elapsed)
-		}
-		c.lastRequest = time.Now()
-		c.mu.Unlock()
+		c.rateLimit()
 
 		messages := []OpenRouterMessage{
 			{Role: "system", Content: systemPrompt},
@@ -268,7 +280,15 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 
 		for attempt := 0; attempt <= maxRetries; attempt++ {
 			if attempt > 0 {
-				time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+				// Context-aware backoff: a cancelled turn must exit during
+				// the sleep, not after it (matches ExecuteOpenAIRequest).
+				backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+				select {
+				case <-ctx.Done():
+					errorChan <- fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+					return
+				case <-time.After(backoff):
+				}
 			}
 
 			jsonData, err := json.Marshal(reqBody)
@@ -299,6 +319,13 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 				resp.Body.Close()
 				lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+				continue
+			}
+
+			if isTransientHTTPStatus(resp.StatusCode) {
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+				resp.Body.Close()
+				lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 				continue
 			}
 
@@ -415,7 +442,6 @@ func (c *OpenRouterClient) GetModel() string {
 	return c.model
 }
 
-// CompleteWithTools sends a prompt with tool definitions.
 // CompleteWithTools sends a prompt with tool definitions.
 func (c *OpenRouterClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
 	openAITools := MapToolDefinitionsToOpenAI(tools)
