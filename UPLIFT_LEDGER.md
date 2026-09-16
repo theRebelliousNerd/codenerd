@@ -2313,7 +2313,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/perception/cli_client_identity_test.go`
 - [x] `internal/perception/client.go`
 - [ ] `internal/perception/client_anthropic.go`
-- [ ] `internal/perception/client_factory.go`
+- [x] `internal/perception/client_factory.go`
 - [ ] `internal/perception/client_factory_extra_test.go`
 - [ ] `internal/perception/client_factory_test.go`
 - [ ] `internal/perception/client_gemini.go`

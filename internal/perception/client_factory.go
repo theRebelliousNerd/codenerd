@@ -278,6 +278,14 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 	case ProviderGemini:
 		flashCfg := DefaultGeminiConfig(cfg.APIKey)
 		flashCfg.Model = classificationModel(cfg)
+		// Classification is a labelling task on the critical path of every
+		// turn: no thinking trace, and a small ceiling instead of the main
+		// client's 64K budget. Gemini 3 models force thinking on inside the
+		// client constructor regardless; "minimal" plus the tight ceiling
+		// still bounds that combined thinking+output spend.
+		flashCfg.EnableThinking = false
+		flashCfg.ThinkingLevel = "minimal"
+		flashCfg.MaxOutputTokens = classificationMaxOutputTokens
 		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=gemini model=%s (configured=%v)", flashCfg.Model, model != "")
 		return NewGeminiClientWithConfig(flashCfg), nil
 
