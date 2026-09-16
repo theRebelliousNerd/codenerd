@@ -20,6 +20,14 @@ var writeMutationActions = map[ActionType]struct{}{
 	ActionDeleteLines: {},
 	ActionEditElement: {},
 	ActionFSWrite:     {},
+	// Campaign writers delegate to the file handlers above, so they land the
+	// same bytes and take the same protection (and the same pending_edit root
+	// fact for the policy rules that read it). They were unlisted, which let
+	// a write-protected path through under a campaign action type.
+	ActionCampaignCreateFile: {},
+	ActionCampaignModifyFile: {},
+	ActionCampaignWriteTest:  {},
+	ActionCampaignDocument:   {},
 }
 
 // projectForbidsWrite asks the kernel whether nerd.md protects this request's

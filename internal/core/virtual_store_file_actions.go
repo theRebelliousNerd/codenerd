@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,7 +66,7 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 
 		data = make([]byte, MaxFileSize)
 		n, err := f.Read(data)
-		if err != nil && err.Error() != "EOF" {
+		if err != nil && !errors.Is(err, io.EOF) {
 			return ActionResult{
 				Success: false,
 				Error:   err.Error(),
@@ -409,6 +411,11 @@ func (v *VirtualStore) handleDeleteFile(ctx context.Context, req ActionRequest) 
 // off a result that stopped counting has drawn a false negative.
 const maxLocalSearchResults = 100
 
+// maxSearchFileSize caps the files handleSearchCode reads whole. The walk
+// loads every visited file fully into memory, so an unchecked bundle or
+// binary in the tree would become a multi-hundred-MB read on every search.
+const maxSearchFileSize = 1024 * 1024 // 1MB
+
 // handleSearchCode searches for code patterns using local filesystem search.
 // For semantic/AST-based search, use the internal/world package via shards.
 //
@@ -444,6 +451,9 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 
 		// Skip hidden directories and large files
 		if strings.Contains(path, ".git") || strings.Contains(path, ".nerd") {
+			return nil
+		}
+		if info.Size() > maxSearchFileSize {
 			return nil
 		}
 

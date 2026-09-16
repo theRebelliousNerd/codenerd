@@ -639,7 +639,7 @@ func (v *VirtualStore) GetMCPClient(serverID string) IntegrationClient {
 	if client == nil {
 		return nil
 	}
-	return &mcpClientProxy{vs: v, client: client}
+	return &mcpClientProxy{client: client}
 }
 
 // GetMCPClientNames returns all registered MCP client server IDs.

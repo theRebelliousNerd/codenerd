@@ -43,6 +43,8 @@ func TestVirtualStore_ProjectForbidsWrite_BlocksEveryWriteAction(t *testing.T) {
 		ActionWriteFile, ActionEditFile, ActionDeleteFile,
 		ActionEditLines, ActionInsertLines, ActionDeleteLines,
 		ActionEditElement, ActionFSWrite,
+		ActionCampaignCreateFile, ActionCampaignModifyFile,
+		ActionCampaignWriteTest, ActionCampaignDocument,
 	}
 	for _, action := range writes {
 		t.Run(string(action), func(t *testing.T) {

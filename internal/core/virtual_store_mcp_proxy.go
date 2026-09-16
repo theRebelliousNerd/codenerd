@@ -7,7 +7,6 @@ import (
 )
 
 type mcpClientProxy struct {
-	vs     *VirtualStore
 	client IntegrationClient
 }
 

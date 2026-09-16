@@ -1760,7 +1760,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/virtual_store_cli_fact_test.go`
 
 ### internal/core/virtual_store_codedom.go (1)
-- [ ] `internal/core/virtual_store_codedom.go`
+- [x] `internal/core/virtual_store_codedom.go`
 
 ### internal/core/virtual_store_codedom_coverage_test.go (1)
 - [ ] `internal/core/virtual_store_codedom_coverage_test.go`
@@ -1781,13 +1781,13 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/virtual_store_denial_feedback_test.go`
 
 ### internal/core/virtual_store_file_actions.go (1)
-- [ ] `internal/core/virtual_store_file_actions.go`
+- [x] `internal/core/virtual_store_file_actions.go`
 
 ### internal/core/virtual_store_gaps_test.go (1)
 - [ ] `internal/core/virtual_store_gaps_test.go`
 
 ### internal/core/virtual_store_graph.go (1)
-- [ ] `internal/core/virtual_store_graph.go`
+- [x] `internal/core/virtual_store_graph.go`
 
 ### internal/core/virtual_store_grounded_test.go (1)
 - [ ] `internal/core/virtual_store_grounded_test.go`
@@ -1796,7 +1796,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/virtual_store_integration_test.go`
 
 ### internal/core/virtual_store_interactive_gate.go (1)
-- [ ] `internal/core/virtual_store_interactive_gate.go`
+- [x] `internal/core/virtual_store_interactive_gate.go`
 
 ### internal/core/virtual_store_interactive_gate_test.go (1)
 - [ ] `internal/core/virtual_store_interactive_gate_test.go`
@@ -1808,25 +1808,25 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/virtual_store_link_facts_test.go`
 
 ### internal/core/virtual_store_mcp_proxy.go (1)
-- [ ] `internal/core/virtual_store_mcp_proxy.go`
+- [x] `internal/core/virtual_store_mcp_proxy.go`
 
 ### internal/core/virtual_store_mcp_wiring_test.go (1)
 - [ ] `internal/core/virtual_store_mcp_wiring_test.go`
 
 ### internal/core/virtual_store_predicates.go (1)
-- [ ] `internal/core/virtual_store_predicates.go`
+- [x] `internal/core/virtual_store_predicates.go`
 
 ### internal/core/virtual_store_predicates_coverage_test.go (1)
 - [ ] `internal/core/virtual_store_predicates_coverage_test.go`
 
 ### internal/core/virtual_store_projectdoc.go (1)
-- [ ] `internal/core/virtual_store_projectdoc.go`
+- [x] `internal/core/virtual_store_projectdoc.go`
 
 ### internal/core/virtual_store_projectdoc_test.go (1)
 - [ ] `internal/core/virtual_store_projectdoc_test.go`
 
 ### internal/core/virtual_store_python.go (1)
-- [ ] `internal/core/virtual_store_python.go`
+- [x] `internal/core/virtual_store_python.go`
 
 ### internal/core/virtual_store_python_test.go (1)
 - [ ] `internal/core/virtual_store_python_test.go`
@@ -1847,7 +1847,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/virtual_store_tool_facts.go`
 
 ### internal/core/virtual_store_tools.go (1)
-- [ ] `internal/core/virtual_store_tools.go`
+- [x] `internal/core/virtual_store_tools.go`
 
 ### internal/core/virtual_store_types.go (1)
 - [x] `internal/core/virtual_store_types.go`
@@ -1856,7 +1856,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/virtual_store_uplift_test.go`
 
 ### internal/core/virtual_store_workflows.go (1)
-- [ ] `internal/core/virtual_store_workflows.go`
+- [x] `internal/core/virtual_store_workflows.go`
 
 ### internal/core/virtual_store_workflows_coverage_test.go (1)
 - [ ] `internal/core/virtual_store_workflows_coverage_test.go`

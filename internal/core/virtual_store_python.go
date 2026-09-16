@@ -331,9 +331,14 @@ func (v *VirtualStore) handleSWEBenchSetup(ctx context.Context, req ActionReques
 		})
 	}
 
+	shortCommit := baseCommit
+	if len(shortCommit) > 8 {
+		shortCommit = shortCommit[:8]
+	}
+
 	return ActionResult{
 		Success: true,
-		Output:  fmt.Sprintf("SWE-bench environment initializing for %s (%s@%s)", instanceID, repo, baseCommit[:8]),
+		Output:  fmt.Sprintf("SWE-bench environment initializing for %s (%s@%s)", instanceID, repo, shortCommit),
 		Metadata: map[string]any{
 			"instance_id":       instanceID,
 			"repo":              repo,

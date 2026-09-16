@@ -345,11 +345,13 @@ func (v *VirtualStore) handleEditLines(ctx context.Context, req ActionRequest) (
 
 	path := v.resolvePath(req.Target)
 
-	startLine, _ := req.Payload["start_line"].(float64)
-	endLine, _ := req.Payload["end_line"].(float64)
+	// payloadInt, not a float64 assertion: Mangle-derived and Go-built payloads
+	// carry int/int64 line numbers, which the old assertion silently read as 0.
+	startLine, okStart := payloadInt(req.Payload["start_line"])
+	endLine, okEnd := payloadInt(req.Payload["end_line"])
 	newContent, _ := req.Payload["content"].(string)
 
-	if startLine == 0 || endLine == 0 {
+	if !okStart || !okEnd || startLine == 0 || endLine == 0 {
 		return ActionResult{Success: false, Error: "edit_lines requires 'start_line' and 'end_line' in payload"}, nil
 	}
 
@@ -362,9 +364,9 @@ func (v *VirtualStore) handleEditLines(ctx context.Context, req ActionRequest) (
 	// Resolve which symbols this range touches BEFORE the edit and the scope
 	// refresh: afterwards the line numbers have moved, and the elements the
 	// edit removed are gone from the scope entirely.
-	modifiedSymbols := modifiedSymbolFactsForLineRange(scope, path, v.factPath(path), int(startLine), int(endLine))
+	modifiedSymbols := modifiedSymbolFactsForLineRange(scope, path, v.factPath(path), startLine, endLine)
 
-	result, err := editor.EditLines(path, int(startLine), int(endLine), newLines)
+	result, err := editor.EditLines(path, startLine, endLine, newLines)
 	if err != nil {
 		return ActionResult{
 			Success: false,
@@ -392,11 +394,11 @@ func (v *VirtualStore) handleEditLines(ctx context.Context, req ActionRequest) (
 
 	return ActionResult{
 		Success: true,
-		Output:  fmt.Sprintf("Edited lines %d-%d in %s", int(startLine), int(endLine), path),
+		Output:  fmt.Sprintf("Edited lines %d-%d in %s", startLine, endLine, path),
 		Metadata: map[string]any{
 			"path":           path,
-			"start_line":     int(startLine),
-			"end_line":       int(endLine),
+			"start_line":     startLine,
+			"end_line":       endLine,
 			"lines_affected": result.LinesAffected,
 		},
 		FactsToAdd: factsToAdd,
@@ -420,11 +422,17 @@ func (v *VirtualStore) handleInsertLines(ctx context.Context, req ActionRequest)
 
 	path := v.resolvePath(req.Target)
 
-	afterLine, _ := req.Payload["after_line"].(float64)
+	// A missing after_line means 0 (insert at top), but a present garbage
+	// value must not silently become 0 and land the insert in the wrong place.
+	afterLine, okAfter := payloadInt(req.Payload["after_line"])
+	_, present := req.Payload["after_line"]
 	content, _ := req.Payload["content"].(string)
 
 	if content == "" {
 		return ActionResult{Success: false, Error: "insert_lines requires 'content' in payload"}, nil
+	}
+	if present && !okAfter {
+		return ActionResult{Success: false, Error: "insert_lines requires numeric 'after_line' in payload"}, nil
 	}
 
 	newLines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
@@ -432,9 +440,9 @@ func (v *VirtualStore) handleInsertLines(ctx context.Context, req ActionRequest)
 	// An insertion after line N lands inside whatever element spans N, so the
 	// range is the single line it follows. Resolved before the edit, while the
 	// scope's line numbers still describe the file on disk.
-	modifiedSymbols := modifiedSymbolFactsForLineRange(scope, path, v.factPath(path), int(afterLine), int(afterLine))
+	modifiedSymbols := modifiedSymbolFactsForLineRange(scope, path, v.factPath(path), afterLine, afterLine)
 
-	result, err := editor.InsertLines(path, int(afterLine), newLines)
+	result, err := editor.InsertLines(path, afterLine, newLines)
 	if err != nil {
 		return ActionResult{
 			Success: false,
@@ -462,10 +470,10 @@ func (v *VirtualStore) handleInsertLines(ctx context.Context, req ActionRequest)
 
 	return ActionResult{
 		Success: true,
-		Output:  fmt.Sprintf("Inserted %d lines after line %d in %s", result.LinesAffected, int(afterLine), path),
+		Output:  fmt.Sprintf("Inserted %d lines after line %d in %s", result.LinesAffected, afterLine, path),
 		Metadata: map[string]any{
 			"path":        path,
-			"after_line":  int(afterLine),
+			"after_line":  afterLine,
 			"lines_added": result.LinesAffected,
 		},
 		FactsToAdd: factsToAdd,
@@ -489,18 +497,18 @@ func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest)
 
 	path := v.resolvePath(req.Target)
 
-	startLine, _ := req.Payload["start_line"].(float64)
-	endLine, _ := req.Payload["end_line"].(float64)
+	startLine, okStart := payloadInt(req.Payload["start_line"])
+	endLine, okEnd := payloadInt(req.Payload["end_line"])
 
-	if startLine == 0 || endLine == 0 {
+	if !okStart || !okEnd || startLine == 0 || endLine == 0 {
 		return ActionResult{Success: false, Error: "delete_lines requires 'start_line' and 'end_line' in payload"}, nil
 	}
 
 	// Resolve before the delete: after it the element may not exist at all,
 	// and a deleted function is precisely the one whose callers matter most.
-	modifiedSymbols := modifiedSymbolFactsForLineRange(scope, path, v.factPath(path), int(startLine), int(endLine))
+	modifiedSymbols := modifiedSymbolFactsForLineRange(scope, path, v.factPath(path), startLine, endLine)
 
-	result, err := editor.DeleteLines(path, int(startLine), int(endLine))
+	result, err := editor.DeleteLines(path, startLine, endLine)
 	if err != nil {
 		return ActionResult{
 			Success: false,
@@ -528,11 +536,11 @@ func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest)
 
 	return ActionResult{
 		Success: true,
-		Output:  fmt.Sprintf("Deleted lines %d-%d from %s", int(startLine), int(endLine), path),
+		Output:  fmt.Sprintf("Deleted lines %d-%d from %s", startLine, endLine, path),
 		Metadata: map[string]any{
 			"path":          path,
-			"start_line":    int(startLine),
-			"end_line":      int(endLine),
+			"start_line":    startLine,
+			"end_line":      endLine,
 			"lines_deleted": result.LinesAffected,
 		},
 		FactsToAdd: factsToAdd,

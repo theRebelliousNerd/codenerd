@@ -283,5 +283,3 @@ func (v *VirtualStore) GetLearningStore() *store.LearningStore {
 	defer v.mu.RUnlock()
 	return v.learningStore
 }
-
-// initConstitution initializes the constitutional safety rules.

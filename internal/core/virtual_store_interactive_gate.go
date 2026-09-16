@@ -211,7 +211,8 @@ func (v *VirtualStore) PreflightDestructiveToolCall(ctx context.Context, actionI
 // the kernel (so policy — e.g. task_complete/1 — can reason over them).
 //
 // It returns a non-nil error only when a validator fails with high confidence
-// (>= 0.8), mirroring RouteAction's threshold (virtual_store.go:1296). A nil
+// (>= 0.8), mirroring RouteActionResult's threshold
+// (virtual_store_routing.go, post-action validation). A nil
 // return means "verified or no opinion" — the caller should treat a non-nil
 // error as "the tool reported success but the side effect did not actually
 // land," and surface that to the model.
