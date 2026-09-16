@@ -21,7 +21,9 @@ func TestArgInt(t *testing.T) {
 		{"int literal (unit-test path)", 25, 25, true},
 		{"int64 (mangle-sourced)", int64(7), 7, true},
 		{"json.Number", json.Number("12"), 12, true},
-		{"string is not numeric", "50", 0, false},
+		{"decimal string is honored (canonical tools.ArgInt)", "50", 50, true},
+		{"fractional float truncates toward zero (soft limit)", 4.7, 4, true},
+		{"garbage string fails closed", "abc", 0, false},
 		{"bool is not numeric", true, 0, false},
 		{"missing key", nil, 0, false},
 	}

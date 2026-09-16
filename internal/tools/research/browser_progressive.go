@@ -194,18 +194,12 @@ func boolArg(args map[string]any, key string, fallback bool) bool {
 }
 
 func intArg(args map[string]any, key string, fallback int) int {
-	switch value := args[key].(type) {
-	case int:
+	// Canonical coercion: every soft limit in the repo reads through
+	// tools.CoerceInt so the same argument shape is honored by every tool.
+	// Line addresses (browser_specs from/to/line) do NOT come through here;
+	// they use tools.ArgIntStrict and refuse fractional values outright.
+	if value, ok := tools.CoerceInt(args[key]); ok {
 		return value
-	case int64:
-		return int(value)
-	case float64:
-		return int(value)
-	case json.Number:
-		parsed, err := value.Int64()
-		if err == nil {
-			return int(parsed)
-		}
 	}
 	return fallback
 }

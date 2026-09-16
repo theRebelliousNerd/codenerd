@@ -291,3 +291,34 @@ func TestDeleteLinesTool_Execute_InvalidRange(t *testing.T) {
 		t.Error("expected error for out of range end_line")
 	}
 }
+
+func TestLineTools_FractionalBoundsRefused(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", dir)
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("one\ntwo\nthree\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	// Fractional bounds would silently address a neighbor of the requested
+	// line; on a write path that corrupts the wrong site.
+	if _, err := executeEditLines(ctx, map[string]any{"path": "f.txt", "start_line": 1.5, "end_line": 2, "new_content": "x"}); err == nil {
+		t.Error("edit_lines start_line 1.5 must be refused")
+	}
+	if _, err := executeDeleteLines(ctx, map[string]any{"path": "f.txt", "start_line": 1, "end_line": 2.5}); err == nil {
+		t.Error("delete_lines end_line 2.5 must be refused")
+	}
+	if _, err := executeInsertLines(ctx, map[string]any{"path": "f.txt", "after_line": 0.5, "content": "x"}); err == nil {
+		t.Error("insert_lines after_line 0.5 must be refused")
+	}
+	// Whole-number floats (how JSON decodes integers) keep working.
+	if _, err := executeEditLines(ctx, map[string]any{"path": "f.txt", "start_line": 2.0, "end_line": 2.0, "new_content": "TWO"}); err != nil {
+		t.Fatalf("edit_lines 2.0 bounds must work: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "f.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "one\nTWO\nthree\n" {
+		t.Errorf("wrong lines edited: %q", data)
+	}
+}

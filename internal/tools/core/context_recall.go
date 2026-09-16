@@ -29,19 +29,19 @@ func RecallContextTool() *tools.Tool {
 				return "", fmt.Errorf("provide exactly one of id or query")
 			}
 			integer := func(key string, fallback int) (int, error) {
-				switch v := args[key].(type) {
-				case nil:
+				raw, present := args[key]
+				if !present || raw == nil {
 					return fallback, nil
-				case int:
-					return v, nil
-				case float64:
-					if v != float64(int(v)) {
-						return 0, fmt.Errorf("%s must be integral", key)
-					}
-					return int(v), nil
-				default:
+				}
+				// Exact page addresses read through the canonical strict
+				// helper: fractional bounds are refused, and Mangle-sourced
+				// int64 values — which the old local switch rejected
+				// outright — are honored like every other integral shape.
+				v, ok := tools.ArgIntStrict(args, key)
+				if !ok {
 					return 0, fmt.Errorf("%s must be integral", key)
 				}
+				return v, nil
 			}
 			offset, err := integer("offset", 0)
 			if err != nil {

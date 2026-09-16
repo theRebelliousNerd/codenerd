@@ -69,23 +69,20 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 		return "", err
 	}
 
-	startLine, ok := args["start_line"].(int)
+	startLine, ok := tools.ArgIntStrict(args, "start_line")
 	if !ok {
-		// Try float64 (JSON numbers)
-		if f, ok := args["start_line"].(float64); ok {
-			startLine = int(f)
-		} else {
-			return "", fmt.Errorf("start_line is required")
+		if _, present := args["start_line"]; present {
+			return "", fmt.Errorf("start_line must be integral, got %v", args["start_line"])
 		}
+		return "", fmt.Errorf("start_line is required")
 	}
 
-	endLine, ok := args["end_line"].(int)
+	endLine, ok := tools.ArgIntStrict(args, "end_line")
 	if !ok {
-		if f, ok := args["end_line"].(float64); ok {
-			endLine = int(f)
-		} else {
-			return "", fmt.Errorf("end_line is required")
+		if _, present := args["end_line"]; present {
+			return "", fmt.Errorf("end_line must be integral, got %v", args["end_line"])
 		}
+		return "", fmt.Errorf("end_line is required")
 	}
 
 	newContent, _ := args["new_content"].(string)
@@ -348,10 +345,12 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 	}
 
 	afterLine := 0
-	if al, ok := args["after_line"].(int); ok {
-		afterLine = al
-	} else if f, ok := args["after_line"].(float64); ok {
-		afterLine = int(f)
+	if _, present := args["after_line"]; present {
+		v, ok := tools.ArgIntStrict(args, "after_line")
+		if !ok {
+			return "", fmt.Errorf("after_line must be integral, got %v", args["after_line"])
+		}
+		afterLine = v
 	}
 
 	insertContent, _ := args["content"].(string)
@@ -453,22 +452,20 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 		return "", err
 	}
 
-	startLine, ok := args["start_line"].(int)
+	startLine, ok := tools.ArgIntStrict(args, "start_line")
 	if !ok {
-		if f, ok := args["start_line"].(float64); ok {
-			startLine = int(f)
-		} else {
-			return "", fmt.Errorf("start_line is required")
+		if _, present := args["start_line"]; present {
+			return "", fmt.Errorf("start_line must be integral, got %v", args["start_line"])
 		}
+		return "", fmt.Errorf("start_line is required")
 	}
 
-	endLine, ok := args["end_line"].(int)
+	endLine, ok := tools.ArgIntStrict(args, "end_line")
 	if !ok {
-		if f, ok := args["end_line"].(float64); ok {
-			endLine = int(f)
-		} else {
-			return "", fmt.Errorf("end_line is required")
+		if _, present := args["end_line"]; present {
+			return "", fmt.Errorf("end_line must be integral, got %v", args["end_line"])
 		}
+		return "", fmt.Errorf("end_line is required")
 	}
 
 	logging.ToolsDebug("delete_lines: path=%s, start=%d, end=%d", path, startLine, endLine)

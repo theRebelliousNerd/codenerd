@@ -469,6 +469,9 @@ func searchFile(path string, re *regexp.Regexp, contextLines, maxMatches int) ([
 	var lines []string
 
 	scanner := bufio.NewScanner(file)
+	// A minified single-line file trips the 64KB default buffer, aborts the
+	// scan, and gets silently skipped as a read error. 1MB covers real lines.
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	lineNum := 0
 
 	for scanner.Scan() {

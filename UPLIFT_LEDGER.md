@@ -3061,191 +3061,198 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/testoutput/testoutput_test.go`
 
 ### internal/tools/allowlist_test.go (1)
-- [ ] `internal/tools/allowlist_test.go`
+- [x] `internal/tools/allowlist_test.go`
 
 ### internal/tools/args.go (1)
-- [ ] `internal/tools/args.go`
+- [x] `internal/tools/args.go`
+
+### internal/tools/args_test.go (1)
+- [x] `internal/tools/args_test.go`
 
 ### internal/tools/catalog_golden_test.go (1)
-- [ ] `internal/tools/catalog_golden_test.go`
+- [x] `internal/tools/catalog_golden_test.go`
 
 ### internal/tools/catalog_policy_parity_test.go (1)
-- [ ] `internal/tools/catalog_policy_parity_test.go`
+- [x] `internal/tools/catalog_policy_parity_test.go`
 
 ### internal/tools/codedom (22)
-- [ ] `internal/tools/codedom/apply_edits.go`
-- [ ] `internal/tools/codedom/apply_edits_test.go`
-- [ ] `internal/tools/codedom/benchmark_test.go`
-- [ ] `internal/tools/codedom/directory_error_test.go`
-- [ ] `internal/tools/codedom/doc.go`
-- [ ] `internal/tools/codedom/edited_refs_test.go`
-- [ ] `internal/tools/codedom/elements.go`
-- [ ] `internal/tools/codedom/elements_containment_test.go`
-- [ ] `internal/tools/codedom/elements_test.go`
-- [ ] `internal/tools/codedom/extent_realfile_test.go`
-- [ ] `internal/tools/codedom/impact_test.go`
-- [ ] `internal/tools/codedom/line_ending_test.go`
-- [ ] `internal/tools/codedom/lines.go`
-- [ ] `internal/tools/codedom/lines_balance_test.go`
-- [ ] `internal/tools/codedom/lines_precondition_test.go`
-- [ ] `internal/tools/codedom/lines_shift_test.go`
-- [ ] `internal/tools/codedom/lines_test.go`
-- [ ] `internal/tools/codedom/register.go`
-- [ ] `internal/tools/codedom/register_test.go`
-- [ ] `internal/tools/codedom/run_impacted_tests.go`
-- [ ] `internal/tools/codedom/run_impacted_tests_extra_test.go`
-- [ ] `internal/tools/codedom/workspace_ctx_test.go`
+- [x] `internal/tools/codedom/apply_edits.go`
+- [x] `internal/tools/codedom/apply_edits_test.go`
+- [x] `internal/tools/codedom/benchmark_test.go`
+- [x] `internal/tools/codedom/directory_error_test.go`
+- [x] `internal/tools/codedom/doc.go`
+- [x] `internal/tools/codedom/edited_refs_test.go`
+- [x] `internal/tools/codedom/elements.go`
+- [x] `internal/tools/codedom/elements_containment_test.go`
+- [x] `internal/tools/codedom/elements_test.go`
+- [x] `internal/tools/codedom/extent_realfile_test.go`
+- [x] `internal/tools/codedom/impact_test.go`
+- [x] `internal/tools/codedom/line_ending_test.go`
+- [x] `internal/tools/codedom/lines.go`
+- [x] `internal/tools/codedom/lines_balance_test.go`
+- [x] `internal/tools/codedom/lines_precondition_test.go`
+- [x] `internal/tools/codedom/lines_shift_test.go`
+- [x] `internal/tools/codedom/lines_test.go`
+- [x] `internal/tools/codedom/register.go`
+- [x] `internal/tools/codedom/register_test.go`
+- [x] `internal/tools/codedom/run_impacted_tests.go`
+- [x] `internal/tools/codedom/run_impacted_tests_extra_test.go`
+- [x] `internal/tools/codedom/workspace_ctx_test.go`
 
 ### internal/tools/context_recall.go (1)
-- [ ] `internal/tools/context_recall.go`
+- [x] `internal/tools/context_recall.go`
 
-### internal/tools/core (23)
-- [ ] `internal/tools/core/context_recall.go`
-- [ ] `internal/tools/core/context_recall_test.go`
-- [ ] `internal/tools/core/doc.go`
-- [ ] `internal/tools/core/file_ops.go`
-- [ ] `internal/tools/core/file_ops_delete_confirm_test.go`
-- [ ] `internal/tools/core/file_ops_lines_test.go`
-- [ ] `internal/tools/core/file_ops_notfound_test.go`
-- [ ] `internal/tools/core/file_ops_test.go`
-- [ ] `internal/tools/core/line_ending_test.go`
-- [ ] `internal/tools/core/read_codec_test.go`
-- [ ] `internal/tools/core/read_file_directory_test.go`
-- [ ] `internal/tools/core/register.go`
-- [ ] `internal/tools/core/register_test.go`
-- [ ] `internal/tools/core/search.go`
-- [ ] `internal/tools/core/search_codec_test.go`
-- [ ] `internal/tools/core/search_containment_test.go`
-- [ ] `internal/tools/core/search_default_path_test.go`
-- [ ] `internal/tools/core/search_numeric_coercion_test.go`
-- [ ] `internal/tools/core/search_test.go`
-- [ ] `internal/tools/core/subagent.go`
-- [ ] `internal/tools/core/workspace_guard.go`
-- [ ] `internal/tools/core/workspace_guard_test.go`
-- [ ] `internal/tools/core/workspace_relative_test.go`
+### internal/tools/core (24)
+- [x] `internal/tools/core/context_recall.go`
+- [x] `internal/tools/core/context_recall_test.go`
+- [x] `internal/tools/core/doc.go`
+- [x] `internal/tools/core/file_ops.go`
+- [x] `internal/tools/core/file_ops_delete_confirm_test.go`
+- [x] `internal/tools/core/file_ops_lines_test.go`
+- [x] `internal/tools/core/file_ops_notfound_test.go`
+- [x] `internal/tools/core/file_ops_test.go`
+- [x] `internal/tools/core/line_ending_test.go`
+- [x] `internal/tools/core/read_codec_test.go`
+- [x] `internal/tools/core/read_file_directory_test.go`
+- [x] `internal/tools/core/register.go`
+- [x] `internal/tools/core/register_test.go`
+- [x] `internal/tools/core/search.go`
+- [x] `internal/tools/core/search_codec_test.go`
+- [x] `internal/tools/core/search_containment_test.go`
+- [x] `internal/tools/core/search_default_path_test.go`
+- [x] `internal/tools/core/search_numeric_coercion_test.go`
+- [x] `internal/tools/core/search_test.go`
+- [x] `internal/tools/core/subagent.go`
+- [x] `internal/tools/core/tools_core_uplift_test.go`
+- [x] `internal/tools/core/workspace_guard.go`
+- [x] `internal/tools/core/workspace_guard_test.go`
+- [x] `internal/tools/core/workspace_relative_test.go`
 
 ### internal/tools/effects.go (1)
-- [ ] `internal/tools/effects.go`
+- [x] `internal/tools/effects.go`
 
 ### internal/tools/effects_catalog_test.go (1)
-- [ ] `internal/tools/effects_catalog_test.go`
+- [x] `internal/tools/effects_catalog_test.go`
 
 ### internal/tools/effects_conformance_test.go (1)
-- [ ] `internal/tools/effects_conformance_test.go`
+- [x] `internal/tools/effects_conformance_test.go`
 
 ### internal/tools/effects_test.go (1)
-- [ ] `internal/tools/effects_test.go`
+- [x] `internal/tools/effects_test.go`
 
 ### internal/tools/errors.go (1)
-- [ ] `internal/tools/errors.go`
+- [x] `internal/tools/errors.go`
 
 ### internal/tools/framework.go (1)
-- [ ] `internal/tools/framework.go`
+- [x] `internal/tools/framework.go`
 
 ### internal/tools/framework_test.go (1)
-- [ ] `internal/tools/framework_test.go`
+- [x] `internal/tools/framework_test.go`
 
-### internal/tools/mcpctl (4)
-- [ ] `internal/tools/mcpctl/mcpctl.go`
-- [ ] `internal/tools/mcpctl/register.go`
-- [ ] `internal/tools/mcpctl/tools.go`
-- [ ] `internal/tools/mcpctl/tools_test.go`
+### internal/tools/mcpctl (5)
+- [x] `internal/tools/mcpctl/mcpctl.go`
+- [x] `internal/tools/mcpctl/register.go`
+- [x] `internal/tools/mcpctl/tools.go`
+- [x] `internal/tools/mcpctl/tools_mcpctl_uplift_test.go`
+- [x] `internal/tools/mcpctl/tools_test.go`
 
 ### internal/tools/policy_exceptions.go (1)
-- [ ] `internal/tools/policy_exceptions.go`
+- [x] `internal/tools/policy_exceptions.go`
 
 ### internal/tools/registry.go (1)
-- [ ] `internal/tools/registry.go`
+- [x] `internal/tools/registry.go`
 
 ### internal/tools/registry_allowlist_test.go (1)
-- [ ] `internal/tools/registry_allowlist_test.go`
+- [x] `internal/tools/registry_allowlist_test.go`
 
 ### internal/tools/registry_boundary_test.go (1)
-- [ ] `internal/tools/registry_boundary_test.go`
+- [x] `internal/tools/registry_boundary_test.go`
 
 ### internal/tools/registry_extra_test.go (1)
-- [ ] `internal/tools/registry_extra_test.go`
+- [x] `internal/tools/registry_extra_test.go`
 
 ### internal/tools/registry_test.go (1)
-- [ ] `internal/tools/registry_test.go`
+- [x] `internal/tools/registry_test.go`
 
 ### internal/tools/registry_unregister_test.go (1)
-- [ ] `internal/tools/registry_unregister_test.go`
+- [x] `internal/tools/registry_unregister_test.go`
 
 ### internal/tools/registry_write_guard_test.go (1)
-- [ ] `internal/tools/registry_write_guard_test.go`
+- [x] `internal/tools/registry_write_guard_test.go`
 
-### internal/tools/research (36)
-- [ ] `internal/tools/research/browser.go`
-- [ ] `internal/tools/research/browser_audit.go`
-- [ ] `internal/tools/research/browser_audit_test.go`
-- [ ] `internal/tools/research/browser_binding_test.go`
-- [ ] `internal/tools/research/browser_declarative.go`
-- [ ] `internal/tools/research/browser_evidence.go`
-- [ ] `internal/tools/research/browser_evidence_test.go`
-- [ ] `internal/tools/research/browser_extract_test.go`
-- [ ] `internal/tools/research/browser_progressive.go`
-- [ ] `internal/tools/research/browser_progressive_live_test.go`
-- [ ] `internal/tools/research/browser_reasoning.go`
-- [ ] `internal/tools/research/browser_reasoning_container_test.go`
-- [ ] `internal/tools/research/browser_reasoning_live_test.go`
-- [ ] `internal/tools/research/browser_reasoning_test.go`
-- [ ] `internal/tools/research/browser_specs.go`
-- [ ] `internal/tools/research/browser_specs_test.go`
-- [ ] `internal/tools/research/browser_test_test.go`
-- [ ] `internal/tools/research/cache.go`
-- [ ] `internal/tools/research/cache_disk.go`
-- [ ] `internal/tools/research/cache_disk_test.go`
-- [ ] `internal/tools/research/context7.go`
-- [ ] `internal/tools/research/context7_no_docs_test.go`
-- [ ] `internal/tools/research/context7_tool_test.go`
-- [ ] `internal/tools/research/doc.go`
-- [ ] `internal/tools/research/fetch_tool_test.go`
-- [ ] `internal/tools/research/grounded_web_search.go`
-- [ ] `internal/tools/research/grounded_web_search_test.go`
-- [ ] `internal/tools/research/grounding.go`
-- [ ] `internal/tools/research/numeric_args.go`
-- [ ] `internal/tools/research/numeric_args_test.go`
-- [ ] `internal/tools/research/register.go`
-- [ ] `internal/tools/research/research_coverage_test.go`
-- [ ] `internal/tools/research/research_test.go`
-- [ ] `internal/tools/research/thinking.go`
-- [ ] `internal/tools/research/web_fetch.go`
-- [ ] `internal/tools/research/web_search.go`
+### internal/tools/research (37)
+- [x] `internal/tools/research/browser.go`
+- [x] `internal/tools/research/browser_audit.go`
+- [x] `internal/tools/research/browser_audit_test.go`
+- [x] `internal/tools/research/browser_binding_test.go`
+- [x] `internal/tools/research/browser_declarative.go`
+- [x] `internal/tools/research/browser_evidence.go`
+- [x] `internal/tools/research/browser_evidence_test.go`
+- [x] `internal/tools/research/browser_extract_test.go`
+- [x] `internal/tools/research/browser_progressive.go`
+- [x] `internal/tools/research/browser_progressive_live_test.go`
+- [x] `internal/tools/research/browser_reasoning.go`
+- [x] `internal/tools/research/browser_reasoning_container_test.go`
+- [x] `internal/tools/research/browser_reasoning_live_test.go`
+- [x] `internal/tools/research/browser_reasoning_test.go`
+- [x] `internal/tools/research/browser_specs.go`
+- [x] `internal/tools/research/browser_specs_test.go`
+- [x] `internal/tools/research/browser_test_test.go`
+- [x] `internal/tools/research/cache.go`
+- [x] `internal/tools/research/cache_disk.go`
+- [x] `internal/tools/research/cache_disk_test.go`
+- [x] `internal/tools/research/context7.go`
+- [x] `internal/tools/research/context7_no_docs_test.go`
+- [x] `internal/tools/research/context7_tool_test.go`
+- [x] `internal/tools/research/doc.go`
+- [x] `internal/tools/research/fetch_tool_test.go`
+- [x] `internal/tools/research/grounded_web_search.go`
+- [x] `internal/tools/research/grounded_web_search_test.go`
+- [x] `internal/tools/research/grounding.go`
+- [x] `internal/tools/research/numeric_args.go`
+- [x] `internal/tools/research/numeric_args_test.go`
+- [x] `internal/tools/research/register.go`
+- [x] `internal/tools/research/research_coverage_test.go`
+- [x] `internal/tools/research/research_test.go`
+- [x] `internal/tools/research/thinking.go`
+- [x] `internal/tools/research/tools_research_uplift_test.go`
+- [x] `internal/tools/research/web_fetch.go`
+- [x] `internal/tools/research/web_search.go`
 
-### internal/tools/shell (20)
-- [ ] `internal/tools/shell/builtins.go`
-- [ ] `internal/tools/shell/builtins_containment_test.go`
-- [ ] `internal/tools/shell/builtins_test.go`
-- [ ] `internal/tools/shell/command_semantics.go`
-- [ ] `internal/tools/shell/command_semantics_test.go`
-- [ ] `internal/tools/shell/command_timeout.go`
-- [ ] `internal/tools/shell/command_timeout_test.go`
-- [ ] `internal/tools/shell/doc.go`
-- [ ] `internal/tools/shell/execute.go`
-- [ ] `internal/tools/shell/execute_extra_test.go`
-- [ ] `internal/tools/shell/execute_test.go`
-- [ ] `internal/tools/shell/proc_tree_other.go`
-- [ ] `internal/tools/shell/proc_tree_windows.go`
-- [ ] `internal/tools/shell/register.go`
-- [ ] `internal/tools/shell/register_test.go`
-- [ ] `internal/tools/shell/shell_integration_test.go`
-- [ ] `internal/tools/shell/verification.go`
-- [ ] `internal/tools/shell/verification_test.go`
-- [ ] `internal/tools/shell/waitdelay_test.go`
-- [ ] `internal/tools/shell/workspace_containment_test.go`
+### internal/tools/shell (21)
+- [x] `internal/tools/shell/builtins.go`
+- [x] `internal/tools/shell/builtins_containment_test.go`
+- [x] `internal/tools/shell/builtins_test.go`
+- [x] `internal/tools/shell/command_semantics.go`
+- [x] `internal/tools/shell/command_semantics_test.go`
+- [x] `internal/tools/shell/command_timeout.go`
+- [x] `internal/tools/shell/command_timeout_test.go`
+- [x] `internal/tools/shell/doc.go`
+- [x] `internal/tools/shell/execute.go`
+- [x] `internal/tools/shell/execute_extra_test.go`
+- [x] `internal/tools/shell/execute_test.go`
+- [x] `internal/tools/shell/proc_tree_other.go`
+- [x] `internal/tools/shell/proc_tree_windows.go`
+- [x] `internal/tools/shell/register.go`
+- [x] `internal/tools/shell/register_test.go`
+- [x] `internal/tools/shell/shell_integration_test.go`
+- [x] `internal/tools/shell/tools_shell_uplift_test.go`
+- [x] `internal/tools/shell/verification.go`
+- [x] `internal/tools/shell/verification_test.go`
+- [x] `internal/tools/shell/waitdelay_test.go`
+- [x] `internal/tools/shell/workspace_containment_test.go`
 
 ### internal/tools/types.go (1)
-- [ ] `internal/tools/types.go`
+- [x] `internal/tools/types.go`
 
 ### internal/tools/workspace_guard.go (1)
-- [ ] `internal/tools/workspace_guard.go`
+- [x] `internal/tools/workspace_guard.go`
 
 ### internal/tools/workspace_guard_hardening_test.go (1)
-- [ ] `internal/tools/workspace_guard_hardening_test.go`
+- [x] `internal/tools/workspace_guard_hardening_test.go`
 
 ### internal/tools/workspace_identity_test.go (1)
-- [ ] `internal/tools/workspace_identity_test.go`
+- [x] `internal/tools/workspace_identity_test.go`
 
 ### internal/transparency (23)
 - [ ] `internal/transparency/doc.go`

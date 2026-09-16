@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -400,56 +399,11 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 	return string(b), nil
 }
 
+// applyCoerceInt reads edit line addresses through the canonical strict helper.
+// Batch edits fail their whole commit on one malformed bound, so fractional,
+// non-finite, and out-of-range values are refused rather than coerced onto a
+// neighboring line. (The overflow guards this wrapper once carried locally now
+// live in tools.coerceFloat, where every strict call site shares them.)
 func applyCoerceInt(v any) (int, bool) {
-	switch n := v.(type) {
-	case int:
-		return n, true
-	case int8:
-		return int(n), true
-	case int16:
-		return int(n), true
-	case int32:
-		return int(n), true
-	case int64:
-		if n > int64(math.MaxInt) || n < int64(math.MinInt) {
-			return 0, false
-		}
-		return int(n), true
-	case uint:
-		if n > uint(math.MaxInt) {
-			return 0, false
-		}
-		return int(n), true
-	case uint8:
-		return int(n), true
-	case uint16:
-		return int(n), true
-	case uint32:
-		if uint64(n) > uint64(math.MaxInt) {
-			return 0, false
-		}
-		return int(n), true
-	case uint64:
-		if n > uint64(math.MaxInt) {
-			return 0, false
-		}
-		return int(n), true
-	case float32:
-		return applyCoerceFloat(float64(n))
-	case float64:
-		return applyCoerceFloat(n)
-	}
-	return 0, false
-}
-
-func applyCoerceFloat(n float64) (int, bool) {
-	// The upper bound is exclusive because float64(math.MaxInt) rounds up to
-	// 2^63 on 64-bit platforms. Checking <= that rounded value would admit an
-	// overflowing conversion.
-	maxExclusive := float64(uint64(math.MaxInt) + 1)
-	if math.IsNaN(n) || math.IsInf(n, 0) || n != math.Trunc(n) ||
-		n < float64(math.MinInt) || n >= maxExclusive {
-		return 0, false
-	}
-	return int(n), true
+	return tools.CoerceIntStrict(v)
 }

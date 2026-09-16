@@ -239,15 +239,48 @@ func executeBrowserSpecCheck(ctx context.Context, manager *browser.SessionManage
 	return marshalProgressiveResult(output)
 }
 
+// browserSpecRange resolves the from/to/line line addresses through strict
+// coercion. Absent keys read as 0 (no constraint); present-but-unreadable
+// values are refused, because a truncated line address would scope the match
+// to a region the caller did not ask for. A positive line is shorthand for
+// from=line,to=line when neither bound was given.
+func browserSpecRange(args map[string]any) (from, to int, err error) {
+	strict := func(key string) (int, error) {
+		if v, ok := tools.ArgIntStrict(args, key); ok {
+			return v, nil
+		}
+		if raw, present := args[key]; present && raw != nil {
+			return 0, fmt.Errorf("%s must be integral, got %v", key, raw)
+		}
+		return 0, nil
+	}
+	if from, err = strict("from"); err != nil {
+		return 0, 0, err
+	}
+	if to, err = strict("to"); err != nil {
+		return 0, 0, err
+	}
+	line, err := strict("line")
+	if err != nil {
+		return 0, 0, err
+	}
+	if line > 0 && from == 0 && to == 0 {
+		from, to = line, line
+	}
+	return from, to, nil
+}
+
 func browserSpecInput(manager *browser.SessionManager, args map[string]any) (browserspec.MatchInput, error) {
 	input := browserspec.MatchInput{
 		Corpus: strings.TrimSpace(stringArg(args, "corpus")), File: strings.TrimSpace(stringArg(args, "file")),
-		From: intArg(args, "from", 0), To: intArg(args, "to", 0),
 		Component: strings.TrimSpace(stringArg(args, "component")), Route: strings.TrimSpace(stringArg(args, "route")),
 		Selector: strings.TrimSpace(stringArg(args, "selector")), Terms: stringSliceArg(args["terms"]),
 	}
-	if line := intArg(args, "line", 0); line > 0 && input.From == 0 && input.To == 0 {
-		input.From, input.To = line, line
+	// from/to/line are exact line addresses, not soft limits: a fractional
+	// value is refused rather than truncated onto a neighboring line.
+	var rangeErr error
+	if input.From, input.To, rangeErr = browserSpecRange(args); rangeErr != nil {
+		return input, rangeErr
 	}
 	if input.From < 0 || input.To < 0 || input.From > 0 && input.To > 0 && input.To < input.From {
 		return input, fmt.Errorf("from/to must be a positive ordered range")

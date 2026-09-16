@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -199,9 +200,19 @@ func ElementsFromSource(path, content string) []CodeElement {
 		patterns = genericPatterns
 	}
 
+	// Pattern names iterate sorted: two patterns can match one line (the
+	// C++ function pattern is broad enough to fire alongside class/struct),
+	// and map order would shuffle those elements run to run.
+	typeNames := make([]string, 0, len(patterns))
+	for elemType := range patterns {
+		typeNames = append(typeNames, elemType)
+	}
+	sort.Strings(typeNames)
+
 	var elements []CodeElement
 	for idx, line := range lines {
-		for elemType, pattern := range patterns {
+		for _, elemType := range typeNames {
+			pattern := patterns[elemType]
 			if matches := pattern.FindStringSubmatch(line); matches != nil {
 				startLine := idx + 1
 				var endLine int

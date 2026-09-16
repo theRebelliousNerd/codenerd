@@ -286,7 +286,8 @@ func (r *Registry) GetMultiple(names []string) []*Tool {
 	return result
 }
 
-// All returns all registered tools.
+// All returns all registered tools, sorted by name so callers that render
+// the catalog (tool lists, prompts, golden files) are deterministic.
 func (r *Registry) All() []*Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -295,6 +296,7 @@ func (r *Registry) All() []*Tool {
 	for _, tool := range r.tools {
 		result = append(result, tool)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
 }
 

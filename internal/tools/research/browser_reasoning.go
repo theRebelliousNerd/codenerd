@@ -1043,18 +1043,11 @@ func boundedIdle(args map[string]any, key string, fallback int) time.Duration {
 }
 
 func int64Arg(args map[string]any, key string, fallback int64) int64 {
-	switch value := args[key].(type) {
-	case int:
-		return int64(value)
-	case int64:
+	// Canonical 64-bit coercion (tools.CoerceInt64): millisecond timestamps
+	// exceed int32 and thread through int64 APIs, so they get their own
+	// canonical helper rather than a ninth divergent switch.
+	if value, ok := tools.CoerceInt64(args[key]); ok {
 		return value
-	case float64:
-		return int64(value)
-	case json.Number:
-		parsed, err := value.Int64()
-		if err == nil {
-			return parsed
-		}
 	}
 	return fallback
 }

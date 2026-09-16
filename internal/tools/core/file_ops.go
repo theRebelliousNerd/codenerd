@@ -174,9 +174,17 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// LLM tool args may arrive as float64 via JSON; coerce robustly.
-	startLine, _ := coerceInt(args["start_line"])
-	endLine, _ := coerceInt(args["end_line"])
+	// LLM tool args may arrive as float64 via JSON; coerce robustly. A
+	// present-but-uncoercible bound is refused: silently reading from line 0
+	// would answer a question about a region the caller did not ask for.
+	startLine, ok := coerceInt(args["start_line"])
+	if !ok && args["start_line"] != nil {
+		return "", fmt.Errorf("start_line must be integral, got %v", args["start_line"])
+	}
+	endLine, ok := coerceInt(args["end_line"])
+	if !ok && args["end_line"] != nil {
+		return "", fmt.Errorf("end_line must be integral, got %v", args["end_line"])
+	}
 
 	// The result is shaped by the file-read observation codec rather than
 	// returned as the whole file. Two things come out of that.
@@ -232,20 +240,10 @@ func stripLineNumberPrefixes(s string) (string, bool) {
 
 // coerceInt accepts an int or a JSON-decoded float64 and returns an int.
 // LLM tool args arrive via JSON, so integers commonly decode as float64.
+// It delegates to the strict canonical helper: line bounds are exact
+// addresses, so fractional values are refused rather than truncated.
 func coerceInt(v any) (int, bool) {
-	switch n := v.(type) {
-	case int:
-		return n, true
-	case int32:
-		return int(n), true
-	case int64:
-		return int(n), true
-	case float64:
-		return int(n), true
-	case float32:
-		return int(n), true
-	}
-	return 0, false
+	return tools.CoerceIntStrict(v)
 }
 
 // WriteFileTool returns a tool for writing content to a file.

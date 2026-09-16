@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"codenerd/internal/mcp"
+	"codenerd/internal/tools"
 )
 
 // controlPlane is the process-wide plane the tools operate against. It mirrors
@@ -84,17 +85,10 @@ func boolArg(args map[string]any, key string, fallback bool) bool {
 }
 
 func intArg(args map[string]any, key string, fallback int) int {
-	switch value := args[key].(type) {
-	case int:
+	// Canonical coercion (tools.CoerceInt): max_items is a soft limit, so every
+	// numeric shape reads through the same helper every other tool uses.
+	if value, ok := tools.CoerceInt(args[key]); ok {
 		return value
-	case int64:
-		return int(value)
-	case float64:
-		return int(value)
-	case json.Number:
-		if parsed, err := value.Int64(); err == nil {
-			return int(parsed)
-		}
 	}
 	return fallback
 }
