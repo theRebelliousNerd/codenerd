@@ -69,6 +69,9 @@ func (s *LocalStore) GetRecentActivations(limit int, minScore float64) (map[stri
 		}
 		activations[factID] = score
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	logging.StoreDebug("Retrieved %d recent activations (minScore=%.4f)", len(activations), minScore)
 	return activations, nil
@@ -167,6 +170,9 @@ func (s *LocalStore) GetSessionHistory(sessionID string, limit int) ([]map[strin
 			"atoms":       atomsJSON,
 			"timestamp":   createdAt,
 		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	logging.StoreDebug("Retrieved %d session history turns for session=%s", len(history), sessionID)

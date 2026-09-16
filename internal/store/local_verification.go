@@ -108,6 +108,9 @@ func (s *LocalStore) GetVerificationHistory(sessionID string, limit int) ([]Veri
 		}
 		records = append(records, rec)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	logging.StoreDebug("Retrieved %d verification records for session=%s", len(records), sessionID)
 	return records, nil
@@ -144,6 +147,9 @@ func (s *LocalStore) GetQualityViolationStats() (map[string]int, error) {
 			continue
 		}
 		stats[violations] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	logging.StoreDebug("Quality violation stats computed: %d unique violation patterns", len(stats))

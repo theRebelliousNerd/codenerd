@@ -209,6 +209,9 @@ func (s *LocalStore) GetKnowledgeAtoms(concept string) ([]KnowledgeAtom, error) 
 		}
 		atoms = append(atoms, atom)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	logging.StoreDebug("Retrieved %d knowledge atoms for concept=%s", len(atoms), concept)
 	return atoms, nil
@@ -238,6 +241,9 @@ func (s *LocalStore) GetAllKnowledgeAtoms() ([]KnowledgeAtom, error) {
 			continue
 		}
 		atoms = append(atoms, atom)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	logging.StoreDebug("Retrieved %d total knowledge atoms", len(atoms))
@@ -279,6 +285,9 @@ func (s *LocalStore) GetKnowledgeAtomsByPrefix(conceptPrefix string) ([]Knowledg
 			continue
 		}
 		atoms = append(atoms, atom)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	logging.StoreDebug("Retrieved %d knowledge atoms for prefix=%s", len(atoms), conceptPrefix)
@@ -349,6 +358,9 @@ func (s *LocalStore) RecentKnowledgeAtoms(limit int) ([]KnowledgeAtom, error) {
 			break
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	logging.StoreDebug("Retrieved %d recent knowledge atoms from the vector store", len(atoms))
 	return atoms, nil
@@ -376,8 +388,13 @@ func (s *LocalStore) StoreKnowledgeAtomWithEmbedding(ctx context.Context, concep
 	}
 
 	// 2. Also store to vectors table with embedding for semantic search
-	// This makes knowledge atoms discoverable via VectorRecallSemanticFiltered
-	if s.embeddingEngine != nil {
+	// This makes knowledge atoms discoverable via VectorRecallSemanticFiltered.
+	// The engine pointer is snapshotted under RLock: SetEmbeddingEngine
+	// writes it under mu, so a bare read races.
+	s.mu.RLock()
+	hasEngine := s.embeddingEngine != nil
+	s.mu.RUnlock()
+	if hasEngine {
 		metadata := map[string]any{
 			"content_type": "knowledge_atom",
 			"concept":      concept,
@@ -406,7 +423,10 @@ func (s *LocalStore) SearchKnowledgeAtomsSemantic(ctx context.Context, query str
 	timer := logging.StartTimer(logging.CategoryStore, "SearchKnowledgeAtomsSemantic")
 	defer timer.Stop()
 
-	if s.embeddingEngine == nil {
+	s.mu.RLock()
+	hasEngine := s.embeddingEngine != nil
+	s.mu.RUnlock()
+	if !hasEngine {
 		logging.StoreDebug("Semantic search unavailable: no embedding engine")
 		return nil, nil
 	}

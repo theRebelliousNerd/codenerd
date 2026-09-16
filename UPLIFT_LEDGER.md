@@ -2828,7 +2828,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/store/indexes.go`
 - [x] `internal/store/init_sqlite.go`
 - [x] `internal/store/init_vec.go`
-- [ ] `internal/store/knowledge_lexical_db.go`
+- [x] `internal/store/knowledge_lexical_db.go`
+- [x] `internal/store/local_domains_a_uplift_test.go`
 - [ ] `internal/store/knowledge_lexical_db_test.go`
 - [x] `internal/store/learned_store.go`
 - [x] `internal/store/learning.go`
@@ -2852,22 +2853,22 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/store/local_graph_migration_test.go`
 - [ ] `internal/store/local_graph_query.go`
 - [ ] `internal/store/local_graph_test.go`
-- [ ] `internal/store/local_knowledge.go`
+- [x] `internal/store/local_knowledge.go`
 - [ ] `internal/store/local_knowledge_benchmark_test.go`
 - [ ] `internal/store/local_knowledge_extra_test.go`
 - [ ] `internal/store/local_knowledge_recent_test.go`
-- [ ] `internal/store/local_prompt.go`
+- [x] `internal/store/local_prompt.go`
 - [ ] `internal/store/local_prompt_extra_test.go`
 - [ ] `internal/store/local_prompt_selector_test.go`
-- [ ] `internal/store/local_review.go`
+- [x] `internal/store/local_review.go`
 - [ ] `internal/store/local_review_extra_test.go`
-- [ ] `internal/store/local_session.go`
+- [x] `internal/store/local_session.go`
 - [ ] `internal/store/local_session_extra_test.go`
 - [ ] `internal/store/local_session_integration_test.go`
 - [ ] `internal/store/local_session_test.go`
 - [x] `internal/store/local_vector.go`
 - [ ] `internal/store/local_vector_test.go`
-- [ ] `internal/store/local_verification.go`
+- [x] `internal/store/local_verification.go`
 - [ ] `internal/store/local_verification_extra_test.go`
 - [ ] `internal/store/local_world.go`
 - [ ] `internal/store/local_world_extra_test.go`
