@@ -183,32 +183,33 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 	candidates := getRegexCandidates(input, corpus)
 	logging.PerceptionDebug("Regex candidates found: %d", len(candidates))
 
-	// 2. Semantic classification - inject semantic_match facts into kernel
-	// This step enriches Mangle's inference with vector-based similarity signals.
-	// The SemanticClassifier.Classify() method asserts semantic_match facts that
-	// the Mangle inference rules can use for boosting/overriding verb selection.
+	// 2. Semantic classification - vector-based similarity signals.
+	// The matches ride into ClassifyInputWithMatches below, which bridges them
+	// into the taxonomy engine AFTER its EDB Clear. (Classify also injects them
+	// into the cortex kernel for grounding, but the taxonomy_inference rules
+	// that join semantic_match run in the taxonomy engine — pre-seeding here
+	// would be wiped by Clear before scoring.)
+	var matches []SemanticMatch
 	if SharedSemanticClassifier != nil {
-		matches, err := SharedSemanticClassifier.Classify(ctx, input)
+		var err error
+		matches, err = SharedSemanticClassifier.Classify(ctx, input)
 		if err != nil {
-			// Non-fatal: seed fallback semantic_match facts from regex candidates
-			logging.PerceptionDebug("Semantic classification error (non-fatal): %v - seeding fallback facts", err)
-			seedFallbackSemanticFacts(input, candidates)
+			logging.PerceptionDebug("Semantic classification error (non-fatal): %v - regex-only match", err)
+			matches = nil
 		} else if len(matches) > 0 {
 			logging.PerceptionDebug("Semantic matches found: %d (top: %s %.2f)",
 				len(matches), matches[0].Verb, matches[0].Similarity)
 		} else {
-			logging.PerceptionDebug("Semantic classification returned no matches - seeding fallback facts")
-			seedFallbackSemanticFacts(input, candidates)
+			logging.PerceptionDebug("Semantic classification returned no matches - regex-only match")
 		}
-		// Facts are now in kernel - Mangle inference will see them via semantic_match predicate
 	}
 
 	// 3. Refine via Mangle Inference (Smart)
 	// This applies the "sentence level" logic and context rules.
-	// Now includes semantic_match facts from the classifier above.
+	// Now includes semantic_match facts bridged from the classifier above.
 	// Always run inference, even if no candidates, to support pure interrogative logic.
 	if SharedTaxonomy != nil {
-		bestVerb, conf, err := SharedTaxonomy.ClassifyInput(input, candidates)
+		bestVerb, conf, err := SharedTaxonomy.ClassifyInputWithMatches(input, candidates, matches)
 		if err == nil && bestVerb != "" {
 			logging.PerceptionDebug("Mangle inference selected verb: %s (confidence: %.2f)", bestVerb, conf)
 			// Find the candidate entry to get category/shard details
@@ -595,7 +596,10 @@ func ClosePerceptionLayer() error {
 	return nil
 }
 
-// seedFallbackSemanticFacts injects low-confidence semantic_match facts from regex candidates
+// seedFallbackSemanticFacts injects low-confidence semantic_match facts from regex candidates.
+// NOTE: production must NOT call this before ClassifyInput — the engine Clear()
+// inside wipes pre-seeded facts before scoring. Fallback seeding now happens
+// inside ClassifyInputWithMatches, after Clear. Kept for direct use/tests.
 // when the SemanticClassifier fails or returns no matches. This ensures the Mangle inference
 // rules always have some semantic signal to work with, even in degraded mode.
 func seedFallbackSemanticFacts(input string, candidates []VerbEntry) {
@@ -615,7 +619,7 @@ func seedFallbackSemanticFacts(input string, candidates []VerbEntry) {
 			cand.Verb, // Verb
 			"",        // Target (empty for fallback)
 			rank+1,    // Rank (1-indexed)
-			50.0,      // Similarity (fixed low confidence for fallback)
+			int64(50), // Similarity: int64, since the /number Decl rejects float64
 		)
 		if err != nil {
 			logging.PerceptionDebug("Failed to seed fallback semantic_match for %s: %v", cand.Verb, err)

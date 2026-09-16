@@ -393,6 +393,17 @@ func toInt(val any) int {
 // NewTaxonomyEngine and use engine.Clear() here, which wipes EDB facts but
 // preserves all schema declarations and rules.
 func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (bestVerb string, bestConf float64, err error) {
+	return t.ClassifyInputWithMatches(input, candidates, nil)
+}
+
+// ClassifyInputWithMatches scores candidates with neural matches bridged
+// into the engine. The taxonomy_inference rules JOIN semantic_match, but the
+// call below Clear()s the EDB first — so matches passed any other way
+// (cortex injection, pre-seeding) can never meet the rules. Bridging them
+// here, after Clear and before scoring, is the only path that works. When
+// matches is empty, the top regex candidates seed at fixed 50.0 similarity,
+// inert under the current rule thresholds but kept for transparency.
+func (t *TaxonomyEngine) ClassifyInputWithMatches(input string, candidates []VerbEntry, matches []SemanticMatch) (bestVerb string, bestConf float64, err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -461,6 +472,31 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 			Predicate: "candidate_intent",
 			Args:      []any{cand.Verb, int64(cand.Priority)},
 		})
+	}
+
+	// Bridge neural matches into semantic_match/6 AFTER Clear() (see method
+	// comment). Similarities scale to int64 0-100, exactly like injectFacts:
+	// the taxonomy_inference thresholds (>= 85 override, >= 70 boost, >= 60
+	// suggest) need percentage scale, and the /number Decl rejects float64.
+	// With no matches, the top regex candidates seed at 50 as the designed
+	// fallback — inert under the current thresholds, kept for transparency.
+	if len(matches) > 0 {
+		for i, m := range matches {
+			facts = append(facts, mangle.Fact{
+				Predicate: "semantic_match",
+				Args:      []any{input, m.TextContent, m.Verb, m.Target, int64(i + 1), int64(m.Similarity * 100)},
+			})
+		}
+	} else {
+		for rank, cand := range candidates {
+			if rank >= 5 {
+				break
+			}
+			facts = append(facts, mangle.Fact{
+				Predicate: "semantic_match",
+				Args:      []any{input, "", cand.Verb, "", int64(rank + 1), int64(50)},
+			})
+		}
 	}
 
 	if err := t.engine.AddFacts(facts); err != nil {

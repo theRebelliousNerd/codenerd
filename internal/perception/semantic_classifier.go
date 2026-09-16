@@ -309,9 +309,13 @@ func (sc *SemanticClassifier) ClassifyWithoutInjection(ctx context.Context, inpu
 		return nil, nil
 	}
 
-	const maxClassifyBytes = 32768
-	if len(input) > maxClassifyBytes {
-		input = input[:maxClassifyBytes] + "... [Input truncated]"
+	const maxClassifyRunes = 32768
+	if len(input) > maxClassifyRunes {
+		// Rune-safe: a byte slice here could split a multi-byte rune and
+		// feed U+FFFD into the embedding model.
+		if runes := []rune(input); len(runes) > maxClassifyRunes {
+			input = string(runes[:maxClassifyRunes]) + "... [Input truncated]"
+		}
 	}
 
 	timer := logging.StartTimer(logging.CategoryPerception, "SemanticClassifier.ClassifyWithoutInjection")
@@ -418,23 +422,38 @@ func (sc *SemanticClassifier) ClassifyWithoutInjection(ctx context.Context, inpu
 }
 
 // mergeResults combines embedded and learned matches with proper scoring.
+// The learned slice is copied before boosting: mutating the caller's slice
+// would corrupt store-owned backing arrays on repeat searches.
 func (sc *SemanticClassifier) mergeResults(embedded, learned []SemanticMatch, cfg SemanticConfig) []SemanticMatch {
 	// Apply boost to learned patterns
-	for i := range learned {
-		learned[i].Similarity += cfg.LearnedBoost
-		if learned[i].Similarity > 1.0 {
-			learned[i].Similarity = 1.0
+	boosted := make([]SemanticMatch, len(learned))
+	for i, m := range learned {
+		m.Similarity += cfg.LearnedBoost
+		if m.Similarity > 1.0 {
+			m.Similarity = 1.0
 		}
+		boosted[i] = m
 	}
 
 	// Combine all matches
-	all := make([]SemanticMatch, 0, len(embedded)+len(learned))
+	all := make([]SemanticMatch, 0, len(embedded)+len(boosted))
 	all = append(all, embedded...)
-	all = append(all, learned...)
+	all = append(all, boosted...)
 
-	// Sort by similarity descending
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].Similarity > all[j].Similarity
+	// Sort by similarity descending. Stable with a content tiebreak: bare
+	// sort.Slice flips equal-similarity matches run to run, which flips the
+	// few-shot exemplars and the injected fact order downstream.
+	sort.SliceStable(all, func(i, j int) bool {
+		if all[i].Similarity != all[j].Similarity {
+			return all[i].Similarity > all[j].Similarity
+		}
+		if all[i].Source != all[j].Source {
+			return all[i].Source < all[j].Source
+		}
+		if all[i].Verb != all[j].Verb {
+			return all[i].Verb < all[j].Verb
+		}
+		return all[i].TextContent < all[j].TextContent
 	})
 
 	// Deduplicate by verb+text (keep highest similarity)
@@ -551,6 +570,13 @@ func (sc *SemanticClassifier) AddLearnedPattern(ctx context.Context, pattern, ve
 	timer := logging.StartTimer(logging.CategoryPerception, "SemanticClassifier.AddLearnedPattern")
 	defer timer.Stop()
 
+	if strings.TrimSpace(pattern) == "" {
+		return fmt.Errorf("cannot learn an empty pattern")
+	}
+	if strings.TrimSpace(verb) == "" {
+		return fmt.Errorf("cannot learn pattern %q with an empty verb", truncateForLog(pattern, 40))
+	}
+
 	sc.mu.RLock()
 	learnedStore := sc.learnedStore
 	embedEngine := sc.embedEngine
@@ -559,23 +585,30 @@ func (sc *SemanticClassifier) AddLearnedPattern(ctx context.Context, pattern, ve
 	if learnedStore == nil {
 		return fmt.Errorf("learned store not available")
 	}
-	if embedEngine == nil {
-		return fmt.Errorf("embedding engine not available")
-	}
 
 	logging.Perception("Adding learned pattern: verb=%s, pattern=%q", verb, truncateForLog(pattern, 50))
 
-	// Generate embedding for the new pattern (document-side of retrieval)
-	patternTask := embedding.SelectTaskType(embedding.ContentTypeKnowledgeAtom, false)
+	// The DB backend re-embeds through its own engine inside AddPattern, so
+	// only the in-memory fallback needs a caller-supplied vector. Embedding
+	// here unconditionally would burn one model call per learned pattern for
+	// nothing on the backend path — and would wrongly require an engine the
+	// backend path never uses.
 	var patternEmbed []float32
-	var err error
-	if taskAware, ok := embedEngine.(embedding.TaskTypeAwareEngine); ok && patternTask != "" {
-		patternEmbed, err = taskAware.EmbedWithTask(ctx, pattern, patternTask)
-	} else {
-		patternEmbed, err = embedEngine.Embed(ctx, pattern)
-	}
-	if err != nil {
-		return fmt.Errorf("failed to generate embedding for pattern: %w", err)
+	if !learnedStore.HasBackend() {
+		if embedEngine == nil {
+			return fmt.Errorf("embedding engine not available")
+		}
+		// Generate embedding for the new pattern (document-side of retrieval)
+		patternTask := embedding.SelectTaskType(embedding.ContentTypeKnowledgeAtom, false)
+		var err error
+		if taskAware, ok := embedEngine.(embedding.TaskTypeAwareEngine); ok && patternTask != "" {
+			patternEmbed, err = taskAware.EmbedWithTask(ctx, pattern, patternTask)
+		} else {
+			patternEmbed, err = embedEngine.Embed(ctx, pattern)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to generate embedding for pattern: %w", err)
+		}
 	}
 
 	// Add to learned store
@@ -969,13 +1002,12 @@ func argToString(arg any) string {
 	}
 }
 
-// Search performs cosine similarity search on the embedded corpus.
-func (s *EmbeddedCorpusStore) Search(queryEmbed []float32, topK int) ([]SemanticMatch, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if len(s.entries) == 0 {
-		return nil, nil
+// searchInMemory runs a cosine-similarity top-K over in-memory corpus entries.
+// Shared by the embedded store and the learned store's memory fallback so the
+// scoring, tie-breaking, and ranking cannot drift between the two.
+func searchInMemory(entries []CorpusEntry, embeddings map[string][]float32, queryEmbed []float32, topK int, source string) []SemanticMatch {
+	if len(entries) == 0 {
+		return nil
 	}
 
 	if topK <= 0 {
@@ -988,9 +1020,9 @@ func (s *EmbeddedCorpusStore) Search(queryEmbed []float32, topK int) ([]Semantic
 		similarity float64
 	}
 
-	candidates := make([]scored, 0, len(s.entries))
-	for _, entry := range s.entries {
-		entryEmbed, ok := s.embeddings[entry.TextContent]
+	candidates := make([]scored, 0, len(entries))
+	for _, entry := range entries {
+		entryEmbed, ok := embeddings[entry.TextContent]
 		if !ok {
 			continue
 		}
@@ -1006,9 +1038,16 @@ func (s *EmbeddedCorpusStore) Search(queryEmbed []float32, topK int) ([]Semantic
 		})
 	}
 
-	// Sort by similarity descending
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].similarity > candidates[j].similarity
+	// Sort by similarity descending, stable with a content tiebreak so
+	// equal-similarity entries order identically on every call.
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].similarity != candidates[j].similarity {
+			return candidates[i].similarity > candidates[j].similarity
+		}
+		if candidates[i].entry.Verb != candidates[j].entry.Verb {
+			return candidates[i].entry.Verb < candidates[j].entry.Verb
+		}
+		return candidates[i].entry.TextContent < candidates[j].entry.TextContent
 	})
 
 	// Take top K
@@ -1026,11 +1065,19 @@ func (s *EmbeddedCorpusStore) Search(queryEmbed []float32, topK int) ([]Semantic
 			Constraint:  c.entry.Constraint,
 			Similarity:  c.similarity,
 			Rank:        i + 1,
-			Source:      "embedded",
+			Source:      source,
 		}
 	}
 
-	return results, nil
+	return results
+}
+
+// Search performs cosine similarity search on the embedded corpus.
+func (s *EmbeddedCorpusStore) Search(queryEmbed []float32, topK int) ([]SemanticMatch, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return searchInMemory(s.entries, s.embeddings, queryEmbed, topK, "embedded"), nil
 }
 
 // =============================================================================
@@ -1074,6 +1121,17 @@ func NewLearnedCorpusStore(cfg *config.UserConfig, dimensions int, embedEngine e
 	return store, nil
 }
 
+// HasBackend reports whether the store persists through the SQLite backend
+// (which embeds with its own engine) rather than the in-memory fallback.
+func (s *LearnedCorpusStore) HasBackend() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.backend != nil
+}
+
 // Search performs cosine similarity search on the learned corpus.
 func (s *LearnedCorpusStore) Search(queryEmbed []float32, topK int) ([]SemanticMatch, error) {
 	s.mu.RLock()
@@ -1103,63 +1161,7 @@ func (s *LearnedCorpusStore) Search(queryEmbed []float32, topK int) ([]SemanticM
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if len(s.entries) == 0 {
-		return nil, nil
-	}
-
-	if topK <= 0 {
-		topK = 5
-	}
-
-	// Calculate similarity for each entry
-	type scored struct {
-		entry      CorpusEntry
-		similarity float64
-	}
-
-	candidates := make([]scored, 0, len(s.entries))
-	for _, entry := range s.entries {
-		entryEmbed, ok := s.embeddings[entry.TextContent]
-		if !ok {
-			continue
-		}
-
-		sim, err := embedding.CosineSimilarity(queryEmbed, entryEmbed)
-		if err != nil {
-			continue
-		}
-
-		candidates = append(candidates, scored{
-			entry:      entry,
-			similarity: sim,
-		})
-	}
-
-	// Sort by similarity descending
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].similarity > candidates[j].similarity
-	})
-
-	// Take top K
-	if len(candidates) > topK {
-		candidates = candidates[:topK]
-	}
-
-	// Convert to SemanticMatch
-	results := make([]SemanticMatch, len(candidates))
-	for i, c := range candidates {
-		results[i] = SemanticMatch{
-			TextContent: c.entry.TextContent,
-			Verb:        c.entry.Verb,
-			Target:      c.entry.Target,
-			Constraint:  c.entry.Constraint,
-			Similarity:  c.similarity,
-			Rank:        i + 1,
-			Source:      "learned",
-		}
-	}
-
-	return results, nil
+	return searchInMemory(s.entries, s.embeddings, queryEmbed, topK, "learned"), nil
 }
 
 // Add adds a new pattern to the learned store.
