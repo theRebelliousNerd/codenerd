@@ -30,6 +30,11 @@ func MapToolDefinitionsToOpenAI(tools []ToolDefinition) []OpenAITool {
 }
 
 // MapOpenAIToolCallsToInternal converts OpenAI tool calls to generic tool calls.
+// The result aligns index-wise with the input: a skipped non-function call
+// leaves a zero-valued entry (pinned by contract test). Blank arguments
+// decode as an empty object: several providers serialize zero-arg calls as
+// "" instead of "{}", and failing the whole turn on that variance is worse
+// than calling with no args.
 func MapOpenAIToolCallsToInternal(calls []OpenAIToolCall) ([]ToolCall, error) {
 	result := make([]ToolCall, len(calls))
 	for i, c := range calls {
@@ -37,9 +42,11 @@ func MapOpenAIToolCallsToInternal(calls []OpenAIToolCall) ([]ToolCall, error) {
 			continue // Skip non-function tool calls (if any)
 		}
 
-		var args map[string]any
-		if err := json.Unmarshal([]byte(c.Function.Arguments), &args); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal arguments for tool %s: %w", c.Function.Name, err)
+		args := map[string]any{}
+		if strings.TrimSpace(c.Function.Arguments) != "" {
+			if err := json.Unmarshal([]byte(c.Function.Arguments), &args); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal arguments for tool %s: %w", c.Function.Name, err)
+			}
 		}
 
 		result[i] = ToolCall{
@@ -148,7 +155,14 @@ func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, api
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+			// Context-aware backoff: a cancelled turn must not sleep
+			// through up to 7s of retry delays before noticing.
+			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
 		}
 
 		jsonData, err := json.Marshal(reqBody)
@@ -174,6 +188,17 @@ func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, api
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			resp.Body.Close()
 			lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+			continue
+		}
+
+		// Transient 5xx (and 408) retry with the same backoff: a single
+		// overloaded-model response must not kill the turn. Anything else
+		// non-200 (auth, bad request) fails immediately — retrying those
+		// only burns quota.
+		if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode >= 500 {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+			resp.Body.Close()
+			lastErr = fmt.Errorf("transient status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 			continue
 		}
 

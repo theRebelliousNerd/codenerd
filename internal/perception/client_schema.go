@@ -109,8 +109,37 @@ func BuildOpenAIPiggybackEnvelopeSchema() *ZAIResponseFormat {
 // Gemini uses generationConfig.responseMimeType = "application/json" with a separate
 // responseJsonSchema field that takes the raw schema object.
 // See: https://ai.google.dev/gemini-api/docs/structured-output
+//
+// The returned map is an independent deep copy: piggybackEnvelopeRawSchema
+// caches one shared map behind a sync.Once, and handing that out directly
+// would let any caller mutation (or concurrent marshal-while-mutate) corrupt
+// every later request. Deliberately NOT strict-stamped — Gemini's schema
+// subset rejects additionalProperties.
 func BuildGeminiPiggybackEnvelopeSchema() map[string]any {
-	return piggybackEnvelopeRawSchema()
+	return deepCopySchemaValue(piggybackEnvelopeRawSchema()).(map[string]any)
+}
+
+// deepCopySchemaValue copies decoded-JSON values (maps, slices, scalars) so
+// builders can hand out independent schemas. Kept separate from
+// strictObjectSchema on purpose: that one copies AND stamps, this one only
+// copies, and merging the two would risk stamping a dialect that forbids it.
+func deepCopySchemaValue(v any) any {
+	switch typed := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for k, item := range typed {
+			out[k] = deepCopySchemaValue(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = deepCopySchemaValue(item)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // BuildOpenRouterPiggybackEnvelopeSchema creates the response format for OpenRouter.

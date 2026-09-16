@@ -2348,11 +2348,11 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/perception/client_openai_http_test.go`
 - [ ] `internal/perception/client_openrouter.go`
 - [ ] `internal/perception/client_planner_slot_test.go`
-- [ ] `internal/perception/client_schema.go`
+- [x] `internal/perception/client_schema.go`
 - [ ] `internal/perception/client_schema_strict_test.go`
-- [ ] `internal/perception/client_tool_helpers.go`
+- [x] `internal/perception/client_tool_helpers.go`
 - [ ] `internal/perception/client_tool_helpers_test.go`
-- [ ] `internal/perception/client_types.go`
+- [x] `internal/perception/client_types.go`
 - [ ] `internal/perception/client_worker_providers_test.go`
 - [ ] `internal/perception/client_xai.go`
 - [ ] `internal/perception/client_zai.go`
@@ -3801,4 +3801,4 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `test_init/.nerd/mangle/policy_overrides.mg`
 - [ ] `test_init/.nerd/profile.mg`
 
-**Progress: 28/2632**
+**Progress: 31/2632**
