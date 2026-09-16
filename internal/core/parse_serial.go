@@ -4,6 +4,7 @@ import (
 	"io"
 
 	manglepkg "codenerd/internal/mangle"
+	"codeberg.org/TauCeti/mangle-go/ast"
 
 	"codeberg.org/TauCeti/mangle-go/parse"
 )
@@ -21,4 +22,10 @@ import (
 // because core and mangle parsing interleaved under different locks.
 func parseUnit(reader io.Reader) (parse.SourceUnit, error) {
 	return manglepkg.ParseUnit(reader)
+}
+
+// parseAtom is the core package's entry point for single-atom parsing. Like
+// parseUnit it delegates to the mangle package's process-wide parse lock.
+func parseAtom(s string) (ast.Atom, error) {
+	return manglepkg.ParseAtom(s)
 }

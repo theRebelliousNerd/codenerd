@@ -65,6 +65,12 @@ Decl recall_similar(Query, TopK, Results) descr [external(), mode('+', '-', '-')
 # External predicate: EntityA required as input
 Decl query_knowledge_graph(EntityA, Relation, EntityB) descr [external(), mode('+', '-', '-')] bound [/string, /string, /string].
 
+# query_graph(QueryType, Params, Result) - Generic world-graph dispatch
+# External predicate: QueryType required as input. Served by the
+# VirtualStore's GraphQuery adapter (types.GraphQuery); direct queries
+# fall through to it, rules evaluate through the external callback.
+Decl query_graph(QueryType, Params, Result) descr [external(), mode('+', '-', '-')] bound [/string, /string, /string].
+
 # query_strategic(Category, Content, Confidence) - Strategic knowledge atoms
 # External predicate: all outputs (enumeration mode)
 Decl query_strategic(Category, Content, Confidence) descr [external(), mode('-', '-', '-')] bound [/name, /string, /number].

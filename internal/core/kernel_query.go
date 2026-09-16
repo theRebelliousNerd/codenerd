@@ -65,6 +65,7 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 
 	predicateName, patternFact, hasPattern, desiredArity := parseQueryPattern(predicate)
 
+	queryDeclExternal := false
 	results := make([]Fact, 0)
 
 	// Get the predicate symbol from the program
@@ -80,8 +81,9 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	// Fast path: find predicate without iterating if we know the arity
 	if hasPattern {
 		pred := ast.PredicateSym{Symbol: predicateName, Arity: desiredArity}
-		if _, ok := k.programInfo.Decls[pred]; ok {
+		if d, ok := k.programInfo.Decls[pred]; ok {
 			predicateFound = true
+			queryDeclExternal = d.IsExternal()
 			k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
 				fact := atomToFact(a)
 				if factMatchesPattern(fact, patternFact) {
@@ -107,6 +109,13 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 			}
 		}
 		logging.KernelDebug("Query: predicate=%s matchedDecls=%d totalResults=%d", predicateName, matchedDecls, len(results))
+	}
+
+	if vsFacts, handled, verr := k.queryExternalVirtualStore(predicate, patternFact, hasPattern, queryDeclExternal); handled {
+		if verr != nil {
+			return nil, verr
+		}
+		results = vsFacts
 	}
 
 	if !predicateFound {
@@ -278,12 +287,14 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 
 	// Find the predicate in the decls
 	predicateFound := false
+	queryDeclExternal := false
 	count := 0
 
 	if hasPattern {
 		pred := ast.PredicateSym{Symbol: predicateName, Arity: desiredArity}
-		if _, ok := k.programInfo.Decls[pred]; ok {
+		if d, ok := k.programInfo.Decls[pred]; ok {
 			predicateFound = true
+			queryDeclExternal = d.IsExternal()
 			err := k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
 				fact := atomToFact(a)
 				if factMatchesPattern(fact, patternFact) {
@@ -319,6 +330,20 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 		}
 	}
 
+	if vsFacts, handled, verr := k.queryExternalVirtualStore(predicate, patternFact, hasPattern, queryDeclExternal); handled {
+		if verr != nil {
+			timer.Stop()
+			return verr
+		}
+		for _, f := range vsFacts {
+			if err := cb(f); err != nil {
+				timer.Stop()
+				return err
+			}
+			count++
+		}
+	}
+
 	if !predicateFound {
 		logging.Get(logging.CategoryKernel).Warn("QueryCallback: predicate '%s' not found in declarations", predicateName)
 	}
@@ -327,6 +352,42 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 	logging.KernelDebug("QueryCallback: predicate=%s processed %d results", predicate, count)
 	logging.Audit().KernelQuery(predicate, count, elapsed.Milliseconds())
 	return nil
+}
+
+// queryExternalVirtualStore resolves a direct query for an external predicate
+// through the attached VirtualStore. External predicates are computed on
+// demand, never stored: without this a direct query for one always answers
+// empty even with an adapter wired, and the Mangle-World bridge only fires
+// during rule evaluation. Live results supersede store rows: any stored atoms
+// for an external are eval-cache artifacts that predate the call.
+//
+// handled=false means "not an external call": the caller falls back to its
+// store rows. Callers must hold at least k.mu.RLock (for the virtualStore
+// pointer read). External handlers must not call back into kernel.Query
+// for external predicates: concurrent queries share one kernel, so no
+// counter can tell nesting from parallelism — nesting would recurse.
+// No handler does this today (audited); if one ever must, thread an
+// explicit depth token through the handler chain.
+func (k *RealKernel) queryExternalVirtualStore(predicate string, patternFact Fact, hasPattern, isExternal bool) ([]Fact, bool, error) {
+	if !isExternal || !hasPattern || k.virtualStore == nil {
+		return nil, false, nil
+	}
+	qatom, err := parseAtom(predicate)
+	if err != nil {
+		return nil, false, nil
+	}
+	vsAtoms, err := k.virtualStore.Get(qatom)
+	if err != nil {
+		return nil, true, err
+	}
+	vsFacts := make([]Fact, 0, len(vsAtoms))
+	for _, a := range vsAtoms {
+		f := atomToFact(a)
+		if factMatchesPattern(f, patternFact) {
+			vsFacts = append(vsFacts, f)
+		}
+	}
+	return vsFacts, true, nil
 }
 
 // QueryAll retrieves all derived facts organized by predicate.
@@ -442,6 +503,12 @@ func baseTermToValue(term ast.BaseTerm) any {
 		case ast.Float64Type:
 			val, _ := t.Float64Value()
 			return val
+		case ast.ListShape, ast.MapShape, ast.PairShape, ast.TimeType, ast.DurationType:
+			// Composite constants keep their value in struct fields, not
+			// Symbol: reading Symbol yields "" and silently drops lists,
+			// maps, and times crossing the Facts boundary. String()
+			// renders them (e.g. ["depA", "depB"]).
+			return t.String()
 		default:
 			// DEFENSIVE: Log unknown constant types to catch new AST types early
 			logging.Kernel("baseTermToValue: unknown constant type %v, using Symbol fallback", t.Type)

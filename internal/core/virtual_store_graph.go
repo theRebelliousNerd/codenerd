@@ -37,12 +37,12 @@ func (v *VirtualStore) getQueryGraphAtoms(query ast.Atom) ([]ast.Atom, error) {
 	if !ok {
 		return nil, nil
 	}
-	qType := cleanMangleString(qTypeTerm.String())
+	qType := constStringValue(qTypeTerm)
 
 	// 2. Extract Params
 	// Mangle's Map type is complex; for simplicity we extract the string representation.
 	params := make(map[string]any)
-	params["arg"] = cleanMangleString(query.Args[1].String())
+	params["arg"] = constStringValue(query.Args[1])
 
 	// 3. Execute Query
 	result, err := gq.QueryGraph(qType, params)
@@ -60,6 +60,21 @@ func (v *VirtualStore) getQueryGraphAtoms(query ast.Atom) ([]ast.Atom, error) {
 
 	// Return fact: query_graph(Type, Params, ResultVal)
 	return []ast.Atom{ast.NewAtom("query_graph", query.Args[0], query.Args[1], resTerm)}, nil
+}
+
+// constStringValue extracts a constant term's value without round-tripping
+// through surface syntax. String()/Bytes Symbol already holds the parsed
+// value with escapes resolved; re-serializing and trimming quotes instead
+// leaks backslashes ("A\"B" arrived as A\"B) and eats significant edge
+// quotes. Names keep their leading-sigil strip.
+func constStringValue(term ast.BaseTerm) string {
+	if c, ok := term.(ast.Constant); ok {
+		if c.Type == ast.StringType || c.Type == ast.BytesType {
+			return c.Symbol
+		}
+		return strings.TrimPrefix(c.Symbol, "/")
+	}
+	return cleanMangleString(term.String())
 }
 
 // Helper to clean Mangle strings (remove quotes, leading slashes)

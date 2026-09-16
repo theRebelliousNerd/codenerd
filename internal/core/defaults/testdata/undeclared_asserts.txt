@@ -55,6 +55,7 @@ investigation_phase
 issue_description
 issue_error_type
 issue_mentioned_file
+learned_intent
 memory_operation
 ouroboros_phase
 ouroboros_register_failed

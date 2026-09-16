@@ -116,7 +116,7 @@ func (v *VirtualStore) BuildExternalPredicates() map[ast.PredicateSym]engine.Ext
 
 	in := ast.ArgMode(ast.ArgModeInput)
 	out := ast.ArgMode(ast.ArgModeOutput)
-	callbacks := make(map[ast.PredicateSym]engine.ExternalPredicateCallback, 10)
+	callbacks := make(map[ast.PredicateSym]engine.ExternalPredicateCallback, 12)
 
 	sym, cb := mkPred("query_learned", 2, v.getQueryLearnedAtoms, out, out)
 	callbacks[sym] = cb
@@ -128,6 +128,9 @@ func (v *VirtualStore) BuildExternalPredicates() map[ast.PredicateSym]engine.Ext
 	callbacks[sym] = cb
 
 	sym, cb = mkPred("query_knowledge_graph", 3, v.getQueryKnowledgeGraphAtoms, in, out, out)
+	callbacks[sym] = cb
+
+	sym, cb = mkPred("query_graph", 3, v.getQueryGraphAtoms, in, out, out)
 	callbacks[sym] = cb
 
 	sym, cb = mkPred("query_strategic", 3, v.getQueryStrategicAtoms, out, out, out)

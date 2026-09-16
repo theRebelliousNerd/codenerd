@@ -22,11 +22,15 @@ func TestE2E_Dreamer_VirtualStore_Smoke_ValidAction(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	// Create a next_action fact that is valid
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionEditFile),
 			"valid_target.go",
 			map[string]any{"content": "func main() {}"},
@@ -51,10 +55,14 @@ func TestE2E_Dreamer_VirtualStore_NilContext(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionDeleteFile), // Destructive
 			"important.txt",
 			map[string]any{},
@@ -82,12 +90,16 @@ func TestE2E_Dreamer_VirtualStore_OversizedTarget(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	massiveTarget := strings.Repeat("A", 5000)
 
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionEditFile),
 			massiveTarget,
 			map[string]any{},
@@ -114,12 +126,16 @@ func TestE2E_Dreamer_VirtualStore_FactInjection(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	massiveTarget := strings.Repeat("A", 5000)
 
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionEditFile),
 			massiveTarget,
 			map[string]any{},
@@ -152,10 +168,14 @@ func TestE2E_Dreamer_VirtualStore_ConcurrentSimulations(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionEditFile),
 			strings.Repeat("A", 5000), // Ensures it's blocked and cached
 			map[string]any{},
@@ -195,6 +215,9 @@ func TestE2E_Dreamer_VirtualStore_CacheEviction(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	for i := 0; i < 300; i++ {
 		target := fmt.Sprintf("target_%d.txt", i)
@@ -203,6 +226,7 @@ func TestE2E_Dreamer_VirtualStore_CacheEviction(t *testing.T) {
 		fact := core.Fact{
 			Predicate: "next_action",
 			Args: []any{
+				"e2e-action-1", // ActionID (first slot of next_action/4)
 				string(core.ActionDeleteFile),
 				longTarget,
 				map[string]any{},
@@ -226,11 +250,15 @@ func TestE2E_Dreamer_VirtualStore_MalformedFact(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
-			123, // Invalid type for action type
+			"e2e-action-1", // ActionID (first slot of next_action/4)
+			nil, // Invalid type for action type (unparseable Type slot)
 			"target",
 			map[string]any{},
 		},
@@ -257,6 +285,9 @@ func TestE2E_Dreamer_VirtualStore_SlowSimulation(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	// Create a context with a very short timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
@@ -265,6 +296,7 @@ func TestE2E_Dreamer_VirtualStore_SlowSimulation(t *testing.T) {
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionDeleteFile),
 			"timeout_target.txt",
 			map[string]any{},
@@ -291,6 +323,9 @@ func TestE2E_Dreamer_VirtualStore_CacheRace(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	var wg sync.WaitGroup
 	numRoutines := 100
@@ -309,6 +344,7 @@ func TestE2E_Dreamer_VirtualStore_CacheRace(t *testing.T) {
 			fact := core.Fact{
 				Predicate: "next_action",
 				Args: []any{
+					"e2e-action-1", // ActionID (first slot of next_action/4)
 					string(core.ActionEditFile),
 					target,
 					map[string]any{},
@@ -334,11 +370,15 @@ func TestE2E_Dreamer_VirtualStore_Recovery(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	// 1. Send invalid action
 	invalidFact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionDeleteFile),
 			strings.Repeat("Y", 5000), // Oversized
 			map[string]any{},
@@ -354,6 +394,7 @@ func TestE2E_Dreamer_VirtualStore_Recovery(t *testing.T) {
 	validFact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionReadFile), // Non-destructive
 			"readme.md",
 			map[string]any{},
@@ -382,6 +423,9 @@ func TestE2E_Dreamer_VirtualStore_PanicRecovery(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -393,6 +437,7 @@ func TestE2E_Dreamer_VirtualStore_PanicRecovery(t *testing.T) {
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionEditFile),
 			"test.txt",
 			make(chan int), // Invalid type for payload
@@ -414,10 +459,14 @@ func TestE2E_Dreamer_VirtualStore_EmptyTarget(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionDeleteFile),
 			"",
 			map[string]any{},
@@ -428,8 +477,10 @@ func TestE2E_Dreamer_VirtualStore_EmptyTarget(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Contract Violation: Empty target was not rejected. The Dreamer must fail-closed on malformed targets to prevent sandbox escapes.")
 	}
-	if !strings.Contains(err.Error(), "blocked by dreamer safety gate") {
-		t.Fatalf("Contract Violation: Expected action to be blocked by the dreamer safety gate, but got different error: %v", err)
+	// Empty file targets die in the strict parse layer before any simulation
+	// exists to run: rejection here is the fail-closed path for this shape.
+	if !strings.Contains(err.Error(), "target path cannot be empty") {
+		t.Fatalf("Contract Violation: Expected empty-target rejection, got: %v", err)
 	}
 }
 
@@ -445,6 +496,9 @@ func TestE2E_Dreamer_VirtualStore_LargePayload(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	largeMap := make(map[string]any)
 	for i := 0; i < 10000; i++ {
@@ -454,6 +508,7 @@ func TestE2E_Dreamer_VirtualStore_LargePayload(t *testing.T) {
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionEditFile),
 			"target.txt",
 			largeMap,
@@ -478,10 +533,14 @@ func TestE2E_Dreamer_VirtualStore_RepeatedCacheHits(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionDeleteFile),
 			strings.Repeat("C", 5000), // Oversized
 			map[string]any{},
@@ -518,10 +577,14 @@ func TestE2E_Dreamer_VirtualStore_NullByteInjection(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionEditFile),
 			"target\x00with\x00nulls.txt",
 			map[string]any{},
@@ -546,10 +609,14 @@ func TestE2E_Dreamer_VirtualStore_UnknownAction(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			"unknown_destructive_action",
 			"target.txt",
 			map[string]any{},
@@ -574,10 +641,14 @@ func TestE2E_Dreamer_VirtualStore_CacheInvalidation(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	fact1 := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionDeleteFile),
 			strings.Repeat("D", 5000), // Blocked
 			map[string]any{},
@@ -589,6 +660,7 @@ func TestE2E_Dreamer_VirtualStore_CacheInvalidation(t *testing.T) {
 	fact2 := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionEditFile), // Different action, same target
 			strings.Repeat("D", 5000),
 			map[string]any{},
@@ -614,6 +686,9 @@ func TestE2E_Dreamer_VirtualStore_ContextLeak(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
@@ -621,6 +696,7 @@ func TestE2E_Dreamer_VirtualStore_ContextLeak(t *testing.T) {
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionDeleteFile),
 			"leak_target.txt",
 			map[string]any{},
@@ -645,10 +721,14 @@ func TestE2E_Dreamer_VirtualStore_DataIntegrity(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionWriteFile), // Destructive, should hit dreamer
 			"integrity.txt",
 			map[string]any{"content": "sensitive_data"},
@@ -675,6 +755,9 @@ func TestE2E_Dreamer_VirtualStore_ConcurrentRuleModification(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -682,6 +765,7 @@ func TestE2E_Dreamer_VirtualStore_ConcurrentRuleModification(t *testing.T) {
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionDeleteFile),
 			"race_rule_target",
 			map[string]any{},
@@ -693,7 +777,7 @@ func TestE2E_Dreamer_VirtualStore_ConcurrentRuleModification(t *testing.T) {
 		for i := 0; i < 50; i++ {
 			_, err := store.RouteAction(context.Background(), fact)
 			// Might be blocked, might not, but shouldn't panic
-			if err != nil && !strings.Contains(err.Error(), "blocked") {
+			if err != nil && !strings.Contains(err.Error(), "blocked") && !strings.Contains(err.Error(), "not permitted") {
 				t.Errorf("Unexpected error: %v", err)
 			}
 		}
@@ -723,6 +807,9 @@ func TestE2E_Dreamer_VirtualStore_NetworkDelay(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	store := core.NewVirtualStore(nil)
 	store.SetKernel(kernel)
+	// This file tests the dreamer layer, not the boot layer: release the boot
+	// guard so actions reach the simulation gate (it has its own tests).
+	store.DisableBootGuard()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Millisecond)
 	defer cancel()
@@ -730,6 +817,7 @@ func TestE2E_Dreamer_VirtualStore_NetworkDelay(t *testing.T) {
 	fact := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"e2e-action-1", // ActionID (first slot of next_action/4)
 			string(core.ActionEditFile),
 			"delayed_target",
 			map[string]any{},

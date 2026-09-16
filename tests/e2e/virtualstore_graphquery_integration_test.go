@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/TauCeti/mangle-go/ast"
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 )
 
 // mockGraphQuery is a programmable mock that simulates types.GraphQuery.
@@ -97,18 +97,15 @@ func TestE2E_VirtualStore_GraphQuery_Smoke_StandardLinkQuery(t *testing.T) {
 		t.Fatal("Expected results, got none. VirtualStore didn't yield facts.")
 	}
 
-	// Expect answers[0] to contain the List string {"depA", "depB"}
+	// Query returns Facts with Go values: the list renders into its args.
 	matched := false
 	for _, ans := range answers {
 		for _, arg := range ans.Args {
-			if term, ok := arg.(ast.BaseTerm); ok {
-				if strings.Contains(term.String(), "depA") {
-					matched = true
-				}
+			if strings.Contains(fmt.Sprintf("%v", arg), "depA") {
+				matched = true
 			}
 		}
 	}
-
 	if !matched {
 		t.Errorf("Result did not contain expected bound variable")
 	}
@@ -250,17 +247,26 @@ func TestE2E_VirtualStore_GraphQuery_Contract_MangleStringEscape(t *testing.T) {
 	vs.SetGraphQuery(mock)
 	kernel.SetVirtualStore(vs)
 
-	// String with quotes inside
-	queryStr := `query_graph("test", "A"B", R)`
+	// String with quotes inside (escaped: the query must still parse).
+	queryStr := `query_graph("test", "A\"B", R)`
 	_, _ = kernel.Query(queryStr)
 
 	mock.mu.RLock()
-	arg := mock.lastParams["arg"].(string)
+	rawArg, ok := mock.lastParams["arg"]
 	mock.mu.RUnlock()
+	if !ok {
+		t.Fatal("query never reached the graph adapter")
+	}
+	arg, ok := rawArg.(string)
+	if !ok {
+		t.Fatalf("arg is %T, want string", rawArg)
+	}
 
-	// cleanMangleString trims leading/trailing quotes but shouldn't destroy internal ones.
-	if !strings.Contains(arg, "A\"B") && !strings.Contains(arg, "A\"B") {
-		t.Errorf("Contract Violation: Internal quotes were corrupted: %s", arg)
+	// The adapter must receive the parsed value with escapes resolved: A"B.
+	// A backslash surviving here means the boundary re-serialized surface
+	// syntax instead of reading the value.
+	if arg != "A\"B" {
+		t.Errorf("Contract Violation: Internal quotes were corrupted: %q", arg)
 	}
 }
 
@@ -686,7 +692,7 @@ func TestE2E_VirtualStore_GraphQuery_Integrity_MultiStep(t *testing.T) {
 	}
 
 	if len(answers) == 0 {
-		t.Errorf("Expected path A->C to exist")
+		t.Fatal("Expected path A->C to exist")
 	}
 
 	// Verify boolean result was correctly converted
@@ -694,8 +700,9 @@ func TestE2E_VirtualStore_GraphQuery_Integrity_MultiStep(t *testing.T) {
 		t.Fatalf("Expected 3 arguments, got %d", len(answers[0].Args))
 	}
 
-	val, ok := answers[0].Args[2].(ast.BaseTerm)
-	if !ok || val.String() != ast.TrueConstant.String() {
-		t.Errorf("Expected true constant")
+	// Booleans cross the bridge as Mangle bools and read back through the
+	// Facts contract as the "/true" name (the codebase bool convention).
+	if got := types.ExtractName(answers[0].Args[2]); got != "/true" {
+		t.Errorf("Expected true constant, got %q", got)
 	}
 }
