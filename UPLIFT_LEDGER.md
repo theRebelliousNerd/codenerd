@@ -1148,7 +1148,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/cortex_derivation_wiring_test.go`
 
 ### internal/core/cortex_kernel.go (1)
-- [ ] `internal/core/cortex_kernel.go`
+- [x] `internal/core/cortex_kernel.go`
 
 ### internal/core/cortex_kernel_extra_test.go (1)
 - [ ] `internal/core/cortex_kernel_extra_test.go`
@@ -1158,6 +1158,9 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 
 ### internal/core/cortex_kernel_test.go (1)
 - [ ] `internal/core/cortex_kernel_test.go`
+
+### internal/core/cortex_uplift_test.go (1)
+- [x] `internal/core/cortex_uplift_test.go`
 
 ### internal/core/cortex_kernel_transaction_test.go (1)
 - [ ] `internal/core/cortex_kernel_transaction_test.go`
@@ -1195,22 +1198,22 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/dependency_reachability_test.go`
 
 ### internal/core/derivation_map.go (1)
-- [ ] `internal/core/derivation_map.go`
+- [x] `internal/core/derivation_map.go`
 
 ### internal/core/derivation_map_test.go (1)
 - [ ] `internal/core/derivation_map_test.go`
 
 ### internal/core/dream_learning.go (1)
-- [ ] `internal/core/dream_learning.go`
+- [x] `internal/core/dream_learning.go`
 
 ### internal/core/dream_learning_test.go (1)
 - [ ] `internal/core/dream_learning_test.go`
 
 ### internal/core/dream_plan.go (1)
-- [ ] `internal/core/dream_plan.go`
+- [x] `internal/core/dream_plan.go`
 
 ### internal/core/dream_plan_extractor.go (1)
-- [ ] `internal/core/dream_plan_extractor.go`
+- [x] `internal/core/dream_plan_extractor.go`
 
 ### internal/core/dream_plan_extractor_test.go (1)
 - [ ] `internal/core/dream_plan_extractor_test.go`
@@ -1219,7 +1222,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/dream_plan_gaps_test.go`
 
 ### internal/core/dream_plan_manager.go (1)
-- [ ] `internal/core/dream_plan_manager.go`
+- [x] `internal/core/dream_plan_manager.go`
 
 ### internal/core/dream_plan_manager_test.go (1)
 - [ ] `internal/core/dream_plan_manager_test.go`
@@ -1228,7 +1231,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/dream_plan_test.go`
 
 ### internal/core/dream_router.go (1)
-- [ ] `internal/core/dream_router.go`
+- [x] `internal/core/dream_router.go`
 
 ### internal/core/dream_router_persist_test.go (1)
 - [ ] `internal/core/dream_router_persist_test.go`
@@ -1240,7 +1243,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/dream_singleton_test.go`
 
 ### internal/core/dreamer.go (1)
-- [ ] `internal/core/dreamer.go`
+- [x] `internal/core/dreamer.go`
 
 ### internal/core/dreamer_authorization_test.go (1)
 - [ ] `internal/core/dreamer_authorization_test.go`
@@ -1264,13 +1267,13 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/external_predicates_coverage_test.go`
 
 ### internal/core/fact_categories.go (1)
-- [ ] `internal/core/fact_categories.go`
+- [x] `internal/core/fact_categories.go`
 
 ### internal/core/fact_categories_coverage_test.go (1)
 - [ ] `internal/core/fact_categories_coverage_test.go`
 
 ### internal/core/fact_event_bus.go (1)
-- [ ] `internal/core/fact_event_bus.go`
+- [x] `internal/core/fact_event_bus.go`
 
 ### internal/core/fact_event_bus_test.go (1)
 - [ ] `internal/core/fact_event_bus_test.go`
@@ -1291,19 +1294,22 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/intent_decl_interning_test.go`
 
 ### internal/core/intent_defaults.go (1)
-- [ ] `internal/core/intent_defaults.go`
+- [x] `internal/core/intent_defaults.go`
 
 ### internal/core/intent_identity_atom_unification_test.go (1)
 - [ ] `internal/core/intent_identity_atom_unification_test.go`
 
 ### internal/core/intent_inference.go (1)
-- [ ] `internal/core/intent_inference.go`
+- [x] `internal/core/intent_inference.go`
 
 ### internal/core/intent_inference_test.go (1)
 - [ ] `internal/core/intent_inference_test.go`
 
 ### internal/core/intent_loader.go (1)
-- [ ] `internal/core/intent_loader.go`
+- [x] `internal/core/intent_loader.go`
+
+### internal/core/intent_uplift_test.go (1)
+- [x] `internal/core/intent_uplift_test.go`
 
 ### internal/core/intent_schema_files_test.go (1)
 - [ ] `internal/core/intent_schema_files_test.go`
@@ -1606,7 +1612,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/shadow_mode_test.go`
 
 ### internal/core/shard_fact_router.go (1)
-- [ ] `internal/core/shard_fact_router.go`
+- [x] `internal/core/shard_fact_router.go`
 
 ### internal/core/shard_fact_router_test.go (1)
 - [ ] `internal/core/shard_fact_router_test.go`
@@ -1844,7 +1850,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/virtual_store_test.go`
 
 ### internal/core/virtual_store_tool_facts.go (1)
-- [ ] `internal/core/virtual_store_tool_facts.go`
+- [x] `internal/core/virtual_store_tool_facts.go`
 
 ### internal/core/virtual_store_tools.go (1)
 - [x] `internal/core/virtual_store_tools.go`
@@ -1865,7 +1871,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/virtual_store_workflows_test.go`
 
 ### internal/core/virtual_store_write_guard.go (1)
-- [ ] `internal/core/virtual_store_write_guard.go`
+- [x] `internal/core/virtual_store_write_guard.go`
 
 ### internal/core/yolo_policy_test.go (1)
 - [ ] `internal/core/yolo_policy_test.go`

@@ -408,7 +408,12 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 		}
 		projected = append(projected, d.codeGraphProjections(kernel, actionID, path)...)
 
-	case ActionWriteFile, ActionEditFile, ActionEditLines, ActionInsertLines, ActionDeleteLines, ActionEditElement:
+	case ActionWriteFile, ActionEditFile, ActionEditLines, ActionInsertLines, ActionDeleteLines, ActionEditElement,
+		// Campaign writers delegate to the file handlers and land the same
+		// bytes, so they project the same effects. Without this they were
+		// simulated (they are destructive) with generic-only projections and
+		// no /modified fact for panic_state rules to match.
+		ActionCampaignCreateFile, ActionCampaignModifyFile, ActionCampaignWriteTest, ActionCampaignDocument:
 		logging.DreamDebug("projectEffects: projecting file modification effects for %s", path)
 		projected = append(projected, Fact{
 			Predicate: "projected_fact",
@@ -444,7 +449,8 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 		}
 		projected = append(projected, d.codeGraphProjections(kernel, actionID, path)...)
 
-	case ActionExecCmd, ActionRunCommand, ActionBash, ActionRunBuild, ActionRunTests, ActionExecTool, ActionGitOperation:
+	case ActionExecCmd, ActionRunCommand, ActionBash, ActionRunBuild, ActionRunTests, ActionExecTool, ActionGitOperation,
+		ActionCampaignRunTest:
 		logging.DreamDebug("projectEffects: projecting exec_cmd effects for command: %s", path)
 		projected = append(projected, Fact{
 			Predicate: "projected_fact",

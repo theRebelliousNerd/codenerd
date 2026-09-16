@@ -56,7 +56,10 @@ var (
 	whitespacePattern = regexp.MustCompile(`\s+`)
 
 	// Question pattern for extractQuestions
-	questionPattern = regexp.MustCompile(`(?m)\?[^\n]*`)
+	// A question is the sentence that ENDS with "?". The old pattern matched
+	// "?" plus the rest of the line, capturing the answer fragment after the
+	// question instead of the question itself.
+	questionPattern = regexp.MustCompile(`[^\n?]+\?`)
 
 	// Filter out meta-commentary
 	metaPhrases = []string{

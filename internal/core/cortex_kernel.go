@@ -190,10 +190,6 @@ func (c *CortexKernel) isShared(predicate string) bool {
 	return ok
 }
 
-// targetShards returns every shard a mutation of predicate must reach: the
-// consuming shards plus the catch-all for a shared predicate with a
-// derivation map, all shards for a shared predicate without one, else the
-// single shard routeToShard picks.
 // noteMutationFailure records and reports a kernel write that did not land.
 //
 // Warn, not Debug: this is never routine. A failed assert means the kernel's
@@ -207,6 +203,10 @@ func (c *CortexKernel) noteMutationFailure(op, predicate string, err error) erro
 	return err
 }
 
+// targetShards returns every shard a mutation of predicate must reach: the
+// consuming shards plus the catch-all for a shared predicate with a
+// derivation map, all shards for a shared predicate without one, else the
+// single shard routeToShard picks.
 func (c *CortexKernel) targetShards(predicate string) []*KernelShard {
 	bare := barePredicate(predicate)
 	c.mu.RLock()
@@ -787,7 +787,11 @@ type retractOp struct {
 	predSet   map[string]struct{}
 }
 
-// CortexTransaction batches mutations across shards and commits atomically.
+// CortexTransaction batches mutations across shards. Each shard's slice
+// commits atomically, but there is no cross-shard rollback: if a later
+// shard's commit fails, earlier shards keep their writes and Commit reports
+// which shard failed. Callers needing all-or-nothing across shards must
+// verify and compensate; do not assume a failed Commit left nothing behind.
 type CortexTransaction struct {
 	cortex   *CortexKernel
 	asserts  []types.Fact

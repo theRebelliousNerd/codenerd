@@ -117,10 +117,15 @@ func (p *DreamPlan) MarkSubtaskRunning(id string) {
 	}
 }
 
-// MarkSubtaskCompleted marks a subtask as completed.
+// MarkSubtaskCompleted marks a subtask as completed. Retries of an
+// already-terminal step are ignored so the counters cannot drift past the
+// number of subtasks.
 func (p *DreamPlan) MarkSubtaskCompleted(id, result string) {
 	for i := range p.Subtasks {
 		if p.Subtasks[i].ID == id {
+			if p.Subtasks[i].Status == SubtaskStatusCompleted {
+				return
+			}
 			p.Subtasks[i].Status = SubtaskStatusCompleted
 			p.Subtasks[i].Result = result
 			p.CompletedSteps++
@@ -129,10 +134,15 @@ func (p *DreamPlan) MarkSubtaskCompleted(id, result string) {
 	}
 }
 
-// MarkSubtaskFailed marks a subtask as failed.
+// MarkSubtaskFailed marks a subtask as failed. Retries of an
+// already-terminal step are ignored so the counters cannot drift past the
+// number of subtasks.
 func (p *DreamPlan) MarkSubtaskFailed(id, err string) {
 	for i := range p.Subtasks {
 		if p.Subtasks[i].ID == id {
+			if p.Subtasks[i].Status == SubtaskStatusFailed {
+				return
+			}
 			p.Subtasks[i].Status = SubtaskStatusFailed
 			p.Subtasks[i].Error = err
 			p.FailedSteps++
