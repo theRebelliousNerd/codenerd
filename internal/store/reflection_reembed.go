@@ -28,6 +28,16 @@ func (s *LocalStore) ReembedAllTracesForce(ctx context.Context) (int, error) {
 	expectedModel := engine.Name()
 	expectedDim := engine.Dimensions()
 
+	// Force re-embed replaces every embedding (model switch): rebuild the ANN
+	// index once up front so stale-dimension rows cannot survive. Batches
+	// insert incrementally after this; the old per-batch drop wiped each
+	// previous batch's rows.
+	if s.vectorExt {
+		if err := s.rebuildTraceVecTable(expectedDim); err != nil {
+			logging.Get(logging.CategoryStore).Warn("Trace vec index rebuild failed, batch syncs will retry: %v", err)
+		}
+	}
+
 	totalEmbedded := 0
 	offset := 0
 	for {
@@ -81,6 +91,13 @@ func (ls *LearningStore) ReembedAllLearningsForce(ctx context.Context) (int, err
 	totalEmbedded := 0
 	shardTypes := ls.listShardTypes()
 	for _, shardType := range shardTypes {
+		// Rebuild the ANN index once per shard up front; batches insert
+		// incrementally after this. See ReembedAllTracesForce.
+		if db, err := ls.getDB(shardType); err == nil {
+			if err := rebuildLearningVecTable(db, expectedDim); err != nil {
+				logging.Get(logging.CategoryStore).Warn("Learning vec index rebuild failed for %s, batch syncs will retry: %v", shardType, err)
+			}
+		}
 		offset := 0
 		for {
 			candidates, err := ls.ListAllLearningEmbeddingCandidates(shardType, reflectionBatchSize, offset)

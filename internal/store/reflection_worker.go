@@ -157,8 +157,6 @@ func (s *LocalStore) processReflectionCycle() {
 }
 
 func (s *LocalStore) buildTraceEmbeddingUpdates(ctx context.Context, candidates []TraceEmbeddingCandidate, engine embedding.EmbeddingEngine, expectedTask, expectedModel string, expectedDim int, forceEmbed bool) ([]TraceEmbeddingUpdate, int, error) {
-	taskAware, hasTaskAware := engine.(embedding.TaskTypeAwareEngine)
-
 	type embedTarget struct {
 		idx  int
 		text string
@@ -214,40 +212,15 @@ func (s *LocalStore) buildTraceEmbeddingUpdates(ctx context.Context, candidates 
 		return updates, embedded, nil
 	}
 
-	if hasTaskAware {
-		for _, target := range targets {
-			vec, err := taskAware.EmbedWithTask(ctx, target.text, expectedTask)
-			if err != nil {
-				continue
-			}
-			if len(vec) == 0 {
-				continue
-			}
-			updates[target.idx].Embedding = encodeFloat32Slice(vec)
-			updates[target.idx].EmbeddingModelID = expectedModel
-			updates[target.idx].EmbeddingDim = len(vec)
-			updates[target.idx].EmbeddingTask = expectedTask
-			embedded++
-		}
-		return updates, embedded, nil
-	}
-
 	texts := make([]string, len(targets))
 	for i, target := range targets {
 		texts[i] = target.text
 	}
-	vecs, err := engine.EmbedBatch(ctx, texts)
-	if err != nil {
-		vecs = make([][]float32, len(targets))
-		for i, target := range targets {
-			vec, embedErr := engine.Embed(ctx, target.text)
-			if embedErr != nil {
-				continue
-			}
-			vecs[i] = vec
-		}
-	}
+	vecs := embedReflectionTargets(ctx, engine, expectedTask, texts)
 	for i, target := range targets {
+		if i >= len(vecs) {
+			break
+		}
 		vec := vecs[i]
 		if len(vec) == 0 {
 			continue
@@ -260,6 +233,36 @@ func (s *LocalStore) buildTraceEmbeddingUpdates(ctx context.Context, candidates 
 	}
 
 	return updates, embedded, nil
+}
+
+// embedReflectionTargets embeds descriptor texts for the reflection builders:
+// task-aware per-item embedding when the engine supports it, batch otherwise,
+// per-item fallback when the batch fails. Returned vecs align with texts;
+// failed items are nil so the caller skips them.
+func embedReflectionTargets(ctx context.Context, engine embedding.EmbeddingEngine, expectedTask string, texts []string) [][]float32 {
+	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok {
+		vecs := make([][]float32, len(texts))
+		for i, text := range texts {
+			vec, err := taskAware.EmbedWithTask(ctx, text, expectedTask)
+			if err != nil || len(vec) == 0 {
+				continue
+			}
+			vecs[i] = vec
+		}
+		return vecs
+	}
+	vecs, err := engine.EmbedBatch(ctx, texts)
+	if err != nil {
+		vecs = make([][]float32, len(texts))
+		for i, text := range texts {
+			vec, embedErr := engine.Embed(ctx, text)
+			if embedErr != nil {
+				continue
+			}
+			vecs[i] = vec
+		}
+	}
+	return vecs
 }
 
 func (s *LocalStore) syncTraceVectorIndex(updates []TraceEmbeddingUpdate, dim int) error {
@@ -316,7 +319,31 @@ func (s *LocalStore) ensureTraceVecTable(dim int) error {
 	if s.db == nil {
 		return fmt.Errorf("no database")
 	}
-	_, _ = s.db.Exec("DROP TABLE IF EXISTS reasoning_traces_vec")
+	// Create-only-if-missing. This used to DROP and recreate on every call,
+	// and syncTraceVectorIndex calls it on every reflection cycle and every
+	// force-rebuild batch — wiping the whole trace ANN index, then
+	// re-inserting only the current batch. Indexed traces vanished from ANN
+	// search every 45 seconds and never came back. Model switches rebuild
+	// explicitly in the force flows instead.
+	if tableExists(s.db, "reasoning_traces_vec") {
+		return nil
+	}
+	query := fmt.Sprintf("CREATE VIRTUAL TABLE reasoning_traces_vec USING vec0(embedding float[%d], trace_id TEXT)", dim)
+	if _, err := s.db.Exec(query); err != nil {
+		return err
+	}
+	return nil
+}
+
+// rebuildTraceVecTable drops and recreates the trace ANN index. Only the
+// force re-embed flow calls this; the incremental sync path must never drop.
+func (s *LocalStore) rebuildTraceVecTable(dim int) error {
+	if s.db == nil {
+		return fmt.Errorf("no database")
+	}
+	if _, err := s.db.Exec("DROP TABLE IF EXISTS reasoning_traces_vec"); err != nil {
+		return err
+	}
 	query := fmt.Sprintf("CREATE VIRTUAL TABLE reasoning_traces_vec USING vec0(embedding float[%d], trace_id TEXT)", dim)
 	if _, err := s.db.Exec(query); err != nil {
 		return err
@@ -474,8 +501,6 @@ func (ls *LearningStore) processLearningReflectionCycle() {
 }
 
 func (ls *LearningStore) buildLearningEmbeddingUpdates(ctx context.Context, candidates []LearningEmbeddingCandidate, engine embedding.EmbeddingEngine, expectedTask, expectedModel string, expectedDim int, forceEmbed bool) ([]LearningEmbeddingUpdate, int, error) {
-	taskAware, hasTaskAware := engine.(embedding.TaskTypeAwareEngine)
-
 	type embedTarget struct {
 		idx  int
 		text string
@@ -531,40 +556,15 @@ func (ls *LearningStore) buildLearningEmbeddingUpdates(ctx context.Context, cand
 		return updates, embedded, nil
 	}
 
-	if hasTaskAware {
-		for _, target := range targets {
-			vec, err := taskAware.EmbedWithTask(ctx, target.text, expectedTask)
-			if err != nil {
-				continue
-			}
-			if len(vec) == 0 {
-				continue
-			}
-			updates[target.idx].Embedding = encodeFloat32Slice(vec)
-			updates[target.idx].EmbeddingModelID = expectedModel
-			updates[target.idx].EmbeddingDim = len(vec)
-			updates[target.idx].EmbeddingTask = expectedTask
-			embedded++
-		}
-		return updates, embedded, nil
-	}
-
 	texts := make([]string, len(targets))
 	for i, target := range targets {
 		texts[i] = target.text
 	}
-	vecs, err := engine.EmbedBatch(ctx, texts)
-	if err != nil {
-		vecs = make([][]float32, len(targets))
-		for i, target := range targets {
-			vec, embedErr := engine.Embed(ctx, target.text)
-			if embedErr != nil {
-				continue
-			}
-			vecs[i] = vec
-		}
-	}
+	vecs := embedReflectionTargets(ctx, engine, expectedTask, texts)
 	for i, target := range targets {
+		if i >= len(vecs) {
+			break
+		}
 		vec := vecs[i]
 		if len(vec) == 0 {
 			continue
@@ -630,7 +630,28 @@ func ensureLearningVecTable(db *sql.DB, dim int) error {
 	if db == nil {
 		return fmt.Errorf("no database")
 	}
-	_, _ = db.Exec("DROP TABLE IF EXISTS learnings_vec")
+	// Create-only-if-missing: the old drop-on-every-sync wiped the learning
+	// ANN index on each reflection cycle and each force batch. See
+	// ensureTraceVecTable; model switches rebuild explicitly instead.
+	if tableExists(db, "learnings_vec") {
+		return nil
+	}
+	query := fmt.Sprintf("CREATE VIRTUAL TABLE learnings_vec USING vec0(embedding float[%d], learning_id INTEGER)", dim)
+	if _, err := db.Exec(query); err != nil {
+		return err
+	}
+	return nil
+}
+
+// rebuildLearningVecTable drops and recreates the learning ANN index. Only
+// the force re-embed flow calls this; the incremental sync must never drop.
+func rebuildLearningVecTable(db *sql.DB, dim int) error {
+	if db == nil {
+		return fmt.Errorf("no database")
+	}
+	if _, err := db.Exec("DROP TABLE IF EXISTS learnings_vec"); err != nil {
+		return err
+	}
 	query := fmt.Sprintf("CREATE VIRTUAL TABLE learnings_vec USING vec0(embedding float[%d], learning_id INTEGER)", dim)
 	if _, err := db.Exec(query); err != nil {
 		return err

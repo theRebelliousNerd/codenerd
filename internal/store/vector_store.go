@@ -36,16 +36,29 @@ func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 	if engine != nil {
 		logging.Store("Setting embedding engine: %s (dimensions=%d)", engine.Name(), engine.Dimensions())
 		s.initVecIndex(engine.Dimensions())
-		// Run backfill in background to avoid blocking startup
-		// The sqlite-vec INSERT can be very slow (minutes) and blocks the TUI init
+		// Run backfill in background to avoid blocking startup: the
+		// sqlite-vec INSERT can be very slow (minutes). The backfill takes
+		// no store lock — it runs in short per-batch transactions, and
+		// holding s.mu for the whole run blocked every reader for minutes.
+		// Ordering with force re-embed is explicit instead: the re-embed
+		// loops wait for the pending backfill (see waitForVecBackfill),
+		// otherwise the two writers race on the same vec_index rows.
 		dim := engine.Dimensions()
+		done := make(chan struct{})
+		s.backfillMu.Lock()
+		s.backfillDone = done
+		s.backfillMu.Unlock()
 		logging.Store("Spawning background goroutine for vector index backfill")
 		go func() {
-			s.mu.Lock()
-			defer s.mu.Unlock()
+			defer close(done)
 			logging.Store("Background vector index backfill starting (dim=%d)", dim)
 			s.backfillVecIndex(dim)
 			logging.Store("Background vector index backfill completed")
+			s.backfillMu.Lock()
+			if s.backfillDone == done {
+				s.backfillDone = nil
+			}
+			s.backfillMu.Unlock()
 		}()
 		if s.reflectionCfg != nil && s.reflectionCfg.Enabled {
 			startReflection = true
@@ -64,30 +77,55 @@ func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 	}
 }
 
+// waitForVecBackfill blocks until no background vec backfill is pending. The
+// wait loops because a second SetEmbeddingEngine can start a new backfill
+// while the caller waits on the previous one's channel. Force re-embed loops
+// must call this before rewriting vec_index rows; ordinary stores address
+// fresh rowids and need no ordering. Call without holding s.mu.
+func (s *LocalStore) waitForVecBackfill(ctx context.Context) error {
+	for {
+		s.backfillMu.Lock()
+		done := s.backfillDone
+		s.backfillMu.Unlock()
+		if done == nil {
+			return nil
+		}
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
 // StoreVectorWithEmbedding stores content with a real vector embedding.
 // This is the new method that replaces StoreVector for semantic search.
 func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content string, metadata map[string]any) error {
 	timer := logging.StartTimer(logging.CategoryStore, "StoreVectorWithEmbedding")
 	defer timer.Stop()
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	engine := s.embeddingEngine
+	s.mu.RUnlock()
 
-	if s.embeddingEngine == nil {
+	if engine == nil {
 		logging.StoreDebug("No embedding engine, falling back to keyword-only storage")
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		return s.storeVectorKeywordOnly(content, metadata)
 	}
 
 	logging.StoreDebug("Generating embedding for content (length=%d bytes)", len(content))
 
-	// Generate embedding
+	// Generate embedding outside the write lock: it is a network call, and
+	// holding mu across it serialized every reader behind every store.
 	taskType := embedding.GetOptimalTaskType(content, metadata, false)
 	var embeddingVec []float32
 	var err error
-	if taskAware, ok := s.embeddingEngine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
 		embeddingVec, err = taskAware.EmbedWithTask(ctx, content, taskType)
 	} else {
-		embeddingVec, err = s.embeddingEngine.Embed(ctx, content)
+		embeddingVec, err = engine.Embed(ctx, content)
 	}
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to generate embedding: %v", err)
@@ -95,6 +133,9 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 	}
 
 	logging.StoreDebug("Embedding generated: %d dimensions", len(embeddingVec))
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// Serialize embedding as JSON
 	embeddingJSON, err := json.Marshal(embeddingVec)
@@ -128,16 +169,10 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 		id, lidErr := res.LastInsertId()
 		if lidErr != nil {
 			logging.Get(logging.CategoryStore).Warn("vec_index skipped: LastInsertId failed: %v (vectors row %s persists; ANN index drift)", lidErr, content)
+		} else if vecErr := s.insertVecIndexRow(id, embeddingVec, content, string(metaJSON)); vecErr != nil {
+			logging.Get(logging.CategoryStore).Warn("vec_index insert failed for rowid=%d: %v (ANN drift)", id, vecErr)
 		} else {
-			vecBlob := encodeFloat32Slice(embeddingVec)
-			if _, vecErr := s.db.Exec(
-				"INSERT OR REPLACE INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)",
-				id, vecBlob, content, string(metaJSON),
-			); vecErr != nil {
-				logging.Get(logging.CategoryStore).Warn("vec_index insert failed for rowid=%d: %v (ANN drift)", id, vecErr)
-			} else {
-				logging.StoreDebug("Vector also indexed in sqlite-vec for ANN search")
-			}
+			logging.StoreDebug("Vector also indexed in sqlite-vec for ANN search")
 		}
 	}
 
@@ -229,9 +264,17 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 	}
 	defer stmt.Close()
 
-	var vecStmt *sql.Stmt
+	var vecStmt, vecDelStmt *sql.Stmt
 	if vecEnabled {
-		vecStmt, err = tx.Prepare("INSERT OR REPLACE INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)")
+		// Delete-then-insert: vec0 errors on INSERT OR REPLACE rowid
+		// conflicts instead of replacing. See insertVecIndexRow.
+		vecDelStmt, err = tx.Prepare("DELETE FROM vec_index WHERE rowid = ? OR (content = ? AND json_extract(metadata, '$.kind') = 'predicate')")
+		if err != nil {
+			_ = tx.Rollback()
+			return 0, err
+		}
+		defer vecDelStmt.Close()
+		vecStmt, err = tx.Prepare("INSERT INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)")
 		if err != nil {
 			_ = tx.Rollback()
 			return 0, err
@@ -280,7 +323,9 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 				logging.Get(logging.CategoryStore).Warn("batch vec_index skipped: LastInsertId failed for row %d: %v (ANN drift)", i, lidErr)
 			} else {
 				vecBlob := encodeFloat32Slice(embeddings[i])
-				if _, vecErr := vecStmt.Exec(id, vecBlob, content, metaJSON); vecErr != nil {
+				if _, delErr := vecDelStmt.Exec(id, content); delErr != nil {
+					logging.Get(logging.CategoryStore).Warn("batch vec_index clear failed for rowid=%d: %v (ANN drift)", id, delErr)
+				} else if _, vecErr := vecStmt.Exec(id, vecBlob, content, metaJSON); vecErr != nil {
 					logging.Get(logging.CategoryStore).Warn("batch vec_index insert failed for rowid=%d: %v (ANN drift)", id, vecErr)
 				}
 			}
@@ -521,6 +566,30 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 
 	logging.StoreDebug("Using brute-force cosine similarity search with metadata filter")
 	return s.vectorRecallBruteForceFiltered(query, queryEmbedding, limit, metaKey, metaValue)
+}
+
+// insertVecIndexRow writes one vec_index entry by delete-then-insert. Two
+// facts force this shape: vec0 does not honor INSERT OR REPLACE on rowid
+// conflicts (it errors with UNIQUE constraint failed), and a predicate-kind
+// vectors row replaced by content gets a fresh rowid, orphaning its old vec
+// row. The content-scoped delete only touches predicate-kind rows, whose
+// content is unique, so duplicate ordinary content is unaffected.
+func (s *LocalStore) insertVecIndexRow(id int64, embeddingVec []float32, content, metaJSON string) error {
+	vecBlob := encodeFloat32Slice(embeddingVec)
+	if _, err := s.db.Exec("DELETE FROM vec_index WHERE rowid = ?", id); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(
+		"DELETE FROM vec_index WHERE content = ? AND json_extract(metadata, '$.kind') = 'predicate'",
+		content,
+	); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(
+		"INSERT INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)",
+		id, vecBlob, content, metaJSON,
+	)
+	return err
 }
 
 // vectorRecallKeyword is the fallback keyword-based search.
@@ -937,6 +1006,9 @@ func (s *LocalStore) VectorContentsByMetadata(metaKey string, metaValue any) (ma
 		}
 		contents[content] = struct{}{}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return contents, nil
 }
 
@@ -962,6 +1034,13 @@ func (s *LocalStore) DeleteVectorsByMetadata(metaKey string, metaValue any) (int
 	if err != nil {
 		return 0, err
 	}
+	// ANN reads vec_index, not vectors: rows deleted above would otherwise
+	// keep surfacing in sqlite-vec search results as ghosts.
+	if s.vectorExt && tableExists(s.db, "vec_index") {
+		if _, err := s.db.Exec("DELETE FROM vec_index WHERE rowid NOT IN (SELECT id FROM vectors)"); err != nil {
+			logging.Get(logging.CategoryStore).Warn("vec_index ghost purge after delete failed: %v (ANN drift)", err)
+		}
+	}
 	return rows, nil
 }
 
@@ -977,12 +1056,19 @@ func (s *LocalStore) GetVectorStats() (map[string]any, error) {
 
 	stats := make(map[string]any)
 
+	// Both scans are checked: on a missing, locked or drifted table the old
+	// code reported total_vectors 0 — the exact numbers of a healthy empty
+	// store — instead of an error. See LearningStore.GetStats.
 	var totalVectors int64
-	s.db.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&totalVectors)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&totalVectors); err != nil {
+		return nil, fmt.Errorf("count vectors: %w", err)
+	}
 	stats["total_vectors"] = totalVectors
 
 	var withEmbeddings int64
-	s.db.QueryRow("SELECT COUNT(*) FROM vectors WHERE embedding IS NOT NULL").Scan(&withEmbeddings)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM vectors WHERE embedding IS NOT NULL").Scan(&withEmbeddings); err != nil {
+		return nil, fmt.Errorf("count embedded vectors: %w", err)
+	}
 	stats["with_embeddings"] = withEmbeddings
 
 	withoutEmbeddings := totalVectors - withEmbeddings

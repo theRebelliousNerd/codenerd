@@ -53,6 +53,8 @@ type LocalStore struct {
 	reflectionStop  chan struct{}
 	reflectionDone  chan struct{}
 	reflectionCfg   *config.ReflectionConfig
+	backfillMu      sync.Mutex
+	backfillDone    chan struct{} // Closed when the pending vec backfill finishes; nil when idle.
 }
 
 // NewLocalStore initializes the SQLite database at the given path.

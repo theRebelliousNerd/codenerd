@@ -2865,7 +2865,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/store/local_session_extra_test.go`
 - [ ] `internal/store/local_session_integration_test.go`
 - [ ] `internal/store/local_session_test.go`
-- [ ] `internal/store/local_vector.go`
+- [x] `internal/store/local_vector.go`
 - [ ] `internal/store/local_vector_test.go`
 - [ ] `internal/store/local_verification.go`
 - [ ] `internal/store/local_verification_extra_test.go`
@@ -2876,17 +2876,18 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/store/migrations_test.go`
 - [ ] `internal/store/mocks_test.go`
 - [x] `internal/store/pragmas.go`
-- [ ] `internal/store/prompt_reembed.go`
+- [x] `internal/store/prompt_reembed.go`
 - [ ] `internal/store/prompt_reembed_benchmark_test.go`
-- [ ] `internal/store/reembed_all.go`
+- [x] `internal/store/reembed_all.go`
 - [ ] `internal/store/reembed_all_test.go`
-- [ ] `internal/store/reflection_reembed.go`
+- [x] `internal/store/reflection_reembed.go`
 - [ ] `internal/store/reflection_reembed_test.go`
 - [x] `internal/store/reflection_search.go`
 - [ ] `internal/store/reflection_search_extra_test.go`
-- [ ] `internal/store/reflection_utils.go`
+- [x] `internal/store/reflection_utils.go`
 - [ ] `internal/store/reflection_utils_test.go`
-- [ ] `internal/store/reflection_worker.go`
+- [x] `internal/store/reflection_worker.go`
+- [x] `internal/store/vector_uplift_test.go`
 - [ ] `internal/store/reflection_worker_test.go`
 - [ ] `internal/store/serialization_test.go`
 - [ ] `internal/store/tool_cleanup.go`
@@ -2904,16 +2905,16 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/store/vec_support_enabled.go`
 - [ ] `internal/store/vector_boundary_test.go`
 - [ ] `internal/store/vector_e2e_test.go`
-- [ ] `internal/store/vector_store.go`
+- [x] `internal/store/vector_store.go`
 - [ ] `internal/store/vector_store_batch_test.go`
 - [ ] `internal/store/vector_store_benchmark_test.go`
 - [ ] `internal/store/vector_store_brute_test.go`
-- [ ] `internal/store/vector_store_bruteforce.go`
+- [x] `internal/store/vector_store_bruteforce.go`
 - [ ] `internal/store/vector_store_extra_test.go`
-- [ ] `internal/store/vector_store_reembed.go`
+- [x] `internal/store/vector_store_reembed.go`
 - [ ] `internal/store/vector_store_search_test.go`
 - [ ] `internal/store/vector_store_test.go`
-- [ ] `internal/store/vector_utils.go`
+- [x] `internal/store/vector_utils.go`
 - [ ] `internal/store/vector_utils_test.go`
 
 ### internal/system (59)

@@ -102,6 +102,9 @@ func (s *LocalStore) VectorRecall(query string, limit int) ([]VectorEntry, error
 		entry.Metadata = decodeRowMetadata(entry.ID, []byte(metaJSON))
 		results = append(results, entry)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	logging.StoreDebug("Vector recall returned %d results", len(results))
 	return results, nil

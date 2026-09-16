@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"math"
 	"strings"
 
 	"codenerd/internal/embedding"
@@ -17,10 +16,10 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 	timer := logging.StartTimer(logging.CategoryStore, "ReembedAllPromptAtomsForce")
 	defer timer.Stop()
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.embeddingEngine == nil {
+	s.mu.RLock()
+	engine := s.embeddingEngine
+	s.mu.RUnlock()
+	if engine == nil {
 		logging.Get(logging.CategoryStore).Error("Cannot force re-embed prompt atoms: no embedding engine configured")
 		return 0, fmt.Errorf("no embedding engine configured")
 	}
@@ -32,12 +31,6 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 		// Some DBs may not have prompt_atoms (older or non-store DBs).
 		logging.Get(logging.CategoryStore).Debug("Skipping prompt_atoms re-embed (query failed): %v", err)
 		return 0, nil
-	}
-	defer rows.Close()
-
-	type atomToEmbed struct {
-		atomID string
-		text   string
 	}
 
 	var atoms []atomToEmbed
@@ -52,6 +45,11 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 		}
 		atoms = append(atoms, atomToEmbed{atomID: atomID, text: text})
 	}
+	listErr := rows.Err()
+	rows.Close()
+	if listErr != nil {
+		return 0, fmt.Errorf("list prompt atoms for re-embed: %w", listErr)
+	}
 
 	if len(atoms) == 0 {
 		return 0, nil
@@ -59,15 +57,17 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 
 	logging.Store("Force re-embedding %d prompt atoms in DB: %s", len(atoms), s.dbPath)
 
-	taskTypeAware, hasTaskAware := s.embeddingEngine.(embedding.TaskTypeAwareEngine)
-	taskTypeBatchAware, hasTaskBatchAware := s.embeddingEngine.(embedding.TaskTypeBatchAwareEngine)
+	taskTypeAware, hasTaskAware := engine.(embedding.TaskTypeAwareEngine)
+	taskTypeBatchAware, hasTaskBatchAware := engine.(embedding.TaskTypeBatchAwareEngine)
 	expectedTask := embedding.SelectTaskType(embedding.ContentTypePromptAtom, false)
 
+	// Embedding runs without the store lock; only the write transaction takes
+	// it. Holding s.mu across the network calls froze every reader.
 	batchSize := 32
 	totalBatches := (len(atoms) + batchSize - 1) / batchSize
 	totalEmbedded := 0
 	for i := 0; i < len(atoms); i += batchSize {
-		end := int(math.Min(float64(i+batchSize), float64(len(atoms))))
+		end := min(i+batchSize, len(atoms))
 		batch := atoms[i:end]
 		batchNum := (i / batchSize) + 1
 		logging.Store("ReembedAllPromptAtomsForce [%s]: batch %d/%d (%d atoms)",
@@ -101,13 +101,13 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 			for j, a := range batch {
 				texts[j] = a.text
 			}
-			vecs, err := s.embeddingEngine.EmbedBatch(ctx, texts)
+			vecs, err := engine.EmbedBatch(ctx, texts)
 			if err != nil {
 				logging.Get(logging.CategoryStore).Warn("Prompt atom batch embeddings failed for %s (batch %d/%d): %v; falling back to per-item embedding",
 					s.dbPath, batchNum, totalBatches, err)
 				vecs = make([][]float32, len(batch))
 				for j, a := range batch {
-					vec, embedErr := s.embeddingEngine.Embed(ctx, a.text)
+					vec, embedErr := engine.Embed(ctx, a.text)
 					if embedErr != nil {
 						logging.Get(logging.CategoryStore).Warn("Failed to embed prompt atom %s in %s: %v", a.atomID, s.dbPath, embedErr)
 						continue
@@ -118,39 +118,64 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 			embeddings = vecs
 		}
 
-		// Optimization: Use transaction for batch update
-		tx, err := s.db.Begin()
+		embedded, err := s.applyPromptAtomEmbeddings(batch, embeddings, expectedTask)
 		if err != nil {
-			return totalEmbedded, fmt.Errorf("failed to begin transaction: %w", err)
+			return totalEmbedded, err
 		}
-
-		stmt, err := tx.Prepare("UPDATE prompt_atoms SET embedding = ?, embedding_task = ? WHERE atom_id = ?")
-		if err != nil {
-			tx.Rollback()
-			return totalEmbedded, fmt.Errorf("failed to prepare statement: %w", err)
-		}
-		defer stmt.Close()
-
-		for j, a := range batch {
-			if j >= len(embeddings) || embeddings[j] == nil || len(embeddings[j]) == 0 {
-				continue
-			}
-			blob := encodeFloat32Slice(embeddings[j])
-			_, err := stmt.Exec(blob, expectedTask, a.atomID)
-			if err != nil {
-				tx.Rollback()
-				return totalEmbedded, fmt.Errorf("failed to update prompt atom %s: %w", a.atomID, err)
-			}
-			totalEmbedded++
-		}
-
-		if err := tx.Commit(); err != nil {
-			return totalEmbedded, fmt.Errorf("failed to commit transaction: %w", err)
-		}
+		totalEmbedded += embedded
 	}
 
 	logging.Store("Force re-embedding prompt atoms complete: %d atoms processed", totalEmbedded)
 	return totalEmbedded, nil
+}
+
+// atomToEmbed is one prompt atom awaiting an embedding write.
+type atomToEmbed struct {
+	atomID string
+	text   string
+}
+
+// applyPromptAtomEmbeddings writes one batch of fresh atom embeddings under
+// the write lock. Empty slots (a failed per-item embed) are skipped.
+func (s *LocalStore) applyPromptAtomEmbeddings(batch []atomToEmbed, embeddings [][]float32, expectedTask string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Optimization: Use transaction for batch update
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	stmt, err := tx.Prepare("UPDATE prompt_atoms SET embedding = ?, embedding_task = ? WHERE atom_id = ?")
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	embedded := 0
+	for j, a := range batch {
+		if j >= len(embeddings) || len(embeddings[j]) == 0 {
+			continue
+		}
+		blob := encodeFloat32Slice(embeddings[j])
+		if _, err := stmt.Exec(blob, expectedTask, a.atomID); err != nil {
+			return embedded, fmt.Errorf("failed to update prompt atom %s: %w", a.atomID, err)
+		}
+		embedded++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return embedded, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	committed = true
+	return embedded, nil
 }
 
 func textForAtomEmbedding(description, content string) string {
@@ -159,8 +184,10 @@ func textForAtomEmbedding(description, content string) string {
 		return desc
 	}
 	c := strings.TrimSpace(content)
-	if len(c) > 500 {
-		c = c[:500]
+	// Rune-safe truncation: byte slicing can split a multi-byte rune and
+	// hand the embedder invalid UTF-8.
+	if r := []rune(c); len(r) > 500 {
+		return string(r[:500])
 	}
 	return c
 }
