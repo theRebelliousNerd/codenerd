@@ -94,7 +94,7 @@ func NewLocalStore(path string) (*LocalStore, error) {
 	if store.requireVec && !store.vectorExt {
 		logging.Get(logging.CategoryStore).Error("sqlite-vec extension not available")
 		db.Close()
-		return nil, fmt.Errorf("sqlite-vec extension not available; rebuild modernc SQLite with vec0 (set SQLITE3_EXT=vec0 or include vec sources) to enable ANN search")
+		return nil, fmt.Errorf("sqlite-vec extension not available; rebuild with -tags sqlite_vec and CGO_CFLAGS pointing at sqlite_headers to enable ANN search")
 	}
 	if store.vectorExt {
 		logging.Store("sqlite-vec extension detected and enabled")

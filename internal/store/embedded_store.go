@@ -161,35 +161,9 @@ func (s *EmbeddedCorpusStore) Search(queryEmbedding []float32, topK int) ([]Sema
 	}
 	defer rows.Close()
 
-	var matches []SemanticMatch
-	rank := 1
-	for rows.Next() {
-		var match SemanticMatch
-		var distance float64
-
-		if err := rows.Scan(
-			&match.TextContent,
-			&match.Predicate,
-			&match.Verb,
-			&match.Target,
-			&match.Category,
-			&distance,
-		); err != nil {
-			logging.Get(logging.CategoryStore).Warn("Failed to scan corpus row: %v", err)
-			continue
-		}
-
-		// Convert distance to similarity (cosine distance is 1 - similarity)
-		match.Similarity = 1.0 - distance
-		match.Rank = rank
-		rank++
-
-		matches = append(matches, match)
-	}
-
-	if err := rows.Err(); err != nil {
-		logging.Get(logging.CategoryStore).Error("Error iterating corpus results: %v", err)
-		return nil, fmt.Errorf("error iterating corpus results: %w", err)
+	matches, err := scanSemanticMatches(rows, "results")
+	if err != nil {
+		return nil, err
 	}
 
 	logging.StoreDebug("Embedded corpus search returned %d matches", len(matches))
@@ -240,34 +214,9 @@ func (s *EmbeddedCorpusStore) SearchByPredicate(queryEmbedding []float32, predic
 	}
 	defer rows.Close()
 
-	var matches []SemanticMatch
-	rank := 1
-	for rows.Next() {
-		var match SemanticMatch
-		var distance float64
-
-		if err := rows.Scan(
-			&match.TextContent,
-			&match.Predicate,
-			&match.Verb,
-			&match.Target,
-			&match.Category,
-			&distance,
-		); err != nil {
-			logging.Get(logging.CategoryStore).Warn("Failed to scan corpus row: %v", err)
-			continue
-		}
-
-		match.Similarity = 1.0 - distance
-		match.Rank = rank
-		rank++
-
-		matches = append(matches, match)
-	}
-
-	if err := rows.Err(); err != nil {
-		logging.Get(logging.CategoryStore).Error("Error iterating corpus predicate results: %v", err)
-		return nil, fmt.Errorf("error iterating corpus predicate results: %w", err)
+	matches, err := scanSemanticMatches(rows, "predicate results")
+	if err != nil {
+		return nil, err
 	}
 
 	logging.StoreDebug("Embedded corpus predicate search returned %d matches", len(matches))
@@ -318,6 +267,19 @@ func (s *EmbeddedCorpusStore) SearchByCategory(queryEmbedding []float32, categor
 	}
 	defer rows.Close()
 
+	matches, err := scanSemanticMatches(rows, "category results")
+	if err != nil {
+		return nil, err
+	}
+
+	logging.StoreDebug("Embedded corpus category search returned %d matches", len(matches))
+	return matches, nil
+}
+
+// scanSemanticMatches maps the shared six-column ANN select shape (content,
+// predicate, verb, target, category, distance) into ranked matches. The three
+// search methods used to hand-roll this loop, which is how scan drift starts.
+func scanSemanticMatches(rows *sql.Rows, op string) ([]SemanticMatch, error) {
 	var matches []SemanticMatch
 	rank := 1
 	for rows.Next() {
@@ -336,6 +298,7 @@ func (s *EmbeddedCorpusStore) SearchByCategory(queryEmbedding []float32, categor
 			continue
 		}
 
+		// Convert distance to similarity (cosine distance is 1 - similarity)
 		match.Similarity = 1.0 - distance
 		match.Rank = rank
 		rank++
@@ -344,11 +307,9 @@ func (s *EmbeddedCorpusStore) SearchByCategory(queryEmbedding []float32, categor
 	}
 
 	if err := rows.Err(); err != nil {
-		logging.Get(logging.CategoryStore).Error("Error iterating corpus category results: %v", err)
-		return nil, fmt.Errorf("error iterating corpus category results: %w", err)
+		logging.Get(logging.CategoryStore).Error("Error iterating corpus %s: %v", op, err)
+		return nil, fmt.Errorf("error iterating corpus %s: %w", op, err)
 	}
-
-	logging.StoreDebug("Embedded corpus category search returned %d matches", len(matches))
 	return matches, nil
 }
 

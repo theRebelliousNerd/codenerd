@@ -471,6 +471,29 @@ func ComputeContentHash(concept, content string) string {
 	return hex.EncodeToString(hash[:])
 }
 
+// checkpointWAL forces pending WAL frames into the main database file so a
+// subsequent file copy is complete. Without it, a backup taken while the
+// writer is open misses every commit still sitting in the -wal file — the
+// copy opens fine but is silently stale, and a restore from it loses the
+// user's recent data while reporting success. A checkpoint failure never
+// fails the backup: it degrades to the old stale-but-valid copy with a
+// warning, which is strictly better than no backup at all.
+func checkpointWAL(dbPath string) {
+	if _, err := os.Stat(dbPath); err != nil {
+		return
+	}
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Warn("Pre-backup checkpoint skipped (open failed): %v", err)
+		return
+	}
+	defer db.Close()
+	_, _ = db.Exec("PRAGMA busy_timeout=5000")
+	if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		logging.Get(logging.CategoryStore).Warn("Pre-backup checkpoint failed, backup may be stale: %v", err)
+	}
+}
+
 // CreateBackup creates a backup copy of the database file.
 func CreateBackup(dbPath string) (string, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "CreateBackup")
@@ -480,6 +503,8 @@ func CreateBackup(dbPath string) (string, error) {
 	backupPath := dbPath + fmt.Sprintf(".backup_%s", timestamp)
 
 	logging.Store("Creating database backup: %s -> %s", dbPath, backupPath)
+
+	checkpointWAL(dbPath)
 
 	src, err := os.Open(dbPath)
 	if err != nil {
@@ -568,6 +593,16 @@ func RestoreBackup(dbPath, backupPath string) error {
 	if err := dst.Close(); err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to close restored database file: %v", err)
 		return fmt.Errorf("failed to close restored database: %w", err)
+	}
+
+	// Drop the pre-restore WAL sidecars. They hold frames for the database
+	// bytes just overwritten; replaying them over the restored file would
+	// corrupt the restore. (SQLite would usually refuse via the salt check,
+	// but the restore must not depend on that luck.)
+	for _, sidecar := range []string{dbPath + "-wal", dbPath + "-shm"} {
+		if err := os.Remove(sidecar); err != nil && !os.IsNotExist(err) {
+			logging.Get(logging.CategoryStore).Warn("Failed to remove stale sidecar %s after restore: %v", sidecar, err)
+		}
 	}
 
 	logging.Store("Database restored from backup (%d bytes)", bytesCopied)

@@ -2820,13 +2820,14 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/store/archival_test.go`
 - [ ] `internal/store/cold_storage_integration_test.go`
 - [ ] `internal/store/corpus_search_boundaries_test.go`
-- [ ] `internal/store/embedded_store.go`
+- [x] `internal/store/embedded_store.go`
+- [x] `internal/store/foundation_uplift_test.go`
 - [ ] `internal/store/fact_codec.go`
 - [ ] `internal/store/fact_codec_int64_test.go`
 - [ ] `internal/store/fact_codec_test.go`
-- [ ] `internal/store/indexes.go`
-- [ ] `internal/store/init_sqlite.go`
-- [ ] `internal/store/init_vec.go`
+- [x] `internal/store/indexes.go`
+- [x] `internal/store/init_sqlite.go`
+- [x] `internal/store/init_vec.go`
 - [ ] `internal/store/knowledge_lexical_db.go`
 - [ ] `internal/store/knowledge_lexical_db_test.go`
 - [ ] `internal/store/learned_store.go`
@@ -2838,10 +2839,10 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/store/learning_recall_regression_test.go`
 - [ ] `internal/store/learning_reflection.go`
 - [ ] `internal/store/learning_stats_test.go`
-- [ ] `internal/store/local.go`
+- [x] `internal/store/local.go`
 - [ ] `internal/store/local_cold.go`
 - [ ] `internal/store/local_cold_extra_test.go`
-- [ ] `internal/store/local_core.go`
+- [x] `internal/store/local_core.go`
 - [ ] `internal/store/local_core_test.go`
 - [ ] `internal/store/local_graph.go`
 - [ ] `internal/store/local_graph_benchmark_test.go`
@@ -2869,11 +2870,11 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/store/local_verification_extra_test.go`
 - [ ] `internal/store/local_world.go`
 - [ ] `internal/store/local_world_extra_test.go`
-- [ ] `internal/store/migrations.go`
+- [x] `internal/store/migrations.go`
 - [ ] `internal/store/migrations_benchmark_test.go`
 - [ ] `internal/store/migrations_test.go`
 - [ ] `internal/store/mocks_test.go`
-- [ ] `internal/store/pragmas.go`
+- [x] `internal/store/pragmas.go`
 - [ ] `internal/store/prompt_reembed.go`
 - [ ] `internal/store/prompt_reembed_benchmark_test.go`
 - [ ] `internal/store/reembed_all.go`
@@ -2898,8 +2899,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/store/trace_store_integration_test.go`
 - [ ] `internal/store/trace_store_test.go`
 - [ ] `internal/store/vec_probe_test.go`
-- [ ] `internal/store/vec_support_disabled.go`
-- [ ] `internal/store/vec_support_enabled.go`
+- [x] `internal/store/vec_support_disabled.go`
+- [x] `internal/store/vec_support_enabled.go`
 - [ ] `internal/store/vector_boundary_test.go`
 - [ ] `internal/store/vector_e2e_test.go`
 - [ ] `internal/store/vector_store.go`
