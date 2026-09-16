@@ -153,10 +153,9 @@ func OpenAIToolResponseFromResponse(resp *OpenAIResponse) (*LLMToolResponse, err
 // support the operation, so retrying identical bytes will never start
 // working (pinned by the compat and Gemini contracts).
 // This is the single transient policy shared by the OpenAI-compatible
-// helper and the native vendor clients. Two vendor predicates live
-// outside it: the OpenAI-compat client's isRetryableServerStatus (same
-// 5xx set but silent on 408 — a question for its own uplift) and ZAI's
-// 429-inclusive retry-after-aware predicate in client_zai_retry.go.
+// helper, the OpenAI-compat vendor client, and the native vendor clients.
+// One vendor predicate lives outside it: ZAI's 429-inclusive
+// retry-after-aware predicate in client_zai_retry.go.
 func isTransientHTTPStatus(code int) bool {
 	return code == http.StatusRequestTimeout || (code >= 500 && code != http.StatusNotImplemented)
 }

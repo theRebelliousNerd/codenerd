@@ -355,13 +355,6 @@ func (c *OpenAICompatClient) reasoningEffortForContext(ctx context.Context) stri
 	return ""
 }
 
-// isRetryableServerStatus reports whether a status means "the vendor failed,
-// try again" rather than "your request is wrong". 501 Not Implemented is
-// excluded: retrying an unimplemented endpoint just burns the budget.
-func isRetryableServerStatus(code int) bool {
-	return code >= 500 && code != http.StatusNotImplemented
-}
-
 // isTransientModelNotFound reports a 404 that claims the model does not exist
 // when it demonstrably does.
 //
@@ -611,7 +604,7 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 			// live: a single `500 internal server error` from Meta killed the
 			// turn outright even though the identical request succeeded on the
 			// next attempt. Retry these on the same backoff as 429.
-			if isRetryableServerStatus(resp.StatusCode) || isTransientModelNotFound(resp.StatusCode, bodyStr) {
+			if isTransientHTTPStatus(resp.StatusCode) || isTransientModelNotFound(resp.StatusCode, bodyStr) {
 				wait := retryDelay(resp, attempt)
 				logging.PerceptionWarn("[%s] retryable failure (%d), retrying in %v", c.vendor, resp.StatusCode, wait)
 				lastErr = fmt.Errorf("%s API request failed with status %d: %s", c.vendor, resp.StatusCode, bodyStr)
@@ -870,6 +863,16 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 					isSchemaRejection(bodyStr) {
 					reqBody.ResponseFormat = nil
 					lastErr = fmt.Errorf("structured output rejected: %s", bodyStr)
+					continue
+				}
+				if isTransientHTTPStatus(resp.StatusCode) || isTransientModelNotFound(resp.StatusCode, bodyStr) {
+					wait := retryDelay(resp, attempt)
+					logging.PerceptionWarn("[%s] stream setup retryable failure (%d), retrying in %v", c.vendor, resp.StatusCode, wait)
+					lastErr = fmt.Errorf("%s API request failed with status %d: %s", c.vendor, resp.StatusCode, bodyStr)
+					if sleepErr := sleepCtx(ctx, wait); sleepErr != nil {
+						errorChan <- sleepErr
+						return
+					}
 					continue
 				}
 				errorChan <- fmt.Errorf("%s API request failed with status %d: %s", c.vendor, resp.StatusCode, bodyStr)

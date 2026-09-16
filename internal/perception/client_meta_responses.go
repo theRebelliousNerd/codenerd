@@ -613,7 +613,7 @@ func (c *OpenAICompatClient) executeResponses(ctx context.Context, reqBody metaR
 		bodyStr := strings.TrimSpace(string(body))
 		lastErr = fmt.Errorf("responses HTTP %d: %s", resp.StatusCode, bodyStr)
 		if resp.StatusCode == http.StatusTooManyRequests ||
-			isRetryableServerStatus(resp.StatusCode) ||
+			isTransientHTTPStatus(resp.StatusCode) ||
 			isTransientModelNotFound(resp.StatusCode, bodyStr) {
 			wait := retryDelay(resp, attempt)
 			logging.PerceptionWarn("[%s] responses attempt %d/%d got HTTP %d; retrying in %v",
