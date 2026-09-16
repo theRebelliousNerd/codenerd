@@ -171,3 +171,51 @@ func TestOpenAIRateLimit_PreservesSpacing(t *testing.T) {
 		t.Errorf("inter-request gap = %v, want >= 90ms", gap)
 	}
 }
+
+// The chat path shares the transient policy with the tools path (which
+// already retried 5xx via the helper): a 503 is retried, not fatal.
+func TestOpenAIChat_RetriesTransientThenSucceeds(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hits.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":{"message":"high demand"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+		  "choices": [{"index": 0, "message": {"role": "assistant", "content": "  recovered  "}, "finish_reason": "stop"}],
+		  "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := openaiTestClient(srv.URL)
+	resp, err := c.CompleteWithSystem(context.Background(), "sys", "hi")
+	if err != nil {
+		t.Fatalf("CompleteWithSystem: %v", err)
+	}
+	if resp != "recovered" {
+		t.Errorf("response = %q, want trimmed content", resp)
+	}
+	if got := hits.Load(); got != 2 {
+		t.Errorf("server hits = %d, want 2 (one transient retried)", got)
+	}
+}
+
+// A transient failure during stream setup is retried, and the recovered
+// stream still delivers every delta in order.
+func TestOpenAIStreaming_RetriesTransientSetup(t *testing.T) {
+	var hits atomic.Int32
+	srv := sseFlakyServer(t, 1, http.StatusServiceUnavailable, &hits)
+	defer srv.Close()
+
+	c := openaiTestClient(srv.URL)
+	contentCh, errCh := c.CompleteWithStreaming(context.Background(), "sys", "hi", false)
+	if got := drainStream(t, contentCh, errCh); got != "hello" {
+		t.Errorf("streamed content = %q, want hello", got)
+	}
+	if n := hits.Load(); n != 2 {
+		t.Errorf("server hits = %d, want 2 (one setup retry)", n)
+	}
+}

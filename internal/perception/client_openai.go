@@ -176,6 +176,11 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			continue
 		}
 
+		if isTransientHTTPStatus(resp.StatusCode) {
+			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			continue
+		}
+
 		if resp.StatusCode != http.StatusOK {
 			// Some providers/models reject response_format; retry once without it.
 			if isPiggyback && reqBody.ResponseFormat != nil && resp.StatusCode == http.StatusBadRequest {
@@ -321,6 +326,13 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 				resp.Body.Close()
 				lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+				continue
+			}
+
+			if isTransientHTTPStatus(resp.StatusCode) {
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+				resp.Body.Close()
+				lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 				continue
 			}
 
