@@ -2359,6 +2359,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/perception/client_openai_compat_truncation_test.go`
 - [x] `internal/perception/client_openai_http_test.go`
 - [x] `internal/perception/client_openrouter.go`
+- [x] `internal/perception/client_openrouter_uplift_test.go`
 - [x] `internal/perception/client_planner_slot_test.go`
 - [x] `internal/perception/client_schema.go`
 - [x] `internal/perception/client_schema_strict_test.go`
