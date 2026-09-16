@@ -190,8 +190,11 @@ func digestStrings(parts []string) string {
 // durable write or focused post-write verification is required; novel
 // read/search evidence alone is a deterministic stall.
 func (c *toolBudgetController) maybeExtend(writeOriented bool) toolBudgetExtensionDecision {
+	if c == nil {
+		return toolBudgetExtensionDecision{Reason: "no budget controller"}
+	}
 	decision := toolBudgetExtensionDecision{NewLimit: c.iterationLimit}
-	if c == nil || !c.adaptive {
+	if !c.adaptive {
 		decision.Reason = "adaptive tool budget disabled"
 		return decision
 	}

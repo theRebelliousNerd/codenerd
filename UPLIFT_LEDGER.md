@@ -2622,97 +2622,100 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/retrieval/retrieval_uplift_test.go`
 - [x] `internal/retrieval/wiring_test.go`
 
-### internal/session (90)
-- [ ] `internal/session/build_repair_regime_test.go`
-- [ ] `internal/session/build_verify.go`
-- [ ] `internal/session/build_verify_test.go`
-- [ ] `internal/session/change_evidence.go`
-- [ ] `internal/session/check_safety_real_kernel_test.go`
-- [ ] `internal/session/check_safety_write_large_test.go`
-- [ ] `internal/session/coverage_profile.go`
-- [ ] `internal/session/coverage_profile_test.go`
-- [ ] `internal/session/critic.go`
-- [ ] `internal/session/critic_test.go`
-- [ ] `internal/session/executor.go`
-- [ ] `internal/session/executor_boundary_test.go`
-- [ ] `internal/session/executor_budget_exhaustion_test.go`
-- [ ] `internal/session/executor_capability_test.go`
-- [ ] `internal/session/executor_gate_test.go`
-- [ ] `internal/session/executor_history_test.go`
-- [ ] `internal/session/executor_learning.go`
-- [ ] `internal/session/executor_learning_e2e_test.go`
-- [ ] `internal/session/executor_learning_test.go`
-- [ ] `internal/session/executor_mangle_test.go`
-- [ ] `internal/session/executor_mangle_updates_test.go`
-- [ ] `internal/session/executor_memory.go`
-- [ ] `internal/session/executor_memory_test.go`
-- [ ] `internal/session/executor_no_tool_retry_test.go`
-- [ ] `internal/session/executor_planner_routing_test.go`
-- [ ] `internal/session/executor_process_test.go`
-- [ ] `internal/session/executor_projectdoc_test.go`
-- [ ] `internal/session/executor_retrieval_context_test.go`
-- [ ] `internal/session/executor_test.go`
-- [ ] `internal/session/executor_tool_context_test.go`
-- [ ] `internal/session/executor_tool_loop_timeout_test.go`
-- [ ] `internal/session/executor_tools.go`
-- [ ] `internal/session/executor_usage_tracker_test.go`
-- [ ] `internal/session/file_context_injection_test.go`
-- [ ] `internal/session/gate_names.go`
-- [ ] `internal/session/gate_names_test.go`
-- [ ] `internal/session/history_bounds_test.go`
-- [ ] `internal/session/hollow_success_test.go`
-- [ ] `internal/session/journey_adversarial_test.go`
-- [ ] `internal/session/journey_planned_steps_test.go`
-- [ ] `internal/session/lsp_diagnostics.go`
-- [ ] `internal/session/lsp_diagnostics_test.go`
-- [ ] `internal/session/mocks_test.go`
-- [ ] `internal/session/modularity.go`
-- [ ] `internal/session/modularity_guard_verify_test.go`
-- [ ] `internal/session/modularity_test.go`
-- [ ] `internal/session/observed_return.go`
-- [ ] `internal/session/pending_edit_path_validation_test.go`
-- [ ] `internal/session/pending_edit_test.go`
-- [ ] `internal/session/persistence.go`
-- [ ] `internal/session/piggyback_promotion.go`
-- [ ] `internal/session/piggyback_promotion_test.go`
-- [ ] `internal/session/placeholder_test_guard_test.go`
-- [ ] `internal/session/semantic_compressor.go`
-- [ ] `internal/session/semantic_compressor_test.go`
-- [ ] `internal/session/session_wiring_test.go`
-- [ ] `internal/session/severity.go`
-- [ ] `internal/session/severity_test.go`
-- [ ] `internal/session/shell_gate_test.go`
-- [ ] `internal/session/spawner.go`
-- [ ] `internal/session/spawner_executor_config_test.go`
-- [ ] `internal/session/spawner_gaps_test.go`
-- [ ] `internal/session/spawner_improvements_test.go`
-- [ ] `internal/session/spawner_test.go`
-- [ ] `internal/session/subagent.go`
-- [ ] `internal/session/subagent_test.go`
-- [ ] `internal/session/subagent_tool_error_test.go`
-- [ ] `internal/session/task_executor.go`
-- [ ] `internal/session/task_executor_test.go`
-- [ ] `internal/session/test_output_detector.go`
-- [ ] `internal/session/test_verify.go`
-- [ ] `internal/session/test_verify_test.go`
-- [ ] `internal/session/testtool_test.go`
-- [ ] `internal/session/tool_budget_controller.go`
-- [ ] `internal/session/tool_budget_controller_test.go`
-- [ ] `internal/session/turn_done_test.go`
-- [ ] `internal/session/turn_summary.go`
-- [ ] `internal/session/turn_summary_test.go`
-- [ ] `internal/session/unverified_test_claim_test.go`
-- [ ] `internal/session/user_agent_wiring_test.go`
-- [ ] `internal/session/verify_created2_test.go`
-- [ ] `internal/session/work_steps.go`
-- [ ] `internal/session/work_steps_test.go`
-- [ ] `internal/session/working_context.go`
-- [ ] `internal/session/working_context_test.go`
-- [ ] `internal/session/working_loop_gating_test.go`
-- [ ] `internal/session/wrap_tool_loop_error_test.go`
-- [ ] `internal/session/write_guards.go`
-- [ ] `internal/session/write_mutation_tool_test.go`
-- [ ] `internal/session/written_path_test.go`
+### internal/session (93)
+- [x] `internal/session/build_repair_regime_test.go`
+- [x] `internal/session/build_verify.go`
+- [x] `internal/session/build_verify_test.go`
+- [x] `internal/session/change_evidence.go`
+- [x] `internal/session/check_safety_real_kernel_test.go`
+- [x] `internal/session/check_safety_write_large_test.go`
+- [x] `internal/session/coverage_profile.go`
+- [x] `internal/session/coverage_profile_test.go`
+- [x] `internal/session/critic.go`
+- [x] `internal/session/critic_test.go`
+- [x] `internal/session/executor.go`
+- [x] `internal/session/executor_boundary_test.go`
+- [x] `internal/session/executor_budget_exhaustion_test.go`
+- [x] `internal/session/executor_capability_test.go`
+- [x] `internal/session/executor_gate_test.go`
+- [x] `internal/session/executor_history_test.go`
+- [x] `internal/session/executor_learning.go`
+- [x] `internal/session/executor_learning_e2e_test.go`
+- [x] `internal/session/executor_learning_test.go`
+- [x] `internal/session/executor_mangle_test.go`
+- [x] `internal/session/executor_mangle_updates_test.go`
+- [x] `internal/session/executor_memory.go`
+- [x] `internal/session/executor_memory_test.go`
+- [x] `internal/session/executor_no_tool_retry_test.go`
+- [x] `internal/session/executor_planner_routing_test.go`
+- [x] `internal/session/executor_process_test.go`
+- [x] `internal/session/executor_projectdoc_test.go`
+- [x] `internal/session/executor_retrieval_context_test.go`
+- [x] `internal/session/executor_test.go`
+- [x] `internal/session/executor_tool_context_test.go`
+- [x] `internal/session/executor_tool_loop_timeout_test.go`
+- [x] `internal/session/executor_tools.go`
+- [x] `internal/session/executor_usage_tracker_test.go`
+- [x] `internal/session/file_context_injection_test.go`
+- [x] `internal/session/gate_names.go`
+- [x] `internal/session/gate_names_test.go`
+- [x] `internal/session/history_bounds_test.go`
+- [x] `internal/session/hollow_success_test.go`
+- [x] `internal/session/journey_adversarial_test.go`
+- [x] `internal/session/journey_planned_steps_test.go`
+- [x] `internal/session/lsp_diagnostics.go`
+- [x] `internal/session/lsp_diagnostics_test.go`
+- [x] `internal/session/mocks_test.go`
+- [x] `internal/session/modularity.go`
+- [x] `internal/session/modularity_guard_verify_test.go`
+- [x] `internal/session/modularity_test.go`
+- [x] `internal/session/observed_return.go`
+- [x] `internal/session/pending_edit_path_validation_test.go`
+- [x] `internal/session/pending_edit_test.go`
+- [x] `internal/session/persistence.go`
+- [x] `internal/session/persistence_uplift_test.go`
+- [x] `internal/session/piggyback_promotion.go`
+- [x] `internal/session/piggyback_promotion_test.go`
+- [x] `internal/session/placeholder_test_guard_test.go`
+- [x] `internal/session/semantic_compressor.go`
+- [x] `internal/session/semantic_compressor_test.go`
+- [x] `internal/session/session_uplift_test.go`
+- [x] `internal/session/session_wiring_test.go`
+- [x] `internal/session/severity.go`
+- [x] `internal/session/severity_test.go`
+- [x] `internal/session/shell_gate_test.go`
+- [x] `internal/session/spawner.go`
+- [x] `internal/session/spawner_executor_config_test.go`
+- [x] `internal/session/spawner_gaps_test.go`
+- [x] `internal/session/spawner_improvements_test.go`
+- [x] `internal/session/spawner_test.go`
+- [x] `internal/session/subagent.go`
+- [x] `internal/session/subagent_test.go`
+- [x] `internal/session/subagent_tool_error_test.go`
+- [x] `internal/session/task_executor.go`
+- [x] `internal/session/task_executor_test.go`
+- [x] `internal/session/test_output_detector.go`
+- [x] `internal/session/test_verify.go`
+- [x] `internal/session/test_verify_test.go`
+- [x] `internal/session/testtool_test.go`
+- [x] `internal/session/tool_budget_controller.go`
+- [x] `internal/session/tool_budget_controller_test.go`
+- [x] `internal/session/tool_gate_contract_test.go`
+- [x] `internal/session/turn_done_test.go`
+- [x] `internal/session/turn_summary.go`
+- [x] `internal/session/turn_summary_test.go`
+- [x] `internal/session/unverified_test_claim_test.go`
+- [x] `internal/session/user_agent_wiring_test.go`
+- [x] `internal/session/verify_created2_test.go`
+- [x] `internal/session/work_steps.go`
+- [x] `internal/session/work_steps_test.go`
+- [x] `internal/session/working_context.go`
+- [x] `internal/session/working_context_test.go`
+- [x] `internal/session/working_loop_gating_test.go`
+- [x] `internal/session/wrap_tool_loop_error_test.go`
+- [x] `internal/session/write_guards.go`
+- [x] `internal/session/write_mutation_tool_test.go`
+- [x] `internal/session/written_path_test.go`
 
 ### internal/shards/consultation.go (1)
 - [ ] `internal/shards/consultation.go`

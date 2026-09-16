@@ -495,6 +495,31 @@ func (s *Spawner) Cleanup() int {
 	return removed
 }
 
+// Remove drops one terminal subagent from tracking, returning whether it was
+// removed. Running agents are never removed: only Completed and Failed carry
+// a final result, and dropping a live agent would orphan its execution while
+// leaving the caller waiting on an ID the spawner no longer knows.
+//
+// JITExecutor.GetResult calls this after caching a completed result, so the
+// registry holds an agent exactly until its result has a durable home. Without
+// that, completed agents accumulated forever — Cleanup exists but has no
+// production callers, and calling it blindly would drop results nobody had
+// retrieved yet.
+func (s *Spawner) Remove(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	agent, ok := s.subagents[id]
+	if !ok {
+		return false
+	}
+	state := agent.GetState()
+	if state != SubAgentStateCompleted && state != SubAgentStateFailed {
+		return false
+	}
+	delete(s.subagents, id)
+	return true
+}
+
 // ListActive returns all currently running subagents.
 func (s *Spawner) ListActive() []*SubAgent {
 	s.mu.RLock()

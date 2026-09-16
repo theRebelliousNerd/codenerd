@@ -237,17 +237,21 @@ func (s *SubAgent) ObservedReturn() observation.Return {
 
 // Run executes the subagent's task asynchronously.
 // Returns immediately; use Wait() or GetResult() for results.
-// Run executes the subagent's task asynchronously.
-// Returns immediately; use Wait() or GetResult() for results.
+//
+// A second call while the agent is already started is a no-op: two Run
+// goroutines would share result, error and history with no coordination, and
+// the corruption would be silent.
 func (s *SubAgent) Run(ctx context.Context, task string) {
+	if !atomic.CompareAndSwapInt32(&s.state, int32(SubAgentStateIdle), int32(SubAgentStateRunning)) {
+		logging.Session("SubAgent %s Run called while %s; ignoring second start", s.config.Name, s.GetState())
+		return
+	}
 	// Create cancellable context
 	ctx, cancel := context.WithCancel(ctx)
 	s.mu.Lock()
 	s.cancel = cancel
 	s.startTime = time.Now()
 	s.mu.Unlock()
-
-	atomic.StoreInt32(&s.state, int32(SubAgentStateRunning))
 	logging.Session("SubAgent %s starting task: %s", s.config.Name, truncateTask(task))
 
 	go func() {
@@ -459,7 +463,10 @@ func (s *SubAgent) CompressMemory(ctx context.Context, threshold int) error {
 	// Index of the first item to KEEP
 	splitIndex := len(s.conversationHistory) - keepCount
 	if splitIndex <= 0 {
-		return nil // Should be covered by initial check, but safety first
+		// Unreachable under the entry check above, but a defensive return
+		// that skips the unlock is a deadlock trap, not safety.
+		s.mu.Unlock()
+		return nil
 	}
 
 	// Slice and dice

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -71,7 +72,11 @@ func LoadSessionState(workspace string) (*SessionState, error) {
 
 // SaveSessionState saves the session state to disk.
 func SaveSessionState(workspace string, state *SessionState) error {
-	path := filepath.Join(workspace, ".nerd", "session.json")
+	nerdDir := filepath.Join(workspace, ".nerd")
+	if err := os.MkdirAll(nerdDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .nerd directory: %w", err)
+	}
+	path := filepath.Join(nerdDir, "session.json")
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
@@ -79,14 +84,30 @@ func SaveSessionState(workspace string, state *SessionState) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// sessionHistoryPath resolves the history file for a session ID, refusing IDs
+// that would escape the sessions directory. The ID arrives from user input
+// (`/load-session <id>` in chat), so `../` must fail closed here rather than
+// read — and later write, once the ID is adopted as the live session —
+// outside the store.
+func sessionHistoryPath(workspace, sessionID string) (string, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return "", fmt.Errorf("session id is required")
+	}
+	if sessionID != filepath.Base(sessionID) || strings.Contains(sessionID, "..") {
+		return "", fmt.Errorf("invalid session id %q: must be a plain file name", sessionID)
+	}
+	return filepath.Join(workspace, ".nerd", "sessions", sessionID+".json"), nil
+}
+
 // SaveSessionHistory saves the conversation history to the sessions folder.
 func SaveSessionHistory(workspace string, sessionID string, messages []ChatMessage) error {
-	sessionsDir := filepath.Join(workspace, ".nerd", "sessions")
-	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+	historyFile, err := sessionHistoryPath(workspace, sessionID)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(historyFile), 0755); err != nil {
 		return fmt.Errorf("failed to create sessions directory: %w", err)
 	}
-
-	historyFile := filepath.Join(sessionsDir, sessionID+".json")
 	history := SessionHistory{
 		SessionID: sessionID,
 		Messages:  messages,
@@ -108,7 +129,10 @@ func SaveSessionHistory(workspace string, sessionID string, messages []ChatMessa
 
 // LoadSessionHistory loads the conversation history for a session.
 func LoadSessionHistory(workspace string, sessionID string) (*SessionHistory, error) {
-	historyFile := filepath.Join(workspace, ".nerd", "sessions", sessionID+".json")
+	historyFile, err := sessionHistoryPath(workspace, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(historyFile)
 	if err != nil {
 		return nil, err

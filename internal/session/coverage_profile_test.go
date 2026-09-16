@@ -200,112 +200,10 @@ func TestBlocksInChangedLines_KeepsOnlyTouchedBlocks(t *testing.T) {
 	}
 }
 
-// uncoveredWrittenCode had no test at all when it was written, while its file
-// header claimed it was "exercised through the integration path". This is that
-// integration path: a real throwaway module, a real `go test -coverprofile`,
-// and an assertion that the function reached but never called is the one
-// reported.
-func TestUncoveredWrittenCode_ReportsOnlyUnexercisedWrittenCode(t *testing.T) {
-	if testing.Short() {
-		t.Skip("compiles and tests a throwaway package")
-	}
-	ws := t.TempDir()
-	write := func(name, content string) {
-		t.Helper()
-		p := filepath.Join(ws, name)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatalf("mkdir: %v", err)
-		}
-		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
-	}
-	write("go.mod", "module coverprobe\n\ngo 1.21\n")
-	// Exercised is called by the test; Unexercised is not. That is the whole
-	// point: `go test` goes green either way, and only the profile can tell
-	// them apart.
-	write("calc.go", `package coverprobe
-
-func Exercised(a, b int) int { return a + b }
-
-func Unexercised(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-`)
-	write("calc_test.go", `package coverprobe
-
-import "testing"
-
-func TestExercised(t *testing.T) {
-	if Exercised(2, 3) != 5 {
-		t.Fatal("bad")
-	}
-}
-`)
-
-	blocks, err := uncoveredWrittenCode(
-		context.Background(), ws, []string{"."}, []string{"calc.go"})
-	if err != nil {
-		t.Fatalf("uncoveredWrittenCode: %v", err)
-	}
-	if len(blocks) == 0 {
-		t.Fatal("no uncovered blocks reported, but Unexercised is never called — `go test` alone cannot catch this, which is why this gate exists")
-	}
-	for _, b := range blocks {
-		if !strings.HasSuffix(filepath.ToSlash(b.File), "calc.go") {
-			t.Errorf("reported a block outside the written file: %+v", b)
-		}
-		if b.NumStmts <= 0 {
-			t.Errorf("block reports no statements: %+v", b)
-		}
-	}
-
-	// A file the turn did not write must never be reported, even though it is
-	// in the same package and equally uncovered.
-	none, err := uncoveredWrittenCode(
-		context.Background(), ws, []string{"."}, []string{"not_written.go"})
-	if err != nil {
-		t.Fatalf("uncoveredWrittenCode (unwritten filter): %v", err)
-	}
-	if len(none) != 0 {
-		t.Errorf("reported blocks for a file the turn never wrote: %+v", none)
-	}
-}
-
-// Every not-run path must return (nil, nil) — "no signal", never "nothing
-// uncovered". Reading a skipped verification as a clean one is the exact
-// failure the Ran/OK split exists to prevent in the sibling gates.
-func TestUncoveredWrittenCode_NotRunPathsReturnNoSignal(t *testing.T) {
-	cases := []struct {
-		name      string
-		workspace string
-		packages  []string
-	}{
-		{"empty workspace", "  ", []string{"."}},
-		{"no packages", t.TempDir(), nil},
-		{"whitespace packages", t.TempDir(), []string{"  ", ""}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			blocks, err := uncoveredWrittenCode(
-				context.Background(), tc.workspace, tc.packages, []string{"a.go"})
-			if err != nil {
-				t.Errorf("not-run path returned an error: %v", err)
-			}
-			if blocks != nil {
-				t.Errorf("not-run path returned blocks: %+v", blocks)
-			}
-		})
-	}
-}
-
-// One invocation must produce both signals. Composing verifyTests and
-// uncoveredWrittenCode would double the test time of every green write turn --
-// ~9s becoming ~18s on internal/session, paid on every edit -- and buy nothing,
-// since `go test -coverprofile` already reports pass/fail.
+// One invocation must produce both signals. Two separate runs would double the
+// test time of every green write turn -- ~9s becoming ~18s on internal/session,
+// paid on every edit -- and buy nothing, since `go test -coverprofile`
+// already reports pass/fail.
 func TestVerifyTestsWithCoverage_OneRunGivesBothSignals(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles and tests a throwaway package")
@@ -328,6 +226,21 @@ func TestVerifyTestsWithCoverage_OneRunGivesBothSignals(t *testing.T) {
 	if len(blocks) == 0 {
 		t.Error("tests passed but Unused is never called; coverage must still report it — that is the whole point of this gate")
 	}
+	for _, b := range blocks {
+		if !strings.HasSuffix(filepath.ToSlash(b.File), "calc.go") {
+			t.Errorf("reported a block outside the written file: %+v", b)
+		}
+		if b.NumStmts <= 0 {
+			t.Errorf("block reports no statements: %+v", b)
+		}
+	}
+
+	// A file the turn did not write must never be reported, even though it is
+	// in the same package and equally uncovered.
+	_, unwritten := verifyTestsWithCoverage(context.Background(), ws, []string{"."}, []string{"not_written.go"})
+	if len(unwritten) != 0 {
+		t.Errorf("reported blocks for a file the turn never wrote: %+v", unwritten)
+	}
 
 	// Failing tests must still yield a verdict. Coverage is secondary and must
 	// never be what decides a turn.
@@ -338,6 +251,33 @@ func TestVerifyTestsWithCoverage_OneRunGivesBothSignals(t *testing.T) {
 	}
 	if v2.OK {
 		t.Fatal("verification passed a package whose tests fail")
+	}
+}
+
+// Every not-run path must report Ran=false with no blocks — "no signal",
+// never "nothing uncovered". Reading a skipped verification as a clean one
+// is the exact failure the Ran/OK split exists to prevent.
+func TestVerifyTestsWithCoverage_NotRunPathsReturnNoSignal(t *testing.T) {
+	cases := []struct {
+		name      string
+		workspace string
+		packages  []string
+	}{
+		{"empty workspace", "  ", []string{"."}},
+		{"no packages", t.TempDir(), nil},
+		{"whitespace packages", t.TempDir(), []string{"  ", ""}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v, blocks := verifyTestsWithCoverage(
+				context.Background(), tc.workspace, tc.packages, []string{"a.go"})
+			if v.Ran {
+				t.Errorf("not-run path reported Ran=true (OK=%v)", v.OK)
+			}
+			if blocks != nil {
+				t.Errorf("not-run path returned blocks: %+v", blocks)
+			}
+		})
 	}
 }
 

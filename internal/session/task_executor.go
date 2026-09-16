@@ -189,7 +189,16 @@ type JITExecutor struct {
 	// Results for async tasks (protected by mu)
 	mu      sync.RWMutex
 	results map[string]*TaskResult
+	// completedOrder is the FIFO eviction order for completed results.
+	// In-flight entries are never listed here and are never evicted.
+	completedOrder []string
 }
+
+// maxCachedResults bounds completed async results. Every production task is
+// retrieved through WaitForResult, which hands the caller the string directly,
+// so the cache is a late-poller convenience, not the durable record — and an
+// unbounded one retains every delegated response for the process lifetime.
+const maxCachedResults = 256
 
 // NewJITExecutor creates a TaskExecutor using the new architecture.
 func NewJITExecutor(executor *Executor, spawner *Spawner, transducer perception.Transducer) *JITExecutor {
@@ -293,13 +302,17 @@ func (j *JITExecutor) ExecuteAsync(ctx context.Context, req TaskRequest) (string
 	return j.executeAsyncInternal(ctx, req, nil)
 }
 
-// SpawnConsultation implements shards.ConsultationSpawner.
+// SpawnConsultation implements shards.ConsultationSpawner: it runs the
+// consultation to completion in an isolated subagent and returns the
+// specialist's ANSWER, not a task ID. The interface contract returns response
+// text — the ConsultationManager parses the return as the specialist's reply —
+// so an async task ID here would silently corrupt every consultation.
 func (j *JITExecutor) SpawnConsultation(ctx context.Context, specialistName, task string) (string, error) {
 	req := TaskRequest{
-		IntentVerb: fmt.Sprintf("/consult/%s", specialistName),
+		IntentVerb: "/consult/" + strings.ToLower(strings.TrimSpace(specialistName)),
 		Task:       task,
 	}
-	return j.executeAsyncInternal(ctx, req, nil)
+	return j.executeWithSubagent(ctx, req, nil)
 }
 
 // executeAsyncInternal is an internal helper to spawn subagent with context.
@@ -369,20 +382,41 @@ func (j *JITExecutor) GetResult(taskID string) (string, bool, error) {
 			err = fmt.Errorf("subagent execution failed")
 		}
 
-		// Cache the result
-		j.mu.Lock()
-		j.results[taskID] = &TaskResult{
-			TaskID:    taskID,
-			Result:    result,
-			Error:     err,
-			Completed: true,
-		}
-		j.mu.Unlock()
+		// Cache the result, then release the spawner entry: the cache is now
+		// the durable home, so the registry need not hold the agent anymore.
+		j.cacheCompletedResult(taskID, result, err)
+		j.spawner.Remove(taskID)
 
 		return result, true, err
 	}
 
 	return "", false, nil
+}
+
+// cacheCompletedResult records a finished task under the completed-results
+// bound, evicting the oldest completed entries first. In-flight entries are
+// never listed for eviction. Repeat calls for one task refresh the entry
+// without duplicating its eviction slot.
+func (j *JITExecutor) cacheCompletedResult(taskID, result string, err error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if prev, ok := j.results[taskID]; !ok || !prev.Completed {
+		j.completedOrder = append(j.completedOrder, taskID)
+	}
+	j.results[taskID] = &TaskResult{
+		TaskID:    taskID,
+		Result:    result,
+		Error:     err,
+		Completed: true,
+	}
+	for len(j.completedOrder) > maxCachedResults {
+		oldest := j.completedOrder[0]
+		j.completedOrder[0] = ""
+		j.completedOrder = j.completedOrder[1:]
+		if r, ok := j.results[oldest]; ok && r.Completed {
+			delete(j.results, oldest)
+		}
+	}
 }
 
 // WaitForResult blocks until the async task completes.

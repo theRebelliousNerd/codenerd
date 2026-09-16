@@ -6,13 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
-	"codenerd/internal/build"
 	"codenerd/internal/logging"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
@@ -39,8 +36,9 @@ import (
 // uncovered".
 //
 // Scope note: parseCoverProfile is the pure predicate — "is this block
-// uncovered and does it belong to a file this turn wrote". uncoveredWrittenCode
-// is the impure runner that produces the profile. Both are tested.
+// uncovered and does it belong to a file this turn wrote".
+// verifyTestsWithCoverage is the impure runner that produces the profile in
+// the same invocation that reports pass/fail. Both are tested.
 //
 // Written by codeNERD on itself (2026-08-08). Reviewed by hand, and the review
 // was not cosmetic: its original header claimed a split named
@@ -51,11 +49,6 @@ import (
 // confident provenance note with nothing behind it — is the one this whole
 // gate stack exists to make impossible, so it is recorded here rather than
 // quietly deleted.
-
-// coverVerifyTimeout bounds the `go test -coverprofile` run. Cold tests on this
-// repo are slower than a build; the ceiling is generous because a verify that
-// times out reports a false alarm, which is worse than a slow one.
-const coverVerifyTimeout = 4 * time.Minute
 
 // UncoveredBlock is a single uncovered block from a Go coverage profile that
 // belongs to a file the turn wrote.
@@ -257,93 +250,6 @@ func verifyTestsWithCoverage(
 		return verification, nil
 	}
 	return verification, blocks
-}
-
-// uncoveredWrittenCode runs `go test -covermode=set -coverprofile=<temp file>`
-// on the given packages and returns the uncovered blocks that belong to files
-// in writtenPaths.
-//
-// Uses build.GetBuildEnv so the run inherits the same CGO_CFLAGS the project
-// needs. A verification that fails for want of the build environment would send
-// the agent chasing phantom failures.
-//
-// The temp profile file is removed before returning. An empty workspace or an
-// empty package list returns (nil, nil) — there is nothing to verify and that
-// is not an error, only "unknown" in the Ran/OK sense. A missing Go toolchain
-// is also treated as not-run rather than as a hard failure, matching
-// verifyTests.
-func uncoveredWrittenCode(ctx context.Context, workspace string, packages []string, writtenPaths []string) ([]UncoveredBlock, error) {
-	if strings.TrimSpace(workspace) == "" {
-		return nil, nil
-	}
-
-	// Filter packages: drop empty/whitespace entries.
-	filtered := make([]string, 0, len(packages))
-	for _, p := range packages {
-		if strings.TrimSpace(p) != "" {
-			filtered = append(filtered, strings.TrimSpace(p))
-		}
-	}
-	if len(filtered) == 0 {
-		return nil, nil
-	}
-
-	if _, err := exec.LookPath("go"); err != nil {
-		logging.Get(logging.CategorySession).Warn(
-			"coverage verification skipped: no Go toolchain on PATH (%v)", err)
-		return nil, nil
-	}
-
-	// Create a temp file for the cover profile. The file is created empty and
-	// closed so `go test` can write to it on all platforms.
-	tmpFile, err := os.CreateTemp("", "coverprofile-*.out")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp coverprofile: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
-
-	buildCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), coverVerifyTimeout)
-	defer cancel()
-
-	args := append([]string{"test", "-covermode=set", "-coverprofile=" + tmpPath}, filtered...)
-	cmd := exec.CommandContext(buildCtx, "go", args...)
-	cmd.Dir = workspace
-	cmd.Env = build.GetBuildEnv(nil, workspace)
-
-	out, err := cmd.CombinedOutput()
-	if buildCtx.Err() != nil {
-		logging.Get(logging.CategorySession).Warn(
-			"coverage verification timed out after %s; treating as not run", coverVerifyTimeout)
-		return nil, nil
-	}
-	if err != nil {
-		// If the profile was not produced, surface the test output as the error.
-		// When the profile exists despite a test failure we still parse it, so
-		// check for the file before failing hard.
-		if _, statErr := os.Stat(tmpPath); statErr != nil {
-			text := strings.TrimSpace(string(out))
-			if text == "" {
-				text = err.Error()
-			}
-			return nil, fmt.Errorf("go test -coverprofile failed: %w: %s", err, text)
-		}
-		// Profile exists — fall through to parsing; the uncovered signal is still
-		// useful even when tests fail.
-	}
-
-	f, err := os.Open(tmpPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open coverprofile %q: %w", tmpPath, err)
-	}
-	defer f.Close()
-
-	blocks, err := parseCoverProfile(f, writtenPaths)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse coverprofile: %w", err)
-	}
-	return blocks, nil
 }
 
 // summarizeUncovered renders uncovered blocks as a short "file:start-end" list
