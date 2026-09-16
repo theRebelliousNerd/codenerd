@@ -2365,13 +2365,13 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/perception/codex_cli_probe.go`
 - [ ] `internal/perception/codex_cli_probe_test.go`
 - [ ] `internal/perception/codex_exec_client.go`
-- [ ] `internal/perception/consolidation.go`
+- [x] `internal/perception/consolidation.go`
 - [ ] `internal/perception/context_token_phrase_unification_test.go`
 - [ ] `internal/perception/debug.go`
 - [ ] `internal/perception/gemini_live_test.go`
 - [ ] `internal/perception/gemini_structured_test.go`
 - [ ] `internal/perception/gemini_thinking_test.go`
-- [ ] `internal/perception/learning.go`
+- [x] `internal/perception/learning.go`
 - [ ] `internal/perception/learning_test.go`
 - [ ] `internal/perception/metrics.go`
 - [ ] `internal/perception/piggyback_contract_test.go`
@@ -3801,4 +3801,4 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `test_init/.nerd/mangle/policy_overrides.mg`
 - [ ] `test_init/.nerd/profile.mg`
 
-**Progress: 14/2632**
+**Progress: 16/2632**

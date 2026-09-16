@@ -7,14 +7,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"codenerd/internal/broker"
 	"codenerd/internal/logging"
 )
 
-// learnedPatternContext is used for embedding generation during pattern learning.
-// We use a background context with timeout for this operation.
-var learnedPatternContext = context.Background
+// learnedPatternContext bounds embedding generation during pattern learning.
+// It intentionally does NOT derive from the consolidation worker's context:
+// the worker may be draining at shutdown while an embed is still useful.
+// Kept as a var so tests can substitute a cancelled context.
+var learnedPatternContext = func() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 60*time.Second)
+}
 
 // CriticSystemPrompt defines the persona for the Meta-Cognitive Supervisor.
 const CriticSystemPrompt = `
@@ -153,14 +158,16 @@ func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []Rea
 
 	logging.Perception("LearnFromInteraction: analyzing %d history entries", len(history))
 
-	if t.client == nil {
-		logging.Get(logging.CategoryPerception).Error("LearnFromInteraction: no LLM client configured")
-		return "", fmt.Errorf("no LLM client configured for taxonomy engine")
-	}
-
+	// Empty history short-circuits before the client check: no work means no
+	// error, even when no critic is configured (session end, dry runs).
 	if len(history) == 0 {
 		logging.PerceptionDebug("LearnFromInteraction: empty history, nothing to learn")
 		return "", nil // Nothing to learn
+	}
+
+	if t.client == nil {
+		logging.Get(logging.CategoryPerception).Error("LearnFromInteraction: no LLM client configured")
+		return "", fmt.Errorf("no LLM client configured for taxonomy engine")
 	}
 
 	// 1. Format the history for the Critic
@@ -172,10 +179,15 @@ func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []Rea
 		logging.PerceptionDebug("LearnFromInteraction: truncating history from %d to last 5 entries", len(history))
 	}
 
+	// Bound each side of a trace: a pasted 50KB prompt would otherwise blow
+	// the critic call to 250KB across 5 turns. Corrections live in the head
+	// of each field, so head-truncation keeps the learning signal.
+	const maxTraceFieldChars = 2000
 	for i := startIdx; i < len(history); i++ {
 		trace := history[i]
 		transcript.WriteString(fmt.Sprintf("User: %s\nAgent Action: %s\nSuccess: %v\n---\n",
-			trace.UserPrompt, trace.Response, trace.Success))
+			truncateForCritic(trace.UserPrompt, maxTraceFieldChars),
+			truncateForCritic(trace.Response, maxTraceFieldChars), trace.Success))
 	}
 
 	// 2. Ask the Critic to evaluate
@@ -219,12 +231,14 @@ func (t *TaxonomyEngine) PersistLearnedFact(fact string) error {
 	// LLM outputs use float (0.0-1.0), but Mangle rules expect integers for comparisons like "Conf > 80"
 	normalizedFact, err := NormalizeLearnedFact(fact)
 	if err != nil {
-		// If normalization fails, use original fact but log warning
-		logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to normalize fact, using original: %v", err)
-		normalizedFact = fact
-	} else {
-		logging.PerceptionDebug("PersistLearnedFact: normalized fact: %s", normalizedFact)
+		// Normalization RECONSTRUCTS the fact from parsed components, which is
+		// what makes the hot-load below safe. A critic payload that fails to
+		// parse (trailing clauses, wrong arity) is refused here instead of
+		// reaching the engine as unvalidated source.
+		logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: refusing unparseable fact: %v", err)
+		return fmt.Errorf("refusing to persist unparseable learned fact: %w", err)
 	}
+	logging.PerceptionDebug("PersistLearnedFact: normalized fact: %s", normalizedFact)
 
 	// 1. Add to running engine immediately (Hot Fix)
 	logging.PerceptionDebug("PersistLearnedFact: hot-loading fact into running engine")
@@ -257,7 +271,8 @@ func (t *TaxonomyEngine) PersistLearnedFact(fact string) error {
 	// not just exact string matching in Mangle rules.
 	if SharedSemanticClassifier != nil && parseErr == nil {
 		logging.PerceptionDebug("PersistLearnedFact: adding pattern to SemanticClassifier")
-		ctx := learnedPatternContext()
+		ctx, cancel := learnedPatternContext()
+		defer cancel()
 		if err := SharedSemanticClassifier.AddLearnedPattern(ctx, pat, v, tgt, cons, conf); err != nil {
 			// Non-fatal: Mangle-based matching still works
 			logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to add to SemanticClassifier: %v", err)
@@ -330,10 +345,13 @@ func ParseLearnedFact(fact string) (pattern, verb, target, constraint string, co
 	target = clean(parts[2])
 	constraint = clean(parts[3])
 
-	_, err = fmt.Sscanf(strings.TrimSpace(parts[4]), "%f", &confidence)
-	if err != nil {
-		logging.PerceptionDebug("ParseLearnedFact: failed to parse confidence: %v", err)
-		return "", "", "", "", 0, err
+	// Full-match the confidence: bare %f would accept "0.99). rogue_clause."
+	// and silently drop the trailing junk, laundering a multi-clause payload
+	// into a clean parse. Anything after the number is a refusal.
+	var rest string
+	if n, _ := fmt.Sscanf(strings.TrimSpace(parts[4]), "%f%s", &confidence, &rest); n < 1 || rest != "" {
+		logging.PerceptionDebug("ParseLearnedFact: malformed confidence %q", parts[4])
+		return "", "", "", "", 0, fmt.Errorf("malformed confidence %q", strings.TrimSpace(parts[4]))
 	}
 
 	logging.PerceptionDebug("ParseLearnedFact: parsed - pattern=%q, verb=%s, target=%q, constraint=%q, confidence=%.2f",
@@ -369,6 +387,18 @@ func NormalizeLearnedFact(fact string) (string, error) {
 		pattern, verb, target, constraint, confInt)
 	logging.PerceptionDebug("NormalizeLearnedFact: normalized result: %s", normalized)
 	return normalized, nil
+}
+
+// truncateForCritic head-truncates a trace field rune-safely, marking the cut.
+func truncateForCritic(s string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	return string(runes[:limit]) + "... [truncated]"
 }
 
 func splitLearnedFactArgs(input string) []string {

@@ -69,6 +69,9 @@ func (cw *ConsolidationWorker) Enqueue(traces []ReasoningTrace) {
 }
 
 func (cw *ConsolidationWorker) process(traces []ReasoningTrace) {
+	if cw.engine == nil {
+		return // misconstructed worker; nothing to learn into
+	}
 	// Create a background context with timeout to ensure we don't leak resources
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
