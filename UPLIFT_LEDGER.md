@@ -2209,58 +2209,58 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/mangle/verification_logic_test.go`
 
 ### internal/mcp (52)
-- [ ] `internal/mcp/analyzer.go`
-- [ ] `internal/mcp/analyzer_coverage_test.go`
-- [ ] `internal/mcp/analyzer_test.go`
-- [ ] `internal/mcp/client.go`
-- [ ] `internal/mcp/client_boundary_test.go`
-- [ ] `internal/mcp/client_coverage_test.go`
-- [ ] `internal/mcp/client_test.go`
-- [ ] `internal/mcp/compiler.go`
-- [ ] `internal/mcp/compiler_select_test.go`
-- [ ] `internal/mcp/compiler_test.go`
-- [ ] `internal/mcp/concurrency_test.go`
-- [ ] `internal/mcp/controlplane.go`
-- [ ] `internal/mcp/controlplane_invoke.go`
-- [ ] `internal/mcp/controlplane_test.go`
-- [ ] `internal/mcp/digest.go`
-- [ ] `internal/mcp/digest_test.go`
-- [ ] `internal/mcp/expand_brutal_test.go`
-- [ ] `internal/mcp/export_test.go`
-- [ ] `internal/mcp/facets.go`
-- [ ] `internal/mcp/facets_test.go`
-- [ ] `internal/mcp/facts.go`
-- [ ] `internal/mcp/facts_lifecycle_test.go`
-- [ ] `internal/mcp/fake_server_test.go`
-- [ ] `internal/mcp/handles.go`
-- [ ] `internal/mcp/handles_test.go`
-- [ ] `internal/mcp/headers.go`
-- [ ] `internal/mcp/integration.go`
-- [ ] `internal/mcp/integration_bridge_test.go`
-- [ ] `internal/mcp/integration_coverage_test.go`
-- [ ] `internal/mcp/integration_test.go`
-- [ ] `internal/mcp/kernel_integration_test.go`
-- [ ] `internal/mcp/mcp_client_integration_test.go`
-- [ ] `internal/mcp/metrics.go`
-- [ ] `internal/mcp/metrics_test.go`
-- [ ] `internal/mcp/policy_golden_test.go`
-- [ ] `internal/mcp/redact.go`
-- [ ] `internal/mcp/redact_test.go`
-- [ ] `internal/mcp/renderer.go`
-- [ ] `internal/mcp/renderer_coverage_test.go`
-- [ ] `internal/mcp/resources.go`
-- [ ] `internal/mcp/signature.go`
-- [ ] `internal/mcp/signature_test.go`
-- [ ] `internal/mcp/store.go`
-- [ ] `internal/mcp/store_coverage_test.go`
-- [ ] `internal/mcp/store_query_test.go`
-- [ ] `internal/mcp/store_test.go`
-- [ ] `internal/mcp/transport_http.go`
-- [ ] `internal/mcp/transport_http_test.go`
-- [ ] `internal/mcp/transport_sse.go`
-- [ ] `internal/mcp/transport_stdio.go`
-- [ ] `internal/mcp/types.go`
-- [ ] `internal/mcp/types_coverage_test.go`
+- [x] `internal/mcp/analyzer.go`
+- [x] `internal/mcp/analyzer_coverage_test.go`
+- [x] `internal/mcp/analyzer_test.go`
+- [x] `internal/mcp/client.go`
+- [x] `internal/mcp/client_boundary_test.go`
+- [x] `internal/mcp/client_coverage_test.go`
+- [x] `internal/mcp/client_test.go`
+- [x] `internal/mcp/compiler.go`
+- [x] `internal/mcp/compiler_select_test.go`
+- [x] `internal/mcp/compiler_test.go`
+- [x] `internal/mcp/concurrency_test.go`
+- [x] `internal/mcp/controlplane.go`
+- [x] `internal/mcp/controlplane_invoke.go`
+- [x] `internal/mcp/controlplane_test.go`
+- [x] `internal/mcp/digest.go`
+- [x] `internal/mcp/digest_test.go`
+- [x] `internal/mcp/expand_brutal_test.go`
+- [x] `internal/mcp/export_test.go`
+- [x] `internal/mcp/facets.go`
+- [x] `internal/mcp/facets_test.go`
+- [x] `internal/mcp/facts.go`
+- [x] `internal/mcp/facts_lifecycle_test.go`
+- [x] `internal/mcp/fake_server_test.go`
+- [x] `internal/mcp/handles.go`
+- [x] `internal/mcp/handles_test.go`
+- [x] `internal/mcp/headers.go`
+- [x] `internal/mcp/integration.go`
+- [x] `internal/mcp/integration_bridge_test.go`
+- [x] `internal/mcp/integration_coverage_test.go`
+- [x] `internal/mcp/integration_test.go`
+- [x] `internal/mcp/kernel_integration_test.go`
+- [x] `internal/mcp/mcp_client_integration_test.go`
+- [x] `internal/mcp/metrics.go`
+- [x] `internal/mcp/metrics_test.go`
+- [x] `internal/mcp/policy_golden_test.go`
+- [x] `internal/mcp/redact.go`
+- [x] `internal/mcp/redact_test.go`
+- [x] `internal/mcp/renderer.go`
+- [x] `internal/mcp/renderer_coverage_test.go`
+- [x] `internal/mcp/resources.go`
+- [x] `internal/mcp/signature.go`
+- [x] `internal/mcp/signature_test.go`
+- [x] `internal/mcp/store.go`
+- [x] `internal/mcp/store_coverage_test.go`
+- [x] `internal/mcp/store_query_test.go`
+- [x] `internal/mcp/store_test.go`
+- [x] `internal/mcp/transport_http.go`
+- [x] `internal/mcp/transport_http_test.go`
+- [x] `internal/mcp/transport_sse.go`
+- [x] `internal/mcp/transport_stdio.go`
+- [x] `internal/mcp/types.go`
+- [x] `internal/mcp/types_coverage_test.go`
 
 ### internal/northstar (25)
 - [ ] `internal/northstar/alignment_prompt.go`
@@ -2997,72 +2997,72 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/system/world_shard_eval_bench_test.go`
 
 ### internal/tactile (35)
-- [ ] `internal/tactile/audit.go`
-- [ ] `internal/tactile/audit_test.go`
-- [ ] `internal/tactile/base_env_test.go`
-- [ ] `internal/tactile/coverage_boost_test.go`
-- [ ] `internal/tactile/direct.go`
-- [ ] `internal/tactile/direct_test.go`
-- [ ] `internal/tactile/docker.go`
-- [ ] `internal/tactile/docker_detection_test.go`
-- [ ] `internal/tactile/docker_platform_test.go`
-- [ ] `internal/tactile/docker_platform_windows_test.go`
-- [ ] `internal/tactile/docker_test.go`
-- [ ] `internal/tactile/execution_boundaries_test.go`
-- [ ] `internal/tactile/executor_interface.go`
-- [ ] `internal/tactile/factory.go`
-- [ ] `internal/tactile/files.go`
-- [ ] `internal/tactile/files_test.go`
-- [ ] `internal/tactile/line_ending.go`
-- [ ] `internal/tactile/line_ending_test.go`
-- [ ] `internal/tactile/persistent_docker.go`
-- [ ] `internal/tactile/platform_darwin.go`
-- [ ] `internal/tactile/platform_linux.go`
-- [ ] `internal/tactile/platform_linux_executor_test.go`
-- [ ] `internal/tactile/platform_linux_firejail.go`
-- [ ] `internal/tactile/platform_unix.go`
-- [ ] `internal/tactile/platform_windows.go`
-- [ ] `internal/tactile/python/environment.go`
-- [ ] `internal/tactile/python/environment_test.go`
-- [ ] `internal/tactile/swebench/coverage_boost_test.go`
-- [ ] `internal/tactile/swebench/harness.go`
-- [ ] `internal/tactile/swebench/harness_extra_test.go`
-- [ ] `internal/tactile/swebench/instance.go`
-- [ ] `internal/tactile/swebench/instance_test.go`
-- [ ] `internal/tactile/tactile_test.go`
-- [ ] `internal/tactile/types.go`
-- [ ] `internal/tactile/types_coverage_test.go`
+- [x] `internal/tactile/audit.go`
+- [x] `internal/tactile/audit_test.go`
+- [x] `internal/tactile/base_env_test.go`
+- [x] `internal/tactile/coverage_boost_test.go`
+- [x] `internal/tactile/direct.go`
+- [x] `internal/tactile/direct_test.go`
+- [x] `internal/tactile/docker.go`
+- [x] `internal/tactile/docker_detection_test.go`
+- [x] `internal/tactile/docker_platform_test.go`
+- [x] `internal/tactile/docker_platform_windows_test.go`
+- [x] `internal/tactile/docker_test.go`
+- [x] `internal/tactile/execution_boundaries_test.go`
+- [x] `internal/tactile/executor_interface.go`
+- [x] `internal/tactile/factory.go`
+- [x] `internal/tactile/files.go`
+- [x] `internal/tactile/files_test.go`
+- [x] `internal/tactile/line_ending.go`
+- [x] `internal/tactile/line_ending_test.go`
+- [x] `internal/tactile/persistent_docker.go`
+- [x] `internal/tactile/platform_darwin.go`
+- [x] `internal/tactile/platform_linux.go`
+- [x] `internal/tactile/platform_linux_executor_test.go`
+- [x] `internal/tactile/platform_linux_firejail.go`
+- [x] `internal/tactile/platform_unix.go`
+- [x] `internal/tactile/platform_windows.go`
+- [x] `internal/tactile/python/environment.go`
+- [x] `internal/tactile/python/environment_test.go`
+- [x] `internal/tactile/swebench/coverage_boost_test.go`
+- [x] `internal/tactile/swebench/harness.go`
+- [x] `internal/tactile/swebench/harness_extra_test.go`
+- [x] `internal/tactile/swebench/instance.go`
+- [x] `internal/tactile/swebench/instance_test.go`
+- [x] `internal/tactile/tactile_test.go`
+- [x] `internal/tactile/types.go`
+- [x] `internal/tactile/types_coverage_test.go`
 
 ### internal/testing (29)
-- [ ] `internal/testing/context_harness/activation_tracer.go`
-- [ ] `internal/testing/context_harness/compression_viz.go`
-- [ ] `internal/testing/context_harness/engine_interface.go`
-- [ ] `internal/testing/context_harness/fact_seeder.go`
-- [ ] `internal/testing/context_harness/feedback_test.go`
-- [ ] `internal/testing/context_harness/feedback_tracer.go`
-- [ ] `internal/testing/context_harness/file_logger.go`
-- [ ] `internal/testing/context_harness/file_logger_test.go`
-- [ ] `internal/testing/context_harness/harness.go`
-- [ ] `internal/testing/context_harness/helpers_extra_test.go`
-- [ ] `internal/testing/context_harness/inspector.go`
-- [ ] `internal/testing/context_harness/jit_tracer.go`
-- [ ] `internal/testing/context_harness/metrics.go`
-- [ ] `internal/testing/context_harness/metrics_test.go`
-- [ ] `internal/testing/context_harness/mock_engine.go`
-- [ ] `internal/testing/context_harness/piggyback_tracer.go`
-- [ ] `internal/testing/context_harness/real_engine.go`
-- [ ] `internal/testing/context_harness/reporter.go`
-- [ ] `internal/testing/context_harness/reporter_test.go`
-- [ ] `internal/testing/context_harness/scenarios.go`
-- [ ] `internal/testing/context_harness/scenarios_integration.go`
-- [ ] `internal/testing/context_harness/seeder_logger_test.go`
-- [ ] `internal/testing/context_harness/simulator.go`
-- [ ] `internal/testing/context_harness/simulator_test.go`
-- [ ] `internal/testing/context_harness/test_kernel_factory.go`
-- [ ] `internal/testing/context_harness/tracer_helpers_test.go`
-- [ ] `internal/testing/context_harness/types.go`
-- [ ] `internal/testing/doc.go`
-- [ ] `internal/testing/harness_subsystem.go`
+- [x] `internal/testing/context_harness/activation_tracer.go`
+- [x] `internal/testing/context_harness/compression_viz.go`
+- [x] `internal/testing/context_harness/engine_interface.go`
+- [x] `internal/testing/context_harness/fact_seeder.go`
+- [x] `internal/testing/context_harness/feedback_test.go`
+- [x] `internal/testing/context_harness/feedback_tracer.go`
+- [x] `internal/testing/context_harness/file_logger.go`
+- [x] `internal/testing/context_harness/file_logger_test.go`
+- [x] `internal/testing/context_harness/harness.go`
+- [x] `internal/testing/context_harness/helpers_extra_test.go`
+- [x] `internal/testing/context_harness/inspector.go`
+- [x] `internal/testing/context_harness/jit_tracer.go`
+- [x] `internal/testing/context_harness/metrics.go`
+- [x] `internal/testing/context_harness/metrics_test.go`
+- [x] `internal/testing/context_harness/mock_engine.go`
+- [x] `internal/testing/context_harness/piggyback_tracer.go`
+- [x] `internal/testing/context_harness/real_engine.go`
+- [x] `internal/testing/context_harness/reporter.go`
+- [x] `internal/testing/context_harness/reporter_test.go`
+- [x] `internal/testing/context_harness/scenarios.go`
+- [x] `internal/testing/context_harness/scenarios_integration.go`
+- [x] `internal/testing/context_harness/seeder_logger_test.go`
+- [x] `internal/testing/context_harness/simulator.go`
+- [x] `internal/testing/context_harness/simulator_test.go`
+- [x] `internal/testing/context_harness/test_kernel_factory.go`
+- [x] `internal/testing/context_harness/tracer_helpers_test.go`
+- [x] `internal/testing/context_harness/types.go`
+- [x] `internal/testing/doc.go`
+- [x] `internal/testing/harness_subsystem.go`
 
 ### internal/testoutput (2)
 - [ ] `internal/testoutput/testoutput.go`
@@ -3805,7 +3805,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/init/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/mcp (1)
-- [ ] `internal/mcp/.nerd/debug/debug_program_ERROR.mg`
+- [x] `internal/mcp/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/northstar (1)
 - [ ] `internal/northstar/.nerd/debug/debug_program_ERROR.mg`
@@ -3826,7 +3826,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/system/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/testing (1)
-- [ ] `internal/testing/context_harness/.nerd/debug/debug_program_ERROR.mg`
+- [x] `internal/testing/context_harness/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/world (1)
 - [ ] `internal/world/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
