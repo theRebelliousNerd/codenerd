@@ -2,6 +2,7 @@ package context
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 	"math"
 	"slices"
 	"strings"
@@ -107,7 +108,7 @@ func (ae *ActivationEngine) computeRelevanceScore(fact core.Fact) float64 {
 	// Extract target from intent
 	var intentTarget string
 	if len(ae.state.ActiveIntent.Args) >= 4 {
-		if t, ok := ae.state.ActiveIntent.Args[3].(string); ok {
+		if t, ok := factArgAsString(ae.state.ActiveIntent.Args[3]); ok {
 			intentTarget = strings.ToLower(t)
 		}
 	}
@@ -137,9 +138,7 @@ func (ae *ActivationEngine) computeRelevanceScore(fact core.Fact) float64 {
 	// Special boosting for certain predicates related to active intent
 	intentVerb := ""
 	if len(ae.state.ActiveIntent.Args) >= 3 {
-		if v, ok := ae.state.ActiveIntent.Args[2].(string); ok {
-			intentVerb = v
-		}
+		intentVerb, _ = factArgAsString(ae.state.ActiveIntent.Args[2])
 	}
 
 	// Enhanced verb-predicate relevance boosting
@@ -558,6 +557,24 @@ func (ae *ActivationEngine) computeBackReferenceScore(fact core.Fact) float64 {
 	return math.Min(score, 70.0) // Cap at 70
 }
 
+// factArgAsString reads a fact argument as text, accepting the explicit
+// Mangle atom and string types as well as a plain string. Kernel queries
+// materialize names as strings, but Go-constructed facts (the working set's
+// user_intent, adorner outputs) carry types.MangleAtom — and a bare .(string)
+// assertion on those silently dropped every verb boost and target match.
+func factArgAsString(arg any) (string, bool) {
+	switch v := arg.(type) {
+	case string:
+		return v, true
+	case types.MangleAtom:
+		return string(v), true
+	case types.MangleString:
+		return string(v), true
+	default:
+		return "", false
+	}
+}
+
 // factArgAsInt extracts the first argument of a fact as an int, handling
 // the int / int64 / float64 type drift between Go-emitted facts and
 // kernel-derived facts. The kernel typically returns Number constants
@@ -628,6 +645,10 @@ func (ae *ActivationEngine) ScoreFactsWithKernelOverride(facts []core.Fact, inte
 		}
 	}
 
+	// ScoreFacts sorts; this function's contract is ScoreFacts-identical output
+	// with kernel scores substituted, so sort the same way. An unsorted return
+	// would silently reorder every greedy budget fill downstream.
+	sortScoredFactsDesc(scored)
 	return scored
 }
 

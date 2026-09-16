@@ -39,11 +39,21 @@ type ActivationEngine struct {
 	// Fact timestamps for recency scoring
 	factTimestamps map[string]time.Time
 
-	// Dependency graph for spreading
+	// Dependency graph for spreading. Rebuilt from the fact set on every
+	// score; never written directly except by the rebuild below.
 	dependencies map[string][]string // fact -> depends on
 
-	// Reverse dependency graph (who depends on me)
+	// Reverse dependency graph (who depends on me). Same rebuild discipline.
 	reverseDependencies map[string][]string
+
+	// Explicit edges recorded via AddDependency. These live apart from the
+	// derived maps: the rebuild used to "preserve" the old maps wholesale,
+	// which re-added last call's derived edges and then derived them again,
+	// so every ScoreFacts call duplicated every edge and dependency scores
+	// grew without bound across a session. Explicit edges merge in after a
+	// fresh rebuild instead.
+	explicitDeps    map[string][]string
+	explicitRevDeps map[string][]string
 
 	// Symbol graph cache (extracted from symbol_graph facts)
 	symbolGraph map[string][]string // symbol -> calls
@@ -172,6 +182,8 @@ func NewActivationEngine(config CompressorConfig) *ActivationEngine {
 		factTimestamps:      make(map[string]time.Time),
 		dependencies:        make(map[string][]string),
 		reverseDependencies: make(map[string][]string),
+		explicitDeps:        make(map[string][]string),
+		explicitRevDeps:     make(map[string][]string),
 		symbolGraph:         make(map[string][]string),
 		sessionFacts:        make(map[string]bool),
 		sessionStarted:      time.Now(),
@@ -281,9 +293,7 @@ func (ae *ActivationEngine) scoreFactsLocked(facts []core.Fact, currentIntent *c
 	// Extract intent verb for intent-specific feedback lookup
 	ae.currentIntentVerb = ""
 	if currentIntent != nil && len(currentIntent.Args) >= 3 {
-		if v, ok := currentIntent.Args[2].(string); ok {
-			ae.currentIntentVerb = v
-		}
+		ae.currentIntentVerb, _ = factArgAsString(currentIntent.Args[2])
 	}
 
 	intentStr := "<none>"
@@ -314,10 +324,11 @@ func (ae *ActivationEngine) scoreFactsLocked(facts []core.Fact, currentIntent *c
 		})
 	}
 
-	// Sort by total score descending
-	sort.Slice(scored, func(i, j int) bool {
-		return scored[i].Score > scored[j].Score
-	})
+	// Sort by total score descending, ties broken on the fact string so the
+	// same fact set always yields the same order. The old unstable sort left
+	// ties to the sorter's whim, and the context block is exactly where
+	// nondeterminism becomes a flapping prompt.
+	sortScoredFactsDesc(scored)
 
 	// Log top scorers
 	if len(scored) > 0 {
@@ -338,26 +349,14 @@ func (ae *ActivationEngine) scoreFactsLocked(facts []core.Fact, currentIntent *c
 // buildSymbolGraphLocked extracts symbol relationships from symbol_graph and
 // dependency_link facts. Caller must hold ae.mu.
 //
-// Rebuilds graph maps from the fact set each call so we do not concurrently
-// append into shared slices and so maps do not grow unboundedly across scores.
-// Explicit AddDependency edges recorded earlier in the session are preserved
-// by merging them into the rebuilt maps.
+// The derived maps are rebuilt from scratch on every call: fresh maps, a fresh
+// scan, then the explicit AddDependency edges merged in. Nothing from the
+// previous call survives, so repeated scoring is idempotent and the maps stay
+// proportional to the fact set instead of growing with every score.
 func (ae *ActivationEngine) buildSymbolGraphLocked(facts []core.Fact) {
-	// Preserve edges added via AddDependency (not present as code-graph facts).
-	preservedDeps := ae.dependencies
-	preservedRev := ae.reverseDependencies
-
 	ae.symbolGraph = make(map[string][]string)
 	ae.dependencies = make(map[string][]string)
 	ae.reverseDependencies = make(map[string][]string)
-
-	// Re-apply preserved edges first.
-	for k, vs := range preservedDeps {
-		ae.dependencies[k] = append([]string(nil), vs...)
-	}
-	for k, vs := range preservedRev {
-		ae.reverseDependencies[k] = append([]string(nil), vs...)
-	}
 
 	for _, f := range facts {
 		switch f.Predicate {
@@ -382,6 +381,33 @@ func (ae *ActivationEngine) buildSymbolGraphLocked(facts []core.Fact) {
 			}
 		}
 	}
+
+	// Merge explicit edges last, skipping any the scan already produced so a
+	// fact-backed edge recorded explicitly is not counted twice.
+	for k, vs := range ae.explicitDeps {
+		ae.dependencies[k] = appendUniqueStrings(ae.dependencies[k], vs)
+	}
+	for k, vs := range ae.explicitRevDeps {
+		ae.reverseDependencies[k] = appendUniqueStrings(ae.reverseDependencies[k], vs)
+	}
+}
+
+// appendUniqueStrings appends the elements of src that dst does not already
+// contain. The edge lists are short; the quadratic scan stays trivial.
+func appendUniqueStrings(dst, src []string) []string {
+	for _, s := range src {
+		found := false
+		for _, d := range dst {
+			if d == s {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst = append(dst, s)
+		}
+	}
+	return dst
 }
 
 // FilterByThreshold returns only facts above the activation threshold.
@@ -495,8 +521,8 @@ func (ae *ActivationEngine) AddDependency(dependent, dependency core.Fact) {
 	defer ae.mu.Unlock()
 	depKey := factKey(dependent)
 	depsKey := factKey(dependency)
-	ae.dependencies[depKey] = append(ae.dependencies[depKey], depsKey)
-	ae.reverseDependencies[depsKey] = append(ae.reverseDependencies[depsKey], depKey)
+	ae.explicitDeps[depKey] = appendUniqueStrings(ae.explicitDeps[depKey], []string{depsKey})
+	ae.explicitRevDeps[depsKey] = appendUniqueStrings(ae.explicitRevDeps[depsKey], []string{depKey})
 }
 
 // =============================================================================
@@ -506,6 +532,17 @@ func (ae *ActivationEngine) AddDependency(dependent, dependency core.Fact) {
 // factKey creates a unique key for a fact.
 func factKey(f core.Fact) string {
 	return f.String()
+}
+
+// sortScoredFactsDesc orders scored facts by score descending, breaking ties
+// on the fact string so repeated scores of the same set come out identical.
+func sortScoredFactsDesc(scored []ScoredFact) {
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].Score != scored[j].Score {
+			return scored[i].Score > scored[j].Score
+		}
+		return scored[i].Fact.String() < scored[j].Fact.String()
+	})
 }
 
 // extractPredicate extracts the predicate name from a fact key.
@@ -599,6 +636,14 @@ func (ae *ActivationEngine) SpreadFromSeeds(facts []core.Fact, seeds []core.Fact
 
 	// Apply depth-limited spreading
 	if depth > 0 {
+		// Index fact keys once. The old inner loop re-serialized every fact
+		// for every dependency of every fact at every depth — depth * n^2
+		// String() calls on a hot path. Same boosts, linear setup.
+		byKey := make(map[string][]int, len(scored))
+		for i := range scored {
+			k := factKey(scored[i].Fact)
+			byKey[k] = append(byKey[k], i)
+		}
 		for d := range depth {
 			for i := range scored {
 				// Spread activation to dependencies
@@ -606,13 +651,11 @@ func (ae *ActivationEngine) SpreadFromSeeds(facts []core.Fact, seeds []core.Fact
 				if deps, ok := ae.dependencies[key]; ok {
 					for _, depKey := range deps {
 						// Find the dependent fact and boost it
-						for j := range scored {
-							if factKey(scored[j].Fact) == depKey {
-								// Spread 50% of activation, decaying with depth
-								spread := scored[i].Score * 0.5 * math.Pow(0.7, float64(d))
-								scored[j].Score += spread
-								scored[j].DependencyScore += spread
-							}
+						for _, j := range byKey[depKey] {
+							// Spread 50% of activation, decaying with depth
+							spread := scored[i].Score * 0.5 * math.Pow(0.7, float64(d))
+							scored[j].Score += spread
+							scored[j].DependencyScore += spread
 						}
 					}
 				}
@@ -620,9 +663,7 @@ func (ae *ActivationEngine) SpreadFromSeeds(facts []core.Fact, seeds []core.Fact
 		}
 
 		// Re-sort after spreading
-		sort.Slice(scored, func(i, j int) bool {
-			return scored[i].Score > scored[j].Score
-		})
+		sortScoredFactsDesc(scored)
 	}
 	ae.mu.Unlock()
 
@@ -633,18 +674,46 @@ func (ae *ActivationEngine) SpreadFromSeeds(facts []core.Fact, seeds []core.Fact
 // Activation State Management
 // =============================================================================
 
-// GetState returns the current activation state.
+// GetState returns a copy of the current activation state.
+//
+// The copy is deep through the slices and the active intent: returning the
+// struct by value still shared every backing array with the engine, so a
+// caller that appended to FocusedPaths or rewrote an intent arg mutated live
+// engine state — and raced with scoring when it did.
 func (ae *ActivationEngine) GetState() ActivationState {
 	ae.mu.RLock()
 	defer ae.mu.RUnlock()
-	return ae.state
+	return cloneActivationState(ae.state)
 }
 
-// SetState sets the activation state.
+// SetState sets the activation state, copying the caller's slices and intent
+// for the same reason GetState copies on the way out.
 func (ae *ActivationEngine) SetState(state ActivationState) {
 	ae.mu.Lock()
 	defer ae.mu.Unlock()
-	ae.state = state
+	ae.state = cloneActivationState(state)
+}
+
+// cloneActivationState copies a state's slices and active intent so neither
+// direction of GetState/SetState aliases engine memory.
+func cloneActivationState(s ActivationState) ActivationState {
+	out := s
+	if s.ActiveIntent != nil {
+		intent := *s.ActiveIntent
+		intent.Args = append([]any(nil), s.ActiveIntent.Args...)
+		out.ActiveIntent = &intent
+	}
+	out.FocusedPaths = append([]string(nil), s.FocusedPaths...)
+	out.FocusedSymbols = append([]string(nil), s.FocusedSymbols...)
+	out.HotFacts = append([]ScoredFact(nil), s.HotFacts...)
+	for i := range out.HotFacts {
+		out.HotFacts[i].Fact.Args = append([]any(nil), out.HotFacts[i].Fact.Args...)
+	}
+	out.RecentFacts = append([]core.Fact(nil), s.RecentFacts...)
+	for i := range out.RecentFacts {
+		out.RecentFacts[i].Args = append([]any(nil), out.RecentFacts[i].Args...)
+	}
+	return out
 }
 
 // ClearState resets the activation state.
@@ -655,10 +724,13 @@ func (ae *ActivationEngine) ClearState() {
 	ae.factTimestamps = make(map[string]time.Time)
 	ae.dependencies = make(map[string][]string)
 	ae.reverseDependencies = make(map[string][]string)
+	ae.explicitDeps = make(map[string][]string)
+	ae.explicitRevDeps = make(map[string][]string)
 	ae.symbolGraph = make(map[string][]string)
 	ae.sessionFacts = make(map[string]bool)
 	ae.campaignContext = nil
 	ae.issueContext = nil
+	ae.backReferenceContext = nil
 }
 
 // MarkNewFacts marks a set of facts as newly added (high recency).

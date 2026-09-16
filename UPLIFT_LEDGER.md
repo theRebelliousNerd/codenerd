@@ -1065,10 +1065,10 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/config/yolo_test.go`
 
 ### internal/context (30)
-- [ ] `internal/context/activation.go`
+- [x] `internal/context/activation.go`
 - [ ] `internal/context/activation_caps_test.go`
 - [ ] `internal/context/activation_race_test.go`
-- [ ] `internal/context/activation_scoring.go`
+- [x] `internal/context/activation_scoring.go`
 - [ ] `internal/context/activation_setters_test.go`
 - [ ] `internal/context/activation_test.go`
 - [ ] `internal/context/budget_helpers_test.go`
@@ -1096,6 +1096,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/context/working_set_test.go`
 - [x] `internal/context/working_store.go`
 - [x] `internal/context/context_unit1_uplift_test.go`
+- [x] `internal/context/context_unit2_uplift_test.go`
 
 ### internal/core/action_validator.go (1)
 - [x] `internal/core/action_validator.go`

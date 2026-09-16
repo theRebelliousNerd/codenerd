@@ -194,15 +194,20 @@ func TestAddDependency(t *testing.T) {
 
 	engine.AddDependency(dependent, dependency)
 
-	depKey := factKey(dependent)
-	depsKey := factKey(dependency)
-
-	if deps, ok := engine.dependencies[depKey]; !ok || len(deps) == 0 {
-		t.Error("Dependency should be recorded")
+	// Assert the behavioral contract, not the storage location: the edge must
+	// reach scoring — forward on the dependent, reverse on the dependency.
+	// (The old version read engine.dependencies directly, which pinned the
+	// layout whose rebuild-merge duplicated every edge on every score.)
+	scored := engine.ScoreFacts([]core.Fact{dependent, dependency}, nil)
+	byKey := map[string]ScoredFact{}
+	for _, s := range scored {
+		byKey[factKey(s.Fact)] = s
 	}
-
-	if rdeps, ok := engine.reverseDependencies[depsKey]; !ok || len(rdeps) == 0 {
-		t.Error("Reverse dependency should be recorded")
+	if got := byKey[factKey(dependent)].DependencyScore; got < 14.999 || got > 15.001 {
+		t.Errorf("dependent forward dependency score = %v, want ~15.0 (default priority 50 * 0.3)", got)
+	}
+	if got := byKey[factKey(dependency)].DependencyScore; got != 5.0 {
+		t.Errorf("dependency reverse dependency score = %v, want 5.0 (one dependent)", got)
 	}
 }
 
@@ -475,16 +480,17 @@ func TestSpreadFromSeeds(t *testing.T) {
 
 	engine := NewActivationEngine(config)
 
-	// Set up dependencies
-	engine.dependencies["file_topology(\"handler.go\", \"hash\", \"/go\", 0, \"/false\")."] = []string{
-		"file_topology(\"auth.go\", \"hash\", \"/go\", 0, \"/false\").",
-	}
-
 	facts := []core.Fact{
 		{Predicate: "user_intent", Args: []any{"id1", "/query", "/explain", "handler.go", ""}},
 		{Predicate: "file_topology", Args: []any{"handler.go", "hash", "/go", int64(0), "/false"}},
 		{Predicate: "file_topology", Args: []any{"auth.go", "hash", "/go", int64(0), "/false"}},
 	}
+
+	// Set up dependencies through the public API. The old version wrote
+	// engine.dependencies directly, which only survived scoring because the
+	// rebuild preserved the whole map — the same defect that duplicated every
+	// derived edge on every score.
+	engine.AddDependency(facts[1], facts[2])
 
 	seeds := []core.Fact{
 		{Predicate: "user_intent", Args: []any{"id1", "/query", "/explain", "handler.go", ""}},
@@ -500,6 +506,14 @@ func TestSpreadFromSeeds(t *testing.T) {
 	for _, sf := range scored {
 		if sf.Fact.Predicate == "user_intent" && sf.Score <= 0 {
 			t.Error("Seed fact should have high activation")
+		}
+	}
+
+	// The handler->auth edge must carry spread: auth's dependency component
+	// is the observable proof the edge survived the graph rebuild.
+	for _, sf := range scored {
+		if len(sf.Fact.Args) > 0 && sf.Fact.Args[0] == "auth.go" && sf.DependencyScore <= 0 {
+			t.Error("auth.go received no spread from its dependent; the AddDependency edge did not survive scoring")
 		}
 	}
 }
