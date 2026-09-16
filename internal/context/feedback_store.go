@@ -26,10 +26,11 @@ type ContextFeedbackStore struct {
 	db *sql.DB
 	mu sync.RWMutex
 
-	// Cache for frequently queried predicates (predicate -> usefulness score)
-	cache     map[string]float64
-	cacheMu   sync.RWMutex
-	cacheTime time.Time
+	// Cache for frequently queried predicates (predicate -> usefulness score).
+	// Entries are invalidated on every StoreFeedback, which is the only write
+	// path, so no TTL is needed: the cache cannot outlive the data it mirrors.
+	cache   map[string]float64
+	cacheMu sync.RWMutex
 
 	// Configuration
 	minSamples    int           // Minimum samples before score affects activation
@@ -123,6 +124,25 @@ func (s *ContextFeedbackStore) StoreFeedback(
 	helpfulFacts []string,
 	noiseFacts []string,
 ) error {
+	// The usefulness feeds AVG stats and learned scores, so bound it at the
+	// door: a producer on a 0-100 scale (or a NaN) would otherwise poison the
+	// loop silently. Clamp rather than reject — the write path is async
+	// fire-and-forget, so a rejection would vanish into a log while the rest
+	// of a good record was lost — but say so loudly when it happens.
+	if math.IsNaN(overallUsefulness) {
+		overallUsefulness = 0
+	}
+	clamped := math.Min(1, math.Max(0, overallUsefulness))
+	if clamped != overallUsefulness {
+		logging.Get(logging.CategoryContext).Warn(
+			"StoreFeedback: overall usefulness %.4f outside [0,1]; clamping", overallUsefulness)
+		overallUsefulness = clamped
+	}
+	// Empty predicate names carry no signal and would aggregate into a phantom
+	// "" row in the helpful/noise tables.
+	helpfulFacts = dropEmptyPredicates(helpfulFacts)
+	noiseFacts = dropEmptyPredicates(noiseFacts)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -275,11 +295,13 @@ func (s *ContextFeedbackStore) computePredicateScore(predicate, intentVerb strin
 		var rating string
 		var timestamp string
 		if err := rows.Scan(&rating, &timestamp); err != nil {
+			logging.ContextDebug("Skipping malformed predicate feedback row: %v", err)
 			continue
 		}
 
 		ts, err := time.Parse(time.RFC3339, timestamp)
 		if err != nil {
+			logging.ContextDebug("Skipping predicate feedback with bad timestamp %q: %v", timestamp, err)
 			continue
 		}
 
@@ -298,6 +320,12 @@ func (s *ContextFeedbackStore) computePredicateScore(predicate, intentVerb strin
 		weightedSum += score * weight
 		totalWeight += weight
 		count++
+	}
+	// A mid-iteration database failure must not present a partial sample as a
+	// learned score: without enough trustworthy evidence the answer is neutral.
+	if err := rows.Err(); err != nil {
+		logging.ContextDebug("Predicate feedback query failed mid-iteration: %v", err)
+		return 0.0
 	}
 
 	// Require minimum samples before affecting scoring
@@ -366,10 +394,14 @@ func (s *ContextFeedbackStore) GetTopHelpfulPredicates(limit int) ([]PredicateFe
 	for rows.Next() {
 		var pf PredicateFeedback
 		if err := rows.Scan(&pf.Predicate, &pf.HelpfulCount, &pf.NoiseCount, &pf.TotalMentions); err != nil {
+			logging.ContextDebug("Skipping malformed top-predicate row: %v", err)
 			continue
 		}
 		pf.WeightedScore = s.computePredicateScore(pf.Predicate, "")
 		results = append(results, pf)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return results, nil
@@ -398,10 +430,14 @@ func (s *ContextFeedbackStore) GetTopNoisePredicates(limit int) ([]PredicateFeed
 	for rows.Next() {
 		var pf PredicateFeedback
 		if err := rows.Scan(&pf.Predicate, &pf.HelpfulCount, &pf.NoiseCount, &pf.TotalMentions); err != nil {
+			logging.ContextDebug("Skipping malformed top-predicate row: %v", err)
 			continue
 		}
 		pf.WeightedScore = s.computePredicateScore(pf.Predicate, "")
 		results = append(results, pf)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return results, nil
@@ -420,8 +456,22 @@ func (s *ContextFeedbackStore) GetOverallStats() (totalFeedback int, avgUsefulne
 	return
 }
 
+// dropEmptyPredicates removes blank predicate names from a rating list.
+func dropEmptyPredicates(preds []string) []string {
+	out := preds[:0]
+	for _, p := range preds {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // Close closes the database connection.
 func (s *ContextFeedbackStore) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
 	return s.db.Close()
 }
 

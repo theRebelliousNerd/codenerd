@@ -1073,20 +1073,20 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/context/activation_test.go`
 - [ ] `internal/context/budget_helpers_test.go`
 - [ ] `internal/context/chat_history_parity_test.go`
-- [ ] `internal/context/compressor.go`
+- [x] `internal/context/compressor.go`
 - [ ] `internal/context/compressor_accessors_test.go`
-- [ ] `internal/context/compressor_metrics.go`
+- [x] `internal/context/compressor_metrics.go`
 - [ ] `internal/context/compressor_race_test.go`
 - [ ] `internal/context/compressor_test.go`
-- [ ] `internal/context/compressor_turns.go`
-- [ ] `internal/context/feedback_store.go`
+- [x] `internal/context/compressor_turns.go`
+- [x] `internal/context/feedback_store.go`
 - [ ] `internal/context/feedback_store_scoring_test.go`
 - [ ] `internal/context/feedback_store_test.go`
 - [ ] `internal/context/kernel_context_test.go`
 - [ ] `internal/context/long_session_test.go`
 - [ ] `internal/context/memory_op_coverage_test.go`
 - [ ] `internal/context/mocks_test.go`
-- [ ] `internal/context/serializer.go`
+- [x] `internal/context/serializer.go`
 - [ ] `internal/context/serializer_bounds_test.go`
 - [ ] `internal/context/serializer_test.go`
 - [ ] `internal/context/token_counter_extra_test.go`
@@ -1097,6 +1097,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/context/working_store.go`
 - [x] `internal/context/context_unit1_uplift_test.go`
 - [x] `internal/context/context_unit2_uplift_test.go`
+- [x] `internal/context/context_unit3_uplift_test.go`
 
 ### internal/core/action_validator.go (1)
 - [x] `internal/core/action_validator.go`

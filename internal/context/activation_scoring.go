@@ -5,6 +5,7 @@ import (
 	"codenerd/internal/types"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -581,19 +582,63 @@ func factArgAsString(arg any) (string, bool) {
 // as int64; Go-side asserts may use int. Both must match for back-ref
 // scoring to fire.
 func factArgAsInt(fact core.Fact) (int, bool) {
-	if len(fact.Args) == 0 {
+	arg, ok := factArgAt(fact, 0)
+	if !ok {
 		return 0, false
 	}
-	switch v := fact.Args[0].(type) {
+	return factArgToInt(arg)
+}
+
+// factArgAt returns a fact's i-th argument, or false when the fact is shorter.
+// Kernel facts are trusted to match their schema until one does not — and an
+// unguarded Args[0] on that one panics the compressor mid-turn.
+func factArgAt(fact core.Fact, i int) (any, bool) {
+	if i < 0 || i >= len(fact.Args) {
+		return nil, false
+	}
+	return fact.Args[i], true
+}
+
+// factArgToInt normalizes the int/int64/float64 drift to an int. A numeric
+// string counts too: turn-ID slots are declared /string in schemas_memory.mg,
+// so "5" is a legitimately encoded 5. Anything else is not zero — it is
+// absent, and callers must skip the fact rather than invent turn 0.
+func factArgToInt(arg any) (int, bool) {
+	switch v := arg.(type) {
 	case int:
 		return v, true
 	case int64:
 		return int(v), true
 	case float64:
 		return int(v), true
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			return n, true
+		}
+		return 0, false
 	default:
 		return 0, false
 	}
+}
+
+// factStringAt reads a fact's i-th argument as text, combining the bounds
+// check with the string/atom normalization.
+func factStringAt(fact core.Fact, i int) (string, bool) {
+	arg, ok := factArgAt(fact, i)
+	if !ok {
+		return "", false
+	}
+	return factArgAsString(arg)
+}
+
+// factTurnIDAt reads a fact's i-th argument as a turn ID: bounds-checked and
+// type-normalized, false when the argument is missing or not numeric.
+func factTurnIDAt(fact core.Fact, i int) (int, bool) {
+	arg, ok := factArgAt(fact, i)
+	if !ok {
+		return 0, false
+	}
+	return factArgToInt(arg)
 }
 
 // ScoreFactsWithKernelOverride scores facts using kernel-derived scores as primary

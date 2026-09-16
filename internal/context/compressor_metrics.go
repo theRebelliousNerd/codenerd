@@ -3,6 +3,7 @@ package context
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/perception"
 	"fmt"
 	"slices"
 	"sort"
@@ -151,15 +152,24 @@ func (c *Compressor) GetRecentTurnWindow() int {
 }
 
 // buildStateLocked constructs a CompressedState assuming c.mu is already held.
+//
+// The returned state owns its slices: handing out the engine's backing arrays
+// meant a caller that appended to RecentTurns wrote into live compressor
+// memory, and a GetState/LoadState round-trip across compressors shared one
+// array between two engines. Copy on the way out; LoadState copies on the way
+// in.
 func (c *Compressor) buildStateLocked() *CompressedState {
 	// Get hot facts
-	allFacts := slices.Collect(c.kernel.GetAllFactsSeq())
-	var currentIntent *core.Fact
-	intentFacts, _ := c.kernel.Query("user_intent")
-	if len(intentFacts) > 0 {
-		currentIntent = &intentFacts[len(intentFacts)-1]
+	var hotFacts []ScoredFact
+	if c.kernel != nil && c.activation != nil {
+		allFacts := slices.Collect(c.kernel.GetAllFactsSeq())
+		var currentIntent *core.Fact
+		intentFacts, _ := c.kernel.Query("user_intent")
+		if len(intentFacts) > 0 {
+			currentIntent = &intentFacts[len(intentFacts)-1]
+		}
+		hotFacts = c.activation.GetHighActivationFacts(allFacts, currentIntent, c.config.AtomReserve)
 	}
-	hotFacts := c.activation.GetHighActivationFacts(allFacts, currentIntent, c.config.AtomReserve)
 
 	ratio := 1.0
 	if c.totalCompressedTokens > 0 {
@@ -171,12 +181,59 @@ func (c *Compressor) buildStateLocked() *CompressedState {
 		Version:              "1.0.0",
 		TurnNumber:           c.turnNumber,
 		Timestamp:            time.Now(),
-		RollingSummary:       c.rollingSummary,
-		RecentTurns:          c.recentTurns,
+		RollingSummary:       cloneRollingSummary(c.rollingSummary),
+		RecentTurns:          cloneCompressedTurns(c.recentTurns),
 		HotFacts:             hotFacts,
 		TotalCompressedTurns: c.rollingSummary.TotalTurns,
 		CompressionRatio:     ratio,
 	}
+}
+
+// cloneRollingSummary deep-copies a rolling summary through its segments and
+// their key atoms, so a persisted snapshot never aliases engine memory.
+func cloneRollingSummary(s RollingSummary) RollingSummary {
+	out := s
+	out.Segments = append([]HistorySegment(nil), s.Segments...)
+	for i := range out.Segments {
+		out.Segments[i].KeyAtoms = cloneFacts(out.Segments[i].KeyAtoms)
+	}
+	return out
+}
+
+// cloneCompressedTurns deep-copies turns through their atom slices and intent
+// pointers.
+func cloneCompressedTurns(turns []CompressedTurn) []CompressedTurn {
+	if turns == nil {
+		return nil
+	}
+	out := make([]CompressedTurn, len(turns))
+	for i, t := range turns {
+		out[i] = t
+		if t.IntentAtom != nil {
+			intent := *t.IntentAtom
+			intent.Args = append([]any(nil), t.IntentAtom.Args...)
+			out[i].IntentAtom = &intent
+		}
+		out[i].FocusAtoms = cloneFacts(t.FocusAtoms)
+		out[i].ActionAtoms = cloneFacts(t.ActionAtoms)
+		out[i].ResultAtoms = cloneFacts(t.ResultAtoms)
+		out[i].MangleUpdates = append([]string(nil), t.MangleUpdates...)
+		out[i].MemoryOperations = append([]perception.MemoryOperation(nil), t.MemoryOperations...)
+	}
+	return out
+}
+
+// cloneFacts copies facts and their argument slices.
+func cloneFacts(facts []core.Fact) []core.Fact {
+	if facts == nil {
+		return nil
+	}
+	out := make([]core.Fact, len(facts))
+	for i, f := range facts {
+		out[i] = f
+		out[i].Args = append([]any(nil), f.Args...)
+	}
+	return out
 }
 
 // GetState returns the full compressed state for persistence.
@@ -193,6 +250,16 @@ func (c *Compressor) GetState() *CompressedState {
 
 // LoadState restores state from a persisted CompressedState.
 func (c *Compressor) LoadState(state *CompressedState) error {
+	if state == nil {
+		return fmt.Errorf("LoadState: cannot restore from a nil state")
+	}
+	// The restore below touches every sub-engine: budget (recalc), activation
+	// (timestamps), counter and serializer (summary render). A compressor
+	// missing any of them is not restorable — say so instead of panicking
+	// halfway through a half-applied load.
+	if c.budget == nil || c.activation == nil || c.counter == nil || c.serializer == nil {
+		return fmt.Errorf("LoadState: compressor is missing budget, activation, counter or serializer state")
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -201,8 +268,8 @@ func (c *Compressor) LoadState(state *CompressedState) error {
 
 	c.sessionID = state.SessionID
 	c.turnNumber = state.TurnNumber
-	c.rollingSummary = state.RollingSummary
-	c.recentTurns = state.RecentTurns
+	c.rollingSummary = cloneRollingSummary(state.RollingSummary)
+	c.recentTurns = cloneCompressedTurns(state.RecentTurns)
 
 	// Restore hot facts to kernel
 	restoredCount := 0
@@ -360,7 +427,7 @@ func (c *Compressor) GetActivationScores() map[string]float64 {
 
 	scores := make(map[string]float64)
 
-	if c.kernel == nil {
+	if c.kernel == nil || c.activation == nil {
 		return scores
 	}
 

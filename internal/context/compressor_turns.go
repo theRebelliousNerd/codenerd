@@ -247,19 +247,25 @@ func (c *Compressor) recalcBudget(turnNumber int, workingTokens int) {
 
 	// Gather context components
 	coreFacts := c.getCoreFacts()
-	allFacts := slices.Collect(c.kernel.GetAllFactsSeq())
-
+	var allFacts []core.Fact
 	var currentIntent *core.Fact
-	// OPTIMIZATION: Use QueryAll for single predicate lookups too (more consistent)
-	if allFacts, err := c.kernel.QueryAll(); err == nil {
-		if intents, ok := allFacts["user_intent"]; ok && len(intents) > 0 {
-			currentIntent = &intents[len(intents)-1]
+	if c.kernel != nil {
+		allFacts = slices.Collect(c.kernel.GetAllFactsSeq())
+
+		// OPTIMIZATION: Use QueryAll for single predicate lookups too (more consistent)
+		if allFactsByPred, err := c.kernel.QueryAll(); err == nil {
+			if intents, ok := allFactsByPred["user_intent"]; ok && len(intents) > 0 {
+				currentIntent = &intents[len(intents)-1]
+			}
 		}
 	}
 
-	scoredFacts := c.activation.GetHighActivationFacts(allFacts, currentIntent, c.config.AtomReserve)
+	var scoredFacts []ScoredFact
+	if c.activation != nil {
+		scoredFacts = c.activation.GetHighActivationFacts(allFacts, currentIntent, c.config.AtomReserve)
+	}
 
-	start := max(len(c.recentTurns)-c.config.RecentTurnWindow, 0)
+	start := max(len(c.recentTurns)-c.recentWindow(), 0)
 	recent := c.recentTurns[start:]
 
 	builder := NewContextBlockBuilder()
@@ -274,6 +280,10 @@ func (c *Compressor) recalcBudget(turnNumber int, workingTokens int) {
 	usage := compressedCtx.TokenUsage
 
 	// Reset and set budget usage atomically behind the budget's own lock.
+	if c.budget == nil {
+		logging.ContextDebug("recalcBudget: no budget attached; usage computed but not recorded")
+		return
+	}
 	c.budget.SetUsage(usage.Core, usage.Atoms, usage.History, usage.Recent, workingTokens)
 
 	logging.ContextDebug("Budget recalculated: core=%d, atoms=%d, history=%d, recent=%d, working=%d (total=%d)",
@@ -282,13 +292,14 @@ func (c *Compressor) recalcBudget(turnNumber int, workingTokens int) {
 
 // compress performs the actual compression.
 func (c *Compressor) compress(ctx context.Context) error {
-	if len(c.recentTurns) <= c.config.RecentTurnWindow {
-		logging.ContextDebug("Compression skipped: only %d turns (need > %d)", len(c.recentTurns), c.config.RecentTurnWindow)
+	window := c.recentWindow()
+	if len(c.recentTurns) <= window {
+		logging.ContextDebug("Compression skipped: only %d turns (need > %d)", len(c.recentTurns), window)
 		return nil // Nothing to compress
 	}
 
 	// Determine turns to compress (everything except recent window)
-	cutoff := len(c.recentTurns) - c.config.RecentTurnWindow
+	cutoff := len(c.recentTurns) - window
 	turnsToCompress := c.recentTurns[:cutoff]
 	logging.Context("Compressing %d turns (keeping %d recent)", cutoff, c.config.RecentTurnWindow)
 
@@ -372,8 +383,11 @@ func (c *Compressor) compress(ctx context.Context) error {
 	// Rebuild rolling summary text
 	c.rebuildRollingSummaryText()
 
-	// Remove compressed turns from recent
-	c.recentTurns = c.recentTurns[cutoff:]
+	// Remove compressed turns from recent. Copy into a fresh slice: a bare
+	// reslice keeps the whole backing array — every compressed turn's atoms —
+	// reachable for the session's life, so memory grows with history even
+	// though the window stays bounded.
+	c.recentTurns = append([]CompressedTurn(nil), c.recentTurns[cutoff:]...)
 	logging.ContextDebug("Removed %d compressed turns, %d remaining", cutoff, len(c.recentTurns))
 
 	// Decay recency scores for old facts
@@ -484,6 +498,9 @@ func (c *Compressor) generateObservationMaskedSummary(turns []CompressedTurn, ma
 
 // generateSimpleSummary creates a basic summary without LLM.
 func (c *Compressor) generateSimpleSummary(turns []CompressedTurn) string {
+	if len(turns) == 0 {
+		return ""
+	}
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("# Compressed History (Turns %d-%d)\n", turns[0].TurnNumber, turns[len(turns)-1].TurnNumber))
 
@@ -649,7 +666,7 @@ func (c *Compressor) renderRollingSummaryText() {
 // overflow is the safety net that guarantees turns leave only through
 // compression.
 func (c *Compressor) pruneRecentTurns(ctx context.Context) {
-	maxTurns := c.config.RecentTurnWindow * 2 // Keep 2x window before compression
+	maxTurns := c.recentWindow() * 2 // Keep 2x window before compression
 	if len(c.recentTurns) <= maxTurns {
 		return
 	}
@@ -665,6 +682,8 @@ func (c *Compressor) pruneRecentTurns(ctx context.Context) {
 		dropped := len(c.recentTurns) - maxTurns
 		logging.Get(logging.CategoryContext).Warn(
 			"pruneRecentTurns: dropping %d uncompressed turns after failed compression", dropped)
-		c.recentTurns = c.recentTurns[dropped:]
+		// Fresh slice, not a reslice: see compress() for why the backing
+		// array must not survive the drop.
+		c.recentTurns = append([]CompressedTurn(nil), c.recentTurns[dropped:]...)
 	}
 }

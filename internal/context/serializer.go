@@ -2,11 +2,13 @@ package context
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -64,7 +66,9 @@ func (fs *FactSerializer) LoadSerializationOrderFromCorpus(corpus *core.Predicat
 	}
 	order, err := corpus.GetSerializationOrder()
 	if err != nil {
-		// Silently fall back to hardcoded order
+		// Fall back to the hardcoded order, but say so: a corpus that fails
+		// to load is a broken single source of truth, not a preference.
+		logging.ContextDebug("LoadSerializationOrderFromCorpus: falling back to hardcoded order: %v", err)
 		return fs
 	}
 	fs.corpusOrder = order
@@ -165,8 +169,10 @@ func (fs *FactSerializer) truncateFact(f core.Fact) string {
 	var args []string
 	for _, arg := range f.Args {
 		argStr := formatArg(arg)
-		if len(argStr) > 50 {
-			argStr = argStr[:47] + "..."
+		// Truncate by rune: a byte cut can split a multi-byte rune and inject
+		// invalid UTF-8 into the context block.
+		if runes := []rune(argStr); len(runes) > 50 {
+			argStr = string(runes[:47]) + "..."
 		}
 		args = append(args, argStr)
 	}
@@ -222,6 +228,9 @@ func (fs *FactSerializer) SerializeCompressedTurn(turn CompressedTurn) string {
 
 // SerializeCompressedContext creates the full context block for LLM injection.
 func (fs *FactSerializer) SerializeCompressedContext(ctx *CompressedContext) string {
+	if ctx == nil {
+		return ""
+	}
 	var sb strings.Builder
 
 	// Header
@@ -270,10 +279,9 @@ func (fs *FactSerializer) SerializeCompressedContext(ctx *CompressedContext) str
 // Bounds on the injected context block.
 //
 // Nothing downstream re-checks this. ContextBlockBuilder.Build MEASURES the
-// block (TokenUsage) but never enforces anything, and TokenBudget.Allocate —
-// the API that would have rejected an over-budget category — has no production
-// caller; recalcBudget writes tb.used.* directly, so the budget is a report,
-// not a gate. CheckTotalBudget then runs at the START of the next BuildContext,
+// block (TokenUsage) but never enforces anything, and recalcBudget overwrites
+// the budget counters wholesale via SetUsage, so the budget is a report, not
+// a gate. CheckTotalBudget then runs at the START of the next BuildContext,
 // which means an over-budget block is always shipped once before anything
 // notices.
 const (
@@ -314,7 +322,9 @@ func ExtractAtomsFromControlPacket(packet *perception.ControlPacket) ([]core.Fac
 	for _, update := range packet.MangleUpdates {
 		fact, err := ParseMangleAtom(update)
 		if err != nil {
-			// Skip malformed atoms but log
+			// Skip malformed atoms, but name them: a control packet whose
+			// updates never parse is a broken producer, not an empty turn.
+			logging.Get(logging.CategoryContext).Warn("Skipping malformed mangle update %q: %v", update, err)
 			continue
 		}
 		facts = append(facts, fact)
@@ -347,7 +357,10 @@ func ParseMangleAtom(atom string) (core.Fact, error) {
 	}
 
 	argsStr := atom[parenIdx+1 : closeIdx]
-	args := parseArgs(argsStr)
+	args, err := parseArgs(argsStr)
+	if err != nil {
+		return core.Fact{}, err
+	}
 
 	return core.Fact{
 		Predicate: predicate,
@@ -356,14 +369,17 @@ func ParseMangleAtom(atom string) (core.Fact, error) {
 }
 
 // parseArgs parses a comma-separated argument list.
-func parseArgs(argsStr string) []any {
+func parseArgs(argsStr string) ([]any, error) {
 	var args []any
 
 	if strings.TrimSpace(argsStr) == "" {
-		return args
+		return args, nil
 	}
 
-	parts := splitArgs(argsStr)
+	parts, err := splitArgs(argsStr)
+	if err != nil {
+		return nil, err
+	}
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
@@ -372,19 +388,28 @@ func parseArgs(argsStr string) []any {
 		args = append(args, parseArgValue(part))
 	}
 
-	return args
+	return args, nil
 }
 
 // splitArgs splits arguments respecting quoted strings and nested parentheses.
-func splitArgs(s string) []string {
+// A backslash inside quotes escapes the next rune, so an embedded quote does
+// not end the string early. Unbalanced quotes or parentheses are an error:
+// mis-splitting them produced wrong facts silently.
+func splitArgs(s string) ([]string, error) {
 	var result []string
 	var current strings.Builder
 	depth := 0
 	inQuotes := false
 	quoteChar := rune(0)
 
-	for _, ch := range s {
+	runes := []rune(s)
+	for i := 0; i < len(runes); i++ {
+		ch := runes[i]
 		switch {
+		case ch == '\\' && inQuotes && i+1 < len(runes):
+			current.WriteRune(ch)
+			i++
+			current.WriteRune(runes[i])
 		case (ch == '"' || ch == '\'') && !inQuotes:
 			inQuotes = true
 			quoteChar = ch
@@ -397,6 +422,9 @@ func splitArgs(s string) []string {
 			current.WriteRune(ch)
 		case ch == ')' && !inQuotes:
 			depth--
+			if depth < 0 {
+				return nil, fmt.Errorf("unbalanced parenthesis in %q", s)
+			}
 			current.WriteRune(ch)
 		case ch == ',' && !inQuotes && depth == 0:
 			result = append(result, current.String())
@@ -405,12 +433,18 @@ func splitArgs(s string) []string {
 			current.WriteRune(ch)
 		}
 	}
+	if inQuotes {
+		return nil, fmt.Errorf("unterminated string in %q", s)
+	}
+	if depth != 0 {
+		return nil, fmt.Errorf("unbalanced parenthesis in %q", s)
+	}
 
 	if current.Len() > 0 {
 		result = append(result, current.String())
 	}
 
-	return result
+	return result, nil
 }
 
 // parseArgValue converts a string argument to the appropriate Go type.
@@ -422,10 +456,11 @@ func parseArgValue(s string) any {
 		return s
 	}
 
-	// Quoted string
-	if (strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"")) ||
-		(strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'")) {
-		return s[1 : len(s)-1]
+	// Quoted string. The length guard matters: a lone quote character used to
+	// reach s[1:0] and panic.
+	if len(s) >= 2 && ((strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"")) ||
+		(strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'"))) {
+		return unescapeQuoted(s[1 : len(s)-1])
 	}
 
 	// Boolean
@@ -436,20 +471,38 @@ func parseArgValue(s string) any {
 		return false
 	}
 
-	// Integer
-	var intVal int64
-	if _, err := fmt.Sscanf(s, "%d", &intVal); err == nil {
+	// Numbers must parse whole: fmt.Sscanf's %d accepts a numeric prefix, so
+	// it read "1.5" as int64(1) — every float silently lost its fraction and
+	// the %f branch below it was dead code — and "123abc" as int64(123).
+	if intVal, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return intVal
 	}
-
-	// Float
-	var floatVal float64
-	if _, err := fmt.Sscanf(s, "%f", &floatVal); err == nil {
+	if floatVal, err := strconv.ParseFloat(s, 64); err == nil {
 		return floatVal
 	}
 
 	// Default to string
 	return s
+}
+
+// unescapeQuoted resolves backslash escapes inside a quoted argument, so the
+// string splitArgs protected with escape handling arrives without its armor.
+func unescapeQuoted(s string) string {
+	if !strings.ContainsRune(s, '\\') {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s))
+	runes := []rune(s)
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == '\\' && i+1 < len(runes) {
+			i++
+			sb.WriteRune(runes[i])
+			continue
+		}
+		sb.WriteRune(runes[i])
+	}
+	return sb.String()
 }
 
 // formatArg formats an argument for serialization.
@@ -474,6 +527,31 @@ func formatArg(arg any) string {
 	}
 }
 
+// fallbackPredicateOrder is the hardcoded predicate sort order used when the
+// corpus order is unavailable. It lives at package level because the lookup
+// runs once per sort comparison — rebuilding the map on every call turned
+// every serialization into a stream of ashamed allocations.
+var fallbackPredicateOrder = map[string]int{
+	"user_intent":      1,
+	"focus_resolution": 2,
+	"active_goal":      3,
+	"diagnostic":       10,
+	"test_state":       11,
+	"file_topology":    20,
+	"modified":         21,
+	"symbol_graph":     22,
+	"dependency_link":  23,
+	"campaign":         30,
+	"campaign_phase":   31,
+	"campaign_task":    32,
+	"issue_text":       33,
+	"issue_keyword":    34,
+	"delegate_task":    40,
+	"permitted":        50,
+	"activation":       60,
+	"context_atom":     61,
+}
+
 // predicateSortOrder returns a hardcoded sort order for predicates.
 // Lower numbers appear first.
 //
@@ -481,28 +559,7 @@ func formatArg(arg any) string {
 // Prefer using FactSerializer.LoadSerializationOrderFromCorpus() which
 // loads order from predicate_corpus.db for a single source of truth.
 func predicateSortOrder(pred string) int {
-	order := map[string]int{
-		"user_intent":      1,
-		"focus_resolution": 2,
-		"active_goal":      3,
-		"diagnostic":       10,
-		"test_state":       11,
-		"file_topology":    20,
-		"modified":         21,
-		"symbol_graph":     22,
-		"dependency_link":  23,
-		"campaign":         30,
-		"campaign_phase":   31,
-		"campaign_task":    32,
-		"issue_text":       33,
-		"issue_keyword":    34,
-		"delegate_task":    40,
-		"permitted":        50,
-		"activation":       60,
-		"context_atom":     61,
-	}
-
-	if o, ok := order[pred]; ok {
+	if o, ok := fallbackPredicateOrder[pred]; ok {
 		return o
 	}
 	return 100 // Default order for unknown predicates

@@ -127,12 +127,12 @@ func (c *Compressor) refreshCampaignContextLocked(getFacts func(pred string) []c
 	if len(campaignFacts) == 0 {
 		c.activation.ClearCampaignContext()
 	} else {
-		campaignID, _ := campaignFacts[len(campaignFacts)-1].Args[0].(string)
+		campaignID, _ := factStringAt(campaignFacts[len(campaignFacts)-1], 0)
 
 		phaseID := ""
 		phaseName := ""
 		if phases := getFacts("current_phase"); len(phases) > 0 {
-			phaseID, _ = phases[len(phases)-1].Args[0].(string)
+			phaseID, _ = factStringAt(phases[len(phases)-1], 0)
 			// Find phase name from campaign_phase facts.
 			if allPhases := getFacts("campaign_phase"); len(allPhases) > 0 {
 				for _, f := range allPhases {
@@ -150,7 +150,7 @@ func (c *Compressor) refreshCampaignContextLocked(getFacts func(pred string) []c
 		taskID := ""
 		taskDesc := ""
 		if tasks := getFacts("next_campaign_task"); len(tasks) > 0 {
-			taskID, _ = tasks[len(tasks)-1].Args[0].(string)
+			taskID, _ = factStringAt(tasks[len(tasks)-1], 0)
 			if allTasks := getFacts("campaign_task"); len(allTasks) > 0 {
 				for _, f := range allTasks {
 					if len(f.Args) >= 3 {
@@ -246,16 +246,16 @@ func (c *Compressor) refreshIssueContextLocked(getFacts func(pred string) []core
 	source := ""
 	if c.kernel.IsPredicateDeclared("swebench_instance") {
 		if swe := getFacts("swebench_instance"); len(swe) > 0 {
-			issueID, _ = swe[len(swe)-1].Args[0].(string)
+			issueID, _ = factStringAt(swe[len(swe)-1], 0)
 			source = "swebench"
 		}
 	}
 	if issueID == "" {
 		if issues := getFacts("issue_context"); len(issues) > 0 {
-			issueID, _ = issues[len(issues)-1].Args[0].(string)
+			issueID, _ = factStringAt(issues[len(issues)-1], 0)
 			source = "issue_tracker"
 		} else if kws := getFacts("issue_keyword"); len(kws) > 0 {
-			issueID, _ = kws[len(kws)-1].Args[0].(string)
+			issueID, _ = factStringAt(kws[len(kws)-1], 0)
 			source = "issue_tracker"
 		}
 	}
@@ -429,21 +429,19 @@ func (c *Compressor) refreshBackReferenceContextLocked(getFacts func(pred string
 	referenceStrength := 1.0
 
 	for _, f := range backRefs {
-		if len(f.Args) >= 2 {
-			var referencedTurn int
-			switch v := f.Args[1].(type) {
-			case int:
-				referencedTurn = v
-			case int64:
-				referencedTurn = int(v)
-			case float64:
-				referencedTurn = int(v)
-			}
-			if referencedTurn >= 0 && !referencedTurnsMap[referencedTurn] {
-				referencedTurnsMap[referencedTurn] = true
-				referencedTurnIDs = append(referencedTurnIDs, referencedTurn)
-			}
+		arg, ok := factArgAt(f, 1)
+		if !ok {
+			continue
 		}
+		// A non-numeric turn ID used to fall through the switch as turn 0
+		// and pass the >= 0 check, inventing a referenced turn that never
+		// existed. Skip it instead.
+		referencedTurn, ok := factArgToInt(arg)
+		if !ok || referencedTurn < 0 || referencedTurnsMap[referencedTurn] {
+			continue
+		}
+		referencedTurnsMap[referencedTurn] = true
+		referencedTurnIDs = append(referencedTurnIDs, referencedTurn)
 	}
 
 	if len(referencedTurnIDs) == 0 {
@@ -460,21 +458,12 @@ func (c *Compressor) refreshBackReferenceContextLocked(getFacts func(pred string
 	// turn_topic(turnID, topic)
 	if topics := getFacts("turn_topic"); len(topics) > 0 {
 		for _, f := range topics {
-			if len(f.Args) >= 2 {
-				var turnID int
-				switch v := f.Args[0].(type) {
-				case int:
-					turnID = v
-				case int64:
-					turnID = int(v)
-				case float64:
-					turnID = int(v)
-				}
-				if referencedTurnsMap[turnID] {
-					if topic, ok := f.Args[1].(string); ok && topic != "" {
-						referencedTopics = append(referencedTopics, topic)
-					}
-				}
+			turnID, ok := factTurnIDAt(f, 0)
+			if !ok || !referencedTurnsMap[turnID] {
+				continue
+			}
+			if topic, ok := factStringAt(f, 1); ok && topic != "" {
+				referencedTopics = append(referencedTopics, topic)
 			}
 		}
 	}
@@ -482,21 +471,12 @@ func (c *Compressor) refreshBackReferenceContextLocked(getFacts func(pred string
 	// turn_references_file(turnID, filePath)
 	if files := getFacts("turn_references_file"); len(files) > 0 {
 		for _, f := range files {
-			if len(f.Args) >= 2 {
-				var turnID int
-				switch v := f.Args[0].(type) {
-				case int:
-					turnID = v
-				case int64:
-					turnID = int(v)
-				case float64:
-					turnID = int(v)
-				}
-				if referencedTurnsMap[turnID] {
-					if file, ok := f.Args[1].(string); ok && file != "" {
-						referencedFiles = append(referencedFiles, file)
-					}
-				}
+			turnID, ok := factTurnIDAt(f, 0)
+			if !ok || !referencedTurnsMap[turnID] {
+				continue
+			}
+			if file, ok := factStringAt(f, 1); ok && file != "" {
+				referencedFiles = append(referencedFiles, file)
 			}
 		}
 	}
@@ -504,21 +484,12 @@ func (c *Compressor) refreshBackReferenceContextLocked(getFacts func(pred string
 	// turn_references_symbol(turnID, symbol)
 	if symbols := getFacts("turn_references_symbol"); len(symbols) > 0 {
 		for _, f := range symbols {
-			if len(f.Args) >= 2 {
-				var turnID int
-				switch v := f.Args[0].(type) {
-				case int:
-					turnID = v
-				case int64:
-					turnID = int(v)
-				case float64:
-					turnID = int(v)
-				}
-				if referencedTurnsMap[turnID] {
-					if symbol, ok := f.Args[1].(string); ok && symbol != "" {
-						referencedSymbols = append(referencedSymbols, symbol)
-					}
-				}
+			turnID, ok := factTurnIDAt(f, 0)
+			if !ok || !referencedTurnsMap[turnID] {
+				continue
+			}
+			if symbol, ok := factStringAt(f, 1); ok && symbol != "" {
+				referencedSymbols = append(referencedSymbols, symbol)
 			}
 		}
 	}
@@ -526,21 +497,12 @@ func (c *Compressor) refreshBackReferenceContextLocked(getFacts func(pred string
 	// turn_error_message(turnID, errorMsg)
 	if errors := getFacts("turn_error_message"); len(errors) > 0 {
 		for _, f := range errors {
-			if len(f.Args) >= 2 {
-				var turnID int
-				switch v := f.Args[0].(type) {
-				case int:
-					turnID = v
-				case int64:
-					turnID = int(v)
-				case float64:
-					turnID = int(v)
-				}
-				if referencedTurnsMap[turnID] {
-					if errMsg, ok := f.Args[1].(string); ok && errMsg != "" {
-						referencedErrors = append(referencedErrors, errMsg)
-					}
-				}
+			turnID, ok := factTurnIDAt(f, 0)
+			if !ok || !referencedTurnsMap[turnID] {
+				continue
+			}
+			if errMsg, ok := factStringAt(f, 1); ok && errMsg != "" {
+				referencedErrors = append(referencedErrors, errMsg)
 			}
 		}
 	}
@@ -669,6 +631,14 @@ func newCompressorWithCompressorConfig(kernel *core.RealKernel, localStorage *st
 // Context Building
 // =============================================================================
 
+// recentWindow returns the configured recent-turn window clamped at zero. The
+// config is a plain struct callers can set to anything — including after
+// construction — and a negative window turns every recentTurns slice in
+// compress, pruneRecentTurns and BuildContext into a panic.
+func (c *Compressor) recentWindow() int {
+	return max(c.config.RecentTurnWindow, 0)
+}
+
 // BuildContext creates the compressed context for an LLM call.
 // This replaces raw conversation history with semantically compressed state.
 // Returns ErrContextWindowExceeded if the context would exceed the hard limit.
@@ -678,6 +648,10 @@ func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, erro
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.kernel == nil {
+		return nil, fmt.Errorf("BuildContext: no kernel attached to the compressor")
+	}
 
 	// Ensure activation engine has up-to-date campaign/issue context.
 	c.refreshActivationContextsLocked()
@@ -747,7 +721,7 @@ func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, erro
 
 	// 5. Build context using builder
 	builder := NewContextBlockBuilder()
-	recentTurns := c.recentTurns[max(0, len(c.recentTurns)-c.config.RecentTurnWindow):]
+	recentTurns := c.recentTurns[max(0, len(c.recentTurns)-c.recentWindow()):]
 	compressedCtx := builder.Build(
 		coreFacts,
 		scoredFacts,
@@ -770,6 +744,10 @@ func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, erro
 // getCoreFacts returns constitutional facts that are always included.
 func (c *Compressor) getCoreFacts() []core.Fact {
 	var coreFacts []core.Fact
+
+	if c.kernel == nil {
+		return nil
+	}
 
 	// Always include permission-related facts. Silently swallowing the
 	// error here was the same class of bug as the recent prompt_atom
