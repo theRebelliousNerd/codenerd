@@ -546,66 +546,66 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/broker/wrap_test.go`
 
 ### internal/browser (60)
-- [ ] `internal/browser/browser_integration_test.go`
-- [ ] `internal/browser/contract_audit.go`
-- [ ] `internal/browser/contract_audit_facts.go`
-- [ ] `internal/browser/contract_audit_facts_test.go`
-- [ ] `internal/browser/contract_audit_report.go`
-- [ ] `internal/browser/contract_audit_report_test.go`
-- [ ] `internal/browser/contract_audit_test.go`
-- [ ] `internal/browser/declarative_matcher.go`
-- [ ] `internal/browser/declarative_matcher_test.go`
-- [ ] `internal/browser/docker_correlation.go`
-- [ ] `internal/browser/docker_correlation_test.go`
-- [ ] `internal/browser/docker_correlation_wiring_test.go`
-- [ ] `internal/browser/docker_fetcher.go`
-- [ ] `internal/browser/docker_fetcher_test.go`
-- [ ] `internal/browser/dom_policy_derivation_test.go`
-- [ ] `internal/browser/element_registry.go`
-- [ ] `internal/browser/element_registry_test.go`
-- [ ] `internal/browser/fact_epoch.go`
-- [ ] `internal/browser/fact_epoch_test.go`
-- [ ] `internal/browser/fact_redaction.go`
-- [ ] `internal/browser/fact_redaction_test.go`
-- [ ] `internal/browser/flight_recorder.go`
-- [ ] `internal/browser/flight_recorder_test.go`
-- [ ] `internal/browser/honeypot.go`
-- [ ] `internal/browser/honeypot_coverage_test.go`
-- [ ] `internal/browser/honeypot_gate.go`
-- [ ] `internal/browser/honeypot_gate_live_test.go`
-- [ ] `internal/browser/honeypot_policy_test.go`
-- [ ] `internal/browser/honeypot_test.go`
-- [ ] `internal/browser/kernel_bridge.go`
-- [ ] `internal/browser/kernel_bridge_test.go`
-- [ ] `internal/browser/lifecycle_coverage_test.go`
-- [ ] `internal/browser/progressive_action.go`
-- [ ] `internal/browser/progressive_action_test.go`
-- [ ] `internal/browser/progressive_observe.go`
-- [ ] `internal/browser/repo_trace.go`
-- [ ] `internal/browser/repo_trace_test.go`
-- [ ] `internal/browser/schema_contract_test.go`
-- [ ] `internal/browser/security/path_policy.go`
-- [ ] `internal/browser/security/path_policy_test.go`
-- [ ] `internal/browser/security/private_permissions_unix.go`
-- [ ] `internal/browser/security/private_permissions_windows.go`
-- [ ] `internal/browser/security/redactor.go`
-- [ ] `internal/browser/security/redactor_test.go`
-- [ ] `internal/browser/session_lifecycle.go`
-- [ ] `internal/browser/session_lifecycle_test.go`
-- [ ] `internal/browser/session_list_test.go`
-- [ ] `internal/browser/session_manager.go`
-- [ ] `internal/browser/session_manager_coverage_test.go`
-- [ ] `internal/browser/session_manager_dom.go`
-- [ ] `internal/browser/specs/catalog.go`
-- [ ] `internal/browser/specs/catalog_alias_test.go`
-- [ ] `internal/browser/specs/catalog_test.go`
-- [ ] `internal/browser/specs/parser.go`
-- [ ] `internal/browser/specs/parser_test.go`
-- [ ] `internal/browser/specs/types.go`
-- [ ] `internal/browser/start_coverage_test.go`
-- [ ] `internal/browser/testspec/parser.go`
-- [ ] `internal/browser/testspec/parser_test.go`
-- [ ] `internal/browser/testspec/types.go`
+- [x] `internal/browser/browser_integration_test.go`
+- [x] `internal/browser/contract_audit.go`
+- [x] `internal/browser/contract_audit_facts.go`
+- [x] `internal/browser/contract_audit_facts_test.go`
+- [x] `internal/browser/contract_audit_report.go`
+- [x] `internal/browser/contract_audit_report_test.go`
+- [x] `internal/browser/contract_audit_test.go`
+- [x] `internal/browser/declarative_matcher.go`
+- [x] `internal/browser/declarative_matcher_test.go`
+- [x] `internal/browser/docker_correlation.go`
+- [x] `internal/browser/docker_correlation_test.go`
+- [x] `internal/browser/docker_correlation_wiring_test.go`
+- [x] `internal/browser/docker_fetcher.go`
+- [x] `internal/browser/docker_fetcher_test.go`
+- [x] `internal/browser/dom_policy_derivation_test.go`
+- [x] `internal/browser/element_registry.go`
+- [x] `internal/browser/element_registry_test.go`
+- [x] `internal/browser/fact_epoch.go`
+- [x] `internal/browser/fact_epoch_test.go`
+- [x] `internal/browser/fact_redaction.go`
+- [x] `internal/browser/fact_redaction_test.go`
+- [x] `internal/browser/flight_recorder.go`
+- [x] `internal/browser/flight_recorder_test.go`
+- [x] `internal/browser/honeypot.go`
+- [x] `internal/browser/honeypot_coverage_test.go`
+- [x] `internal/browser/honeypot_gate.go`
+- [x] `internal/browser/honeypot_gate_live_test.go`
+- [x] `internal/browser/honeypot_policy_test.go`
+- [x] `internal/browser/honeypot_test.go`
+- [x] `internal/browser/kernel_bridge.go`
+- [x] `internal/browser/kernel_bridge_test.go`
+- [x] `internal/browser/lifecycle_coverage_test.go`
+- [x] `internal/browser/progressive_action.go`
+- [x] `internal/browser/progressive_action_test.go`
+- [x] `internal/browser/progressive_observe.go`
+- [x] `internal/browser/repo_trace.go`
+- [x] `internal/browser/repo_trace_test.go`
+- [x] `internal/browser/schema_contract_test.go`
+- [x] `internal/browser/security/path_policy.go`
+- [x] `internal/browser/security/path_policy_test.go`
+- [x] `internal/browser/security/private_permissions_unix.go`
+- [x] `internal/browser/security/private_permissions_windows.go`
+- [x] `internal/browser/security/redactor.go`
+- [x] `internal/browser/security/redactor_test.go`
+- [x] `internal/browser/session_lifecycle.go`
+- [x] `internal/browser/session_lifecycle_test.go`
+- [x] `internal/browser/session_list_test.go`
+- [x] `internal/browser/session_manager.go`
+- [x] `internal/browser/session_manager_coverage_test.go`
+- [x] `internal/browser/session_manager_dom.go`
+- [x] `internal/browser/specs/catalog.go`
+- [x] `internal/browser/specs/catalog_alias_test.go`
+- [x] `internal/browser/specs/catalog_test.go`
+- [x] `internal/browser/specs/parser.go`
+- [x] `internal/browser/specs/parser_test.go`
+- [x] `internal/browser/specs/types.go`
+- [x] `internal/browser/start_coverage_test.go`
+- [x] `internal/browser/testspec/parser.go`
+- [x] `internal/browser/testspec/parser_test.go`
+- [x] `internal/browser/testspec/types.go`
 
 ### internal/build (7)
 - [ ] `internal/build/env.go`
