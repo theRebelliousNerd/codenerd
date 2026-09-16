@@ -3,6 +3,8 @@
 package shards
 
 import (
+	"time"
+
 	"codenerd/internal/articulation"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
@@ -635,7 +637,7 @@ func defineShardProfiles(sm *coreshards.ShardManager) {
 			types.PermissionAskUser,
 			types.PermissionReadFile,
 		},
-		Timeout:     5 * 60 * 1000000000, // 5 minutes
+		Timeout:     5 * time.Minute,
 		MemoryLimit: 6000,
 		Model: types.ModelConfig{
 			Capability: types.CapabilityBalanced,
@@ -685,7 +687,7 @@ func definePerceptionFirewallProfile(sm *coreshards.ShardManager) {
 			types.PermissionReadFile,
 			types.PermissionAskUser,
 		},
-		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours (permanent)
+		Timeout:     24 * time.Hour,
 		MemoryLimit: 9000,
 		Model: types.ModelConfig{
 			Capability: types.CapabilityBalanced,
@@ -704,7 +706,7 @@ func defineWorldModelIngestorProfile(sm *coreshards.ShardManager) {
 			types.PermissionExecCmd,
 			types.PermissionCodeGraph,
 		},
-		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		Timeout:     24 * time.Hour,
 		MemoryLimit: 20000,
 		Model: types.ModelConfig{
 			Capability: types.CapabilityHighSpeed,
@@ -723,7 +725,7 @@ func defineExecutivePolicyProfile(sm *coreshards.ShardManager) {
 			types.PermissionCodeGraph,
 			types.PermissionAskUser,
 		},
-		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		Timeout:     24 * time.Hour,
 		MemoryLimit: 7000,
 		Model:       types.ModelConfig{}, // No LLM needed for core logic
 	})
@@ -738,7 +740,7 @@ func defineConstitutionGateProfile(sm *coreshards.ShardManager) {
 		Permissions: []types.ShardPermission{
 			types.PermissionAskUser, // Only for escalation
 		},
-		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		Timeout:     24 * time.Hour,
 		MemoryLimit: 2500,
 		Model:       types.ModelConfig{}, // No LLM - safety MUST be deterministic
 	})
@@ -753,7 +755,7 @@ func defineMangleRepairProfile(sm *coreshards.ShardManager) {
 		Permissions: []types.ShardPermission{
 			types.PermissionReadFile,
 		},
-		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		Timeout:     24 * time.Hour,
 		MemoryLimit: 6000,
 		Model: types.ModelConfig{
 			Capability: types.CapabilityHighReasoning,
@@ -772,7 +774,7 @@ func defineTactileRouterProfile(sm *coreshards.ShardManager) {
 			types.PermissionNetwork,
 			types.PermissionBrowser,
 		},
-		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		Timeout:     24 * time.Hour,
 		MemoryLimit: 6000,
 		Model:       types.ModelConfig{}, // No LLM needed
 	})
@@ -788,7 +790,7 @@ func defineSessionPlannerProfile(sm *coreshards.ShardManager) {
 			types.PermissionAskUser,
 			types.PermissionReadFile,
 		},
-		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		Timeout:     24 * time.Hour,
 		MemoryLimit: 16000,
 		Model: types.ModelConfig{
 			Capability: types.CapabilityHighReasoning,
@@ -808,7 +810,7 @@ func defineCampaignRunnerProfile(sm *coreshards.ShardManager) {
 			types.PermissionWriteFile,
 			types.PermissionExecCmd,
 		},
-		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		Timeout:     24 * time.Hour,
 		MemoryLimit: 6000,
 		Model: types.ModelConfig{
 			Capability: types.CapabilityBalanced,
@@ -826,7 +828,7 @@ func defineLegislatorProfile(sm *coreshards.ShardManager) {
 			types.PermissionReadFile,
 			types.PermissionCodeGraph,
 		},
-		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		Timeout:     24 * time.Hour,
 		MemoryLimit: 4000,
 		Model:       types.ModelConfig{}, // No LLM - constraint synthesis is logic-primary
 	})

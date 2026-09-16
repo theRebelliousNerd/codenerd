@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -891,6 +892,8 @@ func (p *PerceptionFirewallShard) RecordCorrection(originalIntent, correctedInte
 }
 
 // GetLearnedPatterns returns learned patterns for inclusion in LLM prompts.
+// Lists are sorted: the registries are maps, and prompt text assembled in
+// map order would shuffle from turn to turn for no reason.
 func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
 	// Use base class mutex for accessing learning maps
 	p.BaseSystemShard.mu.RLock()
@@ -905,6 +908,7 @@ func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
 			successful = append(successful, pattern)
 		}
 	}
+	slices.Sort(successful)
 	result["successful"] = successful
 
 	// Failed patterns
@@ -914,6 +918,7 @@ func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
 			failed = append(failed, pattern)
 		}
 	}
+	slices.Sort(failed)
 	result["failed"] = failed
 
 	// Corrections
@@ -923,6 +928,7 @@ func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
 			corrections = append(corrections, pattern)
 		}
 	}
+	slices.Sort(corrections)
 	result["corrections"] = corrections
 
 	return result

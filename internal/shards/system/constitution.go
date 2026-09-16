@@ -17,7 +17,9 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -651,11 +653,28 @@ func (c *ConstitutionGateShard) isDangerous(target string) bool {
 	return false
 }
 
-// isAllowedDomain checks if a URL/domain is in the allowlist.
+// isAllowedDomain checks if a URL/domain is in the allowlist. The host is
+// extracted and matched exactly or as a subdomain: a substring check would
+// admit evil-github.com and github.com.evil.com, which merely contain an
+// allowed name.
 func (c *ConstitutionGateShard) isAllowedDomain(target string) bool {
-	target = strings.ToLower(target)
+	host := strings.ToLower(strings.TrimSpace(target))
+	if i := strings.Index(host, "://"); i >= 0 {
+		host = host[i+3:]
+	}
+	if i := strings.IndexAny(host, "/?#"); i >= 0 {
+		host = host[:i]
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.TrimSuffix(host, ".")
 	for _, domain := range c.config.AllowedDomains {
-		if strings.Contains(target, strings.ToLower(domain)) {
+		d := strings.ToLower(strings.TrimSpace(domain))
+		if d == "" {
+			continue
+		}
+		if host == d || strings.HasSuffix(host, "."+d) {
 			return true
 		}
 	}
@@ -914,10 +933,11 @@ func (c *ConstitutionGateShard) buildRuleProposalPrompt(cases []UnhandledCase) s
 
 	for i, cas := range cases {
 		sb.WriteString(fmt.Sprintf("%d. Query: %s\n", i+1, cas.Query))
-		if cas.Context != nil {
-			for k, v := range cas.Context {
-				sb.WriteString(fmt.Sprintf("   %s: %s\n", k, v))
-			}
+		// Sorted: this prompt is hashed by CanRetryPrompt for per-prompt
+		// retry accounting, and map order would mint a fresh-looking prompt
+		// on every call, defeating the retry budget.
+		for _, k := range slices.Sorted(maps.Keys(cas.Context)) {
+			sb.WriteString(fmt.Sprintf("   %s: %s\n", k, cas.Context[k]))
 		}
 		sb.WriteString("\n")
 	}

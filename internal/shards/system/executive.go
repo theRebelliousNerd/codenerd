@@ -15,6 +15,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -713,6 +714,8 @@ func (e *ExecutivePolicyShard) RecordActionOutcome(action string, fromRule strin
 }
 
 // GetLearnedPatterns returns learned patterns for strategy refinement.
+// Lists are sorted: the registries are maps, and unsorted lists would
+// shuffle from call to call for any consumer that renders them.
 func (e *ExecutivePolicyShard) GetLearnedPatterns() map[string][]string {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -726,6 +729,7 @@ func (e *ExecutivePolicyShard) GetLearnedPatterns() map[string][]string {
 			successful = append(successful, pattern)
 		}
 	}
+	slices.Sort(successful)
 	result["successful"] = successful
 
 	// Failed action patterns
@@ -735,6 +739,7 @@ func (e *ExecutivePolicyShard) GetLearnedPatterns() map[string][]string {
 			failed = append(failed, pattern)
 		}
 	}
+	slices.Sort(failed)
 	result["failed"] = failed
 
 	return result

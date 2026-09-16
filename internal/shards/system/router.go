@@ -368,8 +368,11 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		}
 		logging.Routing("Route found: action=%s -> tool=%s (timeout=%v)", actionType, route.ToolName, route.Timeout)
 
-		// Check rate limit
-		if limiter, exists := r.rateLimiters[route.ToolName]; exists {
+		// Check rate limit. The lookup takes the read lock: AddRoute and the
+		// autopoiesis path write this map under the write lock, and an
+		// unlocked read racing either is a fatal concurrent map access.
+		limiter := r.limiterFor(route.ToolName)
+		if limiter != nil {
 			if !limiter.allow() {
 				logging.Routing("Rate limit exceeded for tool: %s (action=%s)", route.ToolName, actionType)
 				_ = r.Kernel.Assert(types.Fact{
@@ -690,6 +693,14 @@ func unixSecondsArg(f core.Fact, idx int) (int64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// limiterFor returns the rate limiter for a tool, or nil when the tool is
+// unthrottled. The map read takes the read lock; see processPermittedActions.
+func (r *TactileRouterShard) limiterFor(toolName string) *rateLimiter {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.rateLimiters[toolName]
 }
 
 // findRoute finds a route for the given action type.

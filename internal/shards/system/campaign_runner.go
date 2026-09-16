@@ -355,6 +355,9 @@ func (s *CampaignRunnerShard) findLatestRunnableCampaign(workspace string) (*cam
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].updated.Equal(candidates[j].updated) {
+			return candidates[i].campaign.ID < candidates[j].campaign.ID
+		}
 		return candidates[i].updated.After(candidates[j].updated)
 	})
 
@@ -456,6 +459,18 @@ func (m *campaignRunnerConsultationManager) RequestBatchConsultation(ctx context
 	}
 
 	wg.Wait()
+	// Restore requested order: goroutines complete randomly, and both
+	// consumers render responses in slice order into reports. This mirrors
+	// the shards-level batch contract (requested order, failures joined).
+	rank := make(map[string]int, len(targets))
+	for i, spec := range targets {
+		if _, seen := rank[spec]; !seen {
+			rank[spec] = i
+		}
+	}
+	sort.SliceStable(responses, func(i, j int) bool {
+		return rank[responses[i].FromSpec] < rank[responses[j].FromSpec]
+	})
 	return responses, nil
 }
 

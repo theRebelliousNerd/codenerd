@@ -557,6 +557,16 @@ func calculateMatchScore(content, lowerFile, lowerContent, ext string, tech Tech
 		matches = true
 	}
 
+	// The additive weights sum past 1.0 (0.5 + 0.3 + 0.4 + 0.3), but the
+	// SpecialistMatch contract is 0.0-1.0 and the kernel scales it onto
+	// 0-100: an unclamped 1.5 would assert confidence 150. Cap it here.
+	if score > 1.0 {
+		score = 1.0
+	}
+	if score < 0 {
+		score = 0
+	}
+
 	return score, matches
 }
 
@@ -616,14 +626,19 @@ func finalizeMatches(agentMatches map[string]*SpecialistMatch, maxSpecialists in
 		matches = append(matches, *m)
 	}
 
-	// Sort by score descending (bubble sort for simplicity)
-	for i := 0; i < len(matches); i++ {
-		for j := i + 1; j < len(matches); j++ {
-			if matches[j].Score > matches[i].Score {
-				matches[i], matches[j] = matches[j], matches[i]
+	// Sort by score descending, agent name ascending on ties. Scores are
+	// quantized sums (0.3/0.4/0.5 weights), so ties are common — and the
+	// input map iterates randomly, so an untied sort would truncate a
+	// different specialist from run to run at MaxSpecialists.
+	slices.SortStableFunc(matches, func(a, b SpecialistMatch) int {
+		if a.Score != b.Score {
+			if a.Score > b.Score {
+				return -1
 			}
+			return 1
 		}
-	}
+		return strings.Compare(a.AgentName, b.AgentName)
+	})
 
 	// Limit to max specialists
 	if maxSpecialists > 0 && len(matches) > maxSpecialists {

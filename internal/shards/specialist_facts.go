@@ -87,9 +87,19 @@ func MatchFacts(task, complexity string, matches []SpecialistMatch) []core.Fact 
 		if strings.TrimSpace(match.AgentName) == "" {
 			continue
 		}
+		// Belt and braces with the matcher's own clamp: the rules compare
+		// against 0-100, so a score outside 0-1 asserts a confidence the
+		// scale cannot mean. Clamp rather than skip — the match is real.
+		confidence := int64(match.Score*100 + 0.5)
+		if confidence < 0 {
+			confidence = 0
+		}
+		if confidence > 100 {
+			confidence = 100
+		}
 		facts = append(facts, core.Fact{
 			Predicate: "specialist_match",
-			Args:      []any{SpecialistAtom(match.AgentName), task, int64(match.Score*100 + 0.5)},
+			Args:      []any{SpecialistAtom(match.AgentName), task, confidence},
 		})
 	}
 	facts = append(facts, core.Fact{

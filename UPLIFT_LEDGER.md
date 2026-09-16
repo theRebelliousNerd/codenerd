@@ -2719,99 +2719,103 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/session/written_path_test.go`
 
 ### internal/shards/consultation.go (1)
-- [ ] `internal/shards/consultation.go`
+- [x] `internal/shards/consultation.go`
 
 ### internal/shards/consultation_test.go (1)
-- [ ] `internal/shards/consultation_test.go`
+- [x] `internal/shards/consultation_test.go`
 
 ### internal/shards/integration_path_test.go (1)
-- [ ] `internal/shards/integration_path_test.go`
+- [x] `internal/shards/integration_path_test.go`
 
 ### internal/shards/matching.go (1)
-- [ ] `internal/shards/matching.go`
+- [x] `internal/shards/matching.go`
 
 ### internal/shards/matching_classification_test.go (1)
-- [ ] `internal/shards/matching_classification_test.go`
+- [x] `internal/shards/matching_classification_test.go`
 
 ### internal/shards/matching_test.go (1)
-- [ ] `internal/shards/matching_test.go`
+- [x] `internal/shards/matching_test.go`
 
 ### internal/shards/observer_integration_test.go (1)
-- [ ] `internal/shards/observer_integration_test.go`
+- [x] `internal/shards/observer_integration_test.go`
 
 ### internal/shards/observer_manager.go (1)
-- [ ] `internal/shards/observer_manager.go`
+- [x] `internal/shards/observer_manager.go`
 
 ### internal/shards/observer_manager_accessors_test.go (1)
-- [ ] `internal/shards/observer_manager_accessors_test.go`
+- [x] `internal/shards/observer_manager_accessors_test.go`
 
 ### internal/shards/observer_manager_test.go (1)
-- [ ] `internal/shards/observer_manager_test.go`
+- [x] `internal/shards/observer_manager_test.go`
 
 ### internal/shards/registration.go (1)
-- [ ] `internal/shards/registration.go`
+- [x] `internal/shards/registration.go`
 
 ### internal/shards/registration_manifest_test.go (1)
-- [ ] `internal/shards/registration_manifest_test.go`
+- [x] `internal/shards/registration_manifest_test.go`
 
 ### internal/shards/registration_test.go (1)
-- [ ] `internal/shards/registration_test.go`
+- [x] `internal/shards/registration_test.go`
 
 ### internal/shards/requirements_interrogator.go (1)
-- [ ] `internal/shards/requirements_interrogator.go`
+- [x] `internal/shards/requirements_interrogator.go`
 
 ### internal/shards/requirements_interrogator_test.go (1)
-- [ ] `internal/shards/requirements_interrogator_test.go`
+- [x] `internal/shards/requirements_interrogator_test.go`
 
 ### internal/shards/shard_join_audit_test.go (1)
-- [ ] `internal/shards/shard_join_audit_test.go`
+- [x] `internal/shards/shard_join_audit_test.go`
+
+### internal/shards/shards_uplift_test.go (1)
+- [x] `internal/shards/shards_uplift_test.go`
 
 ### internal/shards/specialist_facts.go (1)
-- [ ] `internal/shards/specialist_facts.go`
+- [x] `internal/shards/specialist_facts.go`
 
-### internal/shards/system (42)
-- [ ] `internal/shards/system/action_pipeline_test.go`
-- [ ] `internal/shards/system/base.go`
-- [ ] `internal/shards/system/base_coverage_test.go`
-- [ ] `internal/shards/system/base_shard_pattern_test.go`
-- [ ] `internal/shards/system/campaign_runner.go`
-- [ ] `internal/shards/system/campaign_runner_test.go`
-- [ ] `internal/shards/system/constitution.go`
-- [ ] `internal/shards/system/constitution_coverage_test.go`
-- [ ] `internal/shards/system/constitution_ownership_test.go`
-- [ ] `internal/shards/system/escalation_target_atom_test.go`
-- [ ] `internal/shards/system/executive.go`
-- [ ] `internal/shards/system/executive_autopoiesis.go`
-- [ ] `internal/shards/system/executive_bench_test.go`
-- [ ] `internal/shards/system/executive_coverage_test.go`
-- [ ] `internal/shards/system/executive_helpers_test.go`
-- [ ] `internal/shards/system/executive_intent.go`
-- [ ] `internal/shards/system/executive_learning_test.go`
-- [ ] `internal/shards/system/executive_ooda_test.go`
-- [ ] `internal/shards/system/learning_test.go`
-- [ ] `internal/shards/system/legislator.go`
-- [ ] `internal/shards/system/mangle_repair.go`
-- [ ] `internal/shards/system/mangle_repair_bench_test.go`
-- [ ] `internal/shards/system/mangle_repair_test.go`
-- [ ] `internal/shards/system/payloads.go`
-- [ ] `internal/shards/system/perception.go`
-- [ ] `internal/shards/system/perception_transient_test.go`
-- [ ] `internal/shards/system/perception_validation_test.go`
-- [ ] `internal/shards/system/planner.go`
-- [ ] `internal/shards/system/planner_activation_test.go`
-- [ ] `internal/shards/system/planner_test.go`
-- [ ] `internal/shards/system/policy_action_routes_test.go`
-- [ ] `internal/shards/system/policy_audit_route_test.go`
-- [ ] `internal/shards/system/policy_mock_file_scale_test.go`
-- [ ] `internal/shards/system/policy_optimize_route_test.go`
-- [ ] `internal/shards/system/policy_query_verb_route_test.go`
-- [ ] `internal/shards/system/policy_reasoning_model_test.go`
-- [ ] `internal/shards/system/router.go`
-- [ ] `internal/shards/system/router_escalation_test.go`
-- [ ] `internal/shards/system/router_route_selection_test.go`
-- [ ] `internal/shards/system/system_helpers_test.go`
-- [ ] `internal/shards/system/world_model.go`
-- [ ] `internal/shards/system/world_model_rootpath_test.go`
+### internal/shards/system (43)
+- [x] `internal/shards/system/action_pipeline_test.go`
+- [x] `internal/shards/system/base.go`
+- [x] `internal/shards/system/base_coverage_test.go`
+- [x] `internal/shards/system/base_shard_pattern_test.go`
+- [x] `internal/shards/system/campaign_runner.go`
+- [x] `internal/shards/system/campaign_runner_test.go`
+- [x] `internal/shards/system/constitution.go`
+- [x] `internal/shards/system/constitution_coverage_test.go`
+- [x] `internal/shards/system/constitution_ownership_test.go`
+- [x] `internal/shards/system/escalation_target_atom_test.go`
+- [x] `internal/shards/system/executive.go`
+- [x] `internal/shards/system/executive_autopoiesis.go`
+- [x] `internal/shards/system/executive_bench_test.go`
+- [x] `internal/shards/system/executive_coverage_test.go`
+- [x] `internal/shards/system/executive_helpers_test.go`
+- [x] `internal/shards/system/executive_intent.go`
+- [x] `internal/shards/system/executive_learning_test.go`
+- [x] `internal/shards/system/executive_ooda_test.go`
+- [x] `internal/shards/system/learning_test.go`
+- [x] `internal/shards/system/legislator.go`
+- [x] `internal/shards/system/mangle_repair.go`
+- [x] `internal/shards/system/mangle_repair_bench_test.go`
+- [x] `internal/shards/system/mangle_repair_test.go`
+- [x] `internal/shards/system/payloads.go`
+- [x] `internal/shards/system/perception.go`
+- [x] `internal/shards/system/perception_transient_test.go`
+- [x] `internal/shards/system/perception_validation_test.go`
+- [x] `internal/shards/system/planner.go`
+- [x] `internal/shards/system/planner_activation_test.go`
+- [x] `internal/shards/system/planner_test.go`
+- [x] `internal/shards/system/policy_action_routes_test.go`
+- [x] `internal/shards/system/policy_audit_route_test.go`
+- [x] `internal/shards/system/policy_mock_file_scale_test.go`
+- [x] `internal/shards/system/policy_optimize_route_test.go`
+- [x] `internal/shards/system/policy_query_verb_route_test.go`
+- [x] `internal/shards/system/policy_reasoning_model_test.go`
+- [x] `internal/shards/system/router.go`
+- [x] `internal/shards/system/router_escalation_test.go`
+- [x] `internal/shards/system/router_route_selection_test.go`
+- [x] `internal/shards/system/system_helpers_test.go`
+- [x] `internal/shards/system/system_uplift_test.go`
+- [x] `internal/shards/system/world_model.go`
+- [x] `internal/shards/system/world_model_rootpath_test.go`
 
 ### internal/sqlpragmas (12)
 - [ ] `internal/sqlpragmas/connector.go`

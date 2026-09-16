@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"codenerd/internal/articulation"
 	coreshards "codenerd/internal/core/shards"
@@ -32,7 +33,7 @@ func NewRequirementsInterrogatorShard() *RequirementsInterrogatorShard {
 		Model: types.ModelConfig{
 			Capability: types.CapabilityHighReasoning,
 		},
-		Timeout: 5 * 60 * 1000000000, // 5 minutes
+		Timeout: 5 * time.Minute,
 	}
 	return &RequirementsInterrogatorShard{
 		BaseShardAgent: coreshards.NewBaseShardAgent("requirements_interrogator", cfg),

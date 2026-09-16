@@ -6,6 +6,7 @@ package shards
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -248,7 +249,8 @@ func (m *BackgroundObserverManager) UnregisterObserver(name string) {
 	m.mu.Unlock()
 }
 
-// GetActiveObservers returns the list of active background observers.
+// GetActiveObservers returns the list of active background observers, sorted.
+// The registry is a map: unsorted, the list would shuffle from call to call.
 func (m *BackgroundObserverManager) GetActiveObservers() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -259,6 +261,7 @@ func (m *BackgroundObserverManager) GetActiveObservers() []string {
 			names = append(names, name)
 		}
 	}
+	sort.Strings(names)
 	return names
 }
 
@@ -482,6 +485,9 @@ func (m *BackgroundObserverManager) parseAssessment(observerName string, event O
 		if strings.HasPrefix(line, "SCORE:") {
 			var score int
 			if _, err := fmt.Sscanf(line, "SCORE: %d", &score); err == nil {
+				// The field documents 0-100; a model writing 150 or -20
+				// must not put the assessment off the scale.
+				score = min(max(score, 0), 100)
 				assessment.Score = score
 				assessment.Level = GetAssessmentLevel(score)
 			}

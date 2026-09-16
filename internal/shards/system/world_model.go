@@ -19,6 +19,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -320,6 +321,40 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 	}
 }
 
+// includedByPatterns reports whether a base file name matches any include glob.
+func includedByPatterns(base string, patterns []string) bool {
+	for _, pattern := range patterns {
+		if matched, _ := filepath.Match(pattern, base); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// excludedByPatterns reports whether a walk path is excluded. A pattern ending
+// in "/*" names a directory and matches whole path segments only, so
+// "vendor/*" skips vendor/ but not codevendor/ — the old substring check
+// dropped every path merely containing the word. Any other pattern is a glob
+// matched against the base name.
+func excludedByPatterns(path string, patterns []string) bool {
+	base := filepath.Base(path)
+	segments := strings.Split(filepath.ToSlash(path), "/")
+	for _, pattern := range patterns {
+		if dir, ok := strings.CutSuffix(pattern, "/*"); ok && !strings.Contains(dir, "/") {
+			for _, seg := range segments {
+				if seg == dir {
+					return true
+				}
+			}
+			continue
+		}
+		if matched, _ := filepath.Match(pattern, base); matched {
+			return true
+		}
+	}
+	return false
+}
+
 // performFullScan does a complete workspace scan.
 func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 	w.mu.Lock()
@@ -342,37 +377,19 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 		default:
 		}
 
-		// Skip directories
+		// Skip excluded directories, pruning the walk
 		if info.IsDir() {
-			// Check exclude patterns
-			for _, pattern := range w.config.ExcludePatterns {
-				if matched, _ := filepath.Match(pattern, info.Name()); matched {
-					return filepath.SkipDir
-				}
-				if strings.Contains(path, strings.TrimSuffix(pattern, "/*")) {
-					return filepath.SkipDir
-				}
+			if excludedByPatterns(path, w.config.ExcludePatterns) {
+				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		// Check include patterns
-		included := false
-		for _, pattern := range w.config.IncludePatterns {
-			if matched, _ := filepath.Match(pattern, info.Name()); matched {
-				included = true
-				break
-			}
-		}
-		if !included {
+		if !includedByPatterns(info.Name(), w.config.IncludePatterns) {
 			return nil
 		}
-
-		// Check exclude patterns
-		for _, pattern := range w.config.ExcludePatterns {
-			if matched, _ := filepath.Match(pattern, path); matched {
-				return nil
-			}
+		if excludedByPatterns(path, w.config.ExcludePatterns) {
+			return nil
 		}
 
 		// Process file
@@ -439,11 +456,15 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 		default:
 		}
 
-		// Skip excluded patterns
-		for _, pattern := range w.config.ExcludePatterns {
-			if strings.Contains(path, strings.TrimSuffix(pattern, "/*")) {
-				return nil
-			}
+		// Same include/exclude gate as the full scan: without the include
+		// check, steady-state incrementals ingested files (logs, binaries)
+		// a restart's full scan would never include, so the world model
+		// depended on uptime instead of the workspace.
+		if !includedByPatterns(info.Name(), w.config.IncludePatterns) {
+			return nil
+		}
+		if excludedByPatterns(path, w.config.ExcludePatterns) {
+			return nil
 		}
 
 		w.mu.RLock()
@@ -665,10 +686,8 @@ func (w *WorldModelIngestorShard) buildInterpretationPrompt(cases []UnhandledCas
 
 	for i, cas := range cases {
 		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, cas.Query))
-		if cas.Context != nil {
-			for k, v := range cas.Context {
-				sb.WriteString(fmt.Sprintf("   %s: %s\n", k, v))
-			}
+		for _, k := range slices.Sorted(maps.Keys(cas.Context)) {
+			sb.WriteString(fmt.Sprintf("   %s: %s\n", k, cas.Context[k]))
 		}
 	}
 

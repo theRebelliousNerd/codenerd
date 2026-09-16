@@ -7,8 +7,12 @@ package shards
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -99,7 +103,7 @@ func (m *ConsultationManager) RequestConsultation(ctx context.Context, req Consu
 	req.RequestTime = time.Now()
 
 	// Check if we have a cached response for similar question
-	cacheKey := m.cacheKey(req.ToSpec, req.Question)
+	cacheKey := m.cacheKey(req.ToSpec, req.Question, req.Context)
 	if cached := m.getCached(cacheKey); cached != nil {
 		return cached, nil
 	}
@@ -208,6 +212,9 @@ func GetStrategicAdvisorsFor(executorName string) []string {
 			advisors = append(advisors, name)
 		}
 	}
+	// Sorted: the list feeds user-visible delegation output, and map order
+	// would shuffle the consultation phase from run to run.
+	sort.Strings(advisors)
 	return advisors
 }
 
@@ -334,9 +341,8 @@ func (m *ConsultationManager) applySection(resp *ConsultationResponse, section, 
 	case "advice":
 		resp.Advice = content
 	case "confidence":
-		var conf int
-		if _, err := fmt.Sscanf(content, "%d", &conf); err == nil {
-			resp.Confidence = float64(conf) / 100.0
+		if conf, ok := parseConfidence(content); ok {
+			resp.Confidence = conf
 		}
 	case "references":
 		if content != "" {
@@ -349,14 +355,36 @@ func (m *ConsultationManager) applySection(resp *ConsultationResponse, section, 
 	}
 }
 
-// cacheKey generates a cache key for consultation responses.
-func (m *ConsultationManager) cacheKey(specialist, question string) string {
-	// Simple cache key - in production might use hash
-	q := question
-	if len(q) > 100 {
-		q = q[:100]
+// parseConfidence reads the CONFIDENCE section onto the 0-1 scale. The prompt
+// asks for 0-100, but models also write ratios ("0.85") and out-of-range
+// values; the first must not parse as zero and the second must not escape
+// the scale the response documents.
+func parseConfidence(content string) (float64, bool) {
+	content = strings.TrimSuffix(strings.TrimSpace(content), "%")
+	f, err := strconv.ParseFloat(strings.TrimSpace(content), 64)
+	if err != nil {
+		return 0, false
 	}
-	return fmt.Sprintf("%s:%s", specialist, q)
+	if f > 1 {
+		f /= 100
+	}
+	if f < 0 {
+		f = 0
+	}
+	if f > 1 {
+		f = 1
+	}
+	return f, true
+}
+
+// cacheKey generates a cache key for consultation responses. The full
+// question and context are hashed: truncating to a prefix would collide
+// distinct questions, and the response depends on the context (it is part of
+// the consultation prompt), so keying on the question alone would serve one
+// consultation's advice for another's.
+func (m *ConsultationManager) cacheKey(specialist, question, context string) string {
+	sum := sha256.Sum256([]byte(specialist + "\x00" + question + "\x00" + context))
+	return specialist + ":" + hex.EncodeToString(sum[:8])
 }
 
 // getCached retrieves a cached consultation response.

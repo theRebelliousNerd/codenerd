@@ -800,16 +800,20 @@ func (s *SessionPlannerShard) AddTask(description string, priority int) string {
 	s.agenda = append(s.agenda, item)
 	s.lastActivity = time.Now()
 
-	_ = s.Kernel.Assert(types.Fact{
-		Predicate: "agenda_item",
-		Args: []any{
-			item.ID,
-			item.Description,
-			item.Priority,
-			item.Status,
-			time.Now().Unix(),
-		},
-	})
+	// The fact mirrors the agenda for policy; without a kernel there is
+	// nothing to mirror to, and a nil dereference must not be the answer.
+	if s.Kernel != nil {
+		_ = s.Kernel.Assert(types.Fact{
+			Predicate: "agenda_item",
+			Args: []any{
+				item.ID,
+				item.Description,
+				item.Priority,
+				item.Status,
+				time.Now().Unix(),
+			},
+		})
+	}
 
 	return item.ID
 }

@@ -3,6 +3,8 @@ package system
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -192,19 +194,20 @@ func (e *ExecutivePolicyShard) buildPolicyProposalPrompt(cases []UnhandledCase) 
 
 	for i, cas := range cases {
 		sb.WriteString(fmt.Sprintf("%d. Query: %s\n", i+1, cas.Query))
-		if cas.Context != nil {
-			for k, v := range cas.Context {
-				sb.WriteString(fmt.Sprintf("   %s: %s\n", k, v))
-			}
+		for _, k := range slices.Sorted(maps.Keys(cas.Context)) {
+			sb.WriteString(fmt.Sprintf("   %s: %s\n", k, cas.Context[k]))
 		}
 	}
 
-	// Add learned patterns
+	// Add learned patterns. All three maps iterate in sorted order: this
+	// prompt string is hashed by FeedbackLoop.CanRetryPrompt for per-prompt
+	// retry accounting, and map order would mint a fresh-looking prompt on
+	// every call, defeating the retry budget.
 	e.mu.RLock()
 	if len(e.patternSuccess) > 0 {
 		sb.WriteString("\nSUCCESSFUL PATTERNS (use as reference):\n")
-		for pattern, count := range e.patternSuccess {
-			if count >= 3 {
+		for _, pattern := range slices.Sorted(maps.Keys(e.patternSuccess)) {
+			if e.patternSuccess[pattern] >= 3 {
 				sb.WriteString(fmt.Sprintf("- %s\n", pattern))
 			}
 		}
@@ -212,8 +215,8 @@ func (e *ExecutivePolicyShard) buildPolicyProposalPrompt(cases []UnhandledCase) 
 
 	if len(e.patternFailure) > 0 {
 		sb.WriteString("\nFAILED PATTERNS (avoid these):\n")
-		for pattern, count := range e.patternFailure {
-			if count >= 2 {
+		for _, pattern := range slices.Sorted(maps.Keys(e.patternFailure)) {
+			if e.patternFailure[pattern] >= 2 {
 				sb.WriteString(fmt.Sprintf("- %s\n", pattern))
 			}
 		}
@@ -245,6 +248,9 @@ func (e *ExecutivePolicyShard) parseProposedRule(output string, cases []Unhandle
 		} else if after, ok := strings.CutPrefix(line, "CONFIDENCE:"); ok {
 			confStr := strings.TrimSpace(after)
 			fmt.Sscanf(confStr, "%f", &rule.Confidence)
+			// The format documents 0.0-1.0 and the value gates HotLoad: a
+			// model writing 1.5 must not auto-apply, nor -0.5 linger.
+			rule.Confidence = min(max(rule.Confidence, 0), 1)
 		} else if after, ok := strings.CutPrefix(line, "RATIONALE:"); ok {
 			rule.Rationale = strings.TrimSpace(after)
 		}
