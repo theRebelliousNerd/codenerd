@@ -61,6 +61,17 @@ valid_action_type(/revert, "Undo, rollback, restore previous state").
 valid_action_type(/review, "Audit, critique, assess quality").
 valid_action_type(/remember, "Store preference, learn pattern, save for later").
 valid_action_type(/forget, "Remove preference, unlearn pattern").
+valid_action_type(/chat, "Social interaction, greeting, thanks").
+valid_action_type(/document, "Write docs, comments, READMEs").
+valid_action_type(/migrate, "Move code between frameworks or versions").
+valid_action_type(/optimize, "Improve performance, reduce resource usage").
+valid_action_type(/deploy, "Release, publish, roll out").
+valid_action_type(/scaffold, "Generate boilerplate, project structure").
+valid_action_type(/audit, "Security, compliance, or quality audit").
+valid_action_type(/benchmark, "Measure performance, run benchmarks").
+valid_action_type(/profile, "Profile CPU or memory, find bottlenecks").
+valid_action_type(/lint, "Run linters, static analysis").
+valid_action_type(/format, "Format code, fix style").
 
 # --- Domains (what area of concern?) ---
 valid_domain(/testing, "Unit tests, integration tests, coverage, test fixtures").
@@ -185,6 +196,33 @@ context_affinity_action(/review, /target_source, 100).
 context_affinity_action(/review, /style_guide, 85).
 context_affinity_action(/review, /similar_code, 80).
 
+context_affinity_action(/document, /target_source, 90).
+context_affinity_action(/document, /existing_patterns, 80).
+
+context_affinity_action(/migrate, /target_source, 95).
+context_affinity_action(/migrate, /dependencies, 85).
+
+context_affinity_action(/optimize, /profiling_data, 90).
+context_affinity_action(/optimize, /target_source, 85).
+
+context_affinity_action(/scaffold, /existing_patterns, 85).
+context_affinity_action(/scaffold, /module_structure, 80).
+
+context_affinity_action(/audit, /target_source, 95).
+context_affinity_action(/audit, /style_guide, 80).
+
+context_affinity_action(/benchmark, /benchmarks, 100).
+context_affinity_action(/benchmark, /profiling_data, 85).
+
+context_affinity_action(/profile, /profiling_data, 100).
+context_affinity_action(/profile, /hotspots, 90).
+
+context_affinity_action(/lint, /style_guide, 95).
+context_affinity_action(/lint, /target_source, 85).
+
+context_affinity_action(/format, /target_source, 90).
+context_affinity_action(/format, /style_guide, 85).
+
 # --- Domain → Context ---
 context_affinity_domain(/testing, /test_output, 100).
 context_affinity_domain(/testing, /coverage_data, 90).
@@ -252,6 +290,17 @@ shard_affinity_action(/review, /reviewer, 100).
 
 shard_affinity_action(/revert, /coder, 90).
 
+shard_affinity_action(/document, /researcher, 90).
+shard_affinity_action(/migrate, /coder, 95).
+shard_affinity_action(/optimize, /coder, 95).
+shard_affinity_action(/deploy, /coder, 85).
+shard_affinity_action(/scaffold, /coder, 90).
+shard_affinity_action(/audit, /reviewer, 95).
+shard_affinity_action(/benchmark, /tester, 95).
+shard_affinity_action(/profile, /tester, 90).
+shard_affinity_action(/lint, /reviewer, 90).
+shard_affinity_action(/format, /coder, 85).
+
 # --- Domain → Shard ---
 shard_affinity_domain(/testing, /tester, 95).
 shard_affinity_domain(/testing, /coder, 70).
@@ -297,6 +346,14 @@ tool_affinity_action(/research, /grep, 85).
 
 tool_affinity_action(/revert, /git_restore, 100).
 tool_affinity_action(/revert, /git_checkout, 90).
+
+tool_affinity_action(/document, /write_file, 90).
+tool_affinity_action(/migrate, /edit_file, 95).
+tool_affinity_action(/optimize, /edit_file, 90).
+tool_affinity_action(/scaffold, /write_file, 95).
+tool_affinity_action(/benchmark, /benchmark, 100).
+tool_affinity_action(/profile, /profiler, 100).
+tool_affinity_action(/lint, /lint, 100).
 
 # --- Domain → Tools ---
 tool_affinity_domain(/testing, /run_tests, 100).

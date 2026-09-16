@@ -56,10 +56,14 @@ var verbCorpus []VerbEntry
 var verbCorpusMu sync.RWMutex
 
 // GetVerbCorpus returns a snapshot of the current verb corpus (safe for concurrent use).
+// The slice is copied: returning the live slice would share the backing array
+// with writers under SetVerbCorpus.
 func GetVerbCorpus() []VerbEntry {
 	verbCorpusMu.RLock()
 	defer verbCorpusMu.RUnlock()
-	return verbCorpus
+	out := make([]VerbEntry, len(verbCorpus))
+	copy(out, verbCorpus)
+	return out
 }
 
 // SetVerbCorpus replaces the verb corpus atomically (safe for concurrent use).
@@ -298,11 +302,18 @@ func extractConstraint(input string) string {
 	return "none"
 }
 
+// categoryPriority orders refineCategory checks from most to least specific.
+// Iterating the CategoryPatterns map directly made ambiguous inputs ("fix the
+// bug?") flip between /mutation and /query run to run. Policy statements win
+// (rare and explicit), then imperative action verbs, then the broad query
+// shapes (trailing "?" matches almost anything).
+var categoryPriority = []string{"/instruction", "/mutation", "/query"}
+
 // refineCategory checks if category patterns override the verb's default category.
 func refineCategory(input string, defaultCategory string) string {
 	lower := strings.ToLower(input)
-	for cat, patterns := range CategoryPatterns {
-		for _, pattern := range patterns {
+	for _, cat := range categoryPriority {
+		for _, pattern := range CategoryPatterns[cat] {
 			if pattern.MatchString(lower) {
 				return cat
 			}
@@ -349,9 +360,10 @@ type ConversationTurn struct {
 	ThoughtSummary   string // Actual reasoning text used by the model
 }
 
-// sanitizeFactArg strips Mangle control characters and caps length to prevent
-// injection attacks when user/LLM-derived strings are embedded as fact arguments.
-// Without this, a Target like "foo). malicious_rule(X) :- " could inject rules.
+// sanitizeFactArg strips control characters and caps length for user/LLM-derived
+// strings embedded as fact arguments. Mangle metacharacters ( ) . , / are
+// deliberately PRESERVED: string args are quoted by the engine, so they cannot
+// inject, and stripping them would destroy file paths like "auth.go".
 func sanitizeFactArg(s string) string {
 	const maxFactArgLen = 2048
 	if len(s) > maxFactArgLen {

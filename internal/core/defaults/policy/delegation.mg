@@ -65,9 +65,27 @@ delegate_task(/coder, Task, /pending) :-
     user_intent(/current_intent, _, /git, Task, _),
     !wants_direct_answer().
 
+# /deploy is a /mutation verb the understanding adapter emits (action_type
+# deploy). Without this, `nerd run "deploy ..."` derived no delegate_task.
+# /configure intentionally has a mapping but no delegate_task rule:
+# conversational_verb(/configure) makes wants_direct_answer() derive, so a
+# guarded rule here would be dead on arrival. Configure turns still reach
+# the coder through the next_action handoff and still require tool calls.
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /deploy, Task, _),
+    !wants_direct_answer().
+
 # Delegate to tester for test tasks
 delegate_task(/tester, Task, /pending) :-
     user_intent(/current_intent, _, /test, Task, _),
+    !wants_direct_answer().
+
+# /assault (action_type attack) probes execute; they are not prose. No nemesis
+# executor exists (delegation has no /delegate_nemesis and the executive
+# drops unknown shards), so adversarial probing runs through the tester,
+# which owns execution with tools.
+delegate_task(/tester, Task, /pending) :-
+    user_intent(/current_intent, _, /assault, Task, _),
     !wants_direct_answer().
 
 delegate_task(/tester, "Generate tests for impacted code", /pending) :-
@@ -161,6 +179,10 @@ action_mapping(/write, /fs_write).
 # researcher shard's write_file allowance for prose output.
 action_mapping(/document, /delegate_researcher).
 action_mapping(/commit, /delegate_coder).
+# /configure and /deploy need the coder's tools (setup/release), and the
+# mapping makes intent_requires_tool_call true so prose-only turns fail.
+action_mapping(/configure, /delegate_coder).
+action_mapping(/deploy, /delegate_coder).
 
 # File-mutation terminal contracts. This is deliberately narrower than
 # side_effecting_action: /commit, /test, and /research require real tools but do
@@ -192,6 +214,9 @@ action_mapping(/git, /delegate_coder).
 # and profiling must EXECUTE measurement, not answer in prose.
 action_mapping(/benchmark, /delegate_tester).
 action_mapping(/profile, /delegate_tester).
+# /assault routes through the tester (see delegate_task above); the tester
+# is side_effecting, so adversarial probes must execute tools to count.
+action_mapping(/assault, /delegate_tester).
 
 # Research actions (delegate to researcher shard)
 action_mapping(/research, /delegate_researcher).

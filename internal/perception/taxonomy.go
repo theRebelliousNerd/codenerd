@@ -810,6 +810,36 @@ var DefaultTaxonomyData = []TaxonomyDef{
 		Synonyms: []string{"format", "fmt", "gofmt", "prettier", "auto-format", "fix formatting"},
 		Patterns: []string{"(?i)\\bformat\\b", "(?i)\\bfmt\\b", "(?i)gofmt", "(?i)prettier", "(?i)fix.*format"},
 	},
+	{
+		// Emitted by UnderstandingTransducer for action_type=remember.
+		// /none: memory ops ride the articulation control packet; no shard owns them.
+		Verb: "/remember", Category: "/instruction", ShardType: "/none", Priority: 65,
+		Synonyms: []string{"remember", "remember that", "keep in mind", "note that", "don't forget"},
+		Patterns: []string{"(?i)\\bremember\\b", "(?i)keep in mind", "(?i)don.?t forget", "(?i)^note that"},
+	},
+	{
+		// Emitted by UnderstandingTransducer for action_type=forget.
+		Verb: "/forget", Category: "/instruction", ShardType: "/none", Priority: 65,
+		Synonyms: []string{"forget", "forget that", "stop remembering", "unlearn", "drop that preference"},
+		Patterns: []string{"(?i)\\bforget\\b", "(?i)stop remembering", "(?i)unlearn", "(?i)drop that"},
+	},
+	{
+		// Emitted by UnderstandingTransducer for action_type=chat.
+		// /none: conversation is answered directly, never delegated.
+		// Greeting synonyms (hello/hi/hey) stay with /greet deliberately:
+		// sharing them would tie-break legacy classification by fact-store
+		// order instead of by rule.
+		Verb: "/converse", Category: "/query", ShardType: "/none", Priority: 50,
+		Synonyms: []string{"chat", "talk", "thanks", "thank you", "bye"},
+		Patterns: []string{"(?i)^thanks\\b", "(?i)\\bthank you\\b", "(?i)\\bbye\\b"},
+	},
+	{
+		// Emitted by UnderstandingTransducer for action_type=deploy.
+		// /coder: releases execute through the coder's command/file tools.
+		Verb: "/deploy", Category: "/mutation", ShardType: "/coder", Priority: 72,
+		Synonyms: []string{"deploy", "release", "publish", "ship", "roll out", "push to prod"},
+		Patterns: []string{"(?i)\\bdeploy\\b", "(?i)\\brelease\\b", "(?i)\\bpublish\\b", "(?i)roll.?out", "(?i)push to prod"},
+	},
 }
 
 // ShutdownSharedTaxonomy cleanly stops the global SharedTaxonomy worker goroutine.

@@ -368,7 +368,7 @@ func (t *UnderstandingTransducer) understandingToIntent(u *Understanding) Intent
 		Constraint: constraint,
 		Confidence: u.Confidence,
 		Response:   u.SurfaceResponse,
-		IsQuestion: u.Signals.IsQuestion || isInterrogativeSemanticType(u.SemanticType),
+		IsQuestion: u.Signals.IsQuestion || isBackupQuestionSignal(u.SemanticType, u.ActionType),
 
 		// Preserve Understanding in Ambiguity for debugging
 		Ambiguity: ambiguityInfo,
@@ -379,16 +379,44 @@ func (t *UnderstandingTransducer) understandingToIntent(u *Understanding) Intent
 }
 
 // isInterrogativeSemanticType reports whether the semantic type describes a
-// question form. Backup signal for IsQuestion when the model forgets to set
-// signals.is_question but correctly classifies the semantic type.
+// question form. The set mirrors the semantic-type table in
+// understandingSystemPrompt: "recommendation" ("Should I ...?") and "state"
+// ("Is X ...?") are question forms. "hypothetical" is deliberately
+// excluded: what-if turns carry mode=dream through SuggestedApproach and
+// route by that mode, not by question-ness. "instruction" is excluded
+// because directives ("always ...") are commands, not questions.
 func isInterrogativeSemanticType(semanticType string) bool {
 	switch strings.ToLower(strings.TrimSpace(semanticType)) {
 	case "definition", "causation", "mechanism", "location", "temporal",
-		"attribution", "selection", "existence", "quantification":
+		"attribution", "selection", "existence", "quantification",
+		"recommendation", "state":
 		return true
 	default:
 		return false
 	}
+}
+
+// isMutationAction reports whether the action type performs code, file, or
+// environment effects (as opposed to read-only inspection or conversation).
+// It is the single source of truth for the /mutation filing in
+// mapSemanticToCategory and for the IsQuestion dominance rule below.
+func isMutationAction(actionType string) bool {
+	switch strings.ToLower(strings.TrimSpace(actionType)) {
+	case "implement", "modify", "refactor", "attack", "revert", "configure",
+		"migrate", "optimize", "document", "scaffold", "format", "deploy":
+		return true
+	default:
+		return false
+	}
+}
+
+// isBackupQuestionSignal re-derives IsQuestion when the model forgets to set
+// signals.is_question but correctly classifies the semantic type. The WHAT
+// (a mutation action) dominates the HOW (an interrogative semantic form):
+// "is this fast?" about code the user asked to optimize is still an
+// optimize request, not a question turn.
+func isBackupQuestionSignal(semanticType, actionType string) bool {
+	return isInterrogativeSemanticType(semanticType) && !isMutationAction(actionType)
 }
 
 // mapActionToVerb converts action_type to the legacy verb format.
@@ -468,10 +496,17 @@ func (t *UnderstandingTransducer) mapSemanticToCategory(semanticType, actionType
 		return "/instruction"
 	}
 
-	// Actions that modify code are mutations
-	switch actionType {
-	case "implement", "modify", "refactor", "attack", "revert", "configure":
+	// Actions that modify code are mutations. This set must stay aligned with
+	// the taxonomy corpus categories (DefaultTaxonomyData) and the preset
+	// mirror (categoryForIntentVerb): codedom_edit.mg derives next_action(
+	// /edit_element) only for /mutation, so a file-writing action left as
+	// /query can never edit through the CodeDOM path. verify stays /query
+	// deliberately: running tests is read-only even though presets coarsely
+	// bucket /test as /mutation.
+	if isMutationAction(actionType) {
 		return "/mutation"
+	}
+	switch actionType {
 	case "verify":
 		return "/query"
 	case "remember", "forget":
