@@ -556,3 +556,74 @@ func (m *mockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt,
 	}()
 	return contentChan, errorChan
 }
+
+// TestAPIScheduler_NoRace_ReconfigDuringAcquire pins the fix for a data race
+// caught by the spawner/scheduler e2e suite under -race: AcquireAPISlot read
+// s.config.MaxConcurrentAPICalls for its waiting log line after releasing
+// s.mu, while UpdateMaxConcurrentAPICalls wrote it under the lock.
+//
+// Fifty sequential waiters each perform that post-unlock read while another
+// goroutine hammers the ceiling up and down; without the snapshot this fails
+// under -race, with it the run is clean.
+//
+// Three holders pin active=3 while the ceiling flips 2↔3, so every waiter is
+// guaranteed to enter the waiting branch (active >= max at both levels) and
+// every one of them performs the raced read against the tight write loop.
+func TestAPIScheduler_NoRace_ReconfigDuringAcquire(t *testing.T) {
+	cfg := DefaultAPISchedulerConfig()
+	cfg.MaxConcurrentAPICalls = 3
+	cfg.SlotAcquireTimeout = 5 * time.Second
+	scheduler := NewAPIScheduler(cfg)
+	defer scheduler.Stop()
+
+	for i := 0; i < 3; i++ {
+		id := fmt.Sprintf("holder_%d", i)
+		scheduler.RegisterShard(id, "test")
+		if err := scheduler.AcquireAPISlot(context.Background(), id); err != nil {
+			t.Fatalf("%s could not acquire: %v", id, err)
+		}
+	}
+	defer func() {
+		for i := 0; i < 3; i++ {
+			scheduler.ReleaseAPISlot(fmt.Sprintf("holder_%d", i))
+		}
+	}()
+
+	stop := make(chan struct{})
+	var updater sync.WaitGroup
+	updater.Add(1)
+	go func() {
+		defer updater.Done()
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if i%2 == 0 {
+				scheduler.UpdateMaxConcurrentAPICalls(2)
+			} else {
+				scheduler.UpdateMaxConcurrentAPICalls(3)
+			}
+		}
+	}()
+
+	const waiters = 50
+	for i := 0; i < waiters; i++ {
+		id := fmt.Sprintf("racer_%d", i)
+		scheduler.RegisterShard(id, "test")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+		err := scheduler.AcquireAPISlot(ctx, id)
+		cancel()
+		if err == nil {
+			scheduler.ReleaseAPISlot(id)
+			t.Fatalf("%s was granted a slot with 3 holders active", id)
+		}
+	}
+	close(stop)
+	updater.Wait()
+
+	if metrics := scheduler.GetMetrics(); metrics.WaitingForSlot != 0 {
+		t.Fatalf("waiters leaked in the queue: %+v", metrics)
+	}
+}

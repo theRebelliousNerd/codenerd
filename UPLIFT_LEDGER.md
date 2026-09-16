@@ -1111,10 +1111,10 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/action_validator_test.go`
 
 ### internal/core/api_scheduler.go (1)
-- [x] `internal/core/api_scheduler.go`
+- [x] `internal/core/api_scheduler.go` (post-uplift: fixed -race config read/write race via snapshots + minCallSpacing RLock)
 
 ### internal/core/api_scheduler_gaps_test.go (1)
-- [x] `internal/core/api_scheduler_gaps_test.go`
+- [x] `internal/core/api_scheduler_gaps_test.go` (post-uplift: +NoRace_ReconfigDuringAcquire red/green pin)
 
 ### internal/core/api_scheduler_more_coverage_test.go (1)
 - [x] `internal/core/api_scheduler_more_coverage_test.go`
@@ -3501,7 +3501,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `tests/e2e/session_kernel_vstore_integration_test.go`
 - [x] `tests/e2e/session_spawner_config_integration_test.go` (17/17; vacuous tests made behavioral)
 - [ ] `tests/e2e/shadowmode_commit_safety_boundary_test.go`
-- [ ] `tests/e2e/spawner_apischeduler_integration_test.go`
+- [x] `tests/e2e/spawner_apischeduler_integration_test.go` (17/17 + race; strict metric pins, real spawns, ctx-priority order proof; exposed + fixed scheduler data race)
 - [x] `tests/e2e/task_executor_async_lifecycle_test.go` (7/7 + race; strict lifecycle contracts, echo markers, deterministic polling)
 - [x] `tests/e2e/tddloop_executor_integration_test.go` (18/18 green; hang fixed, stalls real)
 - [ ] `tests/e2e/tool_safety_fallback_config_test.go`

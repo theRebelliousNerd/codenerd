@@ -331,6 +331,12 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 
 	// Fill free slots by priority (may include us if we are highest).
 	s.grantAvailableSlotsLocked()
+	// Snapshot the config this path needs after the unlock below:
+	// UpdateMaxConcurrentAPICalls, ReportRateLimit and global reconfiguration
+	// all write s.config under s.mu, so reading it past the unlock is a data
+	// race (caught by -race in the spawner/scheduler e2e suite).
+	maxSlots := s.config.MaxConcurrentAPICalls
+	acquireTimeout := s.config.SlotAcquireTimeout
 	s.mu.Unlock()
 
 	// If we were granted immediately, w is already closed.
@@ -345,12 +351,12 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 	defer atomic.AddInt32(&s.currentlyWaiting, -1)
 
 	logging.Shards("APIScheduler: shard %s waiting for slot (active=%d/%d, waiting=%d, prio=%s)",
-		shardID, atomic.LoadInt32(&s.currentlyExecuting), s.config.MaxConcurrentAPICalls,
+		shardID, atomic.LoadInt32(&s.currentlyExecuting), maxSlots,
 		atomic.LoadInt32(&s.currentlyWaiting), initialPriority.String())
 
 	waitCtx := ctx
 	var waitCancel context.CancelFunc
-	if timeout := s.config.SlotAcquireTimeout; timeout > 0 {
+	if timeout := acquireTimeout; timeout > 0 {
 		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > timeout {
 			waitCtx, waitCancel = context.WithTimeout(ctx, timeout)
 		}
@@ -431,6 +437,15 @@ func (s *APIScheduler) grantAvailableSlotsLocked() {
 	}
 }
 
+// minCallSpacing reads the spacing under a read lock. finishGranted runs
+// after AcquireAPISlot released s.mu, while ConfigureGlobalAPIScheduler may
+// be writing config concurrently — an unlocked read is a data race.
+func (s *APIScheduler) minCallSpacing() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config.MinCallSpacing
+}
+
 // finishGranted finalizes state after a waiter was granted a slot (either
 // immediately or after waiting). Applies MinCallSpacing while holding the slot.
 func (s *APIScheduler) finishGranted(ctx context.Context, shardID string, state *ShardExecutionState, waitDuration time.Duration) error {
@@ -440,7 +455,7 @@ func (s *APIScheduler) finishGranted(ctx context.Context, shardID string, state 
 
 	// Min call spacing: hold the slot while delaying so bursts don't slam the
 	// provider at the same instant (important for SuperGrok).
-	if spacing := s.config.MinCallSpacing; spacing > 0 {
+	if spacing := s.minCallSpacing(); spacing > 0 {
 		s.mu.Lock()
 		now := time.Now()
 		delay := time.Duration(0)
@@ -799,7 +814,16 @@ func (s *APIScheduler) ReportSuccess() {
 }
 
 func (s *APIScheduler) maybeRecoverAdaptive() {
-	if s == nil || !s.config.AdaptiveConcurrency {
+	if s == nil {
+		return
+	}
+	// The enabled flag lives under s.mu like every other config field:
+	// global reconfiguration writes it while ReportSuccess calls here, so an
+	// unlocked read is a data race.
+	s.mu.RLock()
+	adaptive := s.config.AdaptiveConcurrency
+	s.mu.RUnlock()
+	if !adaptive {
 		return
 	}
 	s.mu.Lock()

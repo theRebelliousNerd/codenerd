@@ -3,10 +3,10 @@
 package e2e_test
 
 import (
-	"codenerd/internal/types"
-
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,6 +17,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
+	"codenerd/internal/types"
 )
 
 // Mock dependencies to isolate the Spawner <-> APIScheduler boundary.
@@ -60,14 +61,26 @@ func TestE2E_SpawnerAPIScheduler_Smoke_BasicAcquireRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to spawn agent: %v", err)
 	}
-
-	err = acquire(scheduler, ctx, agent.GetID())
-	if err != nil {
-		t.Fatalf("Failed to acquire slot: %v", err)
+	if agent.GetID() == "" {
+		t.Fatal("Spawner returned an agent with an empty ID")
 	}
 
-	// Verify we have a slot
+	if err = acquire(scheduler, ctx, agent.GetID()); err != nil {
+		t.Fatalf("Failed to acquire slot: %v", err)
+	}
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 1 {
+		t.Fatalf("scheduler holds %d slots after one acquire, want 1", metrics.ActiveSlots)
+	}
+
 	scheduler.ReleaseAPISlot(agent.GetID())
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 {
+		t.Fatalf("scheduler holds %d slots after release, want 0", metrics.ActiveSlots)
+	}
+	if state, ok := scheduler.GetShardState(agent.GetID()); !ok {
+		t.Fatal("scheduler lost the spawned agent's shard state")
+	} else if state.APICallCount != 1 {
+		t.Fatalf("spawned agent completed %d API calls, want 1", state.APICallCount)
+	}
 }
 
 // TestE2E_SpawnerAPIScheduler_Temporal_CancelWhileWaiting verifies that if a subagent context
@@ -82,35 +95,29 @@ func TestE2E_SpawnerAPIScheduler_Temporal_CancelWhileWaiting(t *testing.T) {
 	})
 
 	// Hold the single slot indefinitely
-	dummyCtx := context.Background()
-	_ = acquire(scheduler, dummyCtx, "holder_agent")
+	if err := acquire(scheduler, context.Background(), "holder_agent"); err != nil {
+		t.Fatalf("holder could not take the only slot: %v", err)
+	}
 
 	// Attempt to acquire with a short-lived context
 	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer shortCancel()
 
-	err := acquire(scheduler, shortCtx, "waiting_agent")
-	if err == nil {
-		t.Fatal("Expected error due to context timeout, got nil")
-	}
-	if err != context.DeadlineExceeded {
+	if err := acquire(scheduler, shortCtx, "waiting_agent"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Expected DeadlineExceeded, got: %v", err)
 	}
 
-	// Wait a bit to ensure scheduler cleanup routines run (if any are async)
-	time.Sleep(10 * time.Millisecond)
-
 	// The wait queue should be empty, preventing memory leaks
-	metrics := scheduler.GetMetrics()
-	if metrics.WaitingForSlot != 0 {
-		t.Fatalf("Expected wait queue to be cleaned up (len 0), got: %d", metrics.WaitingForSlot)
-	}
-
+	sasWaitForQueueDrained(t, scheduler, 2*time.Second)
 	scheduler.ReleaseAPISlot("holder_agent")
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 || metrics.WaitingForSlot != 0 {
+		t.Fatalf("scheduler leaked slots after cancellation: %+v", metrics)
+	}
 }
 
-// TestE2E_SpawnerAPIScheduler_ContractViolation_PanicDuringExecution ensures that
-// if a subagent panics while holding a slot, the slot is correctly recovered.
+// TestE2E_SpawnerAPIScheduler_ContractViolation_PanicDuringExecution ensures
+// that when a spawned agent's LLM call panics, the scheduled-call wrapper
+// converts the panic to an error and releases the agent's slot.
 func TestE2E_SpawnerAPIScheduler_ContractViolation_PanicDuringExecution(t *testing.T) {
 	t.Parallel()
 
@@ -118,29 +125,30 @@ func TestE2E_SpawnerAPIScheduler_ContractViolation_PanicDuringExecution(t *testi
 		MaxConcurrentAPICalls: 1,
 		SlotAcquireTimeout:    time.Second,
 	})
+	spawner := session.NewSpawner(nil, nil, nil, &mockCompiler{}, &sasMockConfigFactory{}, &sasMockTransducer{}, session.SpawnerConfig{
+		MaxActiveSubagents: 2,
+		TokenBudget:        1000,
+	})
+	agent, err := spawner.Spawn(context.Background(), session.SpawnRequest{Name: "panicking_agent", Task: "panic task"})
+	if err != nil {
+		t.Fatalf("Failed to spawn agent: %v", err)
+	}
+	scheduler.RegisterShard(agent.GetID(), "e2e")
 
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				// Simulate SubAgent's recover block releasing the slot
-				scheduler.ReleaseAPISlot("panicking_agent")
-			}
-		}()
+	scheduled := &core.ScheduledLLMCall{Scheduler: scheduler, ShardID: agent.GetID(), Client: &panickingClient{}}
+	if _, err := scheduled.CompleteWithSystem(context.Background(), "sys", "user"); err == nil {
+		t.Fatal("expected an error from a panicking LLM call, got success")
+	} else if !strings.Contains(err.Error(), "panic during LLM call") {
+		t.Fatalf("panic lost its contract wording: %v", err)
+	}
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 {
+		t.Fatalf("Slot leaked due to panic! ActiveSlots=%d", metrics.ActiveSlots)
+	}
 
-		err := acquire(scheduler, context.Background(), "panicking_agent")
-		if err != nil {
-			t.Fatalf("Acquire failed: %v", err)
-		}
-
-		panic("Simulated LLM Panic")
-	}()
-
-	// Verify slot was released by attempting to acquire it again immediately
+	// Verify the grant path is still healthy by acquiring immediately.
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-
-	err := acquire(scheduler, ctx, "next_agent")
-	if err != nil {
+	if err := acquire(scheduler, ctx, "next_agent"); err != nil {
 		t.Fatalf("Slot was leaked due to panic! Could not acquire: %v", err)
 	}
 	scheduler.ReleaseAPISlot("next_agent")
@@ -166,39 +174,71 @@ func TestE2E_SpawnerAPIScheduler_ResourceExhaustion_MassSpawning(t *testing.T) {
 		MaxActiveSubagents: numSpawns + 10,
 		TokenBudget:        100000,
 	})
-	_ = spawner // Prevent unused variable
 
 	var wg sync.WaitGroup
 	var successCount int32
+	agentIDs := make([]string, numSpawns)
+	spawnErrs := make([]error, numSpawns)
+	slotErrs := make([]error, numSpawns)
 
 	for i := 0; i < numSpawns; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 
-			agentID := fmt.Sprintf("agent_%d", id)
-
-			// Simulate Spawner passing context
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			err := acquire(scheduler, ctx, agentID)
+			agent, err := spawner.Spawn(ctx, session.SpawnRequest{
+				Name:       fmt.Sprintf("mass_agent_%d", id),
+				Task:       "mass spawn slot check",
+				Type:       session.SubAgentTypeEphemeral,
+				IntentVerb: "/fix",
+			})
 			if err != nil {
-				return // Context timeout or other error
+				spawnErrs[id] = err
+				return
+			}
+			agentIDs[id] = agent.GetID()
+
+			if err := acquire(scheduler, ctx, agent.GetID()); err != nil {
+				slotErrs[id] = err
+				return
 			}
 
 			// Simulate tiny burst of work
 			time.Sleep(1 * time.Millisecond)
 
-			scheduler.ReleaseAPISlot(agentID)
+			scheduler.ReleaseAPISlot(agent.GetID())
 			atomic.AddInt32(&successCount, 1)
 		}(i)
 	}
 
 	wg.Wait()
 
+	for i := range agentIDs {
+		if spawnErrs[i] != nil {
+			t.Fatalf("spawn %d failed: %v", i, spawnErrs[i])
+		}
+		if slotErrs[i] != nil {
+			t.Fatalf("spawn %d failed to acquire a slot: %v", i, slotErrs[i])
+		}
+	}
+	seen := make(map[string]struct{}, numSpawns)
+	for _, agentID := range agentIDs {
+		if agentID == "" {
+			t.Fatal("a mass spawn returned an empty agent ID")
+		}
+		if _, dup := seen[agentID]; dup {
+			t.Fatalf("duplicate agent ID %q in mass spawn", agentID)
+		}
+		seen[agentID] = struct{}{}
+	}
 	if int(successCount) != numSpawns {
-		t.Errorf("Expected %d successful runs, got %d. Some waiters timed out or scheduler dropped them.", numSpawns, successCount)
+		t.Fatalf("Expected %d successful runs, got %d. Some waiters timed out or scheduler dropped them.", numSpawns, successCount)
+	}
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 || metrics.WaitingForSlot != 0 {
+		t.Fatalf("scheduler leaked slots after mass spawn: %+v", metrics)
 	}
 }
 
@@ -214,26 +254,34 @@ func TestE2E_SpawnerAPIScheduler_StateCorruption_ConcurrentCapacityCheck(t *test
 	})
 
 	var wg sync.WaitGroup
-	var successCount int32
-	attempts := 100
+	const attempts = 100
+	spawnErrs := make([]error, attempts)
 
 	ctx := context.Background()
 
 	for i := 0; i < attempts; i++ {
 		wg.Add(1)
-		go func() {
+		go func(id int) {
 			defer wg.Done()
 			_, err := spawner.Spawn(ctx, session.SpawnRequest{Name: "test_type", Task: "task"})
-			if err == nil {
-				atomic.AddInt32(&successCount, 1)
-			}
-		}()
+			spawnErrs[id] = err
+		}(i)
 	}
 
 	wg.Wait()
 
-	if int(successCount) > maxSpawns {
-		t.Fatalf("State Corruption! Expected max %d successful spawns, but got %d", maxSpawns, successCount)
+	successes := 0
+	for i, err := range spawnErrs {
+		if err == nil {
+			successes++
+			continue
+		}
+		if !strings.Contains(err.Error(), "max active subagents reached") {
+			t.Fatalf("spawn %d failed with a non-capacity error: %v", i, err)
+		}
+	}
+	if successes != maxSpawns {
+		t.Fatalf("State Corruption! Expected exactly %d successful spawns, but got %d", maxSpawns, successes)
 	}
 }
 
@@ -248,29 +296,33 @@ func TestE2E_SpawnerAPIScheduler_Recovery_DoubleRelease(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	_ = acquire(scheduler, ctx, "clumsy_agent")
+	if err := acquire(scheduler, ctx, "clumsy_agent"); err != nil {
+		t.Fatalf("clumsy_agent could not acquire: %v", err)
+	}
 
 	// Valid release
 	scheduler.ReleaseAPISlot("clumsy_agent")
 
 	// Invalid double release - should be handled gracefully (e.g. log error, but no panic)
-	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("APIScheduler panicked on double release: %v", r)
-		}
-	}()
-
 	scheduler.ReleaseAPISlot("clumsy_agent")
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 {
+		t.Fatalf("double release corrupted the counter: ActiveSlots=%d", metrics.ActiveSlots)
+	}
 
 	// Verify slot count isn't corrupted (should still just be 1 slot available)
-	_ = acquire(scheduler, ctx, "test_agent_1")
+	if err := acquire(scheduler, ctx, "test_agent_1"); err != nil {
+		t.Fatalf("test_agent_1 could not acquire after double release: %v", err)
+	}
 
 	// This second acquire should timeout, proving we don't have 2 slots now
 	ctx2, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	err := acquire(scheduler, ctx2, "test_agent_2")
-	if err == nil {
-		t.Fatalf("Double release corrupted slot tracking, artificially increasing slot capacity!")
+	if err := acquire(scheduler, ctx2, "test_agent_2"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Double release corrupted slot tracking, artificially increasing slot capacity! err=%v", err)
+	}
+	scheduler.ReleaseAPISlot("test_agent_1")
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 {
+		t.Fatalf("scheduler leaked slots after double-release check: %+v", metrics)
 	}
 }
 
@@ -297,72 +349,124 @@ func TestE2E_SpawnerAPIScheduler_CascadingFailure_SchedulerStall(t *testing.T) {
 	err := acquire(scheduler, ctx, "stalled_agent")
 	duration := time.Since(start)
 
-	if err == nil {
-		t.Fatalf("Expected error acquiring a held slot, got nil")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Expected DeadlineExceeded acquiring a held slot, got: %v", err)
 	}
-
 	if duration > 500*time.Millisecond {
 		t.Fatalf("Subagent stalled for %v waiting for slot; SlotAcquireTimeout (50ms) should have cut it loose.", duration)
 	}
+	sasWaitForQueueDrained(t, scheduler, 2*time.Second)
 }
 
-// TestE2E_SpawnerAPIScheduler_PriorityInversion_Prevention tests if a high-priority
-// spawn can bypass a crowded wait queue.
+// TestE2E_SpawnerAPIScheduler_PriorityInversion_Prevention proves that a
+// high-priority spawn jumps a crowded wait queue. Every agent registers at
+// normal priority; only the urgent agent carries PriorityHigh in its context,
+// so the grant order pins the context override rather than the registered
+// default.
 func TestE2E_SpawnerAPIScheduler_PriorityInversion_Prevention(t *testing.T) {
 	t.Parallel()
 	scheduler := newTestScheduler(t, core.APISchedulerConfig{MaxConcurrentAPICalls: 1, SlotAcquireTimeout: 5 * time.Second})
+	spawner := session.NewSpawner(nil, nil, nil, &mockCompiler{}, &sasMockConfigFactory{}, &sasMockTransducer{}, session.SpawnerConfig{
+		MaxActiveSubagents: 5,
+		TokenBudget:        1000,
+	})
 
-	// Fill the single slot so a queue builds up
-	ctx1 := context.Background()
-	_ = acquire(scheduler, ctx1, "blocking_agent")
-
-	// Queue 3 low priority agents
-	var wg sync.WaitGroup
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			// Assuming Spawner sets priority in context or via specific method.
-			// We test the scheduler's ability to handle it.
-			// This represents a standard background task.
-			_ = acquire(scheduler, ctx, fmt.Sprintf("low_prio_%d", id))
-			scheduler.ReleaseAPISlot(fmt.Sprintf("low_prio_%d", id))
-		}(i)
+	lowIDs := make([]string, 3)
+	for i := range lowIDs {
+		agent, err := spawner.Spawn(context.Background(), session.SpawnRequest{
+			Name:       fmt.Sprintf("low_prio_%d", i),
+			Task:       "background work",
+			Type:       session.SubAgentTypeEphemeral,
+			IntentVerb: "/fix",
+		})
+		if err != nil {
+			t.Fatalf("failed to spawn low-priority agent %d: %v", i, err)
+		}
+		lowIDs[i] = agent.GetID()
+	}
+	highAgent, err := spawner.Spawn(context.Background(), session.SpawnRequest{
+		Name:       "high_prio_agent",
+		Task:       "urgent work",
+		Type:       session.SubAgentTypeEphemeral,
+		IntentVerb: "/fix",
+	})
+	if err != nil {
+		t.Fatalf("failed to spawn high-priority agent: %v", err)
 	}
 
-	// Give them time to enter the queue
-	time.Sleep(50 * time.Millisecond)
+	if err := acquire(scheduler, context.Background(), "blocking_agent"); err != nil {
+		t.Fatalf("blocking_agent could not take the only slot: %v", err)
+	}
 
-	// Queue 1 high priority agent
-	var highPrioAcquired atomic.Bool
+	lowAcquired := make(chan string, len(lowIDs))
+	lowErrs := make(chan error, len(lowIDs))
+	var wg sync.WaitGroup
+	for _, agentID := range lowIDs {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := acquire(scheduler, ctx, id); err != nil {
+				lowErrs <- err
+				return
+			}
+			lowAcquired <- id
+			scheduler.ReleaseAPISlot(id)
+		}(agentID)
+	}
+	waitForSchedulerWaiters(t, scheduler, len(lowIDs))
+
+	highAcquired := make(chan struct{})
+	highErrs := make(chan error, 1)
+	releaseHigh := make(chan struct{})
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		// Injecting priority into context as per architecture docs
 		ctx = types.WithSpawnPriority(ctx, types.PriorityHigh)
-
-		err := acquire(scheduler, ctx, "high_prio_agent")
-		if err == nil {
-			highPrioAcquired.Store(true)
-			scheduler.ReleaseAPISlot("high_prio_agent")
+		if err := acquire(scheduler, ctx, highAgent.GetID()); err != nil {
+			highErrs <- err
+			return
 		}
+		close(highAcquired)
+		<-releaseHigh
+		scheduler.ReleaseAPISlot(highAgent.GetID())
 	}()
+	waitForSchedulerWaiters(t, scheduler, len(lowIDs)+1)
 
-	time.Sleep(50 * time.Millisecond)
-
-	// Unblock the queue
 	scheduler.ReleaseAPISlot("blocking_agent")
 
-	// Wait for all to finish
-	wg.Wait()
+	select {
+	case <-highAcquired:
+	case err := <-highErrs:
+		t.Fatalf("high-priority waiter failed: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("high-priority waiter never acquired the released slot")
+	}
+	select {
+	case id := <-lowAcquired:
+		t.Fatalf("low-priority waiter %s acquired ahead of a queued high-priority waiter", id)
+	case <-time.After(100 * time.Millisecond):
+		// Expected: the normal waiters stay queued while high holds the slot.
+	}
+	close(releaseHigh)
 
-	// Assert high priority acquired it (this is a behavioural test, it might fail if priority isn't implemented strictly FIFO-preempt)
-	if !highPrioAcquired.Load() {
-		t.Log("KNOWN LIMITATION: APIScheduler does not strict-preempt based on CtxKeyPriority in the current implementation.")
+	timeout := time.After(5 * time.Second)
+	for got := 0; got < len(lowIDs); {
+		select {
+		case <-lowAcquired:
+			got++
+		case err := <-lowErrs:
+			t.Fatalf("low-priority waiter failed: %v", err)
+		case <-timeout:
+			t.Fatalf("only %d/%d low-priority waiters acquired after high released", got, len(lowIDs))
+		}
+	}
+	wg.Wait()
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 || metrics.WaitingForSlot != 0 {
+		t.Fatalf("scheduler leaked slots after priority check: %+v", metrics)
 	}
 }
 
@@ -373,8 +477,9 @@ func TestE2E_SpawnerAPIScheduler_ShutdownRaceCondition(t *testing.T) {
 	scheduler := newTestScheduler(t, core.APISchedulerConfig{MaxConcurrentAPICalls: 1, SlotAcquireTimeout: 5 * time.Second})
 
 	// Fill slot
-	ctx1 := context.Background()
-	_ = acquire(scheduler, ctx1, "holder")
+	if err := acquire(scheduler, context.Background(), "holder"); err != nil {
+		t.Fatalf("holder could not take the only slot: %v", err)
+	}
 
 	// Setup waiter
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -389,8 +494,7 @@ func TestE2E_SpawnerAPIScheduler_ShutdownRaceCondition(t *testing.T) {
 			scheduler.ReleaseAPISlot("waiter")
 		}
 	}()
-
-	time.Sleep(50 * time.Millisecond)
+	waitForSchedulerWaiters(t, scheduler, 1)
 
 	// RACE: Release the slot at the EXACT moment the Spawner cancels the context
 	go waitCancel()
@@ -400,7 +504,7 @@ func TestE2E_SpawnerAPIScheduler_ShutdownRaceCondition(t *testing.T) {
 
 	// Either it acquired it successfully (and released it), OR it got context cancelled.
 	// It must NOT leak the slot.
-	if acquireErr != nil && acquireErr != context.Canceled && acquireErr != context.DeadlineExceeded {
+	if acquireErr != nil && !errors.Is(acquireErr, context.Canceled) && !errors.Is(acquireErr, context.DeadlineExceeded) {
 		t.Fatalf("Unexpected error during race condition: %v", acquireErr)
 	}
 
@@ -408,11 +512,13 @@ func TestE2E_SpawnerAPIScheduler_ShutdownRaceCondition(t *testing.T) {
 	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer verifyCancel()
 
-	err := acquire(scheduler, verifyCtx, "verifier")
-	if err != nil {
+	if err := acquire(scheduler, verifyCtx, "verifier"); err != nil {
 		t.Fatalf("Slot leaked during Shutdown Race! Waiter cancelled but slot was not returned to pool.")
 	}
 	scheduler.ReleaseAPISlot("verifier")
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 || metrics.WaitingForSlot != 0 {
+		t.Fatalf("scheduler leaked slots during shutdown race: %+v", metrics)
+	}
 }
 
 // TestE2E_SpawnerAPIScheduler_UnsetCeiling_UsesDefault: a zero
@@ -423,8 +529,9 @@ func TestE2E_SpawnerAPIScheduler_UnsetCeiling_UsesDefault(t *testing.T) {
 	t.Parallel()
 	scheduler := newTestScheduler(t, core.APISchedulerConfig{MaxConcurrentAPICalls: 0, SlotAcquireTimeout: 10 * time.Millisecond})
 
-	if got := scheduler.EffectiveMaxSlots(); got <= 0 {
-		t.Fatalf("an unset ceiling produced %d slots", got)
+	want := core.DefaultAPISchedulerConfig().MaxConcurrentAPICalls
+	if got := scheduler.EffectiveMaxSlots(); got != want {
+		t.Fatalf("an unset ceiling produced %d slots, want default %d", got, want)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -434,6 +541,9 @@ func TestE2E_SpawnerAPIScheduler_UnsetCeiling_UsesDefault(t *testing.T) {
 		t.Fatalf("acquire under the default ceiling failed: %v", err)
 	}
 	scheduler.ReleaseAPISlot("agent_zero")
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 {
+		t.Fatalf("scheduler leaked slots under the default ceiling: %+v", metrics)
+	}
 }
 
 // TestE2E_SpawnerAPIScheduler_DynamicReconfiguration validates that
@@ -442,7 +552,9 @@ func TestE2E_SpawnerAPIScheduler_DynamicReconfiguration(t *testing.T) {
 	t.Parallel()
 	scheduler := newTestScheduler(t, core.APISchedulerConfig{MaxConcurrentAPICalls: 1, SlotAcquireTimeout: 5 * time.Second})
 
-	_ = acquire(scheduler, context.Background(), "holder1")
+	if err := acquire(scheduler, context.Background(), "holder1"); err != nil {
+		t.Fatalf("holder1 could not take the only slot: %v", err)
+	}
 
 	// Queue a waiter
 	var wg sync.WaitGroup
@@ -458,8 +570,7 @@ func TestE2E_SpawnerAPIScheduler_DynamicReconfiguration(t *testing.T) {
 			scheduler.ReleaseAPISlot("waiter1")
 		}
 	}()
-
-	time.Sleep(50 * time.Millisecond)
+	waitForSchedulerWaiters(t, scheduler, 1)
 
 	// Dynamically update max calls to 2 (simulating recovery from rate limiting)
 	scheduler.UpdateMaxConcurrentAPICalls(2)
@@ -469,51 +580,55 @@ func TestE2E_SpawnerAPIScheduler_DynamicReconfiguration(t *testing.T) {
 	if waitErr != nil {
 		t.Fatalf("Waiter should have been granted a slot dynamically, but failed: %v", waitErr)
 	}
+	if got := scheduler.EffectiveMaxSlots(); got != 2 {
+		t.Fatalf("dynamic reconfiguration left %d slots, want 2", got)
+	}
 
 	scheduler.ReleaseAPISlot("holder1")
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 || metrics.WaitingForSlot != 0 {
+		t.Fatalf("scheduler leaked slots after dynamic reconfiguration: %+v", metrics)
+	}
 }
 
-// TestE2E_SpawnerAPIScheduler_IdentityCollision checks that the APIScheduler
-// prevents ID hijacking or map corruption if the Spawner passes identical IDs.
+// TestE2E_SpawnerAPIScheduler_IdentityCollision pins the scheduler's actual
+// identity contract: slots are anonymous counters, so a duplicate ID consumes
+// a second free slot instead of hijacking the first grant, and releasing both
+// grants returns the pool to a consistent empty state.
 func TestE2E_SpawnerAPIScheduler_IdentityCollision(t *testing.T) {
 	t.Parallel()
 	scheduler := newTestScheduler(t, core.APISchedulerConfig{MaxConcurrentAPICalls: 2, SlotAcquireTimeout: 5 * time.Second})
 
-	ctx1, cancel1 := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel1()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
-	// Agent 1 acquires slot
-	err1 := acquire(scheduler, ctx1, "twin_agent")
-	if err1 != nil {
-		t.Fatalf("Failed first acquire: %v", err1)
+	if err := acquire(scheduler, ctx, "twin_agent"); err != nil {
+		t.Fatalf("Failed first acquire: %v", err)
+	}
+	if err := acquire(scheduler, ctx, "twin_agent"); err != nil {
+		t.Fatalf("duplicate ID unexpectedly failed while a second slot was free: %v", err)
+	}
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 2 {
+		t.Fatalf("duplicate ID holds %d slots, want 2", metrics.ActiveSlots)
 	}
 
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel2()
-
-	// Agent 2 attempts to acquire with same ID
-	// Currently, APIScheduler might not strictly forbid this, but let's test the behavior
-	err2 := acquire(scheduler, ctx2, "twin_agent")
-	if err2 != nil {
-		// If it errors, that's actually good (preventing collision).
-		// If it blocks (timeout), that's also acceptable (queuing).
-	}
-
-	// Agent 1 releases
 	scheduler.ReleaseAPISlot("twin_agent")
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 1 {
+		t.Fatalf("one twin release left %d slots, want 1", metrics.ActiveSlots)
+	}
 
-	// If the scheduler map was corrupted by the twin, this next acquire might fail
-	ctx3, cancel3 := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel3()
-	err3 := acquire(scheduler, ctx3, "safe_agent")
-	if err3 != nil {
-		t.Fatalf("Scheduler corrupted by identity collision: %v", err3)
+	if err := acquire(scheduler, ctx, "safe_agent"); err != nil {
+		t.Fatalf("Scheduler corrupted by identity collision: %v", err)
 	}
 	scheduler.ReleaseAPISlot("safe_agent")
+	scheduler.ReleaseAPISlot("twin_agent")
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 || metrics.WaitingForSlot != 0 {
+		t.Fatalf("scheduler leaked slots after identity collision: %+v", metrics)
+	}
 }
 
 // TestE2E_SpawnerAPIScheduler_MultiTenant_Starvation tests that one greedy
-// Spawner does not permanently lock out a secondary Spawner session.
+// tenant cannot permanently lock out a secondary tenant: the waiter times out
+// while the slot is held, then succeeds once the greedy holder releases.
 func TestE2E_SpawnerAPIScheduler_MultiTenant_Starvation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping multi-tenant starvation test in short mode")
@@ -521,20 +636,27 @@ func TestE2E_SpawnerAPIScheduler_MultiTenant_Starvation(t *testing.T) {
 	t.Parallel()
 	scheduler := newTestScheduler(t, core.APISchedulerConfig{MaxConcurrentAPICalls: 1, SlotAcquireTimeout: 5 * time.Second})
 
-	// Greedy Tenant acquires slot and holds it
-	ctx1 := context.Background()
-	_ = acquire(scheduler, ctx1, "greedy_tenant_agent_1")
-
-	// Starved Tenant tries to acquire
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel2()
-
-	err := acquire(scheduler, ctx2, "starved_tenant_agent_1")
-	if err != context.DeadlineExceeded {
-		t.Fatalf("Expected DeadlineExceeded for starved tenant, got: %v", err)
+	if err := acquire(scheduler, context.Background(), "greedy_tenant_agent_1"); err != nil {
+		t.Fatalf("greedy tenant could not take the only slot: %v", err)
 	}
 
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel2()
+	if err := acquire(scheduler, ctx2, "starved_tenant_agent_1"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Expected DeadlineExceeded for starved tenant, got: %v", err)
+	}
+	sasWaitForQueueDrained(t, scheduler, 2*time.Second)
+
 	scheduler.ReleaseAPISlot("greedy_tenant_agent_1")
+	retryCtx, retryCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer retryCancel()
+	if err := acquire(scheduler, retryCtx, "starved_tenant_agent_1"); err != nil {
+		t.Fatalf("starved tenant could not acquire after greedy release: %v", err)
+	}
+	scheduler.ReleaseAPISlot("starved_tenant_agent_1")
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 || metrics.WaitingForSlot != 0 {
+		t.Fatalf("scheduler leaked slots after multi-tenant check: %+v", metrics)
+	}
 }
 
 // TestE2E_SpawnerAPIScheduler_RateLimit_CapacityPlunge tests the behavior
@@ -548,7 +670,9 @@ func TestE2E_SpawnerAPIScheduler_RateLimit_CapacityPlunge(t *testing.T) {
 
 	// Fill 3 slots
 	for i := 0; i < 3; i++ {
-		_ = acquire(scheduler, context.Background(), fmt.Sprintf("holder_%d", i))
+		if err := acquire(scheduler, context.Background(), fmt.Sprintf("holder_%d", i)); err != nil {
+			t.Fatalf("holder_%d could not acquire: %v", i, err)
+		}
 	}
 
 	// Trigger rate limit penalty heavily, dropping max slots below active slots
@@ -557,49 +681,62 @@ func TestE2E_SpawnerAPIScheduler_RateLimit_CapacityPlunge(t *testing.T) {
 	}
 
 	metrics := scheduler.GetMetrics()
-	if metrics.MaxSlots >= 3 {
-		t.Logf("Adaptive concurrency did not drop max slots below active. Max: %d, Active: %d", metrics.MaxSlots, metrics.ActiveSlots)
+	if metrics.MaxSlots != 1 || metrics.ActiveSlots != 3 {
+		t.Fatalf("capacity plunge left max=%d active=%d, want max=1 active=3", metrics.MaxSlots, metrics.ActiveSlots)
 	}
 
 	// Now try to queue a new one. It should block because Active > Max
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	err := acquire(scheduler, ctx, "new_waiter")
-	if err != context.DeadlineExceeded {
+	if err := acquire(scheduler, ctx, "new_waiter"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Expected waiter to be blocked by reduced capacity, got err: %v", err)
 	}
+	sasWaitForQueueDrained(t, scheduler, 2*time.Second)
 
 	// Release the active slots. The scheduler shouldn't panic about Active > Max.
 	for i := 0; i < 3; i++ {
 		scheduler.ReleaseAPISlot(fmt.Sprintf("holder_%d", i))
 	}
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 || metrics.WaitingForSlot != 0 {
+		t.Fatalf("scheduler leaked slots after capacity plunge: %+v", metrics)
+	}
 }
 
 // TestE2E_SpawnerAPIScheduler_ReportSuccess_Recovery tests that after
 // a rate limit penalty, successful API calls gradually restore capacity.
+// Recovery requires a quiet window after the last rate limit, so the test
+// configures a short window instead of the 30s production default.
 func TestE2E_SpawnerAPIScheduler_ReportSuccess_Recovery(t *testing.T) {
 	t.Parallel()
 	scheduler := newTestScheduler(t, core.APISchedulerConfig{
 		MaxConcurrentAPICalls: 5,
 		AdaptiveConcurrency:   true,
+		AdaptiveRecoverAfter:  5 * time.Millisecond,
 	})
 
 	// Penalize
 	for i := 0; i < 10; i++ {
 		scheduler.ReportRateLimit()
 	}
-
-	penalizedMax := scheduler.GetMetrics().MaxSlots
-
-	// Reward
-	for i := 0; i < 50; i++ {
-		scheduler.ReportSuccess()
+	if metrics := scheduler.GetMetrics(); metrics.MaxSlots != 1 {
+		t.Fatalf("penalized capacity is %d, want the floor of 1", metrics.MaxSlots)
+	}
+	if base := scheduler.BaseMaxSlots(); base != 5 {
+		t.Fatalf("adaptive plunge forgot the configured base: base=%d", base)
 	}
 
-	recoveredMax := scheduler.GetMetrics().MaxSlots
-	if recoveredMax <= penalizedMax {
-		t.Logf("Expected capacity to recover. Penalized: %d, Recovered: %d", penalizedMax, recoveredMax)
+	// Reward: one quiet success restores one slot, capped at the base ceiling.
+	for want := 2; want <= 5; want++ {
+		time.Sleep(10 * time.Millisecond)
+		scheduler.ReportSuccess()
+		if got := scheduler.GetMetrics().MaxSlots; got != want {
+			t.Fatalf("recovered capacity is %d, want %d", got, want)
+		}
+	}
+	scheduler.ReportSuccess()
+	if got := scheduler.GetMetrics().MaxSlots; got != 5 {
+		t.Fatalf("recovery overshot the base ceiling: %d", got)
 	}
 }
 
@@ -626,11 +763,15 @@ func TestE2E_SpawnerAPIScheduler_Piggyback_Reentrance_Deadlock(t *testing.T) {
 
 	// In a 1-slot system, this MUST deadlock/timeout, proving that recursive
 	// calls need reserved capacity or priority overrides.
-	if err2 != context.DeadlineExceeded {
+	if !errors.Is(err2, context.DeadlineExceeded) {
 		t.Fatalf("Expected recursive call to deadlock/timeout, got: %v", err2)
 	}
+	sasWaitForQueueDrained(t, scheduler, 2*time.Second)
 
 	scheduler.ReleaseAPISlot("parent_agent")
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 || metrics.WaitingForSlot != 0 {
+		t.Fatalf("scheduler leaked slots after reentrance check: %+v", metrics)
+	}
 }
 
 // TestE2E_SpawnerAPIScheduler_OODALoop_LatencyBudget verifies that the scheduler
@@ -640,20 +781,24 @@ func TestE2E_SpawnerAPIScheduler_OODALoop_LatencyBudget(t *testing.T) {
 	scheduler := newTestScheduler(t, core.APISchedulerConfig{MaxConcurrentAPICalls: 2, SlotAcquireTimeout: 5 * time.Second})
 
 	// Fill slots with deterministic 50ms holds
+	holdErrs := make(chan error, 2)
 	var wg sync.WaitGroup
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			_ = acquire(scheduler, context.Background(), fmt.Sprintf("hold_%d", id))
+			holder := fmt.Sprintf("hold_%d", id)
+			if err := acquire(scheduler, context.Background(), holder); err != nil {
+				holdErrs <- err
+				return
+			}
 			time.Sleep(50 * time.Millisecond)
-			scheduler.ReleaseAPISlot(fmt.Sprintf("hold_%d", id))
+			scheduler.ReleaseAPISlot(holder)
 		}(i)
 	}
+	sasWaitForActiveSlots(t, scheduler, 2, 2*time.Second)
 
-	time.Sleep(10 * time.Millisecond) // Let them acquire
-
-	// The third waiter should get it in ~40ms
+	// The third waiter should get it in ~50ms
 	start := time.Now()
 	err := acquire(scheduler, context.Background(), "waiter")
 	duration := time.Since(start)
@@ -664,10 +809,18 @@ func TestE2E_SpawnerAPIScheduler_OODALoop_LatencyBudget(t *testing.T) {
 	scheduler.ReleaseAPISlot("waiter")
 
 	if duration > 200*time.Millisecond {
-		t.Fatalf("Latency budget exceeded! Expected ~40ms, got %v", duration)
+		t.Fatalf("Latency budget exceeded! Expected ~50ms, got %v", duration)
 	}
 
 	wg.Wait()
+	select {
+	case err := <-holdErrs:
+		t.Fatalf("slot holder failed: %v", err)
+	default:
+	}
+	if metrics := scheduler.GetMetrics(); metrics.ActiveSlots != 0 || metrics.WaitingForSlot != 0 {
+		t.Fatalf("scheduler leaked slots after latency check: %+v", metrics)
+	}
 }
 
 // ResolveAllowedTools projects the same fixture envelope before JIT selection.
@@ -699,4 +852,34 @@ func acquire(s *core.APIScheduler, ctx context.Context, id string) error {
 		s.RegisterShard(id, "e2e")
 	}
 	return s.AcquireAPISlot(ctx, id)
+}
+
+// sasWaitForQueueDrained polls until no waiter remains queued (or fails).
+// Cancellation cleanup is synchronous on the current path, but polling keeps
+// the assertion honest if that ever becomes asynchronous.
+func sasWaitForQueueDrained(t *testing.T, scheduler *core.APIScheduler, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if got := scheduler.GetMetrics().WaitingForSlot; got == 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for the scheduler queue to drain")
+}
+
+// sasWaitForActiveSlots polls until want slots are held (or fails). Queue
+// arrival is asynchronous; polling beats a blind sleep and keeps the
+// latency-budget precondition deterministic instead of racy.
+func sasWaitForActiveSlots(t *testing.T, scheduler *core.APIScheduler, want int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if got := scheduler.GetMetrics().ActiveSlots; got >= want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d active slots", want)
 }
