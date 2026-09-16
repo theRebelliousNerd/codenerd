@@ -3794,3 +3794,61 @@ atoms in a Go repo.
 
 Meta answers one tool per round at about 7 s, so rounds, not tool calls,
 are the unit the policy counts.
+
+---
+
+## Dogfood loop 2026-09-16 — B2 via nerd run on OpenRouter worker tier
+
+Branch: dogfood/b2-query-callback-parity. Config split: TUI/main on Meta
+muse-spark-1.3-contributor, worker/shards/classification-primary on OpenRouter
+stealth/union-alpha. Exercise: nerd run B2 (Query vs QueryCallback external
+supersession fix + differential tests). Four executor gaps surfaced in series,
+each fixed + tested + committed + pushed before the next run (self-sharpening loop).
+
+**Run 1: hollow analyze.** intent derived /analyze_code, VirtualStore searched,
+exit 0, zero edits. Root cause: worker-tier classification 403d at call time,
+semantic fallback guessed wrong, policy never saw /fix.
+
+- **F-CLASS-2** — classification had construction-time tier fallback only. New
+  FallbackClient (internal/perception/client_fallback.go) retries once on the
+  main tier at call time; factory arms worker-primary/main-secondary. 12 tests.
+
+**Run 2: shard pre-call failure.** verb=/fix conf 0.96, delegate_coder fired, then
+LLM client broker.baseClient does not implement ToolResultsProvider.
+
+- **F-OR-1** — OpenRouterClient lacked CompleteWithToolResults, so broker.Wrap
+  demoted it to baseClient. Implemented via shared history/tool mappers;
+  response mapping extracted to shared toToolResponse. httptest history +
+  Wrap-preserves-provider pins.
+
+**Run 3: analysis essay, /partial.** Shard made 6 read-only tool calls, 0 writes,
+returned prose analysis. Two causes found in logs+code:
+
+- **F-OR-2** — worker-tier classification config copied the MAIN-tier
+  classification_model, which the factory prefers over Model: Meta model name
+  sent to OpenRouter, 403 every classification. (Retraction: the 403s were this
+  leak, not an 18+ attestation gate — 5/5 union-alpha shard calls succeeded on
+  the same account.) Fix: leave ClassificationModel empty in workerCfg so the
+  worker model applies. System-level pin via GetModel chain.
+- **Observability gap (same commit)** — FallbackClient stripped GetModel, so
+  llm_io logged MODEL: empty. Forward GetModel/ModelIdentity; capability
+  interfaces deliberately NOT forwarded (false TRP claim would misroute callers).
+
+**Run 4 (pending at ledger write):** after F-DELEG-1 below.
+
+- **F-DELEG-1** — the delegation boundary dropped the structured intent three ways:
+  (1) delegate_task/3 carries (shard,target,status); the constraint with all
+  requirements never reached the shard — it got coder <noun> and analyzed.
+  (2) normalizeTaskIntentVerb passed slashed /coder verbatim (shard map only
+  handled bare names), so the preset intent was category /query, verb /coder.
+  (3) presetIntentForTask hardcoded Constraint "". Fix: TaskRequest.Constraint
+  + TaskText() threaded into inline/async prompts and the preset intent (which
+  feeds retrieval + prompt assembly); slashed atoms map (/coder->/fix); run
+  handler reattaches target+constraint via SpawnTaskWithTarget. Slashed image
+  names now hit the same fail-closed guard as bare ones (old bypass closed).
+  4 session tests incl. red-behavioral /coder-is-mutation pin.
+
+**Run journal rows:** run1 hollow-analyze (exit 0, 0 edits) -> F-CLASS-2;
+run2 delegate+pre-call-fail -> F-OR-1; run3 essay+/partial (exit 1, honest) ->
+F-OR-2 + F-DELEG-1; run4 re-exercises B2 end to end.
+
