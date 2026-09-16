@@ -53,6 +53,27 @@ func NewAnthropicClientWithConfig(config AnthropicConfig) *AnthropicClient {
 	}
 }
 
+// rateLimit enforces minimum inter-request spacing to avoid 429 responses.
+// Must be called before each API request.
+func (c *AnthropicClient) rateLimit() {
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 100*time.Millisecond {
+		time.Sleep(100*time.Millisecond - elapsed)
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
+}
+
+// isTransientAnthropicStatus reports whether an HTTP status from the
+// Anthropic API is worth retrying: 408 and the whole 5xx family, most
+// importantly 529 "overloaded" — the single most common transient
+// Anthropic failure. A 400 is deterministic (the request itself is bad)
+// and must fail fast instead; retrying identical bytes only burns time.
+func isTransientAnthropicStatus(code int) bool {
+	return code == http.StatusRequestTimeout || code >= 500
+}
+
 // NERD-EVOLVE-START: P1P2-prompt-caching
 // EnableSystemCaching enables Anthropic prompt caching for the system prompt.
 // When enabled, CompleteWithSystem wraps the system message in a structured block
@@ -117,19 +138,8 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 		systemPrompt = defaultSystemPrompt
 	}
 
-	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
-		strings.Contains(systemPrompt, "surface_response") ||
-		strings.Contains(userPrompt, "PiggybackEnvelope") ||
-		strings.Contains(userPrompt, "control_packet")
-
 	// Rate limiting
-	c.mu.Lock()
-	elapsed := time.Since(c.lastRequest)
-	if elapsed < 100*time.Millisecond {
-		time.Sleep(100*time.Millisecond - elapsed)
-	}
-	c.lastRequest = time.Now()
-	c.mu.Unlock()
+	c.rateLimit()
 
 	reqBody := AnthropicRequest{
 		Model:     c.model,
@@ -147,7 +157,14 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
-			time.Sleep(time.Duration(1<<uint(i-1)) * time.Second)
+			// Context-aware backoff: a cancelled turn must exit during
+			// the sleep, not after it (matches ExecuteOpenAIRequest).
+			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
 		}
 
 		// NERD-EVOLVE-START: P1P2-prompt-caching
@@ -197,13 +214,9 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 			continue
 		}
 
-		if resp.StatusCode == http.StatusBadRequest && isPiggyback {
-			// Some requests may fail with schema issues, retry without Piggyback
-			bodyStr := string(body)
-			if strings.Contains(bodyStr, "schema") || strings.Contains(bodyStr, "json") {
-				lastErr = fmt.Errorf("schema validation error: %s", bodyStr)
-				continue
-			}
+		if isTransientAnthropicStatus(resp.StatusCode) {
+			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
@@ -276,6 +289,9 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 			errorChan <- fmt.Errorf("API key not configured")
 			return
 		}
+
+		// Rate limiting
+		c.rateLimit()
 
 		reqBody := AnthropicRequest{
 			Model:     c.model,
@@ -427,6 +443,82 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 	return contentChan, errorChan
 }
 
+// postMessages POSTs one /messages request with retry for rate limits and
+// transient server errors. Both tool-bearing paths share it; the chat path
+// keeps its own loop for prompt-caching headers. Callers map the parsed
+// response and record usage for their own op.
+func (c *AnthropicClient) postMessages(ctx context.Context, reqBody AnthropicRequest) (*AnthropicResponse, error) {
+	maxRetries := 3
+	var lastErr error
+
+	for i := 0; i <= maxRetries; i++ {
+		if i > 0 {
+			// Context-aware backoff: a cancelled turn must exit during
+			// the sleep, not after it (matches ExecuteOpenAIRequest).
+			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/messages", bytes.NewReader(jsonData))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-api-key", c.apiKey)
+		req.Header.Set("anthropic-version", "2023-06-01")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			continue
+		}
+
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response: %w", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = fmt.Errorf("rate limit exceeded (429)")
+			continue
+		}
+
+		if isTransientAnthropicStatus(resp.StatusCode) {
+			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var anthropicResp AnthropicResponse
+		if err := json.Unmarshal(body, &anthropicResp); err != nil {
+			return nil, fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if anthropicResp.Error != nil {
+			return nil, fmt.Errorf("API error: %s", anthropicResp.Error.Message)
+		}
+
+		return &anthropicResp, nil
+	}
+
+	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
 // CompleteWithTools sends a prompt with tool definitions and returns response with tool calls.
 func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
 	// Auto-apply timeout if context has no deadline
@@ -436,7 +528,6 @@ func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 		defer cancel()
 	}
 
-	startTime := time.Now()
 	logging.PerceptionDebug("[Anthropic] CompleteWithTools: model=%s tools=%d system_len=%d user_len=%d",
 		c.model, len(tools), len(systemPrompt), len(userPrompt))
 
@@ -463,44 +554,9 @@ func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 		Temperature: types.TemperatureFor(ctx, 0.1),
 	}
 
-	jsonData, err := json.Marshal(reqBody)
+	anthropicResp, err := c.postMessages(ctx, reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/messages", bytes.NewReader(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", c.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		logging.PerceptionError("[Anthropic] CompleteWithTools: request failed after %v: %v", time.Since(startTime), err)
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		logging.PerceptionError("[Anthropic] CompleteWithTools: API returned status %d: %s", resp.StatusCode, string(body))
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var anthropicResp AnthropicResponse
-	if err := json.Unmarshal(body, &anthropicResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if anthropicResp.Error != nil {
-		return nil, fmt.Errorf("API error: %s", anthropicResp.Error.Message)
+		return nil, err
 	}
 
 	// Parse response content into text and tool calls
@@ -553,7 +609,6 @@ func (c *AnthropicClient) CompleteWithToolResults(ctx context.Context, systemPro
 		defer cancel()
 	}
 
-	startTime := time.Now()
 	logging.PerceptionDebug("[Anthropic] CompleteWithToolResults: model=%s tools=%d history=%d",
 		c.model, len(tools), len(history))
 
@@ -588,42 +643,9 @@ func (c *AnthropicClient) CompleteWithToolResults(ctx context.Context, systemPro
 		Temperature: types.TemperatureFor(ctx, 0.1),
 	}
 
-	jsonData, err := json.Marshal(reqBody)
+	anthropicResp, err := c.postMessages(ctx, reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/messages", bytes.NewReader(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", c.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		logging.PerceptionError("[Anthropic] CompleteWithToolResults: request failed after %v: %v", time.Since(startTime), err)
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		logging.PerceptionError("[Anthropic] CompleteWithToolResults: status %d: %s", resp.StatusCode, string(body))
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var anthropicResp AnthropicResponse
-	if err := json.Unmarshal(body, &anthropicResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-	if anthropicResp.Error != nil {
-		return nil, fmt.Errorf("API error: %s", anthropicResp.Error.Message)
+		return nil, err
 	}
 
 	var textBuilder strings.Builder
