@@ -2392,7 +2392,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/perception/transducer.go`
 - [ ] `internal/perception/transducer_coverage_test.go`
 - [ ] `internal/perception/transducer_extra_test.go`
-- [ ] `internal/perception/transducer_gemini.go`
+- [x] `internal/perception/transducer_gemini.go`
 - [ ] `internal/perception/transducer_gemini_extra_test.go`
 - [ ] `internal/perception/transducer_live_test.go`
 - [x] `internal/perception/transducer_llm.go`
@@ -3801,4 +3801,4 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `test_init/.nerd/mangle/policy_overrides.mg`
 - [ ] `test_init/.nerd/profile.mg`
 
-**Progress: 12/2632**
+**Progress: 13/2632**

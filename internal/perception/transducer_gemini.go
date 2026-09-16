@@ -4,13 +4,13 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 	"context"
-	"encoding/json"
-	"fmt"
 )
 
 // understandingSchema is the JSON schema for Gemini structured output.
 // This ensures the LLM returns a valid UnderstandingEnvelope every time.
-// Note: Gemini 3 has a max schema depth of 6, so we use a flattened version.
+// Note: Gemini 3 has a max schema depth of 6, so signals and
+// suggested_approach stay shallow (one object level each) and optional:
+// older prompts that omit them still validate.
 const understandingSchema = `{
   "type": "object",
   "properties": {
@@ -33,6 +33,24 @@ const understandingSchema = `{
         "user_constraints": {"type": "array", "items": {"type": "string"}},
         "implicit_assumptions": {"type": "array", "items": {"type": "string"}},
         "confidence": {"type": "number"},
+        "signals": {
+          "type": "object",
+          "properties": {
+            "is_question": {"type": "boolean"},
+            "is_hypothetical": {"type": "boolean"},
+            "is_multi_step": {"type": "boolean"},
+            "is_negated": {"type": "boolean"},
+            "requires_confirmation": {"type": "boolean"},
+            "urgency": {"type": "string"}
+          }
+        },
+        "suggested_approach": {
+          "type": "object",
+          "properties": {
+            "mode": {"type": "string"},
+            "primary_shard": {"type": "string"}
+          }
+        },
         "surface_response": {"type": "string"}
       },
       "required": ["primary_intent", "semantic_type", "action_type", "domain", "confidence"]
@@ -55,6 +73,11 @@ type GeminiThinkingTransducer struct {
 	*UnderstandingTransducer
 }
 
+// Compile-time proof that the wrapper still exposes the kernel port: the
+// factory wires routing through TransducerWithKernel regardless of which
+// concrete transducer NewUnderstandingTransducer returned.
+var _ TransducerWithKernel = (*GeminiThinkingTransducer)(nil)
+
 // NewGeminiThinkingTransducer creates a new specialized transducer.
 func NewGeminiThinkingTransducer(base *UnderstandingTransducer) *GeminiThinkingTransducer {
 	return &GeminiThinkingTransducer{
@@ -69,7 +92,18 @@ func (t *GeminiThinkingTransducer) ParseIntent(ctx context.Context, input string
 }
 
 // ParseIntentWithContext overrides the generic implementation to handle Gemini Thinking output.
+// It honors the same contracts as the base: blank input short-circuits,
+// oversized input truncates, failures degrade to /explain with a nil error
+// (callers do not expect an error here), and routing derives from Mangle.
 func (t *GeminiThinkingTransducer) ParseIntentWithContext(ctx context.Context, input string, history []ConversationTurn) (Intent, error) {
+	if intent, done := emptyInputFallback(input); done {
+		return intent, nil
+	}
+	if truncated, didTruncate := truncateClassificationInput(input); didTruncate {
+		logging.Perception("[GeminiTransducer] input truncated from %d to %d", len(input), len(truncated))
+		input = truncated
+	}
+
 	// 1. Initialize logic (same as base)
 	t.initialize(ctx)
 
@@ -79,6 +113,7 @@ func (t *GeminiThinkingTransducer) ParseIntentWithContext(ctx context.Context, i
 		matches, err := SharedSemanticClassifier.Classify(ctx, input)
 		if err != nil {
 			_ = matches
+			logging.PerceptionDebug("[GeminiTransducer] semantic classification failed: %v (continuing LLM-only)", err)
 		} else {
 			semanticMatches = matches
 		}
@@ -98,90 +133,63 @@ IMPORTANT: You are a model with "Thinking" capabilities enabled.
 
 ` + basePrompt
 
-	// 5. Call LLM directly via client to avoid double-wrapping in LLMTransducer if possible,
-	// but reusing LLMTransducer logic is safer for consistency. We just need to handle the output.
-	// Actually, we can reuse LLMTransducer but we need to intercept the *parsing*.
-	// Since LLMTransducer.Understand calls parseResponse which we can't easily override without
-	// changing the struct, we will reimplement the 'Understand' logic here using the client directly.
-
 	// 5. Build Final Prompt
 	userPrompt := t.llmTransducer.BuildPrompt(input, history, semanticMatches, types.GetSessionContext(ctx), t.getStrategicContext())
 
-	// 5a. Try structured output first (most reliable for JSON)
-	var envelope UnderstandingEnvelope
-	schemaClient, ok := t.client.(schemaCapableClient)
-	logging.Perception("[GeminiTransducer] Client type=%T, schemaCapableClient check: ok=%t, schema_capable=%t", t.client, ok, ok && schemaClient.SchemaCapable())
-	if ok && schemaClient.SchemaCapable() {
-		rawResponse, err := schemaClient.CompleteWithSchema(ctx, thinkingWrapper, userPrompt, understandingSchema)
-		if err == nil {
-			logging.Perception("[GeminiTransducer] Raw structured response (len=%d): %s", len(rawResponse), rawResponse)
-
-			// Even structured output might have markdown or extra text due to thinking mode
-			// Try to extract clean JSON first
-			cleanJSON := ExtractCleanJSON(rawResponse)
-			if cleanJSON == "" {
-				cleanJSON = rawResponse // Fallback to raw if no JSON found
-			}
-
-			// Structured output should already be valid JSON
-			if err := json.Unmarshal([]byte(cleanJSON), &envelope); err != nil {
-				logging.PerceptionDebug("Structured envelope parse failed: %v, trying understanding", err)
-				// Try just the understanding object
-				var understanding Understanding
-				if err2 := json.Unmarshal([]byte(cleanJSON), &understanding); err2 == nil {
-					envelope.Understanding = understanding
-					envelope.SurfaceResponse = understanding.SurfaceResponse
-				} else {
-					logging.PerceptionWarn("Structured output parse failed, falling back to free-form: %v", err)
-					goto fallback
-				}
-			}
-			t.mu.Lock()
-			t.lastUnderstanding = &envelope.Understanding
-			t.mu.Unlock()
-			return t.understandingToIntent(&envelope.Understanding), nil
+	// 6a. Try structured output first (most reliable for JSON)
+	if schemaClient, ok := t.client.(schemaCapableClient); ok && schemaClient.SchemaCapable() {
+		logging.Perception("[GeminiTransducer] Client type=%T, attempting structured output", t.client)
+		if u, err := t.classifyViaSchema(ctx, schemaClient, thinkingWrapper, userPrompt); err == nil {
+			return t.finishUnderstanding(ctx, u), nil
+		} else {
+			logging.PerceptionWarn("Structured classification failed: %v, falling back to free-form", err)
 		}
-		logging.PerceptionWarn("CompleteWithSchema failed: %v, falling back to free-form", err)
 	}
 
-fallback:
-	// 5b. Fallback: free-form completion with manual JSON extraction
+	// 6b. Fallback: free-form completion with JSON extraction.
+	// parseResponse finds the LAST valid JSON object, which is exactly the
+	// "[Thoughts...] { JSON }" shape Thinking models produce.
 	rawResponse, err := t.client.CompleteWithSystem(ctx, thinkingWrapper, userPrompt)
 	if err != nil {
-		return Intent{}, fmt.Errorf("Gemini classification failed: %w", err)
+		logging.Get(logging.CategoryPerception).Warn("Gemini classification failed: %v", err)
+		return degradedClassificationIntent(err), nil
 	}
-
 	logging.PerceptionDebug("Raw Gemini Thinking Response: %s", rawResponse)
 
-	// 6. Specialized Parsing for Thinking Output
-	// We expect: [Thoughts...] { JSON }
-	// We find the *last* valid JSON object.
-	jsonStr := ExtractCleanJSON(rawResponse)
-	if jsonStr == "" {
-		return Intent{}, fmt.Errorf("failed to extract JSON from thinking response")
+	u, err := t.llmTransducer.parseResponse(rawResponse)
+	if err != nil {
+		logging.Get(logging.CategoryPerception).Warn("Gemini response parse failed: %v", err)
+		return degradedClassificationIntent(err), nil
 	}
+	return t.finishUnderstanding(ctx, u), nil
+}
 
-	logging.PerceptionDebug("JSON String: %s", jsonStr)
-	if err := json.Unmarshal([]byte(jsonStr), &envelope); err != nil {
-		logging.PerceptionDebug("Envelope parse failed: %v", err)
-		// Fallback: try unmarshaling just Understanding if Envelope fails
-		var understanding Understanding
-		if err2 := json.Unmarshal([]byte(jsonStr), &understanding); err2 == nil {
-			envelope.Understanding = understanding
-			envelope.SurfaceResponse = understanding.SurfaceResponse // Backfill
-			logging.PerceptionDebug("Fallback parse succeeded")
-		} else {
-			return Intent{}, fmt.Errorf("failed to parse JSON formatting: %w", err)
-		}
-	} else {
-		logging.PerceptionDebug("Envelope parsed: %+v", envelope)
+// classifyViaSchema runs one schema-enforced classification call and parses
+// the result through the shared parseResponse path (envelope detection,
+// normalization), so the schema and free-form paths cannot disagree on shape.
+func (t *GeminiThinkingTransducer) classifyViaSchema(ctx context.Context, schemaClient schemaCapableClient, systemPrompt, userPrompt string) (*Understanding, error) {
+	rawResponse, err := schemaClient.CompleteWithSchema(ctx, systemPrompt, userPrompt, understandingSchema)
+	if err != nil {
+		return nil, err
 	}
+	logging.Perception("[GeminiTransducer] Raw structured response (len=%d)", len(rawResponse))
 
-	// 7. Store for debugging
+	// Even structured output might carry thinking preamble; ExtractCleanJSON
+	// inside parseResponse finds the JSON. Fall back to raw when extraction
+	// finds nothing so parse errors surface the real payload.
+	if cleanJSON := ExtractCleanJSON(rawResponse); cleanJSON != "" {
+		rawResponse = cleanJSON
+	}
+	return t.llmTransducer.parseResponse(rawResponse)
+}
+
+// finishUnderstanding derives Mangle routing for a parsed understanding,
+// caches it for debugging, and converts it to the legacy Intent. Shared by
+// the schema and free-form paths so neither can skip routing.
+func (t *GeminiThinkingTransducer) finishUnderstanding(ctx context.Context, u *Understanding) Intent {
+	t.llmTransducer.deriveRouting(ctx, u)
 	t.mu.Lock()
-	t.lastUnderstanding = &envelope.Understanding
+	t.lastUnderstanding = u
 	t.mu.Unlock()
-
-	// 8. Convert to Intent
-	return t.understandingToIntent(&envelope.Understanding), nil
+	return t.understandingToIntent(u)
 }

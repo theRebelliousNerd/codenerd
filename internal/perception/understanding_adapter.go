@@ -173,6 +173,67 @@ func isValidUnderstandingPromptContract(prompt string) bool {
 	return true
 }
 
+// Compile-time proof that the canonical transducer exposes the kernel port
+// the factory wires for Mangle-derived routing.
+var _ TransducerWithKernel = (*UnderstandingTransducer)(nil)
+
+// emptyInputFallback returns the fail-closed intent for blank input.
+// Shared by the base and Gemini transducers so both honor the same
+// contract: blank input classifies as /explain without calling the LLM.
+func emptyInputFallback(input string) (Intent, bool) {
+	if strings.TrimSpace(input) == "" {
+		return Intent{Verb: "/explain", Category: "/query", Response: "Input is empty"}, true
+	}
+	return Intent{}, false
+}
+
+// maxClassificationInputChars caps raw classification input. ParseIntent
+// truncates here, and BuildPrompt caps every other section, so the
+// classification call stays bounded no matter what was pasted.
+const maxClassificationInputChars = 50000
+
+// truncateClassificationInput caps input rune-safely: a byte slice at the
+// cap could split a multi-byte rune and poison the prompt with U+FFFD.
+func truncateClassificationInput(input string) (string, bool) {
+	if len(input) <= maxClassificationInputChars {
+		return input, false
+	}
+	runes := []rune(input)
+	if len(runes) <= maxClassificationInputChars {
+		return input, false
+	}
+	return string(runes[:maxClassificationInputChars]) + "... [Input truncated due to length]", true
+}
+
+// degradedClassificationIntent builds the fail-soft result for a failed
+// classification (LLM error or unparseable response). Callers do not
+// expect ParseIntentWithContext to error here, so both transducer
+// implementations return this with a nil error.
+//
+// It distinguishes a transient model outage (503/5xx that survived retries)
+// from a genuine inability to understand the user, marking TransientFailure
+// so the perception firewall can assert intent_unknown(_, /llm_unavailable)
+// instead of laundering this into a "you were unclear" (/heuristic_low)
+// clarification.
+func degradedClassificationIntent(err error) Intent {
+	degraded := Intent{
+		Verb:     "/explain",
+		Category: "/query",
+		Response: fmt.Sprintf("I had trouble understanding that: %v", err),
+	}
+	if errors.Is(err, ErrLLMUnavailable) {
+		degraded.TransientFailure = true
+		// On the live interactive path the canonical user-facing wording comes
+		// from clarification.mg's clarification_question(_, /llm_unavailable)
+		// rule (the kernel is the single source of truth). We set the same text
+		// verbatim here only as a degraded fallback for any code path that reads
+		// intent.Response directly, so the user never sees the misleading
+		// "I had trouble understanding that" framing for a transient outage.
+		degraded.Response = "I couldn't reach the language model just now - it may be briefly overloaded. Please try again in a moment."
+	}
+	return degraded
+}
+
 // ParseIntent parses user input into an Intent using LLM-first classification.
 // This is the main entry point implementing the Transducer interface.
 func (t *UnderstandingTransducer) ParseIntent(ctx context.Context, input string) (Intent, error) {
@@ -194,20 +255,15 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 	t.initialize(ctx)
 	logging.Perception("[ParseIntentWithContext] initialized: %dms", time.Since(initStart).Milliseconds())
 
-	if strings.TrimSpace(input) == "" {
+	if intent, done := emptyInputFallback(input); done {
 		logging.Perception("[ParseIntentWithContext] empty input, returning /explain fallback")
-		return Intent{
-			Verb:     "/explain",
-			Category: "/query",
-			Response: "Input is empty",
-		}, nil
+		return intent, nil
 	}
 
 	// Truncate extremely large input to prevent OOM/Payload Too Large
-	const maxInputLength = 50000
-	if len(input) > maxInputLength {
-		input = input[:maxInputLength] + "... [Input truncated due to length]"
-		logging.Perception("[ParseIntentWithContext] input truncated from %d to %d", len(input), maxInputLength)
+	if truncated, didTruncate := truncateClassificationInput(input); didTruncate {
+		logging.Perception("[ParseIntentWithContext] input truncated from %d to %d", len(input), len(truncated))
+		input = truncated
 	}
 
 	// The stability-bypass filter that used to live here (reuse the PRIOR
@@ -261,29 +317,7 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 		logging.Perception("[ParseIntentWithContext] LLM understanding FAILED after %dms: %v",
 			time.Since(llmStart).Milliseconds(), err)
 		logging.Get(logging.CategoryPerception).Warn("LLM classification failed: %v", err)
-		// Distinguish a transient model outage (503/5xx that survived retries)
-		// from a genuine inability to understand the user. We still return a
-		// degraded /explain intent with a nil error to preserve the established
-		// contract (callers do not expect ParseIntentWithContext to error here),
-		// but we mark TransientFailure so the perception firewall can assert
-		// intent_unknown(_, /llm_unavailable) instead of laundering this into a
-		// "you were unclear" (/heuristic_low) clarification.
-		degraded := Intent{
-			Verb:     "/explain",
-			Category: "/query",
-			Response: fmt.Sprintf("I had trouble understanding that: %v", err),
-		}
-		if errors.Is(err, ErrLLMUnavailable) {
-			degraded.TransientFailure = true
-			// On the live interactive path the canonical user-facing wording comes
-			// from clarification.mg's clarification_question(_, /llm_unavailable)
-			// rule (the kernel is the single source of truth). We set the same text
-			// verbatim here only as a degraded fallback for any code path that reads
-			// intent.Response directly, so the user never sees the misleading
-			// "I had trouble understanding that" framing for a transient outage.
-			degraded.Response = "I couldn't reach the language model just now - it may be briefly overloaded. Please try again in a moment."
-		}
-		return degraded, nil
+		return degradedClassificationIntent(err), nil
 	}
 	logging.Perception("[ParseIntentWithContext] LLM understanding: %dms", time.Since(llmStart).Milliseconds())
 
