@@ -2343,7 +2343,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/perception/client_openai_compat_allow_empty_test.go`
 - [ ] `internal/perception/client_openai_compat_empty_retry_test.go`
 - [ ] `internal/perception/client_openai_compat_grounded_supports_test.go`
-- [ ] `internal/perception/client_openai_compat_grounding.go`
+- [x] `internal/perception/client_openai_compat_grounding.go`
+- [x] `internal/perception/client_openai_compat_grounding_uplift_test.go`
 - [ ] `internal/perception/client_openai_compat_grounding_test.go`
 - [ ] `internal/perception/client_openai_compat_live_test.go`
 - [ ] `internal/perception/client_openai_compat_meta_tools_test.go`
@@ -2362,7 +2363,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/perception/client_zai.go`
 - [x] `internal/perception/client_zai_retry.go`
 - [ ] `internal/perception/client_zai_retry_test.go`
-- [ ] `internal/perception/client_zai_streaming.go`
+- [x] `internal/perception/client_zai_streaming.go`
+- [x] `internal/perception/client_zai_streaming_uplift_test.go`
 - [ ] `internal/perception/client_zai_test.go`
 - [x] `internal/perception/codex_cli_client.go`
 - [ ] `internal/perception/codex_cli_client_test.go`
@@ -2388,7 +2390,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/perception/taxonomy_persistence.go`
 - [ ] `internal/perception/taxonomy_persistence_test.go`
 - [ ] `internal/perception/taxonomy_test.go`
-- [ ] `internal/perception/tracing_client.go`
+- [x] `internal/perception/tracing_client.go`
+- [x] `internal/perception/tracing_client_uplift_test.go`
 - [ ] `internal/perception/tracing_client_extra_test.go`
 - [ ] `internal/perception/tracing_client_test.go`
 - [ ] `internal/perception/tracing_grounded_test.go`

@@ -120,66 +120,30 @@ func (tc *TracingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt
 		return "", fmt.Errorf("tracing client has no underlying LLM client")
 	}
 
-	// Capture current context
-	tc.mu.RLock()
-	shardID := tc.shardID
-	shardType := tc.shardType
-	shardCategory := tc.shardCategory
-	sessionID := tc.sessionID
-	taskContext := tc.taskContext
-	tc.mu.RUnlock()
+	tctx := tc.snapshotTraceContext()
 
 	start := time.Now()
-	logging.API("LLM call started: shard=%s type=%s prompt_len=%d", shardID, shardType, len(userPrompt))
+	logging.API("LLM call started: shard=%s type=%s prompt_len=%d", tctx.shardID, tctx.shardType, len(userPrompt))
 
 	// Make the actual LLM call
 	response, err := tc.underlying.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 
 	duration := time.Since(start)
 	if err != nil {
-		logging.Get(logging.CategoryAPI).Error("LLM call failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
+		logging.Get(logging.CategoryAPI).Error("LLM call failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
 	} else {
-		logging.API("LLM call completed: shard=%s duration=%v response_len=%d", shardID, duration, len(response))
+		logging.API("LLM call completed: shard=%s duration=%v response_len=%d", tctx.shardID, duration, len(response))
 	}
 
-	// Calculate tokens if available
-	tokensUsed := 0
-	if mg, ok := tc.underlying.(interface{ GetLastThinkingTokens() int }); ok {
-		tokensUsed = mg.GetLastThinkingTokens() // Approximate/placeholder, real token tracking might vary by client
-	}
+	// Approximate/placeholder, real token tracking might vary by client
+	tokensUsed := thinkingTokensOf(tc.underlying)
 
 	// Update Metrics
-	RecordLLMCall(shardCategory, shardType, tokensUsed, duration.Milliseconds(), err)
+	RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), err)
 
-	// Create trace
-	trace := &ReasoningTrace{
-		ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
-		ShardID:       shardID,
-		ShardType:     shardType,
-		ShardCategory: shardCategory,
-		SessionID:     sessionID,
-		TaskContext:   taskContext,
-		SystemPrompt:  systemPrompt,
-		UserPrompt:    userPrompt,
-		Response:      response,
-		DurationMs:    duration.Milliseconds(),
-		Success:       err == nil,
-		Timestamp:     time.Now(),
-	}
-	trace.Model = resolveTraceModel(ctx, tc.underlying)
-
-	if err != nil {
-		trace.ErrorMessage = err.Error()
-	}
-
-	// Store trace asynchronously to not block execution
-	if tc.store != nil {
-		go func() {
-			if storeErr := tc.store.StoreReasoningTrace(trace); storeErr != nil {
-				logging.APIDebug("Failed to store reasoning trace: %v", storeErr)
-			}
-		}()
-	}
+	trace := newReasoningTrace(tctx, resolveTraceModel(ctx, tc.underlying),
+		systemPrompt, userPrompt, response, tokensUsed, duration.Milliseconds(), err)
+	storeTraceAsync(tc.store, trace)
 
 	return response, err
 }
@@ -199,17 +163,10 @@ func (tc *TracingLLMClient) CompleteWithSchema(ctx context.Context, systemPrompt
 		return "", fmt.Errorf("tracing client has no underlying LLM client")
 	}
 
-	// Capture current context
-	tc.mu.RLock()
-	shardID := tc.shardID
-	shardType := tc.shardType
-	shardCategory := tc.shardCategory
-	sessionID := tc.sessionID
-	taskContext := tc.taskContext
-	tc.mu.RUnlock()
+	tctx := tc.snapshotTraceContext()
 
 	start := time.Now()
-	logging.API("LLM schema call started: shard=%s type=%s prompt_len=%d", shardID, shardType, len(userPrompt))
+	logging.API("LLM schema call started: shard=%s type=%s prompt_len=%d", tctx.shardID, tctx.shardType, len(userPrompt))
 
 	schemaClient, ok := core.AsSchemaCapable(tc.underlying)
 	if !ok {
@@ -222,48 +179,20 @@ func (tc *TracingLLMClient) CompleteWithSchema(ctx context.Context, systemPrompt
 	duration := time.Since(start)
 	if err != nil {
 		if errors.Is(err, core.ErrSchemaNotSupported) {
-			logging.APIDebug("LLM schema call skipped: shard=%s duration=%v error=%s", shardID, duration, err.Error())
+			logging.APIDebug("LLM schema call skipped: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
 		} else {
-			logging.Get(logging.CategoryAPI).Error("LLM schema call failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
+			logging.Get(logging.CategoryAPI).Error("LLM schema call failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
 		}
 	} else {
-		logging.API("LLM schema call completed: shard=%s duration=%v response_len=%d", shardID, duration, len(response))
+		logging.API("LLM schema call completed: shard=%s duration=%v response_len=%d", tctx.shardID, duration, len(response))
 	}
 
-	tokensUsed := 0
-	if mg, ok := tc.underlying.(interface{ GetLastThinkingTokens() int }); ok {
-		tokensUsed = mg.GetLastThinkingTokens()
-	}
-	RecordLLMCall(shardCategory, shardType, tokensUsed, duration.Milliseconds(), err)
+	tokensUsed := thinkingTokensOf(tc.underlying)
+	RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), err)
 
-	trace := &ReasoningTrace{
-		ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
-		ShardID:       shardID,
-		ShardType:     shardType,
-		ShardCategory: shardCategory,
-		SessionID:     sessionID,
-		TaskContext:   taskContext,
-		SystemPrompt:  systemPrompt,
-		UserPrompt:    userPrompt,
-		Response:      response,
-		DurationMs:    duration.Milliseconds(),
-		Success:       err == nil,
-		Timestamp:     time.Now(),
-	}
-	trace.Model = resolveTraceModel(ctx, tc.underlying)
-
-	if err != nil {
-		trace.ErrorMessage = err.Error()
-	}
-
-	// Store trace asynchronously to not block execution
-	if tc.store != nil {
-		go func() {
-			if storeErr := tc.store.StoreReasoningTrace(trace); storeErr != nil {
-				logging.APIDebug("Failed to store reasoning trace: %v", storeErr)
-			}
-		}()
-	}
+	trace := newReasoningTrace(tctx, resolveTraceModel(ctx, tc.underlying),
+		systemPrompt, userPrompt, response, tokensUsed, duration.Milliseconds(), err)
+	storeTraceAsync(tc.store, trace)
 
 	return response, err
 }
@@ -296,17 +225,10 @@ func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPro
 		return contentChan, errorChan
 	}
 
-	// Capture current context
-	tc.mu.RLock()
-	shardID := tc.shardID
-	shardType := tc.shardType
-	shardCategory := tc.shardCategory
-	sessionID := tc.sessionID
-	taskContext := tc.taskContext
-	tc.mu.RUnlock()
+	tctx := tc.snapshotTraceContext()
 
 	start := time.Now()
-	logging.API("LLM streaming call started: shard=%s type=%s prompt_len=%d", shardID, shardType, len(userPrompt))
+	logging.API("LLM streaming call started: shard=%s type=%s prompt_len=%d", tctx.shardID, tctx.shardType, len(userPrompt))
 
 	var underContent <-chan string
 	var underErr <-chan error
@@ -363,12 +285,18 @@ func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPro
 		errClosed := false
 		var firstErr error
 
+		// ctxDoneCh is detached after the first fire: ctx.Done() stays ready
+		// forever once closed, so leaving it in the select would hot-spin if
+		// a non-conforming underlying never closed its channels.
+		ctxDoneCh := ctx.Done()
+
 		for !(contentClosed && errClosed) {
 			select {
-			case <-ctx.Done():
+			case <-ctxDoneCh:
 				if firstErr == nil {
 					firstErr = ctx.Err()
 				}
+				ctxDoneCh = nil
 			case chunk, ok := <-underContent:
 				if !ok {
 					contentClosed = true
@@ -395,48 +323,21 @@ func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPro
 
 		duration := time.Since(start)
 		if firstErr != nil {
-			logging.Get(logging.CategoryAPI).Error("LLM streaming call failed: shard=%s duration=%v error=%s", shardID, duration, firstErr.Error())
+			logging.Get(logging.CategoryAPI).Error("LLM streaming call failed: shard=%s duration=%v error=%s", tctx.shardID, duration, firstErr.Error())
 		} else {
-			logging.API("LLM streaming call completed: shard=%s duration=%v response_len=%d", shardID, duration, full.Len())
+			logging.API("LLM streaming call completed: shard=%s duration=%v response_len=%d", tctx.shardID, duration, full.Len())
 		}
 
-		tokensUsed := 0
-		if mg, ok := tc.underlying.(interface{ GetLastThinkingTokens() int }); ok {
-			tokensUsed = mg.GetLastThinkingTokens()
-		}
-		RecordLLMCall(shardCategory, shardType, tokensUsed, duration.Milliseconds(), firstErr)
+		tokensUsed := thinkingTokensOf(tc.underlying)
+		RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), firstErr)
 
 		if firstErr != nil {
 			outErr <- firstErr
 		}
 
-		trace := &ReasoningTrace{
-			ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
-			ShardID:       shardID,
-			ShardType:     shardType,
-			ShardCategory: shardCategory,
-			SessionID:     sessionID,
-			TaskContext:   taskContext,
-			SystemPrompt:  systemPrompt,
-			UserPrompt:    userPrompt,
-			Response:      full.String(),
-			DurationMs:    duration.Milliseconds(),
-			Success:       firstErr == nil,
-			Timestamp:     time.Now(),
-		}
-		trace.Model = resolveTraceModel(ctx, tc.underlying)
-		if firstErr != nil {
-			trace.ErrorMessage = firstErr.Error()
-		}
-
-		// Store trace asynchronously to not block the caller
-		if tc.store != nil {
-			go func() {
-				if storeErr := tc.store.StoreReasoningTrace(trace); storeErr != nil {
-					logging.APIDebug("Failed to store streaming reasoning trace: %v", storeErr)
-				}
-			}()
-		}
+		trace := newReasoningTrace(tctx, resolveTraceModel(ctx, tc.underlying),
+			systemPrompt, userPrompt, full.String(), tokensUsed, duration.Milliseconds(), firstErr)
+		storeTraceAsync(tc.store, trace)
 	}()
 
 	return outContent, outErr
@@ -479,72 +380,120 @@ func resolveTraceModel(ctx context.Context, client LLMClient) string {
 	return ""
 }
 
+// traceContext snapshots the shard attribution held under tc.mu so every
+// traced method captures the same five fields the same way.
+type traceContext struct {
+	shardID, shardType, shardCategory, sessionID, taskContext string
+}
+
+func (tc *TracingLLMClient) snapshotTraceContext() traceContext {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+	return traceContext{
+		shardID:       tc.shardID,
+		shardType:     tc.shardType,
+		shardCategory: tc.shardCategory,
+		sessionID:     tc.sessionID,
+		taskContext:   tc.taskContext,
+	}
+}
+
+// thinkingTokensOf reads the underlying client's last thinking-token count
+// when it reports one. Every traced method meters with this.
+func thinkingTokensOf(client LLMClient) int {
+	if mg, ok := client.(interface{ GetLastThinkingTokens() int }); ok {
+		return mg.GetLastThinkingTokens()
+	}
+	return 0
+}
+
+// newReasoningTrace builds the stored trace for one LLM interaction. It is the
+// single construction site: previously each traced method built the struct by
+// hand, which is how CompleteWithTools silently dropped Model and most paths
+// dropped TokensUsed.
+func newReasoningTrace(tc traceContext, model, systemPrompt, userPrompt, response string, tokensUsed int, durationMs int64, err error) *ReasoningTrace {
+	trace := &ReasoningTrace{
+		ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
+		ShardID:       tc.shardID,
+		ShardType:     tc.shardType,
+		ShardCategory: tc.shardCategory,
+		SessionID:     tc.sessionID,
+		TaskContext:   tc.taskContext,
+		SystemPrompt:  systemPrompt,
+		UserPrompt:    userPrompt,
+		Response:      response,
+		Model:         model,
+		TokensUsed:    tokensUsed,
+		DurationMs:    durationMs,
+		Success:       err == nil,
+		Timestamp:     time.Now(),
+	}
+	if err != nil {
+		trace.ErrorMessage = err.Error()
+	}
+	return trace
+}
+
+// storeTraceAsync persists a trace off the hot path. A nil store is a no-op;
+// a store failure is logged, never returned, so tracing cannot fail a turn.
+func storeTraceAsync(store TraceStore, trace *ReasoningTrace) {
+	if store == nil {
+		return
+	}
+	go func() {
+		if storeErr := store.StoreReasoningTrace(trace); storeErr != nil {
+			logging.APIDebug("Failed to store reasoning trace: %v", storeErr)
+		}
+	}()
+}
+
+// lastUserText summarizes a tool-loop history for trace attribution: the last
+// user turn's text is the prompt that drove the turn.
+func lastUserText(history []types.Message) string {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == "user" && strings.TrimSpace(history[i].Text) != "" {
+			return history[i].Text
+		}
+	}
+	return ""
+}
+
 // CompleteWithTools implements LLMClient.CompleteWithTools with tracing.
 func (tc *TracingLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
 	if tc == nil || tc.underlying == nil {
 		return nil, fmt.Errorf("tracing client has no underlying LLM client")
 	}
 
-	// Capture current context
-	tc.mu.RLock()
-	shardID := tc.shardID
-	shardType := tc.shardType
-	shardCategory := tc.shardCategory
-	sessionID := tc.sessionID
-	taskContext := tc.taskContext
-	tc.mu.RUnlock()
+	tctx := tc.snapshotTraceContext()
 
 	start := time.Now()
-	logging.API("LLM tool call started: shard=%s type=%s tools=%d prompt_len=%d", shardID, shardType, len(tools), len(userPrompt))
+	logging.API("LLM tool call started: shard=%s type=%s tools=%d prompt_len=%d", tctx.shardID, tctx.shardType, len(tools), len(userPrompt))
 
 	// Make the actual LLM call
 	response, err := tc.underlying.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
 
-	duration := time.Since(start)
-	if err != nil {
-		logging.Get(logging.CategoryAPI).Error("LLM tool call failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
-	} else {
-		logging.API("LLM tool call completed: shard=%s duration=%v tool_calls=%d text_len=%d", shardID, duration, len(response.ToolCalls), len(response.Text))
-	}
-
-	tokensUsed := 0
-	if mg, ok := tc.underlying.(interface{ GetLastThinkingTokens() int }); ok {
-		tokensUsed = mg.GetLastThinkingTokens()
-	}
-	RecordLLMCall(shardCategory, shardType, tokensUsed, duration.Milliseconds(), err)
-
-	// Create trace
+	// A (nil, nil) return must not panic the log line below; the trace records
+	// the empty response the same way it records any other.
 	responseText := ""
+	toolCallCount := 0
 	if response != nil {
 		responseText = response.Text
-	}
-	trace := &ReasoningTrace{
-		ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
-		ShardID:       shardID,
-		ShardType:     shardType,
-		ShardCategory: shardCategory,
-		SessionID:     sessionID,
-		TaskContext:   taskContext,
-		SystemPrompt:  systemPrompt,
-		UserPrompt:    userPrompt,
-		Response:      responseText,
-		DurationMs:    duration.Milliseconds(),
-		Success:       err == nil,
-		Timestamp:     time.Now(),
+		toolCallCount = len(response.ToolCalls)
 	}
 
+	duration := time.Since(start)
 	if err != nil {
-		trace.ErrorMessage = err.Error()
+		logging.Get(logging.CategoryAPI).Error("LLM tool call failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+	} else {
+		logging.API("LLM tool call completed: shard=%s duration=%v tool_calls=%d text_len=%d", tctx.shardID, duration, toolCallCount, len(responseText))
 	}
 
-	// Store trace asynchronously to not block execution
-	if tc.store != nil {
-		go func() {
-			if storeErr := tc.store.StoreReasoningTrace(trace); storeErr != nil {
-				logging.APIDebug("Failed to store reasoning trace: %v", storeErr)
-			}
-		}()
-	}
+	tokensUsed := thinkingTokensOf(tc.underlying)
+	RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), err)
+
+	trace := newReasoningTrace(tctx, resolveTraceModel(ctx, tc.underlying),
+		systemPrompt, userPrompt, responseText, tokensUsed, duration.Milliseconds(), err)
+	storeTraceAsync(tc.store, trace)
 
 	return response, err
 }
@@ -561,22 +510,29 @@ func (tc *TracingLLMClient) CompleteWithToolResults(ctx context.Context, systemP
 	if trp, ok := tc.underlying.(interface {
 		CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error)
 	}); ok {
-		tc.mu.RLock()
-		shardID := tc.shardID
-		tc.mu.RUnlock()
+		tctx := tc.snapshotTraceContext()
 		start := time.Now()
-		logging.API("LLM tool-results started: shard=%s history=%d tools=%d", shardID, len(history), len(tools))
+		logging.API("LLM tool-results started: shard=%s history=%d tools=%d", tctx.shardID, len(history), len(tools))
 		resp, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
 		duration := time.Since(start)
-		if err != nil {
-			logging.Get(logging.CategoryAPI).Error("LLM tool-results failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
-		} else {
-			n := 0
-			if resp != nil {
-				n = len(resp.ToolCalls)
-			}
-			logging.API("LLM tool-results completed: shard=%s duration=%v tool_calls=%d", shardID, duration, n)
+		respText := ""
+		n := 0
+		if resp != nil {
+			respText = resp.Text
+			n = len(resp.ToolCalls)
 		}
+		if err != nil {
+			logging.Get(logging.CategoryAPI).Error("LLM tool-results failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+		} else {
+			logging.API("LLM tool-results completed: shard=%s duration=%v tool_calls=%d", tctx.shardID, duration, n)
+		}
+		// Tool-loop turns are the turns most worth learning from; they used
+		// to pass through this wrapper with no metrics and no trace.
+		tokensUsed := thinkingTokensOf(tc.underlying)
+		RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), err)
+		trace := newReasoningTrace(tctx, resolveTraceModel(ctx, tc.underlying),
+			systemPrompt, lastUserText(history), respText, tokensUsed, duration.Milliseconds(), err)
+		storeTraceAsync(tc.store, trace)
 		return resp, err
 	}
 	return nil, fmt.Errorf("LLM client %T does not implement ToolResultsProvider", tc.underlying)
@@ -889,62 +845,32 @@ func (tc *TracingLLMClient) GroundedWebSearch(ctx context.Context, query string)
 		return nil, fmt.Errorf("underlying client does not implement GroundedWebSearcher")
 	}
 
-	tc.mu.RLock()
-	shardID := tc.shardID
-	shardType := tc.shardType
-	shardCategory := tc.shardCategory
-	sessionID := tc.sessionID
-	taskContext := tc.taskContext
-	tc.mu.RUnlock()
+	tctx := tc.snapshotTraceContext()
 
 	start := time.Now()
-	logging.API("Grounded search started: shard=%s query_len=%d", shardID, len(query))
+	logging.API("Grounded search started: shard=%s query_len=%d", tctx.shardID, len(query))
 	result, err := gws.GroundedWebSearch(ctx, query)
 	duration := time.Since(start)
 	if err != nil {
-		logging.Get(logging.CategoryAPI).Error("Grounded search failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
+		logging.Get(logging.CategoryAPI).Error("Grounded search failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
 	} else if result != nil {
-		logging.API("Grounded search completed: shard=%s duration=%v text_len=%d citations=%d", shardID, duration, len(result.Text), len(result.Citations))
+		logging.API("Grounded search completed: shard=%s duration=%v text_len=%d citations=%d", tctx.shardID, duration, len(result.Text), len(result.Citations))
 	}
 
 	tokensUsed := 0
+	responseText := ""
 	if result != nil {
 		tokensUsed = result.Usage.TotalTokens
 		if tokensUsed == 0 {
 			tokensUsed = result.Usage.InputTokens + result.Usage.OutputTokens
 		}
+		responseText = result.Text
 	}
-	RecordLLMCall(shardCategory, shardType, tokensUsed, duration.Milliseconds(), err)
+	RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), err)
 
-	trace := &ReasoningTrace{
-		ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
-		ShardID:       shardID,
-		ShardType:     shardType,
-		ShardCategory: shardCategory,
-		SessionID:     sessionID,
-		TaskContext:   taskContext,
-		SystemPrompt:  "",
-		UserPrompt:    query,
-		Response:      "",
-		DurationMs:    duration.Milliseconds(),
-		Success:       err == nil,
-		Timestamp:     time.Now(),
-		TokensUsed:    tokensUsed,
-	}
-	if result != nil {
-		trace.Response = result.Text
-	}
-	trace.Model = resolveTraceModel(ctx, tc.underlying)
-	if err != nil {
-		trace.ErrorMessage = err.Error()
-	}
-	if tc.store != nil {
-		go func() {
-			if storeErr := tc.store.StoreReasoningTrace(trace); storeErr != nil {
-				logging.APIDebug("Failed to store grounded reasoning trace: %v", storeErr)
-			}
-		}()
-	}
+	trace := newReasoningTrace(tctx, resolveTraceModel(ctx, tc.underlying),
+		"", query, responseText, tokensUsed, duration.Milliseconds(), err)
+	storeTraceAsync(tc.store, trace)
 	return result, err
 }
 

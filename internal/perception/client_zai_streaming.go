@@ -83,7 +83,12 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 				})
 
 				if hasDeadline && backoffDuration > remainingBeforeBackoff {
-					errorChan <- ctx.Err()
+					// ctx.Err() is nil here — the deadline has NOT fired yet, the
+					// backoff just would not fit before it. Sending ctx.Err()
+					// delivered a nil error the consumer reads as clean success
+					// with zero chunks. Name the give-up explicitly.
+					errorChan <- fmt.Errorf("retry backoff of %v would exceed the context deadline in %v; giving up: %w",
+						backoffDuration, remainingBeforeBackoff, context.DeadlineExceeded)
 					return
 				}
 

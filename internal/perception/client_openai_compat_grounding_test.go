@@ -298,6 +298,8 @@ func TestGroundedWebSearch_ErrorsDoNotExposeReasoningOrKey(t *testing.T) {
 	const secretReasoning = "super secret reasoning trace 12345"
 	apiKey := "test-key"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Persistent 500s are retried; Retry-After: 0 keeps the backoff instant.
+		w.Header().Set("Retry-After", "0")
 		w.WriteHeader(500)
 		// Simulate a server that echoes API key and reasoning in message (must not be forwarded).
 		_, _ = w.Write([]byte(`{"error":{"message":"` + secretReasoning + ` key=` + apiKey + `","code":"internal_error","type":"server_error"}}`))
@@ -332,6 +334,8 @@ func TestGroundedWebSearch_Errors_StatusCodes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Persistent 500s are retried; Retry-After: 0 keeps the backoff instant.
+			w.Header().Set("Retry-After", "0")
 			w.WriteHeader(tc.status)
 			_, _ = w.Write([]byte(tc.body))
 		}))
@@ -506,6 +510,8 @@ func TestGroundedWebSearch_Non200DoesNotLeakRawBody(t *testing.T) {
 
 func TestGroundedWebSearch_Non200StructuredCodeType(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Persistent 429s are retried; Retry-After: 0 keeps the backoff instant.
+		w.Header().Set("Retry-After", "0")
 		w.WriteHeader(429)
 		_, _ = w.Write([]byte(`{"error":{"code":"rate_limited","type":"throttle","message":"ignored secret message"}}`))
 	}))
@@ -531,6 +537,8 @@ func TestGroundedWebSearch_Non200CodeBounded(t *testing.T) {
 	longCode := strings.Repeat("c", 500)
 	longType := strings.Repeat("t", 500)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Persistent 500s are retried; Retry-After: 0 keeps the backoff instant.
+		w.Header().Set("Retry-After", "0")
 		w.WriteHeader(500)
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": longCode, "type": longType, "message": "secret"}})
 	}))
@@ -672,6 +680,8 @@ func TestGroundedWebSearch_MaliciousCodeTypeContainingApiKeyIsDropped(t *testing
 	}
 	for _, tc := range cases {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Persistent 500s are retried; Retry-After: 0 keeps the backoff instant.
+			w.Header().Set("Retry-After", "0")
 			w.WriteHeader(500)
 			_, _ = w.Write([]byte(tc.body))
 		}))
@@ -747,6 +757,9 @@ func TestGroundedWebSearch_TransportErrorDoesNotLeakApiKeyAndPreservesContext(t 
 	c.httpClient.Transport = roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("boom transport failure key=" + apiKey + " secret-reasoning-trace")
 	})
+	// Transport failures are retried (1s+2s+4s backoff); the timeout must
+	// outlive all four attempts so the terminal error is the generic one.
+	c.httpClient.Timeout = 30 * time.Second
 
 	_, err := c.GroundedWebSearch(context.Background(), "q")
 	if err == nil {
@@ -850,7 +863,8 @@ func TestGroundedWebSearch_ResponseBodyClosedOnErrorPaths(t *testing.T) {
 		statusCode int
 		body       string
 	}{
-		{name: "non-200", statusCode: http.StatusInternalServerError, body: `{"error":{"code":"internal_error","type":"server_error"}}`},
+		// 400 is terminal (no retry), so exactly one body is opened and closed.
+		{name: "non-200", statusCode: http.StatusBadRequest, body: `{"error":{"code":"bad_request","type":"invalid_request"}}`},
 		{name: "malformed json", statusCode: http.StatusOK, body: `not json {`},
 		{name: "oversized", statusCode: http.StatusOK, body: large},
 		{name: "hollow output", statusCode: http.StatusOK, body: `{"output":[]}`},
