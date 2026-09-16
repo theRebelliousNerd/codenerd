@@ -536,7 +536,9 @@ func (t *TDDLoop) parseLLMPatch(response string) []Patch {
 		newIdx := strings.Index(part, "NEW:")
 		ratIdx := strings.Index(part, "RATIONALE:")
 
-		if oldIdx != -1 && newIdx != -1 && ratIdx != -1 {
+		// Ordered sections only: LLM output is untrusted, and a NEW: before
+		// OLD: (or RATIONALE: in the middle) would slice out of range.
+		if oldIdx != -1 && newIdx != -1 && ratIdx != -1 && oldIdx < newIdx && newIdx < ratIdx {
 			oldContent := strings.TrimSpace(part[oldIdx+4 : newIdx])
 			newContent := strings.TrimSpace(part[newIdx+4 : ratIdx])
 			rationale := strings.TrimSpace(part[ratIdx+10:])
@@ -578,11 +580,20 @@ func (t *TDDLoop) applyPatch(ctx context.Context) error {
 			},
 		}
 
-		_, err := t.virtualStore.RouteAction(ctx, action)
-		if err != nil {
+		// RouteActionResult, not RouteAction: edit failures arrive as
+		// Success:false with a nil error, and the old check treated them
+		// as applied and moved on to Compiling.
+		result, err := t.virtualStore.RouteActionResult(ctx, action)
+		if err != nil || !result.Success {
+			failure := ""
+			if err != nil {
+				failure = err.Error()
+			} else {
+				failure = result.Error
+			}
 			// Mark as needing analysis
 			t.transition(TDDStateAnalyzing, TDDActionApplyPatch, map[string]any{
-				"error": err.Error(),
+				"error": failure,
 			})
 			return nil
 		}
@@ -607,11 +618,14 @@ func (t *TDDLoop) build(ctx context.Context) error {
 		},
 	}
 
-	output, err := t.virtualStore.RouteAction(ctx, action)
-	t.lastOutput = output
+	// RouteActionResult, not RouteAction: the old code grepped the output
+	// for the substring "error", which false-fires on success output like
+	// "0 errors" and misses failures that never print the word.
+	result, err := t.virtualStore.RouteActionResult(ctx, action)
+	t.lastOutput = result.Output
 
-	if err != nil || strings.Contains(output, "error") {
-		t.diagnostics = t.parseBuildOutput(output)
+	if err != nil || !result.Success {
+		t.diagnostics = t.parseBuildOutput(result.Output)
 		t.transition(TDDStateCompileError, TDDActionBuild, map[string]any{
 			"error_count": len(t.diagnostics),
 		})

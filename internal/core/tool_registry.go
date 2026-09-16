@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -509,8 +510,18 @@ func (tr *ToolRegistry) BuildToolCatalog(shardType string) string {
 		byAffinity[affinity] = append(byAffinity[affinity], tool)
 	}
 
+	// Deterministic order: map iteration would reshuffle the catalog on
+	// every build, busting prompt caches and flaking any byte comparison.
+	affinities := make([]string, 0, len(byAffinity))
+	for affinity := range byAffinity {
+		affinities = append(affinities, affinity)
+	}
+	sort.Strings(affinities)
+
 	// Output tools grouped by affinity
-	for affinity, toolList := range byAffinity {
+	for _, affinity := range affinities {
+		toolList := byAffinity[affinity]
+		sort.Slice(toolList, func(i, j int) bool { return toolList[i].Name < toolList[j].Name })
 		catalog.WriteString(fmt.Sprintf("### %s Tools\n\n", strings.TrimPrefix(affinity, "/")))
 		for _, tool := range toolList {
 			catalog.WriteString(fmt.Sprintf("**%s**\n", tool.Name))

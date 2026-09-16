@@ -1106,7 +1106,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/action_validator_test.go`
 
 ### internal/core/api_scheduler.go (1)
-- [ ] `internal/core/api_scheduler.go`
+- [x] `internal/core/api_scheduler.go`
 
 ### internal/core/api_scheduler_gaps_test.go (1)
 - [ ] `internal/core/api_scheduler_gaps_test.go`
@@ -1133,7 +1133,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/canary_helpers_test.go`
 
 ### internal/core/codedom_modified_symbols.go (1)
-- [ ] `internal/core/codedom_modified_symbols.go`
+- [x] `internal/core/codedom_modified_symbols.go`
 
 ### internal/core/codedom_modified_symbols_test.go (1)
 - [ ] `internal/core/codedom_modified_symbols_test.go`
@@ -1261,7 +1261,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/dreamer_test.go`
 
 ### internal/core/external_predicates.go (1)
-- [ ] `internal/core/external_predicates.go`
+- [x] `internal/core/external_predicates.go`
 
 ### internal/core/external_predicates_coverage_test.go (1)
 - [ ] `internal/core/external_predicates_coverage_test.go`
@@ -1279,13 +1279,13 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/fact_event_bus_test.go`
 
 ### internal/core/hybrid_loader.go (1)
-- [ ] `internal/core/hybrid_loader.go`
+- [x] `internal/core/hybrid_loader.go`
 
 ### internal/core/hybrid_loader_test.go (1)
 - [ ] `internal/core/hybrid_loader_test.go`
 
 ### internal/core/integration_path.go (1)
-- [ ] `internal/core/integration_path.go`
+- [x] `internal/core/integration_path.go`
 
 ### internal/core/intent_coverage_test.go (1)
 - [ ] `internal/core/intent_coverage_test.go`
@@ -1480,10 +1480,10 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/knowledge_graph_test.go`
 
 ### internal/core/learning.go (1)
-- [ ] `internal/core/learning.go`
+- [x] `internal/core/learning.go`
 
 ### internal/core/limits.go (1)
-- [ ] `internal/core/limits.go`
+- [x] `internal/core/limits.go`
 
 ### internal/core/limits_coverage_test.go (1)
 - [ ] `internal/core/limits_coverage_test.go`
@@ -1492,13 +1492,13 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/limits_test.go`
 
 ### internal/core/line_ending.go (1)
-- [ ] `internal/core/line_ending.go`
+- [x] `internal/core/line_ending.go`
 
 ### internal/core/line_ending_test.go (1)
 - [ ] `internal/core/line_ending_test.go`
 
 ### internal/core/llm_client.go (1)
-- [ ] `internal/core/llm_client.go`
+- [x] `internal/core/llm_client.go`
 
 ### internal/core/llm_client_test.go (1)
 - [ ] `internal/core/llm_client_test.go`
@@ -1510,13 +1510,13 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/mangle_evidence_authority_test.go`
 
 ### internal/core/mangle_updates.go (1)
-- [ ] `internal/core/mangle_updates.go`
+- [x] `internal/core/mangle_updates.go`
 
 ### internal/core/mangle_updates_test.go (1)
 - [ ] `internal/core/mangle_updates_test.go`
 
 ### internal/core/mangle_watcher.go (1)
-- [ ] `internal/core/mangle_watcher.go`
+- [x] `internal/core/mangle_watcher.go`
 
 ### internal/core/mangle_watcher_test.go (1)
 - [ ] `internal/core/mangle_watcher_test.go`
@@ -1528,16 +1528,16 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/mg_decl_literal_conformance_test.go`
 
 ### internal/core/ondemand_watcher.go (1)
-- [ ] `internal/core/ondemand_watcher.go`
+- [x] `internal/core/ondemand_watcher.go`
 
 ### internal/core/ondemand_watcher_test.go (1)
 - [ ] `internal/core/ondemand_watcher_test.go`
 
 ### internal/core/parse_serial.go (1)
-- [ ] `internal/core/parse_serial.go`
+- [x] `internal/core/parse_serial.go`
 
 ### internal/core/pending_edit.go (1)
-- [ ] `internal/core/pending_edit.go`
+- [x] `internal/core/pending_edit.go`
 
 ### internal/core/performance_bench_test.go (1)
 - [ ] `internal/core/performance_bench_test.go`
@@ -1549,7 +1549,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/policy_inventory_test.go`
 
 ### internal/core/predicate_corpus.go (1)
-- [ ] `internal/core/predicate_corpus.go`
+- [x] `internal/core/predicate_corpus.go`
 
 ### internal/core/predicate_corpus_extra_test.go (1)
 - [ ] `internal/core/predicate_corpus_extra_test.go`
@@ -1564,7 +1564,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/routing_performance_test.go`
 
 ### internal/core/rule_court.go (1)
-- [ ] `internal/core/rule_court.go`
+- [x] `internal/core/rule_court.go`
 
 ### internal/core/rule_court_coverage_test.go (1)
 - [ ] `internal/core/rule_court_coverage_test.go`
@@ -1579,7 +1579,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/scheduled_grounded_test.go`
 
 ### internal/core/scheduled_llm_client.go (1)
-- [ ] `internal/core/scheduled_llm_client.go`
+- [x] `internal/core/scheduled_llm_client.go`
 
 ### internal/core/scheduled_llm_client_coverage_test.go (1)
 - [ ] `internal/core/scheduled_llm_client_coverage_test.go`
@@ -1591,7 +1591,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/scheduled_llm_tool_results_test.go`
 
 ### internal/core/self_healing.go (1)
-- [ ] `internal/core/self_healing.go`
+- [x] `internal/core/self_healing.go`
 
 ### internal/core/self_healing_test.go (1)
 - [ ] `internal/core/self_healing_test.go`
@@ -1600,7 +1600,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/shadow_failclosed_test.go`
 
 ### internal/core/shadow_mode.go (1)
-- [ ] `internal/core/shadow_mode.go`
+- [x] `internal/core/shadow_mode.go`
 
 ### internal/core/shadow_mode_assert_test.go (1)
 - [ ] `internal/core/shadow_mode_assert_test.go`
@@ -1652,7 +1652,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/task_stage_test.go`
 
 ### internal/core/tdd_loop.go (1)
-- [ ] `internal/core/tdd_loop.go`
+- [x] `internal/core/tdd_loop.go`
 
 ### internal/core/tdd_loop_test.go (1)
 - [ ] `internal/core/tdd_loop_test.go`
@@ -1661,13 +1661,13 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/test_helpers_test.go`
 
 ### internal/core/tool_registry.go (1)
-- [ ] `internal/core/tool_registry.go`
+- [x] `internal/core/tool_registry.go`
 
 ### internal/core/tool_registry_test.go (1)
 - [ ] `internal/core/tool_registry_test.go`
 
 ### internal/core/trace.go (1)
-- [ ] `internal/core/trace.go`
+- [x] `internal/core/trace.go`
 
 ### internal/core/trace_classification_test.go (1)
 - [ ] `internal/core/trace_classification_test.go`
@@ -1682,7 +1682,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/core/transaction_atomic_test.go`
 
 ### internal/core/transaction_manager.go (1)
-- [ ] `internal/core/transaction_manager.go`
+- [x] `internal/core/transaction_manager.go`
 
 ### internal/core/transaction_manager_gaps_test.go (1)
 - [ ] `internal/core/transaction_manager_gaps_test.go`

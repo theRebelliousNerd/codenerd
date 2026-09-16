@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -128,13 +129,15 @@ func (h *SelfHealer) determineHealingType(actionID string, vr ValidationResult) 
 		return HealingEscalate
 	}
 
-	// Determine strategy based on error type
+	// Determine strategy based on error type. Syntax verdicts carry a
+	// detail suffix ("syntax validation failed: ..."), so they match by
+	// prefix; exact equality never fired, past or present.
 	switch {
 	case vr.Error == "content hash mismatch":
 		return HealingRetry
 	case vr.Error == "cannot read back file":
 		return HealingRetry
-	case vr.Error == "syntax validation failed":
+	case strings.HasPrefix(vr.Error, "syntax validation failed"):
 		return HealingRollback
 	case vr.Error == "Go syntax error after CodeDOM edit":
 		return HealingRollback

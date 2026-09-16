@@ -191,6 +191,9 @@ func (pc *PredicateCorpus) GetPredicateArgs(predicateID int64) ([]PredicateArg, 
 		}
 		args = append(args, arg)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return args, nil
 }
 
@@ -222,6 +225,9 @@ func (pc *PredicateCorpus) GetByDomain(domain string) ([]PredicateInfo, error) {
 		}
 		predicates = append(predicates, info)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return predicates, nil
 }
 
@@ -250,6 +256,9 @@ func (pc *PredicateCorpus) GetByCategory(category string) ([]PredicateInfo, erro
 			return nil, err
 		}
 		predicates = append(predicates, info)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return predicates, nil
 }
@@ -280,6 +289,9 @@ func (pc *PredicateCorpus) GetAllPredicates() ([]PredicateInfo, error) {
 		}
 		predicates = append(predicates, info)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return predicates, nil
 }
 
@@ -301,6 +313,9 @@ func (pc *PredicateCorpus) GetAllPredicateNames() ([]string, error) {
 			return nil, err
 		}
 		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return names, nil
 }
@@ -324,6 +339,9 @@ func (pc *PredicateCorpus) GetAllPredicateSignatures() ([]string, error) {
 			return nil, err
 		}
 		signatures = append(signatures, fmt.Sprintf("%s/%d", name, arity))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return signatures, nil
 }
@@ -361,6 +379,9 @@ func (pc *PredicateCorpus) GetErrorPatterns() ([]ErrorPatternInfo, error) {
 			return nil, err
 		}
 		patterns = append(patterns, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return patterns, nil
 }
@@ -416,6 +437,9 @@ func (pc *PredicateCorpus) GetExamplesForPredicate(predicateName string, correct
 		}
 		examples = append(examples, ex)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return examples, nil
 }
 
@@ -445,6 +469,9 @@ func (pc *PredicateCorpus) GetAntiPatterns() ([]PredicateExampleInfo, error) {
 		}
 		examples = append(examples, ex)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return examples, nil
 }
 
@@ -466,6 +493,9 @@ func (pc *PredicateCorpus) GetDomains() ([]string, error) {
 			return nil, err
 		}
 		domains = append(domains, domain)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return domains, nil
 }
@@ -501,6 +531,9 @@ func (pc *PredicateCorpus) SearchPredicates(pattern string) ([]PredicateInfo, er
 			return nil, err
 		}
 		predicates = append(predicates, info)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return predicates, nil
 }
@@ -587,6 +620,9 @@ func (pc *PredicateCorpus) GetPriorities() (map[string]int, error) {
 		}
 		priorities[name] = priority
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return priorities, nil
 }
 
@@ -615,6 +651,9 @@ func (pc *PredicateCorpus) GetSerializationOrder() (map[string]int, error) {
 			return nil, err
 		}
 		order[name] = ord
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return order, nil
 }

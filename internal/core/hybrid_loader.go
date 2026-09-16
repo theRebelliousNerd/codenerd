@@ -55,6 +55,9 @@ func LoadHybridMangleFile(path string) (HybridLoadResult, error) {
 	var prompts []HybridPrompt
 
 	scanner := bufio.NewScanner(file)
+	// Prompt directives carry long prose on one line; the 64KB default cap
+	// would fail the whole file. 1MB bounds memory while covering prose.
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {

@@ -865,5 +865,3 @@ func GetAPIScheduler() *APIScheduler {
 	})
 	return globalScheduler
 }
-
-// NewScheduledLLMCall creates a wrapper for scheduled LLM calls.

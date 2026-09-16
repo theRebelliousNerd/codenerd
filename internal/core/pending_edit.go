@@ -26,11 +26,6 @@ func (PendingEdit) FactName() string {
 }
 
 // ---------------------------------------------------------------------------
-// In-memory store (kept for backward compatibility with pending_edit_store_test.go)
-// ---------------------------------------------------------------------------
-
-// RetractPendingEdit removes from the default in-memory store.
-// ---------------------------------------------------------------------------
 // Kernel fact lifecycle helpers — pending_edit(FilePath, Content)
 // ---------------------------------------------------------------------------
 

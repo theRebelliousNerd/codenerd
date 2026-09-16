@@ -3,9 +3,11 @@ package core
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"codenerd/internal/tactile"
 	"codenerd/internal/types"
 )
 
@@ -125,5 +127,85 @@ func TestDreamPlan_QuestionAndCounterPins(t *testing.T) {
 	p.MarkSubtaskFailed("s2", "x-again")
 	if p.FailedSteps != 1 {
 		t.Fatalf("FailedSteps = %d after double-mark, want 1", p.FailedSteps)
+	}
+}
+
+// TestToolRegistry_CatalogDeterministic pins stable catalog bytes: groups
+// sort by affinity and tools by name, so repeated builds are identical and
+// prompt caches hold.
+func TestToolRegistry_CatalogDeterministic(t *testing.T) {
+	reg := NewToolRegistry(t.TempDir())
+	for _, tool := range []*Tool{
+		{Name: "zebra", ShardAffinity: "/all"},
+		{Name: "mid", ShardAffinity: "/coder"},
+		{Name: "alpha", ShardAffinity: "/coder"},
+	} {
+		if err := reg.RegisterToolWithInfo(tool); err != nil {
+			t.Fatalf("register %s: %v", tool.Name, err)
+		}
+	}
+	// A /coder query returns /coder tools plus /all tools: two groups.
+	first := reg.BuildToolCatalog("/coder")
+	for i := 0; i < 10; i++ {
+		if got := reg.BuildToolCatalog("/coder"); got != first {
+			t.Fatalf("catalog build %d differs:\n%s\n---\n%s", i, got, first)
+		}
+	}
+	ia, im, iz := strings.Index(first, "alpha"), strings.Index(first, "mid"), strings.Index(first, "zebra")
+	if ia < 0 || im < 0 || iz < 0 {
+		t.Fatalf("catalog missing tools:\n%s", first)
+	}
+	if !(iz < ia && ia < im) {
+		t.Fatalf("catalog not sorted by affinity then name:\n%s", first)
+	}
+}
+
+// TestTDDLoop_FailedPatchReturnsToAnalyzing pins the RouteActionResult fix:
+// a patch the store cannot apply (missing file) must bounce the loop to
+// Analyzing, not advance to Compiling as if applied.
+func TestTDDLoop_FailedPatchReturnsToAnalyzing(t *testing.T) {
+	tdd, _, _, _ := SetupTDDLoop(t)
+	tdd.state = TDDStateApplying
+	tdd.patches = []Patch{{FilePath: filepath.Join(t.TempDir(), "missing.go"), OldContent: "a", NewContent: "b"}}
+	if err := tdd.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if tdd.GetState() != TDDStateAnalyzing {
+		t.Fatalf("state = %s after failed apply, want analyzing", tdd.GetState())
+	}
+}
+
+// TestTDDLoop_BuildFailureCompilesError pins build gating on Success rather
+// than grepping output for the substring "error".
+func TestTDDLoop_BuildFailureCompilesError(t *testing.T) {
+	tdd, mockExec, _, _ := SetupTDDLoop(t)
+	mockExec.ExecuteFunc = func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
+		return &tactile.ExecutionResult{Success: false, ExitCode: 2, Stdout: "build failed: boom"}, nil
+	}
+	tdd.state = TDDStateCompiling
+	if err := tdd.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if tdd.GetState() != TDDStateCompileError {
+		t.Fatalf("state = %s after failed build, want compile_error", tdd.GetState())
+	}
+}
+
+// TestTDDLoop_MalformedPatchSkipped pins the section-order guard: NEW: before
+// OLD: must skip the block, not slice out of range.
+func TestTDDLoop_MalformedPatchSkipped(t *testing.T) {
+	tdd, _, _, _ := SetupTDDLoop(t)
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("parseLLMPatch panicked: %v", r)
+		}
+	}()
+	patches := tdd.parseLLMPatch("FILE: x.go\nNEW:\nB\nOLD:\nA\nRATIONALE: r\n")
+	if len(patches) != 0 {
+		t.Fatalf("malformed patch parsed: %+v", patches)
+	}
+	good := tdd.parseLLMPatch("FILE: x.go\nOLD:\nA\nNEW:\nB\nRATIONALE: r\n")
+	if len(good) != 1 || good[0].NewContent != "B" {
+		t.Fatalf("well-formed patch rejected: %+v", good)
 	}
 }
