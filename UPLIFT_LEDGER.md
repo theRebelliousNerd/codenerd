@@ -3475,7 +3475,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `tests/e2e/autopoiesis_kernel_ouroboros_integration_test.go`
 - [ ] `tests/e2e/campaign_decomposer_orchestrator_integration_test.go`
 - [ ] `tests/e2e/campaign_session_integration_test.go`
-- [ ] `tests/e2e/cross_boundary_integration_test.go`
+- [x] `tests/e2e/cross_boundary_integration_test.go` (8/8; deterministic pins, no vacuous branches)
 - [ ] `tests/e2e/dreamer_kernelclone_integration_test.go`
 - [ ] `tests/e2e/dreamer_verdict_freshness_integration_test.go`
 - [ ] `tests/e2e/dreamer_virtualstore_integration_test.go`
@@ -3840,4 +3840,4 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `test_init/.nerd/mangle/policy_overrides.mg` <!-- tracked fixture, corpus-gate verified -->
 - [x] `test_init/.nerd/profile.mg` <!-- tracked fixture, corpus-gate verified -->
 
-**Progress: 2583/2683**
+**Progress: 2584/2683**

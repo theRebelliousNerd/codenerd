@@ -5,8 +5,10 @@ package e2e_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -141,14 +143,20 @@ func (m *cbMockConfigFactory) Generate(ctx context.Context, result *prompt.Compi
 // =============================================================================
 
 func TestE2E_CrossBoundary_TDDLoop_FullRepairCycle(t *testing.T) {
+	t.Parallel()
 	// Wire: real kernel + real VirtualStore + TDDLoop
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("Failed to create kernel: %v", err)
 	}
 
-	executor := tactile.NewCompositeExecutor()
-	vs := core.NewVirtualStore(executor)
+	// Isolated workdir: commands must never execute against the checkout,
+	// and bare "echo" is not in the run_tests/build_project binary
+	// allowlist anyway (the sh wrapper makes the fail/pass real).
+	tmpDir := t.TempDir()
+	vsConfig := core.DefaultVirtualStoreConfig()
+	vsConfig.WorkingDir = tmpDir
+	vs := core.NewVirtualStoreWithConfig(tactile.NewDirectExecutor(), vsConfig)
 	vs.SetKernel(kernel)
 	vs.DisableBootGuard()
 
@@ -161,8 +169,8 @@ func TestE2E_CrossBoundary_TDDLoop_FullRepairCycle(t *testing.T) {
 
 	cfg := core.TDDLoopConfig{
 		MaxRetries:   2,
-		TestCommand:  "echo FAIL",
-		BuildCommand: "echo ok",
+		TestCommand:  `sh -c "false"`,
+		BuildCommand: `sh -c "true"`,
 		TestTimeout:  5 * time.Second,
 		BuildTimeout: 5 * time.Second,
 	}
@@ -174,17 +182,16 @@ func TestE2E_CrossBoundary_TDDLoop_FullRepairCycle(t *testing.T) {
 		t.Errorf("Expected idle state, got %s", loop.GetState())
 	}
 
-	// Run one step: should transition to Running then Failing (because echo FAIL contains "FAIL")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Run one step: Idle -> Running -> Failing (sh false exits 1).
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := loop.Run(ctx); err != nil {
 		t.Fatalf("First run step failed: %v", err)
 	}
 
-	state := loop.GetState()
-	if state != core.TDDStateFailing && state != core.TDDStatePassing {
-		t.Logf("State after first run: %s", state)
+	if state := loop.GetState(); state != core.TDDStateFailing {
+		t.Fatalf("Expected Failing after first run, got %s", state)
 	}
 
 	// Verify kernel has test_state fact
@@ -211,17 +218,36 @@ func TestE2E_CrossBoundary_TDDLoop_FullRepairCycle(t *testing.T) {
 		t.Error("Expected non-empty state transition history")
 	}
 
-	// Run additional steps to test escalation path
-	for i := 0; i < 5; i++ {
+	// Run to a terminal state: failing tests with an unappliable patch
+	// (main.go does not exist in the fixture dir) must escalate, not spin.
+	// Trace: fail(r=1) -> read -> analyze -> generate -> apply-fails(r=2)
+	// -> Analyzing hits the retry budget -> escalate.
+	terminal := false
+	for i := 0; i < 12; i++ {
 		if err := loop.Run(ctx); err != nil {
-			t.Logf("Run step %d: %v", i, err)
+			t.Fatalf("Run step %d failed: %v", i, err)
+		}
+		if st := loop.GetState(); st == core.TDDStateEscalated {
+			t.Logf("TDD loop escalated after %d steps", i+2)
+			terminal = true
 			break
 		}
-		s := loop.GetState()
-		if s == core.TDDStatePassing || s == core.TDDStateEscalated {
-			t.Logf("TDD loop reached terminal state: %s after %d steps", s, i+1)
+	}
+	if !terminal {
+		t.Fatalf("Expected Escalated terminal state, got %s", loop.GetState())
+	}
+
+	// The loop must have attempted the repair, not just fail-looped: the
+	// Applying state proves generate produced a patch and apply ran it.
+	seenApplying := false
+	for _, h := range loop.GetHistory() {
+		if h.ToState == core.TDDStateApplying {
+			seenApplying = true
 			break
 		}
+	}
+	if !seenApplying {
+		t.Error("Expected the repair cycle to reach Applying (patch generated and applied)")
 	}
 
 	// Verify ToFacts produces valid output
@@ -239,6 +265,7 @@ func TestE2E_CrossBoundary_TDDLoop_FullRepairCycle(t *testing.T) {
 // =============================================================================
 
 func TestE2E_CrossBoundary_ShadowMode_2PC_SafetyGate(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("Failed to create kernel: %v", err)
@@ -285,32 +312,28 @@ func TestE2E_CrossBoundary_ShadowMode_2PC_SafetyGate(t *testing.T) {
 		len(validationResult.SafetyBlocks), len(validationResult.Warnings),
 		validationResult.ValidDuration)
 
+	// The safety gate rejects this transaction (writing outside the
+	// workspace): invalid with at least one safety block, deterministically.
+	// The commit path is covered by TransactionManager unit tests; this test
+	// owns the rejection path end to end.
 	if validationResult.IsValid {
-		// Commit (Phase 2) — writes to filesystem
-		if err := tm.Commit(ctx); err != nil {
-			t.Fatalf("Commit failed: %v", err)
-		}
+		t.Fatalf("Expected the safety gate to reject the out-of-workspace write, got valid")
+	}
+	if len(validationResult.SafetyBlocks) == 0 {
+		t.Fatalf("Expected safety blocks on rejection, got %+v", validationResult)
+	}
+	t.Logf("Gate rejected as expected: %s", validationResult.SafetyBlocks[0])
 
-		// Verify file_written fact was injected into kernel
-		writtenFacts, err := kernel.Query("file_written")
-		if err != nil {
-			t.Fatalf("Query file_written failed: %v", err)
-		}
-		if len(writtenFacts) == 0 {
-			t.Error("Expected file_written fact after commit")
-		}
-
-		// Verify no active transaction remains
-		if tm.IsTransactionActive() {
-			t.Error("Expected no active transaction after commit")
-		}
-	} else {
-		t.Logf("Transaction validation failed (expected in some kernel configs)")
-		// Abort and verify cleanup
-		if err := tm.Abort(ctx, "validation failed"); err != nil {
-			// May already be aborted by Prepare
-			t.Logf("Abort returned: %v", err)
-		}
+	// Abort and verify cleanup: nothing written, no active transaction.
+	if err := tm.Abort(ctx, "validation failed"); err != nil {
+		// May already be aborted by Prepare
+		t.Logf("Abort returned: %v", err)
+	}
+	if _, statErr := os.Stat(testFile); !os.IsNotExist(statErr) {
+		t.Errorf("Rejected transaction must not write its file: %s", testFile)
+	}
+	if tm.IsTransactionActive() {
+		t.Error("Expected no active transaction after abort")
 	}
 
 	// Verify ToFacts works after completion
@@ -323,6 +346,7 @@ func TestE2E_CrossBoundary_ShadowMode_2PC_SafetyGate(t *testing.T) {
 // =============================================================================
 
 func TestE2E_CrossBoundary_ShadowMode_RapidWhatIf(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("Failed to create kernel: %v", err)
@@ -381,6 +405,11 @@ func TestE2E_CrossBoundary_ShadowMode_RapidWhatIf(t *testing.T) {
 		t.Error("Shadow mode should not be active after WhatIf queries")
 	}
 
+	// Every simulation must succeed: a silent WhatIf failure is a dropped
+	// safety analysis, and successCount==0 would divide by zero below.
+	if successCount != 25 {
+		t.Fatalf("Expected 25/25 WhatIf simulations to succeed, got %d", successCount)
+	}
 	avgDuration := totalDuration / time.Duration(successCount)
 	t.Logf("WhatIf results: %d/%d succeeded, avg_duration=%v, total=%v",
 		successCount, 25, avgDuration, totalDuration)
@@ -395,6 +424,7 @@ func TestE2E_CrossBoundary_ShadowMode_RapidWhatIf(t *testing.T) {
 // =============================================================================
 
 func TestE2E_CrossBoundary_VirtualStore_BootGuard_PermissionRace(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("Failed to create kernel: %v", err)
@@ -421,30 +451,39 @@ func TestE2E_CrossBoundary_VirtualStore_BootGuard_PermissionRace(t *testing.T) {
 		t.Errorf("Expected boot guard error, got: %v", err)
 	}
 
-	// Launch concurrent RouteAction calls while boot guard is active
+	// Hammer RouteAction from 10 goroutines until the guard drops. Looping
+	// (not one shot + sleep) makes overlap deterministic: every route
+	// attempted during the active window must block, and the window is
+	// long enough that attempts during it are guaranteed.
 	var wg sync.WaitGroup
-	blockedCount := 0
-	var blockedMu sync.Mutex
+	var blockedCount atomic.Int64
+	stop := make(chan struct{})
 
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			a := core.Fact{
-				Predicate: "next_action",
-				Args:      []interface{}{fmt.Sprintf("concurrent_%d", idx), "/echo", "test"},
-			}
-			_, err := vs.RouteAction(context.Background(), a)
-			if err != nil && strings.Contains(err.Error(), "boot guard") {
-				blockedMu.Lock()
-				blockedCount++
-				blockedMu.Unlock()
+			n := 0
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				a := core.Fact{
+					Predicate: "next_action",
+					Args:      []interface{}{fmt.Sprintf("concurrent_%d_%d", idx, n), "/echo", "test"},
+				}
+				n++
+				_, err := vs.RouteAction(context.Background(), a)
+				if err != nil && strings.Contains(err.Error(), "boot guard") {
+					blockedCount.Add(1)
+				}
 			}
 		}(i)
 	}
 
-	// Give goroutines time to hit the boot guard
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Disable boot guard
 	vs.DisableBootGuard()
@@ -453,11 +492,21 @@ func TestE2E_CrossBoundary_VirtualStore_BootGuard_PermissionRace(t *testing.T) {
 		t.Error("Expected boot guard to be disabled")
 	}
 
+	close(stop)
 	wg.Wait()
 
-	t.Logf("Boot guard blocked %d/10 concurrent RouteAction calls", blockedCount)
-	if blockedCount == 0 {
-		t.Error("Expected at least some calls to be blocked by boot guard")
+	t.Logf("Boot guard blocked %d concurrent RouteAction calls", blockedCount.Load())
+	if blockedCount.Load() == 0 {
+		t.Error("Expected routes during the active window to be blocked by boot guard")
+	}
+
+	// Post-disable, the same path must no longer raise the boot guard.
+	a := core.Fact{
+		Predicate: "next_action",
+		Args:      []interface{}{"post_disable_probe", "/echo", "test"},
+	}
+	if _, err := vs.RouteAction(context.Background(), a); err != nil && strings.Contains(err.Error(), "boot guard") {
+		t.Errorf("Boot guard still blocking after disable: %v", err)
 	}
 
 	// Verify audit metrics are available
@@ -470,6 +519,7 @@ func TestE2E_CrossBoundary_VirtualStore_BootGuard_PermissionRace(t *testing.T) {
 // =============================================================================
 
 func TestE2E_CrossBoundary_Executor_MultiTurn_ConversationDrift(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("Failed to create kernel: %v", err)
@@ -537,6 +587,9 @@ func TestE2E_CrossBoundary_Executor_MultiTurn_ConversationDrift(t *testing.T) {
 		t.Fatalf("Kernel query for user_intent failed: %v", err)
 	}
 	t.Logf("Kernel accumulated %d user_intent facts over 20 turns", len(intentFacts))
+	if len(intentFacts) == 0 {
+		t.Error("Expected user_intent facts to accumulate in the kernel over 20 turns")
+	}
 
 	// Check for performance degradation (last 5 turns shouldn't be >3x slower than first 5)
 	if len(durations) >= 10 {
@@ -563,13 +616,16 @@ func TestE2E_CrossBoundary_Executor_MultiTurn_ConversationDrift(t *testing.T) {
 // =============================================================================
 
 func TestE2E_CrossBoundary_TDDLoop_PatchGeneration_WithLLM(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("Failed to create kernel: %v", err)
 	}
 
-	executor := tactile.NewCompositeExecutor()
-	vs := core.NewVirtualStore(executor)
+	tmpDir := t.TempDir()
+	vsConfig := core.DefaultVirtualStoreConfig()
+	vsConfig.WorkingDir = tmpDir
+	vs := core.NewVirtualStoreWithConfig(tactile.NewDirectExecutor(), vsConfig)
 	vs.SetKernel(kernel)
 	vs.DisableBootGuard()
 
@@ -583,8 +639,8 @@ func TestE2E_CrossBoundary_TDDLoop_PatchGeneration_WithLLM(t *testing.T) {
 
 	cfg := core.TDDLoopConfig{
 		MaxRetries:   2,
-		TestCommand:  "echo '--- FAIL: TestAuth'",
-		BuildCommand: "echo ok",
+		TestCommand:  `sh -c "false"`,
+		BuildCommand: `sh -c "true"`,
 		TestTimeout:  5 * time.Second,
 		BuildTimeout: 5 * time.Second,
 	}
@@ -594,32 +650,24 @@ func TestE2E_CrossBoundary_TDDLoop_PatchGeneration_WithLLM(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Use bounded Run() steps instead of RunToCompletion.
-	// FINDING: RunToCompletion with always-failing tests cycles indefinitely
-	// because MaxRetries doesn't cap iterations in all TDD state paths.
-	maxSteps := 15
-	for step := 0; step < maxSteps; step++ {
-		if err := loop.Run(ctx); err != nil {
-			t.Logf("TDD step %d: %v", step, err)
-			break
-		}
-		s := loop.GetState()
-		if s == core.TDDStatePassing || s == core.TDDStateEscalated {
-			t.Logf("TDD loop reached terminal state: %s after %d steps", s, step+1)
-			break
-		}
+	// RunToCompletion must terminate: the retry budget plus escalation caps
+	// every state path (the old "cycles indefinitely" finding is fixed, and
+	// this is its regression pin). Failing tests with patches for files
+	// that do not exist must escalate, not spin.
+	if err := loop.RunToCompletion(ctx); err != nil {
+		t.Fatalf("RunToCompletion should escalate cleanly, got: %v", err)
+	}
+	if finalState := loop.GetState(); finalState != core.TDDStateEscalated {
+		t.Fatalf("Expected Escalated terminal state, got %s", finalState)
 	}
 
-	finalState := loop.GetState()
-	t.Logf("Final state: %s", finalState)
-
-	// Verify the LLM received at least one prompt
+	// Verify the LLM was actually consulted for patches
 	prompts := llm.getPrompts()
 	t.Logf("LLM received %d prompts", len(prompts))
-	if len(prompts) > 0 {
-		lastPrompt := prompts[len(prompts)-1]
-		t.Logf("Last prompt length: %d chars", len(lastPrompt))
+	if len(prompts) == 0 {
+		t.Fatal("Expected the TDD loop to consult the LLM for patches")
 	}
+	t.Logf("Last prompt length: %d chars", len(prompts[len(prompts)-1]))
 
 	// Verify state history shows OODA cycle — the core architectural validation
 	history := loop.GetHistory()
@@ -642,6 +690,7 @@ func TestE2E_CrossBoundary_TDDLoop_PatchGeneration_WithLLM(t *testing.T) {
 // =============================================================================
 
 func TestE2E_CrossBoundary_Executor_DualRegistryToolRouting(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("Failed to create kernel: %v", err)
@@ -671,14 +720,30 @@ func TestE2E_CrossBoundary_Executor_DualRegistryToolRouting(t *testing.T) {
 		t.Error("Expected non-empty response")
 	}
 
-	// Verify the tool registry is queryable
-	allTools := ouroborosReg.ListTools()
-	t.Logf("Ouroboros registry has %d tools", len(allTools))
+	// Register a tool in the Ouroboros registry and execute it: dual
+	// routing is only real if the registry resolves AND runs.
+	if err := ouroborosReg.RegisterTool("echo-dual", "echo", "/generalist"); err != nil {
+		t.Fatalf("Ouroboros register failed: %v", err)
+	}
+	out, err := ouroborosReg.ExecuteTool(context.Background(), "echo-dual", "dual-ping")
+	if err != nil {
+		t.Fatalf("Ouroboros execute failed: %v", err)
+	}
+	if !strings.Contains(out, "dual-ping") {
+		t.Fatalf("Expected echoed input from Ouroboros tool, got %q", out)
+	}
 
-	// Verify the VirtualStore tool registry is separate
+	// Verify the VirtualStore tool registry is a separate instance holding
+	// different tools: the Ouroboros registration must not leak across.
 	vsRegistry := vs.GetToolRegistry()
 	if vsRegistry == nil {
-		t.Error("Expected non-nil VirtualStore tool registry")
+		t.Fatal("Expected non-nil VirtualStore tool registry")
+	}
+	if vsRegistry == ouroborosReg {
+		t.Fatal("VirtualStore and Ouroboros registries must be separate instances")
+	}
+	if _, found := vsRegistry.GetTool("echo-dual"); found {
+		t.Error("Ouroboros registration leaked into the VirtualStore registry")
 	}
 }
 
@@ -687,6 +752,7 @@ func TestE2E_CrossBoundary_Executor_DualRegistryToolRouting(t *testing.T) {
 // =============================================================================
 
 func TestE2E_CrossBoundary_Kernel_ConcurrentAssertQuery_Stress(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("Failed to create kernel: %v", err)
@@ -766,18 +832,13 @@ func TestE2E_CrossBoundary_Kernel_ConcurrentAssertQuery_Stress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Final query failed: %v", err)
 	}
-	t.Logf("Final observation count: %d (expected ~200)", len(finalFacts))
+	t.Logf("Final observation count: %d (expected 200)", len(finalFacts))
 
-	if len(finalFacts) == 0 {
-		t.Error("Expected observations in kernel after concurrent assertions")
+	// All 200 asserts succeeded (no error reached errCh) with distinct
+	// arguments, so the kernel must hold exactly 200 — no drops, no dupes.
+	if len(finalFacts) != 200 {
+		t.Errorf("Expected exactly 200 observations after concurrent assertions, got %d", len(finalFacts))
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // ResolveAllowedTools projects the same fixture envelope before JIT selection.
