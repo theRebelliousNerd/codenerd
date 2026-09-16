@@ -3354,111 +3354,111 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/verification/verifier_test.go`
 
 ### internal/world (105)
-- [ ] `internal/world/apply_incremental.go`
-- [ ] `internal/world/apply_incremental_test.go`
-- [ ] `internal/world/ast.go`
-- [ ] `internal/world/ast_test.go`
-- [ ] `internal/world/ast_treesitter.go`
-- [ ] `internal/world/ast_treesitter_bench_test.go`
-- [ ] `internal/world/ast_treesitter_package_test.go`
-- [ ] `internal/world/cache.go`
-- [ ] `internal/world/cache_metrics_test.go`
-- [ ] `internal/world/cache_test.go`
-- [ ] `internal/world/canonical_path.go`
-- [ ] `internal/world/canonical_path_test.go`
-- [ ] `internal/world/cartographer.go`
-- [ ] `internal/world/cartographer_multilang.go`
-- [ ] `internal/world/cartographer_multilang_test.go`
-- [ ] `internal/world/cartographer_test.go`
-- [ ] `internal/world/code_elements.go`
-- [ ] `internal/world/code_elements_extra_test.go`
-- [ ] `internal/world/code_elements_mangle.go`
-- [ ] `internal/world/code_elements_mangle_test.go`
-- [ ] `internal/world/code_elements_patterns_test.go`
-- [ ] `internal/world/code_elements_test.go`
-- [ ] `internal/world/dataflow.go`
-- [ ] `internal/world/dataflow_cache.go`
-- [ ] `internal/world/dataflow_cache_test.go`
-- [ ] `internal/world/dataflow_javascript.go`
-- [ ] `internal/world/dataflow_multilang.go`
-- [ ] `internal/world/dataflow_multilang_test.go`
-- [ ] `internal/world/dataflow_python.go`
-- [ ] `internal/world/dataflow_python_test.go`
-- [ ] `internal/world/dataflow_rust.go`
-- [ ] `internal/world/dataflow_test.go`
-- [ ] `internal/world/decl_conformance_test.go`
-- [ ] `internal/world/deep_scan.go`
-- [ ] `internal/world/deep_scan_test.go`
-- [ ] `internal/world/deleted_file_retraction_test.go`
-- [ ] `internal/world/dependency_links.go`
-- [ ] `internal/world/dependency_links_test.go`
-- [ ] `internal/world/fs.go`
-- [ ] `internal/world/fs_cache_test.go`
-- [ ] `internal/world/fs_canonical_join_test.go`
-- [ ] `internal/world/fs_test.go`
-- [ ] `internal/world/git_scanner.go`
-- [ ] `internal/world/git_scanner_test.go`
-- [ ] `internal/world/go_parser.go`
-- [ ] `internal/world/go_parser_test.go`
-- [ ] `internal/world/graph_interface.go`
-- [ ] `internal/world/graph_interface_test.go`
-- [ ] `internal/world/holographic.go`
-- [ ] `internal/world/holographic_cache.go`
-- [ ] `internal/world/holographic_cache_test.go`
-- [ ] `internal/world/holographic_dependencies.go`
-- [ ] `internal/world/holographic_dependencies_test.go`
-- [ ] `internal/world/holographic_formatting.go`
-- [ ] `internal/world/holographic_formatting_test.go`
-- [ ] `internal/world/holographic_impact.go`
-- [ ] `internal/world/holographic_impact_chain_test.go`
-- [ ] `internal/world/holographic_perf_test.go`
-- [ ] `internal/world/holographic_querier_test.go`
-- [ ] `internal/world/holographic_ranking_test.go`
-- [ ] `internal/world/holographic_test.go`
-- [ ] `internal/world/incremental_canonical_test.go`
-- [ ] `internal/world/incremental_retire_test.go`
-- [ ] `internal/world/incremental_scan.go`
-- [ ] `internal/world/incremental_scan_test.go`
-- [ ] `internal/world/lsp/client.go`
-- [ ] `internal/world/lsp/client_test.go`
-- [ ] `internal/world/lsp/manager.go`
-- [ ] `internal/world/lsp/manager_extra_test.go`
-- [ ] `internal/world/lsp/manager_initialize_test.go`
-- [ ] `internal/world/lsp/manager_test.go`
-- [ ] `internal/world/mangle_fastparse.go`
-- [ ] `internal/world/mangle_fastparse_test.go`
-- [ ] `internal/world/mangle_parser.go`
-- [ ] `internal/world/parser_factory.go`
-- [ ] `internal/world/parser_factory_test.go`
-- [ ] `internal/world/parser_interface.go`
-- [ ] `internal/world/parser_test.go`
-- [ ] `internal/world/persist.go`
-- [ ] `internal/world/persist_test.go`
-- [ ] `internal/world/python_parser.go`
-- [ ] `internal/world/reviewer_capabilities_test.go`
-- [ ] `internal/world/runbook.go`
-- [ ] `internal/world/rust_parser.go`
-- [ ] `internal/world/scan_edge_test.go`
-- [ ] `internal/world/scan_nerd_artifacts_test.go`
-- [ ] `internal/world/scanner_config.go`
-- [ ] `internal/world/scope.go`
-- [ ] `internal/world/scope_identity_test.go`
-- [ ] `internal/world/scope_mangle_test.go`
-- [ ] `internal/world/scope_package_test.go`
-- [ ] `internal/world/scope_predicates_conformance_test.go`
-- [ ] `internal/world/scope_test.go`
-- [ ] `internal/world/symbol_graph_atom_test.go`
-- [ ] `internal/world/test_dependency.go`
-- [ ] `internal/world/test_dependency_elements.go`
-- [ ] `internal/world/test_dependency_test.go`
-- [ ] `internal/world/test_file_for_test.go`
-- [ ] `internal/world/testdata/large_file.go`
-- [ ] `internal/world/types.go`
-- [ ] `internal/world/typescript_parser.go`
-- [ ] `internal/world/world_fact_path_test.go`
-- [ ] `internal/world/world_ownership_test.go`
-- [ ] `internal/world/world_predicates.go`
-- [ ] `internal/world/world_predicates_test.go`
+- [x] `internal/world/apply_incremental.go`
+- [x] `internal/world/apply_incremental_test.go`
+- [x] `internal/world/ast.go`
+- [x] `internal/world/ast_test.go`
+- [x] `internal/world/ast_treesitter.go`
+- [x] `internal/world/ast_treesitter_bench_test.go`
+- [x] `internal/world/ast_treesitter_package_test.go`
+- [x] `internal/world/cache.go`
+- [x] `internal/world/cache_metrics_test.go`
+- [x] `internal/world/cache_test.go`
+- [x] `internal/world/canonical_path.go`
+- [x] `internal/world/canonical_path_test.go`
+- [x] `internal/world/cartographer.go`
+- [x] `internal/world/cartographer_multilang.go`
+- [x] `internal/world/cartographer_multilang_test.go`
+- [x] `internal/world/cartographer_test.go`
+- [x] `internal/world/code_elements.go`
+- [x] `internal/world/code_elements_extra_test.go`
+- [x] `internal/world/code_elements_mangle.go`
+- [x] `internal/world/code_elements_mangle_test.go`
+- [x] `internal/world/code_elements_patterns_test.go`
+- [x] `internal/world/code_elements_test.go`
+- [x] `internal/world/dataflow.go`
+- [x] `internal/world/dataflow_cache.go`
+- [x] `internal/world/dataflow_cache_test.go`
+- [x] `internal/world/dataflow_javascript.go`
+- [x] `internal/world/dataflow_multilang.go`
+- [x] `internal/world/dataflow_multilang_test.go`
+- [x] `internal/world/dataflow_python.go`
+- [x] `internal/world/dataflow_python_test.go`
+- [x] `internal/world/dataflow_rust.go`
+- [x] `internal/world/dataflow_test.go`
+- [x] `internal/world/decl_conformance_test.go`
+- [x] `internal/world/deep_scan.go`
+- [x] `internal/world/deep_scan_test.go`
+- [x] `internal/world/deleted_file_retraction_test.go`
+- [x] `internal/world/dependency_links.go`
+- [x] `internal/world/dependency_links_test.go`
+- [x] `internal/world/fs.go`
+- [x] `internal/world/fs_cache_test.go`
+- [x] `internal/world/fs_canonical_join_test.go`
+- [x] `internal/world/fs_test.go`
+- [x] `internal/world/git_scanner.go`
+- [x] `internal/world/git_scanner_test.go`
+- [x] `internal/world/go_parser.go`
+- [x] `internal/world/go_parser_test.go`
+- [x] `internal/world/graph_interface.go`
+- [x] `internal/world/graph_interface_test.go`
+- [x] `internal/world/holographic.go`
+- [x] `internal/world/holographic_cache.go`
+- [x] `internal/world/holographic_cache_test.go`
+- [x] `internal/world/holographic_dependencies.go`
+- [x] `internal/world/holographic_dependencies_test.go`
+- [x] `internal/world/holographic_formatting.go`
+- [x] `internal/world/holographic_formatting_test.go`
+- [x] `internal/world/holographic_impact.go`
+- [x] `internal/world/holographic_impact_chain_test.go`
+- [x] `internal/world/holographic_perf_test.go`
+- [x] `internal/world/holographic_querier_test.go`
+- [x] `internal/world/holographic_ranking_test.go`
+- [x] `internal/world/holographic_test.go`
+- [x] `internal/world/incremental_canonical_test.go`
+- [x] `internal/world/incremental_retire_test.go`
+- [x] `internal/world/incremental_scan.go`
+- [x] `internal/world/incremental_scan_test.go`
+- [x] `internal/world/lsp/client.go`
+- [x] `internal/world/lsp/client_test.go`
+- [x] `internal/world/lsp/manager.go`
+- [x] `internal/world/lsp/manager_extra_test.go`
+- [x] `internal/world/lsp/manager_initialize_test.go`
+- [x] `internal/world/lsp/manager_test.go`
+- [x] `internal/world/mangle_fastparse.go`
+- [x] `internal/world/mangle_fastparse_test.go`
+- [x] `internal/world/mangle_parser.go`
+- [x] `internal/world/parser_factory.go`
+- [x] `internal/world/parser_factory_test.go`
+- [x] `internal/world/parser_interface.go`
+- [x] `internal/world/parser_test.go`
+- [x] `internal/world/persist.go`
+- [x] `internal/world/persist_test.go`
+- [x] `internal/world/python_parser.go`
+- [x] `internal/world/reviewer_capabilities_test.go`
+- [x] `internal/world/runbook.go`
+- [x] `internal/world/rust_parser.go`
+- [x] `internal/world/scan_edge_test.go`
+- [x] `internal/world/scan_nerd_artifacts_test.go`
+- [x] `internal/world/scanner_config.go`
+- [x] `internal/world/scope.go`
+- [x] `internal/world/scope_identity_test.go`
+- [x] `internal/world/scope_mangle_test.go`
+- [x] `internal/world/scope_package_test.go`
+- [x] `internal/world/scope_predicates_conformance_test.go`
+- [x] `internal/world/scope_test.go`
+- [x] `internal/world/symbol_graph_atom_test.go`
+- [x] `internal/world/test_dependency.go`
+- [x] `internal/world/test_dependency_elements.go`
+- [x] `internal/world/test_dependency_test.go`
+- [x] `internal/world/test_file_for_test.go`
+- [x] `internal/world/testdata/large_file.go`
+- [x] `internal/world/types.go`
+- [x] `internal/world/typescript_parser.go`
+- [x] `internal/world/world_fact_path_test.go`
+- [x] `internal/world/world_ownership_test.go`
+- [x] `internal/world/world_predicates.go`
+- [x] `internal/world/world_predicates_test.go`
 
 ### scratch_omitzero (1)
 - [ ] `scratch_omitzero/main.go`
@@ -3829,7 +3829,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/testing/context_harness/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/world (1)
-- [ ] `internal/world/.nerd/debug/debug_program_ERROR.mg`
+- [ ] `internal/world/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
 
 ### test_init (3)
 - [ ] `test_init/.nerd/mangle/extensions.mg`

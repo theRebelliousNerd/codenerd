@@ -66,7 +66,9 @@ var DeepPredicates = []string{
 	"function_scope",
 }
 
-// LSPPredicates are projected by lsp.Manager from language servers. A scan
+// LSPPredicates are reserved for lsp.Manager projections from language
+// servers. No production caller constructs that manager today, so nothing
+// writes these predicates yet; the reservation still matters because a scan
 // cannot re-derive them, so a scan must not delete them.
 var LSPPredicates = []string{
 	"symbol_defined",

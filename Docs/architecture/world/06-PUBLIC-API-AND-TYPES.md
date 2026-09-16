@@ -61,8 +61,7 @@
 | `MultiLangDataFlowExtractor` / `NewMultiLang…` / `ExtractDataFlow` | `dataflow_multilang.go` |
 | `DetectLanguage` | `dataflow_multilang.go` |
 | `MultiLangDataFlowSummary` / `SummarizeMultiLangDataFlow` | `dataflow_multilang.go` |
-| `DataFlowCache` / `NewDataFlowCache` | `dataflow_cache.go` |
-| `CacheStats` | `dataflow_cache.go` |
+| `CacheStats` | `cache.go` |
 
 ## AST facades
 

@@ -234,7 +234,7 @@ The starting backlog was **306** actionable open items across 38 corpora.
 - **[world]** gopls (or generic LSP client) under `lsp.Manager` as sketched in `lsp/README.md`.
 - **[world]** Narrow holographic kernel dependency from `*core.RealKernel` to a small query interface.
 - **[world]** Optional JIT prompt atoms for stable holographic sections.
-- **[world]** Structured observability: cache hit rate metrics for FileCache (not only DataFlowCache).
+- **[world]** Structured observability: cache hit rate metrics for FileCache. (DataFlowCache was deleted 2026-09: redundant with the fingerprint-guarded deep-scan/store caches.)
 - **[world]** Ensure incremental path also refreshes `project_language` / `entry_point` when majority shifts.
 
 ### P3 (62)

@@ -120,7 +120,7 @@ NewFileScope → Open(path) → InScope+Elements populated → Refresh?* → Clo
 | Cluster | Types |
 |---------|-------|
 | Scan | `Scanner`, `ScannerConfig`, `ScanResult`, `IncrementalOptions`, `IncrementalResult`, `DeepResult` |
-| Cache | `FileCache`, `CacheEntry`, `DataFlowCache`, `CacheStats` |
+| Cache | `FileCache`, `CacheEntry`, `CacheStats` |
 | Graph | `Cartographer`, `DataFlowExtractor`, `MultiLangDataFlowExtractor` |
 | CodeDOM | `CodeParser`, `ParserFactory`, `CodeElement`, `CodeElementParser`, `ParseResult` |
 | Scope | `FileScope`, `EncodingInfo`, `FileLoadResult` |

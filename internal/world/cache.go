@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -194,8 +195,7 @@ func (c *FileCache) Update(path string, info os.FileInfo, hash string) {
 	c.Dirty = true
 }
 
-// Stats reports lookup effectiveness, in the same shape the data-flow cache
-// reports, so both caches can be logged and compared.
+// Stats reports lookup effectiveness.
 func (c *FileCache) Stats() CacheStats {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -219,4 +219,28 @@ func (c *FileCache) statsLocked() CacheStats {
 func (c *FileCache) LogStats(scope string) {
 	s := c.Stats()
 	logging.World("FileCache[%s]: %s", scope, s)
+}
+
+// CacheStats contains cache performance statistics.
+type CacheStats struct {
+	Hits    int64 // Number of cache hits
+	Misses  int64 // Number of cache misses
+	Entries int   // Number of cached entries
+	Dirty   int   // Number of entries pending persistence
+}
+
+// HitRate returns the cache hit rate as a percentage (0-100).
+// Returns 0 if no lookups have been performed.
+func (s CacheStats) HitRate() float64 {
+	total := s.Hits + s.Misses
+	if total == 0 {
+		return 0
+	}
+	return float64(s.Hits) / float64(total) * 100
+}
+
+// String returns a human-readable summary of cache statistics.
+func (s CacheStats) String() string {
+	return fmt.Sprintf("hits=%d misses=%d entries=%d dirty=%d hitRate=%.1f%%",
+		s.Hits, s.Misses, s.Entries, s.Dirty, s.HitRate())
 }

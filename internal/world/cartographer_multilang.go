@@ -116,7 +116,11 @@ func (c *Cartographer) mapNonGoFile(fsPath, factPath, lang string) ([]core.Fact,
 	// Data flow is an enhancement: a failure there must not lose the symbols.
 	if c.dataFlowExtractor != nil {
 		if dataFlow, dfErr := c.dataFlowExtractor.ExtractDataFlowForLanguage(fsPath, lang); dfErr == nil {
-			facts = append(facts, dataFlow...)
+			// The extractor stamps the path it opened; relabel to the
+			// canonical identity like the Go mapper does, or deep scans
+			// run outside the workspace store absolute paths here while
+			// every sibling fact carries the canonical label.
+			facts = append(facts, types.RelabelPathArgs(dataFlow, fsPath, factPath)...)
 		} else {
 			logging.WorldDebug("Cartographer: data flow extraction failed for %s: %v (continuing with symbol facts only)", fsPath, dfErr)
 		}
