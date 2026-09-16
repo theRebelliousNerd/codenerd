@@ -4,7 +4,9 @@ package e2e_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -52,7 +54,7 @@ func (m *talMockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 		}
 	}
 
-	return "mock response", nil
+	return "mock response:" + userInput, nil
 }
 
 func (m *talMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userInput string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
@@ -74,7 +76,7 @@ func (m *talMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 		}
 	}
 
-	return &types.LLMToolResponse{Text: "mock response"}, nil
+	return &types.LLMToolResponse{Text: "mock response:" + userInput}, nil
 }
 
 func (m *talMockLLMClient) ShouldUsePiggybackTools() bool { return false }
@@ -185,54 +187,64 @@ func setupTALEnvironment(t *testing.T) *talEnv {
 	}
 }
 
+// talWaitForAgentState polls until an agent reaches want, or fails the test.
+// Lifecycle transitions are asynchronous; polling beats a blind sleep and
+// keeps the observed precondition deterministic instead of racy.
+func talWaitForAgentState(t *testing.T, spawner *session.Spawner, taskID string, want session.SubAgentState, timeout time.Duration) *session.SubAgent {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		agent, ok := spawner.Get(taskID)
+		if ok && agent.GetState() == want {
+			return agent
+		}
+		if !time.Now().Before(deadline) {
+			state := "missing"
+			if ok {
+				state = agent.GetState().String()
+			}
+			t.Fatalf("agent %s is %s after %v, want %s", taskID, state, timeout, want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // =============================================================================
 // 1. CRITICAL: ExecuteAsync Double-Run Detection
 // =============================================================================
 
 // TestE2E_TaskExecutor_ExecuteAsync_SingleRun proves that ExecuteAsync
-// starts the subagent exactly once. The current code has a bug where
-// Spawner.Spawn() calls `go agent.Run(ctx, req.Task)` and then
-// executeAsyncInternal() calls `go agent.Run(context.Background(), task)`
-// again — running the agent twice.
-//
-// This test uses an atomic call counter in the mock LLM to detect duplicates.
+// starts the subagent exactly once. The mock LLM echoes the task and counts
+// invocations, so the result proves the agent ran and the counter proves it
+// ran once.
 func TestE2E_TaskExecutor_ExecuteAsync_SingleRun(t *testing.T) {
 	env := setupTALEnvironment(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Execute async task
-	taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "touch sentinel file"})
+	taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "touch sentinel-file-single-run"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
-
 	if taskID == "" {
 		t.Fatal("ExecuteAsync returned empty taskID")
 	}
 
-	// Wait for the task to complete
 	result, err := env.executor.WaitForResult(ctx, taskID)
-	t.Logf("Task %s completed: result=%q, err=%v", taskID, result, err)
+	if err != nil {
+		t.Fatalf("WaitForResult failed: %v", err)
+	}
+	if !strings.Contains(result, "sentinel-file-single-run") {
+		t.Fatalf("completed task lost its input: %q", result)
+	}
 
-	// Give any duplicate Run goroutine time to execute
+	// A duplicate Run starts asynchronously; give it time to reveal itself as
+	// a second LLM call before pinning the count.
 	time.Sleep(500 * time.Millisecond)
 
-	// Check the LLM call count
-	calls := atomic.LoadInt64(&env.llm.callCount)
-	t.Logf("LLM call count after ExecuteAsync: %d", calls)
-
-	// The agent should have been run exactly once, producing exactly one LLM call.
-	// If the count is 2+, we have a double-run bug.
-	if calls > 1 {
-		t.Errorf("BUG CONFIRMED: ExecuteAsync caused %d LLM calls — expected exactly 1. "+
-			"Spawner.Spawn() and executeAsyncInternal() both call agent.Run(), "+
-			"causing duplicate execution.", calls)
-	} else if calls == 0 {
-		t.Log("WARNING: LLM was never called — agent may not have run at all")
-	} else {
-		t.Log("PASS: Agent ran exactly once")
+	if calls := atomic.LoadInt64(&env.llm.callCount); calls != 1 {
+		t.Fatalf("ExecuteAsync caused %d LLM calls, want exactly 1", calls)
 	}
 }
 
@@ -261,32 +273,43 @@ func TestE2E_TaskExecutor_ExecuteAsync_ResultLifecycle(t *testing.T) {
 	}
 
 	// Start async task (LLM will block)
-	taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "blocked task"})
+	taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "blocked-task-lifecycle"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
-
-	// Give agent time to start
-	time.Sleep(200 * time.Millisecond)
+	talWaitForAgentState(t, env.spawner, taskID, session.SubAgentStateRunning, 5*time.Second)
 
 	// While LLM is blocked, result should be not-done
-	_, done, _ = env.executor.GetResult(taskID)
-	if done {
-		t.Error("Result should not be done while LLM is blocked")
+	_, done, err = env.executor.GetResult(taskID)
+	if err != nil {
+		t.Fatalf("GetResult for a running task failed: %v", err)
 	}
-	t.Logf("Task %s is in running state (done=%v)", taskID, done)
+	if done {
+		t.Fatal("Result should not be done while LLM is blocked")
+	}
 
 	// Unblock LLM
 	close(blockCh)
 
 	// Wait for completion
 	result, err := env.executor.WaitForResult(ctx, taskID)
-	t.Logf("Task completed: result=%q err=%v", result, err)
+	if err != nil {
+		t.Fatalf("WaitForResult failed: %v", err)
+	}
+	if !strings.Contains(result, "blocked-task-lifecycle") {
+		t.Fatalf("completed task lost its input: %q", result)
+	}
 
 	// Verify final state is done
-	_, done, _ = env.executor.GetResult(taskID)
+	cached, done, err := env.executor.GetResult(taskID)
+	if err != nil {
+		t.Fatalf("GetResult after completion failed: %v", err)
+	}
 	if !done {
-		t.Error("Result should be done after WaitForResult returns")
+		t.Fatal("Result should be done after WaitForResult returns")
+	}
+	if cached != result {
+		t.Fatalf("cached result %q differs from waited result %q", cached, result)
 	}
 }
 
@@ -295,12 +318,9 @@ func TestE2E_TaskExecutor_ExecuteAsync_ResultLifecycle(t *testing.T) {
 // =============================================================================
 
 // TestE2E_TaskExecutor_WaitForResult_Cancellation_StopsAgent proves that
-// cancelling WaitForResult's context does NOT stop the underlying subagent.
-//
-// The current code exits the polling loop on ctx.Done() without calling
-// spawner.Stop(taskID), leaving a zombie subagent running indefinitely.
+// cancelling WaitForResult's context stops the underlying subagent instead of
+// leaving a zombie burning LLM tokens.
 func TestE2E_TaskExecutor_WaitForResult_Cancellation_StopsAgent(t *testing.T) {
-	// Create a permanently-blocked LLM
 	blockCh := make(chan struct{})
 	defer close(blockCh) // safety cleanup
 	env := setupTALEnvironment(t)
@@ -309,62 +329,28 @@ func TestE2E_TaskExecutor_WaitForResult_Cancellation_StopsAgent(t *testing.T) {
 	parentCtx, parentCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer parentCancel()
 
-	// Spawn a task that will block forever
 	taskID, err := env.executor.ExecuteAsync(parentCtx, session.TaskRequest{IntentVerb: "/fix", Task: "will block forever"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
-
-	// Give agent time to start running
-	time.Sleep(300 * time.Millisecond)
-
-	// Verify agent is running
-	agent, ok := env.spawner.Get(taskID)
-	if !ok {
-		t.Fatal("Spawner should have the agent registered")
-	}
-	state := agent.GetState()
-	t.Logf("Agent state before cancel: %v", state)
-	if state != session.SubAgentStateRunning {
-		t.Logf("WARNING: Agent state is %v, expected running", state)
-	}
+	talWaitForAgentState(t, env.spawner, taskID, session.SubAgentStateRunning, 5*time.Second)
 
 	// Cancel WaitForResult via short timeout
 	waitCtx, waitCancel := context.WithTimeout(parentCtx, 500*time.Millisecond)
 	defer waitCancel()
 
 	_, err = env.executor.WaitForResult(waitCtx, taskID)
-	if err == nil {
-		t.Fatal("WaitForResult should have returned error on context cancellation")
-	}
-	t.Logf("WaitForResult returned: %v (as expected)", err)
-
-	// Give system time to reap the agent (if it does)
-	time.Sleep(500 * time.Millisecond)
-
-	// Check: is the agent STILL running?
-	agentAfter, ok := env.spawner.Get(taskID)
-	if !ok {
-		t.Log("Agent was removed from spawner — good")
-	} else {
-		stateAfter := agentAfter.GetState()
-		if stateAfter == session.SubAgentStateRunning {
-			t.Errorf("BUG CONFIRMED: Agent %s is STILL RUNNING after WaitForResult "+
-				"cancellation. WaitForResult exits without calling spawner.Stop(). "+
-				"This creates a zombie subagent burning LLM tokens.", taskID)
-		} else {
-			t.Logf("Agent state after cancel: %v (stopped/completed)", stateAfter)
-		}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitForResult returned %v, want context deadline exceeded", err)
 	}
 
-	// Verify number of still-active agents
-	activeAgents := env.spawner.ListActive()
-	t.Logf("Active agents after cancellation: %d", len(activeAgents))
-	if len(activeAgents) > 0 {
-		for _, a := range activeAgents {
-			t.Logf("  Zombie: id=%s name=%s state=%v", a.GetID(), a.GetName(), a.GetState())
-		}
-		t.Error("ZOMBIE LEAK: Active agents remain after WaitForResult cancellation")
+	// WaitForResult must reap the agent it stopped waiting for.
+	agent := talWaitForAgentState(t, env.spawner, taskID, session.SubAgentStateFailed, 5*time.Second)
+	if _, resultErr := agent.GetResult(); !errors.Is(resultErr, context.Canceled) {
+		t.Fatalf("cancelled agent result error is %v, want context canceled", resultErr)
+	}
+	if activeAgents := env.spawner.ListActive(); len(activeAgents) != 0 {
+		t.Fatalf("%d agents remain active after WaitForResult cancellation", len(activeAgents))
 	}
 }
 
@@ -373,49 +359,32 @@ func TestE2E_TaskExecutor_WaitForResult_Cancellation_StopsAgent(t *testing.T) {
 // =============================================================================
 
 // TestE2E_TaskExecutor_ExecuteAsync_ContextBackground verifies that the
-// subagent respects the caller's context (with timeout), not context.Background().
-//
-// If the second Run uses context.Background(), cancelling the parent context
-// won't stop the agent.
+// subagent inherits the caller's context. Cancelling the parent context must
+// stop the agent; a context.Background bypass would leave it running.
 func TestE2E_TaskExecutor_ExecuteAsync_ContextBackground(t *testing.T) {
-	// LLM blocks until channel is closed
 	blockCh := make(chan struct{})
 	defer close(blockCh)
 	env := setupTALEnvironment(t)
 	env.llm.blockCh = blockCh
 
-	// Create a context that will be cancelled
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "context test"})
+	taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "context-propagation"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
-
-	// Give agent time to start
-	time.Sleep(200 * time.Millisecond)
+	talWaitForAgentState(t, env.spawner, taskID, session.SubAgentStateRunning, 5*time.Second)
 
 	// Cancel the parent context
 	cancel()
 
-	// If the agent's Run used context.Background(), it will keep running even
-	// after our context is cancelled. Wait a bit and check.
-	time.Sleep(1 * time.Second)
-
-	agent, ok := env.spawner.Get(taskID)
-	if !ok {
-		t.Log("Agent was cleaned up — good")
-		return
+	agent := talWaitForAgentState(t, env.spawner, taskID, session.SubAgentStateFailed, 5*time.Second)
+	if _, resultErr := agent.GetResult(); !errors.Is(resultErr, context.Canceled) {
+		t.Fatalf("cancelled agent result error is %v, want context canceled", resultErr)
 	}
-
-	state := agent.GetState()
-	if state == session.SubAgentStateRunning {
-		t.Logf("KNOWN ISSUE: Agent %s is still running after parent context cancellation. "+
-			"executeAsyncInternal uses context.Background() for the second go agent.Run(), "+
-			"which bypasses the caller's cancellation.", taskID)
-	} else {
-		t.Logf("Agent state after context cancel: %v", state)
+	if activeAgents := env.spawner.ListActive(); len(activeAgents) != 0 {
+		t.Fatalf("%d agents remain active after parent context cancellation", len(activeAgents))
 	}
 }
 
@@ -423,46 +392,63 @@ func TestE2E_TaskExecutor_ExecuteAsync_ContextBackground(t *testing.T) {
 // 5. Cleanup Removes Completed Agents
 // =============================================================================
 
-// TestE2E_TaskExecutor_Cleanup_RemovesCompletedAgent verifies that
-// spawner.Cleanup() removes completed/failed agents and ListActive() is empty.
+// TestE2E_TaskExecutor_Cleanup_RemovesCompletedAgent verifies the terminal
+// lifecycle split: a retrieved result moves to the JITExecutor cache and out
+// of the spawner registry, while Cleanup removes a terminal agent that was
+// never retrieved.
 func TestE2E_TaskExecutor_Cleanup_RemovesCompletedAgent(t *testing.T) {
 	env := setupTALEnvironment(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Run and complete a task
-	taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "quick task"})
+	taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "quick-task-cleanup"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
-
-	// Wait for completion
-	_, err = env.executor.WaitForResult(ctx, taskID)
-	t.Logf("Task completed: err=%v", err)
-
-	// Before cleanup, agent should still be in spawner
-	_, ok := env.spawner.Get(taskID)
-	if !ok {
-		t.Log("NOTE: Agent was already removed from spawner (may have been auto-cleaned)")
+	result, err := env.executor.WaitForResult(ctx, taskID)
+	if err != nil {
+		t.Fatalf("WaitForResult failed: %v", err)
+	}
+	if !strings.Contains(result, "quick-task-cleanup") {
+		t.Fatalf("completed task lost its input: %q", result)
+	}
+	if _, ok := env.spawner.Get(taskID); ok {
+		t.Fatal("retrieved agent remains in the spawner registry after its result was cached")
 	}
 
-	// Cleanup
-	removed := env.spawner.Cleanup()
-	t.Logf("Cleanup removed %d agents", removed)
+	direct, err := env.spawner.Spawn(ctx, session.SpawnRequest{
+		Name:       "coder",
+		Task:       "direct-cleanup-marker",
+		Type:       session.SubAgentTypeEphemeral,
+		IntentVerb: "/fix",
+	})
+	if err != nil {
+		t.Fatalf("direct Spawn failed: %v", err)
+	}
+	direct.Run(ctx, "direct-cleanup-marker")
+	talWaitForAgentState(t, env.spawner, direct.GetID(), session.SubAgentStateCompleted, 5*time.Second)
 
-	// After cleanup, no active agents should remain
-	active := env.spawner.ListActive()
-	if len(active) > 0 {
-		t.Errorf("Expected 0 active agents after cleanup, got %d", len(active))
-		for _, a := range active {
-			t.Logf("  Still active: id=%s state=%v", a.GetID(), a.GetState())
-		}
+	if removed := env.spawner.Cleanup(); removed != 1 {
+		t.Fatalf("Cleanup removed %d agents, want the one unretrieved terminal agent", removed)
+	}
+	if _, ok := env.spawner.Get(direct.GetID()); ok {
+		t.Fatal("Cleanup left a completed agent in the spawner registry")
+	}
+	if active := env.spawner.ListActive(); len(active) != 0 {
+		t.Fatalf("Expected 0 active agents after cleanup, got %d", len(active))
 	}
 
-	// The result should still be retrievable from the JITExecutor's cache
-	result, done, err := env.executor.GetResult(taskID)
-	t.Logf("Cached result after cleanup: result=%q done=%v err=%v", result, done, err)
+	cached, done, err := env.executor.GetResult(taskID)
+	if err != nil {
+		t.Fatalf("GetResult after cleanup failed: %v", err)
+	}
+	if !done {
+		t.Fatal("retrieved result is no longer done after cleanup")
+	}
+	if cached != result {
+		t.Fatalf("cached result %q differs from waited result %q", cached, result)
+	}
 }
 
 // =============================================================================
@@ -494,28 +480,33 @@ func TestE2E_TaskExecutor_ExecuteAsync_CapacityLimit(t *testing.T) {
 	defer cancel()
 
 	// Spawn up to the limit
-	var taskIDs []string
+	taskIDs := make([]string, 0, 3)
 	for i := 0; i < 3; i++ {
-		taskID, err := taskExec.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: fmt.Sprintf("task %d", i)})
+		taskID, err := taskExec.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: fmt.Sprintf("capacity-task-%d", i)})
 		if err != nil {
 			t.Fatalf("ExecuteAsync #%d failed: %v", i, err)
 		}
 		taskIDs = append(taskIDs, taskID)
-		time.Sleep(50 * time.Millisecond) // Let spawn register
+		talWaitForAgentState(t, spawner, taskID, session.SubAgentStateRunning, 5*time.Second)
 	}
-
-	// Give agents time to register and start
-	time.Sleep(300 * time.Millisecond)
-
-	active := spawner.ListActive()
-	t.Logf("Active agents after spawning 3: %d", len(active))
+	seen := make(map[string]struct{}, len(taskIDs))
+	for _, taskID := range taskIDs {
+		if _, dup := seen[taskID]; dup || taskID == "" {
+			t.Fatalf("spawned task IDs are not unique and non-empty: %q", taskIDs)
+		}
+		seen[taskID] = struct{}{}
+	}
+	if active := spawner.ListActive(); len(active) != 3 {
+		t.Fatalf("spawner holds %d active agents, want exactly the 3-agent capacity", len(active))
+	}
 
 	// Next spawn should fail — capacity exceeded
 	_, err := taskExec.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "one too many"})
 	if err == nil {
-		t.Error("Expected capacity error when exceeding maxActiveSubagents, got nil")
-	} else {
-		t.Logf("Correctly rejected: %v", err)
+		t.Fatal("Expected capacity error when exceeding maxActiveSubagents, got nil")
+	}
+	if !strings.Contains(err.Error(), "max active subagents reached") {
+		t.Fatalf("capacity rejection lost its contract wording: %v", err)
 	}
 }
 
@@ -524,7 +515,7 @@ func TestE2E_TaskExecutor_ExecuteAsync_CapacityLimit(t *testing.T) {
 // =============================================================================
 
 // TestE2E_TaskExecutor_ExecuteAsync_Concurrent verifies that concurrent
-// ExecuteAsync calls don't cause data races or panics.
+// ExecuteAsync calls stay race-safe and return each caller's own result.
 func TestE2E_TaskExecutor_ExecuteAsync_Concurrent(t *testing.T) {
 	env := setupTALEnvironment(t)
 
@@ -532,49 +523,56 @@ func TestE2E_TaskExecutor_ExecuteAsync_Concurrent(t *testing.T) {
 	defer cancel()
 
 	const goroutines = 5
+	markers := make([]string, goroutines)
+	for i := range markers {
+		markers[i] = fmt.Sprintf("concurrent-task-%02d", i)
+	}
 	var wg sync.WaitGroup
-	errors := make([]error, goroutines)
+	spawnErrs := make([]error, goroutines)
 	taskIDs := make([]string, goroutines)
 
 	wg.Add(goroutines)
 	for i := 0; i < goroutines; i++ {
 		go func(idx int) {
 			defer wg.Done()
-			taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: fmt.Sprintf("concurrent task %d", idx)})
+			taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: markers[idx]})
 			taskIDs[idx] = taskID
-			errors[idx] = err
+			spawnErrs[idx] = err
 		}(i)
 	}
 	wg.Wait()
 
-	// Count successes and failures
-	successes := 0
-	for i, err := range errors {
+	seen := make(map[string]struct{}, goroutines)
+	for i, err := range spawnErrs {
 		if err != nil {
-			t.Logf("Goroutine %d: error=%v (may be capacity limit)", i, err)
-		} else {
-			successes++
-			t.Logf("Goroutine %d: taskID=%s", i, taskIDs[i])
+			t.Fatalf("goroutine %d failed to spawn: %v", i, err)
 		}
+		if taskIDs[i] == "" {
+			t.Fatalf("goroutine %d returned an empty task ID", i)
+		}
+		if _, dup := seen[taskIDs[i]]; dup {
+			t.Fatalf("duplicate task ID %q", taskIDs[i])
+		}
+		seen[taskIDs[i]] = struct{}{}
 	}
 
-	t.Logf("Concurrent ExecuteAsync: %d/%d succeeded", successes, goroutines)
-
-	// Wait for all successful tasks to complete
 	for i, taskID := range taskIDs {
-		if errors[i] == nil && taskID != "" {
-			result, waitErr := env.executor.WaitForResult(ctx, taskID)
-			t.Logf("Task %d result: %q err=%v", i, result, waitErr)
+		result, waitErr := env.executor.WaitForResult(ctx, taskID)
+		if waitErr != nil {
+			t.Fatalf("goroutine %d WaitForResult failed: %v", i, waitErr)
+		}
+		if !strings.Contains(result, markers[i]) {
+			t.Fatalf("goroutine %d result lost its marker: %q", i, result)
+		}
+		for j, foreign := range markers {
+			if j != i && strings.Contains(result, foreign) {
+				t.Fatalf("goroutine %d result leaked marker %q: %q", i, foreign, result)
+			}
 		}
 	}
 
-	// Verify no double-run inflation
-	calls := atomic.LoadInt64(&env.llm.callCount)
-	t.Logf("Total LLM calls for %d concurrent tasks: %d", successes, calls)
-
-	// If double-run exists, calls will be ~2x successes
-	if calls > int64(successes)*2 {
-		t.Errorf("Suspiciously high LLM call count: %d calls for %d tasks (possible double-run)", calls, successes)
+	if calls := atomic.LoadInt64(&env.llm.callCount); calls != goroutines {
+		t.Fatalf("concurrent ExecuteAsync caused %d LLM calls, want exactly %d", calls, goroutines)
 	}
 }
 

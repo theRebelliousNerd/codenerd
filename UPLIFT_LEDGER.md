@@ -3502,7 +3502,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `tests/e2e/session_spawner_config_integration_test.go` (17/17; vacuous tests made behavioral)
 - [ ] `tests/e2e/shadowmode_commit_safety_boundary_test.go`
 - [ ] `tests/e2e/spawner_apischeduler_integration_test.go`
-- [ ] `tests/e2e/task_executor_async_lifecycle_test.go`
+- [x] `tests/e2e/task_executor_async_lifecycle_test.go` (7/7 + race; strict lifecycle contracts, echo markers, deterministic polling)
 - [x] `tests/e2e/tddloop_executor_integration_test.go` (18/18 green; hang fixed, stalls real)
 - [ ] `tests/e2e/tool_safety_fallback_config_test.go`
 - [ ] `tests/e2e/virtualstore_dreamer_integration_test.go`
