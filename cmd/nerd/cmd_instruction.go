@@ -14,6 +14,7 @@ import (
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	"codenerd/internal/session"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
@@ -156,6 +157,18 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(task) == "" {
 			task = userInput
 		}
+		// delegate_task/3 carries only (shard, target, status):
+		// The intent's requirements live in the constraint slot the policy rule dropped.
+		// Reattach them so the shard receives the full structured intent, not
+		// a bare noun phrase it can only analyze (observed live: a /fix
+		// delegation arrived as "coder <noun>" and the shard wrote an essay).
+		delegateReq := session.TaskRequest{
+			IntentVerb: shardType,
+			Task:       task,
+			Target:     intent.Target,
+			Constraint: intent.Constraint,
+		}
+		task = delegateReq.TaskText()
 		logger.Info("Delegating to shard", zap.String("type", shardType), zap.String("task", task))
 
 		if shardType == "/tool_generator" || shardType == "tool_generator" {
@@ -196,7 +209,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 				}
 			}
 		} else {
-			result, err := cortex.SpawnTask(ctx, shardType, task)
+			result, err := cortex.SpawnTaskWithTarget(ctx, shardType, task, intent.Target)
 			if err != nil {
 				actionErr = err
 				output = fmt.Sprintf("Shard execution failed: %v", err)

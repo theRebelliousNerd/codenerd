@@ -26,6 +26,26 @@ type TaskRequest struct {
 	IntentVerb string // Canonical intent verb (e.g., /fix, /review, /consult/rustexpert)
 	Task       string // The task description
 	Target     string // Resolved file or directory the verb acts on; empty when the task is prose rather than a target.
+	// Constraint carries the routing layer's requirements (acceptance
+	// criteria, must/must-not rules). The delegation boundary used to drop
+	// it: shards received a bare target noun and analyzed instead of acting.
+	Constraint string
+}
+
+// TaskText returns the agent-facing task description: the task plus any
+// routing-layer constraint. Callers that already merged the constraint into
+// Task are left unchanged (Contains guard) so cmd flattening and direct
+// TaskRequest users compose without duplication.
+func (r TaskRequest) TaskText() string {
+	task := strings.TrimSpace(r.Task)
+	if c := strings.TrimSpace(r.Constraint); c != "" && !strings.Contains(task, c) {
+		if task != "" {
+			task += "\n\nConstraints:\n" + c
+		} else {
+			task = c
+		}
+	}
+	return task
 }
 
 // UserAgentFromIntentVerb returns the user-defined agent name a verb addresses,
@@ -108,11 +128,15 @@ func normalizeTaskIntentVerb(verb string) (string, error) {
 	if verb == "" {
 		return "", fmt.Errorf("invalid intent verb: empty")
 	}
-	if strings.HasPrefix(verb, "/") {
-		return verb, nil
-	}
 	// Domain shard types used by `nerd spawn <type>` and Cortex.SpawnTask.
-	switch strings.ToLower(verb) {
+	// The leading slash is stripped before the switch: policy delegate_task
+	// facts carry slashed atoms (/coder, /tester), and passing them through
+	// verbatim miscategorized every delegated fix as /query (observed live:
+	// intent=/coder ran the query-shaped path and analyzed instead of
+	// editing). Canonical verbs and /consult/... match no case below and
+	// return unchanged via the slashed branch.
+	candidate := strings.TrimPrefix(verb, "/")
+	switch strings.ToLower(candidate) {
 	case "coder":
 		return "/fix", nil
 	case "tester":
@@ -135,6 +159,13 @@ func normalizeTaskIntentVerb(verb string) (string, error) {
 		// Ollama client via JITExecutor — the dual-LLM mis-route FM15 forbids.
 		return "", fmt.Errorf("image_generator requires ShardManager image LLM (Nano Banana 2 / gemini-3.1-flash-image), not TaskExecutor worker path")
 	default:
+		if strings.HasPrefix(verb, "/") {
+			// Canonical verb or /consult/...: unchanged. (Slashed image
+			// names do NOT reach here — they match the fail-closed case
+			// above, closing the old bypass where "/image" slipped past
+			// the guard that bare "image" hit.)
+			return verb, nil
+		}
 		// Bare identifier: treat as /identifier (e.g. user agents).
 		if strings.ContainsAny(verb, " \t\n/") {
 			return "", fmt.Errorf("invalid intent verb '%s', must start with '/' or be a known shard type", verb)
@@ -234,7 +265,8 @@ func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, s
 		req.IntentVerb = normalized
 	}
 
-	logging.Session("JITExecutor.ExecuteWithContext: intent=%s task_len=%d priority=%v", req.IntentVerb, len(req.Task), priority)
+	taskText := req.TaskText()
+	logging.Session("JITExecutor.ExecuteWithContext: intent=%s task_len=%d priority=%v", req.IntentVerb, len(taskText), priority)
 
 	// Propagate the caller's priority to the API scheduler. Without this the
 	// priority parameter was accepted and dropped — user-initiated shard work
@@ -267,7 +299,7 @@ func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, s
 		exec.SetSessionContext(sessionCtx)
 	}
 
-	inlineTask := strings.TrimSpace(req.Task)
+	inlineTask := strings.TrimSpace(taskText)
 	if req.IntentVerb != "" {
 		intentWord := strings.TrimPrefix(strings.TrimSpace(req.IntentVerb), "/")
 		if intentWord != "" && (inlineTask == "" || !strings.HasPrefix(inlineTask, intentWord+" ")) {
@@ -280,8 +312,14 @@ func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, s
 	}
 
 	// The routing layer already classified this task — run with the preset
-	// intent instead of re-perceiving the synthetic task string.
-	result, err := exec.ProcessWithIntent(ctx, inlineTask, presetIntentForTask(req.IntentVerb, inlineTask, req.Target))
+	// intent instead of re-perceiving the synthetic task string. The preset
+	// carries the constraint structurally too: retrieval and prompt assembly
+	// read intent.Constraint, so text alone would leave them blind.
+	preset := presetIntentForTask(req.IntentVerb, inlineTask, req.Target)
+	if preset != nil {
+		preset.Constraint = strings.TrimSpace(req.Constraint)
+	}
+	result, err := exec.ProcessWithIntent(ctx, inlineTask, preset)
 	if err != nil {
 		// Still surface any partial response text for diagnostics, but never
 		// treat hollow/tool failure as success for CLI one-shots.
@@ -323,7 +361,7 @@ func (j *JITExecutor) executeAsyncInternal(ctx context.Context, req TaskRequest,
 	// config (user-tunable) instead of a hardcoded magic number.
 	spawnReq := SpawnRequest{
 		Name:           j.intentToAgentName(req.IntentVerb),
-		Task:           req.Task,
+		Task:           req.TaskText(),
 		Type:           SubAgentTypeEphemeral,
 		IntentVerb:     req.IntentVerb,
 		IntentTarget:   req.Target,

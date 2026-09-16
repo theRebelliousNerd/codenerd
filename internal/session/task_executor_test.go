@@ -588,3 +588,115 @@ func TestJITExecutor_StateConflicts(t *testing.T) {
 		wg.Wait()
 	})
 }
+
+func TestNormalizeTaskIntentVerb_SlashedShardTypes(t *testing.T) {
+	// Policy delegate_task facts carry slashed atoms (/coder); they must map
+	// like their bare forms. Verbatim passthrough miscategorized delegated
+	// fixes as /query (observed live: intent=/coder analyzed, never edited).
+	cases := []struct{ in, want string }{
+		{"/coder", "/fix"},
+		{"/tester", "/test"},
+		{"/reviewer", "/review"},
+		{"/researcher", "/research"},
+		{"/Coder", "/fix"},
+		{"/fix", "/fix"},
+		{"/generate_tool", "/generate_tool"},
+		{"/consult/rustexpert", "/consult/rustexpert"},
+		{"/", "/"},
+	}
+	for _, tc := range cases {
+		got, err := normalizeTaskIntentVerb(tc.in)
+		if err != nil {
+			t.Fatalf("normalizeTaskIntentVerb(%q) err: %v", tc.in, err)
+		}
+		if got != tc.want {
+			t.Fatalf("normalizeTaskIntentVerb(%q)=%q want %q", tc.in, got, tc.want)
+		}
+	}
+	// Slashed image names hit the same fail-closed guard as bare ones.
+	if _, err := normalizeTaskIntentVerb("/image"); err == nil {
+		t.Fatal("expected fail-closed error for /image")
+	}
+}
+
+func TestTaskRequest_TaskText(t *testing.T) {
+	r := TaskRequest{Task: "do the thing", Constraint: "must verify"}
+	want := "do the thing\n\nConstraints:\nmust verify"
+	if got := r.TaskText(); got != want {
+		t.Fatalf("TaskText = %q, want %q", got, want)
+	}
+	plain := TaskRequest{Task: "do the thing"}
+	if got := plain.TaskText(); got != "do the thing" {
+		t.Fatalf("TaskText without constraint = %q", got)
+	}
+	merged := TaskRequest{Task: want, Constraint: "must verify"}
+	if got := merged.TaskText(); got != want {
+		t.Fatalf("TaskText double-appended: %q", got)
+	}
+}
+
+func TestJITExecutor_Execute_SlashedCoderIsMutation(t *testing.T) {
+	// "/coder" (the policy atom form) must behave exactly like bare "coder":
+	// write-oriented, so a prose-only reply is hollow and must fail.
+	mockLLM := &MockLLMClient{
+		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			return &types.LLMToolResponse{Text: "ok"}, nil
+		},
+		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
+			return "ok", nil
+		},
+	}
+	mockTransducer := &MockTransducer{}
+	executor := NewExecutor(
+		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer,
+	)
+	spawner := NewSpawner(
+		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer, DefaultSpawnerConfig(),
+	)
+	jitExec := NewJITExecutor(executor, spawner, mockTransducer)
+	_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "/coder", Task: "create a file"})
+	if err == nil {
+		t.Fatal("expected hollow success failure for /coder with no tool calls")
+	}
+	if !strings.Contains(err.Error(), "hollow success blocked") {
+		t.Fatalf("expected hollow success error, got: %v", err)
+	}
+}
+
+func TestJITExecutor_Execute_ConstraintReachesPrompt(t *testing.T) {
+	// The routing-layer constraint must reach the agent prompt: without it a
+	// delegated fix arrives as a bare noun phrase and gets analyzed, not done.
+	var seen []string
+	capture := func(user string) { seen = append(seen, user) }
+	mockLLM := &MockLLMClient{
+		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			capture(user)
+			return &types.LLMToolResponse{Text: "ok"}, nil
+		},
+		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
+			capture(user)
+			return "ok", nil
+		},
+		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
+			capture(prompt)
+			return "ok", nil
+		},
+	}
+	mockTransducer := &MockTransducer{}
+	executor := NewExecutor(
+		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer,
+	)
+	spawner := NewSpawner(
+		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer, DefaultSpawnerConfig(),
+	)
+	jitExec := NewJITExecutor(executor, spawner, mockTransducer)
+	_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "/review", Task: "look at x", Constraint: "must cite line numbers"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	joined := strings.Join(seen, "\n")
+	if !strings.Contains(joined, "must cite line numbers") {
+		t.Fatalf("constraint never reached the model prompt; saw %d prompts", len(seen))
+	}
+}
+
