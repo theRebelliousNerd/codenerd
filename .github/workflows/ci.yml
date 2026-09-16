@@ -260,7 +260,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Run each test twice in one process
-        run: go test -count=2 ./internal/session/ ./internal/tools/ ./internal/prompt/ ./internal/broker/ ./internal/system/
+        run: go test -count=2 ./internal/session/ ./internal/tools/ ./internal/prompt/ ./internal/broker/ ./internal/system/ ./internal/perception/
 
   race:
     # Closes the mcp backlog item "-race CI for manager+store". Scoped to those
