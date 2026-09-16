@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -61,8 +60,8 @@ func (ls *LearningStore) RecallLearningContentContext(ctx context.Context, hit L
 	if raw == "" {
 		return "", fmt.Errorf("learning %d exceeds recall content limit", hit.LearningID)
 	}
-	var args []any
-	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+	args, err := decodeLearningArgs(raw)
+	if err != nil {
 		return "", err
 	}
 	content := combinedKeyPattern.ReplaceAllString(joinArgs(args), "${1}[redacted]")
@@ -411,7 +410,9 @@ func (ls *LearningStore) recallLearningsLexicalInShard(ctx context.Context, shar
 		if effective == "" {
 			var factArgs []any
 			if argsJSON != "" {
-				if err := json.Unmarshal([]byte(argsJSON), &factArgs); err != nil {
+				var err error
+				factArgs, err = decodeLearningArgs(argsJSON)
+				if err != nil {
 					return nil, fmt.Errorf("decode learning %d: %w", hit.LearningID, err)
 				}
 			}

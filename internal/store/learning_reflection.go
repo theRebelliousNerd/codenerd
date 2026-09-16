@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -116,10 +115,15 @@ func (ls *LearningStore) ListLearningEmbeddingCandidates(shardType string, limit
 			continue
 		}
 		if argsJSON != "" {
-			_ = json.Unmarshal([]byte(argsJSON), &c.FactArgs)
+			if factArgs, err := decodeLearningArgs(argsJSON); err == nil {
+				c.FactArgs = factArgs
+			}
 		}
 		c.Embedding = embedding
 		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return candidates, nil
 }
@@ -174,10 +178,15 @@ func (ls *LearningStore) ListAllLearningEmbeddingCandidates(shardType string, li
 			continue
 		}
 		if argsJSON != "" {
-			_ = json.Unmarshal([]byte(argsJSON), &c.FactArgs)
+			if factArgs, err := decodeLearningArgs(argsJSON); err == nil {
+				c.FactArgs = factArgs
+			}
 		}
 		c.Embedding = embedding
 		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return candidates, nil
 }

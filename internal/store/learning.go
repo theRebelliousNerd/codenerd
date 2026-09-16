@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -253,6 +254,54 @@ func (ls *LearningStore) SaveBatch(shardType string, learnings []types.ShardLear
 	return nil
 }
 
+// decodeLearningArgs decodes a stored fact_args payload with exact numeric
+// fidelity: integer literals come back as int64, decimals as float64. Plain
+// json.Unmarshal decodes every number as float64, which corrupts int64s past
+// 2^53 AND breaks handle convergence — Save builds the lexical handle from
+// the caller's args while the reflection worker rebuilds it from decoded
+// args, so a numeric learning would hash differently at each site and
+// re-embed forever. Legacy rows decode identically; only number types change.
+func decodeLearningArgs(argsJSON string) ([]any, error) {
+	if argsJSON == "" {
+		return nil, nil
+	}
+	dec := json.NewDecoder(strings.NewReader(argsJSON))
+	dec.UseNumber()
+	var raw []any
+	if err := dec.Decode(&raw); err != nil {
+		return nil, err
+	}
+	return normalizeJSONNumbers(raw).([]any), nil
+}
+
+// normalizeJSONNumbers walks decoded JSON, restoring numbers to int64 when
+// the literal is an exact integer and float64 otherwise. Unparseable literals
+// keep their json.Number so display and re-marshal stay stable.
+func normalizeJSONNumbers(v any) any {
+	switch t := v.(type) {
+	case json.Number:
+		if i, err := t.Int64(); err == nil {
+			return i
+		}
+		if f, err := t.Float64(); err == nil {
+			return f
+		}
+		return t
+	case map[string]any:
+		for k, e := range t {
+			t[k] = normalizeJSONNumbers(e)
+		}
+		return t
+	case []any:
+		for i, e := range t {
+			t[i] = normalizeJSONNumbers(e)
+		}
+		return t
+	default:
+		return v
+	}
+}
+
 // Load retrieves all learnings for a shard type.
 func (ls *LearningStore) Load(shardType string) ([]types.ShardLearning, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "LearningStore.Load")
@@ -284,15 +333,19 @@ func (ls *LearningStore) Load(shardType string) ([]types.ShardLearning, error) {
 		if err := rows.Scan(&l.ID, &l.ShardType, &l.FactPredicate, &argsJSON, &l.LearnedAt, &l.SourceCampaign, &l.Confidence); err != nil {
 			continue
 		}
-		if err := json.Unmarshal([]byte(argsJSON), &l.FactArgs); err != nil {
+		factArgs, err := decodeLearningArgs(argsJSON)
+		if err != nil {
 			continue
 		}
 		learnings = append(learnings, types.ShardLearning{
 			FactPredicate: l.FactPredicate,
-			FactArgs:      l.FactArgs,
+			FactArgs:      factArgs,
 			Confidence:    l.Confidence,
 			Timestamp:     l.LearnedAt.Unix(),
 		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate learnings for shard %s: %w", shardType, err)
 	}
 
 	logging.StoreDebug("Loaded %d learnings for shard=%s", len(learnings), shardType)
@@ -330,15 +383,19 @@ func (ls *LearningStore) LoadByPredicate(shardType, predicate string) ([]types.S
 		if err := rows.Scan(&l.ID, &l.ShardType, &l.FactPredicate, &argsJSON, &l.LearnedAt, &l.SourceCampaign, &l.Confidence); err != nil {
 			continue
 		}
-		if err := json.Unmarshal([]byte(argsJSON), &l.FactArgs); err != nil {
+		factArgs, err := decodeLearningArgs(argsJSON)
+		if err != nil {
 			continue
 		}
 		learnings = append(learnings, types.ShardLearning{
 			FactPredicate: l.FactPredicate,
-			FactArgs:      l.FactArgs,
+			FactArgs:      factArgs,
 			Confidence:    l.Confidence,
 			Timestamp:     l.LearnedAt.Unix(),
 		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate learnings for predicate %s: %w", predicate, err)
 	}
 
 	logging.StoreDebug("Loaded %d learnings for predicate=%s", len(learnings), predicate)

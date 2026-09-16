@@ -2822,7 +2822,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/store/corpus_search_boundaries_test.go`
 - [x] `internal/store/embedded_store.go`
 - [x] `internal/store/foundation_uplift_test.go`
-- [ ] `internal/store/fact_codec.go`
+- [x] `internal/store/fact_codec.go`
 - [ ] `internal/store/fact_codec_int64_test.go`
 - [ ] `internal/store/fact_codec_test.go`
 - [x] `internal/store/indexes.go`
@@ -2830,14 +2830,15 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/store/init_vec.go`
 - [ ] `internal/store/knowledge_lexical_db.go`
 - [ ] `internal/store/knowledge_lexical_db_test.go`
-- [ ] `internal/store/learned_store.go`
-- [ ] `internal/store/learning.go`
+- [x] `internal/store/learned_store.go`
+- [x] `internal/store/learning.go`
 - [ ] `internal/store/learning_bench_test.go`
-- [ ] `internal/store/learning_candidates.go`
+- [x] `internal/store/learning_candidates.go`
 - [ ] `internal/store/learning_candidates_test.go`
 - [ ] `internal/store/learning_content_test.go`
 - [ ] `internal/store/learning_recall_regression_test.go`
-- [ ] `internal/store/learning_reflection.go`
+- [x] `internal/store/learning_reflection.go`
+- [x] `internal/store/learned_uplift_test.go`
 - [ ] `internal/store/learning_stats_test.go`
 - [x] `internal/store/local.go`
 - [ ] `internal/store/local_cold.go`
@@ -2881,7 +2882,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/store/reembed_all_test.go`
 - [ ] `internal/store/reflection_reembed.go`
 - [ ] `internal/store/reflection_reembed_test.go`
-- [ ] `internal/store/reflection_search.go`
+- [x] `internal/store/reflection_search.go`
 - [ ] `internal/store/reflection_search_extra_test.go`
 - [ ] `internal/store/reflection_utils.go`
 - [ ] `internal/store/reflection_utils_test.go`

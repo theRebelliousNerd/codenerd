@@ -8,9 +8,12 @@ import (
 	"codenerd/internal/logging"
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -142,6 +145,10 @@ func (s *LearnedCorpusStore) initializeSchema() error {
 			logging.Get(logging.CategoryStore).Warn("Failed to create vec_learned table (sqlite-vec may not be available): %v", err)
 		} else {
 			logging.StoreDebug("sqlite-vec table created with %d dimensions", dims)
+			// The drop above wiped the ANN index; restore it from the durable
+			// table or every previously learned pattern is unsearchable
+			// until re-added. See backfillVecLearned.
+			s.backfillVecLearned()
 		}
 	} else {
 		logging.StoreDebug("Skipping vec_learned creation during init (no embedding engine provided, deferred to SetEmbeddingEngine)")
@@ -149,6 +156,39 @@ func (s *LearnedCorpusStore) initializeSchema() error {
 
 	logging.StoreDebug("Learned corpus schema initialized")
 	return nil
+}
+
+// backfillVecLearned restores the ANN index from learned_patterns after a
+// drop-and-recreate. Rows are inserted one at a time: a pattern whose
+// embedding no longer matches the recreated dimensions (model switch) fails
+// its own insert and is skipped, not the whole backfill.
+func (s *LearnedCorpusStore) backfillVecLearned() {
+	rows, err := s.db.Query("SELECT embedding, pattern, verb FROM learned_patterns")
+	if err != nil {
+		logging.Get(logging.CategoryStore).Warn("vec_learned backfill query failed: %v", err)
+		return
+	}
+	defer rows.Close()
+	backfilled, skipped := 0, 0
+	for rows.Next() {
+		var blob []byte
+		var pattern, verb string
+		if err := rows.Scan(&blob, &pattern, &verb); err != nil {
+			skipped++
+			continue
+		}
+		if _, err := s.db.Exec("INSERT INTO vec_learned (embedding, pattern, verb) VALUES (?, ?, ?)", blob, pattern, verb); err != nil {
+			skipped++
+			continue
+		}
+		backfilled++
+	}
+	if err := rows.Err(); err != nil {
+		logging.Get(logging.CategoryStore).Warn("vec_learned backfill iteration failed: %v", err)
+	}
+	if backfilled > 0 || skipped > 0 {
+		logging.Store("vec_learned backfilled: %d patterns restored, %d skipped", backfilled, skipped)
+	}
 }
 
 // AddPattern adds a learned pattern with its embedding.
@@ -166,10 +206,13 @@ func (s *LearnedCorpusStore) AddPattern(ctx context.Context, pattern, verb, targ
 
 	logging.StoreDebug("Adding learned pattern: verb=%s target=%s confidence=%.2f", verb, target, confidence)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.embedEngine == nil {
+	// Snapshot the engine under a read lock, then embed WITHOUT holding the
+	// write lock: embedding is a network call, and holding mu across it
+	// serialized every reader behind every AddPattern.
+	s.mu.RLock()
+	engine := s.embedEngine
+	s.mu.RUnlock()
+	if engine == nil {
 		return fmt.Errorf("embedding engine not configured")
 	}
 
@@ -177,10 +220,10 @@ func (s *LearnedCorpusStore) AddPattern(ctx context.Context, pattern, verb, targ
 	taskType := embedding.SelectTaskType(embedding.ContentTypeKnowledgeAtom, false)
 	var embeddingVec []float32
 	var err error
-	if taskAware, ok := s.embedEngine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
 		embeddingVec, err = taskAware.EmbedWithTask(ctx, pattern, taskType)
 	} else {
-		embeddingVec, err = s.embedEngine.Embed(ctx, pattern)
+		embeddingVec, err = engine.Embed(ctx, pattern)
 	}
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to generate embedding for pattern: %v", err)
@@ -188,6 +231,9 @@ func (s *LearnedCorpusStore) AddPattern(ctx context.Context, pattern, verb, targ
 	}
 
 	logging.StoreDebug("Generated embedding: %d dimensions", len(embeddingVec))
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// Encode embedding as binary blob
 	embeddingBlob := encodeFloat32SliceToBlob(embeddingVec)
@@ -249,12 +295,96 @@ func (s *LearnedCorpusStore) Search(queryEmbedding []float32, topK int) ([]Seman
 	// Try vec table first (fast ANN search)
 	matches, err := s.searchVec(queryBlob, topK)
 	if err != nil {
-		logging.Get(logging.CategoryStore).Error("vec search failed: %v", err)
-		return nil, fmt.Errorf("ANN search failed (sqlite-vec required): %w", err)
+		// No ANN index (extension missing, or creation deferred for lack of
+		// an engine) falls back to brute force over the durable table —
+		// the learned corpus is small, and erroring every search when the
+		// index is absent made the whole classifier fail over nothing.
+		// A failed query against an EXISTING index is a real error.
+		if tableExists(s.db, "vec_learned") {
+			logging.Get(logging.CategoryStore).Error("vec search failed: %v", err)
+			return nil, fmt.Errorf("ANN search failed: %w", err)
+		}
+		logging.StoreDebug("vec_learned absent, brute-forcing learned search over %d dims", len(queryEmbedding))
+		return s.searchBruteForce(queryEmbedding, topK)
 	}
 
 	logging.StoreDebug("Learned corpus search returned %d matches", len(matches))
 	return matches, nil
+}
+
+// searchBruteForce scores every confident pattern in Go when the ANN index
+// is absent. Same contract as searchVec: confidence > 0.3, cosine order,
+// topK cap, 1-based ranks.
+func (s *LearnedCorpusStore) searchBruteForce(query []float32, topK int) ([]SemanticMatch, error) {
+	rows, err := s.db.Query(`SELECT pattern, verb, target, embedding FROM learned_patterns WHERE confidence > 0.3`)
+	if err != nil {
+		return nil, fmt.Errorf("brute-force learned search failed: %w", err)
+	}
+	defer rows.Close()
+
+	var matches []SemanticMatch
+	for rows.Next() {
+		var pattern, verb string
+		var target sql.NullString
+		var blob []byte
+		if err := rows.Scan(&pattern, &verb, &target, &blob); err != nil {
+			continue
+		}
+		vec := decodeFloat32Blob(blob)
+		if len(vec) == 0 || len(vec) != len(query) {
+			continue
+		}
+		matches = append(matches, SemanticMatch{
+			TextContent: pattern,
+			Predicate:   "learned_intent",
+			Verb:        verb,
+			Target:      target.String,
+			Category:    "learned",
+			Similarity:  float32Cosine(query, vec),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("brute-force learned search failed: %w", err)
+	}
+	sort.Slice(matches, func(i, j int) bool { return matches[i].Similarity > matches[j].Similarity })
+	if len(matches) > topK {
+		matches = matches[:topK]
+	}
+	for i := range matches {
+		matches[i].Rank = i + 1
+	}
+	return matches, nil
+}
+
+// decodeFloat32Blob reverses encodeFloat32SliceToBlob. Malformed blobs decode
+// to nil so the caller skips the row instead of scoring garbage.
+func decodeFloat32Blob(blob []byte) []float32 {
+	if len(blob) == 0 || len(blob)%4 != 0 {
+		return nil
+	}
+	out := make([]float32, 0, len(blob)/4)
+	for i := 0; i+4 <= len(blob); i += 4 {
+		out = append(out, math.Float32frombits(binary.LittleEndian.Uint32(blob[i:i+4])))
+	}
+	return out
+}
+
+// float32Cosine is cosine similarity over float32 vectors. Mismatched or
+// zero vectors score 0 rather than NaN.
+func float32Cosine(a, b []float32) float64 {
+	if len(a) != len(b) || len(a) == 0 {
+		return 0
+	}
+	var dot, na, nb float64
+	for i := range a {
+		dot += float64(a[i]) * float64(b[i])
+		na += float64(a[i]) * float64(a[i])
+		nb += float64(b[i]) * float64(b[i])
+	}
+	if na == 0 || nb == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(na) * math.Sqrt(nb))
 }
 
 // searchVec performs ANN search using sqlite-vec.
@@ -438,6 +568,11 @@ func (s *LearnedCorpusStore) DecayConfidence(decayFactor float64, olderThanDays 
 		if pruned > 0 {
 			logging.Store("Pruned %d forgotten patterns (confidence < 0.1)", pruned)
 		}
+		// Pruned rows must not haunt the ANN index: the join in searchVec
+		// hides them from results, but dead rows still bloat the index.
+		if _, err := s.db.Exec(`DELETE FROM vec_learned WHERE pattern NOT IN (SELECT pattern FROM learned_patterns)`); err != nil {
+			logging.Get(logging.CategoryStore).Warn("Failed to purge pruned patterns from vec_learned: %v", err)
+		}
 	}
 
 	return int(rowsAffected), nil
@@ -548,6 +683,8 @@ func (s *LearnedCorpusStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine
 
 	if _, err := s.db.Exec(vecTable); err != nil {
 		logging.Get(logging.CategoryStore).Warn("Failed to create/update vec_learned table: %v", err)
+	} else {
+		s.backfillVecLearned()
 	}
 }
 
