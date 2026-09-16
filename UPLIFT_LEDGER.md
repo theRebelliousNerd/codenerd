@@ -2378,10 +2378,10 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/perception/scanner_pool.go`
 - [x] `internal/perception/semantic_classifier.go`
 - [ ] `internal/perception/semantic_classifier_test.go`
-- [ ] `internal/perception/taxonomy.go`
+- [x] `internal/perception/taxonomy.go`
 - [ ] `internal/perception/taxonomy_benchmark_test.go`
 - [ ] `internal/perception/taxonomy_extra_test.go`
-- [ ] `internal/perception/taxonomy_persistence.go`
+- [x] `internal/perception/taxonomy_persistence.go`
 - [ ] `internal/perception/taxonomy_persistence_test.go`
 - [ ] `internal/perception/taxonomy_test.go`
 - [ ] `internal/perception/tracing_client.go`
@@ -3801,4 +3801,4 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `test_init/.nerd/mangle/policy_overrides.mg`
 - [ ] `test_init/.nerd/profile.mg`
 
-**Progress: 16/2632**
+**Progress: 18/2632**

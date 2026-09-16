@@ -225,7 +225,12 @@ func (t *TaxonomyEngine) hydrateFromDBLocked() error {
 	return nil
 }
 
-// EnsureDefaults populates the database with the default taxonomy if it's empty.
+// EnsureDefaults merges the default taxonomy into the database, adding any
+// default verbs the DB lacks. A previous version returned early when the DB
+// held ANY facts, so workspaces with an older corpus never received new
+// verbs (their turns silently lost personas and classifier candidates).
+// The merge is additive only: verbs in the DB but not in the defaults
+// (user/learned additions) are never removed.
 func (t *TaxonomyEngine) EnsureDefaults() error {
 	if t.store == nil {
 		return fmt.Errorf("no store configured")
@@ -236,12 +241,20 @@ func (t *TaxonomyEngine) EnsureDefaults() error {
 		return err
 	}
 
-	if len(facts) > 0 {
-		return nil
+	have := make(map[string]bool, len(DefaultTaxonomyData))
+	for _, f := range facts {
+		if f.Predicate == "verb_def" && len(f.Args) > 0 {
+			if verb, ok := f.Args[0].(string); ok {
+				have[verb] = true
+			}
+		}
 	}
 
 	// Use defaults from Go struct
 	for _, entry := range DefaultTaxonomyData {
+		if have[entry.Verb] {
+			continue
+		}
 		if err := t.store.StoreVerbDef(entry.Verb, entry.Category, entry.ShardType, entry.Priority); err != nil {
 			return fmt.Errorf("failed to store verb def for %s: %w", entry.Verb, err)
 		}
@@ -313,8 +326,15 @@ func (t *TaxonomyEngine) getVerbsLocked() ([]VerbEntry, error) {
 		verbs = append(verbs, v)
 	}
 
-	sort.Slice(verbs, func(i, j int) bool {
-		return verbs[i].Priority > verbs[j].Priority
+	// Stable with a verb tiebreak: many verbs share a priority (50, 65, 70,
+	// 72, ...), and bare sort.Slice flips their order run to run. Corpus
+	// order feeds candidate order feeds the score aggregation's first-max
+	// scan, so an unstable sort here is nondeterministic classification.
+	sort.SliceStable(verbs, func(i, j int) bool {
+		if verbs[i].Priority != verbs[j].Priority {
+			return verbs[i].Priority > verbs[j].Priority
+		}
+		return verbs[i].Verb < verbs[j].Verb
 	})
 
 	return verbs, nil
