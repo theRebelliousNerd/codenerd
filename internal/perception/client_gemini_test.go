@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIsTransientGeminiStatus is a table test for the retry-classification
-// helper. The 5xx family (500/502/503/504) is retryable; everything else —
-// including 429 (handled separately with its own message) and the 4xx client
-// errors — is NOT classified transient here.
-func TestIsTransientGeminiStatus(t *testing.T) {
+// TestIsTransientHTTPStatus is a table test for the retry-classification
+// helper. 408 and the 5xx family except deterministic 501 are retryable;
+// everything else — including 429 (handled separately with its own message)
+// and the 4xx client errors — is NOT classified transient here.
+func TestIsTransientHTTPStatus(t *testing.T) {
 	cases := []struct {
 		code int
 		want bool
@@ -26,6 +26,8 @@ func TestIsTransientGeminiStatus(t *testing.T) {
 		{http.StatusBadGateway, true},          // 502
 		{http.StatusServiceUnavailable, true},  // 503 — the Gemini "high demand" case
 		{http.StatusGatewayTimeout, true},      // 504
+		{http.StatusRequestTimeout, true},      // 408 transient by definition
+		{529, true},                            // 529 "overloaded"
 		{http.StatusOK, false},                 // 200
 		{http.StatusTooManyRequests, false},    // 429 handled separately, not here
 		{http.StatusBadRequest, false},         // 400
@@ -34,8 +36,8 @@ func TestIsTransientGeminiStatus(t *testing.T) {
 		{http.StatusNotImplemented, false},     // 501 (not in the retry set)
 	}
 	for _, tc := range cases {
-		if got := isTransientGeminiStatus(tc.code); got != tc.want {
-			t.Errorf("isTransientGeminiStatus(%d) = %v, want %v", tc.code, got, tc.want)
+		if got := isTransientHTTPStatus(tc.code); got != tc.want {
+			t.Errorf("isTransientHTTPStatus(%d) = %v, want %v", tc.code, got, tc.want)
 		}
 	}
 }

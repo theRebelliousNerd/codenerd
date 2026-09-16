@@ -160,7 +160,7 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 			continue
 		}
 
-		if isTransientGeminiStatus(resp.StatusCode) {
+		if isTransientHTTPStatus(resp.StatusCode) {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			resp.Body.Close()
 			// Wrap the sentinel so errors.Is(err, ErrLLMUnavailable) holds up the

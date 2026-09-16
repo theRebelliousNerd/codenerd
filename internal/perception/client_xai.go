@@ -53,6 +53,18 @@ func NewXAIClientWithConfig(config XAIConfig) *XAIClient {
 	}
 }
 
+// rateLimit enforces minimum inter-request spacing to avoid 429 responses.
+// Must be called before each API request.
+func (c *XAIClient) rateLimit() {
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 100*time.Millisecond {
+		time.Sleep(100*time.Millisecond - elapsed)
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
+}
+
 // Complete sends a prompt and returns the completion.
 func (c *XAIClient) Complete(ctx context.Context, prompt string) (string, error) {
 	return c.CompleteWithSystem(ctx, "", prompt)
@@ -80,13 +92,7 @@ func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 	}
 
 	// Rate limiting
-	c.mu.Lock()
-	elapsed := time.Since(c.lastRequest)
-	if elapsed < 100*time.Millisecond {
-		time.Sleep(100*time.Millisecond - elapsed)
-	}
-	c.lastRequest = time.Now()
-	c.mu.Unlock()
+	c.rateLimit()
 
 	messages := []XAIMessage{
 		{Role: "system", Content: systemPrompt},
@@ -111,7 +117,14 @@ func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
-			time.Sleep(time.Duration(1<<uint(i-1)) * time.Second)
+			// Context-aware backoff: a cancelled turn must exit during
+			// the sleep, not after it (matches ExecuteOpenAIRequest).
+			backoff := time.Duration(1<<uint(i-1)) * time.Second
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
 		}
 
 		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
@@ -136,6 +149,11 @@ func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 
 		if resp.StatusCode == http.StatusTooManyRequests {
 			lastErr = fmt.Errorf("rate limit exceeded (429)")
+			continue
+		}
+
+		if isTransientHTTPStatus(resp.StatusCode) {
+			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 			continue
 		}
 

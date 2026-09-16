@@ -146,6 +146,21 @@ func OpenAIToolResponseFromResponse(resp *OpenAIResponse) (*LLMToolResponse, err
 	}, nil
 }
 
+// isTransientHTTPStatus reports whether an HTTP status is a transient,
+// retryable server-side condition: 408 plus the 5xx family except 501
+// (500, 502, 503, 504, 529 "overloaded", and any other 5xx a vendor
+// invents). 501 Not Implemented is deterministic — the vendor does not
+// support the operation, so retrying identical bytes will never start
+// working (pinned by the compat and Gemini contracts).
+// This is the single transient policy shared by the OpenAI-compatible
+// helper and the native vendor clients. Two vendor predicates live
+// outside it: the OpenAI-compat client's isRetryableServerStatus (same
+// 5xx set but silent on 408 — a question for its own uplift) and ZAI's
+// 429-inclusive retry-after-aware predicate in client_zai_retry.go.
+func isTransientHTTPStatus(code int) bool {
+	return code == http.StatusRequestTimeout || (code >= 500 && code != http.StatusNotImplemented)
+}
+
 // ExecuteOpenAIRequest performs a non-streaming OpenAI-compatible request.
 // Used by OpenAI, xAI, OpenRouter clients for tool calls.
 func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, apiKey string, reqBody OpenAIRequest) (*OpenAIResponse, error) {
@@ -195,7 +210,7 @@ func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, api
 		// overloaded-model response must not kill the turn. Anything else
 		// non-200 (auth, bad request) fails immediately — retrying those
 		// only burns quota.
-		if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode >= 500 {
+		if isTransientHTTPStatus(resp.StatusCode) {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			resp.Body.Close()
 			lastErr = fmt.Errorf("transient status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))

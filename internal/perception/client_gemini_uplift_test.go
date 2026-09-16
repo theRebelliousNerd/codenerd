@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -155,4 +156,33 @@ func TestGeminiCountTokens_ConcurrentCacheFlip(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// The shared transient policy covers 529 on the Gemini paths too (the old
+// switch only knew 500/502/503/504): a 529 is retried, and the
+// sentinel-wrapped error still lets the firewall tell transient apart.
+func TestGeminiChat_Retries529ThenSucceeds(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hits.Add(1) == 1 {
+			w.WriteHeader(529)
+			_, _ = w.Write([]byte(`{"error":{"code":529,"message":"overloaded"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"recovered"}]}}]}`))
+	}))
+	defer srv.Close()
+
+	c := geminiTestClient(srv.URL)
+	resp, err := c.CompleteWithSystem(context.Background(), "sys", "hi")
+	if err != nil {
+		t.Fatalf("CompleteWithSystem: %v", err)
+	}
+	if resp != "recovered" {
+		t.Errorf("response = %q, want recovered", resp)
+	}
+	if got := hits.Load(); got != 2 {
+		t.Errorf("server hits = %d, want 2 (one 529 retried)", got)
+	}
 }

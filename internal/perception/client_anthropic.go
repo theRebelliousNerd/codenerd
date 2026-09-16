@@ -65,15 +65,6 @@ func (c *AnthropicClient) rateLimit() {
 	c.mu.Unlock()
 }
 
-// isTransientAnthropicStatus reports whether an HTTP status from the
-// Anthropic API is worth retrying: 408 and the whole 5xx family, most
-// importantly 529 "overloaded" — the single most common transient
-// Anthropic failure. A 400 is deterministic (the request itself is bad)
-// and must fail fast instead; retrying identical bytes only burns time.
-func isTransientAnthropicStatus(code int) bool {
-	return code == http.StatusRequestTimeout || code >= 500
-}
-
 // NERD-EVOLVE-START: P1P2-prompt-caching
 // EnableSystemCaching enables Anthropic prompt caching for the system prompt.
 // When enabled, CompleteWithSystem wraps the system message in a structured block
@@ -214,7 +205,7 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 			continue
 		}
 
-		if isTransientAnthropicStatus(resp.StatusCode) {
+		if isTransientHTTPStatus(resp.StatusCode) {
 			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 			continue
 		}
@@ -495,7 +486,7 @@ func (c *AnthropicClient) postMessages(ctx context.Context, reqBody AnthropicReq
 			continue
 		}
 
-		if isTransientAnthropicStatus(resp.StatusCode) {
+		if isTransientHTTPStatus(resp.StatusCode) {
 			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 			continue
 		}

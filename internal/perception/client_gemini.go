@@ -362,24 +362,6 @@ func (c *GeminiClient) SetCachedContent(name string) {
 // SHARED REQUEST HELPERS
 // =============================================================================
 
-// isTransientGeminiStatus reports whether an HTTP status from the Gemini API
-// is a transient, retryable server-side condition. 429 (rate limit) is handled
-// separately with its own message; this covers the 5xx family — most importantly
-// 503 UNAVAILABLE ("model is currently experiencing high demand"), which is the
-// single most common transient Gemini failure. These are safe to retry with
-// backoff rather than surfacing as a hard error that collapses the turn.
-func isTransientGeminiStatus(code int) bool {
-	switch code {
-	case http.StatusInternalServerError, // 500
-		http.StatusBadGateway,         // 502
-		http.StatusServiceUnavailable, // 503
-		http.StatusGatewayTimeout:     // 504
-		return true
-	default:
-		return false
-	}
-}
-
 // rateLimit enforces minimum inter-request spacing to avoid 429 responses.
 // Must be called before each API request.
 func (c *GeminiClient) rateLimit() {
@@ -543,7 +525,7 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			continue
 		}
 
-		if isTransientGeminiStatus(resp.StatusCode) {
+		if isTransientHTTPStatus(resp.StatusCode) {
 			// Wrap the sentinel so errors.Is(err, ErrLLMUnavailable) holds up the
 			// whole chain (through the post-loop "max retries exceeded: %w"). This
 			// lets the perception firewall report /llm_unavailable rather than
@@ -821,7 +803,7 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 			continue
 		}
 
-		if isTransientGeminiStatus(resp.StatusCode) {
+		if isTransientHTTPStatus(resp.StatusCode) {
 			// Wrap the sentinel so errors.Is(err, ErrLLMUnavailable) holds up the
 			// whole chain (through the post-loop "max retries exceeded: %w"). This
 			// lets the perception firewall report /llm_unavailable rather than
