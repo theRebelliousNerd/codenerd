@@ -3,7 +3,7 @@
 # Expected: Parse errors due to wrong declaration syntax
 
 # Test 1: Soufflé-style declaration with lowercase .decl
-.decl edge(x:number, y:number).  # ERROR: Should be Decl edge(X.Type<int>, Y.Type<int>).
+.decl edge(x:number, y:number).  # ERROR: Should be Decl edge(X, Y) bound [/number, /number].
 
 # Test 2: Soufflé type syntax
 .decl person(name:symbol, age:number).  # ERROR: Wrong syntax entirely

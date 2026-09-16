@@ -488,7 +488,12 @@ func checkpointWAL(dbPath string) {
 		return
 	}
 	defer db.Close()
-	_, _ = db.Exec("PRAGMA busy_timeout=5000")
+	// ProfileReadOnly, not a writable profile: its pragma set is
+	// connection-local only (busy_timeout, mmap, cache), while the writable
+	// profiles persist PRAGMA journal_mode = WAL onto the database. A
+	// pre-backup checkpoint must never flip the journal mode of the DB it
+	// is about to copy. This also subsumes the old manual busy_timeout.
+	ApplyDefaultPragmas(db, ProfileReadOnly)
 	if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 		logging.Get(logging.CategoryStore).Warn("Pre-backup checkpoint failed, backup may be stale: %v", err)
 	}

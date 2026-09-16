@@ -3,77 +3,86 @@
 # Expected: Safety violations, unbounded variable errors
 
 # Test 1: Classic unbound negation
-Decl person(P.Type<atom>).
-Decl bad(B.Type<atom>).
+Decl person(P) bound [/name].
+Decl bad(B) bound [/name].
 person(/alice).
 person(/bob).
 bad(/charlie).
 # ERROR: X is not bound before negation
-good_person(X) :- not bad(X).
+good_person(X) :- ! bad(X).
 
 # Test 2: Negation as only source of variable
-Decl blocked(B.Type<atom>).
+Decl blocked(B) bound [/name].
 blocked(/spam).
 # ERROR: User appears only in negated atom
-allowed_user(User) :- not blocked(User).
+allowed_user(User) :- ! blocked(User).
 
 # Test 3: Multiple variables, only some bound
-Decl edge(From.Type<atom>, To.Type<atom>).
-Decl forbidden(F.Type<atom>, T.Type<atom>).
+Decl edge(From, To) bound [/name, /name].
+Decl forbidden(F, T) bound [/name, /name].
 edge(/a, /b).
 forbidden(/x, /y).
 # ERROR: Y not bound before negation
-safe_edge(X, Y) :- edge(X, Z), not forbidden(X, Y).
+safe_edge(X, Y) :- edge(X, Z), ! forbidden(X, Y).
 
 # Test 4: Nested negation with unbound vars
-Decl active(A.Type<atom>).
-Decl suspended(S.Type<atom>).
+Decl active(A) bound [/name].
+Decl suspended(S) bound [/name].
 active(/user1).
 suspended(/user2).
-# ERROR: X not bound
-complex(X) :- not (suspended(X), not active(X)).
+# Mangle has no !(...) grouping: conjunction under negation needs a helper.
+# ERROR: X is not bound (a negated helper is still not a binding source)
+nx_helper(X) :- suspended(X), !active(X).
+complex(X) :- !nx_helper(X).
 
 # Test 5: Negation in aggregation context
-Decl item(I.Type<atom>).
-Decl excluded(E.Type<atom>).
+Decl item(I) bound [/name].
+Decl excluded(E) bound [/name].
 item(/sword).
 excluded(/poison).
-# ERROR: X not bound before negation in pipe
+# ERROR: a negated atom cannot be a transform source (X unbound, no body)
 count_allowed(Count) :-
-  not excluded(X) |>
+  !excluded(X) |>
   do fn:group_by(),
-  let Count = fn:Count(X).
+  let Count = fn:count(X).
+# CORRECT: bind positively first, then filter
+count_allowed_fixed(Count) :-
+  item(X), !excluded(X) |>
+  do fn:group_by(),
+  let Count = fn:count().
 
 # Test 6: Double negation with unbound variable
-Decl valid(V.Type<atom>).
+Decl valid(V) bound [/name].
 valid(/token1).
+# Mangle has no !! double negation (parse error); the safety violation is
+# the same unbound-through-negation shape as Test 1.
 # ERROR: X never bound
-weird(X) :- not not valid(X).
+weird(X) :- !valid(X).
 
 # Test 7: Negation before binding in conjunction
-Decl user(U.Type<atom>).
-Decl admin(A.Type<atom>).
+Decl user(U) bound [/name].
+Decl admin(A) bound [/name].
 user(/alice).
 admin(/root).
 # ERROR: X used in negation before being bound by user(X)
-regular(X) :- not admin(X), user(X).
+regular(X) :- ! admin(X), user(X).
 
 # Test 8: Negation with only constants (tricky - actually safe but confusing)
-Decl flag(F.Type<atom>).
+Decl flag(F) bound [/name].
 flag(/enabled).
 # This is actually safe (no variables) but tests edge case
-check() :- not flag(/disabled).
+check() :- ! flag(/disabled).
 
 # Test 9: Cross-rule negation safety violation
-Decl member(M.Type<atom>).
+Decl member(M) bound [/name].
 member(/alice).
-helper(X) :- not member(X).  # ERROR: Unbound
+helper(X) :- ! member(X).  # ERROR: Unbound
 caller() :- helper(/bob).
 
 # Test 10: Negation in rule with multiple predicates
-Decl node(N.Type<atom>).
-Decl value(N.Type<atom>, V.Type<int>).
+Decl node(N) bound [/name].
+Decl value(N, V) bound [/name, /number].
 node(/n1).
 value(/n1, 10).
 # ERROR: V not bound before negation
-check(N, V) :- node(N), not value(N, V).
+value_check(N, V) :- node(N), !value(N, V).

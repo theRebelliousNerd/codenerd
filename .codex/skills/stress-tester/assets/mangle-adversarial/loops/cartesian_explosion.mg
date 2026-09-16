@@ -1,10 +1,14 @@
 # Cartesian Product Explosion Tests
 # Error Type: Unfiltered joins creating massive intermediate results
 # Expected: Performance degradation, memory exhaustion
+# DIALECT NOTE: non-termination is a RUNTIME property: every rule below is a
+# VALID program that parses and analyzes cleanly. These files pin well-
+# formedness only; the live danger (unbounded derivation) is contained by
+# executor timeouts, not by static rejection.
 
 # Test 1: Simple cartesian product
-Decl table_a(A.Type<int>).
-Decl table_b(B.Type<int>).
+Decl table_a(A) bound [/number].
+Decl table_b(B) bound [/number].
 # Create 1000 x 1000 = 1,000,000 combinations
 table_a(0).  # Imagine this repeated 1000 times
 table_a(1).
@@ -18,8 +22,8 @@ table_b(2).
 bad_join(A, B) :- table_a(A), table_b(B).
 
 # Test 2: Cartesian before filter
-Decl user(ID.Type<int>, Name.Type<atom>).
-Decl order(OrderID.Type<int>, UserID.Type<int>).
+Decl user(ID, Name) bound [/number, /name].
+Decl order(OrderID, UserID) bound [/number, /number].
 user(1, /alice).
 user(2, /bob).
 # Assume 10,000 users
@@ -34,9 +38,9 @@ inefficient(Name, OrderID) :-
   ID = UserID.  # Filter comes too late
 
 # Test 3: Triple join without filters
-Decl table_x(X.Type<int>).
-Decl table_y(Y.Type<int>).
-Decl table_z(Z.Type<int>).
+Decl table_x(X) bound [/number].
+Decl table_y(Y) bound [/number].
+Decl table_z(Z) bound [/number].
 table_x(1).
 table_x(2).
 # ... 100 rows
@@ -50,7 +54,7 @@ table_z(2).
 triple_join(X, Y, Z) :- table_x(X), table_y(Y), table_z(Z).
 
 # Test 4: Self-join without conditions
-Decl person(P.Type<atom>).
+Decl person(P) bound [/name].
 person(/alice).
 person(/bob).
 person(/charlie).
@@ -60,9 +64,9 @@ all_pairs(P1, P2) :- person(P1), person(P2).
 # Should be: all_pairs(P1, P2) :- person(P1), person(P2), P1 != P2.
 
 # Test 5: Multiple unrelated predicates
-Decl item(I.Type<atom>).
-Decl location(L.Type<atom>).
-Decl time(T.Type<int>).
+Decl item(I) bound [/name].
+Decl location(L) bound [/name].
+Decl time(T) bound [/number].
 item(/sword).
 # ... 100 items
 location(/shop).
@@ -73,7 +77,7 @@ time(0).
 unrelated(I, L, T) :- item(I), location(L), time(T).
 
 # Test 6: Recursive cartesian explosion
-Decl node(N.Type<atom>).
+Decl node(N) bound [/name].
 node(/n1).
 node(/n2).
 node(/n3).
@@ -84,8 +88,8 @@ all_paths(From, To) :- node(From), node(To).
 all_paths(From, To) :- all_paths(From, Mid), all_paths(Mid, To).
 
 # Test 7: Aggregation on cartesian product
-Decl product(P.Type<atom>).
-Decl region(R.Type<atom>).
+Decl product(P) bound [/name].
+Decl region(R) bound [/name].
 product(/widget).
 # ... 1000 products
 region(/north).
@@ -95,11 +99,11 @@ count_combos(C) :-
   product(P),
   region(R) |>
   do fn:group_by(),
-  let C = fn:Count(P).
+  let C = fn:count().
 
 # Test 8: Correct join with filter first
-Decl employee(EID.Type<int>, Dept.Type<atom>).
-Decl salary(EID.Type<int>, Amount.Type<int>).
+Decl employee(EID, Dept) bound [/number, /name].
+Decl salary(EID, Amount) bound [/number, /number].
 employee(1, /sales).
 employee(2, /engineering).
 # 10,000 employees
@@ -112,8 +116,8 @@ good_join(EID, Dept, Amount) :-
   salary(EID, Amount).  # EID matches, not cartesian
 
 # Test 9: Filter then join (selectivity)
-Decl transaction(TID.Type<int>, Amount.Type<int>).
-Decl detail(TID.Type<int>, Description.Type<atom>).
+Decl transaction(TID, Amount) bound [/number, /number].
+Decl detail(TID, Description) bound [/number, /name].
 transaction(1, 100).
 # ... 1,000,000 transactions
 detail(1, /purchase).
@@ -124,13 +128,15 @@ bad_selective(TID, Amount, Desc) :-
   detail(DID, Desc),
   TID = DID.
 # CORRECT: Bind first
+# NOTE: the filter cannot textually precede the bind (comparisons need
+# bound variables); selectivity comes from the shared TID join key.
 good_selective(TID, Amount, Desc) :-
-  Amount > 1000,  # Filter first (if possible)
   transaction(TID, Amount),
-  detail(TID, Desc).  # Join with bound TID
+  Amount > 1000,
+  detail(TID, Desc).
 
 # Test 10: Cross product in recursion
-Decl edge(From.Type<atom>, To.Type<atom>).
+Decl edge(From, To) bound [/name, /name].
 edge(/a, /b).
 edge(/b, /c).
 # Small graph
@@ -143,8 +149,8 @@ bad_paths(From, To) :-
 # Cartesian between all paths
 
 # Test 11: Multiple aggregations with cross product
-Decl sales(Region.Type<atom>, Amount.Type<int>).
-Decl costs(Region.Type<atom>, Cost.Type<int>).
+Decl sales(Region, Amount) bound [/name, /number].
+Decl costs(Region, Cost) bound [/name, /number].
 sales(/north, 1000).
 costs(/north, 500).
 # ... many regions
@@ -160,8 +166,8 @@ bad_total(Total) :-
   Total = fn:minus(S, C).
 
 # Test 12: Nested loops equivalent
-Decl outer(O.Type<int>).
-Decl inner(I.Type<int>).
+Decl outer(O) bound [/number].
+Decl inner(I) bound [/number].
 outer(1).
 # ... 1000 values
 inner(1).
@@ -170,11 +176,11 @@ inner(1).
 nested(O, I, Product) :-
   outer(O),
   inner(I),
-  Product = fn:times(O, I).
+  Product = fn:mult(O, I).
 # Generates 1,000,000 products
 
 # Test 13: Correct filtered cartesian (intentional)
-Decl vertex(V.Type<atom>).
+Decl vertex(V) bound [/name].
 vertex(/v1).
 vertex(/v2).
 vertex(/v3).

@@ -27,6 +27,7 @@ Tests for basic syntax violations - the "Soufflé/SQL Bias" where AI models forc
 | `wrong_comments.mg` | Using `//` or `/* */` instead of `#` | 8 |
 | `inline_aggregation.mg` | SQL-style aggregation instead of pipe operators | 9 |
 | `assignment_operators.mg` | Using `:=` or `let` outside transforms | 9 |
+| `string_predicate.mg` | Using a string literal as a predicate name | 1 |
 
 **Total Syntactic Tests: 60**
 
@@ -84,10 +85,32 @@ Tests for incorrect data structure access patterns.
 
 ## Statistics
 
-- **Total Test Files:** 19
-- **Total Error Patterns:** 264+
+- **Total Test Files:** 24 (8 syntactic, 5 safety, 4 types, 4 loops, 3 structures)
 - **Coverage:** All 30 common error types from the codeNERD documentation
 - **Correct Examples:** Included in each file for comparison
+
+## Verified Verdicts
+
+Every fixture is pinned to the pipeline stage where it must fail by
+`TestCorpusGate_AdversarialFixturesHitDocumentedStage` in
+`internal/mangle/corpus_gate_test.go` (parse, then AnalyzeOneUnit, then
+Stratify — the same stages the engine runs):
+
+| Category | Verdict | Meaning |
+|----------|---------|---------|
+| `syntactic/*` | must NOT parse | demonstrated notations are syntax errors |
+| `structures/*` | must NOT parse | dot/bracket/JSON notations do not exist here |
+| `safety/*` (except stratification) | parse, then analysis MUST fail | unbound variables |
+| `safety/stratification_cycles.mg` | parse, analyze, then Stratify MUST fail | genuine negation cycles |
+| `types/atom_vs_string.mg`, `types/hallucinated_functions.mg` | parse, then analysis MUST fail | unknown functions |
+| `types/int_vs_float.mg`, `types/list_in_scalar.mg`, `loops/*` | must pass all stages | flaws are runtime-only (see below) |
+
+Runtime-only means the engine cannot reject the program statically: fact
+literals are not checked against Decl types, `int` and `float` are one
+`/number` type, and non-termination is undecidable. Those files are valid
+programs documenting live pitfalls; their pins guard the scaffolding
+against rot. Non-termination itself is contained by executor timeouts
+(pinned in `internal/tactile/timeout_kill_test.go`), not by the gate.
 
 ## Usage
 
@@ -96,10 +119,11 @@ Tests for incorrect data structure access patterns.
 These files can be fed to the Mangle parser to verify error detection:
 
 ```powershell
-python ../../scripts/verify_adversarial.py --execute
+CGO_CFLAGS="-I<repo>/sqlite_headers" go test -tags sqlite_vec ./internal/mangle/ -run 'TestCorpusGate'
 ```
 
-The verifier discovers file and marker counts at runtime, builds a temporary checker when `nerd.exe` is absent, applies a per-file timeout, and fails if an intentionally-invalid fixture is accepted or hangs.
+`verify_suite.sh` in this directory prints file and `# ERROR:` marker
+counts only; the Go corpus gate above is the executable contract.
 
 ### For Educational Purposes
 
@@ -167,7 +191,11 @@ Each test file includes at least one "CORRECT" example showing the proper way to
 
 ### Non-Runnable Tests
 
-These files are **intentionally invalid** and should **not** be loaded into a production Mangle engine. They are for:
+The `syntactic/`, `structures/`, and failing `safety/`/`types/` files are
+**intentionally invalid** and must **not** be loaded into a production
+engine. The `loops/` files and the documented-clean `types/` files are
+valid programs demonstrating runtime pitfalls; loading them is safe but
+querying a loop fixture without a timeout is not. All files serve for:
 - Parser validation
 - Error message testing
 - Educational reference

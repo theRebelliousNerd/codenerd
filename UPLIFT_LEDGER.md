@@ -40,24 +40,24 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `.gemini/skills/log-analyzer/scripts/logquery/main.go`
 
 ### .nerd (18)
-- [ ] `.nerd/marathon-supervision/negative-kernel_eval.go`
-- [ ] `.nerd/marathon-supervision/negative-risk_scoring.go`
-- [ ] `.nerd/marathon-supervision/negative-rule_court.go`
-- [ ] `.nerd/marathon-supervision/negative-test_output_detector.go`
-- [ ] `.nerd/marathon-supervision/persist_compact_learning.go`
-- [ ] `.nerd/marathon-supervision/phase3-learning-negative/budget.go`
-- [ ] `.nerd/marathon-supervision/profile_runtime.go`
-- [ ] `.nerd/marathon-supervision/rejected-proposal/decomposer_planning.go`
-- [ ] `.nerd/marathon-supervision/rejected-proposal/orchestrator_task_handlers.go`
-- [ ] `.nerd/marathon-supervision/rejected-proposal/pause_durable.go`
-- [ ] `.nerd/marathon-supervision/rejected-proposal/task_effect_contract.go`
-- [ ] `.nerd/marathon-supervision/snapshot_helper.go`
-- [ ] `.nerd/tools/count_mangle_predicates_given_a_directory_path_s.go`
-- [ ] `.nerd/tools/count_mangle_predicates_given_a_directory_path_s_test.go`
-- [ ] `.nerd/tools/count_the_number_of_mangle_decl_statements_in_a.go`
-- [ ] `.nerd/tools/count_the_number_of_mangle_decl_statements_in_a_test.go`
-- [ ] `.nerd/tools/given_a_file_path_as_input_return_the_total_numb.go`
-- [ ] `.nerd/tools/given_a_file_path_as_input_return_the_total_numb_test.go`
+- [ ] `.nerd/marathon-supervision/negative-kernel_eval.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/negative-risk_scoring.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/negative-rule_court.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/negative-test_output_detector.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/persist_compact_learning.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/phase3-learning-negative/budget.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/profile_runtime.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/rejected-proposal/decomposer_planning.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/rejected-proposal/orchestrator_task_handlers.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/rejected-proposal/pause_durable.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/rejected-proposal/task_effect_contract.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/snapshot_helper.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/tools/count_mangle_predicates_given_a_directory_path_s.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/tools/count_mangle_predicates_given_a_directory_path_s_test.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/tools/count_the_number_of_mangle_decl_statements_in_a.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/tools/count_the_number_of_mangle_decl_statements_in_a_test.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/tools/given_a_file_path_as_input_return_the_total_numb.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/tools/given_a_file_path_as_input_return_the_total_numb_test.go` <!-- runtime state, untracked; never uplifted -->
 
 ### cmd/nerd (247)
 - [x] `cmd/nerd/acceptance_args_test.go`
@@ -1068,34 +1068,34 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 
 ### internal/context (30)
 - [x] `internal/context/activation.go`
-- [ ] `internal/context/activation_caps_test.go`
-- [ ] `internal/context/activation_race_test.go`
+- [x] `internal/context/activation_caps_test.go`
+- [x] `internal/context/activation_race_test.go`
 - [x] `internal/context/activation_scoring.go`
-- [ ] `internal/context/activation_setters_test.go`
-- [ ] `internal/context/activation_test.go`
-- [ ] `internal/context/budget_helpers_test.go`
-- [ ] `internal/context/chat_history_parity_test.go`
+- [x] `internal/context/activation_setters_test.go`
+- [x] `internal/context/activation_test.go`
+- [x] `internal/context/budget_helpers_test.go`
+- [x] `internal/context/chat_history_parity_test.go`
 - [x] `internal/context/compressor.go`
-- [ ] `internal/context/compressor_accessors_test.go`
+- [x] `internal/context/compressor_accessors_test.go`
 - [x] `internal/context/compressor_metrics.go`
-- [ ] `internal/context/compressor_race_test.go`
-- [ ] `internal/context/compressor_test.go`
+- [x] `internal/context/compressor_race_test.go`
+- [x] `internal/context/compressor_test.go`
 - [x] `internal/context/compressor_turns.go`
 - [x] `internal/context/feedback_store.go`
-- [ ] `internal/context/feedback_store_scoring_test.go`
-- [ ] `internal/context/feedback_store_test.go`
-- [ ] `internal/context/kernel_context_test.go`
-- [ ] `internal/context/long_session_test.go`
-- [ ] `internal/context/memory_op_coverage_test.go`
-- [ ] `internal/context/mocks_test.go`
+- [x] `internal/context/feedback_store_scoring_test.go`
+- [x] `internal/context/feedback_store_test.go`
+- [x] `internal/context/kernel_context_test.go`
+- [x] `internal/context/long_session_test.go`
+- [x] `internal/context/memory_op_coverage_test.go`
+- [x] `internal/context/mocks_test.go`
 - [x] `internal/context/serializer.go`
-- [ ] `internal/context/serializer_bounds_test.go`
-- [ ] `internal/context/serializer_test.go`
-- [ ] `internal/context/token_counter_extra_test.go`
+- [x] `internal/context/serializer_bounds_test.go`
+- [x] `internal/context/serializer_test.go`
+- [x] `internal/context/token_counter_extra_test.go`
 - [x] `internal/context/tokens.go`
 - [x] `internal/context/types.go`
 - [x] `internal/context/working_set.go`
-- [ ] `internal/context/working_set_test.go`
+- [x] `internal/context/working_set_test.go`
 - [x] `internal/context/working_store.go`
 - [x] `internal/context/context_unit1_uplift_test.go`
 - [x] `internal/context/context_unit2_uplift_test.go`
@@ -2007,67 +2007,67 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/mangle/differential.go`
 
 ### internal/mangle/differential_test.go (1)
-- [ ] `internal/mangle/differential_test.go`
+- [x] `internal/mangle/differential_test.go`
 
 ### internal/mangle/engine.go (1)
 - [x] `internal/mangle/engine.go`
 
 ### internal/mangle/engine_behavior_regression_test.go (1)
-- [ ] `internal/mangle/engine_behavior_regression_test.go`
+- [x] `internal/mangle/engine_behavior_regression_test.go`
 
 ### internal/mangle/engine_clear_query_test.go (1)
-- [ ] `internal/mangle/engine_clear_query_test.go`
+- [x] `internal/mangle/engine_clear_query_test.go`
 
 ### internal/mangle/engine_control_facts_test.go (1)
-- [ ] `internal/mangle/engine_control_facts_test.go`
+- [x] `internal/mangle/engine_control_facts_test.go`
 
 ### internal/mangle/engine_coverage_regression_test.go (1)
-- [ ] `internal/mangle/engine_coverage_regression_test.go`
+- [x] `internal/mangle/engine_coverage_regression_test.go`
 
 ### internal/mangle/engine_evaluate_test.go (1)
-- [ ] `internal/mangle/engine_evaluate_test.go`
+- [x] `internal/mangle/engine_evaluate_test.go`
 
 ### internal/mangle/engine_fact_arg_encode_test.go (1)
-- [ ] `internal/mangle/engine_fact_arg_encode_test.go`
+- [x] `internal/mangle/engine_fact_arg_encode_test.go`
 
 ### internal/mangle/engine_fact_string_test.go (1)
-- [ ] `internal/mangle/engine_fact_string_test.go`
+- [x] `internal/mangle/engine_fact_string_test.go`
 
 ### internal/mangle/engine_failclosed_test.go (1)
-- [ ] `internal/mangle/engine_failclosed_test.go`
+- [x] `internal/mangle/engine_failclosed_test.go`
 
 ### internal/mangle/engine_gap_survey_test.go (1)
-- [ ] `internal/mangle/engine_gap_survey_test.go`
+- [x] `internal/mangle/engine_gap_survey_test.go`
 
 ### internal/mangle/engine_harden_gap_regression_test.go (1)
-- [ ] `internal/mangle/engine_harden_gap_regression_test.go`
+- [x] `internal/mangle/engine_harden_gap_regression_test.go`
 
 ### internal/mangle/engine_harden_step2_final_regression_test.go (1)
-- [ ] `internal/mangle/engine_harden_step2_final_regression_test.go`
+- [x] `internal/mangle/engine_harden_step2_final_regression_test.go`
 
 ### internal/mangle/engine_harden_step2b_regression_test.go (1)
-- [ ] `internal/mangle/engine_harden_step2b_regression_test.go`
+- [x] `internal/mangle/engine_harden_step2b_regression_test.go`
 
 ### internal/mangle/engine_harden_step2c_regression_test.go (1)
-- [ ] `internal/mangle/engine_harden_step2c_regression_test.go`
+- [x] `internal/mangle/engine_harden_step2c_regression_test.go`
 
 ### internal/mangle/engine_harden_step2e_regression_test.go (1)
-- [ ] `internal/mangle/engine_harden_step2e_regression_test.go`
+- [x] `internal/mangle/engine_harden_step2e_regression_test.go`
 
 ### internal/mangle/engine_mode_synth_test.go (1)
-- [ ] `internal/mangle/engine_mode_synth_test.go`
+- [x] `internal/mangle/engine_mode_synth_test.go`
 
 ### internal/mangle/engine_step1_gap_probe_test.go (1)
-- [ ] `internal/mangle/engine_step1_gap_probe_test.go`
+- [x] `internal/mangle/engine_step1_gap_probe_test.go`
 
 ### internal/mangle/engine_step2_gap_regression_test.go (1)
-- [ ] `internal/mangle/engine_step2_gap_regression_test.go`
+- [x] `internal/mangle/engine_step2_gap_regression_test.go`
 
 ### internal/mangle/engine_step2_regression_test.go (1)
-- [ ] `internal/mangle/engine_step2_regression_test.go`
+- [x] `internal/mangle/engine_step2_regression_test.go`
 
 ### internal/mangle/engine_test.go (1)
-- [ ] `internal/mangle/engine_test.go`
+- [x] `internal/mangle/engine_test.go`
 
 ### internal/mangle/engine_uplift_test.go (1)
 - [x] `internal/mangle/engine_uplift_test.go`
@@ -2080,133 +2080,133 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/core/kernel_eval_uplift_test.go`
 
 ### internal/mangle/fact_store_proxy_test.go (1)
-- [ ] `internal/mangle/fact_store_proxy_test.go`
+- [x] `internal/mangle/fact_store_proxy_test.go`
 
 ### internal/mangle/feedback (18)
 - [x] `internal/mangle/feedback/error_classifier.go`
-- [ ] `internal/mangle/feedback/error_classifier_benchmark_test.go`
-- [ ] `internal/mangle/feedback/error_classifier_test.go`
-- [ ] `internal/mangle/feedback/feedback_test.go`
-- [ ] `internal/mangle/feedback/jit_test.go`
+- [x] `internal/mangle/feedback/error_classifier_benchmark_test.go`
+- [x] `internal/mangle/feedback/error_classifier_test.go`
+- [x] `internal/mangle/feedback/feedback_test.go`
+- [x] `internal/mangle/feedback/jit_test.go`
 - [x] `internal/mangle/feedback/loop.go`
-- [ ] `internal/mangle/feedback/loop_test.go`
+- [x] `internal/mangle/feedback/loop_test.go`
 - [x] `internal/mangle/feedback/normalize.go`
 - [x] `internal/mangle/feedback/normalize_test.go`
 - [x] `internal/mangle/feedback/pre_validator.go`
-- [ ] `internal/mangle/feedback/pre_validator_bench_test.go`
-- [ ] `internal/mangle/feedback/pre_validator_benchmark_test.go`
-- [ ] `internal/mangle/feedback/pre_validator_test.go`
+- [x] `internal/mangle/feedback/pre_validator_bench_test.go`
+- [x] `internal/mangle/feedback/pre_validator_benchmark_test.go`
+- [x] `internal/mangle/feedback/pre_validator_test.go`
 - [x] `internal/mangle/feedback/prompt_builder.go`
-- [ ] `internal/mangle/feedback/prompt_builder_test.go`
+- [x] `internal/mangle/feedback/prompt_builder_test.go`
 - [x] `internal/mangle/feedback/types.go`
-- [ ] `internal/mangle/feedback/types_test.go`
+- [x] `internal/mangle/feedback/types_test.go`
 - [x] `internal/mangle/feedback/uplift_test.go`
 
 ### internal/mangle/grammar.go (1)
 - [x] `internal/mangle/grammar.go`
 
 ### internal/mangle/grammar_argtype_test.go (1)
-- [ ] `internal/mangle/grammar_argtype_test.go`
+- [x] `internal/mangle/grammar_argtype_test.go`
 
 ### internal/mangle/grammar_fuzz_test.go (1)
-- [ ] `internal/mangle/grammar_fuzz_test.go`
+- [x] `internal/mangle/grammar_fuzz_test.go`
 
 ### internal/mangle/grammar_helpers_test.go (1)
-- [ ] `internal/mangle/grammar_helpers_test.go`
+- [x] `internal/mangle/grammar_helpers_test.go`
 
 ### internal/mangle/grammar_internal_test.go (1)
-- [ ] `internal/mangle/grammar_internal_test.go`
+- [x] `internal/mangle/grammar_internal_test.go`
 
 ### internal/mangle/grammar_test.go (1)
-- [ ] `internal/mangle/grammar_test.go`
+- [x] `internal/mangle/grammar_test.go`
 
 ### internal/mangle/inspect_test.go (1)
-- [ ] `internal/mangle/inspect_test.go`
+- [x] `internal/mangle/inspect_test.go`
 
 ### internal/mangle/intent_imports_test.go (1)
-- [ ] `internal/mangle/intent_imports_test.go`
+- [x] `internal/mangle/intent_imports_test.go`
 
 ### internal/mangle/intent_wiring_test.go (1)
-- [ ] `internal/mangle/intent_wiring_test.go`
+- [x] `internal/mangle/intent_wiring_test.go`
 
 ### internal/mangle/lsp.go (1)
 - [x] `internal/mangle/lsp.go`
 
 ### internal/mangle/lsp_helpers_test.go (1)
-- [ ] `internal/mangle/lsp_helpers_test.go`
+- [x] `internal/mangle/lsp_helpers_test.go`
 
 ### internal/mangle/lsp_test.go (1)
-- [ ] `internal/mangle/lsp_test.go`
+- [x] `internal/mangle/lsp_test.go`
 
 ### internal/mangle/mangle_validation_test.go (1)
-- [ ] `internal/mangle/mangle_validation_test.go`
+- [x] `internal/mangle/mangle_validation_test.go`
 
 ### internal/mangle/parse_callers_integration_test.go (1)
-- [ ] `internal/mangle/parse_callers_integration_test.go`
+- [x] `internal/mangle/parse_callers_integration_test.go`
 
 ### internal/mangle/parse_lock.go (1)
 - [x] `internal/mangle/parse_lock.go`
 
 ### internal/mangle/parse_lock_test.go (1)
-- [ ] `internal/mangle/parse_lock_test.go`
+- [x] `internal/mangle/parse_lock_test.go`
 
 ### internal/mangle/proof_tree.go (1)
 - [x] `internal/mangle/proof_tree.go`
 
 ### internal/mangle/proof_tree_test.go (1)
-- [ ] `internal/mangle/proof_tree_test.go`
+- [x] `internal/mangle/proof_tree_test.go`
 
 ### internal/mangle/proof_tree_uplift_test.go (1)
-- [ ] `internal/mangle/proof_tree_uplift_test.go`
+- [x] `internal/mangle/proof_tree_uplift_test.go`
 
 ### internal/mangle/schema_validator.go (1)
 - [x] `internal/mangle/schema_validator.go`
 
 ### internal/mangle/schema_validator_program_test.go (1)
-- [ ] `internal/mangle/schema_validator_program_test.go`
+- [x] `internal/mangle/schema_validator_program_test.go`
 
 ### internal/mangle/schema_validator_test.go (1)
-- [ ] `internal/mangle/schema_validator_test.go`
+- [x] `internal/mangle/schema_validator_test.go`
 
 ### internal/mangle/schema_validator_uplift_test.go (1)
-- [ ] `internal/mangle/schema_validator_uplift_test.go`
+- [x] `internal/mangle/schema_validator_uplift_test.go`
 
 ### internal/mangle/simd_intersect_generic.go (1)
 - [x] `internal/mangle/simd_intersect_generic.go`
 
 ### internal/mangle/simd_intersect_generic_test.go (1)
-- [ ] `internal/mangle/simd_intersect_generic_test.go`
+- [x] `internal/mangle/simd_intersect_generic_test.go`
 
 ### internal/mangle/simd_intersect_test.go (1)
-- [ ] `internal/mangle/simd_intersect_test.go`
+- [x] `internal/mangle/simd_intersect_test.go`
 
 ### internal/mangle/synth (14)
 - [x] `internal/mangle/synth/compile.go`
 - [x] `internal/mangle/synth/compile_test.go`
 - [x] `internal/mangle/synth/decoder.go`
-- [ ] `internal/mangle/synth/decoder_fromresponse_test.go`
-- [ ] `internal/mangle/synth/decoder_more_test.go`
-- [ ] `internal/mangle/synth/decoder_test.go`
+- [x] `internal/mangle/synth/decoder_fromresponse_test.go`
+- [x] `internal/mangle/synth/decoder_more_test.go`
+- [x] `internal/mangle/synth/decoder_test.go`
 - [x] `internal/mangle/synth/schema.go`
-- [ ] `internal/mangle/synth/schema_test.go`
+- [x] `internal/mangle/synth/schema_test.go`
 - [x] `internal/mangle/synth/spec.go`
-- [ ] `internal/mangle/synth/spec_test.go`
-- [ ] `internal/mangle/synth/synth_test.go`
+- [x] `internal/mangle/synth/spec_test.go`
+- [x] `internal/mangle/synth/synth_test.go`
 - [x] `internal/mangle/synth/validate.go`
-- [ ] `internal/mangle/synth/validate_test.go`
+- [x] `internal/mangle/synth/validate_test.go`
 - [x] `internal/mangle/synth/uplift_test.go`
 
 ### internal/mangle/torture_test.go (1)
-- [ ] `internal/mangle/torture_test.go`
+- [x] `internal/mangle/torture_test.go`
 
 ### internal/mangle/transpiler (4)
 - [x] `internal/mangle/transpiler/sanitizer.go`
-- [ ] `internal/mangle/transpiler/sanitizer_atoms_test.go`
+- [x] `internal/mangle/transpiler/sanitizer_atoms_test.go`
 - [x] `internal/mangle/transpiler/sanitizer_test.go`
 - [x] `internal/mangle/transpiler/uplift_test.go`
 
 ### internal/mangle/verification_logic_test.go (1)
-- [ ] `internal/mangle/verification_logic_test.go`
+- [x] `internal/mangle/verification_logic_test.go`
 
 ### internal/mcp (52)
 - [x] `internal/mcp/analyzer.go`
@@ -2832,108 +2832,108 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/sqlpragmas/pragmas_test.go`
 
 ### internal/store (96)
-- [ ] `internal/store/archival_test.go`
-- [ ] `internal/store/cold_storage_integration_test.go`
-- [ ] `internal/store/corpus_search_boundaries_test.go`
+- [x] `internal/store/archival_test.go`
+- [x] `internal/store/cold_storage_integration_test.go`
+- [x] `internal/store/corpus_search_boundaries_test.go`
 - [x] `internal/store/embedded_store.go`
 - [x] `internal/store/foundation_uplift_test.go`
 - [x] `internal/store/fact_codec.go`
-- [ ] `internal/store/fact_codec_int64_test.go`
-- [ ] `internal/store/fact_codec_test.go`
+- [x] `internal/store/fact_codec_int64_test.go`
+- [x] `internal/store/fact_codec_test.go`
 - [x] `internal/store/indexes.go`
 - [x] `internal/store/init_sqlite.go`
 - [x] `internal/store/init_vec.go`
 - [x] `internal/store/knowledge_lexical_db.go`
 - [x] `internal/store/local_domains_a_uplift_test.go`
-- [ ] `internal/store/knowledge_lexical_db_test.go`
+- [x] `internal/store/knowledge_lexical_db_test.go`
 - [x] `internal/store/learned_store.go`
 - [x] `internal/store/learning.go`
-- [ ] `internal/store/learning_bench_test.go`
+- [x] `internal/store/learning_bench_test.go`
 - [x] `internal/store/learning_candidates.go`
-- [ ] `internal/store/learning_candidates_test.go`
-- [ ] `internal/store/learning_content_test.go`
-- [ ] `internal/store/learning_recall_regression_test.go`
+- [x] `internal/store/learning_candidates_test.go`
+- [x] `internal/store/learning_content_test.go`
+- [x] `internal/store/learning_recall_regression_test.go`
 - [x] `internal/store/learning_reflection.go`
 - [x] `internal/store/learned_uplift_test.go`
-- [ ] `internal/store/learning_stats_test.go`
+- [x] `internal/store/learning_stats_test.go`
 - [x] `internal/store/local.go`
 - [x] `internal/store/local_cold.go`
-- [ ] `internal/store/local_cold_extra_test.go`
+- [x] `internal/store/local_cold_extra_test.go`
 - [x] `internal/store/local_core.go`
-- [ ] `internal/store/local_core_test.go`
+- [x] `internal/store/local_core_test.go`
 - [x] `internal/store/local_graph.go`
-- [ ] `internal/store/local_graph_benchmark_test.go`
-- [ ] `internal/store/local_graph_extra_test.go`
-- [ ] `internal/store/local_graph_integration_test.go`
-- [ ] `internal/store/local_graph_migration_test.go`
+- [x] `internal/store/local_graph_benchmark_test.go`
+- [x] `internal/store/local_graph_extra_test.go`
+- [x] `internal/store/local_graph_integration_test.go`
+- [x] `internal/store/local_graph_migration_test.go`
 - [x] `internal/store/local_graph_query.go`
-- [ ] `internal/store/local_graph_test.go`
+- [x] `internal/store/local_graph_test.go`
 - [x] `internal/store/local_knowledge.go`
-- [ ] `internal/store/local_knowledge_benchmark_test.go`
-- [ ] `internal/store/local_knowledge_extra_test.go`
-- [ ] `internal/store/local_knowledge_recent_test.go`
+- [x] `internal/store/local_knowledge_benchmark_test.go`
+- [x] `internal/store/local_knowledge_extra_test.go`
+- [x] `internal/store/local_knowledge_recent_test.go`
 - [x] `internal/store/local_prompt.go`
-- [ ] `internal/store/local_prompt_extra_test.go`
-- [ ] `internal/store/local_prompt_selector_test.go`
+- [x] `internal/store/local_prompt_extra_test.go`
+- [x] `internal/store/local_prompt_selector_test.go`
 - [x] `internal/store/local_review.go`
-- [ ] `internal/store/local_review_extra_test.go`
+- [x] `internal/store/local_review_extra_test.go`
 - [x] `internal/store/local_session.go`
-- [ ] `internal/store/local_session_extra_test.go`
-- [ ] `internal/store/local_session_integration_test.go`
-- [ ] `internal/store/local_session_test.go`
+- [x] `internal/store/local_session_extra_test.go`
+- [x] `internal/store/local_session_integration_test.go`
+- [x] `internal/store/local_session_test.go`
 - [x] `internal/store/local_vector.go`
-- [ ] `internal/store/local_vector_test.go`
+- [x] `internal/store/local_vector_test.go`
 - [x] `internal/store/local_verification.go`
-- [ ] `internal/store/local_verification_extra_test.go`
+- [x] `internal/store/local_verification_extra_test.go`
 - [x] `internal/store/local_world.go`
-- [ ] `internal/store/local_world_extra_test.go`
+- [x] `internal/store/local_world_extra_test.go`
 - [x] `internal/store/migrations.go`
-- [ ] `internal/store/migrations_benchmark_test.go`
-- [ ] `internal/store/migrations_test.go`
-- [ ] `internal/store/mocks_test.go`
+- [x] `internal/store/migrations_benchmark_test.go`
+- [x] `internal/store/migrations_test.go`
+- [x] `internal/store/mocks_test.go`
 - [x] `internal/store/pragmas.go`
 - [x] `internal/store/prompt_reembed.go`
-- [ ] `internal/store/prompt_reembed_benchmark_test.go`
+- [x] `internal/store/prompt_reembed_benchmark_test.go`
 - [x] `internal/store/reembed_all.go`
-- [ ] `internal/store/reembed_all_test.go`
+- [x] `internal/store/reembed_all_test.go`
 - [x] `internal/store/reflection_reembed.go`
-- [ ] `internal/store/reflection_reembed_test.go`
+- [x] `internal/store/reflection_reembed_test.go`
 - [x] `internal/store/reflection_search.go`
-- [ ] `internal/store/reflection_search_extra_test.go`
+- [x] `internal/store/reflection_search_extra_test.go`
 - [x] `internal/store/reflection_utils.go`
-- [ ] `internal/store/reflection_utils_test.go`
+- [x] `internal/store/reflection_utils_test.go`
 - [x] `internal/store/reflection_worker.go`
 - [x] `internal/store/vector_uplift_test.go`
 - [x] `internal/store/local_domains_b_uplift_test.go`
 - [x] `internal/store/local_store_unit_c_uplift_test.go`
-- [ ] `internal/store/reflection_worker_test.go`
-- [ ] `internal/store/serialization_test.go`
+- [x] `internal/store/reflection_worker_test.go`
+- [x] `internal/store/serialization_test.go`
 - [x] `internal/store/tool_cleanup.go`
-- [ ] `internal/store/tool_cleanup_extra_test.go`
-- [ ] `internal/store/tool_cleanup_test.go`
+- [x] `internal/store/tool_cleanup_extra_test.go`
+- [x] `internal/store/tool_cleanup_test.go`
 - [x] `internal/store/tool_store.go`
-- [ ] `internal/store/tool_store_test.go`
+- [x] `internal/store/tool_store_test.go`
 - [x] `internal/store/trace_reflection.go`
-- [ ] `internal/store/trace_reflection_extra_test.go`
+- [x] `internal/store/trace_reflection_extra_test.go`
 - [x] `internal/store/trace_store.go`
-- [ ] `internal/store/trace_store_integration_test.go`
-- [ ] `internal/store/trace_store_test.go`
-- [ ] `internal/store/vec_probe_test.go`
+- [x] `internal/store/trace_store_integration_test.go`
+- [x] `internal/store/trace_store_test.go`
+- [x] `internal/store/vec_probe_test.go`
 - [x] `internal/store/vec_support_disabled.go`
 - [x] `internal/store/vec_support_enabled.go`
-- [ ] `internal/store/vector_boundary_test.go`
-- [ ] `internal/store/vector_e2e_test.go`
+- [x] `internal/store/vector_boundary_test.go`
+- [x] `internal/store/vector_e2e_test.go`
 - [x] `internal/store/vector_store.go`
-- [ ] `internal/store/vector_store_batch_test.go`
-- [ ] `internal/store/vector_store_benchmark_test.go`
-- [ ] `internal/store/vector_store_brute_test.go`
+- [x] `internal/store/vector_store_batch_test.go`
+- [x] `internal/store/vector_store_benchmark_test.go`
+- [x] `internal/store/vector_store_brute_test.go`
 - [x] `internal/store/vector_store_bruteforce.go`
-- [ ] `internal/store/vector_store_extra_test.go`
+- [x] `internal/store/vector_store_extra_test.go`
 - [x] `internal/store/vector_store_reembed.go`
-- [ ] `internal/store/vector_store_search_test.go`
-- [ ] `internal/store/vector_store_test.go`
+- [x] `internal/store/vector_store_search_test.go`
+- [x] `internal/store/vector_store_test.go`
 - [x] `internal/store/vector_utils.go`
-- [ ] `internal/store/vector_utils_test.go`
+- [x] `internal/store/vector_utils_test.go`
 
 ### internal/system (59)
 - [x] `internal/system/agent_definition.go`
@@ -3467,7 +3467,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 ### scripts (3)
 - [ ] `scripts/probe_safety/main.go`
 - [ ] `scripts/torture_live/main.go`
-- [ ] `scripts/torture_live/main_test.go`
+- [x] `scripts/torture_live/main_test.go`
 
 ### tests (38)
 - [ ] `tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go`
@@ -3510,12 +3510,12 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `tests/e2e/write_turn_fixture_test.go`
 
 ### tools (3)
-- [ ] `tools/count_lines.go`
-- [ ] `tools/count_lines_test.go`
-- [ ] `tools/registry.go`
+- [x] `tools/count_lines.go` <!-- sample package; tested, green, no production callers by design -->
+- [x] `tools/count_lines_test.go`
+- [x] `tools/registry.go` <!-- sample package; tested, green, no production callers by design -->
 
 ## Mangle files (278)
-### .agent (34)
+### .agent (35)
 - [x] `.agent/skills/log-analyzer/assets/log-schema.mg`
 - [x] `.agent/skills/log-analyzer/scripts/logquery/schema.mg`
 - [x] `.agent/skills/mangle-programming/assets/codenerd-schemas.mg`
@@ -3526,29 +3526,30 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `.agent/skills/mangle-programming/assets/starter-schema.mg`
 - [x] `.agent/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
 - [x] `.agent/skills/stress-tester/assets/cyclic_rules.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/direct_self_reference.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/mutual_recursion.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/unbounded_counter.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/anonymous_misuse.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/negation_order.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/stratification_cycles.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/unbound_head_vars.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/unsafe_negation.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/structures/bracket_notation.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/structures/dot_notation.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/structures/json_syntax.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/assignment_operators.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/atom_string_confusion.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/inline_aggregation.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/lowercase_vars.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/missing_periods.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/souffle_syntax.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/wrong_comments.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/types/atom_vs_string.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/types/hallucinated_functions.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/types/int_vs_float.mg`
-- [ ] `.agent/skills/stress-tester/assets/mangle-adversarial/types/list_in_scalar.mg`
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/direct_self_reference.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/mutual_recursion.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/unbounded_counter.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/anonymous_misuse.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/negation_order.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/stratification_cycles.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/unbound_head_vars.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/unsafe_negation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/structures/bracket_notation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/structures/dot_notation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/structures/json_syntax.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/assignment_operators.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/atom_string_confusion.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/inline_aggregation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/lowercase_vars.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/missing_periods.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/souffle_syntax.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/string_predicate.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/wrong_comments.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/types/atom_vs_string.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/types/hallucinated_functions.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/types/int_vs_float.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/types/list_in_scalar.mg` <!-- ignored mirror, synced with .codex -->
 - [x] `.agent/skills/stress-tester/assets/stress_queries.mg`
 
 ### .agents (9)
@@ -3573,7 +3574,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `.claude/skills/mangle-programming/assets/starter-schema.mg`
 - [x] `.claude/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
 
-### .codex (34)
+### .codex (35)
 - [x] `.codex/skills/log-analyzer/assets/log-schema.mg`
 - [x] `.codex/skills/log-analyzer/scripts/logquery/schema.mg`
 - [x] `.codex/skills/mangle-programming/assets/codenerd-schemas.mg`
@@ -3584,73 +3585,75 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `.codex/skills/mangle-programming/assets/starter-schema.mg`
 - [x] `.codex/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
 - [x] `.codex/skills/stress-tester/assets/cyclic_rules.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/direct_self_reference.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/mutual_recursion.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/unbounded_counter.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/anonymous_misuse.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/negation_order.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/stratification_cycles.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/unbound_head_vars.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/unsafe_negation.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/structures/bracket_notation.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/structures/dot_notation.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/structures/json_syntax.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/assignment_operators.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/atom_string_confusion.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/inline_aggregation.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/lowercase_vars.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/missing_periods.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/souffle_syntax.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/wrong_comments.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/types/atom_vs_string.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/types/hallucinated_functions.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/types/int_vs_float.mg`
-- [ ] `.codex/skills/stress-tester/assets/mangle-adversarial/types/list_in_scalar.mg`
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/direct_self_reference.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/mutual_recursion.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/unbounded_counter.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/anonymous_misuse.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/negation_order.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/stratification_cycles.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/unbound_head_vars.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/unsafe_negation.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/structures/bracket_notation.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/structures/dot_notation.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/structures/json_syntax.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/assignment_operators.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/atom_string_confusion.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/inline_aggregation.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/lowercase_vars.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/missing_periods.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/souffle_syntax.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/string_predicate.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/wrong_comments.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/types/atom_vs_string.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/types/hallucinated_functions.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/types/int_vs_float.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/types/list_in_scalar.mg` <!-- pinned: adversarial gate table -->
 - [x] `.codex/skills/stress-tester/assets/stress_queries.mg`
 
-### .gemini (27)
+### .gemini (28)
 - [x] `.gemini/skills/log-analyzer/assets/log-schema.mg`
 - [x] `.gemini/skills/log-analyzer/scripts/logquery/schema.mg`
 - [x] `.gemini/skills/stress-tester/assets/cyclic_rules.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/direct_self_reference.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/mutual_recursion.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/unbounded_counter.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/anonymous_misuse.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/negation_order.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/stratification_cycles.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/unbound_head_vars.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/unsafe_negation.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/structures/bracket_notation.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/structures/dot_notation.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/structures/json_syntax.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/assignment_operators.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/atom_string_confusion.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/inline_aggregation.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/lowercase_vars.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/missing_periods.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/souffle_syntax.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/wrong_comments.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/atom_vs_string.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/hallucinated_functions.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/int_vs_float.mg`
-- [ ] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/list_in_scalar.mg`
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/direct_self_reference.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/mutual_recursion.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/unbounded_counter.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/anonymous_misuse.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/negation_order.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/stratification_cycles.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/unbound_head_vars.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/unsafe_negation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/structures/bracket_notation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/structures/dot_notation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/structures/json_syntax.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/assignment_operators.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/atom_string_confusion.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/inline_aggregation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/lowercase_vars.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/missing_periods.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/souffle_syntax.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/string_predicate.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/wrong_comments.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/atom_vs_string.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/hallucinated_functions.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/int_vs_float.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/list_in_scalar.mg` <!-- ignored mirror, synced with .codex -->
 - [x] `.gemini/skills/stress-tester/assets/stress_queries.mg`
 
 ### .nerd (12)
-- [ ] `.nerd/agents/GofmtExpert/gofmt_windows_line_endings.mg`
-- [ ] `.nerd/browser/snapshots/083e619b-8447-476f-b218-40932e0141fc_1786230728.mg`
-- [ ] `.nerd/browser/snapshots/6cf237f9-9394-4f2f-801c-898e8cfc6a7c_1786230231.mg`
-- [ ] `.nerd/browser/snapshots/95f21c42-3133-4d0c-ac21-a589ea64cffc_1786506804.mg`
-- [ ] `.nerd/mangle/extensions.mg`
-- [ ] `.nerd/mangle/learned.mg`
-- [ ] `.nerd/mangle/learned_taxonomy.mg`
-- [ ] `.nerd/mangle/policy_overrides.mg`
-- [ ] `.nerd/mangle/scan.mg`
-- [ ] `.nerd/marathon-supervision/phase3-control-jit_compiler.mg`
-- [ ] `.nerd/northstar.mg`
-- [ ] `.nerd/profile.mg`
+- [ ] `.nerd/agents/GofmtExpert/gofmt_windows_line_endings.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/browser/snapshots/083e619b-8447-476f-b218-40932e0141fc_1786230728.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/browser/snapshots/6cf237f9-9394-4f2f-801c-898e8cfc6a7c_1786230231.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/browser/snapshots/95f21c42-3133-4d0c-ac21-a589ea64cffc_1786506804.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/mangle/extensions.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/mangle/learned.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/mangle/learned_taxonomy.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/mangle/policy_overrides.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/mangle/scan.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/phase3-control-jit_compiler.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/northstar.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/profile.mg` <!-- runtime state, untracked; never uplifted -->
 
 ### cmd/nerd (2)
 - [x] `cmd/nerd/.nerd/debug/debug_program_ERROR.mg`
@@ -3660,7 +3663,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/campaign/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/context (2)
-- [ ] `internal/context/.nerd/debug/debug_program_ERROR.mg`
+- [ ] `internal/context/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
 - [x] `internal/context/working_set.mg`
 
 ### internal/core/.nerd (1)
@@ -3815,13 +3818,13 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/persist/snapshot/.nerd/debug/debug_program_ERROR.mg`
 
 ### internal/retrieval (1)
-- [ ] `internal/retrieval/.nerd/debug/debug_program_ERROR.mg`
+- [ ] `internal/retrieval/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
 
 ### internal/session (1)
-- [ ] `internal/session/.nerd/debug/debug_program_ERROR.mg`
+- [ ] `internal/session/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
 
 ### internal/shards/system (1)
-- [ ] `internal/shards/system/.nerd/debug/debug_program_ERROR.mg`
+- [ ] `internal/shards/system/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
 
 ### internal/system (1)
 - [x] `internal/system/.nerd/debug/debug_program_ERROR.mg`
@@ -3833,8 +3836,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/world/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
 
 ### test_init (3)
-- [ ] `test_init/.nerd/mangle/extensions.mg`
-- [ ] `test_init/.nerd/mangle/policy_overrides.mg`
-- [ ] `test_init/.nerd/profile.mg`
+- [x] `test_init/.nerd/mangle/extensions.mg` <!-- tracked fixture, corpus-gate verified -->
+- [x] `test_init/.nerd/mangle/policy_overrides.mg` <!-- tracked fixture, corpus-gate verified -->
+- [x] `test_init/.nerd/profile.mg` <!-- tracked fixture, corpus-gate verified -->
 
-**Progress: 31/2632**
+**Progress: 2582/2683**
