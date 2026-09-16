@@ -2306,12 +2306,12 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/perception/assault_verb_test.go`
 - [ ] `internal/perception/benchmark_test.go`
 - [ ] `internal/perception/break_test.go`
-- [ ] `internal/perception/broker_install.go`
+- [x] `internal/perception/broker_install.go`
 - [ ] `internal/perception/broker_sentinel_test.go`
 - [ ] `internal/perception/claude_cli_client.go`
 - [ ] `internal/perception/claude_cli_client_test.go`
 - [ ] `internal/perception/cli_client_identity_test.go`
-- [ ] `internal/perception/client.go`
+- [x] `internal/perception/client.go`
 - [ ] `internal/perception/client_anthropic.go`
 - [ ] `internal/perception/client_factory.go`
 - [ ] `internal/perception/client_factory_extra_test.go`
@@ -2364,18 +2364,18 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/perception/codex_cli_client_test.go`
 - [ ] `internal/perception/codex_cli_probe.go`
 - [ ] `internal/perception/codex_cli_probe_test.go`
-- [ ] `internal/perception/codex_exec_client.go`
+- [x] `internal/perception/codex_exec_client.go`
 - [x] `internal/perception/consolidation.go`
 - [ ] `internal/perception/context_token_phrase_unification_test.go`
-- [ ] `internal/perception/debug.go`
+- [x] `internal/perception/debug.go`
 - [ ] `internal/perception/gemini_live_test.go`
 - [ ] `internal/perception/gemini_structured_test.go`
 - [ ] `internal/perception/gemini_thinking_test.go`
 - [x] `internal/perception/learning.go`
 - [ ] `internal/perception/learning_test.go`
-- [ ] `internal/perception/metrics.go`
+- [x] `internal/perception/metrics.go`
 - [ ] `internal/perception/piggyback_contract_test.go`
-- [ ] `internal/perception/scanner_pool.go`
+- [x] `internal/perception/scanner_pool.go`
 - [x] `internal/perception/semantic_classifier.go`
 - [ ] `internal/perception/semantic_classifier_test.go`
 - [x] `internal/perception/taxonomy.go`
@@ -2400,18 +2400,18 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/perception/transducer_llm_test.go`
 - [ ] `internal/perception/transducer_prompt_bounds_test.go`
 - [ ] `internal/perception/transducer_unit_test.go`
-- [ ] `internal/perception/transport.go`
+- [x] `internal/perception/transport.go`
 - [ ] `internal/perception/transport_pool_test.go`
-- [ ] `internal/perception/truncation.go`
+- [x] `internal/perception/truncation.go`
 - [x] `internal/perception/understanding.go`
 - [x] `internal/perception/understanding_adapter.go`
 - [ ] `internal/perception/understanding_adapter_extra_test.go`
 - [ ] `internal/perception/understanding_adapter_test.go`
 - [ ] `internal/perception/understanding_adapter_transient_test.go`
 - [ ] `internal/perception/understanding_verbs_test.go`
-- [ ] `internal/perception/usage_track.go`
+- [x] `internal/perception/usage_track.go`
 - [ ] `internal/perception/usage_track_test.go`
-- [ ] `internal/perception/utils.go`
+- [x] `internal/perception/utils.go`
 - [ ] `internal/perception/utils_coverage_test.go`
 - [ ] `internal/perception/xai_torture_test.go`
 - [ ] `internal/perception/xaioauth/auth_device.go`
@@ -3801,4 +3801,4 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `test_init/.nerd/mangle/policy_overrides.mg`
 - [ ] `test_init/.nerd/profile.mg`
 
-**Progress: 18/2632**
+**Progress: 28/2632**
