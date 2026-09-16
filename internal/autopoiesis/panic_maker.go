@@ -267,56 +267,6 @@ func (p *PanicMaker) generateFallbackAttacks() []AttackVector {
 	return attacks
 }
 
-// FormatAttackResultsForFeedback creates a human-readable description of attack results
-// suitable for feeding back to the ToolGenerator for code regeneration.
-func FormatAttackResultsForFeedback(results []AttackResult) string {
-	var sb strings.Builder
-
-	survivors := 0
-	failures := 0
-	for _, r := range results {
-		if r.Survived {
-			survivors++
-		} else {
-			failures++
-		}
-	}
-
-	if failures == 0 {
-		sb.WriteString("THUNDERDOME RESULT: SURVIVED\n")
-		sb.WriteString(fmt.Sprintf("All %d attacks were defended successfully.\n", len(results)))
-		return sb.String()
-	}
-
-	sb.WriteString("THUNDERDOME RESULT: DEFEATED\n\n")
-	sb.WriteString(fmt.Sprintf("Attacks: %d total, %d survived, %d fatal\n\n", len(results), survivors, failures))
-	sb.WriteString("## Fatal Attacks:\n\n")
-
-	for i, r := range results {
-		if r.Survived {
-			continue
-		}
-
-		sb.WriteString(fmt.Sprintf("### Attack %d: %s (%s)\n", i+1, r.Vector.Name, r.Vector.Category))
-		sb.WriteString(fmt.Sprintf("**Input:** `%s`\n", truncateString(r.Vector.Input, 100)))
-		sb.WriteString(fmt.Sprintf("**Failure:** %s\n", r.Failure))
-		if r.StackDump != "" {
-			sb.WriteString(fmt.Sprintf("**Stack Trace:**\n```\n%s\n```\n", truncateString(r.StackDump, 500)))
-		}
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString("## REGENERATION REQUIREMENTS:\n")
-	sb.WriteString("Fix the vulnerabilities above. Key patterns to add:\n")
-	sb.WriteString("- Nil checks before pointer dereference\n")
-	sb.WriteString("- Bounds checking before slice/array access\n")
-	sb.WriteString("- Input size limits before allocation\n")
-	sb.WriteString("- Timeouts on blocking operations\n")
-	sb.WriteString("- Panic recovery in goroutines\n")
-
-	return sb.String()
-}
-
 // truncateString truncates a string to maxLen, adding "..." if truncated.
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {

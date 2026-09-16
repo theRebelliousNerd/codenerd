@@ -153,11 +153,9 @@ internal/autopoiesis/ouroboros.go	DefaultOuroborosConfig
 internal/autopoiesis/ouroboros.go	GenerateMissingToolFacts
 internal/autopoiesis/ouroboros.go	GenerateToolCapabilityFacts
 internal/autopoiesis/ouroboros.go	GenerateToolRegistrationFacts
-internal/autopoiesis/panic_maker.go	FormatAttackResultsForFeedback
 internal/autopoiesis/prompt_evolution/atom_generator.go	NewAtomGenerator
 internal/autopoiesis/prompt_evolution/types.go	AllProblemTypes
 internal/autopoiesis/thunderdome.go	NewThunderdome
-internal/autopoiesis/thunderdome.go	Thunderdome.findEntryPoint
 internal/autopoiesis/thunderdome.go	Thunderdome.generateTestHarness
 internal/autopoiesis/tool_compiler.go	extractFunctionBody
 internal/autopoiesis/tool_templates.go	extractJSONFromTemplate

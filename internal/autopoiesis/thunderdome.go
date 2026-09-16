@@ -380,14 +380,6 @@ func (t *Thunderdome) normalizePackage(code string) string {
 	return code[:loc[4]] + "tools" + code[loc[5]:]
 }
 
-// findEntryPoint uses AST parsing to locate the tool's main entry function.
-// It looks for exported functions with context + string signatures that match
-// the standard tool interface: func Name(ctx context.Context, input string) (string, error)
-func (t *Thunderdome) findEntryPoint(code string) (string, error) {
-	name, _, err := t.findEntryPointCall(code)
-	return name, err
-}
-
 // findEntryPointCall returns the best entry point name and invocation statement.
 // It supports common signatures:
 //
@@ -619,6 +611,12 @@ func (t *Thunderdome) FormatBattleResultForFeedback(result *BattleResult) string
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Tool '%s' was DEFEATED in The Thunderdome\n\n", result.ToolName))
+	if result.FatalAttack == nil || len(result.Results) == 0 {
+		// Battle always sets both on the defeated path; a degenerate
+		// result must still format, never panic the turn.
+		sb.WriteString("The tool must be regenerated with fixes for this vulnerability.\n")
+		return sb.String()
+	}
 	sb.WriteString(fmt.Sprintf("Fatal Attack: %s (%s)\n", result.FatalAttack.Name, result.FatalAttack.Category))
 	sb.WriteString(fmt.Sprintf("Input: %s\n", truncateString(result.FatalAttack.Input, 200)))
 	sb.WriteString(fmt.Sprintf("Failure Mode: %s\n", result.Results[len(result.Results)-1].Failure))

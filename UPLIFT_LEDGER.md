@@ -402,102 +402,102 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `internal/atomicfile/replace_windows.go`
 
 ### internal/autopoiesis (96)
-- [ ] `internal/autopoiesis/agent_handoff_test.go`
-- [ ] `internal/autopoiesis/analysis_heuristics_test.go`
-- [ ] `internal/autopoiesis/autopoiesis.go`
-- [ ] `internal/autopoiesis/autopoiesis_agents.go`
-- [ ] `internal/autopoiesis/autopoiesis_agents_test.go`
-- [ ] `internal/autopoiesis/autopoiesis_analysis.go`
-- [ ] `internal/autopoiesis/autopoiesis_analysis_kernel_test.go`
-- [ ] `internal/autopoiesis/autopoiesis_delegation.go`
-- [ ] `internal/autopoiesis/autopoiesis_feedback.go`
-- [ ] `internal/autopoiesis/autopoiesis_helpers.go`
-- [ ] `internal/autopoiesis/autopoiesis_kernel.go`
-- [ ] `internal/autopoiesis/autopoiesis_orchestrator.go`
-- [ ] `internal/autopoiesis/autopoiesis_profiles.go`
-- [ ] `internal/autopoiesis/autopoiesis_profiles_test.go`
-- [ ] `internal/autopoiesis/autopoiesis_tools.go`
-- [ ] `internal/autopoiesis/autopoiesis_types.go`
-- [ ] `internal/autopoiesis/build_env_threading_test.go`
-- [ ] `internal/autopoiesis/checker.go`
-- [ ] `internal/autopoiesis/checker_failclosed_test.go`
-- [ ] `internal/autopoiesis/checker_test.go`
-- [ ] `internal/autopoiesis/complexity.go`
-- [ ] `internal/autopoiesis/complexity_test.go`
-- [ ] `internal/autopoiesis/delegation_test.go`
-- [ ] `internal/autopoiesis/execution_policy_test.go`
-- [ ] `internal/autopoiesis/feedback.go`
-- [ ] `internal/autopoiesis/feedback_load_test.go`
-- [ ] `internal/autopoiesis/feedback_test.go`
-- [ ] `internal/autopoiesis/helpers_coverage_test.go`
-- [ ] `internal/autopoiesis/kernel_listener_lifecycle_test.go`
-- [ ] `internal/autopoiesis/kernel_listener_wiring_test.go`
-- [ ] `internal/autopoiesis/kernel_parity_test.go`
-- [ ] `internal/autopoiesis/metrics.go`
-- [ ] `internal/autopoiesis/metrics_test.go`
-- [ ] `internal/autopoiesis/mocks_test.go`
-- [ ] `internal/autopoiesis/orchestrator_test.go`
-- [ ] `internal/autopoiesis/ouroboros.go`
-- [ ] `internal/autopoiesis/ouroboros_multistage_e2e_test.go`
-- [ ] `internal/autopoiesis/ouroboros_panic_test.go`
-- [ ] `internal/autopoiesis/ouroboros_test.go`
-- [ ] `internal/autopoiesis/ouroboros_tool_test.go`
-- [ ] `internal/autopoiesis/ouroboros_version_test.go`
-- [ ] `internal/autopoiesis/ouroboros_wrapper_test.go`
-- [ ] `internal/autopoiesis/panic_maker.go`
-- [ ] `internal/autopoiesis/patterns.go`
-- [ ] `internal/autopoiesis/patterns_coverage_test.go`
-- [ ] `internal/autopoiesis/persistence.go`
-- [ ] `internal/autopoiesis/persistence_test.go`
-- [ ] `internal/autopoiesis/profiles.go`
-- [ ] `internal/autopoiesis/prompt_evolution/atom_generator.go`
-- [ ] `internal/autopoiesis/prompt_evolution/atom_promoted_callback_test.go`
-- [ ] `internal/autopoiesis/prompt_evolution/classifier.go`
-- [ ] `internal/autopoiesis/prompt_evolution/classifier_bench_test.go`
-- [ ] `internal/autopoiesis/prompt_evolution/evolver.go`
-- [ ] `internal/autopoiesis/prompt_evolution/feedback_collector.go`
-- [ ] `internal/autopoiesis/prompt_evolution/feedback_collector_migration_test.go`
-- [ ] `internal/autopoiesis/prompt_evolution/feedback_collector_stats_test.go`
-- [ ] `internal/autopoiesis/prompt_evolution/judge.go`
-- [ ] `internal/autopoiesis/prompt_evolution/pinning_test.go`
-- [ ] `internal/autopoiesis/prompt_evolution/promotion_gate_test.go`
-- [ ] `internal/autopoiesis/prompt_evolution/prompt_evolution_test.go`
-- [ ] `internal/autopoiesis/prompt_evolution/strategy_atoms.go`
-- [ ] `internal/autopoiesis/prompt_evolution/strategy_atoms_test.go`
-- [ ] `internal/autopoiesis/prompt_evolution/strategy_store.go`
-- [ ] `internal/autopoiesis/prompt_evolution/types.go`
-- [ ] `internal/autopoiesis/quality.go`
-- [ ] `internal/autopoiesis/quality_test.go`
-- [ ] `internal/autopoiesis/runtime_output_test.go`
-- [ ] `internal/autopoiesis/runtime_registry.go`
-- [ ] `internal/autopoiesis/safety_adversarial_test.go`
-- [ ] `internal/autopoiesis/should_generate_tool_test.go`
-- [ ] `internal/autopoiesis/stability_score_test.go`
-- [ ] `internal/autopoiesis/stage_budget_test.go`
-- [ ] `internal/autopoiesis/templates_coverage_test.go`
-- [ ] `internal/autopoiesis/thunderdome.go`
-- [ ] `internal/autopoiesis/thunderdome_harness_test.go`
-- [ ] `internal/autopoiesis/thunderdome_normalize_test.go`
-- [ ] `internal/autopoiesis/thunderdome_result_test.go`
-- [ ] `internal/autopoiesis/tool_compiler.go`
-- [ ] `internal/autopoiesis/tool_compiler_gating_test.go`
-- [ ] `internal/autopoiesis/tool_compiler_test.go`
-- [ ] `internal/autopoiesis/tool_creation_routing_test.go`
-- [ ] `internal/autopoiesis/tool_detection.go`
-- [ ] `internal/autopoiesis/tool_detection_coercion_test.go`
-- [ ] `internal/autopoiesis/tool_generation.go`
-- [ ] `internal/autopoiesis/tool_generation_contract_test.go`
-- [ ] `internal/autopoiesis/tool_templates.go`
-- [ ] `internal/autopoiesis/tool_validation.go`
-- [ ] `internal/autopoiesis/toolgen.go`
-- [ ] `internal/autopoiesis/toolgen_gaps_test.go`
-- [ ] `internal/autopoiesis/toolgen_test.go`
-- [ ] `internal/autopoiesis/traces.go`
-- [ ] `internal/autopoiesis/traces_bench_test.go`
-- [ ] `internal/autopoiesis/traces_benchmark_test.go`
-- [ ] `internal/autopoiesis/types_coverage_test.go`
-- [ ] `internal/autopoiesis/utils_coverage_test.go`
-- [ ] `internal/autopoiesis/yaegi_executor.go`
+- [x] `internal/autopoiesis/agent_handoff_test.go`
+- [x] `internal/autopoiesis/analysis_heuristics_test.go`
+- [x] `internal/autopoiesis/autopoiesis.go`
+- [x] `internal/autopoiesis/autopoiesis_agents.go`
+- [x] `internal/autopoiesis/autopoiesis_agents_test.go`
+- [x] `internal/autopoiesis/autopoiesis_analysis.go`
+- [x] `internal/autopoiesis/autopoiesis_analysis_kernel_test.go`
+- [x] `internal/autopoiesis/autopoiesis_delegation.go`
+- [x] `internal/autopoiesis/autopoiesis_feedback.go`
+- [x] `internal/autopoiesis/autopoiesis_helpers.go`
+- [x] `internal/autopoiesis/autopoiesis_kernel.go`
+- [x] `internal/autopoiesis/autopoiesis_orchestrator.go`
+- [x] `internal/autopoiesis/autopoiesis_profiles.go`
+- [x] `internal/autopoiesis/autopoiesis_profiles_test.go`
+- [x] `internal/autopoiesis/autopoiesis_tools.go`
+- [x] `internal/autopoiesis/autopoiesis_types.go`
+- [x] `internal/autopoiesis/build_env_threading_test.go`
+- [x] `internal/autopoiesis/checker.go`
+- [x] `internal/autopoiesis/checker_failclosed_test.go`
+- [x] `internal/autopoiesis/checker_test.go`
+- [x] `internal/autopoiesis/complexity.go`
+- [x] `internal/autopoiesis/complexity_test.go`
+- [x] `internal/autopoiesis/delegation_test.go`
+- [x] `internal/autopoiesis/execution_policy_test.go`
+- [x] `internal/autopoiesis/feedback.go`
+- [x] `internal/autopoiesis/feedback_load_test.go`
+- [x] `internal/autopoiesis/feedback_test.go`
+- [x] `internal/autopoiesis/helpers_coverage_test.go`
+- [x] `internal/autopoiesis/kernel_listener_lifecycle_test.go`
+- [x] `internal/autopoiesis/kernel_listener_wiring_test.go`
+- [x] `internal/autopoiesis/kernel_parity_test.go`
+- [x] `internal/autopoiesis/metrics.go`
+- [x] `internal/autopoiesis/metrics_test.go`
+- [x] `internal/autopoiesis/mocks_test.go`
+- [x] `internal/autopoiesis/orchestrator_test.go`
+- [x] `internal/autopoiesis/ouroboros.go`
+- [x] `internal/autopoiesis/ouroboros_multistage_e2e_test.go`
+- [x] `internal/autopoiesis/ouroboros_panic_test.go`
+- [x] `internal/autopoiesis/ouroboros_test.go`
+- [x] `internal/autopoiesis/ouroboros_tool_test.go`
+- [x] `internal/autopoiesis/ouroboros_version_test.go`
+- [x] `internal/autopoiesis/ouroboros_wrapper_test.go`
+- [x] `internal/autopoiesis/panic_maker.go`
+- [x] `internal/autopoiesis/patterns.go`
+- [x] `internal/autopoiesis/patterns_coverage_test.go`
+- [x] `internal/autopoiesis/persistence.go`
+- [x] `internal/autopoiesis/persistence_test.go`
+- [x] `internal/autopoiesis/profiles.go`
+- [x] `internal/autopoiesis/prompt_evolution/atom_generator.go`
+- [x] `internal/autopoiesis/prompt_evolution/atom_promoted_callback_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/classifier.go`
+- [x] `internal/autopoiesis/prompt_evolution/classifier_bench_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/evolver.go`
+- [x] `internal/autopoiesis/prompt_evolution/feedback_collector.go`
+- [x] `internal/autopoiesis/prompt_evolution/feedback_collector_migration_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/feedback_collector_stats_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/judge.go`
+- [x] `internal/autopoiesis/prompt_evolution/pinning_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/promotion_gate_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/prompt_evolution_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/strategy_atoms.go`
+- [x] `internal/autopoiesis/prompt_evolution/strategy_atoms_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/strategy_store.go`
+- [x] `internal/autopoiesis/prompt_evolution/types.go`
+- [x] `internal/autopoiesis/quality.go`
+- [x] `internal/autopoiesis/quality_test.go`
+- [x] `internal/autopoiesis/runtime_output_test.go`
+- [x] `internal/autopoiesis/runtime_registry.go`
+- [x] `internal/autopoiesis/safety_adversarial_test.go`
+- [x] `internal/autopoiesis/should_generate_tool_test.go`
+- [x] `internal/autopoiesis/stability_score_test.go`
+- [x] `internal/autopoiesis/stage_budget_test.go`
+- [x] `internal/autopoiesis/templates_coverage_test.go`
+- [x] `internal/autopoiesis/thunderdome.go`
+- [x] `internal/autopoiesis/thunderdome_harness_test.go`
+- [x] `internal/autopoiesis/thunderdome_normalize_test.go`
+- [x] `internal/autopoiesis/thunderdome_result_test.go`
+- [x] `internal/autopoiesis/tool_compiler.go`
+- [x] `internal/autopoiesis/tool_compiler_gating_test.go`
+- [x] `internal/autopoiesis/tool_compiler_test.go`
+- [x] `internal/autopoiesis/tool_creation_routing_test.go`
+- [x] `internal/autopoiesis/tool_detection.go`
+- [x] `internal/autopoiesis/tool_detection_coercion_test.go`
+- [x] `internal/autopoiesis/tool_generation.go`
+- [x] `internal/autopoiesis/tool_generation_contract_test.go`
+- [x] `internal/autopoiesis/tool_templates.go`
+- [x] `internal/autopoiesis/tool_validation.go`
+- [x] `internal/autopoiesis/toolgen.go`
+- [x] `internal/autopoiesis/toolgen_gaps_test.go`
+- [x] `internal/autopoiesis/toolgen_test.go`
+- [x] `internal/autopoiesis/traces.go`
+- [x] `internal/autopoiesis/traces_bench_test.go`
+- [x] `internal/autopoiesis/traces_benchmark_test.go`
+- [x] `internal/autopoiesis/types_coverage_test.go`
+- [x] `internal/autopoiesis/utils_coverage_test.go`
+- [x] `internal/autopoiesis/yaegi_executor.go`
 
 ### internal/broker (44)
 - [x] `internal/broker/broker.go`
