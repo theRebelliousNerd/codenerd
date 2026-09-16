@@ -3834,7 +3834,7 @@ returned prose analysis. Two causes found in logs+code:
   llm_io logged MODEL: empty. Forward GetModel/ModelIdentity; capability
   interfaces deliberately NOT forwarded (false TRP claim would misroute callers).
 
-**Run 4 (pending at ledger write):** after F-DELEG-1 below.
+**Run 4: shard edited for real.** With F-DELEG-1 the coder received verb /fix + full constraints, edited kernel_query.go correctly (resolve-external-first, verified on merit), and attempted the differential tests but truncated the test file; its own verification caught the breakage and the repair round did not land before run end. Tests completed by hand: 8/8 green, 5/8 proven red without the fix, full core suite green. B2 closed.
 
 - **F-DELEG-1** — the delegation boundary dropped the structured intent three ways:
   (1) delegate_task/3 carries (shard,target,status); the constraint with all
