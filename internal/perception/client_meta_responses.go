@@ -760,6 +760,12 @@ func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 	history []types.Message,
 	tools []ToolDefinition,
 ) (*LLMToolResponse, error) {
+	// The Chat path validates Meta's 400-triggering payload limits before
+	// sending; this path must too, or a bad call_id dies at the vendor.
+	if err := c.validateMetaHistory(tools, history); err != nil {
+		return nil, err
+	}
+
 	convID := metaConversationID(ctx, systemPrompt, history)
 
 	c.reasoningMu.Lock()
@@ -778,6 +784,16 @@ func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 	reply, err := c.executeResponses(ctx, req)
 	if err != nil {
 		return nil, err
+	}
+	// A failed or cancelled run carries no usable output. Returning it as a
+	// success would hand the executor an empty turn it mistakes for a final
+	// answer, so this is an error carrying the vendor's own message.
+	if metaTerminalFailure(reply.Status) {
+		detail := ""
+		if reply.Error != nil && strings.TrimSpace(reply.Error.Message) != "" {
+			detail = ": " + strings.TrimSpace(reply.Error.Message)
+		}
+		return nil, fmt.Errorf("meta responses run %s%s", reply.Status, detail)
 	}
 	if reply.Status == "incomplete" && reply.IncompleteDetails != nil && types.LengthStop(reply.IncompleteDetails.Reason) {
 		produced := 0
@@ -806,10 +822,46 @@ func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 	return metaToolResponseFromReply(reply), nil
 }
 
+// validateMetaHistory guards the Responses path the way validateMetaTools
+// guards the Chat path: Meta rejects out-of-range call_ids and malformed
+// function names with HTTP 400 on this surface too, and this path never
+// builds OpenAIMessage values, so the Chat-shaped validator cannot see it.
+// Failing here keeps a vendor 400 with an opaque body from killing the turn.
+func (c *OpenAICompatClient) validateMetaHistory(tools []ToolDefinition, history []types.Message) error {
+	if c.vendor != ProviderMeta {
+		return nil
+	}
+	for _, t := range tools {
+		if err := validateMetaToolName(t.Name); err != nil {
+			return err
+		}
+	}
+	for _, m := range history {
+		for _, tc := range m.ToolCalls {
+			if err := validateMetaCallID(tc.ID); err != nil {
+				return fmt.Errorf("assistant tool call %s: %w", tc.ID, err)
+			}
+		}
+		for _, tr := range m.ToolResults {
+			if err := validateMetaCallID(tr.ToolUseID); err != nil {
+				return fmt.Errorf("tool result %s: %w", tr.ToolUseID, err)
+			}
+		}
+	}
+	return nil
+}
+
+// metaTerminalFailure reports whether a Responses status is a terminal
+// failure: the vendor produced nothing usable, so surfacing an error is the
+// only honest outcome. Anything else falls through to normal parsing.
+func metaTerminalFailure(status string) bool {
+	return status == "failed" || status == "cancelled"
+}
+
 // metaToolResponseFromReply converts a Responses reply into codeNERD's
 // vendor-neutral tool response.
 func metaToolResponseFromReply(reply *metaResponsesReply) *LLMToolResponse {
-	out := &LLMToolResponse{Text: metaTextFromReply(reply)}
+	out := &LLMToolResponse{Text: metaTextFromReply(reply), StopReason: "end_turn"}
 	for _, item := range reply.Output {
 		if item.Type != "function_call" {
 			continue
@@ -832,6 +884,11 @@ func metaToolResponseFromReply(reply *metaResponsesReply) *LLMToolResponse {
 			Name:  item.Name,
 			Input: input,
 		})
+	}
+	// The Chat path normalizes "tool_calls" to "tool_use"; the Responses path
+	// never set a stop reason at all, leaving schedulers and logs blind.
+	if len(out.ToolCalls) > 0 {
+		out.StopReason = "tool_use"
 	}
 	return out
 }

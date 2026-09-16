@@ -2331,7 +2331,8 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/perception/client_gemini_tools_uplift_test.go`
 - [ ] `internal/perception/client_meta_model_test.go`
 - [ ] `internal/perception/client_meta_piggyback_test.go`
-- [ ] `internal/perception/client_meta_responses.go`
+- [x] `internal/perception/client_meta_responses.go`
+- [x] `internal/perception/client_meta_responses_uplift_test.go`
 - [ ] `internal/perception/client_meta_responses_concurrency_test.go`
 - [ ] `internal/perception/client_meta_responses_dedup_test.go`
 - [ ] `internal/perception/client_meta_responses_retry_test.go`
