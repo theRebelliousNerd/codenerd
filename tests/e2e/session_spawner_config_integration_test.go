@@ -101,8 +101,31 @@ func (m *spawnerMockConfigFactory) Generate(ctx context.Context, res *prompt.Com
 	}, nil
 }
 
-type spawnerMockLLMClient struct{ types.LLMClient }
-type spawnerMockTransducer struct{ perception.Transducer }
+// spawnerMockTransducer implements perception.Transducer with explicit
+// failures: no path under test here re-perceives intent, so any call is a
+// wiring surprise that must fail loudly. (The previous nil-embedded mock
+// would have panicked instead, and only if the stars aligned.)
+type spawnerMockTransducer struct{}
+
+func (m *spawnerMockTransducer) ParseIntent(ctx context.Context, input string) (perception.Intent, error) {
+	return perception.Intent{}, errors.New("spawnerMockTransducer.ParseIntent: not scripted for this test")
+}
+
+func (m *spawnerMockTransducer) ParseIntentWithContext(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
+	return perception.Intent{}, errors.New("spawnerMockTransducer.ParseIntentWithContext: not scripted for this test")
+}
+
+func (m *spawnerMockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) {
+	return perception.Intent{}, nil, errors.New("spawnerMockTransducer.ParseIntentWithGCD: not scripted for this test")
+}
+
+func (m *spawnerMockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) {
+	return perception.FocusResolution{}, errors.New("spawnerMockTransducer.ResolveFocus: not scripted for this test")
+}
+
+func (m *spawnerMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
+
+func (m *spawnerMockTransducer) SetStrategicContext(context string) {}
 
 // =============================================================================
 // REAL DEPENDENCIES FOR E2E TESTING
@@ -130,6 +153,10 @@ type mockRealLLM struct {
 	// fixtures behave identically on the native path.
 	toolQueue []*types.LLMToolResponse
 	toolIdx   int
+	// errQueue scripts model-side failures (disconnects, 500s). The next
+	// completion of any kind consumes and returns the head error instead
+	// of a response, simulating a client that dies mid-turn.
+	errQueue []error
 }
 
 func (m *mockRealLLM) Complete(ctx context.Context, prompt string) (string, error) {
@@ -151,12 +178,45 @@ func (m *mockRealLLM) awaitUnblock(ctx context.Context) error {
 	}
 }
 
+// nextErr consumes one scripted failure. Callers must hold m.mu.
+func (m *mockRealLLM) nextErr() error {
+	if len(m.errQueue) == 0 {
+		return nil
+	}
+	err := m.errQueue[0]
+	m.errQueue = m.errQueue[1:]
+	return err
+}
+
+// scriptErrors queues model-side failures consumed by the next completions.
+func (m *mockRealLLM) scriptErrors(errs ...error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.errQueue = append(m.errQueue, errs...)
+}
+
+// resetScript replaces the whole script (prose, tool turns, errors) and
+// rewinds every cursor, so sequential agent runs each consume a
+// deterministic script instead of leftovers.
+func (m *mockRealLLM) resetScript(responses []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.responses = responses
+	m.idx = 0
+	m.toolQueue = nil
+	m.toolIdx = 0
+	m.errQueue = nil
+}
+
 func (m *mockRealLLM) CompleteWithSystem(ctx context.Context, sys, user string) (string, error) {
 	if err := m.awaitUnblock(ctx); err != nil {
 		return "", err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.nextErr(); err != nil {
+		return "", err
+	}
 	if m.idx >= len(m.responses) {
 		return "{}", nil
 	}
@@ -181,20 +241,15 @@ func (m *mockRealLLM) CompleteWithStreaming(ctx context.Context, system, prompt 
 	return ch, errCh
 }
 
-func (m *spawnerMockLLMClient) CompleteWithStreaming(ctx context.Context, system, prompt string, requireSchema bool) (<-chan string, <-chan error) {
-	ch := make(chan string)
-	errCh := make(chan error)
-	close(ch)
-	close(errCh)
-	return ch, errCh
-}
-
 func (m *mockRealLLM) CompleteWithTools(ctx context.Context, system, prompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	if err := m.awaitUnblock(ctx); err != nil {
 		return nil, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.nextErr(); err != nil {
+		return nil, err
+	}
 	if m.toolIdx < len(m.toolQueue) {
 		resp := m.toolQueue[m.toolIdx]
 		m.toolIdx++
@@ -218,6 +273,9 @@ func (m *mockRealLLM) CompleteWithToolResults(ctx context.Context, system string
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.nextErr(); err != nil {
+		return nil, err
+	}
 	if m.toolIdx < len(m.toolQueue) {
 		resp := m.toolQueue[m.toolIdx]
 		m.toolIdx++
@@ -234,12 +292,7 @@ func (m *mockRealLLM) scriptToolTurns(turns ...*types.LLMToolResponse) {
 	m.toolQueue = append(m.toolQueue, turns...)
 }
 
-func (m *spawnerMockLLMClient) CompleteWithTools(ctx context.Context, system, prompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	return &types.LLMToolResponse{Text: ""}, nil
-}
-
-func (m *mockRealLLM) Dimensions() int          { return 1536 }
-func (m *spawnerMockLLMClient) Dimensions() int { return 1536 }
+func (m *mockRealLLM) Dimensions() int { return 1536 }
 
 // registerSpawnerMockToolsOnce guards the global fixture-tool registration.
 // buildToolDefinitions filters the config grant against tools.Global(), so
@@ -257,6 +310,12 @@ var registerSpawnerMockToolsOnce sync.Once
 func registerSpawnerMockTools() {
 	registerSpawnerMockToolsOnce.Do(func() {
 		_ = tools.Global().Register(&tools.Tool{Name: "read_file", Effect: tools.EffectRead, Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			// Size-aware read: the extreme-payload test needs a real 10MB
+			// tool result flowing VS -> Executor -> LLM, not a comment
+			// promising one. Ordinary paths get ordinary canned text.
+			if path, _ := args["path"].(string); path == "big.bin" {
+				return strings.Repeat("x", 10<<20), nil
+			}
 			return "file contents ok", nil
 		}})
 	})
@@ -427,9 +486,8 @@ func TestE2E_Session_SpawnerConcurrentSpawns_NoStateCorruption(t *testing.T) {
 	// Spawn registers an agent and hands it back idle; the caller runs it. An
 	// idle agent holds its capacity slot until it has run to completion, so
 	// the registry must hold exactly the fifty that won the race, no more,
-	// and none of them is running yet. (This environment's kernel mock is
-	// spawn-only — it embeds a nil types.Kernel — so the agents cannot be run
-	// here; the run-to-release half lives in the internal/session tests.)
+	// and none of them is running yet. (Run-to-release is covered by the
+	// Execute tests below asserting an empty ListActive after each run.)
 	if got := len(spawned); got != 50 {
 		t.Errorf("collected %d admitted agents, want 50", got)
 	}
@@ -444,8 +502,10 @@ func TestE2E_Session_SpawnerConcurrentSpawns_NoStateCorruption(t *testing.T) {
 	}
 }
 
-// TestE2E_Session_ConfigFactory_Fails_SpawnAborts tests Partial Pipeline Failure
-func TestE2E_Session_ConfigFactory_Fails_SpawnAborts(t *testing.T) {
+// TestE2E_Session_ConfigFactory_Fails_SpawnDegrades tests Partial Pipeline Failure:
+// a config-generation failure degrades to an empty fallback config, it does
+// not abort the spawn (spawner.go: "Continue with empty config").
+func TestE2E_Session_ConfigFactory_Fails_SpawnDegrades(t *testing.T) {
 	t.Parallel()
 	env := setupRealIntegrationEnv(t)
 
@@ -622,6 +682,45 @@ func TestE2E_Session_ExecutorMultiTurnStateLeak_IsolatedHistory(t *testing.T) {
 	if agentA.GetID() == agentB.GetID() {
 		t.Errorf("Agents should have unique IDs")
 	}
+
+	// Behavioral isolation: run each agent alone with a marker script and
+	// prove neither result contains the other's marker. The mock is reset
+	// between phases, so any cross-marker could only come from leaked
+	// agent-side conversation state. (Pure prose would trip the hollow
+	// success guard — /test requires completed tool calls — so each phase
+	// reads a file and concludes with its marker.)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	phase := func(agent *session.SubAgent, marker string) string {
+		t.Helper()
+		env.MockLLM.resetScript(nil)
+		env.MockLLM.scriptToolTurns(
+			&types.LLMToolResponse{Text: "reading", ToolCalls: []types.ToolCall{{ID: "read-1", Name: "read_file", Input: map[string]any{"path": "notes.txt"}}}},
+			&types.LLMToolResponse{Text: marker},
+		)
+		agent.Run(ctx, "read the notes")
+		res, err := agent.WaitWithContext(ctx)
+		if err != nil {
+			t.Fatalf("agent %s run failed: %v", agent.GetName(), err)
+		}
+		return res
+	}
+
+	resA := phase(agentA, "ALPHA-result-marker")
+	if !strings.Contains(resA, "ALPHA-result-marker") {
+		t.Fatalf("agentA lost its own marker: %q", resA)
+	}
+	resB := phase(agentB, "BETA-result-marker")
+	if !strings.Contains(resB, "BETA-result-marker") {
+		t.Fatalf("agentB lost its own marker: %q", resB)
+	}
+	if strings.Contains(resB, "ALPHA-result-marker") {
+		t.Fatalf("agentA state leaked into agentB: %q", resB)
+	}
+	if strings.Contains(resA, "BETA-result-marker") {
+		t.Fatalf("agentB state leaked into agentA: %q", resA)
+	}
 }
 
 // TestE2E_Executor_ExecutesTask_Successfully integrates the Universal Executor boundary.
@@ -705,7 +804,10 @@ func TestE2E_Executor_HandlesMalformedPiggyback_FromLLM(t *testing.T) {
 }
 
 // TestE2E_Executor_DelegationWithPriority respects priority queueing during high contention.
-func TestE2E_Executor_DelegationWithPriority(t *testing.T) {
+// TestE2E_Executor_ExecuteWithContext_Succeeds smokes the priority-carrying
+// Execute entrypoint end to end. Priority ORDERING under contention is a
+// scheduler property and belongs to the scheduler suite, not here.
+func TestE2E_Executor_ExecuteWithContext_Succeeds(t *testing.T) {
 	t.Parallel()
 	// /test requires side effects, so the scripted turn reads before concluding.
 	env := setupRealIntegrationEnv(t)
@@ -730,11 +832,11 @@ func TestE2E_Executor_DelegationWithPriority(t *testing.T) {
 func TestE2E_Executor_CancelMidFlight_HaltsAgent(t *testing.T) {
 	t.Parallel()
 
-	// Make the LLM hang to simulate a long-running task
+	// Park the model so the turn genuinely hangs until the context dies.
+	// (The old version locked and unlocked the mock mutex and hoped the
+	// loop would spin; nothing actually blocked.)
 	env := setupRealIntegrationEnv(t)
-	env.MockLLM.mu.Lock()
-	// Just don't provide responses, the loop will spin or block depending on mock implementation
-	env.MockLLM.mu.Unlock()
+	env.MockLLM.blockCh = make(chan struct{})
 
 	req := session.TaskRequest{
 		IntentVerb: "/research",
@@ -797,14 +899,42 @@ func TestE2E_Spawner_OuroborosPatchDrift(t *testing.T) {
 		t.Errorf("Agents should have unique IDs")
 	}
 
-	// agent retains the old config (allowed tools), agent2 gets the empty fallback config.
-	// The E2E tests validate that the Spawner creates isolated config instances per agent lifecycle.
+	// Behavioral proof of snapshot isolation: run a read turn on BOTH agents
+	// after the flip. agent must still read (it keeps its spawn-time
+	// grant); agent2 must be denied (empty grant exposes no tools).
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	readTurn := func() *types.LLMToolResponse {
+		return &types.LLMToolResponse{Text: "reading", ToolCalls: []types.ToolCall{{ID: "read-1", Name: "read_file", Input: map[string]any{"path": "notes.txt"}}}}
+	}
+	conclude := &types.LLMToolResponse{Text: `{"message": "read complete"}`}
+
+	env.MockLLM.resetScript(nil)
+	env.MockLLM.scriptToolTurns(readTurn(), conclude)
+	agent.Run(ctx, "read the notes")
+	res1, err := agent.WaitWithContext(ctx)
+	if err != nil {
+		t.Fatalf("pre-flip agent lost its grant after the factory flip: %v", err)
+	}
+	if !strings.Contains(res1, "read complete") {
+		t.Fatalf("pre-flip agent read did not complete: %q", res1)
+	}
+
+	env.MockLLM.resetScript(nil)
+	env.MockLLM.scriptToolTurns(readTurn(), conclude)
+	agent2.Run(ctx, "read the notes")
+	res2, err := agent2.WaitWithContext(ctx)
+	if err == nil {
+		t.Fatalf("post-flip agent with an empty grant should have been denied the read, got: %q", res2)
+	}
 }
 
-// TestE2E_Session_CampaignExecution_PhaseAwarePaging_Isolation checks if the SessionExecutor
-// properly segregates token budgets and context pages when a campaign orchestrator pushes
-// highly contentious tasks in sequence.
-func TestE2E_Session_CampaignExecution_PhaseAwarePaging_Isolation(t *testing.T) {
+// TestE2E_Session_CampaignExecution_SequentialPhases_IndependentResults checks that
+// back-to-back campaign phases through one executor stay independent: each
+// phase concludes with its own scripted message (no cross-talk) and no agent
+// leaks between phases.
+func TestE2E_Session_CampaignExecution_SequentialPhases_IndependentResults(t *testing.T) {
 	t.Parallel()
 	// Both phases use tools (/research requires side effects); each scripted
 	// turn reads once, then concludes with its phase message.
@@ -854,11 +984,12 @@ func TestE2E_Session_CampaignExecution_PhaseAwarePaging_Isolation(t *testing.T) 
 	}
 }
 
-// TestE2E_Session_DreamerSandbox_SafetyCheck_Rejection proves that if the JIT Executor
-// runs inside a Dreamer sandbox and attempts a forbidden mutation (e.g. file_delete),
-// the VirtualStore rejects the action, and the Executor cascades this rejection gracefully
-// to the user session without altering persistent kernel state.
-func TestE2E_Session_DreamerSandbox_SafetyCheck_Rejection(t *testing.T) {
+// TestE2E_Session_ToolAllowlist_UnregisteredTool_Rejection proves that when the
+// model invokes a tool outside its grant, the executor's allowlist gate denies
+// it before any backend resolution, and the turn fails with a permission-class
+// error. (True Dreamer-sandbox rejection is covered in
+// dreamer_virtualstore_integration_test.go; this path never reaches simulation.)
+func TestE2E_Session_ToolAllowlist_UnregisteredTool_Rejection(t *testing.T) {
 	t.Parallel()
 
 	// The LLM attempts to invoke a forbidden tool. system_exec exists nowhere
@@ -878,7 +1009,6 @@ func TestE2E_Session_DreamerSandbox_SafetyCheck_Rejection(t *testing.T) {
 		Task:       "Clean up the build directory",
 	}
 
-	// We execute with a context indicating a Dream mode priority/flag (simulated via PriorityLow for now)
 	_, err := env.Executor.ExecuteWithContext(context.Background(), req, nil, types.PriorityLow)
 
 	// Even though the LLM generated syntactically valid JSON for the tool call,
@@ -893,11 +1023,11 @@ func TestE2E_Session_DreamerSandbox_SafetyCheck_Rejection(t *testing.T) {
 	}
 }
 
-// TestE2E_Session_Autopoiesis_RuleCourt_Validation simulates a scenario where
-// a subagent generates a malformed rule during an Autopoiesis cycle,
-// and the kernel immediately rejects it during validation.
-// The Executor must handle the rejection and notify the LLM to retry.
-func TestE2E_Session_Autopoiesis_RuleCourt_Validation(t *testing.T) {
+// TestE2E_Session_ToolGating_DeniesUngrantedTool proves the first layer of
+// defense: a model-invoked tool outside the fixture grant is denied at the
+// executor's tool gating layer before it can reach the kernel. (Kernel-side
+// rule validation lives in autopoiesis_kernel_ouroboros_integration_test.go.)
+func TestE2E_Session_ToolGating_DeniesUngrantedTool(t *testing.T) {
 	t.Parallel()
 
 	// The LLM attempts an ungranted tool. assert_rule is outside the fixture
@@ -919,9 +1049,8 @@ func TestE2E_Session_Autopoiesis_RuleCourt_Validation(t *testing.T) {
 
 	_, err := env.Executor.Execute(context.Background(), req)
 
-	// Since assert_rule is not in the default mock allowlist (read_file, write_file),
-	// it will fail at the Executor tool gating layer before hitting the kernel.
-	// This perfectly proves the first layer of defense.
+	// assert_rule is outside the fixture grant (read_file, write_file), so the
+	// turn fails at the tool gating layer before reaching the kernel.
 	if err == nil {
 		t.Fatalf("Expected failure due to tool permission denial on assert_rule")
 	}
@@ -933,54 +1062,59 @@ func TestE2E_Session_Autopoiesis_RuleCourt_Validation(t *testing.T) {
 func TestE2E_Session_ExtremePayload_MemoryBounds_Enforcement(t *testing.T) {
 	t.Parallel()
 
-	env := setupRealIntegrationEnv(t, `{"message": "I processed the 10MB file."}`)
+	env := setupRealIntegrationEnv(t)
 
-	// Here we would normally mock the VirtualStore to return 10MB of text.
-	// However, since we're testing the Executor -> LLM pipeline, we simulate
-	// the LLM completing the task successfully after being given a massive context.
-
+	// A real 10MB tool result flows read_file(big.bin) -> VirtualStore ->
+	// Executor -> model context. The turn must complete without error,
+	// panic, or truncation of the conclude marker.
+	env.MockLLM.scriptToolTurns(
+		&types.LLMToolResponse{Text: "reading big", ToolCalls: []types.ToolCall{{ID: "read-big", Name: "read_file", Input: map[string]any{"path": "big.bin"}}}},
+		&types.LLMToolResponse{Text: `{"message": "Big payload test complete"}`},
+	)
 	req := session.TaskRequest{
-		IntentVerb: "/analyze",
+		IntentVerb: "/test",
 		Task:       "Process the database dump",
 	}
-
-	res, err := env.Executor.Execute(context.Background(), req)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	res, err := env.Executor.Execute(ctx, req)
 	if err != nil {
-		t.Fatalf("Executor failed to handle task sequence: %v", err)
+		t.Fatalf("Execute failed on 10MB tool result: %v", err)
 	}
-
-	if !strings.Contains(res, "processed") {
-		t.Errorf("Unexpected result: %s", res)
+	if !strings.Contains(res, "Big payload test complete") {
+		t.Fatalf("Expected big-payload completion, got %q", res)
 	}
 }
 
 // TestE2E_Session_LLMClient_NetworkDisconnect_MidStream tests the pipeline's
 // resilience if the LLM client encounters a network partition while streaming
 // the response back to the Executor.
-func TestE2E_Session_LLMClient_NetworkDisconnect_MidStream(t *testing.T) {
+func TestE2E_Session_LLMClient_NetworkDisconnect_MidTurn(t *testing.T) {
 	t.Parallel()
 	env := setupRealIntegrationEnv(t)
 
-	// Force the LLM to return an error (network disconnect)
-	env.MockLLM.mu.Lock()
-	// We can simulate an error by not having any responses left, but to test true errors
-	// we would need to enhance our MockLLM to return specific errors.
-	// Given the constraints, we will test the context deadline behavior again
-	// to prove the Executor handles client-side timeouts.
-	env.MockLLM.mu.Unlock()
-
+	// One healthy tool turn lands, then the model connection dies. The turn
+	// must surface the failure (not hang, not silently conclude) and
+	// release its agent.
+	env.MockLLM.scriptToolTurns(
+		&types.LLMToolResponse{Text: "reading", ToolCalls: []types.ToolCall{{ID: "read-1", Name: "read_file", Input: map[string]any{"path": "notes.txt"}}}},
+	)
+	env.MockLLM.scriptErrors(errors.New("network disconnect: connection reset by peer"))
 	req := session.TaskRequest{
-		IntentVerb: "/fix",
-		Task:       "Fix network bug",
+		IntentVerb: "/test",
+		Task:       "Process the database dump",
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
 	_, err := env.Executor.Execute(ctx, req)
-
 	if err == nil {
-		t.Fatalf("Expected error due to short context, got nil")
+		t.Fatal("Expected Execute to surface the mid-turn disconnect, got success")
+	}
+	if !strings.Contains(err.Error(), "disconnect") {
+		t.Fatalf("Expected the disconnect error to surface, got: %v", err)
+	}
+	if active := env.Spawner.ListActive(); len(active) != 0 {
+		t.Fatalf("Agent leaked after disconnect: %v", active)
 	}
 }
 

@@ -3498,7 +3498,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [ ] `tests/e2e/session_context_isolation_test.go`
 - [ ] `tests/e2e/session_executor_kernel_integration_test.go`
 - [ ] `tests/e2e/session_kernel_vstore_integration_test.go`
-- [ ] `tests/e2e/session_spawner_config_integration_test.go`
+- [x] `tests/e2e/session_spawner_config_integration_test.go` (17/17; vacuous tests made behavioral)
 - [ ] `tests/e2e/shadowmode_commit_safety_boundary_test.go`
 - [ ] `tests/e2e/spawner_apischeduler_integration_test.go`
 - [ ] `tests/e2e/task_executor_async_lifecycle_test.go`
@@ -3840,4 +3840,4 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `test_init/.nerd/mangle/policy_overrides.mg` <!-- tracked fixture, corpus-gate verified -->
 - [x] `test_init/.nerd/profile.mg` <!-- tracked fixture, corpus-gate verified -->
 
-**Progress: 2582/2683**
+**Progress: 2583/2683**
