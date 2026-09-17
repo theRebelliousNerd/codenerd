@@ -55,6 +55,51 @@ func TestToolRegistry_RegisterTool(t *testing.T) {
 	if len(facts) == 0 {
 		t.Fatal("No tool_available facts found in kernel")
 	}
+
+	// F-TOOLREG-1: tool_registered second arg must be epoch seconds (/number per schemas_tools.mg:14), not a string.
+	facts, err = kernel.Query("tool_registered")
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	if len(facts) == 0 {
+		t.Fatal("No tool_registered facts found in kernel")
+	}
+	var found bool
+	expected := tool.RegisteredAt.Unix()
+	for _, f := range facts {
+		if len(f.Args) < 2 {
+			continue
+		}
+		name, ok := f.Args[0].(string)
+		if !ok || name != "test_tool" {
+			continue
+		}
+		found = true
+		if s, ok := f.Args[1].(string); ok {
+			t.Fatalf("tool_registered second arg is string %q, want number %d", s, expected)
+		}
+		var got int64
+		switch v := f.Args[1].(type) {
+		case int64:
+			got = v
+		case int:
+			got = int64(v)
+		case int32:
+			got = int64(v)
+		case uint64:
+			got = int64(v)
+		case float64:
+			got = int64(v)
+		default:
+			t.Fatalf("tool_registered second arg has unexpected type %T, want number %d", f.Args[1], expected)
+		}
+		if got != expected {
+			t.Errorf("tool_registered timestamp = %d, want %d", got, expected)
+		}
+	}
+	if !found {
+		t.Fatal("No tool_registered fact found for test_tool")
+	}
 }
 
 func TestToolRegistry_GetToolsForShard(t *testing.T) {
@@ -158,6 +203,51 @@ func TestToolRegistry_RegisterToolWithInfo(t *testing.T) {
 	}
 	if len(facts) != 2 {
 		t.Errorf("Expected 2 tool_capability facts, got %d", len(facts))
+	}
+
+	// F-TOOLREG-1: tool_registered second arg must be epoch seconds (/number per schemas_tools.mg:14), not a string.
+	facts, err = kernel.Query("tool_registered")
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	if len(facts) == 0 {
+		t.Fatal("No tool_registered facts found in kernel")
+	}
+	var found bool
+	expected := tool.RegisteredAt.Unix()
+	for _, f := range facts {
+		if len(f.Args) < 2 {
+			continue
+		}
+		name, ok := f.Args[0].(string)
+		if !ok || name != "full_tool" {
+			continue
+		}
+		found = true
+		if s, ok := f.Args[1].(string); ok {
+			t.Fatalf("tool_registered second arg is string %q, want number %d", s, expected)
+		}
+		var got int64
+		switch v := f.Args[1].(type) {
+		case int64:
+			got = v
+		case int:
+			got = int64(v)
+		case int32:
+			got = int64(v)
+		case uint64:
+			got = int64(v)
+		case float64:
+			got = int64(v)
+		default:
+			t.Fatalf("tool_registered second arg has unexpected type %T, want number %d", f.Args[1], expected)
+		}
+		if got != expected {
+			t.Errorf("tool_registered timestamp = %d, want %d", got, expected)
+		}
+	}
+	if !found {
+		t.Fatal("No tool_registered fact found for full_tool")
 	}
 }
 
