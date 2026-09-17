@@ -453,6 +453,7 @@ func testCompileRepairPrompt(output string) string {
 	return "The tests do not compile, so no test ran. This is the compiler's output:\n\n```\n" + output + "\n```\n\n" +
 		"Each error names a file and line. When the file is a _test.go file, the test file is what is wrong: fix its imports, identifiers and types so it compiles against the code as it is. " +
 		"Do NOT add, alias or re-export declarations in non-test code to make a test compile, and do NOT create new non-test files for it — that bends working code around a broken test. " +
+		"Never delete, rename or comment out a test to make the package compile — fix its imports, identifiers and types instead; a test you just added is part of the deliverable. " +
 		"When the error is in a non-test file, fix that file. Fix every error above using the edit tools, then stop; the tests will be run again."
 }
 

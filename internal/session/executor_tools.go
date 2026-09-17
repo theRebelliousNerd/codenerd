@@ -494,6 +494,16 @@ func (e *Executor) verifyCompletedToolTurn(
 		current = tested
 	}
 
+	// A turn that makes the gates green by removing a test has not fixed
+	// anything: a failing test is fixed by fixing the code, not by deleting
+	// the test. Runs after the test gate and the gofmt pass so a passing test
+	// suite that lost a contract still fails the turn.
+	if result != nil && result.SuccessfulWriteTools > 0 && len(result.PreWriteContents) > 0 {
+		if removed := removedTestFunctions(e.workspaceForVerification(), result.WrittenPaths, result.PreWriteContents); len(removed) > 0 {
+			return current, toolErrs, fmt.Errorf("%w: turn removed test(s) without replacing them: %s; a failing test is fixed by fixing the code, not by deleting the test", ErrVerificationFailed, strings.Join(removed, ", "))
+		}
+	}
+
 	// The critic is advisory; only its resulting edits can fail the turn through
 	// the mechanical rechecks inside verifyAndUpliftWithCritic.
 	upliftErrs, upliftErr := e.verifyAndUpliftWithCritic(
