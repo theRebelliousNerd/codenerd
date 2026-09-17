@@ -337,7 +337,6 @@ func TestWorkStepAnchor_NoChangeOfferedOnlyOnRetry(t *testing.T) {
 	}
 }
 
-
 // A planner that splits an import out of the change that needs it produces
 // a step the earlier step has already done. Such a step is reported, not
 // failed: the guarantee is that every file the plan names was edited.
