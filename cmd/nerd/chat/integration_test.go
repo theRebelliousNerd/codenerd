@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -564,14 +565,75 @@ func TestView_LoadingState(t *testing.T) {
 }
 
 // TestView_ErrorPanelRendering tests error panel rendering
+// TestView_ErrorPanelRendering tests error panel rendering
 func TestView_ErrorPanelRendering(t *testing.T) {
-	m := NewTestModel(WithSize(100, 50))
-	m.err = &MockError{msg: "Test error"}
+	m := NewTestModel(
+		WithSize(100, 50),
+	)
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
+	m = updated.(Model)
+
+	updated, cmd := m.Update(errorMsg(errors.New("kernel refused the turn")))
+	m = updated.(Model)
+
+	if cmd == nil {
+		t.Fatalf("errorMsg Update returned nil cmd, want WindowSizeMsg so the error panel reserves space")
+	}
+	if msg := cmd(); msg != nil {
+		updated, _ = m.Update(msg)
+		m = updated.(Model)
+	}
 
 	view := m.View()
-	if !strings.Contains(view, "Test error") && !strings.Contains(view, "error") {
-		// Error may be rendered differently
-		t.Log("Error not visible in view, may be hidden by panel state")
+	if !strings.Contains(view, "kernel refused the turn") {
+		t.Errorf("View() missing error text %q in:\n%s", "kernel refused the turn", view)
+	}
+	if !strings.Contains(view, "Error") {
+		t.Errorf("View() missing panel header %q in:\n%s", "Error", view)
+	}
+}
+
+func TestView_ErrorPanelHiddenWhenDismissed(t *testing.T) {
+	m := NewTestModel(
+		WithSize(100, 50),
+	)
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
+	m = updated.(Model)
+
+	updated, cmd := m.Update(errorMsg(errors.New("kernel refused the turn")))
+	m = updated.(Model)
+
+	if cmd == nil {
+		t.Fatalf("errorMsg Update returned nil cmd, want WindowSizeMsg so the error panel reserves space")
+	}
+	if msg := cmd(); msg != nil {
+		updated, _ = m.Update(msg)
+		m = updated.(Model)
+	}
+
+	if view := m.View(); !strings.Contains(view, "kernel refused the turn") {
+		t.Fatalf("precondition: View() missing error text %q in:\n%s", "kernel refused the turn", view)
+	}
+
+	// Dismiss via the real key path: Alt+Shift+E toggles visibility
+	// (model_key_handler.go ~322: msg.Alt && msg.Runes[0] == 'E' sets showError = !showError).
+	updated, dismissCmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}, Alt: true})
+	m = updated.(Model)
+	if dismissCmd != nil {
+		if msg := dismissCmd(); msg != nil {
+			updated, _ = m.Update(msg)
+			m = updated.(Model)
+		}
+	}
+
+	view := m.View()
+	if strings.Contains(view, "kernel refused the turn") {
+		t.Errorf("View() still contains error text after dismissal in:\n%s", view)
+	}
+	if strings.TrimSpace(view) == "" {
+		t.Errorf("View() is empty after error dismissal, want non-empty chat view")
 	}
 }
 

@@ -1139,11 +1139,6 @@ func TestGetCommandsByCategory(t *testing.T) {
 	}
 }
 
-func TestGetCommandsForLevel(t *testing.T) {
-	// GetCommandsForLevel doesn't exist in this package, skip
-	t.Skip("GetCommandsForLevel not available in this package")
-}
-
 func TestFindCommand(t *testing.T) {
 	tests := []struct {
 		name      string
