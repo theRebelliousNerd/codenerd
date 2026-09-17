@@ -41,9 +41,40 @@ type FileCache struct {
 	misses atomic.Int64
 }
 
+// cacheOwnerDir resolves the workspace that owns the file-cache manifest for a
+// scan rooted at scanRoot. It walks up from scanRoot (inclusive) to the nearest
+// ancestor containing a .nerd/config.json file, bounded by the filesystem root.
+// If no such ancestor exists, it returns scanRoot unchanged, preserving the
+// previous behaviour for tests and non-workspace scans. A stray .nerd/cache
+// directory without a config.json never captures the cache.
+func cacheOwnerDir(scanRoot string) string {
+	abs, err := filepath.Abs(scanRoot)
+	if err != nil {
+		return scanRoot
+	}
+	dir := filepath.Clean(abs)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".nerd", "config.json")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return scanRoot
+		}
+		dir = parent
+	}
+}
+
 // NewFileCache creates or loads a file cache.
-func NewFileCache(workspaceRoot string) *FileCache {
-	cachePath := filepath.Join(workspaceRoot, ".nerd", "cache", "manifest.json")
+//
+// scanRoot is the directory being scanned, which may be a subdirectory of the
+// workspace rather than the workspace root itself. The manifest lives under the
+// owning workspace resolved by cacheOwnerDir. Cache keys are already absolute
+// paths and Save never prunes entries, so a subtree scan sharing the workspace
+// manifest cannot evict other entries.
+func NewFileCache(scanRoot string) *FileCache {
+	owner := cacheOwnerDir(scanRoot)
+	cachePath := filepath.Join(owner, ".nerd", "cache", "manifest.json")
 	logging.WorldDebug("Creating FileCache at: %s", cachePath)
 	cache := &FileCache{
 		path:    cachePath,
