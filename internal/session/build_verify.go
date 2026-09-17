@@ -392,6 +392,7 @@ func (e *Executor) verifyAndRepairTests(
 	}
 	return repaired, repairErrs, nil
 }
+
 // testBuildFailed reports whether go test output shows a package whose
 // test binary did not compile ("FAIL <pkg> [build failed]" or
 // "[setup failed]"): no test ran, so there is no test verdict to honour.
