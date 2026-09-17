@@ -501,8 +501,15 @@ func (e *Executor) servingIdentity(verb string) (provider, model string) {
 		return "", ""
 	}
 
-	identifier, ok := client.(types.ModelIdentifier)
-	if !ok {
+	var identifier types.ModelIdentifier
+	broker.Walk(client, func(layer types.LLMClient) bool {
+		if id, ok := layer.(types.ModelIdentifier); ok {
+			identifier = id
+			return false
+		}
+		return true
+	})
+	if identifier == nil {
 		logging.SessionDebug(
 			"LLM client %T does not report a model identity; provider/model-pinned prompt atoms will be skipped this turn",
 			client)
@@ -530,6 +537,10 @@ func (e *Executor) intentRequiresReasoningModel(verb string) bool {
 	if cached, ok := e.reasoningVerbCache.Load(verb); ok {
 		return cached.(bool)
 	}
+	if isConsultIntentVerb(verb) {
+		e.reasoningVerbCache.Store(verb, false)
+		return false
+	}
 	if e.kernel == nil {
 		return false
 	}
@@ -539,6 +550,7 @@ func (e *Executor) intentRequiresReasoningModel(verb string) bool {
 	// reject anything unexpected rather than interpolate it.
 	if !validMangleVerb(verb) {
 		logging.SessionDebug("intentRequiresReasoningModel: %q is not an atom, defaulting to false", verb)
+		e.reasoningVerbCache.Store(verb, false)
 		return false
 	}
 
@@ -2335,11 +2347,18 @@ func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
 	if e.sessionContext != nil && e.sessionContext.DreamMode {
 		dreamMode = types.MangleAtom("/true")
 	}
+	// A test run by the executor's own post-edit gate is execution, not a
+	// claim: the model may quote that output in its answer. Only a run that
+	// actually ran counts; a skipped gate produced nothing to quote.
+	testRuns := result.SuccessfulTestTools
+	if result.TestCheck.Ran {
+		testRuns++
+	}
 	evidence := types.Fact{Predicate: "turn_evidence", Args: []any{
 		types.MangleAtom(verb),
 		result.SuccessfulToolCalls,
 		result.SuccessfulWriteTools,
-		result.SuccessfulTestTools,
+		testRuns,
 		claimedOutput,
 		dreamMode,
 	}}
@@ -2361,7 +2380,7 @@ func (e *Executor) assertTurnEvidence(verb string, result *ExecutionResult) {
 			logging.Get(logging.CategorySession).Debug("asserted claimed_test_output(%q)", verb)
 		}
 	}
-	if result.SuccessfulTestTools > 0 {
+	if testRuns > 0 {
 		fact := types.Fact{Predicate: "executed_test_tool", Args: []any{types.MangleString(verb)}}
 		if err := e.kernel.Assert(fact); err != nil {
 			logging.Get(logging.CategorySession).Warn("failed to assert executed_test_tool for %s: %v", verb, err)

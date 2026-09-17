@@ -255,6 +255,32 @@ func TestVerifyAndRepairTests_RecheckTimeoutRetainsOriginalFailure(t *testing.T)
 	}
 }
 
+func TestVerifyAndRepairTests_PreExistingFailuresNeedNoRepair(t *testing.T) {
+	const failing = "--- FAIL: TestAlwaysFails (0.00s)\n    x_test.go:5: always fails\nFAIL"
+	tests := &scriptVerifyRunner{script: []func(context.Context) ([]byte, error){verifyFail(failing), verifyFail(failing)}}
+	builds := &scriptVerifyRunner{script: []func(context.Context) ([]byte, error){verifyPass()}}
+	stubVerifySeams(t, time.Minute, time.Minute, builds.runWithCtx, tests.runWithCtx)
+	e, result := verifyGateExecutor(t)
+	result.PreWriteContents = map[string]string{"main.go": "package main\n"}
+	trp := &verifyProseRepair{}
+	_, _, err := e.verifyAndRepairTests(context.Background(), trp, "system", nil, nil, &jitconfig.EffectiveAgentRuntimeConfig{}, result)
+	if err != nil {
+		t.Fatalf("verifyAndRepairTests returned error: %v", err)
+	}
+	if trp.calls != 0 {
+		t.Errorf("expected no repair rounds, got %d", trp.calls)
+	}
+	if got := tests.callCount(); got != 2 {
+		t.Errorf("tests.callCount() = %d; want 2 (head run + baseline overlay run)", got)
+	}
+	if got := result.TestCheck.Verdict(); got != VerifyPassed {
+		t.Errorf("Verdict() = %v; want VerifyPassed", got)
+	}
+	if len(result.TestCheck.PreExistingFailures) != 1 || result.TestCheck.PreExistingFailures[0] != "TestAlwaysFails" {
+		t.Errorf("PreExistingFailures = %v; want [TestAlwaysFails]", result.TestCheck.PreExistingFailures)
+	}
+}
+
 // Anti-overcorrection: a repair the recheck affirmatively passes still
 // clears the failure and completes.
 func TestVerifyAndRepairBuild_TrueRepairClearsFailure(t *testing.T) {

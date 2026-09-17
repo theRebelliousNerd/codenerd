@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codenerd/internal/broker"
 	appconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
@@ -574,8 +575,15 @@ func (s *Spawner) servingIdentity() (provider, model string) {
 	if client == nil {
 		return "", ""
 	}
-	identifier, ok := client.(types.ModelIdentifier)
-	if !ok {
+	var identifier types.ModelIdentifier
+	broker.Walk(client, func(layer types.LLMClient) bool {
+		if id, ok := layer.(types.ModelIdentifier); ok {
+			identifier = id
+			return false
+		}
+		return true
+	})
+	if identifier == nil {
 		logging.SessionDebug(
 			"LLM client %T does not report a model identity; provider/model-pinned prompt atoms will be skipped for spawned subagents",
 			client)
