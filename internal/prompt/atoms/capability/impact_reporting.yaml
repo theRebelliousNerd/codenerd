@@ -17,7 +17,7 @@
     Emit a fact via `mangle_updates` in your envelope (same mechanism as `missing_tool_for`):
 
     ```json
-    "mangle_updates": ["modified_function(\"FuncName\", \"internal/path/file.go\")"]
+    "mangle_updates": ["modified_function(\"FuncName\", \"internal/path/file.go\")."]
     ```
 
     - **Order** is `modified_function(Func, File)` — function first, file second (see `internal/core/defaults/schemas_reviewer.mg:242`).

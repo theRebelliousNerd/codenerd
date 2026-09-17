@@ -22,9 +22,9 @@
           "constraints": ["email_format", "length_limit"]
         },
         "mangle_updates": [
-          "file_modified(\"/internal/user/validation.go\", 45)",
-          "function_added(\"ValidateEmail\", \"/internal/user/validation.go\")",
-          "test_needed(\"ValidateEmail\", \"unit\")"
+          "modified(\"internal/user/validation.go\").",
+          "modified_function(\"ValidateEmail\", \"internal/user/validation.go\").",
+          "observation(\"test_gap\", \"ValidateEmail has no unit test yet\")."
         ],
         "reasoning_trace": "1. Analyzed existing User struct. 2. Identified validation needs. 3. Implemented regex-based email validation. 4. Added length checks per requirements.",
         "confidence": 0.9,
@@ -86,8 +86,8 @@
           }
         ],
         "mangle_updates": [
-          "review_finding(\"potential_nil_deref\", \"/internal/handler/user.go\", 45, \"high\")",
-          "review_finding(\"style\", \"/internal/handler/user.go\", 52, \"low\")"
+          "review_finding(\"internal/handler/user.go\", 45, /error, /correctness, \"possible nil dereference of user\").",
+          "review_finding(\"internal/handler/user.go\", 52, /info, /style, \"exported func lacks doc comment\")."
         ],
         "verdict": "changes_requested",
         "confidence": 0.85,
@@ -133,8 +133,8 @@
           ]
         },
         "mangle_updates": [
-          "test_generated(\"ValidateEmail\", \"unit\", 5)",
-          "coverage_target(\"ValidateEmail\", 0.90)"
+          "modified(\"internal/user/validation_test.go\").",
+          "observation(\"tests_written\", \"5 unit tests for ValidateEmail; not yet run\")."
         ],
         "reasoning_trace": "1. Identified function signature. 2. Analyzed RFC 5322 email format. 3. Generated valid cases. 4. Generated boundary cases. 5. Generated error cases.",
         "confidence": 0.95,

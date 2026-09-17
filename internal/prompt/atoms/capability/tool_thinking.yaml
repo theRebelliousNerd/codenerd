@@ -109,7 +109,7 @@
 
     ```json
     "mangle_updates": [
-      "missing_tool_for(\"/parse_yaml\", \"Parse YAML files and return structured data\")"
+      "missing_tool_for(/parse, /yaml_parsing)."
     ]
     ```
 

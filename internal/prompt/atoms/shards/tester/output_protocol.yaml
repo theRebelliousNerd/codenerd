@@ -23,8 +23,8 @@
           "confidence": 0.95
         },
         "mangle_updates": [
-          "test_generated(\"path/to/file_test.go\", \"path/to/file.go\", 5)",
-          "coverage_target(\"path/to/file.go\", 0.80)"
+          "modified(\"path/to/file_test.go\").",
+          "observation(\"tests_written\", \"5 tests for path/to/file.go; not yet run\")."
         ],
         "test_classification": "unit",
         "reasoning_trace": "1. Analyzed public interface: 3 functions. 2. Identified boundaries: nil input, empty string, max length. 3. Generated 5 test cases covering happy path and error conditions."
