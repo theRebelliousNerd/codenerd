@@ -348,7 +348,7 @@ func TestMetaResponsesRoundTripPreservesOrderReasoningAndIDs(t *testing.T) {
 		types.NewUserMessage(types.TextBlock("why?")),
 		types.AssistantMessageFrom(resp),
 	}
-	input := metaInputFromHistory("sys", history, nil)
+	input := metaInputFromHistory("sys", history)
 
 	wantTypes := []string{
 		"", // developer instruction message (no "type" key)
@@ -383,56 +383,20 @@ func TestMetaResponsesRoundTripPreservesOrderReasoningAndIDs(t *testing.T) {
 	}
 }
 
-func TestMetaResponsesFallsBackToTheSideCacheForALegacyTurn(t *testing.T) {
-	// A turn built the old way carries no reasoning of its own, and the
-	// per-turn cache is the only place it can come from. This is the path
-	// every internal/session-built history still takes.
+func TestMetaResponsesTextOnlyTurnReplaysNoReasoning(t *testing.T) {
 	history := []types.Message{
-		{Role: "user", Text: "go"},
-		{Role: "assistant", Text: "on it", ToolCalls: []types.ToolCall{{ID: "call_A", Name: "ls"}}},
+		types.NewUserMessage(types.TextBlock("hi")),
+		{Role: "assistant", Text: "x"},
 	}
-	cache := map[string][]metaResponsesItem{
-		metaTurnKey(1): {{ID: "rs_legacy", EncryptedContent: "enc-legacy"}},
-	}
-	input := metaInputFromHistory("", history, cache)
-
-	// user, reasoning (from cache, ahead of the turn), assistant text, call
-	if len(input) != 4 {
-		t.Fatalf("built %d items: %#v", len(input), input)
-	}
-	item := input[1].(map[string]any)
-	if item["type"] != "reasoning" || item["encrypted_content"] != "enc-legacy" {
-		t.Fatalf("cache fallback did not replay: %#v", item)
-	}
-}
-
-func TestMetaResponsesMessageReasoningWinsOverTheSideCache(t *testing.T) {
-	// Precedence is one-way: if the turn brought its own reasoning, the cache
-	// is not consulted at all. Two sources replaying into the same slot would
-	// double the blocks and corrupt the input array.
-	history := []types.Message{
-		types.NewAssistantMessage(
-			types.RedactedThinkingBlock("enc-from-message"),
-			types.TextBlock("hi"),
-		),
-	}
-	cache := map[string][]metaResponsesItem{
-		metaTurnKey(0): {{ID: "rs_stale", EncryptedContent: "enc-stale"}},
-	}
-	input := metaInputFromHistory("", history, cache)
-
-	reasoning := 0
-	for _, raw := range input {
-		item := raw.(map[string]any)
-		if item["type"] == "reasoning" {
-			reasoning++
-			if item["encrypted_content"] != "enc-from-message" {
-				t.Fatalf("stale cached reasoning replayed: %#v", item)
-			}
+	input := metaInputFromHistory("sys", history)
+	for i, item := range input {
+		m, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("input item %d is %T", i, input[i])
 		}
-	}
-	if reasoning != 1 {
-		t.Fatalf("replayed %d reasoning items, want exactly 1", reasoning)
+		if got, _ := m["type"].(string); got == "reasoning" {
+			t.Fatalf("text-only turn replayed reasoning at item %d: %#v", i, m)
+		}
 	}
 }
 

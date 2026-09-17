@@ -45,10 +45,8 @@ var fidelityProbes = map[Surface]fidelityProbe{
 	},
 	SurfaceOpenAIResponses: func(t *testing.T, history []types.Message) string {
 		t.Helper()
-		// nil side cache: this turn carries its own signed reasoning, so the
-		// cache is not what is under test and supplying one would let a
-		// mapper that dropped the message's reasoning still look correct.
-		return encodeForFidelity(t, metaInputFromHistory("", history, nil))
+		// This turn carries its own signed reasoning; there is no side cache.
+		return encodeForFidelity(t, metaInputFromHistory("", history))
 	},
 	SurfaceGeminiContents: func(t *testing.T, history []types.Message) string {
 		t.Helper()

@@ -45,10 +45,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -273,22 +271,15 @@ func metaToolsFromDefinitions(tools []ToolDefinition) []metaResponsesTool {
 // metaInputFromHistory converts codeNERD's conversation history into Responses
 // input items, in the order the turn's content blocks record.
 //
-// Reasoning replay is the point of this function, and there are two places the
-// reasoning can come from. A turn that carries its own thinking blocks — one
-// built by AssistantMessageFrom out of a Responses reply — replays them from
-// the message, in position, interleaved with the text and calls exactly as
-// Meta emitted them. A turn built the old way carries no blocks, and its
-// reasoning is looked up in the per-turn cache the client keeps on the side,
-// keyed by history index.
-//
-// The precedence is one-way and deliberate: the message wins whenever it has
-// anything, and the cache is consulted only for a turn that has nothing. They
-// are not two views of the same data — the cache exists precisely because the
-// message used to have nowhere to put it.
+// Reasoning is replayed only from the turn's own blocks: a BlockThinking block
+// carrying a Signature becomes a reasoning replay item, in position,
+// interleaved with the text and calls exactly as Meta emitted them. A text-only
+// assistant turn replays no reasoning. There is no side cache and no second
+// source of truth.
 //
 // Tool results become separate function_call_output items rather than user
 // messages, and each is paired to its call by call_id.
-func metaInputFromHistory(systemPrompt string, history []types.Message, reasoning map[string][]metaResponsesItem) []any {
+func metaInputFromHistory(systemPrompt string, history []types.Message) []any {
 	input := make([]any, 0, len(history)+4)
 
 	if strings.TrimSpace(systemPrompt) != "" {
@@ -301,30 +292,12 @@ func metaInputFromHistory(systemPrompt string, history []types.Message, reasonin
 	seenReasoningIDs := make(map[string]struct{})
 	seenOutputIDs := make(map[string]struct{})
 
-	for i, msg := range history {
+	for _, msg := range history {
 		textRole := "user"
 		if msg.Role == "assistant" {
 			textRole = "assistant"
 		}
 		blocks := msg.Content()
-
-		if msg.Role == "assistant" && !msg.HasNativeBlocks() {
-			// Legacy turn without native blocks: replay this turn's reasoning
-			// from the side cache, ahead of the calls it produced. A
-			// block-built turn is authoritative about its own reasoning even
-			// when it has none; only a turn that never had blocks may consult
-			// the cache.
-			for _, r := range reasoning[metaTurnKey(i)] {
-				if r.ID != "" {
-					if _, ok := seenReasoningIDs[r.ID]; ok {
-						logging.Get(logging.CategoryAPI).Warn("meta responses: duplicate reasoning id %s skipped", r.ID)
-						continue
-					}
-					seenReasoningIDs[r.ID] = struct{}{}
-				}
-				input = append(input, metaReasoningItem(r.ID, r.EncryptedContent))
-			}
-		}
 
 		for _, b := range blocks {
 			switch b.Kind {
@@ -387,205 +360,6 @@ func metaInputFromHistory(systemPrompt string, history []types.Message, reasonin
 	}
 
 	return input
-}
-
-// metaTurnKey names a history position for the reasoning cache.
-func metaTurnKey(i int) string { return fmt.Sprintf("turn:%d", i) }
-
-// Bounds for the Meta reasoning replay cache.
-//
-// The client is shared across the whole Cortex (executor, spawner, concurrent
-// sub-agents), so without a bound every distinct conversation would leave its
-// blocks behind forever. Conversations are evicted oldest-first.
-const (
-	// metaReasoningMaxConversations caps the distinct conversations held.
-	metaReasoningMaxConversations = 64
-	// metaReasoningMaxTurnsPerConversation caps the turns held per
-	// conversation, so one very long tool loop cannot starve the rest.
-	metaReasoningMaxTurnsPerConversation = 64
-)
-
-// metaConversationID derives the discriminator for one tool-loop conversation,
-// so concurrent turns sharing this client cannot replay each other's encrypted
-// reasoning blocks. It prefers the task-scoped intent ID carried by the
-// request context (types.SessionContext.UserIntent.ID, stable across the tool
-// iterations of one turn but distinct per concurrent agent), always combined
-// with the conversation-root hash below: the intent ID alone would go blind on
-// contexts that carry no session, and the root hash alone would collide two
-// agents redoing the same opening prompt under different tasks. No API change
-// is needed — both inputs are already in hand at the call site.
-func metaConversationID(ctx context.Context, systemPrompt string, history []types.Message) string {
-	root := metaConversationRoot(systemPrompt, history)
-	if ctx != nil {
-		if sCtx := types.GetSessionContext(ctx); sCtx != nil && sCtx.UserIntent != nil {
-			if id := strings.TrimSpace(sCtx.UserIntent.ID); id != "" {
-				return "intent:" + id + "|" + root
-			}
-		}
-	}
-	return root
-}
-
-// metaConversationRoot hashes the conversation's root: the system prompt plus
-// the first user message text. The root is fixed for the life of a tool loop
-// (later turns only append), so every turn of one conversation agrees on it
-// while different conversations — even at the same history length — diverge.
-func metaConversationRoot(systemPrompt string, history []types.Message) string {
-	firstUser := ""
-	for _, msg := range history {
-		if msg.Role == "assistant" {
-			continue
-		}
-		firstUser = msg.Text
-		break
-	}
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(systemPrompt))
-	_, _ = h.Write([]byte{0})
-	_, _ = h.Write([]byte(firstUser))
-	return fmt.Sprintf("root:%016x", h.Sum64())
-}
-
-// metaCacheKey names one conversation's turn slot: "<convID>|turn:<n>". The
-// trailing "|turn:" segment is the split point for metaReasoningConvOf, and
-// the convID itself may contain "|" (the intent-scoped form does), so callers
-// must split at the LAST "|turn:" — never the first.
-func metaCacheKey(convID string, turn int) string {
-	return convID + "|turn:" + strconv.Itoa(turn)
-}
-
-// metaReasoningConvOf splits a cache key back into its conversation ID,
-// reporting false for keys that do not carry the "<conv>|turn:<n>" shape.
-func metaReasoningConvOf(key string) (string, bool) {
-	idx := strings.LastIndex(key, "|turn:")
-	if idx < 0 {
-		return "", false
-	}
-	if _, err := strconv.Atoi(key[idx+len("|turn:"):]); err != nil {
-		return "", false
-	}
-	return key[:idx], true
-}
-
-// metaCacheForConversation projects the shared cache onto one conversation,
-// rekeyed to the turn:N form metaInputFromHistory expects. Passing the
-// projection instead of the whole map is what keeps request construction
-// unchanged: the replay builder still sees exactly the keys it always did,
-// just scoped to this conversation.
-func metaCacheForConversation(full map[string][]metaResponsesItem, convID string) map[string][]metaResponsesItem {
-	prefix := convID + "|"
-	out := make(map[string][]metaResponsesItem)
-	for k, v := range full {
-		rest, ok := strings.CutPrefix(k, prefix)
-		if !ok {
-			continue
-		}
-		turn, ok := strings.CutPrefix(rest, "turn:")
-		if !ok || turn == "" {
-			continue
-		}
-		if _, err := strconv.Atoi(turn); err != nil {
-			continue
-		}
-		out["turn:"+turn] = v
-	}
-	return out
-}
-
-// metaStoreReasoningLocked records this turn's reasoning and enforces both
-// cache bounds. Caller must hold c.reasoningMu.
-func (c *OpenAICompatClient) metaStoreReasoningLocked(convID string, turn int, reasoning []metaResponsesItem) {
-	if c.reasoningCache == nil {
-		c.reasoningCache = make(map[string][]metaResponsesItem)
-	}
-	if c.reasoningConvSeen == nil {
-		c.reasoningConvSeen = make(map[string]int64)
-	}
-	prefix := convID + "|"
-	maxTurn := -1
-	turns := 0
-	for k := range c.reasoningCache {
-		rest, ok := strings.CutPrefix(k, prefix)
-		if !ok {
-			continue
-		}
-		turns++
-		if n, err := strconv.Atoi(strings.TrimPrefix(rest, "turn:")); err == nil && n > maxTurn {
-			maxTurn = n
-		}
-	}
-	// A turn index that rewinds means the conversation restarted under the same
-	// discriminator (the same root prompt issued again): drop the previous
-	// run's blocks so a longer earlier run cannot replay into the new one.
-	if maxTurn >= 0 && turn < maxTurn {
-		for k := range c.reasoningCache {
-			if strings.HasPrefix(k, prefix) {
-				delete(c.reasoningCache, k)
-			}
-		}
-		turns = 0
-	}
-	c.reasoningConvSeq++
-	c.reasoningConvSeen[convID] = c.reasoningConvSeq
-	c.reasoningCache[metaCacheKey(convID, turn)] = reasoning
-	turns++
-	// Bound the turns held for this conversation, oldest turn first.
-	for turns > metaReasoningMaxTurnsPerConversation {
-		oldestKey := ""
-		oldestTurn := 0
-		found := false
-		for k := range c.reasoningCache {
-			rest, ok := strings.CutPrefix(k, prefix)
-			if !ok {
-				continue
-			}
-			n, err := strconv.Atoi(strings.TrimPrefix(rest, "turn:"))
-			if err != nil {
-				continue
-			}
-			if !found || n < oldestTurn {
-				oldestKey, oldestTurn, found = k, n, true
-			}
-		}
-		if !found {
-			break
-		}
-		delete(c.reasoningCache, oldestKey)
-		turns--
-	}
-	// Bound the conversations held, oldest-used first. The conversation just
-	// stored was touched above, so it is never its own victim.
-	for len(c.reasoningConvSeen) > metaReasoningMaxConversations {
-		oldestConv := ""
-		oldestSeq := int64(0)
-		found := false
-		for conv, seq := range c.reasoningConvSeen {
-			if !found || seq < oldestSeq {
-				oldestConv, oldestSeq, found = conv, seq, true
-			}
-		}
-		if !found {
-			break
-		}
-		victim := oldestConv + "|"
-		for k := range c.reasoningCache {
-			if strings.HasPrefix(k, victim) {
-				delete(c.reasoningCache, k)
-			}
-		}
-		delete(c.reasoningConvSeen, oldestConv)
-	}
-}
-
-// metaTouchReasoningConvLocked refreshes a conversation's eviction recency on
-// a replay hit, so a live conversation is not evicted by idle newer ones.
-// Caller must hold c.reasoningMu.
-func (c *OpenAICompatClient) metaTouchReasoningConvLocked(convID string) {
-	if _, ok := c.reasoningConvSeen[convID]; !ok {
-		return
-	}
-	c.reasoningConvSeq++
-	c.reasoningConvSeen[convID] = c.reasoningConvSeq
 }
 
 // =============================================================================
@@ -769,35 +543,13 @@ func metaTextFromReply(reply *metaResponsesReply) string {
 	return sb.String()
 }
 
-// metaReasoningFromReply collects reasoning items for replay on the next turn.
-func metaReasoningFromReply(reply *metaResponsesReply) []metaResponsesItem {
-	var out []metaResponsesItem
-	for _, item := range reply.Output {
-		if item.Type == "reasoning" && item.EncryptedContent != "" {
-			out = append(out, item)
-		}
-	}
-	return out
-}
-
 // completeWithToolResultsViaResponses runs one tool-loop turn on the Responses
 // surface, replaying the reasoning Meta produced on earlier turns.
 //
-// The replay cache is keyed by conversation discriminator plus turn index
-// ("<convID>|turn:<n>", see metaCacheKey) and held per client. The
-// discriminator is the task-scoped intent ID from the request context when one
-// is attached (types.GetSessionContext), always combined with a hash of the
-// conversation's root — the system prompt plus the first user message text —
-// so concurrent turns sharing this client (executor, spawner, sub-agents)
-// that belong to different conversations never share a slot, while turns of
-// the same conversation always agree. At most metaReasoningMaxConversations
-// conversations are kept, oldest-first, and a conversation whose turn index
-// rewinds has its stale blocks dropped before the new run is recorded.
-//
-// It is deliberately not persisted: reasoning blocks belong to one
-// conversation, and a stale block replayed into an unrelated turn would be
-// worse than no replay at all. A cold start simply replays nothing and behaves
-// exactly like Chat Completions did.
+// Reasoning is replayed only from the turn's own blocks: a BlockThinking block
+// carrying a Signature becomes a reasoning replay item, in position. A text-only
+// assistant turn replays no reasoning. There is no side cache and no second
+// source of truth.
 func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 	ctx context.Context,
 	systemPrompt string,
@@ -810,14 +562,7 @@ func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 		return nil, err
 	}
 
-	convID := metaConversationID(ctx, systemPrompt, history)
-
-	c.reasoningMu.Lock()
-	cache := metaCacheForConversation(c.reasoningCache, convID)
-	c.metaTouchReasoningConvLocked(convID)
-	c.reasoningMu.Unlock()
-
-	input := metaInputFromHistory(systemPrompt, history, cache)
+	input := metaInputFromHistory(systemPrompt, history)
 
 	req := c.newResponsesRequest(ctx, input, c.enableThinking)
 	req.Tools = metaToolsFromDefinitions(tools)
@@ -849,18 +594,6 @@ func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 		// for is the right response either way.
 		return nil, outputTruncated(c.vendor, c.model, "CompleteWithToolResults",
 			reply.IncompleteDetails.Reason, metaTextFromReply(reply), c.maxOutputTokens, produced)
-	}
-
-	// Record this turn's reasoning against the slot the assistant reply will
-	// occupy, so the next call replays it in the right place.
-	if reasoning := metaReasoningFromReply(reply); len(reasoning) > 0 {
-		c.reasoningMu.Lock()
-		c.metaStoreReasoningLocked(convID, len(history), reasoning)
-		key := metaCacheKey(convID, len(history))
-		c.reasoningMu.Unlock()
-		logging.Get(logging.CategoryAPI).Debug(
-			"meta responses: cached %d reasoning block(s) for replay at %s",
-			len(reasoning), key)
 	}
 
 	return metaToolResponseFromReply(reply), nil
