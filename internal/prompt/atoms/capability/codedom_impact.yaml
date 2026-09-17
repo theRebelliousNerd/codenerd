@@ -11,84 +11,17 @@
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
   shard_types: []  # Applies to all personas
   content: |
-    ## Impact Analysis: Query Before You Edit
+    ## Blast Radius: Look Before Changing A Contract
 
-    The Code DOM enables **impact-aware editing**. Before modifying any element,
-    query the dependency graph to understand the blast radius of your change.
+    An edit inside a function body is local. An edit to a signature, an exported name, a struct field, or a serialized field name is not: something else depends on it.
 
-    ### The Impact Analysis Workflow
+    Before changing a contract:
 
-    1. **Identify the Target** - What Ref are you modifying?
-    2. **Query Dependencies** - Who calls this? What depends on it?
-    3. **Check Cross-Language** - Does this affect API contracts?
-    4. **Plan Atomically** - Gather all changes into one transaction
-    5. **Execute Safely** - Let the 2PC protocol handle atomicity
+    1. `grep` the symbol across the workspace to find its callers and implementers. A field with a wire name (a `json:"user_id"` tag) is also coupled to every other language that reads it, so grep the wire name too.
+    2. List every file that must change for the build to stay green.
+    3. Land them together with `apply_edits` so the tree is never left half-renamed.
 
-    ### Key Predicates for Impact Analysis
-
-    **Direct Dependencies:**
-    ```mangle
-    # Who calls this function?
-    caller_of(Caller, Target) :- code_calls(Caller, Target).
-
-    # What methods belong to this type?
-    methods_of(Method, Type) :- method_of(Method, Type).
-    ```
-
-    **Cross-Language Dependencies:**
-    ```mangle
-    # Wire names for API coupling
-    wire_name(Ref, Name) :- go_tag(Ref, Content), fn:match("json:\"(\\w+)\"", Content, Name).
-    wire_name(Ref, Name) :- ts_interface_prop(Ref, Name).
-
-    # Backend-Frontend coupling
-    api_dependency(Backend, Frontend) :-
-        wire_name(Backend, Key),
-        wire_name(Frontend, Key),
-        is_backend_ref(Backend),
-        is_frontend_ref(Frontend).
-    ```
-
-    **Test Impact:**
-    ```mangle
-    # Which tests exercise this code?
-    impacted_test(TestRef) :-
-        plan_edit(TargetRef),
-        test_depends_on_transitive(TestRef, TargetRef).
-    ```
-
-    ### Example: Renaming a Field
-
-    **Scenario:** Rename `UserID` to `SubjectID` in a Go struct
-
-    **Step 1: Query the target**
-    ```mangle
-    :- code_element(Ref, /struct, _, _, _), fn:contains(Ref, "User").
-    ```
-
-    **Step 2: Check wire name**
-    ```mangle
-    :- wire_name("go:user.go:User.UserID", WireName).
-    # Result: WireName = "user_id"
-    ```
-
-    **Step 3: Find all elements with same wire name**
-    ```mangle
-    :- wire_name(Ref, "user_id").
-    # Results:
-    # - go:backend/user.go:User.UserID
-    # - ts:frontend/types.ts:IUser.userId
-    # - py:backend/models.py:User.user_id
-    ```
-
-    **Step 4: Check for API coupling**
-    ```mangle
-    :- api_dependency("go:backend/user.go:User", Frontend).
-    # Result: Frontend = "ts:frontend/types.ts:IUser"
-    ```
-
-    **Step 5: Plan atomic changes**
-    All three elements must be updated in a single transaction.
+    If dependency facts for the target were injected into your context (callers, methods of a type, covering tests), use them first: they come from the code graph, not from text search.
 
 - id: "capability/codedom_safety"
   category: "capability"
@@ -97,79 +30,17 @@
   is_mandatory: true
   depends_on: ["capability/codedom_impact"]
   content: |
-    ## Safety Guardrails: deny_edit Rules
+    ## Edit Safety: What Gets Blocked
 
-    The Code DOM enforces **safety guardrails** via Mangle rules. Before any
-    edit is committed, the system checks for `deny_edit` predicates.
+    Line-range edits are applied to a shadow copy, re-parsed, and checked against the kernel's `deny_edit` rules before anything is written. If a rule fires, nothing is modified and the result names the rule. Edits that are refused:
 
-    ### How Safety Works
+    - removing error handling from a Go function that returned an error
+    - starting a goroutine with no context to stop it
+    - removing an auth decorator
+    - introducing an `unsafe` block
+    - changing one side of a backend/frontend API contract without the other
 
-    1. Proposed edits are applied to a **shadow copy**
-    2. The shadow is re-parsed and analyzed
-    3. `deny_edit` rules are evaluated against the candidate state
-    4. If any `deny_edit` fires, the transaction is **aborted**
-
-    ### Common deny_edit Rules
-
-    **Go Safety:**
-    ```mangle
-    # Don't remove error handling
-    deny_edit(Ref, /error_handling_removed) :-
-        snapshot:go_returns_error(Ref),
-        not candidate:go_returns_error(Ref).
-
-    # Don't introduce goroutine leaks
-    deny_edit(Ref, /goroutine_leak) :-
-        candidate:go_goroutine(Ref),
-        not candidate:go_uses_context(Ref).
-    ```
-
-    **Python Safety:**
-    ```mangle
-    # Don't remove auth decorators
-    deny_edit(Ref, /auth_removed) :-
-        snapshot:py_decorator(Ref, "login_required"),
-        not candidate:py_decorator(Ref, "login_required").
-    ```
-
-    **Rust Safety:**
-    ```mangle
-    # Don't introduce unsafe blocks
-    deny_edit(Ref, /unsafe_introduced) :-
-        not snapshot:rs_unsafe_block(Ref),
-        candidate:rs_unsafe_block(Ref).
-    ```
-
-    **Cross-Language Safety:**
-    ```mangle
-    # Don't break API contracts unilaterally
-    deny_edit(BackendRef, /api_contract_broken) :-
-        api_dependency(BackendRef, FrontendRef),
-        plan_edit(BackendRef),
-        not plan_edit(FrontendRef).
-    ```
-
-    ### What Happens When Blocked
-
-    If a `deny_edit` rule fires:
-    1. Transaction is aborted (no files modified)
-    2. You receive the blocking reason and rule name
-    3. You can either:
-       - Fix the issue and retry
-       - Use explicit override (if permitted by safety level)
-       - Consult with user for guidance
-
-    ### Warnings (Non-Blocking)
-
-    Some rules emit `edit_warning` instead of `deny_edit`:
-    ```mangle
-    edit_warning(Ref, /no_test_coverage) :-
-        plan_edit(Ref),
-        code_element(Ref, /function, _, _, _),
-        not has_test_coverage(Ref).
-    ```
-
-    Warnings are surfaced but don't block the edit.
+    When blocked: fix the cause and retry. Do not route around the block with `edit_file` or `write_file`; if the rule is wrong for this case, say so and stop. An `edit_warning` (e.g. no test covers the function) is reported but does not block.
 
 - id: "capability/codedom_transaction"
   category: "capability"

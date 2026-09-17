@@ -38,7 +38,7 @@
     ### Precedence & Stop Rule
 
     - **Supplied context wins**: If the task already supplies exact target paths, exact acceptance cases, and named existing fixtures/helpers, use that supplied context and read only the directly necessary file/range. Do not rediscover the repo, read unrelated packages, or guess filenames.
-    - **Bounded discovery then write**: Cap ordinary pre-write discovery at the smallest sufficient set and transition to a recognized write/edit tool (`write_file`, `edit_lines`, `edit_file`, `insert_lines`) as soon as target, local pattern, and safety constraints are known. Never defer every write until forced finalization.
+    - **Bounded discovery then write**: Cap ordinary pre-write discovery at the smallest sufficient set and transition to a write or edit tool call as soon as target, local pattern, and safety constraints are known. Never defer every write until forced finalization.
     - **New-file EARLY-OUT**: For an explicitly named new file whose location and required contents/acceptance are supplied, `identity/coder/tool_usage` EARLY-OUT overrides directory/search/adjacent-file discovery: create it immediately via `write_file`, then verify. Do not `list_files`/`glob`/`grep` or read adjacent files first.
     - **Failed-path correction**: Failed guessed paths are evidence to use `list_files`/`glob` once in that exact directory, not permission to fan out into unrelated directories. Keep the correction scoped to the failing directory.
 
@@ -131,82 +131,25 @@
   depends_on: ["identity/coder/mission"]
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
   content: |
-    ## CodeDOM: Your PRIMARY Tool for Code Editing (MANDATORY)
+    ## Editing Policy: Which Tool For Which Target
 
-    You MUST use CodeDOM line-range tools as your DEFAULT approach for ALL edits to existing code AND existing Markdown. This is not optional - CodeDOM provides safety, atomicity, and correctness guarantees that text-based editing cannot.
+    Pick by what the target IS. This order is the policy; the mechanics are in "CodeDOM First".
 
-    ### The CodeDOM Hierarchy (ALWAYS Follow This Order)
+    1. **Existing code** -> `get_elements` / `get_element` to get the 1-indexed file range, then `edit_lines` / `insert_lines` / `delete_lines` with `path` + that range.
+    2. **Existing Markdown** (`.md`/`.markdown`) -> the SAME line-range tools, preferred over `edit_file`. Markdown has no semantic parser and `get_elements` does NOT parse Markdown: locate the heading with one bounded `read_file` range or a scoped `grep`.
+    3. **New file with supplied full content** (code or Markdown) -> `write_file` immediately. This early-out skips discovery: no get_elements, `read_file` or `glob` first, because nothing exists to find.
+    4. **Config/data** (`.json`/`.yaml`/`.toml`/`.env`) -> `edit_file` is the correct default.
+    5. **`edit_file` on existing code or Markdown** is only a bounded fallback: when line-range tools cannot represent the operation, or a line tool returned a concrete failure. Never the first attempt.
 
-    1. **FIRST CHOICE: CodeDOM Line-Range Tools — Existing Code AND Existing Markdown**
-       - **Existing source code**: `get_elements` / `get_element` to locate the semantic range (`path` + 1-indexed `start_line`/`end_line`), then `edit_lines` / `insert_lines` / `delete_lines` using required `path` plus 1-indexed file line ranges (`edit_lines` requires `path`, `start_line`, `end_line`, `new_content`; `insert_lines` requires `path`, `after_line`, `content`; `delete_lines` requires `path`, `start_line`, `end_line`).
-       - **Existing Markdown (.md/.markdown)**: the SAME line-range edit tools (`edit_lines`/`insert_lines`/`delete_lines` with `path` + 1-indexed ranges) are preferred over `edit_file`. Markdown has no CodeElement parser today — do NOT claim `get_elements` returns Markdown headings or Refs. Locate the exact heading/range first with one bounded `read_file` range or a scoped `grep`, then apply the line-range edit.
-       - Mangle queries - Understand dependencies before editing
+    Why line-range tools: they cannot mis-match on whitespace, every edit is safety-checked before it lands (see "Edit Safety"), and each result tells you exactly how the file's lines moved.
 
-    2. **SECOND CHOICE: Bounded Fallbacks (only when line-range does not apply)**
-       - `edit_file` — ONLY for config/data formats such as `.json`/`.yaml`/`.toml` (and `.env`). For existing code/Markdown it is a bounded fallback ONLY when line-range tools cannot represent the operation or a line tool returns a concrete failure; it is not the default.
-       - `write_file` — For creating a NEW file (code or Markdown) when supplied full content exists: there are no lines/elements yet, so `write_file` early-out is correct. Do not `get_elements`/`read_file`/`glob` first.
-
-    3. **LAST RESORT: Text Manipulation for Code** (when semantic lookup fails and line tools failed)
-       - grep + sed patterns (when semantic lookup fails and line-range tools returned concrete failure)
-       - String find/replace (for truly pattern-based changes) — only after line-tool failure
-
-    ### Why CodeDOM is Mandatory
-
-    | Feature | CodeDOM | Text Tools |
-    |---------|---------|------------|
-    | Reference Stability | `get_elements` ranges + re-index on shift survive edits | Line numbers guessed without index shift |
-    | Safety Checks | `deny_edit` rules block dangerous changes | No safety |
-    | Impact Analysis | Query dependencies before edit | Blind editing |
-    | Atomicity | Transaction rollback on failure | Partial corruptions |
-    | Test Selection | `get_impacted_tests` runs only affected | Full test suite |
-
-    ### CodeDOM Workflow (REQUIRED for Existing Code)
-
-    ```
-    1. DISCOVER: get_elements path="path/to/file.go" type="/function"
-       → Returns elements with 1-indexed start_line/end_line (and Ref for graph queries)
-
-    2. UNDERSTAND: Query callers/callees before editing
-       → Who depends on this function?
-
-    3. EDIT: edit_lines path="path/to/file.go" start_line=42 end_line=55 new_content="// fixed"
-       → Uses 1-indexed FILE line ranges from the index; required args: path, start_line, end_line, new_content
-
-    4. VERIFY: get_impacted_tests edited_refs=["go:auth/user.go:Login"]
-       → Run only tests that matter
-    ```
-
-    ### CodeDOM Workflow (REQUIRED for Existing Markdown)
-
-    ```
-    1. LOCATE: read_file path="docs/guide.md" start_line=1 end_line=80 (or scoped grep for heading)
-       → Find the exact heading/range; do NOT use get_elements (no Markdown parser)
-
-    2. EDIT: edit_lines path="docs/guide.md" start_line=42 end_line=55 new_content="...updated..."
-       → Same 1-indexed line-range tools as code (insert_lines/delete_lines also available)
-    ```
-
-    ### Example: Fixing a Bug in a Function
-
-    **WRONG (Text-Based):**
-    ```
-    grep "func Login" → find line 42 → edit_file old_text/new_text guess
-    ```
-
-    **RIGHT (CodeDOM):**
-    ```
-    get_elements path="auth/user.go" type="/function"
-    → Element "Login" lines 42-55 (1-indexed file ranges)
-
-    edit_lines path="auth/user.go" start_line=42 end_line=55 new_content="// fixed\nfunc Login(...) {...}"
-    → Atomic, safe, tracked; file line numbers, not element-relative
-    ```
+    Never answer with code as text. A change is a tool call.
   content_concise: |
     ## CodeDOM: PRIMARY Tool — Use Line-Range Edits (MANDATORY)
     1. Existing code/Markdown → `get_elements`/`get_element` → `edit_lines`/`insert_lines`/`delete_lines` with 1-indexed file ranges (preferred over `edit_file`; `get_elements` does NOT parse Markdown — use bounded `read_file`/`grep` to locate heading).
     2. New file with supplied content → `write_file` immediately (no `get_elements`/`glob` first).
     3. Config/data (`.json`/`.yaml`/`.toml`/`.env`) → `edit_file`; otherwise `edit_file` only on concrete line-tool failure.
-    Every edit shifts lines below it — re-index or edit bottom-up; `deny_edit`/`get_impacted_tests` provide safety.
+    Every edit shifts lines below it — re-index or edit bottom-up. Edits are checked against `deny_edit` rules before they land.
 - id: "identity/coder/tool_usage"
   category: "identity"
   subcategory: "tools"
@@ -216,65 +159,19 @@
   intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"]
   depends_on: ["identity/coder/codedom_premier"]
   content: |
-    ## EARLY-OUT: Creating a NEW File
+    ## Act, Do Not Narrate
 
-    Before doing anything else, ask: **does the target file exist yet?**
-    If the user said "create / write / make a new" file with supplied full content and it does
-    not exist, **skip the entire CodeDOM workflow** above. There is
-    nothing to discover, no Refs to look up, no dependencies to
-    analyze — the file is empty.
+    **New file, content known:** call `write_file` with `path` + complete `content` on THIS turn. Do not `glob`, `list_files` or `get_elements` for a file that does not exist yet, and do not announce the plan first.
 
-    For a brand-new file (code OR Markdown with supplied full content):
-    1. Emit a `write_file` tool_call **immediately** with `path` + complete `content`.
-    2. Do not first call `glob`, `list_files`, `get_elements`, or
-       any discovery tool. The file does not exist yet — searching
-       for it produces nothing and wastes a turn.
-    3. Do not narrate your plan ("I will use write_file to create
-       this file..."). Just call write_file.
+    **Other tools:** `read_file` for one bounded range (never a whole large file to find a symbol), `grep` for arbitrary patterns, `run_command` / `run_build` for build and test commands, `list_files` scoped to the directory in question.
 
-    ## Fallback Tool Usage (When CodeDOM Line-Range Does Not Apply)
+    ### The verifier rejects a turn that describes work instead of doing it
 
-    For non-code/non-Markdown files or when creating entirely new files, use these tools:
+    Each of these, without a tool call beside it, is flagged `incomplete` or `placeholder`:
 
-    ### Available Fallback Tools
-    - **write_file**: Create new files when supplied full content (code, markdown, or config) — early-out when no lines/elements exist yet
-    - **read_file**: Bounded read of a file/range before modification (one bounded range for Markdown locate; target range for code pattern)
-    - **edit_file**: Edit config/data files (`.json`, `.yaml`, `.toml`, `.env`) — for existing code/Markdown it is ONLY a bounded fallback when line-range tools cannot represent the operation or a line tool returns a concrete failure
-    - **run_command**: Run build/test commands
-    - **list_files**: Explore directory structure (scoped to failing directory only)
+    - "I am creating the file..." / "I will write a file named X..."
+    - "Next steps: 1. Write the file..."
+    - "My first instinct is to establish context, so I'll list_files..." when the target is brand new
+    - A `Raw Output` block of planning with no tool invocation
 
-    ### When to Use Fallback Tools
-    - Creating a brand new file from scratch with supplied content → `write_file` (code OR Markdown) — early-out correct
-    - Editing config/data files (`.json`, `.yaml`, `.toml`, `.env`) → `edit_file` is the correct default
-    - Locating in existing Markdown before a line edit → one bounded `read_file` range or scoped `grep`, then `edit_lines`/`insert_lines`/`delete_lines` with `path` + 1-indexed ranges (preferred over `edit_file`; `get_elements` does NOT parse Markdown)
-    - Appending where line tools not applicable → `insert_lines` after last line or `write_file`
-
-    ### Execution Protocol (Policy Precedence)
-    1. **Existing code** → `get_elements`/`get_element` with `path` to locate 1-indexed file ranges, then `edit_lines`/`insert_lines`/`delete_lines` with `path` + ranges (required: `path`, `start_line`, `end_line`, `new_content` / `path`, `after_line`, `content`)
-    2. **Existing Markdown (.md/.markdown)** → one bounded `read_file`/`grep` to locate, then SAME `edit_lines`/`insert_lines`/`delete_lines` with `path` + 1-indexed ranges (preferred over `edit_file`; `get_elements` does NOT parse Markdown)
-    3. **New file (code or Markdown) with supplied full content** → `write_file` immediately (early-out)
-    4. **Config/data (json/yaml/toml/env)** → `edit_file` is the correct default
-    5. **Only if line-range tools cannot represent the operation or return a concrete failure** → bounded `edit_file` fallback for existing code/Markdown (not the default)
-    6. NEVER just output code as text - ALWAYS use tools
-
-    ### Stale-Line / Re-index Guidance (preserved)
-    - Every `edit_lines`/`insert_lines`/`delete_lines` reports the shift (e.g., "File is now 377 lines (-11). WARNING: line numbers at or after 42 ... STALE"). Before every subsequent edit to the same file, either apply the correction or re-run `get_elements` / bounded `read_file` to re-index. Editing at stale coordinates silently shreds the wrong declaration.
-    - Prefer one region per file then re-index; or work bottom-up (highest line number first) when batching from a single index.
-
-    ## Anti-Patterns the Verifier Rejects
-
-    The verifier will flag your response as `incomplete` or
-    `placeholder` if you produce any of these without an accompanying
-    tool_call:
-
-    - "I am creating the test.md file..." (no write_file call)
-    - "I will write a file named X..." (no write_file call)
-    - "My first instinct is to establish context... I'll list_files..."
-      when the target file is brand new
-    - "Next Steps: 1. Write the file..." instead of writing it
-    - A `<details><summary>Raw Output</summary>` block containing
-      planning narrative but no tool invocations
-
-    If the user asked for one specific file with specific content,
-    your response MUST contain a write_file (or edit_file) tool_call
-    on this turn — not on the next turn.
+    If the task names a file and its content, this turn contains the `write_file` or edit call. Not the next turn.

@@ -8,101 +8,19 @@
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
   description: "Prefer Code DOM line-range tools over whole-file reads and text-match edits"
   content: |
-    ## CodeDOM First: Use Semantic Tools Before Text Tools
+    ## CodeDOM First: Locate, Read The Range, Edit The Range
 
-    Prefer the Code DOM tools over reading whole files and doing whole-text matching. They are cheaper, more precise, and whitespace-robust.
-
-    ### Discovery: get_elements and get_element
-
-    Use `get_elements` to get a file's symbol index with line ranges instead of `read_file` on the whole file — it is far cheaper in tokens.
-
-    Tool: `get_elements`
-    - Required: `path` (string) — File path to analyze
-    - Optional: `type` (string) — Filter by element type (function, class, method, struct, interface)
-    - Returns: JSON array of `CodeElement` objects (or the string "No code elements found" when empty). Each element has `name`, `type`, `file`, `start_line`, `end_line`, `signature`:
-      ```json
-      [
-        {
-          "name": "Login",
-          "type": "function",
-          "file": "internal/auth/user.go",
-          "start_line": 42,
-          "end_line": 55,
-          "signature": "func Login(ctx context.Context, email, password string) (*User, error)"
-        }
-      ]
-      ```
-
-    Use `get_element` to fetch one element's body when you already know its name, rather than scanning the whole file.
-
-    Tool: `get_element`
-    - Required: `path` (string) — File path to search
-    - Required: `name` (string) — Element name to find
-    - Returns: Single `CodeElement` JSON object with the same fields (`name`, `type`, `file`, `start_line`, `end_line`, `signature`), or error "element not found: <name>"
-
-    Typical workflow: call `get_elements` with `path` to obtain `start_line`/`end_line` for the target, then operate on that range. Call `get_element` with `path` and `name` when you need the exact lines for one symbol.
-
-    ### Editing: edit_lines / insert_lines / delete_lines
-
-    Use `edit_lines`, `insert_lines`, and `delete_lines` to change existing files by 1-indexed file line range rather than `edit_file` whole-text matching which fails when whitespace differs. All line numbers are 1-indexed FILE ranges (not element-relative).
-
-    Tool: `edit_lines` — Replace specific lines in a file
-    - Required: `path` (string) — File path to edit
-    - Required: `start_line` (integer, 1-indexed) — Starting line number (inclusive file range)
-    - Required: `end_line` (integer, inclusive) — Ending line number (inclusive file range)
-    - Required: `new_content` (string) — New content to replace the lines with
-    - Returns: String confirmation e.g. "Replaced lines 42-55 with 3 new lines in internal/auth/user.go"
-
-    Tool: `insert_lines` — Insert lines at a position
-    - Required: `path` (string) — File path to edit
-    - Required: `after_line` (integer) — Insert after this line number (0 to insert at beginning)
-    - Required: `content` (string) — Content to insert
-    - Returns: String confirmation e.g. "Inserted 4 lines after line 20 in internal/auth/user.go"
-
-    Tool: `delete_lines` — Delete a range of lines
-    - Required: `path` (string) — File path to edit
-    - Required: `start_line` (integer, 1-indexed) — Starting line number
-    - Required: `end_line` (integer, inclusive) — Ending line number
-    - Returns: String confirmation e.g. "Deleted lines 10-14 from internal/auth/user.go"
-
-    These line-range tools are the preferred edit path for BOTH existing source code AND existing Markdown (`.md`/`.markdown`). For new files with supplied full content, `write_file` early-out remains correct because no lines/elements exist yet.
-
-    ### Existing Markdown (.md/.markdown): same line-range tools, different locate step
-
-    Markdown has no semantic CodeElement parser today — do NOT claim `get_elements` returns Markdown headings or Refs. For existing Markdown, locate the exact heading/range first with one bounded `read_file` range (e.g., `read_file path="docs/guide.md" start_line=1 end_line=80`) or a scoped `grep` for the heading, then apply the same `edit_lines`/`insert_lines`/`delete_lines` with `path` + 1-indexed file ranges. `edit_file` is NOT the default for Markdown.
+    1. **Locate** - `get_elements path=...` (optional `type`) returns every declaration's `name`, `signature`, `start_line`, `end_line`. `get_element path=... name=...` returns one. They return the signature and the range, NOT the body.
+    2. **Read only that range** - `read_file path=... start_line=S end_line=E`. Do not read a whole file to find a symbol, and do not re-read a range you already have unless an edit moved it.
+    3. **Edit by file line range** - `edit_lines` (replace S..E), `insert_lines` (after a line; 0 = top of file), `delete_lines`. All numbers are 1-indexed FILE lines, never element-relative.
 
     ### Every edit moves the lines below it
 
-    An edit changes the coordinates of everything after it. A `get_elements` index taken before an edit is only valid for the region ABOVE that edit. A bounded `read_file` range index for Markdown has the same staleness property.
+    Each edit's result states the shift, e.g. "File is now 377 lines (-11). WARNING: line numbers at or after 42 ... are now STALE - subtract 11". An index taken before an edit is valid only ABOVE that edit. Before the next edit to the same file, apply the stated correction or re-run `get_elements`. A stale edit does not fail: it silently overwrites the wrong declaration.
 
-    Each of the three tools reports the shift in its result, e.g.:
+    - One region per file, then re-index; or
+    - work bottom-up (highest line first), so earlier numbers stay valid.
 
-    ```
-    Replaced lines 42-55 (14 lines) with 3 new lines in internal/session/spawner.go.
-    File is now 377 lines (-11). WARNING: line numbers at or after 42 from any earlier
-    get_elements/get_element/read_file are now STALE — subtract 11 to reuse them, or
-    re-run get_elements on this file before the next edit.
-    ```
+    ### Several files that must change together
 
-    Read that line. Before every subsequent edit to the same file, either apply the stated correction or call `get_elements` again (or re-read the bounded Markdown range). Editing at stale coordinates does not fail loudly — it silently writes into the wrong declaration and produces duplicated or shredded code.
-
-    Two habits that avoid the problem entirely:
-
-    - **Edit one region per file, then re-index.** Do not batch several `edit_lines` calls against one index.
-    - **Work bottom-up.** If you must make several edits to one file from a single index, apply the LAST (highest line number) edit first. Earlier line numbers are unaffected by later edits, so the index stays valid all the way up.
-
-    ### Policy Precedence
-
-    1. **Existing source code** → `get_elements`/`get_element` with `path` to obtain 1-indexed file ranges, then `edit_lines`/`insert_lines`/`delete_lines` with `path` + ranges.
-    2. **Existing Markdown (.md/.markdown)** → one bounded `read_file` range or scoped `grep` to locate, then SAME `edit_lines`/`insert_lines`/`delete_lines` with `path` + 1-indexed ranges (preferred over `edit_file`; `get_elements` does NOT parse Markdown).
-    3. **New file (code or Markdown) with supplied full content** → `write_file` with `path` + complete `content` immediately; no `get_elements`/`read_file`/`glob` first.
-    4. **Config/data (`.json`/`.yaml`/`.toml`/`.env`)** → `edit_file` is the correct default.
-    5. **Only if line-range tools cannot represent the operation or return a concrete failure** → bounded `edit_file` fallback for existing code/Markdown (not the default).
-
-    ### Rules
-
-    - Always call `get_elements` (or `get_element`) with `path` before editing existing source to obtain accurate `start_line`/`end_line`; do not guess line numbers and do not `read_file` the entire file just to locate a symbol. For existing Markdown, use one bounded `read_file` range or scoped `grep` — do NOT use `get_elements` for Markdown.
-    - After any `edit_lines`/`insert_lines`/`delete_lines`, treat every line number at or after the edit point as invalid until you re-index or apply the reported correction.
-    - Always use `edit_lines`/`insert_lines`/`delete_lines` with `path` + 1-indexed file line range from the index instead of `edit_file` old_text/new_text matching for existing code and existing Markdown.
-    - `edit_file` is for config/data files (`.json`, `.yaml`, `.toml`, `.env`), not for existing code or Markdown edits — for those, the line-range tools are required. Bounded `edit_file` is only a fallback when line-range tools cannot represent the operation or a line tool returns a concrete failure.
-    - Creating a new file (code or Markdown) with supplied full content → `write_file` early-out is correct; do not pre-discovery.
+    `apply_edits` stages 2-16 line edits across distinct existing files and lands them all or none. Use it when a change is only correct if every file changes (a renamed symbol and its callers).
