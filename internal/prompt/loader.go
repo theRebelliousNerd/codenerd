@@ -128,6 +128,7 @@ func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
 			-- Embeddings
 			embedding BLOB,
 			embedding_task TEXT DEFAULT 'RETRIEVAL_DOCUMENT',
+			embedding_model TEXT,
 
 			-- Metadata
 			source_file TEXT,
@@ -150,7 +151,7 @@ func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
 
 	// Step 2: Run schema migrations BEFORE creating indexes
 	// This ensures columns exist before we try to index them
-	cols := []string{"description", "content_concise", "content_min"}
+	cols := []string{"description", "content_concise", "content_min", "embedding_model"}
 	for _, col := range cols {
 		// Check if column exists by querying pragma
 		var exists bool
@@ -698,4 +699,3 @@ func nullableString(s string) any {
 	}
 	return s
 }
-

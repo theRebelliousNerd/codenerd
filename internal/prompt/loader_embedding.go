@@ -83,21 +83,31 @@ func SyncEmbeddedToSQLite(ctx context.Context, dbPath string, engine embedding.E
 
 	logging.Get(logging.CategoryStore).Debug("Found %d existing atoms in database", len(existingHashes))
 
-	// Partition atoms into unchanged (skip) and changed (need embedding)
+	// Partition atoms into unchanged (skip) and changed (need embedding).
+	// An atom is unchanged only when both the content hash matches and the
+	// stored vector was produced by the current engine.
 	var atomsToEmbed []*PromptAtom
 	var atomsUnchanged []*PromptAtom
+	var changedContent int
+	var anotherModel int
+	modelName := engine.Name()
 
 	for _, atom := range atoms {
-		existingHash, exists := existingHashes[atom.ID]
-		if exists && existingHash == atom.ContentHash {
+		existing, exists := existingHashes[atom.ID]
+		if exists && existing.contentHash == atom.ContentHash && existing.embeddingModel == modelName {
 			atomsUnchanged = append(atomsUnchanged, atom)
 		} else {
 			atomsToEmbed = append(atomsToEmbed, atom)
+			if exists && existing.contentHash == atom.ContentHash {
+				anotherModel++
+			} else {
+				changedContent++
+			}
 		}
 	}
 
-	logging.Get(logging.CategoryStore).Info("Sync plan: %d unchanged (skip), %d new/changed (embed)",
-		len(atomsUnchanged), len(atomsToEmbed))
+	logging.Get(logging.CategoryStore).Info("Sync plan: %d unchanged, %d changed content, %d embedded by another model (re-embed with %s)",
+		len(atomsUnchanged), changedContent, anotherModel, modelName)
 
 	if len(atomsToEmbed) == 0 {
 		logging.Get(logging.CategoryStore).Info("All atoms up-to-date, nothing to sync")
@@ -143,7 +153,7 @@ func SyncEmbeddedToSQLite(ctx context.Context, dbPath string, engine embedding.E
 	}
 
 	// Store atoms with embeddings in a transaction for atomicity
-	if err := storeAtomsWithEmbeddings(ctx, db, atomsToEmbed, embeddings, taskType); err != nil {
+	if err := storeAtomsWithEmbeddings(ctx, db, atomsToEmbed, embeddings, taskType, modelName); err != nil {
 		return fmt.Errorf("failed to store atoms: %w", err)
 	}
 
@@ -151,11 +161,18 @@ func SyncEmbeddedToSQLite(ctx context.Context, dbPath string, engine embedding.E
 	return nil
 }
 
-// loadExistingHashes retrieves atom_id -> content_hash mapping from the database.
-func loadExistingHashes(ctx context.Context, db *sql.DB) (map[string]string, error) {
-	hashes := make(map[string]string)
+// existingAtomState records what SyncEmbeddedToSQLite knows about a stored row:
+// its content hash and the model that produced its vector ("" when unstamped).
+type existingAtomState struct {
+	contentHash    string
+	embeddingModel string
+}
 
-	rows, err := db.QueryContext(ctx, "SELECT atom_id, content_hash FROM prompt_atoms")
+// loadExistingHashes retrieves atom_id -> content hash + embedding model mapping from the database.
+func loadExistingHashes(ctx context.Context, db *sql.DB) (map[string]existingAtomState, error) {
+	hashes := make(map[string]existingAtomState)
+
+	rows, err := db.QueryContext(ctx, "SELECT atom_id, content_hash, COALESCE(embedding_model, '') FROM prompt_atoms")
 	if err != nil {
 		// Table might not exist yet - that's fine
 		return hashes, nil
@@ -163,11 +180,11 @@ func loadExistingHashes(ctx context.Context, db *sql.DB) (map[string]string, err
 	defer rows.Close()
 
 	for rows.Next() {
-		var atomID, contentHash string
-		if err := rows.Scan(&atomID, &contentHash); err != nil {
+		var atomID, contentHash, embeddingModel string
+		if err := rows.Scan(&atomID, &contentHash, &embeddingModel); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-		hashes[atomID] = contentHash
+		hashes[atomID] = existingAtomState{contentHash: contentHash, embeddingModel: embeddingModel}
 	}
 
 	if err := rows.Err(); err != nil {
@@ -193,7 +210,7 @@ func getTextForEmbedding(atom *PromptAtom) string {
 }
 
 // storeAtomsWithEmbeddings stores atoms and their embeddings in a single transaction.
-func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAtom, embeddings [][]float32, taskType string) error {
+func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAtom, embeddings [][]float32, taskType string, modelName string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -207,7 +224,7 @@ func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAt
 		chunkAtoms := atoms[i:end]
 		chunkEmbeddings := embeddings[i:end]
 
-		if err := storeAtomsChunk(ctx, tx, chunkAtoms, chunkEmbeddings, taskType); err != nil {
+		if err := storeAtomsChunk(ctx, tx, chunkAtoms, chunkEmbeddings, taskType, modelName); err != nil {
 			return fmt.Errorf("failed to store chunk of atoms: %w", err)
 		}
 
@@ -222,17 +239,17 @@ func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAt
 	return nil
 }
 
-func storeAtomsChunk(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom, embeddings [][]float32, taskType string) error {
+func storeAtomsChunk(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom, embeddings [][]float32, taskType string, modelName string) error {
 	if len(atoms) == 0 {
 		return nil
 	}
 
 	// 1. Bulk insert/update atoms
 	placeholders := make([]string, 0, len(atoms))
-	args := make([]any, 0, len(atoms)*16)
+	args := make([]any, 0, len(atoms)*17)
 
 	for i, atom := range atoms {
-		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 		embeddingBlob := encodeFloat32Slice(embeddings[i])
 
 		args = append(args,
@@ -240,7 +257,7 @@ func storeAtomsChunk(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom, embed
 			nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
 			string(atom.Category), nullableString(atom.Subcategory),
 			atom.Priority, atom.IsMandatory, nullableString(atom.IsExclusive),
-			embeddingBlob, nullableString(taskType), "embedded",
+			embeddingBlob, nullableString(taskType), nullableString(modelName), "embedded",
 		)
 	}
 
@@ -250,7 +267,7 @@ func storeAtomsChunk(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom, embed
 			description, content_concise, content_min,
 			category, subcategory,
 			priority, is_mandatory, is_exclusive,
-			embedding, embedding_task, source_file
+			embedding, embedding_task, embedding_model, source_file
 		) VALUES ` + strings.Join(placeholders, ", ") + `
 		ON CONFLICT(atom_id) DO UPDATE SET
 			version = excluded.version,
@@ -267,6 +284,7 @@ func storeAtomsChunk(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom, embed
 			is_exclusive = excluded.is_exclusive,
 			embedding = excluded.embedding,
 			embedding_task = excluded.embedding_task,
+			embedding_model = excluded.embedding_model,
 			source_file = excluded.source_file`
 
 	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
