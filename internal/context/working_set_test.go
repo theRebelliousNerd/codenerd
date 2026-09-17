@@ -249,3 +249,30 @@ func TestWorkingSetSelectSkipsObservationsShownInTheTranscript(t *testing.T) {
 	require.Contains(t, sel.Text, "older body")
 	require.NotContains(t, sel.Text, "current body")
 }
+
+// Search discovers handles, not bodies: every hit reports body_chars and the
+// envelope says how to read the body. Observed 2026-09-17: Search serialized
+// full WorkingRecords, so every hit carried "body":"" — including several
+// multi-KB reads — and the model concluded its archive was empty and re-read
+// the same files until its budget ran out.
+func TestWorkingSetSearchReportsBodyCharsNotAnEmptyBody(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "executor_tools.go"), []byte("package session"), 0600))
+	w, err := NewWorkingSet(nil, root, "search")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+
+	body := strings.Repeat("x", 5000)
+	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "hit-1", Entity: "internal/session/executor_tools.go", Revision: w.Revision("internal/session/executor_tools.go"), Kind: "read_file", Step: 1, Body: body}))
+
+	out, err := w.Search(t.Context(), "executor_tools", 0, 10)
+	require.NoError(t, err)
+	require.Contains(t, out, `"id":"hit-1"`)
+	require.Contains(t, out, `"body_chars":5000`, "the hit must report the body's size")
+	require.NotContains(t, out, `"body":`, "an explicit empty body reads as an empty observation")
+	require.Contains(t, out, `read_with`, "the envelope must say how to read the body")
+
+	page, err := w.Recall(t.Context(), "hit-1", 0, 0)
+	require.NoError(t, err)
+	require.Contains(t, page, `"total_chars":5000`, "the id must round-trip into a full-body read")
+}
