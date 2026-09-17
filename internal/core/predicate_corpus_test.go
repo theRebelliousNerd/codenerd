@@ -250,3 +250,55 @@ func TestFindErrorPattern(t *testing.T) {
 		t.Error("Expected pattern to have a name")
 	}
 }
+
+// TestCorpusExposesQueryGraph is the B4 public-boundary pin: the generated
+// catalog must expose query_graph/3 with its arity and metadata. The external
+// graph declaration once landed in .mg without the matching generated row,
+// which the drift check caught; this test fails the same way through the API
+// production code actually reads.
+func TestCorpusExposesQueryGraph(t *testing.T) {
+	corpus, err := NewPredicateCorpus()
+	if err != nil {
+		t.Skipf("Corpus not available: %v", err)
+	}
+	defer corpus.Close()
+
+	if !corpus.IsDeclared("query_graph") {
+		t.Fatal("query_graph not declared in the generated catalog")
+	}
+	info, err := corpus.GetPredicate("query_graph")
+	if err != nil {
+		t.Fatalf("GetPredicate(query_graph): %v", err)
+	}
+	if info.Arity != 3 {
+		t.Errorf("query_graph arity = %d, want 3", info.Arity)
+	}
+	if info.Type != "EDB" {
+		t.Errorf("query_graph type = %q, want EDB", info.Type)
+	}
+	if info.Domain != "memory" {
+		t.Errorf("query_graph domain = %q, want memory", info.Domain)
+	}
+	if info.SourceFile != "schemas_memory.mg" {
+		t.Errorf("query_graph source = %q, want schemas_memory.mg", info.SourceFile)
+	}
+	if info.Description == "" {
+		t.Error("query_graph description is empty")
+	}
+	args, err := corpus.GetPredicateArgs(info.ID)
+	if err != nil {
+		t.Fatalf("GetPredicateArgs: %v", err)
+	}
+	if len(args) != 3 {
+		t.Fatalf("query_graph args = %d, want 3", len(args))
+	}
+	wantNames := []string{"QueryType", "Params", "Result"}
+	for i, want := range wantNames {
+		if args[i].Name != want {
+			t.Errorf("arg %d name = %q, want %q", i, args[i].Name, want)
+		}
+		if args[i].Position != i {
+			t.Errorf("arg %d position = %d, want %d", i, args[i].Position, i)
+		}
+	}
+}
