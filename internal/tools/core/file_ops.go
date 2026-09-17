@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"sort"
@@ -276,6 +278,23 @@ func WriteFileTool() *tools.Tool {
 	}
 }
 
+// rejectUnparseableGo refuses a file write whose resulting .go content does not
+// parse. A syntactically invalid Go file can never be a correct write: accepting
+// one strands a broken tree the model only discovers minutes later at
+// verification (observed live: a truncated test file survived write_file and died
+// in go test). The failure lands in-loop, where the model sees it at once.
+// Non-Go paths are untouched.
+func rejectUnparseableGo(path, content string) error {
+	if !strings.EqualFold(filepath.Ext(path), ".go") {
+		return nil
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), path, []byte(content), parser.AllErrors); err != nil {
+		first, _, _ := strings.Cut(err.Error(), "\n")
+		return fmt.Errorf("refusing to write %s: Go syntax invalid: %s", path, first)
+	}
+	return nil
+}
+
 func executeWriteFile(ctx context.Context, args map[string]any) (string, error) {
 	rawPath, _ := args["path"].(string)
 	if rawPath == "" {
@@ -322,6 +341,10 @@ func executeWriteFile(ctx context.Context, args map[string]any) (string, error) 
 	}
 	if exists {
 		content = tactile.NormalizeLineEnding(content, ending)
+	}
+
+	if err := rejectUnparseableGo(path, content); err != nil {
+		return "", err
 	}
 
 	if err := atomicfile.WriteFilePreservingMode(path, []byte(content), 0o644); err != nil {
@@ -465,6 +488,10 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 		newContent = strings.Replace(contentStr, oldText, newText, 1)
 	}
 	newContent = tactile.NormalizeLineEnding(newContent, originalEnding)
+
+	if err := rejectUnparseableGo(path, newContent); err != nil {
+		return "", err
+	}
 
 	if err := atomicfile.WriteFilePreservingMode(path, []byte(newContent), 0o644); err != nil {
 		// An edit is a write and belongs in the durable record. read_file and
