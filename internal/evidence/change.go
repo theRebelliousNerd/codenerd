@@ -419,9 +419,9 @@ func (tx *Transaction) run(ctx context.Context, o Obligation, snapshot string) W
 	w := Witness{Obligation: o.ID, Snapshot: snapshot, Status: "unverified", Command: []string{"go", "test", "-json", "-count=1", "-run", "^" + regexp.QuoteMeta(o.Test) + "$", o.Package}}
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
 	defer cancel()
-	versionCmd := processutil.Cancellable(exec.CommandContext(ctx, tx.goPath, "version"))
+	versionCmd := exec.CommandContext(ctx, tx.goPath, "version")
 	versionCmd.Dir, versionCmd.Env = tx.root, tx.env
-	version, err := versionCmd.CombinedOutput()
+	version, err := processutil.CombinedOutput(versionCmd)
 	if err != nil {
 		w.Detail = err.Error()
 		return w
@@ -429,9 +429,9 @@ func (tx *Transaction) run(ctx context.Context, o Obligation, snapshot string) W
 	w.Toolchain = strings.TrimSpace(string(version))
 	// Pin process environment at acceptance, including PATH and workspace
 	// selection. Boot cannot change the verifier's inputs mid-transaction.
-	goEnv := processutil.Cancellable(exec.CommandContext(ctx, tx.goPath, "env", "-json"))
+	goEnv := exec.CommandContext(ctx, tx.goPath, "env", "-json")
 	goEnv.Dir, goEnv.Env = tx.root, tx.env
-	effective, envErr := goEnv.CombinedOutput()
+	effective, envErr := processutil.CombinedOutput(goEnv)
 	if envErr != nil {
 		w.Detail = "cannot inspect verification environment: " + envErr.Error()
 		return w
@@ -449,10 +449,10 @@ func (tx *Transaction) run(ctx context.Context, o Obligation, snapshot string) W
 	}
 	effective, _ = json.Marshal(effectiveConfig)
 	w.Environment = digest(append([]byte(strings.Join(tx.env, "\n")), effective...))
-	cmd := processutil.Cancellable(exec.CommandContext(ctx, tx.goPath, w.Command[1:]...))
+	cmd := exec.CommandContext(ctx, tx.goPath, w.Command[1:]...)
 	cmd.Dir = tx.root
 	cmd.Env = tx.env
-	out, err := cmd.CombinedOutput()
+	out, err := processutil.CombinedOutput(cmd)
 	w.OutputHash = digest(out)
 	w.Duration = time.Since(start)
 	if ctx.Err() != nil {

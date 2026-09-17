@@ -7,12 +7,13 @@ import (
 	"syscall"
 )
 
-// configureTreeKill makes context cancellation kill the whole process tree.
+// startKillScope starts cmd in its own process group, so a cancel can
+// signal the group.
 //
 // The child is started in its own process group so a timeout can signal the
 // group: bash dies together with the pipeline stages it spawned, instead of
 // leaving a grep or a test binary orphaned and holding the output pipe.
-func configureTreeKill(cmd *exec.Cmd) {
+func startKillScope(cmd *exec.Cmd) (release func(), err error) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
@@ -25,4 +26,8 @@ func configureTreeKill(cmd *exec.Cmd) {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		return cmd.Process.Kill()
 	}
+	if err := cmd.Start(); err != nil {
+		return func() {}, err
+	}
+	return func() {}, nil
 }
