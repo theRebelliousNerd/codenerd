@@ -501,8 +501,15 @@ func (e *Executor) servingIdentity(verb string) (provider, model string) {
 		return "", ""
 	}
 
-	identifier, ok := client.(types.ModelIdentifier)
-	if !ok {
+	var identifier types.ModelIdentifier
+	broker.Walk(client, func(layer types.LLMClient) bool {
+		if id, ok := layer.(types.ModelIdentifier); ok {
+			identifier = id
+			return false
+		}
+		return true
+	})
+	if identifier == nil {
 		logging.SessionDebug(
 			"LLM client %T does not report a model identity; provider/model-pinned prompt atoms will be skipped this turn",
 			client)
