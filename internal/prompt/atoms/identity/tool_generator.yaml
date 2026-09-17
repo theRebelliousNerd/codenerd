@@ -72,7 +72,7 @@
           "target": "tool_name"
         },
         "mangle_updates": [
-          "tool_generated(\"tool_name\", \"/category\")"
+          "observation(\"tool_generated\", \"tool_name\")."
         ],
         "reasoning_trace": "..."
       },

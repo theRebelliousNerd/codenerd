@@ -60,6 +60,9 @@ func TestAssertBatch_ReportsRejectedFactsAndKeepsTheRest(t *testing.T) {
 	if !strings.Contains(err.Error(), "rejected") {
 		t.Errorf("batch error should say a fact was rejected, got: %v", err)
 	}
+	if !strings.Contains(err.Error(), "dream_preference") {
+		t.Errorf("batch error should name the rejected predicate, got: %v", err)
+	}
 
 	facts, qerr := k.Query("dream_preference")
 	if qerr != nil {
@@ -67,5 +70,8 @@ func TestAssertBatch_ReportsRejectedFactsAndKeepsTheRest(t *testing.T) {
 	}
 	if len(facts) != 1 {
 		t.Fatalf("expected the one good fact to land, got %v", facts)
+	}
+	if len(facts[0].Args) == 0 || facts[0].Args[0] != "good" {
+		t.Fatalf("expected exactly the good fact to land, got %v", facts)
 	}
 }

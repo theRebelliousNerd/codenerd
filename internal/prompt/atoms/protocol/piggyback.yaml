@@ -21,9 +21,7 @@
           "constraint": "any constraints",
           "confidence": 0.0-1.0
         },
-        "mangle_updates": [
-          "predicate(arg1, arg2)."
-        ],
+        "mangle_updates": [],
         "memory_operations": [
           {"op": "promote_to_long_term|forget|store_vector|note", "key": "...", "value": "..."}
         ],
@@ -65,7 +63,7 @@
 
     1. Analyze the task
     2. Determine the intent classification
-    3. Identify Mangle updates needed
+    3. Note any fact you observed or changed this turn (often none)
     4. Form your reasoning trace
     5. ONLY THEN write the surface_response
 
@@ -75,41 +73,33 @@
 - id: "protocol/piggyback/mangle_updates"
   category: "protocol"
   subcategory: "mangle"
-  priority: 85
-  is_mandatory: false
+  priority: 99
+  # Mandatory because the envelope is: a field delivered without its rules gets
+  # filled by imitation. While this atom was optional it reached 0 of 150
+  # recorded compiles, and every turn that filled mangle_updates did so blind
+  # ("intent(explain, learning_system)." -> dropped, surfaced as a TUI warning).
+  is_mandatory: true
   depends_on: ["protocol/piggyback/envelope"]
   content: |
-    ## MANGLE UPDATE PROTOCOL
+    ## mangle_updates: WHAT THE KERNEL ACCEPTS
 
-    The mangle_updates array contains facts to be asserted to the kernel.
+    Usually `[]`. Add an entry only to report something you observed or did
+    this turn. Never restate the user's request, your routing, or anything the
+    kernel derives itself (user_intent, intent, permitted, next_action): dropped.
 
-    ### SYNTAX RULES
-    - Each entry is one ground fact: predicate(args). No rules, no Decl.
-    - Atoms start with / and are lowercase (e.g., /error, /passing). A bare
-      word like `greeting` does not parse and the fact is dropped.
-    - Strings are quoted with double quotes
-    - Every statement ends with a period
-    - Variables are UPPERCASE (but you emit facts, not rules)
-
-    ### ACCEPTED PREDICATES
-    Only these predicates, at these arities, are asserted. Anything else is
-    dropped with a warning. In particular you do not emit user_intent,
-    permitted, next_action or any other predicate the kernel derives.
+    Each entry is one ground fact ending in a period. Every constant is a
+    /lowercase_atom or a "quoted string"; a bare word (`explain`) does not
+    parse and the whole fact is dropped. Only these predicates, at these arities:
     ```
-    # What you observed
     observation("key", "what you saw").
-    diagnostic(/error, "path/to/file.go", 42, "E001", "message").
-    failing_test("TestName", "error message").
-    test_state(/passing).            # /passing | /failing | /unknown
-    review_finding("path/to/file.go", 42, /warning, /correctness, "message").
-
-    # What you did
-    modified("path/to/file.go").
-    modified_function("FuncName", "path/to/file.go").
+    diagnostic(/error, "path/file.go", 42, "E001", "message").
+    failing_test("TestName", "message").
+    test_state(/passing).    # /passing | /failing | /unknown
+    review_finding("path/file.go", 42, /warning, /correctness, "message").
+    modified("path/file.go").
+    modified_function("FuncName", "path/file.go").
     task_status("task_id", /in_progress).
     task_completed("task_id").
-
-    # What you could not do
     missing_tool_for(/verb, /capability).
     ```
 

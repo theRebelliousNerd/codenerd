@@ -2396,28 +2396,67 @@ func TestTorture_ChainedFactStore_Merge(t *testing.T) {
 	overlay := factstore.NewSimpleInMemoryStore()
 	source := factstore.NewSimpleInMemoryStore()
 
-	predSym := ast.PredicateSym{Symbol: "item", Arity: 1}
-	source.Add(ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String("merged_val")}})
+	itemPred := ast.PredicateSym{Symbol: "item", Arity: 1}
+	otherPred := ast.PredicateSym{Symbol: "other", Arity: 2}
+
+	baseAtom := ast.Atom{Predicate: itemPred, Args: []ast.BaseTerm{ast.String("base_only")}}
+	base.Add(baseAtom)
+
+	mergedItem := ast.Atom{Predicate: itemPred, Args: []ast.BaseTerm{ast.String("merged_val")}}
+	mergedOther := ast.Atom{Predicate: otherPred, Args: []ast.BaseTerm{ast.String("x"), ast.Number(2)}}
+	source.Add(mergedItem)
+	source.Add(mergedOther)
 
 	chain := &ChainedFactStore{
 		base:    []factstore.FactStore{base},
 		overlay: overlay,
 	}
 
-	// Merge copies facts from source into overlay
+	sourceCountBefore := source.EstimateFactCount()
+	baseCountBefore := base.EstimateFactCount()
+	countBefore := chain.EstimateFactCount()
+
+	// Merge copies facts from source into overlay.
 	chain.Merge(source)
 
-	// Verify via GetFacts on the overlay (Merge uses GetFacts with empty atom,
-	// which may not iterate all facts in SimpleInMemoryStore — check via chain instead)
-	var found int
-	chain.GetFacts(ast.Atom{Predicate: predSym}, func(a ast.Atom) error {
-		found++
-		return nil
-	})
-	// The Merge implementation queries with ast.Atom{} — if the store doesn't support
-	// wildcard queries, merge may not copy anything. This documents that behavior.
-	t.Logf("Merge: chain has %d facts for predicate, overlay estimate=%d",
-		found, overlay.EstimateFactCount())
+	if !chain.Contains(mergedItem) {
+		t.Error("Merge: chain should contain item(\"merged_val\") from source")
+	}
+	if !chain.Contains(mergedOther) {
+		t.Error("Merge: chain should contain other(\"x\", 2) from source")
+	}
+	if got := chain.EstimateFactCount(); got != countBefore+2 {
+		t.Errorf("Merge: expected chain count %d + 2 = %d, got %d", countBefore, countBefore+2, got)
+	}
+
+	// Base facts are untouched: a fact only in base is still visible ...
+	if !chain.Contains(baseAtom) {
+		t.Error("Merge: fact only in base should still be visible in chain")
+	}
+	// ... and neither the base nor the source store changed size.
+	if got := base.EstimateFactCount(); got != baseCountBefore {
+		t.Errorf("Merge: base count changed from %d to %d", baseCountBefore, got)
+	}
+	if got := source.EstimateFactCount(); got != sourceCountBefore {
+		t.Errorf("Merge: source count changed from %d to %d", sourceCountBefore, got)
+	}
+
+	// Merging an empty store is a no-op that must not panic.
+	countAfterFirst := chain.EstimateFactCount()
+	empty := factstore.NewSimpleInMemoryStore()
+	chain.Merge(empty)
+	if got := chain.EstimateFactCount(); got != countAfterFirst {
+		t.Errorf("Merge(empty): expected count to stay %d, got %d", countAfterFirst, got)
+	}
+
+	// Merging the same source twice does not double-count: the overlay is a set.
+	chain.Merge(source)
+	if got := chain.EstimateFactCount(); got != countAfterFirst {
+		t.Errorf("Merge twice: expected count to stay %d, got %d", countAfterFirst, got)
+	}
+	if !chain.Contains(mergedItem) || !chain.Contains(mergedOther) {
+		t.Error("Merge twice: merged facts should still be present")
+	}
 }
 
 func TestTorture_ChainedFactStore_MultipleBases(t *testing.T) {

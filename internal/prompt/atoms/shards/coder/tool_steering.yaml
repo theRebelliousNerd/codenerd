@@ -26,7 +26,7 @@
     ```json
     {
       "mangle_updates": [
-        "missing_tool_for(/intent_verb, \"/capability_needed\")"
+        "missing_tool_for(/intent_verb, /capability_needed)."
       ]
     }
     ```
