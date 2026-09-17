@@ -586,6 +586,8 @@ func (g *IntelligenceGatherer) gatherShardAdvice(ctx context.Context, report *In
 	responses, err := g.consultation.RequestBatchConsultation(ctx, request)
 	if err != nil {
 		addError(fmt.Sprintf("Shard consultation failed: %v", err))
+	}
+	if len(responses) == 0 {
 		return
 	}
 

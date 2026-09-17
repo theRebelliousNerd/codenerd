@@ -1235,6 +1235,7 @@ func (s *campaignTaskExecutorConsultationSpawner) SpawnConsultation(ctx context.
 }
 
 // campaignConsultationProviderAdapter adapts shards.ConsultationManager to campaign.ConsultationProvider.
+// Partial results are returned alongside the joined error so successful specialist answers survive a single failure.
 type campaignConsultationProviderAdapter struct {
 	manager *shards.ConsultationManager
 }
@@ -1266,9 +1267,6 @@ func (a *campaignConsultationProviderAdapter) RequestBatchConsultation(ctx conte
 	}
 
 	responses, err := a.manager.RequestBatchConsultation(ctx, question, request.Context, targets)
-	if err != nil {
-		return nil, err
-	}
 
 	converted := make([]campaign.ConsultationResponse, 0, len(responses))
 	for _, resp := range responses {
@@ -1286,7 +1284,7 @@ func (a *campaignConsultationProviderAdapter) RequestBatchConsultation(ctx conte
 		})
 	}
 
-	return converted, nil
+	return converted, err
 }
 
 func (a *campaignKernelAdapter) GetProgramInfo() *analysis.ProgramInfo {
