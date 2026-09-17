@@ -240,9 +240,9 @@ type ZAIResponse struct {
 		ThinkingTokens int `json:"thinking_tokens,omitzero"`
 	} `json:"usage"`
 	Error *struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-	Code       APIErrorCode `json:"code"`
+		Message string       `json:"message"`
+		Type    string       `json:"type"`
+		Code    APIErrorCode `json:"code"`
 	} `json:"error,omitzero"`
 }
 
@@ -452,9 +452,9 @@ type OpenAIResponse struct {
 		TotalTokens      int `json:"total_tokens"`
 	} `json:"usage"`
 	Error *struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-	Code APIErrorCode `json:"code"`
+		Message string       `json:"message"`
+		Type    string       `json:"type"`
+		Code    APIErrorCode `json:"code"`
 	} `json:"error,omitzero"`
 }
 

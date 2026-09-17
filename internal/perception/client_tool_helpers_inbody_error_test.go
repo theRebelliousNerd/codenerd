@@ -28,21 +28,26 @@ func TestAPIErrorCode(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var got APIErrorCode
-			if err := json.Unmarshal([]byte(tc.body), &got); err != nil {
+			// APIErrorCode is the type of the "code" FIELD, so its
+			// UnmarshalJSON only ever sees the field's value (502, "502",
+			// null), never the surrounding object. Decode each body through
+			// a wrapper and assert on the field.
+			var wrapper struct {
+				Code APIErrorCode `json:"code"`
+			}
+			if err := json.Unmarshal([]byte(tc.body), &wrapper); err != nil {
 				t.Fatalf("Unmarshal(%s) = %v, want nil", tc.body, err)
 			}
-			if got != APIErrorCode(tc.wantCode) {
-				t.Fatalf("code = %q, want %q", got, tc.wantCode)
+			if wrapper.Code != APIErrorCode(tc.wantCode) {
+				t.Fatalf("code = %q, want %q", wrapper.Code, tc.wantCode)
 			}
-			status, ok := got.HTTPStatus()
+			status, ok := wrapper.Code.HTTPStatus()
 			if ok != tc.wantOK || status != tc.wantStatus {
 				t.Fatalf("HTTPStatus() = (%d, %v), want (%d, %v)", status, ok, tc.wantStatus, tc.wantOK)
 			}
 		})
 	}
 }
-
 
 // TestExecuteOpenAIRequestInBodyTransientError pins F-OR-3: OpenRouter
 // reports upstream failures as HTTP 200 + {"error":{"code":<number>}}, so
