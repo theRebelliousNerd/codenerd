@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,8 +51,8 @@ func TestAttributeTestFailures_AllPreExistingPasses(t *testing.T) {
 		"func TestAlwaysFails(t *testing.T) { t.Fatal(\"always fails\") }\n" +
 		"func TestOK(t *testing.T) { if Add(2, 3) != 5 { t.Fatal(\"bad\") } }\n"
 	ws := writeBaselineModule(t, map[string]string{
-		"go.mod":      "module verifyprobe\n\ngo 1.21\n",
-		"calc.go":     origCalc,
+		"go.mod":       "module verifyprobe\n\ngo 1.21\n",
+		"calc.go":      origCalc,
 		"calc_test.go": testFile,
 	})
 	preWrite := map[string]string{"calc.go": origCalc}
@@ -89,8 +90,8 @@ func TestAttributeTestFailures_MixedNewAndPreExisting(t *testing.T) {
 		"func TestAlwaysFails(t *testing.T) { t.Fatal(\"always fails\") }\n" +
 		"func TestOK(t *testing.T) { if Add(2, 3) != 5 { t.Fatalf(\"Add broken\") } }\n"
 	ws := writeBaselineModule(t, map[string]string{
-		"go.mod":      "module verifyprobe\n\ngo 1.21\n",
-		"calc.go":     origCalc,
+		"go.mod":       "module verifyprobe\n\ngo 1.21\n",
+		"calc.go":      origCalc,
 		"calc_test.go": testFile,
 	})
 	preWrite := map[string]string{"calc.go": origCalc}
@@ -200,5 +201,48 @@ func TestAttributeTestFailures_MissingSnapshotSkipsAttribution(t *testing.T) {
 	}
 	if got.Output != head.Output {
 		t.Errorf("output should be unchanged when attribution is skipped, got %q want %q", got.Output, head.Output)
+	}
+}
+
+// TestRunBaselineTests_UsesGateRunnerAndArgs pins the F-VERIFY-1 seam: the
+// baseline must run through the gate's verifyTestRunner with the gate's
+// overlay/run argv, so a fake runner sees the exact gate-shaped invocation.
+func TestRunBaselineTests_UsesGateRunnerAndArgs(t *testing.T) {
+	old := verifyTestRunner
+	var gotName string
+	var gotArgs []string
+	const fakeOut = "--- FAIL: TestX (0.00s)\nFAIL\n"
+	verifyTestRunner = func(_ context.Context, _ string, _ []string, name string, args []string) ([]byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return []byte(fakeOut), errors.New("exit status 1")
+	}
+	t.Cleanup(func() { verifyTestRunner = old })
+
+	const overlayPath = "test-overlay.json"
+	const runArg = "^(TestX)$"
+	out, ok := runBaselineTests(context.Background(), t.TempDir(), overlayPath, runArg, []string{"."})
+	if !ok {
+		t.Fatalf("runBaselineTests should report ok=true for a failed baseline run")
+	}
+	if out != fakeOut {
+		t.Errorf("runBaselineTests output = %q; want %q", out, fakeOut)
+	}
+	if gotName != "go" {
+		t.Errorf("runner name = %q; want %q", gotName, "go")
+	}
+	findFlag := func(flag string) (string, bool) {
+		for i, a := range gotArgs {
+			if a == flag && i+1 < len(gotArgs) {
+				return gotArgs[i+1], true
+			}
+		}
+		return "", false
+	}
+	if v, ok := findFlag("-overlay"); !ok || v != overlayPath {
+		t.Errorf("runner args %q should contain -overlay %q", gotArgs, overlayPath)
+	}
+	if v, ok := findFlag("-run"); !ok || v != runArg {
+		t.Errorf("runner args %q should contain -run %q", gotArgs, runArg)
 	}
 }

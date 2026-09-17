@@ -3,16 +3,15 @@ package session
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
-	"time"
+
+	"codenerd/internal/build"
+	"codenerd/internal/logging"
 )
 
 // attributeTestFailures compares the post-edit verification result against the
@@ -33,7 +32,7 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 		}
 		if _, ok := preWrite[key]; !ok {
 			if _, ok := preWrite[p]; !ok {
-				log.Printf("DEBUG: test gate: skipping baseline attribution: missing pre-write snapshot for %q", p)
+				logging.SessionDebug("test gate: skipping baseline attribution: missing pre-write snapshot for %q", p)
 				return head
 			}
 		}
@@ -61,7 +60,7 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 }
 
 func markAllPreExisting(head TestVerification, preExisting []string) TestVerification {
-	log.Printf("WARN: test gate: %d failure(s) also fail before this turn's edits (pre-existing), not charged to the turn: %s", len(preExisting), strings.Join(preExisting, ", "))
+	logging.Get(logging.CategorySession).Warn("test gate: %d failure(s) also fail before this turn's edits (pre-existing), not charged to the turn: %s", len(preExisting), strings.Join(preExisting, ", "))
 	passed := head
 	passed.Outcome = VerifyPassed
 	passed.OK = true
@@ -101,28 +100,13 @@ func baselineRunRegex(names []string) string {
 func runBaselineTests(ctx context.Context, workspace, overlayPath, runArg string, packages []string) (string, bool) {
 	args := []string{"test", "-overlay", overlayPath, "-count=1", "-run", runArg}
 	args = append(args, packages...)
-	runCtx := ctx
-	var cancel context.CancelFunc
-	if _, ok := ctx.Deadline(); !ok {
-		runCtx, cancel = context.WithTimeout(ctx, 2*time.Minute)
-		defer cancel()
-	}
-	cmd := exec.CommandContext(runCtx, "go", args...)
-	if workspace != "" {
-		cmd.Dir = workspace
-	}
-	cmd.Env = os.Environ()
-	out, err := cmd.CombinedOutput()
-	if runCtx.Err() != nil {
+	out, outcome, _ := runVerificationCommand(ctx, workspace, build.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
+	switch outcome {
+	case VerifyPassed, VerifyFailed:
+		return string(out), true
+	default:
 		return "", false
 	}
-	if err != nil {
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) {
-			return "", false
-		}
-	}
-	return string(out), true
 }
 
 func buildTestOverlay(workspace string, preWrite map[string]string) (string, string, bool) {
