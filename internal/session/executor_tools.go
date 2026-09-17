@@ -782,6 +782,21 @@ func (e *Executor) executeToolBatch(
 			continue
 		}
 
+		if call.ArgsError != "" {
+			// The provider mapper could not decode this call's argument text, so
+			// there is nothing to execute. Hand the failure back to the model as a
+			// tool error so it can re-issue the call instead of the turn dying.
+			logging.Get(logging.CategorySession).Warn(
+				"tool call %s has undecodable arguments: %s", call.Name, call.ArgsError)
+			toolResults = append(toolResults, types.ToolResult{
+				ToolUseID: call.ID,
+				Content:   call.ArgsError + ". Re-issue the call with complete, valid JSON arguments.",
+				IsError:   true,
+			})
+			toolErrs = append(toolErrs, fmt.Sprintf("%s: %s", call.Name, call.ArgsError))
+			continue
+		}
+
 		out, execErr := e.executeAndRecordToolCall(ctx, call, cfg, result)
 
 		if execErr != nil {

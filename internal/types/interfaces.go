@@ -121,6 +121,10 @@ type ToolCall struct {
 	ID    string         `json:"id"`    // Unique ID for this tool use
 	Name  string         `json:"name"`  // Tool name to invoke
 	Input map[string]any `json:"input"` // Tool arguments
+
+	// ArgsError is set by a provider mapper when the model's argument text
+	// could not be decoded; the executor must not run such a call.
+	ArgsError string `json:"args_error,omitempty"`
 }
 
 // UsageMetadata captures token usage metrics from the LLM.

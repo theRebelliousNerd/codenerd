@@ -1215,7 +1215,7 @@ func TestMapOpenAIToolCallsToInternal_WhenValidJSON_ShouldParse(t *testing.T) {
 	}
 }
 
-func TestMapOpenAIToolCallsToInternal_WhenInvalidJSON_ShouldReturnError(t *testing.T) {
+func TestMapOpenAIToolCallsToInternal_WhenInvalidJSON_ShouldSetArgsError(t *testing.T) {
 	t.Parallel()
 
 	calls := []OpenAIToolCall{
@@ -1229,9 +1229,15 @@ func TestMapOpenAIToolCallsToInternal_WhenInvalidJSON_ShouldReturnError(t *testi
 		},
 	}
 
-	_, err := MapOpenAIToolCallsToInternal(calls)
-	if err == nil {
-		t.Error("expected error for invalid JSON arguments")
+	result, err := MapOpenAIToolCallsToInternal(calls)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result[0].ArgsError == "" {
+		t.Error("expected ArgsError to be set for invalid JSON arguments")
+	}
+	if len(result[0].Input) != 0 {
+		t.Errorf("expected empty Input for invalid JSON arguments, got %v", result[0].Input)
 	}
 }
 

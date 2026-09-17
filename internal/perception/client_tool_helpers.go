@@ -36,6 +36,11 @@ func MapToolDefinitionsToOpenAI(tools []ToolDefinition) []OpenAITool {
 // decode as an empty object: several providers serialize zero-arg calls as
 // "" instead of "{}", and failing the whole turn on that variance is worse
 // than calling with no args.
+//
+// Arguments that are present but not valid JSON do NOT fail the response:
+// the call is returned with an empty Input and ArgsError describing the
+// failure, so the executor can surface it to the model as a tool error and
+// the model can re-issue the call, instead of the whole turn dying.
 func MapOpenAIToolCallsToInternal(calls []OpenAIToolCall) ([]ToolCall, error) {
 	result := make([]ToolCall, len(calls))
 	for i, c := range calls {
@@ -44,16 +49,19 @@ func MapOpenAIToolCallsToInternal(calls []OpenAIToolCall) ([]ToolCall, error) {
 		}
 
 		args := map[string]any{}
+		var argsErr string
 		if strings.TrimSpace(c.Function.Arguments) != "" {
 			if err := json.Unmarshal([]byte(c.Function.Arguments), &args); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal arguments for tool %s: %w", c.Function.Name, err)
+				args = map[string]any{}
+				argsErr = fmt.Sprintf("arguments for %s were not valid JSON (%v; received %d characters)", c.Function.Name, err, len(c.Function.Arguments))
 			}
 		}
 
 		result[i] = ToolCall{
-			ID:    c.ID,
-			Name:  c.Function.Name,
-			Input: args,
+			ID:        c.ID,
+			Name:      c.Function.Name,
+			Input:     args,
+			ArgsError: argsErr,
 		}
 	}
 	return result, nil

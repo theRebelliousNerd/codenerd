@@ -122,6 +122,45 @@ func TestExecuteToolBatch_ZeroConfigUsesSafeDefaults(t *testing.T) {
 	}
 }
 
+func TestExecuteToolBatch_ArgsErrorReturnedToModelWithoutExecution(t *testing.T) {
+	const toolName = "args_error_probe"
+	invocations := 0
+	registerTestTool(t, &tools.Tool{
+		Effect:   tools.EffectRead,
+		Name:     toolName,
+		Category: tools.CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) {
+			invocations++
+			return "ran", nil
+		},
+	})
+
+	executor := &Executor{config: ExecutorConfig{}, virtualStore: &MockVirtualStore{}}
+	result := &ExecutionResult{}
+	argsErr := "arguments for " + toolName + " were not valid JSON (unexpected end of JSON input; received 28 characters)"
+	results, errs := executor.executeToolBatch(
+		context.Background(),
+		[]types.ToolCall{{ID: "argserr-1", Name: toolName, ArgsError: argsErr}},
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		result,
+	)
+	if len(errs) != 1 || len(results) != 1 {
+		t.Fatalf("results=%v errs=%v, want one paired error result", results, errs)
+	}
+	if invocations != 0 {
+		t.Fatalf("tool invoked %d times, want 0: a call with undecodable arguments must not run", invocations)
+	}
+	if results[0].ToolUseID != "argserr-1" || !results[0].IsError {
+		t.Fatalf("result = %#v, want IsError paired to argserr-1", results[0])
+	}
+	if !strings.Contains(results[0].Content, argsErr) || !strings.Contains(results[0].Content, "Re-issue") {
+		t.Errorf("result content = %q, want the ArgsError text plus a re-issue instruction", results[0].Content)
+	}
+	if result.ToolCallsExecuted != 0 {
+		t.Errorf("executed=%d, want 0: nothing ran", result.ToolCallsExecuted)
+	}
+}
+
 func TestExecuteToolBatch_CancelledContextPairsEveryCallWithoutExecution(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
