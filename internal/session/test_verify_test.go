@@ -324,6 +324,52 @@ func TestTestRepairPrompt_ForbidsWeakeningTheTest(t *testing.T) {
 	}
 }
 
+func TestTestBuildFailed(t *testing.T) {
+	cases := []struct {
+		name   string
+		output string
+		want   bool
+	}{
+		{
+			"live build failure",
+			"internal\\session\\tool_timeout_hook_test.go:34:97: undefined: config.EffectiveAgentRuntimeConfig\nFAIL\tcodenerd/internal/session [build failed]",
+			true,
+		},
+		{
+			"ordinary test failure is not a build failure",
+			"--- FAIL: TestX (0.00s)\nFAIL\nFAIL\tcodenerd/internal/session\t1.2s",
+			false,
+		},
+		{
+			"setup failure counts as no test ran",
+			"FAIL\tcodenerd/tests/e2e [setup failed]",
+			true,
+		},
+		{"empty output", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := testBuildFailed(tc.output); got != tc.want {
+				t.Errorf("testBuildFailed(%q) = %v; want %v", tc.output, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTestRepairPrompt_BuildFailureBlamesTheTestFile(t *testing.T) {
+	out := "internal\\session\\tool_timeout_hook_test.go:34:97: undefined: config.EffectiveAgentRuntimeConfig\nFAIL\tcodenerd/internal/session [build failed]"
+	p := testRepairPrompt(out)
+
+	for _, want := range []string{"do not compile", "the test file is what is wrong", "Do NOT add, alias or re-export"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("build-failure repair prompt does not contain %q", want)
+		}
+	}
+	if strings.Contains(p, "Your edits compile but the tests fail") {
+		t.Error("build-failure repair prompt uses the passing-build text, which blames the code instead of the uncompilable test")
+	}
+}
+
 // Gating: the gate must not fire on turns it has no business running for.
 // A markdown-only turn that pays for `go test` is a tax on every doc edit.
 func TestVerifyAndRepairTests_SkipsWhenNotApplicable(t *testing.T) {
