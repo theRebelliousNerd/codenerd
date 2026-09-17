@@ -308,6 +308,7 @@ func (e *Executor) verifyAndRepairTests(
 	}
 
 	verification, uncovered := verifyTestsWithCoverage(ctx, workspace, packages, result.WrittenPaths)
+	verification = attributeTestFailures(ctx, workspace, packages, result.WrittenPaths, result.PreWriteContents, verification)
 
 	// The profile is file-level, so without this a one-line edit in a large
 	// file reports every uncovered block of the file as code the turn wrote
