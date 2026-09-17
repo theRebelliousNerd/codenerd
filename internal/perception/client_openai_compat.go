@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -468,34 +467,6 @@ func (c *OpenAICompatClient) throttle() {
 		time.Sleep(100*time.Millisecond - elapsed)
 	}
 	c.lastRequest = time.Now()
-}
-
-// retryDelay computes how long to wait before the next attempt, honouring a
-// Retry-After header when the vendor sends one. Meta's contributor tier is
-// limited to 60 requests/minute and does send it, so obeying beats guessing.
-func retryDelay(resp *http.Response, attempt int) time.Duration {
-	backoff := time.Duration(1<<uint(attempt)) * time.Second
-	if resp == nil {
-		return backoff
-	}
-	ra := strings.TrimSpace(resp.Header.Get("Retry-After"))
-	if ra == "" {
-		return backoff
-	}
-	if secs, err := strconv.Atoi(ra); err == nil && secs >= 0 {
-		d := time.Duration(secs) * time.Second
-		// Cap so a hostile or buggy header cannot stall a shard indefinitely.
-		if d > 60*time.Second {
-			d = 60 * time.Second
-		}
-		return d
-	}
-	if t, err := http.ParseTime(ra); err == nil {
-		if d := time.Until(t); d > 0 && d <= 60*time.Second {
-			return d
-		}
-	}
-	return backoff
 }
 
 // executeChat performs a non-streaming chat completion with retries.
