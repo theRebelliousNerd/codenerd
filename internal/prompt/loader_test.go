@@ -522,8 +522,8 @@ func TestLoadExistingHashes(t *testing.T) {
 			t.Errorf("Missing hash for atom %s", a.id)
 			continue
 		}
-		if got != a.hash {
-			t.Errorf("Hash mismatch for atom %s: got %s, want %s", a.id, got, a.hash)
+		if got.contentHash != a.hash {
+			t.Errorf("Hash mismatch for atom %s: got %s, want %s", a.id, got.contentHash, a.hash)
 		}
 	}
 }
@@ -560,6 +560,64 @@ func TestLoadExistingHashes_EmptyTable(t *testing.T) {
 
 	if len(hashes) != 0 {
 		t.Errorf("Expected empty hash map, got %d entries", len(hashes))
+	}
+}
+
+func TestEnsureSchema_FreshDatabaseHasEveryColumn(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "schema_columns_test.db")
+	ctx := context.Background()
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	loader := NewAtomLoader(nil)
+	if err := loader.EnsureSchema(ctx, db); err != nil {
+		t.Fatalf("EnsureSchema failed: %v", err)
+	}
+
+	rows, err := db.Query(`PRAGMA table_info(prompt_atoms)`)
+	if err != nil {
+		t.Fatalf("Failed to read table info: %v", err)
+	}
+	defer rows.Close()
+
+	colTypes := map[string]string{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			t.Fatalf("Failed to scan table info: %v", err)
+		}
+		colTypes[name] = ctype
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("Failed to iterate table info: %v", err)
+	}
+
+	wantColumns := []string{
+		"atom_id", "version", "content", "token_count", "content_hash",
+		"description", "content_concise", "content_min",
+		"category", "subcategory", "priority",
+		"is_mandatory", "is_exclusive",
+		"depends_on", "conflicts_with",
+		"embedding", "embedding_task", "embedding_model",
+		"source_file", "created_at",
+	}
+	for _, col := range wantColumns {
+		if _, ok := colTypes[col]; !ok {
+			t.Errorf("Missing column %q in fresh prompt_atoms schema (have %v)", col, colTypes)
+		}
+	}
+
+	if got, ok := colTypes["embedding_model"]; ok && got != "TEXT" {
+		t.Errorf("embedding_model declared type = %q, want %q", got, "TEXT")
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 
 	"codenerd/internal/embedding"
@@ -16,9 +17,10 @@ import (
 // CompilerVectorSearcher is the default VectorSearcher for JIT prompts.
 // It searches prompt_atoms embeddings across the compiler's registered DBs.
 type CompilerVectorSearcher struct {
-	mu       sync.RWMutex
-	compiler *JITPromptCompiler
-	engine   embedding.EmbeddingEngine
+	mu          sync.RWMutex
+	compiler    *JITPromptCompiler
+	engine      embedding.EmbeddingEngine
+	lastSkipped map[string]int
 }
 
 // NewCompilerVectorSearcher creates a default vector searcher backed by prompt_atoms embeddings.
@@ -54,11 +56,16 @@ func (s *CompilerVectorSearcher) EmbedQuery(ctx context.Context, query string) (
 func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
 	s.mu.RLock()
 	compiler := s.compiler
+	engine := s.engine
 	s.mu.RUnlock()
 
 	if compiler == nil || query == "" {
 		return nil, nil
 	}
+	if engine == nil {
+		return nil, nil
+	}
+	modelName := engine.Name()
 	if limit <= 0 {
 		limit = 10
 	}
@@ -75,22 +82,45 @@ func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit
 	}
 
 	bestScores := make(map[string]float64)
+	skipped := make(map[string]int)
 	for _, db := range dbs {
 		if db == nil {
 			continue
 		}
 
-		rows, err := db.QueryContext(ctx, "SELECT atom_id, embedding FROM prompt_atoms WHERE embedding IS NOT NULL")
+		rows, err := db.QueryContext(ctx, "SELECT atom_id, embedding, COALESCE(embedding_model, '') FROM prompt_atoms WHERE embedding IS NOT NULL")
+		legacy := false
 		if err != nil {
-			// Non-fatal; some DBs may not yet have embeddings or schema.
-			logging.Get(logging.CategoryContext).Debug("Vector search skipped DB (prompt_atoms query failed): %v", err)
-			continue
+			// Fall back for databases created before the embedding_model column existed.
+			rows, err = db.QueryContext(ctx, "SELECT atom_id, embedding FROM prompt_atoms WHERE embedding IS NOT NULL")
+			if err != nil {
+				// Non-fatal; some DBs may not yet have embeddings or schema.
+				logging.Get(logging.CategoryContext).Debug("Vector search skipped DB (prompt_atoms query failed): %v", err)
+				continue
+			}
+			legacy = true
 		}
 
 		for rows.Next() {
 			var atomID string
 			var blob []byte
-			if err := rows.Scan(&atomID, &blob); err != nil {
+			var storedModel string
+			if legacy {
+				if err := rows.Scan(&atomID, &blob); err != nil {
+					continue
+				}
+				storedModel = ""
+			} else {
+				if err := rows.Scan(&atomID, &blob, &storedModel); err != nil {
+					continue
+				}
+			}
+			if storedModel != modelName {
+				key := storedModel
+				if key == "" {
+					key = "unstamped"
+				}
+				skipped[key]++
 				continue
 			}
 			vec := decodeFloat32Slice(blob)
@@ -106,6 +136,25 @@ func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit
 			}
 		}
 		rows.Close()
+	}
+
+	s.mu.Lock()
+	s.lastSkipped = skipped
+	s.mu.Unlock()
+
+	if len(skipped) > 0 {
+		names := make([]string, 0, len(skipped))
+		total := 0
+		for name, count := range skipped {
+			names = append(names, name)
+			total += count
+		}
+		sort.Strings(names)
+		pairs := make([]string, 0, len(names))
+		for _, name := range names {
+			pairs = append(pairs, fmt.Sprintf("%s=%d", name, skipped[name]))
+		}
+		logging.Get(logging.CategoryJIT).Warn("Vector search skipped %d atom vector(s) not embedded by %s (%s); run `nerd embedding reembed`", total, modelName, strings.Join(pairs, ", "))
 	}
 
 	if len(bestScores) == 0 {
@@ -136,6 +185,17 @@ func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit
 	}
 
 	return results, nil
+}
+
+// LastSkipped returns a copy of the per-model skipped counts from the last Search call.
+func (s *CompilerVectorSearcher) LastSkipped() map[string]int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]int, len(s.lastSkipped))
+	for k, v := range s.lastSkipped {
+		out[k] = v
+	}
+	return out
 }
 
 // snapshotPromptDBs returns a stable slice of DBs registered with the compiler.
