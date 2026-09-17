@@ -573,6 +573,10 @@ func (k *RealKernel) Assert(fact Fact) (err error) {
 	k.mu.Lock()
 
 	fact = sanitizeFactForNumericPredicates(fact)
+	if err := k.validateAgainstDeclLocked(fact); err != nil {
+		k.mu.Unlock()
+		return err
+	}
 	added, addErr := k.addFactIfNewLockedErr(fact)
 	if addErr != nil {
 		// The fact is not in the EDB and never will be. Returning nil here made
@@ -668,6 +672,8 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 // AssertBatch adds multiple facts and re-evaluates once.
 // OPTIMIZATION: This is significantly faster than calling Assert() in a loop.
 // For M assertions, Assert loop = O(M*N) evaluations, AssertBatch = O(N) evaluation.
+// A batch is a convenience, not a transaction: good facts land, rejections are
+// collected and returned so the caller can tell which facts did not land.
 func (k *RealKernel) AssertBatch(facts []Fact) (err error) {
 	defer func() { err = k.noteMutationFailure("assert batch", batchPredicates(facts), err) }()
 	if k == nil {
@@ -682,17 +688,19 @@ func (k *RealKernel) AssertBatch(facts []Fact) (err error) {
 
 	k.mu.Lock()
 
+	// Rejections are collected, not swallowed: the good facts still land (a batch is a convenience, not a transaction) but the caller is told which ones did not, so a fallback loop or a retry has something to act on.
+	var rejected []error
 	addedCount := 0
 	addedPredicates := make(map[string]struct{}) // Track unique predicates for event bus
-	// Rejections are collected, not swallowed: the good facts still land (a
-	// batch is a convenience, not a transaction) but the caller is told which
-	// ones did not, so a fallback loop or a retry has something to act on.
-	var rejected []error
 	for _, fact := range facts {
 		fact = sanitizeFactForNumericPredicates(fact)
+		if err := k.validateAgainstDeclLocked(fact); err != nil {
+			rejected = append(rejected, fmt.Errorf("%s: %w", fact.String(), err))
+			continue
+		}
 		added, addErr := k.addFactIfNewLockedErr(fact)
 		if addErr != nil {
-			rejected = append(rejected, addErr)
+			rejected = append(rejected, fmt.Errorf("%s: %w", fact.String(), addErr))
 			continue
 		}
 		if added {
@@ -726,8 +734,7 @@ func (k *RealKernel) AssertBatch(facts []Fact) (err error) {
 		}
 	}
 	if len(rejected) > 0 {
-		return fmt.Errorf("AssertBatch added %d of %d facts; %d rejected: %w",
-			addedCount, len(facts), len(rejected), errors.Join(rejected...))
+		return fmt.Errorf("AssertBatch rejected %d of %d facts: %w", len(rejected), len(facts), errors.Join(rejected...))
 	}
 	return nil
 }
@@ -748,28 +755,18 @@ func (k *RealKernel) AssertString(factStr string) error {
 // AssertWithoutEval adds a fact without re-evaluating.
 // Use when batching many facts, then call Evaluate() once at the end.
 //
-// It reports nothing: duplicates, EDB-limit rejections, and encoding
-// failures are all silent. Production safety paths must use
-// assertWithoutEvalChecked and fail closed on its error instead.
-func (k *RealKernel) AssertWithoutEval(fact Fact) {
-	logging.KernelDebug("AssertWithoutEval: %s (deferred evaluation)", fact.Predicate)
+// It distinguishes a duplicate from a capacity or encoding failure: a
+// duplicate is a nil no-op, while a rejection surfaces an error so callers
+// fail closed. The Decl check runs first so no write path can stage a fact
+// the other two would refuse.
+func (k *RealKernel) AssertWithoutEval(fact Fact) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+
 	fact = sanitizeFactForNumericPredicates(fact)
-	if !k.addFactIfNewLocked(fact) {
-		logging.KernelDebug("AssertWithoutEval: duplicate fact skipped: %s", fact.String())
+	if err := k.validateAgainstDeclLocked(fact); err != nil {
+		return err
 	}
-}
-
-// assertWithoutEvalChecked adds a fact without evaluation while preserving the
-// reason a new fact could not be staged. It is intentionally private: most
-// batch callers tolerate duplicate/no-op inserts, while safety simulations must
-// distinguish a duplicate from capacity or encoding failure and fail closed.
-func (k *RealKernel) assertWithoutEvalChecked(fact Fact) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	fact = sanitizeFactForNumericPredicates(fact)
 	k.ensureFactIndexLocked()
 	if _, exists := k.factIndex[k.canonFact(fact)]; exists {
 		return nil

@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -215,22 +216,39 @@ func BenchmarkKernelDifferentialEval(b *testing.B) {
 func TestKernelEval_Stratification(t *testing.T) {
 	k := setupMockKernel(t)
 
-	// 1. Define recursive/negated rules that might fail stratification check
-	// Use unique names to avoid any potential (unlikely) contamination
+	// Negation cycle with Mangle `!` syntax: must parse, then fail stratification.
 	badPolicy := `
-	Decl bad_p(Name).
-	Decl bad_q(Name).
-	bad_p(X) :- not bad_q(X).
-	bad_q(X) :- bad_p(X).
+	Decl strat_bad_base(Name).
+	Decl strat_bad_p(Name).
+	Decl strat_bad_q(Name).
+	strat_bad_p(X) :- strat_bad_base(X), !strat_bad_q(X).
+	strat_bad_q(X) :- strat_bad_base(X), !strat_bad_p(X).
 	`
 	k.AppendPolicy(badPolicy)
 
-	// 2. Verify engine handles or rejects appropriately
 	err := k.Evaluate()
-
 	if err == nil {
-		t.Logf("Warning: Unstratified negation did not return error. Logic Config might be permissive.")
-	} else {
-		t.Logf("Got expected error: %v", err)
+		t.Fatalf("expected stratification error for negation cycle, got nil; stratification is checked in rebuildProgram (internal/core/kernel_eval.go)")
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "parse") || strings.Contains(msg, "syntax") {
+		t.Fatalf("expected stratification error, got parse/syntax error: %v", err)
+	}
+	if !strings.Contains(msg, "strat") && !strings.Contains(msg, "cycl") && !strings.Contains(msg, "negat") {
+		t.Fatalf("expected stratification/cycle error, got: %v", err)
+	}
+
+	// Same shape but well-stratified (q defined without negating p) must load cleanly.
+	good := setupMockKernel(t)
+	goodPolicy := `
+	Decl strat_good_base(Name).
+	Decl strat_good_p(Name).
+	Decl strat_good_q(Name).
+	strat_good_p(X) :- strat_good_base(X), !strat_good_q(X).
+	strat_good_q(X) :- strat_good_base(X).
+	`
+	good.AppendPolicy(goodPolicy)
+	if err := good.Evaluate(); err != nil {
+		t.Fatalf("well-stratified program with same shape failed to load: %v", err)
 	}
 }
