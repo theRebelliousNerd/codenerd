@@ -25,9 +25,9 @@ func TestVecExtensionAvailableAgreesWithDetection(t *testing.T) {
 	s := &LocalStore{db: db}
 	s.detectVecExtension()
 
-	if got := vecExtensionAvailable(db); got != s.vectorExt {
+	if got := vecExtensionAvailable(db); got != s.vectorExt.Load() {
 		t.Fatalf("vecExtensionAvailable()=%v but detectVecExtension set vectorExt=%v; "+
-			"the search-time fallback would report the wrong cause", got, s.vectorExt)
+			"the search-time fallback would report the wrong cause", got, s.vectorExt.Load())
 	}
 }
 

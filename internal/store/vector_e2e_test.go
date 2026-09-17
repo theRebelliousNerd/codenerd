@@ -84,7 +84,7 @@ func TestE2E_VectorRecallSemantic(t *testing.T) {
 	}
 	defer s.Close()
 
-	if !s.vectorExt {
+	if !s.vectorExt.Load() {
 		t.Fatalf("sqlite-vec is NOT loaded (vectorExt is false). Test is invalid without CGO bindings!")
 	}
 

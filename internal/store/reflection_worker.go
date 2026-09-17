@@ -266,7 +266,7 @@ func embedReflectionTargets(ctx context.Context, engine embedding.EmbeddingEngin
 }
 
 func (s *LocalStore) syncTraceVectorIndex(updates []TraceEmbeddingUpdate, dim int) error {
-	if s == nil || s.db == nil || !s.vectorExt {
+	if s == nil || s.db == nil || !s.vectorExt.Load() {
 		return nil
 	}
 	if dim <= 0 {

@@ -32,7 +32,7 @@ func (s *LocalStore) ReembedAllTracesForce(ctx context.Context) (int, error) {
 	// index once up front so stale-dimension rows cannot survive. Batches
 	// insert incrementally after this; the old per-batch drop wiped each
 	// previous batch's rows.
-	if s.vectorExt {
+	if s.vectorExt.Load() {
 		if err := s.rebuildTraceVecTable(expectedDim); err != nil {
 			logging.Get(logging.CategoryStore).Warn("Trace vec index rebuild failed, batch syncs will retry: %v", err)
 		}

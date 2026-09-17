@@ -177,7 +177,7 @@ func (s *LocalStore) applyVectorEmbeddings(batch []vectorToEmbed, embeddings [][
 	defer updateStmt.Close()
 
 	var deleteVecStmt, insertVecStmt *sql.Stmt
-	if s.vectorExt {
+	if s.vectorExt.Load() {
 		// Delete-then-insert: vec0 errors on INSERT OR REPLACE rowid
 		// conflicts instead of replacing. See insertVecIndexRow.
 		deleteVecStmt, err = tx.Prepare("DELETE FROM vec_index WHERE rowid = ?")
@@ -210,7 +210,7 @@ func (s *LocalStore) applyVectorEmbeddings(batch []vectorToEmbed, embeddings [][
 		}
 		// Keep sqlite-vec index in sync when available, keyed by rowid so a
 		// re-embed replaces the old entry instead of appending a stale twin.
-		if s.vectorExt {
+		if s.vectorExt.Load() {
 			if _, err := deleteVecStmt.Exec(v.id); err != nil {
 				return embedded, skipped, fmt.Errorf("failed to clear vec_index for vector %d: %w", v.id, err)
 			}
@@ -267,7 +267,7 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 	// A force pass rewrites every row, so clear the ANN index once up front.
 	// This also heals stale twins appended by the old rowid-less force loop,
 	// which per-row deletes cannot reach (they live under other rowids).
-	if s.vectorExt {
+	if s.vectorExt.Load() {
 		if _, err := s.db.Exec("DELETE FROM vec_index"); err != nil {
 			logging.Get(logging.CategoryStore).Warn("Force re-embed vec_index clear failed: %v", err)
 		}

@@ -54,7 +54,7 @@ func TestLocalStore_ReflectionSearch_Extra(t *testing.T) {
 		t.Errorf("Expected error from RecallTracesByEmbedding with missing vec table")
 	}
 
-	if ls.vectorExt {
+	if ls.vectorExt.Load() {
 		err = ls.ensureTraceVecTable(4)
 		if err != nil {
 			t.Fatalf("ensureTraceVecTable failed: %v", err)
@@ -125,7 +125,7 @@ func TestLocalStore_ReflectionSearch_Extra(t *testing.T) {
 		t.Errorf("Expected error or no hits from RecallLearningsByEmbedding with missing vec table")
 	}
 
-	if ls.vectorExt {
+	if ls.vectorExt.Load() {
 		db, err := learnStore.getDB("coder")
 		if err != nil {
 			t.Fatalf("getDB failed: %v", err)

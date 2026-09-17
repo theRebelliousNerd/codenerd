@@ -44,6 +44,10 @@ func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 		// loops wait for the pending backfill (see waitForVecBackfill),
 		// otherwise the two writers race on the same vec_index rows.
 		dim := engine.Dimensions()
+		// Snapshot the vec flag with this generation: the background job must
+		// never read s.vectorExt itself (that unlocked read raced the test
+		// and init writers). The done channel below is the generation token.
+		vecExt := s.vectorExt.Load()
 		done := make(chan struct{})
 		s.backfillMu.Lock()
 		s.backfillDone = done
@@ -52,7 +56,7 @@ func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 		go func() {
 			defer close(done)
 			logging.Store("Background vector index backfill starting (dim=%d)", dim)
-			s.backfillVecIndex(dim)
+			s.backfillVecIndex(dim, vecExt, done)
 			logging.Store("Background vector index backfill completed")
 			s.backfillMu.Lock()
 			if s.backfillDone == done {
@@ -96,6 +100,16 @@ func (s *LocalStore) waitForVecBackfill(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
+}
+
+// isCurrentBackfill reports whether done is still the pending backfill
+// generation. A second SetEmbeddingEngine drops and recreates vec_index; a
+// superseded backfill must stop inserting instead of writing into the new
+// table (duplicates) or failing noisily batch after batch.
+func (s *LocalStore) isCurrentBackfill(done chan struct{}) bool {
+	s.backfillMu.Lock()
+	defer s.backfillMu.Unlock()
+	return s.backfillDone != nil && s.backfillDone == done
 }
 
 // StoreVectorWithEmbedding stores content with a real vector embedding.
@@ -165,7 +179,7 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 	// vec_index doesn't, so ANN search returns nothing while brute-force
 	// returns the result. The earlier `_, _ = ...` swallowed both
 	// LastInsertId failures and vec_index Exec failures.
-	if s.vectorExt {
+	if s.vectorExt.Load() {
 		id, lidErr := res.LastInsertId()
 		if lidErr != nil {
 			logging.Get(logging.CategoryStore).Warn("vec_index skipped: LastInsertId failed: %v (vectors row %s persists; ANN index drift)", lidErr, content)
@@ -195,7 +209,7 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 
 	s.mu.RLock()
 	engine := s.embeddingEngine
-	vecEnabled := s.vectorExt
+	vecEnabled := s.vectorExt.Load()
 	s.mu.RUnlock()
 
 	if engine == nil {
@@ -421,7 +435,7 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 
 	s.mu.RLock()
 	engine := s.embeddingEngine
-	vecEnabled := s.vectorExt
+	vecEnabled := s.vectorExt.Load()
 	s.mu.RUnlock()
 
 	if engine == nil {
@@ -467,7 +481,7 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 
 	s.mu.RLock()
 	engine := s.embeddingEngine
-	vecEnabled := s.vectorExt
+	vecEnabled := s.vectorExt.Load()
 	s.mu.RUnlock()
 
 	if limit <= 0 {
@@ -524,7 +538,7 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 
 	s.mu.RLock()
 	engine := s.embeddingEngine
-	vecEnabled := s.vectorExt
+	vecEnabled := s.vectorExt.Load()
 	s.mu.RUnlock()
 
 	if engine == nil {
@@ -730,7 +744,7 @@ func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit
 	timer := logging.StartTimer(logging.CategoryStore, "vectorRecallVec")
 	defer timer.Stop()
 
-	if !s.vectorExt {
+	if !s.vectorExt.Load() {
 		logging.Get(logging.CategoryStore).Error("sqlite-vec not enabled for ANN search")
 		return nil, fmt.Errorf("sqlite-vec not enabled")
 	}
@@ -828,7 +842,7 @@ func (s *LocalStore) initVecIndex(dim int) {
 
 	stmt := fmt.Sprintf("CREATE VIRTUAL TABLE vec_index USING vec0(embedding float[%d], content TEXT, metadata TEXT)", dim)
 	if _, err := s.db.Exec(stmt); err == nil {
-		s.vectorExt = true
+		s.vectorExt.Store(true)
 		logging.Store("sqlite-vec index initialized successfully (dimensions=%d)", dim)
 	} else {
 		logging.Get(logging.CategoryStore).Warn("Failed to create sqlite-vec index: %v", err)
@@ -844,8 +858,8 @@ func encodeFloat32Slice(vec []float32) []byte {
 // backfillVecIndex migrates existing JSON-stored embeddings into sqlite-vec.
 // NOTE: This function runs in a background goroutine to avoid blocking startup.
 // Uses transaction batching for 30-50x speedup over individual INSERTs.
-func (s *LocalStore) backfillVecIndex(dim int) {
-	if !s.vectorExt || s.db == nil || dim <= 0 {
+func (s *LocalStore) backfillVecIndex(dim int, vecExt bool, done chan struct{}) {
+	if !vecExt || s.db == nil || dim <= 0 {
 		return
 	}
 
@@ -915,6 +929,10 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 	backfillCount := 0
 
 	for i := 0; i < len(toInsert); i += batchSize {
+		if !s.isCurrentBackfill(done) {
+			logging.StoreDebug("vec backfill superseded by a newer engine; aborting")
+			return
+		}
 		end := min(i+batchSize, len(toInsert))
 		batch := toInsert[i:end]
 
@@ -1036,7 +1054,7 @@ func (s *LocalStore) DeleteVectorsByMetadata(metaKey string, metaValue any) (int
 	}
 	// ANN reads vec_index, not vectors: rows deleted above would otherwise
 	// keep surfacing in sqlite-vec search results as ghosts.
-	if s.vectorExt && tableExists(s.db, "vec_index") {
+	if s.vectorExt.Load() && tableExists(s.db, "vec_index") {
 		if _, err := s.db.Exec("DELETE FROM vec_index WHERE rowid NOT IN (SELECT id FROM vectors)"); err != nil {
 			logging.Get(logging.CategoryStore).Warn("vec_index ghost purge after delete failed: %v (ANN drift)", err)
 		}
@@ -1098,7 +1116,7 @@ func (s *LocalStore) VectorRecallSemanticWithTask(ctx context.Context, query str
 
 	s.mu.RLock()
 	engine := s.embeddingEngine
-	vecEnabled := s.vectorExt
+	vecEnabled := s.vectorExt.Load()
 	s.mu.RUnlock()
 
 	if engine == nil {
@@ -1148,7 +1166,7 @@ func (s *LocalStore) VectorRecallForPromptAtoms(ctx context.Context, query strin
 
 	s.mu.RLock()
 	engine := s.embeddingEngine
-	vecEnabled := s.vectorExt
+	vecEnabled := s.vectorExt.Load()
 	s.mu.RUnlock()
 
 	if engine == nil {

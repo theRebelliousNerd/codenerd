@@ -106,7 +106,7 @@ func TestVectorBruteForceFiltered_FindsNumericMetadata(t *testing.T) {
 		s.mu.Unlock()
 		t.Fatal(err)
 	}
-	s.vectorExt = false
+	s.vectorExt.Store(false)
 	s.mu.Unlock()
 
 	results, err := s.VectorRecallSemanticFiltered(ctx, "numeric", 10, "n", 5)

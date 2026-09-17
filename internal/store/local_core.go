@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // LocalStore implements Shards B, C, and D using SQLite.
@@ -47,14 +48,18 @@ type LocalStore struct {
 	mu              sync.RWMutex
 	dbPath          string
 	embeddingEngine embedding.EmbeddingEngine // Optional embedding engine for semantic search
-	vectorExt       bool                      // sqlite-vec available
-	requireVec      bool                      // require vec extension or fail fast
-	traceStore      *TraceStore               // Dedicated trace store for self-learning
-	reflectionStop  chan struct{}
-	reflectionDone  chan struct{}
-	reflectionCfg   *config.ReflectionConfig
-	backfillMu      sync.Mutex
-	backfillDone    chan struct{} // Closed when the pending vec backfill finishes; nil when idle.
+	// vectorExt is atomic: search paths, re-embed workers and the background
+	// vec backfill read it without s.mu, while init/test paths flip it.
+	// A mutex-guarded bool raced (CI run 35130570857); plain-bool access is a
+	// data race by construction, so touch this only via Load/Store.
+	vectorExt      atomic.Bool
+	requireVec     bool        // require vec extension or fail fast
+	traceStore     *TraceStore // Dedicated trace store for self-learning
+	reflectionStop chan struct{}
+	reflectionDone chan struct{}
+	reflectionCfg  *config.ReflectionConfig
+	backfillMu     sync.Mutex
+	backfillDone   chan struct{} // Closed when the pending vec backfill finishes; nil when idle.
 }
 
 // NewLocalStore initializes the SQLite database at the given path.
@@ -93,12 +98,12 @@ func NewLocalStore(path string) (*LocalStore, error) {
 	// Detect sqlite-vec extension availability
 	store.detectVecExtension()
 	store.requireVec = defaultRequireVec
-	if store.requireVec && !store.vectorExt {
+	if store.requireVec && !store.vectorExt.Load() {
 		logging.Get(logging.CategoryStore).Error("sqlite-vec extension not available")
 		db.Close()
 		return nil, fmt.Errorf("sqlite-vec extension not available; rebuild with -tags sqlite_vec and CGO_CFLAGS pointing at sqlite_headers to enable ANN search")
 	}
-	if store.vectorExt {
+	if store.vectorExt.Load() {
 		logging.Store("sqlite-vec extension detected and enabled")
 	} else {
 		logging.Get(logging.CategoryStore).Warn("sqlite-vec extension not available; continuing without ANN search")
@@ -528,14 +533,14 @@ func (s *LocalStore) detectVecExtension() {
 	}
 	// First try true sqlite-vec virtual table support.
 	if _, err := s.db.Exec("CREATE VIRTUAL TABLE IF NOT EXISTS vec_probe USING vec0(embedding float[4])"); err == nil {
-		s.vectorExt = true
+		s.vectorExt.Store(true)
 		_, _ = s.db.Exec("DROP TABLE IF EXISTS vec_probe")
 		return
 	} else {
 		logging.Get(logging.CategoryStore).Warn("sqlite-vec probe failed: CREATE VIRTUAL TABLE vec_probe USING vec0(embedding float[4]) failed: %v", err)
 	}
 
-	s.vectorExt = false
+	s.vectorExt.Store(false)
 }
 
 // vecExtensionAvailable reports whether this handle can run sqlite-vec

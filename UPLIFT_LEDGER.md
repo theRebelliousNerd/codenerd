@@ -3,7 +3,7 @@
 File-by-file: uplift, wiring, .mg correctness, modularity, brutal behavioral integration tests.
 Checked = audited and uplifted (or verified sound) with behavioral coverage.
 
-## Go files (2361)
+## Go files (2362)
 ### .agent (5)
 - [ ] `.agent/skills/log-analyzer/scripts/logquery/main.go`
 - [ ] `.agent/skills/mangle-programming/assets/go-integration/main.go`
@@ -2929,6 +2929,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/store/vec_probe_test.go`
 - [x] `internal/store/vec_support_disabled.go`
 - [x] `internal/store/vec_support_enabled.go`
+- [x] `internal/store/vector_backfill_race_test.go`
 - [x] `internal/store/vector_boundary_test.go`
 - [x] `internal/store/vector_e2e_test.go`
 - [x] `internal/store/vector_store.go`

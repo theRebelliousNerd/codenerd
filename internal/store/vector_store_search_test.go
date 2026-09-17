@@ -128,9 +128,9 @@ func TestVectorRecallSemanticByPaths_Comprehensive(t *testing.T) {
 		s.SetEmbeddingEngine(&mockSimpleEngine{})
 
 		// Force brute force by setting vectorExt = false
-		s.mu.Lock()
-		s.vectorExt = false
-		s.mu.Unlock()
+		// Backend selection is an atomic flag flip: safe alongside the
+		// backfill SetEmbeddingEngine just spawned.
+		s.vectorExt.Store(false)
 
 		err = s.StoreVectorWithEmbedding(ctx, "hello file1", map[string]any{"path": "/src/file1.go"})
 		if err != nil {
@@ -232,9 +232,9 @@ func TestVectorRecallSemanticFiltered_Comprehensive(t *testing.T) {
 		s.SetEmbeddingEngine(&mockSimpleEngine{})
 
 		// Force brute force by setting vectorExt = false
-		s.mu.Lock()
-		s.vectorExt = false
-		s.mu.Unlock()
+		// Backend selection is an atomic flag flip: safe alongside the
+		// backfill SetEmbeddingEngine just spawned.
+		s.vectorExt.Store(false)
 
 		err = s.StoreVectorWithEmbedding(ctx, "hello campaign1", map[string]any{"campaign": "c1"})
 		if err != nil {

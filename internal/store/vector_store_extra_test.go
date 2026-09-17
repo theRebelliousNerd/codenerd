@@ -71,8 +71,8 @@ func TestVectorStore_ExtraMethods(t *testing.T) {
 
 	// Test with vectorExt = false temporarily to hit the brute-force branch
 	store.mu.Lock()
-	origVecExt := store.vectorExt
-	store.vectorExt = false
+	origVecExt := store.vectorExt.Load()
+	store.vectorExt.Store(false)
 	store.mu.Unlock()
 
 	atomsBruteForce, err := store.VectorRecallForPromptAtoms(ctx, "query", 5)
@@ -84,7 +84,7 @@ func TestVectorStore_ExtraMethods(t *testing.T) {
 	}
 
 	store.mu.Lock()
-	store.vectorExt = origVecExt
+	store.vectorExt.Store(origVecExt)
 	store.mu.Unlock()
 
 	// 4. Test storeVectorBatchKeywordOnly

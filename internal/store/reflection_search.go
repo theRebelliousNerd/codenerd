@@ -80,7 +80,7 @@ func (s *LocalStore) RecallTracesByEmbedding(query []float32, limit int) ([]Trac
 		limit = 5
 	}
 
-	if s.vectorExt && tableExists(s.db, "reasoning_traces_vec") {
+	if s.vectorExt.Load() && tableExists(s.db, "reasoning_traces_vec") {
 		hits, err := s.recallTraceVec(query, limit)
 		if err == nil {
 			return hits, nil
@@ -92,9 +92,9 @@ func (s *LocalStore) RecallTracesByEmbedding(query []float32, limit int) ([]Trac
 		// Report which one so the operator is not sent to the wrong layer
 		// (build flags vs. DB state). Kept at Warn — fallback is recoverable.
 		vecTableExists := tableExists(s.db, "reasoning_traces_vec")
-		if !s.vectorExt && !vecTableExists {
+		if !s.vectorExt.Load() && !vecTableExists {
 			logging.Get(logging.CategoryStore).Warn("sqlite-vec not available; falling back from ANN to lexical search: vectorExt=false and table %q does not exist", "reasoning_traces_vec")
-		} else if !s.vectorExt {
+		} else if !s.vectorExt.Load() {
 			logging.Get(logging.CategoryStore).Warn("sqlite-vec not available; falling back from ANN to lexical search: vectorExt=false (extension not available; table %q exists)", "reasoning_traces_vec")
 		} else {
 			logging.Get(logging.CategoryStore).Warn("sqlite-vec not available; falling back from ANN to lexical search: table %q does not exist (vectorExt=true)", "reasoning_traces_vec")
