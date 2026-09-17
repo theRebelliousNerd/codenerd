@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"codenerd/internal/evidence"
 )
@@ -91,6 +92,14 @@ func (e *Executor) appendEvidenceReport(ctx context.Context, result *ExecutionRe
 		if stage == "" {
 			stage = "artifact_changed"
 		}
-		result.Response += fmt.Sprintf("\n\nEvidence: %s. Requested behavior remains unverified (no acceptance contract).", stage)
+		written := "none"
+		if len(result.WrittenPaths) > 0 {
+			if len(result.WrittenPaths) > 10 {
+				written = strings.Join(result.WrittenPaths[:10], ", ") + fmt.Sprintf(" and %d more", len(result.WrittenPaths)-10)
+			} else {
+				written = strings.Join(result.WrittenPaths, ", ")
+			}
+		}
+		result.Response += fmt.Sprintf("\n\nWrote %d file(s): %s\nEvidence: %s. Requested behavior remains unverified (no acceptance contract).", len(result.WrittenPaths), written, stage)
 	}
 }

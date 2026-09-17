@@ -456,3 +456,50 @@ func TestWorkStepReport_ListsEveryStep(t *testing.T) {
 		t.Errorf("unfinished = %v, want only the file no step edited", missing)
 	}
 }
+
+// planRetryClient fails the first failFirst planning calls with a timeout
+// before answering with plan, so the retry in planTurnSteps is exercised.
+type planRetryClient struct {
+	*MockLLMClient
+	calls     int
+	failFirst int
+	plan      string
+}
+
+func (c *planRetryClient) CompleteWithSystem(_ context.Context, _, _ string) (string, error) {
+	c.calls++
+	if c.calls <= c.failFirst {
+		return "", context.DeadlineExceeded
+	}
+	return c.plan, nil
+}
+
+func (c *planRetryClient) CompleteWithToolResults(_ context.Context, _ string, _ []types.Message, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	return &types.LLMToolResponse{Text: ""}, nil
+}
+
+func TestPlanTurnSteps_RetriesOnceThenFallsBack(t *testing.T) {
+	_, writeTool := registerStepTools(t)
+	cfg := &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}}
+	plan := "STEP a.go :: change one\nSTEP b.go :: change two\n"
+
+	retrying := &planRetryClient{MockLLMClient: &MockLLMClient{}, failFirst: 1, plan: plan}
+	e := newPlannedStepsExecutor(t, retrying)
+	steps := e.planTurnSteps(context.Background(), retrying, "change both files", cfg, &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}})
+	if len(steps) != 2 || steps[0].File != "a.go" || steps[1].File != "b.go" {
+		t.Fatalf("steps = %+v, want the two planned steps after one retry", steps)
+	}
+	if retrying.calls != 2 {
+		t.Fatalf("planning calls = %d, want exactly 2 (one failure plus one retry)", retrying.calls)
+	}
+
+	failing := &planRetryClient{MockLLMClient: &MockLLMClient{}, failFirst: 2, plan: plan}
+	e2 := newPlannedStepsExecutor(t, failing)
+	steps2 := e2.planTurnSteps(context.Background(), failing, "change both files", cfg, &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}})
+	if steps2 != nil {
+		t.Fatalf("steps = %+v, want nil after two planning failures", steps2)
+	}
+	if failing.calls != 2 {
+		t.Fatalf("planning calls = %d, want exactly 2 (no third attempt)", failing.calls)
+	}
+}

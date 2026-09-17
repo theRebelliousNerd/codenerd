@@ -138,10 +138,19 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 	if cfg == nil || !hasWriteTool(cfg.AllowedTools) {
 		return nil
 	}
-	planCtx, cancel := context.WithTimeout(ctx, planStepsTimeout)
-	defer cancel()
-	text, err := client.CompleteWithSystem(planCtx, workStepPlanSystem, task)
-	if err != nil {
+	var text string
+	var err error
+	for attempt := 1; attempt <= 2; attempt++ {
+		planCtx, cancel := context.WithTimeout(ctx, planStepsTimeout)
+		text, err = client.CompleteWithSystem(planCtx, workStepPlanSystem, task)
+		cancel()
+		if err == nil {
+			break
+		}
+		if attempt == 1 && ctx.Err() == nil {
+			logging.Get(logging.CategorySession).Warn("Step planning attempt 1 failed (%v); retrying once", err)
+			continue
+		}
 		logging.Get(logging.CategorySession).Warn("Step planning failed (%v); the task runs as one pass", err)
 		return nil
 	}

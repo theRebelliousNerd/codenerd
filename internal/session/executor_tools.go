@@ -596,6 +596,22 @@ const (
 		"rather than deferring the write — describing what you would have written does not count as doing it."
 )
 
+// A turn that ran out of budget still has to report what it did. Left to
+// the transcript alone the model has twice claimed "No changes were
+// applied" after writing a file, so the facts go in the prompt.
+func turnFactsForFinalAnswer(result *ExecutionResult) string {
+	if result == nil {
+		return ""
+	}
+	written := "none"
+	if len(result.WrittenPaths) > 0 {
+		written = strings.Join(result.WrittenPaths, ", ")
+	}
+	return fmt.Sprintf("Facts for this turn: files written: %s; successful write tools: %d; successful tool calls: %d. "+
+		"Your answer must agree with these facts: if files are listed, do not say nothing was written; if none are listed, do not claim an edit landed.",
+		written, result.SuccessfulWriteTools, result.SuccessfulToolCalls)
+}
+
 // forceFinalAnswer executes any still-pending tool calls and then re-invokes the
 // model with exploration tools removed.
 //
@@ -644,6 +660,9 @@ func (e *Executor) forceFinalAnswer(
 		logging.Get(logging.CategorySession).Warn(
 			"Retaining %d write tool(s) for the final call: %s requires a side effect and none has landed yet",
 			len(finalTools), result.Intent.Verb)
+	}
+	if facts := turnFactsForFinalAnswer(result); facts != "" {
+		nudge += " " + facts
 	}
 
 	*history = append(*history, types.Message{Role: "user", Text: nudge})
