@@ -104,6 +104,37 @@ func factFile(v any) string {
 	}
 }
 
+// TestModularity_ManyParamsMethodNotCharged pins that a method is not held to
+// the parameter limit: its signature belongs to the interface it implements.
+// The same six parameters on a plain function in the same file still violate.
+func TestModularity_ManyParamsMethodNotCharged(t *testing.T) {
+	k := newRealKernelForModularity(t)
+	path := "a/gate_fake_test.go"
+	src := "package p\n" +
+		"type fakeGate struct{}\n" +
+		"func (fakeGate) Validate(a, b, c, d, e, f int) error { return nil }\n" +
+		"func PlainSix(a, b, c, d, e, f int) {}\n"
+	violations, err := evaluateModularity(k, path, src)
+	if err != nil {
+		t.Fatalf("evaluateModularity error: %v", err)
+	}
+	var methodHit, plainHit bool
+	for _, v := range violations {
+		if strings.Contains(v, "fakeGate.Validate") {
+			methodHit = true
+		}
+		if strings.Contains(v, "PlainSix") && strings.Contains(v, "too_many_params") {
+			plainHit = true
+		}
+	}
+	if methodHit {
+		t.Fatalf("method with an interface-dictated signature was charged: %v", violations)
+	}
+	if !plainHit {
+		t.Fatalf("plain six-parameter function must still violate too_many_params, got %v", violations)
+	}
+}
+
 func TestModularity_ManyParams(t *testing.T) {
 	k := newRealKernelForModularity(t)
 	path := "a/b.go"
