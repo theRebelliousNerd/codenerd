@@ -87,3 +87,15 @@
 ## 2026-07-25 - VirtualStore Interactive Gate vs Dreamer Cache Collision
 **Learning:** The Dreamer's cache implementation uses `string(req.Type) + ":" + req.Target` as the cache key, completely ignoring the `req.Payload`. Two concurrent interactive tool calls (e.g. `write_file`) modifying the same file with different content will collide, potentially allowing a malicious payload to bypass safety checks by reusing the cache entry of a benign payload.
 **Action:** When testing the VirtualStore ↔ Dreamer boundary, always construct concurrent races that exploit cache key collisions (same type + target, different payload).
+
+## 2024-10-27 - Initial Recon
+**Learning:** The system has moved from domain shards to JIT-compiled SubAgents, leaving a hard seam between `ShardManager` (system) and `JITExecutor` (user/agent). A failed lookup in `ShardManager` triggers delegation back to `JITExecutor`. This is a prime location for boundary failures if task contexts are lost during delegation.
+**Action:** Focus integration tests on the Pipeline, crossing Perception -> JITExecutor -> Shard Delegation.
+
+## 2024-10-27 - Mangle Assertions
+**Learning:** Memory says: Mangle tests in Go must use `analysis.Analyze(program)` for safety, and must use strict type helpers (`ast.Name("active")` not `"active"`). String assertions on Mangle sets lead to flaky tests.
+**Action:** Implement helper methods for type-strict AST construction and use set-membership checks for validation.
+
+## 2024-10-27 - Testing Focus
+**Learning:** The delegation seam is the critical path. I will write a test suite targeting the boundary between `ShardManager` and `JITExecutor`, focusing on state isolation, context cancellation, ghost facts, and concurrent execution.
+**Action:** The test will be located at `tests/e2e/shardmanager_jitexecutor_delegation_integration_test.go`
