@@ -39,7 +39,6 @@ type PregeneratorConfig struct {
 	// Timeouts
 	DetectionTimeout  time.Duration
 	GenerationTimeout time.Duration
-	ValidationTimeout time.Duration
 
 	// Limits
 	MaxToolsToGenerate int     // Maximum tools to generate per campaign
@@ -47,11 +46,32 @@ type PregeneratorConfig struct {
 
 	// Safety
 	RequireThunderdome bool // Run generated tools through Thunderdome
-	RequireSimulation  bool // Simulate tools in Dream State before use
 
 	// Enabled features
 	EnableMCPFallback bool // Try MCP tools before generating new ones
-	EnableToolCaching bool // Cache generated tools for reuse
+
+	// THREE FIELDS WERE REMOVED HERE on 2026-09-11, and the shape of the
+	// removal is the reason it is written down: each sat beside a live
+	// sibling, which is what made it believable.
+	//
+	//   ValidationTimeout   beside DetectionTimeout and GenerationTimeout,
+	//                       which both reach a context.WithTimeout. There is no
+	//                       validation PHASE in this file to time out.
+	//   RequireSimulation   beside RequireThunderdome, which gates a real
+	//                       refusal below. No Dream State simulation exists on
+	//                       this path; its output twin GeneratedTool
+	//                       .PassedSimulation was set by nothing and goes with
+	//                       it. A safety flag for a check that does not run is
+	//                       the worst of the three, because it reads as a
+	//                       control somebody could turn on.
+	//   EnableToolCaching   beside EnableMCPFallback, which is read. The word
+	//                       "cache" appeared exactly once in this file: in that
+	//                       field's own declaration.
+	//
+	// Six of the nine fields were read; the three that were not are these, one
+	// from each group. Deleted rather than wired, on main's 938cd87 judgement:
+	// wiring any of them means BUILDING the behaviour it claims, which is a
+	// feature decision and not a missing connection.
 }
 
 // DefaultPregeneratorConfig returns sensible defaults.
@@ -59,13 +79,10 @@ func DefaultPregeneratorConfig() PregeneratorConfig {
 	return PregeneratorConfig{
 		DetectionTimeout:   30 * time.Second,
 		GenerationTimeout:  5 * time.Minute,
-		ValidationTimeout:  2 * time.Minute,
 		MaxToolsToGenerate: 5,
 		MinConfidence:      0.6,
 		RequireThunderdome: true,
-		RequireSimulation:  false,
 		EnableMCPFallback:  true,
-		EnableToolCaching:  true,
 	}
 }
 
@@ -94,7 +111,6 @@ type GeneratedTool struct {
 
 	// Validation
 	PassedThunderdome bool     `json:"passed_thunderdome"`
-	PassedSimulation  bool     `json:"passed_simulation"`
 	ValidationErrors  []string `json:"validation_errors,omitzero"`
 
 	// Source

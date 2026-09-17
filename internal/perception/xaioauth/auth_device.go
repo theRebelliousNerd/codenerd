@@ -21,13 +21,6 @@ type DeviceCodeResponse struct {
 	Interval                int    `json:"interval"`
 }
 
-// DeviceLoginResult is returned after a successful device-code exchange.
-type DeviceLoginResult struct {
-	Credentials *Credentials
-	UserCode    string
-	VerifyURL   string
-}
-
 // DiscoverOIDC fetches the OIDC discovery document from issuer/.well-known/openid-configuration.
 func DiscoverOIDC(ctx context.Context, httpClient *http.Client, issuer string) (*DiscoveryDocument, error) {
 	if issuer == "" {

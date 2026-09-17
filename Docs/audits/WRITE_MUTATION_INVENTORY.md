@@ -14,7 +14,7 @@
 2. **Code DOM / FileEditor** (`tactile.FileEditor` interface, `types.FileEditor`) — `virtual_store_codedom.go` → `kernel_types.go:271-294`
 3. **Tactile executor / shell** (`tactile.Executor` + `tactile.Command`) — `virtual_store_actions.go`
 4. **Registered external tools** (`exec.CommandContext`) — `tool_registry.go:158-207`
-5. **Transactional 2PC batch** (`TransactionManager` + `ShadowMode`) — `transaction_manager.go`
+5. **Transactional 2PC batch** (`TransactionManager` + `ShadowMode`) — `transaction_manager.go` — **NOT DRIVEN (verified 2026-09-11).** The manager is built at boot and connected to the VirtualStore, but `GetTransactionManager()` has no callers anywhere, `Begin`/`AddEdit`/`Prepare`/`Commit` have no production callers, and `FileEdit{...}` is constructed only in tests. The one production call is `Close()`'s `Abort` of a transaction that cannot have been opened. Everything this row and the rows below say about the 2PC path describes an intended path, not a taken one — including `TransactionManager.Commit → file_written` and the `ToFacts` emission of `modified_file`, which is why that predicate has no live producer. See the type doc in `transaction_manager.go`.
 
 > **Uncertainty:** The top-level router (`VirtualStore.RouteAction` / `Dispatch` / `HandleAction`) was **not located** in the files read — `grep RouteAction` returned only bus comments in `virtual_store.go:117,135,391`. The dispatch switch on `ActionType` is inferred from handler naming (`handleWriteFile`, `handleEditElement`, etc.) and existing tests, but its exact location/signature was not observed. See §6.
 

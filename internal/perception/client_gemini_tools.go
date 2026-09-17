@@ -126,20 +126,12 @@ func (c *GeminiClient) mapToolsResponse(ctx context.Context, geminiResp *GeminiR
 			return nil, outputTruncated(ProviderGemini, c.model, method, result.StopReason, "",
 				c.maxOutputTokens, geminiResp.UsageMetadata.CandidatesTokenCount)
 		}
-		var textBuilder strings.Builder
-		for _, part := range geminiResp.Candidates[0].Content.Parts {
-			if part.Text != "" {
-				textBuilder.WriteString(part.Text)
-			}
-			if part.FunctionCall != nil {
-				result.ToolCalls = append(result.ToolCalls, ToolCall{
-					ID:    fmt.Sprintf("call_%d", len(result.ToolCalls)),
-					Name:  part.FunctionCall.Name,
-					Input: part.FunctionCall.Args,
-				})
-			}
-		}
-		result.Text = strings.TrimSpace(textBuilder.String())
+		// applyGeminiBlocks reads the parts in order, keeping per-part thought
+		// signatures, and fills Text and ToolCalls as the flat projection of
+		// them. Text is the answer's TEXT parts only: thought-part text is the
+		// model's private reasoning and must not be prepended to the answer.
+		// Tool-call ids are minted positionally ("call_N"), as before.
+		applyGeminiBlocks(result, geminiResp)
 
 		if gm := geminiResp.Candidates[0].GroundingMetadata; gm != nil {
 			for _, chunk := range gm.GroundingChunks {
@@ -242,12 +234,25 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 	return result, nil
 }
 
-// completeWithToolResultsNative continues a multi-turn function calling
-// conversation in Gemini-native terms: typed contents plus thought
-// signatures. This is the engine behind the public ToolResultsProvider
-// adapter below, which translates provider-neutral history into these
-// terms; it is private because no caller speaks GeminiContent directly.
-func (c *GeminiClient) completeWithToolResultsNative(ctx context.Context, systemPrompt string, contents []GeminiContent, toolResults []ToolResult, tools []ToolDefinition) (*LLMToolResponse, error) {
+// CompleteWithToolResults continues a multi-turn function calling conversation,
+// satisfying types.ToolResultsProvider: the provider-neutral multi-turn tool
+// loop the session executor, broker, and scheduled client all dispatch through.
+// Without it the executor degrades Gemini turns to one tool batch whose results
+// the model never sees.
+//
+// The history's ordered blocks map onto Gemini parts in position
+// (geminiContentsFromHistory), carrying each thought signature with the call it
+// belongs to; tool results go under the "function" role with the real function
+// name resolved from the tool_use block that minted the id. A history built
+// from legacy flat messages carries no signatures of its own, so the client's
+// memory of the last response fills them in.
+//
+// This changes routing for one configuration. Gemini's default enables Google
+// Search and URL Context, and ShouldUsePiggybackTools is true whenever either
+// is on, so the default path is unchanged. A Gemini client with both grounding
+// options off runs the native multi-turn loop instead of a single
+// CompleteWithTools call over a rendered transcript.
+func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*LLMToolResponse, error) {
 	// Auto-apply timeout if context has no deadline
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
@@ -256,67 +261,23 @@ func (c *GeminiClient) completeWithToolResultsNative(ctx context.Context, system
 	}
 
 	startTime := time.Now()
-	logging.PerceptionDebug("[Gemini] CompleteWithToolResults: model=%s tool_results=%d prev_thought_sig=%t",
-		c.model, len(toolResults), c.lastThoughtSignature != "")
+	logging.PerceptionDebug("[Gemini] CompleteWithToolResults: model=%s history=%d prev_thought_sig=%t",
+		c.model, len(history), c.lastThoughtSignature != "")
 
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("API key not configured")
 	}
-
-	// Build tool result parts (preserve Gemini 3 thought signature positions)
-	resultParts := make([]GeminiPart, 0, len(toolResults))
-	if len(c.lastToolCalls) > 0 {
-		resultsByID := make(map[string]ToolResult, len(toolResults))
-		for _, tr := range toolResults {
-			resultsByID[tr.ToolUseID] = tr
-		}
-		for _, call := range c.lastToolCalls {
-			tr, ok := resultsByID[call.id]
-			if !ok {
-				logging.PerceptionWarn("[Gemini] CompleteWithToolResults: missing tool result for %s", call.id)
-				continue
-			}
-			part := GeminiPart{
-				FunctionResponse: &GeminiFunctionResponse{
-					Name: call.name,
-					Response: map[string]any{
-						"content":  tr.Content,
-						"is_error": tr.IsError,
-					},
-				},
-			}
-			signature := call.signature
-			if signature == "" {
-				signature = c.lastThoughtSignature
-			}
-			if signature != "" {
-				part.ThoughtSignature = signature
-			}
-			resultParts = append(resultParts, part)
-		}
-	} else {
-		for _, tr := range toolResults {
-			resultParts = append(resultParts, GeminiPart{
-				FunctionResponse: &GeminiFunctionResponse{
-					Name: tr.ToolUseID,
-					Response: map[string]any{
-						"content":  tr.Content,
-						"is_error": tr.IsError,
-					},
-				},
-			})
-		}
+	// A tool-results call with no results in history fails before any HTTP:
+	// there is nothing to answer and no pairing to perform.
+	if !historyHasToolResults(history) {
+		return nil, fmt.Errorf("gemini tool-results call with no tool results in history")
 	}
 
-	// Append the tool results as a function role message. Copy first: a bare
-	// append can write into the caller's backing array when the slice has
-	// spare capacity, corrupting history the caller reuses.
-	allContents := make([]GeminiContent, 0, len(contents)+1)
-	allContents = append(allContents, contents...)
-	allContents = append(allContents, GeminiContent{
-		Role:  "function",
-		Parts: resultParts,
-	})
+	allContents, err := geminiContentsFromHistory(history)
+	if err != nil {
+		return nil, fmt.Errorf("invalid history: %w", err)
+	}
+	c.applyFallbackThoughtSignatures(allContents)
 
 	// Convert tools to Gemini format
 	geminiTools := make([]GeminiFunctionDeclaration, len(tools))
@@ -376,87 +337,14 @@ func (c *GeminiClient) completeWithToolResultsNative(ctx context.Context, system
 	return result, nil
 }
 
-// CompleteWithToolResults implements types.ToolResultsProvider: the
-// provider-neutral multi-turn tool loop the session executor, broker, and
-// scheduled client all dispatch through.
-//
-// Gemini's wire format carries conversation state as typed contents
-// (user/model/function roles) plus thought signatures, so this translates
-// the neutral history, replays the last assistant turn's tool calls into
-// the pairing state, and delegates to the native engine. Without this
-// adapter the executor degrades Gemini turns to one tool batch whose
-// results the model never sees.
-func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*LLMToolResponse, error) {
-	// Index assistant tool calls by ID so every function response carries
-	// the real function name even for earlier rounds, and find the latest
-	// tool-result turn (the native engine appends exactly that one).
-	nameByID := make(map[string]string)
-	lastResults := -1
-	for i, m := range history {
-		for _, call := range m.ToolCalls {
-			if call.ID != "" && call.Name != "" {
-				nameByID[call.ID] = call.Name
-			}
-		}
-		if m.Role == "user" && len(m.ToolResults) > 0 {
-			lastResults = i
-		}
-	}
-
-	var contents []GeminiContent
-	var lastCalls []types.ToolCall
-	var results []ToolResult
-	for i, m := range history {
-		switch {
-		case m.Role == "assistant":
-			var parts []GeminiPart
-			if strings.TrimSpace(m.Text) != "" {
-				parts = append(parts, GeminiPart{Text: m.Text})
-			}
-			for _, call := range m.ToolCalls {
-				parts = append(parts, GeminiPart{
-					FunctionCall: &GeminiFunctionCall{Name: call.Name, Args: call.Input},
-				})
-			}
-			if len(m.ToolCalls) > 0 {
-				lastCalls = m.ToolCalls
-			}
-			if len(parts) > 0 {
-				contents = append(contents, GeminiContent{Role: "model", Parts: parts})
-			}
-		case m.Role == "user" && len(m.ToolResults) > 0 && i == lastResults:
-			for _, tr := range m.ToolResults {
-				results = append(results, ToolResult{ToolUseID: tr.ToolUseID, Content: tr.Content, IsError: tr.IsError})
-			}
-		case m.Role == "user" && len(m.ToolResults) > 0:
-			var parts []GeminiPart
-			for _, tr := range m.ToolResults {
-				name := nameByID[tr.ToolUseID]
-				if name == "" {
-					name = tr.ToolUseID
-				}
-				parts = append(parts, GeminiPart{
-					FunctionResponse: &GeminiFunctionResponse{
-						Name:     name,
-						Response: map[string]any{"content": tr.Content, "is_error": tr.IsError},
-					},
-				})
-			}
-			contents = append(contents, GeminiContent{Role: "function", Parts: parts})
-		default:
-			if strings.TrimSpace(m.Text) != "" {
-				contents = append(contents, GeminiContent{Role: "user", Parts: []GeminiPart{{Text: m.Text}}})
+// historyHasToolResults reports whether any turn carries a tool_result block.
+func historyHasToolResults(history []types.Message) bool {
+	for _, m := range history {
+		for _, b := range m.Content() {
+			if b.Kind == types.BlockToolResult {
+				return true
 			}
 		}
 	}
-	if len(results) == 0 {
-		return nil, fmt.Errorf("gemini tool-results call with no tool results in history")
-	}
-
-	// Replay the pairing state the native engine matches results against.
-	c.lastToolCalls = make([]geminiToolCall, 0, len(lastCalls))
-	for _, call := range lastCalls {
-		c.lastToolCalls = append(c.lastToolCalls, geminiToolCall{id: call.ID, name: call.Name})
-	}
-	return c.completeWithToolResultsNative(ctx, systemPrompt, contents, results, tools)
+	return false
 }

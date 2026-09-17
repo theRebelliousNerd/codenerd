@@ -38,6 +38,45 @@ the work they gate begins.
   the file context, so the cacheable head is the part that does not move. That
   is a change to how the prompt is assembled, not to how it is cached, and it
   should be settled before any controller is built on top of it.
+
+  **And caching is already switched on for one client and off for the other,
+  by omission.** `EnableSystemCaching()` — which wraps the system prompt in a
+  `cache_control: {"type": "ephemeral"}` block — is called in exactly one place
+  in the repository: the Anthropic CLASSIFICATION client in
+  `client_factory.go`. The main Anthropic client, the one carrying the large
+  JIT-compiled system prompt this whole phase is about, never calls it.
+
+  Nobody wrote that decision down, which is why it is here rather than in a
+  commit. Reading the code, the default is off for the agent and on for the
+  labeller, and the two sites are four hundred lines apart.
+
+  The arithmetic is already in this repository. `cacheEconomicsByProvider` puts
+  Anthropic at write 1.25x, read 0.10x, TTL 5 minutes, and `BreakEvenCalls()`
+  derives `(1.25 - 0.10) / (1 - 0.10) = 1.28` calls. So caching pays from the
+  SECOND call onward within the window, and costs 25% of the system prompt's
+  input tokens on a turn that makes only one.
+
+  That maps onto the by-shape split above rather than onto a global on/off:
+
+    native tool loop   the same system prompt goes into every round while only
+                       the messages grow, so a turn with N rounds pays
+                       1.25 + 0.1(N-1) instead of N. Four rounds: 1.55 against
+                       4.00, a 61% reduction on the system prompt's input cost.
+    Piggyback          one iteration by design. Epoch length is 1 whatever else
+                       is true, so caching is a flat 25% loss there.
+
+  The honest conclusion is that this is not a global setting and should not be
+  made one. It is a per-call-shape decision, and the shape is known at the call
+  site and not at client construction, which is where `EnableSystemCaching` is
+  set today. **What Gate A needs from the epoch histogram is not "should we
+  cache" but the round-count distribution of the native tool loop**, and a way
+  to set the flag per request rather than per client.
+
+  A TTL note that the by-shape table above already makes and that applies
+  doubly here: Anthropic holds an entry ~5 minutes, and a single high-reasoning
+  call can run 2-5 of them. An epoch whose rounds are slow enough can lose the
+  entry between calls and pay the write premium for nothing, which is what the
+  EXPIRED column in `nerd meter epochs` is for.
 - ~~**[gate] Atom co-use analysis**~~ — **built.** `internal/prompt/couse.go`
   records which atoms are selected together per compilation, settled against the
   turn's outcome, and reports lift, Jaccard, clusters and category alignment.
@@ -73,7 +112,11 @@ the work they gate begins.
   each is metered, then drives a refusal end to end to prove a receipt is
   emitted — no API key, no network, no fixture server.
 
-## Next — Phase 1, observation codecs
+## Next — Phase 1, observation codecs — **complete**
+
+All three codecs are built, wired into every live producer, and redeemable
+through a registered read-only verb. What follows records each one and, where
+it matters more than the byte count, the boundary it had to hold.
 
 - ~~Tail-aware test-output codec~~ — **withdrawn.** The claim behind it was
   wrong: `ClampText` was already head+tail. The genuine narrower defect
@@ -122,8 +165,57 @@ the work they gate begins.
   bytes are an argument the edit verb passes in — the very buffer it is about to
   modify. A store that opened the file itself would compare two instants and
   prove nothing about the third one the edit lands on.
-- Subagent-return codec: findings, evidence refs, changed artifacts, verification
-  status, remaining uncertainty — not the transcript.
+- ~~Subagent-return codec: findings, evidence refs, changed artifacts,
+  verification status, remaining uncertainty — not the transcript.~~ —
+  **built.** `internal/observation/subagent.go` projects a delegation's return
+  into what the parent decides on, and retains the transcript under a handle.
+  Wired into the three places a subagent's output reaches another model's
+  reasoning: the `delegate` VirtualStore action (`handleDelegate`, output and
+  the `delegation_result` fact), the campaign orchestrator's `CONTEXT FROM
+  TASK` injection (`completeTask` → `projectTaskReturn` → `storeTaskResult`),
+  and the chat blackboard's cross-shard handoff (`priorShardContext`, which
+  replaces `truncateForTask(RawOutput, 500)`). The three human-facing surfaces
+  — `formatDelegatedResponse`, `formatInterpretedResult`, the `nerd spawn`
+  result — still get the prose, deliberately: the interpretation call has no
+  tool catalog, so a handle in that prompt would be unredeemable.
+
+  **Two of the five come only from structure, and the codec refuses to read
+  them out of prose.** The parent ACTS on "what changed" and "what was
+  verified", so a wrong answer is worse than none. `ExecutionResult` already
+  computes `WrittenPaths`, `BuildCheck`, `TestCheck`, `UntestedPaths` and
+  `CriticFindings` on every turn and `SubAgent.execute` discarded all of it at
+  the boundary — the same reader/writer/no-wire shape as everything else on
+  this branch. `ObservedTaskExecutor` / `ObservedTaskDelegator` carry it
+  through to `handleDelegate`. The first version did fall back to
+  `testoutput.Parse` over the whole return, and a reviewer writing "the error
+  from Flush is discarded" scored three test failures on a shard that never ran
+  a test; `TestProjectReturn_ShouldNotReadAVerificationVerdictOutOfProse`
+  exists because of it, and a producer that genuinely knows its output is a
+  test log calls `observation.ReportedTests` itself.
+
+  **Hydration cannot re-delegate, structurally rather than by discipline.**
+  `Subagents` holds a `*retain.Store` and nothing else, and here that matters
+  more than next door: re-running a search answers from a moved world, while
+  re-running a subagent writes files and spends tokens. The redemption verb is
+  `subagent_expand` — a read-only verb of its own rather than an argument on
+  `delegate`, because a depth or budget cap that denies further delegation must
+  not also take away the transcript of the delegation that already happened.
+  Registered through the tool registry, the effect table, `safe_action`,
+  `modular_tool_allowed` and `coreTools`.
+
+  Measured over the 67 real agent outputs in `.quality_assurance/`: 69892 bytes
+  projected against 2313106 raw, 3.0% in total; the largest is 892 against
+  93643. The honest worst case is the opposite shape — a return with nothing to
+  elide. A five-byte "Done." costs 72 bytes and a 504-byte return costs 571, a
+  fixed 67-byte header either way; nothing is elided below `minRetainBytes` and
+  no handle is minted, so the loss is bounded rather than compounded.
+  `TestProjectReturn_AtTheElideThreshold_ShouldCrossOverInTheRightDirection`
+  pins the crossover in both directions.
+
+  A third of those 67 returns carry no severity marker and no `file:line`
+  citation anywhere — long structured prose — and projected to a status line
+  and a handle until the projection grew a section outline, which is the same
+  move the file-read codec makes for the part of a file it does not print.
 - ~~Generalize the MCP elision/handle mechanism rather than building a second
   one~~ — **done.** Retention now lives in `internal/retain` and MCP composes
   it with its JSON projection. The seam is retention versus projection:
@@ -182,6 +274,68 @@ a writer, and no wire between them.
   touching. That is a classifier nobody has written, not a connection nobody
   made, and it should be costed as a feature.
 
+- **The two selectors disagree about language, and both are documented as
+  correct.** Worth knowing before anyone tunes atom selection, because it means
+  the primary and fallback paths do not select the same set.
+
+  `jit_compiler.mg` splits dimensions in two. The REGIME dimensions — `/shard`,
+  `/mode`, `/phase`, `/layer`, the three wizard steps, `/provider`, `/model` —
+  are fail-closed: "the honest answer for a compile that never set the dimension
+  is *not that one*". Everything else is situational and permissive, and its
+  comment names language explicitly: *"no language in context should not
+  suppress an atom that happens to mention Go"*.
+
+  `matchSelector` in Go, which is the fallback path when Mangle is unavailable,
+  is fail-closed for every dimension including language.
+
+  So with no language in context the kernel admits all 326 language-gated atoms
+  — Go, Python, Rust, Java and TypeScript advice at once, competing for the same
+  budget — and the fallback admits none of them. That is the same
+  contradictory-identity failure `internal/session/executor.go` documents for
+  shards, where a custom agent with no shard type "was handed 25+ contradictory
+  built-in identities and answered as whichever it latched onto".
+
+  **It is not one dimension, it is the default stance.** The two selectors
+  disagree about everything situational, and agree in exactly one place:
+
+  | dimension | entries | Mangle | Go `matchSelector` |
+  |---|---|---|---|
+  | `languages` | 326 | permissive | fail-closed |
+  | `intent_verbs` | 195 | permissive | fail-closed |
+  | `world_states` | 21 | permissive | fail-closed |
+  | `frameworks` | 42 | permissive | permissive |
+  | the 9 regime dimensions | — | fail-closed | fail-closed |
+
+  Go is fail-closed by default with one hand-made exception, frameworks, whose
+  block is skipped entirely when the context names none. Mangle is permissive by
+  default with a declared list of exceptions, `regime_dimension`. Two opposite
+  defaults that happen to meet on the regime list and on the one case somebody
+  special-cased by hand.
+
+  **The fix above resolves the language row by making the disagreement
+  unreachable rather than by picking a winner**: a scanned workspace now always
+  supplies a language, so neither semantics applies. That is the right shape —
+  choosing a winner means either changing kernel policy or making the fallback
+  permissive, and both are prompt-quality decisions that want an eval.
+
+  The other two rows are open in principle and are not live gaps, which is
+  worth saying precisely because the language row was. `buildCompilationContext`
+  sets `IntentVerb` from the intent on the executor path, `toCompilationContext`
+  sets it from `UserIntent` on the articulation path, and an empty verb is
+  defaulted to `/general` in three separate places — so `intent_verbs` is
+  normally supplied. World states are computed per turn from kernel facts and
+  are legitimately absent when nothing is wrong, which is the case the
+  permissive default was written for.
+
+  So the thing to fix was language, and it is fixed. What remains is that the
+  two defaults are still opposite, and any dimension anyone leaves empty in
+  future inherits the disagreement rather than a decision.
+
+  A kernel outage therefore does not merely degrade selection, it inverts it for
+  542 of the corpus's 918 entries. Whatever is decided about the defaults, that
+  is worth a line in the fallback's own doc, because "the fallback selects
+  differently" is a much smaller claim than what actually happens.
+
 - **The tag namespaces are fine.** Atoms emit `atom_tag(ID, /lang, /go)` while
   the context writes `current_context(/lang, /go)` through an explicit long/short
   mapping (`add("language", "lang", ...)`, `add("build_layer", "layer", ...)`).
@@ -204,9 +358,98 @@ a writer, and no wire between them.
 
 ## Then — Phase 3, provider fidelity
 
-- `types.Message` must carry ordered native content blocks, signatures, ids and
-  continuation references losslessly, across all seven adapters. **Not started,
-  and this is the whole of what Phase 4 is blocked on now** — see below.
+- ~~`types.Message` must carry ordered native content blocks, signatures, ids and
+  continuation references losslessly, across all seven adapters.~~ — **built,
+  and the loop that feeds them no longer flattens.**
+
+  `types.ContentBlock` is the ordered content — text, thinking with its
+  signature, tool_use with its id, tool_result with the id it answers — and it
+  lives in an UNEXPORTED field on `types.Message`. That is the whole of the
+  design decision. `Text`, `ToolCalls` and `ToolResults` stay as a flat
+  projection filled once by the constructors, so the several dozen callers that
+  read them keep working, and because the block list cannot be set by a struct
+  literal the two views cannot be given contradictory values. `Content()` is
+  the single read path: it returns the blocks when a constructor built them and
+  otherwise lifts the flat fields in the fixed order tool_result → text →
+  tool_use, which is exactly what every adapter emitted by hand before, so no
+  legacy turn changes shape on any wire.
+
+  Adapter fidelity is not uniform and the code now says where it stops.
+  Anthropic is total (thinking and redacted_thinking in their own wire shapes,
+  signatures verbatim, ids paired). The OpenAI Responses surface used by Meta
+  is total in order and reasoning; replayed encrypted_content now rides on the
+  message and the per-turn side cache is the fallback for legacy turns rather
+  than the only source. Gemini carries order and per-part thought signatures
+  but has **no tool ids on the wire at all** — a functionResponse pairs by tool
+  NAME and the "call_N" ids are minted from position. Every Chat Completions
+  surface (OpenAI, xAI, xAI-OAuth, OpenRouter, ZAI, Ollama, DashScope,
+  Moonshot) keeps ids and pairing and **cannot** keep either interleaving or
+  reasoning: an assistant turn has one content string and there is no
+  request-side field for a signature. Gemini's Piggyback path and the two CLI
+  engines carry no typed blocks at all, by construction.
+
+  **That paragraph is now a table the tests hold to.**
+  `internal/perception/provider_fidelity.go` declares `BlockFidelity`, keyed by
+  request FORMAT rather than by vendor — OpenAI ships two surfaces with
+  different fidelity, which is the distinction a vendor-keyed table loses. Three
+  booleans, all about the REQUEST direction, because reading a response is the
+  easy half and the expensive mistakes are all on the way back in, where a turn
+  the model never produced is handed to it as its own history: `KeepsOrder`,
+  `ReplaysReasoning`, `CarriesToolIDs`.
+
+  Three comments already pointed at this table before it existed — in
+  `internal/types`, in `client_tool_helpers.go` and in `xaioauth` — which is the
+  same reader-with-no-writer shape as everything else on the branch. Prose is
+  where a limit goes to become a claim.
+
+  `provider_fidelity_test.go` runs the four real mappers over one interleaved
+  turn and holds each to its declaration in BOTH directions. A mapper that
+  quietly GAINS a capability fails as loudly as one that loses it: a gain means
+  either the table is wrong and callers are declining to pay for reasoning they
+  could replay, or the mapper is now sending a field the endpoint rejects. Two
+  invariants ride alongside — no surface may drop a tool result, and a surface
+  that cannot replay reasoning must DROP it rather than fold it into the prose,
+  where it would corrupt every structured-output parse downstream.
+
+  `xaioauth` is probed from an external test package, which is the only seam
+  that reaches it: the mapper is unexported and lives in a package
+  `internal/perception` imports, so `xaioauth_test` importing
+  `internal/perception` is the one direction that does not cycle. It is a
+  hand-copied Chat Completions clone, and hand-copied clones drift.
+
+  `ReplaysReasoning` is the axis with a bill on it. Where it is false, reasoning
+  is generated fresh every turn of a tool loop and thrown away every turn — the
+  provider bills for it and has no request-side field to take it back. That is a
+  Phase 4 input: a break-even that ignores it will over-estimate what a Chat
+  Completions surface is worth caching.
+
+  **The last flattening call site is converted.**
+  `internal/session/executor_tools.go` built each assistant turn as
+  `types.Message{Role: "assistant", Text: ..., ToolCalls: ...}` — the literal
+  that drops the order and the signature — at three sites, all now
+  `types.AssistantMessageFrom`. Two things had to move with it, and neither was
+  the one this line predicted.
+
+  **`LLMToolResponse` is the one settable-both-ways type in the design**, and
+  three post-parse edits were writing only the flat half. Piggyback promotion
+  is the sharp one: it reads a control envelope out of the prose and turns it
+  into tool calls, writing `Text` and `ToolCalls` and leaving the blocks
+  holding the original envelope with no tool_use. `AssistantMessageFrom`
+  prefers blocks, so a block-carrying response would have gone into history as
+  an assistant turn claiming it called nothing, followed by a user turn
+  answering calls that are not in the transcript. The two `ToolCalls = nil`
+  sites were the same half-change in reverse. All three now go through
+  `Rewrite` / `ClearToolCalls`, which move both views and keep thinking blocks
+  in front, since their signatures cannot be regenerated.
+
+  **The transcript bound had to become block-aware.** `boundToolLoopHistory`
+  shrinks old tool results by assigning `ToolResults`, which on a block-built
+  message changes only the projection: `Content()` still returns the full
+  payload and the bound silently stops holding. The tool-RESULT turns are still
+  flat literals, so this was latent — and it stopped being safe to leave latent
+  the moment assistant turns became block-built, because the next person to
+  convert the user turns closes the loop. `Message.WithToolResults` rewrites
+  both views and both bounding paths use it.
 - Provider profile: supported continuation modes, compaction, reminder
   placement, **and cache economics** (write penalty ÷ read discount), so Phase 4's
   break-even is derived per provider rather than hard-coded.
@@ -232,22 +475,70 @@ a writer, and no wire between them.
   Still missing from the profile: continuation modes, compaction, reminder
   placement. Those are Phase 4 inputs but not break-even inputs.
 
+- **The assembled order is measured, and it is inverted for two of three
+  sections.** This line already names the lever — "a stable skeleton ahead of
+  the volatile JIT selection ahead of the file context" — so here is what the
+  code does today, so Phase 4 starts from fact rather than from the sentence.
+
+  `internal/session/executor.go` builds the system prompt as:
+
+      compileResult.Prompt            JIT-selected atoms, varies every turn
+    + projectDoc.PromptSection()      stable for the life of the project
+    + fileContext.PromptSection(t)    per-file, the most volatile part
+
+  Both helpers append (`systemPrompt + "\n\n" + section`), so the ordering is
+  volatile, stable, most-volatile. A prefix cache matches a prefix: everything
+  after the first differing byte is uncacheable, so the project doc — identical
+  on every turn in a project, and the one section that could anchor a prefix —
+  is stranded behind the JIT selection and can never be part of one. The file
+  context being last is already right.
+
+  **Deliberately not reordered here.** Where an instruction sits in a prompt
+  changes how strongly a model follows it, and moving the project's own
+  instructions ahead of the JIT selection is a change to behaviour, not a
+  change to encoding. It wants an eval, not a commit. The measurement is the
+  contribution; the decision is Phase 4's.
+
+  The same applies inside `compileResult.Prompt`: the assembler's category
+  order decides how much of the prompt is stable-prefix, and identity, protocol
+  and safety are the categories that hold still across turns. Whether they lead
+  today has not been measured and should be, in the same pass.
+
 ## Later — gated
 
 - Phase 4 economic rebasing. Preconditions: Gate A passed, Phase 3 landed,
   latency a term in the objective, hysteresis, correctness interlock, manual
   override.
 
-  Two of those preconditions have moved and the list should say so. Gate A now
-  needs sessions run rather than code written, and the break-even half of
-  Phase 3 has landed — so what actually blocks Phase 4 is the ordered native
-  content blocks, plus the design question Q1 surfaced: **the prefix moves
-  every turn by construction**, because the system prompt is the JIT
-  compilation plus the current target's file context. A rebuild controller
-  built on a head that never holds still is optimising the wrong layer. Request
-  ORDERING — a stable skeleton ahead of the volatile selection ahead of the
-  file context — has to be settled first, and that is a change to how the
-  prompt is assembled rather than to how it is cached.
+  The preconditions have moved and the list should say so. Gate A now needs
+  sessions run rather than code written; the break-even half of Phase 3 landed
+  earlier; and the ordered native content blocks have now landed too, with six
+  of seven adapter families converted and the fidelity limits of the seventh
+  written down rather than discovered later.
+
+  So what is left blocking Phase 4 is no longer a missing representation. It is
+  two things, one small and one not:
+
+  1. **One flattening point still in the loop.** `executor_tools.go` rebuilds
+     each assistant turn from `Text` and `ToolCalls`, discarding the ordered
+     blocks before any adapter sees them. The adapters are lossless and the
+     loop feeding them is not, so none of Phase 3's fidelity currently reaches
+     a provider. `types.AssistantMessageFrom` is the replacement. It is not a
+     three-line swap: the final-completion site deliberately snapshots the
+     tool calls before the response clears them, and the history eviction
+     blanks tool results through the flat fields — which changes only the
+     projection on a block-built message, so eviction has to move with it or
+     silently stop bounding the transcript.
+
+  2. **The design question Q1 surfaced, unchanged: the prefix moves every turn
+     by construction**, because the system prompt is the JIT compilation plus
+     the current target's file context. A rebuild controller built on a head
+     that never holds still is optimising the wrong layer. Request ORDERING —
+     a stable skeleton ahead of the volatile selection ahead of the file
+     context — has to be settled first, and the measurement of what the code
+     does today is recorded under Phase 3 above. That is a change to how the
+     prompt is assembled rather than to how it is cached, and it wants an eval
+     because where an instruction sits changes how strongly it is followed.
 
   On "latency a term in the objective": worth being precise, because it is easy
   to read as an efficiency goal and it is not one. Latency is recorded on every
@@ -287,3 +578,67 @@ a writer, and no wire between them.
   via `internal/jsonl`, because every question they answer spans processes and
   the readout is itself a different process from the agent that spent the
   tokens.
+
+## Open: the Mangle half of the dark-field gate — investigated, not built
+
+`audit_dark_fields` catches the Go form of this branch's defect: a struct field
+production reads and never writes, which is always the zero value. The Mangle
+form is a rule body joining a predicate nothing asserts. In a logic-first
+architecture that matters more, not less: a field that is always empty gives a
+wrong answer, and a rule that can never fire is **a decision the executive
+cannot make at all**, with no log line and no error — the kernel simply derives
+nothing and the turn proceeds as if the question were never asked.
+
+It is a real class, and it was found by hand rather than by a tool. Tracing
+`FileEdit.EditType` on 2026-09-11 ended at `test_impact.mg`, where every
+`impacted_test` and `test_depends_on` rule is starved:
+
+- `is_test_function/1` — declared in that file, named in five rule bodies, and
+  asserted by nothing in Go or Mangle. The file's own header claimed
+  `internal/world/test_dependency.go` asserts it; that file contains no
+  `Fact{}`, no `Assert` and no `Predicate:` anywhere. It is a consumer.
+- `file_imports/2` — declared, joined by three rules, aliased by
+  `intent_routing_rules.mg:588` as `imports/2`, and asserted by nothing. The
+  live file-to-file edge the scanners emit is `dependency_link/3`. Two names for
+  one relation, and the populated one is not the one the rules join.
+- `modified_file/1` — its only producer is `TransactionManager.ToFacts()`, and
+  nothing drives the transaction manager (see its type doc).
+
+**A gate for it was prototyped and deliberately not shipped, which is the part
+worth recording.** The analysis is easy in one direction and impossible in the
+other. Finding the consumers is exact: `mangle.ParseUnit` gives `Clause.Head`
+and `Clause.Premises`, so "declared, in a rule body, never a rule head, never a
+ground fact" is a precise set. Finding the *producers* is the problem, because a
+Go producer is a string literal in a `Fact{Predicate: ...}` far from anything
+that identifies it as a fact assertion. Four defensible heuristics gave four
+different answers on the same corpus:
+
+| producer rule | starved |
+|---|---|
+| any Go string literal anywhere | 92 |
+| ...minus predicates with a Mangle ground fact | 39 |
+| `Fact{Predicate:}` / `Assert*(` literals only | 279 |
+| any Go literal, excluding the shard ownership manifest | 77 |
+
+A baseline that moves between 39 and 279 on the analyst's choice of heuristic is
+not a measurement, and this repo has written down twice what a gate that cries
+wolf does to the job it is attached to. Worse, the conservative rules exclude
+the two cases that motivated the search: `is_test_function` and `file_imports`
+are both named in Go — as an owned-predicate entry in a shard manifest, and as
+the argument of a `Query` — so "mentioned in Go" is not "produced by Go", and a
+gate built on that confusion would have stayed silent on its own founding
+examples.
+
+**The way to settle it is a measurement, not an inference.** The kernel knows,
+during a real session, exactly which predicates ever receive a fact — that is
+the one authority no static walk can replace, and it is the same argument the
+meter already makes for token accounting (`nerd meter` reads a workspace log
+because the spender and the reader are different processes). A
+`nerd kernel starved` readout over a session's fact log would give the list as
+an observation: declared, joined by a rule, and never once asserted while the
+agent was actually working. Then it can be gated, because the number would mean
+something.
+
+Until that exists, the three starved predicates above are recorded where a
+reader hits them — in `test_impact.mg`'s header and at the `TransactionManager`
+type — rather than in a baseline file nobody trusts.

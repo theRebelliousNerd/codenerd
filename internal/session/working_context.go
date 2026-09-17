@@ -177,11 +177,17 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	if entity != "" {
 		loop.focus = normalizeWorkingEntity(entity, e.workspaceForVerification())
 	}
+	// args feeds a hash that becomes Kind, Kind is persisted on the record and
+	// is what working_set.mg selects observations by. A discarded marshal error
+	// would not fail here: nil args makes every call of one tool hash
+	// identically regardless of its arguments, silently collapsing distinct
+	// observations into one kind. ToolCall.Input is only built by
+	// json.Unmarshal today (client_tool_helpers.go, xaioauth/tools.go), so this
+	// should not fire from that producer -- but a marshal failure must neither
+	// collide with a real input nor vanish: fold the error into the hashed
+	// material instead.
 	args, marshalErr := json.Marshal(call.Input)
 	if marshalErr != nil {
-		// The bytes below feed a persisted identity hash, so a marshal
-		// failure must neither collide with a real input nor vanish: fold
-		// the error into the hashed material instead.
 		args = []byte("marshal-error:\x00" + marshalErr.Error())
 	}
 	sum := sha256.Sum256(append([]byte(call.Name+"\x00"), args...))
@@ -276,8 +282,10 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	var shown []string
 	if start < len(history) {
 		for _, message := range history[start:] {
-			copyMessage := message
-			copyMessage.ToolResults = append([]types.ToolResult(nil), message.ToolResults...)
+			// WithToolResults, not a field assignment: a block-built turn
+			// sends its blocks, so a copy made on the flat field alone would
+			// share (and let the archive below miss) the payload.
+			copyMessage := message.WithToolResults(append([]types.ToolResult(nil), message.ToolResults...))
 			messages = append(messages, copyMessage)
 			for _, call := range message.ToolCalls {
 				if id := loop.observations[call.ID]; id != "" {
@@ -307,12 +315,16 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		if size == 0 {
 			return "", nil, fmt.Errorf("working request exceeds configured input budget; required instructions cannot be discarded")
 		}
-		result := &messages[i].ToolResults[j]
+		results := append([]types.ToolResult(nil), messages[i].ToolResults...)
+		result := &results[j]
 		id := loop.observations[result.ToolUseID]
 		if id == "" {
 			return "", nil, fmt.Errorf("oversize tool result has no durable observation")
 		}
 		result.Content = fmt.Sprintf("%s this %d-character result does not fit the request; recall_context id=%q returns it from offset 0, or in offset/limit pages. Historical evidence requires a current revision check.", archivedResultPrefix, size, id)
+		// Both views: assigning Content on the flat projection alone would leave
+		// a block-built turn sending the payload this archive accounted as gone.
+		messages[i] = messages[i].WithToolResults(results)
 		if remaining, err = workingWindowRemaining(window, system, messages, catalog); err != nil {
 			return "", nil, err
 		}
