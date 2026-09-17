@@ -4,6 +4,8 @@ package core_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -110,9 +113,12 @@ func TestVirtualStore_Integration_WriteReadDirectory_AndKernelFacts(t *testing.T
 		facts, err := kernel.Query("file_written")
 		require.NoError(t, err)
 
+		sum := sha256.Sum256([]byte(content))
+		expectedPath := types.CanonicalPath(tempDir, fullPath)
+		expectedHash := hex.EncodeToString(sum[:])
 		found := false
 		for _, f := range facts {
-			if len(f.Args) >= 1 && f.Args[0] == fullPath {
+			if len(f.Args) >= 2 && f.Args[0] == expectedPath && f.Args[1] == expectedHash {
 				found = true
 				break
 			}
@@ -129,7 +135,9 @@ func TestVirtualStore_Integration_WriteReadDirectory_AndKernelFacts(t *testing.T
 
 		out, err := routePermittedAction(t, ctx, vs, kernel, req)
 		require.NoError(t, err, "RouteAction(read_file) failed")
-		require.Equal(t, content, out)
+		require.Contains(t, out, "lines 1-1 of 1")
+		require.Contains(t, out, "1\tHello Integration World")
+		require.Regexp(t, `precondition=obs:fr:[0-9a-f]+`, out)
 
 		readFacts, err := kernel.Query("file_read")
 		require.NoError(t, err)
