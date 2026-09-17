@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
@@ -228,15 +229,30 @@ func isTransientHTTPStatus(code int) bool {
 // ExecuteOpenAIRequest performs a non-streaming OpenAI-compatible request.
 // Used by OpenAI, xAI, OpenRouter clients for tool calls.
 func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, apiKey string, reqBody OpenAIRequest) (*OpenAIResponse, error) {
-	// Retry loop
-	maxRetries := 3
+	// Retry loop, governed by the user's configured llm_timeouts
+	// (retry_backoff_base, retry_backoff_max, max_retries). If either
+	// configured delay is <= 0, fall back to today's 1s base and treat
+	// the cap as unbounded by the doubling rule.
+	t := config.GetLLMTimeouts()
+	maxRetries := t.MaxRetries
+	backoffBase := t.RetryBackoffBase
+	if backoffBase <= 0 {
+		backoffBase = time.Second
+	}
+	backoffMax := t.RetryBackoffMax
 	var lastErr error
+	var lastWasRateLimit bool
+	var lastRetryAfter time.Duration
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			// Context-aware backoff: a cancelled turn must not sleep
-			// through up to 7s of retry delays before noticing.
-			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+			// through the retry delays before noticing. The delay is
+			// derived from the PREVIOUS attempt's failure: a 429 that
+			// carried a Retry-After waits exactly that long, a 429
+			// without one waits the configured max (the provider said
+			// "retry shortly" — it is not ready one second later).
+			backoff := openAIRetryBackoff(attempt, backoffBase, backoffMax, lastWasRateLimit, lastRetryAfter)
 			select {
 			case <-ctx.Done():
 				return nil, fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
@@ -260,13 +276,18 @@ func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, api
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
+			lastWasRateLimit = false
+			lastRetryAfter = 0
 			continue
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+			retryAfter := parseRetryAfter(resp)
 			resp.Body.Close()
 			lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+			lastWasRateLimit = true
+			lastRetryAfter = retryAfter
 			continue
 		}
 
@@ -278,6 +299,8 @@ func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, api
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			resp.Body.Close()
 			lastErr = fmt.Errorf("transient status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			lastWasRateLimit = false
+			lastRetryAfter = 0
 			continue
 		}
 
@@ -306,6 +329,11 @@ func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, api
 			code := openAIResp.Error.Code
 			if status, ok := code.HTTPStatus(); ok && (status == http.StatusTooManyRequests || isTransientHTTPStatus(status)) {
 				lastErr = fmt.Errorf("transient in-body error %s: %s", code, openAIResp.Error.Message)
+				// An in-body error carries no Retry-After header, so a delay
+				// remembered from an earlier header-bearing 429 must not leak
+				// into this retry.
+				lastWasRateLimit = status == http.StatusTooManyRequests
+				lastRetryAfter = 0
 				continue
 			}
 			return nil, fmt.Errorf("API error (code %s): %s", code, openAIResp.Error.Message)
@@ -315,4 +343,28 @@ func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, api
 	}
 
 	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// openAIRetryBackoff computes the sleep before the next retry attempt. Ordinary
+// transients double exponentially from base, capped at max (max <= 0 means
+// unbounded by the doubling rule). After a 429 the response governs: honor a
+// Retry-After when the provider sent one, otherwise wait the configured max —
+// a provider that says "retry shortly" is not ready one second later. Both
+// 429 delays are also capped at max when max > 0.
+func openAIRetryBackoff(attempt int, base, max time.Duration, lastWasRateLimit bool, retryAfter time.Duration) time.Duration {
+	if lastWasRateLimit {
+		d := retryAfter
+		if d <= 0 {
+			d = max
+		}
+		if max > 0 && d > max {
+			d = max
+		}
+		return d
+	}
+	d := base << (attempt - 1)
+	if max > 0 && d > max {
+		d = max
+	}
+	return d
 }
