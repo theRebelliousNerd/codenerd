@@ -32,7 +32,24 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BASELINE="scripts/testdata/deadcode-baseline.txt"
-TOOL="golang.org/x/tools/cmd/deadcode@latest"
+# PINNED, not @latest.
+#
+# A drift gate whose own analysis tool floats can go red with no code change,
+# and that is the worst failure available to a gate: a red nobody can reproduce
+# teaches everybody to ignore the job, and then the drift it exists to catch
+# goes unseen too. This repo has written that sentence down twice already,
+# about the action linter and about the JSON budget, and then left @latest in
+# the one gate whose baseline is a hash of an analysis result.
+#
+# It bit exactly that way: CI reported NewAnthropicClient as newly unreachable
+# on a commit where the local run -- same code, same go.mod toolchain, same
+# CGO_CFLAGS, same GOOS/GOARCH -- reported no drift, and the call is a plain
+# one from newRawClientFromConfig in client_factory.go. The baseline is only a
+# measurement if the thing measuring it holds still.
+#
+# Bump deliberately, with the baseline regenerated in the same commit, so a
+# change in the analysis is a change somebody chose.
+TOOL="golang.org/x/tools/cmd/deadcode@v0.50.0"
 
 # The baseline is GOOS-specific, and this gate runs on Linux for that reason.
 #

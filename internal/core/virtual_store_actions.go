@@ -864,15 +864,30 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 
 	logging.VirtualStore("Delegating to shard: type=%s, task_len=%d", shardType, len(task))
 
-	var result string
+	// The observed path is preferred because it is the only one that can say
+	// what the subagent CHANGED and whether it BUILT. Both are facts the
+	// executor already measured and then dropped at the boundary; a delegator
+	// that cannot answer falls through to the string, and the projection then
+	// marks what it reads out of prose as reported rather than observed.
+	var observed observation.Return
 	var err error
-	if delegator != nil {
-		// Use new TaskDelegator (JIT architecture)
-		result, err = delegator.Execute(ctx, shardType, task)
-	} else {
+	switch {
+	case delegator != nil:
+		if od, ok := delegator.(ObservedTaskDelegator); ok {
+			observed, err = od.ExecuteObserved(ctx, shardType, task)
+		} else {
+			var result string
+			result, err = delegator.Execute(ctx, shardType, task)
+			observed = observation.Return{Output: result}
+		}
+	default:
 		// Fall back to legacy ShardManager
+		var result string
 		result, err = sm.Spawn(ctx, shardType, task)
+		observed = observation.Return{Output: result}
 	}
+	observed.Agent = strings.TrimPrefix(shardType, "/")
+	observed.Task = task
 
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Shard delegation failed: %s - %v", shardType, err)
@@ -885,14 +900,29 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 		}, nil
 	}
 
-	logging.VirtualStore("Shard delegation completed: type=%s, result_len=%d", shardType, len(result))
-	output, metadata := encodeDelegationReturn(shardType, task, result)
+	// The parent gets the projection, not the transcript. A delegation returns
+	// the whole of another agent's turn — its plan, its tool narration, its
+	// reasoning aloud — and all of that lands verbatim in the parent's tool
+	// loop, where the parent pays for it on every subsequent round of that same
+	// loop. What the parent has to decide on is narrower and does not vary with
+	// how talkative the subagent was: what it found, what it changed, what was
+	// verified, and what is still open. The transcript stays reachable behind
+	// the handle in the last line.
+	output, metadata := encodeDelegationReturn(observed)
+
+	logging.VirtualStore("Shard delegation completed: type=%s, result_len=%d, projected_len=%d",
+		shardType, len(observed.Output), len(output))
 	return ActionResult{
 		Success:  true,
 		Output:   output,
 		Metadata: metadata,
 		FactsToAdd: []Fact{
-			{Predicate: "delegation_result", Args: []any{shardType, result}},
+			// The fact carries the same shaped return the output does: a
+			// delegation_result holding a whole transcript is a whole
+			// transcript in the kernel, reachable by every injectable-context
+			// query for the rest of the session. The raw transcript is not
+			// lost — it is retained under the handle the projection names.
+			{Predicate: "delegation_result", Args: []any{shardType, output}},
 		},
 	}, nil
 }
@@ -902,25 +932,28 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 // transcripts are retained under a handle the parent can redeem with
 // subagent_expand instead of pasted whole into the parent's reasoning.
 //
-// The shaping rule preserves the historical contract exactly: returns small
-// enough to carry verbatim (below the codec's own retention threshold) come
-// back byte-identical, and a retention failure also falls back to the raw
-// result — a projection the parent cannot expand must never destroy the only
-// copy of the content. Only a successfully retained transcript is replaced
-// by its projection, and the raw result still travels untouched in the
-// delegation_result fact.
-func encodeDelegationReturn(shardType, task, result string) (string, map[string]any) {
-	encoded := observation.SharedSubagents().EncodeReturn(observation.Return{
-		Agent:  shardType,
-		Task:   task,
-		Output: result,
-	}, observation.DefaultReturnLimits())
-	if encoded.Handle == "" {
-		return result, nil
+// Every return reads the same way to the parent — a header naming the agent
+// and its status, then what it found, changed and verified — and the shaping
+// rule never destroys the only copy of the content:
+//
+//   - a retained transcript is replaced by its projection, and the handle
+//     travels in Metadata as subagent_handle;
+//   - a return below the codec's retention threshold is carried whole under
+//     the header, with no handle, because there is nothing to elide;
+//   - a return that should have been retained and was not (retention failed)
+//     is rendered with its transcript carried whole, so a retention failure
+//     cannot turn it into a projection nobody can expand.
+func encodeDelegationReturn(observed observation.Return) (string, map[string]any) {
+	encoded := observation.SharedSubagents().EncodeReturn(observed, observation.DefaultReturnLimits())
+	if encoded.Handle != "" {
+		return encoded.Text(toolscore.SubagentExpandToolName), map[string]any{
+			"subagent_handle": encoded.Handle,
+		}
 	}
-	return encoded.Text(toolscore.SubagentExpandToolName), map[string]any{
-		"subagent_handle": encoded.Handle,
+	if encoded.Verbatim == "" {
+		encoded.Verbatim = observed.Output
 	}
+	return encoded.Text(toolscore.SubagentExpandToolName), nil
 }
 
 func (v *VirtualStore) handleDelegateAlias(ctx context.Context, req ActionRequest, shardType string) (ActionResult, error) {

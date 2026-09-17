@@ -171,7 +171,11 @@ func (e *Executor) runToolLoopPass(
 	history = append(history, prior...)
 	history = append(history,
 		types.Message{Role: "user", Text: userInput},
-		types.Message{Role: "assistant", Text: llmResponse.Text, ToolCalls: llmResponse.ToolCalls},
+		// AssistantMessageFrom, not a literal built out of Text and ToolCalls:
+		// the literal is where the turn's ordering and its thinking signatures
+		// are dropped, and every adapter downstream is lossless only as far as
+		// what this loop hands it.
+		types.AssistantMessageFrom(llmResponse),
 	)
 
 	budget := newToolBudgetController(executorCfg)
@@ -366,12 +370,12 @@ func (e *Executor) runToolLoopPass(
 		e.promotePiggybackToolRequests(nextResp)
 		currentResponse = nextResp
 
-		// Append the next assistant turn to history (whether or not it has more tool calls).
-		history = append(history, types.Message{
-			Role:      "assistant",
-			Text:      nextResp.Text,
-			ToolCalls: nextResp.ToolCalls,
-		})
+		// Append the next assistant turn to history (whether or not it has more
+		// tool calls), carrying its blocks: this is the turn the provider will
+		// be shown back as its own history on the very next round, so a
+		// signature lost here is lost while the reasoning it belongs to is
+		// still live.
+		history = append(history, types.AssistantMessageFrom(nextResp))
 		if activeWorkingLoop(ctx) != nil && len(history) > 4 {
 			history = append([]types.Message(nil), history[len(history)-3:]...)
 		}
@@ -554,7 +558,9 @@ func (e *Executor) forceDeadlineFinalAnswer(
 	withoutPendingCalls := &types.LLMToolResponse{}
 	if pending != nil {
 		copy := *pending
-		copy.ToolCalls = nil
+		// Both views: the tool_use blocks have to go with the flat calls, or
+		// the response still offers what this line is retracting.
+		copy.ClearToolCalls()
 		withoutPendingCalls = &copy
 	}
 
@@ -655,8 +661,13 @@ func (e *Executor) forceFinalAnswer(
 	// conversation history must retain a balanced tool_use/tool_result pair
 	// for every call so that subsequent verification/repair calls are valid
 	// with strict providers (e.g. Meta: Missing tool response for tool_call_id).
+	//
+	// The snapshot is still needed below, to pair a result to every call in
+	// the order they were made. The history entry no longer needs it: the
+	// message AssistantMessageFrom builds holds its own copy of the calls, so
+	// final.ClearToolCalls() further down cannot reach into the transcript.
 	originalFinalCalls := append([]types.ToolCall(nil), final.ToolCalls...)
-	*history = append(*history, types.Message{Role: "assistant", Text: final.Text, ToolCalls: originalFinalCalls})
+	*history = append(*history, types.AssistantMessageFrom(final))
 
 	offered := make(map[string]struct{}, len(finalTools))
 	for _, definition := range finalTools {
@@ -705,8 +716,11 @@ func (e *Executor) forceFinalAnswer(
 		*history = append(*history, types.Message{Role: "user", ToolResults: finalResults})
 	}
 	// Offered calls have run; unoffered calls were refused. Neither is pending
-	// work for a caller to replay.
-	final.ToolCalls = nil
+	// work for a caller to replay — from either view, so the tool_use blocks go
+	// with them. The history entry above was appended before this point and
+	// holds its own copy, which is what keeps the transcript's tool_use /
+	// tool_result pair balanced for strict providers.
+	final.ClearToolCalls()
 
 	if strings.TrimSpace(final.Text) == "" && !hadPermittedFinalCalls {
 		return pending, toolErrs, errors.New("final completion returned neither text nor a tool call")
@@ -773,9 +787,18 @@ func (e *Executor) executeToolBatch(
 		if execErr != nil {
 			logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, execErr)
 			toolErrs = append(toolErrs, fmt.Sprintf("%s: %v", call.Name, execErr))
+			content := execErr.Error()
+			if out != "" {
+				// The tool's captured output travels with the error. A failing
+				// run_build must reach the model as "exit status 1" plus the
+				// compiler's actual diagnostics, or the model can only re-run
+				// the build blind. Goes back whole: the working context pages
+				// large results rather than cutting them.
+				content = execErr.Error() + "\n\n" + out
+			}
 			toolResults = append(toolResults, types.ToolResult{
 				ToolUseID: call.ID,
-				Content:   execErr.Error(),
+				Content:   content,
 				IsError:   true,
 			})
 			continue
@@ -2319,9 +2342,24 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 		logging.Session("Executing modular tool: %s with %d args", call.Name, len(call.Args))
 		result, err := modularRegistry.Execute(toolCtx, call.Name, call.Args)
 		if err != nil {
+			// The tool may still have produced output (e.g. compiler or test
+			// stdout alongside a nonzero exit). Discarding it here is what made
+			// a failing run_build visible to the model only as "exit status 1",
+			// so return the output string together with the wrapped error.
+			if result != nil {
+				return result.Result, fmt.Errorf("modular tool execution failed: %w", err)
+			}
 			return "", fmt.Errorf("modular tool execution failed: %w", err)
 		}
+		if result == nil {
+			return "", fmt.Errorf("modular tool %s returned nil result", call.Name)
+		}
 		if result.Error != nil {
+			// Same rule as above: output captured before the failure goes back
+			// with the error, never thrown away.
+			if result.Result != "" {
+				return result.Result, fmt.Errorf("modular tool returned error: %w", result.Error)
+			}
 			return "", fmt.Errorf("modular tool returned error: %w", result.Error)
 		}
 

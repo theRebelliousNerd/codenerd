@@ -550,42 +550,19 @@ func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 		return nil, err
 	}
 
-	// Parse response content into text and tool calls
-	result := &LLMToolResponse{
-		StopReason: anthropicResp.StopReason,
-	}
-
-	var textBuilder strings.Builder
-	for _, block := range anthropicResp.Content {
-		switch block.Type {
-		case "text":
-			textBuilder.WriteString(block.Text)
-		case "tool_use":
-			result.ToolCalls = append(result.ToolCalls, ToolCall{
-				ID:    block.ID,
-				Name:  block.Name,
-				Input: block.Input,
-			})
-		}
-	}
 	trackUsage(ctx, c.model, ProviderAnthropic,
 		anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
 
+	// Build the neutral response first, then refuse it if the provider cut it
+	// at its ceiling. main's restatement path needs the partial text, and the
+	// flat Text field of the block-built response IS that text — it is the
+	// projection of the same content blocks the old textBuilder accumulated.
+	out := anthropicToolResponse(anthropicResp)
 	if types.LengthStop(anthropicResp.StopReason) {
 		return nil, outputTruncated(ProviderAnthropic, c.model, "CompleteWithTools", anthropicResp.StopReason,
-			textBuilder.String(), reqBody.MaxTokens, anthropicResp.Usage.OutputTokens)
+			out.Text, reqBody.MaxTokens, anthropicResp.Usage.OutputTokens)
 	}
-
-	return &LLMToolResponse{
-		Text:       strings.TrimSpace(textBuilder.String()),
-		ToolCalls:  result.ToolCalls,
-		StopReason: result.StopReason,
-		Usage: types.UsageMetadata{
-			InputTokens:  anthropicResp.Usage.InputTokens,
-			OutputTokens: anthropicResp.Usage.OutputTokens,
-			TotalTokens:  anthropicResp.Usage.InputTokens + anthropicResp.Usage.OutputTokens,
-		},
-	}, nil
+	return out, nil
 }
 
 // CompleteWithToolResults continues a tool-using conversation. Pass the full
@@ -639,97 +616,23 @@ func (c *AnthropicClient) CompleteWithToolResults(ctx context.Context, systemPro
 		return nil, err
 	}
 
-	var textBuilder strings.Builder
-	var toolCalls []types.ToolCall
-	for _, block := range anthropicResp.Content {
-		switch block.Type {
-		case "text":
-			textBuilder.WriteString(block.Text)
-		case "tool_use":
-			toolCalls = append(toolCalls, types.ToolCall{
-				ID:    block.ID,
-				Name:  block.Name,
-				Input: block.Input,
-			})
-		}
-	}
-
 	trackUsage(ctx, c.model, ProviderAnthropic,
 		anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
 
+	// Same composition as CompleteWithTools: build the neutral response, then
+	// refuse it if the provider cut it at its ceiling.
+	out := anthropicToolResponse(anthropicResp)
 	if types.LengthStop(anthropicResp.StopReason) {
 		return nil, outputTruncated(ProviderAnthropic, c.model, "CompleteWithToolResults", anthropicResp.StopReason,
-			textBuilder.String(), reqBody.MaxTokens, anthropicResp.Usage.OutputTokens)
+			out.Text, reqBody.MaxTokens, anthropicResp.Usage.OutputTokens)
 	}
-
-	return &types.LLMToolResponse{
-		Text:       strings.TrimSpace(textBuilder.String()),
-		ToolCalls:  toolCalls,
-		StopReason: anthropicResp.StopReason,
-		Usage: types.UsageMetadata{
-			InputTokens:  anthropicResp.Usage.InputTokens,
-			OutputTokens: anthropicResp.Usage.OutputTokens,
-			TotalTokens:  anthropicResp.Usage.InputTokens + anthropicResp.Usage.OutputTokens,
-		},
-	}, nil
+	return out, nil
 }
 
-// buildAnthropicMessagesFromHistory maps the provider-neutral history into
-// Anthropic's message shape. Assistant turns combine optional text + tool_use
-// blocks. User tool-result turns must use the structured content-block form,
-// pairing tool_use_id → result content.
-func buildAnthropicMessagesFromHistory(history []types.Message) ([]AnthropicMessage, error) {
-	messages := make([]AnthropicMessage, 0, len(history))
-	for i, m := range history {
-		switch m.Role {
-		case "user":
-			if len(m.ToolResults) > 0 {
-				blocks := make([]AnthropicContentBlock, 0, len(m.ToolResults))
-				for _, tr := range m.ToolResults {
-					if tr.ToolUseID == "" {
-						return nil, fmt.Errorf("user message %d: tool_result missing tool_use_id", i)
-					}
-					blocks = append(blocks, AnthropicContentBlock{
-						Type:      "tool_result",
-						ToolUseID: tr.ToolUseID,
-						Content:   tr.Content,
-						IsError:   tr.IsError,
-					})
-				}
-				messages = append(messages, AnthropicMessage{Role: "user", Content: blocks})
-				continue
-			}
-			messages = append(messages, AnthropicMessage{Role: "user", Content: m.Text})
-
-		case "assistant":
-			// Assistant turns may carry both text and tool_use blocks.
-			if len(m.ToolCalls) == 0 {
-				messages = append(messages, AnthropicMessage{Role: "assistant", Content: m.Text})
-				continue
-			}
-			blocks := make([]AnthropicContentBlock, 0, 1+len(m.ToolCalls))
-			if strings.TrimSpace(m.Text) != "" {
-				blocks = append(blocks, AnthropicContentBlock{
-					Type: "text",
-					Text: m.Text,
-				})
-			}
-			for _, tc := range m.ToolCalls {
-				blocks = append(blocks, AnthropicContentBlock{
-					Type:  "tool_use",
-					ID:    tc.ID,
-					Name:  tc.Name,
-					Input: tc.Input,
-				})
-			}
-			messages = append(messages, AnthropicMessage{Role: "assistant", Content: blocks})
-
-		default:
-			return nil, fmt.Errorf("unsupported role %q in history[%d]", m.Role, i)
-		}
-	}
-	return messages, nil
-}
+// The pre-block buildAnthropicMessagesFromHistory lived here. It read m.Text
+// and m.ToolCalls as separate fields and so could not express the order
+// between them; the block-aware replacement is in blocks_anthropic.go, and is
+// what every caller now reaches.
 
 // SetModel changes the model used for completions.
 func (c *AnthropicClient) SetModel(model string) {

@@ -76,8 +76,8 @@ func TestGeminiTools_RetriesTransientThenSucceeds(t *testing.T) {
 // Full native sequence on one client: Tools mints the call, the executor
 // runs it, ToolResults pairs the result by ID so the wire carries the real
 // function name (not the synthetic call ID) — and the transient on the
-// second leg is retried. Also pins that appending the function message
-// cannot write into the caller's backing array.
+// second leg is retried. Also pins that mapping the history cannot write
+// into the caller's backing array.
 func TestGeminiToolResults_FullSequenceWithPairing(t *testing.T) {
 	var hits atomic.Int32
 	captured := make(chan string, 2)
@@ -111,16 +111,16 @@ func TestGeminiToolResults_FullSequenceWithPairing(t *testing.T) {
 		t.Fatalf("ToolCalls = %+v, want one call", resp1.ToolCalls)
 	}
 
-	backing := make([]GeminiContent, 2, 5)
-	backing[0] = GeminiContent{Role: "user", Parts: []GeminiPart{{Text: "time?"}}}
-	backing[1] = GeminiContent{Role: "model", Parts: []GeminiPart{
-		{FunctionCall: &GeminiFunctionCall{Name: "get_time", Args: map[string]any{}}},
+	backing := make([]types.Message, 3, 6)
+	backing[0] = types.Message{Role: "user", Text: "time?"}
+	backing[1] = types.AssistantMessageFrom(resp1)
+	backing[2] = types.Message{Role: "user", ToolResults: []types.ToolResult{
+		{ToolUseID: resp1.ToolCalls[0].ID, Content: "noon"},
 	}}
-	contents := backing[:2]
-	results := []ToolResult{{ToolUseID: resp1.ToolCalls[0].ID, Content: "noon"}}
-	resp2, err := c.completeWithToolResultsNative(ctx, "sys", contents, results, geminiToolsForTest())
+	history := backing[:3]
+	resp2, err := c.CompleteWithToolResults(ctx, "sys", history, geminiToolsForTest())
 	if err != nil {
-		t.Fatalf("completeWithToolResultsNative: %v", err)
+		t.Fatalf("CompleteWithToolResults: %v", err)
 	}
 	if resp2.Text != "done here" {
 		t.Errorf("response = %q, want done here", resp2.Text)
@@ -128,8 +128,8 @@ func TestGeminiToolResults_FullSequenceWithPairing(t *testing.T) {
 	if got := hits.Load(); got != 3 {
 		t.Errorf("server hits = %d, want 3 (tools + failed + retried results)", got)
 	}
-	if full := backing[:cap(backing)]; full[2].Role != "" {
-		t.Errorf("caller backing array mutated: backing[2] = %+v, want zero value", full[2])
+	if full := backing[:cap(backing)]; full[3].Role != "" {
+		t.Errorf("caller backing array mutated: backing[3] = %+v, want zero value", full[3])
 	}
 
 	var wire struct {
@@ -289,8 +289,8 @@ func TestGeminiToolResultsTRP_NoResultsFailsFast(t *testing.T) {
 	}
 }
 
-// Earlier rounds keep their results inline as function contents with real
-// names; only the latest round is replayed through the native pairing.
+// Every round keeps its results inline as function contents with real names
+// resolved from the tool_use that minted each id, in history order.
 func TestGeminiToolResultsTRP_MultiRound(t *testing.T) {
 	captured := make(chan string, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -369,12 +369,17 @@ func TestGeminiTools_TruncationLabels(t *testing.T) {
 			trunc.Method, trunc.LimitTokens, c.maxOutputTokens)
 	}
 
-	_, err = c.completeWithToolResultsNative(ctx, "sys", nil, nil, geminiToolsForTest())
+	history := []types.Message{
+		{Role: "user", Text: "hi"},
+		{Role: "assistant", ToolCalls: []types.ToolCall{{ID: "call_0", Name: "get_time"}}},
+		{Role: "user", ToolResults: []types.ToolResult{{ToolUseID: "call_0", Content: "noon"}}},
+	}
+	_, err = c.CompleteWithToolResults(ctx, "sys", history, geminiToolsForTest())
 	if !errors.As(err, &trunc) {
-		t.Fatalf("native err = %v (%T), want *types.OutputTruncated", err, err)
+		t.Fatalf("tool-results err = %v (%T), want *types.OutputTruncated", err, err)
 	}
 	if trunc.Method != "CompleteWithToolResults" {
-		t.Errorf("native truncation method = %q, want CompleteWithToolResults", trunc.Method)
+		t.Errorf("tool-results truncation method = %q, want CompleteWithToolResults", trunc.Method)
 	}
 }
 

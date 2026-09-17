@@ -25,6 +25,29 @@ import (
 //   - time.Time:     Timestamps (Mangle TimeType)
 //   - time.Duration: Durations (Mangle DurationType)
 //   - bool:          Boolean values
+//
+// WHICH ONE YOU GET DEPENDS ON WHERE THE FACT CAME FROM, and that asymmetry is
+// the whole reason these helpers exist rather than a bare assertion:
+//
+//   - A fact built in Go and not yet through the kernel -- scan output, a
+//     freshly constructed Fact -- carries a /name as a MangleAtom.
+//   - A fact read back from a kernel Query renders that same /name as a plain
+//     Go string.
+//
+// So `fact.Args[0].(string)` is correct on query readback and silently wrong on
+// scan output, and `fact.Args[0].(MangleAtom)` is correct on scan output and
+// silently wrong on readback. Both failures are a comma-ok assertion returning
+// the zero value, which downstream looks exactly like "this row had no value" —
+// a legitimate state, so nobody investigates.
+//
+// internal/world paid for this once: detectProjectLanguage is called on both
+// scan output and kernel readback, and its MangleAtom assertion "silently
+// skipped every row" for the readback half. Its comment records the discovery;
+// this is where someone reaching for the answer will actually look.
+//
+// The rule: if you know the fact came straight from a Query, either form works
+// and a bare assertion is fine. If it might have come from anywhere else, or
+// you would rather not have to know, use these.
 
 // ExtractString extracts a string representation from a fact argument.
 // Handles string, MangleAtom, and falls back to fmt.Sprintf for other types.

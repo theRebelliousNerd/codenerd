@@ -13,6 +13,7 @@ import (
 
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/tools"
@@ -28,6 +29,18 @@ type TaskDelegator interface {
 	// Execute runs a task synchronously and returns the result.
 	// The intent parameter is an intent verb (e.g., "/fix", "/test", "/review").
 	Execute(ctx context.Context, intent string, task string) (string, error)
+}
+
+// ObservedTaskDelegator is the optional half of TaskDelegator: the same run,
+// returning what the executor measured about it — the write set, the build and
+// test verdicts, the critic's findings — rather than only the prose.
+//
+// It is an extension interface because a delegator that cannot answer is not
+// broken; handleDelegate type-asserts for it and falls back to Execute, and the
+// projection then reads what it can out of the output and marks it as reported
+// rather than observed. session.JITExecutor implements it.
+type ObservedTaskDelegator interface {
+	ExecuteObserved(ctx context.Context, intent string, task string) (observation.Return, error)
 }
 
 // One-time imports

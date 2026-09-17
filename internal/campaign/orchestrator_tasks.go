@@ -591,8 +591,15 @@ func (o *Orchestrator) completeTask(task *Task, result any) {
 			task.ID, err)
 	}
 
-	// Store result for context injection into dependent tasks
-	o.storeTaskResult(task.ID, resultSummary)
+	// Store result for context injection into dependent tasks.
+	//
+	// The projection, not resultSummary. Those are two different consumers with
+	// two different needs: task_result above is an audit record the kernel
+	// derives completion from and is left exactly as it was, while this string
+	// is pasted into a DEPENDENT AGENT'S PROMPT, where a head-truncated JSON
+	// blob of one shard's prose is the most expensive and least useful thing
+	// the next shard could be handed.
+	o.storeTaskResult(task.ID, o.projectTaskReturn(task, result))
 
 	// Northstar alignment check on task completion
 	if o.northstarObserver != nil {

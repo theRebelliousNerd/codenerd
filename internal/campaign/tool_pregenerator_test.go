@@ -44,9 +44,6 @@ func TestDefaultPregeneratorConfig(t *testing.T) {
 	if !cfg.RequireThunderdome {
 		t.Error("expected RequireThunderdome true")
 	}
-	if cfg.RequireSimulation {
-		t.Error("expected RequireSimulation false")
-	}
 	if !cfg.EnableMCPFallback {
 		t.Error("expected EnableMCPFallback true")
 	}
@@ -112,7 +109,6 @@ func TestGeneratedTool_Fields(t *testing.T) {
 		OutputType:        "bool",
 		GeneratedAt:       time.Now(),
 		PassedThunderdome: true,
-		PassedSimulation:  true,
 		ValidationErrors:  []string{},
 		SourceGap:         "gap-123",
 		Status:            "ready",
@@ -387,30 +383,10 @@ func TestToolGap_Resolution(t *testing.T) {
 	}
 }
 
-func TestPregeneratorConfig_SafetyFlags(t *testing.T) {
-	// Test with safety disabled
-	cfg := PregeneratorConfig{
-		RequireThunderdome: false,
-		RequireSimulation:  false,
-	}
-
-	if cfg.RequireThunderdome {
-		t.Error("expected RequireThunderdome false")
-	}
-	if cfg.RequireSimulation {
-		t.Error("expected RequireSimulation false")
-	}
-
-	// Test with safety enabled
-	cfg = PregeneratorConfig{
-		RequireThunderdome: true,
-		RequireSimulation:  true,
-	}
-
-	if !cfg.RequireThunderdome {
-		t.Error("expected RequireThunderdome true")
-	}
-	if !cfg.RequireSimulation {
-		t.Error("expected RequireSimulation true")
-	}
-}
+// TestPregeneratorConfig_SafetyFlags was deleted on 2026-09-11. It set
+// RequireThunderdome and RequireSimulation on a bare struct and read them back,
+// twice, which tests that Go assignment works -- and it carried the word
+// "Safety" in its name, so a reader scanning test names saw coverage that did
+// not exist. RequireSimulation gated nothing at all; RequireThunderdome gates a
+// real refusal, and thunderdome_verdict_test.go already exercises it three
+// ways, including TestDefaultPregeneratorConfig_RequiresThunderdome.

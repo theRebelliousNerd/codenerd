@@ -292,18 +292,7 @@ func (m *Model) storeAggregatedReviewResult(review *AggregatedReview, rendered s
 		return
 	}
 
-	findings := make([]map[string]any, 0, len(review.DeduplicatedList))
-	for _, f := range review.DeduplicatedList {
-		findings = append(findings, map[string]any{
-			"file":           f.File,
-			"line":           float64(f.Line),
-			"severity":       f.Severity,
-			"category":       f.Category,
-			"message":        f.Message,
-			"recommendation": f.Recommendation,
-			"shard":          f.ShardSource,
-		})
-	}
+	findings := reviewFindingMaps(review.DeduplicatedList)
 
 	metrics := map[string]any{
 		"total_findings": review.TotalFindings,
@@ -334,6 +323,30 @@ func (m *Model) storeAggregatedReviewResult(review *AggregatedReview, rendered s
 	if len(m.shardResultHistory) > maxHistorySize {
 		m.shardResultHistory = m.shardResultHistory[len(m.shardResultHistory)-maxHistorySize:]
 	}
+}
+
+// reviewFindingMaps renders deduplicated findings for a ShardResult.
+//
+// It is a named function rather than a loop inside storeAggregatedReviewResult
+// because this is the join between the review aggregator and the session
+// context, and the join is where the two halves disagreed: the producer wrote
+// Source and this read ShardSource, so "shard" was the empty string on every
+// finding a multi-shard review ever produced. A loop buried in a method that
+// takes a *Model cannot be tested without one; a function over a slice can.
+func reviewFindingMaps(findings []ParsedFinding) []map[string]any {
+	out := make([]map[string]any, 0, len(findings))
+	for _, f := range findings {
+		out = append(out, map[string]any{
+			"file":           f.File,
+			"line":           float64(f.Line),
+			"severity":       f.Severity,
+			"category":       f.Category,
+			"message":        f.Message,
+			"recommendation": f.Recommendation,
+			"shard":          f.Source,
+		})
+	}
+	return out
 }
 
 // RunInteractiveChat starts the interactive chat session

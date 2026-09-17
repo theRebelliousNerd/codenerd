@@ -44,12 +44,39 @@ type LLMClient interface {
 }
 
 // Message represents a turn in a multi-turn LLM conversation.
-// Either Text is set, or ToolCalls (assistant turn), or ToolResults (user turn).
+//
+// A turn's content is an ORDERED list of typed blocks — text, thinking with
+// its signature, tool_use with its id, tool_result with the id it answers.
+// That list is the message's content and it lives in the unexported blocks
+// field; read it with Content and build it with NewMessage / NewUserMessage /
+// NewAssistantMessage / AssistantMessageFrom.
+//
+// Text, ToolCalls and ToolResults are a flat PROJECTION of that list, filled
+// once by the constructors. They cannot express the order between text and
+// tool calls, and they have no place at all for a thinking signature, which is
+// why they are a projection and not the content. They remain because most of
+// the tree still reads them, and because a message built as a plain literal —
+// which is legal and common — has no block list, and Content lifts one from
+// them in the fixed legacy order.
+//
+// The field is unexported so the two views cannot be set independently: a
+// literal can only produce the flat form, and the block form can only come
+// from a constructor that fills both. There is one hazard left, and it is
+// worth naming: MUTATING the flat fields on a message that was built from
+// blocks changes only the projection, and Content will keep returning the
+// original blocks. internal/session's boundToolLoopHistory does exactly that
+// when it blanks old tool results, which is correct today only because the
+// messages it edits are literal-built and carry no blocks. Converting that
+// path to blocks means converting the eviction with it.
 type Message struct {
-	Role        string       // "user" or "assistant"
-	Text        string       // Plain text content (assistant or user)
-	ToolCalls   []ToolCall   // Assistant tool-use blocks
-	ToolResults []ToolResult // User tool_result blocks (paired by ToolUseID)
+	Role string // "user" or "assistant"
+
+	// blocks is the ordered native content. Empty for a literal-built message.
+	blocks []ContentBlock
+
+	Text        string       // Projection: concatenated text blocks
+	ToolCalls   []ToolCall   // Projection: tool-use blocks, order-free
+	ToolResults []ToolResult // Projection: tool_result blocks (paired by ToolUseID)
 }
 
 // ToolResult represents the result of executing a tool call, to be sent back
@@ -122,6 +149,16 @@ type LLMToolResponse struct {
 	// Grounding metadata (from Google Search / URL Context)
 	// GroundingSources lists URLs used to ground the response
 	GroundingSources []string `json:"grounding_sources,omitempty"`
+
+	// Blocks is the response's ordered native content: text, thinking with
+	// its signature, and tool_use with its id, in the order the model emitted
+	// them. Text and ToolCalls above are the flat projection of it.
+	//
+	// Adapters for providers that return ordered blocks populate this; the
+	// rest leave it nil, and a nil Blocks means "this provider did not tell us
+	// the order", not "the turn was empty". Feed it forward with
+	// AssistantMessageFrom, which falls back to the flat fields when it is nil.
+	Blocks []ContentBlock `json:"blocks,omitempty"`
 }
 
 // ShardAgent defines the interface for all agents.

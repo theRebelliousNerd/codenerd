@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/observation"
 	"codenerd/internal/types"
 )
 
@@ -112,7 +113,7 @@ func TestJITExecutor_CompletedResultsBounded(t *testing.T) {
 	j := NewJITExecutor(nil, nil, nil)
 	j.results["in-flight"] = &TaskResult{TaskID: "in-flight", Completed: false}
 	for i := 0; i < maxCachedResults+50; i++ {
-		j.cacheCompletedResult(fmt.Sprintf("task-%d", i), "r", nil)
+		j.cacheCompletedResult(fmt.Sprintf("task-%d", i), observation.Return{Output: "r"}, nil)
 	}
 	if got := len(j.results); got != maxCachedResults+1 {
 		t.Fatalf("cache holds %d entries; want %d completed + 1 in-flight", got, maxCachedResults)
@@ -126,8 +127,8 @@ func TestJITExecutor_CompletedResultsBounded(t *testing.T) {
 	if _, ok := j.results[fmt.Sprintf("task-%d", maxCachedResults+49)]; !ok {
 		t.Error("newest completed entry missing")
 	}
-	j.cacheCompletedResult("task-300", "r2", nil)
-	j.cacheCompletedResult("task-300", "r3", nil)
+	j.cacheCompletedResult("task-300", observation.Return{Output: "r2"}, nil)
+	j.cacheCompletedResult("task-300", observation.Return{Output: "r3"}, nil)
 	if got := len(j.completedOrder); got != maxCachedResults {
 		t.Errorf("re-caching duplicated eviction slots: order len %d, want %d", got, maxCachedResults)
 	}

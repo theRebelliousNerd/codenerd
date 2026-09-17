@@ -107,7 +107,14 @@ func formatSpecialists(registry agentRegistry) string {
 			ClampHead(fmt.Sprintf("- **%s**: %s", agent.Name, desc), maxSpecialistEntryChars, "specialist entry"))
 	}
 
-	for name, desc := range shards.CoreShardDescriptions {
+	specialistNames := make([]string, 0, len(shards.CoreShardDescriptions))
+	for name := range shards.CoreShardDescriptions {
+		specialistNames = append(specialistNames, name)
+	}
+	sort.Strings(specialistNames)
+	// Sorted for the same reason the tool catalog is: this list is prompt text.
+	for _, name := range specialistNames {
+		desc := shards.CoreShardDescriptions[name]
 		specialists = append(specialists,
 			ClampHead(fmt.Sprintf("- **%s**: %s", name, desc), maxSpecialistEntryChars, "specialist entry"))
 	}
