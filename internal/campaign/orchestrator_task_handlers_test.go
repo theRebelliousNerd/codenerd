@@ -636,3 +636,67 @@ func TestExecuteToolCreateTask_Autopoiesis(t *testing.T) {
 		t.Errorf("Expected context canceled, got %v", err)
 	}
 }
+
+func TestExecuteFileTask_CoderTaskTargetLabel(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("directory target uses package label", func(t *testing.T) {
+		ws := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(ws, "internal", "mangle"), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		var captured string
+		o := &Orchestrator{
+			workspace: ws,
+			taskExecutor: &MockTaskExecutor{
+				ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
+					captured = req.Task
+					if err := os.WriteFile(filepath.Join(ws, "internal", "mangle", "touched.go"), []byte("package mangle\n"), 0o644); err != nil {
+						return "", err
+					}
+					return "ok", nil
+				},
+			},
+		}
+		_, err := o.executeFileTask(ctx, &Task{ID: "dir-task", Description: "HARDEN", Artifacts: []TaskArtifact{{Path: "internal/mangle"}}})
+		if err != nil {
+			t.Fatalf("executeFileTask() error = %v", err)
+		}
+		if !strings.Contains(captured, "package:internal/mangle") {
+			t.Fatalf("expected coder task to contain %q, got %q", "package:internal/mangle", captured)
+		}
+		if strings.Contains(captured, "file:internal/mangle") {
+			t.Fatalf("coder task must not label a directory as file:, got %q", captured)
+		}
+	})
+
+	t.Run("file target uses file label", func(t *testing.T) {
+		ws := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(ws, "internal", "mangle"), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(ws, "internal", "mangle", "engine.go"), []byte("package mangle\n"), 0o644); err != nil {
+			t.Fatalf("write engine.go: %v", err)
+		}
+		var captured string
+		o := &Orchestrator{
+			workspace: ws,
+			taskExecutor: &MockTaskExecutor{
+				ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
+					captured = req.Task
+					return "ok", nil
+				},
+			},
+		}
+		_, err := o.executeFileTask(ctx, &Task{ID: "file-task", Description: "HARDEN", Artifacts: []TaskArtifact{{Path: "internal/mangle/engine.go"}}})
+		if err != nil {
+			t.Fatalf("executeFileTask() error = %v", err)
+		}
+		if !strings.Contains(captured, "file:internal/mangle/engine.go") {
+			t.Fatalf("expected coder task to contain %q, got %q", "file:internal/mangle/engine.go", captured)
+		}
+		if strings.Contains(captured, "package:internal/mangle/engine.go") {
+			t.Fatalf("coder task must not label a file as package:, got %q", captured)
+		}
+	})
+}

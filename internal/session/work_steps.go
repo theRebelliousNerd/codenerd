@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -79,10 +81,11 @@ type toolLoopPass struct {
 // parseWorkSteps reads STEP lines out of a plan. Anything else on a line, a
 // bullet or a number in front of STEP, is tolerated; a line without both a
 // path and a change is not a step, and neither is a verification (a path
-// that is a directory, or a change that is the task's verify command: the
-// executive runs verification itself). Duplicates collapse; the count is
-// bounded.
-func parseWorkSteps(text string) []workStep {
+// that is a directory on disk when workspace is known, or a change that is
+// the task's verify command: the executive runs verification itself).
+// Paths that do not exist yet (new files) stay. Duplicates collapse; the
+// count is bounded.
+func parseWorkSteps(workspace, text string) []workStep {
 	var steps []workStep
 	seen := map[string]bool{}
 	for _, line := range strings.Split(text, "\n") {
@@ -101,6 +104,9 @@ func parseWorkSteps(text string) []workStep {
 		if file == "" || change == "" || !isEditStep(file, change) {
 			continue
 		}
+		if workspace != "" && isWorkspaceDir(workspace, file) {
+			continue
+		}
 		key := file + "\x00" + change
 		if seen[key] {
 			continue
@@ -112,6 +118,17 @@ func parseWorkSteps(text string) []workStep {
 		}
 	}
 	return steps
+}
+
+// isWorkspaceDir reports whether file names an existing directory on disk,
+// resolved against workspace unless absolute.
+func isWorkspaceDir(workspace, file string) bool {
+	p := file
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(workspace, filepath.FromSlash(p))
+	}
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }
 
 // planTurnSteps decides whether this turn is a planned task and, if so, what
@@ -154,7 +171,7 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 		logging.Get(logging.CategorySession).Warn("Step planning failed (%v); the task runs as one pass", err)
 		return nil
 	}
-	steps := parseWorkSteps(text)
+	steps := parseWorkSteps(e.workspaceForVerification(), text)
 	if len(steps) < 2 {
 		logging.SessionDebug("Step planning found %d step(s); the task runs as one pass", len(steps))
 		return nil

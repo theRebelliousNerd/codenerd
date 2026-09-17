@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,8 +47,8 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 			}
 		}
 	}
-	if ctx.Err() != nil {
-		logging.SessionDebug("test gate: no baseline attribution: context done: %v", ctx.Err())
+	if errors.Is(ctx.Err(), context.Canceled) {
+		logging.SessionDebug("test gate: no baseline attribution: context canceled: %v", ctx.Err())
 		return head
 	}
 	tmpDir, overlayPath, err := buildTestOverlay(workspace, preWrite)

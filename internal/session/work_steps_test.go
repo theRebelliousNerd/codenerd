@@ -3,6 +3,8 @@ package session
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -124,7 +126,7 @@ func TestParseWorkSteps(t *testing.T) {
 		"STEP ./internal/prompt/... :: run go test on the package\n" +
 		"STEP internal/d.go :: Run the tests named in the task\n" +
 		"not a step line\n"
-	got := parseWorkSteps(plan)
+	got := parseWorkSteps("", plan)
 	if len(got) != 2 {
 		t.Fatalf("steps = %+v, want the two well-formed distinct edit steps (a verification is not a step)", got)
 	}
@@ -138,8 +140,32 @@ func TestParseWorkSteps(t *testing.T) {
 	for i := 0; i < maxPlannedSteps+5; i++ {
 		many.WriteString("STEP f" + strings.Repeat("x", i) + ".go :: change\n")
 	}
-	if n := len(parseWorkSteps(many.String())); n != maxPlannedSteps {
+	if n := len(parseWorkSteps("", many.String())); n != maxPlannedSteps {
 		t.Errorf("unbounded plan parsed to %d steps, want the cap %d", n, maxPlannedSteps)
+	}
+}
+
+func TestParseWorkSteps_DropsDirectoryTargets(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "mangle"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "internal", "mangle", "engine.go"), []byte("package mangle\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	plan := "STEP internal/mangle :: A\n" +
+		"STEP internal/mangle :: B\n" +
+		"STEP internal/mangle/engine.go :: C\n" +
+		"STEP internal/mangle/new_file.go :: D\n"
+	got := parseWorkSteps(dir, plan)
+	if len(got) != 2 {
+		t.Fatalf("steps = %+v, want only the engine.go and new_file.go steps", got)
+	}
+	if got[0].File != "internal/mangle/engine.go" || got[0].Change != "C" {
+		t.Errorf("step 1 = %+v, want the engine.go step", got[0])
+	}
+	if got[1].File != "internal/mangle/new_file.go" || got[1].Change != "D" {
+		t.Errorf("step 2 = %+v, want the new_file.go step (paths that do not exist yet stay)", got[1])
 	}
 }
 

@@ -447,11 +447,18 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	// NOTE: Don't use "instruction:<value>" format because strings.Fields() splits on spaces,
 	// causing multi-word instructions to be truncated. Use simpler format where bare words
 	// are joined into the instruction by parseTask.
+	// F-STEP-1: a directory target is a package target, never a file target —
+	// reuse the isDirectoryTarget stat above (same test testWriteShardTask
+	// uses) so the planner's work steps do not run as file edits.
 	action := "create"
 	if task.Type == TaskTypeFileModify {
 		action = "modify"
 	}
-	shardTask := fmt.Sprintf("%s file:%s %s", action, targetPath, o.buildTaskInput(task))
+	targetLabel := "file:"
+	if isDirectoryTarget {
+		targetLabel = "package:"
+	}
+	shardTask := fmt.Sprintf("%s %s%s %s", action, targetLabel, targetPath, o.buildTaskInput(task))
 	logging.CampaignDebug("Spawning coder shard: action=%s, path=%s, task=%s", action, targetPath, shardTask)
 
 	// Delegate to coder shard

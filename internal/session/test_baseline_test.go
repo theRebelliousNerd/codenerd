@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // F-VERIFY-1: failures that already fail before the turn must not be charged
@@ -74,6 +75,70 @@ func TestAttributeTestFailures_AllPreExistingPasses(t *testing.T) {
 	}
 	if len(got.PreExistingFailures) != 1 || got.PreExistingFailures[0] != "TestAlwaysFails" {
 		t.Errorf("PreExistingFailures = %v; want [TestAlwaysFails]", got.PreExistingFailures)
+	}
+}
+
+// TestAttributeTestFailures_ExpiredDeadlineStillAttributes covers F-ATTR-DEADLINE:
+// a passed deadline must not skip baseline attribution. Identical setup to
+// TestAttributeTestFailures_AllPreExistingPasses, but attributeTestFailures runs
+// with an already-expired deadline context.
+func TestAttributeTestFailures_ExpiredDeadlineStillAttributes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	origCalc := "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n"
+	testFile := "package verifyprobe\n\nimport \"testing\"\n\n" +
+		"func TestAlwaysFails(t *testing.T) { t.Fatal(\"always fails\") }\n" +
+		"func TestOK(t *testing.T) { if Add(2, 3) != 5 { t.Fatal(\"bad\") } }\n"
+	ws := writeBaselineModule(t, map[string]string{
+		"go.mod":       "module verifyprobe\n\ngo 1.21\n",
+		"calc.go":      origCalc,
+		"calc_test.go": testFile,
+	})
+	preWrite := map[string]string{"calc.go": origCalc}
+
+	// Turn edit: add an unrelated exported func, tests untouched.
+	writeWorkspaceFile(t, ws, "calc.go", origCalc+"\nfunc Unrelated() int { return 42 }\n")
+
+	head := verifyTests(context.Background(), ws, []string{"."})
+	if head.Outcome != VerifyFailed {
+		t.Fatalf("head should fail on TestAlwaysFails, got Outcome=%v OK=%v output=%q", head.Outcome, head.OK, head.Output)
+	}
+
+	expired, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	got := attributeTestFailures(expired, ws, []string{"."}, []string{"calc.go"}, preWrite, head)
+	if got.Outcome != VerifyPassed {
+		t.Fatalf("expired-deadline attribution should pass, got Outcome=%v output=%q", got.Outcome, got.Output)
+	}
+	if len(got.PreExistingFailures) != 1 || got.PreExistingFailures[0] != "TestAlwaysFails" {
+		t.Errorf("PreExistingFailures = %v; want [TestAlwaysFails]", got.PreExistingFailures)
+	}
+}
+
+// TestAttributeTestFailures_CanceledSkips covers F-ATTR-DEADLINE: a canceled
+// context skips baseline attribution and returns head unchanged.
+func TestAttributeTestFailures_CanceledSkips(t *testing.T) {
+	head := TestVerification{
+		Ran:     true,
+		OK:      false,
+		Outcome: VerifyFailed,
+		Output:  "=== RUN   TestBroken\n--- FAIL: TestBroken (0.00s)\nFAIL\n",
+		Command: []string{"go", "test", "."},
+	}
+	preWrite := map[string]string{"calc.go": "package verifyprobe\n"}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got := attributeTestFailures(ctx, t.TempDir(), []string{"."}, []string{"calc.go"}, preWrite, head)
+	if got.Outcome != VerifyFailed {
+		t.Errorf("canceled attribution should stay failed, got Outcome=%v", got.Outcome)
+	}
+	if len(got.PreExistingFailures) != 0 {
+		t.Errorf("PreExistingFailures = %v; want empty when attribution is skipped", got.PreExistingFailures)
+	}
+	if got.Output != head.Output {
+		t.Errorf("output should be unchanged when attribution is skipped, got %q want %q", got.Output, head.Output)
 	}
 }
 
