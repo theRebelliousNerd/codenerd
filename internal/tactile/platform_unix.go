@@ -4,7 +4,6 @@ package tactile
 
 import (
 	"os/exec"
-	"strings"
 	"syscall"
 )
 
@@ -30,43 +29,8 @@ func getProcessResourceUsage(cmd *exec.Cmd) *ResourceUsage {
 	}
 }
 
-// setupProcessGroup configures the command to run in its own process group.
-// This allows killing all child processes when the parent is terminated.
-func setupProcessGroup(cmd *exec.Cmd) {
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	cmd.SysProcAttr.Setpgid = true
-}
-
-// killProcessGroup kills the process and all its children on Unix.
-func killProcessGroup(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
-		return nil
-	}
-
-	pid := cmd.Process.Pid
-
-	// First try to get the process group ID
-	pgid, err := syscall.Getpgid(pid)
-	if err == nil && pgid > 0 {
-		// Kill the entire process group
-		if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
-			// If SIGKILL to group fails, try SIGTERM first
-			syscall.Kill(-pgid, syscall.SIGTERM)
-		}
-	}
-
-	// Also kill the main process directly as a fallback
-	if err := cmd.Process.Kill(); err != nil {
-		// Process might already be dead
-		if !strings.Contains(err.Error(), "process already finished") {
-			return err
-		}
-	}
-
-	return nil
-}
+// applyPlatformAttrs is a no-op on Unix; Command.CommandLine only affects Windows.
+func applyPlatformAttrs(execCmd *exec.Cmd, cmd Command) {}
 
 // createRlimitsCommon generates rlimit values that work on both Linux and macOS.
 // Returns a map of resource type to rlimit struct.

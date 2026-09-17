@@ -13,6 +13,7 @@ import (
 	"github.com/kballard/go-shellquote"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/processutil"
 	"codenerd/internal/tools"
 )
 
@@ -22,26 +23,13 @@ var (
 	execLookPath       = exec.LookPath
 )
 
-// commandWaitDelay bounds how long [exec.Cmd.Wait] waits for I/O copying to
-// finish after the context is cancelled or the process exits before it closes
-// the pipes and returns. It bounds post-cancellation I/O wait, not command
-// runtime (the context timeout bounds runtime). Without it, a grandchild that
-// inherits the write end of the pipe can keep Wait blocked long after the
-// deadline, because Wait waits for the background goroutine copying from the
-// os.Pipe which waits for EOF.
-const commandWaitDelay = 5 * time.Second
-
-// newCommand creates a new exec.Cmd via execCommandContext and sets WaitDelay
-// so that Wait does not block indefinitely on a pipe held open by a grandchild.
-// All command construction in this file should go through this helper so the
-// WaitDelay cannot drift out of sync between the three execution paths.
+// newCommand creates a new exec.Cmd via execCommandContext. It is the single
+// constructor for commands in this file so tests can swap execCommandContext;
+// it sets no WaitDelay or Cancel. Commands built here must be run with
+// processutil.Run or processutil.CombinedOutput, which own the kill scope and
+// the pipe bound.
 func newCommand(ctx context.Context, name string, arg ...string) *exec.Cmd {
-	cmd := execCommandContext(ctx, name, arg...)
-	cmd.WaitDelay = commandWaitDelay
-	// WaitDelay only bounds how long Wait blocks on a pipe a grandchild holds;
-	// it does not stop the grandchild. Cancellation must kill the tree.
-	configureTreeKill(cmd)
-	return cmd
+	return execCommandContext(ctx, name, arg...)
 }
 
 // coerceInt accepts any of the shapes a JSON-decoded LLM tool argument can
@@ -231,7 +219,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 
-		runErr := cmd.Run()
+		runErr := processutil.Run(cmd)
 
 		output := stdout.String()
 		if stderr.Len() > 0 {
@@ -338,7 +326,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	runErr := cmd.Run()
+	runErr := processutil.Run(cmd)
 
 	output := stdout.String()
 	if stderr.Len() > 0 {
@@ -458,7 +446,7 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err = cmd.Run()
+	err = processutil.Run(cmd)
 
 	output := stdout.String()
 	if stderr.Len() > 0 {

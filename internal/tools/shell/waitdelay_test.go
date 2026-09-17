@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+
+	"codenerd/internal/processutil"
 )
 
 func TestWaitDelay_AllPaths(t *testing.T) {
@@ -45,10 +47,10 @@ func TestWaitDelay_AllPaths(t *testing.T) {
 		}
 		for i, cmd := range cmds {
 			if cmd.WaitDelay == 0 {
-				t.Errorf("%s cmd %d (%v %v): WaitDelay is 0, want %v", path, i, cmd.Path, cmd.Args, commandWaitDelay)
+				t.Errorf("%s cmd %d (%v %v): WaitDelay is 0, want %v", path, i, cmd.Path, cmd.Args, processutil.PipeWaitDelay)
 			}
-			if cmd.WaitDelay != commandWaitDelay {
-				t.Errorf("%s cmd %d (%v %v): WaitDelay=%v, want %v", path, i, cmd.Path, cmd.Args, cmd.WaitDelay, commandWaitDelay)
+			if cmd.WaitDelay != processutil.PipeWaitDelay {
+				t.Errorf("%s cmd %d (%v %v): WaitDelay=%v, want %v", path, i, cmd.Path, cmd.Args, cmd.WaitDelay, processutil.PipeWaitDelay)
 			}
 		}
 	}
