@@ -690,6 +690,240 @@ func TestCaptureTaskExecutionSnapshot_DirectorySkipsNerdAndGit(t *testing.T) {
 	}
 }
 
+func TestRollback_RemovesFilesTheAttemptCreated(t *testing.T) {
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "pkg")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := filepath.Join(pkg, "existing.go")
+	original := []byte("package sample\n// original\n")
+	if err := os.WriteFile(existing, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{pkg}
+
+	snapshot, err := orch.captureTaskExecutionSnapshot(task)
+	if err != nil {
+		t.Fatalf("captureTaskExecutionSnapshot() error = %v", err)
+	}
+
+	created := filepath.Join(pkg, "new.go")
+	if err := os.WriteFile(created, []byte("package sample\n// created\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(existing, []byte("package sample\n// modified\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := orch.rollbackTaskExecutionSnapshot(snapshot); err != nil {
+		t.Fatalf("rollbackTaskExecutionSnapshot() error = %v", err)
+	}
+	if got, readErr := os.ReadFile(existing); readErr != nil || string(got) != string(original) {
+		t.Fatalf("existing content not restored: content=%q err=%v", got, readErr)
+	}
+	if _, statErr := os.Stat(created); !os.IsNotExist(statErr) {
+		t.Fatalf("created file should be removed by rollback, stat err: %v", statErr)
+	}
+}
+
+func TestRollback_KeepsFilesOutsideTheWriteSet(t *testing.T) {
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "pkg")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := filepath.Join(pkg, "existing.go")
+	original := []byte("package sample\n// original\n")
+	if err := os.WriteFile(existing, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{pkg}
+
+	snapshot, err := orch.captureTaskExecutionSnapshot(task)
+	if err != nil {
+		t.Fatalf("captureTaskExecutionSnapshot() error = %v", err)
+	}
+
+	inside := filepath.Join(pkg, "new.go")
+	if err := os.WriteFile(inside, []byte("package sample\n// created\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(existing, []byte("package sample\n// modified\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsideDir := filepath.Join(dir, "other")
+	if err := os.MkdirAll(outsideDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(outsideDir, "new.go")
+	outsideContent := []byte("package other\n// outside\n")
+	if err := os.WriteFile(outside, outsideContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := orch.rollbackTaskExecutionSnapshot(snapshot); err != nil {
+		t.Fatalf("rollbackTaskExecutionSnapshot() error = %v", err)
+	}
+	if got, readErr := os.ReadFile(existing); readErr != nil || string(got) != string(original) {
+		t.Fatalf("existing content not restored: content=%q err=%v", got, readErr)
+	}
+	if _, statErr := os.Stat(inside); !os.IsNotExist(statErr) {
+		t.Fatalf("created file inside write set should be removed by rollback, stat err: %v", statErr)
+	}
+	if got, readErr := os.ReadFile(outside); readErr != nil || string(got) != string(outsideContent) {
+		t.Fatalf("file outside write set must survive rollback: content=%q err=%v", got, readErr)
+	}
+}
+
+func TestRollback_LeavesBroadGlobMatchesAlone(t *testing.T) {
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "existing.go")
+	original := []byte("package sample\n// original\n")
+	if err := os.WriteFile(existing, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{filepath.Join(dir, "*.go")}
+
+	snapshot, err := orch.captureTaskExecutionSnapshot(task)
+	if err != nil {
+		t.Fatalf("captureTaskExecutionSnapshot() error = %v", err)
+	}
+	if len(snapshot.snapshotRoots) != 0 {
+		t.Fatalf("broad-glob write set must contribute no snapshot root, got %v", snapshot.snapshotRoots)
+	}
+
+	created := filepath.Join(dir, "new.go")
+	createdContent := []byte("package sample\n// created\n")
+	if err := os.WriteFile(created, createdContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := orch.rollbackTaskExecutionSnapshot(snapshot); err != nil {
+		t.Fatalf("rollbackTaskExecutionSnapshot() error = %v", err)
+	}
+	if got, readErr := os.ReadFile(created); readErr != nil || string(got) != string(createdContent) {
+		t.Fatalf("new broad-glob match must survive rollback (provenance unknown): content=%q err=%v", got, readErr)
+	}
+	if got, readErr := os.ReadFile(existing); readErr != nil || string(got) != string(original) {
+		t.Fatalf("pre-existing glob match not preserved: content=%q err=%v", got, readErr)
+	}
+}
+
+func TestRollback_RemovesEmptyDirectoriesItCreated(t *testing.T) {
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "pkg")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := filepath.Join(pkg, "existing.go")
+	original := []byte("package sample\n// original\n")
+	if err := os.WriteFile(existing, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	keep := filepath.Join(pkg, "keep")
+	if err := os.MkdirAll(keep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{pkg}
+
+	snapshot, err := orch.captureTaskExecutionSnapshot(task)
+	if err != nil {
+		t.Fatalf("captureTaskExecutionSnapshot() error = %v", err)
+	}
+
+	created := filepath.Join(pkg, "sub", "new.go")
+	if err := os.MkdirAll(filepath.Dir(created), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(created, []byte("package sample\n// created\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := orch.rollbackTaskExecutionSnapshot(snapshot); err != nil {
+		t.Fatalf("rollbackTaskExecutionSnapshot() error = %v", err)
+	}
+	if _, statErr := os.Stat(created); !os.IsNotExist(statErr) {
+		t.Fatalf("created file should be removed by rollback, stat err: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Dir(created)); !os.IsNotExist(statErr) {
+		t.Fatalf("empty directory created by the attempt should be removed by rollback, stat err: %v", statErr)
+	}
+	if info, statErr := os.Stat(keep); statErr != nil || !info.IsDir() {
+		t.Fatalf("pre-existing empty directory must survive rollback: info=%v err=%v", info, statErr)
+	}
+	if got, readErr := os.ReadFile(existing); readErr != nil || string(got) != string(original) {
+		t.Fatalf("existing content not preserved: content=%q err=%v", got, readErr)
+	}
+}
+
+func TestExecuteTaskWithRollback_FileModifyCreateOnlyRefusedTwice(t *testing.T) {
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "pkg")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := filepath.Join(pkg, "existing.go")
+	original := []byte("package sample\n// original\n")
+	if err := os.WriteFile(existing, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newFile := filepath.Join(pkg, "new.go")
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.Shard = "coder"
+	task.WriteSet = []string{pkg}
+	orch.taskExecutor = &MockTaskExecutor{
+		ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
+			// Recurse-wave shape: the attempt only creates a new helper file,
+			// never touching a pre-existing file in the write set.
+			if err := os.WriteFile(newFile, []byte("package sample\n// orphan helper\n"), 0o644); err != nil {
+				return "", err
+			}
+			return "ok", nil
+		},
+	}
+
+	// A refused attempt must leave the workspace as it found it, or its
+	// leftover satisfies the gate on the next try. Both identical attempts
+	// must be refused with no trace.
+	for attempt := 1; attempt <= 2; attempt++ {
+		_, err := orch.executeTaskWithRollback(context.Background(), task)
+		if err == nil || !strings.Contains(err.Error(), "modified no pre-existing file") {
+			t.Fatalf("attempt %d: expected file_modify no-modification refusal, got %v", attempt, err)
+		}
+		if _, statErr := os.Stat(newFile); !os.IsNotExist(statErr) {
+			t.Fatalf("attempt %d: orphan file must not survive refusal, stat err: %v", attempt, statErr)
+		}
+		if got, readErr := os.ReadFile(existing); readErr != nil || string(got) != string(original) {
+			t.Fatalf("attempt %d: existing content not preserved: content=%q err=%v", attempt, got, readErr)
+		}
+	}
+}
+
 func TestWithTaskExecutionSnapshot_FileCreateExactNewPathRemainsAllowed(t *testing.T) {
 	dir := t.TempDir()
 	created := filepath.Join(dir, "created.go")

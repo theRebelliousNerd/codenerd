@@ -37,6 +37,8 @@ type taskExecutionSnapshot struct {
 	fileMutations   []fileMutationSnapshot
 	declaredGlobs   []string
 	globPreMatches  map[string]map[string]struct{}
+	snapshotRoots   []string            // absolute, non-glob write-set roots captured for this task
+	snapshotPaths   map[string]struct{} // absolute paths of every regular file present at capture
 
 	// Scoped (non-structural) rollback state.
 	scopedTask   *Task
@@ -113,8 +115,10 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 // validateFileModifyOutcome requires a file_modify task to change at least one
 // pre-existing file in its declared write set. A directory write set counts as
 // modified when any pre-existing file under it changed; files the task CREATES
-// under the directory are neither required nor rolled back (same as exact paths
-// that did not exist at snapshot time).
+// under the directory are not required for success (same as exact paths
+// that did not exist at snapshot time), but they no longer survive a refusal:
+// rollback removes files created during the attempt so leftovers cannot satisfy
+// the gate on the next try.
 func validateFileModifyOutcome(task *Task, snapshot taskExecutionSnapshot) error {
 	newMatches, err := listNewBroadGlobMatches(snapshot)
 	if err != nil {
@@ -293,6 +297,31 @@ func (o *Orchestrator) captureTaskExecutionSnapshot(task *Task) (taskExecutionSn
 			Content: content,
 		})
 	}
+	snapshot.snapshotPaths = make(map[string]struct{}, len(snapshot.fileMutations))
+	for _, m := range snapshot.fileMutations {
+		if m.Exists {
+			snapshot.snapshotPaths[filepath.Clean(m.Path)] = struct{}{}
+		}
+	}
+	seenRoots := make(map[string]struct{})
+	for _, candidate := range writeSet {
+		if containsGlobMeta(candidate) {
+			continue
+		}
+		roots, expandErr := expandSnapshotPaths([]string{candidate})
+		if expandErr != nil {
+			return snapshot, expandErr
+		}
+		for _, r := range roots {
+			clean := filepath.Clean(r)
+			if _, ok := seenRoots[clean]; ok {
+				continue
+			}
+			seenRoots[clean] = struct{}{}
+			snapshot.snapshotRoots = append(snapshot.snapshotRoots, clean)
+		}
+	}
+	sort.Strings(snapshot.snapshotRoots)
 
 	return snapshot, nil
 }
@@ -427,6 +456,81 @@ func (o *Orchestrator) rollbackTaskExecutionSnapshot(snapshot taskExecutionSnaps
 	// operator recovery. Fail-closed detection is handled in validateFileModifyOutcome
 	// via listNewBroadGlobMatches. Exact non-glob missing-path entries remain governed
 	// by fileMutations snapshot rollback above.
+	// A refused attempt must leave the workspace as it found it, or its
+	// leftovers satisfy the gate on the next try: an attempt that only CREATED
+	// a file under a directory write set fails validateFileModifyOutcome (it
+	// modified no pre-existing file), but without cleanup the retry edits that
+	// same leftover and passes. So delete regular files created during the
+	// attempt under the snapshotted non-glob roots — files absent from
+	// snapshotPaths. Broad-glob entries contribute no snapshot root, so their
+	// matches keep the unknown-provenance exemption stated above.
+	for _, root := range snapshot.snapshotRoots {
+		info, err := os.Stat(root)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("rollback stat %s: %w", root, err)
+		}
+		if !info.IsDir() {
+			continue
+		}
+		rootClean := filepath.Clean(root)
+		var created []string
+		if err := filepath.WalkDir(rootClean, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return fmt.Errorf("walk rollback path %s: %w", path, err)
+			}
+			if d.IsDir() {
+				if path != rootClean && (d.Name() == ".git" || d.Name() == ".nerd") {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			fileInfo, err := d.Info()
+			if err != nil {
+				if os.IsNotExist(err) {
+					return nil
+				}
+				return fmt.Errorf("stat rollback file %s: %w", path, err)
+			}
+			if !fileInfo.Mode().IsRegular() {
+				return nil
+			}
+			clean := filepath.Clean(path)
+			if _, ok := snapshot.snapshotPaths[clean]; ok {
+				return nil
+			}
+			created = append(created, clean)
+			return nil
+		}); err != nil {
+			return err
+		}
+		dirSet := make(map[string]struct{})
+		for _, p := range created {
+			if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("rollback remove created file %s: %w", p, err)
+			}
+			// Only ancestors of removed files are candidates: unrelated
+			// pre-existing directories (even empty ones) are never touched,
+			// while directories the attempt created end up empty and are
+			// removed below. (p comes from the walk above, so it is under
+			// rootClean and this loop terminates there.) Directory removal is
+			// best-effort — a non-empty directory still holds pre-existing
+			// content and is left alone.
+			for d := filepath.Dir(p); d != rootClean && d != filepath.Dir(d); d = filepath.Dir(d) {
+				dirSet[d] = struct{}{}
+			}
+		}
+		dirs := make([]string, 0, len(dirSet))
+		for d := range dirSet {
+			dirs = append(dirs, d)
+		}
+		sort.Sort(sort.Reverse(sort.StringSlice(dirs)))
+		for _, d := range dirs {
+			_ = os.Remove(d)
+		}
+	}
 
 	// Scoped (non-structural) rollback: restore only the failing task's own status
 	// in place. This keeps o.campaign's identity and all sibling task state intact,

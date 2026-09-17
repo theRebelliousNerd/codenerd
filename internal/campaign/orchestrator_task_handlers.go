@@ -459,6 +459,12 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 		targetLabel = "package:"
 	}
 	shardTask := fmt.Sprintf("%s %s%s %s", action, targetLabel, targetPath, o.buildTaskInput(task))
+	// F-REC-9: a /file_modify task is satisfied only by changing one of its
+	// declared write-set files. Name them so the shard does not guess a new
+	// helper file instead. /file_create keeps today's string exactly.
+	if task.Type == TaskTypeFileModify {
+		shardTask += o.writeSetBriefing(task)
+	}
 	logging.CampaignDebug("Spawning coder shard: action=%s, path=%s, task=%s", action, targetPath, shardTask)
 
 	// Delegate to coder shard
