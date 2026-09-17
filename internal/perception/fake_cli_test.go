@@ -77,6 +77,9 @@ func init() {
 	if base == "claude" {
 		os.Exit(runFakeClaude(os.Args[1:]))
 	}
+	if base == "codex" {
+		os.Exit(runFakeCodex(os.Args[1:]))
+	}
 }
 
 // runFakeClaude mirrors the old script fake; CLAUDE_TEST_MODE selects the behaviour.
@@ -188,4 +191,77 @@ func emitFakeStreamLong() int {
 	fmt.Fprint(os.Stdout, `{"type":"text","text":"`+strings.Repeat("A", 102400)+"\"}\n")
 	fmt.Fprint(os.Stdout, "{\"type\":\"done\",\"done\":true}\n")
 	return 0
+}
+
+// runFakeCodex serves both codex fakes (exec transport and probe);
+// CODEX_TEST_MODE selects the behaviour.
+func runFakeCodex(args []string) int {
+	dir, ok := fakeCLIDir()
+	if !ok {
+		return 2
+	}
+	if err := logFakeInvocation(dir, args); err != nil {
+		fmt.Fprintf(os.Stderr, "fake codex log: %v\n", err)
+		return 2
+	}
+	out := ""
+	schema := ""
+	for i := 0; i+1 < len(args); i++ {
+		switch args[i] {
+		case "--output-last-message":
+			out = args[i+1]
+		case "--output-schema":
+			schema = args[i+1]
+		}
+	}
+	if schema != "" {
+		if data, err := os.ReadFile(schema); err == nil {
+			if err := os.WriteFile(filepath.Join(dir, "schema_copy.json"), data, 0o644); err != nil {
+				fmt.Fprintf(os.Stderr, "fake codex schema copy: %v\n", err)
+				return 2
+			}
+		}
+	}
+	writeOut := func(data string) int {
+		if out == "" {
+			fmt.Fprint(os.Stderr, "fake codex: missing --output-last-message\n")
+			return 2
+		}
+		if err := os.WriteFile(out, []byte(data), 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "fake codex output: %v\n", err)
+			return 2
+		}
+		return 0
+	}
+	switch os.Getenv("CODEX_TEST_MODE") {
+	case "rate_limit":
+		fmt.Fprint(os.Stderr, "429 rate limit reached\n")
+		return 1
+	case "auth":
+		fmt.Fprint(os.Stderr, "please login\n")
+		return 1
+	case "schema_bad":
+		return writeOut("not-json")
+	case "fallback":
+		for _, a := range args {
+			if a == "fb-model" {
+				return writeOut(os.Getenv("CODEX_TEST_PAYLOAD"))
+			}
+		}
+		fmt.Fprint(os.Stderr, "429 rate limit reached\n")
+		return 1
+	case "empty_out":
+		if out == "" {
+			fmt.Fprint(os.Stderr, "fake codex: missing --output-last-message\n")
+			return 2
+		}
+		if err := os.WriteFile(out, []byte{}, 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "fake codex output: %v\n", err)
+			return 2
+		}
+		fmt.Fprint(os.Stdout, "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"  recovered  \"}}\n")
+		return 0
+	default:
+		return writeOut(os.Getenv("CODEX_TEST_PAYLOAD"))
+	}
 }

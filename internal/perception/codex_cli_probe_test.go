@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 )
 
 func TestCodexCLIClient_RunHealthProbe_Success(t *testing.T) {
-	fakeDir := writeFakeCodex(t)
+	fakeDir := installFakeCLI(t, "codex")
 	t.Setenv("PATH", prependPath(fakeDir, os.Getenv("PATH")))
 	t.Setenv("CODEX_TEST_MODE", "success")
 	t.Setenv("CODEX_TEST_PAYLOAD", `{"status":"ok","mode":"codex-exec-health","skill":"disabled","schema_valid":true}`)
@@ -37,7 +36,7 @@ func TestCodexCLIClient_RunHealthProbe_Success(t *testing.T) {
 }
 
 func TestCodexCLIClient_RunHealthProbe_SkillMissingAfterSuccessfulExec(t *testing.T) {
-	fakeDir := writeFakeCodex(t)
+	fakeDir := installFakeCLI(t, "codex")
 	t.Setenv("PATH", prependPath(fakeDir, os.Getenv("PATH")))
 	t.Setenv("CODEX_TEST_MODE", "success")
 	t.Setenv("CODEX_TEST_PAYLOAD", `{"status":"ok","mode":"codex-exec-health","skill":"disabled","schema_valid":true}`)
@@ -64,7 +63,7 @@ func TestCodexCLIClient_RunHealthProbe_SkillMissingAfterSuccessfulExec(t *testin
 }
 
 func TestCodexCLIClient_RunHealthProbe_RateLimited(t *testing.T) {
-	fakeDir := writeFakeCodex(t)
+	fakeDir := installFakeCLI(t, "codex")
 	t.Setenv("PATH", prependPath(fakeDir, os.Getenv("PATH")))
 	t.Setenv("CODEX_TEST_MODE", "rate_limit")
 	t.Setenv("CODEX_TEST_PAYLOAD", "")
@@ -95,7 +94,7 @@ func TestClassifyCodexCLIProbeError_AuthUnavailable(t *testing.T) {
 }
 
 func TestProbeCodexExec_MapsLoginFailures(t *testing.T) {
-	fakeDir := writeFakeCodex(t)
+	fakeDir := installFakeCLI(t, "codex")
 	t.Setenv("PATH", prependPath(fakeDir, os.Getenv("PATH")))
 	t.Setenv("CODEX_TEST_MODE", "auth")
 
@@ -114,76 +113,4 @@ func prependPath(first, existing string) string {
 		return first
 	}
 	return first + string(os.PathListSeparator) + existing
-}
-
-func writeFakeCodex(t *testing.T) string {
-	t.Helper()
-
-	dir := t.TempDir()
-	if runtime.GOOS == "windows" {
-		path := filepath.Join(dir, "codex.cmd")
-		script := "@echo off\r\n" +
-			"setlocal\r\n" +
-			"set \"out=\"\r\n" +
-			":parse\r\n" +
-			"if \"%~1\"==\"\" goto done\r\n" +
-			"if \"%~1\"==\"--output-last-message\" (\r\n" +
-			"  set \"out=%~2\"\r\n" +
-			"  shift\r\n" +
-			"  shift\r\n" +
-			"  goto parse\r\n" +
-			")\r\n" +
-			"shift\r\n" +
-			"goto parse\r\n" +
-			":done\r\n" +
-			"if \"%CODEX_TEST_MODE%\"==\"rate_limit\" (\r\n" +
-			"  >&2 echo 429 rate limit\r\n" +
-			"  exit /b 1\r\n" +
-			")\r\n" +
-			"if \"%CODEX_TEST_MODE%\"==\"auth\" (\r\n" +
-			"  >&2 echo please login\r\n" +
-			"  exit /b 1\r\n" +
-			")\r\n" +
-			"if \"%CODEX_TEST_MODE%\"==\"schema_bad\" (\r\n" +
-			"  > \"%out%\" echo not-json\r\n" +
-			"  exit /b 0\r\n" +
-			")\r\n" +
-			"> \"%out%\" echo %CODEX_TEST_PAYLOAD%\r\n" +
-			"exit /b 0\r\n"
-		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-			t.Fatalf("write fake codex.cmd: %v", err)
-		}
-		return dir
-	}
-
-	path := filepath.Join(dir, "codex")
-	script := "#!/usr/bin/env sh\n" +
-		"out=\"\"\n" +
-		"while [ \"$#\" -gt 0 ]; do\n" +
-		"  if [ \"$1\" = \"--output-last-message\" ]; then\n" +
-		"    out=\"$2\"\n" +
-		"    shift 2\n" +
-		"    continue\n" +
-		"  fi\n" +
-		"  shift\n" +
-		"done\n" +
-		"case \"$CODEX_TEST_MODE\" in\n" +
-		"  rate_limit)\n" +
-		"    echo \"429 rate limit\" 1>&2\n" +
-		"    exit 1\n" +
-		"    ;;\n" +
-		"  auth)\n" +
-		"    echo \"please login\" 1>&2\n" +
-		"    exit 1\n" +
-		"    ;;\n" +
-		"  schema_bad)\n" +
-		"    printf '%s' 'not-json' > \"$out\"\n" +
-		"    exit 0\n" +
-		"    ;;\n" +
-		"esac\n" +
-		"printf '%s' \"$CODEX_TEST_PAYLOAD\" > \"$out\"\n"
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake codex script: %v", err)
-	}
-	return dir
 }
