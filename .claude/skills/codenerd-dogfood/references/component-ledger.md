@@ -3945,3 +3945,62 @@ F-STEP-1 (directory step targets), F-FINAL-1, F-ART-1, F-MOD-2, F-WIN-2/3/4, F-E
 quoting brief -> 5 min). A consolidation brief must state which of two diverging behaviours wins and grep the tests for it
 first (F-DUP-1 "Retry-After: 0" broke five tests). Review every diff: duplicated lines, deleted doc-comment lines, a shim and
 a wall-clock time bomb all passed build, tests and review in some run today.
+
+## JIT context delivery, measured (2026-09-17 evening) — the selector barely selects
+
+Instrument: one live `nerd fix` turn (session 765d42, coder /fix /go) read out of `llm_io.log`, plus 151 recorded
+compiles in `.nerd/meter/atom-selections.jsonl`, plus an offline probe that scores real task text against the stored atom
+vectors. Scripts are throwaway; the numbers and the method are what matter.
+
+**What one coder turn is sent.** System prompt ~27K tokens, re-sent on each of 34 tool-loop requests (~930K tokens in a
+four-minute turn); history ~6.6K; the "user prompt" is a 9-token marker; 26 tool definitions ride natively. The head is
+byte-stable and observations append at the tail, so 75-100% of each request shares a prefix with the last (cache-friendly
+by design). 62 of the 63 static atoms in that prompt were `is_mandatory`.
+
+**Why everything is mandatory (three structural defects, in dependency order):**
+- F-EMBED-SPACE — atom vectors and query vectors came from different models. Stored vectors are nomic-embed-text
+  (re-embed cosine 0.72-0.82); queries use the configured embeddinggemma:300m (cosine ~0.00). Both 768-dim, so the length
+  check passed and ranking was noise: best score for a refactor task 0.035. With the matching model the refactoring atoms
+  score 0.65 and `go/concurrency/race_conditions` tops a data-race task at 0.72. Fixed for the searcher and the embedded
+  sync (71748955, `nerd fix`, two turns): `prompt_atoms.embedding_model`, re-embed on engine change, skip-and-report
+  vectors from another model. OPEN: the other writers (loader insert sites, reconciler, internal/store) do not stamp yet.
+- F-JIT-TOPK — the searcher truncates to top-K over ALL atoms before eligibility; 6-10 of every global top-10 are already
+  mandatory or gated to another shard/language. OPEN (brief written: brief_jit_reach).
+- F-JIT-REACH — `vector_hit` facts are built only for flesh categories; identity/protocol/safety/methodology are skeleton.
+  118 non-mandatory skeleton-category atoms (~36K tokens, the whole refactoring encyclopedia) have 0 selections in 151
+  compiles: unreachable by construction. Marking an atom mandatory was the only way to make it visible. OPEN (same brief).
+- Net: the vector channel delivered 0.30 atoms per compile; 116 of 151 compiles got none. **Do not demote mandatory atoms
+  until TOPK and REACH land — before that, demotion is deletion.**
+
+**Atom defects fixed by hand (YAML; architect asked for this work directly):**
+- dee70489 — "[Kernel] Mangle update dropped" in the TUI was the model imitating its instructions: the mandatory envelope
+  showed `"predicate(arg1, arg2)."`, the rules atom was non-mandatory in a skeleton category (0 of 150 compiles — F-JIT-REACH
+  in miniature), and the exemplars taught seven refused facts. `TestAtomCorpus_MangleUpdateExamplesAreAccepted` runs every
+  corpus example through FilterMangleUpdates on a real kernel.
+- b1e0b2b1 — `eval/judge/task_evaluator` and `autopoiesis/meta/atom_generator` were mandatory with no selector: 150 of 150
+  compiles, "You are an expert evaluator" inside coder prompts. Scoped by shard type. Two invariants: role-declaring atoms
+  need a regime selector; the unscoped-mandatory set is an explicit list checked both ways.
+- 5bba0023 — eight CodeDOM atoms, 8,006 -> 1,991 tokens. They repeated one policy list three times, contradicted each
+  other ("think in Refs, not lines" vs mandatory line-range edits), said `get_element` returns a body (it does not), taught
+  `get_impacted_tests`/`run_impacted_tests` (not in the coder catalog) six times, showed a fabricated `get_elements` result
+  shape, and never named `apply_edits`. Measured behaviour under the old text: 26 `read_file` calls, 1 `get_elements`.
+  Invariant: a tool any atom lists in `requires_tools` may be named only by atoms that require it. **Behavioural effect of
+  the rewrite is not yet measured** — needs a before/after `nerd fix` on the same brief with a rebuilt binary.
+
+**Kernel (lane 2, 6193b13e, all `nerd fix`):** one validated `AssertWithoutEval` (the unchecked twin deleted, no shim);
+`AssertBatch` back to reject-the-bad-fact-keep-the-rest. **I reversed my own earlier brief**: I had made it atomic, and with
+Decl type checks live that turns one producer mistype into total blindness for 32 callers (JIT selector, world scan). The
+source comment said "a batch is a convenience, not a transaction" all along. Four tests re-pinned to real contracts.
+
+**What the Decl check exposed after the merge (full suite: 4 failures, 2 packages, vet clean):** fixtures asserting shapes
+production never produces — `pending_action`/`permitted_action` payload as a raw map (every producer uses
+`encodeActionPayload` -> JSON string), `symbol_graph` Signature as an int. Production is right; brief_t1_fixtures covers
+them. Earlier the same check found a real one: `tool_registered` asserted an RFC3339 string into a /number slot (1b4ff562).
+
+**Process findings:**
+- F-GATE-SKIPSTUB (open, architect's call — safety gate): "turn removed test(s) without replacing them" counts a
+  `t.Skip`-only stub as a test, so a correct shard turn was refused (work committed by hand as 39f5665c). Related hole, not
+  acted on: gutting a test body to `t.Skip` does not trip the gate at all.
+- A shard dropped a comma after a new column in CREATE TABLE; SQLite parsed `TEXT source_file TEXT` as a type name and
+  silently created the table without `source_file`. Build, vet and the shard's own gates passed; the package tests caught it.
+- Both lanes lost DNS mid-run: `nerd fix` failed in ~11 s after 4 attempts with the real error and left the tree clean.
