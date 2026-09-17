@@ -22,7 +22,16 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 		return head
 	}
 	headFailed := topLevelFailedTests(head.Output)
-	if len(headFailed) == 0 || len(packages) == 0 || len(preWrite) == 0 {
+	if len(headFailed) == 0 {
+		logging.SessionDebug("test gate: no baseline attribution: no top-level failed test names parsed from %d bytes of output", len(head.Output))
+		return head
+	}
+	if len(packages) == 0 {
+		logging.SessionDebug("test gate: no baseline attribution: no packages")
+		return head
+	}
+	if len(preWrite) == 0 {
+		logging.SessionDebug("test gate: no baseline attribution: no pre-write snapshots (%d written paths)", len(writtenPaths))
 		return head
 	}
 	for _, p := range writtenPaths {
@@ -32,25 +41,29 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 		}
 		if _, ok := preWrite[key]; !ok {
 			if _, ok := preWrite[p]; !ok {
-				logging.SessionDebug("test gate: skipping baseline attribution: missing pre-write snapshot for %q", p)
+				logging.SessionDebug("test gate: no baseline attribution: missing pre-write snapshot for %q", p)
 				return head
 			}
 		}
 	}
 	if ctx.Err() != nil {
+		logging.SessionDebug("test gate: no baseline attribution: context done: %v", ctx.Err())
 		return head
 	}
-	tmpDir, overlayPath, ok := buildTestOverlay(workspace, preWrite)
-	if !ok {
+	tmpDir, overlayPath, err := buildTestOverlay(workspace, preWrite)
+	if err != nil {
+		logging.SessionDebug("test gate: no baseline attribution: overlay could not be built: %v", err)
 		return head
 	}
 	defer os.RemoveAll(tmpDir)
-	out, ok := runBaselineTests(ctx, workspace, overlayPath, baselineRunRegex(headFailed), packages)
-	if !ok {
+	out, baselineOutcome := runBaselineTests(ctx, workspace, overlayPath, baselineRunRegex(headFailed), packages)
+	if baselineOutcome != VerifyPassed && baselineOutcome != VerifyFailed {
+		logging.SessionDebug("test gate: no baseline attribution: baseline run inconclusive (outcome %s)", baselineOutcome)
 		return head
 	}
 	preExisting := partitionPreExisting(headFailed, out)
 	if len(preExisting) == 0 {
+		logging.SessionDebug("test gate: no baseline attribution: every failure is new to this turn (%d failed)", len(headFailed))
 		return head
 	}
 	if len(preExisting) == len(headFailed) {
@@ -97,42 +110,42 @@ func baselineRunRegex(names []string) string {
 	return "^(" + strings.Join(quoted, "|") + ")$"
 }
 
-func runBaselineTests(ctx context.Context, workspace, overlayPath, runArg string, packages []string) (string, bool) {
+func runBaselineTests(ctx context.Context, workspace, overlayPath, runArg string, packages []string) (string, VerifyOutcome) {
 	args := []string{"test", "-overlay", overlayPath, "-count=1", "-run", runArg}
 	args = append(args, packages...)
 	out, outcome, _ := runVerificationCommand(ctx, workspace, build.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
 	switch outcome {
 	case VerifyPassed, VerifyFailed:
-		return string(out), true
+		return string(out), outcome
 	default:
-		return "", false
+		return "", outcome
 	}
 }
 
-func buildTestOverlay(workspace string, preWrite map[string]string) (string, string, bool) {
+func buildTestOverlay(workspace string, preWrite map[string]string) (string, string, error) {
 	tmpDir, err := os.MkdirTemp("", "test-baseline-*")
 	if err != nil {
-		return "", "", false
+		return "", "", fmt.Errorf("create baseline overlay temp dir: %w", err)
 	}
-	replace := writeOverlayFiles(tmpDir, workspace, preWrite)
-	if replace == nil {
+	replace, err := writeOverlayFiles(tmpDir, workspace, preWrite)
+	if err != nil {
 		os.RemoveAll(tmpDir)
-		return "", "", false
+		return "", "", err
 	}
 	overlayBytes, err := json.Marshal(map[string]map[string]string{"Replace": replace})
 	if err != nil {
 		os.RemoveAll(tmpDir)
-		return "", "", false
+		return "", "", fmt.Errorf("marshal baseline overlay: %w", err)
 	}
 	overlayPath := filepath.Join(tmpDir, "overlay.json")
 	if err := os.WriteFile(overlayPath, overlayBytes, 0644); err != nil {
 		os.RemoveAll(tmpDir)
-		return "", "", false
+		return "", "", fmt.Errorf("write baseline overlay %s: %w", overlayPath, err)
 	}
-	return tmpDir, overlayPath, true
+	return tmpDir, overlayPath, nil
 }
 
-func writeOverlayFiles(tmpDir, workspace string, preWrite map[string]string) map[string]string {
+func writeOverlayFiles(tmpDir, workspace string, preWrite map[string]string) (map[string]string, error) {
 	replace := make(map[string]string, len(preWrite))
 	idx := 0
 	for key, content := range preWrite {
@@ -144,11 +157,11 @@ func writeOverlayFiles(tmpDir, workspace string, preWrite map[string]string) map
 		tmpFile := filepath.Join(tmpDir, fmt.Sprintf("overlay-%d.go", idx))
 		idx++
 		if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
-			return nil
+			return nil, fmt.Errorf("write baseline overlay file %s: %w", tmpFile, err)
 		}
 		replace[abs] = tmpFile
 	}
-	return replace
+	return replace, nil
 }
 
 // topLevelFailedTests extracts deduplicated, sorted top-level test names.
