@@ -48,6 +48,18 @@ func NewFallbackClient(name string, primary, secondary LLMClient) *FallbackClien
 
 var _ LLMClient = (*FallbackClient)(nil)
 
+// Unwrap exposes the preferred path for broker chain walks: the primary
+// when set, else the secondary. A nil side ends the walk (Walk treats a
+// nil Unwrap as the chain end), which mirrors call behavior — a missing
+// side never serves. Without this, Base/IsBrokered stop at the failover
+// layer and concrete-engine checks downstream silently stop matching.
+func (c *FallbackClient) Unwrap() LLMClient {
+	if c.primary != nil {
+		return c.primary
+	}
+	return c.secondary
+}
+
 // GetModel reports the primary's model, else the secondary's, for I/O
 // tracing. Without this forwarding the scheduled wrapper logs MODEL: empty
 // for every failover-protected call.

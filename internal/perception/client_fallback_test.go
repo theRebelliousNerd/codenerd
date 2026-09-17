@@ -265,3 +265,20 @@ func TestFallbackClient_NilStreamFailsOver(t *testing.T) {
 		t.Fatalf("stream = %q, %v; want ok, nil", text, err)
 	}
 }
+
+// Unwrap exposes the preferred path for broker chain walks: primary when
+// set, else secondary, else nil (which ends the walk, mirroring that a
+// missing side never serves).
+func TestFallbackClient_UnwrapPrefersPrimary(t *testing.T) {
+	primary := &fallbackFakeClient{}
+	secondary := &fallbackFakeClient{}
+	if got := NewFallbackClient("test", primary, secondary).Unwrap(); got != LLMClient(primary) {
+		t.Fatalf("Unwrap with both sides = %p, want primary %p", got, primary)
+	}
+	if got := NewFallbackClient("test", nil, secondary).Unwrap(); got != LLMClient(secondary) {
+		t.Fatalf("Unwrap with nil primary = %p, want secondary %p", got, secondary)
+	}
+	if got := NewFallbackClient("test", nil, nil).Unwrap(); got != nil {
+		t.Fatalf("Unwrap with no sides = %v, want nil", got)
+	}
+}
