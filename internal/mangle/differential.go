@@ -220,10 +220,15 @@ func (cfs *ChainedFactStore) Contains(atom ast.Atom) bool {
 }
 
 func (cfs *ChainedFactStore) Merge(other factstore.ReadOnlyFactStore) {
-	_ = other.GetFacts(ast.Atom{}, func(atom ast.Atom) error {
-		cfs.overlay.Add(atom)
-		return nil
-	})
+	// The zero ast.Atom{} carries the zero PredicateSym, which matches no
+	// predicate, so a single GetFacts(ast.Atom{}, ...) call copies nothing.
+	// Scan per-predicate like Snapshot does instead.
+	for _, predSym := range other.ListPredicates() {
+		_ = other.GetFacts(ast.Atom{Predicate: predSym}, func(atom ast.Atom) error {
+			cfs.overlay.Add(atom)
+			return nil
+		})
+	}
 }
 
 // Snapshot creates a Copy-On-Write snapshot of the engine.
