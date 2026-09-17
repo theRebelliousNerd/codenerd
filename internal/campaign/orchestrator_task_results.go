@@ -2,6 +2,10 @@ package campaign
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -217,6 +221,109 @@ func (o *Orchestrator) buildTaskInput(task *Task) string {
 	}
 
 	return input
+}
+
+// writeSetBriefing tells a file task what it may change and what will
+// satisfy it. A /file_modify task that creates a new file is refused by
+// validateFileModifyOutcome, so the existing files are named here rather
+// than left to the shard to guess.
+func (o *Orchestrator) writeSetBriefing(task *Task) string {
+	if task == nil {
+		return ""
+	}
+	if task.Type != TaskTypeFileModify {
+		return ""
+	}
+	writeSet := o.resolveTaskWriteSet(task)
+	if len(writeSet) == 0 {
+		return ""
+	}
+	// Directories that never carry a task's own change: version control,
+	// runtime state, vendored copies, and fixture corpora.
+	skipDir := map[string]bool{
+		".git":     true,
+		".nerd":    true,
+		"vendor":   true,
+		"testdata": true,
+	}
+	seen := make(map[string]bool)
+	var relPaths []string
+	workspace := ""
+	if o != nil {
+		workspace = o.workspace
+	}
+	toRel := func(abs string) string {
+		slash := filepath.ToSlash(filepath.Clean(abs))
+		if workspace != "" {
+			if rel, err := filepath.Rel(workspace, filepath.FromSlash(slash)); err == nil {
+				rel = filepath.ToSlash(rel)
+				if rel != "." && rel != "" && !strings.HasPrefix(rel, "../") {
+					return rel
+				}
+			}
+		}
+		return slash
+	}
+	for _, entry := range writeSet {
+		hostPath := filepath.FromSlash(entry)
+		info, err := os.Stat(hostPath)
+		if err != nil {
+			continue
+		}
+		if !info.IsDir() {
+			if !info.Mode().IsRegular() {
+				continue
+			}
+			rel := toRel(entry)
+			if !seen[rel] {
+				seen[rel] = true
+				relPaths = append(relPaths, rel)
+			}
+			continue
+		}
+		root := hostPath
+		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if path != root && skipDir[d.Name()] {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			info, err := d.Info()
+			if err != nil {
+				return nil
+			}
+			if !info.Mode().IsRegular() {
+				return nil
+			}
+			rel := toRel(filepath.ToSlash(path))
+			if !seen[rel] {
+				seen[rel] = true
+				relPaths = append(relPaths, rel)
+			}
+			return nil
+		})
+	}
+	if len(relPaths) == 0 {
+		return ""
+	}
+	sort.Strings(relPaths)
+	display := relPaths
+	suffix := ""
+	if len(relPaths) > 40 {
+		remaining := len(relPaths) - 40
+		display = relPaths[:40]
+		suffix = fmt.Sprintf("\n... and %d more", remaining)
+	}
+	var b strings.Builder
+	b.WriteString("\n\nFILES THIS TASK MAY MODIFY (workspace-relative):\n")
+	b.WriteString(strings.Join(display, "\n"))
+	b.WriteString(suffix)
+	b.WriteString("\nThis task modifies existing files. Creating a new file does not satisfy it: the change must land in one of the files above, and a new helper file that nothing calls is not a change. Add tests next to the code you changed.")
+	return b.String()
 }
 
 // inferShardFromTaskType maps a TaskType to its default shard for backward compatibility.

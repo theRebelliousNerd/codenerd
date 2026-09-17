@@ -700,3 +700,151 @@ func TestExecuteFileTask_CoderTaskTargetLabel(t *testing.T) {
 		}
 	})
 }
+
+func TestWriteSetBriefing_ListsExistingFilesForModify(t *testing.T) {
+	ws := t.TempDir()
+	for _, f := range []string{"pkg/a.go", "pkg/b.go", "pkg/sub/c.go"} {
+		p := filepath.Join(ws, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte("package pkg\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", f, err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(ws, "pkg", "empty"), 0o755); err != nil {
+		t.Fatalf("mkdir empty: %v", err)
+	}
+	o := &Orchestrator{workspace: ws}
+	task := &Task{ID: "brief-1", Type: TaskTypeFileModify, WriteSet: []string{"pkg"}}
+	got := o.writeSetBriefing(task)
+	for _, want := range []string{"pkg/a.go", "pkg/b.go", "pkg/sub/c.go"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected briefing to contain %q, got %q", want, got)
+		}
+	}
+	if !strings.Contains(got, "Creating a new file does not satisfy it") {
+		t.Fatalf("expected briefing to contain the new-file sentence, got %q", got)
+	}
+	if strings.Contains(got, "empty") {
+		t.Fatalf("briefing must not mention the empty dir, got %q", got)
+	}
+}
+
+func TestWriteSetBriefing_EmptyForCreateAndForMissingPaths(t *testing.T) {
+	ws := t.TempDir()
+	p := filepath.Join(ws, "pkg", "a.go")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(p, []byte("package pkg\n"), 0o644); err != nil {
+		t.Fatalf("write pkg/a.go: %v", err)
+	}
+	o := &Orchestrator{workspace: ws}
+	if got := o.writeSetBriefing(&Task{ID: "brief-create", Type: TaskTypeFileCreate, WriteSet: []string{"pkg"}}); got != "" {
+		t.Fatalf("expected empty briefing for /file_create, got %q", got)
+	}
+	if got := o.writeSetBriefing(&Task{ID: "brief-missing", Type: TaskTypeFileModify, WriteSet: []string{"does/not/exist"}}); got != "" {
+		t.Fatalf("expected empty briefing for missing write-set paths, got %q", got)
+	}
+}
+
+func TestWriteSetBriefing_CapsTheList(t *testing.T) {
+	ws := t.TempDir()
+	for i := 0; i < 60; i++ {
+		name := "pkg/f" + string(rune('0'+i/10)) + string(rune('0'+i%10)) + ".go"
+		p := filepath.Join(ws, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte("package pkg\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	o := &Orchestrator{workspace: ws}
+	got := o.writeSetBriefing(&Task{ID: "brief-cap", Type: TaskTypeFileModify, WriteSet: []string{"pkg"}})
+	if !strings.Contains(got, "and 20 more") {
+		t.Fatalf("expected briefing to contain %q, got %q", "and 20 more", got)
+	}
+	if c := strings.Count(got, ".go"); c != 40 {
+		t.Fatalf("expected exactly 40 listed paths, got %d in %q", c, got)
+	}
+	if !strings.Contains(got, "pkg/f00.go") {
+		t.Fatalf("expected briefing to contain %q, got %q", "pkg/f00.go", got)
+	}
+	if !strings.Contains(got, "pkg/f39.go") {
+		t.Fatalf("expected briefing to contain %q, got %q", "pkg/f39.go", got)
+	}
+	if strings.Contains(got, "pkg/f40.go") {
+		t.Fatalf("briefing must cap the list at 40, must not contain %q, got %q", "pkg/f40.go", got)
+	}
+}
+
+func TestExecuteFileTask_BriefingForModifyOnly(t *testing.T) {
+	ctx := context.Background()
+	const briefingHeader = "FILES THIS TASK MAY MODIFY"
+
+	t.Run("modify directory task includes briefing", func(t *testing.T) {
+		ws := t.TempDir()
+		p := filepath.Join(ws, "pkg", "a.go")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte("package pkg\n"), 0o644); err != nil {
+			t.Fatalf("write pkg/a.go: %v", err)
+		}
+		var captured string
+		o := &Orchestrator{
+			workspace: ws,
+			taskExecutor: &MockTaskExecutor{
+				ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
+					captured = req.Task
+					if err := os.WriteFile(filepath.Join(ws, "pkg", "touched.go"), []byte("package pkg\n"), 0o644); err != nil {
+						return "", err
+					}
+					return "ok", nil
+				},
+			},
+		}
+		_, err := o.executeFileTask(ctx, &Task{ID: "modify-briefing", Type: TaskTypeFileModify, Description: "HARDEN", Artifacts: []TaskArtifact{{Path: "pkg"}}, WriteSet: []string{"pkg"}})
+		if err != nil {
+			t.Fatalf("executeFileTask() error = %v", err)
+		}
+		if !strings.Contains(captured, "package:pkg") {
+			t.Fatalf("expected coder task to contain %q, got %q", "package:pkg", captured)
+		}
+		if !strings.Contains(captured, briefingHeader) {
+			t.Fatalf("expected coder task to contain briefing %q, got %q", briefingHeader, captured)
+		}
+	})
+
+	t.Run("create file task omits briefing", func(t *testing.T) {
+		ws := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(ws, "pkg"), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		var captured string
+		o := &Orchestrator{
+			workspace: ws,
+			taskExecutor: &MockTaskExecutor{
+				ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
+					captured = req.Task
+					if err := os.WriteFile(filepath.Join(ws, "pkg", "new.go"), []byte("package pkg\n"), 0o644); err != nil {
+						return "", err
+					}
+					return "ok", nil
+				},
+			},
+		}
+		_, err := o.executeFileTask(ctx, &Task{ID: "create-briefing", Type: TaskTypeFileCreate, Description: "HARDEN", Artifacts: []TaskArtifact{{Path: "pkg/new.go"}}, WriteSet: []string{"pkg/new.go"}})
+		if err != nil {
+			t.Fatalf("executeFileTask() error = %v", err)
+		}
+		if strings.Contains(captured, "package:") {
+			t.Fatalf("coder task for /file_create must not contain %q, got %q", "package:", captured)
+		}
+		if strings.Contains(captured, briefingHeader) {
+			t.Fatalf("coder task for /file_create must not contain briefing %q, got %q", briefingHeader, captured)
+		}
+	})
+}
