@@ -21,6 +21,7 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 
 	if err := validateOrchestratorConfig(cfg); err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Invalid campaign orchestrator config: %v", err)
+		_ = cfg.NorthstarObserver.Close()
 		return nil, err
 	}
 
@@ -258,11 +259,15 @@ func (o *Orchestrator) SetSpecialistKnowledgeProvider(provider SpecialistKnowled
 // can block phases that drift from goals, and records observations for analysis.
 func (o *Orchestrator) SetNorthstarObserver(observer *northstar.CampaignObserver) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
+	old := o.configuredNorthstarObserver
 	o.northstarObserver = observer
 	o.configuredNorthstarObserver = observer
 	o.recomputeRiskGateStateLocked()
+	o.mu.Unlock()
 	logging.Campaign("NorthstarObserver set on orchestrator")
+	if old != nil && old != observer {
+		_ = old.Close()
+	}
 }
 
 // SetIntelligenceGatherer sets the intelligence gatherer for pre-planning intelligence.

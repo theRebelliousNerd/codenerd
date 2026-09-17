@@ -1,10 +1,12 @@
 package main
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"codenerd/internal/campaign"
+	"codenerd/internal/northstar"
 )
 
 func TestCampaignRecurseFlags_CoverEveryRecurseConfigField(t *testing.T) {
@@ -68,5 +70,72 @@ func TestCheckRecurseYolo(t *testing.T) {
 	bounded := campaign.RecurseConfig{MaxWaves: 2}
 	if err := checkRecurseYolo(bounded, false); err != nil {
 		t.Fatalf("bounded without yolo must pass: %v", err)
+	}
+}
+
+func TestRecurseWaveConfig_FreshObserverPerLaterWave(t *testing.T) {
+	sentinel := northstar.NewCampaignObserver(nil)
+	base := campaign.OrchestratorConfig{Workspace: "w", NorthstarObserver: sentinel}
+	calls := 0
+	newObserver := func() *northstar.CampaignObserver {
+		calls++
+		return northstar.NewCampaignObserver(nil)
+	}
+
+	got0 := recurseWaveConfig(base, 0, newObserver)
+	if got0.NorthstarObserver != sentinel {
+		t.Fatalf("wave 0 must reuse base observer")
+	}
+	if calls != 0 {
+		t.Fatalf("wave 0 must not create an observer: calls=%d", calls)
+	}
+
+	got1 := recurseWaveConfig(base, 1, newObserver)
+	if got1.NorthstarObserver == nil {
+		t.Fatal("wave 1 observer must be non-nil")
+	}
+	if got1.NorthstarObserver == sentinel {
+		t.Fatal("wave 1 must not reuse the sentinel observer")
+	}
+	if got1.Workspace != "w" {
+		t.Fatalf("wave 1 must keep base fields: Workspace=%q", got1.Workspace)
+	}
+
+	got2 := recurseWaveConfig(base, 2, newObserver)
+	if got2.NorthstarObserver == nil {
+		t.Fatal("wave 2 observer must be non-nil")
+	}
+	if got2.NorthstarObserver == sentinel {
+		t.Fatal("wave 2 must not reuse the sentinel observer")
+	}
+	if got2.NorthstarObserver == got1.NorthstarObserver {
+		t.Fatal("wave 1 and wave 2 observers must differ")
+	}
+	if calls != 2 {
+		t.Fatalf("calls=%d, want 2", calls)
+	}
+	if base.NorthstarObserver != sentinel {
+		t.Fatal("base must not be mutated")
+	}
+}
+
+func TestRecurseWaveConfig_ObserverRefsAreIndependent(t *testing.T) {
+	ws := t.TempDir()
+	nerdDir := filepath.Join(ws, ".nerd")
+	a := northstar.BuildCampaignObserver(ws, nil, nil)
+	b := northstar.BuildCampaignObserver(ws, nil, nil)
+	if a == nil || b == nil {
+		t.Skip("BuildCampaignObserver returned nil in this environment")
+	}
+	if got := northstar.GuardianRefCount(nerdDir); got != 2 {
+		t.Fatalf("refcount after two builds = %d, want 2", got)
+	}
+	a.Close()
+	if got := northstar.GuardianRefCount(nerdDir); got != 1 {
+		t.Fatalf("refcount after first Close = %d, want 1", got)
+	}
+	b.Close()
+	if got := northstar.GuardianRefCount(nerdDir); got != 0 {
+		t.Fatalf("refcount after second Close = %d, want 0", got)
 	}
 }

@@ -14,8 +14,9 @@ import (
 
 // CampaignObserver observes campaign execution and performs alignment checks.
 type CampaignObserver struct {
-	guardian *Guardian
-	mu       sync.RWMutex
+	guardian  *Guardian
+	mu        sync.RWMutex
+	closeOnce sync.Once
 
 	// Campaign state
 	campaignID   string
@@ -215,6 +216,20 @@ func (o *CampaignObserver) GetAllPhaseChecks() map[string]*AlignmentCheck {
 	result := make(map[string]*AlignmentCheck)
 	maps.Copy(result, o.phaseChecks)
 	return result
+}
+
+// Close releases the guardian reference BuildCampaignObserver acquired.
+// The observer must not be used afterwards. Safe on a nil observer and
+// safe to call more than once: only the first call releases.
+func (o *CampaignObserver) Close() error {
+	if o == nil {
+		return nil
+	}
+	var err error
+	o.closeOnce.Do(func() {
+		err = ReleaseGuardian(o.guardian)
+	})
+	return err
 }
 
 // =============================================================================

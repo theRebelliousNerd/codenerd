@@ -174,7 +174,7 @@ type OrchestratorConfig struct {
 	AdvisoryBoard        *ShardAdvisoryBoard         // Domain expert consultation
 	EdgeCaseDetector     *EdgeCaseDetector           // File action decisions
 	ToolPregenerator     *ToolPregenerator           // Tool pre-generation via Ouroboros
-	NorthstarObserver    *northstar.CampaignObserver // Vision guardian; required by the protected-surface risk gate
+	NorthstarObserver    *northstar.CampaignObserver // Vision guardian; required by the protected-surface risk gate. The orchestrator owns it: NewOrchestrator closes it on error, Close closes it.
 }
 
 // taskResult is used to collect async task outcomes in runPhase.
