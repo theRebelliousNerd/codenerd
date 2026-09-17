@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -109,6 +110,11 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 	return nil, err
 }
 
+// validateFileModifyOutcome requires a file_modify task to change at least one
+// pre-existing file in its declared write set. A directory write set counts as
+// modified when any pre-existing file under it changed; files the task CREATES
+// under the directory are neither required nor rolled back (same as exact paths
+// that did not exist at snapshot time).
 func validateFileModifyOutcome(task *Task, snapshot taskExecutionSnapshot) error {
 	newMatches, err := listNewBroadGlobMatches(snapshot)
 	if err != nil {
@@ -240,10 +246,15 @@ func (o *Orchestrator) captureTaskExecutionSnapshot(task *Task) (taskExecutionSn
 	if err != nil {
 		return snapshot, err
 	}
+	seenPaths := make(map[string]struct{}, len(expanded)*2)
 	for _, absPath := range expanded {
 		info, err := os.Stat(absPath)
 		if err != nil {
 			if os.IsNotExist(err) {
+				if _, ok := seenPaths[absPath]; ok {
+					continue
+				}
+				seenPaths[absPath] = struct{}{}
 				snapshot.fileMutations = append(snapshot.fileMutations, fileMutationSnapshot{
 					Path:   absPath,
 					Exists: false,
@@ -253,12 +264,29 @@ func (o *Orchestrator) captureTaskExecutionSnapshot(task *Task) (taskExecutionSn
 			return snapshot, fmt.Errorf("stat path %s: %w", absPath, err)
 		}
 		if info.IsDir() {
+			before := len(snapshot.fileMutations)
+			if err := snapshotDirectoryFiles(absPath, &snapshot.fileMutations); err != nil {
+				return snapshot, err
+			}
+			kept := snapshot.fileMutations[:before]
+			for _, m := range snapshot.fileMutations[before:] {
+				if _, ok := seenPaths[m.Path]; ok {
+					continue
+				}
+				seenPaths[m.Path] = struct{}{}
+				kept = append(kept, m)
+			}
+			snapshot.fileMutations = kept
+			continue
+		}
+		if _, ok := seenPaths[absPath]; ok {
 			continue
 		}
 		content, err := os.ReadFile(absPath)
 		if err != nil {
 			return snapshot, fmt.Errorf("read snapshot file %s: %w", absPath, err)
 		}
+		seenPaths[absPath] = struct{}{}
 		snapshot.fileMutations = append(snapshot.fileMutations, fileMutationSnapshot{
 			Path:    absPath,
 			Exists:  true,
@@ -267,6 +295,54 @@ func (o *Orchestrator) captureTaskExecutionSnapshot(task *Task) (taskExecutionSn
 	}
 
 	return snapshot, nil
+}
+
+const (
+	maxDirectorySnapshotFiles = 5000
+	maxDirectorySnapshotBytes = 256 << 20
+)
+
+// snapshotDirectoryFiles records every regular file under dir so a task
+// scoped to a directory is verified and rolled back file by file. VCS and
+// workspace-state directories (.git, .nerd) are not task content and are
+// skipped. A directory too large to snapshot fails closed: a transaction
+// that cannot restore what it guards must not run.
+func snapshotDirectoryFiles(dir string, into *[]fileMutationSnapshot) error {
+	var numFiles int
+	var numBytes int
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("walk snapshot path %s: %w", path, err)
+		}
+		if d.IsDir() {
+			if path != dir && (d.Name() == ".git" || d.Name() == ".nerd") {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("stat snapshot file %s: %w", path, err)
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read snapshot file %s: %w", path, err)
+		}
+		numFiles++
+		numBytes += len(data)
+		if numFiles > maxDirectorySnapshotFiles || numBytes > maxDirectorySnapshotBytes {
+			return fmt.Errorf("directory write set %s too large to snapshot (> %d files or > %d bytes)", dir, maxDirectorySnapshotFiles, maxDirectorySnapshotBytes)
+		}
+		*into = append(*into, fileMutationSnapshot{Path: filepath.Clean(path), Exists: true, Content: data})
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func containsGlobMeta(path string) bool {

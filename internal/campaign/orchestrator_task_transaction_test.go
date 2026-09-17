@@ -536,6 +536,160 @@ func TestWithTaskExecutionSnapshot_FileModifyExistingMatchSucceeds(t *testing.T)
 	}
 }
 
+func TestWithTaskExecutionSnapshot_DirectoryWriteSetModifiedFileSucceeds(t *testing.T) {
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "pkg")
+	if err := os.MkdirAll(filepath.Join(pkg, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(pkg, "a.go")
+	nested := filepath.Join(pkg, "sub", "b.go")
+	if err := os.WriteFile(target, []byte("package before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nested, []byte("package sub\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{pkg}
+
+	result, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+		return "updated", os.WriteFile(target, []byte("package after\n"), 0o644)
+	})
+	if err != nil {
+		t.Fatalf("expected successful directory-scoped modification, got %v", err)
+	}
+	if result != "updated" {
+		t.Fatalf("result = %v, want updated", result)
+	}
+	if got, readErr := os.ReadFile(target); readErr != nil || string(got) != "package after\n" {
+		t.Fatalf("successful content not retained: content=%q err=%v", got, readErr)
+	}
+}
+
+func TestWithTaskExecutionSnapshot_DirectoryWriteSetNothingModifiedFails(t *testing.T) {
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "pkg")
+	if err := os.MkdirAll(filepath.Join(pkg, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "a.go"), []byte("package before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "sub", "b.go"), []byte("package sub\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{pkg}
+
+	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+		return "no-op", nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "modified no pre-existing file") {
+		t.Fatalf("expected no-modification contract error, got %v", err)
+	}
+}
+
+func TestWithTaskExecutionSnapshot_DirectoryWriteSetRollsBackNestedFile(t *testing.T) {
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "pkg")
+	if err := os.MkdirAll(filepath.Join(pkg, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "a.go"), []byte("package before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(pkg, "sub", "b.go")
+	if err := os.WriteFile(nested, []byte("package sub\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{pkg}
+
+	wantErr := errors.New("boom")
+	_, err := orch.withTaskExecutionSnapshot(task, func() (any, error) {
+		if writeErr := os.WriteFile(nested, []byte("package mutated\n"), 0o644); writeErr != nil {
+			return nil, writeErr
+		}
+		return nil, wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected %v, got %v", wantErr, err)
+	}
+	if got, readErr := os.ReadFile(nested); readErr != nil || string(got) != "package sub\n" {
+		t.Fatalf("nested file not restored: content=%q err=%v", got, readErr)
+	}
+}
+
+func TestCaptureTaskExecutionSnapshot_DirectorySkipsNerdAndGit(t *testing.T) {
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "pkg")
+	if err := os.MkdirAll(filepath.Join(pkg, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "a.go"), []byte("package before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "sub", "b.go"), []byte("package sub\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(pkg, ".nerd", "cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, ".nerd", "cache", "manifest.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(pkg, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{pkg}
+
+	snapshot, err := orch.captureTaskExecutionSnapshot(task)
+	if err != nil {
+		t.Fatalf("captureTaskExecutionSnapshot() error = %v", err)
+	}
+	for _, fs := range snapshot.fileMutations {
+		if strings.Contains(fs.Path, ".nerd") || strings.Contains(fs.Path, ".git") {
+			t.Fatalf("snapshot must skip VCS/workspace-state dirs, got %q", fs.Path)
+		}
+	}
+	want := map[string]bool{
+		strings.ToLower(filepath.Clean(filepath.Join(pkg, "a.go"))):        false,
+		strings.ToLower(filepath.Clean(filepath.Join(pkg, "sub", "b.go"))): false,
+	}
+	for _, fs := range snapshot.fileMutations {
+		key := strings.ToLower(filepath.Clean(fs.Path))
+		if _, ok := want[key]; ok {
+			want[key] = true
+		}
+	}
+	for path, seen := range want {
+		if !seen {
+			t.Fatalf("expected snapshot to record %s, got %v", path, snapshot.fileMutations)
+		}
+	}
+}
+
 func TestWithTaskExecutionSnapshot_FileCreateExactNewPathRemainsAllowed(t *testing.T) {
 	dir := t.TempDir()
 	created := filepath.Join(dir, "created.go")
