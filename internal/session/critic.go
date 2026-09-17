@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
 // Adversarial critic review.
@@ -57,16 +59,18 @@ type CriticFinding struct {
 var criticFindingRe = regexp.MustCompile(`^FINDING\s+(\S+):(\d+)\s+(\w+):\s*(.+)$`)
 
 // buildCriticPrompt builds an adversarial review prompt that embeds each file
-// path and its contents in fenced code blocks, instructs the reviewer to find
-// real defects and to output findings in the exact line format
-// 'FINDING file.go:123 severity: claim text' one per line, and to output the
-// single line 'NO FINDINGS' when the code is sound.
+// path and its contents in fenced code blocks, the lines this turn removed
+// from each file (removals, numbered as they were before the edit), and the
+// uncovered summary, instructs the reviewer to find real defects and to output
+// findings in the exact line format 'FINDING file.go:123 severity: claim text'
+// one per line, and to output the single line 'NO FINDINGS' when the code is
+// sound.
 //
 // The prompt explicitly states that inventing a finding to appear useful is
 // worse than finding nothing — without that, a reviewer rewarded for activity
 // will hallucinate defects in sound code, which is the failure mode this
 // gate exists to prevent.
-func buildCriticPrompt(writtenFiles map[string]string, uncoveredSummary string) string {
+func buildCriticPrompt(writtenFiles map[string]string, removals map[string]string, uncoveredSummary string) string {
 	var b strings.Builder
 
 	b.WriteString("You are an adversarial code reviewer. Review the following files for real, verifiable defects only.\n\n")
@@ -74,6 +78,7 @@ func buildCriticPrompt(writtenFiles map[string]string, uncoveredSummary string) 
 	// Embed each file path and its contents in a fenced code block. Sorted for
 	// determinism: map iteration is random and a prompt that shuffles every
 	// call is uncacheable and untestable.
+	hadRemovals := false
 	if len(writtenFiles) > 0 {
 		keys := make([]string, 0, len(writtenFiles))
 		for k := range writtenFiles {
@@ -98,6 +103,17 @@ func buildCriticPrompt(writtenFiles map[string]string, uncoveredSummary string) 
 				b.WriteString("\n")
 			}
 			b.WriteString("```\n\n")
+			if r := removals[path]; strings.TrimSpace(r) != "" {
+				hadRemovals = true
+				b.WriteString("Lines this turn removed from ")
+				b.WriteString(path)
+				b.WriteString(" (numbered as they were before the edit):\n```\n")
+				b.WriteString(r)
+				if !strings.HasSuffix(r, "\n") {
+					b.WriteString("\n")
+				}
+				b.WriteString("```\n\n")
+			}
 		}
 	}
 
@@ -127,6 +143,9 @@ func buildCriticPrompt(writtenFiles map[string]string, uncoveredSummary string) 
 	// identifier. A check that is wrong that often is one that gets switched
 	// off, so the job goes here instead, where it costs nothing extra.
 	b.WriteString("- Check the comments against the code. Report as a finding any comment that: describes behaviour the code does not have, names a function, field, file or test that does not exist in what you were given, claims something is tested or verified when you can see it is not, or narrates an incident or measurement as fact. A confident comment with nothing behind it is worse than no comment, because the next reader believes it.\n")
+	if hadRemovals {
+		b.WriteString("- The removed lines are tool output. Every one must be accounted for by the change. Report as a finding any removal the change did not need — a deleted doc-comment or comment line, a deleted log, validation or error-handling statement — and any line that now appears twice in a row where the file had it once. Cite the file's current line nearest the removal.\n")
+	}
 
 	// The uncovered and static-analysis sections are evidence, not decoration.
 	// Without an instruction naming them, a reviewer reads them as background
@@ -142,6 +161,58 @@ func buildCriticPrompt(writtenFiles map[string]string, uncoveredSummary string) 
 	}
 
 	return b.String()
+}
+
+// turnRemovals lists the lines present in before and absent from after,
+// each prefixed with its line number in before ("%5d| %s"), in order,
+// with a line "..." between non-adjacent runs. Empty when nothing was removed.
+func turnRemovals(before, after string) string {
+	dmp := diffmatchpatch.New()
+	a, b, lineArray := dmp.DiffLinesToChars(before, after)
+	diffs := dmp.DiffMain(a, b, false)
+	diffs = dmp.DiffCharsToLines(diffs, lineArray)
+
+	splitLines := func(s string) []string {
+		if s == "" {
+			return nil
+		}
+		lines := strings.Split(s, "\n")
+		if len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
+		return lines
+	}
+
+	type removal struct {
+		num  int
+		text string
+	}
+	var removed []removal
+	line := 1
+	for _, d := range diffs {
+		switch d.Type {
+		case diffmatchpatch.DiffEqual:
+			line += len(splitLines(d.Text))
+		case diffmatchpatch.DiffDelete:
+			for _, l := range splitLines(d.Text) {
+				removed = append(removed, removal{num: line, text: l})
+				line++
+			}
+		case diffmatchpatch.DiffInsert:
+			// Inserts exist only in the after text; the before-text line counter does not advance.
+		}
+	}
+	if len(removed) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(removed)+2)
+	for i, r := range removed {
+		if i > 0 && r.num != removed[i-1].num+1 {
+			parts = append(parts, "...")
+		}
+		parts = append(parts, fmt.Sprintf("%5d| %s", r.num, r.text))
+	}
+	return strings.Join(parts, "\n")
 }
 
 // parseCriticFindings parses the reviewer's response into findings.

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -122,7 +123,7 @@ func TestBuildCriticPrompt(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := buildCriticPrompt(tc.writtenFiles, tc.uncoveredSummary)
+			got := buildCriticPrompt(tc.writtenFiles, nil, tc.uncoveredSummary)
 			for _, want := range tc.wantContains {
 				if !strings.Contains(got, want) {
 					t.Errorf("buildCriticPrompt() missing %q\nprompt:\n%s", want, got)
@@ -450,7 +451,7 @@ func TestBuildCriticPrompt_RoundTripWithParser(t *testing.T) {
 	files := map[string]string{
 		"foo.go": "package foo\n",
 	}
-	prompt := buildCriticPrompt(files, "")
+	prompt := buildCriticPrompt(files, nil, "")
 	if !strings.Contains(prompt, "FINDING file.go:123 severity: claim text") {
 		t.Fatal("prompt does not contain the documented finding format")
 	}
@@ -662,7 +663,6 @@ func TestVerifyAndUpliftWithCritic_AbandonsAStalledReview(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package p\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
 	e := &Executor{config: cfg, llmClient: hangingLLM{}}
@@ -712,7 +712,7 @@ func (hangingLLM) CompleteWithTools(ctx context.Context, _, _ string, _ []types.
 func TestBuildCriticPrompt_InstructsOnUncoveredEvidence(t *testing.T) {
 	files := map[string]string{"a.go": "package p\n"}
 
-	withEvidence := buildCriticPrompt(files, "a.go:10-12")
+	withEvidence := buildCriticPrompt(files, nil, "a.go:10-12")
 	if !strings.Contains(withEvidence, "a.go:10-12") {
 		t.Error("uncovered summary is not embedded in the prompt")
 	}
@@ -730,7 +730,7 @@ func TestBuildCriticPrompt_InstructsOnUncoveredEvidence(t *testing.T) {
 
 	// With no evidence, those instructions must not appear — an empty coverage
 	// section followed by "account for the evidence above" is incoherent.
-	without := buildCriticPrompt(files, "")
+	without := buildCriticPrompt(files, nil, "")
 	if strings.Contains(without, "tool output, not opinion") {
 		t.Error("evidence instructions appear when there is no evidence")
 	}
@@ -741,7 +741,7 @@ func TestBuildCriticPrompt_InstructsOnUncoveredEvidence(t *testing.T) {
 // F-DOC-1 recorded four real instances in two turns, so the reviewer is told to
 // look for them explicitly.
 func TestBuildCriticPrompt_AsksAboutCommentClaims(t *testing.T) {
-	p := buildCriticPrompt(map[string]string{"a.go": "package p\n"}, "")
+	p := buildCriticPrompt(map[string]string{"a.go": "package p\n"}, nil, "")
 
 	for _, want := range []string{
 		"Check the comments against the code",
@@ -751,6 +751,81 @@ func TestBuildCriticPrompt_AsksAboutCommentClaims(t *testing.T) {
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("critic prompt does not ask about %q, so a fabricated comment passes every gate", want)
+		}
+	}
+}
+
+// A removed doc-comment line is invisible in the post-edit file, so the
+// reviewer never sees it unless turnRemovals reports it. F-TOOL-2b lost the
+// first line of workStepReport's doc comment this way while every gate
+// stayed green.
+func TestTurnRemovals(t *testing.T) {
+	before := "a\n// doc one\n// doc two\nfunc F() {}\n"
+	after := "a\n// doc two\nfunc F() {}\n"
+	got := turnRemovals(before, after)
+	if !strings.Contains(got, "    2| // doc one") {
+		t.Errorf("turnRemovals missed the deleted doc line: %q", got)
+	}
+	if strings.Contains(got, "doc two") {
+		t.Errorf("turnRemovals reported a kept line as removed: %q", got)
+	}
+
+	if same := turnRemovals(before, before); same != "" {
+		t.Errorf("identical texts should give no removals, got %q", same)
+	}
+
+	tail := turnRemovals("x\ny\nz\n", "x\n")
+	if !strings.Contains(tail, "    2| y") || !strings.Contains(tail, "    3| z") {
+		t.Errorf("turnRemovals should list both trailing removals with before numbers, got %q", tail)
+	}
+
+	split := turnRemovals("1\n2\n3\n4\n", "2\n3\n")
+	first := strings.Index(split, "    1| 1")
+	ellipsis := strings.Index(split, "...")
+	last := strings.Index(split, "    4| 4")
+	if first < 0 || last < 0 {
+		t.Errorf("turnRemovals should number non-adjacent removals in before lines, got %q", split)
+	} else if ellipsis < 0 || !(first < ellipsis && ellipsis < last) {
+		t.Errorf("turnRemovals should separate non-adjacent runs with ..., got %q", split)
+	}
+}
+
+func TestTurnRemovals_LargeFileReportsOnlyRealRemoval(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package p\n// keep me\n// delete me\n")
+	for i := 0; i < 3000; i++ {
+		fmt.Fprintf(&b, "var v%04d = %d\n", i, i)
+	}
+	before := b.String()
+	after := strings.Replace(before, "// delete me\n", "", 1)
+	if got := turnRemovals(before, after); got != "    3| // delete me" {
+		t.Errorf("turnRemovals on large input = %q, want %q", got, "    3| // delete me")
+	}
+}
+
+func TestBuildCriticPrompt_ShowsTurnRemovals(t *testing.T) {
+	files := map[string]string{"a.go": "package a\n"}
+	removals := map[string]string{"a.go": "    2| // gone\n"}
+	got := buildCriticPrompt(files, removals, "")
+
+	for _, want := range []string{
+		"Lines this turn removed from a.go",
+		"// gone",
+		"Every one must be accounted for",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("buildCriticPrompt with removals missing %q\nprompt:\n%s", want, got)
+		}
+	}
+
+	plain := buildCriticPrompt(files, nil, "")
+	for _, notWant := range []string{
+		"Lines this turn removed from",
+		"// gone",
+		"Every one must be accounted for",
+	} {
+		if strings.Contains(plain, notWant) {
+			t.Errorf("buildCriticPrompt with nil removals should not contain %q\nprompt:\n%s", notWant, plain)
 		}
 	}
 }

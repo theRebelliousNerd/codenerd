@@ -6,8 +6,6 @@ import (
 	crand "crypto/rand"
 	"math/big"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 )
 
@@ -100,30 +98,6 @@ func (c *ZAIClient) waitForRateLimit(ctx context.Context, reqID string, log *log
 	log.Debug("[%s] Rate limit sleep completed, context_remaining_ms=%d",
 		reqID, remaining.Milliseconds())
 	return nil
-}
-
-func parseRetryAfter(resp *http.Response) time.Duration {
-	if resp == nil {
-		return 0
-	}
-	raw := strings.TrimSpace(resp.Header.Get("Retry-After"))
-	if raw == "" {
-		return 0
-	}
-	if secs, err := strconv.Atoi(raw); err == nil {
-		if secs <= 0 {
-			return 0
-		}
-		return time.Duration(secs) * time.Second
-	}
-	if when, err := http.ParseTime(raw); err == nil {
-		delay := time.Until(when)
-		if delay < 0 {
-			return 0
-		}
-		return delay
-	}
-	return 0
 }
 
 func shouldRetryStatus(code int) bool {

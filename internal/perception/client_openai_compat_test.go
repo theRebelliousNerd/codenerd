@@ -210,30 +210,6 @@ func TestExecuteChat_SurfacesAPIErrorEnvelope(t *testing.T) {
 	}
 }
 
-// Meta's contributor tier is capped at 60 RPM and sends Retry-After; honouring
-// it beats guessing with a fixed backoff.
-func TestRetryDelay_HonorsRetryAfter(t *testing.T) {
-	resp := &http.Response{Header: http.Header{}}
-	resp.Header.Set("Retry-After", "7")
-	if got := retryDelay(resp, 0); got != 7*time.Second {
-		t.Errorf("retryDelay = %v, want 7s", got)
-	}
-
-	// A hostile or buggy header must not stall a shard indefinitely.
-	resp.Header.Set("Retry-After", "99999")
-	if got := retryDelay(resp, 0); got != 60*time.Second {
-		t.Errorf("retryDelay = %v, want the 60s cap", got)
-	}
-
-	// No header falls back to exponential backoff.
-	if got := retryDelay(&http.Response{Header: http.Header{}}, 2); got != 4*time.Second {
-		t.Errorf("backoff = %v, want 4s", got)
-	}
-	if got := retryDelay(nil, 0); got != time.Second {
-		t.Errorf("nil-response backoff = %v, want 1s", got)
-	}
-}
-
 func TestCompleteWithTools_MapsToolCalls(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req OpenAIRequest

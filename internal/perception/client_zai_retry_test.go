@@ -1,7 +1,6 @@
 package perception
 
 import (
-	"net/http"
 	"testing"
 	"time"
 )
@@ -35,41 +34,6 @@ func TestShouldRetryStatus(t *testing.T) {
 		if shouldRetryStatus(code) {
 			t.Errorf("status %d should NOT be retryable", code)
 		}
-	}
-}
-
-func TestParseRetryAfter(t *testing.T) {
-	if parseRetryAfter(nil) != 0 {
-		t.Error("nil response should yield 0")
-	}
-	mk := func(v string) *http.Response {
-		r := &http.Response{Header: http.Header{}}
-		if v != "" {
-			r.Header.Set("Retry-After", v)
-		}
-		return r
-	}
-	if parseRetryAfter(mk("")) != 0 {
-		t.Error("missing header should yield 0")
-	}
-	if got := parseRetryAfter(mk("5")); got != 5*time.Second {
-		t.Errorf("numeric Retry-After=5 -> %v, want 5s", got)
-	}
-	if got := parseRetryAfter(mk("0")); got != 0 {
-		t.Errorf("non-positive Retry-After -> %v, want 0", got)
-	}
-	if got := parseRetryAfter(mk("garbage")); got != 0 {
-		t.Errorf("unparseable Retry-After -> %v, want 0", got)
-	}
-	// HTTP-date in the future yields a positive delay.
-	future := time.Now().UTC().Add(30 * time.Second).Format(http.TimeFormat)
-	if got := parseRetryAfter(mk(future)); got <= 0 {
-		t.Errorf("future HTTP-date -> %v, want positive", got)
-	}
-	// HTTP-date in the past clamps to 0.
-	past := time.Now().UTC().Add(-time.Hour).Format(http.TimeFormat)
-	if got := parseRetryAfter(mk(past)); got != 0 {
-		t.Errorf("past HTTP-date -> %v, want 0", got)
 	}
 }
 

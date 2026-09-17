@@ -204,6 +204,27 @@ func TestAttributeTestFailures_MissingSnapshotSkipsAttribution(t *testing.T) {
 	}
 }
 
+// TestAttributeTestFailures_NoSnapshotsLogsReason covers the F-VERIFY-1c
+// silent branch: when the test gate does not discount pre-existing failures
+// for lack of pre-write snapshots, the head must be returned unchanged.
+func TestAttributeTestFailures_NoSnapshotsLogsReason(t *testing.T) {
+	head := TestVerification{
+		Ran:     true,
+		OK:      false,
+		Outcome: VerifyFailed,
+		Output:  "=== RUN   TestX\n--- FAIL: TestX (0.00s)\nFAIL\n",
+		Command: []string{"go", "test", "."},
+	}
+
+	got := attributeTestFailures(context.Background(), t.TempDir(), []string{"."}, nil, nil, head)
+	if got.Outcome != head.Outcome {
+		t.Errorf("no-snapshot attribution should return head unchanged, got Outcome=%v want %v", got.Outcome, head.Outcome)
+	}
+	if got.Output != head.Output {
+		t.Errorf("no-snapshot attribution should return head unchanged, got output %q want %q", got.Output, head.Output)
+	}
+}
+
 // TestRunBaselineTests_UsesGateRunnerAndArgs pins the F-VERIFY-1 seam: the
 // baseline must run through the gate's verifyTestRunner with the gate's
 // overlay/run argv, so a fake runner sees the exact gate-shaped invocation.
@@ -221,9 +242,9 @@ func TestRunBaselineTests_UsesGateRunnerAndArgs(t *testing.T) {
 
 	const overlayPath = "test-overlay.json"
 	const runArg = "^(TestX)$"
-	out, ok := runBaselineTests(context.Background(), t.TempDir(), overlayPath, runArg, []string{"."})
-	if !ok {
-		t.Fatalf("runBaselineTests should report ok=true for a failed baseline run")
+	out, outcome := runBaselineTests(context.Background(), t.TempDir(), overlayPath, runArg, []string{"."})
+	if outcome != VerifyFailed {
+		t.Fatalf("runBaselineTests should report outcome=VerifyFailed for a failed baseline run, got %v", outcome)
 	}
 	if out != fakeOut {
 		t.Errorf("runBaselineTests output = %q; want %q", out, fakeOut)

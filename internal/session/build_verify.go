@@ -598,7 +598,27 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		grounding += "Static analysis (gopls) reported:\n" + diags
 	}
 
-	prompt := buildCriticPrompt(files, grounding)
+	removals := make(map[string]string, len(files))
+	// The review copy is truncated, so removals must diff the whole file.
+	for path := range files {
+		key := canonicalizeWrittenPath(path, workspace)
+		before, ok := result.PreWriteContents[key]
+		if !ok || before == "" {
+			continue
+		}
+		abs := path
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(workspace, filepath.FromSlash(NormalizeCoverPath(path)))
+		}
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			continue
+		}
+		if r := turnRemovals(before, string(data)); r != "" {
+			removals[path] = r
+		}
+	}
+	prompt := buildCriticPrompt(files, removals, grounding)
 
 	// Bound the review independently of the turn.
 	//
