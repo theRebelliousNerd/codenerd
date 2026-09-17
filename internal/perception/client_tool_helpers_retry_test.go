@@ -2,8 +2,11 @@ package perception
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -89,5 +92,83 @@ func TestExecuteOpenAIRequestRetryAfterHeader(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed < time.Second {
 		t.Fatalf("elapsed %v, want at least the 1s Retry-After honored", elapsed)
+	}
+}
+
+// TestExecuteOpenAIRequestQuotaExhaustedFailsFast pins the F-RL-2a fix: an
+// HTTP 429 carrying an exhausted daily quota (Remaining 0 with a Reset far
+// beyond the remaining retry budget) returns a *QuotaExhaustedError after
+// exactly ONE request instead of burning the whole retry budget.
+func TestExecuteOpenAIRequestQuotaExhaustedFailsFast(t *testing.T) {
+	prev := config.GetLLMTimeouts()
+	config.SetLLMTimeouts(config.LLMTimeouts{
+		MaxRetries:       3,
+		RetryBackoffBase: time.Millisecond,
+		RetryBackoffMax:  10 * time.Millisecond,
+	})
+	defer config.SetLLMTimeouts(prev)
+
+	// Live OpenRouter body from the 2026-09-17 incident (free-tier daily
+	// quota exhausted; reset moved relative to now so the test does not expire).
+	reset := strconv.FormatInt(time.Now().Add(24*time.Hour).UnixMilli(), 10)
+	liveBody := fmt.Sprintf(`{"error":{"message":"Rate limit exceeded: free-models-per-day-stealth. ","code":429,"metadata":{"headers":{"X-RateLimit-Limit":"1000","X-RateLimit-Remaining":"0","X-RateLimit-Reset":"%s"},"limit_source":"openrouter_free_tier_daily","remedy_hint":"Wait for the daily reset (see X-RateLimit-Reset), or purchase credits to raise your free-model daily limit.","provider_name":null}},"user_id":"user_x"}`, reset)
+
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(liveBody))
+	}))
+	defer srv.Close()
+
+	_, err := ExecuteOpenAIRequest(context.Background(), srv.Client(), srv.URL, "key", OpenAIRequest{})
+	if err == nil {
+		t.Fatalf("ExecuteOpenAIRequest() error = nil, want *QuotaExhaustedError")
+	}
+	var quotaErr *QuotaExhaustedError
+	if !errors.As(err, &quotaErr) {
+		t.Fatalf("ExecuteOpenAIRequest() error = %v (%T), want *QuotaExhaustedError", err, err)
+	}
+	if requests != 1 {
+		t.Fatalf("server saw %d requests, want exactly 1 (fail fast, no retries)", requests)
+	}
+}
+
+// TestExecuteOpenAIRequestBurstRateLimitStillRetries pins that a 429 with
+// quota remaining (a short burst, not an exhausted quota) keeps the
+// pre-existing retry behavior: the second attempt's completion is returned.
+func TestExecuteOpenAIRequestBurstRateLimitStillRetries(t *testing.T) {
+	prev := config.GetLLMTimeouts()
+	config.SetLLMTimeouts(config.LLMTimeouts{
+		MaxRetries:       3,
+		RetryBackoffBase: time.Millisecond,
+		RetryBackoffMax:  10 * time.Millisecond,
+	})
+	defer config.SetLLMTimeouts(prev)
+
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"message":"Rate limit exceeded: burst.","code":429,"metadata":{"headers":{"X-RateLimit-Limit":"1000","X-RateLimit-Remaining":"5","X-RateLimit-Reset":"1789689600000"},"limit_source":"openrouter_free_tier_daily","provider_name":null}}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-1","object":"chat.completion","created":1,"model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+	}))
+	defer srv.Close()
+
+	resp, err := ExecuteOpenAIRequest(context.Background(), srv.Client(), srv.URL, "key", OpenAIRequest{})
+	if err != nil {
+		t.Fatalf("ExecuteOpenAIRequest() error = %v, want nil", err)
+	}
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("resp = %+v, want a completion with nil Error", resp)
+	}
+	if requests != 2 {
+		t.Fatalf("server saw %d requests, want 2 (burst 429 retried)", requests)
 	}
 }

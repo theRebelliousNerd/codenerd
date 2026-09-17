@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -285,6 +286,9 @@ func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, api
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			retryAfter := parseRetryAfter(resp)
 			resp.Body.Close()
+			if quotaErr := quotaOutlastsRetries(resp.Header, body, attempt, maxRetries, backoffBase, backoffMax); quotaErr != nil {
+				return nil, quotaErr
+			}
 			lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
 			lastWasRateLimit = true
 			lastRetryAfter = retryAfter
@@ -328,6 +332,11 @@ func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, api
 			// HTTP status, which the loop above already retries.
 			code := openAIResp.Error.Code
 			if status, ok := code.HTTPStatus(); ok && (status == http.StatusTooManyRequests || isTransientHTTPStatus(status)) {
+				if status == http.StatusTooManyRequests {
+					if quotaErr := quotaOutlastsRetries(resp.Header, body, attempt, maxRetries, backoffBase, backoffMax); quotaErr != nil {
+						return nil, quotaErr
+					}
+				}
 				lastErr = fmt.Errorf("transient in-body error %s: %s", code, openAIResp.Error.Message)
 				// An in-body error carries no Retry-After header, so a delay
 				// remembered from an earlier header-bearing 429 must not leak
@@ -367,4 +376,33 @@ func openAIRetryBackoff(attempt int, base, max time.Duration, lastWasRateLimit b
 		d = max
 	}
 	return d
+}
+
+// remainingRetryWait sums the 429 backoff delays the retry loop could still
+// wait after the current attempt: openAIRetryBackoff(a, base, max, true, 0)
+// for a := attempt+1 .. maxRetries. A non-positive max means the 429 delay is
+// unbounded, so the sum is unbounded and the caller must not fail fast.
+func remainingRetryWait(attempt, maxRetries int, base, max time.Duration) time.Duration {
+	if max <= 0 {
+		return time.Duration(math.MaxInt64)
+	}
+	var total time.Duration
+	for a := attempt + 1; a <= maxRetries; a++ {
+		total += openAIRetryBackoff(a, base, max, true, 0)
+	}
+	return total
+}
+
+// quotaOutlastsRetries returns the exhausted-quota error when the quota's
+// reset lies beyond everything the remaining retries could wait, so the
+// caller fails now instead of spending the retries; nil otherwise.
+func quotaOutlastsRetries(header http.Header, body []byte, attempt, maxRetries int, base, max time.Duration) *QuotaExhaustedError {
+	now := time.Now()
+	if quotaErr, exhausted := quotaExhaustion(header, body, now); exhausted {
+		if quotaErr.ResetAt.Sub(now) > remainingRetryWait(attempt, maxRetries, base, max) {
+			logging.Get(logging.CategoryAPI).Warn("%s", quotaErr.Error())
+			return quotaErr
+		}
+	}
+	return nil
 }
