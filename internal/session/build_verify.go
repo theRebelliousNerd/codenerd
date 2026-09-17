@@ -374,7 +374,7 @@ func (e *Executor) verifyAndRepairTests(
 			} else if rb.Verdict() == VerifyCanceled {
 				return false, "", VerifyCanceled
 			}
-			rt := verifyTests(epCtx, workspace, packagesForPaths(result.WrittenPaths))
+			rt := attributeTestFailures(epCtx, workspace, packagesForPaths(result.WrittenPaths), result.WrittenPaths, result.PreWriteContents, verifyTests(epCtx, workspace, packagesForPaths(result.WrittenPaths)))
 			if rt.Verdict() == VerifyPassed || rt.Verdict() == VerifyFailed {
 				result.TestCheck = rt
 			}
@@ -638,7 +638,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 					"Uplift build re-verification timed out; prior pass invalidated, recovery NOT verified")
 			}
 		}
-		if tv := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths)); tv.Verdict() == VerifyFailed {
+		if tv := attributeTestFailures(ctx, workspace, packagesForPaths(result.WrittenPaths), result.WrittenPaths, result.PreWriteContents, verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))); tv.Verdict() == VerifyFailed {
 			tv.Repair = inheritRepair(tv.Verdict(), result.TestCheck.Repair)
 			result.TestCheck = tv
 			return upliftErrs, fmt.Errorf(
