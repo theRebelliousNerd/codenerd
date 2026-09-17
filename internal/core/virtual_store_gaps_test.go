@@ -82,16 +82,21 @@ func TestVirtualStoreGap_MissingActionIDOrTarget(t *testing.T) {
 func TestVirtualStoreGap_EmptyPayloadMap(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 	kernel := &stubKernel{
-		safe: []Fact{{Predicate: "safe_action", Args: []any{"/read_file"}}},
+		permitted: []Fact{{Predicate: "permitted", Args: []any{"/read_file", "test.go", "{}"}}},
 	}
 	vs.SetKernel(kernel)
 
-	// Should not panic
-	res1 := vs.CheckKernelPermitted("/read_file", "test.go", nil)
-	res2 := vs.CheckKernelPermitted("/read_file", "test.go", map[string]any{})
-
-	if !res1 || !res2 {
-		t.Log("Expected true for permitted action even with nil payload, but safe logic ran fine without panicking")
+	if got := vs.CheckKernelPermitted("/read_file", "test.go", nil); !got {
+		t.Errorf("CheckKernelPermitted(/read_file, test.go, nil) = false, want true")
+	}
+	if got := vs.CheckKernelPermitted("/read_file", "test.go", map[string]any{}); !got {
+		t.Errorf("CheckKernelPermitted(/read_file, test.go, empty map) = false, want true")
+	}
+	if got := vs.CheckKernelPermitted("/read_file", "test.go", map[string]any{"mode": "x"}); got {
+		t.Errorf("CheckKernelPermitted(/read_file, test.go, mode=x) = true, want false")
+	}
+	if got := vs.CheckKernelPermitted("/read_file", "other.go", nil); got {
+		t.Errorf("CheckKernelPermitted(/read_file, other.go, nil) = true, want false")
 	}
 }
 
@@ -100,14 +105,17 @@ func TestVirtualStoreGap_NilKernelReference(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 	vs.DisableBootGuard()
 
+	if got := vs.CheckKernelPermitted("/read_file", "main.go", nil); got {
+		t.Errorf("CheckKernelPermitted without kernel = true, want false (fail-closed)")
+	}
+
 	_, err := vs.RouteAction(context.Background(), Fact{
 		Predicate: "next_action",
 		Args:      []any{"act_1", "/read_file", "main.go"},
 	})
 
-	// Should not panic, but either fail cleanly or log and execute
 	if err == nil {
-		t.Log("Executed without kernel; fact injection safely skipped")
+		t.Errorf("RouteAction without kernel = nil error, want fail-closed denial")
 	}
 }
 

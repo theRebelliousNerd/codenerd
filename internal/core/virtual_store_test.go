@@ -48,21 +48,42 @@ func (s *stubKernel) RetractExactFactsBatch([]Fact) error                 { retu
 
 func TestRouteActionBlockedWhenNotPermitted(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
+	vs.DisableBootGuard()
 	k := &stubKernel{
 		permitted: []Fact{
-			{Predicate: "permitted", Args: []any{"/read_file"}},
+			{Predicate: "permitted", Args: []any{"/read_file", "allowed.go", "{}"}},
 		},
 	}
 	vs.SetKernel(k)
 
-	// exec_cmd should be blocked because kernel has no permitted(/exec_cmd)
-	_, err := vs.RouteAction(context.Background(), Fact{
-		Predicate: "next_action",
-		Args:      []any{"act_1", "/exec_cmd", "echo hi"},
+	t.Run("denied target", func(t *testing.T) {
+		_, err := vs.RouteAction(context.Background(), Fact{
+			Predicate: "next_action",
+			Args:      []any{"act_1", "/read_file", "denied.go"},
+		})
+		if err == nil {
+			t.Fatalf("expected denied.go to be blocked by kernel permission gate")
+		}
+		if !strings.Contains(err.Error(), "not permitted") {
+			t.Fatalf("expected kernel-permission refusal, got: %v", err)
+		}
+		for _, f := range k.asserted {
+			if f.Predicate == "security_violation" {
+				return
+			}
+		}
+		t.Fatalf("expected a security_violation fact to be asserted on denial, got %v", k.asserted)
 	})
-	if err == nil {
-		t.Fatalf("expected exec_cmd to be blocked by kernel permission gate")
-	}
+
+	t.Run("allowed target", func(t *testing.T) {
+		_, err := vs.RouteAction(context.Background(), Fact{
+			Predicate: "next_action",
+			Args:      []any{"act_1", "/read_file", "allowed.go"},
+		})
+		if err != nil && strings.Contains(err.Error(), "not permitted") {
+			t.Fatalf("allowed.go must not fail with a permission refusal, got: %v", err)
+		}
+	})
 }
 
 func TestExecCmdDisallowedBinary(t *testing.T) {
