@@ -667,16 +667,11 @@ Output ONLY the file content, no explanation or markdown fences:`, taskBlock, ta
 
 // executeTestWriteTask writes tests for existing code using the Tester shard.
 func (o *Orchestrator) executeTestWriteTask(ctx context.Context, task *Task) (any, error) {
-	// Get target file from artifacts
-	var targetPath string
-	if len(task.Artifacts) > 0 {
-		targetPath = task.Artifacts[0].Path
-	}
+	targetPath := o.resolveFileTaskTargetPath(task)
 	logging.CampaignDebug("Executing test write task %s: target=%s", task.ID, targetPath)
 
 	// Build task string for tester shard
-	shardTask := fmt.Sprintf("generate_tests file:%s %s", targetPath, o.buildTaskInput(task))
-	logging.CampaignDebug("Spawning tester shard for test generation")
+	shardTask := o.testWriteShardTask(task, targetPath)
 
 	// Delegate to tester shard
 	result, err := o.spawnTask(ctx, "/test", shardTask)
@@ -695,6 +690,26 @@ func (o *Orchestrator) executeTestWriteTask(ctx context.Context, task *Task) (an
 
 	logging.CampaignDebug("Test write task completed: %s", task.ID)
 	return map[string]any{"tester_result": result, "target": targetPath}, nil
+}
+
+// testWriteShardTask builds the tester shard task string so the label matches
+// what the target is: an existing directory is a package target, any other
+// non-empty target is a file target, and an empty target carries no dangling
+// "file:" label. The full path resolves the same way executeFileTask does.
+func (o *Orchestrator) testWriteShardTask(task *Task, targetPath string) string {
+	if targetPath != "" {
+		var fullPath string
+		if filepath.IsAbs(targetPath) {
+			fullPath = filepath.Clean(targetPath)
+		} else {
+			fullPath = filepath.Join(o.workspace, targetPath)
+		}
+		if info, statErr := os.Stat(fullPath); statErr == nil && info.IsDir() {
+			return fmt.Sprintf("generate_tests package:%s %s", targetPath, o.buildTaskInput(task))
+		}
+		return fmt.Sprintf("generate_tests file:%s %s", targetPath, o.buildTaskInput(task))
+	}
+	return fmt.Sprintf("generate_tests %s", o.buildTaskInput(task))
 }
 
 // executeTestRunTask executes the declared check through the gated VirtualStore.
