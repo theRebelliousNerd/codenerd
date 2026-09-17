@@ -258,8 +258,10 @@ func collectToolFacts(tool *Tool) []Fact {
 			Args:      []any{tool.Name, tool.Command, tool.ShardAffinity},
 		},
 		{
+			// tool_registered Decl (schemas_tools.mg:14) binds RegisteredAt as
+			// /number: epoch seconds, not a formatted string.
 			Predicate: "tool_registered",
-			Args:      []any{tool.Name, tool.RegisteredAt.Format(time.RFC3339)},
+			Args:      []any{tool.Name, tool.RegisteredAt.Unix()},
 		},
 	}
 
