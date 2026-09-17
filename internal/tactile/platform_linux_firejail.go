@@ -5,6 +5,7 @@ package tactile
 import (
 	"bytes"
 	"codenerd/internal/logging"
+	"codenerd/internal/processutil"
 	"context"
 	"fmt"
 	"os/exec"
@@ -163,19 +164,13 @@ func (e *FirejailExecutor) Execute(ctx context.Context, cmd Command) (*Execution
 	execCmd.Stdout = stdoutLimited
 	execCmd.Stderr = stderrLimited
 
-	// Set up process group
-	setupProcessGroup(execCmd)
-	// Kill the whole process group on timeout/cancel: the real work is
-	// usually a grandchild of the spawned shell, and killing only the shell
-	// leaves the grandchild holding the output pipes open, which blocks
-	// Wait() until it exits on its own and defeats the timeout.
-	execCmd.Cancel = func() error { return killProcessGroup(execCmd) }
+	applyPlatformAttrs(execCmd, cmd)
 
 	// Record start time
 	result.StartedAt = time.Now()
 
 	// Run the command
-	err := execCmd.Run()
+	err := processutil.Run(execCmd)
 
 	// Record completion time
 	result.FinishedAt = time.Now()

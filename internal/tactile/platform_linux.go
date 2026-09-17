@@ -5,6 +5,7 @@ package tactile
 import (
 	"bytes"
 	"codenerd/internal/logging"
+	"codenerd/internal/processutil"
 	"context"
 	"fmt"
 	"os"
@@ -205,25 +206,19 @@ func (e *LimitedExecutorLinux) Execute(ctx context.Context, cmd Command) (*Execu
 	execCmd.Stdout = stdoutLimited
 	execCmd.Stderr = stderrLimited
 
-	// Set up process group for clean killing
-	setupProcessGroup(execCmd)
-	// Kill the whole process group on timeout/cancel: the real work is
-	// usually a grandchild of the spawned shell, and killing only the shell
-	// leaves the grandchild holding the output pipes open, which blocks
-	// Wait() until it exits on its own and defeats the timeout.
-	execCmd.Cancel = func() error { return killProcessGroup(execCmd) }
-
 	// Record start time
 	result.StartedAt = time.Now()
 
-	// Start the command
-	if err := execCmd.Start(); err != nil {
+	// Start the command in a kill scope so a timeout/cancel kills the whole tree.
+	release, err := processutil.Start(execCmd)
+	if err != nil {
 		result.Success = false
 		result.Error = err.Error()
 		result.FinishedAt = time.Now()
 		result.Duration = result.FinishedAt.Sub(result.StartedAt)
 		return result, nil
 	}
+	defer release()
 
 	// Add process to cgroup
 	if err := cgroup.AddProcess(execCmd.Process.Pid); err != nil {
@@ -237,7 +232,7 @@ func (e *LimitedExecutorLinux) Execute(ctx context.Context, cmd Command) (*Execu
 	}
 
 	// Wait for completion
-	err := execCmd.Wait()
+	err = execCmd.Wait()
 
 	// Record completion time
 	result.FinishedAt = time.Now()
@@ -763,17 +758,11 @@ func (e *NamespaceExecutor) Execute(ctx context.Context, cmd Command) (*Executio
 	execCmd.Stdout = stdoutLimited
 	execCmd.Stderr = stderrLimited
 
-	// Kill the whole process group on timeout/cancel: the real work is
-	// usually a grandchild of the spawned shell, and killing only the shell
-	// leaves the grandchild holding the output pipes open, which blocks
-	// Wait() until it exits on its own and defeats the timeout.
-	execCmd.Cancel = func() error { return killProcessGroup(execCmd) }
-
 	// Record start time
 	result.StartedAt = time.Now()
 
 	// Run the command
-	err := execCmd.Run()
+	err := processutil.Run(execCmd)
 
 	// Record completion time
 	result.FinishedAt = time.Now()

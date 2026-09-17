@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -189,44 +188,15 @@ func getProcessIOCounters(pid int) *IO_COUNTERS {
 	return &ioCounters
 }
 
-// killProcessGroup kills the process and attempts to terminate child processes.
-func killProcessGroup(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
-		return nil
+// applyPlatformAttrs ensures Windows-specific process attributes: hidden window
+// and verbatim command line (see Command.CommandLine).
+func applyPlatformAttrs(execCmd *exec.Cmd, cmd Command) {
+	if execCmd.SysProcAttr == nil {
+		execCmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
-
-	// On Windows, use taskkill to kill process tree
-	pidStr := strconv.Itoa(cmd.Process.Pid)
-	// #nosec G204 -- pid is safely converted from an integer
-	killCmd := exec.Command("taskkill", "/F", "/T", "/PID", pidStr)
-	killCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-
-	if err := killCmd.Run(); err != nil {
-		// Fall back to direct kill
-		return cmd.Process.Kill()
-	}
-
-	return nil
-}
-
-// setupProcessGroup sets up the process to run in a job object.
-// On Windows, this is handled by creating a job object.
-func setupProcessGroup(cmd *exec.Cmd) {
-	// Windows uses Job Objects instead of process groups
-	// This is handled in LimitedExecutorWindows
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	// Hide window for console processes
-	cmd.SysProcAttr.HideWindow = true
-}
-
-// applyCommandLine hands cmd.CommandLine to the process verbatim (see Command.CommandLine).
-func applyCommandLine(execCmd *exec.Cmd, cmd Command) {
+	// Hide window for console processes (moved from setupProcessGroup).
+	execCmd.SysProcAttr.HideWindow = true
 	if cmd.CommandLine != "" {
-		if execCmd.SysProcAttr == nil {
-			execCmd.SysProcAttr = &syscall.SysProcAttr{}
-		}
 		execCmd.SysProcAttr.CmdLine = cmd.CommandLine
 	}
 }
@@ -525,11 +495,7 @@ func (e *LimitedExecutorWindows) Execute(ctx context.Context, cmd Command) (*Exe
 	execCmd.Env = e.buildEnvironment(cmd.Environment)
 
 	// Set up Windows-specific process attributes
-	if execCmd.SysProcAttr == nil {
-		execCmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	execCmd.SysProcAttr.HideWindow = true
-	applyCommandLine(execCmd, cmd)
+	applyPlatformAttrs(execCmd, cmd)
 
 	// Set up stdin if provided
 	if cmd.Stdin != "" {
@@ -751,8 +717,3 @@ func (e *WindowsContainerExecutor) Capabilities() ExecutorCapabilities {
 	caps.SupportsResourceLimits = e.available
 	return caps
 }
-
-// Keep unused functions alive for future Windows implementation
-var _ = killProcessGroup
-var _ = setupProcessGroup
-var _ = createRlimits

@@ -31,14 +31,22 @@ const PipeWaitDelay = 5 * time.Second
 // WaitDelay after that even if something still holds a pipe. Use it
 // instead of cmd.Run for any CommandContext command.
 func Run(cmd *exec.Cmd) error {
-	NonInteractive(cmd)
-	cmd.WaitDelay = PipeWaitDelay
-	release, err := startKillScope(cmd)
+	release, err := Start(cmd)
 	if err != nil {
 		return err
 	}
 	defer release()
 	return cmd.Wait()
+}
+
+// Start starts cmd the way Run does — noninteractive, pipe wait bounded by
+// PipeWaitDelay, the child in a kill scope so a cancel kills the whole tree —
+// for callers that must act between Start and Wait. The caller must Wait
+// and then call release.
+func Start(cmd *exec.Cmd) (release func(), err error) {
+	NonInteractive(cmd)
+	cmd.WaitDelay = PipeWaitDelay
+	return startKillScope(cmd)
 }
 
 // CombinedOutput is Run with stdout and stderr captured together, like

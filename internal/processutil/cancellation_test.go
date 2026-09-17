@@ -1,6 +1,7 @@
 package processutil
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -92,5 +93,32 @@ func TestCombinedOutput_RejectsPresetStdout(t *testing.T) {
 	}
 	if cmd.Process != nil {
 		t.Fatal("process was started despite preset Stdout")
+	}
+}
+
+func TestStartHiHelper(t *testing.T) {
+	if os.Getenv("CODENERD_START_HELPER") != "1" {
+		return
+	}
+	fmt.Println("hi")
+}
+
+func TestStart_CallerWaitsAndReleases(t *testing.T) {
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestStartHiHelper$")
+	cmd.Env = append(os.Environ(), "CODENERD_START_HELPER=1")
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	release, err := Start(cmd)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		release()
+		t.Fatalf("Wait failed: %v", err)
+	}
+	release()
+	release()
+	if !strings.Contains(buf.String(), "hi") {
+		t.Fatalf("expected output to contain %q, got %q", "hi", buf.String())
 	}
 }
