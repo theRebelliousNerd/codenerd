@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/processutil"
 	"codenerd/internal/tools"
 )
 
@@ -136,7 +137,7 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 	defer cancel()
 	cmd := newCommand(runCtx, argv[0], argv[1:]...)
 	cmd.Dir = dir
-	out, runErr := cmd.CombinedOutput()
+	out, runErr := processutil.CombinedOutput(cmd)
 	code := 0
 	if cmd.ProcessState != nil {
 		code = cmd.ProcessState.ExitCode()

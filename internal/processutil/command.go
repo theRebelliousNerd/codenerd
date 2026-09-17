@@ -20,6 +20,11 @@ func NonInteractive(cmd *exec.Cmd) *exec.Cmd {
 	return cmd
 }
 
+// PipeWaitDelay bounds how long Run waits for output pipes after the
+// process exits or is killed; a grandchild holding a pipe cannot keep a
+// cancelled command's Wait blocked past it.
+const PipeWaitDelay = 5 * time.Second
+
 // Run runs cmd noninteractively with a bounded wait and whole-tree
 // cancellation: when cmd's context ends, every process the command
 // spawned is killed, not just the direct child, and Wait returns at most
@@ -27,7 +32,7 @@ func NonInteractive(cmd *exec.Cmd) *exec.Cmd {
 // instead of cmd.Run for any CommandContext command.
 func Run(cmd *exec.Cmd) error {
 	NonInteractive(cmd)
-	cmd.WaitDelay = 5 * time.Second
+	cmd.WaitDelay = PipeWaitDelay
 	release, err := startKillScope(cmd)
 	if err != nil {
 		return err
