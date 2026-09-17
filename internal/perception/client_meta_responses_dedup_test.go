@@ -56,7 +56,7 @@ func TestMetaInputFromHistory_DeduplicatesFunctionCallOutput(t *testing.T) {
 		{Role: "assistant", Text: "second turn"},
 		{Role: "user", ToolResults: []types.ToolResult{{ToolUseID: "req_vet", Content: "ok"}}},
 	}
-	items := metaInputFromHistory("", history, nil)
+	items := metaInputFromHistory("", history)
 	got := countItemsByTypeAndCallID(items, "function_call_output", "req_vet")
 	if got != 1 {
 		t.Fatalf("expected exactly 1 function_call_output for call_id req_vet, got %d; items=%#v", got, items)
@@ -73,7 +73,7 @@ func TestMetaInputFromHistory_DistinctOutputsBothSurvive(t *testing.T) {
 		{Role: "user", ToolResults: []types.ToolResult{{ToolUseID: "call_1", Content: "a"}}},
 		{Role: "user", ToolResults: []types.ToolResult{{ToolUseID: "call_2", Content: "b"}}},
 	}
-	items := metaInputFromHistory("", history, nil)
+	items := metaInputFromHistory("", history)
 	if got := countItemsByTypeAndCallID(items, "function_call_output", "call_1"); got != 1 {
 		t.Fatalf("expected 1 output for call_1, got %d", got)
 	}
@@ -93,7 +93,7 @@ func TestMetaInputFromHistory_DeduplicatesFunctionCall(t *testing.T) {
 		{Role: "assistant", ToolCalls: []types.ToolCall{{ID: "dup_call", Name: "read_file", Input: map[string]any{"path": "x"}}}},
 		{Role: "user", ToolResults: []types.ToolResult{{ToolUseID: "dup_call", Content: "ok"}}},
 	}
-	items := metaInputFromHistory("", history, nil)
+	items := metaInputFromHistory("", history)
 	got := countItemsByTypeAndCallID(items, "function_call", "dup_call")
 	if got != 1 {
 		t.Fatalf("expected exactly 1 function_call for call_id dup_call, got %d; items=%#v", got, items)
@@ -112,7 +112,7 @@ func TestMetaInputFromHistory_DedupPreservesOrderAndDistinct(t *testing.T) {
 		{Role: "user", ToolResults: []types.ToolResult{{ToolUseID: "b", Content: "out b"}}},
 		{Role: "user", ToolResults: []types.ToolResult{{ToolUseID: "a", Content: "duplicate out a"}}}, // duplicate output
 	}
-	items := metaInputFromHistory("", history, nil)
+	items := metaInputFromHistory("", history)
 	if got := countItemsByType(items, "function_call"); got != 2 {
 		t.Fatalf("expected 2 distinct function_call items (a,b), got %d", got)
 	}
@@ -277,7 +277,7 @@ func TestMetaInputFromHistory_DeduplicatesReasoningID(t *testing.T) {
 	thinking.ID = "rs_dup"
 	turn := types.NewAssistantMessage(thinking, types.ToolUseBlock("call_dup", "read_file", map[string]any{"path": "x"}))
 	history := []types.Message{turn, turn}
-	items := metaInputFromHistory("", history, nil)
+	items := metaInputFromHistory("", history)
 	if got := countItemsByType(items, "reasoning"); got != 1 {
 		t.Fatalf("expected exactly 1 reasoning item for rs_dup, got %d; items=%#v", got, items)
 	}

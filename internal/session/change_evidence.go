@@ -25,7 +25,7 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 					result.BuildCheck = fresh
 				}
 				if e.configSnapshot().VerifyTestsAfterEdits {
-					fresh := verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths))
+					fresh := attributeTestFailures(ctx, workspace, packagesForPaths(result.WrittenPaths), result.WrittenPaths, result.PreWriteContents, verifyTests(ctx, workspace, packagesForPaths(result.WrittenPaths)))
 					fresh.Repair = inheritRepair(fresh.Verdict(), result.TestCheck.Repair)
 					result.TestCheck = fresh
 				}

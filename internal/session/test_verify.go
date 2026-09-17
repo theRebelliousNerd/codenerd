@@ -72,6 +72,10 @@ type TestVerification struct {
 	// Repair is the episode record when a repair loop ran for this gate.
 	// Nil when the gate passed (or was skipped/canceled) without repair.
 	Repair *RepairRecord
+
+	// PreExistingFailures lists top-level test names that also fail without
+	// this turn's edits (baseline overlay run). Set by attributeTestFailures.
+	PreExistingFailures []string
 }
 
 // Verdict returns the authoritative outcome, deriving one for hand-built

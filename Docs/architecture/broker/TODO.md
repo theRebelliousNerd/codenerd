@@ -378,8 +378,9 @@ a writer, and no wire between them.
   Anthropic is total (thinking and redacted_thinking in their own wire shapes,
   signatures verbatim, ids paired). The OpenAI Responses surface used by Meta
   is total in order and reasoning; replayed encrypted_content now rides on the
-  message and the per-turn side cache is the fallback for legacy turns rather
-  than the only source. Gemini carries order and per-part thought signatures
+  message, and the index-keyed per-turn side cache was removed: the working
+  context re-windows history every round, so an index named another turn's
+  reasoning. Gemini carries order and per-part thought signatures
   but has **no tool ids on the wire at all** — a functionResponse pairs by tool
   NAME and the "call_N" ids are minted from position. Every Chat Completions
   surface (OpenAI, xAI, xAI-OAuth, OpenRouter, ZAI, Ollama, DashScope,
