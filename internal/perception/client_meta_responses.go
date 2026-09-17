@@ -298,6 +298,7 @@ func metaInputFromHistory(systemPrompt string, history []types.Message, reasonin
 	}
 
 	seenCallIDs := make(map[string]struct{})
+	seenReasoningIDs := make(map[string]struct{})
 	seenOutputIDs := make(map[string]struct{})
 
 	for i, msg := range history {
@@ -307,10 +308,20 @@ func metaInputFromHistory(systemPrompt string, history []types.Message, reasonin
 		}
 		blocks := msg.Content()
 
-		if msg.Role == "assistant" && !metaCarriesOwnReasoning(blocks) {
-			// Legacy turn: replay this turn's reasoning from the side cache,
-			// ahead of the calls it produced.
+		if msg.Role == "assistant" && !msg.HasNativeBlocks() {
+			// Legacy turn without native blocks: replay this turn's reasoning
+			// from the side cache, ahead of the calls it produced. A
+			// block-built turn is authoritative about its own reasoning even
+			// when it has none; only a turn that never had blocks may consult
+			// the cache.
 			for _, r := range reasoning[metaTurnKey(i)] {
+				if r.ID != "" {
+					if _, ok := seenReasoningIDs[r.ID]; ok {
+						logging.Get(logging.CategoryAPI).Warn("meta responses: duplicate reasoning id %s skipped", r.ID)
+						continue
+					}
+					seenReasoningIDs[r.ID] = struct{}{}
+				}
 				input = append(input, metaReasoningItem(r.ID, r.EncryptedContent))
 			}
 		}
@@ -323,6 +334,13 @@ func metaInputFromHistory(systemPrompt string, history []types.Message, reasonin
 				// only add an item the model cannot read.
 				if b.Signature == "" {
 					continue
+				}
+				if b.ID != "" {
+					if _, ok := seenReasoningIDs[b.ID]; ok {
+						logging.Get(logging.CategoryAPI).Warn("meta responses: duplicate reasoning id %s skipped", b.ID)
+						continue
+					}
+					seenReasoningIDs[b.ID] = struct{}{}
 				}
 				input = append(input, metaReasoningItem(b.ID, b.Signature))
 
@@ -369,17 +387,6 @@ func metaInputFromHistory(systemPrompt string, history []types.Message, reasonin
 	}
 
 	return input
-}
-
-// metaCarriesOwnReasoning reports whether a turn brought replayable reasoning
-// with it, which is what decides between the message and the side cache.
-func metaCarriesOwnReasoning(blocks []types.ContentBlock) bool {
-	for _, b := range blocks {
-		if b.Kind == types.BlockThinking && b.Signature != "" {
-			return true
-		}
-	}
-	return false
 }
 
 // metaTurnKey names a history position for the reasoning cache.
