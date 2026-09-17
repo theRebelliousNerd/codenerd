@@ -20,6 +20,10 @@ type FunctionMetrics struct {
 	ParamCount int
 	Complexity int
 	Depth      int
+	// Method is true for a declaration with a receiver. A method's parameter
+	// list is usually dictated by the interface it satisfies, so it is not
+	// the author's to shorten.
+	Method bool
 }
 
 // parseFunctionMetrics is a pure function that parses Go source text with
@@ -40,7 +44,8 @@ func parseFunctionMetrics(src string) []FunctionMetrics {
 			continue
 		}
 		name := fn.Name.Name
-		if fn.Recv != nil && len(fn.Recv.List) > 0 {
+		method := fn.Recv != nil && len(fn.Recv.List) > 0
+		if method {
 			if recv := receiverName(fn.Recv.List[0].Type); recv != "" {
 				name = recv + "." + name
 			}
@@ -71,6 +76,7 @@ func parseFunctionMetrics(src string) []FunctionMetrics {
 			ParamCount: paramCount,
 			Complexity: complexity,
 			Depth:      depth,
+			Method:     method,
 		})
 	}
 	return out
@@ -163,6 +169,13 @@ func (v nestingVisitor) Visit(n ast.Node) ast.Visitor {
 // /string so they are stored via types.MangleString to avoid the defect where
 // a Go string that looks like a name constant is silently stored as one; a
 // path can start with a slash and must remain a string.
+//
+// Methods get no function_params fact. A method's parameter list is set by
+// the interface it satisfies, so too_many_params could only ever block the
+// implementation, never improve it: observed 2026-09-17, a test fake for the
+// six-parameter InteractiveExecutiveGate.ValidateInteractiveToolResult could
+// not be written at all, and the turn ran out of budget. Length, complexity
+// and nesting still apply to methods; those the author does control.
 func metricsToFacts(path string, metrics []FunctionMetrics) []types.Fact {
 	if len(metrics) == 0 {
 		return nil
@@ -180,14 +193,6 @@ func metricsToFacts(path string, metrics []FunctionMetrics) []types.Fact {
 				},
 			},
 			types.Fact{
-				Predicate: "function_params",
-				Args: []any{
-					types.MangleString(path),
-					types.MangleString(m.Name),
-					int64(m.ParamCount),
-				},
-			},
-			types.Fact{
 				Predicate: "function_nesting",
 				Args: []any{
 					types.MangleString(path),
@@ -196,6 +201,16 @@ func metricsToFacts(path string, metrics []FunctionMetrics) []types.Fact {
 				},
 			},
 		)
+		if !m.Method {
+			facts = append(facts, types.Fact{
+				Predicate: "function_params",
+				Args: []any{
+					types.MangleString(path),
+					types.MangleString(m.Name),
+					int64(m.ParamCount),
+				},
+			})
+		}
 	}
 	return facts
 }
