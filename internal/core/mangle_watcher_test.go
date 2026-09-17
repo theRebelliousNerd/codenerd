@@ -302,3 +302,9 @@ func TestMangleWatcher_ValidateAndRepair_FailedRead(t *testing.T) {
 		t.Errorf("Expected 0 errors for non-existent file (treated as deleted), got %d", stats.Errors)
 	}
 }
+
+// TODO: Test Null/Empty context bounds (e.g. cancelled context passed to validateAndRepair)
+// TODO: Test Type Coercion (e.g. read from binary/named pipes instead of plain files)
+// TODO: Test User request Extremes (e.g. 10,000 rapid fsnotify events to test debounce scale)
+// TODO: Test State Conflicts (e.g. read-while-writing race condition on identical file)
+// TODO: Test Extreme Length campaigns (e.g. 500MB massive .mg file triggering OOM)
