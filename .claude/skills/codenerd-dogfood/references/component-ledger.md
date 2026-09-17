@@ -3905,3 +3905,43 @@ xhigh can exceed its reserve), F-RL-2 (daily quota treated as transient), F-DUP-
   spends the budget "fixing" unrelated tests (until F-VERIFY-1 lands).
 - Review every codeNERD diff line by line: two runs silently deleted or duplicated code while their summaries claimed
   purely additive changes.
+
+### Loop continued 2026-09-17 07:50-10:55 — Meta worker, three lanes, 26 landings, recurse run 2
+
+Worker slot shared the Meta main tier all session (OpenRouter free daily cap). Brief-to-landing dropped from 25-45 min
+(union-alpha xhigh) to 3-12 min; no run hit its timeout. Integration: dogfood/c2-closure; main fast-forwarded to b7c7de0a
+mid-loop; remote pruned to main + dogfood/c2-closure (merged SHAs recorded before deletion).
+
+**Landed (codeNERD-authored unless marked hand)**
+- Test gate: F-VERIFY-1 (cc6fe363) + 1b (262afa0c) discount failures that also fail against the pre-turn sources (go test
+  -overlay); seen live many times ("6 failure(s) also fail before this turn's edits"). 1c (7cd4b62c) logs why when it does not.
+- F-REPAIR-4 (55f9d028) a test binary that does not compile gets a compile repair prompt; the test prompt ("your edits
+  compile but the tests fail ... fix the code") had made a repair loop write a type-alias SHIM into internal/config.
+- F-STEP-2 (b1e25a43) a planned step may close "NO CHANGE NEEDED: <evidence>"; first live use exited 0 (8fb48766 run).
+- F-HOLLOW-1 (8ced8261, hand: safety-gate exception) quoting the gate's own test run is not a hollow claim.
+- F-TOOL-2b (22626167) the adversarial reviewer sees the lines a turn removed (diffed against the full file, not the 24 KB
+  review copy — a flaw in my own first brief).
+- F-FMT-1 (e88d5cb7) written Go is gofmt'd once the build passes, keeping each file's line endings.
+- F-TOOL-1 (c8555904) line tools refuse a parseable -> unparseable Go write; broken files stay repairable.
+- F-TEST-1 (1cdecde8) tools.Tool.Timeout hook: build/test tools get their advertised 300/600 s instead of the executor's 5 m.
+- F-CAMP-4 (4ee4e8e6) a directory write set is snapshotted file by file: recurse HARDEN tasks were failed after editing
+  and NOT rolled back. F-REC-6 (dfd975eb) recurse test tasks name their target. F-REC-1a (4344d9dc) subtree scans keep the
+  file cache in the workspace. F-REC-3 (5d409bd7), F-ID-1 (e9617331), F-REC-2b (0752d195).
+- F-REC-4 (8fb48766) coverage-mandate atom: extend <file>_test.go; never name tests after steps/waves/shards.
+- Perception: F-RL-2a (38061969) exhausted quota fails fast as QuotaExhaustedError; F-META-1 cache deletion (4ab8849a);
+  F-META-2 (fe447d0b) Meta tool turns report usage; F-DUP-1 (f5a4970c) one Retry-After parser.
+- F-WIN-1 (9760c674) absolute Windows paths are file paths, not CodeDOM refs (core suite now green on Windows).
+- EXEC-1 pins (8428ef63), mutation-checked with go test -overlay.
+
+**Recurse run 2 (mangle, lane 1 @1b449ba7)** — HARDEN now edits (run 1: refused as a directory write) and the gate
+discounted the pre-existing parser-lock failure; then F-CAMP-4 failed it and left its edits, the TEST task sprawled five
+step-named test files (F-REC-4) and its repair loop edited tests/e2e outside its write set (F-REPAIR-3, open). Critic gave
+0 findings on an impossible uint32 overflow guard with a false comment (F-REC-8, open). Stopped when retries repeated.
+
+**Open:** F-RL-2b worker failover on QuotaExhaustedError (design: sticky decorator, ask first), F-REPAIR-3, F-REC-8,
+F-STEP-1 (directory step targets), F-FINAL-1, F-ART-1, F-MOD-2, F-WIN-2/3/4, F-E2E-1 (13 pre-existing Windows failures).
+
+**Brief craft, measured** — quote fixtures, signatures and helper names (EXEC-1 tests: survey brief -> hollow after 40 reads;
+quoting brief -> 5 min). A consolidation brief must state which of two diverging behaviours wins and grep the tests for it
+first (F-DUP-1 "Retry-After: 0" broke five tests). Review every diff: duplicated lines, deleted doc-comment lines, a shim and
+a wall-clock time bomb all passed build, tests and review in some run today.
