@@ -209,9 +209,19 @@ type AnthropicMessage struct {
 }
 
 // AnthropicContentBlock represents a content block in a message.
+//
+// Thinking is carried in the vendor's own two shapes rather than one of ours.
+// A "thinking" block pairs the reasoning text with a `signature` that must be
+// replayed byte-for-byte and in position, and a "redacted_thinking" block has
+// no readable text at all — only an opaque `data` blob that must likewise be
+// replayed. Sending a thinking block back without its attestation, or after
+// the tool_use blocks it preceded, degrades or fails extended thinking.
 type AnthropicContentBlock struct {
-	Type      string         `json:"type"`                 // "text", "tool_use", "tool_result"
+	Type      string         `json:"type"`                 // "text", "thinking", "redacted_thinking", "tool_use", "tool_result"
 	Text      string         `json:"text,omitzero"`        // For text blocks
+	Thinking  string         `json:"thinking,omitzero"`    // For thinking blocks
+	Signature string         `json:"signature,omitzero"`   // For thinking blocks: verbatim attestation
+	Data      string         `json:"data,omitzero"`        // For redacted_thinking blocks: opaque blob
 	ID        string         `json:"id,omitzero"`          // For tool_use blocks
 	Name      string         `json:"name,omitzero"`        // For tool_use blocks
 	Input     map[string]any `json:"input,omitzero"`       // For tool_use blocks

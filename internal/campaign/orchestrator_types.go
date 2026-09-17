@@ -147,9 +147,20 @@ type OrchestratorConfig struct {
 	WriteSetLockPoll     time.Duration // Poll interval while waiting for write_set lock (default: 10ms)
 
 	// Deterministic risk gating.
-	EnableRiskAutoWiring    bool            // Enable deterministic risk gate enforcement (default: true)
-	RiskGateThreshold       int             // Score threshold to enable strict gates (default: 70)
-	GlobalRiskGate          bool            // Global default gate toggle (default: true)
+	EnableRiskAutoWiring bool // Enable deterministic risk gate enforcement (default: true)
+	RiskGateThreshold    int  // Score threshold to enable strict gates (default: 70)
+	GlobalRiskGate       bool // Global default gate toggle (default: true)
+	// CampaignRiskOverride and TaskRiskOverrides are an escape hatch, and no
+	// production caller sets either. That is the designed state rather than a
+	// missing wire: applyRiskDefaults reads them AS THE SIGNAL that a caller is
+	// in the zero-config path — "override is nil and there are no task
+	// overrides" is how it decides to turn auto-wiring and the global gate on
+	// by itself. A caller that sets one is asking to drive manually, and the
+	// defaults step back.
+	//
+	// Noted because the dark-field gate reports both and the reader has to
+	// decide which kind of dark they are. This is the kind where filling them
+	// in would be the bug.
 	CampaignRiskOverride    *bool           // Campaign-level gate override
 	TaskRiskOverrides       map[string]bool // Task-level gate overrides (highest precedence)
 	RiskGateMode            RiskGateMode    // /auto, /force_allow, /force_block (default: /auto)

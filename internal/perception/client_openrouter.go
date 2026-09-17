@@ -40,12 +40,6 @@ func DefaultOpenRouterConfig(apiKey string) OpenRouterConfig {
 	}
 }
 
-// NewOpenRouterClient creates a new OpenRouter client.
-func NewOpenRouterClient(apiKey string) *OpenRouterClient {
-	config := DefaultOpenRouterConfig(apiKey)
-	return NewOpenRouterClientWithConfig(config)
-}
-
 // NewOpenRouterClientWithConfig creates a new OpenRouter client with custom config.
 func NewOpenRouterClientWithConfig(config OpenRouterConfig) *OpenRouterClient {
 	return &OpenRouterClient{

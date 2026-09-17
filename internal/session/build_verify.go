@@ -249,7 +249,7 @@ func (e *Executor) verifyAndRepairBuild(
 	spec := repairSpec{
 		kind:         "build",
 		brokenPhrase: "edits broke the build",
-		promptFor: buildRepairPrompt,
+		promptFor:    buildRepairPrompt,
 		recheck: func(epCtx context.Context) (bool, string, VerifyOutcome) {
 			r := verifyBuild(epCtx, workspace, nil)
 			// Only affirmative verdicts move the check: an indeterminate
@@ -363,7 +363,7 @@ func (e *Executor) verifyAndRepairTests(
 	spec := repairSpec{
 		kind:         "tests",
 		brokenPhrase: "edits broke the tests",
-		promptFor: testRepairPrompt,
+		promptFor:    testRepairPrompt,
 		// A test repair can break the build, so re-check both, cheapest
 		// first. Only an affirmative failure verdict fails here: a recheck
 		// that produced no verdict cannot prove the repair broke anything.
@@ -469,7 +469,7 @@ func (e *Executor) repairRound(
 		repairErrs = append(repairErrs, errs...)
 		toolResults = results
 		*history = append(*history,
-			types.Message{Role: "assistant", Text: repaired.Text, ToolCalls: repaired.ToolCalls},
+			types.AssistantMessageFrom(repaired),
 			types.Message{Role: "user", ToolResults: results})
 	}
 	wrote := result != nil && result.SuccessfulWriteTools > before

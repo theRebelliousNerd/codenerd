@@ -237,7 +237,10 @@ func minimal(ctx context.Context, client *boundedClient, root, task string) (str
 		if len(response.ToolCalls) == 0 {
 			return response.Text, nil
 		}
-		history = append(history, types.Message{Role: "assistant", Text: response.Text, ToolCalls: response.ToolCalls})
+		// AssistantMessageFrom rather than a literal: the literal is where a
+		// turn's block order and its thinking signatures are dropped, and the
+		// next round would replay a prefix the model never produced.
+		history = append(history, types.AssistantMessageFrom(response))
 		var results []types.ToolResult
 		for _, call := range response.ToolCalls {
 			calls++
@@ -254,7 +257,11 @@ func minimal(ctx context.Context, client *boundedClient, root, task string) (str
 			}
 			results = append(results, types.ToolResult{ToolUseID: call.ID, Content: out, IsError: err != nil})
 		}
-		history = append(history, types.Message{Role: "user", ToolResults: results})
+		resultBlocks := make([]types.ContentBlock, 0, len(results))
+		for _, r := range results {
+			resultBlocks = append(resultBlocks, types.ToolResultBlock(r.ToolUseID, r.Content, r.IsError))
+		}
+		history = append(history, types.NewUserMessage(resultBlocks...))
 	}
 	return "", errors.New("comparison round budget exhausted")
 }

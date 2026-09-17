@@ -30,14 +30,19 @@ import (
 
 // ParsedFinding represents a single finding from a review.
 type ParsedFinding struct {
-	File           string
-	Line           int
-	Severity       string
-	Message        string
-	Source         string // Which shard/specialist produced this
+	File     string
+	Line     int
+	Severity string
+	Message  string
+	// Source is which shard or specialist produced this finding, and it is the
+	// ONLY name for that. There used to be a second field, ShardSource,
+	// commented "Alternative name for source shard" — and an alternative name
+	// is what this is: parseShardOutput below filled Source, and the one
+	// consumer read ShardSource, so every finding reported an empty shard in a
+	// review whose entire purpose is knowing which reviewer said what.
+	Source         string
 	Category       string // Category of finding (e.g., "security", "performance")
 	Recommendation string // Suggested fix or action
-	ShardSource    string // Alternative name for source shard
 }
 
 // SpecialistMatch represents a matched specialist for review.

@@ -50,12 +50,6 @@ func DefaultOpenAIConfig(apiKey string) OpenAIConfig {
 	}
 }
 
-// NewOpenAIClient creates a new OpenAI client.
-func NewOpenAIClient(apiKey string) *OpenAIClient {
-	config := DefaultOpenAIConfig(apiKey)
-	return NewOpenAIClientWithConfig(config)
-}
-
 // NewOpenAIClientWithConfig creates a new OpenAI client with custom config.
 func NewOpenAIClientWithConfig(config OpenAIConfig) *OpenAIClient {
 	return &OpenAIClient{

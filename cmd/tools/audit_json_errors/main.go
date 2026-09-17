@@ -28,6 +28,14 @@
 // line costs nothing. Deciding that needs full type information and a look at
 // where the bytes go, which is a reviewer's job, not a walker's.
 //
+// The case that LOOKS safe and is not: internal/session's
+// Executor.recordWorkingResult hashed json.Marshal(call.Input) into `kind`, the
+// identity a working observation is persisted under and working_set.mg selects
+// by. A failed Marshal yields nil, so every failing call of one tool would have
+// hashed to the SAME kind whatever its arguments were -- the record's identity
+// collapsing silently rather than erroring. It is no longer a baseline entry:
+// the marshal error is folded into the hashed bytes instead of discarded.
+//
 // So this is a budget, in the same spirit as scripts/deadcode-budget.sh: the
 // baseline is a measurement, not a target of zero, and the gate fails when the
 // number moves in EITHER direction. Fixing one means updating the baseline,
@@ -179,25 +187,11 @@ func scan() ([]finding, error) {
 				}
 				var buf bytes.Buffer
 				_ = printer.Fprint(&buf, fset, arg)
-				argSrc := buf.String()
-				// The baseline is one key per line, but the printer preserves
-				// the argument's original line breaks. A multi-line call would
-				// span baseline lines: -update writes fragments the check can
-				// never match back, so update-then-check never converges for
-				// that file. Flatten newlines (and their indentation) here;
-				// single-line arguments pass through byte-identical.
-				if strings.Contains(argSrc, "\n") {
-					lines := strings.Split(argSrc, "\n")
-					for i := range lines {
-						lines[i] = strings.TrimSpace(lines[i])
-					}
-					argSrc = strings.Join(lines, " ")
-				}
 				pos := fset.Position(stmt.Pos())
 				out = append(out, finding{
 					key: fmt.Sprintf("%s\t%s\tjson.%s(%s)",
 						filepath.ToSlash(filepath.Dir(path)),
-						enclosingFunc(file, stmt.Pos()), fn, argSrc),
+						enclosingFunc(file, stmt.Pos()), fn, oneLine(buf.String())),
 					file: filepath.ToSlash(path),
 					line: pos.Line,
 				})
@@ -350,4 +344,24 @@ func diff(baseline, found []string) (added, removed []string) {
 	sort.Strings(added)
 	sort.Strings(removed)
 	return added, removed
+}
+
+// oneLine collapses a rendered expression onto a single line.
+//
+// The baseline is one finding per line, so an argument whose SOURCE spans
+// several lines -- an anonymous struct literal is the common case -- could not
+// be written to it and read back. The tool would report the finding, -update
+// would appear to record it, and the very next run would report it again:
+// permanently red, with no way for anyone to make it green except by not
+// marshalling an anonymous struct.
+//
+// That is worse than a missing check. This repo's own notes on the action
+// linter say it: a gate that fails on day one for something that is not a bug
+// does not get switched on, and then the real drift it was written to catch
+// goes unseen too.
+//
+// Whitespace is collapsed rather than stripped so the text stays readable and
+// two different literals stay distinguishable.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }

@@ -119,7 +119,13 @@ type CompilationContext struct {
 	// HasSecurityIssues indicates security vulnerabilities detected
 	HasSecurityIssues bool
 
-	// HasNewFiles indicates new files have been created this session
+	// HasNewFiles indicates untracked files exist in the working tree.
+	//
+	// Not "created this session", which is what this said and is not what
+	// anything measures or what the atom gated on it describes -- its own
+	// text reads "Untracked files exist in the working directory". A file
+	// left untracked by an earlier session still needs reviewing, wiring and
+	// adding, which is what that atom asks for.
 	HasNewFiles bool
 
 	// IsHighChurn indicates high file modification frequency
