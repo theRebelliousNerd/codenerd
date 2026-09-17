@@ -1,10 +1,54 @@
 package perception
 
 import (
+	"encoding/json"
+	"fmt"
+	"strconv"
 	"time"
 
 	"codenerd/internal/types"
 )
+
+// APIErrorCode is an error code from an LLM API error body, which providers
+// (notably OpenRouter, whose upstream can fail mid-request and still return
+// HTTP 200) may emit as either a JSON string or a JSON number. Numeric codes
+// are stored as their decimal text.
+type APIErrorCode string
+
+// UnmarshalJSON accepts a JSON string, a JSON number, or null (stored empty).
+func (c *APIErrorCode) UnmarshalJSON(b []byte) error {
+	s := string(b)
+	if s == "null" {
+		*c = ""
+		return nil
+	}
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		var str string
+		if err := json.Unmarshal(b, &str); err != nil {
+			return fmt.Errorf("failed to unmarshal API error code: %w", err)
+		}
+		*c = APIErrorCode(str)
+		return nil
+	}
+	var num json.Number
+	if err := json.Unmarshal(b, &num); err != nil {
+		return fmt.Errorf("failed to unmarshal API error code: %w", err)
+	}
+	*c = APIErrorCode(num.String())
+	return nil
+}
+
+// HTTPStatus returns the integer HTTP status when the code is all digits.
+func (c APIErrorCode) HTTPStatus() (int, bool) {
+	if c == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(string(c))
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
 
 const defaultSystemPrompt = "You are codeNERD. Respond in English. Be concise. When summarizing code, ground answers only in provided text. Do not claim to browse the filesystem or network; only use supplied content."
 
@@ -196,9 +240,9 @@ type ZAIResponse struct {
 		ThinkingTokens int `json:"thinking_tokens,omitzero"`
 	} `json:"usage"`
 	Error *struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-		Code    string `json:"code"`
+		Message string       `json:"message"`
+		Type    string       `json:"type"`
+		Code    APIErrorCode `json:"code"`
 	} `json:"error,omitzero"`
 }
 
@@ -408,9 +452,9 @@ type OpenAIResponse struct {
 		TotalTokens      int `json:"total_tokens"`
 	} `json:"usage"`
 	Error *struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-		Code    string `json:"code"`
+		Message string       `json:"message"`
+		Type    string       `json:"type"`
+		Code    APIErrorCode `json:"code"`
 	} `json:"error,omitzero"`
 }
 
