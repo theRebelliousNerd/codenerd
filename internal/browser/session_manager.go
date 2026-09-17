@@ -886,10 +886,21 @@ func (m *SessionManager) Navigate(ctx context.Context, sessionID, url string) er
 	// closed by invalidating element refs before issuing it.
 	m.invalidateElementReferences(sessionID)
 	logging.BrowserDebug("Navigating with timeout: %s", m.cfg.NavigationTimeout())
-	err := page.Context(ctx).Timeout(m.cfg.NavigationTimeout()).Navigate(url)
+	p := page.Context(ctx).Timeout(m.cfg.NavigationTimeout())
+	err := p.Navigate(url)
 	if err != nil {
 		logging.BrowserError("Navigation failed for session %s: %v", sessionID, err)
 	} else {
+		// Rod's Navigate returns as soon as Chrome answers Page.navigate; it
+		// does not wait for the new document to load. Chrome swaps the page's
+		// frame for the new document, and Page-domain calls issued in that
+		// window (e.g. captureScreenshot) race the frame swap and fail with
+		// "Not attached to an active page". Wait for load before returning so
+		// a Navigate followed immediately by an observe sees the live frame.
+		// The navigation itself was accepted, so a WaitLoad failure only warns.
+		if waitErr := p.WaitLoad(); waitErr != nil {
+			logging.BrowserWarn("Wait for page load failed for %s: %v", m.SanitizeForEvidence(url), waitErr)
+		}
 		actualURL := url
 		title := ""
 		if info, infoErr := page.Context(ctx).Info(); infoErr == nil && info != nil {
