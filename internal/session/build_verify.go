@@ -299,7 +299,6 @@ func (e *Executor) verifyAndRepairTests(
 	}
 
 	workspace := e.workspaceForVerification()
-	packages := packagesForPaths(result.WrittenPaths)
 
 	if untested := untestedWithoutCoverageOnDisk(workspace, result.WrittenPaths); len(untested) > 0 {
 		logging.Get(logging.CategorySession).Warn(
@@ -307,8 +306,7 @@ func (e *Executor) verifyAndRepairTests(
 		result.UntestedPaths = untested
 	}
 
-	verification, uncovered := verifyTestsWithCoverage(ctx, workspace, packages, result.WrittenPaths)
-	verification = attributeTestFailures(ctx, workspace, packages, result.WrittenPaths, result.PreWriteContents, verification)
+	verification, uncovered := gateTests(ctx, workspace, result, true)
 
 	// The profile is file-level, so without this a one-line edit in a large
 	// file reports every uncovered block of the file as code the turn wrote
@@ -375,14 +373,15 @@ func (e *Executor) verifyAndRepairTests(
 			} else if rb.Verdict() == VerifyCanceled {
 				return false, "", VerifyCanceled
 			}
-			rt := attributeTestFailures(epCtx, workspace, packagesForPaths(result.WrittenPaths), result.WrittenPaths, result.PreWriteContents, verifyTests(epCtx, workspace, packagesForPaths(result.WrittenPaths)))
+			rt, _ := gateTests(epCtx, workspace, result, false)
 			if rt.Verdict() == VerifyPassed || rt.Verdict() == VerifyFailed {
 				result.TestCheck = rt
 			}
 			return rt.Verdict() == VerifyPassed, rt.Output, rt.Verdict()
 		},
 		followups: func() []string {
-			return repairFollowups(workspace, packagesForPaths(result.WrittenPaths), result, "tests")
+			runnable, _ := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))
+			return repairFollowups(workspace, runnable, result, "tests")
 		},
 	}
 	repaired, repairErrs, rec, err := e.repairLoop(ctx, trp, systemPrompt, &history, toolDefs, cfg, result, verification.Output, spec)
@@ -391,6 +390,28 @@ func (e *Executor) verifyAndRepairTests(
 		return nil, repairErrs, err
 	}
 	return repaired, repairErrs, nil
+}
+
+// gateTests runs the post-edit test gate over the packages the turn wrote:
+// go test (with coverage and baseline attribution) on packages the default
+// tags can build, go vet -tags on packages whose files are all tag-gated.
+func gateTests(ctx context.Context, workspace string, result *ExecutionResult, withCoverage bool) (TestVerification, []UncoveredBlock) {
+	runnable, gated := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))
+	if len(gated) > 0 {
+		if failed, ok := vetTagGatedPackages(ctx, workspace, gated); !ok {
+			return failed, nil
+		}
+	}
+	if len(runnable) == 0 {
+		return TestVerification{Outcome: VerifySkipped, Reason: "only tag-gated packages; compile-checked with go vet"}, nil
+	}
+	if withCoverage {
+		v, uncovered := verifyTestsWithCoverage(ctx, workspace, runnable, result.WrittenPaths)
+		v = attributeTestFailures(ctx, workspace, runnable, result.WrittenPaths, result.PreWriteContents, v)
+		return v, uncovered
+	}
+	v := attributeTestFailures(ctx, workspace, runnable, result.WrittenPaths, result.PreWriteContents, verifyTests(ctx, workspace, runnable))
+	return v, nil
 }
 
 // testBuildFailed reports whether go test output shows a package whose

@@ -2,6 +2,9 @@ package session
 
 import (
 	"bufio"
+	internalbuild "codenerd/internal/build"
+	"codenerd/internal/logging"
+	"context"
 	"go/build"
 	"go/build/constraint"
 	"os"
@@ -161,4 +164,36 @@ func isTagGatedToolchainTag(tag string) bool {
 		return true
 	}
 	return false
+}
+
+// vetTagGatedPackages compile-checks each tag-gated package with
+// `go vet -tags <tags>`: its tests need tags (and often services) the gate
+// does not have, but the turn's edit must still compile. Packages whose
+// only constraint is "ignore" (no tags) are skipped. It returns the first
+// failing vet as a failed TestVerification, or ok=true when every vet passed.
+func vetTagGatedPackages(ctx context.Context, workspace string, gated map[string][]string) (failed TestVerification, ok bool) {
+	pkgs := make([]string, 0, len(gated))
+	for pkg := range gated {
+		pkgs = append(pkgs, pkg)
+	}
+	sort.Strings(pkgs)
+	for _, pkg := range pkgs {
+		tags := gated[pkg]
+		if len(tags) == 0 {
+			logging.SessionDebug("test gate: %s is tag-gated with no tags; skipping compile check", pkg)
+			continue
+		}
+		tagList := strings.Join(tags, ",")
+		command := []string{"go", "vet", "-tags", tagList, pkg}
+		out, outcome, reason := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), testVerifyTimeout, command[0], command[1:], verifyTestRunner)
+		switch outcome {
+		case VerifyPassed:
+			logging.Get(logging.CategorySession).Info("test gate: %s builds only with -tags %s; compile-checked with go vet, its tests were not run", pkg, tagList)
+		case VerifyFailed:
+			return TestVerification{Ran: true, OK: false, Outcome: VerifyFailed, Output: strings.TrimSpace(string(out)), Command: command, Reason: reason}, false
+		default: // VerifyCanceled, VerifyIndeterminate
+			return TestVerification{Ran: true, Outcome: outcome, Output: strings.TrimSpace(string(out)), Command: command, Reason: reason}, false
+		}
+	}
+	return TestVerification{}, true
 }

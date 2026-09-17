@@ -469,3 +469,111 @@ func TestPackageHasTestFile_UnreadableDirIsNotEvidence(t *testing.T) {
 		t.Error("an unreadable directory was treated as proof of missing tests")
 	}
 }
+
+// F-GATE-TAGS part 2: a tag-gated package must be compile-checked with
+// `go vet -tags` instead of `go test` failing with "build constraints
+// exclude all Go files" (observed 2026-09-17: a turn edited tests/e2e/*_test.go
+// with //go:build integration and the gate treated the setup failure as the
+// turn's failure).
+func TestGateTests_TagGatedCompileErrorFails(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to go vet")
+	}
+	ws := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(ws, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(p), err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("go.mod", "module verifyprobe\n\ngo 1.21\n")
+	write("pkg/ok.go", "package pkg\n")
+	write("e2e/x_test.go", "//go:build integration\n\npackage e2e\n\nvar _ int = \"x\"\n")
+	result := &ExecutionResult{WrittenPaths: []string{"e2e/x_test.go"}}
+	v, _ := gateTests(context.Background(), ws, result, false)
+	if v.Outcome != VerifyFailed {
+		t.Fatalf("gateTests on tag-gated compile error reported Outcome=%v Ran=%v OK=%v output=%q (want VerifyFailed)", v.Outcome, v.Ran, v.OK, v.Output)
+	}
+	if !strings.Contains(v.Output, "x_test.go") {
+		t.Errorf("vet output does not name the broken file, so a repair round has nothing to work from: %q", v.Output)
+	}
+	if strings.Contains(v.Output, "build constraints exclude all Go files") {
+		t.Errorf("gate ran go test without tags on a tag-gated package: %q", v.Output)
+	}
+	if len(v.Command) < 2 || v.Command[1] != "vet" {
+		t.Errorf("failing gate command should be go vet, got %q", v.Command)
+	}
+}
+
+func TestGateTests_TagGatedOnlyCleanIsSkippedNotPassed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to go vet")
+	}
+	ws := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(ws, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(p), err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("go.mod", "module verifyprobe\n\ngo 1.21\n")
+	write("pkg/ok.go", "package pkg\n")
+	write("e2e/x_test.go", "//go:build integration\n\npackage e2e\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) {}\n")
+	result := &ExecutionResult{WrittenPaths: []string{"e2e/x_test.go"}}
+	v, _ := gateTests(context.Background(), ws, result, false)
+	if v.Outcome != VerifySkipped {
+		t.Fatalf("gateTests on clean tag-gated-only turn reported Outcome=%v Ran=%v OK=%v output=%q (want VerifySkipped)", v.Outcome, v.Ran, v.OK, v.Output)
+	}
+	if v.Ran {
+		t.Errorf("clean tag-gated-only turn ran no tests, so Ran must stay false; got Ran=true OK=%v output=%q", v.OK, v.Output)
+	}
+}
+
+func TestGateTests_MixedRunsTestsOnRunnable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to go test and go vet")
+	}
+	ws := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(ws, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(p), err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("go.mod", "module verifyprobe\n\ngo 1.21\n")
+	write("pkg/ok.go", "package pkg\n")
+	write("pkg/ok_test.go", "package pkg\n\nimport \"testing\"\n\nfunc TestOk(t *testing.T) {}\n")
+	write("e2e/x_test.go", "//go:build integration\n\npackage e2e\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) {}\n")
+	result := &ExecutionResult{WrittenPaths: []string{"pkg/ok.go", "e2e/x_test.go"}}
+	v, _ := gateTests(context.Background(), ws, result, false)
+	if v.Outcome != VerifyPassed {
+		t.Fatalf("gateTests on mixed turn reported Outcome=%v Ran=%v OK=%v output=%q command=%q (want VerifyPassed)", v.Outcome, v.Ran, v.OK, v.Output, v.Command)
+	}
+	hasPkg, hasE2E := false, false
+	for _, arg := range v.Command {
+		if arg == "./pkg" {
+			hasPkg = true
+		}
+		if arg == "./e2e" {
+			hasE2E = true
+		}
+	}
+	if !hasPkg {
+		t.Errorf("mixed turn must run go test on the runnable package, got command %q", v.Command)
+	}
+	if hasE2E {
+		t.Errorf("tag-gated package must be vet-checked, not passed to go test without tags, got command %q", v.Command)
+	}
+}
