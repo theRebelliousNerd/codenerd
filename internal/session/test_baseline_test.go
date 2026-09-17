@@ -64,7 +64,7 @@ func TestAttributeTestFailures_AllPreExistingPasses(t *testing.T) {
 		t.Fatalf("head should fail on TestAlwaysFails, got Outcome=%v OK=%v output=%q", head.Outcome, head.OK, head.Output)
 	}
 
-	got := attributeTestFailures(context.Background(), ws, []string{"."}, preWrite, head)
+	got := attributeTestFailures(context.Background(), ws, []string{"."}, []string{"calc.go"}, preWrite, head)
 	if got.Outcome != VerifyPassed {
 		t.Fatalf("all-pre-existing gate should pass, got Outcome=%v output=%q", got.Outcome, got.Output)
 	}
@@ -103,7 +103,7 @@ func TestAttributeTestFailures_MixedNewAndPreExisting(t *testing.T) {
 		t.Fatalf("head should fail, got Outcome=%v output=%q", head.Outcome, head.Output)
 	}
 
-	got := attributeTestFailures(context.Background(), ws, []string{"."}, preWrite, head)
+	got := attributeTestFailures(context.Background(), ws, []string{"."}, []string{"calc.go"}, preWrite, head)
 	if got.Outcome != VerifyFailed {
 		t.Fatalf("mixed gate should stay failed, got Outcome=%v output=%q", got.Outcome, got.Output)
 	}
@@ -143,7 +143,7 @@ func TestAttributeTestFailures_TurnCreatedFileIsNew(t *testing.T) {
 		t.Fatalf("head should fail on TestExtra, got Outcome=%v output=%q", head.Outcome, head.Output)
 	}
 
-	got := attributeTestFailures(context.Background(), ws, []string{"."}, preWrite, head)
+	got := attributeTestFailures(context.Background(), ws, []string{"."}, []string{"extra.go"}, preWrite, head)
 	if got.Outcome != VerifyFailed {
 		t.Fatalf("turn-created failure should stay failed, got Outcome=%v output=%q", got.Outcome, got.Output)
 	}
@@ -165,7 +165,7 @@ func TestAttributeTestFailures_BuildFailureUnchanged(t *testing.T) {
 	}
 	preWrite := map[string]string{"calc.go": "package verifyprobe\n"}
 
-	got := attributeTestFailures(context.Background(), t.TempDir(), []string{"."}, preWrite, head)
+	got := attributeTestFailures(context.Background(), t.TempDir(), []string{"."}, []string{"calc.go"}, preWrite, head)
 	if got.Outcome != VerifyFailed {
 		t.Errorf("build failure should stay failed, got Outcome=%v", got.Outcome)
 	}
