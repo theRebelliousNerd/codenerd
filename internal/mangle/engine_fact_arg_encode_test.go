@@ -100,3 +100,20 @@ func TestConvertValueToTypedTermHonoursExplicitMangleTypes(t *testing.T) {
 		t.Fatalf("MangleString(\"/not-a-name\") encoded as %#v, want the string constant", str)
 	}
 }
+
+// A nil fact argument has no Mangle encoding. json.Marshal(nil) succeeds and
+// yields "null", so without the guard the kernel asserted the literal string
+// "null" in place of a missing value — indistinguishable downstream from a
+// genuine "null" argument. Refuse it with an honest error instead.
+func TestConvertValueToTypedTermRefusesNilArgument(t *testing.T) {
+	term, err := convertValueToTypedTerm(nil, ast.StringType)
+	if err == nil {
+		t.Fatalf("converted a nil argument to %v with no error", term)
+	}
+	if term != nil {
+		t.Errorf("returned term %v alongside its error", term)
+	}
+	if !strings.Contains(err.Error(), "unsupported fact argument type") {
+		t.Errorf("error does not name the problem: %v", err)
+	}
+}

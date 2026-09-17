@@ -733,6 +733,15 @@ func (e *Engine) factToAtomLocked(fact Fact) (ast.Atom, error) {
 // the Decl bound without error. Callers must pass correctly typed values;
 // silently stored mistyped facts match nothing downstream.
 func convertValueToTypedTerm(value any, expectedType ast.ConstantType) (ast.BaseTerm, error) {
+	// Fail closed on nil: json.Marshal(nil) succeeds and yields "null", so
+	// without this guard a missing argument would be asserted into the
+	// kernel as the literal four-character string "null" — indistinguishable
+	// downstream from a genuine "null" value. A nil fact argument has no
+	// Mangle encoding, so refuse it with an honest error.
+	if value == nil {
+		return nil, fmt.Errorf("unsupported fact argument type <nil>: nil arguments have no Mangle encoding")
+	}
+
 	// 1. If we have a strict type expectation, try to coerce or validate
 	switch expectedType {
 	case ast.NameType:
